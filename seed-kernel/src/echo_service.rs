@@ -5,8 +5,8 @@ use spin::Mutex;
 
 use crate::{
     agent_protocol_support::{
-        begin_response, emit_record_fields_trailing_comma, end_response, raw_line,
-        record_bool as b, record_event_or_null, record_field as f, record_sha,
+        begin_response, emit_record_fields, emit_record_fields_trailing_comma, end_response,
+        raw_line, record_bool as b, record_event_or_null, record_field as f, record_sha,
         record_static_str_array, record_str as s, record_str_or_null,
     },
     current_boot_service::{self, ServiceDescriptor, ServiceState},
@@ -69,6 +69,23 @@ const ECHO_HEALTH_RESPONSE_SCHEMA: &str = "raios.ram_only_echo_service.health_re
 const ECHO_SERVICE_SLOT_ACTIVATION_SCHEMA: &str = "raios.ram_only_service_slot_activation.v0";
 const ECHO_SERVICE_VERSION: &str = "v0";
 const ECHO_ENTRYPOINT: &str = "raios_service_main";
+pub(crate) const ECHO_INVOKE_FUEL_STARVED_METHOD: &str = "echo.invoke_fuel_starved";
+const ECHO_FUEL_STARVED_RESPONSE_SCHEMA: &str =
+    "raios.ram_only_echo_service.fuel_starved_response.v0";
+const ECHO_FUEL_STARVED_ACTION: &str = "invoke_fuel_starved";
+const ECHO_SERVICE_WEDGE_EVIDENCE: &[&str] = &[
+    "current_boot.service_load_descriptor.svc.demo.echo.v0",
+    "ram_only:svc.demo.echo",
+    "wasmi_fuel_metering_out_of_fuel_trap",
+];
+/// Health-lattice value for an echo instance whose current-boot Wasm really
+/// trapped (a genuine wasmi `OutOfFuel`) and can no longer answer. It sits ABOVE
+/// the shared `running`/`stopped`/`missing` lattice; `current_boot_service`'s
+/// `health_state` is unchanged and never returns it. Defined here (not in
+/// `current_boot_service`) on purpose: that module is a member of the signed
+/// `HELLO_ARTIFACT_SOURCE_SET` snapshot (`build.rs`), so any edit to it breaks the
+/// pinned hello artifact attestation. See the final report for the trade-off.
+pub(crate) const HEALTH_CRASHED: &str = "crashed";
 pub(crate) const CAPABILITIES: &[&str] = &[
     "cap.service.echo_demo.current_boot",
     "cap.service.health.read",
@@ -96,6 +113,8 @@ pub(crate) struct Snapshot {
     pub(crate) last_action: &'static str,
     pub(crate) last_reason: &'static str,
     pub(crate) last_inventory_change: &'static str,
+    pub(crate) crashed: bool,
+    pub(crate) last_error_id: Option<event_log::EventId>,
     pub(crate) load_event_id: Option<event_log::EventId>,
     pub(crate) start_event_id: Option<event_log::EventId>,
     pub(crate) stop_event_id: Option<event_log::EventId>,
@@ -109,6 +128,8 @@ struct State {
     last_return_value: Option<i32>,
     last_fuel_used: u64,
     last_log_line_emitted: bool,
+    crashed: bool,
+    last_error_id: Option<event_log::EventId>,
 }
 
 impl State {
@@ -119,6 +140,8 @@ impl State {
             last_return_value: None,
             last_fuel_used: 0,
             last_log_line_emitted: false,
+            crashed: false,
+            last_error_id: None,
         }
     }
 
@@ -136,6 +159,8 @@ impl State {
             last_action: service.last_action,
             last_reason: service.last_reason,
             last_inventory_change: service.last_inventory_change,
+            crashed: self.crashed,
+            last_error_id: self.last_error_id,
             load_event_id: service.load_event_id,
             start_event_id: service.start_event_id,
             stop_event_id: service.stop_event_id,
@@ -255,6 +280,61 @@ pub(crate) fn emit_health(_method: &str) -> &'static str {
     "service.health"
 }
 
+/// Labeled test-infrastructure fault injection (hard-wired to `svc.demo.echo`).
+/// Runs the real echo invoke under a tiny fuel budget so it genuinely traps with
+/// wasmi `OutOfFuel`, marks echo `crashed`, records a `current_boot` lifecycle
+/// event, and emits a small typed response. The wasm runs OUTSIDE the held STATE
+/// lock (mirroring `start`) and the trap is caught, never unwound — the
+/// cooperative loop stays alive. Crashed is set ONLY when the caught trap is
+/// specifically `OutOfFuel`; any other trap kind is reported honestly and does
+/// NOT flip crashed.
+pub(crate) fn emit_invoke_fuel_starved() {
+    let was_loaded = STATE.lock().service.loaded;
+    // Run the fuel-starved wasm with NO STATE lock held (a trap must never be taken
+    // while holding the spin-lock).
+    let run = was_loaded.then(wasm_runtime::run_echo_fuel_starved);
+    let out_of_fuel = run.as_ref().map(|r| r.out_of_fuel).unwrap_or(false);
+
+    let outcome = if was_loaded {
+        "response"
+    } else {
+        "capability_denied"
+    };
+    let reason = if !was_loaded {
+        "not_loaded"
+    } else if out_of_fuel {
+        "wedged_out_of_fuel_test_infrastructure"
+    } else {
+        "fuel_starved_invoke_did_not_trap_out_of_fuel"
+    };
+    let event_id = event_log::record_service_lifecycle_unbound(
+        &ECHO_SERVICE_DESCRIPTOR,
+        ECHO_INVOKE_FUEL_STARVED_METHOD,
+        outcome,
+        reason,
+        ECHO_SERVICE_WEDGE_EVIDENCE,
+    );
+
+    let mut state = STATE.lock();
+    if was_loaded && out_of_fuel {
+        state.service.running = false;
+        state.crashed = true;
+        state.last_error_id = Some(event_id);
+        if let Some(run) = run.as_ref() {
+            state.last_run_outcome = run.run_outcome;
+            state.last_fuel_used = run.fuel_used;
+            state.last_log_line_emitted = run.log_line.is_some();
+        }
+    }
+    state.service.last_action = ECHO_FUEL_STARVED_ACTION;
+    state.service.last_reason = reason;
+    state.service.last_event_id = Some(event_id);
+    let snapshot = state.snapshot();
+    drop(state);
+
+    emit_fuel_starved_response(snapshot, event_id, run.as_ref(), was_loaded, out_of_fuel);
+}
+
 fn load_source_method(method: &str) -> Option<&'static str> {
     if target_arg_matches(method, "module.load_ephemeral") {
         Some("module.load_ephemeral")
@@ -357,6 +437,14 @@ fn start(source_method: &'static str) -> ActionResult {
     if was_loaded {
         state.service.running = run_ok;
         state.service.start_event_id = Some(event_id);
+        if run_ok {
+            // A successful run demonstrates recovery: clear the crashed latch so a
+            // restarted, healthy, running service is never falsely reported crashed
+            // (honest typed state per ADR 0004). The wedge sets this latch; only a
+            // real successful run (or a drop) clears it.
+            state.crashed = false;
+            state.last_error_id = None;
+        }
         if let Some(run) = run.as_ref() {
             if run_ok {
                 state.service.state_counter = state.service.state_counter.saturating_add(1);
@@ -442,6 +530,10 @@ fn drop_service(source_method: &'static str) -> ActionResult {
     state.service.loaded = false;
     state.service.running = false;
     state.service.state_counter = 0;
+    // A dropped service is gone from the current boot; it must not linger in
+    // crashed_services (clear the crashed latch alongside loaded/running).
+    state.crashed = false;
+    state.last_error_id = None;
     state.service.drop_event_id = Some(event_id);
     state.service.last_action = "drop";
     state.service.last_reason = reason;
@@ -485,7 +577,34 @@ fn health(source_method: &'static str) -> ActionResult {
 }
 
 pub(crate) fn health_state(snapshot: Snapshot) -> &'static str {
-    current_boot_service::health_state(snapshot.loaded, snapshot.running, ECHO_SERVICE_DESCRIPTOR)
+    if snapshot.crashed {
+        HEALTH_CRASHED
+    } else {
+        current_boot_service::health_state(
+            snapshot.loaded,
+            snapshot.running,
+            ECHO_SERVICE_DESCRIPTOR,
+        )
+    }
+}
+
+/// Read-only crash view for the recovery lifeline snapshot. A plain bool/id read
+/// under the STATE lock — it NEVER invokes wasm and mutates nothing. Returns the
+/// stable service id, the `crashed` health value, and the last-error event id when
+/// echo's current-boot instance has trapped; `None` otherwise.
+pub(crate) fn crash_view() -> Option<(&'static str, &'static str, Option<event_log::EventId>)> {
+    let snapshot = {
+        let state = STATE.lock();
+        if !state.crashed {
+            return None;
+        }
+        state.snapshot()
+    };
+    Some((
+        ECHO_SERVICE_DESCRIPTOR.service_id,
+        health_state(snapshot),
+        snapshot.last_error_id,
+    ))
 }
 
 pub(crate) fn service_slot_activation_status(snapshot: Snapshot) -> &'static str {
@@ -615,6 +734,63 @@ fn emit_response(method: &'static str, action: &'static str, result: ActionResul
         6,
     );
     raw_line("      \"evidence_complete\": true");
+    end_response(method);
+}
+
+fn emit_fuel_starved_response(
+    snapshot: Snapshot,
+    event_id: event_log::EventId,
+    run: Option<&wasm_runtime::EchoFuelStarvedEvidence>,
+    was_loaded: bool,
+    out_of_fuel: bool,
+) {
+    let method = ECHO_INVOKE_FUEL_STARVED_METHOD;
+    let run_outcome = run.map(|r| r.run_outcome).unwrap_or("not_loaded");
+    let validation_ok = run.map(|r| r.validation_ok).unwrap_or(false);
+    let instantiation_ok = run.map(|r| r.instantiation_ok).unwrap_or(false);
+    let fuel_budget = run
+        .map(|r| r.fuel_budget)
+        .unwrap_or(wasm_runtime::ECHO_WASM_FUEL_STARVED_BUDGET);
+    let fuel_used = run.map(|r| r.fuel_used).unwrap_or(0);
+    begin_response(method);
+    emit_record_fields(
+        vec![
+            f("schema", s(ECHO_FUEL_STARVED_RESPONSE_SCHEMA)),
+            f("scope", s(ECHO_SERVICE_DESCRIPTOR.scope)),
+            f("classification", s(ECHO_SERVICE_DESCRIPTOR.classification)),
+            f("method", s(method)),
+            f("action", s(ECHO_FUEL_STARVED_ACTION)),
+            f("test_infrastructure", b(true)),
+            f("service_id", s(ECHO_SERVICE_DESCRIPTOR.service_id)),
+            f(
+                "status",
+                s(if was_loaded {
+                    "response"
+                } else {
+                    "capability_denied"
+                }),
+            ),
+            f("health", s(health_state(snapshot))),
+            f("loaded", b(snapshot.loaded)),
+            f("running", b(snapshot.running)),
+            f("crashed", b(snapshot.crashed)),
+            f("validation_ok", b(validation_ok)),
+            f("instantiation_ok", b(instantiation_ok)),
+            f("out_of_fuel", b(out_of_fuel)),
+            f("run_outcome", s(run_outcome)),
+            f("fuel_budget", V::U64(fuel_budget)),
+            f("fuel_used", V::U64(fuel_used)),
+            f("reason", s(snapshot.last_reason)),
+            f("event_id", record_event_or_null(Some(event_id))),
+            f(
+                "last_error_id",
+                record_event_or_null(snapshot.last_error_id),
+            ),
+            f("routes_through_provider", b(false)),
+            f("writes_persistent_state", b(false)),
+        ],
+        6,
+    );
     end_response(method);
 }
 

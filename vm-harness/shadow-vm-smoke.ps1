@@ -10,7 +10,7 @@ param(
     [switch]$KeepImage,
     [int]$SerialWriteChunkSize = 256,
     [int]$SerialWriteDelayMilliseconds = 0,
-    [ValidateSet("full", "quick", "recovery", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m6d-rollback", "persistence")]
+    [ValidateSet("full", "quick", "recovery", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m6d-rollback", "m8-lifeline", "persistence")]
     [string]$Profile = "full"
 )
 
@@ -212,6 +212,11 @@ try {
 
         if ($Profile -eq "m6d-rollback") {
             . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-m6d-rollback.ps1")
+            break SmokeProfileValidation
+        }
+
+        if ($Profile -eq "m8-lifeline") {
+            . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-m8-lifeline.ps1")
             break SmokeProfileValidation
         }
 

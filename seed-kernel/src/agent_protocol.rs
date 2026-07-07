@@ -405,6 +405,7 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("module.loader_audit_rollback_write_boundary_binding", Head, [], [], MethodAction::ReadMethod(emit_module_loader_fact)),
     method!("module.loader_audit_rollback_write_boundary_binding_selftest", Head, [], [], MethodAction::ReadMethod(emit_module_loader_fact_selftest)),
     method!("wasm.echo_probe", Exact, [], [route!("wasm.echo_probe")], MethodAction::Read0(emit_wasm_echo_probe)),
+    method!("echo.invoke_fuel_starved", Exact, [], [route!("echo.invoke_fuel_starved")], MethodAction::Read0(echo_service::emit_invoke_fuel_starved)),
     method!("module.submit_candidate_chunk", Head, [], [route!("module.submit_candidate_chunk")], MethodAction::ReadMethod(emit_submit_candidate_chunk)),
     method!("module.submit_candidate_finalize", Exact, [], [route!("module.submit_candidate_finalize")], MethodAction::Read0(emit_submit_candidate_finalize)),
     envelope_method!("module.audit_rollback_availability", Head, ["module.audit_rollback_store_availability"], [], 9, "module.audit_rollback_availability", "cap.module.grant_diagnostic.read", "agent_command_envelope.current_boot.serial.module_audit_rollback_availability.v0", "module.audit_rollback_availability", MethodAction::Read0(emit_module_audit_rollback_availability)),

@@ -34,6 +34,10 @@ const UNREACHABLE_WASM_MODULE: &[u8] = &[
 const MAX_WASM_LOG_BYTES: usize = 256;
 const WASM_MEMORY_PAGE_BYTES: usize = 64 * 1024;
 pub(crate) const ECHO_WASM_FUEL_BUDGET: u64 = 10_000;
+/// Deliberately-tiny fuel budget for the labeled fuel-starvation fault injection
+/// (`run_echo_fuel_starved`). A real echo invoke under this budget exhausts fuel
+/// after a single metered step and traps with a genuine wasmi `OutOfFuel`.
+pub(crate) const ECHO_WASM_FUEL_STARVED_BUDGET: u64 = 1;
 const FUEL_EXHAUSTION_BUDGET: u64 = 1;
 const GUEST_TRAP_FUEL_BUDGET: u64 = 100;
 pub(crate) const WASM_HARDENING_CASE_COUNT: usize = 4;
@@ -96,6 +100,21 @@ pub(crate) struct EchoRunEvidence {
     pub(crate) log_line: Option<String>,
 }
 
+/// Evidence from a labeled fuel-starvation fault injection against the real echo
+/// module. `out_of_fuel` is TRUE only when the caught trap was specifically a
+/// wasmi `OutOfFuel`; any other trap kind is reported honestly in `run_outcome`
+/// with `out_of_fuel=false` so a caller never mislabels a different fault as a
+/// fuel wedge.
+pub(crate) struct EchoFuelStarvedEvidence {
+    pub(crate) validation_ok: bool,
+    pub(crate) instantiation_ok: bool,
+    pub(crate) run_outcome: &'static str,
+    pub(crate) out_of_fuel: bool,
+    pub(crate) fuel_budget: u64,
+    pub(crate) fuel_used: u64,
+    pub(crate) log_line: Option<String>,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct WasmHardeningCase {
     pub(crate) name: &'static str,
@@ -133,6 +152,126 @@ pub(crate) fn run_echo_probe() -> EchoProbe {
 
 pub(crate) fn run_echo_service() -> EchoRunEvidence {
     execute_echo_module(validate_echo_wasm_artifact())
+}
+
+/// Labeled fault injection: run the REAL echo artifact (`raios_service_main`)
+/// through a metered store carrying only `ECHO_WASM_FUEL_STARVED_BUDGET` fuel, so
+/// the invoke genuinely traps with wasmi `OutOfFuel` (never simulated). The trap
+/// is an `Err` value that is CAUGHT here — never unwrapped/panicked — and
+/// classified via `classify_trap_error`; the cooperative kernel loop is unharmed.
+/// Reuses `metered_engine`/`default_state`/`define_capability_envelope` exactly
+/// like the healthy path so the ONLY difference is the fuel budget.
+pub(crate) fn run_echo_fuel_starved() -> EchoFuelStarvedEvidence {
+    if !validate_echo_wasm_artifact() {
+        return fuel_starved_evidence(false, false, "validation_failed", false, 0, None);
+    }
+
+    let wasm = Vec::from(ECHO_WASM_ARTIFACT_BYTES).into_boxed_slice();
+    let engine = metered_engine();
+    let module = match Module::new(&engine, &*wasm) {
+        Ok(module) => Box::new(module),
+        Err(_) => {
+            return fuel_starved_evidence(true, false, "module_compile_failed", false, 0, None)
+        }
+    };
+    let mut store = Box::new(Store::new(&engine, default_state()));
+    if store.add_fuel(ECHO_WASM_FUEL_STARVED_BUDGET).is_err() {
+        return fuel_starved_evidence(true, false, "fuel_metering_unavailable", false, 0, None);
+    }
+    let mut linker = Box::new(Linker::<EnvelopeState>::new(&engine));
+    if !define_capability_envelope(&mut linker) {
+        return fuel_starved_evidence(
+            true,
+            false,
+            "capability_envelope_definition_failed",
+            false,
+            0,
+            None,
+        );
+    }
+
+    let instance = match linker.instantiate(&mut *store, &module) {
+        Ok(instance) => match instance.start(&mut *store) {
+            Ok(instance) => instance,
+            Err(error) => {
+                let outcome = classify_trap_error(error, ExpectedTrap::OutOfFuel);
+                return fuel_starved_evidence(
+                    true,
+                    false,
+                    outcome,
+                    outcome == "fuel_exhausted",
+                    store.fuel_consumed().unwrap_or(0),
+                    store.data().log_line.clone(),
+                );
+            }
+        },
+        Err(_) => {
+            return fuel_starved_evidence(
+                true,
+                false,
+                "instantiation_failed",
+                false,
+                store.fuel_consumed().unwrap_or(0),
+                store.data().log_line.clone(),
+            )
+        }
+    };
+
+    let Some(func) = instance
+        .get_export(&*store, "raios_service_main")
+        .and_then(Extern::into_func)
+    else {
+        return fuel_starved_evidence(
+            true,
+            true,
+            "entrypoint_missing",
+            false,
+            store.fuel_consumed().unwrap_or(0),
+            store.data().log_line.clone(),
+        );
+    };
+
+    let mut outputs = Vec::from([Value::I32(0)]).into_boxed_slice();
+    match func.call(&mut *store, &[], &mut outputs) {
+        Ok(()) => fuel_starved_evidence(
+            true,
+            true,
+            "run_success_unexpected",
+            false,
+            store.fuel_consumed().unwrap_or(0),
+            store.data().log_line.clone(),
+        ),
+        Err(error) => {
+            let outcome = classify_trap_error(error, ExpectedTrap::OutOfFuel);
+            fuel_starved_evidence(
+                true,
+                true,
+                outcome,
+                outcome == "fuel_exhausted",
+                store.fuel_consumed().unwrap_or(0),
+                store.data().log_line.clone(),
+            )
+        }
+    }
+}
+
+fn fuel_starved_evidence(
+    validation_ok: bool,
+    instantiation_ok: bool,
+    run_outcome: &'static str,
+    out_of_fuel: bool,
+    fuel_used: u64,
+    log_line: Option<String>,
+) -> EchoFuelStarvedEvidence {
+    EchoFuelStarvedEvidence {
+        validation_ok,
+        instantiation_ok,
+        run_outcome,
+        out_of_fuel,
+        fuel_budget: ECHO_WASM_FUEL_STARVED_BUDGET,
+        fuel_used,
+        log_line,
+    }
 }
 
 pub(crate) fn loader_available() -> bool {

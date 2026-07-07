@@ -3161,6 +3161,35 @@ deferred to M8C; two NITs applied). Next: M8A-3 (fuel-exhaustion wedge proof + a
 dedicated lifeline profile) — the assumption the pinned dispatcher survives a real Wasm
 trap is not yet proven and is M8's key risk.
 
+**M8A-3 DONE (2026-07-07) — M8's KEY RISK GATE PASSED: the lifeline survives a real
+Wasm crash.** A new test-infra method `echo.invoke_fuel_starved`
+(`seed-kernel/src/wasm_runtime.rs::run_echo_fuel_starved`, budget 1) runs the REAL echo
+module until it genuinely traps with wasmi `OutOfFuel`; the trap is caught as an Err
+VALUE (never a panic), echo is marked `crashed` (new `HEALTH_CRASHED` value in the
+non-attested `echo_service.rs`), and — proven in the new standalone `m8-lifeline`
+profile (191/191) — `recovery.lifeline_table` AND `recovery.snapshot` STILL answer
+within bounded timeouts while echo is wedged, the snapshot lists echo under a new
+`crashed_services` array, and the four mutators still deny. WHY it survives (honest):
+Wasm is fuel-metered and runs only on-demand on the single cooperative loop, so a wedge
+traps-and-returns rather than starving `console::poll` — this is fuel+cooperative
+scheduling, NOT hardware isolation (that is post-M11). Execution-model verdict: proof
+slice, not re-architecture. The worker correctly hit the descriptor-attestation
+STOP-tripwire (the packet's const belonged in a signed hello source) and resolved it
+WITHOUT re-signing — `current_boot_service.rs` stayed byte-identical to HEAD; vocab hash
+unchanged `523b719b…819f`. Max-effort adversarial review found ONE HIGH honesty defect
+(the `crashed` latch was never reset → a restarted, healthy, running echo was falsely
+reported `crashed`); FIXED by clearing `crashed`/`last_error_id` on a successful start
+(recovery) and on drop, with a new end-to-end guard (`m8-lifeline:restart_recovers_healthy`
++ `post_restart_snapshot_no_false_crash`). Deferrals (flagged, not defects): no
+`store.limiter` on the echo path (fuel=1 pre-empts `memory.grow`; a real MEDIUM only when
+the path runs untrusted bytes — M8B/M9); the snapshot taking echo's STATE spinlock (safe
+under the single-threaded kernel). Nothing durable written; grants nothing; the wedge
+event is `current_boot` + `test_infrastructure`. Verified: raios-core 111 (vocab hash
+unchanged), m8-lifeline 191/191 (survival + the restart-recovery honesty guard), quick
+583/583 (a host-transport `audit.events` timeout flake cleared on retry), recovery
+byte-identical, FULL 8168/8168. The restore ACTIONS (disable_module, restart_last_good)
+begin at M8B — each its OWN scoped evaluator, never a shared write-boundary flip.
+
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 recovery/hello dispatch-bound completion-denial smoke runs on Windows with
 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-seed-kernel.ps1 -Profile release`,

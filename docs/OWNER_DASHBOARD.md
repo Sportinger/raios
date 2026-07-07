@@ -22,7 +22,12 @@ work today: "show me the rescue command list" and NEW "show me a diagnosis snaps
 replaceable) — it reads only, leaks no secrets, changes nothing. The four rescue
 ACTIONS (restart-last-good, disable-a-module, roll-back, load-a-saved-artifact) stay
 deliberately refused until built and proven, one careful step at a time. Restore-only,
-never promote.).
+never promote. **NEW — die wichtigste Absicherung von M8 ist bewiesen:** selbst wenn
+ein laufender Baustein WIRKLICH abstürzt (echter Absturz, nicht simuliert), **antwortet
+die Rettungsleine weiter** und meldet den Baustein ehrlich als "crashed" — und wenn man
+ihn neu startet, verschwindet die Absturz-Meldung wieder. Sie überlebt, weil KI-Code
+ein Treibstoff-Limit hat und kooperativ läuft — noch NICHT durch echte Hardware-Trennung
+(die kommt erst mit M11).).
 
 ## What raiOS can actually do today
 

@@ -19,10 +19,10 @@ use raios_core::recovery_lifeline_table as table;
 use super::boot_control;
 use super::DispatchOutcome;
 use crate::agent_protocol_support::{
-    begin_response, emit_record_fields, end_response, record_bool as b, record_field as f,
-    record_str as s,
+    begin_response, emit_record_fields, end_response, record_bool as b, record_event_or_null,
+    record_field as f, record_str as s,
 };
-use crate::{provider, service_inventory, system_status, ui};
+use crate::{echo_service, provider, service_inventory, system_status, ui};
 
 /// Lifeline dispatch. Returns `Some(outcome)` for any pinned lifeline method and
 /// `None` for everything else so the general dispatcher runs unchanged. The lifeline
@@ -108,6 +108,20 @@ fn emit_snapshot(method: &'static str, runtime: ui::RuntimeStatus) {
         idx += 1;
     }
 
+    // Crashed services come from each service's OWN live crash bookkeeping, not from
+    // the static `service_inventory::SERVICES` table (echo is a RAM-only current-boot
+    // service and is not a member of it). This is a plain read-only bool/id read that
+    // MUST NOT invoke wasm — `echo_service::crash_view()` only inspects the crash flag.
+    let mut crashed_services: Vec<Value<'static>> = Vec::new();
+    if let Some((id, health, last_error_id)) = echo_service::crash_view() {
+        crashed_services.push(Value::InlineObject(vec![
+            f("id", s(id)),
+            f("health", s(health)),
+            f("last_error_id", record_event_or_null(last_error_id)),
+        ]));
+    }
+    let crashed_service_count = crashed_services.len() as u64;
+
     begin_response(method);
     emit_record_fields(
         vec![
@@ -135,7 +149,9 @@ fn emit_snapshot(method: &'static str, runtime: ui::RuntimeStatus) {
             f("core_owned_count", Value::U64(core_owned_count)),
             f("replaceable_count", Value::U64(replaceable_count)),
             f("unhealthy_count", Value::U64(unhealthy_count)),
+            f("crashed_service_count", Value::U64(crashed_service_count)),
             f("services", Value::Array(rows)),
+            f("crashed_services", Value::Array(crashed_services)),
         ],
         6,
     );
