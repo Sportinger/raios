@@ -10,6 +10,7 @@ pub mod durable_record_frame;
 pub mod gpt_layout;
 pub mod promotion_attestation;
 pub mod record;
+pub mod recovery_lifeline_table;
 pub mod repromotion_reverify;
 pub mod scoped_artifact_persist_append;
 pub mod scoped_artifact_store_blob;

@@ -4,6 +4,8 @@ pub(crate) mod artifact_store;
 mod boot_control;
 #[path = "durable_store.rs"]
 pub(crate) mod durable_store;
+#[path = "recovery_lifeline.rs"]
+mod recovery_lifeline;
 #[path = "repromotion.rs"]
 mod repromotion;
 
@@ -793,6 +795,12 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
     let method = method.trim();
     if method.is_empty() {
         return DispatchOutcome::Unknown;
+    }
+
+    // Recovery lifeline is a SEPARATE dispatch path, checked before the general
+    // method table so the minimal restore-only surface is provably isolated.
+    if let Some(outcome) = recovery_lifeline::dispatch(method) {
+        return outcome;
     }
 
     if let Some(call) = lookup_method(method) {

@@ -3101,6 +3101,40 @@ current_boot-only era is over: an AI-authored module now survives a real reboot 
 comes back to life through the same governed gate, still honestly dev-tier and never
 owner-sealed.
 
+M8 RECOVERY AGENT LIFELINE now active (map
+`docs/plan-reviews/m8-recovery-lifeline-map-2026-07-06.md`, revalidated against HEAD
+during M8A-1 scoping). Capability: "when the world above breaks, a minimal pinned
+serial-first path diagnoses and restores last-good — restoring known-good state only,
+never promoting anything new." Sequence: M8A-1 (pinned table + dispatch isolation) →
+M8A-2 (real read-only snapshot) → M8A-3 (fuel-exhaustion wedge proof + dedicated
+profile) → M8B (disable_module + restart_last_good, each its OWN scoped evaluator —
+NEVER a shared write-boundary flip) → M8C (durable last-good + SAFE) → M8D
+(load_artifact_by_hash from the local M7D store only, full M6 re-verify, never
+fetches).
+
+**M8A-1 DONE (2026-07-07, evidence-only, grants nothing).** A frozen
+`LIFELINE_METHODS` table (`raios-core/src/recovery_lifeline_table.rs`, host-tested,
+pinned `vocabulary_sha256=dbb5562f…95b5`) + a SEPARATE kernel dispatch path
+(`seed-kernel/src/recovery_lifeline.rs`) checked BEFORE the general `AGENT_METHODS`
+table (3-line hook in `agent_protocol::dispatch`, before `lookup_method`). Only
+`recovery.lifeline_table` is implemented — a pure const-table read that renders
+`raios.recovery_lifeline_table.v0` (transport `serial_local`, trust_state
+`local_physical_console`); the five spec endpoints (`recovery.snapshot`,
+`restart_last_good`, `disable_module`, `rollback`, `load_artifact_by_hash`) all return
+typed `capability_denied` and mutate nothing. The lifeline module imports NONE of
+wasm/provider/net/tls/event-log/durable-write machinery; lookup is full-string
+case-insensitive (usable under duress); the vocabulary hash is a pin that fails the
+gate on any silent authority growth (endpoint added/reordered/`implemented`-flipped).
+Honest: owner_sealed false, `dev_key_not_owner_sealed`, mutates_state false,
+current_boot. Verified: raios-core host 2/2 (golden hash), quick 583/583 (7 lifeline
+needles — all six endpoints + a case-insensitive path), FULL 8168/8168 (frozen
+`recovery` profile byte-identical — no method-name collision, exact-name interception
+only), max-effort adversarial review (no BLOCKER/HIGH/MEDIUM; two LOW fixed —
+case-insensitive lookup + full endpoint-coverage needles; one LOW deferred to M8A-2
+with a code note: arg-bearing endpoints must move to head-token matching; the
+no-event-log-write NIT kept as a deliberate lifeline-independence property). Nothing
+durable written; every M6/M7 write target and grant untouched.
+
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 recovery/hello dispatch-bound completion-denial smoke runs on Windows with
 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-seed-kernel.ps1 -Profile release`,

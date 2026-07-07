@@ -14,7 +14,12 @@ abilities (log, boot control, artifact store) are live; everything else stays
 refused. Still honestly labelled dev-key, not owner-sealed. Proven end-to-end
 (two-boot proof 85/85, full regression 8168/8168, plus an independent adversarial
 review that found and fixed two real read bugs). raiOS is no longer "this-boot-only".
-Next: M8 — the emergency lifeline.).
+**M8 started (the emergency lifeline):** the fixed, minimal list of rescue commands
+is now pinned and answered on its OWN separate path — so it can't be quietly
+extended, and it touches none of the normal machinery. Only "show me the rescue
+command list" works today; the five real rescue actions (snapshot, restart-last-good,
+disable-a-module, roll-back, load-a-saved-artifact) are all deliberately still refused
+until built and proven, one careful step at a time. Restore-only, never promote.).
 
 ## What raiOS can actually do today
 

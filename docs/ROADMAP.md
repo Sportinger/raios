@@ -46,7 +46,15 @@ A/B/SAFE, the durable promotion transaction (M6D-2), the persistent artifact sto
 (M7D-1), and — the product moment — boot-time re-promotion proven across a REAL
 reboot (M7D-2, two-boot proof 85/85). A promoted service now survives a restart and
 comes back to life through the same governed M6 gate, still dev-tier and never
-owner-sealed. **Now active: M8 Recovery Agent Lifeline.** (M7 map
+owner-sealed. **Now active: M8 Recovery Agent Lifeline** (map
+`docs/plan-reviews/m8-recovery-lifeline-map-2026-07-06.md`). **M8A-1 done
+(2026-07-07, evidence-only, grants nothing):** a frozen pinned lifeline command
+table on a SEPARATE dispatch path checked before the general method table, with a
+`vocabulary_sha256` fence; only `recovery.lifeline_table` reads, the five spec
+endpoints all return typed `capability_denied` and mutate nothing; imports no
+wasm/provider/net/tls. Verified quick 583/583 (7 needles), FULL 8168/8168 (frozen
+recovery byte-identical), raios-core 2/2, max adversarial review clean. Next:
+M8A-2 real read-only `recovery.snapshot`. (M7 map
 `docs/plan-reviews/m7-persistence-map-2026-07-06.md`,
 revalidated M7-0). Sequencing per the M7-0 note: M7A + M7B build GPT + the
 SEED_DATA RECLOG durable store; then M6D-2 records its durable promotion
