@@ -275,6 +275,43 @@ pub fn scan_reclog(bytes: &[u8]) -> RecordLogScan {
     scan
 }
 
+/// Walks the reclog exactly like [`scan_reclog`] and yields `(frame_seq, payload)`
+/// for each integrity-verified frame, in on-disk order. This is a payload LOCATOR
+/// only — it returns borrowed payload SLICES and decodes nothing. It stops at the
+/// first invalid or zero-filled frame, identically to `scan_reclog`, so a torn
+/// tail yields only the valid prefix and a corrupt/zero region yields nothing.
+pub fn scan_reclog_payloads(bytes: &[u8]) -> Vec<(u64, &[u8])> {
+    let mut out = Vec::new();
+    if bytes.is_empty() || bytes.len() % RECLOG_SECTOR_SIZE != 0 {
+        return out;
+    }
+
+    let mut offset = 0usize;
+    let mut expected_seq = 1u64;
+    let mut expected_prev_hash = [0u8; 32];
+
+    while offset < bytes.len() {
+        if all_zero(&bytes[offset..]) {
+            break;
+        }
+
+        let frame = match parse_reclog_frame(bytes, offset, expected_seq, expected_prev_hash) {
+            Ok(frame) => frame,
+            Err(_) => break,
+        };
+
+        let payload_start = offset + RECLOG_FRAME_HEADER_LEN;
+        let payload_end = payload_start + frame.payload_len as usize;
+        out.push((frame.seq, &bytes[payload_start..payload_end]));
+
+        expected_seq = frame.seq.saturating_add(1);
+        expected_prev_hash = frame.frame_sha256;
+        offset += frame.frame_len as usize;
+    }
+
+    out
+}
+
 pub fn durable_record_log_scan_record(scan: &RecordLogScan) -> Value<'static> {
     Value::Object(durable_record_log_scan_fields(scan))
 }
@@ -624,5 +661,85 @@ mod tests {
             .unwrap_err(),
             AppendDenied::PayloadTooLargeForFrame
         );
+    }
+
+    #[test]
+    fn walker_yields_seq_ordered_payloads_for_valid_frames() {
+        let region = region_with_frames(3, RECLOG_SECTOR_SIZE);
+        let payloads = scan_reclog_payloads(&region);
+
+        assert_eq!(payloads.len(), 3);
+        for (idx, (seq, bytes)) in payloads.iter().enumerate() {
+            let expected_seq = (idx + 1) as u64;
+            assert_eq!(*seq, expected_seq);
+            assert_eq!(*bytes, payload(expected_seq).as_slice());
+        }
+    }
+
+    #[test]
+    fn walker_stops_at_torn_tail_returning_only_valid_prefix() {
+        let mut region = region_with_frames(2, RECLOG_SECTOR_SIZE);
+        let invalid_offset = RECLOG_SECTOR_SIZE * 2;
+        region[invalid_offset..invalid_offset + 8].copy_from_slice(b"GARBAGE!");
+        let payloads = scan_reclog_payloads(&region);
+
+        assert_eq!(payloads.len(), 2);
+        assert_eq!(payloads[0].0, 1);
+        assert_eq!(payloads[1].0, 2);
+    }
+
+    #[test]
+    fn walker_excludes_frame_with_bad_payload_hash() {
+        let mut region = region_with_frames(1, RECLOG_SECTOR_SIZE);
+        region[RECLOG_PAYLOAD_SHA256_OFFSET] ^= 1;
+        assert!(scan_reclog_payloads(&region).is_empty());
+    }
+
+    #[test]
+    fn walker_on_empty_and_zeroed_region_is_empty() {
+        assert!(scan_reclog_payloads(&[]).is_empty());
+        assert!(scan_reclog_payloads(&vec![0u8; RECLOG_SECTOR_SIZE * 2]).is_empty());
+    }
+
+    #[test]
+    fn walker_payloads_reparse_as_memory_records() {
+        use crate::memory_record::{parse, MemoryRecord, MemoryRecordInput, MemorySource};
+
+        let record = MemoryRecord::new(MemoryRecordInput {
+            id: "mem.walker.1",
+            kind: "decision",
+            entity: "adr.0004",
+            predicate: "memory_is_typed_state",
+            value: Value::Null,
+            classification: "local_only",
+            authority: "decision",
+            boot_id: "boot:1",
+            sequence: 1,
+            source: MemorySource::new("system.snapshot", "snapshot:1"),
+            evidence: Vec::new(),
+            tags: Vec::new(),
+            supersedes: Vec::new(),
+            created_at_ticks: 5,
+        })
+        .expect("record constructs");
+        let payload_bytes = render(&record.to_record_value());
+
+        // Build a valid reclog region using only the public append planner.
+        let mut region = vec![0u8; RECLOG_SECTOR_SIZE * 4];
+        for _ in 0..2 {
+            let scan = scan_reclog(&region);
+            let planned = plan_reclog_append(&scan, &payload_bytes, region.len() as u64).unwrap();
+            let off = planned.write_offset as usize;
+            region[off..off + planned.frame.len()].copy_from_slice(&planned.frame);
+        }
+
+        let payloads = scan_reclog_payloads(&region);
+        assert_eq!(payloads.len(), 2);
+        for (idx, (seq, bytes)) in payloads.iter().enumerate() {
+            assert_eq!(*seq, (idx + 1) as u64);
+            let view = parse(bytes).expect("memory payload reparses");
+            assert_eq!(view.id, "mem.walker.1");
+            assert_eq!(view.created_at_ticks, 5);
+        }
     }
 }

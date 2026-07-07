@@ -28,6 +28,7 @@
 //!     it only carries `supersedes: [old_id]` links.
 
 use alloc::{vec, vec::Vec};
+use core::str;
 
 use crate::record::{sha256_of_json, Field, Value};
 
@@ -363,14 +364,626 @@ fn str_array<'a>(items: &[&'a str]) -> Value<'a> {
     Value::Array(values)
 }
 
+// ---------------------------------------------------------------------------
+// M9C-1a: fail-closed reparser (durable payload bytes -> typed metadata VIEW).
+//
+// This is the FIRST decode of on-disk payload bytes back into memory metadata.
+// It is a bounded, WHITESPACE-TOLERANT, canonical tokenizer — NOT a general JSON
+// parser and NOT a byte-exact indentation matcher. It walks the exact canonical
+// field key SEQUENCE written by `to_record_value()` + `record::write_json`,
+// validates the scalar values, and STRUCTURALLY SKIPS the `value` sub-tree (its
+// raw content is deliberately never decoded, so arbitrary escaped agent text can
+// never reach the broker through this path).
+//
+// It is all-or-nothing: any deviation from the canonical shape returns a typed
+// `Err` (a dropped frame) — it never panics/unwraps on payload bytes.
+// ---------------------------------------------------------------------------
+
+/// Maximum nesting depth the fail-closed `value`-subtree walker will descend
+/// before rejecting. The write path never nests a memory `value` tree deeply; a
+/// deeper tree is treated as corrupt input rather than walked unboundedly.
+const MAX_VALUE_DEPTH: usize = 32;
+
+/// The canonical field-key order emitted by [`MemoryRecord::fields`]. The
+/// reparser expects exactly these keys, in exactly this order.
+const CANONICAL_FIELDS: [&str; 15] = [
+    "schema",
+    "id",
+    "kind",
+    "entity",
+    "predicate",
+    "value",
+    "classification",
+    "authority",
+    "boot_id",
+    "sequence",
+    "source",
+    "evidence",
+    "tags",
+    "supersedes",
+    "created_at",
+];
+
+/// A typed, read-only metadata view over a durable `raios.memory_record.v0`
+/// payload. It carries every authority-bearing metadata field EXCEPT `value`:
+/// the `value` sub-tree is skipped structurally and never decoded, which shrinks
+/// the decode surface and keeps raw agent content out of the context broker. All
+/// string fields borrow directly from the payload bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MemoryRecordView<'a> {
+    pub id: &'a str,
+    pub kind: MemoryKind,
+    pub entity: &'a str,
+    pub predicate: &'a str,
+    pub classification: Classification,
+    pub authority: &'a str,
+    pub boot_id: &'a str,
+    pub sequence: u64,
+    pub source: MemorySource<'a>,
+    pub evidence: Vec<&'a str>,
+    pub tags: Vec<&'a str>,
+    pub supersedes: Vec<&'a str>,
+    pub created_at_ticks: u64,
+}
+
+/// Fail-closed reparse errors. Every deviation from the canonical on-disk shape
+/// maps to one of these; `reason()` gives a stable, pairwise-unique string.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MemoryRecordParseError {
+    /// A payload byte was outside the ASCII range `write_json` ever emits.
+    NotAscii,
+    /// The `schema` field was not the one durable memory schema id.
+    SchemaMismatch,
+    /// The `kind` string is not one of the eight authority-bearing kinds.
+    UnknownKind,
+    /// The `classification` field was `secret` — never durable.
+    SecretClassification,
+    /// A canonical field was absent, or a structural token was missing/malformed.
+    MissingField,
+    /// A canonical field key appeared out of its canonical order.
+    FieldOrder,
+    /// A key that is not a canonical field appeared where a field was expected.
+    ExtraField,
+    /// Bytes remained after the final closing brace (only whitespace is allowed).
+    TrailingBytes,
+    /// The skipped `value` sub-tree was unbalanced, unterminated, or too deep.
+    ValueUnbalanced,
+    /// A numeric field was empty, non-digit, non-canonical, or overflowed `u64`.
+    BadNumber,
+    /// A metadata string was unterminated or carried a backslash escape.
+    BadString,
+    /// An `observation` did not name the service it observed (`entity` empty).
+    ObservationMissingEntity,
+    /// An `observation` did not name its source snapshot (`source` incomplete).
+    ObservationMissingSource,
+    /// A `decision` did not name the entity it decided about (`entity` empty).
+    DecisionMissingEntity,
+    /// A `decision` did not name its source snapshot (`source` incomplete).
+    DecisionMissingSource,
+    /// A `problem` did not name the entity it concerns (`entity` empty).
+    ProblemMissingEntity,
+    /// A `problem` did not carry a status (`predicate` empty).
+    ProblemMissingStatus,
+    /// `supersedes` named more ids than [`MAX_SUPERSEDES_PER_RECORD`] allows.
+    SupersedesTooLong,
+    /// `supersedes` named this record's own id.
+    SelfSupersede,
+}
+
+impl MemoryRecordParseError {
+    /// Stable machine reason string for this rejection. Pairwise-unique.
+    pub const fn reason(self) -> &'static str {
+        match self {
+            MemoryRecordParseError::NotAscii => "payload_byte_not_ascii",
+            MemoryRecordParseError::SchemaMismatch => "schema_id_mismatch",
+            MemoryRecordParseError::UnknownKind => "kind_out_of_scope",
+            MemoryRecordParseError::SecretClassification => "secret_classification_never_durable",
+            MemoryRecordParseError::MissingField => "canonical_field_missing_or_malformed",
+            MemoryRecordParseError::FieldOrder => "canonical_field_out_of_order",
+            MemoryRecordParseError::ExtraField => "unknown_extra_field",
+            MemoryRecordParseError::TrailingBytes => "trailing_bytes_after_record",
+            MemoryRecordParseError::ValueUnbalanced => "value_subtree_unbalanced",
+            MemoryRecordParseError::BadNumber => "numeric_field_not_canonical_u64",
+            MemoryRecordParseError::BadString => "string_field_bad_or_unterminated",
+            MemoryRecordParseError::ObservationMissingEntity => {
+                "reparse_observation_missing_entity"
+            }
+            MemoryRecordParseError::ObservationMissingSource => {
+                "reparse_observation_missing_source"
+            }
+            MemoryRecordParseError::DecisionMissingEntity => "reparse_decision_missing_entity",
+            MemoryRecordParseError::DecisionMissingSource => "reparse_decision_missing_source",
+            MemoryRecordParseError::ProblemMissingEntity => "reparse_problem_missing_entity",
+            MemoryRecordParseError::ProblemMissingStatus => "reparse_problem_missing_status",
+            MemoryRecordParseError::SupersedesTooLong => "reparse_supersedes_list_too_long",
+            MemoryRecordParseError::SelfSupersede => "reparse_supersede_self_reference",
+        }
+    }
+}
+
+/// Position of `key` within the canonical field order, if it is a canonical key.
+fn canonical_index(key: &str) -> Option<usize> {
+    let mut idx = 0usize;
+    while idx < CANONICAL_FIELDS.len() {
+        if CANONICAL_FIELDS[idx] == key {
+            return Some(idx);
+        }
+        idx += 1;
+    }
+    None
+}
+
+/// Classifies an unexpected key seen where `CANONICAL_FIELDS[expected]` was due.
+fn classify_key(key: &str, expected: usize) -> MemoryRecordParseError {
+    match canonical_index(key) {
+        // Not a canonical key at all -> an extra/unknown key.
+        None => MemoryRecordParseError::ExtraField,
+        // A later canonical key appeared -> the expected field was skipped.
+        Some(found) if found > expected => MemoryRecordParseError::MissingField,
+        // An earlier/duplicate canonical key reappeared -> out of order.
+        Some(_) => MemoryRecordParseError::FieldOrder,
+    }
+}
+
+/// A bounded byte cursor over the payload. Never indexes out of bounds and never
+/// panics on malformed input.
+struct Cursor<'a> {
+    bytes: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> Cursor<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, pos: 0 }
+    }
+
+    fn peek(&self) -> Option<u8> {
+        self.bytes.get(self.pos).copied()
+    }
+
+    fn bump(&mut self) {
+        self.pos += 1;
+    }
+
+    fn at_end(&self) -> bool {
+        self.pos >= self.bytes.len()
+    }
+
+    /// Skips ASCII whitespace (space, CR, LF, TAB) between tokens.
+    fn skip_ws(&mut self) {
+        while let Some(byte) = self.peek() {
+            if byte == b' ' || byte == b'\r' || byte == b'\n' || byte == b'\t' {
+                self.pos += 1;
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn expect(
+        &mut self,
+        byte: u8,
+        err: MemoryRecordParseError,
+    ) -> Result<(), MemoryRecordParseError> {
+        if self.peek() == Some(byte) {
+            self.pos += 1;
+            Ok(())
+        } else {
+            Err(err)
+        }
+    }
+
+    /// Parses one `"..."` metadata-string token. Fail-closed choice (b): a
+    /// backslash escape inside a metadata string is REJECTED (`BadString`) rather
+    /// than unescaped, so every accepted metadata field borrows the raw inner
+    /// slice with zero owned allocation. The `value` sub-tree — which is the only
+    /// place arbitrary escaped agent text can appear — is skipped structurally, so
+    /// its escapes never reach this path.
+    fn parse_string(&mut self) -> Result<&'a str, MemoryRecordParseError> {
+        self.skip_ws();
+        if self.peek() != Some(b'"') {
+            return Err(MemoryRecordParseError::MissingField);
+        }
+        self.pos += 1;
+        let start = self.pos;
+        loop {
+            match self.peek() {
+                None => return Err(MemoryRecordParseError::BadString),
+                Some(b'\\') => return Err(MemoryRecordParseError::BadString),
+                Some(b'"') => {
+                    let slice = &self.bytes[start..self.pos];
+                    self.pos += 1;
+                    return str::from_utf8(slice).map_err(|_| MemoryRecordParseError::BadString);
+                }
+                Some(_) => self.pos += 1,
+            }
+        }
+    }
+
+    /// Parses a canonical, unpadded `u64` (no leading zeros, no sign, no plus).
+    fn parse_u64(&mut self) -> Result<u64, MemoryRecordParseError> {
+        self.skip_ws();
+        let start = self.pos;
+        let mut value: u64 = 0;
+        while let Some(byte) = self.peek() {
+            if byte.is_ascii_digit() {
+                value = value
+                    .checked_mul(10)
+                    .and_then(|scaled| scaled.checked_add((byte - b'0') as u64))
+                    .ok_or(MemoryRecordParseError::BadNumber)?;
+                self.pos += 1;
+            } else {
+                break;
+            }
+        }
+        let digits = &self.bytes[start..self.pos];
+        if digits.is_empty() {
+            return Err(MemoryRecordParseError::BadNumber);
+        }
+        // write_u64 never emits a leading zero except for the single digit "0".
+        if digits.len() > 1 && digits[0] == b'0' {
+            return Err(MemoryRecordParseError::BadNumber);
+        }
+        Ok(value)
+    }
+
+    /// Consumes exactly one balanced JSON value WITHOUT interpreting it (the
+    /// `value` sub-tree). String-aware and depth-bounded; any imbalance,
+    /// unterminated string, or over-depth is `ValueUnbalanced`.
+    fn skip_value(&mut self) -> Result<(), MemoryRecordParseError> {
+        self.skip_ws();
+        match self.peek() {
+            Some(b'"') => self.skip_string_structural(),
+            Some(b'{') | Some(b'[') => self.skip_container(),
+            Some(_) => self.skip_primitive(),
+            None => Err(MemoryRecordParseError::ValueUnbalanced),
+        }
+    }
+
+    /// Skips a `"..."` string honoring `\X` escapes (to find the true end); does
+    /// NOT decode. Used only inside the skipped `value` sub-tree.
+    fn skip_string_structural(&mut self) -> Result<(), MemoryRecordParseError> {
+        self.pos += 1; // opening quote
+        loop {
+            match self.peek() {
+                None => return Err(MemoryRecordParseError::ValueUnbalanced),
+                Some(b'\\') => {
+                    self.pos += 1;
+                    if self.at_end() {
+                        return Err(MemoryRecordParseError::ValueUnbalanced);
+                    }
+                    self.pos += 1; // skip the escaped byte, whatever it is
+                }
+                Some(b'"') => {
+                    self.pos += 1;
+                    return Ok(());
+                }
+                Some(_) => self.pos += 1,
+            }
+        }
+    }
+
+    /// Skips a balanced `{...}` / `[...]` container with a depth bound and a
+    /// matching-closer stack. String contents are skipped so their delimiters
+    /// never miscount.
+    fn skip_container(&mut self) -> Result<(), MemoryRecordParseError> {
+        let mut closers = [0u8; MAX_VALUE_DEPTH];
+        let mut depth = 0usize;
+        loop {
+            match self.peek() {
+                None => return Err(MemoryRecordParseError::ValueUnbalanced),
+                Some(open @ (b'{' | b'[')) => {
+                    if depth >= MAX_VALUE_DEPTH {
+                        return Err(MemoryRecordParseError::ValueUnbalanced);
+                    }
+                    closers[depth] = if open == b'{' { b'}' } else { b']' };
+                    depth += 1;
+                    self.pos += 1;
+                }
+                Some(close @ (b'}' | b']')) => {
+                    if depth == 0 || closers[depth - 1] != close {
+                        return Err(MemoryRecordParseError::ValueUnbalanced);
+                    }
+                    depth -= 1;
+                    self.pos += 1;
+                    if depth == 0 {
+                        return Ok(());
+                    }
+                }
+                Some(b'"') => self.skip_string_structural()?,
+                Some(_) => self.pos += 1,
+            }
+        }
+    }
+
+    /// Skips a primitive value token (number/bool/null) up to the next structural
+    /// delimiter. Requires at least one byte.
+    fn skip_primitive(&mut self) -> Result<(), MemoryRecordParseError> {
+        let start = self.pos;
+        while let Some(byte) = self.peek() {
+            if byte == b','
+                || byte == b'}'
+                || byte == b']'
+                || byte == b' '
+                || byte == b'\r'
+                || byte == b'\n'
+                || byte == b'\t'
+            {
+                break;
+            }
+            self.pos += 1;
+        }
+        if self.pos == start {
+            return Err(MemoryRecordParseError::ValueUnbalanced);
+        }
+        Ok(())
+    }
+
+    /// Parses a canonical array of `"..."` strings, whitespace-tolerant. An empty
+    /// array is `[]`. `cap` bounds the element count (used for `supersedes`).
+    fn parse_string_array(
+        &mut self,
+        cap: Option<(usize, MemoryRecordParseError)>,
+    ) -> Result<Vec<&'a str>, MemoryRecordParseError> {
+        self.skip_ws();
+        self.expect(b'[', MemoryRecordParseError::MissingField)?;
+        self.skip_ws();
+        let mut out = Vec::new();
+        if self.peek() == Some(b']') {
+            self.bump();
+            return Ok(out);
+        }
+        loop {
+            let item = self.parse_string()?;
+            out.push(item);
+            if let Some((max, too_long)) = cap {
+                if out.len() > max {
+                    return Err(too_long);
+                }
+            }
+            self.skip_ws();
+            match self.peek() {
+                Some(b',') => self.bump(),
+                Some(b']') => {
+                    self.bump();
+                    return Ok(out);
+                }
+                _ => return Err(MemoryRecordParseError::ValueUnbalanced),
+            }
+        }
+    }
+
+    /// Parses the `source` object: exactly `{ "method": <str>, "record_id": <str> }`.
+    fn parse_source(&mut self) -> Result<MemorySource<'a>, MemoryRecordParseError> {
+        self.skip_ws();
+        self.expect(b'{', MemoryRecordParseError::MissingField)?;
+        let method = self.parse_member("method")?;
+        self.skip_ws();
+        self.expect(b',', MemoryRecordParseError::MissingField)?;
+        let record_id = self.parse_member("record_id")?;
+        self.skip_ws();
+        self.expect(b'}', MemoryRecordParseError::MissingField)?;
+        Ok(MemorySource::new(method, record_id))
+    }
+
+    /// Parses `"name": <str>` and returns the string value.
+    fn parse_member(&mut self, name: &str) -> Result<&'a str, MemoryRecordParseError> {
+        let key = self.parse_string()?;
+        if key != name {
+            return Err(MemoryRecordParseError::MissingField);
+        }
+        self.skip_ws();
+        self.expect(b':', MemoryRecordParseError::MissingField)?;
+        self.parse_string()
+    }
+
+    /// Parses the `created_at` object: `{ "clock": <CREATED_AT_CLOCK>, "ticks": <u64> }`,
+    /// returning the ticks.
+    fn parse_created_at(&mut self) -> Result<u64, MemoryRecordParseError> {
+        self.skip_ws();
+        self.expect(b'{', MemoryRecordParseError::MissingField)?;
+        let clock = self.parse_member("clock")?;
+        if clock != CREATED_AT_CLOCK {
+            return Err(MemoryRecordParseError::MissingField);
+        }
+        self.skip_ws();
+        self.expect(b',', MemoryRecordParseError::MissingField)?;
+        let ticks_key = self.parse_string()?;
+        if ticks_key != "ticks" {
+            return Err(MemoryRecordParseError::MissingField);
+        }
+        self.skip_ws();
+        self.expect(b':', MemoryRecordParseError::MissingField)?;
+        let ticks = self.parse_u64()?;
+        self.skip_ws();
+        self.expect(b'}', MemoryRecordParseError::MissingField)?;
+        Ok(ticks)
+    }
+
+    /// Consumes the comma separator that precedes every field after the first.
+    fn expect_field_separator(&mut self) -> Result<(), MemoryRecordParseError> {
+        self.skip_ws();
+        match self.peek() {
+            Some(b',') => {
+                self.bump();
+                Ok(())
+            }
+            // A closing brace here means the object ended before all canonical
+            // fields were present.
+            Some(b'}') => Err(MemoryRecordParseError::MissingField),
+            _ => Err(MemoryRecordParseError::MissingField),
+        }
+    }
+
+    /// Reads the canonical key at position `index` (with its trailing colon),
+    /// classifying any deviation.
+    fn expect_key(&mut self, index: usize) -> Result<(), MemoryRecordParseError> {
+        let key = self.parse_string()?;
+        if key != CANONICAL_FIELDS[index] {
+            return Err(classify_key(key, index));
+        }
+        self.skip_ws();
+        self.expect(b':', MemoryRecordParseError::MissingField)
+    }
+}
+
+/// Fail-closed reparse of a durable `raios.memory_record.v0` payload back into a
+/// typed [`MemoryRecordView`]. Returns `Err` (a dropped frame) for ANY deviation
+/// from the canonical shape; never panics/unwraps on payload bytes. All-or-nothing.
+pub fn parse(payload: &[u8]) -> Result<MemoryRecordView<'_>, MemoryRecordParseError> {
+    // Deny-in-depth 0: write_json output is always ASCII (bytes >= 0x80 are
+    // replaced with a space at emit time), so any high byte is corrupt input.
+    if payload.iter().any(|&byte| byte >= 0x80) {
+        return Err(MemoryRecordParseError::NotAscii);
+    }
+
+    let mut cursor = Cursor::new(payload);
+    cursor.skip_ws();
+    cursor.expect(b'{', MemoryRecordParseError::MissingField)?;
+
+    // schema (LOAD-BEARING: the reclog is shared with non-memory frames — every
+    // one hash-verifies but MUST drop here, because its schema id is not ours).
+    cursor.expect_key(0)?;
+    if cursor.parse_string()? != SCHEMA {
+        return Err(MemoryRecordParseError::SchemaMismatch);
+    }
+
+    cursor.expect_field_separator()?;
+    cursor.expect_key(1)?;
+    let id = cursor.parse_string()?;
+
+    cursor.expect_field_separator()?;
+    cursor.expect_key(2)?;
+    let kind = MemoryKind::parse(cursor.parse_string()?)
+        .map_err(|_| MemoryRecordParseError::UnknownKind)?;
+
+    cursor.expect_field_separator()?;
+    cursor.expect_key(3)?;
+    let entity = cursor.parse_string()?;
+
+    cursor.expect_field_separator()?;
+    cursor.expect_key(4)?;
+    let predicate = cursor.parse_string()?;
+
+    cursor.expect_field_separator()?;
+    cursor.expect_key(5)?;
+    // The `value` sub-tree is SKIPPED STRUCTURALLY and never decoded.
+    cursor.skip_value()?;
+
+    cursor.expect_field_separator()?;
+    cursor.expect_key(6)?;
+    let classification = Classification::parse(cursor.parse_string()?)
+        .map_err(|_| MemoryRecordParseError::SecretClassification)?;
+
+    cursor.expect_field_separator()?;
+    cursor.expect_key(7)?;
+    let authority = cursor.parse_string()?;
+
+    cursor.expect_field_separator()?;
+    cursor.expect_key(8)?;
+    let boot_id = cursor.parse_string()?;
+
+    cursor.expect_field_separator()?;
+    cursor.expect_key(9)?;
+    let sequence = cursor.parse_u64()?;
+
+    cursor.expect_field_separator()?;
+    cursor.expect_key(10)?;
+    let source = cursor.parse_source()?;
+
+    cursor.expect_field_separator()?;
+    cursor.expect_key(11)?;
+    let evidence = cursor.parse_string_array(None)?;
+
+    cursor.expect_field_separator()?;
+    cursor.expect_key(12)?;
+    let tags = cursor.parse_string_array(None)?;
+
+    cursor.expect_field_separator()?;
+    cursor.expect_key(13)?;
+    let supersedes = cursor.parse_string_array(Some((
+        MAX_SUPERSEDES_PER_RECORD,
+        MemoryRecordParseError::SupersedesTooLong,
+    )))?;
+
+    cursor.expect_field_separator()?;
+    cursor.expect_key(14)?;
+    let created_at_ticks = cursor.parse_created_at()?;
+
+    // Final closing brace, then only trailing whitespace is allowed.
+    cursor.skip_ws();
+    match cursor.peek() {
+        Some(b'}') => cursor.bump(),
+        Some(b',') => return Err(MemoryRecordParseError::ExtraField),
+        _ => return Err(MemoryRecordParseError::MissingField),
+    }
+    cursor.skip_ws();
+    if !cursor.at_end() {
+        return Err(MemoryRecordParseError::TrailingBytes);
+    }
+
+    // Deny-in-depth: the SAME invariants `MemoryRecord::new` enforces, minus the
+    // write-only `audit_kind_may_not_supersede` rule (read-side R1 resolution
+    // handles audit-supersede semantics, so it is deliberately NOT enforced here).
+    match kind {
+        MemoryKind::Observation => {
+            if entity.is_empty() {
+                return Err(MemoryRecordParseError::ObservationMissingEntity);
+            }
+            if source.method.is_empty() || source.record_id.is_empty() {
+                return Err(MemoryRecordParseError::ObservationMissingSource);
+            }
+        }
+        MemoryKind::Decision => {
+            if entity.is_empty() {
+                return Err(MemoryRecordParseError::DecisionMissingEntity);
+            }
+            if source.method.is_empty() || source.record_id.is_empty() {
+                return Err(MemoryRecordParseError::DecisionMissingSource);
+            }
+        }
+        MemoryKind::Problem => {
+            if entity.is_empty() {
+                return Err(MemoryRecordParseError::ProblemMissingEntity);
+            }
+            if predicate.is_empty() {
+                return Err(MemoryRecordParseError::ProblemMissingStatus);
+            }
+        }
+        _ => {}
+    }
+    if supersedes.iter().any(|&target| target == id) {
+        return Err(MemoryRecordParseError::SelfSupersede);
+    }
+
+    Ok(MemoryRecordView {
+        id,
+        kind,
+        entity,
+        predicate,
+        classification,
+        authority,
+        boot_id,
+        sequence,
+        source,
+        evidence,
+        tags,
+        supersedes,
+        created_at_ticks,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        Classification, MemoryKind, MemoryRecord, MemoryRecordError, MemoryRecordInput,
-        MemorySource, CREATED_AT_CLOCK, MAX_SUPERSEDES_PER_RECORD, SCHEMA,
+        parse, Classification, MemoryKind, MemoryRecord, MemoryRecordError, MemoryRecordInput,
+        MemoryRecordParseError, MemoryRecordView, MemorySource, CREATED_AT_CLOCK,
+        MAX_SUPERSEDES_PER_RECORD, SCHEMA,
     };
     use crate::record::{write_json, Field, Value};
     use crate::sha256_hex;
+    use std::string::{String, ToString};
+    use std::vec::Vec;
 
     /// A fixed digest reused for the sample record's inline evidence hash.
     const SAMPLE_DIGEST: [u8; 32] = [
@@ -831,5 +1444,487 @@ mod tests {
             }
             idx += 1;
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // M9C-1a reparser tests.
+    // -----------------------------------------------------------------------
+
+    fn render_payload(record: &MemoryRecord<'_>) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_json(&record.to_record_value(), &mut out, 0);
+        out
+    }
+
+    /// Asserts a rendered record round-trips through `parse` with identical
+    /// metadata (the `value` sub-tree is intentionally absent from the view).
+    fn assert_roundtrip(record: &MemoryRecord<'_>) {
+        let payload = render_payload(record);
+        let view = parse(&payload).expect("valid payload must reparse");
+        assert_eq!(view.id, record.id);
+        assert_eq!(view.kind, record.kind);
+        assert_eq!(view.entity, record.entity);
+        assert_eq!(view.predicate, record.predicate);
+        assert_eq!(view.classification, record.classification);
+        assert_eq!(view.authority, record.authority);
+        assert_eq!(view.boot_id, record.boot_id);
+        assert_eq!(view.sequence, record.sequence);
+        assert_eq!(view.source, record.source);
+        assert_eq!(view.evidence, record.evidence);
+        assert_eq!(view.tags, record.tags);
+        assert_eq!(view.supersedes, record.supersedes);
+        assert_eq!(view.created_at_ticks, record.created_at_ticks);
+    }
+
+    #[test]
+    fn reparse_round_trips_fixed_sample_record() {
+        assert_roundtrip(&fixed_sample_record());
+    }
+
+    /// A valid record for the given kind, satisfying its per-kind invariants.
+    fn valid_record_for_kind(kind: &'static str) -> MemoryRecord<'static> {
+        MemoryRecord::new(MemoryRecordInput {
+            id: "mem.roundtrip.1",
+            kind,
+            entity: "svc.provider.openai_direct",
+            predicate: "provider_trust_denied",
+            value: Value::Str("payload-value-is-skipped"),
+            classification: "local_only",
+            authority: "core_ledger",
+            boot_id: "boot:0000000000000001",
+            sequence: 7,
+            source: MemorySource::new("system.snapshot", "snapshot:current_boot.00000003"),
+            evidence: vec!["problem:provider.tls_pin_config_missing"],
+            tags: vec!["provider", "trust"],
+            supersedes: vec![],
+            created_at_ticks: 999,
+        })
+        .expect("kind fixture must construct")
+    }
+
+    #[test]
+    fn reparse_round_trips_all_eight_kinds() {
+        for kind in [
+            "capability_grant",
+            "capability_denial",
+            "promotion_tx_ref",
+            "rollback_tx_ref",
+            "decision",
+            "problem",
+            "observation",
+            "export_audit",
+        ] {
+            assert_roundtrip(&valid_record_for_kind(kind));
+        }
+    }
+
+    #[test]
+    fn reparse_round_trips_a_superseding_record() {
+        let superseding = MemoryRecord::new(MemoryRecordInput {
+            id: "mem.problem.resolved.1",
+            kind: "problem",
+            entity: "svc.provider.openai_direct",
+            predicate: "provider_trust_resolved",
+            value: Value::Null,
+            classification: "local_only",
+            authority: "event",
+            boot_id: "boot:1",
+            sequence: 2,
+            source: MemorySource::new("system.snapshot", "snapshot:2"),
+            evidence: vec!["problem:provider.tls_pin_config_missing"],
+            tags: vec![],
+            supersedes: vec!["mem.problem.open.1"],
+            created_at_ticks: 20,
+        })
+        .expect("superseding record constructs");
+        let payload = render_payload(&superseding);
+        let view = parse(&payload).expect("reparses");
+        assert_eq!(view.supersedes, vec!["mem.problem.open.1"]);
+    }
+
+    fn quote(value: &str) -> String {
+        let mut out = String::from("\"");
+        out.push_str(value);
+        out.push('"');
+        out
+    }
+
+    /// The canonical field list of a minimal-valid `decision` payload, each entry
+    /// `(key, raw-json-value)`. The reparser is whitespace-tolerant, so this
+    /// compact (space-free) canonical form parses identically to `write_json`.
+    fn canonical_decision_fields() -> Vec<(&'static str, String)> {
+        vec![
+            ("schema", quote(SCHEMA)),
+            ("id", quote("mem.decision.hand")),
+            ("kind", quote("decision")),
+            ("entity", quote("adr.0004")),
+            ("predicate", quote("memory_is_typed_state")),
+            ("value", "null".to_string()),
+            ("classification", quote("local_only")),
+            ("authority", quote("decision")),
+            ("boot_id", quote("boot:1")),
+            ("sequence", "1".to_string()),
+            (
+                "source",
+                "{\"method\":\"system.snapshot\",\"record_id\":\"snapshot:1\"}".to_string(),
+            ),
+            ("evidence", "[]".to_string()),
+            ("tags", "[]".to_string()),
+            ("supersedes", "[]".to_string()),
+            (
+                "created_at",
+                "{\"clock\":\"boot_relative\",\"ticks\":1}".to_string(),
+            ),
+        ]
+    }
+
+    fn build_payload(fields: &[(&str, String)]) -> Vec<u8> {
+        let mut out = String::from("{");
+        for (idx, (key, raw)) in fields.iter().enumerate() {
+            if idx != 0 {
+                out.push(',');
+            }
+            out.push_str(&quote(key));
+            out.push(':');
+            out.push_str(raw);
+        }
+        out.push('}');
+        out.into_bytes()
+    }
+
+    #[test]
+    fn reparse_hand_built_canonical_decision_is_ok() {
+        let payload = build_payload(&canonical_decision_fields());
+        let view = parse(&payload).expect("canonical parses");
+        assert_eq!(view.kind, MemoryKind::Decision);
+        assert_eq!(view.id, "mem.decision.hand");
+        assert_eq!(view.classification, Classification::LocalOnly);
+        assert_eq!(view.created_at_ticks, 1);
+    }
+
+    /// Every truncation of a valid payload must be rejected — never `Ok`, never a
+    /// panic. This blankets the mid-value / mid-array / mid-final-brace cases.
+    #[test]
+    fn reparse_every_truncation_is_fail_closed() {
+        let payload = render_payload(&fixed_sample_record());
+        assert!(parse(&payload).is_ok());
+        for cut in 0..payload.len() {
+            assert!(
+                parse(&payload[..cut]).is_err(),
+                "truncation to {cut} bytes must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn reparse_specific_truncations_hit_expected_errors() {
+        // Mid-value: cut inside the (skipped) value string -> ValueUnbalanced.
+        let mut fields = canonical_decision_fields();
+        fields[5].1 = quote("SENTINEL_VALUE");
+        let full = build_payload(&fields);
+        let marker = b"SENTINEL";
+        let at = full
+            .windows(marker.len())
+            .position(|window| window == marker)
+            .expect("marker present");
+        assert_eq!(
+            parse(&full[..at + 3]),
+            Err(MemoryRecordParseError::ValueUnbalanced)
+        );
+
+        // Mid-array: cut inside an evidence string element -> BadString.
+        let mut fields = canonical_decision_fields();
+        fields[11].1 = "[\"problem:PINPOINT\"]".to_string();
+        let full = build_payload(&fields);
+        let marker = b"PINPOINT";
+        let at = full
+            .windows(marker.len())
+            .position(|window| window == marker)
+            .expect("marker present");
+        assert_eq!(
+            parse(&full[..at + 3]),
+            Err(MemoryRecordParseError::BadString)
+        );
+
+        // Mid-final-brace: drop the last byte (the closing brace) -> MissingField.
+        let full = render_payload(&fixed_sample_record());
+        assert_eq!(
+            parse(&full[..full.len() - 1]),
+            Err(MemoryRecordParseError::MissingField)
+        );
+    }
+
+    #[test]
+    fn reparse_non_memory_schema_is_dropped() {
+        let mut fields = canonical_decision_fields();
+        fields[0].1 = quote("raios.promotion_transaction.v0");
+        assert_eq!(
+            parse(&build_payload(&fields)),
+            Err(MemoryRecordParseError::SchemaMismatch)
+        );
+    }
+
+    #[test]
+    fn reparse_trailing_garbage_is_rejected() {
+        let mut payload = render_payload(&fixed_sample_record());
+        payload.extend_from_slice(b"garbage");
+        assert_eq!(parse(&payload), Err(MemoryRecordParseError::TrailingBytes));
+        // Trailing whitespace only is fine.
+        let mut ok = render_payload(&fixed_sample_record());
+        ok.extend_from_slice(b"\r\n  ");
+        assert!(parse(&ok).is_ok());
+    }
+
+    #[test]
+    fn reparse_missing_field_is_rejected() {
+        // Drop `predicate` entirely; the next key seen is the later `value`.
+        let mut fields = canonical_decision_fields();
+        fields.remove(4);
+        assert_eq!(
+            parse(&build_payload(&fields)),
+            Err(MemoryRecordParseError::MissingField)
+        );
+    }
+
+    #[test]
+    fn reparse_reordered_field_is_rejected() {
+        // Rename `id`'s slot to a duplicate earlier key (`schema`) -> out of order.
+        let mut fields = canonical_decision_fields();
+        fields[1].0 = "schema";
+        assert_eq!(
+            parse(&build_payload(&fields)),
+            Err(MemoryRecordParseError::FieldOrder)
+        );
+    }
+
+    #[test]
+    fn reparse_extra_unknown_key_is_rejected() {
+        // Put an unknown key where `id` is expected.
+        let mut fields = canonical_decision_fields();
+        fields[1].0 = "bonus";
+        assert_eq!(
+            parse(&build_payload(&fields)),
+            Err(MemoryRecordParseError::ExtraField)
+        );
+    }
+
+    #[test]
+    fn reparse_value_unterminated_string_is_value_unbalanced() {
+        let mut fields = canonical_decision_fields();
+        fields[5].1 = quote("SENTINEL_VALUE");
+        let full = build_payload(&fields);
+        let marker = b"SENTINEL";
+        let at = full
+            .windows(marker.len())
+            .position(|window| window == marker)
+            .expect("marker present");
+        assert_eq!(
+            parse(&full[..at + 3]),
+            Err(MemoryRecordParseError::ValueUnbalanced)
+        );
+    }
+
+    #[test]
+    fn reparse_value_unbalanced_brace_is_value_unbalanced() {
+        // Two unmatched opens; even after balancing the rest of the record and
+        // the final top-level brace, one open remains -> unbalanced at EOF.
+        let mut fields = canonical_decision_fields();
+        fields[5].1 = "{{".to_string();
+        assert_eq!(
+            parse(&build_payload(&fields)),
+            Err(MemoryRecordParseError::ValueUnbalanced)
+        );
+    }
+
+    #[test]
+    fn reparse_value_over_depth_is_value_unbalanced() {
+        let mut fields = canonical_decision_fields();
+        let mut deep = String::new();
+        for _ in 0..40 {
+            deep.push('[');
+        }
+        for _ in 0..40 {
+            deep.push(']');
+        }
+        fields[5].1 = deep;
+        assert_eq!(
+            parse(&build_payload(&fields)),
+            Err(MemoryRecordParseError::ValueUnbalanced)
+        );
+    }
+
+    #[test]
+    fn reparse_secret_classification_is_rejected() {
+        let mut fields = canonical_decision_fields();
+        fields[6].1 = quote("secret");
+        assert_eq!(
+            parse(&build_payload(&fields)),
+            Err(MemoryRecordParseError::SecretClassification)
+        );
+    }
+
+    #[test]
+    fn reparse_unknown_kind_is_rejected() {
+        let mut fields = canonical_decision_fields();
+        fields[2].1 = quote("chat_history");
+        assert_eq!(
+            parse(&build_payload(&fields)),
+            Err(MemoryRecordParseError::UnknownKind)
+        );
+    }
+
+    #[test]
+    fn reparse_non_ascii_byte_is_rejected() {
+        let mut payload = render_payload(&fixed_sample_record());
+        let mid = payload.len() / 2;
+        payload[mid] = 0xff;
+        assert_eq!(parse(&payload), Err(MemoryRecordParseError::NotAscii));
+    }
+
+    #[test]
+    fn reparse_bad_number_is_rejected() {
+        // Non-canonical leading zero on `sequence`.
+        let mut fields = canonical_decision_fields();
+        fields[9].1 = "01".to_string();
+        assert_eq!(
+            parse(&build_payload(&fields)),
+            Err(MemoryRecordParseError::BadNumber)
+        );
+    }
+
+    #[test]
+    fn reparse_observation_requires_entity_and_source() {
+        let mut fields = canonical_decision_fields();
+        fields[2].1 = quote("observation");
+        fields[3].1 = quote(""); // empty entity
+        assert_eq!(
+            parse(&build_payload(&fields)),
+            Err(MemoryRecordParseError::ObservationMissingEntity)
+        );
+
+        let mut fields = canonical_decision_fields();
+        fields[2].1 = quote("observation");
+        fields[10].1 = "{\"method\":\"\",\"record_id\":\"\"}".to_string();
+        assert_eq!(
+            parse(&build_payload(&fields)),
+            Err(MemoryRecordParseError::ObservationMissingSource)
+        );
+    }
+
+    #[test]
+    fn reparse_decision_requires_entity_and_source() {
+        let mut fields = canonical_decision_fields();
+        fields[3].1 = quote("");
+        assert_eq!(
+            parse(&build_payload(&fields)),
+            Err(MemoryRecordParseError::DecisionMissingEntity)
+        );
+
+        let mut fields = canonical_decision_fields();
+        fields[10].1 = "{\"method\":\"m\",\"record_id\":\"\"}".to_string();
+        assert_eq!(
+            parse(&build_payload(&fields)),
+            Err(MemoryRecordParseError::DecisionMissingSource)
+        );
+    }
+
+    #[test]
+    fn reparse_problem_requires_entity_and_status() {
+        let mut fields = canonical_decision_fields();
+        fields[2].1 = quote("problem");
+        fields[3].1 = quote("");
+        assert_eq!(
+            parse(&build_payload(&fields)),
+            Err(MemoryRecordParseError::ProblemMissingEntity)
+        );
+
+        let mut fields = canonical_decision_fields();
+        fields[2].1 = quote("problem");
+        fields[4].1 = quote(""); // empty predicate/status
+        assert_eq!(
+            parse(&build_payload(&fields)),
+            Err(MemoryRecordParseError::ProblemMissingStatus)
+        );
+    }
+
+    #[test]
+    fn reparse_supersedes_too_long_is_rejected() {
+        let mut fields = canonical_decision_fields();
+        fields[13].1 = "[\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\",\"h\",\"i\"]".to_string();
+        assert_eq!(
+            parse(&build_payload(&fields)),
+            Err(MemoryRecordParseError::SupersedesTooLong)
+        );
+    }
+
+    #[test]
+    fn reparse_self_supersede_is_rejected() {
+        let mut fields = canonical_decision_fields();
+        fields[1].1 = quote("mem.self");
+        fields[13].1 = "[\"mem.self\"]".to_string();
+        assert_eq!(
+            parse(&build_payload(&fields)),
+            Err(MemoryRecordParseError::SelfSupersede)
+        );
+    }
+
+    #[test]
+    fn reparse_error_reasons_are_pairwise_unique() {
+        let reasons = [
+            MemoryRecordParseError::NotAscii.reason(),
+            MemoryRecordParseError::SchemaMismatch.reason(),
+            MemoryRecordParseError::UnknownKind.reason(),
+            MemoryRecordParseError::SecretClassification.reason(),
+            MemoryRecordParseError::MissingField.reason(),
+            MemoryRecordParseError::FieldOrder.reason(),
+            MemoryRecordParseError::ExtraField.reason(),
+            MemoryRecordParseError::TrailingBytes.reason(),
+            MemoryRecordParseError::ValueUnbalanced.reason(),
+            MemoryRecordParseError::BadNumber.reason(),
+            MemoryRecordParseError::BadString.reason(),
+            MemoryRecordParseError::ObservationMissingEntity.reason(),
+            MemoryRecordParseError::ObservationMissingSource.reason(),
+            MemoryRecordParseError::DecisionMissingEntity.reason(),
+            MemoryRecordParseError::DecisionMissingSource.reason(),
+            MemoryRecordParseError::ProblemMissingEntity.reason(),
+            MemoryRecordParseError::ProblemMissingStatus.reason(),
+            MemoryRecordParseError::SupersedesTooLong.reason(),
+            MemoryRecordParseError::SelfSupersede.reason(),
+        ];
+        let mut idx = 0usize;
+        while idx < reasons.len() {
+            let mut other = idx + 1;
+            while other < reasons.len() {
+                assert_ne!(reasons[idx], reasons[other]);
+                other += 1;
+            }
+            idx += 1;
+        }
+    }
+
+    #[test]
+    fn reparse_view_never_exposes_value() {
+        // The view type has no `value` field; confirm a record whose value is a
+        // large escaped-text tree still reparses (value skipped, not decoded).
+        let record = MemoryRecord::new(MemoryRecordInput {
+            id: "mem.obs.value",
+            kind: "observation",
+            entity: "svc.x",
+            predicate: "p",
+            value: Value::Str("line1\nline2\t\"quoted\"\\backslash"),
+            classification: "local_only",
+            authority: "event",
+            boot_id: "boot:1",
+            sequence: 1,
+            source: MemorySource::new("system.snapshot", "snapshot:1"),
+            evidence: vec![],
+            tags: vec![],
+            supersedes: vec![],
+            created_at_ticks: 1,
+        })
+        .expect("record constructs");
+        let payload = render_payload(&record);
+        let view: MemoryRecordView<'_> = parse(&payload).expect("reparses");
+        assert_eq!(view.entity, "svc.x");
     }
 }
