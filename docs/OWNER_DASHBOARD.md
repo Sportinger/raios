@@ -3,8 +3,15 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-07 (**M7 COMPLETE — a service now survives a real restart.**
-The big one is done: boot 1 accepts and saves an AI-authored module (its code +
+Updated: 2026-07-07 (**M7 + M8 COMPLETE — a service survives a restart, and the emergency
+rescue line is fully built.** M8 (the Notfall-Rettungsleine) can now, when things break above
+it: diagnose (live + durable last-good/safe-mode), survive a crashed Wasm service, and take four
+safe restore actions — disable a bad module, restart a disabled/crashed one to known-good, and
+re-instate a saved module by fingerprint from the LOCAL store (proven across a real reboot: the
+service comes back and answers live). Every action is deny-before-doing, records a durable proof
+first, restore-only-never-promote, honest dev-key. Next big block: M9 (durable memory).
+M7 detail below.
+The big one (M7) is done: boot 1 accepts and saves an AI-authored module (its code +
 a signed "promotion receipt"); the machine is powered down and back up; boot 2
 independently re-checks the whole evidence chain from disk — re-doing the signature
 check itself, never trusting a stored "already OK" flag — and only then runs it, so
@@ -41,12 +48,17 @@ Modus aktiv ist, ob der letzte Start als erfolgreich markiert wurde — plus ein
 **Vorschau** „was würde ein Zurückrollen ändern" (nur anschauen, ändert nichts). Fehlt die
 Information (keine Platte), wird das ehrlich als „nicht verfügbar" gemeldet, nie erfunden.
 NEU (M8D-1, „prüfen aber noch nicht laden"): die Rettungsleine kann jetzt ein bereits
-gespeichertes Modul per Fingerabdruck im LOKALEN Speicher finden und **die komplette
-Beweiskette von Grund auf neu prüfen** (inkl. Unterschrift) — lädt es aber noch NICHT (das ist
-der nächste, letzte M8-Schritt M8D-2). Sie lädt **niemals aus dem Netz** und nimmt **keine neuen
-Bytes** an — nur der Fingerabdruck sucht in schon-geprüften lokalen Einträgen; ein falscher/
-unbekannter Fingerabdruck wird ehrlich abgelehnt. Danach ist **M8 komplett**. Das Ausführen von
-„zurückrollen" bleibt bewusst verweigert (Nicht-Ziel von M8). Und die wichtigste Absicherung von M8 ist bewiesen: selbst wenn ein laufender
+gespeichertes Modul per Fingerabdruck im LOKALEN Speicher finden, **die komplette Beweiskette
+von Grund auf neu prüfen** (inkl. Unterschrift) und — NEU mit M8D-2 — **wieder in Betrieb
+nehmen**: bewiesen über einen echten Neustart (Boot 1 speichert das Modul, Boot 2 holt es per
+Fingerabdruck zurück, prüft alles neu, lädt es über dasselbe geprüfte Tor und **der Dienst
+antwortet wieder live**). Ein falscher Fingerabdruck → „nicht im Speicher"; ein manipulierter
+Eintrag → bei der Neuprüfung abgelehnt, nichts geladen. Sie lädt **niemals aus dem Netz** und
+nimmt **keine neuen Bytes** an. **Damit ist M8 KOMPLETT** — die Notfall-Rettungsleine kann:
+diagnostizieren (inkl. dauerhaftem Zustand), einen Absturz überleben, abschalten, neu-starten und
+ein gespeichertes Modul per Fingerabdruck neu-instanzieren — alles nur-wiederherstellen, alles neu
+geprüft, alles ehrlich Entwickler-Schlüssel. Das Ausführen von „zurückrollen" bleibt bewusst
+verweigert (Nicht-Ziel von M8). Nächster großer Block: **M9 (dauerhaftes Gedächtnis).** Und die wichtigste Absicherung von M8 ist bewiesen: selbst wenn ein laufender
 Baustein WIRKLICH abstürzt, antwortet die Rettungsleine weiter — sie überlebt, weil
 KI-Code ein Treibstoff-Limit hat und kooperativ läuft, noch NICHT durch echte
 Hardware-Trennung (die kommt erst mit M11).).

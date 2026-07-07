@@ -610,20 +610,30 @@ fn emit_denied(matched: &'static table::LifelineMethod) {
 }
 
 // ===================================================================================
-// M8D-1: recovery.load_artifact_by_hash — hash-selected FULL M6 re-verify, GRANTS NOTHING.
+// M8D-2: recovery.load_artifact_by_hash — hash-selected FULL M6 re-verify + the AUTHORITY
+// FLIP that dispatches the UNMODIFIED M6 gate to RE-INSTATE the RAM-only current-boot
+// service. Restore-toward-known-good; grants NOTHING NEW (re-instates an already-attested
+// LOCAL artifact only).
 //
 // The operator names an exact content hash; the lifeline parses it, selects the matching
-// artifact_persist record from the LOCAL M7D store, and RE-VERIFIES the full M6 evidence
-// chain from scratch by reusing the ONE shared reverify implementation
-// (`repromotion::reverify_record_only`, which re-runs `reverify_persisted_artifact` and
-// NEVER trusts a stored boolean), then REPORTS the decision. It grants nothing: no retain,
-// no module load, no emit_load/emit_start, `authorizes_load`/`cross_reboot_proven` always
-// false, and NO durable write. Fail-closed order: malformed hash (reads NOTHING) -> SAFE/
+// artifact_persist record from the LOCAL M7D store, then runs the FULL
+// `repromotion::reverify_and_load_record` — the ONE shared re-verify PLUS the UNMODIFIED
+// `granted_candidate_service` M6 load/start gate (reverify -> reconstructed-wasm validity
+// -> retain -> repopulate references -> emit_load -> emit_start). The load is gated on that
+// FULL path, NEVER on `reverify_record_only().reverified()` alone (payload-sha but NOT
+// wasm-validity — the M8D-1 review's flagged trap). On a genuine gate load+start it appends
+// a durable `raios.recovery_load.v0` reinstatement audit AFTER the gate (matching
+// repromotion.run's append-after-gate discipline, since the M6 gate — not the durable
+// record — is the load authority) and reports the REAL outcome with `authorizes_load`/
+// `cross_reboot_proven` true. Fail-closed order: malformed hash (reads NOTHING) -> SAFE/
 // PersistenceUnavailable posture (BEFORE any store read) -> AHCI controller absent ->
-// record absent -> reverify. The positive LOAD path is M8D-2 (two-boot harness), not here.
+// record absent -> reverify/gate denial. Every denial mutates nothing and writes NOTHING
+// durable (deny-before-append). owner_sealed/persistence_claimed are false in EVERY
+// response; the re-instated service is RAM-only current_boot.
 // ===================================================================================
 
-/// `recovery.load_artifact_by_hash <sha256>` executor. Reverify-ONLY; grants nothing.
+/// `recovery.load_artifact_by_hash <sha256>` executor. Full M6 gate; re-instates a local,
+/// already-attested artifact on a genuine gate load+start; grants NOTHING NEW.
 fn emit_load_artifact_by_hash(arg: &str) -> DispatchOutcome {
     let arg = arg.trim();
     // 1. Parse the caller-supplied hash. `parse_sha256_ref` eats an optional `sha256:`
@@ -661,14 +671,42 @@ fn emit_load_artifact_by_hash(arg: &str) -> DispatchOutcome {
         );
         return DispatchOutcome::Denied(table::METHOD_LOAD_ARTIFACT_BY_HASH);
     };
-    // 5. RE-VERIFY the full M6 chain from scratch via the ONE shared implementation.
-    //    GRANTS NOTHING: `reverify_record_only` retains/loads/starts nothing and writes
-    //    nothing durable. We only REPORT its decision here (the positive load is M8D-2).
-    let outcome = repromotion::reverify_record_only(controller, &record);
-    emit_load_reverify_response(arg, requested_hash, &record, &outcome);
-    if outcome.reverified() {
+    // 5. AUTHORITY FLIP: run the FULL M6 gate via `reverify_and_load_record` (reverify +
+    //    reconstructed-wasm validity + retain + repopulate references + the UNMODIFIED
+    //    granted_candidate_service load/start). This is the ONLY load path — NEVER
+    //    `reverify_record_only().reverified()` alone (payload-sha but NOT wasm-validity).
+    //    It re-instates the RAM-only current-boot service ONLY on a genuine gate load+start.
+    let outcome = repromotion::reverify_and_load_record(controller, &record);
+    if outcome.reinstated {
+        // Append-after-gate, matching repromotion.run's audit discipline: the M6 gate is
+        // the load authority; the durable `raios.recovery_load.v0` record is an AUDIT of
+        // the reinstatement the gate just authorized. Appending BEFORE the gate would
+        // either lie about the not-yet-known load outcome or resurrect reverify_record_only
+        // as a pseudo-gate (the flagged trap), so we append AFTER with the REAL reinstated
+        // status. Denials never reach this append — they fail closed above (deny-before-
+        // append). A failed durable append never un-does the RAM-only gate load; it is
+        // reported honestly in `durable_append`.
+        let audit = durable_store::append_recovery_load(&durable_store::RecoveryLoadRecord {
+            artifact_persist_seq: outcome.artifact_persist_seq,
+            artifact_sha256: outcome.artifact_sha256,
+            manifest_hash: outcome.manifest_hash,
+            vm_report_hash: outcome.vm_report_hash,
+            grant_hash: outcome.grant_hash,
+            promotion_transaction_sha256: outcome.promotion_transaction_sha256,
+            artstor_blob_offset: outcome.artstor_blob_offset,
+            artstor_blob_len: outcome.artstor_blob_len,
+            artstor_blob_frame_sha256: outcome.artstor_blob_frame_sha256,
+            load_granted: outcome.load_granted,
+            service_loaded: outcome.service_loaded,
+            service_started: outcome.service_started,
+            authorizes_load: outcome.authorizes_load,
+            cross_reboot_proven: outcome.cross_reboot_proven,
+        });
+        emit_load_reinstated_response(arg, requested_hash, &record, &outcome, &audit);
         DispatchOutcome::Response(table::METHOD_LOAD_ARTIFACT_BY_HASH)
     } else {
+        // Reverify/gate denial: nothing loaded, nothing retained, NOTHING written durable.
+        emit_load_gate_denied_response(arg, requested_hash, &record, &outcome);
         DispatchOutcome::Denied(table::METHOD_LOAD_ARTIFACT_BY_HASH)
     }
 }
@@ -716,37 +754,191 @@ fn emit_load_denied(arg: &str, requested_hash: Option<[u8; 32]>, reason: &'stati
     );
 }
 
-/// Reverify result: the chain either re-verified (load STILL denied — M8D-1 grants
-/// nothing) or was denied with the reverify reason. Loads nothing either way.
-fn emit_load_reverify_response(
+/// M8D-2 reinstated-success status/reason. `recovery_load_record.rs` is frozen this slice,
+/// so the reinstated vocabulary lives beside the executor that emits it.
+const LOAD_STATUS_REINSTATED: &str = "reinstated_current_boot";
+const LOAD_REASON_REINSTATED: &str = "reinstated_reverified_m6_gate_loaded_and_started";
+
+fn optional_str(value: Option<&'static str>) -> Value<'static> {
+    match value {
+        Some(value) => s(value),
+        None => Value::Null,
+    }
+}
+
+/// Full-gate DENIAL (record found, but reverify/wasm/gate refused): nothing loaded,
+/// nothing retained, NOTHING written durable. Grants-nothing labels are appended, so the
+/// wire shape cannot claim authority it lacks. `reverified` reports whether the pure
+/// re-verify decision passed (a later gate step — e.g. reconstructed-wasm invalid — can
+/// still deny the load); `reverify_status`/`reverify_reason` carry the gate's real reason.
+fn emit_load_gate_denied_response(
     arg: &str,
     requested_hash: [u8; 32],
     record: &artifact_store::ArtifactPersistRecord,
-    outcome: &repromotion::ReverifyOnly,
+    outcome: &repromotion::ReinstateOutcome,
 ) {
-    let reverified = outcome.reverified();
-    let (status, reason) = if reverified {
-        (
-            load_rec::STATUS_REVERIFIED_LOAD_DENIED,
-            load_rec::REASON_REVERIFIED_LOAD_DENIED,
-        )
-    } else {
-        (load_rec::STATUS_DENIED, outcome.reason())
-    };
     emit_load_response(
         arg,
         Some(requested_hash),
-        status,
-        reason,
+        load_rec::STATUS_DENIED,
+        outcome.reason,
         true,
-        reverified,
-        outcome.status(),
-        outcome.reason(),
+        outcome.reverified,
+        outcome.status,
+        outcome.reason,
         Some(record),
-        outcome.candidate_payload_sha256(),
-        outcome.recomputed_attestation_reference_hash(),
-        outcome.recorded_attestation_reference_hash(),
+        outcome.candidate_payload_sha256,
+        outcome.recomputed_attestation_reference_hash,
+        outcome.recorded_attestation_reference_hash,
     );
+}
+
+/// M8D-2 POSITIVE reinstatement: the FULL M6 gate genuinely re-verified, re-loaded, AND
+/// re-started the persisted artifact as a RAM-only current-boot service, and the durable
+/// `raios.recovery_load.v0` audit was appended AFTER the gate. Reports the REAL gate
+/// outcome (`load_granted`/`service_loaded`/`service_started`/`start_run_outcome`) with
+/// `authorizes_load`/`cross_reboot_proven` true — true ONLY on a genuine gate load+start.
+/// Honest posture: owner_sealed/persistence_claimed false, grants NOTHING NEW, no external
+/// bytes/URL/fetch; the reinstated service does route through wasm (it ran the module).
+fn emit_load_reinstated_response(
+    requested_target: &str,
+    requested_hash: [u8; 32],
+    record: &artifact_store::ArtifactPersistRecord,
+    outcome: &repromotion::ReinstateOutcome,
+    audit: &durable_store::RecoveryLoadAppendEvidence,
+) {
+    let method = table::METHOD_LOAD_ARTIFACT_BY_HASH;
+    begin_response(method);
+    emit_record_fields(
+        vec![
+            f("schema", s(load_rec::SCHEMA)),
+            f("id", s(load_rec::RESPONSE_ID)),
+            f("scope", s(load_rec::SCOPE)),
+            f("classification", s(load_rec::CLASSIFICATION)),
+            f("method", s(method)),
+            f("requested_target", s(requested_target)),
+            f("requested_hash", record_sha_or_null(Some(requested_hash))),
+            f("requested_hash_valid", b(true)),
+            f("status", s(LOAD_STATUS_REINSTATED)),
+            f("reason", s(LOAD_REASON_REINSTATED)),
+            f("reverify_attempted", b(true)),
+            f("reverified", b(true)),
+            f("reverify_status", s(outcome.status)),
+            f("reverify_reason", s(outcome.reason)),
+            f("record_found", b(true)),
+            f("record_seq", Value::U64(record.seq)),
+            f("artifact_sha256", Value::Sha256(record.artifact_sha256)),
+            f("manifest_hash", Value::Sha256(record.manifest_hash)),
+            f("vm_report_hash", Value::Sha256(record.vm_report_hash)),
+            f("grant_hash", Value::Sha256(record.grant_hash)),
+            f(
+                "promotion_transaction_sha256",
+                Value::Sha256(record.promotion_transaction_sha256),
+            ),
+            f(
+                "artstor_blob_offset",
+                Value::U64(record.artstor_blob_offset),
+            ),
+            f("artstor_blob_len", Value::U64(record.artstor_blob_len)),
+            f(
+                "artstor_blob_frame_sha256",
+                Value::Sha256(record.artstor_blob_frame_sha256),
+            ),
+            f(
+                "candidate_payload_sha256",
+                record_sha_or_null(outcome.candidate_payload_sha256),
+            ),
+            f(
+                "recomputed_attestation_reference_hash",
+                record_sha_or_null(outcome.recomputed_attestation_reference_hash),
+            ),
+            f(
+                "recorded_attestation_reference_hash",
+                record_sha_or_null(outcome.recorded_attestation_reference_hash),
+            ),
+            f(
+                "reconstructed_wasm_valid",
+                b(outcome.reconstructed_wasm_valid.unwrap_or(false)),
+            ),
+            f("transport", s(table::TRANSPORT)),
+            f("trust_state", s(table::TRUST_STATE)),
+            f("store_source", s("local_recovery_store")),
+            f("service_id", s("svc.dev.granted_candidate")),
+            // Live M6 gate load/start outcome, reported from the REAL gate result.
+            f("load_attempted", b(outcome.load_attempted)),
+            f("load_granted", b(outcome.load_granted)),
+            f("service_loaded", b(outcome.service_loaded)),
+            f("service_started", b(outcome.service_started)),
+            f("start_run_outcome", optional_str(outcome.start_run_outcome)),
+            // Durable reinstatement audit (append-after-gate).
+            f("durable_write_attempted", b(true)),
+            f("durable_append", s(audit.durable_append)),
+            f("durable_append_performed", b(audit.performed)),
+            f("durable_append_reason", s(audit.reason)),
+            f("durable_append_authority", s(audit.authority)),
+            f("durable_append_seq", optional_u64(audit.seq)),
+            f(
+                "durable_append_write_offset",
+                optional_u64(audit.write_offset),
+            ),
+            f("durable_append_frame_len", optional_u64(audit.frame_len)),
+            f(
+                "durable_append_payload_sha256",
+                record_sha_or_null(audit.payload_sha256),
+            ),
+            f(
+                "durable_append_frame_sha256",
+                record_sha_or_null(audit.frame_sha256),
+            ),
+            f(
+                "durable_append_readback_sha256",
+                record_sha_or_null(audit.readback_sha256),
+            ),
+            f("durable_append_reparse_valid", b(audit.reparse_valid)),
+            f(
+                "durable_append_tail_seq_before",
+                optional_u64(audit.tail_seq_before),
+            ),
+            f(
+                "durable_append_count_before",
+                optional_u64(audit.count_before),
+            ),
+            f(
+                "durable_append_tail_seq_after",
+                optional_u64(audit.tail_seq_after),
+            ),
+            f(
+                "durable_append_count_after",
+                optional_u64(audit.count_after),
+            ),
+            f(
+                "target_id",
+                s(durable_store::RECOVERY_LOAD_APPEND_TARGET_ID),
+            ),
+            f("record_schema", s(durable_store::RECOVERY_LOAD_SCHEMA)),
+            f(
+                "region_marker",
+                s(durable_store::RECOVERY_LOAD_APPEND_REGION_MARKER),
+            ),
+            // Honest reinstated posture: grants NOTHING NEW; RAM-only current_boot.
+            f("trust_tier", s(load_rec::TRUST_TIER)),
+            f("owner_sealed", b(false)),
+            f("promotion_authority_is_placeholder", b(true)),
+            f("grants_new_capability", b(false)),
+            f("authorizes_load", b(outcome.authorizes_load)),
+            f("cross_reboot_proven", b(outcome.cross_reboot_proven)),
+            f("load_still_denied", b(false)),
+            f("persistence_claimed", b(false)),
+            f("mutates_live_state", b(true)),
+            f("accepts_external_bytes", b(false)),
+            f("accepts_url", b(false)),
+            f("fetches", b(false)),
+            f("routes_through_wasm", b(true)),
+            f("routes_through_provider", b(false)),
+        ],
+        6,
+    );
+    end_response(method);
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -36,6 +36,15 @@ use raios_core::{
         EXPECTED_TARGET_ID as RECOVERY_ACTION_EXPECTED_TARGET_ID,
         EXPECTED_TRUST_TIER as RECOVERY_ACTION_EXPECTED_TRUST_TIER,
     },
+    scoped_recovery_load_append::{
+        evaluate_scoped_recovery_load_append, ScopedRecoveryLoadAppendInput,
+        DECISION_STATUS_REINSTATED as RECOVERY_LOAD_DECISION_STATUS_REINSTATED,
+        EXPECTED_METHOD as RECOVERY_LOAD_EXPECTED_METHOD,
+        EXPECTED_RECORD_SCHEMA as RECOVERY_LOAD_EXPECTED_RECORD_SCHEMA,
+        EXPECTED_REGION_MARKER as RECOVERY_LOAD_EXPECTED_REGION_MARKER,
+        EXPECTED_TARGET_ID as RECOVERY_LOAD_EXPECTED_TARGET_ID,
+        EXPECTED_TRUST_TIER as RECOVERY_LOAD_EXPECTED_TRUST_TIER,
+    },
     scoped_seed_data_append::{
         evaluate_scoped_seed_data_append, ScopedSeedDataAppendInput, EXPECTED_METHOD,
         EXPECTED_RECORD_SCHEMA, EXPECTED_REGION_MARKER, EXPECTED_TARGET_ID,
@@ -70,6 +79,14 @@ pub(crate) const RECOVERY_ACTION_SCHEMA: &str = RECOVERY_ACTION_EXPECTED_RECORD_
 pub(crate) const RECOVERY_ACTION_APPEND_TARGET_ID: &str = RECOVERY_ACTION_EXPECTED_TARGET_ID;
 pub(crate) const RECOVERY_ACTION_APPEND_REGION_MARKER: &str =
     RECOVERY_ACTION_EXPECTED_REGION_MARKER;
+const RECOVERY_LOAD_RECORD_KIND: &str = "recovery_load";
+const RECOVERY_LOAD_RECORD_SCOPE: &str = "current_boot";
+const RECOVERY_LOAD_RECORD_CLASSIFICATION: &str = "local_only";
+const RECOVERY_LOAD_TRUST_TIER: &str = "dev_key_not_owner_sealed";
+const RECOVERY_LOAD_SERVICE_ID: &str = "svc.dev.granted_candidate";
+pub(crate) const RECOVERY_LOAD_SCHEMA: &str = RECOVERY_LOAD_EXPECTED_RECORD_SCHEMA;
+pub(crate) const RECOVERY_LOAD_APPEND_TARGET_ID: &str = RECOVERY_LOAD_EXPECTED_TARGET_ID;
+pub(crate) const RECOVERY_LOAD_APPEND_REGION_MARKER: &str = RECOVERY_LOAD_EXPECTED_REGION_MARKER;
 
 struct DurableRecordLogScanEvidence {
     reason: &'static str,
@@ -1475,6 +1492,289 @@ pub(crate) fn recovery_action_payload_bytes(record: &RecoveryActionRecord) -> Ve
         ));
     }
     let payload = V::Object(fields);
+    let mut sink = VecSink(Vec::new());
+    write_json(&payload, &mut sink, 0);
+    sink.0
+}
+
+// --- M8D-2 recovery.load_artifact_by_hash durable reinstatement audit ----------------
+//
+// The recovery-lifeline authority flip (M8D-2) appends a `raios.recovery_load.v0` record
+// through the SHARED reclog mechanism (current_boot_reclog_scan / plan / ahci
+// write_readback / parse) authorized ONLY by evaluate_scoped_recovery_load_append. Like
+// append_recovery_action / append_promotion_transaction, it forks NO second durable-append
+// implementation — it swaps only the scoped evaluator and the record payload. The lifeline
+// calls this ONLY after the UNMODIFIED M6 gate genuinely re-instated the RAM-only
+// current-boot service (append-after-gate, matching repromotion.run's audit discipline),
+// so the record honestly attests a real reinstatement; every denial path in the lifeline
+// fails closed BEFORE reaching this append.
+
+#[derive(Clone, Copy)]
+pub(crate) struct RecoveryLoadRecord {
+    pub(crate) artifact_persist_seq: u64,
+    pub(crate) artifact_sha256: [u8; 32],
+    pub(crate) manifest_hash: [u8; 32],
+    pub(crate) vm_report_hash: [u8; 32],
+    pub(crate) grant_hash: [u8; 32],
+    pub(crate) promotion_transaction_sha256: [u8; 32],
+    pub(crate) artstor_blob_offset: u64,
+    pub(crate) artstor_blob_len: u64,
+    pub(crate) artstor_blob_frame_sha256: [u8; 32],
+    pub(crate) load_granted: bool,
+    pub(crate) service_loaded: bool,
+    pub(crate) service_started: bool,
+    pub(crate) authorizes_load: bool,
+    pub(crate) cross_reboot_proven: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct RecoveryLoadAppendEvidence {
+    pub(crate) durable_append: &'static str,
+    pub(crate) performed: bool,
+    pub(crate) reason: &'static str,
+    pub(crate) authority: &'static str,
+    pub(crate) seq: Option<u64>,
+    pub(crate) write_offset: Option<u64>,
+    pub(crate) frame_len: Option<u64>,
+    pub(crate) payload_sha256: Option<[u8; 32]>,
+    pub(crate) frame_sha256: Option<[u8; 32]>,
+    pub(crate) readback_sha256: Option<[u8; 32]>,
+    pub(crate) reparse_valid: bool,
+    pub(crate) tail_seq_before: Option<u64>,
+    pub(crate) count_before: Option<u64>,
+    pub(crate) tail_seq_after: Option<u64>,
+    pub(crate) count_after: Option<u64>,
+}
+
+pub(crate) fn recovery_load_append_denied(reason: &'static str) -> RecoveryLoadAppendEvidence {
+    recovery_load_append_evidence(
+        "capability_denied",
+        reason,
+        "evidence_only",
+        None,
+        None,
+        None,
+        false,
+        None,
+    )
+}
+
+/// Append the durable `raios.recovery_load.v0` reinstatement audit through the SHARED
+/// reclog gauntlet (scan -> plan -> ahci write_readback -> readback-sha -> reparse ->
+/// evaluate_scoped_recovery_load_append -> rescan), mirroring append_recovery_action
+/// EXACTLY. SAFE/PersistenceUnavailable posture denies before any plan/write. The caller
+/// (recovery lifeline) invokes this ONLY on a genuine gate reinstatement, so the record's
+/// decision_status is always the reinstated success status.
+pub(crate) fn append_recovery_load(record: &RecoveryLoadRecord) -> RecoveryLoadAppendEvidence {
+    if !matches!(
+        super::boot_control::current_boot_posture(),
+        BootPosture::Normal | BootPosture::Probation
+    ) {
+        return recovery_load_append_denied("boot_control_safe_mode");
+    }
+
+    let before = current_boot_reclog_scan();
+    let payload = recovery_load_payload_bytes(record);
+    let planned = match plan_reclog_append(&before.scan, &payload, before.reclog_byte_count) {
+        Ok(planned) => planned,
+        Err(denied) => {
+            return recovery_load_append_evidence(
+                "capability_denied",
+                denied.reason(),
+                "evidence_only",
+                Some(&before),
+                None,
+                None,
+                false,
+                None,
+            )
+        }
+    };
+
+    let Some(controller) = before.controller else {
+        return recovery_load_append_evidence(
+            "capability_denied",
+            "ahci_controller_not_observed",
+            "evidence_only",
+            Some(&before),
+            Some(&planned),
+            None,
+            false,
+            None,
+        );
+    };
+
+    let write = unsafe {
+        ahci::write_readback_reclog_append(controller, planned.write_offset, &planned.frame)
+    };
+    let readback_sha256 = write.readback.as_deref().map(sha256_bytes);
+    let reparse_valid = write
+        .readback
+        .as_deref()
+        .map(|bytes| parse_reclog_frame(bytes, 0, planned.seq, planned.prev_frame_sha256).is_ok())
+        .unwrap_or(false);
+    let decision = evaluate_scoped_recovery_load_append(&ScopedRecoveryLoadAppendInput {
+        method: Some(RECOVERY_LOAD_EXPECTED_METHOD),
+        target_id: Some(RECOVERY_LOAD_EXPECTED_TARGET_ID),
+        record_schema: Some(RECOVERY_LOAD_EXPECTED_RECORD_SCHEMA),
+        region_marker: Some(RECOVERY_LOAD_EXPECTED_REGION_MARKER),
+        frame_len: Some(planned.frame_len),
+        write_offset: Some(planned.write_offset),
+        reclog_byte_count: Some(before.reclog_byte_count),
+        absolute_start_lba: Some(before.reclog_absolute_start_lba),
+        reclog_lba_count: Some(before.reclog_lba_count),
+        seq: Some(planned.seq),
+        tail_seq: Some(before.scan.tail_seq),
+        count: Some(before.scan.count),
+        prev_frame_sha256: Some(planned.prev_frame_sha256),
+        tail_frame_sha256: before.scan.tail_frame_sha256,
+        payload_sha256: Some(planned.payload_sha256),
+        planned_payload_sha256: Some(planned.payload_sha256),
+        planned_frame_sha256: Some(planned.frame_sha256),
+        readback_frame_sha256: readback_sha256,
+        write_attempted: write.write_attempted,
+        write_completed: write.write_completed,
+        readback_completed: write.readback_completed,
+        readback_matches_planned: readback_sha256 == Some(planned.frame_sha256),
+        reparse_valid,
+        span_in_bounds: write.span_in_bounds,
+        // The lifeline only appends on a genuine reinstatement, so the audit always
+        // carries the reinstated success status with the REAL gate load authority.
+        decision_status: Some(RECOVERY_LOAD_DECISION_STATUS_REINSTATED),
+        would_reinstate: true,
+        authorizes_load: record.authorizes_load,
+        trust_tier: Some(RECOVERY_LOAD_EXPECTED_TRUST_TIER),
+        owner_sealed: false,
+        promotion_authority_is_placeholder: PROMOTION_AUTHORITY_IS_PLACEHOLDER,
+        cross_reboot_proven: record.cross_reboot_proven,
+        persistence_claimed: false,
+    });
+
+    if !decision.performed {
+        return recovery_load_append_evidence(
+            "capability_denied",
+            decision.reason,
+            "evidence_only",
+            Some(&before),
+            Some(&planned),
+            readback_sha256,
+            reparse_valid,
+            None,
+        );
+    }
+
+    let after = current_boot_reclog_scan();
+    let rescan_ok = before
+        .scan
+        .count
+        .checked_add(1)
+        .map(|count| after.scan.count == count)
+        .unwrap_or(false)
+        && after.scan.tail_seq == planned.seq
+        && after.scan.tail_frame_sha256 == Some(planned.frame_sha256);
+    if !rescan_ok {
+        return recovery_load_append_evidence(
+            "capability_denied",
+            "post_append_rescan_mismatch",
+            "evidence_only",
+            Some(&before),
+            Some(&planned),
+            readback_sha256,
+            reparse_valid,
+            Some(&after),
+        );
+    }
+
+    recovery_load_append_evidence(
+        "appended",
+        decision.reason,
+        "scoped_recovery_load_append_authorized",
+        Some(&before),
+        Some(&planned),
+        readback_sha256,
+        true,
+        Some(&after),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn recovery_load_append_evidence(
+    durable_append: &'static str,
+    reason: &'static str,
+    authority: &'static str,
+    before: Option<&DurableRecordLogScanEvidence>,
+    planned: Option<&PlannedAppend>,
+    readback_sha256: Option<[u8; 32]>,
+    reparse_valid: bool,
+    after: Option<&DurableRecordLogScanEvidence>,
+) -> RecoveryLoadAppendEvidence {
+    RecoveryLoadAppendEvidence {
+        durable_append,
+        performed: durable_append == "appended",
+        reason,
+        authority,
+        seq: planned.map(|planned| planned.seq),
+        write_offset: planned.map(|planned| planned.write_offset),
+        frame_len: planned.map(|planned| planned.frame_len),
+        payload_sha256: planned.map(|planned| planned.payload_sha256),
+        frame_sha256: planned.map(|planned| planned.frame_sha256),
+        readback_sha256,
+        reparse_valid,
+        tail_seq_before: before.map(|before| before.scan.tail_seq),
+        count_before: before.map(|before| before.scan.count),
+        tail_seq_after: after.map(|after| after.scan.tail_seq),
+        count_after: after.map(|after| after.scan.count),
+    }
+}
+
+pub(crate) fn recovery_load_payload_bytes(record: &RecoveryLoadRecord) -> Vec<u8> {
+    let payload = V::Object(vec![
+        f("schema", s(RECOVERY_LOAD_EXPECTED_RECORD_SCHEMA)),
+        f(
+            "id",
+            s("recovery_load.current_boot.reinstate.svc.dev.granted_candidate.v0"),
+        ),
+        f("scope", s(RECOVERY_LOAD_RECORD_SCOPE)),
+        f("classification", s(RECOVERY_LOAD_RECORD_CLASSIFICATION)),
+        f("record_kind", s(RECOVERY_LOAD_RECORD_KIND)),
+        f("method", s(RECOVERY_LOAD_EXPECTED_METHOD)),
+        f(
+            "decision_status",
+            s(RECOVERY_LOAD_DECISION_STATUS_REINSTATED),
+        ),
+        f("service_id", s(RECOVERY_LOAD_SERVICE_ID)),
+        f("artifact_persist_seq", V::U64(record.artifact_persist_seq)),
+        f("artifact_sha256", V::Sha256(record.artifact_sha256)),
+        f("manifest_hash", V::Sha256(record.manifest_hash)),
+        f("vm_report_hash", V::Sha256(record.vm_report_hash)),
+        f("grant_hash", V::Sha256(record.grant_hash)),
+        f(
+            "promotion_transaction_sha256",
+            V::Sha256(record.promotion_transaction_sha256),
+        ),
+        f("artstor_blob_offset", V::U64(record.artstor_blob_offset)),
+        f("artstor_blob_len", V::U64(record.artstor_blob_len)),
+        f(
+            "artstor_blob_frame_sha256",
+            V::Sha256(record.artstor_blob_frame_sha256),
+        ),
+        f("load_granted", b(record.load_granted)),
+        f("service_loaded", b(record.service_loaded)),
+        f("service_started", b(record.service_started)),
+        f("authorizes_load", b(record.authorizes_load)),
+        f("cross_reboot_proven", b(record.cross_reboot_proven)),
+        f("would_reinstate", b(true)),
+        f("grants_new_capability", b(false)),
+        f("trust_tier", s(RECOVERY_LOAD_TRUST_TIER)),
+        f(
+            "promotion_authority_is_placeholder",
+            b(PROMOTION_AUTHORITY_IS_PLACEHOLDER),
+        ),
+        f("owner_sealed", b(false)),
+        f("reversible_this_boot", b(false)),
+        f("mutates_live_state", b(true)),
+        f("persistence_claimed", b(false)),
+    ]);
     let mut sink = VecSink(Vec::new());
     write_json(&payload, &mut sink, 0);
     sink.0

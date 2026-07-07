@@ -100,10 +100,17 @@ unchanged), and REPORTS ONLY (no load, no durable write; authorizes_load always 
 accepts new bytes / a URL. Repromotion reverify extracted to a shared pub(crate) fn with
 emit_repromotion_run byte-for-byte unchanged (m6c-promotion 180/180). Vocab re-pinned 4a2c52a5→7488a1ab.
 Max review nothing above LOW. Verified m8-lifeline 270/270, m6c-promotion 180/180, quick 584/584,
-recovery 3833/3833 byte-identical, FULL 8168/8168, raios-core 119. Next: **M8D-2** (the authority flip:
-own scoped_recovery_load_append + the UNMODIFIED M6 gate, two-boot positive proof) closes M8. Then
-**M8D** legacy note (load_artifact_by_hash from
-the local store). (M7 map
+recovery 3833/3833 byte-identical, FULL 8168/8168, raios-core 119. **M8D-2 done (2026-07-07) — M8
+COMPLETE:** the authority flip re-instates a persisted artifact by hash through the FULL
+reverify_record path (reconstructed-wasm-validity + the UNMODIFIED M6 gate) + a durable audit via a
+NEW own scoped_recovery_load_append evaluator; load authorized ONLY by a genuine reinstated
+(reverify + wasm-valid + load + start); grants nothing new, never fetches, deny-before-append. Proven
+by the two-boot harness (110/110): boot-2 load-by-hash re-instates the boot-1-persisted artifact and
+the service ANSWERS LIVE; wrong-hash + tampered-record deny with no load. Max review nothing above
+LOW. Verified two-boot 110/110, m6c-promotion (repromotion intact), recovery byte-identical, quick,
+FULL 8168/8168, raios-core 125. **M8 Recovery Agent Lifeline COMPLETE** (diagnose incl. durable
+last-good/SAFE, survive a Wasm crash, disable, restart, re-instate-by-hash — all restore-only,
+re-verified, dev-tier). Next: **M9 Durable Memory & Context Broker v1.** (M7 map
 `docs/plan-reviews/m7-persistence-map-2026-07-06.md`,
 revalidated M7-0). Sequencing per the M7-0 note: M7A + M7B build GPT + the
 SEED_DATA RECLOG durable store; then M6D-2 records its durable promotion

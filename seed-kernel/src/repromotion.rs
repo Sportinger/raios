@@ -246,32 +246,6 @@ impl ReverifyOnly {
             transaction: None,
         }
     }
-
-    /// Whether the FULL M6 evidence chain re-verified from scratch (the pure
-    /// `reverify_persisted_artifact` decision — never a stored boolean).
-    pub(crate) fn reverified(&self) -> bool {
-        self.evidence.performed
-    }
-
-    pub(crate) fn status(&self) -> &'static str {
-        self.evidence.status
-    }
-
-    pub(crate) fn reason(&self) -> &'static str {
-        self.evidence.reason
-    }
-
-    pub(crate) fn candidate_payload_sha256(&self) -> Option<[u8; 32]> {
-        self.evidence.candidate_payload_sha256
-    }
-
-    pub(crate) fn recomputed_attestation_reference_hash(&self) -> Option<[u8; 32]> {
-        self.evidence.recomputed_attestation_reference_hash
-    }
-
-    pub(crate) fn recorded_attestation_reference_hash(&self) -> Option<[u8; 32]> {
-        self.evidence.recorded_attestation_reference_hash
-    }
 }
 
 /// STEP 0..decision of a re-promotion: read the verified payload, find the promotion
@@ -500,6 +474,89 @@ fn reverify_record(
     evidence.authorizes_load = true;
     evidence.cross_reboot_proven = true;
     evidence
+}
+
+/// Honest, read-only projection of the FULL re-promotion outcome for the recovery
+/// lifeline (M8D-2 `recovery.load_artifact_by_hash`). It carries the identity of the
+/// re-verified record plus the REAL M6 gate load/start result, so the lifeline can both
+/// audit the reinstatement and report it truthfully. `reinstated` is genuine only when
+/// the gate actually re-verified, re-loaded AND re-started the service; `reverified`
+/// reports whether the pure re-verification decision passed (the reconstructed-wasm
+/// validation is only reached once it has), so a reverify failure can never masquerade
+/// as loadable.
+#[derive(Clone, Copy)]
+pub(crate) struct ReinstateOutcome {
+    pub(crate) status: &'static str,
+    pub(crate) reason: &'static str,
+    pub(crate) reinstated: bool,
+    pub(crate) reverified: bool,
+    pub(crate) reconstructed_wasm_valid: Option<bool>,
+    pub(crate) load_attempted: bool,
+    pub(crate) load_granted: bool,
+    pub(crate) service_loaded: bool,
+    pub(crate) service_started: bool,
+    pub(crate) start_run_outcome: Option<&'static str>,
+    pub(crate) authorizes_load: bool,
+    pub(crate) cross_reboot_proven: bool,
+    pub(crate) candidate_payload_sha256: Option<[u8; 32]>,
+    pub(crate) recomputed_attestation_reference_hash: Option<[u8; 32]>,
+    pub(crate) recorded_attestation_reference_hash: Option<[u8; 32]>,
+    pub(crate) artifact_persist_seq: u64,
+    pub(crate) artifact_sha256: [u8; 32],
+    pub(crate) manifest_hash: [u8; 32],
+    pub(crate) vm_report_hash: [u8; 32],
+    pub(crate) grant_hash: [u8; 32],
+    pub(crate) promotion_transaction_sha256: [u8; 32],
+    pub(crate) artstor_blob_offset: u64,
+    pub(crate) artstor_blob_len: u64,
+    pub(crate) artstor_blob_frame_sha256: [u8; 32],
+}
+
+/// M8D-2 load entry: run the EXISTING full `reverify_record` (reverify + reconstructed-wasm
+/// validity + retain + repopulate references + the UNMODIFIED `granted_candidate_service`
+/// M6 load/start gate) and project its honest outcome. This is the ONLY load path the
+/// recovery lifeline uses — it re-instates the RAM-only current-boot service ONLY when the
+/// full gate genuinely loads AND starts it. No second loader, no reverify_record_only
+/// shortcut, no logic change to `reverify_record`.
+pub(crate) fn reverify_and_load_record(
+    controller: pci::PciMassStorageController,
+    record: &artifact_store::ArtifactPersistRecord,
+) -> ReinstateOutcome {
+    let evidence = reverify_record(controller, record);
+    ReinstateOutcome {
+        status: evidence.status,
+        reason: evidence.reason,
+        // "repromoted" is set by reverify_record ONLY after the M6 gate loaded AND
+        // started the service; performed/authorizes_load/cross_reboot_proven are set in
+        // the same final step, so this is a genuine reinstatement, never a partial one.
+        reinstated: evidence.status == "repromoted"
+            && evidence.performed
+            && evidence.service_loaded
+            && evidence.service_started,
+        // The reconstructed-wasm validation is reached ONLY after the pure re-verify
+        // decision passed, so its presence is an honest "reverify succeeded" signal.
+        reverified: evidence.reconstructed_wasm_valid.is_some(),
+        reconstructed_wasm_valid: evidence.reconstructed_wasm_valid,
+        load_attempted: evidence.load_attempted,
+        load_granted: evidence.load_granted,
+        service_loaded: evidence.service_loaded,
+        service_started: evidence.service_started,
+        start_run_outcome: evidence.start_run_outcome,
+        authorizes_load: evidence.authorizes_load,
+        cross_reboot_proven: evidence.cross_reboot_proven,
+        candidate_payload_sha256: evidence.candidate_payload_sha256,
+        recomputed_attestation_reference_hash: evidence.recomputed_attestation_reference_hash,
+        recorded_attestation_reference_hash: evidence.recorded_attestation_reference_hash,
+        artifact_persist_seq: evidence.artifact_persist_seq,
+        artifact_sha256: evidence.artifact_sha256,
+        manifest_hash: evidence.manifest_hash,
+        vm_report_hash: evidence.vm_report_hash,
+        grant_hash: evidence.grant_hash,
+        promotion_transaction_sha256: evidence.promotion_transaction_sha256,
+        artstor_blob_offset: evidence.artstor_blob_offset,
+        artstor_blob_len: evidence.artstor_blob_len,
+        artstor_blob_frame_sha256: evidence.artstor_blob_frame_sha256,
+    }
 }
 
 pub(crate) fn repopulate_reverified_references(transaction: &PromotionTransactionReadback) -> bool {

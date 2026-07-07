@@ -736,6 +736,162 @@ function Assert-SafeChild {
     }
 }
 
+function Assert-Boot2LoadArtifactByHash {
+    param(
+        [string]$ArtifactSha,
+        [int]$Port
+    )
+    # M8D-2 authority flip: a FRESH VM booted off the boot-1 persist snapshot runs ONLY
+    # recovery.load_artifact_by_hash. A wrong (well-formed but unknown) hash denies
+    # artifact_not_in_local_store and cannot answer; the correct boot-1 artifact hash drives
+    # the FULL M6 gate to RE-INSTATE the RAM-only current-boot service, appends the durable
+    # raios.recovery_load.v0 audit AFTER the gate, and reports cross_reboot_proven=true. It
+    # re-instates an already-attested LOCAL artifact only — grants NOTHING NEW.
+    $prefix = "boot2-loadhash"
+    $loadVm = $null
+    $loadPersist = Join-Path $RunDir "persist-loadhash.img"
+    Copy-Item -LiteralPath $Boot1PersistSnapshot -Destination $loadPersist -Force
+    try {
+        $loadVm = Start-RaiosVm -Label "loadhash" -PredicatePrefix $prefix -Port $Port -MonitorPort 0 -PersistPath $loadPersist
+
+        # (1) WRONG-HASH negative FIRST (nothing loaded yet): a well-formed but unknown hash
+        # denies artifact_not_in_local_store, reads no blob, and loads/starts nothing.
+        $wrongHash = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+        Send-AgentCommandTagged -Prefix $prefix -Command "agent recovery.load_artifact_by_hash $wrongHash" -ExpectedMarker "RAIOS_AGENT_END recovery.load_artifact_by_hash" -Name "wrong-hash-load"
+        $wrong = Get-LastAgentResponseJson -Method "recovery.load_artifact_by_hash"
+        $w = $wrong.body.result
+        $wrongOk = (
+            $w.schema -eq "raios.recovery_load.v0" -and
+            $w.method -eq "recovery.load_artifact_by_hash" -and
+            $w.status -eq "capability_denied" -and
+            $w.reason -eq "artifact_not_in_local_store" -and
+            $w.requested_hash_valid -eq $true -and
+            $w.record_found -eq $false -and
+            $w.reverify_attempted -eq $false -and
+            $w.authorizes_load -eq $false -and
+            $w.cross_reboot_proven -eq $false -and
+            $w.service_loaded -eq $false -and
+            $w.durable_write_attempted -eq $false -and
+            $w.mutates_live_state -eq $false -and
+            $w.owner_sealed -eq $false -and
+            $w.persistence_claimed -eq $false
+        )
+        Assert-ReportPredicate -Prefix $prefix -Name "wrong-hash-not-in-local-store" -Expected "recovery.load_artifact_by_hash <unknown hash> denies artifact_not_in_local_store and grants nothing" -Passed $wrongOk -Actual $(if ($wrongOk) { "denied artifact_not_in_local_store" } else { Convert-CompactJson $w 10 }) -FailureMessage "Expected recovery.load_artifact_by_hash <unknown> to deny artifact_not_in_local_store"
+
+        $wrongStartOffset = Get-SerialLogOffset
+        Send-AgentCommandTagged -Prefix $prefix -Command "service.start svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.start" -Name "wrong-hash-service-start"
+        $afterWrong = (Get-SerialLogContent -Path $SerialLog).Substring([int]$wrongStartOffset)
+        $wrongNoAnswer = -not $afterWrong.Contains("WASM_GUEST_LOG echo counter=")
+        Assert-ReportPredicate -Prefix $prefix -Name "wrong-hash-no-service-answer" -Expected "an unknown-hash denial leaves the service unable to answer" -Passed $wrongNoAnswer -Actual $(if ($wrongNoAnswer) { "no_guest_log_after_offset:$wrongStartOffset" } else { Get-SerialLogTail -Path $SerialLog }) -FailureMessage "Unknown-hash denial still allowed a service answer"
+
+        # (2) POSITIVE: the correct boot-1 artifact hash re-instates the service through the
+        # FULL M6 gate and durably audits the reinstatement.
+        $loadOffset = Get-SerialLogOffset
+        Send-AgentCommandTagged -Prefix $prefix -Command "agent recovery.load_artifact_by_hash $ArtifactSha" -ExpectedMarker "RAIOS_AGENT_END recovery.load_artifact_by_hash" -Name "correct-hash-load"
+        $load = Get-LastAgentResponseJson -Method "recovery.load_artifact_by_hash"
+        $l = $load.body.result
+        $loadOk = (
+            $l.schema -eq "raios.recovery_load.v0" -and
+            $l.method -eq "recovery.load_artifact_by_hash" -and
+            $l.status -eq "reinstated_current_boot" -and
+            $l.record_found -eq $true -and
+            $l.reverify_attempted -eq $true -and
+            $l.reverified -eq $true -and
+            $l.reconstructed_wasm_valid -eq $true -and
+            $l.load_granted -eq $true -and
+            $l.service_loaded -eq $true -and
+            $l.service_started -eq $true -and
+            $l.start_run_outcome -eq "success" -and
+            $l.authorizes_load -eq $true -and
+            $l.cross_reboot_proven -eq $true -and
+            $l.durable_write_attempted -eq $true -and
+            $l.durable_append -eq "appended" -and
+            $l.durable_append_performed -eq $true -and
+            $l.owner_sealed -eq $false -and
+            $l.persistence_claimed -eq $false -and
+            $l.grants_new_capability -eq $false -and
+            $l.promotion_authority_is_placeholder -eq $true -and
+            $l.accepts_external_bytes -eq $false -and
+            $l.accepts_url -eq $false -and
+            $l.fetches -eq $false
+        )
+        Assert-ReportPredicate -Prefix $prefix -Name "correct-hash-reinstates-service" -Expected "recovery.load_artifact_by_hash <boot1 hash> re-verifies + M6-gate loads/starts the service (cross_reboot_proven=true) and appends the durable reinstatement audit; grants nothing new" -Passed $loadOk -Actual $(if ($loadOk) { "reinstated cross_reboot_proven=true durable_append=$($l.durable_append)" } else { Convert-CompactJson $l 12 }) -FailureMessage "Expected recovery.load_artifact_by_hash <boot1 hash> to re-instate the service via the full M6 gate"
+
+        # (3) the re-instated service answers live to an explicit service.start.
+        $startOffset = Get-SerialLogOffset
+        Send-AgentCommandTagged -Prefix $prefix -Command "service.start svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.start" -Name "reinstated-service-start"
+        $start = Get-LastAgentResponseJson -Method "service.start"
+        $startResult = $start.body.result
+        $afterStart = (Get-SerialLogContent -Path $SerialLog).Substring([int]$startOffset)
+        $answers = (
+            $start.t -eq "response" -and
+            $startResult.running -eq $true -and
+            $afterStart.Contains("WASM_GUEST_LOG echo counter=")
+        )
+        Assert-ReportPredicate -Prefix $prefix -Name "reinstated-service-answers-live" -Expected "the hash-reinstated service answers live (WASM_GUEST_LOG) after service.start" -Passed $answers -Actual $(if ($answers) { "answered_live" } else { Convert-CompactJson $startResult 8 }) -FailureMessage "Expected the hash-reinstated service to answer live after reboot"
+    }
+    finally {
+        Stop-RaiosVmForce -Vm $loadVm
+        Remove-RunImages -Vm $loadVm
+        Remove-Item -LiteralPath $loadPersist -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Assert-LoadByHashTamperDeniedChild {
+    param([int]$Port)
+    # Reuse a --tamper-persist-record persist image, but select the record by its NOW
+    # MISMATCHING (tampered) hash: the exact-hash select FINDS the record, yet the FULL
+    # reverify denies because the blob payload no longer binds the record's claimed
+    # artifact_sha256. This proves the load gates on the FULL reverify path (not on
+    # hash-selection alone), re-instates nothing, writes NOTHING durable, and cannot answer.
+    $prefix = "boot2-loadhash-tamper"
+    $tamperVm = $null
+    $tamperPersist = Join-Path $RunDir "persist-loadhash-tamper.img"
+    Copy-Item -LiteralPath $Boot1PersistSnapshot -Destination $tamperPersist -Force
+    try {
+        Invoke-PersistTool -Arguments @("--tamper-persist-record", $tamperPersist) | Out-Null
+        $inspection = Get-PersistInspection -Path $tamperPersist
+        $records = @($inspection.artifact_persist_records)
+        $tamperedSha = if ($records.Count -gt 0) { [string]$records[0].artifact_sha256 } else { "" }
+        $mismatches = if ($records.Count -gt 0) { @($records[0].binding_mismatches) } else { @() }
+        $landed = ($mismatches -contains "artifact_sha256") -and ($tamperedSha -ne "")
+        Assert-ReportPredicate -Prefix $prefix -Name "tamper-landed" -Expected "artifact_sha256 mismatch visible in inspect-json with a selectable tampered hash" -Passed $landed -Actual $(Convert-CompactJson $records 10) -FailureMessage "load-by-hash tamper did not land"
+
+        $tamperVm = Start-RaiosVm -Label "loadhash-tamper" -PredicatePrefix $prefix -Port $Port -MonitorPort 0 -PersistPath $tamperPersist
+        Send-AgentCommandTagged -Prefix $prefix -Command "agent recovery.load_artifact_by_hash $tamperedSha" -ExpectedMarker "RAIOS_AGENT_END recovery.load_artifact_by_hash" -Name "tamper-load"
+        $load = Get-LastAgentResponseJson -Method "recovery.load_artifact_by_hash"
+        $t = $load.body.result
+        $deniedOk = (
+            $t.schema -eq "raios.recovery_load.v0" -and
+            $t.method -eq "recovery.load_artifact_by_hash" -and
+            $t.status -eq "capability_denied" -and
+            $t.record_found -eq $true -and
+            $t.reverify_attempted -eq $true -and
+            $t.reverified -eq $false -and
+            ([string]$t.reverify_reason -match "sha_mismatch|hash_mismatch") -and
+            $t.service_loaded -eq $false -and
+            $t.authorizes_load -eq $false -and
+            $t.cross_reboot_proven -eq $false -and
+            $t.durable_write_attempted -eq $false -and
+            $t.load_still_denied -eq $true -and
+            $t.owner_sealed -eq $false -and
+            $t.persistence_claimed -eq $false
+        )
+        Assert-ReportPredicate -Prefix $prefix -Name "tamper-reverify-denied" -Expected "load-by-hash of a tampered-hash record is FOUND but the full reverify denies (sha mismatch); nothing loaded, nothing written durable" -Passed $deniedOk -Actual $(if ($deniedOk) { "denied $([string]$t.reverify_reason)" } else { Convert-CompactJson $t 12 }) -FailureMessage "Expected load-by-hash of a tampered record to deny via full reverify"
+
+        $startOffset = Get-SerialLogOffset
+        Send-AgentCommandTagged -Prefix $prefix -Command "service.start svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.start" -Name "tamper-service-start"
+        $afterStart = (Get-SerialLogContent -Path $SerialLog).Substring([int]$startOffset)
+        $noAnswer = -not $afterStart.Contains("WASM_GUEST_LOG echo counter=")
+        Assert-ReportPredicate -Prefix $prefix -Name "tamper-no-service-answer" -Expected "a reverify-denied load leaves the service unable to answer" -Passed $noAnswer -Actual $(if ($noAnswer) { "no_guest_log_after_offset:$startOffset" } else { Get-SerialLogTail -Path $SerialLog }) -FailureMessage "Tampered load-by-hash denial still allowed a service answer"
+    }
+    finally {
+        Stop-RaiosVmForce -Vm $tamperVm
+        Remove-RunImages -Vm $tamperVm
+        Remove-Item -LiteralPath $tamperPersist -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Merge-SerialLogs {
     $merged = Join-Path $RunDir "serial-merged.log"
     Remove-Item -LiteralPath $merged -Force -ErrorAction SilentlyContinue
@@ -809,6 +965,13 @@ try {
     Assert-RepromotionDeniedChild -Label "corrupt-artstor-blob" -MutationFlag "--corrupt-artstor-blob" -ExpectedMismatch "artstor_blob_frame_sha256" -Port ($SerialTcpPort + 10)
     Assert-RepromotionDeniedChild -Label "tamper-persist-record" -MutationFlag "--tamper-persist-record" -ExpectedMismatch "artifact_sha256" -Port ($SerialTcpPort + 11)
     Assert-SafeChild -Port ($SerialTcpPort + 12)
+
+    # M8D-2 recovery.load_artifact_by_hash authority flip: a fresh boot off the boot-1
+    # snapshot re-instates the persisted service by its content hash (wrong hash denies +
+    # no answer; correct hash re-instates + answers live), and a tampered-hash record is
+    # found but reverify-denied (no load, no answer).
+    Assert-Boot2LoadArtifactByHash -ArtifactSha ([string]$postBoot1Records[0].artifact_sha256) -Port ($SerialTcpPort + 13)
+    Assert-LoadByHashTamperDeniedChild -Port ($SerialTcpPort + 14)
 
     $Result = "passed"
 }

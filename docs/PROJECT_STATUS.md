@@ -3309,6 +3309,46 @@ FULL 8168/8168. Next: **M8D-2** — the authority flip (durable audit via a NEW 
 `reverify_record` path — wasm-validity + M6 gate — never on `reverify_record_only().reverified()`
 alone), proven positive via the two-boot harness. That closes **M8**.
 
+**M8D-2 DONE (2026-07-07) — M8 RECOVERY AGENT LIFELINE COMPLETE.** The authority flip: on a
+matched record, `recovery.load_artifact_by_hash` runs the FULL `repromotion::reverify_record`
+(re-verifies the whole M6 chain from scratch INCLUDING reconstructed-wasm-validity, then dispatches
+the UNMODIFIED M6 gate `granted_candidate_service::emit_load`/`emit_start` to re-instate a RAM-only
+current-boot service), and appends a durable `raios.recovery_load.v0` AUDIT via a NEW own
+`raios-core/src/scoped_recovery_load_append.rs` evaluator (own pins method/target/schema/marker;
+authorizes_load/cross_reboot_proven ONLY when decision_status=="reinstated"; owner_sealed/
+persistence_claimed denied on ALL statuses; 43-row pairwise-distinct truth table). Load is authorized
+ONLY by `outcome.reinstated` (status=="repromoted" && performed && service_loaded && service_started)
+— a record that passes payload-sha but whose reconstructed wasm does NOT validate is denied
+`reconstructed_wasm_invalid` BEFORE any load (the M8D-1 review's flagged reverify-only trap is closed;
+zero call sites remain). Append-after-gate matching repromotion.run's audit discipline (the record
+attests a reinstatement that genuinely happened; a failed load is never reported loaded; every denial
+fails closed with NO durable write). Restore-toward-known-good: re-instates an ALREADY-attested LOCAL
+artifact only — grants nothing NEW, never fetches, never accepts bytes/URL (`accepts_external_bytes=
+accepts_url=fetches=false`); `owner_sealed:false`, `persistence_claimed:false`,
+`PROMOTION_AUTHORITY_IS_PLACEHOLDER:true`, `dev_key_not_owner_sealed`; `authorizes_load`/
+`cross_reboot_proven` true ONLY on a genuine gate load+start. The M6 gate / reverify /
+granted_candidate_service / wasm_runtime are UNTOUCHED (no second loader, no gate loosening); the
+new evaluator is OWN-pinned, not a shared write-boundary flip; `emit_repromotion_run`+`reverify_record`
+byte-for-byte preserved. Max-effort adversarial review: nothing above LOW (the CRITICAL "load gates on
+the full path" check PASSES; two LOW — gate-denied under-reports a partial RAM load in the
+SAFE/never-over-claim direction, near-unreachable; the reinstated success labels are harness-covered
+not host-tested to keep the vocab hash frozen). Verified: raios-core 125 (6 new evaluator tests, vocab
+unchanged 7488a1ab), two-boot 110/110 (boot-2 load-by-hash re-instates the boot-1-persisted artifact +
+service answers LIVE; wrong-hash → artifact_not_in_local_store + no answer; tampered record → full-
+reverify denial + no load + no durable write), m8-lifeline (denials), recovery byte-identical, quick,
+m6c-promotion (repromotion intact), FULL 8168/8168.
+
+**M8 COMPLETE (2026-07-07).** The Recovery Agent Lifeline is a minimal pinned serial-first path that,
+when the world above breaks: reads its frozen command table (M8A-1), DIAGNOSES live + durable state
+(M8A-2/M8C-1 snapshot incl. last-good/SAFE + read-only rollback preview), SURVIVES a wedged Wasm
+service (M8A-3), and takes four restore actions — DISABLE a bad module (M8B-1), RESTART a
+disabled/crashed module to known-good (M8B-2), and RE-INSTATE a persisted artifact by hash from the
+LOCAL store with full re-verification (M8D). Every mutating action is deny-before-mutate + durable-
+record-first via its OWN pinned scoped evaluator, restore-only-never-promote, and honestly
+`dev_key_not_owner_sealed` / owner_sealed false. Survival rests on fuel-metered + cooperative
+scheduling (NOT hardware isolation — that is post-M11). Next: **M9 Durable Memory & Context Broker v1**
+(ADR 0004 Phase D).
+
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 recovery/hello dispatch-bound completion-denial smoke runs on Windows with
