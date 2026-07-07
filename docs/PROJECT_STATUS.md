@@ -3282,8 +3282,32 @@ pointer is no usable rollback), and `would_fall_back` requires a genuine last-go
 (2 new render tests present+absent, vocab unchanged), m8-lifeline 266/266 (present-path), quick
 581/581 (missing-evidence path), recovery 3833/3833 byte-identical, FULL 8168/8168. The
 recovery diagnosis now includes "which system copy is last-good / are we in safe-mode" and a
-look-but-don't-touch rollback preview. Next: **M8D** (recovery.load_artifact_by_hash, local
-store only, full M6 re-verify, never fetches).
+look-but-don't-touch rollback preview.
+
+**M8D-1 DONE (2026-07-07, GRANTS NOTHING).** `recovery.load_artifact_by_hash <sha256>` re-instates
+a persisted artifact FROM THE LOCAL M7D STORE ONLY, addressed by content hash — M8D-1 is the
+grants-nothing half: parse the caller hash (`parse_sha256_ref`, eats the `sha256:` prefix), select
+the `artifact_persist` record whose `artifact_sha256` matches, RE-VERIFY the FULL M6 chain from
+scratch (reuses `repromotion_reverify::reverify_persisted_artifact` UNCHANGED — re-runs the P-256
+signature verify, never trusts a stored boolean), and REPORT ONLY. NO durable write, NO load
+(no `emit_load`/`emit_start`, no retain), `authorizes_load`/`cross_reboot_proven`/`service_loaded`/
+`mutates_live_state` always false. Fail-closed order: `malformed_hash` → SAFE/PersistenceUnavailable
+(`boot_control_safe_mode`, before any store read) → controller-absent → `artifact_not_in_local_store`
+→ reverify-mismatch. NEVER fetches / accepts new bytes / accepts a URL (`accepts_external_bytes=
+accepts_url=fetches=false`) — the hash is only a SELECTOR into already-attested local records, so it
+can never widen authority. To share ONE reverify implementation, `reverify_record_only` +
+`find_promotion_transaction` + `repopulate_reverified_references` were made `pub(crate)` in
+`repromotion.rs` with `emit_repromotion_run` byte-for-byte unchanged (proven by m6c-promotion
+180/180). New schema `raios.recovery_load.v0`; the row flipped `implemented:true`; vocab hash
+re-pinned `4a2c52a5…→7488a1ab…` in all three pins. Max-effort adversarial review: nothing above LOW
+— repromotion refactor VERIFIED byte-for-byte behavior-preserving, grants nothing on every path
+(incl. reverified-success), never-fetch, honest labels, no secret leak. Verified: raios-core 119
+(vocab re-pinned), m8-lifeline 270/270 (malformed/absent/SAFE denials + selftest truth table),
+m6c-promotion 180/180 (repromotion path preserved), quick 584/584, recovery 3833/3833 byte-identical,
+FULL 8168/8168. Next: **M8D-2** — the authority flip (durable audit via a NEW own
+`scoped_recovery_load_append` + the UNMODIFIED M6 gate; the actual load MUST gate on the FULL
+`reverify_record` path — wasm-validity + M6 gate — never on `reverify_record_only().reverified()`
+alone), proven positive via the two-boot harness. That closes **M8**.
 
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 Latest host-tool verification: after the 2026-07-03 local report-timestamp

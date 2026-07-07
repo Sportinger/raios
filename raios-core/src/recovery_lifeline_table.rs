@@ -77,7 +77,7 @@ pub const LIFELINE_METHODS: &[LifelineMethod] = &[
     LifelineMethod {
         name: METHOD_LOAD_ARTIFACT_BY_HASH,
         capability: "cap.recovery.load_artifact_by_hash",
-        implemented: false,
+        implemented: true,
         mutating: true,
     },
 ];
@@ -161,12 +161,18 @@ mod tests {
             ]
         );
         // Implemented: M8A-1 table, M8A-2 snapshot, M8B-1 disable_module executor,
-        // M8B-2b restart_last_good executor; the other two mutators stay denied.
+        // M8B-2b restart_last_good executor, M8D-1 load_artifact_by_hash (hash-selected
+        // full re-verify that GRANTS NOTHING); only recovery.rollback stays denied.
         assert!(lookup("recovery.lifeline_table").unwrap().implemented);
         assert!(lookup("recovery.snapshot").unwrap().implemented);
         assert!(lookup("recovery.disable_module").unwrap().implemented);
         assert!(lookup("recovery.restart_last_good").unwrap().implemented);
-        for name in ["recovery.rollback", "recovery.load_artifact_by_hash"] {
+        assert!(
+            lookup("recovery.load_artifact_by_hash")
+                .unwrap()
+                .implemented
+        );
+        for name in ["recovery.rollback"] {
             assert!(!lookup(name).unwrap().implemented, "{name} must be denied");
         }
         // The four state-changing endpoints are marked mutating; reads are not.
@@ -187,12 +193,12 @@ mod tests {
     fn vocabulary_hash_is_pinned() {
         // Golden fingerprint of the logical table. If this changes, the lifeline
         // vocabulary changed — re-derive intentionally, never blindly. Re-pinned at
-        // M8B-2b when recovery.restart_last_good flipped to implemented=true.
+        // M8D-1 when recovery.load_artifact_by_hash flipped to implemented=true.
         let hex = sha256_hex(&vocabulary_sha256());
         let hex = core::str::from_utf8(&hex).unwrap();
         assert_eq!(
             hex,
-            "4a2c52a5f075f8d30240d34e9df0dc08692952252b005ba07a0d2f8178683904"
+            "7488a1abb0791a9e278d6883d6b45d993001148c7e0ffc03a50347399af3cc56"
         );
     }
 }

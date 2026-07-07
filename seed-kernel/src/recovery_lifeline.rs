@@ -21,16 +21,21 @@
 
 use alloc::{vec, vec::Vec};
 
+use raios_core::artifact_blob_frame::build_artifact_blob_frame;
 use raios_core::boot_control::BootPosture;
+use raios_core::promotion_attestation::PROMOTION_AUTHORITY_IS_PLACEHOLDER;
 use raios_core::record::Value;
 use raios_core::recovery_lifeline_table as table;
+use raios_core::recovery_load_record as load_rec;
+use raios_core::repromotion_reverify::{reverify_persisted_artifact, RepromotionReverifyInput};
+use raios_core::sha256_bytes;
 
-use super::{boot_control, durable_store, DispatchOutcome};
+use super::{artifact_store, boot_control, durable_store, repromotion, DispatchOutcome};
 use crate::agent_protocol_support::{
     begin_response, emit_record_fields, end_response, record_bool as b, record_event_or_null,
     record_field as f, record_sha_or_null, record_str as s,
 };
-use crate::{echo_service, event_log, provider, service_inventory, system_status, ui};
+use crate::{echo_service, event_log, pci, provider, service_inventory, system_status, ui};
 
 /// Lifeline dispatch. Returns `Some(outcome)` for any pinned lifeline method and
 /// `None` for everything else so the general dispatcher runs unchanged. The lifeline
@@ -50,6 +55,14 @@ pub(crate) fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> Option<Dispa
     if raios_core::method_head_eq(method, table::METHOD_RESTART_LAST_GOOD) {
         let rest = method[table::METHOD_RESTART_LAST_GOOD.len()..].trim();
         return Some(emit_restart_last_good(rest));
+    }
+    // `recovery.load_artifact_by_hash <sha256>` — same head-token discipline: the frozen
+    // `recovery.load_artifact_by_hash_target_binding_diagnostic` (rest starts with `_`, not
+    // whitespace) still falls through to the general table rather than this executor, and
+    // the no-arg form remains reachable (it denies `malformed_hash`).
+    if raios_core::method_head_eq(method, table::METHOD_LOAD_ARTIFACT_BY_HASH) {
+        let rest = method[table::METHOD_LOAD_ARTIFACT_BY_HASH.len()..].trim();
+        return Some(emit_load_artifact_by_hash(rest));
     }
     let matched = table::lookup(method)?;
     match matched.name {
@@ -594,4 +607,395 @@ fn emit_denied(matched: &'static table::LifelineMethod) {
         6,
     );
     end_response(matched.name);
+}
+
+// ===================================================================================
+// M8D-1: recovery.load_artifact_by_hash — hash-selected FULL M6 re-verify, GRANTS NOTHING.
+//
+// The operator names an exact content hash; the lifeline parses it, selects the matching
+// artifact_persist record from the LOCAL M7D store, and RE-VERIFIES the full M6 evidence
+// chain from scratch by reusing the ONE shared reverify implementation
+// (`repromotion::reverify_record_only`, which re-runs `reverify_persisted_artifact` and
+// NEVER trusts a stored boolean), then REPORTS the decision. It grants nothing: no retain,
+// no module load, no emit_load/emit_start, `authorizes_load`/`cross_reboot_proven` always
+// false, and NO durable write. Fail-closed order: malformed hash (reads NOTHING) -> SAFE/
+// PersistenceUnavailable posture (BEFORE any store read) -> AHCI controller absent ->
+// record absent -> reverify. The positive LOAD path is M8D-2 (two-boot harness), not here.
+// ===================================================================================
+
+/// `recovery.load_artifact_by_hash <sha256>` executor. Reverify-ONLY; grants nothing.
+fn emit_load_artifact_by_hash(arg: &str) -> DispatchOutcome {
+    let arg = arg.trim();
+    // 1. Parse the caller-supplied hash. `parse_sha256_ref` eats an optional `sha256:`
+    //    prefix; empty/short/non-hex all fail. A malformed hash reads NOTHING.
+    let Some(requested_hash) = raios_core::parse_sha256_ref(arg) else {
+        emit_load_denied(arg, None, load_rec::REASON_MALFORMED_HASH);
+        return DispatchOutcome::Denied(table::METHOD_LOAD_ARTIFACT_BY_HASH);
+    };
+    // 2. SAFE / PersistenceUnavailable posture -> deny BEFORE any store read.
+    if let Some(reason) = load_by_hash_posture_denial(boot_control::current_boot_posture()) {
+        emit_load_denied(arg, Some(requested_hash), reason);
+        return DispatchOutcome::Denied(table::METHOD_LOAD_ARTIFACT_BY_HASH);
+    }
+    // 3. The local store lives on the AHCI mass-storage controller; absent -> deny.
+    let Some(controller) = pci::find_mass_storage_controller() else {
+        emit_load_denied(
+            arg,
+            Some(requested_hash),
+            load_rec::REASON_CONTROLLER_ABSENT,
+        );
+        return DispatchOutcome::Denied(table::METHOD_LOAD_ARTIFACT_BY_HASH);
+    };
+    // 4. Select the artifact_persist record whose artifact_sha256 == the requested hash.
+    let scan = artifact_store::current_boot_reclog_scan(controller);
+    let records = scan
+        .bytes
+        .as_deref()
+        .map(artifact_store::artifact_persist_records_from_reclog)
+        .unwrap_or_default();
+    let Some(record) = select_record_by_hash(&records, requested_hash) else {
+        emit_load_denied(
+            arg,
+            Some(requested_hash),
+            load_rec::REASON_NOT_IN_LOCAL_STORE,
+        );
+        return DispatchOutcome::Denied(table::METHOD_LOAD_ARTIFACT_BY_HASH);
+    };
+    // 5. RE-VERIFY the full M6 chain from scratch via the ONE shared implementation.
+    //    GRANTS NOTHING: `reverify_record_only` retains/loads/starts nothing and writes
+    //    nothing durable. We only REPORT its decision here (the positive load is M8D-2).
+    let outcome = repromotion::reverify_record_only(controller, &record);
+    emit_load_reverify_response(arg, requested_hash, &record, &outcome);
+    if outcome.reverified() {
+        DispatchOutcome::Response(table::METHOD_LOAD_ARTIFACT_BY_HASH)
+    } else {
+        DispatchOutcome::Denied(table::METHOD_LOAD_ARTIFACT_BY_HASH)
+    }
+}
+
+/// SAFE / PersistenceUnavailable both deny before any store read; a writable posture
+/// (Normal/Probation) proceeds to the store select + reverify.
+fn load_by_hash_posture_denial(posture: BootPosture) -> Option<&'static str> {
+    match posture {
+        BootPosture::Safe | BootPosture::PersistenceUnavailable => Some(load_rec::REASON_SAFE_MODE),
+        BootPosture::Normal | BootPosture::Probation => None,
+    }
+}
+
+/// Exact-hash select over the locally-stored artifact_persist records (no fuzzy match).
+fn select_record_by_hash(
+    records: &[artifact_store::ArtifactPersistRecord],
+    hash: [u8; 32],
+) -> Option<artifact_store::ArtifactPersistRecord> {
+    let mut idx = 0usize;
+    while idx < records.len() {
+        if records[idx].artifact_sha256 == hash {
+            return Some(records[idx]);
+        }
+        idx += 1;
+    }
+    None
+}
+
+/// Pre-reverify denial (malformed / SAFE / controller-absent / not-in-store): nothing was
+/// read past the failing gate and nothing was reverified.
+fn emit_load_denied(arg: &str, requested_hash: Option<[u8; 32]>, reason: &'static str) {
+    emit_load_response(
+        arg,
+        requested_hash,
+        load_rec::STATUS_DENIED,
+        reason,
+        false,
+        false,
+        "not_attempted",
+        load_rec::REVERIFY_NOT_ATTEMPTED,
+        None,
+        None,
+        None,
+        None,
+    );
+}
+
+/// Reverify result: the chain either re-verified (load STILL denied — M8D-1 grants
+/// nothing) or was denied with the reverify reason. Loads nothing either way.
+fn emit_load_reverify_response(
+    arg: &str,
+    requested_hash: [u8; 32],
+    record: &artifact_store::ArtifactPersistRecord,
+    outcome: &repromotion::ReverifyOnly,
+) {
+    let reverified = outcome.reverified();
+    let (status, reason) = if reverified {
+        (
+            load_rec::STATUS_REVERIFIED_LOAD_DENIED,
+            load_rec::REASON_REVERIFIED_LOAD_DENIED,
+        )
+    } else {
+        (load_rec::STATUS_DENIED, outcome.reason())
+    };
+    emit_load_response(
+        arg,
+        Some(requested_hash),
+        status,
+        reason,
+        true,
+        reverified,
+        outcome.status(),
+        outcome.reason(),
+        Some(record),
+        outcome.candidate_payload_sha256(),
+        outcome.recomputed_attestation_reference_hash(),
+        outcome.recorded_attestation_reference_hash(),
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_load_response(
+    requested_target: &str,
+    requested_hash: Option<[u8; 32]>,
+    status: &'static str,
+    reason: &'static str,
+    reverify_attempted: bool,
+    reverified: bool,
+    reverify_status: &'static str,
+    reverify_reason: &'static str,
+    record: Option<&artifact_store::ArtifactPersistRecord>,
+    candidate_payload_sha256: Option<[u8; 32]>,
+    recomputed_attestation_reference_hash: Option<[u8; 32]>,
+    recorded_attestation_reference_hash: Option<[u8; 32]>,
+) {
+    let method = table::METHOD_LOAD_ARTIFACT_BY_HASH;
+    let mut fields = vec![
+        f("schema", s(load_rec::SCHEMA)),
+        f("id", s(load_rec::RESPONSE_ID)),
+        f("scope", s(load_rec::SCOPE)),
+        f("classification", s(load_rec::CLASSIFICATION)),
+        f("method", s(method)),
+        f("requested_target", s(requested_target)),
+        f("requested_hash", record_sha_or_null(requested_hash)),
+        f("requested_hash_valid", b(requested_hash.is_some())),
+        f("status", s(status)),
+        f("reason", s(reason)),
+        f("reverify_attempted", b(reverify_attempted)),
+        f("reverified", b(reverified)),
+        f("reverify_status", s(reverify_status)),
+        f("reverify_reason", s(reverify_reason)),
+        f("record_found", b(record.is_some())),
+        f("record_seq", optional_u64(record.map(|record| record.seq))),
+        f(
+            "artifact_sha256",
+            record_sha_or_null(record.map(|record| record.artifact_sha256)),
+        ),
+        f(
+            "manifest_hash",
+            record_sha_or_null(record.map(|record| record.manifest_hash)),
+        ),
+        f(
+            "vm_report_hash",
+            record_sha_or_null(record.map(|record| record.vm_report_hash)),
+        ),
+        f(
+            "grant_hash",
+            record_sha_or_null(record.map(|record| record.grant_hash)),
+        ),
+        f(
+            "promotion_transaction_sha256",
+            record_sha_or_null(record.map(|record| record.promotion_transaction_sha256)),
+        ),
+        f(
+            "artstor_blob_offset",
+            optional_u64(record.map(|record| record.artstor_blob_offset)),
+        ),
+        f(
+            "artstor_blob_len",
+            optional_u64(record.map(|record| record.artstor_blob_len)),
+        ),
+        f(
+            "artstor_blob_frame_sha256",
+            record_sha_or_null(record.map(|record| record.artstor_blob_frame_sha256)),
+        ),
+        f(
+            "candidate_payload_sha256",
+            record_sha_or_null(candidate_payload_sha256),
+        ),
+        f(
+            "recomputed_attestation_reference_hash",
+            record_sha_or_null(recomputed_attestation_reference_hash),
+        ),
+        f(
+            "recorded_attestation_reference_hash",
+            record_sha_or_null(recorded_attestation_reference_hash),
+        ),
+        f("transport", s(table::TRANSPORT)),
+        f("trust_state", s(table::TRUST_STATE)),
+        f("store_source", s("local_recovery_store")),
+    ];
+    for field in load_rec::grants_nothing_fields() {
+        fields.push(field);
+    }
+    begin_response(method);
+    emit_record_fields(fields, 6);
+    end_response(method);
+}
+
+/// Kernel-side denial-truth-table selftest for `recovery.load_artifact_by_hash` (mirrors
+/// `durable_store::emit_recovery_action_selftest`). Pure: it reads no disk and mutates
+/// nothing. It exercises malformed / SAFE / PersistenceUnavailable / absent-store, and —
+/// via the SAME pure `reverify_persisted_artifact` decision the executor uses — two
+/// synthetic reverify denials (blob-hash mismatch, missing promotion transaction) so a
+/// re-verify that does not bind can never masquerade as loadable.
+pub(crate) fn emit_load_artifact_by_hash_selftest() {
+    let cases = load_selftest_cases();
+    let passed = cases.iter().all(|case| case.passed);
+    let case_records: Vec<Value<'static>> = cases.iter().map(load_selftest_case_record).collect();
+
+    begin_response(load_rec::SELFTEST_METHOD);
+    let mut fields = vec![
+        f("schema", s(load_rec::SELFTEST_SCHEMA)),
+        f("scope", s(load_rec::SCOPE)),
+        f("classification", s(load_rec::CLASSIFICATION)),
+        f("method", s(load_rec::SELFTEST_METHOD)),
+        f("test_infrastructure", b(true)),
+        f("mutates_global_event_log", b(false)),
+        f("writes_persistent_state", b(false)),
+        f("loads_artifact", b(false)),
+        f("reads_local_store", b(false)),
+        f("case_count", Value::U64(cases.len() as u64)),
+        f("passed", b(passed)),
+        f("cases", Value::Array(case_records)),
+        f("evidence_complete", b(true)),
+    ];
+    for field in load_rec::grants_nothing_fields() {
+        fields.push(field);
+    }
+    emit_record_fields(fields, 6);
+    end_response(load_rec::SELFTEST_METHOD);
+}
+
+#[derive(Clone, Copy)]
+struct LoadSelftestCase {
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    passed: bool,
+}
+
+fn load_selftest_cases() -> Vec<LoadSelftestCase> {
+    vec![
+        load_parse_denial_case("malformed_hash_empty_denied", ""),
+        load_parse_denial_case(
+            "malformed_hash_non_hex_denied",
+            "sha256:zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+        ),
+        load_posture_denial_case("safe_posture_denied", BootPosture::Safe),
+        load_posture_denial_case(
+            "persistence_unavailable_denied",
+            BootPosture::PersistenceUnavailable,
+        ),
+        load_absent_store_case(),
+        load_reverify_case("reverify_blob_mismatch_denied", "blob_hash_mismatch", true),
+        load_reverify_case(
+            "reverify_transaction_missing_denied",
+            "promotion_transaction_not_found",
+            false,
+        ),
+    ]
+}
+
+fn load_denial_case(
+    name: &'static str,
+    expected_reason: &'static str,
+    actual_reason: &'static str,
+) -> LoadSelftestCase {
+    LoadSelftestCase {
+        name,
+        expected_status: load_rec::STATUS_DENIED,
+        expected_reason,
+        actual_status: load_rec::STATUS_DENIED,
+        actual_reason,
+        passed: actual_reason == expected_reason,
+    }
+}
+
+fn load_parse_denial_case(name: &'static str, input: &str) -> LoadSelftestCase {
+    let actual_reason = match raios_core::parse_sha256_ref(input) {
+        Some(_) => "unexpected_parsed",
+        None => load_rec::REASON_MALFORMED_HASH,
+    };
+    load_denial_case(name, load_rec::REASON_MALFORMED_HASH, actual_reason)
+}
+
+fn load_posture_denial_case(name: &'static str, posture: BootPosture) -> LoadSelftestCase {
+    let actual_reason = load_by_hash_posture_denial(posture).unwrap_or("unexpected_writable");
+    load_denial_case(name, load_rec::REASON_SAFE_MODE, actual_reason)
+}
+
+fn load_absent_store_case() -> LoadSelftestCase {
+    let actual_reason = match select_record_by_hash(&[], [0x11; 32]) {
+        Some(_) => "unexpected_record_found",
+        None => load_rec::REASON_NOT_IN_LOCAL_STORE,
+    };
+    load_denial_case(
+        "absent_store_denied",
+        load_rec::REASON_NOT_IN_LOCAL_STORE,
+        actual_reason,
+    )
+}
+
+/// Drive the SAME pure `reverify_persisted_artifact` decision the executor uses over a
+/// synthetic input, proving a re-verify that does not bind fails closed (never trusts a
+/// stored boolean). `corrupt_blob_hash` selects the failure: a mismatched blob-frame hash
+/// (`blob_hash_mismatch`) vs a well-formed blob with no promotion transaction
+/// (`promotion_transaction_not_found`).
+fn load_reverify_case(
+    name: &'static str,
+    expected_reason: &'static str,
+    corrupt_blob_hash: bool,
+) -> LoadSelftestCase {
+    let payload = b"m8d1 recovery_load selftest payload";
+    let blob = build_artifact_blob_frame(payload);
+    let record_artstor_blob_frame_sha256 = if corrupt_blob_hash {
+        [0u8; 32]
+    } else {
+        sha256_bytes(&blob)
+    };
+    let decision = reverify_persisted_artifact(&RepromotionReverifyInput {
+        artstor_blob_bytes: &blob,
+        record_artstor_blob_frame_sha256,
+        record_artifact_sha256: sha256_bytes(payload),
+        record_manifest_hash: [0u8; 32],
+        record_vm_report_hash: [0u8; 32],
+        record_grant_hash: [0u8; 32],
+        transaction: None,
+        recomputed_attestation_reference_hash: [0u8; 32],
+        promotion_authority_is_placeholder: PROMOTION_AUTHORITY_IS_PLACEHOLDER,
+    });
+    let actual_status = if decision.reverified {
+        "unexpected_reverified"
+    } else {
+        load_rec::STATUS_DENIED
+    };
+    LoadSelftestCase {
+        name,
+        expected_status: load_rec::STATUS_DENIED,
+        expected_reason,
+        actual_status,
+        actual_reason: decision.reason,
+        passed: !decision.reverified && decision.reason == expected_reason,
+    }
+}
+
+fn load_selftest_case_record(case: &LoadSelftestCase) -> Value<'static> {
+    Value::InlineObject(vec![
+        f("case", s(case.name)),
+        f("expected_status", s(case.expected_status)),
+        f("expected_reason", s(case.expected_reason)),
+        f("actual_status", s(case.actual_status)),
+        f("actual_reason", s(case.actual_reason)),
+        f("passed", b(case.passed)),
+        f("loads_artifact", b(false)),
+        f("mutates_live_state", b(false)),
+    ])
 }

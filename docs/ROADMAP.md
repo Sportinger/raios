@@ -93,7 +93,16 @@ rollback_preview (mutates_nothing, mutating_rollback_available_via_lifeline:fals
 ONE bootctl read — no durable write, no new method, no vocab re-pin (recovery.rollback
 stays denied). Verified m8-lifeline 266/266, quick 581/581, recovery 3833/3833
 byte-identical, FULL 8168/8168, raios-core 118, max review nothing above LOW. Next:
-**M8C** remaining (durable last-good + SAFE) then **M8D** (load_artifact_by_hash from
+**M8D-1 done (2026-07-07, grants nothing):** recovery.load_artifact_by_hash <sha256> re-instates a
+persisted artifact from the LOCAL M7D store only — M8D-1 parses the hash, selects the matching
+artifact_persist record, re-verifies the FULL M6 chain from scratch (reuses reverify_persisted_artifact
+unchanged), and REPORTS ONLY (no load, no durable write; authorizes_load always false). Never fetches /
+accepts new bytes / a URL. Repromotion reverify extracted to a shared pub(crate) fn with
+emit_repromotion_run byte-for-byte unchanged (m6c-promotion 180/180). Vocab re-pinned 4a2c52a5→7488a1ab.
+Max review nothing above LOW. Verified m8-lifeline 270/270, m6c-promotion 180/180, quick 584/584,
+recovery 3833/3833 byte-identical, FULL 8168/8168, raios-core 119. Next: **M8D-2** (the authority flip:
+own scoped_recovery_load_append + the UNMODIFIED M6 gate, two-boot positive proof) closes M8. Then
+**M8D** legacy note (load_artifact_by_hash from
 the local store). (M7 map
 `docs/plan-reviews/m7-persistence-map-2026-07-06.md`,
 revalidated M7-0). Sequencing per the M7-0 note: M7A + M7B build GPT + the

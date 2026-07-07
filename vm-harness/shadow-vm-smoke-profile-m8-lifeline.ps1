@@ -13,7 +13,7 @@
 # so baseline agent boot needles already ran. It touches only echo + the lifeline;
 # it grants nothing.
 
-$LifelineVocabularySha256 = "sha256:4a2c52a5f075f8d30240d34e9df0dc08692952252b005ba07a0d2f8178683904"
+$LifelineVocabularySha256 = "sha256:7488a1abb0791a9e278d6883d6b45d993001148c7e0ffc03a50347399af3cc56"
 
 # --- (a) baseline: echo loads, starts, and is healthy; snapshot is clean -----------
 Send-AgentCommand -Command "module.load_ephemeral svc.demo.echo" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "m8-lifeline:echo_load"
@@ -164,10 +164,11 @@ if (-not $m8PostSnapshotOk) {
 }
 
 # --- (d) mutators still deny while wedged -------------------------------------------
-# recovery.disable_module (M8B-1) and recovery.restart_last_good (M8B-2b) are NO LONGER in
-# this loop: they are implemented executors, exercised in sections (g)/(h) below (and restart
-# would actually restore the wedged echo here). The OTHER two mutators must still fail closed.
-foreach ($m8Mutator in @("recovery.rollback", "recovery.load_artifact_by_hash")) {
+# recovery.disable_module (M8B-1), recovery.restart_last_good (M8B-2b) and
+# recovery.load_artifact_by_hash (M8D-1) are NO LONGER in this loop: they are implemented
+# executors, exercised in sections (g)/(h)/(i) below. Only recovery.rollback still returns
+# the generic implemented=false denial and must keep failing closed.
+foreach ($m8Mutator in @("recovery.rollback")) {
     Send-AgentCommand -Command "agent $m8Mutator" -ExpectedMarker "RAIOS_AGENT_END $m8Mutator" -Name "m8-lifeline:mutator_$m8Mutator"
     $m8MutatorResponse = Get-LastAgentResponseJson -Method $m8Mutator
     $m8mr = $m8MutatorResponse.body.result
@@ -366,10 +367,11 @@ if (-not $m8DisStartOk) {
     throw "Expected service.start svc.demo.echo to be refused with reason service_disabled while disabled"
 }
 
-# --- (g5) the OTHER two still-denied mutators keep failing closed after a real disable [needle vi] ---
-# recovery.restart_last_good is NOT here: it is an implemented executor (M8B-2b) and would
-# actually restore the disabled echo — it is exercised in section (h) below.
-foreach ($m8StillDenied in @("recovery.rollback", "recovery.load_artifact_by_hash")) {
+# --- (g5) the still-denied mutator keeps failing closed after a real disable [needle vi] ---
+# recovery.restart_last_good (M8B-2b) and recovery.load_artifact_by_hash (M8D-1) are NOT here:
+# they are implemented executors (exercised in sections (h)/(i)). Only recovery.rollback keeps
+# the generic implemented=false denial.
+foreach ($m8StillDenied in @("recovery.rollback")) {
     Send-AgentCommand -Command "agent $m8StillDenied" -ExpectedMarker "RAIOS_AGENT_END $m8StillDenied" -Name "m8-lifeline:post_disable_mutator_$m8StillDenied"
     $m8SdResp = Get-LastAgentResponseJson -Method $m8StillDenied
     $m8sd = $m8SdResp.body.result
@@ -589,8 +591,10 @@ if (-not $m8RSelftestOk) {
     throw "Expected recovery.disable_module_selftest to pass with the restart cases and safe_posture_denied present"
 }
 
-# --- (h8) the still-denied mutators keep failing closed (implemented=false) ------------
-foreach ($m8RStillDenied in @("recovery.rollback", "recovery.load_artifact_by_hash")) {
+# --- (h8) the still-denied mutator keeps failing closed (implemented=false) ------------
+# Only recovery.rollback remains an unimplemented mutator; recovery.load_artifact_by_hash is
+# M8D-1-implemented and is exercised in section (i) below.
+foreach ($m8RStillDenied in @("recovery.rollback")) {
     Send-AgentCommand -Command "agent $m8RStillDenied" -ExpectedMarker "RAIOS_AGENT_END $m8RStillDenied" -Name "m8-lifeline:post_restart_mutator_$m8RStillDenied"
     $m8RSdResp = Get-LastAgentResponseJson -Method $m8RStillDenied
     $m8rsd = $m8RSdResp.body.result
@@ -637,4 +641,130 @@ foreach ($m8Secret in @("sk-", "OPENAI_API_KEY", "api_key", "passphrase", "wifi_
 Add-Predicate -Name "m8-lifeline:restart_window_redaction_no_secrets" -Expected "the recovery.restart_last_good output window contains no api-key/passphrase text" -Passed $m8RestartRedactionOk -Actual $(if ($m8RestartRedactionOk) { "redacted" } else { "secret_marker_present" })
 if (-not $m8RestartRedactionOk) {
     throw "Expected the recovery.restart_last_good output window to contain no secret markers"
+}
+
+# =====================================================================================
+# --- (i) M8D-1 recovery.load_artifact_by_hash: hash-selected FULL re-verify, GRANTS NOTHING
+# The m8-lifeline VM boots Normal (valid-A) and has NO persisted artifact (echo is a
+# current-boot RAM service, never persisted). So a well-formed hash reaches the store select
+# and denies artifact_not_in_local_store, while a malformed hash reads NOTHING and denies
+# malformed_hash. Either way the raios.recovery_load.v0 response grants nothing: no load, no
+# retain, no start, no durable write; authorizes_load / mutates_live_state / service_loaded
+# all false. The POSITIVE load proof is M8D-2 (two-boot harness), not here.
+$m8LoadOffset = Get-SerialLogOffset
+
+# --- (i1) malformed hash denies malformed_hash and reads nothing ----------------------
+Send-AgentCommand -Command "agent recovery.load_artifact_by_hash not-a-valid-hash" -ExpectedMarker "RAIOS_AGENT_END recovery.load_artifact_by_hash" -Name "m8-lifeline:load_malformed"
+$m8LoadMalformed = Get-LastAgentResponseJson -Method "recovery.load_artifact_by_hash"
+$m8lm = $m8LoadMalformed.body.result
+$m8LoadMalformedOk = (
+    $m8lm.schema -eq "raios.recovery_load.v0" -and
+    $m8lm.method -eq "recovery.load_artifact_by_hash" -and
+    $m8lm.status -eq "capability_denied" -and
+    $m8lm.reason -eq "malformed_hash" -and
+    $m8lm.requested_hash_valid -eq $false -and
+    $m8lm.reverify_attempted -eq $false -and
+    $m8lm.record_found -eq $false -and
+    $m8lm.authorizes_load -eq $false -and
+    $m8lm.grants_new_capability -eq $false -and
+    $m8lm.service_loaded -eq $false -and
+    $m8lm.mutates_live_state -eq $false -and
+    $m8lm.accepts_external_bytes -eq $false -and
+    $m8lm.accepts_url -eq $false -and
+    $m8lm.fetches -eq $false -and
+    $m8lm.durable_write_attempted -eq $false -and
+    $m8lm.load_still_denied -eq $true -and
+    $m8lm.owner_sealed -eq $false -and
+    $m8lm.promotion_authority_is_placeholder -eq $true
+)
+Add-Predicate -Name "m8-lifeline:load_malformed_hash_denied" -Expected "recovery.load_artifact_by_hash <malformed> denies malformed_hash (raios.recovery_load.v0), reads nothing and grants nothing" -Passed $m8LoadMalformedOk -Actual $(if ($m8LoadMalformedOk) { "denied malformed_hash" } else { ($m8lm | ConvertTo-Json -Compress -Depth 6) })
+if (-not $m8LoadMalformedOk) {
+    throw "Expected recovery.load_artifact_by_hash <malformed> to deny malformed_hash and grant nothing"
+}
+
+# --- (i2) well-formed hash with no matching local record denies artifact_not_in_local_store ---
+Send-AgentCommand -Command "agent recovery.load_artifact_by_hash sha256:1111111111111111111111111111111111111111111111111111111111111111" -ExpectedMarker "RAIOS_AGENT_END recovery.load_artifact_by_hash" -Name "m8-lifeline:load_absent"
+$m8LoadAbsent = Get-LastAgentResponseJson -Method "recovery.load_artifact_by_hash"
+$m8la = $m8LoadAbsent.body.result
+$m8LoadAbsentOk = (
+    $m8la.schema -eq "raios.recovery_load.v0" -and
+    $m8la.method -eq "recovery.load_artifact_by_hash" -and
+    $m8la.status -eq "capability_denied" -and
+    $m8la.reason -eq "artifact_not_in_local_store" -and
+    $m8la.requested_hash_valid -eq $true -and
+    ([string]$m8la.requested_hash -eq "sha256:1111111111111111111111111111111111111111111111111111111111111111") -and
+    $m8la.record_found -eq $false -and
+    $m8la.reverify_attempted -eq $false -and
+    $m8la.authorizes_load -eq $false -and
+    $m8la.grants_new_capability -eq $false -and
+    $m8la.service_loaded -eq $false -and
+    $m8la.cross_reboot_proven -eq $false -and
+    $m8la.mutates_live_state -eq $false -and
+    $m8la.durable_write_attempted -eq $false -and
+    $m8la.routes_through_wasm -eq $false
+)
+Add-Predicate -Name "m8-lifeline:load_absent_not_in_local_store" -Expected "recovery.load_artifact_by_hash <valid, unknown hash> denies artifact_not_in_local_store (Normal posture, no persisted artifact) and grants nothing" -Passed $m8LoadAbsentOk -Actual $(if ($m8LoadAbsentOk) { "denied artifact_not_in_local_store" } else { ($m8la | ConvertTo-Json -Compress -Depth 6) })
+if (-not $m8LoadAbsentOk) {
+    throw "Expected recovery.load_artifact_by_hash <valid unknown hash> to deny artifact_not_in_local_store"
+}
+
+# --- (i3) selftest: the full load-by-hash denial truth table passes (pure, mutates nothing) ---
+Send-AgentCommand -Command "agent recovery.load_artifact_by_hash_selftest" -ExpectedMarker "RAIOS_AGENT_END recovery.load_artifact_by_hash_selftest" -Name "m8-lifeline:load_selftest"
+$m8LoadSelftest = Get-LastAgentResponseJson -Method "recovery.load_artifact_by_hash_selftest"
+$m8lst = $m8LoadSelftest.body.result
+$m8LoadSelftestCases = @($m8lst.cases)
+$m8LoadSelftestNames = @($m8LoadSelftestCases | ForEach-Object { $_.case })
+$m8LoadSelftestOk = (
+    $m8lst.schema -eq "raios.recovery_load_selftest.v0" -and
+    $m8lst.passed -eq $true -and
+    $m8lst.test_infrastructure -eq $true -and
+    $m8lst.loads_artifact -eq $false -and
+    $m8lst.writes_persistent_state -eq $false -and
+    [int]$m8lst.case_count -ge 7 -and
+    ($m8LoadSelftestNames -contains "malformed_hash_empty_denied") -and
+    ($m8LoadSelftestNames -contains "safe_posture_denied") -and
+    ($m8LoadSelftestNames -contains "persistence_unavailable_denied") -and
+    ($m8LoadSelftestNames -contains "absent_store_denied") -and
+    ($m8LoadSelftestNames -contains "reverify_blob_mismatch_denied") -and
+    ($m8LoadSelftestNames -contains "reverify_transaction_missing_denied")
+)
+Add-Predicate -Name "m8-lifeline:load_selftest_truth_table" -Expected "recovery.load_artifact_by_hash_selftest passes the full denial truth table (malformed/safe/persistence_unavailable/absent-store/reverify-mismatch) and grants nothing" -Passed $m8LoadSelftestOk -Actual $(if ($m8LoadSelftestOk) { "passed case_count=$([int]$m8lst.case_count)" } else { ($m8lst | ConvertTo-Json -Compress -Depth 6) })
+if (-not $m8LoadSelftestOk) {
+    throw "Expected recovery.load_artifact_by_hash_selftest to pass the full denial truth table"
+}
+
+# --- (i4) lifeline_table: load_artifact_by_hash now implemented+mutating, vocab re-pinned ---
+Send-AgentCommand -Command "agent recovery.lifeline_table" -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_table" -Name "m8-lifeline:load_lifeline_table"
+$m8Table4 = Get-LastAgentResponseJson -Method "recovery.lifeline_table"
+$m8t4 = $m8Table4.body.result
+$m8LoadRow = @($m8t4.methods | Where-Object { $_.name -eq "recovery.load_artifact_by_hash" })[0]
+$m8RollbackRow = @($m8t4.methods | Where-Object { $_.name -eq "recovery.rollback" })[0]
+$m8Table4Ok = (
+    $m8t4.schema -eq "raios.recovery_lifeline_table.v0" -and
+    [int]$m8t4.method_count -eq 6 -and
+    $m8t4.lifeline_vocabulary_sha256 -eq $LifelineVocabularySha256 -and
+    ($null -ne $m8LoadRow) -and
+    $m8LoadRow.implemented -eq $true -and
+    $m8LoadRow.mutating -eq $true -and
+    ($null -ne $m8RollbackRow) -and
+    $m8RollbackRow.implemented -eq $false
+)
+Add-Predicate -Name "m8-lifeline:load_artifact_by_hash_row_implemented" -Expected "recovery.lifeline_table shows method_count 6, load_artifact_by_hash implemented+mutating, recovery.rollback still denied, and the re-pinned vocabulary hash" -Passed $m8Table4Ok -Actual $(if ($m8Table4Ok) { "implemented+mutating vocab=$($m8t4.lifeline_vocabulary_sha256)" } else { ($m8t4 | ConvertTo-Json -Compress -Depth 6) })
+if (-not $m8Table4Ok) {
+    throw "Expected recovery.lifeline_table to show load_artifact_by_hash implemented+mutating with the re-pinned vocabulary"
+}
+
+# --- (i5) redaction negative over the whole load-by-hash window -----------------------
+$m8LoadWindow = (Get-SerialLogContent -Path $SerialLog)
+if ($null -eq $m8LoadWindow) { $m8LoadWindow = "" }
+if ($m8LoadWindow.Length -gt $m8LoadOffset) {
+    $m8LoadWindow = $m8LoadWindow.Substring($m8LoadOffset)
+}
+$m8LoadRedactionOk = $true
+foreach ($m8Secret in @("sk-", "OPENAI_API_KEY", "api_key", "passphrase", "wifi_password", "PSK:")) {
+    if ($m8LoadWindow.Contains($m8Secret)) { $m8LoadRedactionOk = $false }
+}
+Add-Predicate -Name "m8-lifeline:load_window_redaction_no_secrets" -Expected "the recovery.load_artifact_by_hash output window contains no api-key/passphrase text" -Passed $m8LoadRedactionOk -Actual $(if ($m8LoadRedactionOk) { "redacted" } else { "secret_marker_present" })
+if (-not $m8LoadRedactionOk) {
+    throw "Expected the recovery.load_artifact_by_hash output window to contain no secret markers"
 }

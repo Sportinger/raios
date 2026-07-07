@@ -3211,7 +3211,7 @@
             $ltTableRow.implemented -eq $true -and
             $ltSnapshotRow.implemented -eq $true -and
             $ltMutators.Count -eq 4 -and
-            $lt.lifeline_vocabulary_sha256 -eq "sha256:4a2c52a5f075f8d30240d34e9df0dc08692952252b005ba07a0d2f8178683904"
+            $lt.lifeline_vocabulary_sha256 -eq "sha256:7488a1abb0791a9e278d6883d6b45d993001148c7e0ffc03a50347399af3cc56"
         )
         Add-Predicate -Name "quick:m8a1_lifeline_table" -Expected "recovery.lifeline_table renders the pinned frozen command table with the golden vocabulary hash (grants nothing)" -Passed $lifelineTableOk -Actual $(if ($lifelineTableOk) { "matched" } else { ($lt | ConvertTo-Json -Compress -Depth 6) })
         if (-not $lifelineTableOk) {
@@ -3302,9 +3302,10 @@
             throw "Expected recovery.restart_last_good to return SAFE-mode capability_denied (raios.recovery_action.v0)"
         }
 
-        # recovery.disable_module is implemented as of M8B-1b (its own recovery_action.v0 shape,
-        # proven live in the m8-lifeline profile); the still-denied mutators keep the deny check.
-        foreach ($m8aMutator in @("recovery.rollback", "recovery.load_artifact_by_hash")) {
+        # recovery.disable_module (M8B-1), recovery.restart_last_good (M8B-2b) and
+        # recovery.load_artifact_by_hash (M8D-1) are all implemented executors now; only
+        # recovery.rollback still returns the generic implemented=false / raios.recovery.v0 denial.
+        foreach ($m8aMutator in @("recovery.rollback")) {
             Send-AgentCommand -Command "agent $m8aMutator" -ExpectedMarker "RAIOS_AGENT_END $m8aMutator"
             $m8aResp = Get-LastAgentResponseJson -Method $m8aMutator
             $m8aResult = $m8aResp.body.result
@@ -3321,6 +3322,56 @@
             if (-not $m8aDenied) {
                 throw "Expected $m8aMutator to return typed capability_denied"
             }
+        }
+
+        # M8D-1: recovery.load_artifact_by_hash is an implemented reverify-ONLY executor that
+        # GRANTS NOTHING (no load, no retain, no start, no durable write). quick boots with no
+        # persist disk -> non-Normal posture, so a well-formed hash denies in the pre-store
+        # SAFE/PersistenceUnavailable gate (boot_control_safe_mode) rather than reaching the
+        # store select; either fail-closed reason is acceptable here. The exact store-absent
+        # (artifact_not_in_local_store) path runs in the Normal-posture m8-lifeline profile.
+        Send-AgentCommand -Command "agent recovery.load_artifact_by_hash sha256:2222222222222222222222222222222222222222222222222222222222222222" -ExpectedMarker "RAIOS_AGENT_END recovery.load_artifact_by_hash"
+        $m8dLoad = Get-LastAgentResponseJson -Method "recovery.load_artifact_by_hash"
+        $m8dl = $m8dLoad.body.result
+        $m8dLoadDenied = (
+            $m8dl.schema -eq "raios.recovery_load.v0" -and
+            $m8dl.method -eq "recovery.load_artifact_by_hash" -and
+            $m8dl.status -eq "capability_denied" -and
+            (@("boot_control_safe_mode", "artifact_not_in_local_store") -contains $m8dl.reason) -and
+            $m8dl.requested_hash_valid -eq $true -and
+            $m8dl.reverify_attempted -eq $false -and
+            $m8dl.authorizes_load -eq $false -and
+            $m8dl.grants_new_capability -eq $false -and
+            $m8dl.service_loaded -eq $false -and
+            $m8dl.cross_reboot_proven -eq $false -and
+            $m8dl.mutates_live_state -eq $false -and
+            $m8dl.durable_write_attempted -eq $false -and
+            $m8dl.accepts_external_bytes -eq $false -and
+            $m8dl.accepts_url -eq $false -and
+            $m8dl.fetches -eq $false -and
+            $m8dl.owner_sealed -eq $false -and
+            $m8dl.promotion_authority_is_placeholder -eq $true
+        )
+        Add-Predicate -Name "quick:m8d1_load_artifact_by_hash_denied" -Expected "recovery.load_artifact_by_hash (implemented reverify-only executor) denies via the raios.recovery_load.v0 shape (boot_control_safe_mode or artifact_not_in_local_store) and grants nothing" -Passed $m8dLoadDenied -Actual $(if ($m8dLoadDenied) { "denied $($m8dl.reason)" } else { ($m8dl | ConvertTo-Json -Compress -Depth 6) })
+        if (-not $m8dLoadDenied) {
+            throw "Expected recovery.load_artifact_by_hash to deny via raios.recovery_load.v0 and grant nothing"
+        }
+
+        # A malformed hash reads NOTHING and denies malformed_hash regardless of posture.
+        Send-AgentCommand -Command "agent recovery.load_artifact_by_hash not-a-hash" -ExpectedMarker "RAIOS_AGENT_END recovery.load_artifact_by_hash"
+        $m8dMal = Get-LastAgentResponseJson -Method "recovery.load_artifact_by_hash"
+        $m8dm = $m8dMal.body.result
+        $m8dMalDenied = (
+            $m8dm.schema -eq "raios.recovery_load.v0" -and
+            $m8dm.status -eq "capability_denied" -and
+            $m8dm.reason -eq "malformed_hash" -and
+            $m8dm.requested_hash_valid -eq $false -and
+            $m8dm.reverify_attempted -eq $false -and
+            $m8dm.mutates_live_state -eq $false
+        )
+        Add-Predicate -Name "quick:m8d1_load_malformed_hash_denied" -Expected "recovery.load_artifact_by_hash <malformed> denies malformed_hash, reads nothing, grants nothing" -Passed $m8dMalDenied -Actual $(if ($m8dMalDenied) { "denied malformed_hash" } else { ($m8dm | ConvertTo-Json -Compress -Depth 6) })
+        if (-not $m8dMalDenied) {
+            throw "Expected recovery.load_artifact_by_hash <malformed> to deny malformed_hash"
         }
 
         # Case-insensitive dispatch: an operator under duress typing upper-case still resolves to the

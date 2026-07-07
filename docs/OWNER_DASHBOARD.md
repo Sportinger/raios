@@ -40,8 +40,13 @@ DAUERHAFTEN Zustand — welche System-Kopie (A/B) die „letzte gute" ist, ob de
 Modus aktiv ist, ob der letzte Start als erfolgreich markiert wurde — plus eine reine
 **Vorschau** „was würde ein Zurückrollen ändern" (nur anschauen, ändert nichts). Fehlt die
 Information (keine Platte), wird das ehrlich als „nicht verfügbar" gemeldet, nie erfunden.
-Die restlichen zwei Aktionen (zurückrollen ausführen, gespeichertes-Artefakt-laden) bleiben
-weiter verweigert, eine nach der anderen. Und die wichtigste Absicherung von M8 ist bewiesen: selbst wenn ein laufender
+NEU (M8D-1, „prüfen aber noch nicht laden"): die Rettungsleine kann jetzt ein bereits
+gespeichertes Modul per Fingerabdruck im LOKALEN Speicher finden und **die komplette
+Beweiskette von Grund auf neu prüfen** (inkl. Unterschrift) — lädt es aber noch NICHT (das ist
+der nächste, letzte M8-Schritt M8D-2). Sie lädt **niemals aus dem Netz** und nimmt **keine neuen
+Bytes** an — nur der Fingerabdruck sucht in schon-geprüften lokalen Einträgen; ein falscher/
+unbekannter Fingerabdruck wird ehrlich abgelehnt. Danach ist **M8 komplett**. Das Ausführen von
+„zurückrollen" bleibt bewusst verweigert (Nicht-Ziel von M8). Und die wichtigste Absicherung von M8 ist bewiesen: selbst wenn ein laufender
 Baustein WIRKLICH abstürzt, antwortet die Rettungsleine weiter — sie überlebt, weil
 KI-Code ein Treibstoff-Limit hat und kooperativ läuft, noch NICHT durch echte
 Hardware-Trennung (die kommt erst mit M11).).

@@ -483,6 +483,7 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("recovery.restart_last_good_target_binding_diagnostic_selftest", Head, ["recovery.restart_last_good_target_binding_selftest"], [], MethodAction::Read0(emit_recovery_restart_last_good_target_binding_diagnostic_selftest)),
     method!("recovery.load_artifact_by_hash_target_binding_diagnostic", Head, ["recovery.load_artifact_by_hash_target_binding"], [], MethodAction::ReadMethod(emit_recovery_load_artifact_by_hash_target_binding_diagnostic)),
     method!("recovery.load_artifact_by_hash_target_binding_diagnostic_selftest", Head, ["recovery.load_artifact_by_hash_target_binding_selftest"], [], MethodAction::Read0(emit_recovery_load_artifact_by_hash_target_binding_diagnostic_selftest)),
+    method!("recovery.load_artifact_by_hash_selftest", Exact, [], [route!("recovery.load_artifact_by_hash_selftest")], MethodAction::Read0(recovery_lifeline::emit_load_artifact_by_hash_selftest)),
     method!("recovery.memory_write_authority_diagnostic", Head, ["recovery.memory_write_authority"], [], MethodAction::ReadMethod(emit_recovery_memory_write_authority_diagnostic)),
     method!("recovery.memory_write_authority_diagnostic_selftest", Head, ["recovery.memory_write_authority_selftest"], [], MethodAction::Read0(emit_recovery_memory_write_authority_diagnostic_selftest)),
     method!("recovery.durable_audit_rollback_write_authority_diagnostic", Head, ["recovery.durable_audit_rollback_write_authority"], [], MethodAction::ReadMethod(emit_durable_audit_rollback_write_authority_diagnostic)),

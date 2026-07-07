@@ -80,7 +80,7 @@ impl EventIdText {
 }
 
 #[derive(Clone, Copy)]
-struct PromotionTransactionReadback {
+pub(crate) struct PromotionTransactionReadback {
     computed_grant_hash: [u8; 32],
     manifest_hash: [u8; 32],
     artifact_hash: [u8; 32],
@@ -226,13 +226,67 @@ pub(crate) fn emit_repromotion_run(_runtime: ui::RuntimeStatus) {
     emit_run_record("completed", "repromotion_scan_completed", true, decisions);
 }
 
-fn reverify_record(
+/// Reverify-only outcome shared by the full re-promotion path and the recovery lifeline
+/// (M8D-1). `evidence` carries the decision (`reverified` == `performed`) and every
+/// reverify-evidence hash; `verified_payload`/`transaction` are `Some` ONLY when the chain
+/// re-verified, and are consumed by the full path to continue to the M6 gate. Grants
+/// nothing by itself: it retains no candidate, repopulates no references, loads/starts
+/// nothing — the caller decides what (if anything) to do next.
+pub(crate) struct ReverifyOnly {
+    evidence: RepromotionEvidence,
+    verified_payload: Option<artifact_store::VerifiedArtifactPayload>,
+    transaction: Option<PromotionTransactionReadback>,
+}
+
+impl ReverifyOnly {
+    fn denied(evidence: RepromotionEvidence) -> Self {
+        Self {
+            evidence,
+            verified_payload: None,
+            transaction: None,
+        }
+    }
+
+    /// Whether the FULL M6 evidence chain re-verified from scratch (the pure
+    /// `reverify_persisted_artifact` decision — never a stored boolean).
+    pub(crate) fn reverified(&self) -> bool {
+        self.evidence.performed
+    }
+
+    pub(crate) fn status(&self) -> &'static str {
+        self.evidence.status
+    }
+
+    pub(crate) fn reason(&self) -> &'static str {
+        self.evidence.reason
+    }
+
+    pub(crate) fn candidate_payload_sha256(&self) -> Option<[u8; 32]> {
+        self.evidence.candidate_payload_sha256
+    }
+
+    pub(crate) fn recomputed_attestation_reference_hash(&self) -> Option<[u8; 32]> {
+        self.evidence.recomputed_attestation_reference_hash
+    }
+
+    pub(crate) fn recorded_attestation_reference_hash(&self) -> Option<[u8; 32]> {
+        self.evidence.recorded_attestation_reference_hash
+    }
+}
+
+/// STEP 0..decision of a re-promotion: read the verified payload, find the promotion
+/// transaction, recompute the attestation reference hash, and run the pure
+/// `reverify_persisted_artifact` decision. This is the ONE reverify implementation both
+/// the full re-promotion path (`reverify_record`, which continues to the M6 gate) and the
+/// recovery lifeline (M8D-1 `recovery.load_artifact_by_hash`, which stops here and reports)
+/// share, so neither can drift from the other's notion of "reverified". It grants nothing.
+pub(crate) fn reverify_record_only(
     controller: pci::PciMassStorageController,
     record: &artifact_store::ArtifactPersistRecord,
-) -> RepromotionEvidence {
+) -> ReverifyOnly {
     let verified_payload = match artifact_store::read_verified_artstor_payload(controller, record) {
         Ok(verified) => verified,
-        Err(reason) => return denied_from_record(record, reason),
+        Err(reason) => return ReverifyOnly::denied(denied_from_record(record, reason)),
     };
     let transaction_scan = artifact_store::current_boot_reclog_scan(controller);
     let transaction = match transaction_scan
@@ -246,7 +300,7 @@ fn reverify_record(
             let mut evidence = denied_from_record(record, reason);
             evidence.candidate_payload_sha256 = Some(sha256_bytes(&verified_payload.payload));
             evidence.candidate_payload_len = Some(verified_payload.payload.len() as u64);
-            return evidence;
+            return ReverifyOnly::denied(evidence);
         }
     };
 
@@ -299,7 +353,7 @@ fn reverify_record(
         promotion_authority_is_placeholder: PROMOTION_AUTHORITY_IS_PLACEHOLDER,
     });
 
-    let mut evidence = RepromotionEvidence {
+    let evidence = RepromotionEvidence {
         artifact_persist_seq: record.seq,
         artifact_persist_reclog_offset: record.reclog_offset,
         artstor_blob_offset: record.artstor_blob_offset,
@@ -342,8 +396,36 @@ fn reverify_record(
         audit: None,
     };
     if !decision.reverified {
-        return evidence;
+        return ReverifyOnly {
+            evidence,
+            verified_payload: None,
+            transaction: None,
+        };
     }
+    ReverifyOnly {
+        evidence,
+        verified_payload: Some(verified_payload),
+        transaction: Some(transaction),
+    }
+}
+
+/// Full re-promotion of one persisted record: the shared reverify-only chain FIRST, then —
+/// ONLY if it re-verified — validate the reconstructed wasm, retain the candidate,
+/// repopulate references, and drive the UNCHANGED M6 load/start gate. Behaviour is
+/// identical to before the M8D-1 extraction; the reverify logic simply lives in
+/// `reverify_record_only` now so the recovery lifeline reuses exactly one implementation.
+fn reverify_record(
+    controller: pci::PciMassStorageController,
+    record: &artifact_store::ArtifactPersistRecord,
+) -> RepromotionEvidence {
+    let ReverifyOnly {
+        mut evidence,
+        verified_payload,
+        transaction,
+    } = reverify_record_only(controller, record);
+    let (Some(verified_payload), Some(transaction)) = (verified_payload, transaction) else {
+        return evidence;
+    };
 
     let payload_sha256 = sha256_bytes(&verified_payload.payload);
     if payload_sha256 != record.artifact_sha256 {
@@ -420,7 +502,7 @@ fn reverify_record(
     evidence
 }
 
-fn repopulate_reverified_references(transaction: &PromotionTransactionReadback) -> bool {
+pub(crate) fn repopulate_reverified_references(transaction: &PromotionTransactionReadback) -> bool {
     let (
         Some(retained_manifest_reference_event_id),
         Some(retained_artifact_reference_event_id),
@@ -523,7 +605,7 @@ fn denied_from_record(
     }
 }
 
-fn find_promotion_transaction(
+pub(crate) fn find_promotion_transaction(
     bytes: &[u8],
     promotion_transaction_sha256: [u8; 32],
 ) -> Result<PromotionTransactionReadback, &'static str> {
