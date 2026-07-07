@@ -29,7 +29,8 @@ const DEV_PRIVATE_SCALAR: [u8; 32] = [
 
 /// Sign the 32-byte attestation_reference_hash with the DEV key; return lowercase DER-hex.
 fn sign_attestation_reference_hash(hash32: &[u8; 32]) -> String {
-    let signing_key = SigningKey::from_slice(&DEV_PRIVATE_SCALAR).expect("dev scalar 1 is a valid key");
+    let signing_key =
+        SigningKey::from_slice(&DEV_PRIVATE_SCALAR).expect("dev scalar 1 is a valid key");
     // `sign` hashes the message with SHA-256 internally (RFC6979-deterministic); the verifier does
     // the same over the identical 32-byte payload, so this is byte-identical to the kernel's verify.
     let signature: Signature = signing_key.sign(hash32);
