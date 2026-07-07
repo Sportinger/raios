@@ -16,10 +16,13 @@ refused. Still honestly labelled dev-key, not owner-sealed. Proven end-to-end
 review that found and fixed two real read bugs). raiOS is no longer "this-boot-only".
 **M8 started (the emergency lifeline):** the fixed, minimal list of rescue commands
 is now pinned and answered on its OWN separate path — so it can't be quietly
-extended, and it touches none of the normal machinery. Only "show me the rescue
-command list" works today; the five real rescue actions (snapshot, restart-last-good,
-disable-a-module, roll-back, load-a-saved-artifact) are all deliberately still refused
-until built and proven, one careful step at a time. Restore-only, never promote.).
+extended, and it touches none of the normal machinery. Two READ-ONLY rescue commands
+work today: "show me the rescue command list" and NEW "show me a diagnosis snapshot"
+(which parts booted, which services are alive vs broken, which are protected-core vs
+replaceable) — it reads only, leaks no secrets, changes nothing. The four rescue
+ACTIONS (restart-last-good, disable-a-module, roll-back, load-a-saved-artifact) stay
+deliberately refused until built and proven, one careful step at a time. Restore-only,
+never promote.).
 
 ## What raiOS can actually do today
 

@@ -1,37 +1,47 @@
-//! Recovery-lifeline dispatch (M8A-1, evidence-only).
+//! Recovery-lifeline dispatch (M8A-1 boundary, M8A-2 read-only snapshot).
 //!
-//! A dedicated, minimal dispatch path checked BEFORE the general `AGENT_METHODS`
-//! table so the lifeline is provably separate: it renders the pinned command table
-//! and returns typed `capability_denied` for every not-yet-implemented endpoint,
-//! and it imports NONE of the wasm / provider / network / TLS machinery. The frozen
-//! table + its `lifeline_vocabulary_sha256` fingerprint live in
-//! `raios_core::recovery_lifeline_table` (host-tested). This slice grants nothing:
-//! only `recovery.lifeline_table` is implemented (a pure table read); the five spec
-//! endpoints deny. Honest posture only — `dev_key_not_owner_sealed`, owner_sealed
-//! false, mutates nothing, current_boot.
+//! A dedicated dispatch path checked BEFORE the general `AGENT_METHODS` table so
+//! the lifeline is provably separate. It renders the pinned command table and a
+//! read-only recovery snapshot, and returns typed `capability_denied` for every
+//! not-yet-implemented (mutating) endpoint. It imports NO wasm / TLS / network /
+//! event-log / durable-write machinery, makes no provider CALL (it only reads
+//! provider STATE for diagnosis), and mutates nothing. The frozen table + its
+//! `lifeline_vocabulary_sha256` fingerprint live in
+//! `raios_core::recovery_lifeline_table` (host-tested). Honest posture only:
+//! `dev_key_not_owner_sealed`, owner_sealed false, current_boot.
 
-use alloc::vec;
+use alloc::{vec, vec::Vec};
 
+use raios_core::boot_control::BootPosture;
 use raios_core::record::Value;
 use raios_core::recovery_lifeline_table as table;
 
+use super::boot_control;
 use super::DispatchOutcome;
 use crate::agent_protocol_support::{
     begin_response, emit_record_fields, end_response, record_bool as b, record_field as f,
     record_str as s,
 };
+use crate::{provider, service_inventory, system_status, ui};
 
 /// Lifeline dispatch. Returns `Some(outcome)` for any pinned lifeline method and
 /// `None` for everything else so the general dispatcher runs unchanged. The lifeline
 /// is intentionally the FIRST check in `agent_protocol::dispatch`.
-pub(crate) fn dispatch(method: &str) -> Option<DispatchOutcome> {
+pub(crate) fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> Option<DispatchOutcome> {
     let matched = table::lookup(method)?;
-    if matched.implemented {
-        emit_table(matched.name);
-        Some(DispatchOutcome::Response(matched.name))
-    } else {
-        emit_denied(matched);
-        Some(DispatchOutcome::Denied(matched.name))
+    match matched.name {
+        table::METHOD_LIFELINE_TABLE => {
+            emit_table(matched.name);
+            Some(DispatchOutcome::Response(matched.name))
+        }
+        table::METHOD_SNAPSHOT => {
+            emit_snapshot(matched.name, runtime);
+            Some(DispatchOutcome::Response(matched.name))
+        }
+        _ => {
+            emit_denied(matched);
+            Some(DispatchOutcome::Denied(matched.name))
+        }
     }
 }
 
@@ -45,6 +55,90 @@ fn emit_table(method: &'static str) {
         Value::Sha256(table::vocabulary_sha256()),
     ));
     emit_record_fields(fields, 6);
+    end_response(method);
+}
+
+fn posture_str(posture: BootPosture) -> &'static str {
+    match posture {
+        BootPosture::Normal => "normal",
+        BootPosture::Probation => "probation",
+        BootPosture::Safe => "safe",
+        BootPosture::PersistenceUnavailable => "persistence_unavailable",
+    }
+}
+
+/// Read-only recovery snapshot: current boot posture + the live service inventory
+/// (id/kind/core_owned/replaceable/health) so an operator can DIAGNOSE what is
+/// broken before deciding to restore. Reads only; writes nothing; redacts secrets
+/// (only structural facts and fixed-vocabulary health states are reported — the
+/// free-form `last_error` detail is deliberately dropped so no wifi/TLS/OpenAI
+/// text can leak). NOTE: `current_boot_posture()` performs a bounded, read-only
+/// BOOTCTL read each call; if storage is wedged it degrades to
+/// `persistence_unavailable` (never hangs) — that degraded value is itself a
+/// diagnostic signal, so the dependency is intentional. A cached boot decision is
+/// deferred to the M8C durable-last-good/SAFE integration.
+fn emit_snapshot(method: &'static str, runtime: ui::RuntimeStatus) {
+    let status = system_status::SystemSnapshot::collect(None, runtime);
+    let provider_state = provider::snapshot();
+
+    let mut rows: Vec<Value<'static>> = Vec::new();
+    let mut core_owned_count = 0u64;
+    let mut replaceable_count = 0u64;
+    let mut unhealthy_count = 0u64;
+    let mut idx = 0usize;
+    while idx < service_inventory::SERVICES.len() {
+        let svc = &service_inventory::SERVICES[idx];
+        let health = service_inventory::service_health(svc, &status, &provider_state);
+        if svc.core_owned {
+            core_owned_count += 1;
+        }
+        if svc.replaceable {
+            replaceable_count += 1;
+        }
+        if health.state != "healthy" && health.state != "starting" {
+            unhealthy_count += 1;
+        }
+        rows.push(Value::InlineObject(vec![
+            f("id", s(svc.id)),
+            f("kind", s(svc.kind)),
+            f("core_owned", b(svc.core_owned)),
+            f("replaceable", b(svc.replaceable)),
+            f("health", s(health.state)),
+        ]));
+        idx += 1;
+    }
+
+    begin_response(method);
+    emit_record_fields(
+        vec![
+            f("schema", s(table::SNAPSHOT_SCHEMA)),
+            f("scope", s(table::SCOPE)),
+            f("classification", s(table::CLASSIFICATION)),
+            f("transport", s(table::TRANSPORT)),
+            f("trust_state", s(table::TRUST_STATE)),
+            f("trust_tier", s(table::TRUST_TIER)),
+            f(
+                "boot_posture",
+                s(posture_str(boot_control::current_boot_posture())),
+            ),
+            f("mutates_state", b(false)),
+            f("owner_sealed", b(false)),
+            f("routes_through_wasm", b(false)),
+            f("routes_through_provider", b(false)),
+            f("redacted", b(true)),
+            f("lifeline_available", b(true)),
+            f("lifeline_table_method", s(table::METHOD_LIFELINE_TABLE)),
+            f(
+                "service_count",
+                Value::U64(service_inventory::SERVICES.len() as u64),
+            ),
+            f("core_owned_count", Value::U64(core_owned_count)),
+            f("replaceable_count", Value::U64(replaceable_count)),
+            f("unhealthy_count", Value::U64(unhealthy_count)),
+            f("services", Value::Array(rows)),
+        ],
+        6,
+    );
     end_response(method);
 }
 

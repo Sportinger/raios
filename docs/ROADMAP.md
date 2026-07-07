@@ -53,8 +53,13 @@ table on a SEPARATE dispatch path checked before the general method table, with 
 `vocabulary_sha256` fence; only `recovery.lifeline_table` reads, the five spec
 endpoints all return typed `capability_denied` and mutate nothing; imports no
 wasm/provider/net/tls. Verified quick 583/583 (7 needles), FULL 8168/8168 (frozen
-recovery byte-identical), raios-core 2/2, max adversarial review clean. Next:
-M8A-2 real read-only `recovery.snapshot`. (M7 map
+recovery byte-identical), raios-core 2/2, max adversarial review clean. **M8A-2 done
+(2026-07-07, read-only):** `recovery.snapshot` renders `raios.recovery_snapshot.v0`
+from live boot posture + service inventory/health for diagnosis — mutates nothing,
+promotes nothing, no provider call, secret-leakage structurally impossible (fixed
+strings only, `last_error` dropped). Verified quick 583/583, FULL 8168/8168,
+raios-core 2/2, max adversarial review (no BLOCKER/HIGH/MEDIUM). Next: M8A-3
+fuel-exhaustion wedge proof (does the pinned dispatcher survive a real Wasm trap?). (M7 map
 `docs/plan-reviews/m7-persistence-map-2026-07-06.md`,
 revalidated M7-0). Sequencing per the M7-0 note: M7A + M7B build GPT + the
 SEED_DATA RECLOG durable store; then M6D-2 records its durable promotion

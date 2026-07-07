@@ -3135,6 +3135,32 @@ with a code note: arg-bearing endpoints must move to head-token matching; the
 no-event-log-write NIT kept as a deliberate lifeline-independence property). Nothing
 durable written; every M6/M7 write target and grant untouched.
 
+**M8A-2 DONE (2026-07-07, read-only, mutates nothing).** `recovery.snapshot` is now a
+REAL read: `emit_snapshot` (`seed-kernel/src/recovery_lifeline.rs`) renders
+`raios.recovery_snapshot.v0` from LIVE current-boot state — boot posture + the service
+inventory (id/kind/core_owned/replaceable/health) + core_owned/replaceable/unhealthy
+counts + lifeline availability — so an operator can DIAGNOSE before restoring. The
+lifeline dispatch now threads `runtime` and routes lifeline_table→table,
+snapshot→snapshot, the four mutators→typed `capability_denied` (unchanged). Secret
+leakage is structurally impossible: only fixed `&'static` ids/kinds and
+fixed-vocabulary health states (`healthy`/`starting`/`degraded`/`missing`) are
+emitted; the free-form `last_error` detail (wifi/TLS/OpenAI text) is deliberately
+dropped and `trust_state` is the const `local_physical_console`, so
+`redacted:true`/`classification:local_only` are honest. No durable write, no lifecycle
+change, no grant, no promotion; `provider::snapshot()` is a cached-STATE read
+(`routes_through_provider:false` accurate — no outbound call); owner_sealed false,
+`dev_key_not_owner_sealed`, mutates_state false, current_boot. The vocabulary hash
+re-pinned to `523b719b…819f` (the pin correctly reflects snapshot going implemented;
+a future implemented-flip on any endpoint fails the host+VM gate). Verified: raios-core
+2/2 (re-pinned golden hash), quick 583/583 (snapshot renders live inventory/health, all
+four mutators + a case-insensitive path still deny), FULL 8168/8168 (frozen recovery
+byte-identical), max-effort adversarial review (no BLOCKER/HIGH/MEDIUM; secret-leakage
+CLEAN by construction; one LOW — `current_boot_posture()` does a bounded read-only
+BOOTCTL read per call, documented as intentional self-diagnosis, cached-posture
+deferred to M8C; two NITs applied). Next: M8A-3 (fuel-exhaustion wedge proof + a
+dedicated lifeline profile) — the assumption the pinned dispatcher survives a real Wasm
+trap is not yet proven and is M8's key risk.
+
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 recovery/hello dispatch-bound completion-denial smoke runs on Windows with
 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-seed-kernel.ps1 -Profile release`,

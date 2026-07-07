@@ -3209,9 +3209,9 @@
             ($ltNames -contains "recovery.rollback") -and
             ($ltNames -contains "recovery.load_artifact_by_hash") -and
             $ltTableRow.implemented -eq $true -and
-            $ltSnapshotRow.implemented -eq $false -and
+            $ltSnapshotRow.implemented -eq $true -and
             $ltMutators.Count -eq 4 -and
-            $lt.lifeline_vocabulary_sha256 -eq "sha256:dbb5562fffee06f85726eea6fe9e7e76d5b16930d6c8911a4a252440192c95b5"
+            $lt.lifeline_vocabulary_sha256 -eq "sha256:523b719ba65fd52162d485792de7719b606fe35b7a99c656f6874c24a167819f"
         )
         Add-Predicate -Name "quick:m8a1_lifeline_table" -Expected "recovery.lifeline_table renders the pinned frozen command table with the golden vocabulary hash (grants nothing)" -Passed $lifelineTableOk -Actual $(if ($lifelineTableOk) { "matched" } else { ($lt | ConvertTo-Json -Compress -Depth 6) })
         if (-not $lifelineTableOk) {
@@ -3221,18 +3221,32 @@
         Send-AgentCommand -Command "agent recovery.snapshot" -ExpectedMarker "RAIOS_AGENT_END recovery.snapshot"
         $lifelineSnapshot = Get-LastAgentResponseJson -Method "recovery.snapshot"
         $ls = $lifelineSnapshot.body.result
-        $lifelineSnapshotDenied = (
-            $ls.schema -eq "raios.recovery.v0" -and
-            $ls.method -eq "recovery.snapshot" -and
-            $ls.status -eq "capability_denied" -and
+        $lsServices = @($ls.services)
+        $lsSerial = @($lsServices | Where-Object { $_.id -eq "core.serial" })[0]
+        $m8a2SnapshotOk = (
+            $ls.schema -eq "raios.recovery_snapshot.v0" -and
+            $ls.scope -eq "current_boot" -and
+            $ls.classification -eq "local_only" -and
             $ls.mutates_state -eq $false -and
             $ls.owner_sealed -eq $false -and
             $ls.routes_through_wasm -eq $false -and
-            (-not [string]::IsNullOrEmpty($ls.reason))
+            $ls.routes_through_provider -eq $false -and
+            $ls.redacted -eq $true -and
+            $ls.lifeline_available -eq $true -and
+            $ls.lifeline_table_method -eq "recovery.lifeline_table" -and
+            $ls.trust_tier -eq "dev_key_not_owner_sealed" -and
+            (@("normal", "probation", "safe", "persistence_unavailable") -contains $ls.boot_posture) -and
+            [int]$ls.service_count -ge 1 -and
+            [int]$ls.core_owned_count -ge 1 -and
+            $lsServices.Count -eq [int]$ls.service_count -and
+            ($null -ne $lsSerial) -and
+            $lsSerial.core_owned -eq $true -and
+            $lsSerial.replaceable -eq $false -and
+            $lsSerial.health -eq "healthy"
         )
-        Add-Predicate -Name "quick:m8a1_snapshot_denied" -Expected "recovery.snapshot returns typed capability_denied (not unknown) and mutates nothing" -Passed $lifelineSnapshotDenied -Actual $(if ($lifelineSnapshotDenied) { "denied" } else { ($ls | ConvertTo-Json -Compress -Depth 5) })
-        if (-not $lifelineSnapshotDenied) {
-            throw "Expected recovery.snapshot to return typed capability_denied"
+        Add-Predicate -Name "quick:m8a2_snapshot_renders" -Expected "recovery.snapshot renders a read-only raios.recovery_snapshot.v0 from live inventory/health, mutating nothing" -Passed $m8a2SnapshotOk -Actual $(if ($m8a2SnapshotOk) { "rendered" } else { ($ls | ConvertTo-Json -Compress -Depth 6) })
+        if (-not $m8a2SnapshotOk) {
+            throw "Expected recovery.snapshot to render the live recovery snapshot"
         }
 
         Send-AgentCommand -Command "agent recovery.restart_last_good" -ExpectedMarker "RAIOS_AGENT_END recovery.restart_last_good"
@@ -3268,16 +3282,18 @@
             }
         }
 
-        # Case-insensitive dispatch: an operator under duress typing upper-case still gets a typed denial (not UNKNOWN).
-        Send-AgentCommand -Command "agent RECOVERY.SNAPSHOT" -ExpectedMarker "RAIOS_AGENT_END recovery.snapshot"
-        $lifelineCaseInsensitive = Get-LastAgentResponseJson -Method "recovery.snapshot"
+        # Case-insensitive dispatch: an operator under duress typing upper-case still resolves to the
+        # pinned lowercase endpoint and gets a typed denial (not UNKNOWN) on the mutating path.
+        Send-AgentCommand -Command "agent RECOVERY.DISABLE_MODULE" -ExpectedMarker "RAIOS_AGENT_END recovery.disable_module"
+        $lifelineCaseInsensitive = Get-LastAgentResponseJson -Method "recovery.disable_module"
         $lci = $lifelineCaseInsensitive.body.result
         $lifelineCaseInsensitiveOk = (
             $lci.status -eq "capability_denied" -and
-            $lci.method -eq "recovery.snapshot" -and
+            $lci.method -eq "recovery.disable_module" -and
+            $lci.mutating -eq $true -and
             $lci.mutates_state -eq $false
         )
-        Add-Predicate -Name "quick:m8a1_case_insensitive_denied" -Expected "upper-case RECOVERY.SNAPSHOT resolves to the pinned lowercase endpoint and returns capability_denied" -Passed $lifelineCaseInsensitiveOk -Actual $(if ($lifelineCaseInsensitiveOk) { "denied" } else { ($lci | ConvertTo-Json -Compress -Depth 5) })
+        Add-Predicate -Name "quick:m8a1_case_insensitive_denied" -Expected "upper-case RECOVERY.DISABLE_MODULE resolves to the pinned lowercase endpoint and returns capability_denied" -Passed $lifelineCaseInsensitiveOk -Actual $(if ($lifelineCaseInsensitiveOk) { "denied" } else { ($lci | ConvertTo-Json -Compress -Depth 5) })
         if (-not $lifelineCaseInsensitiveOk) {
-            throw "Expected upper-case RECOVERY.SNAPSHOT to resolve case-insensitively to a typed capability_denied"
+            throw "Expected upper-case RECOVERY.DISABLE_MODULE to resolve case-insensitively to a typed capability_denied"
         }

@@ -799,7 +799,7 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
 
     // Recovery lifeline is a SEPARATE dispatch path, checked before the general
     // method table so the minimal restore-only surface is provably isolated.
-    if let Some(outcome) = recovery_lifeline::dispatch(method) {
+    if let Some(outcome) = recovery_lifeline::dispatch(method, runtime) {
         return outcome;
     }
 

@@ -18,6 +18,7 @@ use alloc::{vec, vec::Vec};
 use crate::record::{sha256_of_json, Field, Value};
 
 pub const SCHEMA: &str = "raios.recovery_lifeline_table.v0";
+pub const SNAPSHOT_SCHEMA: &str = "raios.recovery_snapshot.v0";
 pub const SCOPE: &str = "current_boot";
 pub const CLASSIFICATION: &str = "local_only";
 pub const TRANSPORT: &str = "serial_local";
@@ -52,7 +53,7 @@ pub const LIFELINE_METHODS: &[LifelineMethod] = &[
     LifelineMethod {
         name: METHOD_SNAPSHOT,
         capability: "cap.recovery.snapshot.read",
-        implemented: false,
+        implemented: true,
         mutating: false,
     },
     LifelineMethod {
@@ -159,10 +160,10 @@ mod tests {
                 "recovery.load_artifact_by_hash",
             ]
         );
-        // Only the table read is implemented in M8A-1; nothing else executes yet.
+        // Implemented reads (M8A-1 table, M8A-2 snapshot); the four mutators stay denied.
         assert!(lookup("recovery.lifeline_table").unwrap().implemented);
+        assert!(lookup("recovery.snapshot").unwrap().implemented);
         for name in [
-            "recovery.snapshot",
             "recovery.restart_last_good",
             "recovery.disable_module",
             "recovery.rollback",
@@ -192,7 +193,7 @@ mod tests {
         let hex = core::str::from_utf8(&hex).unwrap();
         assert_eq!(
             hex,
-            "dbb5562fffee06f85726eea6fe9e7e76d5b16930d6c8911a4a252440192c95b5"
+            "523b719ba65fd52162d485792de7719b606fe35b7a99c656f6874c24a167819f"
         );
     }
 }
