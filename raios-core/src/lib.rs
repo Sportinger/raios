@@ -17,6 +17,7 @@ pub mod repromotion_reverify;
 pub mod scoped_artifact_persist_append;
 pub mod scoped_artifact_store_blob;
 pub mod scoped_boot_control_replace;
+pub mod scoped_memory_record_append;
 pub mod scoped_promotion_transaction_append;
 pub mod scoped_recovery_action_append;
 pub mod scoped_recovery_load_append;
