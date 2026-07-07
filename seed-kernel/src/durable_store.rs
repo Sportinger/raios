@@ -2503,6 +2503,8 @@ pub(crate) fn append_memory_record(record: &MemoryRecord<'static>) -> MemoryReco
         span_in_bounds: write.span_in_bounds,
         classification: Some(record.classification.as_str()),
         kind: Some(record.kind.as_str()),
+        supersedes_len: Some(record.supersedes.len() as u64),
+        supersede_self_reference: false,
         trust_tier: Some(MEMORY_EXPECTED_TRUST_TIER),
         owner_sealed: false,
         persistence_claimed: false,

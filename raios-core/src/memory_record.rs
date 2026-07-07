@@ -51,6 +51,22 @@ pub enum MemoryRecordError {
     ObservationMissingEntity,
     /// An `observation` did not name its source snapshot (`source` incomplete).
     ObservationMissingSource,
+    /// A `decision` did not name the entity it decided about (`entity` empty).
+    DecisionMissingEntity,
+    /// A `decision` did not name its source snapshot (`source` incomplete).
+    DecisionMissingSource,
+    /// A `problem` did not name the entity it concerns (`entity` empty).
+    ProblemMissingEntity,
+    /// A `problem` did not carry a status (`predicate` empty).
+    ProblemMissingStatus,
+    /// One of the 5 audit/authority kinds was authored as a superseding record.
+    /// Audit kinds may never supersede — the reclog audit trail must never be
+    /// hideable by a future broker resolving a `supersedes` link.
+    AuditKindMayNotSupersede,
+    /// `supersedes` named more ids than [`MAX_SUPERSEDES_PER_RECORD`] allows.
+    SupersedesListTooLong,
+    /// `supersedes` named this record's own id.
+    SelfSupersede,
 }
 
 impl MemoryRecordError {
@@ -63,9 +79,20 @@ impl MemoryRecordError {
             MemoryRecordError::UnknownKind => "memory_record_kind_out_of_scope",
             MemoryRecordError::ObservationMissingEntity => "observation_missing_entity",
             MemoryRecordError::ObservationMissingSource => "observation_missing_source",
+            MemoryRecordError::DecisionMissingEntity => "decision_missing_entity",
+            MemoryRecordError::DecisionMissingSource => "decision_missing_source",
+            MemoryRecordError::ProblemMissingEntity => "problem_missing_entity",
+            MemoryRecordError::ProblemMissingStatus => "problem_missing_status",
+            MemoryRecordError::AuditKindMayNotSupersede => "audit_kind_may_not_supersede",
+            MemoryRecordError::SupersedesListTooLong => "supersedes_list_too_long",
+            MemoryRecordError::SelfSupersede => "supersede_self_reference",
         }
     }
 }
+
+/// Maximum number of ids a single record's `supersedes` list may name. Bounds
+/// the write-side blast radius of a supersede link (M9A-3).
+pub const MAX_SUPERSEDES_PER_RECORD: usize = 8;
 
 /// The authority-bearing durable record kinds (M9 map decision 1). No other kind
 /// string can be represented, so an unknown kind cannot silently become durable.
@@ -109,6 +136,19 @@ impl MemoryKind {
             MemoryKind::Observation => "observation",
             MemoryKind::ExportAudit => "export_audit",
         }
+    }
+
+    /// True for the 5 audit/authority kinds that may never be authored as a
+    /// superseding record (M9A-3 write-side supersede-hazard closure).
+    pub const fn is_audit(self) -> bool {
+        matches!(
+            self,
+            MemoryKind::CapabilityGrant
+                | MemoryKind::CapabilityDenial
+                | MemoryKind::PromotionTxRef
+                | MemoryKind::RollbackTxRef
+                | MemoryKind::ExportAudit
+        )
     }
 }
 
@@ -224,6 +264,34 @@ impl<'a> MemoryRecord<'a> {
             }
         }
 
+        if kind == MemoryKind::Decision {
+            if input.entity.is_empty() {
+                return Err(MemoryRecordError::DecisionMissingEntity);
+            }
+            if input.source.is_incomplete() {
+                return Err(MemoryRecordError::DecisionMissingSource);
+            }
+        }
+
+        if kind == MemoryKind::Problem {
+            if input.entity.is_empty() {
+                return Err(MemoryRecordError::ProblemMissingEntity);
+            }
+            if input.predicate.is_empty() {
+                return Err(MemoryRecordError::ProblemMissingStatus);
+            }
+        }
+
+        if kind.is_audit() && !input.supersedes.is_empty() {
+            return Err(MemoryRecordError::AuditKindMayNotSupersede);
+        }
+        if input.supersedes.len() > MAX_SUPERSEDES_PER_RECORD {
+            return Err(MemoryRecordError::SupersedesListTooLong);
+        }
+        if input.supersedes.iter().any(|&s| s == input.id) {
+            return Err(MemoryRecordError::SelfSupersede);
+        }
+
         Ok(Self {
             id: input.id,
             kind,
@@ -299,7 +367,7 @@ fn str_array<'a>(items: &[&'a str]) -> Value<'a> {
 mod tests {
     use super::{
         Classification, MemoryKind, MemoryRecord, MemoryRecordError, MemoryRecordInput,
-        MemorySource, CREATED_AT_CLOCK, SCHEMA,
+        MemorySource, CREATED_AT_CLOCK, MAX_SUPERSEDES_PER_RECORD, SCHEMA,
     };
     use crate::record::{write_json, Field, Value};
     use crate::sha256_hex;
@@ -561,5 +629,207 @@ mod tests {
         // superseding record.
         assert!(original.supersedes.is_empty());
         assert_eq!(render_string(&original.to_record_value()), original_before);
+    }
+
+    /// A fully-valid `decision` input; individual fields are overridden per-test.
+    fn valid_decision_input() -> MemoryRecordInput<'static> {
+        MemoryRecordInput {
+            id: "mem.decision.1",
+            kind: "decision",
+            entity: "adr.0004",
+            predicate: "memory_is_typed_state",
+            value: Value::Null,
+            classification: "local_only",
+            authority: "decision",
+            boot_id: "boot:1",
+            sequence: 1,
+            source: MemorySource::new("system.snapshot", "snapshot:1"),
+            evidence: vec![],
+            tags: vec![],
+            supersedes: vec![],
+            created_at_ticks: 1,
+        }
+    }
+
+    /// A fully-valid `problem` input; individual fields are overridden per-test.
+    fn valid_problem_input() -> MemoryRecordInput<'static> {
+        MemoryRecordInput {
+            id: "mem.problem.1",
+            kind: "problem",
+            entity: "svc.provider.openai_direct",
+            predicate: "provider_trust_denied",
+            value: Value::Null,
+            classification: "local_only",
+            authority: "event",
+            boot_id: "boot:1",
+            sequence: 1,
+            source: MemorySource::new("system.snapshot", "snapshot:1"),
+            evidence: vec![],
+            tags: vec![],
+            supersedes: vec![],
+            created_at_ticks: 1,
+        }
+    }
+
+    #[test]
+    fn valid_decision_constructs_ok() {
+        let record = MemoryRecord::new(valid_decision_input()).expect("valid decision constructs");
+        assert_eq!(record.kind, MemoryKind::Decision);
+    }
+
+    #[test]
+    fn decision_requires_entity_and_source() {
+        let mut missing_entity = valid_decision_input();
+        missing_entity.entity = "";
+        assert_eq!(
+            MemoryRecord::new(missing_entity),
+            Err(MemoryRecordError::DecisionMissingEntity)
+        );
+        assert_eq!(
+            MemoryRecordError::DecisionMissingEntity.reason(),
+            "decision_missing_entity"
+        );
+
+        let mut missing_source = valid_decision_input();
+        missing_source.source = MemorySource::new("", "");
+        assert_eq!(
+            MemoryRecord::new(missing_source),
+            Err(MemoryRecordError::DecisionMissingSource)
+        );
+        assert_eq!(
+            MemoryRecordError::DecisionMissingSource.reason(),
+            "decision_missing_source"
+        );
+    }
+
+    #[test]
+    fn valid_problem_constructs_ok() {
+        let record = MemoryRecord::new(valid_problem_input()).expect("valid problem constructs");
+        assert_eq!(record.kind, MemoryKind::Problem);
+    }
+
+    #[test]
+    fn problem_requires_entity_and_status() {
+        let mut missing_entity = valid_problem_input();
+        missing_entity.entity = "";
+        assert_eq!(
+            MemoryRecord::new(missing_entity),
+            Err(MemoryRecordError::ProblemMissingEntity)
+        );
+        assert_eq!(
+            MemoryRecordError::ProblemMissingEntity.reason(),
+            "problem_missing_entity"
+        );
+
+        let mut missing_status = valid_problem_input();
+        missing_status.predicate = "";
+        assert_eq!(
+            MemoryRecord::new(missing_status),
+            Err(MemoryRecordError::ProblemMissingStatus)
+        );
+        assert_eq!(
+            MemoryRecordError::ProblemMissingStatus.reason(),
+            "problem_missing_status"
+        );
+    }
+
+    #[test]
+    fn decision_may_legitimately_supersede_a_non_audit_id() {
+        let mut input = valid_decision_input();
+        input.id = "mem.decision.2";
+        input.supersedes = vec!["mem.decision.1"];
+        let record = MemoryRecord::new(input).expect("decision superseding a non-audit id is ok");
+        assert_eq!(record.supersedes, vec!["mem.decision.1"]);
+    }
+
+    #[test]
+    fn audit_kinds_may_never_supersede() {
+        for kind in [
+            "capability_grant",
+            "capability_denial",
+            "promotion_tx_ref",
+            "rollback_tx_ref",
+            "export_audit",
+        ] {
+            let result = MemoryRecord::new(MemoryRecordInput {
+                id: "mem.audit.1",
+                kind,
+                entity: "svc.x",
+                predicate: "p",
+                value: Value::Null,
+                classification: "local_only",
+                authority: "core_ledger",
+                boot_id: "boot:1",
+                sequence: 1,
+                source: MemorySource::new("system.snapshot", "snapshot:1"),
+                evidence: vec![],
+                tags: vec![],
+                supersedes: vec!["mem.some.prior.id"],
+                created_at_ticks: 1,
+            });
+            assert_eq!(result, Err(MemoryRecordError::AuditKindMayNotSupersede));
+        }
+        assert_eq!(
+            MemoryRecordError::AuditKindMayNotSupersede.reason(),
+            "audit_kind_may_not_supersede"
+        );
+    }
+
+    #[test]
+    fn supersedes_list_too_long_is_rejected() {
+        let mut input = valid_decision_input();
+        input.supersedes = vec![
+            "id.1", "id.2", "id.3", "id.4", "id.5", "id.6", "id.7", "id.8", "id.9",
+        ];
+        assert_eq!(input.supersedes.len(), MAX_SUPERSEDES_PER_RECORD + 1);
+        let result = MemoryRecord::new(input);
+        assert_eq!(result, Err(MemoryRecordError::SupersedesListTooLong));
+        assert_eq!(result.unwrap_err().reason(), "supersedes_list_too_long");
+    }
+
+    #[test]
+    fn supersedes_list_at_max_is_accepted() {
+        let mut input = valid_decision_input();
+        input.supersedes = vec![
+            "id.1", "id.2", "id.3", "id.4", "id.5", "id.6", "id.7", "id.8",
+        ];
+        assert_eq!(input.supersedes.len(), MAX_SUPERSEDES_PER_RECORD);
+        assert!(MemoryRecord::new(input).is_ok());
+    }
+
+    #[test]
+    fn self_supersede_is_rejected() {
+        let mut input = valid_decision_input();
+        input.id = "mem.decision.self";
+        input.supersedes = vec!["mem.decision.self"];
+        let result = MemoryRecord::new(input);
+        assert_eq!(result, Err(MemoryRecordError::SelfSupersede));
+        assert_eq!(result.unwrap_err().reason(), "supersede_self_reference");
+    }
+
+    #[test]
+    fn all_new_error_reasons_are_pairwise_unique() {
+        let reasons = [
+            MemoryRecordError::SecretNeverDurable.reason(),
+            MemoryRecordError::UnknownKind.reason(),
+            MemoryRecordError::ObservationMissingEntity.reason(),
+            MemoryRecordError::ObservationMissingSource.reason(),
+            MemoryRecordError::DecisionMissingEntity.reason(),
+            MemoryRecordError::DecisionMissingSource.reason(),
+            MemoryRecordError::ProblemMissingEntity.reason(),
+            MemoryRecordError::ProblemMissingStatus.reason(),
+            MemoryRecordError::AuditKindMayNotSupersede.reason(),
+            MemoryRecordError::SupersedesListTooLong.reason(),
+            MemoryRecordError::SelfSupersede.reason(),
+        ];
+        let mut idx = 0usize;
+        while idx < reasons.len() {
+            let mut other = idx + 1;
+            while other < reasons.len() {
+                assert_ne!(reasons[idx], reasons[other]);
+                other += 1;
+            }
+            idx += 1;
+        }
     }
 }

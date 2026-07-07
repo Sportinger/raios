@@ -382,6 +382,8 @@ fn scoped_baseline_input() -> ScopedMemoryRecordAppendInput<'static> {
         span_in_bounds: true,
         classification: Some("local_only"),
         kind: Some("observation"),
+        supersedes_len: Some(0),
+        supersede_self_reference: false,
         trust_tier: Some(EXPECTED_TRUST_TIER),
         owner_sealed: false,
         persistence_claimed: false,

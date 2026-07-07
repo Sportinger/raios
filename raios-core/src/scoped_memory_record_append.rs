@@ -62,6 +62,8 @@ pub struct ScopedMemoryRecordAppendInput<'a> {
     pub span_in_bounds: bool,
     pub classification: Option<&'a str>,
     pub kind: Option<&'a str>,
+    pub supersedes_len: Option<u64>,
+    pub supersede_self_reference: bool,
     pub trust_tier: Option<&'a str>,
     pub owner_sealed: bool,
     pub persistence_claimed: bool,
@@ -97,6 +99,8 @@ impl<'a> ScopedMemoryRecordAppendInput<'a> {
             span_in_bounds: false,
             classification: None,
             kind: None,
+            supersedes_len: None,
+            supersede_self_reference: false,
             trust_tier: None,
             owner_sealed: false,
             persistence_claimed: false,
@@ -270,6 +274,30 @@ pub fn evaluate_scoped_memory_record_append(
         Some(_) => return denied("memory_record_kind_out_of_scope"),
     }
 
+    let supersedes_len = match input.supersedes_len {
+        Some(value) => value,
+        None => return denied("missing_supersedes_len"),
+    };
+    if supersedes_len > memory_record::MAX_SUPERSEDES_PER_RECORD as u64 {
+        return denied("supersedes_list_too_long");
+    }
+    if matches!(
+        input.kind,
+        Some(
+            "capability_grant"
+                | "capability_denial"
+                | "promotion_tx_ref"
+                | "rollback_tx_ref"
+                | "export_audit"
+        )
+    ) && supersedes_len > 0
+    {
+        return denied("audit_kind_may_not_supersede");
+    }
+    if input.supersede_self_reference {
+        return denied("supersede_self_reference");
+    }
+
     if input.trust_tier != Some(EXPECTED_TRUST_TIER) {
         return denied("trust_tier_not_dev_key_not_owner_sealed");
     }
@@ -374,6 +402,8 @@ mod tests {
             span_in_bounds: true,
             classification: Some("public"),
             kind: Some("observation"),
+            supersedes_len: Some(0),
+            supersede_self_reference: false,
             trust_tier: Some(EXPECTED_TRUST_TIER),
             owner_sealed: false,
             persistence_claimed: false,
@@ -462,6 +492,10 @@ mod tests {
         ClassificationOutOfScope,
         MissingKind,
         KindOutOfScope,
+        MissingSupersedesLen,
+        SupersedesTooLong,
+        AuditKindSupersede,
+        SelfSupersede,
         WrongTrustTier,
         OwnerSealed,
         PersistenceClaimed,
@@ -507,6 +541,13 @@ mod tests {
             Mutation::ClassificationOutOfScope => input.classification = Some("banana"),
             Mutation::MissingKind => input.kind = None,
             Mutation::KindOutOfScope => input.kind = Some("chat_history"),
+            Mutation::MissingSupersedesLen => input.supersedes_len = None,
+            Mutation::SupersedesTooLong => input.supersedes_len = Some(9),
+            Mutation::AuditKindSupersede => {
+                input.kind = Some("capability_denial");
+                input.supersedes_len = Some(1);
+            }
+            Mutation::SelfSupersede => input.supersede_self_reference = true,
             Mutation::WrongTrustTier => input.trust_tier = Some("owner_sealed"),
             Mutation::OwnerSealed => input.owner_sealed = true,
             Mutation::PersistenceClaimed => input.persistence_claimed = true,
@@ -560,6 +601,10 @@ mod tests {
             ),
             (Mutation::MissingKind, "missing_kind"),
             (Mutation::KindOutOfScope, "memory_record_kind_out_of_scope"),
+            (Mutation::MissingSupersedesLen, "missing_supersedes_len"),
+            (Mutation::SupersedesTooLong, "supersedes_list_too_long"),
+            (Mutation::AuditKindSupersede, "audit_kind_may_not_supersede"),
+            (Mutation::SelfSupersede, "supersede_self_reference"),
             (
                 Mutation::WrongTrustTier,
                 "trust_tier_not_dev_key_not_owner_sealed",
