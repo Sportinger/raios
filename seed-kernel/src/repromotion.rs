@@ -6,9 +6,9 @@ use crate::{
         begin_response, emit_record_fields, end_response, record_bool as b, record_field as f,
         record_sha_or_null, record_str as s,
     },
-    ahci,
+    ahci, event_log, granted_candidate_service, module_candidate_intake,
     module_evidence::{self, ModuleLocalAttestationReferenceHashInput},
-    pci, ui,
+    pci, ui, wasm_runtime,
 };
 use raios_core::{
     boot_control::BootPosture,
@@ -70,6 +70,12 @@ impl EventIdText {
 
     fn as_str(&self) -> &str {
         unsafe { str::from_utf8_unchecked(&self.bytes) }
+    }
+
+    fn event_id(&self) -> Option<event_log::EventId> {
+        event_log::EventId::from_sequence(raios_core::parse_current_boot_event_sequence(
+            self.as_str(),
+        )?)
     }
 }
 
@@ -150,6 +156,17 @@ struct RepromotionEvidence {
     promotion_signature_len: Option<u64>,
     recorded_signature_verified: Option<bool>,
     grant_binds_capability: Option<bool>,
+    reconstructed_wasm_valid: Option<bool>,
+    retained_candidate: bool,
+    references_repopulated: bool,
+    load_attempted: bool,
+    load_granted: bool,
+    service_loaded: bool,
+    load_reason: Option<&'static str>,
+    start_attempted: bool,
+    service_started: bool,
+    start_reason: Option<&'static str>,
+    start_run_outcome: Option<&'static str>,
     status: &'static str,
     reason: &'static str,
     performed: bool,
@@ -160,6 +177,17 @@ struct RepromotionEvidence {
     cross_reboot_proven: bool,
     persistence_claimed: bool,
     audit: Option<AuditAppendEvidence>,
+}
+
+impl RepromotionEvidence {
+    fn deny(&mut self, reason: &'static str) {
+        self.status = "repromotion_denied";
+        self.reason = reason;
+        self.performed = false;
+        self.would_repromote = false;
+        self.authorizes_load = false;
+        self.cross_reboot_proven = false;
+    }
 }
 
 pub(crate) fn emit_repromotion_run(_runtime: ui::RuntimeStatus) {
@@ -271,7 +299,7 @@ fn reverify_record(
         promotion_authority_is_placeholder: PROMOTION_AUTHORITY_IS_PLACEHOLDER,
     });
 
-    RepromotionEvidence {
+    let mut evidence = RepromotionEvidence {
         artifact_persist_seq: record.seq,
         artifact_persist_reclog_offset: record.reclog_offset,
         artstor_blob_offset: record.artstor_blob_offset,
@@ -291,6 +319,17 @@ fn reverify_record(
         promotion_signature_len: Some(transaction.promotion_signature_len as u64),
         recorded_signature_verified: Some(transaction.signature_verified),
         grant_binds_capability: Some(transaction.grant_binds_capability),
+        reconstructed_wasm_valid: None,
+        retained_candidate: false,
+        references_repopulated: false,
+        load_attempted: false,
+        load_granted: false,
+        service_loaded: false,
+        load_reason: None,
+        start_attempted: false,
+        service_started: false,
+        start_reason: None,
+        start_run_outcome: None,
         status: decision.status,
         reason: decision.reason,
         performed: decision.reverified,
@@ -301,7 +340,139 @@ fn reverify_record(
         cross_reboot_proven: false,
         persistence_claimed: false,
         audit: None,
+    };
+    if !decision.reverified {
+        return evidence;
     }
+
+    let payload_sha256 = sha256_bytes(&verified_payload.payload);
+    if payload_sha256 != record.artifact_sha256 {
+        evidence.deny("reconstructed_artifact_sha_mismatch");
+        return evidence;
+    }
+    let wasm_valid = wasm_runtime::validate_module_bytes(&verified_payload.payload);
+    evidence.reconstructed_wasm_valid = Some(wasm_valid);
+    if !wasm_valid {
+        evidence.deny("reconstructed_wasm_invalid");
+        return evidence;
+    }
+
+    module_candidate_intake::retain(verified_payload.payload, payload_sha256, wasm_valid);
+    evidence.retained_candidate = true;
+    if !repopulate_reverified_references(&transaction) {
+        // Orphaned retain (no load happened): clear the just-retained candidate for hygiene.
+        module_candidate_intake::clear();
+        evidence.deny("reverified_reference_repopulation_failed");
+        return evidence;
+    }
+    evidence.references_repopulated = true;
+
+    granted_candidate_service::emit_load("module.load_ephemeral");
+    evidence.load_attempted = true;
+    let load_snapshot = granted_candidate_service::loaded_snapshot();
+    if let Some(snapshot) = load_snapshot {
+        evidence.service_loaded = snapshot.loaded;
+        evidence.load_reason = Some(snapshot.last_reason);
+        evidence.load_granted = snapshot.loaded
+            && snapshot.trust_tier == TRUST_TIER
+            && snapshot.last_action == "load"
+            && snapshot.last_reason == "loaded_dev_key_granted_external_wasm_current_boot";
+    }
+    if !evidence.load_granted {
+        // The M6 gate did NOT load this candidate: clear the orphaned retain so a denied
+        // re-promotion never leaves the denied record's bytes as the live retained candidate.
+        module_candidate_intake::clear();
+        evidence.deny(
+            load_snapshot
+                .map(|snapshot| snapshot.last_reason)
+                .unwrap_or("load_gate_denied_no_snapshot"),
+        );
+        return evidence;
+    }
+
+    granted_candidate_service::emit_start("service.start");
+    evidence.start_attempted = true;
+    let start_snapshot = granted_candidate_service::loaded_snapshot();
+    if let Some(snapshot) = start_snapshot {
+        evidence.service_started = snapshot.loaded
+            && snapshot.running
+            && snapshot.last_action == "start"
+            && snapshot.last_reason == "wasm_run_success"
+            && snapshot.last_run_outcome == "success";
+        evidence.start_reason = Some(snapshot.last_reason);
+        evidence.start_run_outcome = Some(snapshot.last_run_outcome);
+    }
+    if !evidence.service_started {
+        evidence.deny(
+            start_snapshot
+                .map(|snapshot| snapshot.last_reason)
+                .unwrap_or("start_gate_denied_no_snapshot"),
+        );
+        return evidence;
+    }
+
+    evidence.status = "repromoted";
+    evidence.reason = "repromotion_reverified_m6_gate_loaded_and_started";
+    evidence.performed = true;
+    evidence.would_repromote = true;
+    evidence.authorizes_load = true;
+    evidence.cross_reboot_proven = true;
+    evidence
+}
+
+fn repopulate_reverified_references(transaction: &PromotionTransactionReadback) -> bool {
+    let (
+        Some(retained_manifest_reference_event_id),
+        Some(retained_artifact_reference_event_id),
+        Some(retained_vm_report_reference_event_id),
+        Some(retained_computed_grant_reference_event_id),
+    ) = (
+        transaction.retained_manifest_reference_event_id.event_id(),
+        transaction.retained_artifact_reference_event_id.event_id(),
+        transaction.retained_vm_report_reference_event_id.event_id(),
+        transaction
+            .retained_computed_grant_reference_event_id
+            .event_id(),
+    )
+    else {
+        return false;
+    };
+
+    event_log::record_module_computed_grant_reference(event_log::ModuleComputedGrantReference {
+        computed_grant_hash: transaction.computed_grant_hash,
+        manifest_hash: transaction.manifest_hash,
+        artifact_hash: transaction.artifact_hash,
+        vm_report_hash: transaction.vm_report_hash,
+        local_attestation_hash: transaction.local_attestation_hash,
+    });
+    event_log::record_module_local_attestation_reference(
+        event_log::ModuleLocalAttestationReference {
+            attestation_reference_hash: transaction.attestation_reference_hash,
+            retained_manifest_reference_event_id,
+            retained_artifact_reference_event_id,
+            retained_vm_report_reference_event_id,
+            retained_reference_event_id: retained_computed_grant_reference_event_id,
+            manifest_reference_hash: transaction.manifest_reference_hash,
+            artifact_reference_hash: transaction.artifact_reference_hash,
+            vm_report_reference_hash: transaction.vm_report_reference_hash,
+            manifest_hash: transaction.manifest_hash,
+            artifact_hash: transaction.artifact_hash,
+            computed_grant_hash: transaction.computed_grant_hash,
+            vm_report_hash: transaction.vm_report_hash,
+            local_attestation_hash: transaction.local_attestation_hash,
+            signature_verified: true,
+        },
+    );
+    event_log::record_module_promotion_signature_reference(
+        event_log::ModulePromotionSignatureReference {
+            signature_der: transaction.promotion_signature_der,
+            signature_len: transaction.promotion_signature_len,
+            attestation_reference_hash: transaction.attestation_reference_hash,
+            promotion_authority_key_sha256: transaction.promotion_authority_key_sha256,
+            signature_verified: true,
+        },
+    );
+    true
 }
 
 fn denied_from_record(
@@ -328,6 +499,17 @@ fn denied_from_record(
         promotion_signature_len: None,
         recorded_signature_verified: None,
         grant_binds_capability: None,
+        reconstructed_wasm_valid: None,
+        retained_candidate: false,
+        references_repopulated: false,
+        load_attempted: false,
+        load_granted: false,
+        service_loaded: false,
+        load_reason: None,
+        start_attempted: false,
+        service_started: false,
+        start_reason: None,
+        start_run_outcome: None,
         status: "repromotion_denied",
         reason,
         performed: false,
@@ -733,6 +915,23 @@ fn repromotion_fields(evidence: &RepromotionEvidence, include_audit: bool) -> Ve
             "grant_binds_capability",
             optional_bool(evidence.grant_binds_capability),
         ),
+        f(
+            "reconstructed_wasm_valid",
+            optional_bool(evidence.reconstructed_wasm_valid),
+        ),
+        f("retained_candidate", b(evidence.retained_candidate)),
+        f("references_repopulated", b(evidence.references_repopulated)),
+        f("load_attempted", b(evidence.load_attempted)),
+        f("load_granted", b(evidence.load_granted)),
+        f("service_loaded", b(evidence.service_loaded)),
+        f("load_reason", optional_str(evidence.load_reason)),
+        f("start_attempted", b(evidence.start_attempted)),
+        f("service_started", b(evidence.service_started)),
+        f("start_reason", optional_str(evidence.start_reason)),
+        f(
+            "start_run_outcome",
+            optional_str(evidence.start_run_outcome),
+        ),
         f("would_repromote", b(evidence.would_repromote)),
         f("authorizes_load", b(evidence.authorizes_load)),
         f("trust_tier", s(evidence.trust_tier)),
@@ -787,6 +986,13 @@ fn optional_u64(value: Option<u64>) -> V<'static> {
 fn optional_bool(value: Option<bool>) -> V<'static> {
     match value {
         Some(value) => V::Bool(value),
+        None => V::Null,
+    }
+}
+
+fn optional_str(value: Option<&'static str>) -> V<'static> {
+    match value {
+        Some(value) => s(value),
         None => V::Null,
     }
 }

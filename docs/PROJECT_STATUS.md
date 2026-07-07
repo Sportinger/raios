@@ -3045,7 +3045,7 @@ re-runs `verify_promotion_authority_signature` over the freshly recomputed
 attestation_reference_hash, never trusting the stored boolean — a host test proves it
 verifies even with `signature_verified:false` stored; 21 distinct denial reasons; a
 forged dev-key signature yields only `reverified`/`would_repromote` EVIDENCE at
-`dev_key_not_owner_sealed`, never a load); (3)+(4) REMAINING**: **(1)** a reliable p256
+`dev_key_not_owner_sealed`, never a load); (3) DONE (authority flip: fully re-verified Normal/Probation boot records reconstruct the candidate, replay the verified RAM references, and reach execution only through the unchanged M6 `emit_load`/`emit_start` path; dev-tier only with owner_sealed/persistence_claimed false and `cross_reboot_proven=true` only on the repromoted record — the audit evaluator was CONTROLLED-widened for the `repromoted` status while still hard-denying owner_sealed/persistence_claimed/non-dev-tier on ALL statuses; verified raios-core 109/109, persistence 48/48, m6c 180/180, m6d 186/186, module-audit-rollback 1709/1709, FULL 8168/8168, max adversarial review could_not_refute; the ONE low state-hygiene finding — orphaned retain not rolled back on a NO-LOAD denial — was FIXED by clearing the retained candidate on the repopulation-failed + load-denied paths; append-only grant references remain superseded-not-rolled-back, dev-tier, no escalation, the M6 gate governs every actual grant); (4) REMAINING**: **(1)** a reliable p256
 Rust host signer (`ota/cli/src/bin/dev-promotion-signer.rs`, scalar-1, RFC6979,
 byte-identical to `promotion_attestation::verify_promotion_authority_signature`) — the
 existing PS 5.1/.NET signer is documented-unreliable so M6C/M6D fall back to a synthetic

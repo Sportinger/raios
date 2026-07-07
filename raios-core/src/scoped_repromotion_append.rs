@@ -236,15 +236,18 @@ pub fn evaluate_scoped_repromotion_append(
         return denied("span_not_in_bounds");
     }
 
-    match input.decision_status {
+    let decision_status = input.decision_status;
+    match decision_status {
         Some("reverified") if input.would_repromote => {}
         Some("reverified") => return denied("reverified_decision_missing_would_repromote"),
+        Some("repromoted") if input.would_repromote => {}
+        Some("repromoted") => return denied("repromoted_decision_missing_would_repromote"),
         Some("repromotion_denied") if !input.would_repromote => {}
         Some("repromotion_denied") => return denied("denial_decision_cannot_would_repromote"),
         Some(_) => return denied("decision_status_out_of_scope"),
         None => return denied("missing_decision_status"),
     }
-    if input.authorizes_load {
+    if input.authorizes_load && decision_status != Some("repromoted") {
         return denied("authorizes_load_not_allowed");
     }
     if input.trust_tier != Some(EXPECTED_TRUST_TIER) {
@@ -256,7 +259,7 @@ pub fn evaluate_scoped_repromotion_append(
     if !input.promotion_authority_is_placeholder {
         return denied("promotion_authority_not_placeholder");
     }
-    if input.cross_reboot_proven {
+    if input.cross_reboot_proven && decision_status != Some("repromoted") {
         return denied("cross_reboot_proven_not_allowed");
     }
     if input.persistence_claimed {
@@ -353,12 +356,12 @@ mod tests {
             reparse_valid: true,
             span_in_bounds: true,
             decision_status: Some(status),
-            would_repromote: status == "reverified",
-            authorizes_load: false,
+            would_repromote: matches!(status, "reverified" | "repromoted"),
+            authorizes_load: status == "repromoted",
             trust_tier: Some(EXPECTED_TRUST_TIER),
             owner_sealed: false,
             promotion_authority_is_placeholder: true,
-            cross_reboot_proven: false,
+            cross_reboot_proven: status == "repromoted",
             persistence_claimed: false,
         }
     }
@@ -375,6 +378,71 @@ mod tests {
                 }
             );
         }
+    }
+
+    #[test]
+    fn authorizes_repromoted_grant_audit_record() {
+        assert_eq!(
+            evaluate_scoped_repromotion_append(&valid_input("repromoted")),
+            ScopedRepromotionAppendDecision {
+                performed: true,
+                status: "appended",
+                reason: "authorized_repromotion_audit_append_readback_reparse_verified"
+            }
+        );
+    }
+
+    #[test]
+    fn repromoted_status_keeps_dev_tier_pins() {
+        let cases: [(fn(&mut ScopedRepromotionAppendInput<'static>), &'static str); 4] = [
+            (
+                |input: &mut ScopedRepromotionAppendInput<'static>| input.owner_sealed = true,
+                "owner_sealed_not_allowed",
+            ),
+            (
+                |input: &mut ScopedRepromotionAppendInput<'static>| {
+                    input.persistence_claimed = true
+                },
+                "persistence_claimed_not_allowed",
+            ),
+            (
+                |input: &mut ScopedRepromotionAppendInput<'static>| {
+                    input.trust_tier = Some("owner_sealed")
+                },
+                "trust_tier_not_dev_key_not_owner_sealed",
+            ),
+            (
+                |input: &mut ScopedRepromotionAppendInput<'static>| input.would_repromote = false,
+                "repromoted_decision_missing_would_repromote",
+            ),
+        ];
+
+        let mut idx = 0usize;
+        while idx < cases.len() {
+            let mut input = valid_input("repromoted");
+            cases[idx].0(&mut input);
+            let decision = evaluate_scoped_repromotion_append(&input);
+            assert_eq!(decision.status, "denied");
+            assert_eq!(decision.reason, cases[idx].1);
+            idx += 1;
+        }
+    }
+
+    #[test]
+    fn reverified_still_cannot_claim_load_or_cross_reboot() {
+        let mut input = valid_input("reverified");
+        input.authorizes_load = true;
+        assert_eq!(
+            evaluate_scoped_repromotion_append(&input).reason,
+            "authorizes_load_not_allowed"
+        );
+
+        let mut input = valid_input("reverified");
+        input.cross_reboot_proven = true;
+        assert_eq!(
+            evaluate_scoped_repromotion_append(&input).reason,
+            "cross_reboot_proven_not_allowed"
+        );
     }
 
     #[test]
