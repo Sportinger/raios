@@ -3578,6 +3578,18 @@ generalization of already-merged M9A-2b/M9A-3b/M9B-1a code — no new raios-core
 closes **M9B-1** (the first agent-authored durable memory write, scoped and confined). Next: the M9C broker
 (R1 supersede-target rule + LOW-1/LOW-3 trust rules + typed-fact reads) that M9A and M9B leave deferred.
 
+M9B block-close verification (2026-07-07): **`recovery` byte-identical PASSED** (shared paths unchanged by
+M9B-1b) and **`full` 7834/7834 PASSED**. The `quick` profile aborted mid-run (~290/509) on
+`command:agent audit.events 72` — "Timed out waiting for RAIOS_AGENT_END memory.recent_events" with UEFI
+BdsDxe / ANSI boot noise polluting the serial-log tail. Verdict: **host-transport** (the recurring
+audit.events-72 serial-transport flake). CONFIRMED not a guest bug: `full` exercises `memory.recent_events`
+among its 7834 predicates and passed, so the path works; the flake is quick-profile serial timing (worsened
+by 99%-full-disk timing), not M9B-1b (which never touches the event log / memory.recent_events / UI). One
+`full` attempt also hit a transient "Image packaging failed" (predicate_count 0, base_image null) that passed
+cleanly on the immediate re-run — a packaging/host transient, not code (recovery had built+packaged fine
+seconds earlier). Both classified host-transport per the goal's flake rule; M9B closed on
+recovery-byte-identical + full-7834 + memory-durable-105.
+
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 recovery/hello dispatch-bound completion-denial smoke runs on Windows with
