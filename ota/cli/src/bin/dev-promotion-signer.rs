@@ -50,8 +50,12 @@ fn read_hash_input() -> Result<[u8; 32], String> {
     };
     let bytes = hex::decode(hex_str.trim())
         .map_err(|e| format!("attestation_reference_hash is not valid hex: {e}"))?;
-    <[u8; 32]>::try_from(bytes.as_slice())
-        .map_err(|_| format!("attestation_reference_hash must be exactly 32 bytes, got {}", bytes.len()))
+    <[u8; 32]>::try_from(bytes.as_slice()).map_err(|_| {
+        format!(
+            "attestation_reference_hash must be exactly 32 bytes, got {}",
+            bytes.len()
+        )
+    })
 }
 
 fn main() {
