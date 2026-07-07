@@ -75,8 +75,19 @@ map traps (shared write-boundary chain; editing the signed current_boot_service.
 Vocab hash re-pinned 523b719b→03d3985c. Restore-only, grants nothing, dev_key_not_owner_sealed.
 Max adversarial review: no BLOCKER/HIGH, deny-before-mutate fail-closed. Verified
 m8-lifeline 225/225 (durable disable proven live on a valid-a persist disk), recovery
-byte-identical, quick 580/580, FULL 8168/8168, raios-core 115. Next: **M8B-2
-recovery.restart_last_good** (same evaluator, pinned second action_kind). (M7 map
+byte-identical, quick 580/580, FULL 8168/8168, raios-core 115. **M8B-2 done (2026-07-07)
+— the second restore action, recovery.restart_last_good:** brings a disabled/crashed
+current-boot module back to known-good by writing a durable recovery_action.v0 record
+FIRST (same evaluator, pinned 2nd action_kind restart_last_good — split 2a grants-nothing
+→ 2b executor), then clearing the RAM latches and re-running the EXISTING verified start
+path (re-hashes the built-in echo bytes against the pinned hash every call → can only run
+the attested built-in; false-healthy impossible). Deny core/lifeline/unknown/SAFE/not-
+restartable before any write. Vocab hash re-pinned 03d3985c→4a2c52a5. Restore-only,
+grants nothing. Max review: nothing above LOW. Verified m8-lifeline 265/265 (restart of a
+disabled AND a crashed echo proven live), recovery 3833/3833 byte-identical, quick
+580/580, FULL 8168/8168, raios-core 116. **M8B complete (disable + restart).** Next:
+**M8C** (durable last-good + SAFE integration) then **M8D** (load_artifact_by_hash from
+the local store). (M7 map
 `docs/plan-reviews/m7-persistence-map-2026-07-06.md`,
 revalidated M7-0). Sequencing per the M7-0 note: M7A + M7B build GPT + the
 SEED_DATA RECLOG durable store; then M6D-2 records its durable promotion

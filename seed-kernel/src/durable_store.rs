@@ -64,6 +64,8 @@ const RECOVERY_ACTION_RECORD_SCOPE: &str = "current_boot";
 const RECOVERY_ACTION_TRUST_TIER: &str = "dev_key_not_owner_sealed";
 const RECOVERY_ACTION_MAX_PAYLOAD_LEN: usize = 4096 - RECLOG_FRAME_HEADER_LEN;
 pub(crate) const RECOVERY_ACTION_KIND_DISABLE_MODULE: &str = RECOVERY_ACTION_EXPECTED_ACTION_KIND;
+pub(crate) const RECOVERY_ACTION_KIND_RESTART_LAST_GOOD: &str =
+    RECOVERY_ACTION_EXPECTED_ACTION_KIND_RESTART_LAST_GOOD;
 pub(crate) const RECOVERY_ACTION_SCHEMA: &str = RECOVERY_ACTION_EXPECTED_RECORD_SCHEMA;
 pub(crate) const RECOVERY_ACTION_APPEND_TARGET_ID: &str = RECOVERY_ACTION_EXPECTED_TARGET_ID;
 pub(crate) const RECOVERY_ACTION_APPEND_REGION_MARKER: &str =
@@ -1135,6 +1137,11 @@ pub(crate) struct RecoveryActionRecord {
     pub(crate) disable_target_core_owned: bool,
     pub(crate) disable_target_known_disablable: bool,
     pub(crate) grants_new_capability: bool,
+    // Restart-only (action_kind == restart_last_good). For disable_module records
+    // both are false and unused: they never reach the restart-gated payload field or
+    // the kind-guarded evaluator pin, so the disable evaluation/payload stay identical.
+    pub(crate) restores_known_good: bool,
+    pub(crate) restart_target_restorable: bool,
 }
 
 impl RecoveryActionRecord {
@@ -1174,6 +1181,7 @@ pub(crate) struct RecoveryActionAppendEvidence {
     pub(crate) disable_target_core_owned: bool,
     pub(crate) disable_target_known_disablable: bool,
     pub(crate) grants_new_capability: bool,
+    pub(crate) restores_known_good: bool,
     pub(crate) trust_tier: &'static str,
     pub(crate) promotion_authority_is_placeholder: bool,
     pub(crate) owner_sealed: bool,
@@ -1197,6 +1205,24 @@ pub(crate) fn recovery_action_preflight_denial(
             RecoveryTargetClassification::Unknown => Some("target_unknown"),
             RecoveryTargetClassification::KnownDisablable => None,
         }
+    }
+}
+
+/// M8B-2b restart preflight: the SHARED SAFE + target-class denials FIRST (deny
+/// before mutate AND before append), then the restart-only `target_not_restartable`
+/// pin. Mirrors the evaluator's ordering exactly (SAFE -> lifeline -> core -> unknown
+/// -> not-restartable), so a non-restorable restart is rejected before any plan/write.
+pub(crate) fn recovery_restart_preflight_denial(
+    posture: BootPosture,
+    classification: RecoveryTargetClassification,
+    restorable: bool,
+) -> Option<&'static str> {
+    if let Some(reason) = recovery_action_preflight_denial(posture, classification) {
+        Some(reason)
+    } else if !restorable {
+        Some("target_not_restartable")
+    } else {
+        None
     }
 }
 
@@ -1295,9 +1321,10 @@ pub(crate) fn append_recovery_action(
         reparse_valid,
         span_in_bounds: write.span_in_bounds,
         action_kind: Some(record.action_kind),
-        // Disable path only appends disable_module records; the restart pin is
-        // kind-guarded, so false here keeps this evaluation byte-identical.
-        restart_target_restorable: false,
+        // The restart pin is kind-guarded in the evaluator: for a disable_module
+        // record this is false and never reached, so the disable evaluation stays
+        // byte-identical; for restart_last_good it carries the live restorability.
+        restart_target_restorable: record.restart_target_restorable,
         disable_target_is_lifeline_endpoint: record.disable_target_is_lifeline_endpoint,
         disable_target_core_owned: record.disable_target_core_owned,
         disable_target_known_disablable: record.disable_target_known_disablable,
@@ -1391,6 +1418,7 @@ fn recovery_action_append_evidence(
         disable_target_core_owned: record.disable_target_core_owned,
         disable_target_known_disablable: record.disable_target_known_disablable,
         grants_new_capability: record.grants_new_capability,
+        restores_known_good: record.restores_known_good,
         trust_tier: RECOVERY_ACTION_TRUST_TIER,
         promotion_authority_is_placeholder: PROMOTION_AUTHORITY_IS_PLACEHOLDER,
         owner_sealed: false,
@@ -1399,12 +1427,18 @@ fn recovery_action_append_evidence(
 }
 
 pub(crate) fn recovery_action_payload_bytes(record: &RecoveryActionRecord) -> Vec<u8> {
-    let payload = V::Object(vec![
+    // Branch on action_kind so the DISABLE payload stays BYTE-IDENTICAL: the disable
+    // branch emits exactly the M8B-1 field set/order, and the restart-only fields are
+    // appended ONLY for restart_last_good (with its own record id).
+    let is_restart = record.action_kind == RECOVERY_ACTION_KIND_RESTART_LAST_GOOD;
+    let id = if is_restart {
+        "recovery_action.current_boot.restart_last_good.svc.demo.echo.v0"
+    } else {
+        "recovery_action.current_boot.disable_module.svc.demo.echo.v0"
+    };
+    let mut fields = vec![
         f("schema", s(RECOVERY_ACTION_EXPECTED_RECORD_SCHEMA)),
-        f(
-            "id",
-            s("recovery_action.current_boot.disable_module.svc.demo.echo.v0"),
-        ),
+        f("id", s(id)),
         f("scope", s(RECOVERY_ACTION_RECORD_SCOPE)),
         f("classification", s("local_only")),
         f("record_kind", s(RECOVERY_ACTION_RECORD_KIND)),
@@ -1432,7 +1466,15 @@ pub(crate) fn recovery_action_payload_bytes(record: &RecoveryActionRecord) -> Ve
         f("reversible_this_boot", b(false)),
         f("mutates_live_state", b(true)),
         f("persistence_claimed", b(false)),
-    ]);
+    ];
+    if is_restart {
+        fields.push(f("restores_known_good", b(record.restores_known_good)));
+        fields.push(f(
+            "restart_target_restorable",
+            b(record.restart_target_restorable),
+        ));
+    }
+    let payload = V::Object(fields);
     let mut sink = VecSink(Vec::new());
     write_json(&payload, &mut sink, 0);
     sink.0
@@ -1758,6 +1800,8 @@ fn recovery_action_selftest_record() -> RecoveryActionRecord {
         disable_target_core_owned: false,
         disable_target_known_disablable: true,
         grants_new_capability: false,
+        restores_known_good: false,
+        restart_target_restorable: false,
     }
 }
 

@@ -59,7 +59,7 @@ pub const LIFELINE_METHODS: &[LifelineMethod] = &[
     LifelineMethod {
         name: METHOD_RESTART_LAST_GOOD,
         capability: "cap.recovery.restart_last_good",
-        implemented: false,
+        implemented: true,
         mutating: true,
     },
     LifelineMethod {
@@ -160,16 +160,13 @@ mod tests {
                 "recovery.load_artifact_by_hash",
             ]
         );
-        // Implemented: M8A-1 table, M8A-2 snapshot, M8B-1 disable_module executor;
-        // the other three mutators stay denied.
+        // Implemented: M8A-1 table, M8A-2 snapshot, M8B-1 disable_module executor,
+        // M8B-2b restart_last_good executor; the other two mutators stay denied.
         assert!(lookup("recovery.lifeline_table").unwrap().implemented);
         assert!(lookup("recovery.snapshot").unwrap().implemented);
         assert!(lookup("recovery.disable_module").unwrap().implemented);
-        for name in [
-            "recovery.restart_last_good",
-            "recovery.rollback",
-            "recovery.load_artifact_by_hash",
-        ] {
+        assert!(lookup("recovery.restart_last_good").unwrap().implemented);
+        for name in ["recovery.rollback", "recovery.load_artifact_by_hash"] {
             assert!(!lookup(name).unwrap().implemented, "{name} must be denied");
         }
         // The four state-changing endpoints are marked mutating; reads are not.
@@ -188,13 +185,14 @@ mod tests {
 
     #[test]
     fn vocabulary_hash_is_pinned() {
-        // Golden fingerprint of the M8A-1 logical table. If this changes, the
-        // lifeline vocabulary changed — re-derive intentionally, never blindly.
+        // Golden fingerprint of the logical table. If this changes, the lifeline
+        // vocabulary changed — re-derive intentionally, never blindly. Re-pinned at
+        // M8B-2b when recovery.restart_last_good flipped to implemented=true.
         let hex = sha256_hex(&vocabulary_sha256());
         let hex = core::str::from_utf8(&hex).unwrap();
         assert_eq!(
             hex,
-            "03d3985c104de4d025c7b38aa6d484bbe68e0eb3512bc034993663c7b7a112a3"
+            "4a2c52a5f075f8d30240d34e9df0dc08692952252b005ba07a0d2f8178683904"
         );
     }
 }

@@ -95,6 +95,9 @@ pub(crate) const HEALTH_DISABLED: &str = "disabled";
 /// Method name recorded on the disable lifecycle event (the recovery-lifeline
 /// executor that drives it lives in `recovery_lifeline::emit_disable_module`).
 const RECOVERY_DISABLE_MODULE_METHOD: &str = "recovery.disable_module";
+/// Method name recorded on the restart lifecycle event via the reused `start`
+/// path (driven by `recovery_lifeline::emit_restart_last_good`).
+pub(crate) const RECOVERY_RESTART_LAST_GOOD_METHOD: &str = "recovery.restart_last_good";
 pub(crate) const CAPABILITIES: &[&str] = &[
     "cap.service.echo_demo.current_boot",
     "cap.service.health.read",
@@ -690,6 +693,42 @@ pub(crate) fn disabled_view() -> Option<(&'static str, &'static str, Option<even
 /// (including empty, `*`, or `all`) is not this target.
 pub(crate) fn disable_target_matches(arg: &str) -> bool {
     raios_core::method_eq(arg.trim(), ECHO_SERVICE_DESCRIPTOR.service_id)
+}
+
+/// Read-only restorability probe for `recovery.restart_last_good`: echo is
+/// restorable exactly when it is loaded AND currently off-nominal (disabled by the
+/// lifeline this boot, or crashed by a trap). A healthy/running or unloaded echo is
+/// NOT restartable (there is nothing to restore). A plain bool read under the STATE
+/// lock — it NEVER invokes wasm and mutates nothing.
+pub(crate) fn restart_restorable() -> bool {
+    let state = STATE.lock();
+    state.service.loaded && (state.disabled || state.crashed)
+}
+
+/// Restore the known-good current-boot echo module: the mutating half of
+/// `recovery.restart_last_good`. Under the STATE lock it clears the RAM-only
+/// `disabled` and `crashed` latches (so `start` no longer refuses and no stale fault
+/// lingers), drops the lock, then RE-RUNS the existing verified `start` path — which
+/// re-validates the load descriptor + wasm artifact, runs the built-in wasm OUTSIDE
+/// the lock, sets `running` on success, and records a `current_boot` lifecycle event.
+/// No new loader, no attestation bypass: it reuses `start`. Called ONLY after the
+/// durable recovery_action record has been appended + read back + reparse-verified.
+/// Returns the restart lifecycle event id, the resulting health state, and whether
+/// echo came back running. RAM-only; restores a built-in module already in RAM.
+pub(crate) fn restart_last_good() -> (event_log::EventId, &'static str, bool) {
+    {
+        let mut state = STATE.lock();
+        state.disabled = false;
+        state.disable_event_id = None;
+        state.crashed = false;
+        state.last_error_id = None;
+    }
+    let result = start(RECOVERY_RESTART_LAST_GOOD_METHOD);
+    (
+        result.event_id,
+        health_state(result.snapshot),
+        result.snapshot.running,
+    )
 }
 
 pub(crate) fn service_slot_activation_status(snapshot: Snapshot) -> &'static str {

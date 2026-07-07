@@ -44,6 +44,13 @@ pub(crate) fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> Option<Dispa
         let rest = method[table::METHOD_DISABLE_MODULE.len()..].trim();
         return Some(emit_disable_module(rest));
     }
+    // `recovery.restart_last_good <target>` — same head-token discipline as disable, so
+    // `recovery.restart_last_good_target_binding_diagnostic` (rest starts with `_`, not
+    // whitespace) still falls through to the general table rather than this executor.
+    if raios_core::method_head_eq(method, table::METHOD_RESTART_LAST_GOOD) {
+        let rest = method[table::METHOD_RESTART_LAST_GOOD.len()..].trim();
+        return Some(emit_restart_last_good(rest));
+    }
     let matched = table::lookup(method)?;
     match matched.name {
         table::METHOD_LIFELINE_TABLE => {
@@ -208,6 +215,9 @@ fn emit_disable_module(arg: &str) -> DispatchOutcome {
         disable_target_core_owned: core_owned,
         disable_target_known_disablable: known,
         grants_new_capability: false,
+        // Restart-only fields: unused by the disable payload/evaluation (kept false).
+        restores_known_good: false,
+        restart_target_restorable: false,
     };
 
     // Deny-before-mutate: SAFE posture and every invalid-target class are rejected
@@ -363,6 +373,167 @@ fn emit_recovery_action_response(
             f("count_after", optional_u64(evidence.count_after)),
             f("disable_event_id", record_event_or_null(disable_event_id)),
             f("health", health),
+        ],
+        6,
+    );
+    end_response(method);
+}
+
+/// `recovery.restart_last_good <target>` executor (the mutating half). Classifies the
+/// target read-only and reads echo's live restorability, denies BEFORE mutate AND
+/// BEFORE append for SAFE posture / every invalid target class / a not-restorable
+/// target, otherwise appends a durable `raios.recovery_action.v0` record through the
+/// SHARED reclog gauntlet (authorized ONLY by the 2a evaluator) and — ONLY if that
+/// append is `performed` — clears echo's disabled+crashed latches and re-runs the
+/// EXISTING verified start path back to healthy/running. Restore-only; grants nothing;
+/// restores a built-in module already in RAM (no persistence, no new bytes).
+fn emit_restart_last_good(arg: &str) -> DispatchOutcome {
+    let arg = arg.trim();
+    let is_lifeline = target_is_lifeline_endpoint(arg);
+    let core_owned = target_is_core_owned(arg);
+    let known = echo_service::disable_target_matches(arg);
+    let restorable = echo_service::restart_restorable();
+    // The durable record attests the AUTHORIZED ACTION (it is written before the re-run, as
+    // append-before-mutate requires), NOT the post-run health: `mutates_live_state`/
+    // `restores_known_good` describe the authorized restart intent. The live outcome
+    // (`running`/`health`/`restarted_to_running`) is reported ONLY in the response from the
+    // real `start()` result, so a failed re-run is never falsely reported as healthy.
+    let record = durable_store::RecoveryActionRecord {
+        action_kind: durable_store::RECOVERY_ACTION_KIND_RESTART_LAST_GOOD,
+        disable_target_id: echo_service::ECHO_SERVICE_DESCRIPTOR.service_id,
+        disable_target_is_lifeline_endpoint: is_lifeline,
+        disable_target_core_owned: core_owned,
+        disable_target_known_disablable: known,
+        grants_new_capability: false,
+        restores_known_good: true,
+        restart_target_restorable: restorable,
+    };
+
+    // Deny-before-mutate AND deny-before-append: SAFE posture, every invalid-target
+    // class, and a not-restorable target are rejected BEFORE any plan/write. On denial
+    // nothing is restarted and nothing is written.
+    if let Some(reason) = durable_store::recovery_restart_preflight_denial(
+        boot_control::current_boot_posture(),
+        record.classification(),
+        restorable,
+    ) {
+        let evidence = durable_store::recovery_action_append_denied(&record, reason);
+        emit_restart_response(arg, &evidence, None, None, false);
+        return DispatchOutcome::Denied(table::METHOD_RESTART_LAST_GOOD);
+    }
+
+    // Durable recovery_action record FIRST, authorized only via the 2a evaluator.
+    let evidence = durable_store::append_recovery_action(&record);
+    if evidence.performed {
+        // Only a durably-recorded, readback + reparse-verified authorization mutates
+        // live state: clear the latches and re-run the verified start path.
+        let (event_id, health, running) = echo_service::restart_last_good();
+        emit_restart_response(arg, &evidence, Some(event_id), Some(health), running);
+        DispatchOutcome::Response(table::METHOD_RESTART_LAST_GOOD)
+    } else {
+        emit_restart_response(arg, &evidence, None, None, false);
+        DispatchOutcome::Denied(table::METHOD_RESTART_LAST_GOOD)
+    }
+}
+
+/// Render the `raios.recovery_action.v0` result for a restart_last_good decision.
+/// Mirrors the disable response but carries the restart-only outcome: `restores_known_good`,
+/// `restarted_to_running`, and the resulting `health`/`running` from the re-run start
+/// path. `mutates_live_state` is exactly `performed`: every denial mutates nothing.
+fn emit_restart_response(
+    requested_target: &str,
+    evidence: &durable_store::RecoveryActionAppendEvidence,
+    restart_event_id: Option<event_log::EventId>,
+    restart_health: Option<&'static str>,
+    restarted_to_running: bool,
+) {
+    let method = table::METHOD_RESTART_LAST_GOOD;
+    let performed = evidence.performed;
+    let disable_target_id = if evidence.disable_target_known_disablable {
+        s(evidence.disable_target_id)
+    } else {
+        Value::Null
+    };
+    let health = match restart_health {
+        Some(health) => s(health),
+        None => Value::Null,
+    };
+    begin_response(method);
+    emit_record_fields(
+        vec![
+            f("schema", s(durable_store::RECOVERY_ACTION_SCHEMA)),
+            f("id", s("recovery_action.current_boot.restart_last_good.v0")),
+            f("scope", s(table::SCOPE)),
+            f("classification", s(table::CLASSIFICATION)),
+            f("method", s(method)),
+            f("action_kind", s(evidence.action_kind)),
+            f("requested_target", s(requested_target)),
+            f("disable_target_id", disable_target_id),
+            f(
+                "disable_target_is_lifeline_endpoint",
+                b(evidence.disable_target_is_lifeline_endpoint),
+            ),
+            f(
+                "disable_target_core_owned",
+                b(evidence.disable_target_core_owned),
+            ),
+            f(
+                "disable_target_known_disablable",
+                b(evidence.disable_target_known_disablable),
+            ),
+            f(
+                "status",
+                s(if performed { "ok" } else { "capability_denied" }),
+            ),
+            f("durable_append", s(evidence.durable_append)),
+            f("performed", b(performed)),
+            f("reason", s(evidence.reason)),
+            f("authority", s(evidence.authority)),
+            f(
+                "target_id",
+                s(durable_store::RECOVERY_ACTION_APPEND_TARGET_ID),
+            ),
+            f("record_schema", s(durable_store::RECOVERY_ACTION_SCHEMA)),
+            f(
+                "region_marker",
+                s(durable_store::RECOVERY_ACTION_APPEND_REGION_MARKER),
+            ),
+            f("mutates_live_state", b(performed)),
+            f("restores_known_good", b(evidence.restores_known_good)),
+            f("restarted_to_running", b(restarted_to_running)),
+            f("reversible_this_boot", b(false)),
+            f("grants_new_capability", b(evidence.grants_new_capability)),
+            f("owner_sealed", b(evidence.owner_sealed)),
+            f("persistence_claimed", b(evidence.persistence_claimed)),
+            f(
+                "promotion_authority_is_placeholder",
+                b(evidence.promotion_authority_is_placeholder),
+            ),
+            f("trust_tier", s(evidence.trust_tier)),
+            f("transport", s(table::TRANSPORT)),
+            f("trust_state", s(table::TRUST_STATE)),
+            f("routes_through_wasm", b(false)),
+            f("routes_through_provider", b(false)),
+            f("seq", optional_u64(evidence.seq)),
+            f("write_offset", optional_u64(evidence.write_offset)),
+            f("frame_len", optional_u64(evidence.frame_len)),
+            f(
+                "payload_sha256",
+                record_sha_or_null(evidence.payload_sha256),
+            ),
+            f("frame_sha256", record_sha_or_null(evidence.frame_sha256)),
+            f(
+                "readback_sha256",
+                record_sha_or_null(evidence.readback_sha256),
+            ),
+            f("reparse_valid", b(evidence.reparse_valid)),
+            f("tail_seq_before", optional_u64(evidence.tail_seq_before)),
+            f("count_before", optional_u64(evidence.count_before)),
+            f("tail_seq_after", optional_u64(evidence.tail_seq_after)),
+            f("count_after", optional_u64(evidence.count_after)),
+            f("restart_event_id", record_event_or_null(restart_event_id)),
+            f("health", health),
+            f("running", b(restarted_to_running)),
         ],
         6,
     );

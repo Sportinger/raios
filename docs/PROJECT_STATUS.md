@@ -3225,10 +3225,43 @@ and needed no disk). Verified: raios-core 115 (vocab hash re-pinned), m8-lifelin
 (durable append landed + echo stopped; core/lifeline/unknown/`*` denials with distinct
 reasons; selftest truth table incl. safe_posture_denied; disabled-start refused; the three
 remaining mutators still deny; redaction clean), recovery byte-identical, quick 580/580
-(hash + disable_module-shape needles synced), FULL 8168/8168. Next: **M8B-2
-`recovery.restart_last_good`** (extends the SAME recovery-action evaluator with a pinned
-second action_kind — a pinned widening within one authority, never a cross-target flip).
+(hash + disable_module-shape needles synced), FULL 8168/8168.
 
+**M8B-2 DONE (2026-07-07) — the lifeline's SECOND restore action: `recovery.restart_last_good`.**
+Split, mirroring M8B-1: **2a (5333633, grants nothing)** — widened
+`scoped_recovery_action_append` to accept `action_kind ∈ {disable_module, restart_last_good}`
+as a PINNED widening within one authority (like promote/unpromote), added a
+`restart_target_restorable` input + ONE new kind-guarded denial `target_not_restartable`;
+every disable pin byte-identical; the two `WrongActionKind` mutations retargeted so they
+can't silently invert; vocab hash UNCHANGED (nothing wired yet). **2b — the executor:**
+`recovery.restart_last_good <target>` classifies read-only, DENIES core / lifeline / unknown
+/ SAFE / not-restartable BEFORE any write, writes a durable
+`raios.recovery_action.v0` (action_kind=restart_last_good) via the SHARED gauntlet authorized
+ONLY by the evaluator (real `restart_target_restorable`, not forged), and ONLY on
+durable-append success clears echo's disabled+crashed RAM latches and re-runs the EXISTING
+verified `start()` path — which re-hashes the compile-time-constant echo bytes against the
+pinned hash EVERY call and refuses on failure, so the re-run can only execute the already-
+attested built-in echo (no new loader, no promotion, no capability relaxation). A failed
+re-run reports `running:false`/`health:stopped` honestly (false-healthy impossible). The
+durable record attests the AUTHORIZED action; the live health is reported only from the real
+run result. Restart latch/logic live in the NON-attested `echo_service.rs`;
+`current_boot_service.rs` byte-identical. Vocab hash re-pinned `03d3985c…→4a2c52a5…` (only
+`restart_last_good.implemented` flipped). Restore-only: restores a known-good BUILT-IN module
+already in RAM — `restores_known_good:true`, `grants_new_capability:false`, `owner_sealed:false`,
+`dev_key_not_owner_sealed`, `persistence_claimed:false` (no persistence / no cross-reboot
+last-good — that is M8C). Max-effort adversarial review: NOTHING above LOW — deny-before-mutate
+airtight (preflight + independent evaluator re-check), the re-run cannot run weakened/different
+code, disable payload byte-identical, append-only, gauntlet compares readback to the PLANNED
+frame (no self-compare), frozen recovery unaffected (method_head_eq protects the
+`_target_binding_diagnostic` suffix). Verified: raios-core 116 (vocab re-pinned), m8-lifeline
+265/265 (restart of a disabled AND of a crashed echo → healthy/running; target_not_restartable
+when healthy; core/lifeline/unknown/`*` denials; selftest truth table; the two remaining
+mutators still deny; redaction clean), recovery 3833/3833 byte-identical, quick 580/580, FULL
+8168/8168. **M8B (disable + restart, the flagship M8B capability) is complete.** Next: **M8C**
+(durable last-good pointer + SAFE integration) then **M8D** (recovery.load_artifact_by_hash
+from the local M7D store only).
+
+Latest host-tool verification: after the 2026-07-03 local report-timestamp
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 recovery/hello dispatch-bound completion-denial smoke runs on Windows with
 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-seed-kernel.ps1 -Profile release`,

@@ -27,9 +27,16 @@ und nur, wenn der Eintrag wirklich gelang. **Kern-Dienste, die Rettungsleine sel
 unbekannte Ziele werden strikt verweigert, BEVOR irgendetwas geschrieben oder verändert
 wird** (im Test bewiesen: der Kern-Dienst `core.serial` wurde korrekt abgelehnt, nichts
 angetastet). Es wird nur *entfernt*, nie etwas Neues befördert; ehrlich als Entwickler-
-Schlüssel gekennzeichnet. Die restlichen drei Aktionen (neu-starten-letzter-guter,
-zurückrollen, gespeichertes-Artefakt-laden) bleiben weiter verweigert, eine nach der
-anderen. Und die wichtigste Absicherung von M8 ist bewiesen: selbst wenn ein laufender
+Schlüssel gekennzeichnet. NEU — **die zweite Rettungs-Aktion funktioniert auch:
+neu-starten-in-den-letzten-guten-Zustand** (`restart_last_good`): ein abgeschaltetes
+ODER abgestürztes Modul wird wieder gesund gemacht — dauerhafter Prüf-Eintrag zuerst,
+dann werden die Sperren gelöst und **derselbe geprüfte Start-Weg** neu ausgeführt (er
+prüft die eingebauten Modul-Bytes bei JEDEM Lauf gegen den festen Fingerabdruck — es kann
+also nur das bekannte, geprüfte eingebaute Modul laufen, nie etwas Fremdes). Scheitert
+der Neustart, wird ehrlich „gestoppt" gemeldet, nie fälschlich „gesund". Es bringt nur
+Bekannt-Gutes zurück, befördert nichts Neues. **Damit ist der Kern von M8B fertig
+(abschalten + neu-starten).** Die restlichen zwei Aktionen (zurückrollen,
+gespeichertes-Artefakt-laden) bleiben weiter verweigert, eine nach der anderen. Und die wichtigste Absicherung von M8 ist bewiesen: selbst wenn ein laufender
 Baustein WIRKLICH abstürzt, antwortet die Rettungsleine weiter — sie überlebt, weil
 KI-Code ein Treibstoff-Limit hat und kooperativ läuft, noch NICHT durch echte
 Hardware-Trennung (die kommt erst mit M11).).

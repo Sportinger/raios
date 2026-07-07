@@ -13,7 +13,7 @@
 # so baseline agent boot needles already ran. It touches only echo + the lifeline;
 # it grants nothing.
 
-$LifelineVocabularySha256 = "sha256:03d3985c104de4d025c7b38aa6d484bbe68e0eb3512bc034993663c7b7a112a3"
+$LifelineVocabularySha256 = "sha256:4a2c52a5f075f8d30240d34e9df0dc08692952252b005ba07a0d2f8178683904"
 
 # --- (a) baseline: echo loads, starts, and is healthy; snapshot is clean -----------
 Send-AgentCommand -Command "module.load_ephemeral svc.demo.echo" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "m8-lifeline:echo_load"
@@ -129,10 +129,10 @@ if (-not $m8PostSnapshotOk) {
 }
 
 # --- (d) mutators still deny while wedged -------------------------------------------
-# recovery.disable_module is NO LONGER in this loop: it is an implemented executor as of
-# M8B-1 and is exercised (positive + fail-closed) in section (g) below. The OTHER three
-# mutators must still fail closed (needle vi).
-foreach ($m8Mutator in @("recovery.restart_last_good", "recovery.rollback", "recovery.load_artifact_by_hash")) {
+# recovery.disable_module (M8B-1) and recovery.restart_last_good (M8B-2b) are NO LONGER in
+# this loop: they are implemented executors, exercised in sections (g)/(h) below (and restart
+# would actually restore the wedged echo here). The OTHER two mutators must still fail closed.
+foreach ($m8Mutator in @("recovery.rollback", "recovery.load_artifact_by_hash")) {
     Send-AgentCommand -Command "agent $m8Mutator" -ExpectedMarker "RAIOS_AGENT_END $m8Mutator" -Name "m8-lifeline:mutator_$m8Mutator"
     $m8MutatorResponse = Get-LastAgentResponseJson -Method $m8Mutator
     $m8mr = $m8MutatorResponse.body.result
@@ -331,8 +331,10 @@ if (-not $m8DisStartOk) {
     throw "Expected service.start svc.demo.echo to be refused with reason service_disabled while disabled"
 }
 
-# --- (g5) the OTHER three mutators still deny after a real disable happened [needle vi] ---
-foreach ($m8StillDenied in @("recovery.restart_last_good", "recovery.rollback", "recovery.load_artifact_by_hash")) {
+# --- (g5) the OTHER two still-denied mutators keep failing closed after a real disable [needle vi] ---
+# recovery.restart_last_good is NOT here: it is an implemented executor (M8B-2b) and would
+# actually restore the disabled echo — it is exercised in section (h) below.
+foreach ($m8StillDenied in @("recovery.rollback", "recovery.load_artifact_by_hash")) {
     Send-AgentCommand -Command "agent $m8StillDenied" -ExpectedMarker "RAIOS_AGENT_END $m8StillDenied" -Name "m8-lifeline:post_disable_mutator_$m8StillDenied"
     $m8SdResp = Get-LastAgentResponseJson -Method $m8StillDenied
     $m8sd = $m8SdResp.body.result
@@ -361,4 +363,243 @@ foreach ($m8Secret in @("sk-", "OPENAI_API_KEY", "api_key", "passphrase", "wifi_
 Add-Predicate -Name "m8-lifeline:disable_window_redaction_no_secrets" -Expected "the recovery.disable_module output window contains no api-key/passphrase text" -Passed $m8DisableRedactionOk -Actual $(if ($m8DisableRedactionOk) { "redacted" } else { "secret_marker_present" })
 if (-not $m8DisableRedactionOk) {
     throw "Expected the recovery.disable_module output window to contain no secret markers"
+}
+
+# =====================================================================================
+# --- (h) M8B-2b recovery.restart_last_good current-boot executor + echo restart -------
+# Echo is DISABLED coming out of section (g). restart_last_good must durably append a
+# recovery_action record FIRST (through the SAME reclog gauntlet, authorized by the 2a
+# evaluator), THEN clear the disabled+crashed latches and re-run the EXISTING verified
+# start path back to healthy/running. Deny-before-mutate AND deny-before-append hold on
+# SAFE + every invalid target class + a non-restorable (healthy) target. Restores a
+# built-in module already in RAM; grants nothing; persistence is NOT claimed.
+$m8RestartOffset = Get-SerialLogOffset
+
+# --- (h1) POSITIVE: restart the DISABLED echo back to healthy/running -----------------
+Send-AgentCommand -Command "agent recovery.restart_last_good svc.demo.echo" -ExpectedMarker "RAIOS_AGENT_END recovery.restart_last_good" -Name "m8-lifeline:restart_disabled_echo"
+$m8Restart2 = Get-LastAgentResponseJson -Method "recovery.restart_last_good"
+$m8r = $m8Restart2.body.result
+$m8RestartOk = (
+    $m8r.schema -eq "raios.recovery_action.v0" -and
+    $m8r.action_kind -eq "restart_last_good" -and
+    $m8r.disable_target_id -eq "svc.demo.echo" -and
+    $m8r.status -eq "ok" -and
+    $m8r.durable_append -eq "appended" -and
+    $m8r.performed -eq $true -and
+    $m8r.reason -eq "authorized_recovery_action_append_readback_reparse_verified" -and
+    $m8r.reparse_valid -eq $true -and
+    ([int]$m8r.count_after -eq ([int]$m8r.count_before + 1)) -and
+    $m8r.restores_known_good -eq $true -and
+    $m8r.restarted_to_running -eq $true -and
+    $m8r.health -eq "healthy" -and
+    $m8r.running -eq $true -and
+    $m8r.mutates_live_state -eq $true -and
+    $m8r.owner_sealed -eq $false -and
+    $m8r.grants_new_capability -eq $false -and
+    $m8r.persistence_claimed -eq $false -and
+    $m8r.promotion_authority_is_placeholder -eq $true
+)
+Add-Predicate -Name "m8-lifeline:restart_last_good_appends_and_restores" -Expected "recovery.restart_last_good svc.demo.echo durably appends a recovery_action record (reparse-verified, count+1) then restores echo to healthy/running" -Passed $m8RestartOk -Actual $(if ($m8RestartOk) { "restored healthy count $([int]$m8r.count_before)->$([int]$m8r.count_after)" } else { ($m8r | ConvertTo-Json -Compress -Depth 6) })
+if (-not $m8RestartOk) {
+    throw "Expected recovery.restart_last_good svc.demo.echo to durably append then restore echo to healthy/running"
+}
+
+# --- (h2) snapshot is clean: echo in neither crashed nor disabled list ----------------
+Send-AgentCommand -Command "agent recovery.snapshot" -ExpectedMarker "RAIOS_AGENT_END recovery.snapshot" -Name "m8-lifeline:post_restart_snapshot_clean"
+$m8RestSnap = Get-LastAgentResponseJson -Method "recovery.snapshot"
+$m8rsnap = $m8RestSnap.body.result
+$m8RestCrashed = @($m8rsnap.crashed_services)
+$m8RestDisabled = @($m8rsnap.disabled_modules)
+$m8RestSnapOk = (
+    $m8rsnap.schema -eq "raios.recovery_snapshot.v0" -and
+    [int]$m8rsnap.disabled_module_count -eq 0 -and
+    [int]$m8rsnap.crashed_service_count -eq 0 -and
+    $m8RestDisabled.Count -eq 0 -and
+    $m8RestCrashed.Count -eq 0 -and
+    (@($m8RestCrashed | Where-Object { $_.id -eq "svc.demo.echo" }).Count -eq 0) -and
+    (@($m8RestDisabled | Where-Object { $_.id -eq "svc.demo.echo" }).Count -eq 0)
+)
+Add-Predicate -Name "m8-lifeline:post_restart_snapshot_clean" -Expected "after restart_last_good, recovery.snapshot lists echo in NEITHER crashed_services NOR disabled_modules" -Passed $m8RestSnapOk -Actual $(if ($m8RestSnapOk) { "clean" } else { ($m8rsnap | ConvertTo-Json -Compress -Depth 6) })
+if (-not $m8RestSnapOk) {
+    throw "Expected recovery.snapshot to be clean (no crashed, no disabled echo) after restart_last_good"
+}
+
+# --- (h3) service.start no longer refused (disabled latch really cleared) --------------
+Send-AgentCommand -Command "service.start svc.demo.echo" -ExpectedMarker "RAIOS_AGENT_END service.start" -Name "m8-lifeline:post_restart_start"
+$m8PostStart = Get-LastAgentResponseJson -Method "service.start"
+$m8pst = $m8PostStart.body.result
+$m8PostStartOk = (
+    $m8pst.action -eq "start" -and
+    $m8pst.loaded -eq $true -and
+    $m8pst.running -eq $true -and
+    $m8pst.health -eq "healthy" -and
+    $m8pst.reason -ne "service_disabled"
+)
+Add-Predicate -Name "m8-lifeline:post_restart_start_no_longer_disabled" -Expected "service.start svc.demo.echo runs healthy again after restart cleared the disabled latch (no service_disabled)" -Passed $m8PostStartOk -Actual $(if ($m8PostStartOk) { "healthy" } else { ($m8pst | ConvertTo-Json -Compress -Depth 6) })
+if (-not $m8PostStartOk) {
+    throw "Expected service.start svc.demo.echo to run healthy again after the disabled latch was cleared"
+}
+
+# --- (h4) re-wedge (crash) then restart_last_good restores health again ----------------
+Send-AgentCommand -Command "agent echo.invoke_fuel_starved" -ExpectedMarker "RAIOS_AGENT_END echo.invoke_fuel_starved" -Name "m8-lifeline:rewedge_marker"
+$m8Rewedge = Get-LastAgentResponseJson -Method "echo.invoke_fuel_starved"
+$m8rw = $m8Rewedge.body.result
+$m8RewedgeOk = (
+    $m8rw.out_of_fuel -eq $true -and
+    $m8rw.health -eq "crashed" -and
+    $m8rw.crashed -eq $true -and
+    $m8rw.running -eq $false
+)
+Add-Predicate -Name "m8-lifeline:rewedge_crashes_echo" -Expected "echo.invoke_fuel_starved re-wedges echo (crashed) so restart_last_good can restore a CRASHED target too" -Passed $m8RewedgeOk -Actual $(if ($m8RewedgeOk) { "crashed" } else { ($m8rw | ConvertTo-Json -Compress -Depth 6) })
+if (-not $m8RewedgeOk) {
+    throw "Expected echo.invoke_fuel_starved to re-wedge echo to crashed"
+}
+
+Send-AgentCommand -Command "agent recovery.restart_last_good svc.demo.echo" -ExpectedMarker "RAIOS_AGENT_END recovery.restart_last_good" -Name "m8-lifeline:restart_crashed_echo"
+$m8Restart3 = Get-LastAgentResponseJson -Method "recovery.restart_last_good"
+$m8r3 = $m8Restart3.body.result
+$m8Restart3Ok = (
+    $m8r3.action_kind -eq "restart_last_good" -and
+    $m8r3.status -eq "ok" -and
+    $m8r3.durable_append -eq "appended" -and
+    $m8r3.performed -eq $true -and
+    $m8r3.restarted_to_running -eq $true -and
+    $m8r3.health -eq "healthy" -and
+    $m8r3.running -eq $true -and
+    $m8r3.mutates_live_state -eq $true
+)
+Add-Predicate -Name "m8-lifeline:restart_recovers_crashed_target" -Expected "recovery.restart_last_good restores a CRASHED echo to healthy/running (append performed, mutates live state)" -Passed $m8Restart3Ok -Actual $(if ($m8Restart3Ok) { "recovered_healthy" } else { ($m8r3 | ConvertTo-Json -Compress -Depth 6) })
+if (-not $m8Restart3Ok) {
+    throw "Expected recovery.restart_last_good to restore a crashed echo to healthy/running"
+}
+
+Send-AgentCommand -Command "agent recovery.snapshot" -ExpectedMarker "RAIOS_AGENT_END recovery.snapshot" -Name "m8-lifeline:post_rewedge_restart_snapshot"
+$m8RwSnap = Get-LastAgentResponseJson -Method "recovery.snapshot"
+$m8rwsnap = $m8RwSnap.body.result
+$m8RwSnapOk = (
+    [int]$m8rwsnap.crashed_service_count -eq 0 -and
+    @($m8rwsnap.crashed_services).Count -eq 0
+)
+Add-Predicate -Name "m8-lifeline:post_rewedge_restart_snapshot_no_crash" -Expected "after restarting the re-wedged echo, recovery.snapshot reports crashed_service_count 0" -Passed $m8RwSnapOk -Actual $(if ($m8RwSnapOk) { "cleared" } else { ($m8rwsnap | ConvertTo-Json -Compress -Depth 6) })
+if (-not $m8RwSnapOk) {
+    throw "Expected recovery.snapshot to report no crashed services after restarting the re-wedged echo"
+}
+
+# --- (h5) a HEALTHY echo is not restorable: target_not_restartable, mutate nothing -----
+Send-AgentCommand -Command "agent recovery.restart_last_good svc.demo.echo" -ExpectedMarker "RAIOS_AGENT_END recovery.restart_last_good" -Name "m8-lifeline:restart_healthy_denied"
+$m8RestartHealthy = Get-LastAgentResponseJson -Method "recovery.restart_last_good"
+$m8rh = $m8RestartHealthy.body.result
+$m8RestartHealthyDenied = (
+    $m8rh.schema -eq "raios.recovery_action.v0" -and
+    $m8rh.action_kind -eq "restart_last_good" -and
+    $m8rh.status -eq "capability_denied" -and
+    $m8rh.reason -eq "target_not_restartable" -and
+    $m8rh.performed -eq $false -and
+    $m8rh.mutates_live_state -eq $false -and
+    $m8rh.durable_append -ne "appended"
+)
+Add-Predicate -Name "m8-lifeline:restart_healthy_not_restartable" -Expected "recovery.restart_last_good on a HEALTHY echo denies target_not_restartable and mutates/appends nothing" -Passed $m8RestartHealthyDenied -Actual $(if ($m8RestartHealthyDenied) { "denied target_not_restartable" } else { ($m8rh | ConvertTo-Json -Compress -Depth 6) })
+if (-not $m8RestartHealthyDenied) {
+    throw "Expected recovery.restart_last_good on a healthy echo to deny target_not_restartable and mutate nothing"
+}
+
+# --- (h6) invalid target classes fail closed (deny before mutate/append) --------------
+$m8RestartDenials = @(
+    @{ Target = "core.serial"; Reason = "target_core_owned"; Label = "core_owned_core_serial" },
+    @{ Target = "recovery.restart_last_good"; Reason = "target_is_lifeline_endpoint"; Label = "lifeline_endpoint_self" },
+    @{ Target = "svc.nope"; Reason = "target_unknown"; Label = "unknown_id_svc_nope" },
+    @{ Target = "*"; Reason = "target_unknown"; Label = "restart_all_star" }
+)
+foreach ($m8RDeny in $m8RestartDenials) {
+    Send-AgentCommand -Command "agent recovery.restart_last_good $($m8RDeny.Target)" -ExpectedMarker "RAIOS_AGENT_END recovery.restart_last_good" -Name "m8-lifeline:restart_deny_$($m8RDeny.Label)"
+    $m8RDenyResp = Get-LastAgentResponseJson -Method "recovery.restart_last_good"
+    $m8rd = $m8RDenyResp.body.result
+    $m8RDenyOk = (
+        $m8rd.schema -eq "raios.recovery_action.v0" -and
+        $m8rd.action_kind -eq "restart_last_good" -and
+        $m8rd.method -eq "recovery.restart_last_good" -and
+        $m8rd.status -eq "capability_denied" -and
+        $m8rd.reason -eq $m8RDeny.Reason -and
+        $m8rd.performed -eq $false -and
+        $m8rd.mutates_live_state -eq $false -and
+        $m8rd.durable_append -ne "appended" -and
+        $m8rd.grants_new_capability -eq $false
+    )
+    Add-Predicate -Name "m8-lifeline:restart_denied_$($m8RDeny.Label)" -Expected "recovery.restart_last_good $($m8RDeny.Target) fails closed ($($m8RDeny.Reason)) and mutates/appends nothing" -Passed $m8RDenyOk -Actual $(if ($m8RDenyOk) { "denied $($m8RDeny.Reason)" } else { ($m8rd | ConvertTo-Json -Compress -Depth 6) })
+    if (-not $m8RDenyOk) {
+        throw "Expected recovery.restart_last_good $($m8RDeny.Target) to fail closed with $($m8RDeny.Reason) and mutate nothing"
+    }
+}
+
+# --- (h7) selftest still passes and now carries the restart cases + safe posture -------
+Send-AgentCommand -Command "agent recovery.disable_module_selftest" -ExpectedMarker "RAIOS_AGENT_END recovery.disable_module_selftest" -Name "m8-lifeline:restart_selftest"
+$m8RSelftest = Get-LastAgentResponseJson -Method "recovery.disable_module_selftest"
+$m8rst = $m8RSelftest.body.result
+$m8RSelftestCases = @($m8rst.cases)
+$m8RSelftestNames = @($m8RSelftestCases | ForEach-Object { $_.case })
+$m8RSafeCase = @($m8RSelftestCases | Where-Object { $_.case -eq "safe_posture_denied" })[0]
+$m8RSelftestOk = (
+    $m8rst.schema -eq "raios.recovery_action_append_selftest.v0" -and
+    $m8rst.passed -eq $true -and
+    [int]$m8rst.case_count -ge 15 -and
+    ($m8RSelftestNames -contains "restart_last_good_authorized_reparse") -and
+    ($m8RSelftestNames -contains "restart_not_restorable_denied") -and
+    ($m8RSelftestNames -contains "restart_core_owned_denied") -and
+    ($null -ne $m8RSafeCase) -and
+    $m8RSafeCase.actual_reason -eq "boot_control_safe_mode" -and
+    $m8RSafeCase.passed -eq $true
+)
+Add-Predicate -Name "m8-lifeline:restart_selftest_carries_restart_cases" -Expected "recovery.disable_module_selftest still passes with the restart cases present (authorized/not_restorable/core_owned) and boot_control_safe_mode" -Passed $m8RSelftestOk -Actual $(if ($m8RSelftestOk) { "passed case_count=$([int]$m8rst.case_count)" } else { ($m8rst | ConvertTo-Json -Compress -Depth 6) })
+if (-not $m8RSelftestOk) {
+    throw "Expected recovery.disable_module_selftest to pass with the restart cases and safe_posture_denied present"
+}
+
+# --- (h8) the still-denied mutators keep failing closed (implemented=false) ------------
+foreach ($m8RStillDenied in @("recovery.rollback", "recovery.load_artifact_by_hash")) {
+    Send-AgentCommand -Command "agent $m8RStillDenied" -ExpectedMarker "RAIOS_AGENT_END $m8RStillDenied" -Name "m8-lifeline:post_restart_mutator_$m8RStillDenied"
+    $m8RSdResp = Get-LastAgentResponseJson -Method $m8RStillDenied
+    $m8rsd = $m8RSdResp.body.result
+    $m8RSdDenied = (
+        $m8rsd.status -eq "capability_denied" -and
+        $m8rsd.method -eq $m8RStillDenied -and
+        $m8rsd.implemented -eq $false -and
+        $m8rsd.mutates_state -eq $false
+    )
+    Add-Predicate -Name "m8-lifeline:post_restart_mutator_denied_$m8RStillDenied" -Expected "$m8RStillDenied stays capability_denied (implemented=false, mutates_state=false) after restart_last_good is implemented" -Passed $m8RSdDenied -Actual $(if ($m8RSdDenied) { "denied" } else { ($m8rsd | ConvertTo-Json -Compress -Depth 6) })
+    if (-not $m8RSdDenied) {
+        throw "Expected $m8RStillDenied to stay capability_denied after restart_last_good is implemented"
+    }
+}
+
+# --- (h9) lifeline_table: restart_last_good now implemented+mutating, vocab re-pinned --
+Send-AgentCommand -Command "agent recovery.lifeline_table" -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_table" -Name "m8-lifeline:restart_lifeline_table"
+$m8Table3 = Get-LastAgentResponseJson -Method "recovery.lifeline_table"
+$m8t3 = $m8Table3.body.result
+$m8RestartRow = @($m8t3.methods | Where-Object { $_.name -eq "recovery.restart_last_good" })[0]
+$m8Table3Ok = (
+    $m8t3.schema -eq "raios.recovery_lifeline_table.v0" -and
+    [int]$m8t3.method_count -eq 6 -and
+    $m8t3.lifeline_vocabulary_sha256 -eq $LifelineVocabularySha256 -and
+    ($null -ne $m8RestartRow) -and
+    $m8RestartRow.implemented -eq $true -and
+    $m8RestartRow.mutating -eq $true
+)
+Add-Predicate -Name "m8-lifeline:restart_last_good_row_implemented" -Expected "recovery.lifeline_table shows method_count 6, restart_last_good implemented+mutating, and the re-pinned vocabulary hash" -Passed $m8Table3Ok -Actual $(if ($m8Table3Ok) { "implemented+mutating vocab=$($m8t3.lifeline_vocabulary_sha256)" } else { ($m8t3 | ConvertTo-Json -Compress -Depth 6) })
+if (-not $m8Table3Ok) {
+    throw "Expected recovery.lifeline_table to show restart_last_good implemented+mutating with the re-pinned vocabulary"
+}
+
+# --- (h10) redaction negative over the whole restart window ----------------------------
+$m8RestartWindow = (Get-SerialLogContent -Path $SerialLog)
+if ($null -eq $m8RestartWindow) { $m8RestartWindow = "" }
+if ($m8RestartWindow.Length -gt $m8RestartOffset) {
+    $m8RestartWindow = $m8RestartWindow.Substring($m8RestartOffset)
+}
+$m8RestartRedactionOk = $true
+foreach ($m8Secret in @("sk-", "OPENAI_API_KEY", "api_key", "passphrase", "wifi_password", "PSK:")) {
+    if ($m8RestartWindow.Contains($m8Secret)) { $m8RestartRedactionOk = $false }
+}
+Add-Predicate -Name "m8-lifeline:restart_window_redaction_no_secrets" -Expected "the recovery.restart_last_good output window contains no api-key/passphrase text" -Passed $m8RestartRedactionOk -Actual $(if ($m8RestartRedactionOk) { "redacted" } else { "secret_marker_present" })
+if (-not $m8RestartRedactionOk) {
+    throw "Expected the recovery.restart_last_good output window to contain no secret markers"
 }

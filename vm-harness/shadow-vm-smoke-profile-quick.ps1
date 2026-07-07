@@ -3211,7 +3211,7 @@
             $ltTableRow.implemented -eq $true -and
             $ltSnapshotRow.implemented -eq $true -and
             $ltMutators.Count -eq 4 -and
-            $lt.lifeline_vocabulary_sha256 -eq "sha256:03d3985c104de4d025c7b38aa6d484bbe68e0eb3512bc034993663c7b7a112a3"
+            $lt.lifeline_vocabulary_sha256 -eq "sha256:4a2c52a5f075f8d30240d34e9df0dc08692952252b005ba07a0d2f8178683904"
         )
         Add-Predicate -Name "quick:m8a1_lifeline_table" -Expected "recovery.lifeline_table renders the pinned frozen command table with the golden vocabulary hash (grants nothing)" -Passed $lifelineTableOk -Actual $(if ($lifelineTableOk) { "matched" } else { ($lt | ConvertTo-Json -Compress -Depth 6) })
         if (-not $lifelineTableOk) {
@@ -3249,18 +3249,30 @@
             throw "Expected recovery.snapshot to render the live recovery snapshot"
         }
 
+        # M8B-2b: recovery.restart_last_good is now an IMPLEMENTED executor. quick boots with
+        # NO persist disk -> non-Normal posture, so it must deny in its SAFE preflight BEFORE
+        # any durable append or live mutation: raios.recovery_action.v0, action_kind
+        # restart_last_good, reason boot_control_safe_mode, performed/mutates false, nothing appended.
         Send-AgentCommand -Command "agent recovery.restart_last_good" -ExpectedMarker "RAIOS_AGENT_END recovery.restart_last_good"
         $lifelineRestart = Get-LastAgentResponseJson -Method "recovery.restart_last_good"
         $lr = $lifelineRestart.body.result
         $lifelineRestartDenied = (
-            $lr.status -eq "capability_denied" -and
+            $lr.schema -eq "raios.recovery_action.v0" -and
+            $lr.action_kind -eq "restart_last_good" -and
             $lr.method -eq "recovery.restart_last_good" -and
-            $lr.mutating -eq $true -and
-            $lr.mutates_state -eq $false
+            $lr.status -eq "capability_denied" -and
+            $lr.reason -eq "boot_control_safe_mode" -and
+            $lr.performed -eq $false -and
+            $lr.mutates_live_state -eq $false -and
+            $lr.durable_append -ne "appended" -and
+            $lr.owner_sealed -eq $false -and
+            $lr.grants_new_capability -eq $false -and
+            $lr.persistence_claimed -eq $false -and
+            $lr.promotion_authority_is_placeholder -eq $true
         )
-        Add-Predicate -Name "quick:m8a1_restart_last_good_denied" -Expected "recovery.restart_last_good (mutating) is denied and mutates nothing" -Passed $lifelineRestartDenied -Actual $(if ($lifelineRestartDenied) { "denied" } else { ($lr | ConvertTo-Json -Compress -Depth 5) })
+        Add-Predicate -Name "quick:m8b2_restart_last_good_safe_denied" -Expected "recovery.restart_last_good (implemented executor) denies in SAFE preflight without appending or mutating (no persist disk)" -Passed $lifelineRestartDenied -Actual $(if ($lifelineRestartDenied) { "safe_denied" } else { ($lr | ConvertTo-Json -Compress -Depth 6) })
         if (-not $lifelineRestartDenied) {
-            throw "Expected recovery.restart_last_good to return typed capability_denied"
+            throw "Expected recovery.restart_last_good to return SAFE-mode capability_denied (raios.recovery_action.v0)"
         }
 
         # recovery.disable_module is implemented as of M8B-1b (its own recovery_action.v0 shape,
