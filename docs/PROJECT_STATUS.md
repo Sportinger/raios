@@ -2986,16 +2986,52 @@ targets" is an undercount — live scoped write targets are now
 `append.record_log.seed_data` (M7B-2), `replace.boot_control.seed_data` (M7C-2b),
 `append.promotion_transaction.seed_data` (M6D-2), and (M7D-1) `blob.artifact_store.seed_data`
 + `append.artifact_persist.seed_data`; every other write stays `capability_denied`.
-REMAINING — **M7D-1b** (kernel): AHCI ARTSTOR read+write helpers + a new
-`seed-kernel/src/artifact_store.rs` (persist a promoted candidate's wasm blob →
-readback → chain the artifact_persist RECLOG record as the single commit point;
-enumerate after rescan, STILL INERT) + the load() post-promotion persist hook (gated
-on `durable_promotion_transaction.performed && kind==promote` this boot, SAFE-denied,
-ARTSTOR-full-denied, blob grants NO load authority) + persistence needles
-(artifact-persisted / blob-hash-verified / blob-without-record-is-garbage /
-persist-denied-in-safe). Then **M7D-2** — boot-time re-promotion + the two-boot proof
-(a promoted service survives reboot and answers live, re-verifying the persisted chain
-through the SAME M6 gates — no bypass). RECLOG
+**M7D-1b DONE (2026-07-07) → M7D-1 (persistent artifact store) COMPLETE.** On a
+successful M6 Promote whose durable promotion transaction verified in RECLOG THIS
+boot, raiOS now writes the promoted candidate's wasm bytes as a content-addressed
+`RAIOSAR0` blob into the validated ARTSTOR span (3rd scoped target
+`blob.artifact_store.seed_data`, via a NEW additive `ahci::write_readback_artstor_blob`
+— validate-EVERY-sector-in-`[artstor_start,+artstor_lba_count)`-then-write, reusing
+`issue_write_sector`; `issue_dma_command` untouched), reads it back + reparses, then
+chains a `raios.artifact_persist.v0` RECLOG record (own scoped target
+`append.artifact_persist.seed_data`) as the SINGLE commit point binding blob
+offset/len/frame-sha + artifact/manifest/vm_report/grant hashes + service_id +
+import_set_hash + the M6D-2 `promotion_transaction_sha256`. A new
+`seed-kernel/src/artifact_store.rs` orchestrates it + a RECLOG-driven `artifact.store_scan`
+enumerator that recomputes each blob's on-disk sha256 and reports it present/verified
+but INERT — a bare ARTSTOR blob with NO chained RECLOG record is reported `garbage`,
+never authority. The persist hook is NESTED-ONLY + best-effort in `load()` (Promote
+path ONLY, never rollback), gated on posture Normal|Probation + the M6D-2 transaction
+`performed && kind==promote`; SAFE denies (`boot_control_safe_mode`), ARTSTOR-full
+denies, promotion-transaction-not-verified denies. Stored blobs gain ZERO load
+authority (no `wasm_runtime`/execute path; `authorizes_load`/`maps_executable_pages`/
+`durable`/`owner_sealed`/`persistence_claimed`/`cross_reboot_proven` all false) — the
+code IS on disk, but re-verification + re-run is M7D-2. ZERO edits to the M7D-1a
+evaluators / `scoped_seed_data_append` / other scoped evaluators / write-boundary chain
+/ `durable_store` boot-marker+promotion paths / the generic load gate. Verified:
+raios-core 97/97; `-Profile persistence` 48/48 (7 new: artifact-persisted /
+blob-hash-verified / blob-without-record-is-garbage / persist-denied-in-safe /
+artifact-store-full-denied / promotion-transaction-not-verified / scoped-target-denials);
+`-Profile m6c-promotion` 180/180; `-Profile m6d-rollback` 186/186; `-Profile
+module-audit-rollback` 1709/1709 UNCHANGED-GREEN; max adversarial review
+could_not_refute (0 findings; 27 attack attempts all refuted — write confinement
+airtight, no ARTSTOR byte reaches the wasm runtime, RECLOG record the single commit
+point, orphan blobs inert garbage, persist gated on SAFE + performed&&kind==promote);
+FULL regression 8168/8168 GREEN (`shadow-20260707-015537-28252.json`,
+hash-verified a2b65b772f722bf1a8c598305aef2f71c1fbb652c346cbc16492f221f962c7c7).
+M7D-1 (persistent artifact store) is COMPLETE — a promoted module's code now lands
+durably on disk, chained to its evidence, yet stays inert until M7D-2 re-verifies it.
+
+NEXT — **M7D-2** (THE PRODUCT MOMENT): boot-time re-promotion + a two-boot proof. Boot 1
+promotes + persists a real external candidate, shuts down; boot 2 on the SAME kept
+persist disk scans the RECLOG artifact_persist records, recomputes each blob sha256 from
+ARTSTOR, re-verifies every referenced hash + the promotion-transaction readback, then
+feeds the candidate through the SAME M6 gate chain (grant, slot allocator, promotion
+authority — NO bypass, no "trusted because stored") and, only on success, instantiates
+it so the service answers live. Anything failing re-verification stays inert +
+`repromotion_denied`; SAFE => zero re-promotion. NEW `seed-kernel/src/repromotion.rs` +
+`vm-harness/shadow-vm-persistence-reboot.ps1` two-boot wrapper. This is the milestone
+that ends the current_boot-only era. RECLOG
 generic append, generic (non-`svc.demo.hello`) durable audit/rollback writes,
 executable candidate-byte mapping, provider auto-load, broad mutation, ARTSTOR,
 GPT/superblock metadata, and installed rollback state all STAY denied unless the

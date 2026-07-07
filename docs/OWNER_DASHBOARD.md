@@ -32,14 +32,14 @@ within a single boot; surviving an actual reboot is next (M7D).).
 
 ## Gate status
 
-- Full verification profile: **GREEN** as of 2026-07-06 — 8,168/8,168
-  checks passed in one run (report shadow-20260706-231420-33040.json,
-  hash-verified) after M7C complete (boot control read + write). The focused
-  persistence profile is now 40/40 (adds the boot-control read, SAFE-posture,
-  boot-success-mark, ping-pong, and last-good needles) and the audit-rollback
-  profile is unchanged-green (1,709/1,709). The old "mystery" failures are
-  explained: the test tooling asked for too much data at once and then misread
-  its own connection loss — no bug in the OS itself.
+- Full verification profile: **GREEN** as of 2026-07-07 — 8,168/8,168
+  checks passed in one run (report shadow-20260707-015537-28252.json,
+  hash-verified) after the persistent artifact store (M7D-1). The focused
+  persistence profile is now 48/48 (adds the artifact-persisted, blob-hash,
+  garbage-blob, and SAFE/full-deny needles) and the audit-rollback profile is
+  unchanged-green (1,709/1,709). The old "mystery" failures are explained: the
+  test tooling asked for too much data at once and then misread its own
+  connection loss — no bug in the OS itself.
 - Working tree: the ~36,900-line backlog was committed 2026-07-04 in
   three honest commits; release binaries are no longer tracked in git.
 
@@ -114,9 +114,15 @@ AI-authored module, it writes a durable "promotion receipt" into the log — a
 complete, self-contained record (all the fingerprints plus the dev-key signature)
 that a future boot can *independently re-check* before trusting that module again.
 That is the bridge that makes a promotion survivable. Still within-boot dev-tier
-(the real reboot proof is M7D). **Next: M7D** — survive an actual reboot: the third
-disk-write ability (storing the module's code itself), then re-verifying everything
-after a restart before re-running it.
+(the real reboot proof is M7D). NEW (M7D-1): the third disk-write ability is live — raiOS now **stores an
+AI-authored module's actual code on disk** (as a fingerprinted blob chained to its
+evidence receipt). Crucially, the stored code is completely **inert** — it has zero
+permission to run — until it is re-checked. So all THREE safe disk-write abilities
+now exist (the log, boot control, and the artifact store). **Next: M7D-2 — the big
+one**: survive an actual **reboot**. Boot 1 promotes and saves a module; boot 2, on
+the same disk, re-verifies the whole evidence chain through the exact same safety
+gates (no "trusted because it's stored") and only then runs it — so the service
+answers live after a restart. That is the moment raiOS stops being "this-boot-only".
 
 ## Top risk
 

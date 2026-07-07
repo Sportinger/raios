@@ -100,6 +100,9 @@ RECLOG_MAGIC = b"RAIOSRC0"
 RECLOG_HEADER_LEN = 88
 RECLOG_PREV_FRAME_SHA256_OFFSET = 24
 RECLOG_PAYLOAD_SHA256_OFFSET = 56
+ARTIFACT_BLOB_MAGIC = b"RAIOSAR0"
+ARTIFACT_BLOB_HEADER_LEN = 48
+ARTIFACT_BLOB_PAYLOAD_SHA256_OFFSET = 16
 
 REGIONS = (
     ("BOOTCTL", BOOTCTL_START_LBA, BOOTCTL_LBA_COUNT),
@@ -464,6 +467,19 @@ def build_reclog_frame(seq: int, prev_frame_sha256: bytes, payload: bytes, frame
     return bytes(frame)
 
 
+def build_artifact_blob_frame(payload: bytes, frame_len: int = SECTOR_SIZE) -> bytes:
+    if frame_len % SECTOR_SIZE != 0 or frame_len < SECTOR_SIZE:
+        raise ValueError("ARTSTOR blob frame_len must be a non-zero sector multiple")
+    if len(payload) > frame_len - ARTIFACT_BLOB_HEADER_LEN:
+        raise ValueError("ARTSTOR payload does not fit in frame")
+    frame = bytearray(frame_len)
+    frame[0:8] = ARTIFACT_BLOB_MAGIC
+    struct.pack_into("<II", frame, 8, frame_len, len(payload))
+    frame[ARTIFACT_BLOB_PAYLOAD_SHA256_OFFSET : ARTIFACT_BLOB_PAYLOAD_SHA256_OFFSET + 32] = hashlib.sha256(payload).digest()
+    frame[ARTIFACT_BLOB_HEADER_LEN : ARTIFACT_BLOB_HEADER_LEN + len(payload)] = payload
+    return bytes(frame)
+
+
 def seed_reclog_fixture(handle, fixture: ReclogFixture) -> None:
     if fixture.frame_count == 0 and not fixture.torn_tail:
         return
@@ -476,6 +492,11 @@ def seed_reclog_fixture(handle, fixture: ReclogFixture) -> None:
         prev_hash = hashlib.sha256(frame).digest()
     if fixture.torn_tail:
         handle.write(b"TORNTAIL" + (b"\xA5" * (SECTOR_SIZE - 8)))
+
+
+def seed_artstor_garbage_blob(handle) -> None:
+    frame = build_artifact_blob_frame(b"bare-artstor-blob-without-reclog-record")
+    write_at(handle, SEED_DATA_START_LBA + ARTSTOR_START_LBA, frame)
 
 
 def seed_bootctl_fixture(handle, spec: str | None) -> None:
@@ -648,6 +669,7 @@ def build_image(
     output: Path,
     reclog_fixture_spec: str | None = None,
     bootctl_fixture_spec: str | None = None,
+    seed_artstor_garbage: bool = False,
 ) -> None:
     assert_not_release_output(output)
     if ARTSTOR_LBA_COUNT <= 0:
@@ -673,6 +695,8 @@ def build_image(
         write_at(handle, SEED_DATA_START_LBA, sb)
         write_at(handle, SEED_DATA_START_LBA + 1, sb)
         seed_reclog_fixture(handle, reclog_fixture)
+        if seed_artstor_garbage:
+            seed_artstor_garbage_blob(handle)
         seed_bootctl_fixture(handle, bootctl_fixture_spec)
         write_at(handle, BACKUP_GPT_ENTRIES_LBA, entries)
         write_at(handle, BACKUP_GPT_HEADER_LBA, backup_header)
@@ -820,6 +844,48 @@ def parse_reclog_frame(data: bytes, offset: int, expected_seq: int, expected_pre
         "frame_sha256": frame_hash.hex(),
         "payload_sha256": payload_hash.hex(),
     }, None
+
+
+def parse_artifact_blob_frame(data: bytes, offset: int) -> tuple[dict[str, object] | None, str | None]:
+    if offset + ARTIFACT_BLOB_HEADER_LEN > len(data):
+        return None, "truncated_frame_header"
+    header = data[offset : offset + ARTIFACT_BLOB_HEADER_LEN]
+    if header[:8] != ARTIFACT_BLOB_MAGIC:
+        return None, "bad_magic"
+    frame_len, payload_len = struct.unpack_from("<II", header, 8)
+    if frame_len < SECTOR_SIZE or frame_len % SECTOR_SIZE != 0:
+        return None, "bad_frame_len"
+    if offset + frame_len > len(data):
+        return None, "frame_len_out_of_bounds"
+    if payload_len > frame_len - ARTIFACT_BLOB_HEADER_LEN:
+        return None, "payload_len_out_of_bounds"
+    frame = data[offset : offset + frame_len]
+    payload = frame[ARTIFACT_BLOB_HEADER_LEN : ARTIFACT_BLOB_HEADER_LEN + payload_len]
+    payload_hash = hashlib.sha256(payload).digest()
+    if frame[ARTIFACT_BLOB_PAYLOAD_SHA256_OFFSET : ARTIFACT_BLOB_PAYLOAD_SHA256_OFFSET + 32] != payload_hash:
+        return None, "bad_payload_sha256"
+    if not all_zero(frame[ARTIFACT_BLOB_HEADER_LEN + payload_len :]):
+        return None, "frame_padding_nonzero"
+    return {
+        "offset": offset,
+        "frame_len": frame_len,
+        "payload_len": payload_len,
+        "payload_sha256": payload_hash.hex(),
+        "frame_sha256": hashlib.sha256(frame).hexdigest(),
+        "status": "garbage",
+        "reason": "blob_without_chained_reclog_record",
+        "authorizes_load": False,
+    }, None
+
+
+def scan_artstor_garbage(data: bytes) -> dict[str, object]:
+    blob, reason = parse_artifact_blob_frame(data, 0)
+    return {
+        "garbage_blob_present": blob is not None,
+        "garbage_blob": blob,
+        "reason": "blob_without_chained_reclog_record" if blob is not None else reason,
+        "authorizes_load": False,
+    }
 
 
 def scan_reclog(data: bytes) -> dict[str, object]:
@@ -1144,6 +1210,7 @@ def inspect_image(path: Path) -> dict[str, object]:
         sb0_bytes = sb1_bytes = b""
         reclog_scan = None
         bootctl_read = None
+        artstor_scan = None
         if seed_data is not None:
             sb0_bytes = read_at(handle, int(seed_data["first_lba"]), SECTOR_SIZE)
             sb1_bytes = read_at(handle, int(seed_data["first_lba"]) + 1, SECTOR_SIZE)
@@ -1161,6 +1228,12 @@ def inspect_image(path: Path) -> dict[str, object]:
                 RECLOG_LBA_COUNT * SECTOR_SIZE,
             )
             reclog_scan = scan_reclog(reclog_bytes)
+            artstor_head = read_at(
+                handle,
+                int(seed_data["first_lba"]) + ARTSTOR_START_LBA,
+                SECTOR_SIZE,
+            )
+            artstor_scan = scan_artstor_garbage(artstor_head)
 
     gpt_header_valid = primary["signature"] == "EFI PART" and backup["signature"] == "EFI PART"
     gpt_crc_checked = bool(
@@ -1190,6 +1263,7 @@ def inspect_image(path: Path) -> dict[str, object]:
         "superblock_copy": sb1,
         "bootctl_read": bootctl_read,
         "reclog_scan": reclog_scan,
+        "artstor_scan": artstor_scan,
         "constants": {
             "BOOTCTL": {
                 "start_lba": BOOTCTL_START_LBA,
@@ -1237,6 +1311,13 @@ def print_summary(info: dict[str, object]) -> None:
         print(
             "bootctl read: posture={posture} authoritative={authoritative_bootctl_slot} "
             "selected_payload={selected_payload_slot} reason={reason}".format(**decision)
+        )
+    artstor = info.get("artstor_scan")
+    if artstor and artstor.get("garbage_blob_present"):
+        blob = artstor["garbage_blob"]
+        print(
+            "artstor scan: status=garbage offset={offset} frame_len={frame_len} "
+            "authorizes_load=false".format(**blob)
         )
     print(f"superblock hex head: {sb['hex_head']}")
 
@@ -1325,6 +1406,26 @@ def validate_boot_control_fixture_or_raise(info: dict[str, object], spec: str | 
         raise ValueError("BOOTCTL fixture self-check failed: " + "; ".join(failures))
 
 
+def validate_artstor_garbage_fixture_or_raise(info: dict[str, object], expected: bool) -> None:
+    scan = info.get("artstor_scan")
+    if not isinstance(scan, dict):
+        raise ValueError("self-check failed: artstor_scan missing")
+    present = bool(scan.get("garbage_blob_present"))
+    if present != expected:
+        raise ValueError(
+            f"ARTSTOR garbage fixture self-check failed: expected present={expected} got {present}"
+        )
+    if expected:
+        blob = scan.get("garbage_blob")
+        if not isinstance(blob, dict):
+            raise ValueError("ARTSTOR garbage fixture self-check failed: blob missing")
+        if blob.get("status") != "garbage" or bool(blob.get("authorizes_load")):
+            raise ValueError("ARTSTOR garbage fixture self-check failed: blob is not inert garbage")
+        reclog = info.get("reclog_scan")
+        if not isinstance(reclog, dict) or int(reclog.get("count", -1)) != 0:
+            raise ValueError("ARTSTOR garbage fixture self-check failed: RECLOG record unexpectedly present")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--self-check", action="store_true", help="accepted for explicit self-check invocations")
@@ -1343,6 +1444,11 @@ def main() -> int:
         "--seed-bootctl",
         default=None,
         help="seed BOOTCTL fixture: valid-a, ab, both-invalid, pending, pending-safe, or pending-exhausted",
+    )
+    parser.add_argument(
+        "--seed-artstor-garbage-blob",
+        action="store_true",
+        help="seed a bare RAIOSAR0 blob in ARTSTOR without a chained artifact_persist RECLOG record",
     )
     parser.add_argument("output", nargs="?", type=Path)
     args = parser.parse_args()
@@ -1367,11 +1473,17 @@ def main() -> int:
         if args.output is None:
             parser.error("output path is required unless --inspect-json is used")
         reclog_fixture = parse_reclog_fixture(args.seed_reclog_fixture)
-        build_image(args.output, args.seed_reclog_fixture, args.seed_bootctl)
+        build_image(
+            args.output,
+            args.seed_reclog_fixture,
+            args.seed_bootctl,
+            args.seed_artstor_garbage_blob,
+        )
         info = inspect_image(args.output)
         validate_or_raise(info)
         validate_reclog_fixture_or_raise(info, reclog_fixture)
         validate_boot_control_fixture_or_raise(info, args.seed_bootctl)
+        validate_artstor_garbage_fixture_or_raise(info, args.seed_artstor_garbage_blob)
         print_summary(info)
         print(
             f"reclog fixture: frames_seeded={reclog_fixture.frame_count} "
@@ -1381,6 +1493,10 @@ def main() -> int:
             "bootctl fixture: "
             f"spec={args.seed_bootctl or 'none'} "
             f"max_pending_boot_attempts={MAX_PENDING_BOOT_ATTEMPTS} validation=passed"
+        )
+        print(
+            "artstor garbage fixture: "
+            f"seeded={str(args.seed_artstor_garbage_blob).lower()} validation=passed"
         )
         print("self-check: passed")
         return 0

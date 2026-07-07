@@ -116,11 +116,21 @@ evidence chain + the retained dev-key signature) via a NEW sibling scoped evalua
 `scoped_promotion_transaction_append` — a complete re-verification input so M7D can
 recompute the attestation hash and re-verify the signature after reboot; dev-tier
 throughout (M2a retained the signature DER in RAM; 2b writes the record, SAFE-gated,
-complete-or-absent, nested-only best-effort). Next: **M7D** — persistent artifact
-store + boot-time re-promotion (survive an actual reboot): the THIRD scoped write
-target `blob.artifact_store.seed_data` (ARTSTOR) + `raios.artifact_persist.v0`
-binding the promotion-transaction hash, then a two-boot proof re-verifying the
-persisted chain before re-promoting.
+complete-or-absent, nested-only best-effort). **M7D-1 done (2026-07-07): persistent artifact store.** On a verified M6 promotion
+whose durable promotion transaction verified this boot, raiOS writes the promoted
+module's wasm bytes as a content-addressed `RAIOSAR0` blob into ARTSTOR (the THIRD
+scoped write target `blob.artifact_store.seed_data`) + chains a
+`raios.artifact_persist.v0` RECLOG record binding blob offset/len/sha + the M6
+hashes + the M6D-2 promotion-transaction hash (the RECLOG record is the single
+commit point; a blob without its record is garbage). The code IS on disk, yet the
+stored blob is completely INERT — zero load authority — until re-verified. Persist
+denied in SAFE / when ARTSTOR is full / without a verified promotion transaction;
+zero write-boundary or shared-evaluator edits. Split 1a (raios-core codec + two
+scoped evaluators) → 1b (kernel writer + persist hook). Next: **M7D-2 — the product
+moment**: a two-boot proof where a promoted service survives a reboot and answers
+live, re-verifying the persisted chain through the SAME M6 gates (no bypass, no
+"trusted because stored"); anything failing re-verification stays inert. This ends
+raiOS's current-boot-only era.
 
 **M5 Second Service Proof closed 2026-07-06.** Capability sentence
 verified TRUE: adding svc.demo.echo cost only a descriptor + a small

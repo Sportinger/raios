@@ -1,3 +1,5 @@
+#[path = "artifact_store.rs"]
+pub(crate) mod artifact_store;
 #[path = "boot_control.rs"]
 mod boot_control;
 #[path = "durable_store.rs"]
@@ -336,6 +338,8 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("durable.record_log_scan", Exact, ["persist.reclog_scan"], [route!("durable.record_log_scan"), route!("persist.reclog_scan" => "durable.record_log_scan")], MethodAction::Read0(durable_store::emit_durable_record_log_scan)),
     method!("durable.record_log_append", Exact, ["persist.reclog_append"], [route!("durable.record_log_append"), route!("persist.reclog_append" => "durable.record_log_append")], MethodAction::Read0(durable_store::emit_durable_record_log_append)),
     method!("module.promotion_transaction_selftest", Exact, [], [route!("module.promotion_transaction_selftest")], MethodAction::Read0(durable_store::emit_promotion_transaction_selftest)),
+    method!("artifact.store_scan", Exact, ["persist.artifact_store_scan"], [route!("artifact.store_scan"), route!("persist.artifact_store_scan" => "artifact.store_scan")], MethodAction::Read0(artifact_store::emit_artifact_store_scan)),
+    method!("module.artifact_store_selftest", Exact, [], [route!("module.artifact_store_selftest")], MethodAction::Read0(artifact_store::emit_artifact_store_selftest)),
     method!("boot.control_read", Exact, ["persist.boot_control"], [route!("boot.control_read"), route!("persist.boot_control" => "boot.control_read")], MethodAction::Read0(boot_control::emit_boot_control_read)),
     method!("boot.control_mark_success", Exact, ["persist.boot_control_mark_success"], [route!("boot.control_mark_success"), route!("persist.boot_control_mark_success" => "boot.control_mark_success")], MethodAction::ReadRuntime(boot_control::emit_boot_control_success_mark)),
     envelope_method!("problem.list", Exact, ["problems"], [route!("problems" => "problem.list"), route!("problem.list" => "problem.list")], 17, "problem.list", "cap.problem.list.read", "agent_command_envelope.current_boot.serial.problem_list.v0", "problem.list", MethodAction::ReadRuntime(emit_problem_list)),

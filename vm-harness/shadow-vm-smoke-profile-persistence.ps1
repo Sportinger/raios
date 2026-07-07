@@ -90,7 +90,8 @@ function Invoke-ReclogFixtureScanProbe {
         [string]$FixtureSpec,
         [string]$Label,
         [string]$Method = "durable.record_log_scan",
-        [string]$BootCtlSpec = ""
+        [string]$BootCtlSpec = "",
+        [switch]$SeedArtstorGarbageBlob
     )
 
     if (-not $script:ReclogFixtureProbeIndex) {
@@ -112,6 +113,9 @@ function Invoke-ReclogFixtureScanProbe {
     $builderArgs = @("--self-check", "--seed-reclog-fixture", $FixtureSpec)
     if ($BootCtlSpec) {
         $builderArgs += @("--seed-bootctl", $BootCtlSpec)
+    }
+    if ($SeedArtstorGarbageBlob) {
+        $builderArgs += @("--seed-artstor-garbage-blob")
     }
     $builderArgs += $fixturePersist
     $buildOutput = & python $builder @builderArgs 2>&1
@@ -534,6 +538,78 @@ Add-Predicate `
     -Passed $promotionSelftestOk `
     -Actual $(if ($promotionSelftestOk) { "matched" } else { ($promotionSelftest | ConvertTo-Json -Compress -Depth 10) })
 
+$artifactSelftest = Invoke-ReclogFixtureScanProbe -FixtureSpec "valid:2" -BootCtlSpec "valid-a" -Label "artifact-store-selftest" -Method "module.artifact_store_selftest"
+$artifactCases = @($artifactSelftest.cases)
+$artifactPositive = @($artifactCases | Where-Object { $_.case -eq "artifact_persist_authorized" -and $_.actual_status -eq "appended" -and $_.blob_authorized -eq $true -and $_.record_authorized -eq $true }).Count -eq 1
+$artifactFullDenied = @($artifactCases | Where-Object { $_.case -eq "artifact_store_full_denied" -and $_.actual_reason -eq "artifact_store_full" }).Count -eq 1
+$artifactSafeDenied = @($artifactCases | Where-Object { $_.case -eq "safe_posture_denied" -and $_.actual_reason -eq "boot_control_safe_mode" }).Count -eq 1
+$artifactPromotionDenied = @($artifactCases | Where-Object { $_.case -eq "promotion_transaction_not_verified_denied" -and $_.actual_reason -eq "promotion_transaction_not_verified_this_boot" }).Count -eq 1
+$artifactWrongSchemaDenied = @($artifactCases | Where-Object { $_.case -eq "wrong_schema_denied" -and $_.actual_reason -eq "record_schema_mismatch" }).Count -eq 1
+$artifactWrongTargetDenied = @($artifactCases | Where-Object { $_.case -eq "wrong_target_denied" -and $_.actual_reason -eq "target_out_of_scope" }).Count -eq 1
+$artifactSelftestOk = (
+    $artifactSelftest.schema -eq "raios.artifact_store_selftest.v0" -and
+    [bool]$artifactSelftest.passed -and
+    [int64]$artifactSelftest.case_count -eq 7 -and
+    $artifactPositive -and
+    $artifactFullDenied -and
+    $artifactSafeDenied -and
+    $artifactPromotionDenied -and
+    $artifactWrongSchemaDenied -and
+    $artifactWrongTargetDenied
+)
+Add-Predicate `
+    -Name "artifact-persisted" `
+    -Expected "artifact store selftest authorizes the scoped blob write plus artifact_persist RECLOG append" `
+    -Passed ($artifactSelftestOk -and $artifactPositive) `
+    -Actual $(if ($artifactSelftestOk -and $artifactPositive) { "matched" } else { ($artifactSelftest | ConvertTo-Json -Compress -Depth 10) })
+
+Add-Predicate `
+    -Name "blob-hash-verified" `
+    -Expected "artifact store selftest positive path verifies blob write/readback hashes before the RECLOG commit" `
+    -Passed ($artifactSelftestOk -and $artifactPositive) `
+    -Actual $(if ($artifactSelftestOk -and $artifactPositive) { "matched" } else { ($artifactSelftest | ConvertTo-Json -Compress -Depth 10) })
+
+Add-Predicate `
+    -Name "artifact-store-full-denied" `
+    -Expected "artifact store selftest denies artifact_store_full without authorizing a blob write" `
+    -Passed $artifactFullDenied `
+    -Actual $(if ($artifactFullDenied) { "matched" } else { ($artifactSelftest | ConvertTo-Json -Compress -Depth 10) })
+
+Add-Predicate `
+    -Name "artifact-persist-denied-in-safe" `
+    -Expected "artifact store selftest denies persistence in SAFE posture with boot_control_safe_mode" `
+    -Passed $artifactSafeDenied `
+    -Actual $(if ($artifactSafeDenied) { "matched" } else { ($artifactSelftest | ConvertTo-Json -Compress -Depth 10) })
+
+Add-Predicate `
+    -Name "artifact-persist-promotion-transaction-not-verified" `
+    -Expected "artifact store selftest denies when the promotion transaction was not verified this boot" `
+    -Passed $artifactPromotionDenied `
+    -Actual $(if ($artifactPromotionDenied) { "matched" } else { ($artifactSelftest | ConvertTo-Json -Compress -Depth 10) })
+
+Add-Predicate `
+    -Name "artifact-persist-scoped-target-denials" `
+    -Expected "artifact store selftest denies wrong schema and wrong scoped target" `
+    -Passed ($artifactWrongSchemaDenied -and $artifactWrongTargetDenied) `
+    -Actual $(if ($artifactWrongSchemaDenied -and $artifactWrongTargetDenied) { "matched" } else { ($artifactSelftest | ConvertTo-Json -Compress -Depth 10) })
+
+$garbageScan = Invoke-ReclogFixtureScanProbe -FixtureSpec "empty" -BootCtlSpec "valid-a" -Label "artstor-garbage" -Method "artifact.store_scan" -SeedArtstorGarbageBlob
+$garbageBlobs = @($garbageScan.garbage_blobs)
+$blobWithoutRecordGarbage = (
+    $garbageScan.schema -eq "raios.artifact_store_scan.v0" -and
+    [int64]$garbageScan.artifact_persist_record_count -eq 0 -and
+    [int64]$garbageScan.garbage_blob_count -ge 1 -and
+    $garbageBlobs[0].status -eq "garbage" -and
+    $garbageBlobs[0].reason -eq "blob_without_chained_reclog_record" -and
+    -not [bool]$garbageBlobs[0].authorizes_load -and
+    -not [bool]$garbageScan.authorizes_load
+)
+Add-Predicate `
+    -Name "blob-without-record-is-garbage" `
+    -Expected "bare ARTSTOR RAIOSAR0 blob without artifact_persist RECLOG record is reported as inert garbage" `
+    -Passed $blobWithoutRecordGarbage `
+    -Actual $(if ($blobWithoutRecordGarbage) { "matched" } else { ($garbageScan | ConvertTo-Json -Compress -Depth 10) })
+
 $fullAppend = Invoke-ReclogFixtureScanProbe -FixtureSpec "full" -BootCtlSpec "valid-a" -Label "full-append" -Method "durable.record_log_append"
 $fullDenied = (
     $fullAppend.durable_append -eq "capability_denied" -and
@@ -633,6 +709,6 @@ Add-Predicate `
     -Passed $absentPassed `
     -Actual $absentActual
 
-if (-not ($kernelGptHeaderValid -and $kernelGptCrcChecked -and $kernelSeedDataFound -and $kernelSuperblockValid -and $readOnly -and $emptyLogValid -and $appendDenied -and $bootControlRead -and $safePostureBothSlotsInvalid -and $pendingNotConsumedInSafe -and $bootSuccessMarked -and $bootControlWritePingpong -and $lastGoodAdvance -and $failureCountKeepsLastGood -and $markDeniedInSafe -and $appendAuthorized -and $appendReadbackHash -and $appendChainHead -and $promotionSelftestOk -and $fullDenied -and $persistDeniedInSafe -and $chainHeadOk -and $chainCountOk -and $tornOk -and $absentPassed)) {
+if (-not ($kernelGptHeaderValid -and $kernelGptCrcChecked -and $kernelSeedDataFound -and $kernelSuperblockValid -and $readOnly -and $emptyLogValid -and $appendDenied -and $bootControlRead -and $safePostureBothSlotsInvalid -and $pendingNotConsumedInSafe -and $bootSuccessMarked -and $bootControlWritePingpong -and $lastGoodAdvance -and $failureCountKeepsLastGood -and $markDeniedInSafe -and $appendAuthorized -and $appendReadbackHash -and $appendChainHead -and $promotionSelftestOk -and $artifactSelftestOk -and $artifactPositive -and $artifactFullDenied -and $artifactSafeDenied -and $artifactPromotionDenied -and $artifactWrongSchemaDenied -and $artifactWrongTargetDenied -and $blobWithoutRecordGarbage -and $fullDenied -and $persistDeniedInSafe -and $chainHeadOk -and $chainCountOk -and $tornOk -and $absentPassed)) {
     throw "Persistence kernel layout validation failed"
 }

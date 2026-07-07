@@ -4,7 +4,7 @@ use raios_core::record::{sha256_of_json, Value as V};
 use spin::Mutex;
 
 use crate::{
-    agent_protocol::durable_store,
+    agent_protocol::{artifact_store, durable_store},
     agent_protocol_module_grant,
     agent_protocol_module_types::ModuleGrantReferenceCheck,
     agent_protocol_support::{
@@ -228,6 +228,7 @@ struct ActionResult {
     run: Option<wasm_runtime::EchoRunEvidence>,
     authorization: AuthorizationEvidence,
     durable_promotion_transaction: durable_store::PromotionTransactionAppendEvidence,
+    durable_artifact_persist: artifact_store::ArtifactPersistEvidence,
     capability_denied: bool,
 }
 
@@ -523,12 +524,45 @@ fn load(source_method: &'static str) -> ActionResult {
                 "promotion_transaction_not_attempted",
             )
         });
+    let durable_artifact_persist = promotion_for_append
+        .map(|promotion| {
+            let computed_grant = event_log::latest_module_computed_grant_reference()
+                .map(|(_, computed_grant)| computed_grant);
+            if durable_promotion_transaction.performed && computed_grant.is_none() {
+                return artifact_store::artifact_persist_denied(
+                    "promotion_evidence_reference_missing",
+                );
+            }
+            let manifest_hash = computed_grant
+                .map(|computed_grant| computed_grant.manifest_hash)
+                .unwrap_or([0; 32]);
+            let vm_report_hash = computed_grant
+                .map(|computed_grant| computed_grant.vm_report_hash)
+                .unwrap_or([0; 32]);
+            let computed_grant_hash = computed_grant
+                .map(|computed_grant| computed_grant.computed_grant_hash)
+                .unwrap_or([0; 32]);
+            artifact_store::persist_promoted_artifact(
+                promotion,
+                &durable_promotion_transaction,
+                retained.as_ref(),
+                manifest_hash,
+                vm_report_hash,
+                computed_grant_hash,
+                GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.service_id,
+                artifact_store::granted_candidate_import_set_hash(),
+            )
+        })
+        .unwrap_or_else(|| {
+            artifact_store::artifact_persist_denied("artifact_persist_not_attempted")
+        });
     ActionResult {
         snapshot,
         event_id,
         run: None,
         authorization,
         durable_promotion_transaction,
+        durable_artifact_persist,
         capability_denied,
     }
 }
@@ -620,6 +654,9 @@ fn start(source_method: &'static str) -> ActionResult {
             durable_store::PromotionTransactionKind::Promote,
             "promotion_transaction_not_attempted",
         ),
+        durable_artifact_persist: artifact_store::artifact_persist_denied(
+            "artifact_persist_not_attempted",
+        ),
         capability_denied: !can_execute,
     }
 }
@@ -667,6 +704,9 @@ fn stop(source_method: &'static str) -> ActionResult {
             durable_store::PromotionTransactionKind::Promote,
             "promotion_transaction_not_attempted",
         ),
+        durable_artifact_persist: artifact_store::artifact_persist_denied(
+            "artifact_persist_not_attempted",
+        ),
         capability_denied: !state.service.loaded,
     }
 }
@@ -712,6 +752,9 @@ fn drop_service(source_method: &'static str) -> ActionResult {
         durable_promotion_transaction: durable_store::promotion_transaction_append_denied(
             durable_store::PromotionTransactionKind::Promote,
             "promotion_transaction_not_attempted",
+        ),
+        durable_artifact_persist: artifact_store::artifact_persist_denied(
+            "artifact_persist_not_attempted",
         ),
         capability_denied: !was_loaded,
     }
@@ -1327,6 +1370,10 @@ fn emit_response(method: &'static str, action: &'static str, result: ActionResul
                 durable_store::promotion_transaction_append_evidence_record(
                     result.durable_promotion_transaction,
                 ),
+            ),
+            f(
+                "durable_artifact_persist",
+                artifact_store::artifact_persist_evidence_record(result.durable_artifact_persist),
             ),
             f("capabilities", record_static_str_array(CAPABILITIES)),
             f("accepts_external_artifact_bytes", b(true)),
