@@ -814,6 +814,7 @@ fn scoped_baseline_input() -> ScopedMemoryRecordAppendInput<'static> {
         owner_sealed: false,
         persistence_claimed: false,
         quota_ok: true,
+        agent_authored: false,
     }
 }
 

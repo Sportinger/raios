@@ -68,6 +68,11 @@ pub struct ScopedMemoryRecordAppendInput<'a> {
     pub owner_sealed: bool,
     pub persistence_claimed: bool,
     pub quota_ok: bool,
+    /// True when the record content came from an AGENT (not the system). Agent-authored
+    /// records are confined to `observation` kind, no `supersedes`, and `local_only`
+    /// classification (see the `agent_authored` pins below). System callers set false and
+    /// are unaffected — all eight kinds stay in scope for them.
+    pub agent_authored: bool,
 }
 
 impl<'a> ScopedMemoryRecordAppendInput<'a> {
@@ -105,6 +110,7 @@ impl<'a> ScopedMemoryRecordAppendInput<'a> {
             owner_sealed: false,
             persistence_claimed: false,
             quota_ok: false,
+            agent_authored: false,
         }
     }
 }
@@ -298,6 +304,23 @@ pub fn evaluate_scoped_memory_record_append(
         return denied("supersede_self_reference");
     }
 
+    // Agent-authored confinement (deny-in-depth backstop for the M9B agent-input path):
+    // an AGENT may durably record ONLY an `observation`, with NO supersedes and a
+    // `local_only` classification (so an agent record can never be provider-exportable
+    // nor hide another fact). System callers set agent_authored=false and skip this block
+    // entirely — all eight kinds remain in scope for them.
+    if input.agent_authored {
+        if input.kind != Some("observation") {
+            return denied("agent_authored_kind_not_observation");
+        }
+        if input.supersedes_len != Some(0) {
+            return denied("agent_authored_supersede_forbidden");
+        }
+        if input.classification != Some("local_only") {
+            return denied("agent_authored_classification_not_local_only");
+        }
+    }
+
     if input.trust_tier != Some(EXPECTED_TRUST_TIER) {
         return denied("trust_tier_not_dev_key_not_owner_sealed");
     }
@@ -408,6 +431,7 @@ mod tests {
             owner_sealed: false,
             persistence_claimed: false,
             quota_ok: true,
+            agent_authored: false,
         }
     }
 
@@ -432,6 +456,18 @@ mod tests {
         input.tail_frame_sha256 = None;
         input.prev_frame_sha256 = Some([0u8; 32]);
 
+        assert!(evaluate_scoped_memory_record_append(&input).performed);
+    }
+
+    #[test]
+    fn authorizes_valid_agent_authored_observation() {
+        // A legitimate agent-authored record (observation / no supersedes / local_only)
+        // passes ALL pins including the agent_authored block.
+        let mut input = valid_input();
+        input.agent_authored = true;
+        input.kind = Some("observation");
+        input.supersedes_len = Some(0);
+        input.classification = Some("local_only");
         assert!(evaluate_scoped_memory_record_append(&input).performed);
     }
 
@@ -496,6 +532,9 @@ mod tests {
         SupersedesTooLong,
         AuditKindSupersede,
         SelfSupersede,
+        AgentAuthoredKindNotObservation,
+        AgentAuthoredSupersedeForbidden,
+        AgentAuthoredClassificationNotLocalOnly,
         WrongTrustTier,
         OwnerSealed,
         PersistenceClaimed,
@@ -548,6 +587,24 @@ mod tests {
                 input.supersedes_len = Some(1);
             }
             Mutation::SelfSupersede => input.supersede_self_reference = true,
+            // Agent-authored confinement: each sets agent_authored=true plus the ONE
+            // triggering field, keeping the earlier general pins satisfied so the intended
+            // agent pin is the first failure. (valid_input() is classification=public,
+            // kind=observation, supersedes_len=0.)
+            Mutation::AgentAuthoredKindNotObservation => {
+                input.agent_authored = true;
+                input.kind = Some("decision");
+            }
+            Mutation::AgentAuthoredSupersedeForbidden => {
+                input.agent_authored = true;
+                input.kind = Some("observation");
+                input.supersedes_len = Some(1);
+            }
+            Mutation::AgentAuthoredClassificationNotLocalOnly => {
+                input.agent_authored = true;
+                input.kind = Some("observation");
+                input.classification = Some("public");
+            }
             Mutation::WrongTrustTier => input.trust_tier = Some("owner_sealed"),
             Mutation::OwnerSealed => input.owner_sealed = true,
             Mutation::PersistenceClaimed => input.persistence_claimed = true,
@@ -605,6 +662,18 @@ mod tests {
             (Mutation::SupersedesTooLong, "supersedes_list_too_long"),
             (Mutation::AuditKindSupersede, "audit_kind_may_not_supersede"),
             (Mutation::SelfSupersede, "supersede_self_reference"),
+            (
+                Mutation::AgentAuthoredKindNotObservation,
+                "agent_authored_kind_not_observation",
+            ),
+            (
+                Mutation::AgentAuthoredSupersedeForbidden,
+                "agent_authored_supersede_forbidden",
+            ),
+            (
+                Mutation::AgentAuthoredClassificationNotLocalOnly,
+                "agent_authored_classification_not_local_only",
+            ),
             (
                 Mutation::WrongTrustTier,
                 "trust_tier_not_dev_key_not_owner_sealed",

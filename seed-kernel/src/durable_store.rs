@@ -2509,6 +2509,7 @@ pub(crate) fn append_memory_record(record: &MemoryRecord<'static>) -> MemoryReco
         owner_sealed: false,
         persistence_claimed: false,
         quota_ok: true,
+        agent_authored: false,
     });
 
     if !decision.performed {
