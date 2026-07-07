@@ -3,14 +3,18 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-06 (M7 underway — making things survive a restart. raiOS now
-has TWO of its three safe disk-write abilities live: (1) it appends durable
-records to a log — build, bounds-check, write, read back, confirm byte-identical
-before saying "done"; and NEW (2) it safely marks a boot as successful and does
-crash-safe A/B boot-slot switching, entering a safe "recovery" mode if the
-control record is missing/damaged (M7C complete). Every other place on the disk
-stays refused. Independent security checks could not break either write. Still
-within a single boot; surviving an actual reboot is next (M7D).).
+Updated: 2026-07-07 (**M7 COMPLETE — a service now survives a real restart.**
+The big one is done: boot 1 accepts and saves an AI-authored module (its code +
+a signed "promotion receipt"); the machine is powered down and back up; boot 2
+independently re-checks the whole evidence chain from disk — re-doing the signature
+check itself, never trusting a stored "already OK" flag — and only then runs it, so
+the service answers again after the restart. A corrupted copy, a tampered receipt,
+and safe-recovery mode are each correctly refused. All three safe disk-write
+abilities (log, boot control, artifact store) are live; everything else stays
+refused. Still honestly labelled dev-key, not owner-sealed. Proven end-to-end
+(two-boot proof 85/85, full regression 8168/8168, plus an independent adversarial
+review that found and fixed two real read bugs). raiOS is no longer "this-boot-only".
+Next: M8 — the emergency lifeline.).
 
 ## What raiOS can actually do today
 
@@ -118,11 +122,15 @@ That is the bridge that makes a promotion survivable. Still within-boot dev-tier
 AI-authored module's actual code on disk** (as a fingerprinted blob chained to its
 evidence receipt). Crucially, the stored code is completely **inert** — it has zero
 permission to run — until it is re-checked. So all THREE safe disk-write abilities
-now exist (the log, boot control, and the artifact store). **Next: M7D-2 — the big
-one**: survive an actual **reboot**. Boot 1 promotes and saves a module; boot 2, on
-the same disk, re-verifies the whole evidence chain through the exact same safety
-gates (no "trusted because it's stored") and only then runs it — so the service
-answers live after a restart. That is the moment raiOS stops being "this-boot-only".
+now exist (the log, boot control, and the artifact store). **DONE (M7D-2 — the big
+one): raiOS survived an actual reboot.** Boot 1 promoted and saved a real
+signed module; the machine was fully restarted; boot 2, on the same disk,
+re-verified the whole evidence chain through the exact same safety gates — re-doing
+the signature check itself, refusing any "trusted because it's stored" shortcut —
+and only then ran it, so the service answered live after the restart. A corrupted
+saved copy, a tampered receipt, and safe-recovery mode were each correctly refused.
+**M7 is complete** — raiOS is no longer "this-boot-only". Still dev-key, never
+owner-sealed. Next: M8 — the emergency lifeline.
 
 ## Top risk
 

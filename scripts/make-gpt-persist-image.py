@@ -665,6 +665,326 @@ def apply_boot_slot_update(
     return {"operation": "stage_slot" if stage_slot else "set_pending", "plan": plan, "post_bootctl_read": post_bootctl}
 
 
+def seed_data_first_lba_from_info(info: dict[str, object]) -> int:
+    for part in info["partitions"]:
+        if part["name"] == "SEED_DATA":
+            return int(part["first_lba"])
+    raise ValueError("SEED_DATA partition not found")
+
+
+def read_reclog_region(handle, seed_data_first_lba: int) -> bytes:
+    handle.seek((seed_data_first_lba + RECLOG_START_LBA) * SECTOR_SIZE)
+    data = handle.read(RECLOG_LBA_COUNT * SECTOR_SIZE)
+    if len(data) != RECLOG_LBA_COUNT * SECTOR_SIZE:
+        raise ValueError("short RECLOG read")
+    return data
+
+
+def parse_reclog_frames_for_inspection(data: bytes) -> list[dict[str, object]]:
+    frames: list[dict[str, object]] = []
+    offset = 0
+    expected_seq = 1
+    expected_prev_hash = b"\0" * 32
+    while offset < len(data):
+        if all_zero(data[offset:]):
+            break
+        parsed, reason = parse_reclog_frame(data, offset, expected_seq, expected_prev_hash)
+        if parsed is None:
+            raise ValueError(f"RECLOG frame parse failed at offset {offset}: {reason}")
+        frame_len = int(parsed["frame_len"])
+        payload_len = int(parsed["payload_len"])
+        payload_start = offset + RECLOG_HEADER_LEN
+        payload = data[payload_start : payload_start + payload_len]
+        frames.append(
+            {
+                **parsed,
+                "payload": payload,
+                "frame": data[offset : offset + frame_len],
+            }
+        )
+        expected_seq += 1
+        expected_prev_hash = bytes.fromhex(str(parsed["frame_sha256"]))
+        offset += frame_len
+    return frames
+
+
+def payload_json(payload: bytes) -> dict[str, object] | None:
+    try:
+        return json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+
+
+def read_artstor_blob(handle, seed_data_first_lba: int, offset: int, frame_len: int) -> bytes:
+    if offset < 0 or frame_len <= 0:
+        raise ValueError("bad ARTSTOR blob range")
+    if offset + frame_len > ARTSTOR_LBA_COUNT * SECTOR_SIZE:
+        raise ValueError("ARTSTOR blob range out of bounds")
+    handle.seek((seed_data_first_lba + ARTSTOR_START_LBA) * SECTOR_SIZE + offset)
+    blob = handle.read(frame_len)
+    if len(blob) != frame_len:
+        raise ValueError("short ARTSTOR blob read")
+    return blob
+
+
+def sha256_hex_body(value: object) -> object:
+    # record-model Value::Sha256 serializes as "sha256:<64 hex>" (raios_core::record).
+    # Strip the prefix so a stored field compares against a raw .hexdigest()/.hex()
+    # recomputation; a raw-hex value never begins with "sha256:" so this is unambiguous.
+    if isinstance(value, str) and value.startswith("sha256:"):
+        return value[len("sha256:"):]
+    return value
+
+
+def inspect_artifact_persist_records(
+    frames: list[dict[str, object]],
+    handle,
+    seed_data_first_lba: int,
+) -> list[dict[str, object]]:
+    records: list[dict[str, object]] = []
+    for frame in frames:
+        record = payload_json(frame["payload"])
+        if not record or record.get("schema") != "raios.artifact_persist.v0":
+            continue
+        view: dict[str, object] = {
+            "seq": frame["seq"],
+            "reclog_offset": frame["offset"],
+            "reclog_frame_sha256": frame["frame_sha256"],
+            "reclog_payload_sha256": frame["payload_sha256"],
+            "artstor_blob_offset": record.get("artstor_blob_offset"),
+            "artstor_blob_len": record.get("artstor_blob_len"),
+            "artstor_blob_frame_sha256": record.get("artstor_blob_frame_sha256"),
+            "artifact_sha256": record.get("artifact_sha256"),
+            "manifest_hash": record.get("manifest_hash"),
+            "vm_report_hash": record.get("vm_report_hash"),
+            "grant_hash": record.get("grant_hash"),
+            "promotion_transaction_sha256": record.get("promotion_transaction_sha256"),
+            "authorizes_load": record.get("authorizes_load"),
+            "binding_mismatches": [],
+        }
+        try:
+            blob = read_artstor_blob(
+                handle,
+                seed_data_first_lba,
+                int(record["artstor_blob_offset"]),
+                int(record["artstor_blob_len"]),
+            )
+            blob_frame_sha = hashlib.sha256(blob).hexdigest()
+            parsed_blob, reason = parse_artifact_blob_frame(blob, 0)
+            view["actual_artstor_blob_frame_sha256"] = blob_frame_sha
+            view["actual_blob_parse_reason"] = reason
+            if parsed_blob is not None:
+                view["actual_artifact_sha256"] = parsed_blob["payload_sha256"]
+            if blob_frame_sha != sha256_hex_body(record.get("artstor_blob_frame_sha256")):
+                view["binding_mismatches"].append("artstor_blob_frame_sha256")
+            if parsed_blob is None:
+                view["binding_mismatches"].append("artifact_blob_parse")
+            elif parsed_blob["payload_sha256"] != sha256_hex_body(record.get("artifact_sha256")):
+                view["binding_mismatches"].append("artifact_sha256")
+        except (KeyError, TypeError, ValueError) as exc:
+            view["binding_mismatches"].append("artstor_blob_read")
+            view["actual_blob_parse_reason"] = str(exc)
+        view["binding_ok"] = len(view["binding_mismatches"]) == 0
+        records.append(view)
+    return records
+
+
+def inspect_promotion_transaction_records(frames: list[dict[str, object]]) -> list[dict[str, object]]:
+    records: list[dict[str, object]] = []
+    for frame in frames:
+        record = payload_json(frame["payload"])
+        if not record or record.get("schema") != "raios.promotion_transaction.v0":
+            continue
+        records.append(
+            {
+                "seq": frame["seq"],
+                "reclog_offset": frame["offset"],
+                "reclog_frame_sha256": frame["frame_sha256"],
+                "transaction_kind": record.get("transaction_kind"),
+                "service_id": record.get("service_id"),
+                "signature_verified": record.get("signature_verified"),
+                "grant_binds_capability": record.get("grant_binds_capability"),
+            }
+        )
+    return records
+
+
+def parse_first_artstor_blob(handle, seed_data_first_lba: int) -> dict[str, object] | None:
+    handle.seek((seed_data_first_lba + ARTSTOR_START_LBA) * SECTOR_SIZE)
+    head = handle.read(SECTOR_SIZE)
+    if len(head) != SECTOR_SIZE or head[:8] != ARTIFACT_BLOB_MAGIC:
+        return None
+    frame_len = struct.unpack_from("<I", head, 8)[0]
+    blob = read_artstor_blob(handle, seed_data_first_lba, 0, frame_len)
+    parsed, reason = parse_artifact_blob_frame(blob, 0)
+    if parsed is None:
+        return {"offset": 0, "reason": reason, "valid": False}
+    return {**parsed, "valid": True}
+
+
+def find_first_artstor_blob(handle, seed_data_first_lba: int) -> tuple[int, dict[str, object], bytes]:
+    artstor_bytes = ARTSTOR_LBA_COUNT * SECTOR_SIZE
+    for offset in range(0, artstor_bytes, SECTOR_SIZE):
+        handle.seek((seed_data_first_lba + ARTSTOR_START_LBA) * SECTOR_SIZE + offset)
+        head = handle.read(SECTOR_SIZE)
+        if len(head) != SECTOR_SIZE:
+            raise ValueError("short ARTSTOR scan read")
+        if head[:8] != ARTIFACT_BLOB_MAGIC:
+            if all_zero(head):
+                break
+            continue
+        frame_len = struct.unpack_from("<I", head, 8)[0]
+        blob = read_artstor_blob(handle, seed_data_first_lba, offset, frame_len)
+        parsed, reason = parse_artifact_blob_frame(blob, 0)
+        if parsed is None:
+            raise ValueError(f"ARTSTOR blob parse failed at offset {offset}: {reason}")
+        return offset, parsed, blob
+    raise ValueError("no RAIOSAR0 ARTSTOR blob found")
+
+
+def corrupt_artstor_blob(image: Path) -> dict[str, object]:
+    assert_not_release_output(image)
+    info = validate_existing_gpt_image(image)
+    seed_data_first_lba = seed_data_first_lba_from_info(info)
+    with image.open("r+b") as handle:
+        offset, blob, frame = find_first_artstor_blob(handle, seed_data_first_lba)
+        if int(blob["payload_len"]) == 0:
+            raise ValueError("cannot corrupt empty ARTSTOR blob payload")
+        mutated = bytearray(frame)
+        payload_offset = ARTIFACT_BLOB_HEADER_LEN
+        mutated[payload_offset] ^= 0x01
+        payload_end = payload_offset + int(blob["payload_len"])
+        mutated[
+            ARTIFACT_BLOB_PAYLOAD_SHA256_OFFSET : ARTIFACT_BLOB_PAYLOAD_SHA256_OFFSET + 32
+        ] = hashlib.sha256(mutated[payload_offset:payload_end]).digest()
+        parsed, reason = parse_artifact_blob_frame(mutated, 0)
+        if parsed is None:
+            raise ValueError(f"mutated ARTSTOR blob no longer self-parses: {reason}")
+        handle.seek((seed_data_first_lba + ARTSTOR_START_LBA) * SECTOR_SIZE + offset)
+        handle.write(mutated)
+        handle.flush()
+        os.fsync(handle.fileno())
+    post = inspect_image(image)
+    records = post.get("artifact_persist_records") or []
+    if not records or "artstor_blob_frame_sha256" not in records[0].get("binding_mismatches", []):
+        raise ValueError("corrupt ARTSTOR blob did not create an artifact-persist blob hash mismatch")
+    return {
+        "operation": "corrupt_artstor_blob",
+        "image": str(image),
+        "artstor_blob_offset": offset,
+        "old_frame_sha256": hashlib.sha256(frame).hexdigest(),
+        "new_frame_sha256": hashlib.sha256(mutated).hexdigest(),
+        "post_artifact_persist_record": records[0],
+    }
+
+
+def flip_hash_byte(hex_value: str) -> str:
+    # record-model Sha256 values serialize as "sha256:<64 hex>"; preserve the prefix
+    # and flip a byte in the hex body so the tampered field stays well-formed.
+    prefix = ""
+    if hex_value.startswith("sha256:"):
+        prefix = "sha256:"
+        hex_value = hex_value[len(prefix):]
+    if len(hex_value) != 64:
+        raise ValueError("bound hash field must be 64 hex characters")
+    return f"{prefix}{int(hex_value[:2], 16) ^ 0x01:02x}{hex_value[2:]}"
+
+
+def replace_json_hash(payload: bytes, field: str, old_value: str, new_value: str) -> bytes:
+    old = f'"{field}": "{old_value}"'.encode("ascii")
+    new = f'"{field}": "{new_value}"'.encode("ascii")
+    if old not in payload:
+        raise ValueError(f"could not find JSON hash field {field}")
+    return payload.replace(old, new, 1)
+
+
+def rewrite_reclog_frames(
+    handle,
+    seed_data_first_lba: int,
+    frames: list[dict[str, object]],
+    first_index: int,
+    first_payload: bytes,
+) -> None:
+    prev_hash = (
+        b"\0" * 32
+        if first_index == 0
+        else bytes.fromhex(str(frames[first_index - 1]["frame_sha256"]))
+    )
+    for idx in range(first_index, len(frames)):
+        payload = first_payload if idx == first_index else frames[idx]["payload"]
+        frame = build_reclog_frame(
+            int(frames[idx]["seq"]),
+            prev_hash,
+            payload,
+            int(frames[idx]["frame_len"]),
+        )
+        handle.seek((seed_data_first_lba + RECLOG_START_LBA) * SECTOR_SIZE + int(frames[idx]["offset"]))
+        handle.write(frame)
+        prev_hash = hashlib.sha256(frame).digest()
+
+
+def tamper_persist_record(image: Path) -> dict[str, object]:
+    assert_not_release_output(image)
+    info = validate_existing_gpt_image(image)
+    seed_data_first_lba = seed_data_first_lba_from_info(info)
+    with image.open("r+b") as handle:
+        frames = parse_reclog_frames_for_inspection(read_reclog_region(handle, seed_data_first_lba))
+        target_index = None
+        target_record = None
+        for idx, frame in enumerate(frames):
+            record = payload_json(frame["payload"])
+            if record and record.get("schema") == "raios.artifact_persist.v0":
+                target_index = idx
+                target_record = record
+                break
+        if target_index is None or target_record is None:
+            raise ValueError("no raios.artifact_persist.v0 RECLOG record found")
+        field = "artifact_sha256"
+        old_value = str(target_record[field])
+        new_value = flip_hash_byte(old_value)
+        new_payload = replace_json_hash(frames[target_index]["payload"], field, old_value, new_value)
+        rewrite_reclog_frames(handle, seed_data_first_lba, frames, target_index, new_payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+    post = inspect_image(image)
+    scan = post.get("reclog_scan") or {}
+    records = post.get("artifact_persist_records") or []
+    if scan.get("status") != "valid":
+        raise ValueError("tampered RECLOG no longer scans as valid")
+    if not records or "artifact_sha256" not in records[0].get("binding_mismatches", []):
+        raise ValueError("tampered artifact_persist record did not create an artifact hash mismatch")
+    return {
+        "operation": "tamper_persist_record",
+        "image": str(image),
+        "field": field,
+        "old_value": old_value,
+        "new_value": new_value,
+        "seq": frames[target_index]["seq"],
+        "post_artifact_persist_record": records[0],
+    }
+
+
+def apply_bootctl_fixture_update(image: Path, spec: str) -> dict[str, object]:
+    assert_not_release_output(image)
+    info = validate_existing_gpt_image(image)
+    seed_data_first_lba = seed_data_first_lba_from_info(info)
+    storage_slot_a, storage_slot_b = boot_control_fields_for_fixture(spec)
+    with image.open("r+b") as handle:
+        handle.seek((seed_data_first_lba + BOOTCTL_START_LBA) * SECTOR_SIZE)
+        handle.write(storage_slot_a)
+        handle.write(storage_slot_b)
+        handle.flush()
+        os.fsync(handle.fileno())
+    post = inspect_image(image)
+    validate_boot_control_fixture_or_raise(post, spec)
+    return {
+        "operation": "seed_bootctl_existing",
+        "image": str(image),
+        "spec": spec,
+        "post_bootctl_read": post["bootctl_read"],
+    }
+
+
 def build_image(
     output: Path,
     reclog_fixture_spec: str | None = None,
@@ -1209,8 +1529,11 @@ def inspect_image(path: Path) -> dict[str, object]:
         sb0 = sb1 = None
         sb0_bytes = sb1_bytes = b""
         reclog_scan = None
+        artifact_persist_records: list[dict[str, object]] = []
+        promotion_transaction_records: list[dict[str, object]] = []
         bootctl_read = None
         artstor_scan = None
+        first_artstor_blob = None
         if seed_data is not None:
             sb0_bytes = read_at(handle, int(seed_data["first_lba"]), SECTOR_SIZE)
             sb1_bytes = read_at(handle, int(seed_data["first_lba"]) + 1, SECTOR_SIZE)
@@ -1228,12 +1551,24 @@ def inspect_image(path: Path) -> dict[str, object]:
                 RECLOG_LBA_COUNT * SECTOR_SIZE,
             )
             reclog_scan = scan_reclog(reclog_bytes)
+            if reclog_scan["status"] in {"valid", "valid_empty"}:
+                reclog_frames = parse_reclog_frames_for_inspection(reclog_bytes)
+                artifact_persist_records = inspect_artifact_persist_records(
+                    reclog_frames,
+                    handle,
+                    int(seed_data["first_lba"]),
+                )
+                promotion_transaction_records = inspect_promotion_transaction_records(reclog_frames)
             artstor_head = read_at(
                 handle,
                 int(seed_data["first_lba"]) + ARTSTOR_START_LBA,
                 SECTOR_SIZE,
             )
             artstor_scan = scan_artstor_garbage(artstor_head)
+            try:
+                first_artstor_blob = parse_first_artstor_blob(handle, int(seed_data["first_lba"]))
+            except ValueError as exc:
+                first_artstor_blob = {"valid": False, "reason": str(exc)}
 
     gpt_header_valid = primary["signature"] == "EFI PART" and backup["signature"] == "EFI PART"
     gpt_crc_checked = bool(
@@ -1264,6 +1599,9 @@ def inspect_image(path: Path) -> dict[str, object]:
         "bootctl_read": bootctl_read,
         "reclog_scan": reclog_scan,
         "artstor_scan": artstor_scan,
+        "first_artstor_blob": first_artstor_blob,
+        "artifact_persist_records": artifact_persist_records,
+        "promotion_transaction_records": promotion_transaction_records,
         "constants": {
             "BOOTCTL": {
                 "start_lba": BOOTCTL_START_LBA,
@@ -1432,6 +1770,8 @@ def main() -> int:
     parser.add_argument("--inspect-json", type=Path, help="inspect an existing image and print JSON")
     parser.add_argument("--assert-not-release", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--image", type=Path, help="existing GPT persist image for offline slot updates")
+    parser.add_argument("--corrupt-artstor-blob", type=Path, help="mutate the first ARTSTOR blob payload in-place")
+    parser.add_argument("--tamper-persist-record", type=Path, help="mutate the first artifact_persist RECLOG record in-place")
     parser.add_argument("--stage-slot", choices=("A", "B"), help="stage --payload-dir into this ESP and set it pending")
     parser.add_argument("--payload-dir", type=Path, help="directory to stage into the selected ESP")
     parser.add_argument("--set-pending", choices=("A", "B"), help="set pending to this slot without staging files")
@@ -1459,9 +1799,34 @@ def main() -> int:
             print("release guard: passed")
             return 0
         if args.inspect_json:
-            if args.image or args.stage_slot or args.payload_dir or args.set_pending:
-                parser.error("--inspect-json cannot be combined with offline slot update flags")
+            if (
+                args.image
+                or args.corrupt_artstor_blob
+                or args.tamper_persist_record
+                or args.stage_slot
+                or args.payload_dir
+                or args.set_pending
+            ):
+                parser.error("--inspect-json cannot be combined with offline mutation flags")
             print(json.dumps(inspect_image(args.inspect_json), indent=2))
+            return 0
+        if args.corrupt_artstor_blob or args.tamper_persist_record:
+            if args.corrupt_artstor_blob and args.tamper_persist_record:
+                parser.error("choose only one tamper subcommand")
+            if args.image or args.stage_slot or args.payload_dir or args.set_pending or args.output:
+                parser.error("tamper subcommands cannot be combined with other image update flags")
+            image = args.corrupt_artstor_blob or args.tamper_persist_record
+            result = (
+                corrupt_artstor_blob(image)
+                if args.corrupt_artstor_blob
+                else tamper_persist_record(image)
+            )
+            print(json.dumps(result, indent=2))
+            return 0
+        if args.image and args.seed_bootctl:
+            if args.stage_slot or args.payload_dir or args.set_pending or args.output:
+                parser.error("--image --seed-bootctl cannot be combined with slot update flags")
+            print(json.dumps(apply_bootctl_fixture_update(args.image, args.seed_bootctl), indent=2))
             return 0
         if args.image or args.stage_slot or args.payload_dir or args.set_pending:
             image = args.image or args.output

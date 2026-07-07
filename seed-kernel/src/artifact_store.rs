@@ -1243,7 +1243,14 @@ pub(crate) fn extract_bool(payload: &str, needle: &[u8]) -> Option<bool> {
 
 pub(crate) fn extract_sha256(payload: &str, needle: &[u8]) -> Option<[u8; 32]> {
     let bytes = payload.as_bytes();
-    let idx = find_bytes(bytes, needle)? + needle.len();
+    let mut idx = find_bytes(bytes, needle)? + needle.len();
+    // `Value::Sha256` always serializes as `"sha256:<64 hex>"` (see raios_core::record).
+    // Needles here stop at the opening quote, so consume the mandatory `sha256:` prefix
+    // when present before reading the fixed 32-byte hex. A raw-hex value can never begin
+    // with `sha256:` (the ':' and letters are non-hex), so this skip is unambiguous.
+    if starts_with(&bytes[idx..], b"sha256:") {
+        idx += b"sha256:".len();
+    }
     if idx.checked_add(64)? > bytes.len() {
         return None;
     }

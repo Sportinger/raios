@@ -137,6 +137,39 @@ function Get-TextSha256 {
     }
 }
 
+function New-ReliableDevPromotionSignatureHex {
+    param(
+        [string]$AttestationReferenceHash,
+        [string]$SignerPath = ""
+    )
+
+    if ($AttestationReferenceHash -notmatch '^[0-9a-fA-F]{64}$') {
+        throw "attestation_reference_hash must be 64 hex characters"
+    }
+
+    $resolvedSigner = $SignerPath
+    if (-not $resolvedSigner) {
+        $resolvedSigner = Join-Path $RepoRoot "target\debug\dev-promotion-signer.exe"
+        if (-not (Test-Path -LiteralPath $resolvedSigner)) {
+            $resolvedSigner = Join-Path $RepoRoot "target\debug\dev-promotion-signer"
+        }
+    }
+    if (-not (Test-Path -LiteralPath $resolvedSigner)) {
+        throw "dev-promotion-signer binary not found: $resolvedSigner"
+    }
+
+    $output = & $resolvedSigner $AttestationReferenceHash 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "dev-promotion-signer failed: $($output -join [Environment]::NewLine)"
+    }
+    $signature = [string](@($output)[0])
+    $signature = $signature.Trim()
+    if ($signature -notmatch '^[0-9a-f]+$') {
+        throw "dev-promotion-signer returned non-hex output: $signature"
+    }
+    return $signature
+}
+
 function ConvertTo-ReportJson {
     param([object]$Value)
     return ($Value | ConvertTo-Json -Depth 20 -Compress)
@@ -844,4 +877,3 @@ function Write-Report {
     $reportHash = Get-FileSha256OrNull -Path $ReportPath
     Set-Content -LiteralPath $ReportHashPath -Value "$reportHash  $ReportPath" -Encoding ASCII
 }
-

@@ -3045,7 +3045,7 @@ re-runs `verify_promotion_authority_signature` over the freshly recomputed
 attestation_reference_hash, never trusting the stored boolean — a host test proves it
 verifies even with `signature_verified:false` stored; 21 distinct denial reasons; a
 forged dev-key signature yields only `reverified`/`would_repromote` EVIDENCE at
-`dev_key_not_owner_sealed`, never a load); (3) DONE (authority flip: fully re-verified Normal/Probation boot records reconstruct the candidate, replay the verified RAM references, and reach execution only through the unchanged M6 `emit_load`/`emit_start` path; dev-tier only with owner_sealed/persistence_claimed false and `cross_reboot_proven=true` only on the repromoted record — the audit evaluator was CONTROLLED-widened for the `repromoted` status while still hard-denying owner_sealed/persistence_claimed/non-dev-tier on ALL statuses; verified raios-core 109/109, persistence 48/48, m6c 180/180, m6d 186/186, module-audit-rollback 1709/1709, FULL 8168/8168, max adversarial review could_not_refute; the ONE low state-hygiene finding — orphaned retain not rolled back on a NO-LOAD denial — was FIXED by clearing the retained candidate on the repopulation-failed + load-denied paths; append-only grant references remain superseded-not-rolled-back, dev-tier, no escalation, the M6 gate governs every actual grant); (4) REMAINING**: **(1)** a reliable p256
+`dev_key_not_owner_sealed`, never a load); (3) DONE (authority flip: fully re-verified Normal/Probation boot records reconstruct the candidate, replay the verified RAM references, and reach execution only through the unchanged M6 `emit_load`/`emit_start` path; dev-tier only with owner_sealed/persistence_claimed false and `cross_reboot_proven=true` only on the repromoted record — the audit evaluator was CONTROLLED-widened for the `repromoted` status while still hard-denying owner_sealed/persistence_claimed/non-dev-tier on ALL statuses; verified raios-core 109/109, persistence 48/48, m6c 180/180, m6d 186/186, module-audit-rollback 1709/1709, FULL 8168/8168, max adversarial review could_not_refute; the ONE low state-hygiene finding — orphaned retain not rolled back on a NO-LOAD denial — was FIXED by clearing the retained candidate on the repopulation-failed + load-denied paths; append-only grant references remain superseded-not-rolled-back, dev-tier, no escalation, the M6 gate governs every actual grant); (4) DONE**: **(1)** a reliable p256
 Rust host signer (`ota/cli/src/bin/dev-promotion-signer.rs`, scalar-1, RFC6979,
 byte-identical to `promotion_attestation::verify_promotion_authority_signature`) — the
 existing PS 5.1/.NET signer is documented-unreliable so M6C/M6D fall back to a synthetic
@@ -3068,6 +3068,38 @@ GPT/superblock metadata, and installed rollback state all STAY denied unless the
 M7C-2/M6D-2 gates say otherwise. External candidate INTAKE remains allowed over
 the real serial channel; dev-key-granted current-boot external candidate
 load/run/rollback is RAM-only and not owner-sealed.
+
+**M7D-2 (4/4) DONE (2026-07-07) → M7D COMPLETE → M7 PERSISTENCE FOUNDATION
+COMPLETE.** The two-boot proof (`vm-harness/shadow-vm-persistence-reboot.ps1`,
+`shadow-persistence-reboot-*.json`) is GREEN at 85/85 predicates, 0 failures,
+across all five golden-needle categories on a KEPT persist disk: boot 1
+`durable-promotion-performed` + `artifact-persisted` + `service-answers-before-reboot`;
+a clean QMP quit; boot 2 `repromotion-granted` + `service-answers-after-reboot`
+(`cross_reboot_proven:true` only on the repromoted grant record); the corrupt-ARTSTOR-blob
+and tampered-`artifact_persist`-record children both `repromotion_denied` with a
+hash-mismatch reason and no service answer; and a SAFE-posture child that skips
+re-promotion before enumeration. A REAL P-256 dev-key signature (the new Rust
+`dev-promotion-signer`) is persisted at boot 1 and boot 2 RE-RUNS
+`verify_promotion_authority_signature` over the freshly recomputed
+attestation_reference_hash — never trusting the stored boolean — before dispatching
+the UNMODIFIED M6 `emit_load`/`emit_start` gate; trust_tier stays
+`dev_key_not_owner_sealed`, owner_sealed/persistence_claimed false,
+`PROMOTION_AUTHORITY_IS_PLACEHOLDER:true`. Two real read-path defects were found and
+fixed while proving it: (a) `seed-kernel/src/artifact_store.rs::extract_sha256` read
+64 hex chars immediately after the needle, but `Value::Sha256` always serializes as
+`"sha256:<64hex>"`, so every needle landed on the `sha256:` prefix — boot-2
+enumeration silently returned "no_artifacts" and the transaction reparse never
+parsed; fixed to consume the mandatory prefix (a fail-closed, backward-compatible
+skip). (b) the new `make-gpt-persist-image.py` inspector compared recomputed raw hex
+against the stored `sha256:`-prefixed field, making `binding_ok`/`binding_mismatches`
+vacuous (test-integrity, MEDIUM, found by max adversarial review) — fixed with the same
+prefix normalization so the tamper/corrupt "did-the-mutation-land" self-checks are now
+meaningful (`*-tamper-landed` guards pass). Verification: two-boot 85/85, host raios-core
+109/109 + ota-tools 4/4, FULL regression 8168/8168, max-effort adversarial review
+(primary fix could-not-refute; the one MEDIUM finding fixed + re-verified). The
+current_boot-only era is over: an AI-authored module now survives a real reboot and
+comes back to life through the same governed gate, still honestly dev-tier and never
+owner-sealed.
 
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 recovery/hello dispatch-bound completion-denial smoke runs on Windows with

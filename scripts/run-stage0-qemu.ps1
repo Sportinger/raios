@@ -3,6 +3,8 @@ param(
     [string]$ScratchImage = "",
     [string]$AuditRollbackTargetImage = "",
     [string]$PersistDiskPath = "",
+    [ValidateSet("writethrough", "directsync", "writeback", "none", "unsafe")]
+    [string]$PersistCacheMode = "writethrough",
     [string]$SerialLog = "$env:TEMP\raios-stage0.serial.txt",
     [ValidateSet("file", "tcp")]
     [string]$SerialMode = "file",
@@ -74,7 +76,7 @@ if ($AuditRollbackTargetImage) {
 
 if ($PersistDiskPath) {
     $qemuArgs += @(
-        "-drive", "file=$((Resolve-Path $PersistDiskPath).Path),format=raw,if=none,id=raiospersist0",
+        "-drive", "file=$((Resolve-Path $PersistDiskPath).Path),format=raw,if=none,id=raiospersist0,cache=$PersistCacheMode",
         "-device", "ide-hd,drive=raiospersist0,bus=ide.3,unit=0"
     )
 }

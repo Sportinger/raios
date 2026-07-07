@@ -40,7 +40,14 @@ back to the pre-load baseline. Persistence/durable writes, owner-seal, and the
 generic durable load gate still stay denied. **M6 COMPLETE** (dev-tier RAM loop:
 delivered → identity → grant → load → RUN → rolled back).
 
-**Now active: M7 Persistence Foundation** (map `docs/plan-reviews/m7-persistence-map-2026-07-06.md`,
+**M7 Persistence Foundation COMPLETE (2026-07-07).** All of M7A–M7D are done and
+verified green: GPT layout, the SEED_DATA RECLOG durable store, boot control +
+A/B/SAFE, the durable promotion transaction (M6D-2), the persistent artifact store
+(M7D-1), and — the product moment — boot-time re-promotion proven across a REAL
+reboot (M7D-2, two-boot proof 85/85). A promoted service now survives a restart and
+comes back to life through the same governed M6 gate, still dev-tier and never
+owner-sealed. **Now active: M8 Recovery Agent Lifeline.** (M7 map
+`docs/plan-reviews/m7-persistence-map-2026-07-06.md`,
 revalidated M7-0). Sequencing per the M7-0 note: M7A + M7B build GPT + the
 SEED_DATA RECLOG durable store; then M6D-2 records its durable promotion
 transaction into SEED_DATA; then M7D re-verifies it after reboot. **M7A-1 done:**
@@ -126,11 +133,21 @@ commit point; a blob without its record is garbage). The code IS on disk, yet th
 stored blob is completely INERT — zero load authority — until re-verified. Persist
 denied in SAFE / when ARTSTOR is full / without a verified promotion transaction;
 zero write-boundary or shared-evaluator edits. Split 1a (raios-core codec + two
-scoped evaluators) → 1b (kernel writer + persist hook). Next: **M7D-2 — the product
-moment**: a two-boot proof where a promoted service survives a reboot and answers
-live, re-verifying the persisted chain through the SAME M6 gates (no bypass, no
-"trusted because stored"); anything failing re-verification stays inert. This ends
-raiOS's current-boot-only era.
+scoped evaluators) → 1b (kernel writer + persist hook). **M7D-2 done (2026-07-07)
+→ M7D COMPLETE → M7 PERSISTENCE FOUNDATION COMPLETE — THE PRODUCT MOMENT.** A
+two-boot proof (`shadow-vm-persistence-reboot.ps1`, 85/85 predicates, 0 failures)
+where a promoted service SURVIVES A REAL REBOOT and answers live on boot 2:
+boot 1 persists a real P-256 dev-key-signed promotion; boot 2 re-verifies the whole
+persisted chain — recompute blob sha, recompute the attestation hash, RE-RUN the
+signature verify (never trusting the stored boolean) — then reaches execution only
+through the SAME UNMODIFIED M6 `emit_load`/`emit_start` gate (no bypass, no "trusted
+because stored"), granting `cross_reboot_proven:true` only on the repromoted record.
+A corrupt blob, a tampered record, and SAFE posture each stay inert (denied /
+skipped). Still honestly `dev_key_not_owner_sealed`, owner_sealed false. Verified:
+two-boot 85/85, host 109/109 + 4/4, FULL 8168/8168, max adversarial review (two real
+read-path defects — an `extract_sha256` `sha256:`-prefix bug and a matching fixture
+inspector bug — found and fixed). This ends raiOS's current-boot-only era. Next:
+**M8 — Recovery Agent Lifeline.**
 
 **M5 Second Service Proof closed 2026-07-06.** Capability sentence
 verified TRUE: adding svc.demo.echo cost only a descriptor + a small
