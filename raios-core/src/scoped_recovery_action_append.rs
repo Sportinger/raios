@@ -10,7 +10,14 @@ pub const EXPECTED_TARGET_ID: &str = "append.recovery_action.seed_data";
 pub const EXPECTED_RECORD_SCHEMA: &str = "raios.recovery_action.v0";
 pub const EXPECTED_REGION_MARKER: &str = "RAIOS_DATA_RECLOG";
 pub const EXPECTED_TRUST_TIER: &str = "dev_key_not_owner_sealed";
-pub const EXPECTED_ACTION_KIND: &str = "disable_module";
+/// The two in-scope recovery action kinds. `disable_module` is the M8B-1 kind;
+/// `restart_last_good` is widened in at M8B-2a. Both authorize the SAME durable
+/// append gauntlet; only the kind-guarded `restart_target_restorable` pin differs.
+pub const EXPECTED_ACTION_KIND_DISABLE_MODULE: &str = "disable_module";
+pub const EXPECTED_ACTION_KIND_RESTART_LAST_GOOD: &str = "restart_last_good";
+/// Back-compat alias: durable_store imports `EXPECTED_ACTION_KIND` for the
+/// disable_module record. The string value is unchanged ("disable_module").
+pub const EXPECTED_ACTION_KIND: &str = EXPECTED_ACTION_KIND_DISABLE_MODULE;
 const SECTOR_SIZE: u64 = 512;
 
 #[derive(Clone, Copy)]
@@ -40,6 +47,7 @@ pub struct ScopedRecoveryActionAppendInput<'a> {
     pub reparse_valid: bool,
     pub span_in_bounds: bool,
     pub action_kind: Option<&'a str>,
+    pub restart_target_restorable: bool,
     pub disable_target_is_lifeline_endpoint: bool,
     pub disable_target_core_owned: bool,
     pub disable_target_known_disablable: bool,
@@ -77,6 +85,7 @@ impl<'a> ScopedRecoveryActionAppendInput<'a> {
             reparse_valid: false,
             span_in_bounds: false,
             action_kind: None,
+            restart_target_restorable: false,
             disable_target_is_lifeline_endpoint: false,
             disable_target_core_owned: false,
             disable_target_known_disablable: false,
@@ -237,14 +246,15 @@ pub fn evaluate_scoped_recovery_action_append(
         return denied("span_not_in_bounds");
     }
 
-    if let Err(decision) = require_str(
-        input.action_kind,
-        EXPECTED_ACTION_KIND,
-        "missing_action_kind",
-        "action_kind_out_of_scope",
-    ) {
-        return decision;
-    }
+    // Two-kind pin (M8B-2a): accept `disable_module` OR `restart_last_good`.
+    // None still denies `missing_action_kind`; any other kind still denies
+    // `action_kind_out_of_scope`. The disable_module string/order is unchanged.
+    let is_restart = match input.action_kind {
+        None => return denied("missing_action_kind"),
+        Some(EXPECTED_ACTION_KIND_DISABLE_MODULE) => false,
+        Some(EXPECTED_ACTION_KIND_RESTART_LAST_GOOD) => true,
+        Some(_) => return denied("action_kind_out_of_scope"),
+    };
     if input.disable_target_is_lifeline_endpoint {
         return denied("target_is_lifeline_endpoint");
     }
@@ -253,6 +263,11 @@ pub fn evaluate_scoped_recovery_action_append(
     }
     if !input.disable_target_known_disablable {
         return denied("target_unknown");
+    }
+    // Kind-guarded restart pin: fires ONLY for restart_last_good, AFTER the shared
+    // target-class checks, so a disable_module evaluation can never reach it.
+    if is_restart && !input.restart_target_restorable {
+        return denied("target_not_restartable");
     }
     if input.grants_new_capability {
         return denied("grants_capability_not_allowed");
@@ -357,6 +372,7 @@ mod tests {
             reparse_valid: true,
             span_in_bounds: true,
             action_kind: Some(EXPECTED_ACTION_KIND),
+            restart_target_restorable: false,
             disable_target_is_lifeline_endpoint: false,
             disable_target_core_owned: false,
             disable_target_known_disablable: true,
@@ -421,6 +437,31 @@ mod tests {
         );
     }
 
+    #[test]
+    fn restart_last_good_with_restorable_target_authorizes() {
+        // The widened second kind authorizes through the SAME gauntlet, with the
+        // same success reason, once the restart target is restorable.
+        let mut input = valid_input();
+        input.action_kind = Some(EXPECTED_ACTION_KIND_RESTART_LAST_GOOD);
+        input.restart_target_restorable = true;
+        assert_eq!(
+            evaluate_scoped_recovery_action_append(&input),
+            ScopedRecoveryActionAppendDecision {
+                performed: true,
+                status: "appended",
+                reason: "authorized_recovery_action_append_readback_reparse_verified"
+            }
+        );
+
+        // Same restart kind, but a non-restorable target denies on the kind-guarded
+        // pin — never reached by a disable_module evaluation.
+        input.restart_target_restorable = false;
+        assert_eq!(
+            evaluate_scoped_recovery_action_append(&input).reason,
+            "target_not_restartable"
+        );
+    }
+
     #[derive(Clone, Copy)]
     enum Mutation {
         MissingMethod,
@@ -457,6 +498,7 @@ mod tests {
         SpanFlagFalse,
         MissingActionKind,
         WrongActionKind,
+        RestartNotRestorable,
         LifelineEndpoint,
         CoreOwned,
         TargetUnknown,
@@ -503,7 +545,13 @@ mod tests {
             Mutation::ReparseNotValid => input.reparse_valid = false,
             Mutation::SpanFlagFalse => input.span_in_bounds = false,
             Mutation::MissingActionKind => input.action_kind = None,
-            Mutation::WrongActionKind => input.action_kind = Some("restart_last_good"),
+            // Retargeted at M8B-2a: "restart_last_good" is now VALID, so this
+            // out-of-scope pin must use a still-invalid kind or it silently inverts.
+            Mutation::WrongActionKind => input.action_kind = Some("rollback"),
+            Mutation::RestartNotRestorable => {
+                input.action_kind = Some(EXPECTED_ACTION_KIND_RESTART_LAST_GOOD);
+                input.restart_target_restorable = false;
+            }
             Mutation::LifelineEndpoint => input.disable_target_is_lifeline_endpoint = true,
             Mutation::CoreOwned => input.disable_target_core_owned = true,
             Mutation::TargetUnknown => input.disable_target_known_disablable = false,
@@ -554,6 +602,7 @@ mod tests {
             (Mutation::LifelineEndpoint, "target_is_lifeline_endpoint"),
             (Mutation::CoreOwned, "target_core_owned"),
             (Mutation::TargetUnknown, "target_unknown"),
+            (Mutation::RestartNotRestorable, "target_not_restartable"),
             (Mutation::GrantsCapability, "grants_capability_not_allowed"),
             (
                 Mutation::WrongTrustTier,

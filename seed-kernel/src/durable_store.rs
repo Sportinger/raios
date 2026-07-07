@@ -29,6 +29,7 @@ use raios_core::{
     scoped_recovery_action_append::{
         evaluate_scoped_recovery_action_append, ScopedRecoveryActionAppendInput,
         EXPECTED_ACTION_KIND as RECOVERY_ACTION_EXPECTED_ACTION_KIND,
+        EXPECTED_ACTION_KIND_RESTART_LAST_GOOD as RECOVERY_ACTION_EXPECTED_ACTION_KIND_RESTART_LAST_GOOD,
         EXPECTED_METHOD as RECOVERY_ACTION_EXPECTED_METHOD,
         EXPECTED_RECORD_SCHEMA as RECOVERY_ACTION_EXPECTED_RECORD_SCHEMA,
         EXPECTED_REGION_MARKER as RECOVERY_ACTION_EXPECTED_REGION_MARKER,
@@ -1294,6 +1295,9 @@ pub(crate) fn append_recovery_action(
         reparse_valid,
         span_in_bounds: write.span_in_bounds,
         action_kind: Some(record.action_kind),
+        // Disable path only appends disable_module records; the restart pin is
+        // kind-guarded, so false here keeps this evaluation byte-identical.
+        restart_target_restorable: false,
         disable_target_is_lifeline_endpoint: record.disable_target_is_lifeline_endpoint,
         disable_target_core_owned: record.disable_target_core_owned,
         disable_target_known_disablable: record.disable_target_known_disablable,
@@ -1486,6 +1490,7 @@ enum RecoverySelftestMutation {
 fn recovery_action_selftest_cases() -> Vec<RecoveryActionSelftestCase> {
     vec![
         recovery_action_positive_case(),
+        recovery_action_restart_positive_case(),
         recovery_action_denial_case("wrong_schema_denied", RecoverySelftestMutation::WrongSchema),
         recovery_action_denial_case("wrong_target_denied", RecoverySelftestMutation::WrongTarget),
         recovery_action_denial_case(
@@ -1501,6 +1506,8 @@ fn recovery_action_selftest_cases() -> Vec<RecoveryActionSelftestCase> {
             "target_unknown_denied",
             RecoverySelftestMutation::TargetUnknown,
         ),
+        recovery_action_restart_not_restorable_case(),
+        recovery_action_restart_shared_pin_case(),
         recovery_action_denial_case(
             "grants_capability_denied",
             RecoverySelftestMutation::GrantsCapability,
@@ -1533,7 +1540,8 @@ fn recovery_action_selftest_cases() -> Vec<RecoveryActionSelftestCase> {
 }
 
 fn recovery_action_positive_case() -> RecoveryActionSelftestCase {
-    let (status, reason, reparsed) = synthetic_recovery_action_decision(None);
+    let (status, reason, reparsed) =
+        synthetic_recovery_action_decision(RECOVERY_ACTION_EXPECTED_ACTION_KIND, false, None);
     RecoveryActionSelftestCase {
         name: "disable_module_authorized_reparse",
         expected_status: "appended",
@@ -1547,11 +1555,75 @@ fn recovery_action_positive_case() -> RecoveryActionSelftestCase {
     }
 }
 
+/// M8B-2a: the widened restart_last_good kind authorizes the SAME durable
+/// gauntlet with the SAME success reason, once its target is restorable.
+fn recovery_action_restart_positive_case() -> RecoveryActionSelftestCase {
+    let (status, reason, reparsed) = synthetic_recovery_action_decision(
+        RECOVERY_ACTION_EXPECTED_ACTION_KIND_RESTART_LAST_GOOD,
+        true,
+        None,
+    );
+    RecoveryActionSelftestCase {
+        name: "restart_last_good_authorized_reparse",
+        expected_status: "appended",
+        expected_reason: "authorized_recovery_action_append_readback_reparse_verified",
+        actual_status: status,
+        actual_reason: reason,
+        reparsed,
+        passed: status == "appended"
+            && reason == "authorized_recovery_action_append_readback_reparse_verified"
+            && reparsed,
+    }
+}
+
+/// M8B-2a: restart_last_good against a non-restorable target denies on the new
+/// kind-guarded pin. A disable_module evaluation can never reach this reason.
+fn recovery_action_restart_not_restorable_case() -> RecoveryActionSelftestCase {
+    let (status, reason, reparsed) = synthetic_recovery_action_decision(
+        RECOVERY_ACTION_EXPECTED_ACTION_KIND_RESTART_LAST_GOOD,
+        false,
+        None,
+    );
+    RecoveryActionSelftestCase {
+        name: "restart_not_restorable_denied",
+        expected_status: "denied",
+        expected_reason: "target_not_restartable",
+        actual_status: status,
+        actual_reason: reason,
+        reparsed,
+        passed: status == "denied" && reason == "target_not_restartable",
+    }
+}
+
+/// M8B-2a: even a restorable restart_last_good target still hits the SHARED
+/// target-class pins first — core-owned denies before the restart pin — proving
+/// the widening did not let restart bypass any shared gate.
+fn recovery_action_restart_shared_pin_case() -> RecoveryActionSelftestCase {
+    let (status, reason, reparsed) = synthetic_recovery_action_decision(
+        RECOVERY_ACTION_EXPECTED_ACTION_KIND_RESTART_LAST_GOOD,
+        true,
+        Some(RecoverySelftestMutation::CoreOwned),
+    );
+    RecoveryActionSelftestCase {
+        name: "restart_core_owned_denied",
+        expected_status: "denied",
+        expected_reason: "target_core_owned",
+        actual_status: status,
+        actual_reason: reason,
+        reparsed,
+        passed: status == "denied" && reason == "target_core_owned",
+    }
+}
+
 fn recovery_action_denial_case(
     name: &'static str,
     mutation: RecoverySelftestMutation,
 ) -> RecoveryActionSelftestCase {
-    let (status, reason, reparsed) = synthetic_recovery_action_decision(Some(mutation));
+    let (status, reason, reparsed) = synthetic_recovery_action_decision(
+        RECOVERY_ACTION_EXPECTED_ACTION_KIND,
+        false,
+        Some(mutation),
+    );
     let expected_reason = match mutation {
         RecoverySelftestMutation::WrongSchema => "record_schema_mismatch",
         RecoverySelftestMutation::WrongTarget => "target_out_of_scope",
@@ -1592,6 +1664,8 @@ fn recovery_action_preflight_case(
 }
 
 fn synthetic_recovery_action_decision(
+    action_kind: &'static str,
+    restart_target_restorable: bool,
     mutation: Option<RecoverySelftestMutation>,
 ) -> (&'static str, &'static str, bool) {
     let scan = RecordLogScan {
@@ -1641,7 +1715,8 @@ fn synthetic_recovery_action_decision(
         readback_matches_planned: true,
         reparse_valid: reparsed,
         span_in_bounds: true,
-        action_kind: Some(RECOVERY_ACTION_EXPECTED_ACTION_KIND),
+        action_kind: Some(action_kind),
+        restart_target_restorable,
         disable_target_is_lifeline_endpoint: false,
         disable_target_core_owned: false,
         disable_target_known_disablable: true,
@@ -1658,9 +1733,9 @@ fn synthetic_recovery_action_decision(
             RecoverySelftestMutation::WrongTarget => {
                 input.target_id = Some("append.promotion_transaction.seed_data")
             }
-            RecoverySelftestMutation::WrongActionKind => {
-                input.action_kind = Some("restart_last_good")
-            }
+            // Retargeted at M8B-2a: "restart_last_good" is now VALID, so this
+            // out-of-scope selftest must use a still-invalid kind or it inverts.
+            RecoverySelftestMutation::WrongActionKind => input.action_kind = Some("rollback"),
             RecoverySelftestMutation::LifelineEndpoint => {
                 input.disable_target_is_lifeline_endpoint = true
             }
