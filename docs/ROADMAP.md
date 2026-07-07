@@ -110,7 +110,15 @@ the service ANSWERS LIVE; wrong-hash + tampered-record deny with no load. Max re
 LOW. Verified two-boot 110/110, m6c-promotion (repromotion intact), recovery byte-identical, quick,
 FULL 8168/8168, raios-core 125. **M8 Recovery Agent Lifeline COMPLETE** (diagnose incl. durable
 last-good/SAFE, survive a Wasm crash, disable, restart, re-instate-by-hash — all restore-only,
-re-verified, dev-tier). Next: **M9 Durable Memory & Context Broker v1.** (M7 map
+re-verified, dev-tier). **M9 Durable Memory & Context Broker v1 now active** (ADR 0004 Phase D):
+raiOS itself is the memory — typed facts with provenance + classification, never a chat log / fake
+persistence. **M9A-1 done (2026-07-07, grants nothing):** raios-core/src/memory_record.rs — the typed
+raios.memory_record.v0 with a fail-closed constructor (Classification has NO Secret variant, so a
+secret plaintext is un-constructable and can never become durable or reach a provider; unknown kind →
+Err; unknown classification → local_only; observation needs entity+source; supersede-not-overwrite).
+Host-only, no kernel change, no vocab change. Verified cargo test -p raios-core 133 (8 new), rustfmt
+clean, kernel builds. The read-only agent_context broker + fail-closed provider export already exist.
+Next: **M9A-2** (first durable memory write via own scoped evaluator, single-boot). (M7 map
 `docs/plan-reviews/m7-persistence-map-2026-07-06.md`,
 revalidated M7-0). Sequencing per the M7-0 note: M7A + M7B build GPT + the
 SEED_DATA RECLOG durable store; then M6D-2 records its durable promotion

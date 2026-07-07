@@ -3346,8 +3346,35 @@ disabled/crashed module to known-good (M8B-2), and RE-INSTATE a persisted artifa
 LOCAL store with full re-verification (M8D). Every mutating action is deny-before-mutate + durable-
 record-first via its OWN pinned scoped evaluator, restore-only-never-promote, and honestly
 `dev_key_not_owner_sealed` / owner_sealed false. Survival rests on fuel-metered + cooperative
-scheduling (NOT hardware isolation — that is post-M11). Next: **M9 Durable Memory & Context Broker v1**
-(ADR 0004 Phase D).
+scheduling (NOT hardware isolation — that is post-M11).
+
+**M9 Durable Memory & Context Broker v1 now active** (ADR 0004 Phase D; map
+`docs/plan-reviews/m9-durable-memory-map-2026-07-06.md`, revalidated against HEAD during scoping).
+raiOS itself is the memory — typed facts with provenance + classification, never a chat log / fake
+persistence / prompt dump. Scoping found the read-only `raios.agent_context.v0` broker
+(`agent_protocol_memory.rs::emit_memory_context`) ALREADY exists with per-record classification, an
+explicit `omitted` array, and `provider_export:"disabled"`; provider export is already blanket
+fail-closed (`DeniedProviderContextExport`); and M8's `recovery_memory_*` grants-nothing validators
+must NOT be collided with. Sequence: **M9A-1** (typed record schema, grants nothing) → M9A-2 (first
+durable memory write via its OWN scoped `scoped_memory_record_append` evaluator, single-boot) → M9A-3
+(decision/problem via supersede) → M9B-1 (agent-authored observation, scoped) → M9C-1 (broker draws on
+durable records) → M9C-2 (provider export gating end-to-end) → M9D-1 (cross-reboot survival, closes M9).
+
+**M9A-1 DONE (2026-07-07, grants nothing, host-only).** NEW `raios-core/src/memory_record.rs` — the
+typed `raios.memory_record.v0` record (schema/id/kind/entity/predicate/value/classification/authority/
+boot_id/sequence/source/evidence/tags/supersedes/created_at{clock:"boot_relative",ticks} — NO
+wall-clock; M10 owns trusted time) on the shared `record.rs` Value/Field + `sha256_of_json` (no
+hand-rolled emit/hash). Fail-closed constructor: `Classification` has NO `Secret` variant so a secret
+plaintext is STRUCTURALLY un-constructable (`"secret"` input → typed `Err(secret_never_durable_until_
+sealed_secret_design)`) → a secret can never become a durable record and can never reach a provider;
+unknown classification → `local_only` (never public); `MemoryKind` is an 8-value allowlist (unknown →
+`Err`); `observation` without entity/source → `Err`; supersede-not-overwrite; returns `Result`, no
+input panics. Nothing calls it yet — zero kernel change, zero disk write, no VM, no vocab change.
+Verified: cargo test -p raios-core 133 (8 new: pinned sample sha256 `4ab57d93…`, Value::Sha256 renders
+`sha256:<64hex>`, secret rejected, unknown-kind rejected, observation entity/source required, unknown
+classification → local_only, supersedes round-trips), rustfmt clean, kernel builds (no_std). Next:
+**M9A-2** — the first durable memory write (own scoped evaluator, single-boot proof); the writer must
+construct via `MemoryRecord::new` (the observation entity/source check lives there).
 
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 Latest host-tool verification: after the 2026-07-03 local report-timestamp

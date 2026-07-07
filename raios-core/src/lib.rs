@@ -8,6 +8,7 @@ pub mod artifact_blob_frame;
 pub mod boot_control;
 pub mod durable_record_frame;
 pub mod gpt_layout;
+pub mod memory_record;
 pub mod promotion_attestation;
 pub mod record;
 pub mod recovery_lifeline_table;
