@@ -131,7 +131,17 @@ live RAM quota driven to exhaustion + refund, RAM-only fail-closed selftests (se
 disk write), and parsed guard needles (every `memory.*` mutation still denied, provider export still
 fail-closed). Grants nothing new; honestly dev_key_not_owner_sealed / current_boot. Max-effort adversarial
 review: SHIP. Regression green (quick/recovery byte-identical/m6c-promotion/full 8168).
-Next: **M9A-3** (decision/problem via supersede). (M7 map
+**M9A-3 done (2026-07-07 — CLOSES the M9A block):** M9A-3a added the write-side supersede confinement
+(audit kinds can never be authored as superseding records; supersedes ≤8; no self-supersede; decision needs
+entity+source, problem needs entity+status) with the read-side R1 rule explicitly deferred to M9C. M9A-3b then
+durably wrote THREE truthful system-authored facts — a general `decision` (module sharing is owner-confirmed
+vision), a `problem` (memory.* mutations still denied), and a refined `decision` that SUPERSEDES the first
+(sharing = candidate intake, NEVER install) — proving supersede-not-overwrite: `memory-durable` 77/77 with all
+three records' pinned golden hashes matched (exact bytes on disk, including B's `supersedes:[A.id]`). An
+adversarial review caught + fixed a top-level over-claim (the trio response now derives success from the real
+per-record evidence). Grants nothing new; system-authored only (agent write is M9B); dev_key_not_owner_sealed
+/ current_boot. Regression green (quick/recovery byte-identical/m6c-promotion/full). Next: **M9B-1**
+(agent-authored observation, scoped — the first NON-system durable memory write). (M7 map
 `docs/plan-reviews/m7-persistence-map-2026-07-06.md`,
 revalidated M7-0). Sequencing per the M7-0 note: M7A + M7B build GPT + the
 SEED_DATA RECLOG durable store; then M6D-2 records its durable promotion
@@ -876,6 +886,17 @@ survive reboot with append/readback evidence, and budgeted
 agent_context.v0 packets draw on them with explicit omissions — provider
 export stays fail-closed end-to-end." (ADR 0004 Phase D.) Map:
 `docs/plan-reviews/m9-durable-memory-map-2026-07-06.md`.
+
+**R1 — HARD M9C broker precondition (from M9A-3a, commit 2bef6bf):** supersede-not-overwrite
+is split across the read/write boundary. M9A-3a closed the WRITE side (audit kinds —
+capability_grant/denial, promotion_tx_ref, rollback_tx_ref, export_audit — can never be
+AUTHORED as superseding records). The READ side is R1: **when the M9C broker resolves
+supersession, it MUST IGNORE any supersede link whose TARGET record is an audit kind** (a
+non-audit `decision` naming a `capability_denial` id cannot be denied at write time — that
+needs the target's kind = reparsing the log = building the broker early). **No reader that
+resolves supersession may ship before R1**, or an audit trail could be silently hidden.
+Dangling-supersede existence is likewise a broker concern (harmless under append-only +
+read-time resolution), NOT a write gate.
 
 ### M10 Provider Trust Hardening & Adapters (pre-planned)
 

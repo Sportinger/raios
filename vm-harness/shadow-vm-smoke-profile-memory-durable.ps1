@@ -28,7 +28,14 @@ function Invoke-MemoryRecordAppendFixtureProbe {
     param(
         [string]$FixtureSpec,
         [string]$Label,
-        [string]$BootCtlSpec = "valid-a"
+        [string]$BootCtlSpec = "valid-a",
+        # M9A-3b: which Read0 append method the child VM is asked to run. Defaults to
+        # the M9A-2b single-record method so the existing call site is unaffected;
+        # the memory-durable-supersede family passes
+        # "memory.decision_problem_log_append" to drive the SAME probe pattern
+        # (build -> boot -> agent <method> -> agent durable.record_log_scan) against
+        # the M9A-3b decision/problem/supersede trio driver instead.
+        [string]$AppendMethod = "memory.record_log_append"
     )
 
     if (-not $script:MemoryRecordFixtureProbeIndex) {
@@ -89,11 +96,11 @@ function Invoke-MemoryRecordAppendFixtureProbe {
         if (-not (Wait-ForLogText -Path $fixtureLog -Needle "SERIAL CONSOLE READY" -TimeoutSeconds $childTimeout)) {
             throw "Memory-record fixture child VM did not reach serial console: $(Get-SerialLogTail -Path $fixtureLog)"
         }
-        Send-SerialText -Port $fixturePort -Text "agent memory.record_log_append`r" -TimeoutSeconds $childTimeout
-        if (-not (Wait-ForLogText -Path $fixtureLog -Needle "RAIOS_AGENT_END memory.record_log_append" -TimeoutSeconds $childTimeout)) {
-            throw "Memory-record fixture child VM did not answer memory.record_log_append: $(Get-SerialLogTail -Path $fixtureLog)"
+        Send-SerialText -Port $fixturePort -Text "agent $AppendMethod`r" -TimeoutSeconds $childTimeout
+        if (-not (Wait-ForLogText -Path $fixtureLog -Needle "RAIOS_AGENT_END $AppendMethod" -TimeoutSeconds $childTimeout)) {
+            throw "Memory-record fixture child VM did not answer ${AppendMethod}: $(Get-SerialLogTail -Path $fixtureLog)"
         }
-        $appendResult = (Get-ProfileAgentResponseJson -Path $fixtureLog -Method "memory.record_log_append").body.result
+        $appendResult = (Get-ProfileAgentResponseJson -Path $fixtureLog -Method $AppendMethod).body.result
 
         # INSPECT: an independent follow-up durable.record_log_scan (same booted VM,
         # same disk state) must see the SAME tail_seq/count the append reported --
@@ -246,6 +253,115 @@ if (-not ($appendAuthorized -and $appendReadbackHash -and $appendChainAdvance -a
     throw "memory-durable-append family failed"
 }
 
+# --- memory-durable-supersede: THREE truthful system-authored records (decision A,
+#     problem P, decision B superseding A) through the SAME gauntlet -- the
+#     write-side proof of supersede-not-overwrite (M9A-3b). A fresh child VM, same
+#     valid:2 reclog fixture, driven with memory.decision_problem_log_append. -------
+
+$probeSupersede = Invoke-MemoryRecordAppendFixtureProbe -FixtureSpec "valid:2" -Label "decision-problem" -AppendMethod "memory.decision_problem_log_append"
+$decisionProblem = $probeSupersede.append
+$decisionProblemScan = $probeSupersede.scan
+$dpRecords = @($decisionProblem.records)
+
+$dpRecordCountOk = ($dpRecords.Count -eq 3)
+Add-Predicate `
+    -Name "memory-durable-supersede:record-count" `
+    -Expected "memory.decision_problem_log_append records array has exactly 3 entries (A, P, B)" `
+    -Passed $dpRecordCountOk `
+    -Actual $(if ($dpRecordCountOk) { "matched" } else { $dpRecords.Count })
+if (-not $dpRecordCountOk) {
+    throw "memory-durable-supersede family failed: expected 3 records, got $($dpRecords.Count)"
+}
+$recordA = $dpRecords[0]
+$recordP = $dpRecords[1]
+$recordB = $dpRecords[2]
+
+# Pinned goldens: record_sha256() of A/P/B computed in raios-core from the identical
+# frozen MemoryRecordInput -- proves the EXACT raios.memory_record.v0 bytes for each
+# of the three records landed, not merely well-formed frames.
+$supersedeGoldenShaByLabel = @{
+    A = "sha256:9b39ac7309d7b63c95062c78d8c02bb717f25a589c437a54b627598c24198cb0"
+    P = "sha256:3b010268c4e45a30bb79fee27f4cf07cead1a4542709fdc1ca9c195a7ee9a249"
+    B = "sha256:5f27b06d961fe866f7c025a5a4b7ee3ffb76ee6e51db111f437c73647bb7a262"
+}
+
+function Test-MemoryDurableSupersedeRecord {
+    param(
+        [string]$Label,
+        $Record,
+        [string]$ExpectedKind,
+        [string]$GoldenPayloadSha256
+    )
+    $checks = @(
+        @{ suffix = "durable-append-status"; expected = 'durable_append == "appended"'; passed = ($Record.durable_append -eq "appended"); actual = $Record.durable_append },
+        @{ suffix = "performed-true"; expected = "performed == true"; passed = [bool]$Record.performed; actual = $Record.performed },
+        @{ suffix = "authority"; expected = 'authority == "scoped_memory_record_append_authorized"'; passed = ($Record.authority -eq "scoped_memory_record_append_authorized"); actual = $Record.authority },
+        @{ suffix = "kind"; expected = "kind == `"$ExpectedKind`""; passed = ($Record.kind -eq $ExpectedKind); actual = $Record.kind },
+        @{ suffix = "classification"; expected = 'classification == "local_only"'; passed = ($Record.classification -eq "local_only"); actual = $Record.classification },
+        @{ suffix = "readback-hash"; expected = "readback_sha256 == frame_sha256 and reparse_valid"; passed = ($Record.readback_sha256 -eq $Record.frame_sha256 -and [bool]$Record.reparse_valid); actual = "readback_sha256=$($Record.readback_sha256) frame_sha256=$($Record.frame_sha256) reparse_valid=$($Record.reparse_valid)" },
+        @{ suffix = "honest-posture"; expected = "owner_sealed == false and persistence_claimed == false"; passed = (-not [bool]$Record.owner_sealed -and -not [bool]$Record.persistence_claimed); actual = "owner_sealed=$($Record.owner_sealed) persistence_claimed=$($Record.persistence_claimed)" },
+        @{ suffix = "payload-sha256-golden"; expected = "payload_sha256 == pinned golden $GoldenPayloadSha256"; passed = ($Record.payload_sha256 -eq $GoldenPayloadSha256); actual = $Record.payload_sha256 }
+    )
+    foreach ($check in $checks) {
+        Add-Predicate `
+            -Name "memory-durable-supersede:${Label}-$($check.suffix)" `
+            -Expected $check.expected `
+            -Passed $check.passed `
+            -Actual $(if ($check.passed) { "matched" } else { [string]$check.actual })
+    }
+    return -not (@($checks | Where-Object { -not $_.passed }).Count -gt 0)
+}
+
+$recordAOk = Test-MemoryDurableSupersedeRecord -Label "A" -Record $recordA -ExpectedKind "decision" -GoldenPayloadSha256 $supersedeGoldenShaByLabel.A
+$recordPOk = Test-MemoryDurableSupersedeRecord -Label "P" -Record $recordP -ExpectedKind "problem" -GoldenPayloadSha256 $supersedeGoldenShaByLabel.P
+$recordBOk = Test-MemoryDurableSupersedeRecord -Label "B" -Record $recordB -ExpectedKind "decision" -GoldenPayloadSha256 $supersedeGoldenShaByLabel.B
+
+# Chain advance: exactly +1 at each of A, P, B (each one's count_before equals the
+# prior one's count_after), and exactly +3 across the whole trio.
+$chainStepA = ([int64]$recordA.tail_seq_after -eq ([int64]$recordA.tail_seq_before + 1) -and [int64]$recordA.count_after -eq ([int64]$recordA.count_before + 1))
+$chainStepP = ([int64]$recordP.tail_seq_after -eq ([int64]$recordP.tail_seq_before + 1) -and [int64]$recordP.count_after -eq ([int64]$recordP.count_before + 1) -and [int64]$recordP.count_before -eq [int64]$recordA.count_after)
+$chainStepB = ([int64]$recordB.tail_seq_after -eq ([int64]$recordB.tail_seq_before + 1) -and [int64]$recordB.count_after -eq ([int64]$recordB.count_before + 1) -and [int64]$recordB.count_before -eq [int64]$recordP.count_after)
+$chainOverall = ([int64]$recordB.count_after -eq ([int64]$recordA.count_before + 3))
+$chainAdvanceOk = ($chainStepA -and $chainStepP -and $chainStepB -and $chainOverall)
+Add-Predicate `
+    -Name "memory-durable-supersede:chain-advance" `
+    -Expected "count/tail_seq advance by exactly +1 at each of A, P, B, and by exactly +3 across the trio" `
+    -Passed $chainAdvanceOk `
+    -Actual $(if ($chainAdvanceOk) { "matched" } else { ($dpRecords | ConvertTo-Json -Compress -Depth 10) })
+
+# Supersede proven: B echoes supersedes == [A.id] (A/P echo empty supersedes), backed
+# by B's already-verified golden payload_sha256 (whose known bytes include
+# supersedes:[A.id]) -- the on-disk proof, not just an in-memory claim.
+$supersedeEchoOk = (
+    (@($recordB.supersedes)).Count -eq 1 -and
+    (@($recordB.supersedes))[0] -eq "mem.decision.module_sharing_confirmed_vision.current_boot.v0" -and
+    (@($recordA.supersedes)).Count -eq 0 -and
+    (@($recordP.supersedes)).Count -eq 0
+)
+Add-Predicate `
+    -Name "memory-durable-supersede:supersede-echo" `
+    -Expected "B echoes supersedes == [A.id] and A/P echo empty supersedes (the write-side supersede-not-overwrite proof)" `
+    -Passed $supersedeEchoOk `
+    -Actual $(if ($supersedeEchoOk) { "matched" } else { ($dpRecords | ConvertTo-Json -Compress -Depth 10) })
+
+# INSPECT: an independent follow-up durable.record_log_scan (same booted VM, same
+# disk state) shows B -- the trio's last record -- at tail.
+$supersedeInspectAgrees = (
+    $decisionProblemScan.schema -eq "raios.durable_record_log_scan.v0" -and
+    [int64]$decisionProblemScan.tail_seq -eq [int64]$recordB.tail_seq_after -and
+    [int64]$decisionProblemScan.count -eq [int64]$recordB.count_after -and
+    $decisionProblemScan.status -eq "valid"
+)
+Add-Predicate `
+    -Name "memory-durable-supersede:inspect-scan-agrees" `
+    -Expected "a follow-up durable.record_log_scan shows B (the trio's last record) at tail" `
+    -Passed $supersedeInspectAgrees `
+    -Actual $(if ($supersedeInspectAgrees) { "matched" } else { ($decisionProblemScan | ConvertTo-Json -Compress -Depth 10) })
+
+if (-not ($recordAOk -and $recordPOk -and $recordBOk -and $chainAdvanceOk -and $supersedeEchoOk -and $supersedeInspectAgrees)) {
+    throw "memory-durable-supersede family failed"
+}
+
 # --- memory-durable-secret-denied / memory-durable-quota: synthetic selftest ------
 # One selftest call covers BOTH families: constructor fail-closed cases (secret
 # classification / unknown kind) and the scoped evaluator's own defensive pins
@@ -275,7 +391,7 @@ $selftestShapeOk = (
     -not [bool]$selftest.mutates_global_event_log -and
     -not [bool]$selftest.writes_persistent_state -and
     [bool]$selftest.passed -and
-    [int64]$selftest.case_count -ge 6
+    [int64]$selftest.case_count -eq 11
 )
 Add-Predicate `
     -Name "memory-durable-secret-denied:selftest-shape" `
@@ -363,8 +479,56 @@ Add-Predicate `
     -Passed $selftestNothingAppended `
     -Actual $(if ($selftestNothingAppended) { "matched" } else { "before=$($scanBefore | ConvertTo-Json -Compress) after=$($scanAfter | ConvertTo-Json -Compress)" })
 
+# M9A-3b: 5 new RAM-only fail-closed constructor cases (never call
+# durable_store::append_memory_record, so nothing is appended -- the SAME
+# before/after main-VM reclog scan above already proves that for the whole call).
+$auditKindSupersedeDenied = @($selftestCases | Where-Object { $_.case -eq "audit_kind_supersede_denied" -and $_.actual_status -eq "denied" -and $_.actual_reason -eq "audit_kind_may_not_supersede" }).Count -eq 1
+Add-Predicate `
+    -Name "memory-durable-supersede:selftest-audit-kind-supersede-denied" `
+    -Expected "MemoryRecord::new rejects an audit kind (capability_denial) authored as a superseding record with audit_kind_may_not_supersede" `
+    -Passed $auditKindSupersedeDenied `
+    -Actual $(if ($auditKindSupersedeDenied) { "matched" } else { ($selftestCases | ConvertTo-Json -Compress -Depth 10) })
+
+$supersedesListTooLongDenied = @($selftestCases | Where-Object { $_.case -eq "supersedes_list_too_long_denied" -and $_.actual_status -eq "denied" -and $_.actual_reason -eq "supersedes_list_too_long" }).Count -eq 1
+Add-Predicate `
+    -Name "memory-durable-supersede:selftest-supersedes-list-too-long-denied" `
+    -Expected "MemoryRecord::new rejects a supersedes list past MAX_SUPERSEDES_PER_RECORD (8) with supersedes_list_too_long" `
+    -Passed $supersedesListTooLongDenied `
+    -Actual $(if ($supersedesListTooLongDenied) { "matched" } else { ($selftestCases | ConvertTo-Json -Compress -Depth 10) })
+
+$selfSupersedeDenied = @($selftestCases | Where-Object { $_.case -eq "self_supersede_denied" -and $_.actual_status -eq "denied" -and $_.actual_reason -eq "supersede_self_reference" }).Count -eq 1
+Add-Predicate `
+    -Name "memory-durable-supersede:selftest-self-supersede-denied" `
+    -Expected "MemoryRecord::new rejects a record naming its own id in supersedes with supersede_self_reference" `
+    -Passed $selfSupersedeDenied `
+    -Actual $(if ($selfSupersedeDenied) { "matched" } else { ($selftestCases | ConvertTo-Json -Compress -Depth 10) })
+
+$decisionMissingSourceDenied = @($selftestCases | Where-Object { $_.case -eq "decision_missing_source_denied" -and $_.actual_status -eq "denied" -and $_.actual_reason -eq "decision_missing_source" }).Count -eq 1
+Add-Predicate `
+    -Name "memory-durable-supersede:selftest-decision-missing-source-denied" `
+    -Expected "MemoryRecord::new rejects a decision with an empty source with decision_missing_source" `
+    -Passed $decisionMissingSourceDenied `
+    -Actual $(if ($decisionMissingSourceDenied) { "matched" } else { ($selftestCases | ConvertTo-Json -Compress -Depth 10) })
+
+$problemMissingStatusDenied = @($selftestCases | Where-Object { $_.case -eq "problem_missing_status_denied" -and $_.actual_status -eq "denied" -and $_.actual_reason -eq "problem_missing_status" }).Count -eq 1
+Add-Predicate `
+    -Name "memory-durable-supersede:selftest-problem-missing-status-denied" `
+    -Expected "MemoryRecord::new rejects a problem with an empty predicate (status) with problem_missing_status" `
+    -Passed $problemMissingStatusDenied `
+    -Actual $(if ($problemMissingStatusDenied) { "matched" } else { ($selftestCases | ConvertTo-Json -Compress -Depth 10) })
+
+Add-Predicate `
+    -Name "memory-durable-supersede:selftest-nothing-appended" `
+    -Expected "the 5 new M9A-3b selftest denials are RAM-only: reclog count/tail_seq unchanged across the call" `
+    -Passed $selftestNothingAppended `
+    -Actual $(if ($selftestNothingAppended) { "matched" } else { "before=$($scanBefore | ConvertTo-Json -Compress) after=$($scanAfter | ConvertTo-Json -Compress)" })
+
 if (-not ($selftestShapeOk -and $secretConstructorDenied -and $unknownKindConstructorDenied -and $scopedSecretDenied -and $scopedKindDenied -and $selftestNothingAppended -and $scopedQuotaDenied -and $quotaBudgetHonest -and $liveQuotaCase -and $liveQuotaEvidence)) {
     throw "memory-durable secret/quota selftest family failed"
+}
+
+if (-not ($auditKindSupersedeDenied -and $supersedesListTooLongDenied -and $selfSupersedeDenied -and $decisionMissingSourceDenied -and $problemMissingStatusDenied)) {
+    throw "memory-durable-supersede selftest family failed"
 }
 
 # --- guard needles: every OTHER memory mutation stays denied, provider export stays

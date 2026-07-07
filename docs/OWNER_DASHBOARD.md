@@ -3,8 +3,9 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-07 (**M7 + M8 COMPLETE, and M9 (durable memory) has BEGUN — raiOS wrote its
-first permanent, typed memory fact to disk, proven byte-exact.** M8 (the Notfall-Rettungsleine) can,
+Updated: 2026-07-07 (**M7 + M8 COMPLETE, and M9's first block (M9A, durable memory) is COMPLETE —
+raiOS writes permanent typed facts (denials, decisions, problems) to disk, proven byte-exact, and
+proves "supersede not overwrite".** M8 (the Notfall-Rettungsleine) can,
 when things break above it: diagnose (live + durable last-good/safe-mode), survive a crashed Wasm
 service, and take four safe restore actions — disable a bad module, restart a disabled/crashed one to
 known-good, and re-instate a saved module by fingerprint from the LOCAL store (proven across a real
@@ -64,8 +65,14 @@ auf die Platte — dass eine gefährliche Fähigkeit (ein Modul laden) verweiger
 (43/43): die Notiz liegt **byte-genau** auf der Platte (Fingerabdruck stimmt exakt — es ist genau
 diese Notiz, nicht irgendeine), ein Pro-Boot-Limit gegen Überflutung greift **live** und setzt
 sich zurück, **Geheimnisse können NIE gespeichert werden**, und nichts davon darf an einen Anbieter
-gehen. Es wird nur *aufgezeichnet*, nichts Neues erlaubt; ehrlich Entwickler-Schlüssel. Nächster
-Schritt: M9A-3. Und die wichtigste Absicherung von M8 ist bewiesen: selbst wenn ein laufender
+gehen. Es wird nur *aufgezeichnet*, nichts Neues erlaubt; ehrlich Entwickler-Schlüssel. **NEU — der
+erste Block (M9A) ist fertig:** raiOS schreibt jetzt auch echte **Entscheidungen** und **Probleme**
+dauerhaft auf — und beweist „ersetzen statt überschreiben": eine erste Entscheidung (Modul-Teilen ist
+bestätigte Vision) wird von einer verfeinerten sauber **abgelöst** (Teilen = erst prüfen, NIE direkt
+installieren), ohne die alte zu verändern. Alle drei Einträge liegen byte-genau auf der Platte (77/77
+grün). Wichtige Sicherung dabei: ein **Prüf-Eintrag** (z.B. „Fähigkeit verweigert") kann NIE getarnt
+von einem Nachfolger versteckt werden. Nächster Schritt: M9B (der erste Eintrag, den ein KI-Arbeiter
+selbst schreiben darf — streng geprüft). Und die wichtigste Absicherung von M8 ist bewiesen: selbst wenn ein laufender
 Baustein WIRKLICH abstürzt, antwortet die Rettungsleine weiter — sie überlebt, weil
 KI-Code ein Treibstoff-Limit hat und kooperativ läuft, noch NICHT durch echte
 Hardware-Trennung (die kommt erst mit M11).).

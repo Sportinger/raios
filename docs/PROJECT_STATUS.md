@@ -3421,6 +3421,82 @@ pin the exact record hash) and two LOW guard-needle gaps were closed before comm
 `recovery` (byte-identical), `m6c-promotion`, `full` (8168) all green. Next: **M9A-3** (decision/problem via
 supersede).
 
+**M9A-3a DONE (2026-07-07, grants nothing, host-only, commit `2bef6bf`).** `raios-core/src/memory_record.rs`
+gains the supersede-not-overwrite write-side rules on top of M9A-1's constructor: `decision` now requires
+`entity`+`source` (`decision_missing_entity`/`decision_missing_source`), `problem` now requires
+`entity`+`predicate` (`problem_missing_entity`/`problem_missing_status`), one of the 5 audit/authority kinds
+(`capability_grant`/`capability_denial`/`promotion_tx_ref`/`rollback_tx_ref`/`export_audit`) can never be
+authored as a superseding record (`audit_kind_may_not_supersede` — the reclog audit trail must never be
+hideable by a future broker resolving a `supersedes` link), `supersedes` is capped at
+`MAX_SUPERSEDES_PER_RECORD = 8` (`supersedes_list_too_long`), and a record can never name its own id
+(`supersede_self_reference`). Docs/ROADMAP.md records the matching **R1 read-side precondition**: the
+future M9C broker MUST ignore any supersede link whose TARGET is an audit kind (a non-audit `decision`
+naming a `capability_denial` id cannot be denied at write time — that needs the target's kind, which means
+reparsing the log, which means the broker). No reader resolving supersession may ship before R1. Verified:
+`cargo test -p raios-core` 147 (10 new: decision/problem required-field truth table, a decision may
+legitimately supersede a non-audit id, all 5 audit kinds rejected as superseding, supersedes-too-long,
+supersedes-at-max accepted, self-supersede rejected, all reasons pairwise-unique), rustfmt clean. Nothing
+calls the new rules yet.
+
+**M9A-3b DONE (2026-07-07, decision+problem durable + supersede write-side proof, single-boot, grants
+nothing).** raiOS durably records THREE truthful system-authored `raios.memory_record.v0` facts through the
+SAME gauntlet (`durable_store::append_memory_record`, authorized ONLY by
+`evaluate_scoped_memory_record_append`): **A** a general standing `decision`
+(`mem.decision.module_sharing_confirmed_vision.current_boot.v0` — module sharing between raiOS users is
+owner-confirmed vision, source: owner answers commit `b7241b2` /
+`docs/plan-reviews/m12-plus-direction-2026-07-06.md`), **P** an honest `problem`
+(`mem.problem.memory_mutation_denied.current_boot.v0` — the current `memory.*` mutation-policy limitation,
+mirroring `agent_protocol_memory.rs`'s `mutation_policy` field verbatim), and **B** a refined `decision`
+(`mem.decision.module_sharing_evidence_gated.current_boot.v0` — sharing/downloading a module is candidate
+intake, NEVER an install) that SUPERSEDES A (`supersedes: [A.id]`) — the write-side proof of
+supersede-not-overwrite: constructing B mutates nothing about A, it only carries the link. NEW
+`seed-kernel/src/memory_store.rs::emit_memory_decision_problem_log_append` (Read0, wired at
+`memory.decision_problem_log_append` / `raios.memory_decision_problem_append.v0`) constructs ALL THREE
+records via `MemoryRecord::new` FIRST (fail-closed; a construction error emits a RAM-only `capability_denied`
+before any append — construction is side-effect-free, so there is no after-append error window and never a
+hidden partial durable write) THEN appends A, P, B, and renders each's `durable_store::append_memory_record`
+evidence in a `records` array, with each entry additionally echoing the record's OWN `supersedes` list (empty
+for A/P, `[A.id]` for B) — the on-disk proof that the link landed, not an in-memory claim. The top-level
+`durable_append`/`performed`/`reason` are DERIVED from the real per-record evidence (`all(|e| e.performed)`),
+never hardcoded — an adversarial-review fix so a denied append (SAFE posture / quota / no disk) is reported
+honestly instead of falsely claiming success. The single-record `memory.record_log_append` response body is byte-identical (its
+field-rendering was refactored into a shared `memory_record_evidence_fields` helper reused by both methods).
+EXTENDED `emit_memory_record_log_append_selftest` with 5 more RAM-only, never-appending cases exercising
+`MemoryRecord::new`/`MemoryRecordError` directly: `audit_kind_supersede_denied`
+(`audit_kind_may_not_supersede`), `supersedes_list_too_long_denied` (`supersedes_list_too_long`),
+`self_supersede_denied` (`supersede_self_reference`), `decision_missing_source_denied`
+(`decision_missing_source`), `problem_missing_status_denied` (`problem_missing_status`) — `case_count` 6 → 11.
+GRANTS NOTHING new: system-authored only, no agent write path (M9B); every `memory.*` mutation stays denied
+and provider export stays fail-closed; every record is honestly `dev_key_not_owner_sealed` /
+`owner_sealed=false` / `persistence_claimed=false` / `boot_id="current_boot"`. The **R1 broker rule** from
+M9A-3a (a future M9C reader must ignore supersede links targeting an audit kind) is explicitly DEFERRED —
+this slice proves only the write side. EXTENDED `memory-durable` VM profile
+(`vm-harness/shadow-vm-smoke-profile-memory-durable.ps1`) with a new `memory-durable-supersede` family: a
+fresh child-VM probe (generalized `Invoke-MemoryRecordAppendFixtureProbe` via a new `-AppendMethod`
+parameter, defaulting to the M9A-2b method so the existing call site is untouched) drives
+`memory.decision_problem_log_append` against the same `valid:2` reclog fixture and asserts, per record A/P/B:
+`durable_append=="appended"`, `authority=="scoped_memory_record_append_authorized"`,
+`readback_sha256==frame_sha256 && reparse_valid`, honest `owner_sealed`/`persistence_claimed`, correct
+`kind`/`classification`, and the **pinned golden `payload_sha256`** (A `sha256:9b39ac73…98cb0`, P
+`sha256:3b010268…9a249`, B `sha256:5f27b06d…7a262`, each computed in raios-core from the identical frozen
+`MemoryRecordInput` — independently reproduced during implementation via a throwaway host-side probe test,
+reverted before commit) — proving the EXACT bytes of all three records landed. Also asserts the reclog chain
+advances by exactly `+1` at each of A/P/B and `+3` across the trio, B's echoed `supersedes == [A.id]` with
+A/P echoing empty `supersedes`, and a follow-up `durable.record_log_scan` agrees with B's `tail_seq`/`count`.
+The selftest family gained 5 matching needles (each new case denied with its exact reason) plus an unchanged
+before/after main-VM reclog scan (RAM-only), and `case_count == 11` replaces the old `>= 6` assertion.
+Verified: `cargo build --profile release` (seed-kernel) exit 0; `cargo test --locked -p raios-core` 147/147
+unchanged (no raios-core source touched — only reused already-merged M9A-3a rules); `rustfmt --check` clean
+on both touched seed-kernel files; the PS profile parses via
+`[System.Management.Automation.Language.Parser]::ParseFile`. Orchestrator-run proof: `memory-durable`
+**77/77** green (M9A-2b families + the new supersede family + extended selftest, all with the honesty fix);
+block-close regression `quick` / `recovery` (byte-identical) / `m6c-promotion` / `full` all green. Max-effort
+adversarial review: one MEDIUM (top-level over-claim) + one LOW (latent partial-append) both fixed by the
+construct-all-then-append + derived-top-level change above; all else traced clean (refactor byte-identical,
+W1 audit-supersede closed in both layers, truthful contents, non-vacuous needles). **This closes the M9A
+block** (system-authored durable memory: schema → first write → decision/problem + supersede). Next:
+**M9B-1** (agent-authored observation, scoped) — the first NON-system durable memory write.
+
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 recovery/hello dispatch-bound completion-denial smoke runs on Windows with
