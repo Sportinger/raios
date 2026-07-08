@@ -23,6 +23,7 @@ pub const DISTRIBUTION_REGISTRY_SELECTION_ID: &str =
 pub const DISTRIBUTION_REGISTRY_SOURCE_KIND: &str = "local_signed_registry";
 pub const DISTRIBUTION_REGISTRY_TRUST_TIER: &str = "dev_key_not_owner_sealed";
 pub const DISTRIBUTION_REGISTRY_MAX_ENTRIES: usize = 8;
+pub const DISTRIBUTION_CHUNKED_DELIVERY_MAX_CHUNKS: usize = 4;
 
 #[derive(Clone, Copy)]
 pub struct DistributionRegistryEntryInput<'a> {
@@ -179,6 +180,176 @@ impl<'a> DistributionRegistry<'a> {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ChunkedDistributionTarget<'a> {
+    pub entry_id: &'a str,
+    pub content_sha256: [u8; 32],
+    pub total_length: usize,
+    pub chunk_count: usize,
+    pub provenance_signature_der: Option<&'a [u8]>,
+    pub publisher_key_sha256: [u8; 32],
+    pub classification: &'a str,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ChunkedDistributionChunkInput<'a> {
+    pub index: usize,
+    pub bytes: &'a [u8],
+    pub claimed_chunk_sha256: [u8; 32],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ChunkedDistributionChunk<'a> {
+    pub index: usize,
+    pub bytes: &'a [u8],
+    pub chunk_sha256: [u8; 32],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ChunkedDistributionDelivery<'a> {
+    target: ChunkedDistributionTarget<'a>,
+    chunks: [Option<ChunkedDistributionChunk<'a>>; DISTRIBUTION_CHUNKED_DELIVERY_MAX_CHUNKS],
+    count: usize,
+}
+
+impl<'a> ChunkedDistributionDelivery<'a> {
+    pub const fn new(target: ChunkedDistributionTarget<'a>) -> Self {
+        Self {
+            target,
+            chunks: [None; DISTRIBUTION_CHUNKED_DELIVERY_MAX_CHUNKS],
+            count: 0,
+        }
+    }
+
+    pub const fn capacity(&self) -> usize {
+        DISTRIBUTION_CHUNKED_DELIVERY_MAX_CHUNKS
+    }
+
+    pub const fn len(&self) -> usize {
+        self.count
+    }
+
+    pub const fn target(&self) -> &ChunkedDistributionTarget<'a> {
+        &self.target
+    }
+
+    pub fn accept_chunk(
+        &mut self,
+        chunk: ChunkedDistributionChunkInput<'a>,
+    ) -> Result<(), ChunkedDeliveryError> {
+        if chunk.index >= self.target.chunk_count {
+            return Err(ChunkedDeliveryError::ChunkIndexOutOfRange);
+        }
+
+        if self.target.chunk_count > DISTRIBUTION_CHUNKED_DELIVERY_MAX_CHUNKS {
+            return Err(ChunkedDeliveryError::ChunkCapacityExceeded);
+        }
+
+        let chunk_sha256 = sha256_bytes(chunk.bytes);
+        if chunk_sha256 != chunk.claimed_chunk_sha256 {
+            return Err(ChunkedDeliveryError::ChunkHashMismatch);
+        }
+
+        if let Some(index) = self.find_chunk_slot(chunk.index) {
+            if let Some(existing) = self.chunks[index] {
+                if existing.bytes == chunk.bytes {
+                    return Ok(());
+                }
+            }
+            return Err(ChunkedDeliveryError::DuplicateChunkBytesMismatch);
+        }
+
+        if self.count >= DISTRIBUTION_CHUNKED_DELIVERY_MAX_CHUNKS {
+            return Err(ChunkedDeliveryError::ChunkCapacityExceeded);
+        }
+
+        self.chunks[self.count] = Some(ChunkedDistributionChunk {
+            index: chunk.index,
+            bytes: chunk.bytes,
+            chunk_sha256,
+        });
+        self.count += 1;
+        Ok(())
+    }
+
+    pub fn try_finalize(
+        &self,
+        reassembled: &'a mut [u8],
+    ) -> Result<DistributionRegistryEntry<'a>, ChunkedDeliveryError> {
+        if self.target.chunk_count > DISTRIBUTION_CHUNKED_DELIVERY_MAX_CHUNKS {
+            return Err(ChunkedDeliveryError::ChunkCapacityExceeded);
+        }
+        if self.count != self.target.chunk_count {
+            return Err(ChunkedDeliveryError::ChunkSetNotComplete);
+        }
+        if reassembled.len() < self.target.total_length {
+            return Err(ChunkedDeliveryError::ReassemblyBufferTooSmall);
+        }
+
+        let mut offset = 0usize;
+        let mut expected_index = 0usize;
+        while expected_index < self.target.chunk_count {
+            let chunk = self
+                .find_chunk(expected_index)
+                .ok_or(ChunkedDeliveryError::ChunkSetNotComplete)?;
+            let next = offset
+                .checked_add(chunk.bytes.len())
+                .ok_or(ChunkedDeliveryError::TotalLengthOverflow)?;
+            if next > self.target.total_length {
+                return Err(ChunkedDeliveryError::TotalLengthOverflow);
+            }
+            reassembled[offset..next].copy_from_slice(chunk.bytes);
+            offset = next;
+            expected_index += 1;
+        }
+
+        if offset != self.target.total_length {
+            return Err(ChunkedDeliveryError::CoverageLengthMismatch);
+        }
+
+        let artifact_bytes: &'a [u8] = &reassembled[..self.target.total_length];
+        if sha256_bytes(artifact_bytes) != self.target.content_sha256 {
+            return Err(ChunkedDeliveryError::WholeHashMismatch);
+        }
+
+        DistributionRegistryEntry::new(DistributionRegistryEntryInput {
+            entry_id: self.target.entry_id,
+            artifact_bytes,
+            claimed_artifact_sha256: self.target.content_sha256,
+            provenance_signature_der: self.target.provenance_signature_der,
+            publisher_key_sha256: self.target.publisher_key_sha256,
+            classification: self.target.classification,
+        })
+        .map_err(ChunkedDeliveryError::FinalEntryRejected)
+    }
+
+    fn find_chunk_slot(&self, index: usize) -> Option<usize> {
+        let mut slot = 0usize;
+        while slot < self.count {
+            if let Some(chunk) = self.chunks[slot] {
+                if chunk.index == index {
+                    return Some(slot);
+                }
+            }
+            slot += 1;
+        }
+        None
+    }
+
+    fn find_chunk(&self, index: usize) -> Option<&ChunkedDistributionChunk<'a>> {
+        let mut slot = 0usize;
+        while slot < self.count {
+            if let Some(chunk) = self.chunks[slot].as_ref() {
+                if chunk.index == index {
+                    return Some(chunk);
+                }
+            }
+            slot += 1;
+        }
+        None
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RegistrySelectionDecision<'a> {
     pub entry_id: &'a str,
     pub status: &'static str,
@@ -289,6 +460,39 @@ impl<'a> RegistrySelectionDecision<'a> {
             Field::new("owner_sealed", Value::Bool(self.owner_sealed)),
             Field::new("trust_tier", Value::Str(self.trust_tier)),
         ])
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ChunkedDeliveryError {
+    ChunkIndexOutOfRange,
+    DuplicateChunkBytesMismatch,
+    ChunkHashMismatch,
+    ChunkCapacityExceeded,
+    ChunkSetNotComplete,
+    ReassemblyBufferTooSmall,
+    TotalLengthOverflow,
+    CoverageLengthMismatch,
+    WholeHashMismatch,
+    FinalEntryRejected(RegistrySelectionReason),
+}
+
+impl ChunkedDeliveryError {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            ChunkedDeliveryError::ChunkIndexOutOfRange => "chunk_index_out_of_declared_range",
+            ChunkedDeliveryError::DuplicateChunkBytesMismatch => {
+                "duplicate_chunk_index_bytes_mismatch"
+            }
+            ChunkedDeliveryError::ChunkHashMismatch => "chunk_sha256_mismatch",
+            ChunkedDeliveryError::ChunkCapacityExceeded => "chunked_delivery_full",
+            ChunkedDeliveryError::ChunkSetNotComplete => "chunk_set_not_complete",
+            ChunkedDeliveryError::ReassemblyBufferTooSmall => "reassembly_buffer_too_small",
+            ChunkedDeliveryError::TotalLengthOverflow => "total_length_overflow",
+            ChunkedDeliveryError::CoverageLengthMismatch => "coverage_length_mismatch",
+            ChunkedDeliveryError::WholeHashMismatch => "reassembled_whole_sha256_mismatch",
+            ChunkedDeliveryError::FinalEntryRejected(reason) => reason.as_str(),
+        }
     }
 }
 
@@ -540,6 +744,29 @@ mod tests {
         assert!(!decision.execution_attempted);
         assert!(!decision.durable_write_attempted);
         assert!(!decision.owner_sealed);
+    }
+
+    fn chunked_target<'a>(
+        fixture: &'a Fixture,
+        chunk_count: usize,
+    ) -> ChunkedDistributionTarget<'a> {
+        ChunkedDistributionTarget {
+            entry_id: fixture.entry_id,
+            content_sha256: fixture.hash,
+            total_length: fixture.bytes.len(),
+            chunk_count,
+            provenance_signature_der: Some(&fixture.signature),
+            publisher_key_sha256: PLACEHOLDER_DISTRIBUTION_PUBLISHER_PUBLIC_KEY_SHA256,
+            classification: "local_only",
+        }
+    }
+
+    fn chunk_input(index: usize, bytes: &[u8]) -> ChunkedDistributionChunkInput<'_> {
+        ChunkedDistributionChunkInput {
+            index,
+            bytes,
+            claimed_chunk_sha256: sha256_bytes(bytes),
+        }
     }
 
     #[test]
@@ -794,5 +1021,206 @@ mod tests {
         assert!(!decision.selection_hash_matched);
         assert!(!decision.selected_for_candidate_intake);
         assert_no_authority(&decision);
+    }
+
+    #[test]
+    fn chunked_delivery_finalizes_in_order_into_inert_candidate() {
+        let fixture = fixture_named(
+            "chunked.in_order",
+            b"\0asm chunked registry delivery happy path",
+        );
+        let mut delivery = ChunkedDistributionDelivery::new(chunked_target(&fixture, 3));
+
+        delivery
+            .accept_chunk(chunk_input(0, &fixture.bytes[0..8]))
+            .expect("accept chunk 0");
+        delivery
+            .accept_chunk(chunk_input(1, &fixture.bytes[8..23]))
+            .expect("accept chunk 1");
+        delivery
+            .accept_chunk(chunk_input(2, &fixture.bytes[23..]))
+            .expect("accept chunk 2");
+        let mut reassembled = vec![0u8; fixture.bytes.len()];
+        let entry = delivery
+            .try_finalize(&mut reassembled)
+            .expect("finalize complete chunks");
+        let decision = decision_for(&entry);
+
+        assert_eq!(
+            delivery.capacity(),
+            DISTRIBUTION_CHUNKED_DELIVERY_MAX_CHUNKS
+        );
+        assert_eq!(delivery.len(), 3);
+        assert_eq!(sha256_bytes(entry.artifact_bytes), fixture.hash);
+        assert_eq!(entry.artifact_bytes, fixture.bytes.as_slice());
+        assert_eq!(
+            decision.reason,
+            RegistrySelectionReason::SelectedForInertCandidateIntake
+        );
+        assert!(decision.selected_for_candidate_intake);
+        assert_no_authority(&decision);
+    }
+
+    #[test]
+    fn chunked_delivery_accepts_out_of_order_and_finalizes_by_index() {
+        let fixture = fixture_named("chunked.out_of_order", b"\0asm chunked out of order");
+        let mut delivery = ChunkedDistributionDelivery::new(chunked_target(&fixture, 3));
+
+        delivery
+            .accept_chunk(chunk_input(2, &fixture.bytes[16..]))
+            .expect("accept chunk 2 first");
+        delivery
+            .accept_chunk(chunk_input(0, &fixture.bytes[0..7]))
+            .expect("accept chunk 0 second");
+        delivery
+            .accept_chunk(chunk_input(1, &fixture.bytes[7..16]))
+            .expect("accept chunk 1 last");
+        let mut reassembled = vec![0u8; fixture.bytes.len()];
+        let entry = delivery
+            .try_finalize(&mut reassembled)
+            .expect("finalize ordered by index");
+
+        assert_eq!(entry.artifact_sha256, fixture.hash);
+        assert_eq!(entry.artifact_bytes, fixture.bytes.as_slice());
+    }
+
+    #[test]
+    fn chunked_delivery_rejects_out_of_range_chunk_index() {
+        let fixture = fixture_named("chunked.bad_index", b"\0asm bad index");
+        let mut delivery = ChunkedDistributionDelivery::new(chunked_target(&fixture, 2));
+
+        assert_eq!(
+            delivery.accept_chunk(chunk_input(2, &fixture.bytes[0..4])),
+            Err(ChunkedDeliveryError::ChunkIndexOutOfRange)
+        );
+        assert_eq!(delivery.len(), 0);
+    }
+
+    #[test]
+    fn chunked_delivery_missing_chunk_refuses_finalize() {
+        let fixture = fixture_named("chunked.missing", b"\0asm chunk missing");
+        let mut delivery = ChunkedDistributionDelivery::new(chunked_target(&fixture, 3));
+
+        delivery
+            .accept_chunk(chunk_input(0, &fixture.bytes[0..5]))
+            .expect("accept chunk 0");
+        delivery
+            .accept_chunk(chunk_input(2, &fixture.bytes[10..]))
+            .expect("accept chunk 2");
+        let mut reassembled = vec![0u8; fixture.bytes.len()];
+
+        assert_eq!(
+            delivery.try_finalize(&mut reassembled),
+            Err(ChunkedDeliveryError::ChunkSetNotComplete)
+        );
+    }
+
+    #[test]
+    fn chunked_delivery_duplicate_index_with_different_bytes_is_rejected() {
+        let fixture = fixture_named("chunked.duplicate", b"\0asm duplicate chunk bytes");
+        let mut delivery = ChunkedDistributionDelivery::new(chunked_target(&fixture, 2));
+
+        delivery
+            .accept_chunk(chunk_input(0, &fixture.bytes[0..6]))
+            .expect("accept original chunk");
+        assert_eq!(
+            delivery.accept_chunk(chunk_input(0, &fixture.bytes[1..7])),
+            Err(ChunkedDeliveryError::DuplicateChunkBytesMismatch)
+        );
+        assert_eq!(delivery.len(), 1);
+        delivery
+            .accept_chunk(chunk_input(0, &fixture.bytes[0..6]))
+            .expect("identical duplicate is idempotent");
+        assert_eq!(delivery.len(), 1);
+    }
+
+    #[test]
+    fn chunked_delivery_recomputes_and_rejects_bad_chunk_hash() {
+        let fixture = fixture_named("chunked.chunk_hash", b"\0asm bad chunk hash");
+        let mut delivery = ChunkedDistributionDelivery::new(chunked_target(&fixture, 2));
+        let mut chunk = chunk_input(0, &fixture.bytes[0..6]);
+        chunk.claimed_chunk_sha256[0] ^= 0x01;
+
+        assert_eq!(
+            delivery.accept_chunk(chunk),
+            Err(ChunkedDeliveryError::ChunkHashMismatch)
+        );
+        assert_eq!(delivery.len(), 0);
+    }
+
+    #[test]
+    fn chunked_delivery_rejects_reassembled_whole_hash_mismatch() {
+        let fixture = fixture_named("chunked.whole_hash", b"\0asm whole hash target");
+        let mut mutated = fixture.bytes.clone();
+        mutated[7] ^= 0x55;
+        let mut delivery = ChunkedDistributionDelivery::new(chunked_target(&fixture, 2));
+
+        delivery
+            .accept_chunk(chunk_input(0, &mutated[0..9]))
+            .expect("accept mutated chunk 0 with its own hash");
+        delivery
+            .accept_chunk(chunk_input(1, &mutated[9..]))
+            .expect("accept mutated chunk 1 with its own hash");
+        let mut reassembled = vec![0u8; fixture.bytes.len()];
+
+        assert_eq!(
+            delivery.try_finalize(&mut reassembled),
+            Err(ChunkedDeliveryError::WholeHashMismatch)
+        );
+    }
+
+    #[test]
+    fn chunked_delivery_capacity_exceeded_is_explicit_and_state_unchanged() {
+        let fixture = fixture_named("chunked.capacity", b"\0asm capacity");
+        let mut delivery = ChunkedDistributionDelivery::new(ChunkedDistributionTarget {
+            chunk_count: DISTRIBUTION_CHUNKED_DELIVERY_MAX_CHUNKS + 1,
+            ..chunked_target(&fixture, DISTRIBUTION_CHUNKED_DELIVERY_MAX_CHUNKS + 1)
+        });
+
+        assert_eq!(
+            delivery.accept_chunk(chunk_input(0, &fixture.bytes[0..4])),
+            Err(ChunkedDeliveryError::ChunkCapacityExceeded)
+        );
+        assert_eq!(delivery.len(), 0);
+    }
+
+    #[test]
+    fn chunked_delivery_total_length_overflow_is_rejected() {
+        let fixture = fixture_named("chunked.overflow", b"\0asm overflow");
+        let mut target = chunked_target(&fixture, 2);
+        target.total_length = fixture.bytes.len() - 1;
+        let mut delivery = ChunkedDistributionDelivery::new(target);
+
+        delivery
+            .accept_chunk(chunk_input(0, &fixture.bytes[0..5]))
+            .expect("accept chunk 0");
+        delivery
+            .accept_chunk(chunk_input(1, &fixture.bytes[5..]))
+            .expect("accept chunk 1");
+        let mut reassembled = vec![0u8; fixture.bytes.len()];
+
+        assert_eq!(
+            delivery.try_finalize(&mut reassembled),
+            Err(ChunkedDeliveryError::TotalLengthOverflow)
+        );
+    }
+
+    #[test]
+    fn chunked_delivery_complete_chunks_with_short_coverage_are_rejected() {
+        let fixture = fixture_named("chunked.short_coverage", b"\0asm coverage gap");
+        let mut delivery = ChunkedDistributionDelivery::new(chunked_target(&fixture, 2));
+
+        delivery
+            .accept_chunk(chunk_input(0, &fixture.bytes[0..4]))
+            .expect("accept chunk 0");
+        delivery
+            .accept_chunk(chunk_input(1, &fixture.bytes[4..8]))
+            .expect("accept chunk 1");
+        let mut reassembled = vec![0u8; fixture.bytes.len()];
+
+        assert_eq!(
+            delivery.try_finalize(&mut reassembled),
+            Err(ChunkedDeliveryError::CoverageLengthMismatch)
+        );
     }
 }
