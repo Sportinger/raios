@@ -16,6 +16,7 @@ pub mod driver_capability;
 pub mod durable_record_frame;
 pub mod gpt_layout;
 pub mod kernel_surface;
+pub mod marvell_wifi_cmd;
 pub mod marvell_wifi_fw;
 pub mod memory_record;
 pub mod memory_record_resolve;

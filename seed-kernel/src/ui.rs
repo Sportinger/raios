@@ -1587,6 +1587,21 @@ fn draw_settings_wifi_firmware(
         draw_truncated_text(surface, 72, y, regs.as_str(), max_chars, color);
         y = y.saturating_add(18);
     }
+    if firmware.is_ready() {
+        let hw_spec = marvell_wifi_pcie::hw_spec_snapshot();
+        if hw_spec.stage != marvell_wifi_pcie::HwSpecStage::Idle {
+            let line = hw_spec_line(hw_spec);
+            draw_truncated_text(
+                surface,
+                72,
+                y,
+                line.as_str(),
+                max_chars,
+                hw_spec_status_color(hw_spec),
+            );
+            y = y.saturating_add(18);
+        }
+    }
     y
 }
 
@@ -1757,6 +1772,77 @@ fn firmware_register_line(firmware: marvell_wifi_pcie::FirmwareBringupSnapshot) 
         let _ = write!(line, "REG unavailable before MMIO");
     }
     line
+}
+
+fn hw_spec_line(hw_spec: marvell_wifi_pcie::HwSpecSnapshot) -> TextBuf<192> {
+    let mut line = TextBuf::new();
+    if hw_spec.is_ready() {
+        if let (Some(mac), Some(fw_release)) = (hw_spec.mac, hw_spec.fw_release) {
+            let _ = write!(
+                line,
+                "HW_SPEC: MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}  FW=0x{:08x}",
+                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], fw_release
+            );
+            return line;
+        }
+    }
+    if hw_spec.running {
+        let _ = write!(line, "HW_SPEC: querying chip (GET_HW_SPEC)...");
+        return line;
+    }
+    match hw_spec.result {
+        Some(marvell_wifi_pcie::HwSpecResult::Response(
+            raios_core::marvell_wifi_cmd::HwSpecCmdError::BadCommand { got },
+        ))
+        | Some(marvell_wifi_pcie::HwSpecResult::CommandBuild(
+            raios_core::marvell_wifi_cmd::HwSpecCmdError::BadCommand { got },
+        )) => {
+            let _ = write!(
+                line,
+                "HW_SPEC: bad_command 0x{:04x} (HOST_INT=0x{:08x})",
+                got, hw_spec.host_int_status
+            );
+        }
+        Some(marvell_wifi_pcie::HwSpecResult::Response(
+            raios_core::marvell_wifi_cmd::HwSpecCmdError::FwResult { code },
+        ))
+        | Some(marvell_wifi_pcie::HwSpecResult::CommandBuild(
+            raios_core::marvell_wifi_cmd::HwSpecCmdError::FwResult { code },
+        )) => {
+            let _ = write!(
+                line,
+                "HW_SPEC: fw_result 0x{:04x} (HOST_INT=0x{:08x})",
+                code, hw_spec.host_int_status
+            );
+        }
+        Some(result) => {
+            let _ = write!(
+                line,
+                "HW_SPEC: {} (HOST_INT=0x{:08x})",
+                result.label(),
+                hw_spec.host_int_status
+            );
+        }
+        None => {
+            let _ = write!(
+                line,
+                "HW_SPEC: {} (HOST_INT=0x{:08x})",
+                hw_spec.stage.label(),
+                hw_spec.host_int_status
+            );
+        }
+    }
+    line
+}
+
+fn hw_spec_status_color(hw_spec: marvell_wifi_pcie::HwSpecSnapshot) -> Color {
+    if hw_spec.is_ready() {
+        APP_GREEN
+    } else if hw_spec.is_failed() {
+        APP_RED
+    } else {
+        APP_AMBER
+    }
 }
 
 fn detect_ladder_label(firmware: marvell_wifi_pcie::FirmwareBringupSnapshot) -> &'static str {
