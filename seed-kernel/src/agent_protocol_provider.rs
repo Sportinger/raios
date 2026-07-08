@@ -354,7 +354,8 @@ const PROVIDER_MINIMAL_OMITTED_FIELDS: &[ProjectionFieldSpec] = &[
         field: "current.recovery_lifeline_status",
         classification: "local_only",
         action: "omit",
-        reason: "recovery lifeline status fact is local current-boot evidence, not provider context",
+        reason:
+            "recovery lifeline status fact is local current-boot evidence, not provider context",
     },
     ProjectionFieldSpec {
         field: "recovery.lifeline.status.current_boot",

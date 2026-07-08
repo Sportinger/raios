@@ -858,19 +858,27 @@ pub(crate) fn recovery_load_binding_retained_execution_completion_denial_mismatc
         reference.command_dispatch_boundary_id,
         RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
     ) {
-        return Some("recovery_lifeline_command_execution_completion_denial_dispatch_boundary_mismatch");
+        return Some(
+            "recovery_lifeline_command_execution_completion_denial_dispatch_boundary_mismatch",
+        );
     }
     if reference.execution_enablement_hash.is_none() {
-        return Some("recovery_lifeline_command_execution_completion_denial_enablement_hash_missing");
+        return Some(
+            "recovery_lifeline_command_execution_completion_denial_enablement_hash_missing",
+        );
     }
     if reference.execution_preflight_hash.is_none() {
-        return Some("recovery_lifeline_command_execution_completion_denial_preflight_hash_missing");
+        return Some(
+            "recovery_lifeline_command_execution_completion_denial_preflight_hash_missing",
+        );
     }
     if reference.execution_intent_hash.is_none() {
         return Some("recovery_lifeline_command_execution_completion_denial_intent_hash_missing");
     }
     if reference.execution_commit_gate_hash.is_none() {
-        return Some("recovery_lifeline_command_execution_completion_denial_commit_gate_hash_missing");
+        return Some(
+            "recovery_lifeline_command_execution_completion_denial_commit_gate_hash_missing",
+        );
     }
     if reference.execution_result_denial_hash.is_none() {
         return Some("recovery_lifeline_command_execution_completion_denial_result_hash_missing");
@@ -879,7 +887,9 @@ pub(crate) fn recovery_load_binding_retained_execution_completion_denial_mismatc
         return Some("recovery_lifeline_command_execution_completion_denial_audit_hash_missing");
     }
     if reference.execution_observation_denial_hash.is_none() {
-        return Some("recovery_lifeline_command_execution_completion_denial_observation_hash_missing");
+        return Some(
+            "recovery_lifeline_command_execution_completion_denial_observation_hash_missing",
+        );
     }
     None
 }
