@@ -24,6 +24,20 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+system.honesty_report done (2026-07-08, host-only worker packet; no QEMU):
+an agent can read `system.honesty_report` to get one live, auditable,
+read-only, local-only manifest of raiOS's honest posture across provider trust,
+time, cert-time, provider export, Wasm import-surface enforcement, external
+acquisition posture, and owner-seal state. The report grants nothing, writes
+nothing durable, sends nothing, and changes no state; provider/time subrecords
+reuse the live evaluator helpers also used by `provider.trust_honesty` and
+`system.time_authority`, and `no_dishonest_overclaim` is computed from
+overclaim/grant/write/transmission booleans rather than the evaluator `honest`
+field. Host-only verification passed: `cargo fmt -p seed-kernel --check`,
+`cargo fmt -p raios-core --check`, `cargo test --locked -p raios-core` (234
+passed), release seed-kernel build, and PowerShell parse of
+`vm-harness/shadow-vm-smoke-profile-common.ps1`.
+
 M12-1 done (2026-07-08, host-only worker packet; no QEMU): raiOS now has a
 fail-closed raios-core evaluator that can certify external artifact acquisition
 labels are honest: received bytes are candidate intake, distribution signatures

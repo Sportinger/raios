@@ -11,13 +11,20 @@ use raios_core::{
     cert_validity_window::{evaluate_cert_validity_window_unverified_basis, CertValidityDateTime},
     record::Value as V,
     scoped_time_authority_honesty::{
-        evaluate_time_authority_honesty, TimeAuthorityHonestyInput, EXPECTED_TIME_SOURCE,
-        SCOPED_TIME_AUTHORITY_HONESTY_DECISION_ID, SCOPED_TIME_AUTHORITY_HONESTY_DECISION_MARKER,
+        evaluate_time_authority_honesty, TimeAuthorityHonestyDecision, TimeAuthorityHonestyInput,
+        EXPECTED_TIME_SOURCE, SCOPED_TIME_AUTHORITY_HONESTY_DECISION_ID,
+        SCOPED_TIME_AUTHORITY_HONESTY_DECISION_MARKER,
         SCOPED_TIME_AUTHORITY_HONESTY_DECISION_SCHEMA,
     },
 };
 
-pub(crate) fn emit_system_time_authority(_request: &str) {
+pub(crate) struct LiveTimeAuthorityHonesty {
+    pub(crate) read_status: &'static str,
+    pub(crate) clock: Option<CmosRtcWallClock>,
+    pub(crate) decision: TimeAuthorityHonestyDecision,
+}
+
+pub(crate) fn live_time_authority_honesty() -> LiveTimeAuthorityHonesty {
     let (read_status, clock) = match read_cmos_rtc_wall_clock() {
         Ok(clock) => ("ok", Some(clock)),
         Err(error) => (cmos_error_name(error), None),
@@ -35,6 +42,18 @@ pub(crate) fn emit_system_time_authority(_request: &str) {
     };
     let decision = evaluate_time_authority_honesty(&input);
 
+    LiveTimeAuthorityHonesty {
+        read_status,
+        clock,
+        decision,
+    }
+}
+
+pub(crate) fn emit_system_time_authority(_request: &str) {
+    let honesty = live_time_authority_honesty();
+    let clock = honesty.clock;
+    let decision = honesty.decision;
+
     begin_response("system.time_authority");
     emit_record_fields(
         vec![
@@ -51,7 +70,7 @@ pub(crate) fn emit_system_time_authority(_request: &str) {
             f("source", s(EXPECTED_TIME_SOURCE)),
             f("classification", s("local_only")),
             f("scope", s("current_boot")),
-            f("read_status", s(read_status)),
+            f("read_status", s(honesty.read_status)),
             f("year", clock_u16(clock, |clock| clock.year)),
             f("month", clock_u8(clock, |clock| clock.month)),
             f("day", clock_u8(clock, |clock| clock.day)),

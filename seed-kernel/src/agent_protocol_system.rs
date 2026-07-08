@@ -65,6 +65,13 @@ pub(crate) const CAPABILITIES: &[Capability] = &[
         summary: "read unverified-basis certificate validity window sanity selftest",
     },
     Capability {
+        id: "cap.system.honesty_report.read",
+        risk: "observe",
+        granted: true,
+        scope: "current_boot",
+        summary: "read unified local honesty posture report",
+    },
+    Capability {
         id: "cap.service.inventory.read",
         risk: "observe",
         granted: true,
@@ -290,6 +297,7 @@ pub(crate) const READ_METHODS: &[&str] = &[
     "system.boot_log",
     "system.time_authority",
     "system.cert_time_check_selftest",
+    "system.honesty_report",
     "device.graph",
     "persist.layout",
     "problem.list",

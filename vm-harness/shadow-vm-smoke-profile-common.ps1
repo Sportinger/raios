@@ -179,12 +179,112 @@
         throw "Expected system.cert_time_check_selftest to grant nothing"
     }
 
+    Send-AgentCommand -Command "agent system.honesty_report" -ExpectedMarker "RAIOS_AGENT_END system.honesty_report"
+    Assert-LogContains -Name "protocol:system_honesty_report_schema" -Needle '"schema": "raios.system_honesty_report.v0"' -TimeoutSeconds 1
+    $honestyReportResponse = Get-LastAgentResponseJson -Method "system.honesty_report"
+    $honestyReport = $honestyReportResponse.body.result
+    $honestyReportOwnerSeal = (
+        $honestyReport.schema -eq "raios.system_honesty_report.v0" -and
+        $honestyReport.owner_sealed -eq $false -and
+        $honestyReport.trust_tier -eq "dev_key_not_owner_sealed" -and
+        $honestyReport.scope -eq "current_boot" -and
+        $honestyReport.classification -eq "local_only"
+    )
+    Add-Predicate -Name "protocol:system_honesty_report_owner_seal_dev_tier" -Expected "system.honesty_report reports current boot dev-tier, not owner-sealed" -Passed $honestyReportOwnerSeal -Actual $(if ($honestyReportOwnerSeal) { "dev_key_not_owner_sealed" } else { ($honestyReport | ConvertTo-Json -Compress -Depth 10) })
+    if (-not $honestyReportOwnerSeal) {
+        throw "Expected system.honesty_report to report owner_sealed false and dev_key_not_owner_sealed"
+    }
+    $honestyReportGrantsNothing = (
+        $honestyReport.read_only -eq $true -and
+        $honestyReport.durable_write -eq $false -and
+        $honestyReport.provider_write -eq "not_attempted" -and
+        $honestyReport.transmission -eq $false -and
+        $honestyReport.state_change -eq $false -and
+        $honestyReport.capability_granted -eq $false
+    )
+    Add-Predicate -Name "protocol:system_honesty_report_grants_nothing" -Expected "system.honesty_report is read-only and grants no write/transmission/state change/capability" -Passed $honestyReportGrantsNothing -Actual $(if ($honestyReportGrantsNothing) { "grants_nothing" } else { ($honestyReport | ConvertTo-Json -Compress -Depth 10) })
+    if (-not $honestyReportGrantsNothing) {
+        throw "Expected system.honesty_report to grant nothing"
+    }
+    $honestyProviderTimeMatch = (
+        $honestyReport.provider_trust.decision_schema -eq $trustHonesty.decision_schema -and
+        $honestyReport.provider_trust.decision_id -eq $trustHonesty.decision_id -and
+        $honestyReport.provider_trust.provider_id -eq $trustHonesty.provider_id -and
+        $honestyReport.provider_trust.trust_state -eq $trustHonesty.trust_state -and
+        $honestyReport.provider_trust.chain_policy -eq $trustHonesty.chain_policy -and
+        $honestyReport.provider_trust.time_policy -eq $trustHonesty.time_policy -and
+        $honestyReport.provider_trust.performed -eq $trustHonesty.performed -and
+        $honestyReport.provider_trust.status -eq $trustHonesty.status -and
+        $honestyReport.provider_trust.reason -eq $trustHonesty.reason -and
+        $honestyReport.provider_trust.honest -eq $trustHonesty.honest -and
+        $honestyReport.provider_trust.chain_validated -eq $false -and
+        $honestyReport.provider_trust.time_validated -eq $false -and
+        $honestyReport.provider_trust.authorizes_provider_request -eq $false -and
+        $honestyReport.provider_trust.authorizes_provider_export -eq $false -and
+        $honestyReport.time_authority.decision_schema -eq $timeAuthority.decision_schema -and
+        $honestyReport.time_authority.decision_id -eq $timeAuthority.decision_id -and
+        $honestyReport.time_authority.source -eq $timeAuthority.source -and
+        $honestyReport.time_authority.read_status -eq $timeAuthority.read_status -and
+        $honestyReport.time_authority.trusted -eq $false -and
+        $honestyReport.time_authority.validates_cert_time -eq $false -and
+        $honestyReport.time_authority.authorizes_provider_request -eq $false -and
+        $honestyReport.time_authority.authorizes_provider_export -eq $false -and
+        $honestyReport.time_authority.status -eq $timeAuthority.status -and
+        $honestyReport.time_authority.reason -eq $timeAuthority.reason
+    )
+    Add-Predicate -Name "protocol:system_honesty_report_provider_time_match" -Expected "system.honesty_report reuses the live provider and time honesty labels" -Passed $honestyProviderTimeMatch -Actual $(if ($honestyProviderTimeMatch) { "provider_time_match" } else { ($honestyReport | ConvertTo-Json -Compress -Depth 10) })
+    if (-not $honestyProviderTimeMatch) {
+        throw "Expected system.honesty_report provider/time subrecords to match existing live honesty labels"
+    }
+    $honestyKnownImports = @($honestyReport.wasm_import_surface.known_host_imports)
+    $honestyStandingPosture = (
+        $honestyReport.cert_time_validation.validates_cert_time -eq $false -and
+        $honestyReport.cert_time_validation.basis -eq "unverified" -and
+        $honestyReport.cert_time_validation.performed -eq $false -and
+        $honestyReport.provider_export.state -eq "disabled" -and
+        $honestyReport.provider_export.can_export -eq $false -and
+        $honestyReport.provider_export.context_attached_to_provider_body -eq $false -and
+        $honestyReport.provider_export.provider_write -eq "not_attempted" -and
+        $honestyReport.wasm_import_surface.capability_envelope -eq "wasmi_linker_import_surface" -and
+        $honestyReport.wasm_import_surface.per_instance_linker_enforced -eq $true -and
+        $honestyKnownImports.Count -eq 2 -and
+        $honestyKnownImports[0] -eq "env.log" -and
+        $honestyKnownImports[1] -eq "env.counter_get" -and
+        $honestyReport.wasm_import_surface.authorizes_new_imports -eq $false -and
+        $honestyReport.wasm_import_surface.authorizes_beyond_env -eq $false -and
+        $honestyReport.wasm_import_surface.report_grants_authority -eq $false -and
+        $honestyReport.external_acquisition.acquisition_active -eq $false -and
+        $honestyReport.external_acquisition.external_distribution_active -eq $false -and
+        $honestyReport.external_acquisition.would_be_candidate_intake_only -eq $true -and
+        $honestyReport.external_acquisition.authorizes_acquisition -eq $false -and
+        $honestyReport.external_acquisition.authorizes_install -eq $false -and
+        $honestyReport.external_acquisition.authorizes_load -eq $false
+    )
+    Add-Predicate -Name "protocol:system_honesty_report_standing_posture" -Expected "system.honesty_report reports cert/export/wasm/external-acquisition posture without authority" -Passed $honestyStandingPosture -Actual $(if ($honestyStandingPosture) { "standing_posture_ok" } else { ($honestyReport | ConvertTo-Json -Compress -Depth 10) })
+    if (-not $honestyStandingPosture) {
+        throw "Expected system.honesty_report standing posture domains to grant nothing"
+    }
+    $honestyNoDishonestOverclaim = (
+        $honestyReport.provider_no_overclaim -eq $true -and
+        $honestyReport.time_no_overclaim -eq $true -and
+        $honestyReport.cert_time_no_overclaim -eq $true -and
+        $honestyReport.provider_export_no_overclaim -eq $true -and
+        $honestyReport.wasm_no_overclaim -eq $true -and
+        $honestyReport.external_no_overclaim -eq $true -and
+        $honestyReport.no_dishonest_overclaim -eq $true
+    )
+    Add-Predicate -Name "protocol:system_honesty_report_no_dishonest_overclaim" -Expected "system.honesty_report computes no_dishonest_overclaim from grant/overclaim fields" -Passed $honestyNoDishonestOverclaim -Actual $(if ($honestyNoDishonestOverclaim) { "no_dishonest_overclaim" } else { ($honestyReport | ConvertTo-Json -Compress -Depth 10) })
+    if (-not $honestyNoDishonestOverclaim) {
+        throw "Expected system.honesty_report no_dishonest_overclaim to be true"
+    }
+
     Send-AgentCommand -Command "caps" -ExpectedMarker "RAIOS_AGENT_END system.capabilities"
     Assert-LogContains -Name "protocol:capabilities_schema" -Needle '"schema": "system.capabilities.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_recent_events_capability" -Needle '"id": "cap.memory.recent_events.read"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:audit_events_capability" -Needle '"id": "cap.audit.events.read"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:time_authority_read_capability" -Needle '"id": "cap.system.time_authority.read"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:cert_time_check_selftest_read_capability" -Needle '"id": "cap.system.cert_time_check_selftest.read"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:system_honesty_report_read_capability" -Needle '"id": "cap.system.honesty_report.read"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_export_read_capability" -Needle '"id": "cap.provider.context_export.read"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_read_capability" -Needle '"id": "cap.provider.context_injection.read"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_read_capability" -Needle '"id": "cap.recovery.load_artifact.read"' -TimeoutSeconds 1

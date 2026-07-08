@@ -17,6 +17,7 @@ use limine::BaseRevision;
 use linked_list_allocator::LockedHeap;
 
 mod agent_protocol;
+mod agent_protocol_honesty;
 mod agent_protocol_memory;
 mod agent_protocol_module_approval;
 mod agent_protocol_module_attestation;

@@ -22,7 +22,8 @@ use raios_core::{
     },
     record::{sha256_of_json, Value as V},
     scoped_provider_trust_honesty::{
-        SCOPED_PROVIDER_TRUST_HONESTY_DECISION_ID, SCOPED_PROVIDER_TRUST_HONESTY_DECISION_MARKER,
+        ProviderTrustHonestyDecision, SCOPED_PROVIDER_TRUST_HONESTY_DECISION_ID,
+        SCOPED_PROVIDER_TRUST_HONESTY_DECISION_MARKER,
         SCOPED_PROVIDER_TRUST_HONESTY_DECISION_SCHEMA,
     },
 };
@@ -64,7 +65,13 @@ pub(crate) fn provider_minimal_context_evidence_for_runtime(
     provider_context_evidence(&status, &provider)
 }
 
-pub(crate) fn emit_provider_trust_honesty(_request: &str) {
+pub(crate) struct LiveProviderTrustHonesty {
+    pub(crate) descriptor: ProviderTrustDescriptor<'static>,
+    pub(crate) descriptor_sha256: [u8; 32],
+    pub(crate) decision: ProviderTrustHonestyDecision,
+}
+
+pub(crate) fn live_provider_trust_honesty() -> LiveProviderTrustHonesty {
     let snap = provider_trust::snapshot();
     let trust_state = snap.state.as_protocol();
     let verifier = snap.verifier;
@@ -87,6 +94,18 @@ pub(crate) fn emit_provider_trust_honesty(_request: &str) {
     let descriptor_sha256 = descriptor.record_sha256();
     let decision = evaluate_provider_trust_descriptor_honesty(&descriptor);
 
+    LiveProviderTrustHonesty {
+        descriptor,
+        descriptor_sha256,
+        decision,
+    }
+}
+
+pub(crate) fn emit_provider_trust_honesty(_request: &str) {
+    let honesty = live_provider_trust_honesty();
+    let descriptor = honesty.descriptor;
+    let decision = honesty.decision;
+
     begin_response("provider.trust_honesty");
     emit_record_fields(
         vec![
@@ -103,7 +122,7 @@ pub(crate) fn emit_provider_trust_honesty(_request: &str) {
             f("provider_id", s(descriptor.provider_id)),
             f("descriptor_id", s(descriptor.id)),
             f("host", s(descriptor.host)),
-            f("descriptor_sha256", sha(descriptor_sha256)),
+            f("descriptor_sha256", sha(honesty.descriptor_sha256)),
             f("performed", b(decision.performed)),
             f("status", s(decision.status)),
             f("reason", s(decision.reason)),
@@ -118,10 +137,10 @@ pub(crate) fn emit_provider_trust_honesty(_request: &str) {
                 "authorizes_provider_export",
                 b(decision.authorizes_provider_export),
             ),
-            f("trust_state", s(trust_state)),
+            f("trust_state", s(descriptor.trust_state)),
             f("chain_policy", s(descriptor.chain_policy)),
             f("time_policy", s(descriptor.time_policy)),
-            f("development_bypass", b(snap.development_bypass)),
+            f("development_bypass", b(descriptor.development_bypass)),
             f("claims_chain_validated", b(false)),
             f("claims_time_validated", b(false)),
             f("owner_sealed", b(false)),

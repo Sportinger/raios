@@ -10,6 +10,7 @@ mod recovery_lifeline;
 mod repromotion;
 
 use crate::{
+    agent_protocol_honesty::emit_system_honesty_report,
     agent_protocol_memory::{
         emit_memory_capability_denied, emit_memory_context, emit_memory_profile, emit_memory_query,
         emit_memory_trace, emit_recent_events,
@@ -377,6 +378,7 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("provider.trust_honesty", Head, [], [route!("provider.trust_honesty")], MethodAction::ReadMethod(emit_provider_trust_honesty)),
     method!("system.time_authority", Head, ["time.authority"], [route!("system.time_authority"), route!("time.authority" => "system.time_authority")], MethodAction::ReadMethod(emit_system_time_authority)),
     method!("system.cert_time_check_selftest", Head, ["cert.time_check_selftest"], [route!("system.cert_time_check_selftest"), route!("cert.time_check_selftest" => "system.cert_time_check_selftest")], MethodAction::ReadMethod(emit_system_cert_time_check_selftest)),
+    method!("system.honesty_report", Head, ["honesty.report"], [route!("system.honesty_report"), route!("honesty.report" => "system.honesty_report")], MethodAction::ReadMethod(emit_system_honesty_report)),
     method!("provider.context_export_packet_selftest", Head, [], [route!("provider.context_export_packet_selftest")], MethodAction::ReadMethod(emit_provider_context_export_packet_selftest)),
     method!("provider.context_export_authorized_selftest", Head, [], [route!("provider.context_export_authorized_selftest")], MethodAction::ReadMethod(emit_provider_context_export_authorized_selftest)),
     method!("provider.context_export_authorized_selftest_smuggle", Head, [], [route!("provider.context_export_authorized_selftest_smuggle")], MethodAction::ReadMethod(emit_provider_context_export_authorized_selftest_smuggle)),
