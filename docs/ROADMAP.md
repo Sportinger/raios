@@ -17,11 +17,25 @@ vocabulary).
 
 Last updated: 2026-07-08.
 
-Current milestone: **M10 Provider Trust Hardening & Adapters** (IN PROGRESS — the
-grants-nothing mechanism foundation is committed; the remaining validation is
-owner/production-gated, see below). **M6 Promotion Loop, M7 Persistence, M8
-Recovery Lifeline, and M9 Durable Memory & Context Broker v1 (ADR 0004 Phase D)
-are COMPLETE.**
+Current milestone: **M10 + M11 IN PROGRESS** — both have their grants-nothing
+mechanism foundations committed; the substantive remainder of each is
+owner-gated (see below). **M6 Promotion Loop, M7 Persistence, M8 Recovery
+Lifeline, and M9 Durable Memory & Context Broker v1 (ADR 0004 Phase D) are
+COMPLETE.**
+
+**M11 Kernel Slimming progress (all grants-nothing / strictly-more-restrictive,
+committed):** M11-1 kernel internet-parsing SURFACE baseline (the measurably-
+shrinks reference, ~9640 candidate LOC); ADR 0008 the per-service-import-grant
+architecture PROPOSAL (owner decision); M11-2 the fail-closed import-grant
+EVALUATOR (raios-core; known set env.log/env.counter_get; beyond-env owner-gated);
+M11-3 ENFORCEMENT — each Wasm instance's Linker is built from ONLY the
+evaluator-authorized imports, verified ⊆ module.imports() before instantiation,
+strictly more restrictive (review SOUND, profile m11-wasm-import-grant 185/185);
+M11-3a DURABLE per-service import-grant AUDIT (capability_grant/local_only/
+deduped, memory-durable 154/154). **M11 REMAINDER IS OWNER-GATED (ADR 0008):**
+the actual TLS/HTTP relocation into a Wasm service, beyond-env host imports
+(net/tls/crypto/time/secret), the kernel-side-vs-guest-side trust-shape decision,
+and per-service secret custody — all pending the owner's ADR 0008 decision.
 
 M10 progress (all grants-nothing, honestly labeled, committed): M10A-1 provider-
 trust HONESTY evaluator (can never overclaim chain/time validation; webpki

@@ -27,6 +27,15 @@ ehrlich als *ungeprüfte Basis*. Alles „gewährt-nichts", host-bewiesen (quick
 **Was M10 *fertig* macht, braucht dich/Produktion:** eine *vertrauenswürdige* Zeitquelle
 (NTP/NTS/Roughtime/Plattform), echte Zertifikatsketten (CA-Wurzeln), und einen *echten* zweiten
 Provider (echte Pins + Netzwerk). Bis dahin bleibt alles ehrlich als „ungeprüft" markiert.
+**M11 (Kernel verschlanken) ist ebenfalls unterwegs — das Mechanismus-Fundament steht:**
+raiOS misst jetzt seine „Internet-Fläche" (was aus dem Kern in Sandbox-Dienste raus soll),
+kann pro Dienst genau festlegen + ERZWINGEN, welche Host-Funktionen ein Sandbox-Programm
+benutzen darf (nur die erlaubten werden verdrahtet; ein Programm mit einer nicht-erlaubten
+Funktion wird VOR dem Start abgewiesen — strikt strenger als vorher, Sicherheits-Prüfung
+„einwandfrei"), und protokolliert jede erlaubte Fläche dauerhaft + fälschungssicher. Der
+eigentliche Umzug des Internet-Codes (TLS) in einen Sandbox-Dienst braucht deine Entscheidung
+(ADR 0008: Vertrauens-Form + Umgang mit Geheimnissen) — bis dahin bleibt er als klar
+markiertes TODO stehen.
 The big one (M7) is done: boot 1 accepts and saves an AI-authored module (its code +
 a signed "promotion receipt"); the machine is powered down and back up; boot 2
 independently re-checks the whole evidence chain from disk — re-doing the signature
