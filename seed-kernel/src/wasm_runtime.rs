@@ -17,6 +17,7 @@ use wasmi::{
 use crate::serial;
 
 include!(concat!(env!("OUT_DIR"), "/echo_wasm_artifact.rs"));
+include!(concat!(env!("OUT_DIR"), "/bufecho_wasm_artifact.rs"));
 
 const EMPTY_WASM_MODULE: &[u8] = b"\0asm\x01\0\0\0";
 const FORBIDDEN_WRITE_WASM_MODULE: &[u8] = &[
@@ -56,6 +57,12 @@ pub(crate) const FORBIDDEN_IMPORT_NAME: &str = "forbidden_write";
 pub(crate) const ECHO_SERVICE_ID: &str = "svc.demo.echo";
 pub(crate) const ECHO_AUTHORIZED_IMPORTS: &[(&str, &str)] =
     &[("env", "log"), ("env", "counter_get")];
+pub(crate) const BUFECHO_SERVICE_ID: &str = "svc.demo.bufecho";
+pub(crate) const BUFECHO_AUTHORIZED_IMPORTS: &[(&str, &str)] = &[
+    ("env", "input_len"),
+    ("env", "input_read"),
+    ("env", "output_write"),
+];
 const ZERO_SHA256: [u8; 32] = [0; 32];
 
 static CURRENT_BOOT_COUNTER: Mutex<u64> = Mutex::new(0);
@@ -64,6 +71,8 @@ static CURRENT_BOOT_COUNTER: Mutex<u64> = Mutex::new(0);
 static WASMI_COMPILE_PROOF: fn() -> bool = validate_empty_module_bytes;
 #[used]
 static ECHO_WASM_ARTIFACT_PROOF: fn() -> bool = validate_echo_wasm_artifact;
+#[used]
+static BUFECHO_WASM_ARTIFACT_PROOF: fn() -> bool = validate_bufecho_wasm_artifact;
 
 pub(crate) fn validate_empty_module_bytes() -> bool {
     let wasm = Vec::from(EMPTY_WASM_MODULE).into_boxed_slice();
@@ -81,6 +90,18 @@ pub(crate) fn validate_echo_wasm_artifact() -> bool {
             == ECHO_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_HASH
         && sha256_bytes(ECHO_WASM_ARTIFACT_SIGNATURE_ENVELOPE_TEXT.as_bytes())
             == ECHO_WASM_ARTIFACT_SIGNATURE_ENVELOPE_HASH
+        && validate_module_bytes(bytes)
+}
+
+pub(crate) fn validate_bufecho_wasm_artifact() -> bool {
+    let wasm = Vec::from(BUFECHO_WASM_ARTIFACT_BYTES).into_boxed_slice();
+    let bytes: &[u8] = &wasm;
+
+    sha256_bytes(bytes) == BUFECHO_WASM_ARTIFACT_BYTES_HASH
+        && sha256_bytes(BUFECHO_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_SOURCE.as_bytes())
+            == BUFECHO_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_HASH
+        && sha256_bytes(BUFECHO_WASM_ARTIFACT_SIGNATURE_ENVELOPE_TEXT.as_bytes())
+            == BUFECHO_WASM_ARTIFACT_SIGNATURE_ENVELOPE_HASH
         && validate_module_bytes(bytes)
 }
 
@@ -123,6 +144,12 @@ pub(crate) struct EchoRunEvidence {
     pub(crate) module_imports_within_authorized_list: bool,
     pub(crate) missing_import_module: Option<String>,
     pub(crate) missing_import_name: Option<String>,
+}
+
+pub(crate) struct BufechoRoundtripEvidence {
+    pub(crate) run: EchoRunEvidence,
+    pub(crate) input_len: u64,
+    pub(crate) input_sha256: [u8; 32],
 }
 
 /// Evidence from a labeled fuel-starvation fault injection against the real echo
@@ -177,6 +204,36 @@ pub(crate) fn run_echo_probe() -> EchoProbe {
 
 pub(crate) fn run_echo_service() -> EchoRunEvidence {
     execute_echo_module(validate_echo_wasm_artifact())
+}
+
+pub(crate) fn run_bufecho_roundtrip(input: &[u8]) -> BufechoRoundtripEvidence {
+    let capped_len = input.len().min(MAX_WASM_INPUT_BYTES);
+    let capped = &input[..capped_len];
+    BufechoRoundtripEvidence {
+        run: execute_validated_module_bytes(
+            BUFECHO_WASM_ARTIFACT_BYTES,
+            "raios_service_main",
+            BUFECHO_SERVICE_ID,
+            true,
+            BUFECHO_AUTHORIZED_IMPORTS,
+            validate_bufecho_wasm_artifact(),
+            capped,
+        ),
+        input_len: capped_len as u64,
+        input_sha256: sha256_bytes(capped),
+    }
+}
+
+pub(crate) fn run_bufecho_unauthorized_probe() -> EchoRunEvidence {
+    execute_validated_module_bytes(
+        BUFECHO_WASM_ARTIFACT_BYTES,
+        "raios_service_main",
+        BUFECHO_SERVICE_ID,
+        true,
+        &[("env", "input_len")],
+        validate_bufecho_wasm_artifact(),
+        b"raios-m11-bufecho-unauthorized-nonce",
+    )
 }
 
 /// Labeled fault injection: run the REAL echo artifact (`raios_service_main`)

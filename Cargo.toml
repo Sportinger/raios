@@ -6,7 +6,8 @@ members = [
     "fake-cloud/server",
     "raios-core",
     "seed-kernel",
-    "wasm-guests/svc-demo-echo"
+    "wasm-guests/svc-demo-echo",
+    "wasm-guests/svc-demo-bufecho"
 ]
 resolver = "2"
 

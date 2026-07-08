@@ -2056,6 +2056,9 @@ fn wasm_import_grant_record_id(service_id: &str) -> Option<&'static str> {
         "svc.demo.echo" => {
             Some("mem.capability_grant.wasm_import_surface.svc_demo_echo.current_boot.v0")
         }
+        "svc.demo.bufecho" => {
+            Some("mem.capability_grant.wasm_import_surface.svc_demo_bufecho.current_boot.v0")
+        }
         "svc.dev.granted_candidate" => Some(
             "mem.capability_grant.wasm_import_surface.svc_dev_granted_candidate.current_boot.v0",
         ),

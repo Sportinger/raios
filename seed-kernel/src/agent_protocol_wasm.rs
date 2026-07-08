@@ -6,7 +6,7 @@ use crate::{
         record_bool as b, record_field as f, record_sha, record_static_str_array, record_str as s,
         record_str_or_null,
     },
-    module_candidate_channel, module_candidate_intake, wasm_runtime,
+    memory_store, module_candidate_channel, module_candidate_intake, wasm_runtime,
 };
 use raios_core::record::Value as V;
 
@@ -192,6 +192,83 @@ pub(crate) fn emit_wasm_echo_probe() {
     );
     raw_line("      \"evidence_complete\": true");
     end_response("wasm.echo_probe");
+}
+
+pub(crate) fn emit_wasm_bufecho_probe() {
+    let roundtrip = wasm_runtime::run_bufecho_roundtrip(b"raios-m11-bufecho-roundtrip-nonce");
+    let negative = wasm_runtime::run_bufecho_unauthorized_probe();
+    let audit = memory_store::record_wasm_import_grant_audit(
+        wasm_runtime::BUFECHO_SERVICE_ID,
+        wasm_runtime::BUFECHO_AUTHORIZED_IMPORTS,
+        &roundtrip.run,
+    );
+
+    begin_response("wasm.bufecho_probe");
+    emit_record_fields_trailing_comma(
+        vec![
+            f("schema", s("raios.wasm_bufecho_probe.v0")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("method", s("wasm.bufecho_probe")),
+            f("service_id", s(wasm_runtime::BUFECHO_SERVICE_ID)),
+            f("input_len", V::U64(roundtrip.input_len)),
+            f("input_sha256", record_sha(roundtrip.input_sha256)),
+            f(
+                "captured_output_len",
+                V::U64(roundtrip.run.captured_output_len),
+            ),
+            f(
+                "captured_output_sha256",
+                record_sha(roundtrip.run.captured_output_sha256),
+            ),
+            f("run_outcome", s(roundtrip.run.run_outcome)),
+            f(
+                "authorized_import_count",
+                V::U64(roundtrip.run.authorized_import_count),
+            ),
+            f(
+                "linked_host_import_count",
+                V::U64(roundtrip.run.linked_host_import_count),
+            ),
+            f(
+                "module_imports_within_authorized_list",
+                b(roundtrip.run.module_imports_within_authorized_list),
+            ),
+            f("audit_dedupe", s(audit.dedupe)),
+            f("audit_record_id", s(audit.record_id)),
+            // Provenance for WHY the import-grant audit did/did not durably persist.
+            // In this focused current-boot profile the shared durable reclog is not
+            // provisioned, so the append is honestly fail-closed to RAM-only; this
+            // surfaces the exact underlying reason instead of a bare "denied".
+            f(
+                "audit_reason",
+                s(audit
+                    .evidence
+                    .as_ref()
+                    .map(|evidence| evidence.reason)
+                    .unwrap_or("no_append_attempted")),
+            ),
+            f(
+                "negative",
+                V::InlineObject(vec![
+                    f(
+                        "module_imports_within_authorized_list",
+                        b(negative.module_imports_within_authorized_list),
+                    ),
+                    f("run_outcome", s(negative.run_outcome)),
+                    f(
+                        "missing_import_module",
+                        record_str_or_null(negative.missing_import_module.as_deref()),
+                    ),
+                    f("instantiation_ok", b(negative.instantiation_ok)),
+                    f("captured_output_len", V::U64(negative.captured_output_len)),
+                ]),
+            ),
+        ],
+        6,
+    );
+    raw_line("      \"evidence_complete\": true");
+    end_response("wasm.bufecho_probe");
 }
 
 fn record_return_value(value: Option<i32>) -> V<'static> {

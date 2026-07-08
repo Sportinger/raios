@@ -24,6 +24,17 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+M11-5b Phase B done (2026-07-08, host-only worker packet; no QEMU): raiOS now
+runs a new signed `svc.demo.bufecho` Wasm service that imports only
+`env.input_len`, `env.input_read`, and `env.output_write`, reads a bounded
+host-staged byte buffer, and writes the same bytes back as captured output
+evidenced by matching len+sha256 fields. Existing `svc.demo.echo`,
+`svc.demo.hello`, and `svc.dev.granted_candidate` import surfaces stay
+unchanged; bufecho descriptors are signed by the public scalar-1 dev key and
+honestly labeled `dev_key_not_owner_sealed`, with build-time P-256 verification
+as the hard gate. Host-only verification is recorded in the worker handoff;
+the orchestrator runs `m11-buffer-channel` and the mandatory isolation review.
+
 M11-5a Phase A done (2026-07-08, host-only worker packet; no QEMU): raiOS now
 has the default-deny byte-buffer Wasm data-channel mechanism: `env.input_len`,
 `env.input_read`, and `env.output_write` are known host imports and have bounded
