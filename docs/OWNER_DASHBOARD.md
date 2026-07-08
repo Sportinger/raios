@@ -3,6 +3,16 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
+Updated: 2026-07-09. **M12+ Verteilung ist einen echten Schritt weiter:** raiOS
+kann im Kernel jetzt aus mehr als einem lokal signierten Registry-Eintrag per
+Fingerabdruck auswahlen (`echo` oder `bufecho`) und genau dieses Programm als
+toten Kandidaten halten. Der Chunk-Weg ist ebenfalls durch den echten Pfad
+bewiesen: bufecho kommt in Stucken, auch ausser Reihenfolge, wird erst nach
+Chunk-Hashes + Gesamt-Hash + Herkunftssignatur zusammengesetzt und dann inert
+gehalten. Es wird weiter NICHT geladen, installiert, ausgefuhrt, gespeichert
+oder aus dem Netz geholt. Beweis: `m12-distribution-provenance`
+`shadow-20260709-013326-2688.json` 204/204 grun.
+
 Updated: 2026-07-08 (**M7 + M8 + M9 COMPLETE.** raiOS now has a real, permanent, honest
 MEMORY. It writes typed facts (denials, decisions, problems, and AI-worker observations) to
 disk, proven byte-exact, "supersede not overwrite" (a newer fact hides the old one but the

@@ -1,5 +1,7 @@
 $expectedShaBare = "f81f9442de3729f58f9d5c43b186a4223e3f0ed0bdde20e94722da8d5733abd2"
 $expectedSha = "sha256:$expectedShaBare"
+$expectedBufechoShaBare = "1983797d9ecc6f3f85deedc0c82a8651062f01dc80710ee699e834a51c52e544"
+$expectedBufechoSha = "sha256:$expectedBufechoShaBare"
 $provSigHex = "304402201fd9aa3e26579ab9852a1ea61a7fe23f79c39badd13e2c74dbdf9d957a25449b02204f783191894cfb609d35c5babc9fb3208e77d9c712d2645a633120db6dcdd89b"
 
 function Assert-M12Predicate {
@@ -60,7 +62,11 @@ $registryOk = (
     $registry.t -eq "response" -and
     $registryResult.status -eq "selected" -and
     $registryResult.reason -eq "registry_entry_selected_for_inert_candidate_intake" -and
+    [int]$registryResult.registry_entry_count -eq 2 -and
+    [int]$registryResult.registry_capacity -ge 2 -and
+    $registryResult.entry_id -eq "builtin.svc.demo.echo" -and
     $selection.schema -eq "raios.distribution_registry_selection.v0" -and
+    $selection.entry_id -eq "builtin.svc.demo.echo" -and
     $selection.selected_for_candidate_intake -eq $true -and
     $selection.selection_hash_matched -eq $true -and
     $selection.provenance_signature_verified -eq $true -and
@@ -87,17 +93,50 @@ Assert-M12Predicate `
     -Actual $(if ($registryOk) { "matched" } else { ($registryResult | ConvertTo-Json -Compress -Depth 10) }) `
     -FailureMessage "Expected registry selection to retain an inert valid wasm candidate"
 
+Send-AgentCommand -Command "agent module.registry_selection_diagnostic $expectedBufechoSha" -ExpectedMarker "RAIOS_AGENT_END module.registry_selection_diagnostic" -Name "m12-distribution:P1b_registry_selection_bufecho"
+$bufechoRegistry = Get-LastAgentResponseJson -Method "module.registry_selection_diagnostic"
+$bufechoRegistryResult = $bufechoRegistry.body.result
+$bufechoSelection = $bufechoRegistryResult.selection
+$bufechoStaged = $bufechoRegistryResult.staged_candidate
+$bufechoRetainedProv = $bufechoRegistryResult.retained_provenance
+$bufechoRegistryOk = (
+    $bufechoRegistry.t -eq "response" -and
+    $bufechoRegistryResult.status -eq "selected" -and
+    $bufechoRegistryResult.reason -eq "registry_entry_selected_for_inert_candidate_intake" -and
+    [int]$bufechoRegistryResult.registry_entry_count -eq 2 -and
+    $bufechoRegistryResult.entry_id -eq "builtin.svc.demo.bufecho" -and
+    $bufechoSelection.entry_id -eq "builtin.svc.demo.bufecho" -and
+    $bufechoSelection.artifact_sha256 -eq $expectedBufechoSha -and
+    [int]$bufechoStaged.byte_len -eq 605 -and
+    $bufechoStaged.artifact_sha256 -eq $expectedBufechoSha -and
+    $bufechoStaged.wasm_valid -eq $true -and
+    $bufechoStaged.retained_in_ram -eq $true -and
+    $bufechoStaged.rejected -eq $false -and
+    $bufechoRetainedProv.provenance_verified -eq $true -and
+    $bufechoRetainedProv.artifact_sha256 -eq $expectedBufechoSha -and
+    $bufechoRegistryResult.recomputed_sha256_matches_selection -eq $true -and
+    $bufechoRegistryResult.staged_only_after_valid_selection -eq $true -and
+    (Test-M12RegistryDenials -Record $bufechoRegistryResult) -and
+    (Test-M12RegistryDenials -Record $bufechoSelection) -and
+    (Test-M12Denials -Record $bufechoRetainedProv)
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:P1b_multi_entry_registry_selects_bufecho" `
+    -Expected "bounded built-in registry selects a second signed local artifact by content hash and stages it inert" `
+    -Passed $bufechoRegistryOk `
+    -Actual $(if ($bufechoRegistryOk) { "matched" } else { ($bufechoRegistryResult | ConvertTo-Json -Compress -Depth 10) }) `
+    -FailureMessage "Expected multi-entry registry selection to retain inert bufecho candidate"
+
 Send-AgentCommand -Command "agent module.registry_selection_diagnostic sha256:0000000000000000000000000000000000000000000000000000000000000000" -ExpectedMarker "RAIOS_AGENT_END module.registry_selection_diagnostic" -Name "m12-distribution:P1_registry_selection_wrong_hash"
 $wrongSelection = Get-LastAgentResponseJson -Method "module.registry_selection_diagnostic"
 $wrongSelectionResult = $wrongSelection.body.result
 $wrongSelectionOk = (
     $wrongSelectionResult.status -eq "denied" -and
-    $wrongSelectionResult.reason -eq "selection_hash_mismatch" -and
-    $wrongSelectionResult.selection.selected_for_candidate_intake -eq $false -and
+    $wrongSelectionResult.reason -eq "registry_entry_not_found" -and
+    $null -eq $wrongSelectionResult.selection -and
     $null -eq $wrongSelectionResult.staged_candidate -and
     $wrongSelectionResult.staged_only_after_valid_selection -eq $true -and
-    (Test-M12RegistryDenials -Record $wrongSelectionResult) -and
-    (Test-M12RegistryDenials -Record $wrongSelectionResult.selection)
+    (Test-M12RegistryDenials -Record $wrongSelectionResult)
 )
 Assert-M12Predicate `
     -Name "m12-distribution:P1_registry_selection_wrong_hash_no_stage" `
@@ -110,17 +149,26 @@ Send-AgentCommand -Command "agent module.registry_selection_diagnostic_selftest"
 $registrySelftest = Get-LastAgentResponseJson -Method "module.registry_selection_diagnostic_selftest"
 $registrySelftestResult = $registrySelftest.body.result
 $registryCases = @($registrySelftestResult.cases)
-$registryValidCase = Get-M12SelftestCase -Cases $registryCases -Name "valid_registry_selection_stages_inert_candidate"
+$registryValidCase = Get-M12SelftestCase -Cases $registryCases -Name "valid_echo_registry_selection_stages_inert_candidate"
+$registryBufechoCase = Get-M12SelftestCase -Cases $registryCases -Name "valid_bufecho_registry_selection_stages_inert_candidate"
+$registryChunkedCase = Get-M12SelftestCase -Cases $registryCases -Name "chunked_bufecho_delivery_stages_inert_candidate"
 $registryWrongCase = Get-M12SelftestCase -Cases $registryCases -Name "wrong_hash_denied_without_staging"
 $registryInvalidCase = Get-M12SelftestCase -Cases $registryCases -Name "invalid_selector_denied_without_staging"
 $registrySelftestOk = (
     $registrySelftestResult.passed -eq $true -and
-    [int]$registrySelftestResult.case_count -eq 3 -and
+    [int]$registrySelftestResult.case_count -eq 5 -and
     $registryValidCase.passed -eq $true -and
     $registryValidCase.staged -eq $true -and
     $registryValidCase.retained_provenance_verified -eq $true -and
+    $registryBufechoCase.passed -eq $true -and
+    $registryBufechoCase.staged -eq $true -and
+    $registryBufechoCase.retained_provenance_verified -eq $true -and
+    $registryChunkedCase.passed -eq $true -and
+    $registryChunkedCase.staged -eq $true -and
+    $registryChunkedCase.retained_provenance_verified -eq $true -and
     $registryWrongCase.passed -eq $true -and
     $registryWrongCase.staged -eq $false -and
+    $registryWrongCase.reason -eq "registry_entry_not_found" -and
     $registryInvalidCase.passed -eq $true -and
     $registryInvalidCase.reason -eq "invalid_sha256_selector" -and
     $registrySelftestResult.owner_sealed -eq $false -and
@@ -185,6 +233,7 @@ foreach ($caseName in @("absent_signature_denied", "tampered_signature_rejected"
         -FailureMessage "Expected $caseName to fail closed"
 }
 
+Send-AgentCommand -Command "agent module.registry_selection_diagnostic $expectedSha" -ExpectedMarker "RAIOS_AGENT_END module.registry_selection_diagnostic" -Name "m12-distribution:P3_restages_echo_candidate_for_live_provenance"
 Send-AgentCommand -Command "agent module.distribution_provenance_diagnostic $provSigHex" -ExpectedMarker "RAIOS_AGENT_END module.distribution_provenance_diagnostic" -Name "m12-distribution:P3_live_diagnostic_valid_signature"
 $live = Get-LastAgentResponseJson -Method "module.distribution_provenance_diagnostic"
 $liveResult = $live.body.result

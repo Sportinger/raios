@@ -103,8 +103,17 @@ provenance 223/223). **Slice 2 DONE:** a local content-addressed registry — a 
 entry model + selection evaluator (recomputes sha256, grants nothing) + the kernel
 read-only registry-selection diagnostic that stages a valid-provenance entry into the
 existing candidate-intake path as an INERT candidate (load/execute/install/persist
-still denied; m12-distribution-provenance 225/225). Next M12+ slices: more of the local
-delivery flow (multi-entry registry, chunked delivery). (3) provide real trust inputs (a cryptographically
+still denied; m12-distribution-provenance 225/225). **Slice 3 DONE** (commit e3b34d2):
+multi-entry registry — hold + select-by-hash among many content-addressed entries with
+dedup + capacity bound + tamper rejection (recompute, never trust a stored hash); still
+inert. **Slice 4 DONE** (commit 1fac7b9): chunked delivery — a large artifact arrives as
+ordered content-addressed chunks that reassemble only when every chunk is present AND the
+recomputed whole-sha256 matches the declared target, else fail-closed; the finalized whole
+is still an inert candidate (35 raios-core tests green across Slices 2-4). **Slice 5 DONE:**
+the kernel bridge now selects between two signed local registry entries by hash and stages the
+selected artifact as an inert candidate; its chunked bufecho selftest reassembles out-of-order
+chunks before staging, still grants nothing (`m12-distribution-provenance` 204/204). Next M12+
+slice: real local delivery transport. (3) provide real trust inputs (a cryptographically
 trusted time source, real CA roots, a live second provider) → I finish M10 real
 validation — STILL YOURS. (4) the owner-key sealing ceremony → the FINAL step —
 STILL YOURS. Until then every label stays honestly unverified / dev_key_not_owner_

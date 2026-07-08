@@ -1,12 +1,15 @@
 use alloc::{vec, vec::Vec};
 
 use raios_core::{
+    distribution_provenance::PLACEHOLDER_DISTRIBUTION_PUBLISHER_PUBLIC_KEY_SHA256,
     distribution_registry::{
-        evaluate_distribution_registry_selection, RegistrySelectionDecision,
-        RegistrySelectionReason,
+        evaluate_distribution_registry_selection, ChunkedDeliveryError,
+        ChunkedDistributionChunkInput, ChunkedDistributionDelivery, ChunkedDistributionTarget,
+        DistributionRegistryEntry, RegistrySelectionDecision, RegistrySelectionReason,
     },
     parse_sha256_ref,
     record::Value as V,
+    sha256_bytes,
 };
 
 use crate::{
@@ -14,7 +17,7 @@ use crate::{
         begin_response, emit_record_fields, end_response, method_head_eq, record_bool as b,
         record_field as f, record_sha, record_sha_or_null, record_str as s,
     },
-    distribution_candidate, module_candidate_intake,
+    distribution_candidate, module_candidate_intake, wasm_runtime,
 };
 
 use super::distribution_registry;
@@ -23,6 +26,8 @@ use super::distribution_registry;
 struct RegistrySelectionRun<'a> {
     parse_ok: bool,
     requested_artifact_sha256: Option<[u8; 32]>,
+    registry_entry_count: usize,
+    registry_capacity: usize,
     selection: Option<RegistrySelectionDecision<'a>>,
     entry_reason: Option<RegistrySelectionReason>,
     staged_candidate: Option<module_candidate_intake::ExternalWasmCandidateOutcome>,
@@ -86,6 +91,8 @@ fn run_registry_selection(selector: &str, stage_valid: bool) -> RegistrySelectio
         return RegistrySelectionRun {
             parse_ok: false,
             requested_artifact_sha256: None,
+            registry_entry_count: 0,
+            registry_capacity: 0,
             selection: None,
             entry_reason: None,
             staged_candidate: None,
@@ -93,12 +100,14 @@ fn run_registry_selection(selector: &str, stage_valid: bool) -> RegistrySelectio
         };
     };
 
-    let entry = match distribution_registry::builtin_echo_entry() {
-        Ok(entry) => entry,
+    let registry = match distribution_registry::builtin_registry() {
+        Ok(registry) => registry,
         Err(reason) => {
             return RegistrySelectionRun {
                 parse_ok: true,
                 requested_artifact_sha256: Some(requested_artifact_sha256),
+                registry_entry_count: 0,
+                registry_capacity: 0,
                 selection: None,
                 entry_reason: Some(reason),
                 staged_candidate: None,
@@ -106,12 +115,30 @@ fn run_registry_selection(selector: &str, stage_valid: bool) -> RegistrySelectio
             }
         }
     };
+    let registry_entry_count = registry.len();
+    let registry_capacity = registry.capacity();
 
-    let selection = evaluate_distribution_registry_selection(&entry, requested_artifact_sha256);
+    let selection = match registry.select_by_hash(requested_artifact_sha256) {
+        Ok(selection) => selection,
+        Err(reason) => {
+            return RegistrySelectionRun {
+                parse_ok: true,
+                requested_artifact_sha256: Some(requested_artifact_sha256),
+                registry_entry_count,
+                registry_capacity,
+                selection: None,
+                entry_reason: Some(reason),
+                staged_candidate: None,
+                retained_provenance: None,
+            }
+        }
+    };
     if !stage_valid || !selection.selected_for_candidate_intake {
         return RegistrySelectionRun {
             parse_ok: true,
             requested_artifact_sha256: Some(requested_artifact_sha256),
+            registry_entry_count,
+            registry_capacity,
             selection: Some(selection),
             entry_reason: None,
             staged_candidate: None,
@@ -119,6 +146,18 @@ fn run_registry_selection(selector: &str, stage_valid: bool) -> RegistrySelectio
         };
     }
 
+    let Some(entry) = registry_entry_for_selection(&registry, &selection) else {
+        return RegistrySelectionRun {
+            parse_ok: true,
+            requested_artifact_sha256: Some(requested_artifact_sha256),
+            registry_entry_count,
+            registry_capacity,
+            selection: Some(selection),
+            entry_reason: Some(RegistrySelectionReason::RegistryEntryNotFound),
+            staged_candidate: None,
+            retained_provenance: None,
+        };
+    };
     let staged_candidate = module_candidate_intake::intake_and_retain_external_wasm_candidate(
         Vec::from(entry.artifact_bytes),
     );
@@ -129,6 +168,8 @@ fn run_registry_selection(selector: &str, stage_valid: bool) -> RegistrySelectio
     RegistrySelectionRun {
         parse_ok: true,
         requested_artifact_sha256: Some(requested_artifact_sha256),
+        registry_entry_count,
+        registry_capacity,
         selection: Some(selection),
         entry_reason: None,
         staged_candidate: Some(staged_candidate),
@@ -136,11 +177,32 @@ fn run_registry_selection(selector: &str, stage_valid: bool) -> RegistrySelectio
     }
 }
 
-fn registry_selection_selftest_cases() -> [SelftestCase; 3] {
-    let valid = run_registry_selection(
+fn registry_entry_for_selection<'a>(
+    registry: &'a raios_core::distribution_registry::DistributionRegistry<'a>,
+    selection: &RegistrySelectionDecision<'_>,
+) -> Option<DistributionRegistryEntry<'a>> {
+    let mut idx = 0usize;
+    while idx < registry.len() {
+        if let Some(entry) = registry.get(idx) {
+            if entry.artifact_sha256 == selection.artifact_sha256 {
+                return Some(*entry);
+            }
+        }
+        idx += 1;
+    }
+    None
+}
+
+fn registry_selection_selftest_cases() -> [SelftestCase; 5] {
+    let valid_echo = run_registry_selection(
         "sha256:f81f9442de3729f58f9d5c43b186a4223e3f0ed0bdde20e94722da8d5733abd2",
         true,
     );
+    let valid_bufecho = run_registry_selection(
+        "sha256:1983797d9ecc6f3f85deedc0c82a8651062f01dc80710ee699e834a51c52e544",
+        true,
+    );
+    let chunked_bufecho = chunked_bufecho_selftest_case();
     let wrong_hash = run_registry_selection(
         "sha256:0000000000000000000000000000000000000000000000000000000000000000",
         true,
@@ -149,17 +211,25 @@ fn registry_selection_selftest_cases() -> [SelftestCase; 3] {
 
     [
         selftest_case(
-            "valid_registry_selection_stages_inert_candidate",
-            &valid,
+            "valid_echo_registry_selection_stages_inert_candidate",
+            &valid_echo,
             "selected",
             "registry_entry_selected_for_inert_candidate_intake",
             true,
         ),
         selftest_case(
+            "valid_bufecho_registry_selection_stages_inert_candidate",
+            &valid_bufecho,
+            "selected",
+            "registry_entry_selected_for_inert_candidate_intake",
+            true,
+        ),
+        chunked_bufecho,
+        selftest_case(
             "wrong_hash_denied_without_staging",
             &wrong_hash,
             "denied",
-            "selection_hash_mismatch",
+            "registry_entry_not_found",
             false,
         ),
         selftest_case(
@@ -170,6 +240,110 @@ fn registry_selection_selftest_cases() -> [SelftestCase; 3] {
             false,
         ),
     ]
+}
+
+fn chunked_bufecho_selftest_case() -> SelftestCase {
+    match run_chunked_bufecho_selection() {
+        Ok((selection, staged_candidate, retained_provenance)) => {
+            let staged = staged_candidate.retained_in_ram
+                && staged_candidate.wasm_valid
+                && !staged_candidate.rejected;
+            let retained_provenance_verified = retained_provenance.provenance_verified;
+            SelftestCase {
+                name: "chunked_bufecho_delivery_stages_inert_candidate",
+                passed: selection.status == "selected"
+                    && selection.reason.as_str()
+                        == "registry_entry_selected_for_inert_candidate_intake"
+                    && selection.selected_for_candidate_intake
+                    && staged
+                    && retained_provenance_verified
+                    && !selection.authorizes_load
+                    && !selection.authorizes_execute
+                    && !selection.authorizes_persist,
+                status: selection.status,
+                reason: selection.reason.as_str(),
+                selected_for_candidate_intake: selection.selected_for_candidate_intake,
+                staged,
+                retained_provenance_verified,
+                authorizes_load: selection.authorizes_load,
+                authorizes_execute: selection.authorizes_execute,
+                authorizes_persist: selection.authorizes_persist,
+            }
+        }
+        Err(reason) => SelftestCase {
+            name: "chunked_bufecho_delivery_stages_inert_candidate",
+            passed: false,
+            status: "denied",
+            reason,
+            selected_for_candidate_intake: false,
+            staged: false,
+            retained_provenance_verified: false,
+            authorizes_load: false,
+            authorizes_execute: false,
+            authorizes_persist: false,
+        },
+    }
+}
+
+fn run_chunked_bufecho_selection() -> Result<
+    (
+        RegistrySelectionDecision<'static>,
+        module_candidate_intake::ExternalWasmCandidateOutcome,
+        distribution_candidate::DistributionCandidateOutcome,
+    ),
+    &'static str,
+> {
+    let bytes = wasm_runtime::BUFECHO_WASM_ARTIFACT_BYTES;
+    let first_end = bytes.len() / 3;
+    let second_end = (bytes.len() * 2) / 3;
+    let mut delivery = ChunkedDistributionDelivery::new(ChunkedDistributionTarget {
+        entry_id: distribution_registry::BUILTIN_BUFECHO_REGISTRY_ENTRY_ID,
+        content_sha256: wasm_runtime::BUFECHO_WASM_ARTIFACT_BYTES_HASH,
+        total_length: bytes.len(),
+        chunk_count: 3,
+        provenance_signature_der: Some(
+            distribution_registry::BUILTIN_BUFECHO_PROVENANCE_SIGNATURE_DER,
+        ),
+        publisher_key_sha256: PLACEHOLDER_DISTRIBUTION_PUBLISHER_PUBLIC_KEY_SHA256,
+        classification: "local_only",
+    });
+    for (index, chunk) in [
+        (2usize, &bytes[second_end..]),
+        (0usize, &bytes[..first_end]),
+        (1usize, &bytes[first_end..second_end]),
+    ] {
+        delivery
+            .accept_chunk(ChunkedDistributionChunkInput {
+                index,
+                bytes: chunk,
+                claimed_chunk_sha256: sha256_bytes(chunk),
+            })
+            .map_err(ChunkedDeliveryError::as_str)?;
+    }
+
+    let mut reassembled = vec![0u8; bytes.len()];
+    let entry = delivery
+        .try_finalize(&mut reassembled)
+        .map_err(ChunkedDeliveryError::as_str)?;
+    let selection = evaluate_distribution_registry_selection(&entry, entry.artifact_sha256);
+    if !selection.selected_for_candidate_intake {
+        return Err(selection.reason.as_str());
+    }
+    let staged_candidate = module_candidate_intake::intake_and_retain_external_wasm_candidate(
+        Vec::from(entry.artifact_bytes),
+    );
+    let retained_provenance = distribution_candidate::verify_retained_candidate_provenance(
+        entry.provenance_signature_der,
+    );
+
+    Ok((
+        RegistrySelectionDecision {
+            entry_id: distribution_registry::BUILTIN_BUFECHO_REGISTRY_ENTRY_ID,
+            ..selection
+        },
+        staged_candidate,
+        retained_provenance,
+    ))
 }
 
 fn selftest_case(
@@ -240,6 +414,11 @@ fn record_run<'a>(
             "requested_artifact_sha256",
             record_sha_or_null(run.requested_artifact_sha256),
         ),
+        f(
+            "registry_entry_count",
+            V::U64(run.registry_entry_count as u64),
+        ),
+        f("registry_capacity", V::U64(run.registry_capacity as u64)),
         f("status", s(run_status(run))),
         f("reason", s(run_reason(run))),
         f(
@@ -250,7 +429,7 @@ fn record_run<'a>(
         ),
         f(
             "entry_id",
-            s(distribution_registry::BUILTIN_ECHO_REGISTRY_ENTRY_ID),
+            s(selection.map(|s| s.entry_id).unwrap_or("none")),
         ),
         f(
             "staged_candidate",

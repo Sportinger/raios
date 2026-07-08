@@ -24,6 +24,24 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+M12+ Slice 5 done (2026-07-09) — kernel bridge for multi-entry + chunked local
+distribution. A user/agent can now select between two dev-publisher-signed local
+registry entries (`svc.demo.echo` and `svc.demo.bufecho`) by content hash through
+the in-kernel bounded registry; a valid selection stages exactly that artifact
+into the existing inert current-boot candidate intake, and the chunked bufecho
+selftest reassembles out-of-order chunks only after per-chunk and whole-artifact
+hash verification before staging. Misses fail closed as `registry_entry_not_found`.
+This grants no acquisition/install/load/execute/persist/network/durable-write
+authority; provenance remains origin evidence only and M6/M7 re-verification is
+still required for any future load. Verified: touched-file rustfmt check;
+`cargo test --locked -p raios-core` (300 passed); release seed-kernel build; focused
+VM `m12-distribution-provenance` report
+`release/vm-reports/shadow-20260709-013326-2688.json` 204/204 predicates,
+26 executed commands, `duration_ms: 73069`, report sha256
+`0c92db2bce5c4bdba0ed9a1cfd23f98a87377be93220b658a27c4a4d4ba8d6bd`.
+Full+recovery remain deferred to the M12+ block close per the aggressive-fast
+cadence.
+
 M12+ Slice 2 done (2026-07-08) — ADR 0009 Option A, a LOCAL content-addressed
 registry. Phase A (commit 4e1acf7, raios-core): a typed registry entry model +
 selection evaluator — the constructor RECOMPUTES sha256 from bytes and fail-closed
