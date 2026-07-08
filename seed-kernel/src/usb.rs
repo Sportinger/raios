@@ -120,7 +120,7 @@ const MAX_HID_DEVICES: usize = 16;
 const MAX_SLOTS: usize = 32;
 const MAX_SCRATCHPADS: usize = 64;
 const CONTEXT_BYTES: usize = 4096;
-const CONTROL_BUFFER_LEN: usize = 256;
+const CONTROL_BUFFER_LEN: usize = 1024;
 const KEYBOARD_REPORT_LEN: usize = 8;
 const MOUSE_REPORT_LEN: usize = 4;
 const TABLET_REPORT_LEN: usize = 8;
@@ -149,6 +149,10 @@ pub struct UsbSnapshot {
     pub hub_reset_ports: u8,
     pub hub_configured_devices: u8,
     pub hub_last_error: Option<&'static str>,
+    pub last_enum_error: Option<&'static str>,
+    pub last_device_vid: u16,
+    pub last_device_pid: u16,
+    pub last_device_class: u8,
     pub last_hotplug_seq: u32,
     pub last_hotplug_present: bool,
     pub last_hotplug_connected: bool,
@@ -227,6 +231,10 @@ impl UsbState {
                 hub_reset_ports: 0,
                 hub_configured_devices: 0,
                 hub_last_error: None,
+                last_enum_error: None,
+                last_device_vid: 0,
+                last_device_pid: 0,
+                last_device_class: 0,
                 last_hotplug_seq: 0,
                 last_hotplug_present: false,
                 last_hotplug_connected: false,
@@ -304,6 +312,10 @@ pub fn snapshot() -> UsbSnapshot {
             .keyboard_report_count
             .saturating_add(controller.mouse_report_count);
         snapshot.input_error_count = controller.transfer_error_count;
+        snapshot.last_enum_error = controller.last_enum_error;
+        snapshot.last_device_vid = controller.last_device_vid;
+        snapshot.last_device_pid = controller.last_device_pid;
+        snapshot.last_device_class = controller.last_device_class;
     }
     snapshot
 }
@@ -369,6 +381,10 @@ unsafe fn probe_xhci() -> (UsbSnapshot, Option<XhciController>) {
                 hub_reset_ports: 0,
                 hub_configured_devices: 0,
                 hub_last_error: None,
+                last_enum_error: None,
+                last_device_vid: 0,
+                last_device_pid: 0,
+                last_device_class: 0,
                 last_hotplug_seq: 0,
                 last_hotplug_present: false,
                 last_hotplug_connected: false,
@@ -467,6 +483,10 @@ unsafe fn probe_xhci() -> (UsbSnapshot, Option<XhciController>) {
                 hub_reset_ports: controller.hub_reset_ports,
                 hub_configured_devices: controller.hub_configured_devices,
                 hub_last_error: controller.hub_last_error,
+                last_enum_error: controller.last_enum_error,
+                last_device_vid: controller.last_device_vid,
+                last_device_pid: controller.last_device_pid,
+                last_device_class: controller.last_device_class,
                 last_hotplug_seq: controller.hotplug.seq,
                 last_hotplug_present: controller.hotplug.present,
                 last_hotplug_connected: controller.hotplug.connected,
@@ -510,6 +530,10 @@ fn error_snapshot(address: PciAddress, error: &'static str) -> UsbSnapshot {
         hub_reset_ports: 0,
         hub_configured_devices: 0,
         hub_last_error: None,
+        last_enum_error: None,
+        last_device_vid: 0,
+        last_device_pid: 0,
+        last_device_class: 0,
         last_hotplug_seq: 0,
         last_hotplug_present: false,
         last_hotplug_connected: false,
@@ -558,6 +582,10 @@ fn refresh_snapshot_from_controller(snapshot: &mut UsbSnapshot, controller: &Xhc
     snapshot.hub_reset_ports = controller.hub_reset_ports;
     snapshot.hub_configured_devices = controller.hub_configured_devices;
     snapshot.hub_last_error = controller.hub_last_error;
+    snapshot.last_enum_error = controller.last_enum_error;
+    snapshot.last_device_vid = controller.last_device_vid;
+    snapshot.last_device_pid = controller.last_device_pid;
+    snapshot.last_device_class = controller.last_device_class;
     snapshot.last_hotplug_seq = controller.hotplug.seq;
     snapshot.last_hotplug_present = controller.hotplug.present;
     snapshot.last_hotplug_connected = controller.hotplug.connected;
@@ -719,6 +747,10 @@ struct XhciController {
     hub_reset_ports: u8,
     hub_configured_devices: u8,
     hub_last_error: Option<&'static str>,
+    last_enum_error: Option<&'static str>,
+    last_device_vid: u16,
+    last_device_pid: u16,
+    last_device_class: u8,
     next_device_index: usize,
     root_connected_mask: u32,
     hub_watches: [HubWatch; MAX_HUB_WATCHES],
@@ -1061,6 +1093,10 @@ impl XhciController {
             hub_reset_ports: 0,
             hub_configured_devices: 0,
             hub_last_error: None,
+            last_enum_error: None,
+            last_device_vid: 0,
+            last_device_pid: 0,
+            last_device_class: 0,
             next_device_index: 0,
             root_connected_mask: 0,
             hub_watches: [HubWatch::none(); MAX_HUB_WATCHES],
@@ -1136,6 +1172,13 @@ impl XhciController {
         mask
     }
 
+    fn clear_last_enumerated_device(&mut self) {
+        self.last_enum_error = None;
+        self.last_device_vid = 0;
+        self.last_device_pid = 0;
+        self.last_device_class = 0;
+    }
+
     unsafe fn initialise_hid_devices(&mut self) -> Result<(), &'static str> {
         self.power_root_ports();
         let mut wait_round = 0usize;
@@ -1158,6 +1201,7 @@ impl XhciController {
                 break;
             }
 
+            self.clear_last_enumerated_device();
             match self.reset_port(port) {
                 Ok(port_info) => match self.enumerate_device(port_info, &mut next_device_index) {
                     Ok(kind) => {
@@ -1172,10 +1216,12 @@ impl XhciController {
                             "usb-hid: port {} skipped: {}\r\n",
                             port, err
                         ));
+                        self.last_enum_error = Some(err);
                     }
                 },
                 Err(err) => {
                     serial::write_fmt(format_args!("usb-xhci: port {} reset: {}\r\n", port, err));
+                    self.last_enum_error = Some(err);
                 }
             }
 
@@ -1261,6 +1307,13 @@ impl XhciController {
         address_result?;
 
         let device_desc = self.get_device_descriptor()?;
+        self.last_device_vid = u16::from_le_bytes([device_desc[8], device_desc[9]]);
+        self.last_device_pid = u16::from_le_bytes([device_desc[10], device_desc[11]]);
+        self.last_device_class = device_desc[4];
+        serial::write_fmt(format_args!(
+            "usb-hid: device VID:PID {:04x}:{:04x} class {:02x}\r\n",
+            self.last_device_vid, self.last_device_pid, self.last_device_class
+        ));
         let ep0_mps = descriptor_ep0_mps(port.speed, device_desc[7]);
         if ep0_mps != default_ep0_mps(port.speed) {
             serial::write_fmt(format_args!(
@@ -1289,14 +1342,29 @@ impl XhciController {
             0,
         )?;
         if endpoint.kind.uses_boot_protocol() {
-            self.control_no_data(
+            if self
+                .control_no_data(
+                    0x21,
+                    HID_REQ_SET_PROTOCOL,
+                    0,
+                    endpoint.interface_number as u16,
+                )
+                .is_err()
+            {
+                serial::write_line("usb-hid: set-protocol stalled (ignored)");
+            }
+        }
+        if self
+            .control_no_data(
                 0x21,
-                HID_REQ_SET_PROTOCOL,
+                HID_REQ_SET_IDLE,
                 0,
                 endpoint.interface_number as u16,
-            )?;
+            )
+            .is_err()
+        {
+            serial::write_line("usb-hid: set-idle stalled (ignored)");
         }
-        self.control_no_data(0x21, HID_REQ_SET_IDLE, 0, endpoint.interface_number as u16)?;
 
         self.configure_interrupt_endpoint(device_index, slot_id, port, endpoint)?;
         serial::write_fmt(format_args!(
@@ -1750,9 +1818,13 @@ impl XhciController {
         if self.next_device_index >= MAX_HID_DEVICES {
             return ("device storage exhausted", true);
         }
+        self.clear_last_enumerated_device();
         match self.reset_port(port) {
             Ok(port_info) => self.enumerate_hotplug_device(port_info),
-            Err(err) => (err, true),
+            Err(err) => {
+                self.last_enum_error = Some(err);
+                (err, true)
+            }
         }
     }
 
@@ -1808,7 +1880,10 @@ impl XhciController {
                 let _ = self.queue_mouse_report();
                 (kind.as_str(), false)
             }
-            Err(err) => (err, true),
+            Err(err) => {
+                self.last_enum_error = Some(err);
+                (err, true)
+            }
         }
     }
 

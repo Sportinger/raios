@@ -4,6 +4,8 @@ use core::str;
 use crate::framebuffer::FramebufferInfo;
 use crate::{entropy, input, net, usb, wifi};
 
+pub const STATUS_DETAIL_LEN: usize = 192;
+
 #[derive(Clone, Copy)]
 pub struct RuntimeStatus {
     pub framebuffer: Option<FramebufferInfo>,
@@ -75,11 +77,11 @@ pub struct SnapshotStates {
 pub struct StatusLine {
     pub label: &'static str,
     pub state: RowState,
-    pub detail: TextBuf<128>,
+    pub detail: TextBuf<STATUS_DETAIL_LEN>,
 }
 
 impl StatusLine {
-    fn new(label: &'static str, state: RowState, detail: TextBuf<128>) -> Self {
+    fn new(label: &'static str, state: RowState, detail: TextBuf<STATUS_DETAIL_LEN>) -> Self {
         Self {
             label,
             state,
@@ -193,13 +195,14 @@ fn usb_xhci_line() -> StatusLine {
                 None
             };
             let hid_detail = snapshot.hub_last_error.or(hid_detail).unwrap_or("OK");
+            let last_enum = usb_last_enum_detail(snapshot);
             if snapshot.hub_count > 0 {
                 if snapshot.last_completion_code != 0 {
                     StatusLine::new(
                         "USB-XHCI",
                         RowState::Ready,
                         detail(format_args!(
-                            "{} HCI {:04X} ROOT {}/{} PWR {} HUB {} {}P {}C {}R {}D KBD {} MOUSE {} EV {} ERR {} TCC {} CMD {} CC {} {}",
+                            "{} HCI {:04X} ROOT {}/{} PWR {} HUB {} {}P {}C {}R {}D KBD {} MOUSE {} EV {} ERR {} TCC {} CMD {} CC {} {}{}",
                             address.as_str(),
                             snapshot.hci_version,
                             snapshot.connected_ports,
@@ -217,7 +220,8 @@ fn usb_xhci_line() -> StatusLine {
                             snapshot.last_transfer_completion_code,
                             snapshot.last_command_type,
                             snapshot.last_completion_code,
-                            hid_detail
+                            hid_detail,
+                            last_enum.as_str()
                         )),
                     )
                 } else {
@@ -225,7 +229,7 @@ fn usb_xhci_line() -> StatusLine {
                         "USB-XHCI",
                         RowState::Ready,
                         detail(format_args!(
-                            "{} HCI {:04X} ROOT {}/{} PWR {} HUB {} {}P {}C {}R {}D KBD {} MOUSE {} EV {} ERR {} TCC {} {}",
+                            "{} HCI {:04X} ROOT {}/{} PWR {} HUB {} {}P {}C {}R {}D KBD {} MOUSE {} EV {} ERR {} TCC {} {}{}",
                             address.as_str(),
                             snapshot.hci_version,
                             snapshot.connected_ports,
@@ -241,7 +245,8 @@ fn usb_xhci_line() -> StatusLine {
                             snapshot.input_report_count,
                             snapshot.input_error_count,
                             snapshot.last_transfer_completion_code,
-                            hid_detail
+                            hid_detail,
+                            last_enum.as_str()
                         )),
                     )
                 }
@@ -250,7 +255,7 @@ fn usb_xhci_line() -> StatusLine {
                     "USB-XHCI",
                     RowState::Ready,
                     detail(format_args!(
-                        "{} HCI {:04X} PORTS {} PWR {} CONNECTED {} KBD {} MOUSE {} EV {} ERR {} TCC {} HID {}",
+                        "{} HCI {:04X} PORTS {} PWR {} CONNECTED {} KBD {} MOUSE {} EV {} ERR {} TCC {} HID {}{}",
                         address.as_str(),
                         snapshot.hci_version,
                         snapshot.max_ports,
@@ -261,12 +266,29 @@ fn usb_xhci_line() -> StatusLine {
                         snapshot.input_report_count,
                         snapshot.input_error_count,
                         snapshot.last_transfer_completion_code,
-                        hid_detail
+                        hid_detail,
+                        last_enum.as_str()
                     )),
                 )
             }
         }
     }
+}
+
+fn usb_last_enum_detail(snapshot: usb::UsbSnapshot) -> TextBuf<96> {
+    let mut line = TextBuf::new();
+    if snapshot.keyboard_status == usb::UsbKeyboardStatus::Ready
+        && snapshot.mouse_status == usb::UsbMouseStatus::Ready
+    {
+        return line;
+    }
+    if let Some(error) = snapshot.last_enum_error {
+        let _ = line.write_fmt(format_args!(
+            " LAST {:04X}:{:04X} CLS {:02X} {}",
+            snapshot.last_device_vid, snapshot.last_device_pid, snapshot.last_device_class, error
+        ));
+    }
+    line
 }
 
 fn usb_keyboard_status(status: usb::UsbKeyboardStatus) -> &'static str {
@@ -481,7 +503,7 @@ fn input_line(runtime: RuntimeStatus) -> StatusLine {
     }
 }
 
-fn append_entropy_sources(buffer: &mut TextBuf<128>, stats: entropy::EntropyStats) {
+fn append_entropy_sources(buffer: &mut TextBuf<STATUS_DETAIL_LEN>, stats: entropy::EntropyStats) {
     let mut wrote = false;
     if stats.used_rdrand {
         buffer.push_str("RDRAND");
@@ -492,7 +514,7 @@ fn append_entropy_sources(buffer: &mut TextBuf<128>, stats: entropy::EntropyStat
     }
 }
 
-fn detail(args: fmt::Arguments<'_>) -> TextBuf<128> {
+fn detail(args: fmt::Arguments<'_>) -> TextBuf<STATUS_DETAIL_LEN> {
     let mut buffer = TextBuf::new();
     let _ = buffer.write_fmt(args);
     buffer
