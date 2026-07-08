@@ -93,7 +93,9 @@ not the first step.
    its own milestone, not a prerequisite for the module system:
    - Slice 1: parse the DMAR ACPI table, detect the remapping unit(s), map their
      registers, read + report capability (grants nothing; VM-testable with QEMU
-     `-device intel-iommu`).
+     `-device intel-iommu`). **DONE (2026-07-08)** — and confirmed on-metal that the
+     Surface Pro 4 EXPOSES VT-d: `VT-d PRESENT ver=0x10 drhd=2 remap=DISABLED
+     (detect-only)`, so Slices 2-3 are worth building for this device.
    - Slice 2: per-device domains + second-level I/O page tables for a single
      device's granted DMA buffers (no enforcement yet).
    - Slice 3: enable DMA remapping + fault handling; flip a driver's DMA grant
