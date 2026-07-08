@@ -130,6 +130,26 @@ function Send-AgentCommandTagged {
     Send-AgentCommand -Command $Command -ExpectedMarker $ExpectedMarker -Name "${Prefix}:$Name"
 }
 
+function Send-AgentCommandTaggedPaced {
+    param(
+        [string]$Prefix,
+        [string]$Command,
+        [string]$ExpectedMarker,
+        [string]$Name
+    )
+    $oldChunkSize = $script:SerialWriteChunkSize
+    $oldDelayMilliseconds = $script:SerialWriteDelayMilliseconds
+    try {
+        $script:SerialWriteChunkSize = 32
+        $script:SerialWriteDelayMilliseconds = 10
+        Send-AgentCommandTagged -Prefix $Prefix -Command $Command -ExpectedMarker $ExpectedMarker -Name $Name
+    }
+    finally {
+        $script:SerialWriteChunkSize = $oldChunkSize
+        $script:SerialWriteDelayMilliseconds = $oldDelayMilliseconds
+    }
+}
+
 function Send-CandidateBytesTagged {
     param(
         [string]$Prefix,
@@ -180,6 +200,164 @@ function Invoke-PersistTool {
         throw "Persist image tool failed ($($Arguments -join ' ')): $($result.Output -join [Environment]::NewLine)"
     }
     return ($result.Output -join [Environment]::NewLine) | ConvertFrom-Json
+}
+
+function Assert-Boot1MemoryAppend {
+    param(
+        [string]$Label,
+        $Record,
+        [string]$GoldenPayloadSha256
+    )
+    $appendOk = (
+        $Record -and
+        $Record.durable_append -eq "appended" -and
+        [bool]$Record.performed
+    )
+    Assert-ReportPredicate -Prefix "boot1" -Name "mem-record-$Label-appended" -Expected "durable_append == appended and performed == true" -Passed $appendOk -Actual $(if ($appendOk) { "matched" } else { Convert-CompactJson $Record 10 }) -FailureMessage "Expected memory record $Label to append"
+
+    $goldenOk = ($Record -and $Record.payload_sha256 -eq $GoldenPayloadSha256)
+    Assert-ReportPredicate -Prefix "boot1" -Name "mem-record-$Label-payload-golden" -Expected "payload_sha256 == $GoldenPayloadSha256" -Passed $goldenOk -Actual $(if ($goldenOk) { "matched" } else { [string]$Record.payload_sha256 }) -FailureMessage "Expected memory record $Label payload_sha256 to match the pinned golden"
+}
+
+function Invoke-Boot1DurableMemoryWrites {
+    param([string]$Prefix)
+
+    $observationBlob = "dm0uc21va2Uub2JzZXJ2YXRpb24Kb2JzZXJ2ZWQKYWdlbnQgYXV0aG9yZWQgZHVyYWJsZSBvYnNlcnZhdGlvbiB2aWEgbWVtb3J5Lm9ic2VydmF0aW9uX2xvZ19hcHBlbmQKdm0uc21va2UubWVtb3J5LWFnZW50LW9ic2VydmF0aW9u"
+
+    Send-AgentCommandTagged -Prefix $Prefix -Command "agent memory.record_log_append" -ExpectedMarker "RAIOS_AGENT_END memory.record_log_append" -Name "mem-record-Z-send"
+    $z = (Get-LastAgentResponseJson -Method "memory.record_log_append").body.result
+    Assert-Boot1MemoryAppend -Label "Z" -Record $z -GoldenPayloadSha256 "sha256:1e0d230ecc56b4a970dd09c6ab6bbc10748aa369934dc9fa412a1f0e1a77ba8f"
+
+    Send-AgentCommandTagged -Prefix $Prefix -Command "agent memory.decision_problem_log_append" -ExpectedMarker "RAIOS_AGENT_END memory.decision_problem_log_append" -Name "mem-record-APB-send"
+    $decisionProblem = (Get-LastAgentResponseJson -Method "memory.decision_problem_log_append").body.result
+    $records = @($decisionProblem.records)
+    Assert-Boot1MemoryAppend -Label "A" -Record $records[0] -GoldenPayloadSha256 "sha256:9b39ac7309d7b63c95062c78d8c02bb717f25a589c437a54b627598c24198cb0"
+    Assert-Boot1MemoryAppend -Label "P" -Record $records[1] -GoldenPayloadSha256 "sha256:3b010268c4e45a30bb79fee27f4cf07cead1a4542709fdc1ca9c195a7ee9a249"
+    Assert-Boot1MemoryAppend -Label "B" -Record $records[2] -GoldenPayloadSha256 "sha256:5f27b06d961fe866f7c025a5a4b7ee3ffb76ee6e51db111f437c73647bb7a262"
+
+    Send-AgentCommandTaggedPaced -Prefix $Prefix -Command "agent memory.observation_log_append $observationBlob" -ExpectedMarker "RAIOS_AGENT_END memory.observation_log_append" -Name "mem-record-obs-send"
+    $observation = (Get-LastAgentResponseJson -Method "memory.observation_log_append").body.result
+    Assert-Boot1MemoryAppend -Label "obs" -Record $observation -GoldenPayloadSha256 "sha256:75ea5ab92fc9dafe908bae204e5a357947e47ba7e231aaddc0c19854288e198d"
+
+    Send-AgentCommandTagged -Prefix $Prefix -Command "agent durable.record_log_scan" -ExpectedMarker "RAIOS_AGENT_END durable.record_log_scan" -Name "mem-scan-final"
+    $scan = (Get-LastAgentResponseJson -Method "durable.record_log_scan").body.result
+    $captured = (
+        $scan.schema -eq "raios.durable_record_log_scan.v0" -and
+        $scan.status -eq "valid" -and
+        [int64]$scan.count -gt 0 -and
+        [int64]$scan.tail_seq -gt 0 -and
+        [int64]$scan.head_seq -eq 1 -and
+        $null -ne $scan.head_frame_sha256 -and
+        $null -ne $scan.tail_frame_sha256
+    )
+    Assert-ReportPredicate -Prefix $Prefix -Name "mem-scan-captured" -Expected "final boot-1 RECLOG scan captured count/tail/head/tail frame hashes" -Passed $captured -Actual $(if ($captured) { "count=$($scan.count) tail_seq=$($scan.tail_seq)" } else { Convert-CompactJson $scan 10 }) -FailureMessage "Expected boot 1 final memory scan capture"
+    return [pscustomobject]@{
+        CountFinal = [int64]$scan.count
+        TailSeqFinal = [int64]$scan.tail_seq
+        HeadSeq = [int64]$scan.head_seq
+        HeadFrameSha256 = [string]$scan.head_frame_sha256
+        TailFrameSha256 = [string]$scan.tail_frame_sha256
+    }
+}
+
+function Get-DurableRecordById {
+    param(
+        $Records,
+        [string]$Id
+    )
+    $matches = @($Records | Where-Object { $_.id -eq $Id })
+    if ($matches.Count -gt 0) { return $matches[0] }
+    return $null
+}
+
+function Get-DurableRecordIndex {
+    param(
+        $Records,
+        [string]$Id
+    )
+    $recordArray = @($Records)
+    for ($i = 0; $i -lt $recordArray.Count; $i += 1) {
+        if ($recordArray[$i].id -eq $Id) { return $i }
+    }
+    return -1
+}
+
+function Assert-Boot2MemorySurvives {
+    param(
+        [string]$Prefix,
+        [object]$Boot1MemoryScan
+    )
+
+    Send-AgentCommandTagged -Prefix $Prefix -Command "agent durable.record_log_scan" -ExpectedMarker "RAIOS_AGENT_END durable.record_log_scan" -Name "mem-reclog-scan"
+    $scan = (Get-LastAgentResponseJson -Method "durable.record_log_scan").body.result
+
+    $countSurvives = ([int64]$scan.count -eq [int64]$Boot1MemoryScan.CountFinal)
+    Assert-ReportPredicate -Prefix $Prefix -Name "mem-reclog-count-survives" -Expected "boot-2 RECLOG count equals boot-1 final count" -Passed $countSurvives -Actual "boot2=$($scan.count) boot1=$($Boot1MemoryScan.CountFinal)" -FailureMessage "Boot 2 RECLOG count did not match boot 1"
+
+    $tailSeqContinues = (
+        [int64]$scan.tail_seq -eq [int64]$Boot1MemoryScan.TailSeqFinal -and
+        [int64]$scan.head_seq -eq 1
+    )
+    Assert-ReportPredicate -Prefix $Prefix -Name "mem-reclog-tailseq-continues" -Expected "tail_seq equals boot-1 final tail_seq and head_seq == 1" -Passed $tailSeqContinues -Actual "tail_seq=$($scan.tail_seq) head_seq=$($scan.head_seq)" -FailureMessage "Boot 2 RECLOG sequence endpoints did not match boot 1"
+
+    $chainValid = ($scan.status -eq "valid")
+    Assert-ReportPredicate -Prefix $Prefix -Name "mem-reclog-chain-valid" -Expected 'durable.record_log_scan status == "valid"' -Passed $chainValid -Actual $scan.status -FailureMessage "Boot 2 RECLOG chain was not valid"
+
+    $endpointsIdentical = (
+        [string]$scan.head_frame_sha256 -eq [string]$Boot1MemoryScan.HeadFrameSha256 -and
+        [string]$scan.tail_frame_sha256 -eq [string]$Boot1MemoryScan.TailFrameSha256
+    )
+    Assert-ReportPredicate -Prefix $Prefix -Name "mem-reclog-endpoints-byte-identical" -Expected "head/tail frame sha256 equal boot-1 final scan" -Passed $endpointsIdentical -Actual "head=$($scan.head_frame_sha256) tail=$($scan.tail_frame_sha256)" -FailureMessage "Boot 2 RECLOG endpoint frame hashes differed from boot 1"
+
+    Send-AgentCommandTagged -Prefix $Prefix -Command "agent memory.context" -ExpectedMarker "RAIOS_AGENT_END memory.context" -Name "mem-broker-context"
+    $contextResponse = Get-LastAgentResponseJson -Method "memory.context"
+    $context = $contextResponse.body.result
+    $records = @($context.durable_records)
+    $omitted = @($context.omitted)
+
+    $zId = "mem.capability_denial.module_load_ephemeral_durable.current_boot.v0"
+    $aId = "mem.decision.module_sharing_confirmed_vision.current_boot.v0"
+    $pRecId = "mem.problem.memory_mutation_denied.current_boot.v0"
+    $bId = "mem.decision.module_sharing_evidence_gated.current_boot.v0"
+    $obsId = "mem.observation.agent.current_boot.00000001.v0"
+
+    $visibleIds = @($records | ForEach-Object { [string]$_.id })
+    $visibleSet = (
+        $visibleIds -contains $zId -and
+        $visibleIds -contains $pRecId -and
+        $visibleIds -contains $bId -and
+        $visibleIds -contains $obsId -and
+        -not ($visibleIds -contains $aId)
+    )
+    Assert-ReportPredicate -Prefix $Prefix -Name "mem-broker-visible-set" -Expected "Z/P/B/obs visible in durable_records and A hidden" -Passed $visibleSet -Actual $(if ($visibleSet) { "matched" } else { $visibleIds -join "," }) -FailureMessage "Boot 2 memory.context visible durable set was wrong"
+
+    $supersededFold = @($omitted | Where-Object { $_.kind -eq "durable_superseded" })[0]
+    $supersededIds = if ($supersededFold) { @($supersededFold.ids) } else { @() }
+    $aHidden = ($supersededIds -contains $aId)
+    Assert-ReportPredicate -Prefix $Prefix -Name "mem-broker-A-hidden-by-B" -Expected "A id appears in durable_superseded omitted fold" -Passed $aHidden -Actual $(if ($aHidden) { "matched" } else { Convert-CompactJson $omitted 12 }) -FailureMessage "Boot 2 broker did not fold A as superseded"
+
+    $zRecord = Get-DurableRecordById -Records $records -Id $zId
+    $zAuditVisible = ($zRecord -and $zRecord.kind -eq "capability_denial")
+    Assert-ReportPredicate -Prefix $Prefix -Name "mem-broker-audit-Z-visible" -Expected 'Z visible with kind == "capability_denial"' -Passed $zAuditVisible -Actual $(if ($zAuditVisible) { "matched" } else { Convert-CompactJson $zRecord 8 }) -FailureMessage "Boot 2 broker did not expose Z audit denial"
+
+    $idxZ = Get-DurableRecordIndex -Records $records -Id $zId
+    $idxP = Get-DurableRecordIndex -Records $records -Id $pRecId
+    $idxB = Get-DurableRecordIndex -Records $records -Id $bId
+    $idxObs = Get-DurableRecordIndex -Records $records -Id $obsId
+    $frameSeqRanked = ($idxZ -ge 0 -and $idxP -gt $idxZ -and $idxB -gt $idxP -and $idxObs -gt $idxB)
+    Assert-ReportPredicate -Prefix $Prefix -Name "mem-broker-frameseq-ranked" -Expected "durable_records are ordered by frame seq as Z,P,B,obs after A is superseded" -Passed $frameSeqRanked -Actual "Z=$idxZ P=$idxP B=$idxB obs=$idxObs" -FailureMessage "Boot 2 broker durable records were not frame-seq ranked"
+
+    $classificationOk = ($records.Count -gt 0)
+    foreach ($record in $records) {
+        if ($record.classification -ne "local_only" -or $record.exportable -ne $false) {
+            $classificationOk = $false
+            break
+        }
+    }
+    Assert-ReportPredicate -Prefix $Prefix -Name "mem-broker-classification" -Expected "every durable record is local_only and exportable == false" -Passed $classificationOk -Actual $(if ($classificationOk) { "matched" } else { Convert-CompactJson $records 12 }) -FailureMessage "Boot 2 broker durable record classification/export flags were wrong"
+
+    $exportClosed = ($context.provider_export -eq "disabled")
+    Assert-ReportPredicate -Prefix $Prefix -Name "mem-broker-export-closed" -Expected 'memory.context contains provider_export == "disabled"' -Passed $exportClosed -Actual $(if ($exportClosed) { "provider_export=disabled" } else { Convert-CompactJson $context 12 }) -FailureMessage "Boot 2 broker provider export was not closed"
 }
 
 function Start-RaiosVm {
@@ -892,6 +1070,49 @@ function Assert-LoadByHashTamperDeniedChild {
     }
 }
 
+function Assert-MemoryTornReclogChild {
+    param(
+        [object]$Boot1MemoryScan,
+        [int]$Port
+    )
+    $prefix = "boot2-mem-torn"
+    $tornVm = $null
+    $tornPersist = Join-Path $RunDir "persist-memory-torn.img"
+    Copy-Item -LiteralPath $Boot1PersistSnapshot -Destination $tornPersist -Force
+    try {
+        Invoke-PersistTool -Arguments @("--corrupt-memory-frame", $tornPersist) | Out-Null
+        $tornVm = Start-RaiosVm -Label "memory-torn" -PredicatePrefix $prefix -Port $Port -MonitorPort 0 -PersistPath $tornPersist
+
+        Send-AgentCommandTagged -Prefix $prefix -Command "agent durable.record_log_scan" -ExpectedMarker "RAIOS_AGENT_END durable.record_log_scan" -Name "record-log-scan"
+        $scanResponse = Get-LastAgentResponseJson -Method "durable.record_log_scan"
+        $scan = $scanResponse.body.result
+        $reclogTorn = (
+            $scan.status -ne "valid" -or
+            [int64]$scan.count -lt [int64]$Boot1MemoryScan.CountFinal
+        )
+        Assert-ReportPredicate -Prefix $prefix -Name "reclog-torn" -Expected "corrupted tail frame is not accepted as a fully valid boot-1 chain" -Passed $reclogTorn -Actual $(if ($reclogTorn) { "status=$($scan.status) count=$($scan.count)" } else { Convert-CompactJson $scan 10 }) -FailureMessage "Torn memory child accepted the corrupted RECLOG tail as valid"
+
+        Send-AgentCommandTagged -Prefix $prefix -Command "agent memory.context" -ExpectedMarker "RAIOS_AGENT_END memory.context" -Name "memory-context"
+        $contextResponse = Get-LastAgentResponseJson -Method "memory.context"
+        $context = $contextResponse.body.result
+        $vmStillAnswers = (
+            $scanResponse.t -eq "response" -and
+            $contextResponse.t -eq "response" -and
+            $null -ne $context
+        )
+        Assert-ReportPredicate -Prefix $prefix -Name "vm-still-answers" -Expected "child answers both durable.record_log_scan and memory.context after RECLOG tail corruption" -Passed $vmStillAnswers -Actual $(if ($vmStillAnswers) { "answered" } else { "scan=$($scanResponse.t) context=$($contextResponse.t)" }) -FailureMessage "Torn memory child stopped answering after scan/context"
+
+        $serial = Get-SerialLogContent -Path $SerialLog
+        $contextEnded = $serial.LastIndexOf("RAIOS_AGENT_END memory.context", [System.StringComparison]::Ordinal) -ge 0
+        Assert-ReportPredicate -Prefix $prefix -Name "broker-no-panic" -Expected "memory.context returned RAIOS_AGENT_END" -Passed $contextEnded -Actual $(if ($contextEnded) { "RAIOS_AGENT_END memory.context" } else { Get-SerialLogTail -Path $SerialLog }) -FailureMessage "Torn memory child broker did not return a complete memory.context response"
+    }
+    finally {
+        Stop-RaiosVmForce -Vm $tornVm
+        Remove-RunImages -Vm $tornVm
+        Remove-Item -LiteralPath $tornPersist -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Merge-SerialLogs {
     $merged = Join-Path $RunDir "serial-merged.log"
     Remove-Item -LiteralPath $merged -Force -ErrorAction SilentlyContinue
@@ -910,6 +1131,7 @@ New-Item -ItemType Directory -Force -Path $RunDir | Out-Null
 $Boot1PersistSnapshot = Join-Path $RunDir "persist-after-boot1.img"
 $boot1Vm = $null
 $boot2Vm = $null
+$boot1MemoryScan = $null
 
 try {
     $ResolvedArtifact = Join-Path $RepoRoot "seed-kernel\artifacts\svc.demo.echo.wasm"
@@ -950,6 +1172,7 @@ try {
 
     $boot1Vm = Start-RaiosVm -Label "boot1" -PredicatePrefix "boot1" -Port $SerialTcpPort -MonitorPort ($SerialTcpPort + 100) -PersistPath $PersistDiskImage
     Invoke-RealDevKeyPromotion -Prefix "boot1"
+    $boot1MemoryScan = Invoke-Boot1DurableMemoryWrites -Prefix "boot1"
     Stop-RaiosVmCleanly -Vm $boot1Vm -Name "boot1"
 
     $postBoot1Inspection = Get-PersistInspection -Path $PersistDiskImage
@@ -959,6 +1182,7 @@ try {
     Copy-Item -LiteralPath $PersistDiskImage -Destination $Boot1PersistSnapshot -Force
 
     $boot2Vm = Start-RaiosVm -Label "boot2" -PredicatePrefix "boot2" -Port ($SerialTcpPort + 1) -MonitorPort ($SerialTcpPort + 101) -PersistPath $PersistDiskImage
+    Assert-Boot2MemorySurvives -Prefix "boot2" -Boot1MemoryScan $boot1MemoryScan
     Assert-Boot2Repromotion -Prefix "boot2"
     Stop-RaiosVmCleanly -Vm $boot2Vm -Name "boot2"
 
@@ -972,6 +1196,7 @@ try {
     # found but reverify-denied (no load, no answer).
     Assert-Boot2LoadArtifactByHash -ArtifactSha ([string]$postBoot1Records[0].artifact_sha256) -Port ($SerialTcpPort + 13)
     Assert-LoadByHashTamperDeniedChild -Port ($SerialTcpPort + 14)
+    Assert-MemoryTornReclogChild -Boot1MemoryScan $boot1MemoryScan -Port ($SerialTcpPort + 15)
 
     $Result = "passed"
 }

@@ -964,6 +964,48 @@ def tamper_persist_record(image: Path) -> dict[str, object]:
     }
 
 
+def corrupt_memory_frame(image: Path) -> dict[str, object]:
+    assert_not_release_output(image)
+    info = validate_existing_gpt_image(image)
+    seed_data_first_lba = seed_data_first_lba_from_info(info)
+    with image.open("r+b") as handle:
+        frames = parse_reclog_frames_for_inspection(read_reclog_region(handle, seed_data_first_lba))
+        if not frames:
+            raise ValueError("no RECLOG frame found")
+        target = frames[-1]
+        payload_len = int(target["payload_len"])
+        if payload_len <= 0:
+            raise ValueError("cannot corrupt empty RECLOG frame payload")
+        reclog_payload_offset = int(target["offset"]) + RECLOG_HEADER_LEN
+        disk_offset = (seed_data_first_lba + RECLOG_START_LBA) * SECTOR_SIZE + reclog_payload_offset
+        handle.seek(disk_offset)
+        old = handle.read(1)
+        if len(old) != 1:
+            raise ValueError("short RECLOG payload byte read")
+        new = bytes([old[0] ^ 0x01])
+        handle.seek(disk_offset)
+        handle.write(new)
+        handle.flush()
+        os.fsync(handle.fileno())
+    post = inspect_image(image)
+    scan = post.get("reclog_scan") or {}
+    if scan.get("status") == "valid" and int(scan.get("count", -1)) >= len(frames):
+        raise ValueError("corrupt RECLOG memory frame still scans as fully valid")
+    return {
+        "operation": "corrupt_memory_frame",
+        "image": str(image),
+        "seq": target["seq"],
+        "reclog_offset": target["offset"],
+        "reclog_payload_offset": reclog_payload_offset,
+        "disk_offset": disk_offset,
+        "old_byte": f"0x{old[0]:02x}",
+        "new_byte": f"0x{new[0]:02x}",
+        "old_frame_sha256": target["frame_sha256"],
+        "old_payload_sha256": target["payload_sha256"],
+        "post_reclog_scan": scan,
+    }
+
+
 def apply_bootctl_fixture_update(image: Path, spec: str) -> dict[str, object]:
     assert_not_release_output(image)
     info = validate_existing_gpt_image(image)
@@ -1764,6 +1806,27 @@ def validate_artstor_garbage_fixture_or_raise(info: dict[str, object], expected:
             raise ValueError("ARTSTOR garbage fixture self-check failed: RECLOG record unexpectedly present")
 
 
+def run_standalone_self_check() -> None:
+    frame1 = build_reclog_frame(1, b"\0" * 32, reclog_payload(1))
+    frame2 = build_reclog_frame(2, hashlib.sha256(frame1).digest(), reclog_payload(2))
+    region = frame1 + frame2 + (b"\0" * SECTOR_SIZE)
+    scan = scan_reclog(region)
+    if scan.get("status") != "valid" or int(scan.get("count", -1)) != 2:
+        raise ValueError(f"standalone self-check failed: valid RECLOG scan {scan}")
+
+    torn = bytearray(region)
+    torn[len(frame1) + RECLOG_HEADER_LEN] ^= 0x01
+    torn_scan = scan_reclog(bytes(torn))
+    if torn_scan.get("status") != "torn_tail" or int(torn_scan.get("count", -1)) != 1:
+        raise ValueError(f"standalone self-check failed: torn RECLOG scan {torn_scan}")
+
+    slot_a, slot_b = boot_control_fields_for_fixture("valid-a")
+    bootctl = scan_boot_control(slot_a + slot_b + (b"\0" * (BOOTCTL_LBA_COUNT * SECTOR_SIZE - len(slot_a) - len(slot_b))))
+    decision = bootctl.get("decision") or {}
+    if decision.get("posture") != "Normal" or decision.get("authoritative_bootctl_slot") != "A":
+        raise ValueError(f"standalone self-check failed: BOOTCTL scan {bootctl}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--self-check", action="store_true", help="accepted for explicit self-check invocations")
@@ -1772,6 +1835,7 @@ def main() -> int:
     parser.add_argument("--image", type=Path, help="existing GPT persist image for offline slot updates")
     parser.add_argument("--corrupt-artstor-blob", type=Path, help="mutate the first ARTSTOR blob payload in-place")
     parser.add_argument("--tamper-persist-record", type=Path, help="mutate the first artifact_persist RECLOG record in-place")
+    parser.add_argument("--corrupt-memory-frame", type=Path, help="flip one byte in the last RECLOG frame payload in-place")
     parser.add_argument("--stage-slot", choices=("A", "B"), help="stage --payload-dir into this ESP and set it pending")
     parser.add_argument("--payload-dir", type=Path, help="directory to stage into the selected ESP")
     parser.add_argument("--set-pending", choices=("A", "B"), help="set pending to this slot without staging files")
@@ -1803,6 +1867,7 @@ def main() -> int:
                 args.image
                 or args.corrupt_artstor_blob
                 or args.tamper_persist_record
+                or args.corrupt_memory_frame
                 or args.stage_slot
                 or args.payload_dir
                 or args.set_pending
@@ -1810,17 +1875,22 @@ def main() -> int:
                 parser.error("--inspect-json cannot be combined with offline mutation flags")
             print(json.dumps(inspect_image(args.inspect_json), indent=2))
             return 0
-        if args.corrupt_artstor_blob or args.tamper_persist_record:
-            if args.corrupt_artstor_blob and args.tamper_persist_record:
+        if args.corrupt_artstor_blob or args.tamper_persist_record or args.corrupt_memory_frame:
+            mutation_targets = [
+                args.corrupt_artstor_blob,
+                args.tamper_persist_record,
+                args.corrupt_memory_frame,
+            ]
+            if sum(target is not None for target in mutation_targets) != 1:
                 parser.error("choose only one tamper subcommand")
             if args.image or args.stage_slot or args.payload_dir or args.set_pending or args.output:
                 parser.error("tamper subcommands cannot be combined with other image update flags")
-            image = args.corrupt_artstor_blob or args.tamper_persist_record
-            result = (
-                corrupt_artstor_blob(image)
-                if args.corrupt_artstor_blob
-                else tamper_persist_record(image)
-            )
+            if args.corrupt_artstor_blob:
+                result = corrupt_artstor_blob(args.corrupt_artstor_blob)
+            elif args.tamper_persist_record:
+                result = tamper_persist_record(args.tamper_persist_record)
+            else:
+                result = corrupt_memory_frame(args.corrupt_memory_frame)
             print(json.dumps(result, indent=2))
             return 0
         if args.image and args.seed_bootctl:
@@ -1835,36 +1905,43 @@ def main() -> int:
             result = apply_boot_slot_update(image, args.stage_slot, args.payload_dir, args.set_pending)
             print(json.dumps(result, indent=2))
             return 0
+        def build_validate_print(output: Path) -> int:
+            reclog_fixture = parse_reclog_fixture(args.seed_reclog_fixture)
+            build_image(
+                output,
+                args.seed_reclog_fixture,
+                args.seed_bootctl,
+                args.seed_artstor_garbage_blob,
+            )
+            info = inspect_image(output)
+            validate_or_raise(info)
+            validate_reclog_fixture_or_raise(info, reclog_fixture)
+            validate_boot_control_fixture_or_raise(info, args.seed_bootctl)
+            validate_artstor_garbage_fixture_or_raise(info, args.seed_artstor_garbage_blob)
+            print_summary(info)
+            print(
+                f"reclog fixture: frames_seeded={reclog_fixture.frame_count} "
+                f"torn_tail={str(reclog_fixture.torn_tail).lower()} validation=passed"
+            )
+            print(
+                "bootctl fixture: "
+                f"spec={args.seed_bootctl or 'none'} "
+                f"max_pending_boot_attempts={MAX_PENDING_BOOT_ATTEMPTS} validation=passed"
+            )
+            print(
+                "artstor garbage fixture: "
+                f"seeded={str(args.seed_artstor_garbage_blob).lower()} validation=passed"
+            )
+            print("self-check: passed")
+            return 0
+
         if args.output is None:
-            parser.error("output path is required unless --inspect-json is used")
-        reclog_fixture = parse_reclog_fixture(args.seed_reclog_fixture)
-        build_image(
-            args.output,
-            args.seed_reclog_fixture,
-            args.seed_bootctl,
-            args.seed_artstor_garbage_blob,
-        )
-        info = inspect_image(args.output)
-        validate_or_raise(info)
-        validate_reclog_fixture_or_raise(info, reclog_fixture)
-        validate_boot_control_fixture_or_raise(info, args.seed_bootctl)
-        validate_artstor_garbage_fixture_or_raise(info, args.seed_artstor_garbage_blob)
-        print_summary(info)
-        print(
-            f"reclog fixture: frames_seeded={reclog_fixture.frame_count} "
-            f"torn_tail={str(reclog_fixture.torn_tail).lower()} validation=passed"
-        )
-        print(
-            "bootctl fixture: "
-            f"spec={args.seed_bootctl or 'none'} "
-            f"max_pending_boot_attempts={MAX_PENDING_BOOT_ATTEMPTS} validation=passed"
-        )
-        print(
-            "artstor garbage fixture: "
-            f"seeded={str(args.seed_artstor_garbage_blob).lower()} validation=passed"
-        )
-        print("self-check: passed")
-        return 0
+            if not args.self_check:
+                parser.error("output path is required unless --inspect-json is used")
+            run_standalone_self_check()
+            print("self-check: passed")
+            return 0
+        return build_validate_print(args.output)
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
