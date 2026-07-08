@@ -11,6 +11,7 @@ pub use raios_x509_time as cert_validity_window;
 pub mod durable_record_frame;
 pub mod gpt_layout;
 pub mod kernel_surface;
+pub mod marvell_wifi_fw;
 pub mod memory_record;
 pub mod memory_record_resolve;
 pub mod promotion_attestation;
