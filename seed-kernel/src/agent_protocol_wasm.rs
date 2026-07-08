@@ -14,9 +14,22 @@ use raios_core::{
         decode_certwindow_record, encode_certwindow_record, parse_x509_cert_validity_window,
         CertValidityDateTime, X509ValidityError, CERTWINDOW_RECORD_LEN,
     },
+    http_response_parse::{
+        decode_httphead_record, encode_httphead_record, parse_http_head, HTTPHEAD_RECORD_LEN,
+    },
     record::Value as V,
     sha256_bytes,
 };
+
+// Synthetic HTTP/1.1 fixtures - byte-identical to raios-http-parse host tests.
+// Not live traffic; grant no provider trust. (M11-7)
+// positive: len 59, sha256 f49383a81b679f0569a28430340963e08c898b581b9f910be129ccfe60e54f9a
+pub(crate) const REAL_TEST_HTTP_RESPONSE: &[u8] =
+    b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nhi\r\n0\r\n\r\n";
+// malformed = &REAL_TEST_HTTP_RESPONSE[..54]; len 54, sha256 ec11883d03c5aa89eeb04064577993e812b53441349fac620d99c4497806bbcf
+// content-length: len 101, sha256 9d467b71e028580c15a68e9bd3aa9dba44dc0055ff11eb71123b05dfc648fa9c
+pub(crate) const REAL_TEST_HTTP_CONTENT_LENGTH_RESPONSE: &[u8] =
+    b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}";
 
 pub(crate) fn emit_submit_candidate_chunk(arg: &str) {
     let outcome = module_candidate_channel::submit_candidate_chunk(arg);
@@ -419,6 +432,178 @@ pub(crate) fn emit_wasm_certwindow_probe() {
     );
     raw_line("      \"evidence_complete\": true");
     end_response("wasm.certwindow_probe");
+}
+
+pub(crate) fn emit_wasm_httphead_probe() {
+    let response = REAL_TEST_HTTP_RESPONSE;
+    let response_sha256 = sha256_bytes(response);
+    let rt = wasm_runtime::run_httphead_roundtrip(response);
+    let gd = decode_httphead_record(&rt.raw_captured_output);
+    let core = parse_http_head(response);
+    let core_encoded = encode_httphead_record(core);
+    let core_output_sha256 = sha256_bytes(&core_encoded);
+    let guest_matches_core = gd.record_valid
+        && gd.status_present == core.status_code.is_some()
+        && gd.status_code == core.status_code.unwrap_or(0)
+        && gd.content_length_present == core.content_length.is_some()
+        && gd.content_length == core.content_length.unwrap_or(0)
+        && gd.response_complete == core.response_complete
+        && gd.chunked == core.chunked;
+    let output_bytes_match = rt.captured_output_len == HTTPHEAD_RECORD_LEN as u64
+        && rt.captured_output_sha256 == core_output_sha256;
+
+    // Malformed/truncated chunked stream: drop the terminal "\r\n0\r\n" chunk.
+    let bad = &REAL_TEST_HTTP_RESPONSE[..54];
+    let rtm = wasm_runtime::run_httphead_roundtrip(bad);
+    let gdm = decode_httphead_record(&rtm.raw_captured_output);
+    let corem = parse_http_head(bad);
+    let malformed_matches = gdm.record_valid
+        && gdm.status_present == corem.status_code.is_some()
+        && gdm.status_code == corem.status_code.unwrap_or(0)
+        && gdm.content_length_present == corem.content_length.is_some()
+        && gdm.content_length == corem.content_length.unwrap_or(0)
+        && gdm.response_complete == corem.response_complete
+        && gdm.chunked == corem.chunked;
+
+    // Content-Length fixture: typed evidence that BOTH guest and core report
+    // content_length_present=false for a response literally containing
+    // "Content-Length: 11" (preserved status-line short-circuit).
+    let cl = REAL_TEST_HTTP_CONTENT_LENGTH_RESPONSE;
+    let rtc = wasm_runtime::run_httphead_roundtrip(cl);
+    let gdc = decode_httphead_record(&rtc.raw_captured_output);
+    let corec = parse_http_head(cl);
+    let content_length_matches = gdc.record_valid
+        && gdc.status_present == corec.status_code.is_some()
+        && gdc.status_code == corec.status_code.unwrap_or(0)
+        && gdc.content_length_present == corec.content_length.is_some()
+        && gdc.content_length == corec.content_length.unwrap_or(0)
+        && gdc.response_complete == corec.response_complete
+        && gdc.chunked == corec.chunked;
+
+    let neg = wasm_runtime::run_httphead_unauthorized_probe();
+
+    begin_response("wasm.httphead_probe");
+    emit_record_fields_trailing_comma(
+        vec![
+            f("schema", s("raios.wasm_httphead_probe.v0")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("method", s("wasm.httphead_probe")),
+            f("service_id", s(wasm_runtime::HTTPHEAD_SERVICE_ID)),
+            f("input_len", V::U64(response.len() as u64)),
+            f("input_sha256", record_sha(response_sha256)),
+            f("run_outcome", s(rt.run_outcome)),
+            f(
+                "authorized_import_count",
+                V::U64(rt.authorized_import_count),
+            ),
+            f(
+                "linked_host_import_count",
+                V::U64(rt.linked_host_import_count),
+            ),
+            f(
+                "module_imports_within_authorized_list",
+                b(rt.module_imports_within_authorized_list),
+            ),
+            f("fuel_budget", V::U64(rt.fuel_budget)),
+            f("fuel_used", V::U64(rt.fuel_used)),
+            f("captured_output_len", V::U64(rt.captured_output_len)),
+            f(
+                "captured_output_sha256",
+                record_sha(rt.captured_output_sha256),
+            ),
+            f("core_output_sha256", record_sha(core_output_sha256)),
+            f("guest_record_valid", b(gd.record_valid)),
+            f("guest_status_present", b(gd.status_present)),
+            f("guest_status_code", V::U64(gd.status_code as u64)),
+            f("guest_content_length_present", b(gd.content_length_present)),
+            f("guest_content_length", V::U64(gd.content_length)),
+            f("guest_response_complete", b(gd.response_complete)),
+            f("guest_chunked", b(gd.chunked)),
+            f("core_status_present", b(core.status_code.is_some())),
+            f(
+                "core_status_code",
+                V::U64(core.status_code.unwrap_or(0) as u64),
+            ),
+            f(
+                "core_content_length_present",
+                b(core.content_length.is_some()),
+            ),
+            f(
+                "core_content_length",
+                V::U64(core.content_length.unwrap_or(0)),
+            ),
+            f("core_response_complete", b(core.response_complete)),
+            f("core_chunked", b(core.chunked)),
+            f("guest_matches_core", b(guest_matches_core)),
+            f("output_bytes_match", b(output_bytes_match)),
+            f("guest_output_is_evidence_only", b(true)),
+            f("core_is_authority", b(true)),
+            f("policy_allows_beyond_env", b(false)),
+            f("owner_sealed", b(false)),
+            f("trust_tier", s("dev_key_not_owner_sealed")),
+            f("authorizes_provider_request", b(false)),
+            f("authorizes_provider_export", b(false)),
+            f("durable_write", b(false)),
+            f("capability_granted", b(false)),
+            f(
+                "malformed_case",
+                V::InlineObject(vec![
+                    f("guest_record_valid", b(gdm.record_valid)),
+                    f("guest_status_present", b(gdm.status_present)),
+                    f("guest_status_code", V::U64(gdm.status_code as u64)),
+                    f(
+                        "guest_content_length_present",
+                        b(gdm.content_length_present),
+                    ),
+                    f("guest_response_complete", b(gdm.response_complete)),
+                    f("guest_chunked", b(gdm.chunked)),
+                    f("core_response_complete", b(corem.response_complete)),
+                    f("guest_matches_core", b(malformed_matches)),
+                    f("capability_granted", b(false)),
+                ]),
+            ),
+            f(
+                "content_length_case",
+                V::InlineObject(vec![
+                    f("guest_record_valid", b(gdc.record_valid)),
+                    f("guest_status_present", b(gdc.status_present)),
+                    f("guest_status_code", V::U64(gdc.status_code as u64)),
+                    f(
+                        "guest_content_length_present",
+                        b(gdc.content_length_present),
+                    ),
+                    f("guest_response_complete", b(gdc.response_complete)),
+                    f("guest_chunked", b(gdc.chunked)),
+                    f(
+                        "core_content_length_present",
+                        b(corec.content_length.is_some()),
+                    ),
+                    f("guest_matches_core", b(content_length_matches)),
+                    f("capability_granted", b(false)),
+                ]),
+            ),
+            f(
+                "negative",
+                V::InlineObject(vec![
+                    f(
+                        "module_imports_within_authorized_list",
+                        b(neg.module_imports_within_authorized_list),
+                    ),
+                    f("run_outcome", s(neg.run_outcome)),
+                    f(
+                        "missing_import_module",
+                        record_str_or_null(neg.missing_import_module.as_deref()),
+                    ),
+                    f("instantiation_ok", b(neg.instantiation_ok)),
+                    f("captured_output_len", V::U64(neg.captured_output_len)),
+                ]),
+            ),
+        ],
+        6,
+    );
+    raw_line("      \"evidence_complete\": true");
+    end_response("wasm.httphead_probe");
 }
 
 fn datetime_or_null(value: Option<CertValidityDateTime>) -> V<'static> {

@@ -10,7 +10,7 @@ param(
     [switch]$KeepImage,
     [int]$SerialWriteChunkSize = 256,
     [int]$SerialWriteDelayMilliseconds = 0,
-    [ValidateSet("full", "quick", "recovery", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow")]
+    [ValidateSet("full", "quick", "recovery", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow", "m11-7-httphead")]
     [string]$Profile = "full"
 )
 
@@ -239,6 +239,11 @@ try {
 
         if ($Profile -eq "m11-6-certwindow") {
             . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-m11-6-certwindow.ps1")
+            break SmokeProfileValidation
+        }
+
+        if ($Profile -eq "m11-7-httphead") {
+            . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-m11-7-httphead.ps1")
             break SmokeProfileValidation
         }
 

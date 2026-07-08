@@ -1,0 +1,11 @@
+[package]
+name = "svc-demo-httphead"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+raios-http-parse = { path = "../../raios-http-parse" }

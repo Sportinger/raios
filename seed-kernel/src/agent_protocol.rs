@@ -171,7 +171,7 @@ use crate::{
     agent_protocol_time::{emit_system_cert_time_check_selftest, emit_system_time_authority},
     agent_protocol_wasm::{
         emit_submit_candidate_chunk, emit_submit_candidate_finalize, emit_wasm_bufecho_probe,
-        emit_wasm_certwindow_probe, emit_wasm_echo_probe,
+        emit_wasm_certwindow_probe, emit_wasm_echo_probe, emit_wasm_httphead_probe,
     },
     echo_service, event_log, granted_candidate_service, hello_service, memory_store, ui,
 };
@@ -426,6 +426,7 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("wasm.echo_probe", Exact, [], [route!("wasm.echo_probe")], MethodAction::Read0(emit_wasm_echo_probe)),
     method!("wasm.bufecho_probe", Exact, [], [route!("wasm.bufecho_probe")], MethodAction::Read0(emit_wasm_bufecho_probe)),
     method!("wasm.certwindow_probe", Exact, [], [route!("wasm.certwindow_probe")], MethodAction::Read0(emit_wasm_certwindow_probe)),
+    method!("wasm.httphead_probe", Exact, [], [route!("wasm.httphead_probe")], MethodAction::Read0(emit_wasm_httphead_probe)),
     method!("echo.invoke_fuel_starved", Exact, [], [route!("echo.invoke_fuel_starved")], MethodAction::Read0(echo_service::emit_invoke_fuel_starved)),
     method!("module.submit_candidate_chunk", Head, [], [route!("module.submit_candidate_chunk")], MethodAction::ReadMethod(emit_submit_candidate_chunk)),
     method!("module.submit_candidate_finalize", Exact, [], [route!("module.submit_candidate_finalize")], MethodAction::Read0(emit_submit_candidate_finalize)),

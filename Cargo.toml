@@ -10,7 +10,8 @@ members = [
     "seed-kernel",
     "wasm-guests/svc-demo-echo",
     "wasm-guests/svc-demo-bufecho",
-    "wasm-guests/svc-demo-certwindow"
+    "wasm-guests/svc-demo-certwindow",
+    "wasm-guests/svc-demo-httphead"
 ]
 resolver = "2"
 

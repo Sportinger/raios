@@ -19,6 +19,7 @@ use crate::serial;
 include!(concat!(env!("OUT_DIR"), "/echo_wasm_artifact.rs"));
 include!(concat!(env!("OUT_DIR"), "/bufecho_wasm_artifact.rs"));
 include!(concat!(env!("OUT_DIR"), "/certwindow_wasm_artifact.rs"));
+include!(concat!(env!("OUT_DIR"), "/httphead_wasm_artifact.rs"));
 
 const EMPTY_WASM_MODULE: &[u8] = b"\0asm\x01\0\0\0";
 const FORBIDDEN_WRITE_WASM_MODULE: &[u8] = &[
@@ -71,6 +72,13 @@ pub(crate) const CERTWINDOW_AUTHORIZED_IMPORTS: &[(&str, &str)] = &[
     ("env", "output_write"),
 ];
 pub(crate) const CERTWINDOW_WASM_FUEL_BUDGET: u64 = 1_000_000;
+pub(crate) const HTTPHEAD_SERVICE_ID: &str = "svc.demo.httphead";
+pub(crate) const HTTPHEAD_AUTHORIZED_IMPORTS: &[(&str, &str)] = &[
+    ("env", "input_len"),
+    ("env", "input_read"),
+    ("env", "output_write"),
+];
+pub(crate) const HTTPHEAD_WASM_FUEL_BUDGET: u64 = 1_000_000;
 const ZERO_SHA256: [u8; 32] = [0; 32];
 
 static CURRENT_BOOT_COUNTER: Mutex<u64> = Mutex::new(0);
@@ -83,6 +91,8 @@ static ECHO_WASM_ARTIFACT_PROOF: fn() -> bool = validate_echo_wasm_artifact;
 static BUFECHO_WASM_ARTIFACT_PROOF: fn() -> bool = validate_bufecho_wasm_artifact;
 #[used]
 static CERTWINDOW_WASM_ARTIFACT_PROOF: fn() -> bool = validate_certwindow_wasm_artifact;
+#[used]
+static HTTPHEAD_WASM_ARTIFACT_PROOF: fn() -> bool = validate_httphead_wasm_artifact;
 
 pub(crate) fn validate_empty_module_bytes() -> bool {
     let wasm = Vec::from(EMPTY_WASM_MODULE).into_boxed_slice();
@@ -124,6 +134,18 @@ pub(crate) fn validate_certwindow_wasm_artifact() -> bool {
             == CERTWINDOW_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_HASH
         && sha256_bytes(CERTWINDOW_WASM_ARTIFACT_SIGNATURE_ENVELOPE_TEXT.as_bytes())
             == CERTWINDOW_WASM_ARTIFACT_SIGNATURE_ENVELOPE_HASH
+        && validate_module_bytes(bytes)
+}
+
+pub(crate) fn validate_httphead_wasm_artifact() -> bool {
+    let wasm = Vec::from(HTTPHEAD_WASM_ARTIFACT_BYTES).into_boxed_slice();
+    let bytes: &[u8] = &wasm;
+
+    sha256_bytes(bytes) == HTTPHEAD_WASM_ARTIFACT_BYTES_HASH
+        && sha256_bytes(HTTPHEAD_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_SOURCE.as_bytes())
+            == HTTPHEAD_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_HASH
+        && sha256_bytes(HTTPHEAD_WASM_ARTIFACT_SIGNATURE_ENVELOPE_TEXT.as_bytes())
+            == HTTPHEAD_WASM_ARTIFACT_SIGNATURE_ENVELOPE_HASH
         && validate_module_bytes(bytes)
 }
 
@@ -285,6 +307,33 @@ pub(crate) fn run_certwindow_unauthorized_probe() -> EchoRunEvidence {
         validate_certwindow_wasm_artifact(),
         b"raios-m11-certwindow-unauthorized-nonce",
         CERTWINDOW_WASM_FUEL_BUDGET,
+    )
+}
+
+pub(crate) fn run_httphead_roundtrip(response: &[u8]) -> EchoRunEvidence {
+    let capped = &response[..response.len().min(MAX_WASM_INPUT_BYTES)];
+    execute_validated_module_bytes(
+        HTTPHEAD_WASM_ARTIFACT_BYTES,
+        "raios_service_main",
+        HTTPHEAD_SERVICE_ID,
+        true,
+        HTTPHEAD_AUTHORIZED_IMPORTS,
+        validate_httphead_wasm_artifact(),
+        capped,
+        HTTPHEAD_WASM_FUEL_BUDGET,
+    )
+}
+
+pub(crate) fn run_httphead_unauthorized_probe() -> EchoRunEvidence {
+    execute_validated_module_bytes(
+        HTTPHEAD_WASM_ARTIFACT_BYTES,
+        "raios_service_main",
+        HTTPHEAD_SERVICE_ID,
+        true,
+        &[("env", "input_len")],
+        validate_httphead_wasm_artifact(),
+        b"raios-m11-httphead-unauthorized-nonce",
+        HTTPHEAD_WASM_FUEL_BUDGET,
     )
 }
 
