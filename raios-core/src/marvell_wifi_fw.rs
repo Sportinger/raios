@@ -25,14 +25,38 @@ pub const FW_DUMP_CTRL: u32 = 0xCF4;
 pub const PCIE_CPU_INT_EVENT: u32 = 0xC18;
 /// Scope doc firmware section: PCIE_CPU_INT_STATUS = 0xC1C.
 pub const PCIE_CPU_INT_STATUS: u32 = 0xC1C;
+/// Scope doc firmware section: PCIE_HOST_INT_STATUS = 0xC30.
+pub const PCIE_HOST_INT_STATUS: u32 = 0xC30;
+/// Scope doc firmware section: PCIE_HOST_INT_STATUS_MASK = 0xC3C.
+pub const PCIE_HOST_INT_STATUS_MASK: u32 = 0xC3C;
 /// Scope doc firmware section: CPU_INTR_DOOR_BELL = BIT1.
 pub const CPU_INTR_DOOR_BELL: u32 = 1 << 1;
+/// Scope doc firmware section: HOST_INTR_DNLD_DONE = BIT0.
+pub const HOST_INTR_DNLD_DONE: u32 = 1 << 0;
+/// Scope doc firmware section: HOST_INTR_UPLD_RDY = BIT1.
+pub const HOST_INTR_UPLD_RDY: u32 = 1 << 1;
+/// Scope doc firmware section: HOST_INTR_CMD_DONE = BIT2.
+pub const HOST_INTR_CMD_DONE: u32 = 1 << 2;
+/// Scope doc firmware section: HOST_INTR_EVENT_RDY = BIT3.
+pub const HOST_INTR_EVENT_RDY: u32 = 1 << 3;
+/// Scope doc firmware section: HOST_INTR_MASK covers all first-cut polled host bits.
+pub const HOST_INTR_MASK: u32 =
+    HOST_INTR_DNLD_DONE | HOST_INTR_UPLD_RDY | HOST_INTR_CMD_DONE | HOST_INTR_EVENT_RDY;
 /// Scope doc firmware section: FIRMWARE_READY_PCIE = 0xfedcba00.
 pub const FIRMWARE_READY_PCIE: u32 = 0xfedcba00;
+/// Linux mwifiex main.h: staging buffer cap for PCIe firmware upload.
+pub const MWIFIEX_UPLD_SIZE: usize = 2312;
 /// Scope doc firmware section: MWIFIEX_PCIE_BLOCK_SIZE_FW_DNLD = 256.
 pub const FW_BLOCK_SIZE: usize = 256;
+/// Padded transfer length needed when a 2312-byte payload rounds to 256-byte chunks.
+pub const FW_DMA_STAGING_SIZE: usize =
+    ((MWIFIEX_UPLD_SIZE + FW_BLOCK_SIZE - 1) / FW_BLOCK_SIZE) * FW_BLOCK_SIZE;
 /// Scope doc firmware section: MAX_WRITE_IOMEM_RETRY = 2.
 pub const MAX_WRITE_RETRY: u32 = 2;
+/// Linux mwifiex_check_fw_status sleeps 100ms between status polls.
+pub const FW_READY_POLL_INTERVAL_MS: u64 = 100;
+/// raiOS first hardware milestone budget: multi-second, compile-only until silicon.
+pub const FW_READY_TIMEOUT_MS: u64 = 10_000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RegisterReads {
@@ -70,7 +94,8 @@ impl RegisterReads {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FwPhase {
     Downloading,
-    SignalingReady,
+    BlockPrepared,
+    WaitingDoorbellAck,
     PollingReady,
     Done,
     Failed(FwError),
@@ -80,18 +105,21 @@ pub enum FwPhase {
 pub enum FwAction {
     WriteBlock {
         image_offset: usize,
-        len: usize,
+        payload_len: usize,
+        wire_len: usize,
+    },
+    Retry {
+        image_offset: usize,
+        wire_len: usize,
     },
     RingDoorbell,
+    PollDoorbellAck,
     WriteDrvReady {
         value: u32,
     },
     /// Poll the current wait register again: cmd_size while downloading,
     /// fw_status while waiting for firmware ready.
     PollFwStatus,
-    Retry {
-        image_offset: usize,
-    },
     Done,
     Fail(FwError),
 }
@@ -99,9 +127,9 @@ pub enum FwAction {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FwError {
     RetryCapExceeded,
+    RetryWithoutBlock,
     EmptyFirmware,
     BlockLenOutOfRange,
-    DoorbellStillPending,
     UnexpectedFwStatus,
     ImpossibleState,
 }
@@ -110,9 +138,9 @@ impl FwError {
     pub const fn reason(self) -> &'static str {
         match self {
             Self::RetryCapExceeded => "retry_cap_exceeded",
+            Self::RetryWithoutBlock => "retry_without_block",
             Self::EmptyFirmware => "empty_firmware",
             Self::BlockLenOutOfRange => "block_len_out_of_range",
-            Self::DoorbellStillPending => "doorbell_still_pending",
             Self::UnexpectedFwStatus => "unexpected_fw_status",
             Self::ImpossibleState => "impossible_state",
         }
@@ -178,7 +206,7 @@ impl RegWritePlan {
 
 pub fn plan_register_writes(action: FwAction, block_dma_phys: u64) -> RegWritePlan {
     match action {
-        FwAction::WriteBlock { len, .. } => {
+        FwAction::WriteBlock { wire_len, .. } | FwAction::Retry { wire_len, .. } => {
             // The hardware shell DMA-copies the image bytes to block_dma_phys
             // before these writes; this pure plan does not move bytes.
             RegWritePlan::three(
@@ -192,7 +220,7 @@ pub fn plan_register_writes(action: FwAction, block_dma_phys: u64) -> RegWritePl
                 },
                 RegWrite {
                     offset: CMD_SIZE,
-                    value: len as u32,
+                    value: wire_len as u32,
                 },
             )
         }
@@ -204,10 +232,21 @@ pub fn plan_register_writes(action: FwAction, block_dma_phys: u64) -> RegWritePl
             offset: DRV_READY,
             value,
         }),
-        FwAction::PollFwStatus | FwAction::Retry { .. } | FwAction::Done | FwAction::Fail(_) => {
+        FwAction::PollFwStatus
+        | FwAction::PollDoorbellAck
+        | FwAction::Done
+        | FwAction::Fail(_) => {
             RegWritePlan::empty()
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SentBlock {
+    image_offset: usize,
+    payload_len: usize,
+    wire_len: usize,
+    advance_len: usize,
 }
 
 pub struct FirmwareDownload<'a> {
@@ -215,7 +254,8 @@ pub struct FirmwareDownload<'a> {
     offset: usize,
     retries_used: u32,
     phase: FwPhase,
-    pending_doorbell_len: Option<usize>,
+    last_block: Option<SentBlock>,
+    pending_ack: Option<SentBlock>,
 }
 
 impl<'a> FirmwareDownload<'a> {
@@ -225,7 +265,8 @@ impl<'a> FirmwareDownload<'a> {
             offset: 0,
             retries_used: 0,
             phase: FwPhase::Downloading,
-            pending_doorbell_len: None,
+            last_block: None,
+            pending_ack: None,
         }
     }
 
@@ -248,12 +289,11 @@ impl<'a> FirmwareDownload<'a> {
 
         match self.phase {
             FwPhase::Downloading => self.step_downloading(observed),
-            FwPhase::SignalingReady => {
-                self.phase = FwPhase::PollingReady;
-                FwAction::WriteDrvReady {
-                    value: FIRMWARE_READY_PCIE,
-                }
+            FwPhase::BlockPrepared => {
+                self.phase = FwPhase::WaitingDoorbellAck;
+                FwAction::RingDoorbell
             }
+            FwPhase::WaitingDoorbellAck => self.step_waiting_doorbell_ack(observed),
             FwPhase::PollingReady => {
                 if observed.fw_status_reg == FIRMWARE_READY_PCIE {
                     self.phase = FwPhase::Done;
@@ -272,26 +312,8 @@ impl<'a> FirmwareDownload<'a> {
             return self.fail(FwError::UnexpectedFwStatus);
         }
 
-        if let Some(len) = self.pending_doorbell_len {
-            if observed.int_status_reg & CPU_INTR_DOOR_BELL != 0 {
-                return self.fail(FwError::DoorbellStillPending);
-            }
-            self.pending_doorbell_len = None;
-            self.offset = match self.offset.checked_add(len) {
-                Some(offset) => offset,
-                None => return self.fail(FwError::ImpossibleState),
-            };
-            if self.offset > self.firmware.len() {
-                return self.fail(FwError::ImpossibleState);
-            }
-            if self.offset == self.firmware.len() {
-                self.phase = FwPhase::SignalingReady;
-            }
-            return FwAction::RingDoorbell;
-        }
-
         if self.offset >= self.firmware.len() {
-            self.phase = FwPhase::SignalingReady;
+            self.phase = FwPhase::PollingReady;
             return FwAction::WriteDrvReady {
                 value: FIRMWARE_READY_PCIE,
             };
@@ -301,34 +323,87 @@ impl<'a> FirmwareDownload<'a> {
         if requested == 0 {
             return FwAction::PollFwStatus;
         }
+        if requested > MWIFIEX_UPLD_SIZE as u32 {
+            return self.fail(FwError::BlockLenOutOfRange);
+        }
         if requested & 1 != 0 {
             return self.retry_or_fail();
         }
 
         let requested_len = requested as usize;
-        if requested_len == 0 || requested_len > FW_BLOCK_SIZE {
+        if requested_len == 0 || requested_len > MWIFIEX_UPLD_SIZE {
             return self.fail(FwError::BlockLenOutOfRange);
         }
 
         let remaining = self.firmware.len() - self.offset;
-        let len = core::cmp::min(remaining, requested_len);
-        if len == 0 {
+        let payload_len = core::cmp::min(remaining, requested_len);
+        if payload_len == 0 {
             return self.fail(FwError::ImpossibleState);
         }
+        let Some(wire_len) = padded_wire_len(payload_len) else {
+            return self.fail(FwError::BlockLenOutOfRange);
+        };
 
         let image_offset = self.offset;
         self.retries_used = 0;
-        self.pending_doorbell_len = Some(len);
-        FwAction::WriteBlock { image_offset, len }
+        let block = SentBlock {
+            image_offset,
+            payload_len,
+            wire_len,
+            advance_len: payload_len,
+        };
+        self.last_block = Some(block);
+        self.pending_ack = Some(block);
+        self.phase = FwPhase::BlockPrepared;
+        FwAction::WriteBlock {
+            image_offset,
+            payload_len,
+            wire_len,
+        }
+    }
+
+    fn step_waiting_doorbell_ack(&mut self, observed: RegisterReads) -> FwAction {
+        if observed.int_status_reg & CPU_INTR_DOOR_BELL != 0 {
+            return FwAction::PollDoorbellAck;
+        }
+
+        let Some(block) = self.pending_ack.take() else {
+            return self.fail(FwError::ImpossibleState);
+        };
+        self.offset = match self.offset.checked_add(block.advance_len) {
+            Some(offset) => offset,
+            None => return self.fail(FwError::ImpossibleState),
+        };
+        if self.offset > self.firmware.len() {
+            return self.fail(FwError::ImpossibleState);
+        }
+        if self.offset == self.firmware.len() {
+            self.phase = FwPhase::PollingReady;
+            return FwAction::WriteDrvReady {
+                value: FIRMWARE_READY_PCIE,
+            };
+        }
+
+        self.phase = FwPhase::Downloading;
+        FwAction::PollFwStatus
     }
 
     fn retry_or_fail(&mut self) -> FwAction {
         if self.retries_used >= MAX_WRITE_RETRY {
             return self.fail(FwError::RetryCapExceeded);
         }
+        let Some(block) = self.last_block else {
+            return self.fail(FwError::RetryWithoutBlock);
+        };
         self.retries_used += 1;
+        self.pending_ack = Some(SentBlock {
+            advance_len: 0,
+            ..block
+        });
+        self.phase = FwPhase::BlockPrepared;
         FwAction::Retry {
-            image_offset: self.offset,
+            image_offset: block.image_offset,
+            wire_len: block.wire_len,
         }
     }
 
@@ -338,20 +413,66 @@ impl<'a> FirmwareDownload<'a> {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FwReadyPollDecision {
+    Ready,
+    StillDownloading,
+    Timeout,
+}
+
+pub const fn decide_fw_ready_poll(
+    fw_status: u32,
+    elapsed_ms: u64,
+    timeout_ms: u64,
+) -> FwReadyPollDecision {
+    if fw_status == FIRMWARE_READY_PCIE {
+        FwReadyPollDecision::Ready
+    } else if elapsed_ms >= timeout_ms {
+        FwReadyPollDecision::Timeout
+    } else {
+        FwReadyPollDecision::StillDownloading
+    }
+}
+
+pub const fn padded_wire_len(payload_len: usize) -> Option<usize> {
+    if payload_len == 0 || payload_len > MWIFIEX_UPLD_SIZE {
+        return None;
+    }
+    let with_pad = match payload_len.checked_add(FW_BLOCK_SIZE - 1) {
+        Some(value) => value,
+        None => return None,
+    };
+    let padded = (with_pad / FW_BLOCK_SIZE) * FW_BLOCK_SIZE;
+    if padded > FW_DMA_STAGING_SIZE {
+        None
+    } else {
+        Some(padded)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn block_request() -> RegisterReads {
-        RegisterReads::with_cmd_size(FW_BLOCK_SIZE as u32)
+    fn block_request(len: usize) -> RegisterReads {
+        RegisterReads::with_cmd_size(len as u32)
+    }
+
+    fn doorbell_pending() -> RegisterReads {
+        RegisterReads {
+            cmd_size_reg: 0,
+            fw_status_reg: 0,
+            int_status_reg: CPU_INTR_DOOR_BELL,
+        }
     }
 
     #[test]
-    fn plan_register_writes_write_block_orders_addr_low_high_size() {
+    fn plan_register_writes_write_block_orders_addr_low_high_padded_size() {
         let plan = plan_register_writes(
             FwAction::WriteBlock {
                 image_offset: 17,
-                len: 64,
+                payload_len: 64,
+                wire_len: FW_BLOCK_SIZE,
             },
             0x1_2345_6000,
         );
@@ -375,10 +496,44 @@ mod tests {
             plan.get(2),
             Some(RegWrite {
                 offset: CMD_SIZE,
-                value: 64,
+                value: FW_BLOCK_SIZE as u32,
             })
         );
         assert_eq!(plan.get(3), None);
+    }
+
+    #[test]
+    fn plan_register_writes_retry_resends_previous_dma_block() {
+        let plan = plan_register_writes(
+            FwAction::Retry {
+                image_offset: 0,
+                wire_len: FW_DMA_STAGING_SIZE,
+            },
+            0x1_2345_6000,
+        );
+
+        assert_eq!(plan.len(), 3);
+        assert_eq!(
+            plan.get(0),
+            Some(RegWrite {
+                offset: CMD_ADDR_LO,
+                value: 0x2345_6000,
+            })
+        );
+        assert_eq!(
+            plan.get(1),
+            Some(RegWrite {
+                offset: CMD_ADDR_HI,
+                value: 0x1,
+            })
+        );
+        assert_eq!(
+            plan.get(2),
+            Some(RegWrite {
+                offset: CMD_SIZE,
+                value: FW_DMA_STAGING_SIZE as u32,
+            })
+        );
     }
 
     #[test]
@@ -420,7 +575,7 @@ mod tests {
     fn plan_register_writes_read_terminal_and_retry_actions_are_empty() {
         let actions = [
             FwAction::PollFwStatus,
-            FwAction::Retry { image_offset: 64 },
+            FwAction::PollDoorbellAck,
             FwAction::Done,
             FwAction::Fail(FwError::UnexpectedFwStatus),
         ];
@@ -439,14 +594,19 @@ mod tests {
         let actions = [
             FwAction::WriteBlock {
                 image_offset: 0,
-                len: FW_BLOCK_SIZE,
+                payload_len: FW_BLOCK_SIZE,
+                wire_len: FW_BLOCK_SIZE,
+            },
+            FwAction::Retry {
+                image_offset: 0,
+                wire_len: FW_BLOCK_SIZE,
             },
             FwAction::RingDoorbell,
+            FwAction::PollDoorbellAck,
             FwAction::WriteDrvReady {
                 value: FIRMWARE_READY_PCIE,
             },
             FwAction::PollFwStatus,
-            FwAction::Retry { image_offset: 0 },
             FwAction::Done,
             FwAction::Fail(FwError::ImpossibleState),
         ];
@@ -461,35 +621,46 @@ mod tests {
 
     #[test]
     fn happy_path_whole_blocks_write_ring_signal_poll_done() {
-        let firmware = [0x5a; FW_BLOCK_SIZE * 2];
+        let firmware = [0x5a; MWIFIEX_UPLD_SIZE * 2];
         let mut download = FirmwareDownload::new(&firmware);
 
         assert_eq!(
-            download.step(block_request()),
+            download.step(block_request(MWIFIEX_UPLD_SIZE)),
             FwAction::WriteBlock {
                 image_offset: 0,
-                len: FW_BLOCK_SIZE
+                payload_len: MWIFIEX_UPLD_SIZE,
+                wire_len: FW_DMA_STAGING_SIZE,
             }
         );
+        assert_eq!(download.offset(), 0);
+        assert_eq!(download.phase(), FwPhase::BlockPrepared);
         assert_eq!(download.step(RegisterReads::zero()), FwAction::RingDoorbell);
-        assert_eq!(download.offset(), FW_BLOCK_SIZE);
+        assert_eq!(download.phase(), FwPhase::WaitingDoorbellAck);
+        assert_eq!(
+            download.step(doorbell_pending()),
+            FwAction::PollDoorbellAck
+        );
+        assert_eq!(download.offset(), 0);
+        assert_eq!(download.step(RegisterReads::zero()), FwAction::PollFwStatus);
+        assert_eq!(download.offset(), MWIFIEX_UPLD_SIZE);
 
         assert_eq!(
-            download.step(block_request()),
+            download.step(block_request(MWIFIEX_UPLD_SIZE)),
             FwAction::WriteBlock {
-                image_offset: FW_BLOCK_SIZE,
-                len: FW_BLOCK_SIZE
+                image_offset: MWIFIEX_UPLD_SIZE,
+                payload_len: MWIFIEX_UPLD_SIZE,
+                wire_len: FW_DMA_STAGING_SIZE,
             }
         );
         assert_eq!(download.step(RegisterReads::zero()), FwAction::RingDoorbell);
-        assert_eq!(download.offset(), FW_BLOCK_SIZE * 2);
-
         assert_eq!(
             download.step(RegisterReads::zero()),
             FwAction::WriteDrvReady {
                 value: FIRMWARE_READY_PCIE
             }
         );
+        assert_eq!(download.offset(), MWIFIEX_UPLD_SIZE * 2);
+
         assert_eq!(
             download.step(RegisterReads::with_fw_status(0)),
             FwAction::PollFwStatus
@@ -502,45 +673,88 @@ mod tests {
     }
 
     #[test]
-    fn crc_error_retries_same_offset_and_increments_count() {
-        let firmware = [0x11; FW_BLOCK_SIZE];
+    fn crc_error_retries_previous_block_without_advancing_again() {
+        let firmware = [0x11; MWIFIEX_UPLD_SIZE * 2];
         let mut download = FirmwareDownload::new(&firmware);
 
         assert_eq!(
-            download.step(RegisterReads::with_cmd_size(1)),
-            FwAction::Retry { image_offset: 0 }
-        );
-        assert_eq!(download.offset(), 0);
-        assert_eq!(download.retries_used(), 1);
-
-        assert_eq!(
-            download.step(block_request()),
+            download.step(block_request(MWIFIEX_UPLD_SIZE)),
             FwAction::WriteBlock {
                 image_offset: 0,
-                len: FW_BLOCK_SIZE
+                payload_len: MWIFIEX_UPLD_SIZE,
+                wire_len: FW_DMA_STAGING_SIZE,
             }
         );
-        assert_eq!(download.retries_used(), 0);
+        assert_eq!(download.step(RegisterReads::zero()), FwAction::RingDoorbell);
+        assert_eq!(download.step(RegisterReads::zero()), FwAction::PollFwStatus);
+        assert_eq!(download.offset(), MWIFIEX_UPLD_SIZE);
+
+        assert_eq!(
+            download.step(RegisterReads::with_cmd_size((FW_BLOCK_SIZE | 1) as u32)),
+            FwAction::Retry {
+                image_offset: 0,
+                wire_len: FW_DMA_STAGING_SIZE,
+            }
+        );
+        assert_eq!(download.offset(), MWIFIEX_UPLD_SIZE);
+        assert_eq!(download.retries_used(), 1);
+
+        assert_eq!(download.step(RegisterReads::zero()), FwAction::RingDoorbell);
+        assert_eq!(download.step(RegisterReads::zero()), FwAction::PollFwStatus);
+        assert_eq!(download.offset(), MWIFIEX_UPLD_SIZE);
     }
 
     #[test]
     fn retry_cap_exceeded_after_max_plus_one_crc_errors() {
-        let firmware = [0x22; FW_BLOCK_SIZE];
+        let firmware = [0x22; MWIFIEX_UPLD_SIZE * 2];
+        let mut download = FirmwareDownload::new(&firmware);
+
+        assert_eq!(
+            download.step(block_request(MWIFIEX_UPLD_SIZE)),
+            FwAction::WriteBlock {
+                image_offset: 0,
+                payload_len: MWIFIEX_UPLD_SIZE,
+                wire_len: FW_DMA_STAGING_SIZE,
+            }
+        );
+        assert_eq!(download.step(RegisterReads::zero()), FwAction::RingDoorbell);
+        assert_eq!(download.step(RegisterReads::zero()), FwAction::PollFwStatus);
+
+        assert_eq!(
+            download.step(RegisterReads::with_cmd_size((FW_BLOCK_SIZE | 1) as u32)),
+            FwAction::Retry {
+                image_offset: 0,
+                wire_len: FW_DMA_STAGING_SIZE,
+            }
+        );
+        assert_eq!(download.step(RegisterReads::zero()), FwAction::RingDoorbell);
+        assert_eq!(download.step(RegisterReads::zero()), FwAction::PollFwStatus);
+        assert_eq!(
+            download.step(RegisterReads::with_cmd_size((FW_BLOCK_SIZE | 1) as u32)),
+            FwAction::Retry {
+                image_offset: 0,
+                wire_len: FW_DMA_STAGING_SIZE,
+            }
+        );
+        assert_eq!(download.step(RegisterReads::zero()), FwAction::RingDoorbell);
+        assert_eq!(download.step(RegisterReads::zero()), FwAction::PollFwStatus);
+        assert_eq!(
+            download.step(RegisterReads::with_cmd_size((FW_BLOCK_SIZE | 1) as u32)),
+            FwAction::Fail(FwError::RetryCapExceeded)
+        );
+        assert_eq!(FwError::RetryCapExceeded.reason(), "retry_cap_exceeded");
+    }
+
+    #[test]
+    fn retry_without_prior_block_fails_closed() {
+        let firmware = [0x99; FW_BLOCK_SIZE];
         let mut download = FirmwareDownload::new(&firmware);
 
         assert_eq!(
             download.step(RegisterReads::with_cmd_size(1)),
-            FwAction::Retry { image_offset: 0 }
+            FwAction::Fail(FwError::RetryWithoutBlock)
         );
-        assert_eq!(
-            download.step(RegisterReads::with_cmd_size(1)),
-            FwAction::Retry { image_offset: 0 }
-        );
-        assert_eq!(
-            download.step(RegisterReads::with_cmd_size(1)),
-            FwAction::Fail(FwError::RetryCapExceeded)
-        );
-        assert_eq!(FwError::RetryCapExceeded.reason(), "retry_cap_exceeded");
+        assert_eq!(FwError::RetryWithoutBlock.reason(), "retry_without_block");
     }
 
     #[test]
@@ -556,23 +770,26 @@ mod tests {
     }
 
     #[test]
-    fn final_partial_block_uses_remaining_image_len() {
-        let firmware = [0x33; FW_BLOCK_SIZE + 7];
+    fn final_partial_block_uses_remaining_image_len_and_pads_wire_len() {
+        let firmware = [0x33; MWIFIEX_UPLD_SIZE + 7];
         let mut download = FirmwareDownload::new(&firmware);
 
         assert_eq!(
-            download.step(block_request()),
+            download.step(block_request(MWIFIEX_UPLD_SIZE)),
             FwAction::WriteBlock {
                 image_offset: 0,
-                len: FW_BLOCK_SIZE
+                payload_len: MWIFIEX_UPLD_SIZE,
+                wire_len: FW_DMA_STAGING_SIZE,
             }
         );
         assert_eq!(download.step(RegisterReads::zero()), FwAction::RingDoorbell);
+        assert_eq!(download.step(RegisterReads::zero()), FwAction::PollFwStatus);
         assert_eq!(
-            download.step(block_request()),
+            download.step(block_request(MWIFIEX_UPLD_SIZE)),
             FwAction::WriteBlock {
-                image_offset: FW_BLOCK_SIZE,
-                len: 7
+                image_offset: MWIFIEX_UPLD_SIZE,
+                payload_len: 7,
+                wire_len: FW_BLOCK_SIZE,
             }
         );
     }
@@ -583,10 +800,11 @@ mod tests {
         let mut download = FirmwareDownload::new(&firmware);
 
         assert_eq!(
-            download.step(block_request()),
+            download.step(block_request(FW_BLOCK_SIZE)),
             FwAction::WriteBlock {
                 image_offset: 0,
-                len: FW_BLOCK_SIZE,
+                payload_len: FW_BLOCK_SIZE,
+                wire_len: FW_BLOCK_SIZE,
             }
         );
         assert_eq!(download.step(RegisterReads::zero()), FwAction::RingDoorbell);
@@ -627,12 +845,44 @@ mod tests {
         let mut download = FirmwareDownload::new(&firmware);
 
         assert_eq!(
-            download.step(RegisterReads::with_cmd_size((FW_BLOCK_SIZE + 2) as u32)),
+            download.step(RegisterReads::with_cmd_size((MWIFIEX_UPLD_SIZE + 1) as u32)),
             FwAction::Fail(FwError::BlockLenOutOfRange)
         );
         assert_eq!(
             FwError::BlockLenOutOfRange.reason(),
             "block_len_out_of_range"
+        );
+    }
+
+    #[test]
+    fn padded_wire_len_rounds_payload_to_pcie_block_size() {
+        assert_eq!(padded_wire_len(0), None);
+        assert_eq!(padded_wire_len(1), Some(FW_BLOCK_SIZE));
+        assert_eq!(padded_wire_len(FW_BLOCK_SIZE), Some(FW_BLOCK_SIZE));
+        assert_eq!(
+            padded_wire_len(FW_BLOCK_SIZE + 1),
+            Some(FW_BLOCK_SIZE * 2)
+        );
+        assert_eq!(
+            padded_wire_len(MWIFIEX_UPLD_SIZE),
+            Some(FW_DMA_STAGING_SIZE)
+        );
+        assert_eq!(padded_wire_len(MWIFIEX_UPLD_SIZE + 1), None);
+    }
+
+    #[test]
+    fn fw_ready_poll_decision_is_ready_still_downloading_or_timeout() {
+        assert_eq!(
+            decide_fw_ready_poll(FIRMWARE_READY_PCIE, FW_READY_TIMEOUT_MS, FW_READY_TIMEOUT_MS),
+            FwReadyPollDecision::Ready
+        );
+        assert_eq!(
+            decide_fw_ready_poll(0, FW_READY_TIMEOUT_MS - 1, FW_READY_TIMEOUT_MS),
+            FwReadyPollDecision::StillDownloading
+        );
+        assert_eq!(
+            decide_fw_ready_poll(0, FW_READY_TIMEOUT_MS, FW_READY_TIMEOUT_MS),
+            FwReadyPollDecision::Timeout
         );
     }
 }

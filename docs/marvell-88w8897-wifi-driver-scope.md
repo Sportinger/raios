@@ -499,3 +499,15 @@ raiOS has **no filesystem loader**, but the embed pattern is proven and used tod
 - **M12 signed-candidate channel** for external artifact delivery — `module_candidate_channel.rs` / `module_candidate_intake.rs` / `granted_candidate_service.rs` / `agent_protocol_module_grant.rs` / `descriptor_sources.rs`.
 
 **Net:** the entire *transport substrate* a DMA PCIe WiFi driver needs (PCI, bus-master, uncached MMIO, contiguous phys-addressable DMA memory, poll loop, timing, smoltcp seam, blob-embed) already exists and is proven by e1000/xHCI. Everything missing is **Marvell-specific protocol logic** (firmware download, packed ring indices, PFU/TxPD/RxPD, HostCmd vocabulary) plus two contingent unknowns that only real Surface hardware resolves: **poll-only viability (no MSI)** and **firmware-crash recovery without D3cold**.
+
+## Progress note - L1+L2 engine (2026-07-08)
+
+`raios-core/src/marvell_wifi_fw.rs` and `seed-kernel/src/marvell_wifi_pcie.rs`
+now contain the first firmware-download engine slice: BAR2 register-MMIO mapping,
+bus-master enable, scratch-register MMIO sanity read, a pure block-download
+sequencer using `MWIFIEX_UPLD_SIZE=2312`, padded 256-byte PCIe transfer lengths,
+doorbell ACK polling, CRC retry of the previous DMA block, `DRV_READY` write, and
+multi-second `FW_STATUS == FIRMWARE_READY_PCIE` polling. This is compile-only and
+hardware-untested until run on the physical Surface Pro 4. No firmware blob is
+committed; the injection point returns an empty slice and fails closed as
+`firmware image absent`. This is NOT working WiFi.
