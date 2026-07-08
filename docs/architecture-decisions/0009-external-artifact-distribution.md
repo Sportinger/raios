@@ -2,8 +2,18 @@
 
 ## Status
 
-Status: PROPOSED - pending owner decision (raiOS owner). Commits nothing; no
-code changed.
+Status: ACCEPTED by the raiOS owner (2026-07-08). Owner decision: **Option A** —
+a LOCAL signed registry / fake-cloud feeding external artifacts into the EXISTING
+serial candidate-intake channel (no network), re-verified through the unchanged
+M6 gate + M7 persistence re-verify-from-disk + signed artifact-identity chain,
+audited as M9 durable memory. Hard invariant preserved: download = candidate
+intake, NEVER install; a distribution signature is provenance, not
+load-worthiness. Real network OTA (Option B) stays deferred/gated. Implementation
+proceeds slice by slice, grants-nothing-until-proven, honest dev_key_not_owner_
+sealed.
+
+(Historical: this ADR was PROPOSED — pending owner decision — until the owner
+accepted Option A on 2026-07-08.)
 
 ## Context
 

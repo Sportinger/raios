@@ -2,8 +2,18 @@
 
 ## Status
 
-Status: PROPOSED — pending owner decision (raiOS owner). Commits nothing; no
-code changed.
+Status: ACCEPTED by the raiOS owner (2026-07-08). Owner decision: **Option A**
+(manifest-declared exact per-service import list, authorized by a pinned
+raios-core scoped evaluator, enforced by a per-instance wasmi Linker) **plus the
+TLS trust shape Option 2** (the TLS/certificate verifier implementation moves
+into the Wasm service, but the permanent core keeps trust-label authority,
+provider request/export authorization, and API-key custody — the service may
+produce evidence, never bless itself or receive raw secrets). Implementation
+proceeds slice by slice; each slice grants nothing until proven, honestly
+labeled dev_key_not_owner_sealed, never owner_sealed.
+
+(Historical: this ADR was PROPOSED — pending owner decision — until the owner
+accepted A + 2 on 2026-07-08.)
 
 ## Context
 
