@@ -31,6 +31,8 @@ const HEADER_TAB_UNDERLINE_Y: usize = 73;
 const INPUT_FIELD_X: usize = 24;
 const INPUT_FIELD_RIGHT: usize = 72;
 const INPUT_FIELD_H: usize = 36;
+const SETTINGS_ACTION_H: usize = 38;
+const SETTINGS_ACTION_ROW_STEP: usize = 54;
 const R8_INSETS: [usize; 8] = [8, 4, 3, 2, 1, 1, 0, 0];
 const R6_INSETS: [usize; 6] = [6, 3, 2, 1, 0, 0];
 
@@ -170,25 +172,72 @@ impl StatusUi {
         }
         if snapshot.view == console::UiView::Settings && !snapshot.settings_entry_active {
             let top = CONTENT_TOP;
-            if point_in(x, y, 72, top + 250, 342, 38) {
+            let (action_x, action_x2, action_w) = settings_action_columns(width);
+            let action_y = top + 62;
+            if point_in(x, y, action_x, action_y, action_w, SETTINGS_ACTION_H) {
                 return console::activate_focus(console::UiFocus::SettingsProvider);
             }
-            if point_in(x, y, 430, top + 250, 342, 38) {
+            if point_in(x, y, action_x2, action_y, action_w, SETTINGS_ACTION_H) {
                 return console::activate_focus(console::UiFocus::SettingsApiKey);
             }
-            if point_in(x, y, 72, top + 304, 342, 38) {
+            if point_in(
+                x,
+                y,
+                action_x,
+                action_y + SETTINGS_ACTION_ROW_STEP,
+                action_w,
+                SETTINGS_ACTION_H,
+            ) {
                 return console::activate_focus(console::UiFocus::SettingsClear);
             }
-            if point_in(x, y, 430, top + 304, 342, 38) {
+            if point_in(
+                x,
+                y,
+                action_x2,
+                action_y + SETTINGS_ACTION_ROW_STEP,
+                action_w,
+                SETTINGS_ACTION_H,
+            ) {
                 return console::activate_focus(console::UiFocus::SettingsWifiSsid);
             }
-            if point_in(x, y, 72, top + 358, 342, 38) {
+            if point_in(
+                x,
+                y,
+                action_x,
+                action_y + SETTINGS_ACTION_ROW_STEP * 2,
+                action_w,
+                SETTINGS_ACTION_H,
+            ) {
                 return console::activate_focus(console::UiFocus::SettingsWifiPassphrase);
             }
-            if point_in(x, y, 430, top + 358, 342, 38) {
+            if point_in(
+                x,
+                y,
+                action_x2,
+                action_y + SETTINGS_ACTION_ROW_STEP * 2,
+                action_w,
+                SETTINGS_ACTION_H,
+            ) {
                 return console::activate_focus(console::UiFocus::SettingsWifiClear);
             }
-            if point_in(x, y, 72, top + 412, 700, 38) {
+            if point_in(
+                x,
+                y,
+                action_x,
+                action_y + SETTINGS_ACTION_ROW_STEP * 3,
+                action_w,
+                SETTINGS_ACTION_H,
+            ) {
+                return console::activate_focus(console::UiFocus::SettingsWifiScan);
+            }
+            if point_in(
+                x,
+                y,
+                action_x2,
+                action_y + SETTINGS_ACTION_ROW_STEP * 3,
+                action_w,
+                SETTINGS_ACTION_H,
+            ) {
                 return console::activate_focus(console::UiFocus::SettingsClose);
             }
         }
@@ -215,6 +264,13 @@ impl StatusUi {
 
 fn point_in(px: usize, py: usize, x: usize, y: usize, w: usize, h: usize) -> bool {
     px >= x && px < x.saturating_add(w) && py >= y && py < y.saturating_add(h)
+}
+
+fn settings_action_columns(width: usize) -> (usize, usize, usize) {
+    let x = usize::max(430, width / 2);
+    let gap = 16usize;
+    let button_w = width.saturating_sub(x.saturating_add(72).saturating_add(gap)) / 2;
+    (x, x.saturating_add(button_w).saturating_add(gap), button_w)
 }
 
 #[derive(Clone, Copy)]
@@ -1221,12 +1277,19 @@ fn draw_settings_action(
     label: &str,
     focused: bool,
 ) {
-    draw_soft_rect_r6(surface, x, y, width, 38, SURFACE_ALT);
-    draw_rect_outline_r6(surface, x, y, width, 38, HAIRLINE);
+    draw_soft_rect_r6(surface, x, y, width, SETTINGS_ACTION_H, SURFACE_ALT);
+    draw_rect_outline_r6(surface, x, y, width, SETTINGS_ACTION_H, HAIRLINE);
     if focused {
-        draw_focus_outline(surface, x, y, width, 38);
+        draw_focus_outline(surface, x, y, width, SETTINGS_ACTION_H);
     }
-    text::draw_text(surface, x + 18, y + 15, label, TEXT_MAIN, None);
+    draw_truncated_text(
+        surface,
+        x + 18,
+        y + 15,
+        label,
+        width.saturating_sub(36) / FONT_ADVANCE,
+        TEXT_MAIN,
+    );
 }
 
 fn draw_console(
@@ -1326,9 +1389,11 @@ fn draw_settings(
     } else {
         "MISSING"
     };
+    let (action_x, action_x2, action_w) = settings_action_columns(width);
+    let action_y = top + 62;
     draw_settings_row(
         surface,
-        width,
+        action_x,
         top + 62,
         "Provider",
         snapshot.provider_name,
@@ -1336,7 +1401,7 @@ fn draw_settings(
     );
     draw_settings_row(
         surface,
-        width,
+        action_x,
         top + 102,
         "Model",
         snapshot.provider_model,
@@ -1344,7 +1409,7 @@ fn draw_settings(
     );
     draw_settings_row(
         surface,
-        width,
+        action_x,
         top + 142,
         "API Key",
         key_state,
@@ -1352,7 +1417,7 @@ fn draw_settings(
     );
     draw_settings_row(
         surface,
-        width,
+        action_x,
         top + 182,
         "WiFi SSID",
         wifi_ssid,
@@ -1360,7 +1425,7 @@ fn draw_settings(
     );
     draw_settings_row(
         surface,
-        width,
+        action_x,
         top + 222,
         "WiFi Key",
         wifi_key_state,
@@ -1369,60 +1434,70 @@ fn draw_settings(
 
     draw_settings_action(
         surface,
-        72,
-        top + 250,
-        342,
+        action_x,
+        action_y,
+        action_w,
         "Provider Status",
         snapshot.focus == console::UiFocus::SettingsProvider,
     );
     draw_settings_action(
         surface,
-        430,
-        top + 250,
-        342,
+        action_x2,
+        action_y,
+        action_w,
         "Enter API Key",
         snapshot.focus == console::UiFocus::SettingsApiKey,
     );
     draw_settings_action(
         surface,
-        72,
-        top + 304,
-        342,
+        action_x,
+        action_y + SETTINGS_ACTION_ROW_STEP,
+        action_w,
         "Clear API Key",
         snapshot.focus == console::UiFocus::SettingsClear,
     );
     draw_settings_action(
         surface,
-        430,
-        top + 304,
-        342,
+        action_x2,
+        action_y + SETTINGS_ACTION_ROW_STEP,
+        action_w,
         "WiFi SSID",
         snapshot.focus == console::UiFocus::SettingsWifiSsid,
     );
     draw_settings_action(
         surface,
-        72,
-        top + 358,
-        342,
+        action_x,
+        action_y + SETTINGS_ACTION_ROW_STEP * 2,
+        action_w,
         "WiFi Key",
         snapshot.focus == console::UiFocus::SettingsWifiPassphrase,
     );
     draw_settings_action(
         surface,
-        430,
-        top + 358,
-        342,
+        action_x2,
+        action_y + SETTINGS_ACTION_ROW_STEP * 2,
+        action_w,
         "Clear WiFi",
         snapshot.focus == console::UiFocus::SettingsWifiClear,
     );
     draw_settings_action(
         surface,
-        72,
-        top + 412,
-        700,
+        action_x,
+        action_y + SETTINGS_ACTION_ROW_STEP * 3,
+        action_w,
+        "Scan networks",
+        snapshot.focus == console::UiFocus::SettingsWifiScan,
+    );
+    draw_settings_action(
+        surface,
+        action_x2,
+        action_y + SETTINGS_ACTION_ROW_STEP * 3,
+        action_w,
         "Close Settings",
         snapshot.focus == console::UiFocus::SettingsClose,
     );
+
+    draw_settings_wifi_networks(surface, width, height, top + 286);
 
     draw_input_bar(
         surface,
@@ -1433,6 +1508,120 @@ fn draw_settings(
         "",
         false,
     );
+}
+
+fn draw_settings_wifi_networks(
+    surface: &mut FramebufferSurface,
+    width: usize,
+    height: usize,
+    y: usize,
+) {
+    let scan = wifi::scan_results();
+    let max_chars = usize::max(8, width.saturating_sub(112) / FONT_ADVANCE);
+    let header = wifi_networks_header(scan);
+    draw_truncated_text(
+        surface,
+        56,
+        y,
+        header.as_str(),
+        max_chars,
+        if scan.scan_available {
+            APP_GREEN
+        } else {
+            APP_AMBER
+        },
+    );
+    surface.fill_rect(48, y + 21, width.saturating_sub(120), 1, HAIRLINE);
+
+    let mut row_y = y.saturating_add(38);
+    let bottom = input_field_y(height).saturating_sub(20);
+    if scan.count == 0 {
+        draw_truncated_text(
+            surface,
+            72,
+            row_y,
+            "No networks listed; press Scan networks for SELF-TEST",
+            max_chars.saturating_sub(2),
+            TEXT_FAINT,
+        );
+        return;
+    }
+
+    let mut idx = 0usize;
+    while idx < scan.count && idx < scan.networks.len() && row_y <= bottom {
+        let line = wifi_scan_settings_network_line(scan.networks[idx]);
+        draw_truncated_text(
+            surface,
+            72,
+            row_y,
+            line.as_str(),
+            max_chars.saturating_sub(2),
+            TEXT_MUTED,
+        );
+        row_y = row_y.saturating_add(18);
+        idx += 1;
+    }
+
+    if idx < scan.count && row_y <= bottom {
+        let mut line = TextBuf::<64>::new();
+        let _ = write!(line, "+{} more networks", scan.count.saturating_sub(idx));
+        draw_truncated_text(
+            surface,
+            72,
+            row_y,
+            line.as_str(),
+            max_chars.saturating_sub(2),
+            TEXT_FAINT,
+        );
+    }
+}
+
+fn wifi_networks_header(scan: wifi::ScanResultsSnapshot) -> TextBuf<192> {
+    let mut header = TextBuf::new();
+    if scan.scan_available {
+        let _ = write!(header, "WIFI NETWORKS - LIVE SCAN AVAILABLE");
+    } else if scan.count == 0 {
+        let _ = write!(
+            header,
+            "WIFI NETWORKS - LIVE SCAN NOT AVAILABLE ({}); press Scan networks for SELF-TEST",
+            scan.unavailable_reason
+        );
+    } else {
+        let _ = write!(
+            header,
+            "WIFI NETWORKS - LIVE SCAN NOT AVAILABLE ({}); showing SELF-TEST",
+            scan.unavailable_reason
+        );
+    }
+    header
+}
+
+fn wifi_scan_settings_network_line(network: wifi::ScannedNetwork) -> TextBuf<160> {
+    let mut line = TextBuf::new();
+    let ssid = if network.hidden_ssid || network.ssid.is_empty() {
+        "(hidden)"
+    } else {
+        network.ssid.as_str()
+    };
+    if network.channel == 0 {
+        let _ = write!(
+            line,
+            "SSID {}  CH?  {}  {}",
+            ssid,
+            wifi::scan_security_label(network.security),
+            network.source.tag()
+        );
+    } else {
+        let _ = write!(
+            line,
+            "SSID {}  CH{}  {}  {}",
+            ssid,
+            network.channel,
+            wifi::scan_security_label(network.security),
+            network.source.tag()
+        );
+    }
+    line
 }
 
 fn draw_current_cursor(surface: &mut FramebufferSurface, last_rect: &mut Option<CursorRect>) {

@@ -103,6 +103,7 @@ pub enum UiFocus {
     SettingsWifiSsid,
     SettingsWifiPassphrase,
     SettingsWifiClear,
+    SettingsWifiScan,
     SettingsClose,
 }
 
@@ -408,6 +409,10 @@ impl ConsoleState {
                 wifi::clear_config();
                 ByteAction::ShowSetupMessage(SetupMessage::WifiConfigCleared)
             }
+            UiFocus::SettingsWifiScan => {
+                wifi::run_scan_selftest();
+                ByteAction::ShowSetupMessage(SetupMessage::WifiScanSelftestRun)
+            }
             UiFocus::SettingsClose => {
                 self.mode = ConsoleMode::Command;
                 self.view = UiView::Ai;
@@ -549,6 +554,10 @@ impl ConsoleState {
             b'6' => {
                 wifi::clear_config();
                 ByteAction::ShowSetupMessage(SetupMessage::WifiConfigCleared)
+            }
+            b'7' => {
+                wifi::run_scan_selftest();
+                ByteAction::ShowSetupMessage(SetupMessage::WifiScanSelftestRun)
             }
             b'q' | 0x1b => {
                 self.mode = ConsoleMode::Command;
@@ -707,13 +716,14 @@ const CONSOLE_FOCUS_ORDER: [UiFocus; 4] = [
     UiFocus::NavConsole,
     UiFocus::NavSettings,
 ];
-const SETTINGS_FOCUS_ORDER: [UiFocus; 10] = [
+const SETTINGS_FOCUS_ORDER: [UiFocus; 11] = [
     UiFocus::SettingsProvider,
     UiFocus::SettingsApiKey,
     UiFocus::SettingsClear,
     UiFocus::SettingsWifiSsid,
     UiFocus::SettingsWifiPassphrase,
     UiFocus::SettingsWifiClear,
+    UiFocus::SettingsWifiScan,
     UiFocus::SettingsClose,
     UiFocus::NavAi,
     UiFocus::NavConsole,
@@ -773,6 +783,7 @@ enum SetupMessage {
     WifiPassphraseTooLong,
     WifiConfigInvalid,
     WifiEntryCancelled,
+    WifiScanSelftestRun,
 }
 
 #[derive(Clone, Copy)]
@@ -1576,9 +1587,10 @@ fn show_setup_menu() {
         wifi_ssid_status(&wifi.ssid)
     ));
     write_output(format_args!(
-        "5 WIFI KEY: {}    6 CLEAR WIFI    Q EXIT",
+        "5 WIFI KEY: {}    6 CLEAR WIFI",
         api_key_status(wifi.passphrase_set)
     ));
+    write_output(format_args!("7 SCAN NETWORKS (SELF-TEST)    Q EXIT"));
 }
 
 fn show_api_key_entry() {
@@ -1641,6 +1653,9 @@ fn show_setup_message(message: SetupMessage) {
             write_output(format_args!("WIFI CONFIG NOT CHANGED: INVALID BYTE"))
         }
         SetupMessage::WifiEntryCancelled => write_output(format_args!("WIFI ENTRY CANCELLED")),
+        SetupMessage::WifiScanSelftestRun => write_output(format_args!(
+            "WIFI SCAN SELF-TEST RUN (LIVE SCAN UNAVAILABLE)"
+        )),
     }
 }
 
