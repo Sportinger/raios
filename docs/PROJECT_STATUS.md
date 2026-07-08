@@ -24,6 +24,33 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+M12+ first distribution slice done (2026-07-08) — ADR 0009 Option A. M12+ Phase A
+(commit d5f49b9): raios-core provenance-verify primitive — verify a distribution/
+publisher signature over a DOMAIN-TAGGED message ("raios.distribution_provenance.
+v0" ++ artifact_sha256) with a SEPARATE pinned publisher key (dev P-256 scalar 2,
+distinct from the promotion scalar-1 + artifact-identity keys) so a promotion or
+identity signature can't be replayed as provenance; + a grants-nothing honesty
+evaluator delegating M12-1 (authorizes_acquisition/install/load FALSE on every
+path); + the ota distribution-provenance-signer bin. M12+ Phase B (commit 6034355):
+a read-only kernel diagnostic that verifies a publisher signature against the
+KERNEL-recomputed retained candidate.sha256 and reports honest evidence — the
+candidate stays INERT (load/execute/install still denied); provenance != load-
+worthiness; loading still needs the full M6/M7 promotion + re-verify. Verified: raios-
+core 253 + ota-tools tests; seed-kernel build warning-free; m12-distribution-
+provenance profile 223/223 (valid provenance → load STILL denied; absent/tampered/
+wrong-artifact-binding rejected; granted-candidate load gate + generic durable gate +
+honesty report unchanged). Grants nothing; dev_key_not_owner_sealed. Full+recovery
+deferred to the M12+ block close. Scoping + implementation by CODEX workers.
+
+WiFi-1b-pure done (2026-07-08, commit b23b4f5) — OWNER SIDE TRACK. Pure
+FwAction -> ordered register-write-plan translator in raios-core/src/
+marvell_wifi_fw.rs (the testable bridge between the WiFi-1a sequencer and the
+future kernel MMIO/DMA shell): plan_register_writes(FwAction, block_dma_phys) ->
+fixed-capacity no-alloc RegWrite list. 5 new unit tests pin the exact ordered plan
+per action. NO unsafe/IO/alloc; raios-core 253 tests. WiFi-1b hardware shell design
+committed (docs/marvell-88w8897-wifi-1b-design.md); the MMIO/DMA shell itself is
+next (compile-only, inert, until the real Surface).
+
 WiFi-1a done (2026-07-08, commit e3de309) — OWNER SIDE TRACK, first real code
 brick of the Surface Pro 4 Marvell 88W8897 WiFi driver. A PURE, hardware-
 INDEPENDENT firmware-download sequencer in raios-core/src/marvell_wifi_fw.rs: a

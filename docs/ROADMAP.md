@@ -91,13 +91,25 @@ real-cert check), unverified-basis, grants nothing. **M10+M11+M12 mechanism bloc
 VERIFIED-CLOSED: full 8205/8205, recovery byte-identical 3870/3870.**
 
 **THE OWNER-GATED FRONTIER (updated 2026-07-08):** (1) ADR 0008 — **ACCEPTED
-(A+2); BUILDING NOW** (byte-buffer channel M11-5a/b landed; real-parser relocation
-next). (2) ADR 0009 — **ACCEPTED (Option A: local signed registry → serial
-candidate intake, no network); QUEUED** after the M11 relocation slices. (3)
-provide real trust inputs (a cryptographically trusted time source, real CA roots,
-a live second provider) → I finish M10 real validation — STILL YOURS. (4) the
-owner-key sealing ceremony → the FINAL step — STILL YOURS. Until then every label
-stays honestly unverified / dev_key_not_owner_sealed.
+(A+2); BUILDING — 2 real relocations DONE + closed** (M11-6 X.509 parser + M11-7
+HTTP-response parsers now run in signed cross-checked Wasm sandboxes; both blocks
+VERIFIED-CLOSED full 8205/recovery 3870). (2) ADR 0009 — **ACCEPTED (Option A);
+BUILDING — first slice DONE:** M12+ Phase A the raios-core provenance-verify
+primitive (separate scalar-2 publisher key + domain tag; grants nothing) + Phase B
+the kernel bridge (a distribution publisher signature is verified against the
+KERNEL-recomputed retained candidate.sha256, but the candidate stays inert — load/
+execute/install still denied; provenance != load-worthiness; m12-distribution-
+provenance 223/223). Next M12+ slices: the actual content-addressed registry store +
+more of the local delivery flow. (3) provide real trust inputs (a cryptographically
+trusted time source, real CA roots, a live second provider) → I finish M10 real
+validation — STILL YOURS. (4) the owner-key sealing ceremony → the FINAL step —
+STILL YOURS. Until then every label stays honestly unverified / dev_key_not_owner_
+sealed. **OWNER SIDE TRACK (parallel, Codex workers): Surface Pro 4 Marvell 88W8897
+WiFi driver — WiFi-1a firmware sequencer + WiFi-1b design + WiFi-1b-pure register-
+write-plan translator all committed (pure/unit-tested; hardware-untested/inert;
+the MMIO/DMA shell is next, compile-only until real hardware).** Process (owner
+2026-07-08): per-slice max-effort review DROPPED; scoping + implementation both run
+as Codex workers; Claude orchestrates/verifies.
 
 M10 progress (all grants-nothing, honestly labeled, committed): M10A-1 provider-
 trust HONESTY evaluator (can never overclaim chain/time validation; webpki

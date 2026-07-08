@@ -59,7 +59,13 @@ Chip) hat den ersten echten Baustein — die reine Firmware-Lade-Ablauflogik, in
 bewiesen (ehrlich: noch NICHT auf echter Hardware getestet, tut noch nichts). ALS NÄCHSTES: weitere
 Internet-Bausteine umziehen Richtung kompletter TLS-Prüfung in der Sandbox; WLAN Schritt für Schritt.
 Ab jetzt: Codex macht die Worker (schnell + günstig), ich orchestriere/prüfe; kein Extra-Review mehr
-pro Schritt (deine Entscheidung). Alles weiterhin ehrlich dev-key, nicht owner-versiegelt.
+pro Schritt (deine Entscheidung). **M12+ (Software-Verteilung) hat die erste Schicht:** raiOS kann
+jetzt prüfen, WER ein Programm veröffentlicht hat (eine Verteil-Signatur mit eigenem Publisher-
+Schlüssel, getrennt vom Lade-Schlüssel) — aber das gewährt NICHTS: das heruntergeladene Programm
+bleibt ein toter Kandidat, Laden weiter verweigert, es muss weiter durch die volle Promotion-Prüfung.
+„Herkunft" ist NICHT „Lade-Erlaubnis". Bewiesen: Profil 223/223 (gültige Signatur → trotzdem kein
+Laden; gefälschte/fehlende/falsch-gebundene Signatur → abgelehnt). Alles weiterhin ehrlich dev-key,
+nicht owner-versiegelt.
 The big one (M7) is done: boot 1 accepts and saves an AI-authored module (its code +
 a signed "promotion receipt"); the machine is powered down and back up; boot 2
 independently re-checks the whole evidence chain from disk — re-doing the signature
