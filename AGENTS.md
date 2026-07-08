@@ -123,10 +123,16 @@ aggressive-fast cadence. This is a standing decision that tunes the budget above
 - **Per sub-slice:** run ONLY that slice's own focused VM profile (e.g.
   `memory-durable`), then commit. That is sufficient evidence to close a
   sub-slice.
-- **Adversarial (max-effort) review:** only on RISKY steps — a new durable write
-  path or write-boundary, an authority flip, changes to shared/attested code, or
-  anything that could grant more than claimed. Skip it on trivial / grants-nothing
-  slices (a raios-core rules clone, a mechanical field addition, docs).
+- **Adversarial (max-effort) review:** DROPPED from the routine loop by owner
+  decision (2026-07-08) — do NOT run the multi-agent adversarial review workflow
+  per slice. The relocation/grants-nothing slices consistently returned SHIP with
+  zero defects, so the owner traded it away for speed/cost. Replace it with: the
+  orchestrator's OWN careful read of the full diff before commit, the host DoD,
+  the focused VM profile, and a secret scan. Scoping/design workflows stay
+  (they catch real issues early). If a step is genuinely dangerous — a real
+  authority flip, secret custody, or anything that could grant more than claimed —
+  surface it to the owner rather than silently shipping; do not treat "review
+  dropped" as license to skip judgment.
 - **Full profile (`full`) + `recovery` byte-identical:** only at a BLOCK /
   sub-milestone close (e.g. when M9A / M9B / M9C finishes), NOT on every
   sub-slice — plus the pre-existing rule to run them before handing off a release
