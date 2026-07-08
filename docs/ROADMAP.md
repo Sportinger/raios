@@ -32,10 +32,25 @@ M11-3 ENFORCEMENT — each Wasm instance's Linker is built from ONLY the
 evaluator-authorized imports, verified ⊆ module.imports() before instantiation,
 strictly more restrictive (review SOUND, profile m11-wasm-import-grant 185/185);
 M11-3a DURABLE per-service import-grant AUDIT (capability_grant/local_only/
-deduped, memory-durable 154/154). **M11 REMAINDER IS OWNER-GATED (ADR 0008):**
-the actual TLS/HTTP relocation into a Wasm service, beyond-env host imports
-(net/tls/crypto/time/secret), the kernel-side-vs-guest-side trust-shape decision,
-and per-service secret custody — all pending the owner's ADR 0008 decision.
+deduped, memory-durable 154/154). **ADR 0008 ACCEPTED by the owner (2026-07-08):
+Option A (exact per-service import list + evaluator + per-instance Linker) PLUS
+trust-shape Option 2 (the TLS/parser verifier moves INTO the Wasm service; the
+permanent core keeps trust-label authority + provider request/export authorization
++ API-key custody — the service produces evidence, never blesses itself).**
+**M11 relocation now BUILDING slice by slice:** M11-5a byte-buffer data-channel
+MECHANISM (3 DEFAULT-DENY env imports env.input_len/input_read/output_write +
+runtime plumbing; grants nothing — echo/hello/granted_candidate byte-identical;
+m11-wasm-import-grant 197/197); M11-5b the FIRST signed service to USE it —
+svc.demo.bufecho reads host-staged bytes and writes them straight back through
+ONLY those 3 imports, dev-key-signed (scalar 1, dev_key_not_owner_sealed, build.rs
+hard-gates the signature + asserts the honest tier), output surfaced only as
+len+sha256, import-grant audit honestly RAM-only (boot_control_safe_mode) —
+m11-buffer-channel 196/196, MAX-EFFORT 4-lens adversarial review SHIP. NEXT: move
+the first REAL pure parser (the TLS-adjacent X.509 validity-window DER parser) out
+of the kernel into a signed Wasm service over this channel, kernel cross-checks the
+guest result against its own raios-core copy (Option 2). Beyond-env host imports
+(net/tls/crypto/time/secret) and per-service secret custody remain later relocation
+slices; policy_allows_beyond_env stays false until then.
 
 **M12+ opener + honesty capstone (committed, grants nothing):** M12-1 external-
 acquisition HONESTY evaluator (download = candidate intake NEVER install; a
@@ -51,13 +66,14 @@ cert-time chain is now complete end to end (clock -> parser -> comparator -> liv
 real-cert check), unverified-basis, grants nothing. **M10+M11+M12 mechanism block
 VERIFIED-CLOSED: full 8205/8205, recovery byte-identical 3870/3870.**
 
-**THE COMPLETE OWNER-GATED FRONTIER (every unblocked mechanism is built; these
-need YOU):** (1) accept ADR 0008 → I build the M11 TLS/HTTP relocation into a
-Wasm service; (2) accept ADR 0009 → I build M12+ external distribution (local
-signed registry → serial candidate intake first); (3) provide real trust inputs
-(a cryptographically trusted time source, real CA roots, a live second provider)
-→ I finish M10 real validation; (4) the owner-key sealing ceremony → the FINAL
-step. Until then every label stays honestly unverified / dev_key_not_owner_sealed.
+**THE OWNER-GATED FRONTIER (updated 2026-07-08):** (1) ADR 0008 — **ACCEPTED
+(A+2); BUILDING NOW** (byte-buffer channel M11-5a/b landed; real-parser relocation
+next). (2) ADR 0009 — **ACCEPTED (Option A: local signed registry → serial
+candidate intake, no network); QUEUED** after the M11 relocation slices. (3)
+provide real trust inputs (a cryptographically trusted time source, real CA roots,
+a live second provider) → I finish M10 real validation — STILL YOURS. (4) the
+owner-key sealing ceremony → the FINAL step — STILL YOURS. Until then every label
+stays honestly unverified / dev_key_not_owner_sealed.
 
 M10 progress (all grants-nothing, honestly labeled, committed): M10A-1 provider-
 trust HONESTY evaluator (can never overclaim chain/time validation; webpki

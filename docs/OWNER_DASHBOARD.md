@@ -32,10 +32,18 @@ raiOS misst jetzt seine „Internet-Fläche" (was aus dem Kern in Sandbox-Dienst
 kann pro Dienst genau festlegen + ERZWINGEN, welche Host-Funktionen ein Sandbox-Programm
 benutzen darf (nur die erlaubten werden verdrahtet; ein Programm mit einer nicht-erlaubten
 Funktion wird VOR dem Start abgewiesen — strikt strenger als vorher, Sicherheits-Prüfung
-„einwandfrei"), und protokolliert jede erlaubte Fläche dauerhaft + fälschungssicher. Der
-eigentliche Umzug des Internet-Codes (TLS) in einen Sandbox-Dienst braucht deine Entscheidung
-(ADR 0008: Vertrauens-Form + Umgang mit Geheimnissen) — bis dahin bleibt er als klar
-markiertes TODO stehen.
+„einwandfrei"), und protokolliert jede erlaubte Fläche dauerhaft + fälschungssicher.
+**Deine Entscheidung ist getroffen (ADR 0008, 08.07.): Variante A + Vertrauens-Form 2** — der
+Internet-Prüfcode zieht IN den Sandbox-Dienst, aber der feste Kern behält die Vertrauens-Hoheit,
+die Freigabe von Provider-Anfragen/Exporten und die Schlüssel (ein Sandbox-Dienst kann sich nie
+selbst „geprüft" stempeln). Erste Bausteine laufen schon: raiOS kann jetzt Daten sicher IN ein
+Sandbox-Programm hinein und wieder heraus reichen (nur über drei eng begrenzte, standardmäßig
+verbotene Kanäle), und der ERSTE signierte Sandbox-Dienst nutzt das bereits — er bekommt Bytes
+gestellt und gibt sie unverändert zurück, kommt nie an Netz/Schlüssel, und rohe Bytes verlassen
+die Sandbox nie (nur Länge + Prüfsumme). Bewiesen: Profil 196/196, strengste 4-fach-Gegenprüfung
+„bestanden". ALS NÄCHSTES: der erste ECHTE Umzug — ein Internet-naher Zertifikats-Parser wandert
+aus dem Kern in einen Sandbox-Dienst, vom Kern gegengeprüft. Alles weiterhin ehrlich dev-key,
+nicht owner-versiegelt.
 The big one (M7) is done: boot 1 accepts and saves an AI-authored module (its code +
 a signed "promotion receipt"); the machine is powered down and back up; boot 2
 independently re-checks the whole evidence chain from disk — re-doing the signature
