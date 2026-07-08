@@ -9,6 +9,10 @@ use core::str;
 
 use embedded_io::Write as IoWrite;
 use embedded_tls::blocking::{Aes128GcmSha256, NoVerify, TlsConfig, TlsConnection, TlsContext};
+use raios_core::http_response_parse::{
+    find_subslice, header_contains, http_response_complete, parse_hex_usize, parse_status,
+    trim_ascii,
+};
 use rand_core::{CryptoRng, RngCore};
 use sha2::{Digest, Sha256};
 use spin::Mutex;
@@ -1354,58 +1358,6 @@ fn read_http_response(
     }
 }
 
-fn http_response_complete(response: &[u8]) -> bool {
-    let Some(body_start) = find_subslice(response, b"\r\n\r\n").map(|index| index + 4) else {
-        return false;
-    };
-
-    if header_contains(response, b"transfer-encoding:", b"chunked") {
-        return find_subslice(&response[body_start..], b"\r\n0\r\n").is_some();
-    }
-
-    if let Some(content_len) = parse_content_length(response) {
-        return response.len().saturating_sub(body_start) >= content_len;
-    }
-
-    false
-}
-
-fn parse_status(response: &[u8]) -> Option<u16> {
-    let line_end = find_subslice(response, b"\r\n")?;
-    let line = str::from_utf8(&response[..line_end]).ok()?;
-    let mut parts = line.split_ascii_whitespace();
-    let _http = parts.next()?;
-    parts.next()?.parse().ok()
-}
-
-fn parse_content_length(response: &[u8]) -> Option<usize> {
-    let header_end = find_subslice(response, b"\r\n\r\n")?;
-    for line in response[..header_end].split(|byte| *byte == b'\n') {
-        let line = trim_ascii(line.strip_suffix(b"\r").unwrap_or(line));
-        let (name, value) = split_header(line)?;
-        if eq_ignore_ascii_case(name, b"content-length") {
-            return parse_usize(trim_ascii(value));
-        }
-    }
-    None
-}
-
-fn header_contains(response: &[u8], name_prefix: &[u8], value: &[u8]) -> bool {
-    let Some(header_end) = find_subslice(response, b"\r\n\r\n") else {
-        return false;
-    };
-    for line in response[..header_end].split(|byte| *byte == b'\n') {
-        let line = trim_ascii(line.strip_suffix(b"\r").unwrap_or(line));
-        if line.len() >= name_prefix.len()
-            && eq_ignore_ascii_case(&line[..name_prefix.len()], name_prefix)
-            && contains_ignore_ascii_case(line, value)
-        {
-            return true;
-        }
-    }
-    false
-}
-
 fn decoded_body(response: &[u8], body_start: usize) -> Vec<u8> {
     if header_contains(response, b"transfer-encoding:", b"chunked") {
         decode_chunked(&response[body_start..]).unwrap_or_else(|| response[body_start..].to_vec())
@@ -1530,70 +1482,6 @@ fn read_json_u16(body: &[u8], index: usize) -> Option<u16> {
         value = value.checked_mul(16)?.checked_add(u16::from(digit))?;
     }
     Some(value)
-}
-
-fn split_header(line: &[u8]) -> Option<(&[u8], &[u8])> {
-    let colon = line.iter().position(|byte| *byte == b':')?;
-    Some((&line[..colon], &line[colon + 1..]))
-}
-
-fn trim_ascii(mut value: &[u8]) -> &[u8] {
-    while value.first().is_some_and(|byte| byte.is_ascii_whitespace()) {
-        value = &value[1..];
-    }
-    while value.last().is_some_and(|byte| byte.is_ascii_whitespace()) {
-        value = &value[..value.len() - 1];
-    }
-    value
-}
-
-fn parse_usize(value: &[u8]) -> Option<usize> {
-    let mut out = 0usize;
-    for &byte in value {
-        if !byte.is_ascii_digit() {
-            return None;
-        }
-        out = out.checked_mul(10)?.checked_add((byte - b'0') as usize)?;
-    }
-    Some(out)
-}
-
-fn parse_hex_usize(value: &[u8]) -> Option<usize> {
-    let mut out = 0usize;
-    for &byte in value {
-        let digit = match byte {
-            b'0'..=b'9' => byte - b'0',
-            b'a'..=b'f' => byte - b'a' + 10,
-            b'A'..=b'F' => byte - b'A' + 10,
-            b';' => break,
-            _ => return None,
-        };
-        out = out.checked_mul(16)?.checked_add(digit as usize)?;
-    }
-    Some(out)
-}
-
-fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    if needle.is_empty() {
-        return Some(0);
-    }
-    haystack
-        .windows(needle.len())
-        .position(|window| window == needle)
-}
-
-fn contains_ignore_ascii_case(haystack: &[u8], needle: &[u8]) -> bool {
-    haystack
-        .windows(needle.len())
-        .any(|window| eq_ignore_ascii_case(window, needle))
-}
-
-fn eq_ignore_ascii_case(lhs: &[u8], rhs: &[u8]) -> bool {
-    lhs.len() == rhs.len()
-        && lhs
-            .iter()
-            .zip(rhs)
-            .all(|(left, right)| left.eq_ignore_ascii_case(right))
 }
 
 struct KernelRng;
