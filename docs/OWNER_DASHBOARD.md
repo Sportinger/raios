@@ -3,6 +3,16 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
+Updated: 2026-07-09. **M12+ Verteilung hat jetzt einen echten lokalen
+Transport:** raiOS kann ein dev-signiertes Programm uber die serielle
+Agent-Schnittstelle in Stucken annehmen, jeden Chunk per Fingerabdruck prufen,
+die Stucke ausser Reihenfolge zusammensetzen, den Gesamt-Fingerabdruck und die
+Herkunftssignatur prufen und es erst dann als toten Kandidaten halten. Ein
+falscher Chunk-Fingerabdruck leert den Transport und `finalize` halt nichts.
+Weiterhin wird NICHT geladen, installiert, ausgefuhrt, gespeichert oder aus dem
+Netz geholt. Beweis: `m12-distribution-provenance`
+`shadow-20260709-014534-25684.json` 215/215 grun.
+
 Updated: 2026-07-09. **M12+ Verteilung ist einen echten Schritt weiter:** raiOS
 kann im Kernel jetzt aus mehr als einem lokal signierten Registry-Eintrag per
 Fingerabdruck auswahlen (`echo` oder `bufecho`) und genau dieses Programm als

@@ -302,7 +302,7 @@ fn record_selftest_case(case: &SelftestCase) -> V<'static> {
     ])
 }
 
-fn decode_distribution_signature_der_hex(
+pub(crate) fn decode_distribution_signature_der_hex(
     signature_hex: &[u8],
 ) -> Option<([u8; event_log::MAX_PROMOTION_SIGNATURE_DER_LEN], usize)> {
     if !distribution_signature_hex_candidate(signature_hex) {

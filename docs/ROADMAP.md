@@ -15,7 +15,7 @@ vocabulary).
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-08.
+Last updated: 2026-07-09.
 
 Current milestone: **M10 + M11 IN PROGRESS** — both have their grants-nothing
 mechanism foundations committed; the substantive remainder of each is
@@ -112,8 +112,12 @@ recomputed whole-sha256 matches the declared target, else fail-closed; the final
 is still an inert candidate (35 raios-core tests green across Slices 2-4). **Slice 5 DONE:**
 the kernel bridge now selects between two signed local registry entries by hash and stages the
 selected artifact as an inert candidate; its chunked bufecho selftest reassembles out-of-order
-chunks before staging, still grants nothing (`m12-distribution-provenance` 204/204). Next M12+
-slice: real local delivery transport. (3) provide real trust inputs (a cryptographically
+chunks before staging, still grants nothing (`m12-distribution-provenance` 204/204). **Slice 6
+DONE:** a real serial local delivery transport now accepts a signed artifact as bounded
+content-addressed chunks, denies bad chunk hashes before staging, and stages a valid
+reassembled artifact only as an inert candidate (`m12-distribution-provenance` 215/215).
+Next M12+ slice: connect distribution delivery to a non-builtin local source/catalog without
+granting install/load authority. (3) provide real trust inputs (a cryptographically
 trusted time source, real CA roots, a live second provider) → I finish M10 real
 validation — STILL YOURS. (4) the owner-key sealing ceremony → the FINAL step —
 STILL YOURS. Until then every label stays honestly unverified / dev_key_not_owner_

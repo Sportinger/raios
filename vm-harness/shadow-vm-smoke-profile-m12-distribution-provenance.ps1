@@ -52,6 +52,69 @@ function Get-M12SelftestCase {
     return @($Cases | Where-Object { $_.case -eq $Name })[0]
 }
 
+function Get-M12BytesSha256Hex {
+    param([byte[]]$Bytes)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hash = $sha.ComputeHash($Bytes)
+        return (($hash | ForEach-Object { $_.ToString("x2") }) -join "")
+    }
+    finally {
+        $sha.Dispose()
+    }
+}
+
+function Get-M12ByteSlice {
+    param(
+        [byte[]]$Bytes,
+        [int]$Offset,
+        [int]$Count
+    )
+    $chunk = New-Object byte[] $Count
+    [Array]::Copy($Bytes, $Offset, $chunk, 0, $Count)
+    return $chunk
+}
+
+function Get-M12DistributionChunks {
+    param([byte[]]$Bytes)
+    $firstLen = [Math]::Floor($Bytes.Length / 3)
+    $secondLen = [Math]::Floor(($Bytes.Length * 2) / 3) - $firstLen
+    $thirdLen = $Bytes.Length - $firstLen - $secondLen
+    return @(
+        [pscustomobject]@{ index = 0; bytes = (Get-M12ByteSlice -Bytes $Bytes -Offset 0 -Count $firstLen) },
+        [pscustomobject]@{ index = 1; bytes = (Get-M12ByteSlice -Bytes $Bytes -Offset $firstLen -Count $secondLen) },
+        [pscustomobject]@{ index = 2; bytes = (Get-M12ByteSlice -Bytes $Bytes -Offset ($firstLen + $secondLen) -Count $thirdLen) }
+    )
+}
+
+function Send-M12DistributionBytes {
+    param(
+        [string]$Path,
+        [string]$ExpectedShaBare,
+        [string]$SignatureHex
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        throw "Distribution artifact does not exist: $Path"
+    }
+
+    $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $Path).Path)
+    $chunks = @(Get-M12DistributionChunks -Bytes $bytes)
+    Send-AgentCommand -Command "module.submit_distribution_begin sha256:$ExpectedShaBare $($bytes.Length) $($chunks.Count) sig:$SignatureHex" -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_begin" -Name "m12-distribution:T1_transport_begin"
+    foreach ($chunk in @($chunks[2], $chunks[0], $chunks[1])) {
+        $chunkHash = Get-M12BytesSha256Hex -Bytes $chunk.bytes
+        $chunkBase64 = [Convert]::ToBase64String($chunk.bytes)
+        Send-AgentCommand -Command "module.submit_distribution_chunk $($chunk.index) sha256:$chunkHash $chunkBase64" -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_chunk" -Name "m12-distribution:T1_transport_chunk_$($chunk.index)"
+    }
+    Send-AgentCommand -Command "module.submit_distribution_finalize" -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_finalize" -Name "m12-distribution:T1_transport_finalize"
+
+    return [pscustomobject]@{
+        byte_len = $bytes.Length
+        chunk_count = $chunks.Count
+        finalize_response = (Get-LastAgentResponseJson -Method "module.submit_distribution_finalize")
+    }
+}
+
 Send-AgentCommand -Command "agent module.registry_selection_diagnostic $expectedSha" -ExpectedMarker "RAIOS_AGENT_END module.registry_selection_diagnostic" -Name "m12-distribution:P1_registry_selection_valid"
 $registry = Get-LastAgentResponseJson -Method "module.registry_selection_diagnostic"
 $registryResult = $registry.body.result
@@ -183,6 +246,82 @@ Assert-M12Predicate `
     -Passed $registrySelftestOk `
     -Actual $(if ($registrySelftestOk) { "matched" } else { ($registrySelftestResult | ConvertTo-Json -Compress -Depth 10) }) `
     -FailureMessage "Expected registry selection selftest to pass"
+
+$echoArtifactPath = Join-Path $RepoRoot "seed-kernel\artifacts\svc.demo.echo.wasm"
+$echoBytes = [System.IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $echoArtifactPath).Path)
+$echoChunks = @(Get-M12DistributionChunks -Bytes $echoBytes)
+$badChunkBase64 = [Convert]::ToBase64String($echoChunks[0].bytes)
+Send-AgentCommand -Command "module.submit_distribution_begin $expectedSha $($echoBytes.Length) $($echoChunks.Count) sig:$provSigHex" -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_begin" -Name "m12-distribution:T0_bad_transport_begin"
+Send-AgentCommand -Command "module.submit_distribution_chunk 0 sha256:0000000000000000000000000000000000000000000000000000000000000000 $badChunkBase64" -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_chunk" -Name "m12-distribution:T0_bad_chunk_hash"
+$badTransportChunk = Get-LastAgentResponseJson -Method "module.submit_distribution_chunk"
+$badTransportChunkResult = $badTransportChunk.body.result
+$badTransportChunkOk = (
+    $badTransportChunkResult.rejected -eq $true -and
+    $badTransportChunkResult.accepted -eq $false -and
+    $badTransportChunkResult.discarded_pending_delivery -eq $true -and
+    $badTransportChunkResult.reason -eq "chunk_sha256_mismatch" -and
+    [int]$badTransportChunkResult.pending_chunk_count -eq 0
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:T0_bad_chunk_hash_discards_pending" `
+    -Expected "distribution chunk with mismatched claimed sha256 is rejected and clears pending transport" `
+    -Passed $badTransportChunkOk `
+    -Actual $(if ($badTransportChunkOk) { "matched" } else { ($badTransportChunkResult | ConvertTo-Json -Compress -Depth 6) }) `
+    -FailureMessage "Expected bad distribution chunk hash to discard pending delivery"
+Send-AgentCommand -Command "module.submit_distribution_finalize" -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_finalize" -Name "m12-distribution:T0_finalize_after_bad_chunk"
+$badTransportFinalize = Get-LastAgentResponseJson -Method "module.submit_distribution_finalize"
+$badTransportFinalizeResult = $badTransportFinalize.body.result
+$badTransportFinalizeOk = (
+    $badTransportFinalizeResult.status -eq "denied" -and
+    $badTransportFinalizeResult.reason -eq "distribution_delivery_not_started" -and
+    $null -eq $badTransportFinalizeResult.selection -and
+    $null -eq $badTransportFinalizeResult.staged_candidate -and
+    $badTransportFinalizeResult.authorizes_load -eq $false -and
+    $badTransportFinalizeResult.writes_persistent_state -eq $false
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:T0_finalize_after_bad_chunk_no_stage" `
+    -Expected "finalize after rejected distribution chunk stages no candidate" `
+    -Passed $badTransportFinalizeOk `
+    -Actual $(if ($badTransportFinalizeOk) { "matched" } else { ($badTransportFinalizeResult | ConvertTo-Json -Compress -Depth 8) }) `
+    -FailureMessage "Expected finalize after bad distribution chunk to fail closed"
+
+$distributionDelivery = Send-M12DistributionBytes -Path $echoArtifactPath -ExpectedShaBare $expectedShaBare -SignatureHex $provSigHex
+$distributionFinalize = $distributionDelivery.finalize_response
+$distributionResult = $distributionFinalize.body.result
+$distributionSelection = $distributionResult.selection
+$distributionStaged = $distributionResult.staged_candidate
+$distributionRetained = $distributionResult.retained_provenance
+$distributionOk = (
+    $distributionFinalize.t -eq "response" -and
+    $distributionResult.status -eq "selected" -and
+    $distributionResult.reason -eq "registry_entry_selected_for_inert_candidate_intake" -and
+    $distributionResult.delivery_channel -eq "serial_console_distribution_chunks_v0" -and
+    [int]$distributionResult.total_length -eq 4205 -and
+    [int]$distributionResult.declared_chunk_count -eq 3 -and
+    [int]$distributionResult.accepted_chunk_count -eq 3 -and
+    [int]$distributionResult.delivered_byte_len -eq 4205 -and
+    $distributionSelection.entry_id -eq "serial.local.distribution" -and
+    $distributionSelection.artifact_sha256 -eq $expectedSha -and
+    $distributionSelection.provenance_signature_verified -eq $true -and
+    $distributionSelection.selected_for_candidate_intake -eq $true -and
+    $distributionStaged.artifact_sha256 -eq $expectedSha -and
+    $distributionStaged.wasm_valid -eq $true -and
+    $distributionStaged.retained_in_ram -eq $true -and
+    $distributionStaged.rejected -eq $false -and
+    $distributionRetained.provenance_verified -eq $true -and
+    $distributionRetained.artifact_sha256 -eq $expectedSha -and
+    $distributionResult.staged_only_after_valid_selection -eq $true -and
+    (Test-M12RegistryDenials -Record $distributionResult) -and
+    (Test-M12RegistryDenials -Record $distributionSelection) -and
+    (Test-M12Denials -Record $distributionRetained)
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:T1_serial_distribution_transport_stages_inert_candidate" `
+    -Expected "real serial distribution transport reassembles signed echo artifact and stages it inert after chunk and whole hash verification" `
+    -Passed $distributionOk `
+    -Actual $(if ($distributionOk) { "matched" } else { ($distributionResult | ConvertTo-Json -Compress -Depth 10) }) `
+    -FailureMessage "Expected serial distribution delivery to stage a valid inert candidate"
 
 Send-AgentCommand -Command "agent module.distribution_provenance_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END module.distribution_provenance_diagnostic_selftest" -Name "m12-distribution:P2_selftest_command"
 $selftest = Get-LastAgentResponseJson -Method "module.distribution_provenance_diagnostic_selftest"

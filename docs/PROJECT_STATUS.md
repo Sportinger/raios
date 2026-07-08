@@ -24,6 +24,26 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+M12+ Slice 6 done (2026-07-09) - real local serial distribution transport. A
+user/agent can now deliver a dev-publisher-signed local artifact over the
+serial protocol as bounded content-addressed chunks; raiOS verifies the
+declared chunk hashes, reassembles out-of-order chunks through the M12 chunked
+delivery verifier, checks the whole artifact hash plus provenance signature,
+and only then stages the artifact into the existing inert current-boot candidate
+intake. A wrong claimed chunk hash clears the pending transport and finalize
+stages nothing. This grants no acquisition/install/load/execute/persist/network
+or durable-write authority; provenance remains origin evidence only and M6/M7
+re-verification is still required for any future load. Verified: touched-file
+rustfmt check; PowerShell profile parse; `cargo test --locked -p raios-core`
+(300 passed, with local Cargo cache/target overrides because the environment
+pointed Cargo at a missing `F:\scorefollower-build` path); release seed-kernel
+build; focused VM `m12-distribution-provenance` report
+`release/vm-reports/shadow-20260709-014534-25684.json` 215/215 predicates,
+34 executed commands, `duration_ms: 86323`, report sha256
+`75bbb66c62f16b0711ffa31cc9156688f2d23c25704ba4fecc5912a1a33390f2`.
+Full+recovery remain deferred to the M12+ block close per the aggressive-fast
+cadence.
+
 M12+ Slice 5 done (2026-07-09) — kernel bridge for multi-entry + chunked local
 distribution. A user/agent can now select between two dev-publisher-signed local
 registry entries (`svc.demo.echo` and `svc.demo.bufecho`) by content hash through
