@@ -3686,6 +3686,19 @@ Host-only verification for this worker: `cargo fmt -p seed-kernel -- --check` PA
 seed-kernel build PASS (`built target/x86_64-seed/release/seed-kernel`), and the edited memory-durable
 PowerShell profile parses with 0 errors. Per orchestrator override, no QEMU profile was run.
 
+**M10A-1 IMPLEMENTED (2026-07-08, provider-trust HONESTY evaluator, raios-core only, grants nothing).**
+raiOS can now DO a host-tested fail-closed honesty evaluation over provider trust evidence before real
+WebPKI/time hardening lands: `raios-core/src/scoped_provider_trust_honesty.rs` accepts only the honest Stage-0
+pin-only labels (`pinned_cert_verified`/`pinned_spki_verified`,
+`pin_only_no_webpki_chain_validation`, `not_validated_stage0`) and rejects dev bypass, chain/time overclaims,
+`webpki_verified`, and unknown/negative trust states. Success reports
+`honest_pin_only_time_unvalidated_grants_nothing` with `honest:true`,
+`chain_validated:false`, `time_validated:false`, and both `authorizes_provider_request:false` and
+`authorizes_provider_export:false`; no kernel wiring, provider request, provider export, QEMU, real time,
+CA roots, WebPKI chain logic, or second-provider adapter was added. Host-only verification:
+`cargo test --locked -p raios-core` PASS (197 tests, 6 new trust-honesty tests; 11 distinct pairwise-unique
+denial reasons in `denial_truth_table_names_first_failed_pin`) and `cargo fmt --all -- --check` PASS.
+
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 recovery/hello dispatch-bound completion-denial smoke runs on Windows with
