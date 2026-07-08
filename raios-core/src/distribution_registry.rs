@@ -22,6 +22,7 @@ pub const DISTRIBUTION_REGISTRY_SELECTION_ID: &str =
     "distribution_registry.selection.current_boot.v0";
 pub const DISTRIBUTION_REGISTRY_SOURCE_KIND: &str = "local_signed_registry";
 pub const DISTRIBUTION_REGISTRY_TRUST_TIER: &str = "dev_key_not_owner_sealed";
+pub const DISTRIBUTION_REGISTRY_MAX_ENTRIES: usize = 8;
 
 #[derive(Clone, Copy)]
 pub struct DistributionRegistryEntryInput<'a> {
@@ -75,6 +76,105 @@ impl<'a> DistributionRegistryEntry<'a> {
             publisher_key_sha256: input.publisher_key_sha256,
             classification,
         })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DistributionRegistry<'a> {
+    entries: [Option<DistributionRegistryEntry<'a>>; DISTRIBUTION_REGISTRY_MAX_ENTRIES],
+    count: usize,
+}
+
+impl<'a> DistributionRegistry<'a> {
+    pub const fn new() -> Self {
+        Self {
+            entries: [None; DISTRIBUTION_REGISTRY_MAX_ENTRIES],
+            count: 0,
+        }
+    }
+
+    pub const fn capacity(&self) -> usize {
+        DISTRIBUTION_REGISTRY_MAX_ENTRIES
+    }
+
+    pub const fn len(&self) -> usize {
+        self.count
+    }
+
+    pub const fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+
+    pub fn get(&self, index: usize) -> Option<&DistributionRegistryEntry<'a>> {
+        if index < self.count {
+            self.entries[index].as_ref()
+        } else {
+            None
+        }
+    }
+
+    pub fn insert(
+        &mut self,
+        entry: DistributionRegistryEntry<'a>,
+    ) -> Result<(), RegistrySelectionReason> {
+        if sha256_bytes(entry.artifact_bytes) != entry.artifact_sha256 {
+            return Err(RegistrySelectionReason::RegistryEntryContentHashMismatch);
+        }
+
+        if let Some(index) = self.find_index_by_stored_hash(entry.artifact_sha256) {
+            self.entries[index] = Some(entry);
+            return Ok(());
+        }
+
+        if self.count >= DISTRIBUTION_REGISTRY_MAX_ENTRIES {
+            return Err(RegistrySelectionReason::RegistryFull);
+        }
+
+        self.entries[self.count] = Some(entry);
+        self.count += 1;
+        Ok(())
+    }
+
+    pub fn select_by_hash(
+        &self,
+        requested_artifact_sha256: [u8; 32],
+    ) -> Result<RegistrySelectionDecision<'a>, RegistrySelectionReason> {
+        let entry = self
+            .find_entry_by_stored_hash(requested_artifact_sha256)
+            .ok_or(RegistrySelectionReason::RegistryEntryNotFound)?;
+        Ok(evaluate_distribution_registry_selection(
+            entry,
+            requested_artifact_sha256,
+        ))
+    }
+
+    fn find_index_by_stored_hash(&self, artifact_sha256: [u8; 32]) -> Option<usize> {
+        let mut idx = 0usize;
+        while idx < self.count {
+            if let Some(entry) = self.entries[idx] {
+                if entry.artifact_sha256 == artifact_sha256 {
+                    return Some(idx);
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn find_entry_by_stored_hash(
+        &self,
+        artifact_sha256: [u8; 32],
+    ) -> Option<&DistributionRegistryEntry<'a>> {
+        let mut idx = 0usize;
+        while idx < self.count {
+            if let Some(entry) = self.entries[idx].as_ref() {
+                if entry.artifact_sha256 == artifact_sha256 {
+                    return Some(entry);
+                }
+            }
+            idx += 1;
+        }
+        None
     }
 }
 
@@ -196,12 +296,15 @@ impl<'a> RegistrySelectionDecision<'a> {
 pub enum RegistrySelectionReason {
     SelectedForInertCandidateIntake,
     ArtifactHashMismatch,
+    RegistryEntryContentHashMismatch,
     ProvenanceSignatureAbsent,
     ProvenanceSignatureEmpty,
     PublisherKeyMismatch,
     SecretClassification,
     ClassificationOutOfScope,
     SelectionHashMismatch,
+    RegistryEntryNotFound,
+    RegistryFull,
     ProvenanceSignatureUnverified,
     ProvenanceHonestyDenied(&'static str),
 }
@@ -213,12 +316,17 @@ impl RegistrySelectionReason {
                 "registry_entry_selected_for_inert_candidate_intake"
             }
             RegistrySelectionReason::ArtifactHashMismatch => "artifact_hash_mismatch",
+            RegistrySelectionReason::RegistryEntryContentHashMismatch => {
+                "registry_entry_content_hash_mismatch"
+            }
             RegistrySelectionReason::ProvenanceSignatureAbsent => "provenance_signature_absent",
             RegistrySelectionReason::ProvenanceSignatureEmpty => "provenance_signature_empty",
             RegistrySelectionReason::PublisherKeyMismatch => "publisher_key_mismatch",
             RegistrySelectionReason::SecretClassification => "secret_classification_rejected",
             RegistrySelectionReason::ClassificationOutOfScope => "classification_out_of_scope",
             RegistrySelectionReason::SelectionHashMismatch => "selection_hash_mismatch",
+            RegistrySelectionReason::RegistryEntryNotFound => "registry_entry_not_found",
+            RegistrySelectionReason::RegistryFull => "distribution_registry_full",
             RegistrySelectionReason::ProvenanceSignatureUnverified => {
                 "provenance_signature_unverified"
             }
@@ -231,7 +339,23 @@ pub fn evaluate_distribution_registry_selection<'a>(
     entry: &DistributionRegistryEntry<'a>,
     requested_artifact_sha256: [u8; 32],
 ) -> RegistrySelectionDecision<'a> {
-    if requested_artifact_sha256 != entry.artifact_sha256 {
+    let recomputed_artifact_sha256 = sha256_bytes(entry.artifact_bytes);
+    if recomputed_artifact_sha256 != entry.artifact_sha256 {
+        return selection_decision(
+            entry,
+            requested_artifact_sha256,
+            "denied",
+            RegistrySelectionReason::RegistryEntryContentHashMismatch,
+            false,
+            false,
+            false,
+            "not_evaluated",
+            "registry_entry_content_hash_mismatch",
+            false,
+        );
+    }
+
+    if requested_artifact_sha256 != recomputed_artifact_sha256 {
         return selection_decision(
             entry,
             requested_artifact_sha256,
@@ -351,6 +475,7 @@ mod tests {
     ];
 
     struct Fixture {
+        entry_id: &'static str,
         bytes: Vec<u8>,
         hash: [u8; 32],
         signature: Vec<u8>,
@@ -359,7 +484,7 @@ mod tests {
     impl Fixture {
         fn input(&self) -> DistributionRegistryEntryInput<'_> {
             DistributionRegistryEntryInput {
-                entry_id: "builtin.echo",
+                entry_id: self.entry_id,
                 artifact_bytes: &self.bytes,
                 claimed_artifact_sha256: self.hash,
                 provenance_signature_der: Some(&self.signature),
@@ -370,10 +495,15 @@ mod tests {
     }
 
     fn fixture() -> Fixture {
-        let bytes = b"\0asm registry selection fixture".to_vec();
+        fixture_named("builtin.echo", b"\0asm registry selection fixture")
+    }
+
+    fn fixture_named(entry_id: &'static str, bytes: &[u8]) -> Fixture {
+        let bytes = bytes.to_vec();
         let hash = sha256_bytes(&bytes);
         let signature = sign_hash(&PUBLISHER_PRIVATE_SCALAR, &hash);
         Fixture {
+            entry_id,
             bytes,
             hash,
             signature,
@@ -539,6 +669,130 @@ mod tests {
         let decision = decision_for(&entry);
 
         assert!(decision.selected_for_candidate_intake);
+        assert_no_authority(&decision);
+    }
+
+    #[test]
+    fn multi_entry_registry_select_by_hash_hit_returns_inert_candidate() {
+        let first = fixture_named("entry.one", b"\0asm registry entry one");
+        let second = fixture_named("entry.two", b"\0asm registry entry two");
+        let first_entry = DistributionRegistryEntry::new(first.input()).expect("valid entry one");
+        let second_entry = DistributionRegistryEntry::new(second.input()).expect("valid entry two");
+        let mut registry = DistributionRegistry::new();
+
+        registry.insert(first_entry).expect("insert first");
+        registry.insert(second_entry).expect("insert second");
+        let decision = registry
+            .select_by_hash(second.hash)
+            .expect("second entry selected by hash");
+
+        assert_eq!(registry.capacity(), DISTRIBUTION_REGISTRY_MAX_ENTRIES);
+        assert_eq!(registry.len(), 2);
+        assert!(!registry.is_empty());
+        assert_eq!(decision.entry_id, "entry.two");
+        assert_eq!(decision.status, "selected");
+        assert_eq!(
+            decision.reason,
+            RegistrySelectionReason::SelectedForInertCandidateIntake
+        );
+        assert!(decision.selected_for_candidate_intake);
+        assert!(decision.selection_hash_matched);
+        assert_no_authority(&decision);
+    }
+
+    #[test]
+    fn multi_entry_registry_select_by_hash_miss_is_not_found() {
+        let fixture = fixture();
+        let entry = DistributionRegistryEntry::new(fixture.input()).expect("valid entry");
+        let mut registry = DistributionRegistry::new();
+        let mut missing = fixture.hash;
+        missing[0] ^= 0x01;
+
+        registry.insert(entry).expect("insert entry");
+
+        assert_eq!(
+            registry.select_by_hash(missing),
+            Err(RegistrySelectionReason::RegistryEntryNotFound)
+        );
+    }
+
+    #[test]
+    fn duplicate_content_hash_updates_entry_and_keeps_count_stable() {
+        let original = fixture_named("entry.original", b"\0asm duplicate content");
+        let replacement = fixture_named("entry.replacement", b"\0asm duplicate content");
+        let original_entry =
+            DistributionRegistryEntry::new(original.input()).expect("valid original");
+        let replacement_entry =
+            DistributionRegistryEntry::new(replacement.input()).expect("valid replacement");
+        let mut registry = DistributionRegistry::new();
+
+        registry.insert(original_entry).expect("insert original");
+        registry
+            .insert(replacement_entry)
+            .expect("same hash updates existing entry");
+        let decision = registry
+            .select_by_hash(original.hash)
+            .expect("deduped hash remains selectable");
+
+        assert_eq!(registry.len(), 1);
+        assert_eq!(decision.entry_id, "entry.replacement");
+        assert!(decision.selected_for_candidate_intake);
+        assert_no_authority(&decision);
+    }
+
+    #[test]
+    fn capacity_bound_rejects_new_hash_and_leaves_state_unchanged() {
+        let mut fixtures = Vec::new();
+        let mut idx = 0usize;
+        while idx < DISTRIBUTION_REGISTRY_MAX_ENTRIES {
+            fixtures.push(fixture_named(
+                "capacity.entry",
+                &[b'r', b'e', b'g', idx as u8],
+            ));
+            idx += 1;
+        }
+        let extra = fixture_named("capacity.extra", b"\0asm capacity extra");
+        let mut registry = DistributionRegistry::new();
+
+        for fixture in &fixtures {
+            let entry = DistributionRegistryEntry::new(fixture.input()).expect("valid entry");
+            registry.insert(entry).expect("insert within capacity");
+        }
+        let before_count = registry.len();
+        let extra_entry = DistributionRegistryEntry::new(extra.input()).expect("valid extra");
+
+        assert_eq!(
+            registry.insert(extra_entry),
+            Err(RegistrySelectionReason::RegistryFull)
+        );
+        assert_eq!(registry.len(), before_count);
+        assert_eq!(
+            registry.select_by_hash(extra.hash),
+            Err(RegistrySelectionReason::RegistryEntryNotFound)
+        );
+    }
+
+    #[test]
+    fn tampered_registry_entry_is_denied_before_positive_selection() {
+        let fixture = fixture();
+        let tampered_bytes = b"\0asm tampered registry bytes".to_vec();
+        let mut entry = DistributionRegistryEntry::new(fixture.input()).expect("valid entry");
+        entry.artifact_bytes = &tampered_bytes;
+        let mut registry = DistributionRegistry::new();
+        registry.entries[0] = Some(entry);
+        registry.count = 1;
+
+        let decision = registry
+            .select_by_hash(fixture.hash)
+            .expect("stored hash match returns a denied decision");
+
+        assert_eq!(decision.status, "denied");
+        assert_eq!(
+            decision.reason,
+            RegistrySelectionReason::RegistryEntryContentHashMismatch
+        );
+        assert!(!decision.selection_hash_matched);
+        assert!(!decision.selected_for_candidate_intake);
         assert_no_authority(&decision);
     }
 }
