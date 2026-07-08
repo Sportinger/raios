@@ -24,6 +24,22 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+M10C-3 done (2026-07-08, host-only worker packet; no QEMU): raiOS-core can now
+fail-closed parse a real DER certificate's declared `notBefore`/`notAfter`
+validity window into `CertValidityDateTime`, so the existing M10C-2
+unverified-basis comparator can check real certificate dates. The parser is a
+self-contained bounded DER TLV reader in `cert_validity_window.rs`: one-byte
+tags only, definite lengths only, non-minimal/oversize/truncated forms denied,
+no recursion, and all payload movement is bounds-checked. The embedded fixture
+is the real `vendor/embedded-tls-0.17.0/tests/data/server-cert.pem` DER
+(522 bytes, sha256
+`baa2a6c3263fb8170aa2b4013046414a1e4760c2f5e7bfdf88c74f51742e0cb4`) with
+parsed dates 2021-10-13T08:20:42Z..2031-10-11T08:20:42Z. This grants no live
+cert use, network, trusted time, chain/hostname/WebPKI validation, provider
+authority, durable write, or schema. Host-only verification passed:
+`cargo test --locked -p raios-core` (243 passed) and
+`cargo fmt -p raios-core -- --check`.
+
 system.honesty_report done (2026-07-08, host-only worker packet; no QEMU):
 an agent can read `system.honesty_report` to get one live, auditable,
 read-only, local-only manifest of raiOS's honest posture across provider trust,
