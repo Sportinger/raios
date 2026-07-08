@@ -17,11 +17,20 @@ vocabulary).
 
 Last updated: 2026-07-08.
 
-Current milestone: **M9 Durable Memory & Context Broker v1** (ADR 0004 Phase D).
-**M6 Promotion Loop, M7 Persistence, and M8 Recovery Lifeline are COMPLETE**;
-M9A (durable typed memory) + M9B (agent observation) done, M9C (read-only broker) in
-progress — the full M6→M9 narrative is below. (Historical note: the M6 opener below
-was the cursor as of 2026-07-06; the milestone has advanced to M9 since.)
+Current milestone: **M10 Provider Trust Hardening & Adapters** (next; see the M10
+section below). **M6 Promotion Loop, M7 Persistence, M8 Recovery Lifeline, and
+M9 Durable Memory & Context Broker v1 (ADR 0004 Phase D) are COMPLETE.**
+M9 delivered: M9A durable typed memory (records/decisions/problems, supersede-not-
+overwrite), M9B agent-authored confined observations, M9C-1 the read-only context
+broker (fail-closed reparser + supersede/R1 + classification), M9C-2 the full
+provider-export path (2a classification-firewall gate, 2b deduped denial audits,
+2c the AUTHORITY FLIP — authorize + durable export_audit on a test-only positive
+vector, honest dev_key_not_owner_sealed, NO transmission), and M9D reboot
+durability (memory survives a real power-cycle byte-intact). M9 CLOSE proven:
+full 8168/8168, recovery byte-identical 3833/3833. Owner TODO carried forward:
+real provider transmission needs production network + a genuinely verified TLS
+pin; the owner-key sealing ceremony remains the final M12+ step. (Historical
+note: the M6 opener below was the cursor as of 2026-07-06.)
 **M6A (external candidate identity) COMPLETE** (M6A-1 intake + M6A-2a real
 serial delivery + M6A-2b real identity). **M6B (verified grant) done:**
 M6B-1 verifies a pinned dev-key P-256 promotion signature; M6B-2 is the

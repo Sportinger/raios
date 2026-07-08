@@ -3,16 +3,20 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-07 (**M7 + M8 COMPLETE; M9A (durable typed memory) + M9B (first AGENT-authored
-observation, strictly fenced) COMPLETE — raiOS writes permanent typed facts (denials, decisions,
-problems, and now agent observations) to disk, proven byte-exact, proves "supersede not overwrite",
-and lets an AI worker record one confined local_only observation while the kernel forces all authority.** M8 (the Notfall-Rettungsleine) can,
-when things break above it: diagnose (live + durable last-good/safe-mode), survive a crashed Wasm
-service, and take four safe restore actions — disable a bad module, restart a disabled/crashed one to
-known-good, and re-instate a saved module by fingerprint from the LOCAL store (proven across a real
-reboot: the service comes back and answers live). Every action is deny-before-doing, records a durable
-proof first, restore-only-never-promote, honest dev-key. M9 first durable memory write is proven
-(43/43); secrets can never be stored, provider export stays refused. M7/M8/M9 detail below.
+Updated: 2026-07-08 (**M7 + M8 + M9 COMPLETE.** raiOS now has a real, permanent, honest
+MEMORY. It writes typed facts (denials, decisions, problems, and AI-worker observations) to
+disk, proven byte-exact, "supersede not overwrite" (a newer fact hides the old one but the
+audit trail can never be rewritten), and they SURVIVE A REAL REBOOT byte-intact (M9D). A
+read-only "context broker" (M9C-1) safely re-reads those facts with the classification and
+supersede rules enforced. And the whole DATA-EXPORT decision now exists (M9C-2): a fail-closed
+"firewall" decides if any memory-derived bytes may leave the machine — ONLY public-classified
+records, only under verified trust; every refusal is permanently logged (deduped); and the
+first AUTHORIZE path is built + proven, but strictly test-only and honestly labeled
+`dev_key_not_owner_sealed` — it assembles a public-only packet and records an export receipt
+WITHOUT sending a single real byte. Secrets can never be stored; a local note can never be
+smuggled into an export. M9 CLOSE proven: full 8168/8168, recovery byte-identical 3833/3833.
+Still yours to do later: real sending needs a live network + a genuinely verified provider
+certificate; the owner-key sealing ceremony stays the final step. M7/M8/M9 detail below.
 The big one (M7) is done: boot 1 accepts and saves an AI-authored module (its code +
 a signed "promotion receipt"); the machine is powered down and back up; boot 2
 independently re-checks the whole evidence chain from disk — re-doing the signature
