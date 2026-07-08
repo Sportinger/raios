@@ -24,6 +24,18 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+M11-5a Phase A done (2026-07-08, host-only worker packet; no QEMU): raiOS now
+has the default-deny byte-buffer Wasm data-channel mechanism: `env.input_len`,
+`env.input_read`, and `env.output_write` are known host imports and have bounded
+runtime plumbing to stage host input into guest memory and capture guest output
+as len+sha256 evidence, but no existing service declares or is granted them.
+`svc.demo.echo`, `svc.demo.hello`, and `svc.dev.granted_candidate` keep their
+existing authorized import lists and marker shape; the subset check still runs
+before instantiation and the linker still only defines imports that the scoped
+grant evaluator authorized. Host-only verification passed:
+`cargo fmt --all -- --check`, `cargo test --locked -p raios-core` (246 passed),
+and `powershell -File scripts\build-seed-kernel.ps1 -Profile release`.
+
 M10C-4 done (2026-07-08, host-only worker packet; no QEMU): on live boot,
 raiOS parses the fixed real embedded-tls localhost certificate fixture DER
 through the committed raios-core X.509 validity-window parser and checks the

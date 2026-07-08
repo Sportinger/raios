@@ -14,7 +14,13 @@ pub const SCOPED_WASM_IMPORT_GRANT_DECISION_ID: &str =
     "scoped_wasm_import_grant_authorization.current_boot.v0";
 pub const SCOPED_WASM_IMPORT_GRANT_DECISION_MARKER: &str = "RAIOS_WASM_IMPORT_GRANT_SCOPE_DECISION";
 
-pub const KNOWN_HOST_IMPORTS: &[(&str, &str)] = &[("env", "log"), ("env", "counter_get")];
+pub const KNOWN_HOST_IMPORTS: &[(&str, &str)] = &[
+    ("env", "log"),
+    ("env", "counter_get"),
+    ("env", "input_len"),
+    ("env", "input_read"),
+    ("env", "output_write"),
+];
 pub const MAX_GRANTED_IMPORTS: usize = 16;
 
 #[derive(Clone, Copy)]
@@ -261,7 +267,13 @@ mod tests {
     fn known_host_imports_are_only_current_env_functions() {
         assert_eq!(
             KNOWN_HOST_IMPORTS,
-            &[("env", "log"), ("env", "counter_get")]
+            &[
+                ("env", "log"),
+                ("env", "counter_get"),
+                ("env", "input_len"),
+                ("env", "input_read"),
+                ("env", "output_write")
+            ]
         );
         assert!(KNOWN_HOST_IMPORTS
             .iter()
@@ -269,9 +281,43 @@ mod tests {
     }
 
     #[test]
+    fn buffer_data_channel_imports_authorize_only_when_declared() {
+        let mut input = valid_input();
+        input.requested_imports = &[
+            ("env", "input_len"),
+            ("env", "input_read"),
+            ("env", "output_write"),
+        ];
+        assert_eq!(
+            evaluate_wasm_import_grant(&input),
+            WasmImportGrantDecision {
+                performed: true,
+                status: "import_grant_authorized",
+                reason: "authorized_exact_declared_import_surface",
+                authorized_import_count: 3,
+            }
+        );
+    }
+
+    #[test]
+    fn input_read_import_authorizes_alone() {
+        let mut input = valid_input();
+        input.requested_imports = &[("env", "input_read")];
+        assert_eq!(
+            evaluate_wasm_import_grant(&input),
+            WasmImportGrantDecision {
+                performed: true,
+                status: "import_grant_authorized",
+                reason: "authorized_exact_declared_import_surface",
+                authorized_import_count: 1,
+            }
+        );
+    }
+
+    #[test]
     fn unknown_host_import_is_fail_closed() {
         let mut input = valid_input();
-        input.requested_imports = &[("net", "tcp_open")];
+        input.requested_imports = &[("net", "x")];
         assert_eq!(
             evaluate_wasm_import_grant(&input).reason,
             "unknown_host_import"
@@ -346,5 +392,27 @@ mod tests {
             evaluate_wasm_import_grant(&WasmImportGrantInput::empty()).reason,
             "missing_service_id"
         );
+    }
+
+    #[test]
+    fn echo_authorized_import_hash_stays_pinned_and_differs_from_bufecho() {
+        let echo = authorized_import_list_sha256(
+            "svc.demo.echo",
+            &[("env", "log"), ("env", "counter_get")],
+        );
+        let bufecho = authorized_import_list_sha256(
+            "svc.demo.bufecho",
+            &[
+                ("env", "input_len"),
+                ("env", "input_read"),
+                ("env", "output_write"),
+            ],
+        );
+
+        assert_eq!(
+            crate::sha256_hex(&echo),
+            *b"b314db1d2b23903140a060975c281d5a78c43b0f695019c6730fe679f80bcb66"
+        );
+        assert_ne!(echo, bufecho);
     }
 }

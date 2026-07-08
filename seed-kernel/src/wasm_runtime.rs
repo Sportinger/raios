@@ -39,6 +39,9 @@ const UNREACHABLE_WASM_MODULE: &[u8] = &[
     0x00, 0x0b,
 ];
 const MAX_WASM_LOG_BYTES: usize = 256;
+// Keep in lockstep with the Phase-B guest buffer size.
+const MAX_WASM_INPUT_BYTES: usize = 4096;
+const MAX_WASM_OUTPUT_BYTES: usize = 4096;
 const WASM_MEMORY_PAGE_BYTES: usize = 64 * 1024;
 pub(crate) const ECHO_WASM_FUEL_BUDGET: u64 = 10_000;
 /// Deliberately-tiny fuel budget for the labeled fuel-starvation fault injection
@@ -114,6 +117,8 @@ pub(crate) struct EchoRunEvidence {
     pub(crate) import_grant_reason: &'static str,
     pub(crate) authorized_import_count: u64,
     pub(crate) authorized_import_list_sha256: [u8; 32],
+    pub(crate) captured_output_len: u64,
+    pub(crate) captured_output_sha256: [u8; 32],
     pub(crate) linked_host_import_count: u64,
     pub(crate) module_imports_within_authorized_list: bool,
     pub(crate) missing_import_module: Option<String>,
@@ -305,6 +310,8 @@ pub(crate) fn validate_module_bytes(bytes: &[u8]) -> bool {
 
 struct EnvelopeState {
     log_line: Option<String>,
+    staged_input: Vec<u8>,
+    captured_output: Vec<u8>,
     limits: StoreLimits,
 }
 
@@ -343,6 +350,7 @@ fn execute_echo_module(validation_ok: bool) -> EchoRunEvidence {
         true,
         ECHO_AUTHORIZED_IMPORTS,
         validation_ok,
+        &[],
     )
 }
 
@@ -360,6 +368,7 @@ pub(crate) fn execute_module_bytes(
         artifact_sha256_present,
         requested_imports,
         validate_module_bytes(bytes),
+        &[],
     )
 }
 
@@ -370,6 +379,7 @@ fn execute_validated_module_bytes(
     artifact_sha256_present: bool,
     requested_imports: &[(&str, &str)],
     validation_ok: bool,
+    staged_input: &[u8],
 ) -> EchoRunEvidence {
     let authorized =
         match authorize_wasm_imports(service_id, artifact_sha256_present, requested_imports) {
@@ -417,7 +427,7 @@ fn execute_validated_module_bytes(
             )
         }
     };
-    let mut store = Box::new(Store::new(&engine, default_state()));
+    let mut store = Box::new(Store::new(&engine, buffer_state(staged_input)));
     if store.add_fuel(ECHO_WASM_FUEL_BUDGET).is_err() {
         return positive_run(
             service_id,
@@ -514,7 +524,7 @@ fn execute_validated_module_bytes(
             } else {
                 "bad_return_type"
             };
-            positive_run(
+            let mut ev = positive_run(
                 service_id,
                 true,
                 true,
@@ -523,18 +533,38 @@ fn execute_validated_module_bytes(
                 store.fuel_consumed().unwrap_or(0),
                 store.data().log_line.clone(),
                 import_grant_evidence(&authorized, linked_host_import_count, true, None),
-            )
+            );
+            let out = &store.data().captured_output;
+            if out.is_empty() {
+                ev.captured_output_len = 0;
+                ev.captured_output_sha256 = ZERO_SHA256;
+            } else {
+                ev.captured_output_len = out.len() as u64;
+                ev.captured_output_sha256 = sha256_bytes(out);
+            }
+            ev
         }
-        Err(_) => positive_run(
-            service_id,
-            true,
-            true,
-            "trap",
-            None,
-            store.fuel_consumed().unwrap_or(0),
-            store.data().log_line.clone(),
-            import_grant_evidence(&authorized, linked_host_import_count, true, None),
-        ),
+        Err(_) => {
+            let mut ev = positive_run(
+                service_id,
+                true,
+                true,
+                "trap",
+                None,
+                store.fuel_consumed().unwrap_or(0),
+                store.data().log_line.clone(),
+                import_grant_evidence(&authorized, linked_host_import_count, true, None),
+            );
+            let out = &store.data().captured_output;
+            if out.is_empty() {
+                ev.captured_output_len = 0;
+                ev.captured_output_sha256 = ZERO_SHA256;
+            } else {
+                ev.captured_output_len = out.len() as u64;
+                ev.captured_output_sha256 = sha256_bytes(out);
+            }
+            ev
+        }
     }
 }
 
@@ -802,11 +832,17 @@ fn positive_run(
         import_grant_reason: import_grant.reason,
         authorized_import_count: import_grant.authorized_import_count,
         authorized_import_list_sha256: import_grant.authorized_import_list_sha256,
+        captured_output_len: 0,
+        captured_output_sha256: ZERO_SHA256,
         linked_host_import_count: import_grant.linked_host_import_count,
         module_imports_within_authorized_list: import_grant.module_imports_within_authorized_list,
         missing_import_module: import_grant.missing_import_module,
         missing_import_name: import_grant.missing_import_name,
     };
+    let _ = (
+        evidence.captured_output_len,
+        evidence.captured_output_sha256,
+    );
     emit_import_grant_marker(service_id, &evidence);
     evidence
 }
@@ -820,6 +856,8 @@ fn metered_engine() -> Box<Engine> {
 fn default_state() -> EnvelopeState {
     EnvelopeState {
         log_line: None,
+        staged_input: Vec::new(),
+        captured_output: Vec::new(),
         limits: StoreLimitsBuilder::new().build(),
     }
 }
@@ -827,12 +865,23 @@ fn default_state() -> EnvelopeState {
 fn limited_state(memory_size: usize) -> EnvelopeState {
     EnvelopeState {
         log_line: None,
+        staged_input: Vec::new(),
+        captured_output: Vec::new(),
         limits: StoreLimitsBuilder::new()
             .memory_size(memory_size)
             .instances(1)
             .memories(1)
             .tables(0)
             .build(),
+    }
+}
+
+fn buffer_state(staged_input: &[u8]) -> EnvelopeState {
+    EnvelopeState {
+        log_line: None,
+        staged_input: staged_input.to_vec(),
+        captured_output: Vec::new(),
+        limits: StoreLimitsBuilder::new().build(),
     }
 }
 
@@ -874,6 +923,21 @@ fn define_granted_imports(
             ("env", "counter_get") => {
                 linker
                     .func_wrap("env", "counter_get", host_counter_get)
+                    .map_err(|_| "host_import_link_failed")?;
+            }
+            ("env", "input_len") => {
+                linker
+                    .func_wrap("env", "input_len", host_input_len)
+                    .map_err(|_| "host_import_link_failed")?;
+            }
+            ("env", "input_read") => {
+                linker
+                    .func_wrap("env", "input_read", host_input_read)
+                    .map_err(|_| "host_import_link_failed")?;
+            }
+            ("env", "output_write") => {
+                linker
+                    .func_wrap("env", "output_write", host_output_write)
                     .map_err(|_| "host_import_link_failed")?;
             }
             _ => return Err("missing_host_import_implementation"),
@@ -1043,6 +1107,88 @@ fn host_log(mut caller: Caller<'_, EnvelopeState>, ptr: i32, len: i32) -> Result
     serial::write_raw_line(&line);
     caller.data_mut().log_line = Some(line);
     Ok(())
+}
+
+fn host_input_len(mut caller: Caller<'_, EnvelopeState>) -> Result<i32, Trap> {
+    caller
+        .consume_fuel(5)
+        .map_err(|_| Trap::from(TrapCode::OutOfFuel))?;
+    let len = caller.data().staged_input.len();
+    if len > MAX_WASM_INPUT_BYTES {
+        return Err(Trap::new("env.input_len staged input exceeds max"));
+    }
+    Ok(len as i32)
+}
+
+fn host_input_read(mut caller: Caller<'_, EnvelopeState>, ptr: i32, len: i32) -> Result<i32, Trap> {
+    caller
+        .consume_fuel(25)
+        .map_err(|_| Trap::from(TrapCode::OutOfFuel))?;
+    if ptr < 0 || len < 0 {
+        return Err(Trap::new("env.input_read negative pointer or length"));
+    }
+    let ptr = ptr as usize;
+    let len = len as usize;
+    if len > MAX_WASM_INPUT_BYTES {
+        return Err(Trap::new("env.input_read length exceeds 4096 bytes"));
+    }
+    let count = len.min(caller.data().staged_input.len());
+    ptr.checked_add(count)
+        .ok_or_else(|| Trap::new("env.input_read pointer overflow"))?;
+
+    let memory = caller
+        .get_export("memory")
+        .and_then(Extern::into_memory)
+        .ok_or_else(|| Trap::new("env.input_read memory export missing"))?;
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&caller.data().staged_input[..count]);
+    memory
+        .write(&mut caller, ptr, &bytes)
+        .map_err(|_| Trap::from(TrapCode::MemoryOutOfBounds))?;
+    Ok(count as i32)
+}
+
+// Raw guest bytes: surfaced only as len+sha256 later. This env-module output
+// channel is bounded + per-service-declared + subset-checked, and by design does
+// NOT arm the policy_allows_beyond_env owner gate; move output_write to its own
+// module if the owner later wants policy-gated output.
+fn host_output_write(
+    mut caller: Caller<'_, EnvelopeState>,
+    ptr: i32,
+    len: i32,
+) -> Result<i32, Trap> {
+    caller
+        .consume_fuel(25)
+        .map_err(|_| Trap::from(TrapCode::OutOfFuel))?;
+    if ptr < 0 || len < 0 {
+        return Err(Trap::new("env.output_write negative pointer or length"));
+    }
+    let ptr = ptr as usize;
+    let len = len as usize;
+    if len > MAX_WASM_OUTPUT_BYTES {
+        return Err(Trap::new("env.output_write length exceeds 4096 bytes"));
+    }
+    ptr.checked_add(len)
+        .ok_or_else(|| Trap::new("env.output_write pointer overflow"))?;
+
+    let memory = caller
+        .get_export("memory")
+        .and_then(Extern::into_memory)
+        .ok_or_else(|| Trap::new("env.output_write memory export missing"))?;
+    let mut bytes = Vec::new();
+    bytes.resize(len, 0);
+    memory
+        .read(&caller, ptr, &mut bytes)
+        .map_err(|_| Trap::from(TrapCode::MemoryOutOfBounds))?;
+    caller
+        .data()
+        .captured_output
+        .len()
+        .checked_add(len)
+        .filter(|total| *total <= MAX_WASM_OUTPUT_BYTES)
+        .ok_or_else(|| Trap::new("env.output_write captured output exceeds 4096 bytes"))?;
+    caller.data_mut().captured_output.extend_from_slice(&bytes);
+    Ok(len as i32)
 }
 
 fn host_counter_get(mut caller: Caller<'_, EnvelopeState>) -> Result<i64, Trap> {
