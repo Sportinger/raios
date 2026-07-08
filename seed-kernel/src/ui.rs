@@ -1,6 +1,6 @@
 use crate::framebuffer::{Color, FramebufferInfo, FramebufferSurface};
 use crate::system_status::{RowState, SnapshotStates, StatusLine, SystemSnapshot, TextBuf};
-use crate::{console, input, serial, text};
+use crate::{console, input, serial, text, wifi};
 use core::fmt::{self, Write};
 
 pub use crate::system_status::RuntimeStatus;
@@ -19,7 +19,7 @@ const STATUS_DETAIL_START_Y: usize = 128;
 const STATUS_DETAIL_LINE_H: usize = 16;
 const STATUS_DETAIL_LABEL_X: usize = 44;
 const STATUS_DETAIL_VALUE_X: usize = 132;
-const STATUS_HAIRLINE_Y: usize = 210;
+const STATUS_HAIRLINE_Y: usize = 274;
 const CONTENT_TOP: usize = STATUS_HAIRLINE_Y + 6;
 const PANEL_TITLE_H: usize = 44;
 const HEADER_TAB_START_X: usize = 236;
@@ -409,6 +409,8 @@ fn draw_status_detail(
     draw_status_detail_line(surface, width, y, "WIFI", &snapshot.wifi);
     y = y.saturating_add(STATUS_DETAIL_LINE_H);
     draw_status_detail_line(surface, width, y, "NET", &snapshot.network);
+    y = y.saturating_add(STATUS_DETAIL_LINE_H);
+    draw_wifi_scan_detail(surface, width, y);
 }
 
 fn draw_status_detail_line(
@@ -428,6 +430,79 @@ fn draw_status_detail_line(
         max_chars,
         row_state_color(line.state),
     );
+}
+
+fn draw_wifi_scan_detail(surface: &mut FramebufferSurface, width: usize, mut y: usize) {
+    let scan = wifi::scan_results();
+    if scan.count == 0 {
+        draw_status_text_line(
+            surface,
+            width,
+            y,
+            "SCAN",
+            "WIFI SCAN: NOT AVAILABLE (firmware not loaded)",
+            APP_AMBER,
+        );
+        return;
+    }
+
+    let header = if scan.scan_available {
+        "WIFI SCAN: RESULTS"
+    } else {
+        "WIFI SCAN: SELF-TEST RESULTS; LIVE NOT AVAILABLE (firmware not loaded)"
+    };
+    draw_status_text_line(surface, width, y, "SCAN", header, APP_AMBER);
+    y = y.saturating_add(STATUS_DETAIL_LINE_H);
+
+    let mut idx = 0usize;
+    let count = usize::min(scan.count, 3);
+    while idx < count {
+        let line = wifi_scan_network_line(scan.networks[idx]);
+        draw_status_text_line(surface, width, y, "SSID", line.as_str(), TEXT_MUTED);
+        y = y.saturating_add(STATUS_DETAIL_LINE_H);
+        idx += 1;
+    }
+}
+
+fn draw_status_text_line(
+    surface: &mut FramebufferSurface,
+    width: usize,
+    y: usize,
+    label: &'static str,
+    value: &str,
+    color: Color,
+) {
+    text::draw_text(surface, STATUS_DETAIL_LABEL_X, y, label, TEXT_FAINT, None);
+    let max_chars = width.saturating_sub(STATUS_DETAIL_VALUE_X + 24) / FONT_ADVANCE;
+    draw_truncated_text(surface, STATUS_DETAIL_VALUE_X, y, value, max_chars, color);
+}
+
+fn wifi_scan_network_line(network: wifi::ScannedNetwork) -> TextBuf<160> {
+    let mut line = TextBuf::new();
+    let ssid = if network.hidden_ssid || network.ssid.is_empty() {
+        "<hidden>"
+    } else {
+        network.ssid.as_str()
+    };
+    if network.channel == 0 {
+        let _ = write!(
+            line,
+            "SSID {}  CH?  {}  {}",
+            ssid,
+            wifi::scan_security_label(network.security),
+            network.source.tag()
+        );
+    } else {
+        let _ = write!(
+            line,
+            "SSID {}  CH{}  {}  {}",
+            ssid,
+            network.channel,
+            wifi::scan_security_label(network.security),
+            network.source.tag()
+        );
+    }
+    line
 }
 
 fn draw_status_chip(

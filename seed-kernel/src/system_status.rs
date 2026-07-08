@@ -427,9 +427,10 @@ fn wifi_line() -> StatusLine {
             "WIFI",
             RowState::Missing,
             detail(format_args!(
-                "SURFACE PRO 4 88W8897 TARGET ABSENT SSID {} KEY {}",
+                "SURFACE PRO 4 88W8897 TARGET ABSENT SSID {} KEY {} SCAN UNAVAILABLE {}",
                 wifi_ssid_status(&snapshot.ssid),
-                secret_status(snapshot.passphrase_set)
+                secret_status(snapshot.passphrase_set),
+                snapshot.scan_unavailable_reason
             )),
         ),
         wifi::WifiState::Detected => {
@@ -441,7 +442,7 @@ fn wifi_line() -> StatusLine {
                 "WIFI",
                 RowState::Detected,
                 detail(format_args!(
-                    "{} MARVELL 88W8897 SSID {} KEY {} PCI {:04X}:{:04X} SUBSYS {:04X}:{:04X} BAR0 {} FW TODO",
+                    "{} MARVELL 88W8897 SSID {} KEY {} PCI {:04X}:{:04X} SUBSYS {:04X}:{:04X} BAR0 {} LIVE SCAN UNAVAILABLE {}",
                     address.as_str(),
                     wifi_ssid_status(&snapshot.ssid),
                     secret_status(snapshot.passphrase_set),
@@ -449,7 +450,8 @@ fn wifi_line() -> StatusLine {
                     snapshot.device_id,
                     snapshot.subsystem_vendor_id,
                     snapshot.subsystem_id,
-                    Bar0(snapshot.bar0_base)
+                    Bar0(snapshot.bar0_base),
+                    snapshot.scan_unavailable_reason
                 )),
             )
         }

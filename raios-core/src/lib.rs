@@ -11,6 +11,7 @@ pub use raios_x509_spki as x509_spki;
 pub use raios_x509_time as cert_validity_window;
 pub mod distribution_provenance;
 pub mod distribution_registry;
+pub mod dot11_scan;
 pub mod durable_record_frame;
 pub mod gpt_layout;
 pub mod kernel_surface;
