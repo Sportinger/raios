@@ -1571,6 +1571,11 @@ impl XhciController {
         }
         address_result?;
 
+        self.set_enum_stage("ep0-mps");
+        let ep0_mps_result = self.correct_ep0_max_packet_size(device_index, slot_id, port);
+        self.capture_enum_completion_codes();
+        ep0_mps_result?;
+
         self.set_enum_stage("devdesc");
         let device_desc_result = self.get_device_descriptor();
         self.capture_enum_completion_codes();
@@ -1697,6 +1702,62 @@ impl XhciController {
             0,
         );
         fence(Ordering::SeqCst);
+        Ok(())
+    }
+
+    unsafe fn correct_ep0_max_packet_size(
+        &mut self,
+        device_index: usize,
+        slot_id: u8,
+        port: PortInfo,
+    ) -> Result<(), &'static str> {
+        let len = self.control_in(
+            0x80,
+            USB_REQ_GET_DESCRIPTOR,
+            (DESC_DEVICE as u16) << 8,
+            0,
+            8,
+        )?;
+        if len < 8 {
+            return Err("short device descriptor header");
+        }
+        if CONTROL_BUFFER.0[1] != DESC_DEVICE {
+            return Err("unexpected device descriptor type");
+        }
+
+        let default_mps = default_ep0_mps(port.speed);
+        let real_mps = descriptor_ep0_mps(port.speed, CONTROL_BUFFER.0[7]);
+        self.enum_ep0_mps = real_mps;
+        if !valid_ep0_mps(port.speed, real_mps) {
+            return Err("invalid ep0 max packet size");
+        }
+        if real_mps == default_mps {
+            return Ok(());
+        }
+
+        clear_input_context();
+        input_control_add_flags(1 << DCI_EP0);
+        write_endpoint_context(
+            DCI_EP0,
+            self.context_size,
+            EP_TYPE_CONTROL,
+            0,
+            real_mps,
+            phys_of(ptr::addr_of!(EP0_RINGS[device_index].0[0]), "ep0 ring phys")? | 1,
+            8,
+            0,
+        );
+        fence(Ordering::SeqCst);
+        let input_phys = phys_of(ptr::addr_of!(INPUT_CONTEXT.0[0]), "input context phys")?;
+        self.execute_command(Trb {
+            parameter: input_phys,
+            status: 0,
+            control: trb_type(TRB_TYPE_EVALUATE_CONTEXT) | ((slot_id as u32) << 24),
+        })?;
+        serial::write_fmt(format_args!(
+            "usb-enum: ep0 mps corrected {} -> {}\r\n",
+            default_mps, real_mps
+        ));
         Ok(())
     }
 
@@ -3515,6 +3576,16 @@ fn descriptor_ep0_mps(speed: u8, raw: u8) -> u16 {
         1u16.checked_shl(raw as u32).unwrap_or(512)
     } else {
         raw as u16
+    }
+}
+
+fn valid_ep0_mps(speed: u8, mps: u16) -> bool {
+    match speed {
+        1 => mps == 8 || mps == 16 || mps == 32 || mps == 64,
+        2 => mps == 8,
+        3 => mps == 64,
+        4 => mps == 512,
+        _ => false,
     }
 }
 
