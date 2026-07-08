@@ -10,25 +10,37 @@ const CHAT_LINE_HEIGHT: usize = 15;
 const CHAT_BUBBLE_PADDING_X: usize = 16;
 const CHAT_BUBBLE_PADDING_TOP: usize = 10;
 const CHAT_BUBBLE_LABEL_HEIGHT: usize = 10;
-const CHAT_BUBBLE_LABEL_GAP: usize = 8;
+const CHAT_BUBBLE_LABEL_GAP: usize = 6;
 const CHAT_BUBBLE_PADDING_BOTTOM: usize = 12;
-const CHAT_BUBBLE_GAP: usize = 12;
+const CHAT_BUBBLE_GAP: usize = 16;
 const CURSOR_WIDTH: usize = 10;
 const CURSOR_HEIGHT: usize = 16;
 const CONTENT_TOP: usize = 166;
+const HEADER_TAB_START_X: usize = 236;
+const HEADER_TAB_GAP: usize = 24;
+const HEADER_TAB_HIT_Y: usize = 18;
+const HEADER_TAB_HIT_H: usize = 58;
+const HEADER_TAB_LABEL_Y: usize = 36;
+const HEADER_TAB_UNDERLINE_Y: usize = 73;
+const INPUT_FIELD_X: usize = 24;
+const INPUT_FIELD_RIGHT: usize = 72;
+const INPUT_FIELD_H: usize = 36;
+const R8_INSETS: [usize; 8] = [8, 4, 3, 2, 1, 1, 0, 0];
+const R6_INSETS: [usize; 6] = [6, 3, 2, 1, 0, 0];
 
-const APP_BG: Color = Color::new(13, 15, 18);
-const SURFACE_BG: Color = Color::new(27, 30, 35);
-const SURFACE_ALT: Color = Color::new(37, 41, 47);
-const HAIRLINE: Color = Color::new(62, 68, 77);
-const TEXT_MAIN: Color = Color::new(243, 246, 250);
-const TEXT_MUTED: Color = Color::new(164, 174, 185);
-const TEXT_FAINT: Color = Color::new(112, 123, 135);
+const APP_BG: Color = Color::new(17, 18, 22);
+const SURFACE_BG: Color = Color::new(26, 28, 33);
+const SURFACE_ALT: Color = Color::new(36, 39, 45);
+const HAIRLINE: Color = Color::new(45, 49, 56);
+const HAIRLINE_HI: Color = Color::new(66, 71, 80);
+const TEXT_MAIN: Color = Color::new(232, 236, 241);
+const TEXT_MUTED: Color = Color::new(156, 164, 175);
+const TEXT_FAINT: Color = Color::new(106, 114, 126);
 const APP_BLUE: Color = Color::new(10, 132, 255);
 const APP_GREEN: Color = Color::new(52, 199, 89);
 const APP_AMBER: Color = Color::new(255, 159, 10);
 const APP_RED: Color = Color::new(255, 69, 58);
-const SHADOW: Color = Color::new(5, 7, 10);
+const USER_BUBBLE: Color = Color::new(21, 93, 204);
 
 pub struct StatusUi {
     surface: Option<FramebufferSurface>,
@@ -106,20 +118,47 @@ impl StatusUi {
         let width = logical_width(surface.info());
         let x = mouse.x / scale;
         let y = mouse.y / scale;
-        if point_in(x, y, 28, 18, 72, 32) {
+        let ai_tab_x = header_tab_x(0);
+        let ai_tab_w = header_tab_width("AI");
+        let console_tab_x = header_tab_x(1);
+        let console_tab_w = header_tab_width("CONSOLE");
+        let settings_tab_x = header_tab_x(2);
+        let settings_tab_w = header_tab_width("SET");
+        if point_in(x, y, ai_tab_x, HEADER_TAB_HIT_Y, ai_tab_w, HEADER_TAB_HIT_H) {
             return console::set_view(console::UiView::Ai);
         }
-        if point_in(x, y, 108, 18, 116, 32) {
+        if point_in(
+            x,
+            y,
+            console_tab_x,
+            HEADER_TAB_HIT_Y,
+            console_tab_w,
+            HEADER_TAB_HIT_H,
+        ) {
             return console::set_view(console::UiView::Console);
         }
-        if point_in(x, y, width.saturating_sub(86), 18, 58, 32) {
+        if point_in(
+            x,
+            y,
+            settings_tab_x,
+            HEADER_TAB_HIT_Y,
+            settings_tab_w,
+            HEADER_TAB_HIT_H,
+        ) {
             return console::set_view(console::UiView::Settings);
         }
 
         let snapshot = console::snapshot();
         if snapshot.view == console::UiView::Ai {
-            let input_y = logical_height(surface.info()).saturating_sub(74);
-            if point_in(x, y, 42, input_y + 10, width.saturating_sub(118), 30) {
+            let input_y = input_field_y(logical_height(surface.info()));
+            if point_in(
+                x,
+                y,
+                INPUT_FIELD_X,
+                input_y,
+                input_field_width(width),
+                INPUT_FIELD_H,
+            ) {
                 return console::set_view(console::UiView::Ai);
             }
         }
@@ -206,24 +245,14 @@ fn draw(surface: &mut FramebufferSurface, uptime_ms: u64, snapshot: &SystemSnaps
 
     surface.fill(APP_BG);
     draw_header(surface, width, &console_snapshot);
-    draw_status_strip(surface, width, snapshot);
-    draw_status_detail(surface, width, snapshot);
+    draw_status_strip(surface, width, uptime_ms, snapshot);
+    draw_status_detail(surface, width, console_snapshot.view, snapshot);
 
     match console_snapshot.view {
         console::UiView::Ai => draw_chat(surface, width, height, &console_snapshot),
         console::UiView::Console => draw_console(surface, width, height, &console_snapshot),
         console::UiView::Settings => draw_settings(surface, width, height, &console_snapshot),
     }
-
-    let uptime = detail64(format_args!("UPTIME {} MS", uptime_ms));
-    text::draw_text(
-        surface,
-        width.saturating_sub(190),
-        height.saturating_sub(28),
-        uptime.as_str(),
-        TEXT_FAINT,
-        None,
-    );
 }
 
 fn display_scale(info: FramebufferInfo) -> usize {
@@ -248,69 +277,107 @@ fn draw_header(
     snapshot: &console::ConsoleSnapshot,
 ) {
     surface.fill_rect(0, 0, width, 76, SURFACE_BG);
-    surface.fill_rect(0, 75, width, 1, HAIRLINE);
+    surface.fill_rect(0, 75, width, 1, HAIRLINE_HI);
+
+    text::draw_text(surface, 24, 20, "raiOS", TEXT_MAIN, None);
+    text::draw_text(surface, 84, 20, "Direct AI Host", TEXT_FAINT, None);
 
     draw_tab(
         surface,
-        28,
+        header_tab_x(0),
         "AI",
         snapshot.view == console::UiView::Ai,
-        snapshot.focus == console::UiFocus::NavAi,
-        APP_BLUE,
     );
     draw_tab(
         surface,
-        108,
+        header_tab_x(1),
         "CONSOLE",
         snapshot.view == console::UiView::Console,
-        snapshot.focus == console::UiFocus::NavConsole,
-        APP_BLUE,
     );
     draw_tab(
         surface,
-        width.saturating_sub(86),
+        header_tab_x(2),
         "SET",
         snapshot.view == console::UiView::Settings,
-        snapshot.focus == console::UiFocus::NavSettings,
-        APP_BLUE,
     );
-
-    text::draw_text(surface, 248, 20, "raiOS", TEXT_MAIN, None);
-    text::draw_text(surface, 248, 42, "Direct AI Host", TEXT_MUTED, None);
 }
 
-fn draw_tab(
+fn header_tab_width(label: &str) -> usize {
+    label.len().saturating_mul(FONT_ADVANCE).saturating_add(24)
+}
+
+fn header_tab_x(index: usize) -> usize {
+    match index {
+        0 => HEADER_TAB_START_X,
+        1 => HEADER_TAB_START_X
+            .saturating_add(header_tab_width("AI"))
+            .saturating_add(HEADER_TAB_GAP),
+        _ => HEADER_TAB_START_X
+            .saturating_add(header_tab_width("AI"))
+            .saturating_add(HEADER_TAB_GAP)
+            .saturating_add(header_tab_width("CONSOLE"))
+            .saturating_add(HEADER_TAB_GAP),
+    }
+}
+
+fn draw_tab(surface: &mut FramebufferSurface, x: usize, label: &str, active: bool) {
+    text::draw_text(
+        surface,
+        x + 12,
+        HEADER_TAB_LABEL_Y,
+        label,
+        if active { TEXT_MAIN } else { TEXT_MUTED },
+        None,
+    );
+    if active {
+        surface.fill_rect(
+            x,
+            HEADER_TAB_UNDERLINE_Y,
+            header_tab_width(label),
+            3,
+            APP_BLUE,
+        );
+    }
+}
+
+fn draw_status_strip(
     surface: &mut FramebufferSurface,
-    x: usize,
-    label: &str,
-    active: bool,
-    focused: bool,
-    color: Color,
+    width: usize,
+    uptime_ms: u64,
+    snapshot: &SystemSnapshot,
 ) {
-    let bg = if active { color } else { SURFACE_ALT };
-    let fg = if active { SURFACE_BG } else { TEXT_MUTED };
-    let width = if label.len() > 3 { 116 } else { 72 };
-    draw_soft_rect(surface, x, 18, width, 32, bg);
-    if !active {
-        draw_rect_outline(surface, x, 18, width, 32, HAIRLINE);
-    }
-    if focused {
-        draw_focus_outline(surface, x, 18, width, 32);
-    }
-    text::draw_text(surface, x + 14, 30, label, fg, None);
-}
-
-fn draw_status_strip(surface: &mut FramebufferSurface, width: usize, snapshot: &SystemSnapshot) {
     let y = 90usize;
-    draw_status_chip(surface, 40, y, 156, "Net", &snapshot.network);
-    draw_status_chip(surface, 212, y, 156, "WiFi", &snapshot.wifi);
-    draw_status_chip(surface, 384, y, 184, "Input", &snapshot.input);
-    draw_status_chip(surface, 584, y, 188, "USB", &snapshot.usb_xhci);
-    draw_status_chip(surface, 788, y, 156, "RNG", &snapshot.entropy);
-    surface.fill_rect(24, 154, width.saturating_sub(48), 1, HAIRLINE);
+    let mut x = 24usize;
+    x = draw_status_chip(surface, width, x, y, "Net", &snapshot.network);
+    x = draw_status_chip(surface, width, x, y, "WiFi", &snapshot.wifi);
+    x = draw_status_chip(surface, width, x, y, "Input", &snapshot.input);
+    x = draw_status_chip(surface, width, x, y, "USB", &snapshot.usb_xhci);
+    let _ = draw_status_chip(surface, width, x, y, "RNG", &snapshot.entropy);
+
+    let uptime = detail64(format_args!("UPTIME {} MS", uptime_ms));
+    let uptime_width = text_width(uptime.as_str());
+    if uptime_width.saturating_add(48) <= width {
+        text::draw_text(
+            surface,
+            width.saturating_sub(24).saturating_sub(uptime_width),
+            y + 11,
+            uptime.as_str(),
+            TEXT_FAINT,
+            None,
+        );
+    }
+    surface.fill_rect(24, 154, width.saturating_sub(48), 1, HAIRLINE_HI);
 }
 
-fn draw_status_detail(surface: &mut FramebufferSurface, width: usize, snapshot: &SystemSnapshot) {
+fn draw_status_detail(
+    surface: &mut FramebufferSurface,
+    width: usize,
+    view: console::UiView,
+    snapshot: &SystemSnapshot,
+) {
+    if view != console::UiView::Console {
+        return;
+    }
     text::draw_text(surface, 44, 134, "USB", TEXT_FAINT, None);
     let max_chars = width.saturating_sub(100) / FONT_ADVANCE;
     draw_truncated_text(
@@ -319,30 +386,175 @@ fn draw_status_detail(surface: &mut FramebufferSurface, width: usize, snapshot: 
         134,
         snapshot.usb_xhci.detail.as_str(),
         max_chars,
-        TEXT_MUTED,
+        TEXT_FAINT,
     );
 }
 
 fn draw_status_chip(
     surface: &mut FramebufferSurface,
+    screen_width: usize,
     x: usize,
     y: usize,
-    width: usize,
     label: &'static str,
     line: &StatusLine,
-) {
-    draw_soft_rect(surface, x, y, width, 30, SURFACE_BG);
-    draw_rect_outline(surface, x, y, width, 30, HAIRLINE);
-    surface.fill_rect(x + 12, y + 11, 8, 8, row_state_color(line.state));
+) -> usize {
+    let width = 28usize
+        .saturating_add(label.len().saturating_mul(FONT_ADVANCE))
+        .saturating_add(8)
+        .saturating_add(row_state_text_len(line.state).saturating_mul(FONT_ADVANCE))
+        .saturating_add(14);
+    if x.saturating_add(width) > screen_width.saturating_sub(24) {
+        return x;
+    }
+
+    draw_soft_rect_r6(surface, x, y, width, 30, SURFACE_BG);
+    draw_rect_outline_r6(surface, x, y, width, 30, HAIRLINE);
+    draw_status_dot(surface, x + 12, y + 12, row_state_color(line.state));
     text::draw_text(surface, x + 28, y + 11, label, TEXT_MAIN, None);
     text::draw_text(
         surface,
-        x + 86,
+        x + 28 + label.len().saturating_mul(FONT_ADVANCE) + 8,
         y + 11,
         line.state.as_str(),
         TEXT_MUTED,
         None,
     );
+    x.saturating_add(width).saturating_add(12)
+}
+
+fn draw_status_dot(surface: &mut FramebufferSurface, x: usize, y: usize, color: Color) {
+    surface.fill_rect(x + 1, y, 4, 6, color);
+    surface.fill_rect(x, y + 1, 6, 4, color);
+}
+
+fn text_width(value: &str) -> usize {
+    value.chars().count().saturating_mul(FONT_ADVANCE)
+}
+
+fn row_state_text_len(state: RowState) -> usize {
+    match state {
+        RowState::Ready => 5,
+        RowState::Waiting => 7,
+        RowState::Configured => 10,
+        RowState::Detected => 8,
+        RowState::Degraded => 8,
+        RowState::Missing => 7,
+    }
+}
+
+fn draw_panel_title(surface: &mut FramebufferSurface, x: usize, y: usize, title: &str) {
+    surface.fill_rect(x, y + 1, 3, 14, APP_BLUE);
+    text::draw_text(surface, x + 12, y, title, TEXT_MAIN, None);
+}
+
+fn draw_centered_text(
+    surface: &mut FramebufferSurface,
+    width: usize,
+    y: usize,
+    value: &str,
+    color: Color,
+) {
+    let value_width = text_width(value);
+    text::draw_text(
+        surface,
+        width.saturating_sub(value_width) / 2,
+        y,
+        value,
+        color,
+        None,
+    );
+}
+
+fn chat_has_messages(snapshot: &console::ConsoleSnapshot) -> bool {
+    let mut idx = 0usize;
+    while idx < snapshot.chat_lines.len() {
+        if !snapshot.chat_lines[idx].text.as_str().is_empty() {
+            return true;
+        }
+        idx += 1;
+    }
+    false
+}
+
+fn input_field_y(height: usize) -> usize {
+    height.saturating_sub(74).saturating_add(7)
+}
+
+fn input_field_width(width: usize) -> usize {
+    width.saturating_sub(INPUT_FIELD_X.saturating_add(INPUT_FIELD_RIGHT))
+}
+
+fn draw_input_bar(
+    surface: &mut FramebufferSurface,
+    width: usize,
+    height: usize,
+    focused: bool,
+    value: &str,
+    placeholder: &str,
+    console_prompt: bool,
+) {
+    let y = input_field_y(height);
+    let field_w = input_field_width(width);
+    draw_soft_rect_r6(
+        surface,
+        INPUT_FIELD_X,
+        y,
+        field_w,
+        INPUT_FIELD_H,
+        SURFACE_ALT,
+    );
+    draw_rect_outline_r6(surface, INPUT_FIELD_X, y, field_w, INPUT_FIELD_H, HAIRLINE);
+    if focused {
+        draw_focus_outline(surface, INPUT_FIELD_X, y, field_w, INPUT_FIELD_H);
+    }
+
+    let mut text_x = INPUT_FIELD_X + 16;
+    if console_prompt {
+        text::draw_text(surface, text_x, y + 13, ">", APP_BLUE, None);
+        text_x += 18;
+    }
+
+    let visible = if value.is_empty() { placeholder } else { value };
+    if !visible.is_empty() {
+        let text_room = field_w.saturating_sub(text_x.saturating_sub(INPUT_FIELD_X) + 14);
+        draw_truncated_text(
+            surface,
+            text_x,
+            y + 13,
+            visible,
+            text_room / FONT_ADVANCE,
+            if value.is_empty() {
+                TEXT_FAINT
+            } else {
+                TEXT_MAIN
+            },
+        );
+    }
+
+    let button_x = width.saturating_sub(56);
+    let button_y = y + 4;
+    draw_soft_rect_r6(surface, button_x, button_y, 28, 28, APP_BLUE);
+    text::draw_text(surface, button_x + 9, button_y + 10, ">", TEXT_MAIN, None);
+}
+
+fn draw_settings_row(
+    surface: &mut FramebufferSurface,
+    width: usize,
+    y: usize,
+    key: &str,
+    value: &str,
+    is_set: bool,
+) {
+    text::draw_text(surface, 56, y, key, TEXT_MUTED, None);
+    text::draw_text(
+        surface,
+        220,
+        y,
+        value,
+        if is_set { APP_GREEN } else { APP_AMBER },
+        None,
+    );
+    surface.fill_rect(48, y + 25, width.saturating_sub(120), 1, HAIRLINE);
 }
 
 fn row_state_color(state: RowState) -> Color {
@@ -380,7 +592,7 @@ fn draw_chat(
         bottom.saturating_sub(top),
         HAIRLINE,
     );
-    text::draw_text(surface, 44, top + 18, "Chat", TEXT_MAIN, None);
+    draw_panel_title(surface, 44, top + 18, "Chat");
     text::draw_text(
         surface,
         116,
@@ -407,6 +619,17 @@ fn draw_chat(
         None,
     );
 
+    let has_messages = chat_has_messages(snapshot);
+    if !has_messages {
+        draw_centered_text(
+            surface,
+            width,
+            top.saturating_add(bottom.saturating_sub(top) / 2),
+            "No messages yet - type below to talk to the AI",
+            TEXT_FAINT,
+        );
+    }
+
     let mut cursor_y = bottom.saturating_sub(18);
     let min_y = top + 52;
     let mut idx = snapshot.chat_lines.len();
@@ -431,60 +654,14 @@ fn draw_chat(
         cursor_y = y.saturating_sub(CHAT_BUBBLE_GAP);
     }
 
-    let input_y = height.saturating_sub(74);
-    draw_soft_rect(
+    draw_input_bar(
         surface,
-        24,
-        input_y,
-        width.saturating_sub(48),
-        50,
-        SURFACE_BG,
-    );
-    draw_rect_outline(surface, 24, input_y, width.saturating_sub(48), 50, HAIRLINE);
-    draw_soft_rect(
-        surface,
-        42,
-        input_y + 10,
-        width.saturating_sub(118),
-        30,
-        SURFACE_ALT,
-    );
-    if snapshot.focus == console::UiFocus::ChatInput {
-        draw_focus_outline(surface, 42, input_y + 10, width.saturating_sub(118), 30);
-    }
-    let input = snapshot.chat_input.as_str();
-    let prompt = if input.is_empty() {
-        "TYPE MESSAGE AND PRESS ENTER"
-    } else {
-        input
-    };
-    text::draw_text(
-        surface,
-        58,
-        input_y + 21,
-        prompt,
-        if input.is_empty() {
-            TEXT_FAINT
-        } else {
-            TEXT_MAIN
-        },
-        None,
-    );
-    draw_soft_rect(
-        surface,
-        width.saturating_sub(58),
-        input_y + 16,
-        22,
-        18,
-        APP_BLUE,
-    );
-    text::draw_text(
-        surface,
-        width.saturating_sub(54),
-        input_y + 21,
-        ">",
-        SURFACE_BG,
-        None,
+        width,
+        height,
+        snapshot.focus == console::UiFocus::ChatInput,
+        snapshot.chat_input.as_str(),
+        "Type a message and press Enter",
+        false,
     );
 }
 
@@ -499,29 +676,29 @@ fn draw_chat_bubble(
     let (x, color, text_color, label) = match speaker {
         console::ChatSpeaker::User => (
             width.saturating_sub(layout.width + 48),
-            APP_BLUE,
-            SURFACE_BG,
+            USER_BUBBLE,
+            TEXT_MAIN,
             "You",
         ),
         console::ChatSpeaker::Assistant => (48, SURFACE_BG, TEXT_MAIN, "AI"),
         console::ChatSpeaker::System => (
             width.saturating_sub(layout.width) / 2,
-            Color::new(232, 236, 241),
+            SURFACE_ALT,
             TEXT_MUTED,
             "Sys",
         ),
     };
 
-    draw_bubble_rect(surface, x, y, layout.width, layout.height, color);
+    draw_bubble_rect(surface, x, y, layout.width, layout.height, color, speaker);
     text::draw_text(
         surface,
         x + CHAT_BUBBLE_PADDING_X,
         y + CHAT_BUBBLE_PADDING_TOP,
         label,
-        if speaker == console::ChatSpeaker::User {
-            Color::new(210, 232, 255)
-        } else {
-            TEXT_FAINT
+        match speaker {
+            console::ChatSpeaker::User => Color::new(200, 224, 255),
+            console::ChatSpeaker::Assistant => TEXT_FAINT,
+            console::ChatSpeaker::System => TEXT_MUTED,
         },
         None,
     );
@@ -721,10 +898,10 @@ fn draw_bubble_rect(
     width: usize,
     height: usize,
     color: Color,
+    speaker: console::ChatSpeaker,
 ) {
-    surface.fill_rect(x + 3, y + 4, width, height, SHADOW);
     draw_soft_rect(surface, x, y, width, height, color);
-    if color == SURFACE_BG {
+    if speaker == console::ChatSpeaker::Assistant {
         draw_rect_outline(surface, x, y, width, height, HAIRLINE);
     }
 }
@@ -737,27 +914,55 @@ fn draw_soft_rect(
     height: usize,
     color: Color,
 ) {
-    if width < 18 || height < 18 {
-        surface.fill_rect(x + 3, y, width.saturating_sub(6), height, color);
-        surface.fill_rect(x, y + 3, width, height.saturating_sub(6), color);
+    draw_soft_rect_with_insets(surface, x, y, width, height, color, &R8_INSETS);
+}
+
+fn draw_soft_rect_r6(
+    surface: &mut FramebufferSurface,
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+    color: Color,
+) {
+    draw_soft_rect_with_insets(surface, x, y, width, height, color, &R6_INSETS);
+}
+
+fn draw_soft_rect_with_insets(
+    surface: &mut FramebufferSurface,
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+    color: Color,
+    insets: &[usize],
+) {
+    if width == 0 || height == 0 {
         return;
     }
-    surface.fill_rect(x + 8, y, width.saturating_sub(16), height, color);
-    surface.fill_rect(
-        x + 4,
-        y + 2,
-        width.saturating_sub(8),
-        height.saturating_sub(4),
-        color,
-    );
-    surface.fill_rect(
-        x + 2,
-        y + 4,
-        width.saturating_sub(4),
-        height.saturating_sub(8),
-        color,
-    );
-    surface.fill_rect(x, y + 8, width, height.saturating_sub(16), color);
+
+    let rows = usize::min(insets.len(), height / 2);
+    let middle_h = height.saturating_sub(rows.saturating_mul(2));
+    if middle_h > 0 {
+        surface.fill_rect(x, y + rows, width, middle_h, color);
+    }
+
+    let mut dy = 0usize;
+    while dy < rows {
+        let inset = usize::min(insets[dy], width / 2);
+        let row_w = width.saturating_sub(inset.saturating_mul(2));
+        if row_w > 0 {
+            surface.fill_rect(x + inset, y + dy, row_w, 1, color);
+            surface.fill_rect(
+                x + inset,
+                y + height.saturating_sub(1).saturating_sub(dy),
+                row_w,
+                1,
+                color,
+            );
+        }
+        dy += 1;
+    }
 }
 
 fn draw_rect_outline(
@@ -768,60 +973,90 @@ fn draw_rect_outline(
     height: usize,
     color: Color,
 ) {
+    draw_rect_outline_with_insets(surface, x, y, width, height, color, &R8_INSETS);
+}
+
+fn draw_rect_outline_r6(
+    surface: &mut FramebufferSurface,
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+    color: Color,
+) {
+    draw_rect_outline_with_insets(surface, x, y, width, height, color, &R6_INSETS);
+}
+
+fn draw_rect_outline_with_insets(
+    surface: &mut FramebufferSurface,
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+    color: Color,
+    insets: &[usize],
+) {
     if width == 0 || height == 0 {
         return;
     }
-    if width < 18 || height < 18 {
-        surface.fill_rect(x + 3, y, width.saturating_sub(6), 1, color);
-        surface.fill_rect(
-            x + 3,
-            y + height.saturating_sub(1),
-            width.saturating_sub(6),
-            1,
+
+    let rows = usize::min(insets.len(), height / 2);
+    let top_inset = if rows > 0 {
+        usize::min(insets[0], width / 2)
+    } else {
+        0
+    };
+    let row_w = width.saturating_sub(top_inset.saturating_mul(2));
+    if row_w > 0 {
+        surface.fill_rect(x + top_inset, y, row_w, 1, color);
+        surface.fill_rect(x + top_inset, y + height.saturating_sub(1), row_w, 1, color);
+    }
+
+    let side_h = height.saturating_sub(rows.saturating_mul(2));
+    if side_h > 0 {
+        surface.fill_rect(x, y + rows, 1, side_h, color);
+        surface.fill_rect(x + width.saturating_sub(1), y + rows, 1, side_h, color);
+    }
+
+    let mut dy = 0usize;
+    while dy < rows {
+        let inset = usize::min(insets[dy], width / 2);
+        draw_corner_row(surface, x, y + dy, width, inset, color);
+        draw_corner_row(
+            surface,
+            x,
+            y + height.saturating_sub(1).saturating_sub(dy),
+            width,
+            inset,
             color,
         );
-        surface.fill_rect(x, y + 3, 1, height.saturating_sub(6), color);
-        surface.fill_rect(
-            x + width.saturating_sub(1),
-            y + 3,
-            1,
-            height.saturating_sub(6),
-            color,
-        );
+        dy += 1;
+    }
+}
+
+fn draw_corner_row(
+    surface: &mut FramebufferSurface,
+    x: usize,
+    y: usize,
+    width: usize,
+    inset: usize,
+    color: Color,
+) {
+    if width == 0 {
         return;
     }
-    surface.fill_rect(x + 8, y, width.saturating_sub(16), 1, color);
-    surface.fill_rect(
-        x + 8,
-        y + height.saturating_sub(1),
-        width.saturating_sub(16),
-        1,
-        color,
-    );
-    surface.fill_rect(x, y + 8, 1, height.saturating_sub(16), color);
-    surface.fill_rect(
-        x + width.saturating_sub(1),
-        y + 8,
-        1,
-        height.saturating_sub(16),
-        color,
-    );
-    surface.set_pixel(x + 4, y + 2, color);
-    surface.set_pixel(x + 2, y + 4, color);
-    surface.set_pixel(x + width.saturating_sub(5), y + 2, color);
-    surface.set_pixel(x + width.saturating_sub(3), y + 4, color);
-    surface.set_pixel(x + 4, y + height.saturating_sub(3), color);
-    surface.set_pixel(x + 2, y + height.saturating_sub(5), color);
-    surface.set_pixel(
-        x + width.saturating_sub(5),
-        y + height.saturating_sub(3),
-        color,
-    );
-    surface.set_pixel(
-        x + width.saturating_sub(3),
-        y + height.saturating_sub(5),
-        color,
-    );
+
+    let left = usize::min(inset, width.saturating_sub(1));
+    surface.set_pixel(x + left, y, color);
+    if left.saturating_add(1) < width {
+        surface.set_pixel(x + left + 1, y, color);
+    }
+
+    let right = width.saturating_sub(1).saturating_sub(left);
+    surface.set_pixel(x + right, y, color);
+    if right > 0 {
+        surface.set_pixel(x + right - 1, y, color);
+    }
 }
 
 fn draw_focus_outline(
@@ -831,14 +1066,7 @@ fn draw_focus_outline(
     width: usize,
     height: usize,
 ) {
-    draw_rect_outline(
-        surface,
-        x.saturating_sub(3),
-        y.saturating_sub(3),
-        width.saturating_add(6),
-        height.saturating_add(6),
-        APP_BLUE,
-    );
+    draw_rect_outline_r6(surface, x, y, width, height, APP_BLUE);
 }
 
 fn draw_settings_action(
@@ -849,8 +1077,8 @@ fn draw_settings_action(
     label: &str,
     focused: bool,
 ) {
-    draw_soft_rect(surface, x, y, width, 38, SURFACE_BG);
-    draw_rect_outline(surface, x, y, width, 38, HAIRLINE);
+    draw_soft_rect_r6(surface, x, y, width, 38, SURFACE_ALT);
+    draw_rect_outline_r6(surface, x, y, width, 38, HAIRLINE);
     if focused {
         draw_focus_outline(surface, x, y, width, 38);
     }
@@ -880,9 +1108,9 @@ fn draw_console(
         height.saturating_sub(top + 42),
         HAIRLINE,
     );
-    text::draw_text(surface, 44, top + 18, "Console", TEXT_MAIN, None);
+    draw_panel_title(surface, 44, top + 18, "Console");
 
-    let input_y = height.saturating_sub(74);
+    let input_y = input_field_y(height);
     let max_chars = usize::max(8, width.saturating_sub(88) / FONT_ADVANCE);
     let min_y = top + 56;
     let mut cursor_y = input_y.saturating_sub(22);
@@ -894,34 +1122,41 @@ fn draw_console(
             continue;
         }
 
-        let (line_count, _) = wrap_metrics(line, max_chars);
+        let is_user_command = line.starts_with("> ");
+        let (line_count, _) = if is_user_command {
+            wrap_metrics(&line[2..], max_chars.saturating_sub(2))
+        } else {
+            wrap_metrics(line, max_chars)
+        };
         let y = cursor_y.saturating_sub(line_count.saturating_sub(1) * CHAT_LINE_HEIGHT);
         if y < min_y {
             break;
         }
-        draw_wrapped_text(surface, 44, y, line, max_chars, TEXT_MUTED, line_count);
+        if is_user_command {
+            text::draw_text(surface, 44, y, ">", APP_BLUE, None);
+            draw_wrapped_text(
+                surface,
+                62,
+                y,
+                &line[2..],
+                max_chars.saturating_sub(2),
+                TEXT_MAIN,
+                line_count,
+            );
+        } else {
+            draw_wrapped_text(surface, 44, y, line, max_chars, TEXT_MUTED, line_count);
+        }
         cursor_y = y.saturating_sub(CHAT_LINE_HEIGHT);
     }
 
-    draw_soft_rect(
+    draw_input_bar(
         surface,
-        24,
-        input_y,
-        width.saturating_sub(48),
-        50,
-        SURFACE_BG,
-    );
-    draw_rect_outline(surface, 24, input_y, width.saturating_sub(48), 50, HAIRLINE);
-    if snapshot.focus == console::UiFocus::ConsoleInput {
-        draw_focus_outline(surface, 24, input_y, width.saturating_sub(48), 50);
-    }
-    text::draw_text(
-        surface,
-        44,
-        input_y + 21,
+        width,
+        height,
+        snapshot.focus == console::UiFocus::ConsoleInput,
         snapshot.input.as_str(),
-        TEXT_MAIN,
-        None,
+        "",
+        true,
     );
 }
 
@@ -948,7 +1183,7 @@ fn draw_settings(
         height.saturating_sub(top + 42),
         HAIRLINE,
     );
-    text::draw_text(surface, 44, top + 18, "Settings", TEXT_MAIN, None);
+    draw_panel_title(surface, 44, top + 18, "Settings");
 
     let key_state = if snapshot.api_key_set {
         "SET"
@@ -965,33 +1200,47 @@ fn draw_settings(
     } else {
         "MISSING"
     };
-    text::draw_text(surface, 56, top + 62, "Provider", TEXT_MUTED, None);
-    text::draw_text(
+    draw_settings_row(
         surface,
-        220,
+        width,
         top + 62,
+        "Provider",
         snapshot.provider_name,
-        TEXT_MAIN,
-        None,
+        true,
     );
-    text::draw_text(surface, 56, top + 96, "Model", TEXT_MUTED, None);
-    text::draw_text(
+    draw_settings_row(
         surface,
-        220,
-        top + 96,
+        width,
+        top + 102,
+        "Model",
         snapshot.provider_model,
-        TEXT_MAIN,
-        None,
+        true,
     );
-    text::draw_text(surface, 56, top + 130, "API Key", TEXT_MUTED, None);
-    text::draw_text(surface, 220, top + 130, key_state, TEXT_MAIN, None);
-    text::draw_text(surface, 56, top + 164, "WiFi SSID", TEXT_MUTED, None);
-    text::draw_text(surface, 220, top + 164, wifi_ssid, TEXT_MAIN, None);
-    text::draw_text(surface, 56, top + 198, "WiFi Key", TEXT_MUTED, None);
-    text::draw_text(surface, 220, top + 198, wifi_key_state, TEXT_MAIN, None);
+    draw_settings_row(
+        surface,
+        width,
+        top + 142,
+        "API Key",
+        key_state,
+        snapshot.api_key_set,
+    );
+    draw_settings_row(
+        surface,
+        width,
+        top + 182,
+        "WiFi SSID",
+        wifi_ssid,
+        !snapshot.wifi_ssid.is_empty(),
+    );
+    draw_settings_row(
+        surface,
+        width,
+        top + 222,
+        "WiFi Key",
+        wifi_key_state,
+        snapshot.wifi_passphrase_set,
+    );
 
-    draw_soft_rect(surface, 56, top + 238, 760, 226, SURFACE_ALT);
-    draw_rect_outline(surface, 56, top + 238, 760, 226, HAIRLINE);
     draw_settings_action(
         surface,
         72,
@@ -1049,26 +1298,14 @@ fn draw_settings(
         snapshot.focus == console::UiFocus::SettingsClose,
     );
 
-    let input_y = height.saturating_sub(74);
-    draw_soft_rect(
+    draw_input_bar(
         surface,
-        24,
-        input_y,
-        width.saturating_sub(48),
-        50,
-        SURFACE_BG,
-    );
-    draw_rect_outline(surface, 24, input_y, width.saturating_sub(48), 50, HAIRLINE);
-    if snapshot.settings_entry_active || snapshot.focus == console::UiFocus::ConsoleInput {
-        draw_focus_outline(surface, 24, input_y, width.saturating_sub(48), 50);
-    }
-    text::draw_text(
-        surface,
-        44,
-        input_y + 21,
+        width,
+        height,
+        snapshot.settings_entry_active || snapshot.focus == console::UiFocus::ConsoleInput,
         snapshot.input.as_str(),
-        TEXT_MAIN,
-        None,
+        "",
+        false,
     );
 }
 
