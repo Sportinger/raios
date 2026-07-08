@@ -12,11 +12,18 @@ use crate::{
         emit_capability_ids, emit_problem_objects, emit_service_ids, emit_status_state_at,
         CAPABILITIES,
     },
-    event_log, memory_store, provider, serial, service_inventory, system_status,
+    event_log, memory_store, provider, provider_trust, serial, service_inventory, system_status,
     system_status::{RowState, SystemSnapshot},
     ui, wifi,
 };
-use raios_core::record::{sha256_of_json, Value as V};
+use raios_core::{
+    record::{sha256_of_json, Value as V},
+    scoped_provider_trust_honesty::{
+        evaluate_provider_trust_honesty, ProviderTrustHonestyInput,
+        SCOPED_PROVIDER_TRUST_HONESTY_DECISION_ID, SCOPED_PROVIDER_TRUST_HONESTY_DECISION_MARKER,
+        SCOPED_PROVIDER_TRUST_HONESTY_DECISION_SCHEMA,
+    },
+};
 #[derive(Clone, Copy)]
 struct ProjectionFieldSpec {
     field: &'static str,
@@ -53,6 +60,66 @@ pub(crate) fn provider_minimal_context_evidence_for_runtime(
     let status = SystemSnapshot::collect(None, runtime);
     let provider = provider::snapshot();
     provider_context_evidence(&status, &provider)
+}
+
+pub(crate) fn emit_provider_trust_honesty(_request: &str) {
+    let snap = provider_trust::snapshot();
+    let trust_state = snap.state.as_protocol();
+    let input = ProviderTrustHonestyInput {
+        provider_id: Some("openai"),
+        trust_state: Some(trust_state),
+        chain_policy: Some(snap.verifier.chain_policy),
+        time_policy: Some(snap.verifier.time_policy),
+        development_bypass: snap.development_bypass,
+        claims_chain_validated: false,
+        claims_time_validated: false,
+    };
+    let decision = evaluate_provider_trust_honesty(&input);
+
+    begin_response("provider.trust_honesty");
+    emit_record_fields(
+        vec![
+            f("schema", s("raios.provider_trust_honesty.v0")),
+            f(
+                "decision_schema",
+                s(SCOPED_PROVIDER_TRUST_HONESTY_DECISION_SCHEMA),
+            ),
+            f("decision_id", s(SCOPED_PROVIDER_TRUST_HONESTY_DECISION_ID)),
+            f(
+                "decision_marker",
+                s(SCOPED_PROVIDER_TRUST_HONESTY_DECISION_MARKER),
+            ),
+            f("provider_id", s("openai")),
+            f("performed", b(decision.performed)),
+            f("status", s(decision.status)),
+            f("reason", s(decision.reason)),
+            f("honest", b(decision.honest)),
+            f("chain_validated", b(decision.chain_validated)),
+            f("time_validated", b(decision.time_validated)),
+            f(
+                "authorizes_provider_request",
+                b(decision.authorizes_provider_request),
+            ),
+            f(
+                "authorizes_provider_export",
+                b(decision.authorizes_provider_export),
+            ),
+            f("trust_state", s(trust_state)),
+            f("chain_policy", s(snap.verifier.chain_policy)),
+            f("time_policy", s(snap.verifier.time_policy)),
+            f("development_bypass", b(snap.development_bypass)),
+            f("claims_chain_validated", b(false)),
+            f("claims_time_validated", b(false)),
+            f("owner_sealed", b(false)),
+            f("trust_tier", s("dev_key_not_owner_sealed")),
+            f("durable_write", b(false)),
+            f("capability_granted", b(false)),
+            f("provider_write", s("not_attempted")),
+            f("transmission", b(false)),
+        ],
+        6,
+    );
+    end_response("provider.trust_honesty");
 }
 
 const PROVIDER_MINIMAL_INCLUDED_FIELDS: &[ProjectionFieldSpec] = &[

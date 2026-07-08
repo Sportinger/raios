@@ -24,6 +24,27 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+M10A-2 done (2026-07-08, host-only worker packet; VM profiles are orchestrator-
+run): raiOS can now run the committed M10A-1 provider-trust honesty evaluator
+against the live Stage-0 trust snapshot through the read-only
+`provider.trust_honesty` method. The kernel maps
+`provider_trust::snapshot()` into `ProviderTrustHonestyInput` as provider
+`openai`, `trust_state = snap.state.as_protocol()`,
+`chain_policy = snap.verifier.chain_policy`,
+`time_policy = snap.verifier.time_policy`, `development_bypass =
+snap.development_bypass`, and false chain/time validation claims. The default
+no-pin boot is honestly reported as `pin_config_missing` with M10A-1
+`performed:false`, `status:"denied"`, reason `trust_state_not_pin_verified`,
+`chain_validated:false`, `time_validated:false`, and both
+`authorizes_provider_request:false` and `authorizes_provider_export:false`.
+`vm-harness\shadow-vm-smoke-profile-common.ps1` now adds the quick-sourced
+`protocol:provider_trust_honesty_unpinned_denial` and
+`protocol:provider_trust_honesty_grants_nothing` predicates without changing the
+real `provider.context_export` denial row/handler. Host-only verification:
+`cargo fmt -p seed-kernel -- --check`, `cargo fmt -p raios-core -- --check`,
+`cargo test --locked -p raios-core` (197 passed), release seed-kernel build, and
+PowerShell parse of the edited common profile all passed.
+
 Failure classification log (rule: AGENTS.md "Failure Classification Rule"):
 
 - 2026-07-06 `shadow-20260706-132514-25060.json` (full profile, M6B-2

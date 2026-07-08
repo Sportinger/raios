@@ -10,6 +10,47 @@
     Assert-LogContains -Name "protocol:snapshot_provider_pin_rotation_policy_missing" -Needle '"pin_rotation_policy": "missing_active_pin"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_trust_problem" -Needle "provider.tls_pin_config_missing" -TimeoutSeconds 1
 
+    Send-AgentCommand -Command "agent provider.trust_honesty" -ExpectedMarker "RAIOS_AGENT_END provider.trust_honesty"
+    Assert-LogContains -Name "protocol:provider_trust_honesty_schema" -Needle '"schema": "raios.provider_trust_honesty.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:provider_trust_honesty_decision_id" -Needle '"decision_id": "scoped_provider_trust_honesty.current_boot.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:provider_trust_honesty_reason" -Needle '"reason": "trust_state_not_pin_verified"' -TimeoutSeconds 1
+    $providerTrustHonesty = Get-LastAgentResponseJson -Method "provider.trust_honesty"
+    $trustHonesty = $providerTrustHonesty.body.result
+    $providerTrustHonestyUnpinnedDenial = (
+        $trustHonesty.schema -eq "raios.provider_trust_honesty.v0" -and
+        $trustHonesty.decision_schema -eq "raios.scoped_provider_trust_honesty_decision.v0" -and
+        $trustHonesty.decision_id -eq "scoped_provider_trust_honesty.current_boot.v0" -and
+        $trustHonesty.provider_id -eq "openai" -and
+        $trustHonesty.trust_state -eq "pin_config_missing" -and
+        $trustHonesty.chain_policy -eq "pin_only_no_webpki_chain_validation" -and
+        $trustHonesty.time_policy -eq "not_validated_stage0" -and
+        $trustHonesty.development_bypass -eq $false -and
+        $trustHonesty.performed -eq $false -and
+        $trustHonesty.status -eq "denied" -and
+        $trustHonesty.reason -eq "trust_state_not_pin_verified" -and
+        $trustHonesty.honest -eq $false -and
+        $trustHonesty.chain_validated -eq $false -and
+        $trustHonesty.time_validated -eq $false
+    )
+    Add-Predicate -Name "protocol:provider_trust_honesty_unpinned_denial" -Expected "live unpinned boot is honestly denied by M10A-1 trust_state_not_pin_verified" -Passed $providerTrustHonestyUnpinnedDenial -Actual $(if ($providerTrustHonestyUnpinnedDenial) { "pin_config_missing denied" } else { ($trustHonesty | ConvertTo-Json -Compress -Depth 5) })
+    if (-not $providerTrustHonestyUnpinnedDenial) {
+        throw "Expected provider.trust_honesty to report the live unpinned boot as an honest M10A-1 denial"
+    }
+    $providerTrustHonestyGrantsNothing = (
+        $trustHonesty.authorizes_provider_request -eq $false -and
+        $trustHonesty.authorizes_provider_export -eq $false -and
+        $trustHonesty.owner_sealed -eq $false -and
+        $trustHonesty.trust_tier -eq "dev_key_not_owner_sealed" -and
+        $trustHonesty.durable_write -eq $false -and
+        $trustHonesty.capability_granted -eq $false -and
+        $trustHonesty.provider_write -eq "not_attempted" -and
+        $trustHonesty.transmission -eq $false
+    )
+    Add-Predicate -Name "protocol:provider_trust_honesty_grants_nothing" -Expected "provider.trust_honesty authorizes no request/export/write/transmission" -Passed $providerTrustHonestyGrantsNothing -Actual $(if ($providerTrustHonestyGrantsNothing) { "grants_nothing" } else { ($trustHonesty | ConvertTo-Json -Compress -Depth 5) })
+    if (-not $providerTrustHonestyGrantsNothing) {
+        throw "Expected provider.trust_honesty to grant nothing"
+    }
+
     Send-AgentCommand -Command "caps" -ExpectedMarker "RAIOS_AGENT_END system.capabilities"
     Assert-LogContains -Name "protocol:capabilities_schema" -Needle '"schema": "system.capabilities.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_recent_events_capability" -Needle '"id": "cap.memory.recent_events.read"' -TimeoutSeconds 1
