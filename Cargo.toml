@@ -6,6 +6,7 @@ members = [
     "fake-cloud/server",
     "raios-core",
     "raios-x509-time",
+    "raios-x509-spki",
     "raios-http-parse",
     "seed-kernel",
     "wasm-guests/svc-demo-echo",

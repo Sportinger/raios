@@ -7,5 +7,6 @@ license = "MIT"
 [dependencies]
 p256 = { version = "0.13.2", default-features = false, features = ["ecdsa"] }
 raios-http-parse = { path = "../raios-http-parse" }
+raios-x509-spki = { path = "../raios-x509-spki" }
 raios-x509-time = { path = "../raios-x509-time" }
 sha2 = { version = "0.10.9", default-features = false }
