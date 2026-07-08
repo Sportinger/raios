@@ -15,7 +15,12 @@ const CHAT_BUBBLE_PADDING_BOTTOM: usize = 12;
 const CHAT_BUBBLE_GAP: usize = 16;
 const CURSOR_WIDTH: usize = 10;
 const CURSOR_HEIGHT: usize = 16;
-const CONTENT_TOP: usize = 166;
+const STATUS_DETAIL_START_Y: usize = 128;
+const STATUS_DETAIL_LINE_H: usize = 16;
+const STATUS_DETAIL_LABEL_X: usize = 44;
+const STATUS_DETAIL_VALUE_X: usize = 132;
+const STATUS_HAIRLINE_Y: usize = 210;
+const CONTENT_TOP: usize = STATUS_HAIRLINE_Y + 6;
 const PANEL_TITLE_H: usize = 44;
 const HEADER_TAB_START_X: usize = 236;
 const HEADER_TAB_GAP: usize = 24;
@@ -375,7 +380,13 @@ fn draw_status_strip(
             None,
         );
     }
-    surface.fill_rect(24, 160, width.saturating_sub(48), 1, HAIRLINE_HI);
+    surface.fill_rect(
+        24,
+        STATUS_HAIRLINE_Y,
+        width.saturating_sub(48),
+        1,
+        HAIRLINE_HI,
+    );
 }
 
 fn draw_status_detail(
@@ -384,28 +395,38 @@ fn draw_status_detail(
     view: console::UiView,
     snapshot: &SystemSnapshot,
 ) {
-    if view != console::UiView::Console {
+    if view == console::UiView::Settings {
         return;
     }
-    text::draw_text(surface, 44, 128, "USB", TEXT_FAINT, None);
-    let max_chars = width.saturating_sub(100) / FONT_ADVANCE;
+
+    let mut y = STATUS_DETAIL_START_Y;
+    draw_status_detail_line(surface, width, y, "INPUT", &snapshot.input);
+    y = y.saturating_add(STATUS_DETAIL_LINE_H);
+    draw_status_detail_line(surface, width, y, "USB", &snapshot.usb_xhci);
+    y = y.saturating_add(STATUS_DETAIL_LINE_H);
+    draw_status_detail_line(surface, width, y, "HOTPLUG", &snapshot.usb_hotplug);
+    y = y.saturating_add(STATUS_DETAIL_LINE_H);
+    draw_status_detail_line(surface, width, y, "WIFI", &snapshot.wifi);
+    y = y.saturating_add(STATUS_DETAIL_LINE_H);
+    draw_status_detail_line(surface, width, y, "NET", &snapshot.network);
+}
+
+fn draw_status_detail_line(
+    surface: &mut FramebufferSurface,
+    width: usize,
+    y: usize,
+    label: &'static str,
+    line: &StatusLine,
+) {
+    text::draw_text(surface, STATUS_DETAIL_LABEL_X, y, label, TEXT_FAINT, None);
+    let max_chars = width.saturating_sub(STATUS_DETAIL_VALUE_X + 24) / FONT_ADVANCE;
     draw_truncated_text(
         surface,
-        92,
-        128,
-        snapshot.usb_xhci.detail.as_str(),
+        STATUS_DETAIL_VALUE_X,
+        y,
+        line.detail.as_str(),
         max_chars,
-        TEXT_FAINT,
-    );
-    text::draw_text(surface, 44, 144, "USB HOTPLUG", TEXT_FAINT, None);
-    let hotplug_max_chars = width.saturating_sub(172) / FONT_ADVANCE;
-    draw_truncated_text(
-        surface,
-        164,
-        144,
-        snapshot.usb_hotplug.detail.as_str(),
-        hotplug_max_chars,
-        TEXT_FAINT,
+        row_state_color(line.state),
     );
 }
 
