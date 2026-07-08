@@ -1355,6 +1355,14 @@ name = "raios-core"
 version = "0.1.0"
 dependencies = [
  "p256",
+ "raios-x509-time",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "raios-x509-time"
+version = "0.1.0"
+dependencies = [
  "sha2 0.10.9",
 ]
 
@@ -1787,11 +1795,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
-name = "svc-demo-echo"
+name = "svc-demo-bufecho"
 version = "0.1.0"
 
 [[package]]
-name = "svc-demo-bufecho"
+name = "svc-demo-echo"
 version = "0.1.0"
 
 [[package]]

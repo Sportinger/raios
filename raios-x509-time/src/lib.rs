@@ -1,3 +1,26 @@
+#![cfg_attr(not(test), no_std)]
+
+#[cfg(test)]
+fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&Sha256::digest(bytes));
+    out
+}
+
+#[cfg(test)]
+fn sha256_hex(digest: &[u8; 32]) -> [u8; 64] {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = [0u8; 64];
+    let mut i = 0;
+    while i < digest.len() {
+        out[i * 2] = HEX[(digest[i] >> 4) as usize];
+        out[i * 2 + 1] = HEX[(digest[i] & 0x0f) as usize];
+        i += 1;
+    }
+    out
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CertValidityDateTime {
     pub year: u16,
@@ -51,9 +74,147 @@ impl X509ValidityError {
             X509ValidityError::ImplausibleTimeComponent => "implausible_time_component",
         }
     }
+
+    /// Stable wire code 1..=14, explicit match (never `as u8`) so codes never
+    /// shift if the enum is reordered. 0 is reserved for "no error".
+    pub const fn code(self) -> u8 {
+        match self {
+            X509ValidityError::DerTooLong => 1,
+            X509ValidityError::Truncated => 2,
+            X509ValidityError::UnexpectedTag => 3,
+            X509ValidityError::IndefiniteLengthUnsupported => 4,
+            X509ValidityError::LongFormLengthUnsupported => 5,
+            X509ValidityError::NonMinimalLength => 6,
+            X509ValidityError::LengthOverflow => 7,
+            X509ValidityError::HighTagNumberUnsupported => 8,
+            X509ValidityError::ValidityNotTwoTimes => 9,
+            X509ValidityError::TrailingBytes => 10,
+            X509ValidityError::UnsupportedTimeTag => 11,
+            X509ValidityError::MalformedTime => 12,
+            X509ValidityError::NonUtcTimeUnsupported => 13,
+            X509ValidityError::ImplausibleTimeComponent => 14,
+        }
+    }
+
+    pub const fn from_code(code: u8) -> Option<X509ValidityError> {
+        Some(match code {
+            1 => X509ValidityError::DerTooLong,
+            2 => X509ValidityError::Truncated,
+            3 => X509ValidityError::UnexpectedTag,
+            4 => X509ValidityError::IndefiniteLengthUnsupported,
+            5 => X509ValidityError::LongFormLengthUnsupported,
+            6 => X509ValidityError::NonMinimalLength,
+            7 => X509ValidityError::LengthOverflow,
+            8 => X509ValidityError::HighTagNumberUnsupported,
+            9 => X509ValidityError::ValidityNotTwoTimes,
+            10 => X509ValidityError::TrailingBytes,
+            11 => X509ValidityError::UnsupportedTimeTag,
+            12 => X509ValidityError::MalformedTime,
+            13 => X509ValidityError::NonUtcTimeUnsupported,
+            14 => X509ValidityError::ImplausibleTimeComponent,
+            _ => return None,
+        })
+    }
 }
 
 pub const MAX_X509_CERT_DER_LEN: usize = 16 * 1024;
+pub const CERTWINDOW_RECORD_LEN: usize = 18;
+pub const CERTWINDOW_RECORD_MAGIC: u8 = 0xC7;
+pub const CERTWINDOW_RECORD_VERSION: u8 = 1;
+
+/// Fixed 18-byte record, big-endian years. Always 18 bytes.
+/// [0]=magic 0xC7 [1]=version 1 [2]=status(0 ok / 1 err) [3]=error_code(0 when ok)
+/// [4..6]=nb.year BE [6]=nb.month [7]=nb.day [8]=nb.hour [9]=nb.min [10]=nb.sec
+/// [11..13]=na.year BE [13]=na.month [14]=na.day [15]=na.hour [16]=na.min [17]=na.sec
+/// On Err, bytes [4..18] are all 0x00.
+pub fn encode_certwindow_record(
+    result: Result<CertValidityWindow, X509ValidityError>,
+) -> [u8; CERTWINDOW_RECORD_LEN] {
+    let mut b = [0u8; CERTWINDOW_RECORD_LEN];
+    b[0] = CERTWINDOW_RECORD_MAGIC;
+    b[1] = CERTWINDOW_RECORD_VERSION;
+    match result {
+        Ok(w) => {
+            b[2] = 0;
+            b[3] = 0;
+            let nb = w.not_before.year.to_be_bytes();
+            b[4] = nb[0];
+            b[5] = nb[1];
+            b[6] = w.not_before.month;
+            b[7] = w.not_before.day;
+            b[8] = w.not_before.hour;
+            b[9] = w.not_before.minute;
+            b[10] = w.not_before.second;
+            let na = w.not_after.year.to_be_bytes();
+            b[11] = na[0];
+            b[12] = na[1];
+            b[13] = w.not_after.month;
+            b[14] = w.not_after.day;
+            b[15] = w.not_after.hour;
+            b[16] = w.not_after.minute;
+            b[17] = w.not_after.second;
+        }
+        Err(e) => {
+            b[2] = 1;
+            b[3] = e.code();
+        }
+    }
+    b
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DecodedCertWindowRecord {
+    pub record_valid: bool,
+    pub status: u8,
+    pub error_code: u8,
+    pub window: Option<CertValidityWindow>,
+}
+
+/// Fail-closed decode. Length/magic/version are guarded first, so an empty or
+/// short buffer yields record_valid=false instead of a panic.
+pub fn decode_certwindow_record(bytes: &[u8]) -> DecodedCertWindowRecord {
+    if bytes.len() != CERTWINDOW_RECORD_LEN
+        || bytes[0] != CERTWINDOW_RECORD_MAGIC
+        || bytes[1] != CERTWINDOW_RECORD_VERSION
+    {
+        return DecodedCertWindowRecord {
+            record_valid: false,
+            status: 0,
+            error_code: 0,
+            window: None,
+        };
+    }
+    let status = bytes[2];
+    let error_code = bytes[3];
+    let window = if status == 0 {
+        Some(CertValidityWindow {
+            not_before: CertValidityDateTime {
+                year: u16::from_be_bytes([bytes[4], bytes[5]]),
+                month: bytes[6],
+                day: bytes[7],
+                hour: bytes[8],
+                minute: bytes[9],
+                second: bytes[10],
+            },
+            not_after: CertValidityDateTime {
+                year: u16::from_be_bytes([bytes[11], bytes[12]]),
+                month: bytes[13],
+                day: bytes[14],
+                hour: bytes[15],
+                minute: bytes[16],
+                second: bytes[17],
+            },
+        })
+    } else {
+        None
+    };
+    DecodedCertWindowRecord {
+        record_valid: true,
+        status,
+        error_code,
+        window,
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct CertValidityWindowDecision {
@@ -615,6 +776,104 @@ mod tests {
             }
             idx += 1;
         }
+    }
+
+    #[test]
+    fn x509_validity_error_wire_codes_are_stable_and_bijective() {
+        let variants = [
+            X509ValidityError::DerTooLong,
+            X509ValidityError::Truncated,
+            X509ValidityError::UnexpectedTag,
+            X509ValidityError::IndefiniteLengthUnsupported,
+            X509ValidityError::LongFormLengthUnsupported,
+            X509ValidityError::NonMinimalLength,
+            X509ValidityError::LengthOverflow,
+            X509ValidityError::HighTagNumberUnsupported,
+            X509ValidityError::ValidityNotTwoTimes,
+            X509ValidityError::TrailingBytes,
+            X509ValidityError::UnsupportedTimeTag,
+            X509ValidityError::MalformedTime,
+            X509ValidityError::NonUtcTimeUnsupported,
+            X509ValidityError::ImplausibleTimeComponent,
+        ];
+
+        for code in 1..=14 {
+            assert_eq!(X509ValidityError::from_code(code).unwrap().code(), code);
+        }
+        for (idx, variant) in variants.iter().copied().enumerate() {
+            let code = (idx + 1) as u8;
+            assert_eq!(variant.code(), code);
+            assert_eq!(X509ValidityError::from_code(code), Some(variant));
+        }
+        assert_eq!(X509ValidityError::from_code(0), None);
+        assert_eq!(X509ValidityError::from_code(15), None);
+    }
+
+    #[test]
+    fn certwindow_record_round_trips_fixture_success() {
+        let parsed = parse_x509_cert_validity_window(SERVER_CERT_DER);
+        let decoded = decode_certwindow_record(&encode_certwindow_record(parsed));
+
+        assert!(decoded.record_valid);
+        assert_eq!(decoded.status, 0);
+        assert_eq!(decoded.error_code, 0);
+        assert_eq!(
+            decoded.window,
+            Some(parse_x509_cert_validity_window(SERVER_CERT_DER).unwrap())
+        );
+    }
+
+    #[test]
+    fn certwindow_record_round_trips_every_error_variant() {
+        let variants = [
+            X509ValidityError::DerTooLong,
+            X509ValidityError::Truncated,
+            X509ValidityError::UnexpectedTag,
+            X509ValidityError::IndefiniteLengthUnsupported,
+            X509ValidityError::LongFormLengthUnsupported,
+            X509ValidityError::NonMinimalLength,
+            X509ValidityError::LengthOverflow,
+            X509ValidityError::HighTagNumberUnsupported,
+            X509ValidityError::ValidityNotTwoTimes,
+            X509ValidityError::TrailingBytes,
+            X509ValidityError::UnsupportedTimeTag,
+            X509ValidityError::MalformedTime,
+            X509ValidityError::NonUtcTimeUnsupported,
+            X509ValidityError::ImplausibleTimeComponent,
+        ];
+
+        for variant in variants {
+            let decoded = decode_certwindow_record(&encode_certwindow_record(Err(variant)));
+            assert!(decoded.record_valid);
+            assert_eq!(decoded.status, 1);
+            assert_eq!(decoded.error_code, variant.code());
+            assert_eq!(decoded.window, None);
+        }
+    }
+
+    #[test]
+    fn certwindow_record_decode_fails_closed_for_bad_framing() {
+        let mut wrong_version =
+            encode_certwindow_record(parse_x509_cert_validity_window(SERVER_CERT_DER));
+        wrong_version[1] = CERTWINDOW_RECORD_VERSION.wrapping_add(1);
+
+        for bytes in [
+            &[][..],
+            &[0u8; CERTWINDOW_RECORD_LEN][..],
+            &wrong_version[..],
+        ] {
+            let decoded = decode_certwindow_record(bytes);
+            assert!(!decoded.record_valid);
+            assert_eq!(decoded.window, None);
+        }
+    }
+
+    #[test]
+    fn certwindow_record_truncated_error_code_is_pinned() {
+        assert_eq!(
+            encode_certwindow_record(parse_x509_cert_validity_window(&SERVER_CERT_DER[..120]))[3],
+            2
+        );
     }
 
     #[test]
