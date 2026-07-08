@@ -202,7 +202,7 @@ fn usb_xhci_line() -> StatusLine {
                         "USB-XHCI",
                         RowState::Ready,
                         detail(format_args!(
-                            "{} HCI {:04X} ROOT {}/{} PWR {} HUB {} {}P {}C {}R {}D KBD {} MOUSE {} EV {} ERR {} TCC {} CMD {} CC {} {}{}",
+                            "{} HCI {:04X} ROOT {}/{} PWR {} HUB {} {}P {}C {}R {}D KBD {} MOUSE {} EV {} ERR {} TCC {} CMD {} CC {} {}{} RCV{} ICC{}",
                             address.as_str(),
                             snapshot.hci_version,
                             snapshot.connected_ports,
@@ -221,7 +221,9 @@ fn usb_xhci_line() -> StatusLine {
                             snapshot.last_command_type,
                             snapshot.last_completion_code,
                             hid_detail,
-                            last_enum.as_str()
+                            last_enum.as_str(),
+                            snapshot.recover_count,
+                            snapshot.last_int_cc
                         )),
                     )
                 } else {
@@ -229,7 +231,7 @@ fn usb_xhci_line() -> StatusLine {
                         "USB-XHCI",
                         RowState::Ready,
                         detail(format_args!(
-                            "{} HCI {:04X} ROOT {}/{} PWR {} HUB {} {}P {}C {}R {}D KBD {} MOUSE {} EV {} ERR {} TCC {} {}{}",
+                            "{} HCI {:04X} ROOT {}/{} PWR {} HUB {} {}P {}C {}R {}D KBD {} MOUSE {} EV {} ERR {} TCC {} {}{} RCV{} ICC{}",
                             address.as_str(),
                             snapshot.hci_version,
                             snapshot.connected_ports,
@@ -246,7 +248,9 @@ fn usb_xhci_line() -> StatusLine {
                             snapshot.input_error_count,
                             snapshot.last_transfer_completion_code,
                             hid_detail,
-                            last_enum.as_str()
+                            last_enum.as_str(),
+                            snapshot.recover_count,
+                            snapshot.last_int_cc
                         )),
                     )
                 }
@@ -255,7 +259,7 @@ fn usb_xhci_line() -> StatusLine {
                     "USB-XHCI",
                     RowState::Ready,
                     detail(format_args!(
-                        "{} HCI {:04X} PORTS {} PWR {} CONNECTED {} KBD {} MOUSE {} EV {} ERR {} TCC {} HID {}{}",
+                        "{} HCI {:04X} PORTS {} PWR {} CONNECTED {} KBD {} MOUSE {} EV {} ERR {} TCC {} HID {}{} RCV{} ICC{}",
                         address.as_str(),
                         snapshot.hci_version,
                         snapshot.max_ports,
@@ -267,7 +271,9 @@ fn usb_xhci_line() -> StatusLine {
                         snapshot.input_error_count,
                         snapshot.last_transfer_completion_code,
                         hid_detail,
-                        last_enum.as_str()
+                        last_enum.as_str(),
+                        snapshot.recover_count,
+                        snapshot.last_int_cc
                     )),
                 )
             }

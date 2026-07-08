@@ -175,6 +175,8 @@ pub struct UsbSnapshot {
     pub last_command_type: u8,
     pub last_completion_code: u8,
     pub last_transfer_completion_code: u8,
+    pub last_int_cc: u8,
+    pub recover_count: u32,
     pub input_report_count: u32,
     pub input_error_count: u32,
     pub keyboard_status: UsbKeyboardStatus,
@@ -285,6 +287,8 @@ impl UsbState {
                 last_command_type: 0,
                 last_completion_code: 0,
                 last_transfer_completion_code: 0,
+                last_int_cc: 0,
+                recover_count: 0,
                 input_report_count: 0,
                 input_error_count: 0,
                 keyboard_status: UsbKeyboardStatus::NotProbed,
@@ -347,6 +351,8 @@ pub fn snapshot() -> UsbSnapshot {
         snapshot.last_command_type = controller.last_command_type;
         snapshot.last_completion_code = controller.last_completion_code;
         snapshot.last_transfer_completion_code = controller.last_transfer_completion_code;
+        snapshot.last_int_cc = controller.last_int_cc;
+        snapshot.recover_count = controller.recover_count;
         snapshot.input_report_count = controller
             .keyboard_report_count
             .saturating_add(controller.mouse_report_count);
@@ -457,6 +463,8 @@ unsafe fn probe_xhci() -> (UsbSnapshot, Option<XhciController>) {
                 last_command_type: 0,
                 last_completion_code: 0,
                 last_transfer_completion_code: 0,
+                last_int_cc: 0,
+                recover_count: 0,
                 input_report_count: 0,
                 input_error_count: 0,
                 keyboard_status: UsbKeyboardStatus::NotProbed,
@@ -570,6 +578,8 @@ unsafe fn probe_xhci() -> (UsbSnapshot, Option<XhciController>) {
                 last_command_type: controller.last_command_type,
                 last_completion_code: controller.last_completion_code,
                 last_transfer_completion_code: controller.last_transfer_completion_code,
+                last_int_cc: controller.last_int_cc,
+                recover_count: controller.recover_count,
                 input_report_count: controller
                     .keyboard_report_count
                     .saturating_add(controller.mouse_report_count),
@@ -628,6 +638,8 @@ fn error_snapshot(address: PciAddress, error: &'static str) -> UsbSnapshot {
         last_command_type: 0,
         last_completion_code: 0,
         last_transfer_completion_code: 0,
+        last_int_cc: 0,
+        recover_count: 0,
         input_report_count: 0,
         input_error_count: 0,
         keyboard_status: UsbKeyboardStatus::Error,
@@ -688,6 +700,8 @@ fn refresh_snapshot_from_controller(snapshot: &mut UsbSnapshot, controller: &Xhc
     snapshot.last_hotplug_port = controller.hotplug.port;
     snapshot.last_hotplug_detail = controller.hotplug.detail;
     snapshot.last_hotplug_skipped = controller.hotplug.skipped;
+    snapshot.last_int_cc = controller.last_int_cc;
+    snapshot.recover_count = controller.recover_count;
     snapshot.keyboard_status = if controller.keyboard.is_some() {
         UsbKeyboardStatus::Ready
     } else {
@@ -863,6 +877,8 @@ struct XhciController {
     last_command_type: u8,
     last_completion_code: u8,
     last_transfer_completion_code: u8,
+    last_int_cc: u8,
+    recover_count: u32,
     keyboard_report_count: u32,
     mouse_report_count: u32,
     transfer_error_count: u32,
@@ -1246,6 +1262,8 @@ impl XhciController {
             last_command_type: 0,
             last_completion_code: 0,
             last_transfer_completion_code: 0,
+            last_int_cc: 0,
+            recover_count: 0,
             keyboard_report_count: 0,
             mouse_report_count: 0,
             transfer_error_count: 0,
@@ -2710,7 +2728,27 @@ impl XhciController {
         self.last_command_type = command_type as u8;
         self.last_completion_code = 0;
         if self.command_enqueue >= COMMAND_RING_LEN {
-            return Err("command ring exhausted");
+            return Err("command ring index invalid");
+        }
+        if self.command_enqueue == COMMAND_RING_LEN - 1 {
+            let link_phys = phys_of(
+                ptr::addr_of!(COMMAND_RING.0[0]),
+                "command ring link phys",
+            )?;
+            let mut link = Trb {
+                parameter: link_phys,
+                status: 0,
+                control: TRB_LINK_TOGGLE_CYCLE | trb_type(TRB_TYPE_LINK),
+            };
+            if self.command_cycle {
+                link.control |= TRB_CYCLE;
+            }
+            ptr::write_volatile(
+                ptr::addr_of_mut!(COMMAND_RING.0[self.command_enqueue]),
+                link,
+            );
+            self.command_enqueue = 0;
+            self.command_cycle = !self.command_cycle;
         }
         let index = self.command_enqueue;
         if self.command_cycle {
@@ -2955,6 +2993,7 @@ impl XhciController {
                         cc
                     ));
                     self.last_transfer_completion_code = cc as u8;
+                    self.last_int_cc = cc as u8;
                     self.transfer_error_count = self.transfer_error_count.saturating_add(1);
                     let _ = self.recover_interrupt_endpoint(
                         keyboard.slot_id,
@@ -2982,6 +3021,7 @@ impl XhciController {
                         cc
                     ));
                     self.last_transfer_completion_code = cc as u8;
+                    self.last_int_cc = cc as u8;
                     self.transfer_error_count = self.transfer_error_count.saturating_add(1);
                     let _ =
                         self.recover_interrupt_endpoint(mouse.slot_id, mouse.dci, mouse.ring_index);
@@ -3045,6 +3085,7 @@ impl XhciController {
         dci: u8,
         ring_index: usize,
     ) -> Result<(), &'static str> {
+        self.recover_count = self.recover_count.saturating_add(1);
         serial::write_fmt(format_args!(
             "usb-hid: recovering slot {} endpoint {}\r\n",
             slot_id, dci
