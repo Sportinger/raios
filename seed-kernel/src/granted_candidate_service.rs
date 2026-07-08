@@ -13,7 +13,7 @@ use crate::{
         record_static_str_array, record_str as s, record_str_or_null,
     },
     current_boot_service::{self, ServiceDescriptor, ServiceState},
-    echo_service, event_log, hello_service,
+    echo_service, event_log, hello_service, memory_store,
     module_candidate_intake::{self, RetainedExternalWasmCandidate},
     module_evidence, service_inventory, wasm_runtime,
 };
@@ -231,6 +231,7 @@ struct ActionResult {
     authorization: AuthorizationEvidence,
     durable_promotion_transaction: durable_store::PromotionTransactionAppendEvidence,
     durable_artifact_persist: artifact_store::ArtifactPersistEvidence,
+    durable_import_grant_audit: Option<memory_store::WasmImportGrantAuditOutcome>,
     capability_denied: bool,
 }
 
@@ -592,6 +593,7 @@ fn load(source_method: &'static str) -> ActionResult {
         authorization,
         durable_promotion_transaction,
         durable_artifact_persist,
+        durable_import_grant_audit: None,
         capability_denied,
     }
 }
@@ -654,6 +656,13 @@ fn start(source_method: &'static str) -> ActionResult {
         reason,
         LIFECYCLE_EVIDENCE,
     );
+    let durable_import_grant_audit = run.as_ref().map(|run| {
+        memory_store::record_wasm_import_grant_audit(
+            GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.service_id,
+            GRANTED_CANDIDATE_IMPORTS,
+            run,
+        )
+    });
 
     let mut state = STATE.lock();
     if was_loaded {
@@ -692,6 +701,7 @@ fn start(source_method: &'static str) -> ActionResult {
         durable_artifact_persist: artifact_store::artifact_persist_denied(
             "artifact_persist_not_attempted",
         ),
+        durable_import_grant_audit,
         capability_denied: !can_execute,
     }
 }
@@ -742,6 +752,7 @@ fn stop(source_method: &'static str) -> ActionResult {
         durable_artifact_persist: artifact_store::artifact_persist_denied(
             "artifact_persist_not_attempted",
         ),
+        durable_import_grant_audit: None,
         capability_denied: !state.service.loaded,
     }
 }
@@ -791,6 +802,7 @@ fn drop_service(source_method: &'static str) -> ActionResult {
         durable_artifact_persist: artifact_store::artifact_persist_denied(
             "artifact_persist_not_attempted",
         ),
+        durable_import_grant_audit: None,
         capability_denied: !was_loaded,
     }
 }
@@ -1311,163 +1323,169 @@ fn emit_response(method: &'static str, action: &'static str, result: ActionResul
     let snapshot = result.snapshot;
     let run = result.run.as_ref();
     begin_response(method);
-    emit_record_fields_trailing_comma(
-        vec![
-            f("schema", s(LIFECYCLE_RESPONSE_SCHEMA)),
-            f("scope", s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.scope)),
-            f(
-                "classification",
-                s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.classification),
+    let mut fields = vec![
+        f("schema", s(LIFECYCLE_RESPONSE_SCHEMA)),
+        f("scope", s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.scope)),
+        f(
+            "classification",
+            s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.classification),
+        ),
+        f(
+            "persistence",
+            s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.persistence),
+        ),
+        f("durable", b(false)),
+        f("owner_sealed", b(false)),
+        f("method", s(method)),
+        f("action", s(action)),
+        f(
+            "code",
+            s(if result.capability_denied {
+                "capability_denied"
+            } else {
+                "ok"
+            }),
+        ),
+        f(
+            "trust_tier",
+            s(if result.authorization.can_execute {
+                TRUST_TIER_GRANTED
+            } else {
+                snapshot.trust_tier
+            }),
+        ),
+        f(
+            "service_id",
+            s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.service_id),
+        ),
+        f(
+            "artifact_id",
+            s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.artifact_id),
+        ),
+        f(
+            "artifact_kind",
+            s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.artifact_kind),
+        ),
+        f("version", s(SERVICE_VERSION)),
+        f("health", s(health_state(snapshot))),
+        f("loaded", b(snapshot.loaded)),
+        f("running", b(snapshot.running)),
+        f("generation", V::U64(snapshot.generation)),
+        f("run_count", V::U64(snapshot.run_count)),
+        f("last_action", s(snapshot.last_action)),
+        f("reason", s(snapshot.last_reason)),
+        f(
+            "service_inventory_change",
+            s(snapshot.last_inventory_change),
+        ),
+        f(
+            "service_slot_activation",
+            record_service_slot_activation(snapshot),
+        ),
+        f("event_id", record_event_or_null(Some(result.event_id))),
+        f(
+            "load_event_id",
+            record_event_or_null(snapshot.load_event_id),
+        ),
+        f(
+            "start_event_id",
+            record_event_or_null(snapshot.start_event_id),
+        ),
+        f(
+            "stop_event_id",
+            record_event_or_null(snapshot.stop_event_id),
+        ),
+        f(
+            "drop_event_id",
+            record_event_or_null(snapshot.drop_event_id),
+        ),
+        f("load_descriptor", record_load_descriptor()),
+        f(
+            "grant_authority",
+            record_authorization(result.authorization),
+        ),
+        f("capability_envelope", s("wasmi_linker_import_surface")),
+        f(
+            "granted_host_imports",
+            record_static_str_array(&["env.log", "env.counter_get"]),
+        ),
+        f("host_import_count", V::U64(2)),
+        f(
+            "import_grant_performed",
+            b(run.map(|run| run.import_grant_performed).unwrap_or(false)),
+        ),
+        f(
+            "import_grant_status",
+            s(run
+                .map(|run| run.import_grant_status)
+                .unwrap_or("not_evaluated")),
+        ),
+        f(
+            "import_grant_reason",
+            s(run
+                .map(|run| run.import_grant_reason)
+                .unwrap_or("not_evaluated")),
+        ),
+        f(
+            "authorized_import_count",
+            V::U64(run.map(|run| run.authorized_import_count).unwrap_or(0)),
+        ),
+        f(
+            "authorized_import_list_sha256",
+            record_sha_or_null(run.map(|run| run.authorized_import_list_sha256)),
+        ),
+        f(
+            "linked_host_import_count",
+            V::U64(run.map(|run| run.linked_host_import_count).unwrap_or(0)),
+        ),
+        f(
+            "module_imports_within_authorized_list",
+            b(run
+                .map(|run| run.module_imports_within_authorized_list)
+                .unwrap_or(false)),
+        ),
+        f(
+            "missing_import_module",
+            record_str_or_null(run.and_then(|run| run.missing_import_module.as_deref())),
+        ),
+        f(
+            "missing_import_name",
+            record_str_or_null(run.and_then(|run| run.missing_import_name.as_deref())),
+        ),
+        f("entrypoint", s(GRANTED_ENTRYPOINT)),
+        f("run_evidence", record_run_evidence(run)),
+        f("last_run_evidence", record_last_run(snapshot)),
+        f("rollback_plan", record_rollback_plan(snapshot.promotion)),
+    ];
+    if let Some(audit) = result.durable_import_grant_audit.as_ref() {
+        fields.push(f(
+            "durable_import_grant_audit",
+            memory_store::wasm_import_grant_audit_value(audit),
+        ));
+    }
+    fields.extend(vec![
+        f(
+            "durable_promotion_transaction",
+            durable_store::promotion_transaction_append_evidence_record(
+                result.durable_promotion_transaction,
             ),
-            f(
-                "persistence",
-                s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.persistence),
-            ),
-            f("durable", b(false)),
-            f("owner_sealed", b(false)),
-            f("method", s(method)),
-            f("action", s(action)),
-            f(
-                "code",
-                s(if result.capability_denied {
-                    "capability_denied"
-                } else {
-                    "ok"
-                }),
-            ),
-            f(
-                "trust_tier",
-                s(if result.authorization.can_execute {
-                    TRUST_TIER_GRANTED
-                } else {
-                    snapshot.trust_tier
-                }),
-            ),
-            f(
-                "service_id",
-                s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.service_id),
-            ),
-            f(
-                "artifact_id",
-                s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.artifact_id),
-            ),
-            f(
-                "artifact_kind",
-                s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.artifact_kind),
-            ),
-            f("version", s(SERVICE_VERSION)),
-            f("health", s(health_state(snapshot))),
-            f("loaded", b(snapshot.loaded)),
-            f("running", b(snapshot.running)),
-            f("generation", V::U64(snapshot.generation)),
-            f("run_count", V::U64(snapshot.run_count)),
-            f("last_action", s(snapshot.last_action)),
-            f("reason", s(snapshot.last_reason)),
-            f(
-                "service_inventory_change",
-                s(snapshot.last_inventory_change),
-            ),
-            f(
-                "service_slot_activation",
-                record_service_slot_activation(snapshot),
-            ),
-            f("event_id", record_event_or_null(Some(result.event_id))),
-            f(
-                "load_event_id",
-                record_event_or_null(snapshot.load_event_id),
-            ),
-            f(
-                "start_event_id",
-                record_event_or_null(snapshot.start_event_id),
-            ),
-            f(
-                "stop_event_id",
-                record_event_or_null(snapshot.stop_event_id),
-            ),
-            f(
-                "drop_event_id",
-                record_event_or_null(snapshot.drop_event_id),
-            ),
-            f("load_descriptor", record_load_descriptor()),
-            f(
-                "grant_authority",
-                record_authorization(result.authorization),
-            ),
-            f("capability_envelope", s("wasmi_linker_import_surface")),
-            f(
-                "granted_host_imports",
-                record_static_str_array(&["env.log", "env.counter_get"]),
-            ),
-            f("host_import_count", V::U64(2)),
-            f(
-                "import_grant_performed",
-                b(run.map(|run| run.import_grant_performed).unwrap_or(false)),
-            ),
-            f(
-                "import_grant_status",
-                s(run
-                    .map(|run| run.import_grant_status)
-                    .unwrap_or("not_evaluated")),
-            ),
-            f(
-                "import_grant_reason",
-                s(run
-                    .map(|run| run.import_grant_reason)
-                    .unwrap_or("not_evaluated")),
-            ),
-            f(
-                "authorized_import_count",
-                V::U64(run.map(|run| run.authorized_import_count).unwrap_or(0)),
-            ),
-            f(
-                "authorized_import_list_sha256",
-                record_sha_or_null(run.map(|run| run.authorized_import_list_sha256)),
-            ),
-            f(
-                "linked_host_import_count",
-                V::U64(run.map(|run| run.linked_host_import_count).unwrap_or(0)),
-            ),
-            f(
-                "module_imports_within_authorized_list",
-                b(run
-                    .map(|run| run.module_imports_within_authorized_list)
-                    .unwrap_or(false)),
-            ),
-            f(
-                "missing_import_module",
-                record_str_or_null(run.and_then(|run| run.missing_import_module.as_deref())),
-            ),
-            f(
-                "missing_import_name",
-                record_str_or_null(run.and_then(|run| run.missing_import_name.as_deref())),
-            ),
-            f("entrypoint", s(GRANTED_ENTRYPOINT)),
-            f("run_evidence", record_run_evidence(run)),
-            f("last_run_evidence", record_last_run(snapshot)),
-            f("rollback_plan", record_rollback_plan(snapshot.promotion)),
-            f(
-                "durable_promotion_transaction",
-                durable_store::promotion_transaction_append_evidence_record(
-                    result.durable_promotion_transaction,
-                ),
-            ),
-            f(
-                "durable_artifact_persist",
-                artifact_store::artifact_persist_evidence_record(result.durable_artifact_persist),
-            ),
-            f("capabilities", record_static_str_array(CAPABILITIES)),
-            f("accepts_external_artifact_bytes", b(true)),
-            f("loads_external_artifact", b(true)),
-            f("maps_executable_pages", b(false)),
-            f("writes_persistent_state", b(false)),
-            f("authorizes_persistent_install", b(false)),
-            f("authorizes_rollback_install", b(false)),
-            f("durable_writes_enabled", b(false)),
-            f("rollback_apply_authorized", b(false)),
-            f("broad_mutation_authorized", b(false)),
-        ],
-        6,
-    );
+        ),
+        f(
+            "durable_artifact_persist",
+            artifact_store::artifact_persist_evidence_record(result.durable_artifact_persist),
+        ),
+        f("capabilities", record_static_str_array(CAPABILITIES)),
+        f("accepts_external_artifact_bytes", b(true)),
+        f("loads_external_artifact", b(true)),
+        f("maps_executable_pages", b(false)),
+        f("writes_persistent_state", b(false)),
+        f("authorizes_persistent_install", b(false)),
+        f("authorizes_rollback_install", b(false)),
+        f("durable_writes_enabled", b(false)),
+        f("rollback_apply_authorized", b(false)),
+        f("broad_mutation_authorized", b(false)),
+    ]);
+    emit_record_fields_trailing_comma(fields, 6);
     crate::agent_protocol_support::raw_line("      \"evidence_complete\": true");
     end_response(method);
 }

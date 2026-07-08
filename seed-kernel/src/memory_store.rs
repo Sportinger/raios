@@ -50,7 +50,7 @@ use crate::{
         begin_response, emit_record_fields, end_response, method_head_eq, record_bool as b,
         record_field as f, record_sha_or_null, record_str as s,
     },
-    module_candidate_channel,
+    module_candidate_channel, wasm_runtime,
 };
 use raios_core::{
     memory_record::{
@@ -66,6 +66,10 @@ use raios_core::{
     scoped_provider_export::{
         export_denial_dedupe_key, SCOPED_PROVIDER_EXPORT_DECISION_ID,
         SCOPED_PROVIDER_EXPORT_DECISION_SCHEMA,
+    },
+    scoped_wasm_import_grant::{
+        authorized_import_list_sha256, SCOPED_WASM_IMPORT_GRANT_DECISION_ID,
+        SCOPED_WASM_IMPORT_GRANT_DECISION_SCHEMA,
     },
 };
 
@@ -1904,5 +1908,373 @@ fn provider_export_authorized_audit_value(
         f("owner_sealed", b(false)),
         f("trust_tier", s("dev_key_not_owner_sealed")),
         f("test_infrastructure", b(true)),
+    ])
+}
+
+// --- M11-3a: durable per-service Wasm import-grant audits -----------------------
+
+const WASM_IMPORT_GRANT_DEDUPE_CAP: usize = 4;
+
+struct WasmImportGrantDedupeEntry {
+    service_id: &'static str,
+    authorized_import_list_sha256: [u8; 32],
+    payload_sha256: Option<[u8; 32]>,
+    seq: Option<u64>,
+}
+
+static WASM_IMPORT_GRANT_DEDUPE: Mutex<Vec<WasmImportGrantDedupeEntry>> = Mutex::new(Vec::new());
+
+pub(crate) struct WasmImportGrantAuditOutcome {
+    pub(crate) dedupe: &'static str,
+    pub(crate) record_id: &'static str,
+    pub(crate) authorized_import_list_sha256: [u8; 32],
+    pub(crate) linked_host_import_count: u64,
+    pub(crate) module_imports_within_authorized_list: bool,
+    pub(crate) import_grant_performed: bool,
+    pub(crate) import_grant_status: &'static str,
+    pub(crate) evidence: Option<durable_store::MemoryRecordAppendEvidence<'static>>,
+    pub(crate) cited_payload_sha256: Option<[u8; 32]>,
+    pub(crate) cited_seq: Option<u64>,
+}
+
+pub(crate) fn record_wasm_import_grant_audit(
+    service_id: &'static str,
+    imports: &'static [(&'static str, &'static str)],
+    evidence: &wasm_runtime::EchoRunEvidence,
+) -> WasmImportGrantAuditOutcome {
+    let expected_hash = authorized_import_list_sha256(service_id, imports);
+    let Some(record_id) = wasm_import_grant_record_id(service_id) else {
+        return wasm_import_grant_ram_only_outcome(
+            "service_unmapped_ram_only",
+            "",
+            expected_hash,
+            evidence,
+        );
+    };
+
+    if !wasm_import_grant_evidence_matches(evidence, imports, expected_hash) {
+        return wasm_import_grant_ram_only_outcome(
+            "evidence_mismatch_ram_only",
+            record_id,
+            expected_hash,
+            evidence,
+        );
+    }
+
+    {
+        let table = WASM_IMPORT_GRANT_DEDUPE.lock();
+        let mut idx = 0usize;
+        while idx < table.len() {
+            let entry = &table[idx];
+            if entry.service_id == service_id
+                && entry.authorized_import_list_sha256 == expected_hash
+            {
+                return WasmImportGrantAuditOutcome {
+                    dedupe: "duplicate_ram_only",
+                    record_id,
+                    authorized_import_list_sha256: expected_hash,
+                    linked_host_import_count: evidence.linked_host_import_count,
+                    module_imports_within_authorized_list: evidence
+                        .module_imports_within_authorized_list,
+                    import_grant_performed: evidence.import_grant_performed,
+                    import_grant_status: evidence.import_grant_status,
+                    evidence: None,
+                    cited_payload_sha256: entry.payload_sha256,
+                    cited_seq: entry.seq,
+                };
+            }
+            idx += 1;
+        }
+        if table.len() >= WASM_IMPORT_GRANT_DEDUPE_CAP {
+            return wasm_import_grant_ram_only_outcome(
+                "dedupe_table_full_ram_only",
+                record_id,
+                expected_hash,
+                evidence,
+            );
+        }
+    }
+
+    let record = match wasm_import_grant_record(record_id, service_id, imports, evidence) {
+        Ok(record) => record,
+        Err(_) => {
+            return wasm_import_grant_ram_only_outcome(
+                "record_construction_denied_ram_only",
+                record_id,
+                expected_hash,
+                evidence,
+            );
+        }
+    };
+
+    let append_evidence = durable_store::append_memory_record(&record);
+    if !append_evidence.performed {
+        return WasmImportGrantAuditOutcome {
+            dedupe: "append_denied_ram_only",
+            record_id,
+            authorized_import_list_sha256: expected_hash,
+            linked_host_import_count: evidence.linked_host_import_count,
+            module_imports_within_authorized_list: evidence.module_imports_within_authorized_list,
+            import_grant_performed: evidence.import_grant_performed,
+            import_grant_status: evidence.import_grant_status,
+            evidence: Some(append_evidence),
+            cited_payload_sha256: None,
+            cited_seq: None,
+        };
+    }
+
+    let cited_payload_sha256 = append_evidence.payload_sha256;
+    let cited_seq = append_evidence.seq;
+    {
+        let mut table = WASM_IMPORT_GRANT_DEDUPE.lock();
+        if table.len() < WASM_IMPORT_GRANT_DEDUPE_CAP {
+            table.push(WasmImportGrantDedupeEntry {
+                service_id,
+                authorized_import_list_sha256: expected_hash,
+                payload_sha256: cited_payload_sha256,
+                seq: cited_seq,
+            });
+        }
+    }
+
+    WasmImportGrantAuditOutcome {
+        dedupe: "first_grant_appended",
+        record_id,
+        authorized_import_list_sha256: expected_hash,
+        linked_host_import_count: evidence.linked_host_import_count,
+        module_imports_within_authorized_list: evidence.module_imports_within_authorized_list,
+        import_grant_performed: evidence.import_grant_performed,
+        import_grant_status: evidence.import_grant_status,
+        evidence: Some(append_evidence),
+        cited_payload_sha256,
+        cited_seq,
+    }
+}
+
+fn wasm_import_grant_record_id(service_id: &str) -> Option<&'static str> {
+    match service_id {
+        "svc.demo.echo" => {
+            Some("mem.capability_grant.wasm_import_surface.svc_demo_echo.current_boot.v0")
+        }
+        "svc.dev.granted_candidate" => Some(
+            "mem.capability_grant.wasm_import_surface.svc_dev_granted_candidate.current_boot.v0",
+        ),
+        _ => None,
+    }
+}
+
+fn wasm_import_grant_evidence_matches(
+    evidence: &wasm_runtime::EchoRunEvidence,
+    imports: &[(&str, &str)],
+    expected_hash: [u8; 32],
+) -> bool {
+    evidence.import_grant_performed
+        && evidence.import_grant_status == "import_grant_authorized"
+        && evidence.module_imports_within_authorized_list
+        && evidence.authorized_import_count == imports.len() as u64
+        && evidence.authorized_import_list_sha256 == expected_hash
+}
+
+fn wasm_import_grant_ram_only_outcome(
+    dedupe: &'static str,
+    record_id: &'static str,
+    authorized_import_list_sha256: [u8; 32],
+    evidence: &wasm_runtime::EchoRunEvidence,
+) -> WasmImportGrantAuditOutcome {
+    WasmImportGrantAuditOutcome {
+        dedupe,
+        record_id,
+        authorized_import_list_sha256,
+        linked_host_import_count: evidence.linked_host_import_count,
+        module_imports_within_authorized_list: evidence.module_imports_within_authorized_list,
+        import_grant_performed: evidence.import_grant_performed,
+        import_grant_status: evidence.import_grant_status,
+        evidence: None,
+        cited_payload_sha256: None,
+        cited_seq: None,
+    }
+}
+
+fn wasm_import_grant_record(
+    record_id: &'static str,
+    service_id: &'static str,
+    imports: &'static [(&'static str, &'static str)],
+    evidence: &wasm_runtime::EchoRunEvidence,
+) -> Result<MemoryRecord<'static>, MemoryRecordError> {
+    MemoryRecord::new(MemoryRecordInput {
+        id: record_id,
+        kind: "capability_grant",
+        entity: service_id,
+        predicate: "wasm_import_surface_granted",
+        value: wasm_import_grant_value(service_id, imports, evidence),
+        classification: "local_only",
+        authority: "core_ledger",
+        boot_id: "current_boot",
+        sequence: 0,
+        source: MemorySource::new("wasm.import_grant", SCOPED_WASM_IMPORT_GRANT_DECISION_ID),
+        evidence: vec![],
+        tags: vec!["capability", "wasm", "import_grant"],
+        supersedes: vec![],
+        created_at_ticks: 0,
+    })
+}
+
+fn wasm_import_grant_value(
+    service_id: &'static str,
+    imports: &'static [(&'static str, &'static str)],
+    evidence: &wasm_runtime::EchoRunEvidence,
+) -> V<'static> {
+    V::Object(vec![
+        f("gate", s(SCOPED_WASM_IMPORT_GRANT_DECISION_ID)),
+        f("gate_schema", s(SCOPED_WASM_IMPORT_GRANT_DECISION_SCHEMA)),
+        f("gate_reason", s("authorized_exact_declared_import_surface")),
+        f("service_id", s(service_id)),
+        f("capability_envelope", s("wasmi_linker_import_surface")),
+        f("authorized_imports", wasm_imports_value(imports)),
+        f("authorized_import_count", V::U64(imports.len() as u64)),
+        f(
+            "authorized_import_list_sha256",
+            V::Sha256(evidence.authorized_import_list_sha256),
+        ),
+        f(
+            "linked_host_import_count",
+            V::U64(evidence.linked_host_import_count),
+        ),
+        f("module_imports_within_authorized_list", b(true)),
+        f("import_grant_performed", b(true)),
+        f("import_grant_status", s(evidence.import_grant_status)),
+        f("transmission_performed", b(false)),
+        f("provider_write", s("not_attempted")),
+        f("owner_sealed", b(false)),
+        f("trust_tier", s("dev_key_not_owner_sealed")),
+    ])
+}
+
+fn wasm_imports_value(imports: &'static [(&'static str, &'static str)]) -> V<'static> {
+    let mut values = Vec::with_capacity(imports.len());
+    let mut idx = 0usize;
+    while idx < imports.len() {
+        values.push(V::InlineObject(vec![
+            f("module", s(imports[idx].0)),
+            f("name", s(imports[idx].1)),
+        ]));
+        idx += 1;
+    }
+    V::Array(values)
+}
+
+pub(crate) fn wasm_import_grant_audit_value(audit: &WasmImportGrantAuditOutcome) -> V<'static> {
+    let evidence = audit.evidence.as_ref();
+    let duplicate = audit.dedupe == "duplicate_ram_only";
+    let durable_append = match evidence {
+        Some(evidence) => evidence.durable_append,
+        None if duplicate => "not_attempted_deduplicated",
+        None => "not_attempted",
+    };
+    let performed = evidence.map(|evidence| evidence.performed).unwrap_or(false);
+    let append_reason = match evidence {
+        Some(evidence) => evidence.reason,
+        None if duplicate => "deduplicated_first_audit_cited",
+        None => audit.dedupe,
+    };
+    let payload_sha256 = match evidence {
+        Some(evidence) => evidence.payload_sha256,
+        None => audit.cited_payload_sha256,
+    };
+    let seq = match evidence {
+        Some(evidence) => evidence.seq,
+        None => audit.cited_seq,
+    };
+
+    V::InlineObject(vec![
+        f("gate", s(SCOPED_WASM_IMPORT_GRANT_DECISION_ID)),
+        f("gate_schema", s(SCOPED_WASM_IMPORT_GRANT_DECISION_SCHEMA)),
+        f("gate_reason", s("authorized_exact_declared_import_surface")),
+        f("dedupe", s(audit.dedupe)),
+        f("record_id", s(audit.record_id)),
+        f(
+            "record_schema",
+            s(evidence
+                .map(|evidence| evidence.record_schema)
+                .unwrap_or("raios.memory_record.v0")),
+        ),
+        f("kind", s("capability_grant")),
+        f("classification", s("local_only")),
+        f(
+            "record_authority",
+            s(evidence
+                .map(|evidence| evidence.record_authority)
+                .unwrap_or("core_ledger")),
+        ),
+        f("supersedes", V::Array(vec![])),
+        f("durable_append", s(durable_append)),
+        f("performed", b(performed)),
+        f("append_reason", s(append_reason)),
+        f("payload_sha256", record_sha_or_null(payload_sha256)),
+        f(
+            "frame_sha256",
+            record_sha_or_null(evidence.and_then(|evidence| evidence.frame_sha256)),
+        ),
+        f(
+            "readback_sha256",
+            record_sha_or_null(evidence.and_then(|evidence| evidence.readback_sha256)),
+        ),
+        f(
+            "reparse_valid",
+            b(evidence
+                .map(|evidence| evidence.reparse_valid)
+                .unwrap_or(false)),
+        ),
+        f("seq", optional_u64(seq)),
+        f(
+            "tail_seq_before",
+            optional_u64(evidence.and_then(|evidence| evidence.tail_seq_before)),
+        ),
+        f(
+            "count_before",
+            optional_u64(evidence.and_then(|evidence| evidence.count_before)),
+        ),
+        f(
+            "tail_seq_after",
+            optional_u64(evidence.and_then(|evidence| evidence.tail_seq_after)),
+        ),
+        f(
+            "count_after",
+            optional_u64(evidence.and_then(|evidence| evidence.count_after)),
+        ),
+        f(
+            "authorized_import_list_sha256",
+            V::Sha256(audit.authorized_import_list_sha256),
+        ),
+        f(
+            "linked_host_import_count",
+            V::U64(audit.linked_host_import_count),
+        ),
+        f(
+            "module_imports_within_authorized_list",
+            b(audit.module_imports_within_authorized_list),
+        ),
+        f("import_grant_performed", b(audit.import_grant_performed)),
+        f("import_grant_status", s(audit.import_grant_status)),
+        f(
+            "owner_sealed",
+            b(evidence
+                .map(|evidence| evidence.owner_sealed)
+                .unwrap_or(false)),
+        ),
+        f(
+            "persistence_claimed",
+            b(evidence
+                .map(|evidence| evidence.persistence_claimed)
+                .unwrap_or(false)),
+        ),
+        f(
+            "trust_tier",
+            s(evidence
+                .map(|evidence| evidence.trust_tier)
+                .unwrap_or("dev_key_not_owner_sealed")),
+        ),
+        f("transmission_performed", b(false)),
+        f("provider_write", s("not_attempted")),
     ])
 }

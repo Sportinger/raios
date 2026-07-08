@@ -67,6 +67,22 @@ function Get-ProfileAgentResponseJson {
     return $json | ConvertFrom-Json
 }
 
+function Get-ProfileMarkerJsonList {
+    param(
+        [string]$Path,
+        [string]$Prefix
+    )
+
+    $content = Get-SerialLogContent -Path $Path
+    if ($null -eq $content) { return @() }
+    $values = @()
+    $pattern = [regex]::Escape($Prefix) + "(\{[^\r\n]*\})"
+    foreach ($match in [regex]::Matches($content, $pattern)) {
+        $values += ($match.Groups[1].Value | ConvertFrom-Json)
+    }
+    return $values
+}
+
 function Invoke-MemoryRecordAppendFixtureProbe {
     param(
         [string]$FixtureSpec,
@@ -178,6 +194,7 @@ function Invoke-MemoryRecordAppendFixtureProbe {
             append = $appendResult
             scan = $scanResult
             extra = $extraResponses
+            log = $fixtureLog
         }
     }
     finally {
@@ -789,6 +806,94 @@ Add-Predicate `
 
 if (-not ($exportEnvelopeStillDenied -and $exportGateAndReason -and $exportFirstAppended -and $exportNonSuperseding -and $exportChainAdvance -and $exportDuplicateDeduped -and $exportDistinctReasonAppended -and $exportDedupeCount -and $exportStillDisabled)) {
     throw "export-denial-durable family failed"
+}
+
+# --- wasm-import-grant-durable: service-level import grants are durably audited
+#     once per (service_id, authorized_import_list_sha256) per boot. -------------
+
+$wasmImportGrantRecordId = "mem.capability_grant.wasm_import_surface.svc_demo_echo.current_boot.v0"
+$wasmImportGrantExtraCommands = @(
+    [pscustomobject]@{ Key = "echoLoad"; Command = "module.load_ephemeral svc.demo.echo"; Method = "module.load_ephemeral" },
+    [pscustomobject]@{ Key = "start1"; Command = "service.start svc.demo.echo"; Method = "service.start" },
+    [pscustomobject]@{ Key = "start2"; Command = "service.start svc.demo.echo"; Method = "service.start" },
+    [pscustomobject]@{ Key = "scanAfter"; Command = "durable.record_log_scan"; Method = "durable.record_log_scan" },
+    [pscustomobject]@{ Key = "context"; Command = "memory.context provider_minimal"; Method = "memory.context" }
+)
+$wasmImportGrantProbe = Invoke-MemoryRecordAppendFixtureProbe -FixtureSpec "valid:2" -Label "wasm-import-grant" -AppendMethod "memory.record_log_append" -ExtraAgentCommands $wasmImportGrantExtraCommands
+$wasmEchoLoad = $wasmImportGrantProbe.extra["echoLoad"].body.result
+$wasmStart1 = $wasmImportGrantProbe.extra["start1"].body.result
+$wasmStart2 = $wasmImportGrantProbe.extra["start2"].body.result
+$wasmScanAfter = $wasmImportGrantProbe.extra["scanAfter"].body.result
+$wasmContext = $wasmImportGrantProbe.extra["context"].body.result
+$wasmAudit1 = $wasmStart1.durable_import_grant_audit
+$wasmAudit2 = $wasmStart2.durable_import_grant_audit
+$wasmGrantMarkers = @(Get-ProfileMarkerJsonList -Path $wasmImportGrantProbe.log -Prefix "WASM_IMPORT_GRANT ")
+$wasmGrantMarker1 = if ($wasmGrantMarkers.Count -ge 1) { $wasmGrantMarkers[0] } else { $null }
+
+$wasmFirstAppended = (
+    $wasmEchoLoad.loaded -and
+    $wasmStart1.running -and
+    $wasmAudit1 -and
+    $wasmAudit1.durable_append -eq "appended" -and
+    [bool]$wasmAudit1.performed -and
+    $wasmAudit1.dedupe -eq "first_grant_appended" -and
+    $wasmAudit1.kind -eq "capability_grant" -and
+    $wasmAudit1.classification -eq "local_only" -and
+    @($wasmAudit1.supersedes).Count -eq 0 -and
+    $wasmAudit1.record_id -eq $wasmImportGrantRecordId -and
+    $wasmAudit1.readback_sha256 -eq $wasmAudit1.frame_sha256 -and
+    [bool]$wasmAudit1.reparse_valid -and
+    $wasmGrantMarker1 -and
+    $wasmAudit1.authorized_import_list_sha256 -eq $wasmGrantMarker1.authorized_import_list_sha256
+)
+Add-Predicate `
+    -Name "wasm-import-grant-durable:first-appended" `
+    -Expected "first echo service.start appends one durable local_only capability_grant for the exact authorized Wasm import list" `
+    -Passed $wasmFirstAppended `
+    -Actual $(if ($wasmFirstAppended) { "matched" } else { "load=$($wasmEchoLoad | ConvertTo-Json -Compress -Depth 8) start1=$($wasmStart1 | ConvertTo-Json -Compress -Depth 12) markers=$($wasmGrantMarkers | ConvertTo-Json -Compress -Depth 8)" })
+
+$wasmSecondDeduped = (
+    $wasmStart2.running -and
+    $wasmAudit2 -and
+    $wasmAudit2.dedupe -eq "duplicate_ram_only" -and
+    $wasmAudit2.durable_append -eq "not_attempted_deduplicated" -and
+    -not [bool]$wasmAudit2.performed -and
+    $wasmAudit2.record_id -eq $wasmAudit1.record_id -and
+    $wasmAudit2.payload_sha256 -eq $wasmAudit1.payload_sha256 -and
+    $wasmAudit2.seq -eq $wasmAudit1.seq
+)
+Add-Predicate `
+    -Name "wasm-import-grant-durable:second-deduped" `
+    -Expected "second echo service.start cites the first import-grant audit and appends no duplicate frame" `
+    -Passed $wasmSecondDeduped `
+    -Actual $(if ($wasmSecondDeduped) { "matched" } else { "first=$($wasmAudit1 | ConvertTo-Json -Compress -Depth 14) second=$($wasmAudit2 | ConvertTo-Json -Compress -Depth 14)" })
+
+$wasmGrantChainAdvance = (
+    [int64]$wasmScanAfter.count -eq ([int64]$wasmImportGrantProbe.scan.count + 1) -and
+    [int64]$wasmScanAfter.tail_seq -eq ([int64]$wasmImportGrantProbe.scan.tail_seq + 1)
+)
+Add-Predicate `
+    -Name "wasm-import-grant-durable:chain-advance-exactly-one" `
+    -Expected "two echo starts append exactly one durable import-grant frame because the second is deduped" `
+    -Passed $wasmGrantChainAdvance `
+    -Actual $(if ($wasmGrantChainAdvance) { "matched" } else { "baseline=$($wasmImportGrantProbe.scan | ConvertTo-Json -Compress -Depth 8) scanAfter=$($wasmScanAfter | ConvertTo-Json -Compress -Depth 8)" })
+
+$wasmContextRecords = @($wasmContext.durable_records)
+$wasmContextRecord = Get-BrokerDurableRecordById -Records $wasmContextRecords -Id $wasmImportGrantRecordId
+$wasmContextLocalOnly = (
+    $wasmContextRecord -and
+    $wasmContextRecord.kind -eq "capability_grant" -and
+    $wasmContextRecord.classification -eq "local_only" -and
+    [bool]$wasmContextRecord.exportable -eq $false
+)
+Add-Predicate `
+    -Name "wasm-import-grant-durable:context-local-only-nonexportable" `
+    -Expected "memory.context durable_records includes the capability_grant as local_only and non-exportable" `
+    -Passed $wasmContextLocalOnly `
+    -Actual $(if ($wasmContextLocalOnly) { "matched" } else { ($wasmContext | ConvertTo-Json -Compress -Depth 16) })
+
+if (-not ($wasmFirstAppended -and $wasmSecondDeduped -and $wasmGrantChainAdvance -and $wasmContextLocalOnly)) {
+    throw "wasm-import-grant-durable family failed"
 }
 
 # --- export-packet: public-only provider-export packet evidence assembly. The

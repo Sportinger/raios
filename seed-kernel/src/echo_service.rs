@@ -10,7 +10,7 @@ use crate::{
         record_static_str_array, record_str as s, record_str_or_null,
     },
     current_boot_service::{self, ServiceDescriptor, ServiceState},
-    event_log, wasm_runtime,
+    event_log, memory_store, wasm_runtime,
 };
 
 include!(concat!(
@@ -193,6 +193,7 @@ struct ActionResult {
     snapshot: Snapshot,
     event_id: event_log::EventId,
     run: Option<wasm_runtime::EchoRunEvidence>,
+    durable_import_grant_audit: Option<memory_store::WasmImportGrantAuditOutcome>,
 }
 
 static STATE: Mutex<State> = Mutex::new(State::new());
@@ -427,6 +428,7 @@ fn load(source_method: &'static str) -> ActionResult {
         snapshot: state.snapshot(),
         event_id,
         run: None,
+        durable_import_grant_audit: None,
     }
 }
 
@@ -460,6 +462,13 @@ fn start(source_method: &'static str) -> ActionResult {
         reason,
         ECHO_SERVICE_LIFECYCLE_EVIDENCE,
     );
+    let durable_import_grant_audit = run.as_ref().map(|run| {
+        memory_store::record_wasm_import_grant_audit(
+            wasm_runtime::ECHO_SERVICE_ID,
+            wasm_runtime::ECHO_AUTHORIZED_IMPORTS,
+            run,
+        )
+    });
 
     let mut state = STATE.lock();
     if can_run {
@@ -496,6 +505,7 @@ fn start(source_method: &'static str) -> ActionResult {
         snapshot: state.snapshot(),
         event_id,
         run,
+        durable_import_grant_audit,
     }
 }
 
@@ -537,6 +547,7 @@ fn stop(source_method: &'static str) -> ActionResult {
         snapshot: state.snapshot(),
         event_id,
         run: None,
+        durable_import_grant_audit: None,
     }
 }
 
@@ -580,6 +591,7 @@ fn drop_service(source_method: &'static str) -> ActionResult {
         snapshot: state.snapshot(),
         event_id,
         run: None,
+        durable_import_grant_audit: None,
     }
 }
 
@@ -606,6 +618,7 @@ fn health(source_method: &'static str) -> ActionResult {
         snapshot,
         event_id,
         run: None,
+        durable_import_grant_audit: None,
     }
 }
 
@@ -763,100 +776,106 @@ fn echo_run_succeeded(run: &wasm_runtime::EchoRunEvidence) -> bool {
 fn emit_response(method: &'static str, action: &'static str, result: ActionResult) {
     let snapshot = result.snapshot;
     begin_response(method);
-    emit_record_fields_trailing_comma(
-        vec![
-            f(
-                "schema",
-                s(if action == "health" {
-                    ECHO_HEALTH_RESPONSE_SCHEMA
-                } else {
-                    ECHO_LIFECYCLE_RESPONSE_SCHEMA
-                }),
-            ),
-            f("scope", s(ECHO_SERVICE_DESCRIPTOR.scope)),
-            f("classification", s(ECHO_SERVICE_DESCRIPTOR.classification)),
-            f("method", s(method)),
-            f("action", s(action)),
-            f("service_id", s(ECHO_SERVICE_DESCRIPTOR.service_id)),
-            f("artifact_id", s(ECHO_SERVICE_DESCRIPTOR.artifact_id)),
-            f("artifact_kind", s(ECHO_SERVICE_DESCRIPTOR.artifact_kind)),
-            f("version", s(ECHO_SERVICE_VERSION)),
-            f("health", s(health_state(snapshot))),
-            f("loaded", b(snapshot.loaded)),
-            f("running", b(snapshot.running)),
-            f("generation", V::U64(snapshot.generation)),
-            f("run_count", V::U64(snapshot.run_count)),
-            f("last_action", s(snapshot.last_action)),
-            f("reason", s(snapshot.last_reason)),
-            f(
-                "service_inventory_change",
-                s(snapshot.last_inventory_change),
-            ),
-            f("event_id", record_event_or_null(Some(result.event_id))),
-            f(
-                "load_event_id",
-                record_event_or_null(snapshot.load_event_id),
-            ),
-            f(
-                "start_event_id",
-                record_event_or_null(snapshot.start_event_id),
-            ),
-            f(
-                "stop_event_id",
-                record_event_or_null(snapshot.stop_event_id),
-            ),
-            f(
-                "drop_event_id",
-                record_event_or_null(snapshot.drop_event_id),
-            ),
-            f("load_descriptor", record_load_descriptor()),
-            f(
-                "artifact_identity_id",
-                s(ECHO_LOAD_DESCRIPTOR_ARTIFACT_IDENTITY_ID),
-            ),
-            f(
-                "artifact_identity_hash",
-                record_sha(ECHO_LOAD_DESCRIPTOR_ARTIFACT_IDENTITY_HASH),
-            ),
-            f(
-                "artifact_sha256",
-                record_sha(ECHO_LOAD_DESCRIPTOR_ARTIFACT_BYTES_HASH),
-            ),
-            f(
-                "artifact_load_plan_preflight_id",
-                s(ECHO_SERVICE_DESCRIPTOR.artifact_load_plan_preflight_id),
-            ),
-            f(
-                "artifact_load_plan_preflight_hash",
-                record_sha(ECHO_LOAD_DESCRIPTOR_HASH),
-            ),
-            f(
-                "artifact_load_plan_preflight_status",
-                s(ECHO_SERVICE_DESCRIPTOR.artifact_load_plan_preflight_status),
-            ),
-            f(
-                "service_slot_activation",
-                record_service_slot_activation(snapshot),
-            ),
-            f("capability_envelope", s("wasmi_linker_import_surface")),
-            f(
-                "granted_host_imports",
-                record_static_str_array(&["env.log", "env.counter_get"]),
-            ),
-            f("host_import_count", V::U64(2)),
-            f("entrypoint", s(ECHO_ENTRYPOINT)),
-            f("run_evidence", record_run_evidence(result.run.as_ref())),
-            f("last_run_evidence", record_last_run(snapshot)),
-            f("accepts_external_artifact_bytes", b(false)),
-            f("loads_external_artifact", b(false)),
-            f("maps_executable_pages", b(false)),
-            f("writes_persistent_state", b(false)),
-            f("durable_writes_enabled", b(false)),
-            f("rollback_apply_authorized", b(false)),
-            f("broad_mutation_authorized", b(false)),
-        ],
-        6,
-    );
+    let mut fields = vec![
+        f(
+            "schema",
+            s(if action == "health" {
+                ECHO_HEALTH_RESPONSE_SCHEMA
+            } else {
+                ECHO_LIFECYCLE_RESPONSE_SCHEMA
+            }),
+        ),
+        f("scope", s(ECHO_SERVICE_DESCRIPTOR.scope)),
+        f("classification", s(ECHO_SERVICE_DESCRIPTOR.classification)),
+        f("method", s(method)),
+        f("action", s(action)),
+        f("service_id", s(ECHO_SERVICE_DESCRIPTOR.service_id)),
+        f("artifact_id", s(ECHO_SERVICE_DESCRIPTOR.artifact_id)),
+        f("artifact_kind", s(ECHO_SERVICE_DESCRIPTOR.artifact_kind)),
+        f("version", s(ECHO_SERVICE_VERSION)),
+        f("health", s(health_state(snapshot))),
+        f("loaded", b(snapshot.loaded)),
+        f("running", b(snapshot.running)),
+        f("generation", V::U64(snapshot.generation)),
+        f("run_count", V::U64(snapshot.run_count)),
+        f("last_action", s(snapshot.last_action)),
+        f("reason", s(snapshot.last_reason)),
+        f(
+            "service_inventory_change",
+            s(snapshot.last_inventory_change),
+        ),
+        f("event_id", record_event_or_null(Some(result.event_id))),
+        f(
+            "load_event_id",
+            record_event_or_null(snapshot.load_event_id),
+        ),
+        f(
+            "start_event_id",
+            record_event_or_null(snapshot.start_event_id),
+        ),
+        f(
+            "stop_event_id",
+            record_event_or_null(snapshot.stop_event_id),
+        ),
+        f(
+            "drop_event_id",
+            record_event_or_null(snapshot.drop_event_id),
+        ),
+        f("load_descriptor", record_load_descriptor()),
+        f(
+            "artifact_identity_id",
+            s(ECHO_LOAD_DESCRIPTOR_ARTIFACT_IDENTITY_ID),
+        ),
+        f(
+            "artifact_identity_hash",
+            record_sha(ECHO_LOAD_DESCRIPTOR_ARTIFACT_IDENTITY_HASH),
+        ),
+        f(
+            "artifact_sha256",
+            record_sha(ECHO_LOAD_DESCRIPTOR_ARTIFACT_BYTES_HASH),
+        ),
+        f(
+            "artifact_load_plan_preflight_id",
+            s(ECHO_SERVICE_DESCRIPTOR.artifact_load_plan_preflight_id),
+        ),
+        f(
+            "artifact_load_plan_preflight_hash",
+            record_sha(ECHO_LOAD_DESCRIPTOR_HASH),
+        ),
+        f(
+            "artifact_load_plan_preflight_status",
+            s(ECHO_SERVICE_DESCRIPTOR.artifact_load_plan_preflight_status),
+        ),
+        f(
+            "service_slot_activation",
+            record_service_slot_activation(snapshot),
+        ),
+        f("capability_envelope", s("wasmi_linker_import_surface")),
+        f(
+            "granted_host_imports",
+            record_static_str_array(&["env.log", "env.counter_get"]),
+        ),
+        f("host_import_count", V::U64(2)),
+        f("entrypoint", s(ECHO_ENTRYPOINT)),
+        f("run_evidence", record_run_evidence(result.run.as_ref())),
+        f("last_run_evidence", record_last_run(snapshot)),
+    ];
+    if let Some(audit) = result.durable_import_grant_audit.as_ref() {
+        fields.push(f(
+            "durable_import_grant_audit",
+            memory_store::wasm_import_grant_audit_value(audit),
+        ));
+    }
+    fields.extend(vec![
+        f("accepts_external_artifact_bytes", b(false)),
+        f("loads_external_artifact", b(false)),
+        f("maps_executable_pages", b(false)),
+        f("writes_persistent_state", b(false)),
+        f("durable_writes_enabled", b(false)),
+        f("rollback_apply_authorized", b(false)),
+        f("broad_mutation_authorized", b(false)),
+    ]);
+    emit_record_fields_trailing_comma(fields, 6);
     raw_line("      \"evidence_complete\": true");
     end_response(method);
 }

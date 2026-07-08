@@ -24,6 +24,30 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+M11-3a done (2026-07-08, host-only worker packet; orchestrator runs the
+memory-durable VM profile): raiOS now durably audits the exact Wasm host-import
+surface a service was already authorized and linked with as a local-only
+`capability_grant` memory record, deduped per
+`(service_id, authorized_import_list_sha256)` per boot. The audit driver binds
+the record to M11-3 run evidence (`import_grant_performed`, authorized status,
+module imports within the authorized list, authorized import count, and the
+canonical `authorized_import_list_sha256` for the same service/import tuple)
+before appending; mismatches, unknown services, duplicates, or append failures
+stay RAM-only. `svc.demo.echo` and `svc.dev.granted_candidate` call the audit
+only from their service-level `start()` path after lifecycle event creation and
+before taking the state lock; `wasm_runtime::execute_module_bytes` and
+`module.granted_candidate_selftest` are untouched. The service.start response
+now additively exposes `durable_import_grant_audit`, and the memory-durable
+profile adds `wasm-import-grant-durable:first-appended`,
+`wasm-import-grant-durable:second-deduped`,
+`wasm-import-grant-durable:chain-advance-exactly-one`, and
+`wasm-import-grant-durable:context-local-only-nonexportable`. This grants no new
+import, linker behavior, enforcement behavior, provider authority, transmission,
+secret, or raios-core behavior. Host-only verification passed:
+`cargo fmt -p seed-kernel --check`, `cargo fmt -p raios-core --check`,
+`cargo test --locked -p raios-core` (229 passed), release seed-kernel build, and
+PowerShell parse of `vm-harness\shadow-vm-smoke-profile-memory-durable.ps1`.
+
 M11-3 done (2026-07-08, host-only worker packet; orchestrator runs VM/review):
 raiOS now authorizes each current Wasm service's host-import surface through the
 committed M11-2 evaluator and constructs service instances from only the
