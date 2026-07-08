@@ -22,9 +22,9 @@ use crate::{memory, pci, serial, time, wifi};
 const MARVELL_REGISTER_BAR: u8 = 2;
 const CMD_SIZE_TIMEOUT_MS: u64 = 5_000;
 const DOORBELL_ACK_TIMEOUT_MS: u64 = 5_000;
-const TOTAL_BRINGUP_TIMEOUT_MS: u64 = 15_000;
+const TOTAL_BRINGUP_TIMEOUT_MS: u64 = 300_000;
 const SHORT_POLL_DELAY_US: u64 = 20;
-const ACTIONS_PER_POLL: usize = 32;
+const ACTIONS_PER_POLL: usize = 128;
 
 #[repr(align(64))]
 struct DmaBlock([u8; FW_DMA_STAGING_SIZE]);
@@ -456,8 +456,7 @@ pub fn poll() -> bool {
                     return true;
                 }
                 delay_us(SHORT_POLL_DELAY_US);
-                runtime.job = Some(job);
-                return true;
+                continue;
             }
             FwAction::PollFwStatus => match job.phase {
                 FwPhase::Downloading => {
@@ -477,8 +476,7 @@ pub fn poll() -> bool {
                         return true;
                     }
                     delay_us(SHORT_POLL_DELAY_US);
-                    runtime.job = Some(job);
-                    return true;
+                    continue;
                 }
                 FwPhase::PollingReady => {
                     match decide_fw_ready_poll(
@@ -488,8 +486,7 @@ pub fn poll() -> bool {
                     ) {
                         FwReadyPollDecision::Ready => {}
                         FwReadyPollDecision::StillDownloading => {
-                            runtime.job = Some(job);
-                            return true;
+                            continue;
                         }
                         FwReadyPollDecision::Timeout => {
                             finish_locked(
@@ -510,8 +507,7 @@ pub fn poll() -> bool {
                 }
                 _ => {
                     delay_us(SHORT_POLL_DELAY_US);
-                    runtime.job = Some(job);
-                    return true;
+                    continue;
                 }
             },
         }
