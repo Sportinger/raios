@@ -1,15 +1,15 @@
 #![cfg_attr(not(test), no_std)]
 
-//! Non-allocating HTTP/1.1 response-header parsers relocated verbatim from
+//! Non-allocating HTTP/1.1 response-header parsers relocated from
 //! seed-kernel/src/openai.rs (M11-7 Phase A). seed-kernel (via
 //! raios_core::http_response_parse) and the svc.demo.httphead Wasm guest compile
 //! this identical source: the guest is evidence of faithful execution, the kernel
-//! core stays authority. Behavior is byte-identical to the pre-move kernel - no
-//! bug is fixed here (see parse_content_length note).
+//! core stays authority. M11-7c fixes the status-line short-circuit in
+//! parse_content_length.
 
 use core::str;
 
-// ---- relocated verbatim from openai.rs (do NOT change behavior) ----
+// ---- relocated from openai.rs ----
 
 pub fn http_response_complete(response: &[u8]) -> bool {
     let Some(body_start) = find_subslice(response, b"\r\n\r\n").map(|index| index + 4) else {
@@ -35,16 +35,15 @@ pub fn parse_status(response: &[u8]) -> Option<u16> {
     parts.next()?.parse().ok()
 }
 
-// PRESERVED BEHAVIOR - do NOT "fix" here. The first header line is the status
-// line ("HTTP/1.1 200 OK") which has no colon, so split_header(line)? returns
-// None and `?` short-circuits this whole function to None for ANY response.
-// Content-Length is never parsed via this path; production completion rides on
-// the chunked branch. A fix + its own VM profile is a follow-up slice.
+// M11-7c: skip the status line and any non-colon line; parse the first real
+// Name: Value header matching Content-Length.
 pub fn parse_content_length(response: &[u8]) -> Option<usize> {
     let header_end = find_subslice(response, b"\r\n\r\n")?;
     for line in response[..header_end].split(|byte| *byte == b'\n') {
         let line = trim_ascii(line.strip_suffix(b"\r").unwrap_or(line));
-        let (name, value) = split_header(line)?;
+        let Some((name, value)) = split_header(line) else {
+            continue;
+        };
         if eq_ignore_ascii_case(name, b"content-length") {
             return parse_usize(trim_ascii(value));
         }
@@ -282,15 +281,29 @@ mod tests {
     }
 
     #[test]
-    fn content_length_response_short_circuits_to_absent() {
-        // PRESERVED upstream behavior: the status line has no colon, so
-        // parse_content_length short-circuits to None even though the response
-        // literally contains "Content-Length: 11". Do NOT "fix" this here.
+    fn content_length_response_parses_header_after_status_line() {
+        assert_eq!(parse_content_length(HTTP_CONTENT_LENGTH), Some(11));
         let f = parse_http_head(HTTP_CONTENT_LENGTH);
         assert_eq!(f.status_code, Some(200));
-        assert_eq!(f.content_length, None);
-        assert!(!f.response_complete);
+        assert_eq!(f.content_length, Some(11));
+        assert!(f.response_complete);
         assert!(!f.chunked);
+    }
+
+    #[test]
+    fn non_chunked_content_length_response_completes() {
+        let response =
+            b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}";
+        assert_eq!(parse_content_length(response), Some(11));
+        assert!(http_response_complete(response));
+    }
+
+    #[test]
+    fn parse_content_length_absent_without_header() {
+        assert_eq!(
+            parse_content_length(b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n{}"),
+            None
+        );
     }
 
     #[test]
@@ -327,8 +340,7 @@ mod tests {
         }
     }
 
-    // parse_content_length is always None, so the present content_length u64
-    // lane is never exercised end-to-end. Cover it directly.
+    // Keep direct coverage for the explicit content_length u64 lane.
     #[test]
     fn record_covers_present_content_length_u64_lane() {
         let facts = HttpHeadFacts {

@@ -465,9 +465,8 @@ pub(crate) fn emit_wasm_httphead_probe() {
         && gdm.response_complete == corem.response_complete
         && gdm.chunked == corem.chunked;
 
-    // Content-Length fixture: typed evidence that BOTH guest and core report
-    // content_length_present=false for a response literally containing
-    // "Content-Length: 11" (preserved status-line short-circuit).
+    // Content-Length fixture: typed evidence that BOTH guest and core parse
+    // the real Content-Length: 11 header after skipping the status line.
     let cl = REAL_TEST_HTTP_CONTENT_LENGTH_RESPONSE;
     let rtc = wasm_runtime::run_httphead_roundtrip(cl);
     let gdc = decode_httphead_record(&rtc.raw_captured_output);
@@ -573,11 +572,16 @@ pub(crate) fn emit_wasm_httphead_probe() {
                         "guest_content_length_present",
                         b(gdc.content_length_present),
                     ),
+                    f("guest_content_length", V::U64(gdc.content_length)),
                     f("guest_response_complete", b(gdc.response_complete)),
                     f("guest_chunked", b(gdc.chunked)),
                     f(
                         "core_content_length_present",
                         b(corec.content_length.is_some()),
+                    ),
+                    f(
+                        "core_content_length",
+                        V::U64(corec.content_length.unwrap_or(0)),
                     ),
                     f("guest_matches_core", b(content_length_matches)),
                     f("capability_granted", b(false)),

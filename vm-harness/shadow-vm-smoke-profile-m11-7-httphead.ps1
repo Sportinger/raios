@@ -51,15 +51,18 @@ $contentLengthOk = (
     $contentLength.guest_record_valid -eq $true -and
     $contentLength.guest_status_present -eq $true -and
     [int]$contentLength.guest_status_code -eq 200 -and
-    $contentLength.guest_content_length_present -eq $false -and
-    $contentLength.guest_response_complete -eq $false -and
+    $contentLength.guest_content_length_present -eq $true -and
+    [int64]$contentLength.guest_content_length -eq 11 -and
+    $contentLength.guest_response_complete -eq $true -and
     $contentLength.guest_chunked -eq $false -and
-    $contentLength.core_content_length_present -eq $false -and
+    $contentLength.core_content_length_present -eq $true -and
+    [int64]$contentLength.core_content_length -eq 11 -and
+    [int64]$contentLength.guest_content_length -eq [int64]$contentLength.core_content_length -and
     $contentLength.guest_matches_core -eq $true -and
     $contentLength.capability_granted -eq $false
 )
-Add-Predicate -Name "m11-7-httphead:content-length-short-circuit-evidence" -Expected "guest and core BOTH report content_length_present=false for a response literally containing Content-Length: 11 (preserved status-line short-circuit)" -Passed $contentLengthOk -Actual $(if ($contentLengthOk) { "matched" } else { ($contentLength | ConvertTo-Json -Compress -Depth 6) })
-if (-not $contentLengthOk) { throw "Expected svc.demo.httphead content-length case to record the preserved short-circuit as typed evidence" }
+Add-Predicate -Name "m11-7-httphead:content-length-parsed-agree" -Expected "guest and core BOTH parse Content-Length: 11 on the non-chunked fixture and report matching content_length values" -Passed $contentLengthOk -Actual $(if ($contentLengthOk) { "matched" } else { ($contentLength | ConvertTo-Json -Compress -Depth 6) })
+if (-not $contentLengthOk) { throw "Expected svc.demo.httphead content-length case to parse Content-Length: 11 and agree with core" }
 
 $negative = $result.negative
 $negativeOk = (
