@@ -24,6 +24,24 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+M10B-1 done (2026-07-08, host-only worker packet; no kernel/VM wiring): an
+agent can describe OpenAI and a second provider with one typed,
+provider-agnostic trust descriptor and run the committed M10A-1 honesty
+evaluator over either provider while granting no provider request authority and
+no provider export authority. `raios-core/src/provider_trust_descriptor.rs`
+adds `ProviderTrustDescriptor`, OpenAI metadata mirroring the Stage-0 pinned
+TLS verifier, and a clearly synthetic Anthropic-shaped selftest descriptor with
+`trust_state = pin_config_missing`; descriptor honesty only maps into
+`ProviderTrustHonestyInput` and calls `evaluate_provider_trust_honesty`.
+Descriptor identity hashes use the shared `record::Value` model plus
+`sha256_of_json` over schema/provider/host/port/transport/hostname/pin/chain/
+time/certificate-policy fields, excluding trust state and claims. Host-only
+verification: `cargo test --locked -p raios-core` passed 201 tests, including
+the four provider descriptor tests, and `cargo fmt -p raios-core -- --check`
+passed. No QEMU, seed-kernel, vm-harness, vendor, live provider, pins, chain,
+trusted time, request/export authority, or durable provider-trust write was
+added.
+
 M10A-2 done (2026-07-08, host-only worker packet; VM profiles are orchestrator-
 run): raiOS can now run the committed M10A-1 provider-trust honesty evaluator
 against the live Stage-0 trust snapshot through the read-only
