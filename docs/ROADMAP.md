@@ -45,8 +45,11 @@ fake-cloud NOT unparked). `system.honesty_report` — one read-only manifest of
 raiOS's complete honest posture (provider trust / time / cert-time / export /
 Wasm import enforcement / external acquisition / owner-seal), computed from the
 committed evaluators, with `no_dishonest_overclaim`, owner_sealed:false,
-dev_key_not_owner_sealed. **M10+M11+M12 mechanism block VERIFIED-CLOSED: full
-8202/8202, recovery byte-identical 3867/3867.**
+dev_key_not_owner_sealed. Plus M10C-3 (raios-core X.509 validity DER parser) +
+M10C-4 (live kernel cert-time check on a REAL embedded certificate) — the M10
+cert-time chain is now complete end to end (clock -> parser -> comparator -> live
+real-cert check), unverified-basis, grants nothing. **M10+M11+M12 mechanism block
+VERIFIED-CLOSED: full 8205/8205, recovery byte-identical 3870/3870.**
 
 **THE COMPLETE OWNER-GATED FRONTIER (every unblocked mechanism is built; these
 need YOU):** (1) accept ADR 0008 → I build the M11 TLS/HTTP relocation into a
