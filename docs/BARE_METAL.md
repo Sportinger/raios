@@ -114,12 +114,52 @@ USB stick, latest kernel). Observed on the Stage-0 status UI:
 - **WiFi DETECTED** — the built-in Marvell 88W8897 is found on the PCIe bus
   (QEMU always showed MISSING). Not yet driven (no firmware download).
 - Net MISSING (no ethernet on the Surface).
-- Input MISSING with the keyboard behind a hub; a hotplug replug direct pushed
-  the USB row to DEGRADED (the hub enumeration hit a `hub_last_error`). The
-  Surface has ONE USB-A port (needed for the boot stick), no serial port, and
-  the Type Cover is not a USB-HID device — so interactive input is the main gap.
+- Input started MISSING, then was brought up to WORKING over a debugging session
+  (see below). The Surface has ONE USB-A port (needed for the boot stick), no
+  serial port, and the Type Cover is not a USB-HID device.
 
-Next hardware-facing work: (1) a QEMU hub-behind-keyboard smoke to prove
-standard-hub enumeration; (2) surface `hub_last_error` in the status UI/a probe
-so the next Surface boot shows the exact hub failure to fix; (3) the Marvell WiFi
-firmware-download bring-up (needs the physical device).
+### USB HID real-hardware bring-up (2026-07-08) — WORKING, with two open edges
+
+Real USB keyboard + mouse now enumerate and deliver input on the Surface's xHCI
+(they always worked in QEMU; the gaps below were all real-hardware-only that
+QEMU's lenient emulation masks). The fixes, in order, each moved the failure to
+the next stage until input worked:
+
+1. **TT / split-transaction slot-context fields** (`write_slot_context`): set the
+   TT Hub Slot ID / TT Port Number only for Low/Full-speed devices behind a
+   High-speed hub (zero otherwise) — Address Device for a hub child was failing
+   with completion code 4 (USB Transaction Error).
+2. **Best-effort `SET_PROTOCOL`/`SET_IDLE`**: real keyboards may STALL these
+   optional HID requests; aborting enumeration on them dropped the device. Plus
+   `CONTROL_BUFFER_LEN` 256 → 1024 for large composite HID config descriptors.
+3. **ep0 Max Packet Size correction** (THE keyboard fix): a Full-speed device's
+   ep0 `bMaxPacketSize0` may be 8/16/32/**64**; raiOS assumed 8 and the first
+   full descriptor read triggered a **Babble (CC3)**. Now it reads the first 8
+   bytes, then issues an Evaluate Context to set the real MPS before continuing.
+4. **Command-ring wrap** (THE mouse-direct fix): `execute_command` never wrapped
+   the command ring; each error-recovery burns 2 slots, so a mouse erroring while
+   moving exhausted the 64-slot ring in ~1 s → every later command failed → all
+   input died until a replug re-initialised the controller. The ring is now a
+   proper cyclic ring with a LINK TRB.
+
+An on-screen `ENUM …` trace (USB HOTPLUG row) reports the exact enumeration stage
++ completion codes + VID:PID + ep0 MPS, and the default boot view is now CONSOLE
+so a keyboard-less user sees full diagnostics in one photo (no scrolling / no
+input needed). Status row also carries `RCV<n> ICC<cc>` (recovery count + last
+interrupt error code) — but note it currently truncates off the right edge on the
+1280×800 panel.
+
+**Working now:** keyboard direct + keyboard behind a hub; mouse direct.
+
+**Open TODO (real-hardware-only, silent — no error code — hard to reproduce in
+QEMU):**
+- **Mouse behind a hub stalls:** works briefly, then the pointer interrupt IN
+  (Full-speed, split transactions through the hub TT) silently stops with no
+  error CC; only unplug/replug (full USB re-init) revives it. Likely needs the
+  interrupt endpoint to be detected-as-stopped and re-armed without a replug.
+- **Very fast keyboard input freezes** input (not the `input.rs` RING — it drops
+  oldest, no panic; not a `usb::STATE` re-entrancy deadlock). Cause still open.
+- Make the `RCV/ICC` (and any new interrupt-endpoint) diagnostics fit on-screen.
+
+Other next hardware-facing work: the Marvell 88W8897 WiFi firmware-download
+bring-up (needs the physical device).
