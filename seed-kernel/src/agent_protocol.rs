@@ -75,6 +75,8 @@ use crate::{
     },
     agent_protocol_policy::{emit_capability_denied, record_denial, record_read},
     agent_protocol_provider::{
+        emit_provider_context_export_authorized_selftest,
+        emit_provider_context_export_authorized_selftest_smuggle,
         emit_provider_context_export_denied, emit_provider_context_export_packet_selftest,
         emit_provider_context_gate, emit_provider_context_gate_selftest,
         emit_provider_context_injection_gate, emit_provider_context_injection_gate_selftest,
@@ -371,6 +373,8 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("provider.context_injection_gate", Head, [], [route!("provider.context_injection_gate")], MethodAction::ReadRuntimeMethod(emit_provider_context_injection_gate)),
     method!("provider.context_injection_gate_selftest", Head, [], [route!("provider.context_injection_gate_selftest")], MethodAction::ReadRuntimeMethod(emit_provider_context_injection_gate_selftest)),
     method!("provider.context_export_packet_selftest", Head, [], [route!("provider.context_export_packet_selftest")], MethodAction::ReadMethod(emit_provider_context_export_packet_selftest)),
+    method!("provider.context_export_authorized_selftest", Head, [], [route!("provider.context_export_authorized_selftest")], MethodAction::ReadMethod(emit_provider_context_export_authorized_selftest)),
+    method!("provider.context_export_authorized_selftest_smuggle", Head, [], [route!("provider.context_export_authorized_selftest_smuggle")], MethodAction::ReadMethod(emit_provider_context_export_authorized_selftest_smuggle)),
     method!("module.manifest_diagnostic", Head, [], [], MethodAction::ReadMethod(emit_module_manifest_diagnostic)),
     method!("module.manifest_diagnostic_selftest", Head, [], [], MethodAction::Read0(emit_module_manifest_diagnostic_selftest)),
     method!("module.artifact_diagnostic", Head, [], [], MethodAction::ReadMethod(emit_module_artifact_diagnostic)),

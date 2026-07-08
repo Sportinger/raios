@@ -36,9 +36,9 @@
 //! RAM-only counter (`next_agent_observation_seq`), since its id must be unique per
 //! write attempt.
 //!
-//! M9C-2b (bottom section) records durable provider-export DENIAL audits through
-//! the SAME system-authored append gauntlet, with a per-boot RAM dedupe table so
-//! identical `provider.context_export` gate denials append once per boot.
+//! M9C-2b/M9C-2c-2 (bottom section) records durable provider-export audits
+//! through the SAME system-authored append gauntlet: denials are deduped per
+//! boot; the authorized audit is a fixed selftest-only record.
 
 use alloc::{format, vec, vec::Vec};
 
@@ -1740,5 +1740,169 @@ fn provider_export_denial_value(
         f("packet_assembled", b(false)),
         f("export_performed", b(false)),
         f("provider_write", s("not_attempted")),
+    ])
+}
+
+// --- M9C-2c-2: selftest-only authorized provider-export audit --------------------
+
+const PROVIDER_EXPORT_AUTHORIZED_AUDIT_RECORD_ID: &str =
+    "mem.export_audit.provider_context_export_selftest.current_boot.v0";
+
+#[derive(Clone, Copy)]
+struct ProviderExportAuthorizedDedupeEntry {
+    payload_sha256: Option<[u8; 32]>,
+    seq: Option<u64>,
+}
+
+static PROVIDER_EXPORT_AUTHORIZED_DEDUPE: Mutex<Option<ProviderExportAuthorizedDedupeEntry>> =
+    Mutex::new(None);
+
+pub(crate) struct ProviderExportAuthorizedAuditOutcome {
+    pub(crate) dedupe: &'static str,
+    pub(crate) record_id: &'static str,
+    pub(crate) evidence: Option<durable_store::MemoryRecordAppendEvidence<'static>>,
+    pub(crate) cited_payload_sha256: Option<[u8; 32]>,
+    pub(crate) cited_seq: Option<u64>,
+}
+
+pub(crate) fn record_provider_export_authorized_audit(
+    packet_hash: [u8; 32],
+    packet_record_count: u64,
+    destination: &'static str,
+    trust_state: &'static str,
+    budget_tokens: u64,
+    audit_binding_hash: [u8; 32],
+) -> ProviderExportAuthorizedAuditOutcome {
+    {
+        let dedupe = PROVIDER_EXPORT_AUTHORIZED_DEDUPE.lock();
+        if let Some(entry) = *dedupe {
+            return ProviderExportAuthorizedAuditOutcome {
+                dedupe: "duplicate_ram_only",
+                record_id: PROVIDER_EXPORT_AUTHORIZED_AUDIT_RECORD_ID,
+                evidence: None,
+                cited_payload_sha256: entry.payload_sha256,
+                cited_seq: entry.seq,
+            };
+        }
+    }
+
+    let record = match provider_export_authorized_audit_record(
+        packet_hash,
+        packet_record_count,
+        destination,
+        trust_state,
+        budget_tokens,
+        audit_binding_hash,
+    ) {
+        Ok(record) => record,
+        Err(_) => {
+            return ProviderExportAuthorizedAuditOutcome {
+                dedupe: "record_construction_denied_ram_only",
+                record_id: PROVIDER_EXPORT_AUTHORIZED_AUDIT_RECORD_ID,
+                evidence: None,
+                cited_payload_sha256: None,
+                cited_seq: None,
+            };
+        }
+    };
+
+    let evidence = durable_store::append_memory_record(&record);
+    if !evidence.performed {
+        return ProviderExportAuthorizedAuditOutcome {
+            dedupe: "append_denied_ram_only",
+            record_id: PROVIDER_EXPORT_AUTHORIZED_AUDIT_RECORD_ID,
+            evidence: Some(evidence),
+            cited_payload_sha256: None,
+            cited_seq: None,
+        };
+    }
+
+    let cited_payload_sha256 = evidence.payload_sha256;
+    let cited_seq = evidence.seq;
+    {
+        let mut dedupe = PROVIDER_EXPORT_AUTHORIZED_DEDUPE.lock();
+        if dedupe.is_none() {
+            *dedupe = Some(ProviderExportAuthorizedDedupeEntry {
+                payload_sha256: cited_payload_sha256,
+                seq: cited_seq,
+            });
+        }
+    }
+
+    ProviderExportAuthorizedAuditOutcome {
+        dedupe: "first_authorized_appended",
+        record_id: PROVIDER_EXPORT_AUTHORIZED_AUDIT_RECORD_ID,
+        evidence: Some(evidence),
+        cited_payload_sha256,
+        cited_seq,
+    }
+}
+
+fn provider_export_authorized_audit_record(
+    packet_hash: [u8; 32],
+    packet_record_count: u64,
+    destination: &'static str,
+    trust_state: &'static str,
+    budget_tokens: u64,
+    audit_binding_hash: [u8; 32],
+) -> Result<MemoryRecord<'static>, MemoryRecordError> {
+    MemoryRecord::new(MemoryRecordInput {
+        id: PROVIDER_EXPORT_AUTHORIZED_AUDIT_RECORD_ID,
+        kind: "export_audit",
+        entity: "cap.provider.context_export",
+        predicate: "provider_export_authorized_selftest",
+        value: provider_export_authorized_audit_value(
+            packet_hash,
+            packet_record_count,
+            destination,
+            trust_state,
+            budget_tokens,
+            audit_binding_hash,
+        ),
+        classification: "local_only",
+        authority: "core_ledger",
+        boot_id: "current_boot",
+        sequence: 0,
+        source: MemorySource::new(
+            "provider.context_export",
+            SCOPED_PROVIDER_EXPORT_DECISION_ID,
+        ),
+        evidence: vec![],
+        tags: vec!["provider_export", "export_audit", "selftest"],
+        supersedes: vec![],
+        created_at_ticks: 0,
+    })
+}
+
+fn provider_export_authorized_audit_value(
+    packet_hash: [u8; 32],
+    packet_record_count: u64,
+    destination: &'static str,
+    trust_state: &'static str,
+    budget_tokens: u64,
+    audit_binding_hash: [u8; 32],
+) -> V<'static> {
+    V::Object(vec![
+        f("gate", s(SCOPED_PROVIDER_EXPORT_DECISION_ID)),
+        f("gate_schema", s(SCOPED_PROVIDER_EXPORT_DECISION_SCHEMA)),
+        f(
+            "gate_reason",
+            s("authorized_provider_export_public_only_audited"),
+        ),
+        f("method", s("provider.context_export")),
+        f("profile", s("provider_minimal")),
+        f("trust_state", s(trust_state)),
+        f("destination", s(destination)),
+        f("budget_tokens", V::U64(budget_tokens)),
+        f("packet_hash", V::Sha256(packet_hash)),
+        f("packet_record_count", V::U64(packet_record_count)),
+        f("audit_binding_hash", V::Sha256(audit_binding_hash)),
+        f("packet_assembled", b(true)),
+        f("transmission_performed", b(false)),
+        f("export_performed", b(false)),
+        f("provider_write", s("selftest_no_transmission")),
+        f("owner_sealed", b(false)),
+        f("trust_tier", s("dev_key_not_owner_sealed")),
+        f("test_infrastructure", b(true)),
     ])
 }

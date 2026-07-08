@@ -1140,6 +1140,13 @@ struct ProviderExportPublicPacket<'a> {
     packet_hash: [u8; 32],
 }
 
+const PROVIDER_EXPORT_SELFTEST_DESTINATION: &str = "provider.openai.responses";
+const PROVIDER_EXPORT_SELFTEST_TRUST_STATE: &str = "pinned_spki_verified";
+const PROVIDER_EXPORT_SELFTEST_BUDGET_TOKENS: u64 = 4096;
+const PROVIDER_EXPORT_SELFTEST_ESTIMATED_TOKENS: u64 = 256;
+const PROVIDER_EXPORT_PUBLIC_FIXTURE_ID: &str =
+    "mem.decision.provider_export_public_fixture.current_boot.v0";
+
 fn assemble_provider_export_public_packet<'a>(
     context: &'a crate::agent_protocol::durable_store::DurableMemoryContext,
 ) -> ProviderExportPublicPacket<'a> {
@@ -1224,6 +1231,360 @@ pub(crate) fn emit_provider_context_export_packet_selftest(request: &str) {
         6,
     );
     end_response("provider.context_export_packet_selftest");
+}
+
+pub(crate) fn emit_provider_context_export_authorized_selftest(request: &str) {
+    let _profile = provider_context_export_profile(request);
+    let context = memory_store::durable_memory_context();
+    let packet = assemble_provider_export_public_packet(&context);
+    let packet_record_count = packet.included_public_ids.len() as u64;
+    if !provider_export_packet_contains_id(
+        &packet.included_public_ids,
+        PROVIDER_EXPORT_PUBLIC_FIXTURE_ID,
+    ) {
+        begin_response("provider.context_export_authorized_selftest");
+        emit_record_fields(
+            provider_export_authorized_selftest_denied_fields(
+                "provider.context_export_authorized_selftest",
+                &packet,
+                packet_record_count,
+                "public_fixture_absent",
+            ),
+            6,
+        );
+        end_response("provider.context_export_authorized_selftest");
+        return;
+    }
+
+    let audit_binding_hash = provider_export_selftest_audit_binding_hash(packet.packet_hash);
+    let gate_input = provider_export_authorized_selftest_input(
+        packet.packet_hash,
+        packet_record_count,
+        true,
+        audit_binding_hash,
+    );
+    let gate_decision =
+        raios_core::scoped_provider_export::evaluate_provider_export_gate(&gate_input);
+    let durable_export_audit = if gate_decision.performed {
+        Some(memory_store::record_provider_export_authorized_audit(
+            packet.packet_hash,
+            packet_record_count,
+            PROVIDER_EXPORT_SELFTEST_DESTINATION,
+            PROVIDER_EXPORT_SELFTEST_TRUST_STATE,
+            PROVIDER_EXPORT_SELFTEST_BUDGET_TOKENS,
+            audit_binding_hash,
+        ))
+    } else {
+        None
+    };
+
+    let mut fields = provider_export_authorized_selftest_fields(
+        "provider.context_export_authorized_selftest",
+        &packet,
+        packet_record_count,
+        true,
+        gate_decision,
+        audit_binding_hash,
+    );
+    if let Some(evidence) = durable_export_audit.as_ref() {
+        fields.push(f(
+            "durable_export_audit",
+            provider_export_durable_audit_value(evidence),
+        ));
+    }
+
+    begin_response("provider.context_export_authorized_selftest");
+    emit_record_fields(fields, 6);
+    end_response("provider.context_export_authorized_selftest");
+}
+
+pub(crate) fn emit_provider_context_export_authorized_selftest_smuggle(request: &str) {
+    let _profile = provider_context_export_profile(request);
+    let context = memory_store::durable_memory_context();
+    let packet = assemble_provider_export_public_packet(&context);
+    let packet_record_count = (packet.included_public_ids.len() as u64).saturating_add(1);
+    let audit_binding_hash = provider_export_selftest_audit_binding_hash(packet.packet_hash);
+    let gate_input = provider_export_authorized_selftest_input(
+        packet.packet_hash,
+        packet_record_count,
+        false,
+        audit_binding_hash,
+    );
+    let gate_decision =
+        raios_core::scoped_provider_export::evaluate_provider_export_gate(&gate_input);
+
+    let fields = provider_export_authorized_selftest_fields(
+        "provider.context_export_authorized_selftest_smuggle",
+        &packet,
+        packet_record_count,
+        false,
+        gate_decision,
+        audit_binding_hash,
+    );
+
+    begin_response("provider.context_export_authorized_selftest_smuggle");
+    emit_record_fields(fields, 6);
+    end_response("provider.context_export_authorized_selftest_smuggle");
+}
+
+fn provider_export_packet_contains_id(ids: &[&str], wanted: &str) -> bool {
+    let mut idx = 0usize;
+    while idx < ids.len() {
+        if ids[idx] == wanted {
+            return true;
+        }
+        idx += 1;
+    }
+    false
+}
+
+fn provider_export_selftest_audit_binding_hash(packet_hash: [u8; 32]) -> [u8; 32] {
+    sha256_of_json(&V::Object(vec![
+        f("packet_hash", V::Sha256(packet_hash)),
+        f("destination", s(PROVIDER_EXPORT_SELFTEST_DESTINATION)),
+        f("trust_state", s(PROVIDER_EXPORT_SELFTEST_TRUST_STATE)),
+        f(
+            "budget_tokens",
+            V::U64(PROVIDER_EXPORT_SELFTEST_BUDGET_TOKENS),
+        ),
+    ]))
+}
+
+fn provider_export_authorized_selftest_input(
+    packet_hash: [u8; 32],
+    packet_record_count: u64,
+    packet_all_records_public: bool,
+    audit_binding_hash: [u8; 32],
+) -> raios_core::scoped_provider_export::ProviderExportGateInput<'static> {
+    raios_core::scoped_provider_export::ProviderExportGateInput {
+        method: Some("provider.context_export"),
+        profile: Some("provider_minimal"),
+        trust_state: Some(PROVIDER_EXPORT_SELFTEST_TRUST_STATE),
+        tls_certificate_verification_bypassed: false,
+        packet_all_records_public,
+        packet_record_count: Some(packet_record_count),
+        budget_tokens: Some(PROVIDER_EXPORT_SELFTEST_BUDGET_TOKENS),
+        packet_estimated_tokens: Some(PROVIDER_EXPORT_SELFTEST_ESTIMATED_TOKENS),
+        audit_packet_hash: Some(packet_hash),
+        audit_destination: Some(PROVIDER_EXPORT_SELFTEST_DESTINATION),
+        audit_trust_snapshot_present: true,
+        audit_binding_hash: Some(audit_binding_hash),
+    }
+}
+
+fn provider_export_authorized_selftest_denied_fields<'a>(
+    method: &'static str,
+    packet: &'a ProviderExportPublicPacket<'a>,
+    packet_record_count: u64,
+    reason: &'static str,
+) -> Vec<raios_core::record::Field<'a>> {
+    vec![
+        f("method", s(method)),
+        f("test_infrastructure", b(true)),
+        f("gate_evaluated", b(false)),
+        f("authorized", b(false)),
+        f("gate_status", s("denied")),
+        f("gate_reason", s(reason)),
+        f("owner_sealed", b(false)),
+        f("persistence_claimed", b(false)),
+        f("trust_tier", s("dev_key_not_owner_sealed")),
+        f("export_performed", b(false)),
+        f("transmission_performed", b(false)),
+        f("provider_write", s("selftest_no_transmission")),
+        f("method_under_test", s("provider.context_export")),
+        f("profile", s("provider_minimal")),
+        f("packet_all_records_public", b(true)),
+        f("public_fixture_present", b(false)),
+        f("packet_record_count", V::U64(packet_record_count)),
+        f("packet_hash", V::Sha256(packet.packet_hash)),
+        f(
+            "included_public_ids",
+            included_public_ids_value(&packet.included_public_ids),
+        ),
+        f(
+            "excluded_local_only_count",
+            V::U64(packet.excluded_local_only_count),
+        ),
+    ]
+}
+
+fn provider_export_authorized_selftest_fields<'a>(
+    method: &'static str,
+    packet: &'a ProviderExportPublicPacket<'a>,
+    packet_record_count: u64,
+    packet_all_records_public: bool,
+    gate_decision: raios_core::scoped_provider_export::ProviderExportGateDecision,
+    audit_binding_hash: [u8; 32],
+) -> Vec<raios_core::record::Field<'a>> {
+    vec![
+        f("method", s(method)),
+        f("test_infrastructure", b(true)),
+        f("gate_evaluated", b(true)),
+        f("authorized", b(gate_decision.performed)),
+        f("gate_status", s(gate_decision.status)),
+        f("gate_reason", s(gate_decision.reason)),
+        f("owner_sealed", b(false)),
+        f("persistence_claimed", b(false)),
+        f("trust_tier", s("dev_key_not_owner_sealed")),
+        f("export_performed", b(false)),
+        f("transmission_performed", b(false)),
+        f("provider_write", s("selftest_no_transmission")),
+        f("method_under_test", s("provider.context_export")),
+        f("profile", s("provider_minimal")),
+        f("trust_state", s(PROVIDER_EXPORT_SELFTEST_TRUST_STATE)),
+        f("destination", s(PROVIDER_EXPORT_SELFTEST_DESTINATION)),
+        f(
+            "budget_tokens",
+            V::U64(PROVIDER_EXPORT_SELFTEST_BUDGET_TOKENS),
+        ),
+        f(
+            "packet_estimated_tokens",
+            V::U64(PROVIDER_EXPORT_SELFTEST_ESTIMATED_TOKENS),
+        ),
+        f("packet_all_records_public", b(packet_all_records_public)),
+        f("packet_record_count", V::U64(packet_record_count)),
+        f("packet_hash", V::Sha256(packet.packet_hash)),
+        f("audit_binding_hash", V::Sha256(audit_binding_hash)),
+        f(
+            "public_fixture_present",
+            b(provider_export_packet_contains_id(
+                &packet.included_public_ids,
+                PROVIDER_EXPORT_PUBLIC_FIXTURE_ID,
+            )),
+        ),
+        f(
+            "included_public_ids",
+            included_public_ids_value(&packet.included_public_ids),
+        ),
+        f(
+            "excluded_local_only_count",
+            V::U64(packet.excluded_local_only_count),
+        ),
+    ]
+}
+
+fn provider_export_durable_audit_value(
+    audit: &memory_store::ProviderExportAuthorizedAuditOutcome,
+) -> V<'static> {
+    let evidence = audit.evidence.as_ref();
+    let duplicate = audit.dedupe == "duplicate_ram_only";
+    let durable_append = match evidence {
+        Some(evidence) => evidence.durable_append,
+        None if duplicate => "not_attempted_deduplicated",
+        None => "not_attempted",
+    };
+    let performed = evidence.map(|evidence| evidence.performed).unwrap_or(false);
+    let append_reason = match evidence {
+        Some(evidence) => evidence.reason,
+        None if duplicate => "deduplicated_first_audit_cited",
+        None => audit.dedupe,
+    };
+    let payload_sha256 = match evidence {
+        Some(evidence) => evidence.payload_sha256,
+        None => audit.cited_payload_sha256,
+    };
+    let seq = match evidence {
+        Some(evidence) => evidence.seq,
+        None => audit.cited_seq,
+    };
+
+    V::InlineObject(vec![
+        f(
+            "gate",
+            s(raios_core::scoped_provider_export::SCOPED_PROVIDER_EXPORT_DECISION_ID),
+        ),
+        f(
+            "gate_schema",
+            s(raios_core::scoped_provider_export::SCOPED_PROVIDER_EXPORT_DECISION_SCHEMA),
+        ),
+        f("dedupe", s(audit.dedupe)),
+        f("record_id", s(audit.record_id)),
+        f(
+            "record_schema",
+            s(evidence
+                .map(|evidence| evidence.record_schema)
+                .unwrap_or("raios.memory_record.v0")),
+        ),
+        f("kind", s("export_audit")),
+        f("classification", s("local_only")),
+        f(
+            "record_authority",
+            s(evidence
+                .map(|evidence| evidence.record_authority)
+                .unwrap_or("core_ledger")),
+        ),
+        f("supersedes", V::Array(vec![])),
+        f("durable_append", s(durable_append)),
+        f("performed", b(performed)),
+        f("append_reason", s(append_reason)),
+        f("payload_sha256", optional_sha256_value(payload_sha256)),
+        f(
+            "frame_sha256",
+            optional_sha256_value(evidence.and_then(|evidence| evidence.frame_sha256)),
+        ),
+        f(
+            "readback_sha256",
+            optional_sha256_value(evidence.and_then(|evidence| evidence.readback_sha256)),
+        ),
+        f(
+            "reparse_valid",
+            b(evidence
+                .map(|evidence| evidence.reparse_valid)
+                .unwrap_or(false)),
+        ),
+        f("seq", optional_u64_value(seq)),
+        f(
+            "tail_seq_before",
+            optional_u64_value(evidence.and_then(|evidence| evidence.tail_seq_before)),
+        ),
+        f(
+            "count_before",
+            optional_u64_value(evidence.and_then(|evidence| evidence.count_before)),
+        ),
+        f(
+            "tail_seq_after",
+            optional_u64_value(evidence.and_then(|evidence| evidence.tail_seq_after)),
+        ),
+        f(
+            "count_after",
+            optional_u64_value(evidence.and_then(|evidence| evidence.count_after)),
+        ),
+        f(
+            "owner_sealed",
+            b(evidence
+                .map(|evidence| evidence.owner_sealed)
+                .unwrap_or(false)),
+        ),
+        f(
+            "persistence_claimed",
+            b(evidence
+                .map(|evidence| evidence.persistence_claimed)
+                .unwrap_or(false)),
+        ),
+        f(
+            "trust_tier",
+            s(evidence
+                .map(|evidence| evidence.trust_tier)
+                .unwrap_or("dev_key_not_owner_sealed")),
+        ),
+        f("export_performed", b(false)),
+        f("provider_write", s("selftest_no_transmission")),
+        f("test_infrastructure", b(true)),
+    ])
+}
+
+fn optional_sha256_value(value: Option<[u8; 32]>) -> V<'static> {
+    match value {
+        Some(value) => V::Sha256(value),
+        None => V::Null,
+    }
+}
+
+fn optional_u64_value(value: Option<u64>) -> V<'static> {
+    match value {
+        Some(value) => V::U64(value),
+        None => V::Null,
+    }
 }
 
 pub(crate) fn emit_provider_context_export_denied(
@@ -2527,6 +2888,13 @@ fn provider_context_export_arg(method: &str) -> &str {
         "provider.context_injection_gate_selftest".len()
     } else if method_head_eq(method, "provider.context_export_packet_selftest") {
         "provider.context_export_packet_selftest".len()
+    } else if method_head_eq(method, "provider.context_export_authorized_selftest") {
+        "provider.context_export_authorized_selftest".len()
+    } else if method_head_eq(
+        method,
+        "provider.context_export_authorized_selftest_smuggle",
+    ) {
+        "provider.context_export_authorized_selftest_smuggle".len()
     } else {
         return "";
     };

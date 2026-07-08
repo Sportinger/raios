@@ -3641,6 +3641,51 @@ PASS, `cargo fmt -p raios-core -- --check` PASS, `cargo test --locked -p raios-c
 release seed-kernel build PASS (`built target/x86_64-seed/release/seed-kernel`), and the edited
 memory-durable PowerShell profile parses with 0 errors. Per orchestrator override, no QEMU profile was run.
 
+**M9C-2c-2 IMPLEMENTED (2026-07-08, provider-export AUTHORITY FLIP is selftest-only; no transmission).**
+raiOS can now DO a deterministic, test-only provider-export authorization proof: after the public fixture
+packet from M9C-2c-1 is assembled, `provider.context_export_authorized_selftest provider_minimal` evaluates a
+fixed synthetic gate vector (`method=provider.context_export`, `profile=provider_minimal`,
+`trust_state=pinned_spki_verified`, `tls_certificate_verification_bypassed=false`,
+`packet_all_records_public=true`, `budget_tokens=4096`, `packet_estimated_tokens=256`,
+`audit_destination=provider.openai.responses`, trust snapshot present) and records exactly one durable
+`mem.export_audit.provider_context_export_selftest.current_boot.v0` memory record with kind `export_audit`,
+classification `local_only`, authority `core_ledger`, and `supersedes:[]`. Its value binds the scoped provider
+export gate/schema/reason, method/profile, synthetic trust state, destination, budget, packet hash, packet
+record count, audit binding hash (`sha256_of_json` over packet_hash, destination, trust_state, budget_tokens),
+`packet_assembled:true`, `transmission_performed:false`, `export_performed:false`,
+`provider_write:"selftest_no_transmission"`, `owner_sealed:false`, `trust_tier:"dev_key_not_owner_sealed"`,
+and `test_infrastructure:true`. The authorized selftest never calls `provider::snapshot()` and never reaches
+OpenAI/TLS/socket/API-key code; the real `provider.context_export provider_minimal` dispatch row and denial
+handler are unchanged and still return `capability_denied` with the M9C-2b denial audit. The negative firewall
+method `provider.context_export_authorized_selftest_smuggle provider_minimal` uses the same synthetic vector
+except `packet_all_records_public=false` and an incremented count, denies with
+`packet_contains_non_public_record`, and appends no export audit. The `memory-durable` profile gained
+`export-authorized-selftest:*` predicates for gate authorization, durable export-audit append, non-superseding
+audit, honest labels, local-only smuggle denial, audit-chain advancement, real export still denied, local-only
+context visibility, and provider-export status still disabled. Host-only verification for this worker:
+`cargo fmt -p seed-kernel -- --check` PASS, `cargo fmt -p raios-core -- --check` PASS,
+`cargo test --locked -p raios-core` PASS (191 tests), release seed-kernel build PASS
+(`built target/x86_64-seed/release/seed-kernel`), and the edited memory-durable PowerShell profile parses with
+0 errors. Per orchestrator override, no QEMU profile was run.
+
+**M9C-2c-2 FOLLOW-UP FIX (2026-07-08, authorized audit dedupe + fixture guard).**
+The fixed selftest export audit is now per-boot deduped like the M9C-2b denial audits: the first successful
+`provider.context_export_authorized_selftest` append returns `dedupe:"first_authorized_appended"` and stores
+the audit payload hash/seq in RAM; a second same-boot call returns `dedupe:"duplicate_ram_only"`,
+`durable_append:"not_attempted_deduplicated"`, `performed:false`, and cites the first audit record id,
+payload hash, and seq without touching the RECLOG. Append denial stays fail-closed as
+`append_denied_ram_only` and does not recursively record another audit. The positive selftest also now refuses
+to evaluate the authorized vector unless the assembled public packet contains
+`mem.decision.provider_export_public_fixture.current_boot.v0`; if absent it returns `authorized:false`,
+`gate_reason:"public_fixture_absent"`, `gate_evaluated:false`, and appends no export audit. The smuggle denial
+path is unchanged. The `memory-durable` profile now calls the authorized selftest twice and adds
+`export-authorized-selftest:dedupe-second-appends-nothing`; the chain predicate still requires exactly +2
+frames total across fixture append plus first export_audit, proving authorized2 and smuggle append nothing.
+Host-only verification for this worker: `cargo fmt -p seed-kernel -- --check` PASS,
+`cargo fmt -p raios-core -- --check` PASS, `cargo test --locked -p raios-core` PASS (191 tests), release
+seed-kernel build PASS (`built target/x86_64-seed/release/seed-kernel`), and the edited memory-durable
+PowerShell profile parses with 0 errors. Per orchestrator override, no QEMU profile was run.
+
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 recovery/hello dispatch-bound completion-denial smoke runs on Windows with

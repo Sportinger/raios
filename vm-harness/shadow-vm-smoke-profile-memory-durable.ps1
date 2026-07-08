@@ -889,6 +889,159 @@ if (-not ($exportPacketPublicIncluded -and $exportPacketLocalOnlyExcluded -and $
     throw "export-packet family failed"
 }
 
+# --- export-authorized-selftest: fixed synthetic positive vector authorizes the
+#     gate, appends exactly one local_only export_audit, and still transmits
+#     nothing; a simulated non-public packet stays denied. -------------------------
+
+$exportAuthorizedAuditId = "mem.export_audit.provider_context_export_selftest.current_boot.v0"
+$exportAuthorizedExtraCommands = @(
+    [pscustomobject]@{ Key = "fixture"; Command = "memory.provider_export_public_fixture_append"; Method = "memory.provider_export_public_fixture_append" },
+    [pscustomobject]@{ Key = "scanBefore"; Command = "durable.record_log_scan"; Method = "durable.record_log_scan" },
+    [pscustomobject]@{ Key = "authorized"; Command = "provider.context_export_authorized_selftest provider_minimal"; Method = "provider.context_export_authorized_selftest" },
+    [pscustomobject]@{ Key = "authorized2"; Command = "provider.context_export_authorized_selftest provider_minimal"; Method = "provider.context_export_authorized_selftest" },
+    [pscustomobject]@{ Key = "smuggle"; Command = "provider.context_export_authorized_selftest_smuggle provider_minimal"; Method = "provider.context_export_authorized_selftest_smuggle" },
+    [pscustomobject]@{ Key = "scanAfter"; Command = "durable.record_log_scan"; Method = "durable.record_log_scan" },
+    [pscustomobject]@{ Key = "realDenied"; Command = "provider.context_export provider_minimal"; Method = "provider.context_export" },
+    [pscustomobject]@{ Key = "context"; Command = "memory.context provider_minimal"; Method = "memory.context" }
+)
+$exportAuthorizedProbe = Invoke-MemoryRecordAppendFixtureProbe -FixtureSpec "valid:2" -Label "export-authorized-selftest" -AppendMethod "memory.record_log_append" -ExtraAgentCommands $exportAuthorizedExtraCommands
+$exportAuthorizedFixture = $exportAuthorizedProbe.extra["fixture"].body.result
+$exportAuthorizedScanBefore = $exportAuthorizedProbe.scan
+$exportAuthorizedFixtureScan = $exportAuthorizedProbe.extra["scanBefore"].body.result
+$exportAuthorized = $exportAuthorizedProbe.extra["authorized"].body.result
+$exportAuthorizedAudit = $exportAuthorized.durable_export_audit
+$exportAuthorized2 = $exportAuthorizedProbe.extra["authorized2"].body.result
+$exportAuthorized2Audit = $exportAuthorized2.durable_export_audit
+$exportSmuggle = $exportAuthorizedProbe.extra["smuggle"].body.result
+$exportAuthorizedScanAfter = $exportAuthorizedProbe.extra["scanAfter"].body.result
+$exportRealDenied = $exportAuthorizedProbe.extra["realDenied"]
+$exportAuthorizedContext = $exportAuthorizedProbe.extra["context"].body.result
+
+$exportAuthorizedGateOk = (
+    [bool]$exportAuthorized.authorized -and
+    $exportAuthorized.gate_reason -eq "authorized_provider_export_public_only_audited"
+)
+Add-Predicate `
+    -Name "export-authorized-selftest:gate-authorized" `
+    -Expected "authorized selftest reports authorized=true and the scoped provider export success reason" `
+    -Passed $exportAuthorizedGateOk `
+    -Actual $(if ($exportAuthorizedGateOk) { "matched" } else { ($exportAuthorized | ConvertTo-Json -Compress -Depth 14) })
+
+$exportAuthorizedAuditAppended = (
+    $exportAuthorizedAudit -and
+    $exportAuthorizedAudit.durable_append -eq "appended" -and
+    [bool]$exportAuthorizedAudit.performed -and
+    $exportAuthorizedAudit.record_id -eq $exportAuthorizedAuditId -and
+    $exportAuthorizedAudit.kind -eq "export_audit" -and
+    $exportAuthorizedAudit.classification -eq "local_only" -and
+    $exportAuthorizedAudit.record_authority -eq "core_ledger" -and
+    $exportAuthorizedAudit.readback_sha256 -eq $exportAuthorizedAudit.frame_sha256 -and
+    [bool]$exportAuthorizedAudit.reparse_valid
+)
+Add-Predicate `
+    -Name "export-authorized-selftest:durable-export-audit-appended" `
+    -Expected "authorized selftest appends one durable local_only export_audit memory record through the shared gauntlet" `
+    -Passed $exportAuthorizedAuditAppended `
+    -Actual $(if ($exportAuthorizedAuditAppended) { "matched" } else { ($exportAuthorizedAudit | ConvertTo-Json -Compress -Depth 14) })
+
+$exportAuthorized2Deduped = (
+    $exportAuthorized2Audit -and
+    $exportAuthorized2Audit.dedupe -eq "duplicate_ram_only" -and
+    $exportAuthorized2Audit.durable_append -eq "not_attempted_deduplicated" -and
+    -not [bool]$exportAuthorized2Audit.performed -and
+    $exportAuthorized2Audit.record_id -eq $exportAuthorizedAudit.record_id -and
+    $exportAuthorized2Audit.payload_sha256 -eq $exportAuthorizedAudit.payload_sha256 -and
+    $exportAuthorized2Audit.seq -eq $exportAuthorizedAudit.seq
+)
+Add-Predicate `
+    -Name "export-authorized-selftest:dedupe-second-appends-nothing" `
+    -Expected "the second authorized selftest cites the first export_audit and appends no duplicate frame" `
+    -Passed $exportAuthorized2Deduped `
+    -Actual $(if ($exportAuthorized2Deduped) { "matched" } else { "first=$($exportAuthorizedAudit | ConvertTo-Json -Compress -Depth 14) second=$($exportAuthorized2Audit | ConvertTo-Json -Compress -Depth 14)" })
+
+$exportAuthorizedNonSuperseding = (@($exportAuthorizedAudit.supersedes).Count -eq 0)
+Add-Predicate `
+    -Name "export-authorized-selftest:non-superseding" `
+    -Expected "authorized export_audit has an empty supersedes array" `
+    -Passed $exportAuthorizedNonSuperseding `
+    -Actual $(if ($exportAuthorizedNonSuperseding) { "matched" } else { ($exportAuthorizedAudit.supersedes | ConvertTo-Json -Compress -Depth 4) })
+
+$exportAuthorizedHonestLabels = (
+    -not [bool]$exportAuthorized.owner_sealed -and
+    -not [bool]$exportAuthorized.persistence_claimed -and
+    $exportAuthorized.trust_tier -eq "dev_key_not_owner_sealed" -and
+    -not [bool]$exportAuthorized.export_performed -and
+    $exportAuthorized.provider_write -eq "selftest_no_transmission" -and
+    [bool]$exportAuthorized.test_infrastructure
+)
+Add-Predicate `
+    -Name "export-authorized-selftest:honest-labels" `
+    -Expected "authorized selftest is dev-labeled, records no owner seal, no persistence claim, no export, and no provider write" `
+    -Passed $exportAuthorizedHonestLabels `
+    -Actual $(if ($exportAuthorizedHonestLabels) { "matched" } else { ($exportAuthorized | ConvertTo-Json -Compress -Depth 14) })
+
+$smuggleAuditProperty = $exportSmuggle.PSObject.Properties["durable_export_audit"]
+$smuggleAuditPerformed = $smuggleAuditProperty -and [bool]$smuggleAuditProperty.Value.performed
+$exportSmuggleDenied = (
+    -not [bool]$exportSmuggle.authorized -and
+    $exportSmuggle.gate_reason -eq "packet_contains_non_public_record" -and
+    -not $smuggleAuditPerformed
+)
+Add-Predicate `
+    -Name "export-authorized-selftest:local-only-smuggle-denied" `
+    -Expected "simulated non-public packet denies with packet_contains_non_public_record and appends no export audit" `
+    -Passed $exportSmuggleDenied `
+    -Actual $(if ($exportSmuggleDenied) { "matched" } else { ($exportSmuggle | ConvertTo-Json -Compress -Depth 14) })
+
+$exportAuthorizedChainAdvance = (
+    $exportAuthorizedFixture.durable_append -eq "appended" -and
+    [int64]$exportAuthorizedFixtureScan.count -eq ([int64]$exportAuthorizedScanBefore.count + 1) -and
+    [int64]$exportAuthorizedFixtureScan.tail_seq -eq ([int64]$exportAuthorizedScanBefore.tail_seq + 1) -and
+    [int64]$exportAuthorizedScanAfter.count -eq ([int64]$exportAuthorizedScanBefore.count + 2) -and
+    [int64]$exportAuthorizedScanAfter.tail_seq -eq ([int64]$exportAuthorizedScanBefore.tail_seq + 2)
+)
+Add-Predicate `
+    -Name "export-authorized-selftest:audit-chain-advance" `
+    -Expected "scanAfter advances by fixture append plus one export_audit; authorized2 and smuggle append nothing" `
+    -Passed $exportAuthorizedChainAdvance `
+    -Actual $(if ($exportAuthorizedChainAdvance) { "matched" } else { "baseline=$($exportAuthorizedScanBefore | ConvertTo-Json -Compress -Depth 8) fixture_scan=$($exportAuthorizedFixtureScan | ConvertTo-Json -Compress -Depth 8) scanAfter=$($exportAuthorizedScanAfter | ConvertTo-Json -Compress -Depth 8) fixture=$($exportAuthorizedFixture | ConvertTo-Json -Compress -Depth 10)" })
+
+$exportRealStillDenied = (
+    $exportRealDenied.body.code -eq "capability_denied" -and
+    $exportRealDenied.body.method -eq "provider.context_export" -and
+    $exportRealDenied.body.durable_denial_audit
+)
+Add-Predicate `
+    -Name "export-authorized-selftest:real-provider-context-export-still-denied" `
+    -Expected "the real provider.context_export path still returns capability_denied with its durable denial audit" `
+    -Passed $exportRealStillDenied `
+    -Actual $(if ($exportRealStillDenied) { "matched" } else { ($exportRealDenied | ConvertTo-Json -Compress -Depth 14) })
+
+$exportAuthorizedContextRecords = @($exportAuthorizedContext.durable_records)
+$exportAuthorizedContextRecord = Get-BrokerDurableRecordById -Records $exportAuthorizedContextRecords -Id $exportAuthorizedAuditId
+$exportAuthorizedContextShowsAudit = (
+    $exportAuthorizedContextRecord -and
+    $exportAuthorizedContextRecord.kind -eq "export_audit" -and
+    $exportAuthorizedContextRecord.classification -eq "local_only" -and
+    [bool]$exportAuthorizedContextRecord.exportable -eq $false
+)
+Add-Predicate `
+    -Name "export-authorized-selftest:memory-context-shows-export-audit-local-only" `
+    -Expected "memory.context durable_records shows the export_audit metadata as local_only and not exportable" `
+    -Passed $exportAuthorizedContextShowsAudit `
+    -Actual $(if ($exportAuthorizedContextShowsAudit) { "matched" } else { ($exportAuthorizedContext | ConvertTo-Json -Compress -Depth 16) })
+
+$exportAuthorizedProviderExportDisabled = ($exportAuthorizedContext.provider_export -eq "disabled")
+Add-Predicate `
+    -Name "export-authorized-selftest:provider-export-status-still-disabled" `
+    -Expected "memory.context provider_export remains disabled" `
+    -Passed $exportAuthorizedProviderExportDisabled `
+    -Actual $(if ($exportAuthorizedProviderExportDisabled) { "matched" } else { ($exportAuthorizedContext | ConvertTo-Json -Compress -Depth 12) })
+
+if (-not ($exportAuthorizedGateOk -and $exportAuthorizedAuditAppended -and $exportAuthorized2Deduped -and $exportAuthorizedNonSuperseding -and $exportAuthorizedHonestLabels -and $exportSmuggleDenied -and $exportAuthorizedChainAdvance -and $exportRealStillDenied -and $exportAuthorizedContextShowsAudit -and $exportAuthorizedProviderExportDisabled)) {
+    throw "export-authorized-selftest family failed"
+}
+
 # --- memory-agent-observation-denied: 5 distinct RAM-only denials against the MAIN
 #     VM (M9B-1b) -- each a different malformed `memory.observation_log_append`
 #     argument. Bracketed by a single before/after durable.record_log_scan on the
