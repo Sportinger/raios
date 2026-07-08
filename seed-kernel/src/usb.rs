@@ -153,6 +153,17 @@ pub struct UsbSnapshot {
     pub last_device_vid: u16,
     pub last_device_pid: u16,
     pub last_device_class: u8,
+    pub enum_location: UsbEnumLocation,
+    pub enum_speed: u8,
+    pub enum_slot_id: u8,
+    pub enum_stage: &'static str,
+    pub enum_cmd_cc: u8,
+    pub enum_xfer_cc: u8,
+    pub enum_vid: u16,
+    pub enum_pid: u16,
+    pub enum_dev_class: u8,
+    pub enum_ep0_mps: u16,
+    pub enum_err: &'static str,
     pub last_hotplug_seq: u32,
     pub last_hotplug_present: bool,
     pub last_hotplug_connected: bool,
@@ -171,6 +182,23 @@ pub struct UsbSnapshot {
     pub mouse_status: UsbMouseStatus,
     pub mouse_detail: Option<&'static str>,
     pub last_error: Option<&'static str>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct UsbEnumLocation {
+    pub is_hub: bool,
+    pub hub_slot: u8,
+    pub port: u8,
+}
+
+impl UsbEnumLocation {
+    const fn none() -> Self {
+        Self {
+            is_hub: false,
+            hub_slot: 0,
+            port: 0,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -235,6 +263,17 @@ impl UsbState {
                 last_device_vid: 0,
                 last_device_pid: 0,
                 last_device_class: 0,
+                enum_location: UsbEnumLocation::none(),
+                enum_speed: 0,
+                enum_slot_id: 0,
+                enum_stage: "none",
+                enum_cmd_cc: 0,
+                enum_xfer_cc: 0,
+                enum_vid: 0,
+                enum_pid: 0,
+                enum_dev_class: 0,
+                enum_ep0_mps: 0,
+                enum_err: "ok",
                 last_hotplug_seq: 0,
                 last_hotplug_present: false,
                 last_hotplug_connected: false,
@@ -316,6 +355,17 @@ pub fn snapshot() -> UsbSnapshot {
         snapshot.last_device_vid = controller.last_device_vid;
         snapshot.last_device_pid = controller.last_device_pid;
         snapshot.last_device_class = controller.last_device_class;
+        snapshot.enum_location = controller.enum_location;
+        snapshot.enum_speed = controller.enum_speed;
+        snapshot.enum_slot_id = controller.enum_slot_id;
+        snapshot.enum_stage = controller.enum_stage;
+        snapshot.enum_cmd_cc = controller.enum_cmd_cc;
+        snapshot.enum_xfer_cc = controller.enum_xfer_cc;
+        snapshot.enum_vid = controller.enum_vid;
+        snapshot.enum_pid = controller.enum_pid;
+        snapshot.enum_dev_class = controller.enum_dev_class;
+        snapshot.enum_ep0_mps = controller.enum_ep0_mps;
+        snapshot.enum_err = controller.enum_err;
     }
     snapshot
 }
@@ -385,6 +435,17 @@ unsafe fn probe_xhci() -> (UsbSnapshot, Option<XhciController>) {
                 last_device_vid: 0,
                 last_device_pid: 0,
                 last_device_class: 0,
+                enum_location: UsbEnumLocation::none(),
+                enum_speed: 0,
+                enum_slot_id: 0,
+                enum_stage: "none",
+                enum_cmd_cc: 0,
+                enum_xfer_cc: 0,
+                enum_vid: 0,
+                enum_pid: 0,
+                enum_dev_class: 0,
+                enum_ep0_mps: 0,
+                enum_err: "ok",
                 last_hotplug_seq: 0,
                 last_hotplug_present: false,
                 last_hotplug_connected: false,
@@ -487,6 +548,17 @@ unsafe fn probe_xhci() -> (UsbSnapshot, Option<XhciController>) {
                 last_device_vid: controller.last_device_vid,
                 last_device_pid: controller.last_device_pid,
                 last_device_class: controller.last_device_class,
+                enum_location: controller.enum_location,
+                enum_speed: controller.enum_speed,
+                enum_slot_id: controller.enum_slot_id,
+                enum_stage: controller.enum_stage,
+                enum_cmd_cc: controller.enum_cmd_cc,
+                enum_xfer_cc: controller.enum_xfer_cc,
+                enum_vid: controller.enum_vid,
+                enum_pid: controller.enum_pid,
+                enum_dev_class: controller.enum_dev_class,
+                enum_ep0_mps: controller.enum_ep0_mps,
+                enum_err: controller.enum_err,
                 last_hotplug_seq: controller.hotplug.seq,
                 last_hotplug_present: controller.hotplug.present,
                 last_hotplug_connected: controller.hotplug.connected,
@@ -534,6 +606,17 @@ fn error_snapshot(address: PciAddress, error: &'static str) -> UsbSnapshot {
         last_device_vid: 0,
         last_device_pid: 0,
         last_device_class: 0,
+        enum_location: UsbEnumLocation::none(),
+        enum_speed: 0,
+        enum_slot_id: 0,
+        enum_stage: "none",
+        enum_cmd_cc: 0,
+        enum_xfer_cc: 0,
+        enum_vid: 0,
+        enum_pid: 0,
+        enum_dev_class: 0,
+        enum_ep0_mps: 0,
+        enum_err: "ok",
         last_hotplug_seq: 0,
         last_hotplug_present: false,
         last_hotplug_connected: false,
@@ -586,6 +669,17 @@ fn refresh_snapshot_from_controller(snapshot: &mut UsbSnapshot, controller: &Xhc
     snapshot.last_device_vid = controller.last_device_vid;
     snapshot.last_device_pid = controller.last_device_pid;
     snapshot.last_device_class = controller.last_device_class;
+    snapshot.enum_location = controller.enum_location;
+    snapshot.enum_speed = controller.enum_speed;
+    snapshot.enum_slot_id = controller.enum_slot_id;
+    snapshot.enum_stage = controller.enum_stage;
+    snapshot.enum_cmd_cc = controller.enum_cmd_cc;
+    snapshot.enum_xfer_cc = controller.enum_xfer_cc;
+    snapshot.enum_vid = controller.enum_vid;
+    snapshot.enum_pid = controller.enum_pid;
+    snapshot.enum_dev_class = controller.enum_dev_class;
+    snapshot.enum_ep0_mps = controller.enum_ep0_mps;
+    snapshot.enum_err = controller.enum_err;
     snapshot.last_hotplug_seq = controller.hotplug.seq;
     snapshot.last_hotplug_present = controller.hotplug.present;
     snapshot.last_hotplug_connected = controller.hotplug.connected;
@@ -751,6 +845,17 @@ struct XhciController {
     last_device_vid: u16,
     last_device_pid: u16,
     last_device_class: u8,
+    enum_location: UsbEnumLocation,
+    enum_speed: u8,
+    enum_slot_id: u8,
+    enum_stage: &'static str,
+    enum_cmd_cc: u8,
+    enum_xfer_cc: u8,
+    enum_vid: u16,
+    enum_pid: u16,
+    enum_dev_class: u8,
+    enum_ep0_mps: u16,
+    enum_err: &'static str,
     next_device_index: usize,
     root_connected_mask: u32,
     hub_watches: [HubWatch; MAX_HUB_WATCHES],
@@ -910,6 +1015,32 @@ impl PortInfo {
             parent_hub_port_number: hub_port_number,
             is_hub: false,
             hub_port_count: 0,
+        }
+    }
+}
+
+impl UsbEnumLocation {
+    fn root(port: u8) -> Self {
+        Self {
+            is_hub: false,
+            hub_slot: 0,
+            port,
+        }
+    }
+
+    fn hub(hub_slot: u8, port: u8) -> Self {
+        Self {
+            is_hub: true,
+            hub_slot,
+            port,
+        }
+    }
+
+    fn from_port(port: PortInfo) -> Self {
+        if port.parent_hub_slot_id == 0 {
+            Self::root(port.root_port_number)
+        } else {
+            Self::hub(port.parent_hub_slot_id, port.parent_hub_port_number)
         }
     }
 }
@@ -1097,6 +1228,17 @@ impl XhciController {
             last_device_vid: 0,
             last_device_pid: 0,
             last_device_class: 0,
+            enum_location: UsbEnumLocation::none(),
+            enum_speed: 0,
+            enum_slot_id: 0,
+            enum_stage: "none",
+            enum_cmd_cc: 0,
+            enum_xfer_cc: 0,
+            enum_vid: 0,
+            enum_pid: 0,
+            enum_dev_class: 0,
+            enum_ep0_mps: 0,
+            enum_err: "ok",
             next_device_index: 0,
             root_connected_mask: 0,
             hub_watches: [HubWatch::none(); MAX_HUB_WATCHES],
@@ -1179,6 +1321,106 @@ impl XhciController {
         self.last_device_class = 0;
     }
 
+    fn begin_enum_reset(&mut self, location: UsbEnumLocation) {
+        self.begin_enum_at(location, 0, "reset");
+    }
+
+    fn begin_enum_attempt(&mut self, port: PortInfo) -> UsbEnumLocation {
+        let location = UsbEnumLocation::from_port(port);
+        self.begin_enum_at(location, port.speed, "slot");
+        location
+    }
+
+    fn begin_enum_at(&mut self, location: UsbEnumLocation, speed: u8, stage: &'static str) {
+        self.clear_last_enumerated_device();
+        self.enum_location = location;
+        self.enum_speed = speed;
+        self.enum_slot_id = 0;
+        self.enum_stage = stage;
+        self.enum_cmd_cc = 0;
+        self.enum_xfer_cc = 0;
+        self.enum_vid = 0;
+        self.enum_pid = 0;
+        self.enum_dev_class = 0;
+        self.enum_ep0_mps = 0;
+        self.enum_err = "ok";
+    }
+
+    fn set_enum_stage(&mut self, stage: &'static str) {
+        self.enum_stage = stage;
+    }
+
+    fn capture_enum_completion_codes(&mut self) {
+        self.enum_cmd_cc = self.last_completion_code;
+        self.enum_xfer_cc = self.last_transfer_completion_code;
+    }
+
+    fn finish_enum_attempt(
+        &mut self,
+        location: UsbEnumLocation,
+        result: Result<EnumeratedKind, &'static str>,
+    ) -> Result<EnumeratedKind, &'static str> {
+        if self.enum_location != location {
+            return result;
+        }
+        match result {
+            Ok(kind) => {
+                self.enum_stage = "done";
+                self.enum_err = "ok";
+                self.capture_enum_completion_codes();
+                self.log_enum_attempt();
+                Ok(kind)
+            }
+            Err(err) => {
+                self.enum_err = err;
+                self.capture_enum_completion_codes();
+                self.log_enum_attempt();
+                Err(err)
+            }
+        }
+    }
+
+    fn fail_enum_attempt(&mut self, err: &'static str) {
+        self.enum_err = err;
+        self.capture_enum_completion_codes();
+        self.log_enum_attempt();
+    }
+
+    fn log_enum_attempt(&self) {
+        if self.enum_location.is_hub {
+            serial::write_fmt(format_args!(
+                "usb-enum: ENUM HUB{} P{} SPD{} SLOT{} STAGE {} CMDCC{} XFERCC{} {:04X}:{:04X} CLS{:02X} MPS{} ERR {}\r\n",
+                self.enum_location.hub_slot,
+                self.enum_location.port,
+                self.enum_speed,
+                self.enum_slot_id,
+                self.enum_stage,
+                self.enum_cmd_cc,
+                self.enum_xfer_cc,
+                self.enum_vid,
+                self.enum_pid,
+                self.enum_dev_class,
+                self.enum_ep0_mps,
+                self.enum_err
+            ));
+        } else {
+            serial::write_fmt(format_args!(
+                "usb-enum: ENUM ROOT P{} SPD{} SLOT{} STAGE {} CMDCC{} XFERCC{} {:04X}:{:04X} CLS{:02X} MPS{} ERR {}\r\n",
+                self.enum_location.port,
+                self.enum_speed,
+                self.enum_slot_id,
+                self.enum_stage,
+                self.enum_cmd_cc,
+                self.enum_xfer_cc,
+                self.enum_vid,
+                self.enum_pid,
+                self.enum_dev_class,
+                self.enum_ep0_mps,
+                self.enum_err
+            ));
+        }
+    }
+
     unsafe fn initialise_hid_devices(&mut self) -> Result<(), &'static str> {
         self.power_root_ports();
         let mut wait_round = 0usize;
@@ -1201,7 +1443,7 @@ impl XhciController {
                 break;
             }
 
-            self.clear_last_enumerated_device();
+            self.begin_enum_reset(UsbEnumLocation::root(port));
             match self.reset_port(port) {
                 Ok(port_info) => match self.enumerate_device(port_info, &mut next_device_index) {
                     Ok(kind) => {
@@ -1222,6 +1464,7 @@ impl XhciController {
                 Err(err) => {
                     serial::write_fmt(format_args!("usb-xhci: port {} reset: {}\r\n", port, err));
                     self.last_enum_error = Some(err);
+                    self.fail_enum_attempt(err);
                 }
             }
 
@@ -1272,23 +1515,45 @@ impl XhciController {
         port: PortInfo,
         next_device_index: &mut usize,
     ) -> Result<EnumeratedKind, &'static str> {
+        let location = self.begin_enum_attempt(port);
+        let result = self.enumerate_device_inner(port, next_device_index);
+        self.finish_enum_attempt(location, result)
+    }
+
+    unsafe fn enumerate_device_inner(
+        &mut self,
+        port: PortInfo,
+        next_device_index: &mut usize,
+    ) -> Result<EnumeratedKind, &'static str> {
         if *next_device_index >= MAX_HID_DEVICES {
             return Err("device storage exhausted");
         }
         let device_index = *next_device_index;
         *next_device_index += 1;
 
-        let slot_id = self.enable_slot()?;
+        self.set_enum_stage("slot");
+        let slot_result = self.enable_slot();
+        self.capture_enum_completion_codes();
+        let slot_id = slot_result?;
+        self.enum_slot_id = slot_id;
         self.current_device_index = device_index;
         self.current_slot_id = slot_id;
         self.reset_ep0_ring();
-        self.prepare_address_context(device_index, slot_id, port)?;
-        let input_phys = phys_of(ptr::addr_of!(INPUT_CONTEXT.0[0]), "input context phys")?;
+        self.set_enum_stage("address");
+        let prepare_result = self.prepare_address_context(device_index, slot_id, port);
+        self.capture_enum_completion_codes();
+        prepare_result?;
+        self.set_enum_stage("address");
+        let input_phys_result = phys_of(ptr::addr_of!(INPUT_CONTEXT.0[0]), "input context phys");
+        self.capture_enum_completion_codes();
+        let input_phys = input_phys_result?;
+        self.set_enum_stage("address");
         let address_result = self.execute_command(Trb {
             parameter: input_phys,
             status: 0,
             control: trb_type(TRB_TYPE_ADDRESS_DEVICE) | ((slot_id as u32) << 24),
         });
+        self.capture_enum_completion_codes();
         if port.parent_hub_slot_id != 0 {
             match address_result {
                 Ok(_) => serial::write_fmt(format_args!(
@@ -1306,15 +1571,22 @@ impl XhciController {
         }
         address_result?;
 
-        let device_desc = self.get_device_descriptor()?;
+        self.set_enum_stage("devdesc");
+        let device_desc_result = self.get_device_descriptor();
+        self.capture_enum_completion_codes();
+        let device_desc = device_desc_result?;
         self.last_device_vid = u16::from_le_bytes([device_desc[8], device_desc[9]]);
         self.last_device_pid = u16::from_le_bytes([device_desc[10], device_desc[11]]);
         self.last_device_class = device_desc[4];
+        self.enum_vid = self.last_device_vid;
+        self.enum_pid = self.last_device_pid;
+        self.enum_dev_class = self.last_device_class;
         serial::write_fmt(format_args!(
             "usb-hid: device VID:PID {:04x}:{:04x} class {:02x}\r\n",
             self.last_device_vid, self.last_device_pid, self.last_device_class
         ));
         let ep0_mps = descriptor_ep0_mps(port.speed, device_desc[7]);
+        self.enum_ep0_mps = ep0_mps;
         if ep0_mps != default_ep0_mps(port.speed) {
             serial::write_fmt(format_args!(
                 "usb-xhci: ep0 mps descriptor {} initial {}\r\n",
@@ -1323,50 +1595,59 @@ impl XhciController {
             ));
         }
 
-        if device_desc[4] == USB_CLASS_HUB || self.configuration_has_hub_interface()? {
-            self.configure_hub(port, slot_id, device_index, next_device_index)?;
+        let is_hub = if device_desc[4] == USB_CLASS_HUB {
+            true
+        } else {
+            let hub_result = self.configuration_has_hub_interface();
+            self.capture_enum_completion_codes();
+            hub_result?
+        };
+        if is_hub {
+            let hub_result = self.configure_hub(port, slot_id, device_index, next_device_index);
+            self.capture_enum_completion_codes();
+            hub_result?;
             return Ok(EnumeratedKind::Hub);
         }
 
-        let endpoint = self.find_boot_hid_endpoint()?;
+        let endpoint_result = self.find_boot_hid_endpoint();
+        self.capture_enum_completion_codes();
+        let endpoint = endpoint_result?;
         if endpoint.kind.is_keyboard() && self.keyboard.is_some() {
             return Err("duplicate USB boot keyboard");
         }
         if endpoint.kind.is_pointer() && self.mouse.is_some() {
             return Err("duplicate USB pointer");
         }
-        self.control_no_data(
+        self.set_enum_stage("set-config");
+        let set_config_result = self.control_no_data(
             0x00,
             USB_REQ_SET_CONFIGURATION,
             endpoint.configuration_value as u16,
             0,
-        )?;
+        );
+        self.capture_enum_completion_codes();
+        set_config_result?;
         if endpoint.kind.uses_boot_protocol() {
-            if self
-                .control_no_data(
-                    0x21,
-                    HID_REQ_SET_PROTOCOL,
-                    0,
-                    endpoint.interface_number as u16,
-                )
-                .is_err()
-            {
+            self.set_enum_stage("set-proto");
+            let set_proto_result =
+                self.control_no_data(0x21, HID_REQ_SET_PROTOCOL, 0, endpoint.interface_number as u16);
+            self.capture_enum_completion_codes();
+            if set_proto_result.is_err() {
                 serial::write_line("usb-hid: set-protocol stalled (ignored)");
             }
         }
-        if self
-            .control_no_data(
-                0x21,
-                HID_REQ_SET_IDLE,
-                0,
-                endpoint.interface_number as u16,
-            )
-            .is_err()
-        {
+        self.set_enum_stage("set-idle");
+        let set_idle_result =
+            self.control_no_data(0x21, HID_REQ_SET_IDLE, 0, endpoint.interface_number as u16);
+        self.capture_enum_completion_codes();
+        if set_idle_result.is_err() {
             serial::write_line("usb-hid: set-idle stalled (ignored)");
         }
 
-        self.configure_interrupt_endpoint(device_index, slot_id, port, endpoint)?;
+        self.set_enum_stage("cfg-ep");
+        let cfg_ep_result = self.configure_interrupt_endpoint(device_index, slot_id, port, endpoint);
+        self.capture_enum_completion_codes();
+        cfg_ep_result?;
         serial::write_fmt(format_args!(
             "usb-hid: {} ready on slot {} endpoint 0x{:02x}\r\n",
             endpoint.kind.as_str(),
@@ -1443,13 +1724,16 @@ impl XhciController {
     }
 
     unsafe fn configuration_value(&mut self) -> Result<u8, &'static str> {
-        let header_len = self.control_in(
+        self.set_enum_stage("config-hdr");
+        let header_result = self.control_in(
             0x80,
             USB_REQ_GET_DESCRIPTOR,
             (DESC_CONFIGURATION as u16) << 8,
             0,
             9,
-        )?;
+        );
+        self.capture_enum_completion_codes();
+        let header_len = header_result?;
         if header_len < 9 || CONTROL_BUFFER.0[1] != DESC_CONFIGURATION {
             return Err("configuration header unavailable");
         }
@@ -1457,25 +1741,31 @@ impl XhciController {
     }
 
     unsafe fn configuration_has_hub_interface(&mut self) -> Result<bool, &'static str> {
-        let header_len = self.control_in(
+        self.set_enum_stage("config-hdr");
+        let header_result = self.control_in(
             0x80,
             USB_REQ_GET_DESCRIPTOR,
             (DESC_CONFIGURATION as u16) << 8,
             0,
             9,
-        )?;
+        );
+        self.capture_enum_completion_codes();
+        let header_len = header_result?;
         if header_len < 9 || CONTROL_BUFFER.0[1] != DESC_CONFIGURATION {
             return Err("configuration header unavailable");
         }
         let total_len = u16::from_le_bytes([CONTROL_BUFFER.0[2], CONTROL_BUFFER.0[3]]) as usize;
         let config_len = usize::min(total_len, CONTROL_BUFFER_LEN);
-        let actual_len = self.control_in(
+        self.set_enum_stage("config");
+        let config_result = self.control_in(
             0x80,
             USB_REQ_GET_DESCRIPTOR,
             (DESC_CONFIGURATION as u16) << 8,
             0,
             config_len,
-        )?;
+        );
+        self.capture_enum_completion_codes();
+        let actual_len = config_result?;
 
         let mut offset = 0usize;
         while offset + 2 <= actual_len {
@@ -1506,19 +1796,24 @@ impl XhciController {
                 return Err(err);
             }
         };
-        if let Err(err) =
-            self.control_no_data(0x00, USB_REQ_SET_CONFIGURATION, config_value as u16, 0)
-        {
+        self.set_enum_stage("set-config");
+        let set_config_result =
+            self.control_no_data(0x00, USB_REQ_SET_CONFIGURATION, config_value as u16, 0);
+        self.capture_enum_completion_codes();
+        if let Err(err) = set_config_result {
             self.hub_last_error = Some(err);
             return Err(err);
         }
+        self.set_enum_stage("config");
         let descriptor = match self.hub_descriptor() {
             Ok(descriptor) => descriptor,
             Err(err) => {
+                self.capture_enum_completion_codes();
                 self.hub_last_error = Some(err);
                 return Err(err);
             }
         };
+        self.capture_enum_completion_codes();
         self.hub_count = self.hub_count.saturating_add(1);
         self.hub_ports = self.hub_ports.saturating_add(descriptor.port_count);
 
@@ -1527,7 +1822,10 @@ impl XhciController {
             slot_id, descriptor.port_count, descriptor.power_on_delay_ms
         ));
 
-        if let Err(err) = self.evaluate_hub_slot(port, slot_id, descriptor.port_count) {
+        self.set_enum_stage("config");
+        let evaluate_result = self.evaluate_hub_slot(port, slot_id, descriptor.port_count);
+        self.capture_enum_completion_codes();
+        if let Err(err) = evaluate_result {
             self.hub_last_error = Some(err);
             return Err(err);
         }
@@ -1560,6 +1858,7 @@ impl XhciController {
                 break;
             }
 
+            self.begin_enum_reset(UsbEnumLocation::hub(slot_id, hub_port));
             match self.reset_hub_port(hub_port) {
                 Ok(port_status) => {
                     self.hub_reset_ports = self.hub_reset_ports.saturating_add(1);
@@ -1590,6 +1889,7 @@ impl XhciController {
                 }
                 Err(err) => {
                     self.hub_last_error = Some(err);
+                    self.fail_enum_attempt(err);
                     serial::write_fmt(format_args!(
                         "usb-hub: port {} reset: {}\r\n",
                         hub_port, err
@@ -1818,11 +2118,12 @@ impl XhciController {
         if self.next_device_index >= MAX_HID_DEVICES {
             return ("device storage exhausted", true);
         }
-        self.clear_last_enumerated_device();
+        self.begin_enum_reset(UsbEnumLocation::root(port));
         match self.reset_port(port) {
             Ok(port_info) => self.enumerate_hotplug_device(port_info),
             Err(err) => {
                 self.last_enum_error = Some(err);
+                self.fail_enum_attempt(err);
                 (err, true)
             }
         }
@@ -1838,6 +2139,7 @@ impl XhciController {
         }
         self.current_slot_id = watch.slot_id;
         self.current_device_index = watch.device_index;
+        self.begin_enum_reset(UsbEnumLocation::hub(watch.slot_id, hub_port));
         match self.reset_hub_port(hub_port) {
             Ok(port_status) => {
                 self.hub_reset_ports = self.hub_reset_ports.saturating_add(1);
@@ -1865,6 +2167,7 @@ impl XhciController {
             }
             Err(err) => {
                 self.hub_last_error = Some(err);
+                self.fail_enum_attempt(err);
                 (err, true)
             }
         }
@@ -2152,26 +2455,36 @@ impl XhciController {
     }
 
     unsafe fn find_boot_hid_endpoint(&mut self) -> Result<HidEndpoint, &'static str> {
-        let header_len = self.control_in(
+        self.set_enum_stage("config-hdr");
+        let header_result = self.control_in(
             0x80,
             USB_REQ_GET_DESCRIPTOR,
             (DESC_CONFIGURATION as u16) << 8,
             0,
             9,
-        )?;
+        );
+        self.capture_enum_completion_codes();
+        let header_len = header_result?;
         if header_len < 9 || CONTROL_BUFFER.0[1] != DESC_CONFIGURATION {
             return Err("configuration header unavailable");
         }
         let total_len = u16::from_le_bytes([CONTROL_BUFFER.0[2], CONTROL_BUFFER.0[3]]) as usize;
         let config_len = usize::min(total_len, CONTROL_BUFFER_LEN);
-        let actual_len = self.control_in(
+        self.set_enum_stage("config");
+        let config_result = self.control_in(
             0x80,
             USB_REQ_GET_DESCRIPTOR,
             (DESC_CONFIGURATION as u16) << 8,
             0,
             config_len,
-        )?;
-        parse_boot_hid_endpoint(&CONTROL_BUFFER.0[..actual_len], self.keyboard.is_none())
+        );
+        self.capture_enum_completion_codes();
+        let actual_len = config_result?;
+        self.set_enum_stage("hid-match");
+        let endpoint_result =
+            parse_boot_hid_endpoint(&CONTROL_BUFFER.0[..actual_len], self.keyboard.is_none());
+        self.capture_enum_completion_codes();
+        endpoint_result
     }
 
     unsafe fn configure_interrupt_endpoint(
@@ -2280,6 +2593,7 @@ impl XhciController {
         length: usize,
         input: bool,
     ) -> Result<usize, &'static str> {
+        self.last_transfer_completion_code = 0;
         let setup = (request_type as u64)
             | ((request as u64) << 8)
             | ((value as u64) << 16)
@@ -2318,6 +2632,7 @@ impl XhciController {
         self.ring_doorbell(self.control_slot_or_one(), DCI_EP0);
         let event = self.wait_transfer_event(self.control_slot_or_one(), DCI_EP0)?;
         let cc = event.completion_code();
+        self.last_transfer_completion_code = cc as u8;
         if cc != CC_SUCCESS && cc != CC_SHORT_PACKET {
             return Err("control transfer failed");
         }
@@ -2331,6 +2646,8 @@ impl XhciController {
 
     unsafe fn execute_command(&mut self, mut trb: Trb) -> Result<Trb, &'static str> {
         let command_type = trb.trb_type();
+        self.last_command_type = command_type as u8;
+        self.last_completion_code = 0;
         if self.command_enqueue >= COMMAND_RING_LEN {
             return Err("command ring exhausted");
         }
@@ -2355,6 +2672,7 @@ impl XhciController {
                     && event.parameter == trb_phys
                 {
                     let cc = event.completion_code();
+                    self.last_completion_code = cc as u8;
                     if cc == CC_SUCCESS {
                         return Ok(event);
                     }
@@ -2362,8 +2680,6 @@ impl XhciController {
                         "usb-xhci: command type {} completion code {}\r\n",
                         command_type, cc
                     ));
-                    self.last_command_type = command_type as u8;
-                    self.last_completion_code = cc as u8;
                     return Err("xHCI command failed");
                 }
             }

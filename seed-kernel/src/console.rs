@@ -154,8 +154,8 @@ struct ConsoleState {
 impl ConsoleState {
     const fn new() -> Self {
         Self {
-            view: UiView::Ai,
-            focus: UiFocus::ChatInput,
+            view: UiView::Console,
+            focus: UiFocus::ConsoleInput,
             mode: ConsoleMode::Command,
             input: CommandLine::new(),
             serial_input: CommandLine::new(),

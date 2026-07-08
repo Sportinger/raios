@@ -311,6 +311,15 @@ fn usb_mouse_status(status: usb::UsbMouseStatus) -> &'static str {
 
 fn usb_hotplug_line() -> StatusLine {
     let snapshot = usb::snapshot();
+    if snapshot.enum_stage != "none" {
+        let state = if snapshot.enum_err == "ok" {
+            RowState::Detected
+        } else {
+            RowState::Degraded
+        };
+        return StatusLine::new("USB HOTPLUG", state, usb_enum_trace_detail(snapshot));
+    }
+
     if !snapshot.last_hotplug_present {
         return StatusLine::new(
             "USB HOTPLUG",
@@ -362,6 +371,41 @@ fn usb_hotplug_line() -> StatusLine {
                 location.as_str()
             )),
         )
+    }
+}
+
+fn usb_enum_trace_detail(snapshot: usb::UsbSnapshot) -> TextBuf<STATUS_DETAIL_LEN> {
+    if snapshot.enum_location.is_hub {
+        detail(format_args!(
+            "ENUM HUB{} P{} SPD{} SLOT{} STAGE {} CMDCC{} XFERCC{} {:04X}:{:04X} CLS{:02X} MPS{} ERR {}",
+            snapshot.enum_location.hub_slot,
+            snapshot.enum_location.port,
+            snapshot.enum_speed,
+            snapshot.enum_slot_id,
+            snapshot.enum_stage,
+            snapshot.enum_cmd_cc,
+            snapshot.enum_xfer_cc,
+            snapshot.enum_vid,
+            snapshot.enum_pid,
+            snapshot.enum_dev_class,
+            snapshot.enum_ep0_mps,
+            snapshot.enum_err
+        ))
+    } else {
+        detail(format_args!(
+            "ENUM ROOT P{} SPD{} SLOT{} STAGE {} CMDCC{} XFERCC{} {:04X}:{:04X} CLS{:02X} MPS{} ERR {}",
+            snapshot.enum_location.port,
+            snapshot.enum_speed,
+            snapshot.enum_slot_id,
+            snapshot.enum_stage,
+            snapshot.enum_cmd_cc,
+            snapshot.enum_xfer_cc,
+            snapshot.enum_vid,
+            snapshot.enum_pid,
+            snapshot.enum_dev_class,
+            snapshot.enum_ep0_mps,
+            snapshot.enum_err
+        ))
     }
 }
 
