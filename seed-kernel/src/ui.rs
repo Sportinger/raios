@@ -15,7 +15,7 @@ const CHAT_BUBBLE_PADDING_BOTTOM: usize = 12;
 const CHAT_BUBBLE_GAP: usize = 16;
 const CURSOR_WIDTH: usize = 10;
 const CURSOR_HEIGHT: usize = 16;
-const STATUS_DETAIL_START_Y: usize = 128;
+const STATUS_DETAIL_START_Y: usize = 120;
 const STATUS_DETAIL_LINE_H: usize = 16;
 const STATUS_DETAIL_LABEL_X: usize = 44;
 const STATUS_DETAIL_VALUE_X: usize = 132;
@@ -207,6 +207,7 @@ impl StatusUi {
         log_transition(previous.map(|prev| prev.wifi), &snapshot.wifi);
         log_transition(previous.map(|prev| prev.network), &snapshot.network);
         log_transition(previous.map(|prev| prev.input), &snapshot.input);
+        log_transition(previous.map(|prev| prev.iommu), &snapshot.iommu);
 
         self.last_states = Some(states);
     }
@@ -409,6 +410,8 @@ fn draw_status_detail(
     draw_status_detail_line(surface, width, y, "WIFI", &snapshot.wifi);
     y = y.saturating_add(STATUS_DETAIL_LINE_H);
     draw_status_detail_line(surface, width, y, "NET", &snapshot.network);
+    y = y.saturating_add(STATUS_DETAIL_LINE_H);
+    draw_status_detail_line(surface, width, y, "IOMMU", &snapshot.iommu);
     y = y.saturating_add(STATUS_DETAIL_LINE_H);
     draw_wifi_scan_detail(surface, width, y);
 }

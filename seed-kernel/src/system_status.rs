@@ -2,7 +2,7 @@ use core::fmt::{self, Write};
 use core::str;
 
 use crate::framebuffer::FramebufferInfo;
-use crate::{entropy, input, net, usb, wifi};
+use crate::{entropy, input, iommu_vtd, net, usb, wifi};
 
 pub const STATUS_DETAIL_LEN: usize = 192;
 
@@ -31,6 +31,7 @@ pub struct SystemSnapshot {
     pub wifi: StatusLine,
     pub network: StatusLine,
     pub input: StatusLine,
+    pub iommu: StatusLine,
 }
 
 impl SystemSnapshot {
@@ -47,6 +48,7 @@ impl SystemSnapshot {
             wifi: wifi_line(),
             network: network_line(runtime),
             input: input_line(runtime),
+            iommu: iommu_line(),
         }
     }
 
@@ -59,6 +61,7 @@ impl SystemSnapshot {
             wifi: self.wifi.state,
             network: self.network.state,
             input: self.input.state,
+            iommu: self.iommu.state,
         }
     }
 }
@@ -72,6 +75,7 @@ pub struct SnapshotStates {
     pub wifi: RowState,
     pub network: RowState,
     pub input: RowState,
+    pub iommu: RowState,
 }
 
 pub struct StatusLine {
@@ -551,6 +555,26 @@ fn input_line(runtime: RuntimeStatus) -> StatusLine {
             "INPUT",
             RowState::Waiting,
             detail(format_args!("WAITING ENTROPY")),
+        )
+    }
+}
+
+fn iommu_line() -> StatusLine {
+    let report = iommu_vtd::report();
+    if report.present {
+        StatusLine::new(
+            "IOMMU",
+            RowState::Detected,
+            detail(format_args!(
+                "VT-d PRESENT ver=0x{:08X} drhd={} remap=DISABLED (detect-only)",
+                report.version, report.drhd_count
+            )),
+        )
+    } else {
+        StatusLine::new(
+            "IOMMU",
+            RowState::Missing,
+            detail(format_args!("NO DMAR (VT-d not exposed)")),
         )
     }
 }
