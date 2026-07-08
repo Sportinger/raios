@@ -2,7 +2,7 @@
 param(
     [ValidateSet("release")]
     [string]$Profile = "release",
-    [ValidateSet("svc-demo-echo", "svc-demo-bufecho")]
+    [ValidateSet("svc-demo-echo", "svc-demo-bufecho", "svc-demo-certwindow")]
     [string]$Guest = "svc-demo-echo"
 )
 
@@ -19,6 +19,11 @@ $guestConfig = @{
         Manifest = "wasm-guests\svc-demo-bufecho\Cargo.toml"
         Built = "svc_demo_bufecho.wasm"
         Artifact = "svc.demo.bufecho.wasm"
+    }
+    "svc-demo-certwindow" = @{
+        Manifest = "wasm-guests\svc-demo-certwindow\Cargo.toml"
+        Built = "svc_demo_certwindow.wasm"
+        Artifact = "svc.demo.certwindow.wasm"
     }
 }[$Guest]
 

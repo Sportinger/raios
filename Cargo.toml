@@ -8,7 +8,8 @@ members = [
     "raios-x509-time",
     "seed-kernel",
     "wasm-guests/svc-demo-echo",
-    "wasm-guests/svc-demo-bufecho"
+    "wasm-guests/svc-demo-bufecho",
+    "wasm-guests/svc-demo-certwindow"
 ]
 resolver = "2"
 

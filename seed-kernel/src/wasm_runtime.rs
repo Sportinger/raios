@@ -18,6 +18,7 @@ use crate::serial;
 
 include!(concat!(env!("OUT_DIR"), "/echo_wasm_artifact.rs"));
 include!(concat!(env!("OUT_DIR"), "/bufecho_wasm_artifact.rs"));
+include!(concat!(env!("OUT_DIR"), "/certwindow_wasm_artifact.rs"));
 
 const EMPTY_WASM_MODULE: &[u8] = b"\0asm\x01\0\0\0";
 const FORBIDDEN_WRITE_WASM_MODULE: &[u8] = &[
@@ -63,6 +64,13 @@ pub(crate) const BUFECHO_AUTHORIZED_IMPORTS: &[(&str, &str)] = &[
     ("env", "input_read"),
     ("env", "output_write"),
 ];
+pub(crate) const CERTWINDOW_SERVICE_ID: &str = "svc.demo.certwindow";
+pub(crate) const CERTWINDOW_AUTHORIZED_IMPORTS: &[(&str, &str)] = &[
+    ("env", "input_len"),
+    ("env", "input_read"),
+    ("env", "output_write"),
+];
+pub(crate) const CERTWINDOW_WASM_FUEL_BUDGET: u64 = 1_000_000;
 const ZERO_SHA256: [u8; 32] = [0; 32];
 
 static CURRENT_BOOT_COUNTER: Mutex<u64> = Mutex::new(0);
@@ -73,6 +81,8 @@ static WASMI_COMPILE_PROOF: fn() -> bool = validate_empty_module_bytes;
 static ECHO_WASM_ARTIFACT_PROOF: fn() -> bool = validate_echo_wasm_artifact;
 #[used]
 static BUFECHO_WASM_ARTIFACT_PROOF: fn() -> bool = validate_bufecho_wasm_artifact;
+#[used]
+static CERTWINDOW_WASM_ARTIFACT_PROOF: fn() -> bool = validate_certwindow_wasm_artifact;
 
 pub(crate) fn validate_empty_module_bytes() -> bool {
     let wasm = Vec::from(EMPTY_WASM_MODULE).into_boxed_slice();
@@ -102,6 +112,18 @@ pub(crate) fn validate_bufecho_wasm_artifact() -> bool {
             == BUFECHO_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_HASH
         && sha256_bytes(BUFECHO_WASM_ARTIFACT_SIGNATURE_ENVELOPE_TEXT.as_bytes())
             == BUFECHO_WASM_ARTIFACT_SIGNATURE_ENVELOPE_HASH
+        && validate_module_bytes(bytes)
+}
+
+pub(crate) fn validate_certwindow_wasm_artifact() -> bool {
+    let wasm = Vec::from(CERTWINDOW_WASM_ARTIFACT_BYTES).into_boxed_slice();
+    let bytes: &[u8] = &wasm;
+
+    sha256_bytes(bytes) == CERTWINDOW_WASM_ARTIFACT_BYTES_HASH
+        && sha256_bytes(CERTWINDOW_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_SOURCE.as_bytes())
+            == CERTWINDOW_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_HASH
+        && sha256_bytes(CERTWINDOW_WASM_ARTIFACT_SIGNATURE_ENVELOPE_TEXT.as_bytes())
+            == CERTWINDOW_WASM_ARTIFACT_SIGNATURE_ENVELOPE_HASH
         && validate_module_bytes(bytes)
 }
 
@@ -140,6 +162,7 @@ pub(crate) struct EchoRunEvidence {
     pub(crate) authorized_import_list_sha256: [u8; 32],
     pub(crate) captured_output_len: u64,
     pub(crate) captured_output_sha256: [u8; 32],
+    pub(crate) raw_captured_output: Vec<u8>,
     pub(crate) linked_host_import_count: u64,
     pub(crate) module_imports_within_authorized_list: bool,
     pub(crate) missing_import_module: Option<String>,
@@ -218,6 +241,7 @@ pub(crate) fn run_bufecho_roundtrip(input: &[u8]) -> BufechoRoundtripEvidence {
             BUFECHO_AUTHORIZED_IMPORTS,
             validate_bufecho_wasm_artifact(),
             capped,
+            ECHO_WASM_FUEL_BUDGET,
         ),
         input_len: capped_len as u64,
         input_sha256: sha256_bytes(capped),
@@ -233,6 +257,34 @@ pub(crate) fn run_bufecho_unauthorized_probe() -> EchoRunEvidence {
         &[("env", "input_len")],
         validate_bufecho_wasm_artifact(),
         b"raios-m11-bufecho-unauthorized-nonce",
+        ECHO_WASM_FUEL_BUDGET,
+    )
+}
+
+pub(crate) fn run_certwindow_roundtrip(cert_der: &[u8]) -> EchoRunEvidence {
+    let capped = &cert_der[..cert_der.len().min(MAX_WASM_INPUT_BYTES)];
+    execute_validated_module_bytes(
+        CERTWINDOW_WASM_ARTIFACT_BYTES,
+        "raios_service_main",
+        CERTWINDOW_SERVICE_ID,
+        true,
+        CERTWINDOW_AUTHORIZED_IMPORTS,
+        validate_certwindow_wasm_artifact(),
+        capped,
+        CERTWINDOW_WASM_FUEL_BUDGET,
+    )
+}
+
+pub(crate) fn run_certwindow_unauthorized_probe() -> EchoRunEvidence {
+    execute_validated_module_bytes(
+        CERTWINDOW_WASM_ARTIFACT_BYTES,
+        "raios_service_main",
+        CERTWINDOW_SERVICE_ID,
+        true,
+        &[("env", "input_len")],
+        validate_certwindow_wasm_artifact(),
+        b"raios-m11-certwindow-unauthorized-nonce",
+        CERTWINDOW_WASM_FUEL_BUDGET,
     )
 }
 
@@ -408,6 +460,7 @@ fn execute_echo_module(validation_ok: bool) -> EchoRunEvidence {
         ECHO_AUTHORIZED_IMPORTS,
         validation_ok,
         &[],
+        ECHO_WASM_FUEL_BUDGET,
     )
 }
 
@@ -426,6 +479,7 @@ pub(crate) fn execute_module_bytes(
         requested_imports,
         validate_module_bytes(bytes),
         &[],
+        ECHO_WASM_FUEL_BUDGET,
     )
 }
 
@@ -437,6 +491,7 @@ fn execute_validated_module_bytes(
     requested_imports: &[(&str, &str)],
     validation_ok: bool,
     staged_input: &[u8],
+    fuel_budget: u64,
 ) -> EchoRunEvidence {
     let authorized =
         match authorize_wasm_imports(service_id, artifact_sha256_present, requested_imports) {
@@ -444,6 +499,7 @@ fn execute_validated_module_bytes(
             Err(decision) => {
                 return positive_run(
                     service_id,
+                    fuel_budget,
                     false,
                     false,
                     "import_grant_denied",
@@ -457,6 +513,7 @@ fn execute_validated_module_bytes(
     if !validation_ok {
         return positive_run(
             service_id,
+            fuel_budget,
             false,
             false,
             "validation_failed",
@@ -474,6 +531,7 @@ fn execute_validated_module_bytes(
         Err(_) => {
             return positive_run(
                 service_id,
+                fuel_budget,
                 true,
                 false,
                 "module_compile_failed",
@@ -485,9 +543,10 @@ fn execute_validated_module_bytes(
         }
     };
     let mut store = Box::new(Store::new(&engine, buffer_state(staged_input)));
-    if store.add_fuel(ECHO_WASM_FUEL_BUDGET).is_err() {
+    if store.add_fuel(fuel_budget).is_err() {
         return positive_run(
             service_id,
+            fuel_budget,
             true,
             false,
             "fuel_metering_unavailable",
@@ -503,6 +562,7 @@ fn execute_validated_module_bytes(
         Err(reason) => {
             return positive_run(
                 service_id,
+                fuel_budget,
                 true,
                 false,
                 reason,
@@ -516,6 +576,7 @@ fn execute_validated_module_bytes(
     if let Some(missing) = first_unauthorized_module_import(&module, &authorized) {
         return positive_run(
             service_id,
+            fuel_budget,
             true,
             false,
             "module_import_not_authorized",
@@ -532,6 +593,7 @@ fn execute_validated_module_bytes(
             Err(_) => {
                 return positive_run(
                     service_id,
+                    fuel_budget,
                     true,
                     false,
                     "instantiation_start_trap",
@@ -545,6 +607,7 @@ fn execute_validated_module_bytes(
         Err(_) => {
             return positive_run(
                 service_id,
+                fuel_budget,
                 true,
                 false,
                 "instantiation_failed",
@@ -562,6 +625,7 @@ fn execute_validated_module_bytes(
     else {
         return positive_run(
             service_id,
+            fuel_budget,
             true,
             true,
             "entrypoint_missing",
@@ -583,6 +647,7 @@ fn execute_validated_module_bytes(
             };
             let mut ev = positive_run(
                 service_id,
+                fuel_budget,
                 true,
                 true,
                 outcome,
@@ -599,11 +664,13 @@ fn execute_validated_module_bytes(
                 ev.captured_output_len = out.len() as u64;
                 ev.captured_output_sha256 = sha256_bytes(out);
             }
+            ev.raw_captured_output = out.clone();
             ev
         }
         Err(_) => {
             let mut ev = positive_run(
                 service_id,
+                fuel_budget,
                 true,
                 true,
                 "trap",
@@ -620,6 +687,7 @@ fn execute_validated_module_bytes(
                 ev.captured_output_len = out.len() as u64;
                 ev.captured_output_sha256 = sha256_bytes(out);
             }
+            ev.raw_captured_output = out.clone();
             ev
         }
     }
@@ -868,6 +936,7 @@ fn hardening_case(
 
 fn positive_run(
     service_id: &str,
+    fuel_budget: u64,
     validation_ok: bool,
     instantiation_ok: bool,
     run_outcome: &'static str,
@@ -881,7 +950,7 @@ fn positive_run(
         instantiation_ok,
         run_outcome,
         return_value,
-        fuel_budget: ECHO_WASM_FUEL_BUDGET,
+        fuel_budget,
         fuel_used,
         log_line,
         import_grant_performed: import_grant.performed,
@@ -891,6 +960,7 @@ fn positive_run(
         authorized_import_list_sha256: import_grant.authorized_import_list_sha256,
         captured_output_len: 0,
         captured_output_sha256: ZERO_SHA256,
+        raw_captured_output: Vec::new(),
         linked_host_import_count: import_grant.linked_host_import_count,
         module_imports_within_authorized_list: import_grant.module_imports_within_authorized_list,
         missing_import_module: import_grant.missing_import_module,

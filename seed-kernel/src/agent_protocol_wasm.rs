@@ -6,9 +6,17 @@ use crate::{
         record_bool as b, record_field as f, record_sha, record_static_str_array, record_str as s,
         record_str_or_null,
     },
+    agent_protocol_time::REAL_TEST_CERT_DER,
     memory_store, module_candidate_channel, module_candidate_intake, wasm_runtime,
 };
-use raios_core::record::Value as V;
+use raios_core::{
+    cert_validity_window::{
+        decode_certwindow_record, encode_certwindow_record, parse_x509_cert_validity_window,
+        CertValidityDateTime, X509ValidityError, CERTWINDOW_RECORD_LEN,
+    },
+    record::Value as V,
+    sha256_bytes,
+};
 
 pub(crate) fn emit_submit_candidate_chunk(arg: &str) {
     let outcome = module_candidate_channel::submit_candidate_chunk(arg);
@@ -269,6 +277,184 @@ pub(crate) fn emit_wasm_bufecho_probe() {
     );
     raw_line("      \"evidence_complete\": true");
     end_response("wasm.bufecho_probe");
+}
+
+pub(crate) fn emit_wasm_certwindow_probe() {
+    let cert = REAL_TEST_CERT_DER;
+    let cert_sha256 = sha256_bytes(cert);
+    let rt = wasm_runtime::run_certwindow_roundtrip(cert);
+    let gd = decode_certwindow_record(&rt.raw_captured_output);
+    let core = parse_x509_cert_validity_window(cert);
+    let core_encoded = encode_certwindow_record(core);
+    let core_output_sha256 = sha256_bytes(&core_encoded);
+    let guest_matches_core = gd.record_valid
+        && match core {
+            Ok(window) => gd.status == 0 && gd.error_code == 0 && gd.window == Some(window),
+            Err(error) => gd.status == 1 && gd.error_code == error.code() && gd.window.is_none(),
+        };
+    let output_bytes_match = rt.captured_output_len == CERTWINDOW_RECORD_LEN as u64
+        && rt.captured_output_sha256 == core_output_sha256;
+
+    let bad = &cert[..120];
+    let rtm = wasm_runtime::run_certwindow_roundtrip(bad);
+    let gdm = decode_certwindow_record(&rtm.raw_captured_output);
+    let corem = parse_x509_cert_validity_window(bad);
+    let corem_code = match corem {
+        Ok(_) => 0,
+        Err(error) => error.code(),
+    };
+    let malformed_matches = gdm.record_valid
+        && corem.is_err()
+        && gdm.status == 1
+        && gdm.error_code == corem_code
+        && gdm.window.is_none();
+    let neg = wasm_runtime::run_certwindow_unauthorized_probe();
+
+    begin_response("wasm.certwindow_probe");
+    emit_record_fields_trailing_comma(
+        vec![
+            f("schema", s("raios.wasm_certwindow_probe.v0")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("method", s("wasm.certwindow_probe")),
+            f("service_id", s(wasm_runtime::CERTWINDOW_SERVICE_ID)),
+            f("input_len", V::U64(cert.len() as u64)),
+            f("input_sha256", record_sha(cert_sha256)),
+            f("cert_sha256", record_sha(cert_sha256)),
+            f("run_outcome", s(rt.run_outcome)),
+            f(
+                "authorized_import_count",
+                V::U64(rt.authorized_import_count),
+            ),
+            f(
+                "linked_host_import_count",
+                V::U64(rt.linked_host_import_count),
+            ),
+            f(
+                "module_imports_within_authorized_list",
+                b(rt.module_imports_within_authorized_list),
+            ),
+            f("fuel_budget", V::U64(rt.fuel_budget)),
+            f("fuel_used", V::U64(rt.fuel_used)),
+            f("captured_output_len", V::U64(rt.captured_output_len)),
+            f(
+                "captured_output_sha256",
+                record_sha(rt.captured_output_sha256),
+            ),
+            f("core_output_sha256", record_sha(core_output_sha256)),
+            f("guest_record_valid", b(gd.record_valid)),
+            f(
+                "guest_parse_ok",
+                b(gd.record_valid && gd.status == 0 && gd.error_code == 0),
+            ),
+            f("guest_error_code", V::U64(gd.error_code as u64)),
+            f(
+                "guest_not_before",
+                datetime_or_null(gd.window.map(|window| window.not_before)),
+            ),
+            f(
+                "guest_not_after",
+                datetime_or_null(gd.window.map(|window| window.not_after)),
+            ),
+            f("core_parse_ok", b(core.is_ok())),
+            f("core_error_code", V::U64(core_error_code(core) as u64)),
+            f("core_error_reason", s(core_error_reason(core))),
+            f(
+                "core_not_before",
+                datetime_or_null(core.ok().map(|window| window.not_before)),
+            ),
+            f(
+                "core_not_after",
+                datetime_or_null(core.ok().map(|window| window.not_after)),
+            ),
+            f("guest_matches_core", b(guest_matches_core)),
+            f("output_bytes_match", b(output_bytes_match)),
+            f("guest_output_is_evidence_only", b(true)),
+            f("core_is_authority", b(true)),
+            f("policy_allows_beyond_env", b(false)),
+            f("owner_sealed", b(false)),
+            f("trust_tier", s("dev_key_not_owner_sealed")),
+            f("validates_cert_time", b(false)),
+            f("authorizes_provider_request", b(false)),
+            f("authorizes_provider_export", b(false)),
+            f("durable_write", b(false)),
+            f("capability_granted", b(false)),
+            f(
+                "malformed_case",
+                V::InlineObject(vec![
+                    f("guest_record_valid", b(gdm.record_valid)),
+                    f("guest_parse_ok", b(false)),
+                    f("guest_error_code", V::U64(gdm.error_code as u64)),
+                    f("core_parse_ok", b(false)),
+                    f("core_error_code", V::U64(corem_code as u64)),
+                    f("error_codes_match", b(gdm.error_code == corem_code)),
+                    f("guest_matches_core", b(malformed_matches)),
+                    f(
+                        "guest_error_reason",
+                        s(X509ValidityError::from_code(gdm.error_code)
+                            .map(|error| error.reason())
+                            .unwrap_or("truncated")),
+                    ),
+                    f("capability_granted", b(false)),
+                ]),
+            ),
+            f(
+                "negative",
+                V::InlineObject(vec![
+                    f(
+                        "module_imports_within_authorized_list",
+                        b(neg.module_imports_within_authorized_list),
+                    ),
+                    f("run_outcome", s(neg.run_outcome)),
+                    f(
+                        "missing_import_module",
+                        record_str_or_null(neg.missing_import_module.as_deref()),
+                    ),
+                    f("instantiation_ok", b(neg.instantiation_ok)),
+                    f("captured_output_len", V::U64(neg.captured_output_len)),
+                ]),
+            ),
+        ],
+        6,
+    );
+    raw_line("      \"evidence_complete\": true");
+    end_response("wasm.certwindow_probe");
+}
+
+fn datetime_or_null(value: Option<CertValidityDateTime>) -> V<'static> {
+    match value {
+        Some(value) => datetime_value(value),
+        None => V::Null,
+    }
+}
+
+fn datetime_value(value: CertValidityDateTime) -> V<'static> {
+    V::Object(vec![
+        f("year", V::U64(value.year as u64)),
+        f("month", V::U64(value.month as u64)),
+        f("day", V::U64(value.day as u64)),
+        f("hour", V::U64(value.hour as u64)),
+        f("minute", V::U64(value.minute as u64)),
+        f("second", V::U64(value.second as u64)),
+    ])
+}
+
+fn core_error_code(
+    result: Result<raios_core::cert_validity_window::CertValidityWindow, X509ValidityError>,
+) -> u8 {
+    match result {
+        Ok(_) => 0,
+        Err(error) => error.code(),
+    }
+}
+
+fn core_error_reason(
+    result: Result<raios_core::cert_validity_window::CertValidityWindow, X509ValidityError>,
+) -> &'static str {
+    match result {
+        Ok(_) => "none",
+        Err(error) => error.reason(),
+    }
 }
 
 fn record_return_value(value: Option<i32>) -> V<'static> {

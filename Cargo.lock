@@ -1799,6 +1799,13 @@ name = "svc-demo-bufecho"
 version = "0.1.0"
 
 [[package]]
+name = "svc-demo-certwindow"
+version = "0.1.0"
+dependencies = [
+ "raios-x509-time",
+]
+
+[[package]]
 name = "svc-demo-echo"
 version = "0.1.0"
 
