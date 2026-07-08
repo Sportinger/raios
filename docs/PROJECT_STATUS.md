@@ -24,6 +24,40 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+WiFi-1a done (2026-07-08, commit e3de309) — OWNER SIDE TRACK, first real code
+brick of the Surface Pro 4 Marvell 88W8897 WiFi driver. A PURE, hardware-
+INDEPENDENT firmware-download sequencer in raios-core/src/marvell_wifi_fw.rs: a
+`step(RegisterReads) -> FwAction` state machine modelling the mwifiex_pcie block-
+download loop (poll cmd_size, WriteBlock/RingDoorbell, CRC-retry capped at 2,
+WriteDrvReady, PollFwStatus until FIRMWARE_READY, Done; fail-closed on empty/
+oversize/bad state), grounded in docs/marvell-88w8897-wifi-driver-scope.md. NO
+unsafe, NO MMIO/DMA, NO firmware blob, wired to NOTHING — honestly HARDWARE-
+UNTESTED, inert until a later kernel slice drives it on the physical Surface.
+Dispatched as a CODEX worker. Verified host-only: cargo fmt clean; raios-core 237
+tests (8 new marvell_wifi_fw cases: happy path, CRC-retry, retry-cap, empty-fw,
+partial block, poll-not-ready, zero-cmd-size, block-len-guard); grants nothing.
+
+M11-7 done (2026-07-08) — SECOND real kernel-code relocation (ADR 0008 Option 2):
+the kernel's HTTP-response header parsers moved out of the kernel and now run in a
+signed Wasm sandbox, cross-checked. M11-7a (commit 928833f) carved the 11 pure
+non-allocating parsers (parse_status / parse_content_length / http_response_
+complete / header_contains + helpers) out of seed-kernel/src/openai.rs into a
+standalone no-dep crate raios-http-parse (openai.rs re-imports the 6 fns its
+remaining code calls; kernel byte-identical; sha2 dev-dep-only). M11-7b (commit
+2a1284d) runs the SAME parsers inside the dev-key-signed svc.demo.httphead guest
+on an embedded HTTP response, kernel independently re-parses + cross-checks on
+well-formed + truncated + content-length paths (httphead 194/194, regression
+196/196). M11-7c (commit ec236de) FIXED the real latent bug M11-7a preserved
+verbatim: parse_content_length short-circuited to None for every response
+(split_header(line)? bailed on the colon-less status line); now it skips non-
+header lines, so http_response_complete correctly detects non-chunked completion
+via Content-Length. Re-proven: the httphead predicate flipped from content-length-
+short-circuit-evidence to content-length-parsed-agree (guest+core both parse
+content_length=11). Verified per the aggressive-fast loop WITHOUT the per-slice
+max-effort review (dropped by owner 2026-07-08): host DoD + own diff read +
+focused profile + secret scan. Guests dev_key_not_owner_sealed; build.rs P-256
+gate active. Scoping + implementation both by CODEX workers (owner 2026-07-08).
+
 M11-6 done (2026-07-08) — the FIRST real kernel-code relocation into Wasm
 (ADR 0008 Option 2). M11-6a (commit 18d095f) carved the pure DER X.509
 validity-window parser out of raios-core into a standalone dependency-free

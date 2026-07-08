@@ -50,8 +50,16 @@ nur „Beweis-Lieferant", die Wahrheit bleibt beim Kern; es kommt nie an Netz/Sc
 nicht selbst „geprüft" stempeln, und ein fehlerhaftes Ergebnis kann den Kern nicht zum Absturz
 bringen (fällt sauber auf „ungültig"). Bewiesen: Profil 193/193, Rückschritt-Test 196/196 (Echo/
 Bufecho unverändert), strengste 4-fach-Gegenprüfung „bestanden" (beide Signaturen unabhängig
-nachgeprüft). ALS NÄCHSTES: weitere Internet-Bausteine so umziehen, Schritt für Schritt Richtung
-kompletter TLS-Prüfung in der Sandbox. Alles weiterhin ehrlich dev-key, nicht owner-versiegelt.
+nachgeprüft). **Und der ZWEITE Umzug ist auch geschafft:** die HTTP-Antwort-Leser (die den
+Text vom Anbieter zerlegen) laufen jetzt ebenfalls im Sandbox-Dienst, vom Kern gegengeprüft —
+und dabei kam ein ECHTER alter Fehler ans Licht (die „Content-Length" wurde nie gelesen), den ich
+gleich mit behoben und bewiesen habe. Beweis: voll 8205/8205 grün, Rückschritt-Test byte-identisch
+3870/3870. **Nebengleis (parallel), dein Wunsch:** der WLAN-Treiber für den Surface Pro 4 (Marvell-
+Chip) hat den ersten echten Baustein — die reine Firmware-Lade-Ablauflogik, in Software mit Tests
+bewiesen (ehrlich: noch NICHT auf echter Hardware getestet, tut noch nichts). ALS NÄCHSTES: weitere
+Internet-Bausteine umziehen Richtung kompletter TLS-Prüfung in der Sandbox; WLAN Schritt für Schritt.
+Ab jetzt: Codex macht die Worker (schnell + günstig), ich orchestriere/prüfe; kein Extra-Review mehr
+pro Schritt (deine Entscheidung). Alles weiterhin ehrlich dev-key, nicht owner-versiegelt.
 The big one (M7) is done: boot 1 accepts and saves an AI-authored module (its code +
 a signed "promotion receipt"); the machine is powered down and back up; boot 2
 independently re-checks the whole evidence chain from disk — re-doing the signature

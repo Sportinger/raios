@@ -64,7 +64,17 @@ facing parsers, then beyond-env host imports (net/tls/crypto/time/secret) + per-
 service secret custody toward the full TLS verifier in Wasm; policy_allows_beyond_env
 stays false until an explicit later slice arms it. **M11 first-real-relocation
 milestone VERIFIED-CLOSED (2026-07-08): full 8205/8205, recovery byte-identical
-3870/3870.**
+3870/3870.** **M11-7 (2026-07-08): SECOND real relocation — the kernel's HTTP-
+response header parsers moved to the no-dep crate raios-http-parse + a signed
+svc.demo.httphead guest cross-checked by the core (httphead 194/194); M11-7c fixed
+a real latent bug it surfaced (parse_content_length always returned None →
+non-chunked Content-Length completion never fired). M11-7 block VERIFIED-CLOSED:
+full 8205/8205, recovery 3870/3870.** Process changes (owner 2026-07-08): the
+per-slice max-effort review is DROPPED (host DoD + own diff read + focused profile
++ secret scan instead); scoping + implementation both run as CODEX workers, not
+Claude workflows. OWNER SIDE TRACK (parallel): the Surface Pro 4 Marvell 88W8897
+WiFi driver — full scoping doc + WiFi-1a (pure firmware-download sequencer,
+unit-tested, hardware-untested/inert) committed.
 
 **M12+ opener + honesty capstone (committed, grants nothing):** M12-1 external-
 acquisition HONESTY evaluator (download = candidate intake NEVER install; a
