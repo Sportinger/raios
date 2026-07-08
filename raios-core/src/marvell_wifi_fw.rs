@@ -119,6 +119,97 @@ impl FwError {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RegWrite {
+    pub offset: u32,
+    pub value: u32,
+}
+
+pub const REG_WRITE_PLAN_CAPACITY: usize = 3;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RegWritePlan {
+    pub writes: [Option<RegWrite>; REG_WRITE_PLAN_CAPACITY],
+    pub len: usize,
+}
+
+impl RegWritePlan {
+    const fn empty() -> Self {
+        Self {
+            writes: [None, None, None],
+            len: 0,
+        }
+    }
+
+    const fn one(write: RegWrite) -> Self {
+        Self {
+            writes: [Some(write), None, None],
+            len: 1,
+        }
+    }
+
+    const fn three(first: RegWrite, second: RegWrite, third: RegWrite) -> Self {
+        Self {
+            writes: [Some(first), Some(second), Some(third)],
+            len: 3,
+        }
+    }
+
+    pub const fn capacity(&self) -> usize {
+        REG_WRITE_PLAN_CAPACITY
+    }
+
+    pub const fn len(&self) -> usize {
+        self.len
+    }
+
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    pub fn get(&self, index: usize) -> Option<RegWrite> {
+        if index < self.len {
+            self.writes[index]
+        } else {
+            None
+        }
+    }
+}
+
+pub fn plan_register_writes(action: FwAction, block_dma_phys: u64) -> RegWritePlan {
+    match action {
+        FwAction::WriteBlock { len, .. } => {
+            // The hardware shell DMA-copies the image bytes to block_dma_phys
+            // before these writes; this pure plan does not move bytes.
+            RegWritePlan::three(
+                RegWrite {
+                    offset: CMD_ADDR_LO,
+                    value: (block_dma_phys & 0xffff_ffff) as u32,
+                },
+                RegWrite {
+                    offset: CMD_ADDR_HI,
+                    value: (block_dma_phys >> 32) as u32,
+                },
+                RegWrite {
+                    offset: CMD_SIZE,
+                    value: len as u32,
+                },
+            )
+        }
+        FwAction::RingDoorbell => RegWritePlan::one(RegWrite {
+            offset: PCIE_CPU_INT_EVENT,
+            value: CPU_INTR_DOOR_BELL,
+        }),
+        FwAction::WriteDrvReady { value } => RegWritePlan::one(RegWrite {
+            offset: DRV_READY,
+            value,
+        }),
+        FwAction::PollFwStatus | FwAction::Retry { .. } | FwAction::Done | FwAction::Fail(_) => {
+            RegWritePlan::empty()
+        }
+    }
+}
+
 pub struct FirmwareDownload<'a> {
     firmware: &'a [u8],
     offset: usize,
@@ -253,6 +344,119 @@ mod tests {
 
     fn block_request() -> RegisterReads {
         RegisterReads::with_cmd_size(FW_BLOCK_SIZE as u32)
+    }
+
+    #[test]
+    fn plan_register_writes_write_block_orders_addr_low_high_size() {
+        let plan = plan_register_writes(
+            FwAction::WriteBlock {
+                image_offset: 17,
+                len: 64,
+            },
+            0x1_2345_6000,
+        );
+
+        assert_eq!(plan.len(), 3);
+        assert_eq!(
+            plan.get(0),
+            Some(RegWrite {
+                offset: CMD_ADDR_LO,
+                value: 0x2345_6000,
+            })
+        );
+        assert_eq!(
+            plan.get(1),
+            Some(RegWrite {
+                offset: CMD_ADDR_HI,
+                value: 0x1,
+            })
+        );
+        assert_eq!(
+            plan.get(2),
+            Some(RegWrite {
+                offset: CMD_SIZE,
+                value: 64,
+            })
+        );
+        assert_eq!(plan.get(3), None);
+    }
+
+    #[test]
+    fn plan_register_writes_ring_doorbell_writes_event_bit() {
+        let plan = plan_register_writes(FwAction::RingDoorbell, 0);
+
+        assert_eq!(plan.len(), 1);
+        assert_eq!(
+            plan.get(0),
+            Some(RegWrite {
+                offset: PCIE_CPU_INT_EVENT,
+                value: CPU_INTR_DOOR_BELL,
+            })
+        );
+        assert_eq!(plan.get(1), None);
+    }
+
+    #[test]
+    fn plan_register_writes_write_drv_ready_writes_ready_magic() {
+        let plan = plan_register_writes(
+            FwAction::WriteDrvReady {
+                value: FIRMWARE_READY_PCIE,
+            },
+            0,
+        );
+
+        assert_eq!(plan.len(), 1);
+        assert_eq!(
+            plan.get(0),
+            Some(RegWrite {
+                offset: DRV_READY,
+                value: FIRMWARE_READY_PCIE,
+            })
+        );
+        assert_eq!(plan.get(1), None);
+    }
+
+    #[test]
+    fn plan_register_writes_read_terminal_and_retry_actions_are_empty() {
+        let actions = [
+            FwAction::PollFwStatus,
+            FwAction::Retry { image_offset: 64 },
+            FwAction::Done,
+            FwAction::Fail(FwError::UnexpectedFwStatus),
+        ];
+
+        for action in actions {
+            let plan = plan_register_writes(action, 0x1_2345_6000);
+
+            assert!(plan.is_empty());
+            assert_eq!(plan.len(), 0);
+            assert_eq!(plan.get(0), None);
+        }
+    }
+
+    #[test]
+    fn plan_register_writes_never_exceeds_fixed_capacity() {
+        let actions = [
+            FwAction::WriteBlock {
+                image_offset: 0,
+                len: FW_BLOCK_SIZE,
+            },
+            FwAction::RingDoorbell,
+            FwAction::WriteDrvReady {
+                value: FIRMWARE_READY_PCIE,
+            },
+            FwAction::PollFwStatus,
+            FwAction::Retry { image_offset: 0 },
+            FwAction::Done,
+            FwAction::Fail(FwError::ImpossibleState),
+        ];
+
+        for action in actions {
+            let plan = plan_register_writes(action, 0x1_2345_6000);
+
+            assert!(plan.len() <= plan.capacity());
+            assert_eq!(plan.capacity(), REG_WRITE_PLAN_CAPACITY);
+        }
     }
 
     #[test]
