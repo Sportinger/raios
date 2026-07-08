@@ -24,6 +24,14 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+M12-1 done (2026-07-08, host-only worker packet; no QEMU): raiOS now has a
+fail-closed raios-core evaluator that can certify external artifact acquisition
+labels are honest: received bytes are candidate intake, distribution signatures
+are provenance only, load-worthiness still requires the M6/M7 re-verify chain,
+and success grants no acquisition, install, or load authority. Host-only
+verification passed: `cargo test --locked -p raios-core` and
+`cargo fmt -p raios-core -- --check`.
+
 M11-3a done (2026-07-08, host-only worker packet; orchestrator runs the
 memory-durable VM profile): raiOS now durably audits the exact Wasm host-import
 surface a service was already authorized and linked with as a local-only
