@@ -51,7 +51,8 @@ function Invoke-MemoryRecordAppendFixtureProbe {
         # agent-authored observation method takes a base64 blob arg, unlike the
         # arg-less system-authored append methods above (default empty preserves the
         # existing call sites byte-for-byte).
-        [string]$AppendArg = ""
+        [string]$AppendArg = "",
+        [object[]]$ExtraAgentCommands = @()
     )
 
     if (-not $script:MemoryRecordFixtureProbeIndex) {
@@ -127,10 +128,19 @@ function Invoke-MemoryRecordAppendFixtureProbe {
             throw "Memory-record fixture child VM did not answer durable.record_log_scan: $(Get-SerialLogTail -Path $fixtureLog)"
         }
         $scanResult = (Get-ProfileAgentResponseJson -Path $fixtureLog -Method "durable.record_log_scan").body.result
+        $extraResponses = @{}
+        foreach ($extra in $ExtraAgentCommands) {
+            Send-SerialText -Port $fixturePort -Text "agent $($extra.Command)`r" -TimeoutSeconds $childTimeout
+            if (-not (Wait-ForLogText -Path $fixtureLog -Needle "RAIOS_AGENT_END $($extra.Method)" -TimeoutSeconds $childTimeout)) {
+                throw "Memory-record fixture child VM did not answer $($extra.Method): $(Get-SerialLogTail -Path $fixtureLog)"
+            }
+            $extraResponses[$extra.Method] = Get-ProfileAgentResponseJson -Path $fixtureLog -Method $extra.Method
+        }
 
         return [pscustomobject]@{
             append = $appendResult
             scan = $scanResult
+            extra = $extraResponses
         }
     }
     finally {
@@ -445,6 +455,172 @@ Add-Predicate `
 
 if (-not ($agentObservationAuthorized -and $agentObservationChainAdvance -and $agentObservationInspectAgrees)) {
     throw "memory-agent-observation-authorized family failed"
+}
+
+# --- broker-* families: durable memory is reparsed, resolved, and surfaced through
+#     memory.context while provider export stays fail-closed (M9C-1b). -------------
+
+function Get-BrokerDurableRecordById {
+    param(
+        $Records,
+        [string]$Id
+    )
+    $matches = @($Records | Where-Object { $_.id -eq $Id })
+    if ($matches.Count -gt 0) { return $matches[0] }
+    return $null
+}
+
+function Get-BrokerDurableRecordIndex {
+    param(
+        $Records,
+        [string]$Id
+    )
+    for ($i = 0; $i -lt @($Records).Count; $i += 1) {
+        if ($Records[$i].id -eq $Id) { return $i }
+    }
+    return -1
+}
+
+function Test-BrokerRecordOmitsValue {
+    param($Record)
+    return ($Record -and -not ($Record.PSObject.Properties.Name -contains "value"))
+}
+
+$brokerExtraCommands = @(
+    [pscustomobject]@{ Command = "memory.decision_problem_log_append"; Method = "memory.decision_problem_log_append" },
+    [pscustomobject]@{ Command = "memory.observation_log_append $agentObservationBlob"; Method = "memory.observation_log_append" },
+    [pscustomobject]@{ Command = "memory.context provider_minimal"; Method = "memory.context" },
+    [pscustomobject]@{ Command = "provider.context_export provider_minimal"; Method = "provider.context_export" },
+    [pscustomobject]@{ Command = "memory.broker_resolve_selftest"; Method = "memory.broker_resolve_selftest" }
+)
+$brokerProbe = Invoke-MemoryRecordAppendFixtureProbe -FixtureSpec "valid:2" -Label "broker" -AppendMethod "memory.record_log_append" -ExtraAgentCommands $brokerExtraCommands
+$brokerContext = $brokerProbe.extra["memory.context"].body.result
+$brokerProviderExport = $brokerProbe.extra["provider.context_export"]
+$brokerSelftest = $brokerProbe.extra["memory.broker_resolve_selftest"].body.result
+$brokerRecords = @($brokerContext.durable_records)
+$brokerOmitted = @($brokerContext.omitted)
+
+$brokerCapDenialId = "mem.capability_denial.module_load_ephemeral_durable.current_boot.v0"
+$brokerDecisionAId = "mem.decision.module_sharing_confirmed_vision.current_boot.v0"
+$brokerProblemId = "mem.problem.memory_mutation_denied.current_boot.v0"
+$brokerDecisionBId = "mem.decision.module_sharing_evidence_gated.current_boot.v0"
+$brokerObservationId = "mem.observation.agent.current_boot.00000001.v0"
+
+$brokerCapDenial = Get-BrokerDurableRecordById -Records $brokerRecords -Id $brokerCapDenialId
+$brokerProblem = Get-BrokerDurableRecordById -Records $brokerRecords -Id $brokerProblemId
+$brokerDecisionB = Get-BrokerDurableRecordById -Records $brokerRecords -Id $brokerDecisionBId
+$brokerObservationVisible = Get-BrokerDurableRecordById -Records $brokerRecords -Id $brokerObservationId
+
+$brokerIncludedOk = (
+    $brokerDecisionB -and
+    $brokerDecisionB.kind -eq "decision" -and
+    $brokerDecisionB.authority -eq "decision" -and
+    $brokerDecisionB.entity -eq "raios.module_sharing" -and
+    $brokerDecisionB.predicate -eq "standing_decision" -and
+    $brokerDecisionB.scope -eq "durable" -and
+    (Test-BrokerRecordOmitsValue -Record $brokerDecisionB) -and
+    $brokerObservationVisible -and
+    $brokerObservationVisible.kind -eq "observation" -and
+    $brokerObservationVisible.authority -eq "agent" -and
+    $brokerObservationVisible.entity -eq "vm.smoke.observation" -and
+    $brokerObservationVisible.predicate -eq "observed" -and
+    $brokerObservationVisible.scope -eq "durable" -and
+    (Test-BrokerRecordOmitsValue -Record $brokerObservationVisible)
+)
+Add-Predicate `
+    -Name "broker-durable-included:decision-and-observation" `
+    -Expected "memory.context durable_records includes the resolved system decision and agent observation with metadata only (no raw value)" `
+    -Passed $brokerIncludedOk `
+    -Actual $(if ($brokerIncludedOk) { "matched" } else { ($brokerRecords | ConvertTo-Json -Compress -Depth 12) })
+
+$brokerVisibleIds = @($brokerRecords | ForEach-Object { $_.id })
+$brokerSupersededFold = @($brokerOmitted | Where-Object { $_.kind -eq "durable_superseded" })[0]
+$brokerSupersededIds = if ($brokerSupersededFold) { @($brokerSupersededFold.ids) } else { @() }
+$brokerSupersedeOk = (
+    $brokerSupersededIds -contains $brokerDecisionAId -and
+    -not ($brokerVisibleIds -contains $brokerDecisionAId)
+)
+Add-Predicate `
+    -Name "broker-durable-supersede:A-hidden" `
+    -Expected "the superseded decision A is folded under durable_superseded and is not visible in durable_records" `
+    -Passed $brokerSupersedeOk `
+    -Actual $(if ($brokerSupersedeOk) { "matched" } else { "records=$($brokerRecords | ConvertTo-Json -Compress -Depth 12) omitted=$($brokerOmitted | ConvertTo-Json -Compress -Depth 12)" })
+
+$idxCap = Get-BrokerDurableRecordIndex -Records $brokerRecords -Id $brokerCapDenialId
+$idxProblem = Get-BrokerDurableRecordIndex -Records $brokerRecords -Id $brokerProblemId
+$idxDecisionB = Get-BrokerDurableRecordIndex -Records $brokerRecords -Id $brokerDecisionBId
+$idxObservation = Get-BrokerDurableRecordIndex -Records $brokerRecords -Id $brokerObservationId
+$brokerOrderingOk = (
+    $idxCap -ge 0 -and
+    $idxProblem -gt $idxCap -and
+    $idxDecisionB -gt $idxProblem -and
+    $idxObservation -gt $idxDecisionB
+)
+Add-Predicate `
+    -Name "broker-ordering:frame-seq-order" `
+    -Expected "visible durable_records remain in reclog frame-seq order after resolution" `
+    -Passed $brokerOrderingOk `
+    -Actual $(if ($brokerOrderingOk) { "matched" } else { ($brokerVisibleIds -join ",") })
+
+$brokerLocalOnlyFold = @($brokerOmitted | Where-Object { $_.kind -eq "durable_local_only_value" }).Count -eq 1
+$brokerClassificationOk = (
+    $brokerObservationVisible -and
+    $brokerObservationVisible.classification -eq "local_only" -and
+    [bool]$brokerObservationVisible.exportable -eq $false -and
+    $brokerLocalOnlyFold
+)
+Add-Predicate `
+    -Name "broker-classification:local-only-not-exportable" `
+    -Expected "a local_only durable record is surfaced locally with exportable=false and a durable_local_only_value omission fold" `
+    -Passed $brokerClassificationOk `
+    -Actual $(if ($brokerClassificationOk) { "matched" } else { "record=$($brokerObservationVisible | ConvertTo-Json -Compress -Depth 8) omitted=$($brokerOmitted | ConvertTo-Json -Compress -Depth 12)" })
+
+$brokerProjectionJson = $brokerContext.provider_projection | ConvertTo-Json -Depth 20 -Compress
+$brokerProjectionClean = (
+    $brokerContext.provider_projection -and
+    -not ($brokerProjectionJson -match [regex]::Escape($brokerDecisionBId)) -and
+    -not ($brokerProjectionJson -match [regex]::Escape($brokerObservationId)) -and
+    -not ($brokerProjectionJson -match '"durable_records"')
+)
+$brokerExportStillClosed = (
+    $brokerContext.provider_export -eq "disabled" -and
+    $brokerProviderExport.body.code -eq "capability_denied" -and
+    $brokerProviderExport.body.method -eq "provider.context_export" -and
+    $brokerProjectionClean
+)
+Add-Predicate `
+    -Name "broker-export-still-closed:provider-projection-clean" `
+    -Expected "memory.context provider_export stays disabled; provider.context_export is denied; durable content is absent from provider_projection" `
+    -Passed $brokerExportStillClosed `
+    -Actual $(if ($brokerExportStillClosed) { "matched" } else { "context=$($brokerContext | ConvertTo-Json -Compress -Depth 20) export=$($brokerProviderExport | ConvertTo-Json -Compress -Depth 10)" })
+
+$brokerSelftestCaseNames = @($brokerSelftest.cases | ForEach-Object { $_.case })
+$brokerExpectedSelftestCases = @(
+    "R1_audit_supersede_ignored",
+    "LOW_1_frame_seq_beats_payload_sequence",
+    "audit_id_shadow_keeps_audit_visible",
+    "LOW_3_source_record_id_spoof_is_not_identity"
+)
+$brokerSelftestCasesPresent = $true
+foreach ($caseName in $brokerExpectedSelftestCases) {
+    if (-not ($brokerSelftestCaseNames -contains $caseName)) {
+        $brokerSelftestCasesPresent = $false
+    }
+}
+$brokerResolveSelftestOk = (
+    $brokerSelftest.schema -eq "raios.memory_broker_resolve_selftest.v0" -and
+    [bool]$brokerSelftest.passed -and
+    [int64]$brokerSelftest.case_count -eq 4 -and
+    $brokerSelftestCasesPresent
+)
+Add-Predicate `
+    -Name "broker-resolve-selftest:R1-LOW1-audit-shadow-LOW3" `
+    -Expected "memory.broker_resolve_selftest passes R1, LOW-1, audit id shadow, and LOW-3 cases" `
+    -Passed $brokerResolveSelftestOk `
+    -Actual $(if ($brokerResolveSelftestOk) { "matched" } else { ($brokerSelftest | ConvertTo-Json -Compress -Depth 12) })
+
+if (-not ($brokerIncludedOk -and $brokerSupersedeOk -and $brokerOrderingOk -and $brokerClassificationOk -and $brokerExportStillClosed -and $brokerResolveSelftestOk)) {
+    throw "memory broker durable context family failed"
 }
 
 # --- memory-agent-observation-denied: 5 distinct RAM-only denials against the MAIN

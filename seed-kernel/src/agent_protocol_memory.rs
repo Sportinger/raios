@@ -13,7 +13,7 @@ use crate::{
         raw_fmt, raw_line,
     },
     agent_protocol_system::{emit_problem_objects, emit_service_ids, emit_status_state},
-    event_log, provider, provider_trust, serial,
+    event_log, memory_store, provider, provider_trust, serial,
     system_status::SystemSnapshot,
     ui,
 };
@@ -213,7 +213,12 @@ pub(crate) fn emit_memory_context(
         "docs/architecture-decisions/0004-system-memory-and-agent-context.md",
         false,
     );
+    let durable_context = memory_store::durable_memory_context();
+    let durable_omitted = memory_store::durable_omitted_folds(&durable_context);
     raw_line("      ],");
+    raw("      \"durable_records\": ");
+    emit_record_value_fragment(memory_store::durable_records_array(&durable_context), 6);
+    raw_line(",");
     raw_line("      \"omitted\": [");
     raw_line("        {\"kind\": \"raw_boot_log\", \"reason\": \"memory.context includes only a summary locator; use system.boot_log or memory.trace locally for raw lines\"},");
     raw_line("        {\"kind\": \"local_only_details\", \"reason\": \"details strings may contain IPs, PCI data, topology, request ids, or hashes\"},");
@@ -221,7 +226,23 @@ pub(crate) fn emit_memory_context(
     raw_line("        {\"kind\": \"provider_export\", \"reason\": \"disabled until positive provider trust and current-boot provider export audit binding exist\"},");
     raw("        {\"kind\": \"provider_minimal\", \"reason\": ");
     json_str(provider_context_block_reason(provider.trust_state));
-    raw_line("}");
+    raw("}");
+    if durable_omitted.is_empty() {
+        raw_line("");
+    } else {
+        raw_line(",");
+        let mut omitted_idx = 0usize;
+        while omitted_idx < durable_omitted.len() {
+            raw("        ");
+            emit_record_value_fragment(durable_omitted[omitted_idx].clone(), 8);
+            if omitted_idx + 1 == durable_omitted.len() {
+                raw_line("");
+            } else {
+                raw_line(",");
+            }
+            omitted_idx += 1;
+        }
+    }
     raw_line("      ]");
     end_response("memory.context");
 }

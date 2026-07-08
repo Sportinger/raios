@@ -15,9 +15,13 @@ vocabulary).
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-06.
+Last updated: 2026-07-08.
 
-Current milestone: **M6 Promotion Loop v0** (see Capability Milestones).
+Current milestone: **M9 Durable Memory & Context Broker v1** (ADR 0004 Phase D).
+**M6 Promotion Loop, M7 Persistence, and M8 Recovery Lifeline are COMPLETE**;
+M9A (durable typed memory) + M9B (agent observation) done, M9C (read-only broker) in
+progress — the full M6→M9 narrative is below. (Historical note: the M6 opener below
+was the cursor as of 2026-07-06; the milestone has advanced to M9 since.)
 **M6A (external candidate identity) COMPLETE** (M6A-1 intake + M6A-2a real
 serial delivery + M6A-2b real identity). **M6B (verified grant) done:**
 M6B-1 verifies a pinned dev-key P-256 promotion signature; M6B-2 is the
@@ -130,7 +134,7 @@ matches the golden `record_sha256` computed in raios-core (the EXACT record land
 live RAM quota driven to exhaustion + refund, RAM-only fail-closed selftests (secret/unknown-kind/quota, no
 disk write), and parsed guard needles (every `memory.*` mutation still denied, provider export still
 fail-closed). Grants nothing new; honestly dev_key_not_owner_sealed / current_boot. Max-effort adversarial
-review: SHIP. Regression green (quick/recovery byte-identical/m6c-promotion/full 8168).
+review: SHIP. Regression green (quick/recovery byte-identical/m6c-promotion/full 7834).
 **M9A-3 done (2026-07-07 — CLOSES the M9A block):** M9A-3a added the write-side supersede confinement
 (audit kinds can never be authored as superseding records; supersedes ≤8; no self-supersede; decision needs
 entity+source, problem needs entity+status) with the read-side R1 rule explicitly deferred to M9C. M9A-3b then

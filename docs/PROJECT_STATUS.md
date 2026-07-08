@@ -3590,6 +3590,20 @@ cleanly on the immediate re-run — a packaging/host transient, not code (recove
 seconds earlier). Both classified host-transport per the goal's flake rule; M9B closed on
 recovery-byte-identical + full-7834 + memory-durable-105.
 
+**M9C-1b IMPLEMENTED (2026-07-08, read-only broker surface, no provider export).** `memory.context` can now
+DO the first durable-memory broker read: it reads the SEED_DATA RECLOG region through the existing
+`ahci::read_persist_reclog_region` path, reparses integrity-verified frames with the already-merged
+`raios_core::memory_record::parse`, drops non-memory/corrupt payloads without panic, caps the newest parsed
+records to 64, resolves visibility with `resolve_durable_memory` (R1 audit supersede ignored, LOW-1 frame
+seq ordering, audit id-shadow preservation, LOW-3 identity by record id only), and emits a top-level
+`durable_records` metadata array plus explicit durable omission folds. It never emits raw record `value`.
+`local_only` records surface only locally with `exportable:false` and `durable_local_only_value`; provider
+export stays fail-closed (`provider_export:"disabled"`, `agent_protocol_provider.rs` untouched, no durable
+content routed into `provider_projection`). New `memory.broker_resolve_selftest` is RAM-only/no-disk and
+covers R1, LOW-1, audit-id-shadow, and LOW-3. The `memory-durable` profile gained broker-* needle families
+for durable inclusion, supersede hiding, frame-ordering, classification/exportability, export still closed,
+and the broker resolver selftest; QEMU proof is left to the orchestrator per packet instructions.
+
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 recovery/hello dispatch-bound completion-denial smoke runs on Windows with
@@ -5362,7 +5376,10 @@ Historical verified recovery foundation retained for reference:
   first `output_text` string.
 - QEMU TCP serial is single-client in practice; do not run two serial clients
   against the same port at the same time.
-- No signed module runtime exists yet.
+- (Historical gap, CLOSED by M6C/M7D:) a signed module runtime exists — an external
+  dev-key-signed Wasm candidate is delivered, verified, promoted, durably persisted,
+  and re-verified across a real reboot through the unchanged M6 gate, honestly labeled
+  `dev_key_not_owner_sealed` (owner-sealed is the final ceremony).
 
 ## Do Not Regress
 

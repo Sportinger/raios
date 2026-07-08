@@ -49,7 +49,11 @@ use crate::{
     module_candidate_channel,
 };
 use raios_core::{
-    memory_record::{MemoryRecord, MemoryRecordError, MemoryRecordInput, MemorySource},
+    memory_record::{
+        Classification, MemoryKind, MemoryRecord, MemoryRecordError, MemoryRecordInput,
+        MemoryRecordView, MemorySource,
+    },
+    memory_record_resolve::resolve_durable_memory,
     record::{Field, Value as V},
     scoped_memory_record_append::{
         evaluate_scoped_memory_record_append, ScopedMemoryRecordAppendInput, EXPECTED_METHOD,
@@ -63,6 +67,8 @@ const SELFTEST_METHOD: &str = "memory.record_log_append_selftest";
 const SELFTEST_SCHEMA: &str = "raios.memory_record_append_selftest.v0";
 const DECISION_PROBLEM_METHOD: &str = "memory.decision_problem_log_append";
 const DECISION_PROBLEM_RESPONSE_SCHEMA: &str = "raios.memory_decision_problem_append.v0";
+const BROKER_RESOLVE_SELFTEST_METHOD: &str = "memory.broker_resolve_selftest";
+const BROKER_RESOLVE_SELFTEST_SCHEMA: &str = "raios.memory_broker_resolve_selftest.v0";
 
 /// Record A source: the owner-answers standing decision that module sharing is
 /// confirmed vision (commit b7241b2 / the M12+ direction review), NOT
@@ -215,6 +221,109 @@ fn optional_u64(value: Option<u64>) -> V<'static> {
         Some(value) => V::U64(value),
         None => V::Null,
     }
+}
+
+pub(crate) fn durable_memory_context() -> durable_store::DurableMemoryContext {
+    durable_store::current_boot_durable_memory_context()
+}
+
+pub(crate) fn durable_records_array<'a>(context: &'a durable_store::DurableMemoryContext) -> V<'a> {
+    let mut records = Vec::with_capacity(context.records.len());
+    let mut idx = 0usize;
+    while idx < context.records.len() {
+        let record = &context.records[idx];
+        records.push(V::InlineObject(vec![
+            f("id", s(record.id.as_str())),
+            f("kind", s(record.kind)),
+            f("entity", s(record.entity.as_str())),
+            f("predicate", s(record.predicate.as_str())),
+            f("classification", s(record.classification)),
+            f("authority", s(record.authority.as_str())),
+            f("scope", s("durable")),
+            f("exportable", b(record.exportable)),
+        ]));
+        idx += 1;
+    }
+    V::Array(records)
+}
+
+pub(crate) fn durable_omitted_folds<'a>(
+    context: &'a durable_store::DurableMemoryContext,
+) -> Vec<V<'a>> {
+    let mut folds = Vec::new();
+    if !context.superseded_hidden.is_empty() {
+        folds.push(V::InlineObject(vec![
+            f("kind", s("durable_superseded")),
+            f("ids", string_array(&context.superseded_hidden)),
+        ]));
+    }
+    if !context.r1_ignored_supersedes.is_empty() {
+        folds.push(V::InlineObject(vec![
+            f("kind", s("durable_r1_ignored_supersede")),
+            f(
+                "reason",
+                s("supersede target is an audit kind; audit stays visible"),
+            ),
+            f(
+                "links",
+                supersede_link_array(&context.r1_ignored_supersedes),
+            ),
+        ]));
+    }
+    if !context.dangling_supersedes.is_empty() {
+        folds.push(V::InlineObject(vec![
+            f("kind", s("durable_dangling_supersede")),
+            f("ids", string_array(&context.dangling_supersedes)),
+        ]));
+    }
+    if !context.audit_id_reused.is_empty() {
+        folds.push(V::InlineObject(vec![
+            f("kind", s("durable_audit_id_reused")),
+            f("ids", string_array(&context.audit_id_reused)),
+        ]));
+    }
+    if context.over_budget {
+        folds.push(V::InlineObject(vec![f(
+            "kind",
+            s("durable_records_over_budget"),
+        )]));
+    }
+    if context.frame_dropped_count > 0 {
+        folds.push(V::InlineObject(vec![
+            f("kind", s("durable_frame_dropped")),
+            f("count", V::U64(context.frame_dropped_count)),
+        ]));
+    }
+    if context.local_only_visible {
+        folds.push(V::InlineObject(vec![f(
+            "kind",
+            s("durable_local_only_value"),
+        )]));
+    }
+    folds
+}
+
+fn string_array<'a>(ids: &'a [alloc::string::String]) -> V<'a> {
+    let mut values = Vec::with_capacity(ids.len());
+    let mut idx = 0usize;
+    while idx < ids.len() {
+        values.push(s(ids[idx].as_str()));
+        idx += 1;
+    }
+    V::Array(values)
+}
+
+fn supersede_link_array<'a>(links: &'a [durable_store::DurableMemorySupersedeLink]) -> V<'a> {
+    let mut values = Vec::with_capacity(links.len());
+    let mut idx = 0usize;
+    while idx < links.len() {
+        values.push(V::InlineArray(vec![
+            s(links[idx].superseder.as_str()),
+            s(links[idx].target.as_str()),
+        ]));
+        idx += 1;
+    }
+    V::Array(values)
 }
 
 // --- M9A-3b: decision/problem/supersede trio -------------------------------------
@@ -852,6 +961,263 @@ fn scoped_case(
         actual_status: decision.status,
         actual_reason: decision.reason,
         passed: decision.status == "denied" && decision.reason == expected_reason,
+    }
+}
+
+#[derive(Clone, Copy)]
+struct MemoryBrokerResolveSelftestCase {
+    name: &'static str,
+    expected: &'static str,
+    actual: &'static str,
+    passed: bool,
+}
+
+pub(crate) fn emit_memory_broker_resolve_selftest() {
+    let cases = broker_resolve_selftest_cases();
+    let passed = cases.iter().all(|case| case.passed);
+    let case_records = cases.iter().map(record_broker_resolve_case).collect();
+
+    begin_response(BROKER_RESOLVE_SELFTEST_METHOD);
+    emit_record_fields(
+        vec![
+            f("schema", s(BROKER_RESOLVE_SELFTEST_SCHEMA)),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", b(true)),
+            f("mutates_global_event_log", b(false)),
+            f("writes_persistent_state", b(false)),
+            f("case_count", V::U64(cases.len() as u64)),
+            f("passed", b(passed)),
+            f("cases", V::Array(case_records)),
+        ],
+        6,
+    );
+    end_response(BROKER_RESOLVE_SELFTEST_METHOD);
+}
+
+fn record_broker_resolve_case(case: &MemoryBrokerResolveSelftestCase) -> V<'static> {
+    V::InlineObject(vec![
+        f("case", s(case.name)),
+        f("expected", s(case.expected)),
+        f("actual", s(case.actual)),
+        f("passed", b(case.passed)),
+    ])
+}
+
+fn broker_resolve_selftest_cases() -> Vec<MemoryBrokerResolveSelftestCase> {
+    vec![
+        broker_r1_case(),
+        broker_low1_case(),
+        broker_audit_shadow_case(),
+        broker_low3_case(),
+    ]
+}
+
+fn broker_view(
+    id: &'static str,
+    kind: MemoryKind,
+    entity: &'static str,
+    predicate: &'static str,
+    authority: &'static str,
+    sequence: u64,
+    source_record_id: &'static str,
+    supersedes: Vec<&'static str>,
+) -> MemoryRecordView<'static> {
+    MemoryRecordView {
+        id,
+        kind,
+        entity,
+        predicate,
+        classification: Classification::LocalOnly,
+        authority,
+        boot_id: "current_boot",
+        sequence,
+        source: MemorySource::new(BROKER_RESOLVE_SELFTEST_METHOD, source_record_id),
+        evidence: vec![],
+        tags: vec![],
+        supersedes,
+        created_at_ticks: 0,
+    }
+}
+
+fn visible_id(resolved: &raios_core::memory_record_resolve::ResolvedMemory<'_>, id: &str) -> bool {
+    resolved.visible.iter().any(|(_, view)| view.id == id)
+}
+
+fn broker_r1_case() -> MemoryBrokerResolveSelftestCase {
+    let audit_id = "mem.selftest.r1.capability_denial.v0";
+    let superseder_id = "mem.selftest.r1.decision.v0";
+    let views = vec![
+        (
+            1,
+            broker_view(
+                audit_id,
+                MemoryKind::CapabilityDenial,
+                "cap.module.load",
+                "capability_denied",
+                "core_ledger",
+                0,
+                "selftest.audit",
+                vec![],
+            ),
+        ),
+        (
+            2,
+            broker_view(
+                superseder_id,
+                MemoryKind::Decision,
+                "cap.module.load",
+                "standing_decision",
+                "decision",
+                0,
+                "selftest.decision",
+                vec![audit_id],
+            ),
+        ),
+    ];
+    let resolved = resolve_durable_memory(&views);
+    let passed = visible_id(&resolved, audit_id)
+        && visible_id(&resolved, superseder_id)
+        && resolved.superseded_hidden.is_empty()
+        && resolved.r1_ignored_supersedes == vec![(superseder_id, audit_id)];
+    MemoryBrokerResolveSelftestCase {
+        name: "R1_audit_supersede_ignored",
+        expected: "audit target stays visible and ignored link is recorded",
+        actual: if passed { "matched" } else { "mismatch" },
+        passed,
+    }
+}
+
+fn broker_low1_case() -> MemoryBrokerResolveSelftestCase {
+    let id = "mem.selftest.low1.same_id.v0";
+    let old = broker_view(
+        id,
+        MemoryKind::Decision,
+        "ordering",
+        "old_payload_sequence_high",
+        "decision",
+        999,
+        "selftest.old",
+        vec![],
+    );
+    let new = broker_view(
+        id,
+        MemoryKind::Decision,
+        "ordering",
+        "new_frame_seq_wins",
+        "decision",
+        1,
+        "selftest.new",
+        vec![],
+    );
+    let views = vec![(1, old), (2, new)];
+    let resolved = resolve_durable_memory(&views);
+    let passed = resolved.visible.len() == 1
+        && resolved.visible[0].0 == 2
+        && resolved.visible[0].1.predicate == "new_frame_seq_wins";
+    MemoryBrokerResolveSelftestCase {
+        name: "LOW_1_frame_seq_beats_payload_sequence",
+        expected: "latest frame seq wins even when payload sequence is lower",
+        actual: if passed { "matched" } else { "mismatch" },
+        passed,
+    }
+}
+
+fn broker_audit_shadow_case() -> MemoryBrokerResolveSelftestCase {
+    let id = "mem.selftest.audit_shadow.same_id.v0";
+    let views = vec![
+        (
+            1,
+            broker_view(
+                id,
+                MemoryKind::CapabilityDenial,
+                "cap.audit",
+                "capability_denied",
+                "core_ledger",
+                0,
+                "selftest.audit",
+                vec![],
+            ),
+        ),
+        (
+            2,
+            broker_view(
+                id,
+                MemoryKind::Decision,
+                "cap.audit",
+                "same_id_shadow_attempt",
+                "decision",
+                0,
+                "selftest.shadow",
+                vec![],
+            ),
+        ),
+    ];
+    let resolved = resolve_durable_memory(&views);
+    let passed = resolved.visible.len() == 1
+        && resolved.visible[0].1.kind == MemoryKind::CapabilityDenial
+        && resolved.audit_id_reused == vec![id];
+    MemoryBrokerResolveSelftestCase {
+        name: "audit_id_shadow_keeps_audit_visible",
+        expected: "later non-audit same-id record cannot displace an audit record",
+        actual: if passed { "matched" } else { "mismatch" },
+        passed,
+    }
+}
+
+fn broker_low3_case() -> MemoryBrokerResolveSelftestCase {
+    let real_id = "mem.selftest.low3.real.v0";
+    let decoy_id = "mem.selftest.low3.decoy.v0";
+    let superseder_id = "mem.selftest.low3.superseder.v0";
+    let real = broker_view(
+        real_id,
+        MemoryKind::Decision,
+        "source_spoof",
+        "real_record",
+        "decision",
+        0,
+        decoy_id,
+        vec![],
+    );
+    let views = vec![
+        (1, real),
+        (
+            2,
+            broker_view(
+                decoy_id,
+                MemoryKind::Problem,
+                "source_spoof",
+                "open",
+                "event",
+                0,
+                "selftest.decoy",
+                vec![],
+            ),
+        ),
+        (
+            3,
+            broker_view(
+                superseder_id,
+                MemoryKind::Decision,
+                "source_spoof",
+                "supersede_decoy",
+                "decision",
+                0,
+                "selftest.superseder",
+                vec![decoy_id],
+            ),
+        ),
+    ];
+    let resolved = resolve_durable_memory(&views);
+    let passed = visible_id(&resolved, real_id)
+        && visible_id(&resolved, superseder_id)
+        && !visible_id(&resolved, decoy_id)
+        && resolved.superseded_hidden == vec![decoy_id];
+    MemoryBrokerResolveSelftestCase {
+        name: "LOW_3_source_record_id_spoof_is_not_identity",
+        expected: "source.record_id never changes the record id used for supersession",
+        actual: if passed { "matched" } else { "mismatch" },
+        passed,
     }
 }
 

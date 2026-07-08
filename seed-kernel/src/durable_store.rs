@@ -1,4 +1,4 @@
-use alloc::{vec, vec::Vec};
+use alloc::{string::String, vec, vec::Vec};
 use core::str;
 
 use spin::Mutex;
@@ -14,10 +14,11 @@ use raios_core::{
     boot_control::BootPosture,
     durable_record_frame::{
         durable_record_log_scan_fields, parse_reclog_frame, plan_reclog_append, scan_reclog,
-        PlannedAppend, RecordLogScan, DURABLE_RECORD_LOG_SCAN_SCHEMA, RECLOG_FRAME_HEADER_LEN,
-        RECLOG_SECTOR_SIZE,
+        scan_reclog_payloads, PlannedAppend, RecordLogScan, DURABLE_RECORD_LOG_SCAN_SCHEMA,
+        RECLOG_FRAME_HEADER_LEN, RECLOG_SECTOR_SIZE,
     },
-    memory_record::MemoryRecord,
+    memory_record::{self, MemoryRecord, MemoryRecordView},
+    memory_record_resolve::resolve_durable_memory,
     promotion_attestation::{
         PLACEHOLDER_PROMOTION_AUTHORITY_PUBLIC_KEY_SHA256, PROMOTION_AUTHORITY_IS_PLACEHOLDER,
     },
@@ -2285,6 +2286,141 @@ fn current_boot_reclog_scan() -> DurableRecordLogScanEvidence {
     }
 }
 
+pub(crate) const MAX_DURABLE_RECORDS_SURFACED: usize = 64;
+
+pub(crate) struct DurableMemoryRecord {
+    pub(crate) id: String,
+    pub(crate) kind: &'static str,
+    pub(crate) entity: String,
+    pub(crate) predicate: String,
+    pub(crate) classification: &'static str,
+    pub(crate) authority: String,
+    pub(crate) exportable: bool,
+}
+
+pub(crate) struct DurableMemorySupersedeLink {
+    pub(crate) superseder: String,
+    pub(crate) target: String,
+}
+
+pub(crate) struct DurableMemoryContext {
+    pub(crate) records: Vec<DurableMemoryRecord>,
+    pub(crate) superseded_hidden: Vec<String>,
+    pub(crate) r1_ignored_supersedes: Vec<DurableMemorySupersedeLink>,
+    pub(crate) dangling_supersedes: Vec<String>,
+    pub(crate) audit_id_reused: Vec<String>,
+    pub(crate) over_budget: bool,
+    pub(crate) frame_dropped_count: u64,
+    pub(crate) local_only_visible: bool,
+}
+
+impl DurableMemoryContext {
+    fn empty() -> Self {
+        Self {
+            records: Vec::new(),
+            superseded_hidden: Vec::new(),
+            r1_ignored_supersedes: Vec::new(),
+            dangling_supersedes: Vec::new(),
+            audit_id_reused: Vec::new(),
+            over_budget: false,
+            frame_dropped_count: 0,
+            local_only_visible: false,
+        }
+    }
+}
+
+pub(crate) fn current_boot_durable_memory_context() -> DurableMemoryContext {
+    let Some(controller) = pci::find_mass_storage_controller() else {
+        return DurableMemoryContext::empty();
+    };
+    let read = ahci::read_persist_reclog_region(controller);
+    let Some(region) = read.bytes else {
+        return DurableMemoryContext::empty();
+    };
+
+    let payloads = scan_reclog_payloads(&region);
+    let mut parsed = Vec::new();
+    let mut frame_dropped_count = 0u64;
+    let mut idx = 0usize;
+    while idx < payloads.len() {
+        let (seq, payload) = payloads[idx];
+        match memory_record::parse(payload) {
+            Ok(view) => parsed.push((seq, view)),
+            Err(_) => frame_dropped_count = frame_dropped_count.saturating_add(1),
+        }
+        idx += 1;
+    }
+
+    let over_budget = parsed.len() > MAX_DURABLE_RECORDS_SURFACED;
+    let start = if over_budget {
+        parsed.len() - MAX_DURABLE_RECORDS_SURFACED
+    } else {
+        0
+    };
+    let mut capped = Vec::with_capacity(parsed.len().saturating_sub(start));
+    idx = start;
+    while idx < parsed.len() {
+        capped.push((parsed[idx].0, parsed[idx].1.clone()));
+        idx += 1;
+    }
+
+    let resolved = resolve_durable_memory(&capped);
+    let mut context = DurableMemoryContext::empty();
+    context.over_budget = over_budget;
+    context.frame_dropped_count = frame_dropped_count;
+
+    idx = 0;
+    while idx < resolved.visible.len() {
+        let view = &resolved.visible[idx].1;
+        context.records.push(copy_durable_memory_record(view));
+        if view.classification.as_str() == "local_only" {
+            context.local_only_visible = true;
+        }
+        idx += 1;
+    }
+    context.superseded_hidden = copy_ids(&resolved.superseded_hidden);
+    context.r1_ignored_supersedes = copy_links(&resolved.r1_ignored_supersedes);
+    context.dangling_supersedes = copy_ids(&resolved.dangling_supersedes);
+    context.audit_id_reused = copy_ids(&resolved.audit_id_reused);
+    context
+}
+
+fn copy_durable_memory_record(view: &MemoryRecordView<'_>) -> DurableMemoryRecord {
+    let classification = view.classification.as_str();
+    DurableMemoryRecord {
+        id: String::from(view.id),
+        kind: view.kind.as_str(),
+        entity: String::from(view.entity),
+        predicate: String::from(view.predicate),
+        classification,
+        authority: String::from(view.authority),
+        exportable: classification == "public",
+    }
+}
+
+fn copy_ids(ids: &[&str]) -> Vec<String> {
+    let mut out = Vec::with_capacity(ids.len());
+    let mut idx = 0usize;
+    while idx < ids.len() {
+        out.push(String::from(ids[idx]));
+        idx += 1;
+    }
+    out
+}
+
+fn copy_links(links: &[(&str, &str)]) -> Vec<DurableMemorySupersedeLink> {
+    let mut out = Vec::with_capacity(links.len());
+    let mut idx = 0usize;
+    while idx < links.len() {
+        out.push(DurableMemorySupersedeLink {
+            superseder: String::from(links[idx].0),
+            target: String::from(links[idx].1),
+        });
+        idx += 1;
+    }
+    out
+}
+
 // --- M9A-2b durable memory record append (raios.memory_record.v0) -----------------
 //
 // Appends the ONE system-authored `raios.memory_record.v0` durable memory fact
@@ -2496,8 +2632,7 @@ fn append_memory_record_inner<'a>(
     // rather than write an undercharged frame. Gated on agent_authored: the system path
     // (sector_count=1, fixed <=1-sector records) is untouched.
     if agent_authored
-        && planned.frame_len
-            > (sector_count).saturating_mul(RECLOG_SECTOR_SIZE as u64)
+        && planned.frame_len > (sector_count).saturating_mul(RECLOG_SECTOR_SIZE as u64)
     {
         memory_write_quota_release_sectors(sector_count);
         return memory_record_append_evidence(
