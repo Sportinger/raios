@@ -6,7 +6,7 @@ use crate::{
         begin_response, crlf, emit_export_gate, emit_record_fields, end_response, indent,
         json_current_boot_id, json_event_id, json_event_id_option, json_opt_str, json_sha256,
         json_sha256_option, json_str, method_eq, method_head_eq, raw, raw_bool, raw_fmt, raw_line,
-        record_bool as b, record_field as f, record_str as s,
+        record_bool as b, record_field as f, record_sha as sha, record_str as s,
     },
     agent_protocol_system::{
         emit_capability_ids, emit_problem_objects, emit_service_ids, emit_status_state_at,
@@ -17,9 +17,11 @@ use crate::{
     ui, wifi,
 };
 use raios_core::{
+    provider_trust_descriptor::{
+        evaluate_provider_trust_descriptor_honesty, ProviderTrustDescriptor,
+    },
     record::{sha256_of_json, Value as V},
     scoped_provider_trust_honesty::{
-        evaluate_provider_trust_honesty, ProviderTrustHonestyInput,
         SCOPED_PROVIDER_TRUST_HONESTY_DECISION_ID, SCOPED_PROVIDER_TRUST_HONESTY_DECISION_MARKER,
         SCOPED_PROVIDER_TRUST_HONESTY_DECISION_SCHEMA,
     },
@@ -65,16 +67,25 @@ pub(crate) fn provider_minimal_context_evidence_for_runtime(
 pub(crate) fn emit_provider_trust_honesty(_request: &str) {
     let snap = provider_trust::snapshot();
     let trust_state = snap.state.as_protocol();
-    let input = ProviderTrustHonestyInput {
-        provider_id: Some("openai"),
-        trust_state: Some(trust_state),
-        chain_policy: Some(snap.verifier.chain_policy),
-        time_policy: Some(snap.verifier.time_policy),
+    let verifier = snap.verifier;
+    let descriptor = ProviderTrustDescriptor {
+        provider_id: "openai",
+        id: verifier.id,
+        host: verifier.host,
+        port: verifier.port,
+        transport: verifier.transport,
+        hostname_policy: verifier.hostname_policy,
+        pin_policy: verifier.pin_policy,
+        chain_policy: verifier.chain_policy,
+        time_policy: verifier.time_policy,
+        certificate_verify_policy: verifier.certificate_verify_policy,
+        trust_state,
         development_bypass: snap.development_bypass,
         claims_chain_validated: false,
         claims_time_validated: false,
     };
-    let decision = evaluate_provider_trust_honesty(&input);
+    let descriptor_sha256 = descriptor.record_sha256();
+    let decision = evaluate_provider_trust_descriptor_honesty(&descriptor);
 
     begin_response("provider.trust_honesty");
     emit_record_fields(
@@ -89,7 +100,10 @@ pub(crate) fn emit_provider_trust_honesty(_request: &str) {
                 "decision_marker",
                 s(SCOPED_PROVIDER_TRUST_HONESTY_DECISION_MARKER),
             ),
-            f("provider_id", s("openai")),
+            f("provider_id", s(descriptor.provider_id)),
+            f("descriptor_id", s(descriptor.id)),
+            f("host", s(descriptor.host)),
+            f("descriptor_sha256", sha(descriptor_sha256)),
             f("performed", b(decision.performed)),
             f("status", s(decision.status)),
             f("reason", s(decision.reason)),
@@ -105,8 +119,8 @@ pub(crate) fn emit_provider_trust_honesty(_request: &str) {
                 b(decision.authorizes_provider_export),
             ),
             f("trust_state", s(trust_state)),
-            f("chain_policy", s(snap.verifier.chain_policy)),
-            f("time_policy", s(snap.verifier.time_policy)),
+            f("chain_policy", s(descriptor.chain_policy)),
+            f("time_policy", s(descriptor.time_policy)),
             f("development_bypass", b(snap.development_bypass)),
             f("claims_chain_validated", b(false)),
             f("claims_time_validated", b(false)),

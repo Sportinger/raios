@@ -36,6 +36,19 @@
     if (-not $providerTrustHonestyUnpinnedDenial) {
         throw "Expected provider.trust_honesty to report the live unpinned boot as an honest M10A-1 denial"
     }
+    $providerTrustHonestyDescriptorDriven = (
+        $trustHonesty.provider_id -eq "openai" -and
+        $trustHonesty.descriptor_id -eq "openai.pinned_tls13_p256_sha256.v0" -and
+        $trustHonesty.host -eq "api.openai.com" -and
+        $trustHonesty.chain_policy -eq "pin_only_no_webpki_chain_validation" -and
+        $trustHonesty.time_policy -eq "not_validated_stage0" -and
+        $trustHonesty.descriptor_sha256 -is [string] -and
+        $trustHonesty.descriptor_sha256 -cmatch '^sha256:[0-9a-f]{64}$'
+    )
+    Add-Predicate -Name "protocol:provider_trust_honesty_descriptor_driven" -Expected "provider.trust_honesty reports OpenAI descriptor identity and descriptor sha256" -Passed $providerTrustHonestyDescriptorDriven -Actual $(if ($providerTrustHonestyDescriptorDriven) { "descriptor_driven" } else { ($trustHonesty | ConvertTo-Json -Compress -Depth 5) })
+    if (-not $providerTrustHonestyDescriptorDriven) {
+        throw "Expected provider.trust_honesty to report descriptor-driven OpenAI trust metadata"
+    }
     $providerTrustHonestyGrantsNothing = (
         $trustHonesty.authorizes_provider_request -eq $false -and
         $trustHonesty.authorizes_provider_export -eq $false -and

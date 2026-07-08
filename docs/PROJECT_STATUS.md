@@ -24,6 +24,28 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+M10B-2 done (2026-07-08, host-only worker packet; no QEMU): the kernel's live
+`provider.trust_honesty` path now evaluates the one real OpenAI provider
+through the committed provider-agnostic
+`raios_core::provider_trust_descriptor::ProviderTrustDescriptor`, proving the
+honesty path is descriptor-driven while granting nothing. The descriptor is
+built from `provider_trust::snapshot()`: `provider_id = "openai"`,
+`trust_state = snap.state.as_protocol()`, `development_bypass =
+snap.development_bypass`, false chain/time validation claims, and
+id/host/port/transport/hostname/pin/chain/time/certificate-verifier metadata
+from the real Stage-0 verifier. The handler now calls
+`evaluate_provider_trust_descriptor_honesty`, so the M10A-1 decision result is
+unchanged, and additively reports descriptor identity
+(`descriptor_id`, `host`, `descriptor_sha256`) alongside the existing provider
+id, chain policy, and time policy. The common smoke profile adds
+`protocol:provider_trust_honesty_descriptor_driven` without loosening the
+existing unpinned-denial or grants-nothing predicates. Host-only verification:
+`cargo fmt -p seed-kernel --check`, `cargo fmt -p raios-core --check`,
+`cargo test --locked -p raios-core` (201 passed), release seed-kernel build,
+and PowerShell parse of the edited common profile all passed. No raios-core,
+provider trust config, OpenAI transport/export gate, second/fake live provider,
+durable write, request/export authority, commit, or VM run was added.
+
 M10B-1 done (2026-07-08, host-only worker packet; no kernel/VM wiring): an
 agent can describe OpenAI and a second provider with one typed,
 provider-agnostic trust descriptor and run the committed M10A-1 honesty
