@@ -1,6 +1,6 @@
 use crate::framebuffer::{Color, FramebufferInfo, FramebufferSurface};
 use crate::system_status::{RowState, SnapshotStates, StatusLine, SystemSnapshot, TextBuf};
-use crate::{console, input, serial, text, wifi};
+use crate::{console, input, marvell_wifi_pcie, serial, text, wifi};
 use core::fmt::{self, Write};
 
 pub use crate::system_status::RuntimeStatus;
@@ -228,13 +228,23 @@ impl StatusUi {
                 action_w,
                 SETTINGS_ACTION_H,
             ) {
-                return console::activate_focus(console::UiFocus::SettingsWifiScan);
+                return console::activate_focus(console::UiFocus::SettingsWifiFirmware);
             }
             if point_in(
                 x,
                 y,
                 action_x2,
                 action_y + SETTINGS_ACTION_ROW_STEP * 3,
+                action_w,
+                SETTINGS_ACTION_H,
+            ) {
+                return console::activate_focus(console::UiFocus::SettingsWifiScan);
+            }
+            if point_in(
+                x,
+                y,
+                action_x,
+                action_y + SETTINGS_ACTION_ROW_STEP * 4,
                 action_w,
                 SETTINGS_ACTION_H,
             ) {
@@ -469,6 +479,7 @@ fn draw_status_detail(
     y = y.saturating_add(STATUS_DETAIL_LINE_H);
     draw_status_detail_line(surface, width, y, "IOMMU", &snapshot.iommu);
     y = y.saturating_add(STATUS_DETAIL_LINE_H);
+    y = draw_wifi_firmware_detail(surface, width, y);
     draw_wifi_scan_detail(surface, width, y);
 }
 
@@ -521,6 +532,35 @@ fn draw_wifi_scan_detail(surface: &mut FramebufferSurface, width: usize, mut y: 
         y = y.saturating_add(STATUS_DETAIL_LINE_H);
         idx += 1;
     }
+}
+
+fn draw_wifi_firmware_detail(
+    surface: &mut FramebufferSurface,
+    width: usize,
+    mut y: usize,
+) -> usize {
+    let firmware = marvell_wifi_pcie::snapshot();
+    let color = firmware_status_color(firmware);
+    draw_status_text_line(
+        surface,
+        width,
+        y,
+        "FW",
+        "WIFI FW: firmware bring-up ATTEMPT (unaudited blob; DMA not IOMMU-confined)",
+        color,
+    );
+    y = y.saturating_add(STATUS_DETAIL_LINE_H);
+
+    let ladder = firmware_ladder_line(firmware);
+    draw_status_text_line(surface, width, y, "FW", ladder.as_str(), color);
+    y = y.saturating_add(STATUS_DETAIL_LINE_H);
+
+    if firmware.is_failed() || firmware.is_ready() {
+        let regs = firmware_register_line(firmware);
+        draw_status_text_line(surface, width, y, "FWREG", regs.as_str(), color);
+        y = y.saturating_add(STATUS_DETAIL_LINE_H);
+    }
+    y
 }
 
 fn draw_status_text_line(
@@ -1485,19 +1525,28 @@ fn draw_settings(
         action_x,
         action_y + SETTINGS_ACTION_ROW_STEP * 3,
         action_w,
-        "Scan networks",
-        snapshot.focus == console::UiFocus::SettingsWifiScan,
+        "Start WiFi FW",
+        snapshot.focus == console::UiFocus::SettingsWifiFirmware,
     );
     draw_settings_action(
         surface,
         action_x2,
         action_y + SETTINGS_ACTION_ROW_STEP * 3,
         action_w,
+        "Scan networks",
+        snapshot.focus == console::UiFocus::SettingsWifiScan,
+    );
+    draw_settings_action(
+        surface,
+        action_x,
+        action_y + SETTINGS_ACTION_ROW_STEP * 4,
+        action_w,
         "Close Settings",
         snapshot.focus == console::UiFocus::SettingsClose,
     );
 
-    draw_settings_wifi_networks(surface, width, height, top + 286);
+    let networks_y = draw_settings_wifi_firmware(surface, width, top + 340);
+    draw_settings_wifi_networks(surface, width, height, networks_y.saturating_add(14));
 
     draw_input_bar(
         surface,
@@ -1508,6 +1557,37 @@ fn draw_settings(
         "",
         false,
     );
+}
+
+fn draw_settings_wifi_firmware(
+    surface: &mut FramebufferSurface,
+    width: usize,
+    mut y: usize,
+) -> usize {
+    let firmware = marvell_wifi_pcie::snapshot();
+    let max_chars = usize::max(8, width.saturating_sub(112) / FONT_ADVANCE);
+    let color = firmware_status_color(firmware);
+    draw_truncated_text(
+        surface,
+        56,
+        y,
+        "WIFI FW - ATTEMPT ONLY (unaudited blob; DMA not IOMMU-confined)",
+        max_chars,
+        color,
+    );
+    surface.fill_rect(48, y + 21, width.saturating_sub(120), 1, HAIRLINE);
+    y = y.saturating_add(38);
+
+    let ladder = firmware_ladder_line(firmware);
+    draw_truncated_text(surface, 72, y, ladder.as_str(), max_chars, color);
+    y = y.saturating_add(18);
+
+    if firmware.is_failed() || firmware.is_ready() {
+        let regs = firmware_register_line(firmware);
+        draw_truncated_text(surface, 72, y, regs.as_str(), max_chars, color);
+        y = y.saturating_add(18);
+    }
+    y
 }
 
 fn draw_settings_wifi_networks(
@@ -1622,6 +1702,91 @@ fn wifi_scan_settings_network_line(network: wifi::ScannedNetwork) -> TextBuf<160
         );
     }
     line
+}
+
+fn firmware_status_color(firmware: marvell_wifi_pcie::FirmwareBringupSnapshot) -> Color {
+    if firmware.is_ready() {
+        APP_GREEN
+    } else if firmware.is_failed() {
+        APP_RED
+    } else if firmware.running || firmware.attempted {
+        APP_AMBER
+    } else {
+        TEXT_FAINT
+    }
+}
+
+fn firmware_ladder_line(firmware: marvell_wifi_pcie::FirmwareBringupSnapshot) -> TextBuf<192> {
+    let mut line = TextBuf::new();
+    let status = match firmware.result {
+        Some(result) => result.label(),
+        None if firmware.running => "running",
+        None if firmware.attempted => "pending",
+        None => "not_started",
+    };
+    let failed_at = match firmware.failed_stage {
+        Some(stage) => stage.label(),
+        None => firmware.stage.label(),
+    };
+    let _ = write!(
+        line,
+        "DETECT {} -> BAR2 {} -> DOWNLOAD {}/{} -> FW_STATUS=0x{:08X} -> {}@{}",
+        detect_ladder_label(firmware),
+        bar2_ladder_label(firmware),
+        firmware.downloaded,
+        firmware.total,
+        firmware.registers.fw_status,
+        status,
+        failed_at
+    );
+    line
+}
+
+fn firmware_register_line(firmware: marvell_wifi_pcie::FirmwareBringupSnapshot) -> TextBuf<192> {
+    let mut line = TextBuf::new();
+    if firmware.registers.valid {
+        let _ = write!(
+            line,
+            "REG C40=0x{:08X} C44=0x{:08X} CF0=0x{:08X} C30=0x{:08X}",
+            firmware.registers.cmd_size,
+            firmware.registers.fw_status,
+            firmware.registers.drv_ready,
+            firmware.registers.host_int_status
+        );
+    } else {
+        let _ = write!(line, "REG unavailable before MMIO");
+    }
+    line
+}
+
+fn detect_ladder_label(firmware: marvell_wifi_pcie::FirmwareBringupSnapshot) -> &'static str {
+    if firmware.stage == marvell_wifi_pcie::FirmwareStage::Preflight
+        || firmware.stage == marvell_wifi_pcie::FirmwareStage::Idle
+    {
+        "pending"
+    } else if firmware.result == Some(marvell_wifi_pcie::FirmwareDownloadResult::NotPresent) {
+        "missing"
+    } else {
+        "ok"
+    }
+}
+
+fn bar2_ladder_label(firmware: marvell_wifi_pcie::FirmwareBringupSnapshot) -> &'static str {
+    match firmware.result {
+        Some(marvell_wifi_pcie::FirmwareDownloadResult::Bar2Missing)
+        | Some(marvell_wifi_pcie::FirmwareDownloadResult::Bar2NotMmio)
+        | Some(marvell_wifi_pcie::FirmwareDownloadResult::MmioMapFailed(_))
+        | Some(marvell_wifi_pcie::FirmwareDownloadResult::MmioProbeAllOnes) => "failed",
+        _ if firmware.stage == marvell_wifi_pcie::FirmwareStage::Bar2MapOk
+            || firmware.stage == marvell_wifi_pcie::FirmwareStage::Downloading
+            || firmware.stage == marvell_wifi_pcie::FirmwareStage::DoorbellAck
+            || firmware.stage == marvell_wifi_pcie::FirmwareStage::PollingReady
+            || firmware.stage == marvell_wifi_pcie::FirmwareStage::Ready =>
+        {
+            "ok"
+        }
+        _ => "pending",
+    }
 }
 
 fn draw_current_cursor(surface: &mut FramebufferSurface, last_rect: &mut Option<CursorRect>) {

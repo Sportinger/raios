@@ -2,7 +2,7 @@ use core::fmt::{self, Write};
 use core::str;
 
 use crate::framebuffer::FramebufferInfo;
-use crate::{entropy, input, iommu_vtd, net, usb, wifi};
+use crate::{entropy, input, iommu_vtd, marvell_wifi_pcie, net, usb, wifi};
 
 pub const STATUS_DETAIL_LEN: usize = 192;
 
@@ -421,6 +421,7 @@ fn usb_enum_trace_detail(snapshot: usb::UsbSnapshot) -> TextBuf<STATUS_DETAIL_LE
 
 fn wifi_line() -> StatusLine {
     let snapshot = wifi::snapshot();
+    let firmware = marvell_wifi_pcie::snapshot();
     match snapshot.state {
         wifi::WifiState::NotProbed => StatusLine::new(
             "WIFI",
@@ -446,7 +447,7 @@ fn wifi_line() -> StatusLine {
                 "WIFI",
                 RowState::Detected,
                 detail(format_args!(
-                    "{} MARVELL 88W8897 SSID {} KEY {} PCI {:04X}:{:04X} SUBSYS {:04X}:{:04X} BAR0 {} LIVE SCAN UNAVAILABLE {}",
+                    "{} MARVELL 88W8897 SSID {} KEY {} PCI {:04X}:{:04X} SUBSYS {:04X}:{:04X} BAR0 {} FW {} {}/{} LIVE SCAN UNAVAILABLE {}",
                     address.as_str(),
                     wifi_ssid_status(&snapshot.ssid),
                     secret_status(snapshot.passphrase_set),
@@ -455,6 +456,9 @@ fn wifi_line() -> StatusLine {
                     snapshot.subsystem_vendor_id,
                     snapshot.subsystem_id,
                     Bar0(snapshot.bar0_base),
+                    firmware.stage.label(),
+                    firmware.downloaded,
+                    firmware.total,
                     snapshot.scan_unavailable_reason
                 )),
             )

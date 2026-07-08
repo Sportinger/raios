@@ -29,6 +29,7 @@ const HELLO_ARTIFACT_SOURCE_SET: &[&str] = &[
 ];
 
 fn main() {
+    println!("cargo:rustc-check-cfg=cfg(marvell_fw_present)");
     println!("cargo:rerun-if-env-changed=RAIOS_DEFAULT_OPENAI_API_KEY");
     println!("cargo:rerun-if-env-changed=RAIOS_OPENAI_CERT_SHA256");
     println!("cargo:rerun-if-env-changed=RAIOS_OPENAI_SPKI_SHA256");
@@ -368,6 +369,7 @@ writes_persistent_state=false",
     );
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    embed_marvell_wifi_firmware(&manifest_dir, &out_dir);
     fs::write(
         out_dir.join("hello_host_bound_descriptor_source.rs"),
         format!(
@@ -458,6 +460,22 @@ pub(crate) const HELLO_HOST_BOUND_DESCRIPTOR_SOURCE: &str = {};\n",
     attest_certwindow_wasm_artifact(&manifest_dir, &out_dir);
     attest_httphead_wasm_artifact(&manifest_dir, &out_dir);
     attest_certspki_wasm_artifact(&manifest_dir, &out_dir);
+}
+
+fn embed_marvell_wifi_firmware(manifest_dir: &std::path::Path, out_dir: &std::path::Path) {
+    let firmware_path = manifest_dir.join("firmware/pcie8897_uapsta.bin");
+    println!("cargo:rerun-if-changed={}", firmware_path.display());
+    if !firmware_path.exists() {
+        return;
+    }
+
+    let embedded_path = out_dir.join("pcie8897_uapsta.bin");
+    fs::copy(&firmware_path, &embedded_path).unwrap();
+    println!("cargo:rustc-cfg=marvell_fw_present");
+    println!(
+        "cargo:rustc-env=MARVELL_FW_PATH={}",
+        embedded_path.display()
+    );
 }
 
 fn attest_echo_wasm_artifact(manifest_dir: &std::path::Path, out_dir: &std::path::Path) {

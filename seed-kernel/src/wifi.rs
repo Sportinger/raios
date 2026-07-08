@@ -14,6 +14,8 @@ pub const SSID_CAPACITY: usize = 32;
 pub const PASSPHRASE_CAPACITY: usize = 63;
 pub const SCAN_RESULT_CAPACITY: usize = 16;
 pub const WIFI_SCAN_UNAVAILABLE_REASON: &str = "wifi firmware not loaded";
+pub const WIFI_SCAN_MAILBOX_UNAVAILABLE_REASON: &str =
+    "firmware ready; command mailbox not implemented";
 
 static STATE: Mutex<WifiRuntime> = Mutex::new(WifiRuntime::new());
 
@@ -360,6 +362,12 @@ pub fn clear_config() {
     guard.snapshot.ssid.clear();
     guard.passphrase.clear();
     guard.snapshot.passphrase_set = false;
+}
+
+pub fn note_firmware_ready_scan_unavailable() {
+    let mut guard = STATE.lock();
+    guard.snapshot.scan_available = false;
+    guard.snapshot.scan_unavailable_reason = WIFI_SCAN_MAILBOX_UNAVAILABLE_REASON;
 }
 
 fn read_bar0_base(address: PciAddress) -> Option<u64> {

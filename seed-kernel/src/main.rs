@@ -331,6 +331,7 @@ struct PeriodicTasks {
     entropy: scheduler::PeriodicTask,
     net: scheduler::PeriodicTask,
     input: scheduler::PeriodicTask,
+    marvell_wifi_fw: scheduler::PeriodicTask,
     usb_rescan: scheduler::PeriodicTask,
     provider: scheduler::PeriodicTask,
     ui: scheduler::PeriodicTask,
@@ -345,6 +346,7 @@ impl PeriodicTasks {
             entropy: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(8, tsc_per_ms)),
             net: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(50, tsc_per_ms)),
             input: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(8, tsc_per_ms)),
+            marvell_wifi_fw: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(5, tsc_per_ms)),
             usb_rescan: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(500, tsc_per_ms)),
             provider: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(50, tsc_per_ms)),
             ui: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(250, tsc_per_ms)),
@@ -391,6 +393,11 @@ impl PeriodicTasks {
                 status_ui.render_forced(uptime_ms(), *runtime_status);
             } else if pointer_changed {
                 status_ui.render_pointer();
+            }
+        });
+        self.marvell_wifi_fw.try_run(now_tsc, || {
+            if marvell_wifi_pcie::poll() {
+                status_ui.render_forced(uptime_ms(), *runtime_status);
             }
         });
         if self.entropy_ready {

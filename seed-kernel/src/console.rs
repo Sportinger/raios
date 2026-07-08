@@ -9,7 +9,8 @@ use crate::{
         begin_response, end_response, json_event_id, json_opt_str, json_str, method_eq,
         method_head_eq, raw, raw_bool, raw_line,
     },
-    event_log, input, provider, provider_config, serial, system_status, ui, wifi,
+    event_log, input, marvell_wifi_pcie, provider, provider_config, serial, system_status, ui,
+    wifi,
 };
 
 const COMMAND_WIDTH: usize = 4096;
@@ -103,6 +104,7 @@ pub enum UiFocus {
     SettingsWifiSsid,
     SettingsWifiPassphrase,
     SettingsWifiClear,
+    SettingsWifiFirmware,
     SettingsWifiScan,
     SettingsClose,
 }
@@ -409,6 +411,7 @@ impl ConsoleState {
                 wifi::clear_config();
                 ByteAction::ShowSetupMessage(SetupMessage::WifiConfigCleared)
             }
+            UiFocus::SettingsWifiFirmware => ByteAction::StartWifiFirmware,
             UiFocus::SettingsWifiScan => {
                 wifi::run_scan_selftest();
                 ByteAction::ShowSetupMessage(SetupMessage::WifiScanSelftestRun)
@@ -555,7 +558,8 @@ impl ConsoleState {
                 wifi::clear_config();
                 ByteAction::ShowSetupMessage(SetupMessage::WifiConfigCleared)
             }
-            b'7' => {
+            b'7' => ByteAction::StartWifiFirmware,
+            b'8' => {
                 wifi::run_scan_selftest();
                 ByteAction::ShowSetupMessage(SetupMessage::WifiScanSelftestRun)
             }
@@ -716,13 +720,14 @@ const CONSOLE_FOCUS_ORDER: [UiFocus; 4] = [
     UiFocus::NavConsole,
     UiFocus::NavSettings,
 ];
-const SETTINGS_FOCUS_ORDER: [UiFocus; 11] = [
+const SETTINGS_FOCUS_ORDER: [UiFocus; 12] = [
     UiFocus::SettingsProvider,
     UiFocus::SettingsApiKey,
     UiFocus::SettingsClear,
     UiFocus::SettingsWifiSsid,
     UiFocus::SettingsWifiPassphrase,
     UiFocus::SettingsWifiClear,
+    UiFocus::SettingsWifiFirmware,
     UiFocus::SettingsWifiScan,
     UiFocus::SettingsClose,
     UiFocus::NavAi,
@@ -764,6 +769,7 @@ enum ByteAction {
     ShowSetupMenu,
     ShowProviderStatus,
     ShowSetupMessage(SetupMessage),
+    StartWifiFirmware,
     SetupClosed,
 }
 
@@ -1089,6 +1095,11 @@ fn apply_action(action: ByteAction, runtime: ui::RuntimeStatus) -> bool {
             show_setup_menu();
             true
         }
+        ByteAction::StartWifiFirmware => {
+            start_wifi_firmware();
+            show_setup_menu();
+            true
+        }
         ByteAction::SetupClosed => {
             write_output(format_args!("SETUP CLOSED"));
             true
@@ -1163,6 +1174,9 @@ fn execute(command_line: CommandLine, runtime: ui::RuntimeStatus) {
 fn command_help() {
     write_output(format_args!(
         "COMMANDS: help status devices log provider openai wifi setup ask <text>"
+    ));
+    write_output(format_args!(
+        "SETUP: key 7 starts WiFi firmware bring-up once; key 8 runs scan self-test"
     ));
     write_output(format_args!(
         "AGENT: describe snapshot caps bootlog services problems device.graph memory.profile"
@@ -1590,7 +1604,7 @@ fn show_setup_menu() {
         "5 WIFI KEY: {}    6 CLEAR WIFI",
         api_key_status(wifi.passphrase_set)
     ));
-    write_output(format_args!("7 SCAN NETWORKS (SELF-TEST)    Q EXIT"));
+    write_output(format_args!("7 START WIFI FW    8 SCAN NETWORKS    Q EXIT"));
 }
 
 fn show_api_key_entry() {
@@ -1623,6 +1637,17 @@ fn show_provider_status() {
     write_output(format_args!("TLS TRUST: {}", snapshot.trust_state));
     if !snapshot.api_key_set {
         write_output(format_args!("OPENAI REQUIRES API KEY"));
+    }
+}
+
+fn start_wifi_firmware() {
+    write_output(format_args!(
+        "WIFI FIRMWARE BRING-UP ATTEMPT (unaudited blob; DMA not IOMMU-confined)"
+    ));
+    let result = marvell_wifi_pcie::start_bring_up_firmware();
+    write_output(format_args!("WIFI FIRMWARE START: {}", result.label()));
+    if let marvell_wifi_pcie::FirmwareBringupTriggerResult::Failed(error) = result {
+        write_output(format_args!("WIFI FIRMWARE FAILED: {}", error.label()));
     }
 }
 
@@ -1728,6 +1753,7 @@ fn command_openai_status() {
 
 fn command_wifi_status() {
     let snapshot = wifi::snapshot();
+    let firmware = marvell_wifi_pcie::snapshot();
     write_output(format_args!(
         "WIFI TARGET: {}    SSID: {}    KEY: {}",
         wifi_state_status(snapshot.state),
@@ -1735,8 +1761,24 @@ fn command_wifi_status() {
         api_key_status(snapshot.passphrase_set)
     ));
     write_output(format_args!(
-        "WIFI DRIVER: MARVELL 88W8897 FIRMWARE/SCAN TODO"
+        "WIFI FW: {} {}/{} RESULT {}",
+        firmware.stage.label(),
+        firmware.downloaded,
+        firmware.total,
+        firmware
+            .result
+            .map(|result| result.label())
+            .unwrap_or("pending")
     ));
+    if firmware.registers.valid {
+        write_output(format_args!(
+            "WIFI FW REGS: C40=0x{:08X} C44=0x{:08X} CF0=0x{:08X} C30=0x{:08X}",
+            firmware.registers.cmd_size,
+            firmware.registers.fw_status,
+            firmware.registers.drv_ready,
+            firmware.registers.host_int_status
+        ));
+    }
 }
 
 fn api_key_status(set: bool) -> &'static str {
