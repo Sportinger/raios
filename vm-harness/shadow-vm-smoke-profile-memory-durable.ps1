@@ -9,8 +9,41 @@ if (-not $PersistDiskImage) {
 # (small chunks + a short delay) so the guest drains between chunks -- exactly how a real
 # agent sender, and the existing submit_candidate_chunk path, pace long serial writes.
 # Harmless for the short M9A commands (a few extra ms each).
-$script:SerialWriteChunkSize = 32
-$script:SerialWriteDelayMilliseconds = 10
+# 2026-07-08: chunk 32 / 10ms began truncating the ~213-byte observation line under
+# heavier guest redraw timing (three consecutive host runs). Halved the chunk and
+# more-than-doubled the delay so a full guest poll+redraw cycle always drains the RX
+# FIFO between chunks; costs the long line ~0.35s, negligible for the short commands.
+$script:SerialWriteChunkSize = 16
+$script:SerialWriteDelayMilliseconds = 25
+
+# M9C-2b: child-VM serial waits must be OCCURRENCE-aware, not whole-file substring.
+# The export-denial family is the first child probe to send a REPEATED method
+# (provider.context_export x3, durable.record_log_scan x2). A whole-file
+# "RAIOS_AGENT_END <method>" match (Wait-ForLogText) returns instantly on a STALE
+# marker left by the previous same-method command, so Get-ProfileAgentResponseJson
+# (LastIndexOf) could parse a prior block before the new response lands -- a timing
+# race that false-fails under host/disk stress. Count the method's END markers before
+# each send and wait until the count strictly increases. No TCP drain here (the child
+# logfile is written directly by QEMU; draining the main-VM stream would steal bytes a
+# later main-VM assertion needs).
+function Get-ChildEndMarkerCount {
+    param([string]$Path, [string]$Method)
+    $content = Get-SerialLogContent -Path $Path
+    if ($null -eq $content) { return 0 }
+    return ([regex]::Matches($content, [regex]::Escape("RAIOS_AGENT_END $Method"))).Count
+}
+
+function Wait-ForChildEndMarker {
+    param([string]$Path, [string]$Method, [int]$PriorCount, [int]$TimeoutSeconds)
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        if ((Get-ChildEndMarkerCount -Path $Path -Method $Method) -gt $PriorCount) {
+            return $true
+        }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+    return $false
+}
 
 function Get-ProfileAgentResponseJson {
     param(
@@ -114,8 +147,9 @@ function Invoke-MemoryRecordAppendFixtureProbe {
             throw "Memory-record fixture child VM did not reach serial console: $(Get-SerialLogTail -Path $fixtureLog)"
         }
         $appendCommandLine = if ($AppendArg.Length -gt 0) { "agent $AppendMethod $AppendArg" } else { "agent $AppendMethod" }
+        $appendPriorCount = Get-ChildEndMarkerCount -Path $fixtureLog -Method $AppendMethod
         Send-SerialText -Port $fixturePort -Text "$appendCommandLine`r" -TimeoutSeconds $childTimeout
-        if (-not (Wait-ForLogText -Path $fixtureLog -Needle "RAIOS_AGENT_END $AppendMethod" -TimeoutSeconds $childTimeout)) {
+        if (-not (Wait-ForChildEndMarker -Path $fixtureLog -Method $AppendMethod -PriorCount $appendPriorCount -TimeoutSeconds $childTimeout)) {
             throw "Memory-record fixture child VM did not answer ${AppendMethod}: $(Get-SerialLogTail -Path $fixtureLog)"
         }
         $appendResult = (Get-ProfileAgentResponseJson -Path $fixtureLog -Method $AppendMethod).body.result
@@ -123,18 +157,21 @@ function Invoke-MemoryRecordAppendFixtureProbe {
         # INSPECT: an independent follow-up durable.record_log_scan (same booted VM,
         # same disk state) must see the SAME tail_seq/count the append reported --
         # proving the frame is durably visible, not just self-reported by the writer.
+        $scanPriorCount = Get-ChildEndMarkerCount -Path $fixtureLog -Method "durable.record_log_scan"
         Send-SerialText -Port $fixturePort -Text "agent durable.record_log_scan`r" -TimeoutSeconds $childTimeout
-        if (-not (Wait-ForLogText -Path $fixtureLog -Needle "RAIOS_AGENT_END durable.record_log_scan" -TimeoutSeconds $childTimeout)) {
+        if (-not (Wait-ForChildEndMarker -Path $fixtureLog -Method "durable.record_log_scan" -PriorCount $scanPriorCount -TimeoutSeconds $childTimeout)) {
             throw "Memory-record fixture child VM did not answer durable.record_log_scan: $(Get-SerialLogTail -Path $fixtureLog)"
         }
         $scanResult = (Get-ProfileAgentResponseJson -Path $fixtureLog -Method "durable.record_log_scan").body.result
         $extraResponses = @{}
         foreach ($extra in $ExtraAgentCommands) {
+            $extraPriorCount = Get-ChildEndMarkerCount -Path $fixtureLog -Method $extra.Method
             Send-SerialText -Port $fixturePort -Text "agent $($extra.Command)`r" -TimeoutSeconds $childTimeout
-            if (-not (Wait-ForLogText -Path $fixtureLog -Needle "RAIOS_AGENT_END $($extra.Method)" -TimeoutSeconds $childTimeout)) {
+            if (-not (Wait-ForChildEndMarker -Path $fixtureLog -Method $extra.Method -PriorCount $extraPriorCount -TimeoutSeconds $childTimeout)) {
                 throw "Memory-record fixture child VM did not answer $($extra.Method): $(Get-SerialLogTail -Path $fixtureLog)"
             }
-            $extraResponses[$extra.Method] = Get-ProfileAgentResponseJson -Path $fixtureLog -Method $extra.Method
+            $key = if ($extra.PSObject.Properties.Name -contains "Key" -and $extra.Key) { $extra.Key } else { $extra.Method }
+            $extraResponses[$key] = Get-ProfileAgentResponseJson -Path $fixtureLog -Method $extra.Method
         }
 
         return [pscustomobject]@{
@@ -621,6 +658,137 @@ Add-Predicate `
 
 if (-not ($brokerIncludedOk -and $brokerSupersedeOk -and $brokerOrderingOk -and $brokerClassificationOk -and $brokerExportStillClosed -and $brokerResolveSelftestOk)) {
     throw "memory broker durable context family failed"
+}
+
+# --- export-denial-durable: provider.context_export denials append exactly one
+#     durable capability_denial record per gate/reason key, then dedupe repeats. ---
+
+$exportDenialExtraCommands = @(
+    [pscustomobject]@{ Key = "export1"; Command = "provider.context_export provider_minimal"; Method = "provider.context_export" },
+    [pscustomobject]@{ Key = "export2"; Command = "provider.context_export provider_minimal"; Method = "provider.context_export" },
+    [pscustomobject]@{ Key = "export3"; Command = "provider.context_export diagnostic"; Method = "provider.context_export" },
+    [pscustomobject]@{ Key = "scan2"; Command = "durable.record_log_scan"; Method = "durable.record_log_scan" },
+    [pscustomobject]@{ Key = "context"; Command = "memory.context provider_minimal"; Method = "memory.context" }
+)
+$exportDenialProbe = Invoke-MemoryRecordAppendFixtureProbe -FixtureSpec "valid:2" -Label "export-denial" -ExtraAgentCommands $exportDenialExtraCommands
+$export1 = $exportDenialProbe.extra["export1"]
+$export2 = $exportDenialProbe.extra["export2"]
+$export3 = $exportDenialProbe.extra["export3"]
+$exportScan2 = $exportDenialProbe.extra["scan2"].body.result
+$exportContext = $exportDenialProbe.extra["context"].body.result
+$export1Audit = $export1.body.durable_denial_audit
+$export2Audit = $export2.body.durable_denial_audit
+$export3Audit = $export3.body.durable_denial_audit
+$export1RecordId = "mem.capability_denial.provider_context_export.trust_state_not_positive.current_boot.v0"
+$export3RecordId = "mem.capability_denial.provider_context_export.profile_not_provider_minimal.current_boot.v0"
+
+$exportEnvelopeStillDenied = (
+    $export1.body.code -eq "capability_denied" -and
+    $export1.body.method -eq "provider.context_export"
+)
+Add-Predicate `
+    -Name "export-denial-durable:envelope-still-denied" `
+    -Expected "provider.context_export still returns capability_denied" `
+    -Passed $exportEnvelopeStillDenied `
+    -Actual $(if ($exportEnvelopeStillDenied) { "matched" } else { ($export1 | ConvertTo-Json -Compress -Depth 12) })
+
+$exportGateAndReason = (
+    $export1Audit.gate -eq "scoped_provider_export_authorization.current_boot.provider_minimal.v0" -and
+    $export1Audit.gate_reason -eq "trust_state_not_positive"
+)
+Add-Predicate `
+    -Name "export-denial-durable:gate-and-reason" `
+    -Expected "the durable denial audit cites the scoped provider export gate and trust_state_not_positive" `
+    -Passed $exportGateAndReason `
+    -Actual $(if ($exportGateAndReason) { "matched" } else { ($export1Audit | ConvertTo-Json -Compress -Depth 12) })
+
+$exportFirstAppended = (
+    $export1Audit.durable_append -eq "appended" -and
+    [bool]$export1Audit.performed -and
+    $export1Audit.dedupe -eq "first_denial_appended" -and
+    $export1Audit.kind -eq "capability_denial" -and
+    $export1Audit.classification -eq "local_only" -and
+    $export1Audit.record_authority -eq "core_ledger" -and
+    $export1Audit.record_id -eq $export1RecordId -and
+    $export1Audit.readback_sha256 -eq $export1Audit.frame_sha256 -and
+    [bool]$export1Audit.reparse_valid
+)
+Add-Predicate `
+    -Name "export-denial-durable:first-appended" `
+    -Expected "first provider export denial appends one durable capability_denial memory record" `
+    -Passed $exportFirstAppended `
+    -Actual $(if ($exportFirstAppended) { "matched" } else { ($export1Audit | ConvertTo-Json -Compress -Depth 12) })
+
+$exportNonSuperseding = (@($export1Audit.supersedes).Count -eq 0)
+Add-Predicate `
+    -Name "export-denial-durable:non-superseding" `
+    -Expected "provider export denial audit record has an empty supersedes array" `
+    -Passed $exportNonSuperseding `
+    -Actual $(if ($exportNonSuperseding) { "matched" } else { ($export1Audit.supersedes | ConvertTo-Json -Compress -Depth 4) })
+
+$exportChainAdvance = (
+    [int64]$export1Audit.tail_seq_after -eq ([int64]$export1Audit.tail_seq_before + 1) -and
+    [int64]$export1Audit.count_after -eq ([int64]$export1Audit.count_before + 1)
+)
+Add-Predicate `
+    -Name "export-denial-durable:chain-advance" `
+    -Expected "first denial append advances tail_seq and count by exactly one" `
+    -Passed $exportChainAdvance `
+    -Actual $(if ($exportChainAdvance) { "matched" } else { ($export1Audit | ConvertTo-Json -Compress -Depth 12) })
+
+$exportDuplicateDeduped = (
+    $export2Audit.dedupe -eq "duplicate_ram_only" -and
+    $export2Audit.durable_append -eq "not_attempted_deduplicated" -and
+    -not [bool]$export2Audit.performed -and
+    $export2Audit.record_id -eq $export1Audit.record_id -and
+    $export2Audit.payload_sha256 -eq $export1Audit.payload_sha256
+)
+Add-Predicate `
+    -Name "export-denial-durable:duplicate-deduped" `
+    -Expected "second identical denial cites the first audit and does not append" `
+    -Passed $exportDuplicateDeduped `
+    -Actual $(if ($exportDuplicateDeduped) { "matched" } else { "export1=$($export1Audit | ConvertTo-Json -Compress -Depth 12) export2=$($export2Audit | ConvertTo-Json -Compress -Depth 12)" })
+
+$exportDistinctReasonAppended = (
+    $export3Audit.gate_reason -eq "profile_not_provider_minimal" -and
+    $export3Audit.durable_append -eq "appended" -and
+    $export3Audit.record_id -eq $export3RecordId -and
+    $export3Audit.record_id -ne $export1Audit.record_id
+)
+Add-Predicate `
+    -Name "export-denial-durable:distinct-reason-appended" `
+    -Expected "a distinct export gate reason appends a separate durable denial audit" `
+    -Passed $exportDistinctReasonAppended `
+    -Actual $(if ($exportDistinctReasonAppended) { "matched" } else { ($export3Audit | ConvertTo-Json -Compress -Depth 12) })
+
+$exportDedupeCount = (
+    [int64]$exportScan2.count -eq ([int64]$exportDenialProbe.scan.count + 2) -and
+    [int64]$exportScan2.tail_seq -eq ([int64]$exportDenialProbe.scan.tail_seq + 2)
+)
+Add-Predicate `
+    -Name "export-denial-durable:dedupe-count" `
+    -Expected "three export attempts with two distinct denial reasons append exactly two frames" `
+    -Passed $exportDedupeCount `
+    -Actual $(if ($exportDedupeCount) { "matched" } else { "baseline=$($exportDenialProbe.scan | ConvertTo-Json -Compress -Depth 8) scan2=$($exportScan2 | ConvertTo-Json -Compress -Depth 8)" })
+
+$exportContextRecords = @($exportContext.durable_records)
+$exportContextRecord = Get-BrokerDurableRecordById -Records $exportContextRecords -Id $export1RecordId
+$exportStillDisabled = (
+    $exportContext.provider_export -eq "disabled" -and
+    $exportContextRecord -and
+    $exportContextRecord.kind -eq "capability_denial" -and
+    $exportContextRecord.classification -eq "local_only" -and
+    [bool]$exportContextRecord.exportable -eq $false -and
+    (Test-BrokerRecordOmitsValue -Record $exportContextRecord)
+)
+Add-Predicate `
+    -Name "export-denial-durable:export-still-disabled" `
+    -Expected "memory.context keeps provider_export disabled and surfaces the local-only denial metadata without value" `
+    -Passed $exportStillDisabled `
+    -Actual $(if ($exportStillDisabled) { "matched" } else { "context=$($exportContext | ConvertTo-Json -Compress -Depth 14)" })
+
+if (-not ($exportEnvelopeStillDenied -and $exportGateAndReason -and $exportFirstAppended -and $exportNonSuperseding -and $exportChainAdvance -and $exportDuplicateDeduped -and $exportDistinctReasonAppended -and $exportDedupeCount -and $exportStillDisabled)) {
+    throw "export-denial-durable family failed"
 }
 
 # --- memory-agent-observation-denied: 5 distinct RAM-only denials against the MAIN

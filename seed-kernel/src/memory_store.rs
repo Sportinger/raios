@@ -35,6 +35,10 @@
 //! the M9A-2b report). The agent-observation driver instead has its OWN per-boot
 //! RAM-only counter (`next_agent_observation_seq`), since its id must be unique per
 //! write attempt.
+//!
+//! M9C-2b (bottom section) records durable provider-export DENIAL audits through
+//! the SAME system-authored append gauntlet, with a per-boot RAM dedupe table so
+//! identical `provider.context_export` gate denials append once per boot.
 
 use alloc::{format, vec, vec::Vec};
 
@@ -58,6 +62,10 @@ use raios_core::{
     scoped_memory_record_append::{
         evaluate_scoped_memory_record_append, ScopedMemoryRecordAppendInput, EXPECTED_METHOD,
         EXPECTED_RECORD_SCHEMA, EXPECTED_REGION_MARKER, EXPECTED_TARGET_ID, EXPECTED_TRUST_TIER,
+    },
+    scoped_provider_export::{
+        export_denial_dedupe_key, SCOPED_PROVIDER_EXPORT_DECISION_ID,
+        SCOPED_PROVIDER_EXPORT_DECISION_SCHEMA,
     },
 };
 
@@ -1453,4 +1461,214 @@ fn emit_observation_append_response(evidence: &durable_store::MemoryRecordAppend
     begin_response(OBSERVATION_METHOD);
     emit_record_fields(fields, 6);
     end_response(OBSERVATION_METHOD);
+}
+
+// --- M9C-2b: durable provider-export denial audits -------------------------------
+
+const PROVIDER_EXPORT_DENIAL_DEDUPE_CAP: usize = 16;
+
+struct ProviderExportDenialDedupeEntry {
+    gate: &'static str,
+    reason: &'static str,
+    payload_sha256: Option<[u8; 32]>,
+    seq: Option<u64>,
+}
+
+static PROVIDER_EXPORT_DENIAL_DEDUPE: Mutex<Vec<ProviderExportDenialDedupeEntry>> =
+    Mutex::new(Vec::new());
+
+pub(crate) struct ProviderExportDenialAuditOutcome {
+    pub(crate) dedupe: &'static str,
+    pub(crate) record_id: &'static str,
+    pub(crate) evidence: Option<durable_store::MemoryRecordAppendEvidence<'static>>,
+    pub(crate) cited_payload_sha256: Option<[u8; 32]>,
+    pub(crate) cited_seq: Option<u64>,
+}
+
+fn provider_export_denial_record_id(reason: &str) -> Option<&'static str> {
+    match reason {
+        "missing_method" => Some(
+            "mem.capability_denial.provider_context_export.missing_method.current_boot.v0",
+        ),
+        "method_not_provider_context_export" => Some(
+            "mem.capability_denial.provider_context_export.method_not_provider_context_export.current_boot.v0",
+        ),
+        "missing_profile" => Some(
+            "mem.capability_denial.provider_context_export.missing_profile.current_boot.v0",
+        ),
+        "profile_not_provider_minimal" => Some(
+            "mem.capability_denial.provider_context_export.profile_not_provider_minimal.current_boot.v0",
+        ),
+        "missing_trust_state" => Some(
+            "mem.capability_denial.provider_context_export.missing_trust_state.current_boot.v0",
+        ),
+        "trust_dev_bypass_not_positive" => Some(
+            "mem.capability_denial.provider_context_export.trust_dev_bypass_not_positive.current_boot.v0",
+        ),
+        "trust_state_not_positive" => Some(
+            "mem.capability_denial.provider_context_export.trust_state_not_positive.current_boot.v0",
+        ),
+        "packet_contains_non_public_record" => Some(
+            "mem.capability_denial.provider_context_export.packet_contains_non_public_record.current_boot.v0",
+        ),
+        "missing_packet_record_count" => Some(
+            "mem.capability_denial.provider_context_export.missing_packet_record_count.current_boot.v0",
+        ),
+        "missing_budget_tokens" => Some(
+            "mem.capability_denial.provider_context_export.missing_budget_tokens.current_boot.v0",
+        ),
+        "missing_packet_estimated_tokens" => Some(
+            "mem.capability_denial.provider_context_export.missing_packet_estimated_tokens.current_boot.v0",
+        ),
+        "packet_exceeds_token_budget" => Some(
+            "mem.capability_denial.provider_context_export.packet_exceeds_token_budget.current_boot.v0",
+        ),
+        "missing_audit_packet_hash" => Some(
+            "mem.capability_denial.provider_context_export.missing_audit_packet_hash.current_boot.v0",
+        ),
+        "missing_audit_destination" => Some(
+            "mem.capability_denial.provider_context_export.missing_audit_destination.current_boot.v0",
+        ),
+        "missing_audit_trust_snapshot" => Some(
+            "mem.capability_denial.provider_context_export.missing_audit_trust_snapshot.current_boot.v0",
+        ),
+        "missing_audit_binding_hash" => Some(
+            "mem.capability_denial.provider_context_export.missing_audit_binding_hash.current_boot.v0",
+        ),
+        _ => None,
+    }
+}
+
+pub(crate) fn record_provider_export_denial_audit(
+    reason: &'static str,
+    profile: &'static str,
+    trust_state: &'static str,
+) -> ProviderExportDenialAuditOutcome {
+    let Some(record_id) = provider_export_denial_record_id(reason) else {
+        return ProviderExportDenialAuditOutcome {
+            dedupe: "reason_unmapped_ram_only",
+            record_id: "",
+            evidence: None,
+            cited_payload_sha256: None,
+            cited_seq: None,
+        };
+    };
+
+    {
+        let table = PROVIDER_EXPORT_DENIAL_DEDUPE.lock();
+        let wanted_key = export_denial_dedupe_key(SCOPED_PROVIDER_EXPORT_DECISION_ID, reason);
+        let mut idx = 0usize;
+        while idx < table.len() {
+            let entry = &table[idx];
+            if wanted_key == export_denial_dedupe_key(entry.gate, entry.reason) {
+                return ProviderExportDenialAuditOutcome {
+                    dedupe: "duplicate_ram_only",
+                    record_id,
+                    evidence: None,
+                    cited_payload_sha256: entry.payload_sha256,
+                    cited_seq: entry.seq,
+                };
+            }
+            idx += 1;
+        }
+        if table.len() >= PROVIDER_EXPORT_DENIAL_DEDUPE_CAP {
+            return ProviderExportDenialAuditOutcome {
+                dedupe: "dedupe_table_full_ram_only",
+                record_id,
+                evidence: None,
+                cited_payload_sha256: None,
+                cited_seq: None,
+            };
+        }
+    }
+
+    let record = match provider_export_denial_record(record_id, reason, profile, trust_state) {
+        Ok(record) => record,
+        Err(_) => {
+            return ProviderExportDenialAuditOutcome {
+                dedupe: "record_construction_denied_ram_only",
+                record_id,
+                evidence: None,
+                cited_payload_sha256: None,
+                cited_seq: None,
+            };
+        }
+    };
+
+    // Single-threaded dispatch, but keep the RAM dedupe lock out of the disk gauntlet.
+    let evidence = durable_store::append_memory_record(&record);
+    if !evidence.performed {
+        return ProviderExportDenialAuditOutcome {
+            dedupe: "append_denied_ram_only",
+            record_id,
+            evidence: Some(evidence),
+            cited_payload_sha256: None,
+            cited_seq: None,
+        };
+    }
+
+    {
+        let mut table = PROVIDER_EXPORT_DENIAL_DEDUPE.lock();
+        if table.len() < PROVIDER_EXPORT_DENIAL_DEDUPE_CAP {
+            table.push(ProviderExportDenialDedupeEntry {
+                gate: SCOPED_PROVIDER_EXPORT_DECISION_ID,
+                reason,
+                payload_sha256: evidence.payload_sha256,
+                seq: evidence.seq,
+            });
+        }
+    }
+
+    ProviderExportDenialAuditOutcome {
+        dedupe: "first_denial_appended",
+        record_id,
+        evidence: Some(evidence),
+        cited_payload_sha256: evidence.payload_sha256,
+        cited_seq: evidence.seq,
+    }
+}
+
+fn provider_export_denial_record(
+    record_id: &'static str,
+    reason: &'static str,
+    profile: &'static str,
+    trust_state: &'static str,
+) -> Result<MemoryRecord<'static>, MemoryRecordError> {
+    MemoryRecord::new(MemoryRecordInput {
+        id: record_id,
+        kind: "capability_denial",
+        entity: "cap.provider.context_export",
+        predicate: "capability_denied",
+        value: provider_export_denial_value(reason, profile, trust_state),
+        classification: "local_only",
+        authority: "core_ledger",
+        boot_id: "current_boot",
+        sequence: 0,
+        source: MemorySource::new(
+            "provider.context_export",
+            SCOPED_PROVIDER_EXPORT_DECISION_ID,
+        ),
+        evidence: vec![],
+        tags: vec!["capability", "provider_export", "gate"],
+        supersedes: vec![],
+        created_at_ticks: 0,
+    })
+}
+
+fn provider_export_denial_value(
+    reason: &'static str,
+    profile: &'static str,
+    trust_state: &'static str,
+) -> V<'static> {
+    V::Object(vec![
+        f("gate", s(SCOPED_PROVIDER_EXPORT_DECISION_ID)),
+        f("gate_schema", s(SCOPED_PROVIDER_EXPORT_DECISION_SCHEMA)),
+        f("reason", s(reason)),
+        f("method", s("provider.context_export")),
+        f("profile", s(profile)),
+        f("trust_state", s(trust_state)),
+        f("packet_assembled", b(false)),
+        f("export_performed", b(false)),
+        f("provider_write", s("not_attempted")),
+    ])
 }

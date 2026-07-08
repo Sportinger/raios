@@ -3,14 +3,14 @@ use sha2::{Digest, Sha256};
 use crate::{
     agent_protocol_support::{
         begin_response, crlf, emit_export_gate, end_response, indent, json_current_boot_id,
-        json_event_id, json_event_id_option, json_opt_str, json_sha256, json_str, method_eq,
-        method_head_eq, raw, raw_bool, raw_fmt, raw_line,
+        json_event_id, json_event_id_option, json_opt_str, json_sha256, json_sha256_option,
+        json_str, method_eq, method_head_eq, raw, raw_bool, raw_fmt, raw_line,
     },
     agent_protocol_system::{
         emit_capability_ids, emit_problem_objects, emit_service_ids, emit_status_state_at,
         CAPABILITIES,
     },
-    event_log, provider, serial, service_inventory, system_status,
+    event_log, memory_store, provider, serial, service_inventory, system_status,
     system_status::{RowState, SystemSnapshot},
     ui, wifi,
 };
@@ -1156,6 +1156,32 @@ pub(crate) fn emit_provider_context_export_denied(
     };
     let export_denial_audit_event_id =
         event_log::record_provider_context_export_denial_audit(event_hashes);
+    let gate_input = raios_core::scoped_provider_export::ProviderExportGateInput {
+        method: Some("provider.context_export"),
+        profile: Some(profile),
+        trust_state: Some(provider.trust_state),
+        tls_certificate_verification_bypassed: provider.trust_state
+            == "tls_certificate_verification_bypassed",
+        packet_all_records_public: false,
+        packet_record_count: None,
+        budget_tokens: None,
+        packet_estimated_tokens: None,
+        audit_packet_hash: None,
+        audit_destination: None,
+        audit_trust_snapshot_present: false,
+        audit_binding_hash: None,
+    };
+    let gate_decision =
+        raios_core::scoped_provider_export::evaluate_provider_export_gate(&gate_input);
+    let durable_denial_audit = if gate_decision.performed {
+        None
+    } else {
+        Some(memory_store::record_provider_export_denial_audit(
+            gate_decision.reason,
+            profile,
+            provider.trust_state,
+        ))
+    };
 
     serial::write_raw_fmt(format_args!(
         "RAIOS_AGENT_BEGIN provider.context_export\r\n"
@@ -1352,6 +1378,7 @@ pub(crate) fn emit_provider_context_export_denied(
     raw_line(",");
     raw_line("      \"provider_write\": \"not_attempted\"");
     raw_line("    },");
+    emit_provider_export_durable_denial_audit(&gate_decision, durable_denial_audit.as_ref());
     raw_line("    \"blocked_by\": [");
     let mut wrote = false;
     if !profile_supported {
@@ -1503,6 +1530,125 @@ pub(crate) fn emit_provider_context_export_denied(
     raw_line("  }");
     raw_line("}");
     serial::write_raw_fmt(format_args!("RAIOS_AGENT_END provider.context_export\r\n"));
+}
+
+fn emit_provider_export_durable_denial_audit(
+    gate_decision: &raios_core::scoped_provider_export::ProviderExportGateDecision,
+    audit: Option<&memory_store::ProviderExportDenialAuditOutcome>,
+) {
+    let evidence = audit.and_then(|audit| audit.evidence.as_ref());
+    let duplicate = audit
+        .map(|audit| audit.dedupe == "duplicate_ram_only")
+        .unwrap_or(false);
+    let gate_status = if gate_decision.performed {
+        "export_authorized_unwired_no_export"
+    } else {
+        gate_decision.status
+    };
+    let dedupe = audit
+        .map(|audit| audit.dedupe)
+        .unwrap_or("not_applicable_no_denial");
+    let record_id = audit.map(|audit| audit.record_id).unwrap_or("");
+    let durable_append = match evidence {
+        Some(evidence) => evidence.durable_append,
+        None if duplicate => "not_attempted_deduplicated",
+        None => "not_attempted",
+    };
+    let performed = evidence.map(|evidence| evidence.performed).unwrap_or(false);
+    let append_reason = match evidence {
+        Some(evidence) => evidence.reason,
+        None if duplicate => "deduplicated_first_audit_cited",
+        None => dedupe,
+    };
+    let payload_sha256 = match evidence {
+        Some(evidence) => evidence.payload_sha256,
+        None => audit.and_then(|audit| audit.cited_payload_sha256),
+    };
+    let seq = match evidence {
+        Some(evidence) => evidence.seq,
+        None => audit.and_then(|audit| audit.cited_seq),
+    };
+
+    raw_line("    \"durable_denial_audit\": {");
+    raw_line("      \"schema\": \"raios.provider_export_denial_durable_audit.v0\",");
+    raw("      \"gate\": ");
+    json_str(raios_core::scoped_provider_export::SCOPED_PROVIDER_EXPORT_DECISION_ID);
+    raw_line(",");
+    raw("      \"gate_schema\": ");
+    json_str(raios_core::scoped_provider_export::SCOPED_PROVIDER_EXPORT_DECISION_SCHEMA);
+    raw_line(",");
+    raw("      \"gate_status\": ");
+    json_str(gate_status);
+    raw_line(",");
+    raw("      \"gate_reason\": ");
+    json_str(gate_decision.reason);
+    raw_line(",");
+    raw("      \"dedupe\": ");
+    json_str(dedupe);
+    raw_line(",");
+    raw("      \"record_id\": ");
+    json_str(record_id);
+    raw_line(",");
+    raw_line("      \"record_schema\": \"raios.memory_record.v0\",");
+    raw_line("      \"kind\": \"capability_denial\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"record_authority\": \"core_ledger\",");
+    raw_line("      \"supersedes\": [],");
+    raw("      \"durable_append\": ");
+    json_str(durable_append);
+    raw_line(",");
+    raw("      \"performed\": ");
+    raw_bool(performed);
+    raw_line(",");
+    raw("      \"append_reason\": ");
+    json_str(append_reason);
+    raw_line(",");
+    raw("      \"payload_sha256\": ");
+    json_sha256_option(payload_sha256);
+    raw_line(",");
+    raw("      \"frame_sha256\": ");
+    json_sha256_option(evidence.and_then(|evidence| evidence.frame_sha256));
+    raw_line(",");
+    raw("      \"readback_sha256\": ");
+    json_sha256_option(evidence.and_then(|evidence| evidence.readback_sha256));
+    raw_line(",");
+    raw("      \"reparse_valid\": ");
+    raw_bool(
+        evidence
+            .map(|evidence| evidence.reparse_valid)
+            .unwrap_or(false),
+    );
+    raw_line(",");
+    raw("      \"seq\": ");
+    emit_optional_u64(seq);
+    raw_line(",");
+    raw("      \"tail_seq_before\": ");
+    emit_optional_u64(evidence.and_then(|evidence| evidence.tail_seq_before));
+    raw_line(",");
+    raw("      \"count_before\": ");
+    emit_optional_u64(evidence.and_then(|evidence| evidence.count_before));
+    raw_line(",");
+    raw("      \"tail_seq_after\": ");
+    emit_optional_u64(evidence.and_then(|evidence| evidence.tail_seq_after));
+    raw_line(",");
+    raw("      \"count_after\": ");
+    emit_optional_u64(evidence.and_then(|evidence| evidence.count_after));
+    raw_line(",");
+    raw_line("      \"owner_sealed\": false,");
+    raw_line("      \"persistence_claimed\": false,");
+    raw_line("      \"trust_tier\": \"dev_key_not_owner_sealed\",");
+    raw_line("      \"export_performed\": false,");
+    raw_line("      \"provider_write\": \"not_attempted\",");
+    raw_line("      \"satisfies_export_gate\": false");
+    raw_line("    },");
+}
+
+fn emit_optional_u64(value: Option<u64>) {
+    if let Some(value) = value {
+        raw_fmt(format_args!("{}", value));
+    } else {
+        raw("null");
+    }
 }
 
 pub(crate) fn emit_provider_context_hashes(hashes: event_log::ProviderContextHashes) {

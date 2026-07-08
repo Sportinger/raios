@@ -3604,6 +3604,24 @@ covers R1, LOW-1, audit-id-shadow, and LOW-3. The `memory-durable` profile gaine
 for durable inclusion, supersede hiding, frame-ordering, classification/exportability, export still closed,
 and the broker resolver selftest; QEMU proof is left to the orchestrator per packet instructions.
 
+**M9C-2b IMPLEMENTED (2026-07-08, durable provider-export DENIAL audits; grants nothing).**
+Every `provider.context_export` attempt is now evaluated by the committed M9C-2a
+`scoped_provider_export` evaluator against real kernel method/profile/trust state plus honest-absent
+packet/audit fields; denied attempts build a system-authored durable
+`capability_denial` memory record through the existing `scoped_memory_record_append` gauntlet, so there is
+no new raios-core write boundary and no provider export success path. Dedupe design D-A: a per-boot RAM
+table stores at most the 16 gate/reason pairs and compares keys only through
+`export_denial_dedupe_key(SCOPED_PROVIDER_EXPORT_DECISION_ID, reason)`; repeated identical denials cite the
+first audit's payload hash/seq and append nothing, append-denied audit writes are not recursively recorded,
+and an unreachable 17th distinct key fails closed as RAM-only. `provider.context_export` still returns
+`capability_denied`, `memory.context` still reports `provider_export:"disabled"`, `provider_write` remains
+`not_attempted`, and M9C-2c remains the future positive export path. Host-only verification for this worker:
+`cargo fmt -p seed-kernel -- --check` PASS, `cargo fmt -p raios-core -- --check` PASS,
+`cargo test --locked -p raios-core` PASS (191 tests), release seed-kernel build PASS (`built
+target/x86_64-seed/release/seed-kernel`), and the edited memory-durable PowerShell profile parses with 0
+errors. Per orchestrator override, no QEMU profile was run here; the `export-denial-durable:*` VM predicates
+were added for the orchestrator.
+
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 recovery/hello dispatch-bound completion-denial smoke runs on Windows with
