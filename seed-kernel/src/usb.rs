@@ -130,6 +130,8 @@ const WAIT_ITERS: usize = 5_000_000;
 const ROOT_PORT_POWER_SETTLE_ITERS: usize = WAIT_ITERS;
 const HUB_PORT_RESET_POLLS: usize = 64;
 const HUB_PORT_RESET_POLL_DELAY_ITERS: usize = WAIT_ITERS / 100;
+const HOTPLUG_MAX_ROOT_PORTS: u8 = 32;
+const MAX_HUB_WATCHES: usize = MAX_HID_DEVICES;
 
 static STATE: Mutex<UsbState> = Mutex::new(UsbState::new());
 
@@ -147,6 +149,14 @@ pub struct UsbSnapshot {
     pub hub_reset_ports: u8,
     pub hub_configured_devices: u8,
     pub hub_last_error: Option<&'static str>,
+    pub last_hotplug_seq: u32,
+    pub last_hotplug_present: bool,
+    pub last_hotplug_connected: bool,
+    pub last_hotplug_is_hub: bool,
+    pub last_hotplug_hub_slot: u8,
+    pub last_hotplug_port: u8,
+    pub last_hotplug_detail: &'static str,
+    pub last_hotplug_skipped: bool,
     pub last_command_type: u8,
     pub last_completion_code: u8,
     pub last_transfer_completion_code: u8,
@@ -217,6 +227,14 @@ impl UsbState {
                 hub_reset_ports: 0,
                 hub_configured_devices: 0,
                 hub_last_error: None,
+                last_hotplug_seq: 0,
+                last_hotplug_present: false,
+                last_hotplug_connected: false,
+                last_hotplug_is_hub: false,
+                last_hotplug_hub_slot: 0,
+                last_hotplug_port: 0,
+                last_hotplug_detail: "none",
+                last_hotplug_skipped: false,
                 last_command_type: 0,
                 last_completion_code: 0,
                 last_transfer_completion_code: 0,
@@ -247,10 +265,12 @@ pub fn rescan_if_input_missing() -> bool {
     }
 
     serial::write_line("usb-hotplug: rescanning xHCI input devices");
+    let previous = STATE.lock().snapshot;
     let (snapshot, controller) = unsafe { probe_xhci() };
     let input_ready = controller
         .as_ref()
         .is_some_and(|controller| controller.keyboard.is_some() || controller.mouse.is_some());
+    let (snapshot, controller) = carry_hotplug(previous, snapshot, controller);
     *STATE.lock() = UsbState {
         snapshot,
         controller,
@@ -259,6 +279,18 @@ pub fn rescan_if_input_missing() -> bool {
         serial::write_line("usb-hotplug: input device configured");
     }
     true
+}
+
+pub fn poll_hotplug() -> bool {
+    let mut state = STATE.lock();
+    let mut snapshot = state.snapshot;
+    let Some(controller) = state.controller.as_mut() else {
+        return false;
+    };
+    let changed = unsafe { controller.poll_hotplug() };
+    refresh_snapshot_from_controller(&mut snapshot, controller);
+    state.snapshot = snapshot;
+    changed
 }
 
 pub fn snapshot() -> UsbSnapshot {
@@ -337,6 +369,14 @@ unsafe fn probe_xhci() -> (UsbSnapshot, Option<XhciController>) {
                 hub_reset_ports: 0,
                 hub_configured_devices: 0,
                 hub_last_error: None,
+                last_hotplug_seq: 0,
+                last_hotplug_present: false,
+                last_hotplug_connected: false,
+                last_hotplug_is_hub: false,
+                last_hotplug_hub_slot: 0,
+                last_hotplug_port: 0,
+                last_hotplug_detail: "none",
+                last_hotplug_skipped: false,
                 last_command_type: 0,
                 last_completion_code: 0,
                 last_transfer_completion_code: 0,
@@ -427,6 +467,14 @@ unsafe fn probe_xhci() -> (UsbSnapshot, Option<XhciController>) {
                 hub_reset_ports: controller.hub_reset_ports,
                 hub_configured_devices: controller.hub_configured_devices,
                 hub_last_error: controller.hub_last_error,
+                last_hotplug_seq: controller.hotplug.seq,
+                last_hotplug_present: controller.hotplug.present,
+                last_hotplug_connected: controller.hotplug.connected,
+                last_hotplug_is_hub: controller.hotplug.is_hub,
+                last_hotplug_hub_slot: controller.hotplug.hub_slot,
+                last_hotplug_port: controller.hotplug.port,
+                last_hotplug_detail: controller.hotplug.detail,
+                last_hotplug_skipped: controller.hotplug.skipped,
                 last_command_type: controller.last_command_type,
                 last_completion_code: controller.last_completion_code,
                 last_transfer_completion_code: controller.last_transfer_completion_code,
@@ -462,6 +510,14 @@ fn error_snapshot(address: PciAddress, error: &'static str) -> UsbSnapshot {
         hub_reset_ports: 0,
         hub_configured_devices: 0,
         hub_last_error: None,
+        last_hotplug_seq: 0,
+        last_hotplug_present: false,
+        last_hotplug_connected: false,
+        last_hotplug_is_hub: false,
+        last_hotplug_hub_slot: 0,
+        last_hotplug_port: 0,
+        last_hotplug_detail: "none",
+        last_hotplug_skipped: false,
         last_command_type: 0,
         last_completion_code: 0,
         last_transfer_completion_code: 0,
@@ -473,6 +529,71 @@ fn error_snapshot(address: PciAddress, error: &'static str) -> UsbSnapshot {
         mouse_detail: Some(error),
         last_error: Some(error),
     }
+}
+
+fn carry_hotplug(
+    previous: UsbSnapshot,
+    mut snapshot: UsbSnapshot,
+    mut controller: Option<XhciController>,
+) -> (UsbSnapshot, Option<XhciController>) {
+    snapshot.last_hotplug_seq = previous.last_hotplug_seq;
+    snapshot.last_hotplug_present = previous.last_hotplug_present;
+    snapshot.last_hotplug_connected = previous.last_hotplug_connected;
+    snapshot.last_hotplug_is_hub = previous.last_hotplug_is_hub;
+    snapshot.last_hotplug_hub_slot = previous.last_hotplug_hub_slot;
+    snapshot.last_hotplug_port = previous.last_hotplug_port;
+    snapshot.last_hotplug_detail = previous.last_hotplug_detail;
+    snapshot.last_hotplug_skipped = previous.last_hotplug_skipped;
+    if let Some(controller) = controller.as_mut() {
+        controller.hotplug = HotplugRecord::from_snapshot(snapshot);
+    }
+    (snapshot, controller)
+}
+
+fn refresh_snapshot_from_controller(snapshot: &mut UsbSnapshot, controller: &XhciController) {
+    snapshot.connected_ports = count_mask(controller.root_connected_mask);
+    snapshot.hub_count = controller.hub_count;
+    snapshot.hub_ports = controller.hub_ports;
+    snapshot.hub_connected_ports = controller.current_hub_connected_ports();
+    snapshot.hub_reset_ports = controller.hub_reset_ports;
+    snapshot.hub_configured_devices = controller.hub_configured_devices;
+    snapshot.hub_last_error = controller.hub_last_error;
+    snapshot.last_hotplug_seq = controller.hotplug.seq;
+    snapshot.last_hotplug_present = controller.hotplug.present;
+    snapshot.last_hotplug_connected = controller.hotplug.connected;
+    snapshot.last_hotplug_is_hub = controller.hotplug.is_hub;
+    snapshot.last_hotplug_hub_slot = controller.hotplug.hub_slot;
+    snapshot.last_hotplug_port = controller.hotplug.port;
+    snapshot.last_hotplug_detail = controller.hotplug.detail;
+    snapshot.last_hotplug_skipped = controller.hotplug.skipped;
+    snapshot.keyboard_status = if controller.keyboard.is_some() {
+        UsbKeyboardStatus::Ready
+    } else {
+        UsbKeyboardStatus::NotFound
+    };
+    snapshot.keyboard_detail = if controller.keyboard.is_some() {
+        Some("USB HID BOOT KEYBOARD")
+    } else {
+        Some("no USB boot keyboard found")
+    };
+    snapshot.mouse_status = if controller.mouse.is_some() {
+        UsbMouseStatus::Ready
+    } else {
+        UsbMouseStatus::NotFound
+    };
+    snapshot.mouse_detail = if controller.mouse.is_some() {
+        Some("USB HID BOOT MOUSE")
+    } else {
+        Some("no USB pointer found")
+    };
+}
+
+fn count_mask(mask: u32) -> u8 {
+    mask.count_ones() as u8
+}
+
+fn port_mask(port: u8) -> u32 {
+    1u32 << (port.saturating_sub(1) as u32)
 }
 
 #[repr(C)]
@@ -598,6 +719,10 @@ struct XhciController {
     hub_reset_ports: u8,
     hub_configured_devices: u8,
     hub_last_error: Option<&'static str>,
+    next_device_index: usize,
+    root_connected_mask: u32,
+    hub_watches: [HubWatch; MAX_HUB_WATCHES],
+    hotplug: HotplugRecord,
     last_command_type: u8,
     last_completion_code: u8,
     last_transfer_completion_code: u8,
@@ -614,6 +739,9 @@ struct KeyboardDevice {
     slot_id: u8,
     dci: u8,
     ring_index: usize,
+    root_port_number: u8,
+    parent_hub_slot_id: u8,
+    parent_hub_port_number: u8,
     previous_report: [u8; KEYBOARD_REPORT_LEN],
 }
 
@@ -623,6 +751,9 @@ struct MouseDevice {
     dci: u8,
     ring_index: usize,
     kind: HidKind,
+    root_port_number: u8,
+    parent_hub_slot_id: u8,
+    parent_hub_port_number: u8,
 }
 
 #[derive(Clone, Copy)]
@@ -634,6 +765,89 @@ struct PortInfo {
     parent_hub_port_number: u8,
     is_hub: bool,
     hub_port_count: u8,
+}
+
+#[derive(Clone, Copy)]
+struct HubWatch {
+    active: bool,
+    slot_id: u8,
+    device_index: usize,
+    root_port_number: u8,
+    route_string: u32,
+    speed: u8,
+    parent_hub_slot_id: u8,
+    parent_hub_port_number: u8,
+    port_count: u8,
+    connected_mask: u32,
+}
+
+impl HubWatch {
+    const fn none() -> Self {
+        Self {
+            active: false,
+            slot_id: 0,
+            device_index: 0,
+            root_port_number: 0,
+            route_string: 0,
+            speed: 0,
+            parent_hub_slot_id: 0,
+            parent_hub_port_number: 0,
+            port_count: 0,
+            connected_mask: 0,
+        }
+    }
+
+    fn port_info(self) -> PortInfo {
+        PortInfo {
+            root_port_number: self.root_port_number,
+            route_string: self.route_string,
+            speed: self.speed,
+            parent_hub_slot_id: self.parent_hub_slot_id,
+            parent_hub_port_number: self.parent_hub_port_number,
+            is_hub: true,
+            hub_port_count: self.port_count,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct HotplugRecord {
+    seq: u32,
+    present: bool,
+    connected: bool,
+    is_hub: bool,
+    hub_slot: u8,
+    port: u8,
+    detail: &'static str,
+    skipped: bool,
+}
+
+impl HotplugRecord {
+    const fn none() -> Self {
+        Self {
+            seq: 0,
+            present: false,
+            connected: false,
+            is_hub: false,
+            hub_slot: 0,
+            port: 0,
+            detail: "none",
+            skipped: false,
+        }
+    }
+
+    fn from_snapshot(snapshot: UsbSnapshot) -> Self {
+        Self {
+            seq: snapshot.last_hotplug_seq,
+            present: snapshot.last_hotplug_present,
+            connected: snapshot.last_hotplug_connected,
+            is_hub: snapshot.last_hotplug_is_hub,
+            hub_slot: snapshot.last_hotplug_hub_slot,
+            port: snapshot.last_hotplug_port,
+            detail: snapshot.last_hotplug_detail,
+            skipped: snapshot.last_hotplug_skipped,
+        }
+    }
 }
 
 impl PortInfo {
@@ -847,6 +1061,10 @@ impl XhciController {
             hub_reset_ports: 0,
             hub_configured_devices: 0,
             hub_last_error: None,
+            next_device_index: 0,
+            root_connected_mask: 0,
+            hub_watches: [HubWatch::none(); MAX_HUB_WATCHES],
+            hotplug: HotplugRecord::none(),
             last_command_type: 0,
             last_completion_code: 0,
             last_transfer_completion_code: 0,
@@ -905,6 +1123,19 @@ impl XhciController {
         count
     }
 
+    unsafe fn read_root_connected_mask(&self) -> u32 {
+        let mut mask = 0u32;
+        let mut port = 1u8;
+        let limit = u8::min(self.max_ports, HOTPLUG_MAX_ROOT_PORTS);
+        while port <= limit {
+            if read32(self.base, self.portsc_offset(port)) & PORTSC_CCS != 0 {
+                mask |= port_mask(port);
+            }
+            port += 1;
+        }
+        mask
+    }
+
     unsafe fn initialise_hid_devices(&mut self) -> Result<(), &'static str> {
         self.power_root_ports();
         let mut wait_round = 0usize;
@@ -912,6 +1143,7 @@ impl XhciController {
             spin_delay(ROOT_PORT_POWER_SETTLE_ITERS);
             wait_round += 1;
         }
+        self.root_connected_mask = self.read_root_connected_mask();
 
         let mut next_device_index = 0usize;
         let mut port = 1u8;
@@ -950,6 +1182,8 @@ impl XhciController {
             port += 1;
         }
 
+        self.next_device_index = next_device_index;
+        self.root_connected_mask = self.read_root_connected_mask();
         if self.keyboard.is_none() && self.mouse.is_none() {
             return Err("no USB HID input devices found");
         }
@@ -1214,6 +1448,7 @@ impl XhciController {
             return Err(err);
         }
 
+        let mut connected_mask = 0u32;
         let mut hub_port = 1u8;
         while hub_port <= descriptor.port_count {
             self.current_slot_id = slot_id;
@@ -1233,6 +1468,7 @@ impl XhciController {
                 hub_port += 1;
                 continue;
             }
+            connected_mask |= port_mask(hub_port);
             self.hub_connected_ports = self.hub_connected_ports.saturating_add(1);
             if *next_device_index >= MAX_HID_DEVICES {
                 serial::write_line("usb-hub: device storage exhausted");
@@ -1243,50 +1479,23 @@ impl XhciController {
             match self.reset_hub_port(hub_port) {
                 Ok(port_status) => {
                     self.hub_reset_ports = self.hub_reset_ports.saturating_add(1);
-                    let primary_speed = hub_port_speed(port_status.status, port.speed);
-                    let (speeds, speed_count) = child_speed_candidates(primary_speed);
-                    let mut speed_index = 0usize;
-                    let mut configured = false;
-                    let mut last_err = None;
-
-                    while speed_index < speed_count {
-                        let child_speed = speeds[speed_index];
-                        let child_port = port.child(slot_id, hub_port, child_speed);
-                        serial::write_fmt(format_args!(
-                            "usb-hub: port {} reset complete speed {} try {}\r\n",
-                            hub_port,
-                            child_speed,
-                            speed_index + 1
-                        ));
-                        match self.enumerate_device(child_port, next_device_index) {
-                            Ok(kind) => {
-                                configured = true;
-                                self.hub_configured_devices =
-                                    self.hub_configured_devices.saturating_add(1);
-                                serial::write_fmt(format_args!(
-                                    "usb-hub: port {} configured as {}\r\n",
-                                    hub_port,
-                                    kind.as_str()
-                                ));
-                                break;
-                            }
-                            Err(err) => {
-                                last_err = Some(err);
-                                if !self.should_retry_child_enumeration(err) {
-                                    break;
-                                }
-                                serial::write_fmt(format_args!(
-                                    "usb-hub: port {} speed {} retry after {}\r\n",
-                                    hub_port, child_speed, err
-                                ));
-                            }
+                    match self.enumerate_hub_child(
+                        port,
+                        slot_id,
+                        hub_port,
+                        port_status,
+                        next_device_index,
+                    ) {
+                        Ok(kind) => {
+                            self.hub_configured_devices =
+                                self.hub_configured_devices.saturating_add(1);
+                            serial::write_fmt(format_args!(
+                                "usb-hub: port {} configured as {}\r\n",
+                                hub_port,
+                                kind.as_str()
+                            ));
                         }
-
-                        speed_index += 1;
-                    }
-
-                    if !configured {
-                        if let Some(err) = last_err {
+                        Err(err) => {
                             self.hub_last_error = Some(err);
                             serial::write_fmt(format_args!(
                                 "usb-hub: port {} skipped: {}\r\n",
@@ -1307,13 +1516,436 @@ impl XhciController {
             hub_port += 1;
         }
 
+        self.remember_hub(
+            port,
+            slot_id,
+            hub_device_index,
+            descriptor.port_count,
+            connected_mask,
+        );
         Ok(())
+    }
+
+    unsafe fn enumerate_hub_child(
+        &mut self,
+        hub: PortInfo,
+        hub_slot_id: u8,
+        hub_port: u8,
+        port_status: HubPortStatus,
+        next_device_index: &mut usize,
+    ) -> Result<EnumeratedKind, &'static str> {
+        let primary_speed = hub_port_speed(port_status.status, hub.speed);
+        let (speeds, speed_count) = child_speed_candidates(primary_speed);
+        let mut speed_index = 0usize;
+        let mut last_err = None;
+
+        while speed_index < speed_count {
+            let child_speed = speeds[speed_index];
+            let child_port = hub.child(hub_slot_id, hub_port, child_speed);
+            serial::write_fmt(format_args!(
+                "usb-hub: port {} reset complete speed {} try {}\r\n",
+                hub_port,
+                child_speed,
+                speed_index + 1
+            ));
+            match self.enumerate_device(child_port, next_device_index) {
+                Ok(kind) => return Ok(kind),
+                Err(err) => {
+                    last_err = Some(err);
+                    if !self.should_retry_child_enumeration(err) {
+                        break;
+                    }
+                    serial::write_fmt(format_args!(
+                        "usb-hub: port {} speed {} retry after {}\r\n",
+                        hub_port, child_speed, err
+                    ));
+                }
+            }
+
+            speed_index += 1;
+        }
+
+        Err(last_err.unwrap_or("hub child enumeration failed"))
     }
 
     fn should_retry_child_enumeration(&self, err: &'static str) -> bool {
         err == "xHCI command failed"
             && self.last_command_type == TRB_TYPE_ADDRESS_DEVICE as u8
             && self.last_completion_code == 4
+    }
+
+    fn remember_hub(
+        &mut self,
+        port: PortInfo,
+        slot_id: u8,
+        device_index: usize,
+        port_count: u8,
+        connected_mask: u32,
+    ) {
+        let mut index = 0usize;
+        let mut free = None;
+        while index < MAX_HUB_WATCHES {
+            let watch = self.hub_watches[index];
+            if watch.active && watch.slot_id == slot_id {
+                free = Some(index);
+                break;
+            }
+            if !watch.active && free.is_none() {
+                free = Some(index);
+            }
+            index += 1;
+        }
+
+        if let Some(index) = free {
+            self.hub_watches[index] = HubWatch {
+                active: true,
+                slot_id,
+                device_index,
+                root_port_number: port.root_port_number,
+                route_string: port.route_string,
+                speed: port.speed,
+                parent_hub_slot_id: port.parent_hub_slot_id,
+                parent_hub_port_number: port.parent_hub_port_number,
+                port_count: u8::min(port_count, HOTPLUG_MAX_ROOT_PORTS),
+                connected_mask,
+            };
+        } else {
+            self.hub_last_error = Some("usb-hub: watch storage exhausted");
+        }
+    }
+
+    unsafe fn poll_hotplug(&mut self) -> bool {
+        let mut changed = false;
+        let root_current = self.read_root_connected_mask_and_clear_changes();
+        let root_diff = self.root_connected_mask ^ root_current;
+        let mut port = 1u8;
+        let root_limit = u8::min(self.max_ports, HOTPLUG_MAX_ROOT_PORTS);
+        while port <= root_limit {
+            let bit = port_mask(port);
+            if root_diff & bit != 0 {
+                if root_current & bit != 0 {
+                    let (detail, skipped) = self.configure_root_hotplug(port);
+                    self.record_hotplug_connect(false, 0, port, detail, skipped);
+                } else {
+                    self.clear_devices_for_root_port(port);
+                    self.deactivate_hubs_for_root_port(port);
+                    self.record_hotplug_disconnect(false, 0, port);
+                }
+                changed = true;
+            }
+            port += 1;
+        }
+        self.root_connected_mask = root_current;
+
+        let mut index = 0usize;
+        while index < MAX_HUB_WATCHES {
+            let watch = self.hub_watches[index];
+            if watch.active {
+                match self.read_hub_connected_mask_and_clear_changes(watch) {
+                    Ok(current) => {
+                        let diff = watch.connected_mask ^ current;
+                        let mut hub_port = 1u8;
+                        while hub_port <= watch.port_count {
+                            let bit = port_mask(hub_port);
+                            if diff & bit != 0 {
+                                if current & bit != 0 {
+                                    let (detail, skipped) =
+                                        self.configure_hub_hotplug(watch, hub_port);
+                                    self.record_hotplug_connect(
+                                        true,
+                                        watch.slot_id,
+                                        hub_port,
+                                        detail,
+                                        skipped,
+                                    );
+                                } else {
+                                    self.clear_devices_for_hub_port(watch.slot_id, hub_port);
+                                    self.deactivate_child_hubs(watch.slot_id, hub_port);
+                                    self.record_hotplug_disconnect(true, watch.slot_id, hub_port);
+                                }
+                                changed = true;
+                            }
+                            hub_port += 1;
+                        }
+                        if self.hub_watches[index].active {
+                            self.hub_watches[index].connected_mask = current;
+                        }
+                    }
+                    Err(err) => {
+                        self.hub_last_error = Some(err);
+                    }
+                }
+            }
+            index += 1;
+        }
+
+        changed
+    }
+
+    unsafe fn read_root_connected_mask_and_clear_changes(&self) -> u32 {
+        let mut mask = 0u32;
+        let mut port = 1u8;
+        let limit = u8::min(self.max_ports, HOTPLUG_MAX_ROOT_PORTS);
+        while port <= limit {
+            let offset = self.portsc_offset(port);
+            let status = read32(self.base, offset);
+            if status & PORTSC_CCS != 0 {
+                mask |= port_mask(port);
+            }
+            if status & PORTSC_CHANGE_BITS != 0 {
+                self.write_portsc(offset, PORTSC_CHANGE_BITS | (status & PORTSC_PP));
+            }
+            port += 1;
+        }
+        mask
+    }
+
+    unsafe fn read_hub_connected_mask_and_clear_changes(
+        &mut self,
+        watch: HubWatch,
+    ) -> Result<u32, &'static str> {
+        self.current_slot_id = watch.slot_id;
+        self.current_device_index = watch.device_index;
+        let mut mask = 0u32;
+        let mut port = 1u8;
+        while port <= watch.port_count {
+            let status = self.hub_port_status(port)?;
+            if status.status & HUB_PORT_CONNECTION != 0 {
+                mask |= port_mask(port);
+            }
+            if status.change & HUB_CHANGE_C_PORT_CONNECTION != 0 {
+                let _ = self.hub_clear_feature(port, HUB_FEATURE_C_PORT_CONNECTION);
+            }
+            port += 1;
+        }
+        Ok(mask)
+    }
+
+    unsafe fn configure_root_hotplug(&mut self, port: u8) -> (&'static str, bool) {
+        if self.next_device_index >= MAX_HID_DEVICES {
+            return ("device storage exhausted", true);
+        }
+        match self.reset_port(port) {
+            Ok(port_info) => self.enumerate_hotplug_device(port_info),
+            Err(err) => (err, true),
+        }
+    }
+
+    unsafe fn configure_hub_hotplug(
+        &mut self,
+        watch: HubWatch,
+        hub_port: u8,
+    ) -> (&'static str, bool) {
+        if self.next_device_index >= MAX_HID_DEVICES {
+            return ("device storage exhausted", true);
+        }
+        self.current_slot_id = watch.slot_id;
+        self.current_device_index = watch.device_index;
+        match self.reset_hub_port(hub_port) {
+            Ok(port_status) => {
+                self.hub_reset_ports = self.hub_reset_ports.saturating_add(1);
+                let mut next = self.next_device_index;
+                let result = self.enumerate_hub_child(
+                    watch.port_info(),
+                    watch.slot_id,
+                    hub_port,
+                    port_status,
+                    &mut next,
+                );
+                self.next_device_index = next;
+                match result {
+                    Ok(kind) => {
+                        self.hub_configured_devices = self.hub_configured_devices.saturating_add(1);
+                        let _ = self.queue_keyboard_report();
+                        let _ = self.queue_mouse_report();
+                        (kind.as_str(), false)
+                    }
+                    Err(err) => {
+                        self.hub_last_error = Some(err);
+                        (err, true)
+                    }
+                }
+            }
+            Err(err) => {
+                self.hub_last_error = Some(err);
+                (err, true)
+            }
+        }
+    }
+
+    unsafe fn enumerate_hotplug_device(&mut self, port: PortInfo) -> (&'static str, bool) {
+        let mut next = self.next_device_index;
+        let result = self.enumerate_device(port, &mut next);
+        self.next_device_index = next;
+        match result {
+            Ok(kind) => {
+                let _ = self.queue_keyboard_report();
+                let _ = self.queue_mouse_report();
+                (kind.as_str(), false)
+            }
+            Err(err) => (err, true),
+        }
+    }
+
+    fn clear_devices_for_root_port(&mut self, port: u8) {
+        if self
+            .keyboard
+            .is_some_and(|keyboard| keyboard.root_port_number == port)
+        {
+            self.keyboard = None;
+        }
+        if self
+            .mouse
+            .is_some_and(|mouse| mouse.root_port_number == port)
+        {
+            self.mouse = None;
+        }
+    }
+
+    fn clear_devices_for_hub_port(&mut self, hub_slot: u8, port: u8) {
+        if self.keyboard.is_some_and(|keyboard| {
+            keyboard.parent_hub_slot_id == hub_slot && keyboard.parent_hub_port_number == port
+        }) {
+            self.keyboard = None;
+        }
+        if self.mouse.is_some_and(|mouse| {
+            mouse.parent_hub_slot_id == hub_slot && mouse.parent_hub_port_number == port
+        }) {
+            self.mouse = None;
+        }
+    }
+
+    fn deactivate_hubs_for_root_port(&mut self, port: u8) {
+        let mut index = 0usize;
+        while index < MAX_HUB_WATCHES {
+            if self.hub_watches[index].active && self.hub_watches[index].root_port_number == port {
+                self.hub_watches[index].active = false;
+            }
+            index += 1;
+        }
+    }
+
+    fn deactivate_child_hubs(&mut self, hub_slot: u8, hub_port: u8) {
+        let mut index = 0usize;
+        while index < MAX_HUB_WATCHES {
+            let watch = self.hub_watches[index];
+            if watch.active
+                && watch.parent_hub_slot_id == hub_slot
+                && watch.parent_hub_port_number == hub_port
+            {
+                self.hub_watches[index].active = false;
+                self.clear_devices_for_hub_slot(watch.slot_id);
+                self.deactivate_descendant_hubs(watch.slot_id);
+            }
+            index += 1;
+        }
+    }
+
+    fn deactivate_descendant_hubs(&mut self, parent_slot: u8) {
+        let mut index = 0usize;
+        while index < MAX_HUB_WATCHES {
+            let watch = self.hub_watches[index];
+            if watch.active && watch.parent_hub_slot_id == parent_slot {
+                self.hub_watches[index].active = false;
+                self.clear_devices_for_hub_slot(watch.slot_id);
+                self.deactivate_descendant_hubs(watch.slot_id);
+            }
+            index += 1;
+        }
+    }
+
+    fn clear_devices_for_hub_slot(&mut self, hub_slot: u8) {
+        if self
+            .keyboard
+            .is_some_and(|keyboard| keyboard.parent_hub_slot_id == hub_slot)
+        {
+            self.keyboard = None;
+        }
+        if self
+            .mouse
+            .is_some_and(|mouse| mouse.parent_hub_slot_id == hub_slot)
+        {
+            self.mouse = None;
+        }
+    }
+
+    fn current_hub_connected_ports(&self) -> u8 {
+        let mut count = 0u8;
+        let mut index = 0usize;
+        while index < MAX_HUB_WATCHES {
+            if self.hub_watches[index].active {
+                count = count.saturating_add(count_mask(self.hub_watches[index].connected_mask));
+            }
+            index += 1;
+        }
+        count
+    }
+
+    fn record_hotplug_connect(
+        &mut self,
+        is_hub: bool,
+        hub_slot: u8,
+        port: u8,
+        detail: &'static str,
+        skipped: bool,
+    ) {
+        self.hotplug = HotplugRecord {
+            seq: self.hotplug.seq.wrapping_add(1),
+            present: true,
+            connected: true,
+            is_hub,
+            hub_slot,
+            port,
+            detail,
+            skipped,
+        };
+        if is_hub {
+            if skipped {
+                serial::write_fmt(format_args!(
+                    "usb-hotplug: connect hub {} port {} -> skipped: {}\r\n",
+                    hub_slot, port, detail
+                ));
+            } else {
+                serial::write_fmt(format_args!(
+                    "usb-hotplug: connect hub {} port {} -> {}\r\n",
+                    hub_slot, port, detail
+                ));
+            }
+        } else if skipped {
+            serial::write_fmt(format_args!(
+                "usb-hotplug: connect root-port {} -> skipped: {}\r\n",
+                port, detail
+            ));
+        } else {
+            serial::write_fmt(format_args!(
+                "usb-hotplug: connect root-port {} -> {}\r\n",
+                port, detail
+            ));
+        }
+    }
+
+    fn record_hotplug_disconnect(&mut self, is_hub: bool, hub_slot: u8, port: u8) {
+        self.hotplug = HotplugRecord {
+            seq: self.hotplug.seq.wrapping_add(1),
+            present: true,
+            connected: false,
+            is_hub,
+            hub_slot,
+            port,
+            detail: "removed",
+            skipped: false,
+        };
+        if is_hub {
+            serial::write_fmt(format_args!(
+                "usb-hotplug: disconnect hub {} port {}\r\n",
+                hub_slot, port
+            ));
+        } else {
+            serial::write_fmt(format_args!(
+                "usb-hotplug: disconnect root-port {}\r\n",
+                port
+            ));
+        }
     }
 
     unsafe fn evaluate_hub_slot(
@@ -1481,6 +2113,9 @@ impl XhciController {
                     slot_id,
                     dci: endpoint.dci,
                     ring_index: device_index,
+                    root_port_number: port.root_port_number,
+                    parent_hub_slot_id: port.parent_hub_slot_id,
+                    parent_hub_port_number: port.parent_hub_port_number,
                     previous_report: [0; KEYBOARD_REPORT_LEN],
                 });
             }
@@ -1490,6 +2125,9 @@ impl XhciController {
                     dci: endpoint.dci,
                     ring_index: device_index,
                     kind: endpoint.kind,
+                    root_port_number: port.root_port_number,
+                    parent_hub_slot_id: port.parent_hub_slot_id,
+                    parent_hub_port_number: port.parent_hub_port_number,
                 });
             }
             HidKind::Tablet => {
@@ -1498,6 +2136,9 @@ impl XhciController {
                     dci: endpoint.dci,
                     ring_index: device_index,
                     kind: endpoint.kind,
+                    root_port_number: port.root_port_number,
+                    parent_hub_slot_id: port.parent_hub_slot_id,
+                    parent_hub_port_number: port.parent_hub_port_number,
                 });
             }
         }

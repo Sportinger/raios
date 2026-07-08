@@ -25,6 +25,7 @@ pub struct SystemSnapshot {
     pub framebuffer: StatusLine,
     pub entropy: StatusLine,
     pub usb_xhci: StatusLine,
+    pub usb_hotplug: StatusLine,
     pub wifi: StatusLine,
     pub network: StatusLine,
     pub input: StatusLine,
@@ -40,6 +41,7 @@ impl SystemSnapshot {
             framebuffer: framebuffer_line(framebuffer),
             entropy: entropy_line(),
             usb_xhci: usb_xhci_line(),
+            usb_hotplug: usb_hotplug_line(),
             wifi: wifi_line(),
             network: network_line(runtime),
             input: input_line(runtime),
@@ -51,6 +53,7 @@ impl SystemSnapshot {
             framebuffer: self.framebuffer.state,
             entropy: self.entropy.state,
             usb_xhci: self.usb_xhci.state,
+            usb_hotplug: self.usb_hotplug.state,
             wifi: self.wifi.state,
             network: self.network.state,
             input: self.input.state,
@@ -63,6 +66,7 @@ pub struct SnapshotStates {
     pub framebuffer: RowState,
     pub entropy: RowState,
     pub usb_xhci: RowState,
+    pub usb_hotplug: RowState,
     pub wifi: RowState,
     pub network: RowState,
     pub input: RowState,
@@ -280,6 +284,62 @@ fn usb_mouse_status(status: usb::UsbMouseStatus) -> &'static str {
         usb::UsbMouseStatus::Ready => "READY",
         usb::UsbMouseStatus::NotFound => "NONE",
         usb::UsbMouseStatus::Error => "ERROR",
+    }
+}
+
+fn usb_hotplug_line() -> StatusLine {
+    let snapshot = usb::snapshot();
+    if !snapshot.last_hotplug_present {
+        return StatusLine::new(
+            "USB HOTPLUG",
+            RowState::Waiting,
+            detail(format_args!("none")),
+        );
+    }
+
+    let location = if snapshot.last_hotplug_is_hub {
+        detail(format_args!(
+            "HUB{} P{}",
+            snapshot.last_hotplug_hub_slot, snapshot.last_hotplug_port
+        ))
+    } else {
+        detail(format_args!("ROOT P{}", snapshot.last_hotplug_port))
+    };
+
+    if snapshot.last_hotplug_connected {
+        if snapshot.last_hotplug_skipped {
+            StatusLine::new(
+                "USB HOTPLUG",
+                RowState::Detected,
+                detail(format_args!(
+                    "#{} {} CONNECT -> skipped: {}",
+                    snapshot.last_hotplug_seq,
+                    location.as_str(),
+                    snapshot.last_hotplug_detail
+                )),
+            )
+        } else {
+            StatusLine::new(
+                "USB HOTPLUG",
+                RowState::Detected,
+                detail(format_args!(
+                    "#{} {} CONNECT -> {}",
+                    snapshot.last_hotplug_seq,
+                    location.as_str(),
+                    snapshot.last_hotplug_detail
+                )),
+            )
+        }
+    } else {
+        StatusLine::new(
+            "USB HOTPLUG",
+            RowState::Detected,
+            detail(format_args!(
+                "#{} {} DISCONNECT",
+                snapshot.last_hotplug_seq,
+                location.as_str()
+            )),
+        )
     }
 }
 

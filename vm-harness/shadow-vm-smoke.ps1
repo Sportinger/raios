@@ -10,7 +10,7 @@ param(
     [switch]$KeepImage,
     [int]$SerialWriteChunkSize = 256,
     [int]$SerialWriteDelayMilliseconds = 0,
-    [ValidateSet("full", "quick", "recovery", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m12-distribution-provenance", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow", "m11-7-httphead")]
+    [ValidateSet("full", "quick", "recovery", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m12-distribution-provenance", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow", "m11-7-httphead", "usb-hotplug")]
     [string]$Profile = "full"
 )
 
@@ -38,6 +38,7 @@ $script:SerialTcpStream = $null
 $QemuArgList = @()
 $HardwareProfile = $null
 $ResolvedImage = $null
+$MonitorTcpPort = 0
 $ScratchImage = $null
 $AuditRollbackTargetImage = $null
 $PersistDiskImage = $null
@@ -167,6 +168,13 @@ try {
         )
         $runParams.PersistDiskPath = $PersistDiskImage
     }
+    if ($Profile -eq "usb-hotplug") {
+        $MonitorTcpPort = $SerialTcpPort + 1000
+        $QemuArgList += @(
+            "-MonitorTcpPort", "$MonitorTcpPort"
+        )
+        $runParams.MonitorTcpPort = $MonitorTcpPort
+    }
 
     $runOutput = & $RunScript @runParams
     foreach ($line in $runOutput) {
@@ -196,6 +204,11 @@ try {
 
         if ($Profile -eq "memory-durable") {
             . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-memory-durable.ps1")
+            break SmokeProfileValidation
+        }
+
+        if ($Profile -eq "usb-hotplug") {
+            . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-usb-hotplug.ps1")
             break SmokeProfileValidation
         }
 

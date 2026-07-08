@@ -95,7 +95,7 @@ if ($Nic -eq "e1000") {
 if ($UsbXhciInput) {
     $qemuArgs += @(
         "-device", "qemu-xhci,id=xhci",
-        "-device", "usb-kbd,bus=xhci.0"
+        "-device", "usb-kbd,bus=xhci.0,id=bootkbd"
     )
     if ($RelativeMouse -or $MouseGrab) {
         $qemuArgs += @("-device", "usb-mouse,bus=xhci.0")

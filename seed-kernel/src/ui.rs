@@ -198,6 +198,7 @@ impl StatusUi {
         log_transition(previous.map(|prev| prev.framebuffer), &snapshot.framebuffer);
         log_transition(previous.map(|prev| prev.entropy), &snapshot.entropy);
         log_transition(previous.map(|prev| prev.usb_xhci), &snapshot.usb_xhci);
+        log_transition(previous.map(|prev| prev.usb_hotplug), &snapshot.usb_hotplug);
         log_transition(previous.map(|prev| prev.wifi), &snapshot.wifi);
         log_transition(previous.map(|prev| prev.network), &snapshot.network);
         log_transition(previous.map(|prev| prev.input), &snapshot.input);
@@ -374,7 +375,7 @@ fn draw_status_strip(
             None,
         );
     }
-    surface.fill_rect(24, 154, width.saturating_sub(48), 1, HAIRLINE_HI);
+    surface.fill_rect(24, 160, width.saturating_sub(48), 1, HAIRLINE_HI);
 }
 
 fn draw_status_detail(
@@ -386,14 +387,24 @@ fn draw_status_detail(
     if view != console::UiView::Console {
         return;
     }
-    text::draw_text(surface, 44, 134, "USB", TEXT_FAINT, None);
+    text::draw_text(surface, 44, 128, "USB", TEXT_FAINT, None);
     let max_chars = width.saturating_sub(100) / FONT_ADVANCE;
     draw_truncated_text(
         surface,
         92,
-        134,
+        128,
         snapshot.usb_xhci.detail.as_str(),
         max_chars,
+        TEXT_FAINT,
+    );
+    text::draw_text(surface, 44, 144, "USB HOTPLUG", TEXT_FAINT, None);
+    let hotplug_max_chars = width.saturating_sub(172) / FONT_ADVANCE;
+    draw_truncated_text(
+        surface,
+        164,
+        144,
+        snapshot.usb_hotplug.detail.as_str(),
+        hotplug_max_chars,
         TEXT_FAINT,
     );
 }

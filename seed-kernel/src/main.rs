@@ -326,7 +326,7 @@ impl PeriodicTasks {
             entropy: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(8, tsc_per_ms)),
             net: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(50, tsc_per_ms)),
             input: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(8, tsc_per_ms)),
-            usb_rescan: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(1000, tsc_per_ms)),
+            usb_rescan: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(500, tsc_per_ms)),
             provider: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(50, tsc_per_ms)),
             ui: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(250, tsc_per_ms)),
             entropy_ready,
@@ -356,6 +356,10 @@ impl PeriodicTasks {
             return;
         }
         self.usb_rescan.try_run(now_tsc, || {
+            if usb::poll_hotplug() {
+                runtime_status.input_probe_complete = true;
+                status_ui.render_forced(uptime_ms(), *runtime_status);
+            }
             if !usb::input_active() && usb::rescan_if_input_missing() {
                 runtime_status.input_probe_complete = true;
                 status_ui.render_forced(uptime_ms(), *runtime_status);
