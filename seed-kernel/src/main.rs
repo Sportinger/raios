@@ -120,6 +120,7 @@ mod framebuffer;
 mod granted_candidate_service;
 mod hello_service;
 mod input;
+mod iommu_vtd;
 #[allow(dead_code)]
 mod marvell_wifi_pcie;
 mod memory;
@@ -248,6 +249,24 @@ fn early_main() -> ! {
     }
     console::init();
     usb::init();
+    let iommu_report = iommu_vtd::probe();
+    if iommu_report.present {
+        let remapping = if iommu_report.remapping_enabled {
+            "ENABLED"
+        } else {
+            "DISABLED"
+        };
+        serial::write_fmt(format_args!(
+            "iommu-vtd: present=true ver=0x{:08x} drhd={} cap=0x{:016x} ecap=0x{:016x} remapping={} (slice1 detect-only)\r\n",
+            iommu_report.version,
+            iommu_report.drhd_count,
+            iommu_report.cap,
+            iommu_report.ecap,
+            remapping
+        ));
+    } else {
+        serial::write_fmt(format_args!("iommu-vtd: {}\r\n", iommu_report.reason));
+    }
     wifi::probe();
     status_ui.render(0, runtime_status);
 
