@@ -1,10 +1,12 @@
+use alloc::{vec, vec::Vec};
 use sha2::{Digest, Sha256};
 
 use crate::{
     agent_protocol_support::{
-        begin_response, crlf, emit_export_gate, end_response, indent, json_current_boot_id,
-        json_event_id, json_event_id_option, json_opt_str, json_sha256, json_sha256_option,
-        json_str, method_eq, method_head_eq, raw, raw_bool, raw_fmt, raw_line,
+        begin_response, crlf, emit_export_gate, emit_record_fields, end_response, indent,
+        json_current_boot_id, json_event_id, json_event_id_option, json_opt_str, json_sha256,
+        json_sha256_option, json_str, method_eq, method_head_eq, raw, raw_bool, raw_fmt, raw_line,
+        record_bool as b, record_field as f, record_str as s,
     },
     agent_protocol_system::{
         emit_capability_ids, emit_problem_objects, emit_service_ids, emit_status_state_at,
@@ -14,6 +16,7 @@ use crate::{
     system_status::{RowState, SystemSnapshot},
     ui, wifi,
 };
+use raios_core::record::{sha256_of_json, Value as V};
 #[derive(Clone, Copy)]
 struct ProjectionFieldSpec {
     field: &'static str,
@@ -1129,6 +1132,98 @@ fn emit_provider_context_injection_gate_selftest_case(
         raw(",");
     }
     crlf();
+}
+
+struct ProviderExportPublicPacket<'a> {
+    included_public_ids: Vec<&'a str>,
+    excluded_local_only_count: u64,
+    packet_hash: [u8; 32],
+}
+
+fn assemble_provider_export_public_packet<'a>(
+    context: &'a crate::agent_protocol::durable_store::DurableMemoryContext,
+) -> ProviderExportPublicPacket<'a> {
+    let mut included_public_ids = Vec::new();
+    let mut records = Vec::new();
+    let mut excluded_local_only_count = 0u64;
+    let mut idx = 0usize;
+    while idx < context.records.len() {
+        let record = &context.records[idx];
+        if record.exportable {
+            included_public_ids.push(record.id.as_str());
+            records.push(V::InlineObject(vec![
+                f("id", s(record.id.as_str())),
+                f("kind", s(record.kind)),
+                f("entity", s(record.entity.as_str())),
+                f("predicate", s(record.predicate.as_str())),
+                f("classification", s(record.classification)),
+                f("authority", s(record.authority.as_str())),
+                f("scope", s("durable")),
+                f("exportable", b(true)),
+            ]));
+        } else {
+            excluded_local_only_count = excluded_local_only_count.saturating_add(1);
+        }
+        idx += 1;
+    }
+
+    let packet_record_count = included_public_ids.len() as u64;
+    let canonical_packet = V::Object(vec![
+        f("profile", s("provider_minimal")),
+        f("scope", s("durable")),
+        f("packet_all_records_public", b(true)),
+        f("packet_record_count", V::U64(packet_record_count)),
+        f("records", V::Array(records)),
+    ]);
+
+    ProviderExportPublicPacket {
+        included_public_ids,
+        excluded_local_only_count,
+        packet_hash: sha256_of_json(&canonical_packet),
+    }
+}
+
+fn included_public_ids_value<'a>(ids: &[&'a str]) -> V<'a> {
+    let mut values = Vec::with_capacity(ids.len());
+    let mut idx = 0usize;
+    while idx < ids.len() {
+        values.push(V::Str(ids[idx]));
+        idx += 1;
+    }
+    V::Array(values)
+}
+
+pub(crate) fn emit_provider_context_export_packet_selftest(request: &str) {
+    let _profile = provider_context_export_profile(request);
+    let context = memory_store::durable_memory_context();
+    let packet = assemble_provider_export_public_packet(&context);
+    let packet_record_count = packet.included_public_ids.len() as u64;
+
+    begin_response("provider.context_export_packet_selftest");
+    emit_record_fields(
+        vec![
+            f("test_infrastructure", b(true)),
+            f("gate_evaluated", b(false)),
+            f("authorized", b(false)),
+            f("export_performed", b(false)),
+            f("provider_write", s("not_attempted")),
+            f("packet_all_records_public", b(true)),
+            f("packet_record_count", V::U64(packet_record_count)),
+            f("packet_hash", V::Sha256(packet.packet_hash)),
+            f(
+                "included_public_ids",
+                included_public_ids_value(&packet.included_public_ids),
+            ),
+            f(
+                "excluded_local_only_count",
+                V::U64(packet.excluded_local_only_count),
+            ),
+            f("owner_sealed", b(false)),
+            f("trust_tier", s("dev_key_not_owner_sealed")),
+        ],
+        6,
+    );
+    end_response("provider.context_export_packet_selftest");
 }
 
 pub(crate) fn emit_provider_context_export_denied(
@@ -2430,6 +2525,8 @@ fn provider_context_export_arg(method: &str) -> &str {
         "provider.context_injection_gate".len()
     } else if method_head_eq(method, "provider.context_injection_gate_selftest") {
         "provider.context_injection_gate_selftest".len()
+    } else if method_head_eq(method, "provider.context_export_packet_selftest") {
+        "provider.context_export_packet_selftest".len()
     } else {
         return "";
     };

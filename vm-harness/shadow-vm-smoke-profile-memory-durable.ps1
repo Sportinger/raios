@@ -791,6 +791,104 @@ if (-not ($exportEnvelopeStillDenied -and $exportGateAndReason -and $exportFirst
     throw "export-denial-durable family failed"
 }
 
+# --- export-packet: public-only provider-export packet evidence assembly. The
+#     helper's primary memory.record_log_append gives the child one local_only
+#     durable record; the extras append exactly one public fixture, scan, then run
+#     the packet selftest twice to prove hash determinism and no selftest write. ---
+
+$exportPacketFixtureId = "mem.decision.provider_export_public_fixture.current_boot.v0"
+$exportPacketExtraCommands = @(
+    [pscustomobject]@{ Key = "fixture"; Command = "memory.provider_export_public_fixture_append"; Method = "memory.provider_export_public_fixture_append" },
+    [pscustomobject]@{ Key = "scan_before"; Command = "durable.record_log_scan"; Method = "durable.record_log_scan" },
+    [pscustomobject]@{ Key = "packet1"; Command = "provider.context_export_packet_selftest provider_minimal"; Method = "provider.context_export_packet_selftest" },
+    [pscustomobject]@{ Key = "packet2"; Command = "provider.context_export_packet_selftest provider_minimal"; Method = "provider.context_export_packet_selftest" },
+    [pscustomobject]@{ Key = "scan_after"; Command = "durable.record_log_scan"; Method = "durable.record_log_scan" }
+)
+$exportPacketProbe = Invoke-MemoryRecordAppendFixtureProbe -FixtureSpec "valid:2" -Label "export-packet" -AppendMethod "memory.record_log_append" -ExtraAgentCommands $exportPacketExtraCommands
+$exportPacketFixture = $exportPacketProbe.extra["fixture"].body.result
+$exportPacketScanBefore = $exportPacketProbe.extra["scan_before"].body.result
+$packet1 = $exportPacketProbe.extra["packet1"].body.result
+$packet2 = $exportPacketProbe.extra["packet2"].body.result
+$exportPacketScanAfter = $exportPacketProbe.extra["scan_after"].body.result
+$packet1Ids = @($packet1.included_public_ids)
+
+$exportPacketPublicIncluded = (
+    $exportPacketFixture.durable_append -eq "appended" -and
+    [bool]$exportPacketFixture.performed -and
+    $exportPacketFixture.record_id -eq $exportPacketFixtureId -and
+    $exportPacketFixture.classification -eq "public" -and
+    $packet1Ids -contains $exportPacketFixtureId
+)
+Add-Predicate `
+    -Name "export-packet:public-record-included" `
+    -Expected "packet1 included_public_ids contains the fixed public provider-export fixture id" `
+    -Passed $exportPacketPublicIncluded `
+    -Actual $(if ($exportPacketPublicIncluded) { "matched" } else { "fixture=$($exportPacketFixture | ConvertTo-Json -Compress -Depth 10) packet1=$($packet1 | ConvertTo-Json -Compress -Depth 10)" })
+
+$exportPacketLocalOnlyIds = @(
+    "mem.capability_denial.module_load_ephemeral_durable.current_boot.v0",
+    "mem.decision.module_sharing_confirmed_vision.current_boot.v0",
+    "mem.problem.memory_mutation_denied.current_boot.v0",
+    "mem.decision.module_sharing_evidence_gated.current_boot.v0",
+    "mem.observation.agent.current_boot.00000001.v0"
+)
+$exportPacketContainsLocalOnly = $false
+foreach ($id in $exportPacketLocalOnlyIds) {
+    if ($packet1Ids -contains $id) {
+        $exportPacketContainsLocalOnly = $true
+    }
+}
+$exportPacketLocalOnlyExcluded = (
+    -not $exportPacketContainsLocalOnly -and
+    [int64]$packet1.excluded_local_only_count -ge 1
+)
+Add-Predicate `
+    -Name "export-packet:local-only-excluded" `
+    -Expected "packet1 includes no known local_only durable ids and reports excluded_local_only_count >= 1" `
+    -Passed $exportPacketLocalOnlyExcluded `
+    -Actual $(if ($exportPacketLocalOnlyExcluded) { "matched" } else { ($packet1 | ConvertTo-Json -Compress -Depth 10) })
+
+$exportPacketAllPublic = (
+    [bool]$packet1.packet_all_records_public -and
+    [int64]$packet1.packet_record_count -eq [int64]$packet1Ids.Count
+)
+Add-Predicate `
+    -Name "export-packet:all-records-public-after-filter" `
+    -Expected "packet_all_records_public == true and packet_record_count equals count(included_public_ids)" `
+    -Passed $exportPacketAllPublic `
+    -Actual $(if ($exportPacketAllPublic) { "matched" } else { ($packet1 | ConvertTo-Json -Compress -Depth 10) })
+
+$exportPacketHashDeterministic = (
+    $packet1.packet_hash -eq $packet2.packet_hash -and
+    $packet1.packet_hash -match '^sha256:[0-9a-f]{64}$'
+)
+Add-Predicate `
+    -Name "export-packet:hash-deterministic" `
+    -Expected "packet1.packet_hash equals packet2.packet_hash and renders as sha256:<64hex>" `
+    -Passed $exportPacketHashDeterministic `
+    -Actual $(if ($exportPacketHashDeterministic) { "matched" } else { "packet1=$($packet1.packet_hash) packet2=$($packet2.packet_hash)" })
+
+$exportPacketNoAuthNoWrite = (
+    -not [bool]$packet1.gate_evaluated -and
+    -not [bool]$packet1.authorized -and
+    -not [bool]$packet1.export_performed -and
+    $packet1.provider_write -eq "not_attempted" -and
+    [bool]$packet1.test_infrastructure -and
+    [int64]$exportPacketScanBefore.count -eq ([int64]$exportPacketProbe.scan.count + 1) -and
+    [int64]$exportPacketScanBefore.tail_seq -eq ([int64]$exportPacketProbe.scan.tail_seq + 1) -and
+    [int64]$exportPacketScanAfter.count -eq [int64]$exportPacketScanBefore.count -and
+    [int64]$exportPacketScanAfter.tail_seq -eq [int64]$exportPacketScanBefore.tail_seq
+)
+Add-Predicate `
+    -Name "export-packet:no-authorization-no-audit-no-write" `
+    -Expected "packet selftest does not evaluate gates, authorize, export, write provider output, or append durable records" `
+    -Passed $exportPacketNoAuthNoWrite `
+    -Actual $(if ($exportPacketNoAuthNoWrite) { "matched" } else { "packet1=$($packet1 | ConvertTo-Json -Compress -Depth 10) helper_scan=$($exportPacketProbe.scan | ConvertTo-Json -Compress -Depth 8) before=$($exportPacketScanBefore | ConvertTo-Json -Compress -Depth 8) after=$($exportPacketScanAfter | ConvertTo-Json -Compress -Depth 8)" })
+
+if (-not ($exportPacketPublicIncluded -and $exportPacketLocalOnlyExcluded -and $exportPacketAllPublic -and $exportPacketHashDeterministic -and $exportPacketNoAuthNoWrite)) {
+    throw "export-packet family failed"
+}
+
 # --- memory-agent-observation-denied: 5 distinct RAM-only denials against the MAIN
 #     VM (M9B-1b) -- each a different malformed `memory.observation_log_append`
 #     argument. Bracketed by a single before/after durable.record_log_scan on the

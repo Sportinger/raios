@@ -75,9 +75,9 @@ use crate::{
     },
     agent_protocol_policy::{emit_capability_denied, record_denial, record_read},
     agent_protocol_provider::{
-        emit_provider_context_export_denied, emit_provider_context_gate,
-        emit_provider_context_gate_selftest, emit_provider_context_injection_gate,
-        emit_provider_context_injection_gate_selftest,
+        emit_provider_context_export_denied, emit_provider_context_export_packet_selftest,
+        emit_provider_context_gate, emit_provider_context_gate_selftest,
+        emit_provider_context_injection_gate, emit_provider_context_injection_gate_selftest,
     },
     agent_protocol_recovery::{
         emit_durable_audit_rollback_write_authority_diagnostic,
@@ -346,6 +346,7 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("memory.record_log_append_selftest", Exact, [], [route!("memory.record_log_append_selftest")], MethodAction::Read0(memory_store::emit_memory_record_log_append_selftest)),
     method!("memory.broker_resolve_selftest", Exact, [], [route!("memory.broker_resolve_selftest")], MethodAction::Read0(memory_store::emit_memory_broker_resolve_selftest)),
     method!("memory.decision_problem_log_append", Exact, ["persist.memory_decision_problem_append"], [route!("memory.decision_problem_log_append"), route!("persist.memory_decision_problem_append" => "memory.decision_problem_log_append")], MethodAction::Read0(memory_store::emit_memory_decision_problem_log_append)),
+    method!("memory.provider_export_public_fixture_append", Exact, [], [route!("memory.provider_export_public_fixture_append")], MethodAction::Read0(memory_store::emit_provider_export_public_fixture_append)),
     method!("memory.observation_log_append", Head, [], [], MethodAction::ReadMethod(memory_store::emit_memory_observation_log_append)),
     method!("artifact.store_scan", Exact, ["persist.artifact_store_scan"], [route!("artifact.store_scan"), route!("persist.artifact_store_scan" => "artifact.store_scan")], MethodAction::Read0(artifact_store::emit_artifact_store_scan)),
     method!("module.artifact_store_selftest", Exact, [], [route!("module.artifact_store_selftest")], MethodAction::Read0(artifact_store::emit_artifact_store_selftest)),
@@ -369,6 +370,7 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("provider.context_gate_selftest", Head, [], [route!("provider.context_gate_selftest")], MethodAction::ReadRuntimeMethod(emit_provider_context_gate_selftest)),
     method!("provider.context_injection_gate", Head, [], [route!("provider.context_injection_gate")], MethodAction::ReadRuntimeMethod(emit_provider_context_injection_gate)),
     method!("provider.context_injection_gate_selftest", Head, [], [route!("provider.context_injection_gate_selftest")], MethodAction::ReadRuntimeMethod(emit_provider_context_injection_gate_selftest)),
+    method!("provider.context_export_packet_selftest", Head, [], [route!("provider.context_export_packet_selftest")], MethodAction::ReadMethod(emit_provider_context_export_packet_selftest)),
     method!("module.manifest_diagnostic", Head, [], [], MethodAction::ReadMethod(emit_module_manifest_diagnostic)),
     method!("module.manifest_diagnostic_selftest", Head, [], [], MethodAction::Read0(emit_module_manifest_diagnostic_selftest)),
     method!("module.artifact_diagnostic", Head, [], [], MethodAction::ReadMethod(emit_module_artifact_diagnostic)),

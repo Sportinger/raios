@@ -77,6 +77,7 @@ const DECISION_PROBLEM_METHOD: &str = "memory.decision_problem_log_append";
 const DECISION_PROBLEM_RESPONSE_SCHEMA: &str = "raios.memory_decision_problem_append.v0";
 const BROKER_RESOLVE_SELFTEST_METHOD: &str = "memory.broker_resolve_selftest";
 const BROKER_RESOLVE_SELFTEST_SCHEMA: &str = "raios.memory_broker_resolve_selftest.v0";
+const PROVIDER_EXPORT_PUBLIC_FIXTURE_METHOD: &str = "memory.provider_export_public_fixture_append";
 
 /// Record A source: the owner-answers standing decision that module sharing is
 /// confirmed vision (commit b7241b2 / the M12+ direction review), NOT
@@ -578,6 +579,75 @@ fn record_supersedes_array(record: &MemoryRecord<'static>) -> V<'static> {
         idx += 1;
     }
     V::Array(values)
+}
+
+// --- M9C-2c-1: fixed public provider-export packet fixture -----------------------
+
+fn provider_export_public_fixture_record() -> Result<MemoryRecord<'static>, MemoryRecordError> {
+    MemoryRecord::new(MemoryRecordInput {
+        id: "mem.decision.provider_export_public_fixture.current_boot.v0",
+        kind: "decision",
+        entity: "provider.export.public_fixture",
+        predicate: "public_export_fixture_ready",
+        value: V::Object(vec![
+            f("fixture", b(true)),
+            f("purpose", s("provider_export_public_filter_selftest")),
+            f("content", s("public test fixture only")),
+            f("grants_authority", b(false)),
+        ]),
+        classification: "public",
+        authority: "decision",
+        boot_id: "current_boot",
+        sequence: 0,
+        source: MemorySource::new(
+            PROVIDER_EXPORT_PUBLIC_FIXTURE_METHOD,
+            "docs/architecture-decisions/0004-system-memory-and-agent-context.md",
+        ),
+        evidence: vec![],
+        tags: vec!["decision", "provider_export", "test_fixture"],
+        supersedes: vec![],
+        created_at_ticks: 0,
+    })
+}
+
+pub(crate) fn record_provider_export_public_fixture(
+) -> Result<durable_store::MemoryRecordAppendEvidence<'static>, MemoryRecordError> {
+    let record = provider_export_public_fixture_record()?;
+    Ok(durable_store::append_memory_record(&record))
+}
+
+pub(crate) fn emit_provider_export_public_fixture_append() {
+    let evidence = match record_provider_export_public_fixture() {
+        Ok(evidence) => evidence,
+        Err(err) => {
+            begin_response(PROVIDER_EXPORT_PUBLIC_FIXTURE_METHOD);
+            emit_record_fields(
+                vec![
+                    f("schema", s(RESPONSE_SCHEMA)),
+                    f("query_method", s(PROVIDER_EXPORT_PUBLIC_FIXTURE_METHOD)),
+                    f("durable_append", s("capability_denied")),
+                    f("performed", b(false)),
+                    f("reason", s(err.reason())),
+                    f("authority", s("evidence_only")),
+                    f("record_schema", s(EXPECTED_RECORD_SCHEMA)),
+                    f("owner_sealed", b(false)),
+                    f("persistence_claimed", b(false)),
+                ],
+                6,
+            );
+            end_response(PROVIDER_EXPORT_PUBLIC_FIXTURE_METHOD);
+            return;
+        }
+    };
+
+    let mut fields = vec![
+        f("schema", s(RESPONSE_SCHEMA)),
+        f("query_method", s(PROVIDER_EXPORT_PUBLIC_FIXTURE_METHOD)),
+    ];
+    fields.extend(memory_record_evidence_fields(&evidence));
+    begin_response(PROVIDER_EXPORT_PUBLIC_FIXTURE_METHOD);
+    emit_record_fields(fields, 6);
+    end_response(PROVIDER_EXPORT_PUBLIC_FIXTURE_METHOD);
 }
 
 // --- synthetic fail-closed selftest (NO disk write, RAM-only) ---------------------

@@ -3622,6 +3622,25 @@ target/x86_64-seed/release/seed-kernel`), and the edited memory-durable PowerShe
 errors. Per orchestrator override, no QEMU profile was run here; the `export-denial-durable:*` VM predicates
 were added for the orchestrator.
 
+**M9C-2c-1 IMPLEMENTED (2026-07-08, deterministic PUBLIC-ONLY provider-export packet assembly evidence; grants nothing).**
+raiOS can now DO a read-only packet assembly proof over durable memory: a fixed system-authored public
+decision fixture (`mem.decision.provider_export_public_fixture.current_boot.v0`, classification `public`) can
+be appended through the existing memory-record gauntlet, and
+`provider.context_export_packet_selftest provider_minimal` then reads the same durable context as
+`memory.context`, filters to `exportable:true` records only, reports included public ids, excluded local-only
+count, packet record count, and a deterministic `sha256:<64hex>` packet hash over public metadata only. The
+canonical hash input is a typed `Value::Object` with fields `profile`, `scope`,
+`packet_all_records_public`, `packet_record_count`, and `records`; each record carries only `id`, `kind`,
+`entity`, `predicate`, `classification`, `authority`, `scope`, and `exportable`. Raw durable `value` and
+excluded local-only ids are not included. The selftest performs no gate evaluation, no authorization, no
+export audit, no durable packet write, no provider write, and no transmission; `provider.context_export`
+stays the existing denial. The `memory-durable` profile gained `export-packet:*` predicates for public
+inclusion, local-only exclusion, post-filter all-public/count consistency, hash determinism, and
+no-authorization/no-audit/no-write. Host-only verification for this worker: `cargo fmt -p seed-kernel -- --check`
+PASS, `cargo fmt -p raios-core -- --check` PASS, `cargo test --locked -p raios-core` PASS (191 tests),
+release seed-kernel build PASS (`built target/x86_64-seed/release/seed-kernel`), and the edited
+memory-durable PowerShell profile parses with 0 errors. Per orchestrator override, no QEMU profile was run.
+
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 recovery/hello dispatch-bound completion-denial smoke runs on Windows with
