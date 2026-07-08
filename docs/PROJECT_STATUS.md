@@ -24,6 +24,24 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+M12+ Slice 2 done (2026-07-08) — ADR 0009 Option A, a LOCAL content-addressed
+registry. Phase A (commit 4e1acf7, raios-core): a typed registry entry model +
+selection evaluator — the constructor RECOMPUTES sha256 from bytes and fail-closed
+rejects mismatched hash / absent-empty signature / wrong publisher key / secret
+classification; the evaluator reuses the Slice-1 provenance verify + honesty and
+produces a RegistrySelectionDecision with EVERY authority false (acquisition/
+install/load/execute/persist); rendered via record::Value. Phase B (commit 18374f7,
+seed-kernel): one built-in echo registry entry + a READ-ONLY registry-selection
+diagnostic that selects by sha256, verifies provenance against the kernel-recomputed
+bytes, and STAGES a valid entry into the EXISTING candidate-intake path as an INERT
+candidate (via a behavior-preserving shared intake_and_retain helper the serial path
+also uses). Grants nothing — load/execute/install/persist stay denied; provenance !=
+load-worthiness; M6/M7 promotion + re-verify still required to ever load. Verified:
+raios-core 262 tests; seed-kernel build warning-free; m12-distribution-provenance
+225/225 (registry selection stages inert candidate; wrong hash → no stage; load STILL
+denied). Full+recovery deferred to the M12+ block close. Scoping + implementation by
+CODEX workers.
+
 M12+ first distribution slice done (2026-07-08) — ADR 0009 Option A. M12+ Phase A
 (commit d5f49b9): raios-core provenance-verify primitive — verify a distribution/
 publisher signature over a DOMAIN-TAGGED message ("raios.distribution_provenance.

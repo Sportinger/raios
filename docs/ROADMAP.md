@@ -99,8 +99,12 @@ primitive (separate scalar-2 publisher key + domain tag; grants nothing) + Phase
 the kernel bridge (a distribution publisher signature is verified against the
 KERNEL-recomputed retained candidate.sha256, but the candidate stays inert — load/
 execute/install still denied; provenance != load-worthiness; m12-distribution-
-provenance 223/223). Next M12+ slices: the actual content-addressed registry store +
-more of the local delivery flow. (3) provide real trust inputs (a cryptographically
+provenance 223/223). **Slice 2 DONE:** a local content-addressed registry — a raios-core
+entry model + selection evaluator (recomputes sha256, grants nothing) + the kernel
+read-only registry-selection diagnostic that stages a valid-provenance entry into the
+existing candidate-intake path as an INERT candidate (load/execute/install/persist
+still denied; m12-distribution-provenance 225/225). Next M12+ slices: more of the local
+delivery flow (multi-entry registry, chunked delivery). (3) provide real trust inputs (a cryptographically
 trusted time source, real CA roots, a live second provider) → I finish M10 real
 validation — STILL YOURS. (4) the owner-key sealing ceremony → the FINAL step —
 STILL YOURS. Until then every label stays honestly unverified / dev_key_not_owner_
