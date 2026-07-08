@@ -17,6 +17,7 @@ use limine::BaseRevision;
 use linked_list_allocator::LockedHeap;
 
 mod agent_protocol;
+mod agent_protocol_distribution;
 mod agent_protocol_honesty;
 mod agent_protocol_memory;
 mod agent_protocol_module_approval;
@@ -105,6 +106,7 @@ mod ahci;
 mod console;
 mod current_boot_service;
 mod descriptor_sources;
+mod distribution_candidate;
 mod e1000;
 mod echo_service;
 mod entropy;

@@ -1,0 +1,218 @@
+$candidatePath = if ($ResolvedArtifact) {
+    $ResolvedArtifact
+}
+else {
+    Join-Path $RepoRoot "seed-kernel\artifacts\svc.demo.echo.wasm"
+}
+
+$expectedShaBare = "f81f9442de3729f58f9d5c43b186a4223e3f0ed0bdde20e94722da8d5733abd2"
+$expectedSha = "sha256:$expectedShaBare"
+$provSigHex = "304402201fd9aa3e26579ab9852a1ea61a7fe23f79c39badd13e2c74dbdf9d957a25449b02204f783191894cfb609d35c5babc9fb3208e77d9c712d2645a633120db6dcdd89b"
+
+function Assert-M12Predicate {
+    param(
+        [string]$Name,
+        [string]$Expected,
+        [bool]$Passed,
+        [string]$Actual,
+        [string]$FailureMessage
+    )
+    Add-Predicate -Name $Name -Expected $Expected -Passed $Passed -Actual $Actual
+    if (-not $Passed) {
+        throw $FailureMessage
+    }
+}
+
+function Test-M12Denials {
+    param([object]$Record)
+    return (
+        $Record.load_authorized -eq $false -and
+        $Record.install_authorized -eq $false -and
+        $Record.owner_sealed -eq $false -and
+        $Record.requires_m6_reverify_for_load -eq $true -and
+        $Record.authorizes_load -eq $false -and
+        $Record.authorizes_execution -eq $false -and
+        $Record.writes_persistent_state -eq $false
+    )
+}
+
+function Get-M12SelftestCase {
+    param([object[]]$Cases, [string]$Name)
+    return @($Cases | Where-Object { $_.case -eq $Name })[0]
+}
+
+$delivery = Send-CandidateBytes -Path $candidatePath
+$finalize = $delivery.finalize_response
+$result = $finalize.body.result
+$deliveryOk = (
+    $finalize.t -eq "response" -and
+    $finalize.body.method -eq "module.submit_candidate_finalize" -and
+    [int]$result.byte_len -eq 4205 -and
+    [int]$result.delivered_byte_len -eq 4205 -and
+    $result.artifact_sha256 -eq $expectedSha -and
+    $result.wasm_valid -eq $true -and
+    $result.retained_in_ram -eq $true -and
+    $result.rejected -eq $false -and
+    $result.authorizes_load -eq $false -and
+    $result.authorizes_execution -eq $false -and
+    $result.writes_persistent_state -eq $false
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:P1_delivery_retains_inert_echo_candidate" `
+    -Expected "signed distribution artifact bytes enter existing candidate intake as inert current_boot retained wasm" `
+    -Passed $deliveryOk `
+    -Actual $(if ($deliveryOk) { "matched" } else { ($result | ConvertTo-Json -Compress -Depth 6) }) `
+    -FailureMessage "Expected echo artifact delivery to retain an inert valid wasm candidate"
+
+Send-AgentCommand -Command "agent module.distribution_provenance_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END module.distribution_provenance_diagnostic_selftest" -Name "m12-distribution:P2_selftest_command"
+$selftest = Get-LastAgentResponseJson -Method "module.distribution_provenance_diagnostic_selftest"
+$selftestResult = $selftest.body.result
+$cases = @($selftestResult.cases)
+$selftestOk = (
+    $selftest.t -eq "response" -and
+    $selftestResult.passed -eq $true -and
+    [int]$selftestResult.case_count -eq 4 -and
+    $selftestResult.trust_tier -eq "dev_key_not_owner_sealed" -and
+    $selftestResult.owner_sealed -eq $false -and
+    $selftestResult.read_only -eq $true -and
+    $selftestResult.durable_write -eq $false
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:P2_selftest_positive_and_negative" `
+    -Expected "in-guest provenance selftest passes 4 cases and grants nothing" `
+    -Passed $selftestOk `
+    -Actual $(if ($selftestOk) { "matched" } else { ($selftestResult | ConvertTo-Json -Compress -Depth 8) }) `
+    -FailureMessage "Expected distribution provenance selftest to pass"
+
+$validCase = Get-M12SelftestCase -Cases $cases -Name "valid_provenance_load_still_denied"
+$validCaseOk = (
+    $validCase.passed -eq $true -and
+    $validCase.provenance_verified -eq $true -and
+    $validCase.status -eq "distribution_candidate_provenance_verified_load_still_denied" -and
+    (Test-M12Denials -Record $validCase)
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:P2_valid_provenance_load_still_denied" `
+    -Expected "valid provenance verifies but load/install/owner/persistence remain denied" `
+    -Passed $validCaseOk `
+    -Actual $(if ($validCaseOk) { "matched" } else { ($validCase | ConvertTo-Json -Compress -Depth 6) }) `
+    -FailureMessage "Expected valid provenance selftest case to keep load denied"
+
+foreach ($caseName in @("absent_signature_denied", "tampered_signature_rejected", "signature_bound_to_wrong_artifact_rejected")) {
+    $case = Get-M12SelftestCase -Cases $cases -Name $caseName
+    $caseOk = (
+        $case.passed -eq $true -and
+        $case.provenance_verified -eq $false -and
+        (Test-M12Denials -Record $case)
+    )
+    Assert-M12Predicate `
+        -Name "m12-distribution:P2_$caseName" `
+        -Expected "$caseName fails closed and grants nothing" `
+        -Passed $caseOk `
+        -Actual $(if ($caseOk) { "matched" } else { ($case | ConvertTo-Json -Compress -Depth 6) }) `
+        -FailureMessage "Expected $caseName to fail closed"
+}
+
+Send-AgentCommand -Command "agent module.distribution_provenance_diagnostic $provSigHex" -ExpectedMarker "RAIOS_AGENT_END module.distribution_provenance_diagnostic" -Name "m12-distribution:P3_live_diagnostic_valid_signature"
+$live = Get-LastAgentResponseJson -Method "module.distribution_provenance_diagnostic"
+$liveResult = $live.body.result
+$liveOk = (
+    $live.t -eq "response" -and
+    $liveResult.schema -eq "raios.distribution_candidate.v0" -and
+    $liveResult.provenance_verified -eq $true -and
+    $liveResult.status -eq "distribution_candidate_provenance_verified_load_still_denied" -and
+    $liveResult.honest -eq $true -and
+    $liveResult.retained_present -eq $true -and
+    $liveResult.artifact_sha256 -eq $expectedSha -and
+    $liveResult.trust_tier -eq "dev_key_not_owner_sealed" -and
+    $liveResult.live_load_projection_present -eq $false -and
+    $liveResult.live_load_projection_can_load_now -eq $false -and
+    (Test-M12Denials -Record $liveResult)
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:P3_live_provenance_verified_load_still_denied" `
+    -Expected "live diagnostic verifies provenance over retained in-guest hash and grants nothing" `
+    -Passed $liveOk `
+    -Actual $(if ($liveOk) { "matched" } else { ($liveResult | ConvertTo-Json -Compress -Depth 8) }) `
+    -FailureMessage "Expected live provenance diagnostic to verify and keep load denied"
+Assert-LogContains -Name "m12-distribution:P3_serial_provenance_verified" -Needle '"provenance_verified": true' -TimeoutSeconds 1
+Assert-LogContains -Name "m12-distribution:P3_serial_load_authorized_false" -Needle '"load_authorized": false' -TimeoutSeconds 1
+Assert-LogContains -Name "m12-distribution:P3_serial_requires_m6_reverify" -Needle '"requires_m6_reverify_for_load": true' -TimeoutSeconds 1
+Assert-LogContains -Name "m12-distribution:P3_serial_dev_key_tier" -Needle '"trust_tier": "dev_key_not_owner_sealed"' -TimeoutSeconds 1
+
+$tamperedSigHex = "31" + $provSigHex.Substring(2)
+Send-AgentCommand -Command "agent module.distribution_provenance_diagnostic $tamperedSigHex" -ExpectedMarker "RAIOS_AGENT_END module.distribution_provenance_diagnostic" -Name "m12-distribution:N1_live_tampered_signature"
+$tampered = Get-LastAgentResponseJson -Method "module.distribution_provenance_diagnostic"
+$tamperedResult = $tampered.body.result
+$tamperedOk = (
+    $tamperedResult.provenance_verified -eq $false -and
+    $tamperedResult.reason -eq "provenance_signature_unverified" -and
+    (Test-M12Denials -Record $tamperedResult)
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:N1_tampered_signature_unverified" `
+    -Expected "tampered provenance signature is unverified and grants nothing" `
+    -Passed $tamperedOk `
+    -Actual $(if ($tamperedOk) { "matched" } else { ($tamperedResult | ConvertTo-Json -Compress -Depth 8) }) `
+    -FailureMessage "Expected tampered provenance signature to fail closed"
+Send-AgentCommand -Command "caps" -ExpectedMarker "RAIOS_AGENT_END system.capabilities" -Name "m12-distribution:N1_liveness_after_tamper"
+
+$wrongArtifactCase = Get-M12SelftestCase -Cases $cases -Name "signature_bound_to_wrong_artifact_rejected"
+$wrongArtifactOk = $wrongArtifactCase.passed -eq $true -and $wrongArtifactCase.provenance_verified -eq $false
+Assert-M12Predicate `
+    -Name "m12-distribution:N2_wrong_artifact_binding_selftest" `
+    -Expected "valid fixture over wrong artifact hash is rejected in guest selftest" `
+    -Passed $wrongArtifactOk `
+    -Actual $(if ($wrongArtifactOk) { "matched" } else { ($wrongArtifactCase | ConvertTo-Json -Compress -Depth 6) }) `
+    -FailureMessage "Expected wrong-artifact selftest case to pass"
+
+$loadOffset = Get-SerialLogOffset
+Send-AgentCommand -Command "module.load_ephemeral svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "m12-distribution:N3_load_still_denied"
+$load = Get-LastAgentResponseJson -Method "module.load_ephemeral"
+$loadAfter = (Get-SerialLogContent -Path $SerialLog).Substring([int]$loadOffset)
+$loadDeniedOk = (
+    $load.t -eq "error" -and
+    $load.body.code -eq "capability_denied" -and
+    $load.body.schema -eq "raios.module_load_gate.v0" -and
+    -not $loadAfter.Contains("WASM_GUEST_LOG") -and
+    -not $loadAfter.Contains('"instantiation_ok": true')
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:N3_provenance_does_not_enable_granted_candidate_load" `
+    -Expected "valid provenance does not create a grant; module.load_ephemeral remains capability_denied with no instantiation" `
+    -Passed $loadDeniedOk `
+    -Actual $(if ($loadDeniedOk) { "matched" } else { ($load | ConvertTo-Json -Compress -Depth 8) }) `
+    -FailureMessage "Expected provenance-verified candidate load to stay denied"
+
+Send-AgentCommand -Command "module.load_ephemeral" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "m12-distribution:N4_generic_durable_gate"
+$generic = Get-LastAgentResponseJson -Method "module.load_ephemeral"
+$genericOk = (
+    $generic.body.code -eq "capability_denied" -and
+    $generic.body.schema -eq "raios.module_load_gate.v0" -and
+    $generic.body.gate_state.rollback_plan -eq "missing" -and
+    $generic.body.gate_state.durable_audit_record -eq "missing" -and
+    $generic.body.gate_state.artifact_loaded -eq $false -and
+    $generic.body.gate_state.service_started -eq $false
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:N4_generic_durable_load_gate_preserved" `
+    -Expected "generic durable load gate remains denied with audit/rollback missing" `
+    -Passed $genericOk `
+    -Actual $(if ($genericOk) { "matched" } else { ($generic.body | ConvertTo-Json -Compress -Depth 8) }) `
+    -FailureMessage "Expected generic durable module.load_ephemeral gate to remain denied"
+
+Send-AgentCommand -Command "agent system.honesty_report" -ExpectedMarker "RAIOS_AGENT_END system.honesty_report" -Name "m12-distribution:N5_honesty_report"
+$honesty = (Get-LastAgentResponseJson -Method "system.honesty_report").body.result
+$honestyOk = (
+    $honesty.no_dishonest_overclaim -eq $true -and
+    $honesty.external_no_overclaim -eq $true -and
+    $honesty.external_acquisition.acquisition_active -eq $false -and
+    $honesty.owner_sealed -eq $false -and
+    $honesty.trust_tier -eq "dev_key_not_owner_sealed"
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:N5_honesty_report_unchanged" `
+    -Expected "system.honesty_report still reports no live external acquisition and dev-key-not-owner-sealed" `
+    -Passed $honestyOk `
+    -Actual $(if ($honestyOk) { "matched" } else { ($honesty | ConvertTo-Json -Compress -Depth 10) }) `
+    -FailureMessage "Expected system.honesty_report standing external acquisition posture to remain unchanged"
