@@ -24,6 +24,26 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+M10C-2 done (2026-07-08, host-only worker packet; no QEMU): raiOS can now
+compare fixed synthetic certificate validity windows (`notBefore`/`notAfter`)
+against the live CMOS RTC wall clock and report within / not-yet-valid /
+expired as `cmos_rtc_unverified` sanity evidence, while validating no
+certificate time and granting no provider request/export authority,
+transmission, durable write, or capability. `raios-core/src/cert_validity_window.rs`
+adds the host-tested tuple comparator with inclusive notBefore/notAfter
+boundaries and grant-nothing decisions. The read-only
+`system.cert_time_check_selftest` method emits
+`raios.cert_time_check_selftest.v0` as test infrastructure only, using two fixed
+synthetic windows: wide 2020-01-01T00:00:00..9999-12-31T23:59:59 expects
+`within_window_unverified_basis`; expired
+2000-01-01T00:00:00..2010-01-01T00:00:00 expects
+`after_expired_unverified_basis`. It performs no DER parse, live cert read,
+network, provider write, provider export, durable write, or trust/authority
+grant. Host-only verification passed: `cargo fmt -p raios-core --check`,
+`cargo fmt -p seed-kernel --check`, `cargo test --locked -p raios-core` (213
+passed, including 8 cert_validity_window tests), release seed-kernel build, and
+PowerShell parse of `vm-harness/shadow-vm-smoke-profile-common.ps1`.
+
 M10C-1 done (2026-07-08, host-only worker packet; no QEMU): raiOS can now read
 the machine's CMOS RTC wall-clock components and expose them via the read-only
 `system.time_authority` method as `local_only`, `current_boot`, explicitly

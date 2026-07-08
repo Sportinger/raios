@@ -58,6 +58,13 @@ pub(crate) const CAPABILITIES: &[Capability] = &[
         summary: "read local CMOS RTC wall-clock evidence without granting time authority",
     },
     Capability {
+        id: "cap.system.cert_time_check_selftest.read",
+        risk: "observe",
+        granted: true,
+        scope: "current_boot_test_infrastructure",
+        summary: "read unverified-basis certificate validity window sanity selftest",
+    },
+    Capability {
         id: "cap.service.inventory.read",
         risk: "observe",
         granted: true,
@@ -282,6 +289,7 @@ pub(crate) const READ_METHODS: &[&str] = &[
     "system.capabilities",
     "system.boot_log",
     "system.time_authority",
+    "system.cert_time_check_selftest",
     "device.graph",
     "persist.layout",
     "problem.list",

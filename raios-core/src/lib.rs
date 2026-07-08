@@ -6,6 +6,7 @@ use sha2::{Digest, Sha256};
 
 pub mod artifact_blob_frame;
 pub mod boot_control;
+pub mod cert_validity_window;
 pub mod durable_record_frame;
 pub mod gpt_layout;
 pub mod memory_record;

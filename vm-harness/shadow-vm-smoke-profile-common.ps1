@@ -110,11 +110,81 @@
         throw "Expected system.time_authority to grant nothing"
     }
 
+    Send-AgentCommand -Command "agent system.cert_time_check_selftest" -ExpectedMarker "RAIOS_AGENT_END system.cert_time_check_selftest"
+    Assert-LogContains -Name "protocol:cert_time_check_selftest_schema" -Needle '"schema": "raios.cert_time_check_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:cert_time_check_selftest_fixture_kind" -Needle '"fixture_kind": "fixed_synthetic_certificate_validity_window_not_der_not_live"' -TimeoutSeconds 1
+    $certTimeCheckResponse = Get-LastAgentResponseJson -Method "system.cert_time_check_selftest"
+    $certTimeCheck = $certTimeCheckResponse.body.result
+    $certTimeCheckCases = @($certTimeCheck.cases)
+    $certTimeCheckSchemaFixture = (
+        $certTimeCheck.schema -eq "raios.cert_time_check_selftest.v0" -and
+        $certTimeCheck.test_infrastructure -eq $true -and
+        $certTimeCheck.fixture_kind -eq "fixed_synthetic_certificate_validity_window_not_der_not_live" -and
+        $certTimeCheck.basis_source -eq "cmos_rtc_unverified" -and
+        $certTimeCheck.now_source -eq "cmos_rtc_unverified"
+    )
+    Add-Predicate -Name "protocol:cert_time_check_selftest_schema_fixture" -Expected "system.cert_time_check_selftest reports the fixed synthetic unverified-basis fixture" -Passed $certTimeCheckSchemaFixture -Actual $(if ($certTimeCheckSchemaFixture) { "schema_fixture_ok" } else { ($certTimeCheck | ConvertTo-Json -Compress -Depth 8) })
+    if (-not $certTimeCheckSchemaFixture) {
+        throw "Expected system.cert_time_check_selftest to report fixed synthetic fixture metadata"
+    }
+    $wideCertTimeCase = $certTimeCheckCases | Where-Object { $_.case -eq "wide" } | Select-Object -First 1
+    $wideCertTimeStatus = (
+        $wideCertTimeCase -ne $null -and
+        $wideCertTimeCase.status -eq "within_window_unverified_basis"
+    )
+    Add-Predicate -Name "protocol:cert_time_check_selftest_wide_status" -Expected "wide fixed synthetic certificate window is within the live unverified RTC basis" -Passed $wideCertTimeStatus -Actual $(if ($wideCertTimeStatus) { "within_window_unverified_basis" } else { ($certTimeCheck | ConvertTo-Json -Compress -Depth 8) })
+    if (-not $wideCertTimeStatus) {
+        throw "Expected the wide synthetic cert-time window to be within-window on the unverified RTC basis"
+    }
+    $expiredCertTimeCase = $certTimeCheckCases | Where-Object { $_.case -eq "expired" } | Select-Object -First 1
+    $expiredCertTimeStatus = (
+        $expiredCertTimeCase -ne $null -and
+        $expiredCertTimeCase.status -eq "after_expired_unverified_basis"
+    )
+    Add-Predicate -Name "protocol:cert_time_check_selftest_expired_status" -Expected "expired fixed synthetic certificate window is expired on the live unverified RTC basis" -Passed $expiredCertTimeStatus -Actual $(if ($expiredCertTimeStatus) { "after_expired_unverified_basis" } else { ($certTimeCheck | ConvertTo-Json -Compress -Depth 8) })
+    if (-not $expiredCertTimeStatus) {
+        throw "Expected the expired synthetic cert-time window to be expired on the unverified RTC basis"
+    }
+    $certTimeCaseGrantsNothing = $true
+    foreach ($case in $certTimeCheckCases) {
+        if (-not (
+            $case.trusted -eq $false -and
+            $case.source_verified -eq $false -and
+            $case.validates_cert_time -eq $false -and
+            $case.authorizes_provider_request -eq $false -and
+            $case.authorizes_provider_export -eq $false -and
+            $case.durable_write -eq $false -and
+            $case.capability_granted -eq $false -and
+            $case.provider_write -eq "not_attempted" -and
+            $case.transmission -eq $false
+        )) {
+            $certTimeCaseGrantsNothing = $false
+        }
+    }
+    $certTimeCheckGrantsNothing = (
+        $certTimeCheckCases.Count -eq 2 -and
+        $certTimeCaseGrantsNothing -and
+        $certTimeCheck.trusted -eq $false -and
+        $certTimeCheck.source_verified -eq $false -and
+        $certTimeCheck.validates_cert_time -eq $false -and
+        $certTimeCheck.authorizes_provider_request -eq $false -and
+        $certTimeCheck.authorizes_provider_export -eq $false -and
+        $certTimeCheck.durable_write -eq $false -and
+        $certTimeCheck.capability_granted -eq $false -and
+        $certTimeCheck.provider_write -eq "not_attempted" -and
+        $certTimeCheck.transmission -eq $false
+    )
+    Add-Predicate -Name "protocol:cert_time_check_selftest_grants_nothing" -Expected "cert-time window sanity selftest validates no cert time and grants no request/export/write/transmission/capability" -Passed $certTimeCheckGrantsNothing -Actual $(if ($certTimeCheckGrantsNothing) { "grants_nothing" } else { ($certTimeCheck | ConvertTo-Json -Compress -Depth 8) })
+    if (-not $certTimeCheckGrantsNothing) {
+        throw "Expected system.cert_time_check_selftest to grant nothing"
+    }
+
     Send-AgentCommand -Command "caps" -ExpectedMarker "RAIOS_AGENT_END system.capabilities"
     Assert-LogContains -Name "protocol:capabilities_schema" -Needle '"schema": "system.capabilities.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_recent_events_capability" -Needle '"id": "cap.memory.recent_events.read"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:audit_events_capability" -Needle '"id": "cap.audit.events.read"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:time_authority_read_capability" -Needle '"id": "cap.system.time_authority.read"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:cert_time_check_selftest_read_capability" -Needle '"id": "cap.system.cert_time_check_selftest.read"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_export_read_capability" -Needle '"id": "cap.provider.context_export.read"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_read_capability" -Needle '"id": "cap.provider.context_injection.read"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_read_capability" -Needle '"id": "cap.recovery.load_artifact.read"' -TimeoutSeconds 1
