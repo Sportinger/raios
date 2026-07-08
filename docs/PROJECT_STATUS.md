@@ -24,6 +24,20 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+M11-3 done (2026-07-08, host-only worker packet; orchestrator runs VM/review):
+raiOS now authorizes each current Wasm service's host-import surface through the
+committed M11-2 evaluator and constructs service instances from only the
+evaluator-authorized imports. `svc.demo.echo` and the dev-key granted candidate
+still run with exactly `env.log` plus `env.counter_get`; a granted list that
+omits the module's required `env.counter_get` fails closed before instantiation
+as `module_import_not_authorized`, and the existing `env.forbidden_write`
+negative remains a physical wasmi `missing_definition` link failure. The change
+adds no TLS/HTTP relocation, provider secret handling, new host import,
+non-`env` policy grant, raios-core change, artifact-store semantic change,
+global fallback linker, durable write, persistence, or QEMU run. Host-only
+verification is recorded in the worker handoff; focused VM evidence is expected
+from `vm-harness\shadow-vm-smoke.ps1 -Profile m11-wasm-import-grant`.
+
 M11-2 done (2026-07-08, host-only worker packet; no QEMU): a fail-closed
 raios-core evaluator can now authorize the exact declared Wasm host-import list
 for one service/artifact binding, default-denying missing service id, missing

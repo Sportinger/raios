@@ -1,5 +1,12 @@
 use alloc::{boxed::Box, string::String, vec::Vec};
-use raios_core::sha256_bytes;
+use core::fmt::Write;
+use raios_core::{
+    scoped_wasm_import_grant::{
+        authorized_import_list_sha256, evaluate_wasm_import_grant, WasmImportGrantDecision,
+        WasmImportGrantInput,
+    },
+    sha256_bytes,
+};
 use spin::Mutex;
 use wasmi::{
     core::{Trap, TrapCode},
@@ -43,6 +50,10 @@ const GUEST_TRAP_FUEL_BUDGET: u64 = 100;
 pub(crate) const WASM_HARDENING_CASE_COUNT: usize = 4;
 pub(crate) const FORBIDDEN_IMPORT_MODULE: &str = "env";
 pub(crate) const FORBIDDEN_IMPORT_NAME: &str = "forbidden_write";
+pub(crate) const ECHO_SERVICE_ID: &str = "svc.demo.echo";
+pub(crate) const ECHO_AUTHORIZED_IMPORTS: &[(&str, &str)] =
+    &[("env", "log"), ("env", "counter_get")];
+const ZERO_SHA256: [u8; 32] = [0; 32];
 
 static CURRENT_BOOT_COUNTER: Mutex<u64> = Mutex::new(0);
 
@@ -98,6 +109,15 @@ pub(crate) struct EchoRunEvidence {
     pub(crate) fuel_budget: u64,
     pub(crate) fuel_used: u64,
     pub(crate) log_line: Option<String>,
+    pub(crate) import_grant_performed: bool,
+    pub(crate) import_grant_status: &'static str,
+    pub(crate) import_grant_reason: &'static str,
+    pub(crate) authorized_import_count: u64,
+    pub(crate) authorized_import_list_sha256: [u8; 32],
+    pub(crate) linked_host_import_count: u64,
+    pub(crate) module_imports_within_authorized_list: bool,
+    pub(crate) missing_import_module: Option<String>,
+    pub(crate) missing_import_name: Option<String>,
 }
 
 /// Evidence from a labeled fuel-starvation fault injection against the real echo
@@ -159,12 +179,16 @@ pub(crate) fn run_echo_service() -> EchoRunEvidence {
 /// the invoke genuinely traps with wasmi `OutOfFuel` (never simulated). The trap
 /// is an `Err` value that is CAUGHT here — never unwrapped/panicked — and
 /// classified via `classify_trap_error`; the cooperative kernel loop is unharmed.
-/// Reuses `metered_engine`/`default_state`/`define_capability_envelope` exactly
+/// Reuses `metered_engine`/`default_state`/`define_granted_imports` exactly
 /// like the healthy path so the ONLY difference is the fuel budget.
 pub(crate) fn run_echo_fuel_starved() -> EchoFuelStarvedEvidence {
     if !validate_echo_wasm_artifact() {
         return fuel_starved_evidence(false, false, "validation_failed", false, 0, None);
     }
+    let authorized = match authorize_wasm_imports(ECHO_SERVICE_ID, true, ECHO_AUTHORIZED_IMPORTS) {
+        Ok(authorized) => authorized,
+        Err(_) => return fuel_starved_evidence(true, false, "import_grant_denied", false, 0, None),
+    };
 
     let wasm = Vec::from(ECHO_WASM_ARTIFACT_BYTES).into_boxed_slice();
     let engine = metered_engine();
@@ -179,15 +203,11 @@ pub(crate) fn run_echo_fuel_starved() -> EchoFuelStarvedEvidence {
         return fuel_starved_evidence(true, false, "fuel_metering_unavailable", false, 0, None);
     }
     let mut linker = Box::new(Linker::<EnvelopeState>::new(&engine));
-    if !define_capability_envelope(&mut linker) {
-        return fuel_starved_evidence(
-            true,
-            false,
-            "capability_envelope_definition_failed",
-            false,
-            0,
-            None,
-        );
+    if let Err(reason) = define_granted_imports(&mut linker, &authorized) {
+        return fuel_starved_evidence(true, false, reason, false, 0, None);
+    }
+    if first_unauthorized_module_import(&module, &authorized).is_some() {
+        return fuel_starved_evidence(true, false, "module_import_not_authorized", false, 0, None);
     }
 
     let instance = match linker.instantiate(&mut *store, &module) {
@@ -288,55 +308,154 @@ struct EnvelopeState {
     limits: StoreLimits,
 }
 
-struct NegativeRun {
-    validation_ok: bool,
-    instantiation_ok: bool,
-    link_error_kind: &'static str,
-    missing_import_module: Option<&'static str>,
-    missing_import_name: Option<&'static str>,
-    boundary_held: bool,
+struct AuthorizedWasmImports<'a> {
+    imports: &'a [(&'a str, &'a str)],
+    decision: WasmImportGrantDecision,
+    import_list_sha256: [u8; 32],
+}
+
+struct ImportGrantEvidence {
+    performed: bool,
+    status: &'static str,
+    reason: &'static str,
+    authorized_import_count: u64,
+    authorized_import_list_sha256: [u8; 32],
+    linked_host_import_count: u64,
+    module_imports_within_authorized_list: bool,
+    missing_import_module: Option<String>,
+    missing_import_name: Option<String>,
+}
+
+pub(crate) struct NegativeRun {
+    pub(crate) validation_ok: bool,
+    pub(crate) instantiation_ok: bool,
+    pub(crate) link_error_kind: &'static str,
+    pub(crate) missing_import_module: Option<&'static str>,
+    pub(crate) missing_import_name: Option<&'static str>,
+    pub(crate) boundary_held: bool,
 }
 
 fn execute_echo_module(validation_ok: bool) -> EchoRunEvidence {
     execute_validated_module_bytes(
         ECHO_WASM_ARTIFACT_BYTES,
         "raios_service_main",
+        ECHO_SERVICE_ID,
+        true,
+        ECHO_AUTHORIZED_IMPORTS,
         validation_ok,
     )
 }
 
-pub(crate) fn execute_module_bytes(bytes: &[u8], entrypoint: &str) -> EchoRunEvidence {
-    execute_validated_module_bytes(bytes, entrypoint, validate_module_bytes(bytes))
+pub(crate) fn execute_module_bytes(
+    bytes: &[u8],
+    entrypoint: &str,
+    service_id: &str,
+    artifact_sha256_present: bool,
+    requested_imports: &[(&str, &str)],
+) -> EchoRunEvidence {
+    execute_validated_module_bytes(
+        bytes,
+        entrypoint,
+        service_id,
+        artifact_sha256_present,
+        requested_imports,
+        validate_module_bytes(bytes),
+    )
 }
 
 fn execute_validated_module_bytes(
     bytes: &[u8],
     entrypoint: &str,
+    service_id: &str,
+    artifact_sha256_present: bool,
+    requested_imports: &[(&str, &str)],
     validation_ok: bool,
 ) -> EchoRunEvidence {
+    let authorized =
+        match authorize_wasm_imports(service_id, artifact_sha256_present, requested_imports) {
+            Ok(authorized) => authorized,
+            Err(decision) => {
+                return positive_run(
+                    service_id,
+                    false,
+                    false,
+                    "import_grant_denied",
+                    None,
+                    0,
+                    None,
+                    import_grant_denied_evidence(decision),
+                )
+            }
+        };
     if !validation_ok {
-        return positive_run(false, false, "validation_failed", None, 0, None);
+        return positive_run(
+            service_id,
+            false,
+            false,
+            "validation_failed",
+            None,
+            0,
+            None,
+            import_grant_evidence(&authorized, 0, false, None),
+        );
     }
 
     let wasm = Vec::from(bytes).into_boxed_slice();
     let engine = metered_engine();
     let module = match Module::new(&engine, &*wasm) {
         Ok(module) => Box::new(module),
-        Err(_) => return positive_run(true, false, "module_compile_failed", None, 0, None),
+        Err(_) => {
+            return positive_run(
+                service_id,
+                true,
+                false,
+                "module_compile_failed",
+                None,
+                0,
+                None,
+                import_grant_evidence(&authorized, 0, false, None),
+            )
+        }
     };
     let mut store = Box::new(Store::new(&engine, default_state()));
     if store.add_fuel(ECHO_WASM_FUEL_BUDGET).is_err() {
-        return positive_run(true, false, "fuel_metering_unavailable", None, 0, None);
-    }
-    let mut linker = Box::new(Linker::<EnvelopeState>::new(&engine));
-    if !define_capability_envelope(&mut linker) {
         return positive_run(
+            service_id,
             true,
             false,
-            "capability_envelope_definition_failed",
+            "fuel_metering_unavailable",
             None,
             0,
             None,
+            import_grant_evidence(&authorized, 0, false, None),
+        );
+    }
+    let mut linker = Box::new(Linker::<EnvelopeState>::new(&engine));
+    let linked_host_import_count = match define_granted_imports(&mut linker, &authorized) {
+        Ok(count) => count,
+        Err(reason) => {
+            return positive_run(
+                service_id,
+                true,
+                false,
+                reason,
+                None,
+                0,
+                None,
+                import_grant_evidence(&authorized, 0, false, None),
+            )
+        }
+    };
+    if let Some(missing) = first_unauthorized_module_import(&module, &authorized) {
+        return positive_run(
+            service_id,
+            true,
+            false,
+            "module_import_not_authorized",
+            None,
+            0,
+            None,
+            import_grant_evidence(&authorized, linked_host_import_count, false, Some(missing)),
         );
     }
 
@@ -345,23 +464,27 @@ fn execute_validated_module_bytes(
             Ok(instance) => instance,
             Err(_) => {
                 return positive_run(
+                    service_id,
                     true,
                     false,
                     "instantiation_start_trap",
                     None,
                     store.fuel_consumed().unwrap_or(0),
                     store.data().log_line.clone(),
+                    import_grant_evidence(&authorized, linked_host_import_count, true, None),
                 )
             }
         },
         Err(_) => {
             return positive_run(
+                service_id,
                 true,
                 false,
                 "instantiation_failed",
                 None,
                 store.fuel_consumed().unwrap_or(0),
                 store.data().log_line.clone(),
+                import_grant_evidence(&authorized, linked_host_import_count, true, None),
             )
         }
     };
@@ -371,12 +494,14 @@ fn execute_validated_module_bytes(
         .and_then(Extern::into_func)
     else {
         return positive_run(
+            service_id,
             true,
             true,
             "entrypoint_missing",
             None,
             store.fuel_consumed().unwrap_or(0),
             store.data().log_line.clone(),
+            import_grant_evidence(&authorized, linked_host_import_count, true, None),
         );
     };
 
@@ -390,21 +515,25 @@ fn execute_validated_module_bytes(
                 "bad_return_type"
             };
             positive_run(
+                service_id,
                 true,
                 true,
                 outcome,
                 return_value,
                 store.fuel_consumed().unwrap_or(0),
                 store.data().log_line.clone(),
+                import_grant_evidence(&authorized, linked_host_import_count, true, None),
             )
         }
         Err(_) => positive_run(
+            service_id,
             true,
             true,
             "trap",
             None,
             store.fuel_consumed().unwrap_or(0),
             store.data().log_line.clone(),
+            import_grant_evidence(&authorized, linked_host_import_count, true, None),
         ),
     }
 }
@@ -427,11 +556,24 @@ fn instantiate_forbidden_import_module() -> NegativeRun {
     };
     let mut store = Box::new(Store::new(&engine, default_state()));
     let mut linker = Box::new(Linker::<EnvelopeState>::new(&engine));
-    if !define_capability_envelope(&mut linker) {
+    let authorized = match authorize_wasm_imports(ECHO_SERVICE_ID, true, ECHO_AUTHORIZED_IMPORTS) {
+        Ok(authorized) => authorized,
+        Err(_) => {
+            return NegativeRun {
+                validation_ok: true,
+                instantiation_ok: false,
+                link_error_kind: "import_grant_denied",
+                missing_import_module: None,
+                missing_import_name: None,
+                boundary_held: false,
+            }
+        }
+    };
+    if define_granted_imports(&mut linker, &authorized).is_err() {
         return NegativeRun {
             validation_ok: true,
             instantiation_ok: false,
-            link_error_kind: "capability_envelope_definition_failed",
+            link_error_kind: "missing_host_import_implementation",
             missing_import_module: None,
             missing_import_name: None,
             boundary_held: false,
@@ -476,6 +618,10 @@ fn instantiate_forbidden_import_module() -> NegativeRun {
             boundary_held: false,
         },
     }
+}
+
+pub(crate) fn forbidden_import_link_failure_evidence() -> NegativeRun {
+    instantiate_forbidden_import_module()
 }
 
 fn run_hardening_cases() -> [WasmHardeningCase; WASM_HARDENING_CASE_COUNT] {
@@ -634,14 +780,16 @@ fn hardening_case(
 }
 
 fn positive_run(
+    service_id: &str,
     validation_ok: bool,
     instantiation_ok: bool,
     run_outcome: &'static str,
     return_value: Option<i32>,
     fuel_used: u64,
     log_line: Option<String>,
+    import_grant: ImportGrantEvidence,
 ) -> EchoRunEvidence {
-    EchoRunEvidence {
+    let evidence = EchoRunEvidence {
         validation_ok,
         instantiation_ok,
         run_outcome,
@@ -649,7 +797,18 @@ fn positive_run(
         fuel_budget: ECHO_WASM_FUEL_BUDGET,
         fuel_used,
         log_line,
-    }
+        import_grant_performed: import_grant.performed,
+        import_grant_status: import_grant.status,
+        import_grant_reason: import_grant.reason,
+        authorized_import_count: import_grant.authorized_import_count,
+        authorized_import_list_sha256: import_grant.authorized_import_list_sha256,
+        linked_host_import_count: import_grant.linked_host_import_count,
+        module_imports_within_authorized_list: import_grant.module_imports_within_authorized_list,
+        missing_import_module: import_grant.missing_import_module,
+        missing_import_name: import_grant.missing_import_name,
+    };
+    emit_import_grant_marker(service_id, &evidence);
+    evidence
 }
 
 fn metered_engine() -> Box<Engine> {
@@ -677,11 +836,170 @@ fn limited_state(memory_size: usize) -> EnvelopeState {
     }
 }
 
-fn define_capability_envelope(linker: &mut Linker<EnvelopeState>) -> bool {
-    linker.func_wrap("env", "log", host_log).is_ok()
-        && linker
-            .func_wrap("env", "counter_get", host_counter_get)
-            .is_ok()
+fn authorize_wasm_imports<'a>(
+    service_id: &'a str,
+    artifact_sha256_present: bool,
+    requested_imports: &'a [(&'a str, &'a str)],
+) -> Result<AuthorizedWasmImports<'a>, WasmImportGrantDecision> {
+    let input = WasmImportGrantInput {
+        service_id: Some(service_id),
+        artifact_sha256_present,
+        requested_imports,
+        policy_allows_beyond_env: false,
+    };
+    let decision = evaluate_wasm_import_grant(&input);
+    if !decision.performed {
+        return Err(decision);
+    }
+    Ok(AuthorizedWasmImports {
+        imports: requested_imports,
+        decision,
+        import_list_sha256: authorized_import_list_sha256(service_id, requested_imports),
+    })
+}
+
+fn define_granted_imports(
+    linker: &mut Linker<EnvelopeState>,
+    authorized: &AuthorizedWasmImports<'_>,
+) -> Result<u64, &'static str> {
+    let mut linked = 0u64;
+    let mut idx = 0usize;
+    while idx < authorized.imports.len() {
+        match authorized.imports[idx] {
+            ("env", "log") => {
+                linker
+                    .func_wrap("env", "log", host_log)
+                    .map_err(|_| "host_import_link_failed")?;
+            }
+            ("env", "counter_get") => {
+                linker
+                    .func_wrap("env", "counter_get", host_counter_get)
+                    .map_err(|_| "host_import_link_failed")?;
+            }
+            _ => return Err("missing_host_import_implementation"),
+        }
+        linked += 1;
+        idx += 1;
+    }
+    Ok(linked)
+}
+
+fn first_unauthorized_module_import(
+    module: &Module,
+    authorized: &AuthorizedWasmImports<'_>,
+) -> Option<(String, String)> {
+    for import in module.imports() {
+        if !authorized_contains(authorized, import.module(), import.name()) {
+            return Some((String::from(import.module()), String::from(import.name())));
+        }
+    }
+    None
+}
+
+fn authorized_contains(authorized: &AuthorizedWasmImports<'_>, module: &str, name: &str) -> bool {
+    authorized
+        .imports
+        .iter()
+        .any(|(authorized_module, authorized_name)| {
+            *authorized_module == module && *authorized_name == name
+        })
+}
+
+fn import_grant_denied_evidence(decision: WasmImportGrantDecision) -> ImportGrantEvidence {
+    ImportGrantEvidence {
+        performed: decision.performed,
+        status: decision.status,
+        reason: decision.reason,
+        authorized_import_count: decision.authorized_import_count as u64,
+        authorized_import_list_sha256: ZERO_SHA256,
+        linked_host_import_count: 0,
+        module_imports_within_authorized_list: false,
+        missing_import_module: None,
+        missing_import_name: None,
+    }
+}
+
+fn import_grant_evidence(
+    authorized: &AuthorizedWasmImports<'_>,
+    linked_host_import_count: u64,
+    module_imports_within_authorized_list: bool,
+    missing_import: Option<(String, String)>,
+) -> ImportGrantEvidence {
+    let (missing_import_module, missing_import_name) = match missing_import {
+        Some((module, name)) => (Some(module), Some(name)),
+        None => (None, None),
+    };
+    ImportGrantEvidence {
+        performed: authorized.decision.performed,
+        status: authorized.decision.status,
+        reason: authorized.decision.reason,
+        authorized_import_count: authorized.decision.authorized_import_count as u64,
+        authorized_import_list_sha256: authorized.import_list_sha256,
+        linked_host_import_count,
+        module_imports_within_authorized_list,
+        missing_import_module,
+        missing_import_name,
+    }
+}
+
+fn emit_import_grant_marker(service_id: &str, evidence: &EchoRunEvidence) {
+    let mut line = String::new();
+    let _ = write!(
+        &mut line,
+        "WASM_IMPORT_GRANT {{\"service_id\":\"{}\",\"import_grant_performed\":{},\"import_grant_status\":\"{}\",\"import_grant_reason\":\"{}\",\"authorized_import_count\":{},\"authorized_import_list_sha256\":\"sha256:",
+        service_id,
+        if evidence.import_grant_performed { "true" } else { "false" },
+        evidence.import_grant_status,
+        evidence.import_grant_reason,
+        evidence.authorized_import_count
+    );
+    push_sha256_hex(&mut line, evidence.authorized_import_list_sha256);
+    let _ = write!(
+        &mut line,
+        "\",\"linked_host_import_count\":{},\"module_imports_within_authorized_list\":{},\"run_outcome\":\"{}\",\"missing_import_module\":",
+        evidence.linked_host_import_count,
+        if evidence.module_imports_within_authorized_list {
+            "true"
+        } else {
+            "false"
+        },
+        evidence.run_outcome
+    );
+    push_json_string_or_null(&mut line, evidence.missing_import_module.as_deref());
+    line.push_str(",\"missing_import_name\":");
+    push_json_string_or_null(&mut line, evidence.missing_import_name.as_deref());
+    line.push('}');
+    serial::write_raw_line(&line);
+}
+
+fn push_json_string_or_null(out: &mut String, value: Option<&str>) {
+    let Some(value) = value else {
+        out.push_str("null");
+        return;
+    };
+    out.push('"');
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ => out.push(ch),
+        }
+    }
+    out.push('"');
+}
+
+fn push_sha256_hex(out: &mut String, value: [u8; 32]) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut idx = 0usize;
+    while idx < value.len() {
+        let byte = value[idx];
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+        idx += 1;
+    }
 }
 
 fn host_log(mut caller: Caller<'_, EnvelopeState>, ptr: i32, len: i32) -> Result<(), Trap> {

@@ -71,6 +71,8 @@ const LIFECYCLE_RESPONSE_SCHEMA: &str =
 const SELFTEST_SCHEMA: &str = "raios.ram_only_granted_candidate_service.selftest.v0";
 const SERVICE_VERSION: &str = "v0";
 const GRANTED_ENTRYPOINT: &str = "raios_service_main";
+const GRANTED_CANDIDATE_IMPORTS: &[(&str, &str)] = &[("env", "log"), ("env", "counter_get")];
+const ECHO_LOG_ONLY_IMPORTS: &[(&str, &str)] = &[("env", "log")];
 const TRUST_TIER_GRANTED: &str = "dev_key_not_owner_sealed";
 const TRUST_TIER_DENIED: &str = "unsealed_no_grant";
 const CLEANUP_ACTIONS: &[&str] = &["stop", "drop_clear_bytes", "free_slot", "remove_inventory"];
@@ -388,6 +390,21 @@ pub(crate) fn emit_rollback_apply(_method: &str) -> &'static str {
 
 pub(crate) fn emit_selftest() -> &'static str {
     let cases = run_selftest_cases();
+    let unauthorized_import_probe = wasm_runtime::execute_module_bytes(
+        wasm_runtime::ECHO_WASM_ARTIFACT_BYTES,
+        GRANTED_ENTRYPOINT,
+        wasm_runtime::ECHO_SERVICE_ID,
+        true,
+        ECHO_LOG_ONLY_IMPORTS,
+    );
+    let authorized_import_probe = wasm_runtime::execute_module_bytes(
+        wasm_runtime::ECHO_WASM_ARTIFACT_BYTES,
+        GRANTED_ENTRYPOINT,
+        wasm_runtime::ECHO_SERVICE_ID,
+        true,
+        GRANTED_CANDIDATE_IMPORTS,
+    );
+    let forbidden_import_probe = wasm_runtime::forbidden_import_link_failure_evidence();
     let passed = cases.iter().all(|case| case.passed);
     let case_records = cases.iter().map(record_selftest_case).collect();
 
@@ -405,6 +422,18 @@ pub(crate) fn emit_selftest() -> &'static str {
             f("loads_artifact", b(false)),
             f("case_count", V::U64(cases.len() as u64)),
             f("passed", b(passed)),
+            f(
+                "authorized_import_probe",
+                record_run_evidence(Some(&authorized_import_probe)),
+            ),
+            f(
+                "unauthorized_import_probe",
+                record_run_evidence(Some(&unauthorized_import_probe)),
+            ),
+            f(
+                "forbidden_import_link_failure",
+                record_forbidden_import_link_failure(&forbidden_import_probe),
+            ),
             f("cases", V::Array(case_records)),
         ],
         6,
@@ -592,9 +621,15 @@ fn start(source_method: &'static str) -> ActionResult {
         && retained_sha_matches_grant
         && authorization.retained_wasm_valid;
     let run = if can_execute {
-        retained
-            .as_ref()
-            .map(|retained| wasm_runtime::execute_module_bytes(&retained.bytes, GRANTED_ENTRYPOINT))
+        retained.as_ref().map(|retained| {
+            wasm_runtime::execute_module_bytes(
+                &retained.bytes,
+                GRANTED_ENTRYPOINT,
+                GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.service_id,
+                true,
+                GRANTED_CANDIDATE_IMPORTS,
+            )
+        })
     } else {
         None
     };
@@ -1265,6 +1300,8 @@ pub(crate) fn record_live_load_projection(projection: LiveLoadProjection) -> V<'
 
 fn run_succeeded(run: &wasm_runtime::EchoRunEvidence) -> bool {
     run.validation_ok
+        && run.import_grant_performed
+        && run.module_imports_within_authorized_list
         && run.instantiation_ok
         && run.run_outcome == "success"
         && run.return_value == Some(0)
@@ -1272,6 +1309,7 @@ fn run_succeeded(run: &wasm_runtime::EchoRunEvidence) -> bool {
 
 fn emit_response(method: &'static str, action: &'static str, result: ActionResult) {
     let snapshot = result.snapshot;
+    let run = result.run.as_ref();
     begin_response(method);
     emit_record_fields_trailing_comma(
         vec![
@@ -1361,8 +1399,50 @@ fn emit_response(method: &'static str, action: &'static str, result: ActionResul
                 record_static_str_array(&["env.log", "env.counter_get"]),
             ),
             f("host_import_count", V::U64(2)),
+            f(
+                "import_grant_performed",
+                b(run.map(|run| run.import_grant_performed).unwrap_or(false)),
+            ),
+            f(
+                "import_grant_status",
+                s(run
+                    .map(|run| run.import_grant_status)
+                    .unwrap_or("not_evaluated")),
+            ),
+            f(
+                "import_grant_reason",
+                s(run
+                    .map(|run| run.import_grant_reason)
+                    .unwrap_or("not_evaluated")),
+            ),
+            f(
+                "authorized_import_count",
+                V::U64(run.map(|run| run.authorized_import_count).unwrap_or(0)),
+            ),
+            f(
+                "authorized_import_list_sha256",
+                record_sha_or_null(run.map(|run| run.authorized_import_list_sha256)),
+            ),
+            f(
+                "linked_host_import_count",
+                V::U64(run.map(|run| run.linked_host_import_count).unwrap_or(0)),
+            ),
+            f(
+                "module_imports_within_authorized_list",
+                b(run
+                    .map(|run| run.module_imports_within_authorized_list)
+                    .unwrap_or(false)),
+            ),
+            f(
+                "missing_import_module",
+                record_str_or_null(run.and_then(|run| run.missing_import_module.as_deref())),
+            ),
+            f(
+                "missing_import_name",
+                record_str_or_null(run.and_then(|run| run.missing_import_name.as_deref())),
+            ),
             f("entrypoint", s(GRANTED_ENTRYPOINT)),
-            f("run_evidence", record_run_evidence(result.run.as_ref())),
+            f("run_evidence", record_run_evidence(run)),
             f("last_run_evidence", record_last_run(snapshot)),
             f("rollback_plan", record_rollback_plan(snapshot.promotion)),
             f(
@@ -1669,6 +1749,33 @@ fn record_run_evidence(run: Option<&wasm_runtime::EchoRunEvidence>) -> V<'_> {
             f("return_value_i32", record_return_value(run.return_value)),
             f("fuel_budget", V::U64(run.fuel_budget)),
             f("fuel_used", V::U64(run.fuel_used)),
+            f("import_grant_performed", b(run.import_grant_performed)),
+            f("import_grant_status", s(run.import_grant_status)),
+            f("import_grant_reason", s(run.import_grant_reason)),
+            f(
+                "authorized_import_count",
+                V::U64(run.authorized_import_count),
+            ),
+            f(
+                "authorized_import_list_sha256",
+                record_sha_or_null(Some(run.authorized_import_list_sha256)),
+            ),
+            f(
+                "linked_host_import_count",
+                V::U64(run.linked_host_import_count),
+            ),
+            f(
+                "module_imports_within_authorized_list",
+                b(run.module_imports_within_authorized_list),
+            ),
+            f(
+                "missing_import_module",
+                record_str_or_null(run.missing_import_module.as_deref()),
+            ),
+            f(
+                "missing_import_name",
+                record_str_or_null(run.missing_import_name.as_deref()),
+            ),
             f("log_prefix", s("WASM_GUEST_LOG")),
             f("log_line_emitted", b(run.log_line.is_some())),
             f("log_line", record_str_or_null(run.log_line.as_deref())),
@@ -1680,10 +1787,41 @@ fn record_run_evidence(run: Option<&wasm_runtime::EchoRunEvidence>) -> V<'_> {
             f("return_value_i32", V::Null),
             f("fuel_budget", V::U64(wasm_runtime::ECHO_WASM_FUEL_BUDGET)),
             f("fuel_used", V::U64(0)),
+            f("import_grant_performed", b(false)),
+            f("import_grant_status", s("not_evaluated")),
+            f("import_grant_reason", s("not_evaluated")),
+            f("authorized_import_count", V::U64(0)),
+            f("authorized_import_list_sha256", V::Null),
+            f("linked_host_import_count", V::U64(0)),
+            f("module_imports_within_authorized_list", b(false)),
+            f("missing_import_module", V::Null),
+            f("missing_import_name", V::Null),
             f("log_line_emitted", b(false)),
             f("log_line", V::Null),
         ]),
     }
+}
+
+fn record_forbidden_import_link_failure(run: &wasm_runtime::NegativeRun) -> V<'static> {
+    V::Object(vec![
+        f("negative_probe", s("forbidden_import_link_failure")),
+        f(
+            "negative_module_imports",
+            record_static_str_array(&["env.forbidden_write"]),
+        ),
+        f("negative_validation_ok", b(run.validation_ok)),
+        f("negative_instantiation_ok", b(run.instantiation_ok)),
+        f("negative_link_error_kind", s(run.link_error_kind)),
+        f(
+            "negative_missing_import_module",
+            record_str_or_null(run.missing_import_module),
+        ),
+        f(
+            "negative_missing_import_name",
+            record_str_or_null(run.missing_import_name),
+        ),
+        f("capability_boundary_held", b(run.boundary_held)),
+    ])
 }
 
 fn record_last_run(snapshot: Snapshot) -> V<'static> {
@@ -1756,6 +1894,9 @@ fn run_selftest_case(name: &'static str, mode: SelftestMode) -> SelftestCase {
         Some(wasm_runtime::execute_module_bytes(
             &retained.bytes,
             GRANTED_ENTRYPOINT,
+            GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.service_id,
+            true,
+            GRANTED_CANDIDATE_IMPORTS,
         ))
     } else {
         None
@@ -1766,12 +1907,12 @@ fn run_selftest_case(name: &'static str, mode: SelftestMode) -> SelftestCase {
         .unwrap_or(false);
     let run_outcome = run.as_ref().map(|run| run.run_outcome).unwrap_or("not_run");
     let fuel_used = run.as_ref().map(|run| run.fuel_used).unwrap_or(0);
+    let run_ok = run.as_ref().map(run_succeeded).unwrap_or(false);
     let capability_denied = !authorization.can_execute;
     let passed = match mode {
         SelftestMode::Granted => {
             !capability_denied
-                && instantiation_ok
-                && run_outcome == "success"
+                && run_ok
                 && fuel_used > 0
                 && authorization.trust_tier == TRUST_TIER_GRANTED
         }
