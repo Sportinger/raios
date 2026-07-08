@@ -1238,11 +1238,27 @@ impl XhciController {
         self.reset_ep0_ring();
         self.prepare_address_context(device_index, slot_id, port)?;
         let input_phys = phys_of(ptr::addr_of!(INPUT_CONTEXT.0[0]), "input context phys")?;
-        self.execute_command(Trb {
+        let address_result = self.execute_command(Trb {
             parameter: input_phys,
             status: 0,
             control: trb_type(TRB_TYPE_ADDRESS_DEVICE) | ((slot_id as u32) << 24),
-        })?;
+        });
+        if port.parent_hub_slot_id != 0 {
+            match address_result {
+                Ok(_) => serial::write_fmt(format_args!(
+                    "usb-hub: address-device ok speed {}\r\n",
+                    port.speed
+                )),
+                Err(_) if self.last_command_type == TRB_TYPE_ADDRESS_DEVICE as u8 => {
+                    serial::write_fmt(format_args!(
+                        "usb-hub: address-device failed speed {} cc {}\r\n",
+                        port.speed, self.last_completion_code
+                    ));
+                }
+                Err(_) => {}
+            }
+        }
+        address_result?;
 
         let device_desc = self.get_device_descriptor()?;
         let ep0_mps = descriptor_ep0_mps(port.speed, device_desc[7]);
@@ -1542,11 +1558,20 @@ impl XhciController {
         while speed_index < speed_count {
             let child_speed = speeds[speed_index];
             let child_port = hub.child(hub_slot_id, hub_port, child_speed);
+            let tt = if slot_context_tt_fields(child_port) != 0 {
+                "applied"
+            } else {
+                "none"
+            };
             serial::write_fmt(format_args!(
                 "usb-hub: port {} reset complete speed {} try {}\r\n",
                 hub_port,
                 child_speed,
                 speed_index + 1
+            ));
+            serial::write_fmt(format_args!(
+                "usb-hub: child port {} speed {} tt {}\r\n",
+                hub_port, child_speed, tt
             ));
             match self.enumerate_device(child_port, next_device_index) {
                 Ok(kind) => return Ok(kind),
@@ -2750,10 +2775,19 @@ unsafe fn write_slot_context(port: PortInfo, context_entries: u8, context_size: 
         | hub_bit
         | ((context_entries as u32) << 27);
     let dword1 = ((port.root_port_number as u32) << 16) | ((port.hub_port_count as u32) << 24);
-    let dword2 = (port.parent_hub_slot_id as u32) | ((port.parent_hub_port_number as u32) << 8);
+    let dword2 = slot_context_tt_fields(port);
     ctx_write_raw(slot, 0, dword0);
     ctx_write_raw(slot, 1, dword1);
     ctx_write_raw(slot, 2, dword2);
+}
+
+fn slot_context_tt_fields(port: PortInfo) -> u32 {
+    if (port.speed == 1 || port.speed == 2) && port.parent_hub_slot_id != 0 {
+        // TODO: multi-tier TT hub: this uses the immediate parent hub.
+        (port.parent_hub_slot_id as u32) | ((port.parent_hub_port_number as u32) << 8)
+    } else {
+        0
+    }
 }
 
 unsafe fn write_endpoint_context(
