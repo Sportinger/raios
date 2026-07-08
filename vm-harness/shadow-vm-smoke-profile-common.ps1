@@ -64,10 +64,57 @@
         throw "Expected provider.trust_honesty to grant nothing"
     }
 
+    Send-AgentCommand -Command "agent system.time_authority" -ExpectedMarker "RAIOS_AGENT_END system.time_authority"
+    Assert-LogContains -Name "protocol:time_authority_schema" -Needle '"schema": "raios.time_authority_status.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:time_authority_source" -Needle '"source": "cmos_rtc_unverified"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:time_authority_honesty_reason" -Needle '"reason": "honest_cmos_rtc_unverified_grants_nothing"' -TimeoutSeconds 1
+    $timeAuthorityResponse = Get-LastAgentResponseJson -Method "system.time_authority"
+    $timeAuthority = $timeAuthorityResponse.body.result
+    $timeAuthorityStructuralRanges = (
+        $timeAuthority.schema -eq "raios.time_authority_status.v0" -and
+        $timeAuthority.source -eq "cmos_rtc_unverified" -and
+        $timeAuthority.classification -eq "local_only" -and
+        $timeAuthority.scope -eq "current_boot" -and
+        $timeAuthority.read_status -eq "ok" -and
+        $timeAuthority.year -ge 2020 -and
+        $timeAuthority.month -ge 1 -and $timeAuthority.month -le 12 -and
+        $timeAuthority.day -ge 1 -and $timeAuthority.day -le 31 -and
+        $timeAuthority.hour -ge 0 -and $timeAuthority.hour -le 23 -and
+        $timeAuthority.minute -ge 0 -and $timeAuthority.minute -le 59 -and
+        $timeAuthority.second -ge 0 -and $timeAuthority.second -le 59 -and
+        @("bcd", "binary") -contains $timeAuthority.data_mode -and
+        @("12h", "24h") -contains $timeAuthority.hour_mode -and
+        @("cmos_register_0x32", "assumed_2000s") -contains $timeAuthority.century_source
+    )
+    Add-Predicate -Name "protocol:time_authority_structural_ranges" -Expected "system.time_authority reports CMOS RTC components within structural ranges only" -Passed $timeAuthorityStructuralRanges -Actual $(if ($timeAuthorityStructuralRanges) { "structural_ranges_ok" } else { ($timeAuthority | ConvertTo-Json -Compress -Depth 5) })
+    if (-not $timeAuthorityStructuralRanges) {
+        throw "Expected system.time_authority to report CMOS RTC fields in structural ranges"
+    }
+    $timeAuthorityGrantsNothing = (
+        $timeAuthority.trusted -eq $false -and
+        $timeAuthority.source_verified -eq $false -and
+        $timeAuthority.host_settable -eq $true -and
+        $timeAuthority.timezone_validated -eq $false -and
+        $timeAuthority.validates_cert_time -eq $false -and
+        $timeAuthority.authorizes_provider_request -eq $false -and
+        $timeAuthority.authorizes_provider_export -eq $false -and
+        $timeAuthority.durable_write -eq $false -and
+        $timeAuthority.capability_granted -eq $false -and
+        $timeAuthority.provider_write -eq "not_attempted" -and
+        $timeAuthority.transmission -eq $false -and
+        $timeAuthority.status -eq "time_labels_honest" -and
+        $timeAuthority.reason -eq "honest_cmos_rtc_unverified_grants_nothing"
+    )
+    Add-Predicate -Name "protocol:time_authority_grants_nothing" -Expected "system.time_authority keeps RTC time untrusted and grants no authority/write/export/transmission" -Passed $timeAuthorityGrantsNothing -Actual $(if ($timeAuthorityGrantsNothing) { "grants_nothing" } else { ($timeAuthority | ConvertTo-Json -Compress -Depth 5) })
+    if (-not $timeAuthorityGrantsNothing) {
+        throw "Expected system.time_authority to grant nothing"
+    }
+
     Send-AgentCommand -Command "caps" -ExpectedMarker "RAIOS_AGENT_END system.capabilities"
     Assert-LogContains -Name "protocol:capabilities_schema" -Needle '"schema": "system.capabilities.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_recent_events_capability" -Needle '"id": "cap.memory.recent_events.read"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:audit_events_capability" -Needle '"id": "cap.audit.events.read"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:time_authority_read_capability" -Needle '"id": "cap.system.time_authority.read"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_export_read_capability" -Needle '"id": "cap.provider.context_export.read"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_read_capability" -Needle '"id": "cap.provider.context_injection.read"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_read_capability" -Needle '"id": "cap.recovery.load_artifact.read"' -TimeoutSeconds 1

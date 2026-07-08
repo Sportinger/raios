@@ -28,6 +28,7 @@ pub mod scoped_recovery_load_append;
 pub mod scoped_repromotion_append;
 pub mod scoped_rollback_apply;
 pub mod scoped_seed_data_append;
+pub mod scoped_time_authority_honesty;
 pub mod seed_data_layout;
 
 /// Computes the SHA-256 digest for `bytes` and returns the raw 32-byte digest.

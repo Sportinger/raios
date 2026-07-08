@@ -24,6 +24,14 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+M10C-1 done (2026-07-08, host-only worker packet; no QEMU): raiOS can now read
+the machine's CMOS RTC wall-clock components and expose them via the read-only
+`system.time_authority` method as `local_only`, `current_boot`, explicitly
+`cmos_rtc_unverified` SOURCE evidence; the clock is available for later
+cert-time comparison but is not trusted, validates no certificate time, and
+grants no provider request/export authority, durable write, transmission, or
+capability.
+
 M10B-2 done (2026-07-08, host-only worker packet; no QEMU): the kernel's live
 `provider.trust_honesty` path now evaluates the one real OpenAI provider
 through the committed provider-agnostic

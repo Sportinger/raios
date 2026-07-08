@@ -51,6 +51,13 @@ pub(crate) const CAPABILITIES: &[Capability] = &[
         summary: "read the current capability catalog",
     },
     Capability {
+        id: "cap.system.time_authority.read",
+        risk: "observe",
+        granted: true,
+        scope: "current_boot",
+        summary: "read local CMOS RTC wall-clock evidence without granting time authority",
+    },
+    Capability {
         id: "cap.service.inventory.read",
         risk: "observe",
         granted: true,
@@ -274,6 +281,7 @@ pub(crate) const READ_METHODS: &[&str] = &[
     "system.snapshot",
     "system.capabilities",
     "system.boot_log",
+    "system.time_authority",
     "device.graph",
     "persist.layout",
     "problem.list",

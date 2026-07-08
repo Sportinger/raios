@@ -98,6 +98,7 @@ mod agent_protocol_recovery_status_handler_emit;
 mod agent_protocol_recovery_target_binding_emit;
 mod agent_protocol_support;
 mod agent_protocol_system;
+mod agent_protocol_time;
 mod agent_protocol_wasm;
 mod ahci;
 mod console;
