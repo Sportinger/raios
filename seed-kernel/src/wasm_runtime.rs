@@ -20,6 +20,7 @@ include!(concat!(env!("OUT_DIR"), "/echo_wasm_artifact.rs"));
 include!(concat!(env!("OUT_DIR"), "/bufecho_wasm_artifact.rs"));
 include!(concat!(env!("OUT_DIR"), "/certwindow_wasm_artifact.rs"));
 include!(concat!(env!("OUT_DIR"), "/httphead_wasm_artifact.rs"));
+include!(concat!(env!("OUT_DIR"), "/certspki_wasm_artifact.rs"));
 
 const EMPTY_WASM_MODULE: &[u8] = b"\0asm\x01\0\0\0";
 const FORBIDDEN_WRITE_WASM_MODULE: &[u8] = &[
@@ -79,6 +80,13 @@ pub(crate) const HTTPHEAD_AUTHORIZED_IMPORTS: &[(&str, &str)] = &[
     ("env", "output_write"),
 ];
 pub(crate) const HTTPHEAD_WASM_FUEL_BUDGET: u64 = 1_000_000;
+pub(crate) const CERTSPKI_SERVICE_ID: &str = "svc.demo.certspki";
+pub(crate) const CERTSPKI_AUTHORIZED_IMPORTS: &[(&str, &str)] = &[
+    ("env", "input_len"),
+    ("env", "input_read"),
+    ("env", "output_write"),
+];
+pub(crate) const CERTSPKI_WASM_FUEL_BUDGET: u64 = 1_000_000;
 const ZERO_SHA256: [u8; 32] = [0; 32];
 
 static CURRENT_BOOT_COUNTER: Mutex<u64> = Mutex::new(0);
@@ -93,6 +101,8 @@ static BUFECHO_WASM_ARTIFACT_PROOF: fn() -> bool = validate_bufecho_wasm_artifac
 static CERTWINDOW_WASM_ARTIFACT_PROOF: fn() -> bool = validate_certwindow_wasm_artifact;
 #[used]
 static HTTPHEAD_WASM_ARTIFACT_PROOF: fn() -> bool = validate_httphead_wasm_artifact;
+#[used]
+static CERTSPKI_WASM_ARTIFACT_PROOF: fn() -> bool = validate_certspki_wasm_artifact;
 
 pub(crate) fn validate_empty_module_bytes() -> bool {
     let wasm = Vec::from(EMPTY_WASM_MODULE).into_boxed_slice();
@@ -146,6 +156,18 @@ pub(crate) fn validate_httphead_wasm_artifact() -> bool {
             == HTTPHEAD_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_HASH
         && sha256_bytes(HTTPHEAD_WASM_ARTIFACT_SIGNATURE_ENVELOPE_TEXT.as_bytes())
             == HTTPHEAD_WASM_ARTIFACT_SIGNATURE_ENVELOPE_HASH
+        && validate_module_bytes(bytes)
+}
+
+pub(crate) fn validate_certspki_wasm_artifact() -> bool {
+    let wasm = Vec::from(CERTSPKI_WASM_ARTIFACT_BYTES).into_boxed_slice();
+    let bytes: &[u8] = &wasm;
+
+    sha256_bytes(bytes) == CERTSPKI_WASM_ARTIFACT_BYTES_HASH
+        && sha256_bytes(CERTSPKI_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_SOURCE.as_bytes())
+            == CERTSPKI_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_HASH
+        && sha256_bytes(CERTSPKI_WASM_ARTIFACT_SIGNATURE_ENVELOPE_TEXT.as_bytes())
+            == CERTSPKI_WASM_ARTIFACT_SIGNATURE_ENVELOPE_HASH
         && validate_module_bytes(bytes)
 }
 
@@ -334,6 +356,33 @@ pub(crate) fn run_httphead_unauthorized_probe() -> EchoRunEvidence {
         validate_httphead_wasm_artifact(),
         b"raios-m11-httphead-unauthorized-nonce",
         HTTPHEAD_WASM_FUEL_BUDGET,
+    )
+}
+
+pub(crate) fn run_certspki_roundtrip(cert_der: &[u8]) -> EchoRunEvidence {
+    let capped = &cert_der[..cert_der.len().min(MAX_WASM_INPUT_BYTES)];
+    execute_validated_module_bytes(
+        CERTSPKI_WASM_ARTIFACT_BYTES,
+        "raios_service_main",
+        CERTSPKI_SERVICE_ID,
+        true,
+        CERTSPKI_AUTHORIZED_IMPORTS,
+        validate_certspki_wasm_artifact(),
+        capped,
+        CERTSPKI_WASM_FUEL_BUDGET,
+    )
+}
+
+pub(crate) fn run_certspki_unauthorized_probe() -> EchoRunEvidence {
+    execute_validated_module_bytes(
+        CERTSPKI_WASM_ARTIFACT_BYTES,
+        "raios_service_main",
+        CERTSPKI_SERVICE_ID,
+        true,
+        &[("env", "input_len")],
+        validate_certspki_wasm_artifact(),
+        b"raios-m11-certspki-unauthorized-nonce",
+        CERTSPKI_WASM_FUEL_BUDGET,
     )
 }
 

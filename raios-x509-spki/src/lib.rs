@@ -4,9 +4,78 @@ pub const P256_UNCOMPRESSED_POINT_LEN: usize = 65;
 const OID_EC_PUBLIC_KEY: &[u8] = &[0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01];
 const OID_PRIME256V1: &[u8] = &[0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07];
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct P256Spki<'a> {
     pub der: &'a [u8],
     pub public_key: &'a [u8],
+}
+
+pub const CERTSPKI_RECORD_LEN: usize = 71;
+pub const CERTSPKI_RECORD_MAGIC: u8 = 0x53; // 'S', distinct from HTTPHEAD/CERTWINDOW.
+pub const CERTSPKI_RECORD_VERSION: u8 = 1;
+pub const CERTSPKI_ERROR_NOT_P256_SPKI: u8 = 1;
+
+/// Fixed 71-byte record, big-endian. Always 71 bytes.
+/// [0]=magic 0x53 [1]=version 1 [2]=status(0 ok / 1 err) [3]=error_code(0 when ok)
+/// [4..6]=spki_der_len u16 BE [6..71]=P-256 uncompressed public key (65 bytes).
+/// On Err, bytes [4..71] are all 0x00.
+pub fn encode_certspki_record(result: Option<P256Spki<'_>>) -> [u8; CERTSPKI_RECORD_LEN] {
+    let mut b = [0u8; CERTSPKI_RECORD_LEN];
+    b[0] = CERTSPKI_RECORD_MAGIC;
+    b[1] = CERTSPKI_RECORD_VERSION;
+    match result {
+        Some(spki)
+            if spki.public_key.len() == P256_UNCOMPRESSED_POINT_LEN
+                && spki.der.len() <= u16::MAX as usize =>
+        {
+            b[2] = 0;
+            b[3] = 0;
+            let len = (spki.der.len() as u16).to_be_bytes();
+            b[4] = len[0];
+            b[5] = len[1];
+            b[6..71].copy_from_slice(spki.public_key);
+        }
+        _ => {
+            b[2] = 1;
+            b[3] = CERTSPKI_ERROR_NOT_P256_SPKI;
+        }
+    }
+    b
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DecodedCertSpkiRecord {
+    pub record_valid: bool,
+    pub status: u8,
+    pub error_code: u8,
+    pub spki_der_len: u16,
+    pub public_key: [u8; P256_UNCOMPRESSED_POINT_LEN],
+}
+
+/// Fail-closed decode. Length/magic/version are guarded first, so an empty or
+/// short buffer yields record_valid=false instead of a panic.
+pub fn decode_certspki_record(bytes: &[u8]) -> DecodedCertSpkiRecord {
+    if bytes.len() != CERTSPKI_RECORD_LEN
+        || bytes[0] != CERTSPKI_RECORD_MAGIC
+        || bytes[1] != CERTSPKI_RECORD_VERSION
+    {
+        return DecodedCertSpkiRecord {
+            record_valid: false,
+            status: 0,
+            error_code: 0,
+            spki_der_len: 0,
+            public_key: [0; P256_UNCOMPRESSED_POINT_LEN],
+        };
+    }
+    let mut public_key = [0u8; P256_UNCOMPRESSED_POINT_LEN];
+    public_key.copy_from_slice(&bytes[6..71]);
+    DecodedCertSpkiRecord {
+        record_valid: true,
+        status: bytes[2],
+        error_code: bytes[3],
+        spki_der_len: u16::from_be_bytes([bytes[4], bytes[5]]),
+        public_key,
+    }
 }
 
 pub fn extract_p256_spki(cert_der: &[u8]) -> Option<P256Spki<'_>> {
@@ -226,5 +295,35 @@ mod tests {
     #[test]
     fn truncated_cert_is_rejected() {
         assert!(extract_p256_spki(&REAL_TEST_CERT_DER[..120]).is_none());
+    }
+
+    #[test]
+    fn certspki_record_round_trips_fixture_success() {
+        let spki = extract_p256_spki(REAL_TEST_CERT_DER).expect("fixture has P-256 SPKI");
+        let decoded = decode_certspki_record(&encode_certspki_record(Some(spki)));
+
+        assert!(decoded.record_valid);
+        assert_eq!(decoded.status, 0);
+        assert_eq!(decoded.error_code, 0);
+        assert_eq!(decoded.spki_der_len, 91);
+        assert_eq!(&decoded.public_key, EXPECTED_PUBLIC_KEY);
+    }
+
+    #[test]
+    fn certspki_record_fails_closed_for_bad_framing_and_missing_spki() {
+        let err = decode_certspki_record(&encode_certspki_record(None));
+        assert!(err.record_valid);
+        assert_eq!(err.status, 1);
+        assert_eq!(err.error_code, CERTSPKI_ERROR_NOT_P256_SPKI);
+        assert_eq!(err.spki_der_len, 0);
+
+        let mut wrong_version = encode_certspki_record(extract_p256_spki(REAL_TEST_CERT_DER));
+        wrong_version[1] = CERTSPKI_RECORD_VERSION.wrapping_add(1);
+        for bytes in [&[][..], &[0u8; CERTSPKI_RECORD_LEN][..], &wrong_version[..]] {
+            let decoded = decode_certspki_record(bytes);
+            assert!(!decoded.record_valid);
+            assert_eq!(decoded.status, 0);
+            assert_eq!(decoded.spki_der_len, 0);
+        }
     }
 }

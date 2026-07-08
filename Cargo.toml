@@ -12,7 +12,8 @@ members = [
     "wasm-guests/svc-demo-echo",
     "wasm-guests/svc-demo-bufecho",
     "wasm-guests/svc-demo-certwindow",
-    "wasm-guests/svc-demo-httphead"
+    "wasm-guests/svc-demo-httphead",
+    "wasm-guests/svc-demo-certspki"
 ]
 resolver = "2"
 

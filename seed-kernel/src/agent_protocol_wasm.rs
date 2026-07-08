@@ -19,6 +19,10 @@ use raios_core::{
     },
     record::Value as V,
     sha256_bytes,
+    x509_spki::{
+        decode_certspki_record, encode_certspki_record, extract_p256_spki,
+        CERTSPKI_ERROR_NOT_P256_SPKI, CERTSPKI_RECORD_LEN, P256_UNCOMPRESSED_POINT_LEN,
+    },
 };
 
 // Synthetic HTTP/1.1 fixtures - byte-identical to raios-http-parse host tests.
@@ -608,6 +612,176 @@ pub(crate) fn emit_wasm_httphead_probe() {
     );
     raw_line("      \"evidence_complete\": true");
     end_response("wasm.httphead_probe");
+}
+
+pub(crate) fn emit_wasm_certspki_probe() {
+    let cert = REAL_TEST_CERT_DER;
+    let cert_sha256 = sha256_bytes(cert);
+    let rt = wasm_runtime::run_certspki_roundtrip(cert);
+    let gd = decode_certspki_record(&rt.raw_captured_output);
+    let core = extract_p256_spki(cert);
+    let core_encoded = encode_certspki_record(core);
+    let core_output_sha256 = sha256_bytes(&core_encoded);
+    let guest_matches_core = gd.record_valid
+        && match core {
+            Some(spki) => {
+                gd.status == 0
+                    && gd.error_code == 0
+                    && gd.spki_der_len as usize == spki.der.len()
+                    && gd.public_key[..] == spki.public_key[..]
+            }
+            None => {
+                gd.status == 1
+                    && gd.error_code == CERTSPKI_ERROR_NOT_P256_SPKI
+                    && gd.spki_der_len == 0
+                    && gd.public_key == [0; P256_UNCOMPRESSED_POINT_LEN]
+            }
+        };
+    let output_bytes_match = rt.captured_output_len == CERTSPKI_RECORD_LEN as u64
+        && rt.captured_output_sha256 == core_output_sha256;
+    let core_public_key_sha256 = core
+        .map(|spki| sha256_bytes(spki.public_key))
+        .unwrap_or([0; 32]);
+    let guest_public_key_sha256 = if gd.record_valid && gd.status == 0 {
+        sha256_bytes(&gd.public_key)
+    } else {
+        [0; 32]
+    };
+
+    let bad = &cert[..120];
+    let rtm = wasm_runtime::run_certspki_roundtrip(bad);
+    let gdm = decode_certspki_record(&rtm.raw_captured_output);
+    let corem = extract_p256_spki(bad);
+    let malformed_matches = gdm.record_valid
+        && corem.is_none()
+        && gdm.status == 1
+        && gdm.error_code == CERTSPKI_ERROR_NOT_P256_SPKI
+        && gdm.spki_der_len == 0
+        && gdm.public_key == [0; P256_UNCOMPRESSED_POINT_LEN];
+
+    let neg = wasm_runtime::run_certspki_unauthorized_probe();
+
+    begin_response("wasm.certspki_probe");
+    emit_record_fields_trailing_comma(
+        vec![
+            f("schema", s("raios.wasm_certspki_probe.v0")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("method", s("wasm.certspki_probe")),
+            f("service_id", s(wasm_runtime::CERTSPKI_SERVICE_ID)),
+            f("input_len", V::U64(cert.len() as u64)),
+            f("input_sha256", record_sha(cert_sha256)),
+            f("cert_sha256", record_sha(cert_sha256)),
+            f("run_outcome", s(rt.run_outcome)),
+            f(
+                "authorized_import_count",
+                V::U64(rt.authorized_import_count),
+            ),
+            f(
+                "linked_host_import_count",
+                V::U64(rt.linked_host_import_count),
+            ),
+            f(
+                "module_imports_within_authorized_list",
+                b(rt.module_imports_within_authorized_list),
+            ),
+            f("fuel_budget", V::U64(rt.fuel_budget)),
+            f("fuel_used", V::U64(rt.fuel_used)),
+            f("captured_output_len", V::U64(rt.captured_output_len)),
+            f(
+                "captured_output_sha256",
+                record_sha(rt.captured_output_sha256),
+            ),
+            f("core_output_sha256", record_sha(core_output_sha256)),
+            f("guest_record_valid", b(gd.record_valid)),
+            f(
+                "guest_parse_ok",
+                b(gd.record_valid && gd.status == 0 && gd.error_code == 0),
+            ),
+            f("guest_error_code", V::U64(gd.error_code as u64)),
+            f("guest_spki_der_len", V::U64(gd.spki_der_len as u64)),
+            f(
+                "guest_public_key_len",
+                V::U64(if gd.record_valid && gd.status == 0 {
+                    P256_UNCOMPRESSED_POINT_LEN as u64
+                } else {
+                    0
+                }),
+            ),
+            f(
+                "guest_public_key_sha256",
+                record_sha(guest_public_key_sha256),
+            ),
+            f("core_parse_ok", b(core.is_some())),
+            f(
+                "core_error_code",
+                V::U64(if core.is_some() {
+                    0
+                } else {
+                    CERTSPKI_ERROR_NOT_P256_SPKI as u64
+                }),
+            ),
+            f(
+                "core_spki_der_len",
+                V::U64(core.map(|spki| spki.der.len() as u64).unwrap_or(0)),
+            ),
+            f(
+                "core_public_key_len",
+                V::U64(
+                    core.map(|_| P256_UNCOMPRESSED_POINT_LEN as u64)
+                        .unwrap_or(0),
+                ),
+            ),
+            f("core_public_key_sha256", record_sha(core_public_key_sha256)),
+            f("guest_matches_core", b(guest_matches_core)),
+            f("output_bytes_match", b(output_bytes_match)),
+            f("guest_output_is_evidence_only", b(true)),
+            f("core_is_authority", b(true)),
+            f("policy_allows_beyond_env", b(false)),
+            f("owner_sealed", b(false)),
+            f("trust_tier", s("dev_key_not_owner_sealed")),
+            f("validates_provider_spki", b(false)),
+            f("authorizes_provider_request", b(false)),
+            f("authorizes_provider_export", b(false)),
+            f("durable_write", b(false)),
+            f("capability_granted", b(false)),
+            f(
+                "malformed_case",
+                V::InlineObject(vec![
+                    f("guest_record_valid", b(gdm.record_valid)),
+                    f("guest_parse_ok", b(false)),
+                    f("guest_error_code", V::U64(gdm.error_code as u64)),
+                    f("guest_spki_der_len", V::U64(gdm.spki_der_len as u64)),
+                    f("core_parse_ok", b(false)),
+                    f(
+                        "core_error_code",
+                        V::U64(CERTSPKI_ERROR_NOT_P256_SPKI as u64),
+                    ),
+                    f("guest_matches_core", b(malformed_matches)),
+                    f("capability_granted", b(false)),
+                ]),
+            ),
+            f(
+                "negative",
+                V::InlineObject(vec![
+                    f(
+                        "module_imports_within_authorized_list",
+                        b(neg.module_imports_within_authorized_list),
+                    ),
+                    f("run_outcome", s(neg.run_outcome)),
+                    f(
+                        "missing_import_module",
+                        record_str_or_null(neg.missing_import_module.as_deref()),
+                    ),
+                    f("instantiation_ok", b(neg.instantiation_ok)),
+                    f("captured_output_len", V::U64(neg.captured_output_len)),
+                ]),
+            ),
+        ],
+        6,
+    );
+    raw_line("      \"evidence_complete\": true");
+    end_response("wasm.certspki_probe");
 }
 
 fn datetime_or_null(value: Option<CertValidityDateTime>) -> V<'static> {

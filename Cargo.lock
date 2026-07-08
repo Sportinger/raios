@@ -1815,6 +1815,13 @@ name = "svc-demo-bufecho"
 version = "0.1.0"
 
 [[package]]
+name = "svc-demo-certspki"
+version = "0.1.0"
+dependencies = [
+ "raios-x509-spki",
+]
+
+[[package]]
 name = "svc-demo-certwindow"
 version = "0.1.0"
 dependencies = [
@@ -1822,15 +1829,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "svc-demo-echo"
+version = "0.1.0"
+
+[[package]]
 name = "svc-demo-httphead"
 version = "0.1.0"
 dependencies = [
  "raios-http-parse",
 ]
-
-[[package]]
-name = "svc-demo-echo"
-version = "0.1.0"
 
 [[package]]
 name = "syn"
