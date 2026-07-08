@@ -103,6 +103,17 @@ pub(crate) fn clear() {
     *RETAINED_CANDIDATE.lock() = None;
 }
 
+pub(crate) fn intake_and_retain_external_wasm_candidate(
+    bytes: Vec<u8>,
+) -> ExternalWasmCandidateOutcome {
+    let outcome = intake_external_wasm_candidate(&bytes);
+    clear();
+    if outcome.retained_in_ram && outcome.wasm_valid && !outcome.rejected {
+        retain(bytes, outcome.artifact_sha256, outcome.wasm_valid);
+    }
+    outcome
+}
+
 fn candidate_outcome(
     byte_len: usize,
     artifact_sha256: [u8; 32],

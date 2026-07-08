@@ -1,10 +1,3 @@
-$candidatePath = if ($ResolvedArtifact) {
-    $ResolvedArtifact
-}
-else {
-    Join-Path $RepoRoot "seed-kernel\artifacts\svc.demo.echo.wasm"
-}
-
 $expectedShaBare = "f81f9442de3729f58f9d5c43b186a4223e3f0ed0bdde20e94722da8d5733abd2"
 $expectedSha = "sha256:$expectedShaBare"
 $provSigHex = "304402201fd9aa3e26579ab9852a1ea61a7fe23f79c39badd13e2c74dbdf9d957a25449b02204f783191894cfb609d35c5babc9fb3208e77d9c712d2645a633120db6dcdd89b"
@@ -36,33 +29,112 @@ function Test-M12Denials {
     )
 }
 
+function Test-M12RegistryDenials {
+    param([object]$Record)
+    return (
+        $Record.authorizes_acquisition -eq $false -and
+        $Record.authorizes_install -eq $false -and
+        $Record.authorizes_load -eq $false -and
+        $Record.authorizes_execute -eq $false -and
+        $Record.authorizes_persist -eq $false -and
+        $Record.writes_persistent_state -eq $false -and
+        $Record.load_attempted -eq $false -and
+        $Record.execution_attempted -eq $false -and
+        $Record.durable_write_attempted -eq $false -and
+        $Record.owner_sealed -eq $false
+    )
+}
+
 function Get-M12SelftestCase {
     param([object[]]$Cases, [string]$Name)
     return @($Cases | Where-Object { $_.case -eq $Name })[0]
 }
 
-$delivery = Send-CandidateBytes -Path $candidatePath
-$finalize = $delivery.finalize_response
-$result = $finalize.body.result
-$deliveryOk = (
-    $finalize.t -eq "response" -and
-    $finalize.body.method -eq "module.submit_candidate_finalize" -and
-    [int]$result.byte_len -eq 4205 -and
-    [int]$result.delivered_byte_len -eq 4205 -and
-    $result.artifact_sha256 -eq $expectedSha -and
-    $result.wasm_valid -eq $true -and
-    $result.retained_in_ram -eq $true -and
-    $result.rejected -eq $false -and
-    $result.authorizes_load -eq $false -and
-    $result.authorizes_execution -eq $false -and
-    $result.writes_persistent_state -eq $false
+Send-AgentCommand -Command "agent module.registry_selection_diagnostic $expectedSha" -ExpectedMarker "RAIOS_AGENT_END module.registry_selection_diagnostic" -Name "m12-distribution:P1_registry_selection_valid"
+$registry = Get-LastAgentResponseJson -Method "module.registry_selection_diagnostic"
+$registryResult = $registry.body.result
+$selection = $registryResult.selection
+$staged = $registryResult.staged_candidate
+$retainedProv = $registryResult.retained_provenance
+$registryOk = (
+    $registry.t -eq "response" -and
+    $registryResult.status -eq "selected" -and
+    $registryResult.reason -eq "registry_entry_selected_for_inert_candidate_intake" -and
+    $selection.schema -eq "raios.distribution_registry_selection.v0" -and
+    $selection.selected_for_candidate_intake -eq $true -and
+    $selection.selection_hash_matched -eq $true -and
+    $selection.provenance_signature_verified -eq $true -and
+    $registryResult.provenance_is_origin_evidence_only -eq $true -and
+    $selection.artifact_sha256 -eq $expectedSha -and
+    [int]$staged.byte_len -eq 4205 -and
+    $staged.artifact_sha256 -eq $expectedSha -and
+    $staged.wasm_valid -eq $true -and
+    $staged.retained_in_ram -eq $true -and
+    $staged.rejected -eq $false -and
+    $retainedProv.provenance_verified -eq $true -and
+    $retainedProv.artifact_sha256 -eq $expectedSha -and
+    $retainedProv.status -eq "distribution_candidate_provenance_verified_load_still_denied" -and
+    $registryResult.recomputed_sha256_matches_selection -eq $true -and
+    $registryResult.staged_only_after_valid_selection -eq $true -and
+    (Test-M12RegistryDenials -Record $registryResult) -and
+    (Test-M12RegistryDenials -Record $selection) -and
+    (Test-M12Denials -Record $retainedProv)
 )
 Assert-M12Predicate `
-    -Name "m12-distribution:P1_delivery_retains_inert_echo_candidate" `
-    -Expected "signed distribution artifact bytes enter existing candidate intake as inert current_boot retained wasm" `
-    -Passed $deliveryOk `
-    -Actual $(if ($deliveryOk) { "matched" } else { ($result | ConvertTo-Json -Compress -Depth 6) }) `
-    -FailureMessage "Expected echo artifact delivery to retain an inert valid wasm candidate"
+    -Name "m12-distribution:P1_registry_selection_stages_inert_echo_candidate" `
+    -Expected "built-in registry entry selected by content hash enters existing candidate intake as inert current_boot retained wasm" `
+    -Passed $registryOk `
+    -Actual $(if ($registryOk) { "matched" } else { ($registryResult | ConvertTo-Json -Compress -Depth 10) }) `
+    -FailureMessage "Expected registry selection to retain an inert valid wasm candidate"
+
+Send-AgentCommand -Command "agent module.registry_selection_diagnostic sha256:0000000000000000000000000000000000000000000000000000000000000000" -ExpectedMarker "RAIOS_AGENT_END module.registry_selection_diagnostic" -Name "m12-distribution:P1_registry_selection_wrong_hash"
+$wrongSelection = Get-LastAgentResponseJson -Method "module.registry_selection_diagnostic"
+$wrongSelectionResult = $wrongSelection.body.result
+$wrongSelectionOk = (
+    $wrongSelectionResult.status -eq "denied" -and
+    $wrongSelectionResult.reason -eq "selection_hash_mismatch" -and
+    $wrongSelectionResult.selection.selected_for_candidate_intake -eq $false -and
+    $null -eq $wrongSelectionResult.staged_candidate -and
+    $wrongSelectionResult.staged_only_after_valid_selection -eq $true -and
+    (Test-M12RegistryDenials -Record $wrongSelectionResult) -and
+    (Test-M12RegistryDenials -Record $wrongSelectionResult.selection)
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:P1_registry_selection_wrong_hash_no_stage" `
+    -Expected "wrong content hash is denied and does not stage a candidate" `
+    -Passed $wrongSelectionOk `
+    -Actual $(if ($wrongSelectionOk) { "matched" } else { ($wrongSelectionResult | ConvertTo-Json -Compress -Depth 10) }) `
+    -FailureMessage "Expected wrong registry selector to fail closed without staging"
+
+Send-AgentCommand -Command "agent module.registry_selection_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END module.registry_selection_diagnostic_selftest" -Name "m12-distribution:P1_registry_selection_selftest"
+$registrySelftest = Get-LastAgentResponseJson -Method "module.registry_selection_diagnostic_selftest"
+$registrySelftestResult = $registrySelftest.body.result
+$registryCases = @($registrySelftestResult.cases)
+$registryValidCase = Get-M12SelftestCase -Cases $registryCases -Name "valid_registry_selection_stages_inert_candidate"
+$registryWrongCase = Get-M12SelftestCase -Cases $registryCases -Name "wrong_hash_denied_without_staging"
+$registryInvalidCase = Get-M12SelftestCase -Cases $registryCases -Name "invalid_selector_denied_without_staging"
+$registrySelftestOk = (
+    $registrySelftestResult.passed -eq $true -and
+    [int]$registrySelftestResult.case_count -eq 3 -and
+    $registryValidCase.passed -eq $true -and
+    $registryValidCase.staged -eq $true -and
+    $registryValidCase.retained_provenance_verified -eq $true -and
+    $registryWrongCase.passed -eq $true -and
+    $registryWrongCase.staged -eq $false -and
+    $registryInvalidCase.passed -eq $true -and
+    $registryInvalidCase.reason -eq "invalid_sha256_selector" -and
+    $registrySelftestResult.owner_sealed -eq $false -and
+    $registrySelftestResult.durable_write -eq $false -and
+    $registrySelftestResult.load_authorized -eq $false -and
+    $registrySelftestResult.execute_authorized -eq $false -and
+    $registrySelftestResult.persist_authorized -eq $false
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:P1_registry_selection_selftest_cases" `
+    -Expected "registry-selection selftest proves valid staging plus wrong/invalid selector denials" `
+    -Passed $registrySelftestOk `
+    -Actual $(if ($registrySelftestOk) { "matched" } else { ($registrySelftestResult | ConvertTo-Json -Compress -Depth 10) }) `
+    -FailureMessage "Expected registry selection selftest to pass"
 
 Send-AgentCommand -Command "agent module.distribution_provenance_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END module.distribution_provenance_diagnostic_selftest" -Name "m12-distribution:P2_selftest_command"
 $selftest = Get-LastAgentResponseJson -Method "module.distribution_provenance_diagnostic_selftest"

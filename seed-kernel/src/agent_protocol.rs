@@ -1,7 +1,11 @@
+#[path = "agent_protocol_registry.rs"]
+mod agent_protocol_registry;
 #[path = "artifact_store.rs"]
 pub(crate) mod artifact_store;
 #[path = "boot_control.rs"]
 mod boot_control;
+#[path = "distribution_registry.rs"]
+mod distribution_registry;
 #[path = "durable_store.rs"]
 pub(crate) mod durable_store;
 #[path = "recovery_lifeline.rs"]
@@ -177,6 +181,10 @@ use crate::{
         emit_wasm_certwindow_probe, emit_wasm_echo_probe, emit_wasm_httphead_probe,
     },
     echo_service, event_log, granted_candidate_service, hello_service, memory_store, ui,
+};
+
+use self::agent_protocol_registry::{
+    emit_registry_selection_diagnostic, emit_registry_selection_diagnostic_selftest,
 };
 
 pub(crate) use crate::agent_protocol_provider::provider_minimal_context_evidence_for_runtime;
@@ -435,6 +443,8 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("module.submit_candidate_finalize", Exact, [], [route!("module.submit_candidate_finalize")], MethodAction::Read0(emit_submit_candidate_finalize)),
     method!("module.distribution_provenance_diagnostic", Head, [], [route!("module.distribution_provenance_diagnostic")], MethodAction::ReadMethod(emit_distribution_provenance_diagnostic)),
     method!("module.distribution_provenance_diagnostic_selftest", Head, [], [route!("module.distribution_provenance_diagnostic_selftest")], MethodAction::Read0(emit_distribution_provenance_diagnostic_selftest)),
+    method!("module.registry_selection_diagnostic", Head, [], [route!("module.registry_selection_diagnostic")], MethodAction::ReadMethod(emit_registry_selection_diagnostic)),
+    method!("module.registry_selection_diagnostic_selftest", Exact, [], [route!("module.registry_selection_diagnostic_selftest")], MethodAction::Read0(emit_registry_selection_diagnostic_selftest)),
     envelope_method!("module.audit_rollback_availability", Head, ["module.audit_rollback_store_availability"], [], 9, "module.audit_rollback_availability", "cap.module.grant_diagnostic.read", "agent_command_envelope.current_boot.serial.module_audit_rollback_availability.v0", "module.audit_rollback_availability", MethodAction::Read0(emit_module_audit_rollback_availability)),
     method!("module.audit_rollback_availability_selftest", Head, ["module.audit_rollback_store_availability_selftest"], [], MethodAction::Read0(emit_module_audit_rollback_availability_selftest)),
     envelope_method!("module.audit_rollback_write_policy", Head, ["module.audit_rollback_policy"], [], 10, "module.audit_rollback_write_policy", "cap.module.grant_diagnostic.read", "agent_command_envelope.current_boot.serial.module_audit_rollback_write_policy.v0", "module.audit_rollback_write_policy", MethodAction::Read0(emit_module_audit_rollback_write_policy)),

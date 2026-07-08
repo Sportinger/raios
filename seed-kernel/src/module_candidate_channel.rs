@@ -98,11 +98,7 @@ pub(crate) fn submit_candidate_finalize() -> FinalizeOutcome {
     pending.chunk_count = 0;
     drop(pending);
 
-    let candidate = module_candidate_intake::intake_external_wasm_candidate(&bytes);
-    module_candidate_intake::clear();
-    if candidate.retained_in_ram && candidate.wasm_valid && !candidate.rejected {
-        module_candidate_intake::retain(bytes, candidate.artifact_sha256, candidate.wasm_valid);
-    }
+    let candidate = module_candidate_intake::intake_and_retain_external_wasm_candidate(bytes);
     FinalizeOutcome {
         delivered_byte_len: candidate.byte_len,
         delivered_chunk_count: chunk_count,
