@@ -120,6 +120,8 @@ mod framebuffer;
 mod granted_candidate_service;
 mod hello_service;
 mod input;
+#[allow(dead_code)]
+mod marvell_wifi_pcie;
 mod memory;
 mod memory_store;
 mod module_candidate_channel;
