@@ -37,6 +37,25 @@ the actual TLS/HTTP relocation into a Wasm service, beyond-env host imports
 (net/tls/crypto/time/secret), the kernel-side-vs-guest-side trust-shape decision,
 and per-service secret custody — all pending the owner's ADR 0008 decision.
 
+**M12+ opener + honesty capstone (committed, grants nothing):** M12-1 external-
+acquisition HONESTY evaluator (download = candidate intake NEVER install; a
+distribution signature is provenance NOT load-worthiness); ADR 0009 the external-
+artifact-distribution architecture PROPOSAL (owner decision; parked ota/registry/
+fake-cloud NOT unparked). `system.honesty_report` — one read-only manifest of
+raiOS's complete honest posture (provider trust / time / cert-time / export /
+Wasm import enforcement / external acquisition / owner-seal), computed from the
+committed evaluators, with `no_dishonest_overclaim`, owner_sealed:false,
+dev_key_not_owner_sealed. **M10+M11+M12 mechanism block VERIFIED-CLOSED: full
+8202/8202, recovery byte-identical 3867/3867.**
+
+**THE COMPLETE OWNER-GATED FRONTIER (every unblocked mechanism is built; these
+need YOU):** (1) accept ADR 0008 → I build the M11 TLS/HTTP relocation into a
+Wasm service; (2) accept ADR 0009 → I build M12+ external distribution (local
+signed registry → serial candidate intake first); (3) provide real trust inputs
+(a cryptographically trusted time source, real CA roots, a live second provider)
+→ I finish M10 real validation; (4) the owner-key sealing ceremony → the FINAL
+step. Until then every label stays honestly unverified / dev_key_not_owner_sealed.
+
 M10 progress (all grants-nothing, honestly labeled, committed): M10A-1 provider-
 trust HONESTY evaluator (can never overclaim chain/time validation; webpki
 overclaim denied) + M10A-2 kernel reports its real honest posture; M10B-1
