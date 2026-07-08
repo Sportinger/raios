@@ -1062,6 +1062,65 @@ Bare-metal Wi-Fi vs USB-Ethernet, external artifact distribution
 re-binding to new hardware, core-generation handoff. Direction doc:
 `docs/plan-reviews/m12-plus-direction-2026-07-06.md`.
 
+### M13 Durable Storage Substrate (pre-planned 2026-07-09)
+
+Capability sentence: "raiOS persists its typed, classified,
+provenance-bound facts to a REAL, structured, crash-consistent,
+encrypted store on a real block device — with capacity and structure
+beyond today's fixed durable region — while write authority to the
+owner's real medium stays owner-gated and the immutable recovery core
+is never touched."
+
+Motivation: today (through M9D) durable memory records + the M7D
+content-addressed artifact store survive a real reboot BYTE-INTACT, but
+they live in a FIXED reserved durable region — not a real block device,
+no filesystem structure, no capacity growth, no encryption-at-rest.
+Owner asked (2026-07-09) to plan the "richtige Persistenz": a real
+filesystem / larger block-device backend + encryption-at-rest. This
+milestone builds the MECHANISM; the authority to write the owner's real
+medium stays owner-gated (same discipline as every durable-write flip:
+`dev_key_not_owner_sealed` until the sealing ceremony).
+
+TARGET MEDIUM (owner decision 2026-07-09): a DEDICATED, separate
+partition on the internal SSD — NOT the boot stick, NOT alongside
+Windows. The owner creates one empty partition (once, from Windows);
+raiOS writes ONLY to that designated partition and REFUSES every other
+partition by construction — the Windows partition, the EFI system
+partition, the Windows recovery partition, and the immutable raiOS
+recovery core are all rejected fail-closed. The target partition must be
+identified by a stable, verified marker (a raiOS GPT type GUID and/or a
+signed superblock magic) that raiOS re-checks on every mount before any
+write; a missing/foreign marker => read-only, never write. Storage DMA is
+confined by the IOMMU/VT-d track (ADR 0010) once that enforces; until
+then it is honestly labeled "owner-trusted, not IOMMU-confined".
+Persistence still obeys ADR 0004: audit + rollback exist before any
+long-term-memory authority; no fake persistence; typed/classified/
+provenance-bound facts, never a raw log.
+
+Slices (each grants nothing until an explicit owner-gated flip):
+- M13A Block device — A-1 READ-ONLY block driver for the real boot
+  medium (identify device, read sectors, verify vs known bytes); A-2
+  bounded, audited, write-then-read-back verified WRITE to a dedicated
+  owner-approved region only (fail-closed; recovery core + foreign
+  partitions refused by construction).
+- M13B Structured store / filesystem — B-1 on-medium layout (superblock
+  + typed content-addressed record index + free-space map) beyond the
+  fixed region; B-2 migrate the M9 durable memory records + M7D artifact
+  store onto it behind the SAME typed API, re-prove M9D reboot
+  byte-intactness on the new backend; B-3 crash-consistency (journaled /
+  log-structured atomic writes) proven by a mid-write power-cycle test.
+- M13C Encryption-at-rest — C-1 authenticated encryption of durable
+  records/artifacts with a key derived from the owner seal (data-at-rest
+  meaningless without owner key K; dev-key-derived + honestly labeled
+  until the ceremony); C-2 tamper-evident integrity over the store +
+  audit log (mutation of the medium is detected, fail-closed).
+
+Owner-gated inputs: which medium/region raiOS may write (recommended:
+boot medium / dedicated partition, never Windows/NVMe without explicit
+approval); the sealing ceremony that turns the dev encryption key into
+the real owner-sealed key. A detailed file:line map (like the M10/M11
+maps) is a follow-up scoping pass before implementation.
+
 All M7-M11 maps were pre-planned 2026-07-06 (before M6 closed) and carry
 a MANDATORY Slice 0 that revalidates every file:line claim against HEAD
 before implementation. Execution procedure for orchestrators (including
