@@ -128,11 +128,19 @@ aggressive-fast cadence. This is a standing decision that tunes the budget above
   per slice. The relocation/grants-nothing slices consistently returned SHIP with
   zero defects, so the owner traded it away for speed/cost. Replace it with: the
   orchestrator's OWN careful read of the full diff before commit, the host DoD,
-  the focused VM profile, and a secret scan. Scoping/design workflows stay
-  (they catch real issues early). If a step is genuinely dangerous — a real
-  authority flip, secret custody, or anything that could grant more than claimed —
-  surface it to the owner rather than silently shipping; do not treat "review
-  dropped" as license to skip judgment.
+  the focused VM profile, and a secret scan. If a step is genuinely dangerous — a
+  real authority flip, secret custody, or anything that could grant more than
+  claimed — surface it to the owner rather than silently shipping; do not treat
+  "review dropped" as license to skip judgment.
+- **Worker model = CODEX, not Claude (owner 2026-07-08):** dispatch a Codex
+  worker for BOTH implementation AND scoping/design/recon — Codex is trusted,
+  fast, and far cheaper than a multi-agent Claude Workflow. Do NOT spin up
+  5-Opus-agent Claude scoping workflows anymore; use a read-only Codex pass that
+  writes the recon/design/packet instead. Claude (the orchestrator) stays for
+  planning, dispatching, the pre-commit diff read, VM profiles/regressions,
+  judgment, commits, and dashboards. Don't interrupt already-running agents when
+  switching approaches — let them finish and apply the policy to the next
+  dispatch.
 - **Full profile (`full`) + `recovery` byte-identical:** only at a BLOCK /
   sub-milestone close (e.g. when M9A / M9B / M9C finishes), NOT on every
   sub-slice — plus the pre-existing rule to run them before handing off a release
