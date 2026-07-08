@@ -41,9 +41,17 @@ Sandbox-Programm hinein und wieder heraus reichen (nur über drei eng begrenzte,
 verbotene Kanäle), und der ERSTE signierte Sandbox-Dienst nutzt das bereits — er bekommt Bytes
 gestellt und gibt sie unverändert zurück, kommt nie an Netz/Schlüssel, und rohe Bytes verlassen
 die Sandbox nie (nur Länge + Prüfsumme). Bewiesen: Profil 196/196, strengste 4-fach-Gegenprüfung
-„bestanden". ALS NÄCHSTES: der erste ECHTE Umzug — ein Internet-naher Zertifikats-Parser wandert
-aus dem Kern in einen Sandbox-Dienst, vom Kern gegengeprüft. Alles weiterhin ehrlich dev-key,
-nicht owner-versiegelt.
+„bestanden". **Und der erste ECHTE Umzug ist GESCHAFFT:** ein Internet-naher Baustein — der
+Leser für das Gültigkeits-Zeitfenster eines Web-Zertifikats (X.509) — läuft jetzt WIRKLICH im
+Sandbox-Dienst statt im Kern. Der Kern gibt ihm ein echtes Zertifikat, liest es DANEBEN selbst,
+und vergleicht: stimmt das Ergebnis des Sandbox-Programms exakt mit dem des Kerns überein — sowohl
+bei einem gültigen als auch bei einem absichtlich kaputten Zertifikat? Ja. Das Sandbox-Programm ist
+nur „Beweis-Lieferant", die Wahrheit bleibt beim Kern; es kommt nie an Netz/Schlüssel, kann sich
+nicht selbst „geprüft" stempeln, und ein fehlerhaftes Ergebnis kann den Kern nicht zum Absturz
+bringen (fällt sauber auf „ungültig"). Bewiesen: Profil 193/193, Rückschritt-Test 196/196 (Echo/
+Bufecho unverändert), strengste 4-fach-Gegenprüfung „bestanden" (beide Signaturen unabhängig
+nachgeprüft). ALS NÄCHSTES: weitere Internet-Bausteine so umziehen, Schritt für Schritt Richtung
+kompletter TLS-Prüfung in der Sandbox. Alles weiterhin ehrlich dev-key, nicht owner-versiegelt.
 The big one (M7) is done: boot 1 accepts and saves an AI-authored module (its code +
 a signed "promotion receipt"); the machine is powered down and back up; boot 2
 independently re-checks the whole evidence chain from disk — re-doing the signature

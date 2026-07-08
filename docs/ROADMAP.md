@@ -45,12 +45,26 @@ svc.demo.bufecho reads host-staged bytes and writes them straight back through
 ONLY those 3 imports, dev-key-signed (scalar 1, dev_key_not_owner_sealed, build.rs
 hard-gates the signature + asserts the honest tier), output surfaced only as
 len+sha256, import-grant audit honestly RAM-only (boot_control_safe_mode) —
-m11-buffer-channel 196/196, MAX-EFFORT 4-lens adversarial review SHIP. NEXT: move
-the first REAL pure parser (the TLS-adjacent X.509 validity-window DER parser) out
-of the kernel into a signed Wasm service over this channel, kernel cross-checks the
-guest result against its own raios-core copy (Option 2). Beyond-env host imports
-(net/tls/crypto/time/secret) and per-service secret custody remain later relocation
-slices; policy_allows_beyond_env stays false until then.
+m11-buffer-channel 196/196, MAX-EFFORT 4-lens adversarial review SHIP. **M11-6 the
+FIRST REAL kernel-code relocation (DONE):** M11-6a carved the pure DER X.509
+validity-window parser into a standalone no-dep crate `raios-x509-time` (grants
+nothing; raios-core re-exports it so every call site is byte-identical; sha2 is
+dev-dep-only so the guest never builds crypto — raios-core itself can't reach
+wasm32); M11-6b runs that SAME parser inside a dev-key-signed sandboxed Wasm
+service `svc.demo.certwindow` (imports ONLY the 3 byte-buffer fns) on the real
+M10C-4 cert, and the kernel INDEPENDENTLY re-parses the same cert and cross-checks
+the guest's 18-byte result on BOTH the happy AND truncated-error paths — Option 2:
+guest = evidence, core = authority; deterministic sandboxed re-execution, NOT a
+diverse reimpl; every trust/authorize/durable flag hard-false, policy_allows_
+beyond_env still false. m11-6-certwindow 193/193, m11-buffer-channel regression
+196/196 (echo/bufecho byte-identical after the additive raw_captured_output field +
+threaded per-call fuel_budget), MAX-EFFORT 4-lens review SHIP (incl. independent
+re-verification of both scalar-1 signatures). NEXT relocation slices: more internet-
+facing parsers, then beyond-env host imports (net/tls/crypto/time/secret) + per-
+service secret custody toward the full TLS verifier in Wasm; policy_allows_beyond_env
+stays false until an explicit later slice arms it. **M11 first-real-relocation
+milestone VERIFIED-CLOSED (2026-07-08): full 8205/8205, recovery byte-identical
+3870/3870.**
 
 **M12+ opener + honesty capstone (committed, grants nothing):** M12-1 external-
 acquisition HONESTY evaluator (download = candidate intake NEVER install; a

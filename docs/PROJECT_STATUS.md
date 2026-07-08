@@ -24,6 +24,33 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+M11-6 done (2026-07-08) — the FIRST real kernel-code relocation into Wasm
+(ADR 0008 Option 2). M11-6a (commit 18d095f) carved the pure DER X.509
+validity-window parser out of raios-core into a standalone dependency-free
+no_std crate `raios-x509-time` (raios-core re-exports it as
+`cert_validity_window` so every call site is byte-identical; `sha2` is a
+dev-dependency ONLY so the guest never builds crypto — raios-core itself cannot
+compile to wasm32). M11-6b (commit 17d46f8) runs that SAME parser inside a
+dev-key-signed sandboxed Wasm service `svc.demo.certwindow` (imports only the 3
+byte-buffer host fns) on the real M10C-4 certificate; the kernel INDEPENDENTLY
+re-parses the same cert and cross-checks the guest's fixed 18-byte record on
+BOTH the happy AND the truncated-error path. Guest output is evidence-only, the
+core is authority (deterministic sandboxed re-execution, not a diverse reimpl);
+every trust/authorize/durable flag is hard-false; `policy_allows_beyond_env`
+stays false; the kernel-side decode is fail-closed (length/magic/version guarded)
+so a hostile guest output cannot panic the kernel. The shared runner was touched
+only additively (a `raw_captured_output` field read solely by the certwindow
+decode + a per-call `fuel_budget` parameter) so echo/bufecho stay byte-identical.
+Verified host-only: cargo fmt clean; raios-x509-time 22 + raios-core 229 tests
+green; guest `.wasm` reproduces sha256 345663778bfd… via the standard build
+script; shipping seed-kernel build EXIT 0 warning-free with the build.rs P-256
+hard gate active. VM: m11-6-certwindow 193/193; m11-buffer-channel regression
+196/196 (echo/bufecho byte-identical). Review: MAX-EFFORT 4-lens adversarial
+review (signing / shared-runner-regression / cross-check-integrity / honesty) =
+SHIP with zero defects, including independent cryptographic re-verification of
+both scalar-1 descriptor signatures. Everything honestly labeled
+`dev_key_not_owner_sealed`.
+
 M11-5b Phase B done (2026-07-08, host-only worker packet; no QEMU): raiOS now
 runs a new signed `svc.demo.bufecho` Wasm service that imports only
 `env.input_len`, `env.input_read`, and `env.output_write`, reads a bounded
