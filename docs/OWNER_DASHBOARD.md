@@ -17,6 +17,16 @@ WITHOUT sending a single real byte. Secrets can never be stored; a local note ca
 smuggled into an export. M9 CLOSE proven: full 8168/8168, recovery byte-identical 3833/3833.
 Still yours to do later: real sending needs a live network + a genuinely verified provider
 certificate; the owner-key sealing ceremony stays the final step. M7/M8/M9 detail below.
+**M10 (Provider-Vertrauen härten) ist gut unterwegs — das Mechanismus-Fundament steht:**
+raiOS kann jetzt (1) nie *lügen*, was es geprüft hat (ein Ehrlichkeits-Prüfer, den es über
+JEDEN Provider laufen lässt — bewiesen mit OpenAI *und* einem zweiten, synthetischen Provider,
+gleicher Baustein), (2) seine echte Vertrauens-Lage live ehrlich melden, (3) die Uhr lesen
+(CMOS-RTC, ehrlich als *ungeprüft/host-einstellbar* markiert — kein Vertrauen, gewährt nichts),
+und (4) prüfen, ob ein Zertifikat-Zeitfenster zur Uhr passt (gültig/noch-nicht/abgelaufen) —
+ehrlich als *ungeprüfte Basis*. Alles „gewährt-nichts", host-bewiesen (quick 609/609).
+**Was M10 *fertig* macht, braucht dich/Produktion:** eine *vertrauenswürdige* Zeitquelle
+(NTP/NTS/Roughtime/Plattform), echte Zertifikatsketten (CA-Wurzeln), und einen *echten* zweiten
+Provider (echte Pins + Netzwerk). Bis dahin bleibt alles ehrlich als „ungeprüft" markiert.
 The big one (M7) is done: boot 1 accepts and saves an AI-authored module (its code +
 a signed "promotion receipt"); the machine is powered down and back up; boot 2
 independently re-checks the whole evidence chain from disk — re-doing the signature

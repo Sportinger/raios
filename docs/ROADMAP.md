@@ -17,9 +17,26 @@ vocabulary).
 
 Last updated: 2026-07-08.
 
-Current milestone: **M10 Provider Trust Hardening & Adapters** (next; see the M10
-section below). **M6 Promotion Loop, M7 Persistence, M8 Recovery Lifeline, and
-M9 Durable Memory & Context Broker v1 (ADR 0004 Phase D) are COMPLETE.**
+Current milestone: **M10 Provider Trust Hardening & Adapters** (IN PROGRESS — the
+grants-nothing mechanism foundation is committed; the remaining validation is
+owner/production-gated, see below). **M6 Promotion Loop, M7 Persistence, M8
+Recovery Lifeline, and M9 Durable Memory & Context Broker v1 (ADR 0004 Phase D)
+are COMPLETE.**
+
+M10 progress (all grants-nothing, honestly labeled, committed): M10A-1 provider-
+trust HONESTY evaluator (can never overclaim chain/time validation; webpki
+overclaim denied) + M10A-2 kernel reports its real honest posture; M10B-1
+provider-agnostic ProviderTrustDescriptor + M10B-2 descriptor-driven kernel
+honesty (proven for OpenAI AND a synthetic second provider, one shape); M10C-1
+honest CMOS-RTC wall clock (source cmos_rtc_unverified, trusted:false, grants
+nothing) + M10C-2 cert-validity-window awareness vs that clock (within/not-yet/
+expired, UNVERIFIED-BASIS, fixed-window deterministic proof). quick 609/609.
+**M10 REMAINDER IS OWNER/PRODUCTION-GATED (explicit TODOs):** a cryptographically
+TRUSTED time source (NTP/NTS/Roughtime/platform); real X.509 DER notBefore/notAfter
+parse of a LIVE pinned handshake cert; real certificate-CHAIN validation (needs CA
+roots; vendor TLS does not expose intermediates); a LIVE second provider (real
+pins + network). Making cert-time/chain contribute to POSITIVE trust requires all
+of the above. Until then, every trust label stays honestly "unverified/not_validated".
 M9 delivered: M9A durable typed memory (records/decisions/problems, supersede-not-
 overwrite), M9B agent-authored confined observations, M9C-1 the read-only context
 broker (fail-closed reparser + supersede/R1 + classification), M9C-2 the full
