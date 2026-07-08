@@ -9,6 +9,7 @@ pub mod boot_control;
 pub use raios_http_parse as http_response_parse;
 pub use raios_x509_time as cert_validity_window;
 pub mod distribution_provenance;
+pub mod distribution_registry;
 pub mod durable_record_frame;
 pub mod gpt_layout;
 pub mod kernel_surface;
