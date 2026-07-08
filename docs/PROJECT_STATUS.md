@@ -24,6 +24,27 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+M11-2 done (2026-07-08, host-only worker packet; no QEMU): a fail-closed
+raios-core evaluator can now authorize the exact declared Wasm host-import list
+for one service/artifact binding, default-denying missing service id, missing
+artifact binding, missing import list, over-cap lists, unknown host imports,
+broader-than-`env` imports when owner policy is false, and duplicates. This
+grants nothing by itself: no kernel linker wiring, service load, code movement,
+secret release, durable write, or authority flip was added. The only production
+known host imports are the two functions that exist today,
+`("env","log")` and `("env","counter_get")`; no fictional `net.*`,
+`tls_record.*`, `crypto.*`, `time.*`, or `secret.*` imports were invented.
+The `import_beyond_env_not_owner_authorized` reason is implemented as an honest
+forward guard for the day a real non-`env` host import exists; current tests
+prove it is unreachable today because all known imports are `env.*`, so a
+non-`env` request fails first as `unknown_host_import`. The canonical
+`authorized_import_list_sha256` helper hashes the declared ordered list with
+`record::sha256_of_json`, is deterministic, order-sensitive, and authorizes
+nothing. Host-only verification passed: `cargo test --locked -p raios-core`
+(229 passed, including 11 scoped_wasm_import_grant tests; 7 distinct denial
+reason strings are pairwise-unique, 6 are reachable with today's production
+known-import set) and `cargo fmt -p raios-core -- --check`.
+
 M10C-2 done (2026-07-08, host-only worker packet; no QEMU): raiOS can now
 compare fixed synthetic certificate validity windows (`notBefore`/`notAfter`)
 against the live CMOS RTC wall clock and report within / not-yet-valid /
