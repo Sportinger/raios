@@ -145,6 +145,56 @@
     if (-not $expiredCertTimeStatus) {
         throw "Expected the expired synthetic cert-time window to be expired on the unverified RTC basis"
     }
+    $realCertProbe = $certTimeCheck.real_cert_probe
+    $realCertParsed = (
+        $realCertProbe -ne $null -and
+        $certTimeCheck.real_cert_fixture -eq "vendor_embedded_tls_localhost_server_cert_der_not_live" -and
+        $realCertProbe.parse_ok -eq $true -and
+        $realCertProbe.cert_sha256 -is [string] -and
+        $realCertProbe.cert_sha256 -cmatch '^sha256:[0-9a-f]{64}$' -and
+        $realCertProbe.not_before.year -eq 2021 -and
+        $realCertProbe.not_before.month -eq 10 -and
+        $realCertProbe.not_before.day -eq 13 -and
+        $realCertProbe.not_before.hour -eq 8 -and
+        $realCertProbe.not_before.minute -eq 20 -and
+        $realCertProbe.not_before.second -eq 42 -and
+        $realCertProbe.not_after.year -eq 2031 -and
+        $realCertProbe.not_after.month -eq 10 -and
+        $realCertProbe.not_after.day -eq 11 -and
+        $realCertProbe.not_after.hour -eq 8 -and
+        $realCertProbe.not_after.minute -eq 20 -and
+        $realCertProbe.not_after.second -eq 42
+    )
+    Add-Predicate -Name "cert_time_real_cert:parsed" -Expected "fixed embedded real cert parses to its declared validity window" -Passed $realCertParsed -Actual $(if ($realCertParsed) { "real_cert_parsed" } else { ($realCertProbe | ConvertTo-Json -Compress -Depth 8) })
+    if (-not $realCertParsed) {
+        throw "Expected fixed embedded real certificate validity window to parse"
+    }
+    # The host-provided QEMU RTC is currently within 2021..2031; do not assert the exact now.
+    $realCertWithin = (
+        $realCertProbe.status -eq "within_window_unverified_basis" -and
+        $realCertProbe.basis -eq "cmos_rtc_unverified" -and
+        $realCertProbe.now_source -eq "cmos_rtc_unverified"
+    )
+    Add-Predicate -Name "cert_time_real_cert:within_on_unverified_basis" -Expected "fixed embedded real cert is within-window on the live unverified RTC basis" -Passed $realCertWithin -Actual $(if ($realCertWithin) { "within_window_unverified_basis" } else { ($realCertProbe | ConvertTo-Json -Compress -Depth 8) })
+    if (-not $realCertWithin) {
+        throw "Expected fixed embedded real certificate to be within-window on the unverified RTC basis"
+    }
+    $realCertGrantsNothing = (
+        $realCertProbe.validates_cert_time -eq $false -and
+        $realCertProbe.trusted -eq $false -and
+        $realCertProbe.authorizes_provider_request -eq $false -and
+        $realCertProbe.authorizes_provider_export -eq $false -and
+        $realCertProbe.durable_write -eq $false -and
+        $realCertProbe.capability_granted -eq $false -and
+        $realCertProbe.provider_write -eq "not_attempted" -and
+        $realCertProbe.transmission -eq $false -and
+        $realCertProbe.owner_sealed -eq $false -and
+        $realCertProbe.trust_tier -eq "dev_key_not_owner_sealed"
+    )
+    Add-Predicate -Name "cert_time_real_cert:grants_nothing" -Expected "real-cert probe validates no cert time and grants no request/export/write/transmission/capability" -Passed $realCertGrantsNothing -Actual $(if ($realCertGrantsNothing) { "grants_nothing" } else { ($realCertProbe | ConvertTo-Json -Compress -Depth 8) })
+    if (-not $realCertGrantsNothing) {
+        throw "Expected real-cert probe to grant nothing"
+    }
     $certTimeCaseGrantsNothing = $true
     foreach ($case in $certTimeCheckCases) {
         if (-not (

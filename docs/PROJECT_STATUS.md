@@ -24,6 +24,24 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+M10C-4 done (2026-07-08, host-only worker packet; no QEMU): on live boot,
+raiOS parses the fixed real embedded-tls localhost certificate fixture DER
+through the committed raios-core X.509 validity-window parser and checks the
+parsed 2021-10-13T08:20:42Z..2031-10-11T08:20:42Z window against the CMOS RTC
+using the M10C-2 unverified-basis comparator, then reports
+`real_cert_probe` beside the unchanged fixed synthetic cert-time selftest
+cases. The embedded fixture is
+`vendor/embedded-tls-0.17.0/tests/data/server-cert.pem` decoded to 522 DER
+bytes with sha256
+`baa2a6c3263fb8170aa2b4013046414a1e4760c2f5e7bfdf88c74f51742e0cb4`; it is a
+fixed test fixture, not a live handshake cert. This grants no trusted time,
+chain/hostname/WebPKI validation, cert-time validation, provider request/export
+authority, durable write, owner seal, capability, or transmission. Host-only
+verification passed: `cargo fmt -p seed-kernel --check`,
+`cargo fmt -p raios-core --check`, `cargo test --locked -p raios-core` (243
+passed), release seed-kernel build, and PowerShell parse of
+`vm-harness/shadow-vm-smoke-profile-common.ps1`.
+
 M10C-3 done (2026-07-08, host-only worker packet; no QEMU): raiOS-core can now
 fail-closed parse a real DER certificate's declared `notBefore`/`notAfter`
 validity window into `CertValidityDateTime`, so the existing M10C-2
