@@ -16,6 +16,7 @@ const CHAT_BUBBLE_GAP: usize = 16;
 const CURSOR_WIDTH: usize = 10;
 const CURSOR_HEIGHT: usize = 16;
 const CONTENT_TOP: usize = 166;
+const PANEL_TITLE_H: usize = 44;
 const HEADER_TAB_START_X: usize = 236;
 const HEADER_TAB_GAP: usize = 24;
 const HEADER_TAB_HIT_Y: usize = 18;
@@ -279,8 +280,15 @@ fn draw_header(
     surface.fill_rect(0, 0, width, 76, SURFACE_BG);
     surface.fill_rect(0, 75, width, 1, HAIRLINE_HI);
 
-    text::draw_text(surface, 24, 20, "raiOS", TEXT_MAIN, None);
-    text::draw_text(surface, 84, 20, "Direct AI Host", TEXT_FAINT, None);
+    text::draw_text(surface, 24, HEADER_TAB_LABEL_Y, "raiOS", TEXT_MAIN, None);
+    text::draw_text(
+        surface,
+        84,
+        HEADER_TAB_LABEL_Y,
+        "Direct AI Host",
+        TEXT_FAINT,
+        None,
+    );
 
     draw_tab(
         surface,
@@ -407,7 +415,7 @@ fn draw_status_chip(
         return x;
     }
 
-    draw_soft_rect_r6(surface, x, y, width, 30, SURFACE_BG);
+    draw_soft_rect_r6(surface, x, y, width, 30, SURFACE_ALT);
     draw_rect_outline_r6(surface, x, y, width, 30, HAIRLINE);
     draw_status_dot(surface, x + 12, y + 12, row_state_color(line.state));
     text::draw_text(surface, x + 28, y + 11, label, TEXT_MAIN, None);
@@ -416,7 +424,7 @@ fn draw_status_chip(
         x + 28 + label.len().saturating_mul(FONT_ADVANCE) + 8,
         y + 11,
         line.state.as_str(),
-        TEXT_MUTED,
+        row_state_color(line.state),
         None,
     );
     x.saturating_add(width).saturating_add(12)
@@ -443,8 +451,38 @@ fn row_state_text_len(state: RowState) -> usize {
 }
 
 fn draw_panel_title(surface: &mut FramebufferSurface, x: usize, y: usize, title: &str) {
-    surface.fill_rect(x, y + 1, 3, 14, APP_BLUE);
+    surface.fill_rect(x, y.saturating_sub(3), 3, 14, APP_BLUE);
     text::draw_text(surface, x + 12, y, title, TEXT_MAIN, None);
+}
+
+fn draw_panel(
+    surface: &mut FramebufferSurface,
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+    title: &str,
+) {
+    draw_soft_rect(surface, x, y, width, height, SURFACE_BG);
+    if height > PANEL_TITLE_H.saturating_add(8) {
+        draw_soft_rect(surface, x, y, width, PANEL_TITLE_H, SURFACE_ALT);
+        surface.fill_rect(
+            x,
+            y.saturating_add(PANEL_TITLE_H).saturating_sub(8),
+            width,
+            8,
+            SURFACE_ALT,
+        );
+        surface.fill_rect(
+            x + 1,
+            y.saturating_add(PANEL_TITLE_H),
+            width.saturating_sub(2),
+            1,
+            HAIRLINE,
+        );
+    }
+    draw_rect_outline(surface, x, y, width, height, HAIRLINE);
+    draw_panel_title(surface, x + 20, y + 18, title);
 }
 
 fn draw_centered_text(
@@ -576,23 +614,14 @@ fn draw_chat(
 ) {
     let top = CONTENT_TOP;
     let bottom = height.saturating_sub(88);
-    draw_soft_rect(
+    draw_panel(
         surface,
         24,
         top,
         width.saturating_sub(48),
         bottom.saturating_sub(top),
-        SURFACE_BG,
+        "Chat",
     );
-    draw_rect_outline(
-        surface,
-        24,
-        top,
-        width.saturating_sub(48),
-        bottom.saturating_sub(top),
-        HAIRLINE,
-    );
-    draw_panel_title(surface, 44, top + 18, "Chat");
     text::draw_text(
         surface,
         116,
@@ -610,21 +639,26 @@ fn draw_chat(
         "{} {} {}",
         snapshot.provider_name, snapshot.provider_model, key_state
     ));
-    text::draw_text(
+    let provider_max_chars = width.saturating_sub(364) / FONT_ADVANCE;
+    let provider_chars = usize::min(provider.as_str().chars().count(), provider_max_chars);
+    draw_truncated_text(
         surface,
-        width.saturating_sub(360),
+        width
+            .saturating_sub(44)
+            .saturating_sub(provider_chars.saturating_mul(FONT_ADVANCE)),
         top + 18,
         provider.as_str(),
+        provider_max_chars,
         TEXT_MUTED,
-        None,
     );
 
     let has_messages = chat_has_messages(snapshot);
+    let content_top = top.saturating_add(PANEL_TITLE_H).saturating_add(1);
     if !has_messages {
         draw_centered_text(
             surface,
             width,
-            top.saturating_add(bottom.saturating_sub(top) / 2),
+            content_top.saturating_add(bottom.saturating_sub(content_top) / 2),
             "No messages yet - type below to talk to the AI",
             TEXT_FAINT,
         );
@@ -1092,23 +1126,14 @@ fn draw_console(
     snapshot: &console::ConsoleSnapshot,
 ) {
     let top = CONTENT_TOP;
-    draw_soft_rect(
+    draw_panel(
         surface,
         24,
         top,
         width.saturating_sub(48),
         height.saturating_sub(top + 42),
-        SURFACE_BG,
+        "Console",
     );
-    draw_rect_outline(
-        surface,
-        24,
-        top,
-        width.saturating_sub(48),
-        height.saturating_sub(top + 42),
-        HAIRLINE,
-    );
-    draw_panel_title(surface, 44, top + 18, "Console");
 
     let input_y = input_field_y(height);
     let max_chars = usize::max(8, width.saturating_sub(88) / FONT_ADVANCE);
@@ -1167,23 +1192,14 @@ fn draw_settings(
     snapshot: &console::ConsoleSnapshot,
 ) {
     let top = CONTENT_TOP;
-    draw_soft_rect(
+    draw_panel(
         surface,
         24,
         top,
         width.saturating_sub(48),
         height.saturating_sub(top + 42),
-        SURFACE_BG,
+        "Settings",
     );
-    draw_rect_outline(
-        surface,
-        24,
-        top,
-        width.saturating_sub(48),
-        height.saturating_sub(top + 42),
-        HAIRLINE,
-    );
-    draw_panel_title(surface, 44, top + 18, "Settings");
 
     let key_state = if snapshot.api_key_set {
         "SET"
