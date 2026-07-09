@@ -24,9 +24,9 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (bare-metal WiFi/input): refresh Disk 2, boot the
-Surface, click `WiFi DETECTED`, and type through the secured-SSID password
-dialog while periodically leaving the mouse idle for more than ten seconds.
+Current exact next task (bare-metal WiFi/input): boot the refreshed Disk 2
+stick on the Surface, click `WiFi DETECTED`, and type through the secured-SSID
+password dialog while periodically leaving the mouse idle for more than ten seconds.
 Confirm keyboard and mouse remain responsive without unplug/replug and the flow
 ends at honest `Connection not established`. Event/RX rings, RX-PFU,
 association, link, DHCP, and persistent secret storage remain denied. Input
@@ -53,6 +53,11 @@ rustfmt; release build; quick Shadow VM report
 and 79 executed commands, `duration_ms: 246061`, report sha256
 `2aa0012fbffbac2063ca0561648da0d7b81d604179186e9b438c0ed474d68ad4`, and
 `base_image.sha256: 206e4101d4285227efa7c198062b2f3e5540d5e84426bc08434bf8388abf333f`.
+Owner handoff: Disk 2 `SEED_ESP_A` was refreshed without reformatting via
+`scripts\update-usb-esp-a.ps1 -DiskNumber 2 -SkipBuild`; log
+`C:\Users\admin\AppData\Local\Temp\raios-usb-esp-a-update-disk2-20260709-235943.log`
+reported final kernel sha256
+`1AAB49E2D678A7836BE0F91199FBE3BB8D8BD7809E5300897079A753DCAEE043`.
 
 VM failure classification (2026-07-09, WiFi guided-setup UI): the first
 `quick` invocation was terminated by the local command wrapper after five

@@ -30,11 +30,11 @@ authority remains denied until the real sealing ceremony.
 
 Latest proof: quick Shadow VM `shadow-20260709-235209-16668.json` passed 542/542.
 The previous direct-scan slice also passed 32/32 focused Marvell tests. Disk 2
-now has final kernel SHA `357906AB...` without reformatting `SEED_DATA`.
+now has final kernel SHA `1AAB49E2...` without reformatting `SEED_DATA`.
 
 Gate status: latest full profile remains green at
 `shadow-20260708-150428-34396.json` 7867/7867. This slice used focused USB VM
 evidence plus quick profile per aggressive-fast cadence.
 
-Next task: refresh/boot Disk 2, run `WiFi DETECTED`, type the password, and
+Next task: boot Disk 2, run `WiFi DETECTED`, type the password, and
 leave the mouse idle for over ten seconds; neither input device should drop.
