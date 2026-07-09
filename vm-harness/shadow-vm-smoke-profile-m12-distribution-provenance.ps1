@@ -1089,6 +1089,11 @@ $honestyOk = (
     $honesty.owner_key_provisioning.ram_boot_policy -eq "ephemeral_current_boot_key_only" -and
     $honesty.owner_key_provisioning.persistent_install_hardware_binding_required -eq $true -and
     $honesty.owner_key_provisioning.entropy_evidence_present -eq $true -and
+    $honesty.owner_key_provisioning.hardware_binding_probe_source -eq "acpi_tpm2_table" -and
+    $honesty.owner_key_provisioning.hardware_binding_probe_performed -eq $true -and
+    $honesty.owner_key_provisioning.hardware_binding_probe_status -eq "tpm2_acpi_absent" -and
+    $honesty.owner_key_provisioning.hardware_binding_probe_reason -eq "TPM2 ACPI table missing" -and
+    $honesty.owner_key_provisioning.tpm2_acpi_table_present -eq $false -and
     $honesty.owner_key_provisioning.hardware_binding_evidence_present -eq $false -and
     $honesty.owner_key_provisioning.ram_boot_ephemeral_input_ready -eq $true -and
     $honesty.owner_key_provisioning.persistent_install_input_ready -eq $false -and
@@ -1119,8 +1124,17 @@ $honestyOk = (
     [int]$honesty.owner_key_provisioning.owner_key_evidence_input.entropy_pool_capacity -eq 64 -and
     [int]$honesty.owner_key_provisioning.owner_key_evidence_input.entropy_total_collected -ge 32 -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.hardware_binding_source -eq "tpm_or_platform_seal" -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.hardware_binding_probe_source -eq "acpi_tpm2_table" -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.hardware_binding_probe_performed -eq $true -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.hardware_binding_probe_status -eq "tpm2_acpi_absent" -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.hardware_binding_probe_reason -eq "TPM2 ACPI table missing" -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.acpi_rsdp_present -eq $true -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.acpi_root_table_valid -eq $true -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.tpm2_acpi_table_present -eq $false -and
+    [int]$honesty.owner_key_provisioning.owner_key_evidence_input.tpm2_acpi_table_length -eq 0 -and
+    [int]$honesty.owner_key_provisioning.owner_key_evidence_input.tpm2_acpi_table_revision -eq 0 -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.hardware_binding_evidence_present -eq $false -and
-    $honesty.owner_key_provisioning.owner_key_evidence_input.tpm_binding_state -eq "missing" -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.tpm_binding_state -eq "tpm2_acpi_absent" -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.ram_boot_ephemeral_input_ready -eq $true -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.persistent_install_input_ready -eq $false -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.status -eq "ram_ephemeral_input_ready_persistent_hardware_binding_missing" -and

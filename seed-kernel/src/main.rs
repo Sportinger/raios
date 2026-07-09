@@ -268,6 +268,7 @@ fn early_main() -> ! {
     } else {
         serial::write_fmt(format_args!("iommu-vtd: {}\r\n", iommu_report.reason));
     }
+    owner_key::ensure_hardware_binding_probe();
     wifi::probe();
     status_ui.render(0, runtime_status);
 

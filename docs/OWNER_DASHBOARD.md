@@ -3,13 +3,13 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-09. **Owner-Key erzeugt jetzt den echten RAM-only
-Kandidaten:** Beim RAM-Boot erzeugt raiOS aus beobachteter Entropie einen
-`current_boot` Owner-Key-Kandidaten. Sichtbar sind nur Handle und `sha256:`
-Fingerprint; das Key-Material bleibt secret/non-exported. Persistent bleibt
-weiter zu: kein Hardware/TPM-Binding, kein Owner-Seal, kein Install-, Load-
-oder Durable-Grant. Beweis: `m12-distribution-provenance`
-`shadow-20260709-111511-30672.json` 246/246 gruen.
+Updated: 2026-07-09. **Owner-Key prueft jetzt echte Hardware-Evidence:**
+raiOS geht ueber Limine RSDP/ACPI, validiert die ACPI-Root und sucht nach der
+echten `TPM2` ACPI-Tabelle. Im fokussierten QEMU-Profil ist ACPI da, aber
+`TPM2` fehlt, also bleibt persistent/owner-sealed weiter blockiert. RAM-Key
+bleibt nur `current_boot`, secret/non-exported; kein Owner-Seal, kein Install-,
+Load- oder Durable-Grant. Beweis: `m12-distribution-provenance`
+`shadow-20260709-112454-27232.json` 246/246 gruen.
 
 Updated: 2026-07-09. **Owner-Key-Automatik ist jetzt ehrlich sichtbar:**
 `system.honesty_report.owner_key_provisioning` sagt jetzt explizit: Bei

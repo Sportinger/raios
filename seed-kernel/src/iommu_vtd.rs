@@ -115,6 +115,17 @@ pub struct IommuReport {
     pub reason: &'static str,
 }
 
+#[derive(Clone, Copy)]
+pub struct AcpiTableProbe {
+    pub probe_performed: bool,
+    pub rsdp_present: bool,
+    pub root_table_valid: bool,
+    pub table_present: bool,
+    pub table_length: u32,
+    pub table_revision: u8,
+    pub reason: &'static str,
+}
+
 #[cfg(not(test))]
 impl IommuReport {
     const fn absent(reason: &'static str) -> Self {
@@ -125,6 +136,20 @@ impl IommuReport {
             cap: 0,
             ecap: 0,
             remapping_enabled: false,
+            reason,
+        }
+    }
+}
+
+impl AcpiTableProbe {
+    pub const fn absent(reason: &'static str) -> Self {
+        Self {
+            probe_performed: true,
+            rsdp_present: false,
+            root_table_valid: false,
+            table_present: false,
+            table_length: 0,
+            table_revision: 0,
             reason,
         }
     }
@@ -218,6 +243,59 @@ pub fn probe() -> IommuReport {
 #[allow(dead_code)]
 pub fn report() -> IommuReport {
     *REPORT.lock()
+}
+
+#[cfg(not(test))]
+pub fn probe_acpi_table(signature: &[u8; 4], absent_reason: &'static str) -> AcpiTableProbe {
+    let Some(rsdp) = RSDP_REQUEST.get_response() else {
+        return AcpiTableProbe::absent("RSDP unavailable");
+    };
+    let root = match read_rsdp_root(rsdp.address() as u64) {
+        Ok(root) => root,
+        Err(reason) => {
+            return AcpiTableProbe {
+                rsdp_present: true,
+                reason,
+                ..AcpiTableProbe::absent(reason)
+            };
+        }
+    };
+    let root_table = match map_acpi_table(root.phys, root.signature) {
+        Ok(table) => table,
+        Err(reason) => {
+            return AcpiTableProbe {
+                rsdp_present: true,
+                reason,
+                ..AcpiTableProbe::absent(reason)
+            };
+        }
+    };
+    let table = match find_table_in_root(
+        root_table,
+        root.entry_bytes,
+        root.signature,
+        signature,
+        absent_reason,
+    ) {
+        Ok(table) => table,
+        Err(reason) => {
+            return AcpiTableProbe {
+                rsdp_present: true,
+                root_table_valid: true,
+                reason,
+                ..AcpiTableProbe::absent(reason)
+            };
+        }
+    };
+    AcpiTableProbe {
+        probe_performed: true,
+        rsdp_present: true,
+        root_table_valid: true,
+        table_present: true,
+        table_length: read_le_u32(table, 4).unwrap_or(0),
+        table_revision: read_u8(table, 8).unwrap_or(0),
+        reason: "ACPI table present",
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -806,10 +884,24 @@ fn probe_inner() -> IommuReport {
 
 #[cfg(not(test))]
 fn find_dmar_table() -> Result<&'static [u8], &'static str> {
-    let rsdp = RSDP_REQUEST.get_response().ok_or(NO_DMAR_REASON)?;
+    find_acpi_table(DMAR_SIGNATURE, NO_DMAR_REASON)
+}
+
+#[cfg(not(test))]
+fn find_acpi_table(
+    target_signature: &[u8],
+    absent_reason: &'static str,
+) -> Result<&'static [u8], &'static str> {
+    let rsdp = RSDP_REQUEST.get_response().ok_or(absent_reason)?;
     let root = read_rsdp_root(rsdp.address() as u64)?;
     let root_table = map_acpi_table(root.phys, root.signature)?;
-    find_table_in_root(root_table, root.entry_bytes, root.signature)
+    find_table_in_root(
+        root_table,
+        root.entry_bytes,
+        root.signature,
+        target_signature,
+        absent_reason,
+    )
 }
 
 #[cfg(not(test))]
@@ -867,6 +959,8 @@ fn find_table_in_root(
     root: &'static [u8],
     entry_bytes: usize,
     root_signature: &[u8],
+    target_signature: &[u8],
+    absent_reason: &'static str,
 ) -> Result<&'static [u8], &'static str> {
     if !bytes_eq(root, 0, root_signature) {
         return Err("ACPI root table signature invalid");
@@ -886,13 +980,13 @@ fn find_table_in_root(
         } else {
             read_le_u32(root, offset).ok_or("ACPI RSDT entry truncated")? as u64
         };
-        if table_phys != 0 && acpi_table_signature(table_phys)? == DMAR_SIGNATURE {
-            return map_acpi_table(table_phys, DMAR_SIGNATURE);
+        if table_phys != 0 && acpi_table_signature(table_phys)? == target_signature {
+            return map_acpi_table(table_phys, target_signature);
         }
         offset += entry_bytes;
     }
 
-    Err(NO_DMAR_REASON)
+    Err(absent_reason)
 }
 
 #[cfg(not(test))]

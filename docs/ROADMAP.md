@@ -196,7 +196,15 @@ a non-secret handle/fingerprint, classifies key material as secret/non-exported,
 and keeps owner-seal/install/load/durable authority denied
 (`m12-distribution-provenance` 246/246). Next owner-key slice: add the first
 real hardware/TPM-binding evidence probe for persistent owner-key provisioning;
-no persistent owner seal until hardware-bound sealing evidence exists. (3)
+no persistent owner seal until hardware-bound sealing evidence exists.
+**Owner-key hardware evidence probe slice DONE:** the honesty report now proves
+the real Limine RSDP/ACPI path was used to validate the ACPI root and search
+for a `TPM2` ACPI table; the focused QEMU profile reports ACPI present/root
+valid but `tpm2_acpi_absent`, so persistent owner-key input stays denied
+(`m12-distribution-provenance` 246/246). Next owner-key slice: when the TPM2
+table is present on the real Surface path, parse its interface details and add
+a read-only TPM2 interface/status probe; no persistent owner seal until a real
+seal/unseal evidence loop exists. (3)
 provide real
 trust inputs (a cryptographically
 trusted time source, real CA roots, a live second provider) → I finish M10 real

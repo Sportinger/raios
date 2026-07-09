@@ -332,8 +332,44 @@ fn owner_key_evidence_input_record(
             "hardware_binding_source",
             s(OWNER_KEY_HARDWARE_BINDING_SOURCE),
         ),
+        f(
+            "hardware_binding_probe_source",
+            s(owner_key::HARDWARE_BINDING_PROBE_SOURCE),
+        ),
+        f(
+            "hardware_binding_probe_performed",
+            b(snapshot.hardware_binding.probe_performed),
+        ),
+        f(
+            "hardware_binding_probe_status",
+            s(snapshot.hardware_binding.status),
+        ),
+        f(
+            "hardware_binding_probe_reason",
+            s(snapshot.hardware_binding.reason),
+        ),
+        f(
+            "acpi_rsdp_present",
+            b(snapshot.hardware_binding.acpi_rsdp_present),
+        ),
+        f(
+            "acpi_root_table_valid",
+            b(snapshot.hardware_binding.acpi_root_table_valid),
+        ),
+        f(
+            "tpm2_acpi_table_present",
+            b(snapshot.hardware_binding.tpm2_acpi_table_present),
+        ),
+        f(
+            "tpm2_acpi_table_length",
+            V::U64(snapshot.hardware_binding.tpm2_acpi_table_length as u64),
+        ),
+        f(
+            "tpm2_acpi_table_revision",
+            V::U64(snapshot.hardware_binding.tpm2_acpi_table_revision as u64),
+        ),
         f("hardware_binding_evidence_present", b(false)),
-        f("tpm_binding_state", s("missing")),
+        f("tpm_binding_state", s(snapshot.hardware_binding.status)),
         f("ram_boot_ephemeral_input_ready", b(stats.ready)),
         f("persistent_install_input_ready", b(false)),
         f("status", s(owner_key_evidence_input_status(stats))),
@@ -370,6 +406,26 @@ fn owner_key_provisioning_record(
         f("ram_boot_policy", s(OWNER_KEY_RAM_BOOT_POLICY)),
         f("persistent_install_hardware_binding_required", b(true)),
         f("entropy_evidence_present", b(stats.ready)),
+        f(
+            "hardware_binding_probe_source",
+            s(owner_key::HARDWARE_BINDING_PROBE_SOURCE),
+        ),
+        f(
+            "hardware_binding_probe_performed",
+            b(snapshot.hardware_binding.probe_performed),
+        ),
+        f(
+            "hardware_binding_probe_status",
+            s(snapshot.hardware_binding.status),
+        ),
+        f(
+            "hardware_binding_probe_reason",
+            s(snapshot.hardware_binding.reason),
+        ),
+        f(
+            "tpm2_acpi_table_present",
+            b(snapshot.hardware_binding.tpm2_acpi_table_present),
+        ),
         f("hardware_binding_evidence_present", b(false)),
         f("ram_boot_ephemeral_input_ready", b(stats.ready)),
         f("persistent_install_input_ready", b(false)),
