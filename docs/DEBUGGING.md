@@ -1041,7 +1041,11 @@ source-evidence cases. The denied
 audit/event binding reuse the same ten base source facts and add the
 receiver-identity load preflight as an eleventh non-authorizing source fact, so
 load-denial evidence can distinguish receiver/candidate-bound from missing
-M6/M7/provider/owner gates. The loader-runtime aggregate
+M6/M7/provider/owner gates. It also reports
+`m6_m7_reverify_input_check`, which must show the receiver-preflight source
+fact ready while `m6_reverification_input_present`,
+`m7_loader_policy_input_present`, `can_enter_m6_reverify`,
+`can_enter_m7_loader_policy`, and `authorizes_load` remain false. The loader-runtime aggregate
 also records the live-load sequence as read-only current-boot source evidence:
 `raios.module_loader_load_attempt_boundary.v0`,
 `raios.module_loader_artifact_load_boundary.v0`,

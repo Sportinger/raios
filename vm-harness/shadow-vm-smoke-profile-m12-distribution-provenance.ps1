@@ -932,6 +932,7 @@ $loadRuntimeReadiness = $load.body.loader_runtime_readiness
 $loadPreflightSourceFacts = @($loadRuntimeReadiness.source_fact_map | Where-Object { $_.fact -eq "receiver_identity_load_preflight" })
 $loadPreflightSourceFact = if ($loadPreflightSourceFacts.Count -eq 1) { $loadPreflightSourceFacts[0] } else { $null }
 $loadPreflightRuntimeFact = $loadRuntimeReadiness.loader_runtime_facts.receiver_identity_load_preflight
+$loadM6M7ReverifyInputCheck = $loadRuntimeReadiness.m6_m7_reverify_input_check
 $loadAfter = (Get-SerialLogContent -Path $SerialLog).Substring([int]$loadOffset)
 $loadDeniedOk = (
     $load.t -eq "error" -and
@@ -961,6 +962,27 @@ $loadDeniedOk = (
     $loadPreflightRuntimeFact.preflight_evaluated -eq $true -and
     $loadPreflightRuntimeFact.can_load_now -eq $false -and
     $loadPreflightRuntimeFact.authorizes_load -eq $false -and
+    $loadM6M7ReverifyInputCheck.source_fact -eq "receiver_identity_load_preflight" -and
+    $loadM6M7ReverifyInputCheck.source_fact_locator -eq "module.load_ephemeral.receiver_identity_load_preflight" -and
+    $loadM6M7ReverifyInputCheck.source_fact_present -eq $true -and
+    $loadM6M7ReverifyInputCheck.source_fact_ready_for_reverify -eq $true -and
+    $loadM6M7ReverifyInputCheck.source_fact_status -eq "denied" -and
+    $loadM6M7ReverifyInputCheck.source_fact_reason -eq "distribution_receiver_identity_load_preflight_missing_required_gates" -and
+    $loadM6M7ReverifyInputCheck.status -eq "denied_missing_m6_m7_reverify_inputs" -and
+    $loadM6M7ReverifyInputCheck.reason -eq "m6_m7_reverify_inputs_missing" -and
+    $loadM6M7ReverifyInputCheck.receiver_identity_complete -eq $true -and
+    $loadM6M7ReverifyInputCheck.retained_candidate_matches_catalog_finalize -eq $true -and
+    $loadM6M7ReverifyInputCheck.preflight_evaluated -eq $true -and
+    $loadM6M7ReverifyInputCheck.m6_reverification_input_present -eq $false -and
+    $loadM6M7ReverifyInputCheck.m6_reverification_input_reason -eq "m6_reverification_evidence_missing" -and
+    $loadM6M7ReverifyInputCheck.m7_loader_policy_input_present -eq $false -and
+    $loadM6M7ReverifyInputCheck.m7_loader_policy_input_reason -eq "m7_loader_policy_evidence_missing" -and
+    $loadM6M7ReverifyInputCheck.m6_reverification_gate_satisfied -eq $false -and
+    $loadM6M7ReverifyInputCheck.m7_loader_policy_gate_satisfied -eq $false -and
+    $loadM6M7ReverifyInputCheck.can_enter_m6_reverify -eq $false -and
+    $loadM6M7ReverifyInputCheck.can_enter_m7_loader_policy -eq $false -and
+    $loadM6M7ReverifyInputCheck.can_load_now -eq $false -and
+    $loadM6M7ReverifyInputCheck.authorizes_load -eq $false -and
     $loadPreflightProjection.present -eq $true -and
     $loadPreflightProjection.status -eq "denied" -and
     $loadPreflightProjection.reason -eq "distribution_receiver_identity_load_preflight_missing_required_gates" -and

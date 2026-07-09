@@ -153,9 +153,14 @@ receiver/candidate facts while load/install/execute/persist stay false
 an eleventh non-authorizing source fact in the denied load-gate
 loader-runtime readiness map, so the real load denial can distinguish
 receiver/candidate bound from the still-missing M6/M7/provider/owner gates
-(`m12-distribution-provenance` 246/246). Next M12+ slice: thread that
-receiver-preflight source fact into the first explicit M6/M7 reverify input
-check, still read-only and grants-nothing. (3) provide real
+(`m12-distribution-provenance` 246/246). **Slice 16 DONE:** the denied
+load-gate loader-runtime readiness now reports
+`m6_m7_reverify_input_check`: receiver preflight is ready, but M6
+reverification evidence and M7 loader-policy evidence are explicitly missing,
+and all enter/load authority flags remain false
+(`m12-distribution-provenance` 246/246). Next M12+ slice: add the first
+concrete M6 reverify input diagnostic that consumes this check, still
+read-only and non-authorizing. (3) provide real
 trust inputs (a cryptographically
 trusted time source, real CA roots, a live second provider) → I finish M10 real
 validation — STILL YOURS. (4) the owner-key sealing ceremony → the FINAL step —

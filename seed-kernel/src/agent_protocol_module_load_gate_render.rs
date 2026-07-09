@@ -2907,6 +2907,8 @@ fn emit_module_load_gate_loader_runtime_readiness(binding: event_log::ModuleLoad
     raw("      \"service_slot_allocator_ready\": ");
     raw_bool(module_load_gate_service_slot_allocator_ready(binding));
     raw_line(",");
+    emit_module_load_gate_m6_m7_reverify_input_check("      ");
+    raw_line(",");
     emit_module_load_gate_loader_runtime_execution_commit_gate("      ");
     raw_line(",");
     emit_module_load_gate_loader_descriptor_intake_boundary("      ");
@@ -4672,6 +4674,13 @@ const MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_LOCATOR: &str =
     "module.load_ephemeral.receiver_identity_load_preflight";
 const MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_MISSING_REASON: &str =
     "distribution_receiver_identity_load_preflight_missing";
+const MODULE_LOAD_GATE_M6_M7_REVERIFY_INPUT_CHECK_ID: &str =
+    "module.load_ephemeral.m6_m7_reverify_input_check.current_boot";
+const MODULE_LOAD_GATE_M6_M7_REVERIFY_INPUTS_MISSING_STATUS: &str =
+    "denied_missing_m6_m7_reverify_inputs";
+const MODULE_LOAD_GATE_M6_M7_REVERIFY_INPUTS_MISSING_REASON: &str = "m6_m7_reverify_inputs_missing";
+const MODULE_LOAD_GATE_M6_M7_RECEIVER_PREFLIGHT_NOT_READY_STATUS: &str =
+    "denied_receiver_preflight_source_fact_not_ready";
 
 fn module_load_gate_loader_runtime_source_fact_count() -> usize {
     MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT + 1
@@ -4705,6 +4714,123 @@ fn module_load_gate_receiver_identity_load_preflight_reason(
     } else {
         MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_MISSING_REASON
     }
+}
+
+fn module_load_gate_receiver_identity_load_preflight_source_fact_ready(
+    projection: agent_protocol::DistributionReceiverIdentityLoadPreflightProjection,
+) -> bool {
+    projection.present
+        && projection.receiver_identity_complete
+        && projection.retained_candidate_matches_catalog_finalize
+        && projection.preflight_evaluated
+        && projection.accepted
+        && !projection.rejected
+}
+
+fn module_load_gate_m6_m7_reverify_input_check_status(
+    projection: agent_protocol::DistributionReceiverIdentityLoadPreflightProjection,
+) -> &'static str {
+    if module_load_gate_receiver_identity_load_preflight_source_fact_ready(projection) {
+        MODULE_LOAD_GATE_M6_M7_REVERIFY_INPUTS_MISSING_STATUS
+    } else {
+        MODULE_LOAD_GATE_M6_M7_RECEIVER_PREFLIGHT_NOT_READY_STATUS
+    }
+}
+
+fn module_load_gate_m6_m7_reverify_input_check_reason(
+    projection: agent_protocol::DistributionReceiverIdentityLoadPreflightProjection,
+) -> &'static str {
+    if module_load_gate_receiver_identity_load_preflight_source_fact_ready(projection) {
+        MODULE_LOAD_GATE_M6_M7_REVERIFY_INPUTS_MISSING_REASON
+    } else {
+        module_load_gate_receiver_identity_load_preflight_reason(projection)
+    }
+}
+
+fn module_load_gate_m6_m7_reverify_input_check_fields(
+    projection: agent_protocol::DistributionReceiverIdentityLoadPreflightProjection,
+) -> Vec<Field<'static>> {
+    let receiver_preflight_ready =
+        module_load_gate_receiver_identity_load_preflight_source_fact_ready(projection);
+    vec![
+        f("id", s(MODULE_LOAD_GATE_M6_M7_REVERIFY_INPUT_CHECK_ID)),
+        f("scope", s("current_boot")),
+        f("classification", s("local_only")),
+        f(
+            "source_fact",
+            s(MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_FACT),
+        ),
+        f(
+            "source_fact_locator",
+            s(MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_LOCATOR),
+        ),
+        f("source_fact_present", b(projection.present)),
+        f(
+            "source_fact_ready_for_reverify",
+            b(receiver_preflight_ready),
+        ),
+        f(
+            "source_fact_status",
+            s(module_load_gate_receiver_identity_load_preflight_status(
+                projection,
+            )),
+        ),
+        f(
+            "source_fact_reason",
+            s(module_load_gate_receiver_identity_load_preflight_reason(
+                projection,
+            )),
+        ),
+        f(
+            "status",
+            s(module_load_gate_m6_m7_reverify_input_check_status(
+                projection,
+            )),
+        ),
+        f(
+            "reason",
+            s(module_load_gate_m6_m7_reverify_input_check_reason(
+                projection,
+            )),
+        ),
+        f(
+            "receiver_identity_complete",
+            b(projection.receiver_identity_complete),
+        ),
+        f(
+            "retained_candidate_matches_catalog_finalize",
+            b(projection.retained_candidate_matches_catalog_finalize),
+        ),
+        f("preflight_evaluated", b(projection.preflight_evaluated)),
+        f("m6_reverification_input_present", no()),
+        f(
+            "m6_reverification_input_reason",
+            s("m6_reverification_evidence_missing"),
+        ),
+        f("m7_loader_policy_input_present", no()),
+        f(
+            "m7_loader_policy_input_reason",
+            s("m7_loader_policy_evidence_missing"),
+        ),
+        f("m6_reverification_gate_satisfied", no()),
+        f("m7_loader_policy_gate_satisfied", no()),
+        f("can_enter_m6_reverify", no()),
+        f("can_enter_m7_loader_policy", no()),
+        f("can_load_now", no()),
+        f("authorizes_load", no()),
+        f("load_attempted", no()),
+    ]
+}
+
+fn emit_module_load_gate_m6_m7_reverify_input_check(indent: &'static str) {
+    emit_record_property_line_at(
+        "m6_m7_reverify_input_check",
+        module_load_gate_m6_m7_reverify_input_check_fields(
+            agent_protocol::receiver_identity_load_preflight_projection(),
+        ),
+        indent.len(),
+        false,
+    );
 }
 
 fn module_load_gate_receiver_identity_load_preflight_fields(
@@ -5642,6 +5768,13 @@ fn emit_module_load_gate_loader_runtime_readiness_compact(
     json_str(module_load_gate_retained_module_evidence_reason(binding));
     raw(", \"service_slot_allocator_ready\": ");
     raw_bool(module_load_gate_service_slot_allocator_ready(binding));
+    raw(", \"m6_m7_reverify_input_check\": ");
+    emit_inline_record_object_fragment(
+        module_load_gate_m6_m7_reverify_input_check_fields(
+            agent_protocol::receiver_identity_load_preflight_projection(),
+        ),
+        0,
+    );
     raw(", \"execution_commit_gate\": ");
     emit_module_load_gate_loader_runtime_execution_commit_gate_compact();
     raw(", \"descriptor_intake_boundary\": ");

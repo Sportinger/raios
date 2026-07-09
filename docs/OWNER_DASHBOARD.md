@@ -3,14 +3,14 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-09. **Der gebundene Empfaenger-Preflight ist jetzt eine echte
-Loader-Quelle:** Im realen `raios.module_load_gate.v0` Load-Denial steht der
-kataloggebundene Empfaenger-Preflight nun als eigener, elfter
-Loader-Runtime-Source-Fact. Ein Agent kann sehen: Kandidat passt zum lokalen
-Katalog, Empfaenger-Signaturen sind im Gast komplett geprueft, aber M6/M7,
-Provider-Vertrauen und Owner-Seal fehlen. Ergebnis bleibt absichtlich: NICHT
-laden, NICHT installieren, NICHT ausfuehren, NICHT speichern, kein Netz. Beweis:
-`m12-distribution-provenance` `shadow-20260709-100905-17032.json` 246/246 gruen.
+Updated: 2026-07-09. **raiOS nennt jetzt die naechsten fehlenden Lade-Inputs:**
+Im realen `raios.module_load_gate.v0` Load-Denial sieht ein Agent nicht nur den
+gebundenen Empfaenger-Preflight, sondern auch den neuen
+`m6_m7_reverify_input_check`: Empfaenger/Kandidat sind bereit fuer Reverify,
+aber M6-Reverify-Evidenz und M7-Loader-Policy-Evidenz fehlen noch. Ergebnis
+bleibt absichtlich: NICHT laden, NICHT installieren, NICHT ausfuehren, NICHT
+speichern, kein Netz. Beweis: `m12-distribution-provenance`
+`shadow-20260709-101810-22548.json` 246/246 gruen.
 
 Updated: 2026-07-09. **M12+ Verteilung nimmt jetzt die Empfaenger-Identitaet
 mit:** Der lokale Registry-Export packt nicht mehr nur Bytes + Chunks ein,
