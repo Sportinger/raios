@@ -95,6 +95,7 @@ pub fn disable_bus_master(address: PciAddress) {
         return;
     }
     command &= !0x4;
+    command |= 1 << 10; // interrupt disable
     address.write_u16(0x04, command);
 }
 

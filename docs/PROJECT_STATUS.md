@@ -27,7 +27,7 @@ profiles, protocol probes, and failure modes.
 Current exact next task (bare-metal diagnostics): boot the Surface from the
 refreshed Disk 2 stick with the same hub/mouse/stick setup, confirm `MSC LOG`,
 click `Start WiFi FW`, and check that the download reaches
-`DRV_READY written; WiFi PCI function quiesced` while the hub mouse
+`DRV_READY written after DMA/INTx pre-quarantine` while the hub mouse
 keeps moving. If the mouse still stops, even a brief `DRV_READY` transition is
 enough to disturb Surface input and the next fix should keep the chip pre-ready
 until a real IOMMU/interrupt confinement window exists; if the mouse survives,
@@ -36,6 +36,27 @@ window for one mailbox/HW_SPEC probe. The Surface WiFi RX-PFU path remains
 parked because arming it made real Surface MMIO read back all-ones
 (`HOST_INT=0xffffffff`, write pointers `0xffffffff`) and froze input; do not
 re-enable RX-PFU while using stick logging to gather evidence.
+
+WiFi DRV_READY pre-quarantine diagnostic slice done (2026-07-09) - after
+the owner reported "no" for the post-`DRV_READY` PCI-quiesce test, raiOS now
+masks/clears Marvell host-interrupt bits, disables WiFi bus mastering and INTx,
+then writes `DRV_READY`, captures one BAR2 register snapshot, and finally
+quiesces the whole WiFi PCI function. This tests whether a pre-disabled DMA/INTx
+surface can make the `DRV_READY` transition harmless enough for Surface hub
+input. Firmware-ready, HW_SPEC, scan, link, and RX-PFU authority remain denied.
+Verified: scoped `rustfmt --edition 2021 --check
+seed-kernel\src\marvell_wifi_pcie.rs seed-kernel\src\pci.rs
+seed-kernel\src\ui.rs`; `git diff --check` for touched source/docs; release
+packaging with local Cargo env override; quick Shadow VM report
+`release/vm-reports/shadow-20260709-210923-18096.json` passed 542/542
+predicates, 79 executed commands, `duration_ms: 176513`, report sha256
+`39e03c5ba73d339f6eaa109f4824e64dcc42970553ab25b821561e2b3e897199`, and
+`base_image.sha256: 8a5ebd8b99c1b0a95b60c2aedbbecec627f17e28c3d5f9d5ce95b24e29fb5341`.
+Owner handoff: Disk 2 `SEED_ESP_A` was refreshed without reformatting via
+`scripts\update-usb-esp-a.ps1 -DiskNumber 2 -SkipBuild`; log
+`C:\Users\admin\AppData\Local\Temp\raios-usb-esp-a-update-disk2-20260709-211342.log`
+reported kernel sha256
+`F5CBFFFC57E4C37E9F308F7ECC4B7B90438C48909CFE7CE3976BFBE57A3C4D48`.
 
 WiFi DRV_READY PCI-quiesce diagnostic slice done (2026-07-09) - after
 RECLOG again showed a healthy hub port and xHCI endpoint during mouse report

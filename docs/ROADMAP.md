@@ -94,12 +94,12 @@ mouse freeze occurred after movement. The current image stops periodic hub
 child-port EP0 control polling after the hub mouse has produced reports, and
 also parks WiFi post-ready event-ring/HW_SPEC auto-probes after the owner proved
 the next mouse loss happens when `Start WiFi FW` completes. The current image
-now writes `DRV_READY`, then immediately masks/clears Marvell host interrupts
-and quiesces the WiFi PCI function, so it honestly ends at
+now masks/clears Marvell host interrupts, disables WiFi DMA/INTx, writes
+`DRV_READY`, then quiesces the WiFi PCI function, so it honestly ends at
 `drv_ready_quarantined` rather than claiming firmware-ready. Next owner
 evidence: boot the refreshed stick, start WiFi firmware, confirm
-`DRV_READY written; WiFi PCI function quiesced`, and see whether the hub mouse
-survives the quiesced ready transition.
+`DRV_READY written after DMA/INTx pre-quarantine`, and see whether the hub
+mouse survives the pre-quarantined ready transition.
 
 **M12+ opener + honesty capstone (committed, grants nothing):** M12-1 external-
 acquisition HONESTY evaluator (download = candidate intake NEVER install; a
