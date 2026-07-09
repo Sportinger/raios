@@ -3,6 +3,15 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
+Updated: 2026-07-09. **M12+ Verteilung nimmt jetzt die Empfaenger-Identitaet
+mit:** Der lokale Registry-Export packt nicht mehr nur Bytes + Chunks ein,
+sondern auch die echten raiOS Descriptoren, Public Keys und Signaturen, die der
+Empfaenger spaeter fuer die volle Lade-Pruefung braucht. Der Host prueft diese
+Signaturen und Hash-Bindings schon beim Export; raiOS bekommt weiter nur den
+bisherigen Katalog/Chunk-Pfad und haelt das Programm tot. Weiterhin NICHT laden,
+installieren, ausfuehren, speichern oder aus dem Netz holen. Beweis:
+`m12-distribution-provenance` `shadow-20260709-083354-7272.json` 229/229 gruen.
+
 Updated: 2026-07-09. **M12+ Verteilung hat jetzt eine echte Host-Quelle,
 nicht nur manuell gebaute Test-Kommandos:** Ein signiertes Programm wird auf
 dem Host in die lokale content-addressed Registry gelegt, daraus als statische

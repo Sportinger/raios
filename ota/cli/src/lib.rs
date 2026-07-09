@@ -10,7 +10,8 @@ use ed25519_dalek::{
 };
 use hex::{decode, encode};
 use p256::ecdsa::{
-    signature::Signer as P256Signer, Signature as P256Signature, SigningKey as P256SigningKey,
+    signature::{Signer as P256Signer, Verifier as P256Verifier},
+    Signature as P256Signature, SigningKey as P256SigningKey, VerifyingKey as P256VerifyingKey,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -20,6 +21,10 @@ pub const ALGORITHM: &str = "ed25519";
 /// The known DEV distribution publisher scalar = 2. Public because the DEV key is public.
 pub const DEV_DISTRIBUTION_PUBLISHER_PRIVATE_SCALAR: [u8; 32] = [
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2,
+];
+/// The known DEV Wasm descriptor scalar = 1. Public because the DEV key is public.
+pub const DEV_WASM_DESCRIPTOR_PRIVATE_SCALAR: [u8; 32] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
 ];
 /// MUST byte-match `raios_core::distribution_provenance::DISTRIBUTION_PROVENANCE_DOMAIN_TAG`.
 pub const DISTRIBUTION_PROVENANCE_DOMAIN_TAG: &[u8] = b"raios.distribution_provenance.v0";
@@ -235,6 +240,31 @@ pub fn public_key_to_hex(public: &PublicKey) -> String {
     encode(public.as_bytes())
 }
 
+pub fn decode_hex_bytes(hex_str: &str) -> Result<Vec<u8>> {
+    Ok(decode(hex_str.trim())?)
+}
+
+pub fn verify_p256_der_signature(
+    public_key_sec1: &[u8],
+    signature_der: &[u8],
+    payload: &[u8],
+) -> Result<()> {
+    let verifying_key = P256VerifyingKey::from_sec1_bytes(public_key_sec1)?;
+    let signature = P256Signature::from_der(signature_der)?;
+    verifying_key.verify(payload, &signature)?;
+    Ok(())
+}
+
+pub fn sign_wasm_descriptor_dev_hex(payload: &[u8]) -> Result<(String, String)> {
+    let signing_key = P256SigningKey::from_slice(&DEV_WASM_DESCRIPTOR_PRIVATE_SCALAR)?;
+    let signature: P256Signature = signing_key.sign(payload);
+    let public_key = P256VerifyingKey::from(&signing_key);
+    Ok((
+        encode(signature.to_der().as_bytes()),
+        encode(public_key.to_encoded_point(false).as_bytes()),
+    ))
+}
+
 pub fn sign_distribution_provenance_hex(artifact_sha256: &[u8; 32]) -> String {
     let signing_key = P256SigningKey::from_slice(&DEV_DISTRIBUTION_PUBLISHER_PRIVATE_SCALAR)
         .expect("dev scalar 2 is a valid key");
@@ -392,8 +422,9 @@ fn copy_and_hash(reader: &mut File, hasher: &mut blake3::Hasher) -> Result<u64> 
 #[cfg(test)]
 mod tests {
     use super::{
-        sign_distribution_provenance_hex, DEV_DISTRIBUTION_PUBLISHER_PRIVATE_SCALAR,
-        DISTRIBUTION_PROVENANCE_DOMAIN_TAG,
+        decode_hex_bytes, sign_distribution_provenance_hex, sign_wasm_descriptor_dev_hex,
+        verify_p256_der_signature, DEV_DISTRIBUTION_PUBLISHER_PRIVATE_SCALAR,
+        DEV_WASM_DESCRIPTOR_PRIVATE_SCALAR, DISTRIBUTION_PROVENANCE_DOMAIN_TAG,
     };
     use raios_core::distribution_provenance::verify_distribution_provenance_signature;
     use raios_core::promotion_attestation::verify_promotion_authority_signature;
@@ -429,6 +460,21 @@ mod tests {
     fn dev_distribution_publisher_scalar_is_two() {
         assert_eq!(DEV_DISTRIBUTION_PUBLISHER_PRIVATE_SCALAR[31], 2);
         assert!(DEV_DISTRIBUTION_PUBLISHER_PRIVATE_SCALAR[..31]
+            .iter()
+            .all(|b| *b == 0));
+    }
+
+    #[test]
+    fn wasm_descriptor_dev_signature_roundtrip() {
+        let payload = b"descriptor bytes";
+        let (sig_hex, public_hex) = sign_wasm_descriptor_dev_hex(payload).expect("dev sign");
+        let sig = decode_hex_bytes(&sig_hex).expect("signature hex");
+        let public = decode_hex_bytes(&public_hex).expect("public key hex");
+
+        verify_p256_der_signature(&public, &sig, payload).expect("signature verifies");
+        assert!(verify_p256_der_signature(&public, &sig, b"other descriptor").is_err());
+        assert_eq!(DEV_WASM_DESCRIPTOR_PRIVATE_SCALAR[31], 1);
+        assert!(DEV_WASM_DESCRIPTOR_PRIVATE_SCALAR[..31]
             .iter()
             .all(|b| *b == 0));
     }

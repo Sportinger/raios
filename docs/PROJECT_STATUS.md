@@ -24,6 +24,30 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+M12+ Slice 9 done (2026-07-09) - receiver identity evidence in the local
+distribution export. A user/agent can now export a local CAS registry artifact
+together with the receiver-required raiOS Wasm artifact-identity descriptor,
+current-boot load descriptor, P-256 public keys, and DER signatures; the host
+export verifies both descriptor signatures, checks that the descriptors bind
+the exact exported artifact SHA-256 and each other, carries the raw descriptor
+evidence in the export packet, and still emits only the existing serial
+catalog/chunk commands. This grants no acquisition/install/load/execute/persist/
+network/durable-write authority; the receiver identity is evidence for later
+M6/M7 re-verification, not a load decision. Verified: PowerShell profile parse;
+scoped `cargo fmt --package ota-tools --package registry-core --package
+registry-tools -- --check`; `cargo test --locked -p ota-tools -p
+registry-core -p registry-tools` (5 ota-tools lib tests, 4 promotion-signer
+tests, 1 sign/verify integration test, 21 registry-core tests); focused VM
+`m12-distribution-provenance` report
+`release/vm-reports/shadow-20260709-083354-7272.json` 229/229 predicates,
+42 executed commands, `duration_ms: 110097`, report sha256
+`a81ead75f5c7b1af152e640c40282f8151665e86e8f9b3b0f5fae493178161d4`;
+`scripts\scan-secrets.ps1` found no OpenAI-key-like values. Global
+`cargo fmt --all -- --check` remains red only on the pre-existing unrelated
+format drift in `raios-core/src/marvell_wifi_fw.rs` and `seed-kernel/src/usb.rs`.
+Full+recovery remain deferred to the M12+ block close per the aggressive-fast
+cadence.
+
 M12+ Slice 8 done (2026-07-09) - host static/CAS distribution export. A
 user/agent can now take a dev-signed artifact already published into the local
 content-addressed registry, export that real CAS entry as bounded serial

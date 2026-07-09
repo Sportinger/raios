@@ -3,7 +3,10 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
-use ota_tools::{load_public_key_hex, sign_distribution_provenance_hex, SignedBlob};
+use ota_tools::{
+    decode_hex_bytes, load_public_key_hex, sign_distribution_provenance_hex,
+    verify_p256_der_signature, SignedBlob,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -109,6 +112,17 @@ pub struct DistributionExportRequest<'a> {
     pub name: &'a str,
     pub tag: &'a str,
     pub chunk_count: usize,
+    pub receiver_identity: Option<DistributionReceiverIdentityPaths>,
+}
+
+#[derive(Clone, Debug)]
+pub struct DistributionReceiverIdentityPaths {
+    pub artifact_identity_descriptor: PathBuf,
+    pub artifact_identity_public_key: PathBuf,
+    pub artifact_identity_signature: PathBuf,
+    pub load_descriptor: PathBuf,
+    pub load_descriptor_public_key: PathBuf,
+    pub load_descriptor_signature: PathBuf,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -123,6 +137,8 @@ pub struct DistributionSerialExport {
     pub payload_len: u64,
     pub chunk_count: usize,
     pub provenance_signature_hex: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receiver_identity: Option<DistributionReceiverIdentityEvidence>,
     pub commands: Vec<String>,
     pub chunks: Vec<DistributionSerialExportChunk>,
 }
@@ -133,6 +149,39 @@ pub struct DistributionSerialExportChunk {
     pub sha256: String,
     pub byte_len: usize,
     pub base64: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DistributionReceiverIdentityEvidence {
+    pub classification: String,
+    pub service_id: String,
+    pub artifact_id: String,
+    pub artifact_identity_id: String,
+    pub load_descriptor_id: String,
+    pub artifact_sha256: String,
+    pub artifact_identity_descriptor_sha256: String,
+    pub artifact_identity_public_key_sha256: String,
+    pub artifact_identity_signature_sha256: String,
+    pub artifact_identity_signature_verified: bool,
+    pub artifact_identity_descriptor_text: String,
+    pub artifact_identity_public_key_hex: String,
+    pub artifact_identity_signature_der_hex: String,
+    pub load_descriptor_sha256: String,
+    pub load_descriptor_public_key_sha256: String,
+    pub load_descriptor_signature_sha256: String,
+    pub load_descriptor_signature_verified: bool,
+    pub load_descriptor_text: String,
+    pub load_descriptor_public_key_hex: String,
+    pub load_descriptor_signature_der_hex: String,
+    pub artifact_hash_bound_by_identity: bool,
+    pub artifact_hash_bound_by_load_descriptor: bool,
+    pub load_descriptor_binds_artifact_identity: bool,
+    pub load_descriptor_authorizes_current_boot_wasm_execution: bool,
+    pub export_authorizes_load: bool,
+    pub export_authorizes_install: bool,
+    pub export_authorizes_execute: bool,
+    pub export_writes_persistent_state: bool,
+    pub requires_m6_m7_reverify_for_load: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -442,6 +491,10 @@ impl Registry {
         let artifact_sha256_bytes = sha256_bytes(&bytes);
         let artifact_sha256 = hex_lower(&artifact_sha256_bytes);
         let provenance_signature_hex = sign_distribution_provenance_hex(&artifact_sha256_bytes);
+        let receiver_identity = match request.receiver_identity {
+            Some(paths) => Some(build_receiver_identity_evidence(paths, &artifact_sha256)?),
+            None => None,
+        };
         let chunks = split_distribution_chunks(&bytes, request.chunk_count);
         let mut commands = Vec::with_capacity(chunks.len() + 3);
         commands.push(format!(
@@ -474,6 +527,7 @@ impl Registry {
             payload_len: bytes.len() as u64,
             chunk_count: chunks.len(),
             provenance_signature_hex,
+            receiver_identity,
             commands,
             chunks,
         })
@@ -520,6 +574,194 @@ fn read_sha256_sidecar(path: &PathBuf) -> Result<String> {
     Ok(hash.to_ascii_lowercase())
 }
 
+fn build_receiver_identity_evidence(
+    paths: DistributionReceiverIdentityPaths,
+    artifact_sha256: &str,
+) -> Result<DistributionReceiverIdentityEvidence> {
+    let artifact_identity_descriptor_text = fs::read_to_string(&paths.artifact_identity_descriptor)
+        .with_context(|| {
+            format!(
+                "reading artifact identity descriptor {}",
+                paths.artifact_identity_descriptor.display()
+            )
+        })?;
+    let artifact_identity_public_key_hex = fs::read_to_string(&paths.artifact_identity_public_key)
+        .with_context(|| {
+            format!(
+                "reading artifact identity public key {}",
+                paths.artifact_identity_public_key.display()
+            )
+        })?;
+    let artifact_identity_signature_der_hex =
+        fs::read_to_string(&paths.artifact_identity_signature).with_context(|| {
+            format!(
+                "reading artifact identity signature {}",
+                paths.artifact_identity_signature.display()
+            )
+        })?;
+    let load_descriptor_text = fs::read_to_string(&paths.load_descriptor).with_context(|| {
+        format!(
+            "reading load descriptor {}",
+            paths.load_descriptor.display()
+        )
+    })?;
+    let load_descriptor_public_key_hex = fs::read_to_string(&paths.load_descriptor_public_key)
+        .with_context(|| {
+            format!(
+                "reading load descriptor public key {}",
+                paths.load_descriptor_public_key.display()
+            )
+        })?;
+    let load_descriptor_signature_der_hex = fs::read_to_string(&paths.load_descriptor_signature)
+        .with_context(|| {
+            format!(
+                "reading load descriptor signature {}",
+                paths.load_descriptor_signature.display()
+            )
+        })?;
+
+    let artifact_identity_public_key = decode_hex_bytes(&artifact_identity_public_key_hex)?;
+    let artifact_identity_signature_der = decode_hex_bytes(&artifact_identity_signature_der_hex)?;
+    verify_p256_der_signature(
+        &artifact_identity_public_key,
+        &artifact_identity_signature_der,
+        artifact_identity_descriptor_text.as_bytes(),
+    )
+    .context("verifying artifact identity descriptor signature")?;
+
+    let load_descriptor_public_key = decode_hex_bytes(&load_descriptor_public_key_hex)?;
+    let load_descriptor_signature_der = decode_hex_bytes(&load_descriptor_signature_der_hex)?;
+    verify_p256_der_signature(
+        &load_descriptor_public_key,
+        &load_descriptor_signature_der,
+        load_descriptor_text.as_bytes(),
+    )
+    .context("verifying load descriptor signature")?;
+
+    let artifact_hash_ref = format!("sha256:{artifact_sha256}");
+    expect_descriptor_field(
+        &artifact_identity_descriptor_text,
+        "artifact_reference_bytes_sha256",
+        &artifact_hash_ref,
+    )?;
+    expect_descriptor_field(
+        &load_descriptor_text,
+        "artifact_reference_bytes_sha256",
+        &artifact_hash_ref,
+    )?;
+    for (field, expected) in [
+        ("classification", "local_only"),
+        ("accepts_external_artifact_bytes", "false"),
+        ("authorizes_external_artifact_load", "false"),
+        ("authorizes_persistent_install", "false"),
+        ("authorizes_rollback_install", "false"),
+        ("writes_persistent_state", "false"),
+    ] {
+        expect_descriptor_field(&artifact_identity_descriptor_text, field, expected)?;
+    }
+    for (field, expected) in [
+        ("classification", "local_only"),
+        ("accepts_external_artifact_bytes", "false"),
+        ("loads_external_artifact", "false"),
+        ("maps_executable_pages", "false"),
+        ("writes_persistent_state", "false"),
+        ("authorizes_persistent_install", "false"),
+        ("authorizes_rollback_install", "false"),
+    ] {
+        expect_descriptor_field(&load_descriptor_text, field, expected)?;
+    }
+
+    let service_id =
+        descriptor_field(&artifact_identity_descriptor_text, "service_id")?.to_string();
+    let artifact_id =
+        descriptor_field(&artifact_identity_descriptor_text, "artifact_id")?.to_string();
+    expect_descriptor_field(&load_descriptor_text, "service_id", &service_id)?;
+    expect_descriptor_field(&load_descriptor_text, "artifact_id", &artifact_id)?;
+
+    let artifact_identity_id =
+        descriptor_field(&artifact_identity_descriptor_text, "id")?.to_string();
+    expect_descriptor_field(
+        &load_descriptor_text,
+        "artifact_identity_id",
+        &artifact_identity_id,
+    )?;
+    let artifact_identity_descriptor_sha256 =
+        hex_lower(&sha256_bytes(artifact_identity_descriptor_text.as_bytes()));
+    expect_descriptor_field(
+        &load_descriptor_text,
+        "artifact_identity_sha256",
+        &format!("sha256:{artifact_identity_descriptor_sha256}"),
+    )?;
+    let load_descriptor_id = descriptor_field(&load_descriptor_text, "id")?.to_string();
+    let load_descriptor_authorizes_current_boot_wasm_execution = descriptor_field(
+        &load_descriptor_text,
+        "authorizes_current_boot_wasm_execution",
+    )? == "true";
+    let load_descriptor_sha256 = hex_lower(&sha256_bytes(load_descriptor_text.as_bytes()));
+
+    Ok(DistributionReceiverIdentityEvidence {
+        classification: "local_only".to_string(),
+        service_id,
+        artifact_id,
+        artifact_identity_id,
+        load_descriptor_id,
+        artifact_sha256: artifact_sha256.to_string(),
+        artifact_identity_descriptor_sha256,
+        artifact_identity_public_key_sha256: hex_lower(&sha256_bytes(
+            &artifact_identity_public_key,
+        )),
+        artifact_identity_signature_sha256: hex_lower(&sha256_bytes(
+            &artifact_identity_signature_der,
+        )),
+        artifact_identity_signature_verified: true,
+        artifact_identity_descriptor_text,
+        artifact_identity_public_key_hex: artifact_identity_public_key_hex.trim().to_string(),
+        artifact_identity_signature_der_hex: artifact_identity_signature_der_hex.trim().to_string(),
+        load_descriptor_sha256,
+        load_descriptor_public_key_sha256: hex_lower(&sha256_bytes(&load_descriptor_public_key)),
+        load_descriptor_signature_sha256: hex_lower(&sha256_bytes(&load_descriptor_signature_der)),
+        load_descriptor_signature_verified: true,
+        load_descriptor_text,
+        load_descriptor_public_key_hex: load_descriptor_public_key_hex.trim().to_string(),
+        load_descriptor_signature_der_hex: load_descriptor_signature_der_hex.trim().to_string(),
+        artifact_hash_bound_by_identity: true,
+        artifact_hash_bound_by_load_descriptor: true,
+        load_descriptor_binds_artifact_identity: true,
+        load_descriptor_authorizes_current_boot_wasm_execution,
+        export_authorizes_load: false,
+        export_authorizes_install: false,
+        export_authorizes_execute: false,
+        export_writes_persistent_state: false,
+        requires_m6_m7_reverify_for_load: true,
+    })
+}
+
+fn expect_descriptor_field(text: &str, key: &str, expected: &str) -> Result<()> {
+    let actual = descriptor_field(text, key)?;
+    if actual != expected {
+        return Err(anyhow!(
+            "descriptor field {key} expected {expected}, got {actual}"
+        ));
+    }
+    Ok(())
+}
+
+fn descriptor_field<'a>(text: &'a str, key: &str) -> Result<&'a str> {
+    let mut found = None;
+    for line in text.lines() {
+        let Some((k, v)) = line.split_once('=') else {
+            continue;
+        };
+        if k == key {
+            if found.is_some() {
+                return Err(anyhow!("descriptor field {key} appears more than once"));
+            }
+            found = Some(v);
+        }
+    }
+    found.ok_or_else(|| anyhow!("descriptor field {key} is missing"))
+}
+
 fn split_distribution_chunks(
     bytes: &[u8],
     chunk_count: usize,
@@ -559,7 +801,9 @@ fn hex_lower(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ota_tools::{public_key_to_hex, KeyMaterial, SignerCertificate};
+    use ota_tools::{
+        public_key_to_hex, sign_wasm_descriptor_dev_hex, KeyMaterial, SignerCertificate,
+    };
     use std::fs;
     use tempfile::tempdir;
 
@@ -662,6 +906,7 @@ mod tests {
             name: "svc.demo.export",
             tag: "1.2.3",
             chunk_count: 3,
+            receiver_identity: None,
         })?;
 
         assert_eq!(export.source_kind, "local_static_cas_registry");
@@ -708,11 +953,90 @@ mod tests {
                 name: "svc.demo.export",
                 tag: "1.2.3",
                 chunk_count: 4,
+                receiver_identity: None,
             })
             .unwrap_err();
         assert!(too_many_chunks
             .to_string()
             .contains("exceeds registry blob length"));
+
+        let artifact_ref = format!("sha256:{}", export.artifact_sha256);
+        let artifact_identity_descriptor = format!(
+            "id=builtin_artifact_identity.svc.demo.export.wasm.v0\n\
+service_id=svc.demo.export\n\
+artifact_id=wasm:svc.demo.export\n\
+artifact_reference_bytes_sha256={artifact_ref}\n\
+classification=local_only\n\
+accepts_external_artifact_bytes=false\n\
+authorizes_external_artifact_load=false\n\
+authorizes_persistent_install=false\n\
+authorizes_rollback_install=false\n\
+writes_persistent_state=false\n"
+        );
+        let artifact_identity_hash =
+            hex_lower(&sha256_bytes(artifact_identity_descriptor.as_bytes()));
+        let load_descriptor = format!(
+            "id=load_descriptor.current_boot.svc.demo.export.v0\n\
+service_id=svc.demo.export\n\
+artifact_id=wasm:svc.demo.export\n\
+artifact_identity_id=builtin_artifact_identity.svc.demo.export.wasm.v0\n\
+artifact_identity_sha256=sha256:{artifact_identity_hash}\n\
+artifact_reference_bytes_sha256={artifact_ref}\n\
+classification=local_only\n\
+accepts_external_artifact_bytes=false\n\
+loads_external_artifact=false\n\
+maps_executable_pages=false\n\
+writes_persistent_state=false\n\
+authorizes_persistent_install=false\n\
+authorizes_rollback_install=false\n\
+authorizes_current_boot_wasm_execution=true\n"
+        );
+        let descriptor_path = temp.path().join("artifact_identity.desc");
+        let descriptor_pub_path = temp.path().join("artifact_identity.pub.hex");
+        let descriptor_sig_path = temp.path().join("artifact_identity.sig.hex");
+        let load_path = temp.path().join("load.desc");
+        let load_pub_path = temp.path().join("load.pub.hex");
+        let load_sig_path = temp.path().join("load.sig.hex");
+        fs::write(&descriptor_path, &artifact_identity_descriptor)?;
+        let (descriptor_sig, descriptor_pub) =
+            sign_wasm_descriptor_dev_hex(artifact_identity_descriptor.as_bytes())?;
+        fs::write(&descriptor_pub_path, descriptor_pub)?;
+        fs::write(&descriptor_sig_path, descriptor_sig)?;
+        fs::write(&load_path, &load_descriptor)?;
+        let (load_sig, load_pub) = sign_wasm_descriptor_dev_hex(load_descriptor.as_bytes())?;
+        fs::write(&load_pub_path, load_pub)?;
+        fs::write(&load_sig_path, load_sig)?;
+
+        let export_with_identity =
+            registry.distribution_serial_export(DistributionExportRequest {
+                namespace: "modules",
+                name: "svc.demo.export",
+                tag: "1.2.3",
+                chunk_count: 3,
+                receiver_identity: Some(DistributionReceiverIdentityPaths {
+                    artifact_identity_descriptor: descriptor_path,
+                    artifact_identity_public_key: descriptor_pub_path,
+                    artifact_identity_signature: descriptor_sig_path,
+                    load_descriptor: load_path,
+                    load_descriptor_public_key: load_pub_path,
+                    load_descriptor_signature: load_sig_path,
+                }),
+            })?;
+        let receiver_identity = export_with_identity.receiver_identity.unwrap();
+        assert_eq!(receiver_identity.classification, "local_only");
+        assert_eq!(receiver_identity.service_id, "svc.demo.export");
+        assert_eq!(receiver_identity.artifact_sha256, export.artifact_sha256);
+        assert!(receiver_identity.artifact_identity_signature_verified);
+        assert!(receiver_identity.load_descriptor_signature_verified);
+        assert!(receiver_identity.artifact_hash_bound_by_identity);
+        assert!(receiver_identity.artifact_hash_bound_by_load_descriptor);
+        assert!(receiver_identity.load_descriptor_binds_artifact_identity);
+        assert!(receiver_identity.load_descriptor_authorizes_current_boot_wasm_execution);
+        assert!(!receiver_identity.export_authorizes_load);
+        assert!(!receiver_identity.export_authorizes_install);
+        assert!(!receiver_identity.export_authorizes_execute);
+        assert!(!receiver_identity.export_writes_persistent_state);
+        assert!(receiver_identity.requires_m6_m7_reverify_for_load);
         Ok(())
     }
 
@@ -767,6 +1091,7 @@ mod tests {
                 name: "svc.demo.corrupt",
                 tag: "9.9.9",
                 chunk_count: 3,
+                receiver_identity: None,
             })
             .unwrap_err();
         assert!(err.to_string().contains("registry blob blake3 mismatch"));

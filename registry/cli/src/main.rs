@@ -1,11 +1,12 @@
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
 use registry_core::module_audit::ModuleAuditRollbackDiagnosticRequest;
 use registry_core::module_grant::ComputeCapabilityGrantRequest;
 use registry_core::{
-    DistributionExportRequest, EvidenceFile, ListFilter, PublishRequest, Registry,
+    DistributionExportRequest, DistributionReceiverIdentityPaths, EvidenceFile, ListFilter,
+    PublishRequest, Registry,
 };
 
 #[derive(Parser, Debug)]
@@ -82,6 +83,24 @@ enum Command {
         /// Number of bounded serial chunks to emit
         #[arg(long, default_value_t = 3)]
         chunk_count: usize,
+        /// raiOS artifact identity descriptor .desc file
+        #[arg(long)]
+        artifact_identity_descriptor: Option<PathBuf>,
+        /// raiOS artifact identity descriptor P-256 public key hex file
+        #[arg(long)]
+        artifact_identity_public_key: Option<PathBuf>,
+        /// raiOS artifact identity descriptor P-256 DER signature hex file
+        #[arg(long)]
+        artifact_identity_signature: Option<PathBuf>,
+        /// raiOS current-boot load descriptor .desc file
+        #[arg(long)]
+        load_descriptor: Option<PathBuf>,
+        /// raiOS current-boot load descriptor P-256 public key hex file
+        #[arg(long)]
+        load_descriptor_public_key: Option<PathBuf>,
+        /// raiOS current-boot load descriptor P-256 DER signature hex file
+        #[arg(long)]
+        load_descriptor_signature: Option<PathBuf>,
     },
     /// Compute a non-authorizing module capability grant diagnostic
     GrantDiagnostic {
@@ -270,13 +289,46 @@ fn main() -> Result<()> {
             name,
             tag,
             chunk_count,
+            artifact_identity_descriptor,
+            artifact_identity_public_key,
+            artifact_identity_signature,
+            load_descriptor,
+            load_descriptor_public_key,
+            load_descriptor_signature,
         } => {
             let registry = Registry::new(registry);
+            let receiver_identity = match (
+                artifact_identity_descriptor,
+                artifact_identity_public_key,
+                artifact_identity_signature,
+                load_descriptor,
+                load_descriptor_public_key,
+                load_descriptor_signature,
+            ) {
+                (
+                    Some(artifact_identity_descriptor),
+                    Some(artifact_identity_public_key),
+                    Some(artifact_identity_signature),
+                    Some(load_descriptor),
+                    Some(load_descriptor_public_key),
+                    Some(load_descriptor_signature),
+                ) => Some(DistributionReceiverIdentityPaths {
+                    artifact_identity_descriptor,
+                    artifact_identity_public_key,
+                    artifact_identity_signature,
+                    load_descriptor,
+                    load_descriptor_public_key,
+                    load_descriptor_signature,
+                }),
+                (None, None, None, None, None, None) => None,
+                _ => bail!("receiver identity export requires all six descriptor/signature paths"),
+            };
             let export = registry.distribution_serial_export(DistributionExportRequest {
                 namespace: &namespace,
                 name: &name,
                 tag: &tag,
                 chunk_count,
+                receiver_identity,
             })?;
             println!("{}", serde_json::to_string_pretty(&export)?);
         }

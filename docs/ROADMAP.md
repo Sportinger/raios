@@ -123,10 +123,13 @@ whole-hash, and provenance verification (`m12-distribution-provenance` 228/228).
 **Slice 8 DONE:** a real host-side static/CAS source now publishes the signed artifact
 into the local registry, exports the registry blob as bounded serial catalog/chunk
 commands, and proves those exported commands feed the guest local catalog while still
-staging only an inert candidate (`m12-distribution-provenance` 229/229). Next M12+
-slice: carry the receiver-required raiOS artifact identity/evidence through the local
-registry/export packet as non-authorizing provenance, still with no install/load
-authority. (3) provide real trust inputs (a cryptographically
+staging only an inert candidate (`m12-distribution-provenance` 229/229). **Slice 9
+DONE:** the local registry/export packet now carries the receiver-required raiOS Wasm
+artifact identity descriptor, current-boot load descriptor, P-256 keys, and signatures,
+with host-side signature/hash binding checks, still as non-authorizing provenance
+(`m12-distribution-provenance` 229/229). Next M12+ slice: let the guest local catalog
+retain that receiver-identity evidence as current_boot RAM-only metadata while keeping
+install/load authority denied. (3) provide real trust inputs (a cryptographically
 trusted time source, real CA roots, a live second provider) → I finish M10 real
 validation — STILL YOURS. (4) the owner-key sealing ceremony → the FINAL step —
 STILL YOURS. Until then every label stays honestly unverified / dev_key_not_owner_

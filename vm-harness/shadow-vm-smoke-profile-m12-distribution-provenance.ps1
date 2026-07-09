@@ -150,7 +150,13 @@ function New-M12HostStaticCasExport {
         "--namespace", "modules",
         "--name", "svc.demo.echo",
         "--tag", "m12-host-cas",
-        "--chunk-count", "3"
+        "--chunk-count", "3",
+        "--artifact-identity-descriptor", (Join-Path $RepoRoot "seed-kernel\descriptors\svc.demo.echo.wasm_artifact_identity.desc"),
+        "--artifact-identity-public-key", (Join-Path $RepoRoot "seed-kernel\descriptors\svc.demo.echo.wasm_artifact_identity.p256.pub.hex"),
+        "--artifact-identity-signature", (Join-Path $RepoRoot "seed-kernel\descriptors\svc.demo.echo.wasm_artifact_identity.p256.sig.der.hex"),
+        "--load-descriptor", (Join-Path $RepoRoot "seed-kernel\descriptors\svc.demo.echo.current_boot_load.desc"),
+        "--load-descriptor-public-key", (Join-Path $RepoRoot "seed-kernel\descriptors\svc.demo.echo.current_boot_load.p256.pub.hex"),
+        "--load-descriptor-signature", (Join-Path $RepoRoot "seed-kernel\descriptors\svc.demo.echo.current_boot_load.p256.sig.der.hex")
     )
 
     return (($exportJson -join [Environment]::NewLine) | ConvertFrom-Json)
@@ -331,6 +337,7 @@ Assert-M12Predicate `
 $echoArtifactPath = Join-Path $RepoRoot "seed-kernel\artifacts\svc.demo.echo.wasm"
 $hostCasExport = New-M12HostStaticCasExport -ArtifactPath $echoArtifactPath
 $hostCasCommands = @($hostCasExport.commands)
+$hostCasIdentity = $hostCasExport.receiver_identity
 $hostCasExportOk = (
     $hostCasExport.source_kind -eq "local_static_cas_registry" -and
     $hostCasExport.source_id -eq "host.local_static_cas" -and
@@ -346,7 +353,25 @@ $hostCasExportOk = (
     $hostCasCommands[0] -eq "module.submit_distribution_catalog_entry $expectedSha 4205 3 sig:$provSigHex" -and
     $hostCasCommands[1] -eq "module.submit_distribution_begin_from_catalog $expectedSha" -and
     $hostCasCommands[-1] -eq "module.submit_distribution_finalize" -and
-    $hostCasExport.registry_payload_hash_blake3.Length -eq 64
+    $hostCasExport.registry_payload_hash_blake3.Length -eq 64 -and
+    $null -ne $hostCasIdentity -and
+    $hostCasIdentity.classification -eq "local_only" -and
+    $hostCasIdentity.service_id -eq "svc.demo.echo" -and
+    $hostCasIdentity.artifact_id -eq "wasm:svc.demo.echo" -and
+    $hostCasIdentity.artifact_identity_id -eq "builtin_artifact_identity.svc.demo.echo.wasm.v0" -and
+    $hostCasIdentity.load_descriptor_id -eq "load_descriptor.current_boot.svc.demo.echo.v0" -and
+    $hostCasIdentity.artifact_sha256 -eq $expectedShaBare -and
+    $hostCasIdentity.artifact_identity_signature_verified -eq $true -and
+    $hostCasIdentity.load_descriptor_signature_verified -eq $true -and
+    $hostCasIdentity.artifact_hash_bound_by_identity -eq $true -and
+    $hostCasIdentity.artifact_hash_bound_by_load_descriptor -eq $true -and
+    $hostCasIdentity.load_descriptor_binds_artifact_identity -eq $true -and
+    $hostCasIdentity.load_descriptor_authorizes_current_boot_wasm_execution -eq $true -and
+    $hostCasIdentity.export_authorizes_load -eq $false -and
+    $hostCasIdentity.export_authorizes_install -eq $false -and
+    $hostCasIdentity.export_authorizes_execute -eq $false -and
+    $hostCasIdentity.export_writes_persistent_state -eq $false -and
+    $hostCasIdentity.requires_m6_m7_reverify_for_load -eq $true
 )
 Assert-M12Predicate `
     -Name "m12-distribution:T2_host_static_cas_export_commands" `
