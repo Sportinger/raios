@@ -5,39 +5,36 @@ One page, plain language, updated every session (rule: AGENTS.md,
 
 Updated: 2026-07-09.
 
-Current capability: Surface WiFi firmware bring-up now uses a larger bounded
-firmware-download burst instead of throttling every helper block through the
-1ms UI scheduler. The firmware-ready and scan paths are event-ring-only again:
-the RX-PFU images froze the Surface, and the scan-time attempt made MMIO read
-back all-ones (`HOST_INT=0xffffffff`), so that path is parked for now.
+Current capability: raiOS can now see a prepared persistence stick as real xHCI
+USB Mass Storage, configure BOT bulk endpoints, read sectors with SCSI
+`READ(10)`, validate GPT `SEED_ESP_A`/`SEED_ESP_B`/`SEED_DATA`, validate the
+`RAIOS_DATA_SB_V0` superblock copy, and show `MSC SEED` in USB status.
 
-Stick persistence prep: the USB writer now has `-UsePersistLayout`, which writes
-the real GPT `SEED_ESP_A`/`SEED_ESP_B`/`SEED_DATA` image with valid empty RECLOG
-to a USB disk. Kernel USB Mass Storage read/write is still the next missing
-piece before raiOS can append WiFi diagnostics to that stick itself.
+What is still denied: USB `WRITE(10)`, RECLOG append, durable WiFi logs, broad
+disk mutation, owner-sealed persistence, and live WLAN result/link authority.
 
-After firmware and HW_SPEC are ready, `Scan networks` still issues the real
-mwifiex `SCAN_EXT` 2.4GHz wildcard command and reports command status. If a
-firmware event appears, the UI now reports the raw `EVENT_RING` rd/wr/type/
-cause/len state. Empty buffers are amber diagnostics, not fake live results.
-Live network names still wait on real frame parsing; no association/link
-authority is claimed.
+Stick prep: `scripts\write-stage0-usb.ps1 -UsePersistLayout` writes the real
+GPT stick layout. The kernel now has the read-only half needed before appending
+logs to that stick.
 
-Owner-key behavior today: RAM boot creates a secret, RAM-only `current_boot`
-owner-key candidate from entropy and exposes only handle + `sha256:`
-fingerprint. `ownerkey` also reports the next TPM register raiOS would read.
-Persistent install remains policy-only; no persistent key, owner seal, load
-authority, or durable-write authority is granted.
+WiFi status: Surface Marvell firmware bring-up and `SCAN_EXT` command are real,
+but RX-PFU is parked because it froze the Surface and made MMIO read all-ones.
+Do not re-enable RX-PFU while adding stick logging.
 
-Latest focused proof: `quick` `shadow-20260709-155505-32448.json` passed
-542/542 for the event-only RX-PFU rollback image.
-Latest owner-key image proof remains `m12-distribution-provenance`
-`shadow-20260709-120614-8340.json` 253/253 against the exact default image.
+Owner-key status: RAM boot still creates only a secret RAM-only
+`current_boot` owner-key candidate. Persistent owner seal/install/load/durable
+authority remains denied until the real sealing ceremony.
+
+Latest proof: focused USB-storage VM serial log observed
+`usb-msc: ... seed_data=present seed_data_superblock_validated` and
+`status USB-XHCI ... MSC SEED`. Quick Shadow VM
+`shadow-20260709-163357-10832.json` passed 542/542, 79 commands,
+report sha256 `ec6133b2e609fb81a1b5375f6b2599c16a59b5af338b878479a250580dffb3c6`.
 
 Gate status: latest full profile remains green at
-`shadow-20260708-150428-34396.json` 7867/7867. This slice used the focused quick
-profile per aggressive-fast cadence.
+`shadow-20260708-150428-34396.json` 7867/7867. This slice used focused USB VM
+evidence plus quick profile per aggressive-fast cadence.
 
-Next owner action: keep testing WiFi with the current event-only USB unless we
-explicitly rewrite the stick with `-UsePersistLayout`; send `SCAN_EXT` and
-`EVENT_RING`. Kernel USB-MSC block support is the next persistence slice.
+Next task: add the first scoped USB `WRITE(10)` path that can append exactly one
+typed WiFi diagnostic frame into `SEED_DATA/RECLOG`, then read back and reparse
+it.

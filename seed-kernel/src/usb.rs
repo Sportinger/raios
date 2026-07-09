@@ -1,5 +1,6 @@
 #![allow(static_mut_refs)]
 
+use alloc::vec;
 use core::hint::spin_loop;
 use core::ptr;
 use core::sync::atomic::{fence, Ordering};
@@ -9,6 +10,10 @@ use spin::Mutex;
 use crate::memory;
 use crate::pci::{self, PciAddress};
 use crate::serial;
+use raios_core::{
+    gpt_layout::{self, LayoutStatus, GPT_ENTRY_ARRAY_BYTES, PRIMARY_GPT_ENTRIES_LBA, SECTOR_SIZE},
+    seed_data_layout,
+};
 
 const PCI_CLASS_SERIAL_BUS: u8 = 0x0C;
 const PCI_SUBCLASS_USB: u8 = 0x03;
@@ -83,7 +88,9 @@ const CC_SUCCESS: u32 = 1;
 const CC_SHORT_PACKET: u32 = 13;
 
 const DCI_EP0: u8 = 1;
+const EP_TYPE_BULK_OUT: u32 = 2;
 const EP_TYPE_CONTROL: u32 = 4;
+const EP_TYPE_BULK_IN: u32 = 6;
 const EP_TYPE_INTERRUPT_IN: u32 = 7;
 const CONTEXT_ENTRIES_EP0: u8 = 1;
 
@@ -99,6 +106,9 @@ const DESC_CONFIGURATION: u8 = 2;
 const DESC_HUB: u8 = 0x29;
 const DESC_SUPERSPEED_HUB: u8 = 0x2A;
 const USB_CLASS_HUB: u8 = 0x09;
+const USB_CLASS_MASS_STORAGE: u8 = 0x08;
+const USB_MSC_SUBCLASS_SCSI: u8 = 0x06;
+const USB_MSC_PROTOCOL_BOT: u8 = 0x50;
 const HUB_PORT_CONNECTION: u16 = 1 << 0;
 const HUB_PORT_ENABLED: u16 = 1 << 1;
 const HUB_PORT_RESET: u16 = 1 << 4;
@@ -116,6 +126,7 @@ const COMMAND_RING_LEN: usize = 64;
 const EVENT_RING_LEN: usize = 64;
 const EP0_RING_LEN: usize = 64;
 const INTR_RING_LEN: usize = 16;
+const BULK_RING_LEN: usize = 16;
 const MAX_HID_DEVICES: usize = 16;
 const MAX_SLOTS: usize = 32;
 const MAX_SCRATCHPADS: usize = 64;
@@ -126,6 +137,12 @@ const MOUSE_REPORT_LEN: usize = 4;
 const TABLET_REPORT_LEN: usize = 8;
 const POINTER_REPORT_BUFFER_LEN: usize = TABLET_REPORT_LEN;
 const TABLET_AXIS_MAX: u16 = 0x7fff;
+const MSC_CBW_LEN: usize = 31;
+const MSC_CSW_LEN: usize = 13;
+const MSC_SECTOR_BUFFER_LEN: usize = 512;
+const MSC_CBW_SIGNATURE: u32 = 0x4342_5355;
+const MSC_CSW_SIGNATURE: u32 = 0x5342_5355;
+const MSC_READ_CAPACITY10_LEN: usize = 8;
 const WAIT_ITERS: usize = 5_000_000;
 const ROOT_PORT_POWER_SETTLE_ITERS: usize = WAIT_ITERS;
 const HUB_PORT_RESET_POLLS: usize = 64;
@@ -183,6 +200,13 @@ pub struct UsbSnapshot {
     pub keyboard_detail: Option<&'static str>,
     pub mouse_status: UsbMouseStatus,
     pub mouse_detail: Option<&'static str>,
+    pub mass_storage_present: bool,
+    pub mass_storage_read_completed: bool,
+    pub mass_storage_seed_data_present: bool,
+    pub mass_storage_block_size: u32,
+    pub mass_storage_last_lba: u32,
+    pub mass_storage_lba0_signature: u16,
+    pub mass_storage_detail: &'static str,
     pub last_error: Option<&'static str>,
 }
 
@@ -295,6 +319,13 @@ impl UsbState {
                 keyboard_detail: None,
                 mouse_status: UsbMouseStatus::NotProbed,
                 mouse_detail: None,
+                mass_storage_present: false,
+                mass_storage_read_completed: false,
+                mass_storage_seed_data_present: false,
+                mass_storage_block_size: 0,
+                mass_storage_last_lba: 0,
+                mass_storage_lba0_signature: 0,
+                mass_storage_detail: "not_probed",
                 last_error: None,
             },
             controller: None,
@@ -372,6 +403,13 @@ pub fn snapshot() -> UsbSnapshot {
         snapshot.enum_dev_class = controller.enum_dev_class;
         snapshot.enum_ep0_mps = controller.enum_ep0_mps;
         snapshot.enum_err = controller.enum_err;
+        snapshot.mass_storage_present = controller.mass_storage_probe.present;
+        snapshot.mass_storage_read_completed = controller.mass_storage_probe.read_completed;
+        snapshot.mass_storage_seed_data_present = controller.mass_storage_probe.seed_data_present;
+        snapshot.mass_storage_block_size = controller.mass_storage_probe.block_size;
+        snapshot.mass_storage_last_lba = controller.mass_storage_probe.last_lba;
+        snapshot.mass_storage_lba0_signature = controller.mass_storage_probe.lba0_signature;
+        snapshot.mass_storage_detail = controller.mass_storage_probe.detail;
     }
     snapshot
 }
@@ -471,6 +509,13 @@ unsafe fn probe_xhci() -> (UsbSnapshot, Option<XhciController>) {
                 keyboard_detail: None,
                 mouse_status: UsbMouseStatus::NotProbed,
                 mouse_detail: None,
+                mass_storage_present: false,
+                mass_storage_read_completed: false,
+                mass_storage_seed_data_present: false,
+                mass_storage_block_size: 0,
+                mass_storage_last_lba: 0,
+                mass_storage_lba0_signature: 0,
+                mass_storage_detail: "controller_absent",
                 last_error: None,
             },
             None,
@@ -588,6 +633,13 @@ unsafe fn probe_xhci() -> (UsbSnapshot, Option<XhciController>) {
                 keyboard_detail,
                 mouse_status,
                 mouse_detail,
+                mass_storage_present: controller.mass_storage_probe.present,
+                mass_storage_read_completed: controller.mass_storage_probe.read_completed,
+                mass_storage_seed_data_present: controller.mass_storage_probe.seed_data_present,
+                mass_storage_block_size: controller.mass_storage_probe.block_size,
+                mass_storage_last_lba: controller.mass_storage_probe.last_lba,
+                mass_storage_lba0_signature: controller.mass_storage_probe.lba0_signature,
+                mass_storage_detail: controller.mass_storage_probe.detail,
                 last_error: None,
             };
 
@@ -646,6 +698,13 @@ fn error_snapshot(address: PciAddress, error: &'static str) -> UsbSnapshot {
         keyboard_detail: Some(error),
         mouse_status: UsbMouseStatus::Error,
         mouse_detail: Some(error),
+        mass_storage_present: false,
+        mass_storage_read_completed: false,
+        mass_storage_seed_data_present: false,
+        mass_storage_block_size: 0,
+        mass_storage_last_lba: 0,
+        mass_storage_lba0_signature: 0,
+        mass_storage_detail: error,
         last_error: Some(error),
     }
 }
@@ -702,6 +761,17 @@ fn refresh_snapshot_from_controller(snapshot: &mut UsbSnapshot, controller: &Xhc
     snapshot.last_hotplug_skipped = controller.hotplug.skipped;
     snapshot.last_int_cc = controller.last_int_cc;
     snapshot.recover_count = controller.recover_count;
+    snapshot.input_report_count = controller
+        .keyboard_report_count
+        .saturating_add(controller.mouse_report_count);
+    snapshot.input_error_count = controller.transfer_error_count;
+    snapshot.mass_storage_present = controller.mass_storage_probe.present;
+    snapshot.mass_storage_read_completed = controller.mass_storage_probe.read_completed;
+    snapshot.mass_storage_seed_data_present = controller.mass_storage_probe.seed_data_present;
+    snapshot.mass_storage_block_size = controller.mass_storage_probe.block_size;
+    snapshot.mass_storage_last_lba = controller.mass_storage_probe.last_lba;
+    snapshot.mass_storage_lba0_signature = controller.mass_storage_probe.lba0_signature;
+    snapshot.mass_storage_detail = controller.mass_storage_probe.detail;
     snapshot.keyboard_status = if controller.keyboard.is_some() {
         UsbKeyboardStatus::Ready
     } else {
@@ -808,6 +878,10 @@ static mut EP0_RINGS: [TrbRing<EP0_RING_LEN>; MAX_HID_DEVICES] =
     [TrbRing([Trb::zero(); EP0_RING_LEN]); MAX_HID_DEVICES];
 static mut INTR_RINGS: [TrbRing<INTR_RING_LEN>; MAX_HID_DEVICES] =
     [TrbRing([Trb::zero(); INTR_RING_LEN]); MAX_HID_DEVICES];
+static mut BULK_IN_RINGS: [TrbRing<BULK_RING_LEN>; MAX_HID_DEVICES] =
+    [TrbRing([Trb::zero(); BULK_RING_LEN]); MAX_HID_DEVICES];
+static mut BULK_OUT_RINGS: [TrbRing<BULK_RING_LEN>; MAX_HID_DEVICES] =
+    [TrbRing([Trb::zero(); BULK_RING_LEN]); MAX_HID_DEVICES];
 static mut ERST: Erst = Erst([ErstEntry::zero(); 1]);
 static mut DCBAA: Dcbaa = Dcbaa([0; 256]);
 static mut SCRATCHPAD_ARRAY: AlignedBytes<{ MAX_SCRATCHPADS * 8 }> =
@@ -822,6 +896,10 @@ static mut KEYBOARD_REPORT: AlignedBytes<KEYBOARD_REPORT_LEN> =
     AlignedBytes([0; KEYBOARD_REPORT_LEN]);
 static mut MOUSE_REPORT: AlignedBytes<POINTER_REPORT_BUFFER_LEN> =
     AlignedBytes([0; POINTER_REPORT_BUFFER_LEN]);
+static mut MSC_CBW: AlignedBytes<MSC_CBW_LEN> = AlignedBytes([0; MSC_CBW_LEN]);
+static mut MSC_CSW: AlignedBytes<MSC_CSW_LEN> = AlignedBytes([0; MSC_CSW_LEN]);
+static mut MSC_BUFFER: AlignedBytes<MSC_SECTOR_BUFFER_LEN> =
+    AlignedBytes([0; MSC_SECTOR_BUFFER_LEN]);
 
 struct XhciController {
     _address: PciAddress,
@@ -844,11 +922,17 @@ struct XhciController {
     ep0_cycle: [bool; MAX_HID_DEVICES],
     intr_enqueue: [usize; MAX_HID_DEVICES],
     intr_cycle: [bool; MAX_HID_DEVICES],
+    bulk_in_enqueue: [usize; MAX_HID_DEVICES],
+    bulk_in_cycle: [bool; MAX_HID_DEVICES],
+    bulk_out_enqueue: [usize; MAX_HID_DEVICES],
+    bulk_out_cycle: [bool; MAX_HID_DEVICES],
     event_ring_phys: u64,
     current_device_index: usize,
     current_slot_id: u8,
     keyboard: Option<KeyboardDevice>,
     mouse: Option<MouseDevice>,
+    mass_storage: Option<MassStorageDevice>,
+    mass_storage_probe: MassStorageProbe,
     hub_count: u8,
     hub_ports: u8,
     hub_connected_ports: u8,
@@ -907,6 +991,43 @@ struct MouseDevice {
     root_port_number: u8,
     parent_hub_slot_id: u8,
     parent_hub_port_number: u8,
+}
+
+#[derive(Clone, Copy)]
+struct MassStorageDevice {
+    slot_id: u8,
+    bulk_in_dci: u8,
+    bulk_out_dci: u8,
+    ring_index: usize,
+    root_port_number: u8,
+    parent_hub_slot_id: u8,
+    parent_hub_port_number: u8,
+    tag: u32,
+}
+
+#[derive(Clone, Copy)]
+struct MassStorageProbe {
+    present: bool,
+    read_completed: bool,
+    seed_data_present: bool,
+    block_size: u32,
+    last_lba: u32,
+    lba0_signature: u16,
+    detail: &'static str,
+}
+
+impl MassStorageProbe {
+    const fn none() -> Self {
+        Self {
+            present: false,
+            read_completed: false,
+            seed_data_present: false,
+            block_size: 0,
+            last_lba: 0,
+            lba0_signature: 0,
+            detail: "not_found",
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1065,6 +1186,7 @@ impl UsbEnumLocation {
 enum EnumeratedKind {
     Hid(HidKind),
     Hub,
+    MassStorage,
 }
 
 impl EnumeratedKind {
@@ -1072,6 +1194,7 @@ impl EnumeratedKind {
         match self {
             EnumeratedKind::Hid(kind) => kind.as_str(),
             EnumeratedKind::Hub => "hub",
+            EnumeratedKind::MassStorage => "mass-storage",
         }
     }
 }
@@ -1085,6 +1208,17 @@ struct HidEndpoint {
     dci: u8,
     max_packet_size: u16,
     interval: u8,
+}
+
+#[derive(Clone, Copy)]
+struct MassStorageInterface {
+    configuration_value: u8,
+    bulk_in_dci: u8,
+    bulk_out_dci: u8,
+    bulk_in_endpoint_address: u8,
+    bulk_out_endpoint_address: u8,
+    bulk_in_max_packet_size: u16,
+    bulk_out_max_packet_size: u16,
 }
 
 #[derive(Clone, Copy)]
@@ -1229,11 +1363,17 @@ impl XhciController {
             ep0_cycle: [true; MAX_HID_DEVICES],
             intr_enqueue: [0; MAX_HID_DEVICES],
             intr_cycle: [true; MAX_HID_DEVICES],
+            bulk_in_enqueue: [0; MAX_HID_DEVICES],
+            bulk_in_cycle: [true; MAX_HID_DEVICES],
+            bulk_out_enqueue: [0; MAX_HID_DEVICES],
+            bulk_out_cycle: [true; MAX_HID_DEVICES],
             event_ring_phys,
             current_device_index: 0,
             current_slot_id: 0,
             keyboard: None,
             mouse: None,
+            mass_storage: None,
+            mass_storage_probe: MassStorageProbe::none(),
             hub_count: 0,
             hub_ports: 0,
             hub_connected_ports: 0,
@@ -1634,7 +1774,39 @@ impl XhciController {
 
         let endpoint_result = self.find_boot_hid_endpoint();
         self.capture_enum_completion_codes();
-        let endpoint = endpoint_result?;
+        let endpoint = match endpoint_result {
+            Ok(endpoint) => endpoint,
+            Err(hid_err) => {
+                let storage_result = self.find_mass_storage_interface();
+                self.capture_enum_completion_codes();
+                match storage_result {
+                    Ok(storage) => {
+                        self.set_enum_stage("set-config");
+                        let set_config_result = self.control_no_data(
+                            0x00,
+                            USB_REQ_SET_CONFIGURATION,
+                            storage.configuration_value as u16,
+                            0,
+                        );
+                        self.capture_enum_completion_codes();
+                        set_config_result?;
+                        self.set_enum_stage("cfg-msc");
+                        let cfg_result =
+                            self.configure_mass_storage(device_index, slot_id, port, storage);
+                        self.capture_enum_completion_codes();
+                        cfg_result?;
+                        serial::write_fmt(format_args!(
+                            "usb-msc: ready on slot {} bulk-in 0x{:02x} bulk-out 0x{:02x}\r\n",
+                            slot_id,
+                            storage.bulk_in_endpoint_address,
+                            storage.bulk_out_endpoint_address
+                        ));
+                        return Ok(EnumeratedKind::MassStorage);
+                    }
+                    Err(_) => return Err(hid_err),
+                }
+            }
+        };
         if endpoint.kind.is_keyboard() && self.keyboard.is_some() {
             return Err("duplicate USB boot keyboard");
         }
@@ -2282,6 +2454,13 @@ impl XhciController {
         {
             self.mouse = None;
         }
+        if self
+            .mass_storage
+            .is_some_and(|storage| storage.root_port_number == port)
+        {
+            self.mass_storage = None;
+            self.mass_storage_probe = MassStorageProbe::none();
+        }
     }
 
     fn clear_devices_for_hub_port(&mut self, hub_slot: u8, port: u8) {
@@ -2294,6 +2473,12 @@ impl XhciController {
             mouse.parent_hub_slot_id == hub_slot && mouse.parent_hub_port_number == port
         }) {
             self.mouse = None;
+        }
+        if self.mass_storage.is_some_and(|storage| {
+            storage.parent_hub_slot_id == hub_slot && storage.parent_hub_port_number == port
+        }) {
+            self.mass_storage = None;
+            self.mass_storage_probe = MassStorageProbe::none();
         }
     }
 
@@ -2348,6 +2533,13 @@ impl XhciController {
             .is_some_and(|mouse| mouse.parent_hub_slot_id == hub_slot)
         {
             self.mouse = None;
+        }
+        if self
+            .mass_storage
+            .is_some_and(|storage| storage.parent_hub_slot_id == hub_slot)
+        {
+            self.mass_storage = None;
+            self.mass_storage_probe = MassStorageProbe::none();
         }
     }
 
@@ -2564,6 +2756,117 @@ impl XhciController {
             parse_boot_hid_endpoint(&CONTROL_BUFFER.0[..actual_len], self.keyboard.is_none());
         self.capture_enum_completion_codes();
         endpoint_result
+    }
+
+    unsafe fn find_mass_storage_interface(&mut self) -> Result<MassStorageInterface, &'static str> {
+        self.set_enum_stage("config-hdr");
+        let header_result = self.control_in(
+            0x80,
+            USB_REQ_GET_DESCRIPTOR,
+            (DESC_CONFIGURATION as u16) << 8,
+            0,
+            9,
+        );
+        self.capture_enum_completion_codes();
+        let header_len = header_result?;
+        if header_len < 9 || CONTROL_BUFFER.0[1] != DESC_CONFIGURATION {
+            return Err("configuration header unavailable");
+        }
+        let total_len = u16::from_le_bytes([CONTROL_BUFFER.0[2], CONTROL_BUFFER.0[3]]) as usize;
+        let config_len = usize::min(total_len, CONTROL_BUFFER_LEN);
+        self.set_enum_stage("config");
+        let config_result = self.control_in(
+            0x80,
+            USB_REQ_GET_DESCRIPTOR,
+            (DESC_CONFIGURATION as u16) << 8,
+            0,
+            config_len,
+        );
+        self.capture_enum_completion_codes();
+        let actual_len = config_result?;
+        self.set_enum_stage("msc-match");
+        parse_mass_storage_interface(&CONTROL_BUFFER.0[..actual_len])
+    }
+
+    unsafe fn configure_mass_storage(
+        &mut self,
+        device_index: usize,
+        slot_id: u8,
+        port: PortInfo,
+        storage: MassStorageInterface,
+    ) -> Result<(), &'static str> {
+        if self.mass_storage.is_some() {
+            return Err("duplicate USB mass storage");
+        }
+
+        self.reset_bulk_rings_at(device_index);
+        clear_input_context();
+        input_control_add_flags(
+            (1 << 0) | (1 << storage.bulk_in_dci) | (1 << storage.bulk_out_dci),
+        );
+        write_slot_context(
+            port,
+            u8::max(storage.bulk_in_dci, storage.bulk_out_dci),
+            self.context_size,
+        );
+        write_endpoint_context(
+            storage.bulk_out_dci,
+            self.context_size,
+            EP_TYPE_BULK_OUT,
+            0,
+            storage.bulk_out_max_packet_size,
+            phys_of(
+                ptr::addr_of!(BULK_OUT_RINGS[device_index].0[0]),
+                "bulk out ring phys",
+            )? | 1,
+            storage.bulk_out_max_packet_size,
+            0,
+        );
+        write_endpoint_context(
+            storage.bulk_in_dci,
+            self.context_size,
+            EP_TYPE_BULK_IN,
+            0,
+            storage.bulk_in_max_packet_size,
+            phys_of(
+                ptr::addr_of!(BULK_IN_RINGS[device_index].0[0]),
+                "bulk in ring phys",
+            )? | 1,
+            storage.bulk_in_max_packet_size,
+            0,
+        );
+        fence(Ordering::SeqCst);
+
+        let input_phys = phys_of(ptr::addr_of!(INPUT_CONTEXT.0[0]), "msc input context phys")?;
+        self.execute_command(Trb {
+            parameter: input_phys,
+            status: 0,
+            control: trb_type(TRB_TYPE_CONFIGURE_ENDPOINT) | ((slot_id as u32) << 24),
+        })?;
+
+        self.mass_storage = Some(MassStorageDevice {
+            slot_id,
+            bulk_in_dci: storage.bulk_in_dci,
+            bulk_out_dci: storage.bulk_out_dci,
+            ring_index: device_index,
+            root_port_number: port.root_port_number,
+            parent_hub_slot_id: port.parent_hub_slot_id,
+            parent_hub_port_number: port.parent_hub_port_number,
+            tag: 1,
+        });
+        self.mass_storage_probe.present = true;
+        match self.probe_mass_storage_layout() {
+            Ok(probe) => self.mass_storage_probe = probe,
+            Err(err) => {
+                self.mass_storage_probe = MassStorageProbe {
+                    present: true,
+                    detail: err,
+                    ..MassStorageProbe::none()
+                };
+                serial::write_fmt(format_args!("usb-msc: read-only probe failed: {}\r\n", err));
+            }
+        }
+        Ok(())
     }
 
     unsafe fn configure_interrupt_endpoint(
@@ -2904,6 +3207,330 @@ impl XhciController {
         Ok(())
     }
 
+    unsafe fn probe_mass_storage_layout(&mut self) -> Result<MassStorageProbe, &'static str> {
+        self.msc_scsi_command(36, true, &[0x12, 0, 0, 0, 36, 0])?;
+        let cap_len = self.msc_scsi_command(
+            MSC_READ_CAPACITY10_LEN,
+            true,
+            &[0x25, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        )?;
+        if cap_len < MSC_READ_CAPACITY10_LEN {
+            return Err("msc_read_capacity_short");
+        }
+        let last_lba = u32::from_be_bytes([
+            MSC_BUFFER.0[0],
+            MSC_BUFFER.0[1],
+            MSC_BUFFER.0[2],
+            MSC_BUFFER.0[3],
+        ]);
+        let block_size = u32::from_be_bytes([
+            MSC_BUFFER.0[4],
+            MSC_BUFFER.0[5],
+            MSC_BUFFER.0[6],
+            MSC_BUFFER.0[7],
+        ]);
+        if block_size != SECTOR_SIZE as u32 {
+            return Ok(MassStorageProbe {
+                present: true,
+                read_completed: true,
+                seed_data_present: false,
+                block_size,
+                last_lba,
+                lba0_signature: 0,
+                detail: "msc_block_size_not_512",
+            });
+        }
+
+        let mbr = self.msc_read_sector_copy(0)?;
+        let lba0_signature = u16::from_le_bytes([mbr[510], mbr[511]]);
+        let header = self.msc_read_sector_copy(1)?;
+        let mut entries = vec![0u8; GPT_ENTRY_ARRAY_BYTES];
+        let mut sector_idx = 0usize;
+        while sector_idx < GPT_ENTRY_ARRAY_BYTES / SECTOR_SIZE {
+            let sector = self.msc_read_sector_copy(PRIMARY_GPT_ENTRIES_LBA + sector_idx as u64)?;
+            let out = sector_idx * SECTOR_SIZE;
+            entries[out..out + SECTOR_SIZE].copy_from_slice(&sector);
+            sector_idx += 1;
+        }
+
+        let gpt = gpt_layout::validate_gpt_layout(&mbr, &header, &entries);
+        if gpt.status != LayoutStatus::Present {
+            return Ok(MassStorageProbe {
+                present: true,
+                read_completed: true,
+                seed_data_present: false,
+                block_size,
+                last_lba,
+                lba0_signature,
+                detail: gpt.reason,
+            });
+        }
+
+        let Some(seed_data_lba1) = gpt.seed_data_first_lba.checked_add(1) else {
+            return Ok(MassStorageProbe {
+                present: true,
+                read_completed: true,
+                seed_data_present: false,
+                block_size,
+                last_lba,
+                lba0_signature,
+                detail: "seed_data_first_lba_overflow",
+            });
+        };
+        let sb0 = self.msc_read_sector_copy(gpt.seed_data_first_lba)?;
+        let sb1 = self.msc_read_sector_copy(seed_data_lba1)?;
+        let data = seed_data_layout::validate_seed_data_layout(&sb0, &sb1, gpt.seed_data_lba_count);
+        let seed_data_present = data.status == LayoutStatus::Present;
+        let probe = MassStorageProbe {
+            present: true,
+            read_completed: true,
+            seed_data_present,
+            block_size,
+            last_lba,
+            lba0_signature,
+            detail: data.reason,
+        };
+        serial::write_fmt(format_args!(
+            "usb-msc: capacity last_lba={} block={} mbr=0x{:04x} seed_data={} {}\r\n",
+            last_lba,
+            block_size,
+            lba0_signature,
+            if seed_data_present {
+                "present"
+            } else {
+                "absent"
+            },
+            probe.detail
+        ));
+        Ok(probe)
+    }
+
+    unsafe fn msc_read_sector_copy(
+        &mut self,
+        lba: u64,
+    ) -> Result<[u8; MSC_SECTOR_BUFFER_LEN], &'static str> {
+        if lba > u32::MAX as u64 {
+            return Err("msc_lba_out_of_read10_range");
+        }
+        let lba32 = lba as u32;
+        let cdb = [
+            0x28,
+            0,
+            (lba32 >> 24) as u8,
+            (lba32 >> 16) as u8,
+            (lba32 >> 8) as u8,
+            lba32 as u8,
+            0,
+            0,
+            1,
+            0,
+        ];
+        let len = self.msc_scsi_command(MSC_SECTOR_BUFFER_LEN, true, &cdb)?;
+        if len < MSC_SECTOR_BUFFER_LEN {
+            return Err("msc_read10_short_sector");
+        }
+        let mut out = [0u8; MSC_SECTOR_BUFFER_LEN];
+        let mut idx = 0usize;
+        while idx < MSC_SECTOR_BUFFER_LEN {
+            out[idx] = ptr::read_volatile(ptr::addr_of!(MSC_BUFFER.0[idx]));
+            idx += 1;
+        }
+        Ok(out)
+    }
+
+    unsafe fn msc_scsi_command(
+        &mut self,
+        data_len: usize,
+        input: bool,
+        cdb: &[u8],
+    ) -> Result<usize, &'static str> {
+        if data_len > MSC_SECTOR_BUFFER_LEN {
+            return Err("msc_data_buffer_too_small");
+        }
+        if cdb.is_empty() || cdb.len() > 16 {
+            return Err("msc_cdb_len_invalid");
+        }
+        let Some(mut storage) = self.mass_storage else {
+            return Err("msc_device_not_configured");
+        };
+        storage.tag = storage.tag.wrapping_add(1).max(1);
+        self.mass_storage = Some(storage);
+
+        ptr::write_bytes(MSC_CBW.0.as_mut_ptr(), 0, MSC_CBW_LEN);
+        ptr::write_bytes(MSC_CSW.0.as_mut_ptr(), 0, MSC_CSW_LEN);
+        ptr::write_bytes(MSC_BUFFER.0.as_mut_ptr(), 0, MSC_SECTOR_BUFFER_LEN);
+        write_le32(&mut MSC_CBW.0, 0, MSC_CBW_SIGNATURE);
+        write_le32(&mut MSC_CBW.0, 4, storage.tag);
+        write_le32(&mut MSC_CBW.0, 8, data_len as u32);
+        MSC_CBW.0[12] = if input { 0x80 } else { 0x00 };
+        MSC_CBW.0[13] = 0;
+        MSC_CBW.0[14] = cdb.len() as u8;
+        let mut idx = 0usize;
+        while idx < cdb.len() {
+            MSC_CBW.0[15 + idx] = cdb[idx];
+            idx += 1;
+        }
+
+        self.bulk_transfer(
+            storage.slot_id,
+            storage.bulk_out_dci,
+            storage.ring_index,
+            false,
+            ptr::addr_of!(MSC_CBW.0[0]),
+            MSC_CBW_LEN,
+        )?;
+        let mut transferred = 0usize;
+        if data_len > 0 {
+            transferred = self.bulk_transfer(
+                storage.slot_id,
+                if input {
+                    storage.bulk_in_dci
+                } else {
+                    storage.bulk_out_dci
+                },
+                storage.ring_index,
+                input,
+                ptr::addr_of!(MSC_BUFFER.0[0]),
+                data_len,
+            )?;
+        }
+        self.bulk_transfer(
+            storage.slot_id,
+            storage.bulk_in_dci,
+            storage.ring_index,
+            true,
+            ptr::addr_of!(MSC_CSW.0[0]),
+            MSC_CSW_LEN,
+        )?;
+
+        let signature = read_le32(&MSC_CSW.0, 0);
+        let tag = read_le32(&MSC_CSW.0, 4);
+        let status = MSC_CSW.0[12];
+        if signature != MSC_CSW_SIGNATURE || tag != storage.tag {
+            return Err("msc_csw_invalid");
+        }
+        if status != 0 {
+            return Err("msc_scsi_status_failed");
+        }
+        Ok(transferred)
+    }
+
+    unsafe fn bulk_transfer(
+        &mut self,
+        slot_id: u8,
+        dci: u8,
+        ring_index: usize,
+        input: bool,
+        buffer: *const u8,
+        len: usize,
+    ) -> Result<usize, &'static str> {
+        let phys = phys_of(buffer, "bulk buffer phys")?;
+        let trb = Trb {
+            parameter: phys,
+            status: len as u32,
+            control: TRB_IOC | trb_type(TRB_TYPE_NORMAL),
+        };
+        if input {
+            self.push_bulk_in_trb(ring_index, trb)?;
+        } else {
+            self.push_bulk_out_trb(ring_index, trb)?;
+        }
+        fence(Ordering::SeqCst);
+        self.ring_doorbell(slot_id, dci);
+        let event = self.wait_transfer_event(slot_id, dci)?;
+        let cc = event.completion_code();
+        self.last_transfer_completion_code = cc as u8;
+        if cc != CC_SUCCESS && cc != CC_SHORT_PACKET {
+            return Err("bulk transfer failed");
+        }
+        let residual = (event.status & 0x00FF_FFFF) as usize;
+        Ok(len.saturating_sub(residual))
+    }
+
+    unsafe fn push_bulk_in_trb(
+        &mut self,
+        ring_index: usize,
+        mut trb: Trb,
+    ) -> Result<(), &'static str> {
+        if ring_index >= MAX_HID_DEVICES {
+            return Err("bulk in ring index out of range");
+        }
+        if self.bulk_in_enqueue[ring_index] == BULK_RING_LEN - 1 {
+            let link_phys = phys_of(
+                ptr::addr_of!(BULK_IN_RINGS[ring_index].0[0]),
+                "bulk in ring link phys",
+            )?;
+            let mut link = Trb {
+                parameter: link_phys,
+                status: 0,
+                control: TRB_LINK_TOGGLE_CYCLE | trb_type(TRB_TYPE_LINK),
+            };
+            if self.bulk_in_cycle[ring_index] {
+                link.control |= TRB_CYCLE;
+            }
+            ptr::write_volatile(
+                ptr::addr_of_mut!(BULK_IN_RINGS[ring_index].0[self.bulk_in_enqueue[ring_index]]),
+                link,
+            );
+            self.bulk_in_enqueue[ring_index] = 0;
+            self.bulk_in_cycle[ring_index] = !self.bulk_in_cycle[ring_index];
+        }
+
+        if self.bulk_in_cycle[ring_index] {
+            trb.control |= TRB_CYCLE;
+        } else {
+            trb.control &= !TRB_CYCLE;
+        }
+        ptr::write_volatile(
+            ptr::addr_of_mut!(BULK_IN_RINGS[ring_index].0[self.bulk_in_enqueue[ring_index]]),
+            trb,
+        );
+        self.bulk_in_enqueue[ring_index] += 1;
+        Ok(())
+    }
+
+    unsafe fn push_bulk_out_trb(
+        &mut self,
+        ring_index: usize,
+        mut trb: Trb,
+    ) -> Result<(), &'static str> {
+        if ring_index >= MAX_HID_DEVICES {
+            return Err("bulk out ring index out of range");
+        }
+        if self.bulk_out_enqueue[ring_index] == BULK_RING_LEN - 1 {
+            let link_phys = phys_of(
+                ptr::addr_of!(BULK_OUT_RINGS[ring_index].0[0]),
+                "bulk out ring link phys",
+            )?;
+            let mut link = Trb {
+                parameter: link_phys,
+                status: 0,
+                control: TRB_LINK_TOGGLE_CYCLE | trb_type(TRB_TYPE_LINK),
+            };
+            if self.bulk_out_cycle[ring_index] {
+                link.control |= TRB_CYCLE;
+            }
+            ptr::write_volatile(
+                ptr::addr_of_mut!(BULK_OUT_RINGS[ring_index].0[self.bulk_out_enqueue[ring_index]]),
+                link,
+            );
+            self.bulk_out_enqueue[ring_index] = 0;
+            self.bulk_out_cycle[ring_index] = !self.bulk_out_cycle[ring_index];
+        }
+
+        if self.bulk_out_cycle[ring_index] {
+            trb.control |= TRB_CYCLE;
+        } else {
+            trb.control &= !TRB_CYCLE;
+        }
+        ptr::write_volatile(
+            ptr::addr_of_mut!(BULK_OUT_RINGS[ring_index].0[self.bulk_out_enqueue[ring_index]]),
+            trb,
+        );
+        self.bulk_out_enqueue[ring_index] += 1;
+        Ok(())
+    }
+
     unsafe fn push_interrupt_trb(
         &mut self,
         ring_index: usize,
@@ -3079,6 +3706,23 @@ impl XhciController {
         self.intr_cycle[ring_index] = true;
     }
 
+    unsafe fn reset_bulk_rings_at(&mut self, ring_index: usize) {
+        ptr::write_bytes(
+            ptr::addr_of_mut!(BULK_IN_RINGS[ring_index].0[0]).cast::<u8>(),
+            0,
+            core::mem::size_of::<Trb>() * BULK_RING_LEN,
+        );
+        ptr::write_bytes(
+            ptr::addr_of_mut!(BULK_OUT_RINGS[ring_index].0[0]).cast::<u8>(),
+            0,
+            core::mem::size_of::<Trb>() * BULK_RING_LEN,
+        );
+        self.bulk_in_enqueue[ring_index] = 0;
+        self.bulk_in_cycle[ring_index] = true;
+        self.bulk_out_enqueue[ring_index] = 0;
+        self.bulk_out_cycle[ring_index] = true;
+    }
+
     unsafe fn recover_interrupt_endpoint(
         &mut self,
         slot_id: u8,
@@ -3135,6 +3779,16 @@ unsafe fn zero_static_storage() {
         core::mem::size_of::<[TrbRing<INTR_RING_LEN>; MAX_HID_DEVICES]>(),
     );
     ptr::write_bytes(
+        ptr::addr_of_mut!(BULK_IN_RINGS).cast::<u8>(),
+        0,
+        core::mem::size_of::<[TrbRing<BULK_RING_LEN>; MAX_HID_DEVICES]>(),
+    );
+    ptr::write_bytes(
+        ptr::addr_of_mut!(BULK_OUT_RINGS).cast::<u8>(),
+        0,
+        core::mem::size_of::<[TrbRing<BULK_RING_LEN>; MAX_HID_DEVICES]>(),
+    );
+    ptr::write_bytes(
         ptr::addr_of_mut!(ERST).cast::<u8>(),
         0,
         core::mem::size_of::<Erst>(),
@@ -3148,6 +3802,9 @@ unsafe fn zero_static_storage() {
     ptr::write_bytes(CONTROL_BUFFER.0.as_mut_ptr(), 0, CONTROL_BUFFER_LEN);
     ptr::write_bytes(KEYBOARD_REPORT.0.as_mut_ptr(), 0, KEYBOARD_REPORT_LEN);
     ptr::write_bytes(MOUSE_REPORT.0.as_mut_ptr(), 0, POINTER_REPORT_BUFFER_LEN);
+    ptr::write_bytes(MSC_CBW.0.as_mut_ptr(), 0, MSC_CBW_LEN);
+    ptr::write_bytes(MSC_CSW.0.as_mut_ptr(), 0, MSC_CSW_LEN);
+    ptr::write_bytes(MSC_BUFFER.0.as_mut_ptr(), 0, MSC_SECTOR_BUFFER_LEN);
 }
 
 unsafe fn setup_scratchpads(count: usize) -> Result<(), &'static str> {
@@ -3386,6 +4043,91 @@ unsafe fn parse_boot_hid_endpoint(
     }
 
     Err("HID interrupt endpoint not found")
+}
+
+fn parse_mass_storage_interface(config: &[u8]) -> Result<MassStorageInterface, &'static str> {
+    if config.len() < 9 {
+        return Err("configuration descriptor too short");
+    }
+
+    let mut configuration_value = 0u8;
+    let mut in_dci = 0u8;
+    let mut out_dci = 0u8;
+    let mut in_addr = 0u8;
+    let mut out_addr = 0u8;
+    let mut in_mps = 0u16;
+    let mut out_mps = 0u16;
+    let mut in_msc = false;
+    let mut offset = 0usize;
+
+    while offset + 2 <= config.len() {
+        let len = config[offset] as usize;
+        let dtype = config[offset + 1];
+        if len < 2 || offset + len > config.len() {
+            break;
+        }
+
+        match dtype {
+            2 if len >= 9 => {
+                configuration_value = config[offset + 5];
+            }
+            4 if len >= 9 => {
+                let current_interface = config[offset + 2];
+                let class = config[offset + 5];
+                let subclass = config[offset + 6];
+                let protocol = config[offset + 7];
+                in_msc = class == USB_CLASS_MASS_STORAGE
+                    && subclass == USB_MSC_SUBCLASS_SCSI
+                    && protocol == USB_MSC_PROTOCOL_BOT;
+                if in_msc {
+                    in_dci = 0;
+                    out_dci = 0;
+                    in_addr = 0;
+                    out_addr = 0;
+                    in_mps = 0;
+                    out_mps = 0;
+                    serial::write_fmt(format_args!(
+                        "usb-msc: bulk-only interface {}\r\n",
+                        current_interface,
+                    ));
+                }
+            }
+            5 if len >= 7 && in_msc => {
+                let endpoint_address = config[offset + 2];
+                let attributes = config[offset + 3] & 0x03;
+                if attributes == 0x02 {
+                    let endpoint_number = endpoint_address & 0x0F;
+                    let max_packet_size =
+                        u16::from_le_bytes([config[offset + 4], config[offset + 5]]) & 0x07FF;
+                    if endpoint_address & 0x80 != 0 {
+                        in_addr = endpoint_address;
+                        in_dci = endpoint_number * 2 + 1;
+                        in_mps = max_packet_size;
+                    } else {
+                        out_addr = endpoint_address;
+                        out_dci = endpoint_number * 2;
+                        out_mps = max_packet_size;
+                    }
+                    if in_dci != 0 && out_dci != 0 {
+                        return Ok(MassStorageInterface {
+                            configuration_value,
+                            bulk_in_dci: in_dci,
+                            bulk_out_dci: out_dci,
+                            bulk_in_endpoint_address: in_addr,
+                            bulk_out_endpoint_address: out_addr,
+                            bulk_in_max_packet_size: u16::max(in_mps, 64),
+                            bulk_out_max_packet_size: u16::max(out_mps, 64),
+                        });
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        offset += len;
+    }
+
+    Err("MSC bulk endpoints not found")
 }
 
 fn decode_pointer_report(
@@ -3662,6 +4404,20 @@ fn wait_for<F: Fn() -> bool>(limit: usize, condition: F) -> Option<()> {
         waited += 1;
     }
     None
+}
+
+fn read_le32(bytes: &[u8], offset: usize) -> u32 {
+    u32::from_le_bytes([
+        bytes[offset],
+        bytes[offset + 1],
+        bytes[offset + 2],
+        bytes[offset + 3],
+    ])
+}
+
+fn write_le32(bytes: &mut [u8], offset: usize, value: u32) {
+    let raw = value.to_le_bytes();
+    bytes[offset..offset + 4].copy_from_slice(&raw);
 }
 
 fn phys_of<T>(ptr: *const T, label: &'static str) -> Result<u64, &'static str> {

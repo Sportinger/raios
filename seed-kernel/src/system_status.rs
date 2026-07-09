@@ -200,13 +200,14 @@ fn usb_xhci_line() -> StatusLine {
             };
             let hid_detail = snapshot.hub_last_error.or(hid_detail).unwrap_or("OK");
             let last_enum = usb_last_enum_detail(snapshot);
+            let mass_storage = usb_mass_storage_status(snapshot);
             if snapshot.hub_count > 0 {
                 if snapshot.last_completion_code != 0 {
                     StatusLine::new(
                         "USB-XHCI",
                         RowState::Ready,
                         detail(format_args!(
-                            "{} HCI {:04X} ROOT {}/{} PWR {} HUB {} {}P {}C {}R {}D KBD {} MOUSE {} EV {} ERR {} TCC {} CMD {} CC {} {}{} RCV{} ICC{}",
+                            "{} HCI {:04X} ROOT {}/{} PWR {} HUB {} {}P {}C {}R {}D KBD {} MOUSE {} MSC {} EV {} ERR {} TCC {} CMD {} CC {} {}{} RCV{} ICC{}",
                             address.as_str(),
                             snapshot.hci_version,
                             snapshot.connected_ports,
@@ -219,6 +220,7 @@ fn usb_xhci_line() -> StatusLine {
                             snapshot.hub_configured_devices,
                             keyboard,
                             mouse,
+                            mass_storage,
                             snapshot.input_report_count,
                             snapshot.input_error_count,
                             snapshot.last_transfer_completion_code,
@@ -235,7 +237,7 @@ fn usb_xhci_line() -> StatusLine {
                         "USB-XHCI",
                         RowState::Ready,
                         detail(format_args!(
-                            "{} HCI {:04X} ROOT {}/{} PWR {} HUB {} {}P {}C {}R {}D KBD {} MOUSE {} EV {} ERR {} TCC {} {}{} RCV{} ICC{}",
+                            "{} HCI {:04X} ROOT {}/{} PWR {} HUB {} {}P {}C {}R {}D KBD {} MOUSE {} MSC {} EV {} ERR {} TCC {} {}{} RCV{} ICC{}",
                             address.as_str(),
                             snapshot.hci_version,
                             snapshot.connected_ports,
@@ -248,6 +250,7 @@ fn usb_xhci_line() -> StatusLine {
                             snapshot.hub_configured_devices,
                             keyboard,
                             mouse,
+                            mass_storage,
                             snapshot.input_report_count,
                             snapshot.input_error_count,
                             snapshot.last_transfer_completion_code,
@@ -263,7 +266,7 @@ fn usb_xhci_line() -> StatusLine {
                     "USB-XHCI",
                     RowState::Ready,
                     detail(format_args!(
-                        "{} HCI {:04X} PORTS {} PWR {} CONNECTED {} KBD {} MOUSE {} EV {} ERR {} TCC {} HID {}{} RCV{} ICC{}",
+                        "{} HCI {:04X} PORTS {} PWR {} CONNECTED {} KBD {} MOUSE {} MSC {} EV {} ERR {} TCC {} HID {}{} RCV{} ICC{}",
                         address.as_str(),
                         snapshot.hci_version,
                         snapshot.max_ports,
@@ -271,6 +274,7 @@ fn usb_xhci_line() -> StatusLine {
                         snapshot.connected_ports,
                         keyboard,
                         mouse,
+                        mass_storage,
                         snapshot.input_report_count,
                         snapshot.input_error_count,
                         snapshot.last_transfer_completion_code,
@@ -282,6 +286,18 @@ fn usb_xhci_line() -> StatusLine {
                 )
             }
         }
+    }
+}
+
+fn usb_mass_storage_status(snapshot: usb::UsbSnapshot) -> &'static str {
+    if snapshot.mass_storage_seed_data_present {
+        "SEED"
+    } else if snapshot.mass_storage_read_completed {
+        "READ"
+    } else if snapshot.mass_storage_present {
+        "FOUND"
+    } else {
+        "NONE"
     }
 }
 

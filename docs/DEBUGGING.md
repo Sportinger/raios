@@ -106,6 +106,13 @@ Run headless with a QEMU xHCI controller plus USB keyboard/mouse attached:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting -SerialMode tcp -SerialTcpPort 4555 -Headless -UsbXhciInput
 ```
 
+Run headless with a prepared GPT persistence image attached as xHCI USB Mass
+Storage:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting -Headless -UsbXhciInput -UsbStorageImage $env:TEMP\raios-usb-msc-test.img
+```
+
 Run the bare-metal-style VM profile with USB keyboard/pointer and e1000
 networking:
 

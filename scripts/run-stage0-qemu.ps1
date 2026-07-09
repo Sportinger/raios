@@ -3,6 +3,7 @@ param(
     [string]$ScratchImage = "",
     [string]$AuditRollbackTargetImage = "",
     [string]$PersistDiskPath = "",
+    [string]$UsbStorageImage = "",
     [ValidateSet("writethrough", "directsync", "writeback", "none", "unsafe")]
     [string]$PersistCacheMode = "writethrough",
     [string]$SerialLog = "$env:TEMP\raios-stage0.serial.txt",
@@ -103,6 +104,16 @@ if ($UsbXhciInput) {
     else {
         $qemuArgs += @("-device", "usb-tablet,bus=xhci.0")
     }
+}
+elseif ($UsbStorageImage) {
+    $qemuArgs += @("-device", "qemu-xhci,id=xhci")
+}
+
+if ($UsbStorageImage) {
+    $qemuArgs += @(
+        "-drive", "file=$((Resolve-Path $UsbStorageImage).Path),format=raw,if=none,id=raiosusb0",
+        "-device", "usb-storage,bus=xhci.0,drive=raiosusb0"
+    )
 }
 
 if ($SerialMode -eq "tcp") {

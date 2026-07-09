@@ -24,17 +24,45 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (Surface WiFi event-only scan): boot the refreshed
-event-only scan image on the real Surface Pro 4, press Start WiFi FW, confirm
-the UI/mouse no longer freezes after `DOWNLOAD 723540/723540`, then press Scan
-networks and capture the `SCAN_EXT` and `EVENT_RING` lines. The RX-PFU path is
-parked because arming it made real Surface MMIO read back all-ones
-(`HOST_INT=0xffffffff`, write pointers `0xffffffff`) and froze input. Next
-implementation work should inspect the remaining host-ring handoff and
-host-interrupt clear discipline without re-enabling RX-PFU on owner hardware.
-Keep QEMU/unknown hardware fail-closed, keep association/link authority false,
-and do not claim live networks until RX/event buffers carrying real frames are
-observed and parsed.
+Current exact next task (USB stick RECLOG append): add the first strictly
+scoped USB Mass Storage `WRITE(10)` path for the prepared GPT stick, limited to
+`SEED_DATA/RECLOG` only, then write one small typed WiFi diagnostic record,
+read it back, reparse the RECLOG frame, and keep all broader storage mutation
+denied. The Surface WiFi RX-PFU path remains parked because arming it made real
+Surface MMIO read back all-ones (`HOST_INT=0xffffffff`, write pointers
+`0xffffffff`) and froze input; do not re-enable RX-PFU while building stick
+logging.
+
+USB Mass Storage read-only SEED_DATA slice done (2026-07-09) - raiOS can now
+boot with a prepared GPT persistence stick attached as xHCI USB Mass Storage,
+configure its BOT bulk-in/bulk-out endpoints, issue read-only SCSI `INQUIRY`,
+`READ CAPACITY(10)`, and `READ(10)` commands, validate the GPT
+`SEED_ESP_A`/`SEED_ESP_B`/`SEED_DATA` layout through the existing
+`raios-core` validators, validate the `RAIOS_DATA_SB_V0` superblock copy, and
+surface `MSC SEED` in the USB-XHCI status line. This grants no USB write path:
+`WRITE(10)`, RECLOG append, and durable WiFi logging remain the next scoped
+authority slice. Verified: release image packaged by
+`scripts\package-stage0.ps1 -Profile release`; temporary GPT stick image built
+with `scripts\make-gpt-persist-image.py --self-check --seed-bootctl valid-a`;
+focused headless QEMU with `-UsbXhciInput -UsbStorageImage` observed
+`usb-msc: capacity last_lba=1050656 block=512 mbr=0xaa55 seed_data=present
+seed_data_superblock_validated` and `status USB-XHCI ... MSC SEED`; quick
+Shadow VM report `release/vm-reports/shadow-20260709-163357-10832.json` passed
+542/542 predicates, 79 executed commands, `duration_ms: 204228`, report sha256
+`ec6133b2e609fb81a1b5375f6b2599c16a59b5af338b878479a250580dffb3c6`, and
+`base_image.sha256: 6669c06d81958f1abf2de1158931a4c67a6ec5ecabff142278c74cf3cf4a2aaf`.
+`git diff --check` passed and `scripts\scan-secrets.ps1` found no
+OpenAI-key-like values. Global `cargo fmt --all -- --check` remains expected-red
+only on the pre-existing unrelated formatting drift in
+`raios-core/src/marvell_wifi_fw.rs` and old sections of `seed-kernel/src/usb.rs`.
+
+Failure classification (2026-07-09, USB-MSC focused runner attempts): two manual
+focused USB-storage QEMU invocations through `scripts\run-stage0-qemu.ps1
+-UsbStorageImage` hit the outer agent tool timeout while the guest serial log
+had already completed the USB-MSC probe and status line; verdict:
+host-transport/runner lifetime, not guest behavior. The retained serial logs
+show the positive guest evidence quoted above, and the normal quick profile then
+passed without code changes.
 
 USB persistent-stick layout slice done (2026-07-09) - the Windows USB writer can
 now prepare a real raiOS GPT persistence stick instead of only a one-FAT ESP:
