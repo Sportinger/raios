@@ -178,7 +178,14 @@ flags remain false (`m12-distribution-provenance` 246/246). Next M12+ slice:
 add the first read-only owner-key provisioning posture diagnostic: persistent
 install requires hardware-bound owner key material, RAM boot may only create an
 ephemeral `current_boot` key, and `owner_sealed` remains false until real
-sealing evidence exists. (3) provide real
+sealing evidence exists. **Owner-key provisioning slice DONE:** `system.honesty_report`
+now reports `owner_key_provisioning`: persistent install policy is
+hardware-bound owner-key generation, RAM policy is ephemeral `current_boot`
+only, no key material is exported, no key is falsely reported as generated, and
+owner-seal/install/load/durable authority stay false
+(`m12-distribution-provenance` 246/246). Next owner-key slice: consume real
+entropy readiness plus hardware/TPM-binding state before any RAM ephemeral key
+or persistent owner key can be generated. (3) provide real
 trust inputs (a cryptographically
 trusted time source, real CA roots, a live second provider) → I finish M10 real
 validation — STILL YOURS. (4) the owner-key sealing ceremony → the FINAL step —

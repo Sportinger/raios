@@ -3,6 +3,15 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
+Updated: 2026-07-09. **Owner-Key-Automatik ist jetzt ehrlich sichtbar:**
+`system.honesty_report.owner_key_provisioning` sagt jetzt explizit: Bei
+persistenter Installation soll der Owner-Key automatisch hardwaregebunden
+erzeugt werden; im RAM-Boot ist nur ein ephemeral `current_boot` Key erlaubt.
+Noch wichtig: raiOS behauptet noch KEINEN erzeugten Key, exportiert kein
+Key-Material und bleibt `owner_sealed:false`, bis echte Entropie- und
+Hardware/TPM-Sealing-Evidenz da ist. Beweis: `m12-distribution-provenance`
+`shadow-20260709-105952-25324.json` 246/246 gruen.
+
 Updated: 2026-07-09. **raiOS trennt jetzt auch Provider-Vertrauen vom
 fehlenden M7-Policy-Beweis:** Im realen Load-Denial sieht ein Agent jetzt unter
 `provider_trust_input_diagnostic`: M7-Loader-Policy-Evidenz fehlt noch, deshalb

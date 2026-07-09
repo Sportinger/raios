@@ -41,6 +41,12 @@ const WASM_AUTHORIZES_BEYOND_ENV: bool = false;
 const WASM_REPORT_GRANTS_AUTHORITY: bool = false;
 const EXTERNAL_ACQUISITION_ACTIVE: bool = false;
 const EXTERNAL_WOULD_BE_CANDIDATE_INTAKE_ONLY: bool = true;
+const OWNER_KEY_PROVISIONING_ID: &str = "owner_key.provisioning.posture.current_boot";
+const OWNER_KEY_PERSISTENT_INSTALL_POLICY: &str =
+    "generate_hardware_bound_owner_key_on_persistent_install";
+const OWNER_KEY_RAM_BOOT_POLICY: &str = "ephemeral_current_boot_key_only";
+const OWNER_KEY_STATUS: &str = "denied_missing_hardware_bound_owner_key_evidence";
+const OWNER_KEY_REASON: &str = "hardware_bound_owner_key_evidence_missing";
 
 pub(crate) fn emit_system_honesty_report(_request: &str) {
     let provider = live_provider_trust_honesty();
@@ -76,14 +82,14 @@ pub(crate) fn emit_system_honesty_report(_request: &str) {
         && !external.decision.authorizes_acquisition
         && !external.decision.authorizes_install
         && !external.decision.authorizes_load;
+    let owner_key_no_overclaim = !OWNER_SEALED && TRUST_TIER == "dev_key_not_owner_sealed";
     let no_dishonest_overclaim = provider_no_overclaim
         && time_no_overclaim
         && cert_time_no_overclaim
         && provider_export_no_overclaim
         && wasm_no_overclaim
         && external_no_overclaim
-        && !OWNER_SEALED
-        && TRUST_TIER == "dev_key_not_owner_sealed";
+        && owner_key_no_overclaim;
 
     begin_response("system.honesty_report");
     emit_record_fields(
@@ -109,6 +115,7 @@ pub(crate) fn emit_system_honesty_report(_request: &str) {
             ),
             f("wasm_no_overclaim", b(wasm_no_overclaim)),
             f("external_no_overclaim", b(external_no_overclaim)),
+            f("owner_key_no_overclaim", b(owner_key_no_overclaim)),
             f("no_dishonest_overclaim", b(no_dishonest_overclaim)),
             f("provider_trust", provider_trust_record(&provider)),
             f("time_authority", time_authority_record(&time)),
@@ -116,6 +123,7 @@ pub(crate) fn emit_system_honesty_report(_request: &str) {
             f("provider_export", provider_export_record()),
             f("wasm_import_surface", wasm_import_surface_record()),
             f("external_acquisition", external.record),
+            f("owner_key_provisioning", owner_key_provisioning_record()),
         ],
         6,
     );
@@ -243,6 +251,36 @@ fn wasm_import_surface_record() -> V<'static> {
         f("authorizes_new_imports", b(WASM_AUTHORIZES_NEW_IMPORTS)),
         f("authorizes_beyond_env", b(WASM_AUTHORIZES_BEYOND_ENV)),
         f("report_grants_authority", b(WASM_REPORT_GRANTS_AUTHORITY)),
+    ])
+}
+
+fn owner_key_provisioning_record() -> V<'static> {
+    V::Object(vec![
+        f("id", s(OWNER_KEY_PROVISIONING_ID)),
+        f("scope", s("current_boot")),
+        f("classification", s("local_only")),
+        f("automatic_generation_intended", b(true)),
+        f("automatic_generation_performed", b(false)),
+        f(
+            "persistent_install_policy",
+            s(OWNER_KEY_PERSISTENT_INSTALL_POLICY),
+        ),
+        f("ram_boot_policy", s(OWNER_KEY_RAM_BOOT_POLICY)),
+        f("persistent_install_hardware_binding_required", b(true)),
+        f("hardware_binding_evidence_present", b(false)),
+        f("persistent_owner_key_generated", b(false)),
+        f("ram_boot_ephemeral_key_allowed", b(true)),
+        f("ram_boot_entropy_required", b(true)),
+        f("ram_boot_ephemeral_key_generated", b(false)),
+        f("owner_key_material_exported", b(false)),
+        f("status", s(OWNER_KEY_STATUS)),
+        f("reason", s(OWNER_KEY_REASON)),
+        f("owner_sealed", b(OWNER_SEALED)),
+        f("trust_tier", s(TRUST_TIER)),
+        f("authorizes_owner_seal", b(false)),
+        f("authorizes_persistent_install", b(false)),
+        f("authorizes_load", b(false)),
+        f("durable_write", b(false)),
     ])
 }
 

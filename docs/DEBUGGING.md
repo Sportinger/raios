@@ -564,6 +564,17 @@ audit binding must keep provider writes, candidate-byte loading, persistence,
 durable audit writes, rollback install, parallel dispatch, and broad mutation
 disabled.
 
+`system.honesty_report.owner_key_provisioning` must report the key lifecycle
+posture without claiming generated key material: persistent install policy
+`generate_hardware_bound_owner_key_on_persistent_install`, RAM boot policy
+`ephemeral_current_boot_key_only`, `automatic_generation_intended: true`,
+`automatic_generation_performed: false`,
+`hardware_binding_evidence_present: false`,
+`persistent_owner_key_generated: false`,
+`ram_boot_ephemeral_key_generated: false`, `owner_key_material_exported: false`,
+`denied_missing_hardware_bound_owner_key_evidence`, and no owner-seal,
+persistent-install, load, or durable-write authority.
+
 The first positive RAM-only service slice is deliberately narrower than general
 module loading:
 

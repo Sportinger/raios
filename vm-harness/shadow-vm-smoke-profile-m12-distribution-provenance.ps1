@@ -1080,13 +1080,32 @@ $honesty = (Get-LastAgentResponseJson -Method "system.honesty_report").body.resu
 $honestyOk = (
     $honesty.no_dishonest_overclaim -eq $true -and
     $honesty.external_no_overclaim -eq $true -and
+    $honesty.owner_key_no_overclaim -eq $true -and
     $honesty.external_acquisition.acquisition_active -eq $false -and
+    $honesty.owner_key_provisioning.id -eq "owner_key.provisioning.posture.current_boot" -and
+    $honesty.owner_key_provisioning.automatic_generation_intended -eq $true -and
+    $honesty.owner_key_provisioning.automatic_generation_performed -eq $false -and
+    $honesty.owner_key_provisioning.persistent_install_policy -eq "generate_hardware_bound_owner_key_on_persistent_install" -and
+    $honesty.owner_key_provisioning.ram_boot_policy -eq "ephemeral_current_boot_key_only" -and
+    $honesty.owner_key_provisioning.persistent_install_hardware_binding_required -eq $true -and
+    $honesty.owner_key_provisioning.hardware_binding_evidence_present -eq $false -and
+    $honesty.owner_key_provisioning.persistent_owner_key_generated -eq $false -and
+    $honesty.owner_key_provisioning.ram_boot_ephemeral_key_allowed -eq $true -and
+    $honesty.owner_key_provisioning.ram_boot_entropy_required -eq $true -and
+    $honesty.owner_key_provisioning.ram_boot_ephemeral_key_generated -eq $false -and
+    $honesty.owner_key_provisioning.owner_key_material_exported -eq $false -and
+    $honesty.owner_key_provisioning.status -eq "denied_missing_hardware_bound_owner_key_evidence" -and
+    $honesty.owner_key_provisioning.reason -eq "hardware_bound_owner_key_evidence_missing" -and
+    $honesty.owner_key_provisioning.authorizes_owner_seal -eq $false -and
+    $honesty.owner_key_provisioning.authorizes_persistent_install -eq $false -and
+    $honesty.owner_key_provisioning.authorizes_load -eq $false -and
+    $honesty.owner_key_provisioning.durable_write -eq $false -and
     $honesty.owner_sealed -eq $false -and
     $honesty.trust_tier -eq "dev_key_not_owner_sealed"
 )
 Assert-M12Predicate `
-    -Name "m12-distribution:N5_honesty_report_unchanged" `
-    -Expected "system.honesty_report still reports no live external acquisition and dev-key-not-owner-sealed" `
+    -Name "m12-distribution:N5_owner_key_provisioning_posture" `
+    -Expected "system.honesty_report reports external acquisition inert and owner-key provisioning unsealed" `
     -Passed $honestyOk `
     -Actual $(if ($honestyOk) { "matched" } else { ($honesty | ConvertTo-Json -Compress -Depth 10) }) `
-    -FailureMessage "Expected system.honesty_report standing external acquisition posture to remain unchanged"
+    -FailureMessage "Expected system.honesty_report owner-key provisioning posture to remain unsealed and non-authorizing"

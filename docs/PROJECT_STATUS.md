@@ -24,11 +24,36 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (owner-key provisioning bridge): add the first
-read-only owner-key provisioning posture diagnostic that records the intended
-automatic key lifecycle: persistent install requires hardware-bound owner key
-material, RAM boot may only create an ephemeral `current_boot` key, and
-`owner_sealed` stays false until real hardware-binding/sealing evidence exists.
+Current exact next task (owner-key evidence bridge): add the first owner-key
+input diagnostic that consumes real entropy readiness plus hardware/TPM-binding
+state, so RAM-mode ephemeral key generation is only allowed with observed
+entropy evidence and persistent owner-key generation remains denied until
+hardware-bound sealing evidence exists.
+
+Owner-key provisioning slice done (2026-07-09) - automatic key lifecycle
+posture is explicit. A user/agent can now inspect `system.honesty_report` and
+see `owner_key_provisioning`: persistent install is declared to require
+`generate_hardware_bound_owner_key_on_persistent_install`, RAM boot is declared
+`ephemeral_current_boot_key_only`, key material is not exported, no persistent
+or ephemeral key is falsely reported as generated, and `owner_sealed`,
+`authorizes_owner_seal`, `authorizes_persistent_install`, `authorizes_load`,
+and `durable_write` all remain false until real hardware-binding/entropy
+evidence exists. Verified: scoped Rust format check (`rustfmt --edition 2021
+--check seed-kernel\src\agent_protocol_honesty.rs`); PowerShell profile parse
+for `vm-harness\shadow-vm-smoke-profile-m12-distribution-provenance.ps1`; diff
+check clean apart from normal CRLF warnings; release seed-kernel build via
+`scripts\build-seed-kernel.ps1 -Profile release`; focused VM
+`m12-distribution-provenance` report
+`release/vm-reports/shadow-20260709-105952-25324.json` 246/246 predicates, 53
+executed commands, `duration_ms: 133739`, report sha256
+`cd18ab09de5461a0ae071e038523285c9ef21e5dbe3d85d60a4adb20d82ed15c`.
+`scripts\scan-secrets.ps1` found no OpenAI-key-like values. Global
+`cargo fmt --all -- --check` remains red only on the pre-existing unrelated
+format drift in `raios-core/src/marvell_wifi_fw.rs` and
+`seed-kernel/src/usb.rs`. Gate check: latest full-profile report remains green
+at `release/vm-reports/shadow-20260708-150428-34396.json` 7867/7867, while
+this slice used the focused M12 profile per aggressive-fast cadence. File-size
+check: touched `seed-kernel\src\agent_protocol_honesty.rs` is 334 lines.
 
 M12+ Slice 19 done (2026-07-09) - provider-trust input diagnostic is explicit.
 A user/agent can now inspect the real `raios.module_load_gate.v0`
