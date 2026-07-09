@@ -2,9 +2,10 @@
 
 Status: execution-ready owner plan, 2026-07-10
 
-Execution cursor: I0/G0 complete at `73c9677`; C0/ADR 0012 and parallel B0/D0
-foundations are active. Runtime capabilities remain unclaimed until their named
-evidence lands.
+Execution cursor: I0/G0 is complete at `73c9677` and C0/ADR 0012 is complete at
+`8e5ff8d`; parallel A0/B0 foundations are active. D0 has a repaired, successful
+no-secret baseline capture and is complete. Runtime capabilities remain
+unclaimed until their named evidence lands.
 
 Target orchestrator: Codex 5.6, reasoning effort `xhigh`
 

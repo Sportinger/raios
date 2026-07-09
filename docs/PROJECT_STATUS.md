@@ -60,6 +60,24 @@ key reboot proof is required; `tpm_auto_unlock`, `vault_vmk_tpm_sealed`,
 `tpm_vmk_wrapper_ready`, and `physical_target_driver_supported` remain
 unproven. ADR 0007 `owner_sealed` is unaffected by this contract.
 
+VM failure classification (2026-07-10, D0 Genesis capture harness) - the first
+local capture launch exited before any guest predicate or framebuffer marker;
+QEMU stderr reported `Block node is read-only` for the IDE boot image. Failing
+predicate: none (guest did not start). Verdict: `host-transport` — harness block-
+device configuration. The bounded repair boots a writable temporary image copy
+inside the harness-owned run directory while preserving the release image.
+
+No-secret framebuffer capture slice done (D0, 2026-07-10) - a developer can now
+capture the normally packaged release image without embedding a provider key,
+mutating that release artifact, enabling unverified TLS, or stopping unrelated
+QEMU processes. `vm-harness/capture-genesis-shell.ps1` owns a unique temporary
+image/OVMF copy and dynamic serial/monitor ports, waits for the real framebuffer
+ready marker, validates the complete P6 raster, and stops only the QEMU PID it
+started. The repaired same-code path produced the 1280x800 PNG
+`target/captures/baseline-shell.png`; visual inspection confirms that it is the
+current technical console baseline, not evidence that the new Genesis design is
+implemented.
+
 VM failure classification (2026-07-09, guided WiFi quick) - report
 `release/vm-reports/shadow-20260709-231946-32656.json` ended with
 `serial_transport_failure: qemu_exited` after all 295/295 predicates and all
