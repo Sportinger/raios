@@ -101,12 +101,15 @@ disabling WiFi DMA/INTx and writing `DRV_READY`. It now keeps BAR memory
 decoding available only for a bounded `FW_STATUS` poll and claims firmware-ready
 solely on `0xFEDCBA00`. The owner confirmed the real Surface reaches ready,
 completes one bounded `GET_HW_SPEC` bus-master window, and keeps hub input
-responsive; Disk 2 RECLOG remained a valid 58-frame chain. The refreshed image
-now applies that same doorbell-to-CMD_DONE/timeout DMA bound to one real
-`SCAN_EXT` command. Next owner evidence is green command completion with stable
-input. Event/RX rings, RX-PFU, live scan results, and link authority remain
-parked until command completion and non-empty result evidence are separately
-proven stable.
+responsive; a later owner test proved real `SCAN_EXT` command completion but
+also reproduced the hub-mouse interrupt stall. RECLOG stayed valid 66/66 and
+showed no new reports despite endpoint rearm plus a completed hub-port reset;
+physical unplug/replug recovered input. Because upstream mwifiex returns
+extended-scan BSS data through an event but legacy scan BSS data directly in the
+command response, the refreshed image now uses bounded legacy scan `0x0006`,
+strictly parses its BSS descriptors, and feeds valid networks into the existing
+`[LIVE]` list. Event/RX rings and RX-PFU remain parked. Next owner evidence is
+real SSIDs plus a fresh RECLOG input timeline; link authority remains denied.
 
 **M12+ opener + honesty capstone (committed, grants nothing):** M12-1 external-
 acquisition HONESTY evaluator (download = candidate intake NEVER install; a

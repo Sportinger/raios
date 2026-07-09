@@ -15,13 +15,11 @@ pub const PASSPHRASE_CAPACITY: usize = 63;
 pub const SCAN_RESULT_CAPACITY: usize = 16;
 pub const WIFI_SCAN_UNAVAILABLE_REASON: &str = "wifi firmware not loaded";
 pub const WIFI_SCAN_MAILBOX_UNAVAILABLE_REASON: &str = "firmware ready; scan command not started";
-pub const WIFI_SCAN_COMMAND_PENDING_REASON: &str =
-    "scan command pending; event ring not implemented";
-pub const WIFI_SCAN_EVENT_RING_UNAVAILABLE_REASON: &str =
-    "scan command accepted; event ring not implemented";
+pub const WIFI_SCAN_COMMAND_PENDING_REASON: &str = "scan command pending";
 pub const WIFI_SCAN_RX_RING_UNAVAILABLE_REASON: &str =
     "scan event observed; live parser not implemented";
-pub const WIFI_SCAN_COMMAND_FAILED_REASON: &str = "scan command failed; event ring not implemented";
+pub const WIFI_SCAN_COMMAND_FAILED_REASON: &str = "scan command failed";
+pub const WIFI_SCAN_LIVE_RESULTS_REASON: &str = "live scan response parsed";
 
 static STATE: Mutex<WifiRuntime> = Mutex::new(WifiRuntime::new());
 
@@ -386,11 +384,10 @@ pub fn note_scan_command_started() {
     guard.snapshot.scan_unavailable_reason = WIFI_SCAN_COMMAND_PENDING_REASON;
 }
 
-pub fn note_scan_command_done_event_ring_unavailable() {
+pub fn note_scan_results_available() {
     let mut guard = STATE.lock();
-    guard.clear_scan_results();
-    guard.snapshot.scan_available = false;
-    guard.snapshot.scan_unavailable_reason = WIFI_SCAN_EVENT_RING_UNAVAILABLE_REASON;
+    guard.snapshot.scan_available = true;
+    guard.snapshot.scan_unavailable_reason = WIFI_SCAN_LIVE_RESULTS_REASON;
 }
 
 pub fn note_scan_event_observed_rx_ring_unavailable() {
@@ -400,7 +397,7 @@ pub fn note_scan_event_observed_rx_ring_unavailable() {
     guard.snapshot.scan_unavailable_reason = WIFI_SCAN_RX_RING_UNAVAILABLE_REASON;
 }
 
-pub fn note_scan_command_failed_event_ring_unavailable() {
+pub fn note_scan_command_failed() {
     let mut guard = STATE.lock();
     guard.clear_scan_results();
     guard.snapshot.scan_available = false;

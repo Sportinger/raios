@@ -24,15 +24,49 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (bare-metal diagnostics): boot the refreshed Disk 2
-stick, click `Start WiFi FW`, wait for green `HW_SPEC`, then click
-`Scan networks` exactly once. Confirm a green `SCAN_EXT: done
-result=command_done_event_ring_unavailable len=113 ...` line and responsive hub
-mouse. This image intentionally will not list live SSIDs yet: event/RX rings and
-RX-PFU remain parked. If command completion and input both hold, the next slice
-opens only the event-result path needed to discover where this firmware returns
-scan results; if input stops or the command times out, read RECLOG before
-opening any result ring.
+Current exact next task (bare-metal WiFi): boot the refreshed Disk 2 stick,
+click `Start WiFi FW`, wait for green `HW_SPEC`, then click `Scan networks`
+once. The new path should show `SCAN: done result=live_results_ready len=106`
+and list real `[LIVE]` 2.4 GHz SSIDs directly below. Event/RX rings and RX-PFU
+remain parked. The hub-mouse interrupt stall is still open: if it recurs after
+WiFi start, unplug/replug is the observed recovery and RECLOG must be read after
+the test; do not describe input stability as solved.
+
+WiFi direct-response live scan slice done (2026-07-09) - raiOS can now request
+and parse real nearby 2.4 GHz BSS results without opening the Marvell event or
+RX-PFU rings. Upstream mwifiex confirms `SCAN_EXT` reports BSS data through a
+firmware event, while legacy `HostCmd_CMD_802_11_SCAN` (`0x0006`) returns the
+BSS descriptions in the bounded command-response buffer. The new no-alloc
+builder sends infrastructure mode, two active probes, and channels 1-11. The
+response parser first validates the complete descriptor count and all nested
+lengths, then converts each firmware BSS descriptor into the existing 802.11
+beacon parser and publishes SSID/channel/security/RSSI as `[LIVE]`; no partial
+result is published before full structural validation. Declared nonzero results
+with zero successfully parsed networks fail closed as `live_result_parse_failed`.
+PCI bus mastering retains the proven doorbell-to-first-CMD_DONE/timeout bound
+and is disabled before response parsing. Link authority remains denied.
+Verified: 32/32 focused `raios-core` Marvell firmware/mailbox/scan tests;
+scoped rustfmt; release packaging; quick Shadow VM report
+`release/vm-reports/shadow-20260709-225029-33012.json` passed 542/542 predicates
+and 79 executed commands, `duration_ms: 201408`, report sha256
+`d8e6ab8e2450aa26a7e4d126136f500514ce57721b2883d227cc7175cb7197a9`, and
+`base_image.sha256: 6f2cf7efa2461f3861d2d44554c257a326e0da50afa32126077f0fc7f9986f59`.
+Owner handoff: Disk 2 `SEED_ESP_A` was refreshed without reformatting via
+`scripts\update-usb-esp-a.ps1 -DiskNumber 2 -SkipBuild`; log
+`C:\Users\admin\AppData\Local\Temp\raios-usb-esp-a-update-disk2-20260709-225759.log`
+reported kernel sha256
+`E46FC0FB334D571BFD6D3152B32E23DB2A923B527DAF9DC49379F90A08B66F07`.
+
+Bare-metal SCAN_EXT/input evidence (2026-07-09) - the owner-provided Surface
+screen proved firmware `ready@ready`, green `HW_SPEC`, and green `SCAN_EXT:
+done result=command_done_event_ring_unavailable len=113`, so the real extended
+scan command completed. The mouse stopped after WiFi start but worked again
+after unplug/replug. Host readback found RECLOG valid 66/66 with no torn tail.
+The test boot begins at `seq=60`; frames 61-62 attempted endpoint rearm,
+`seq=63` completed a hub-port reset, and frames 64-66 rearmed again. All retain
+`reports=179`, `errors=0`, `last_xfer_cc=1`, `m_port=259`, `m_ep=1`: the port
+and endpoint appeared healthy but no new interrupt report arrived. This is an
+open USB re-enumeration/recovery bug, not a successful soft recovery.
 
 WiFi bounded SCAN_EXT DMA window slice done (2026-07-09) - raiOS can now issue
 one real 2.4 GHz wildcard `SCAN_EXT` mailbox command through the same bounded

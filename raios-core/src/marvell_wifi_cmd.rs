@@ -4,6 +4,7 @@
 //! shell owns transport and timeouts.
 
 pub const GET_HW_SPEC_CMD: u16 = 0x0003;
+pub const SCAN_CMD: u16 = 0x0006;
 pub const SCAN_EXT_CMD: u16 = 0x0107;
 pub const MWIFIEX_TYPE_CMD: u16 = 1;
 pub const HOST_CMD_RET_BIT: u16 = 0x8000;
@@ -40,6 +41,12 @@ pub const SCAN_EXT_24GHZ_TLV_LEN: usize = SCAN_EXT_WILDCARD_SSID_TLV_LEN
 pub const SCAN_EXT_24GHZ_GEN_SIZE: usize =
     S_DS_GEN + SCAN_EXT_RESERVED_LEN + SCAN_EXT_24GHZ_TLV_LEN;
 pub const SCAN_EXT_24GHZ_CMD_TOTAL_LEN: usize = INTF_HEADER_LEN + SCAN_EXT_24GHZ_GEN_SIZE;
+pub const SCAN_FIXED_LEN: usize = 7;
+pub const SCAN_24GHZ_TLV_LEN: usize = SCAN_EXT_NUM_PROBES_TLV_LEN + SCAN_EXT_24GHZ_CHANLIST_TLV_LEN;
+pub const SCAN_24GHZ_GEN_SIZE: usize = S_DS_GEN + SCAN_FIXED_LEN + SCAN_24GHZ_TLV_LEN;
+pub const SCAN_24GHZ_CMD_TOTAL_LEN: usize = INTF_HEADER_LEN + SCAN_24GHZ_GEN_SIZE;
+pub const SCAN_RESPONSE_FIXED_LEN: usize = INTF_HEADER_LEN + S_DS_GEN + 3;
+pub const SCAN_BSS_FIXED_LEN: usize = 19;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HwSpecCmdError {
@@ -53,6 +60,14 @@ pub enum HwSpecCmdError {
 pub struct HwSpec {
     pub mac: [u8; 6],
     pub fw_release: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LegacyScanBss<'a> {
+    pub bssid: [u8; 6],
+    pub rssi_dbm: i16,
+    pub fixed_beacon_params: &'a [u8],
+    pub ies: &'a [u8],
 }
 
 pub fn build_get_hw_spec(seq: u16, out: &mut [u8]) -> Result<usize, HwSpecCmdError> {
@@ -118,6 +133,46 @@ pub fn build_scan_ext_24ghz_wildcard(seq: u16, out: &mut [u8]) -> Result<usize, 
     Ok(SCAN_EXT_24GHZ_CMD_TOTAL_LEN)
 }
 
+pub fn build_scan_24ghz(seq: u16, out: &mut [u8]) -> Result<usize, HwSpecCmdError> {
+    if out.len() < SCAN_24GHZ_CMD_TOTAL_LEN {
+        return Err(HwSpecCmdError::OutputBufferTooSmall);
+    }
+
+    out[..SCAN_24GHZ_CMD_TOTAL_LEN].fill(0);
+    put_le16(out, 0, SCAN_24GHZ_CMD_TOTAL_LEN as u16);
+    put_le16(out, 2, MWIFIEX_TYPE_CMD);
+    put_le16(out, 4, SCAN_CMD);
+    put_le16(out, 6, SCAN_24GHZ_GEN_SIZE as u16);
+    put_le16(out, 8, seq);
+    put_le16(out, 10, 0);
+    out[12] = MWIFIEX_BSS_MODE_INFRA;
+
+    let mut offset = INTF_HEADER_LEN + S_DS_GEN + SCAN_FIXED_LEN;
+    write_tlv_header(out, offset, TLV_TYPE_NUMPROBES, 2);
+    put_le16(out, offset + TLV_HEADER_LEN, SCAN_EXT_DEFAULT_NUM_PROBES);
+    offset += SCAN_EXT_NUM_PROBES_TLV_LEN;
+
+    write_tlv_header(
+        out,
+        offset,
+        TLV_TYPE_CHANLIST,
+        (SCAN_EXT_24GHZ_CHANNEL_COUNT * SCAN_EXT_CHANNEL_PARAM_LEN) as u16,
+    );
+    let mut chan_offset = offset + TLV_HEADER_LEN;
+    let mut channel = 1u8;
+    while channel <= SCAN_EXT_24GHZ_CHANNEL_COUNT as u8 {
+        out[chan_offset] = 0;
+        out[chan_offset + 1] = channel;
+        out[chan_offset + 2] = MWIFIEX_DISABLE_CHAN_FILT;
+        put_le16(out, chan_offset + 3, MWIFIEX_ACTIVE_SCAN_CHAN_TIME);
+        put_le16(out, chan_offset + 5, MWIFIEX_ACTIVE_SCAN_CHAN_TIME);
+        chan_offset += SCAN_EXT_CHANNEL_PARAM_LEN;
+        channel += 1;
+    }
+
+    Ok(SCAN_24GHZ_CMD_TOTAL_LEN)
+}
+
 pub fn parse_hw_spec_response(buf: &[u8]) -> Result<HwSpec, HwSpecCmdError> {
     if buf.len() < 2 {
         return Err(HwSpecCmdError::TooShort);
@@ -151,6 +206,84 @@ pub fn parse_hw_spec_response(buf: &[u8]) -> Result<HwSpec, HwSpecCmdError> {
 
 pub fn parse_scan_ext_response(buf: &[u8]) -> Result<(), HwSpecCmdError> {
     parse_host_cmd_status(buf, SCAN_EXT_CMD)
+}
+
+pub fn visit_scan_response<F>(buf: &[u8], mut visit: F) -> Result<u8, HwSpecCmdError>
+where
+    F: FnMut(LegacyScanBss<'_>),
+{
+    parse_host_cmd_status(buf, SCAN_CMD)?;
+    let response_len = le16(buf, 0) as usize;
+    if response_len < SCAN_RESPONSE_FIXED_LEN {
+        return Err(HwSpecCmdError::TooShort);
+    }
+
+    let descriptors_len = le16(buf, INTF_HEADER_LEN + S_DS_GEN) as usize;
+    let count = buf[INTF_HEADER_LEN + S_DS_GEN + 2];
+    let descriptors_start = SCAN_RESPONSE_FIXED_LEN;
+    let Some(descriptors_end) = descriptors_start.checked_add(descriptors_len) else {
+        return Err(HwSpecCmdError::TooShort);
+    };
+    if descriptors_end > response_len {
+        return Err(HwSpecCmdError::TooShort);
+    }
+
+    let mut offset = descriptors_start;
+    let mut index = 0u8;
+    while index < count {
+        let (_, next) = parse_scan_bss(buf, offset, descriptors_end)?;
+        offset = next;
+        index += 1;
+    }
+    if offset != descriptors_end {
+        return Err(HwSpecCmdError::TooShort);
+    }
+
+    offset = descriptors_start;
+    index = 0;
+    while index < count {
+        let (bss, next) = parse_scan_bss(buf, offset, descriptors_end)?;
+        visit(bss);
+        offset = next;
+        index += 1;
+    }
+    Ok(count)
+}
+
+fn parse_scan_bss(
+    buf: &[u8],
+    offset: usize,
+    descriptors_end: usize,
+) -> Result<(LegacyScanBss<'_>, usize), HwSpecCmdError> {
+    let Some(size_end) = offset.checked_add(2) else {
+        return Err(HwSpecCmdError::TooShort);
+    };
+    if size_end > descriptors_end {
+        return Err(HwSpecCmdError::TooShort);
+    }
+    let beacon_size = le16(buf, offset) as usize;
+    if beacon_size < SCAN_BSS_FIXED_LEN {
+        return Err(HwSpecCmdError::TooShort);
+    }
+    let Some(next) = size_end.checked_add(beacon_size) else {
+        return Err(HwSpecCmdError::TooShort);
+    };
+    if next > descriptors_end {
+        return Err(HwSpecCmdError::TooShort);
+    }
+
+    let body = &buf[size_end..next];
+    let mut bssid = [0u8; 6];
+    bssid.copy_from_slice(&body[..6]);
+    Ok((
+        LegacyScanBss {
+            bssid,
+            rssi_dbm: -(body[6] as i16),
+            fixed_beacon_params: &body[7..19],
+            ies: &body[19..],
+        },
+        next,
+    ))
 }
 
 fn parse_host_cmd_status(buf: &[u8], expected_cmd: u16) -> Result<(), HwSpecCmdError> {
@@ -338,6 +471,50 @@ mod tests {
     }
 
     #[test]
+    fn build_scan_24ghz_pins_legacy_response_scan_shape() {
+        let mut out = [0xa5u8; SCAN_24GHZ_CMD_TOTAL_LEN + 8];
+
+        let len = build_scan_24ghz(0x3344, &mut out).unwrap();
+
+        assert_eq!(len, SCAN_24GHZ_CMD_TOTAL_LEN);
+        assert_eq!(&out[0..2], &(len as u16).to_le_bytes());
+        assert_eq!(&out[2..4], &MWIFIEX_TYPE_CMD.to_le_bytes());
+        assert_eq!(&out[4..6], &SCAN_CMD.to_le_bytes());
+        assert_eq!(&out[6..8], &(SCAN_24GHZ_GEN_SIZE as u16).to_le_bytes());
+        assert_eq!(&out[8..10], &0x3344u16.to_le_bytes());
+        assert_eq!(out[12], MWIFIEX_BSS_MODE_INFRA);
+        assert_eq!(&out[13..19], &[0; 6]);
+
+        let probes = INTF_HEADER_LEN + S_DS_GEN + SCAN_FIXED_LEN;
+        assert_eq!(&out[probes..probes + 2], &TLV_TYPE_NUMPROBES.to_le_bytes());
+        assert_eq!(&out[probes + 2..probes + 4], &2u16.to_le_bytes());
+        assert_eq!(
+            &out[probes + 4..probes + 6],
+            &SCAN_EXT_DEFAULT_NUM_PROBES.to_le_bytes()
+        );
+        let channels = probes + SCAN_EXT_NUM_PROBES_TLV_LEN;
+        assert_eq!(
+            &out[channels..channels + 2],
+            &TLV_TYPE_CHANLIST.to_le_bytes()
+        );
+        assert_eq!(
+            &out[channels + 2..channels + 4],
+            &((SCAN_EXT_24GHZ_CHANNEL_COUNT * SCAN_EXT_CHANNEL_PARAM_LEN) as u16).to_le_bytes()
+        );
+        assert!(out[len..].iter().all(|byte| *byte == 0xa5));
+    }
+
+    #[test]
+    fn build_scan_24ghz_rejects_small_output() {
+        let mut out = [0u8; SCAN_24GHZ_CMD_TOTAL_LEN - 1];
+
+        assert_eq!(
+            build_scan_24ghz(0, &mut out),
+            Err(HwSpecCmdError::OutputBufferTooSmall)
+        );
+    }
+
+    #[test]
     fn parse_hw_spec_response_extracts_mac_and_firmware_release() {
         let mut response = [0u8; 96];
         put_response_le16(&mut response, 0, 75);
@@ -429,5 +606,65 @@ mod tests {
             parse_scan_ext_response(&fw_error),
             Err(HwSpecCmdError::FwResult { code: 0x0004 })
         );
+    }
+
+    #[test]
+    fn visit_scan_response_extracts_legacy_bss_fields() {
+        let ies = [0, 4, b't', b'e', b's', b't', 3, 1, 6];
+        let beacon_size = SCAN_BSS_FIXED_LEN + ies.len();
+        let descriptors_len = 2 + beacon_size;
+        let response_len = SCAN_RESPONSE_FIXED_LEN + descriptors_len;
+        let mut response = [0u8; 64];
+        put_response_le16(&mut response, 0, response_len as u16);
+        put_response_le16(&mut response, 2, MWIFIEX_TYPE_CMD);
+        put_response_le16(&mut response, 4, SCAN_CMD | HOST_CMD_RET_BIT);
+        put_response_le16(&mut response, 6, (response_len - INTF_HEADER_LEN) as u16);
+        put_response_le16(&mut response, 10, HOST_CMD_RESULT_OK);
+        put_response_le16(&mut response, 12, descriptors_len as u16);
+        response[14] = 1;
+        put_response_le16(&mut response, 15, beacon_size as u16);
+        response[17..23].copy_from_slice(&[1, 2, 3, 4, 5, 6]);
+        response[23] = 42;
+        response[24..36].copy_from_slice(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+        response[36..36 + ies.len()].copy_from_slice(&ies);
+
+        let mut visits = 0;
+        let count = visit_scan_response(&response, |bss| {
+            visits += 1;
+            assert_eq!(bss.bssid, [1, 2, 3, 4, 5, 6]);
+            assert_eq!(bss.rssi_dbm, -42);
+            assert_eq!(
+                bss.fixed_beacon_params,
+                &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+            );
+            assert_eq!(bss.ies, &ies);
+        })
+        .unwrap();
+
+        assert_eq!(count, 1);
+        assert_eq!(visits, 1);
+    }
+
+    #[test]
+    fn visit_scan_response_validates_all_descriptors_before_visiting() {
+        let mut response = [0u8; SCAN_RESPONSE_FIXED_LEN + 2 + SCAN_BSS_FIXED_LEN];
+        let response_len = response.len();
+        put_response_le16(&mut response, 0, response_len as u16);
+        put_response_le16(&mut response, 4, SCAN_CMD | HOST_CMD_RET_BIT);
+        put_response_le16(&mut response, 10, HOST_CMD_RESULT_OK);
+        put_response_le16(
+            &mut response,
+            12,
+            (response_len - SCAN_RESPONSE_FIXED_LEN) as u16,
+        );
+        response[14] = 2;
+        put_response_le16(&mut response, 15, SCAN_BSS_FIXED_LEN as u16);
+        let mut visits = 0;
+
+        assert_eq!(
+            visit_scan_response(&response, |_| visits += 1),
+            Err(HwSpecCmdError::TooShort)
+        );
+        assert_eq!(visits, 0);
     }
 }

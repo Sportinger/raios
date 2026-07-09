@@ -1658,7 +1658,7 @@ fn start_wifi_scan() {
     match result {
         marvell_wifi_pcie::ScanCmdTriggerResult::Started => {
             write_output(format_args!(
-                "WIFI SCAN: SCAN_EXT SENT NEXT TICK; RESULTS WAIT ON EVENT RING"
+                "WIFI SCAN: LEGACY RESPONSE SCAN SENT NEXT TICK"
             ));
         }
         marvell_wifi_pcie::ScanCmdTriggerResult::AlreadyRunning => {

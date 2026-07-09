@@ -32,7 +32,7 @@ const ACTIONS_PER_POLL: usize = 32;
 const FW_DOWNLOAD_ACTIONS_PER_POLL: usize = 512;
 const HWSPEC_CMD_BUFFER_SIZE: usize = 128;
 const HWSPEC_TIMEOUT_MS: u64 = 3_000;
-const SCAN_CMD_BUFFER_SIZE: usize = marvell_wifi_cmd::SCAN_EXT_24GHZ_CMD_TOTAL_LEN;
+const SCAN_CMD_BUFFER_SIZE: usize = marvell_wifi_cmd::SCAN_24GHZ_CMD_TOTAL_LEN;
 const SCAN_CMD_TIMEOUT_MS: u64 = 15_000;
 const RX_RING_COUNT: usize = 32;
 const RX_RING_MASK: u32 = 0x0000_03ff;
@@ -310,12 +310,13 @@ pub enum ScanCmdResult {
     CommandBuild(HwSpecCmdError),
     CmdDoneTimeout,
     Response(HwSpecCmdError),
+    LiveResultParseFailed,
 }
 
 impl ScanCmdResult {
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Done => "command_done_event_ring_unavailable",
+            Self::Done => "live_results_ready",
             Self::FirmwareNotReady => "firmware_not_ready",
             Self::HwSpecNotReady => "hw_spec_not_ready",
             Self::DmaAddressUnavailable => "dma_address_unavailable",
@@ -328,6 +329,7 @@ impl ScanCmdResult {
             Self::Response(HwSpecCmdError::BadCommand { .. }) => "bad_command",
             Self::Response(HwSpecCmdError::FwResult { .. }) => "fw_result",
             Self::Response(HwSpecCmdError::OutputBufferTooSmall) => "response_buffer_too_small",
+            Self::LiveResultParseFailed => "live_result_parse_failed",
         }
     }
 }
@@ -954,7 +956,7 @@ pub fn start_scan_ext_24ghz() -> ScanCmdTriggerResult {
     drop(runtime);
 
     wifi::note_scan_command_started();
-    serial::write_line("marvell wifi: scan_ext command armed (event-only; rx pfu parked)");
+    serial::write_line("marvell wifi: legacy scan command armed (results in bounded response)");
     ScanCmdTriggerResult::Started
 }
 
@@ -1150,7 +1152,7 @@ pub fn poll_scan_ext() -> bool {
                 command_len,
             );
             write_scan_failure(ScanCmdResult::CmdDoneTimeout, status);
-            wifi::note_scan_command_failed_event_ring_unavailable();
+            wifi::note_scan_command_failed();
             return true;
         }
 
@@ -1163,7 +1165,7 @@ pub fn poll_scan_ext() -> bool {
                         let result = ScanCmdResult::CommandBuild(error);
                         finish_scan_locked(&mut runtime, result, ScanCmdStage::Failed, status, 0);
                         write_scan_failure(result, status);
-                        wifi::note_scan_command_failed_event_ring_unavailable();
+                        wifi::note_scan_command_failed();
                         return true;
                     }
                 };
@@ -1220,19 +1222,37 @@ pub fn poll_scan_ext() -> bool {
                     compiler_fence(Ordering::SeqCst);
 
                     match parsed {
-                        Ok(()) => {
+                        Ok((declared, ingested)) => {
                             let command_len = runtime.snapshot.command_len;
-                            finish_scan_locked(
-                                &mut runtime,
-                                ScanCmdResult::Done,
-                                ScanCmdStage::Done,
-                                status,
-                                command_len,
-                            );
-                            wifi::note_scan_command_done_event_ring_unavailable();
-                            serial::write_line(
-                                "marvell wifi: scan_ext command done; event ring not implemented",
-                            );
+                            if declared == 0 || ingested != 0 {
+                                finish_scan_locked(
+                                    &mut runtime,
+                                    ScanCmdResult::Done,
+                                    ScanCmdStage::Done,
+                                    status,
+                                    command_len,
+                                );
+                                wifi::note_scan_results_available();
+                                serial::write_fmt(format_args!(
+                                    "marvell wifi: legacy scan response ready declared={} ingested={}\r\n",
+                                    declared, ingested
+                                ));
+                            } else {
+                                let result = ScanCmdResult::LiveResultParseFailed;
+                                finish_scan_locked(
+                                    &mut runtime,
+                                    result,
+                                    ScanCmdStage::Failed,
+                                    status,
+                                    command_len,
+                                );
+                                write_scan_failure(result, status);
+                                wifi::note_scan_command_failed();
+                                serial::write_fmt(format_args!(
+                                    "marvell wifi: legacy scan declared {} networks but ingested none\r\n",
+                                    declared
+                                ));
+                            }
                         }
                         Err(error) => {
                             let result = ScanCmdResult::Response(error);
@@ -1245,7 +1265,7 @@ pub fn poll_scan_ext() -> bool {
                                 command_len,
                             );
                             write_scan_failure(result, status);
-                            wifi::note_scan_command_failed_event_ring_unavailable();
+                            wifi::note_scan_command_failed();
                         }
                     }
                     return true;
@@ -1970,7 +1990,7 @@ fn prepare_scan_dma(seq: u16) -> Result<usize, HwSpecCmdError> {
         // area. Access is serialized by SCAN and bounded by fixed sizes.
         ptr::write_bytes(scan_rsp_ptr(), 0, MWIFIEX_UPLD_SIZE);
         let cmd = slice::from_raw_parts_mut(scan_cmd_ptr(), SCAN_CMD_BUFFER_SIZE);
-        marvell_wifi_cmd::build_scan_ext_24ghz_wildcard(seq, cmd)
+        marvell_wifi_cmd::build_scan_24ghz(seq, cmd)
     }
 }
 
@@ -1983,12 +2003,31 @@ fn parse_hw_spec_dma_response() -> Result<marvell_wifi_cmd::HwSpec, HwSpecCmdErr
     }
 }
 
-fn parse_scan_dma_response() -> Result<(), HwSpecCmdError> {
+fn parse_scan_dma_response() -> Result<(u8, usize), HwSpecCmdError> {
     unsafe {
         // SAFETY: the firmware has raised CMD_DONE before this is called, and
         // the response slice covers only the fixed mailbox response buffer.
         let response = slice::from_raw_parts(scan_rsp_ptr().cast_const(), MWIFIEX_UPLD_SIZE);
-        marvell_wifi_cmd::parse_scan_ext_response(response)
+        let mut frame = [0u8; 24 + MWIFIEX_UPLD_SIZE];
+        let mut ingested = 0usize;
+        let declared = marvell_wifi_cmd::visit_scan_response(response, |bss| {
+            let frame_len = 36usize.saturating_add(bss.ies.len());
+            if frame_len > frame.len() {
+                return;
+            }
+            frame[..frame_len].fill(0);
+            frame[0] = 0x80;
+            frame[16..22].copy_from_slice(&bss.bssid);
+            frame[24..36].copy_from_slice(bss.fixed_beacon_params);
+            frame[36..frame_len].copy_from_slice(bss.ies);
+            let rssi = i8::try_from(bss.rssi_dbm).ok();
+            if wifi::ingest_scan_frame(&frame[..frame_len], wifi::ScanSource::LiveRadio, rssi)
+                .is_ok()
+            {
+                ingested += 1;
+            }
+        })?;
+        Ok((declared, ingested))
     }
 }
 
@@ -2164,7 +2203,7 @@ fn write_scan_failure(result: ScanCmdResult, host_int_status: u32) {
         ScanCmdResult::Response(HwSpecCmdError::BadCommand { got })
         | ScanCmdResult::CommandBuild(HwSpecCmdError::BadCommand { got }) => {
             serial::write_fmt(format_args!(
-                "marvell wifi: scan_ext failed: {} got=0x{:04x} host_int=0x{:08x}\r\n",
+                "marvell wifi: scan failed: {} got=0x{:04x} host_int=0x{:08x}\r\n",
                 result.label(),
                 got,
                 host_int_status
@@ -2173,7 +2212,7 @@ fn write_scan_failure(result: ScanCmdResult, host_int_status: u32) {
         ScanCmdResult::Response(HwSpecCmdError::FwResult { code })
         | ScanCmdResult::CommandBuild(HwSpecCmdError::FwResult { code }) => {
             serial::write_fmt(format_args!(
-                "marvell wifi: scan_ext failed: {} code=0x{:04x} host_int=0x{:08x}\r\n",
+                "marvell wifi: scan failed: {} code=0x{:04x} host_int=0x{:08x}\r\n",
                 result.label(),
                 code,
                 host_int_status
@@ -2181,7 +2220,7 @@ fn write_scan_failure(result: ScanCmdResult, host_int_status: u32) {
         }
         _ => {
             serial::write_fmt(format_args!(
-                "marvell wifi: scan_ext failed: {} host_int=0x{:08x}\r\n",
+                "marvell wifi: scan failed: {} host_int=0x{:08x}\r\n",
                 result.label(),
                 host_int_status
             ));

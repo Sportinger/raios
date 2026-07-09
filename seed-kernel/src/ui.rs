@@ -1896,7 +1896,7 @@ fn scan_cmd_line(scan_cmd: marvell_wifi_pcie::ScanCmdSnapshot) -> TextBuf<192> {
         .unwrap_or("pending");
     let _ = write!(
         line,
-        "SCAN_EXT: {} result={} len={} HOST_INT=0x{:08x}",
+        "SCAN: {} result={} len={} HOST_INT=0x{:08x}",
         scan_cmd.stage.label(),
         result,
         scan_cmd.command_len,
