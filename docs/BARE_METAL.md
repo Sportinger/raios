@@ -155,8 +155,10 @@ interrupt error code) — but note it currently truncates off the right edge on 
 QEMU):**
 - **Mouse behind a hub stalls:** works briefly, then the pointer interrupt IN
   (Full-speed, split transactions through the hub TT) silently stops with no
-  error CC; only unplug/replug (full USB re-init) revives it. Likely needs the
-  interrupt endpoint to be detected-as-stopped and re-armed without a replug.
+  error CC; only unplug/replug (full USB re-init) revives it. A 2026-07-09 test
+  image now re-arms the silent hub-mouse interrupt endpoint after about one
+  second once it has produced at least one report; owner bare-metal retest is
+  still required before marking this working.
 - **Very fast keyboard input freezes** input (not the `input.rs` RING — it drops
   oldest, no panic; not a `usb::STATE` re-entrancy deadlock). Cause still open.
 - Make the `RCV/ICC` (and any new interrupt-endpoint) diagnostics fit on-screen.

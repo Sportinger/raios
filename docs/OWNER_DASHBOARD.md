@@ -21,17 +21,21 @@ WiFi status: Surface Marvell firmware bring-up and `SCAN_EXT` command are real,
 but RX-PFU is parked because it froze the Surface and made MMIO read all-ones.
 Do not re-enable RX-PFU while adding stick logging.
 
+Hub/input status: a test image now re-arms a silent mouse interrupt endpoint
+behind a USB hub after it has worked once and then stopped. Needs real Surface
+confirmation; QEMU does not reproduce that stall.
+
 Owner-key status: RAM boot still creates only a secret RAM-only
 `current_boot` owner-key candidate. Persistent owner seal/install/load/durable
 authority remains denied until the real sealing ceremony.
 
 Latest proof: real Disk 2 write log
-`raios-usb-write-disk2-20260709-165319.log` ended with
-`SEED_DATA superblock valid: True`; focused USB-storage VM serial log observed
+`raios-usb-write-disk2-20260709-172741.log` ended with
+`SEED_DATA superblock valid: True`; quick Shadow VM
+`shadow-20260709-172354-28840.json` passed 542/542. Focused USB-storage VM
+serial log observed
 `usb-msc: ... seed_data=present seed_data_superblock_validated` and
-`status USB-XHCI ... MSC SEED`. Quick Shadow VM
-`shadow-20260709-163357-10832.json` passed 542/542, 79 commands,
-report sha256 `ec6133b2e609fb81a1b5375f6b2599c16a59b5af338b878479a250580dffb3c6`.
+`status USB-XHCI ... MSC SEED`.
 
 Gate status: latest full profile remains green at
 `shadow-20260708-150428-34396.json` 7867/7867. This slice used focused USB VM

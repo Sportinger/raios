@@ -33,6 +33,29 @@ Surface MMIO read back all-ones (`HOST_INT=0xffffffff`, write pointers
 `0xffffffff`) and froze input; do not re-enable RX-PFU while building stick
 logging.
 
+Hub-mouse silent rearm test slice prepared (2026-07-09) - raiOS now detects the
+known Surface case where a mouse behind a USB hub has produced at least one
+interrupt report and then goes silent for about one second; only for that
+hub-mouse path it issues `STOP_ENDPOINT`, resets the interrupt transfer ring,
+sets the TR dequeue pointer, requeues the mouse interrupt-IN report, and
+increments the existing `RCV` recovery counter. Direct mice and keyboards are
+unchanged. This is a real xHCI rearm path, but still needs owner bare-metal
+confirmation because the silent hub stall is not reproduced by QEMU. Verified:
+release build and `scripts\package-stage0.ps1 -Profile release` passed; quick
+Shadow VM report `release/vm-reports/shadow-20260709-172354-28840.json` passed
+542/542 predicates, 79 executed commands, `duration_ms: 203525`, report sha256
+`b12671af4e34dd3573d3a2fb0c354880c3ab39e5c64f3afc441a2102618829e4`; real Disk
+2 write log `C:\Users\admin\AppData\Local\Temp\raios-usb-write-disk2-20260709-172741.log`
+ended with `raiOS persistent USB image written to PhysicalDrive2` and
+`SEED_DATA superblock valid: True`.
+
+Failure classification (2026-07-09, hub-mouse watchdog quick VM first attempt):
+quick report `release/vm-reports/shadow-20260709-171353-5728.json` failed before
+guest boot because image packaging used the wrong host Cargo package-cache path
+(`F:\scorefollower-build\cargo\.package-cache`); verdict: host-transport/setup,
+no guest predicate executed. Retry only after setting local `CARGO_HOME` and
+`CARGO_TARGET_DIR`.
+
 Real Surface USB handoff done (2026-07-09) - Disk 2 (`USB SanDisk 3.2Gen1`,
 28.67 GiB) was written with the current raiOS GPT persistence layout using
 `scripts\write-stage0-usb.ps1 -DiskNumber 2 -ConfirmErase 'ERASE DISK 2'

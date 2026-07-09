@@ -70,6 +70,7 @@ const TRB_TYPE_ADDRESS_DEVICE: u32 = 11;
 const TRB_TYPE_CONFIGURE_ENDPOINT: u32 = 12;
 const TRB_TYPE_EVALUATE_CONTEXT: u32 = 13;
 const TRB_TYPE_RESET_ENDPOINT: u32 = 14;
+const TRB_TYPE_STOP_ENDPOINT: u32 = 15;
 const TRB_TYPE_SET_TR_DEQUEUE_POINTER: u32 = 16;
 const TRB_TYPE_TRANSFER_EVENT: u32 = 32;
 const TRB_TYPE_COMMAND_COMPLETION_EVENT: u32 = 33;
@@ -149,6 +150,7 @@ const HUB_PORT_RESET_POLLS: usize = 64;
 const HUB_PORT_RESET_POLL_DELAY_ITERS: usize = WAIT_ITERS / 100;
 const HOTPLUG_MAX_ROOT_PORTS: u8 = 32;
 const MAX_HUB_WATCHES: usize = MAX_HID_DEVICES;
+const MOUSE_HUB_SILENT_RECOVER_POLLS: u16 = 125;
 
 static STATE: Mutex<UsbState> = Mutex::new(UsbState::new());
 
@@ -965,6 +967,7 @@ struct XhciController {
     recover_count: u32,
     keyboard_report_count: u32,
     mouse_report_count: u32,
+    mouse_idle_polls: u16,
     transfer_error_count: u32,
 }
 
@@ -1406,6 +1409,7 @@ impl XhciController {
             recover_count: 0,
             keyboard_report_count: 0,
             mouse_report_count: 0,
+            mouse_idle_polls: 0,
             transfer_error_count: 0,
         })
     }
@@ -2915,6 +2919,7 @@ impl XhciController {
                 });
             }
             HidKind::Mouse => {
+                self.mouse_idle_polls = 0;
                 self.mouse = Some(MouseDevice {
                     slot_id,
                     dci: endpoint.dci,
@@ -2926,6 +2931,7 @@ impl XhciController {
                 });
             }
             HidKind::Tablet => {
+                self.mouse_idle_polls = 0;
                 self.mouse = Some(MouseDevice {
                     slot_id,
                     dci: endpoint.dci,
@@ -3578,6 +3584,7 @@ impl XhciController {
         K: FnMut(u16, bool),
         M: FnMut(UsbMouseReport),
     {
+        let mouse_reports_before = self.mouse_report_count;
         let mut processed = 0usize;
         while processed < 16 {
             let Some(event) = self.poll_event() else {
@@ -3590,6 +3597,11 @@ impl XhciController {
         }
         if processed == 0 {
             self.kick_input_endpoints();
+        }
+        if self.mouse_report_count == mouse_reports_before {
+            self.recover_silent_hub_mouse();
+        } else {
+            self.mouse_idle_polls = 0;
         }
     }
 
@@ -3640,6 +3652,7 @@ impl XhciController {
                 if cc == CC_SUCCESS || cc == CC_SHORT_PACKET {
                     self.last_transfer_completion_code = cc as u8;
                     self.mouse_report_count = self.mouse_report_count.saturating_add(1);
+                    self.mouse_idle_polls = 0;
                     let report = MOUSE_REPORT.0;
                     mouse_fn(decode_pointer_report(mouse.kind, &report));
                 } else {
@@ -3664,6 +3677,31 @@ impl XhciController {
         }
         if let Some(mouse) = self.mouse {
             self.ring_doorbell(mouse.slot_id, mouse.dci);
+        }
+    }
+
+    unsafe fn recover_silent_hub_mouse(&mut self) {
+        let Some(mouse) = self.mouse else {
+            self.mouse_idle_polls = 0;
+            return;
+        };
+        if mouse.parent_hub_slot_id == 0 || self.mouse_report_count == 0 {
+            self.mouse_idle_polls = 0;
+            return;
+        }
+        self.mouse_idle_polls = self.mouse_idle_polls.saturating_add(1);
+        if self.mouse_idle_polls < MOUSE_HUB_SILENT_RECOVER_POLLS {
+            return;
+        }
+
+        self.mouse_idle_polls = 0;
+        // ponytail: watchdog workaround for the real Surface hub mouse silent-stop;
+        // replace with endpoint-state diagnostics when xHCI endpoint context reads exist.
+        if self
+            .rearm_interrupt_endpoint(mouse.slot_id, mouse.dci, mouse.ring_index)
+            .is_ok()
+        {
+            let _ = self.queue_mouse_report();
         }
     }
 
@@ -3741,6 +3779,39 @@ impl XhciController {
                 | ((dci as u32) << 16)
                 | ((slot_id as u32) << 24),
         })?;
+        self.reset_interrupt_ring_at(ring_index);
+        let dequeue = phys_of(
+            ptr::addr_of!(INTR_RINGS[ring_index].0[0]),
+            "interrupt dequeue phys",
+        )? | 1;
+        self.execute_command(Trb {
+            parameter: dequeue,
+            status: 0,
+            control: trb_type(TRB_TYPE_SET_TR_DEQUEUE_POINTER)
+                | ((dci as u32) << 16)
+                | ((slot_id as u32) << 24),
+        })?;
+        Ok(())
+    }
+
+    unsafe fn rearm_interrupt_endpoint(
+        &mut self,
+        slot_id: u8,
+        dci: u8,
+        ring_index: usize,
+    ) -> Result<(), &'static str> {
+        self.recover_count = self.recover_count.saturating_add(1);
+        serial::write_fmt(format_args!(
+            "usb-hid: rearming silent slot {} endpoint {}\r\n",
+            slot_id, dci
+        ));
+        let _ = self.execute_command(Trb {
+            parameter: 0,
+            status: 0,
+            control: trb_type(TRB_TYPE_STOP_ENDPOINT)
+                | ((dci as u32) << 16)
+                | ((slot_id as u32) << 24),
+        });
         self.reset_interrupt_ring_at(ring_index);
         let dequeue = phys_of(
             ptr::addr_of!(INTR_RINGS[ring_index].0[0]),
