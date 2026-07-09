@@ -24,13 +24,39 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (bare-metal WiFi): boot the refreshed Disk 2 stick,
-click `Start WiFi FW`, wait for green `HW_SPEC`, then click `Scan networks`
-once. The new path should show `SCAN: done result=live_results_ready len=106`
-and list real `[LIVE]` 2.4 GHz SSIDs directly below. Event/RX rings and RX-PFU
-remain parked. The hub-mouse interrupt stall is still open: if it recurs after
-WiFi start, unplug/replug is the observed recovery and RECLOG must be read after
-the test; do not describe input stability as solved.
+Current exact next task (bare-metal WiFi): refresh Disk 2, boot the Surface,
+and click the blue `WiFi DETECTED` status pill. Verify the small progress window
+automatically reaches the anchored live-network list, select a secured SSID,
+enter a password, and confirm the result says credentials are RAM-ready but
+`Connection not established`. Event/RX rings, RX-PFU, association, link, DHCP,
+and persistent secret storage remain denied. The hub-mouse interrupt stall is
+still open: if it recurs after WiFi start, unplug/replug is the observed
+recovery and RECLOG must be read after the test; do not describe input stability
+as solved.
+
+VM failure classification (2026-07-09, WiFi guided-setup UI): the first
+`quick` invocation was terminated by the local command wrapper after five
+seconds before any guest predicate ran. Verdict: `host-transport`; failing
+predicate: `none (runner timeout before predicate execution)`. The retry uses
+the same code and profile with an explicit long host timeout.
+
+WiFi guided-setup UI slice done (2026-07-09) - a user can now click the top
+`WiFi DETECTED` pill and complete firmware bring-up, `GET_HW_SPEC`, live scan,
+SSID selection, and RAM-only password entry without using the console or the
+Settings action buttons. A small progress window is driven by the real
+firmware byte count and mailbox stages; successful scan completion opens an
+anchored list populated only from the existing validated live results. Hidden
+SSIDs still fail closed to manual entry, open networks skip the password step,
+and secured networks reuse the masked console input with retry/cancel outcomes.
+The default checked option is explicitly `Remember for this boot (RAM only)`;
+it records current-boot retention intent and does not claim durable encrypted
+secret storage. Completion explicitly reports `Connection not established`,
+so this slice grants no association, link, DHCP, or network authority. Verified:
+scoped rustfmt; release kernel build; quick Shadow VM report
+`release/vm-reports/shadow-20260709-232827-11108.json` passed 542/542 predicates
+and 79 executed commands, `duration_ms: 225515`, report sha256
+`16922268b9ae008d96579e1453db159e79558e816f68d2a29eb8eba4c4c5766f`, and
+`base_image.sha256: eda90c523419d3ba26024e956eccd18e6efe32ee0f522912aa1649c51672b563`.
 
 WiFi direct-response live scan slice done (2026-07-09) - raiOS can now request
 and parse real nearby 2.4 GHz BSS results without opening the Marvell event or

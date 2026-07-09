@@ -2,6 +2,7 @@ use crate::framebuffer::{Color, FramebufferInfo, FramebufferSurface};
 use crate::system_status::{RowState, SnapshotStates, StatusLine, SystemSnapshot, TextBuf};
 use crate::{console, input, marvell_wifi_pcie, serial, text, wifi};
 use core::fmt::{self, Write};
+use raios_core::dot11_scan::Dot11Security;
 
 pub use crate::system_status::RuntimeStatus;
 
@@ -33,6 +34,8 @@ const INPUT_FIELD_RIGHT: usize = 72;
 const INPUT_FIELD_H: usize = 36;
 const SETTINGS_ACTION_H: usize = 38;
 const SETTINGS_ACTION_ROW_STEP: usize = 54;
+const WIFI_FLOW_LIST_LIMIT: usize = 8;
+const WIFI_FLOW_LIST_ROW_H: usize = 42;
 const R8_INSETS: [usize; 8] = [8, 4, 3, 2, 1, 1, 0, 0];
 const R6_INSETS: [usize; 6] = [6, 3, 2, 1, 0, 0];
 
@@ -50,12 +53,41 @@ const APP_AMBER: Color = Color::new(255, 159, 10);
 const APP_RED: Color = Color::new(255, 69, 58);
 const USER_BUBBLE: Color = Color::new(21, 93, 204);
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WifiFlow {
+    Idle,
+    Starting {
+        scan_started: bool,
+    },
+    Selecting,
+    Password {
+        network_index: usize,
+        remember_for_boot: bool,
+        rejected: bool,
+    },
+    Configured {
+        network_index: usize,
+        remember_for_boot: bool,
+    },
+    Failed(&'static str),
+}
+
+#[derive(Clone, Copy)]
+struct LogicalRect {
+    x: usize,
+    y: usize,
+    w: usize,
+    h: usize,
+}
+
 pub struct StatusUi {
     surface: Option<FramebufferSurface>,
     last_states: Option<SnapshotStates>,
     last_draw_states: Option<SnapshotStates>,
     last_mouse_buttons: u8,
     last_cursor_rect: Option<CursorRect>,
+    wifi_chip_rect: Option<LogicalRect>,
+    wifi_flow: WifiFlow,
 }
 
 impl StatusUi {
@@ -70,6 +102,8 @@ impl StatusUi {
             last_draw_states: None,
             last_mouse_buttons: 0,
             last_cursor_rect: None,
+            wifi_chip_rect: None,
+            wifi_flow: WifiFlow::Idle,
         }
     }
 
@@ -82,16 +116,24 @@ impl StatusUi {
     }
 
     fn render_inner(&mut self, uptime_ms: u64, runtime: RuntimeStatus, force_draw: bool) {
+        let flow_changed = self.advance_wifi_flow();
         let framebuffer = self.surface.as_ref().map(|surface| surface.info());
         let snapshot = SystemSnapshot::collect(framebuffer, runtime);
         self.log_transitions(&snapshot);
+        self.wifi_chip_rect = Some(wifi_status_chip_rect(&snapshot));
 
         let states = snapshot.states();
-        let should_draw = force_draw || self.last_draw_states != Some(states);
+        let should_draw = flow_changed || force_draw || self.last_draw_states != Some(states);
 
         if should_draw {
             if let Some(surface) = self.surface.as_mut() {
-                draw(surface, uptime_ms, &snapshot);
+                draw(
+                    surface,
+                    uptime_ms,
+                    &snapshot,
+                    self.wifi_flow,
+                    self.wifi_chip_rect,
+                );
                 surface.present();
                 self.last_cursor_rect = None;
                 draw_current_cursor(surface, &mut self.last_cursor_rect);
@@ -124,8 +166,21 @@ impl StatusUi {
 
         let scale = display_scale(surface.info());
         let width = logical_width(surface.info());
+        let height = logical_height(surface.info());
         let x = mouse.x / scale;
         let y = mouse.y / scale;
+
+        if self.wifi_flow != WifiFlow::Idle {
+            return self.handle_wifi_flow_pointer(x, y, width, height);
+        }
+        if let Some(rect) = self.wifi_chip_rect {
+            if point_in(x, y, rect.x, rect.y, rect.w, rect.h)
+                && wifi::snapshot().state == wifi::WifiState::Detected
+            {
+                return self.begin_wifi_flow();
+            }
+        }
+
         let ai_tab_x = header_tab_x(0);
         let ai_tab_w = header_tab_width("AI");
         let console_tab_x = header_tab_x(1);
@@ -255,6 +310,261 @@ impl StatusUi {
         false
     }
 
+    fn begin_wifi_flow(&mut self) -> bool {
+        if wifi::snapshot().state != wifi::WifiState::Detected {
+            self.wifi_flow = WifiFlow::Failed("wifi_device_not_detected");
+            return true;
+        }
+
+        let firmware = marvell_wifi_pcie::snapshot();
+        if firmware.is_failed() {
+            self.wifi_flow = WifiFlow::Failed(
+                firmware
+                    .result
+                    .map(|result| result.label())
+                    .unwrap_or("firmware_failed"),
+            );
+            return true;
+        }
+        self.wifi_flow = WifiFlow::Starting {
+            scan_started: false,
+        };
+        if firmware.is_ready() || firmware.running {
+            return true;
+        }
+
+        let result = marvell_wifi_pcie::start_bring_up_firmware();
+        console::write_event(format_args!("WIFI UI START: {}", result.label()));
+        match result {
+            marvell_wifi_pcie::FirmwareBringupTriggerResult::Started
+            | marvell_wifi_pcie::FirmwareBringupTriggerResult::AlreadyRunning => true,
+            marvell_wifi_pcie::FirmwareBringupTriggerResult::AlreadyAttempted => {
+                self.wifi_flow = WifiFlow::Failed("firmware_already_attempted");
+                true
+            }
+            marvell_wifi_pcie::FirmwareBringupTriggerResult::Failed(error) => {
+                self.wifi_flow = WifiFlow::Failed(error.label());
+                true
+            }
+        }
+    }
+
+    fn advance_wifi_flow(&mut self) -> bool {
+        match self.wifi_flow {
+            WifiFlow::Starting { scan_started } => {
+                let firmware = marvell_wifi_pcie::snapshot();
+                if firmware.is_failed() {
+                    self.wifi_flow = WifiFlow::Failed(
+                        firmware
+                            .result
+                            .map(|result| result.label())
+                            .unwrap_or("firmware_failed"),
+                    );
+                    return true;
+                }
+                if !firmware.is_ready() {
+                    return false;
+                }
+
+                let hw_spec = marvell_wifi_pcie::hw_spec_snapshot();
+                if hw_spec.is_failed() {
+                    self.wifi_flow = WifiFlow::Failed(
+                        hw_spec
+                            .result
+                            .map(|result| result.label())
+                            .unwrap_or("hw_spec_failed"),
+                    );
+                    return true;
+                }
+                if !hw_spec.is_ready() {
+                    return false;
+                }
+
+                if !scan_started {
+                    let result = marvell_wifi_pcie::start_scan_ext_24ghz();
+                    console::write_event(format_args!("WIFI UI SCAN: {}", result.label()));
+                    return match result {
+                        marvell_wifi_pcie::ScanCmdTriggerResult::Started
+                        | marvell_wifi_pcie::ScanCmdTriggerResult::AlreadyRunning => {
+                            self.wifi_flow = WifiFlow::Starting { scan_started: true };
+                            true
+                        }
+                        marvell_wifi_pcie::ScanCmdTriggerResult::Failed(error) => {
+                            self.wifi_flow = WifiFlow::Failed(error.label());
+                            true
+                        }
+                    };
+                }
+
+                let scan = marvell_wifi_pcie::scan_cmd_snapshot();
+                if scan.stage == marvell_wifi_pcie::ScanCmdStage::Failed {
+                    self.wifi_flow = WifiFlow::Failed(
+                        scan.result
+                            .map(|result| result.label())
+                            .unwrap_or("scan_failed"),
+                    );
+                    return true;
+                }
+                if scan.stage == marvell_wifi_pcie::ScanCmdStage::Done {
+                    self.wifi_flow = WifiFlow::Selecting;
+                    return true;
+                }
+                false
+            }
+            WifiFlow::Password {
+                network_index,
+                remember_for_boot,
+                ..
+            } => {
+                let console_snapshot = console::snapshot();
+                match console_snapshot.wifi_passphrase_entry_result {
+                    console::WifiPassphraseEntryResult::Set => {
+                        self.wifi_flow = WifiFlow::Configured {
+                            network_index,
+                            remember_for_boot,
+                        };
+                        true
+                    }
+                    console::WifiPassphraseEntryResult::Cancelled => {
+                        self.wifi_flow = WifiFlow::Selecting;
+                        true
+                    }
+                    console::WifiPassphraseEntryResult::Rejected => {
+                        let _ = console::activate_focus(console::UiFocus::SettingsWifiPassphrase);
+                        self.wifi_flow = WifiFlow::Password {
+                            network_index,
+                            remember_for_boot,
+                            rejected: true,
+                        };
+                        true
+                    }
+                    console::WifiPassphraseEntryResult::None => false,
+                }
+            }
+            WifiFlow::Idle
+            | WifiFlow::Selecting
+            | WifiFlow::Configured { .. }
+            | WifiFlow::Failed(_) => false,
+        }
+    }
+
+    fn handle_wifi_flow_pointer(
+        &mut self,
+        x: usize,
+        y: usize,
+        width: usize,
+        height: usize,
+    ) -> bool {
+        match self.wifi_flow {
+            WifiFlow::Idle | WifiFlow::Starting { .. } => false,
+            WifiFlow::Selecting => {
+                let scan = wifi::scan_results();
+                let rect = wifi_selection_dialog_rect(
+                    width,
+                    height,
+                    scan.count,
+                    self.wifi_chip_rect.map(|rect| rect.x).unwrap_or(24),
+                );
+                let visible = usize::min(scan.count, WIFI_FLOW_LIST_LIMIT);
+                let mut index = 0usize;
+                while index < visible {
+                    let row_y = rect.y + 66 + index * WIFI_FLOW_LIST_ROW_H;
+                    if point_in(x, y, rect.x + 24, row_y, rect.w - 48, 34) {
+                        let network = scan.networks[index];
+                        if network.hidden_ssid || network.ssid.is_empty() {
+                            self.wifi_flow = WifiFlow::Failed("hidden_ssid_requires_manual_entry");
+                            return true;
+                        }
+                        wifi::clear_config();
+                        if wifi::set_ssid(network.ssid.as_bytes()).is_err() {
+                            self.wifi_flow = WifiFlow::Failed("ssid_rejected");
+                            return true;
+                        }
+                        if network.security == Dot11Security::Open {
+                            self.wifi_flow = WifiFlow::Configured {
+                                network_index: index,
+                                remember_for_boot: false,
+                            };
+                            return true;
+                        }
+                        wifi::set_remember_passphrase_for_boot(true);
+                        let _ = console::activate_focus(console::UiFocus::SettingsWifiPassphrase);
+                        self.wifi_flow = WifiFlow::Password {
+                            network_index: index,
+                            remember_for_boot: true,
+                            rejected: false,
+                        };
+                        return true;
+                    }
+                    index += 1;
+                }
+
+                let (left, right) = wifi_dialog_action_rects(rect);
+                if point_in(x, y, left.x, left.y, left.w, left.h) {
+                    self.wifi_flow = WifiFlow::Starting {
+                        scan_started: false,
+                    };
+                    return true;
+                }
+                if point_in(x, y, right.x, right.y, right.w, right.h) {
+                    self.wifi_flow = WifiFlow::Idle;
+                    return true;
+                }
+                false
+            }
+            WifiFlow::Password {
+                network_index,
+                remember_for_boot,
+                rejected,
+            } => {
+                let rect = wifi_password_dialog_rect(width, height);
+                if point_in(x, y, rect.x + 28, rect.y + 150, rect.w - 56, 34) {
+                    let remember_for_boot = !remember_for_boot;
+                    wifi::set_remember_passphrase_for_boot(remember_for_boot);
+                    self.wifi_flow = WifiFlow::Password {
+                        network_index,
+                        remember_for_boot,
+                        rejected,
+                    };
+                    return true;
+                }
+
+                let (left, right) = wifi_dialog_action_rects(rect);
+                if point_in(x, y, left.x, left.y, left.w, left.h) {
+                    let _ = console::cancel_wifi_passphrase_entry();
+                    self.wifi_flow = WifiFlow::Selecting;
+                    return true;
+                }
+                if point_in(x, y, right.x, right.y, right.w, right.h) {
+                    wifi::set_remember_passphrase_for_boot(remember_for_boot);
+                    return console::submit_wifi_passphrase_entry();
+                }
+                false
+            }
+            WifiFlow::Configured { .. } => {
+                let rect = wifi_result_dialog_rect(width, height);
+                let (_, right) = wifi_dialog_action_rects(rect);
+                if point_in(x, y, right.x, right.y, right.w, right.h) {
+                    self.wifi_flow = WifiFlow::Idle;
+                    return true;
+                }
+                false
+            }
+            WifiFlow::Failed(_) => {
+                let rect = wifi_result_dialog_rect(width, height);
+                let (left, right) = wifi_dialog_action_rects(rect);
+                if point_in(x, y, left.x, left.y, left.w, left.h) {
+                    return self.begin_wifi_flow();
+                }
+                if point_in(x, y, right.x, right.y, right.w, right.h) {
+                    self.wifi_flow = WifiFlow::Idle;
+                    return true;
+                }
+                false
+            }
+        }
+    }
+
     fn log_transitions(&mut self, snapshot: &SystemSnapshot) {
         let states = snapshot.states();
         let previous = self.last_states;
@@ -274,6 +584,96 @@ impl StatusUi {
 
 fn point_in(px: usize, py: usize, x: usize, y: usize, w: usize, h: usize) -> bool {
     px >= x && px < x.saturating_add(w) && py >= y && py < y.saturating_add(h)
+}
+
+fn centered_rect(
+    screen_width: usize,
+    screen_height: usize,
+    width: usize,
+    height: usize,
+) -> LogicalRect {
+    let width = usize::min(width, screen_width.saturating_sub(48));
+    let height = usize::min(height, screen_height.saturating_sub(96));
+    LogicalRect {
+        x: screen_width.saturating_sub(width) / 2,
+        y: usize::max(88, screen_height.saturating_sub(height) / 2),
+        w: width,
+        h: height,
+    }
+}
+
+fn wifi_selection_dialog_rect(
+    screen_width: usize,
+    screen_height: usize,
+    network_count: usize,
+    anchor_x: usize,
+) -> LogicalRect {
+    let visible = usize::min(network_count, WIFI_FLOW_LIST_LIMIT);
+    let mut rect = centered_rect(
+        screen_width,
+        screen_height,
+        560,
+        170usize.saturating_add(visible.saturating_mul(WIFI_FLOW_LIST_ROW_H)),
+    );
+    rect.x = usize::min(
+        usize::max(24, anchor_x),
+        screen_width.saturating_sub(rect.w).saturating_sub(24),
+    );
+    if 128usize.saturating_add(rect.h).saturating_add(24) <= screen_height {
+        rect.y = 128;
+    }
+    rect
+}
+
+fn wifi_password_dialog_rect(screen_width: usize, screen_height: usize) -> LogicalRect {
+    centered_rect(screen_width, screen_height, 560, 260)
+}
+
+fn wifi_result_dialog_rect(screen_width: usize, screen_height: usize) -> LogicalRect {
+    centered_rect(screen_width, screen_height, 520, 210)
+}
+
+fn wifi_progress_dialog_rect(screen_width: usize, screen_height: usize) -> LogicalRect {
+    centered_rect(screen_width, screen_height, 520, 190)
+}
+
+fn wifi_dialog_action_rects(rect: LogicalRect) -> (LogicalRect, LogicalRect) {
+    let gap = 14usize;
+    let width = rect.w.saturating_sub(62).saturating_sub(gap) / 2;
+    let y = rect.y.saturating_add(rect.h).saturating_sub(50);
+    (
+        LogicalRect {
+            x: rect.x + 24,
+            y,
+            w: width,
+            h: 34,
+        },
+        LogicalRect {
+            x: rect.x + 24 + width + gap,
+            y,
+            w: width,
+            h: 34,
+        },
+    )
+}
+
+fn status_chip_width(label: &str, line: &StatusLine) -> usize {
+    28usize
+        .saturating_add(label.len().saturating_mul(FONT_ADVANCE))
+        .saturating_add(8)
+        .saturating_add(row_state_text_len(line.state).saturating_mul(FONT_ADVANCE))
+        .saturating_add(14)
+}
+
+fn wifi_status_chip_rect(snapshot: &SystemSnapshot) -> LogicalRect {
+    LogicalRect {
+        x: 24usize
+            .saturating_add(status_chip_width("Net", &snapshot.network))
+            .saturating_add(12),
+        y: 90,
+        w: status_chip_width("WiFi", &snapshot.wifi),
+        h: 30,
+    }
 }
 
 fn settings_action_columns(width: usize) -> (usize, usize, usize) {
@@ -309,7 +709,13 @@ fn log_transition(previous: Option<RowState>, line: &StatusLine) {
     ));
 }
 
-fn draw(surface: &mut FramebufferSurface, uptime_ms: u64, snapshot: &SystemSnapshot) {
+fn draw(
+    surface: &mut FramebufferSurface,
+    uptime_ms: u64,
+    snapshot: &SystemSnapshot,
+    wifi_flow: WifiFlow,
+    wifi_chip_rect: Option<LogicalRect>,
+) {
     let info = surface.info();
     let scale = display_scale(info);
     surface.set_draw_scale(scale);
@@ -327,6 +733,15 @@ fn draw(surface: &mut FramebufferSurface, uptime_ms: u64, snapshot: &SystemSnaps
         console::UiView::Console => draw_console(surface, width, height, &console_snapshot),
         console::UiView::Settings => draw_settings(surface, width, height, &console_snapshot),
     }
+
+    draw_wifi_flow(
+        surface,
+        width,
+        height,
+        wifi_flow,
+        wifi_chip_rect,
+        &console_snapshot,
+    );
 }
 
 fn display_scale(info: FramebufferInfo) -> usize {
@@ -430,7 +845,18 @@ fn draw_status_strip(
     let y = 90usize;
     let mut x = 24usize;
     x = draw_status_chip(surface, width, x, y, "Net", &snapshot.network);
+    let wifi_x = x;
     x = draw_status_chip(surface, width, x, y, "WiFi", &snapshot.wifi);
+    if snapshot.wifi.state == RowState::Detected {
+        draw_rect_outline_r6(
+            surface,
+            wifi_x,
+            y,
+            status_chip_width("WiFi", &snapshot.wifi),
+            30,
+            APP_BLUE,
+        );
+    }
     x = draw_status_chip(surface, width, x, y, "Input", &snapshot.input);
     x = draw_status_chip(surface, width, x, y, "USB", &snapshot.usb_xhci);
     let _ = draw_status_chip(surface, width, x, y, "RNG", &snapshot.entropy);
@@ -616,11 +1042,7 @@ fn draw_status_chip(
     label: &'static str,
     line: &StatusLine,
 ) -> usize {
-    let width = 28usize
-        .saturating_add(label.len().saturating_mul(FONT_ADVANCE))
-        .saturating_add(8)
-        .saturating_add(row_state_text_len(line.state).saturating_mul(FONT_ADVANCE))
-        .saturating_add(14);
+    let width = status_chip_width(label, line);
     if x.saturating_add(width) > screen_width.saturating_sub(24) {
         return x;
     }
@@ -706,6 +1128,25 @@ fn draw_centered_text(
     text::draw_text(
         surface,
         width.saturating_sub(value_width) / 2,
+        y,
+        value,
+        color,
+        None,
+    );
+}
+
+fn draw_centered_text_in(
+    surface: &mut FramebufferSurface,
+    x: usize,
+    width: usize,
+    y: usize,
+    value: &str,
+    color: Color,
+) {
+    let value_width = text_width(value);
+    text::draw_text(
+        surface,
+        x.saturating_add(width.saturating_sub(value_width) / 2),
         y,
         value,
         color,
@@ -1561,6 +2002,369 @@ fn draw_settings(
         "",
         false,
     );
+}
+
+fn draw_wifi_flow(
+    surface: &mut FramebufferSurface,
+    width: usize,
+    height: usize,
+    flow: WifiFlow,
+    wifi_chip_rect: Option<LogicalRect>,
+    console_snapshot: &console::ConsoleSnapshot,
+) {
+    match flow {
+        WifiFlow::Idle => {}
+        WifiFlow::Starting { .. } => draw_wifi_progress_dialog(surface, width, height),
+        WifiFlow::Selecting => draw_wifi_selection_dialog(
+            surface,
+            width,
+            height,
+            wifi_chip_rect.map(|rect| rect.x).unwrap_or(24),
+        ),
+        WifiFlow::Password {
+            network_index,
+            remember_for_boot,
+            rejected,
+        } => draw_wifi_password_dialog(
+            surface,
+            width,
+            height,
+            network_index,
+            remember_for_boot,
+            rejected,
+            console_snapshot,
+        ),
+        WifiFlow::Configured {
+            network_index,
+            remember_for_boot,
+        } => draw_wifi_configured_dialog(surface, width, height, network_index, remember_for_boot),
+        WifiFlow::Failed(reason) => draw_wifi_failed_dialog(surface, width, height, reason),
+    }
+}
+
+fn draw_wifi_progress_dialog(surface: &mut FramebufferSurface, width: usize, height: usize) {
+    let rect = wifi_progress_dialog_rect(width, height);
+    draw_panel(surface, rect.x, rect.y, rect.w, rect.h, "Starting WiFi");
+
+    let (percent, label) = wifi_flow_progress();
+    draw_truncated_text(
+        surface,
+        rect.x + 28,
+        rect.y + 67,
+        label,
+        rect.w.saturating_sub(56) / FONT_ADVANCE,
+        TEXT_MAIN,
+    );
+    let bar_x = rect.x + 28;
+    let bar_y = rect.y + 98;
+    let bar_w = rect.w.saturating_sub(56);
+    draw_soft_rect_r6(surface, bar_x, bar_y, bar_w, 18, SURFACE_ALT);
+    let fill_w = bar_w.saturating_mul(percent) / 100;
+    if fill_w > 0 {
+        draw_soft_rect_r6(surface, bar_x, bar_y, fill_w, 18, APP_BLUE);
+    }
+    draw_rect_outline_r6(surface, bar_x, bar_y, bar_w, 18, HAIRLINE_HI);
+
+    let mut progress = TextBuf::<32>::new();
+    let _ = write!(progress, "{}%", percent);
+    draw_centered_text_in(
+        surface,
+        rect.x,
+        rect.w,
+        rect.y + 132,
+        progress.as_str(),
+        TEXT_MUTED,
+    );
+}
+
+fn wifi_flow_progress() -> (usize, &'static str) {
+    let firmware = marvell_wifi_pcie::snapshot();
+    if !firmware.is_ready() {
+        let percent = if firmware.total == 0 {
+            4
+        } else {
+            4usize.saturating_add(
+                firmware
+                    .downloaded
+                    .saturating_mul(76)
+                    .checked_div(firmware.total)
+                    .unwrap_or(0),
+            )
+        };
+        return (usize::min(percent, 80), "Loading radio firmware");
+    }
+
+    let hw_spec = marvell_wifi_pcie::hw_spec_snapshot();
+    if !hw_spec.is_ready() {
+        return (88, "Reading radio identity");
+    }
+
+    let scan = marvell_wifi_pcie::scan_cmd_snapshot();
+    if scan.stage == marvell_wifi_pcie::ScanCmdStage::Done {
+        (100, "Networks ready")
+    } else {
+        (94, "Scanning networks")
+    }
+}
+
+fn draw_wifi_selection_dialog(
+    surface: &mut FramebufferSurface,
+    width: usize,
+    height: usize,
+    anchor_x: usize,
+) {
+    let scan = wifi::scan_results();
+    let rect = wifi_selection_dialog_rect(width, height, scan.count, anchor_x);
+    draw_panel(surface, rect.x, rect.y, rect.w, rect.h, "WiFi networks");
+
+    let visible = usize::min(scan.count, WIFI_FLOW_LIST_LIMIT);
+    if visible == 0 {
+        draw_centered_text_in(
+            surface,
+            rect.x,
+            rect.w,
+            rect.y + 76,
+            "No networks found",
+            TEXT_MUTED,
+        );
+    } else {
+        let mut index = 0usize;
+        while index < visible {
+            let network = scan.networks[index];
+            let row_y = rect.y + 66 + index * WIFI_FLOW_LIST_ROW_H;
+            draw_soft_rect_r6(surface, rect.x + 24, row_y, rect.w - 48, 34, SURFACE_ALT);
+            draw_rect_outline_r6(surface, rect.x + 24, row_y, rect.w - 48, 34, HAIRLINE);
+            let line = wifi_scan_settings_network_line(network);
+            draw_truncated_text(
+                surface,
+                rect.x + 40,
+                row_y + 13,
+                line.as_str(),
+                rect.w.saturating_sub(80) / FONT_ADVANCE,
+                if network.hidden_ssid {
+                    TEXT_FAINT
+                } else {
+                    TEXT_MAIN
+                },
+            );
+            index += 1;
+        }
+        if scan.count > visible {
+            let mut more = TextBuf::<48>::new();
+            let _ = write!(more, "+{} more", scan.count - visible);
+            text::draw_text(
+                surface,
+                rect.x + rect.w - 24 - text_width(more.as_str()),
+                rect.y + 51,
+                more.as_str(),
+                TEXT_FAINT,
+                None,
+            );
+        }
+    }
+
+    let (left, right) = wifi_dialog_action_rects(rect);
+    draw_wifi_dialog_button(surface, left, "Scan again", false);
+    draw_wifi_dialog_button(surface, right, "Close", false);
+}
+
+fn draw_wifi_password_dialog(
+    surface: &mut FramebufferSurface,
+    width: usize,
+    height: usize,
+    network_index: usize,
+    remember_for_boot: bool,
+    rejected: bool,
+    console_snapshot: &console::ConsoleSnapshot,
+) {
+    let rect = wifi_password_dialog_rect(width, height);
+    draw_panel(surface, rect.x, rect.y, rect.w, rect.h, "WiFi password");
+    let scan = wifi::scan_results();
+    let ssid = scan
+        .networks
+        .get(network_index)
+        .map(|network| network.ssid.as_str())
+        .unwrap_or("Unknown network");
+    draw_truncated_text(
+        surface,
+        rect.x + 28,
+        rect.y + 64,
+        ssid,
+        rect.w.saturating_sub(56) / FONT_ADVANCE,
+        TEXT_MAIN,
+    );
+
+    draw_soft_rect_r6(
+        surface,
+        rect.x + 28,
+        rect.y + 88,
+        rect.w - 56,
+        36,
+        SURFACE_ALT,
+    );
+    draw_rect_outline_r6(surface, rect.x + 28, rect.y + 88, rect.w - 56, 36, APP_BLUE);
+    draw_truncated_text(
+        surface,
+        rect.x + 42,
+        rect.y + 102,
+        console_snapshot.input.as_str(),
+        rect.w.saturating_sub(84) / FONT_ADVANCE,
+        TEXT_MAIN,
+    );
+    text::draw_text(
+        surface,
+        rect.x + 28,
+        rect.y + 132,
+        if rejected {
+            "Password must contain 8-63 printable characters"
+        } else {
+            "8-63 printable characters"
+        },
+        if rejected { APP_RED } else { TEXT_FAINT },
+        None,
+    );
+
+    draw_wifi_checkbox(
+        surface,
+        rect.x + 28,
+        rect.y + 157,
+        remember_for_boot,
+        "Remember for this boot (RAM only)",
+    );
+
+    let (left, right) = wifi_dialog_action_rects(rect);
+    draw_wifi_dialog_button(surface, left, "Back", false);
+    draw_wifi_dialog_button(surface, right, "Set credentials", true);
+}
+
+fn draw_wifi_configured_dialog(
+    surface: &mut FramebufferSurface,
+    width: usize,
+    height: usize,
+    network_index: usize,
+    remember_for_boot: bool,
+) {
+    let rect = wifi_result_dialog_rect(width, height);
+    draw_panel(surface, rect.x, rect.y, rect.w, rect.h, "WiFi setup");
+    let scan = wifi::scan_results();
+    let ssid = scan
+        .networks
+        .get(network_index)
+        .map(|network| network.ssid.as_str())
+        .unwrap_or("Selected network");
+    draw_truncated_text(
+        surface,
+        rect.x + 28,
+        rect.y + 66,
+        ssid,
+        rect.w.saturating_sub(56) / FONT_ADVANCE,
+        APP_GREEN,
+    );
+    text::draw_text(
+        surface,
+        rect.x + 28,
+        rect.y + 92,
+        if remember_for_boot {
+            "Credentials ready in RAM for this boot"
+        } else {
+            "Network selected for the pending connection"
+        },
+        TEXT_MAIN,
+        None,
+    );
+    text::draw_text(
+        surface,
+        rect.x + 28,
+        rect.y + 114,
+        "Connection not established",
+        APP_AMBER,
+        None,
+    );
+    let (_, right) = wifi_dialog_action_rects(rect);
+    draw_wifi_dialog_button(surface, right, "Done", true);
+}
+
+fn draw_wifi_failed_dialog(
+    surface: &mut FramebufferSurface,
+    width: usize,
+    height: usize,
+    reason: &'static str,
+) {
+    let rect = wifi_result_dialog_rect(width, height);
+    draw_panel(surface, rect.x, rect.y, rect.w, rect.h, "WiFi unavailable");
+    draw_truncated_text(
+        surface,
+        rect.x + 28,
+        rect.y + 72,
+        reason,
+        rect.w.saturating_sub(56) / FONT_ADVANCE,
+        APP_RED,
+    );
+    text::draw_text(
+        surface,
+        rect.x + 28,
+        rect.y + 102,
+        "No network state was granted",
+        TEXT_MUTED,
+        None,
+    );
+    let (left, right) = wifi_dialog_action_rects(rect);
+    draw_wifi_dialog_button(surface, left, "Retry", false);
+    draw_wifi_dialog_button(surface, right, "Close", false);
+}
+
+fn draw_wifi_dialog_button(
+    surface: &mut FramebufferSurface,
+    rect: LogicalRect,
+    label: &str,
+    primary: bool,
+) {
+    draw_soft_rect_r6(
+        surface,
+        rect.x,
+        rect.y,
+        rect.w,
+        rect.h,
+        if primary { APP_BLUE } else { SURFACE_ALT },
+    );
+    draw_rect_outline_r6(
+        surface,
+        rect.x,
+        rect.y,
+        rect.w,
+        rect.h,
+        if primary { APP_BLUE } else { HAIRLINE_HI },
+    );
+    draw_centered_text_in(surface, rect.x, rect.w, rect.y + 13, label, TEXT_MAIN);
+}
+
+fn draw_wifi_checkbox(
+    surface: &mut FramebufferSurface,
+    x: usize,
+    y: usize,
+    checked: bool,
+    label: &str,
+) {
+    draw_soft_rect_r6(
+        surface,
+        x,
+        y,
+        18,
+        18,
+        if checked { APP_BLUE } else { SURFACE_ALT },
+    );
+    draw_rect_outline_r6(
+        surface,
+        x,
+        y,
+        18,
+        18,
+        if checked { APP_BLUE } else { HAIRLINE_HI },
+    );
+    if checked {
+        text::draw_text(surface, x + 5, y + 5, "x", TEXT_MAIN, None);
+    }
+    text::draw_text(surface, x + 30, y + 5, label, TEXT_MUTED, None);
 }
 
 fn draw_settings_wifi_firmware(

@@ -82,6 +82,15 @@ pub struct ConsoleSnapshot {
     pub provider_model: &'static str,
     pub wifi_ssid: wifi::WifiSsid,
     pub wifi_passphrase_set: bool,
+    pub wifi_passphrase_entry_result: WifiPassphraseEntryResult,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum WifiPassphraseEntryResult {
+    None,
+    Set,
+    Rejected,
+    Cancelled,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -152,6 +161,7 @@ struct ConsoleState {
     chat_lines: [ChatLine; CHAT_LINES],
     chat_next: usize,
     chat_count: usize,
+    wifi_passphrase_entry_result: WifiPassphraseEntryResult,
 }
 
 impl ConsoleState {
@@ -168,6 +178,7 @@ impl ConsoleState {
             chat_lines: [ChatLine::empty(); CHAT_LINES],
             chat_next: 0,
             chat_count: 0,
+            wifi_passphrase_entry_result: WifiPassphraseEntryResult::None,
         }
     }
 
@@ -265,6 +276,7 @@ impl ConsoleState {
             provider_model: provider.direct_model,
             wifi_ssid: wifi.ssid,
             wifi_passphrase_set: wifi.passphrase_set,
+            wifi_passphrase_entry_result: self.wifi_passphrase_entry_result,
         }
     }
 
@@ -405,6 +417,7 @@ impl ConsoleState {
             UiFocus::SettingsWifiPassphrase => {
                 self.mode = ConsoleMode::WifiPassphraseEntry;
                 self.input.clear();
+                self.wifi_passphrase_entry_result = WifiPassphraseEntryResult::None;
                 ByteAction::ShowWifiPassphraseEntry
             }
             UiFocus::SettingsWifiClear => {
@@ -662,6 +675,11 @@ impl ConsoleState {
                 let result = wifi::set_passphrase(self.input.as_bytes());
                 self.input.clear();
                 self.mode = ConsoleMode::SetupMenu;
+                self.wifi_passphrase_entry_result = if result.is_ok() {
+                    WifiPassphraseEntryResult::Set
+                } else {
+                    WifiPassphraseEntryResult::Rejected
+                };
                 match result {
                     Ok(()) => ByteAction::ShowSetupMessage(SetupMessage::WifiPassphraseSet),
                     Err(wifi::WifiConfigError::PassphraseTooShort) => {
@@ -681,6 +699,7 @@ impl ConsoleState {
             0x1b => {
                 self.input.clear();
                 self.mode = ConsoleMode::SetupMenu;
+                self.wifi_passphrase_entry_result = WifiPassphraseEntryResult::Cancelled;
                 ByteAction::ShowSetupMessage(SetupMessage::WifiEntryCancelled)
             }
             0x08 | 0x7f => {
@@ -1003,6 +1022,28 @@ pub fn activate_focus(focus: UiFocus) -> bool {
         let mut state = CONSOLE.lock();
         state.focus = focus;
         state.activate_focus()
+    };
+    apply_action(action, ui::RuntimeStatus::new())
+}
+
+pub fn submit_wifi_passphrase_entry() -> bool {
+    let action = {
+        let mut state = CONSOLE.lock();
+        if state.mode != ConsoleMode::WifiPassphraseEntry {
+            return false;
+        }
+        state.handle_wifi_passphrase_byte(b'\r')
+    };
+    apply_action(action, ui::RuntimeStatus::new())
+}
+
+pub fn cancel_wifi_passphrase_entry() -> bool {
+    let action = {
+        let mut state = CONSOLE.lock();
+        if state.mode != ConsoleMode::WifiPassphraseEntry {
+            return false;
+        }
+        state.handle_wifi_passphrase_byte(0x1b)
     };
     apply_action(action, ui::RuntimeStatus::new())
 }

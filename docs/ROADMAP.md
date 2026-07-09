@@ -108,8 +108,11 @@ physical unplug/replug recovered input. Because upstream mwifiex returns
 extended-scan BSS data through an event but legacy scan BSS data directly in the
 command response, the refreshed image now uses bounded legacy scan `0x0006`,
 strictly parses its BSS descriptors, and feeds valid networks into the existing
-`[LIVE]` list. Event/RX rings and RX-PFU remain parked. Next owner evidence is
-real SSIDs plus a fresh RECLOG input timeline; link authority remains denied.
+`[LIVE]` list. The owner proved real SSIDs on the Surface. The current image
+adds a clickable `WiFi DETECTED` guided flow over the same real firmware,
+HW_SPEC, scan, SSID, and RAM-only password paths; it explicitly stops before
+association. Event/RX rings and RX-PFU remain parked. Next owner evidence is the
+guided flow plus a fresh RECLOG input timeline; link authority remains denied.
 
 **M12+ opener + honesty capstone (committed, grants nothing):** M12-1 external-
 acquisition HONESTY evaluator (download = candidate intake NEVER install; a
@@ -260,17 +263,13 @@ trusted time source, real CA roots, a live second provider) → I finish M10 rea
 validation — STILL YOURS. (4) the owner-key sealing ceremony → the FINAL step —
 STILL YOURS. Until then every label stays honestly unverified / dev_key_not_owner_
 sealed. **OWNER SIDE TRACK (parallel, Codex workers): Surface Pro 4 Marvell 88W8897
-WiFi driver — firmware sequencer, register-write plan, BAR2/DMA firmware
-bring-up, GET_HW_SPEC mailbox probe, pure SCAN_EXT 2.4GHz wildcard command
-builder, SCAN_EXT mailbox execution, a larger bounded firmware-download burst,
-event-ring observation, and scan-time RX-PFU diagnostics are committed, but
-active RX-PFU arming is parked after all-ones MMIO/freeze on Surface hardware
-(unit-tested/VM-smoked; no live result-frame/link claim). Next WiFi slice:
-after the owner confirms Start WiFi and Scan networks no longer freeze and
-captures refreshed `SCAN_EXT`/`EVENT_RING` lines on Surface hardware, fix the
-remaining host-ring handoff/interrupt-clear path without re-enabling RX-PFU, or
-parse observed scan frames into live 802.11 results if real buffers appear,
-still fail-closed on QEMU/unknown Surface results.** Process (owner
+WiFi driver — firmware sequencer, bounded BAR2/DMA firmware bring-up,
+GET_HW_SPEC, bounded legacy response scan, validated live SSID parsing, and a
+clickable guided UI through RAM-only credential entry are committed and
+VM-smoked; the owner has proved real scan results on Surface hardware. Active
+RX-PFU/event rings remain parked after the all-ones MMIO/freeze evidence. Next
+WiFi slice after the guided-flow hardware check is the first real fail-closed
+association step; link/DHCP authority and durable secrets remain denied.** Process (owner
 2026-07-08): per-slice max-effort review DROPPED; scoping + implementation both run
 as Codex workers; Claude orchestrates/verifies.
 

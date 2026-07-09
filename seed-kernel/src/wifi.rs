@@ -129,6 +129,7 @@ pub struct WifiSnapshot {
     pub bar0_base: Option<u64>,
     pub ssid: WifiSsid,
     pub passphrase_set: bool,
+    pub remember_passphrase_for_boot: bool,
     pub scan_available: bool,
     pub scan_unavailable_reason: &'static str,
 }
@@ -145,6 +146,7 @@ impl WifiSnapshot {
             bar0_base: None,
             ssid: WifiText::empty(),
             passphrase_set: false,
+            remember_passphrase_for_boot: true,
             scan_available: false,
             scan_unavailable_reason: WIFI_SCAN_UNAVAILABLE_REASON,
         }
@@ -221,6 +223,7 @@ pub fn probe() -> WifiSnapshot {
     let bar0_base = read_bar0_base(address);
     let ssid = guard.snapshot.ssid;
     let passphrase_set = !guard.passphrase.is_empty();
+    let remember_passphrase_for_boot = guard.snapshot.remember_passphrase_for_boot;
 
     let snapshot = WifiSnapshot {
         state: WifiState::Detected,
@@ -232,6 +235,7 @@ pub fn probe() -> WifiSnapshot {
         bar0_base,
         ssid,
         passphrase_set,
+        remember_passphrase_for_boot,
         scan_available: false,
         scan_unavailable_reason: WIFI_SCAN_UNAVAILABLE_REASON,
     };
@@ -364,11 +368,16 @@ pub fn set_passphrase(bytes: &[u8]) -> Result<(), WifiConfigError> {
     Ok(())
 }
 
+pub fn set_remember_passphrase_for_boot(remember: bool) {
+    STATE.lock().snapshot.remember_passphrase_for_boot = remember;
+}
+
 pub fn clear_config() {
     let mut guard = STATE.lock();
     guard.snapshot.ssid.clear();
     guard.passphrase.clear();
     guard.snapshot.passphrase_set = false;
+    guard.snapshot.remember_passphrase_for_boot = true;
 }
 
 pub fn note_firmware_ready_scan_unavailable() {
