@@ -98,6 +98,16 @@ pub fn disable_bus_master(address: PciAddress) {
     address.write_u16(0x04, command);
 }
 
+pub fn quiesce_function(address: PciAddress) {
+    let mut command = (address.read_u32(0x04) & 0xFFFF) as u16;
+    if command == 0xFFFF {
+        return;
+    }
+    command &= !(0x1 | 0x2 | 0x4);
+    command |= 1 << 10; // interrupt disable
+    address.write_u16(0x04, command);
+}
+
 pub fn read_bar_info(address: PciAddress, index: u8) -> Option<PciBar> {
     if index >= 6 {
         return None;

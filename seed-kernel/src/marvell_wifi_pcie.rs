@@ -1534,8 +1534,7 @@ pub fn poll() -> bool {
             FwAction::WriteDrvReady { value } => {
                 compiler_fence(Ordering::SeqCst);
                 write_reg(mmio_base, DRV_READY, value);
-                quarantine_after_drv_ready(job.pci_address, mmio_base);
-                let registers = read_register_snapshot(mmio_base);
+                let registers = quarantine_after_drv_ready(job.pci_address, mmio_base);
                 finish_locked(
                     &mut runtime,
                     FirmwareDownloadResult::DrvReadyQuarantined,
@@ -1546,9 +1545,7 @@ pub fn poll() -> bool {
                     job.firmware_len,
                 );
                 wifi::note_firmware_ready_scan_unavailable();
-                serial::write_line(
-                    "marvell wifi: DRV_READY written; busmaster/host interrupts quarantined",
-                );
+                serial::write_line("marvell wifi: DRV_READY written; WiFi PCI function quiesced");
                 return true;
             }
             FwAction::PollDoorbellAck => {
@@ -2220,7 +2217,10 @@ fn read_register_snapshot(mmio_base: *mut u8) -> FirmwareRegisterSnapshot {
     }
 }
 
-fn quarantine_after_drv_ready(pci_address: pci::PciAddress, mmio_base: *mut u8) {
+fn quarantine_after_drv_ready(
+    pci_address: pci::PciAddress,
+    mmio_base: *mut u8,
+) -> FirmwareRegisterSnapshot {
     compiler_fence(Ordering::SeqCst);
     write_reg(mmio_base, PCIE_HOST_INT_STATUS_MASK, 0);
     write_reg(mmio_base, PCIE_HOST_INT_STATUS, HOST_INTR_MASK);
@@ -2228,6 +2228,10 @@ fn quarantine_after_drv_ready(pci_address: pci::PciAddress, mmio_base: *mut u8) 
     compiler_fence(Ordering::SeqCst);
     pci::disable_bus_master(pci_address);
     compiler_fence(Ordering::SeqCst);
+    let registers = read_register_snapshot(mmio_base);
+    pci::quiesce_function(pci_address);
+    compiler_fence(Ordering::SeqCst);
+    registers
 }
 
 fn probe_mmio(mmio_base: *mut u8) -> bool {
