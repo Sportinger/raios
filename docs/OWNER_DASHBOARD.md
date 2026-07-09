@@ -25,20 +25,22 @@ Do not re-enable RX-PFU while adding stick logging.
 
 Hub/input status: new images now log `hub_mouse_port_reset` or
 `hub_mouse_port_reset_failed` after two unsuccessful endpoint rearms, using the
-existing hub hotplug enumeration path for exactly that mouse port.
+existing hub hotplug enumeration path for exactly that mouse port. The reset
+frame also carries `m_port`, `m_chg`, and `m_ep` to split hub-port failure from
+xHCI endpoint-state failure.
 
 Owner-key status: RAM boot still creates only a secret RAM-only
 `current_boot` owner-key candidate. Persistent owner seal/install/load/durable
 authority remains denied until the real sealing ceremony.
 
 Latest proof: host inspect of the real stick reported RECLOG `valid`,
-`count=11`; quick Shadow VM `shadow-20260709-184742-22644.json` passed 542/542.
-Disk 2 `SEED_ESP_A` is refreshed with kernel SHA `C0E4DA64...`.
+`count=11`; quick Shadow VM `shadow-20260709-190452-30576.json` passed 542/542.
+Disk 2 still needs the root-cause-field image refresh.
 
 Gate status: latest full profile remains green at
 `shadow-20260708-150428-34396.json` 7867/7867. This slice used focused USB VM
 evidence plus quick profile per aggressive-fast cadence.
 
 Next task: boot the Surface from Disk 2, reproduce the mouse loss, then inspect
-`SEED_DATA/RECLOG` for `hub_mouse_port_reset` and whether mouse reports advance
-again.
+`SEED_DATA/RECLOG` for `hub_mouse_port_reset`, `m_port`/`m_chg`/`m_ep`, and
+whether mouse reports advance again.

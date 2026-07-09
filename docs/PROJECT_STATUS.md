@@ -27,12 +27,27 @@ profiles, protocol probes, and failure modes.
 Current exact next task (bare-metal diagnostics): boot the Surface from the
 refreshed Disk 2 stick with the same hub/mouse/stick setup, confirm `MSC LOG`,
 reproduce the mouse outage, then inspect `SEED_DATA/RECLOG` for
-`reason=hub_mouse_port_reset` or
-`reason=hub_mouse_port_reset_failed` and whether `reports` advances past the
-previous stuck value of 23. The Surface WiFi RX-PFU path remains parked because
-arming it made real Surface MMIO read back all-ones (`HOST_INT=0xffffffff`,
-write pointers `0xffffffff`) and froze input; do not re-enable RX-PFU while
-using stick logging to gather evidence.
+`reason=hub_mouse_port_reset` or `reason=hub_mouse_port_reset_failed`, the
+root-cause fields `m_port`/`m_chg`/`m_ep`, and whether `reports` advances past
+the previous stuck value of 23. The Surface WiFi RX-PFU path remains parked
+because arming it made real Surface MMIO read back all-ones
+(`HOST_INT=0xffffffff`, write pointers `0xffffffff`) and froze input; do not
+re-enable RX-PFU while using stick logging to gather evidence.
+
+Hub-mouse root-cause RECLOG slice done (2026-07-09) - before the hub-mouse
+watchdog performs the targeted parent-hub-port reset, raiOS now records the
+minimal root-cause state needed to distinguish a hub-side drop from an xHCI
+endpoint-side stall: `m_port` is the hub port status, `m_chg` is the hub port
+change bits, and `m_ep` is the xHCI endpoint state read from the mouse endpoint
+context. The payload remains within the single-sector RECLOG frame budget
+(416/424 bytes in a hard worst-case host check), so diagnostic logging still
+fails closed instead of silently overflowing. Verified: scoped
+`rustfmt --edition 2021 --check seed-kernel\src\usb.rs`; release packaging with
+local Cargo env override; quick Shadow VM report
+`release/vm-reports/shadow-20260709-190452-30576.json` passed 542/542
+predicates, 79 executed commands, `duration_ms: 174278`, report sha256
+`5572b963870e3082db9185a677f0cbbd0f94f3d316c658aba69f62a59d80beb7`, and
+`base_image.sha256: 37ae7afbee6f232e78ed808c981c7907a05474dd4077ab22cf6cc09a6a858fcd`.
 
 Hub-mouse port-reset recovery slice done (2026-07-09) - raiOS now escalates the
 real Surface hub-mouse recovery path after the verified endpoint rearm fails to

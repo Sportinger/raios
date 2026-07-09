@@ -1002,6 +1002,9 @@ struct XhciController {
     mouse_idle_polls: u16,
     mouse_silent_rearms: u8,
     mouse_hub_port_reset_attempted: bool,
+    mouse_diag_port_status: u16,
+    mouse_diag_port_change: u16,
+    mouse_diag_ep_state: u8,
     transfer_error_count: u32,
 }
 
@@ -1465,6 +1468,9 @@ impl XhciController {
             mouse_idle_polls: 0,
             mouse_silent_rearms: 0,
             mouse_hub_port_reset_attempted: false,
+            mouse_diag_port_status: 0,
+            mouse_diag_port_change: 0,
+            mouse_diag_ep_state: 0,
             transfer_error_count: 0,
         })
     }
@@ -3547,7 +3553,7 @@ impl XhciController {
             .saturating_add(self.mouse_report_count);
         write!(
             payload,
-            "{{\"schema\":\"raios.usb_diag.v0\",\"classification\":\"local_only\",\"scope\":\"current_boot\",\"reason\":\"{}\",\"seq\":{},\"hub_count\":{},\"hub_ports\":{},\"hub_connected\":{},\"hub_reset\":{},\"hub_done\":{},\"recover\":{},\"reports\":{},\"errors\":{},\"last_int_cc\":{},\"last_xfer_cc\":{},\"last_cmd\":{},\"last_cc\":{},\"enum_vid\":{},\"enum_pid\":{}}}",
+            "{{\"schema\":\"raios.usb_diag.v0\",\"classification\":\"local_only\",\"scope\":\"current_boot\",\"reason\":\"{}\",\"seq\":{},\"hub_count\":{},\"hub_ports\":{},\"hub_connected\":{},\"hub_reset\":{},\"hub_done\":{},\"recover\":{},\"reports\":{},\"errors\":{},\"last_int_cc\":{},\"last_xfer_cc\":{},\"last_cmd\":{},\"last_cc\":{},\"enum_vid\":{},\"enum_pid\":{},\"m_port\":{},\"m_chg\":{},\"m_ep\":{}}}",
             reason,
             seq,
             self.hub_count,
@@ -3563,7 +3569,10 @@ impl XhciController {
             self.last_command_type,
             self.last_completion_code,
             self.enum_vid,
-            self.enum_pid
+            self.enum_pid,
+            self.mouse_diag_port_status,
+            self.mouse_diag_port_change,
+            self.mouse_diag_ep_state
         )
         .map_err(|_| "reclog_payload_format_failed")?;
         Ok(payload)
@@ -3990,6 +3999,7 @@ impl XhciController {
         {
             self.mouse_hub_port_reset_attempted = true;
             self.mouse_silent_rearms = 0;
+            self.capture_mouse_failure_snapshot(mouse);
             match self.reenumerate_hub_mouse_port(mouse) {
                 Ok(()) => self.append_usb_diagnostic_if_ready("hub_mouse_port_reset"),
                 Err(err) => {
@@ -4000,8 +4010,7 @@ impl XhciController {
             return;
         }
 
-        // ponytail: watchdog workaround for the real Surface hub mouse silent-stop;
-        // replace with endpoint-state diagnostics when xHCI endpoint context reads exist.
+        // ponytail: watchdog workaround for the real Surface hub mouse silent-stop.
         if self
             .rearm_interrupt_endpoint(mouse.slot_id, mouse.dci, mouse.ring_index)
             .is_ok()
@@ -4009,6 +4018,42 @@ impl XhciController {
             self.mouse_silent_rearms = self.mouse_silent_rearms.saturating_add(1);
             let _ = self.queue_mouse_report();
             self.append_usb_diagnostic_if_ready("hub_mouse_rearm");
+        }
+    }
+
+    unsafe fn capture_mouse_failure_snapshot(&mut self, mouse: MouseDevice) {
+        self.mouse_diag_port_status = u16::MAX;
+        self.mouse_diag_port_change = u16::MAX;
+        self.mouse_diag_ep_state = u8::MAX;
+
+        if mouse.ring_index < MAX_HID_DEVICES {
+            let ep = device_context_ptr(self.context_size, mouse.ring_index, mouse.dci);
+            let dword0 = ctx_read_raw(ep, 0);
+            self.mouse_diag_ep_state = (dword0 & 0x7) as u8;
+        }
+
+        let mut index = 0usize;
+        while index < MAX_HUB_WATCHES {
+            let watch = self.hub_watches[index];
+            if watch.active && watch.slot_id == mouse.parent_hub_slot_id {
+                let old_slot_id = self.current_slot_id;
+                let old_device_index = self.current_device_index;
+                self.current_slot_id = watch.slot_id;
+                self.current_device_index = watch.device_index;
+                match self.hub_port_status(mouse.parent_hub_port_number) {
+                    Ok(status) => {
+                        self.mouse_diag_port_status = status.status;
+                        self.mouse_diag_port_change = status.change;
+                    }
+                    Err(err) => {
+                        self.hub_last_error = Some(err);
+                    }
+                }
+                self.current_slot_id = old_slot_id;
+                self.current_device_index = old_device_index;
+                return;
+            }
+            index += 1;
         }
     }
 
@@ -4367,8 +4412,19 @@ unsafe fn input_context_ptr(context_size: usize, device_context_index: usize) ->
         .add((device_context_index + 1) * context_size)
 }
 
+unsafe fn device_context_ptr(context_size: usize, device_index: usize, dci: u8) -> *const u8 {
+    DEVICE_CONTEXTS[device_index]
+        .0
+        .as_ptr()
+        .add(dci as usize * context_size)
+}
+
 unsafe fn ctx_write_raw(base: *mut u8, dword: usize, value: u32) {
     ptr::write_volatile(base.add(dword * 4).cast::<u32>(), value);
+}
+
+unsafe fn ctx_read_raw(base: *const u8, dword: usize) -> u32 {
+    ptr::read_volatile(base.add(dword * 4).cast::<u32>())
 }
 
 unsafe fn parse_boot_hid_endpoint(
