@@ -410,9 +410,6 @@ impl PeriodicTasks {
             if marvell_wifi_pcie::poll_scan_ext() {
                 status_ui.render_forced(uptime_ms(), *runtime_status);
             }
-            if marvell_wifi_pcie::poll_rx_ring() {
-                status_ui.render_forced(uptime_ms(), *runtime_status);
-            }
             if marvell_wifi_pcie::poll_event_ring() {
                 status_ui.render_forced(uptime_ms(), *runtime_status);
             }

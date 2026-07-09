@@ -77,8 +77,10 @@ WiFi driver — scoping, pure firmware sequencer, register-write plan, triggered
 BAR2/DMA firmware bring-up, GET_HW_SPEC mailbox probe, pure SCAN_EXT command
 builder, SCAN_EXT mailbox execution, and shorter firmware/HW_SPEC/SCAN_EXT
 poll bursts with restored copy throughput plus event-ring observation and
-scan-time RX-PFU diagnostics are committed; live result frames still wait on
-non-empty RX/event buffers and no scan/link authority is claimed.
+scan-time RX-PFU diagnostics are committed, but active RX-PFU arming is parked
+after it froze the Surface and made PCIe MMIO read back all-ones; live result
+frames still wait on non-empty event/RX evidence and no scan/link authority is
+claimed.
 
 **M12+ opener + honesty capstone (committed, grants nothing):** M12-1 external-
 acquisition HONESTY evaluator (download = candidate intake NEVER install; a
@@ -232,12 +234,14 @@ sealed. **OWNER SIDE TRACK (parallel, Codex workers): Surface Pro 4 Marvell 88W8
 WiFi driver — firmware sequencer, register-write plan, BAR2/DMA firmware
 bring-up, GET_HW_SPEC mailbox probe, pure SCAN_EXT 2.4GHz wildcard command
 builder, SCAN_EXT mailbox execution, a larger bounded firmware-download burst,
-event-ring observation, and scan-time RX-PFU diagnostics are committed
+event-ring observation, and scan-time RX-PFU diagnostics are committed, but
+active RX-PFU arming is parked after all-ones MMIO/freeze on Surface hardware
 (unit-tested/VM-smoked; no live result-frame/link claim). Next WiFi slice:
-after the owner confirms Start WiFi no longer freezes and captures refreshed
-`EVENT_RING` plus `RX_RING` lines on Surface hardware, either fix the remaining
-host-ring handoff if buffers stay empty or parse observed scan frames into live
-802.11 results, still fail-closed on QEMU/unknown Surface results.** Process (owner
+after the owner confirms Start WiFi and Scan networks no longer freeze and
+captures refreshed `SCAN_EXT`/`EVENT_RING` lines on Surface hardware, fix the
+remaining host-ring handoff/interrupt-clear path without re-enabling RX-PFU, or
+parse observed scan frames into live 802.11 results if real buffers appear,
+still fail-closed on QEMU/unknown Surface results.** Process (owner
 2026-07-08): per-slice max-effort review DROPPED; scoping + implementation both run
 as Codex workers; Claude orchestrates/verifies.
 

@@ -24,17 +24,17 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (Surface WiFi live scan events): boot the refreshed
-scan-time RX-PFU image on the real Surface Pro 4, press Start WiFi FW, confirm
+Current exact next task (Surface WiFi event-only scan): boot the refreshed
+event-only scan image on the real Surface Pro 4, press Start WiFi FW, confirm
 the UI/mouse no longer freezes after `DOWNLOAD 723540/723540`, then press Scan
-networks and capture the `SCAN_EXT`, `EVENT_RING`, and `RX_RING` lines. If RX
-now reports a non-zero packet length, add the smallest parser path for real scan
-results. If Start WiFi still freezes, revert RX-PFU arming entirely from the
-bare-metal image and keep only event-ring observation. If event/RX pointers
-still advance over empty buffers during scan, inspect the remaining host-ring
-handoff and host-interrupt clear discipline. Keep QEMU/unknown hardware
-fail-closed, keep association/link authority false, and do not claim live
-networks until RX/event buffers carrying real frames are observed and parsed.
+networks and capture the `SCAN_EXT` and `EVENT_RING` lines. The RX-PFU path is
+parked because arming it made real Surface MMIO read back all-ones
+(`HOST_INT=0xffffffff`, write pointers `0xffffffff`) and froze input. Next
+implementation work should inspect the remaining host-ring handoff and
+host-interrupt clear discipline without re-enabling RX-PFU on owner hardware.
+Keep QEMU/unknown hardware fail-closed, keep association/link authority false,
+and do not claim live networks until RX/event buffers carrying real frames are
+observed and parsed.
 
 Failure classification (2026-07-09, Marvell firmware poll-budget quick VM):
 focused `quick` report `release/vm-reports/shadow-20260709-131953-18752.json`
@@ -60,6 +60,22 @@ for command `agent audit.events 72`; verdict: host-transport timeout on the
 large recent-events response path. No guest panic was observed; inspect the
 harness timeout path and/or return to the previous Marvell task interval before
 the next retry.
+
+WiFi RX-PFU bare-metal rollback slice done (2026-07-09) - after the owner
+proved the scan-time RX-PFU image no longer froze at firmware-ready but did
+freeze immediately after `Scan networks`, with `HOST_INT=0xffffffff` and
+all-ones write pointers, raiOS no longer arms or polls the RX-PFU ring on the
+active Surface scan path. A user can now retest Start WiFi plus Scan networks
+through the event-only `SCAN_EXT`/`EVENT_RING` diagnostics without the known
+RX-PFU MMIO wedge. Live scan parsing and link authority remain denied, and the
+next WiFi slice should repair the host-ring/interrupt handoff without
+re-enabling RX-PFU on owner hardware. Verified: scoped `rustfmt` on
+`seed-kernel\src\marvell_wifi_pcie.rs` and `seed-kernel\src\main.rs`; release
+packaging via `scripts\package-stage0.ps1 -Profile release`; focused VM
+`quick` report `release/vm-reports/shadow-20260709-155505-32448.json` passed
+542/542 predicates, 79 executed commands, `duration_ms: 188773`, report sha256
+`c8e454f3bb0d58e2885b660640231eff60c8dced31133c21e9f139cf24d8a392`, and
+`base_image.sha256: edc71ed828c26b2886c746bc874c12558c61af8110e9e8f2df6aa6b6df8086a5`.
 
 WiFi bare-metal event/download correction slice done (2026-07-09) - the Surface
 photo showed the previous poll-budget change was the wrong performance lever:
