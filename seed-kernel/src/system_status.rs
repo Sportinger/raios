@@ -536,6 +536,13 @@ fn network_line(runtime: RuntimeStatus) -> StatusLine {
     }
 
     if runtime.net_probe_complete {
+        if wifi::snapshot().state == wifi::WifiState::Detected {
+            return StatusLine::new(
+                "NETWORK",
+                RowState::Waiting,
+                detail(format_args!("WIFI LINK PENDING")),
+            );
+        }
         StatusLine::new(
             "NETWORK",
             RowState::Missing,

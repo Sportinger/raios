@@ -1,6 +1,6 @@
 use crate::framebuffer::{Color, FramebufferInfo, FramebufferSurface};
 use crate::system_status::{RowState, SnapshotStates, StatusLine, SystemSnapshot, TextBuf};
-use crate::{console, input, marvell_wifi_pcie, serial, text, wifi};
+use crate::{console, input, marvell_wifi_pcie, net, serial, text, wifi};
 use core::fmt::{self, Write};
 use raios_core::dot11_scan::Dot11Security;
 
@@ -64,6 +64,11 @@ enum WifiFlow {
         network_index: usize,
         remember_for_boot: bool,
         rejected: bool,
+    },
+    Associating {
+        network_index: usize,
+        remember_for_boot: bool,
+        started: bool,
     },
     Configured {
         network_index: usize,
@@ -419,9 +424,10 @@ impl StatusUi {
                 let console_snapshot = console::snapshot();
                 match console_snapshot.wifi_passphrase_entry_result {
                     console::WifiPassphraseEntryResult::Set => {
-                        self.wifi_flow = WifiFlow::Configured {
+                        self.wifi_flow = WifiFlow::Associating {
                             network_index,
                             remember_for_boot,
+                            started: false,
                         };
                         true
                     }
@@ -441,6 +447,57 @@ impl StatusUi {
                     console::WifiPassphraseEntryResult::None => false,
                 }
             }
+            WifiFlow::Associating {
+                network_index,
+                remember_for_boot,
+                started,
+            } => {
+                if !started {
+                    let result = marvell_wifi_pcie::start_association();
+                    console::write_event(format_args!("WIFI ASSOC: {}", result.label()));
+                    return match result {
+                        marvell_wifi_pcie::ConnectionTriggerResult::Started
+                        | marvell_wifi_pcie::ConnectionTriggerResult::AlreadyRunning => {
+                            self.wifi_flow = WifiFlow::Associating {
+                                network_index,
+                                remember_for_boot,
+                                started: true,
+                            };
+                            true
+                        }
+                        marvell_wifi_pcie::ConnectionTriggerResult::AlreadyReady => {
+                            self.wifi_flow = WifiFlow::Configured {
+                                network_index,
+                                remember_for_boot,
+                            };
+                            true
+                        }
+                        marvell_wifi_pcie::ConnectionTriggerResult::Failed(error) => {
+                            self.wifi_flow = WifiFlow::Failed(error.label());
+                            true
+                        }
+                    };
+                }
+
+                let connection = marvell_wifi_pcie::connection_snapshot();
+                if connection.is_failed() {
+                    self.wifi_flow = WifiFlow::Failed(
+                        connection
+                            .result
+                            .map(|result| result.label())
+                            .unwrap_or("association_failed"),
+                    );
+                    return true;
+                }
+                if connection.is_ready() {
+                    self.wifi_flow = WifiFlow::Configured {
+                        network_index,
+                        remember_for_boot,
+                    };
+                    return true;
+                }
+                false
+            }
             WifiFlow::Idle
             | WifiFlow::Selecting
             | WifiFlow::Configured { .. }
@@ -456,7 +513,7 @@ impl StatusUi {
         height: usize,
     ) -> bool {
         match self.wifi_flow {
-            WifiFlow::Idle | WifiFlow::Starting { .. } => false,
+            WifiFlow::Idle | WifiFlow::Starting { .. } | WifiFlow::Associating { .. } => false,
             WifiFlow::Selecting => {
                 let scan = wifi::scan_results();
                 let rect = wifi_selection_dialog_rect(
@@ -476,14 +533,15 @@ impl StatusUi {
                             return true;
                         }
                         wifi::clear_config();
-                        if wifi::set_ssid(network.ssid.as_bytes()).is_err() {
-                            self.wifi_flow = WifiFlow::Failed("ssid_rejected");
+                        if wifi::select_scan_result(index).is_err() {
+                            self.wifi_flow = WifiFlow::Failed("bss_evidence_unavailable");
                             return true;
                         }
                         if network.security == Dot11Security::Open {
-                            self.wifi_flow = WifiFlow::Configured {
+                            self.wifi_flow = WifiFlow::Associating {
                                 network_index: index,
                                 remember_for_boot: false,
+                                started: false,
                             };
                             return true;
                         }
@@ -2014,7 +2072,7 @@ fn draw_wifi_flow(
 ) {
     match flow {
         WifiFlow::Idle => {}
-        WifiFlow::Starting { .. } => draw_wifi_progress_dialog(surface, width, height),
+        WifiFlow::Starting { .. } => draw_wifi_progress_dialog(surface, width, height, false),
         WifiFlow::Selecting => draw_wifi_selection_dialog(
             surface,
             width,
@@ -2034,6 +2092,7 @@ fn draw_wifi_flow(
             rejected,
             console_snapshot,
         ),
+        WifiFlow::Associating { .. } => draw_wifi_progress_dialog(surface, width, height, true),
         WifiFlow::Configured {
             network_index,
             remember_for_boot,
@@ -2042,11 +2101,31 @@ fn draw_wifi_flow(
     }
 }
 
-fn draw_wifi_progress_dialog(surface: &mut FramebufferSurface, width: usize, height: usize) {
+fn draw_wifi_progress_dialog(
+    surface: &mut FramebufferSurface,
+    width: usize,
+    height: usize,
+    associating: bool,
+) {
     let rect = wifi_progress_dialog_rect(width, height);
-    draw_panel(surface, rect.x, rect.y, rect.w, rect.h, "Starting WiFi");
+    draw_panel(
+        surface,
+        rect.x,
+        rect.y,
+        rect.w,
+        rect.h,
+        if associating {
+            "Connecting WiFi"
+        } else {
+            "Starting WiFi"
+        },
+    );
 
-    let (percent, label) = wifi_flow_progress();
+    let (percent, label) = if associating {
+        wifi_connection_progress()
+    } else {
+        wifi_flow_progress()
+    };
     draw_truncated_text(
         surface,
         rect.x + 28,
@@ -2075,6 +2154,20 @@ fn draw_wifi_progress_dialog(surface: &mut FramebufferSurface, width: usize, hei
         progress.as_str(),
         TEXT_MUTED,
     );
+}
+
+fn wifi_connection_progress() -> (usize, &'static str) {
+    match marvell_wifi_pcie::connection_snapshot().stage {
+        marvell_wifi_pcie::ConnectionStage::Idle => (4, "Preparing connection"),
+        marvell_wifi_pcie::ConnectionStage::RegisterRings => (18, "Registering data rings"),
+        marvell_wifi_pcie::ConnectionStage::MacControl => (32, "Enabling radio data path"),
+        marvell_wifi_pcie::ConnectionStage::SupplicantProfile => (48, "Configuring WPA2 profile"),
+        marvell_wifi_pcie::ConnectionStage::SupplicantPmk => (62, "Loading boot-only credential"),
+        marvell_wifi_pcie::ConnectionStage::Associate => (76, "Associating with access point"),
+        marvell_wifi_pcie::ConnectionStage::WaitPortRelease => (90, "Completing WPA2 key exchange"),
+        marvell_wifi_pcie::ConnectionStage::LinkReady => (100, "Link ready; requesting address"),
+        marvell_wifi_pcie::ConnectionStage::Failed => (100, "Connection failed"),
+    }
 }
 
 fn wifi_flow_progress() -> (usize, &'static str) {
@@ -2267,18 +2360,26 @@ fn draw_wifi_configured_dialog(
         if remember_for_boot {
             "Credentials ready in RAM for this boot"
         } else {
-            "Network selected for the pending connection"
+            "Open network selected for this boot"
         },
         TEXT_MAIN,
         None,
     );
-    text::draw_text(
+    let mut link_status = TextBuf::<64>::new();
+    let color = if let Some(ip) = net::ui_snapshot().and_then(|snapshot| snapshot.ip) {
+        let _ = write!(link_status, "Connected - IP {}", ip);
+        APP_GREEN
+    } else {
+        let _ = link_status.write_str("Link ready - requesting network address");
+        APP_AMBER
+    };
+    draw_truncated_text(
         surface,
         rect.x + 28,
         rect.y + 114,
-        "Connection not established",
-        APP_AMBER,
-        None,
+        link_status.as_str(),
+        rect.w.saturating_sub(56) / FONT_ADVANCE,
+        color,
     );
     let (_, right) = wifi_dialog_action_rects(rect);
     draw_wifi_dialog_button(surface, right, "Done", true);
@@ -2445,6 +2546,40 @@ fn draw_settings_wifi_firmware(
                 line.as_str(),
                 max_chars,
                 rx_ring_status_color(rx_ring),
+            );
+            y = y.saturating_add(18);
+        }
+        let connection = marvell_wifi_pcie::connection_snapshot();
+        if connection.attempted {
+            let mut line = TextBuf::<192>::new();
+            let _ = write!(
+                line,
+                "LINK: {} result={} assoc={} aid={} HOST_INT=0x{:08x}",
+                connection.stage.label(),
+                connection
+                    .result
+                    .map(|result| result.label())
+                    .unwrap_or("pending"),
+                connection
+                    .association_status
+                    .map(|status| status as u32)
+                    .unwrap_or(u32::MAX),
+                connection.association_id.map(|aid| aid as u32).unwrap_or(0),
+                connection.host_int_status
+            );
+            draw_truncated_text(
+                surface,
+                72,
+                y,
+                line.as_str(),
+                max_chars,
+                if connection.is_ready() {
+                    APP_GREEN
+                } else if connection.is_failed() {
+                    APP_RED
+                } else {
+                    APP_AMBER
+                },
             );
             y = y.saturating_add(18);
         }

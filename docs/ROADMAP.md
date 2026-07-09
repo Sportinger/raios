@@ -15,7 +15,7 @@ vocabulary).
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-09.
+Last updated: 2026-07-10.
 
 Current milestone: **M10 + M11 IN PROGRESS** — both have their grants-nothing
 mechanism foundations committed; the substantive remainder of each is
@@ -74,13 +74,12 @@ per-slice max-effort review is DROPPED (host DoD + own diff read + focused profi
 + secret scan instead); scoping + implementation both run as CODEX workers, not
 Claude workflows. OWNER SIDE TRACK (parallel): the Surface Pro 4 Marvell 88W8897
 WiFi driver — scoping, pure firmware sequencer, register-write plan, triggered
-BAR2/DMA firmware bring-up, GET_HW_SPEC mailbox probe, pure SCAN_EXT command
-builder, SCAN_EXT mailbox execution, and shorter firmware/HW_SPEC/SCAN_EXT
-poll bursts with restored copy throughput plus event-ring observation and
-scan-time RX-PFU diagnostics are committed, but active RX-PFU arming is parked
-after it froze the Surface and made PCIe MMIO read back all-ones; live result
-frames still wait on non-empty event/RX evidence and no scan/link authority is
-claimed. The Windows USB writer can now raw-write the existing GPT
+BAR2/DMA firmware bring-up, GET_HW_SPEC mailbox probe, legacy live-scan response
+parsing, guided setup, firmware descriptor registration, association, event/RX/TX
+rings, and the smoltcp WiFi backend are committed. The earlier pre-registration
+RX-PFU experiment that froze the Surface remains historical; the current rings
+are only published after their descriptor-registration and MAC-control responses
+validate. The Windows USB writer can now raw-write the existing GPT
 `SEED_ESP_A`/`SEED_ESP_B`/`SEED_DATA` persistence layout to a stick with valid
 empty RECLOG, and the kernel can now read that same layout through xHCI USB
 Mass Storage/BOT and report `MSC SEED`; the first strictly scoped USB
@@ -91,10 +90,11 @@ them, and reports `MSC LOG`. Real Disk 2 evidence proved endpoint-only rearm
 did not restore reports, and later root-cause frames showed the hub port and
 xHCI endpoint still healthy (`m_port=259 m_chg=0 m_ep=1`) when the fixed-time
 mouse freeze occurred after movement. The current image stops periodic hub
-child-port EP0 control polling after the hub mouse has produced reports, and
-also parks WiFi post-ready event-ring/HW_SPEC auto-probes after the owner proved
-the next mouse loss happens when `Start WiFi FW` completes. The current image
-now corrects the pre-ready interrupt quarantine against the Linux mwifiex
+child-port EP0 control polling after the hub mouse has produced reports. An
+earlier diagnostic image also parked WiFi post-ready event-ring/HW_SPEC
+auto-probes while isolating that input loss. The current path supersedes that
+experiment with registered rings after stable guided input was proven and
+corrects the pre-ready interrupt quarantine against the Linux mwifiex
 reference: it disables `PCIE_HOST_INT_MASK` at `0xC34`, programs the status
 mask, and clears pending status with write-zero-to-clear polarity before
 disabling WiFi DMA/INTx and writing `DRV_READY`. It now keeps BAR memory
@@ -106,17 +106,16 @@ also reproduced the hub-mouse interrupt stall. RECLOG stayed valid 66/66 and
 showed no new reports despite endpoint rearm plus a completed hub-port reset;
 physical unplug/replug recovered input. Because upstream mwifiex returns
 extended-scan BSS data through an event but legacy scan BSS data directly in the
-command response, the refreshed image now uses bounded legacy scan `0x0006`,
+command response, the refreshed image uses bounded legacy scan `0x0006`,
 strictly parses its BSS descriptors, and feeds valid networks into the existing
-`[LIVE]` list. The owner proved real SSIDs on the Surface. The current image
-adds a clickable `WiFi DETECTED` guided flow over the same real firmware,
-HW_SPEC, scan, SSID, and RAM-only password paths; it explicitly stops before
-association. Event/RX rings and RX-PFU remain parked. The owner has now proved
-the complete guided flow on the Surface with keyboard and mouse stable through
-password entry at 65.7s uptime; the prior one-second mouse-idle watchdog was the
-input regression and is removed. Next WiFi work is the first real bounded
-association/key-material command sequence. Link authority remains denied until
-the complete authentication/association/key-exchange evidence chain succeeds.
+`[LIVE]` list. The owner proved real SSIDs and the complete guided path through
+RAM-only password entry with stable keyboard/mouse input. The current image now
+continues that exact path through real firmware ring registration, open or
+WPA2-PSK/CCMP association, WPA2 `PORT_RELEASE`, PFU Ethernet RX/TX, and smoltcp
+DHCP. Link is granted only after the required positive firmware evidence; all
+unsupported security and incomplete/malformed responses fail closed. The next
+WiFi step is the positive Disk 2 bare-metal association/PORT_RELEASE/RX-TX/DHCP
+proof. Provider access and durable WiFi-secret claims remain denied until it.
 
 **M12+ opener + honesty capstone (committed, grants nothing):** M12-1 external-
 acquisition HONESTY evaluator (download = candidate intake NEVER install; a

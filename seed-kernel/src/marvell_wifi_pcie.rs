@@ -7,9 +7,10 @@
 use core::hint::spin_loop;
 use core::ptr;
 use core::slice;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{compiler_fence, AtomicBool, AtomicU32, Ordering};
 
-use raios_core::marvell_wifi_cmd::{self, HwSpecCmdError};
+use raios_core::dot11_scan::Dot11Security;
+use raios_core::marvell_wifi_cmd::{self, HwSpecCmdError, MarvellCmdError};
 use raios_core::marvell_wifi_fw::{
     decide_fw_ready_poll, plan_register_writes, FirmwareDownload, FwAction, FwError, FwPhase,
     FwReadyPollDecision, RegisterReads, CMDRSP_ADDR_HI, CMDRSP_ADDR_LO, CMD_ADDR_HI, CMD_ADDR_LO,
@@ -18,9 +19,10 @@ use raios_core::marvell_wifi_fw::{
     HOST_INTR_UPLD_RDY, MWIFIEX_UPLD_SIZE, PCIE_CPU_INT_EVENT, PCIE_CPU_INT_STATUS,
     PCIE_HOST_INT_MASK, PCIE_HOST_INT_STATUS, PCIE_HOST_INT_STATUS_MASK,
 };
+use raios_core::marvell_wifi_supplicant::{self, SupplicantError};
 use spin::Mutex;
 
-use crate::{memory, pci, serial, time, wifi};
+use crate::{memory, net, pci, serial, time, wifi};
 
 // Linux resource index 2: PCI config offset 0x18. BAR0 is 64-bit on this part.
 const MARVELL_REGISTER_BAR: u8 = 2;
@@ -34,14 +36,31 @@ const HWSPEC_CMD_BUFFER_SIZE: usize = 128;
 const HWSPEC_TIMEOUT_MS: u64 = 3_000;
 const SCAN_CMD_BUFFER_SIZE: usize = marvell_wifi_cmd::SCAN_24GHZ_CMD_TOTAL_LEN;
 const SCAN_CMD_TIMEOUT_MS: u64 = 15_000;
+const CONNECT_CMD_BUFFER_SIZE: usize = 512;
+const CONNECT_CMD_TIMEOUT_MS: u64 = 15_000;
+const PORT_RELEASE_TIMEOUT_MS: u64 = 30_000;
 const RX_RING_COUNT: usize = 32;
 const RX_RING_MASK: u32 = 0x0000_03ff;
 const RX_ROLLOVER_IND: u32 = 1 << 10;
 const RX_BUFFER_SIZE: usize = 4096;
+const TX_RING_COUNT: usize = 32;
+const TX_RING_MASK: u32 = 0x03ff_0000;
+const TX_RING_WRAP_MASK: u32 = 0x07ff_0000;
+const TX_ROLLOVER_IND: u32 = 1 << 26;
+const TX_RING_STEP: u32 = 1 << 16;
+const TX_BUFFER_SIZE: usize = 4096;
+const DATA_INTERFACE_HEADER_LEN: usize = 4;
+const TX_PD_LEN: usize = 20;
+const RX_PD_LEN: usize = 20;
+pub const MAX_ETHERNET_FRAME_SIZE: usize = 1536;
 const PCIE_RX_RD_PTR: u32 = 0xC05C;
 const PCIE_RX_WR_PTR: u32 = 0xC08C;
+const PCIE_TX_RD_PTR: u32 = 0xC08C;
+const PCIE_TX_WR_PTR: u32 = 0xC05C;
 const RX_DESC_FLAG_SOP: u16 = 1 << 0;
 const RX_DESC_FLAG_EOP: u16 = 1 << 1;
+const CPU_INTR_DNLD_RDY: u32 = 1 << 0;
+const HOST_INTR_DNLD_DONE: u32 = 1 << 0;
 const EVENT_RING_COUNT: usize = 8;
 const EVENT_RING_MASK: u32 = 0x0f;
 const EVENT_ROLLOVER_IND: u32 = 1 << 7;
@@ -68,6 +87,12 @@ static mut HWSPEC_DMA_BLOCK: HwSpecDmaBlock = HwSpecDmaBlock {
 #[repr(C, align(64))]
 struct ScanDmaBlock {
     cmd: [u8; SCAN_CMD_BUFFER_SIZE],
+    rsp: [u8; MWIFIEX_UPLD_SIZE],
+}
+
+#[repr(C, align(64))]
+struct ConnectDmaBlock {
+    cmd: [u8; CONNECT_CMD_BUFFER_SIZE],
     rsp: [u8; MWIFIEX_UPLD_SIZE],
 }
 
@@ -121,8 +146,18 @@ struct RxRingDmaBlock {
     data: [[u8; RX_BUFFER_SIZE]; RX_RING_COUNT],
 }
 
+#[repr(C, align(64))]
+struct TxRingDmaBlock {
+    desc: [RxPfuBufDesc; TX_RING_COUNT],
+    data: [[u8; TX_BUFFER_SIZE]; TX_RING_COUNT],
+}
+
 static mut SCAN_DMA_BLOCK: ScanDmaBlock = ScanDmaBlock {
     cmd: [0; SCAN_CMD_BUFFER_SIZE],
+    rsp: [0; MWIFIEX_UPLD_SIZE],
+};
+static mut CONNECT_DMA_BLOCK: ConnectDmaBlock = ConnectDmaBlock {
+    cmd: [0; CONNECT_CMD_BUFFER_SIZE],
     rsp: [0; MWIFIEX_UPLD_SIZE],
 };
 static mut EVENT_RING_DMA_BLOCK: EventRingDmaBlock = EventRingDmaBlock {
@@ -133,11 +168,20 @@ static mut RX_RING_DMA_BLOCK: RxRingDmaBlock = RxRingDmaBlock {
     desc: [RxPfuBufDesc::EMPTY; RX_RING_COUNT],
     data: [[0; RX_BUFFER_SIZE]; RX_RING_COUNT],
 };
+static mut TX_RING_DMA_BLOCK: TxRingDmaBlock = TxRingDmaBlock {
+    desc: [RxPfuBufDesc::EMPTY; TX_RING_COUNT],
+    data: [[0; TX_BUFFER_SIZE]; TX_RING_COUNT],
+};
 static BRINGUP: Mutex<FirmwareBringupRuntime> = Mutex::new(FirmwareBringupRuntime::new());
 static HWSPEC: Mutex<HwSpecRuntime> = Mutex::new(HwSpecRuntime::new());
 static SCAN: Mutex<ScanCmdRuntime> = Mutex::new(ScanCmdRuntime::new());
 static EVENT_RING: Mutex<EventRingRuntime> = Mutex::new(EventRingRuntime::new());
 static RX_RING: Mutex<RxRingRuntime> = Mutex::new(RxRingRuntime::new());
+static TX_RING: Mutex<TxRingRuntime> = Mutex::new(TxRingRuntime::new());
+static CONNECTION: Mutex<ConnectionRuntime> = Mutex::new(ConnectionRuntime::new());
+static RX_RDPTR_SHARED: AtomicU32 = AtomicU32::new(RX_ROLLOVER_IND);
+static TX_WRPTR_SHARED: AtomicU32 = AtomicU32::new(0);
+static DATA_LINK_READY: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FirmwareDownloadResult {
@@ -360,7 +404,7 @@ pub enum EventRingResult {
     BadReadPointer,
     BadEventLength,
     PointerAdvancedEmptyBuffer,
-    EventObservedRxRingUnavailable,
+    EventObserved,
 }
 
 impl EventRingResult {
@@ -371,7 +415,7 @@ impl EventRingResult {
             Self::BadReadPointer => "bad_read_pointer",
             Self::BadEventLength => "bad_event_length",
             Self::PointerAdvancedEmptyBuffer => "pointer_advanced_empty_buffer",
-            Self::EventObservedRxRingUnavailable => "event_observed_rx_parser_unavailable",
+            Self::EventObserved => "event_observed",
         }
     }
 }
@@ -381,6 +425,132 @@ pub enum ScanCmdTriggerResult {
     Started,
     AlreadyRunning,
     Failed(ScanCmdResult),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConnectionStage {
+    Idle,
+    RegisterRings,
+    MacControl,
+    SupplicantProfile,
+    SupplicantPmk,
+    Associate,
+    WaitPortRelease,
+    LinkReady,
+    Failed,
+}
+
+impl ConnectionStage {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::RegisterRings => "register_rings",
+            Self::MacControl => "mac_control",
+            Self::SupplicantProfile => "supplicant_profile",
+            Self::SupplicantPmk => "supplicant_pmk",
+            Self::Associate => "associate",
+            Self::WaitPortRelease => "wait_port_release",
+            Self::LinkReady => "link_ready",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConnectionResult {
+    LinkReady,
+    FirmwareNotReady,
+    HwSpecNotReady,
+    NoSelectedBss,
+    UnsupportedSecurity,
+    FirmwareSupplicantUnavailable,
+    PassphraseUnavailable,
+    DataRingUnavailable,
+    DmaAddressUnavailable,
+    CommandBuild(MarvellCmdError),
+    SupplicantBuild(SupplicantError),
+    CommandTimeout,
+    CommandResponse(MarvellCmdError),
+    SupplicantResponse(SupplicantError),
+    AssociationRejected(u16),
+    PortReleaseTimeout,
+    LinkLost(u16),
+}
+
+impl ConnectionResult {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::LinkReady => "link_ready",
+            Self::FirmwareNotReady => "firmware_not_ready",
+            Self::HwSpecNotReady => "hw_spec_not_ready",
+            Self::NoSelectedBss => "selected_bss_unavailable",
+            Self::UnsupportedSecurity => "security_unsupported",
+            Self::FirmwareSupplicantUnavailable => "firmware_supplicant_unavailable",
+            Self::PassphraseUnavailable => "passphrase_unavailable",
+            Self::DataRingUnavailable => "data_ring_unavailable",
+            Self::DmaAddressUnavailable => "dma_address_unavailable",
+            Self::CommandBuild(_) => "command_build_failed",
+            Self::SupplicantBuild(_) => "supplicant_build_failed",
+            Self::CommandTimeout => "command_timeout",
+            Self::CommandResponse(_) => "command_response_failed",
+            Self::SupplicantResponse(_) => "supplicant_response_failed",
+            Self::AssociationRejected(_) => "association_rejected",
+            Self::PortReleaseTimeout => "port_release_timeout",
+            Self::LinkLost(_) => "link_lost",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ConnectionSnapshot {
+    pub attempted: bool,
+    pub running: bool,
+    pub stage: ConnectionStage,
+    pub result: Option<ConnectionResult>,
+    pub association_status: Option<u16>,
+    pub association_id: Option<u16>,
+    pub host_int_status: u32,
+}
+
+impl ConnectionSnapshot {
+    pub const fn new() -> Self {
+        Self {
+            attempted: false,
+            running: false,
+            stage: ConnectionStage::Idle,
+            result: None,
+            association_status: None,
+            association_id: None,
+            host_int_status: 0,
+        }
+    }
+
+    pub fn is_ready(&self) -> bool {
+        self.stage == ConnectionStage::LinkReady
+    }
+
+    pub fn is_failed(&self) -> bool {
+        self.stage == ConnectionStage::Failed
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConnectionTriggerResult {
+    Started,
+    AlreadyRunning,
+    AlreadyReady,
+    Failed(ConnectionResult),
+}
+
+impl ConnectionTriggerResult {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Started => "started",
+            Self::AlreadyRunning => "already_running",
+            Self::AlreadyReady => "already_ready",
+            Self::Failed(result) => result.label(),
+        }
+    }
 }
 
 impl ScanCmdTriggerResult {
@@ -499,6 +669,8 @@ pub struct HwSpecSnapshot {
     pub result: Option<HwSpecResult>,
     pub mac: Option<[u8; 6]>,
     pub fw_release: Option<u32>,
+    pub fw_cap_info: u32,
+    pub key_api_version: Option<(u8, u8)>,
     pub host_int_status: u32,
 }
 
@@ -618,6 +790,8 @@ impl HwSpecSnapshot {
             result: None,
             mac: None,
             fw_release: None,
+            fw_cap_info: 0,
+            key_api_version: None,
             host_int_status: 0,
         }
     }
@@ -667,6 +841,12 @@ struct ScanCmdRuntime {
     next_seq: u16,
 }
 
+struct ConnectionRuntime {
+    snapshot: ConnectionSnapshot,
+    job: Option<ConnectionJob>,
+    next_seq: u16,
+}
+
 struct EventRingRuntime {
     snapshot: EventRingSnapshot,
     mmio_base: Option<usize>,
@@ -676,6 +856,13 @@ struct EventRingRuntime {
 struct RxRingRuntime {
     snapshot: RxRingSnapshot,
     mmio_base: Option<usize>,
+    rdptr: u32,
+}
+
+struct TxRingRuntime {
+    armed: bool,
+    mmio_base: Option<usize>,
+    wrptr: u32,
     rdptr: u32,
 }
 
@@ -699,12 +886,44 @@ impl RxRingRuntime {
     }
 }
 
+impl TxRingRuntime {
+    const fn new() -> Self {
+        Self {
+            armed: false,
+            mmio_base: None,
+            wrptr: 0,
+            rdptr: 0,
+        }
+    }
+}
+
+pub struct RxPacket {
+    len: usize,
+    bytes: [u8; MAX_ETHERNET_FRAME_SIZE],
+}
+
+impl RxPacket {
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+        &mut self.bytes[..self.len]
+    }
+}
+
 impl ScanCmdRuntime {
     const fn new() -> Self {
         Self {
             snapshot: ScanCmdSnapshot::new(),
             job: None,
             next_seq: 1,
+        }
+    }
+}
+
+impl ConnectionRuntime {
+    const fn new() -> Self {
+        Self {
+            snapshot: ConnectionSnapshot::new(),
+            job: None,
+            next_seq: 0x100,
         }
     }
 }
@@ -736,6 +955,27 @@ struct ScanCmdJob {
     rsp_dma_phys: u64,
     started_tsc: u64,
     seq: u16,
+}
+
+struct ConnectionJob {
+    pci_address: pci::PciAddress,
+    mmio_base: usize,
+    cmd_dma_phys: u64,
+    rsp_dma_phys: u64,
+    phase: ConnectionStage,
+    waiting: bool,
+    phase_started_tsc: u64,
+    seq: u16,
+    target: wifi::ScannedNetwork,
+    passphrase: [u8; wifi::PASSPHRASE_CAPACITY],
+    passphrase_len: usize,
+}
+
+impl Drop for ConnectionJob {
+    fn drop(&mut self) {
+        self.passphrase.fill(0);
+        compiler_fence(Ordering::SeqCst);
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -773,6 +1013,227 @@ pub fn event_ring_snapshot() -> EventRingSnapshot {
 
 pub fn rx_ring_snapshot() -> RxRingSnapshot {
     RX_RING.lock().snapshot
+}
+
+pub fn connection_snapshot() -> ConnectionSnapshot {
+    CONNECTION.lock().snapshot
+}
+
+pub fn data_link_ready() -> bool {
+    DATA_LINK_READY.load(Ordering::Acquire)
+}
+
+pub fn start_association() -> ConnectionTriggerResult {
+    {
+        let runtime = CONNECTION.lock();
+        if runtime.snapshot.is_ready() {
+            return ConnectionTriggerResult::AlreadyReady;
+        }
+        if runtime.job.is_some() {
+            return ConnectionTriggerResult::AlreadyRunning;
+        }
+    }
+    if !snapshot().is_ready() {
+        return fail_connection_start(ConnectionResult::FirmwareNotReady);
+    }
+    let hw_spec = hw_spec_snapshot();
+    if !hw_spec.is_ready() {
+        return fail_connection_start(ConnectionResult::HwSpecNotReady);
+    }
+    let Some(target) = wifi::association_target() else {
+        return fail_connection_start(ConnectionResult::NoSelectedBss);
+    };
+    let secure = match target.security {
+        Dot11Security::Open => false,
+        Dot11Security::Wpa2 if target.supports_wpa2_psk_ccmp() => true,
+        Dot11Security::Wpa2 => return fail_connection_start(ConnectionResult::UnsupportedSecurity),
+        Dot11Security::Wep | Dot11Security::Wpa | Dot11Security::Wpa3 | Dot11Security::Unknown => {
+            return fail_connection_start(ConnectionResult::UnsupportedSecurity)
+        }
+    };
+    if secure && hw_spec.fw_cap_info & marvell_wifi_supplicant::FW_CAP_FIRMWARE_SUPPLICANT == 0 {
+        return fail_connection_start(ConnectionResult::FirmwareSupplicantUnavailable);
+    }
+
+    let Some(pci_address) = wifi::snapshot().address else {
+        return fail_connection_start(ConnectionResult::FirmwareNotReady);
+    };
+    let Some(mmio_base) = ready_mmio_base() else {
+        return fail_connection_start(ConnectionResult::FirmwareNotReady);
+    };
+    if !arm_data_rings(mmio_base) {
+        return fail_connection_start(ConnectionResult::DataRingUnavailable);
+    }
+    let (Some(cmd_dma_phys), Some(rsp_dma_phys)) = (connect_cmd_phys(), connect_rsp_phys()) else {
+        return fail_connection_start(ConnectionResult::DmaAddressUnavailable);
+    };
+
+    let mut passphrase = [0u8; wifi::PASSPHRASE_CAPACITY];
+    let passphrase_len = if secure {
+        let Some(len) = wifi::copy_passphrase(&mut passphrase) else {
+            return fail_connection_start(ConnectionResult::PassphraseUnavailable);
+        };
+        len
+    } else {
+        0
+    };
+
+    let mut runtime = CONNECTION.lock();
+    if runtime.snapshot.is_ready() {
+        passphrase.fill(0);
+        return ConnectionTriggerResult::AlreadyReady;
+    }
+    if runtime.job.is_some() {
+        passphrase.fill(0);
+        return ConnectionTriggerResult::AlreadyRunning;
+    }
+    let seq = runtime.next_seq;
+    runtime.next_seq = runtime.next_seq.wrapping_add(8).max(1);
+    runtime.snapshot = ConnectionSnapshot {
+        attempted: true,
+        running: true,
+        stage: ConnectionStage::RegisterRings,
+        result: None,
+        association_status: None,
+        association_id: None,
+        host_int_status: 0,
+    };
+    runtime.job = Some(ConnectionJob {
+        pci_address,
+        mmio_base,
+        cmd_dma_phys,
+        rsp_dma_phys,
+        phase: ConnectionStage::RegisterRings,
+        waiting: false,
+        phase_started_tsc: time::rdtsc(),
+        seq,
+        target,
+        passphrase,
+        passphrase_len,
+    });
+    DATA_LINK_READY.store(false, Ordering::Release);
+    serial::write_line("marvell wifi: bounded association sequence started");
+    ConnectionTriggerResult::Started
+}
+
+fn fail_connection_start(result: ConnectionResult) -> ConnectionTriggerResult {
+    let mut runtime = CONNECTION.lock();
+    runtime.snapshot = ConnectionSnapshot {
+        attempted: true,
+        running: false,
+        stage: ConnectionStage::Failed,
+        result: Some(result),
+        association_status: None,
+        association_id: None,
+        host_int_status: 0,
+    };
+    DATA_LINK_READY.store(false, Ordering::Release);
+    ConnectionTriggerResult::Failed(result)
+}
+
+pub fn receive_ethernet() -> Option<RxPacket> {
+    if !data_link_ready() {
+        return None;
+    }
+
+    let mut runtime = RX_RING.lock();
+    if !runtime.snapshot.armed {
+        return None;
+    }
+    let mmio_base = runtime.mmio_base? as *mut u8;
+    let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+    let wrptr = read_reg(mmio_base, PCIE_RX_WR_PTR);
+    if !rx_ring_has_entry(wrptr, runtime.rdptr) {
+        if status & HOST_INTR_UPLD_RDY != 0 {
+            write_reg(mmio_base, PCIE_HOST_INT_STATUS, !HOST_INTR_UPLD_RDY);
+        }
+        return None;
+    }
+
+    let index = (runtime.rdptr & RX_RING_MASK) as usize;
+    if index >= RX_RING_COUNT {
+        runtime.snapshot.stage = RxRingStage::Failed;
+        runtime.snapshot.result = Some(RxRingResult::BadReadPointer);
+        DATA_LINK_READY.store(false, Ordering::Release);
+        return None;
+    }
+
+    let packet = parse_rx_ethernet(index);
+    let next_rdptr = next_rx_rdptr(runtime.rdptr);
+    arm_rx_desc(index);
+    compiler_fence(Ordering::SeqCst);
+    runtime.rdptr = next_rdptr;
+    RX_RDPTR_SHARED.store(next_rdptr, Ordering::Release);
+    let tx_wrptr = TX_WRPTR_SHARED.load(Ordering::Acquire) & TX_RING_WRAP_MASK;
+    write_reg(
+        mmio_base,
+        PCIE_RX_RD_PTR,
+        tx_wrptr | (next_rdptr & 0x0000_07ff),
+    );
+    if status & HOST_INTR_UPLD_RDY != 0 {
+        write_reg(mmio_base, PCIE_HOST_INT_STATUS, !HOST_INTR_UPLD_RDY);
+    }
+    compiler_fence(Ordering::SeqCst);
+
+    runtime.snapshot.host_int_status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+    runtime.snapshot.rdptr = next_rdptr;
+    runtime.snapshot.wrptr = wrptr;
+    match packet {
+        Some(ref packet) => {
+            runtime.snapshot.stage = RxRingStage::PacketReady;
+            runtime.snapshot.result = Some(RxRingResult::PacketObserved);
+            runtime.snapshot.rx_len = packet.len as u16;
+        }
+        None => {
+            runtime.snapshot.stage = RxRingStage::Failed;
+            runtime.snapshot.result = Some(RxRingResult::BadRxLength);
+        }
+    }
+    packet
+}
+
+pub fn transmit_ethernet(frame: &[u8]) -> bool {
+    if !data_link_ready() || frame.is_empty() || frame.len() > MAX_ETHERNET_FRAME_SIZE {
+        return false;
+    }
+
+    let mut runtime = TX_RING.lock();
+    if !runtime.armed {
+        return false;
+    }
+    let Some(mmio_base) = runtime.mmio_base else {
+        return false;
+    };
+    let mmio = mmio_base as *mut u8;
+    let status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+    if status & HOST_INTR_DNLD_DONE != 0 {
+        write_reg(mmio, PCIE_HOST_INT_STATUS, !HOST_INTR_DNLD_DONE);
+    }
+    runtime.rdptr = read_reg(mmio, PCIE_TX_RD_PTR) & TX_RING_WRAP_MASK;
+    if tx_ring_full(runtime.wrptr, runtime.rdptr) {
+        return false;
+    }
+
+    let index = ((runtime.wrptr & TX_RING_MASK) >> 16) as usize;
+    if index >= TX_RING_COUNT {
+        DATA_LINK_READY.store(false, Ordering::Release);
+        return false;
+    }
+    let total_len = DATA_INTERFACE_HEADER_LEN + TX_PD_LEN + frame.len();
+    if total_len > TX_BUFFER_SIZE || !prepare_tx_buffer(index, frame, total_len) {
+        return false;
+    }
+
+    let next_wrptr = next_tx_wrptr(runtime.wrptr);
+    runtime.wrptr = next_wrptr;
+    TX_WRPTR_SHARED.store(next_wrptr, Ordering::Release);
+    let rx_rdptr = RX_RDPTR_SHARED.load(Ordering::Acquire) & 0x0000_07ff;
+    compiler_fence(Ordering::SeqCst);
+    write_reg(mmio, PCIE_TX_WR_PTR, next_wrptr | rx_rdptr);
+    let _ = read_reg(mmio, 0);
+    write_reg(mmio, PCIE_CPU_INT_EVENT, CPU_INTR_DNLD_RDY);
+    compiler_fence(Ordering::SeqCst);
+    true
 }
 
 pub fn start_bring_up_firmware() -> FirmwareBringupTriggerResult {
@@ -1051,6 +1512,8 @@ pub fn poll_hw_spec() -> bool {
                     result: None,
                     mac: None,
                     fw_release: None,
+                    fw_cap_info: 0,
+                    key_api_version: None,
                     host_int_status: status,
                 };
                 changed = true;
@@ -1079,6 +1542,8 @@ pub fn poll_hw_spec() -> bool {
                                 Some(hw_spec.mac),
                                 Some(hw_spec.fw_release),
                             );
+                            runtime.snapshot.fw_cap_info = hw_spec.fw_cap_info;
+                            runtime.snapshot.key_api_version = hw_spec.key_api_version;
                             serial::write_fmt(format_args!(
                                 "marvell wifi: hw_spec MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} fw_release 0x{:08x}\r\n",
                                 hw_spec.mac[0],
@@ -1283,8 +1748,226 @@ pub fn poll_scan_ext() -> bool {
     changed
 }
 
+pub fn poll_connection() -> bool {
+    let mut runtime = CONNECTION.lock();
+    if matches!(
+        runtime.snapshot.stage,
+        ConnectionStage::Idle | ConnectionStage::LinkReady | ConnectionStage::Failed
+    ) {
+        return false;
+    }
+    let Some(mut job) = runtime.job.take() else {
+        return false;
+    };
+    let mmio = job.mmio_base as *mut u8;
+
+    if job.phase == ConnectionStage::WaitPortRelease {
+        if elapsed_ms(job.phase_started_tsc) >= PORT_RELEASE_TIMEOUT_MS {
+            let status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+            quarantine_connection_job(&job);
+            finish_connection_locked(
+                &mut runtime,
+                ConnectionResult::PortReleaseTimeout,
+                ConnectionStage::Failed,
+                status,
+            );
+            DATA_LINK_READY.store(false, Ordering::Release);
+            serial::write_line("marvell wifi: firmware supplicant port release timed out");
+            return true;
+        }
+        runtime.job = Some(job);
+        return false;
+    }
+
+    if elapsed_ms(job.phase_started_tsc) >= CONNECT_CMD_TIMEOUT_MS {
+        let status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+        quarantine_connection_job(&job);
+        finish_connection_locked(
+            &mut runtime,
+            ConnectionResult::CommandTimeout,
+            ConnectionStage::Failed,
+            status,
+        );
+        DATA_LINK_READY.store(false, Ordering::Release);
+        serial::write_fmt(format_args!(
+            "marvell wifi: connection command timeout at {}\r\n",
+            job.phase.label()
+        ));
+        return true;
+    }
+
+    if !job.waiting {
+        let command_len = match prepare_connection_dma(&job) {
+            Ok(len) => len,
+            Err(result) => {
+                quarantine_connection_job(&job);
+                finish_connection_locked(
+                    &mut runtime,
+                    result,
+                    ConnectionStage::Failed,
+                    read_reg(mmio, PCIE_HOST_INT_STATUS),
+                );
+                DATA_LINK_READY.store(false, Ordering::Release);
+                return true;
+            }
+        };
+        compiler_fence(Ordering::SeqCst);
+        write_reg(mmio, PCIE_HOST_INT_MASK, 0);
+        write_reg(mmio, PCIE_HOST_INT_STATUS_MASK, HOST_INTR_MASK);
+        let pending = read_reg(mmio, PCIE_HOST_INT_STATUS);
+        if pending != 0 && pending != u32::MAX {
+            write_reg(mmio, PCIE_HOST_INT_STATUS, !pending);
+        }
+        write_reg(
+            mmio,
+            CMDRSP_ADDR_LO,
+            (job.rsp_dma_phys & 0xffff_ffff) as u32,
+        );
+        write_reg(mmio, CMDRSP_ADDR_HI, (job.rsp_dma_phys >> 32) as u32);
+        write_reg(mmio, CMD_ADDR_LO, (job.cmd_dma_phys & 0xffff_ffff) as u32);
+        write_reg(mmio, CMD_ADDR_HI, (job.cmd_dma_phys >> 32) as u32);
+        write_reg(mmio, CMD_SIZE, command_len as u32);
+        compiler_fence(Ordering::SeqCst);
+        pci::enable_bus_master(job.pci_address);
+        write_reg(mmio, PCIE_CPU_INT_EVENT, CPU_INTR_DOOR_BELL);
+        compiler_fence(Ordering::SeqCst);
+        job.waiting = true;
+        job.phase_started_tsc = time::rdtsc();
+        runtime.snapshot.stage = job.phase;
+        runtime.snapshot.host_int_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+        runtime.job = Some(job);
+        return true;
+    }
+
+    let status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+    runtime.snapshot.host_int_status = status;
+    if status & HOST_INTR_CMD_DONE == 0 {
+        runtime.job = Some(job);
+        return false;
+    }
+
+    compiler_fence(Ordering::SeqCst);
+    let response = parse_connection_dma_response(&job);
+    write_reg(mmio, PCIE_HOST_INT_STATUS, !status);
+    compiler_fence(Ordering::SeqCst);
+    let association = match response {
+        Ok(association) => association,
+        Err(result) => {
+            quarantine_connection_job(&job);
+            finish_connection_locked(&mut runtime, result, ConnectionStage::Failed, status);
+            DATA_LINK_READY.store(false, Ordering::Release);
+            serial::write_fmt(format_args!(
+                "marvell wifi: connection command failed at {} result={}\r\n",
+                job.phase.label(),
+                result.label()
+            ));
+            return true;
+        }
+    };
+    clear_connection_secret_dma(&job);
+
+    if let Some(association) = association {
+        runtime.snapshot.association_status = Some(association.status_code);
+        runtime.snapshot.association_id = association.association_id;
+        if association.status_code != 0 {
+            let result = ConnectionResult::AssociationRejected(association.status_code);
+            quarantine_connection_job(&job);
+            finish_connection_locked(&mut runtime, result, ConnectionStage::Failed, status);
+            DATA_LINK_READY.store(false, Ordering::Release);
+            serial::write_fmt(format_args!(
+                "marvell wifi: association rejected status={}\r\n",
+                association.status_code
+            ));
+            return true;
+        }
+    }
+
+    if job.phase == ConnectionStage::MacControl {
+        publish_data_ring_pointers(job.mmio_base);
+    }
+
+    job.waiting = false;
+    job.phase_started_tsc = time::rdtsc();
+    job.phase = next_connection_phase(job.phase, job.target.security);
+    if job.phase == ConnectionStage::WaitPortRelease {
+        job.passphrase.fill(0);
+        runtime.snapshot.stage = ConnectionStage::WaitPortRelease;
+        runtime.job = Some(job);
+        serial::write_line("marvell wifi: association accepted; waiting for secure port release");
+        return true;
+    }
+    if job.phase == ConnectionStage::LinkReady {
+        let mac = hw_spec_snapshot().mac;
+        finish_connection_locked(
+            &mut runtime,
+            ConnectionResult::LinkReady,
+            ConnectionStage::LinkReady,
+            status,
+        );
+        DATA_LINK_READY.store(true, Ordering::Release);
+        if let Some(mac) = mac {
+            net::attach_wifi(mac);
+        }
+        serial::write_line("marvell wifi: open association accepted; data link released");
+        return true;
+    }
+
+    runtime.snapshot.stage = job.phase;
+    runtime.job = Some(job);
+    true
+}
+
+fn next_connection_phase(stage: ConnectionStage, security: Dot11Security) -> ConnectionStage {
+    match stage {
+        ConnectionStage::RegisterRings => ConnectionStage::MacControl,
+        ConnectionStage::MacControl if security == Dot11Security::Wpa2 => {
+            ConnectionStage::SupplicantProfile
+        }
+        ConnectionStage::MacControl => ConnectionStage::Associate,
+        ConnectionStage::SupplicantProfile => ConnectionStage::SupplicantPmk,
+        ConnectionStage::SupplicantPmk => ConnectionStage::Associate,
+        ConnectionStage::Associate if security == Dot11Security::Wpa2 => {
+            ConnectionStage::WaitPortRelease
+        }
+        ConnectionStage::Associate => ConnectionStage::LinkReady,
+        _ => ConnectionStage::Failed,
+    }
+}
+
+fn finish_connection_locked(
+    runtime: &mut ConnectionRuntime,
+    result: ConnectionResult,
+    stage: ConnectionStage,
+    host_int_status: u32,
+) {
+    runtime.job = None;
+    runtime.snapshot.running = false;
+    runtime.snapshot.stage = stage;
+    runtime.snapshot.result = Some(result);
+    runtime.snapshot.host_int_status = host_int_status;
+}
+
+fn quarantine_connection_job(job: &ConnectionJob) {
+    DATA_LINK_READY.store(false, Ordering::Release);
+    pci::disable_bus_master(job.pci_address);
+    clear_connection_secret_dma(job);
+    compiler_fence(Ordering::SeqCst);
+}
+
+fn clear_connection_secret_dma(job: &ConnectionJob) {
+    if job.phase != ConnectionStage::SupplicantPmk {
+        return;
+    }
+    unsafe {
+        // SAFETY: the connection mailbox is dedicated to CONNECTION, and the
+        // caller invokes this only after DMA is complete or bus mastering is off.
+        ptr::write_bytes(connect_cmd_ptr(), 0, CONNECT_CMD_BUFFER_SIZE);
+    }
+    compiler_fence(Ordering::SeqCst);
+}
+
 pub fn poll_event_ring() -> bool {
-    let (changed, scan_event_observed, serial_event) = {
+    let (changed, serial_event) = {
         let mut runtime = EVENT_RING.lock();
         if !runtime.snapshot.armed {
             return false;
@@ -1361,7 +2044,7 @@ pub fn poll_event_ring() -> bool {
             attempted: true,
             armed: true,
             stage: EventRingStage::EventReady,
-            result: Some(EventRingResult::EventObservedRxRingUnavailable),
+            result: Some(EventRingResult::EventObserved),
             host_int_status: status,
             rdptr: next_rdptr,
             wrptr,
@@ -1369,19 +2052,64 @@ pub fn poll_event_ring() -> bool {
             event_type: parsed.event_type,
             event_cause: parsed.cause,
         };
-        (true, scan_cmd_snapshot().is_done(), Some(parsed))
+        (true, Some(parsed))
     };
 
-    if scan_event_observed {
-        wifi::note_scan_event_observed_rx_ring_unavailable();
-    }
     if let Some(parsed) = serial_event {
+        handle_connection_event(parsed.cause);
         serial::write_fmt(format_args!(
-            "marvell wifi: event observed cause=0x{:08x} len={} type=0x{:04x}; scan parsing still denied\r\n",
+            "marvell wifi: event observed cause=0x{:08x} len={} type=0x{:04x}\r\n",
             parsed.cause, parsed.len, parsed.event_type
         ));
     }
     changed
+}
+
+fn handle_connection_event(cause: u32) {
+    let event_id = cause & 0xffff;
+    if matches!(event_id, 0x0003 | 0x0008 | 0x0009) {
+        let mut runtime = CONNECTION.lock();
+        if runtime.snapshot.attempted && !runtime.snapshot.is_failed() {
+            if let Some(job) = runtime.job.take() {
+                quarantine_connection_job(&job);
+            } else if let Some(address) = wifi::snapshot().address {
+                pci::disable_bus_master(address);
+            }
+            runtime.snapshot.running = false;
+            runtime.snapshot.stage = ConnectionStage::Failed;
+            runtime.snapshot.result = Some(ConnectionResult::LinkLost(event_id as u16));
+            DATA_LINK_READY.store(false, Ordering::Release);
+            drop(runtime);
+            net::detach_wifi();
+            serial::write_fmt(format_args!(
+                "marvell wifi: link loss event 0x{:04x}; DMA quarantined\r\n",
+                event_id
+            ));
+        }
+        return;
+    }
+    if event_id != marvell_wifi_supplicant::EVENT_PORT_RELEASE {
+        return;
+    }
+
+    let mut runtime = CONNECTION.lock();
+    if runtime.snapshot.stage != ConnectionStage::WaitPortRelease {
+        return;
+    }
+    let Some(job) = runtime.job.take() else {
+        return;
+    };
+    runtime.snapshot.running = false;
+    runtime.snapshot.stage = ConnectionStage::LinkReady;
+    runtime.snapshot.result = Some(ConnectionResult::LinkReady);
+    DATA_LINK_READY.store(true, Ordering::Release);
+    drop(job);
+    drop(runtime);
+
+    if let Some(mac) = hw_spec_snapshot().mac {
+        net::attach_wifi(mac);
+    }
+    serial::write_line("marvell wifi: secure port released; data link and DHCP enabled");
 }
 
 pub fn poll_rx_ring() -> bool {
@@ -1800,6 +2528,8 @@ fn arm_hw_spec_after_firmware_ready(mmio_base: usize, pci_address: pci::PciAddre
         result: None,
         mac: None,
         fw_release: None,
+        fw_cap_info: 0,
+        key_api_version: None,
         host_int_status: 0,
     };
     runtime.job = Some(HwSpecJob {
@@ -1851,14 +2581,11 @@ fn arm_event_ring(mmio_base: usize) {
     let mmio = mmio_base as *mut u8;
     runtime.rdptr = EVENT_ROLLOVER_IND;
     compiler_fence(Ordering::SeqCst);
-    write_reg(mmio, PCIE_HOST_INT_STATUS_MASK, HOST_INTR_MASK);
-    write_reg(mmio, PCIE_EVT_RD_PTR, runtime.rdptr);
-    compiler_fence(Ordering::SeqCst);
 
     runtime.mmio_base = Some(mmio_base);
     runtime.snapshot = EventRingSnapshot {
         attempted: true,
-        armed: true,
+        armed: false,
         stage: EventRingStage::Armed,
         result: Some(EventRingResult::Armed),
         host_int_status: read_reg(mmio, PCIE_HOST_INT_STATUS),
@@ -1868,7 +2595,7 @@ fn arm_event_ring(mmio_base: usize) {
         event_type: 0,
         event_cause: 0,
     };
-    serial::write_line("marvell wifi: event ring armed before DRV_READY");
+    serial::write_line("marvell wifi: event ring prepared for descriptor registration");
 }
 
 fn arm_rx_ring(mmio_base: usize) -> bool {
@@ -1908,9 +2635,7 @@ fn arm_rx_ring(mmio_base: usize) -> bool {
     }
 
     runtime.rdptr = RX_ROLLOVER_IND;
-    compiler_fence(Ordering::SeqCst);
-    write_reg(mmio_base as *mut u8, PCIE_RX_RD_PTR, runtime.rdptr);
-    compiler_fence(Ordering::SeqCst);
+    RX_RDPTR_SHARED.store(runtime.rdptr, Ordering::Release);
     runtime.mmio_base = Some(mmio_base);
     runtime.snapshot = RxRingSnapshot {
         attempted: true,
@@ -1924,6 +2649,54 @@ fn arm_rx_ring(mmio_base: usize) -> bool {
         rx_type: 0,
     };
     true
+}
+
+fn arm_tx_ring(mmio_base: usize) -> bool {
+    let mut runtime = TX_RING.lock();
+    if runtime.armed {
+        return true;
+    }
+    let mut index = 0usize;
+    while index < TX_RING_COUNT {
+        unsafe {
+            // SAFETY: the loop bounds every descriptor and buffer access to
+            // the fixed TX DMA block before firmware receives its address.
+            ptr::write_bytes(tx_data_ptr(index), 0, TX_BUFFER_SIZE);
+            ptr::write(tx_desc_ptr(index), RxPfuBufDesc::EMPTY);
+        }
+        index += 1;
+    }
+    runtime.armed = true;
+    runtime.mmio_base = Some(mmio_base);
+    runtime.wrptr = 0;
+    runtime.rdptr = 0;
+    TX_WRPTR_SHARED.store(0, Ordering::Release);
+    true
+}
+
+fn arm_data_rings(mmio_base: usize) -> bool {
+    arm_event_ring(mmio_base);
+    let event_ready = {
+        let runtime = EVENT_RING.lock();
+        runtime.mmio_base.is_some() && !runtime.snapshot.is_failed()
+    };
+    event_ready && arm_rx_ring(mmio_base) && arm_tx_ring(mmio_base)
+}
+
+fn publish_data_ring_pointers(mmio_base: usize) {
+    let event_rdptr = {
+        let mut runtime = EVENT_RING.lock();
+        runtime.snapshot.armed = true;
+        runtime.rdptr
+    };
+    let rx_rdptr = RX_RDPTR_SHARED.load(Ordering::Acquire) & 0x0000_07ff;
+    let tx_wrptr = TX_WRPTR_SHARED.load(Ordering::Acquire) & TX_RING_WRAP_MASK;
+    let mmio = mmio_base as *mut u8;
+    compiler_fence(Ordering::SeqCst);
+    write_reg(mmio, PCIE_HOST_INT_STATUS_MASK, HOST_INTR_MASK);
+    write_reg(mmio, PCIE_EVT_RD_PTR, event_rdptr);
+    write_reg(mmio, PCIE_RX_RD_PTR, tx_wrptr | rx_rdptr);
+    compiler_fence(Ordering::SeqCst);
 }
 
 fn finish_hw_spec_locked(
@@ -1942,6 +2715,8 @@ fn finish_hw_spec_locked(
         result: Some(result),
         mac,
         fw_release,
+        fw_cap_info: 0,
+        key_api_version: None,
         host_int_status,
     };
 }
@@ -1992,6 +2767,113 @@ fn prepare_scan_dma(seq: u16) -> Result<usize, HwSpecCmdError> {
         let cmd = slice::from_raw_parts_mut(scan_cmd_ptr(), SCAN_CMD_BUFFER_SIZE);
         marvell_wifi_cmd::build_scan_24ghz(seq, cmd)
     }
+}
+
+fn prepare_connection_dma(job: &ConnectionJob) -> Result<usize, ConnectionResult> {
+    unsafe {
+        // SAFETY: CONNECTION serializes the dedicated command/response DMA
+        // block and every pure builder is bounded by CONNECT_CMD_BUFFER_SIZE.
+        ptr::write_bytes(connect_rsp_ptr(), 0, MWIFIEX_UPLD_SIZE);
+        let out = slice::from_raw_parts_mut(connect_cmd_ptr(), CONNECT_CMD_BUFFER_SIZE);
+        let seq = connection_phase_seq(job.seq, job.phase);
+        match job.phase {
+            ConnectionStage::RegisterRings => {
+                let rings = marvell_wifi_cmd::PcieDescriptorRings {
+                    tx_phys: tx_desc_phys().ok_or(ConnectionResult::DmaAddressUnavailable)?,
+                    rx_phys: rx_desc_phys().ok_or(ConnectionResult::DmaAddressUnavailable)?,
+                    event_phys: event_desc_phys().ok_or(ConnectionResult::DmaAddressUnavailable)?,
+                };
+                marvell_wifi_cmd::build_pcie_desc_details(seq, rings, out)
+                    .map_err(ConnectionResult::CommandBuild)
+            }
+            ConnectionStage::MacControl => marvell_wifi_cmd::build_mac_control(seq, out)
+                .map_err(ConnectionResult::CommandBuild),
+            ConnectionStage::SupplicantProfile => {
+                marvell_wifi_supplicant::build_supplicant_profile_set(seq, out)
+                    .map_err(ConnectionResult::SupplicantBuild)
+            }
+            ConnectionStage::SupplicantPmk => marvell_wifi_supplicant::build_supplicant_pmk_set(
+                seq,
+                job.target.bssid,
+                job.target.ssid.as_bytes(),
+                &job.passphrase[..job.passphrase_len],
+                out,
+            )
+            .map_err(ConnectionResult::SupplicantBuild),
+            ConnectionStage::Associate => {
+                let security_ie = if job.target.security_ie().is_empty() {
+                    None
+                } else {
+                    Some(job.target.security_ie())
+                };
+                marvell_wifi_cmd::build_associate_24ghz(
+                    seq,
+                    marvell_wifi_cmd::AssociationBss {
+                        bssid: job.target.bssid,
+                        ssid: job.target.ssid.as_bytes(),
+                        channel: job.target.channel,
+                        beacon_period: job.target.beacon_period,
+                        capability_info: job.target.capability_info,
+                        rates: job.target.rates(),
+                        rsn_or_wpa_ie: security_ie,
+                    },
+                    out,
+                )
+                .map_err(ConnectionResult::CommandBuild)
+            }
+            _ => Err(ConnectionResult::CommandBuild(MarvellCmdError::BadLength)),
+        }
+    }
+}
+
+fn parse_connection_dma_response(
+    job: &ConnectionJob,
+) -> Result<Option<marvell_wifi_cmd::AssociationResponse>, ConnectionResult> {
+    unsafe {
+        // SAFETY: CMD_DONE is observed before parsing the fixed connection
+        // response DMA buffer under the CONNECTION lock.
+        let response = slice::from_raw_parts(connect_rsp_ptr().cast_const(), MWIFIEX_UPLD_SIZE);
+        let seq = connection_phase_seq(job.seq, job.phase);
+        match job.phase {
+            ConnectionStage::RegisterRings => {
+                marvell_wifi_cmd::parse_pcie_desc_details_response(seq, response)
+                    .map_err(ConnectionResult::CommandResponse)?;
+                Ok(None)
+            }
+            ConnectionStage::MacControl => {
+                marvell_wifi_cmd::parse_mac_control_response(seq, response)
+                    .map_err(ConnectionResult::CommandResponse)?;
+                Ok(None)
+            }
+            ConnectionStage::SupplicantProfile => {
+                marvell_wifi_supplicant::parse_supplicant_profile_response(seq, response)
+                    .map_err(ConnectionResult::SupplicantResponse)?;
+                Ok(None)
+            }
+            ConnectionStage::SupplicantPmk => {
+                marvell_wifi_supplicant::parse_supplicant_pmk_response(seq, response)
+                    .map_err(ConnectionResult::SupplicantResponse)?;
+                Ok(None)
+            }
+            ConnectionStage::Associate => marvell_wifi_cmd::parse_associate_response(seq, response)
+                .map(Some)
+                .map_err(ConnectionResult::CommandResponse),
+            _ => Err(ConnectionResult::CommandResponse(
+                MarvellCmdError::BadLength,
+            )),
+        }
+    }
+}
+
+fn connection_phase_seq(base: u16, phase: ConnectionStage) -> u16 {
+    base.wrapping_add(match phase {
+        ConnectionStage::RegisterRings => 0,
+        ConnectionStage::MacControl => 1,
+        ConnectionStage::SupplicantProfile => 2,
+        ConnectionStage::SupplicantPmk => 3,
+        ConnectionStage::Associate => 4,
+        _ => 7,
+    })
 }
 
 fn parse_hw_spec_dma_response() -> Result<marvell_wifi_cmd::HwSpec, HwSpecCmdError> {
@@ -2097,6 +2979,102 @@ fn rx_buffer_type(index: usize) -> u16 {
             ptr::read_volatile(ptr.add(2)),
             ptr::read_volatile(ptr.add(3)),
         ])
+    }
+}
+
+fn parse_rx_ethernet(index: usize) -> Option<RxPacket> {
+    unsafe {
+        // SAFETY: callers validate the RX ring index; firmware DMA is complete
+        // before the write pointer makes this buffer visible.
+        let bytes = slice::from_raw_parts(rx_data_ptr(index).cast_const(), RX_BUFFER_SIZE);
+        let interface_len = u16::from_le_bytes([bytes[0], bytes[1]]) as usize;
+        let interface_type = u16::from_le_bytes([bytes[2], bytes[3]]);
+        if interface_type != 0
+            || interface_len < DATA_INTERFACE_HEADER_LEN + RX_PD_LEN
+            || interface_len > RX_BUFFER_SIZE
+        {
+            return None;
+        }
+
+        let rx_pd = DATA_INTERFACE_HEADER_LEN;
+        let packet_len = u16::from_le_bytes([bytes[rx_pd + 2], bytes[rx_pd + 3]]) as usize;
+        let packet_offset = u16::from_le_bytes([bytes[rx_pd + 4], bytes[rx_pd + 5]]) as usize;
+        let packet_type = u16::from_le_bytes([bytes[rx_pd + 6], bytes[rx_pd + 7]]);
+        let start = rx_pd.checked_add(packet_offset)?;
+        let end = start.checked_add(packet_len)?;
+        if packet_type != 0 || packet_len < 14 || end > interface_len || end > bytes.len() {
+            return None;
+        }
+
+        let source = &bytes[start..end];
+        let mut packet = RxPacket {
+            len: 0,
+            bytes: [0; MAX_ETHERNET_FRAME_SIZE],
+        };
+        if source.len() >= 22
+            && source[14..17] == [0xaa, 0xaa, 0x03]
+            && (source[17..20] == [0x00, 0x00, 0x00] || source[17..20] == [0x00, 0x00, 0xf8])
+        {
+            let converted_len = source.len().checked_sub(8)?;
+            if converted_len > packet.bytes.len() {
+                return None;
+            }
+            packet.bytes[..12].copy_from_slice(&source[..12]);
+            packet.bytes[12..14].copy_from_slice(&source[20..22]);
+            packet.bytes[14..converted_len].copy_from_slice(&source[22..]);
+            packet.len = converted_len;
+        } else {
+            if source.len() > packet.bytes.len() {
+                return None;
+            }
+            packet.bytes[..source.len()].copy_from_slice(source);
+            packet.len = source.len();
+        }
+        Some(packet)
+    }
+}
+
+fn prepare_tx_buffer(index: usize, frame: &[u8], total_len: usize) -> bool {
+    let Some(data_phys) = tx_data_phys(index) else {
+        return false;
+    };
+    unsafe {
+        // SAFETY: the caller bounds index and total_len against the fixed TX
+        // DMA block and owns this descriptor until firmware advances TX-RD.
+        let data = slice::from_raw_parts_mut(tx_data_ptr(index), TX_BUFFER_SIZE);
+        data[..total_len].fill(0);
+        data[0..2].copy_from_slice(&(total_len as u16).to_le_bytes());
+        data[2..4].copy_from_slice(&0u16.to_le_bytes());
+        let tx_pd = DATA_INTERFACE_HEADER_LEN;
+        data[tx_pd + 2..tx_pd + 4].copy_from_slice(&(frame.len() as u16).to_le_bytes());
+        data[tx_pd + 4..tx_pd + 6].copy_from_slice(&(TX_PD_LEN as u16).to_le_bytes());
+        data[DATA_INTERFACE_HEADER_LEN + TX_PD_LEN..total_len].copy_from_slice(frame);
+        ptr::write(
+            tx_desc_ptr(index),
+            RxPfuBufDesc {
+                flags: RX_DESC_FLAG_SOP | RX_DESC_FLAG_EOP,
+                offset: 0,
+                frag_len: total_len as u16,
+                len: total_len as u16,
+                paddr: data_phys,
+                reserved: 0,
+            },
+        );
+    }
+    true
+}
+
+fn tx_ring_full(wrptr: u32, rdptr: u32) -> bool {
+    (wrptr & TX_RING_MASK) == (rdptr & TX_RING_MASK)
+        && (wrptr & TX_ROLLOVER_IND) != (rdptr & TX_ROLLOVER_IND)
+}
+
+fn next_tx_wrptr(wrptr: u32) -> u32 {
+    let next = wrptr.wrapping_add(TX_RING_STEP);
+    if (next & TX_RING_MASK) == (TX_RING_COUNT as u32) << 16 {
+        (next & TX_ROLLOVER_IND) ^ TX_ROLLOVER_IND
+    } else {
+        next
     }
 }
 
@@ -2333,12 +3311,36 @@ fn scan_rsp_phys() -> Option<u64> {
     memory::virt_to_phys(scan_rsp_ptr().cast_const())
 }
 
+fn connect_cmd_phys() -> Option<u64> {
+    memory::virt_to_phys(connect_cmd_ptr().cast_const())
+}
+
+fn connect_rsp_phys() -> Option<u64> {
+    memory::virt_to_phys(connect_rsp_ptr().cast_const())
+}
+
 fn event_data_phys(index: usize) -> Option<u64> {
     memory::virt_to_phys(event_data_ptr(index).cast_const())
 }
 
+fn event_desc_phys() -> Option<u64> {
+    memory::virt_to_phys(event_desc_ptr(0).cast_const())
+}
+
 fn rx_data_phys(index: usize) -> Option<u64> {
     memory::virt_to_phys(rx_data_ptr(index).cast_const())
+}
+
+fn rx_desc_phys() -> Option<u64> {
+    memory::virt_to_phys(rx_desc_ptr(0).cast_const())
+}
+
+fn tx_data_phys(index: usize) -> Option<u64> {
+    memory::virt_to_phys(tx_data_ptr(index).cast_const())
+}
+
+fn tx_desc_phys() -> Option<u64> {
+    memory::virt_to_phys(tx_desc_ptr(0).cast_const())
 }
 
 fn copy_block_into_dma(src: &[u8], wire_len: usize) -> Result<(), FirmwareDownloadResult> {
@@ -2413,6 +3415,21 @@ fn scan_rsp_ptr() -> *mut u8 {
     }
 }
 
+fn connect_cmd_ptr() -> *mut u8 {
+    unsafe {
+        // SAFETY: returning a raw pointer creates no reference; CONNECTION
+        // serializes and bounds all access to this command buffer.
+        ptr::addr_of_mut!(CONNECT_DMA_BLOCK.cmd).cast::<u8>()
+    }
+}
+
+fn connect_rsp_ptr() -> *mut u8 {
+    unsafe {
+        // SAFETY: same serialization and fixed-buffer invariant as above.
+        ptr::addr_of_mut!(CONNECT_DMA_BLOCK.rsp).cast::<u8>()
+    }
+}
+
 fn event_desc_ptr(index: usize) -> *mut EventBufDesc {
     unsafe {
         // SAFETY: returning a raw pointer does not create a Rust reference; all
@@ -2450,5 +3467,24 @@ fn rx_data_ptr(index: usize) -> *mut u8 {
         ptr::addr_of_mut!(RX_RING_DMA_BLOCK.data)
             .cast::<u8>()
             .add(index * RX_BUFFER_SIZE)
+    }
+}
+
+fn tx_desc_ptr(index: usize) -> *mut RxPfuBufDesc {
+    unsafe {
+        // SAFETY: returning a raw pointer creates no reference; callers bound
+        // every index against TX_RING_COUNT while holding TX_RING.
+        ptr::addr_of_mut!(TX_RING_DMA_BLOCK.desc)
+            .cast::<RxPfuBufDesc>()
+            .add(index)
+    }
+}
+
+fn tx_data_ptr(index: usize) -> *mut u8 {
+    unsafe {
+        // SAFETY: same fixed-block and index invariant as tx_desc_ptr.
+        ptr::addr_of_mut!(TX_RING_DMA_BLOCK.data)
+            .cast::<u8>()
+            .add(index * TX_BUFFER_SIZE)
     }
 }

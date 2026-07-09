@@ -18,6 +18,7 @@ pub mod gpt_layout;
 pub mod kernel_surface;
 pub mod marvell_wifi_cmd;
 pub mod marvell_wifi_fw;
+pub mod marvell_wifi_supplicant;
 pub mod memory_record;
 pub mod memory_record_resolve;
 pub mod owner_key_tpm2;

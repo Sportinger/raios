@@ -24,14 +24,40 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (bare-metal WiFi association): use the selected live BSS,
-RAM-only SSID, and RAM-only passphrase as inputs to the first real bounded
-Marvell association sequence. Start with upstream mwifiex command/key-material
-recon, then implement the smallest command/response step that executes on the
-Surface. Keep link, DHCP, provider network access, and any `connected` label
-denied until the complete authentication/association/key-exchange evidence
-chain succeeds. Event/RX rings, RX-PFU, and persistent secret storage remain
-parked unless the real association path proves they are required.
+Current exact next task (bare-metal WiFi link proof): write the current image to
+Disk 2 and prove the new association/data path on the Surface. Capture the
+`LINK` stage, association status/AID, firmware `PORT_RELEASE` event for WPA2,
+RX/TX pointer movement, and DHCP result through RECLOG/screen evidence. Keep
+provider network access and any durable WiFi-secret claim denied until that
+positive hardware chain succeeds.
+
+Marvell association + DHCP slice done (2026-07-10) - a user can now select a
+live open or WPA2-PSK/CCMP BSS and ask raiOS to run a real bounded 88W8897
+connection sequence instead of stopping at credential entry. The driver
+registers 32-entry PFU TX/RX rings and the 8-entry event ring with firmware,
+enables Ethernet-II MAC control, validates every command ID/length/sequence and
+firmware result, and sends the selected BSSID/channel/beacon/rates/security
+evidence in the real associate command. WPA2 additionally requires the actual
+firmware-supplicant capability, configures the NXP WPA2/AES profile and
+boot-only passphrase/SSID/BSSID material, zeroes the connection copy after use,
+zeroes the PMK DMA command after completion/failure, and grants link authority
+only after both successful association and the real
+firmware `PORT_RELEASE` event. Open association grants link only after a valid
+successful association response/AID. Only then does the Marvell `WifiPhy`
+attach the existing smoltcp stack and start real DHCP; link-loss events clear
+network state and quarantine WiFi DMA. WEP, WPA, WPA3, malformed RSN, missing
+capability/evidence, timeouts, rejected association, and malformed or stale
+responses fail closed. This is implemented and VM-verified but still awaits the
+positive Surface radio/PORT_RELEASE/DHCP proof. Verified: 50/50 focused Marvell
+tests and 335/335 complete `raios-core` tests; scoped rustfmt; release kernel
+build; quick Shadow VM report
+`release/vm-reports/shadow-20260710-010658-31684.json` passed 542/542 predicates
+and 79 executed commands, `duration_ms: 230309`, report sha256
+`3968bafe928a55ec1244ec76eb893138fbf229c99c6f4f8dc41fdfc4bb28ffbd`, and
+`base_image.sha256: 491758f68d2e6255cd3fa90a201ae6806952e6a66c283fa99dddcf1b91c76603`.
+The scoped rustfmt check covers all nine touched Rust files; global
+`cargo fmt --all -- --check` remains red only on the four pre-existing
+`raios-core/src/marvell_wifi_fw.rs` formatting differences. Secret scan passed.
 
 Bare-metal guided WiFi/input proof (2026-07-10) - the owner can now complete the
 real `WiFi DETECTED` guided path through firmware, HW_SPEC, live scan, secured

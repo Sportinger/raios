@@ -2283,6 +2283,37 @@ reports, `ERR` for interrupt transfer errors, and `TCC` for the last transfer
 completion code. If a keyboard is `READY` but typing does not change `EV`, the
 device enumerated but reports are not reaching the input queue yet.
 
+### Surface WiFi connection stops after password entry
+
+The guided flow now reports the real bounded connection stage in Settings:
+
+```text
+LINK: register_rings
+LINK: mac_control
+LINK: supplicant_profile
+LINK: supplicant_pmk
+LINK: associate
+LINK: wait_port_release
+LINK: link_ready
+```
+
+For WPA2, `associate` success is not enough. `link_ready` is authorized only
+after event `0x002b` (`PORT_RELEASE`); only then is the Marvell `WifiPhy`
+attached and DHCP polling enabled. Useful serial lines are:
+
+```text
+marvell wifi: bounded association sequence started
+marvell wifi: association accepted; waiting for secure port release
+marvell wifi: secure port released; data link and DHCP enabled
+authenticated Marvell WiFi link attached; DHCP polling enabled
+DHCP lease acquired: ip ...
+```
+
+`firmware_supplicant_unavailable`, `security_unsupported`, command/port-release
+timeouts, rejected association status, or stale response sequence are explicit
+fail-closed results. Do not interpret `KEY SET` or association acceptance alone
+as a network link.
+
 ### Kernel hits #UD during first DHCP transmit
 
 Likely cause: the custom target enabled CPU features that QEMU's default CPU did

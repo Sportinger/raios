@@ -13,6 +13,8 @@ const MICROSOFT_SUBSYSTEM_VENDOR_ID: u16 = 0x045e;
 pub const SSID_CAPACITY: usize = 32;
 pub const PASSPHRASE_CAPACITY: usize = 63;
 pub const SCAN_RESULT_CAPACITY: usize = 16;
+pub const ASSOCIATION_RATES_CAPACITY: usize = 14;
+pub const ASSOCIATION_SECURITY_IE_CAPACITY: usize = 257;
 pub const WIFI_SCAN_UNAVAILABLE_REASON: &str = "wifi firmware not loaded";
 pub const WIFI_SCAN_MAILBOX_UNAVAILABLE_REASON: &str = "firmware ready; scan command not started";
 pub const WIFI_SCAN_COMMAND_PENDING_REASON: &str = "scan command pending";
@@ -93,6 +95,7 @@ struct WifiRuntime {
     passphrase: WifiText<PASSPHRASE_CAPACITY>,
     scan_results: [ScannedNetwork; SCAN_RESULT_CAPACITY],
     scan_count: usize,
+    selected_bss: Option<ScannedNetwork>,
 }
 
 impl WifiRuntime {
@@ -102,12 +105,14 @@ impl WifiRuntime {
             passphrase: WifiText::empty(),
             scan_results: [ScannedNetwork::empty(); SCAN_RESULT_CAPACITY],
             scan_count: 0,
+            selected_bss: None,
         }
     }
 
     fn clear_scan_results(&mut self) {
         self.scan_results = [ScannedNetwork::empty(); SCAN_RESULT_CAPACITY];
         self.scan_count = 0;
+        self.selected_bss = None;
     }
 }
 
@@ -176,6 +181,13 @@ pub struct ScannedNetwork {
     pub security: Dot11Security,
     pub rssi: Option<i8>,
     pub source: ScanSource,
+    pub bssid: [u8; 6],
+    pub beacon_period: u16,
+    pub capability_info: u16,
+    pub rates: [u8; ASSOCIATION_RATES_CAPACITY],
+    pub rates_len: usize,
+    pub security_ie: [u8; ASSOCIATION_SECURITY_IE_CAPACITY],
+    pub security_ie_len: usize,
 }
 
 impl ScannedNetwork {
@@ -187,7 +199,43 @@ impl ScannedNetwork {
             security: Dot11Security::Unknown,
             rssi: None,
             source: ScanSource::SelfTestDemo,
+            bssid: [0; 6],
+            beacon_period: 0,
+            capability_info: 0,
+            rates: [0; ASSOCIATION_RATES_CAPACITY],
+            rates_len: 0,
+            security_ie: [0; ASSOCIATION_SECURITY_IE_CAPACITY],
+            security_ie_len: 0,
         }
+    }
+
+    pub fn association_ready(&self) -> bool {
+        self.source == ScanSource::LiveRadio
+            && self.bssid != [0; 6]
+            && !self.ssid.is_empty()
+            && self.channel != 0
+            && self.beacon_period != 0
+            && self.rates_len != 0
+    }
+
+    pub fn rates(&self) -> &[u8] {
+        &self.rates[..self.rates_len]
+    }
+
+    pub fn security_ie(&self) -> &[u8] {
+        &self.security_ie[..self.security_ie_len]
+    }
+
+    pub fn supports_wpa2_psk_ccmp(&self) -> bool {
+        let ie = self.security_ie();
+        if self.security != Dot11Security::Wpa2
+            || ie.len() < 2
+            || ie[0] != 48
+            || ie.len() != ie[1] as usize + 2
+        {
+            return false;
+        }
+        rsn_has_psk_ccmp(&ie[2..])
     }
 }
 
@@ -282,14 +330,16 @@ pub fn ingest_scan_frame(
     let parsed = parse_scan_frame(bytes).map_err(WifiScanIngestError::Parse)?;
     let mut ssid = WifiSsid::empty();
     ssid.set_scan_bytes(parsed.ssid.as_bytes());
-    let network = ScannedNetwork {
+    let mut network = ScannedNetwork {
         ssid,
         hidden_ssid: parsed.ssid.is_hidden(),
         channel: parsed.channel.unwrap_or(0),
         security: parsed.security,
         rssi,
         source,
+        ..ScannedNetwork::empty()
     };
+    retain_association_evidence(bytes, &mut network);
 
     let mut guard = STATE.lock();
     let mut idx = 0usize;
@@ -307,6 +357,24 @@ pub fn ingest_scan_frame(
     guard.scan_results[insert] = network;
     guard.scan_count = insert + 1;
     Ok(())
+}
+
+pub fn select_scan_result(index: usize) -> Result<ScannedNetwork, WifiConfigError> {
+    let mut guard = STATE.lock();
+    if index >= guard.scan_count {
+        return Err(WifiConfigError::EmptySsid);
+    }
+    let network = guard.scan_results[index];
+    if !network.association_ready() {
+        return Err(WifiConfigError::EmptySsid);
+    }
+    guard.snapshot.ssid = network.ssid;
+    guard.selected_bss = Some(network);
+    Ok(network)
+}
+
+pub fn association_target() -> Option<ScannedNetwork> {
+    STATE.lock().selected_bss
 }
 
 pub fn run_scan_selftest() {
@@ -345,6 +413,7 @@ pub fn set_ssid(bytes: &[u8]) -> Result<(), WifiConfigError> {
 
     let mut guard = STATE.lock();
     guard.snapshot.ssid = text;
+    guard.selected_bss = None;
     Ok(())
 }
 
@@ -372,10 +441,21 @@ pub fn set_remember_passphrase_for_boot(remember: bool) {
     STATE.lock().snapshot.remember_passphrase_for_boot = remember;
 }
 
+pub fn copy_passphrase(out: &mut [u8]) -> Option<usize> {
+    let guard = STATE.lock();
+    if guard.passphrase.is_empty() || out.len() < guard.passphrase.as_bytes().len() {
+        return None;
+    }
+    let len = guard.passphrase.as_bytes().len();
+    out[..len].copy_from_slice(guard.passphrase.as_bytes());
+    Some(len)
+}
+
 pub fn clear_config() {
     let mut guard = STATE.lock();
     guard.snapshot.ssid.clear();
     guard.passphrase.clear();
+    guard.selected_bss = None;
     guard.snapshot.passphrase_set = false;
     guard.snapshot.remember_passphrase_for_boot = true;
 }
@@ -437,7 +517,99 @@ fn is_printable_ascii(bytes: &[u8]) -> bool {
 }
 
 fn same_scan_key(left: &ScannedNetwork, right: &ScannedNetwork) -> bool {
-    left.hidden_ssid == right.hidden_ssid && left.ssid.as_bytes() == right.ssid.as_bytes()
+    if left.bssid != [0; 6] && right.bssid != [0; 6] {
+        left.bssid == right.bssid
+    } else {
+        left.hidden_ssid == right.hidden_ssid && left.ssid.as_bytes() == right.ssid.as_bytes()
+    }
+}
+
+fn retain_association_evidence(frame: &[u8], network: &mut ScannedNetwork) {
+    const BEACON_FIXED_OFFSET: usize = 24;
+    const BEACON_IES_OFFSET: usize = 36;
+    if frame.len() < BEACON_IES_OFFSET {
+        return;
+    }
+
+    network.bssid.copy_from_slice(&frame[16..22]);
+    network.beacon_period = u16::from_le_bytes([
+        frame[BEACON_FIXED_OFFSET + 8],
+        frame[BEACON_FIXED_OFFSET + 9],
+    ]);
+    network.capability_info = u16::from_le_bytes([
+        frame[BEACON_FIXED_OFFSET + 10],
+        frame[BEACON_FIXED_OFFSET + 11],
+    ]);
+
+    let mut offset = BEACON_IES_OFFSET;
+    while offset + 2 <= frame.len() {
+        let element_id = frame[offset];
+        let element_len = frame[offset + 1] as usize;
+        let end = offset.saturating_add(2).saturating_add(element_len);
+        if end > frame.len() {
+            break;
+        }
+        let element = &frame[offset + 2..end];
+        match element_id {
+            1 | 50 => append_rates(element, network),
+            48 if network.security_ie_len == 0 => retain_security_ie(&frame[offset..end], network),
+            221 if network.security_ie_len == 0 && is_wpa_vendor_ie(element) => {
+                retain_security_ie(&frame[offset..end], network)
+            }
+            _ => {}
+        }
+        offset = end;
+    }
+}
+
+fn append_rates(rates: &[u8], network: &mut ScannedNetwork) {
+    let remaining = ASSOCIATION_RATES_CAPACITY.saturating_sub(network.rates_len);
+    let take = usize::min(remaining, rates.len());
+    let end = network.rates_len + take;
+    network.rates[network.rates_len..end].copy_from_slice(&rates[..take]);
+    network.rates_len = end;
+}
+
+fn retain_security_ie(ie: &[u8], network: &mut ScannedNetwork) {
+    if ie.len() > ASSOCIATION_SECURITY_IE_CAPACITY {
+        return;
+    }
+    network.security_ie[..ie.len()].copy_from_slice(ie);
+    network.security_ie_len = ie.len();
+}
+
+fn is_wpa_vendor_ie(element: &[u8]) -> bool {
+    element.len() >= 4 && element[..4] == [0x00, 0x50, 0xf2, 0x01]
+}
+
+fn rsn_has_psk_ccmp(rsn: &[u8]) -> bool {
+    const CCMP: [u8; 4] = [0x00, 0x0f, 0xac, 0x04];
+    const PSK: [u8; 4] = [0x00, 0x0f, 0xac, 0x02];
+    if rsn.len() < 8 || u16::from_le_bytes([rsn[0], rsn[1]]) != 1 || rsn[2..6] != CCMP {
+        return false;
+    }
+    let pairwise_count = u16::from_le_bytes([rsn[6], rsn[7]]) as usize;
+    let pairwise_start = 8usize;
+    let Some(pairwise_end) = pairwise_start.checked_add(pairwise_count.saturating_mul(4)) else {
+        return false;
+    };
+    if pairwise_count == 0 || pairwise_end + 2 > rsn.len() {
+        return false;
+    }
+    let pairwise_ccmp = rsn[pairwise_start..pairwise_end]
+        .chunks_exact(4)
+        .any(|suite| suite == CCMP);
+    let akm_count = u16::from_le_bytes([rsn[pairwise_end], rsn[pairwise_end + 1]]) as usize;
+    let akm_start = pairwise_end + 2;
+    let Some(akm_end) = akm_start.checked_add(akm_count.saturating_mul(4)) else {
+        return false;
+    };
+    pairwise_ccmp
+        && akm_count != 0
+        && akm_end <= rsn.len()
+        && rsn[akm_start..akm_end]
+            .chunks_exact(4)
+            .any(|suite| suite == PSK)
 }
 
 pub fn scan_security_label(security: Dot11Security) -> &'static str {

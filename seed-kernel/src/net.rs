@@ -19,6 +19,7 @@ use smoltcp::wire::{EthernetAddress, HardwareAddress, IpAddress, IpCidr, Ipv4Add
 
 use crate::e1000;
 use crate::entropy;
+use crate::marvell_wifi_pcie;
 use crate::serial;
 use crate::time;
 
@@ -44,19 +45,60 @@ pub fn init() {
     }
 
     let Some(device_info) = e1000::probe() else {
-        serial::write_line("network probe failed; e1000 device absent or unsupported");
+        serial::write_line("e1000 absent; network stack waiting for an authenticated WiFi link");
         return;
     };
 
-    let mac = EthernetAddress(device_info.mac);
+    let mut phy = E1000Phy;
+    *state = Some(new_net_state(device_info.mac, NetBackend::E1000, &mut phy));
+
+    serial::write_line("e1000 network initialised; DHCP polling enabled");
+}
+
+pub fn attach_wifi(mac: [u8; 6]) {
+    if !marvell_wifi_pcie::data_link_ready() || mac == [0; 6] || mac == [0xff; 6] {
+        return;
+    }
+
+    let mut state = NET_STATE.lock();
+    if state
+        .as_ref()
+        .map(|current| current.backend == NetBackend::Wifi)
+        .unwrap_or(false)
+    {
+        return;
+    }
+    if state.is_some() {
+        serial::write_line("authenticated WiFi link ready; keeping active e1000 network backend");
+        return;
+    }
+
+    let mut phy = WifiPhy;
+    *state = Some(new_net_state(mac, NetBackend::Wifi, &mut phy));
+    serial::write_line("authenticated Marvell WiFi link attached; DHCP polling enabled");
+}
+
+pub fn detach_wifi() {
+    let mut state = NET_STATE.lock();
+    if state
+        .as_ref()
+        .map(|current| current.backend == NetBackend::Wifi)
+        .unwrap_or(false)
+    {
+        *state = None;
+        serial::write_line("Marvell WiFi link removed; network state cleared");
+    }
+}
+
+fn new_net_state<D: Device>(mac_bytes: [u8; 6], backend: NetBackend, phy: &mut D) -> NetState {
+    let mac = EthernetAddress(mac_bytes);
     let mut iface_config = IfaceConfig::new(HardwareAddress::Ethernet(mac));
     let mut seed = [0u8; 8];
     entropy::take(&mut seed);
     iface_config.random_seed = u64::from_le_bytes(seed);
 
-    let mut phy = E1000Phy;
     let start_instant = Instant::from_millis(0);
-    let mut iface = Interface::new(iface_config, &mut phy, start_instant);
+    let mut iface = Interface::new(iface_config, phy, start_instant);
     iface.update_ip_addrs(|addrs| addrs.clear());
 
     let mut sockets = SocketSet::new(Vec::new());
@@ -85,20 +127,19 @@ pub fn init() {
     let tcp_socket = tcp::Socket::new(tcp_rx, tcp_tx);
     let tcp_handle = sockets.add(tcp_socket);
 
-    *state = Some(NetState {
+    NetState {
+        backend,
         iface,
         sockets,
         dhcp_handle,
         dns_udp_handle,
         tcp_handle,
-        config: NetConfig::new(device_info.mac),
+        config: NetConfig::new(mac_bytes),
         dns_cache: None,
         pending_dns: None,
         next_dns_id: 1,
         next_tcp_port: TCP_SOURCE_PORT_START,
-    });
-
-    serial::write_line("e1000 network initialised; DHCP polling enabled");
+    }
 }
 
 pub fn poll() {
@@ -111,8 +152,16 @@ pub fn poll() {
         None => return,
     };
 
-    let mut phy = E1000Phy;
-    let _ = state.iface.poll(instant, &mut phy, &mut state.sockets);
+    match state.backend {
+        NetBackend::E1000 => {
+            let mut phy = E1000Phy;
+            let _ = state.iface.poll(instant, &mut phy, &mut state.sockets);
+        }
+        NetBackend::Wifi => {
+            let mut phy = WifiPhy;
+            let _ = state.iface.poll(instant, &mut phy, &mut state.sockets);
+        }
+    }
 
     state.handle_dhcp_events();
     state.poll_dns(now_ms);
@@ -299,7 +348,14 @@ pub struct TcpSnapshot {
     pub may_recv: bool,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NetBackend {
+    E1000,
+    Wifi,
+}
+
 struct NetState {
+    backend: NetBackend,
     iface: Interface,
     sockets: SocketSet<'static>,
     dhcp_handle: SocketHandle,
@@ -566,6 +622,67 @@ impl TxToken for E1000TxToken {
         let result = f(&mut scratch[..]);
         if !e1000::transmit(&scratch[..]) {
             serial::write_line("e1000: submit failed; frame dropped");
+        }
+        result
+    }
+}
+
+struct WifiPhy;
+
+impl Device for WifiPhy {
+    type RxToken<'a>
+        = WifiRxToken
+    where
+        Self: 'a;
+    type TxToken<'a>
+        = WifiTxToken
+    where
+        Self: 'a;
+
+    fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+        let packet = marvell_wifi_pcie::receive_ethernet()?;
+        Some((WifiRxToken { packet }, WifiTxToken))
+    }
+
+    fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
+        marvell_wifi_pcie::data_link_ready().then_some(WifiTxToken)
+    }
+
+    fn capabilities(&self) -> DeviceCapabilities {
+        let mut caps = DeviceCapabilities::default();
+        caps.max_transmission_unit = marvell_wifi_pcie::MAX_ETHERNET_FRAME_SIZE;
+        caps.max_burst_size = Some(1);
+        caps.medium = Medium::Ethernet;
+        caps
+    }
+}
+
+struct WifiRxToken {
+    packet: marvell_wifi_pcie::RxPacket,
+}
+
+impl RxToken for WifiRxToken {
+    fn consume<R, F>(self, f: F) -> R
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        let mut packet = self.packet;
+        f(packet.as_mut_slice())
+    }
+}
+
+struct WifiTxToken;
+
+impl TxToken for WifiTxToken {
+    fn consume<R, F>(self, len: usize, f: F) -> R
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        let actual_len = cmp::min(len, marvell_wifi_pcie::MAX_ETHERNET_FRAME_SIZE);
+        let mut scratch = vec![0u8; actual_len];
+        let result = f(&mut scratch[..]);
+        if !marvell_wifi_pcie::transmit_ethernet(&scratch) {
+            serial::write_line("marvell wifi: TX ring unavailable; frame dropped");
         }
         result
     }

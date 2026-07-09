@@ -5,6 +5,9 @@
 
 pub const GET_HW_SPEC_CMD: u16 = 0x0003;
 pub const SCAN_CMD: u16 = 0x0006;
+pub const ASSOCIATE_CMD: u16 = 0x0012;
+pub const MAC_CONTROL_CMD: u16 = 0x0028;
+pub const PCIE_DESC_DETAILS_CMD: u16 = 0x00fa;
 pub const SCAN_EXT_CMD: u16 = 0x0107;
 pub const MWIFIEX_TYPE_CMD: u16 = 1;
 pub const HOST_CMD_RET_BIT: u16 = 0x8000;
@@ -14,7 +17,7 @@ pub const INTF_HEADER_LEN: usize = 4;
 pub const GET_HW_SPEC_BODY_LEN: usize = 63;
 pub const GET_HW_SPEC_GEN_SIZE: usize = S_DS_GEN + GET_HW_SPEC_BODY_LEN;
 pub const GET_HW_SPEC_CMD_TOTAL_LEN: usize = INTF_HEADER_LEN + GET_HW_SPEC_GEN_SIZE;
-pub const HW_SPEC_MIN_RESPONSE_LEN: usize = 34;
+pub const HW_SPEC_MIN_RESPONSE_LEN: usize = 50;
 pub const HOST_CMD_MIN_RESPONSE_LEN: usize = INTF_HEADER_LEN + S_DS_GEN;
 pub const IEEE80211_MAX_SSID_LEN: u8 = 32;
 pub const MWIFIEX_BSS_MODE_INFRA: u8 = 1;
@@ -47,6 +50,30 @@ pub const SCAN_24GHZ_GEN_SIZE: usize = S_DS_GEN + SCAN_FIXED_LEN + SCAN_24GHZ_TL
 pub const SCAN_24GHZ_CMD_TOTAL_LEN: usize = INTF_HEADER_LEN + SCAN_24GHZ_GEN_SIZE;
 pub const SCAN_RESPONSE_FIXED_LEN: usize = INTF_HEADER_LEN + S_DS_GEN + 3;
 pub const SCAN_BSS_FIXED_LEN: usize = 19;
+pub const MWIFIEX_MAX_TXRX_BD: u32 = 0x20;
+pub const MWIFIEX_MAX_EVT_BD: u32 = 0x08;
+pub const PCIE_DESC_DETAILS_BODY_LEN: usize = 44;
+pub const PCIE_DESC_DETAILS_GEN_SIZE: usize = S_DS_GEN + PCIE_DESC_DETAILS_BODY_LEN;
+pub const PCIE_DESC_DETAILS_CMD_TOTAL_LEN: usize = INTF_HEADER_LEN + PCIE_DESC_DETAILS_GEN_SIZE;
+pub const MAC_CONTROL_ACTION_RX_TX_ETHERNET_II: u32 = 0x13;
+pub const MAC_CONTROL_BODY_LEN: usize = 4;
+pub const MAC_CONTROL_GEN_SIZE: usize = S_DS_GEN + MAC_CONTROL_BODY_LEN;
+pub const MAC_CONTROL_CMD_TOTAL_LEN: usize = INTF_HEADER_LEN + MAC_CONTROL_GEN_SIZE;
+pub const ASSOCIATE_FIXED_BODY_LEN: usize = 13;
+pub const ASSOCIATE_MIN_RESPONSE_LEN: usize = INTF_HEADER_LEN + S_DS_GEN + 6;
+pub const MWIFIEX_DEFAULT_LISTEN_INTERVAL: u16 = 10;
+pub const MWIFIEX_SUPPORTED_RATES: usize = 14;
+pub const MWIFIEX_CAPINFO_MASK: u16 = 0x25ff;
+pub const WLAN_EID_SSID: u16 = 0;
+pub const WLAN_EID_SUPP_RATES: u16 = 1;
+pub const WLAN_EID_DS_PARAMS: u16 = 3;
+pub const WLAN_EID_CF_PARAMS: u16 = 4;
+pub const WLAN_EID_RSN: u8 = 48;
+pub const WLAN_EID_VENDOR_SPECIFIC: u8 = 221;
+pub const TLV_TYPE_AUTH_TYPE: u16 = 0x011f;
+pub const IEEE80211_MAX_AID: u16 = 2007;
+
+const WPA_IE_OUI_TYPE: [u8; 4] = [0x00, 0x50, 0xf2, 0x01];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HwSpecCmdError {
@@ -60,6 +87,8 @@ pub enum HwSpecCmdError {
 pub struct HwSpec {
     pub mac: [u8; 6],
     pub fw_release: u32,
+    pub fw_cap_info: u32,
+    pub key_api_version: Option<(u8, u8)>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -68,6 +97,297 @@ pub struct LegacyScanBss<'a> {
     pub rssi_dbm: i16,
     pub fixed_beacon_params: &'a [u8],
     pub ies: &'a [u8],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PcieDescriptorRings {
+    pub tx_phys: u64,
+    pub rx_phys: u64,
+    pub event_phys: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AssociationBss<'a> {
+    pub bssid: [u8; 6],
+    pub ssid: &'a [u8],
+    pub channel: u8,
+    pub beacon_period: u16,
+    pub capability_info: u16,
+    pub rates: &'a [u8],
+    pub rsn_or_wpa_ie: Option<&'a [u8]>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AssociationResponse {
+    pub capability_info: u16,
+    pub status_code: u16,
+    pub raw_association_id: u16,
+    pub association_id: Option<u16>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MarvellCmdError {
+    TooShort,
+    BadLength,
+    BadCommand { got: u16 },
+    BadSequence { got: u16 },
+    FwResult { code: u16 },
+    OutputBufferTooSmall,
+    InvalidDescriptorAddress,
+    InvalidBssid,
+    InvalidSsidLength,
+    InvalidChannel,
+    InvalidBeaconPeriod,
+    InvalidRates,
+    InvalidSecurityIe,
+    InvalidAssociationId { raw: u16 },
+}
+
+pub fn build_pcie_desc_details(
+    seq: u16,
+    rings: PcieDescriptorRings,
+    out: &mut [u8],
+) -> Result<usize, MarvellCmdError> {
+    if rings.tx_phys == 0 || rings.rx_phys == 0 || rings.event_phys == 0 {
+        return Err(MarvellCmdError::InvalidDescriptorAddress);
+    }
+    if out.len() < PCIE_DESC_DETAILS_CMD_TOTAL_LEN {
+        return Err(MarvellCmdError::OutputBufferTooSmall);
+    }
+
+    out[..PCIE_DESC_DETAILS_CMD_TOTAL_LEN].fill(0);
+    put_le16(out, 0, PCIE_DESC_DETAILS_CMD_TOTAL_LEN as u16);
+    put_le16(out, 2, MWIFIEX_TYPE_CMD);
+    put_le16(out, 4, PCIE_DESC_DETAILS_CMD);
+    put_le16(out, 6, PCIE_DESC_DETAILS_GEN_SIZE as u16);
+    put_le16(out, 8, seq);
+    put_phys_addr(out, 12, rings.tx_phys);
+    put_le32(out, 20, MWIFIEX_MAX_TXRX_BD);
+    put_phys_addr(out, 24, rings.rx_phys);
+    put_le32(out, 32, MWIFIEX_MAX_TXRX_BD);
+    put_phys_addr(out, 36, rings.event_phys);
+    put_le32(out, 44, MWIFIEX_MAX_EVT_BD);
+    Ok(PCIE_DESC_DETAILS_CMD_TOTAL_LEN)
+}
+
+pub fn build_mac_control(seq: u16, out: &mut [u8]) -> Result<usize, MarvellCmdError> {
+    if out.len() < MAC_CONTROL_CMD_TOTAL_LEN {
+        return Err(MarvellCmdError::OutputBufferTooSmall);
+    }
+
+    out[..MAC_CONTROL_CMD_TOTAL_LEN].fill(0);
+    put_le16(out, 0, MAC_CONTROL_CMD_TOTAL_LEN as u16);
+    put_le16(out, 2, MWIFIEX_TYPE_CMD);
+    put_le16(out, 4, MAC_CONTROL_CMD);
+    put_le16(out, 6, MAC_CONTROL_GEN_SIZE as u16);
+    put_le16(out, 8, seq);
+    put_le32(out, 12, MAC_CONTROL_ACTION_RX_TX_ETHERNET_II);
+    Ok(MAC_CONTROL_CMD_TOTAL_LEN)
+}
+
+pub fn build_associate_24ghz(
+    seq: u16,
+    bss: AssociationBss<'_>,
+    out: &mut [u8],
+) -> Result<usize, MarvellCmdError> {
+    if bss.bssid.iter().all(|byte| *byte == 0) || bss.bssid[0] & 1 != 0 {
+        return Err(MarvellCmdError::InvalidBssid);
+    }
+    if bss.ssid.is_empty() || bss.ssid.len() > IEEE80211_MAX_SSID_LEN as usize {
+        return Err(MarvellCmdError::InvalidSsidLength);
+    }
+    if !(1..=14).contains(&bss.channel) {
+        return Err(MarvellCmdError::InvalidChannel);
+    }
+    if bss.beacon_period == 0 {
+        return Err(MarvellCmdError::InvalidBeaconPeriod);
+    }
+    if bss.rates.is_empty()
+        || bss.rates.len() > MWIFIEX_SUPPORTED_RATES
+        || bss.rates.iter().any(|rate| rate & 0x7f == 0)
+    {
+        return Err(MarvellCmdError::InvalidRates);
+    }
+
+    let security = match bss.rsn_or_wpa_ie {
+        None => None,
+        Some(ie) => {
+            if ie.len() < 2 || ie.len() != ie[1] as usize + 2 {
+                return Err(MarvellCmdError::InvalidSecurityIe);
+            }
+            match ie[0] {
+                WLAN_EID_RSN if ie[1] >= 2 => {}
+                WLAN_EID_VENDOR_SPECIFIC
+                    if ie[1] >= WPA_IE_OUI_TYPE.len() as u8
+                        && ie[2..].starts_with(&WPA_IE_OUI_TYPE) => {}
+                _ => return Err(MarvellCmdError::InvalidSecurityIe),
+            }
+            Some((ie[0] as u16, &ie[2..]))
+        }
+    };
+
+    let security_len = security.map_or(0, |(_, payload)| TLV_HEADER_LEN + payload.len());
+    let body_len = ASSOCIATE_FIXED_BODY_LEN
+        + TLV_HEADER_LEN
+        + bss.ssid.len()
+        + (TLV_HEADER_LEN + 1)
+        + (TLV_HEADER_LEN + 6)
+        + TLV_HEADER_LEN
+        + bss.rates.len()
+        + (TLV_HEADER_LEN + 2)
+        + (TLV_HEADER_LEN + SCAN_EXT_CHANNEL_PARAM_LEN)
+        + security_len;
+    let gen_size = S_DS_GEN + body_len;
+    let total_len = INTF_HEADER_LEN + gen_size;
+    if out.len() < total_len {
+        return Err(MarvellCmdError::OutputBufferTooSmall);
+    }
+
+    out[..total_len].fill(0);
+    put_le16(out, 0, total_len as u16);
+    put_le16(out, 2, MWIFIEX_TYPE_CMD);
+    put_le16(out, 4, ASSOCIATE_CMD);
+    put_le16(out, 6, gen_size as u16);
+    put_le16(out, 8, seq);
+
+    out[12..18].copy_from_slice(&bss.bssid);
+    put_le16(out, 18, bss.capability_info & MWIFIEX_CAPINFO_MASK);
+    put_le16(out, 20, MWIFIEX_DEFAULT_LISTEN_INTERVAL);
+    put_le16(out, 22, bss.beacon_period);
+
+    let mut offset = INTF_HEADER_LEN + S_DS_GEN + ASSOCIATE_FIXED_BODY_LEN;
+    write_tlv_header(out, offset, WLAN_EID_SSID, bss.ssid.len() as u16);
+    out[offset + TLV_HEADER_LEN..offset + TLV_HEADER_LEN + bss.ssid.len()]
+        .copy_from_slice(bss.ssid);
+    offset += TLV_HEADER_LEN + bss.ssid.len();
+
+    write_tlv_header(out, offset, WLAN_EID_DS_PARAMS, 1);
+    out[offset + TLV_HEADER_LEN] = bss.channel;
+    offset += TLV_HEADER_LEN + 1;
+
+    write_tlv_header(out, offset, WLAN_EID_CF_PARAMS, 6);
+    offset += TLV_HEADER_LEN + 6;
+
+    write_tlv_header(out, offset, WLAN_EID_SUPP_RATES, bss.rates.len() as u16);
+    out[offset + TLV_HEADER_LEN..offset + TLV_HEADER_LEN + bss.rates.len()]
+        .copy_from_slice(bss.rates);
+    offset += TLV_HEADER_LEN + bss.rates.len();
+
+    write_tlv_header(out, offset, TLV_TYPE_AUTH_TYPE, 2);
+    offset += TLV_HEADER_LEN + 2;
+
+    write_tlv_header(
+        out,
+        offset,
+        TLV_TYPE_CHANLIST,
+        SCAN_EXT_CHANNEL_PARAM_LEN as u16,
+    );
+    out[offset + TLV_HEADER_LEN + 1] = bss.channel;
+    offset += TLV_HEADER_LEN + SCAN_EXT_CHANNEL_PARAM_LEN;
+
+    if let Some((ty, payload)) = security {
+        write_tlv_header(out, offset, ty, payload.len() as u16);
+        out[offset + TLV_HEADER_LEN..offset + TLV_HEADER_LEN + payload.len()]
+            .copy_from_slice(payload);
+        offset += TLV_HEADER_LEN + payload.len();
+    }
+
+    debug_assert_eq!(offset, total_len);
+    Ok(total_len)
+}
+
+pub fn parse_associate_response(
+    expected_seq: u16,
+    buf: &[u8],
+) -> Result<AssociationResponse, MarvellCmdError> {
+    if buf.len() < 2 {
+        return Err(MarvellCmdError::TooShort);
+    }
+    let response_len = le16(buf, 0) as usize;
+    if response_len < ASSOCIATE_MIN_RESPONSE_LEN || buf.len() < response_len {
+        return Err(MarvellCmdError::TooShort);
+    }
+    let command_size = le16(buf, 6) as usize;
+    if command_size < S_DS_GEN + 6 || response_len != INTF_HEADER_LEN + command_size {
+        return Err(MarvellCmdError::BadLength);
+    }
+    let command = le16(buf, 4);
+    if command != ASSOCIATE_CMD | HOST_CMD_RET_BIT {
+        return Err(MarvellCmdError::BadCommand { got: command });
+    }
+    let sequence = le16(buf, 8);
+    if sequence != expected_seq {
+        return Err(MarvellCmdError::BadSequence { got: sequence });
+    }
+    let result = le16(buf, 10);
+    if result != HOST_CMD_RESULT_OK {
+        return Err(MarvellCmdError::FwResult { code: result });
+    }
+
+    let capability_info = le16(buf, 12);
+    let status_code = le16(buf, 14);
+    let raw_association_id = le16(buf, 16);
+    let association_id = if status_code == 0 {
+        let aid = raw_association_id & 0x3fff;
+        if raw_association_id & 0xc000 != 0xc000 || !(1..=IEEE80211_MAX_AID).contains(&aid) {
+            return Err(MarvellCmdError::InvalidAssociationId {
+                raw: raw_association_id,
+            });
+        }
+        Some(aid)
+    } else {
+        None
+    };
+
+    Ok(AssociationResponse {
+        capability_info,
+        status_code,
+        raw_association_id,
+        association_id,
+    })
+}
+
+pub fn parse_pcie_desc_details_response(
+    expected_seq: u16,
+    buf: &[u8],
+) -> Result<(), MarvellCmdError> {
+    parse_marvell_command_status(buf, PCIE_DESC_DETAILS_CMD, expected_seq)
+}
+
+pub fn parse_mac_control_response(expected_seq: u16, buf: &[u8]) -> Result<(), MarvellCmdError> {
+    parse_marvell_command_status(buf, MAC_CONTROL_CMD, expected_seq)
+}
+
+fn parse_marvell_command_status(
+    buf: &[u8],
+    expected_cmd: u16,
+    expected_seq: u16,
+) -> Result<(), MarvellCmdError> {
+    if buf.len() < HOST_CMD_MIN_RESPONSE_LEN {
+        return Err(MarvellCmdError::TooShort);
+    }
+    let response_len = le16(buf, 0) as usize;
+    let command_size = le16(buf, 6) as usize;
+    if response_len < HOST_CMD_MIN_RESPONSE_LEN
+        || response_len > buf.len()
+        || command_size < S_DS_GEN
+        || response_len != INTF_HEADER_LEN + command_size
+    {
+        return Err(MarvellCmdError::BadLength);
+    }
+    let command = le16(buf, 4);
+    if command != expected_cmd | HOST_CMD_RET_BIT {
+        return Err(MarvellCmdError::BadCommand { got: command });
+    }
+    let sequence = le16(buf, 8);
+    if sequence != expected_seq {
+        return Err(MarvellCmdError::BadSequence { got: sequence });
+    }
+    let result = le16(buf, 10);
+    if result != HOST_CMD_RESULT_OK {
+        return Err(MarvellCmdError::FwResult { code: result });
+    }
+    Ok(())
 }
 
 pub fn build_get_hw_spec(seq: u16, out: &mut [u8]) -> Result<usize, HwSpecCmdError> {
@@ -198,9 +518,28 @@ pub fn parse_hw_spec_response(buf: &[u8]) -> Result<HwSpec, HwSpecCmdError> {
 
     let mut mac = [0u8; 6];
     mac.copy_from_slice(&buf[20..26]);
+    let mut key_api_version = None;
+    let mut offset = GET_HW_SPEC_CMD_TOTAL_LEN;
+    while offset + TLV_HEADER_LEN <= response_len {
+        let ty = le16(buf, offset);
+        let len = le16(buf, offset + 2) as usize;
+        let Some(end) = offset.checked_add(TLV_HEADER_LEN + len) else {
+            return Err(HwSpecCmdError::TooShort);
+        };
+        if end > response_len {
+            return Err(HwSpecCmdError::TooShort);
+        }
+        if ty == 0x01c7 && len >= 4 && le16(buf, offset + TLV_HEADER_LEN) == 1 {
+            key_api_version = Some((buf[offset + 6], buf[offset + 7]));
+        }
+        offset = end;
+    }
+
     Ok(HwSpec {
         mac,
         fw_release: le32(buf, 30),
+        fw_cap_info: le32(buf, 46),
+        key_api_version,
     })
 }
 
@@ -318,6 +657,11 @@ fn put_le16(out: &mut [u8], offset: usize, value: u16) {
 
 fn put_le32(out: &mut [u8], offset: usize, value: u32) {
     out[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+fn put_phys_addr(out: &mut [u8], offset: usize, value: u64) {
+    put_le32(out, offset, value as u32);
+    put_le32(out, offset + 4, (value >> 32) as u32);
 }
 
 fn write_tlv_header(out: &mut [u8], offset: usize, ty: u16, len: u16) {
@@ -523,11 +867,33 @@ mod tests {
         put_response_le16(&mut response, 10, HOST_CMD_RESULT_OK);
         response[20..26].copy_from_slice(&[0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
         put_response_le32(&mut response, 30, 0x1568_0019);
+        put_response_le32(&mut response, 46, 1 << 21);
 
         let parsed = parse_hw_spec_response(&response).unwrap();
 
         assert_eq!(parsed.mac, [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
         assert_eq!(parsed.fw_release, 0x1568_0019);
+        assert_eq!(parsed.fw_cap_info, 1 << 21);
+        assert_eq!(parsed.key_api_version, None);
+    }
+
+    #[test]
+    fn parse_hw_spec_response_extracts_key_api_revision_tlv() {
+        let mut response = [0u8; 96];
+        put_response_le16(&mut response, 0, 83);
+        put_response_le16(&mut response, 4, GET_HW_SPEC_CMD | HOST_CMD_RET_BIT);
+        put_response_le16(&mut response, 6, 79);
+        put_response_le16(&mut response, 10, HOST_CMD_RESULT_OK);
+        response[20..26].copy_from_slice(&[2, 4, 6, 8, 10, 12]);
+        put_response_le16(&mut response, 75, 0x01c7);
+        put_response_le16(&mut response, 77, 4);
+        put_response_le16(&mut response, 79, 1);
+        response[81] = 2;
+        response[82] = 1;
+
+        let parsed = parse_hw_spec_response(&response).unwrap();
+
+        assert_eq!(parsed.key_api_version, Some((2, 1)));
     }
 
     #[test]
@@ -666,5 +1032,263 @@ mod tests {
             Err(HwSpecCmdError::TooShort)
         );
         assert_eq!(visits, 0);
+    }
+
+    #[test]
+    fn build_pcie_desc_details_pins_linux_ring_layout() {
+        let mut out = [0xa5u8; PCIE_DESC_DETAILS_CMD_TOTAL_LEN + 4];
+        let rings = PcieDescriptorRings {
+            tx_phys: 0x1122_3344_5566_7788,
+            rx_phys: 0x99aa_bbcc_ddee_ff00,
+            event_phys: 0x0102_0304_0506_0708,
+        };
+
+        let len = build_pcie_desc_details(0x1234, rings, &mut out).unwrap();
+
+        let expected = [
+            0x38, 0x00, 0x01, 0x00, 0xfa, 0x00, 0x34, 0x00, 0x34, 0x12, 0x00, 0x00, 0x88, 0x77,
+            0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x20, 0x00, 0x00, 0x00, 0x00, 0xff, 0xee, 0xdd,
+            0xcc, 0xbb, 0xaa, 0x99, 0x20, 0x00, 0x00, 0x00, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03,
+            0x02, 0x01, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
+        assert_eq!(&out[..expected.len()], &expected);
+        assert_eq!(len, expected.len());
+        assert_eq!(&out[len..], &[0xa5; 4]);
+    }
+
+    #[test]
+    fn build_pcie_desc_details_rejects_missing_ring_or_short_output() {
+        let rings = PcieDescriptorRings {
+            tx_phys: 0,
+            rx_phys: 2,
+            event_phys: 3,
+        };
+        let mut out = [0u8; PCIE_DESC_DETAILS_CMD_TOTAL_LEN];
+        assert_eq!(
+            build_pcie_desc_details(0, rings, &mut out),
+            Err(MarvellCmdError::InvalidDescriptorAddress)
+        );
+
+        let rings = PcieDescriptorRings {
+            tx_phys: 1,
+            rx_phys: 2,
+            event_phys: 3,
+        };
+        let mut short = [0u8; PCIE_DESC_DETAILS_CMD_TOTAL_LEN - 1];
+        assert_eq!(
+            build_pcie_desc_details(0, rings, &mut short),
+            Err(MarvellCmdError::OutputBufferTooSmall)
+        );
+    }
+
+    #[test]
+    fn build_mac_control_pins_rx_tx_ethernet_ii_action() {
+        let mut out = [0xa5u8; MAC_CONTROL_CMD_TOTAL_LEN + 2];
+
+        let len = build_mac_control(0x5678, &mut out).unwrap();
+
+        assert_eq!(
+            &out[..len],
+            &[
+                0x10, 0x00, 0x01, 0x00, 0x28, 0x00, 0x0c, 0x00, 0x78, 0x56, 0x00, 0x00, 0x13, 0x00,
+                0x00, 0x00,
+            ]
+        );
+        assert_eq!(&out[len..], &[0xa5; 2]);
+
+        let mut short = [0u8; MAC_CONTROL_CMD_TOTAL_LEN - 1];
+        assert_eq!(
+            build_mac_control(0, &mut short),
+            Err(MarvellCmdError::OutputBufferTooSmall)
+        );
+    }
+
+    #[test]
+    fn parse_control_responses_require_matching_command_and_sequence() {
+        let mut response = [0u8; HOST_CMD_MIN_RESPONSE_LEN];
+        put_response_le16(&mut response, 0, HOST_CMD_MIN_RESPONSE_LEN as u16);
+        put_response_le16(&mut response, 6, S_DS_GEN as u16);
+        put_response_le16(&mut response, 8, 0x1234);
+        put_response_le16(&mut response, 4, PCIE_DESC_DETAILS_CMD | HOST_CMD_RET_BIT);
+
+        assert_eq!(parse_pcie_desc_details_response(0x1234, &response), Ok(()));
+        assert_eq!(
+            parse_pcie_desc_details_response(0x4321, &response),
+            Err(MarvellCmdError::BadSequence { got: 0x1234 })
+        );
+
+        put_response_le16(&mut response, 4, MAC_CONTROL_CMD | HOST_CMD_RET_BIT);
+        assert_eq!(parse_mac_control_response(0x1234, &response), Ok(()));
+        assert_eq!(
+            parse_pcie_desc_details_response(0x1234, &response),
+            Err(MarvellCmdError::BadCommand {
+                got: MAC_CONTROL_CMD | HOST_CMD_RET_BIT
+            })
+        );
+    }
+
+    #[test]
+    fn build_associate_24ghz_pins_linux_tlvs_and_complete_rsn_ie() {
+        let rsn_ie = [
+            0x30, 0x14, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x04, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x04,
+            0x01, 0x00, 0x00, 0x0f, 0xac, 0x02, 0x00, 0x00,
+        ];
+        let bss = AssociationBss {
+            bssid: [0x00, 0x11, 0x22, 0x33, 0x44, 0x55],
+            ssid: b"net",
+            channel: 6,
+            beacon_period: 100,
+            capability_info: 0x0431,
+            rates: &[0x82, 0x84, 0x8b, 0x96, 0x0c, 0x12, 0x18, 0x24],
+            rsn_or_wpa_ie: Some(&rsn_ie),
+        };
+        let mut out = [0xa5u8; 112];
+
+        let len = build_associate_24ghz(0x3344, bss, &mut out).unwrap();
+
+        let expected = [
+            0x64, 0x00, 0x01, 0x00, 0x12, 0x00, 0x60, 0x00, 0x44, 0x33, 0x00, 0x00, 0x00, 0x11,
+            0x22, 0x33, 0x44, 0x55, 0x31, 0x04, 0x0a, 0x00, 0x64, 0x00, 0x00, 0x00, 0x00, 0x03,
+            0x00, 0x6e, 0x65, 0x74, 0x03, 0x00, 0x01, 0x00, 0x06, 0x04, 0x00, 0x06, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x08, 0x00, 0x82, 0x84, 0x8b, 0x96, 0x0c,
+            0x12, 0x18, 0x24, 0x1f, 0x01, 0x02, 0x00, 0x00, 0x00, 0x01, 0x01, 0x07, 0x00, 0x00,
+            0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x00, 0x14, 0x00, 0x01, 0x00, 0x00, 0x0f,
+            0xac, 0x04, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x04, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x02,
+            0x00, 0x00,
+        ];
+        assert_eq!(&out[..expected.len()], &expected);
+        assert_eq!(len, expected.len());
+        assert!(out[len..].iter().all(|byte| *byte == 0xa5));
+    }
+
+    #[test]
+    fn build_associate_24ghz_preserves_wpa_ie_and_rejects_bad_inputs() {
+        let wpa_ie = [0xdd, 0x06, 0x00, 0x50, 0xf2, 0x01, 0x01, 0x00];
+        let bss = AssociationBss {
+            bssid: [0x02, 1, 2, 3, 4, 5],
+            ssid: b"x",
+            channel: 1,
+            beacon_period: 100,
+            capability_info: 0xffff,
+            rates: &[0x82],
+            rsn_or_wpa_ie: Some(&wpa_ie),
+        };
+        let mut out = [0u8; 128];
+
+        let len = build_associate_24ghz(0, bss, &mut out).unwrap();
+        assert_eq!(
+            &out[len - 10..len],
+            &[0xdd, 0, 6, 0, 0, 0x50, 0xf2, 1, 1, 0]
+        );
+        assert_eq!(&out[18..20], &MWIFIEX_CAPINFO_MASK.to_le_bytes());
+
+        assert_eq!(
+            build_associate_24ghz(0, AssociationBss { channel: 0, ..bss }, &mut out),
+            Err(MarvellCmdError::InvalidChannel)
+        );
+        assert_eq!(
+            build_associate_24ghz(0, AssociationBss { rates: &[], ..bss }, &mut out,),
+            Err(MarvellCmdError::InvalidRates)
+        );
+        assert_eq!(
+            build_associate_24ghz(
+                0,
+                AssociationBss {
+                    rsn_or_wpa_ie: Some(&[0xdd, 4, 1, 2, 3, 4]),
+                    ..bss
+                },
+                &mut out,
+            ),
+            Err(MarvellCmdError::InvalidSecurityIe)
+        );
+        let mut short = [0u8; 8];
+        assert_eq!(
+            build_associate_24ghz(0, bss, &mut short),
+            Err(MarvellCmdError::OutputBufferTooSmall)
+        );
+    }
+
+    #[test]
+    fn parse_associate_response_returns_ieee_status_and_aid() {
+        let mut response = [0u8; ASSOCIATE_MIN_RESPONSE_LEN];
+        put_response_le16(&mut response, 0, ASSOCIATE_MIN_RESPONSE_LEN as u16);
+        put_response_le16(&mut response, 2, MWIFIEX_TYPE_CMD);
+        put_response_le16(&mut response, 4, ASSOCIATE_CMD | HOST_CMD_RET_BIT);
+        put_response_le16(&mut response, 6, (S_DS_GEN + 6) as u16);
+        put_response_le16(&mut response, 10, HOST_CMD_RESULT_OK);
+        put_response_le16(&mut response, 12, 0x0431);
+        put_response_le16(&mut response, 14, 0);
+        put_response_le16(&mut response, 16, 0xc02a);
+
+        assert_eq!(
+            parse_associate_response(0, &response),
+            Ok(AssociationResponse {
+                capability_info: 0x0431,
+                status_code: 0,
+                raw_association_id: 0xc02a,
+                association_id: Some(42),
+            })
+        );
+    }
+
+    #[test]
+    fn parse_associate_response_keeps_ieee_failure_distinct_from_firmware_error() {
+        let mut response = [0u8; ASSOCIATE_MIN_RESPONSE_LEN];
+        put_response_le16(&mut response, 0, ASSOCIATE_MIN_RESPONSE_LEN as u16);
+        put_response_le16(&mut response, 4, ASSOCIATE_CMD | HOST_CMD_RET_BIT);
+        put_response_le16(&mut response, 6, (S_DS_GEN + 6) as u16);
+        put_response_le16(&mut response, 12, 0xfffd);
+        put_response_le16(&mut response, 14, 17);
+        put_response_le16(&mut response, 16, 0xffff);
+
+        let parsed = parse_associate_response(0, &response).unwrap();
+        assert_eq!(parsed.status_code, 17);
+        assert_eq!(parsed.raw_association_id, 0xffff);
+        assert_eq!(parsed.association_id, None);
+
+        put_response_le16(&mut response, 10, 3);
+        assert_eq!(
+            parse_associate_response(0, &response),
+            Err(MarvellCmdError::FwResult { code: 3 })
+        );
+    }
+
+    #[test]
+    fn parse_associate_response_rejects_bad_framing_command_and_aid() {
+        let mut response = [0u8; ASSOCIATE_MIN_RESPONSE_LEN];
+        put_response_le16(&mut response, 0, ASSOCIATE_MIN_RESPONSE_LEN as u16);
+        put_response_le16(&mut response, 4, ASSOCIATE_CMD | HOST_CMD_RET_BIT);
+        put_response_le16(&mut response, 6, (S_DS_GEN + 6) as u16);
+        put_response_le16(&mut response, 16, 42);
+        assert_eq!(
+            parse_associate_response(0, &response),
+            Err(MarvellCmdError::InvalidAssociationId { raw: 42 })
+        );
+
+        put_response_le16(&mut response, 4, SCAN_CMD | HOST_CMD_RET_BIT);
+        assert_eq!(
+            parse_associate_response(0, &response),
+            Err(MarvellCmdError::BadCommand {
+                got: SCAN_CMD | HOST_CMD_RET_BIT
+            })
+        );
+
+        put_response_le16(&mut response, 4, ASSOCIATE_CMD | HOST_CMD_RET_BIT);
+        put_response_le16(&mut response, 6, (S_DS_GEN + 7) as u16);
+        assert_eq!(
+            parse_associate_response(0, &response),
+            Err(MarvellCmdError::BadLength)
+        );
+        assert_eq!(
+            parse_associate_response(0, &response[..ASSOCIATE_MIN_RESPONSE_LEN - 1]),
+            Err(MarvellCmdError::TooShort)
+        );
+
+        put_response_le16(&mut response, 6, (S_DS_GEN + 6) as u16);
+        put_response_le16(&mut response, 8, 0x1234);
+        assert_eq!(
+            parse_associate_response(0x4321, &response),
+            Err(MarvellCmdError::BadSequence { got: 0x1234 })
+        );
     }
 }
