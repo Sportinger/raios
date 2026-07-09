@@ -5,28 +5,26 @@ One page, plain language, updated every session (rule: AGENTS.md,
 
 Updated: 2026-07-09.
 
-Current capability: the default local boot image is refreshed for the next
-Surface Pro 4 owner-key capture attempt. `release\raios-stage0.img` now contains
-the `ownerkey` console command and the current
-`system.honesty_report.owner_key_provisioning` path.
+Current capability: Surface owner-key capture now shows the next TPM register
+raiOS would read. `ownerkey` and `system.honesty_report.owner_key_provisioning`
+report whether a read-only TPM status-register plan exists, the register kind,
+physical address, width, and reason.
 
-Owner-key behavior today: RAM boot automatically creates a secret, RAM-only
-`current_boot` owner-key candidate from entropy and exposes only a stable handle
-plus `sha256:` fingerprint. Persistent install is only a policy target
-(`generate_hardware_bound_owner_key_on_persistent_install`); no persistent key,
-owner seal, load authority, or durable-write authority is granted until real
-TPM/hardware seal-unseal evidence exists.
+Owner-key behavior today: RAM boot creates a secret, RAM-only `current_boot`
+owner-key candidate from entropy and exposes only handle + `sha256:`
+fingerprint. Persistent install remains policy-only; no persistent key, owner
+seal, load authority, or durable-write authority is granted.
 
 Latest focused proof: `m12-distribution-provenance`
-`shadow-20260709-115747-6148.json` passed 252/252 against the exact default
+`shadow-20260709-120614-8340.json` passed 253/253 against the exact default
 image, not a temp image. Image SHA-256:
-`96c2d84b85a2831533a4312660df01d5930b1d96a14b2ee6e36f93ec2e9a4268`.
+`564087d277d029bdc84efe481137d9edc38d07868be23fdf024925c8177772c3`.
 
 Gate status: latest full profile remains green at
-`shadow-20260708-150428-34396.json` 7867/7867. The focused M12 report above is
-the current slice evidence per aggressive-fast cadence.
+`shadow-20260708-150428-34396.json` 7867/7867. This slice used the focused M12
+profile per aggressive-fast cadence.
 
-Next owner action: write the refreshed `release\raios-stage0.img` to USB, boot
-the Surface Pro 4, run `ownerkey` or `system.honesty_report`, and capture the
-real TPM2 ACPI/interface fields. If CRB/TIS is present, the next code slice is a
-read-only TPM register-status probe; authority stays fail-closed.
+Next owner action: boot this refreshed USB on the Surface Pro 4, run `ownerkey`
+or `system.honesty_report`, and capture TPM2 ACPI/interface/status-plan fields.
+If the plan is available, the next code slice is the actual read-only volatile
+TPM status-register read; authority stays fail-closed.

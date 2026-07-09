@@ -210,11 +210,15 @@ happens, and persistent install/owner-seal/load/durable authority stay denied
 (`m12-distribution-provenance` 246/246). **Owner-key Surface capture command
 DONE:** `ownerkey` prints the same RAM-key/TPM2/status/NO-authority posture in
 short console/serial form for real Surface capture
-(`m12-distribution-provenance` 252/252). Next owner-key slice: boot this on the
+(`m12-distribution-provenance` 252/252). **Owner-key TPM status-read plan DONE:**
+`ownerkey` and `system.honesty_report` now also report the computed read-only
+TPM status-register plan (CRB control-status or TIS STS address/width) while
+QEMU's absent-TPM path correctly reports no plan and no authority
+(`m12-distribution-provenance` 253/253). Next owner-key slice: boot this on the
 real Surface path, run `ownerkey` and `system.honesty_report`, capture actual
-TPM2 details, then add the narrow read-only
-TPM register-status read if a CRB/TIS control area is exposed; no persistent
-owner seal until a real seal/unseal evidence loop exists. (3)
+TPM2 details/status-read plan, then add the narrow volatile read of that
+planned status register; no persistent owner seal until a real seal/unseal
+evidence loop exists. (3)
 provide real
 trust inputs (a cryptographically
 trusted time source, real CA roots, a live second provider) → I finish M10 real

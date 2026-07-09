@@ -27,9 +27,41 @@ profiles, protocol probes, and failure modes.
 Current exact next task (owner-key real Surface TPM status evidence): boot the
 updated image on the real Surface Pro 4 path and inspect
 `system.honesty_report.owner_key_provisioning` to capture real TPM2 ACPI table
-fields; if a CRB/TIS control area is present, add the next read-only TPM
-register-status probe while keeping `owner_sealed`, persistent install, load,
-and durable-write authority false until a real seal/unseal evidence loop exists.
+fields plus the read-only status-register plan; if the plan is available on a
+CRB/TIS control area, add the next narrow volatile TPM register-status read
+while keeping `owner_sealed`, persistent install, load, and durable-write
+authority false until a real seal/unseal evidence loop exists.
+
+Owner-key TPM status-read plan slice done (2026-07-09) - real Surface capture
+now names the exact TPM status register raiOS would read next, without doing
+the MMIO read yet. A user/agent can inspect `ownerkey` or
+`system.honesty_report.owner_key_provisioning` and see whether a read-only TPM
+status-register plan exists, which register kind it targets
+(`crb_control_status` or `tis_sts`), the physical register address, read width,
+and denial reason; in QEMU, where the `TPM2` ACPI table is absent, the plan is
+correctly unavailable (`kind:none`, phys `0`, width `0`) and owner-seal,
+persistent-install, load, and durable-write authority all remain false. The
+default boot image was refreshed with this capture path. Verified: scoped
+format check (`rustfmt --edition 2021 --check
+raios-core\src\owner_key_tpm2.rs seed-kernel\src\owner_key.rs
+seed-kernel\src\agent_protocol_honesty.rs seed-kernel\src\console.rs`); host
+tests (`cargo test --locked -p raios-core owner_key_tpm2`) 8/8 passed; release
+image packaging via `scripts\package-stage0.ps1 -Profile release`; focused VM
+`m12-distribution-provenance` report
+`release/vm-reports/shadow-20260709-120614-8340.json` 253/253 predicates, 54
+executed commands, `duration_ms: 81130`, report sha256
+`942a81b2c968216cf71315d8e365c55e6553b681be0d24caf373dd24e414161e`,
+`base_image.sha256:564087d277d029bdc84efe481137d9edc38d07868be23fdf024925c8177772c3`.
+`scripts\scan-secrets.ps1` found no OpenAI-key-like values. Global
+`cargo fmt --all -- --check` remains red only on the pre-existing unrelated
+format drift in `raios-core/src/marvell_wifi_fw.rs` and
+`seed-kernel/src/usb.rs`. Gate check: latest full-profile report remains green
+at `release/vm-reports/shadow-20260708-150428-34396.json` 7867/7867, while
+this slice used the focused M12 profile per aggressive-fast cadence. File-size
+check: touched `raios-core\src\owner_key_tpm2.rs` is 361 lines,
+`seed-kernel\src\owner_key.rs` is 214 lines,
+`seed-kernel\src\agent_protocol_honesty.rs` is 624 lines, and
+`seed-kernel\src\console.rs` is 1791 lines.
 
 Owner-key Surface boot image refresh slice done (2026-07-09) - the next real
 USB/stick attempt now uses a default boot image that contains the current

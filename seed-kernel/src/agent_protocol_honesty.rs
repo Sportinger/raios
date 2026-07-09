@@ -406,6 +406,26 @@ fn owner_key_evidence_input_record(
             "tpm2_interface_status_reason",
             s(snapshot.hardware_binding.tpm2_interface_status_reason),
         ),
+        f(
+            "tpm2_status_read_plan_available",
+            b(snapshot.hardware_binding.tpm2_status_read_plan_available),
+        ),
+        f(
+            "tpm2_status_register_kind",
+            s(snapshot.hardware_binding.tpm2_status_register_kind),
+        ),
+        f(
+            "tpm2_status_register_phys",
+            V::U64(snapshot.hardware_binding.tpm2_status_register_phys),
+        ),
+        f(
+            "tpm2_status_register_width_bytes",
+            V::U64(snapshot.hardware_binding.tpm2_status_register_width_bytes as u64),
+        ),
+        f(
+            "tpm2_status_read_plan_reason",
+            s(snapshot.hardware_binding.tpm2_status_read_plan_reason),
+        ),
         f("hardware_binding_evidence_present", b(false)),
         f("tpm_binding_state", s(snapshot.hardware_binding.status)),
         f("ram_boot_ephemeral_input_ready", b(stats.ready)),
@@ -509,6 +529,26 @@ fn owner_key_provisioning_record(
         f(
             "tpm2_interface_status_reason",
             s(snapshot.hardware_binding.tpm2_interface_status_reason),
+        ),
+        f(
+            "tpm2_status_read_plan_available",
+            b(snapshot.hardware_binding.tpm2_status_read_plan_available),
+        ),
+        f(
+            "tpm2_status_register_kind",
+            s(snapshot.hardware_binding.tpm2_status_register_kind),
+        ),
+        f(
+            "tpm2_status_register_phys",
+            V::U64(snapshot.hardware_binding.tpm2_status_register_phys),
+        ),
+        f(
+            "tpm2_status_register_width_bytes",
+            V::U64(snapshot.hardware_binding.tpm2_status_register_width_bytes as u64),
+        ),
+        f(
+            "tpm2_status_read_plan_reason",
+            s(snapshot.hardware_binding.tpm2_status_read_plan_reason),
         ),
         f("hardware_binding_evidence_present", b(false)),
         f("ram_boot_ephemeral_input_ready", b(stats.ready)),

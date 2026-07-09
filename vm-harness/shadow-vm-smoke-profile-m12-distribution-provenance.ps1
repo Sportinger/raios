@@ -1105,6 +1105,11 @@ $honestyOk = (
     $honesty.owner_key_provisioning.tpm2_interface_status_probe_performed -eq $true -and
     $honesty.owner_key_provisioning.tpm2_interface_status -eq "tpm2_acpi_absent" -and
     $honesty.owner_key_provisioning.tpm2_interface_status_reason -eq "TPM2 ACPI table missing" -and
+    $honesty.owner_key_provisioning.tpm2_status_read_plan_available -eq $false -and
+    $honesty.owner_key_provisioning.tpm2_status_register_kind -eq "none" -and
+    [int64]$honesty.owner_key_provisioning.tpm2_status_register_phys -eq 0 -and
+    [int]$honesty.owner_key_provisioning.tpm2_status_register_width_bytes -eq 0 -and
+    $honesty.owner_key_provisioning.tpm2_status_read_plan_reason -eq "TPM2 ACPI table missing" -and
     $honesty.owner_key_provisioning.hardware_binding_evidence_present -eq $false -and
     $honesty.owner_key_provisioning.ram_boot_ephemeral_input_ready -eq $true -and
     $honesty.owner_key_provisioning.persistent_install_input_ready -eq $false -and
@@ -1153,6 +1158,11 @@ $honestyOk = (
     $honesty.owner_key_provisioning.owner_key_evidence_input.tpm2_interface_status_probe_performed -eq $true -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.tpm2_interface_status -eq "tpm2_acpi_absent" -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.tpm2_interface_status_reason -eq "TPM2 ACPI table missing" -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.tpm2_status_read_plan_available -eq $false -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.tpm2_status_register_kind -eq "none" -and
+    [int64]$honesty.owner_key_provisioning.owner_key_evidence_input.tpm2_status_register_phys -eq 0 -and
+    [int]$honesty.owner_key_provisioning.owner_key_evidence_input.tpm2_status_register_width_bytes -eq 0 -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.tpm2_status_read_plan_reason -eq "TPM2 ACPI table missing" -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.hardware_binding_evidence_present -eq $false -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.tpm_binding_state -eq "tpm2_acpi_absent" -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.ram_boot_ephemeral_input_ready -eq $true -and
@@ -1184,3 +1194,4 @@ Assert-LogContains -Name "m12-distribution:N6_ownerkey_fingerprint_redacted" -Ne
 Assert-LogContains -Name "m12-distribution:N6_ownerkey_tpm2_absent" -Needle "TPM2 ACPI: PRESENT NO PHYS 0x0000000000000000 LEN 0 REV 0" -TimeoutSeconds 1
 Assert-LogContains -Name "m12-distribution:N6_ownerkey_tpm2_interface_absent" -Needle "TPM2 IFACE: KIND none START 0 CONTROL 0x0000000000000000 DETAILS NO" -TimeoutSeconds 1
 Assert-LogContains -Name "m12-distribution:N6_ownerkey_tpm2_status_reason" -Needle "TPM2 STATUS: tpm2_acpi_absent REASON TPM2 ACPI table missing" -TimeoutSeconds 1
+Assert-LogContains -Name "m12-distribution:N6_ownerkey_tpm2_status_read_absent" -Needle "TPM2 STATUS READ: PLAN NO KIND none PHYS 0x0000000000000000 WIDTH 0 REASON TPM2 ACPI table missing" -TimeoutSeconds 1

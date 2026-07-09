@@ -574,6 +574,10 @@ posture without exporting generated key material: persistent install policy
 `hardware_binding_probe_status: tpm2_acpi_absent` in the focused QEMU profile,
 `hardware_binding_probe_reason: TPM2 ACPI table missing`,
 `tpm2_acpi_table_present: false`,
+`tpm2_status_read_plan_available: false`,
+`tpm2_status_register_kind: none`,
+`tpm2_status_register_phys: 0`,
+`tpm2_status_register_width_bytes: 0`,
 `hardware_binding_evidence_present: false`,
 `persistent_owner_key_generated: false`,
 `ram_boot_ephemeral_key_generated: true`,
@@ -591,9 +595,11 @@ For the real Surface Pro 4 TPM capture, type `ownerkey` on the console/serial
 path. It prints the same owner-key snapshot in short form: RAM handle and
 `sha256:` fingerprint, TPM2 ACPI present/phys/length/revision, TPM2 interface
 kind/start/control/status, and `OWNER AUTH: SEAL NO PERSIST NO LOAD NO DURABLE
-NO`. On the focused QEMU profile this must show
+NO`. It also prints the planned read-only TPM status register, if CRB/TIS
+details expose one. On the focused QEMU profile this must show
 `TPM2 ACPI: PRESENT NO PHYS 0x0000000000000000 LEN 0 REV 0` and
-`TPM2 STATUS: tpm2_acpi_absent REASON TPM2 ACPI table missing`.
+`TPM2 STATUS: tpm2_acpi_absent REASON TPM2 ACPI table missing` and
+`TPM2 STATUS READ: PLAN NO KIND none PHYS 0x0000000000000000 WIDTH 0 REASON TPM2 ACPI table missing`.
 Its nested `owner_key_evidence_input` must consume `core.entropy`, report
 `entropy_evidence_present: true`, `entropy_status: ready`, RDRAND observed,
 pool capacity 64 with total collected at least 32,
@@ -605,6 +611,9 @@ pool capacity 64 with total collected at least 32,
 `acpi_rsdp_present: true`, `acpi_root_table_valid: true`,
 `tpm2_acpi_table_present: false`, `tpm2_acpi_table_length: 0`,
 `tpm2_acpi_table_revision: 0`,
+`tpm2_status_read_plan_available: false`,
+`tpm2_status_register_kind: none`, `tpm2_status_register_phys: 0`,
+`tpm2_status_register_width_bytes: 0`,
 `hardware_binding_evidence_present: false`,
 `tpm_binding_state: tpm2_acpi_absent`,
 `ram_boot_ephemeral_input_ready: true`,

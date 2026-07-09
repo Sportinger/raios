@@ -1810,6 +1810,14 @@ fn command_owner_key_status() {
         hardware.tpm2_interface_status, hardware.tpm2_interface_status_reason
     ));
     write_output(format_args!(
+        "TPM2 STATUS READ: PLAN {} KIND {} PHYS 0x{:016X} WIDTH {} REASON {}",
+        yes_no(hardware.tpm2_status_read_plan_available),
+        hardware.tpm2_status_register_kind,
+        hardware.tpm2_status_register_phys,
+        hardware.tpm2_status_register_width_bytes,
+        hardware.tpm2_status_read_plan_reason
+    ));
+    write_output(format_args!(
         "OWNER AUTH: SEAL NO PERSIST NO LOAD NO DURABLE NO"
     ));
 }

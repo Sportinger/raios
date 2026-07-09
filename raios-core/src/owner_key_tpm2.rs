@@ -3,6 +3,9 @@ const TPM2_PLATFORM_CLASS_OFFSET: usize = TPM2_ACPI_HEADER_LEN;
 const TPM2_CONTROL_AREA_OFFSET: usize = TPM2_ACPI_HEADER_LEN + 4;
 const TPM2_START_METHOD_OFFSET: usize = TPM2_ACPI_HEADER_LEN + 12;
 const TPM2_COMMON_INTERFACE_LEN: usize = TPM2_ACPI_HEADER_LEN + 16;
+const TPM2_CRB_CONTROL_STATUS_OFFSET: u64 = 0x44;
+const TPM2_TIS_STATUS_OFFSET: u64 = 0x18;
+const TPM2_STATUS_REGISTER_WIDTH_BYTES: u8 = 4;
 
 pub const TPM2_INTERFACE_KIND_NONE: &str = "none";
 pub const TPM2_INTERFACE_KIND_NOT_SET: &str = "not_set";
@@ -42,6 +45,14 @@ pub const TPM2_INTERFACE_REASON_CONTROL_AREA_MISSING: &str =
     "TPM2 start method requires a nonzero control area for this probe";
 pub const TPM2_INTERFACE_REASON_START_METHOD_UNSUPPORTED: &str =
     "TPM2 start method parsed but not supported by this read-only probe";
+pub const TPM2_STATUS_REGISTER_KIND_NONE: &str = "none";
+pub const TPM2_STATUS_REGISTER_KIND_CRB_CONTROL_STATUS: &str = "crb_control_status";
+pub const TPM2_STATUS_REGISTER_KIND_TIS_STS: &str = "tis_sts";
+pub const TPM2_STATUS_READ_PLAN_REASON_NONE: &str = "no readable TPM2 status register planned";
+pub const TPM2_STATUS_READ_PLAN_REASON_CRB: &str = "read-only CRB control-status register planned";
+pub const TPM2_STATUS_READ_PLAN_REASON_TIS: &str = "read-only TIS/FIFO status register planned";
+pub const TPM2_STATUS_READ_PLAN_REASON_ADDRESS_OVERFLOW: &str =
+    "TPM2 status register address overflow";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Tpm2AcpiDetails {
@@ -53,6 +64,42 @@ pub struct Tpm2AcpiDetails {
     pub status_probe_performed: bool,
     pub status: &'static str,
     pub reason: &'static str,
+    pub status_read_plan: Tpm2StatusReadPlan,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Tpm2StatusReadPlan {
+    pub available: bool,
+    pub register_kind: &'static str,
+    pub register_phys: u64,
+    pub register_width_bytes: u8,
+    pub reason: &'static str,
+}
+
+impl Tpm2StatusReadPlan {
+    const fn none(reason: &'static str) -> Self {
+        Self {
+            available: false,
+            register_kind: TPM2_STATUS_REGISTER_KIND_NONE,
+            register_phys: 0,
+            register_width_bytes: 0,
+            reason,
+        }
+    }
+
+    const fn available(
+        register_kind: &'static str,
+        register_phys: u64,
+        reason: &'static str,
+    ) -> Self {
+        Self {
+            available: true,
+            register_kind,
+            register_phys,
+            register_width_bytes: TPM2_STATUS_REGISTER_WIDTH_BYTES,
+            reason,
+        }
+    }
 }
 
 pub const fn absent_tpm2_acpi_details(
@@ -68,6 +115,7 @@ pub const fn absent_tpm2_acpi_details(
         status_probe_performed,
         status: TPM2_INTERFACE_STATUS_ABSENT,
         reason,
+        status_read_plan: Tpm2StatusReadPlan::none(reason),
     }
 }
 
@@ -81,6 +129,7 @@ pub const fn tpm2_acpi_details_too_short() -> Tpm2AcpiDetails {
         status_probe_performed: true,
         status: TPM2_INTERFACE_STATUS_TABLE_TOO_SHORT,
         reason: TPM2_INTERFACE_REASON_TABLE_TOO_SHORT,
+        status_read_plan: Tpm2StatusReadPlan::none(TPM2_INTERFACE_REASON_TABLE_TOO_SHORT),
     }
 }
 
@@ -94,6 +143,7 @@ pub fn parse_tpm2_acpi_details(table: &[u8]) -> Tpm2AcpiDetails {
     let start_method = read_le_u32(table, TPM2_START_METHOD_OFFSET).unwrap_or(0);
     let interface_kind = tpm2_start_method_kind(start_method);
     let (status, reason) = tpm2_interface_status(start_method, control_area);
+    let status_read_plan = tpm2_status_read_plan(start_method, control_area);
 
     Tpm2AcpiDetails {
         valid: true,
@@ -104,6 +154,7 @@ pub fn parse_tpm2_acpi_details(table: &[u8]) -> Tpm2AcpiDetails {
         status_probe_performed: true,
         status,
         reason,
+        status_read_plan,
     }
 }
 
@@ -162,6 +213,40 @@ pub const fn tpm2_interface_status(
     }
 }
 
+pub const fn tpm2_status_read_plan(start_method: u32, control_area: u64) -> Tpm2StatusReadPlan {
+    match start_method {
+        7 | 8 => {
+            if control_area == 0 {
+                Tpm2StatusReadPlan::none(TPM2_INTERFACE_REASON_CONTROL_AREA_MISSING)
+            } else if let Some(register_phys) =
+                control_area.checked_add(TPM2_CRB_CONTROL_STATUS_OFFSET)
+            {
+                Tpm2StatusReadPlan::available(
+                    TPM2_STATUS_REGISTER_KIND_CRB_CONTROL_STATUS,
+                    register_phys,
+                    TPM2_STATUS_READ_PLAN_REASON_CRB,
+                )
+            } else {
+                Tpm2StatusReadPlan::none(TPM2_STATUS_READ_PLAN_REASON_ADDRESS_OVERFLOW)
+            }
+        }
+        6 => {
+            if control_area == 0 {
+                Tpm2StatusReadPlan::none(TPM2_INTERFACE_REASON_TIS_FIXED_BASE)
+            } else if let Some(register_phys) = control_area.checked_add(TPM2_TIS_STATUS_OFFSET) {
+                Tpm2StatusReadPlan::available(
+                    TPM2_STATUS_REGISTER_KIND_TIS_STS,
+                    register_phys,
+                    TPM2_STATUS_READ_PLAN_REASON_TIS,
+                )
+            } else {
+                Tpm2StatusReadPlan::none(TPM2_STATUS_READ_PLAN_REASON_ADDRESS_OVERFLOW)
+            }
+        }
+        _ => Tpm2StatusReadPlan::none(TPM2_INTERFACE_REASON_START_METHOD_UNSUPPORTED),
+    }
+}
+
 fn read_le_u16(data: &[u8], offset: usize) -> Option<u16> {
     read_le(data, offset, 2).map(|value| value as u16)
 }
@@ -203,6 +288,19 @@ mod tests {
         assert_eq!(details.interface_kind, TPM2_INTERFACE_KIND_CRB);
         assert_eq!(details.status, TPM2_INTERFACE_STATUS_CRB_DETAILS_PARSED);
         assert!(details.status_probe_performed);
+        assert!(details.status_read_plan.available);
+        assert_eq!(
+            details.status_read_plan.register_kind,
+            TPM2_STATUS_REGISTER_KIND_CRB_CONTROL_STATUS
+        );
+        assert_eq!(
+            details.status_read_plan.register_phys,
+            CONTROL_AREA + TPM2_CRB_CONTROL_STATUS_OFFSET
+        );
+        assert_eq!(
+            details.status_read_plan.register_width_bytes,
+            TPM2_STATUS_REGISTER_WIDTH_BYTES
+        );
     }
 
     #[test]
@@ -213,6 +311,7 @@ mod tests {
         assert_eq!(details.platform_class, 1);
         assert_eq!(details.interface_kind, TPM2_INTERFACE_KIND_CRB_ACPI_START);
         assert_eq!(details.status, TPM2_INTERFACE_STATUS_CRB_DETAILS_PARSED);
+        assert!(details.status_read_plan.available);
     }
 
     #[test]
@@ -222,6 +321,24 @@ mod tests {
         assert!(details.valid);
         assert_eq!(details.status, TPM2_INTERFACE_STATUS_CONTROL_AREA_MISSING);
         assert_eq!(details.reason, TPM2_INTERFACE_REASON_CONTROL_AREA_MISSING);
+        assert!(!details.status_read_plan.available);
+    }
+
+    #[test]
+    fn plans_tis_status_read_when_fifo_base_is_present() {
+        let details = parse_tpm2_acpi_details(&table_with(0, CONTROL_AREA, 6));
+
+        assert_eq!(details.interface_kind, TPM2_INTERFACE_KIND_TIS_MMIO_CANCEL);
+        assert_eq!(details.status, TPM2_INTERFACE_STATUS_TIS_DETAILS_PARSED);
+        assert!(details.status_read_plan.available);
+        assert_eq!(
+            details.status_read_plan.register_kind,
+            TPM2_STATUS_REGISTER_KIND_TIS_STS
+        );
+        assert_eq!(
+            details.status_read_plan.register_phys,
+            CONTROL_AREA + TPM2_TIS_STATUS_OFFSET
+        );
     }
 
     #[test]
@@ -233,6 +350,7 @@ mod tests {
             details.status,
             TPM2_INTERFACE_STATUS_TIS_FIXED_BASE_NOT_MAPPED
         );
+        assert!(!details.status_read_plan.available);
     }
 
     #[test]
@@ -244,6 +362,7 @@ mod tests {
             details.status,
             TPM2_INTERFACE_STATUS_START_METHOD_UNSUPPORTED
         );
+        assert!(!details.status_read_plan.available);
     }
 
     #[test]
@@ -253,6 +372,7 @@ mod tests {
         assert!(!details.valid);
         assert_eq!(details.interface_kind, TPM2_INTERFACE_KIND_NONE);
         assert_eq!(details.status, TPM2_INTERFACE_STATUS_TABLE_TOO_SHORT);
+        assert!(!details.status_read_plan.available);
     }
 
     #[test]
@@ -263,6 +383,7 @@ mod tests {
         assert!(details.status_probe_performed);
         assert_eq!(details.status, TPM2_INTERFACE_STATUS_ABSENT);
         assert_eq!(details.reason, "TPM2 ACPI table missing");
+        assert!(!details.status_read_plan.available);
     }
 
     fn table_with(platform_class: u16, control_area: u64, start_method: u32) -> [u8; 52] {
