@@ -16,6 +16,7 @@ param(
     [switch]$EmbedOpenAiSpkiRotationPinFromEnv,
     [string]$OpenAiSpkiRotationPinEnvVar = "OPENAI_SPKI_SHA256_NEXT",
     [switch]$AllowUnverifiedOpenAiTls,
+    [switch]$UsePersistLayout,
     [switch]$SkipBuild
 )
 
@@ -72,6 +73,42 @@ exit
     }
 }
 
+function Write-RawImageToDisk {
+    param(
+        [int]$DiskNumber,
+        [string]$ImagePath
+    )
+
+    $resolvedImage = (Resolve-Path -LiteralPath $ImagePath).Path
+    $imageInfo = Get-Item -LiteralPath $resolvedImage
+    $disk = Get-Disk -Number $DiskNumber -ErrorAction Stop
+    if ($disk.Size -lt $imageInfo.Length) {
+        throw "USB disk is too small for persist image: disk=$($disk.Size) image=$($imageInfo.Length)."
+    }
+
+    Set-Disk -Number $DiskNumber -IsOffline $true
+    try {
+        $targetPath = "\\.\PhysicalDrive$DiskNumber"
+        $input = [System.IO.File]::Open($resolvedImage, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+        $output = [System.IO.File]::Open($targetPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::ReadWrite)
+        try {
+            $buffer = New-Object byte[] (4MB)
+            while (($read = $input.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                $output.Write($buffer, 0, $read)
+            }
+            $output.Flush($true)
+        }
+        finally {
+            $output.Dispose()
+            $input.Dispose()
+        }
+    }
+    finally {
+        Set-Disk -Number $DiskNumber -IsOffline $false
+        Update-Disk -Number $DiskNumber -ErrorAction SilentlyContinue
+    }
+}
+
 if (-not (Test-Admin)) {
     throw "Run this script from an elevated PowerShell window."
 }
@@ -95,6 +132,7 @@ if ($BootPartitionSizeMB -lt 64 -or $BootPartitionSizeMB -gt 32768) {
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $BaseEspDir = Join-Path $RepoRoot "release\esp"
 $TempEspDir = $null
+$TempPersistImage = $null
 $SourceEspDir = $BaseEspDir
 $KernelProfileDir = if ($Profile -eq "release") { "release" } else { "debug" }
 $Kernel = Join-Path $RepoRoot "target\x86_64-seed\$KernelProfileDir\seed-kernel"
@@ -193,6 +231,42 @@ try {
     Set-Disk -Number $DiskNumber -IsOffline $false
     Set-Disk -Number $DiskNumber -IsReadOnly $false
 
+    if ($UsePersistLayout) {
+        if ($PartitionStyle -ne "GPT") {
+            throw "-UsePersistLayout requires -PartitionStyle GPT."
+        }
+        $TempPersistImage = Join-Path $env:TEMP "raios-usb-persist-$PID.img"
+        Remove-Item -LiteralPath $TempPersistImage -Force -ErrorAction SilentlyContinue
+        & python (Join-Path $RepoRoot "scripts\make-gpt-persist-image.py") `
+            --self-check `
+            --seed-bootctl valid-a `
+            $TempPersistImage
+        if ($LASTEXITCODE -ne 0) {
+            throw "persist GPT base image build failed with exit code $LASTEXITCODE"
+        }
+        & python (Join-Path $RepoRoot "scripts\make-gpt-persist-image.py") `
+            --image $TempPersistImage `
+            --stage-slot A `
+            --payload-dir $SourceEspDir
+        if ($LASTEXITCODE -ne 0) {
+            throw "persist GPT slot staging failed with exit code $LASTEXITCODE"
+        }
+        & python (Join-Path $RepoRoot "scripts\make-gpt-persist-image.py") `
+            --image $TempPersistImage `
+            --seed-bootctl valid-a
+        if ($LASTEXITCODE -ne 0) {
+            throw "persist GPT bootctl reset failed with exit code $LASTEXITCODE"
+        }
+        Write-RawImageToDisk -DiskNumber $DiskNumber -ImagePath $TempPersistImage
+        $inspectJson = & python (Join-Path $RepoRoot "scripts\make-gpt-persist-image.py") --inspect-json $TempPersistImage
+        $inspect = ($inspectJson -join [Environment]::NewLine) | ConvertFrom-Json
+        Write-Host "raiOS persistent USB image written to PhysicalDrive$DiskNumber"
+        Write-Host "Layout: SEED_ESP_A + SEED_ESP_B + SEED_DATA"
+        Write-Host "Image bytes: $($inspect.size_bytes)"
+        Write-Host "SEED_DATA superblock valid: $($inspect.data_superblock_valid)"
+        return
+    }
+
     if ($PartitionStyle -eq "GPT") {
         $driveLetter = Get-FreeDriveLetter
         New-GptFat32BootPartition `
@@ -236,5 +310,8 @@ finally {
     }
     if ($TempEspDir) {
         Remove-Item -LiteralPath $TempEspDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if ($TempPersistImage) {
+        Remove-Item -LiteralPath $TempPersistImage -Force -ErrorAction SilentlyContinue
     }
 }

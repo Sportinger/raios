@@ -36,6 +36,21 @@ Keep QEMU/unknown hardware fail-closed, keep association/link authority false,
 and do not claim live networks until RX/event buffers carrying real frames are
 observed and parsed.
 
+USB persistent-stick layout slice done (2026-07-09) - the Windows USB writer can
+now prepare a real raiOS GPT persistence stick instead of only a one-FAT ESP:
+`scripts\write-stage0-usb.ps1 -UsePersistLayout` builds the existing
+`make-gpt-persist-image.py` layout, stages the current ESP into `SEED_ESP_A`,
+keeps `SEED_DATA` raw with a valid `RAIOS_DATA_SB_V0` superblock and empty
+RECLOG, resets BOOTCTL to Normal/slot A for first boot, and raw-writes the
+validated image to the chosen USB disk. This grants no kernel USB write path
+yet; it gives the Surface stick the correct durable target for the upcoming
+USB Mass Storage block-device slice. Verified: PowerShell AST parse of
+`scripts\write-stage0-usb.ps1`; dry GPT image build/stage/reset/inspect with
+`release\esp` reported `gpt_header_valid=true`, `gpt_crc_checked=true`,
+`gpt_seed_data_found=true`, `data_superblock_valid=true`, RECLOG
+`valid_empty`, BOOTCTL posture `Normal`, selected payload `A`, and image size
+537936384 bytes.
+
 Failure classification (2026-07-09, Marvell firmware poll-budget quick VM):
 focused `quick` report `release/vm-reports/shadow-20260709-131953-18752.json`
 failed waiting for serial marker/predicate `RAIOS_AGENT_END

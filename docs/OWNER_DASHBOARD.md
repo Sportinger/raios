@@ -11,6 +11,11 @@ firmware-download burst instead of throttling every helper block through the
 the RX-PFU images froze the Surface, and the scan-time attempt made MMIO read
 back all-ones (`HOST_INT=0xffffffff`), so that path is parked for now.
 
+Stick persistence prep: the USB writer now has `-UsePersistLayout`, which writes
+the real GPT `SEED_ESP_A`/`SEED_ESP_B`/`SEED_DATA` image with valid empty RECLOG
+to a USB disk. Kernel USB Mass Storage read/write is still the next missing
+piece before raiOS can append WiFi diagnostics to that stick itself.
+
 After firmware and HW_SPEC are ready, `Scan networks` still issues the real
 mwifiex `SCAN_EXT` 2.4GHz wildcard command and reports command status. If a
 firmware event appears, the UI now reports the raw `EVENT_RING` rd/wr/type/
@@ -33,7 +38,6 @@ Gate status: latest full profile remains green at
 `shadow-20260708-150428-34396.json` 7867/7867. This slice used the focused quick
 profile per aggressive-fast cadence.
 
-Next owner action: boot the refreshed USB on the Surface Pro 4, press Start
-WiFi FW, confirm the UI/mouse does not freeze after `723540/723540`, then press
-Scan networks and send a photo/log of `SCAN_EXT` and `EVENT_RING`. In parallel,
-`ownerkey` capture still gives the next TPM status-read evidence.
+Next owner action: keep testing WiFi with the current event-only USB unless we
+explicitly rewrite the stick with `-UsePersistLayout`; send `SCAN_EXT` and
+`EVENT_RING`. Kernel USB-MSC block support is the next persistence slice.

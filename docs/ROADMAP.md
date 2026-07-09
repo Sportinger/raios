@@ -80,7 +80,10 @@ poll bursts with restored copy throughput plus event-ring observation and
 scan-time RX-PFU diagnostics are committed, but active RX-PFU arming is parked
 after it froze the Surface and made PCIe MMIO read back all-ones; live result
 frames still wait on non-empty event/RX evidence and no scan/link authority is
-claimed.
+claimed. The Windows USB writer can now raw-write the existing GPT
+`SEED_ESP_A`/`SEED_ESP_B`/`SEED_DATA` persistence layout to a stick with valid
+empty RECLOG; kernel USB Mass Storage block-device support is still required
+before raiOS can append bare-metal diagnostics to that stick.
 
 **M12+ opener + honesty capstone (committed, grants nothing):** M12-1 external-
 acquisition HONESTY evaluator (download = candidate intake NEVER install; a
@@ -1229,7 +1232,8 @@ provenance-bound facts, never a raw log.
 
 Slices (each grants nothing until an explicit owner-gated flip):
 - M13A Block device — A-1 READ-ONLY block driver for the real boot
-  medium (identify device, read sectors, verify vs known bytes); A-2
+  medium (starting with USB Mass Storage/BOT on the prepared GPT stick:
+  identify device, read sectors, verify GPT/SEED_DATA); A-2
   bounded, audited, write-then-read-back verified WRITE to a dedicated
   owner-approved region only (fail-closed; recovery core + foreign
   partitions refused by construction).
