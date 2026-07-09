@@ -75,7 +75,6 @@ const TRB_TYPE_ADDRESS_DEVICE: u32 = 11;
 const TRB_TYPE_CONFIGURE_ENDPOINT: u32 = 12;
 const TRB_TYPE_EVALUATE_CONTEXT: u32 = 13;
 const TRB_TYPE_RESET_ENDPOINT: u32 = 14;
-const TRB_TYPE_STOP_ENDPOINT: u32 = 15;
 const TRB_TYPE_SET_TR_DEQUEUE_POINTER: u32 = 16;
 const TRB_TYPE_TRANSFER_EVENT: u32 = 32;
 const TRB_TYPE_COMMAND_COMPLETION_EVENT: u32 = 33;
@@ -149,15 +148,12 @@ const MSC_SECTOR_BUFFER_LEN: usize = 512;
 const MSC_CBW_SIGNATURE: u32 = 0x4342_5355;
 const MSC_CSW_SIGNATURE: u32 = 0x5342_5355;
 const MSC_READ_CAPACITY10_LEN: usize = 8;
-const RECLOG_DIAGNOSTIC_MAX_WRITES: u32 = 16;
 const WAIT_ITERS: usize = 5_000_000;
 const ROOT_PORT_POWER_SETTLE_ITERS: usize = WAIT_ITERS;
 const HUB_PORT_RESET_POLLS: usize = 64;
 const HUB_PORT_RESET_POLL_DELAY_ITERS: usize = WAIT_ITERS / 100;
 const HOTPLUG_MAX_ROOT_PORTS: u8 = 32;
 const MAX_HUB_WATCHES: usize = MAX_HID_DEVICES;
-const MOUSE_HUB_SILENT_RECOVER_POLLS: u16 = 125;
-const MOUSE_HUB_REARMS_BEFORE_PORT_RESET: u8 = 2;
 
 static STATE: Mutex<UsbState> = Mutex::new(UsbState::new());
 
@@ -999,9 +995,6 @@ struct XhciController {
     recover_count: u32,
     keyboard_report_count: u32,
     mouse_report_count: u32,
-    mouse_idle_polls: u16,
-    mouse_silent_rearms: u8,
-    mouse_hub_port_reset_attempted: bool,
     mouse_diag_port_status: u16,
     mouse_diag_port_change: u16,
     mouse_diag_ep_state: u8,
@@ -1054,12 +1047,9 @@ struct MassStorageProbe {
     last_lba: u32,
     lba0_signature: u16,
     detail: &'static str,
-    seed_data_first_lba: u64,
-    seed_data_lba_count: u64,
     reclog_write_verified: bool,
     reclog_seq: u64,
     reclog_lba: u64,
-    reclog_write_count: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -1079,12 +1069,9 @@ impl MassStorageProbe {
             last_lba: 0,
             lba0_signature: 0,
             detail: "not_found",
-            seed_data_first_lba: 0,
-            seed_data_lba_count: 0,
             reclog_write_verified: false,
             reclog_seq: 0,
             reclog_lba: 0,
-            reclog_write_count: 0,
         }
     }
 }
@@ -1465,9 +1452,6 @@ impl XhciController {
             recover_count: 0,
             keyboard_report_count: 0,
             mouse_report_count: 0,
-            mouse_idle_polls: 0,
-            mouse_silent_rearms: 0,
-            mouse_hub_port_reset_attempted: false,
             mouse_diag_port_status: 0,
             mouse_diag_port_change: 0,
             mouse_diag_ep_state: 0,
@@ -2994,7 +2978,6 @@ impl XhciController {
                 });
             }
             HidKind::Mouse => {
-                self.mouse_idle_polls = 0;
                 self.mouse = Some(MouseDevice {
                     slot_id,
                     dci: endpoint.dci,
@@ -3006,7 +2989,6 @@ impl XhciController {
                 });
             }
             HidKind::Tablet => {
-                self.mouse_idle_polls = 0;
                 self.mouse = Some(MouseDevice {
                     slot_id,
                     dci: endpoint.dci,
@@ -3366,7 +3348,6 @@ impl XhciController {
         let mut reclog_write_verified = false;
         let mut reclog_seq = 0;
         let mut reclog_lba = 0;
-        let mut reclog_write_count = 0;
         if seed_data_present {
             match self.append_usb_diagnostic_reclog(
                 gpt.seed_data_first_lba,
@@ -3378,11 +3359,9 @@ impl XhciController {
                     reclog_write_verified = true;
                     reclog_seq = point.seq;
                     reclog_lba = point.lba;
-                    reclog_write_count = 1;
                 }
                 Err(err) => {
                     detail = err;
-                    reclog_write_count = RECLOG_DIAGNOSTIC_MAX_WRITES;
                     serial::write_fmt(format_args!("usb-msc: reclog append denied: {}\r\n", err));
                 }
             }
@@ -3395,12 +3374,9 @@ impl XhciController {
             last_lba,
             lba0_signature,
             detail,
-            seed_data_first_lba: gpt.seed_data_first_lba,
-            seed_data_lba_count: gpt.seed_data_lba_count,
             reclog_write_verified,
             reclog_seq,
             reclog_lba,
-            reclog_write_count,
         };
         serial::write_fmt(format_args!(
             "usb-msc: capacity last_lba={} block={} mbr=0x{:04x} seed_data={} {}\r\n",
@@ -3522,33 +3498,6 @@ impl XhciController {
             idx += 1;
         }
         Ok(())
-    }
-
-    unsafe fn append_usb_diagnostic_if_ready(&mut self, reason: &'static str) {
-        if !self.mass_storage_probe.seed_data_present
-            || self.mass_storage_probe.reclog_write_count >= RECLOG_DIAGNOSTIC_MAX_WRITES
-        {
-            return;
-        }
-        match self.append_usb_diagnostic_reclog(
-            self.mass_storage_probe.seed_data_first_lba,
-            self.mass_storage_probe.seed_data_lba_count,
-            reason,
-        ) {
-            Ok(point) => {
-                self.mass_storage_probe.detail = "reclog_write_verified";
-                self.mass_storage_probe.reclog_write_verified = true;
-                self.mass_storage_probe.reclog_seq = point.seq;
-                self.mass_storage_probe.reclog_lba = point.lba;
-                self.mass_storage_probe.reclog_write_count =
-                    self.mass_storage_probe.reclog_write_count.saturating_add(1);
-            }
-            Err(err) => {
-                self.mass_storage_probe.detail = err;
-                self.mass_storage_probe.reclog_write_count = RECLOG_DIAGNOSTIC_MAX_WRITES;
-                serial::write_fmt(format_args!("usb-msc: reclog append denied: {}\r\n", err));
-            }
-        }
     }
 
     fn usb_diagnostic_payload(
@@ -3886,7 +3835,6 @@ impl XhciController {
         K: FnMut(u16, bool),
         M: FnMut(UsbMouseReport),
     {
-        let mouse_reports_before = self.mouse_report_count;
         let mut processed = 0usize;
         while processed < 16 {
             let Some(event) = self.poll_event() else {
@@ -3899,11 +3847,6 @@ impl XhciController {
         }
         if processed == 0 {
             self.kick_input_endpoints();
-        }
-        if self.mouse_report_count == mouse_reports_before {
-            self.recover_silent_hub_mouse();
-        } else {
-            self.mouse_idle_polls = 0;
         }
     }
 
@@ -3954,9 +3897,6 @@ impl XhciController {
                 if cc == CC_SUCCESS || cc == CC_SHORT_PACKET {
                     self.last_transfer_completion_code = cc as u8;
                     self.mouse_report_count = self.mouse_report_count.saturating_add(1);
-                    self.mouse_idle_polls = 0;
-                    self.mouse_silent_rearms = 0;
-                    self.mouse_hub_port_reset_attempted = false;
                     let report = MOUSE_REPORT.0;
                     mouse_fn(decode_pointer_report(mouse.kind, &report));
                 } else {
@@ -3982,109 +3922,6 @@ impl XhciController {
         if let Some(mouse) = self.mouse {
             self.ring_doorbell(mouse.slot_id, mouse.dci);
         }
-    }
-
-    unsafe fn recover_silent_hub_mouse(&mut self) {
-        let Some(mouse) = self.mouse else {
-            self.mouse_idle_polls = 0;
-            self.mouse_silent_rearms = 0;
-            self.mouse_hub_port_reset_attempted = false;
-            return;
-        };
-        if mouse.parent_hub_slot_id == 0 || self.mouse_report_count == 0 {
-            self.mouse_idle_polls = 0;
-            self.mouse_silent_rearms = 0;
-            self.mouse_hub_port_reset_attempted = false;
-            return;
-        }
-        self.mouse_idle_polls = self.mouse_idle_polls.saturating_add(1);
-        if self.mouse_idle_polls < MOUSE_HUB_SILENT_RECOVER_POLLS {
-            return;
-        }
-
-        self.mouse_idle_polls = 0;
-        if !self.mouse_hub_port_reset_attempted
-            && self.mouse_silent_rearms >= MOUSE_HUB_REARMS_BEFORE_PORT_RESET
-        {
-            self.mouse_hub_port_reset_attempted = true;
-            self.mouse_silent_rearms = 0;
-            self.capture_mouse_failure_snapshot(mouse);
-            match self.reenumerate_hub_mouse_port(mouse) {
-                Ok(()) => self.append_usb_diagnostic_if_ready("hub_mouse_port_reset"),
-                Err(err) => {
-                    self.hub_last_error = Some(err);
-                    self.append_usb_diagnostic_if_ready("hub_mouse_port_reset_failed");
-                }
-            }
-            return;
-        }
-
-        // ponytail: watchdog workaround for the real Surface hub mouse silent-stop.
-        if self
-            .rearm_interrupt_endpoint(mouse.slot_id, mouse.dci, mouse.ring_index)
-            .is_ok()
-        {
-            self.mouse_silent_rearms = self.mouse_silent_rearms.saturating_add(1);
-            let _ = self.queue_mouse_report();
-            self.append_usb_diagnostic_if_ready("hub_mouse_rearm");
-        }
-    }
-
-    unsafe fn capture_mouse_failure_snapshot(&mut self, mouse: MouseDevice) {
-        self.mouse_diag_port_status = u16::MAX;
-        self.mouse_diag_port_change = u16::MAX;
-        self.mouse_diag_ep_state = u8::MAX;
-
-        if mouse.ring_index < MAX_HID_DEVICES {
-            let ep = device_context_ptr(self.context_size, mouse.ring_index, mouse.dci);
-            let dword0 = ctx_read_raw(ep, 0);
-            self.mouse_diag_ep_state = (dword0 & 0x7) as u8;
-        }
-
-        let mut index = 0usize;
-        while index < MAX_HUB_WATCHES {
-            let watch = self.hub_watches[index];
-            if watch.active && watch.slot_id == mouse.parent_hub_slot_id {
-                let old_slot_id = self.current_slot_id;
-                let old_device_index = self.current_device_index;
-                self.current_slot_id = watch.slot_id;
-                self.current_device_index = watch.device_index;
-                match self.hub_port_status(mouse.parent_hub_port_number) {
-                    Ok(status) => {
-                        self.mouse_diag_port_status = status.status;
-                        self.mouse_diag_port_change = status.change;
-                    }
-                    Err(err) => {
-                        self.hub_last_error = Some(err);
-                    }
-                }
-                self.current_slot_id = old_slot_id;
-                self.current_device_index = old_device_index;
-                return;
-            }
-            index += 1;
-        }
-    }
-
-    unsafe fn reenumerate_hub_mouse_port(
-        &mut self,
-        mouse: MouseDevice,
-    ) -> Result<(), &'static str> {
-        let mut index = 0usize;
-        while index < MAX_HUB_WATCHES {
-            let watch = self.hub_watches[index];
-            if watch.active && watch.slot_id == mouse.parent_hub_slot_id {
-                self.clear_devices_for_hub_port(watch.slot_id, mouse.parent_hub_port_number);
-                let (detail, skipped) =
-                    self.configure_hub_hotplug(watch, mouse.parent_hub_port_number);
-                if skipped {
-                    return Err(detail);
-                }
-                return Ok(());
-            }
-            index += 1;
-        }
-        Err("hub mouse watch missing")
     }
 
     unsafe fn ring_doorbell(&self, slot_id: u8, target: u8) {
@@ -4161,39 +3998,6 @@ impl XhciController {
                 | ((dci as u32) << 16)
                 | ((slot_id as u32) << 24),
         })?;
-        self.reset_interrupt_ring_at(ring_index);
-        let dequeue = phys_of(
-            ptr::addr_of!(INTR_RINGS[ring_index].0[0]),
-            "interrupt dequeue phys",
-        )? | 1;
-        self.execute_command(Trb {
-            parameter: dequeue,
-            status: 0,
-            control: trb_type(TRB_TYPE_SET_TR_DEQUEUE_POINTER)
-                | ((dci as u32) << 16)
-                | ((slot_id as u32) << 24),
-        })?;
-        Ok(())
-    }
-
-    unsafe fn rearm_interrupt_endpoint(
-        &mut self,
-        slot_id: u8,
-        dci: u8,
-        ring_index: usize,
-    ) -> Result<(), &'static str> {
-        self.recover_count = self.recover_count.saturating_add(1);
-        serial::write_fmt(format_args!(
-            "usb-hid: rearming silent slot {} endpoint {}\r\n",
-            slot_id, dci
-        ));
-        let _ = self.execute_command(Trb {
-            parameter: 0,
-            status: 0,
-            control: trb_type(TRB_TYPE_STOP_ENDPOINT)
-                | ((dci as u32) << 16)
-                | ((slot_id as u32) << 24),
-        });
         self.reset_interrupt_ring_at(ring_index);
         let dequeue = phys_of(
             ptr::addr_of!(INTR_RINGS[ring_index].0[0]),
@@ -4421,19 +4225,8 @@ unsafe fn input_context_ptr(context_size: usize, device_context_index: usize) ->
         .add((device_context_index + 1) * context_size)
 }
 
-unsafe fn device_context_ptr(context_size: usize, device_index: usize, dci: u8) -> *const u8 {
-    DEVICE_CONTEXTS[device_index]
-        .0
-        .as_ptr()
-        .add(dci as usize * context_size)
-}
-
 unsafe fn ctx_write_raw(base: *mut u8, dword: usize, value: u32) {
     ptr::write_volatile(base.add(dword * 4).cast::<u32>(), value);
-}
-
-unsafe fn ctx_read_raw(base: *const u8, dword: usize) -> u32 {
-    ptr::read_volatile(base.add(dword * 4).cast::<u32>())
 }
 
 unsafe fn parse_boot_hid_endpoint(

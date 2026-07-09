@@ -112,7 +112,10 @@ strictly parses its BSS descriptors, and feeds valid networks into the existing
 adds a clickable `WiFi DETECTED` guided flow over the same real firmware,
 HW_SPEC, scan, SSID, and RAM-only password paths; it explicitly stops before
 association. Event/RX rings and RX-PFU remain parked. Next owner evidence is the
-guided flow plus a fresh RECLOG input timeline; link authority remains denied.
+guided flow plus a fresh RECLOG input timeline. The prior one-second
+mouse-idle watchdog is now removed because valid RECLOG evidence showed it
+rearmed/reset healthy endpoints and synchronously wrote through the shared USB
+hub with zero transfer errors. Link authority remains denied.
 
 **M12+ opener + honesty capstone (committed, grants nothing):** M12-1 external-
 acquisition HONESTY evaluator (download = candidate intake NEVER install; a

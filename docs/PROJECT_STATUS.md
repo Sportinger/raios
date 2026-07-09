@@ -24,15 +24,35 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (bare-metal WiFi): boot the refreshed Disk 2 stick on
-the Surface and click the blue `WiFi DETECTED` status pill. Verify the small progress window
-automatically reaches the anchored live-network list, select a secured SSID,
-enter a password, and confirm the result says credentials are RAM-ready but
-`Connection not established`. Event/RX rings, RX-PFU, association, link, DHCP,
-and persistent secret storage remain denied. The hub-mouse interrupt stall is
-still open: if it recurs after WiFi start, unplug/replug is the observed
-recovery and RECLOG must be read after the test; do not describe input stability
-as solved.
+Current exact next task (bare-metal WiFi/input): refresh Disk 2, boot the
+Surface, click `WiFi DETECTED`, and type through the secured-SSID password
+dialog while periodically leaving the mouse idle for more than ten seconds.
+Confirm keyboard and mouse remain responsive without unplug/replug and the flow
+ends at honest `Connection not established`. Event/RX rings, RX-PFU,
+association, link, DHCP, and persistent secret storage remain denied. Input
+stability is not solved until this real-hardware check passes.
+
+USB false idle-recovery removal slice done (2026-07-09) - keyboard and mouse
+can now remain normally idle without raiOS forcibly stopping their xHCI
+endpoint, resetting a hub port, or synchronously writing RECLOG through the
+same hub. Fresh Disk 2 inspection found a valid 84/84 RECLOG chain with no torn
+tail. In the captured recovery runs, report counts advanced (`383 -> 489 ->
+515`, then `568`) before later idle intervals, while every forced rearm/reset
+record retained `errors=0`, `last_int_cc=0`, and successful
+`last_xfer_cc=1`. The watchdog nevertheless treated one second without a mouse
+report as failure, rearmed twice, then reset/re-enumerated the port; each step
+also performed a synchronous RECLOG append. Those actions had no positive
+recovery evidence and could interrupt a keyboard sharing the controller/hub.
+The entire idle watchdog, port-reset escalation, and repeated diagnostic-write
+path is deleted (net 207 lines); real non-success transfer completions still use
+the existing bounded `recover_interrupt_endpoint`, and the single verified
+boot RECLOG probe remains. The newest boots `seq=83/84` only contain boot probes,
+because the old schema did not record keyboard-silent events. Verified: scoped
+rustfmt; release build; quick Shadow VM report
+`release/vm-reports/shadow-20260709-235209-16668.json` passed 542/542 predicates
+and 79 executed commands, `duration_ms: 246061`, report sha256
+`2aa0012fbffbac2063ca0561648da0d7b81d604179186e9b438c0ed474d68ad4`, and
+`base_image.sha256: 206e4101d4285227efa7c198062b2f3e5540d5e84426bc08434bf8388abf333f`.
 
 VM failure classification (2026-07-09, WiFi guided-setup UI): the first
 `quick` invocation was terminated by the local command wrapper after five
