@@ -170,9 +170,15 @@ still read-only and non-authorizing. **Slice 18 DONE:** the same check now
 includes `m7_loader_policy_input_diagnostic`, so a real load denial can
 distinguish "M6 evidence absent before M7 policy" from the separately missing
 M7 loader-policy evidence while all M7/load authority flags remain false
-(`m12-distribution-provenance` 246/246). Next M12+ slice: add the first
-concrete provider-trust input diagnostic that consumes the M7 diagnostic, still
-read-only and non-authorizing. (3) provide real
+(`m12-distribution-provenance` 246/246). **Slice 19 DONE:** the same check now
+includes `provider_trust_input_diagnostic`, so a real load denial can
+distinguish "M7 loader-policy evidence absent before provider trust" from the
+separately missing provider-trust evidence while all provider/load authority
+flags remain false (`m12-distribution-provenance` 246/246). Next M12+ slice:
+add the first read-only owner-key provisioning posture diagnostic: persistent
+install requires hardware-bound owner key material, RAM boot may only create an
+ephemeral `current_boot` key, and `owner_sealed` remains false until real
+sealing evidence exists. (3) provide real
 trust inputs (a cryptographically
 trusted time source, real CA roots, a live second provider) → I finish M10 real
 validation — STILL YOURS. (4) the owner-key sealing ceremony → the FINAL step —

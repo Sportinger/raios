@@ -24,11 +24,43 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (M12+ M6/M7 reverify bridge): add the first concrete
-provider-trust input diagnostic that consumes the M7 loader-policy diagnostic,
-still read-only and non-authorizing, so raiOS can distinguish "M7
-loader-policy evidence absent" from "provider trust evidence absent" before
-any load/install authority can exist.
+Current exact next task (owner-key provisioning bridge): add the first
+read-only owner-key provisioning posture diagnostic that records the intended
+automatic key lifecycle: persistent install requires hardware-bound owner key
+material, RAM boot may only create an ephemeral `current_boot` key, and
+`owner_sealed` stays false until real hardware-binding/sealing evidence exists.
+
+M12+ Slice 19 done (2026-07-09) - provider-trust input diagnostic is explicit.
+A user/agent can now inspect the real `raios.module_load_gate.v0`
+loader-runtime readiness and see
+`m6_m7_reverify_input_check.provider_trust_input_diagnostic`: it consumes the
+M7 loader-policy diagnostic, reports that M7 input is not ready for provider
+trust because M7 loader-policy evidence is missing, separately reports
+provider-trust evidence as missing, and keeps
+`m7_loader_policy_input_ready_for_provider_trust`,
+`provider_trust_positive`, `can_enter_provider_trust`, `can_load_now`,
+`authorizes_load`, and `load_attempted` false. Verified: scoped Rust format
+check (`rustfmt --edition 2021 --check
+seed-kernel\src\agent_protocol_module_load_gate_render.rs`); PowerShell
+profile parse for
+`vm-harness\shadow-vm-smoke-profile-m12-distribution-provenance.ps1`; diff
+check clean apart from normal CRLF warnings; release seed-kernel build via
+`scripts\build-seed-kernel.ps1 -Profile release`; focused VM
+`m12-distribution-provenance` report
+`release/vm-reports/shadow-20260709-105238-25264.json` 246/246 predicates, 53
+executed commands, `duration_ms: 134632`, report sha256
+`1aee7de46640c7356721ab75bfc593b7090b45098861cf66da6590c7d4a33ddd`.
+`scripts\scan-secrets.ps1` found no OpenAI-key-like values. Global
+`cargo fmt --all -- --check` remains red only on the pre-existing unrelated
+format drift in `raios-core/src/marvell_wifi_fw.rs` and
+`seed-kernel/src/usb.rs`. Gate check: latest full-profile report remains green
+at `release/vm-reports/shadow-20260708-150428-34396.json` 7867/7867, while
+this slice used the focused M12 profile per aggressive-fast cadence. File-size
+note: touched
+`seed-kernel\src\agent_protocol_module_load_gate_render.rs` is 6,768 lines;
+the existing split plan remains to extract receiver/preflight and
+loader-runtime source-fact/reverify-check rendering before broader load-gate
+renderer changes.
 
 M12+ Slice 18 done (2026-07-09) - M7 loader-policy input diagnostic is
 explicit. A user/agent can now inspect the real `raios.module_load_gate.v0`

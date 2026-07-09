@@ -3,6 +3,17 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
+Updated: 2026-07-09. **raiOS trennt jetzt auch Provider-Vertrauen vom
+fehlenden M7-Policy-Beweis:** Im realen Load-Denial sieht ein Agent jetzt unter
+`provider_trust_input_diagnostic`: M7-Loader-Policy-Evidenz fehlt noch, deshalb
+darf Provider-Trust nicht betreten werden; Provider-Trust-Evidenz ist trotzdem
+separat als fehlend sichtbar. Ergebnis bleibt absichtlich: NICHT laden, NICHT
+installieren, NICHT ausfuehren, NICHT speichern. Naechster ehrlicher Schnitt
+fuer deinen Key-Wunsch: persistent install = hardwaregebundener Owner-Key,
+RAM-Boot = nur ephemeral `current_boot`; `owner_sealed` bleibt false bis echte
+Sealing-Evidenz da ist. Beweis: `m12-distribution-provenance`
+`shadow-20260709-105238-25264.json` 246/246 gruen.
+
 Updated: 2026-07-09. **raiOS trennt jetzt auch M7-Policy vom fehlenden
 M6-Beweis:** Im realen Load-Denial sieht ein Agent jetzt unter
 `m7_loader_policy_input_diagnostic`: Der M6-Reverify-Beweis fehlt noch, deshalb

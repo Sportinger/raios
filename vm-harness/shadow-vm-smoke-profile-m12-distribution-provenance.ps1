@@ -935,6 +935,7 @@ $loadPreflightRuntimeFact = $loadRuntimeReadiness.loader_runtime_facts.receiver_
 $loadM6M7ReverifyInputCheck = $loadRuntimeReadiness.m6_m7_reverify_input_check
 $loadM6ReverifyInputDiagnostic = $loadM6M7ReverifyInputCheck.m6_reverify_input_diagnostic
 $loadM7LoaderPolicyInputDiagnostic = $loadM6M7ReverifyInputCheck.m7_loader_policy_input_diagnostic
+$loadProviderTrustInputDiagnostic = $loadM6M7ReverifyInputCheck.provider_trust_input_diagnostic
 $loadAfter = (Get-SerialLogContent -Path $SerialLog).Substring([int]$loadOffset)
 $loadDeniedOk = (
     $load.t -eq "error" -and
@@ -996,6 +997,22 @@ $loadDeniedOk = (
     $loadM7LoaderPolicyInputDiagnostic.can_enter_m7_loader_policy -eq $false -and
     $loadM7LoaderPolicyInputDiagnostic.can_load_now -eq $false -and
     $loadM7LoaderPolicyInputDiagnostic.authorizes_load -eq $false -and
+    $loadProviderTrustInputDiagnostic.id -eq "module.load_ephemeral.provider_trust_input_diagnostic.current_boot" -and
+    $loadProviderTrustInputDiagnostic.consumes_diagnostic -eq "module.load_ephemeral.m7_loader_policy_input_diagnostic.current_boot" -and
+    $loadProviderTrustInputDiagnostic.consumes_check -eq "module.load_ephemeral.m6_m7_reverify_input_check.current_boot" -and
+    $loadProviderTrustInputDiagnostic.m7_loader_policy_input_ready_for_provider_trust -eq $false -and
+    $loadProviderTrustInputDiagnostic.m7_loader_policy_input_status -eq "denied_m6_reverify_input_not_ready_for_m7_loader_policy" -and
+    $loadProviderTrustInputDiagnostic.m7_loader_policy_input_reason -eq "m6_reverification_evidence_missing" -and
+    $loadProviderTrustInputDiagnostic.m7_loader_policy_evidence_present -eq $false -and
+    $loadProviderTrustInputDiagnostic.m7_loader_policy_evidence_reason -eq "m7_loader_policy_evidence_missing" -and
+    $loadProviderTrustInputDiagnostic.provider_trust_evidence_present -eq $false -and
+    $loadProviderTrustInputDiagnostic.provider_trust_evidence_reason -eq "provider_trust_evidence_missing" -and
+    $loadProviderTrustInputDiagnostic.provider_trust_positive -eq $false -and
+    $loadProviderTrustInputDiagnostic.status -eq "denied_m7_loader_policy_input_not_ready_for_provider_trust" -and
+    $loadProviderTrustInputDiagnostic.reason -eq "m7_loader_policy_evidence_missing" -and
+    $loadProviderTrustInputDiagnostic.can_enter_provider_trust -eq $false -and
+    $loadProviderTrustInputDiagnostic.can_load_now -eq $false -and
+    $loadProviderTrustInputDiagnostic.authorizes_load -eq $false -and
     $loadM6M7ReverifyInputCheck.receiver_identity_complete -eq $true -and
     $loadM6M7ReverifyInputCheck.retained_candidate_matches_catalog_finalize -eq $true -and
     $loadM6M7ReverifyInputCheck.preflight_evaluated -eq $true -and

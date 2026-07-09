@@ -4693,6 +4693,12 @@ const MODULE_LOAD_GATE_M7_LOADER_POLICY_BLOCKED_BY_M6_STATUS: &str =
     "denied_m6_reverify_input_not_ready_for_m7_loader_policy";
 const MODULE_LOAD_GATE_M7_LOADER_POLICY_INPUT_MISSING_REASON: &str =
     "m7_loader_policy_evidence_missing";
+const MODULE_LOAD_GATE_PROVIDER_TRUST_INPUT_DIAGNOSTIC_ID: &str =
+    "module.load_ephemeral.provider_trust_input_diagnostic.current_boot";
+const MODULE_LOAD_GATE_PROVIDER_TRUST_BLOCKED_BY_M7_STATUS: &str =
+    "denied_m7_loader_policy_input_not_ready_for_provider_trust";
+const MODULE_LOAD_GATE_PROVIDER_TRUST_INPUT_MISSING_REASON: &str =
+    "provider_trust_evidence_missing";
 
 fn module_load_gate_loader_runtime_source_fact_count() -> usize {
     MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT + 1
@@ -4923,6 +4929,84 @@ fn module_load_gate_m7_loader_policy_input_diagnostic_fields(
     ]
 }
 
+fn module_load_gate_provider_trust_input_diagnostic_status(
+    projection: agent_protocol::DistributionReceiverIdentityLoadPreflightProjection,
+) -> &'static str {
+    if module_load_gate_receiver_identity_load_preflight_source_fact_ready(projection) {
+        MODULE_LOAD_GATE_PROVIDER_TRUST_BLOCKED_BY_M7_STATUS
+    } else {
+        MODULE_LOAD_GATE_M6_M7_RECEIVER_PREFLIGHT_NOT_READY_STATUS
+    }
+}
+
+fn module_load_gate_provider_trust_input_diagnostic_reason(
+    projection: agent_protocol::DistributionReceiverIdentityLoadPreflightProjection,
+) -> &'static str {
+    if module_load_gate_receiver_identity_load_preflight_source_fact_ready(projection) {
+        MODULE_LOAD_GATE_M7_LOADER_POLICY_INPUT_MISSING_REASON
+    } else {
+        module_load_gate_receiver_identity_load_preflight_reason(projection)
+    }
+}
+
+fn module_load_gate_provider_trust_input_diagnostic_fields(
+    projection: agent_protocol::DistributionReceiverIdentityLoadPreflightProjection,
+) -> Vec<Field<'static>> {
+    vec![
+        f("id", s(MODULE_LOAD_GATE_PROVIDER_TRUST_INPUT_DIAGNOSTIC_ID)),
+        f("scope", s("current_boot")),
+        f("classification", s("local_only")),
+        f(
+            "consumes_diagnostic",
+            s(MODULE_LOAD_GATE_M7_LOADER_POLICY_INPUT_DIAGNOSTIC_ID),
+        ),
+        f(
+            "consumes_check",
+            s(MODULE_LOAD_GATE_M6_M7_REVERIFY_INPUT_CHECK_ID),
+        ),
+        f("m7_loader_policy_input_ready_for_provider_trust", no()),
+        f(
+            "m7_loader_policy_input_status",
+            s(module_load_gate_m7_loader_policy_input_diagnostic_status(
+                projection,
+            )),
+        ),
+        f(
+            "m7_loader_policy_input_reason",
+            s(module_load_gate_m7_loader_policy_input_diagnostic_reason(
+                projection,
+            )),
+        ),
+        f("m7_loader_policy_evidence_present", no()),
+        f(
+            "m7_loader_policy_evidence_reason",
+            s(MODULE_LOAD_GATE_M7_LOADER_POLICY_INPUT_MISSING_REASON),
+        ),
+        f("provider_trust_evidence_present", no()),
+        f(
+            "provider_trust_evidence_reason",
+            s(MODULE_LOAD_GATE_PROVIDER_TRUST_INPUT_MISSING_REASON),
+        ),
+        f("provider_trust_positive", no()),
+        f(
+            "status",
+            s(module_load_gate_provider_trust_input_diagnostic_status(
+                projection,
+            )),
+        ),
+        f(
+            "reason",
+            s(module_load_gate_provider_trust_input_diagnostic_reason(
+                projection,
+            )),
+        ),
+        f("can_enter_provider_trust", no()),
+        f("can_load_now", no()),
+        f("authorizes_load", no()),
+        f("load_attempted", no()),
+    ]
+}
+
 fn module_load_gate_m6_m7_reverify_input_check_fields(
     projection: agent_protocol::DistributionReceiverIdentityLoadPreflightProjection,
 ) -> Vec<Field<'static>> {
@@ -4978,6 +5062,12 @@ fn module_load_gate_m6_m7_reverify_input_check_fields(
         f(
             "m7_loader_policy_input_diagnostic",
             V::InlineObject(module_load_gate_m7_loader_policy_input_diagnostic_fields(
+                projection,
+            )),
+        ),
+        f(
+            "provider_trust_input_diagnostic",
+            V::InlineObject(module_load_gate_provider_trust_input_diagnostic_fields(
                 projection,
             )),
         ),
