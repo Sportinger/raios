@@ -24,12 +24,36 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (bare-metal WiFi): apply the proven bounded bus-master
-window to one real `SCAN_EXT` mailbox command and consume only its first
-`CMD_DONE` response. Keep the event/RX rings and RX-PFU parked; close DMA on
-completion or timeout before parsing any response, and expose an explicit
-no-live-results state until non-empty result bytes are proven. Then package the
-stick for an owner scan test while preserving responsive hub input.
+Current exact next task (bare-metal diagnostics): boot the refreshed Disk 2
+stick, click `Start WiFi FW`, wait for green `HW_SPEC`, then click
+`Scan networks` exactly once. Confirm a green `SCAN_EXT: done
+result=command_done_event_ring_unavailable len=113 ...` line and responsive hub
+mouse. This image intentionally will not list live SSIDs yet: event/RX rings and
+RX-PFU remain parked. If command completion and input both hold, the next slice
+opens only the event-result path needed to discover where this firmware returns
+scan results; if input stops or the command times out, read RECLOG before
+opening any result ring.
+
+WiFi bounded SCAN_EXT DMA window slice done (2026-07-09) - raiOS can now issue
+one real 2.4 GHz wildcard `SCAN_EXT` mailbox command through the same bounded
+PCI bus-master window proven by `GET_HW_SPEC`. It resolves the detected Surface
+PCI function before arming, prepares command/response buffers while DMA is off,
+masks real Marvell interrupts and clears stale status, enables bus mastering
+immediately before the doorbell, and disables it before parsing first
+`CMD_DONE` or on the existing 15-second timeout. Event/RX rings and RX-PFU stay
+parked, so command success remains the explicit
+`command_done_event_ring_unavailable` state and grants no live-result or link
+authority. Verified: 28/28 focused `raios-core` Marvell firmware/mailbox/scan
+tests; scoped rustfmt; release packaging; quick Shadow VM report
+`release/vm-reports/shadow-20260709-221452-16344.json` passed 542/542 predicates
+and 79 executed commands, `duration_ms: 199596`, report sha256
+`b23425a3f09973c5424ab5e3203658cbacef2c084352d2b45029a44939b7d6ac`, and
+`base_image.sha256: 4bcdfe3f849b5df822f4e22d2766b4efc62be80f10e421c3dae8cc10966647c9`.
+Owner handoff: Disk 2 `SEED_ESP_A` was refreshed without reformatting via
+`scripts\update-usb-esp-a.ps1 -DiskNumber 2 -SkipBuild`; log
+`C:\Users\admin\AppData\Local\Temp\raios-usb-esp-a-update-disk2-20260709-222045.log`
+reported kernel sha256
+`41CD3F0810319CDAC20B33FE55DD000FFA06F9543C7F0782E159D38DAAD67271`.
 
 WiFi bounded HW_SPEC DMA window slice done (2026-07-09) - raiOS can now issue
 one real `GET_HW_SPEC` mailbox request after firmware-ready inside a narrow PCI

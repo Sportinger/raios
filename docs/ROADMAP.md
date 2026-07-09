@@ -101,9 +101,10 @@ disabling WiFi DMA/INTx and writing `DRV_READY`. It now keeps BAR memory
 decoding available only for a bounded `FW_STATUS` poll and claims firmware-ready
 solely on `0xFEDCBA00`. The owner confirmed the real Surface reaches ready,
 completes one bounded `GET_HW_SPEC` bus-master window, and keeps hub input
-responsive; Disk 2 RECLOG remained a valid 58-frame chain. The next slice
-applies that same doorbell-to-CMD_DONE/timeout DMA bound to one `SCAN_EXT`
-command. Event/RX rings, RX-PFU, live scan results, and link authority remain
+responsive; Disk 2 RECLOG remained a valid 58-frame chain. The refreshed image
+now applies that same doorbell-to-CMD_DONE/timeout DMA bound to one real
+`SCAN_EXT` command. Next owner evidence is green command completion with stable
+input. Event/RX rings, RX-PFU, live scan results, and link authority remain
 parked until command completion and non-empty result evidence are separately
 proven stable.
 

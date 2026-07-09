@@ -728,6 +728,7 @@ struct HwSpecJob {
 }
 
 struct ScanCmdJob {
+    pci_address: pci::PciAddress,
     mmio_base: usize,
     cmd_dma_phys: u64,
     rsp_dma_phys: u64,
@@ -897,6 +898,10 @@ pub fn start_scan_ext_24ghz() -> ScanCmdTriggerResult {
         finish_scan_without_job(ScanCmdResult::HwSpecNotReady, ScanCmdStage::Failed, 0, 0);
         return ScanCmdTriggerResult::Failed(ScanCmdResult::HwSpecNotReady);
     }
+    let Some(pci_address) = wifi::snapshot().address else {
+        finish_scan_without_job(ScanCmdResult::FirmwareNotReady, ScanCmdStage::Failed, 0, 0);
+        return ScanCmdTriggerResult::Failed(ScanCmdResult::FirmwareNotReady);
+    };
     let Some(mmio_base) = ready_mmio_base() else {
         finish_scan_without_job(ScanCmdResult::FirmwareNotReady, ScanCmdStage::Failed, 0, 0);
         return ScanCmdTriggerResult::Failed(ScanCmdResult::FirmwareNotReady);
@@ -939,6 +944,7 @@ pub fn start_scan_ext_24ghz() -> ScanCmdTriggerResult {
         command_len: 0,
     };
     runtime.job = Some(ScanCmdJob {
+        pci_address,
         mmio_base,
         cmd_dma_phys,
         rsp_dma_phys,
@@ -1134,6 +1140,7 @@ pub fn poll_scan_ext() -> bool {
         actions += 1;
         if elapsed_ms(job.started_tsc) >= SCAN_CMD_TIMEOUT_MS {
             let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+            pci::disable_bus_master(job.pci_address);
             let command_len = runtime.snapshot.command_len;
             finish_scan_locked(
                 &mut runtime,
@@ -1162,7 +1169,12 @@ pub fn poll_scan_ext() -> bool {
                 };
 
                 compiler_fence(Ordering::SeqCst);
+                write_reg(mmio_base, PCIE_HOST_INT_MASK, 0);
                 write_reg(mmio_base, PCIE_HOST_INT_STATUS_MASK, HOST_INTR_MASK);
+                let pending = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+                if pending != 0 && pending != u32::MAX {
+                    write_reg(mmio_base, PCIE_HOST_INT_STATUS, !pending);
+                }
                 write_reg(
                     mmio_base,
                     CMDRSP_ADDR_LO,
@@ -1176,6 +1188,8 @@ pub fn poll_scan_ext() -> bool {
                 );
                 write_reg(mmio_base, CMD_ADDR_HI, (job.cmd_dma_phys >> 32) as u32);
                 write_reg(mmio_base, CMD_SIZE, command_len as u32);
+                compiler_fence(Ordering::SeqCst);
+                pci::enable_bus_master(job.pci_address);
                 compiler_fence(Ordering::SeqCst);
                 write_reg(mmio_base, PCIE_CPU_INT_EVENT, CPU_INTR_DOOR_BELL);
                 compiler_fence(Ordering::SeqCst);
@@ -1198,6 +1212,8 @@ pub fn poll_scan_ext() -> bool {
                     changed = true;
                 }
                 if status & HOST_INTR_CMD_DONE != 0 {
+                    compiler_fence(Ordering::SeqCst);
+                    pci::disable_bus_master(job.pci_address);
                     compiler_fence(Ordering::SeqCst);
                     let parsed = parse_scan_dma_response();
                     write_reg(mmio_base, PCIE_HOST_INT_STATUS, !status);
