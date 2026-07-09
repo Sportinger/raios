@@ -7,6 +7,7 @@ use crate::{
         record_sha as sha, record_static_str_array, record_str as s,
     },
     agent_protocol_time::{live_time_authority_honesty, LiveTimeAuthorityHonesty},
+    entropy,
 };
 use raios_core::{
     record::Value as V,
@@ -47,11 +48,19 @@ const OWNER_KEY_PERSISTENT_INSTALL_POLICY: &str =
 const OWNER_KEY_RAM_BOOT_POLICY: &str = "ephemeral_current_boot_key_only";
 const OWNER_KEY_STATUS: &str = "denied_missing_hardware_bound_owner_key_evidence";
 const OWNER_KEY_REASON: &str = "hardware_bound_owner_key_evidence_missing";
+const OWNER_KEY_EVIDENCE_INPUT_ID: &str = "owner_key.evidence_input.current_boot";
+const OWNER_KEY_HARDWARE_BINDING_SOURCE: &str = "tpm_or_platform_seal";
+const OWNER_KEY_RAM_INPUT_READY_STATUS: &str =
+    "ram_ephemeral_input_ready_persistent_hardware_binding_missing";
+const OWNER_KEY_ENTROPY_NOT_READY_STATUS: &str =
+    "denied_entropy_not_ready_and_hardware_binding_missing";
+const OWNER_KEY_ENTROPY_NOT_READY_REASON: &str = "entropy_evidence_missing";
 
 pub(crate) fn emit_system_honesty_report(_request: &str) {
     let provider = live_provider_trust_honesty();
     let time = live_time_authority_honesty();
     let external = external_acquisition_projection();
+    let entropy_stats = entropy::stats();
 
     let provider_no_overclaim = !provider.descriptor.claims_chain_validated
         && !provider.descriptor.claims_time_validated
@@ -123,7 +132,10 @@ pub(crate) fn emit_system_honesty_report(_request: &str) {
             f("provider_export", provider_export_record()),
             f("wasm_import_surface", wasm_import_surface_record()),
             f("external_acquisition", external.record),
-            f("owner_key_provisioning", owner_key_provisioning_record()),
+            f(
+                "owner_key_provisioning",
+                owner_key_provisioning_record(entropy_stats),
+            ),
         ],
         6,
     );
@@ -254,7 +266,59 @@ fn wasm_import_surface_record() -> V<'static> {
     ])
 }
 
-fn owner_key_provisioning_record() -> V<'static> {
+fn owner_key_evidence_input_status(stats: entropy::EntropyStats) -> &'static str {
+    if stats.ready {
+        OWNER_KEY_RAM_INPUT_READY_STATUS
+    } else {
+        OWNER_KEY_ENTROPY_NOT_READY_STATUS
+    }
+}
+
+fn owner_key_evidence_input_reason(stats: entropy::EntropyStats) -> &'static str {
+    if stats.ready {
+        OWNER_KEY_REASON
+    } else {
+        OWNER_KEY_ENTROPY_NOT_READY_REASON
+    }
+}
+
+fn owner_key_evidence_input_record(stats: entropy::EntropyStats) -> V<'static> {
+    V::Object(vec![
+        f("id", s(OWNER_KEY_EVIDENCE_INPUT_ID)),
+        f("scope", s("current_boot")),
+        f("classification", s("local_only")),
+        f("consumes_entropy_source", s("core.entropy")),
+        f("entropy_evidence_present", b(stats.ready)),
+        f(
+            "entropy_status",
+            s(if stats.ready { "ready" } else { "waiting" }),
+        ),
+        f("entropy_source_rdrand_observed", b(stats.used_rdrand)),
+        f("entropy_pool_fill", V::U64(stats.pool_fill as u64)),
+        f(
+            "entropy_pool_capacity",
+            V::U64(entropy::POOL_CAPACITY as u64),
+        ),
+        f("entropy_total_collected", V::U64(stats.total_collected)),
+        f(
+            "hardware_binding_source",
+            s(OWNER_KEY_HARDWARE_BINDING_SOURCE),
+        ),
+        f("hardware_binding_evidence_present", b(false)),
+        f("tpm_binding_state", s("missing")),
+        f("ram_boot_ephemeral_input_ready", b(stats.ready)),
+        f("persistent_install_input_ready", b(false)),
+        f("status", s(owner_key_evidence_input_status(stats))),
+        f("reason", s(owner_key_evidence_input_reason(stats))),
+        f("authorizes_key_generation", b(false)),
+        f("authorizes_owner_seal", b(false)),
+        f("authorizes_persistent_install", b(false)),
+        f("authorizes_load", b(false)),
+        f("durable_write", b(false)),
+    ])
+}
+
+fn owner_key_provisioning_record(stats: entropy::EntropyStats) -> V<'static> {
     V::Object(vec![
         f("id", s(OWNER_KEY_PROVISIONING_ID)),
         f("scope", s("current_boot")),
@@ -267,7 +331,10 @@ fn owner_key_provisioning_record() -> V<'static> {
         ),
         f("ram_boot_policy", s(OWNER_KEY_RAM_BOOT_POLICY)),
         f("persistent_install_hardware_binding_required", b(true)),
+        f("entropy_evidence_present", b(stats.ready)),
         f("hardware_binding_evidence_present", b(false)),
+        f("ram_boot_ephemeral_input_ready", b(stats.ready)),
+        f("persistent_install_input_ready", b(false)),
         f("persistent_owner_key_generated", b(false)),
         f("ram_boot_ephemeral_key_allowed", b(true)),
         f("ram_boot_entropy_required", b(true)),
@@ -281,6 +348,10 @@ fn owner_key_provisioning_record() -> V<'static> {
         f("authorizes_persistent_install", b(false)),
         f("authorizes_load", b(false)),
         f("durable_write", b(false)),
+        f(
+            "owner_key_evidence_input",
+            owner_key_evidence_input_record(stats),
+        ),
     ])
 }
 

@@ -1088,7 +1088,10 @@ $honestyOk = (
     $honesty.owner_key_provisioning.persistent_install_policy -eq "generate_hardware_bound_owner_key_on_persistent_install" -and
     $honesty.owner_key_provisioning.ram_boot_policy -eq "ephemeral_current_boot_key_only" -and
     $honesty.owner_key_provisioning.persistent_install_hardware_binding_required -eq $true -and
+    $honesty.owner_key_provisioning.entropy_evidence_present -eq $true -and
     $honesty.owner_key_provisioning.hardware_binding_evidence_present -eq $false -and
+    $honesty.owner_key_provisioning.ram_boot_ephemeral_input_ready -eq $true -and
+    $honesty.owner_key_provisioning.persistent_install_input_ready -eq $false -and
     $honesty.owner_key_provisioning.persistent_owner_key_generated -eq $false -and
     $honesty.owner_key_provisioning.ram_boot_ephemeral_key_allowed -eq $true -and
     $honesty.owner_key_provisioning.ram_boot_entropy_required -eq $true -and
@@ -1100,6 +1103,27 @@ $honestyOk = (
     $honesty.owner_key_provisioning.authorizes_persistent_install -eq $false -and
     $honesty.owner_key_provisioning.authorizes_load -eq $false -and
     $honesty.owner_key_provisioning.durable_write -eq $false -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.id -eq "owner_key.evidence_input.current_boot" -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.consumes_entropy_source -eq "core.entropy" -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.entropy_evidence_present -eq $true -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.entropy_status -eq "ready" -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.entropy_source_rdrand_observed -eq $true -and
+    [int]$honesty.owner_key_provisioning.owner_key_evidence_input.entropy_pool_fill -ge 0 -and
+    [int]$honesty.owner_key_provisioning.owner_key_evidence_input.entropy_pool_fill -le 64 -and
+    [int]$honesty.owner_key_provisioning.owner_key_evidence_input.entropy_pool_capacity -eq 64 -and
+    [int]$honesty.owner_key_provisioning.owner_key_evidence_input.entropy_total_collected -ge 32 -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.hardware_binding_source -eq "tpm_or_platform_seal" -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.hardware_binding_evidence_present -eq $false -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.tpm_binding_state -eq "missing" -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.ram_boot_ephemeral_input_ready -eq $true -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.persistent_install_input_ready -eq $false -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.status -eq "ram_ephemeral_input_ready_persistent_hardware_binding_missing" -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.reason -eq "hardware_bound_owner_key_evidence_missing" -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.authorizes_key_generation -eq $false -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.authorizes_owner_seal -eq $false -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.authorizes_persistent_install -eq $false -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.authorizes_load -eq $false -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.durable_write -eq $false -and
     $honesty.owner_sealed -eq $false -and
     $honesty.trust_tier -eq "dev_key_not_owner_sealed"
 )

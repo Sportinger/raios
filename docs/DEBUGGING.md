@@ -574,6 +574,14 @@ posture without claiming generated key material: persistent install policy
 `ram_boot_ephemeral_key_generated: false`, `owner_key_material_exported: false`,
 `denied_missing_hardware_bound_owner_key_evidence`, and no owner-seal,
 persistent-install, load, or durable-write authority.
+Its nested `owner_key_evidence_input` must consume `core.entropy`, report
+`entropy_evidence_present: true`, `entropy_status: ready`, RDRAND observed,
+pool capacity 64 with total collected at least 32,
+`hardware_binding_source: tpm_or_platform_seal`,
+`hardware_binding_evidence_present: false`,
+`tpm_binding_state: missing`, `ram_boot_ephemeral_input_ready: true`,
+`persistent_install_input_ready: false`, and no key-generation, owner-seal,
+persistent-install, load, or durable-write authority.
 
 The first positive RAM-only service slice is deliberately narrower than general
 module loading:

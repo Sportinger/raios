@@ -185,7 +185,15 @@ only, no key material is exported, no key is falsely reported as generated, and
 owner-seal/install/load/durable authority stay false
 (`m12-distribution-provenance` 246/246). Next owner-key slice: consume real
 entropy readiness plus hardware/TPM-binding state before any RAM ephemeral key
-or persistent owner key can be generated. (3) provide real
+or persistent owner key can be generated. **Owner-key evidence input slice
+DONE:** the same honesty report now includes `owner_key_evidence_input` with
+observed `core.entropy` readiness/RDRAND evidence and explicit missing
+hardware/TPM-binding state, so RAM ephemeral key work has a real input while
+persistent owner-key sealing remains denied (`m12-distribution-provenance`
+246/246). Next owner-key slice: generate a RAM-only `current_boot` owner-key
+candidate from observed entropy and expose only a non-secret handle/fingerprint;
+no persistent owner seal until hardware-bound sealing evidence exists. (3)
+provide real
 trust inputs (a cryptographically
 trusted time source, real CA roots, a live second provider) → I finish M10 real
 validation — STILL YOURS. (4) the owner-key sealing ceremony → the FINAL step —

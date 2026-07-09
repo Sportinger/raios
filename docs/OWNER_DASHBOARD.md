@@ -3,6 +3,16 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
+Updated: 2026-07-09. **Owner-Key nutzt jetzt echte Entropie-Evidenz als
+Eingang:** Im Honesty-Report steht jetzt unter
+`owner_key_evidence_input`, ob `core.entropy` wirklich bereit ist, ob RDRAND
+beobachtet wurde und dass Hardware/TPM-Binding noch fehlt. Damit ist der
+naechste RAM-only `current_boot` Key-Kandidat sauber vorbereitet, aber noch
+nicht erzeugt. Persistent/owner-sealed bleibt blockiert: kein Key-Material
+wird exportiert, kein Owner-Seal, kein Install/Load/Durable-Grant. Beweis:
+`m12-distribution-provenance` `shadow-20260709-110642-23424.json` 246/246
+gruen.
+
 Updated: 2026-07-09. **Owner-Key-Automatik ist jetzt ehrlich sichtbar:**
 `system.honesty_report.owner_key_provisioning` sagt jetzt explizit: Bei
 persistenter Installation soll der Owner-Key automatisch hardwaregebunden
