@@ -24,13 +24,26 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (bare-metal WiFi/input): boot the refreshed Disk 2
-stick on the Surface, click `WiFi DETECTED`, and type through the secured-SSID
-password dialog while periodically leaving the mouse idle for more than ten seconds.
-Confirm keyboard and mouse remain responsive without unplug/replug and the flow
-ends at honest `Connection not established`. Event/RX rings, RX-PFU,
-association, link, DHCP, and persistent secret storage remain denied. Input
-stability is not solved until this real-hardware check passes.
+Current exact next task (bare-metal WiFi association): use the selected live BSS,
+RAM-only SSID, and RAM-only passphrase as inputs to the first real bounded
+Marvell association sequence. Start with upstream mwifiex command/key-material
+recon, then implement the smallest command/response step that executes on the
+Surface. Keep link, DHCP, provider network access, and any `connected` label
+denied until the complete authentication/association/key-exchange evidence
+chain succeeds. Event/RX rings, RX-PFU, and persistent secret storage remain
+parked unless the real association path proves they are required.
+
+Bare-metal guided WiFi/input proof (2026-07-10) - the owner can now complete the
+real `WiFi DETECTED` guided path through firmware, HW_SPEC, live scan, secured
+SSID selection, and masked password entry while keyboard and mouse remain
+usable without unplug/replug. The owner explicitly confirmed both inputs and
+password entry worked. The Surface screenshot at `UPTIME 65694 MS` shows
+`KBD READY`, `MOUSE READY`, `ERR 0`, `TCC 1`, WiFi firmware ready at
+`723540/723540`, live scan results, selected `MagentaWLAN-CQL5`, `KEY SET`, and
+the honest final `Credentials ready in RAM for this boot` / `Connection not
+established` dialog. The USB row also shows the next verified stick append as
+`MSC LOG seq85`. This closes the false idle-recovery/input regression on real
+hardware; it does not grant WLAN association or link authority.
 
 USB false idle-recovery removal slice done (2026-07-09) - keyboard and mouse
 can now remain normally idle without raiOS forcibly stopping their xHCI

@@ -111,11 +111,12 @@ strictly parses its BSS descriptors, and feeds valid networks into the existing
 `[LIVE]` list. The owner proved real SSIDs on the Surface. The current image
 adds a clickable `WiFi DETECTED` guided flow over the same real firmware,
 HW_SPEC, scan, SSID, and RAM-only password paths; it explicitly stops before
-association. Event/RX rings and RX-PFU remain parked. Next owner evidence is the
-guided flow plus a fresh RECLOG input timeline. The prior one-second
-mouse-idle watchdog is now removed because valid RECLOG evidence showed it
-rearmed/reset healthy endpoints and synchronously wrote through the shared USB
-hub with zero transfer errors. Link authority remains denied.
+association. Event/RX rings and RX-PFU remain parked. The owner has now proved
+the complete guided flow on the Surface with keyboard and mouse stable through
+password entry at 65.7s uptime; the prior one-second mouse-idle watchdog was the
+input regression and is removed. Next WiFi work is the first real bounded
+association/key-material command sequence. Link authority remains denied until
+the complete authentication/association/key-exchange evidence chain succeeds.
 
 **M12+ opener + honesty capstone (committed, grants nothing):** M12-1 external-
 acquisition HONESTY evaluator (download = candidate intake NEVER install; a
