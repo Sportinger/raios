@@ -142,6 +142,7 @@ static RX_RING: Mutex<RxRingRuntime> = Mutex::new(RxRingRuntime::new());
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FirmwareDownloadResult {
     Done,
+    DrvReadyParked,
     NotPresent,
     FirmwareImageAbsent,
     Bar2Missing,
@@ -162,6 +163,7 @@ impl FirmwareDownloadResult {
     pub const fn label(self) -> &'static str {
         match self {
             Self::Done => "ready",
+            Self::DrvReadyParked => "drv_ready_parked",
             Self::NotPresent => "target_not_detected",
             Self::FirmwareImageAbsent => "firmware_absent",
             Self::Bar2Missing => "bar2_missing",
@@ -208,6 +210,7 @@ pub enum FirmwareStage {
     Downloading,
     DoorbellAck,
     PollingReady,
+    DrvReadyParked,
     Ready,
     Failed,
 }
@@ -222,6 +225,7 @@ impl FirmwareStage {
             Self::Downloading => "download",
             Self::DoorbellAck => "doorbell_ack",
             Self::PollingReady => "fw_status",
+            Self::DrvReadyParked => "drv_ready_parked",
             Self::Ready => "ready",
             Self::Failed => "failed",
         }
@@ -1525,7 +1529,22 @@ pub fn poll() -> bool {
             }
             FwAction::Retry { .. } => {}
             FwAction::RingDoorbell => {}
-            FwAction::WriteDrvReady { .. } => {}
+            FwAction::WriteDrvReady { .. } => {
+                finish_locked(
+                    &mut runtime,
+                    FirmwareDownloadResult::DrvReadyParked,
+                    FirmwareStage::DrvReadyParked,
+                    None,
+                    registers,
+                    job.download.offset(),
+                    job.firmware_len,
+                );
+                wifi::note_firmware_ready_scan_unavailable();
+                serial::write_line(
+                    "marvell wifi: firmware downloaded; DRV_READY write parked for input isolation",
+                );
+                return true;
+            }
             FwAction::PollDoorbellAck => {
                 if elapsed_ms(job.phase_started_tsc) >= DOORBELL_ACK_TIMEOUT_MS {
                     finish_locked(

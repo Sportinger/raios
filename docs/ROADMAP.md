@@ -93,11 +93,12 @@ xHCI endpoint still healthy (`m_port=259 m_chg=0 m_ep=1`) when the fixed-time
 mouse freeze occurred after movement. The current image stops periodic hub
 child-port EP0 control polling after the hub mouse has produced reports, and
 also parks WiFi post-ready event-ring/HW_SPEC auto-probes after the owner proved
-the next mouse loss happens when `Start WiFi FW` completes. Next owner evidence:
-Disk 2 `SEED_ESP_A` is refreshed with that image; boot it, start WiFi firmware,
-confirm the new
-`post-ready mailbox/event probes parked` line, and see whether the hub mouse
-survives firmware-ready.
+the next mouse loss happens when `Start WiFi FW` completes. The current image
+parks the `DRV_READY` MMIO write itself after the firmware block download, so it
+honestly ends at `drv_ready_parked` rather than claiming firmware-ready. Next
+owner evidence: boot the refreshed stick, start WiFi firmware, confirm
+`firmware downloaded; DRV_READY write parked for input isolation`, and see
+whether the hub mouse survives the download-only path.
 
 **M12+ opener + honesty capstone (committed, grants nothing):** M12-1 external-
 acquisition HONESTY evaluator (download = candidate intake NEVER install; a

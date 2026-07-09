@@ -26,16 +26,36 @@ profiles, protocol probes, and failure modes.
 
 Current exact next task (bare-metal diagnostics): boot the Surface from the
 refreshed Disk 2 stick with the same hub/mouse/stick setup, confirm `MSC LOG`,
-click `Start WiFi FW`, and check that the firmware reaches
-`post-ready mailbox/event probes parked` while the hub mouse keeps moving after
-the old WiFi-completion freeze point. If the mouse still stops, inspect
-`SEED_DATA/RECLOG` for `reason=hub_mouse_port_reset` or
-`reason=hub_mouse_port_reset_failed`, the root-cause fields
-`m_port`/`m_chg`/`m_ep`, and whether `reports` advances after firmware-ready.
+click `Start WiFi FW`, and check that the download reaches
+`firmware downloaded; DRV_READY write parked for input isolation` while the hub
+mouse keeps moving. If the mouse still stops, the root cause is before
+`DRV_READY` and likely inside the firmware block-download DMA/doorbell path; if
+the mouse stays alive, the root cause is the `DRV_READY` transition itself.
 The Surface WiFi RX-PFU path remains parked because arming it made real Surface
 MMIO read back all-ones (`HOST_INT=0xffffffff`, write pointers `0xffffffff`)
 and froze input; do not re-enable RX-PFU while using stick logging to gather
 evidence.
+
+WiFi DRV_READY parking diagnostic slice done (2026-07-09) - after the owner
+proved the hub mouse still dies when `Start WiFi FW` completes even with
+post-ready mailbox/event auto-probes parked, raiOS now stops one step earlier:
+the Marvell firmware block download and doorbell ACK path still run, but the
+`DRV_READY` MMIO write is not issued. The run finishes in honest
+`drv_ready_parked` state instead of claiming firmware-ready, so scan/HW_SPEC
+and link authority remain denied. This gives the Surface a clean split between
+"download DMA/doorbell already harms USB input" and "`DRV_READY` starts the
+harmful firmware-side behavior". Verified: scoped
+`rustfmt --edition 2021 --check seed-kernel\src\marvell_wifi_pcie.rs
+seed-kernel\src\ui.rs`; release packaging with local Cargo env override; quick
+Shadow VM report `release/vm-reports/shadow-20260709-195238-29888.json` passed
+542/542 predicates, 79 executed commands, `duration_ms: 177232`, report sha256
+`9bcd79bb80502c9d87c7d0c408e443f721ca70bc1374768f29c1bc013a50f421`, and
+`base_image.sha256: dff237c8182f4f3716ecd6a891870db207022b9e4cdfb330a1377b541cadacda`.
+Owner handoff: Disk 2 `SEED_ESP_A` was refreshed without reformatting via
+`scripts\update-usb-esp-a.ps1 -DiskNumber 2 -SkipBuild`; log
+`C:\Users\admin\AppData\Local\Temp\raios-usb-esp-a-update-disk2-20260709-195609.log`
+reported kernel sha256
+`D2E962BC2CBF31C56A7A68868532A0DB9CB04A22A36414135E594FC443F0C293`.
 
 WiFi post-ready auto-probe parking slice done (2026-07-09) - after the owner
 confirmed the hub mouse is now stable behind the hub until `Start WiFi FW`
