@@ -24,11 +24,42 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (owner-key TPM interface bridge): parse TPM2 ACPI
-table details when present and add the first read-only TPM2 interface/status
-probe for the real Surface path, while keeping the RAM-only `current_boot`
-candidate ephemeral and keeping `owner_sealed`, persistent install, load, and
-durable-write authority false until a real seal/unseal evidence loop exists.
+Current exact next task (owner-key real Surface TPM status evidence): boot the
+updated image on the real Surface Pro 4 path and inspect
+`system.honesty_report.owner_key_provisioning` to capture real TPM2 ACPI table
+fields; if a CRB/TIS control area is present, add the next read-only TPM
+register-status probe while keeping `owner_sealed`, persistent install, load,
+and durable-write authority false until a real seal/unseal evidence loop exists.
+
+Owner-key TPM interface bridge slice done (2026-07-09) - persistent
+owner-key provisioning can now consume real TPM2 ACPI interface details when
+the hardware exposes them. A user/agent can now inspect
+`system.honesty_report.owner_key_provisioning` and its nested
+`owner_key_evidence_input` to see the TPM2 ACPI table physical address,
+platform class, control-area/FIFO base address, start method, interface kind,
+and read-only interface-status posture; the focused QEMU profile still reports
+`tpm2_acpi_absent` with zeroed details, RAM-only `current_boot` key generation
+still happens, and owner-seal, persistent-install, load, and durable-write
+authority all stay denied. Verified: scoped Rust format check (`rustfmt
+--edition 2021 --check seed-kernel\src\owner_key.rs
+seed-kernel\src\iommu_vtd.rs seed-kernel\src\agent_protocol_honesty.rs`);
+PowerShell profile parse for
+`vm-harness\shadow-vm-smoke-profile-m12-distribution-provenance.ps1`; diff
+check clean apart from normal CRLF warnings; release seed-kernel build via
+`scripts\build-seed-kernel.ps1 -Profile release`; focused VM
+`m12-distribution-provenance` report
+`release/vm-reports/shadow-20260709-113437-29116.json` 246/246 predicates, 53
+executed commands, `duration_ms: 136032`, report sha256
+`a42590df6de29b304c3843ead54b86c2600d6b1cdb08365ce6857b6c04250692`.
+`scripts\scan-secrets.ps1` found no OpenAI-key-like values. Global
+`cargo fmt --all -- --check` remains red only on the pre-existing unrelated
+format drift in `raios-core/src/marvell_wifi_fw.rs` and
+`seed-kernel/src/usb.rs`. Gate check: latest full-profile report remains green
+at `release/vm-reports/shadow-20260708-150428-34396.json` 7867/7867, while
+this slice used the focused M12 profile per aggressive-fast cadence. File-size
+check: touched `seed-kernel\src\agent_protocol_honesty.rs` is 604 lines,
+`seed-kernel\src\iommu_vtd.rs` is 1457 lines, and
+`seed-kernel\src\owner_key.rs` is 382 lines.
 
 Owner-key hardware evidence probe slice done (2026-07-09) - persistent
 owner-key provisioning now consumes a real platform probe instead of a static

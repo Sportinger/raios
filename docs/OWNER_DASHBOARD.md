@@ -3,6 +3,16 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
+Updated: 2026-07-09. **Owner-Key kennt jetzt die TPM2-Schnittstelle, wenn
+die echte Hardware sie zeigt:** raiOS parst bei vorhandener `TPM2` ACPI-Tabelle
+Adresse, Platform-Class, Control-Area/FIFO-Base, Start-Methode, Interface-Art
+und einen nicht-autorisierenden Status. Im QEMU fehlt `TPM2`, deshalb bleiben
+diese Felder leer/absent; der RAM-`current_boot` Key wird weiter automatisch
+erzeugt, aber persistent install / owner-seal / load / durable-write bleiben
+gesperrt bis echte Seal/Unseal-Evidenz da ist. Beweis:
+`m12-distribution-provenance` `shadow-20260709-113437-29116.json` 246/246
+gruen.
+
 Updated: 2026-07-09. **Owner-Key prueft jetzt echte Hardware-Evidence:**
 raiOS geht ueber Limine RSDP/ACPI, validiert die ACPI-Root und sucht nach der
 echten `TPM2` ACPI-Tabelle. Im fokussierten QEMU-Profil ist ACPI da, aber

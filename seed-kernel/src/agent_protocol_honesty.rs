@@ -361,12 +361,50 @@ fn owner_key_evidence_input_record(
             b(snapshot.hardware_binding.tpm2_acpi_table_present),
         ),
         f(
+            "tpm2_acpi_table_phys",
+            V::U64(snapshot.hardware_binding.tpm2_acpi_table_phys),
+        ),
+        f(
             "tpm2_acpi_table_length",
             V::U64(snapshot.hardware_binding.tpm2_acpi_table_length as u64),
         ),
         f(
             "tpm2_acpi_table_revision",
             V::U64(snapshot.hardware_binding.tpm2_acpi_table_revision as u64),
+        ),
+        f(
+            "tpm2_table_details_valid",
+            b(snapshot.hardware_binding.tpm2_table_details_valid),
+        ),
+        f(
+            "tpm2_platform_class",
+            V::U64(snapshot.hardware_binding.tpm2_platform_class as u64),
+        ),
+        f(
+            "tpm2_control_area",
+            V::U64(snapshot.hardware_binding.tpm2_control_area),
+        ),
+        f(
+            "tpm2_start_method",
+            V::U64(snapshot.hardware_binding.tpm2_start_method as u64),
+        ),
+        f(
+            "tpm2_interface_kind",
+            s(snapshot.hardware_binding.tpm2_interface_kind),
+        ),
+        f(
+            "tpm2_interface_status_probe_performed",
+            b(snapshot
+                .hardware_binding
+                .tpm2_interface_status_probe_performed),
+        ),
+        f(
+            "tpm2_interface_status",
+            s(snapshot.hardware_binding.tpm2_interface_status),
+        ),
+        f(
+            "tpm2_interface_status_reason",
+            s(snapshot.hardware_binding.tpm2_interface_status_reason),
         ),
         f("hardware_binding_evidence_present", b(false)),
         f("tpm_binding_state", s(snapshot.hardware_binding.status)),
@@ -425,6 +463,52 @@ fn owner_key_provisioning_record(
         f(
             "tpm2_acpi_table_present",
             b(snapshot.hardware_binding.tpm2_acpi_table_present),
+        ),
+        f(
+            "tpm2_acpi_table_phys",
+            V::U64(snapshot.hardware_binding.tpm2_acpi_table_phys),
+        ),
+        f(
+            "tpm2_acpi_table_length",
+            V::U64(snapshot.hardware_binding.tpm2_acpi_table_length as u64),
+        ),
+        f(
+            "tpm2_acpi_table_revision",
+            V::U64(snapshot.hardware_binding.tpm2_acpi_table_revision as u64),
+        ),
+        f(
+            "tpm2_table_details_valid",
+            b(snapshot.hardware_binding.tpm2_table_details_valid),
+        ),
+        f(
+            "tpm2_platform_class",
+            V::U64(snapshot.hardware_binding.tpm2_platform_class as u64),
+        ),
+        f(
+            "tpm2_control_area",
+            V::U64(snapshot.hardware_binding.tpm2_control_area),
+        ),
+        f(
+            "tpm2_start_method",
+            V::U64(snapshot.hardware_binding.tpm2_start_method as u64),
+        ),
+        f(
+            "tpm2_interface_kind",
+            s(snapshot.hardware_binding.tpm2_interface_kind),
+        ),
+        f(
+            "tpm2_interface_status_probe_performed",
+            b(snapshot
+                .hardware_binding
+                .tpm2_interface_status_probe_performed),
+        ),
+        f(
+            "tpm2_interface_status",
+            s(snapshot.hardware_binding.tpm2_interface_status),
+        ),
+        f(
+            "tpm2_interface_status_reason",
+            s(snapshot.hardware_binding.tpm2_interface_status_reason),
         ),
         f("hardware_binding_evidence_present", b(false)),
         f("ram_boot_ephemeral_input_ready", b(stats.ready)),

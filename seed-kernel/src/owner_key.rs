@@ -14,6 +14,45 @@ const TPM2_ACPI_PRESENT_STATUS: &str = "tpm2_acpi_present_seal_not_verified";
 const TPM2_ACPI_ABSENT_STATUS: &str = "tpm2_acpi_absent";
 const ACPI_ROOT_INVALID_STATUS: &str = "acpi_root_invalid";
 const ACPI_RSDP_MISSING_STATUS: &str = "acpi_rsdp_missing";
+const TPM2_ACPI_HEADER_LEN: usize = 36;
+const TPM2_PLATFORM_CLASS_OFFSET: usize = TPM2_ACPI_HEADER_LEN;
+const TPM2_CONTROL_AREA_OFFSET: usize = TPM2_ACPI_HEADER_LEN + 4;
+const TPM2_START_METHOD_OFFSET: usize = TPM2_ACPI_HEADER_LEN + 12;
+const TPM2_COMMON_INTERFACE_LEN: usize = TPM2_ACPI_HEADER_LEN + 16;
+const TPM2_INTERFACE_KIND_NONE: &str = "none";
+const TPM2_INTERFACE_KIND_NOT_SET: &str = "not_set";
+const TPM2_INTERFACE_KIND_ACPI_START_METHOD: &str = "acpi_start_method";
+const TPM2_INTERFACE_KIND_TIS_MMIO_CANCEL: &str = "tis_mmio_cancel";
+const TPM2_INTERFACE_KIND_CRB: &str = "crb";
+const TPM2_INTERFACE_KIND_CRB_ACPI_START: &str = "crb_acpi_start";
+const TPM2_INTERFACE_KIND_CRB_ARM_SMC_HVC: &str = "crb_arm_smc_hvc";
+const TPM2_INTERFACE_KIND_FIFO_I2C: &str = "fifo_i2c";
+const TPM2_INTERFACE_KIND_CRB_AMD_MAILBOX: &str = "crb_amd_mailbox";
+const TPM2_INTERFACE_KIND_FUTURE_MMIO: &str = "future_mmio_reserved";
+const TPM2_INTERFACE_KIND_CRB_ARM_FFA: &str = "crb_arm_ffa";
+const TPM2_INTERFACE_KIND_VENDOR_RESERVED: &str = "vendor_or_legacy_reserved";
+const TPM2_INTERFACE_KIND_FUTURE_RESERVED: &str = "future_reserved";
+const TPM2_INTERFACE_STATUS_NOT_PROBED: &str = "not_probed";
+const TPM2_INTERFACE_STATUS_TABLE_TOO_SHORT: &str = "tpm2_acpi_table_too_short";
+const TPM2_INTERFACE_STATUS_CRB_DETAILS_PARSED: &str =
+    "tpm2_crb_interface_details_parsed_status_read_not_attempted";
+const TPM2_INTERFACE_STATUS_TIS_DETAILS_PARSED: &str =
+    "tpm2_tis_interface_details_parsed_status_read_not_attempted";
+const TPM2_INTERFACE_STATUS_TIS_FIXED_BASE_NOT_MAPPED: &str = "tpm2_tis_fixed_base_not_mapped";
+const TPM2_INTERFACE_STATUS_CONTROL_AREA_MISSING: &str = "tpm2_control_area_missing";
+const TPM2_INTERFACE_STATUS_START_METHOD_UNSUPPORTED: &str = "tpm2_start_method_not_supported_yet";
+const TPM2_INTERFACE_REASON_TABLE_TOO_SHORT: &str =
+    "TPM2 ACPI table shorter than common interface fields";
+const TPM2_INTERFACE_REASON_CRB_PARSED: &str =
+    "TPM2 CRB control area discovered; MMIO status read awaits read-only register slice";
+const TPM2_INTERFACE_REASON_TIS_PARSED: &str =
+    "TPM2 TIS/FIFO base discovered; MMIO status read awaits read-only register slice";
+const TPM2_INTERFACE_REASON_TIS_FIXED_BASE: &str =
+    "TPM2 TIS/FIFO fixed base not mapped by this slice";
+const TPM2_INTERFACE_REASON_CONTROL_AREA_MISSING: &str =
+    "TPM2 start method requires a nonzero control area for this probe";
+const TPM2_INTERFACE_REASON_START_METHOD_UNSUPPORTED: &str =
+    "TPM2 start method parsed but not supported by this read-only probe";
 const SECRET_LEN: usize = 32;
 
 static OWNER_KEY_STATE: Mutex<OwnerKeyState> = Mutex::new(OwnerKeyState::new());
@@ -33,8 +72,17 @@ pub struct HardwareBindingSnapshot {
     pub acpi_rsdp_present: bool,
     pub acpi_root_table_valid: bool,
     pub tpm2_acpi_table_present: bool,
+    pub tpm2_acpi_table_phys: u64,
     pub tpm2_acpi_table_length: u32,
     pub tpm2_acpi_table_revision: u8,
+    pub tpm2_table_details_valid: bool,
+    pub tpm2_platform_class: u16,
+    pub tpm2_control_area: u64,
+    pub tpm2_start_method: u32,
+    pub tpm2_interface_kind: &'static str,
+    pub tpm2_interface_status_probe_performed: bool,
+    pub tpm2_interface_status: &'static str,
+    pub tpm2_interface_status_reason: &'static str,
     pub status: &'static str,
     pub reason: &'static str,
 }
@@ -82,8 +130,17 @@ impl HardwareBindingSnapshot {
             acpi_rsdp_present: false,
             acpi_root_table_valid: false,
             tpm2_acpi_table_present: false,
+            tpm2_acpi_table_phys: 0,
             tpm2_acpi_table_length: 0,
             tpm2_acpi_table_revision: 0,
+            tpm2_table_details_valid: false,
+            tpm2_platform_class: 0,
+            tpm2_control_area: 0,
+            tpm2_start_method: 0,
+            tpm2_interface_kind: TPM2_INTERFACE_KIND_NONE,
+            tpm2_interface_status_probe_performed: false,
+            tpm2_interface_status: TPM2_INTERFACE_STATUS_NOT_PROBED,
+            tpm2_interface_status_reason: "not_probed",
             status: "not_probed",
             reason: "not_probed",
         }
@@ -164,14 +221,162 @@ fn hardware_binding_from_acpi_probe(probe: iommu_vtd::AcpiTableProbe) -> Hardwar
     } else {
         ACPI_RSDP_MISSING_STATUS
     };
+    let details = tpm2_acpi_details_from_probe(probe);
     HardwareBindingSnapshot {
         probe_performed: probe.probe_performed,
         acpi_rsdp_present: probe.rsdp_present,
         acpi_root_table_valid: probe.root_table_valid,
         tpm2_acpi_table_present: probe.table_present,
+        tpm2_acpi_table_phys: probe.table_phys,
         tpm2_acpi_table_length: probe.table_length,
         tpm2_acpi_table_revision: probe.table_revision,
+        tpm2_table_details_valid: details.valid,
+        tpm2_platform_class: details.platform_class,
+        tpm2_control_area: details.control_area,
+        tpm2_start_method: details.start_method,
+        tpm2_interface_kind: details.interface_kind,
+        tpm2_interface_status_probe_performed: details.status_probe_performed,
+        tpm2_interface_status: details.status,
+        tpm2_interface_status_reason: details.reason,
         status,
         reason: probe.reason,
     }
+}
+
+#[derive(Clone, Copy)]
+struct Tpm2AcpiDetails {
+    valid: bool,
+    platform_class: u16,
+    control_area: u64,
+    start_method: u32,
+    interface_kind: &'static str,
+    status_probe_performed: bool,
+    status: &'static str,
+    reason: &'static str,
+}
+
+fn tpm2_acpi_details_from_probe(probe: iommu_vtd::AcpiTableProbe) -> Tpm2AcpiDetails {
+    if !probe.table_present {
+        return Tpm2AcpiDetails {
+            valid: false,
+            platform_class: 0,
+            control_area: 0,
+            start_method: 0,
+            interface_kind: TPM2_INTERFACE_KIND_NONE,
+            status_probe_performed: probe.probe_performed,
+            status: TPM2_ACPI_ABSENT_STATUS,
+            reason: probe.reason,
+        };
+    }
+    let Some(table) = probe.table_data else {
+        return tpm2_details_too_short();
+    };
+    if table.len() < TPM2_COMMON_INTERFACE_LEN {
+        return tpm2_details_too_short();
+    }
+
+    let platform_class = read_le_u16(table, TPM2_PLATFORM_CLASS_OFFSET).unwrap_or(0);
+    let control_area = read_le_u64(table, TPM2_CONTROL_AREA_OFFSET).unwrap_or(0);
+    let start_method = read_le_u32(table, TPM2_START_METHOD_OFFSET).unwrap_or(0);
+    let interface_kind = tpm2_start_method_kind(start_method);
+    let (status, reason) = tpm2_interface_status(start_method, control_area);
+
+    Tpm2AcpiDetails {
+        valid: true,
+        platform_class,
+        control_area,
+        start_method,
+        interface_kind,
+        status_probe_performed: true,
+        status,
+        reason,
+    }
+}
+
+fn tpm2_details_too_short() -> Tpm2AcpiDetails {
+    Tpm2AcpiDetails {
+        valid: false,
+        platform_class: 0,
+        control_area: 0,
+        start_method: 0,
+        interface_kind: TPM2_INTERFACE_KIND_NONE,
+        status_probe_performed: true,
+        status: TPM2_INTERFACE_STATUS_TABLE_TOO_SHORT,
+        reason: TPM2_INTERFACE_REASON_TABLE_TOO_SHORT,
+    }
+}
+
+fn tpm2_start_method_kind(start_method: u32) -> &'static str {
+    match start_method {
+        0 => TPM2_INTERFACE_KIND_NOT_SET,
+        1 | 3..=5 | 9..=10 => TPM2_INTERFACE_KIND_VENDOR_RESERVED,
+        2 => TPM2_INTERFACE_KIND_ACPI_START_METHOD,
+        6 => TPM2_INTERFACE_KIND_TIS_MMIO_CANCEL,
+        7 => TPM2_INTERFACE_KIND_CRB,
+        8 => TPM2_INTERFACE_KIND_CRB_ACPI_START,
+        11 => TPM2_INTERFACE_KIND_CRB_ARM_SMC_HVC,
+        12 => TPM2_INTERFACE_KIND_FIFO_I2C,
+        13 => TPM2_INTERFACE_KIND_CRB_AMD_MAILBOX,
+        14 => TPM2_INTERFACE_KIND_FUTURE_MMIO,
+        15 => TPM2_INTERFACE_KIND_CRB_ARM_FFA,
+        _ => TPM2_INTERFACE_KIND_FUTURE_RESERVED,
+    }
+}
+
+fn tpm2_interface_status(start_method: u32, control_area: u64) -> (&'static str, &'static str) {
+    match start_method {
+        7 | 8 => {
+            if control_area == 0 {
+                (
+                    TPM2_INTERFACE_STATUS_CONTROL_AREA_MISSING,
+                    TPM2_INTERFACE_REASON_CONTROL_AREA_MISSING,
+                )
+            } else {
+                (
+                    TPM2_INTERFACE_STATUS_CRB_DETAILS_PARSED,
+                    TPM2_INTERFACE_REASON_CRB_PARSED,
+                )
+            }
+        }
+        6 => {
+            if control_area == 0 {
+                (
+                    TPM2_INTERFACE_STATUS_TIS_FIXED_BASE_NOT_MAPPED,
+                    TPM2_INTERFACE_REASON_TIS_FIXED_BASE,
+                )
+            } else {
+                (
+                    TPM2_INTERFACE_STATUS_TIS_DETAILS_PARSED,
+                    TPM2_INTERFACE_REASON_TIS_PARSED,
+                )
+            }
+        }
+        _ => (
+            TPM2_INTERFACE_STATUS_START_METHOD_UNSUPPORTED,
+            TPM2_INTERFACE_REASON_START_METHOD_UNSUPPORTED,
+        ),
+    }
+}
+
+fn read_le_u16(data: &[u8], offset: usize) -> Option<u16> {
+    read_le(data, offset, 2).map(|value| value as u16)
+}
+
+fn read_le_u32(data: &[u8], offset: usize) -> Option<u32> {
+    read_le(data, offset, 4).map(|value| value as u32)
+}
+
+fn read_le_u64(data: &[u8], offset: usize) -> Option<u64> {
+    read_le(data, offset, 8)
+}
+
+fn read_le(data: &[u8], offset: usize, width: usize) -> Option<u64> {
+    let mut value = 0u64;
+    let mut idx = 0usize;
+    while idx < width {
+        let byte = *data.get(offset.checked_add(idx)?)?;
+        value |= (byte as u64) << ((idx * 8) as u32);
+        idx += 1;
+    }
+    Some(value)
 }

@@ -1094,6 +1094,17 @@ $honestyOk = (
     $honesty.owner_key_provisioning.hardware_binding_probe_status -eq "tpm2_acpi_absent" -and
     $honesty.owner_key_provisioning.hardware_binding_probe_reason -eq "TPM2 ACPI table missing" -and
     $honesty.owner_key_provisioning.tpm2_acpi_table_present -eq $false -and
+    [int64]$honesty.owner_key_provisioning.tpm2_acpi_table_phys -eq 0 -and
+    [int]$honesty.owner_key_provisioning.tpm2_acpi_table_length -eq 0 -and
+    [int]$honesty.owner_key_provisioning.tpm2_acpi_table_revision -eq 0 -and
+    $honesty.owner_key_provisioning.tpm2_table_details_valid -eq $false -and
+    [int]$honesty.owner_key_provisioning.tpm2_platform_class -eq 0 -and
+    [int64]$honesty.owner_key_provisioning.tpm2_control_area -eq 0 -and
+    [int]$honesty.owner_key_provisioning.tpm2_start_method -eq 0 -and
+    $honesty.owner_key_provisioning.tpm2_interface_kind -eq "none" -and
+    $honesty.owner_key_provisioning.tpm2_interface_status_probe_performed -eq $true -and
+    $honesty.owner_key_provisioning.tpm2_interface_status -eq "tpm2_acpi_absent" -and
+    $honesty.owner_key_provisioning.tpm2_interface_status_reason -eq "TPM2 ACPI table missing" -and
     $honesty.owner_key_provisioning.hardware_binding_evidence_present -eq $false -and
     $honesty.owner_key_provisioning.ram_boot_ephemeral_input_ready -eq $true -and
     $honesty.owner_key_provisioning.persistent_install_input_ready -eq $false -and
@@ -1131,8 +1142,17 @@ $honestyOk = (
     $honesty.owner_key_provisioning.owner_key_evidence_input.acpi_rsdp_present -eq $true -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.acpi_root_table_valid -eq $true -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.tpm2_acpi_table_present -eq $false -and
+    [int64]$honesty.owner_key_provisioning.owner_key_evidence_input.tpm2_acpi_table_phys -eq 0 -and
     [int]$honesty.owner_key_provisioning.owner_key_evidence_input.tpm2_acpi_table_length -eq 0 -and
     [int]$honesty.owner_key_provisioning.owner_key_evidence_input.tpm2_acpi_table_revision -eq 0 -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.tpm2_table_details_valid -eq $false -and
+    [int]$honesty.owner_key_provisioning.owner_key_evidence_input.tpm2_platform_class -eq 0 -and
+    [int64]$honesty.owner_key_provisioning.owner_key_evidence_input.tpm2_control_area -eq 0 -and
+    [int]$honesty.owner_key_provisioning.owner_key_evidence_input.tpm2_start_method -eq 0 -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.tpm2_interface_kind -eq "none" -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.tpm2_interface_status_probe_performed -eq $true -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.tpm2_interface_status -eq "tpm2_acpi_absent" -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.tpm2_interface_status_reason -eq "TPM2 ACPI table missing" -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.hardware_binding_evidence_present -eq $false -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.tpm_binding_state -eq "tpm2_acpi_absent" -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.ram_boot_ephemeral_input_ready -eq $true -and

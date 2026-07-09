@@ -201,10 +201,16 @@ no persistent owner seal until hardware-bound sealing evidence exists.
 the real Limine RSDP/ACPI path was used to validate the ACPI root and search
 for a `TPM2` ACPI table; the focused QEMU profile reports ACPI present/root
 valid but `tpm2_acpi_absent`, so persistent owner-key input stays denied
-(`m12-distribution-provenance` 246/246). Next owner-key slice: when the TPM2
-table is present on the real Surface path, parse its interface details and add
-a read-only TPM2 interface/status probe; no persistent owner seal until a real
-seal/unseal evidence loop exists. (3)
+(`m12-distribution-provenance` 246/246). **Owner-key TPM interface bridge slice
+DONE:** when a real `TPM2` ACPI table is present, raiOS now parses and reports
+the table physical address, platform class, control-area/FIFO base, start
+method, interface kind, and non-authorizing interface-status posture; focused
+QEMU still proves the absent path, RAM-only `current_boot` key generation still
+happens, and persistent install/owner-seal/load/durable authority stay denied
+(`m12-distribution-provenance` 246/246). Next owner-key slice: boot this on the
+real Surface path to capture actual TPM2 details, then add the narrow read-only
+TPM register-status read if a CRB/TIS control area is exposed; no persistent
+owner seal until a real seal/unseal evidence loop exists. (3)
 provide real
 trust inputs (a cryptographically
 trusted time source, real CA roots, a live second provider) → I finish M10 real

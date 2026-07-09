@@ -121,6 +121,8 @@ pub struct AcpiTableProbe {
     pub rsdp_present: bool,
     pub root_table_valid: bool,
     pub table_present: bool,
+    pub table_phys: u64,
+    pub table_data: Option<&'static [u8]>,
     pub table_length: u32,
     pub table_revision: u8,
     pub reason: &'static str,
@@ -148,6 +150,8 @@ impl AcpiTableProbe {
             rsdp_present: false,
             root_table_valid: false,
             table_present: false,
+            table_phys: 0,
+            table_data: None,
             table_length: 0,
             table_revision: 0,
             reason,
@@ -270,7 +274,7 @@ pub fn probe_acpi_table(signature: &[u8; 4], absent_reason: &'static str) -> Acp
             };
         }
     };
-    let table = match find_table_in_root(
+    let found = match find_table_in_root(
         root_table,
         root.entry_bytes,
         root.signature,
@@ -287,11 +291,14 @@ pub fn probe_acpi_table(signature: &[u8; 4], absent_reason: &'static str) -> Acp
             };
         }
     };
+    let table = found.table;
     AcpiTableProbe {
         probe_performed: true,
         rsdp_present: true,
         root_table_valid: true,
         table_present: true,
+        table_phys: found.phys,
+        table_data: Some(table),
         table_length: read_le_u32(table, 4).unwrap_or(0),
         table_revision: read_u8(table, 8).unwrap_or(0),
         reason: "ACPI table present",
@@ -902,6 +909,14 @@ fn find_acpi_table(
         target_signature,
         absent_reason,
     )
+    .map(|found| found.table)
+}
+
+#[cfg(not(test))]
+#[derive(Clone, Copy)]
+struct FoundAcpiTable {
+    phys: u64,
+    table: &'static [u8],
 }
 
 #[cfg(not(test))]
@@ -961,7 +976,7 @@ fn find_table_in_root(
     root_signature: &[u8],
     target_signature: &[u8],
     absent_reason: &'static str,
-) -> Result<&'static [u8], &'static str> {
+) -> Result<FoundAcpiTable, &'static str> {
     if !bytes_eq(root, 0, root_signature) {
         return Err("ACPI root table signature invalid");
     }
@@ -981,7 +996,10 @@ fn find_table_in_root(
             read_le_u32(root, offset).ok_or("ACPI RSDT entry truncated")? as u64
         };
         if table_phys != 0 && acpi_table_signature(table_phys)? == target_signature {
-            return map_acpi_table(table_phys, target_signature);
+            return Ok(FoundAcpiTable {
+                phys: table_phys,
+                table: map_acpi_table(table_phys, target_signature)?,
+            });
         }
         offset += entry_bytes;
     }
