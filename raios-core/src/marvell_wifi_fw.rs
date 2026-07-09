@@ -234,10 +234,7 @@ pub fn plan_register_writes(action: FwAction, block_dma_phys: u64) -> RegWritePl
             offset: DRV_READY,
             value,
         }),
-        FwAction::PollFwStatus
-        | FwAction::PollDoorbellAck
-        | FwAction::Done
-        | FwAction::Fail(_) => {
+        FwAction::PollFwStatus | FwAction::PollDoorbellAck | FwAction::Done | FwAction::Fail(_) => {
             RegWritePlan::empty()
         }
     }
@@ -638,10 +635,7 @@ mod tests {
         assert_eq!(download.phase(), FwPhase::BlockPrepared);
         assert_eq!(download.step(RegisterReads::zero()), FwAction::RingDoorbell);
         assert_eq!(download.phase(), FwPhase::WaitingDoorbellAck);
-        assert_eq!(
-            download.step(doorbell_pending()),
-            FwAction::PollDoorbellAck
-        );
+        assert_eq!(download.step(doorbell_pending()), FwAction::PollDoorbellAck);
         assert_eq!(download.offset(), 0);
         assert_eq!(download.step(RegisterReads::zero()), FwAction::PollFwStatus);
         assert_eq!(download.offset(), MWIFIEX_UPLD_SIZE);
@@ -861,10 +855,7 @@ mod tests {
         assert_eq!(padded_wire_len(0), None);
         assert_eq!(padded_wire_len(1), Some(FW_BLOCK_SIZE));
         assert_eq!(padded_wire_len(FW_BLOCK_SIZE), Some(FW_BLOCK_SIZE));
-        assert_eq!(
-            padded_wire_len(FW_BLOCK_SIZE + 1),
-            Some(FW_BLOCK_SIZE * 2)
-        );
+        assert_eq!(padded_wire_len(FW_BLOCK_SIZE + 1), Some(FW_BLOCK_SIZE * 2));
         assert_eq!(
             padded_wire_len(MWIFIEX_UPLD_SIZE),
             Some(FW_DMA_STAGING_SIZE)
@@ -875,7 +866,11 @@ mod tests {
     #[test]
     fn fw_ready_poll_decision_is_ready_still_downloading_or_timeout() {
         assert_eq!(
-            decide_fw_ready_poll(FIRMWARE_READY_PCIE, FW_READY_TIMEOUT_MS, FW_READY_TIMEOUT_MS),
+            decide_fw_ready_poll(
+                FIRMWARE_READY_PCIE,
+                FW_READY_TIMEOUT_MS,
+                FW_READY_TIMEOUT_MS
+            ),
             FwReadyPollDecision::Ready
         );
         assert_eq!(
