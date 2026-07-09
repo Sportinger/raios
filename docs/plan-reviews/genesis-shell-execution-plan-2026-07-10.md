@@ -2,8 +2,9 @@
 
 Status: execution-ready owner plan, 2026-07-10
 
-Execution cursor: I0/G0 contract frozen for commit; next C0/ADR 0012 plus parallel
-Tracks A/B/D. Runtime capabilities remain unclaimed until their named evidence lands.
+Execution cursor: I0/G0 complete at `73c9677`; C0/ADR 0012 and parallel B0/D0
+foundations are active. Runtime capabilities remain unclaimed until their named
+evidence lands.
 
 Target orchestrator: Codex 5.6, reasoning effort `xhigh`
 
@@ -792,9 +793,11 @@ opaque in-RAM handle and two wrapper families:
    command transport from the already parsed ACPI interface. Seal the 32-byte VMK to a
    policy representing the approved machine plus current/next/last-good core
    generations. Persist only the TPM public/private sealed blobs, policy digest and
-   evidence hashes. A positive `owner_sealed`/automatic-unlock claim requires a real
-   successful create/load/unseal cycle and readback-bound wrapper record; ACPI table
-   presence or a status-register read is not sealing evidence.
+   evidence hashes. A positive `vault_vmk_tpm_sealed` /
+   `tpm_vmk_wrapper_ready` / automatic-unlock claim requires a real successful
+   create/load/unseal cycle and readback-bound wrapper record; ACPI table presence or a
+   status-register read is not sealing evidence. ADR 0007 `owner_sealed` is a separate
+   promotion-authority ceremony and is never changed by a Vault VMK wrapper.
 2. **Recovery wrapper.** Generate a separate random 32-byte recovery key during first
    Genesis provisioning, show it exactly once through a core-owned surface, and never
    store it. HKDF derives a recovery KEK that AES-GCM-wraps the same VMK with store/
@@ -826,6 +829,10 @@ an outbound connection automatically. One explicit Genesis Recovery action may u
 known profile through the same broker policy. If no wrapper succeeds, local recovery
 remains usable and all secret-dependent network/provider operations stay denied.
 
+Recovery-wrapper HKDF salt/info, nonce and AAD use the exact canonical byte encoding in
+ADR 0012. A fresh stored 96-bit nonce is mandatory for every wrapper, and reuse under
+one recovery KEK denies before encryption.
+
 ### Exact broker policy
 
 V1 has no generic `get_secret` function. The pure
@@ -841,6 +848,13 @@ trust decision, record version, key epoch, tag, or audit/store evidence yields a
 pairwise-unique denial before decryption where possible and always before consumer
 use. Personal shells, AI output, diagnostics, serial, recovery artifact loaders and
 Wasm receive no secret import or raw lease.
+
+Set/replace, forget and recovery-key unlock originate only from explicit trusted
+Genesis/Recovery actions. Normal-boot TPM unlock may occur automatically only after the
+exact positive TPM-wrapper policy/evidence gate; no other automatic unlock path exists.
+Plaintext entry exists only in the core-owned secure overlay and is bounded to 63-byte
+WiFi passphrases or 256-byte provider keys. Personal shells, provider output, AI output
+and ordinary services cannot invoke these mutations.
 
 The current WiFi supplicant builder and direct provider path may receive the bounded
 plaintext only inside their final native call after a positive evaluator decision.
@@ -1435,7 +1449,7 @@ without reopening the cross-track API frozen at I0.
 1. Create `docs/architecture-decisions/0012-secret-vault-storage-and-key-custody.md`
    from section 7 and the M13 target already recorded in `ROADMAP`.
 2. Record that the only authorized target is an already provisioned, dedicated,
-   identity-checked raiOS data partition on a separate internal SSD. The boot stick,
+   identity-checked raiOS data partition on an internal storage device. The boot stick,
    ESPs, `SEED_DATA/RECLOG`, Windows volumes and foreign media are denied.
 3. Freeze typed store, ciphertext-envelope, key-wrapper and broker interfaces before
    dispatch. Record the exact partition GUID/type/label contract without creating or
@@ -1536,7 +1550,8 @@ password. HKDF-SHA256 derives the recovery KEK, and AES-GCM wraps the VMK.
 
 Extend the current ACPI TPM discovery only with actual bounded CRB/TIS command
 transport and the minimum TPM 2.0 create/load/unseal/policy operations needed by ADR
-0012. Discovery or status reads alone never set `owner_sealed` or `auto_unlock_ready`.
+0012. Discovery or status reads alone never set `vault_vmk_tpm_sealed`,
+`tpm_vmk_wrapper_ready`, or `auto_unlock_ready`; ADR 0007 `owner_sealed` is unaffected.
 If no swtpm fixture or approved physical TPM is available, land the tested command
 codec and fail-closed transport state, but keep the positive TPM claim open. The real
 recovery-wrapper two-boot path remains mandatory and is not a fake TPM substitute.

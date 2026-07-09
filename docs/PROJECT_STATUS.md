@@ -47,6 +47,19 @@ Baseline evidence remains full report
 latest quick report `release/vm-reports/shadow-20260710-010658-31684.json`
 passed 542/542.
 
+Secret Vault and structured-storage contract accepted (C0/G5.0, 2026-07-10) -
+build agents can now implement one identity-bound M13 store, recovery/TPM VMK
+wrappers, and the two exact WiFi/provider secret-use paths without guessing
+media, cryptography, key custody, or consumer authority. ADR 0012 fixes the
+dedicated internal-partition denial set, PREPARE/DATA/COMMIT/TOMBSTONE replay,
+dual hash-checked non-signed superblocks, exact AES-GCM/HKDF/zeroize pins, RR1
+recovery-key format, and scoped broker. This is design only: no structured
+store, Vault write, direct dependency use, RR1 unlock, TPM command/unseal,
+physical-target driver support, or durable secret exists yet. QEMU recovery-
+key reboot proof is required; `tpm_auto_unlock`, `vault_vmk_tpm_sealed`,
+`tpm_vmk_wrapper_ready`, and `physical_target_driver_supported` remain
+unproven. ADR 0007 `owner_sealed` is unaffected by this contract.
+
 VM failure classification (2026-07-09, guided WiFi quick) - report
 `release/vm-reports/shadow-20260709-231946-32656.json` ended with
 `serial_transport_failure: qemu_exited` after all 295/295 predicates and all

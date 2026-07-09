@@ -33,6 +33,13 @@ may proceed while the next hardware task remains positive Surface association,
 `PORT_RELEASE`, RX/TX, and DHCP proof; no provider-access or durable-secret
 claim is opened by I0.
 
+**M13/Secret Vault contract accepted (C0/G5.0, 2026-07-10):** ADR 0012
+fixes the dedicated internal-partition boundary, crash-consistent structured
+store, exact cryptographic pins, RR1 recovery wrapper, TPM evidence gate, and
+two-consumer broker. This is design only: M13 mechanism work has not started,
+and physical-target support, durable secrets, recovery unlock, TPM auto-unlock,
+and Vault-VMK sealing remain unproven; ADR 0007 owner sealing is unaffected.
+
 **M11 Kernel Slimming progress (all grants-nothing / strictly-more-restrictive,
 committed):** M11-1 kernel internet-parsing SURFACE baseline (the measurably-
 shrinks reference, ~9640 candidate LOC); ADR 0008 the per-service-import-grant
