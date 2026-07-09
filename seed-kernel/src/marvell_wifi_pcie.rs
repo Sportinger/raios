@@ -1449,7 +1449,6 @@ pub fn poll() -> bool {
 
         match action {
             FwAction::Done => {
-                arm_hw_spec_after_firmware_ready(job.mmio_base);
                 finish_locked(
                     &mut runtime,
                     FirmwareDownloadResult::Done,
@@ -1461,7 +1460,7 @@ pub fn poll() -> bool {
                 );
                 wifi::note_firmware_ready_scan_unavailable();
                 serial::write_line(
-                    "marvell wifi: firmware ready 0xfedcba00; GET_HW_SPEC probe armed",
+                    "marvell wifi: firmware ready 0xfedcba00; post-ready mailbox/event probes parked",
                 );
                 return true;
             }
@@ -1526,9 +1525,7 @@ pub fn poll() -> bool {
             }
             FwAction::Retry { .. } => {}
             FwAction::RingDoorbell => {}
-            FwAction::WriteDrvReady { .. } => {
-                arm_event_ring(job.mmio_base);
-            }
+            FwAction::WriteDrvReady { .. } => {}
             FwAction::PollDoorbellAck => {
                 if elapsed_ms(job.phase_started_tsc) >= DOORBELL_ACK_TIMEOUT_MS {
                     finish_locked(

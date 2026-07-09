@@ -90,12 +90,14 @@ Mass Storage/BOT and report `MSC SEED`; the first strictly scoped USB
 them, and reports `MSC LOG`. Real Disk 2 evidence proved endpoint-only rearm
 did not restore reports, and later root-cause frames showed the hub port and
 xHCI endpoint still healthy (`m_port=259 m_chg=0 m_ep=1`) when the fixed-time
-mouse freeze occurred after movement. The next image therefore stops periodic
-hub child-port EP0 control polling after the hub mouse has produced reports,
-while keeping root-port hotplug and targeted hub-port reset recovery. Disk 2
-`SEED_ESP_A` is refreshed with that image. Next persistence action is owner
-hardware evidence: boot the refreshed stick, move the hub mouse past the old
-freeze window, and inspect RECLOG only if the freeze persists.
+mouse freeze occurred after movement. The current image stops periodic hub
+child-port EP0 control polling after the hub mouse has produced reports, and
+also parks WiFi post-ready event-ring/HW_SPEC auto-probes after the owner proved
+the next mouse loss happens when `Start WiFi FW` completes. Next owner evidence:
+Disk 2 `SEED_ESP_A` is refreshed with that image; boot it, start WiFi firmware,
+confirm the new
+`post-ready mailbox/event probes parked` line, and see whether the hub mouse
+survives firmware-ready.
 
 **M12+ opener + honesty capstone (committed, grants nothing):** M12-1 external-
 acquisition HONESTY evaluator (download = candidate intake NEVER install; a

@@ -25,17 +25,38 @@ implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
 Current exact next task (bare-metal diagnostics): boot the Surface from the
-refreshed Disk 2 stick with the same hub/mouse/stick setup. Confirm `MSC LOG`,
-move the hub mouse long enough to cross the old fixed freeze window, and check
-whether the mouse now stays alive without repeated
-`hub_mouse_port_reset` frames. If it still freezes, inspect
+refreshed Disk 2 stick with the same hub/mouse/stick setup, confirm `MSC LOG`,
+click `Start WiFi FW`, and check that the firmware reaches
+`post-ready mailbox/event probes parked` while the hub mouse keeps moving after
+the old WiFi-completion freeze point. If the mouse still stops, inspect
 `SEED_DATA/RECLOG` for `reason=hub_mouse_port_reset` or
 `reason=hub_mouse_port_reset_failed`, the root-cause fields
-`m_port`/`m_chg`/`m_ep`, and whether `reports` advances past the previous stuck
-value of 11. The Surface WiFi RX-PFU path remains parked because arming it made
-real Surface MMIO read back all-ones (`HOST_INT=0xffffffff`, write pointers
-`0xffffffff`) and froze input; do not re-enable RX-PFU while using stick
-logging to gather evidence.
+`m_port`/`m_chg`/`m_ep`, and whether `reports` advances after firmware-ready.
+The Surface WiFi RX-PFU path remains parked because arming it made real Surface
+MMIO read back all-ones (`HOST_INT=0xffffffff`, write pointers `0xffffffff`)
+and froze input; do not re-enable RX-PFU while using stick logging to gather
+evidence.
+
+WiFi post-ready auto-probe parking slice done (2026-07-09) - after the owner
+confirmed the hub mouse is now stable behind the hub until `Start WiFi FW`
+completes, raiOS narrowed the next failure boundary by making the WiFi button
+perform only the firmware download plus `DRV_READY`: it no longer arms the
+Marvell event DMA ring during `WriteDrvReady`, and it no longer automatically
+starts the `GET_HW_SPEC` mailbox probe immediately after firmware-ready. The
+firmware attempt is still real and unaudited, but post-ready mailbox/event DMA
+is parked until input stability is proven on Surface hardware. Live scan
+results, RX-PFU, and link authority remain denied. Verified: scoped
+`rustfmt --edition 2021 --check seed-kernel\src\marvell_wifi_pcie.rs`;
+release packaging with local Cargo env override; quick Shadow VM report
+`release/vm-reports/shadow-20260709-194251-17020.json` passed 542/542
+predicates, 79 executed commands, `duration_ms: 190650`, report sha256
+`f179b6b4389b6546a8935811653db0aff131b2732146377ef4999dfcb4695f1e`, and
+`base_image.sha256: 14cd7163d79f9cb4a124097e9ee252bfa6ef1fe1d51bd25c0de63fc29fcfd6a2`.
+Owner handoff: Disk 2 `SEED_ESP_A` was refreshed without reformatting via
+`scripts\update-usb-esp-a.ps1 -DiskNumber 2 -SkipBuild`; log
+`C:\Users\admin\AppData\Local\Temp\raios-usb-esp-a-update-disk2-20260709-194722.log`
+reported kernel sha256
+`D7994610EA1D61CA744339C6C72FA02C36332802DCBD090904DEB79550F848B6`.
 
 Hub-mouse active-hotplug suppression slice done (2026-07-09) - raiOS no longer
 control-polls hub child ports while a mouse behind that hub has produced real
