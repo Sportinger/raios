@@ -60,6 +60,8 @@ const DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_VERIFY_FAILED_REASON: &str =
     "distribution_receiver_identity_evidence_verify_failed";
 const DISTRIBUTION_RECEIVER_IDENTITY_PREFLIGHT_MISSING_GATES_REASON: &str =
     "distribution_receiver_identity_load_preflight_missing_required_gates";
+const DISTRIBUTION_RECEIVER_IDENTITY_PREFLIGHT_CANDIDATE_NOT_FINALIZED_REASON: &str =
+    "distribution_receiver_identity_load_preflight_candidate_not_finalized";
 const DISTRIBUTION_RECEIVER_IDENTITY_PREFLIGHT_INVALID_REASON: &str =
     "invalid_distribution_receiver_identity_load_preflight";
 const DISTRIBUTION_CHUNK_ACCEPTED_REASON: &str = "accepted_distribution_chunk";
@@ -126,6 +128,7 @@ struct LocalDistributionCatalog {
     provenance_signature_der: Vec<u8>,
     receiver_identity: Option<LocalReceiverIdentity>,
     receiver_identity_evidence: LocalReceiverIdentityEvidencePayloads,
+    finalized_candidate_sha256: Option<[u8; 32]>,
 }
 
 #[derive(Clone, Copy)]
@@ -199,6 +202,10 @@ struct DistributionReceiverIdentityLoadPreflightOutcome {
     content_sha256: Option<[u8; 32]>,
     retained_part_count: usize,
     receiver_identity: Option<LocalReceiverIdentity>,
+    retained_candidate_sha256: Option<[u8; 32]>,
+    retained_candidate_wasm_valid: bool,
+    catalog_finalize_candidate_sha256: Option<[u8; 32]>,
+    retained_candidate_matches_catalog_finalize: bool,
     status: &'static str,
     reason: &'static str,
     preflight_evaluated: bool,
@@ -323,6 +330,7 @@ impl LocalDistributionCatalog {
             provenance_signature_der: Vec::new(),
             receiver_identity: None,
             receiver_identity_evidence: LocalReceiverIdentityEvidencePayloads::new(),
+            finalized_candidate_sha256: None,
         }
     }
 
@@ -334,6 +342,7 @@ impl LocalDistributionCatalog {
         self.provenance_signature_der.clear();
         self.receiver_identity = None;
         self.receiver_identity_evidence.clear();
+        self.finalized_candidate_sha256 = None;
     }
 }
 
@@ -609,6 +618,26 @@ pub(crate) fn emit_distribution_receiver_identity_load_preflight(arg: &str) {
             f(
                 "guest_signature_verification_performed",
                 b(guest_signature_verification_performed),
+            ),
+            f(
+                "retained_candidate_sha256",
+                record_sha_or_null(outcome.retained_candidate_sha256),
+            ),
+            f(
+                "retained_candidate_present",
+                b(outcome.retained_candidate_sha256.is_some()),
+            ),
+            f(
+                "retained_candidate_wasm_valid",
+                b(outcome.retained_candidate_wasm_valid),
+            ),
+            f(
+                "catalog_finalize_candidate_sha256",
+                record_sha_or_null(outcome.catalog_finalize_candidate_sha256),
+            ),
+            f(
+                "retained_candidate_matches_catalog_finalize",
+                b(outcome.retained_candidate_matches_catalog_finalize),
             ),
             f("preflight_evaluated", b(outcome.preflight_evaluated)),
             f("accepted", b(outcome.accepted)),
@@ -953,6 +982,7 @@ fn submit_distribution_catalog_entry(arg: &str) -> DistributionCatalogEntryOutco
     catalog.chunk_count = metadata.chunk_count;
     catalog.provenance_signature_der = metadata.provenance_signature_der;
     catalog.receiver_identity = None;
+    catalog.finalized_candidate_sha256 = None;
 
     DistributionCatalogEntryOutcome {
         content_sha256: Some(catalog.content_sha256),
@@ -1193,11 +1223,16 @@ fn distribution_receiver_identity_load_preflight(
         );
     }
     let retained_part_count = catalog.receiver_identity_evidence.retained_part_count();
+    let catalog_finalize_candidate_sha256 = catalog.finalized_candidate_sha256;
     let Some(identity) = catalog.receiver_identity else {
         return DistributionReceiverIdentityLoadPreflightOutcome {
             content_sha256: Some(content_sha256),
             retained_part_count,
             receiver_identity: None,
+            retained_candidate_sha256: None,
+            retained_candidate_wasm_valid: false,
+            catalog_finalize_candidate_sha256,
+            retained_candidate_matches_catalog_finalize: false,
             status: "denied",
             reason: DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_INCOMPLETE_REASON,
             preflight_evaluated: false,
@@ -1215,8 +1250,45 @@ fn distribution_receiver_identity_load_preflight(
             content_sha256: Some(content_sha256),
             retained_part_count,
             receiver_identity: Some(identity),
+            retained_candidate_sha256: None,
+            retained_candidate_wasm_valid: false,
+            catalog_finalize_candidate_sha256,
+            retained_candidate_matches_catalog_finalize: false,
             status: "denied",
             reason: DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_INCOMPLETE_REASON,
+            preflight_evaluated: false,
+            accepted: false,
+            rejected: true,
+            missing_gate_count: 0,
+        };
+    }
+    let retained_candidate = module_candidate_intake::retained();
+    let retained_candidate_sha256 = retained_candidate
+        .as_ref()
+        .map(|candidate| candidate.sha256);
+    let retained_candidate_wasm_valid = retained_candidate
+        .as_ref()
+        .map(|candidate| candidate.wasm_valid)
+        .unwrap_or(false);
+    let retained_candidate_matches_catalog_finalize = retained_candidate
+        .as_ref()
+        .map(|candidate| {
+            candidate.wasm_valid
+                && candidate.sha256 == content_sha256
+                && catalog_finalize_candidate_sha256 == Some(content_sha256)
+        })
+        .unwrap_or(false);
+    if !retained_candidate_matches_catalog_finalize {
+        return DistributionReceiverIdentityLoadPreflightOutcome {
+            content_sha256: Some(content_sha256),
+            retained_part_count,
+            receiver_identity: Some(identity),
+            retained_candidate_sha256,
+            retained_candidate_wasm_valid,
+            catalog_finalize_candidate_sha256,
+            retained_candidate_matches_catalog_finalize,
+            status: "denied",
+            reason: DISTRIBUTION_RECEIVER_IDENTITY_PREFLIGHT_CANDIDATE_NOT_FINALIZED_REASON,
             preflight_evaluated: false,
             accepted: false,
             rejected: true,
@@ -1228,6 +1300,10 @@ fn distribution_receiver_identity_load_preflight(
         content_sha256: Some(content_sha256),
         retained_part_count,
         receiver_identity: Some(identity),
+        retained_candidate_sha256,
+        retained_candidate_wasm_valid,
+        catalog_finalize_candidate_sha256,
+        retained_candidate_matches_catalog_finalize,
         status: "denied",
         reason: DISTRIBUTION_RECEIVER_IDENTITY_PREFLIGHT_MISSING_GATES_REASON,
         preflight_evaluated: true,
@@ -1562,6 +1638,15 @@ fn finalize_pending_distribution(
     let retained_provenance = distribution_candidate::verify_retained_candidate_provenance(
         entry.provenance_signature_der,
     );
+    if pending.source_id == LOCAL_DISTRIBUTION_CATALOG_SOURCE_ID
+        && staged_candidate.retained_in_ram
+        && staged_candidate.wasm_valid
+        && !staged_candidate.rejected
+        && staged_candidate.artifact_sha256 == pending.content_sha256
+    {
+        LOCAL_DISTRIBUTION_CATALOG.lock().finalized_candidate_sha256 =
+            Some(staged_candidate.artifact_sha256);
+    }
 
     DistributionFinalizeOutcome {
         source_id: pending.source_id,
@@ -1962,6 +2047,10 @@ fn rejected_receiver_identity_load_preflight(
         content_sha256: None,
         retained_part_count: 0,
         receiver_identity: None,
+        retained_candidate_sha256: None,
+        retained_candidate_wasm_valid: false,
+        catalog_finalize_candidate_sha256: None,
+        retained_candidate_matches_catalog_finalize: false,
         status: "denied",
         reason,
         preflight_evaluated: false,

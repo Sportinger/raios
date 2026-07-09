@@ -24,11 +24,33 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (M12+ distribution receiver evidence): bind the
-receiver-identity load preflight to the inert retained candidate produced by
-catalog finalize, returning the same missing M6/M7/provider/owner gates only
-when the reassembled artifact hash matches the guest-complete receiver
-identity, while still denying load/install.
+Current exact next task (M12+ distribution receiver evidence): consume the
+catalog-finalized receiver-identity load preflight inside the existing retained
+candidate load-denial projection, so the later M6/M7 load path sees the same
+candidate-bound receiver evidence while still denying load/install.
+
+M12+ Slice 13 done (2026-07-09) - receiver load preflight bound to the
+catalog-finalized retained candidate. A user/agent can now ask raiOS to
+preflight a receiver identity only after the matching local catalog delivery
+has reassembled the artifact, staged it as the inert retained Wasm candidate,
+and recorded that catalog-finalized candidate hash; guest-complete receiver
+evidence alone now stays denied as
+`distribution_receiver_identity_load_preflight_candidate_not_finalized`, and
+the missing M6/M7, provider-trust, and owner-seal gates are named only when the
+catalog-finalized candidate hash matches the retained candidate. Load,
+install, execute, persist, network, and durable writes remain false. Verified:
+scoped format check (`rustfmt --edition 2021 --check
+seed-kernel\src\agent_protocol_registry.rs`); PowerShell profile parse;
+release seed-kernel build via `scripts\build-seed-kernel.ps1 -Profile
+release`; focused VM `m12-distribution-provenance` report
+`release/vm-reports/shadow-20260709-093455-12140.json` 246/246 predicates, 53
+executed commands, `duration_ms: 119796`, report sha256
+`0fe1c73b29a40e511419336c5163d9e16a517d90956a8b89da7a52f9a35d0e04`;
+`scripts\scan-secrets.ps1` found no OpenAI-key-like values. Global
+`cargo fmt --all -- --check` remains red only on the pre-existing unrelated
+format drift in `raios-core/src/marvell_wifi_fw.rs` and `seed-kernel/src/usb.rs`.
+Full+recovery remain deferred to the M12+ block close per the aggressive-fast
+cadence.
 
 M12+ Slice 12 done (2026-07-09) - receiver identity load preflight. A
 user/agent can now ask raiOS to run a current-boot receiver-identity load

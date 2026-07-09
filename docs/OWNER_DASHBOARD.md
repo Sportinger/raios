@@ -3,14 +3,15 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-09. **raiOS hat jetzt einen Empfaenger-Load-Preflight:** Nach
-der echten Gast-Pruefung der Empfaenger-Identitaet kann ein Agent raiOS fragen:
-"Darf dieser lokale Katalog-Artefakt-Hash jetzt geladen werden?" Vor kompletter
-Guest-Evidence lehnt raiOS ab; danach nennt es die fehlenden Gates:
-M6/M7-Reverify, Provider-Vertrauen und Owner-Seal. Ergebnis bleibt absichtlich:
+Updated: 2026-07-09. **Der Empfaenger-Preflight haengt jetzt am echten
+Kandidaten:** raiOS nennt die fehlenden Lade-Gates nicht mehr nur wegen einer
+kompletten Empfaenger-Identitaet. Erst wenn der lokale Katalog das Artefakt
+wirklich reassembliert und als passenden toten Wasm-Kandidaten behalten hat,
+kommt die Diagnose: M6/M7-Reverify, Provider-Vertrauen und Owner-Seal fehlen.
+Vorher bleibt es `candidate_not_finalized`. Ergebnis bleibt absichtlich:
 NICHT laden, NICHT installieren, NICHT ausfuehren, NICHT speichern, kein Netz.
 Beweis: `m12-distribution-provenance`
-`shadow-20260709-092219-15860.json` 244/244 gruen.
+`shadow-20260709-093455-12140.json` 246/246 gruen.
 
 Updated: 2026-07-09. **M12+ Verteilung nimmt jetzt die Empfaenger-Identitaet
 mit:** Der lokale Registry-Export packt nicht mehr nur Bytes + Chunks ein,

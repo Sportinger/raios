@@ -627,29 +627,24 @@ Assert-M12Predicate `
     -Actual $(if ($receiverEvidenceFinalizeOk) { "matched" } else { ($receiverEvidenceFinalizeResult | ConvertTo-Json -Compress -Depth 10) }) `
     -FailureMessage "Expected guest receiver identity evidence verification to complete without authority"
 
-Send-AgentCommand -Command "module.distribution_receiver_identity_load_preflight $expectedSha" -ExpectedMarker "RAIOS_AGENT_END module.distribution_receiver_identity_load_preflight" -Name "m12-distribution:T2_receiver_identity_load_preflight_missing_gates"
+Send-AgentCommand -Command "module.distribution_receiver_identity_load_preflight $expectedSha" -ExpectedMarker "RAIOS_AGENT_END module.distribution_receiver_identity_load_preflight" -Name "m12-distribution:T2_receiver_identity_preflight_requires_catalog_finalize_candidate"
 $receiverLoadPreflight = Get-LastAgentResponseJson -Method "module.distribution_receiver_identity_load_preflight"
 $receiverLoadPreflightResult = $receiverLoadPreflight.body.result
 $receiverLoadPreflightIdentity = $receiverLoadPreflightResult.receiver_identity
 $receiverLoadPreflightOk = (
     $receiverLoadPreflight.t -eq "response" -and
     $receiverLoadPreflightResult.status -eq "denied" -and
-    $receiverLoadPreflightResult.reason -eq "distribution_receiver_identity_load_preflight_missing_required_gates" -and
+    $receiverLoadPreflightResult.reason -eq "distribution_receiver_identity_load_preflight_candidate_not_finalized" -and
     $receiverLoadPreflightResult.content_sha256 -eq $expectedSha -and
     $receiverLoadPreflightResult.receiver_identity_retained -eq $true -and
     $receiverLoadPreflightResult.receiver_identity_complete -eq $true -and
     $receiverLoadPreflightResult.guest_signature_verification_performed -eq $true -and
-    $receiverLoadPreflightResult.preflight_evaluated -eq $true -and
-    $receiverLoadPreflightResult.accepted -eq $true -and
-    $receiverLoadPreflightResult.rejected -eq $false -and
-    [int]$receiverLoadPreflightResult.missing_gate_count -eq 4 -and
-    $receiverLoadPreflightResult.m6_reverification_gate_satisfied -eq $false -and
-    $receiverLoadPreflightResult.m7_loader_policy_gate_satisfied -eq $false -and
-    $receiverLoadPreflightResult.provider_trust_gate_satisfied -eq $false -and
-    $receiverLoadPreflightResult.owner_seal_gate_satisfied -eq $false -and
-    $receiverLoadPreflightResult.requires_m6_m7_reverify_for_load -eq $true -and
-    $receiverLoadPreflightResult.requires_provider_trust_for_load -eq $true -and
-    $receiverLoadPreflightResult.requires_owner_seal_for_load -eq $true -and
+    $null -eq $receiverLoadPreflightResult.catalog_finalize_candidate_sha256 -and
+    $receiverLoadPreflightResult.retained_candidate_matches_catalog_finalize -eq $false -and
+    $receiverLoadPreflightResult.preflight_evaluated -eq $false -and
+    $receiverLoadPreflightResult.accepted -eq $false -and
+    $receiverLoadPreflightResult.rejected -eq $true -and
+    [int]$receiverLoadPreflightResult.missing_gate_count -eq 0 -and
     $receiverLoadPreflightResult.can_load_now -eq $false -and
     $receiverLoadPreflightResult.load_authorized -eq $false -and
     $receiverLoadPreflightResult.install_authorized -eq $false -and
@@ -659,11 +654,11 @@ $receiverLoadPreflightOk = (
     (Test-M12RegistryDenials -Record $receiverLoadPreflightResult)
 )
 Assert-M12Predicate `
-    -Name "m12-distribution:T2_receiver_identity_load_preflight_names_missing_gates" `
-    -Expected "receiver identity load preflight accepts guest-complete evidence then names missing M6/M7/provider/owner gates while still denying load" `
+    -Name "m12-distribution:T2_receiver_identity_load_preflight_requires_catalog_finalize_candidate" `
+    -Expected "receiver identity load preflight refuses to name missing load gates until a matching inert candidate was produced by catalog finalize" `
     -Passed $receiverLoadPreflightOk `
     -Actual $(if ($receiverLoadPreflightOk) { "matched" } else { ($receiverLoadPreflightResult | ConvertTo-Json -Compress -Depth 10) }) `
-    -FailureMessage "Expected receiver identity load preflight to name missing gates without authorizing load"
+    -FailureMessage "Expected receiver identity load preflight to require a catalog-finalized retained candidate"
 
 Send-AgentCommand -Command "module.submit_distribution_begin_from_catalog sha256:0000000000000000000000000000000000000000000000000000000000000000" -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_begin_from_catalog" -Name "m12-distribution:T2_wrong_catalog_selector"
 $wrongCatalogBegin = Get-LastAgentResponseJson -Method "module.submit_distribution_begin_from_catalog"
@@ -782,6 +777,49 @@ Assert-M12Predicate `
     -Passed $catalogOk `
     -Actual $(if ($catalogOk) { "matched" } else { ($catalogResult | ConvertTo-Json -Compress -Depth 10) }) `
     -FailureMessage "Expected local catalog delivery to stage a valid inert candidate"
+
+Send-AgentCommand -Command "module.distribution_receiver_identity_load_preflight $expectedSha" -ExpectedMarker "RAIOS_AGENT_END module.distribution_receiver_identity_load_preflight" -Name "m12-distribution:T2_receiver_identity_load_preflight_missing_gates"
+$catalogBoundPreflight = Get-LastAgentResponseJson -Method "module.distribution_receiver_identity_load_preflight"
+$catalogBoundPreflightResult = $catalogBoundPreflight.body.result
+$catalogBoundPreflightIdentity = $catalogBoundPreflightResult.receiver_identity
+$catalogBoundPreflightOk = (
+    $catalogBoundPreflight.t -eq "response" -and
+    $catalogBoundPreflightResult.status -eq "denied" -and
+    $catalogBoundPreflightResult.reason -eq "distribution_receiver_identity_load_preflight_missing_required_gates" -and
+    $catalogBoundPreflightResult.content_sha256 -eq $expectedSha -and
+    $catalogBoundPreflightResult.receiver_identity_retained -eq $true -and
+    $catalogBoundPreflightResult.receiver_identity_complete -eq $true -and
+    $catalogBoundPreflightResult.guest_signature_verification_performed -eq $true -and
+    $catalogBoundPreflightResult.retained_candidate_sha256 -eq $expectedSha -and
+    $catalogBoundPreflightResult.retained_candidate_present -eq $true -and
+    $catalogBoundPreflightResult.retained_candidate_wasm_valid -eq $true -and
+    $catalogBoundPreflightResult.catalog_finalize_candidate_sha256 -eq $expectedSha -and
+    $catalogBoundPreflightResult.retained_candidate_matches_catalog_finalize -eq $true -and
+    $catalogBoundPreflightResult.preflight_evaluated -eq $true -and
+    $catalogBoundPreflightResult.accepted -eq $true -and
+    $catalogBoundPreflightResult.rejected -eq $false -and
+    [int]$catalogBoundPreflightResult.missing_gate_count -eq 4 -and
+    $catalogBoundPreflightResult.m6_reverification_gate_satisfied -eq $false -and
+    $catalogBoundPreflightResult.m7_loader_policy_gate_satisfied -eq $false -and
+    $catalogBoundPreflightResult.provider_trust_gate_satisfied -eq $false -and
+    $catalogBoundPreflightResult.owner_seal_gate_satisfied -eq $false -and
+    $catalogBoundPreflightResult.requires_m6_m7_reverify_for_load -eq $true -and
+    $catalogBoundPreflightResult.requires_provider_trust_for_load -eq $true -and
+    $catalogBoundPreflightResult.requires_owner_seal_for_load -eq $true -and
+    $catalogBoundPreflightResult.can_load_now -eq $false -and
+    $catalogBoundPreflightResult.load_authorized -eq $false -and
+    $catalogBoundPreflightResult.install_authorized -eq $false -and
+    $catalogBoundPreflightIdentity.receiver_identity_complete -eq $true -and
+    $catalogBoundPreflightIdentity.artifact_identity_signature_verified_by_guest -eq $true -and
+    $catalogBoundPreflightIdentity.load_descriptor_signature_verified_by_guest -eq $true -and
+    (Test-M12RegistryDenials -Record $catalogBoundPreflightResult)
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:T2_receiver_identity_load_preflight_names_missing_gates" `
+    -Expected "receiver identity load preflight names missing gates only after the catalog-finalized retained candidate hash matches the guest-complete receiver identity" `
+    -Passed $catalogBoundPreflightOk `
+    -Actual $(if ($catalogBoundPreflightOk) { "matched" } else { ($catalogBoundPreflightResult | ConvertTo-Json -Compress -Depth 10) }) `
+    -FailureMessage "Expected receiver identity load preflight to bind the catalog-finalized candidate before naming missing gates"
 
 Send-AgentCommand -Command "agent module.distribution_provenance_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END module.distribution_provenance_diagnostic_selftest" -Name "m12-distribution:P2_selftest_command"
 $selftest = Get-LastAgentResponseJson -Method "module.distribution_provenance_diagnostic_selftest"

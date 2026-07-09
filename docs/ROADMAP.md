@@ -142,7 +142,13 @@ names the missing M6/M7/provider/owner gates while still denying load/install
 (`m12-distribution-provenance` 244/244). Next M12+ slice: bind that preflight to
 the inert retained candidate produced by catalog finalize, so the missing-gate
 diagnostic is tied to the actually reassembled artifact hash, still without
-load/install authority. (3) provide real trust inputs (a cryptographically
+load/install authority. **Slice 13 DONE:** the receiver-identity load preflight
+now refuses to name the missing M6/M7/provider/owner gates until the local
+catalog delivery has actually reassembled and staged the matching inert
+retained candidate (`m12-distribution-provenance` 246/246). Next M12+ slice:
+thread that catalog-bound receiver preflight into the existing retained-candidate
+load-denial projection, still without load/install authority. (3) provide real
+trust inputs (a cryptographically
 trusted time source, real CA roots, a live second provider) → I finish M10 real
 validation — STILL YOURS. (4) the owner-key sealing ceremony → the FINAL step —
 STILL YOURS. Until then every label stays honestly unverified / dev_key_not_owner_
