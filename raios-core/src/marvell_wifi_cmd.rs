@@ -14,6 +14,7 @@ pub const GET_HW_SPEC_BODY_LEN: usize = 63;
 pub const GET_HW_SPEC_GEN_SIZE: usize = S_DS_GEN + GET_HW_SPEC_BODY_LEN;
 pub const GET_HW_SPEC_CMD_TOTAL_LEN: usize = INTF_HEADER_LEN + GET_HW_SPEC_GEN_SIZE;
 pub const HW_SPEC_MIN_RESPONSE_LEN: usize = 34;
+pub const HOST_CMD_MIN_RESPONSE_LEN: usize = INTF_HEADER_LEN + S_DS_GEN;
 pub const IEEE80211_MAX_SSID_LEN: u8 = 32;
 pub const MWIFIEX_BSS_MODE_INFRA: u8 = 1;
 pub const MWIFIEX_DISABLE_CHAN_FILT: u8 = 0x02;
@@ -146,6 +147,36 @@ pub fn parse_hw_spec_response(buf: &[u8]) -> Result<HwSpec, HwSpecCmdError> {
         mac,
         fw_release: le32(buf, 30),
     })
+}
+
+pub fn parse_scan_ext_response(buf: &[u8]) -> Result<(), HwSpecCmdError> {
+    parse_host_cmd_status(buf, SCAN_EXT_CMD)
+}
+
+fn parse_host_cmd_status(buf: &[u8], expected_cmd: u16) -> Result<(), HwSpecCmdError> {
+    if buf.len() < 2 {
+        return Err(HwSpecCmdError::TooShort);
+    }
+    let response_len = le16(buf, 0) as usize;
+    if response_len < HOST_CMD_MIN_RESPONSE_LEN
+        || buf.len() < HOST_CMD_MIN_RESPONSE_LEN
+        || buf.len() < response_len
+    {
+        return Err(HwSpecCmdError::TooShort);
+    }
+
+    let command = le16(buf, 4);
+    let expected = expected_cmd | HOST_CMD_RET_BIT;
+    if command != expected {
+        return Err(HwSpecCmdError::BadCommand { got: command });
+    }
+
+    let result = le16(buf, 10);
+    if result != HOST_CMD_RESULT_OK {
+        return Err(HwSpecCmdError::FwResult { code: result });
+    }
+
+    Ok(())
 }
 
 fn put_le16(out: &mut [u8], offset: usize, value: u16) {
@@ -365,6 +396,38 @@ mod tests {
         assert_eq!(
             parse_hw_spec_response(&response),
             Err(HwSpecCmdError::FwResult { code: 0x0002 })
+        );
+    }
+
+    #[test]
+    fn parse_scan_ext_response_accepts_command_done_status() {
+        let mut response = [0u8; HOST_CMD_MIN_RESPONSE_LEN];
+        put_response_le16(&mut response, 0, HOST_CMD_MIN_RESPONSE_LEN as u16);
+        put_response_le16(&mut response, 4, SCAN_EXT_CMD | HOST_CMD_RET_BIT);
+        put_response_le16(&mut response, 10, HOST_CMD_RESULT_OK);
+
+        assert_eq!(parse_scan_ext_response(&response), Ok(()));
+    }
+
+    #[test]
+    fn parse_scan_ext_response_rejects_wrong_command_or_result() {
+        let mut wrong_command = [0u8; HOST_CMD_MIN_RESPONSE_LEN];
+        put_response_le16(&mut wrong_command, 0, HOST_CMD_MIN_RESPONSE_LEN as u16);
+        put_response_le16(&mut wrong_command, 4, GET_HW_SPEC_CMD | HOST_CMD_RET_BIT);
+        assert_eq!(
+            parse_scan_ext_response(&wrong_command),
+            Err(HwSpecCmdError::BadCommand {
+                got: GET_HW_SPEC_CMD | HOST_CMD_RET_BIT
+            })
+        );
+
+        let mut fw_error = [0u8; HOST_CMD_MIN_RESPONSE_LEN];
+        put_response_le16(&mut fw_error, 0, HOST_CMD_MIN_RESPONSE_LEN as u16);
+        put_response_le16(&mut fw_error, 4, SCAN_EXT_CMD | HOST_CMD_RET_BIT);
+        put_response_le16(&mut fw_error, 10, 0x0004);
+        assert_eq!(
+            parse_scan_ext_response(&fw_error),
+            Err(HwSpecCmdError::FwResult { code: 0x0004 })
         );
     }
 }

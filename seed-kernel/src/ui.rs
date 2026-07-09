@@ -505,23 +505,27 @@ fn draw_status_detail_line(
 fn draw_wifi_scan_detail(surface: &mut FramebufferSurface, width: usize, mut y: usize) {
     let scan = wifi::scan_results();
     if scan.count == 0 {
-        draw_status_text_line(
-            surface,
-            width,
-            y,
-            "SCAN",
-            "WIFI SCAN: NOT AVAILABLE (firmware not loaded)",
-            APP_AMBER,
+        let mut line = TextBuf::<192>::new();
+        let _ = write!(
+            line,
+            "WIFI SCAN: NOT AVAILABLE ({})",
+            scan.unavailable_reason
         );
+        draw_status_text_line(surface, width, y, "SCAN", line.as_str(), APP_AMBER);
         return;
     }
 
-    let header = if scan.scan_available {
-        "WIFI SCAN: RESULTS"
+    let mut header = TextBuf::<192>::new();
+    if scan.scan_available {
+        let _ = write!(header, "WIFI SCAN: RESULTS");
     } else {
-        "WIFI SCAN: SELF-TEST RESULTS; LIVE NOT AVAILABLE (firmware not loaded)"
-    };
-    draw_status_text_line(surface, width, y, "SCAN", header, APP_AMBER);
+        let _ = write!(
+            header,
+            "WIFI SCAN: SELF-TEST RESULTS; LIVE NOT AVAILABLE ({})",
+            scan.unavailable_reason
+        );
+    }
+    draw_status_text_line(surface, width, y, "SCAN", header.as_str(), APP_AMBER);
     y = y.saturating_add(STATUS_DETAIL_LINE_H);
 
     let mut idx = 0usize;
@@ -1601,6 +1605,19 @@ fn draw_settings_wifi_firmware(
             );
             y = y.saturating_add(18);
         }
+        let scan_cmd = marvell_wifi_pcie::scan_cmd_snapshot();
+        if scan_cmd.attempted {
+            let line = scan_cmd_line(scan_cmd);
+            draw_truncated_text(
+                surface,
+                72,
+                y,
+                line.as_str(),
+                max_chars,
+                scan_cmd_status_color(scan_cmd),
+            );
+            y = y.saturating_add(18);
+        }
     }
     y
 }
@@ -1635,7 +1652,7 @@ fn draw_settings_wifi_networks(
             surface,
             72,
             row_y,
-            "No networks listed; press Scan networks for SELF-TEST",
+            "No live networks listed; Scan networks starts live command or fallback",
             max_chars.saturating_sub(2),
             TEXT_FAINT,
         );
@@ -1678,7 +1695,7 @@ fn wifi_networks_header(scan: wifi::ScanResultsSnapshot) -> TextBuf<192> {
     } else if scan.count == 0 {
         let _ = write!(
             header,
-            "WIFI NETWORKS - LIVE SCAN NOT AVAILABLE ({}); press Scan networks for SELF-TEST",
+            "WIFI NETWORKS - LIVE RESULTS NOT AVAILABLE ({}); Scan networks starts live command or fallback",
             scan.unavailable_reason
         );
     } else {
@@ -1839,6 +1856,33 @@ fn hw_spec_status_color(hw_spec: marvell_wifi_pcie::HwSpecSnapshot) -> Color {
     if hw_spec.is_ready() {
         APP_GREEN
     } else if hw_spec.is_failed() {
+        APP_RED
+    } else {
+        APP_AMBER
+    }
+}
+
+fn scan_cmd_line(scan_cmd: marvell_wifi_pcie::ScanCmdSnapshot) -> TextBuf<192> {
+    let mut line = TextBuf::new();
+    let result = scan_cmd
+        .result
+        .map(|result| result.label())
+        .unwrap_or("pending");
+    let _ = write!(
+        line,
+        "SCAN_EXT: {} result={} len={} HOST_INT=0x{:08x}",
+        scan_cmd.stage.label(),
+        result,
+        scan_cmd.command_len,
+        scan_cmd.host_int_status
+    );
+    line
+}
+
+fn scan_cmd_status_color(scan_cmd: marvell_wifi_pcie::ScanCmdSnapshot) -> Color {
+    if scan_cmd.is_done() {
+        APP_GREEN
+    } else if scan_cmd.is_failed() {
         APP_RED
     } else {
         APP_AMBER

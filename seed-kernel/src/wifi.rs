@@ -14,8 +14,12 @@ pub const SSID_CAPACITY: usize = 32;
 pub const PASSPHRASE_CAPACITY: usize = 63;
 pub const SCAN_RESULT_CAPACITY: usize = 16;
 pub const WIFI_SCAN_UNAVAILABLE_REASON: &str = "wifi firmware not loaded";
-pub const WIFI_SCAN_MAILBOX_UNAVAILABLE_REASON: &str =
-    "firmware ready; command mailbox not implemented";
+pub const WIFI_SCAN_MAILBOX_UNAVAILABLE_REASON: &str = "firmware ready; scan command not started";
+pub const WIFI_SCAN_COMMAND_PENDING_REASON: &str =
+    "scan command pending; event ring not implemented";
+pub const WIFI_SCAN_EVENT_RING_UNAVAILABLE_REASON: &str =
+    "scan command accepted; event ring not implemented";
+pub const WIFI_SCAN_COMMAND_FAILED_REASON: &str = "scan command failed; event ring not implemented";
 
 static STATE: Mutex<WifiRuntime> = Mutex::new(WifiRuntime::new());
 
@@ -302,10 +306,12 @@ pub fn ingest_scan_frame(
 }
 
 pub fn run_scan_selftest() {
-    {
+    let reason = {
         let mut guard = STATE.lock();
         guard.clear_scan_results();
-    }
+        guard.snapshot.scan_available = false;
+        guard.snapshot.scan_unavailable_reason
+    };
     let _ = ingest_scan_frame(SELFTEST_OPEN_BEACON, ScanSource::SelfTestDemo, None);
     let _ = ingest_scan_frame(SELFTEST_WPA2_BEACON, ScanSource::SelfTestDemo, None);
     let _ = ingest_scan_frame(
@@ -313,9 +319,10 @@ pub fn run_scan_selftest() {
         ScanSource::SelfTestDemo,
         None,
     );
-    serial::write_line(
-        "wifi scan self-test: parsed embedded demo beacons; live scan unavailable (wifi firmware not loaded)",
-    );
+    serial::write_fmt(format_args!(
+        "wifi scan self-test: parsed embedded demo beacons; live scan unavailable ({})\r\n",
+        reason
+    ));
 }
 
 pub fn set_ssid(bytes: &[u8]) -> Result<(), WifiConfigError> {
@@ -368,6 +375,27 @@ pub fn note_firmware_ready_scan_unavailable() {
     let mut guard = STATE.lock();
     guard.snapshot.scan_available = false;
     guard.snapshot.scan_unavailable_reason = WIFI_SCAN_MAILBOX_UNAVAILABLE_REASON;
+}
+
+pub fn note_scan_command_started() {
+    let mut guard = STATE.lock();
+    guard.clear_scan_results();
+    guard.snapshot.scan_available = false;
+    guard.snapshot.scan_unavailable_reason = WIFI_SCAN_COMMAND_PENDING_REASON;
+}
+
+pub fn note_scan_command_done_event_ring_unavailable() {
+    let mut guard = STATE.lock();
+    guard.clear_scan_results();
+    guard.snapshot.scan_available = false;
+    guard.snapshot.scan_unavailable_reason = WIFI_SCAN_EVENT_RING_UNAVAILABLE_REASON;
+}
+
+pub fn note_scan_command_failed_event_ring_unavailable() {
+    let mut guard = STATE.lock();
+    guard.clear_scan_results();
+    guard.snapshot.scan_available = false;
+    guard.snapshot.scan_unavailable_reason = WIFI_SCAN_COMMAND_FAILED_REASON;
 }
 
 fn read_bar0_base(address: PciAddress) -> Option<u64> {

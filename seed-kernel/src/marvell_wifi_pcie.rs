@@ -30,6 +30,8 @@ const SHORT_POLL_DELAY_US: u64 = 20;
 const ACTIONS_PER_POLL: usize = 128;
 const HWSPEC_CMD_BUFFER_SIZE: usize = 128;
 const HWSPEC_TIMEOUT_MS: u64 = 3_000;
+const SCAN_CMD_BUFFER_SIZE: usize = marvell_wifi_cmd::SCAN_EXT_24GHZ_CMD_TOTAL_LEN;
+const SCAN_CMD_TIMEOUT_MS: u64 = 15_000;
 
 #[repr(align(64))]
 struct DmaBlock([u8; FW_DMA_STAGING_SIZE]);
@@ -45,8 +47,19 @@ static mut HWSPEC_DMA_BLOCK: HwSpecDmaBlock = HwSpecDmaBlock {
     cmd: [0; HWSPEC_CMD_BUFFER_SIZE],
     rsp: [0; MWIFIEX_UPLD_SIZE],
 };
+#[repr(C, align(64))]
+struct ScanDmaBlock {
+    cmd: [u8; SCAN_CMD_BUFFER_SIZE],
+    rsp: [u8; MWIFIEX_UPLD_SIZE],
+}
+
+static mut SCAN_DMA_BLOCK: ScanDmaBlock = ScanDmaBlock {
+    cmd: [0; SCAN_CMD_BUFFER_SIZE],
+    rsp: [0; MWIFIEX_UPLD_SIZE],
+};
 static BRINGUP: Mutex<FirmwareBringupRuntime> = Mutex::new(FirmwareBringupRuntime::new());
 static HWSPEC: Mutex<HwSpecRuntime> = Mutex::new(HwSpecRuntime::new());
+static SCAN: Mutex<ScanCmdRuntime> = Mutex::new(ScanCmdRuntime::new());
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FirmwareDownloadResult {
@@ -159,6 +172,27 @@ impl HwSpecStage {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ScanCmdStage {
+    Idle,
+    Arming,
+    WaitCmdDone,
+    Done,
+    Failed,
+}
+
+impl ScanCmdStage {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Arming => "arming",
+            Self::WaitCmdDone => "wait_cmd_done",
+            Self::Done => "done",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HwSpecResult {
     Done,
     DmaAddressUnavailable,
@@ -181,6 +215,54 @@ impl HwSpecResult {
             Self::Response(HwSpecCmdError::BadCommand { .. }) => "bad_command",
             Self::Response(HwSpecCmdError::FwResult { .. }) => "fw_result",
             Self::Response(HwSpecCmdError::OutputBufferTooSmall) => "response_buffer_too_small",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ScanCmdResult {
+    Done,
+    FirmwareNotReady,
+    HwSpecNotReady,
+    DmaAddressUnavailable,
+    CommandBuild(HwSpecCmdError),
+    CmdDoneTimeout,
+    Response(HwSpecCmdError),
+}
+
+impl ScanCmdResult {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Done => "command_done_event_ring_unavailable",
+            Self::FirmwareNotReady => "firmware_not_ready",
+            Self::HwSpecNotReady => "hw_spec_not_ready",
+            Self::DmaAddressUnavailable => "dma_address_unavailable",
+            Self::CommandBuild(HwSpecCmdError::OutputBufferTooSmall) => "cmd_buffer_too_small",
+            Self::CommandBuild(HwSpecCmdError::TooShort) => "cmd_build_too_short",
+            Self::CommandBuild(HwSpecCmdError::BadCommand { .. }) => "cmd_build_bad_command",
+            Self::CommandBuild(HwSpecCmdError::FwResult { .. }) => "cmd_build_fw_result",
+            Self::CmdDoneTimeout => "cmd_done_timeout",
+            Self::Response(HwSpecCmdError::TooShort) => "response_too_short",
+            Self::Response(HwSpecCmdError::BadCommand { .. }) => "bad_command",
+            Self::Response(HwSpecCmdError::FwResult { .. }) => "fw_result",
+            Self::Response(HwSpecCmdError::OutputBufferTooSmall) => "response_buffer_too_small",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ScanCmdTriggerResult {
+    Started,
+    AlreadyRunning,
+    Failed(ScanCmdResult),
+}
+
+impl ScanCmdTriggerResult {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Started => "started",
+            Self::AlreadyRunning => "already_running",
+            Self::Failed(result) => result.label(),
         }
     }
 }
@@ -252,6 +334,37 @@ pub struct HwSpecSnapshot {
     pub host_int_status: u32,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ScanCmdSnapshot {
+    pub attempted: bool,
+    pub running: bool,
+    pub stage: ScanCmdStage,
+    pub result: Option<ScanCmdResult>,
+    pub host_int_status: u32,
+    pub command_len: usize,
+}
+
+impl ScanCmdSnapshot {
+    pub const fn new() -> Self {
+        Self {
+            attempted: false,
+            running: false,
+            stage: ScanCmdStage::Idle,
+            result: None,
+            host_int_status: 0,
+            command_len: 0,
+        }
+    }
+
+    pub fn is_done(&self) -> bool {
+        self.stage == ScanCmdStage::Done
+    }
+
+    pub fn is_failed(&self) -> bool {
+        self.stage == ScanCmdStage::Failed
+    }
+}
+
 impl HwSpecSnapshot {
     pub const fn new() -> Self {
         Self {
@@ -277,6 +390,7 @@ impl HwSpecSnapshot {
 struct FirmwareBringupRuntime {
     snapshot: FirmwareBringupSnapshot,
     job: Option<FirmwareJob>,
+    mmio_base: Option<usize>,
 }
 
 impl FirmwareBringupRuntime {
@@ -284,6 +398,7 @@ impl FirmwareBringupRuntime {
         Self {
             snapshot: FirmwareBringupSnapshot::new(),
             job: None,
+            mmio_base: None,
         }
     }
 }
@@ -302,6 +417,22 @@ impl HwSpecRuntime {
     }
 }
 
+struct ScanCmdRuntime {
+    snapshot: ScanCmdSnapshot,
+    job: Option<ScanCmdJob>,
+    next_seq: u16,
+}
+
+impl ScanCmdRuntime {
+    const fn new() -> Self {
+        Self {
+            snapshot: ScanCmdSnapshot::new(),
+            job: None,
+            next_seq: 1,
+        }
+    }
+}
+
 struct FirmwareJob {
     download: FirmwareDownload<'static>,
     mmio_base: usize,
@@ -313,6 +444,14 @@ struct FirmwareJob {
 }
 
 struct HwSpecJob {
+    mmio_base: usize,
+    cmd_dma_phys: u64,
+    rsp_dma_phys: u64,
+    started_tsc: u64,
+    seq: u16,
+}
+
+struct ScanCmdJob {
     mmio_base: usize,
     cmd_dma_phys: u64,
     rsp_dma_phys: u64,
@@ -338,6 +477,10 @@ pub fn hw_spec_snapshot() -> HwSpecSnapshot {
     HWSPEC.lock().snapshot
 }
 
+pub fn scan_cmd_snapshot() -> ScanCmdSnapshot {
+    SCAN.lock().snapshot
+}
+
 pub fn start_bring_up_firmware() -> FirmwareBringupTriggerResult {
     {
         let mut runtime = BRINGUP.lock();
@@ -354,6 +497,7 @@ pub fn start_bring_up_firmware() -> FirmwareBringupTriggerResult {
             total: firmware_image().len(),
             ..FirmwareBringupSnapshot::new()
         };
+        runtime.mmio_base = None;
     }
 
     let wifi_snapshot = wifi::probe();
@@ -436,6 +580,7 @@ pub fn start_bring_up_firmware() -> FirmwareBringupTriggerResult {
         total: firmware.len(),
         registers,
     };
+    runtime.mmio_base = Some(mmio_base as usize);
     runtime.job = Some(FirmwareJob {
         download,
         mmio_base: mmio_base as usize,
@@ -451,6 +596,70 @@ pub fn start_bring_up_firmware() -> FirmwareBringupTriggerResult {
     FirmwareBringupTriggerResult::Started
 }
 
+pub fn start_scan_ext_24ghz() -> ScanCmdTriggerResult {
+    if !snapshot().is_ready() {
+        finish_scan_without_job(ScanCmdResult::FirmwareNotReady, ScanCmdStage::Failed, 0, 0);
+        return ScanCmdTriggerResult::Failed(ScanCmdResult::FirmwareNotReady);
+    }
+    if !hw_spec_snapshot().is_ready() {
+        finish_scan_without_job(ScanCmdResult::HwSpecNotReady, ScanCmdStage::Failed, 0, 0);
+        return ScanCmdTriggerResult::Failed(ScanCmdResult::HwSpecNotReady);
+    }
+    let Some(mmio_base) = ready_mmio_base() else {
+        finish_scan_without_job(ScanCmdResult::FirmwareNotReady, ScanCmdStage::Failed, 0, 0);
+        return ScanCmdTriggerResult::Failed(ScanCmdResult::FirmwareNotReady);
+    };
+    let Some(cmd_dma_phys) = scan_cmd_phys() else {
+        finish_scan_without_job(
+            ScanCmdResult::DmaAddressUnavailable,
+            ScanCmdStage::Failed,
+            0,
+            0,
+        );
+        return ScanCmdTriggerResult::Failed(ScanCmdResult::DmaAddressUnavailable);
+    };
+    let Some(rsp_dma_phys) = scan_rsp_phys() else {
+        finish_scan_without_job(
+            ScanCmdResult::DmaAddressUnavailable,
+            ScanCmdStage::Failed,
+            0,
+            0,
+        );
+        return ScanCmdTriggerResult::Failed(ScanCmdResult::DmaAddressUnavailable);
+    };
+
+    let mut runtime = SCAN.lock();
+    if runtime.job.is_some() {
+        return ScanCmdTriggerResult::AlreadyRunning;
+    }
+
+    let seq = runtime.next_seq;
+    runtime.next_seq = runtime.next_seq.wrapping_add(1);
+    if runtime.next_seq == 0 {
+        runtime.next_seq = 1;
+    }
+    runtime.snapshot = ScanCmdSnapshot {
+        attempted: true,
+        running: true,
+        stage: ScanCmdStage::Arming,
+        result: None,
+        host_int_status: 0,
+        command_len: 0,
+    };
+    runtime.job = Some(ScanCmdJob {
+        mmio_base,
+        cmd_dma_phys,
+        rsp_dma_phys,
+        started_tsc: time::rdtsc(),
+        seq,
+    });
+    drop(runtime);
+
+    wifi::note_scan_command_started();
+    serial::write_line("marvell wifi: scan_ext command armed (results wait on event ring)");
+    ScanCmdTriggerResult::Started
+}
+
 pub fn poll_hw_spec() -> bool {
     if !snapshot().is_ready() {
         return false;
@@ -464,7 +673,7 @@ pub fn poll_hw_spec() -> bool {
         return false;
     }
 
-    let Some(mut job) = runtime.job.take() else {
+    let Some(job) = runtime.job.take() else {
         return false;
     };
     let mmio_base = job.mmio_base as *mut u8;
@@ -589,6 +798,143 @@ pub fn poll_hw_spec() -> bool {
                 delay_us(SHORT_POLL_DELAY_US);
             }
             HwSpecStage::Idle | HwSpecStage::Ready | HwSpecStage::Failed => {
+                runtime.job = Some(job);
+                return changed;
+            }
+        }
+    }
+
+    runtime.job = Some(job);
+    changed
+}
+
+pub fn poll_scan_ext() -> bool {
+    if !snapshot().is_ready() {
+        return false;
+    }
+
+    let mut runtime = SCAN.lock();
+    if runtime.snapshot.stage == ScanCmdStage::Idle
+        || runtime.snapshot.stage == ScanCmdStage::Done
+        || runtime.snapshot.stage == ScanCmdStage::Failed
+    {
+        return false;
+    }
+
+    let Some(job) = runtime.job.take() else {
+        return false;
+    };
+    let mmio_base = job.mmio_base as *mut u8;
+    let mut changed = false;
+    let mut actions = 0usize;
+
+    while actions < ACTIONS_PER_POLL {
+        actions += 1;
+        if elapsed_ms(job.started_tsc) >= SCAN_CMD_TIMEOUT_MS {
+            let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+            let command_len = runtime.snapshot.command_len;
+            finish_scan_locked(
+                &mut runtime,
+                ScanCmdResult::CmdDoneTimeout,
+                ScanCmdStage::Failed,
+                status,
+                command_len,
+            );
+            write_scan_failure(ScanCmdResult::CmdDoneTimeout, status);
+            wifi::note_scan_command_failed_event_ring_unavailable();
+            return true;
+        }
+
+        match runtime.snapshot.stage {
+            ScanCmdStage::Arming => {
+                let command_len = match prepare_scan_dma(job.seq) {
+                    Ok(command_len) => command_len,
+                    Err(error) => {
+                        let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+                        let result = ScanCmdResult::CommandBuild(error);
+                        finish_scan_locked(&mut runtime, result, ScanCmdStage::Failed, status, 0);
+                        write_scan_failure(result, status);
+                        wifi::note_scan_command_failed_event_ring_unavailable();
+                        return true;
+                    }
+                };
+
+                compiler_fence(Ordering::SeqCst);
+                write_reg(mmio_base, PCIE_HOST_INT_STATUS_MASK, HOST_INTR_MASK);
+                write_reg(
+                    mmio_base,
+                    CMDRSP_ADDR_LO,
+                    (job.rsp_dma_phys & 0xffff_ffff) as u32,
+                );
+                write_reg(mmio_base, CMDRSP_ADDR_HI, (job.rsp_dma_phys >> 32) as u32);
+                write_reg(
+                    mmio_base,
+                    CMD_ADDR_LO,
+                    (job.cmd_dma_phys & 0xffff_ffff) as u32,
+                );
+                write_reg(mmio_base, CMD_ADDR_HI, (job.cmd_dma_phys >> 32) as u32);
+                write_reg(mmio_base, CMD_SIZE, command_len as u32);
+                compiler_fence(Ordering::SeqCst);
+                write_reg(mmio_base, PCIE_CPU_INT_EVENT, CPU_INTR_DOOR_BELL);
+                compiler_fence(Ordering::SeqCst);
+
+                let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+                runtime.snapshot = ScanCmdSnapshot {
+                    attempted: true,
+                    running: true,
+                    stage: ScanCmdStage::WaitCmdDone,
+                    result: None,
+                    host_int_status: status,
+                    command_len,
+                };
+                changed = true;
+            }
+            ScanCmdStage::WaitCmdDone => {
+                let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+                if runtime.snapshot.host_int_status != status {
+                    runtime.snapshot.host_int_status = status;
+                    changed = true;
+                }
+                if status & HOST_INTR_CMD_DONE != 0 {
+                    compiler_fence(Ordering::SeqCst);
+                    let parsed = parse_scan_dma_response();
+                    write_reg(mmio_base, PCIE_HOST_INT_STATUS, !status);
+                    compiler_fence(Ordering::SeqCst);
+
+                    match parsed {
+                        Ok(()) => {
+                            let command_len = runtime.snapshot.command_len;
+                            finish_scan_locked(
+                                &mut runtime,
+                                ScanCmdResult::Done,
+                                ScanCmdStage::Done,
+                                status,
+                                command_len,
+                            );
+                            wifi::note_scan_command_done_event_ring_unavailable();
+                            serial::write_line(
+                                "marvell wifi: scan_ext command done; event ring not implemented",
+                            );
+                        }
+                        Err(error) => {
+                            let result = ScanCmdResult::Response(error);
+                            let command_len = runtime.snapshot.command_len;
+                            finish_scan_locked(
+                                &mut runtime,
+                                result,
+                                ScanCmdStage::Failed,
+                                status,
+                                command_len,
+                            );
+                            write_scan_failure(result, status);
+                            wifi::note_scan_command_failed_event_ring_unavailable();
+                        }
+                    }
+                    return true;
+                }
+                delay_us(SHORT_POLL_DELAY_US);
+            }
+            ScanCmdStage::Idle | ScanCmdStage::Done | ScanCmdStage::Failed => {
                 runtime.job = Some(job);
                 return changed;
             }
@@ -956,6 +1302,34 @@ fn finish_hw_spec_locked(
     };
 }
 
+fn finish_scan_without_job(
+    result: ScanCmdResult,
+    stage: ScanCmdStage,
+    host_int_status: u32,
+    command_len: usize,
+) {
+    let mut runtime = SCAN.lock();
+    finish_scan_locked(&mut runtime, result, stage, host_int_status, command_len);
+}
+
+fn finish_scan_locked(
+    runtime: &mut ScanCmdRuntime,
+    result: ScanCmdResult,
+    stage: ScanCmdStage,
+    host_int_status: u32,
+    command_len: usize,
+) {
+    runtime.job = None;
+    runtime.snapshot = ScanCmdSnapshot {
+        attempted: true,
+        running: false,
+        stage,
+        result: Some(result),
+        host_int_status,
+        command_len,
+    };
+}
+
 fn prepare_hw_spec_dma(seq: u16) -> Result<usize, HwSpecCmdError> {
     unsafe {
         // SAFETY: HWSPEC_DMA_BLOCK is this driver's distinct command mailbox
@@ -966,12 +1340,31 @@ fn prepare_hw_spec_dma(seq: u16) -> Result<usize, HwSpecCmdError> {
     }
 }
 
+fn prepare_scan_dma(seq: u16) -> Result<usize, HwSpecCmdError> {
+    unsafe {
+        // SAFETY: SCAN_DMA_BLOCK is this driver's distinct command mailbox DMA
+        // area. Access is serialized by SCAN and bounded by fixed sizes.
+        ptr::write_bytes(scan_rsp_ptr(), 0, MWIFIEX_UPLD_SIZE);
+        let cmd = slice::from_raw_parts_mut(scan_cmd_ptr(), SCAN_CMD_BUFFER_SIZE);
+        marvell_wifi_cmd::build_scan_ext_24ghz_wildcard(seq, cmd)
+    }
+}
+
 fn parse_hw_spec_dma_response() -> Result<marvell_wifi_cmd::HwSpec, HwSpecCmdError> {
     unsafe {
         // SAFETY: the firmware has raised CMD_DONE before this is called, and
         // the response slice covers only the fixed mailbox response buffer.
         let response = slice::from_raw_parts(hw_spec_rsp_ptr().cast_const(), MWIFIEX_UPLD_SIZE);
         marvell_wifi_cmd::parse_hw_spec_response(response)
+    }
+}
+
+fn parse_scan_dma_response() -> Result<(), HwSpecCmdError> {
+    unsafe {
+        // SAFETY: the firmware has raised CMD_DONE before this is called, and
+        // the response slice covers only the fixed mailbox response buffer.
+        let response = slice::from_raw_parts(scan_rsp_ptr().cast_const(), MWIFIEX_UPLD_SIZE);
+        marvell_wifi_cmd::parse_scan_ext_response(response)
     }
 }
 
@@ -1002,6 +1395,45 @@ fn write_hw_spec_failure(result: HwSpecResult, host_int_status: u32) {
                 host_int_status
             ));
         }
+    }
+}
+
+fn write_scan_failure(result: ScanCmdResult, host_int_status: u32) {
+    match result {
+        ScanCmdResult::Response(HwSpecCmdError::BadCommand { got })
+        | ScanCmdResult::CommandBuild(HwSpecCmdError::BadCommand { got }) => {
+            serial::write_fmt(format_args!(
+                "marvell wifi: scan_ext failed: {} got=0x{:04x} host_int=0x{:08x}\r\n",
+                result.label(),
+                got,
+                host_int_status
+            ));
+        }
+        ScanCmdResult::Response(HwSpecCmdError::FwResult { code })
+        | ScanCmdResult::CommandBuild(HwSpecCmdError::FwResult { code }) => {
+            serial::write_fmt(format_args!(
+                "marvell wifi: scan_ext failed: {} code=0x{:04x} host_int=0x{:08x}\r\n",
+                result.label(),
+                code,
+                host_int_status
+            ));
+        }
+        _ => {
+            serial::write_fmt(format_args!(
+                "marvell wifi: scan_ext failed: {} host_int=0x{:08x}\r\n",
+                result.label(),
+                host_int_status
+            ));
+        }
+    }
+}
+
+fn ready_mmio_base() -> Option<usize> {
+    let runtime = BRINGUP.lock();
+    if runtime.snapshot.is_ready() {
+        runtime.mmio_base
+    } else {
+        None
     }
 }
 
@@ -1078,6 +1510,14 @@ fn hw_spec_rsp_phys() -> Option<u64> {
     memory::virt_to_phys(hw_spec_rsp_ptr().cast_const())
 }
 
+fn scan_cmd_phys() -> Option<u64> {
+    memory::virt_to_phys(scan_cmd_ptr().cast_const())
+}
+
+fn scan_rsp_phys() -> Option<u64> {
+    memory::virt_to_phys(scan_rsp_ptr().cast_const())
+}
+
 fn copy_block_into_dma(src: &[u8], wire_len: usize) -> Result<(), FirmwareDownloadResult> {
     if src.len() > wire_len || wire_len > FW_DMA_STAGING_SIZE {
         return Err(FirmwareDownloadResult::BlockLenOutOfRange);
@@ -1131,5 +1571,21 @@ fn hw_spec_rsp_ptr() -> *mut u8 {
         // SAFETY: returning a raw pointer does not create a Rust reference; all
         // access is serialized by HWSPEC and bounded by MWIFIEX_UPLD_SIZE.
         ptr::addr_of_mut!(HWSPEC_DMA_BLOCK.rsp).cast::<u8>()
+    }
+}
+
+fn scan_cmd_ptr() -> *mut u8 {
+    unsafe {
+        // SAFETY: returning a raw pointer does not create a Rust reference; all
+        // access is serialized by SCAN and bounded by SCAN_CMD_BUFFER_SIZE.
+        ptr::addr_of_mut!(SCAN_DMA_BLOCK.cmd).cast::<u8>()
+    }
+}
+
+fn scan_rsp_ptr() -> *mut u8 {
+    unsafe {
+        // SAFETY: returning a raw pointer does not create a Rust reference; all
+        // access is serialized by SCAN and bounded by MWIFIEX_UPLD_SIZE.
+        ptr::addr_of_mut!(SCAN_DMA_BLOCK.rsp).cast::<u8>()
     }
 }

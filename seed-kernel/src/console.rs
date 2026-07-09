@@ -412,10 +412,7 @@ impl ConsoleState {
                 ByteAction::ShowSetupMessage(SetupMessage::WifiConfigCleared)
             }
             UiFocus::SettingsWifiFirmware => ByteAction::StartWifiFirmware,
-            UiFocus::SettingsWifiScan => {
-                wifi::run_scan_selftest();
-                ByteAction::ShowSetupMessage(SetupMessage::WifiScanSelftestRun)
-            }
+            UiFocus::SettingsWifiScan => ByteAction::StartWifiScan,
             UiFocus::SettingsClose => {
                 self.mode = ConsoleMode::Command;
                 self.view = UiView::Ai;
@@ -559,10 +556,7 @@ impl ConsoleState {
                 ByteAction::ShowSetupMessage(SetupMessage::WifiConfigCleared)
             }
             b'7' => ByteAction::StartWifiFirmware,
-            b'8' => {
-                wifi::run_scan_selftest();
-                ByteAction::ShowSetupMessage(SetupMessage::WifiScanSelftestRun)
-            }
+            b'8' => ByteAction::StartWifiScan,
             b'q' | 0x1b => {
                 self.mode = ConsoleMode::Command;
                 self.view = UiView::Ai;
@@ -770,6 +764,7 @@ enum ByteAction {
     ShowProviderStatus,
     ShowSetupMessage(SetupMessage),
     StartWifiFirmware,
+    StartWifiScan,
     SetupClosed,
 }
 
@@ -789,7 +784,6 @@ enum SetupMessage {
     WifiPassphraseTooLong,
     WifiConfigInvalid,
     WifiEntryCancelled,
-    WifiScanSelftestRun,
 }
 
 #[derive(Clone, Copy)]
@@ -1100,6 +1094,11 @@ fn apply_action(action: ByteAction, runtime: ui::RuntimeStatus) -> bool {
             show_setup_menu();
             true
         }
+        ByteAction::StartWifiScan => {
+            start_wifi_scan();
+            show_setup_menu();
+            true
+        }
         ByteAction::SetupClosed => {
             write_output(format_args!("SETUP CLOSED"));
             true
@@ -1177,7 +1176,7 @@ fn command_help() {
         "COMMANDS: help status devices log provider openai wifi ownerkey setup ask <text>"
     ));
     write_output(format_args!(
-        "SETUP: key 7 starts WiFi firmware bring-up once; key 8 runs scan self-test"
+        "SETUP: key 7 starts WiFi firmware bring-up once; key 8 starts live scan or self-test fallback"
     ));
     write_output(format_args!(
         "AGENT: describe snapshot caps bootlog services problems device.graph memory.profile"
@@ -1652,6 +1651,32 @@ fn start_wifi_firmware() {
     }
 }
 
+fn start_wifi_scan() {
+    write_output(format_args!("WIFI SCAN START REQUEST"));
+    let result = marvell_wifi_pcie::start_scan_ext_24ghz();
+    write_output(format_args!("WIFI SCAN CMD: {}", result.label()));
+    match result {
+        marvell_wifi_pcie::ScanCmdTriggerResult::Started => {
+            write_output(format_args!(
+                "WIFI SCAN: SCAN_EXT SENT NEXT TICK; RESULTS WAIT ON EVENT RING"
+            ));
+        }
+        marvell_wifi_pcie::ScanCmdTriggerResult::AlreadyRunning => {
+            write_output(format_args!("WIFI SCAN: COMMAND ALREADY RUNNING"));
+        }
+        marvell_wifi_pcie::ScanCmdTriggerResult::Failed(error) => {
+            write_output(format_args!(
+                "WIFI SCAN LIVE NOT STARTED: {}; RUNNING SELF-TEST FALLBACK",
+                error.label()
+            ));
+            wifi::run_scan_selftest();
+            write_output(format_args!(
+                "WIFI SCAN SELF-TEST RUN (LIVE SCAN NOT STARTED)"
+            ));
+        }
+    }
+}
+
 fn show_setup_message(message: SetupMessage) {
     match message {
         SetupMessage::ApiKeySet => write_output(format_args!("API KEY SET (RAM ONLY)")),
@@ -1679,9 +1704,6 @@ fn show_setup_message(message: SetupMessage) {
             write_output(format_args!("WIFI CONFIG NOT CHANGED: INVALID BYTE"))
         }
         SetupMessage::WifiEntryCancelled => write_output(format_args!("WIFI ENTRY CANCELLED")),
-        SetupMessage::WifiScanSelftestRun => write_output(format_args!(
-            "WIFI SCAN SELF-TEST RUN (LIVE SCAN UNAVAILABLE)"
-        )),
     }
 }
 
@@ -1755,6 +1777,8 @@ fn command_openai_status() {
 fn command_wifi_status() {
     let snapshot = wifi::snapshot();
     let firmware = marvell_wifi_pcie::snapshot();
+    let hw_spec = marvell_wifi_pcie::hw_spec_snapshot();
+    let scan_cmd = marvell_wifi_pcie::scan_cmd_snapshot();
     write_output(format_args!(
         "WIFI TARGET: {}    SSID: {}    KEY: {}",
         wifi_state_status(snapshot.state),
@@ -1771,6 +1795,26 @@ fn command_wifi_status() {
             .map(|result| result.label())
             .unwrap_or("pending")
     ));
+    write_output(format_args!(
+        "WIFI HW_SPEC: {} RESULT {}",
+        hw_spec.stage.label(),
+        hw_spec
+            .result
+            .map(|result| result.label())
+            .unwrap_or("pending")
+    ));
+    if scan_cmd.attempted {
+        write_output(format_args!(
+            "WIFI SCAN CMD: {} RESULT {} LEN {} HOST_INT 0x{:08X}",
+            scan_cmd.stage.label(),
+            scan_cmd
+                .result
+                .map(|result| result.label())
+                .unwrap_or("pending"),
+            scan_cmd.command_len,
+            scan_cmd.host_int_status
+        ));
+    }
     if firmware.registers.valid {
         write_output(format_args!(
             "WIFI FW REGS: C40=0x{:08X} C44=0x{:08X} CF0=0x{:08X} C30=0x{:08X}",

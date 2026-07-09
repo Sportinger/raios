@@ -407,6 +407,9 @@ impl PeriodicTasks {
             if marvell_wifi_pcie::poll_hw_spec() {
                 status_ui.render_forced(uptime_ms(), *runtime_status);
             }
+            if marvell_wifi_pcie::poll_scan_ext() {
+                status_ui.render_forced(uptime_ms(), *runtime_status);
+            }
         });
         if self.entropy_ready {
             if !self.net_started {

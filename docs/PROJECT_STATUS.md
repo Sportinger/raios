@@ -32,6 +32,34 @@ CRB/TIS control area, add the next narrow volatile TPM register-status read
 while keeping `owner_sealed`, persistent install, load, and durable-write
 authority false until a real seal/unseal evidence loop exists.
 
+WiFi scan mailbox execution slice done (2026-07-09) - after the Marvell
+88W8897 firmware-download path and GET_HW_SPEC response are ready on the real
+Surface, the Settings `Scan networks` button / setup key `8` now starts a real
+mwifiex-compatible `SCAN_EXT` 2.4GHz wildcard command through the PCIe
+CMD/RSP DMA mailbox, polls the real `HOST_INTR_CMD_DONE` bit, parses the
+firmware command-status response, and exposes `SCAN_EXT` stage/result/length/
+host-interrupt state on the UI and `wifi` console status. On QEMU, or before
+firmware and HW_SPEC are ready, it fails closed and runs only the labeled
+embedded scan self-test fallback; it still does not claim live network results,
+does not arm firmware event/Rx rings, does not associate, and grants no
+network authority. Verified: scoped format check (`rustfmt --edition 2021
+--check raios-core\src\marvell_wifi_cmd.rs seed-kernel\src\wifi.rs
+seed-kernel\src\marvell_wifi_pcie.rs seed-kernel\src\console.rs
+seed-kernel\src\ui.rs` plus `seed-kernel\src\main.rs` with
+`skip_children=true`); host tests
+(`cargo test --locked -p raios-core marvell_wifi_cmd`) 11/11 passed; release
+kernel build and `scripts\package-stage0.ps1 -Profile release`; focused VM
+`quick` report `release/vm-reports/shadow-20260709-125408-23664.json` passed
+542/542 predicates, 79 executed commands, `duration_ms: 147339`, report sha256
+`f54c9954ba65485c67ad2c48187959aac7aec006efbe5a589b29f2d46f643899`, and
+`base_image.sha256: a84f652fc8b74f6c64f216fa19fe4ebc0b30ef81128e8772335273274e702bb6`.
+A manual serial `setup`/`8` probe was attempted after the report but the
+Windows host returned `Access denied` around QEMU process control before a
+usable guest assertion was captured, so it is not counted as guest evidence.
+Global `cargo fmt --all -- --check` remains expected-red on pre-existing
+unrelated formatting drift in `raios-core/src/marvell_wifi_fw.rs` and
+`seed-kernel/src/usb.rs`.
+
 WiFi scan-ext command builder side-track slice done (2026-07-09) - after the
 Marvell 88W8897 firmware-download and GET_HW_SPEC path, raiOS can now build a
 pure, host-tested mwifiex-compatible `HostCmd_CMD_802_11_SCAN_EXT` packet for a

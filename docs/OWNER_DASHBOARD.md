@@ -5,9 +5,11 @@ One page, plain language, updated every session (rule: AGENTS.md,
 
 Updated: 2026-07-09.
 
-Current capability: raiOS can now build the next Marvell 88W8897 scan command
-payload in pure tested code: a mwifiex `SCAN_EXT` 2.4GHz wildcard scan over
-channels 1-11. It is not issued yet, no live scan/link is claimed.
+Current capability: on the Surface path, after Marvell firmware and HW_SPEC are
+ready, `Scan networks` now issues a real mwifiex `SCAN_EXT` 2.4GHz wildcard
+command through the PCIe command mailbox and reports its command status. Live
+network results still wait on event/Rx-ring parsing; no association/link
+authority is claimed.
 
 Owner-key capture still shows the next TPM register raiOS would read.
 `ownerkey` and `system.honesty_report.owner_key_provisioning` report whether a
@@ -19,16 +21,16 @@ owner-key candidate from entropy and exposes only handle + `sha256:`
 fingerprint. Persistent install remains policy-only; no persistent key, owner
 seal, load authority, or durable-write authority is granted.
 
-Latest focused proof: `quick` `shadow-20260709-121516-5560.json` passed
-542/542 for the new code path's build/boot regression. Latest owner-key image
-proof remains `m12-distribution-provenance`
+Latest focused proof: `quick` `shadow-20260709-125408-23664.json` passed
+542/542 for the new boot image after the WiFi scan mailbox change. Latest
+owner-key image proof remains `m12-distribution-provenance`
 `shadow-20260709-120614-8340.json` 253/253 against the exact default image.
 
 Gate status: latest full profile remains green at
 `shadow-20260708-150428-34396.json` 7867/7867. This slice used the focused quick
 profile per aggressive-fast cadence.
 
-Next owner action: boot this refreshed USB on the Surface Pro 4, run `ownerkey`
-or `system.honesty_report`, and capture TPM2 ACPI/interface/status-plan fields.
-If the plan is available, the next code slice is the actual read-only volatile
-TPM status-register read; authority stays fail-closed.
+Next owner action: boot the refreshed USB on the Surface Pro 4, press Start
+WiFi FW, wait for HW_SPEC ready, then press Scan networks and send a photo/log
+of the `SCAN_EXT` line. In parallel, `ownerkey` capture still gives the next TPM
+status-read evidence.
