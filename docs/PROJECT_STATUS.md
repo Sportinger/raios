@@ -31,6 +31,31 @@ fields; if a CRB/TIS control area is present, add the next read-only TPM
 register-status probe while keeping `owner_sealed`, persistent install, load,
 and durable-write authority false until a real seal/unseal evidence loop exists.
 
+Owner-key Surface boot image refresh slice done (2026-07-09) - the next real
+USB/stick attempt now uses a default boot image that contains the current
+owner-key capture path. A user/agent can write `release\raios-stage0.img` to a
+stick and boot the Surface with the `ownerkey` console command and
+`system.honesty_report.owner_key_provisioning` already packaged; the focused VM
+run booted that exact image (`base_image.temporary:false`,
+`base_image.sha256:96c2d84b85a2831533a4312660df01d5930b1d96a14b2ee6e36f93ec2e9a4268`)
+and verified the RAM-only `current_boot` owner-key candidate, redacted
+`sha256:` fingerprint, QEMU `tpm2_acpi_absent` posture, and `OWNER AUTH: SEAL
+NO PERSIST NO LOAD NO DURABLE NO`. No provider key embedding was used; the
+image and kernel ELF remain ignored local artifacts rather than tracked source.
+Verified: `scripts\package-stage0.ps1 -Profile release` wrote
+`release\raios-stage0.img` (67,108,864 bytes); focused VM
+`m12-distribution-provenance` report
+`release/vm-reports/shadow-20260709-115747-6148.json` 252/252 predicates, 54
+executed commands, `duration_ms: 78764`, report sha256
+`72c57d3a2abb73055f70be37ec9ca1d6100cb955d3b301d89493e695d5232d2b`.
+`scripts\scan-secrets.ps1` found no OpenAI-key-like values. Global
+`cargo fmt --all -- --check` remains red only on the pre-existing unrelated
+format drift in `raios-core/src/marvell_wifi_fw.rs` and
+`seed-kernel/src/usb.rs`. Gate check: latest full-profile report remains green
+at `release/vm-reports/shadow-20260708-150428-34396.json` 7867/7867, while
+this slice used the focused M12 profile per aggressive-fast cadence. File-size
+check: no `.rs` files were touched.
+
 Owner-key Surface capture command slice done (2026-07-09) - real bare-metal
 TPM evidence is now faster to capture without parsing the full honesty JSON. A
 user/agent can type `ownerkey` on serial/framebuffer console and get the
