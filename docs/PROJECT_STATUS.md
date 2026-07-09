@@ -31,6 +31,40 @@ RX/TX pointer movement, and DHCP result through RECLOG/screen evidence. Keep
 provider network access and any durable WiFi-secret claim denied until that
 positive hardware chain succeeds.
 
+Genesis shell architecture contract accepted (I0/G0, 2026-07-10) - build agents
+can now implement the universal core-owned Genesis/recovery surface and the
+bounded personal-shell proof against one exact owner-approved trust and Wasm ABI
+contract. The accepted execution map is
+`docs/plan-reviews/genesis-shell-execution-plan-2026-07-10.md`; ADR 0011 fixes
+the six `ui.*` imports, evidence-bound per-service grant, clipped compositor,
+secure attention, and non-default `current_boot` proof posture. This is an
+architecture contract only: no Genesis renderer, UI import authority, proof
+service, F12 fallback, Secret Vault, structured store, or Genesis USB handoff
+is yet implemented or verified by this entry. The positive Surface association,
+`PORT_RELEASE`, RX/TX, and DHCP proof remains the exact hardware task above.
+Baseline evidence remains full report
+`release/vm-reports/shadow-20260708-150428-34396.json` passed 7867/7867 and
+latest quick report `release/vm-reports/shadow-20260710-010658-31684.json`
+passed 542/542.
+
+VM failure classification (2026-07-09, guided WiFi quick) - report
+`release/vm-reports/shadow-20260709-231946-32656.json` ended with
+`serial_transport_failure: qemu_exited` after all 295/295 predicates and all
+45/45 executed commands had passed; the serial log ends after a complete
+`service.hot_swap external:svc.demo.hello` denial response. Failing predicate:
+none. Verdict: `guest-behavior` — suspected intermittent guest/QEMU exit, not
+closed as a host flake under the AGENTS.md fail-then-pass rule. The same-code retry
+`release/vm-reports/shadow-20260709-232029-9484.json` passed 542/542.
+
+VM failure classification (2026-07-08, full profile) - report
+`release/vm-reports/shadow-20260708-145915-16988.json` passed 380/381
+predicates and timed out on command
+`agent module.vm_report_diagnostic_selftest`; QEMU was then observed exited.
+Verdict: `guest-behavior` — suspected intermittent guest/QEMU exit, not closed
+as a host flake under the AGENTS.md fail-then-pass rule. Failing predicate:
+`command:agent module.vm_report_diagnostic_selftest`. The same-code full retry
+`release/vm-reports/shadow-20260708-150428-34396.json` passed 7867/7867.
+
 Marvell association + DHCP slice done (2026-07-10) - a user can now select a
 live open or WPA2-PSK/CCMP BSS and ask raiOS to run a real bounded 88W8897
 connection sequence instead of stopping at credential entry. The driver
@@ -102,12 +136,6 @@ Owner handoff: Disk 2 `SEED_ESP_A` was refreshed without reformatting via
 `C:\Users\admin\AppData\Local\Temp\raios-usb-esp-a-update-disk2-20260709-235943.log`
 reported final kernel sha256
 `1AAB49E2D678A7836BE0F91199FBE3BB8D8BD7809E5300897079A753DCAEE043`.
-
-VM failure classification (2026-07-09, WiFi guided-setup UI): the first
-`quick` invocation was terminated by the local command wrapper after five
-seconds before any guest predicate ran. Verdict: `host-transport`; failing
-predicate: `none (runner timeout before predicate execution)`. The retry uses
-the same code and profile with an explicit long host timeout.
 
 WiFi guided-setup UI slice done (2026-07-09) - a user can now click the top
 `WiFi DETECTED` pill and complete firmware bring-up, `GET_HW_SPEC`, live scan,

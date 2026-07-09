@@ -23,6 +23,16 @@ owner-gated (see below). **M6 Promotion Loop, M7 Persistence, M8 Recovery
 Lifeline, and M9 Durable Memory & Context Broker v1 (ADR 0004 Phase D) are
 COMPLETE.**
 
+**Owner-directed Genesis execution lane opened (I0/G0, 2026-07-10):**
+`docs/plan-reviews/genesis-shell-execution-plan-2026-07-10.md` and accepted
+ADR 0011 now fix the core-owned Genesis/recovery surface plus the exact bounded
+personal-shell Wasm ABI. This is a contract, not a runtime claim: renderer,
+imports, proof service, Vault, structured storage, and USB handoff remain
+unverified until their named slices and reports land. Disjoint foundation work
+may proceed while the next hardware task remains positive Surface association,
+`PORT_RELEASE`, RX/TX, and DHCP proof; no provider-access or durable-secret
+claim is opened by I0.
+
 **M11 Kernel Slimming progress (all grants-nothing / strictly-more-restrictive,
 committed):** M11-1 kernel internet-parsing SURFACE baseline (the measurably-
 shrinks reference, ~9640 candidate LOC); ADR 0008 the per-service-import-grant

@@ -27,6 +27,9 @@ Owner-key status: RAM boot still creates only a secret RAM-only
 `current_boot` owner-key candidate. Persistent owner seal/install/load/durable
 authority remains denied until the real sealing ceremony.
 
+Genesis status: the architecture and exact personal-shell boundary are owner-
+approved in ADR 0011; the new visible shell/runtime is not verified yet.
+
 Latest proof: 335/335 core host tests, global rustfmt, quick Shadow VM
 `shadow-20260710-010658-31684.json` 542/542, and verified Disk 2 copy hash.
 
