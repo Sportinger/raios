@@ -55,9 +55,14 @@ build; quick Shadow VM report
 and 79 executed commands, `duration_ms: 230309`, report sha256
 `3968bafe928a55ec1244ec76eb893138fbf229c99c6f4f8dc41fdfc4bb28ffbd`, and
 `base_image.sha256: 491758f68d2e6255cd3fa90a201ae6806952e6a66c283fa99dddcf1b91c76603`.
-The scoped rustfmt check covers all nine touched Rust files; global
-`cargo fmt --all -- --check` remains red only on the four pre-existing
-`raios-core/src/marvell_wifi_fw.rs` formatting differences. Secret scan passed.
+The scoped rustfmt check covers all nine touched Rust files; follow-up commit
+`da6e458` restored the global `cargo fmt --all -- --check` gate without changing
+firmware behavior. Secret scan passed. Owner handoff: Disk 2 `SEED_ESP_A` was
+refreshed without reformatting via
+`scripts\update-usb-esp-a.ps1 -DiskNumber 2 -SkipBuild`; log
+`C:\Users\admin\AppData\Local\Temp\raios-usb-esp-a-update-disk2-20260710-011521.log`
+reported final kernel sha256
+`9871578A46BDE75F1A568D98B23FBAC1B4A3A2E5867120ADF044A2979FCEBD92`.
 
 Bare-metal guided WiFi/input proof (2026-07-10) - the owner can now complete the
 real `WiFi DETECTED` guided path through firmware, HW_SPEC, live scan, secured

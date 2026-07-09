@@ -13,8 +13,8 @@ What is still denied: broad USB disk mutation, writes outside `SEED_DATA/RECLOG`
 durable secret storage, owner-sealed persistence, unsupported WiFi security,
 and provider access before positive Surface link/DHCP evidence.
 
-Stick evidence: host inspection was valid 84/84 with no torn tail; the successful
-Surface screen now reports verified `MSC LOG seq85`.
+Stick evidence: host inspection was valid 84/84 with no torn tail; Disk 2
+`SEED_ESP_A` now carries kernel SHA `9871578A46BDE75F...` without reformatting.
 
 WiFi status: Surface-proven firmware, HW_SPEC, live SSIDs, selection, and input
 are green. Association, WPA2 `PORT_RELEASE`, PFU data, and DHCP are implemented;
@@ -27,8 +27,8 @@ Owner-key status: RAM boot still creates only a secret RAM-only
 `current_boot` owner-key candidate. Persistent owner seal/install/load/durable
 authority remains denied until the real sealing ceremony.
 
-Latest proof: 335/335 core host tests and quick Shadow VM
-`shadow-20260710-010658-31684.json` 542/542. The new Disk 2 handoff is pending.
+Latest proof: 335/335 core host tests, global rustfmt, quick Shadow VM
+`shadow-20260710-010658-31684.json` 542/542, and verified Disk 2 copy hash.
 
 Gate status: latest full profile remains green at
 `shadow-20260708-150428-34396.json` 7867/7867. This slice used focused USB VM
