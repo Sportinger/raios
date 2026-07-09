@@ -29,10 +29,15 @@ const DOORBELL_ACK_TIMEOUT_MS: u64 = 5_000;
 const TOTAL_BRINGUP_TIMEOUT_MS: u64 = 300_000;
 const SHORT_POLL_DELAY_US: u64 = 10;
 const ACTIONS_PER_POLL: usize = 32;
+const FW_DOWNLOAD_ACTIONS_PER_POLL: usize = 512;
 const HWSPEC_CMD_BUFFER_SIZE: usize = 128;
 const HWSPEC_TIMEOUT_MS: u64 = 3_000;
 const SCAN_CMD_BUFFER_SIZE: usize = marvell_wifi_cmd::SCAN_EXT_24GHZ_CMD_TOTAL_LEN;
 const SCAN_CMD_TIMEOUT_MS: u64 = 15_000;
+const RX_RING_COUNT: usize = 32;
+const RX_ROLLOVER_IND: u32 = 1 << 10;
+const RX_BUFFER_SIZE: usize = 4096;
+const PCIE_RX_RD_PTR: u32 = 0xC05C;
 const EVENT_RING_COUNT: usize = 8;
 const EVENT_RING_MASK: u32 = 0x0f;
 const EVENT_ROLLOVER_IND: u32 = 1 << 7;
@@ -84,6 +89,12 @@ struct EventRingDmaBlock {
     data: [[u8; EVENT_BUFFER_SIZE]; EVENT_RING_COUNT],
 }
 
+#[repr(C, align(64))]
+struct RxRingDmaBlock {
+    desc: [EventBufDesc; RX_RING_COUNT],
+    data: [[u8; RX_BUFFER_SIZE]; RX_RING_COUNT],
+}
+
 static mut SCAN_DMA_BLOCK: ScanDmaBlock = ScanDmaBlock {
     cmd: [0; SCAN_CMD_BUFFER_SIZE],
     rsp: [0; MWIFIEX_UPLD_SIZE],
@@ -91,6 +102,10 @@ static mut SCAN_DMA_BLOCK: ScanDmaBlock = ScanDmaBlock {
 static mut EVENT_RING_DMA_BLOCK: EventRingDmaBlock = EventRingDmaBlock {
     desc: [EventBufDesc::EMPTY; EVENT_RING_COUNT],
     data: [[0; EVENT_BUFFER_SIZE]; EVENT_RING_COUNT],
+};
+static mut RX_RING_DMA_BLOCK: RxRingDmaBlock = RxRingDmaBlock {
+    desc: [EventBufDesc::EMPTY; RX_RING_COUNT],
+    data: [[0; RX_BUFFER_SIZE]; RX_RING_COUNT],
 };
 static BRINGUP: Mutex<FirmwareBringupRuntime> = Mutex::new(FirmwareBringupRuntime::new());
 static HWSPEC: Mutex<HwSpecRuntime> = Mutex::new(HwSpecRuntime::new());
@@ -311,6 +326,7 @@ pub enum EventRingResult {
     DmaAddressUnavailable,
     BadReadPointer,
     BadEventLength,
+    PointerAdvancedEmptyBuffer,
     EventObservedRxRingUnavailable,
 }
 
@@ -321,6 +337,7 @@ impl EventRingResult {
             Self::DmaAddressUnavailable => "dma_address_unavailable",
             Self::BadReadPointer => "bad_read_pointer",
             Self::BadEventLength => "bad_event_length",
+            Self::PointerAdvancedEmptyBuffer => "pointer_advanced_empty_buffer",
             Self::EventObservedRxRingUnavailable => "event_observed_rx_ring_unavailable",
         }
     }
@@ -1126,9 +1143,29 @@ pub fn poll_event_ring() -> bool {
         let parsed = match parse_event_buffer(rd_index) {
             Ok(parsed) => parsed,
             Err(result) => {
-                runtime.snapshot.stage = EventRingStage::Failed;
-                runtime.snapshot.result = Some(result);
+                let next_rdptr = next_event_rdptr(runtime.rdptr);
+                arm_event_desc(rd_index);
+                compiler_fence(Ordering::SeqCst);
+                write_reg(mmio_base, PCIE_EVT_RD_PTR, next_rdptr);
                 write_reg(mmio_base, PCIE_CPU_INT_EVENT, CPU_INTR_EVENT_DONE);
+                compiler_fence(Ordering::SeqCst);
+                runtime.rdptr = next_rdptr;
+                runtime.snapshot = EventRingSnapshot {
+                    attempted: true,
+                    armed: true,
+                    stage: if result == EventRingResult::PointerAdvancedEmptyBuffer {
+                        EventRingStage::Armed
+                    } else {
+                        EventRingStage::Failed
+                    },
+                    result: Some(result),
+                    host_int_status: status,
+                    rdptr: next_rdptr,
+                    wrptr,
+                    event_len: event_buffer_len(rd_index),
+                    event_type: event_buffer_type(rd_index),
+                    event_cause: 0,
+                };
                 return true;
             }
         };
@@ -1176,7 +1213,15 @@ pub fn poll() -> bool {
     let mmio_base = job.mmio_base as *mut u8;
 
     let mut actions = 0usize;
-    while actions < ACTIONS_PER_POLL {
+    let action_limit = if matches!(
+        job.phase,
+        FwPhase::Downloading | FwPhase::BlockPrepared | FwPhase::WaitingDoorbellAck
+    ) {
+        FW_DOWNLOAD_ACTIONS_PER_POLL
+    } else {
+        ACTIONS_PER_POLL
+    };
+    while actions < action_limit {
         actions += 1;
         if elapsed_ms(job.started_tsc) >= TOTAL_BRINGUP_TIMEOUT_MS {
             let registers = read_register_snapshot(mmio_base);
@@ -1514,6 +1559,7 @@ fn arm_event_ring(mmio_base: usize) {
         return;
     }
 
+    let rx_armed = arm_rx_ring(mmio_base);
     let mut index = 0usize;
     while index < EVENT_RING_COUNT {
         let Some(data_phys) = event_data_phys(index) else {
@@ -1564,7 +1610,39 @@ fn arm_event_ring(mmio_base: usize) {
         event_type: 0,
         event_cause: 0,
     };
-    serial::write_line("marvell wifi: event ring armed before DRV_READY");
+    if rx_armed {
+        serial::write_line("marvell wifi: rx/event rings armed before DRV_READY");
+    } else {
+        serial::write_line("marvell wifi: event ring armed before DRV_READY; rx ring arm failed");
+    }
+}
+
+fn arm_rx_ring(mmio_base: usize) -> bool {
+    let mut index = 0usize;
+    while index < RX_RING_COUNT {
+        let Some(data_phys) = rx_data_phys(index) else {
+            return false;
+        };
+        unsafe {
+            // SAFETY: RX_RING_DMA_BLOCK is the driver's fixed RX DMA storage;
+            // this setup runs before DRV_READY and indices are loop-bounded.
+            ptr::write_bytes(rx_data_ptr(index), 0, RX_BUFFER_SIZE);
+            ptr::write(
+                rx_desc_ptr(index),
+                EventBufDesc {
+                    paddr: data_phys,
+                    len: RX_BUFFER_SIZE as u16,
+                    flags: 0,
+                },
+            );
+        }
+        index += 1;
+    }
+
+    compiler_fence(Ordering::SeqCst);
+    write_reg(mmio_base as *mut u8, PCIE_RX_RD_PTR, RX_ROLLOVER_IND);
+    compiler_fence(Ordering::SeqCst);
+    true
 }
 
 fn finish_hw_spec_locked(
@@ -1660,6 +1738,9 @@ fn parse_event_buffer(index: usize) -> Result<ParsedEvent, EventRingResult> {
         let bytes = slice::from_raw_parts(event_data_ptr(index).cast_const(), EVENT_BUFFER_SIZE);
         let len = u16::from_le_bytes([bytes[0], bytes[1]]);
         let event_type = u16::from_le_bytes([bytes[2], bytes[3]]);
+        if len == 0 {
+            return Err(EventRingResult::PointerAdvancedEmptyBuffer);
+        }
         if len as usize <= EVENT_HEADER_LEN || len as usize > EVENT_BUFFER_SIZE {
             return Err(EventRingResult::BadEventLength);
         }
@@ -1678,6 +1759,25 @@ fn parse_event_buffer(index: usize) -> Result<ParsedEvent, EventRingResult> {
             event_type,
             cause,
         })
+    }
+}
+
+fn event_buffer_len(index: usize) -> u16 {
+    unsafe {
+        // SAFETY: caller passes a bounded event-ring index.
+        let ptr = event_data_ptr(index);
+        u16::from_le_bytes([ptr::read_volatile(ptr), ptr::read_volatile(ptr.add(1))])
+    }
+}
+
+fn event_buffer_type(index: usize) -> u16 {
+    unsafe {
+        // SAFETY: caller passes a bounded event-ring index.
+        let ptr = event_data_ptr(index);
+        u16::from_le_bytes([
+            ptr::read_volatile(ptr.add(2)),
+            ptr::read_volatile(ptr.add(3)),
+        ])
     }
 }
 
@@ -1867,6 +1967,10 @@ fn event_data_phys(index: usize) -> Option<u64> {
     memory::virt_to_phys(event_data_ptr(index).cast_const())
 }
 
+fn rx_data_phys(index: usize) -> Option<u64> {
+    memory::virt_to_phys(rx_data_ptr(index).cast_const())
+}
+
 fn copy_block_into_dma(src: &[u8], wire_len: usize) -> Result<(), FirmwareDownloadResult> {
     if src.len() > wire_len || wire_len > FW_DMA_STAGING_SIZE {
         return Err(FirmwareDownloadResult::BlockLenOutOfRange);
@@ -1956,5 +2060,25 @@ fn event_data_ptr(index: usize) -> *mut u8 {
         ptr::addr_of_mut!(EVENT_RING_DMA_BLOCK.data)
             .cast::<u8>()
             .add(index * EVENT_BUFFER_SIZE)
+    }
+}
+
+fn rx_desc_ptr(index: usize) -> *mut EventBufDesc {
+    unsafe {
+        // SAFETY: returning a raw pointer does not create a Rust reference; RX
+        // setup bounds every index against RX_RING_COUNT.
+        ptr::addr_of_mut!(RX_RING_DMA_BLOCK.desc)
+            .cast::<EventBufDesc>()
+            .add(index)
+    }
+}
+
+fn rx_data_ptr(index: usize) -> *mut u8 {
+    unsafe {
+        // SAFETY: returning a raw pointer does not create a Rust reference; RX
+        // setup bounds every index against RX_RING_COUNT.
+        ptr::addr_of_mut!(RX_RING_DMA_BLOCK.data)
+            .cast::<u8>()
+            .add(index * RX_BUFFER_SIZE)
     }
 }

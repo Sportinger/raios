@@ -26,11 +26,12 @@ profiles, protocol probes, and failure modes.
 
 Current exact next task (Surface WiFi live scan events): boot the refreshed
 image on the real Surface Pro 4, press Start WiFi FW, then Scan networks, and
-capture the `EVENT_RING`/`SCAN_EXT` lines. If the firmware event appears, add
-the smallest real Marvell Rx-ring path that turns the observed scan event into
-parsed live 802.11 result frames. Keep QEMU/unknown hardware fail-closed, keep
-association/link authority false, and do not claim live networks until Rx
-descriptors carrying real frames are observed and parsed.
+capture the firmware download time plus the `EVENT_RING`/`SCAN_EXT` lines. If
+the event buffer is still empty after the RX-BD arm, inspect the remaining
+descriptor-base/host-ring handoff; if a real scan event/frame appears, add the
+smallest parser path for live 802.11 results. Keep QEMU/unknown hardware
+fail-closed, keep association/link authority false, and do not claim live
+networks until Rx descriptors carrying real frames are observed and parsed.
 
 Failure classification (2026-07-09, Marvell firmware poll-budget quick VM):
 focused `quick` report `release/vm-reports/shadow-20260709-131953-18752.json`
@@ -56,6 +57,27 @@ for command `agent audit.events 72`; verdict: host-transport timeout on the
 large recent-events response path. No guest panic was observed; inspect the
 harness timeout path and/or return to the previous Marvell task interval before
 the next retry.
+
+WiFi bare-metal event/download correction slice done (2026-07-09) - the Surface
+photo showed the previous poll-budget change was the wrong performance lever:
+firmware download still took seconds, while Linux performs the helper download
+as a tight 10-20us polling loop rather than one small periodic slice per
+millisecond. The Marvell firmware phase now gets a larger bounded burst
+(`512` firmware actions per scheduler pass) while HW_SPEC/SCAN/Event polling
+remain at the small cooperative budget, so the 723540-byte block transfer is no
+longer artificially throttled by the UI scheduler. The same photo also showed
+`evt_wrptr` advancing (`rd=0x80 wr=0x4`) with an empty event buffer; raiOS now
+arms 32 real 4096-byte RX buffers before `DRV_READY` as Linux does, and treats
+`len=0` event buffers as amber `pointer_advanced_empty_buffer` diagnostics
+instead of a fatal red event-ring failure. This still does not claim live
+networks or link authority. Verified: `rustfmt` on
+`seed-kernel\src\marvell_wifi_pcie.rs`; release build via
+`scripts\build-seed-kernel.ps1 -Profile release` with local Cargo env override;
+focused VM `quick` report
+`release/vm-reports/shadow-20260709-143035-28468.json` passed 542/542
+predicates, 79 executed commands, `duration_ms: 211891`, report sha256
+`a2824526b81a1ebff75e27e5d8de245d75bf2e845ee9e286cd08fccff19bd7b4`, and
+`base_image.sha256: ec993b3ee4673205723e7e08cc670b4b07ee3ddbc5e8f066b128d947cfd5440a`.
 
 WiFi event-ring observation slice done (2026-07-09) - after Marvell firmware
 bring-up reaches `DRV_READY`, a Surface user can now see the real firmware

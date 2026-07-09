@@ -230,13 +230,13 @@ STILL YOURS. Until then every label stays honestly unverified / dev_key_not_owne
 sealed. **OWNER SIDE TRACK (parallel, Codex workers): Surface Pro 4 Marvell 88W8897
 WiFi driver — firmware sequencer, register-write plan, BAR2/DMA firmware
 bring-up, GET_HW_SPEC mailbox probe, pure SCAN_EXT 2.4GHz wildcard command
-builder, SCAN_EXT mailbox execution, shorter firmware/HW_SPEC/SCAN_EXT poll
-bursts with restored copy throughput, and pre-`DRV_READY` event-ring
-observation are committed (unit-tested/VM-smoked; no live result-frame/link
-claim). Next WiFi slice: after the owner captures a real `EVENT_RING` line on
-Surface hardware, add the Rx-ring evidence path that turns the observed scan
-event into parsed live 802.11 frames, still fail-closed on QEMU/unknown Surface
-results.** Process (owner
+builder, SCAN_EXT mailbox execution, a larger bounded firmware-download burst,
+pre-`DRV_READY` RX buffers, and pre-`DRV_READY` event-ring observation are
+committed (unit-tested/VM-smoked; no live result-frame/link claim). Next WiFi
+slice: after the owner captures the refreshed `EVENT_RING` line on Surface
+hardware, either fix the remaining host-ring handoff if buffers stay empty or
+parse observed scan frames into live 802.11 results, still fail-closed on
+QEMU/unknown Surface results.** Process (owner
 2026-07-08): per-slice max-effort review DROPPED; scoping + implementation both run
 as Codex workers; Claude orchestrates/verifies.
 
