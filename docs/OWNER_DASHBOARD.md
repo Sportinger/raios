@@ -33,11 +33,12 @@ authority remains denied until the real sealing ceremony.
 
 Latest proof: host inspect of the real stick reported RECLOG `valid`,
 `count=11`; quick Shadow VM `shadow-20260709-184742-22644.json` passed 542/542.
+Disk 2 `SEED_ESP_A` is refreshed with kernel SHA `C0E4DA64...`.
 
 Gate status: latest full profile remains green at
 `shadow-20260708-150428-34396.json` 7867/7867. This slice used focused USB VM
 evidence plus quick profile per aggressive-fast cadence.
 
-Next task: refresh Disk 2 `SEED_ESP_A`, boot the Surface, reproduce the mouse
-loss, then inspect `SEED_DATA/RECLOG` for `hub_mouse_port_reset` and whether
-mouse reports advance again.
+Next task: boot the Surface from Disk 2, reproduce the mouse loss, then inspect
+`SEED_DATA/RECLOG` for `hub_mouse_port_reset` and whether mouse reports advance
+again.

@@ -90,9 +90,9 @@ Mass Storage/BOT and report `MSC SEED`; the first strictly scoped USB
 them, and reports `MSC LOG`. Real Disk 2 evidence proved the old endpoint-only
 rearm fired ten times without restoring reports, so the next image escalates to
 one targeted parent-hub-port reset/re-enumeration after two failed rearms. Next
-persistence action is owner hardware evidence: refresh Disk 2, reproduce the
-hub-mouse outage, then inspect RECLOG for `hub_mouse_port_reset` and report
-progress.
+persistence action is owner hardware evidence: boot the refreshed Disk 2 stick,
+reproduce the hub-mouse outage, then inspect RECLOG for `hub_mouse_port_reset`
+and report progress.
 
 **M12+ opener + honesty capstone (committed, grants nothing):** M12-1 external-
 acquisition HONESTY evaluator (download = candidate intake NEVER install; a

@@ -24,10 +24,10 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (bare-metal diagnostics): refresh `SEED_ESP_A` on the
-real Disk 2 stick with the hub-port-reset image, boot the Surface with the same
-hub/mouse/stick setup, confirm `MSC LOG`, reproduce the mouse outage, then
-inspect `SEED_DATA/RECLOG` for `reason=hub_mouse_port_reset` or
+Current exact next task (bare-metal diagnostics): boot the Surface from the
+refreshed Disk 2 stick with the same hub/mouse/stick setup, confirm `MSC LOG`,
+reproduce the mouse outage, then inspect `SEED_DATA/RECLOG` for
+`reason=hub_mouse_port_reset` or
 `reason=hub_mouse_port_reset_failed` and whether `reports` advances past the
 previous stuck value of 23. The Surface WiFi RX-PFU path remains parked because
 arming it made real Surface MMIO read back all-ones (`HOST_INT=0xffffffff`,
@@ -51,6 +51,11 @@ release packaging with local Cargo env override; quick Shadow VM report
 predicates, 79 executed commands, `duration_ms: 182280`, report sha256
 `b6a94160feb4463489210046533d4a4f35a8b6f547ab205e4ac918e43ef75ee0`, and
 `base_image.sha256: b68fd1c018371aa15b99d7c715d26ce313b79d05b6429f2470271b2fc3784b85`.
+Post-commit owner handoff: Disk 2 `SEED_ESP_A` was refreshed without
+reformatting via `scripts\update-usb-esp-a.ps1 -DiskNumber 2 -SkipBuild`; log
+`C:\Users\admin\AppData\Local\Temp\raios-usb-esp-a-update-disk2-20260709-185452.log`
+reported kernel sha256
+`C0E4DA64BC5F925732DCB34F1346D82496919907DA8FC478E5DD71AD3223FE32`.
 
 Hub-mouse RECLOG diagnostics slice done (2026-07-09) - raiOS now appends
 host-readable USB diagnostic frames at the time the real Surface problem occurs:
