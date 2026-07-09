@@ -207,8 +207,12 @@ the table physical address, platform class, control-area/FIFO base, start
 method, interface kind, and non-authorizing interface-status posture; focused
 QEMU still proves the absent path, RAM-only `current_boot` key generation still
 happens, and persistent install/owner-seal/load/durable authority stay denied
-(`m12-distribution-provenance` 246/246). Next owner-key slice: boot this on the
-real Surface path to capture actual TPM2 details, then add the narrow read-only
+(`m12-distribution-provenance` 246/246). **Owner-key Surface capture command
+DONE:** `ownerkey` prints the same RAM-key/TPM2/status/NO-authority posture in
+short console/serial form for real Surface capture
+(`m12-distribution-provenance` 252/252). Next owner-key slice: boot this on the
+real Surface path, run `ownerkey` and `system.honesty_report`, capture actual
+TPM2 details, then add the narrow read-only
 TPM register-status read if a CRB/TIS control area is exposed; no persistent
 owner seal until a real seal/unseal evidence loop exists. (3)
 provide real

@@ -9,8 +9,8 @@ use crate::{
         begin_response, end_response, json_event_id, json_opt_str, json_str, method_eq,
         method_head_eq, raw, raw_bool, raw_line,
     },
-    event_log, input, marvell_wifi_pcie, provider, provider_config, serial, system_status, ui,
-    wifi,
+    event_log, input, marvell_wifi_pcie, owner_key, provider, provider_config, serial,
+    system_status, ui, wifi,
 };
 
 const COMMAND_WIDTH: usize = 4096;
@@ -1162,6 +1162,7 @@ fn execute(command_line: CommandLine, runtime: ui::RuntimeStatus) {
         "provider" => command_provider_status(),
         "openai" => command_openai_status(),
         "wifi" => command_wifi_status(),
+        "ownerkey" => command_owner_key_status(),
         "setup" => command_setup_enter(),
         "ask" => command_ask(command_line.arguments_after_command(), runtime),
         _ => write_output(format_args!(
@@ -1173,7 +1174,7 @@ fn execute(command_line: CommandLine, runtime: ui::RuntimeStatus) {
 
 fn command_help() {
     write_output(format_args!(
-        "COMMANDS: help status devices log provider openai wifi setup ask <text>"
+        "COMMANDS: help status devices log provider openai wifi ownerkey setup ask <text>"
     ));
     write_output(format_args!(
         "SETUP: key 7 starts WiFi firmware bring-up once; key 8 runs scan self-test"
@@ -1781,6 +1782,52 @@ fn command_wifi_status() {
     }
 }
 
+fn command_owner_key_status() {
+    let snapshot = owner_key::snapshot();
+    let hardware = snapshot.hardware_binding;
+    write_output(format_args!(
+        "OWNER KEY: RAM {} HANDLE {}",
+        yes_no(snapshot.generated),
+        snapshot.handle.unwrap_or("NONE")
+    ));
+    write_owner_key_fingerprint(snapshot.fingerprint);
+    write_output(format_args!(
+        "TPM2 ACPI: PRESENT {} PHYS 0x{:016X} LEN {} REV {}",
+        yes_no(hardware.tpm2_acpi_table_present),
+        hardware.tpm2_acpi_table_phys,
+        hardware.tpm2_acpi_table_length,
+        hardware.tpm2_acpi_table_revision
+    ));
+    write_output(format_args!(
+        "TPM2 IFACE: KIND {} START {} CONTROL 0x{:016X} DETAILS {}",
+        hardware.tpm2_interface_kind,
+        hardware.tpm2_start_method,
+        hardware.tpm2_control_area,
+        yes_no(hardware.tpm2_table_details_valid)
+    ));
+    write_output(format_args!(
+        "TPM2 STATUS: {} REASON {}",
+        hardware.tpm2_interface_status, hardware.tpm2_interface_status_reason
+    ));
+    write_output(format_args!(
+        "OWNER AUTH: SEAL NO PERSIST NO LOAD NO DURABLE NO"
+    ));
+}
+
+fn write_owner_key_fingerprint(fingerprint: Option<[u8; 32]>) {
+    let Some(fingerprint) = fingerprint else {
+        write_output(format_args!("OWNER KEY FINGERPRINT: NONE"));
+        return;
+    };
+
+    let mut line = ConsoleLine::empty();
+    let _ = line.write_str("OWNER KEY FINGERPRINT: sha256:");
+    for byte in fingerprint {
+        let _ = write!(line, "{:02x}", byte);
+    }
+    write_output_line(line);
+}
+
 fn api_key_status(set: bool) -> &'static str {
     if set {
         "SET"
@@ -1863,6 +1910,10 @@ fn yes_no(value: bool) -> &'static str {
 fn write_output(args: fmt::Arguments<'_>) {
     let mut line = ConsoleLine::empty();
     let _ = line.write_fmt(args);
+    write_output_line(line);
+}
+
+fn write_output_line(line: ConsoleLine) {
     serial::write_line(line.as_str());
     CONSOLE.lock().push_line(line);
 }

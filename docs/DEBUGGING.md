@@ -586,6 +586,14 @@ posture without exporting generated key material: persistent install policy
 `owner_key_material_exported: false`,
 `ram_ephemeral_candidate_generated_persistent_hardware_binding_missing`, and no
 owner-seal, persistent-install, load, or durable-write authority.
+
+For the real Surface Pro 4 TPM capture, type `ownerkey` on the console/serial
+path. It prints the same owner-key snapshot in short form: RAM handle and
+`sha256:` fingerprint, TPM2 ACPI present/phys/length/revision, TPM2 interface
+kind/start/control/status, and `OWNER AUTH: SEAL NO PERSIST NO LOAD NO DURABLE
+NO`. On the focused QEMU profile this must show
+`TPM2 ACPI: PRESENT NO PHYS 0x0000000000000000 LEN 0 REV 0` and
+`TPM2 STATUS: tpm2_acpi_absent REASON TPM2 ACPI table missing`.
 Its nested `owner_key_evidence_input` must consume `core.entropy`, report
 `entropy_evidence_present: true`, `entropy_status: ready`, RDRAND observed,
 pool capacity 64 with total collected at least 32,

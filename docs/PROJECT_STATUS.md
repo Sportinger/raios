@@ -31,6 +31,31 @@ fields; if a CRB/TIS control area is present, add the next read-only TPM
 register-status probe while keeping `owner_sealed`, persistent install, load,
 and durable-write authority false until a real seal/unseal evidence loop exists.
 
+Owner-key Surface capture command slice done (2026-07-09) - real bare-metal
+TPM evidence is now faster to capture without parsing the full honesty JSON. A
+user/agent can type `ownerkey` on serial/framebuffer console and get the
+current RAM owner-key candidate handle plus `sha256:` fingerprint, TPM2 ACPI
+table present/phys/len/revision, TPM interface kind/start/control/status, and
+the explicit `OWNER AUTH: SEAL NO PERSIST NO LOAD NO DURABLE NO` authority
+posture; the command reads the same `owner_key::snapshot()` state as
+`system.honesty_report`, exports no key material, creates no schema, writes no
+state, and grants no owner/persistent/load/durable authority. Verified:
+`rustfmt --edition 2021 --check seed-kernel\src\console.rs`; PowerShell parse
+for `vm-harness\shadow-vm-smoke-profile-m12-distribution-provenance.ps1`; diff
+check clean apart from normal CRLF warnings; release seed-kernel build via
+`scripts\build-seed-kernel.ps1 -Profile release`; focused VM
+`m12-distribution-provenance` report
+`release/vm-reports/shadow-20260709-115039-25356.json` 252/252 predicates, 54
+executed commands, `duration_ms: 142567`, report sha256
+`2866c39dd82dfebfa1589bd8f1fa3e9846f2b5dc0011d0652d79ef95cf93f3ae`.
+`scripts\scan-secrets.ps1` found no OpenAI-key-like values. Global
+`cargo fmt --all -- --check` remains red only on the pre-existing unrelated
+format drift in `raios-core/src/marvell_wifi_fw.rs` and
+`seed-kernel/src/usb.rs`. Gate check: latest full-profile report remains green
+at `release/vm-reports/shadow-20260708-150428-34396.json` 7867/7867, while
+this slice used the focused M12 profile per aggressive-fast cadence. File-size
+check: touched `seed-kernel\src\console.rs` is 1931 lines.
+
 Owner-key TPM parser hardening slice done (2026-07-09) - the TPM2 ACPI
 interface parser is now host-testable shared core logic instead of private
 kernel-only byte parsing. A user/agent can still inspect the same

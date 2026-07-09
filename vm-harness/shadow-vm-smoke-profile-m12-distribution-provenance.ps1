@@ -1177,3 +1177,10 @@ Assert-M12Predicate `
     -Passed $honestyOk `
     -Actual $(if ($honestyOk) { "matched" } else { ($honesty | ConvertTo-Json -Compress -Depth 10) }) `
     -FailureMessage "Expected system.honesty_report owner-key provisioning posture to remain unsealed and non-authorizing"
+
+Send-AgentCommand -Command "ownerkey" -ExpectedMarker "OWNER AUTH: SEAL NO PERSIST NO LOAD NO DURABLE NO" -Name "m12-distribution:N6_ownerkey_console_status"
+Assert-LogContains -Name "m12-distribution:N6_ownerkey_ram_candidate" -Needle "OWNER KEY: RAM YES HANDLE owner_key.handle.current_boot.ram0" -TimeoutSeconds 1
+Assert-LogContains -Name "m12-distribution:N6_ownerkey_fingerprint_redacted" -Needle "OWNER KEY FINGERPRINT: sha256:" -TimeoutSeconds 1
+Assert-LogContains -Name "m12-distribution:N6_ownerkey_tpm2_absent" -Needle "TPM2 ACPI: PRESENT NO PHYS 0x0000000000000000 LEN 0 REV 0" -TimeoutSeconds 1
+Assert-LogContains -Name "m12-distribution:N6_ownerkey_tpm2_interface_absent" -Needle "TPM2 IFACE: KIND none START 0 CONTROL 0x0000000000000000 DETAILS NO" -TimeoutSeconds 1
+Assert-LogContains -Name "m12-distribution:N6_ownerkey_tpm2_status_reason" -Needle "TPM2 STATUS: tpm2_acpi_absent REASON TPM2 ACPI table missing" -TimeoutSeconds 1

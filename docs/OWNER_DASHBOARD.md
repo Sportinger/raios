@@ -3,6 +3,14 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
+Updated: 2026-07-09. **Surface-Key-Capture ist jetzt ein kurzer Befehl:**
+`ownerkey` zeigt im raiOS-Console/Serial direkt RAM-Key-Handle + Fingerprint,
+TPM2-ACPI-Adresse/Laenge/Revision, Interface-Art/Start/Control/Status und
+`OWNER AUTH: SEAL NO PERSIST NO LOAD NO DURABLE NO`. Das ist nur Diagnose aus
+derselben Wahrheit wie `system.honesty_report`, kein Seal und keine neue
+Authority. Beweis: `m12-distribution-provenance`
+`shadow-20260709-115039-25356.json` 252/252 gruen.
+
 Updated: 2026-07-09. **TPM2-Auswertung ist jetzt am normalen PC testbar:**
 die Logik, die auf dem Surface die `TPM2` ACPI-Tabelle auswertet, liegt jetzt
 in `raios-core` mit 7 Host-Tests (CRB, CRB+ACPI, TIS/FIFO, unsupported,
