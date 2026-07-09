@@ -188,7 +188,7 @@ use self::agent_protocol_registry::{
     emit_registry_selection_diagnostic, emit_registry_selection_diagnostic_selftest,
     emit_submit_distribution_begin, emit_submit_distribution_begin_from_catalog,
     emit_submit_distribution_catalog_entry, emit_submit_distribution_chunk,
-    emit_submit_distribution_finalize,
+    emit_submit_distribution_finalize, emit_submit_distribution_receiver_identity,
 };
 
 pub(crate) use crate::agent_protocol_provider::provider_minimal_context_evidence_for_runtime;
@@ -447,6 +447,7 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("module.submit_candidate_chunk", Head, [], [route!("module.submit_candidate_chunk")], MethodAction::ReadMethod(emit_submit_candidate_chunk)),
     method!("module.submit_candidate_finalize", Exact, [], [route!("module.submit_candidate_finalize")], MethodAction::Read0(emit_submit_candidate_finalize)),
     method!("module.submit_distribution_catalog_entry", Head, [], [route!("module.submit_distribution_catalog_entry")], MethodAction::ReadMethod(emit_submit_distribution_catalog_entry)),
+    method!("module.submit_distribution_receiver_identity", Head, [], [route!("module.submit_distribution_receiver_identity")], MethodAction::ReadMethod(emit_submit_distribution_receiver_identity)),
     method!("module.submit_distribution_begin", Head, [], [route!("module.submit_distribution_begin")], MethodAction::ReadMethod(emit_submit_distribution_begin)),
     method!("module.submit_distribution_begin_from_catalog", Head, [], [route!("module.submit_distribution_begin_from_catalog")], MethodAction::ReadMethod(emit_submit_distribution_begin_from_catalog)),
     method!("module.submit_distribution_chunk", Head, [], [route!("module.submit_distribution_chunk")], MethodAction::ReadMethod(emit_submit_distribution_chunk)),

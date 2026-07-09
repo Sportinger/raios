@@ -24,6 +24,30 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+M12+ Slice 10 done (2026-07-09) - receiver identity retained by the guest
+local catalog. A user/agent can now feed the host-exported receiver identity
+metadata through the real serial export command stream into raiOS; the guest
+retains the descriptor/key/signature hashes and host-side binding claims as
+`current_boot` RAM-only, `local_only` catalog metadata, carries that metadata
+through catalog begin/finalize responses, and still reports
+`guest_signature_verification_performed: false` plus
+`requires_m6_m7_reverify_for_load: true`. This grants no
+acquisition/install/load/execute/persist/network/durable-write authority and
+does not treat provenance or host claims as installability. Verified:
+PowerShell profile parse; scoped format checks (`cargo fmt --package
+registry-core -- --check`; `rustfmt --edition 2021 --check
+seed-kernel\src\agent_protocol.rs seed-kernel\src\agent_protocol_registry.rs`);
+`cargo test --locked -p raios-core -p registry-core -p registry-tools` (300
+raios-core tests, 21 registry-core tests); focused VM `m12-distribution-provenance`
+report `release/vm-reports/shadow-20260709-085021-5116.json` 231/231
+predicates, 43 executed commands, `duration_ms: 159233`, report sha256
+`1fda90be807dc1438956c4f971a57c704890f80e57c5b0ec47ece9416eee5690`;
+`scripts\scan-secrets.ps1` found no OpenAI-key-like values. Global
+`cargo fmt --all -- --check` remains red only on the pre-existing unrelated
+format drift in `raios-core/src/marvell_wifi_fw.rs` and `seed-kernel/src/usb.rs`.
+Full+recovery remain deferred to the M12+ block close per the aggressive-fast
+cadence.
+
 M12+ Slice 9 done (2026-07-09) - receiver identity evidence in the local
 distribution export. A user/agent can now export a local CAS registry artifact
 together with the receiver-required raiOS Wasm artifact-identity descriptor,

@@ -496,7 +496,7 @@ impl Registry {
             None => None,
         };
         let chunks = split_distribution_chunks(&bytes, request.chunk_count);
-        let mut commands = Vec::with_capacity(chunks.len() + 3);
+        let mut commands = Vec::with_capacity(chunks.len() + 4);
         commands.push(format!(
             "module.submit_distribution_catalog_entry sha256:{} {} {} sig:{}",
             artifact_sha256,
@@ -504,6 +504,30 @@ impl Registry {
             chunks.len(),
             provenance_signature_hex
         ));
+        if let Some(identity) = receiver_identity.as_ref() {
+            commands.push(format!(
+                "module.submit_distribution_receiver_identity sha256:{} sha256:{} sha256:{} sha256:{} sha256:{} sha256:{} sha256:{} classification:{} artifact_identity_signature_verified:{} load_descriptor_signature_verified:{} artifact_hash_bound_by_identity:{} artifact_hash_bound_by_load_descriptor:{} load_descriptor_binds_artifact_identity:{} load_descriptor_authorizes_current_boot_wasm_execution:{} export_authorizes_load:{} export_authorizes_install:{} export_authorizes_execute:{} export_writes_persistent_state:{} requires_m6_m7_reverify_for_load:{}",
+                artifact_sha256,
+                identity.artifact_identity_descriptor_sha256,
+                identity.artifact_identity_public_key_sha256,
+                identity.artifact_identity_signature_sha256,
+                identity.load_descriptor_sha256,
+                identity.load_descriptor_public_key_sha256,
+                identity.load_descriptor_signature_sha256,
+                identity.classification,
+                identity.artifact_identity_signature_verified,
+                identity.load_descriptor_signature_verified,
+                identity.artifact_hash_bound_by_identity,
+                identity.artifact_hash_bound_by_load_descriptor,
+                identity.load_descriptor_binds_artifact_identity,
+                identity.load_descriptor_authorizes_current_boot_wasm_execution,
+                identity.export_authorizes_load,
+                identity.export_authorizes_install,
+                identity.export_authorizes_execute,
+                identity.export_writes_persistent_state,
+                identity.requires_m6_m7_reverify_for_load
+            ));
+        }
         commands.push(format!(
             "module.submit_distribution_begin_from_catalog sha256:{}",
             artifact_sha256
@@ -1037,6 +1061,15 @@ authorizes_current_boot_wasm_execution=true\n"
         assert!(!receiver_identity.export_authorizes_execute);
         assert!(!receiver_identity.export_writes_persistent_state);
         assert!(receiver_identity.requires_m6_m7_reverify_for_load);
+        assert_eq!(export_with_identity.commands.len(), 7);
+        assert!(export_with_identity.commands[1]
+            .starts_with("module.submit_distribution_receiver_identity sha256:"));
+        assert!(export_with_identity.commands[1].contains(
+            "classification:local_only artifact_identity_signature_verified:true load_descriptor_signature_verified:true"
+        ));
+        assert!(export_with_identity.commands[1].contains(
+            "export_authorizes_load:false export_authorizes_install:false export_authorizes_execute:false export_writes_persistent_state:false requires_m6_m7_reverify_for_load:true"
+        ));
         Ok(())
     }
 

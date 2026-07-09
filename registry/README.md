@@ -59,8 +59,9 @@ The `registry-tools` binary wraps common operations:
 
 Publishing verifies the manifest against the offline root key, copies the blob and manifest into the CAS layout, and generates the index record.
 `distribution-export` verifies the optional raiOS descriptor signatures and
-hash bindings, then emits provenance-only serial catalog/chunk commands; it
-does not authorize load or install.
+hash bindings, then emits provenance-only serial catalog/chunk commands plus a
+receiver-identity metadata command for the guest RAM catalog; it does not
+authorize load or install.
 
 ## Tests
 

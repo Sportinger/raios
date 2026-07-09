@@ -37,6 +37,12 @@ const DISTRIBUTION_CATALOG_BEGIN_ACCEPTED_REASON: &str =
     "accepted_catalog_distribution_delivery_target";
 const DISTRIBUTION_CATALOG_ENTRY_NOT_FOUND_REASON: &str =
     "local_distribution_catalog_entry_not_found";
+const DISTRIBUTION_RECEIVER_IDENTITY_ACCEPTED_REASON: &str =
+    "accepted_local_distribution_receiver_identity";
+const DISTRIBUTION_RECEIVER_IDENTITY_INVALID_REASON: &str =
+    "invalid_distribution_receiver_identity_metadata";
+const DISTRIBUTION_RECEIVER_IDENTITY_CATALOG_NOT_FOUND_REASON: &str =
+    "receiver_identity_catalog_entry_not_found";
 const DISTRIBUTION_CHUNK_ACCEPTED_REASON: &str = "accepted_distribution_chunk";
 const DISTRIBUTION_DUPLICATE_CHUNK_ACCEPTED_REASON: &str = "accepted_duplicate_distribution_chunk";
 const DISTRIBUTION_DELIVERY_NOT_STARTED_REASON: &str = "distribution_delivery_not_started";
@@ -85,6 +91,7 @@ struct PendingSerialDistribution {
     total_length: usize,
     chunk_count: usize,
     provenance_signature_der: Vec<u8>,
+    receiver_identity: Option<LocalReceiverIdentity>,
     chunks: Vec<PendingSerialDistributionChunk>,
 }
 
@@ -94,6 +101,23 @@ struct LocalDistributionCatalog {
     total_length: usize,
     chunk_count: usize,
     provenance_signature_der: Vec<u8>,
+    receiver_identity: Option<LocalReceiverIdentity>,
+}
+
+#[derive(Clone, Copy)]
+struct LocalReceiverIdentity {
+    artifact_identity_descriptor_sha256: [u8; 32],
+    artifact_identity_public_key_sha256: [u8; 32],
+    artifact_identity_signature_sha256: [u8; 32],
+    load_descriptor_sha256: [u8; 32],
+    load_descriptor_public_key_sha256: [u8; 32],
+    load_descriptor_signature_sha256: [u8; 32],
+    artifact_identity_signature_verified_by_host_export: bool,
+    load_descriptor_signature_verified_by_host_export: bool,
+    artifact_hash_bound_by_identity: bool,
+    artifact_hash_bound_by_load_descriptor: bool,
+    load_descriptor_binds_artifact_identity: bool,
+    load_descriptor_authorizes_current_boot_wasm_execution: bool,
 }
 
 struct PendingSerialDistributionChunk {
@@ -107,6 +131,17 @@ struct DistributionDeliveryTargetMetadata {
     total_length: usize,
     chunk_count: usize,
     provenance_signature_der: Vec<u8>,
+    receiver_identity: Option<LocalReceiverIdentity>,
+}
+
+#[derive(Clone, Copy)]
+struct DistributionReceiverIdentityOutcome {
+    content_sha256: Option<[u8; 32]>,
+    receiver_identity: Option<LocalReceiverIdentity>,
+    retained_in_catalog: bool,
+    accepted: bool,
+    rejected: bool,
+    reason: &'static str,
 }
 
 #[derive(Clone, Copy)]
@@ -115,6 +150,7 @@ struct DistributionCatalogEntryOutcome {
     total_length: usize,
     chunk_count: usize,
     signature_byte_len: usize,
+    receiver_identity_retained: bool,
     retained_in_catalog: bool,
     accepted: bool,
     rejected: bool,
@@ -129,6 +165,7 @@ struct DistributionBeginOutcome {
     total_length: usize,
     chunk_count: usize,
     signature_byte_len: usize,
+    receiver_identity: Option<LocalReceiverIdentity>,
     accepted: bool,
     rejected: bool,
     reason: &'static str,
@@ -180,6 +217,7 @@ struct DistributionFinalizeOutcome {
     selection: Option<DistributionTransportSelection>,
     staged_candidate: Option<module_candidate_intake::ExternalWasmCandidateOutcome>,
     retained_provenance: Option<distribution_candidate::DistributionCandidateOutcome>,
+    receiver_identity: Option<LocalReceiverIdentity>,
     status: &'static str,
     reason: &'static str,
 }
@@ -194,6 +232,7 @@ impl PendingSerialDistribution {
             total_length: 0,
             chunk_count: 0,
             provenance_signature_der: Vec::new(),
+            receiver_identity: None,
             chunks: Vec::new(),
         }
     }
@@ -206,6 +245,7 @@ impl PendingSerialDistribution {
         self.total_length = 0;
         self.chunk_count = 0;
         self.provenance_signature_der.clear();
+        self.receiver_identity = None;
         self.chunks.clear();
     }
 }
@@ -218,6 +258,7 @@ impl LocalDistributionCatalog {
             total_length: 0,
             chunk_count: 0,
             provenance_signature_der: Vec::new(),
+            receiver_identity: None,
         }
     }
 
@@ -227,6 +268,7 @@ impl LocalDistributionCatalog {
         self.total_length = 0;
         self.chunk_count = 0;
         self.provenance_signature_der.clear();
+        self.receiver_identity = None;
     }
 }
 
@@ -252,6 +294,10 @@ pub(crate) fn emit_submit_distribution_catalog_entry(arg: &str) {
                 "signature_byte_len",
                 V::U64(outcome.signature_byte_len as u64),
             ),
+            f(
+                "receiver_identity_retained",
+                b(outcome.receiver_identity_retained),
+            ),
             f("retained_in_catalog", b(outcome.retained_in_catalog)),
             f("accepted", b(outcome.accepted)),
             f("rejected", b(outcome.rejected)),
@@ -272,6 +318,51 @@ pub(crate) fn emit_submit_distribution_catalog_entry(arg: &str) {
         6,
     );
     end_response("module.submit_distribution_catalog_entry");
+}
+
+pub(crate) fn emit_submit_distribution_receiver_identity(arg: &str) {
+    let outcome = submit_distribution_receiver_identity(arg);
+
+    begin_response("module.submit_distribution_receiver_identity");
+    emit_record_fields(
+        vec![
+            f("method", s("module.submit_distribution_receiver_identity")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("source_id", s(LOCAL_DISTRIBUTION_CATALOG_SOURCE_ID)),
+            f("entry_id", s(LOCAL_DISTRIBUTION_CATALOG_ENTRY_ID)),
+            f("content_sha256", record_sha_or_null(outcome.content_sha256)),
+            f(
+                "receiver_identity",
+                outcome
+                    .receiver_identity
+                    .as_ref()
+                    .map(record_receiver_identity)
+                    .unwrap_or(V::Null),
+            ),
+            f("retained_in_catalog", b(outcome.retained_in_catalog)),
+            f("accepted", b(outcome.accepted)),
+            f("rejected", b(outcome.rejected)),
+            f("reason", s(outcome.reason)),
+            f("metadata_is_non_authorizing", b(true)),
+            f("guest_signature_verification_performed", b(false)),
+            f("requires_m6_m7_reverify_for_load", b(true)),
+            f("load_attempted", b(false)),
+            f("execution_attempted", b(false)),
+            f("durable_write_attempted", b(false)),
+            f("authorizes_acquisition", b(false)),
+            f("authorizes_install", b(false)),
+            f("authorizes_load", b(false)),
+            f("authorizes_execute", b(false)),
+            f("authorizes_persist", b(false)),
+            f("writes_persistent_state", b(false)),
+            f("network_attempted", b(false)),
+            f("owner_sealed", b(false)),
+            f("trust_tier", s("dev_key_not_owner_sealed")),
+        ],
+        6,
+    );
+    end_response("module.submit_distribution_receiver_identity");
 }
 
 pub(crate) fn emit_submit_distribution_begin(arg: &str) {
@@ -306,6 +397,18 @@ fn emit_distribution_begin_response(method: &'static str, outcome: &Distribution
             f(
                 "signature_byte_len",
                 V::U64(outcome.signature_byte_len as u64),
+            ),
+            f(
+                "receiver_identity",
+                outcome
+                    .receiver_identity
+                    .as_ref()
+                    .map(record_receiver_identity)
+                    .unwrap_or(V::Null),
+            ),
+            f(
+                "receiver_identity_retained",
+                b(outcome.receiver_identity.is_some()),
             ),
             f("accepted", b(outcome.accepted)),
             f("rejected", b(outcome.rejected)),
@@ -424,6 +527,18 @@ pub(crate) fn emit_submit_distribution_finalize() {
                     .unwrap_or(V::Null),
             ),
             f(
+                "receiver_identity",
+                outcome
+                    .receiver_identity
+                    .as_ref()
+                    .map(record_receiver_identity)
+                    .unwrap_or(V::Null),
+            ),
+            f(
+                "receiver_identity_retained",
+                b(outcome.receiver_identity.is_some()),
+            ),
+            f(
                 "staged_only_after_valid_selection",
                 b(outcome.staged_candidate.is_some()
                     == outcome
@@ -489,16 +604,41 @@ fn submit_distribution_catalog_entry(arg: &str) -> DistributionCatalogEntryOutco
     catalog.total_length = metadata.total_length;
     catalog.chunk_count = metadata.chunk_count;
     catalog.provenance_signature_der = metadata.provenance_signature_der;
+    catalog.receiver_identity = None;
 
     DistributionCatalogEntryOutcome {
         content_sha256: Some(catalog.content_sha256),
         total_length: catalog.total_length,
         chunk_count: catalog.chunk_count,
         signature_byte_len: catalog.provenance_signature_der.len(),
+        receiver_identity_retained: false,
         retained_in_catalog: true,
         accepted: true,
         rejected: false,
         reason: DISTRIBUTION_CATALOG_ENTRY_ACCEPTED_REASON,
+    }
+}
+
+fn submit_distribution_receiver_identity(arg: &str) -> DistributionReceiverIdentityOutcome {
+    let payload = distribution_payload(arg, "module.submit_distribution_receiver_identity");
+    let (content_sha256, receiver_identity) = match parse_receiver_identity_metadata(payload) {
+        Ok(metadata) => metadata,
+        Err(reason) => return rejected_receiver_identity(reason),
+    };
+
+    let mut catalog = LOCAL_DISTRIBUTION_CATALOG.lock();
+    if !catalog.active || catalog.content_sha256 != content_sha256 {
+        return rejected_receiver_identity(DISTRIBUTION_RECEIVER_IDENTITY_CATALOG_NOT_FOUND_REASON);
+    }
+    catalog.receiver_identity = Some(receiver_identity);
+
+    DistributionReceiverIdentityOutcome {
+        content_sha256: Some(content_sha256),
+        receiver_identity: Some(receiver_identity),
+        retained_in_catalog: true,
+        accepted: true,
+        rejected: false,
+        reason: DISTRIBUTION_RECEIVER_IDENTITY_ACCEPTED_REASON,
     }
 }
 
@@ -543,6 +683,7 @@ fn submit_distribution_begin_from_catalog(arg: &str) -> DistributionBeginOutcome
             total_length: catalog.total_length,
             chunk_count: catalog.chunk_count,
             provenance_signature_der: catalog.provenance_signature_der.clone(),
+            receiver_identity: catalog.receiver_identity,
         }
     };
 
@@ -569,6 +710,7 @@ fn accept_distribution_begin(
     pending.total_length = metadata.total_length;
     pending.chunk_count = metadata.chunk_count;
     pending.provenance_signature_der = metadata.provenance_signature_der;
+    pending.receiver_identity = metadata.receiver_identity;
 
     DistributionBeginOutcome {
         source_id,
@@ -577,6 +719,7 @@ fn accept_distribution_begin(
         total_length: pending.total_length,
         chunk_count: pending.chunk_count,
         signature_byte_len: pending.provenance_signature_der.len(),
+        receiver_identity: pending.receiver_identity,
         accepted: true,
         rejected: false,
         reason,
@@ -719,6 +862,7 @@ fn submit_distribution_finalize() -> DistributionFinalizeOutcome {
             selection: None,
             staged_candidate: None,
             retained_provenance: None,
+            receiver_identity: None,
             status: "denied",
             reason: DISTRIBUTION_DELIVERY_NOT_STARTED_REASON,
         };
@@ -811,6 +955,7 @@ fn finalize_pending_distribution(
             selection: Some(selection_summary),
             staged_candidate: None,
             retained_provenance: None,
+            receiver_identity: pending.receiver_identity,
             status: "denied",
             reason: selection.reason.as_str(),
         };
@@ -834,6 +979,7 @@ fn finalize_pending_distribution(
         selection: Some(selection_summary),
         staged_candidate: Some(staged_candidate),
         retained_provenance: Some(retained_provenance),
+        receiver_identity: pending.receiver_identity,
         status: selection.status,
         reason: selection.reason.as_str(),
     }
@@ -898,7 +1044,77 @@ fn parse_distribution_target_metadata(
         total_length,
         chunk_count,
         provenance_signature_der,
+        receiver_identity: None,
     })
+}
+
+fn parse_receiver_identity_metadata(
+    payload: &str,
+) -> Result<([u8; 32], LocalReceiverIdentity), &'static str> {
+    let mut words = payload.split_whitespace();
+    let content_sha256 = next_sha256(&mut words)?;
+    let artifact_identity_descriptor_sha256 = next_sha256(&mut words)?;
+    let artifact_identity_public_key_sha256 = next_sha256(&mut words)?;
+    let artifact_identity_signature_sha256 = next_sha256(&mut words)?;
+    let load_descriptor_sha256 = next_sha256(&mut words)?;
+    let load_descriptor_public_key_sha256 = next_sha256(&mut words)?;
+    let load_descriptor_signature_sha256 = next_sha256(&mut words)?;
+    expect_next_token(&mut words, "classification:local_only")?;
+    expect_next_token(&mut words, "artifact_identity_signature_verified:true")?;
+    expect_next_token(&mut words, "load_descriptor_signature_verified:true")?;
+    expect_next_token(&mut words, "artifact_hash_bound_by_identity:true")?;
+    expect_next_token(&mut words, "artifact_hash_bound_by_load_descriptor:true")?;
+    expect_next_token(&mut words, "load_descriptor_binds_artifact_identity:true")?;
+    expect_next_token(
+        &mut words,
+        "load_descriptor_authorizes_current_boot_wasm_execution:true",
+    )?;
+    expect_next_token(&mut words, "export_authorizes_load:false")?;
+    expect_next_token(&mut words, "export_authorizes_install:false")?;
+    expect_next_token(&mut words, "export_authorizes_execute:false")?;
+    expect_next_token(&mut words, "export_writes_persistent_state:false")?;
+    expect_next_token(&mut words, "requires_m6_m7_reverify_for_load:true")?;
+    if words.next().is_some() {
+        return Err(DISTRIBUTION_RECEIVER_IDENTITY_INVALID_REASON);
+    }
+
+    Ok((
+        content_sha256,
+        LocalReceiverIdentity {
+            artifact_identity_descriptor_sha256,
+            artifact_identity_public_key_sha256,
+            artifact_identity_signature_sha256,
+            load_descriptor_sha256,
+            load_descriptor_public_key_sha256,
+            load_descriptor_signature_sha256,
+            artifact_identity_signature_verified_by_host_export: true,
+            load_descriptor_signature_verified_by_host_export: true,
+            artifact_hash_bound_by_identity: true,
+            artifact_hash_bound_by_load_descriptor: true,
+            load_descriptor_binds_artifact_identity: true,
+            load_descriptor_authorizes_current_boot_wasm_execution: true,
+        },
+    ))
+}
+
+fn next_sha256<'a, I>(words: &mut I) -> Result<[u8; 32], &'static str>
+where
+    I: Iterator<Item = &'a str>,
+{
+    let Some(token) = words.next() else {
+        return Err(DISTRIBUTION_RECEIVER_IDENTITY_INVALID_REASON);
+    };
+    parse_sha256_ref(token).ok_or(DISTRIBUTION_RECEIVER_IDENTITY_INVALID_REASON)
+}
+
+fn expect_next_token<'a, I>(words: &mut I, expected: &'static str) -> Result<(), &'static str>
+where
+    I: Iterator<Item = &'a str>,
+{
+    match words.next() {
+        Some(token) if token == expected => Ok(()),
+        _ => Err(DISTRIBUTION_RECEIVER_IDENTITY_INVALID_REASON),
+    }
 }
 
 fn parse_positive_usize(token: &str) -> Option<usize> {
@@ -921,6 +1137,18 @@ fn rejected_distribution_catalog_entry(reason: &'static str) -> DistributionCata
         total_length: 0,
         chunk_count: 0,
         signature_byte_len: 0,
+        receiver_identity_retained: false,
+        retained_in_catalog: false,
+        accepted: false,
+        rejected: true,
+        reason,
+    }
+}
+
+fn rejected_receiver_identity(reason: &'static str) -> DistributionReceiverIdentityOutcome {
+    DistributionReceiverIdentityOutcome {
+        content_sha256: None,
+        receiver_identity: None,
         retained_in_catalog: false,
         accepted: false,
         rejected: true,
@@ -940,6 +1168,7 @@ fn rejected_distribution_begin_for(
         total_length: 0,
         chunk_count: 0,
         signature_byte_len: 0,
+        receiver_identity: None,
         accepted: false,
         rejected: true,
         reason,
@@ -1015,6 +1244,7 @@ fn rejected_distribution_finalize(
         selection: None,
         staged_candidate: None,
         retained_provenance: None,
+        receiver_identity: None,
         status: "denied",
         reason,
     }
@@ -1084,6 +1314,68 @@ fn record_distribution_transport_selection(
             b(selection.writes_persistent_state),
         ),
         f("owner_sealed", b(selection.owner_sealed)),
+    ])
+}
+
+fn record_receiver_identity(identity: &LocalReceiverIdentity) -> V<'static> {
+    V::InlineObject(vec![
+        f("scope", s("current_boot")),
+        f("classification", s("local_only")),
+        f(
+            "artifact_identity_descriptor_sha256",
+            record_sha(identity.artifact_identity_descriptor_sha256),
+        ),
+        f(
+            "artifact_identity_public_key_sha256",
+            record_sha(identity.artifact_identity_public_key_sha256),
+        ),
+        f(
+            "artifact_identity_signature_sha256",
+            record_sha(identity.artifact_identity_signature_sha256),
+        ),
+        f(
+            "load_descriptor_sha256",
+            record_sha(identity.load_descriptor_sha256),
+        ),
+        f(
+            "load_descriptor_public_key_sha256",
+            record_sha(identity.load_descriptor_public_key_sha256),
+        ),
+        f(
+            "load_descriptor_signature_sha256",
+            record_sha(identity.load_descriptor_signature_sha256),
+        ),
+        f(
+            "artifact_identity_signature_verified_by_host_export",
+            b(identity.artifact_identity_signature_verified_by_host_export),
+        ),
+        f(
+            "load_descriptor_signature_verified_by_host_export",
+            b(identity.load_descriptor_signature_verified_by_host_export),
+        ),
+        f("guest_signature_verification_performed", b(false)),
+        f(
+            "artifact_hash_bound_by_identity",
+            b(identity.artifact_hash_bound_by_identity),
+        ),
+        f(
+            "artifact_hash_bound_by_load_descriptor",
+            b(identity.artifact_hash_bound_by_load_descriptor),
+        ),
+        f(
+            "load_descriptor_binds_artifact_identity",
+            b(identity.load_descriptor_binds_artifact_identity),
+        ),
+        f(
+            "load_descriptor_authorizes_current_boot_wasm_execution",
+            b(identity.load_descriptor_authorizes_current_boot_wasm_execution),
+        ),
+        f("metadata_is_non_authorizing", b(true)),
+        f("export_authorizes_load", b(false)),
+        f("export_authorizes_install", b(false)),
+        f("export_authorizes_execute", b(false)),
+        f("export_writes_persistent_state", b(false)),
+        f("requires_m6_m7_reverify_for_load", b(true)),
     ])
 }
 

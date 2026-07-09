@@ -338,6 +338,7 @@ $echoArtifactPath = Join-Path $RepoRoot "seed-kernel\artifacts\svc.demo.echo.was
 $hostCasExport = New-M12HostStaticCasExport -ArtifactPath $echoArtifactPath
 $hostCasCommands = @($hostCasExport.commands)
 $hostCasIdentity = $hostCasExport.receiver_identity
+$hostCasReceiverIdentityCommand = Get-M12ExportCommand -Export $hostCasExport -Prefix "module.submit_distribution_receiver_identity "
 $hostCasExportOk = (
     $hostCasExport.source_kind -eq "local_static_cas_registry" -and
     $hostCasExport.source_id -eq "host.local_static_cas" -and
@@ -349,9 +350,10 @@ $hostCasExportOk = (
     [int]$hostCasExport.chunk_count -eq 3 -and
     @($hostCasExport.chunks).Count -eq 3 -and
     $hostCasExport.provenance_signature_hex -eq $provSigHex -and
-    $hostCasCommands.Count -eq 6 -and
+    $hostCasCommands.Count -eq 7 -and
     $hostCasCommands[0] -eq "module.submit_distribution_catalog_entry $expectedSha 4205 3 sig:$provSigHex" -and
-    $hostCasCommands[1] -eq "module.submit_distribution_begin_from_catalog $expectedSha" -and
+    $hostCasCommands[1].StartsWith("module.submit_distribution_receiver_identity $expectedSha ") -and
+    $hostCasCommands[2] -eq "module.submit_distribution_begin_from_catalog $expectedSha" -and
     $hostCasCommands[-1] -eq "module.submit_distribution_finalize" -and
     $hostCasExport.registry_payload_hash_blake3.Length -eq 64 -and
     $null -ne $hostCasIdentity -and
@@ -464,6 +466,7 @@ $catalogEntryOk = (
     $catalogEntryResult.content_sha256 -eq $expectedSha -and
     [int]$catalogEntryResult.total_length -eq 4205 -and
     [int]$catalogEntryResult.chunk_count -eq 3 -and
+    $catalogEntryResult.receiver_identity_retained -eq $false -and
     $catalogEntryResult.retained_in_catalog -eq $true -and
     $catalogEntryResult.accepted -eq $true -and
     $catalogEntryResult.rejected -eq $false -and
@@ -476,6 +479,57 @@ Assert-M12Predicate `
     -Passed $catalogEntryOk `
     -Actual $(if ($catalogEntryOk) { "matched" } else { ($catalogEntryResult | ConvertTo-Json -Compress -Depth 8) }) `
     -FailureMessage "Expected local catalog entry to be retained without authority"
+
+Send-AgentCommand -Command $hostCasReceiverIdentityCommand -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_receiver_identity" -Name "m12-distribution:T2_host_cas_receiver_identity"
+$catalogReceiverIdentity = Get-LastAgentResponseJson -Method "module.submit_distribution_receiver_identity"
+$catalogReceiverIdentityResult = $catalogReceiverIdentity.body.result
+$catalogReceiverIdentityRecord = $catalogReceiverIdentityResult.receiver_identity
+$artifactIdentityDescriptorSha = "sha256:$($hostCasIdentity.artifact_identity_descriptor_sha256)"
+$artifactIdentityPublicKeySha = "sha256:$($hostCasIdentity.artifact_identity_public_key_sha256)"
+$artifactIdentitySignatureSha = "sha256:$($hostCasIdentity.artifact_identity_signature_sha256)"
+$loadDescriptorSha = "sha256:$($hostCasIdentity.load_descriptor_sha256)"
+$loadDescriptorPublicKeySha = "sha256:$($hostCasIdentity.load_descriptor_public_key_sha256)"
+$loadDescriptorSignatureSha = "sha256:$($hostCasIdentity.load_descriptor_signature_sha256)"
+$catalogReceiverIdentityOk = (
+    $catalogReceiverIdentity.t -eq "response" -and
+    $catalogReceiverIdentityResult.source_id -eq "local.serial.catalog" -and
+    $catalogReceiverIdentityResult.entry_id -eq "local.catalog.distribution" -and
+    $catalogReceiverIdentityResult.content_sha256 -eq $expectedSha -and
+    $catalogReceiverIdentityResult.retained_in_catalog -eq $true -and
+    $catalogReceiverIdentityResult.accepted -eq $true -and
+    $catalogReceiverIdentityResult.rejected -eq $false -and
+    $catalogReceiverIdentityResult.reason -eq "accepted_local_distribution_receiver_identity" -and
+    $catalogReceiverIdentityResult.metadata_is_non_authorizing -eq $true -and
+    $catalogReceiverIdentityResult.guest_signature_verification_performed -eq $false -and
+    $catalogReceiverIdentityResult.requires_m6_m7_reverify_for_load -eq $true -and
+    $catalogReceiverIdentityRecord.classification -eq "local_only" -and
+    $catalogReceiverIdentityRecord.artifact_identity_descriptor_sha256 -eq $artifactIdentityDescriptorSha -and
+    $catalogReceiverIdentityRecord.artifact_identity_public_key_sha256 -eq $artifactIdentityPublicKeySha -and
+    $catalogReceiverIdentityRecord.artifact_identity_signature_sha256 -eq $artifactIdentitySignatureSha -and
+    $catalogReceiverIdentityRecord.load_descriptor_sha256 -eq $loadDescriptorSha -and
+    $catalogReceiverIdentityRecord.load_descriptor_public_key_sha256 -eq $loadDescriptorPublicKeySha -and
+    $catalogReceiverIdentityRecord.load_descriptor_signature_sha256 -eq $loadDescriptorSignatureSha -and
+    $catalogReceiverIdentityRecord.artifact_identity_signature_verified_by_host_export -eq $true -and
+    $catalogReceiverIdentityRecord.load_descriptor_signature_verified_by_host_export -eq $true -and
+    $catalogReceiverIdentityRecord.guest_signature_verification_performed -eq $false -and
+    $catalogReceiverIdentityRecord.artifact_hash_bound_by_identity -eq $true -and
+    $catalogReceiverIdentityRecord.artifact_hash_bound_by_load_descriptor -eq $true -and
+    $catalogReceiverIdentityRecord.load_descriptor_binds_artifact_identity -eq $true -and
+    $catalogReceiverIdentityRecord.load_descriptor_authorizes_current_boot_wasm_execution -eq $true -and
+    $catalogReceiverIdentityRecord.metadata_is_non_authorizing -eq $true -and
+    $catalogReceiverIdentityRecord.export_authorizes_load -eq $false -and
+    $catalogReceiverIdentityRecord.export_authorizes_install -eq $false -and
+    $catalogReceiverIdentityRecord.export_authorizes_execute -eq $false -and
+    $catalogReceiverIdentityRecord.export_writes_persistent_state -eq $false -and
+    $catalogReceiverIdentityRecord.requires_m6_m7_reverify_for_load -eq $true -and
+    (Test-M12RegistryDenials -Record $catalogReceiverIdentityResult)
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:T2_receiver_identity_retained_in_catalog" `
+    -Expected "host-verified receiver identity metadata is retained as current_boot RAM-only catalog evidence without authorizing load" `
+    -Passed $catalogReceiverIdentityOk `
+    -Actual $(if ($catalogReceiverIdentityOk) { "matched" } else { ($catalogReceiverIdentityResult | ConvertTo-Json -Compress -Depth 10) }) `
+    -FailureMessage "Expected receiver identity metadata to be retained without authority"
 
 Send-AgentCommand -Command "module.submit_distribution_begin_from_catalog sha256:0000000000000000000000000000000000000000000000000000000000000000" -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_begin_from_catalog" -Name "m12-distribution:T2_wrong_catalog_selector"
 $wrongCatalogBegin = Get-LastAgentResponseJson -Method "module.submit_distribution_begin_from_catalog"
@@ -516,12 +570,19 @@ Assert-M12Predicate `
 Send-AgentCommand -Command (Get-M12ExportCommand -Export $hostCasExport -Prefix "module.submit_distribution_begin_from_catalog ") -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_begin_from_catalog" -Name "m12-distribution:T2_host_cas_catalog_begin"
 $catalogBegin = Get-LastAgentResponseJson -Method "module.submit_distribution_begin_from_catalog"
 $catalogBeginResult = $catalogBegin.body.result
+$catalogBeginIdentity = $catalogBeginResult.receiver_identity
 $catalogBeginOk = (
     $catalogBeginResult.source_id -eq "local.serial.catalog" -and
     $catalogBeginResult.entry_id -eq "local.catalog.distribution" -and
     $catalogBeginResult.content_sha256 -eq $expectedSha -and
     [int]$catalogBeginResult.total_length -eq 4205 -and
     [int]$catalogBeginResult.chunk_count -eq 3 -and
+    $catalogBeginResult.receiver_identity_retained -eq $true -and
+    $catalogBeginIdentity.artifact_identity_descriptor_sha256 -eq $artifactIdentityDescriptorSha -and
+    $catalogBeginIdentity.load_descriptor_sha256 -eq $loadDescriptorSha -and
+    $catalogBeginIdentity.guest_signature_verification_performed -eq $false -and
+    $catalogBeginIdentity.export_authorizes_load -eq $false -and
+    $catalogBeginIdentity.requires_m6_m7_reverify_for_load -eq $true -and
     $catalogBeginResult.accepted -eq $true -and
     $catalogBeginResult.rejected -eq $false -and
     $catalogBeginResult.reason -eq "accepted_catalog_distribution_delivery_target" -and
@@ -543,6 +604,7 @@ $catalogResult = $catalogFinalize.body.result
 $catalogSelection = $catalogResult.selection
 $catalogStaged = $catalogResult.staged_candidate
 $catalogRetained = $catalogResult.retained_provenance
+$catalogReceiverIdentity = $catalogResult.receiver_identity
 $catalogOk = (
     $catalogFinalize.t -eq "response" -and
     $catalogResult.status -eq "selected" -and
@@ -563,6 +625,12 @@ $catalogOk = (
     $catalogStaged.rejected -eq $false -and
     $catalogRetained.provenance_verified -eq $true -and
     $catalogRetained.artifact_sha256 -eq $expectedSha -and
+    $catalogResult.receiver_identity_retained -eq $true -and
+    $catalogReceiverIdentity.artifact_identity_descriptor_sha256 -eq $artifactIdentityDescriptorSha -and
+    $catalogReceiverIdentity.load_descriptor_sha256 -eq $loadDescriptorSha -and
+    $catalogReceiverIdentity.guest_signature_verification_performed -eq $false -and
+    $catalogReceiverIdentity.export_authorizes_load -eq $false -and
+    $catalogReceiverIdentity.requires_m6_m7_reverify_for_load -eq $true -and
     $catalogResult.staged_only_after_valid_selection -eq $true -and
     (Test-M12RegistryDenials -Record $catalogResult) -and
     (Test-M12RegistryDenials -Record $catalogSelection) -and

@@ -127,9 +127,14 @@ staging only an inert candidate (`m12-distribution-provenance` 229/229). **Slice
 DONE:** the local registry/export packet now carries the receiver-required raiOS Wasm
 artifact identity descriptor, current-boot load descriptor, P-256 keys, and signatures,
 with host-side signature/hash binding checks, still as non-authorizing provenance
-(`m12-distribution-provenance` 229/229). Next M12+ slice: let the guest local catalog
-retain that receiver-identity evidence as current_boot RAM-only metadata while keeping
-install/load authority denied. (3) provide real trust inputs (a cryptographically
+(`m12-distribution-provenance` 229/229). **Slice 10 DONE:** the guest local catalog
+now retains the host-exported receiver-identity hash/binding metadata as
+current_boot RAM-only local-only evidence, surfaces it on catalog begin/finalize,
+and still reports guest signature verification not performed plus M6/M7 reverify
+required (`m12-distribution-provenance` 231/231). Next M12+ slice: carry the raw
+receiver descriptor/key/signature bytes through a bounded evidence channel and have
+the guest reverify them before marking receiver identity evidence complete, still
+without install/load authority. (3) provide real trust inputs (a cryptographically
 trusted time source, real CA roots, a live second provider) → I finish M10 real
 validation — STILL YOURS. (4) the owner-key sealing ceremony → the FINAL step —
 STILL YOURS. Until then every label stays honestly unverified / dev_key_not_owner_
