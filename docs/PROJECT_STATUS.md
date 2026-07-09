@@ -26,16 +26,40 @@ profiles, protocol probes, and failure modes.
 
 Current exact next task (bare-metal diagnostics): boot the Surface from the
 refreshed Disk 2 stick with the same hub/mouse/stick setup, confirm `MSC LOG`,
-click `Start WiFi FW`, and check that the download reaches
-`DRV_READY written after DMA/INTx pre-quarantine` while the hub mouse
-keeps moving. If the mouse still stops, even a brief `DRV_READY` transition is
-enough to disturb Surface input and the next fix should keep the chip pre-ready
-until a real IOMMU/interrupt confinement window exists; if the mouse survives,
-the next risky WiFi slice is a short, explicitly bounded bus-master re-enable
-window for one mailbox/HW_SPEC probe. The Surface WiFi RX-PFU path remains
-parked because arming it made real Surface MMIO read back all-ones
-(`HOST_INT=0xffffffff`, write pointers `0xffffffff`) and froze input; do not
-re-enable RX-PFU while using stick logging to gather evidence.
+click `Start WiFi FW`, and check whether the hub mouse survives the first
+Linux-matched interrupt quarantine before `DRV_READY`. If it survives, the next
+slice is a bounded firmware-status observation while DMA remains disabled. If
+it still stops, stop repeating `DRV_READY` quarantine variants and inspect
+MSI/MSI-X capability state plus upstream bridge/platform isolation before any
+further ready write. The Surface WiFi RX-PFU path remains parked because arming
+it made real Surface MMIO read back all-ones (`HOST_INT=0xffffffff`, write
+pointers `0xffffffff`) and froze input; do not re-enable RX-PFU while gathering
+this evidence.
+
+WiFi Linux-matched interrupt quarantine correction done (2026-07-09) - raiOS
+can now enter the diagnostic `DRV_READY` transition with the actual Marvell
+host-interrupt source register (`PCIE_HOST_INT_MASK`, `0xC34`) disabled and
+pending host status cleared with the Linux driver's write-zero-to-clear
+polarity. The previous quarantine accidentally wrote zero to
+`PCIE_HOST_INT_STATUS_MASK` (`0xC3C`), wrote the positive interrupt mask to the
+status register, and wrote zero to `PCIE_CPU_INT_EVENT`; none of those three
+writes matched the upstream mwifiex sequence. DMA/INTx pre-quarantine and the
+post-write PCI-function quiesce remain, and firmware-ready, HW_SPEC, scan, link,
+and RX-PFU authority remain denied. Fresh host readback of Disk 2 proved the
+RECLOG remains a valid 57-frame chain; its tail is
+`hub_mouse_port_reset_failed` with `reports=179`, `errors=0`, `last_xfer_cc=1`,
+`m_port=259`, and `m_ep=1`, which supports an external disturbance hypothesis
+but does not by itself prove the Marvell interrupt path is the cause. Verified:
+17/17 focused `raios-core` Marvell firmware tests; release package build; quick
+Shadow VM report `release/vm-reports/shadow-20260709-213525-25680.json` passed
+542/542 predicates and 79 executed commands, `duration_ms: 209278`, report
+sha256 `1aa7f61f7f2489cc46d7c4db691c68c680616c8ea952eccbb22de5dd9dc25b8e`, and
+`base_image.sha256: 68e93a1572df569581c34d903e832b607e83d18b3d411387274a157f58b08ada`.
+Owner handoff: Disk 2 `SEED_ESP_A` was refreshed without reformatting via
+`scripts\update-usb-esp-a.ps1 -DiskNumber 2 -SkipBuild`; log
+`C:\Users\admin\AppData\Local\Temp\raios-usb-esp-a-update-disk2-20260709-213921.log`
+reported kernel sha256
+`EFB49EF80152501D0399FDAAB5F2ABCB339F7ABC06AE2CDF60DE5EDF9E950BB8`.
 
 WiFi DRV_READY pre-quarantine diagnostic slice done (2026-07-09) - after
 the owner reported "no" for the post-`DRV_READY` PCI-quiesce test, raiOS now

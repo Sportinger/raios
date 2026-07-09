@@ -16,7 +16,7 @@ use raios_core::marvell_wifi_fw::{
     CMD_SIZE, CPU_INTR_DOOR_BELL, DRV_READY, FW_DMA_STAGING_SIZE, FW_DUMP_CTRL,
     FW_READY_TIMEOUT_MS, FW_STATUS, HOST_INTR_CMD_DONE, HOST_INTR_EVENT_RDY, HOST_INTR_MASK,
     HOST_INTR_UPLD_RDY, MWIFIEX_UPLD_SIZE, PCIE_CPU_INT_EVENT, PCIE_CPU_INT_STATUS,
-    PCIE_HOST_INT_STATUS, PCIE_HOST_INT_STATUS_MASK,
+    PCIE_HOST_INT_MASK, PCIE_HOST_INT_STATUS, PCIE_HOST_INT_STATUS_MASK,
 };
 use spin::Mutex;
 
@@ -2221,9 +2221,12 @@ fn write_drv_ready_pre_quarantined(
     value: u32,
 ) -> FirmwareRegisterSnapshot {
     compiler_fence(Ordering::SeqCst);
-    write_reg(mmio_base, PCIE_HOST_INT_STATUS_MASK, 0);
-    write_reg(mmio_base, PCIE_HOST_INT_STATUS, HOST_INTR_MASK);
-    write_reg(mmio_base, PCIE_CPU_INT_EVENT, 0);
+    write_reg(mmio_base, PCIE_HOST_INT_MASK, 0);
+    write_reg(mmio_base, PCIE_HOST_INT_STATUS_MASK, HOST_INTR_MASK);
+    let pending = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+    if pending != 0 && pending != u32::MAX {
+        write_reg(mmio_base, PCIE_HOST_INT_STATUS, !pending);
+    }
     compiler_fence(Ordering::SeqCst);
     pci::disable_bus_master(pci_address);
     compiler_fence(Ordering::SeqCst);
