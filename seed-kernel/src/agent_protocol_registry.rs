@@ -58,6 +58,10 @@ const DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_TOO_LARGE_REASON: &str =
     "distribution_receiver_identity_evidence_too_large";
 const DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_VERIFY_FAILED_REASON: &str =
     "distribution_receiver_identity_evidence_verify_failed";
+const DISTRIBUTION_RECEIVER_IDENTITY_PREFLIGHT_MISSING_GATES_REASON: &str =
+    "distribution_receiver_identity_load_preflight_missing_required_gates";
+const DISTRIBUTION_RECEIVER_IDENTITY_PREFLIGHT_INVALID_REASON: &str =
+    "invalid_distribution_receiver_identity_load_preflight";
 const DISTRIBUTION_CHUNK_ACCEPTED_REASON: &str = "accepted_distribution_chunk";
 const DISTRIBUTION_DUPLICATE_CHUNK_ACCEPTED_REASON: &str = "accepted_duplicate_distribution_chunk";
 const DISTRIBUTION_DELIVERY_NOT_STARTED_REASON: &str = "distribution_delivery_not_started";
@@ -188,6 +192,19 @@ struct DistributionReceiverIdentityEvidenceOutcome {
     accepted: bool,
     rejected: bool,
     reason: &'static str,
+}
+
+#[derive(Clone, Copy)]
+struct DistributionReceiverIdentityLoadPreflightOutcome {
+    content_sha256: Option<[u8; 32]>,
+    retained_part_count: usize,
+    receiver_identity: Option<LocalReceiverIdentity>,
+    status: &'static str,
+    reason: &'static str,
+    preflight_evaluated: bool,
+    accepted: bool,
+    rejected: bool,
+    missing_gate_count: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -545,6 +562,87 @@ pub(crate) fn emit_submit_distribution_receiver_identity_finalize(arg: &str) {
         "module.submit_distribution_receiver_identity_finalize",
         &outcome,
     );
+}
+
+pub(crate) fn emit_distribution_receiver_identity_load_preflight(arg: &str) {
+    let outcome = distribution_receiver_identity_load_preflight(arg);
+    let receiver_identity_complete = outcome
+        .receiver_identity
+        .map(|identity| identity.receiver_identity_complete)
+        .unwrap_or(false);
+    let guest_signature_verification_performed = outcome
+        .receiver_identity
+        .map(|identity| identity.guest_signature_verification_performed)
+        .unwrap_or(false);
+
+    begin_response("module.distribution_receiver_identity_load_preflight");
+    emit_record_fields(
+        vec![
+            f(
+                "method",
+                s("module.distribution_receiver_identity_load_preflight"),
+            ),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("source_id", s(LOCAL_DISTRIBUTION_CATALOG_SOURCE_ID)),
+            f("entry_id", s(LOCAL_DISTRIBUTION_CATALOG_ENTRY_ID)),
+            f("status", s(outcome.status)),
+            f("reason", s(outcome.reason)),
+            f("content_sha256", record_sha_or_null(outcome.content_sha256)),
+            f(
+                "retained_part_count",
+                V::U64(outcome.retained_part_count as u64),
+            ),
+            f(
+                "receiver_identity",
+                outcome
+                    .receiver_identity
+                    .as_ref()
+                    .map(record_receiver_identity)
+                    .unwrap_or(V::Null),
+            ),
+            f(
+                "receiver_identity_retained",
+                b(outcome.receiver_identity.is_some()),
+            ),
+            f("receiver_identity_complete", b(receiver_identity_complete)),
+            f(
+                "guest_signature_verification_performed",
+                b(guest_signature_verification_performed),
+            ),
+            f("preflight_evaluated", b(outcome.preflight_evaluated)),
+            f("accepted", b(outcome.accepted)),
+            f("rejected", b(outcome.rejected)),
+            f(
+                "missing_gate_count",
+                V::U64(outcome.missing_gate_count as u64),
+            ),
+            f("m6_reverification_gate_satisfied", b(false)),
+            f("m7_loader_policy_gate_satisfied", b(false)),
+            f("provider_trust_gate_satisfied", b(false)),
+            f("owner_seal_gate_satisfied", b(false)),
+            f("requires_m6_m7_reverify_for_load", b(true)),
+            f("requires_provider_trust_for_load", b(true)),
+            f("requires_owner_seal_for_load", b(true)),
+            f("can_load_now", b(false)),
+            f("load_authorized", b(false)),
+            f("install_authorized", b(false)),
+            f("load_attempted", b(false)),
+            f("execution_attempted", b(false)),
+            f("durable_write_attempted", b(false)),
+            f("authorizes_acquisition", b(false)),
+            f("authorizes_install", b(false)),
+            f("authorizes_load", b(false)),
+            f("authorizes_execute", b(false)),
+            f("authorizes_persist", b(false)),
+            f("writes_persistent_state", b(false)),
+            f("network_attempted", b(false)),
+            f("owner_sealed", b(false)),
+            f("trust_tier", s("dev_key_not_owner_sealed")),
+        ],
+        6,
+    );
+    end_response("module.distribution_receiver_identity_load_preflight");
 }
 
 fn emit_distribution_receiver_identity_evidence_response(
@@ -1067,6 +1165,75 @@ fn submit_distribution_receiver_identity_finalize(
         accepted: true,
         rejected: false,
         reason: DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_FINALIZED_REASON,
+    }
+}
+
+fn distribution_receiver_identity_load_preflight(
+    arg: &str,
+) -> DistributionReceiverIdentityLoadPreflightOutcome {
+    let payload = distribution_payload(arg, "module.distribution_receiver_identity_load_preflight");
+    let mut words = payload.split_whitespace();
+    let content_sha256 = match next_sha256_or(
+        &mut words,
+        DISTRIBUTION_RECEIVER_IDENTITY_PREFLIGHT_INVALID_REASON,
+    ) {
+        Ok(value) => value,
+        Err(reason) => return rejected_receiver_identity_load_preflight(reason),
+    };
+    if words.next().is_some() {
+        return rejected_receiver_identity_load_preflight(
+            DISTRIBUTION_RECEIVER_IDENTITY_PREFLIGHT_INVALID_REASON,
+        );
+    }
+
+    let catalog = LOCAL_DISTRIBUTION_CATALOG.lock();
+    if !catalog.active || catalog.content_sha256 != content_sha256 {
+        return rejected_receiver_identity_load_preflight(
+            DISTRIBUTION_RECEIVER_IDENTITY_CATALOG_NOT_FOUND_REASON,
+        );
+    }
+    let retained_part_count = catalog.receiver_identity_evidence.retained_part_count();
+    let Some(identity) = catalog.receiver_identity else {
+        return DistributionReceiverIdentityLoadPreflightOutcome {
+            content_sha256: Some(content_sha256),
+            retained_part_count,
+            receiver_identity: None,
+            status: "denied",
+            reason: DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_INCOMPLETE_REASON,
+            preflight_evaluated: false,
+            accepted: false,
+            rejected: true,
+            missing_gate_count: 0,
+        };
+    };
+    if !identity.receiver_identity_complete
+        || !identity.guest_signature_verification_performed
+        || !identity.artifact_identity_signature_verified_by_guest
+        || !identity.load_descriptor_signature_verified_by_guest
+    {
+        return DistributionReceiverIdentityLoadPreflightOutcome {
+            content_sha256: Some(content_sha256),
+            retained_part_count,
+            receiver_identity: Some(identity),
+            status: "denied",
+            reason: DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_INCOMPLETE_REASON,
+            preflight_evaluated: false,
+            accepted: false,
+            rejected: true,
+            missing_gate_count: 0,
+        };
+    }
+
+    DistributionReceiverIdentityLoadPreflightOutcome {
+        content_sha256: Some(content_sha256),
+        retained_part_count,
+        receiver_identity: Some(identity),
+        status: "denied",
+        reason: DISTRIBUTION_RECEIVER_IDENTITY_PREFLIGHT_MISSING_GATES_REASON,
+        preflight_evaluated: true,
+        accepted: true,
+        rejected: false,
+        missing_gate_count: 4,
     }
 }
 
@@ -1785,6 +1952,22 @@ fn rejected_receiver_identity_evidence(
         accepted: false,
         rejected: true,
         reason,
+    }
+}
+
+fn rejected_receiver_identity_load_preflight(
+    reason: &'static str,
+) -> DistributionReceiverIdentityLoadPreflightOutcome {
+    DistributionReceiverIdentityLoadPreflightOutcome {
+        content_sha256: None,
+        retained_part_count: 0,
+        receiver_identity: None,
+        status: "denied",
+        reason,
+        preflight_evaluated: false,
+        accepted: false,
+        rejected: true,
+        missing_gate_count: 0,
     }
 }
 

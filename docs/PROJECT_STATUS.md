@@ -24,10 +24,32 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (M12+ distribution receiver evidence): add a
-receiver-identity load-preflight diagnostic that requires guest-complete
-receiver evidence and returns the explicit missing M6/M7/provider/owner gates
-while still denying load/install.
+Current exact next task (M12+ distribution receiver evidence): bind the
+receiver-identity load preflight to the inert retained candidate produced by
+catalog finalize, returning the same missing M6/M7/provider/owner gates only
+when the reassembled artifact hash matches the guest-complete receiver
+identity, while still denying load/install.
+
+M12+ Slice 12 done (2026-07-09) - receiver identity load preflight. A
+user/agent can now ask raiOS to run a current-boot receiver-identity load
+preflight against the local catalog artifact hash; the guest refuses to
+evaluate until receiver evidence is guest-complete, and once complete it
+returns the explicit missing M6, M7, provider-trust, and owner-seal gates while
+still reporting `can_load_now: false`, `load_authorized: false`, and no
+load/install/execute/persist/network/durable-write authority. This is still a
+diagnostic on the final load path, not a load decision. Verified: scoped
+format check (`rustfmt --edition 2021 --check
+seed-kernel\src\agent_protocol.rs seed-kernel\src\agent_protocol_registry.rs`);
+release seed-kernel build via `scripts\build-seed-kernel.ps1 -Profile
+release`; focused VM `m12-distribution-provenance` report
+`release/vm-reports/shadow-20260709-092219-15860.json` 244/244 predicates, 52
+executed commands, `duration_ms: 120872`, report sha256
+`54dd7d6063309e2acbf0d66e789c96329791e6b7870a58c12c8e716ed2ceb6a6`;
+`scripts\scan-secrets.ps1` found no OpenAI-key-like values. Global
+`cargo fmt --all -- --check` remains red only on the pre-existing unrelated
+format drift in `raios-core/src/marvell_wifi_fw.rs` and `seed-kernel/src/usb.rs`.
+Full+recovery remain deferred to the M12+ block close per the aggressive-fast
+cadence.
 
 M12+ Slice 11 done (2026-07-09) - receiver identity raw evidence guest
 verification. A user/agent can now carry the raw receiver artifact-identity

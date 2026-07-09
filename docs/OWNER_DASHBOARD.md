@@ -3,15 +3,14 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-09. **raiOS prueft die Empfaenger-Identitaet jetzt selbst im
-Gast:** Der Host-Export schickt die echten Descriptoren, Public Keys und
-Signaturen als begrenzte Evidence-Kommandos mit. raiOS speichert sie nur
-RAM-only/current_boot/local_only, berechnet die Hashes neu, prueft beide
-P-256-Signaturen im Gast und markiert die Identitaet erst dann als komplett.
-Trotzdem weiter NICHT laden, installieren, ausfuehren, speichern oder aus dem
-Netz holen; M6/M7, Provider-Vertrauen und Owner-Seal fehlen weiter. Beweis:
-`m12-distribution-provenance` `shadow-20260709-091233-17048.json` 240/240
-gruen.
+Updated: 2026-07-09. **raiOS hat jetzt einen Empfaenger-Load-Preflight:** Nach
+der echten Gast-Pruefung der Empfaenger-Identitaet kann ein Agent raiOS fragen:
+"Darf dieser lokale Katalog-Artefakt-Hash jetzt geladen werden?" Vor kompletter
+Guest-Evidence lehnt raiOS ab; danach nennt es die fehlenden Gates:
+M6/M7-Reverify, Provider-Vertrauen und Owner-Seal. Ergebnis bleibt absichtlich:
+NICHT laden, NICHT installieren, NICHT ausfuehren, NICHT speichern, kein Netz.
+Beweis: `m12-distribution-provenance`
+`shadow-20260709-092219-15860.json` 244/244 gruen.
 
 Updated: 2026-07-09. **M12+ Verteilung nimmt jetzt die Empfaenger-Identitaet
 mit:** Der lokale Registry-Export packt nicht mehr nur Bytes + Chunks ein,

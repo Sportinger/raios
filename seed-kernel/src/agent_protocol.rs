@@ -185,10 +185,11 @@ use crate::{
 };
 
 use self::agent_protocol_registry::{
-    emit_registry_selection_diagnostic, emit_registry_selection_diagnostic_selftest,
-    emit_submit_distribution_begin, emit_submit_distribution_begin_from_catalog,
-    emit_submit_distribution_catalog_entry, emit_submit_distribution_chunk,
-    emit_submit_distribution_finalize, emit_submit_distribution_receiver_identity,
+    emit_distribution_receiver_identity_load_preflight, emit_registry_selection_diagnostic,
+    emit_registry_selection_diagnostic_selftest, emit_submit_distribution_begin,
+    emit_submit_distribution_begin_from_catalog, emit_submit_distribution_catalog_entry,
+    emit_submit_distribution_chunk, emit_submit_distribution_finalize,
+    emit_submit_distribution_receiver_identity,
     emit_submit_distribution_receiver_identity_evidence,
     emit_submit_distribution_receiver_identity_finalize,
 };
@@ -452,6 +453,7 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("module.submit_distribution_receiver_identity", Head, [], [route!("module.submit_distribution_receiver_identity")], MethodAction::ReadMethod(emit_submit_distribution_receiver_identity)),
     method!("module.submit_distribution_receiver_identity_evidence", Head, [], [route!("module.submit_distribution_receiver_identity_evidence")], MethodAction::ReadMethod(emit_submit_distribution_receiver_identity_evidence)),
     method!("module.submit_distribution_receiver_identity_finalize", Head, [], [route!("module.submit_distribution_receiver_identity_finalize")], MethodAction::ReadMethod(emit_submit_distribution_receiver_identity_finalize)),
+    method!("module.distribution_receiver_identity_load_preflight", Head, [], [route!("module.distribution_receiver_identity_load_preflight")], MethodAction::ReadMethod(emit_distribution_receiver_identity_load_preflight)),
     method!("module.submit_distribution_begin", Head, [], [route!("module.submit_distribution_begin")], MethodAction::ReadMethod(emit_submit_distribution_begin)),
     method!("module.submit_distribution_begin_from_catalog", Head, [], [route!("module.submit_distribution_begin_from_catalog")], MethodAction::ReadMethod(emit_submit_distribution_begin_from_catalog)),
     method!("module.submit_distribution_chunk", Head, [], [route!("module.submit_distribution_chunk")], MethodAction::ReadMethod(emit_submit_distribution_chunk)),

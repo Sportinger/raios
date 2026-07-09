@@ -538,6 +538,33 @@ Assert-M12Predicate `
     -Actual $(if ($catalogReceiverIdentityOk) { "matched" } else { ($catalogReceiverIdentityResult | ConvertTo-Json -Compress -Depth 10) }) `
     -FailureMessage "Expected receiver identity metadata to be retained without authority"
 
+Send-AgentCommand -Command "module.distribution_receiver_identity_load_preflight $expectedSha" -ExpectedMarker "RAIOS_AGENT_END module.distribution_receiver_identity_load_preflight" -Name "m12-distribution:T2_receiver_identity_preflight_requires_complete_evidence"
+$receiverPreEvidencePreflight = Get-LastAgentResponseJson -Method "module.distribution_receiver_identity_load_preflight"
+$receiverPreEvidencePreflightResult = $receiverPreEvidencePreflight.body.result
+$receiverPreEvidencePreflightOk = (
+    $receiverPreEvidencePreflight.t -eq "response" -and
+    $receiverPreEvidencePreflightResult.status -eq "denied" -and
+    $receiverPreEvidencePreflightResult.reason -eq "distribution_receiver_identity_evidence_incomplete" -and
+    $receiverPreEvidencePreflightResult.content_sha256 -eq $expectedSha -and
+    $receiverPreEvidencePreflightResult.receiver_identity_retained -eq $true -and
+    $receiverPreEvidencePreflightResult.receiver_identity_complete -eq $false -and
+    $receiverPreEvidencePreflightResult.guest_signature_verification_performed -eq $false -and
+    $receiverPreEvidencePreflightResult.preflight_evaluated -eq $false -and
+    $receiverPreEvidencePreflightResult.accepted -eq $false -and
+    $receiverPreEvidencePreflightResult.rejected -eq $true -and
+    [int]$receiverPreEvidencePreflightResult.missing_gate_count -eq 0 -and
+    $receiverPreEvidencePreflightResult.can_load_now -eq $false -and
+    $receiverPreEvidencePreflightResult.load_authorized -eq $false -and
+    $receiverPreEvidencePreflightResult.install_authorized -eq $false -and
+    (Test-M12RegistryDenials -Record $receiverPreEvidencePreflightResult)
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:T2_receiver_identity_load_preflight_requires_complete_evidence" `
+    -Expected "receiver identity load preflight refuses to evaluate until guest-complete receiver evidence exists" `
+    -Passed $receiverPreEvidencePreflightOk `
+    -Actual $(if ($receiverPreEvidencePreflightOk) { "matched" } else { ($receiverPreEvidencePreflightResult | ConvertTo-Json -Compress -Depth 10) }) `
+    -FailureMessage "Expected receiver identity load preflight to require complete guest evidence"
+
 $receiverEvidenceAccepted = $true
 foreach ($evidenceCommand in $hostCasReceiverIdentityEvidenceCommands) {
     $evidenceKind = ($evidenceCommand -split " ")[2]
@@ -599,6 +626,44 @@ Assert-M12Predicate `
     -Passed $receiverEvidenceFinalizeOk `
     -Actual $(if ($receiverEvidenceFinalizeOk) { "matched" } else { ($receiverEvidenceFinalizeResult | ConvertTo-Json -Compress -Depth 10) }) `
     -FailureMessage "Expected guest receiver identity evidence verification to complete without authority"
+
+Send-AgentCommand -Command "module.distribution_receiver_identity_load_preflight $expectedSha" -ExpectedMarker "RAIOS_AGENT_END module.distribution_receiver_identity_load_preflight" -Name "m12-distribution:T2_receiver_identity_load_preflight_missing_gates"
+$receiverLoadPreflight = Get-LastAgentResponseJson -Method "module.distribution_receiver_identity_load_preflight"
+$receiverLoadPreflightResult = $receiverLoadPreflight.body.result
+$receiverLoadPreflightIdentity = $receiverLoadPreflightResult.receiver_identity
+$receiverLoadPreflightOk = (
+    $receiverLoadPreflight.t -eq "response" -and
+    $receiverLoadPreflightResult.status -eq "denied" -and
+    $receiverLoadPreflightResult.reason -eq "distribution_receiver_identity_load_preflight_missing_required_gates" -and
+    $receiverLoadPreflightResult.content_sha256 -eq $expectedSha -and
+    $receiverLoadPreflightResult.receiver_identity_retained -eq $true -and
+    $receiverLoadPreflightResult.receiver_identity_complete -eq $true -and
+    $receiverLoadPreflightResult.guest_signature_verification_performed -eq $true -and
+    $receiverLoadPreflightResult.preflight_evaluated -eq $true -and
+    $receiverLoadPreflightResult.accepted -eq $true -and
+    $receiverLoadPreflightResult.rejected -eq $false -and
+    [int]$receiverLoadPreflightResult.missing_gate_count -eq 4 -and
+    $receiverLoadPreflightResult.m6_reverification_gate_satisfied -eq $false -and
+    $receiverLoadPreflightResult.m7_loader_policy_gate_satisfied -eq $false -and
+    $receiverLoadPreflightResult.provider_trust_gate_satisfied -eq $false -and
+    $receiverLoadPreflightResult.owner_seal_gate_satisfied -eq $false -and
+    $receiverLoadPreflightResult.requires_m6_m7_reverify_for_load -eq $true -and
+    $receiverLoadPreflightResult.requires_provider_trust_for_load -eq $true -and
+    $receiverLoadPreflightResult.requires_owner_seal_for_load -eq $true -and
+    $receiverLoadPreflightResult.can_load_now -eq $false -and
+    $receiverLoadPreflightResult.load_authorized -eq $false -and
+    $receiverLoadPreflightResult.install_authorized -eq $false -and
+    $receiverLoadPreflightIdentity.receiver_identity_complete -eq $true -and
+    $receiverLoadPreflightIdentity.artifact_identity_signature_verified_by_guest -eq $true -and
+    $receiverLoadPreflightIdentity.load_descriptor_signature_verified_by_guest -eq $true -and
+    (Test-M12RegistryDenials -Record $receiverLoadPreflightResult)
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:T2_receiver_identity_load_preflight_names_missing_gates" `
+    -Expected "receiver identity load preflight accepts guest-complete evidence then names missing M6/M7/provider/owner gates while still denying load" `
+    -Passed $receiverLoadPreflightOk `
+    -Actual $(if ($receiverLoadPreflightOk) { "matched" } else { ($receiverLoadPreflightResult | ConvertTo-Json -Compress -Depth 10) }) `
+    -FailureMessage "Expected receiver identity load preflight to name missing gates without authorizing load"
 
 Send-AgentCommand -Command "module.submit_distribution_begin_from_catalog sha256:0000000000000000000000000000000000000000000000000000000000000000" -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_begin_from_catalog" -Name "m12-distribution:T2_wrong_catalog_selector"
 $wrongCatalogBegin = Get-LastAgentResponseJson -Method "module.submit_distribution_begin_from_catalog"

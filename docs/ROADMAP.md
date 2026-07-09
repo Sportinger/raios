@@ -136,10 +136,13 @@ now carries the raw receiver descriptor/key/signature bytes through a bounded ev
 channel, and the guest recomputes hashes, re-verifies both P-256 signatures,
 re-checks descriptor bindings, and marks receiver identity complete only after guest
 verification, still without install/load authority (`m12-distribution-provenance`
-240/240). Next M12+ slice: add a receiver-identity load-preflight diagnostic that
-requires guest-complete receiver evidence and returns the explicit missing
-M6/M7/provider/owner gates while still denying load/install. (3) provide real
-trust inputs (a cryptographically
+240/240). **Slice 12 DONE:** raiOS now exposes a receiver-identity load preflight
+that refuses to evaluate before guest-complete receiver evidence exists, then
+names the missing M6/M7/provider/owner gates while still denying load/install
+(`m12-distribution-provenance` 244/244). Next M12+ slice: bind that preflight to
+the inert retained candidate produced by catalog finalize, so the missing-gate
+diagnostic is tied to the actually reassembled artifact hash, still without
+load/install authority. (3) provide real trust inputs (a cryptographically
 trusted time source, real CA roots, a live second provider) → I finish M10 real
 validation — STILL YOURS. (4) the owner-key sealing ceremony → the FINAL step —
 STILL YOURS. Until then every label stays honestly unverified / dev_key_not_owner_
