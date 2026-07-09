@@ -24,10 +24,47 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (M12+ distribution receiver evidence): consume the
-catalog-finalized receiver-identity load preflight inside the existing retained
-candidate load-denial projection, so the later M6/M7 load path sees the same
-candidate-bound receiver evidence while still denying load/install.
+Current exact next task (M12+ distribution receiver evidence): thread the
+catalog-bound receiver preflight into the M6/M7 reverify source-fact map as a
+non-authorizing input to loader-runtime readiness, so the load gate can
+distinguish "receiver identity bound" from the still-missing M6/M7, provider,
+and owner gates without granting load/install.
+
+Failed VM classification (2026-07-09 09:50 CEST): focused VM
+`m12-distribution-provenance` report
+`release/vm-reports/shadow-20260709-094755-29616.json` failed predicate
+`m12-distribution:N3_provenance_does_not_enable_granted_candidate_load`.
+Verdict: `guest-behavior`; the command reached the generic
+`raios.module_load_gate.v0` denial and that retained-candidate load-denial
+projection did not yet include the catalog-bound receiver preflight facts. Retry
+was blocked until the generic load gate consumed the same projection. Resolved by
+M12+ Slice 14; retry report `shadow-20260709-095344-20524.json` passed.
+
+M12+ Slice 14 done (2026-07-09) - receiver preflight visible in the real load
+denial. A user/agent can now ask to load the catalog-delivered candidate and see
+the generic `raios.module_load_gate.v0` denial carry the same catalog-finalized
+receiver-identity preflight facts: retained candidate hash, catalog-finalized
+hash, guest-complete receiver evidence, missing M6/M7/provider/owner gates, and
+all load/install/execute/persist/network/durable-write authority still false.
+Verified: scoped format check (`rustfmt --edition 2021 --check
+seed-kernel\src\agent_protocol.rs seed-kernel\src\agent_protocol_registry.rs
+seed-kernel\src\agent_protocol_module_load_gate_render.rs
+seed-kernel\src\granted_candidate_service.rs`); PowerShell profile parse;
+release seed-kernel build via `scripts\build-seed-kernel.ps1 -Profile release`;
+focused VM `m12-distribution-provenance` report
+`release/vm-reports/shadow-20260709-095344-20524.json` 246/246 predicates, 53
+executed commands, `duration_ms: 137623`, report sha256
+`af071c943ac5dbb4ce9322d183643964c76c3784a259480508533d9142470179`.
+`scripts\scan-secrets.ps1` found no OpenAI-key-like values. Global
+`cargo fmt --all -- --check` remains red only on the pre-existing unrelated
+format drift in `raios-core/src/marvell_wifi_fw.rs` and
+`seed-kernel/src/usb.rs`. Full+recovery remain deferred to the M12+ block close
+per the aggressive-fast cadence. File-size note: touched
+`seed-kernel\src\agent_protocol_module_load_gate_render.rs` is 6,161 lines; the
+next load-gate renderer change beyond a narrow field projection should extract
+receiver/preflight and loader-runtime source-fact rendering into separate
+`agent_protocol_module_load_gate_*_render.rs` helpers, preserving the existing
+`raios.module_load_gate.v0` byte shape under the focused profile.
 
 M12+ Slice 13 done (2026-07-09) - receiver load preflight bound to the
 catalog-finalized retained candidate. A user/agent can now ask raiOS to

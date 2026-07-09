@@ -215,6 +215,76 @@ struct DistributionReceiverIdentityLoadPreflightOutcome {
 }
 
 #[derive(Clone, Copy)]
+pub(crate) struct DistributionReceiverIdentityLoadPreflightProjection {
+    pub(crate) present: bool,
+    pub(crate) content_sha256: Option<[u8; 32]>,
+    pub(crate) retained_part_count: usize,
+    pub(crate) receiver_identity_retained: bool,
+    pub(crate) receiver_identity_complete: bool,
+    pub(crate) guest_signature_verification_performed: bool,
+    pub(crate) retained_candidate_sha256: Option<[u8; 32]>,
+    pub(crate) retained_candidate_wasm_valid: bool,
+    pub(crate) catalog_finalize_candidate_sha256: Option<[u8; 32]>,
+    pub(crate) retained_candidate_matches_catalog_finalize: bool,
+    pub(crate) status: &'static str,
+    pub(crate) reason: &'static str,
+    pub(crate) preflight_evaluated: bool,
+    pub(crate) accepted: bool,
+    pub(crate) rejected: bool,
+    pub(crate) missing_gate_count: usize,
+}
+
+impl DistributionReceiverIdentityLoadPreflightProjection {
+    const fn absent() -> Self {
+        Self {
+            present: false,
+            content_sha256: None,
+            retained_part_count: 0,
+            receiver_identity_retained: false,
+            receiver_identity_complete: false,
+            guest_signature_verification_performed: false,
+            retained_candidate_sha256: None,
+            retained_candidate_wasm_valid: false,
+            catalog_finalize_candidate_sha256: None,
+            retained_candidate_matches_catalog_finalize: false,
+            status: "denied",
+            reason: DISTRIBUTION_RECEIVER_IDENTITY_CATALOG_NOT_FOUND_REASON,
+            preflight_evaluated: false,
+            accepted: false,
+            rejected: true,
+            missing_gate_count: 0,
+        }
+    }
+
+    fn from_outcome(outcome: DistributionReceiverIdentityLoadPreflightOutcome) -> Self {
+        let receiver_identity = outcome.receiver_identity;
+        Self {
+            present: outcome.content_sha256.is_some(),
+            content_sha256: outcome.content_sha256,
+            retained_part_count: outcome.retained_part_count,
+            receiver_identity_retained: receiver_identity.is_some(),
+            receiver_identity_complete: receiver_identity
+                .map(|identity| identity.receiver_identity_complete)
+                .unwrap_or(false),
+            guest_signature_verification_performed: receiver_identity
+                .map(|identity| identity.guest_signature_verification_performed)
+                .unwrap_or(false),
+            retained_candidate_sha256: outcome.retained_candidate_sha256,
+            retained_candidate_wasm_valid: outcome.retained_candidate_wasm_valid,
+            catalog_finalize_candidate_sha256: outcome.catalog_finalize_candidate_sha256,
+            retained_candidate_matches_catalog_finalize: outcome
+                .retained_candidate_matches_catalog_finalize,
+            status: outcome.status,
+            reason: outcome.reason,
+            preflight_evaluated: outcome.preflight_evaluated,
+            accepted: outcome.accepted,
+            rejected: outcome.rejected,
+            missing_gate_count: outcome.missing_gate_count,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 struct DistributionCatalogEntryOutcome {
     content_sha256: Option<[u8; 32]>,
     total_length: usize,
@@ -672,6 +742,22 @@ pub(crate) fn emit_distribution_receiver_identity_load_preflight(arg: &str) {
         6,
     );
     end_response("module.distribution_receiver_identity_load_preflight");
+}
+
+pub(crate) fn receiver_identity_load_preflight_projection(
+) -> DistributionReceiverIdentityLoadPreflightProjection {
+    let content_sha256 = {
+        let catalog = LOCAL_DISTRIBUTION_CATALOG.lock();
+        if catalog.active {
+            Some(catalog.content_sha256)
+        } else {
+            None
+        }
+    };
+    content_sha256
+        .map(distribution_receiver_identity_load_preflight_for_content)
+        .map(DistributionReceiverIdentityLoadPreflightProjection::from_outcome)
+        .unwrap_or_else(DistributionReceiverIdentityLoadPreflightProjection::absent)
 }
 
 fn emit_distribution_receiver_identity_evidence_response(
@@ -1216,6 +1302,12 @@ fn distribution_receiver_identity_load_preflight(
         );
     }
 
+    distribution_receiver_identity_load_preflight_for_content(content_sha256)
+}
+
+fn distribution_receiver_identity_load_preflight_for_content(
+    content_sha256: [u8; 32],
+) -> DistributionReceiverIdentityLoadPreflightOutcome {
     let catalog = LOCAL_DISTRIBUTION_CATALOG.lock();
     if !catalog.active || catalog.content_sha256 != content_sha256 {
         return rejected_receiver_identity_load_preflight(

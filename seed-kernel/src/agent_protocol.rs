@@ -194,7 +194,13 @@ use self::agent_protocol_registry::{
     emit_submit_distribution_receiver_identity_finalize,
 };
 
+pub(crate) use self::agent_protocol_registry::DistributionReceiverIdentityLoadPreflightProjection;
 pub(crate) use crate::agent_protocol_provider::provider_minimal_context_evidence_for_runtime;
+
+pub(crate) fn receiver_identity_load_preflight_projection(
+) -> DistributionReceiverIdentityLoadPreflightProjection {
+    agent_protocol_registry::receiver_identity_load_preflight_projection()
+}
 
 pub enum DispatchOutcome {
     Response(&'static str),

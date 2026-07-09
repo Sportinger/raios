@@ -1,6 +1,7 @@
 use alloc::{vec, vec::Vec};
 
 use crate::{
+    agent_protocol,
     agent_protocol_memory::{
         define_direct_binding_fields, emit_binding_object_direct, BindingField,
     },
@@ -4644,6 +4645,97 @@ fn static_str_array(values: &[&'static str], compact: bool) -> V<'static> {
     }
 }
 
+fn module_load_gate_receiver_identity_load_preflight_fields(
+    projection: agent_protocol::DistributionReceiverIdentityLoadPreflightProjection,
+) -> Vec<Field<'static>> {
+    vec![
+        f("present", b(projection.present)),
+        f("source_id", s("local.serial.catalog")),
+        f("entry_id", s("local.catalog.distribution")),
+        f("status", s(projection.status)),
+        f("reason", s(projection.reason)),
+        f(
+            "content_sha256",
+            record_sha_or_null(projection.content_sha256),
+        ),
+        f(
+            "retained_part_count",
+            V::U64(projection.retained_part_count as u64),
+        ),
+        f(
+            "receiver_identity_retained",
+            b(projection.receiver_identity_retained),
+        ),
+        f(
+            "receiver_identity_complete",
+            b(projection.receiver_identity_complete),
+        ),
+        f(
+            "guest_signature_verification_performed",
+            b(projection.guest_signature_verification_performed),
+        ),
+        f(
+            "retained_candidate_sha256",
+            record_sha_or_null(projection.retained_candidate_sha256),
+        ),
+        f(
+            "retained_candidate_present",
+            b(projection.retained_candidate_sha256.is_some()),
+        ),
+        f(
+            "retained_candidate_wasm_valid",
+            b(projection.retained_candidate_wasm_valid),
+        ),
+        f(
+            "catalog_finalize_candidate_sha256",
+            record_sha_or_null(projection.catalog_finalize_candidate_sha256),
+        ),
+        f(
+            "retained_candidate_matches_catalog_finalize",
+            b(projection.retained_candidate_matches_catalog_finalize),
+        ),
+        f("preflight_evaluated", b(projection.preflight_evaluated)),
+        f("accepted", b(projection.accepted)),
+        f("rejected", b(projection.rejected)),
+        f(
+            "missing_gate_count",
+            V::U64(projection.missing_gate_count as u64),
+        ),
+        f("m6_reverification_gate_satisfied", no()),
+        f("m7_loader_policy_gate_satisfied", no()),
+        f("provider_trust_gate_satisfied", no()),
+        f("owner_seal_gate_satisfied", no()),
+        f("requires_m6_m7_reverify_for_load", b(true)),
+        f("requires_provider_trust_for_load", b(true)),
+        f("requires_owner_seal_for_load", b(true)),
+        f("can_load_now", no()),
+        f("load_authorized", no()),
+        f("install_authorized", no()),
+        f("load_attempted", no()),
+        f("execution_attempted", no()),
+        f("durable_write_attempted", no()),
+        f("authorizes_acquisition", no()),
+        f("authorizes_install", no()),
+        f("authorizes_load", no()),
+        f("authorizes_execute", no()),
+        f("authorizes_persist", no()),
+        f("writes_persistent_state", no()),
+        f("network_attempted", no()),
+        f("owner_sealed", no()),
+        f("trust_tier", s("dev_key_not_owner_sealed")),
+    ]
+}
+
+fn emit_module_load_gate_receiver_identity_load_preflight() {
+    emit_record_property_at(
+        "receiver_identity_load_preflight",
+        module_load_gate_receiver_identity_load_preflight_fields(
+            agent_protocol::receiver_identity_load_preflight_projection(),
+        ),
+        4,
+    );
+}
+
 pub(crate) fn emit_module_load_ephemeral_denied(
     method: &'static str,
     event_id: event_log::EventId,
@@ -4719,6 +4811,8 @@ pub(crate) fn emit_module_load_ephemeral_denied(
     emit_module_load_gate_manifest_reference(gate_binding);
     raw_line(",");
     emit_module_load_gate_artifact_reference(gate_binding);
+    raw_line(",");
+    emit_module_load_gate_receiver_identity_load_preflight();
     raw_line(",");
     emit_module_load_gate_vm_report_reference(gate_binding);
     raw_line(",");

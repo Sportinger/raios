@@ -927,11 +927,35 @@ Assert-M12Predicate `
 $loadOffset = Get-SerialLogOffset
 Send-AgentCommand -Command "module.load_ephemeral svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "m12-distribution:N3_load_still_denied"
 $load = Get-LastAgentResponseJson -Method "module.load_ephemeral"
+$loadPreflightProjection = $load.body.receiver_identity_load_preflight
 $loadAfter = (Get-SerialLogContent -Path $SerialLog).Substring([int]$loadOffset)
 $loadDeniedOk = (
     $load.t -eq "error" -and
     $load.body.code -eq "capability_denied" -and
     $load.body.schema -eq "raios.module_load_gate.v0" -and
+    $load.body.gate_state.can_load -eq $false -and
+    $loadPreflightProjection.present -eq $true -and
+    $loadPreflightProjection.status -eq "denied" -and
+    $loadPreflightProjection.reason -eq "distribution_receiver_identity_load_preflight_missing_required_gates" -and
+    $loadPreflightProjection.content_sha256 -eq $expectedSha -and
+    $loadPreflightProjection.receiver_identity_retained -eq $true -and
+    $loadPreflightProjection.receiver_identity_complete -eq $true -and
+    $loadPreflightProjection.guest_signature_verification_performed -eq $true -and
+    $loadPreflightProjection.retained_candidate_sha256 -eq $expectedSha -and
+    $loadPreflightProjection.retained_candidate_present -eq $true -and
+    $loadPreflightProjection.retained_candidate_wasm_valid -eq $true -and
+    $loadPreflightProjection.catalog_finalize_candidate_sha256 -eq $expectedSha -and
+    $loadPreflightProjection.retained_candidate_matches_catalog_finalize -eq $true -and
+    $loadPreflightProjection.preflight_evaluated -eq $true -and
+    $loadPreflightProjection.accepted -eq $true -and
+    $loadPreflightProjection.rejected -eq $false -and
+    [int]$loadPreflightProjection.missing_gate_count -eq 4 -and
+    $loadPreflightProjection.m6_reverification_gate_satisfied -eq $false -and
+    $loadPreflightProjection.m7_loader_policy_gate_satisfied -eq $false -and
+    $loadPreflightProjection.can_load_now -eq $false -and
+    $loadPreflightProjection.load_authorized -eq $false -and
+    $loadPreflightProjection.install_authorized -eq $false -and
+    (Test-M12RegistryDenials -Record $loadPreflightProjection) -and
     -not $loadAfter.Contains("WASM_GUEST_LOG") -and
     -not $loadAfter.Contains('"instantiation_ok": true')
 )

@@ -145,9 +145,13 @@ diagnostic is tied to the actually reassembled artifact hash, still without
 load/install authority. **Slice 13 DONE:** the receiver-identity load preflight
 now refuses to name the missing M6/M7/provider/owner gates until the local
 catalog delivery has actually reassembled and staged the matching inert
-retained candidate (`m12-distribution-provenance` 246/246). Next M12+ slice:
-thread that catalog-bound receiver preflight into the existing retained-candidate
-load-denial projection, still without load/install authority. (3) provide real
+retained candidate (`m12-distribution-provenance` 246/246). **Slice 14 DONE:**
+the generic `raios.module_load_gate.v0` denial now carries that same
+catalog-finalized receiver preflight, so a real load request sees the bound
+receiver/candidate facts while load/install/execute/persist stay false
+(`m12-distribution-provenance` 246/246). Next M12+ slice: expose this
+receiver-preflight projection as a non-authorizing M6/M7 reverify source fact
+in loader-runtime readiness. (3) provide real
 trust inputs (a cryptographically
 trusted time source, real CA roots, a live second provider) → I finish M10 real
 validation — STILL YOURS. (4) the owner-key sealing ceremony → the FINAL step —
