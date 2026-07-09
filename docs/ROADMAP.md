@@ -119,9 +119,14 @@ reassembled artifact only as an inert candidate (`m12-distribution-provenance` 2
 **Slice 7 DONE:** a non-builtin current-boot local catalog now retains signed artifact
 metadata, starts the same bounded chunk transport by content-hash selection, denies wrong
 selectors before delivery starts, and still stages only an inert candidate after chunk,
-whole-hash, and provenance verification (`m12-distribution-provenance` 228/228). Next
-M12+ slice: bind that local catalog to a real host-side static/CAS source export without
-granting install/load authority. (3) provide real trust inputs (a cryptographically
+whole-hash, and provenance verification (`m12-distribution-provenance` 228/228).
+**Slice 8 DONE:** a real host-side static/CAS source now publishes the signed artifact
+into the local registry, exports the registry blob as bounded serial catalog/chunk
+commands, and proves those exported commands feed the guest local catalog while still
+staging only an inert candidate (`m12-distribution-provenance` 229/229). Next M12+
+slice: carry the receiver-required raiOS artifact identity/evidence through the local
+registry/export packet as non-authorizing provenance, still with no install/load
+authority. (3) provide real trust inputs (a cryptographically
 trusted time source, real CA roots, a live second provider) → I finish M10 real
 validation — STILL YOURS. (4) the owner-key sealing ceremony → the FINAL step —
 STILL YOURS. Until then every label stays honestly unverified / dev_key_not_owner_

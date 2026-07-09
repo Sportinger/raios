@@ -24,6 +24,46 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+M12+ Slice 8 done (2026-07-09) - host static/CAS distribution export. A
+user/agent can now take a dev-signed artifact already published into the local
+content-addressed registry, export that real CAS entry as bounded serial
+distribution commands, and feed those commands through raiOS's existing
+current-boot local catalog and chunk transport; the host export recomputes the
+stored BLAKE3 blob identity, computes the receiver SHA-256 artifact identity,
+adds a scalar-2 provenance signature, emits per-chunk SHA-256/base64 payloads,
+and the guest still stages only an inert current-boot candidate after chunk,
+whole-artifact, and provenance verification. This grants no
+acquisition/install/load/execute/persist/network/durable-write authority; host
+registry provenance remains a source locator/evidence layer, not load
+worthiness, and M6/M7 re-verification is still required for any future load.
+Verified: PowerShell profile parse; scoped `cargo fmt --package ota-tools
+--package registry-core --package registry-tools -- --check`; `cargo test
+--locked -p ota-tools -p registry-core -p registry-tools` (4 ota-tools lib
+tests, 4 promotion-signer tests, 1 sign/verify integration test, 21
+registry-core tests); focused VM `m12-distribution-provenance` report
+`release/vm-reports/shadow-20260709-081542-6576.json` 229/229 predicates,
+42 executed commands, `duration_ms: 108906`, report sha256
+`39fe096560a15d2ffb341ba74598f3f5bfdd21f8a68943d83e5c508cb60cbe8e`;
+`scripts\scan-secrets.ps1` found no OpenAI-key-like values. Global
+`cargo fmt --all -- --check` remains red only on the pre-existing unrelated
+format drift in `raios-core/src/marvell_wifi_fw.rs` and `seed-kernel/src/usb.rs`.
+An earlier same-slice VM run
+`release/vm-reports/shadow-20260709-081209-4752.json` is classified below as
+a host-transport harness bug before the new T2 predicate ran; the corrected
+retry passed. Full+recovery remain deferred to the M12+ block close per the
+aggressive-fast cadence.
+
+Failed VM classification (2026-07-09): focused
+`m12-distribution-provenance` report
+`release/vm-reports/shadow-20260709-081209-4752.json` failed during host-side
+profile setup before the new
+`m12-distribution:T2_host_static_cas_export_commands` predicate could run.
+Failing predicate: none reached; PowerShell `Invoke-M12CargoTool` used a
+parameter named `$Args`, so the function executed bare `cargo`, captured
+Cargo's "Rust's package manager" help text, and `ConvertFrom-Json` rejected it
+as non-JSON. Verdict: host-transport / harness bug, not guest behavior; no M12
+predicate failed and QEMU was still running at teardown.
+
 M12+ Slice 7 done (2026-07-09) - non-builtin local distribution catalog. A
 user/agent can now submit a dev-publisher-signed artifact catalog entry into a
 current-boot, non-builtin local catalog, select it later by content hash to

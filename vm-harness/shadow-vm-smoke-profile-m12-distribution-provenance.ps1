@@ -87,6 +87,87 @@ function Get-M12DistributionChunks {
     )
 }
 
+function Invoke-M12CargoTool {
+    param(
+        [string]$Name,
+        [string[]]$CargoArgs
+    )
+
+    $stderrPath = Join-Path $RunDir "m12-$Name-stderr.txt"
+    Push-Location $RepoRoot
+    try {
+        $output = & cargo @CargoArgs 2>$stderrPath
+        if ($LASTEXITCODE -ne 0) {
+            $stderr = if (Test-Path -LiteralPath $stderrPath) { Get-Content -LiteralPath $stderrPath -Raw } else { "" }
+            throw "cargo $Name failed with exit code $LASTEXITCODE`nstdout:`n$($output -join [Environment]::NewLine)`nstderr:`n$stderr"
+        }
+        return $output
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+function New-M12HostStaticCasExport {
+    param([string]$ArtifactPath)
+
+    $casRoot = Join-Path $RunDir "m12-host-static-cas"
+    $keyDir = Join-Path $casRoot "keys"
+    $registryDir = Join-Path $casRoot "registry"
+    $manifestPath = Join-Path $casRoot "svc.demo.echo.manifest.json"
+    New-Item -ItemType Directory -Force -Path $casRoot, $keyDir, $registryDir | Out-Null
+
+    Invoke-M12CargoTool -Name "ota-keygen" -CargoArgs @(
+        "run", "--quiet", "-p", "ota-tools", "--bin", "ota-keygen", "--",
+        "--output", $keyDir,
+        "--context", "raios/m12-local-static-cas/v1"
+    ) | Out-Null
+
+    Invoke-M12CargoTool -Name "mod-sign" -CargoArgs @(
+        "run", "--quiet", "-p", "ota-tools", "--bin", "mod-sign", "--",
+        "--key", (Join-Path $keyDir "online-key.json"),
+        "--cert", (Join-Path $keyDir "online.cert.json"),
+        "--input", $ArtifactPath,
+        "--output", $manifestPath,
+        "--module-id", "svc.demo.echo",
+        "--module-version", "m12-host-cas"
+    ) | Out-Null
+
+    Invoke-M12CargoTool -Name "registry-publish" -CargoArgs @(
+        "run", "--quiet", "-p", "registry-tools", "--",
+        "publish",
+        "--registry", $registryDir,
+        "--blob", $ArtifactPath,
+        "--manifest", $manifestPath,
+        "--root-pub", (Join-Path $keyDir "root.pub"),
+        "--namespace", "modules"
+    ) | Out-Null
+
+    $exportJson = Invoke-M12CargoTool -Name "registry-distribution-export" -CargoArgs @(
+        "run", "--quiet", "-p", "registry-tools", "--",
+        "distribution-export",
+        "--registry", $registryDir,
+        "--namespace", "modules",
+        "--name", "svc.demo.echo",
+        "--tag", "m12-host-cas",
+        "--chunk-count", "3"
+    )
+
+    return (($exportJson -join [Environment]::NewLine) | ConvertFrom-Json)
+}
+
+function Get-M12ExportCommand {
+    param(
+        [object]$Export,
+        [string]$Prefix
+    )
+    $matches = @($Export.commands | Where-Object { $_.StartsWith($Prefix) })
+    if ($matches.Count -ne 1) {
+        throw "Expected exactly one exported command matching '$Prefix', found $($matches.Count)"
+    }
+    return $matches[0]
+}
+
 function Send-M12DistributionBytes {
     param(
         [string]$Path,
@@ -248,6 +329,31 @@ Assert-M12Predicate `
     -FailureMessage "Expected registry selection selftest to pass"
 
 $echoArtifactPath = Join-Path $RepoRoot "seed-kernel\artifacts\svc.demo.echo.wasm"
+$hostCasExport = New-M12HostStaticCasExport -ArtifactPath $echoArtifactPath
+$hostCasCommands = @($hostCasExport.commands)
+$hostCasExportOk = (
+    $hostCasExport.source_kind -eq "local_static_cas_registry" -and
+    $hostCasExport.source_id -eq "host.local_static_cas" -and
+    $hostCasExport.namespace -eq "modules" -and
+    $hostCasExport.name -eq "svc_demo_echo" -and
+    $hostCasExport.tag -eq "m12-host-cas" -and
+    $hostCasExport.artifact_sha256 -eq $expectedShaBare -and
+    [int]$hostCasExport.payload_len -eq 4205 -and
+    [int]$hostCasExport.chunk_count -eq 3 -and
+    @($hostCasExport.chunks).Count -eq 3 -and
+    $hostCasExport.provenance_signature_hex -eq $provSigHex -and
+    $hostCasCommands.Count -eq 6 -and
+    $hostCasCommands[0] -eq "module.submit_distribution_catalog_entry $expectedSha 4205 3 sig:$provSigHex" -and
+    $hostCasCommands[1] -eq "module.submit_distribution_begin_from_catalog $expectedSha" -and
+    $hostCasCommands[-1] -eq "module.submit_distribution_finalize" -and
+    $hostCasExport.registry_payload_hash_blake3.Length -eq 64
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:T2_host_static_cas_export_commands" `
+    -Expected "host-side local static/CAS registry export emits bounded serial distribution commands without granting authority" `
+    -Passed $hostCasExportOk `
+    -Actual $(if ($hostCasExportOk) { "matched" } else { ($hostCasExport | ConvertTo-Json -Compress -Depth 10) }) `
+    -FailureMessage "Expected local static/CAS registry export to bind echo artifact to serial delivery commands"
 $echoBytes = [System.IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $echoArtifactPath).Path)
 $echoChunks = @(Get-M12DistributionChunks -Bytes $echoBytes)
 $badChunkBase64 = [Convert]::ToBase64String($echoChunks[0].bytes)
@@ -323,7 +429,7 @@ Assert-M12Predicate `
     -Actual $(if ($distributionOk) { "matched" } else { ($distributionResult | ConvertTo-Json -Compress -Depth 10) }) `
     -FailureMessage "Expected serial distribution delivery to stage a valid inert candidate"
 
-Send-AgentCommand -Command "module.submit_distribution_catalog_entry $expectedSha $($echoBytes.Length) $($echoChunks.Count) sig:$provSigHex" -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_catalog_entry" -Name "m12-distribution:T2_catalog_entry"
+Send-AgentCommand -Command $hostCasCommands[0] -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_catalog_entry" -Name "m12-distribution:T2_host_cas_catalog_entry"
 $catalogEntry = Get-LastAgentResponseJson -Method "module.submit_distribution_catalog_entry"
 $catalogEntryResult = $catalogEntry.body.result
 $catalogEntryOk = (
@@ -341,7 +447,7 @@ $catalogEntryOk = (
 )
 Assert-M12Predicate `
     -Name "m12-distribution:T2_local_catalog_entry_retained" `
-    -Expected "non-builtin local catalog retains signed artifact metadata in current_boot without granting authority" `
+    -Expected "host static/CAS export feeds a non-builtin local catalog entry retained in current_boot without granting authority" `
     -Passed $catalogEntryOk `
     -Actual $(if ($catalogEntryOk) { "matched" } else { ($catalogEntryResult | ConvertTo-Json -Compress -Depth 8) }) `
     -FailureMessage "Expected local catalog entry to be retained without authority"
@@ -382,7 +488,7 @@ Assert-M12Predicate `
     -Actual $(if ($wrongCatalogFinalizeOk) { "matched" } else { ($wrongCatalogFinalizeResult | ConvertTo-Json -Compress -Depth 8) }) `
     -FailureMessage "Expected finalize after wrong local catalog selector to fail closed"
 
-Send-AgentCommand -Command "module.submit_distribution_begin_from_catalog $expectedSha" -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_begin_from_catalog" -Name "m12-distribution:T2_catalog_begin"
+Send-AgentCommand -Command (Get-M12ExportCommand -Export $hostCasExport -Prefix "module.submit_distribution_begin_from_catalog ") -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_begin_from_catalog" -Name "m12-distribution:T2_host_cas_catalog_begin"
 $catalogBegin = Get-LastAgentResponseJson -Method "module.submit_distribution_begin_from_catalog"
 $catalogBeginResult = $catalogBegin.body.result
 $catalogBeginOk = (
@@ -402,12 +508,11 @@ Assert-M12Predicate `
     -Passed $catalogBeginOk `
     -Actual $(if ($catalogBeginOk) { "matched" } else { ($catalogBeginResult | ConvertTo-Json -Compress -Depth 8) }) `
     -FailureMessage "Expected local catalog begin to use retained metadata"
-foreach ($chunk in @($echoChunks[2], $echoChunks[0], $echoChunks[1])) {
-    $chunkHash = Get-M12BytesSha256Hex -Bytes $chunk.bytes
-    $chunkBase64 = [Convert]::ToBase64String($chunk.bytes)
-    Send-AgentCommand -Command "module.submit_distribution_chunk $($chunk.index) sha256:$chunkHash $chunkBase64" -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_chunk" -Name "m12-distribution:T2_catalog_chunk_$($chunk.index)"
+foreach ($chunkCommand in @($hostCasCommands | Where-Object { $_.StartsWith("module.submit_distribution_chunk ") })) {
+    $chunkIndex = ($chunkCommand -split " ")[1]
+    Send-AgentCommand -Command $chunkCommand -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_chunk" -Name "m12-distribution:T2_host_cas_catalog_chunk_$chunkIndex"
 }
-Send-AgentCommand -Command "module.submit_distribution_finalize" -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_finalize" -Name "m12-distribution:T2_catalog_finalize"
+Send-AgentCommand -Command (Get-M12ExportCommand -Export $hostCasExport -Prefix "module.submit_distribution_finalize") -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_finalize" -Name "m12-distribution:T2_host_cas_catalog_finalize"
 $catalogFinalize = Get-LastAgentResponseJson -Method "module.submit_distribution_finalize"
 $catalogResult = $catalogFinalize.body.result
 $catalogSelection = $catalogResult.selection

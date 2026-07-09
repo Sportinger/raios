@@ -4,7 +4,9 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use registry_core::module_audit::ModuleAuditRollbackDiagnosticRequest;
 use registry_core::module_grant::ComputeCapabilityGrantRequest;
-use registry_core::{EvidenceFile, ListFilter, PublishRequest, Registry};
+use registry_core::{
+    DistributionExportRequest, EvidenceFile, ListFilter, PublishRequest, Registry,
+};
 
 #[derive(Parser, Debug)]
 #[command(about = "Seed OS registry management tooling", version)]
@@ -62,6 +64,24 @@ enum Command {
         /// Filter to logical name
         #[arg(long)]
         name: Option<String>,
+    },
+    /// Export a registry CAS entry as serial distribution commands
+    DistributionExport {
+        /// Registry root directory
+        #[arg(long, default_value = "registry/local")]
+        registry: PathBuf,
+        /// Logical namespace
+        #[arg(long, default_value = "modules")]
+        namespace: String,
+        /// Logical name
+        #[arg(long)]
+        name: String,
+        /// Version or tag
+        #[arg(long)]
+        tag: String,
+        /// Number of bounded serial chunks to emit
+        #[arg(long, default_value_t = 3)]
+        chunk_count: usize,
     },
     /// Compute a non-authorizing module capability grant diagnostic
     GrantDiagnostic {
@@ -243,6 +263,22 @@ fn main() -> Result<()> {
                     );
                 }
             }
+        }
+        Command::DistributionExport {
+            registry,
+            namespace,
+            name,
+            tag,
+            chunk_count,
+        } => {
+            let registry = Registry::new(registry);
+            let export = registry.distribution_serial_export(DistributionExportRequest {
+                namespace: &namespace,
+                name: &name,
+                tag: &tag,
+                chunk_count,
+            })?;
+            println!("{}", serde_json::to_string_pretty(&export)?);
         }
         Command::GrantDiagnostic {
             manifest,

@@ -3,6 +3,17 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
+Updated: 2026-07-09. **M12+ Verteilung hat jetzt eine echte Host-Quelle,
+nicht nur manuell gebaute Test-Kommandos:** Ein signiertes Programm wird auf
+dem Host in die lokale content-addressed Registry gelegt, daraus als statische
+CAS-Quelle exportiert und dann mit genau diesen Export-Kommandos durch raiOS'
+lokalen Katalog + Chunk-Transport geschickt. Der Host prueft den gespeicherten
+CAS-Blob neu, baut SHA-256/Chunks/Herkunftssignatur, und raiOS prueft im Gast
+weiter alles selbst. Ergebnis bleibt absichtlich nur ein toter Kandidat:
+NICHT laden, NICHT installieren, NICHT ausfuehren, NICHT speichern, kein Netz.
+Beweis: `m12-distribution-provenance`
+`shadow-20260709-081542-6576.json` 229/229 gruen.
+
 Updated: 2026-07-09. **M12+ Verteilung hat jetzt einen echten lokalen Katalog,
 nicht nur eingebaute Beispiele:** raiOS kann einen signierten Katalogeintrag
 uber die serielle Agent-Schnittstelle annehmen, ihn im aktuellen Start als

@@ -2,9 +2,11 @@ use std::fs;
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};
-use ota_tools::{load_public_key_hex, SignedBlob};
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use ota_tools::{load_public_key_hex, sign_distribution_provenance_hex, SignedBlob};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 pub mod module_audit;
 pub mod module_grant;
@@ -101,6 +103,38 @@ pub struct RegistryEntry {
     pub record: IndexRecord,
 }
 
+#[derive(Clone, Debug)]
+pub struct DistributionExportRequest<'a> {
+    pub namespace: &'a str,
+    pub name: &'a str,
+    pub tag: &'a str,
+    pub chunk_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DistributionSerialExport {
+    pub source_kind: String,
+    pub source_id: String,
+    pub namespace: String,
+    pub name: String,
+    pub tag: String,
+    pub registry_payload_hash_blake3: String,
+    pub artifact_sha256: String,
+    pub payload_len: u64,
+    pub chunk_count: usize,
+    pub provenance_signature_hex: String,
+    pub commands: Vec<String>,
+    pub chunks: Vec<DistributionSerialExportChunk>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DistributionSerialExportChunk {
+    pub index: usize,
+    pub sha256: String,
+    pub byte_len: usize,
+    pub base64: String,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ListFilter<'a> {
     pub namespace: Option<&'a str>,
@@ -111,6 +145,10 @@ pub struct ListFilter<'a> {
 pub struct Registry {
     root: PathBuf,
 }
+
+const DISTRIBUTION_EXPORT_SOURCE_KIND: &str = "local_static_cas_registry";
+const DISTRIBUTION_EXPORT_SOURCE_ID: &str = "host.local_static_cas";
+const MAX_DISTRIBUTION_EXPORT_CHUNKS: usize = 4;
 
 impl Registry {
     pub fn new(root: PathBuf) -> Self {
@@ -330,6 +368,116 @@ impl Registry {
         });
         Ok(entries)
     }
+
+    pub fn distribution_serial_export(
+        &self,
+        request: DistributionExportRequest<'_>,
+    ) -> Result<DistributionSerialExport> {
+        if request.chunk_count == 0 || request.chunk_count > MAX_DISTRIBUTION_EXPORT_CHUNKS {
+            return Err(anyhow!(
+                "chunk_count must be between 1 and {}",
+                MAX_DISTRIBUTION_EXPORT_CHUNKS
+            ));
+        }
+
+        let namespace = sanitize_component(request.namespace);
+        let name = sanitize_component(request.name);
+        let tag = sanitize_component(request.tag);
+        let index_path = self
+            .root
+            .join("index")
+            .join(&namespace)
+            .join(&name)
+            .join(format!("{tag}.json"));
+        let record: IndexRecord = serde_json::from_str(
+            &fs::read_to_string(&index_path)
+                .with_context(|| format!("reading index record {}", index_path.display()))?,
+        )
+        .with_context(|| format!("parsing index record {}", index_path.display()))?;
+
+        let blob_path = self.root.join("blobs").join(&record.payload_hash);
+        let bytes = fs::read(&blob_path)
+            .with_context(|| format!("reading registry blob {}", blob_path.display()))?;
+        if bytes.is_empty() {
+            return Err(anyhow!(
+                "registry blob is empty for {}/{}/{}",
+                namespace,
+                name,
+                tag
+            ));
+        }
+        if request.chunk_count > bytes.len() {
+            return Err(anyhow!(
+                "chunk_count {} exceeds registry blob length {} for {}/{}/{}",
+                request.chunk_count,
+                bytes.len(),
+                namespace,
+                name,
+                tag
+            ));
+        }
+        let actual_payload_len = bytes.len() as u64;
+        if actual_payload_len != record.payload_len {
+            return Err(anyhow!(
+                "registry blob length mismatch for {}/{}/{}: index={} actual={}",
+                namespace,
+                name,
+                tag,
+                record.payload_len,
+                actual_payload_len
+            ));
+        }
+        let actual_blake3 = blake3::hash(&bytes).to_hex().to_string();
+        if actual_blake3 != record.payload_hash {
+            return Err(anyhow!(
+                "registry blob blake3 mismatch for {}/{}/{}: index={} actual={}",
+                namespace,
+                name,
+                tag,
+                record.payload_hash,
+                actual_blake3
+            ));
+        }
+
+        let artifact_sha256_bytes = sha256_bytes(&bytes);
+        let artifact_sha256 = hex_lower(&artifact_sha256_bytes);
+        let provenance_signature_hex = sign_distribution_provenance_hex(&artifact_sha256_bytes);
+        let chunks = split_distribution_chunks(&bytes, request.chunk_count);
+        let mut commands = Vec::with_capacity(chunks.len() + 3);
+        commands.push(format!(
+            "module.submit_distribution_catalog_entry sha256:{} {} {} sig:{}",
+            artifact_sha256,
+            bytes.len(),
+            chunks.len(),
+            provenance_signature_hex
+        ));
+        commands.push(format!(
+            "module.submit_distribution_begin_from_catalog sha256:{}",
+            artifact_sha256
+        ));
+        for chunk in &chunks {
+            commands.push(format!(
+                "module.submit_distribution_chunk {} sha256:{} {}",
+                chunk.index, chunk.sha256, chunk.base64
+            ));
+        }
+        commands.push("module.submit_distribution_finalize".to_string());
+
+        Ok(DistributionSerialExport {
+            source_kind: DISTRIBUTION_EXPORT_SOURCE_KIND.to_string(),
+            source_id: DISTRIBUTION_EXPORT_SOURCE_ID.to_string(),
+            namespace,
+            name,
+            tag,
+            registry_payload_hash_blake3: record.payload_hash,
+            artifact_sha256,
+            payload_len: bytes.len() as u64,
+            chunk_count: chunks.len(),
+            provenance_signature_hex,
+            commands,
+            chunks,
+        })
+    }
 }
 
 pub fn sanitize_component(input: &str) -> String {
@@ -370,6 +518,42 @@ fn read_sha256_sidecar(path: &PathBuf) -> Result<String> {
         ));
     }
     Ok(hash.to_ascii_lowercase())
+}
+
+fn split_distribution_chunks(
+    bytes: &[u8],
+    chunk_count: usize,
+) -> Vec<DistributionSerialExportChunk> {
+    let mut chunks = Vec::with_capacity(chunk_count);
+    let mut offset = 0usize;
+    for index in 0..chunk_count {
+        let next_offset = if index + 1 == chunk_count {
+            bytes.len()
+        } else {
+            bytes.len() * (index + 1) / chunk_count
+        };
+        let chunk_bytes = &bytes[offset..next_offset];
+        let sha256 = hex_lower(&sha256_bytes(chunk_bytes));
+        chunks.push(DistributionSerialExportChunk {
+            index,
+            sha256,
+            byte_len: chunk_bytes.len(),
+            base64: BASE64_STANDARD.encode(chunk_bytes),
+        });
+        offset = next_offset;
+    }
+    chunks
+}
+
+fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {
+    let digest = Sha256::digest(bytes);
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest);
+    out
+}
+
+fn hex_lower(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[cfg(test)]
@@ -428,6 +612,164 @@ mod tests {
         })?;
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].record.payload_hash, manifest.payload_hash());
+        Ok(())
+    }
+
+    #[test]
+    fn distribution_export_reads_cas_blob_and_emits_serial_commands() -> Result<()> {
+        let temp = tempdir()?;
+        let registry_path = temp.path().join("registry");
+        let registry = Registry::new(registry_path);
+        registry.init()?;
+
+        let root = KeyMaterial::from_seed("root", "registry-export-test")?;
+        let online = KeyMaterial::from_seed("online", "registry-export-test")?;
+        let cert = SignerCertificate::new(&online, &root, 1_700_000_000_000, 60_000)?;
+
+        let blob_path = temp.path().join("module.wasm");
+        let artifact_bytes = b"abc";
+        fs::write(&blob_path, artifact_bytes)?;
+        let manifest = SignedBlob::sign(
+            &blob_path,
+            &online,
+            &cert,
+            Some(serde_json::json!({
+                "module_id": "svc.demo.export",
+                "module_version": "1.2.3",
+            })),
+        )?;
+        let manifest_path = temp.path().join("module.manifest.json");
+        fs::write(&manifest_path, serde_json::to_string_pretty(&manifest)?)?;
+
+        let root_pub_path = temp.path().join("root.pub");
+        fs::write(
+            &root_pub_path,
+            format!("{}\n", public_key_to_hex(&root.public_key()?)),
+        )?;
+
+        registry.publish(PublishRequest {
+            blob: blob_path,
+            manifest: manifest_path,
+            root_pub: root_pub_path,
+            namespace: "modules".into(),
+            name: None,
+            version: None,
+            evidence_files: Vec::new(),
+        })?;
+
+        let export = registry.distribution_serial_export(DistributionExportRequest {
+            namespace: "modules",
+            name: "svc.demo.export",
+            tag: "1.2.3",
+            chunk_count: 3,
+        })?;
+
+        assert_eq!(export.source_kind, "local_static_cas_registry");
+        assert_eq!(export.source_id, "host.local_static_cas");
+        assert_eq!(export.registry_payload_hash_blake3, manifest.payload_hash());
+        assert_eq!(export.payload_len, artifact_bytes.len() as u64);
+        assert_eq!(export.chunk_count, 3);
+        assert_eq!(export.chunks.len(), 3);
+        assert_eq!(export.commands.len(), 6);
+        assert_eq!(
+            export.commands[0],
+            format!(
+                "module.submit_distribution_catalog_entry sha256:{} {} 3 sig:{}",
+                export.artifact_sha256, export.payload_len, export.provenance_signature_hex
+            )
+        );
+        assert_eq!(
+            export.commands[1],
+            format!(
+                "module.submit_distribution_begin_from_catalog sha256:{}",
+                export.artifact_sha256
+            )
+        );
+        assert_eq!(
+            export.commands.last().unwrap(),
+            "module.submit_distribution_finalize"
+        );
+
+        let mut reassembled = Vec::new();
+        for chunk in &export.chunks {
+            let decoded = BASE64_STANDARD.decode(&chunk.base64)?;
+            assert_eq!(decoded.len(), chunk.byte_len);
+            reassembled.extend_from_slice(&decoded);
+            assert!(export.commands.contains(&format!(
+                "module.submit_distribution_chunk {} sha256:{} {}",
+                chunk.index, chunk.sha256, chunk.base64
+            )));
+        }
+        assert_eq!(reassembled, artifact_bytes);
+
+        let too_many_chunks = registry
+            .distribution_serial_export(DistributionExportRequest {
+                namespace: "modules",
+                name: "svc.demo.export",
+                tag: "1.2.3",
+                chunk_count: 4,
+            })
+            .unwrap_err();
+        assert!(too_many_chunks
+            .to_string()
+            .contains("exceeds registry blob length"));
+        Ok(())
+    }
+
+    #[test]
+    fn distribution_export_rejects_corrupt_cas_blob() -> Result<()> {
+        let temp = tempdir()?;
+        let registry_path = temp.path().join("registry");
+        let registry = Registry::new(registry_path.clone());
+        registry.init()?;
+
+        let root = KeyMaterial::from_seed("root", "registry-export-corrupt-test")?;
+        let online = KeyMaterial::from_seed("online", "registry-export-corrupt-test")?;
+        let cert = SignerCertificate::new(&online, &root, 1_700_000_000_000, 60_000)?;
+
+        let blob_path = temp.path().join("module.wasm");
+        fs::write(&blob_path, b"original artifact bytes")?;
+        let manifest = SignedBlob::sign(
+            &blob_path,
+            &online,
+            &cert,
+            Some(serde_json::json!({
+                "module_id": "svc.demo.corrupt",
+                "module_version": "9.9.9",
+            })),
+        )?;
+        let manifest_path = temp.path().join("module.manifest.json");
+        fs::write(&manifest_path, serde_json::to_string_pretty(&manifest)?)?;
+
+        let root_pub_path = temp.path().join("root.pub");
+        fs::write(
+            &root_pub_path,
+            format!("{}\n", public_key_to_hex(&root.public_key()?)),
+        )?;
+
+        registry.publish(PublishRequest {
+            blob: blob_path,
+            manifest: manifest_path,
+            root_pub: root_pub_path,
+            namespace: "modules".into(),
+            name: None,
+            version: None,
+            evidence_files: Vec::new(),
+        })?;
+        fs::write(
+            registry_path.join("blobs").join(manifest.payload_hash()),
+            b"tampered artifact bytes",
+        )?;
+
+        let err = registry
+            .distribution_serial_export(DistributionExportRequest {
+                namespace: "modules",
+                name: "svc.demo.corrupt",
+                tag: "9.9.9",
+                chunk_count: 3,
+            })
+            .unwrap_err();
+        assert!(err.to_string().contains("registry blob blake3 mismatch"));
         Ok(())
     }
 

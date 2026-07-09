@@ -9,11 +9,20 @@ use ed25519_dalek::{
     SIGNATURE_LENGTH,
 };
 use hex::{decode, encode};
+use p256::ecdsa::{
+    signature::Signer as P256Signer, Signature as P256Signature, SigningKey as P256SigningKey,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
 pub const ALGORITHM: &str = "ed25519";
+/// The known DEV distribution publisher scalar = 2. Public because the DEV key is public.
+pub const DEV_DISTRIBUTION_PUBLISHER_PRIVATE_SCALAR: [u8; 32] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2,
+];
+/// MUST byte-match `raios_core::distribution_provenance::DISTRIBUTION_PROVENANCE_DOMAIN_TAG`.
+pub const DISTRIBUTION_PROVENANCE_DOMAIN_TAG: &[u8] = b"raios.distribution_provenance.v0";
 
 #[derive(Debug, Error)]
 pub enum KeyError {
@@ -226,6 +235,17 @@ pub fn public_key_to_hex(public: &PublicKey) -> String {
     encode(public.as_bytes())
 }
 
+pub fn sign_distribution_provenance_hex(artifact_sha256: &[u8; 32]) -> String {
+    let signing_key = P256SigningKey::from_slice(&DEV_DISTRIBUTION_PUBLISHER_PRIVATE_SCALAR)
+        .expect("dev scalar 2 is a valid key");
+    let mut message = [0u8; DISTRIBUTION_PROVENANCE_DOMAIN_TAG.len() + 32];
+    message[..DISTRIBUTION_PROVENANCE_DOMAIN_TAG.len()]
+        .copy_from_slice(DISTRIBUTION_PROVENANCE_DOMAIN_TAG);
+    message[DISTRIBUTION_PROVENANCE_DOMAIN_TAG.len()..].copy_from_slice(artifact_sha256);
+    let signature: P256Signature = signing_key.sign(&message);
+    encode(signature.to_der().as_bytes())
+}
+
 pub fn ensure_dir(path: &Path) -> Result<()> {
     if !path.exists() {
         std::fs::create_dir_all(path)?;
@@ -367,4 +387,49 @@ fn copy_and_hash(reader: &mut File, hasher: &mut blake3::Hasher) -> Result<u64> 
         total += read as u64;
     }
     Ok(total)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        sign_distribution_provenance_hex, DEV_DISTRIBUTION_PUBLISHER_PRIVATE_SCALAR,
+        DISTRIBUTION_PROVENANCE_DOMAIN_TAG,
+    };
+    use raios_core::distribution_provenance::verify_distribution_provenance_signature;
+    use raios_core::promotion_attestation::verify_promotion_authority_signature;
+
+    #[test]
+    fn distribution_signer_domain_tag_matches_core() {
+        assert_eq!(
+            DISTRIBUTION_PROVENANCE_DOMAIN_TAG,
+            raios_core::distribution_provenance::DISTRIBUTION_PROVENANCE_DOMAIN_TAG
+        );
+    }
+
+    #[test]
+    fn distribution_signer_output_verifies_as_provenance_not_promotion() {
+        let hash: [u8; 32] = [7u8; 32];
+        let der = hex::decode(sign_distribution_provenance_hex(&hash)).expect("output is hex");
+
+        assert!(verify_distribution_provenance_signature(&der, &hash));
+        assert!(!verify_promotion_authority_signature(&der, &hash));
+    }
+
+    #[test]
+    fn distribution_signer_output_is_stable() {
+        let hash: [u8; 32] = [0x42u8; 32];
+        assert_eq!(
+            sign_distribution_provenance_hex(&hash),
+            sign_distribution_provenance_hex(&hash),
+            "RFC6979 signing must be deterministic"
+        );
+    }
+
+    #[test]
+    fn dev_distribution_publisher_scalar_is_two() {
+        assert_eq!(DEV_DISTRIBUTION_PUBLISHER_PRIVATE_SCALAR[31], 2);
+        assert!(DEV_DISTRIBUTION_PUBLISHER_PRIVATE_SCALAR[..31]
+            .iter()
+            .all(|b| *b == 0));
+    }
 }
