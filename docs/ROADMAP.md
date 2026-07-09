@@ -76,8 +76,9 @@ Claude workflows. OWNER SIDE TRACK (parallel): the Surface Pro 4 Marvell 88W8897
 WiFi driver — scoping, pure firmware sequencer, register-write plan, triggered
 BAR2/DMA firmware bring-up, GET_HW_SPEC mailbox probe, pure SCAN_EXT command
 builder, SCAN_EXT mailbox execution, and shorter firmware/HW_SPEC/SCAN_EXT
-poll bursts with restored copy throughput are committed; live result frames
-still wait on event/Rx-ring work and no scan/link authority is claimed.
+poll bursts with restored copy throughput plus RX-PFU/event-ring observation
+are committed; live result frames still wait on non-empty RX/event buffers and
+no scan/link authority is claimed.
 
 **M12+ opener + honesty capstone (committed, grants nothing):** M12-1 external-
 acquisition HONESTY evaluator (download = candidate intake NEVER install; a
@@ -231,12 +232,12 @@ sealed. **OWNER SIDE TRACK (parallel, Codex workers): Surface Pro 4 Marvell 88W8
 WiFi driver — firmware sequencer, register-write plan, BAR2/DMA firmware
 bring-up, GET_HW_SPEC mailbox probe, pure SCAN_EXT 2.4GHz wildcard command
 builder, SCAN_EXT mailbox execution, a larger bounded firmware-download burst,
-pre-`DRV_READY` RX buffers, and pre-`DRV_READY` event-ring observation are
+pre-`DRV_READY` RX-PFU buffers, RX polling, and event-ring observation are
 committed (unit-tested/VM-smoked; no live result-frame/link claim). Next WiFi
-slice: after the owner captures the refreshed `EVENT_RING` line on Surface
-hardware, either fix the remaining host-ring handoff if buffers stay empty or
-parse observed scan frames into live 802.11 results, still fail-closed on
-QEMU/unknown Surface results.** Process (owner
+slice: after the owner captures refreshed `EVENT_RING` plus `RX_RING` lines on
+Surface hardware, either fix the remaining host-ring handoff if buffers stay
+empty or parse observed scan frames into live 802.11 results, still fail-closed
+on QEMU/unknown Surface results.** Process (owner
 2026-07-08): per-slice max-effort review DROPPED; scoping + implementation both run
 as Codex workers; Claude orchestrates/verifies.
 

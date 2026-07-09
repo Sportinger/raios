@@ -25,13 +25,14 @@ implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
 Current exact next task (Surface WiFi live scan events): boot the refreshed
-image on the real Surface Pro 4, press Start WiFi FW, then Scan networks, and
-capture the firmware download time plus the `EVENT_RING`/`SCAN_EXT` lines. If
-the event buffer is still empty after the RX-BD arm, inspect the remaining
-descriptor-base/host-ring handoff; if a real scan event/frame appears, add the
-smallest parser path for live 802.11 results. Keep QEMU/unknown hardware
-fail-closed, keep association/link authority false, and do not claim live
-networks until Rx descriptors carrying real frames are observed and parsed.
+RX-PFU image on the real Surface Pro 4, press Start WiFi FW, then Scan
+networks, and capture the `SCAN_EXT`, `EVENT_RING`, and new `RX_RING` lines. If
+RX now reports a non-zero packet length, add the smallest parser path for real
+scan results. If event/RX pointers still advance over empty buffers, inspect the
+remaining host-ring handoff and host-interrupt clear discipline. Keep
+QEMU/unknown hardware fail-closed, keep association/link authority false, and
+do not claim live networks until RX/event buffers carrying real frames are
+observed and parsed.
 
 Failure classification (2026-07-09, Marvell firmware poll-budget quick VM):
 focused `quick` report `release/vm-reports/shadow-20260709-131953-18752.json`
@@ -78,6 +79,23 @@ focused VM `quick` report
 predicates, 79 executed commands, `duration_ms: 211891`, report sha256
 `a2824526b81a1ebff75e27e5d8de245d75bf2e845ee9e286cd08fccff19bd7b4`, and
 `base_image.sha256: ec993b3ee4673205723e7e08cc670b4b07ee3ddbc5e8f066b128d947cfd5440a`.
+
+WiFi RX-ring PFU observation slice done (2026-07-09) - after the Surface proved
+the firmware burst fix made download fast but scan still advanced the event
+pointer over empty buffers, raiOS now arms the Marvell 88W8897 RX ring with the
+PFU descriptor layout Linux uses (`flags/offset/frag_len/len/paddr/reserved`)
+instead of the event descriptor shape, polls `HOST_INTR_UPLD_RDY` plus the
+packed RX write pointer before event polling, advances/rearms RX descriptors,
+and exposes `RX_RING` stage/result/rd/wr/type/len/host-int in Settings and the
+`wifi` console command. This grants no scan/link authority and still reports
+live scan parsing as unavailable until real non-zero RX/event buffers are
+observed. Verified: `rustfmt` on touched WiFi/UI/console/main files; release
+build and `scripts\package-stage0.ps1 -Profile release` with local Cargo env
+override; focused VM `quick` report
+`release/vm-reports/shadow-20260709-145731-28804.json` passed 542/542
+predicates, 79 executed commands, `duration_ms: 188980`, report sha256
+`5dc4a361ff0defdd011a62657b8a11fed77b4632b52de1e6c1ff5e7bb7f42b71`, and
+`base_image.sha256: a6ae832f34e323cc84d0f8e0503ab2cd78e70a804309f397b1bbb2ed987a3641`.
 
 WiFi event-ring observation slice done (2026-07-09) - after Marvell firmware
 bring-up reaches `DRV_READY`, a Surface user can now see the real firmware

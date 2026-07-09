@@ -1780,6 +1780,7 @@ fn command_wifi_status() {
     let hw_spec = marvell_wifi_pcie::hw_spec_snapshot();
     let scan_cmd = marvell_wifi_pcie::scan_cmd_snapshot();
     let event_ring = marvell_wifi_pcie::event_ring_snapshot();
+    let rx_ring = marvell_wifi_pcie::rx_ring_snapshot();
     write_output(format_args!(
         "WIFI TARGET: {}    SSID: {}    KEY: {}",
         wifi_state_status(snapshot.state),
@@ -1830,6 +1831,21 @@ fn command_wifi_status() {
             event_ring.event_cause,
             event_ring.event_len,
             event_ring.host_int_status
+        ));
+    }
+    if rx_ring.attempted {
+        write_output(format_args!(
+            "WIFI RX RING: {} RESULT {} RD 0x{:X} WR 0x{:X} TYPE 0x{:04X} LEN {} HOST_INT 0x{:08X}",
+            rx_ring.stage.label(),
+            rx_ring
+                .result
+                .map(|result| result.label())
+                .unwrap_or("pending"),
+            rx_ring.rdptr,
+            rx_ring.wrptr,
+            rx_ring.rx_type,
+            rx_ring.rx_len,
+            rx_ring.host_int_status
         ));
     }
     if firmware.registers.valid {

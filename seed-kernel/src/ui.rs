@@ -1631,6 +1631,19 @@ fn draw_settings_wifi_firmware(
             );
             y = y.saturating_add(18);
         }
+        let rx_ring = marvell_wifi_pcie::rx_ring_snapshot();
+        if rx_ring.attempted {
+            let line = rx_ring_line(rx_ring);
+            draw_truncated_text(
+                surface,
+                72,
+                y,
+                line.as_str(),
+                max_chars,
+                rx_ring_status_color(rx_ring),
+            );
+            y = y.saturating_add(18);
+        }
     }
     y
 }
@@ -1927,6 +1940,36 @@ fn event_ring_status_color(event_ring: marvell_wifi_pcie::EventRingSnapshot) -> 
     if event_ring.has_event() {
         APP_GREEN
     } else if event_ring.is_failed() {
+        APP_RED
+    } else {
+        APP_AMBER
+    }
+}
+
+fn rx_ring_line(rx_ring: marvell_wifi_pcie::RxRingSnapshot) -> TextBuf<192> {
+    let mut line = TextBuf::new();
+    let result = rx_ring
+        .result
+        .map(|result| result.label())
+        .unwrap_or("pending");
+    let _ = write!(
+        line,
+        "RX_RING: {} result={} rd=0x{:x} wr=0x{:x} type=0x{:04x} len={} HOST_INT=0x{:08x}",
+        rx_ring.stage.label(),
+        result,
+        rx_ring.rdptr,
+        rx_ring.wrptr,
+        rx_ring.rx_type,
+        rx_ring.rx_len,
+        rx_ring.host_int_status
+    );
+    line
+}
+
+fn rx_ring_status_color(rx_ring: marvell_wifi_pcie::RxRingSnapshot) -> Color {
+    if rx_ring.has_packet() {
+        APP_GREEN
+    } else if rx_ring.is_failed() {
         APP_RED
     } else {
         APP_AMBER

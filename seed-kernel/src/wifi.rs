@@ -20,7 +20,7 @@ pub const WIFI_SCAN_COMMAND_PENDING_REASON: &str =
 pub const WIFI_SCAN_EVENT_RING_UNAVAILABLE_REASON: &str =
     "scan command accepted; event ring not implemented";
 pub const WIFI_SCAN_RX_RING_UNAVAILABLE_REASON: &str =
-    "scan event observed; rx ring not implemented";
+    "scan event observed; live parser not implemented";
 pub const WIFI_SCAN_COMMAND_FAILED_REASON: &str = "scan command failed; event ring not implemented";
 
 static STATE: Mutex<WifiRuntime> = Mutex::new(WifiRuntime::new());
