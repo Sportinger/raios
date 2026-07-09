@@ -25,12 +25,12 @@ implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
 Current exact next task (Surface WiFi live scan events): boot the refreshed
-image on the real Surface Pro 4, verify whether Start WiFi FW is less laggy
-during firmware download, then add the smallest real Marvell event/Rx-ring
-evidence path that turns the already accepted `SCAN_EXT` command into parsed
-live scan result frames. Keep QEMU/unknown hardware fail-closed, keep
-association/link authority false, and do not claim live networks until the
-firmware event/Rx descriptors are observed and parsed.
+image on the real Surface Pro 4, press Start WiFi FW, then Scan networks, and
+capture the `EVENT_RING`/`SCAN_EXT` lines. If the firmware event appears, add
+the smallest real Marvell Rx-ring path that turns the observed scan event into
+parsed live 802.11 result frames. Keep QEMU/unknown hardware fail-closed, keep
+association/link authority false, and do not claim live networks until Rx
+descriptors carrying real frames are observed and parsed.
 
 Failure classification (2026-07-09, Marvell firmware poll-budget quick VM):
 focused `quick` report `release/vm-reports/shadow-20260709-131953-18752.json`
@@ -56,6 +56,25 @@ for command `agent audit.events 72`; verdict: host-transport timeout on the
 large recent-events response path. No guest panic was observed; inspect the
 harness timeout path and/or return to the previous Marvell task interval before
 the next retry.
+
+WiFi event-ring observation slice done (2026-07-09) - after Marvell firmware
+bring-up reaches `DRV_READY`, a Surface user can now see the real firmware
+event-ring state instead of only the completed `SCAN_EXT` command: raiOS arms
+eight 2048-byte mwifiex-compatible event buffers before `DRV_READY`, polls
+`evt_rdptr`/`evt_wrptr`, acknowledges `CPU_INTR_EVENT_DONE`, parses the event
+transfer header/cause when an event arrives, and exposes `EVENT_RING` stage,
+result, rd/wr pointers, transfer type, cause, length, and host interrupt status
+in Settings and the `wifi` console command. Live WLAN names still remain denied
+until the next Rx-ring slice observes and parses real 802.11 frames; if a scan
+event is seen now, the user-facing reason advances honestly to
+`scan event observed; rx ring not implemented`. Verified: `rustfmt` on touched
+kernel files;
+`scripts\build-seed-kernel.ps1 -Profile release` with local Cargo env override;
+`git diff --check`; focused VM `quick` report
+`release/vm-reports/shadow-20260709-141710-13408.json` passed 542/542
+predicates, 79 executed commands, `duration_ms: 215768`, report sha256
+`2c9b27c26aea3e3e97b94a25534bb73ac5c3108d553a6a415eb84fc8298ddc4d`, and
+`base_image.sha256: fd7ece70a582faaa23e4b152a156d7b488c0d92ce7d980a79caa66d30834b80d`.
 
 WiFi firmware throughput correction slice done (2026-07-09) - the first
 poll-budget image was wrong on bare metal: it reduced each Marvell firmware

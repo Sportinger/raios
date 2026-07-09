@@ -14,8 +14,9 @@ use raios_core::marvell_wifi_fw::{
     decide_fw_ready_poll, plan_register_writes, FirmwareDownload, FwAction, FwError, FwPhase,
     FwReadyPollDecision, RegisterReads, CMDRSP_ADDR_HI, CMDRSP_ADDR_LO, CMD_ADDR_HI, CMD_ADDR_LO,
     CMD_SIZE, CPU_INTR_DOOR_BELL, DRV_READY, FW_DMA_STAGING_SIZE, FW_DUMP_CTRL,
-    FW_READY_TIMEOUT_MS, FW_STATUS, HOST_INTR_CMD_DONE, HOST_INTR_MASK, MWIFIEX_UPLD_SIZE,
-    PCIE_CPU_INT_EVENT, PCIE_CPU_INT_STATUS, PCIE_HOST_INT_STATUS, PCIE_HOST_INT_STATUS_MASK,
+    FW_READY_TIMEOUT_MS, FW_STATUS, HOST_INTR_CMD_DONE, HOST_INTR_EVENT_RDY, HOST_INTR_MASK,
+    MWIFIEX_UPLD_SIZE, PCIE_CPU_INT_EVENT, PCIE_CPU_INT_STATUS, PCIE_HOST_INT_STATUS,
+    PCIE_HOST_INT_STATUS_MASK,
 };
 use spin::Mutex;
 
@@ -32,6 +33,14 @@ const HWSPEC_CMD_BUFFER_SIZE: usize = 128;
 const HWSPEC_TIMEOUT_MS: u64 = 3_000;
 const SCAN_CMD_BUFFER_SIZE: usize = marvell_wifi_cmd::SCAN_EXT_24GHZ_CMD_TOTAL_LEN;
 const SCAN_CMD_TIMEOUT_MS: u64 = 15_000;
+const EVENT_RING_COUNT: usize = 8;
+const EVENT_RING_MASK: u32 = 0x0f;
+const EVENT_ROLLOVER_IND: u32 = 1 << 7;
+const EVENT_BUFFER_SIZE: usize = 2048;
+const EVENT_HEADER_LEN: usize = 4;
+const PCIE_EVT_RD_PTR: u32 = 0xCE8;
+const PCIE_EVT_WR_PTR: u32 = 0xCEC;
+const CPU_INTR_EVENT_DONE: u32 = 1 << 5;
 
 #[repr(align(64))]
 struct DmaBlock([u8; FW_DMA_STAGING_SIZE]);
@@ -53,13 +62,40 @@ struct ScanDmaBlock {
     rsp: [u8; MWIFIEX_UPLD_SIZE],
 }
 
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+struct EventBufDesc {
+    paddr: u64,
+    len: u16,
+    flags: u16,
+}
+
+impl EventBufDesc {
+    const EMPTY: Self = Self {
+        paddr: 0,
+        len: 0,
+        flags: 0,
+    };
+}
+
+#[repr(C, align(64))]
+struct EventRingDmaBlock {
+    desc: [EventBufDesc; EVENT_RING_COUNT],
+    data: [[u8; EVENT_BUFFER_SIZE]; EVENT_RING_COUNT],
+}
+
 static mut SCAN_DMA_BLOCK: ScanDmaBlock = ScanDmaBlock {
     cmd: [0; SCAN_CMD_BUFFER_SIZE],
     rsp: [0; MWIFIEX_UPLD_SIZE],
 };
+static mut EVENT_RING_DMA_BLOCK: EventRingDmaBlock = EventRingDmaBlock {
+    desc: [EventBufDesc::EMPTY; EVENT_RING_COUNT],
+    data: [[0; EVENT_BUFFER_SIZE]; EVENT_RING_COUNT],
+};
 static BRINGUP: Mutex<FirmwareBringupRuntime> = Mutex::new(FirmwareBringupRuntime::new());
 static HWSPEC: Mutex<HwSpecRuntime> = Mutex::new(HwSpecRuntime::new());
 static SCAN: Mutex<ScanCmdRuntime> = Mutex::new(ScanCmdRuntime::new());
+static EVENT_RING: Mutex<EventRingRuntime> = Mutex::new(EventRingRuntime::new());
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FirmwareDownloadResult {
@@ -251,6 +287,46 @@ impl ScanCmdResult {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EventRingStage {
+    Idle,
+    Armed,
+    EventReady,
+    Failed,
+}
+
+impl EventRingStage {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Armed => "armed",
+            Self::EventReady => "event_ready",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EventRingResult {
+    Armed,
+    DmaAddressUnavailable,
+    BadReadPointer,
+    BadEventLength,
+    EventObservedRxRingUnavailable,
+}
+
+impl EventRingResult {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Armed => "armed",
+            Self::DmaAddressUnavailable => "dma_address_unavailable",
+            Self::BadReadPointer => "bad_read_pointer",
+            Self::BadEventLength => "bad_event_length",
+            Self::EventObservedRxRingUnavailable => "event_observed_rx_ring_unavailable",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ScanCmdTriggerResult {
     Started,
     AlreadyRunning,
@@ -344,6 +420,45 @@ pub struct ScanCmdSnapshot {
     pub command_len: usize,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EventRingSnapshot {
+    pub attempted: bool,
+    pub armed: bool,
+    pub stage: EventRingStage,
+    pub result: Option<EventRingResult>,
+    pub host_int_status: u32,
+    pub rdptr: u32,
+    pub wrptr: u32,
+    pub event_len: u16,
+    pub event_type: u16,
+    pub event_cause: u32,
+}
+
+impl EventRingSnapshot {
+    pub const fn new() -> Self {
+        Self {
+            attempted: false,
+            armed: false,
+            stage: EventRingStage::Idle,
+            result: None,
+            host_int_status: 0,
+            rdptr: 0,
+            wrptr: 0,
+            event_len: 0,
+            event_type: 0,
+            event_cause: 0,
+        }
+    }
+
+    pub fn is_failed(&self) -> bool {
+        self.stage == EventRingStage::Failed
+    }
+
+    pub fn has_event(&self) -> bool {
+        self.stage == EventRingStage::EventReady
+    }
+}
+
 impl ScanCmdSnapshot {
     pub const fn new() -> Self {
         Self {
@@ -423,6 +538,22 @@ struct ScanCmdRuntime {
     next_seq: u16,
 }
 
+struct EventRingRuntime {
+    snapshot: EventRingSnapshot,
+    mmio_base: Option<usize>,
+    rdptr: u32,
+}
+
+impl EventRingRuntime {
+    const fn new() -> Self {
+        Self {
+            snapshot: EventRingSnapshot::new(),
+            mmio_base: None,
+            rdptr: EVENT_ROLLOVER_IND,
+        }
+    }
+}
+
 impl ScanCmdRuntime {
     const fn new() -> Self {
         Self {
@@ -459,6 +590,13 @@ struct ScanCmdJob {
     seq: u16,
 }
 
+#[derive(Clone, Copy)]
+struct ParsedEvent {
+    len: u16,
+    event_type: u16,
+    cause: u32,
+}
+
 #[cfg(marvell_fw_present)]
 pub fn firmware_image() -> &'static [u8] {
     include_bytes!(env!("MARVELL_FW_PATH"))
@@ -479,6 +617,10 @@ pub fn hw_spec_snapshot() -> HwSpecSnapshot {
 
 pub fn scan_cmd_snapshot() -> ScanCmdSnapshot {
     SCAN.lock().snapshot
+}
+
+pub fn event_ring_snapshot() -> EventRingSnapshot {
+    EVENT_RING.lock().snapshot
 }
 
 pub fn start_bring_up_firmware() -> FirmwareBringupTriggerResult {
@@ -945,6 +1087,87 @@ pub fn poll_scan_ext() -> bool {
     changed
 }
 
+pub fn poll_event_ring() -> bool {
+    let (changed, scan_event_observed, serial_event) = {
+        let mut runtime = EVENT_RING.lock();
+        if !runtime.snapshot.armed {
+            return false;
+        }
+        let Some(mmio_base) = runtime.mmio_base else {
+            return false;
+        };
+        let mmio_base = mmio_base as *mut u8;
+        let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+        let wrptr = read_reg(mmio_base, PCIE_EVT_WR_PTR);
+        let changed = runtime.snapshot.host_int_status != status
+            || runtime.snapshot.wrptr != wrptr
+            || runtime.snapshot.rdptr != runtime.rdptr;
+        runtime.snapshot.host_int_status = status;
+        runtime.snapshot.wrptr = wrptr;
+        runtime.snapshot.rdptr = runtime.rdptr;
+
+        let event_available = event_ring_has_entry(wrptr, runtime.rdptr);
+        if status & HOST_INTR_EVENT_RDY == 0 && !event_available {
+            return changed;
+        }
+        if !event_available {
+            write_reg(mmio_base, PCIE_CPU_INT_EVENT, CPU_INTR_EVENT_DONE);
+            return true;
+        }
+
+        let rd_index = (runtime.rdptr & EVENT_RING_MASK) as usize;
+        if rd_index >= EVENT_RING_COUNT {
+            runtime.snapshot.stage = EventRingStage::Failed;
+            runtime.snapshot.result = Some(EventRingResult::BadReadPointer);
+            write_reg(mmio_base, PCIE_CPU_INT_EVENT, CPU_INTR_EVENT_DONE);
+            return true;
+        }
+
+        let parsed = match parse_event_buffer(rd_index) {
+            Ok(parsed) => parsed,
+            Err(result) => {
+                runtime.snapshot.stage = EventRingStage::Failed;
+                runtime.snapshot.result = Some(result);
+                write_reg(mmio_base, PCIE_CPU_INT_EVENT, CPU_INTR_EVENT_DONE);
+                return true;
+            }
+        };
+
+        let next_rdptr = next_event_rdptr(runtime.rdptr);
+        arm_event_desc(rd_index);
+        compiler_fence(Ordering::SeqCst);
+        write_reg(mmio_base, PCIE_EVT_RD_PTR, next_rdptr);
+        write_reg(mmio_base, PCIE_CPU_INT_EVENT, CPU_INTR_EVENT_DONE);
+        compiler_fence(Ordering::SeqCst);
+
+        runtime.rdptr = next_rdptr;
+        runtime.snapshot = EventRingSnapshot {
+            attempted: true,
+            armed: true,
+            stage: EventRingStage::EventReady,
+            result: Some(EventRingResult::EventObservedRxRingUnavailable),
+            host_int_status: status,
+            rdptr: next_rdptr,
+            wrptr,
+            event_len: parsed.len,
+            event_type: parsed.event_type,
+            event_cause: parsed.cause,
+        };
+        (true, scan_cmd_snapshot().is_done(), Some(parsed))
+    };
+
+    if scan_event_observed {
+        wifi::note_scan_event_observed_rx_ring_unavailable();
+    }
+    if let Some(parsed) = serial_event {
+        serial::write_fmt(format_args!(
+            "marvell wifi: event observed cause=0x{:08x} len={} type=0x{:04x}; rx ring not implemented\r\n",
+            parsed.cause, parsed.len, parsed.event_type
+        ));
+    }
+    changed
+}
+
 pub fn poll() -> bool {
     let mut runtime = BRINGUP.lock();
     let Some(mut job) = runtime.job.take() else {
@@ -1056,7 +1279,10 @@ pub fn poll() -> bool {
                 }
             }
             FwAction::Retry { .. } => {}
-            FwAction::RingDoorbell | FwAction::WriteDrvReady { .. } => {}
+            FwAction::RingDoorbell => {}
+            FwAction::WriteDrvReady { .. } => {
+                arm_event_ring(job.mmio_base);
+            }
             FwAction::PollDoorbellAck => {
                 if elapsed_ms(job.phase_started_tsc) >= DOORBELL_ACK_TIMEOUT_MS {
                     finish_locked(
@@ -1282,6 +1508,65 @@ fn arm_hw_spec_after_firmware_ready(mmio_base: usize) {
     });
 }
 
+fn arm_event_ring(mmio_base: usize) {
+    let mut runtime = EVENT_RING.lock();
+    if runtime.snapshot.attempted {
+        return;
+    }
+
+    let mut index = 0usize;
+    while index < EVENT_RING_COUNT {
+        let Some(data_phys) = event_data_phys(index) else {
+            runtime.snapshot = EventRingSnapshot {
+                attempted: true,
+                armed: false,
+                stage: EventRingStage::Failed,
+                result: Some(EventRingResult::DmaAddressUnavailable),
+                ..EventRingSnapshot::new()
+            };
+            serial::write_line("marvell wifi: event ring arm failed: dma_address_unavailable");
+            return;
+        };
+        unsafe {
+            // SAFETY: EVENT_RING_DMA_BLOCK is the driver's fixed event DMA
+            // storage; EVENT_RING serializes descriptor setup and index bounds
+            // are checked by the loop.
+            ptr::write_bytes(event_data_ptr(index), 0, EVENT_BUFFER_SIZE);
+            ptr::write(
+                event_desc_ptr(index),
+                EventBufDesc {
+                    paddr: data_phys,
+                    len: EVENT_BUFFER_SIZE as u16,
+                    flags: 0,
+                },
+            );
+        }
+        index += 1;
+    }
+
+    let mmio = mmio_base as *mut u8;
+    runtime.rdptr = EVENT_ROLLOVER_IND;
+    compiler_fence(Ordering::SeqCst);
+    write_reg(mmio, PCIE_HOST_INT_STATUS_MASK, HOST_INTR_MASK);
+    write_reg(mmio, PCIE_EVT_RD_PTR, runtime.rdptr);
+    compiler_fence(Ordering::SeqCst);
+
+    runtime.mmio_base = Some(mmio_base);
+    runtime.snapshot = EventRingSnapshot {
+        attempted: true,
+        armed: true,
+        stage: EventRingStage::Armed,
+        result: Some(EventRingResult::Armed),
+        host_int_status: read_reg(mmio, PCIE_HOST_INT_STATUS),
+        rdptr: runtime.rdptr,
+        wrptr: read_reg(mmio, PCIE_EVT_WR_PTR),
+        event_len: 0,
+        event_type: 0,
+        event_cause: 0,
+    };
+    serial::write_line("marvell wifi: event ring armed before DRV_READY");
+}
+
 fn finish_hw_spec_locked(
     runtime: &mut HwSpecRuntime,
     result: HwSpecResult,
@@ -1365,6 +1650,66 @@ fn parse_scan_dma_response() -> Result<(), HwSpecCmdError> {
         // the response slice covers only the fixed mailbox response buffer.
         let response = slice::from_raw_parts(scan_rsp_ptr().cast_const(), MWIFIEX_UPLD_SIZE);
         marvell_wifi_cmd::parse_scan_ext_response(response)
+    }
+}
+
+fn parse_event_buffer(index: usize) -> Result<ParsedEvent, EventRingResult> {
+    unsafe {
+        // SAFETY: index is checked by poll_event_ring before parsing, and each
+        // event buffer has the fixed EVENT_BUFFER_SIZE.
+        let bytes = slice::from_raw_parts(event_data_ptr(index).cast_const(), EVENT_BUFFER_SIZE);
+        let len = u16::from_le_bytes([bytes[0], bytes[1]]);
+        let event_type = u16::from_le_bytes([bytes[2], bytes[3]]);
+        if len as usize <= EVENT_HEADER_LEN || len as usize > EVENT_BUFFER_SIZE {
+            return Err(EventRingResult::BadEventLength);
+        }
+        let cause_offset = marvell_wifi_cmd::INTF_HEADER_LEN;
+        if (len as usize) < cause_offset + 4 {
+            return Err(EventRingResult::BadEventLength);
+        }
+        let cause = u32::from_le_bytes([
+            bytes[cause_offset],
+            bytes[cause_offset + 1],
+            bytes[cause_offset + 2],
+            bytes[cause_offset + 3],
+        ]);
+        Ok(ParsedEvent {
+            len,
+            event_type,
+            cause,
+        })
+    }
+}
+
+fn event_ring_has_entry(wrptr: u32, rdptr: u32) -> bool {
+    ((wrptr & EVENT_RING_MASK) != (rdptr & EVENT_RING_MASK))
+        || ((wrptr & EVENT_ROLLOVER_IND) == (rdptr & EVENT_ROLLOVER_IND))
+}
+
+fn next_event_rdptr(rdptr: u32) -> u32 {
+    let next = rdptr.wrapping_add(1);
+    if (next & EVENT_RING_MASK) == EVENT_RING_COUNT as u32 {
+        (next & EVENT_ROLLOVER_IND) ^ EVENT_ROLLOVER_IND
+    } else {
+        next
+    }
+}
+
+fn arm_event_desc(index: usize) {
+    if let Some(data_phys) = event_data_phys(index) {
+        unsafe {
+            // SAFETY: caller only passes an event-ring index already validated
+            // against EVENT_RING_COUNT; ptr::write avoids forming references to
+            // the packed descriptor.
+            ptr::write(
+                event_desc_ptr(index),
+                EventBufDesc {
+                    paddr: data_phys,
+                    len: EVENT_BUFFER_SIZE as u16,
+                    flags: 0,
+                },
+            );
+        }
     }
 }
 
@@ -1518,6 +1863,10 @@ fn scan_rsp_phys() -> Option<u64> {
     memory::virt_to_phys(scan_rsp_ptr().cast_const())
 }
 
+fn event_data_phys(index: usize) -> Option<u64> {
+    memory::virt_to_phys(event_data_ptr(index).cast_const())
+}
+
 fn copy_block_into_dma(src: &[u8], wire_len: usize) -> Result<(), FirmwareDownloadResult> {
     if src.len() > wire_len || wire_len > FW_DMA_STAGING_SIZE {
         return Err(FirmwareDownloadResult::BlockLenOutOfRange);
@@ -1587,5 +1936,25 @@ fn scan_rsp_ptr() -> *mut u8 {
         // SAFETY: returning a raw pointer does not create a Rust reference; all
         // access is serialized by SCAN and bounded by MWIFIEX_UPLD_SIZE.
         ptr::addr_of_mut!(SCAN_DMA_BLOCK.rsp).cast::<u8>()
+    }
+}
+
+fn event_desc_ptr(index: usize) -> *mut EventBufDesc {
+    unsafe {
+        // SAFETY: returning a raw pointer does not create a Rust reference; all
+        // access is serialized by EVENT_RING and index callers are bounded.
+        ptr::addr_of_mut!(EVENT_RING_DMA_BLOCK.desc)
+            .cast::<EventBufDesc>()
+            .add(index)
+    }
+}
+
+fn event_data_ptr(index: usize) -> *mut u8 {
+    unsafe {
+        // SAFETY: returning a raw pointer does not create a Rust reference; all
+        // access is serialized by EVENT_RING and index callers are bounded.
+        ptr::addr_of_mut!(EVENT_RING_DMA_BLOCK.data)
+            .cast::<u8>()
+            .add(index * EVENT_BUFFER_SIZE)
     }
 }

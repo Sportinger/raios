@@ -19,6 +19,8 @@ pub const WIFI_SCAN_COMMAND_PENDING_REASON: &str =
     "scan command pending; event ring not implemented";
 pub const WIFI_SCAN_EVENT_RING_UNAVAILABLE_REASON: &str =
     "scan command accepted; event ring not implemented";
+pub const WIFI_SCAN_RX_RING_UNAVAILABLE_REASON: &str =
+    "scan event observed; rx ring not implemented";
 pub const WIFI_SCAN_COMMAND_FAILED_REASON: &str = "scan command failed; event ring not implemented";
 
 static STATE: Mutex<WifiRuntime> = Mutex::new(WifiRuntime::new());
@@ -389,6 +391,13 @@ pub fn note_scan_command_done_event_ring_unavailable() {
     guard.clear_scan_results();
     guard.snapshot.scan_available = false;
     guard.snapshot.scan_unavailable_reason = WIFI_SCAN_EVENT_RING_UNAVAILABLE_REASON;
+}
+
+pub fn note_scan_event_observed_rx_ring_unavailable() {
+    let mut guard = STATE.lock();
+    guard.clear_scan_results();
+    guard.snapshot.scan_available = false;
+    guard.snapshot.scan_unavailable_reason = WIFI_SCAN_RX_RING_UNAVAILABLE_REASON;
 }
 
 pub fn note_scan_command_failed_event_ring_unavailable() {
