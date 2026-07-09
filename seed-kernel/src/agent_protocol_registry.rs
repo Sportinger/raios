@@ -23,6 +23,7 @@ use crate::{
 };
 
 use super::distribution_registry;
+use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
 use spin::Mutex;
 
 const SERIAL_DISTRIBUTION_DELIVERY_CHANNEL: &str = "serial_console_distribution_chunks_v0";
@@ -43,6 +44,20 @@ const DISTRIBUTION_RECEIVER_IDENTITY_INVALID_REASON: &str =
     "invalid_distribution_receiver_identity_metadata";
 const DISTRIBUTION_RECEIVER_IDENTITY_CATALOG_NOT_FOUND_REASON: &str =
     "receiver_identity_catalog_entry_not_found";
+const DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_ACCEPTED_REASON: &str =
+    "accepted_local_distribution_receiver_identity_evidence";
+const DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_FINALIZED_REASON: &str =
+    "local_distribution_receiver_identity_evidence_verified_by_guest";
+const DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_INVALID_REASON: &str =
+    "invalid_distribution_receiver_identity_evidence";
+const DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_INCOMPLETE_REASON: &str =
+    "distribution_receiver_identity_evidence_incomplete";
+const DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_HASH_MISMATCH_REASON: &str =
+    "distribution_receiver_identity_evidence_hash_mismatch";
+const DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_TOO_LARGE_REASON: &str =
+    "distribution_receiver_identity_evidence_too_large";
+const DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_VERIFY_FAILED_REASON: &str =
+    "distribution_receiver_identity_evidence_verify_failed";
 const DISTRIBUTION_CHUNK_ACCEPTED_REASON: &str = "accepted_distribution_chunk";
 const DISTRIBUTION_DUPLICATE_CHUNK_ACCEPTED_REASON: &str = "accepted_duplicate_distribution_chunk";
 const DISTRIBUTION_DELIVERY_NOT_STARTED_REASON: &str = "distribution_delivery_not_started";
@@ -51,6 +66,10 @@ const DISTRIBUTION_INVALID_LENGTH_REASON: &str = "invalid_distribution_total_len
 const DISTRIBUTION_INVALID_CHUNK_COUNT_REASON: &str = "invalid_distribution_chunk_count";
 const DISTRIBUTION_INVALID_SIGNATURE_REASON: &str = "invalid_distribution_signature_hex";
 const DISTRIBUTION_INVALID_CHUNK_INDEX_REASON: &str = "invalid_distribution_chunk_index";
+const RECEIVER_IDENTITY_EVIDENCE_PART_COUNT: usize = 6;
+const MAX_RECEIVER_DESCRIPTOR_BYTES: usize = 4096;
+const MAX_RECEIVER_PUBLIC_KEY_BYTES: usize = 256;
+const MAX_RECEIVER_SIGNATURE_BYTES: usize = 256;
 
 static PENDING_SERIAL_DISTRIBUTION: Mutex<PendingSerialDistribution> =
     Mutex::new(PendingSerialDistribution::new());
@@ -102,6 +121,7 @@ struct LocalDistributionCatalog {
     chunk_count: usize,
     provenance_signature_der: Vec<u8>,
     receiver_identity: Option<LocalReceiverIdentity>,
+    receiver_identity_evidence: LocalReceiverIdentityEvidencePayloads,
 }
 
 #[derive(Clone, Copy)]
@@ -118,6 +138,19 @@ struct LocalReceiverIdentity {
     artifact_hash_bound_by_load_descriptor: bool,
     load_descriptor_binds_artifact_identity: bool,
     load_descriptor_authorizes_current_boot_wasm_execution: bool,
+    artifact_identity_signature_verified_by_guest: bool,
+    load_descriptor_signature_verified_by_guest: bool,
+    guest_signature_verification_performed: bool,
+    receiver_identity_complete: bool,
+}
+
+struct LocalReceiverIdentityEvidencePayloads {
+    artifact_identity_descriptor: Option<Vec<u8>>,
+    artifact_identity_public_key: Option<Vec<u8>>,
+    artifact_identity_signature: Option<Vec<u8>>,
+    load_descriptor: Option<Vec<u8>>,
+    load_descriptor_public_key: Option<Vec<u8>>,
+    load_descriptor_signature: Option<Vec<u8>>,
 }
 
 struct PendingSerialDistributionChunk {
@@ -139,6 +172,19 @@ struct DistributionReceiverIdentityOutcome {
     content_sha256: Option<[u8; 32]>,
     receiver_identity: Option<LocalReceiverIdentity>,
     retained_in_catalog: bool,
+    accepted: bool,
+    rejected: bool,
+    reason: &'static str,
+}
+
+#[derive(Clone, Copy)]
+struct DistributionReceiverIdentityEvidenceOutcome {
+    content_sha256: Option<[u8; 32]>,
+    evidence_kind: &'static str,
+    evidence_sha256: Option<[u8; 32]>,
+    decoded_byte_len: usize,
+    retained_part_count: usize,
+    receiver_identity: Option<LocalReceiverIdentity>,
     accepted: bool,
     rejected: bool,
     reason: &'static str,
@@ -259,6 +305,7 @@ impl LocalDistributionCatalog {
             chunk_count: 0,
             provenance_signature_der: Vec::new(),
             receiver_identity: None,
+            receiver_identity_evidence: LocalReceiverIdentityEvidencePayloads::new(),
         }
     }
 
@@ -269,6 +316,123 @@ impl LocalDistributionCatalog {
         self.chunk_count = 0;
         self.provenance_signature_der.clear();
         self.receiver_identity = None;
+        self.receiver_identity_evidence.clear();
+    }
+}
+
+impl LocalReceiverIdentityEvidencePayloads {
+    const fn new() -> Self {
+        Self {
+            artifact_identity_descriptor: None,
+            artifact_identity_public_key: None,
+            artifact_identity_signature: None,
+            load_descriptor: None,
+            load_descriptor_public_key: None,
+            load_descriptor_signature: None,
+        }
+    }
+
+    fn clear(&mut self) {
+        self.artifact_identity_descriptor = None;
+        self.artifact_identity_public_key = None;
+        self.artifact_identity_signature = None;
+        self.load_descriptor = None;
+        self.load_descriptor_public_key = None;
+        self.load_descriptor_signature = None;
+    }
+
+    fn retained_part_count(&self) -> usize {
+        self.artifact_identity_descriptor.is_some() as usize
+            + self.artifact_identity_public_key.is_some() as usize
+            + self.artifact_identity_signature.is_some() as usize
+            + self.load_descriptor.is_some() as usize
+            + self.load_descriptor_public_key.is_some() as usize
+            + self.load_descriptor_signature.is_some() as usize
+    }
+
+    fn is_complete(&self) -> bool {
+        self.retained_part_count() == RECEIVER_IDENTITY_EVIDENCE_PART_COUNT
+    }
+
+    fn set(&mut self, kind: ReceiverIdentityEvidenceKind, bytes: Vec<u8>) {
+        match kind {
+            ReceiverIdentityEvidenceKind::ArtifactIdentityDescriptor => {
+                self.artifact_identity_descriptor = Some(bytes)
+            }
+            ReceiverIdentityEvidenceKind::ArtifactIdentityPublicKey => {
+                self.artifact_identity_public_key = Some(bytes)
+            }
+            ReceiverIdentityEvidenceKind::ArtifactIdentitySignature => {
+                self.artifact_identity_signature = Some(bytes)
+            }
+            ReceiverIdentityEvidenceKind::LoadDescriptor => self.load_descriptor = Some(bytes),
+            ReceiverIdentityEvidenceKind::LoadDescriptorPublicKey => {
+                self.load_descriptor_public_key = Some(bytes)
+            }
+            ReceiverIdentityEvidenceKind::LoadDescriptorSignature => {
+                self.load_descriptor_signature = Some(bytes)
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ReceiverIdentityEvidenceKind {
+    ArtifactIdentityDescriptor,
+    ArtifactIdentityPublicKey,
+    ArtifactIdentitySignature,
+    LoadDescriptor,
+    LoadDescriptorPublicKey,
+    LoadDescriptorSignature,
+}
+
+impl ReceiverIdentityEvidenceKind {
+    fn parse(token: &str) -> Option<Self> {
+        match token {
+            "artifact_identity_descriptor" => Some(Self::ArtifactIdentityDescriptor),
+            "artifact_identity_public_key" => Some(Self::ArtifactIdentityPublicKey),
+            "artifact_identity_signature" => Some(Self::ArtifactIdentitySignature),
+            "load_descriptor" => Some(Self::LoadDescriptor),
+            "load_descriptor_public_key" => Some(Self::LoadDescriptorPublicKey),
+            "load_descriptor_signature" => Some(Self::LoadDescriptorSignature),
+            _ => None,
+        }
+    }
+
+    fn token(self) -> &'static str {
+        match self {
+            Self::ArtifactIdentityDescriptor => "artifact_identity_descriptor",
+            Self::ArtifactIdentityPublicKey => "artifact_identity_public_key",
+            Self::ArtifactIdentitySignature => "artifact_identity_signature",
+            Self::LoadDescriptor => "load_descriptor",
+            Self::LoadDescriptorPublicKey => "load_descriptor_public_key",
+            Self::LoadDescriptorSignature => "load_descriptor_signature",
+        }
+    }
+
+    fn max_bytes(self) -> usize {
+        match self {
+            Self::ArtifactIdentityDescriptor | Self::LoadDescriptor => {
+                MAX_RECEIVER_DESCRIPTOR_BYTES
+            }
+            Self::ArtifactIdentityPublicKey | Self::LoadDescriptorPublicKey => {
+                MAX_RECEIVER_PUBLIC_KEY_BYTES
+            }
+            Self::ArtifactIdentitySignature | Self::LoadDescriptorSignature => {
+                MAX_RECEIVER_SIGNATURE_BYTES
+            }
+        }
+    }
+
+    fn expected_sha256(self, identity: &LocalReceiverIdentity) -> [u8; 32] {
+        match self {
+            Self::ArtifactIdentityDescriptor => identity.artifact_identity_descriptor_sha256,
+            Self::ArtifactIdentityPublicKey => identity.artifact_identity_public_key_sha256,
+            Self::ArtifactIdentitySignature => identity.artifact_identity_signature_sha256,
+            Self::LoadDescriptor => identity.load_descriptor_sha256,
+            Self::LoadDescriptorPublicKey => identity.load_descriptor_public_key_sha256,
+            Self::LoadDescriptorSignature => identity.load_descriptor_signature_sha256,
+        }
     }
 }
 
@@ -363,6 +527,92 @@ pub(crate) fn emit_submit_distribution_receiver_identity(arg: &str) {
         6,
     );
     end_response("module.submit_distribution_receiver_identity");
+}
+
+pub(crate) fn emit_submit_distribution_receiver_identity_evidence(arg: &str) {
+    let outcome = submit_distribution_receiver_identity_evidence(arg);
+
+    emit_distribution_receiver_identity_evidence_response(
+        "module.submit_distribution_receiver_identity_evidence",
+        &outcome,
+    );
+}
+
+pub(crate) fn emit_submit_distribution_receiver_identity_finalize(arg: &str) {
+    let outcome = submit_distribution_receiver_identity_finalize(arg);
+
+    emit_distribution_receiver_identity_evidence_response(
+        "module.submit_distribution_receiver_identity_finalize",
+        &outcome,
+    );
+}
+
+fn emit_distribution_receiver_identity_evidence_response(
+    method: &'static str,
+    outcome: &DistributionReceiverIdentityEvidenceOutcome,
+) {
+    let receiver_identity_complete = outcome
+        .receiver_identity
+        .map(|identity| identity.receiver_identity_complete)
+        .unwrap_or(false);
+    let guest_signature_verification_performed = outcome
+        .receiver_identity
+        .map(|identity| identity.guest_signature_verification_performed)
+        .unwrap_or(false);
+
+    begin_response(method);
+    emit_record_fields(
+        vec![
+            f("method", s(method)),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("source_id", s(LOCAL_DISTRIBUTION_CATALOG_SOURCE_ID)),
+            f("entry_id", s(LOCAL_DISTRIBUTION_CATALOG_ENTRY_ID)),
+            f("content_sha256", record_sha_or_null(outcome.content_sha256)),
+            f("evidence_kind", s(outcome.evidence_kind)),
+            f(
+                "evidence_sha256",
+                record_sha_or_null(outcome.evidence_sha256),
+            ),
+            f("decoded_byte_len", V::U64(outcome.decoded_byte_len as u64)),
+            f(
+                "retained_part_count",
+                V::U64(outcome.retained_part_count as u64),
+            ),
+            f(
+                "receiver_identity",
+                outcome
+                    .receiver_identity
+                    .as_ref()
+                    .map(record_receiver_identity)
+                    .unwrap_or(V::Null),
+            ),
+            f("receiver_identity_complete", b(receiver_identity_complete)),
+            f("accepted", b(outcome.accepted)),
+            f("rejected", b(outcome.rejected)),
+            f("reason", s(outcome.reason)),
+            f("metadata_is_non_authorizing", b(true)),
+            f(
+                "guest_signature_verification_performed",
+                b(guest_signature_verification_performed),
+            ),
+            f("requires_m6_m7_reverify_for_load", b(true)),
+            f("load_attempted", b(false)),
+            f("execution_attempted", b(false)),
+            f("durable_write_attempted", b(false)),
+            f("authorizes_acquisition", b(false)),
+            f("authorizes_install", b(false)),
+            f("authorizes_load", b(false)),
+            f("authorizes_execute", b(false)),
+            f("authorizes_persist", b(false)),
+            f("writes_persistent_state", b(false)),
+            f("network_attempted", b(false)),
+            f("owner_sealed", b(false)),
+            f("trust_tier", s("dev_key_not_owner_sealed")),
+        ],
+        6,
+    );
+    end_response(method);
 }
 
 pub(crate) fn emit_submit_distribution_begin(arg: &str) {
@@ -631,6 +881,7 @@ fn submit_distribution_receiver_identity(arg: &str) -> DistributionReceiverIdent
         return rejected_receiver_identity(DISTRIBUTION_RECEIVER_IDENTITY_CATALOG_NOT_FOUND_REASON);
     }
     catalog.receiver_identity = Some(receiver_identity);
+    catalog.receiver_identity_evidence.clear();
 
     DistributionReceiverIdentityOutcome {
         content_sha256: Some(content_sha256),
@@ -639,6 +890,183 @@ fn submit_distribution_receiver_identity(arg: &str) -> DistributionReceiverIdent
         accepted: true,
         rejected: false,
         reason: DISTRIBUTION_RECEIVER_IDENTITY_ACCEPTED_REASON,
+    }
+}
+
+fn submit_distribution_receiver_identity_evidence(
+    arg: &str,
+) -> DistributionReceiverIdentityEvidenceOutcome {
+    let payload =
+        distribution_payload(arg, "module.submit_distribution_receiver_identity_evidence");
+    let mut words = payload.split_whitespace();
+    let content_sha256 = match next_sha256_or(
+        &mut words,
+        DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_INVALID_REASON,
+    ) {
+        Ok(value) => value,
+        Err(reason) => return rejected_receiver_identity_evidence(reason),
+    };
+    let Some(kind_token) = words.next() else {
+        return rejected_receiver_identity_evidence(
+            DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_INVALID_REASON,
+        );
+    };
+    let Some(kind) = ReceiverIdentityEvidenceKind::parse(kind_token) else {
+        return rejected_receiver_identity_evidence(
+            DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_INVALID_REASON,
+        );
+    };
+    let expected_sha256 = match next_sha256_or(
+        &mut words,
+        DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_INVALID_REASON,
+    ) {
+        Ok(value) => value,
+        Err(reason) => return rejected_receiver_identity_evidence(reason),
+    };
+    let Some(payload_token) = words.next() else {
+        return rejected_receiver_identity_evidence(
+            DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_INVALID_REASON,
+        );
+    };
+    if words.next().is_some() {
+        return rejected_receiver_identity_evidence(
+            DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_INVALID_REASON,
+        );
+    }
+    if payload_token.len() > max_base64_encoded_len(kind.max_bytes()) {
+        return rejected_receiver_identity_evidence(
+            DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_TOO_LARGE_REASON,
+        );
+    }
+
+    let decoded = match module_candidate_channel::decode_base64_chunk(payload_token) {
+        Ok(decoded) => decoded,
+        Err(reason) => return rejected_receiver_identity_evidence(reason),
+    };
+    let decoded_byte_len = decoded.len();
+    if decoded_byte_len == 0 || decoded_byte_len > kind.max_bytes() {
+        return rejected_receiver_identity_evidence(
+            DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_TOO_LARGE_REASON,
+        );
+    }
+    if sha256_bytes(&decoded) != expected_sha256 {
+        return rejected_receiver_identity_evidence(
+            DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_HASH_MISMATCH_REASON,
+        );
+    }
+
+    let mut catalog = LOCAL_DISTRIBUTION_CATALOG.lock();
+    if !catalog.active || catalog.content_sha256 != content_sha256 {
+        return rejected_receiver_identity_evidence(
+            DISTRIBUTION_RECEIVER_IDENTITY_CATALOG_NOT_FOUND_REASON,
+        );
+    }
+    let Some(identity) = catalog.receiver_identity else {
+        return rejected_receiver_identity_evidence(
+            DISTRIBUTION_RECEIVER_IDENTITY_CATALOG_NOT_FOUND_REASON,
+        );
+    };
+    if kind.expected_sha256(&identity) != expected_sha256 {
+        return rejected_receiver_identity_evidence(
+            DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_HASH_MISMATCH_REASON,
+        );
+    }
+    catalog.receiver_identity_evidence.set(kind, decoded);
+    let retained_part_count = catalog.receiver_identity_evidence.retained_part_count();
+
+    DistributionReceiverIdentityEvidenceOutcome {
+        content_sha256: Some(content_sha256),
+        evidence_kind: kind.token(),
+        evidence_sha256: Some(expected_sha256),
+        decoded_byte_len,
+        retained_part_count,
+        receiver_identity: catalog.receiver_identity,
+        accepted: true,
+        rejected: false,
+        reason: DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_ACCEPTED_REASON,
+    }
+}
+
+fn submit_distribution_receiver_identity_finalize(
+    arg: &str,
+) -> DistributionReceiverIdentityEvidenceOutcome {
+    let payload =
+        distribution_payload(arg, "module.submit_distribution_receiver_identity_finalize");
+    let mut words = payload.split_whitespace();
+    let content_sha256 = match next_sha256_or(
+        &mut words,
+        DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_INVALID_REASON,
+    ) {
+        Ok(value) => value,
+        Err(reason) => return rejected_receiver_identity_evidence(reason),
+    };
+    if words.next().is_some() {
+        return rejected_receiver_identity_evidence(
+            DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_INVALID_REASON,
+        );
+    }
+
+    let mut catalog = LOCAL_DISTRIBUTION_CATALOG.lock();
+    if !catalog.active || catalog.content_sha256 != content_sha256 {
+        return rejected_receiver_identity_evidence(
+            DISTRIBUTION_RECEIVER_IDENTITY_CATALOG_NOT_FOUND_REASON,
+        );
+    }
+    let Some(mut identity) = catalog.receiver_identity else {
+        return rejected_receiver_identity_evidence(
+            DISTRIBUTION_RECEIVER_IDENTITY_CATALOG_NOT_FOUND_REASON,
+        );
+    };
+    let retained_part_count = catalog.receiver_identity_evidence.retained_part_count();
+    if !catalog.receiver_identity_evidence.is_complete() {
+        return DistributionReceiverIdentityEvidenceOutcome {
+            content_sha256: Some(content_sha256),
+            evidence_kind: "finalize",
+            evidence_sha256: None,
+            decoded_byte_len: 0,
+            retained_part_count,
+            receiver_identity: catalog.receiver_identity,
+            accepted: false,
+            rejected: true,
+            reason: DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_INCOMPLETE_REASON,
+        };
+    }
+
+    if !verify_receiver_identity_evidence(
+        catalog.content_sha256,
+        &identity,
+        &catalog.receiver_identity_evidence,
+    ) {
+        catalog.receiver_identity_evidence.clear();
+        return DistributionReceiverIdentityEvidenceOutcome {
+            content_sha256: Some(content_sha256),
+            evidence_kind: "finalize",
+            evidence_sha256: None,
+            decoded_byte_len: 0,
+            retained_part_count: 0,
+            receiver_identity: catalog.receiver_identity,
+            accepted: false,
+            rejected: true,
+            reason: DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_VERIFY_FAILED_REASON,
+        };
+    }
+
+    identity.artifact_identity_signature_verified_by_guest = true;
+    identity.load_descriptor_signature_verified_by_guest = true;
+    identity.guest_signature_verification_performed = true;
+    identity.receiver_identity_complete = true;
+    catalog.receiver_identity = Some(identity);
+
+    DistributionReceiverIdentityEvidenceOutcome {
+        content_sha256: Some(content_sha256),
+        evidence_kind: "finalize",
+        evidence_sha256: None,
+        decoded_byte_len: 0,
+        retained_part_count,
+        receiver_identity: Some(identity),
+        accepted: true,
+        rejected: false,
+        reason: DISTRIBUTION_RECEIVER_IDENTITY_EVIDENCE_FINALIZED_REASON,
     }
 }
 
@@ -1093,18 +1521,206 @@ fn parse_receiver_identity_metadata(
             artifact_hash_bound_by_load_descriptor: true,
             load_descriptor_binds_artifact_identity: true,
             load_descriptor_authorizes_current_boot_wasm_execution: true,
+            artifact_identity_signature_verified_by_guest: false,
+            load_descriptor_signature_verified_by_guest: false,
+            guest_signature_verification_performed: false,
+            receiver_identity_complete: false,
         },
     ))
+}
+
+fn verify_receiver_identity_evidence(
+    content_sha256: [u8; 32],
+    identity: &LocalReceiverIdentity,
+    evidence: &LocalReceiverIdentityEvidencePayloads,
+) -> bool {
+    let Some(artifact_identity_descriptor) = evidence.artifact_identity_descriptor.as_ref() else {
+        return false;
+    };
+    let Some(artifact_identity_public_key) = evidence.artifact_identity_public_key.as_ref() else {
+        return false;
+    };
+    let Some(artifact_identity_signature) = evidence.artifact_identity_signature.as_ref() else {
+        return false;
+    };
+    let Some(load_descriptor) = evidence.load_descriptor.as_ref() else {
+        return false;
+    };
+    let Some(load_descriptor_public_key) = evidence.load_descriptor_public_key.as_ref() else {
+        return false;
+    };
+    let Some(load_descriptor_signature) = evidence.load_descriptor_signature.as_ref() else {
+        return false;
+    };
+
+    if sha256_bytes(artifact_identity_descriptor) != identity.artifact_identity_descriptor_sha256
+        || sha256_bytes(artifact_identity_public_key)
+            != identity.artifact_identity_public_key_sha256
+        || sha256_bytes(artifact_identity_signature) != identity.artifact_identity_signature_sha256
+        || sha256_bytes(load_descriptor) != identity.load_descriptor_sha256
+        || sha256_bytes(load_descriptor_public_key) != identity.load_descriptor_public_key_sha256
+        || sha256_bytes(load_descriptor_signature) != identity.load_descriptor_signature_sha256
+    {
+        return false;
+    }
+    if !verify_p256_signature(
+        artifact_identity_public_key,
+        artifact_identity_signature,
+        artifact_identity_descriptor,
+    ) || !verify_p256_signature(
+        load_descriptor_public_key,
+        load_descriptor_signature,
+        load_descriptor,
+    ) {
+        return false;
+    }
+
+    let Ok(artifact_identity_text) = core::str::from_utf8(artifact_identity_descriptor) else {
+        return false;
+    };
+    let Ok(load_descriptor_text) = core::str::from_utf8(load_descriptor) else {
+        return false;
+    };
+    if !descriptor_sha256_field_eq(
+        artifact_identity_text,
+        "artifact_reference_bytes_sha256",
+        content_sha256,
+    ) || !descriptor_sha256_field_eq(
+        load_descriptor_text,
+        "artifact_reference_bytes_sha256",
+        content_sha256,
+    ) || !descriptor_sha256_field_eq(
+        load_descriptor_text,
+        "artifact_identity_sha256",
+        identity.artifact_identity_descriptor_sha256,
+    ) {
+        return false;
+    }
+    for (text, field, expected) in [
+        (artifact_identity_text, "classification", "local_only"),
+        (
+            artifact_identity_text,
+            "accepts_external_artifact_bytes",
+            "false",
+        ),
+        (
+            artifact_identity_text,
+            "authorizes_external_artifact_load",
+            "false",
+        ),
+        (
+            artifact_identity_text,
+            "authorizes_persistent_install",
+            "false",
+        ),
+        (
+            artifact_identity_text,
+            "authorizes_rollback_install",
+            "false",
+        ),
+        (artifact_identity_text, "writes_persistent_state", "false"),
+        (load_descriptor_text, "classification", "local_only"),
+        (
+            load_descriptor_text,
+            "accepts_external_artifact_bytes",
+            "false",
+        ),
+        (load_descriptor_text, "loads_external_artifact", "false"),
+        (load_descriptor_text, "maps_executable_pages", "false"),
+        (load_descriptor_text, "writes_persistent_state", "false"),
+        (
+            load_descriptor_text,
+            "authorizes_persistent_install",
+            "false",
+        ),
+        (load_descriptor_text, "authorizes_rollback_install", "false"),
+        (
+            load_descriptor_text,
+            "authorizes_current_boot_wasm_execution",
+            "true",
+        ),
+    ] {
+        if !descriptor_field_eq(text, field, expected) {
+            return false;
+        }
+    }
+
+    let Some(service_id) = descriptor_field(artifact_identity_text, "service_id") else {
+        return false;
+    };
+    let Some(artifact_id) = descriptor_field(artifact_identity_text, "artifact_id") else {
+        return false;
+    };
+    let Some(artifact_identity_id) = descriptor_field(artifact_identity_text, "id") else {
+        return false;
+    };
+    descriptor_field_eq(load_descriptor_text, "service_id", service_id)
+        && descriptor_field_eq(load_descriptor_text, "artifact_id", artifact_id)
+        && descriptor_field_eq(
+            load_descriptor_text,
+            "artifact_identity_id",
+            artifact_identity_id,
+        )
+}
+
+fn verify_p256_signature(public_key_sec1: &[u8], signature_der: &[u8], payload: &[u8]) -> bool {
+    let Ok(verifying_key) = VerifyingKey::from_sec1_bytes(public_key_sec1) else {
+        return false;
+    };
+    let Ok(signature) = Signature::from_der(signature_der) else {
+        return false;
+    };
+    verifying_key.verify(payload, &signature).is_ok()
+}
+
+fn descriptor_sha256_field_eq(text: &str, key: &str, expected: [u8; 32]) -> bool {
+    descriptor_field(text, key)
+        .and_then(parse_sha256_ref)
+        .map(|actual| actual == expected)
+        .unwrap_or(false)
+}
+
+fn descriptor_field_eq(text: &str, key: &str, expected: &str) -> bool {
+    descriptor_field(text, key)
+        .map(|actual| actual == expected)
+        .unwrap_or(false)
+}
+
+fn descriptor_field<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+    let mut found = None;
+    for line in text.lines() {
+        let Some((field, value)) = line.split_once('=') else {
+            continue;
+        };
+        if field == key {
+            if found.is_some() {
+                return None;
+            }
+            found = Some(value);
+        }
+    }
+    found
+}
+
+fn max_base64_encoded_len(decoded_max: usize) -> usize {
+    decoded_max.div_ceil(3) * 4
 }
 
 fn next_sha256<'a, I>(words: &mut I) -> Result<[u8; 32], &'static str>
 where
     I: Iterator<Item = &'a str>,
 {
+    next_sha256_or(words, DISTRIBUTION_RECEIVER_IDENTITY_INVALID_REASON)
+}
+
+fn next_sha256_or<'a, I>(words: &mut I, reason: &'static str) -> Result<[u8; 32], &'static str>
+where
+    I: Iterator<Item = &'a str>,
+{
     let Some(token) = words.next() else {
-        return Err(DISTRIBUTION_RECEIVER_IDENTITY_INVALID_REASON);
+        return Err(reason);
     };
-    parse_sha256_ref(token).ok_or(DISTRIBUTION_RECEIVER_IDENTITY_INVALID_REASON)
+    parse_sha256_ref(token).ok_or(reason)
 }
 
 fn expect_next_token<'a, I>(words: &mut I, expected: &'static str) -> Result<(), &'static str>
@@ -1150,6 +1766,22 @@ fn rejected_receiver_identity(reason: &'static str) -> DistributionReceiverIdent
         content_sha256: None,
         receiver_identity: None,
         retained_in_catalog: false,
+        accepted: false,
+        rejected: true,
+        reason,
+    }
+}
+
+fn rejected_receiver_identity_evidence(
+    reason: &'static str,
+) -> DistributionReceiverIdentityEvidenceOutcome {
+    DistributionReceiverIdentityEvidenceOutcome {
+        content_sha256: None,
+        evidence_kind: "unknown",
+        evidence_sha256: None,
+        decoded_byte_len: 0,
+        retained_part_count: 0,
+        receiver_identity: None,
         accepted: false,
         rejected: true,
         reason,
@@ -1353,7 +1985,22 @@ fn record_receiver_identity(identity: &LocalReceiverIdentity) -> V<'static> {
             "load_descriptor_signature_verified_by_host_export",
             b(identity.load_descriptor_signature_verified_by_host_export),
         ),
-        f("guest_signature_verification_performed", b(false)),
+        f(
+            "artifact_identity_signature_verified_by_guest",
+            b(identity.artifact_identity_signature_verified_by_guest),
+        ),
+        f(
+            "load_descriptor_signature_verified_by_guest",
+            b(identity.load_descriptor_signature_verified_by_guest),
+        ),
+        f(
+            "guest_signature_verification_performed",
+            b(identity.guest_signature_verification_performed),
+        ),
+        f(
+            "receiver_identity_complete",
+            b(identity.receiver_identity_complete),
+        ),
         f(
             "artifact_hash_bound_by_identity",
             b(identity.artifact_hash_bound_by_identity),

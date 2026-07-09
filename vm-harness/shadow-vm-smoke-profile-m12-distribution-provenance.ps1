@@ -339,6 +339,8 @@ $hostCasExport = New-M12HostStaticCasExport -ArtifactPath $echoArtifactPath
 $hostCasCommands = @($hostCasExport.commands)
 $hostCasIdentity = $hostCasExport.receiver_identity
 $hostCasReceiverIdentityCommand = Get-M12ExportCommand -Export $hostCasExport -Prefix "module.submit_distribution_receiver_identity "
+$hostCasReceiverIdentityEvidenceCommands = @($hostCasCommands | Where-Object { $_.StartsWith("module.submit_distribution_receiver_identity_evidence ") })
+$hostCasReceiverIdentityFinalizeCommand = Get-M12ExportCommand -Export $hostCasExport -Prefix "module.submit_distribution_receiver_identity_finalize "
 $hostCasExportOk = (
     $hostCasExport.source_kind -eq "local_static_cas_registry" -and
     $hostCasExport.source_id -eq "host.local_static_cas" -and
@@ -350,10 +352,12 @@ $hostCasExportOk = (
     [int]$hostCasExport.chunk_count -eq 3 -and
     @($hostCasExport.chunks).Count -eq 3 -and
     $hostCasExport.provenance_signature_hex -eq $provSigHex -and
-    $hostCasCommands.Count -eq 7 -and
+    $hostCasCommands.Count -eq 14 -and
     $hostCasCommands[0] -eq "module.submit_distribution_catalog_entry $expectedSha 4205 3 sig:$provSigHex" -and
     $hostCasCommands[1].StartsWith("module.submit_distribution_receiver_identity $expectedSha ") -and
-    $hostCasCommands[2] -eq "module.submit_distribution_begin_from_catalog $expectedSha" -and
+    $hostCasReceiverIdentityEvidenceCommands.Count -eq 6 -and
+    $hostCasCommands[8] -eq "module.submit_distribution_receiver_identity_finalize $expectedSha" -and
+    $hostCasCommands[9] -eq "module.submit_distribution_begin_from_catalog $expectedSha" -and
     $hostCasCommands[-1] -eq "module.submit_distribution_finalize" -and
     $hostCasExport.registry_payload_hash_blake3.Length -eq 64 -and
     $null -ne $hostCasIdentity -and
@@ -511,7 +515,10 @@ $catalogReceiverIdentityOk = (
     $catalogReceiverIdentityRecord.load_descriptor_signature_sha256 -eq $loadDescriptorSignatureSha -and
     $catalogReceiverIdentityRecord.artifact_identity_signature_verified_by_host_export -eq $true -and
     $catalogReceiverIdentityRecord.load_descriptor_signature_verified_by_host_export -eq $true -and
+    $catalogReceiverIdentityRecord.artifact_identity_signature_verified_by_guest -eq $false -and
+    $catalogReceiverIdentityRecord.load_descriptor_signature_verified_by_guest -eq $false -and
     $catalogReceiverIdentityRecord.guest_signature_verification_performed -eq $false -and
+    $catalogReceiverIdentityRecord.receiver_identity_complete -eq $false -and
     $catalogReceiverIdentityRecord.artifact_hash_bound_by_identity -eq $true -and
     $catalogReceiverIdentityRecord.artifact_hash_bound_by_load_descriptor -eq $true -and
     $catalogReceiverIdentityRecord.load_descriptor_binds_artifact_identity -eq $true -and
@@ -530,6 +537,68 @@ Assert-M12Predicate `
     -Passed $catalogReceiverIdentityOk `
     -Actual $(if ($catalogReceiverIdentityOk) { "matched" } else { ($catalogReceiverIdentityResult | ConvertTo-Json -Compress -Depth 10) }) `
     -FailureMessage "Expected receiver identity metadata to be retained without authority"
+
+$receiverEvidenceAccepted = $true
+foreach ($evidenceCommand in $hostCasReceiverIdentityEvidenceCommands) {
+    $evidenceKind = ($evidenceCommand -split " ")[2]
+    Send-AgentCommand -Command $evidenceCommand -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_receiver_identity_evidence" -Name "m12-distribution:T2_host_cas_receiver_identity_evidence_$evidenceKind"
+    $receiverEvidence = Get-LastAgentResponseJson -Method "module.submit_distribution_receiver_identity_evidence"
+    $receiverEvidenceResult = $receiverEvidence.body.result
+    $receiverEvidenceAccepted = $receiverEvidenceAccepted -and (
+        $receiverEvidence.t -eq "response" -and
+        $receiverEvidenceResult.source_id -eq "local.serial.catalog" -and
+        $receiverEvidenceResult.entry_id -eq "local.catalog.distribution" -and
+        $receiverEvidenceResult.content_sha256 -eq $expectedSha -and
+        $receiverEvidenceResult.evidence_kind -eq $evidenceKind -and
+        [int]$receiverEvidenceResult.decoded_byte_len -gt 0 -and
+        [int]$receiverEvidenceResult.retained_part_count -ge 1 -and
+        [int]$receiverEvidenceResult.retained_part_count -le 6 -and
+        $receiverEvidenceResult.receiver_identity_complete -eq $false -and
+        $receiverEvidenceResult.accepted -eq $true -and
+        $receiverEvidenceResult.rejected -eq $false -and
+        $receiverEvidenceResult.reason -eq "accepted_local_distribution_receiver_identity_evidence" -and
+        $receiverEvidenceResult.guest_signature_verification_performed -eq $false -and
+        (Test-M12RegistryDenials -Record $receiverEvidenceResult)
+    )
+}
+Assert-M12Predicate `
+    -Name "m12-distribution:T2_receiver_identity_raw_evidence_retained" `
+    -Expected "six bounded receiver identity evidence payloads are accepted into current_boot RAM without authority" `
+    -Passed $receiverEvidenceAccepted `
+    -Actual $(if ($receiverEvidenceAccepted) { "matched" } else { "one receiver identity evidence command was rejected" }) `
+    -FailureMessage "Expected all receiver identity evidence payloads to be retained"
+
+Send-AgentCommand -Command $hostCasReceiverIdentityFinalizeCommand -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_receiver_identity_finalize" -Name "m12-distribution:T2_host_cas_receiver_identity_finalize"
+$receiverEvidenceFinalize = Get-LastAgentResponseJson -Method "module.submit_distribution_receiver_identity_finalize"
+$receiverEvidenceFinalizeResult = $receiverEvidenceFinalize.body.result
+$receiverEvidenceFinalizeRecord = $receiverEvidenceFinalizeResult.receiver_identity
+$receiverEvidenceFinalizeOk = (
+    $receiverEvidenceFinalize.t -eq "response" -and
+    $receiverEvidenceFinalizeResult.source_id -eq "local.serial.catalog" -and
+    $receiverEvidenceFinalizeResult.entry_id -eq "local.catalog.distribution" -and
+    $receiverEvidenceFinalizeResult.content_sha256 -eq $expectedSha -and
+    $receiverEvidenceFinalizeResult.evidence_kind -eq "finalize" -and
+    [int]$receiverEvidenceFinalizeResult.retained_part_count -eq 6 -and
+    $receiverEvidenceFinalizeResult.receiver_identity_complete -eq $true -and
+    $receiverEvidenceFinalizeResult.accepted -eq $true -and
+    $receiverEvidenceFinalizeResult.rejected -eq $false -and
+    $receiverEvidenceFinalizeResult.reason -eq "local_distribution_receiver_identity_evidence_verified_by_guest" -and
+    $receiverEvidenceFinalizeResult.guest_signature_verification_performed -eq $true -and
+    $receiverEvidenceFinalizeRecord.artifact_identity_signature_verified_by_guest -eq $true -and
+    $receiverEvidenceFinalizeRecord.load_descriptor_signature_verified_by_guest -eq $true -and
+    $receiverEvidenceFinalizeRecord.receiver_identity_complete -eq $true -and
+    $receiverEvidenceFinalizeRecord.export_authorizes_load -eq $false -and
+    $receiverEvidenceFinalizeRecord.export_authorizes_install -eq $false -and
+    $receiverEvidenceFinalizeRecord.export_authorizes_execute -eq $false -and
+    $receiverEvidenceFinalizeRecord.export_writes_persistent_state -eq $false -and
+    (Test-M12RegistryDenials -Record $receiverEvidenceFinalizeResult)
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:T2_receiver_identity_raw_evidence_guest_verified" `
+    -Expected "guest re-verifies receiver identity descriptor/key/signature payloads before marking identity complete, still without authority" `
+    -Passed $receiverEvidenceFinalizeOk `
+    -Actual $(if ($receiverEvidenceFinalizeOk) { "matched" } else { ($receiverEvidenceFinalizeResult | ConvertTo-Json -Compress -Depth 10) }) `
+    -FailureMessage "Expected guest receiver identity evidence verification to complete without authority"
 
 Send-AgentCommand -Command "module.submit_distribution_begin_from_catalog sha256:0000000000000000000000000000000000000000000000000000000000000000" -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_begin_from_catalog" -Name "m12-distribution:T2_wrong_catalog_selector"
 $wrongCatalogBegin = Get-LastAgentResponseJson -Method "module.submit_distribution_begin_from_catalog"
@@ -580,7 +649,10 @@ $catalogBeginOk = (
     $catalogBeginResult.receiver_identity_retained -eq $true -and
     $catalogBeginIdentity.artifact_identity_descriptor_sha256 -eq $artifactIdentityDescriptorSha -and
     $catalogBeginIdentity.load_descriptor_sha256 -eq $loadDescriptorSha -and
-    $catalogBeginIdentity.guest_signature_verification_performed -eq $false -and
+    $catalogBeginIdentity.artifact_identity_signature_verified_by_guest -eq $true -and
+    $catalogBeginIdentity.load_descriptor_signature_verified_by_guest -eq $true -and
+    $catalogBeginIdentity.guest_signature_verification_performed -eq $true -and
+    $catalogBeginIdentity.receiver_identity_complete -eq $true -and
     $catalogBeginIdentity.export_authorizes_load -eq $false -and
     $catalogBeginIdentity.requires_m6_m7_reverify_for_load -eq $true -and
     $catalogBeginResult.accepted -eq $true -and
@@ -628,7 +700,10 @@ $catalogOk = (
     $catalogResult.receiver_identity_retained -eq $true -and
     $catalogReceiverIdentity.artifact_identity_descriptor_sha256 -eq $artifactIdentityDescriptorSha -and
     $catalogReceiverIdentity.load_descriptor_sha256 -eq $loadDescriptorSha -and
-    $catalogReceiverIdentity.guest_signature_verification_performed -eq $false -and
+    $catalogReceiverIdentity.artifact_identity_signature_verified_by_guest -eq $true -and
+    $catalogReceiverIdentity.load_descriptor_signature_verified_by_guest -eq $true -and
+    $catalogReceiverIdentity.guest_signature_verification_performed -eq $true -and
+    $catalogReceiverIdentity.receiver_identity_complete -eq $true -and
     $catalogReceiverIdentity.export_authorizes_load -eq $false -and
     $catalogReceiverIdentity.requires_m6_m7_reverify_for_load -eq $true -and
     $catalogResult.staged_only_after_valid_selection -eq $true -and

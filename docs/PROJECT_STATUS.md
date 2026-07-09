@@ -24,6 +24,40 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+Current exact next task (M12+ distribution receiver evidence): add a
+receiver-identity load-preflight diagnostic that requires guest-complete
+receiver evidence and returns the explicit missing M6/M7/provider/owner gates
+while still denying load/install.
+
+M12+ Slice 11 done (2026-07-09) - receiver identity raw evidence guest
+verification. A user/agent can now carry the raw receiver artifact-identity
+descriptor, current-boot load descriptor, P-256 public keys, and DER signatures
+through the real host static/CAS serial export into raiOS; the guest stores the
+six bounded payloads as `current_boot` RAM-only, `local_only` evidence,
+recomputes every payload SHA-256, re-verifies both descriptor signatures in the
+guest, re-checks descriptor artifact/load/identity bindings, and only then marks
+`receiver_identity_complete: true` while still granting no
+acquisition/install/load/execute/persist/network/durable-write authority. This
+is not provenance-as-install and not a load decision; M6/M7 re-verification and
+owner sealing remain required for any future load. Verified: scoped format
+checks (`cargo fmt --package registry-core -- --check`; `rustfmt --edition
+2021 --check seed-kernel\src\agent_protocol.rs
+seed-kernel\src\agent_protocol_registry.rs`); targeted
+`cargo test --locked -p registry-core
+distribution_export_reads_cas_blob_and_emits_serial_commands` (1 passed, with
+local Cargo cache/target overrides because the environment pointed Cargo at a
+missing `F:\scorefollower-build` path); release seed-kernel build via
+`scripts\build-seed-kernel.ps1 -Profile release`; focused VM
+`m12-distribution-provenance` report
+`release/vm-reports/shadow-20260709-091233-17048.json` 240/240 predicates, 50
+executed commands, `duration_ms: 120569`, report sha256
+`1fbc5b33cd881203fcb81fdcbdf8df1036334163847e340ad1eb8a79837455f2`;
+`scripts\scan-secrets.ps1` found no OpenAI-key-like values. Global
+`cargo fmt --all -- --check` remains red only on the pre-existing unrelated
+format drift in `raios-core/src/marvell_wifi_fw.rs` and `seed-kernel/src/usb.rs`.
+Full+recovery remain deferred to the M12+ block close per the aggressive-fast
+cadence.
+
 M12+ Slice 10 done (2026-07-09) - receiver identity retained by the guest
 local catalog. A user/agent can now feed the host-exported receiver identity
 metadata through the real serial export command stream into raiOS; the guest
@@ -3029,7 +3063,8 @@ bracket. IMPORTANT for every M2 port: the existing kernel hashers hash
 canonical `key=value` LINES, not JSON bytes (`module_evidence.rs:4538` +
 `:542`), so each ported gate must map its old hash convention explicitly.
 
-Current exact next task (milestone M6 Promotion Loop v0, sub-milestone
+Historical M6 promotion-loop status (not the current cursor; see the top
+`Current exact next task` paragraph and `docs/ROADMAP.md`). Milestone M6 Promotion Loop v0, sub-milestone
 M6A, `docs/ROADMAP.md`): M6A-1 (intake mechanism) and M6A-2a (REAL
 runtime delivery) are DONE (2026-07-06). M6A-1:
 `module_candidate_intake.rs` accepts bounded bytes (256 KiB cap), hashes

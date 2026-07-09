@@ -131,10 +131,15 @@ with host-side signature/hash binding checks, still as non-authorizing provenanc
 now retains the host-exported receiver-identity hash/binding metadata as
 current_boot RAM-only local-only evidence, surfaces it on catalog begin/finalize,
 and still reports guest signature verification not performed plus M6/M7 reverify
-required (`m12-distribution-provenance` 231/231). Next M12+ slice: carry the raw
-receiver descriptor/key/signature bytes through a bounded evidence channel and have
-the guest reverify them before marking receiver identity evidence complete, still
-without install/load authority. (3) provide real trust inputs (a cryptographically
+required (`m12-distribution-provenance` 231/231). **Slice 11 DONE:** the host export
+now carries the raw receiver descriptor/key/signature bytes through a bounded evidence
+channel, and the guest recomputes hashes, re-verifies both P-256 signatures,
+re-checks descriptor bindings, and marks receiver identity complete only after guest
+verification, still without install/load authority (`m12-distribution-provenance`
+240/240). Next M12+ slice: add a receiver-identity load-preflight diagnostic that
+requires guest-complete receiver evidence and returns the explicit missing
+M6/M7/provider/owner gates while still denying load/install. (3) provide real
+trust inputs (a cryptographically
 trusted time source, real CA roots, a live second provider) → I finish M10 real
 validation — STILL YOURS. (4) the owner-key sealing ceremony → the FINAL step —
 STILL YOURS. Until then every label stays honestly unverified / dev_key_not_owner_

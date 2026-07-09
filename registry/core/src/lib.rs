@@ -496,7 +496,7 @@ impl Registry {
             None => None,
         };
         let chunks = split_distribution_chunks(&bytes, request.chunk_count);
-        let mut commands = Vec::with_capacity(chunks.len() + 4);
+        let mut commands = Vec::with_capacity(chunks.len() + 11);
         commands.push(format!(
             "module.submit_distribution_catalog_entry sha256:{} {} {} sig:{}",
             artifact_sha256,
@@ -527,6 +527,10 @@ impl Registry {
                 identity.export_writes_persistent_state,
                 identity.requires_m6_m7_reverify_for_load
             ));
+            commands.extend(receiver_identity_raw_evidence_commands(
+                &artifact_sha256,
+                identity,
+            )?);
         }
         commands.push(format!(
             "module.submit_distribution_begin_from_catalog sha256:{}",
@@ -758,6 +762,76 @@ fn build_receiver_identity_evidence(
         export_writes_persistent_state: false,
         requires_m6_m7_reverify_for_load: true,
     })
+}
+
+fn receiver_identity_raw_evidence_commands(
+    artifact_sha256: &str,
+    identity: &DistributionReceiverIdentityEvidence,
+) -> Result<Vec<String>> {
+    let artifact_identity_public_key =
+        decode_hex_bytes(&identity.artifact_identity_public_key_hex)?;
+    let artifact_identity_signature =
+        decode_hex_bytes(&identity.artifact_identity_signature_der_hex)?;
+    let load_descriptor_public_key = decode_hex_bytes(&identity.load_descriptor_public_key_hex)?;
+    let load_descriptor_signature = decode_hex_bytes(&identity.load_descriptor_signature_der_hex)?;
+
+    let mut commands = vec![
+        receiver_identity_raw_evidence_command(
+            artifact_sha256,
+            "artifact_identity_descriptor",
+            &identity.artifact_identity_descriptor_sha256,
+            identity.artifact_identity_descriptor_text.as_bytes(),
+        ),
+        receiver_identity_raw_evidence_command(
+            artifact_sha256,
+            "artifact_identity_public_key",
+            &identity.artifact_identity_public_key_sha256,
+            &artifact_identity_public_key,
+        ),
+        receiver_identity_raw_evidence_command(
+            artifact_sha256,
+            "artifact_identity_signature",
+            &identity.artifact_identity_signature_sha256,
+            &artifact_identity_signature,
+        ),
+        receiver_identity_raw_evidence_command(
+            artifact_sha256,
+            "load_descriptor",
+            &identity.load_descriptor_sha256,
+            identity.load_descriptor_text.as_bytes(),
+        ),
+        receiver_identity_raw_evidence_command(
+            artifact_sha256,
+            "load_descriptor_public_key",
+            &identity.load_descriptor_public_key_sha256,
+            &load_descriptor_public_key,
+        ),
+        receiver_identity_raw_evidence_command(
+            artifact_sha256,
+            "load_descriptor_signature",
+            &identity.load_descriptor_signature_sha256,
+            &load_descriptor_signature,
+        ),
+    ];
+    commands.push(format!(
+        "module.submit_distribution_receiver_identity_finalize sha256:{artifact_sha256}"
+    ));
+    Ok(commands)
+}
+
+fn receiver_identity_raw_evidence_command(
+    artifact_sha256: &str,
+    kind: &str,
+    expected_sha256: &str,
+    bytes: &[u8],
+) -> String {
+    format!(
+        "module.submit_distribution_receiver_identity_evidence sha256:{} {} sha256:{} {}",
+        artifact_sha256,
+        kind,
+        expected_sha256,
+        BASE64_STANDARD.encode(bytes)
+    )
 }
 
 fn expect_descriptor_field(text: &str, key: &str, expected: &str) -> Result<()> {
@@ -1061,7 +1135,7 @@ authorizes_current_boot_wasm_execution=true\n"
         assert!(!receiver_identity.export_authorizes_execute);
         assert!(!receiver_identity.export_writes_persistent_state);
         assert!(receiver_identity.requires_m6_m7_reverify_for_load);
-        assert_eq!(export_with_identity.commands.len(), 7);
+        assert_eq!(export_with_identity.commands.len(), 14);
         assert!(export_with_identity.commands[1]
             .starts_with("module.submit_distribution_receiver_identity sha256:"));
         assert!(export_with_identity.commands[1].contains(
@@ -1070,6 +1144,23 @@ authorizes_current_boot_wasm_execution=true\n"
         assert!(export_with_identity.commands[1].contains(
             "export_authorizes_load:false export_authorizes_install:false export_authorizes_execute:false export_writes_persistent_state:false requires_m6_m7_reverify_for_load:true"
         ));
+        for kind in [
+            "artifact_identity_descriptor",
+            "artifact_identity_public_key",
+            "artifact_identity_signature",
+            "load_descriptor",
+            "load_descriptor_public_key",
+            "load_descriptor_signature",
+        ] {
+            assert!(export_with_identity.commands.iter().any(|command| {
+                command.starts_with("module.submit_distribution_receiver_identity_evidence ")
+                    && command.contains(kind)
+            }));
+        }
+        assert!(export_with_identity.commands[8]
+            .starts_with("module.submit_distribution_receiver_identity_finalize sha256:"));
+        assert!(export_with_identity.commands[9]
+            .starts_with("module.submit_distribution_begin_from_catalog sha256:"));
         Ok(())
     }
 
