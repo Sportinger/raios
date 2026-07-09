@@ -91,7 +91,7 @@ them, and reports `MSC LOG`. Real Disk 2 evidence proved the old endpoint-only
 rearm fired ten times without restoring reports, so the next image escalates to
 one targeted parent-hub-port reset/re-enumeration after two failed rearms and
 records the root-cause split fields `m_port`/`m_chg`/`m_ep` before that reset.
-Next persistence action is owner hardware evidence: refresh and boot Disk 2,
+Next persistence action is owner hardware evidence: boot the refreshed Disk 2,
 reproduce the hub-mouse outage, then inspect RECLOG for
 `hub_mouse_port_reset`, the three root-cause fields, and report progress.
 

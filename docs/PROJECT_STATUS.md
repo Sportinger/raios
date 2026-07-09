@@ -48,6 +48,11 @@ local Cargo env override; quick Shadow VM report
 predicates, 79 executed commands, `duration_ms: 174278`, report sha256
 `5572b963870e3082db9185a677f0cbbd0f94f3d316c658aba69f62a59d80beb7`, and
 `base_image.sha256: 37ae7afbee6f232e78ed808c981c7907a05474dd4077ab22cf6cc09a6a858fcd`.
+Post-commit owner handoff: Disk 2 `SEED_ESP_A` was refreshed without
+reformatting via `scripts\update-usb-esp-a.ps1 -DiskNumber 2 -SkipBuild`; log
+`C:\Users\admin\AppData\Local\Temp\raios-usb-esp-a-update-disk2-20260709-191031.log`
+reported kernel sha256
+`3DE9434BD4BEEF80CF03E2FC65259609F86D77A5CBB9FD605D1429E42B6C351C`.
 
 Hub-mouse port-reset recovery slice done (2026-07-09) - raiOS now escalates the
 real Surface hub-mouse recovery path after the verified endpoint rearm fails to
