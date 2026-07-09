@@ -2351,6 +2351,10 @@ impl XhciController {
         }
         self.root_connected_mask = root_current;
 
+        if self.hub_mouse_active() {
+            return changed;
+        }
+
         let mut index = 0usize;
         while index < MAX_HUB_WATCHES {
             let watch = self.hub_watches[index];
@@ -2394,6 +2398,11 @@ impl XhciController {
         }
 
         changed
+    }
+
+    fn hub_mouse_active(&self) -> bool {
+        self.mouse
+            .is_some_and(|mouse| mouse.parent_hub_slot_id != 0 && self.mouse_report_count > 0)
     }
 
     unsafe fn read_root_connected_mask_and_clear_changes(&self) -> u32 {

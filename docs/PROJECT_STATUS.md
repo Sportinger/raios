@@ -25,14 +25,41 @@ implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
 Current exact next task (bare-metal diagnostics): boot the Surface from the
-refreshed Disk 2 stick with the same hub/mouse/stick setup, confirm `MSC LOG`,
-reproduce the mouse outage, then inspect `SEED_DATA/RECLOG` for
-`reason=hub_mouse_port_reset` or `reason=hub_mouse_port_reset_failed`, the
-root-cause fields `m_port`/`m_chg`/`m_ep`, and whether `reports` advances past
-the previous stuck value of 23. The Surface WiFi RX-PFU path remains parked
-because arming it made real Surface MMIO read back all-ones
-(`HOST_INT=0xffffffff`, write pointers `0xffffffff`) and froze input; do not
-re-enable RX-PFU while using stick logging to gather evidence.
+refreshed Disk 2 stick with the same hub/mouse/stick setup. Confirm `MSC LOG`,
+move the hub mouse long enough to cross the old fixed freeze window, and check
+whether the mouse now stays alive without repeated
+`hub_mouse_port_reset` frames. If it still freezes, inspect
+`SEED_DATA/RECLOG` for `reason=hub_mouse_port_reset` or
+`reason=hub_mouse_port_reset_failed`, the root-cause fields
+`m_port`/`m_chg`/`m_ep`, and whether `reports` advances past the previous stuck
+value of 11. The Surface WiFi RX-PFU path remains parked because arming it made
+real Surface MMIO read back all-ones (`HOST_INT=0xffffffff`, write pointers
+`0xffffffff`) and froze input; do not re-enable RX-PFU while using stick
+logging to gather evidence.
+
+Hub-mouse active-hotplug suppression slice done (2026-07-09) - raiOS no longer
+control-polls hub child ports while a mouse behind that hub has produced real
+input reports, removing the periodic hub EP0 control traffic that matched the
+owner's fixed-time freeze after mouse movement. Root-port hotplug remains live,
+the no-input rescan path still exists before any hub-mouse report, direct mice
+are unchanged, and the targeted hub-port recovery reset remains available if
+the endpoint later goes silent. Real Disk 2 evidence before this patch showed
+the hub port and xHCI endpoint still looked healthy during the failure:
+RECLOG `seq15 reason=hub_mouse_port_reset reports=11 recover=2 hub_reset=3
+hub_done=3 last_cmd=12 last_cc=1 last_xfer_cc=1 enum_vid=1133 enum_pid=49290
+m_port=259 m_chg=0 m_ep=1`, so the next owner test checks whether suppressing
+our own periodic hub polling removes the freeze. Verified: scoped
+`rustfmt --edition 2021 --check seed-kernel\src\usb.rs`; `git diff --check`;
+release packaging with local Cargo env override; quick Shadow VM report
+`release/vm-reports/shadow-20260709-192136-29312.json` passed 542/542
+predicates, 79 executed commands, `duration_ms: 179590`, report sha256
+`e9682e29cc759c975a2ffe420ea0c961dbfb8d16a505e5ee90cd37d8dd901946`, and
+`base_image.sha256: dd5802a6d689fbabea599f2ac68b2b0cddf8634ba03ea7f71b42dd30fde00dba`.
+Owner handoff: Disk 2 `SEED_ESP_A` was refreshed without reformatting via
+`scripts\update-usb-esp-a.ps1 -DiskNumber 2 -SkipBuild`; log
+`C:\Users\admin\AppData\Local\Temp\raios-usb-esp-a-update-disk2-20260709-192737.log`
+reported kernel sha256
+`408856AA97623130B5F8448940D2E687ACC9F428193F7D020CDBCB5D85EBA870`.
 
 Hub-mouse root-cause RECLOG slice done (2026-07-09) - before the hub-mouse
 watchdog performs the targeted parent-hub-port reset, raiOS now records the

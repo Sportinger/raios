@@ -87,13 +87,15 @@ Mass Storage/BOT and report `MSC SEED`; the first strictly scoped USB
 `WRITE(10)` path is now in place for bare-metal diagnostics: after GPT +
 `RAIOS_DATA_SB_V0` validate, raiOS appends local-only diagnostic frames into
 `SEED_DATA/RECLOG` for boot and hub-mouse recovery events, readback/reparses
-them, and reports `MSC LOG`. Real Disk 2 evidence proved the old endpoint-only
-rearm fired ten times without restoring reports, so the next image escalates to
-one targeted parent-hub-port reset/re-enumeration after two failed rearms and
-records the root-cause split fields `m_port`/`m_chg`/`m_ep` before that reset.
-Next persistence action is owner hardware evidence: boot the refreshed Disk 2,
-reproduce the hub-mouse outage, then inspect RECLOG for
-`hub_mouse_port_reset`, the three root-cause fields, and report progress.
+them, and reports `MSC LOG`. Real Disk 2 evidence proved endpoint-only rearm
+did not restore reports, and later root-cause frames showed the hub port and
+xHCI endpoint still healthy (`m_port=259 m_chg=0 m_ep=1`) when the fixed-time
+mouse freeze occurred after movement. The next image therefore stops periodic
+hub child-port EP0 control polling after the hub mouse has produced reports,
+while keeping root-port hotplug and targeted hub-port reset recovery. Disk 2
+`SEED_ESP_A` is refreshed with that image. Next persistence action is owner
+hardware evidence: boot the refreshed stick, move the hub mouse past the old
+freeze window, and inspect RECLOG only if the freeze persists.
 
 **M12+ opener + honesty capstone (committed, grants nothing):** M12-1 external-
 acquisition HONESTY evaluator (download = candidate intake NEVER install; a
