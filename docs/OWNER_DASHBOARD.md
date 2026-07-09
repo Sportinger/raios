@@ -3,6 +3,15 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
+Updated: 2026-07-09. **TPM2-Auswertung ist jetzt am normalen PC testbar:**
+die Logik, die auf dem Surface die `TPM2` ACPI-Tabelle auswertet, liegt jetzt
+in `raios-core` mit 7 Host-Tests (CRB, CRB+ACPI, TIS/FIFO, unsupported,
+absent, zu kurz). Der Kernel meldet im QEMU weiterhin denselben
+`tpm2_acpi_absent` Zustand; kein Owner-Seal, kein persistenter Install-Grant.
+Beweis: Host-Test `cargo test -p raios-core owner_key_tpm2` 7/7 und
+`m12-distribution-provenance` `shadow-20260709-114250-14376.json` 246/246
+gruen.
+
 Updated: 2026-07-09. **Owner-Key kennt jetzt die TPM2-Schnittstelle, wenn
 die echte Hardware sie zeigt:** raiOS parst bei vorhandener `TPM2` ACPI-Tabelle
 Adresse, Platform-Class, Control-Area/FIFO-Base, Start-Methode, Interface-Art

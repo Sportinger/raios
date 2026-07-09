@@ -31,6 +31,35 @@ fields; if a CRB/TIS control area is present, add the next read-only TPM
 register-status probe while keeping `owner_sealed`, persistent install, load,
 and durable-write authority false until a real seal/unseal evidence loop exists.
 
+Owner-key TPM parser hardening slice done (2026-07-09) - the TPM2 ACPI
+interface parser is now host-testable shared core logic instead of private
+kernel-only byte parsing. A user/agent can still inspect the same
+`system.honesty_report.owner_key_provisioning` fields, but the parser that will
+interpret real Surface `TPM2` ACPI details now lives in
+`raios-core::owner_key_tpm2` with host tests covering CRB, CRB+ACPI start,
+TIS/FIFO, unsupported start methods, absent-table preservation, and short-table
+fail-closed behavior; the focused QEMU profile remains byte/field equivalent on
+the `tpm2_acpi_absent` path, and owner-seal, persistent-install, load, and
+durable-write authority all stay denied. Verified: scoped Rust format check
+(`rustfmt --edition 2021 --check raios-core\src\owner_key_tpm2.rs
+seed-kernel\src\owner_key.rs`); host tests
+(`cargo test --locked -p raios-core owner_key_tpm2`) 7/7 passed; diff check
+clean apart from normal CRLF warnings; release seed-kernel build via
+`scripts\build-seed-kernel.ps1 -Profile release`; focused VM
+`m12-distribution-provenance` report
+`release/vm-reports/shadow-20260709-114250-14376.json` 246/246 predicates, 53
+executed commands, `duration_ms: 135283`, report sha256
+`58ea397f65de79d468569437339ca135e8bebd07010c6c3a5eb0ace6c2a87d6c`.
+`scripts\scan-secrets.ps1` found no OpenAI-key-like values. Global
+`cargo fmt --all -- --check` remains red only on the pre-existing unrelated
+format drift in `raios-core/src/marvell_wifi_fw.rs` and
+`seed-kernel/src/usb.rs`. Gate check: latest full-profile report remains green
+at `release/vm-reports/shadow-20260708-150428-34396.json` 7867/7867, while
+this slice used the focused M12 profile per aggressive-fast cadence. File-size
+check: touched `raios-core\src\owner_key_tpm2.rs` is 278 lines,
+`raios-core\src\lib.rs` is 283 lines, and `seed-kernel\src\owner_key.rs` is
+218 lines.
+
 Owner-key TPM interface bridge slice done (2026-07-09) - persistent
 owner-key provisioning can now consume real TPM2 ACPI interface details when
 the hardware exposes them. A user/agent can now inspect
