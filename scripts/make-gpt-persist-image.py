@@ -715,6 +715,26 @@ def payload_json(payload: bytes) -> dict[str, object] | None:
         return None
 
 
+def reclog_frame_summary(frame: dict[str, object]) -> dict[str, object]:
+    payload = frame["payload"]
+    if not isinstance(payload, bytes):
+        raise TypeError("RECLOG frame payload must be bytes")
+    try:
+        payload_text: str | None = payload.decode("utf-8")
+    except UnicodeDecodeError:
+        payload_text = None
+    return {
+        "offset": frame["offset"],
+        "frame_len": frame["frame_len"],
+        "payload_len": frame["payload_len"],
+        "seq": frame["seq"],
+        "frame_sha256": frame["frame_sha256"],
+        "payload_sha256": frame["payload_sha256"],
+        "payload_json": payload_json(payload),
+        "payload_text": payload_text,
+    }
+
+
 def read_artstor_blob(handle, seed_data_first_lba: int, offset: int, frame_len: int) -> bytes:
     if offset < 0 or frame_len <= 0:
         raise ValueError("bad ARTSTOR blob range")
@@ -1536,13 +1556,15 @@ def scan_boot_control(data: bytes) -> dict[str, object]:
 
 def inspect_image(path: Path) -> dict[str, object]:
     size = path.stat().st_size
-    if size % SECTOR_SIZE != 0:
+    if size and size % SECTOR_SIZE != 0:
         raise ValueError(f"image is not sector-aligned: {size}")
-    lba_count = size // SECTOR_SIZE
     with path.open("rb") as handle:
         primary_header_bytes = read_at(handle, PRIMARY_GPT_HEADER_LBA, SECTOR_SIZE)
-        backup_header_bytes = read_at(handle, lba_count - 1, SECTOR_SIZE)
         primary = parse_gpt_header(primary_header_bytes)
+        lba_count = size // SECTOR_SIZE
+        if lba_count == 0:
+            lba_count = int(primary["alternate_lba"]) + 1
+        backup_header_bytes = read_at(handle, lba_count - 1, SECTOR_SIZE)
         backup = parse_gpt_header(backup_header_bytes)
 
         primary_entries = read_at(
@@ -1571,6 +1593,7 @@ def inspect_image(path: Path) -> dict[str, object]:
         sb0 = sb1 = None
         sb0_bytes = sb1_bytes = b""
         reclog_scan = None
+        reclog_frame_summaries: list[dict[str, object]] = []
         artifact_persist_records: list[dict[str, object]] = []
         promotion_transaction_records: list[dict[str, object]] = []
         bootctl_read = None
@@ -1595,6 +1618,9 @@ def inspect_image(path: Path) -> dict[str, object]:
             reclog_scan = scan_reclog(reclog_bytes)
             if reclog_scan["status"] in {"valid", "valid_empty"}:
                 reclog_frames = parse_reclog_frames_for_inspection(reclog_bytes)
+                reclog_frame_summaries = [
+                    reclog_frame_summary(frame) for frame in reclog_frames
+                ]
                 artifact_persist_records = inspect_artifact_persist_records(
                     reclog_frames,
                     handle,
@@ -1640,6 +1666,7 @@ def inspect_image(path: Path) -> dict[str, object]:
         "superblock_copy": sb1,
         "bootctl_read": bootctl_read,
         "reclog_scan": reclog_scan,
+        "reclog_frames": reclog_frame_summaries,
         "artstor_scan": artstor_scan,
         "first_artstor_blob": first_artstor_blob,
         "artifact_persist_records": artifact_persist_records,

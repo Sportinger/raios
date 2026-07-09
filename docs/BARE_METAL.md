@@ -52,6 +52,11 @@ Expected gaps:
   internal disk isn't AHCI/isn't raiOS-formatted) durable writes fail-closed to
   RAM-only, so a plain observe-boot writes nothing to the host disk. No secure
   secret store yet.
+- USB-stick diagnostics are now a separate, strictly scoped exception for the
+  prepared raiOS GPT stick: if `SEED_DATA` validates, the kernel may append one
+  local-only diagnostic RECLOG frame with SCSI `WRITE(10)`, read it back, and
+  show `MSC LOG seq<N> lba<N>`. If the stick only shows `MSC FOUND <reason>` or
+  `MSC SEED <reason>`, no diagnostic write was verified.
 
 ## List USB Disks
 
@@ -100,7 +105,9 @@ staging state.
    port count was read.
 6. Check the `INPUT` row. `USB HID KEYBOARD + POINTER` means direct USB keyboard
    and mouse input are active.
-7. If input is missing, try a direct keyboard connection without a hub, another
+7. On a prepared GPT persistence stick, `USB-XHCI ... MSC LOG seq<N> lba<N>`
+   means a host-readable diagnostic frame was saved into `SEED_DATA/RECLOG`.
+8. If input is missing, try a direct keyboard connection without a hub, another
    USB port, or firmware legacy USB keyboard support. A hub or non-boot HID
    device still needs more USB stack work.
 
@@ -157,8 +164,9 @@ QEMU):**
   (Full-speed, split transactions through the hub TT) silently stops with no
   error CC; only unplug/replug (full USB re-init) revives it. A 2026-07-09 test
   image now re-arms the silent hub-mouse interrupt endpoint after about one
-  second once it has produced at least one report; owner bare-metal retest is
-  still required before marking this working.
+  second once it has produced at least one report; the owner confirmed rearm
+  fires, but the mouse can still break again, so use the new stick RECLOG
+  diagnostics for the next evidence pass.
 - **Very fast keyboard input freezes** input (not the `input.rs` RING — it drops
   oldest, no panic; not a `usb::STATE` re-entrancy deadlock). Cause still open.
 - Make the `RCV/ICC` (and any new interrupt-endpoint) diagnostics fit on-screen.

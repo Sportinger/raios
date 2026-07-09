@@ -24,14 +24,40 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (USB stick RECLOG append): add the first strictly
-scoped USB Mass Storage `WRITE(10)` path for the prepared GPT stick, limited to
-`SEED_DATA/RECLOG` only, then write one small typed WiFi diagnostic record,
-read it back, reparse the RECLOG frame, and keep all broader storage mutation
-denied. The Surface WiFi RX-PFU path remains parked because arming it made real
-Surface MMIO read back all-ones (`HOST_INT=0xffffffff`, write pointers
-`0xffffffff`) and froze input; do not re-enable RX-PFU while building stick
-logging.
+Current exact next task (bare-metal diagnostics): write the verified USB RECLOG
+image to the real Disk 2 stick, boot the Surface, reproduce the hub-mouse/WiFi
+diagnostic path, then inspect the stick's `SEED_DATA/RECLOG` from the host
+instead of relying on photos. The Surface WiFi RX-PFU path remains parked
+because arming it made real Surface MMIO read back all-ones
+(`HOST_INT=0xffffffff`, write pointers `0xffffffff`) and froze input; do not
+re-enable RX-PFU while using stick logging to gather evidence.
+
+USB stick RECLOG append slice done (2026-07-09) - raiOS can now use the
+prepared GPT persistence stick as a real xHCI USB Mass Storage diagnostic sink:
+after `SEED_ESP_A`/`SEED_ESP_B`/`SEED_DATA` and the `RAIOS_DATA_SB_V0`
+superblock validate, the kernel scans the `SEED_DATA/RECLOG` hash chain, denies
+append on corrupt/non-empty-tail evidence, issues exactly one SCSI `WRITE(10)`
+to the next RECLOG sector, reads it back, reparses the frame, and shows
+`MSC LOG seq<N> lba<N>` only after verification. Broader USB disk mutation
+remains denied; if GPT/superblock evidence is incomplete the status stays
+`MSC FOUND <reason>` or `MSC SEED <reason>` and no write is attempted. Focused
+USB-storage VM evidence: temporary GPT stick image
+`C:\Users\admin\AppData\Local\Temp\raios-usb-reclog-test.img` booted as QEMU
+USB storage, serial observed `usb-msc: reclog append seq=1 lba=526352 verified`
+and `status USB-XHCI ... MSC LOG seq1 lba526352`; host inspection reported
+`reclog_scan.status=valid`, `count=1`, `first_invalid_offset=512`, and direct
+sector payload schema `raios.usb_diag.v0`. General quick Shadow VM report
+`release/vm-reports/shadow-20260709-174348-9768.json` passed 542/542 predicates,
+`duration_ms: 204252`, report sha256
+`1aba240ff828bec6b5910a667d197ceadf676dbd7d590a60920df6c7dd0fa111`, and
+`base_image.sha256: d9348fc2a934b48f40ce3652c559eb5c9968dac627ed7e538dbd0a2eec386354`.
+
+Failure classification (2026-07-09, USB RECLOG quick VM first attempt): quick
+report `release/vm-reports/shadow-20260709-174305-15032.json` failed before
+QEMU boot or any guest predicate because `scripts\package-stage0.ps1` could not
+copy the temporary ESP (`Copy-Item ... kernel.elf`) after Windows reported no
+free space on `C:`; verdict: host-transport/setup, no guest behavior executed.
+Retry only after clearing Codex-generated temporary images/logs.
 
 Hub-mouse silent rearm test slice prepared (2026-07-09) - raiOS now detects the
 known Surface case where a mouse behind a USB hub has produced at least one

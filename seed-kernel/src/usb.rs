@@ -1,6 +1,7 @@
 #![allow(static_mut_refs)]
 
-use alloc::vec;
+use alloc::{string::String, vec};
+use core::fmt::Write;
 use core::hint::spin_loop;
 use core::ptr;
 use core::sync::atomic::{fence, Ordering};
@@ -11,8 +12,12 @@ use crate::memory;
 use crate::pci::{self, PciAddress};
 use crate::serial;
 use raios_core::{
+    durable_record_frame::{
+        parse_reclog_frame, RECLOG_FRAME_HEADER_LEN, RECLOG_MAGIC, RECLOG_PAYLOAD_SHA256_OFFSET,
+        RECLOG_PREV_FRAME_SHA256_OFFSET,
+    },
     gpt_layout::{self, LayoutStatus, GPT_ENTRY_ARRAY_BYTES, PRIMARY_GPT_ENTRIES_LBA, SECTOR_SIZE},
-    seed_data_layout,
+    seed_data_layout, sha256_bytes,
 };
 
 const PCI_CLASS_SERIAL_BUS: u8 = 0x0C;
@@ -209,6 +214,9 @@ pub struct UsbSnapshot {
     pub mass_storage_last_lba: u32,
     pub mass_storage_lba0_signature: u16,
     pub mass_storage_detail: &'static str,
+    pub mass_storage_reclog_write_verified: bool,
+    pub mass_storage_reclog_seq: u64,
+    pub mass_storage_reclog_lba: u64,
     pub last_error: Option<&'static str>,
 }
 
@@ -328,6 +336,9 @@ impl UsbState {
                 mass_storage_last_lba: 0,
                 mass_storage_lba0_signature: 0,
                 mass_storage_detail: "not_probed",
+                mass_storage_reclog_write_verified: false,
+                mass_storage_reclog_seq: 0,
+                mass_storage_reclog_lba: 0,
                 last_error: None,
             },
             controller: None,
@@ -412,6 +423,10 @@ pub fn snapshot() -> UsbSnapshot {
         snapshot.mass_storage_last_lba = controller.mass_storage_probe.last_lba;
         snapshot.mass_storage_lba0_signature = controller.mass_storage_probe.lba0_signature;
         snapshot.mass_storage_detail = controller.mass_storage_probe.detail;
+        snapshot.mass_storage_reclog_write_verified =
+            controller.mass_storage_probe.reclog_write_verified;
+        snapshot.mass_storage_reclog_seq = controller.mass_storage_probe.reclog_seq;
+        snapshot.mass_storage_reclog_lba = controller.mass_storage_probe.reclog_lba;
     }
     snapshot
 }
@@ -518,6 +533,9 @@ unsafe fn probe_xhci() -> (UsbSnapshot, Option<XhciController>) {
                 mass_storage_last_lba: 0,
                 mass_storage_lba0_signature: 0,
                 mass_storage_detail: "controller_absent",
+                mass_storage_reclog_write_verified: false,
+                mass_storage_reclog_seq: 0,
+                mass_storage_reclog_lba: 0,
                 last_error: None,
             },
             None,
@@ -642,6 +660,11 @@ unsafe fn probe_xhci() -> (UsbSnapshot, Option<XhciController>) {
                 mass_storage_last_lba: controller.mass_storage_probe.last_lba,
                 mass_storage_lba0_signature: controller.mass_storage_probe.lba0_signature,
                 mass_storage_detail: controller.mass_storage_probe.detail,
+                mass_storage_reclog_write_verified: controller
+                    .mass_storage_probe
+                    .reclog_write_verified,
+                mass_storage_reclog_seq: controller.mass_storage_probe.reclog_seq,
+                mass_storage_reclog_lba: controller.mass_storage_probe.reclog_lba,
                 last_error: None,
             };
 
@@ -707,6 +730,9 @@ fn error_snapshot(address: PciAddress, error: &'static str) -> UsbSnapshot {
         mass_storage_last_lba: 0,
         mass_storage_lba0_signature: 0,
         mass_storage_detail: error,
+        mass_storage_reclog_write_verified: false,
+        mass_storage_reclog_seq: 0,
+        mass_storage_reclog_lba: 0,
         last_error: Some(error),
     }
 }
@@ -774,6 +800,10 @@ fn refresh_snapshot_from_controller(snapshot: &mut UsbSnapshot, controller: &Xhc
     snapshot.mass_storage_last_lba = controller.mass_storage_probe.last_lba;
     snapshot.mass_storage_lba0_signature = controller.mass_storage_probe.lba0_signature;
     snapshot.mass_storage_detail = controller.mass_storage_probe.detail;
+    snapshot.mass_storage_reclog_write_verified =
+        controller.mass_storage_probe.reclog_write_verified;
+    snapshot.mass_storage_reclog_seq = controller.mass_storage_probe.reclog_seq;
+    snapshot.mass_storage_reclog_lba = controller.mass_storage_probe.reclog_lba;
     snapshot.keyboard_status = if controller.keyboard.is_some() {
         UsbKeyboardStatus::Ready
     } else {
@@ -1017,6 +1047,16 @@ struct MassStorageProbe {
     last_lba: u32,
     lba0_signature: u16,
     detail: &'static str,
+    reclog_write_verified: bool,
+    reclog_seq: u64,
+    reclog_lba: u64,
+}
+
+#[derive(Clone, Copy)]
+struct ReclogAppendPoint {
+    seq: u64,
+    lba: u64,
+    prev_frame_sha256: [u8; 32],
 }
 
 impl MassStorageProbe {
@@ -1029,6 +1069,9 @@ impl MassStorageProbe {
             last_lba: 0,
             lba0_signature: 0,
             detail: "not_found",
+            reclog_write_verified: false,
+            reclog_seq: 0,
+            reclog_lba: 0,
         }
     }
 }
@@ -1828,8 +1871,12 @@ impl XhciController {
         set_config_result?;
         if endpoint.kind.uses_boot_protocol() {
             self.set_enum_stage("set-proto");
-            let set_proto_result =
-                self.control_no_data(0x21, HID_REQ_SET_PROTOCOL, 0, endpoint.interface_number as u16);
+            let set_proto_result = self.control_no_data(
+                0x21,
+                HID_REQ_SET_PROTOCOL,
+                0,
+                endpoint.interface_number as u16,
+            );
             self.capture_enum_completion_codes();
             if set_proto_result.is_err() {
                 serial::write_line("usb-hid: set-protocol stalled (ignored)");
@@ -1844,7 +1891,8 @@ impl XhciController {
         }
 
         self.set_enum_stage("cfg-ep");
-        let cfg_ep_result = self.configure_interrupt_endpoint(device_index, slot_id, port, endpoint);
+        let cfg_ep_result =
+            self.configure_interrupt_endpoint(device_index, slot_id, port, endpoint);
         self.capture_enum_completion_codes();
         cfg_ep_result?;
         serial::write_fmt(format_args!(
@@ -3040,10 +3088,7 @@ impl XhciController {
             return Err("command ring index invalid");
         }
         if self.command_enqueue == COMMAND_RING_LEN - 1 {
-            let link_phys = phys_of(
-                ptr::addr_of!(COMMAND_RING.0[0]),
-                "command ring link phys",
-            )?;
+            let link_phys = phys_of(ptr::addr_of!(COMMAND_RING.0[0]), "command ring link phys")?;
             let mut link = Trb {
                 parameter: link_phys,
                 status: 0,
@@ -3244,6 +3289,7 @@ impl XhciController {
                 last_lba,
                 lba0_signature: 0,
                 detail: "msc_block_size_not_512",
+                ..MassStorageProbe::none()
             });
         }
 
@@ -3269,6 +3315,7 @@ impl XhciController {
                 last_lba,
                 lba0_signature,
                 detail: gpt.reason,
+                ..MassStorageProbe::none()
             });
         }
 
@@ -3281,12 +3328,33 @@ impl XhciController {
                 last_lba,
                 lba0_signature,
                 detail: "seed_data_first_lba_overflow",
+                ..MassStorageProbe::none()
             });
         };
         let sb0 = self.msc_read_sector_copy(gpt.seed_data_first_lba)?;
         let sb1 = self.msc_read_sector_copy(seed_data_lba1)?;
         let data = seed_data_layout::validate_seed_data_layout(&sb0, &sb1, gpt.seed_data_lba_count);
         let seed_data_present = data.status == LayoutStatus::Present;
+        let mut detail = data.reason;
+        let mut reclog_write_verified = false;
+        let mut reclog_seq = 0;
+        let mut reclog_lba = 0;
+        if seed_data_present {
+            match self
+                .append_usb_diagnostic_reclog(gpt.seed_data_first_lba, gpt.seed_data_lba_count)
+            {
+                Ok(point) => {
+                    detail = "reclog_write_verified";
+                    reclog_write_verified = true;
+                    reclog_seq = point.seq;
+                    reclog_lba = point.lba;
+                }
+                Err(err) => {
+                    detail = err;
+                    serial::write_fmt(format_args!("usb-msc: reclog append denied: {}\r\n", err));
+                }
+            }
+        }
         let probe = MassStorageProbe {
             present: true,
             read_completed: true,
@@ -3294,7 +3362,10 @@ impl XhciController {
             block_size,
             last_lba,
             lba0_signature,
-            detail: data.reason,
+            detail,
+            reclog_write_verified,
+            reclog_seq,
+            reclog_lba,
         };
         serial::write_fmt(format_args!(
             "usb-msc: capacity last_lba={} block={} mbr=0x{:04x} seed_data={} {}\r\n",
@@ -3309,6 +3380,140 @@ impl XhciController {
             probe.detail
         ));
         Ok(probe)
+    }
+
+    unsafe fn append_usb_diagnostic_reclog(
+        &mut self,
+        seed_data_first_lba: u64,
+        seed_data_lba_count: u64,
+    ) -> Result<ReclogAppendPoint, &'static str> {
+        let reclog_end = seed_data_layout::RECLOG_START_LBA
+            .checked_add(seed_data_layout::RECLOG_LBA_COUNT)
+            .ok_or("reclog_region_overflow")?;
+        if reclog_end > seed_data_lba_count {
+            return Err("reclog_region_out_of_seed_data");
+        }
+        let reclog_start_lba = seed_data_first_lba
+            .checked_add(seed_data_layout::RECLOG_START_LBA)
+            .ok_or("reclog_lba_overflow")?;
+        let point = self.find_reclog_append_point(reclog_start_lba)?;
+        let payload = self.usb_diagnostic_payload(point.seq)?;
+        let payload_bytes = payload.as_bytes();
+        if payload_bytes.len() > MSC_SECTOR_BUFFER_LEN - RECLOG_FRAME_HEADER_LEN {
+            return Err("reclog_payload_too_large");
+        }
+
+        let mut frame = [0u8; MSC_SECTOR_BUFFER_LEN];
+        frame[..RECLOG_MAGIC.len()].copy_from_slice(RECLOG_MAGIC);
+        write_le32(&mut frame, 8, MSC_SECTOR_BUFFER_LEN as u32);
+        write_le32(&mut frame, 12, payload_bytes.len() as u32);
+        write_le64(&mut frame, 16, point.seq);
+        frame[RECLOG_PREV_FRAME_SHA256_OFFSET..RECLOG_PREV_FRAME_SHA256_OFFSET + 32]
+            .copy_from_slice(&point.prev_frame_sha256);
+        frame[RECLOG_PAYLOAD_SHA256_OFFSET..RECLOG_PAYLOAD_SHA256_OFFSET + 32]
+            .copy_from_slice(&sha256_bytes(payload_bytes));
+        frame[RECLOG_FRAME_HEADER_LEN..RECLOG_FRAME_HEADER_LEN + payload_bytes.len()]
+            .copy_from_slice(payload_bytes);
+
+        let mut idx = 0usize;
+        while idx < MSC_SECTOR_BUFFER_LEN {
+            ptr::write_volatile(ptr::addr_of_mut!(MSC_BUFFER.0[idx]), frame[idx]);
+            idx += 1;
+        }
+        self.msc_write_sector_from_buffer(point.lba)?;
+        let readback = self.msc_read_sector_copy(point.lba)?;
+        if readback != frame {
+            return Err("reclog_readback_mismatch");
+        }
+        parse_reclog_frame(&readback, 0, point.seq, point.prev_frame_sha256)
+            .map_err(|_| "reclog_readback_parse_failed")?;
+        serial::write_fmt(format_args!(
+            "usb-msc: reclog append seq={} lba={} verified\r\n",
+            point.seq, point.lba
+        ));
+        Ok(point)
+    }
+
+    unsafe fn find_reclog_append_point(
+        &mut self,
+        reclog_start_lba: u64,
+    ) -> Result<ReclogAppendPoint, &'static str> {
+        let mut idx = 0u64;
+        let mut seq = 1u64;
+        let mut prev_frame_sha256 = [0u8; 32];
+        while idx < seed_data_layout::RECLOG_LBA_COUNT {
+            let lba = reclog_start_lba
+                .checked_add(idx)
+                .ok_or("reclog_lba_overflow")?;
+            let sector = self.msc_read_sector_copy(lba)?;
+            if all_zero(&sector) {
+                self.verify_reclog_zero_tail(reclog_start_lba, idx + 1)?;
+                return Ok(ReclogAppendPoint {
+                    seq,
+                    lba,
+                    prev_frame_sha256,
+                });
+            }
+            if &sector[..RECLOG_MAGIC.len()] != RECLOG_MAGIC {
+                return Err("reclog_bad_magic");
+            }
+            if read_le32(&sector, 8) != MSC_SECTOR_BUFFER_LEN as u32 {
+                return Err("reclog_multisector_unsupported");
+            }
+            let parsed =
+                parse_reclog_frame(&sector, 0, seq, prev_frame_sha256).map_err(|err| err.reason)?;
+            prev_frame_sha256 = parsed.frame_sha256;
+            seq = parsed.seq.checked_add(1).ok_or("reclog_seq_overflow")?;
+            idx += 1;
+        }
+        Err("reclog_full")
+    }
+
+    unsafe fn verify_reclog_zero_tail(
+        &mut self,
+        reclog_start_lba: u64,
+        start_idx: u64,
+    ) -> Result<(), &'static str> {
+        let mut idx = start_idx;
+        while idx < seed_data_layout::RECLOG_LBA_COUNT {
+            let lba = reclog_start_lba
+                .checked_add(idx)
+                .ok_or("reclog_lba_overflow")?;
+            let sector = self.msc_read_sector_copy(lba)?;
+            if !all_zero(&sector) {
+                return Err("reclog_nonzero_after_zero_tail");
+            }
+            idx += 1;
+        }
+        Ok(())
+    }
+
+    fn usb_diagnostic_payload(&self, seq: u64) -> Result<String, &'static str> {
+        let mut payload = String::new();
+        let reports = self
+            .keyboard_report_count
+            .saturating_add(self.mouse_report_count);
+        write!(
+            payload,
+            "{{\"schema\":\"raios.usb_diag.v0\",\"classification\":\"local_only\",\"scope\":\"current_boot\",\"seq\":{},\"hub_count\":{},\"hub_ports\":{},\"hub_connected\":{},\"hub_reset\":{},\"hub_done\":{},\"recover\":{},\"reports\":{},\"errors\":{},\"last_int_cc\":{},\"last_xfer_cc\":{},\"last_cmd\":{},\"last_cc\":{},\"enum_vid\":{},\"enum_pid\":{}}}",
+            seq,
+            self.hub_count,
+            self.hub_ports,
+            self.current_hub_connected_ports(),
+            self.hub_reset_ports,
+            self.hub_configured_devices,
+            self.recover_count,
+            reports,
+            self.transfer_error_count,
+            self.last_int_cc,
+            self.last_transfer_completion_code,
+            self.last_command_type,
+            self.last_completion_code,
+            self.enum_vid,
+            self.enum_pid
+        )
+        .map_err(|_| "reclog_payload_format_failed")?;
+        Ok(payload)
     }
 
     unsafe fn msc_read_sector_copy(
@@ -3344,6 +3549,30 @@ impl XhciController {
         Ok(out)
     }
 
+    unsafe fn msc_write_sector_from_buffer(&mut self, lba: u64) -> Result<(), &'static str> {
+        if lba > u32::MAX as u64 {
+            return Err("msc_lba_out_of_write10_range");
+        }
+        let lba32 = lba as u32;
+        let cdb = [
+            0x2A,
+            0,
+            (lba32 >> 24) as u8,
+            (lba32 >> 16) as u8,
+            (lba32 >> 8) as u8,
+            lba32 as u8,
+            0,
+            0,
+            1,
+            0,
+        ];
+        let len = self.msc_scsi_command(MSC_SECTOR_BUFFER_LEN, false, &cdb)?;
+        if len < MSC_SECTOR_BUFFER_LEN {
+            return Err("msc_write10_short_sector");
+        }
+        Ok(())
+    }
+
     unsafe fn msc_scsi_command(
         &mut self,
         data_len: usize,
@@ -3364,7 +3593,9 @@ impl XhciController {
 
         ptr::write_bytes(MSC_CBW.0.as_mut_ptr(), 0, MSC_CBW_LEN);
         ptr::write_bytes(MSC_CSW.0.as_mut_ptr(), 0, MSC_CSW_LEN);
-        ptr::write_bytes(MSC_BUFFER.0.as_mut_ptr(), 0, MSC_SECTOR_BUFFER_LEN);
+        if input || data_len == 0 {
+            ptr::write_bytes(MSC_BUFFER.0.as_mut_ptr(), 0, MSC_SECTOR_BUFFER_LEN);
+        }
         write_le32(&mut MSC_CBW.0, 0, MSC_CBW_SIGNATURE);
         write_le32(&mut MSC_CBW.0, 4, storage.tag);
         write_le32(&mut MSC_CBW.0, 8, data_len as u32);
@@ -4489,6 +4720,15 @@ fn read_le32(bytes: &[u8], offset: usize) -> u32 {
 fn write_le32(bytes: &mut [u8], offset: usize, value: u32) {
     let raw = value.to_le_bytes();
     bytes[offset..offset + 4].copy_from_slice(&raw);
+}
+
+fn write_le64(bytes: &mut [u8], offset: usize, value: u64) {
+    let raw = value.to_le_bytes();
+    bytes[offset..offset + 8].copy_from_slice(&raw);
+}
+
+fn all_zero(bytes: &[u8]) -> bool {
+    bytes.iter().all(|byte| *byte == 0)
 }
 
 fn phys_of<T>(ptr: *const T, label: &'static str) -> Result<u64, &'static str> {

@@ -220,7 +220,7 @@ fn usb_xhci_line() -> StatusLine {
                             snapshot.hub_configured_devices,
                             keyboard,
                             mouse,
-                            mass_storage,
+                            mass_storage.as_str(),
                             snapshot.input_report_count,
                             snapshot.input_error_count,
                             snapshot.last_transfer_completion_code,
@@ -250,7 +250,7 @@ fn usb_xhci_line() -> StatusLine {
                             snapshot.hub_configured_devices,
                             keyboard,
                             mouse,
-                            mass_storage,
+                            mass_storage.as_str(),
                             snapshot.input_report_count,
                             snapshot.input_error_count,
                             snapshot.last_transfer_completion_code,
@@ -274,7 +274,7 @@ fn usb_xhci_line() -> StatusLine {
                         snapshot.connected_ports,
                         keyboard,
                         mouse,
-                        mass_storage,
+                        mass_storage.as_str(),
                         snapshot.input_report_count,
                         snapshot.input_error_count,
                         snapshot.last_transfer_completion_code,
@@ -289,16 +289,23 @@ fn usb_xhci_line() -> StatusLine {
     }
 }
 
-fn usb_mass_storage_status(snapshot: usb::UsbSnapshot) -> &'static str {
-    if snapshot.mass_storage_seed_data_present {
-        "SEED"
+fn usb_mass_storage_status(snapshot: usb::UsbSnapshot) -> TextBuf<64> {
+    let mut status = TextBuf::new();
+    if snapshot.mass_storage_reclog_write_verified {
+        let _ = status.write_fmt(format_args!(
+            "LOG seq{} lba{}",
+            snapshot.mass_storage_reclog_seq, snapshot.mass_storage_reclog_lba
+        ));
+    } else if snapshot.mass_storage_seed_data_present {
+        let _ = status.write_fmt(format_args!("SEED {}", snapshot.mass_storage_detail));
     } else if snapshot.mass_storage_read_completed {
-        "READ"
+        let _ = status.write_fmt(format_args!("READ {}", snapshot.mass_storage_detail));
     } else if snapshot.mass_storage_present {
-        "FOUND"
+        let _ = status.write_fmt(format_args!("FOUND {}", snapshot.mass_storage_detail));
     } else {
-        "NONE"
+        status.push_str("NONE");
     }
+    status
 }
 
 fn usb_last_enum_detail(snapshot: usb::UsbSnapshot) -> TextBuf<96> {
