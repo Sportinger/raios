@@ -34,14 +34,12 @@ authority remains denied until the real sealing ceremony.
 
 Latest proof: quick Shadow VM `shadow-20260709-203221-20956.json` passed
 542/542 after adding full PCI-function quiesce; report sha256 starts
-`100445bd...`. Disk 2 refresh is still pending because the elevated writer was
-cancelled; the stick still has kernel SHA `5D3F709C...`.
+`100445bd...`. Disk 2 `SEED_ESP_A` is refreshed with kernel SHA `1BBC4F3D...`.
 
 Gate status: latest full profile remains green at
 `shadow-20260708-150428-34396.json` 7867/7867. This slice used focused USB VM
 evidence plus quick profile per aggressive-fast cadence.
 
-Next task: accept the elevated Disk 2 refresh, boot the Surface, click
-`Start WiFi FW`, confirm
+Next task: boot the Surface, click `Start WiFi FW`, confirm
 `DRV_READY written; WiFi PCI function quiesced`, and see whether the hub mouse
 survives the quiesced ready transition.

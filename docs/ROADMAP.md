@@ -97,9 +97,9 @@ the next mouse loss happens when `Start WiFi FW` completes. The current image
 now writes `DRV_READY`, then immediately masks/clears Marvell host interrupts
 and quiesces the WiFi PCI function, so it honestly ends at
 `drv_ready_quarantined` rather than claiming firmware-ready. Next owner
-evidence: after the pending elevated Disk 2 refresh, boot the stick, start WiFi
-firmware, confirm `DRV_READY written; WiFi PCI function quiesced`, and see
-whether the hub mouse survives the quiesced ready transition.
+evidence: boot the refreshed stick, start WiFi firmware, confirm
+`DRV_READY written; WiFi PCI function quiesced`, and see whether the hub mouse
+survives the quiesced ready transition.
 
 **M12+ opener + honesty capstone (committed, grants nothing):** M12-1 external-
 acquisition HONESTY evaluator (download = candidate intake NEVER install; a

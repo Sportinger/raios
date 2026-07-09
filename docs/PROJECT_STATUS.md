@@ -24,10 +24,9 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (bare-metal diagnostics): first refresh Disk 2 from an
-elevated PowerShell, then boot the Surface from the stick with the same
-hub/mouse/stick setup, confirm `MSC LOG`, click `Start WiFi FW`, and check that
-the download reaches
+Current exact next task (bare-metal diagnostics): boot the Surface from the
+refreshed Disk 2 stick with the same hub/mouse/stick setup, confirm `MSC LOG`,
+click `Start WiFi FW`, and check that the download reaches
 `DRV_READY written; WiFi PCI function quiesced` while the hub mouse
 keeps moving. If the mouse still stops, even a brief `DRV_READY` transition is
 enough to disturb Surface input and the next fix should keep the chip pre-ready
@@ -38,7 +37,7 @@ parked because arming it made real Surface MMIO read back all-ones
 (`HOST_INT=0xffffffff`, write pointers `0xffffffff`) and froze input; do not
 re-enable RX-PFU while using stick logging to gather evidence.
 
-WiFi DRV_READY PCI-quiesce diagnostic slice done locally (2026-07-09) - after
+WiFi DRV_READY PCI-quiesce diagnostic slice done (2026-07-09) - after
 RECLOG again showed a healthy hub port and xHCI endpoint during mouse report
 loss (`m_port=259`, `m_chg=0`, `m_ep=1`), raiOS now writes the Marvell
 `DRV_READY` MMIO magic after the real firmware block download, immediately
@@ -56,14 +55,12 @@ report `release/vm-reports/shadow-20260709-203221-20956.json` passed 542/542
 predicates, 79 executed commands, `duration_ms: 179774`, report sha256
 `100445bd65df84d6f39d2d563c934fec434e77179c4854f06482be2c1ed43594`, and
 `base_image.sha256: 25d47647e237fc61ba1754901808d99ca6520d0fd0f8a78c4de8141fce7ed7b8`.
-Owner handoff is pending: two attempts to launch the elevated Disk 2 writer
-were cancelled by Windows/UAC, and a non-elevated direct run failed with "Run
-this script from an elevated PowerShell window." Last known Disk 2 kernel is
-still the prior quarantine image
-`5D3F709C660F7953CB993437F79A076BFCEEDBB55AF17DBC1917C215BBA37BF8`; do not
-claim the PCI-quiesce image is on the stick until
-`scripts\update-usb-esp-a.ps1 -DiskNumber 2 -SkipBuild` reports the new kernel
-sha.
+Owner handoff: after two cancelled UAC launches, the owner accepted the elevated
+writer and Disk 2 `SEED_ESP_A` was refreshed without reformatting via
+`scripts\update-usb-esp-a.ps1 -DiskNumber 2 -SkipBuild`; log
+`C:\Users\admin\AppData\Local\Temp\raios-usb-esp-a-update-disk2-20260709-210312.log`
+reported kernel sha256
+`1BBC4F3DAB5A8E2DEA251140D65E9D055712120637DAC5BE6EA6A698A9AD41BC`.
 
 WiFi DRV_READY quarantine diagnostic slice done (2026-07-09) - raiOS now writes
 the Marvell `DRV_READY` MMIO magic after the real firmware block download, then
