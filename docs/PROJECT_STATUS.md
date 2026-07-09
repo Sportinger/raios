@@ -24,6 +24,30 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+M12+ Slice 7 done (2026-07-09) - non-builtin local distribution catalog. A
+user/agent can now submit a dev-publisher-signed artifact catalog entry into a
+current-boot, non-builtin local catalog, select it later by content hash to
+start the existing bounded serial chunk transport, and only after chunk hashes,
+whole-artifact hash, and provenance signature verification does raiOS stage the
+artifact as an inert current-boot candidate. A wrong catalog selector does not
+start delivery, and a follow-up finalize stages nothing. This grants no
+acquisition/install/load/execute/persist/network/durable-write authority; the
+catalog is RAM-only metadata, provenance remains origin evidence only, and
+M6/M7 re-verification is still required for any future load. Verified:
+touched-file rustfmt check; PowerShell profile parse; `cargo test --locked -p
+raios-core` (300 passed, with local Cargo cache/target overrides because the
+environment pointed Cargo at a missing `F:\scorefollower-build` path); release
+seed-kernel build (same pre-existing IOMMU/WiFi warnings); focused VM
+`m12-distribution-provenance` report
+`release/vm-reports/shadow-20260709-075830-26216.json` 228/228 predicates,
+42 executed commands, `duration_ms: 106309`, report sha256
+`249f9293436f15eb27ee14d1d5034657819b6f42736ea9f2fe2622ab99174640`.
+An earlier same-slice VM run
+`release/vm-reports/shadow-20260709-075623-19216.json` was classified below
+as host-transport `qemu_exited` before any M12-specific command ran; the clean
+retry passed without a code change. Full+recovery remain deferred to the M12+
+block close per the aggressive-fast cadence.
+
 M12+ Slice 6 done (2026-07-09) - real local serial distribution transport. A
 user/agent can now deliver a dev-publisher-signed local artifact over the
 serial protocol as bounded content-addressed chunks; raiOS verifies the
@@ -396,6 +420,18 @@ real `provider.context_export` denial row/handler. Host-only verification:
 PowerShell parse of the edited common profile all passed.
 
 Failure classification log (rule: AGENTS.md "Failure Classification Rule"):
+
+- 2026-07-09 `shadow-20260709-075623-19216.json`
+  (`m12-distribution-provenance`, M12+ Slice 7 working tree): no failing
+  predicate; 173/173 reached predicates passed and 14 commands executed, then
+  the harness classified `serial_transport_failure: qemu_exited` while
+  reconnecting to serial TCP port 4565 after `provider.context_gate
+  provider_minimal`. Serial tail ended cleanly after
+  `RAIOS_AGENT_END provider.context_gate` / `AGENT RESPONSE WRITTEN TO SERIAL`,
+  QEMU stderr was empty, and no M12-specific command had run yet. Verdict:
+  **host-transport (qemu_exited / QEMU process silent exit)**, not observed
+  guest behavior and not evidence against the local-catalog distribution
+  slice. Retry is permitted after this classification.
 
 - 2026-07-06 `shadow-20260706-132514-25060.json` (full profile, M6B-2
   working tree): 2502/2502 reached predicates passed, then the M0-2

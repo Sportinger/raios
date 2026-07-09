@@ -323,6 +323,128 @@ Assert-M12Predicate `
     -Actual $(if ($distributionOk) { "matched" } else { ($distributionResult | ConvertTo-Json -Compress -Depth 10) }) `
     -FailureMessage "Expected serial distribution delivery to stage a valid inert candidate"
 
+Send-AgentCommand -Command "module.submit_distribution_catalog_entry $expectedSha $($echoBytes.Length) $($echoChunks.Count) sig:$provSigHex" -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_catalog_entry" -Name "m12-distribution:T2_catalog_entry"
+$catalogEntry = Get-LastAgentResponseJson -Method "module.submit_distribution_catalog_entry"
+$catalogEntryResult = $catalogEntry.body.result
+$catalogEntryOk = (
+    $catalogEntry.t -eq "response" -and
+    $catalogEntryResult.source_id -eq "local.serial.catalog" -and
+    $catalogEntryResult.entry_id -eq "local.catalog.distribution" -and
+    $catalogEntryResult.content_sha256 -eq $expectedSha -and
+    [int]$catalogEntryResult.total_length -eq 4205 -and
+    [int]$catalogEntryResult.chunk_count -eq 3 -and
+    $catalogEntryResult.retained_in_catalog -eq $true -and
+    $catalogEntryResult.accepted -eq $true -and
+    $catalogEntryResult.rejected -eq $false -and
+    $catalogEntryResult.reason -eq "accepted_local_distribution_catalog_entry" -and
+    (Test-M12RegistryDenials -Record $catalogEntryResult)
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:T2_local_catalog_entry_retained" `
+    -Expected "non-builtin local catalog retains signed artifact metadata in current_boot without granting authority" `
+    -Passed $catalogEntryOk `
+    -Actual $(if ($catalogEntryOk) { "matched" } else { ($catalogEntryResult | ConvertTo-Json -Compress -Depth 8) }) `
+    -FailureMessage "Expected local catalog entry to be retained without authority"
+
+Send-AgentCommand -Command "module.submit_distribution_begin_from_catalog sha256:0000000000000000000000000000000000000000000000000000000000000000" -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_begin_from_catalog" -Name "m12-distribution:T2_wrong_catalog_selector"
+$wrongCatalogBegin = Get-LastAgentResponseJson -Method "module.submit_distribution_begin_from_catalog"
+$wrongCatalogBeginResult = $wrongCatalogBegin.body.result
+$wrongCatalogBeginOk = (
+    $wrongCatalogBeginResult.source_id -eq "local.serial.catalog" -and
+    $wrongCatalogBeginResult.entry_id -eq "local.catalog.distribution" -and
+    $wrongCatalogBeginResult.accepted -eq $false -and
+    $wrongCatalogBeginResult.rejected -eq $true -and
+    $wrongCatalogBeginResult.reason -eq "local_distribution_catalog_entry_not_found" -and
+    $null -eq $wrongCatalogBeginResult.content_sha256 -and
+    (Test-M12RegistryDenials -Record $wrongCatalogBeginResult)
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:T2_wrong_catalog_selector_no_begin" `
+    -Expected "wrong local catalog selector does not start delivery or stage a candidate" `
+    -Passed $wrongCatalogBeginOk `
+    -Actual $(if ($wrongCatalogBeginOk) { "matched" } else { ($wrongCatalogBeginResult | ConvertTo-Json -Compress -Depth 8) }) `
+    -FailureMessage "Expected wrong local catalog selector to fail closed"
+Send-AgentCommand -Command "module.submit_distribution_finalize" -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_finalize" -Name "m12-distribution:T2_finalize_after_wrong_catalog_selector"
+$wrongCatalogFinalize = Get-LastAgentResponseJson -Method "module.submit_distribution_finalize"
+$wrongCatalogFinalizeResult = $wrongCatalogFinalize.body.result
+$wrongCatalogFinalizeOk = (
+    $wrongCatalogFinalizeResult.status -eq "denied" -and
+    $wrongCatalogFinalizeResult.reason -eq "distribution_delivery_not_started" -and
+    $null -eq $wrongCatalogFinalizeResult.selection -and
+    $null -eq $wrongCatalogFinalizeResult.staged_candidate -and
+    $wrongCatalogFinalizeResult.authorizes_load -eq $false -and
+    $wrongCatalogFinalizeResult.writes_persistent_state -eq $false
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:T2_wrong_catalog_finalize_no_stage" `
+    -Expected "finalize after wrong local catalog selector stages no candidate" `
+    -Passed $wrongCatalogFinalizeOk `
+    -Actual $(if ($wrongCatalogFinalizeOk) { "matched" } else { ($wrongCatalogFinalizeResult | ConvertTo-Json -Compress -Depth 8) }) `
+    -FailureMessage "Expected finalize after wrong local catalog selector to fail closed"
+
+Send-AgentCommand -Command "module.submit_distribution_begin_from_catalog $expectedSha" -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_begin_from_catalog" -Name "m12-distribution:T2_catalog_begin"
+$catalogBegin = Get-LastAgentResponseJson -Method "module.submit_distribution_begin_from_catalog"
+$catalogBeginResult = $catalogBegin.body.result
+$catalogBeginOk = (
+    $catalogBeginResult.source_id -eq "local.serial.catalog" -and
+    $catalogBeginResult.entry_id -eq "local.catalog.distribution" -and
+    $catalogBeginResult.content_sha256 -eq $expectedSha -and
+    [int]$catalogBeginResult.total_length -eq 4205 -and
+    [int]$catalogBeginResult.chunk_count -eq 3 -and
+    $catalogBeginResult.accepted -eq $true -and
+    $catalogBeginResult.rejected -eq $false -and
+    $catalogBeginResult.reason -eq "accepted_catalog_distribution_delivery_target" -and
+    (Test-M12RegistryDenials -Record $catalogBeginResult)
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:T2_catalog_begin_uses_retained_metadata" `
+    -Expected "matching local catalog selector starts the same bounded chunk transport from retained metadata" `
+    -Passed $catalogBeginOk `
+    -Actual $(if ($catalogBeginOk) { "matched" } else { ($catalogBeginResult | ConvertTo-Json -Compress -Depth 8) }) `
+    -FailureMessage "Expected local catalog begin to use retained metadata"
+foreach ($chunk in @($echoChunks[2], $echoChunks[0], $echoChunks[1])) {
+    $chunkHash = Get-M12BytesSha256Hex -Bytes $chunk.bytes
+    $chunkBase64 = [Convert]::ToBase64String($chunk.bytes)
+    Send-AgentCommand -Command "module.submit_distribution_chunk $($chunk.index) sha256:$chunkHash $chunkBase64" -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_chunk" -Name "m12-distribution:T2_catalog_chunk_$($chunk.index)"
+}
+Send-AgentCommand -Command "module.submit_distribution_finalize" -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_finalize" -Name "m12-distribution:T2_catalog_finalize"
+$catalogFinalize = Get-LastAgentResponseJson -Method "module.submit_distribution_finalize"
+$catalogResult = $catalogFinalize.body.result
+$catalogSelection = $catalogResult.selection
+$catalogStaged = $catalogResult.staged_candidate
+$catalogRetained = $catalogResult.retained_provenance
+$catalogOk = (
+    $catalogFinalize.t -eq "response" -and
+    $catalogResult.status -eq "selected" -and
+    $catalogResult.reason -eq "registry_entry_selected_for_inert_candidate_intake" -and
+    $catalogResult.source_id -eq "local.serial.catalog" -and
+    $catalogResult.entry_id -eq "local.catalog.distribution" -and
+    [int]$catalogResult.total_length -eq 4205 -and
+    [int]$catalogResult.declared_chunk_count -eq 3 -and
+    [int]$catalogResult.accepted_chunk_count -eq 3 -and
+    [int]$catalogResult.delivered_byte_len -eq 4205 -and
+    $catalogSelection.entry_id -eq "local.catalog.distribution" -and
+    $catalogSelection.artifact_sha256 -eq $expectedSha -and
+    $catalogSelection.provenance_signature_verified -eq $true -and
+    $catalogSelection.selected_for_candidate_intake -eq $true -and
+    $catalogStaged.artifact_sha256 -eq $expectedSha -and
+    $catalogStaged.wasm_valid -eq $true -and
+    $catalogStaged.retained_in_ram -eq $true -and
+    $catalogStaged.rejected -eq $false -and
+    $catalogRetained.provenance_verified -eq $true -and
+    $catalogRetained.artifact_sha256 -eq $expectedSha -and
+    $catalogResult.staged_only_after_valid_selection -eq $true -and
+    (Test-M12RegistryDenials -Record $catalogResult) -and
+    (Test-M12RegistryDenials -Record $catalogSelection) -and
+    (Test-M12Denials -Record $catalogRetained)
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:T2_local_catalog_delivery_stages_inert_candidate" `
+    -Expected "local catalog source feeds the existing signed chunk delivery path and stages only an inert candidate" `
+    -Passed $catalogOk `
+    -Actual $(if ($catalogOk) { "matched" } else { ($catalogResult | ConvertTo-Json -Compress -Depth 10) }) `
+    -FailureMessage "Expected local catalog delivery to stage a valid inert candidate"
+
 Send-AgentCommand -Command "agent module.distribution_provenance_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END module.distribution_provenance_diagnostic_selftest" -Name "m12-distribution:P2_selftest_command"
 $selftest = Get-LastAgentResponseJson -Method "module.distribution_provenance_diagnostic_selftest"
 $selftestResult = $selftest.body.result

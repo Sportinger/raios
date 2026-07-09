@@ -3,6 +3,17 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
+Updated: 2026-07-09. **M12+ Verteilung hat jetzt einen echten lokalen Katalog,
+nicht nur eingebaute Beispiele:** raiOS kann einen signierten Katalogeintrag
+uber die serielle Agent-Schnittstelle annehmen, ihn im aktuellen Start als
+lokale Quelle merken, per Fingerabdruck auswahlen und dann denselben sicheren
+Chunk-Transport benutzen. Ein falscher Katalog-Fingerabdruck startet gar keine
+Lieferung; `finalize` halt danach nichts. Bei korrektem Katalog + korrekten
+Chunks wird das Programm weiter nur als toter Kandidat gehalten. Weiterhin
+wird NICHT geladen, installiert, ausgefuhrt, gespeichert oder aus dem Netz
+geholt. Beweis: `m12-distribution-provenance`
+`shadow-20260709-075830-26216.json` 228/228 grun.
+
 Updated: 2026-07-09. **M12+ Verteilung hat jetzt einen echten lokalen
 Transport:** raiOS kann ein dev-signiertes Programm uber die serielle
 Agent-Schnittstelle in Stucken annehmen, jeden Chunk per Fingerabdruck prufen,

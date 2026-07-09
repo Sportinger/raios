@@ -116,7 +116,11 @@ chunks before staging, still grants nothing (`m12-distribution-provenance` 204/2
 DONE:** a real serial local delivery transport now accepts a signed artifact as bounded
 content-addressed chunks, denies bad chunk hashes before staging, and stages a valid
 reassembled artifact only as an inert candidate (`m12-distribution-provenance` 215/215).
-Next M12+ slice: connect distribution delivery to a non-builtin local source/catalog without
+**Slice 7 DONE:** a non-builtin current-boot local catalog now retains signed artifact
+metadata, starts the same bounded chunk transport by content-hash selection, denies wrong
+selectors before delivery starts, and still stages only an inert candidate after chunk,
+whole-hash, and provenance verification (`m12-distribution-provenance` 228/228). Next
+M12+ slice: bind that local catalog to a real host-side static/CAS source export without
 granting install/load authority. (3) provide real trust inputs (a cryptographically
 trusted time source, real CA roots, a live second provider) → I finish M10 real
 validation — STILL YOURS. (4) the owner-key sealing ceremony → the FINAL step —

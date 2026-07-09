@@ -27,7 +27,16 @@ use spin::Mutex;
 
 const SERIAL_DISTRIBUTION_DELIVERY_CHANNEL: &str = "serial_console_distribution_chunks_v0";
 const SERIAL_DISTRIBUTION_ENTRY_ID: &str = "serial.local.distribution";
+const SERIAL_DISTRIBUTION_SOURCE_ID: &str = "serial.command";
+const LOCAL_DISTRIBUTION_CATALOG_SOURCE_ID: &str = "local.serial.catalog";
+const LOCAL_DISTRIBUTION_CATALOG_ENTRY_ID: &str = "local.catalog.distribution";
 const DISTRIBUTION_BEGIN_ACCEPTED_REASON: &str = "accepted_distribution_delivery_target";
+const DISTRIBUTION_CATALOG_ENTRY_ACCEPTED_REASON: &str =
+    "accepted_local_distribution_catalog_entry";
+const DISTRIBUTION_CATALOG_BEGIN_ACCEPTED_REASON: &str =
+    "accepted_catalog_distribution_delivery_target";
+const DISTRIBUTION_CATALOG_ENTRY_NOT_FOUND_REASON: &str =
+    "local_distribution_catalog_entry_not_found";
 const DISTRIBUTION_CHUNK_ACCEPTED_REASON: &str = "accepted_distribution_chunk";
 const DISTRIBUTION_DUPLICATE_CHUNK_ACCEPTED_REASON: &str = "accepted_duplicate_distribution_chunk";
 const DISTRIBUTION_DELIVERY_NOT_STARTED_REASON: &str = "distribution_delivery_not_started";
@@ -39,6 +48,8 @@ const DISTRIBUTION_INVALID_CHUNK_INDEX_REASON: &str = "invalid_distribution_chun
 
 static PENDING_SERIAL_DISTRIBUTION: Mutex<PendingSerialDistribution> =
     Mutex::new(PendingSerialDistribution::new());
+static LOCAL_DISTRIBUTION_CATALOG: Mutex<LocalDistributionCatalog> =
+    Mutex::new(LocalDistributionCatalog::new());
 
 #[derive(Clone, Copy)]
 struct RegistrySelectionRun<'a> {
@@ -68,11 +79,21 @@ struct SelftestCase {
 
 struct PendingSerialDistribution {
     active: bool,
+    source_id: &'static str,
+    entry_id: &'static str,
     content_sha256: [u8; 32],
     total_length: usize,
     chunk_count: usize,
     provenance_signature_der: Vec<u8>,
     chunks: Vec<PendingSerialDistributionChunk>,
+}
+
+struct LocalDistributionCatalog {
+    active: bool,
+    content_sha256: [u8; 32],
+    total_length: usize,
+    chunk_count: usize,
+    provenance_signature_der: Vec<u8>,
 }
 
 struct PendingSerialDistributionChunk {
@@ -81,8 +102,29 @@ struct PendingSerialDistributionChunk {
     claimed_chunk_sha256: [u8; 32],
 }
 
+struct DistributionDeliveryTargetMetadata {
+    content_sha256: [u8; 32],
+    total_length: usize,
+    chunk_count: usize,
+    provenance_signature_der: Vec<u8>,
+}
+
+#[derive(Clone, Copy)]
+struct DistributionCatalogEntryOutcome {
+    content_sha256: Option<[u8; 32]>,
+    total_length: usize,
+    chunk_count: usize,
+    signature_byte_len: usize,
+    retained_in_catalog: bool,
+    accepted: bool,
+    rejected: bool,
+    reason: &'static str,
+}
+
 #[derive(Clone, Copy)]
 struct DistributionBeginOutcome {
+    source_id: &'static str,
+    entry_id: &'static str,
     content_sha256: Option<[u8; 32]>,
     total_length: usize,
     chunk_count: usize,
@@ -128,6 +170,8 @@ struct DistributionTransportSelection {
 
 #[derive(Clone, Copy)]
 struct DistributionFinalizeOutcome {
+    source_id: &'static str,
+    entry_id: &'static str,
     content_sha256: Option<[u8; 32]>,
     total_length: usize,
     declared_chunk_count: usize,
@@ -144,6 +188,8 @@ impl PendingSerialDistribution {
     const fn new() -> Self {
         Self {
             active: false,
+            source_id: SERIAL_DISTRIBUTION_SOURCE_ID,
+            entry_id: SERIAL_DISTRIBUTION_ENTRY_ID,
             content_sha256: [0; 32],
             total_length: 0,
             chunk_count: 0,
@@ -154,6 +200,8 @@ impl PendingSerialDistribution {
 
     fn clear(&mut self) {
         self.active = false;
+        self.source_id = SERIAL_DISTRIBUTION_SOURCE_ID;
+        self.entry_id = SERIAL_DISTRIBUTION_ENTRY_ID;
         self.content_sha256 = [0; 32];
         self.total_length = 0;
         self.chunk_count = 0;
@@ -162,17 +210,92 @@ impl PendingSerialDistribution {
     }
 }
 
+impl LocalDistributionCatalog {
+    const fn new() -> Self {
+        Self {
+            active: false,
+            content_sha256: [0; 32],
+            total_length: 0,
+            chunk_count: 0,
+            provenance_signature_der: Vec::new(),
+        }
+    }
+
+    fn clear(&mut self) {
+        self.active = false;
+        self.content_sha256 = [0; 32];
+        self.total_length = 0;
+        self.chunk_count = 0;
+        self.provenance_signature_der.clear();
+    }
+}
+
+pub(crate) fn emit_submit_distribution_catalog_entry(arg: &str) {
+    let outcome = submit_distribution_catalog_entry(arg);
+
+    begin_response("module.submit_distribution_catalog_entry");
+    emit_record_fields(
+        vec![
+            f("method", s("module.submit_distribution_catalog_entry")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("source_id", s(LOCAL_DISTRIBUTION_CATALOG_SOURCE_ID)),
+            f("entry_id", s(LOCAL_DISTRIBUTION_CATALOG_ENTRY_ID)),
+            f("content_sha256", record_sha_or_null(outcome.content_sha256)),
+            f("total_length", V::U64(outcome.total_length as u64)),
+            f("chunk_count", V::U64(outcome.chunk_count as u64)),
+            f(
+                "max_chunk_count",
+                V::U64(DISTRIBUTION_CHUNKED_DELIVERY_MAX_CHUNKS as u64),
+            ),
+            f(
+                "signature_byte_len",
+                V::U64(outcome.signature_byte_len as u64),
+            ),
+            f("retained_in_catalog", b(outcome.retained_in_catalog)),
+            f("accepted", b(outcome.accepted)),
+            f("rejected", b(outcome.rejected)),
+            f("reason", s(outcome.reason)),
+            f("load_attempted", b(false)),
+            f("execution_attempted", b(false)),
+            f("durable_write_attempted", b(false)),
+            f("authorizes_acquisition", b(false)),
+            f("authorizes_install", b(false)),
+            f("authorizes_load", b(false)),
+            f("authorizes_execute", b(false)),
+            f("authorizes_persist", b(false)),
+            f("writes_persistent_state", b(false)),
+            f("network_attempted", b(false)),
+            f("owner_sealed", b(false)),
+            f("trust_tier", s("dev_key_not_owner_sealed")),
+        ],
+        6,
+    );
+    end_response("module.submit_distribution_catalog_entry");
+}
+
 pub(crate) fn emit_submit_distribution_begin(arg: &str) {
     let outcome = submit_distribution_begin(arg);
 
-    begin_response("module.submit_distribution_begin");
+    emit_distribution_begin_response("module.submit_distribution_begin", &outcome);
+}
+
+pub(crate) fn emit_submit_distribution_begin_from_catalog(arg: &str) {
+    let outcome = submit_distribution_begin_from_catalog(arg);
+
+    emit_distribution_begin_response("module.submit_distribution_begin_from_catalog", &outcome);
+}
+
+fn emit_distribution_begin_response(method: &'static str, outcome: &DistributionBeginOutcome) {
+    begin_response(method);
     emit_record_fields(
         vec![
-            f("method", s("module.submit_distribution_begin")),
+            f("method", s(method)),
             f("scope", s("current_boot")),
             f("classification", s("local_only")),
             f("delivery_channel", s(SERIAL_DISTRIBUTION_DELIVERY_CHANNEL)),
-            f("entry_id", s(SERIAL_DISTRIBUTION_ENTRY_ID)),
+            f("source_id", s(outcome.source_id)),
+            f("entry_id", s(outcome.entry_id)),
             f("content_sha256", record_sha_or_null(outcome.content_sha256)),
             f("total_length", V::U64(outcome.total_length as u64)),
             f("chunk_count", V::U64(outcome.chunk_count as u64)),
@@ -202,7 +325,7 @@ pub(crate) fn emit_submit_distribution_begin(arg: &str) {
         ],
         6,
     );
-    end_response("module.submit_distribution_begin");
+    end_response(method);
 }
 
 pub(crate) fn emit_submit_distribution_chunk(arg: &str) {
@@ -258,7 +381,8 @@ pub(crate) fn emit_submit_distribution_finalize() {
             f("scope", s("current_boot")),
             f("classification", s("local_only")),
             f("delivery_channel", s(SERIAL_DISTRIBUTION_DELIVERY_CHANNEL)),
-            f("entry_id", s(SERIAL_DISTRIBUTION_ENTRY_ID)),
+            f("source_id", s(outcome.source_id)),
+            f("entry_id", s(outcome.entry_id)),
             f("status", s(outcome.status)),
             f("reason", s(outcome.reason)),
             f("content_sha256", record_sha_or_null(outcome.content_sha256)),
@@ -328,60 +452,134 @@ pub(crate) fn emit_submit_distribution_finalize() {
 }
 
 fn submit_distribution_begin(arg: &str) -> DistributionBeginOutcome {
-    let mut pending = PENDING_SERIAL_DISTRIBUTION.lock();
-    pending.clear();
+    clear_pending_distribution();
 
-    let mut words =
-        distribution_payload(arg, "module.submit_distribution_begin").split_whitespace();
+    let payload = distribution_payload(arg, "module.submit_distribution_begin");
+    let metadata = match parse_distribution_target_metadata(payload) {
+        Ok(metadata) => metadata,
+        Err(reason) => {
+            return rejected_distribution_begin_for(
+                SERIAL_DISTRIBUTION_SOURCE_ID,
+                SERIAL_DISTRIBUTION_ENTRY_ID,
+                reason,
+            )
+        }
+    };
+
+    accept_distribution_begin(
+        SERIAL_DISTRIBUTION_SOURCE_ID,
+        SERIAL_DISTRIBUTION_ENTRY_ID,
+        metadata,
+        DISTRIBUTION_BEGIN_ACCEPTED_REASON,
+    )
+}
+
+fn submit_distribution_catalog_entry(arg: &str) -> DistributionCatalogEntryOutcome {
+    let mut catalog = LOCAL_DISTRIBUTION_CATALOG.lock();
+    catalog.clear();
+
+    let payload = distribution_payload(arg, "module.submit_distribution_catalog_entry");
+    let metadata = match parse_distribution_target_metadata(payload) {
+        Ok(metadata) => metadata,
+        Err(reason) => return rejected_distribution_catalog_entry(reason),
+    };
+
+    catalog.active = true;
+    catalog.content_sha256 = metadata.content_sha256;
+    catalog.total_length = metadata.total_length;
+    catalog.chunk_count = metadata.chunk_count;
+    catalog.provenance_signature_der = metadata.provenance_signature_der;
+
+    DistributionCatalogEntryOutcome {
+        content_sha256: Some(catalog.content_sha256),
+        total_length: catalog.total_length,
+        chunk_count: catalog.chunk_count,
+        signature_byte_len: catalog.provenance_signature_der.len(),
+        retained_in_catalog: true,
+        accepted: true,
+        rejected: false,
+        reason: DISTRIBUTION_CATALOG_ENTRY_ACCEPTED_REASON,
+    }
+}
+
+fn submit_distribution_begin_from_catalog(arg: &str) -> DistributionBeginOutcome {
+    clear_pending_distribution();
+
+    let payload = distribution_payload(arg, "module.submit_distribution_begin_from_catalog");
+    let mut words = payload.split_whitespace();
     let Some(content_sha_token) = words.next() else {
-        return rejected_distribution_begin(DISTRIBUTION_INVALID_ARGS_REASON);
-    };
-    let Some(total_length_token) = words.next() else {
-        return rejected_distribution_begin(DISTRIBUTION_INVALID_ARGS_REASON);
-    };
-    let Some(chunk_count_token) = words.next() else {
-        return rejected_distribution_begin(DISTRIBUTION_INVALID_ARGS_REASON);
-    };
-    let Some(signature_token) = words.next() else {
-        return rejected_distribution_begin(DISTRIBUTION_INVALID_ARGS_REASON);
+        return rejected_distribution_begin_for(
+            LOCAL_DISTRIBUTION_CATALOG_SOURCE_ID,
+            LOCAL_DISTRIBUTION_CATALOG_ENTRY_ID,
+            DISTRIBUTION_INVALID_ARGS_REASON,
+        );
     };
     if words.next().is_some() {
-        return rejected_distribution_begin(DISTRIBUTION_INVALID_ARGS_REASON);
+        return rejected_distribution_begin_for(
+            LOCAL_DISTRIBUTION_CATALOG_SOURCE_ID,
+            LOCAL_DISTRIBUTION_CATALOG_ENTRY_ID,
+            DISTRIBUTION_INVALID_ARGS_REASON,
+        );
     }
-
     let Some(content_sha256) = parse_sha256_ref(content_sha_token) else {
-        return rejected_distribution_begin(DISTRIBUTION_INVALID_ARGS_REASON);
-    };
-    let Some(total_length) = parse_positive_usize(total_length_token) else {
-        return rejected_distribution_begin(DISTRIBUTION_INVALID_LENGTH_REASON);
-    };
-    if total_length > module_candidate_intake::MAX_EXTERNAL_WASM_CANDIDATE_BYTES {
-        return rejected_distribution_begin(DISTRIBUTION_INVALID_LENGTH_REASON);
-    }
-    let Some(chunk_count) = parse_positive_usize(chunk_count_token) else {
-        return rejected_distribution_begin(DISTRIBUTION_INVALID_CHUNK_COUNT_REASON);
-    };
-    if chunk_count > DISTRIBUTION_CHUNKED_DELIVERY_MAX_CHUNKS {
-        return rejected_distribution_begin(DISTRIBUTION_INVALID_CHUNK_COUNT_REASON);
-    }
-    let Some(signature_der) = decode_signature_token(signature_token) else {
-        return rejected_distribution_begin(DISTRIBUTION_INVALID_SIGNATURE_REASON);
+        return rejected_distribution_begin_for(
+            LOCAL_DISTRIBUTION_CATALOG_SOURCE_ID,
+            LOCAL_DISTRIBUTION_CATALOG_ENTRY_ID,
+            DISTRIBUTION_INVALID_ARGS_REASON,
+        );
     };
 
+    let metadata = {
+        let catalog = LOCAL_DISTRIBUTION_CATALOG.lock();
+        if !catalog.active || catalog.content_sha256 != content_sha256 {
+            return rejected_distribution_begin_for(
+                LOCAL_DISTRIBUTION_CATALOG_SOURCE_ID,
+                LOCAL_DISTRIBUTION_CATALOG_ENTRY_ID,
+                DISTRIBUTION_CATALOG_ENTRY_NOT_FOUND_REASON,
+            );
+        }
+        DistributionDeliveryTargetMetadata {
+            content_sha256: catalog.content_sha256,
+            total_length: catalog.total_length,
+            chunk_count: catalog.chunk_count,
+            provenance_signature_der: catalog.provenance_signature_der.clone(),
+        }
+    };
+
+    accept_distribution_begin(
+        LOCAL_DISTRIBUTION_CATALOG_SOURCE_ID,
+        LOCAL_DISTRIBUTION_CATALOG_ENTRY_ID,
+        metadata,
+        DISTRIBUTION_CATALOG_BEGIN_ACCEPTED_REASON,
+    )
+}
+
+fn accept_distribution_begin(
+    source_id: &'static str,
+    entry_id: &'static str,
+    metadata: DistributionDeliveryTargetMetadata,
+    reason: &'static str,
+) -> DistributionBeginOutcome {
+    let mut pending = PENDING_SERIAL_DISTRIBUTION.lock();
+    pending.clear();
     pending.active = true;
-    pending.content_sha256 = content_sha256;
-    pending.total_length = total_length;
-    pending.chunk_count = chunk_count;
-    pending.provenance_signature_der = signature_der;
+    pending.source_id = source_id;
+    pending.entry_id = entry_id;
+    pending.content_sha256 = metadata.content_sha256;
+    pending.total_length = metadata.total_length;
+    pending.chunk_count = metadata.chunk_count;
+    pending.provenance_signature_der = metadata.provenance_signature_der;
 
     DistributionBeginOutcome {
-        content_sha256: Some(content_sha256),
-        total_length,
-        chunk_count,
+        source_id,
+        entry_id,
+        content_sha256: Some(pending.content_sha256),
+        total_length: pending.total_length,
+        chunk_count: pending.chunk_count,
         signature_byte_len: pending.provenance_signature_der.len(),
         accepted: true,
         rejected: false,
-        reason: DISTRIBUTION_BEGIN_ACCEPTED_REASON,
+        reason,
     }
 }
 
@@ -511,6 +709,8 @@ fn submit_distribution_finalize() -> DistributionFinalizeOutcome {
     let mut pending = PENDING_SERIAL_DISTRIBUTION.lock();
     if !pending.active {
         return DistributionFinalizeOutcome {
+            source_id: SERIAL_DISTRIBUTION_SOURCE_ID,
+            entry_id: SERIAL_DISTRIBUTION_ENTRY_ID,
             content_sha256: None,
             total_length: 0,
             declared_chunk_count: 0,
@@ -525,12 +725,16 @@ fn submit_distribution_finalize() -> DistributionFinalizeOutcome {
     }
 
     let content_sha256 = pending.content_sha256;
+    let source_id = pending.source_id;
+    let entry_id = pending.entry_id;
     let total_length = pending.total_length;
     let declared_chunk_count = pending.chunk_count;
     let accepted_chunk_count = pending.chunks.len();
     if accepted_chunk_count != declared_chunk_count {
         pending.clear();
         return rejected_distribution_finalize(
+            source_id,
+            entry_id,
             Some(content_sha256),
             total_length,
             declared_chunk_count,
@@ -548,7 +752,7 @@ fn finalize_pending_distribution(
     pending: &PendingSerialDistribution,
 ) -> DistributionFinalizeOutcome {
     let mut delivery = ChunkedDistributionDelivery::new(ChunkedDistributionTarget {
-        entry_id: SERIAL_DISTRIBUTION_ENTRY_ID,
+        entry_id: pending.entry_id,
         content_sha256: pending.content_sha256,
         total_length: pending.total_length,
         chunk_count: pending.chunk_count,
@@ -566,6 +770,8 @@ fn finalize_pending_distribution(
             claimed_chunk_sha256: chunk.claimed_chunk_sha256,
         }) {
             return rejected_distribution_finalize(
+                pending.source_id,
+                pending.entry_id,
                 Some(pending.content_sha256),
                 pending.total_length,
                 pending.chunk_count,
@@ -581,6 +787,8 @@ fn finalize_pending_distribution(
         Ok(entry) => entry,
         Err(reason) => {
             return rejected_distribution_finalize(
+                pending.source_id,
+                pending.entry_id,
                 Some(pending.content_sha256),
                 pending.total_length,
                 pending.chunk_count,
@@ -590,9 +798,11 @@ fn finalize_pending_distribution(
         }
     };
     let selection = evaluate_distribution_registry_selection(&entry, entry.artifact_sha256);
-    let selection_summary = distribution_transport_selection(&selection);
+    let selection_summary = distribution_transport_selection(pending.entry_id, &selection);
     if !selection.selected_for_candidate_intake {
         return DistributionFinalizeOutcome {
+            source_id: pending.source_id,
+            entry_id: pending.entry_id,
             content_sha256: Some(pending.content_sha256),
             total_length: pending.total_length,
             declared_chunk_count: pending.chunk_count,
@@ -614,6 +824,8 @@ fn finalize_pending_distribution(
     );
 
     DistributionFinalizeOutcome {
+        source_id: pending.source_id,
+        entry_id: pending.entry_id,
         content_sha256: Some(pending.content_sha256),
         total_length: pending.total_length,
         declared_chunk_count: pending.chunk_count,
@@ -642,6 +854,53 @@ fn decode_signature_token(token: &str) -> Option<Vec<u8>> {
     Some(Vec::from(&bytes[..len]))
 }
 
+fn parse_distribution_target_metadata(
+    payload: &str,
+) -> Result<DistributionDeliveryTargetMetadata, &'static str> {
+    let mut words = payload.split_whitespace();
+    let Some(content_sha_token) = words.next() else {
+        return Err(DISTRIBUTION_INVALID_ARGS_REASON);
+    };
+    let Some(total_length_token) = words.next() else {
+        return Err(DISTRIBUTION_INVALID_ARGS_REASON);
+    };
+    let Some(chunk_count_token) = words.next() else {
+        return Err(DISTRIBUTION_INVALID_ARGS_REASON);
+    };
+    let Some(signature_token) = words.next() else {
+        return Err(DISTRIBUTION_INVALID_ARGS_REASON);
+    };
+    if words.next().is_some() {
+        return Err(DISTRIBUTION_INVALID_ARGS_REASON);
+    }
+
+    let Some(content_sha256) = parse_sha256_ref(content_sha_token) else {
+        return Err(DISTRIBUTION_INVALID_ARGS_REASON);
+    };
+    let Some(total_length) = parse_positive_usize(total_length_token) else {
+        return Err(DISTRIBUTION_INVALID_LENGTH_REASON);
+    };
+    if total_length > module_candidate_intake::MAX_EXTERNAL_WASM_CANDIDATE_BYTES {
+        return Err(DISTRIBUTION_INVALID_LENGTH_REASON);
+    }
+    let Some(chunk_count) = parse_positive_usize(chunk_count_token) else {
+        return Err(DISTRIBUTION_INVALID_CHUNK_COUNT_REASON);
+    };
+    if chunk_count > DISTRIBUTION_CHUNKED_DELIVERY_MAX_CHUNKS {
+        return Err(DISTRIBUTION_INVALID_CHUNK_COUNT_REASON);
+    }
+    let Some(provenance_signature_der) = decode_signature_token(signature_token) else {
+        return Err(DISTRIBUTION_INVALID_SIGNATURE_REASON);
+    };
+
+    Ok(DistributionDeliveryTargetMetadata {
+        content_sha256,
+        total_length,
+        chunk_count,
+        provenance_signature_der,
+    })
+}
+
 fn parse_positive_usize(token: &str) -> Option<usize> {
     let value = parse_usize(token)?;
     (value > 0).then_some(value)
@@ -651,8 +910,32 @@ fn parse_usize(token: &str) -> Option<usize> {
     token.parse::<usize>().ok()
 }
 
-fn rejected_distribution_begin(reason: &'static str) -> DistributionBeginOutcome {
+fn clear_pending_distribution() {
+    let mut pending = PENDING_SERIAL_DISTRIBUTION.lock();
+    pending.clear();
+}
+
+fn rejected_distribution_catalog_entry(reason: &'static str) -> DistributionCatalogEntryOutcome {
+    DistributionCatalogEntryOutcome {
+        content_sha256: None,
+        total_length: 0,
+        chunk_count: 0,
+        signature_byte_len: 0,
+        retained_in_catalog: false,
+        accepted: false,
+        rejected: true,
+        reason,
+    }
+}
+
+fn rejected_distribution_begin_for(
+    source_id: &'static str,
+    entry_id: &'static str,
+    reason: &'static str,
+) -> DistributionBeginOutcome {
     DistributionBeginOutcome {
+        source_id,
+        entry_id,
         content_sha256: None,
         total_length: 0,
         chunk_count: 0,
@@ -713,6 +996,8 @@ fn accepted_distribution_chunk(
 }
 
 fn rejected_distribution_finalize(
+    source_id: &'static str,
+    entry_id: &'static str,
     content_sha256: Option<[u8; 32]>,
     total_length: usize,
     declared_chunk_count: usize,
@@ -720,6 +1005,8 @@ fn rejected_distribution_finalize(
     reason: &'static str,
 ) -> DistributionFinalizeOutcome {
     DistributionFinalizeOutcome {
+        source_id,
+        entry_id,
         content_sha256,
         total_length,
         declared_chunk_count,
@@ -734,10 +1021,11 @@ fn rejected_distribution_finalize(
 }
 
 fn distribution_transport_selection(
+    entry_id: &'static str,
     selection: &RegistrySelectionDecision<'_>,
 ) -> DistributionTransportSelection {
     DistributionTransportSelection {
-        entry_id: SERIAL_DISTRIBUTION_ENTRY_ID,
+        entry_id,
         status: selection.status,
         reason: selection.reason.as_str(),
         artifact_sha256: selection.artifact_sha256,

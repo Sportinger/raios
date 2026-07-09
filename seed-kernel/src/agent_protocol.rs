@@ -186,7 +186,8 @@ use crate::{
 
 use self::agent_protocol_registry::{
     emit_registry_selection_diagnostic, emit_registry_selection_diagnostic_selftest,
-    emit_submit_distribution_begin, emit_submit_distribution_chunk,
+    emit_submit_distribution_begin, emit_submit_distribution_begin_from_catalog,
+    emit_submit_distribution_catalog_entry, emit_submit_distribution_chunk,
     emit_submit_distribution_finalize,
 };
 
@@ -445,7 +446,9 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("echo.invoke_fuel_starved", Exact, [], [route!("echo.invoke_fuel_starved")], MethodAction::Read0(echo_service::emit_invoke_fuel_starved)),
     method!("module.submit_candidate_chunk", Head, [], [route!("module.submit_candidate_chunk")], MethodAction::ReadMethod(emit_submit_candidate_chunk)),
     method!("module.submit_candidate_finalize", Exact, [], [route!("module.submit_candidate_finalize")], MethodAction::Read0(emit_submit_candidate_finalize)),
+    method!("module.submit_distribution_catalog_entry", Head, [], [route!("module.submit_distribution_catalog_entry")], MethodAction::ReadMethod(emit_submit_distribution_catalog_entry)),
     method!("module.submit_distribution_begin", Head, [], [route!("module.submit_distribution_begin")], MethodAction::ReadMethod(emit_submit_distribution_begin)),
+    method!("module.submit_distribution_begin_from_catalog", Head, [], [route!("module.submit_distribution_begin_from_catalog")], MethodAction::ReadMethod(emit_submit_distribution_begin_from_catalog)),
     method!("module.submit_distribution_chunk", Head, [], [route!("module.submit_distribution_chunk")], MethodAction::ReadMethod(emit_submit_distribution_chunk)),
     method!("module.submit_distribution_finalize", Exact, [], [route!("module.submit_distribution_finalize")], MethodAction::Read0(emit_submit_distribution_finalize)),
     method!("module.distribution_provenance_diagnostic", Head, [], [route!("module.distribution_provenance_diagnostic")], MethodAction::ReadMethod(emit_distribution_provenance_diagnostic)),
