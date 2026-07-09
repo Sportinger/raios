@@ -24,8 +24,8 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (bare-metal WiFi): refresh Disk 2, boot the Surface,
-and click the blue `WiFi DETECTED` status pill. Verify the small progress window
+Current exact next task (bare-metal WiFi): boot the refreshed Disk 2 stick on
+the Surface and click the blue `WiFi DETECTED` status pill. Verify the small progress window
 automatically reaches the anchored live-network list, select a secured SSID,
 enter a password, and confirm the result says credentials are RAM-ready but
 `Connection not established`. Event/RX rings, RX-PFU, association, link, DHCP,
@@ -57,6 +57,11 @@ scoped rustfmt; release kernel build; quick Shadow VM report
 and 79 executed commands, `duration_ms: 225515`, report sha256
 `16922268b9ae008d96579e1453db159e79558e816f68d2a29eb8eba4c4c5766f`, and
 `base_image.sha256: eda90c523419d3ba26024e956eccd18e6efe32ee0f522912aa1649c51672b563`.
+Owner handoff: Disk 2 `SEED_ESP_A` was refreshed without reformatting via
+`scripts\update-usb-esp-a.ps1 -DiskNumber 2 -SkipBuild`; log
+`C:\Users\admin\AppData\Local\Temp\raios-usb-esp-a-update-disk2-20260709-233613.log`
+reported final kernel sha256
+`357906AB4307A33E5189AE574659819809E1202E2E9A61D40E3D65CEA99C4574`.
 
 WiFi direct-response live scan slice done (2026-07-09) - raiOS can now request
 and parse real nearby 2.4 GHz BSS results without opening the Marvell event or

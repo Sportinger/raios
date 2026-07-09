@@ -29,12 +29,13 @@ Owner-key status: RAM boot still creates only a secret RAM-only
 authority remains denied until the real sealing ceremony.
 
 Latest proof: quick Shadow VM `shadow-20260709-232827-11108.json` passed 542/542.
-The previous direct-scan slice also passed 32/32 focused Marvell tests.
+The previous direct-scan slice also passed 32/32 focused Marvell tests. Disk 2
+now has final kernel SHA `357906AB...` without reformatting `SEED_DATA`.
 
 Gate status: latest full profile remains green at
 `shadow-20260708-150428-34396.json` 7867/7867. This slice used focused USB VM
 evidence plus quick profile per aggressive-fast cadence.
 
-Next task: refresh Disk 2 and click `WiFi DETECTED`; verify progress, live list,
+Next task: boot Disk 2 and click `WiFi DETECTED`; verify progress, live list,
 SSID selection, masked password, and the honest `Connection not established`
 result. Then read RECLOG again if hub input stalls.
