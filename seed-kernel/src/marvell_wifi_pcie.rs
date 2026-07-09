@@ -142,7 +142,7 @@ static RX_RING: Mutex<RxRingRuntime> = Mutex::new(RxRingRuntime::new());
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FirmwareDownloadResult {
     Done,
-    DrvReadyParked,
+    DrvReadyQuarantined,
     NotPresent,
     FirmwareImageAbsent,
     Bar2Missing,
@@ -163,7 +163,7 @@ impl FirmwareDownloadResult {
     pub const fn label(self) -> &'static str {
         match self {
             Self::Done => "ready",
-            Self::DrvReadyParked => "drv_ready_parked",
+            Self::DrvReadyQuarantined => "drv_ready_quarantined",
             Self::NotPresent => "target_not_detected",
             Self::FirmwareImageAbsent => "firmware_absent",
             Self::Bar2Missing => "bar2_missing",
@@ -210,7 +210,7 @@ pub enum FirmwareStage {
     Downloading,
     DoorbellAck,
     PollingReady,
-    DrvReadyParked,
+    DrvReadyQuarantined,
     Ready,
     Failed,
 }
@@ -225,7 +225,7 @@ impl FirmwareStage {
             Self::Downloading => "download",
             Self::DoorbellAck => "doorbell_ack",
             Self::PollingReady => "fw_status",
-            Self::DrvReadyParked => "drv_ready_parked",
+            Self::DrvReadyQuarantined => "drv_ready_quarantined",
             Self::Ready => "ready",
             Self::Failed => "failed",
         }
@@ -709,6 +709,7 @@ impl ScanCmdRuntime {
 
 struct FirmwareJob {
     download: FirmwareDownload<'static>,
+    pci_address: pci::PciAddress,
     mmio_base: usize,
     block_dma_phys: u64,
     phase: FwPhase,
@@ -872,6 +873,7 @@ pub fn start_bring_up_firmware() -> FirmwareBringupTriggerResult {
     runtime.mmio_base = Some(mmio_base as usize);
     runtime.job = Some(FirmwareJob {
         download,
+        pci_address: address,
         mmio_base: mmio_base as usize,
         block_dma_phys,
         phase: FwPhase::Downloading,
@@ -1529,11 +1531,15 @@ pub fn poll() -> bool {
             }
             FwAction::Retry { .. } => {}
             FwAction::RingDoorbell => {}
-            FwAction::WriteDrvReady { .. } => {
+            FwAction::WriteDrvReady { value } => {
+                compiler_fence(Ordering::SeqCst);
+                write_reg(mmio_base, DRV_READY, value);
+                quarantine_after_drv_ready(job.pci_address, mmio_base);
+                let registers = read_register_snapshot(mmio_base);
                 finish_locked(
                     &mut runtime,
-                    FirmwareDownloadResult::DrvReadyParked,
-                    FirmwareStage::DrvReadyParked,
+                    FirmwareDownloadResult::DrvReadyQuarantined,
+                    FirmwareStage::DrvReadyQuarantined,
                     None,
                     registers,
                     job.download.offset(),
@@ -1541,7 +1547,7 @@ pub fn poll() -> bool {
                 );
                 wifi::note_firmware_ready_scan_unavailable();
                 serial::write_line(
-                    "marvell wifi: firmware downloaded; DRV_READY write parked for input isolation",
+                    "marvell wifi: DRV_READY written; busmaster/host interrupts quarantined",
                 );
                 return true;
             }
@@ -2214,6 +2220,16 @@ fn read_register_snapshot(mmio_base: *mut u8) -> FirmwareRegisterSnapshot {
     }
 }
 
+fn quarantine_after_drv_ready(pci_address: pci::PciAddress, mmio_base: *mut u8) {
+    compiler_fence(Ordering::SeqCst);
+    write_reg(mmio_base, PCIE_HOST_INT_STATUS_MASK, 0);
+    write_reg(mmio_base, PCIE_HOST_INT_STATUS, HOST_INTR_MASK);
+    write_reg(mmio_base, PCIE_CPU_INT_EVENT, 0);
+    compiler_fence(Ordering::SeqCst);
+    pci::disable_bus_master(pci_address);
+    compiler_fence(Ordering::SeqCst);
+}
+
 fn probe_mmio(mmio_base: *mut u8) -> bool {
     let fw_status = read_reg(mmio_base, FW_STATUS);
     let dump_ctrl = read_reg(mmio_base, FW_DUMP_CTRL);
@@ -2232,7 +2248,7 @@ fn read_reg(mmio_base: *mut u8, offset: u32) -> u32 {
 fn write_reg(mmio_base: *mut u8, offset: u32, value: u32) {
     unsafe {
         // SAFETY: same BAR2 mapping invariant as read_reg; writes come only
-        // from plan_register_writes over the real sequencer action.
+        // from the firmware sequencer or its immediate quarantine boundary.
         ptr::write_volatile(mmio_base.add(offset as usize).cast::<u32>(), value);
     }
 }

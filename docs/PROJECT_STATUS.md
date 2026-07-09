@@ -27,14 +27,37 @@ profiles, protocol probes, and failure modes.
 Current exact next task (bare-metal diagnostics): boot the Surface from the
 refreshed Disk 2 stick with the same hub/mouse/stick setup, confirm `MSC LOG`,
 click `Start WiFi FW`, and check that the download reaches
-`firmware downloaded; DRV_READY write parked for input isolation` while the hub
-mouse keeps moving. If the mouse still stops, the root cause is before
-`DRV_READY` and likely inside the firmware block-download DMA/doorbell path; if
-the mouse stays alive, the root cause is the `DRV_READY` transition itself.
-The Surface WiFi RX-PFU path remains parked because arming it made real Surface
-MMIO read back all-ones (`HOST_INT=0xffffffff`, write pointers `0xffffffff`)
-and froze input; do not re-enable RX-PFU while using stick logging to gather
-evidence.
+`DRV_READY written; busmaster/host interrupts quarantined` while the hub mouse
+keeps moving. If the mouse still stops, even a brief `DRV_READY` transition is
+enough to disturb Surface input and the next fix should keep the chip pre-ready
+until a real IOMMU/interrupt confinement window exists; if the mouse survives,
+the next risky WiFi slice is a short, explicitly bounded bus-master re-enable
+window for one mailbox/HW_SPEC probe. The Surface WiFi RX-PFU path remains
+parked because arming it made real Surface MMIO read back all-ones
+(`HOST_INT=0xffffffff`, write pointers `0xffffffff`) and froze input; do not
+re-enable RX-PFU while using stick logging to gather evidence.
+
+WiFi DRV_READY quarantine diagnostic slice done (2026-07-09) - raiOS now writes
+the Marvell `DRV_READY` MMIO magic after the real firmware block download, then
+immediately masks/clears Marvell host-interrupt bits, clears the CPU interrupt
+doorbell register, and disables PCI bus mastering for the WiFi function. This
+is a deliberately risky Surface split point: it tests whether the harmful
+behavior is the `DRV_READY` transition itself or unconfined post-ready
+DMA/interrupt activity. Firmware-ready, HW_SPEC, scan, link, and RX-PFU
+authority remain denied; the result is honestly labeled
+`drv_ready_quarantined`. Verified: scoped
+`rustfmt --edition 2021 --check seed-kernel\src\marvell_wifi_pcie.rs
+seed-kernel\src\pci.rs seed-kernel\src\ui.rs`; `git diff --check` for touched
+source files; release packaging with local Cargo env override; quick Shadow VM
+report `release/vm-reports/shadow-20260709-201745-17340.json` passed 542/542
+predicates, 79 executed commands, `duration_ms: 175903`, report sha256
+`3561f8414b1e15a3f5aa9644972de5d6ebfde6eeee48cf54c8f969b90b4b84c5`, and
+`base_image.sha256: be952a871bf922f73ffa1db72d57bb72a7c1139d274723564c8275520b5b259e`.
+Owner handoff: Disk 2 `SEED_ESP_A` was refreshed without reformatting via
+`scripts\update-usb-esp-a.ps1 -DiskNumber 2 -SkipBuild`; log
+`C:\Users\admin\AppData\Local\Temp\raios-usb-esp-a-update-disk2-20260709-202112.log`
+reported kernel sha256
+`5D3F709C660F7953CB993437F79A076BFCEEDBB55AF17DBC1917C215BBA37BF8`.
 
 WiFi DRV_READY parking diagnostic slice done (2026-07-09) - after the owner
 proved the hub mouse still dies when `Start WiFi FW` completes even with

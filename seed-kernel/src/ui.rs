@@ -1998,7 +1998,7 @@ fn bar2_ladder_label(firmware: marvell_wifi_pcie::FirmwareBringupSnapshot) -> &'
             || firmware.stage == marvell_wifi_pcie::FirmwareStage::Downloading
             || firmware.stage == marvell_wifi_pcie::FirmwareStage::DoorbellAck
             || firmware.stage == marvell_wifi_pcie::FirmwareStage::PollingReady
-            || firmware.stage == marvell_wifi_pcie::FirmwareStage::DrvReadyParked
+            || firmware.stage == marvell_wifi_pcie::FirmwareStage::DrvReadyQuarantined
             || firmware.stage == marvell_wifi_pcie::FirmwareStage::Ready =>
         {
             "ok"
