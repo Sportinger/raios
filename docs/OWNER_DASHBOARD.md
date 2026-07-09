@@ -3,6 +3,15 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
+Updated: 2026-07-09. **raiOS trennt jetzt den naechsten fehlenden M6-Beweis
+sauber vom Empfaenger-Preflight:** Im realen Load-Denial sieht ein Agent jetzt
+unter `m6_m7_reverify_input_check.m6_reverify_input_diagnostic`: Empfaenger und
+Kandidat sind bereit, aber M6-Reverify-Evidenz fehlt noch. Dadurch ist klar:
+es fehlt nicht mehr die lokale Kandidatenbindung, sondern der naechste
+Reverify-Beweis. Ergebnis bleibt absichtlich: NICHT laden, NICHT installieren,
+NICHT ausfuehren, NICHT speichern. Beweis: `m12-distribution-provenance`
+`shadow-20260709-102700-21124.json` 246/246 gruen.
+
 Updated: 2026-07-09. **raiOS nennt jetzt die naechsten fehlenden Lade-Inputs:**
 Im realen `raios.module_load_gate.v0` Load-Denial sieht ein Agent nicht nur den
 gebundenen Empfaenger-Preflight, sondern auch den neuen

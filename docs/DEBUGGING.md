@@ -1045,8 +1045,14 @@ M6/M7/provider/owner gates. It also reports
 `m6_m7_reverify_input_check`, which must show the receiver-preflight source
 fact ready while `m6_reverification_input_present`,
 `m7_loader_policy_input_present`, `can_enter_m6_reverify`,
-`can_enter_m7_loader_policy`, and `authorizes_load` remain false. The loader-runtime aggregate
-also records the live-load sequence as read-only current-boot source evidence:
+`can_enter_m7_loader_policy`, and `authorizes_load` remain false. The nested
+`m6_reverify_input_diagnostic` must additionally show
+`receiver_preflight_input_ready: true`,
+`receiver_candidate_binding_absent: false`,
+`m6_reverification_evidence_present: false`, and
+`denied_missing_m6_reverify_evidence`, with `authorizes_load` still false. The
+loader-runtime aggregate also records the live-load sequence as read-only
+current-boot source evidence:
 `raios.module_loader_load_attempt_boundary.v0`,
 `raios.module_loader_artifact_load_boundary.v0`,
 `raios.module_loader_executable_mapping_boundary.v0`,

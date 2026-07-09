@@ -933,6 +933,7 @@ $loadPreflightSourceFacts = @($loadRuntimeReadiness.source_fact_map | Where-Obje
 $loadPreflightSourceFact = if ($loadPreflightSourceFacts.Count -eq 1) { $loadPreflightSourceFacts[0] } else { $null }
 $loadPreflightRuntimeFact = $loadRuntimeReadiness.loader_runtime_facts.receiver_identity_load_preflight
 $loadM6M7ReverifyInputCheck = $loadRuntimeReadiness.m6_m7_reverify_input_check
+$loadM6ReverifyInputDiagnostic = $loadM6M7ReverifyInputCheck.m6_reverify_input_diagnostic
 $loadAfter = (Get-SerialLogContent -Path $SerialLog).Substring([int]$loadOffset)
 $loadDeniedOk = (
     $load.t -eq "error" -and
@@ -970,6 +971,16 @@ $loadDeniedOk = (
     $loadM6M7ReverifyInputCheck.source_fact_reason -eq "distribution_receiver_identity_load_preflight_missing_required_gates" -and
     $loadM6M7ReverifyInputCheck.status -eq "denied_missing_m6_m7_reverify_inputs" -and
     $loadM6M7ReverifyInputCheck.reason -eq "m6_m7_reverify_inputs_missing" -and
+    $loadM6ReverifyInputDiagnostic.id -eq "module.load_ephemeral.m6_reverify_input_diagnostic.current_boot" -and
+    $loadM6ReverifyInputDiagnostic.consumes_check -eq "module.load_ephemeral.m6_m7_reverify_input_check.current_boot" -and
+    $loadM6ReverifyInputDiagnostic.receiver_preflight_input_ready -eq $true -and
+    $loadM6ReverifyInputDiagnostic.receiver_candidate_binding_absent -eq $false -and
+    $loadM6ReverifyInputDiagnostic.status -eq "denied_missing_m6_reverify_evidence" -and
+    $loadM6ReverifyInputDiagnostic.reason -eq "m6_reverification_evidence_missing" -and
+    $loadM6ReverifyInputDiagnostic.m6_reverification_evidence_present -eq $false -and
+    $loadM6ReverifyInputDiagnostic.m6_reverification_evidence_reason -eq "m6_reverification_evidence_missing" -and
+    $loadM6ReverifyInputDiagnostic.can_enter_m6_reverify -eq $false -and
+    $loadM6ReverifyInputDiagnostic.authorizes_load -eq $false -and
     $loadM6M7ReverifyInputCheck.receiver_identity_complete -eq $true -and
     $loadM6M7ReverifyInputCheck.retained_candidate_matches_catalog_finalize -eq $true -and
     $loadM6M7ReverifyInputCheck.preflight_evaluated -eq $true -and

@@ -160,7 +160,13 @@ reverification evidence and M7 loader-policy evidence are explicitly missing,
 and all enter/load authority flags remain false
 (`m12-distribution-provenance` 246/246). Next M12+ slice: add the first
 concrete M6 reverify input diagnostic that consumes this check, still
-read-only and non-authorizing. (3) provide real
+read-only and non-authorizing. **Slice 17 DONE:** that check now includes
+`m6_reverify_input_diagnostic`, so a real load denial can distinguish
+receiver/candidate preflight ready from the still-missing M6 reverify evidence
+while all M6 enter/load authority flags remain false
+(`m12-distribution-provenance` 246/246). Next M12+ slice: add the first
+concrete M7 loader-policy input diagnostic that consumes the M6 diagnostic,
+still read-only and non-authorizing. (3) provide real
 trust inputs (a cryptographically
 trusted time source, real CA roots, a live second provider) → I finish M10 real
 validation — STILL YOURS. (4) the owner-key sealing ceremony → the FINAL step —

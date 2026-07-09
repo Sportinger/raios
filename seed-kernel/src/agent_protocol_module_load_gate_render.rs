@@ -4681,6 +4681,12 @@ const MODULE_LOAD_GATE_M6_M7_REVERIFY_INPUTS_MISSING_STATUS: &str =
 const MODULE_LOAD_GATE_M6_M7_REVERIFY_INPUTS_MISSING_REASON: &str = "m6_m7_reverify_inputs_missing";
 const MODULE_LOAD_GATE_M6_M7_RECEIVER_PREFLIGHT_NOT_READY_STATUS: &str =
     "denied_receiver_preflight_source_fact_not_ready";
+const MODULE_LOAD_GATE_M6_REVERIFY_INPUT_DIAGNOSTIC_ID: &str =
+    "module.load_ephemeral.m6_reverify_input_diagnostic.current_boot";
+const MODULE_LOAD_GATE_M6_REVERIFY_INPUT_MISSING_STATUS: &str =
+    "denied_missing_m6_reverify_evidence";
+const MODULE_LOAD_GATE_M6_REVERIFY_INPUT_MISSING_REASON: &str =
+    "m6_reverification_evidence_missing";
 
 fn module_load_gate_loader_runtime_source_fact_count() -> usize {
     MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT + 1
@@ -4747,6 +4753,90 @@ fn module_load_gate_m6_m7_reverify_input_check_reason(
     }
 }
 
+fn module_load_gate_m6_reverify_input_diagnostic_status(
+    projection: agent_protocol::DistributionReceiverIdentityLoadPreflightProjection,
+) -> &'static str {
+    if module_load_gate_receiver_identity_load_preflight_source_fact_ready(projection) {
+        MODULE_LOAD_GATE_M6_REVERIFY_INPUT_MISSING_STATUS
+    } else {
+        MODULE_LOAD_GATE_M6_M7_RECEIVER_PREFLIGHT_NOT_READY_STATUS
+    }
+}
+
+fn module_load_gate_m6_reverify_input_diagnostic_reason(
+    projection: agent_protocol::DistributionReceiverIdentityLoadPreflightProjection,
+) -> &'static str {
+    if module_load_gate_receiver_identity_load_preflight_source_fact_ready(projection) {
+        MODULE_LOAD_GATE_M6_REVERIFY_INPUT_MISSING_REASON
+    } else {
+        module_load_gate_receiver_identity_load_preflight_reason(projection)
+    }
+}
+
+fn module_load_gate_m6_reverify_input_diagnostic_fields(
+    projection: agent_protocol::DistributionReceiverIdentityLoadPreflightProjection,
+) -> Vec<Field<'static>> {
+    let receiver_preflight_ready =
+        module_load_gate_receiver_identity_load_preflight_source_fact_ready(projection);
+    vec![
+        f("id", s(MODULE_LOAD_GATE_M6_REVERIFY_INPUT_DIAGNOSTIC_ID)),
+        f("scope", s("current_boot")),
+        f("classification", s("local_only")),
+        f(
+            "consumes_check",
+            s(MODULE_LOAD_GATE_M6_M7_REVERIFY_INPUT_CHECK_ID),
+        ),
+        f(
+            "source_fact",
+            s(MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_FACT),
+        ),
+        f(
+            "source_fact_locator",
+            s(MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_LOCATOR),
+        ),
+        f(
+            "receiver_preflight_input_ready",
+            b(receiver_preflight_ready),
+        ),
+        f(
+            "receiver_candidate_binding_absent",
+            b(!receiver_preflight_ready),
+        ),
+        f(
+            "receiver_preflight_status",
+            s(module_load_gate_receiver_identity_load_preflight_status(
+                projection,
+            )),
+        ),
+        f(
+            "receiver_preflight_reason",
+            s(module_load_gate_receiver_identity_load_preflight_reason(
+                projection,
+            )),
+        ),
+        f(
+            "status",
+            s(module_load_gate_m6_reverify_input_diagnostic_status(
+                projection,
+            )),
+        ),
+        f(
+            "reason",
+            s(module_load_gate_m6_reverify_input_diagnostic_reason(
+                projection,
+            )),
+        ),
+        f("m6_reverification_evidence_present", no()),
+        f(
+            "m6_reverification_evidence_reason",
+            s(MODULE_LOAD_GATE_M6_REVERIFY_INPUT_MISSING_REASON),
+        ),
+        f("can_enter_m6_reverify", no()),
+        f("authorizes_load", no()),
+        f("load_attempted", no()),
+    ]
+}
+
 fn module_load_gate_m6_m7_reverify_input_check_fields(
     projection: agent_protocol::DistributionReceiverIdentityLoadPreflightProjection,
 ) -> Vec<Field<'static>> {
@@ -4790,6 +4880,12 @@ fn module_load_gate_m6_m7_reverify_input_check_fields(
         f(
             "reason",
             s(module_load_gate_m6_m7_reverify_input_check_reason(
+                projection,
+            )),
+        ),
+        f(
+            "m6_reverify_input_diagnostic",
+            V::InlineObject(module_load_gate_m6_reverify_input_diagnostic_fields(
                 projection,
             )),
         ),
