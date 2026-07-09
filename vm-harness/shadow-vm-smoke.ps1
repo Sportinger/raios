@@ -5,7 +5,7 @@ param(
     [string]$ManifestPath = "",
     [string]$PersistDiskPath = "",
     [string]$ReportDir = "$PSScriptRoot\..\release\vm-reports",
-    [int]$TimeoutSeconds = 45,
+    [int]$TimeoutSeconds = 90,
     [switch]$Network,
     [switch]$KeepImage,
     [int]$SerialWriteChunkSize = 256,

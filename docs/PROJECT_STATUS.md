@@ -24,13 +24,60 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (owner-key real Surface TPM status evidence): boot the
-updated image on the real Surface Pro 4 path and inspect
-`system.honesty_report.owner_key_provisioning` to capture real TPM2 ACPI table
-fields plus the read-only status-register plan; if the plan is available on a
-CRB/TIS control area, add the next narrow volatile TPM register-status read
-while keeping `owner_sealed`, persistent install, load, and durable-write
-authority false until a real seal/unseal evidence loop exists.
+Current exact next task (Surface WiFi live scan events): boot the refreshed
+image on the real Surface Pro 4, verify whether Start WiFi FW is less laggy
+during firmware download, then add the smallest real Marvell event/Rx-ring
+evidence path that turns the already accepted `SCAN_EXT` command into parsed
+live scan result frames. Keep QEMU/unknown hardware fail-closed, keep
+association/link authority false, and do not claim live networks until the
+firmware event/Rx descriptors are observed and parsed.
+
+Failure classification (2026-07-09, Marvell firmware poll-budget quick VM):
+focused `quick` report `release/vm-reports/shadow-20260709-131953-18752.json`
+failed waiting for serial marker/predicate `RAIOS_AGENT_END
+memory.recent_events` after `RAIOS_AGENT_BEGIN memory.recent_events`; verdict:
+host-transport, matching the recurring serial `memory.recent_events` timeout.
+No guest panic was observed in the serial tail, so a retry is permitted after
+this classification without a code change.
+
+Failure classification (2026-07-09, Marvell firmware poll-budget quick VM
+retry): focused `quick` report
+`release/vm-reports/shadow-20260709-132338-17124.json` failed on the same
+serial marker/predicate `RAIOS_AGENT_END memory.recent_events` after
+`RAIOS_AGENT_BEGIN memory.recent_events`; verdict: host-transport timeout with
+possible guest scheduling pressure from the experimental 1ms Marvell task
+interval. Do not retry unchanged; inspect and adjust the scheduler/poll budget
+before the next quick VM.
+
+Failure classification (2026-07-09, Marvell firmware poll-budget 2ms quick VM):
+focused `quick` report `release/vm-reports/shadow-20260709-132730-3576.json`
+failed again on serial marker/predicate `RAIOS_AGENT_END memory.recent_events`
+for command `agent audit.events 72`; verdict: host-transport timeout on the
+large recent-events response path. No guest panic was observed; inspect the
+harness timeout path and/or return to the previous Marvell task interval before
+the next retry.
+
+WiFi firmware poll-budget slice done (2026-07-09) - a Surface user can start
+Marvell 88W8897 firmware bring-up with much shorter uninterrupted CPU
+busy-wait slices, so pointer/input/UI work gets scheduled between firmware
+polls instead of waiting behind multi-millisecond Marvell polling bursts. The
+real driver still uses the same owner-triggered firmware path, same 5ms Marvell
+periodic task cadence, same DMA/register command sequence, and same fail-closed
+network authority posture; only each firmware/HW_SPEC/SCAN_EXT poll pass was
+shrunk from 128 actions with 20us short waits to 16 actions with 10us short
+waits. During verification the default 45s host response timeout proved too low
+for the existing large `agent audit.events 72` / `memory.recent_events` serial
+response, which completed in 56.829s on the passing run, so the host smoke
+default was raised to 90s without changing guest predicates. Verified: scoped
+format checks (`rustfmt --edition 2021 --check --config skip_children=true
+seed-kernel\src\main.rs`, `rustfmt --edition 2021 --check
+seed-kernel\src\marvell_wifi_pcie.rs`); `git diff --check`; focused VM `quick`
+report `release/vm-reports/shadow-20260709-133204-7396.json` passed 542/542
+predicates, 79 executed commands, `duration_ms: 266502`, report sha256
+`b8dc2f8708258ad673b235377685b072e36a1f65fcfde9387180a180e451f278`, and
+`base_image.sha256: 317e2b792443dd16f3c79918a57ab945972fc6cfe14ee2c57475b9ce9ab88701`.
+The earlier default-timeout failures are recorded above as host-transport
+classifications, not guest behavior.
 
 WiFi scan mailbox execution slice done (2026-07-09) - after the Marvell
 88W8897 firmware-download path and GET_HW_SPEC response are ready on the real

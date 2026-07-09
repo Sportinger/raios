@@ -75,7 +75,8 @@ per-slice max-effort review is DROPPED (host DoD + own diff read + focused profi
 Claude workflows. OWNER SIDE TRACK (parallel): the Surface Pro 4 Marvell 88W8897
 WiFi driver — scoping, pure firmware sequencer, register-write plan, triggered
 BAR2/DMA firmware bring-up, GET_HW_SPEC mailbox probe, pure SCAN_EXT command
-builder, and SCAN_EXT mailbox execution are committed; live result frames still
+builder, SCAN_EXT mailbox execution, and shorter firmware/HW_SPEC/SCAN_EXT
+poll bursts for less UI/input starvation are committed; live result frames still
 wait on event/Rx-ring work and no scan/link authority is claimed.
 
 **M12+ opener + honesty capstone (committed, grants nothing):** M12-1 external-
@@ -229,7 +230,8 @@ STILL YOURS. Until then every label stays honestly unverified / dev_key_not_owne
 sealed. **OWNER SIDE TRACK (parallel, Codex workers): Surface Pro 4 Marvell 88W8897
 WiFi driver — firmware sequencer, register-write plan, BAR2/DMA firmware
 bring-up, GET_HW_SPEC mailbox probe, pure SCAN_EXT 2.4GHz wildcard command
-builder, and SCAN_EXT mailbox execution are committed (unit-tested; no live
+builder, SCAN_EXT mailbox execution, and shorter firmware/HW_SPEC/SCAN_EXT
+poll bursts for less UI/input starvation are committed (unit-tested; no live
 result-frame/link claim). Next WiFi slice: add the event/Rx-ring evidence path
 that turns a completed scan command into parsed live 802.11 frames, still
 fail-closed on QEMU/unknown Surface results.** Process (owner
