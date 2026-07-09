@@ -97,11 +97,15 @@ the next mouse loss happens when `Start WiFi FW` completes. The current image
 now corrects the pre-ready interrupt quarantine against the Linux mwifiex
 reference: it disables `PCIE_HOST_INT_MASK` at `0xC34`, programs the status
 mask, and clears pending status with write-zero-to-clear polarity before
-disabling WiFi DMA/INTx, writing `DRV_READY`, and quiescing the PCI function.
-It still honestly ends at `drv_ready_quarantined` rather than claiming
-firmware-ready. Next owner evidence: boot the refreshed stick, start WiFi
-firmware once, and see whether the hub mouse survives. If it does not, inspect
-MSI/MSI-X plus upstream bridge/platform state before another ready-write slice.
+disabling WiFi DMA/INTx and writing `DRV_READY`. It now keeps BAR memory
+decoding available only for a bounded `FW_STATUS` poll and claims firmware-ready
+solely on `0xFEDCBA00`. Next owner evidence: boot the refreshed stick, start WiFi
+firmware once, and confirm `ready@ready`, `FW_STATUS=0xFEDCBA00`, and a
+responsive hub mouse. The owner already confirmed the corrected interrupt-mask
+image preserves mouse input through `DRV_READY`; the refreshed image now keeps
+BAR memory readable and polls firmware status while DMA/INTx stay disabled. A
+successful ready poll unlocks one bounded `GET_HW_SPEC` bus-master window;
+event/RX rings and live scan remain parked until that window is proven stable.
 
 **M12+ opener + honesty capstone (committed, grants nothing):** M12-1 external-
 acquisition HONESTY evaluator (download = candidate intake NEVER install; a

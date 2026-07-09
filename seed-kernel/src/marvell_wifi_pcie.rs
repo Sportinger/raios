@@ -1532,19 +1532,11 @@ pub fn poll() -> bool {
             FwAction::Retry { .. } => {}
             FwAction::RingDoorbell => {}
             FwAction::WriteDrvReady { value } => {
-                let registers = write_drv_ready_pre_quarantined(job.pci_address, mmio_base, value);
-                finish_locked(
-                    &mut runtime,
-                    FirmwareDownloadResult::DrvReadyQuarantined,
-                    FirmwareStage::DrvReadyQuarantined,
-                    None,
-                    registers,
-                    job.download.offset(),
-                    job.firmware_len,
+                write_drv_ready_pre_quarantined(job.pci_address, mmio_base, value);
+                serial::write_line(
+                    "marvell wifi: DRV_READY written after DMA/INTx pre-quarantine; polling FW_STATUS",
                 );
-                wifi::note_firmware_ready_scan_unavailable();
-                serial::write_line("marvell wifi: DRV_READY written after DMA/INTx pre-quarantine");
-                return true;
+                continue;
             }
             FwAction::PollDoorbellAck => {
                 if elapsed_ms(job.phase_started_tsc) >= DOORBELL_ACK_TIMEOUT_MS {
@@ -2215,11 +2207,7 @@ fn read_register_snapshot(mmio_base: *mut u8) -> FirmwareRegisterSnapshot {
     }
 }
 
-fn write_drv_ready_pre_quarantined(
-    pci_address: pci::PciAddress,
-    mmio_base: *mut u8,
-    value: u32,
-) -> FirmwareRegisterSnapshot {
+fn write_drv_ready_pre_quarantined(pci_address: pci::PciAddress, mmio_base: *mut u8, value: u32) {
     compiler_fence(Ordering::SeqCst);
     write_reg(mmio_base, PCIE_HOST_INT_MASK, 0);
     write_reg(mmio_base, PCIE_HOST_INT_STATUS_MASK, HOST_INTR_MASK);
@@ -2232,10 +2220,6 @@ fn write_drv_ready_pre_quarantined(
     compiler_fence(Ordering::SeqCst);
     write_reg(mmio_base, DRV_READY, value);
     compiler_fence(Ordering::SeqCst);
-    let registers = read_register_snapshot(mmio_base);
-    pci::quiesce_function(pci_address);
-    compiler_fence(Ordering::SeqCst);
-    registers
 }
 
 fn probe_mmio(mmio_base: *mut u8) -> bool {

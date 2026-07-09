@@ -26,15 +26,38 @@ profiles, protocol probes, and failure modes.
 
 Current exact next task (bare-metal diagnostics): boot the Surface from the
 refreshed Disk 2 stick with the same hub/mouse/stick setup, confirm `MSC LOG`,
-click `Start WiFi FW`, and check whether the hub mouse survives the first
-Linux-matched interrupt quarantine before `DRV_READY`. If it survives, the next
-slice is a bounded firmware-status observation while DMA remains disabled. If
-it still stops, stop repeating `DRV_READY` quarantine variants and inspect
-MSI/MSI-X capability state plus upstream bridge/platform isolation before any
-further ready write. The Surface WiFi RX-PFU path remains parked because arming
-it made real Surface MMIO read back all-ones (`HOST_INT=0xffffffff`, write
-pointers `0xffffffff`) and froze input; do not re-enable RX-PFU while gathering
-this evidence.
+click `Start WiFi FW`, and check that the status advances past
+`DRV_READY ... polling FW_STATUS` to `ready@ready` with
+`FW_STATUS=0xFEDCBA00` while the hub mouse remains responsive. If both hold, the
+next slice is one explicitly bounded bus-master window for `GET_HW_SPEC`,
+followed by immediate DMA quarantine; do not yet re-arm RX-PFU or the event
+ring. If the mouse stops or firmware-ready times out, read the stick RECLOG and
+inspect PCI/MSI state before opening DMA. The Surface WiFi RX-PFU path remains
+parked because arming it made real Surface MMIO read back all-ones
+(`HOST_INT=0xffffffff`, write pointers `0xffffffff`) and froze input.
+
+WiFi DMA-off firmware-ready observation slice done (2026-07-09) - raiOS can now
+continue from the Linux-matched, input-stable `DRV_READY` transition into the
+existing bounded `FW_STATUS` state-machine poll while PCI bus mastering and
+INTx remain disabled. The code no longer terminates early as
+`drv_ready_quarantined` or disables BAR memory decoding immediately after the
+ready write; it keeps only MMIO observation authority and reaches `ready` solely
+after `FW_STATUS == 0xFEDCBA00`, otherwise failing closed on the existing
+10-second firmware-ready timeout. `GET_HW_SPEC`, scan, event-ring/RX DMA, link,
+and RX-PFU authority remain parked. Real owner evidence immediately before this
+slice confirmed the corrected interrupt-mask image kept the hub mouse working
+after `Start WiFi FW`, closing the prior input-loss split. Verified: 17/17
+focused `raios-core` Marvell firmware tests; scoped rustfmt; release packaging;
+quick Shadow VM report `release/vm-reports/shadow-20260709-214736-29904.json`
+passed 542/542 predicates and 79 executed commands, `duration_ms: 197886`,
+report sha256
+`4576fb1c133dedf9d4f956d875b9c1c8939629ff8c36f62638a3f9dfd5ec6656`, and
+`base_image.sha256: 426f7a43d8839cdad15b63e36d1febad6f18b37d337287f3469e2f76369d5338`.
+Owner handoff: Disk 2 `SEED_ESP_A` was refreshed without reformatting via
+`scripts\update-usb-esp-a.ps1 -DiskNumber 2 -SkipBuild`; log
+`C:\Users\admin\AppData\Local\Temp\raios-usb-esp-a-update-disk2-20260709-215123.log`
+reported kernel sha256
+`6EE48EEF96B9D545FD665A198CCA6148008D6B933073EA8FC270141CD2D130B9`.
 
 WiFi Linux-matched interrupt quarantine correction done (2026-07-09) - raiOS
 can now enter the diagnostic `DRV_READY` transition with the actual Marvell
