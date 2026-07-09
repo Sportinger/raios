@@ -157,6 +157,7 @@ const HUB_PORT_RESET_POLL_DELAY_ITERS: usize = WAIT_ITERS / 100;
 const HOTPLUG_MAX_ROOT_PORTS: u8 = 32;
 const MAX_HUB_WATCHES: usize = MAX_HID_DEVICES;
 const MOUSE_HUB_SILENT_RECOVER_POLLS: u16 = 125;
+const MOUSE_HUB_REARMS_BEFORE_PORT_RESET: u8 = 2;
 
 static STATE: Mutex<UsbState> = Mutex::new(UsbState::new());
 
@@ -999,6 +1000,8 @@ struct XhciController {
     keyboard_report_count: u32,
     mouse_report_count: u32,
     mouse_idle_polls: u16,
+    mouse_silent_rearms: u8,
+    mouse_hub_port_reset_attempted: bool,
     transfer_error_count: u32,
 }
 
@@ -1460,6 +1463,8 @@ impl XhciController {
             keyboard_report_count: 0,
             mouse_report_count: 0,
             mouse_idle_polls: 0,
+            mouse_silent_rearms: 0,
+            mouse_hub_port_reset_attempted: false,
             transfer_error_count: 0,
         })
     }
@@ -3932,6 +3937,8 @@ impl XhciController {
                     self.last_transfer_completion_code = cc as u8;
                     self.mouse_report_count = self.mouse_report_count.saturating_add(1);
                     self.mouse_idle_polls = 0;
+                    self.mouse_silent_rearms = 0;
+                    self.mouse_hub_port_reset_attempted = false;
                     let report = MOUSE_REPORT.0;
                     mouse_fn(decode_pointer_report(mouse.kind, &report));
                 } else {
@@ -3962,10 +3969,14 @@ impl XhciController {
     unsafe fn recover_silent_hub_mouse(&mut self) {
         let Some(mouse) = self.mouse else {
             self.mouse_idle_polls = 0;
+            self.mouse_silent_rearms = 0;
+            self.mouse_hub_port_reset_attempted = false;
             return;
         };
         if mouse.parent_hub_slot_id == 0 || self.mouse_report_count == 0 {
             self.mouse_idle_polls = 0;
+            self.mouse_silent_rearms = 0;
+            self.mouse_hub_port_reset_attempted = false;
             return;
         }
         self.mouse_idle_polls = self.mouse_idle_polls.saturating_add(1);
@@ -3974,15 +3985,52 @@ impl XhciController {
         }
 
         self.mouse_idle_polls = 0;
+        if !self.mouse_hub_port_reset_attempted
+            && self.mouse_silent_rearms >= MOUSE_HUB_REARMS_BEFORE_PORT_RESET
+        {
+            self.mouse_hub_port_reset_attempted = true;
+            self.mouse_silent_rearms = 0;
+            match self.reenumerate_hub_mouse_port(mouse) {
+                Ok(()) => self.append_usb_diagnostic_if_ready("hub_mouse_port_reset"),
+                Err(err) => {
+                    self.hub_last_error = Some(err);
+                    self.append_usb_diagnostic_if_ready("hub_mouse_port_reset_failed");
+                }
+            }
+            return;
+        }
+
         // ponytail: watchdog workaround for the real Surface hub mouse silent-stop;
         // replace with endpoint-state diagnostics when xHCI endpoint context reads exist.
         if self
             .rearm_interrupt_endpoint(mouse.slot_id, mouse.dci, mouse.ring_index)
             .is_ok()
         {
+            self.mouse_silent_rearms = self.mouse_silent_rearms.saturating_add(1);
             let _ = self.queue_mouse_report();
             self.append_usb_diagnostic_if_ready("hub_mouse_rearm");
         }
+    }
+
+    unsafe fn reenumerate_hub_mouse_port(
+        &mut self,
+        mouse: MouseDevice,
+    ) -> Result<(), &'static str> {
+        let mut index = 0usize;
+        while index < MAX_HUB_WATCHES {
+            let watch = self.hub_watches[index];
+            if watch.active && watch.slot_id == mouse.parent_hub_slot_id {
+                self.clear_devices_for_hub_port(watch.slot_id, mouse.parent_hub_port_number);
+                let (detail, skipped) =
+                    self.configure_hub_hotplug(watch, mouse.parent_hub_port_number);
+                if skipped {
+                    return Err(detail);
+                }
+                return Ok(());
+            }
+            index += 1;
+        }
+        Err("hub mouse watch missing")
     }
 
     unsafe fn ring_doorbell(&self, slot_id: u8, target: u8) {

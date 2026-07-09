@@ -24,13 +24,33 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (bare-metal diagnostics): write the verified USB RECLOG
-image to the real Disk 2 stick, boot the Surface, confirm `MSC LOG`, reproduce
-the hub-mouse outage, then inspect the stick's `SEED_DATA/RECLOG` for
-`reason=hub_mouse_rearm` frames instead of relying on photos. The Surface WiFi
-RX-PFU path remains parked because arming it made real Surface MMIO read back
-all-ones (`HOST_INT=0xffffffff`, write pointers `0xffffffff`) and froze input;
-do not re-enable RX-PFU while using stick logging to gather evidence.
+Current exact next task (bare-metal diagnostics): refresh `SEED_ESP_A` on the
+real Disk 2 stick with the hub-port-reset image, boot the Surface with the same
+hub/mouse/stick setup, confirm `MSC LOG`, reproduce the mouse outage, then
+inspect `SEED_DATA/RECLOG` for `reason=hub_mouse_port_reset` or
+`reason=hub_mouse_port_reset_failed` and whether `reports` advances past the
+previous stuck value of 23. The Surface WiFi RX-PFU path remains parked because
+arming it made real Surface MMIO read back all-ones (`HOST_INT=0xffffffff`,
+write pointers `0xffffffff`) and froze input; do not re-enable RX-PFU while
+using stick logging to gather evidence.
+
+Hub-mouse port-reset recovery slice done (2026-07-09) - raiOS now escalates the
+real Surface hub-mouse recovery path after the verified endpoint rearm fails to
+restore input: after two successful `hub_mouse_rearm` watchdog attempts without
+a new mouse report, it resets exactly the mouse's parent hub port and reuses the
+existing hub hotplug enumeration path to reconfigure the pointer, logging either
+`reason=hub_mouse_port_reset` or `reason=hub_mouse_port_reset_failed` to the
+verified USB RECLOG sink. Direct mice and keyboards are unchanged, and broad USB
+disk mutation remains denied. Surface evidence from the real Disk 2 stick showed
+RECLOG `valid`, `count=11`, `head_seq=1`, `tail_seq=11`: `seq1` was
+`boot_probe`, `seq2..seq11` were `hub_mouse_rearm`, and `reports` stayed stuck
+at 23, proving the old endpoint-only rearm fired but did not restore the mouse.
+Verified: scoped `rustfmt --edition 2021 --check seed-kernel\src\usb.rs`;
+release packaging with local Cargo env override; quick Shadow VM report
+`release/vm-reports/shadow-20260709-184742-22644.json` passed 542/542
+predicates, 79 executed commands, `duration_ms: 182280`, report sha256
+`b6a94160feb4463489210046533d4a4f35a8b6f547ab205e4ac918e43ef75ee0`, and
+`base_image.sha256: b68fd1c018371aa15b99d7c715d26ce313b79d05b6429f2470271b2fc3784b85`.
 
 Hub-mouse RECLOG diagnostics slice done (2026-07-09) - raiOS now appends
 host-readable USB diagnostic frames at the time the real Surface problem occurs:
