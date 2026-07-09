@@ -366,7 +366,7 @@
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_entrypoint_invocation_boundary" -Needle '"executable_entrypoint_invocation_boundary": {"schema": "raios.module_loader_executable_entrypoint_invocation_boundary.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_entrypoint_invocation_boundary_reason" -Needle '"reason": "module_loader_executable_entrypoint_invocation_boundary_non_authorizing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_no_load" -Needle '"loader_runtime_readiness": {"schema": "raios.module_loader_runtime_readiness.v0", "scope": "current_boot", "classification": "local_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_source_count" -Needle '"source_fact_count": 10, "source_fact_map_complete": true, "source_fact_map": ' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_source_count" -Needle '"source_fact_count": 11, "source_fact_map_complete": true, "source_fact_map": ' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_source_map_identity" -Needle '"fact": "loader_identity"' -TimeoutSeconds 1
     $moduleLoaderRuntimeAuditSources = @(
         @{ Suffix = "identity"; Method = "module.loader_identity"; Locator = "module.loader_identity.loader_identity" },
@@ -378,7 +378,8 @@
         @{ Suffix = "service_slot"; Method = "module.loader_service_slot_binding"; Locator = "module.loader_service_slot_binding.service_slot_binding" },
         @{ Suffix = "health"; Method = "module.loader_health_state_hooks"; Locator = "module.loader_health_state_hooks.health_state_hooks" },
         @{ Suffix = "rollback"; Method = "module.loader_rollback_hooks"; Locator = "module.loader_rollback_hooks.rollback_hooks" },
-        @{ Suffix = "write_boundary"; Method = "module.loader_audit_rollback_write_boundary_binding"; Locator = "module.loader_audit_rollback_write_boundary_binding.audit_rollback_write_boundary_binding" }
+        @{ Suffix = "write_boundary"; Method = "module.loader_audit_rollback_write_boundary_binding"; Locator = "module.loader_audit_rollback_write_boundary_binding.audit_rollback_write_boundary_binding" },
+        @{ Suffix = "receiver_preflight"; Method = "module.distribution_receiver_identity_load_preflight"; Locator = "module.load_ephemeral.receiver_identity_load_preflight" }
     )
     foreach ($source in $moduleLoaderRuntimeAuditSources) {
         Assert-LogContains -Name ("protocol:module_load_audit_loader_runtime_" + $source.Suffix + "_source_method") -Needle ('"source_method": "' + $source.Method + '"') -TimeoutSeconds 1

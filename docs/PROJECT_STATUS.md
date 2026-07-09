@@ -24,11 +24,47 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (M12+ distribution receiver evidence): thread the
-catalog-bound receiver preflight into the M6/M7 reverify source-fact map as a
-non-authorizing input to loader-runtime readiness, so the load gate can
-distinguish "receiver identity bound" from the still-missing M6/M7, provider,
-and owner gates without granting load/install.
+Current exact next task (M12+ M6/M7 reverify bridge): thread the
+receiver-preflight source fact into the first explicit M6/M7 reverify input
+check, still as read-only current-boot evidence, so raiOS can name which
+reverify/load-policy inputs are missing before any load/install authority can
+exist.
+
+Failed VM classification (2026-07-09 10:08 CEST): focused VM
+`m12-distribution-provenance` report
+`release/vm-reports/shadow-20260709-100836-26640.json` failed before guest boot
+at predicate/stage `image_packaging`; the report has 0 predicates and QEMU was
+not started. Verdict: `host-transport`; Cargo inherited a stale package-cache
+path under missing `F:\scorefollower-build\cargo`. Retry is allowed with local
+`CARGO_HOME` / `CARGO_TARGET_DIR` overrides; no guest behavior was observed.
+
+M12+ Slice 15 done (2026-07-09) - receiver preflight is a loader-runtime source
+fact. A user/agent can now inspect the real `raios.module_load_gate.v0`
+loader-runtime readiness and see the catalog-bound receiver preflight as an
+eleventh non-authorizing source fact: receiver identity complete, retained
+candidate matched to catalog finalize, preflight evaluated, and still
+`can_load_now: false` / `authorizes_load: false` until M6/M7 reverify,
+provider trust, and owner seal exist. Verified: scoped Rust format check
+(`rustfmt --edition 2021 --check
+seed-kernel\src\agent_protocol_module_load_gate_render.rs`); PowerShell profile
+parse for the touched M12/full harness scripts; `git diff --check` clean apart
+from normal CRLF warnings; release seed-kernel build via
+`scripts\build-seed-kernel.ps1 -Profile release`; focused VM
+`m12-distribution-provenance` retry report
+`release/vm-reports/shadow-20260709-100905-17032.json` 246/246 predicates, 53
+executed commands, `duration_ms: 123830`, report sha256
+`211214e53cbe77d8c857ad4629e75eb189bfb110dcaee3a5eb5bae5a7c56a5b6`.
+The earlier focused VM report `shadow-20260709-100836-26640.json` is logged
+above as `host-transport` image-packaging failure, not guest behavior.
+`scripts\scan-secrets.ps1` found no OpenAI-key-like values. Global
+`cargo fmt --all -- --check` remains red only on the pre-existing unrelated
+format drift in `raios-core/src/marvell_wifi_fw.rs` and
+`seed-kernel/src/usb.rs`. Gate check: latest full-profile report remains green
+at `release/vm-reports/shadow-20260708-150428-34396.json` 7867/7867, while
+this slice used the focused M12 profile per aggressive-fast cadence. File-size
+note: touched `seed-kernel\src\agent_protocol_module_load_gate_render.rs` is
+6,357 lines; the existing split plan remains to extract receiver/preflight and
+loader-runtime source-fact rendering before broader load-gate renderer changes.
 
 Failed VM classification (2026-07-09 09:50 CEST): focused VM
 `m12-distribution-provenance` report
@@ -5594,11 +5630,13 @@ Historical verified recovery foundation retained for reference:
   `source_fact_map_complete: true`, and a local source map for the aggregate
   facts.
 - The denied `module.load_ephemeral` loader-runtime readiness projection and
-  compact audit/event binding reuse the same ten-entry source map. Each
-  embedded missing loader-runtime fact now carries a stable id, source method,
-  source fact locator, missing reason, current-boot/local-only scope, and
-  non-authorizing status. `module.load_gate_loader_runtime_selftest` exposes
-  and checks the same map without mutating the event log or attempting a load.
+  compact audit/event binding reuse the ten base loader-runtime source facts
+  and append the receiver-identity load preflight as an eleventh
+  non-authorizing source fact. Each embedded missing loader-runtime fact now
+  carries a stable id, source method, source fact locator, missing reason,
+  current-boot/local-only scope, and non-authorizing status.
+  `module.load_gate_loader_runtime_selftest` exposes and checks the ten base
+  loader-runtime facts without mutating the event log or attempting a load.
 - `module.loader_identity` now exposes `raios.module_loader_identity.v0` as a
   read-only current-boot diagnostic for the first typed normal-module
   loader-runtime fact. It reports the live fact as missing/local-only and

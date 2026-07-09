@@ -1038,8 +1038,10 @@ loader identity, artifact-hash, entrypoint-ABI, address-space, memory-map,
 capability-table, service-slot, health-hook, rollback-hook, and write-boundary
 source-evidence cases. The denied
 `module.load_ephemeral` `loader_runtime_readiness` projection and its compact
-audit/event binding reuse the same ten-entry source map, so load-denial
-evidence and aggregate readiness cannot drift. The loader-runtime aggregate
+audit/event binding reuse the same ten base source facts and add the
+receiver-identity load preflight as an eleventh non-authorizing source fact, so
+load-denial evidence can distinguish receiver/candidate-bound from missing
+M6/M7/provider/owner gates. The loader-runtime aggregate
 also records the live-load sequence as read-only current-boot source evidence:
 `raios.module_loader_load_attempt_boundary.v0`,
 `raios.module_loader_artifact_load_boundary.v0`,
@@ -1967,9 +1969,11 @@ missing/rejected retained service-slot reservation projection, and the
 all-retained-evidence-ready state that remains denied by the non-authorizing
 service-slot allocator authority boundary; all cases must keep load attempts
 disabled.
-It also emits `source_fact_count: 10`, `source_fact_map_complete: true`, and a
-local-only `source_fact_map` matching the denied load-gate
-`loader_runtime_readiness` projection.
+It also emits the ten base loader-runtime source facts with
+`source_fact_map_complete: true`. The denied load-gate
+`loader_runtime_readiness` projection appends the receiver-identity load
+preflight source fact as the eleventh entry when reporting real load-denial
+readiness.
 
 `module.load_gate_attestation_selftest` emits
 `raios.module_load_gate_local_attestation_selftest.v0`; it must keep

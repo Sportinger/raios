@@ -3188,10 +3188,13 @@ fn emit_module_load_gate_loader_runtime_readiness(binding: event_log::ModuleLoad
     raw_line("      \"can_load_now\": false,");
     raw_line("      \"load_attempted\": false,");
     raw("      \"source_fact_count\": ");
-    raw_fmt(format_args!("{}", MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT));
+    raw_fmt(format_args!(
+        "{}",
+        module_load_gate_loader_runtime_source_fact_count()
+    ));
     raw_line(",");
     raw("      \"source_fact_map_complete\": ");
-    raw_bool(module_loader_runtime_source_fact_map_complete());
+    raw_bool(module_load_gate_loader_runtime_source_fact_map_complete());
     raw_line(",");
     raw_line("      \"source_fact_map\": [");
     emit_module_load_gate_loader_runtime_source_fact_map();
@@ -3199,12 +3202,10 @@ fn emit_module_load_gate_loader_runtime_readiness(binding: event_log::ModuleLoad
     raw_line("      \"loader_runtime_facts\": {");
     let mut idx = 0usize;
     while idx < MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
-        emit_module_load_gate_loader_runtime_fact(
-            MODULE_LOADER_RUNTIME_FACT_SOURCES[idx],
-            idx + 1 != MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT,
-        );
+        emit_module_load_gate_loader_runtime_fact(MODULE_LOADER_RUNTIME_FACT_SOURCES[idx], true);
         idx += 1;
     }
+    emit_module_load_gate_receiver_identity_load_preflight_runtime_fact(false);
     raw_line("      }");
     raw_line("    }");
 }
@@ -4341,12 +4342,17 @@ fn emit_module_load_gate_loader_runtime_source_fact_map() {
             ),
             8,
         );
-        if idx + 1 != MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
-            raw(",");
-        }
+        raw(",");
         crlf();
         idx += 1;
     }
+    emit_inline_record_object_fragment(
+        module_load_gate_receiver_identity_load_preflight_source_fact_fields(
+            agent_protocol::receiver_identity_load_preflight_projection(),
+        ),
+        8,
+    );
+    crlf();
 }
 
 fn emit_module_load_gate_loader_runtime_fact(source: ModuleLoaderRuntimeFactSource, comma: bool) {
@@ -4364,6 +4370,17 @@ fn emit_module_load_gate_loader_runtime_fact(source: ModuleLoaderRuntimeFactSour
             f("present", no()),
             f("authorizes_load", no()),
         ],
+        8,
+        comma,
+    );
+}
+
+fn emit_module_load_gate_receiver_identity_load_preflight_runtime_fact(comma: bool) {
+    emit_record_property_line_at(
+        MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_FACT,
+        module_load_gate_receiver_identity_load_preflight_runtime_fact_fields(
+            agent_protocol::receiver_identity_load_preflight_projection(),
+        ),
         8,
         comma,
     );
@@ -4645,6 +4662,51 @@ fn static_str_array(values: &[&'static str], compact: bool) -> V<'static> {
     }
 }
 
+const MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_FACT: &str = "receiver_identity_load_preflight";
+const MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_SCHEMA: &str = "raios.module_load_gate.v0";
+const MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_ID: &str =
+    "module.load_ephemeral.receiver_identity_load_preflight.current_boot";
+const MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_METHOD: &str =
+    "module.distribution_receiver_identity_load_preflight";
+const MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_LOCATOR: &str =
+    "module.load_ephemeral.receiver_identity_load_preflight";
+const MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_MISSING_REASON: &str =
+    "distribution_receiver_identity_load_preflight_missing";
+
+fn module_load_gate_loader_runtime_source_fact_count() -> usize {
+    MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT + 1
+}
+
+fn module_load_gate_loader_runtime_source_fact_map_complete() -> bool {
+    module_loader_runtime_source_fact_map_complete()
+        && !MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_FACT.is_empty()
+        && !MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_SCHEMA.is_empty()
+        && !MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_ID.is_empty()
+        && !MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_METHOD.is_empty()
+        && !MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_LOCATOR.is_empty()
+        && !MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_MISSING_REASON.is_empty()
+}
+
+fn module_load_gate_receiver_identity_load_preflight_status(
+    projection: agent_protocol::DistributionReceiverIdentityLoadPreflightProjection,
+) -> &'static str {
+    if projection.present {
+        projection.status
+    } else {
+        "missing"
+    }
+}
+
+fn module_load_gate_receiver_identity_load_preflight_reason(
+    projection: agent_protocol::DistributionReceiverIdentityLoadPreflightProjection,
+) -> &'static str {
+    if projection.present {
+        projection.reason
+    } else {
+        MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_MISSING_REASON
+    }
+}
+
 fn module_load_gate_receiver_identity_load_preflight_fields(
     projection: agent_protocol::DistributionReceiverIdentityLoadPreflightProjection,
 ) -> Vec<Field<'static>> {
@@ -4723,6 +4785,133 @@ fn module_load_gate_receiver_identity_load_preflight_fields(
         f("network_attempted", no()),
         f("owner_sealed", no()),
         f("trust_tier", s("dev_key_not_owner_sealed")),
+    ]
+}
+
+fn module_load_gate_receiver_identity_load_preflight_source_fact_fields(
+    projection: agent_protocol::DistributionReceiverIdentityLoadPreflightProjection,
+) -> Vec<Field<'static>> {
+    vec![
+        f("fact", s(MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_FACT)),
+        f(
+            "schema",
+            s(MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_SCHEMA),
+        ),
+        f("id", s(MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_ID)),
+        f(
+            "source_method",
+            s(MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_METHOD),
+        ),
+        f(
+            "source_fact_locator",
+            s(MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_LOCATOR),
+        ),
+        f(
+            "missing_reason",
+            s(MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_MISSING_REASON),
+        ),
+        f(
+            "status",
+            s(module_load_gate_receiver_identity_load_preflight_status(
+                projection,
+            )),
+        ),
+        f(
+            "reason",
+            s(module_load_gate_receiver_identity_load_preflight_reason(
+                projection,
+            )),
+        ),
+        f("present", b(projection.present)),
+        f(
+            "receiver_identity_complete",
+            b(projection.receiver_identity_complete),
+        ),
+        f(
+            "retained_candidate_matches_catalog_finalize",
+            b(projection.retained_candidate_matches_catalog_finalize),
+        ),
+        f("preflight_evaluated", b(projection.preflight_evaluated)),
+        f("requires_m6_m7_reverify_for_load", b(true)),
+        f("can_load_now", no()),
+        f("authorizes_load", no()),
+    ]
+}
+
+fn module_load_gate_receiver_identity_load_preflight_runtime_fact_fields(
+    projection: agent_protocol::DistributionReceiverIdentityLoadPreflightProjection,
+) -> Vec<Field<'static>> {
+    vec![
+        f(
+            "schema",
+            s(MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_SCHEMA),
+        ),
+        f("id", s(MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_ID)),
+        f(
+            "source_method",
+            s(MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_METHOD),
+        ),
+        f(
+            "source_fact_locator",
+            s(MODULE_LOAD_GATE_RECEIVER_PREFLIGHT_SOURCE_LOCATOR),
+        ),
+        f("scope", s("current_boot")),
+        f("classification", s("local_only")),
+        f(
+            "status",
+            s(module_load_gate_receiver_identity_load_preflight_status(
+                projection,
+            )),
+        ),
+        f(
+            "reason",
+            s(module_load_gate_receiver_identity_load_preflight_reason(
+                projection,
+            )),
+        ),
+        f("present", b(projection.present)),
+        f(
+            "content_sha256",
+            record_sha_or_null(projection.content_sha256),
+        ),
+        f(
+            "receiver_identity_retained",
+            b(projection.receiver_identity_retained),
+        ),
+        f(
+            "receiver_identity_complete",
+            b(projection.receiver_identity_complete),
+        ),
+        f(
+            "guest_signature_verification_performed",
+            b(projection.guest_signature_verification_performed),
+        ),
+        f(
+            "retained_candidate_sha256",
+            record_sha_or_null(projection.retained_candidate_sha256),
+        ),
+        f(
+            "retained_candidate_wasm_valid",
+            b(projection.retained_candidate_wasm_valid),
+        ),
+        f(
+            "catalog_finalize_candidate_sha256",
+            record_sha_or_null(projection.catalog_finalize_candidate_sha256),
+        ),
+        f(
+            "retained_candidate_matches_catalog_finalize",
+            b(projection.retained_candidate_matches_catalog_finalize),
+        ),
+        f("preflight_evaluated", b(projection.preflight_evaluated)),
+        f("accepted", b(projection.accepted)),
+        f("rejected", b(projection.rejected)),
+        f(
+            "missing_gate_count",
+            V::U64(projection.missing_gate_count as u64),
+        ),
+        f("requires_m6_m7_reverify_for_load", b(true)),
+        f("can_load_now", no()),
+        f("authorizes_load", no()),
     ]
 }
 
@@ -5645,9 +5834,12 @@ fn emit_module_load_gate_loader_runtime_readiness_compact(
     );
     raw(", \"accepts_descriptor_bytes\": false, \"produces_parsed_descriptor\": false, \"validates_descriptor_schema\": false, \"produces_validated_descriptor\": false, \"validates_descriptor_capabilities\": false, \"produces_capability_validated_descriptor\": false, \"authorizes_executable_load_plan\": false, \"produces_executable_load_plan\": false, \"produces_executable_image_layout\": false, \"produces_executable_page_mapping_plan\": false, \"binds_capability_validated_descriptor_to_executable_pages\": false, \"parses_descriptor_bytes\": false, \"loads_artifact\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"starts_service\": false, \"marks_service_running\": false, \"creates_service_health_records\": false, \"writes_service_start_audit_record\": false, \"unloads_service\": false, \"cleans_up_service_slot\": false, \"commits_live_load\": false, \"writes_load_commit_audit_record\": false, \"installs_commit_rollback_record\": false, \"records_load_result\": false, \"can_load_now\": false, \"load_attempted\": false, \"missing_facts\": [\"raios.module_loader_identity.v0\", \"raios.module_loader_artifact_hash_binding.v0\", \"raios.module_loader_entrypoint_abi.v0\", \"raios.module_loader_address_space_boundary.v0\", \"raios.module_loader_memory_map_constraints.v0\", \"raios.module_loader_capability_import_table.v0\", \"raios.module_loader_service_slot_binding.v0\", \"raios.module_loader_health_state_hooks.v0\", \"raios.module_loader_rollback_hooks.v0\", \"raios.module_loader_audit_rollback_write_boundary_binding.v0\"]");
     raw(", \"source_fact_count\": ");
-    raw_fmt(format_args!("{}", MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT));
+    raw_fmt(format_args!(
+        "{}",
+        module_load_gate_loader_runtime_source_fact_count()
+    ));
     raw(", \"source_fact_map_complete\": ");
-    raw_bool(module_loader_runtime_source_fact_map_complete());
+    raw_bool(module_load_gate_loader_runtime_source_fact_map_complete());
     raw(", \"source_fact_map\": [");
     emit_module_load_gate_loader_runtime_source_fact_map_compact();
     raw("]}");
@@ -6054,11 +6246,15 @@ fn emit_module_load_gate_loader_runtime_source_fact_map_compact() {
             ),
             0,
         );
-        if idx + 1 != MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
-            raw(", ");
-        }
+        raw(", ");
         idx += 1;
     }
+    emit_inline_record_object_fragment(
+        module_load_gate_receiver_identity_load_preflight_source_fact_fields(
+            agent_protocol::receiver_identity_load_preflight_projection(),
+        ),
+        0,
+    );
 }
 
 fn emit_module_load_gate_evidence_hashes_compact(binding: event_log::ModuleLoadGateBinding) {

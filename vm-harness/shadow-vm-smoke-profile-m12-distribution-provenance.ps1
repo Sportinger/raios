@@ -928,12 +928,39 @@ $loadOffset = Get-SerialLogOffset
 Send-AgentCommand -Command "module.load_ephemeral svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "m12-distribution:N3_load_still_denied"
 $load = Get-LastAgentResponseJson -Method "module.load_ephemeral"
 $loadPreflightProjection = $load.body.receiver_identity_load_preflight
+$loadRuntimeReadiness = $load.body.loader_runtime_readiness
+$loadPreflightSourceFacts = @($loadRuntimeReadiness.source_fact_map | Where-Object { $_.fact -eq "receiver_identity_load_preflight" })
+$loadPreflightSourceFact = if ($loadPreflightSourceFacts.Count -eq 1) { $loadPreflightSourceFacts[0] } else { $null }
+$loadPreflightRuntimeFact = $loadRuntimeReadiness.loader_runtime_facts.receiver_identity_load_preflight
 $loadAfter = (Get-SerialLogContent -Path $SerialLog).Substring([int]$loadOffset)
 $loadDeniedOk = (
     $load.t -eq "error" -and
     $load.body.code -eq "capability_denied" -and
     $load.body.schema -eq "raios.module_load_gate.v0" -and
     $load.body.gate_state.can_load -eq $false -and
+    [int]$loadRuntimeReadiness.source_fact_count -eq 11 -and
+    $loadRuntimeReadiness.source_fact_map_complete -eq $true -and
+    $loadPreflightSourceFacts.Count -eq 1 -and
+    $loadPreflightSourceFact.schema -eq "raios.module_load_gate.v0" -and
+    $loadPreflightSourceFact.source_method -eq "module.distribution_receiver_identity_load_preflight" -and
+    $loadPreflightSourceFact.source_fact_locator -eq "module.load_ephemeral.receiver_identity_load_preflight" -and
+    $loadPreflightSourceFact.present -eq $true -and
+    $loadPreflightSourceFact.status -eq "denied" -and
+    $loadPreflightSourceFact.reason -eq "distribution_receiver_identity_load_preflight_missing_required_gates" -and
+    $loadPreflightSourceFact.receiver_identity_complete -eq $true -and
+    $loadPreflightSourceFact.retained_candidate_matches_catalog_finalize -eq $true -and
+    $loadPreflightSourceFact.preflight_evaluated -eq $true -and
+    $loadPreflightSourceFact.can_load_now -eq $false -and
+    $loadPreflightSourceFact.authorizes_load -eq $false -and
+    $loadPreflightRuntimeFact.present -eq $true -and
+    $loadPreflightRuntimeFact.status -eq "denied" -and
+    $loadPreflightRuntimeFact.reason -eq "distribution_receiver_identity_load_preflight_missing_required_gates" -and
+    $loadPreflightRuntimeFact.content_sha256 -eq $expectedSha -and
+    $loadPreflightRuntimeFact.receiver_identity_complete -eq $true -and
+    $loadPreflightRuntimeFact.retained_candidate_matches_catalog_finalize -eq $true -and
+    $loadPreflightRuntimeFact.preflight_evaluated -eq $true -and
+    $loadPreflightRuntimeFact.can_load_now -eq $false -and
+    $loadPreflightRuntimeFact.authorizes_load -eq $false -and
     $loadPreflightProjection.present -eq $true -and
     $loadPreflightProjection.status -eq "denied" -and
     $loadPreflightProjection.reason -eq "distribution_receiver_identity_load_preflight_missing_required_gates" -and

@@ -8,7 +8,8 @@
         @{ Suffix = "service_slot"; Method = "module.loader_service_slot_binding"; Locator = "module.loader_service_slot_binding.service_slot_binding" },
         @{ Suffix = "health"; Method = "module.loader_health_state_hooks"; Locator = "module.loader_health_state_hooks.health_state_hooks" },
         @{ Suffix = "rollback"; Method = "module.loader_rollback_hooks"; Locator = "module.loader_rollback_hooks.rollback_hooks" },
-        @{ Suffix = "write_boundary"; Method = "module.loader_audit_rollback_write_boundary_binding"; Locator = "module.loader_audit_rollback_write_boundary_binding.audit_rollback_write_boundary_binding" }
+        @{ Suffix = "write_boundary"; Method = "module.loader_audit_rollback_write_boundary_binding"; Locator = "module.loader_audit_rollback_write_boundary_binding.audit_rollback_write_boundary_binding" },
+        @{ Suffix = "receiver_preflight"; Method = "module.distribution_receiver_identity_load_preflight"; Locator = "module.load_ephemeral.receiver_identity_load_preflight" }
     )
 
     Send-AgentCommand -Command "module.load_ephemeral" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral"
@@ -442,10 +443,10 @@
     Assert-LogContains -Name "policy:module_loader_runtime_fact_schema" -Needle '"schema": "raios.module_loader_identity.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_loader_runtime_fact_missing" -Needle '"reason": "module_loader_identity_missing"' -TimeoutSeconds 1
     $moduleLoadGateSourceCount = [int]$moduleFinalLoadResponse.body.loader_runtime_readiness.source_fact_count
-    $moduleLoadGateSourceCountMatches = $moduleLoadGateSourceCount -eq 10
-    Add-Predicate -Name "policy:module_loader_runtime_source_count" -Expected 10 -Passed $moduleLoadGateSourceCountMatches -Actual $moduleLoadGateSourceCount
+    $moduleLoadGateSourceCountMatches = $moduleLoadGateSourceCount -eq 11
+    Add-Predicate -Name "policy:module_loader_runtime_source_count" -Expected 11 -Passed $moduleLoadGateSourceCountMatches -Actual $moduleLoadGateSourceCount
     if (-not $moduleLoadGateSourceCountMatches) {
-        throw "Expected 10 module.load_ephemeral loader-runtime source facts, got $moduleLoadGateSourceCount"
+        throw "Expected 11 module.load_ephemeral loader-runtime source facts, got $moduleLoadGateSourceCount"
     }
     $moduleLoadGateSourceMapComplete = [bool]$moduleFinalLoadResponse.body.loader_runtime_readiness.source_fact_map_complete
     Add-Predicate -Name "policy:module_loader_runtime_source_map_complete" -Expected $true -Passed $moduleLoadGateSourceMapComplete -Actual $moduleLoadGateSourceMapComplete
