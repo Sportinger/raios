@@ -24,11 +24,38 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (owner-key RAM bridge): generate the first RAM-only
-`current_boot` owner-key candidate from the already observed entropy input,
-expose only a non-secret fingerprint/handle, keep key material non-exported,
-and keep `owner_sealed`, persistent install, load, and durable-write authority
-false until hardware-bound sealing evidence exists.
+Current exact next task (owner-key hardware bridge): add the first real
+hardware/TPM-binding evidence probe for persistent owner-key provisioning,
+while keeping the RAM-only `current_boot` candidate ephemeral and keeping
+`owner_sealed`, persistent install, load, and durable-write authority false
+until hardware-bound sealing evidence exists.
+
+Owner-key RAM candidate slice done (2026-07-09) - RAM-only owner key material
+is now real but non-authorizing. A user/agent can now inspect
+`system.honesty_report.owner_key_provisioning` and see that raiOS generated a
+RAM-only `current_boot` owner-key candidate from observed entropy, exposes only
+the stable handle and `sha256:` fingerprint, keeps the key material classified
+secret and non-exported, and still denies owner-seal, persistent-install, load,
+and durable-write authority until hardware/TPM-binding evidence exists.
+Verified: scoped Rust format check (`rustfmt --edition 2021 --check
+seed-kernel\src\owner_key.rs seed-kernel\src\agent_protocol_honesty.rs`);
+PowerShell profile parse for
+`vm-harness\shadow-vm-smoke-profile-m12-distribution-provenance.ps1`; diff
+check clean apart from normal CRLF warnings; release seed-kernel build via
+`scripts\build-seed-kernel.ps1 -Profile release`; focused VM
+`m12-distribution-provenance` report
+`release/vm-reports/shadow-20260709-111511-30672.json` 246/246 predicates, 53
+executed commands, `duration_ms: 129052`, report sha256
+`dab626f339a654674fd39a9c009b30bbd99ed93d4fbf81e1c2d67c4779565de0`.
+`scripts\scan-secrets.ps1` found no OpenAI-key-like values. Global
+`cargo fmt --all -- --check` remains red only on the pre-existing unrelated
+format drift in `raios-core/src/marvell_wifi_fw.rs` and
+`seed-kernel/src/usb.rs`. Gate check: latest full-profile report remains green
+at `release/vm-reports/shadow-20260708-150428-34396.json` 7867/7867, while
+this slice used the focused M12 profile per aggressive-fast cadence. File-size
+check: touched `seed-kernel\src\owner_key.rs` is 96 lines,
+`seed-kernel\src\agent_protocol_honesty.rs` is 464 lines, and
+`seed-kernel\src\main.rs` is 518 lines.
 
 Owner-key evidence input slice done (2026-07-09) - owner-key provisioning now
 consumes real entropy posture. A user/agent can now inspect

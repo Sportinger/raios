@@ -1084,7 +1084,7 @@ $honestyOk = (
     $honesty.external_acquisition.acquisition_active -eq $false -and
     $honesty.owner_key_provisioning.id -eq "owner_key.provisioning.posture.current_boot" -and
     $honesty.owner_key_provisioning.automatic_generation_intended -eq $true -and
-    $honesty.owner_key_provisioning.automatic_generation_performed -eq $false -and
+    $honesty.owner_key_provisioning.automatic_generation_performed -eq $true -and
     $honesty.owner_key_provisioning.persistent_install_policy -eq "generate_hardware_bound_owner_key_on_persistent_install" -and
     $honesty.owner_key_provisioning.ram_boot_policy -eq "ephemeral_current_boot_key_only" -and
     $honesty.owner_key_provisioning.persistent_install_hardware_binding_required -eq $true -and
@@ -1095,9 +1095,15 @@ $honestyOk = (
     $honesty.owner_key_provisioning.persistent_owner_key_generated -eq $false -and
     $honesty.owner_key_provisioning.ram_boot_ephemeral_key_allowed -eq $true -and
     $honesty.owner_key_provisioning.ram_boot_entropy_required -eq $true -and
-    $honesty.owner_key_provisioning.ram_boot_ephemeral_key_generated -eq $false -and
+    $honesty.owner_key_provisioning.ram_boot_ephemeral_key_generated -eq $true -and
+    $honesty.owner_key_provisioning.ram_boot_ephemeral_key_id -eq "owner_key.ram_candidate.current_boot" -and
+    $honesty.owner_key_provisioning.ram_boot_ephemeral_key_handle -eq "owner_key.handle.current_boot.ram0" -and
+    $honesty.owner_key_provisioning.ram_boot_ephemeral_key_algorithm -eq "ram_32_byte_entropy_seed_sha256_fingerprint" -and
+    [int]$honesty.owner_key_provisioning.ram_boot_ephemeral_key_secret_len -eq 32 -and
+    $honesty.owner_key_provisioning.ram_boot_ephemeral_key_material_classification -eq "secret" -and
+    $honesty.owner_key_provisioning.ram_boot_ephemeral_key_fingerprint -match '^sha256:[0-9a-f]{64}$' -and
     $honesty.owner_key_provisioning.owner_key_material_exported -eq $false -and
-    $honesty.owner_key_provisioning.status -eq "denied_missing_hardware_bound_owner_key_evidence" -and
+    $honesty.owner_key_provisioning.status -eq "ram_ephemeral_candidate_generated_persistent_hardware_binding_missing" -and
     $honesty.owner_key_provisioning.reason -eq "hardware_bound_owner_key_evidence_missing" -and
     $honesty.owner_key_provisioning.authorizes_owner_seal -eq $false -and
     $honesty.owner_key_provisioning.authorizes_persistent_install -eq $false -and
@@ -1119,6 +1125,10 @@ $honestyOk = (
     $honesty.owner_key_provisioning.owner_key_evidence_input.persistent_install_input_ready -eq $false -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.status -eq "ram_ephemeral_input_ready_persistent_hardware_binding_missing" -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.reason -eq "hardware_bound_owner_key_evidence_missing" -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.ram_candidate_generated -eq $true -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.ram_candidate_id -eq "owner_key.ram_candidate.current_boot" -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.ram_candidate_handle -eq "owner_key.handle.current_boot.ram0" -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.ram_candidate_fingerprint -eq $honesty.owner_key_provisioning.ram_boot_ephemeral_key_fingerprint -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.authorizes_key_generation -eq $false -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.authorizes_owner_seal -eq $false -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.authorizes_persistent_install -eq $false -and

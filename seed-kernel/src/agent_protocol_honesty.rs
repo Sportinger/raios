@@ -7,7 +7,7 @@ use crate::{
         record_sha as sha, record_static_str_array, record_str as s,
     },
     agent_protocol_time::{live_time_authority_honesty, LiveTimeAuthorityHonesty},
-    entropy,
+    entropy, owner_key,
 };
 use raios_core::{
     record::Value as V,
@@ -55,12 +55,15 @@ const OWNER_KEY_RAM_INPUT_READY_STATUS: &str =
 const OWNER_KEY_ENTROPY_NOT_READY_STATUS: &str =
     "denied_entropy_not_ready_and_hardware_binding_missing";
 const OWNER_KEY_ENTROPY_NOT_READY_REASON: &str = "entropy_evidence_missing";
+const OWNER_KEY_RAM_CANDIDATE_STATUS: &str =
+    "ram_ephemeral_candidate_generated_persistent_hardware_binding_missing";
 
 pub(crate) fn emit_system_honesty_report(_request: &str) {
     let provider = live_provider_trust_honesty();
     let time = live_time_authority_honesty();
     let external = external_acquisition_projection();
     let entropy_stats = entropy::stats();
+    let owner_key_snapshot = owner_key::snapshot();
 
     let provider_no_overclaim = !provider.descriptor.claims_chain_validated
         && !provider.descriptor.claims_time_validated
@@ -134,7 +137,7 @@ pub(crate) fn emit_system_honesty_report(_request: &str) {
             f("external_acquisition", external.record),
             f(
                 "owner_key_provisioning",
-                owner_key_provisioning_record(entropy_stats),
+                owner_key_provisioning_record(entropy_stats, owner_key_snapshot),
             ),
         ],
         6,
@@ -282,7 +285,32 @@ fn owner_key_evidence_input_reason(stats: entropy::EntropyStats) -> &'static str
     }
 }
 
-fn owner_key_evidence_input_record(stats: entropy::EntropyStats) -> V<'static> {
+fn owner_key_candidate_status(snapshot: owner_key::OwnerKeySnapshot) -> &'static str {
+    if snapshot.generated {
+        OWNER_KEY_RAM_CANDIDATE_STATUS
+    } else {
+        OWNER_KEY_STATUS
+    }
+}
+
+fn optional_str(value: Option<&'static str>) -> V<'static> {
+    match value {
+        Some(value) => s(value),
+        None => V::Null,
+    }
+}
+
+fn optional_sha(value: Option<[u8; 32]>) -> V<'static> {
+    match value {
+        Some(value) => sha(value),
+        None => V::Null,
+    }
+}
+
+fn owner_key_evidence_input_record(
+    stats: entropy::EntropyStats,
+    snapshot: owner_key::OwnerKeySnapshot,
+) -> V<'static> {
     V::Object(vec![
         f("id", s(OWNER_KEY_EVIDENCE_INPUT_ID)),
         f("scope", s("current_boot")),
@@ -310,6 +338,13 @@ fn owner_key_evidence_input_record(stats: entropy::EntropyStats) -> V<'static> {
         f("persistent_install_input_ready", b(false)),
         f("status", s(owner_key_evidence_input_status(stats))),
         f("reason", s(owner_key_evidence_input_reason(stats))),
+        f("ram_candidate_generated", b(snapshot.generated)),
+        f("ram_candidate_id", s(owner_key::RAM_CANDIDATE_ID)),
+        f("ram_candidate_handle", optional_str(snapshot.handle)),
+        f(
+            "ram_candidate_fingerprint",
+            optional_sha(snapshot.fingerprint),
+        ),
         f("authorizes_key_generation", b(false)),
         f("authorizes_owner_seal", b(false)),
         f("authorizes_persistent_install", b(false)),
@@ -318,13 +353,16 @@ fn owner_key_evidence_input_record(stats: entropy::EntropyStats) -> V<'static> {
     ])
 }
 
-fn owner_key_provisioning_record(stats: entropy::EntropyStats) -> V<'static> {
+fn owner_key_provisioning_record(
+    stats: entropy::EntropyStats,
+    snapshot: owner_key::OwnerKeySnapshot,
+) -> V<'static> {
     V::Object(vec![
         f("id", s(OWNER_KEY_PROVISIONING_ID)),
         f("scope", s("current_boot")),
         f("classification", s("local_only")),
         f("automatic_generation_intended", b(true)),
-        f("automatic_generation_performed", b(false)),
+        f("automatic_generation_performed", b(snapshot.generated)),
         f(
             "persistent_install_policy",
             s(OWNER_KEY_PERSISTENT_INSTALL_POLICY),
@@ -338,9 +376,30 @@ fn owner_key_provisioning_record(stats: entropy::EntropyStats) -> V<'static> {
         f("persistent_owner_key_generated", b(false)),
         f("ram_boot_ephemeral_key_allowed", b(true)),
         f("ram_boot_entropy_required", b(true)),
-        f("ram_boot_ephemeral_key_generated", b(false)),
+        f("ram_boot_ephemeral_key_generated", b(snapshot.generated)),
+        f("ram_boot_ephemeral_key_id", s(owner_key::RAM_CANDIDATE_ID)),
+        f(
+            "ram_boot_ephemeral_key_handle",
+            optional_str(snapshot.handle),
+        ),
+        f(
+            "ram_boot_ephemeral_key_algorithm",
+            s(owner_key::RAM_CANDIDATE_ALGORITHM),
+        ),
+        f(
+            "ram_boot_ephemeral_key_secret_len",
+            V::U64(snapshot.secret_len as u64),
+        ),
+        f(
+            "ram_boot_ephemeral_key_material_classification",
+            s("secret"),
+        ),
+        f(
+            "ram_boot_ephemeral_key_fingerprint",
+            optional_sha(snapshot.fingerprint),
+        ),
         f("owner_key_material_exported", b(false)),
-        f("status", s(OWNER_KEY_STATUS)),
+        f("status", s(owner_key_candidate_status(snapshot))),
         f("reason", s(OWNER_KEY_REASON)),
         f("owner_sealed", b(OWNER_SEALED)),
         f("trust_tier", s(TRUST_TIER)),
@@ -350,7 +409,7 @@ fn owner_key_provisioning_record(stats: entropy::EntropyStats) -> V<'static> {
         f("durable_write", b(false)),
         f(
             "owner_key_evidence_input",
-            owner_key_evidence_input_record(stats),
+            owner_key_evidence_input_record(stats, snapshot),
         ),
     ])
 }

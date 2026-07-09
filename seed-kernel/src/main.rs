@@ -131,6 +131,7 @@ mod module_evidence;
 mod net;
 mod openai;
 mod openai_trust;
+mod owner_key;
 mod pci;
 mod provider;
 mod provider_config;
@@ -282,6 +283,8 @@ fn early_main() -> ! {
     let entropy_ready = entropy::is_ready();
     if !entropy_ready {
         serial::write_line("Entropy unavailable yet; later subsystems will wait");
+    } else {
+        owner_key::ensure_current_boot_candidate();
     }
 
     if entropy_ready {
@@ -369,6 +372,7 @@ impl PeriodicTasks {
         self.entropy.try_run(now_tsc, || entropy::maintain());
         if !self.entropy_ready && entropy::is_ready() {
             serial::write_line("Entropy ready; starting network bring-up");
+            owner_key::ensure_current_boot_candidate();
             net::init();
             runtime_status.net_probe_complete = true;
             self.entropy_ready = true;

@@ -190,8 +190,12 @@ DONE:** the same honesty report now includes `owner_key_evidence_input` with
 observed `core.entropy` readiness/RDRAND evidence and explicit missing
 hardware/TPM-binding state, so RAM ephemeral key work has a real input while
 persistent owner-key sealing remains denied (`m12-distribution-provenance`
-246/246). Next owner-key slice: generate a RAM-only `current_boot` owner-key
-candidate from observed entropy and expose only a non-secret handle/fingerprint;
+246/246). **Owner-key RAM candidate slice DONE:** raiOS now generates a real
+RAM-only `current_boot` owner-key candidate from observed entropy, exposes only
+a non-secret handle/fingerprint, classifies key material as secret/non-exported,
+and keeps owner-seal/install/load/durable authority denied
+(`m12-distribution-provenance` 246/246). Next owner-key slice: add the first
+real hardware/TPM-binding evidence probe for persistent owner-key provisioning;
 no persistent owner seal until hardware-bound sealing evidence exists. (3)
 provide real
 trust inputs (a cryptographically

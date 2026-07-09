@@ -565,23 +565,34 @@ durable audit writes, rollback install, parallel dispatch, and broad mutation
 disabled.
 
 `system.honesty_report.owner_key_provisioning` must report the key lifecycle
-posture without claiming generated key material: persistent install policy
+posture without exporting generated key material: persistent install policy
 `generate_hardware_bound_owner_key_on_persistent_install`, RAM boot policy
 `ephemeral_current_boot_key_only`, `automatic_generation_intended: true`,
-`automatic_generation_performed: false`,
+`automatic_generation_performed: true`,
 `hardware_binding_evidence_present: false`,
 `persistent_owner_key_generated: false`,
-`ram_boot_ephemeral_key_generated: false`, `owner_key_material_exported: false`,
-`denied_missing_hardware_bound_owner_key_evidence`, and no owner-seal,
-persistent-install, load, or durable-write authority.
+`ram_boot_ephemeral_key_generated: true`,
+`ram_boot_ephemeral_key_id: owner_key.ram_candidate.current_boot`,
+`ram_boot_ephemeral_key_handle: owner_key.handle.current_boot.ram0`,
+`ram_boot_ephemeral_key_algorithm: ram_32_byte_entropy_seed_sha256_fingerprint`,
+`ram_boot_ephemeral_key_secret_len: 32`,
+`ram_boot_ephemeral_key_material_classification: secret`,
+`ram_boot_ephemeral_key_fingerprint: sha256:<64 lowercase hex>`,
+`owner_key_material_exported: false`,
+`ram_ephemeral_candidate_generated_persistent_hardware_binding_missing`, and no
+owner-seal, persistent-install, load, or durable-write authority.
 Its nested `owner_key_evidence_input` must consume `core.entropy`, report
 `entropy_evidence_present: true`, `entropy_status: ready`, RDRAND observed,
 pool capacity 64 with total collected at least 32,
 `hardware_binding_source: tpm_or_platform_seal`,
 `hardware_binding_evidence_present: false`,
 `tpm_binding_state: missing`, `ram_boot_ephemeral_input_ready: true`,
-`persistent_install_input_ready: false`, and no key-generation, owner-seal,
-persistent-install, load, or durable-write authority.
+`persistent_install_input_ready: false`, `ram_candidate_generated: true`,
+`ram_candidate_id: owner_key.ram_candidate.current_boot`,
+`ram_candidate_handle: owner_key.handle.current_boot.ram0`, a
+`ram_candidate_fingerprint` matching the provisioning `sha256:` fingerprint,
+and no key-generation, owner-seal, persistent-install, load, or durable-write
+authority.
 
 The first positive RAM-only service slice is deliberately narrower than general
 module loading:
