@@ -13,9 +13,9 @@ USB Mass Storage, configure BOT bulk endpoints, read sectors with SCSI
 What is still denied: USB `WRITE(10)`, RECLOG append, durable WiFi logs, broad
 disk mutation, owner-sealed persistence, and live WLAN result/link authority.
 
-Stick prep: `scripts\write-stage0-usb.ps1 -UsePersistLayout` writes the real
-GPT stick layout. The kernel now has the read-only half needed before appending
-logs to that stick.
+Stick prep: Disk 2 (`USB SanDisk 3.2Gen1`) was written with the real GPT
+persist layout: `SEED_ESP_A`, `SEED_ESP_B`, and `SEED_DATA` validated. The
+kernel now has the read-only half needed before appending logs to that stick.
 
 WiFi status: Surface Marvell firmware bring-up and `SCAN_EXT` command are real,
 but RX-PFU is parked because it froze the Surface and made MMIO read all-ones.
@@ -25,7 +25,9 @@ Owner-key status: RAM boot still creates only a secret RAM-only
 `current_boot` owner-key candidate. Persistent owner seal/install/load/durable
 authority remains denied until the real sealing ceremony.
 
-Latest proof: focused USB-storage VM serial log observed
+Latest proof: real Disk 2 write log
+`raios-usb-write-disk2-20260709-165319.log` ended with
+`SEED_DATA superblock valid: True`; focused USB-storage VM serial log observed
 `usb-msc: ... seed_data=present seed_data_superblock_validated` and
 `status USB-XHCI ... MSC SEED`. Quick Shadow VM
 `shadow-20260709-163357-10832.json` passed 542/542, 79 commands,

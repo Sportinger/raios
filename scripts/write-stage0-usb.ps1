@@ -86,7 +86,16 @@ function Write-RawImageToDisk {
         throw "USB disk is too small for persist image: disk=$($disk.Size) image=$($imageInfo.Length)."
     }
 
-    Set-Disk -Number $DiskNumber -IsOffline $true
+    $diskOfflined = $false
+    try {
+        Set-Disk -Number $DiskNumber -IsOffline $true -ErrorAction Stop
+        $diskOfflined = $true
+    }
+    catch {
+        Write-Host "Disk $DiskNumber could not be offlined; clearing partition table before raw write."
+        Clear-Disk -Number $DiskNumber -RemoveData -RemoveOEM -Confirm:$false -ErrorAction Stop
+        Update-Disk -Number $DiskNumber -ErrorAction SilentlyContinue
+    }
     try {
         $targetPath = "\\.\PhysicalDrive$DiskNumber"
         $input = [System.IO.File]::Open($resolvedImage, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
@@ -104,7 +113,9 @@ function Write-RawImageToDisk {
         }
     }
     finally {
-        Set-Disk -Number $DiskNumber -IsOffline $false
+        if ($diskOfflined) {
+            Set-Disk -Number $DiskNumber -IsOffline $false
+        }
         Update-Disk -Number $DiskNumber -ErrorAction SilentlyContinue
     }
 }

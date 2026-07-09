@@ -33,6 +33,20 @@ Surface MMIO read back all-ones (`HOST_INT=0xffffffff`, write pointers
 `0xffffffff`) and froze input; do not re-enable RX-PFU while building stick
 logging.
 
+Real Surface USB handoff done (2026-07-09) - Disk 2 (`USB SanDisk 3.2Gen1`,
+28.67 GiB) was written with the current raiOS GPT persistence layout using
+`scripts\write-stage0-usb.ps1 -DiskNumber 2 -ConfirmErase 'ERASE DISK 2'
+-Profile release -UsePersistLayout -SkipBuild`. A user can now boot the real
+Surface from that stick and expect the kernel's read-only USB-MSC probe to see
+`SEED_ESP_A`/`SEED_ESP_B`/`SEED_DATA`. The writer now handles Windows removable
+USB media that refuse `Set-Disk -IsOffline` by clearing the explicitly erased
+disk's partition table before the raw write. Verified by
+`C:\Users\admin\AppData\Local\Temp\raios-usb-write-disk2-20260709-165319.log`:
+`raiOS persistent USB image written to PhysicalDrive2`, layout
+`SEED_ESP_A + SEED_ESP_B + SEED_DATA`, image bytes `537936384`, and
+`SEED_DATA superblock valid: True`. `git diff --check` passed and
+`scripts\scan-secrets.ps1` found no OpenAI-key-like values.
+
 USB Mass Storage read-only SEED_DATA slice done (2026-07-09) - raiOS can now
 boot with a prepared GPT persistence stick attached as xHCI USB Mass Storage,
 configure its BOT bulk-in/bulk-out endpoints, issue read-only SCSI `INQUIRY`,
