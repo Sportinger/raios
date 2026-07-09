@@ -57,6 +57,23 @@ large recent-events response path. No guest panic was observed; inspect the
 harness timeout path and/or return to the previous Marvell task interval before
 the next retry.
 
+WiFi firmware throughput correction slice done (2026-07-09) - the first
+poll-budget image was wrong on bare metal: it reduced each Marvell firmware
+burst to 16 actions but left the task cadence at 5ms, so firmware byte copying
+became roughly 4x slower and pointer lag did not improve. The corrected image
+keeps the shorter 10us waits, raises each burst to 32 actions, and runs the
+Marvell task every 1ms, restoring copy throughput while capping each single
+busy slice far below the old 128-action burst. Scan/link authority is unchanged:
+`SCAN_EXT` command completion is real, but live WLAN results still require the
+event/Rx-ring path and remain explicitly unavailable. Verified: scoped format
+checks (`rustfmt --edition 2021 --check --config skip_children=true
+seed-kernel\src\main.rs`, `rustfmt --edition 2021 --check
+seed-kernel\src\marvell_wifi_pcie.rs`); focused VM `quick` report
+`release/vm-reports/shadow-20260709-134429-25500.json` passed 542/542
+predicates, 79 executed commands, `duration_ms: 277668`, report sha256
+`da6a5a83364380d1b3674f180ea797b71ec913a7c816f3096f176d28e7c487fe`, and
+`base_image.sha256: 381a9becf4fa359cdf21b11e7a59cac84271717dc7066b23f4afa52f91b185c8`.
+
 WiFi firmware poll-budget slice done (2026-07-09) - a Surface user can start
 Marvell 88W8897 firmware bring-up with much shorter uninterrupted CPU
 busy-wait slices, so pointer/input/UI work gets scheduled between firmware

@@ -350,7 +350,7 @@ impl PeriodicTasks {
             entropy: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(8, tsc_per_ms)),
             net: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(50, tsc_per_ms)),
             input: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(8, tsc_per_ms)),
-            marvell_wifi_fw: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(5, tsc_per_ms)),
+            marvell_wifi_fw: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(1, tsc_per_ms)),
             usb_rescan: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(500, tsc_per_ms)),
             provider: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(50, tsc_per_ms)),
             ui: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(250, tsc_per_ms)),
