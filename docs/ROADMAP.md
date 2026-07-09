@@ -73,8 +73,9 @@ full 8205/8205, recovery 3870/3870.** Process changes (owner 2026-07-08): the
 per-slice max-effort review is DROPPED (host DoD + own diff read + focused profile
 + secret scan instead); scoping + implementation both run as CODEX workers, not
 Claude workflows. OWNER SIDE TRACK (parallel): the Surface Pro 4 Marvell 88W8897
-WiFi driver — full scoping doc + WiFi-1a (pure firmware-download sequencer,
-unit-tested, hardware-untested/inert) committed.
+WiFi driver — scoping, pure firmware sequencer, register-write plan, triggered
+BAR2/DMA firmware bring-up, GET_HW_SPEC mailbox probe, and pure SCAN_EXT command
+builder are committed; all hardware-untested and no scan/link authority claimed.
 
 **M12+ opener + honesty capstone (committed, grants nothing):** M12-1 external-
 acquisition HONESTY evaluator (download = candidate intake NEVER install; a
@@ -225,9 +226,11 @@ trusted time source, real CA roots, a live second provider) → I finish M10 rea
 validation — STILL YOURS. (4) the owner-key sealing ceremony → the FINAL step —
 STILL YOURS. Until then every label stays honestly unverified / dev_key_not_owner_
 sealed. **OWNER SIDE TRACK (parallel, Codex workers): Surface Pro 4 Marvell 88W8897
-WiFi driver — WiFi-1a firmware sequencer + WiFi-1b design + WiFi-1b-pure register-
-write-plan translator all committed (pure/unit-tested; hardware-untested/inert;
-the MMIO/DMA shell is next, compile-only until real hardware).** Process (owner
+WiFi driver — firmware sequencer, register-write plan, BAR2/DMA firmware
+bring-up, GET_HW_SPEC mailbox probe, and pure SCAN_EXT 2.4GHz wildcard command
+builder are committed (unit-tested; hardware-untested; no live scan/link claim).
+Next WiFi slice: bind scan command execution behind firmware+GET_HW_SPEC ready
+and event-ring evidence, still fail-closed on QEMU/unknown Surface results.** Process (owner
 2026-07-08): per-slice max-effort review DROPPED; scoping + implementation both run
 as Codex workers; Claude orchestrates/verifies.
 

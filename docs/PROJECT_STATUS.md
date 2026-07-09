@@ -32,6 +32,32 @@ CRB/TIS control area, add the next narrow volatile TPM register-status read
 while keeping `owner_sealed`, persistent install, load, and durable-write
 authority false until a real seal/unseal evidence loop exists.
 
+WiFi scan-ext command builder side-track slice done (2026-07-09) - after the
+Marvell 88W8897 firmware-download and GET_HW_SPEC path, raiOS can now build a
+pure, host-tested mwifiex-compatible `HostCmd_CMD_802_11_SCAN_EXT` packet for a
+2.4GHz wildcard scan over channels 1-11, including the Linux-grounded wildcard
+SSID, BSS mode, number-of-probes, and channel-list TLVs. This does not issue a
+scan, does not arm event rings, does not claim live radio results, and grants no
+WiFi/network authority; it is the next command payload the existing mailbox
+shell can consume only after the hardware firmware path is proven on the real
+Surface. Verified: scoped format check (`rustfmt --edition 2021 --check
+raios-core\src\marvell_wifi_cmd.rs`); host tests
+(`cargo test --locked -p raios-core marvell_wifi_cmd`) 9/9 passed with local
+`CARGO_HOME`/`CARGO_TARGET_DIR` override because the inherited environment
+pointed at a missing `F:\scorefollower-build\cargo`; focused VM `quick` report
+`release/vm-reports/shadow-20260709-121516-5560.json` passed 542/542
+predicates, 79 executed commands, `duration_ms: 286275`, report sha256
+`2c2d93c6fc125714c1eb42a74aab122cdabdd454fb427caa5859d575ebc26721`,
+`base_image.sha256:bbc592b3a7a0190eab9a4f22ec9e4f47af880478f85e699b1273ec75bd0b36e5`.
+`scripts\scan-secrets.ps1` found no OpenAI-key-like values. Global
+`cargo fmt --all -- --check` remains red only on the pre-existing
+unrelated format drift in `raios-core/src/marvell_wifi_fw.rs` and
+`seed-kernel/src/usb.rs`. Gate check: latest full-profile report remains green
+at `release/vm-reports/shadow-20260708-150428-34396.json` 7867/7867, while this
+slice used the focused quick profile because the new packet builder is pure and
+not wired into guest execution. File-size check: touched
+`raios-core\src\marvell_wifi_cmd.rs` is 320 lines.
+
 Owner-key TPM status-read plan slice done (2026-07-09) - real Surface capture
 now names the exact TPM status register raiOS would read next, without doing
 the MMIO read yet. A user/agent can inspect `ownerkey` or
