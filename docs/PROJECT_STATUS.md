@@ -25,14 +25,16 @@ implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
 Current exact next task (Surface WiFi live scan events): boot the refreshed
-RX-PFU image on the real Surface Pro 4, press Start WiFi FW, then Scan
-networks, and capture the `SCAN_EXT`, `EVENT_RING`, and new `RX_RING` lines. If
-RX now reports a non-zero packet length, add the smallest parser path for real
-scan results. If event/RX pointers still advance over empty buffers, inspect the
-remaining host-ring handoff and host-interrupt clear discipline. Keep
-QEMU/unknown hardware fail-closed, keep association/link authority false, and
-do not claim live networks until RX/event buffers carrying real frames are
-observed and parsed.
+scan-time RX-PFU image on the real Surface Pro 4, press Start WiFi FW, confirm
+the UI/mouse no longer freezes after `DOWNLOAD 723540/723540`, then press Scan
+networks and capture the `SCAN_EXT`, `EVENT_RING`, and `RX_RING` lines. If RX
+now reports a non-zero packet length, add the smallest parser path for real scan
+results. If Start WiFi still freezes, revert RX-PFU arming entirely from the
+bare-metal image and keep only event-ring observation. If event/RX pointers
+still advance over empty buffers during scan, inspect the remaining host-ring
+handoff and host-interrupt clear discipline. Keep QEMU/unknown hardware
+fail-closed, keep association/link authority false, and do not claim live
+networks until RX/event buffers carrying real frames are observed and parsed.
 
 Failure classification (2026-07-09, Marvell firmware poll-budget quick VM):
 focused `quick` report `release/vm-reports/shadow-20260709-131953-18752.json`
@@ -96,6 +98,21 @@ override; focused VM `quick` report
 predicates, 79 executed commands, `duration_ms: 188980`, report sha256
 `5dc4a361ff0defdd011a62657b8a11fed77b4632b52de1e6c1ff5e7bb7f42b71`, and
 `base_image.sha256: a6ae832f34e323cc84d0f8e0503ab2cd78e70a804309f397b1bbb2ed987a3641`.
+
+WiFi RX-PFU freeze correction slice done (2026-07-09) - the first RX-PFU image
+froze the real Surface immediately after the firmware download reached
+`723540/723540`, which pins the regression to the pre-`DRV_READY` RX
+descriptor/pointer handoff rather than firmware copy. raiOS now leaves
+firmware-ready bring-up event-ring-only again and arms the RX-PFU ring only
+when the owner explicitly starts `SCAN_EXT`, preserving the new `RX_RING`
+diagnostic without freezing Start WiFi. Live scan parsing and link authority
+remain denied. Verified: scoped `rustfmt` on
+`seed-kernel\src\marvell_wifi_pcie.rs`; release packaging via
+`scripts\package-stage0.ps1 -Profile release`; focused VM `quick` report
+`release/vm-reports/shadow-20260709-152937-13396.json` passed 542/542
+predicates, 79 executed commands, `duration_ms: 202932`, report sha256
+`61ac63530ce2e8a07c70c96e7195c049e6114dd469f46de051eb55576210372e`, and
+`base_image.sha256: 81a76d568b56271ce6c190b19532cce5e39aae129e95a3a1bfdca4d0fa2e7ed8`.
 
 WiFi event-ring observation slice done (2026-07-09) - after Marvell firmware
 bring-up reaches `DRV_READY`, a Surface user can now see the real firmware

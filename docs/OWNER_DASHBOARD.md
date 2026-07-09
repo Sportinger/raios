@@ -7,8 +7,10 @@ Updated: 2026-07-09.
 
 Current capability: Surface WiFi firmware bring-up now uses a larger bounded
 firmware-download burst instead of throttling every helper block through the
-1ms UI scheduler. The 88W8897 RX ring now uses the real PFU descriptor layout
-and exposes an `RX_RING` diagnostic beside `EVENT_RING`.
+1ms UI scheduler. The firmware-ready path is event-ring-only again after the
+first RX-PFU image froze the Surface at `723540/723540`; RX-PFU now arms only
+when `Scan networks` is pressed and exposes an `RX_RING` diagnostic beside
+`EVENT_RING`.
 
 After firmware and HW_SPEC are ready, `Scan networks` still issues the real
 mwifiex `SCAN_EXT` 2.4GHz wildcard command and reports command status. If a
@@ -23,8 +25,8 @@ fingerprint. `ownerkey` also reports the next TPM register raiOS would read.
 Persistent install remains policy-only; no persistent key, owner seal, load
 authority, or durable-write authority is granted.
 
-Latest focused proof: `quick` `shadow-20260709-145731-28804.json` passed
-542/542 for the RX-PFU observation image.
+Latest focused proof: `quick` `shadow-20260709-152937-13396.json` passed
+542/542 for the scan-time RX-PFU freeze-correction image.
 Latest owner-key image proof remains `m12-distribution-provenance`
 `shadow-20260709-120614-8340.json` 253/253 against the exact default image.
 
@@ -33,6 +35,6 @@ Gate status: latest full profile remains green at
 profile per aggressive-fast cadence.
 
 Next owner action: boot the refreshed USB on the Surface Pro 4, press Start
-WiFi FW, press Scan networks, and send a photo/log of `SCAN_EXT`, `EVENT_RING`,
-and `RX_RING`. In parallel, `ownerkey` capture still gives the next TPM
-status-read evidence.
+WiFi FW, confirm the UI/mouse does not freeze after `723540/723540`, then press
+Scan networks and send a photo/log of `SCAN_EXT`, `EVENT_RING`, and `RX_RING`.
+In parallel, `ownerkey` capture still gives the next TPM status-read evidence.

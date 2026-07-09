@@ -913,6 +913,7 @@ pub fn start_scan_ext_24ghz() -> ScanCmdTriggerResult {
         return ScanCmdTriggerResult::Failed(ScanCmdResult::DmaAddressUnavailable);
     };
 
+    let rx_armed = arm_rx_ring(mmio_base);
     let mut runtime = SCAN.lock();
     if runtime.job.is_some() {
         return ScanCmdTriggerResult::AlreadyRunning;
@@ -941,6 +942,11 @@ pub fn start_scan_ext_24ghz() -> ScanCmdTriggerResult {
     drop(runtime);
 
     wifi::note_scan_command_started();
+    if rx_armed {
+        serial::write_line("marvell wifi: rx ring armed for scan_ext");
+    } else {
+        serial::write_line("marvell wifi: scan_ext starting without rx ring");
+    }
     serial::write_line("marvell wifi: scan_ext command armed (results wait on event ring)");
     ScanCmdTriggerResult::Started
 }
@@ -1760,7 +1766,6 @@ fn arm_event_ring(mmio_base: usize) {
         return;
     }
 
-    let rx_armed = arm_rx_ring(mmio_base);
     let mut index = 0usize;
     while index < EVENT_RING_COUNT {
         let Some(data_phys) = event_data_phys(index) else {
@@ -1811,11 +1816,7 @@ fn arm_event_ring(mmio_base: usize) {
         event_type: 0,
         event_cause: 0,
     };
-    if rx_armed {
-        serial::write_line("marvell wifi: rx/event rings armed before DRV_READY");
-    } else {
-        serial::write_line("marvell wifi: event ring armed before DRV_READY; rx ring arm failed");
-    }
+    serial::write_line("marvell wifi: event ring armed before DRV_READY");
 }
 
 fn arm_rx_ring(mmio_base: usize) -> bool {
