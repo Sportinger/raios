@@ -99,13 +99,13 @@ reference: it disables `PCIE_HOST_INT_MASK` at `0xC34`, programs the status
 mask, and clears pending status with write-zero-to-clear polarity before
 disabling WiFi DMA/INTx and writing `DRV_READY`. It now keeps BAR memory
 decoding available only for a bounded `FW_STATUS` poll and claims firmware-ready
-solely on `0xFEDCBA00`. Next owner evidence: boot the refreshed stick, start WiFi
-firmware once, and confirm `ready@ready`, `FW_STATUS=0xFEDCBA00`, and a
-responsive hub mouse. The owner already confirmed the corrected interrupt-mask
-image preserves mouse input through `DRV_READY`; the refreshed image now keeps
-BAR memory readable and polls firmware status while DMA/INTx stay disabled. A
-successful ready poll unlocks one bounded `GET_HW_SPEC` bus-master window;
-event/RX rings and live scan remain parked until that window is proven stable.
+solely on `0xFEDCBA00`. The owner confirmed the real Surface reaches ready,
+completes one bounded `GET_HW_SPEC` bus-master window, and keeps hub input
+responsive; Disk 2 RECLOG remained a valid 58-frame chain. The next slice
+applies that same doorbell-to-CMD_DONE/timeout DMA bound to one `SCAN_EXT`
+command. Event/RX rings, RX-PFU, live scan results, and link authority remain
+parked until command completion and non-empty result evidence are separately
+proven stable.
 
 **M12+ opener + honesty capstone (committed, grants nothing):** M12-1 external-
 acquisition HONESTY evaluator (download = candidate intake NEVER install; a

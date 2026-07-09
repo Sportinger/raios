@@ -24,17 +24,39 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (bare-metal diagnostics): boot the Surface from the
-refreshed Disk 2 stick with the same hub/mouse/stick setup, confirm `MSC LOG`,
-click `Start WiFi FW`, and check that the status advances past
-`DRV_READY ... polling FW_STATUS` to `ready@ready` with
-`FW_STATUS=0xFEDCBA00` while the hub mouse remains responsive. If both hold, the
-next slice is one explicitly bounded bus-master window for `GET_HW_SPEC`,
-followed by immediate DMA quarantine; do not yet re-arm RX-PFU or the event
-ring. If the mouse stops or firmware-ready times out, read the stick RECLOG and
-inspect PCI/MSI state before opening DMA. The Surface WiFi RX-PFU path remains
-parked because arming it made real Surface MMIO read back all-ones
-(`HOST_INT=0xffffffff`, write pointers `0xffffffff`) and froze input.
+Current exact next task (bare-metal WiFi): apply the proven bounded bus-master
+window to one real `SCAN_EXT` mailbox command and consume only its first
+`CMD_DONE` response. Keep the event/RX rings and RX-PFU parked; close DMA on
+completion or timeout before parsing any response, and expose an explicit
+no-live-results state until non-empty result bytes are proven. Then package the
+stick for an owner scan test while preserving responsive hub input.
+
+WiFi bounded HW_SPEC DMA window slice done (2026-07-09) - raiOS can now issue
+one real `GET_HW_SPEC` mailbox request after firmware-ready inside a narrow PCI
+bus-master window. Command/response buffers and MMIO addresses are prepared
+while DMA is off; bus mastering is enabled immediately before the command
+doorbell and disabled before parsing the first `CMD_DONE` response, or
+unconditionally after the existing three-second timeout. The real Marvell host
+interrupt source remains masked and pending status is cleared before the
+window. Event-ring, RX-PFU, scan, link, and persistent authority remain parked.
+Real owner evidence immediately before this slice confirmed the DMA-off
+firmware-status image reached `ready@ready` with `FW_STATUS=0xFEDCBA00` and kept
+the hub mouse responsive. Verified: 28/28 focused `raios-core` Marvell firmware
+and mailbox tests; scoped rustfmt; release packaging; quick Shadow VM report
+`release/vm-reports/shadow-20260709-215913-22068.json` passed 542/542 predicates
+and 79 executed commands, `duration_ms: 208675`, report sha256
+`50415d31e8cce701e319a9fcf68e5b88121d8645823e7aaffafd3689d0e03f23`, and
+`base_image.sha256: 3330694783b5036316f47a5e150e4ab6c4d9ea2135705de11cbc77609913755b`.
+Owner handoff: Disk 2 `SEED_ESP_A` was refreshed without reformatting via
+`scripts\update-usb-esp-a.ps1 -DiskNumber 2 -SkipBuild`; log
+`C:\Users\admin\AppData\Local\Temp\raios-usb-esp-a-update-disk2-20260709-220258.log`
+reported kernel sha256
+`6D79D5CC1C721956D54B2AE56C32626984C4E10C3D91F8E99157998000FEC0D2`.
+The owner then confirmed the Surface test succeeded: firmware reached ready,
+`GET_HW_SPEC` completed, and input remained usable. Host readback after that
+boot found a valid 58/58 RECLOG chain with no torn tail; the new tail is the
+expected boot diagnostic (`seq=58`, `reason=boot_probe`). WiFi completion is
+currently visible UI evidence rather than a RECLOG record.
 
 WiFi DMA-off firmware-ready observation slice done (2026-07-09) - raiOS can now
 continue from the Linux-matched, input-stable `DRV_READY` transition into the

@@ -719,6 +719,7 @@ struct FirmwareJob {
 }
 
 struct HwSpecJob {
+    pci_address: pci::PciAddress,
     mmio_base: usize,
     cmd_dma_phys: u64,
     rsp_dma_phys: u64,
@@ -975,6 +976,7 @@ pub fn poll_hw_spec() -> bool {
         actions += 1;
         if elapsed_ms(job.started_tsc) >= HWSPEC_TIMEOUT_MS {
             let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+            pci::disable_bus_master(job.pci_address);
             finish_hw_spec_locked(
                 &mut runtime,
                 HwSpecResult::CmdDoneTimeout,
@@ -1008,7 +1010,12 @@ pub fn poll_hw_spec() -> bool {
                 };
 
                 compiler_fence(Ordering::SeqCst);
+                write_reg(mmio_base, PCIE_HOST_INT_MASK, 0);
                 write_reg(mmio_base, PCIE_HOST_INT_STATUS_MASK, HOST_INTR_MASK);
+                let pending = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+                if pending != 0 && pending != u32::MAX {
+                    write_reg(mmio_base, PCIE_HOST_INT_STATUS, !pending);
+                }
                 write_reg(
                     mmio_base,
                     CMDRSP_ADDR_LO,
@@ -1022,6 +1029,8 @@ pub fn poll_hw_spec() -> bool {
                 );
                 write_reg(mmio_base, CMD_ADDR_HI, (job.cmd_dma_phys >> 32) as u32);
                 write_reg(mmio_base, CMD_SIZE, command_len as u32);
+                compiler_fence(Ordering::SeqCst);
+                pci::enable_bus_master(job.pci_address);
                 compiler_fence(Ordering::SeqCst);
                 write_reg(mmio_base, PCIE_CPU_INT_EVENT, CPU_INTR_DOOR_BELL);
                 compiler_fence(Ordering::SeqCst);
@@ -1045,6 +1054,8 @@ pub fn poll_hw_spec() -> bool {
                     changed = true;
                 }
                 if status & HOST_INTR_CMD_DONE != 0 {
+                    compiler_fence(Ordering::SeqCst);
+                    pci::disable_bus_master(job.pci_address);
                     compiler_fence(Ordering::SeqCst);
                     let parsed = parse_hw_spec_dma_response();
                     write_reg(mmio_base, PCIE_HOST_INT_STATUS, !status);
@@ -1464,9 +1475,10 @@ pub fn poll() -> bool {
                     job.firmware_len,
                     job.firmware_len,
                 );
+                arm_hw_spec_after_firmware_ready(job.mmio_base, job.pci_address);
                 wifi::note_firmware_ready_scan_unavailable();
                 serial::write_line(
-                    "marvell wifi: firmware ready 0xfedcba00; post-ready mailbox/event probes parked",
+                    "marvell wifi: firmware ready 0xfedcba00; bounded hw_spec probe armed",
                 );
                 return true;
             }
@@ -1714,7 +1726,7 @@ fn update_running_snapshot(
     };
 }
 
-fn arm_hw_spec_after_firmware_ready(mmio_base: usize) {
+fn arm_hw_spec_after_firmware_ready(mmio_base: usize, pci_address: pci::PciAddress) {
     let mut runtime = HWSPEC.lock();
     if runtime.snapshot.attempted {
         return;
@@ -1755,6 +1767,7 @@ fn arm_hw_spec_after_firmware_ready(mmio_base: usize) {
         host_int_status: 0,
     };
     runtime.job = Some(HwSpecJob {
+        pci_address,
         mmio_base,
         cmd_dma_phys,
         rsp_dma_phys,
