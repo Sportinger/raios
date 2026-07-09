@@ -149,6 +149,7 @@ const MSC_SECTOR_BUFFER_LEN: usize = 512;
 const MSC_CBW_SIGNATURE: u32 = 0x4342_5355;
 const MSC_CSW_SIGNATURE: u32 = 0x5342_5355;
 const MSC_READ_CAPACITY10_LEN: usize = 8;
+const RECLOG_DIAGNOSTIC_MAX_WRITES: u32 = 16;
 const WAIT_ITERS: usize = 5_000_000;
 const ROOT_PORT_POWER_SETTLE_ITERS: usize = WAIT_ITERS;
 const HUB_PORT_RESET_POLLS: usize = 64;
@@ -1047,9 +1048,12 @@ struct MassStorageProbe {
     last_lba: u32,
     lba0_signature: u16,
     detail: &'static str,
+    seed_data_first_lba: u64,
+    seed_data_lba_count: u64,
     reclog_write_verified: bool,
     reclog_seq: u64,
     reclog_lba: u64,
+    reclog_write_count: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -1069,9 +1073,12 @@ impl MassStorageProbe {
             last_lba: 0,
             lba0_signature: 0,
             detail: "not_found",
+            seed_data_first_lba: 0,
+            seed_data_lba_count: 0,
             reclog_write_verified: false,
             reclog_seq: 0,
             reclog_lba: 0,
+            reclog_write_count: 0,
         }
     }
 }
@@ -3339,18 +3346,23 @@ impl XhciController {
         let mut reclog_write_verified = false;
         let mut reclog_seq = 0;
         let mut reclog_lba = 0;
+        let mut reclog_write_count = 0;
         if seed_data_present {
-            match self
-                .append_usb_diagnostic_reclog(gpt.seed_data_first_lba, gpt.seed_data_lba_count)
-            {
+            match self.append_usb_diagnostic_reclog(
+                gpt.seed_data_first_lba,
+                gpt.seed_data_lba_count,
+                "boot_probe",
+            ) {
                 Ok(point) => {
                     detail = "reclog_write_verified";
                     reclog_write_verified = true;
                     reclog_seq = point.seq;
                     reclog_lba = point.lba;
+                    reclog_write_count = 1;
                 }
                 Err(err) => {
                     detail = err;
+                    reclog_write_count = RECLOG_DIAGNOSTIC_MAX_WRITES;
                     serial::write_fmt(format_args!("usb-msc: reclog append denied: {}\r\n", err));
                 }
             }
@@ -3363,9 +3375,12 @@ impl XhciController {
             last_lba,
             lba0_signature,
             detail,
+            seed_data_first_lba: gpt.seed_data_first_lba,
+            seed_data_lba_count: gpt.seed_data_lba_count,
             reclog_write_verified,
             reclog_seq,
             reclog_lba,
+            reclog_write_count,
         };
         serial::write_fmt(format_args!(
             "usb-msc: capacity last_lba={} block={} mbr=0x{:04x} seed_data={} {}\r\n",
@@ -3386,6 +3401,7 @@ impl XhciController {
         &mut self,
         seed_data_first_lba: u64,
         seed_data_lba_count: u64,
+        reason: &'static str,
     ) -> Result<ReclogAppendPoint, &'static str> {
         let reclog_end = seed_data_layout::RECLOG_START_LBA
             .checked_add(seed_data_layout::RECLOG_LBA_COUNT)
@@ -3397,7 +3413,7 @@ impl XhciController {
             .checked_add(seed_data_layout::RECLOG_START_LBA)
             .ok_or("reclog_lba_overflow")?;
         let point = self.find_reclog_append_point(reclog_start_lba)?;
-        let payload = self.usb_diagnostic_payload(point.seq)?;
+        let payload = self.usb_diagnostic_payload(point.seq, reason)?;
         let payload_bytes = payload.as_bytes();
         if payload_bytes.len() > MSC_SECTOR_BUFFER_LEN - RECLOG_FRAME_HEADER_LEN {
             return Err("reclog_payload_too_large");
@@ -3488,14 +3504,46 @@ impl XhciController {
         Ok(())
     }
 
-    fn usb_diagnostic_payload(&self, seq: u64) -> Result<String, &'static str> {
+    unsafe fn append_usb_diagnostic_if_ready(&mut self, reason: &'static str) {
+        if !self.mass_storage_probe.seed_data_present
+            || self.mass_storage_probe.reclog_write_count >= RECLOG_DIAGNOSTIC_MAX_WRITES
+        {
+            return;
+        }
+        match self.append_usb_diagnostic_reclog(
+            self.mass_storage_probe.seed_data_first_lba,
+            self.mass_storage_probe.seed_data_lba_count,
+            reason,
+        ) {
+            Ok(point) => {
+                self.mass_storage_probe.detail = "reclog_write_verified";
+                self.mass_storage_probe.reclog_write_verified = true;
+                self.mass_storage_probe.reclog_seq = point.seq;
+                self.mass_storage_probe.reclog_lba = point.lba;
+                self.mass_storage_probe.reclog_write_count =
+                    self.mass_storage_probe.reclog_write_count.saturating_add(1);
+            }
+            Err(err) => {
+                self.mass_storage_probe.detail = err;
+                self.mass_storage_probe.reclog_write_count = RECLOG_DIAGNOSTIC_MAX_WRITES;
+                serial::write_fmt(format_args!("usb-msc: reclog append denied: {}\r\n", err));
+            }
+        }
+    }
+
+    fn usb_diagnostic_payload(
+        &self,
+        seq: u64,
+        reason: &'static str,
+    ) -> Result<String, &'static str> {
         let mut payload = String::new();
         let reports = self
             .keyboard_report_count
             .saturating_add(self.mouse_report_count);
         write!(
             payload,
-            "{{\"schema\":\"raios.usb_diag.v0\",\"classification\":\"local_only\",\"scope\":\"current_boot\",\"seq\":{},\"hub_count\":{},\"hub_ports\":{},\"hub_connected\":{},\"hub_reset\":{},\"hub_done\":{},\"recover\":{},\"reports\":{},\"errors\":{},\"last_int_cc\":{},\"last_xfer_cc\":{},\"last_cmd\":{},\"last_cc\":{},\"enum_vid\":{},\"enum_pid\":{}}}",
+            "{{\"schema\":\"raios.usb_diag.v0\",\"classification\":\"local_only\",\"scope\":\"current_boot\",\"reason\":\"{}\",\"seq\":{},\"hub_count\":{},\"hub_ports\":{},\"hub_connected\":{},\"hub_reset\":{},\"hub_done\":{},\"recover\":{},\"reports\":{},\"errors\":{},\"last_int_cc\":{},\"last_xfer_cc\":{},\"last_cmd\":{},\"last_cc\":{},\"enum_vid\":{},\"enum_pid\":{}}}",
+            reason,
             seq,
             self.hub_count,
             self.hub_ports,
@@ -3933,6 +3981,7 @@ impl XhciController {
             .is_ok()
         {
             let _ = self.queue_mouse_report();
+            self.append_usb_diagnostic_if_ready("hub_mouse_rearm");
         }
     }
 

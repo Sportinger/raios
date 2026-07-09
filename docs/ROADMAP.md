@@ -85,10 +85,11 @@ claimed. The Windows USB writer can now raw-write the existing GPT
 empty RECLOG, and the kernel can now read that same layout through xHCI USB
 Mass Storage/BOT and report `MSC SEED`; the first strictly scoped USB
 `WRITE(10)` path is now in place for bare-metal diagnostics: after GPT +
-`RAIOS_DATA_SB_V0` validate, raiOS appends exactly one local-only diagnostic
-frame into `SEED_DATA/RECLOG`, readback/reparses it, and reports `MSC LOG`.
-Next persistence action is owner hardware evidence: write the refreshed Disk 2
-stick, reproduce hub-mouse/WiFi behavior, then inspect RECLOG from the host.
+`RAIOS_DATA_SB_V0` validate, raiOS appends local-only diagnostic frames into
+`SEED_DATA/RECLOG` for boot and silent hub-mouse rearm events, readback/reparses
+them, and reports `MSC LOG`. Next persistence action is owner hardware
+evidence: write the refreshed Disk 2 stick, reproduce hub-mouse/WiFi behavior,
+then inspect RECLOG from the host.
 
 **M12+ opener + honesty capstone (committed, grants nothing):** M12-1 external-
 acquisition HONESTY evaluator (download = candidate intake NEVER install; a

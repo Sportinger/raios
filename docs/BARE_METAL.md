@@ -56,7 +56,9 @@ Expected gaps:
   prepared raiOS GPT stick: if `SEED_DATA` validates, the kernel may append one
   local-only diagnostic RECLOG frame with SCSI `WRITE(10)`, read it back, and
   show `MSC LOG seq<N> lba<N>`. If the stick only shows `MSC FOUND <reason>` or
-  `MSC SEED <reason>`, no diagnostic write was verified.
+  `MSC SEED <reason>`, no diagnostic write was verified. Current frames use
+  `reason=boot_probe` at boot and `reason=hub_mouse_rearm` when the Surface
+  hub-mouse silent-rearm path fires.
 
 ## List USB Disks
 

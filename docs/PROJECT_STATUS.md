@@ -25,12 +25,29 @@ implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
 Current exact next task (bare-metal diagnostics): write the verified USB RECLOG
-image to the real Disk 2 stick, boot the Surface, reproduce the hub-mouse/WiFi
-diagnostic path, then inspect the stick's `SEED_DATA/RECLOG` from the host
-instead of relying on photos. The Surface WiFi RX-PFU path remains parked
-because arming it made real Surface MMIO read back all-ones
-(`HOST_INT=0xffffffff`, write pointers `0xffffffff`) and froze input; do not
-re-enable RX-PFU while using stick logging to gather evidence.
+image to the real Disk 2 stick, boot the Surface, confirm `MSC LOG`, reproduce
+the hub-mouse outage, then inspect the stick's `SEED_DATA/RECLOG` for
+`reason=hub_mouse_rearm` frames instead of relying on photos. The Surface WiFi
+RX-PFU path remains parked because arming it made real Surface MMIO read back
+all-ones (`HOST_INT=0xffffffff`, write pointers `0xffffffff`) and froze input;
+do not re-enable RX-PFU while using stick logging to gather evidence.
+
+Hub-mouse RECLOG diagnostics slice done (2026-07-09) - raiOS now appends
+host-readable USB diagnostic frames at the time the real Surface problem occurs:
+the first verified USB-MSC RECLOG append records `reason=boot_probe`, and each
+successful silent hub-mouse endpoint rearm appends another frame with
+`reason=hub_mouse_rearm` until the hard debug cap of 16 RECLOG diagnostic writes.
+This still does not broaden disk authority: writes remain limited to validated
+`SEED_DATA/RECLOG`, readback/reparse is required, and corrupt logs disable
+further appends. Focused USB-storage VM evidence on
+`D:\raios-tmp\raios-usb-rearm-log-test.img` observed
+`usb-msc: reclog append seq=1 lba=526352 verified`, `MSC LOG seq1 lba526352`,
+and host inspect showed RECLOG `valid`, `count=1`, payload schema
+`raios.usb_diag.v0`, `reason=boot_probe`. Quick Shadow VM report
+`release/vm-reports/shadow-20260709-181301-15252.json` passed 542/542
+predicates, `duration_ms: 191697`, report sha256
+`19e4340951ac2e7aa152e1c69e6ac37509b27d98bb3d1def93c72300a2684c11`, and
+`base_image.sha256: af38fead76b78b225917d92df760f141b87afadfa46c00ebb3fc9c57b42c1677`.
 
 USB stick RECLOG append slice done (2026-07-09) - raiOS can now use the
 prepared GPT persistence stick as a real xHCI USB Mass Storage diagnostic sink:

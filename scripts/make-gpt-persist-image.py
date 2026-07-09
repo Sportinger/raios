@@ -1563,7 +1563,7 @@ def inspect_image(path: Path) -> dict[str, object]:
         primary = parse_gpt_header(primary_header_bytes)
         lba_count = size // SECTOR_SIZE
         if lba_count == 0:
-            lba_count = int(primary["alternate_lba"]) + 1
+            lba_count = int(primary["backup_lba"]) + 1
         backup_header_bytes = read_at(handle, lba_count - 1, SECTOR_SIZE)
         backup = parse_gpt_header(backup_header_bytes)
 
