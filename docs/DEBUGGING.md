@@ -1051,8 +1051,12 @@ fact ready while `m6_reverification_input_present`,
 `receiver_candidate_binding_absent: false`,
 `m6_reverification_evidence_present: false`, and
 `denied_missing_m6_reverify_evidence`, with `authorizes_load` still false. The
-loader-runtime aggregate also records the live-load sequence as read-only
-current-boot source evidence:
+nested `m7_loader_policy_input_diagnostic` must show
+`m6_reverify_input_ready_for_loader_policy: false`,
+`m7_loader_policy_evidence_present: false`,
+`denied_m6_reverify_input_not_ready_for_m7_loader_policy`, and
+`authorizes_load` still false. The loader-runtime aggregate also records the
+live-load sequence as read-only current-boot source evidence:
 `raios.module_loader_load_attempt_boundary.v0`,
 `raios.module_loader_artifact_load_boundary.v0`,
 `raios.module_loader_executable_mapping_boundary.v0`,

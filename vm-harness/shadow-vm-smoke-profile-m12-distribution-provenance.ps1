@@ -934,6 +934,7 @@ $loadPreflightSourceFact = if ($loadPreflightSourceFacts.Count -eq 1) { $loadPre
 $loadPreflightRuntimeFact = $loadRuntimeReadiness.loader_runtime_facts.receiver_identity_load_preflight
 $loadM6M7ReverifyInputCheck = $loadRuntimeReadiness.m6_m7_reverify_input_check
 $loadM6ReverifyInputDiagnostic = $loadM6M7ReverifyInputCheck.m6_reverify_input_diagnostic
+$loadM7LoaderPolicyInputDiagnostic = $loadM6M7ReverifyInputCheck.m7_loader_policy_input_diagnostic
 $loadAfter = (Get-SerialLogContent -Path $SerialLog).Substring([int]$loadOffset)
 $loadDeniedOk = (
     $load.t -eq "error" -and
@@ -981,6 +982,20 @@ $loadDeniedOk = (
     $loadM6ReverifyInputDiagnostic.m6_reverification_evidence_reason -eq "m6_reverification_evidence_missing" -and
     $loadM6ReverifyInputDiagnostic.can_enter_m6_reverify -eq $false -and
     $loadM6ReverifyInputDiagnostic.authorizes_load -eq $false -and
+    $loadM7LoaderPolicyInputDiagnostic.id -eq "module.load_ephemeral.m7_loader_policy_input_diagnostic.current_boot" -and
+    $loadM7LoaderPolicyInputDiagnostic.consumes_diagnostic -eq "module.load_ephemeral.m6_reverify_input_diagnostic.current_boot" -and
+    $loadM7LoaderPolicyInputDiagnostic.consumes_check -eq "module.load_ephemeral.m6_m7_reverify_input_check.current_boot" -and
+    $loadM7LoaderPolicyInputDiagnostic.m6_reverify_input_ready_for_loader_policy -eq $false -and
+    $loadM7LoaderPolicyInputDiagnostic.m6_reverify_input_status -eq "denied_missing_m6_reverify_evidence" -and
+    $loadM7LoaderPolicyInputDiagnostic.m6_reverify_input_reason -eq "m6_reverification_evidence_missing" -and
+    $loadM7LoaderPolicyInputDiagnostic.m6_reverification_evidence_present -eq $false -and
+    $loadM7LoaderPolicyInputDiagnostic.m7_loader_policy_evidence_present -eq $false -and
+    $loadM7LoaderPolicyInputDiagnostic.m7_loader_policy_evidence_reason -eq "m7_loader_policy_evidence_missing" -and
+    $loadM7LoaderPolicyInputDiagnostic.status -eq "denied_m6_reverify_input_not_ready_for_m7_loader_policy" -and
+    $loadM7LoaderPolicyInputDiagnostic.reason -eq "m6_reverification_evidence_missing" -and
+    $loadM7LoaderPolicyInputDiagnostic.can_enter_m7_loader_policy -eq $false -and
+    $loadM7LoaderPolicyInputDiagnostic.can_load_now -eq $false -and
+    $loadM7LoaderPolicyInputDiagnostic.authorizes_load -eq $false -and
     $loadM6M7ReverifyInputCheck.receiver_identity_complete -eq $true -and
     $loadM6M7ReverifyInputCheck.retained_candidate_matches_catalog_finalize -eq $true -and
     $loadM6M7ReverifyInputCheck.preflight_evaluated -eq $true -and

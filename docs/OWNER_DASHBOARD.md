@@ -3,6 +3,15 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
+Updated: 2026-07-09. **raiOS trennt jetzt auch M7-Policy vom fehlenden
+M6-Beweis:** Im realen Load-Denial sieht ein Agent jetzt unter
+`m7_loader_policy_input_diagnostic`: Der M6-Reverify-Beweis fehlt noch, deshalb
+darf M7-Loader-Policy nicht betreten werden; die M7-Policy-Evidenz ist trotzdem
+separat als fehlend sichtbar. Ergebnis bleibt absichtlich: NICHT laden, NICHT
+installieren, NICHT ausfuehren, NICHT speichern. Beweis:
+`m12-distribution-provenance` `shadow-20260709-103423-19352.json` 246/246
+gruen.
+
 Updated: 2026-07-09. **raiOS trennt jetzt den naechsten fehlenden M6-Beweis
 sauber vom Empfaenger-Preflight:** Im realen Load-Denial sieht ein Agent jetzt
 unter `m6_m7_reverify_input_check.m6_reverify_input_diagnostic`: Empfaenger und

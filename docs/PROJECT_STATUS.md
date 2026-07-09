@@ -25,10 +25,40 @@ implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
 Current exact next task (M12+ M6/M7 reverify bridge): add the first concrete
-M7 loader-policy input diagnostic that consumes the M6 reverify input
-diagnostic, still read-only and non-authorizing, so raiOS can distinguish
-"M6 evidence absent" from "M7 loader-policy evidence absent" before any
-load/install authority can exist.
+provider-trust input diagnostic that consumes the M7 loader-policy diagnostic,
+still read-only and non-authorizing, so raiOS can distinguish "M7
+loader-policy evidence absent" from "provider trust evidence absent" before
+any load/install authority can exist.
+
+M12+ Slice 18 done (2026-07-09) - M7 loader-policy input diagnostic is
+explicit. A user/agent can now inspect the real `raios.module_load_gate.v0`
+loader-runtime readiness and see
+`m6_m7_reverify_input_check.m7_loader_policy_input_diagnostic`: it consumes
+the M6 reverify input diagnostic, reports that M6 is not yet ready for loader
+policy because M6 reverify evidence is missing, separately reports M7
+loader-policy evidence as missing, and keeps `can_enter_m7_loader_policy`,
+`can_load_now`, `authorizes_load`, and `load_attempted` false. Verified:
+scoped Rust format check (`rustfmt --edition 2021 --check
+seed-kernel\src\agent_protocol_module_load_gate_render.rs`); PowerShell
+profile parse for
+`vm-harness\shadow-vm-smoke-profile-m12-distribution-provenance.ps1`; diff check
+clean apart from normal CRLF warnings; release seed-kernel build
+via `scripts\build-seed-kernel.ps1 -Profile release`; focused VM
+`m12-distribution-provenance` report
+`release/vm-reports/shadow-20260709-103423-19352.json` 246/246 predicates, 53
+executed commands, `duration_ms: 137281`, report sha256
+`5ff95ac581a5694c80097af5c0b84e5a9a6437b2f849dd0d9b9cf3de2a8265dd`.
+`scripts\scan-secrets.ps1` found no OpenAI-key-like values. Global
+`cargo fmt --all -- --check` remains red only on the pre-existing unrelated
+format drift in `raios-core/src/marvell_wifi_fw.rs` and
+`seed-kernel/src/usb.rs`. Gate check: latest full-profile report remains green
+at `release/vm-reports/shadow-20260708-150428-34396.json` 7867/7867, while
+this slice used the focused M12 profile per aggressive-fast cadence. File-size
+note: touched
+`seed-kernel\src\agent_protocol_module_load_gate_render.rs` is 6,678 lines;
+the existing split plan remains to extract receiver/preflight and
+loader-runtime source-fact/reverify-check rendering before broader load-gate
+renderer changes.
 
 M12+ Slice 17 done (2026-07-09) - M6 reverify input diagnostic is explicit. A
 user/agent can now inspect the real `raios.module_load_gate.v0`
