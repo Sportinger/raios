@@ -1,7 +1,8 @@
 use raios_core::structured_store::{
-    encode_superblock, parse_superblock, replay_log, select_superblock, validate_transaction_plan,
-    verify_committed_plan, verify_frame_readback, ReplayState, SelectedSuperblock, StoreDenied,
-    StoreGeometry, StoreIdentity, TransactionPlan, STORE_BLOCK_LEN, SUPERBLOCK_LEN,
+    encode_superblock, parse_superblock, replay_log, replay_log_with_history, select_superblock,
+    validate_transaction_plan, verify_committed_plan, verify_frame_readback, ReplayState,
+    ReplayWithHistory, SelectedSuperblock, StoreDenied, StoreGeometry, StoreIdentity,
+    TransactionPlan, STORE_BLOCK_LEN, SUPERBLOCK_LEN,
 };
 use raios_core::{
     sha256_bytes,
@@ -169,6 +170,24 @@ pub(crate) fn open_and_replay<P: ValidatedStoreRegionPort>(
     expected: ValidatedRegionIdentity,
     snapshot: &mut [u8],
 ) -> Result<ReplayState, PortDenied<P::Error>> {
+    read_validated_snapshot(port, expected, snapshot)?;
+    replay_log(snapshot, expected.store).map_err(PortDenied::Core)
+}
+
+pub(crate) fn open_and_replay_with_history<P: ValidatedStoreRegionPort>(
+    port: &mut P,
+    expected: ValidatedRegionIdentity,
+    snapshot: &mut [u8],
+) -> Result<ReplayWithHistory, PortDenied<P::Error>> {
+    read_validated_snapshot(port, expected, snapshot)?;
+    replay_log_with_history(snapshot, expected.store).map_err(PortDenied::Core)
+}
+
+fn read_validated_snapshot<P: ValidatedStoreRegionPort>(
+    port: &mut P,
+    expected: ValidatedRegionIdentity,
+    snapshot: &mut [u8],
+) -> Result<(), PortDenied<P::Error>> {
     revalidate_store(port, expected)?;
     let block_count = expected.log_block_count().map_err(PortDenied::Core)?;
     let expected_len = block_count
@@ -191,7 +210,7 @@ pub(crate) fn open_and_replay<P: ValidatedStoreRegionPort>(
             .map_err(PortDenied::Device)?;
     }
     revalidate_store(port, expected)?;
-    replay_log(snapshot, expected.store).map_err(PortDenied::Core)
+    Ok(())
 }
 
 pub(crate) fn append_with_readback<P: ValidatedStoreRegionPort>(
@@ -549,6 +568,26 @@ mod tests {
 
         assert_eq!(port.writes, plan.frames.len() as u64);
         assert_eq!(replay.record(KEY).unwrap().unwrap().record_version, 1);
+    }
+
+    #[test]
+    fn history_open_reuses_validated_readback_and_keeps_verified_commits() {
+        let mut port = MemoryPort::new();
+        let plan = build_plan(&mut port);
+        let mut snapshot = vec![0; port.bytes.len()];
+        append_with_readback(&mut port, IDENTITY, &plan, &mut snapshot).unwrap();
+
+        let replay = open_and_replay_with_history(&mut port, IDENTITY, &mut snapshot).unwrap();
+        let history = replay.committed_history().unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].transaction_id, plan.transaction_id);
+        assert_eq!(replay.state().record(KEY).unwrap(), Some(&history[0]));
+
+        port.identity.partition_guid[0] ^= 1;
+        assert_eq!(
+            open_and_replay_with_history(&mut port, IDENTITY, &mut snapshot),
+            Err(PortDenied::IdentityChanged)
+        );
     }
 
     #[test]

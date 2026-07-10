@@ -28,8 +28,11 @@ complete**: `shadow-20260710-124838-24564.json` passed 206/206 with signed entry
 sanitized input, core-only F12, trap/fuel fallback, dynamic current-boot inventory
 removal, Recovery after fallback, five bound QEMU captures, and a byte-identical
 secure-strip pixel hash across personal rendering. I3/G5.4 is independently
-review-gated. Runtime secret authority remains unclaimed until its named integration
-and evidence land.
+review-gated. Its unarmed Broker foundation now requires opaque complete-history,
+mutation and use evidence and exposes only fixed NXP/OpenAI one-use outputs; core
+tests pass 396/396 and `shadow-20260710-132631-20352.json` passes 9/9. Runtime secret
+authority remains unclaimed: executing-core policy and durable use-audit evidence
+must become authoritative before unlock/use can be wired.
 
 Target orchestrator: Codex 5.6, reasoning effort `xhigh`
 

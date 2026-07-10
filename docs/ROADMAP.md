@@ -54,7 +54,12 @@ reconstruction. The `0920346` C1 extraction lets the composition root name the
 already bounded disposable QEMU port; the focused regression
 `shadow-20260710-040559-24348.json` passed 9/9 with zero failures. No Vault set,
 unlock/decrypt, plaintext use, WiFi/provider use, audit, physical-target, or
-durable-secret authority is armed; I3 remains separately Sol-review-gated.
+durable-secret authority is armed. The post-review Broker foundation now consumes
+only opaque complete-history, mutation and use evidence; its one-use outputs are the
+bounded NXP WPA2 command and exact OpenAI header, never plaintext access. Core tests
+pass 396/396 and focused regression `shadow-20260710-132631-20352.json` passes 9/9.
+I3 remains open on an authoritative executing-core policy binding and durable
+per-use audit evidence; until both exist runtime unlock/use remains denied.
 
 **Genesis execution progress (A1/C3, 2026-07-10):** the normal release image
 now starts in the core-owned Genesis shell (Conversation, Context, Composer,

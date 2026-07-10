@@ -842,6 +842,37 @@ pub struct ReplayState {
     observed_versions: Vec<ObservedVersion>,
 }
 
+/// The verified replay state together with every committed record in commit order.
+///
+/// `ReplayState::records` remains the latest value per key. `committed_history`
+/// contains only transactions whose COMMIT frame was fully verified by the same
+/// replay pass; incomplete transactions are never returned. History is exposed
+/// only while the whole replay is unlocked, so callers cannot claim a partial
+/// log as complete.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReplayWithHistory {
+    state: ReplayState,
+    committed_history: Vec<CommittedRecord>,
+}
+
+impl ReplayWithHistory {
+    /// Borrows the same verified active state that `replay_log` returns.
+    /// Callers cannot mutate its lock evidence while retaining history access.
+    pub fn state(&self) -> &ReplayState {
+        &self.state
+    }
+
+    pub fn committed_history(&self) -> Result<&[CommittedRecord], StoreDenied> {
+        if self.state.chain_locked {
+            return Err(StoreDenied::StoreChainLocked);
+        }
+        if !self.state.locked_namespaces.is_empty() {
+            return Err(StoreDenied::NamespaceLocked);
+        }
+        Ok(&self.committed_history)
+    }
+}
+
 impl ReplayState {
     pub fn record(&self, key: RecordKey) -> Result<Option<&CommittedRecord>, StoreDenied> {
         if self.chain_locked {
@@ -912,6 +943,13 @@ struct PendingTransaction {
 }
 
 pub fn replay_log(bytes: &[u8], identity: StoreIdentity) -> Result<ReplayState, StoreDenied> {
+    replay_log_with_history(bytes, identity).map(|replay| replay.state)
+}
+
+pub fn replay_log_with_history(
+    bytes: &[u8],
+    identity: StoreIdentity,
+) -> Result<ReplayWithHistory, StoreDenied> {
     if identity.store_uuid == [0; 16] {
         return Err(StoreDenied::StoreUuidMissing);
     }
@@ -935,6 +973,7 @@ pub fn replay_log(bytes: &[u8], identity: StoreIdentity) -> Result<ReplayState, 
         max_observed_transaction_id: 0,
         observed_versions: Vec::new(),
     };
+    let mut committed_history = Vec::new();
     let mut pending: Option<PendingTransaction> = None;
     let mut offset = 0usize;
 
@@ -948,11 +987,11 @@ pub fn replay_log(bytes: &[u8], identity: StoreIdentity) -> Result<ReplayState, 
                     ReplayTail::ZeroFilled
                 };
                 state.next_write_offset = offset as u64;
-                return Ok(state);
+                return Ok(finalize_replay(state, committed_history));
             }
             state.next_write_offset = offset as u64;
             state.lock_chain(StoreDenied::InvalidFrameMagic);
-            return Ok(state);
+            return Ok(finalize_replay(state, committed_history));
         }
 
         let expected_sequence = state
@@ -972,7 +1011,7 @@ pub fn replay_log(bytes: &[u8], identity: StoreIdentity) -> Result<ReplayState, 
             Err(reason) => {
                 state.next_write_offset = offset as u64;
                 state.lock_chain(reason);
-                return Ok(state);
+                return Ok(finalize_replay(state, committed_history));
             }
         };
 
@@ -1095,6 +1134,7 @@ pub fn replay_log(bytes: &[u8], identity: StoreIdentity) -> Result<ReplayState, 
                     payload_sha256: active.descriptor.payload_sha256,
                     value,
                 };
+                committed_history.push(record.clone());
                 if let Some(existing) = state
                     .records
                     .iter_mut()
@@ -1111,7 +1151,20 @@ pub fn replay_log(bytes: &[u8], identity: StoreIdentity) -> Result<ReplayState, 
     if pending.is_some() {
         state.tail = ReplayTail::IncompleteTransaction;
     }
-    Ok(state)
+    Ok(finalize_replay(state, committed_history))
+}
+
+fn finalize_replay(
+    state: ReplayState,
+    mut committed_history: Vec<CommittedRecord>,
+) -> ReplayWithHistory {
+    if state.chain_locked {
+        committed_history.clear();
+    }
+    ReplayWithHistory {
+        state,
+        committed_history,
+    }
 }
 
 fn same_transaction(left: FrameBinding, right: FrameBinding) -> bool {
@@ -1721,6 +1774,63 @@ mod tests {
         assert_eq!(
             committed.record(KEY).unwrap().unwrap().value,
             RecordValue::Present(b"ciphertext-envelope".to_vec())
+        );
+    }
+
+    #[test]
+    fn replay_history_keeps_only_verified_commits_in_order() {
+        let mut region = empty_region(24);
+        let first = put(&mut region, None, b"first-ciphertext");
+        let second = put(&mut region, Some(1), b"second-ciphertext");
+        let before_torn = replay_log(&region, STORE).unwrap();
+        let torn = plan_transaction(
+            &before_torn,
+            TransactionRequest {
+                identity: STORE,
+                key: KEY,
+                operation: RecordOperation::Put,
+                expected_committed_version: Some(2),
+            },
+            b"uncommitted-ciphertext",
+            region.len() as u64,
+        )
+        .unwrap();
+        append_plan(&mut region, &torn, torn.frames.len() - 1);
+
+        let replay = replay_log_with_history(&region, STORE).unwrap();
+        assert_eq!(replay.state.tail, ReplayTail::IncompleteTransaction);
+        let history = replay.committed_history().unwrap();
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].transaction_id, first.transaction_id);
+        assert_eq!(history[0].record_version, first.record_version);
+        assert_eq!(
+            history[0].value,
+            RecordValue::Present(b"first-ciphertext".to_vec())
+        );
+        assert_eq!(history[1].transaction_id, second.transaction_id);
+        assert_eq!(history[1].record_version, second.record_version);
+        assert_eq!(
+            history[1].value,
+            RecordValue::Present(b"second-ciphertext".to_vec())
+        );
+        assert_eq!(
+            replay.state.record(KEY).unwrap().unwrap().value,
+            RecordValue::Present(b"second-ciphertext".to_vec())
+        );
+    }
+
+    #[test]
+    fn replay_history_locks_with_corrupt_chain() {
+        let mut region = empty_region(16);
+        put(&mut region, None, b"committed");
+        let offset = replay_log(&region, STORE).unwrap().next_write_offset as usize;
+        region[offset] = b'X';
+
+        let replay = replay_log_with_history(&region, STORE).unwrap();
+        assert!(replay.state.chain_locked);
+        assert_eq!(
+            replay.committed_history(),
+            Err(StoreDenied::StoreChainLocked)
         );
     }
 

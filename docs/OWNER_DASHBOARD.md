@@ -40,11 +40,11 @@ exact GPT admission, blank format, dual superblock readback, real ATA flush,
 committed append and a second-boot replay (`shadow-20260710-032738-34812`, 9/9).
 C3 still reports TPM `NotProven`; no physical or durable secret claim is open.
 
-Vault crypto status: C2's exact AES-GCM/HKDF envelope, recovery-wrapper, zeroizing
-owners, and two-consumer evaluator pass 379 core tests. C4's unarmed composition
-foundation adds readback-verified keyring restore, typed ciphertext records, and
-complete-history-only nonce reconstruction; no Vault set/unlock/decrypt, plaintext
-lease, WiFi/provider use, audit, or physical-target path is wired.
+Vault crypto status: exact AES-GCM/HKDF, recovery wrappers, opaque complete-history
+replay and the fail-closed Broker now pass 396 core tests. Its one-use outputs are
+only the bounded NXP WPA2 command or exact OpenAI header; no plaintext accessor
+exists. Runtime unlock/use stays denied until executing-core policy and durable
+use-audit evidence are authoritative.
 
 Latest proof: focused Genesis UI `shadow-20260710-124838-24564.json` passed 206/206
 with signed personal-shell entry/input/F12/trap/fuel evidence and five bound PNG
@@ -55,10 +55,10 @@ Gate status: latest full profile remains green at
 `shadow-20260708-150428-34396.json` 7867/7867. This slice used its focused
 Genesis UI evidence; the full baseline is unchanged per aggressive-fast cadence.
 
-Latest C4 proof: release build plus focused structured-store regression
-`shadow-20260710-040559-24348.json` passed 9/9 with zero failures; it does not arm
+Latest Vault-foundation proof: release build plus focused structured-store report
+`shadow-20260710-132631-20352.json` passed 9/9; secret scan is clean. It does not arm
 Vault authority.
 
-Next task: I3/G5.4 performs the separately gated Vault/Broker review and joins only
-the named durable identity-bound secret paths. Disk 2 stays untouched; do not claim
-provider access or durable secrets before evidence.
+Next task: I3/G5.4 adds the missing core-policy and durable use-audit bindings, then
+joins only the named consumers. Disk 2 stays untouched; do not claim provider access
+or durable secrets before evidence.

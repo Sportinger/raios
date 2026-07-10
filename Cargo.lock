@@ -1364,6 +1364,7 @@ name = "raios-core"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
+ "embedded-io",
  "hkdf",
  "p256",
  "raios-http-parse",

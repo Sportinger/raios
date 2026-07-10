@@ -9,6 +9,7 @@ use aes_gcm::{
     aead::{AeadInPlace, KeyInit},
     Aes256Gcm, Nonce, Tag,
 };
+use embedded_io::Write;
 use hkdf::Hkdf;
 use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
@@ -212,6 +213,21 @@ pub struct SecretPlaintext {
     len: usize,
 }
 
+/// Errors from the two fixed native secret consumers.
+///
+/// These operations deliberately have no byte-returning counterpart. A
+/// plaintext can become only the bounded Marvell WPA2 command or the exact
+/// OpenAI authorization header, then its owner zeroizes on return.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SecretConsumerError {
+    WrongKind {
+        expected: SecretKind,
+        actual: SecretKind,
+    },
+    WifiCommand(crate::marvell_wifi_supplicant::SupplicantError),
+    OpenAiAuthorizationWriteFailed,
+}
+
 impl SecretPlaintext {
     pub fn take_from(kind: SecretKind, source: &mut [u8]) -> Result<Self, SecretVaultError> {
         let len = source.len();
@@ -244,6 +260,51 @@ impl SecretPlaintext {
 
     fn as_bytes(&self) -> &[u8] {
         &self.bytes[..self.len]
+    }
+
+    /// Consumes exactly one WiFi passphrase into the bounded NXP WPA2-PSK/CCMP
+    /// supplicant command. It exposes no passphrase slice to the caller.
+    pub fn into_wpa2_psk_ccmp_pmk_set(
+        self,
+        seq: u16,
+        bssid: [u8; 6],
+        ssid: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, SecretConsumerError> {
+        if self.kind != SecretKind::WifiPassphrase {
+            return Err(SecretConsumerError::WrongKind {
+                expected: SecretKind::WifiPassphrase,
+                actual: self.kind,
+            });
+        }
+        crate::marvell_wifi_supplicant::build_supplicant_pmk_set(
+            seq,
+            bssid,
+            ssid,
+            self.as_bytes(),
+            out,
+        )
+        .map_err(SecretConsumerError::WifiCommand)
+    }
+
+    /// Consumes exactly one provider key into the V1 direct-OpenAI
+    /// authorization header. The writer receives only the protocol bytes;
+    /// this API never returns a key slice, length, buffer, or callback.
+    pub fn into_openai_authorization_header<W: Write>(
+        self,
+        writer: &mut W,
+    ) -> Result<(), SecretConsumerError> {
+        if self.kind != SecretKind::ProviderApiKey {
+            return Err(SecretConsumerError::WrongKind {
+                expected: SecretKind::ProviderApiKey,
+                actual: self.kind,
+            });
+        }
+        writer
+            .write_all(b"Authorization: Bearer ")
+            .and_then(|()| writer.write_all(self.as_bytes()))
+            .and_then(|()| writer.write_all(b"\r\n"))
+            .map_err(|_| SecretConsumerError::OpenAiAuthorizationWriteFailed)
     }
 }
 
@@ -827,6 +888,56 @@ mod tests {
         let mut source = [0u8; MAX_SECRET_LEN];
         source[..value.len()].copy_from_slice(value);
         SecretPlaintext::take_from(kind, &mut source[..value.len()]).unwrap()
+    }
+
+    #[test]
+    fn named_wifi_consumer_writes_only_the_pinned_supplicant_command() {
+        let mut from_secret = [0u8; 160];
+        let mut direct = [0u8; 160];
+        let expected = crate::marvell_wifi_supplicant::build_supplicant_pmk_set(
+            9,
+            [0x02, 0x11, 0x22, 0x33, 0x44, 0x55],
+            b"TestNetwork",
+            b"test-passphrase",
+            &mut direct,
+        )
+        .unwrap();
+        let actual = plaintext(SecretKind::WifiPassphrase, b"test-passphrase")
+            .into_wpa2_psk_ccmp_pmk_set(
+                9,
+                [0x02, 0x11, 0x22, 0x33, 0x44, 0x55],
+                b"TestNetwork",
+                &mut from_secret,
+            )
+            .unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(&from_secret[..actual], &direct[..expected]);
+    }
+
+    #[test]
+    fn named_openai_consumer_never_exposes_a_key_or_writes_for_the_wrong_kind() {
+        let mut bytes = [0u8; 64];
+        let initial_len = bytes.len();
+        let mut writer = &mut bytes[..];
+        assert_eq!(
+            plaintext(SecretKind::WifiPassphrase, b"test-passphrase")
+                .into_openai_authorization_header(&mut writer),
+            Err(SecretConsumerError::WrongKind {
+                expected: SecretKind::ProviderApiKey,
+                actual: SecretKind::WifiPassphrase,
+            })
+        );
+        assert_eq!(writer.len(), initial_len);
+
+        let mut writer = &mut bytes[..];
+        plaintext(SecretKind::ProviderApiKey, b"test-provider-key")
+            .into_openai_authorization_header(&mut writer)
+            .unwrap();
+        let written = initial_len - writer.len();
+        assert_eq!(
+            &bytes[..written],
+            b"Authorization: Bearer test-provider-key\r\n"
+        );
     }
 
     fn encrypted_wifi() -> (VaultMasterKey, SecretEnvelopeV1, SecretBinding) {

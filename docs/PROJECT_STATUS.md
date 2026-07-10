@@ -24,15 +24,29 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (I3/G5.4 Secret-Vault Broker join): perform the separate
-full-diff trust review of C4 plus the existing WiFi/provider consumers, then wire
-only the named identity-bound Vault set/unlock and purpose-bound plaintext leases
-through the scoped broker. Preserve the existing durable-store identity/rollback
-chain; do not expose plaintext to ShellHost/Wasm, add generic secret access,
-provider auto-load, broad mutation, or physical-target support. Disk 2 is unplugged;
-do not write a physical disk. The separate bare-metal WiFi proof remains pending for
-the owner's return: capture `LINK`, association/AID, `PORT_RELEASE`, RX/TX, and DHCP
-evidence before provider access is claimed.
+Current exact next task (I3/G5.4 Secret-Vault authority join): retain the now-green
+complete-history Broker foundation, then add only the missing authoritative runtime
+inputs: a real current-core policy binding and durable per-use audit evidence before
+unlock/decrypt can become positive. After those inputs exist, replace the two legacy
+RAM-copy consumers and wire the trusted Genesis overlay. Preserve the existing
+durable-store identity/rollback chain; do not expose plaintext to ShellHost/Wasm,
+add generic secret access, provider auto-load, broad mutation, or physical-target
+support. Disk 2 is unplugged; do not write a physical disk. The separate bare-metal
+WiFi proof remains pending: capture `LINK`, association/AID, `PORT_RELEASE`, RX/TX,
+and DHCP evidence before provider access is claimed.
+
+I3 complete-history Broker foundation verified (2026-07-10) - a kernel composition
+agent can now obtain the complete ordered list of committed records from the same
+identity-revalidated structured-store replay, and the Vault Broker accepts writes
+only with that opaque history/nonce proof. Its two one-use leases can produce only
+the bounded NXP WPA2 command or exact OpenAI Authorization header; neither returns a
+secret slice, length, `Vec`, string, callback, debug value, or Wasm import. A separate
+security review blocked and repaired caller-forgeable use/mutation flags, evidence
+normalization, incomplete replay and nonce-completeness claims before runtime wiring.
+`cargo test --locked -p raios-core` passed 396/396, the release kernel built, focused
+`release/vm-reports/shadow-20260710-132631-20352.json` passed 9/9, and the secret scan
+found no OpenAI-key-like values. This remains unarmed: no runtime core-policy source
+or WiFi use-audit binding exists yet, so recovery unlock and secret use stay denied.
 
 VM failure classification (2026-07-10, G4 first Genesis UI profile) - report
 `release/vm-reports/shadow-20260710-123636-21624.json` failed predicate
