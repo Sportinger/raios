@@ -54,7 +54,7 @@ const PROOF_PAYLOAD: &[u8] = b"C1 durable structured-store proof";
 static C1_DMA_BUFFER: Mutex<AhciSectorBuffer> = Mutex::new(AhciSectorBuffer::zeroed());
 
 #[derive(Debug)]
-enum C1Error {
+pub(crate) enum DisposableQemuStoreDenied {
     Device(&'static str),
     Port(PortDenied<&'static str>),
     Core(raios_core::structured_store::StoreDenied),
@@ -63,7 +63,7 @@ enum C1Error {
     Bounds,
 }
 
-impl From<PortDenied<&'static str>> for C1Error {
+impl From<PortDenied<&'static str>> for DisposableQemuStoreDenied {
     fn from(value: PortDenied<&'static str>) -> Self {
         Self::Port(value)
     }
@@ -72,15 +72,9 @@ impl From<PortDenied<&'static str>> for C1Error {
 /// Runs only when the harness has attached the frozen test disk. An absent
 /// controller or port is ordinary normal-boot state and emits nothing.
 pub(crate) fn run_disposable_qemu_boot_probe() {
-    let Ok(controller) = pci::exact_ahci_controller(QEMU_AHCI_BDF) else {
-        return;
-    };
-    let Ok(inner) = AhciExplicitAtaPort::open(controller, QEMU_AHCI_PORT) else {
-        return;
-    };
-
-    let mut port = match C1Port::open(inner) {
-        Ok(port) => port,
+    let mut port = match open_disposable_qemu_store_port() {
+        Ok(Some(port)) => port,
+        Ok(None) => return,
         Err(error) => {
             serial::write_fmt(format_args!("C1_STRUCTURED_STORE_DENIED: {:?}\r\n", error));
             return;
@@ -93,10 +87,15 @@ pub(crate) fn run_disposable_qemu_boot_probe() {
     }
 }
 
-fn run_fixture(port: &mut C1Port) -> Result<(), C1Error> {
+fn run_fixture(port: &mut DisposableQemuStorePort) -> Result<(), DisposableQemuStoreDenied> {
     let identity = port.identity;
-    let snapshot_len = usize::try_from(identity.geometry.log_byte_len().map_err(C1Error::Core)?)
-        .map_err(|_| C1Error::Bounds)?;
+    let snapshot_len = usize::try_from(
+        identity
+            .geometry
+            .log_byte_len()
+            .map_err(DisposableQemuStoreDenied::Core)?,
+    )
+    .map_err(|_| DisposableQemuStoreDenied::Bounds)?;
     let mut snapshot = vec![0u8; snapshot_len];
 
     let replay = match open_and_replay(port, identity, &mut snapshot) {
@@ -110,7 +109,11 @@ fn run_fixture(port: &mut C1Port) -> Result<(), C1Error> {
         Err(error) => return Err(error.into()),
     };
 
-    if replay.record(PROOF_KEY).map_err(C1Error::Core)?.is_some() {
+    if replay
+        .record(PROOF_KEY)
+        .map_err(DisposableQemuStoreDenied::Core)?
+        .is_some()
+    {
         serial::write_line("C1_STRUCTURED_STORE_REBOOT_REPLAY_OK");
         return Ok(());
     }
@@ -124,26 +127,40 @@ fn run_fixture(port: &mut C1Port) -> Result<(), C1Error> {
             expected_committed_version: None,
         },
         PROOF_PAYLOAD,
-        identity.geometry.log_byte_len().map_err(C1Error::Core)?,
+        identity
+            .geometry
+            .log_byte_len()
+            .map_err(DisposableQemuStoreDenied::Core)?,
     )
-    .map_err(C1Error::Core)?;
+    .map_err(DisposableQemuStoreDenied::Core)?;
     let replay = append_with_readback(port, identity, &plan, &mut snapshot)?;
-    if replay.record(PROOF_KEY).map_err(C1Error::Core)?.is_none() {
-        return Err(C1Error::Bounds);
+    if replay
+        .record(PROOF_KEY)
+        .map_err(DisposableQemuStoreDenied::Core)?
+        .is_none()
+    {
+        return Err(DisposableQemuStoreDenied::Bounds);
     }
     serial::write_line("C1_STRUCTURED_STORE_APPEND_FLUSH_READBACK_OK");
     Ok(())
 }
 
-struct C1Port {
+/// A bounded I/O handle for the one disposable QEMU C1 fixture. It can be
+/// opened only at the exact Q35 controller/port/GPT identity; it has no path
+/// to enumerate, select, or fall back to physical media.
+pub(crate) struct DisposableQemuStorePort {
     inner: AhciExplicitAtaPort,
     identity: ValidatedRegionIdentity,
 }
 
-impl C1Port {
-    fn open(inner: AhciExplicitAtaPort) -> Result<Self, C1Error> {
+impl DisposableQemuStorePort {
+    fn open(inner: AhciExplicitAtaPort) -> Result<Self, DisposableQemuStoreDenied> {
         let identity = establish_identity(inner)?;
         Ok(Self { inner, identity })
+    }
+
+    pub(crate) const fn identity(&self) -> ValidatedRegionIdentity {
+        self.identity
     }
 
     fn lba(&self, relative: u64) -> Result<u64, &'static str> {
@@ -175,7 +192,7 @@ impl C1Port {
     }
 }
 
-impl ValidatedStoreRegionPort for C1Port {
+impl ValidatedStoreRegionPort for DisposableQemuStorePort {
     type Error = &'static str;
 
     fn revalidate_identity(&mut self) -> Result<ValidatedRegionIdentity, Self::Error> {
@@ -243,12 +260,33 @@ impl ValidatedStoreRegionPort for C1Port {
     }
 }
 
-fn establish_identity(inner: AhciExplicitAtaPort) -> Result<ValidatedRegionIdentity, C1Error> {
+/// Returns `Ok(None)` only when the explicitly-addressed disposable fixture is
+/// absent. A present but foreign/malformed fixture is denied; physical media
+/// is never selected or used as a fallback.
+pub(crate) fn open_disposable_qemu_store_port(
+) -> Result<Option<DisposableQemuStorePort>, DisposableQemuStoreDenied> {
+    let Ok(controller) = pci::exact_ahci_controller(QEMU_AHCI_BDF) else {
+        return Ok(None);
+    };
+    let Ok(inner) = AhciExplicitAtaPort::open(controller, QEMU_AHCI_PORT) else {
+        return Ok(None);
+    };
+    DisposableQemuStorePort::open(inner).map(Some)
+}
+
+fn establish_identity(
+    inner: AhciExplicitAtaPort,
+) -> Result<ValidatedRegionIdentity, DisposableQemuStoreDenied> {
     if inner.port_index() != QEMU_AHCI_PORT {
-        return Err(C1Error::Bounds);
+        return Err(DisposableQemuStoreDenied::Bounds);
     }
-    let device = unsafe { inner.identify().map_err(C1Error::Device)? };
-    let total_lbas = device_sector_count(device).ok_or(C1Error::InvalidDeviceGeometry)?;
+    let device = unsafe {
+        inner
+            .identify()
+            .map_err(DisposableQemuStoreDenied::Device)?
+    };
+    let total_lbas =
+        device_sector_count(device).ok_or(DisposableQemuStoreDenied::InvalidDeviceGeometry)?;
     let mut mbr = [0u8; SECTOR_BYTES];
     read_sector_copy(inner, 0, &mut mbr)?;
     let mut primary_header = [0u8; SECTOR_BYTES];
@@ -257,10 +295,10 @@ fn establish_identity(inner: AhciExplicitAtaPort) -> Result<ValidatedRegionIdent
     read_entry_array(inner, 2, &mut primary_entries)?;
     let backup_header_lba = total_lbas
         .checked_sub(1)
-        .ok_or(C1Error::InvalidDeviceGeometry)?;
+        .ok_or(DisposableQemuStoreDenied::InvalidDeviceGeometry)?;
     let backup_entries_lba = backup_header_lba
         .checked_sub((GPT_ENTRY_ARRAY_BYTES / SECTOR_BYTES) as u64)
-        .ok_or(C1Error::InvalidDeviceGeometry)?;
+        .ok_or(DisposableQemuStoreDenied::InvalidDeviceGeometry)?;
     let mut backup_header = [0u8; SECTOR_BYTES];
     read_sector_copy(inner, backup_header_lba, &mut backup_header)?;
     let mut backup_entries = [0u8; GPT_ENTRY_ARRAY_BYTES];
@@ -277,8 +315,11 @@ fn establish_identity(inner: AhciExplicitAtaPort) -> Result<ValidatedRegionIdent
             partition_guid: QEMU_PARTITION_GUID_LE,
         },
     )
-    .map_err(C1Error::Gpt)?;
-    let log_lba_count = partition.lba_count.checked_sub(2).ok_or(C1Error::Bounds)?;
+    .map_err(DisposableQemuStoreDenied::Gpt)?;
+    let log_lba_count = partition
+        .lba_count
+        .checked_sub(2)
+        .ok_or(DisposableQemuStoreDenied::Bounds)?;
     let geometry = StoreGeometry {
         partition_start_lba: partition.first_lba,
         partition_lba_count: partition.lba_count,
@@ -286,7 +327,9 @@ fn establish_identity(inner: AhciExplicitAtaPort) -> Result<ValidatedRegionIdent
         log_lba_count,
         logical_sector_size: SECTOR_BYTES as u32,
     };
-    geometry.validate().map_err(C1Error::Core)?;
+    geometry
+        .validate()
+        .map_err(DisposableQemuStoreDenied::Core)?;
     Ok(ValidatedRegionIdentity {
         pci_segment: 0,
         pci_bus: QEMU_AHCI_BDF.bus,
@@ -307,12 +350,12 @@ fn read_sector_copy(
     inner: AhciExplicitAtaPort,
     lba: u64,
     out: &mut [u8; SECTOR_BYTES],
-) -> Result<(), C1Error> {
+) -> Result<(), DisposableQemuStoreDenied> {
     let mut sector = C1_DMA_BUFFER.lock();
     unsafe {
         inner
             .read_sector(lba, &mut sector)
-            .map_err(C1Error::Device)?
+            .map_err(DisposableQemuStoreDenied::Device)?
     };
     out.copy_from_slice(&sector.0);
     Ok(())
@@ -322,14 +365,16 @@ fn read_entry_array(
     inner: AhciExplicitAtaPort,
     first_lba: u64,
     out: &mut [u8; GPT_ENTRY_ARRAY_BYTES],
-) -> Result<(), C1Error> {
+) -> Result<(), DisposableQemuStoreDenied> {
     for index in 0..(GPT_ENTRY_ARRAY_BYTES / SECTOR_BYTES) {
-        let lba = first_lba.checked_add(index as u64).ok_or(C1Error::Bounds)?;
+        let lba = first_lba
+            .checked_add(index as u64)
+            .ok_or(DisposableQemuStoreDenied::Bounds)?;
         let mut sector = C1_DMA_BUFFER.lock();
         unsafe {
             inner
                 .read_sector(lba, &mut sector)
-                .map_err(C1Error::Device)?
+                .map_err(DisposableQemuStoreDenied::Device)?
         };
         let start = index * SECTOR_BYTES;
         out[start..start + SECTOR_BYTES].copy_from_slice(&sector.0);
@@ -364,15 +409,15 @@ fn device_identity_sha256(device: AhciBlockDeviceIdentity) -> [u8; 32] {
     out
 }
 
-fn c1_error_reason(error: C1Error) -> &'static str {
+fn c1_error_reason(error: DisposableQemuStoreDenied) -> &'static str {
     match error {
-        C1Error::Device(reason) => reason,
-        C1Error::Port(_) => "c1_structured_store_revalidation_denied",
-        C1Error::Core(_) => "c1_structured_store_revalidation_core_denied",
-        C1Error::Gpt(_) => "c1_structured_store_revalidation_gpt_denied",
-        C1Error::InvalidDeviceGeometry => {
+        DisposableQemuStoreDenied::Device(reason) => reason,
+        DisposableQemuStoreDenied::Port(_) => "c1_structured_store_revalidation_denied",
+        DisposableQemuStoreDenied::Core(_) => "c1_structured_store_revalidation_core_denied",
+        DisposableQemuStoreDenied::Gpt(_) => "c1_structured_store_revalidation_gpt_denied",
+        DisposableQemuStoreDenied::InvalidDeviceGeometry => {
             "c1_structured_store_revalidation_device_geometry_invalid"
         }
-        C1Error::Bounds => "c1_structured_store_revalidation_bounds_denied",
+        DisposableQemuStoreDenied::Bounds => "c1_structured_store_revalidation_bounds_denied",
     }
 }
