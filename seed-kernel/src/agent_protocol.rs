@@ -453,7 +453,7 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("wasm.certwindow_probe", Exact, [], [route!("wasm.certwindow_probe")], MethodAction::Read0(emit_wasm_certwindow_probe)),
     method!("wasm.httphead_probe", Exact, [], [route!("wasm.httphead_probe")], MethodAction::Read0(emit_wasm_httphead_probe)),
     method!("wasm.certspki_probe", Exact, [], [route!("wasm.certspki_probe")], MethodAction::Read0(emit_wasm_certspki_probe)),
-    method!("ui.personal_shell_proof", Exact, [], [route!("ui.personal_shell_proof")], MethodAction::Read0(emit_personal_shell_proof)),
+    method!("ui.personal_shell_proof", Head, [], [route!("ui.personal_shell_proof")], MethodAction::ReadMethod(emit_personal_shell_proof)),
     method!("echo.invoke_fuel_starved", Exact, [], [route!("echo.invoke_fuel_starved")], MethodAction::Read0(echo_service::emit_invoke_fuel_starved)),
     method!("module.submit_candidate_chunk", Head, [], [route!("module.submit_candidate_chunk")], MethodAction::ReadMethod(emit_submit_candidate_chunk)),
     method!("module.submit_candidate_finalize", Exact, [], [route!("module.submit_candidate_finalize")], MethodAction::Read0(emit_submit_candidate_finalize)),

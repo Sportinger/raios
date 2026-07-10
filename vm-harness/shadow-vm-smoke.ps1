@@ -56,6 +56,7 @@ $script:QemuProcessBeforeTeardown = $null
 $script:QemuProcessAfterTeardown = $null
 $script:QemuTeardownAction = "not_started"
 $script:SerialTransportFailure = $null
+$script:VisualEvidence = New-Object System.Collections.Generic.List[object]
 
 . (Join-Path $PSScriptRoot "shadow-vm-smoke-support.ps1")
 
@@ -193,7 +194,7 @@ try {
         )
         $runParams.StructuredStoreDiskPath = $StructuredStoreDiskImage
     }
-    if ($Profile -eq "usb-hotplug") {
+    if ($Profile -eq "usb-hotplug" -or $Profile -eq "genesis-ui") {
         $MonitorTcpPort = $SerialTcpPort + 1000
         $QemuArgList += @(
             "-MonitorTcpPort", "$MonitorTcpPort"

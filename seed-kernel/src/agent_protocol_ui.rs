@@ -5,6 +5,7 @@ use crate::{
         begin_response, emit_record_fields_trailing_comma, end_response, raw_line,
         record_bool as b, record_field as f, record_sha, record_sha_or_null, record_str as s,
     },
+    personal_shell_service::{self, PersonalShellProofMode},
     wasm_runtime::{self, PersonalShellProofCase},
 };
 use raios_core::{
@@ -13,7 +14,8 @@ use raios_core::{
 };
 
 /// Emits bounded current-boot evidence for the checked-in personal-shell proof.
-pub(crate) fn emit_personal_shell_proof() {
+pub(crate) fn emit_personal_shell_proof(method: &str) {
+    let activation = request_personal_shell_activation(method);
     let proof = wasm_runtime::run_personal_shell_proof_probe();
 
     begin_response("ui.personal_shell_proof");
@@ -25,6 +27,9 @@ pub(crate) fn emit_personal_shell_proof() {
             f("classification", s("local_only")),
             f("test_infrastructure", b(true)),
             f("non_default", b(true)),
+            f("activation_mode", s(activation.mode)),
+            f("activation_requested", b(activation.requested)),
+            f("activation_request_reason", s(activation.reason)),
             f("service_id", s(PERSONAL_SHELL_SERVICE_ID)),
             f("trust_tier", s("dev_key_not_owner_sealed")),
             f("owner_sealed", b(false)),
@@ -112,12 +117,55 @@ pub(crate) fn emit_personal_shell_proof() {
             f("authorizes_raw_framebuffer_access", b(false)),
             f("authorizes_broader_mutation", b(false)),
             f("persistent_service_install", b(false)),
-            f("service_inventory_change", s("none")),
+            f(
+                "service_inventory_change",
+                s(if activation.requested {
+                    "pending_current_boot_activation"
+                } else {
+                    "none"
+                }),
+            ),
         ],
         6,
     );
     raw_line("      \"evidence_complete\": true");
     end_response("ui.personal_shell_proof");
+}
+
+struct PersonalShellActivation {
+    mode: &'static str,
+    requested: bool,
+    reason: &'static str,
+}
+
+fn request_personal_shell_activation(method: &str) -> PersonalShellActivation {
+    let suffix = method
+        .strip_prefix("ui.personal_shell_proof")
+        .unwrap_or_default()
+        .trim();
+    let (mode, label) = match suffix {
+        "" => (Some(PersonalShellProofMode::Normal), "normal"),
+        "trap" => (Some(PersonalShellProofMode::Trap), "trap"),
+        "fuel" => (Some(PersonalShellProofMode::FuelExhaustion), "fuel"),
+        _ => (None, "invalid"),
+    };
+    let Some(mode) = mode else {
+        return PersonalShellActivation {
+            mode: label,
+            requested: false,
+            reason: "invalid_bounded_test_mode",
+        };
+    };
+    let requested = personal_shell_service::request_current_boot_proof_start(mode);
+    PersonalShellActivation {
+        mode: label,
+        requested,
+        reason: if requested {
+            "queued_for_core_owned_shell_host"
+        } else {
+            "current_boot_start_already_pending"
+        },
+    }
 }
 
 fn personal_shell_imports() -> V<'static> {

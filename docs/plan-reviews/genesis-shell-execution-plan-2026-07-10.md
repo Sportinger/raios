@@ -23,9 +23,13 @@ provenance, not OTA or runtime authority. I2/G3 is now verified by
 executes in one fresh metered Wasm instance through only the six specified `ui.*`
 imports, with bounded validated display-list return, malformed/trap/fuel negatives,
 and no loader, persistence, secret, network, provider, recovery, or broad mutation
-authority. It remains non-default current-boot test infrastructure; AB/G4 owns
-lifecycle, F12 and crash fallback. I3/G5.4 is independently review-gated. Runtime
-secret authority remains unclaimed until its named integration and evidence land.
+authority. It remains non-default current-boot test infrastructure. **AB/G4 is now
+complete**: `shadow-20260710-124838-24564.json` passed 206/206 with signed entry,
+sanitized input, core-only F12, trap/fuel fallback, dynamic current-boot inventory
+removal, Recovery after fallback, five bound QEMU captures, and a byte-identical
+secure-strip pixel hash across personal rendering. I3/G5.4 is independently
+review-gated. Runtime secret authority remains unclaimed until its named integration
+and evidence land.
 
 Target orchestrator: Codex 5.6, reasoning effort `xhigh`
 

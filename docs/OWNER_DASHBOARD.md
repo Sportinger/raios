@@ -7,9 +7,9 @@ Updated: 2026-07-10.
 
 Current capability: the normal release image boots into calm Genesis with
 Conversation, typed Context, a Composer, RAM-only masked AI/WiFi setup, and an
-openable cached Recovery view. Genesis Recovery can restart or disable the fixed
-demo echo through the same typed Lifeline executor as serial; no second authority
-or visual fallback was added.
+openable cached Recovery view. A deliberate signed proof can enter the bounded
+personal surface, accept sanitized input, leave by F12, and automatically fall back
+to Genesis after trap/fuel; it is not installed as the default shell.
 
 What is still denied: broad USB disk mutation, writes outside `SEED_DATA/RECLOG`,
 durable secret storage, owner-sealed persistence, unsupported WiFi security,
@@ -29,11 +29,11 @@ Owner-key status: RAM boot still creates only a secret RAM-only
 `current_boot` owner-key candidate. Persistent owner seal/install/load/durable
 authority remains denied until the real sealing ceremony.
 
-Genesis status: A0/B0, A1, A2 and I2/G3 are verified. The signed personal-shell
-proof now runs only on its exact six bounded UI imports in a fresh metered Wasm
-instance (`shadow-20260710-121953-4964.json` passed); it remains non-default test
-infrastructure. The release still says Personal shell not created and Vault not
-configured.
+Genesis status: A0/B0, A1, A2, I2/G3 and AB/G4 are verified. The signed proof runs
+only on its exact six bounded UI imports in a fresh metered Wasm instance; F12,
+trap/fuel fallback, dynamic inventory removal, and the byte-identical secure strip
+are proven by `shadow-20260710-124838-24564.json` (206/206, five captures). The
+release still says Personal shell not created and Vault not configured.
 
 Vault/store status: C1 is now proven end-to-end on a fresh dedicated QEMU image:
 exact GPT admission, blank format, dual superblock readback, real ATA flush,
@@ -46,11 +46,10 @@ foundation adds readback-verified keyring restore, typed ciphertext records, and
 complete-history-only nonce reconstruction; no Vault set/unlock/decrypt, plaintext
 lease, WiFi/provider use, audit, or physical-target path is wired.
 
-Latest proof: focused Genesis UI `shadow-20260710-121953-4964.json` passed with
-the signed six-import personal-shell proof, release package, and inspected safe
-no-secret Genesis capture. C1's structured-store QEMU proof remains 9/9. The latest
-quick Shadow VM remains the unchanged `shadow-20260710-024402-2584.json` 542/542
-baseline.
+Latest proof: focused Genesis UI `shadow-20260710-124838-24564.json` passed 206/206
+with signed personal-shell entry/input/F12/trap/fuel evidence and five bound PNG
+captures. C1's structured-store QEMU proof remains 9/9. The latest quick Shadow VM
+remains the unchanged `shadow-20260710-024402-2584.json` 542/542 baseline.
 
 Gate status: latest full profile remains green at
 `shadow-20260708-150428-34396.json` 7867/7867. This slice used its focused
@@ -60,7 +59,6 @@ Latest C4 proof: release build plus focused structured-store regression
 `shadow-20260710-040559-24348.json` passed 9/9 with zero failures; it does not arm
 Vault authority.
 
-Next task: G4 activates the verified proof through one shared current-boot starter,
-adds F12 and trap/fuel fallback to Genesis, and keeps the secure strip above the
-personal frame. The Vault/Broker join remains separately Sol-review-gated. Disk 2
-stays untouched; do not claim provider access or durable secrets before evidence.
+Next task: I3/G5.4 performs the separately gated Vault/Broker review and joins only
+the named durable identity-bound secret paths. Disk 2 stays untouched; do not claim
+provider access or durable secrets before evidence.

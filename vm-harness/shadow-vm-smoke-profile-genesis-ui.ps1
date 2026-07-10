@@ -88,6 +88,7 @@ if (-not $genesisLifelineOk) {
     throw "Expected Genesis recovery to bind the existing recovery lifeline"
 }
 
+$genesisBeforePersonalProof = Save-QemuScreendump -Name "genesis-before-personal-proof"
 Send-AgentCommand -Command "ui.personal_shell_proof" -ExpectedMarker "RAIOS_AGENT_END ui.personal_shell_proof" -Name "genesis-ui:personal-shell-proof"
 $personalShellResponse = Get-LastAgentResponseJson -Method "ui.personal_shell_proof"
 $personalShell = $personalShellResponse.body.result
@@ -106,6 +107,9 @@ $personalShellProofOk = (
     $personalShell.classification -eq "local_only" -and
     $personalShell.test_infrastructure -eq $true -and
     $personalShell.non_default -eq $true -and
+    $personalShell.activation_mode -eq "normal" -and
+    $personalShell.activation_requested -eq $true -and
+    $personalShell.activation_request_reason -eq "queued_for_core_owned_shell_host" -and
     $personalShell.service_id -eq "svc.user.shell" -and
     $personalShell.trust_tier -eq "dev_key_not_owner_sealed" -and
     $personalShell.owner_sealed -eq $false -and
@@ -148,10 +152,95 @@ $personalShellProofOk = (
     $personalShell.authorizes_raw_framebuffer_access -eq $false -and
     $personalShell.authorizes_broader_mutation -eq $false -and
     $personalShell.persistent_service_install -eq $false -and
-    $personalShell.service_inventory_change -eq "none" -and
+    $personalShell.service_inventory_change -eq "pending_current_boot_activation" -and
     $personalShell.evidence_complete -eq $true
 )
 Add-Predicate -Name "genesis-ui:personal-shell-proof" -Expected "the signed current-boot personal shell renders through only six UI imports, rejects malformed/broader paths, and grants no broader authority" -Passed $personalShellProofOk -Actual $(if ($personalShellProofOk) { "artifact=$($personalShell.artifact_sha256) imports=$($personalShell.authorized_import_count)" } else { ($personalShell | ConvertTo-Json -Compress -Depth 6) })
 if (-not $personalShellProofOk) {
     throw "Expected the signed bounded personal-shell proof path to hold every I2 boundary"
 }
+
+Assert-LogContains -Name "genesis-ui:personal-shell-active" -Needle "PERSONAL SHELL ACTIVE current_boot proof" -TimeoutSeconds $TimeoutSeconds
+Start-Sleep -Milliseconds 300
+Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "genesis-ui:personal-shell-inventory"
+$personalShellInventoryResponse = Get-LastAgentResponseJson -Method "service.inventory"
+$personalShellInventory = @($personalShellInventoryResponse.body.result.services | Where-Object { $_.id -eq "svc.user.shell" })
+$personalShellInventoryOk = (
+    $personalShellInventory.Count -eq 1 -and
+    $personalShellInventory[0].kind -eq "service" -and
+    $personalShellInventory[0].scope -eq "current_boot" -and
+    $personalShellInventory[0].persistence -eq "none" -and
+    $personalShellInventory[0].trust_tier -eq "dev_key_not_owner_sealed" -and
+    $personalShellInventory[0].owner_sealed -eq $false -and
+    $personalShellInventory[0].host_import_count -eq 6 -and
+    $personalShellInventory[0].running -eq $true
+)
+Add-Predicate -Name "genesis-ui:personal-shell-dynamic-inventory" -Expected "svc.user.shell appears only as a running current-boot signed proof service" -Passed $personalShellInventoryOk -Actual $(if ($personalShellInventoryOk) { "current_boot running" } else { ($personalShellInventory | ConvertTo-Json -Compress -Depth 6) })
+if (-not $personalShellInventoryOk) {
+    throw "Expected the running personal proof to be the only dynamic svc.user.shell inventory row"
+}
+
+$personalProofActive = Save-QemuScreendump -Name "personal-proof-active"
+Send-QemuMonitorCommand -Command "sendkey a" | Out-Null
+Assert-LogContains -Name "genesis-ui:personal-shell-sanitized-input" -Needle "PERSONAL SHELL FRAME UPDATED sanitized_input" -TimeoutSeconds $TimeoutSeconds
+Start-Sleep -Milliseconds 300
+$personalProofAfterInput = Save-QemuScreendump -Name "personal-proof-after-input"
+$personalSecureStripOk = (
+    $genesisBeforePersonalProof.secure_strip_sha256 -eq $personalProofActive.secure_strip_sha256 -and
+    $personalProofActive.secure_strip_sha256 -eq $personalProofAfterInput.secure_strip_sha256
+)
+Add-Predicate -Name "genesis-ui:personal-shell-cannot-overdraw-secure-strip" -Expected "Genesis secure strip pixels stay byte-identical before, during and after personal-shell input" -Passed $personalSecureStripOk -Actual $(if ($personalSecureStripOk) { $personalProofActive.secure_strip_sha256 } else { "before=$($genesisBeforePersonalProof.secure_strip_sha256) active=$($personalProofActive.secure_strip_sha256) input=$($personalProofAfterInput.secure_strip_sha256)" })
+if (-not $personalSecureStripOk) {
+    throw "Expected the personal frame to leave Genesis secure-strip pixels unchanged"
+}
+
+Send-QemuMonitorCommand -Command "sendkey f12" | Out-Null
+Assert-LogContains -Name "genesis-ui:personal-shell-f12-exit" -Needle "PERSONAL SHELL EXIT F12 genesis" -TimeoutSeconds $TimeoutSeconds
+Start-Sleep -Milliseconds 300
+Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "genesis-ui:personal-shell-f12-inventory"
+$afterF12Inventory = Get-LastAgentResponseJson -Method "service.inventory"
+$afterF12Personal = @($afterF12Inventory.body.result.services | Where-Object { $_.id -eq "svc.user.shell" })
+$afterF12Genesis = @($afterF12Inventory.body.result.services | Where-Object { $_.id -eq "core.ui.genesis" })
+$afterF12Ok = $afterF12Personal.Count -eq 0 -and $afterF12Genesis.Count -eq 1 -and $afterF12Genesis[0].core_owned -eq $true -and $afterF12Genesis[0].replaceable -eq $false
+Add-Predicate -Name "genesis-ui:personal-shell-f12-removes-dynamic-inventory" -Expected "F12 returns to core Genesis and removes the current-boot personal row" -Passed $afterF12Ok -Actual $(if ($afterF12Ok) { "core.ui.genesis only" } else { ($afterF12Inventory.body.result.services | ConvertTo-Json -Compress -Depth 5) })
+if (-not $afterF12Ok) {
+    throw "Expected F12 to restore Genesis without a personal service inventory row"
+}
+Save-QemuScreendump -Name "genesis-after-f12" | Out-Null
+
+Send-AgentCommand -Command "ui.personal_shell_proof trap" -ExpectedMarker "RAIOS_AGENT_END ui.personal_shell_proof" -Name "genesis-ui:personal-shell-trap-request"
+$personalTrapResponse = Get-LastAgentResponseJson -Method "ui.personal_shell_proof"
+$personalTrap = $personalTrapResponse.body.result
+$personalTrapRequestOk = $personalTrap.activation_mode -eq "trap" -and $personalTrap.activation_requested -eq $true -and $personalTrap.activation_request_reason -eq "queued_for_core_owned_shell_host"
+Add-Predicate -Name "genesis-ui:personal-shell-trap-request-bounded" -Expected "only the named built-in trap proof mode is queued; no raw packet input is accepted" -Passed $personalTrapRequestOk -Actual $(if ($personalTrapRequestOk) { "trap queued" } else { ($personalTrap | ConvertTo-Json -Compress -Depth 5) })
+if (-not $personalTrapRequestOk) {
+    throw "Expected the typed built-in trap mode to queue exactly once"
+}
+Assert-LogContains -Name "genesis-ui:personal-shell-trap-fallback" -Needle "PERSONAL SHELL FALLBACK trap" -TimeoutSeconds $TimeoutSeconds
+
+Send-AgentCommand -Command "ui.personal_shell_proof fuel" -ExpectedMarker "RAIOS_AGENT_END ui.personal_shell_proof" -Name "genesis-ui:personal-shell-fuel-request"
+$personalFuelResponse = Get-LastAgentResponseJson -Method "ui.personal_shell_proof"
+$personalFuel = $personalFuelResponse.body.result
+$personalFuelRequestOk = $personalFuel.activation_mode -eq "fuel" -and $personalFuel.activation_requested -eq $true -and $personalFuel.activation_request_reason -eq "queued_for_core_owned_shell_host"
+Add-Predicate -Name "genesis-ui:personal-shell-fuel-request-bounded" -Expected "only the named built-in fuel proof mode is queued; no raw packet input is accepted" -Passed $personalFuelRequestOk -Actual $(if ($personalFuelRequestOk) { "fuel queued" } else { ($personalFuel | ConvertTo-Json -Compress -Depth 5) })
+if (-not $personalFuelRequestOk) {
+    throw "Expected the typed built-in fuel mode to queue exactly once"
+}
+Assert-LogContains -Name "genesis-ui:personal-shell-fuel-fallback" -Needle "PERSONAL SHELL FALLBACK fuel_exhausted" -TimeoutSeconds $TimeoutSeconds
+Start-Sleep -Milliseconds 300
+Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "genesis-ui:personal-shell-fallback-inventory"
+$fallbackInventory = Get-LastAgentResponseJson -Method "service.inventory"
+$fallbackPersonal = @($fallbackInventory.body.result.services | Where-Object { $_.id -eq "svc.user.shell" })
+$fallbackInventoryOk = $fallbackPersonal.Count -eq 0
+Add-Predicate -Name "genesis-ui:personal-shell-fallback-removes-dynamic-inventory" -Expected "trap and fuel fallback leave no personal current-boot inventory row" -Passed $fallbackInventoryOk -Actual $(if ($fallbackInventoryOk) { "absent" } else { ($fallbackPersonal | ConvertTo-Json -Compress -Depth 5) })
+if (-not $fallbackInventoryOk) {
+    throw "Expected trap/fuel fallback to remove the personal inventory row"
+}
+Send-AgentCommand -Command "agent recovery.snapshot" -ExpectedMarker "RAIOS_AGENT_END recovery.snapshot" -Name "genesis-ui:recovery-after-personal-fallback"
+$recoveryAfterFallback = Get-LastAgentResponseJson -Method "recovery.snapshot"
+$recoveryAfterFallbackOk = $recoveryAfterFallback.body.result.schema -eq "raios.recovery_snapshot.v0" -and $recoveryAfterFallback.body.result.lifeline_available -eq $true -and $recoveryAfterFallback.body.result.mutates_state -eq $false
+Add-Predicate -Name "genesis-ui:recovery-callable-after-personal-fallback" -Expected "Genesis recovery remains the core-owned read-only lifeline after personal trap/fuel fallback" -Passed $recoveryAfterFallbackOk -Actual $(if ($recoveryAfterFallbackOk) { "lifeline available" } else { ($recoveryAfterFallback.body.result | ConvertTo-Json -Compress -Depth 5) })
+if (-not $recoveryAfterFallbackOk) {
+    throw "Expected Recovery to remain callable after the personal-shell fallback"
+}
+Save-QemuScreendump -Name "genesis-after-personal-fallback" | Out-Null

@@ -376,7 +376,9 @@ impl PeriodicTasks {
         runtime_status: &mut system_status::RuntimeStatus,
     ) {
         self.console.try_run(now_tsc, || {
-            if console::poll(*runtime_status) {
+            if console::poll(*runtime_status, |event| {
+                status_ui.handle_input_event(event, *runtime_status)
+            }) {
                 status_ui.render_forced(uptime_ms(), *runtime_status);
             }
         });

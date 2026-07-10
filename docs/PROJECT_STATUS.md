@@ -24,19 +24,25 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (AB/G4 personal-shell lifecycle): activate the now-verified
-signed `svc.user.shell` proof only through one shared typed diagnostic starter,
-then let Genesis enter it, route one sanitized input event, intercept F12 before
-guest delivery, and fall back to Genesis after a trap or fuel failure. Keep the
-secure strip core-owned and rendered after every personal frame; the proof remains
-non-default/current-boot test infrastructure and the release must still say
-`Personal shell: not created`. Only dynamic inventory may show it while a real
-instance is active. C4/I3 may not gain Vault set, unlock, decrypt, plaintext-use,
-WiFi/provider use, audit, physical-target, or durable-credential authority before
-its separate Sol review and named join. Disk 2 is unplugged; do not write a
-physical disk. The separate bare-metal WiFi proof remains pending for the owner's
-return: capture `LINK`, association/AID, `PORT_RELEASE`, RX/TX, and DHCP evidence
-before provider access is claimed.
+Current exact next task (I3/G5.4 Secret-Vault Broker join): perform the separate
+full-diff trust review of C4 plus the existing WiFi/provider consumers, then wire
+only the named identity-bound Vault set/unlock and purpose-bound plaintext leases
+through the scoped broker. Preserve the existing durable-store identity/rollback
+chain; do not expose plaintext to ShellHost/Wasm, add generic secret access,
+provider auto-load, broad mutation, or physical-target support. Disk 2 is unplugged;
+do not write a physical disk. The separate bare-metal WiFi proof remains pending for
+the owner's return: capture `LINK`, association/AID, `PORT_RELEASE`, RX/TX, and DHCP
+evidence before provider access is claimed.
+
+VM failure classification (2026-07-10, G4 first Genesis UI profile) - report
+`release/vm-reports/shadow-20260710-123636-21624.json` failed predicate
+`genesis-ui:personal-shell-f12-exit` with `serial_transport_failure:null`.
+Verdict: `guest-behavior` - QEMU delivered the USB keyboard event (the serial log
+records the input batch), but `usb::hid_usage_to_keycode` did not map HID usage
+`0x45` (F12) into the existing internal F12 keycode, so the core-only secure-
+attention event was never created. The bounded repair is one exact USB-HID F12
+mapping to keycode 88; do not forward raw F12 to the console or guest and do not
+weaken the F12/fallback predicates before the focused retry.
 
 VM failure classification (2026-07-10, I2 first Genesis UI profile) - report
 `release/vm-reports/shadow-20260710-120551-14196.json` failed predicate
@@ -57,6 +63,23 @@ grant, and both evaluator denials were positive, but all six real proof calls
 returned `instantiation_failed` before consuming fuel. The next repair must retain
 and classify the concrete Wasmi link/instantiation error; do not weaken the proof
 predicate or retry before that exact boundary is diagnosed.
+
+AB/G4 personal-shell lifecycle completed (2026-07-10) - a user or diagnostic can
+now deliberately queue the checked-in signed proof, see it in the core-owned
+personal surface, deliver one sanitized input event, press F12 to return to
+Genesis, and recover automatically after its fixed trap or fuel test mode. ShellHost
+owns the bounded validated frame/focus state; a fresh Wasm invocation remains in the
+service adapter. Raw F12 is never delivered to the guest: both PS/2 keycode 88 and
+USB HID usage `0x45` map to core-only secure attention. `svc.user.shell` appears in
+`service.inventory` only while the proof is actively running with `current_boot`,
+`none` persistence and the six exact UI imports; it disappears after F12/trap/fuel.
+The old framebuffer fiction is replaced by core-owned `core.ui.genesis`. Verified:
+focused `release/vm-reports/shadow-20260710-124838-24564.json` passed 206/206,
+including trap/fuel fallback, Recovery after fallback, and five QEMU PNG captures.
+The secure-strip pixel hash was byte-identical before activation, during the personal
+frame, and after sanitized input. The normal release remains Genesis with
+`Personal shell: not created`; no arbitrary shell, secret, network, provider,
+recovery, persistence, or broad mutation authority was opened.
 
 I2/G3 signed personal-shell authority completed (2026-07-10) - an agent can now
 run exactly the checked-in, explicitly signed `svc.user.shell` Wasm proof in a

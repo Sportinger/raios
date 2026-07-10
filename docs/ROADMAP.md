@@ -84,9 +84,12 @@ runtime authority. **I2/G3 is now verified**: the signed `svc.user.shell` proof
 runs in a fresh metered Wasm instance through only its six listed `ui.*` imports;
 focused `shadow-20260710-121953-4964.json` passed. It is current-boot test
 infrastructure only: no general loader, external artifact intake, secret, network,
-provider, recovery, persistence, or mutation authority is open. The next Genesis
-join is AB/G4 lifecycle/F12/trap fallback; I3/G5.4 remains independently
-review-gated.
+provider, recovery, persistence, or mutation authority is open. The Genesis
+AB/G4 join is now verified by `shadow-20260710-124838-24564.json` (206/206): the
+non-default proof enters the clipped core-owned surface, accepts sanitized input,
+leaves through core-only F12, falls back after trap/fuel, and never changes the
+secure-strip pixels. Its current-boot inventory row exists only while active. I3/G5.4
+remains independently review-gated.
 
 **M11 Kernel Slimming progress (all grants-nothing / strictly-more-restrictive,
 committed):** M11-1 kernel internet-parsing SURFACE baseline (the measurably-

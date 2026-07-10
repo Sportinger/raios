@@ -987,7 +987,13 @@ pub fn init() {
     write_output(format_args!("SERIAL CONSOLE READY"));
 }
 
-pub fn poll(runtime: ui::RuntimeStatus) -> bool {
+/// Polls serial plus physical input. The caller receives each physical event
+/// first so the core-owned shell can consume secure attention or route input
+/// to an active bounded personal surface before console text handling.
+pub fn poll<F>(runtime: ui::RuntimeStatus, mut route_input: F) -> bool
+where
+    F: FnMut(input::InputEvent) -> bool,
+{
     let mut changed = false;
     let mut processed = 0usize;
 
@@ -1000,8 +1006,12 @@ pub fn poll(runtime: ui::RuntimeStatus) -> bool {
         processed += 1;
     }
 
-    input::drain_console_input(|input| {
-        changed |= process_input(input, runtime);
+    input::drain(|event| {
+        if route_input(event) {
+            changed = true;
+        } else if let Some(input) = input::event_to_console_input(event) {
+            changed |= process_input(input, runtime);
+        }
     });
 
     changed

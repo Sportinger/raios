@@ -7,8 +7,8 @@ use crate::{
         json_sha256_option, json_str, raw, raw_bool, raw_fmt, raw_line, record_bool as b,
         record_field as f, record_str as s,
     },
-    ahci, echo_service, granted_candidate_service, hello_service, pci, provider, serial,
-    service_inventory, system_problem_facts, system_status,
+    ahci, echo_service, granted_candidate_service, hello_service, pci, personal_shell_service,
+    provider, serial, service_inventory, system_problem_facts, system_status,
     system_status::{RowState, SystemSnapshot},
     ui, wifi,
 };
@@ -466,6 +466,17 @@ pub(crate) const READ_METHODS: &[&str] = &[
     "recovery.load_binding_selftest",
 ];
 
+/// Typed numeric Context fact for the bounded personal-shell packet. It exposes
+/// no capability detail and grants nothing; the full capability record remains
+/// available only through the existing protocol methods.
+pub(crate) fn denied_capability_count() -> u16 {
+    CAPABILITIES
+        .iter()
+        .filter(|capability| !capability.granted)
+        .count()
+        .min(u16::MAX as usize) as u16
+}
+
 pub(crate) const DENIED_METHODS: &[&str] = &[
     "memory.record_observation",
     "memory.propose_policy",
@@ -703,6 +714,7 @@ pub(crate) fn emit_service_inventory(runtime: ui::RuntimeStatus) {
     let hello = hello_service::loaded_snapshot();
     let echo = echo_service::loaded_snapshot();
     let granted = granted_candidate_service::loaded_snapshot();
+    let personal = personal_shell_service::lifecycle_snapshot();
     begin_response("service.inventory");
     raw_line("      \"schema\": \"service.inventory.v0\",");
     raw_line("      \"services\": [");
@@ -734,11 +746,18 @@ pub(crate) fn emit_service_inventory(runtime: ui::RuntimeStatus) {
             || hello.is_some()
             || echo.is_some()
             || granted.is_some()
+            || personal.running
         {
             raw(",");
         }
         crlf();
         idx += 1;
+    }
+    if personal.running {
+        emit_personal_shell_service_inventory(
+            personal,
+            echo.is_some() || granted.is_some() || hello.is_some(),
+        );
     }
     if let Some(echo) = echo {
         emit_echo_service_inventory(echo, hello.is_some() || granted.is_some());
@@ -751,6 +770,37 @@ pub(crate) fn emit_service_inventory(runtime: ui::RuntimeStatus) {
     }
     raw_line("      ]");
     end_response("service.inventory");
+}
+
+fn emit_personal_shell_service_inventory(
+    personal: personal_shell_service::PersonalShellLifecycleSnapshot,
+    comma: bool,
+) {
+    indent(8);
+    raw("{");
+    raw("\"id\": \"svc.user.shell\"");
+    raw(", \"kind\": \"service\"");
+    raw(", \"health\": \"healthy\"");
+    raw(", \"replaceable\": true");
+    raw(", \"core_owned\": false");
+    raw(", \"last_error\": null");
+    raw(", \"scope\": \"current_boot\"");
+    raw(", \"persistence\": \"none\"");
+    raw(", \"trust_tier\": \"dev_key_not_owner_sealed\"");
+    raw(", \"owner_sealed\": false");
+    raw(", \"artifact_id\": \"wasm:svc.user.shell\"");
+    raw(", \"entrypoint\": \"raios_service_main\"");
+    raw(", \"capability_envelope\": \"wasmi_linker_import_surface\"");
+    raw(", \"granted_host_imports\": [\"ui.viewport\", \"ui.context_len\", \"ui.context_read\", \"ui.input_len\", \"ui.input_read\", \"ui.frame_submit\"]");
+    raw(", \"host_import_count\": 6");
+    raw(", \"running\": true");
+    raw(", \"last_lifecycle_reason\": ");
+    json_str(personal.last_reason);
+    raw(", \"capabilities\": []}");
+    if comma {
+        raw(",");
+    }
+    crlf();
 }
 
 fn emit_hello_service_inventory(hello: hello_service::Snapshot) {
@@ -1229,15 +1279,24 @@ fn emit_problem(
 
 pub(crate) fn emit_service_ids(spaces: usize) {
     let hello = hello_service::loaded_snapshot();
+    let personal = personal_shell_service::lifecycle_snapshot();
     let mut idx = 0usize;
     while idx < service_inventory::SERVICES.len() {
         indent(spaces);
         json_str(service_inventory::SERVICES[idx].id);
-        if idx + 1 != service_inventory::SERVICES.len() || hello.is_some() {
+        if idx + 1 != service_inventory::SERVICES.len() || personal.running || hello.is_some() {
             raw(",");
         }
         crlf();
         idx += 1;
+    }
+    if personal.running {
+        indent(spaces);
+        json_str("svc.user.shell");
+        if hello.is_some() {
+            raw(",");
+        }
+        crlf();
     }
     if hello.is_some() {
         indent(spaces);

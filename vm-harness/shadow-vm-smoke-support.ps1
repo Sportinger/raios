@@ -137,6 +137,206 @@ function Get-TextSha256 {
     }
 }
 
+function Send-QemuMonitorCommand {
+    param([string]$Command)
+
+    if ($MonitorTcpPort -le 0) {
+        throw "QEMU monitor is unavailable for profile '$Profile'"
+    }
+    $client = [System.Net.Sockets.TcpClient]::new()
+    try {
+        $connect = $client.BeginConnect("127.0.0.1", $MonitorTcpPort, $null, $null)
+        try {
+            if (-not $connect.AsyncWaitHandle.WaitOne([TimeSpan]::FromSeconds(8))) {
+                throw "Timed out connecting to QEMU monitor TCP port $MonitorTcpPort"
+            }
+            $client.EndConnect($connect)
+        }
+        finally {
+            $connect.AsyncWaitHandle.Dispose()
+        }
+        $client.SendTimeout = 4000
+        $client.ReceiveTimeout = 500
+        $stream = $client.GetStream()
+        $buffer = [byte[]]::new(4096)
+        while ($stream.DataAvailable) {
+            $null = $stream.Read($buffer, 0, $buffer.Length)
+        }
+        $bytes = [System.Text.Encoding]::ASCII.GetBytes("$Command`n")
+        $stream.Write($bytes, 0, $bytes.Length)
+        $stream.Flush()
+        $reply = [System.Text.StringBuilder]::new()
+        $deadline = [DateTime]::UtcNow.AddSeconds(3)
+        do {
+            if ($stream.DataAvailable) {
+                $count = $stream.Read($buffer, 0, $buffer.Length)
+                if ($count -gt 0) {
+                    [void]$reply.Append([System.Text.Encoding]::ASCII.GetString($buffer, 0, $count))
+                }
+            }
+            Start-Sleep -Milliseconds 100
+        } while ([DateTime]::UtcNow -lt $deadline)
+        return $reply.ToString()
+    }
+    finally {
+        $client.Dispose()
+    }
+}
+
+function Save-QemuScreendump {
+    param([string]$Name)
+
+    if ($Name -notmatch '^[a-z0-9-]+$') {
+        throw "Visual evidence name must be lowercase ASCII words: $Name"
+    }
+    $captureDir = Join-Path $RepoRoot "target\captures"
+    New-Item -ItemType Directory -Force -Path $captureDir | Out-Null
+    $path = Join-Path $captureDir ("$RunId-$Name.ppm")
+    $hmpPath = $path.Replace("\", "/")
+    $reply = Send-QemuMonitorCommand -Command "screendump $hmpPath"
+    $deadline = [DateTime]::UtcNow.AddSeconds(20)
+    while (-not (Test-Path -LiteralPath $path -PathType Leaf) -and [DateTime]::UtcNow -lt $deadline) {
+        Start-Sleep -Milliseconds 100
+    }
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "QEMU screendump '$Name' did not create $path. Reply: $reply"
+    }
+    $pngPath = [System.IO.Path]::ChangeExtension($path, ".png")
+    Convert-QemuPpmToPng -PpmPath $path -PngPath $pngPath
+    $evidence = [ordered]@{
+        name = $Name
+        path = (Resolve-Path -LiteralPath $pngPath).Path
+        sha256 = Get-FileSha256OrNull -Path $pngPath
+        bytes = [int64](Get-Item -LiteralPath $pngPath).Length
+        format = "png_from_qemu_ppm_p6"
+        source_ppm_sha256 = Get-FileSha256OrNull -Path $path
+        secure_strip_sha256 = Get-QemuSecureStripSha256 -PngPath $pngPath
+    }
+    $script:VisualEvidence.Add($evidence) | Out-Null
+    Add-Predicate -Name "visual:$Name" -Expected "QEMU screendump bound to this run" -Passed ($null -ne $evidence.sha256) -Actual $evidence.sha256
+    return $evidence
+}
+
+function Get-QemuSecureStripSha256 {
+    param([string]$PngPath)
+
+    Add-Type -AssemblyName System.Drawing
+    $bitmap = [System.Drawing.Bitmap]::new($PngPath)
+    try {
+        $height = [Math]::Min(76, $bitmap.Height)
+        if ($bitmap.Width -le 0 -or $height -le 0) {
+            throw "Invalid QEMU PNG dimensions for secure-strip evidence"
+        }
+        $bytes = [byte[]]::new($bitmap.Width * $height * 4)
+        $index = 0
+        for ($y = 0; $y -lt $height; $y++) {
+            for ($x = 0; $x -lt $bitmap.Width; $x++) {
+                $pixel = $bitmap.GetPixel($x, $y)
+                $bytes[$index++] = $pixel.R
+                $bytes[$index++] = $pixel.G
+                $bytes[$index++] = $pixel.B
+                $bytes[$index++] = $pixel.A
+            }
+        }
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            return ([BitConverter]::ToString($sha.ComputeHash($bytes)) -replace "-", "").ToLowerInvariant()
+        }
+        finally {
+            $sha.Dispose()
+        }
+    }
+    finally {
+        $bitmap.Dispose()
+    }
+}
+
+function Read-QemuPpmToken {
+    param(
+        [byte[]]$Buffer,
+        [ref]$Index
+    )
+
+    while ($Index.Value -lt $Buffer.Length) {
+        while ($Index.Value -lt $Buffer.Length -and [char]$Buffer[$Index.Value] -match "\s") {
+            $Index.Value++
+        }
+        if ($Index.Value -lt $Buffer.Length -and [char]$Buffer[$Index.Value] -eq "#") {
+            while ($Index.Value -lt $Buffer.Length -and $Buffer[$Index.Value] -ne 10) {
+                $Index.Value++
+            }
+            continue
+        }
+        break
+    }
+    $start = $Index.Value
+    while ($Index.Value -lt $Buffer.Length -and -not ([char]$Buffer[$Index.Value] -match "\s")) {
+        $Index.Value++
+    }
+    if ($start -eq $Index.Value) {
+        throw "Invalid QEMU PPM header token at byte $start"
+    }
+    return [System.Text.Encoding]::ASCII.GetString($Buffer, $start, $Index.Value - $start)
+}
+
+function Convert-QemuPpmToPng {
+    param(
+        [string]$PpmPath,
+        [string]$PngPath
+    )
+
+    Add-Type -AssemblyName System.Drawing
+    $bytes = [System.IO.File]::ReadAllBytes($PpmPath)
+    $index = 0
+    $indexRef = [ref]$index
+    $magic = Read-QemuPpmToken -Buffer $bytes -Index $indexRef
+    $width = [int](Read-QemuPpmToken -Buffer $bytes -Index $indexRef)
+    $height = [int](Read-QemuPpmToken -Buffer $bytes -Index $indexRef)
+    $maxValue = [int](Read-QemuPpmToken -Buffer $bytes -Index $indexRef)
+    if ($magic -ne "P6" -or $width -le 0 -or $height -le 0 -or $maxValue -ne 255) {
+        throw "Unsupported QEMU PPM: magic=$magic width=$width height=$height max=$maxValue"
+    }
+    if ($indexRef.Value -ge $bytes.Length -or -not ([char]$bytes[$indexRef.Value] -match "\s")) {
+        throw "Invalid QEMU PPM raster delimiter"
+    }
+    $indexRef.Value++
+    if ($bytes[$indexRef.Value - 1] -eq 13 -and $indexRef.Value -lt $bytes.Length -and $bytes[$indexRef.Value] -eq 10) {
+        $indexRef.Value++
+    }
+    $offset = $indexRef.Value
+    $expected = [int64]$width * [int64]$height * 3
+    if (($bytes.Length - $offset) -ne $expected) {
+        throw "Invalid QEMU PPM raster length"
+    }
+    $bitmap = [System.Drawing.Bitmap]::new($width, $height, [System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
+    try {
+        $rect = [System.Drawing.Rectangle]::new(0, 0, $width, $height)
+        $data = $bitmap.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::WriteOnly, $bitmap.PixelFormat)
+        try {
+            $stride = [Math]::Abs($data.Stride)
+            $pixels = [byte[]]::new($stride * $height)
+            $source = $offset
+            for ($y = 0; $y -lt $height; $y++) {
+                $destination = $y * $stride
+                for ($x = 0; $x -lt $width; $x++) {
+                    $pixels[$destination++] = $bytes[$source + 2]
+                    $pixels[$destination++] = $bytes[$source + 1]
+                    $pixels[$destination++] = $bytes[$source]
+                    $source += 3
+                }
+            }
+            [Runtime.InteropServices.Marshal]::Copy($pixels, 0, $data.Scan0, $pixels.Length)
+        }
+        finally {
+            $bitmap.UnlockBits($data)
+        }
+        $bitmap.Save($PngPath, [System.Drawing.Imaging.ImageFormat]::Png)
+    }
+    finally {
+        $bitmap.Dispose()
+    }
+}
+
 function New-ReliableDevPromotionSignatureHex {
     param(
         [string]$AttestationReferenceHash,
@@ -859,6 +1059,7 @@ function Write-Report {
             predicate_count = $Predicates.Count
             predicate_passed_count = @($Predicates.ToArray() | Where-Object { $_.passed }).Count
             predicate_failed_count = @($Predicates.ToArray() | Where-Object { -not $_.passed }).Count
+            visual_evidence_count = $script:VisualEvidence.Count
             result = $FinalResult
         }
         commands = $executedCommandNames
@@ -868,6 +1069,7 @@ function Write-Report {
             path = $SerialLog
             sha256 = $serialHash
         }
+        visual_evidence = @($script:VisualEvidence.ToArray())
         stderr_log = (Get-TextFileReport -Path $errLog)
         failures = @($Failures.ToArray())
     }

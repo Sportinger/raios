@@ -11,8 +11,79 @@ use raios_core::{
     },
     ui_frame::Viewport,
 };
+use spin::Mutex;
 
 use crate::wasm_runtime::{self, PersonalShellFrameResult, PersonalShellRuntimeResult};
+
+pub(crate) const PROOF_TEST_KEY_TRAP: u16 = 0x7ff3;
+pub(crate) const PROOF_TEST_KEY_FUEL_EXHAUSTION: u16 = 0x7ff4;
+
+/// Bounded local-only ways to start the checked-in proof. This is not an
+/// arbitrary guest-input channel: the only non-normal values select its two
+/// explicit negative test cases.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PersonalShellProofMode {
+    Normal,
+    Trap,
+    FuelExhaustion,
+}
+
+static START_REQUEST: Mutex<Option<PersonalShellProofMode>> = Mutex::new(None);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct PersonalShellLifecycleSnapshot {
+    pub(crate) running: bool,
+    pub(crate) last_reason: &'static str,
+}
+
+impl PersonalShellLifecycleSnapshot {
+    const fn inactive() -> Self {
+        Self {
+            running: false,
+            last_reason: "not_started",
+        }
+    }
+}
+
+static LIFECYCLE: Mutex<PersonalShellLifecycleSnapshot> =
+    Mutex::new(PersonalShellLifecycleSnapshot::inactive());
+
+/// Requests one non-default current-boot proof start for ShellHost to consume.
+/// It owns no UI, frame, retained Wasm instance, or authority beyond the fixed
+/// checked-in proof.
+pub(crate) fn request_current_boot_proof_start(mode: PersonalShellProofMode) -> bool {
+    let mut request = START_REQUEST.lock();
+    if request.is_some() {
+        return false;
+    }
+    *request = Some(mode);
+    true
+}
+
+/// Consumed only by the core-owned ShellHost render/update boundary.
+pub(crate) fn take_current_boot_proof_start() -> Option<PersonalShellProofMode> {
+    START_REQUEST.lock().take()
+}
+
+/// Current-boot-only lifecycle fact for service inventory. It carries no frame,
+/// input, context, guest instance, or installation state.
+pub(crate) fn lifecycle_snapshot() -> PersonalShellLifecycleSnapshot {
+    *LIFECYCLE.lock()
+}
+
+pub(crate) fn note_personal_shell_started() {
+    *LIFECYCLE.lock() = PersonalShellLifecycleSnapshot {
+        running: true,
+        last_reason: "running",
+    };
+}
+
+pub(crate) fn note_personal_shell_stopped(reason: &'static str) {
+    *LIFECYCLE.lock() = PersonalShellLifecycleSnapshot {
+        running: false,
+        last_reason: reason,
+    };
+}
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum PersonalShellAttemptFrame {

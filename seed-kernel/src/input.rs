@@ -16,6 +16,7 @@ const POINTER_DEFAULT_HEIGHT: i32 = 800;
 const MOUSE_LEFT: u8 = 1 << 0;
 const MOUSE_RIGHT: u8 = 1 << 1;
 const MOUSE_MIDDLE: u8 = 1 << 2;
+const KEYCODE_F12: u16 = 88;
 
 static RING: InputRing = InputRing::new();
 static MOUSE: Mutex<MouseState> = Mutex::new(MouseState::new());
@@ -59,9 +60,7 @@ fn poll_ps2() {
     let ts_ms = timestamp_ms();
     let mut inserted = 0usize;
     ps2::poll(|code, pressed| {
-        RING.push(InputEvent {
-            kind: InputEventKind::Key { code, pressed },
-        });
+        queue_key_event(code, pressed);
         inserted += 1;
     });
 
@@ -88,9 +87,7 @@ fn poll_usb() -> bool {
                 ts_ms.set(timestamp_ms());
                 has_timestamp.set(true);
             }
-            RING.push(InputEvent {
-                kind: InputEventKind::Key { code, pressed },
-            });
+            queue_key_event(code, pressed);
             inserted.set(inserted.get() + 1);
         },
         |report| {
@@ -169,14 +166,6 @@ pub fn drain<F: FnMut(InputEvent)>(mut f: F) {
     }
 }
 
-pub fn drain_console_input<F: FnMut(ConsoleInput)>(mut f: F) {
-    drain(|event| {
-        if let Some(input) = event_to_console_input(event) {
-            f(input);
-        }
-    });
-}
-
 pub fn set_pointer_bounds(width: usize, height: usize) {
     MOUSE.lock().set_bounds(width, height);
 }
@@ -200,6 +189,8 @@ pub struct InputEvent {
 
 #[derive(Clone, Copy)]
 pub enum InputEventKind {
+    /// Core-only secure attention. F12 is never forwarded as a raw key event.
+    SecureAttention,
     Key {
         code: u16,
         pressed: bool,
@@ -241,6 +232,7 @@ pub enum SpecialKey {
 fn update_mouse(kind: InputEventKind) -> bool {
     let mut mouse = MOUSE.lock();
     match kind {
+        InputEventKind::SecureAttention => false,
         InputEventKind::Relative(axis, value) => mouse.apply_relative(axis, value),
         InputEventKind::Absolute { x, y, max_x, max_y } => mouse.apply_absolute(x, y, max_x, max_y),
         InputEventKind::Key { code, pressed } => match mouse_button_mask(code) {
@@ -248,6 +240,21 @@ fn update_mouse(kind: InputEventKind) -> bool {
             None => false,
         },
     }
+}
+
+fn queue_key_event(code: u16, pressed: bool) {
+    if code == KEYCODE_F12 {
+        if pressed {
+            RING.push(InputEvent {
+                kind: InputEventKind::SecureAttention,
+            });
+        }
+        return;
+    }
+
+    RING.push(InputEvent {
+        kind: InputEventKind::Key { code, pressed },
+    });
 }
 
 fn mouse_button_mask(code: u16) -> Option<u8> {
@@ -371,7 +378,7 @@ fn clamp_i32(value: i32, min: i32, max: i32) -> i32 {
     }
 }
 
-fn event_to_console_input(event: InputEvent) -> Option<ConsoleInput> {
+pub(crate) fn event_to_console_input(event: InputEvent) -> Option<ConsoleInput> {
     let InputEventKind::Key { code, pressed } = event.kind else {
         return None;
     };

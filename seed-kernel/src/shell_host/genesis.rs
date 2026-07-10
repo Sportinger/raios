@@ -4,10 +4,18 @@
 use crate::agent_protocol::recovery_lifeline;
 use crate::framebuffer::{Color, FramebufferInfo, FramebufferSurface};
 use crate::system_status::{RowState, SnapshotStates, StatusLine, SystemSnapshot};
-use crate::{console, input, provider, serial, text, wifi};
-use raios_core::genesis_layout::{GenesisLayout, Point, Size};
+use crate::{console, input, personal_shell_service, provider, serial, text, wifi};
+use raios_core::{
+    genesis_layout::{GenesisLayout, Point, Size},
+    personal_shell_abi::{PersonalShellContext, SanitizedInputEvent, SanitizedInputKind},
+    ui_frame::{self, Command as PersonalFrameCommand, Viewport as PersonalViewport},
+};
 
-use super::{context, recovery, wifi_flow};
+use super::{
+    context,
+    personal_surface::{PersonalSurface, PersonalSurfaceRoute},
+    recovery, wifi_flow,
+};
 
 pub(crate) const FONT_ADVANCE: usize = 9;
 pub(crate) const APP_BG: Color = Color::new(20, 22, 26);
@@ -45,6 +53,7 @@ pub struct ShellHost {
     wifi: wifi_flow::GuidedWifi,
     recovery: recovery::RecoveryView,
     recovery_open: bool,
+    personal: PersonalSurface,
 }
 
 impl ShellHost {
@@ -62,6 +71,7 @@ impl ShellHost {
             wifi: wifi_flow::GuidedWifi::new(),
             recovery: recovery::RecoveryView::new(),
             recovery_open: false,
+            personal: PersonalSurface::new(),
         }
     }
 
@@ -82,18 +92,47 @@ impl ShellHost {
         let flow_changed = self.wifi.advance();
         let framebuffer = self.surface.as_ref().map(|surface| surface.info());
         let snapshot = SystemSnapshot::collect(framebuffer, runtime);
+        let personal_changed = self.activate_pending_personal_shell(&snapshot);
         self.log_transitions(&snapshot);
         let states = snapshot.states();
-        if flow_changed || force_draw || self.last_draw_states != Some(states) {
+        if flow_changed || personal_changed || force_draw || self.last_draw_states != Some(states) {
             if let Some(surface) = self.surface.as_mut() {
-                draw_genesis(
-                    surface,
-                    uptime_ms,
-                    &snapshot,
-                    &self.wifi,
-                    &self.recovery,
-                    self.recovery_open,
-                );
+                if self.personal.has_personal_focus() {
+                    let Some(layout) = genesis_layout(surface.info()) else {
+                        return;
+                    };
+                    let rendered = self
+                        .personal
+                        .frame()
+                        .is_some_and(|frame| draw_personal_frame(surface, layout, frame));
+                    if rendered {
+                        // Genesis owns this strip. Draw it after every personal
+                        // command so the guest cannot cover recovery/secure UI.
+                        draw_secure_strip(surface, layout, uptime_ms, &snapshot, false);
+                    } else {
+                        self.personal.exit();
+                        console::write_event(format_args!(
+                            "PERSONAL SHELL FALLBACK: validated frame unavailable"
+                        ));
+                        draw_genesis(
+                            surface,
+                            uptime_ms,
+                            &snapshot,
+                            &self.wifi,
+                            &self.recovery,
+                            self.recovery_open,
+                        );
+                    }
+                } else {
+                    draw_genesis(
+                        surface,
+                        uptime_ms,
+                        &snapshot,
+                        &self.wifi,
+                        &self.recovery,
+                        self.recovery_open,
+                    );
+                }
                 surface.present();
                 self.last_cursor_rect = None;
                 draw_current_cursor(surface, &mut self.last_cursor_rect);
@@ -115,6 +154,9 @@ impl ShellHost {
         &mut self,
         runtime: crate::system_status::RuntimeStatus,
     ) -> bool {
+        if self.personal.has_personal_focus() {
+            return false;
+        }
         let Some(surface) = self.surface.as_ref() else {
             return false;
         };
@@ -147,6 +189,11 @@ impl ShellHost {
         if self.recovery_open {
             return self.handle_recovery_pointer(layout, x, y, runtime);
         }
+        if point_in(x, y, context_personal_shell_rect(layout)) {
+            return personal_shell_service::request_current_boot_proof_start(
+                personal_shell_service::PersonalShellProofMode::Normal,
+            );
+        }
         if layout.composer.contains(Point::new(x as u32, y as u32)) {
             return console::set_view(console::UiView::Ai);
         }
@@ -157,6 +204,91 @@ impl ShellHost {
             return self.wifi.begin();
         }
         false
+    }
+
+    /// Called by the console before normal text handling. Secure attention and
+    /// all input while focused are consumed here; Genesis still receives input
+    /// only after this route declines it.
+    pub fn handle_input_event(
+        &mut self,
+        event: input::InputEvent,
+        runtime: crate::system_status::RuntimeStatus,
+    ) -> bool {
+        if matches!(event.kind, input::InputEventKind::SecureAttention) {
+            let route = self.personal.handle_secure_attention();
+            note_personal_route(route);
+            return true;
+        }
+        if !self.personal.has_personal_focus() {
+            return false;
+        }
+        let Some(context) = self.personal_context(runtime) else {
+            self.personal.exit();
+            console::write_event(format_args!(
+                "PERSONAL SHELL FALLBACK: framebuffer unavailable"
+            ));
+            return true;
+        };
+        let Some(event) = sanitize_personal_input(event) else {
+            return true;
+        };
+        let route = self.personal.route_sanitized_event(context, event);
+        note_personal_route(route);
+        true
+    }
+
+    fn activate_pending_personal_shell(&mut self, snapshot: &SystemSnapshot) -> bool {
+        let Some(mode) = personal_shell_service::take_current_boot_proof_start() else {
+            return false;
+        };
+        let Some(context) = self.personal_context_from_snapshot(snapshot) else {
+            console::write_event(format_args!(
+                "PERSONAL SHELL START DENIED: framebuffer unavailable"
+            ));
+            return true;
+        };
+        let route = self.personal.enter_mode(context, mode);
+        note_personal_route(route);
+        true
+    }
+
+    fn personal_context(
+        &self,
+        runtime: crate::system_status::RuntimeStatus,
+    ) -> Option<PersonalShellContext> {
+        let framebuffer = self.surface.as_ref().map(|surface| surface.info());
+        let snapshot = SystemSnapshot::collect(framebuffer, runtime);
+        self.personal_context_from_snapshot(&snapshot)
+    }
+
+    fn personal_context_from_snapshot(
+        &self,
+        snapshot: &SystemSnapshot,
+    ) -> Option<PersonalShellContext> {
+        let info = self.surface.as_ref()?.info();
+        let layout = genesis_layout(info)?;
+        let width = layout.personal_surface.width;
+        let height = layout.personal_surface.height;
+        if width == 0 || height == 0 || width > u32::from(u16::MAX) || height > u32::from(u16::MAX)
+        {
+            return None;
+        }
+        let problem_count = context::project(snapshot, &provider::snapshot(), wifi::snapshot())
+            .problems
+            .active;
+        Some(PersonalShellContext::new(
+            0,
+            width as u16,
+            height as u16,
+            crate::service_inventory::SERVICES
+                .len()
+                .min(u16::MAX as usize) as u16,
+            problem_count as u16,
+            crate::agent_protocol_system::denied_capability_count(),
+            false,
+            true,
+            0,
+        ))
     }
 
     fn toggle_recovery(&mut self, runtime: crate::system_status::RuntimeStatus) -> bool {
@@ -403,8 +535,13 @@ fn draw_context(
     } else {
         APP_RED
     };
+    draw_button(
+        surface,
+        context_personal_shell_rect(layout),
+        "Run signed shell proof",
+        false,
+    );
     let rows = [
-        ("Personal shell", "Not created", TEXT_MUTED),
         (
             "AI connection",
             context.ai_connection.value,
@@ -418,7 +555,7 @@ fn draw_context(
         ("Secret Vault", "Not configured", TEXT_MUTED),
         ("Problems", problem_value, problem_color),
     ];
-    let mut y = rect.y + 44;
+    let mut y = rect.y + 78;
     for (label, value, color) in rows {
         text::draw_text(surface, rect.x + 14, y, label, TEXT_MUTED, None);
         draw_truncated_text(
@@ -433,6 +570,152 @@ fn draw_context(
     }
     draw_button(surface, context_setup_rect(layout), "AI setup", false);
     draw_button(surface, context_wifi_rect(layout), "WiFi setup", true);
+}
+
+/// Renders an already accepted display-list within the logical personal area.
+/// A second validation keeps the render boundary fail-closed if a caller ever
+/// hands this surface stale or corrupt retained bytes.
+fn draw_personal_frame(
+    surface: &mut FramebufferSurface,
+    layout: GenesisLayout,
+    bytes: &[u8],
+) -> bool {
+    let area = rect_from_layout(layout.personal_surface);
+    let viewport = PersonalViewport {
+        width: area.w.min(u16::MAX as usize) as u16,
+        height: area.h.min(u16::MAX as usize) as u16,
+    };
+    let Ok(frame) = ui_frame::validate_frame(bytes, viewport) else {
+        return false;
+    };
+    surface.set_draw_scale(2);
+    for command in frame.commands() {
+        match command {
+            PersonalFrameCommand::Clear { rgba } => {
+                surface.fill_rect(area.x, area.y, area.w, area.h, personal_color(*rgba));
+            }
+            PersonalFrameCommand::FillRect { rect, rgba } => {
+                surface.fill_rect(
+                    area.x + rect.x as usize,
+                    area.y + rect.y as usize,
+                    rect.width as usize,
+                    rect.height as usize,
+                    personal_color(*rgba),
+                );
+            }
+            PersonalFrameCommand::StrokeRect { rect, rgba } => draw_outline(
+                surface,
+                LogicalRect::new(
+                    area.x + rect.x as usize,
+                    area.y + rect.y as usize,
+                    rect.width as usize,
+                    rect.height as usize,
+                ),
+                personal_color(*rgba),
+            ),
+            PersonalFrameCommand::Text {
+                x,
+                y,
+                rgba,
+                text: value,
+            } => text::draw_text(
+                surface,
+                area.x + *x as usize,
+                area.y + *y as usize,
+                value,
+                personal_color(*rgba),
+                None,
+            ),
+            PersonalFrameCommand::FocusHint { rect } => draw_outline(
+                surface,
+                LogicalRect::new(
+                    area.x + rect.x as usize,
+                    area.y + rect.y as usize,
+                    rect.width as usize,
+                    rect.height as usize,
+                ),
+                APP_AMBER,
+            ),
+        }
+    }
+    true
+}
+
+fn personal_color(rgba: u32) -> Color {
+    Color {
+        r: (rgba >> 24) as u8,
+        g: (rgba >> 16) as u8,
+        b: (rgba >> 8) as u8,
+        a: rgba as u8,
+    }
+}
+
+fn sanitize_personal_input(event: input::InputEvent) -> Option<SanitizedInputEvent> {
+    let (kind, pressed, code, x, y, dx, dy) = match event.kind {
+        input::InputEventKind::SecureAttention => return None,
+        input::InputEventKind::Key { code, pressed } if (272..=274).contains(&code) => {
+            (SanitizedInputKind::PointerButton, pressed, code, 0, 0, 0, 0)
+        }
+        input::InputEventKind::Key { code, pressed } => {
+            (SanitizedInputKind::Key, pressed, code, 0, 0, 0, 0)
+        }
+        input::InputEventKind::Relative(input::RelativeAxis::X, value) => (
+            SanitizedInputKind::PointerMove,
+            false,
+            0,
+            0,
+            0,
+            clamp_input_axis(value),
+            0,
+        ),
+        input::InputEventKind::Relative(input::RelativeAxis::Y, value) => (
+            SanitizedInputKind::PointerMove,
+            false,
+            0,
+            0,
+            0,
+            0,
+            clamp_input_axis(value),
+        ),
+        input::InputEventKind::Relative(input::RelativeAxis::Wheel, _) => return None,
+        input::InputEventKind::Absolute { x, y, .. } => (
+            SanitizedInputKind::PointerMove,
+            false,
+            0,
+            x.min(i16::MAX as u16) as i16,
+            y.min(i16::MAX as u16) as i16,
+            0,
+            0,
+        ),
+    };
+    Some(SanitizedInputEvent::new(
+        kind, pressed, false, code, x, y, dx, dy, 0,
+    ))
+}
+
+fn clamp_input_axis(value: i32) -> i16 {
+    value.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16
+}
+
+fn note_personal_route(route: PersonalSurfaceRoute) {
+    match route {
+        PersonalSurfaceRoute::Ignored => {}
+        PersonalSurfaceRoute::Entered => {
+            console::write_event(format_args!("PERSONAL SHELL ACTIVE current_boot proof"));
+        }
+        PersonalSurfaceRoute::FrameUpdated => {
+            console::write_event(format_args!("PERSONAL SHELL FRAME UPDATED sanitized_input"));
+        }
+        PersonalSurfaceRoute::ExitedToGenesis => {
+            console::write_event(format_args!("PERSONAL SHELL EXIT F12 genesis"));
+        }
+        PersonalSurfaceRoute::GenesisFallback { reason, fuel_used } => {
+            console::write_event(format_args!(
+                "PERSONAL SHELL FALLBACK {} fuel_used={}",
+                reason, fuel_used
+            ));
+        }
+    }
 }
 
 fn context_tone_color(tone: context::ContextTone) -> Color {
@@ -525,6 +808,11 @@ fn context_setup_rect(layout: GenesisLayout) -> LogicalRect {
         context.w - 24,
         22,
     )
+}
+
+fn context_personal_shell_rect(layout: GenesisLayout) -> LogicalRect {
+    let context = rect_from_layout(layout.context);
+    LogicalRect::new(context.x + 12, context.y + 42, context.w - 24, 24)
 }
 
 fn context_wifi_rect(layout: GenesisLayout) -> LogicalRect {
