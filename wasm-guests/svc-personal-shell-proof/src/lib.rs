@@ -1,5 +1,6 @@
 #![no_std]
 
+#[cfg(not(test))]
 use core::panic::PanicInfo;
 
 const CONTEXT_LEN: usize = 32;
@@ -8,6 +9,23 @@ const INPUT_EVENT_LEN: usize = 16;
 const MAX_INPUT_LEN: usize = INPUT_HEADER_LEN + 64 * INPUT_EVENT_LEN;
 const FRAME_CAPACITY: usize = 512;
 
+// These are test-only sanitized key codes. Every other event, including an
+// empty input packet, keeps the proof guest in its normal render mode.
+const MODE_MALFORMED_FRAME: u16 = 0x7ff1;
+const MODE_CLIPPED_OVERDRAW: u16 = 0x7ff2;
+const MODE_TRAP: u16 = 0x7ff3;
+const MODE_FUEL_EXHAUSTION: u16 = 0x7ff4;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum InvocationMode {
+    Normal,
+    MalformedFrame,
+    ClippedOverdraw,
+    Trap,
+    FuelExhaustion,
+}
+
+#[cfg(not(test))]
 #[link(wasm_import_module = "ui")]
 extern "C" {
     #[link_name = "viewport"]
@@ -24,6 +42,7 @@ extern "C" {
     fn ui_frame_submit(ptr: i32, len: i32) -> i32;
 }
 
+#[cfg(not(test))]
 #[no_mangle]
 pub extern "C" fn raios_service_main() -> i32 {
     let packed_viewport = unsafe { ui_viewport() } as u64;
@@ -55,17 +74,69 @@ pub extern "C" fn raios_service_main() -> i32 {
         return -2;
     }
 
+    let mode = mode_from_input(input);
+    match mode {
+        InvocationMode::Trap => trigger_trap(),
+        InvocationMode::FuelExhaustion => exhaust_fuel(),
+        _ => {}
+    }
+
     let mut frame = [0u8; FRAME_CAPACITY];
     let Some(frame_len) = build_frame(
         &mut frame,
         width as u16,
         height as u16,
         read_u16(input, 12) != 0,
+        mode,
     ) else {
         return -3;
     };
 
+    if mode == InvocationMode::MalformedFrame {
+        // Keep the RFRM identity but violate its required all-zero flags field.
+        // The host must atomically reject this complete invalid display list.
+        write_u16(&mut frame, 14, 1);
+    }
+
     unsafe { ui_frame_submit(frame.as_ptr() as i32, frame_len as i32) }
+}
+
+fn mode_from_input(input: &[u8]) -> InvocationMode {
+    for event in input[INPUT_HEADER_LEN..].chunks_exact(INPUT_EVENT_LEN) {
+        if event[0] != 1 || event[1] & 1 == 0 {
+            continue;
+        }
+        match read_u16(event, 2) {
+            MODE_MALFORMED_FRAME => return InvocationMode::MalformedFrame,
+            MODE_CLIPPED_OVERDRAW => return InvocationMode::ClippedOverdraw,
+            MODE_TRAP => return InvocationMode::Trap,
+            MODE_FUEL_EXHAUSTION => return InvocationMode::FuelExhaustion,
+            _ => {}
+        }
+    }
+    InvocationMode::Normal
+}
+
+#[inline(never)]
+fn trigger_trap() -> ! {
+    #[cfg(target_arch = "wasm32")]
+    {
+        core::arch::wasm32::unreachable()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        panic!("proof guest trap mode")
+    }
+}
+
+#[inline(never)]
+fn exhaust_fuel() -> ! {
+    let mut tick = 0u32;
+    loop {
+        let next = unsafe { core::ptr::read_volatile(core::ptr::addr_of!(tick)) }.wrapping_add(1);
+        unsafe { core::ptr::write_volatile(core::ptr::addr_of_mut!(tick), next) };
+    }
 }
 
 fn valid_packets(context: &[u8; CONTEXT_LEN], input: &[u8], width: u32, height: u32) -> bool {
@@ -102,7 +173,13 @@ fn valid_packets(context: &[u8; CONTEXT_LEN], input: &[u8], width: u32, height: 
     true
 }
 
-fn build_frame(out: &mut [u8], width: u16, height: u16, has_input: bool) -> Option<usize> {
+fn build_frame(
+    out: &mut [u8],
+    width: u16,
+    height: u16,
+    has_input: bool,
+    mode: InvocationMode,
+) -> Option<usize> {
     let mut cursor = 16usize;
     let mut commands = 0u16;
 
@@ -147,11 +224,21 @@ fn build_frame(out: &mut [u8], width: u16, height: u16, has_input: bool) -> Opti
     push_text(out, &mut cursor, 48, 92, accent, status)?;
     commands += 1;
 
+    let focus_rect = if mode == InvocationMode::ClippedOverdraw {
+        // The rectangle deliberately crosses the declared viewport edge. It is
+        // valid RFRM and must arrive at the host as a clipped command.
+        let rect = [width.saturating_sub(1), height.saturating_sub(1), 64, 64];
+        push_rect(out, &mut cursor, 2, rect, accent)?;
+        commands += 1;
+        rect
+    } else {
+        [44, 78, panel_width.saturating_sub(40).max(1), 40]
+    };
+
     let mut focus = [0u8; 8];
-    write_u16(&mut focus, 0, 44);
-    write_u16(&mut focus, 2, 78);
-    write_u16(&mut focus, 4, panel_width.saturating_sub(40).max(1));
-    write_u16(&mut focus, 6, 40);
+    for (index, value) in focus_rect.into_iter().enumerate() {
+        write_u16(&mut focus, index * 2, value);
+    }
     push_command(out, &mut cursor, 5, &focus)?;
     commands += 1;
 
@@ -239,7 +326,46 @@ fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
     bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
 }
 
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(_: &PanicInfo) -> ! {
     core::arch::wasm32::unreachable()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn input_with_key(code: u16) -> [u8; INPUT_HEADER_LEN + INPUT_EVENT_LEN] {
+        let mut input = [0u8; INPUT_HEADER_LEN + INPUT_EVENT_LEN];
+        input[..4].copy_from_slice(b"RINP");
+        write_u16(&mut input, 4, 1);
+        write_u16(&mut input, 6, INPUT_HEADER_LEN as u16);
+        write_u16(&mut input, 12, 1);
+        input[INPUT_HEADER_LEN] = 1;
+        input[INPUT_HEADER_LEN + 1] = 1;
+        write_u16(&mut input, INPUT_HEADER_LEN + 2, code);
+        input
+    }
+
+    #[test]
+    fn test_only_key_modes_leave_other_sanitized_input_normal() {
+        assert_eq!(mode_from_input(&input_with_key(0)), InvocationMode::Normal);
+        assert_eq!(
+            mode_from_input(&input_with_key(MODE_MALFORMED_FRAME)),
+            InvocationMode::MalformedFrame
+        );
+        assert_eq!(
+            mode_from_input(&input_with_key(MODE_CLIPPED_OVERDRAW)),
+            InvocationMode::ClippedOverdraw
+        );
+        assert_eq!(
+            mode_from_input(&input_with_key(MODE_TRAP)),
+            InvocationMode::Trap
+        );
+        assert_eq!(
+            mode_from_input(&input_with_key(MODE_FUEL_EXHAUSTION)),
+            InvocationMode::FuelExhaustion
+        );
+    }
 }
