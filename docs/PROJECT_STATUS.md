@@ -89,6 +89,18 @@ paths pass. This is not physical persistence yet: no AHCI region capability,
 format-on-explicit-test-media runtime path, focused structured-store VM report,
 or physical-target support claim exists.
 
+Secret-envelope and scoped-use foundation done (C2 foundation, 2026-07-10) -
+the core can now turn a bounded trusted-input WiFi passphrase or OpenAI provider
+key into a versioned AES-256-GCM envelope bound to its exact store, epoch,
+consumer, operation and target; it can also derive and authenticate the ADR 0012
+recovery VMK wrapper. The pure use evaluator grants only the bound WPA2-PSK/CCMP
+supplicant association or a trust-authorized request to `api.openai.com`; it
+returns metadata only and has no reveal/export/Wasm path. VMK, recovery key,
+DEK and plaintext owners zeroize on drop. Verified: `cargo test --locked --offline -p raios-core`
+passed 379/379 and the secret scan passed. This does not create a
+Vault, key source, recovery unlock, store write, broker lease, WiFi/provider
+integration, TPM claim, or durable-secret claim; those remain gated by C1/C3/I3.
+
 VM failure classification (2026-07-10, B0 foundation quick) - report
 `release/vm-reports/shadow-20260710-013553-29700.json` passed 41/42 predicates
 but failed `protocol:system_honesty_report_standing_posture`. Verdict:

@@ -36,7 +36,11 @@ Vault/store status: C1's identity-bound PREPARE/DATA/COMMIT/TOMBSTONE codec,
 readback port, and disposable GPT fixture are ready; no physical or durable secret
 claim is open until the AHCI join and focused VM evidence land.
 
-Latest proof: 351/351 raios-core host tests, release build, secret scan, quick
+Vault crypto status: C2's exact AES-GCM/HKDF envelope, recovery-wrapper, zeroizing
+owners, and two-consumer evaluator pass 379 core tests; no plaintext lease or use
+path is wired into WiFi/provider yet.
+
+Latest proof: 379/379 raios-core host tests, release build, secret scan, quick
 Shadow VM `shadow-20260710-020632-29720.json` 542/542, and verified Disk 2 copy hash.
 
 Gate status: latest full profile remains green at
