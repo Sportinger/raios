@@ -1,7 +1,7 @@
 use core::fmt::{self, Write};
 use core::str;
 
-use crate::{net, openai, provider_config, provider_trust, ui};
+use crate::{net, openai, provider_config, provider_trust, secret_vault, ui};
 
 const LINE_CAPACITY: usize = 104;
 
@@ -136,7 +136,7 @@ pub fn submit(
         return Err(SubmitError::Empty);
     }
 
-    if !provider_config::api_key_set() {
+    if !provider_credential_usable() {
         return Err(SubmitError::MissingApiKey);
     }
 
@@ -185,7 +185,7 @@ pub fn snapshot() -> Snapshot {
 
     Snapshot {
         provider_name: config.provider_name,
-        api_key_set: config.api_key_set,
+        api_key_set: provider_credential_configured(),
         route: Route::OpenAiDirect,
         trust_state: trust.state.as_protocol(),
         trust_pin_kind: trust.pin_kind,
@@ -205,4 +205,21 @@ pub fn snapshot() -> Snapshot {
         direct_model: direct.model,
         tcp: net::tcp_snapshot(),
     }
+}
+
+fn provider_credential_configured() -> bool {
+    provider_config::api_key_set()
+        || matches!(
+            secret_vault::provider_status(),
+            secret_vault::VaultSecretStatus::Available { .. }
+        )
+}
+
+fn provider_credential_usable() -> bool {
+    provider_config::api_key_set()
+        || (secret_vault::recovery_state() == secret_vault::VaultRecoveryState::Unlocked
+            && matches!(
+                secret_vault::provider_status(),
+                secret_vault::VaultSecretStatus::Available { .. }
+            ))
 }

@@ -1,4 +1,4 @@
-//! Physical-input-only Genesis flow for initial Secret Vault recovery setup.
+//! Physical-input-only Genesis flow for Secret Vault recovery and secret entry.
 
 use core::str;
 
@@ -6,7 +6,7 @@ use raios_core::genesis_layout::GenesisLayout;
 
 use crate::{
     framebuffer::{Color, FramebufferSurface},
-    input, secret_vault,
+    input, provider_config, secret_vault,
     secure_overlay::{SecureOverlay, SecureOverlayAction, SecureOverlayInput, SecureOverlayPrompt},
     serial, text,
 };
@@ -24,6 +24,7 @@ enum Mode {
     Showing(secret_vault::RecoveryKeyDisplay),
     Confirming(secret_vault::RecoveryKeyConfirmation),
     Unlocking,
+    ProviderEntry,
     Outcome(Outcome),
 }
 
@@ -33,6 +34,7 @@ enum Phase {
     Showing,
     Confirming,
     Unlocking,
+    ProviderEntry,
     Outcome,
 }
 
@@ -42,6 +44,9 @@ enum Outcome {
     Unlocked,
     Rejected,
     Unavailable,
+    ProviderSaved,
+    ProviderRejected,
+    ProviderUnavailable,
 }
 
 /// Core-owned controller. Its only ingress is `ShellHost` physical input.
@@ -102,6 +107,26 @@ impl VaultFlow {
         true
     }
 
+    /// Opens the persistent provider-key path only from a physical Genesis
+    /// action and only while the recovery-unlocked Vault is available.
+    pub(crate) fn begin_provider_explicit(&mut self) -> bool {
+        if self.is_active() {
+            return true;
+        }
+        self.overlay.clear();
+        self.display_origin = None;
+        self.display_logged = false;
+        if secret_vault::recovery_state() == secret_vault::VaultRecoveryState::Unlocked {
+            let _ = self.overlay.open(SecureOverlayPrompt::ProviderApiKey);
+            self.mode = Mode::ProviderEntry;
+            serial::write_line("VAULT_PROVIDER_SECRET_ENTRY_READY");
+        } else {
+            self.mode = Mode::Outcome(Outcome::ProviderUnavailable);
+            serial::write_line("VAULT_PROVIDER_SECRET_REJECTED");
+        }
+        true
+    }
+
     /// Consumes every physical event while active, including releases and
     /// pointer packets that must not fall through to Console or a guest.
     pub(crate) fn handle_physical_input(&mut self, event: input::InputEvent) -> bool {
@@ -124,7 +149,7 @@ impl VaultFlow {
                     self.cancel();
                 }
             }
-            Phase::Confirming | Phase::Unlocking => {
+            Phase::Confirming | Phase::Unlocking | Phase::ProviderEntry => {
                 let Some(value) = input::event_to_console_input(event) else {
                     return true;
                 };
@@ -165,7 +190,7 @@ impl VaultFlow {
         if point_in(x, y, primary) {
             match self.phase() {
                 Phase::Showing => self.begin_confirmation(),
-                Phase::Confirming | Phase::Unlocking => self.submit(),
+                Phase::Confirming | Phase::Unlocking | Phase::ProviderEntry => self.submit(),
                 Phase::Outcome => self.close(),
                 Phase::Closed => {}
             }
@@ -194,6 +219,7 @@ impl VaultFlow {
             }
             Mode::Confirming(_) => self.draw_entry(surface, rect, false),
             Mode::Unlocking => self.draw_entry(surface, rect, true),
+            Mode::ProviderEntry => self.draw_provider_entry(surface, rect),
             Mode::Outcome(outcome) => draw_outcome(surface, rect, *outcome),
             Mode::Closed => {}
         }
@@ -241,6 +267,30 @@ impl VaultFlow {
         }
     }
 
+    pub(crate) fn provider_status_text(&self) -> &'static str {
+        if secret_vault::recovery_state() != secret_vault::VaultRecoveryState::Unlocked {
+            return "API key: unlock Secret Vault before saving";
+        }
+        match secret_vault::provider_status() {
+            secret_vault::VaultSecretStatus::Available { .. } => "API key: saved in Secret Vault",
+            secret_vault::VaultSecretStatus::Missing
+            | secret_vault::VaultSecretStatus::Forgotten { .. } => {
+                "API key: not saved in Secret Vault"
+            }
+        }
+    }
+
+    pub(crate) fn provider_action_label(&self) -> &'static str {
+        if secret_vault::recovery_state() != secret_vault::VaultRecoveryState::Unlocked {
+            return "Unlock Vault first";
+        }
+        match secret_vault::provider_status() {
+            secret_vault::VaultSecretStatus::Available { .. } => "Replace API key",
+            secret_vault::VaultSecretStatus::Missing
+            | secret_vault::VaultSecretStatus::Forgotten { .. } => "Save API key",
+        }
+    }
+
     fn begin_confirmation(&mut self) {
         let previous = core::mem::replace(&mut self.mode, Mode::Closed);
         match previous {
@@ -258,6 +308,10 @@ impl VaultFlow {
     }
 
     fn submit(&mut self) {
+        if matches!(&self.mode, Mode::ProviderEntry) {
+            self.submit_provider();
+            return;
+        }
         let action = self.overlay.handle(SecureOverlayInput::Submit);
         let input = match action {
             SecureOverlayAction::SubmittedRecovery(input) => input,
@@ -290,6 +344,19 @@ impl VaultFlow {
                 self.mode = Mode::Outcome(Outcome::Provisioned);
             }
             (true, Ok(_)) => {
+                if matches!(
+                    secret_vault::provider_status(),
+                    secret_vault::VaultSecretStatus::Available { .. }
+                ) {
+                    if let Err(error) = secret_vault::run_contained_qemu_provider_consumer_test() {
+                        serial::write_fmt(format_args!(
+                            "VAULT_PROVIDER_CONTAINED_REJECTED reason={} test_infrastructure=true\r\n",
+                            error.recovery_reason()
+                        ));
+                        self.mode = Mode::Outcome(Outcome::ProviderRejected);
+                        return;
+                    }
+                }
                 serial::write_line("VAULT_RR1_UNLOCKED");
                 self.mode = Mode::Outcome(Outcome::Unlocked);
             }
@@ -307,6 +374,29 @@ impl VaultFlow {
                 ));
                 self.mode = Mode::Outcome(Outcome::Rejected);
             }
+        }
+    }
+
+    fn submit_provider(&mut self) {
+        let saved = match self.overlay.handle(SecureOverlayInput::Submit) {
+            SecureOverlayAction::Submitted(submission)
+                if submission.prompt() == SecureOverlayPrompt::ProviderApiKey =>
+            {
+                secret_vault::save_or_replace_provider(submission.into_plaintext_for_broker())
+                    .is_ok()
+            }
+            _ => false,
+        };
+        self.overlay.clear();
+        self.display_origin = None;
+        self.display_logged = false;
+        if saved {
+            provider_config::clear_api_key();
+            serial::write_line("VAULT_PROVIDER_SECRET_SAVED");
+            self.mode = Mode::Outcome(Outcome::ProviderSaved);
+        } else {
+            serial::write_line("VAULT_PROVIDER_SECRET_REJECTED");
+            self.mode = Mode::Outcome(Outcome::ProviderRejected);
         }
     }
 
@@ -346,12 +436,49 @@ impl VaultFlow {
         draw_button(surface, cancel, "Cancel", false);
     }
 
+    fn draw_provider_entry(&self, surface: &mut FramebufferSurface, rect: LogicalRect) {
+        draw_panel(surface, rect, "Save provider API key");
+        text::draw_text(
+            surface,
+            rect.x + 20,
+            rect.y + 44,
+            "Stored encrypted in the unlocked Secret Vault.",
+            TEXT_MUTED,
+            None,
+        );
+        let field = LogicalRect::new(rect.x + 20, rect.y + 70, rect.w.saturating_sub(40), 52);
+        surface.fill_rect(field.x, field.y, field.w, field.h, SURFACE_ALT);
+        draw_outline(surface, field, HAIRLINE);
+        draw_masked(
+            surface,
+            field.x + 10,
+            field.y + 12,
+            self.overlay.snapshot().masked_len,
+        );
+        let (primary, cancel) = action_rects(rect);
+        draw_button(surface, primary, "Save", true);
+        draw_button(surface, cancel, "Cancel", false);
+    }
+
     fn cancel(&mut self) {
         if !self.is_active() {
             return;
         }
+        let provider = matches!(
+            &self.mode,
+            Mode::ProviderEntry
+                | Mode::Outcome(
+                    Outcome::ProviderSaved
+                        | Outcome::ProviderRejected
+                        | Outcome::ProviderUnavailable
+                )
+        );
         self.close();
-        serial::write_line("VAULT_RR1_CANCELLED");
+        serial::write_line(if provider {
+            "VAULT_PROVIDER_SECRET_CANCELLED"
+        } else {
+            "VAULT_RR1_CANCELLED"
+        });
     }
 
     fn close(&mut self) {
@@ -367,6 +494,7 @@ impl VaultFlow {
             Mode::Showing(_) => Phase::Showing,
             Mode::Confirming(_) => Phase::Confirming,
             Mode::Unlocking => Phase::Unlocking,
+            Mode::ProviderEntry => Phase::ProviderEntry,
             Mode::Outcome(_) => Phase::Outcome,
         }
     }
@@ -432,6 +560,9 @@ fn draw_outcome(surface: &mut FramebufferSurface, rect: LogicalRect, outcome: Ou
         Outcome::Unlocked => ("Secret Vault is unlocked.", APP_GREEN),
         Outcome::Rejected => ("Recovery key rejected. No access was granted.", APP_RED),
         Outcome::Unavailable => ("Secret Vault is not available for this boot.", APP_RED),
+        Outcome::ProviderSaved => ("Provider API key saved in Secret Vault.", APP_GREEN),
+        Outcome::ProviderRejected => ("Provider API key was not saved.", APP_RED),
+        Outcome::ProviderUnavailable => ("Unlock Secret Vault before saving an API key.", APP_RED),
     };
     text::draw_text(surface, rect.x + 20, rect.y + 64, message, color, None);
     let (primary, _) = action_rects(rect);

@@ -69,7 +69,7 @@ pub(crate) enum SecureOverlayRejection {
     PlaintextRejected,
 }
 
-/// Opaque successful submission for the future exact Secret Broker join.
+/// Opaque successful submission for the exact Secret Broker join.
 ///
 /// There is intentionally no byte accessor. The broker receives the owned
 /// `SecretPlaintext`, whose bytes are private to `raios-core::secret_vault`.

@@ -1,3 +1,4 @@
+use sha2::{Digest, Sha256};
 use spin::Mutex;
 
 const OPENAI_CERT_SHA256: Option<&str> = option_env!("RAIOS_OPENAI_CERT_SHA256");
@@ -153,6 +154,23 @@ pub struct Snapshot {
     pub development_bypass: bool,
 }
 
+/// Opaque proof that the current OpenAI endpoint passed a real configured
+/// verifier. The development bypass can never create this token.
+pub(crate) struct VerifiedOpenAiProviderTrust {
+    audit_source: &'static str,
+    audit_evidence_sha256: [u8; 32],
+}
+
+impl VerifiedOpenAiProviderTrust {
+    pub(crate) const fn audit_source(&self) -> &'static str {
+        self.audit_source
+    }
+
+    pub(crate) const fn audit_evidence_sha256(&self) -> [u8; 32] {
+        self.audit_evidence_sha256
+    }
+}
+
 impl Snapshot {
     pub fn allows_provider_request(self) -> bool {
         self.development_bypass
@@ -285,6 +303,45 @@ pub fn snapshot() -> Snapshot {
 
 pub fn can_attempt_openai_tls() -> bool {
     unverified_development_allowed() || openai_pins().is_ok()
+}
+
+pub(crate) fn verified_openai_provider_trust() -> Option<VerifiedOpenAiProviderTrust> {
+    let trust = snapshot();
+    if trust.development_bypass || trust.verifier_decision.outcome != "verified" {
+        return None;
+    }
+    let audit_source = match trust.state {
+        TrustState::PinnedCertVerified => "pinned_cert_verified",
+        TrustState::PinnedSpkiVerified => "pinned_spki_verified",
+        TrustState::WebPkiVerified => "webpki_verified",
+        _ => return None,
+    };
+    let mut hash = Sha256::new();
+    for field in [
+        "raios.provider-use-trust.v1",
+        trust.verifier.id,
+        trust.verifier.host,
+        trust.verifier.pin_policy,
+        trust.verifier.chain_policy,
+        trust.verifier.time_policy,
+        trust.verifier_decision.stage,
+        trust.verifier_decision.outcome,
+        trust.verifier_decision.reason,
+        trust.state.as_protocol(),
+        trust.pin_kind.unwrap_or("none"),
+        trust.pin_id.unwrap_or("none"),
+        trust.pin_slot.unwrap_or("none"),
+    ] {
+        hash.update((field.len() as u64).to_le_bytes());
+        hash.update(field.as_bytes());
+    }
+    let digest = hash.finalize();
+    let mut audit_evidence_sha256 = [0u8; 32];
+    audit_evidence_sha256.copy_from_slice(&digest);
+    Some(VerifiedOpenAiProviderTrust {
+        audit_source,
+        audit_evidence_sha256,
+    })
 }
 
 pub fn openai_pins() -> Result<OpenAiPins, TrustState> {

@@ -27,6 +27,7 @@ use crate::entropy;
 use raios_core::scoped_secret_use::SecretBootScope;
 
 use super::{
+    audit::DurableProviderUseReceipt,
     keyring::{ApprovedCorePolicy, KeyringDenied, RecoveryWrapperSlot, RecoveryWrapperSlots},
     store::{
         reconstruct_retained_nonce_metadata, DecodedVaultRecord, ReplayHistoryCompleteness,
@@ -51,17 +52,18 @@ impl VaultMutation {
     }
 }
 
-/// An opaque use permit issued by the `secret_vault` facade after it has
-/// assembled the current trusted service/audit evidence.  The broker never
-/// edits this evidence: it rejects a permit whose record or key epoch is no
-/// longer current.
+/// An opaque use permit minted only by moving a durable provider-audit
+/// receipt into the broker. The broker never edits this evidence: it rejects
+/// a permit whose record or key epoch is no longer current.
 pub(crate) struct VaultUseAuthority {
     evidence: SecretUseEvidence,
 }
 
 impl VaultUseAuthority {
-    pub(super) const fn from_facade_evidence(evidence: SecretUseEvidence) -> Self {
-        Self { evidence }
+    fn from_durable_provider_receipt(receipt: DurableProviderUseReceipt) -> Self {
+        Self {
+            evidence: receipt.into_secret_use_evidence(),
+        }
     }
 }
 
@@ -162,6 +164,7 @@ pub(crate) enum VaultBrokerDenied {
     Keyring(KeyringDenied),
     Crypto(SecretVaultError),
     Use(SecretUseDenial),
+    AuditlessUseUnexpectedlyAuthorized,
 }
 
 /// A typed ciphertext handoff for the structured-store transaction layer.  It
@@ -591,8 +594,9 @@ impl VaultBroker {
     /// fixed V1 OpenAI host.  No host parameter exists on this API.
     pub(crate) fn use_for_provider(
         &self,
-        authority: VaultUseAuthority,
+        receipt: DurableProviderUseReceipt,
     ) -> Result<ProviderSecretLease, VaultBrokerDenied> {
+        let authority = VaultUseAuthority::from_durable_provider_receipt(receipt);
         let requested_target = SecretTargetBinding::for_openai_host(OPENAI_API_HOST)
             .map_err(VaultBrokerDenied::Crypto)?;
         let (plaintext, authorization) = self.authorize_and_decrypt(
@@ -607,6 +611,47 @@ impl VaultBroker {
             plaintext,
             _authorization: authorization,
         })
+    }
+
+    /// Contained-QEMU negative proof only: all current provider evidence is
+    /// exact except the durable pre-use audit bit, so authorization must stop
+    /// before decrypting with `AuditBindingMissing`.
+    pub(super) fn prove_provider_auditless_use_denied_for_contained_test(
+        &self,
+    ) -> Result<(), VaultBrokerDenied> {
+        let envelope = self.provider.present()?;
+        let policy = self
+            .approved_core_policy
+            .ok_or(VaultBrokerDenied::CorePolicyMissing)?;
+        let requested_target = SecretTargetBinding::for_openai_host(OPENAI_API_HOST)
+            .map_err(VaultBrokerDenied::Crypto)?;
+        let request = SecretUseRequest {
+            kind: envelope.binding.kind,
+            consumer: SecretConsumer::OpenAiDirect,
+            operation: SecretOperation::RequestExactHost,
+            bound_target: envelope.binding.target,
+            requested_target,
+            provider_host: Some(OPENAI_API_HOST),
+            evidence: SecretUseEvidence {
+                vault_unlocked: self.vmk.is_some(),
+                boot_scope: raios_core::scoped_secret_use::SecretBootScope::CurrentBoot,
+                explicit_recovery_action: false,
+                service_generation: policy.core_generation(),
+                current_service_generation: policy.core_generation(),
+                record_version: envelope.binding.record_version,
+                current_record_version: envelope.binding.record_version,
+                key_epoch: envelope.binding.key_epoch,
+                current_key_epoch: envelope.binding.key_epoch,
+                trust_decision_positive: true,
+                committed_store_record_verified: self.retained_nonces.is_some(),
+                audit_binding_present: false,
+            },
+        };
+        match authorize_secret_use(&request) {
+            Err(SecretUseDenial::AuditBindingMissing) => Ok(()),
+            Err(denied) => Err(VaultBrokerDenied::Use(denied)),
+            Ok(_) => Err(VaultBrokerDenied::AuditlessUseUnexpectedlyAuthorized),
+        }
     }
 
     #[allow(clippy::too_many_arguments)]

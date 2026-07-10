@@ -37,13 +37,17 @@ unclaimed: the distinct owner software-pinned Core Policy now binds the complete
 Limine executable to exact A/1 BOOTCTL state (`shadow-20260710-145039-13864.json`,
 5/5), and the Broker retains that verified identity beside the replay on both boots
 (`shadow-20260710-150107-28328.json`, 13/13) without accepting caller policy data.
-The first armed I3 slice is now verified by
-`shadow-20260710-160920-28360.json` (29/29): one-time RR1 display/checksum, physical re-entry,
-exact wrapper commit/readback, independent reboot/replay and recovery unlock all pass
-without RR1 in serial/report evidence. The next positive slice must make durable
-pre-use audit authoritative together with the first exact consumer; consumer use is
-still denied. This is not Secure Boot, TPM measurement, deterministic ESP A/B
-selection, anti-rollback, physical-target persistence or TPM auto-unlock.
+The first armed I3 slice is verified by `shadow-20260710-160920-28360.json` (29/29):
+one-time RR1 display/checksum, physical re-entry, exact wrapper commit/readback,
+independent reboot/replay and recovery unlock all pass without RR1 in serial/report
+evidence. The provider half of I3/G5.4 is now verified by
+`shadow-20260710-174308-19744.json` (42/42): physical Genesis entry saves an encrypted
+OpenAI credential on the exact disposable QEMU C1 store; after reboot/replay and RR1
+unlock, a contained exact Authorization-header consumer receives it only after durable
+`local_only` pre-use audit readback, typed reparse and rescan. Production OpenAI is
+wired behind real pinned trust. This does not prove live network provider success,
+physical persistence, WiFi Vault use, forget/SAFE behavior, TPM auto-unlock, Secure
+Boot, deterministic ESP A/B selection or anti-rollback.
 
 Target orchestrator: Codex 5.6, reasoning effort `xhigh`
 
@@ -1603,8 +1607,15 @@ QEMU test disk.
 #### G5.4 — Vault store, Broker and the two exact consumers
 
 Progress (2026-07-10): the real RR1 provisioning/write/reboot/recovery-unlock subset
-is green in `shadow-20260710-160920-28360.json` (29/29). Durable pre-use audit and both exact
-consumer joins remain open; no consumer plaintext authority is claimed by this proof.
+is green in `shadow-20260710-160920-28360.json` (29/29). The provider sub-slice is green
+in `shadow-20260710-174308-19744.json` (42/42): physical masked save, encrypted exact-C1
+commit, second-boot replay/RR1 unlock, durable local-only pre-use audit with verified
+readback/reparse/rescan, and one contained exact Authorization-header consumer all
+pass; the dynamic sentinel is absent from every required artifact. The production
+OpenAI writer requires real pinned trust before it can request the same one-use lease.
+This report does not claim a live network provider request or physical persistence.
+WiFi Vault use, forget/SAFE behavior and TPM auto-unlock remain open, so I3/G5.4 is not
+complete.
 
 I3 readiness: C1/C2/C3 are green, A2 exposes the frozen secure-overlay/status API, the
 foreign WiFi work is clean/frozen, and Sol has approved the exact authority diff. Only

@@ -229,7 +229,9 @@ impl ShellHost {
         if self.vault.is_active() {
             return self.vault.handle_physical_input(event);
         }
-        if console::snapshot().focus == console::UiFocus::SettingsVault
+        let console_snapshot = console::snapshot();
+        if !self.personal.has_personal_focus()
+            && console_snapshot.view == console::UiView::Settings
             && matches!(
                 event.kind,
                 input::InputEventKind::Key {
@@ -238,7 +240,13 @@ impl ShellHost {
                 }
             )
         {
-            return self.vault.begin_explicit();
+            match console_snapshot.focus {
+                console::UiFocus::SettingsVault => return self.vault.begin_explicit(),
+                console::UiFocus::SettingsApiKey => {
+                    return self.vault.begin_provider_explicit();
+                }
+                _ => {}
+            }
         }
         if matches!(event.kind, input::InputEventKind::SecureAttention) {
             let route = self.personal.handle_secure_attention();
@@ -376,7 +384,7 @@ impl ShellHost {
             return self.vault.begin_explicit();
         }
         if point_in(x, y, action[0]) {
-            return console::activate_focus(console::UiFocus::SettingsApiKey);
+            return self.vault.begin_provider_explicit();
         }
         if point_in(x, y, action[1]) {
             return console::activate_focus(console::UiFocus::SettingsWifiSsid);
@@ -821,13 +829,13 @@ fn draw_setup_overlay(
         TEXT_MUTED,
         None,
     );
-    draw_truncated_text(
+    text::draw_text(
         surface,
         rect.x + 20,
         rect.y + 70,
-        snapshot.input.as_str(),
-        rect.w.saturating_sub(40) / FONT_ADVANCE,
+        vault.provider_status_text(),
         TEXT_MAIN,
+        None,
     );
     draw_button(
         surface,
@@ -836,7 +844,12 @@ fn draw_setup_overlay(
         snapshot.focus == console::UiFocus::SettingsVault,
     );
     let actions = setup_action_rects(rect);
-    draw_button(surface, actions[0], "Set API key", true);
+    draw_button(
+        surface,
+        actions[0],
+        vault.provider_action_label(),
+        snapshot.focus == console::UiFocus::SettingsApiKey,
+    );
     draw_button(surface, actions[1], "Set WiFi", false);
     draw_button(surface, actions[2], "Scan WiFi", false);
     draw_button(surface, actions[3], "Close", false);

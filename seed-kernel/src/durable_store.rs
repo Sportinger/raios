@@ -2427,9 +2427,10 @@ fn copy_links(links: &[(&str, &str)]) -> Vec<DurableMemorySupersedeLink> {
 // through the SAME shared reclog gauntlet as every other durable writer in this file
 // (scan -> plan -> ahci write_readback -> readback-sha -> reparse ->
 // evaluate_scoped_memory_record_append -> rescan), mirroring `append_recovery_load`
-// EXACTLY, with ONE addition: a per-boot RAM write-quota reserved BEFORE the
-// plan/write and released on any post-reserve denial (never held past a denied
-// attempt, never released after success). `MemoryRecord::new` (raios-core) already
+// EXACTLY, with ONE addition: a per-boot RAM write-quota charged from the exact
+// planned frame size BEFORE media I/O. A charge is refunded only while no write
+// was attempted; attempted or uncertain writes consume it. `MemoryRecord::new`
+// (raios-core) already
 // fails closed on `secret` classification and unknown `kind`, so this function is
 // never called with an invalid record; `evaluate_scoped_memory_record_append`
 // re-checks those invariants anyway (deny-in-depth) plus the reclog gauntlet, owner
@@ -2440,8 +2441,7 @@ fn copy_links(links: &[(&str, &str)]) -> Vec<DurableMemorySupersedeLink> {
 
 /// Per-boot RAM-only durable-memory write quota. A fresh static reset to full every
 /// boot by construction -- never read from or written to disk. Bounds BOTH the
-/// record count and a nominal one-sector (512 B) charge per reservation, since every
-/// frame this driver plans rounds up to at least one reclog sector.
+/// record count and the exact sector-rounded frame bytes for every reservation.
 const MEMORY_WRITE_QUOTA_MAX_RECORDS: u32 = 128;
 const MEMORY_WRITE_QUOTA_MAX_BYTES: u64 = 32 * 1024;
 const MEMORY_RECORD_APPEND_SUCCESS_AUTHORITY: &str = "scoped_memory_record_append_authorized";
@@ -2467,10 +2467,8 @@ impl MemoryWriteQuota {
 
 static MEMORY_WRITE_QUOTA: Mutex<MemoryWriteQuota> = Mutex::new(MemoryWriteQuota::new());
 
-/// M9B-1b: the agent-authored observation path conservatively charges TWO sector
-/// charges (worst case for a 2-sector agent-observation frame) so it can NEVER
-/// undercharge the quota. The system-authored path is UNCHANGED at 1 sector via the
-/// zero-arg wrappers below.
+/// M9B-1b: an agent-authored observation remains capped at two sectors. Both agent
+/// and system records are charged their exact planned sector count.
 const AGENT_OBS_QUOTA_SECTORS: u64 = 2;
 
 /// Reserves one record + `sectors` sector charges against the per-boot quota. Fails
@@ -2488,8 +2486,7 @@ fn memory_write_quota_try_reserve_sectors(sectors: u64) -> bool {
     true
 }
 
-/// Gives back a reservation after a post-reserve denial, so a transient AHCI/plan
-/// failure never permanently burns quota.
+/// Gives back a reservation only when no media write was attempted.
 fn memory_write_quota_release_sectors(sectors: u64) {
     let mut quota = MEMORY_WRITE_QUOTA.lock();
     let bytes_back = (RECLOG_SECTOR_SIZE as u64).saturating_mul(sectors);
@@ -2503,16 +2500,11 @@ fn memory_write_quota_release_sectors(sectors: u64) {
         .min(MEMORY_WRITE_QUOTA_MAX_BYTES);
 }
 
-/// Reserves one record + one sector charge against the per-boot quota. Fails closed
-/// (returns `false`, reserves nothing) once either budget is exhausted. UNCHANGED
-/// behavior for the system-authored path and `memory_write_quota_probe_exhaustion`.
+/// One-sector wrappers retained only for the non-writing quota probe.
 fn memory_write_quota_try_reserve() -> bool {
     memory_write_quota_try_reserve_sectors(1)
 }
 
-/// Gives back a reservation after a post-reserve denial, so a transient AHCI/plan
-/// failure never permanently burns quota. UNCHANGED behavior for the
-/// system-authored path.
 fn memory_write_quota_release() {
     memory_write_quota_release_sectors(1)
 }
@@ -2586,12 +2578,6 @@ fn append_memory_record_inner<'a>(
     record: &MemoryRecord<'a>,
     agent_authored: bool,
 ) -> MemoryRecordAppendEvidence<'a> {
-    let sector_count = if agent_authored {
-        AGENT_OBS_QUOTA_SECTORS
-    } else {
-        1
-    };
-
     if !matches!(
         super::boot_control::current_boot_posture(),
         BootPosture::Normal | BootPosture::Probation
@@ -2599,16 +2585,11 @@ fn append_memory_record_inner<'a>(
         return memory_record_append_denied(record, "boot_control_safe_mode");
     }
 
-    if !memory_write_quota_try_reserve_sectors(sector_count) {
-        return memory_record_append_denied(record, "memory_write_quota_exhausted");
-    }
-
     let before = current_boot_reclog_scan();
     let payload = memory_record_payload_bytes(record);
     let planned = match plan_reclog_append(&before.scan, &payload, before.reclog_byte_count) {
         Ok(planned) => planned,
         Err(denied) => {
-            memory_write_quota_release_sectors(sector_count);
             return memory_record_append_evidence(
                 record,
                 "capability_denied",
@@ -2623,22 +2604,44 @@ fn append_memory_record_inner<'a>(
         }
     };
 
-    // Fail-closed undercharge guard (M9B-1b review LOW-2): the agent path reserves a
-    // fixed AGENT_OBS_QUOTA_SECTORS worst-case charge BEFORE the frame is planned. Today
-    // the field caps keep the frame at most 2 sectors, but if a future cap increase or an
-    // added record field ever pushed the real frame past the reserved bytes, the quota
-    // would silently UNDERCHARGE (the exact flood-guard weakness this charge exists to
-    // prevent). So if a planned agent frame ever exceeds what was reserved, DENY and refund
-    // rather than write an undercharged frame. Gated on agent_authored: the system path
-    // (sector_count=1, fixed <=1-sector records) is untouched.
-    if agent_authored
-        && planned.frame_len > (sector_count).saturating_mul(RECLOG_SECTOR_SIZE as u64)
-    {
-        memory_write_quota_release_sectors(sector_count);
+    let Some(sector_count) = planned
+        .frame_len
+        .checked_add(RECLOG_SECTOR_SIZE as u64 - 1)
+        .map(|rounded| rounded / RECLOG_SECTOR_SIZE as u64)
+        .filter(|sectors| *sectors != 0)
+    else {
+        return memory_record_append_evidence(
+            record,
+            "capability_denied",
+            "memory_write_quota_exhausted",
+            "evidence_only",
+            Some(&before),
+            Some(&planned),
+            None,
+            false,
+            None,
+        );
+    };
+
+    if agent_authored && sector_count > AGENT_OBS_QUOTA_SECTORS {
         return memory_record_append_evidence(
             record,
             "capability_denied",
             "agent_observation_frame_exceeds_quota_charge",
+            "evidence_only",
+            Some(&before),
+            Some(&planned),
+            None,
+            false,
+            None,
+        );
+    }
+
+    if !memory_write_quota_try_reserve_sectors(sector_count) {
+        return memory_record_append_evidence(
+            record,
+            "capability_denied",
+            "memory_write_quota_exhausted",
             "evidence_only",
             Some(&before),
             Some(&planned),
@@ -2667,11 +2670,15 @@ fn append_memory_record_inner<'a>(
         ahci::write_readback_reclog_append(controller, planned.write_offset, &planned.frame)
     };
     let readback_sha256 = write.readback.as_deref().map(sha256_bytes);
-    let reparse_valid = write
-        .readback
-        .as_deref()
-        .map(|bytes| parse_reclog_frame(bytes, 0, planned.seq, planned.prev_frame_sha256).is_ok())
-        .unwrap_or(false);
+    let reparse_valid = write.readback.as_deref().is_some_and(|bytes| {
+        let Ok(frame) = parse_reclog_frame(bytes, 0, planned.seq, planned.prev_frame_sha256) else {
+            return false;
+        };
+        let payload_end = RECLOG_FRAME_HEADER_LEN.saturating_add(frame.payload_len as usize);
+        bytes
+            .get(RECLOG_FRAME_HEADER_LEN..payload_end)
+            .is_some_and(|payload| memory_record::parse(payload).is_ok())
+    });
     let decision = evaluate_scoped_memory_record_append(&ScopedMemoryRecordAppendInput {
         method: Some(MEMORY_EXPECTED_METHOD),
         target_id: Some(MEMORY_EXPECTED_TARGET_ID),
@@ -2709,7 +2716,9 @@ fn append_memory_record_inner<'a>(
     });
 
     if !decision.performed {
-        memory_write_quota_release_sectors(sector_count);
+        if !write.write_attempted {
+            memory_write_quota_release_sectors(sector_count);
+        }
         return memory_record_append_evidence(
             record,
             "capability_denied",
@@ -2733,7 +2742,6 @@ fn append_memory_record_inner<'a>(
         && after.scan.tail_seq == planned.seq
         && after.scan.tail_frame_sha256 == Some(planned.frame_sha256);
     if !rescan_ok {
-        memory_write_quota_release_sectors(sector_count);
         return memory_record_append_evidence(
             record,
             "capability_denied",
@@ -2760,16 +2768,16 @@ fn append_memory_record_inner<'a>(
     )
 }
 
-/// System-authored append (M9A-2b/M9A-3b callers, UNCHANGED behavior): 1-sector
-/// quota charge, `agent_authored=false`, `'static` record.
-pub(crate) fn append_memory_record(
-    record: &MemoryRecord<'static>,
-) -> MemoryRecordAppendEvidence<'static> {
+/// System-authored append, charged from the exact planned frame length.
+pub(crate) fn append_memory_record<'a>(
+    record: &MemoryRecord<'a>,
+) -> MemoryRecordAppendEvidence<'a> {
     append_memory_record_inner(record, false)
 }
 
-/// Agent-authored observation append (M9B-1b, new): `AGENT_OBS_QUOTA_SECTORS`-sector
-/// quota charge, `agent_authored=true` (confined to `observation`/no-supersede/
+/// Agent-authored observation append: exact charge capped at
+/// `AGENT_OBS_QUOTA_SECTORS`, `agent_authored=true` (confined to
+/// `observation`/no-supersede/
 /// `local_only` by `evaluate_scoped_memory_record_append`'s agent-authored block),
 /// record lifetime NOT required `'static` (the caller's decoded RAM buffer).
 pub(crate) fn append_agent_observation_record<'a>(

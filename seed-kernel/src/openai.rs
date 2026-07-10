@@ -19,7 +19,7 @@ use spin::Mutex;
 
 use crate::{
     agent_protocol, entropy, event_log, net, openai_trust::OpenAiPinnedCertVerifier,
-    provider_config, provider_trust, serial, time, tls_io::KernelTcpStream, ui,
+    provider_config, provider_trust, secret_vault, serial, time, tls_io::KernelTcpStream, ui,
 };
 
 const API_HOST: &str = provider_trust::OPENAI_PINNED_TLS_VERIFIER_METADATA.host;
@@ -505,7 +505,7 @@ fn provider_request_envelope_hash(
     hash_field(
         &mut hash,
         "secret_state.api_key_state",
-        if provider_config::api_key_set() {
+        if provider_credential_configured() {
             "set"
         } else {
             "missing"
@@ -575,7 +575,7 @@ fn emit_provider_request_envelope(envelope: ProviderRequestEnvelope, _runtime: u
     );
     write_raw_sha256(envelope.request_body_hash);
     serial::write_raw_str("},\"secret_state\":{\"api_key_state\":\"");
-    serial::write_raw_str(if provider_config::api_key_set() {
+    serial::write_raw_str(if provider_credential_configured() {
         "set"
     } else {
         "missing"
@@ -1158,7 +1158,7 @@ fn perform_https_request(
     runtime: ui::RuntimeStatus,
 ) -> HttpsResult {
     let trust = provider_trust::snapshot();
-    if !provider_config::api_key_set() {
+    if !provider_credential_usable() {
         return HttpsResult::Error(b"OPENAI DIRECT API KEY MISSING");
     }
     if !trust.allows_provider_request() && !provider_trust::can_attempt_openai_tls() {
@@ -1236,16 +1236,44 @@ fn perform_https_request(
     record_positive_provider_context_bindings(envelope, envelope_event_id, runtime, trust);
     emit_provider_context_injection_gate_blocked(envelope, runtime, trust);
 
-    let mut key = [0u8; 256];
-    let Some(key_len) = provider_config::copy_api_key(&mut key) else {
+    let vault_credential = matches!(
+        secret_vault::provider_status(),
+        secret_vault::VaultSecretStatus::Available { .. }
+    );
+    let vault_lease = if vault_credential {
+        let Some(verified) = provider_trust::verified_openai_provider_trust() else {
+            return HttpsResult::Error(b"OPENAI DIRECT VAULT TRUST EVIDENCE MISSING");
+        };
+        match secret_vault::provider_lease_for_verified_request(verified) {
+            Ok(lease) => Some(lease),
+            Err(_) => return HttpsResult::Error(b"OPENAI DIRECT VAULT USE DENIED"),
+        }
+    } else {
+        None
+    };
+    let legacy_credential = if vault_credential {
+        None
+    } else {
+        provider_config::legacy_openai_credential()
+    };
+    if vault_lease.is_none() && legacy_credential.is_none() {
         return HttpsResult::Error(b"OPENAI DIRECT API KEY MISSING");
+    }
+
+    let preamble = build_http_preamble();
+    if tls.write_all(preamble.as_bytes()).is_err() {
+        return HttpsResult::Error(b"OPENAI DIRECT HTTPS WRITE FAILED");
+    }
+    let authorization_written = match (vault_lease, legacy_credential) {
+        (Some(lease), None) => lease.into_openai_authorization_header(&mut tls).is_ok(),
+        (None, Some(credential)) => credential
+            .into_openai_authorization_header(&mut tls)
+            .is_ok(),
+        _ => false,
     };
 
-    let header = build_http_header(key_len, body.len());
-
-    if tls.write_all(header.as_bytes()).is_err()
-        || tls.write_all(&key[..key_len]).is_err()
-        || tls.write_all(b"\r\nContent-Type: application/json\r\nContent-Length: ").is_err()
+    if !authorization_written
+        || tls.write_all(b"Content-Type: application/json\r\nContent-Length: ").is_err()
         || tls.write_all(format!("{}", body.len()).as_bytes()).is_err()
         || tls
             .write_all(b"\r\nAccept: application/json\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n")
@@ -1287,14 +1315,28 @@ fn perform_https_request(
     HttpsResult::Answer(line)
 }
 
-fn build_http_header(key_len: usize, _body_len: usize) -> String {
+fn build_http_preamble() -> String {
     format!(
-        "POST {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: raiOS/0.1\r\nAuthorization: Bearer ",
+        "POST {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: raiOS/0.1\r\n",
         API_PATH, API_HOST
     )
-    .chars()
-    .take(512usize.saturating_sub(key_len))
-    .collect()
+}
+
+fn provider_credential_configured() -> bool {
+    provider_config::api_key_set()
+        || matches!(
+            secret_vault::provider_status(),
+            secret_vault::VaultSecretStatus::Available { .. }
+        )
+}
+
+fn provider_credential_usable() -> bool {
+    provider_config::api_key_set()
+        || (secret_vault::recovery_state() == secret_vault::VaultRecoveryState::Unlocked
+            && matches!(
+                secret_vault::provider_status(),
+                secret_vault::VaultSecretStatus::Available { .. }
+            ))
 }
 
 fn build_request_body(prompt: &str) -> String {

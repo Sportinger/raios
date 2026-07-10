@@ -12,6 +12,299 @@ function Clear-Rr1Bytes {
     }
 }
 
+function New-ProviderSentinelBytes {
+    $random = [byte[]]::new(32)
+    $sentinel = [byte[]]::new(64)
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $rng.GetBytes($random)
+        for ($index = 0; $index -lt $random.Length; $index++) {
+            $high = $random[$index] -shr 4
+            $low = $random[$index] -band 0x0f
+            $sentinel[$index * 2] = [byte]$(if ($high -lt 10) { 48 + $high } else { 87 + $high })
+            $sentinel[$index * 2 + 1] = [byte]$(if ($low -lt 10) { 48 + $low } else { 87 + $low })
+        }
+        return ,$sentinel
+    }
+    catch {
+        Clear-Rr1Bytes -Bytes $sentinel
+        throw
+    }
+    finally {
+        $rng.Dispose()
+        Clear-Rr1Bytes -Bytes $random
+        $random = $null
+    }
+}
+
+function Get-FileByteSequenceOffset {
+    param(
+        [string]$Path,
+        [byte[]]$Needle
+    )
+
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path -PathType Leaf) -or
+        $null -eq $Needle -or $Needle.Length -eq 0) {
+        return [int64]-1
+    }
+
+    $chunkSize = 64KB
+    $overlap = $Needle.Length - 1
+    $buffer = [byte[]]::new($chunkSize + $overlap)
+    $stream = $null
+    $carry = 0
+    try {
+        $stream = [System.IO.File]::Open(
+            $Path,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read,
+            [System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete
+        )
+        while ($true) {
+            $read = $stream.Read($buffer, $carry, $chunkSize)
+            if ($read -eq 0) {
+                return [int64]-1
+            }
+            $total = $carry + $read
+            $bufferStart = $stream.Position - $read - $carry
+            $offset = 0
+            $lastStart = $total - $Needle.Length
+            while ($offset -le $lastStart) {
+                $offset = [Array]::IndexOf(
+                    $buffer,
+                    $Needle[0],
+                    $offset,
+                    $lastStart - $offset + 1
+                )
+                if ($offset -lt 0) {
+                    break
+                }
+                $matches = $true
+                for ($index = 1; $index -lt $Needle.Length; $index++) {
+                    if ($buffer[$offset + $index] -ne $Needle[$index]) {
+                        $matches = $false
+                        break
+                    }
+                }
+                if ($matches) {
+                    return [int64]($bufferStart + $offset)
+                }
+                $offset++
+            }
+            $carry = [Math]::Min($overlap, $total)
+            if ($carry -gt 0) {
+                [Array]::Copy($buffer, $total - $carry, $buffer, 0, $carry)
+            }
+        }
+    }
+    finally {
+        if ($stream) {
+            $stream.Dispose()
+        }
+        Clear-Rr1Bytes -Bytes $buffer
+        $buffer = $null
+    }
+}
+
+function Redact-FileByteSequence {
+    param(
+        [string]$Path,
+        [byte[]]$Needle
+    )
+
+    $replacement = [byte[]]::new($Needle.Length)
+    for ($index = 0; $index -lt $replacement.Length; $index++) {
+        $replacement[$index] = [byte][char]'*'
+    }
+    try {
+        while (($offset = Get-FileByteSequenceOffset -Path $Path -Needle $Needle) -ge 0) {
+            $stream = $null
+            try {
+                $stream = [System.IO.File]::Open(
+                    $Path,
+                    [System.IO.FileMode]::Open,
+                    [System.IO.FileAccess]::ReadWrite,
+                    [System.IO.FileShare]::None
+                )
+                $stream.Position = $offset
+                $stream.Write($replacement, 0, $replacement.Length)
+                $stream.Flush($true)
+            }
+            finally {
+                if ($stream) {
+                    $stream.Dispose()
+                }
+            }
+        }
+        return $true
+    }
+    catch {
+        return $false
+    }
+    finally {
+        Clear-Rr1Bytes -Bytes $replacement
+        $replacement = $null
+    }
+}
+
+function Join-VaultSerialLogs {
+    param(
+        [string]$First,
+        [string]$Second,
+        [string]$Destination
+    )
+
+    $buffer = [byte[]]::new(64KB)
+    $separator = [byte[]]@(13, 10)
+    $output = $null
+    try {
+        $output = [System.IO.File]::Open(
+            $Destination,
+            [System.IO.FileMode]::Create,
+            [System.IO.FileAccess]::Write,
+            [System.IO.FileShare]::None
+        )
+        foreach ($sourcePath in @($First, $Second)) {
+            $input = $null
+            try {
+                $input = [System.IO.File]::OpenRead($sourcePath)
+                while (($read = $input.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                    $output.Write($buffer, 0, $read)
+                }
+            }
+            finally {
+                if ($input) {
+                    $input.Dispose()
+                }
+            }
+            if ($sourcePath -eq $First) {
+                $output.Write($separator, 0, $separator.Length)
+            }
+        }
+        $output.Flush($true)
+    }
+    finally {
+        if ($output) {
+            $output.Dispose()
+        }
+        Clear-Rr1Bytes -Bytes $buffer
+        Clear-Rr1Bytes -Bytes $separator
+        $buffer = $null
+        $separator = $null
+    }
+}
+
+function Get-PersistInspectionForVault {
+    param([string]$Path)
+
+    $builder = Join-Path $RepoRoot "scripts\make-gpt-persist-image.py"
+    $json = @(& python $builder --inspect-json $Path 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "secret-vault offline RECLOG inspection failed"
+    }
+    try {
+        return (($json -join [Environment]::NewLine) | ConvertFrom-Json)
+    }
+    catch {
+        throw "secret-vault offline RECLOG inspection returned invalid JSON"
+    }
+}
+
+function Assert-VaultFixedLogMarker {
+    param(
+        [string]$Name,
+        [string]$Marker,
+        [int]$TimeoutSeconds
+    )
+
+    $passed = Wait-ForLogText -Path $SerialLog -Needle $Marker -TimeoutSeconds $TimeoutSeconds
+    Add-Predicate `
+        -Name $Name `
+        -Expected "serial_contains:$Marker" `
+        -Passed $passed `
+        -Actual $(if ($passed) { "found=true" } else { "found=false" })
+    if (-not $passed) {
+        throw "secret-vault fixed marker was not observed"
+    }
+}
+
+function Send-ProviderSentinelViaUsbKeyboard {
+    param([byte[]]$Sentinel)
+
+    if ($null -eq $Sentinel -or $Sentinel.Length -eq 0) {
+        throw "provider sentinel is unavailable"
+    }
+    foreach ($value in $Sentinel) {
+        if (-not (($value -ge [byte][char]'0' -and $value -le [byte][char]'9') -or
+                ($value -ge [byte][char]'a' -and $value -le [byte][char]'f'))) {
+            throw "provider sentinel is not lowercase hexadecimal ASCII"
+        }
+        Send-Rr1HmpKey -KeyName ([char]$value).ToString()
+    }
+    Send-Rr1HmpKey -KeyName "ret"
+}
+
+function Assert-ProviderSentinelAbsent {
+    param(
+        [byte[]]$Sentinel,
+        [string[]]$RequiredPaths
+    )
+
+    $paths = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase
+    )
+    $requiredReady = $true
+    foreach ($path in $RequiredPaths) {
+        if ($path -and (Test-Path -LiteralPath $path -PathType Leaf)) {
+            $null = $paths.Add([System.IO.Path]::GetFullPath($path))
+        }
+        else {
+            $requiredReady = $false
+        }
+    }
+    if (-not $requiredReady) {
+        Add-Predicate `
+            -Name "secret-vault:provider_sentinel_absent_from_all_artifacts" `
+            -Expected "exact dynamic provider sentinel absent from both serial logs, combined log, boot image, C1, persist, and every run file" `
+            -Passed $false `
+            -Actual "absent=unproven scope=required_artifact_missing"
+        throw "Provider sentinel scan is missing a required artifact"
+    }
+    foreach ($file in Get-ChildItem -LiteralPath $RunDir -File -Recurse -ErrorAction Stop) {
+        $null = $paths.Add($file.FullName)
+    }
+
+    $leakedPaths = [System.Collections.Generic.List[string]]::new()
+    foreach ($path in $paths) {
+        if ((Get-FileByteSequenceOffset -Path $path -Needle $Sentinel) -ge 0) {
+            $leakedPaths.Add($path)
+        }
+    }
+    $leaked = $leakedPaths.Count -gt 0
+    if ($leaked) {
+        Stop-Rr1VmForSecurityTripwire
+        $runRoot = [System.IO.Path]::GetFullPath($RunDir).TrimEnd([char]'\', [char]'/') +
+            [System.IO.Path]::DirectorySeparatorChar
+        foreach ($path in $leakedPaths) {
+            if (-not (Redact-FileByteSequence -Path $path -Needle $Sentinel)) {
+                $fullPath = [System.IO.Path]::GetFullPath($path)
+                if ($fullPath.StartsWith($runRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+                    Remove-Item -LiteralPath $fullPath -Force -ErrorAction SilentlyContinue
+                }
+                throw "SECURITY_TRIPWIRE_PROVIDER_SENTINEL_REDACTION_FAILED"
+            }
+        }
+    }
+    Add-Predicate `
+        -Name "secret-vault:provider_sentinel_absent_from_all_artifacts" `
+        -Expected "exact dynamic provider sentinel absent from both serial logs, combined log, boot image, C1, persist, and every run file" `
+        -Passed (-not $leaked) `
+        -Actual $(if ($leaked) { "absent=false scope=all_required_artifacts" } else { "absent=true scope=all_required_artifacts" })
+    if ($leaked) {
+        throw "SECURITY_TRIPWIRE_PROVIDER_SENTINEL_ARTIFACT_LEAK_REDACTED"
+    }
+}
+
 function Stop-Rr1VmForSecurityTripwire {
     if ($QemuPid) {
         Stop-Process -Id $QemuPid -Force -ErrorAction SilentlyContinue
@@ -431,6 +724,8 @@ function Send-Rr1HmpKey {
 }
 
 function Invoke-VaultVisibleAction {
+    param([switch]$SkipFinalEnter)
+
     for ($index = 0; $index -lt 3; $index++) {
         Send-Rr1HmpKey -KeyName "tab"
     }
@@ -439,7 +734,9 @@ function Invoke-VaultVisibleAction {
     Send-Rr1HmpKey -KeyName "tab"
     Send-Rr1HmpKey -KeyName "ret"
     Start-Sleep -Milliseconds 250
-    Send-Rr1HmpKey -KeyName "ret"
+    if (-not $SkipFinalEnter) {
+        Send-Rr1HmpKey -KeyName "ret"
+    }
 }
 
 function Send-Rr1ViaUsbKeyboard {
@@ -630,7 +927,20 @@ if (-not $fixtureReady) {
     throw "Secret Vault fixtures are not the dedicated disposable pair"
 }
 
+$initialPersistInspection = Get-PersistInspectionForVault -Path $PersistDiskImage
+$initialFrames = @($initialPersistInspection.reclog_frames)
+$initialReclogValid = $initialPersistInspection.reclog_scan.status -in @("valid", "valid_empty") -and
+    [int]$initialPersistInspection.reclog_scan.count -eq $initialFrames.Count
+if (-not $initialReclogValid) {
+    throw "secret-vault initial RECLOG inspection is invalid"
+}
+$initialFrameCount = $initialFrames.Count
+$initialFrameHashes = @($initialFrames | ForEach-Object { [string]$_.frame_sha256 })
+$initialFrames = $null
+$initialPersistInspection = $null
+
 $rr1 = $null
+$providerSentinel = $null
 $script:Rr1SecretPpmPath = Join-Path $RunDir "rr1-once.ppm"
 try {
     Assert-LogContains `
@@ -707,6 +1017,42 @@ try {
     if (-not $reentryUsedUsb) {
         throw "RR1 confirmation did not traverse USB HID input"
     }
+
+    $usbBeforeProvider = Get-SerialMarkerCount -Path $SerialLog -Marker "usb input batch:"
+    # Close the RR1 outcome, move one Settings focus step from Vault to API
+    # key, and open the secure provider entry. All three actions are physical.
+    Send-Rr1HmpKey -KeyName "ret"
+    Start-Sleep -Milliseconds 150
+    Send-Rr1HmpKey -KeyName "tab"
+    Send-Rr1HmpKey -KeyName "ret"
+    Assert-VaultFixedLogMarker `
+        -Name "secret-vault:boot1:provider_entry_ready" `
+        -Marker "VAULT_PROVIDER_SECRET_ENTRY_READY" `
+        -TimeoutSeconds $TimeoutSeconds
+
+    $providerSentinel = New-ProviderSentinelBytes
+    Send-ProviderSentinelViaUsbKeyboard -Sentinel $providerSentinel
+    foreach ($marker in @(
+        @{ Name = "secret-vault:boot1:provider_committed_readback"; Text = "C1_VAULT_PROVIDER_COMMITTED version=1 readback=verified" },
+        @{ Name = "secret-vault:boot1:provider_stored_readback"; Text = "VAULT_PROVIDER_STORED version=1 readback=verified" },
+        @{ Name = "secret-vault:boot1:provider_saved"; Text = "VAULT_PROVIDER_SECRET_SAVED" }
+    )) {
+        Assert-VaultFixedLogMarker `
+            -Name $marker.Name `
+            -Marker $marker.Text `
+            -TimeoutSeconds $TimeoutSeconds
+    }
+    $usbAfterProvider = Get-SerialMarkerCount -Path $SerialLog -Marker "usb input batch:"
+    $providerUsedUsb = $usbAfterProvider -gt $usbBeforeProvider
+    Add-Predicate `
+        -Name "secret-vault:boot1:provider_save_uses_usb_hid" `
+        -Expected "physical Settings API-key action and masked submission increment USB input batches" `
+        -Passed $providerUsedUsb `
+        -Actual $(if ($providerUsedUsb) { "physical=true transport=usb_hid" } else { "physical=false transport=usb_hid" })
+    if (-not $providerUsedUsb) {
+        throw "Provider save did not traverse USB HID input"
+    }
+
     $firstBootLog = $SerialLog
     if (-not $QemuPid) {
         throw "secret-vault profile cannot reboot without the first QEMU process"
@@ -741,29 +1087,33 @@ try {
         $script:QemuProcess = $null
     }
 
-    Assert-LogContains -Name "secret-vault:boot2:serial_ready" -Needle "SERIAL CONSOLE READY" -TimeoutSeconds $TimeoutSeconds
-    Assert-LogContains `
+    Assert-VaultFixedLogMarker -Name "secret-vault:boot2:serial_ready" -Marker "SERIAL CONSOLE READY" -TimeoutSeconds $TimeoutSeconds
+    Assert-VaultFixedLogMarker `
         -Name "secret-vault:boot2:usb_keyboard_ready" `
-        -Needle "usb-hid: keyboard ready on slot" `
+        -Marker "usb-hid: keyboard ready on slot" `
         -TimeoutSeconds $TimeoutSeconds
-    Assert-LogContains `
+    Assert-VaultFixedLogMarker `
         -Name "secret-vault:boot2:complete_replay_bound" `
-        -Needle "C1_VAULT_COMPLETE_REPLAY_BOUND" `
+        -Marker "C1_VAULT_COMPLETE_REPLAY_BOUND" `
         -TimeoutSeconds $TimeoutSeconds
-    Assert-LogContains `
+    Assert-VaultFixedLogMarker `
         -Name "secret-vault:boot2:core_policy_bound" `
-        -Needle "C1_VAULT_CORE_POLICY_BOUND" `
+        -Marker "C1_VAULT_CORE_POLICY_BOUND" `
         -TimeoutSeconds $TimeoutSeconds
-    Assert-LogContains `
+    Assert-VaultFixedLogMarker `
         -Name "secret-vault:boot2:wrapper_replayed" `
-        -Needle "C1_VAULT_RECOVERY_WRAPPER_REPLAYED generation=1" `
+        -Marker "C1_VAULT_RECOVERY_WRAPPER_REPLAYED generation=1" `
+        -TimeoutSeconds $TimeoutSeconds
+    Assert-VaultFixedLogMarker `
+        -Name "secret-vault:boot2:provider_replayed" `
+        -Marker "C1_VAULT_PROVIDER_REPLAYED version=1" `
         -TimeoutSeconds $TimeoutSeconds
 
     $usbBeforeUnlockAction = Get-SerialMarkerCount -Path $SerialLog -Marker "usb input batch:"
-    Invoke-VaultVisibleAction
-    Assert-LogContains `
+    Invoke-VaultVisibleAction -SkipFinalEnter
+    Assert-VaultFixedLogMarker `
         -Name "secret-vault:boot2:recovery_unlock_ready" `
-        -Needle "VAULT_RECOVERY_UNLOCK_READY" `
+        -Marker "VAULT_RECOVERY_UNLOCK_READY" `
         -TimeoutSeconds $TimeoutSeconds
     $displayCountBoot2 = Get-SerialMarkerCount -Path $SerialLog -Marker "VAULT_RR1_DISPLAY_READY"
     $notRedisplayed = $displayCountBoot2 -eq 0
@@ -793,6 +1143,42 @@ try {
         -SuccessMarker "VAULT_RR1_UNLOCKED" `
         -RejectedMarker "VAULT_RR1_UNLOCK_REJECTED" `
         -TimeoutSeconds $TimeoutSeconds
+    foreach ($marker in @(
+        @{ Name = "secret-vault:boot2:provider_auditless_denied"; Text = "VAULT_PROVIDER_AUDITLESS_DENIED reason=audit_binding_missing test_infrastructure=true" },
+        @{ Name = "secret-vault:boot2:provider_preuse_audit_durable"; Text = "VAULT_PROVIDER_PREUSE_AUDIT_COMMITTED consumer=openai_direct operation=request_exact_host readback=verified reparse=verified rescan=verified" },
+        @{ Name = "secret-vault:boot2:provider_contained_exact_header"; Text = "VAULT_PROVIDER_CONTAINED_CONSUMED target=api.openai.com accepted=true test_infrastructure=true" }
+    )) {
+        Assert-VaultFixedLogMarker `
+            -Name $marker.Name `
+            -Marker $marker.Text `
+            -TimeoutSeconds $TimeoutSeconds
+    }
+
+    $auditMarkerBytes = [System.Text.Encoding]::ASCII.GetBytes(
+        "VAULT_PROVIDER_PREUSE_AUDIT_COMMITTED consumer=openai_direct operation=request_exact_host"
+    )
+    $consumerMarkerBytes = [System.Text.Encoding]::ASCII.GetBytes(
+        "VAULT_PROVIDER_CONTAINED_CONSUMED target=api.openai.com accepted=true test_infrastructure=true"
+    )
+    try {
+        $auditOffset = Get-FileByteSequenceOffset -Path $SerialLog -Needle $auditMarkerBytes
+        $consumerOffset = Get-FileByteSequenceOffset -Path $SerialLog -Needle $consumerMarkerBytes
+        $auditPrecedesConsumer = $auditOffset -ge 0 -and $consumerOffset -gt $auditOffset
+        Add-Predicate `
+            -Name "secret-vault:boot2:audit_precedes_provider_consumer" `
+            -Expected "durable pre-use audit marker precedes exact-header contained consumer marker" `
+            -Passed $auditPrecedesConsumer `
+            -Actual $(if ($auditPrecedesConsumer) { "ordered=true audit_before_consumer=true" } else { "ordered=false audit_before_consumer=false" })
+        if (-not $auditPrecedesConsumer) {
+            throw "Provider consumer marker order is invalid"
+        }
+    }
+    finally {
+        Clear-Rr1Bytes -Bytes $auditMarkerBytes
+        Clear-Rr1Bytes -Bytes $consumerMarkerBytes
+        $auditMarkerBytes = $null
+        $consumerMarkerBytes = $null
+    }
     $usbAfterUnlock = Get-SerialMarkerCount -Path $SerialLog -Marker "usb input batch:"
     $unlockUsedUsb = $usbAfterUnlock -gt $usbBeforeUnlock
     Add-Predicate `
@@ -810,9 +1196,69 @@ try {
     $rr1 = $null
 
     $combinedLog = Join-Path $RunDir "serial-secret-vault-combined.log"
-    $firstBootContent = Get-Content -LiteralPath $firstBootLog -Raw -ErrorAction Stop
-    $rebootContent = Get-Content -LiteralPath $rebootLog -Raw -ErrorAction Stop
-    Set-Content -LiteralPath $combinedLog -Value ($firstBootContent + [Environment]::NewLine + $rebootContent) -Encoding UTF8
+    Join-VaultSerialLogs -First $firstBootLog -Second $rebootLog -Destination $combinedLog
+
+    Assert-ProviderSentinelAbsent `
+        -Sentinel $providerSentinel `
+        -RequiredPaths @(
+            $firstBootLog,
+            $rebootLog,
+            $combinedLog,
+            $ResolvedImage,
+            $StructuredStoreDiskImage,
+            $PersistDiskImage
+        )
+
+    $finalPersistInspection = Get-PersistInspectionForVault -Path $PersistDiskImage
+    $finalFrames = @($finalPersistInspection.reclog_frames)
+    $finalReclogValid = $finalPersistInspection.reclog_scan.status -eq "valid" -and
+        [int]$finalPersistInspection.reclog_scan.count -eq $finalFrames.Count
+    Add-Predicate `
+        -Name "secret-vault:offline_reclog_valid" `
+        -Expected "offline inspector reports one valid chained RECLOG after contained provider use" `
+        -Passed $finalReclogValid `
+        -Actual $(if ($finalReclogValid) { "valid=true chain=verified" } else { "valid=false chain=unverified" })
+    if (-not $finalReclogValid) {
+        throw "Provider audit RECLOG is invalid under offline inspection"
+    }
+
+    $prefixUnchanged = $finalFrames.Count -ge $initialFrameCount
+    for ($index = 0; $prefixUnchanged -and $index -lt $initialFrameCount; $index++) {
+        $prefixUnchanged = [string]$finalFrames[$index].frame_sha256 -eq $initialFrameHashes[$index]
+    }
+    $newFrames = @($finalFrames | Select-Object -Skip $initialFrameCount)
+    $record = if ($newFrames.Count -eq 1) { $newFrames[0].payload_json } else { $null }
+    $recordValue = if ($record) { $record.value } else { $null }
+    $exactAuditRecord = $prefixUnchanged -and
+        $newFrames.Count -eq 1 -and
+        $finalFrames.Count -eq ($initialFrameCount + 1) -and
+        $record -and
+        $record.schema -eq "raios.memory_record.v0" -and
+        $record.kind -eq "capability_grant" -and
+        $record.classification -eq "local_only" -and
+        $record.authority -eq "owner_verified_core_policy" -and
+        $record.entity -eq "openai_direct" -and
+        $record.predicate -eq "request_exact_host" -and
+        $recordValue -and
+        $recordValue.consumer -eq "openai_direct" -and
+        $recordValue.operation -eq "request_exact_host" -and
+        $recordValue.target -eq "api.openai.com" -and
+        $recordValue.network_export_authorized -eq $false -and
+        $recordValue.test_infrastructure -eq $true
+    Add-Predicate `
+        -Name "secret-vault:offline_exact_provider_audit_record" `
+        -Expected "exactly one new local_only capability_grant for provider use, non-exportable and labeled test infrastructure" `
+        -Passed $exactAuditRecord `
+        -Actual $(if ($exactAuditRecord) { "delta=one record=provider_use export=false test=true" } else { "delta=invalid record=provider_use export=unknown test=unknown" })
+    if (-not $exactAuditRecord) {
+        throw "Offline inspection did not prove the exact provider-use audit record"
+    }
+    $recordValue = $null
+    $record = $null
+    $newFrames = $null
+    $finalFrames = $null
+    $finalPersistInspection = $null
+    $initialFrameHashes = $null
     $SerialLog = $combinedLog
     $script:SerialLogCachePath = $null
     $script:SerialLogCacheLength = [int64]-1
@@ -822,5 +1268,7 @@ try {
 finally {
     Clear-Rr1Bytes -Bytes $rr1
     $rr1 = $null
+    Clear-Rr1Bytes -Bytes $providerSentinel
+    $providerSentinel = $null
     Remove-Rr1SecretPpm -Path $script:Rr1SecretPpmPath
 }

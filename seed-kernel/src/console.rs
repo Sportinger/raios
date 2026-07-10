@@ -406,6 +406,8 @@ impl ConsoleState {
             // ShellHost consumes physical Enter on this focus before Console.
             // Serial has no Vault action and can only request a redraw here.
             UiFocus::SettingsVault => ByteAction::Redraw,
+            // ShellHost consumes physical Enter and pointer activation here.
+            // The serial setup path below remains explicitly RAM-only.
             UiFocus::SettingsApiKey => {
                 self.mode = ConsoleMode::ApiKeyEntry;
                 self.input.clear();
@@ -1650,7 +1652,7 @@ fn show_setup_menu() {
     let provider = provider_config::snapshot();
     let wifi = wifi::snapshot();
     write_output(format_args!(
-        "1 PROVIDER: {} DIRECT    2 API KEY: {}",
+        "1 PROVIDER: {} DIRECT    2 API KEY RAM-ONLY: {}",
         provider.provider_name,
         api_key_status(provider.api_key_set)
     ));
@@ -1666,8 +1668,10 @@ fn show_setup_menu() {
 }
 
 fn show_api_key_entry() {
-    write_output(format_args!("API KEY ENTRY"));
-    write_output(format_args!("TYPE KEY, ENTER TO SAVE, ESC TO CANCEL"));
+    write_output(format_args!("API KEY ENTRY: LEGACY RAM-ONLY"));
+    write_output(format_args!(
+        "TYPE KEY, ENTER TO USE THIS BOOT, ESC TO CANCEL"
+    ));
 }
 
 fn show_wifi_ssid_entry() {

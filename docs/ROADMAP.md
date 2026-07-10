@@ -36,9 +36,10 @@ claim is opened by I0.
 **M13/Secret Vault contract accepted (C0/G5.0, 2026-07-10):** ADR 0012
 fixes the dedicated internal-partition boundary, crash-consistent structured
 store, exact cryptographic pins, RR1 recovery wrapper, TPM evidence gate, and
-two-consumer broker. C1 has now proven the isolated QEMU store mechanism; its
-physical-target support, durable secrets, recovery unlock, TPM auto-unlock, and
-Vault-VMK sealing remain unproven; ADR 0007 owner sealing is unaffected.
+two-consumer broker. C1 has now proven the isolated QEMU store mechanism and the
+provider slice has proven RR1 recovery unlock there; physical-target support,
+production durable-secret persistence, TPM auto-unlock, and Vault-VMK sealing
+remain unproven. ADR 0007 owner sealing is unaffected.
 
 **C1/G5.1 structured store verified (2026-07-10):** the focused
 `shadow-20260710-032738-34812.json` profile passed 9/9 after an isolated
@@ -67,10 +68,16 @@ TPM measurement, deterministic ESP A/B selection, or anti-rollback. The Broker n
 retains that verified identity beside the complete replay on both boots, and rejects
 caller-supplied/replacement policy identity; focused
 `shadow-20260710-150107-28328.json` passes 13/13. The first armed I3 vertical slice is
-now green: `shadow-20260710-160920-28360.json` (29/29) proves one-time RR1 display, physical
+green: `shadow-20260710-160920-28360.json` (29/29) proves one-time RR1 display, physical
 re-entry, exact QEMU-store wrapper commit/readback, independent reboot/replay and RR1
-Broker unlock with no RR1 in either serial log or report. I3 remains open on durable
-pre-use audit and the two exact consumers; consumer use remains denied.
+Broker unlock with no RR1 in either serial log or report. The provider half of I3/G5.4
+is now green in `shadow-20260710-174308-19744.json` (42/42): a physical Genesis action
+saves an encrypted OpenAI credential on the exact disposable QEMU C1 store; after
+reboot/replay and RR1 unlock, the contained exact Authorization-header consumer receives
+it only after a durable `local_only` pre-use audit passes readback, typed reparse and
+rescan. The production OpenAI path is wired behind real pinned trust, but this report
+does not prove a live provider request, physical persistence, WiFi Vault use,
+forget/SAFE behavior or TPM auto-unlock. I3/G5.4 remains open on those named parts.
 
 **Genesis execution progress (A1/C3, 2026-07-10):** the normal release image
 now starts in the core-owned Genesis shell (Conversation, Context, Composer,
@@ -104,8 +111,9 @@ provider, recovery, persistence, or mutation authority is open. The Genesis
 AB/G4 join is now verified by `shadow-20260710-124838-24564.json` (206/206): the
 non-default proof enters the clipped core-owned surface, accepts sanitized input,
 leaves through core-only F12, falls back after trap/fuel, and never changes the
-secure-strip pixels. Its current-boot inventory row exists only while active. I3/G5.4
-remains independently review-gated.
+secure-strip pixels. Its current-boot inventory row exists only while active. The
+I3/G5.4 provider half is verified by the focused 42/42 report above; its WiFi and
+remaining trusted-action halves remain independently gated.
 
 **M11 Kernel Slimming progress (all grants-nothing / strictly-more-restrictive,
 committed):** M11-1 kernel internet-parsing SURFACE baseline (the measurably-

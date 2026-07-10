@@ -24,19 +24,19 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (I3/G5.4 Secret-Vault authority join): add the durable
-pre-use audit receipt together with the first real bounded consumer, then replace the
-two legacy RAM-copy consumers and wire the remaining trusted Genesis actions. The
-RR1 provisioning/recovery vertical slice is green and must stay unchanged: Genesis
-generates the VMK and random recovery key from ready core entropy, shows RR1 exactly
-once, requires complete physical-input re-entry, persists/readback-verifies the wrapper
-on the dedicated QEMU test store, and unlocks the Broker after reboot through bound
-replay and Core Policy. Preserve the existing
-durable-store identity/rollback chain; do not expose plaintext to ShellHost/Wasm,
-add generic secret access, provider auto-load, broad mutation, or physical-target
-support. Disk 2 is unplugged; do not write a physical disk. The separate bare-metal
-WiFi proof remains pending: capture `LINK`, association/AID, `PORT_RELEASE`, RX/TX,
-and DHCP evidence before provider access is claimed.
+Current exact next task (I3/G5.4 Secret-Vault WiFi join): persist the selected
+WPA2 credential against its exact SSID/BSSID binding, mint a typed durable pre-use
+audit receipt, and consume the resulting one-use Broker lease only inside the NXP PMK
+formatter. Delete/confine `wifi::copy_passphrase()` and remove plaintext from the
+long-lived `ConnectionJob`; an existing Vault record must never fall back to the
+legacy RAM credential. The provider vertical slice and prior RR1 recovery path are
+green and must stay unchanged. Then wire the remaining trusted Genesis forget/SAFE
+actions and G5.5 evidence. Preserve the durable-store identity/rollback chain; do not
+expose plaintext to ShellHost/Wasm, add generic secret access, provider auto-load,
+broad mutation, or physical-target support. Disk 2 is unplugged; do not write a
+physical disk. The separate bare-metal WiFi proof remains pending: capture `LINK`,
+association/AID, `PORT_RELEASE`, RX/TX, and DHCP evidence before live provider access
+is claimed.
 
 I3 complete-history Broker foundation verified (2026-07-10) - a kernel composition
 agent can now obtain the complete ordered list of committed records from the same
@@ -97,6 +97,38 @@ both boots. The transient PPM is overwrite/truncate/deleted and the retained hos
 array is cleared; RR1 never enters a report, predicate value, serial command or hash.
 This writes only the recovery wrapper: no WiFi/provider secret, durable pre-use audit,
 consumer use, provider auto-load, physical target or TPM auto-unlock is authorized yet.
+
+I3 durable provider Secret-Vault vertical slice verified (2026-07-10) - a user can
+now physically enter an OpenAI credential through the masked Genesis overlay, persist
+and readback-verify its encrypted record on the exact disposable QEMU C1 Vault store,
+reboot, replay it, unlock with RR1, and deliver it once to the contained exact
+Authorization-header validator only after a durable `local_only` pre-use audit was
+written, read back, typed-reparsed and rescanned. The focused report
+`release/vm-reports/shadow-20260710-174308-19744.json` passed 42/42 predicates,
+including auditless denial, audit-before-consumer ordering, exact offline RECLOG
+inspection and absence of the dynamic provider sentinel from both boot logs, their
+combined log, boot/C1/persist images and every run-directory file. The production
+OpenAI writer now accepts the Vault lease only after the actual pinned verifier mints
+an opaque trust token; development bypass cannot mint it, and any Vault/audit failure
+cannot fall back to the legacy RAM key. This does not claim a live provider request,
+physical Vault persistence, WiFi Vault use, forget/SAFE behavior, provider auto-load,
+TPM auto-unlock, WebPKI trusted-time completeness, or physical Surface networking.
+
+VM failure classification (2026-07-10, first provider-Secret-Vault profile) - report
+`release/vm-reports/shadow-20260710-173553-10436.json` failed predicate
+`secret-vault:boot2:broker_unlocked` with `accepted=false reason=input_shape` and
+`serial_transport_failure:null`. Verdict: `host-transport` / harness race - the
+visible unlock gesture first produced a stale empty-submit diagnostic
+`VAULT_RR1_INPUT_REJECTED reason=input_shape length=0`, but the same immutable boot-two
+serial log later records `VAULT_BROKER_UNLOCKED source=recovery slot=current` after the
+complete USB-HID RR1 arrived. The guest therefore accepted the real recovery key; the
+host outcome poll failed early on an older generic rejection instead of waiting for the
+operation-specific success or rejection marker. Boot one had already committed and
+readback-verified the provider ciphertext, and no sentinel appears in the report. The
+bounded repair removes only the redundant third Enter from the boot-two unlock-opening
+gesture, so the overlay no longer submits an empty value before the real USB-HID RR1;
+it does not relax RR1 length/parsing, hide an explicit unlock rejection, or alter
+Vault, audit, consumer, trust, storage, or secret handling.
 
 VM failure classification (2026-07-10, first Secret-Vault RR1 profile) - report
 `release/vm-reports/shadow-20260710-152552-3140.json` failed predicate

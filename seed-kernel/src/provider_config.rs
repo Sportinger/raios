@@ -1,3 +1,6 @@
+use core::sync::atomic::{compiler_fence, Ordering};
+
+use raios_core::secret_vault::{SecretKind, SecretPlaintext};
 use spin::Mutex;
 
 const API_KEY_CAPACITY: usize = 256;
@@ -47,20 +50,22 @@ pub fn api_key_set() -> bool {
     snapshot().api_key_set
 }
 
-pub fn copy_api_key(dest: &mut [u8]) -> Option<usize> {
+/// Exact legacy bridge for RAM-only configuration. It returns an owned,
+/// zeroizing provider value rather than a caller-selected plaintext buffer.
+pub(crate) fn legacy_openai_credential() -> Option<SecretPlaintext> {
     let state = STATE.lock();
     if state.api_key_len == 0 || state.api_key[0] == 0 {
         return None;
     }
-
-    let len = usize::min(dest.len(), state.api_key_len);
-    dest[..len].copy_from_slice(&state.api_key[..len]);
-    Some(len)
+    let mut staged = [0u8; API_KEY_CAPACITY];
+    let len = state.api_key_len;
+    staged[..len].copy_from_slice(&state.api_key[..len]);
+    SecretPlaintext::take_from(SecretKind::ProviderApiKey, &mut staged[..len]).ok()
 }
 
 pub fn clear_api_key() {
     let mut state = STATE.lock();
-    state.api_key.fill(0);
+    erase(&mut state.api_key);
     state.api_key_len = 0;
 }
 
@@ -87,7 +92,7 @@ pub fn set_api_key(input: &[u8]) -> Result<(), ApiKeyError> {
     }
 
     let mut state = STATE.lock();
-    state.api_key.fill(0);
+    erase(&mut state.api_key);
     state.api_key[..key.len()].copy_from_slice(key);
     state.api_key_len = key.len();
     Ok(())
@@ -99,4 +104,12 @@ pub fn init_default_config() -> bool {
     };
 
     set_api_key(key.as_bytes()).is_ok()
+}
+
+fn erase(bytes: &mut [u8]) {
+    for byte in bytes {
+        // SAFETY: `byte` is a unique mutable reference into the state buffer.
+        unsafe { core::ptr::write_volatile(byte, 0) };
+    }
+    compiler_fence(Ordering::SeqCst);
 }

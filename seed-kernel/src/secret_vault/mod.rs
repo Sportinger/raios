@@ -4,19 +4,27 @@ use alloc::vec::Vec;
 use spin::Mutex;
 
 use raios_core::{
-    secret_vault::{RecoveryKekContext, RecoveryVmkWrapperV1, VaultMasterKey},
+    secret_vault::{
+        RecoveryKekContext, RecoveryVmkWrapperV1, SecretConsumerError, SecretPlaintext,
+        VaultMasterKey, MAX_PROVIDER_API_KEY_LEN,
+    },
+    sha256_bytes,
     structured_store::{RecordKey, ReplayTail, StoreDenied},
 };
 
 use self::{
+    audit::{
+        append_provider_use_audit, ProviderRequestTrust, ProviderUseAuditBinding,
+        ProviderUseAuditDenied,
+    },
     broker::{VaultBroker, VaultBrokerDenied, VaultCompleteReplay, VaultLockStatus},
     keyring::{
         ApprovedCorePolicy, KeyringDenied, RecoveryKeyCandidate, RecoveryKeyText,
         RecoveryWrapperSlots,
     },
     store::{
-        encode_recovery_wrapper, DecodedVaultRecord, ReplayVerifiedVaultRecord, VaultRecordId,
-        VaultStoreDenied, VAULT_NAMESPACE,
+        encode_recovery_wrapper, encode_secret_envelope, DecodedVaultRecord,
+        ReplayVerifiedVaultRecord, VaultRecordId, VaultStoreDenied, VAULT_NAMESPACE,
     },
 };
 use crate::{
@@ -24,11 +32,17 @@ use crate::{
     structured_store::{ValidatedRegionIdentity, ValidatedReplayWithHistory},
 };
 
+mod audit;
 mod broker;
 mod keyring;
 mod store;
 
-pub(crate) use self::{broker::VaultBrokerStatus, store::RECOVERY_WRAPPER_PAYLOAD_LEN};
+pub(crate) use self::{
+    broker::{ProviderSecretLease, VaultBrokerStatus, VaultSecretStatus},
+    store::{
+        RECOVERY_WRAPPER_PAYLOAD_LEN, SECRET_ENVELOPE_PAYLOAD_LEN as PROVIDER_SECRET_PAYLOAD_LEN,
+    },
+};
 
 #[derive(Debug)]
 pub(crate) enum VaultFacadeDenied {
@@ -45,7 +59,12 @@ pub(crate) enum VaultFacadeDenied {
     Store(VaultStoreDenied),
     StructuredStore(StoreDenied),
     RecoveryStore(crate::structured_store_c1::RecoveryWrapperStoreDenied),
+    ProviderStore(crate::structured_store_c1::ProviderSecretStoreDenied),
     Broker(VaultBrokerDenied),
+    Audit(ProviderUseAuditDenied),
+    Consumer(SecretConsumerError),
+    ProviderUseStateChanged,
+    ContainedProviderValidationFailed,
 }
 
 impl VaultFacadeDenied {
@@ -71,7 +90,12 @@ impl VaultFacadeDenied {
             Self::Store(_) => "vault_record_denied",
             Self::StructuredStore(_) => "structured_store_denied",
             Self::RecoveryStore(_) => "recovery_store_denied",
+            Self::ProviderStore(_) => "provider_store_denied",
             Self::Broker(_) => "broker_denied",
+            Self::Audit(error) => error.reason(),
+            Self::Consumer(_) => "provider_consumer_denied",
+            Self::ProviderUseStateChanged => "provider_use_state_changed",
+            Self::ContainedProviderValidationFailed => "contained_provider_validation_failed",
         }
     }
 }
@@ -151,6 +175,7 @@ struct VaultRuntime {
     replay_loaded: bool,
     vault_history_empty: bool,
     provisioning: ProvisioningState,
+    provider_write_outcome_uncertain: bool,
 }
 
 impl VaultRuntime {
@@ -164,6 +189,7 @@ impl VaultRuntime {
             replay_loaded: false,
             vault_history_empty: false,
             provisioning: ProvisioningState::Idle,
+            provider_write_outcome_uncertain: false,
         }
     }
 
@@ -469,6 +495,270 @@ pub(crate) fn status() -> VaultBrokerStatus {
     RUNTIME.lock().broker.status()
 }
 
+pub(crate) fn provider_status() -> VaultSecretStatus {
+    RUNTIME.lock().broker.status().provider
+}
+
+/// Persists only the fixed direct-OpenAI credential from the trusted Genesis
+/// overlay. Once media I/O starts, any unproven outcome remains denied for the
+/// rest of this boot; only exact readback plus a fresh full replay clears it.
+pub(crate) fn save_or_replace_provider(
+    plaintext: SecretPlaintext,
+) -> Result<VaultBrokerStatus, VaultFacadeDenied> {
+    let (region, expected_committed_version, proposed_version, payload) = {
+        let mut runtime = RUNTIME.lock();
+        if runtime.provider_write_outcome_uncertain {
+            return Err(VaultFacadeDenied::PersistenceOutcomeUncertain);
+        }
+        if !runtime.replay_loaded {
+            return Err(VaultFacadeDenied::HistoryLocked);
+        }
+        let expected_committed_version = match runtime.broker.status().provider {
+            VaultSecretStatus::Missing => None,
+            VaultSecretStatus::Available { record_version, .. }
+            | VaultSecretStatus::Forgotten { record_version } => Some(record_version),
+        };
+        let envelope = runtime
+            .broker
+            .save_or_replace_provider(broker::VaultMutation::genesis_secure_overlay(), plaintext)
+            .map_err(VaultFacadeDenied::Broker)?
+            .into_store_envelope();
+        let proposed_version = envelope.binding.record_version;
+        let payload = encode_secret_envelope(VaultRecordId::ProviderApiKey, &envelope)
+            .map_err(VaultFacadeDenied::Store)?;
+        let region = runtime.region.ok_or(VaultFacadeDenied::HistoryLocked)?;
+        runtime.provider_write_outcome_uncertain = true;
+        (
+            region,
+            expected_committed_version,
+            proposed_version,
+            payload,
+        )
+    };
+
+    let replay = crate::structured_store_c1::commit_provider_secret(
+        region,
+        expected_committed_version,
+        proposed_version,
+        &payload,
+    )
+    .map_err(VaultFacadeDenied::ProviderStore)?;
+    let _ = load_verified_replay(&replay)?;
+
+    let mut runtime = RUNTIME.lock();
+    let status = runtime.broker.status();
+    if runtime.region != Some(region)
+        || !matches!(
+            status.provider,
+            VaultSecretStatus::Available { record_version, .. }
+                if record_version == proposed_version
+        )
+        || !runtime.provider_write_outcome_uncertain
+    {
+        return Err(VaultFacadeDenied::PersistenceOutcomeUncertain);
+    }
+    runtime.provider_write_outcome_uncertain = false;
+    serial::write_fmt(format_args!(
+        "VAULT_PROVIDER_STORED version={} readback=verified\r\n",
+        proposed_version
+    ));
+    Ok(status)
+}
+
+/// Production entrypoint: only the provider module's moved, opaque verifier
+/// token can start the durable pre-use audit and mint one provider lease.
+pub(crate) fn provider_lease_for_verified_request(
+    verified: crate::provider_trust::VerifiedOpenAiProviderTrust,
+) -> Result<ProviderSecretLease, VaultFacadeDenied> {
+    let trust =
+        ProviderRequestTrust::from_verified_openai(verified).map_err(VaultFacadeDenied::Audit)?;
+    provider_lease_after_durable_audit(trust)
+}
+
+/// Contained QEMU test infrastructure for the real provider lease path. It
+/// runs only against the exact re-identified C1 fixture and never performs a
+/// network request or returns/logs the formatted header.
+pub(crate) fn run_contained_qemu_provider_consumer_test() -> Result<(), VaultFacadeDenied> {
+    let (region, _, _, _) = current_provider_use_facts()?;
+    crate::structured_store_c1::revalidate_qemu_store_identity(region)
+        .map_err(VaultFacadeDenied::ProviderStore)?;
+    {
+        let runtime = RUNTIME.lock();
+        runtime
+            .broker
+            .prove_provider_auditless_use_denied_for_contained_test()
+            .map_err(VaultFacadeDenied::Broker)?;
+    }
+    serial::write_line(
+        "VAULT_PROVIDER_AUDITLESS_DENIED reason=audit_binding_missing test_infrastructure=true",
+    );
+
+    let mut fixture_evidence = [0u8; 80];
+    fixture_evidence[..32].copy_from_slice(&region.device_identity_sha256);
+    fixture_evidence[32..48].copy_from_slice(&region.gpt_disk_guid);
+    fixture_evidence[48..64].copy_from_slice(&region.store.store_uuid);
+    fixture_evidence[64..].copy_from_slice(b"provider-sink-v1");
+    let trust = ProviderRequestTrust::contained_qemu_validator(sha256_bytes(&fixture_evidence))
+        .map_err(VaultFacadeDenied::Audit)?;
+    let lease = provider_lease_after_durable_audit(trust)?;
+    let mut validator = ContainedProviderHeaderValidator::new();
+    lease
+        .into_openai_authorization_header(&mut validator)
+        .map_err(VaultFacadeDenied::Consumer)?;
+    if !validator.accepted() {
+        return Err(VaultFacadeDenied::ContainedProviderValidationFailed);
+    }
+    serial::write_line(
+        "VAULT_PROVIDER_CONTAINED_CONSUMED target=api.openai.com accepted=true test_infrastructure=true",
+    );
+    Ok(())
+}
+
+fn provider_lease_after_durable_audit(
+    trust: ProviderRequestTrust,
+) -> Result<ProviderSecretLease, VaultFacadeDenied> {
+    let (region, policy, record_version, key_epoch) = current_provider_use_facts()?;
+    crate::structured_store_c1::revalidate_qemu_store_identity(region)
+        .map_err(VaultFacadeDenied::ProviderStore)?;
+    let binding = ProviderUseAuditBinding::from_current_provider_slot(
+        region.store.store_uuid,
+        record_version,
+        key_epoch,
+        policy.core_generation(),
+        policy.policy_id_sha256(),
+        trust,
+    )
+    .map_err(VaultFacadeDenied::Audit)?;
+    let receipt = append_provider_use_audit(binding).map_err(VaultFacadeDenied::Audit)?;
+
+    crate::structured_store_c1::revalidate_qemu_store_identity(region)
+        .map_err(VaultFacadeDenied::ProviderStore)?;
+    let verified = crate::core_policy_runtime::verified().map_err(VaultFacadeDenied::CorePolicy)?;
+    let current_policy = ApprovedCorePolicy::from_verified(verified);
+    let runtime = RUNTIME.lock();
+    let current_provider = runtime.broker.status().provider;
+    if runtime.provider_write_outcome_uncertain
+        || !runtime.replay_loaded
+        || runtime.region != Some(region)
+        || runtime.approved_policy != Some(policy)
+        || current_policy != policy
+        || !matches!(
+            runtime.broker.status().lock,
+            VaultLockStatus::UnlockedFromRecovery(_)
+        )
+        || current_provider
+            != (VaultSecretStatus::Available {
+                record_version,
+                key_epoch,
+            })
+    {
+        return Err(VaultFacadeDenied::ProviderUseStateChanged);
+    }
+    let lease = runtime
+        .broker
+        .use_for_provider(receipt)
+        .map_err(VaultFacadeDenied::Broker)?;
+    serial::write_line(
+        "VAULT_PROVIDER_PREUSE_AUDIT_COMMITTED consumer=openai_direct operation=request_exact_host readback=verified reparse=verified rescan=verified",
+    );
+    Ok(lease)
+}
+
+fn current_provider_use_facts(
+) -> Result<(ValidatedRegionIdentity, ApprovedCorePolicy, u64, u64), VaultFacadeDenied> {
+    let verified = crate::core_policy_runtime::verified().map_err(VaultFacadeDenied::CorePolicy)?;
+    let current_policy = ApprovedCorePolicy::from_verified(verified);
+    let runtime = RUNTIME.lock();
+    if runtime.provider_write_outcome_uncertain {
+        return Err(VaultFacadeDenied::PersistenceOutcomeUncertain);
+    }
+    if !runtime.replay_loaded {
+        return Err(VaultFacadeDenied::HistoryLocked);
+    }
+    if !matches!(
+        runtime.broker.status().lock,
+        VaultLockStatus::UnlockedFromRecovery(_)
+    ) {
+        return Err(VaultFacadeDenied::Broker(VaultBrokerDenied::Locked));
+    }
+    let region = runtime.region.ok_or(VaultFacadeDenied::HistoryLocked)?;
+    let policy = runtime
+        .approved_policy
+        .ok_or(VaultFacadeDenied::CorePolicy("core_policy_missing"))?;
+    if policy != current_policy {
+        return Err(VaultFacadeDenied::ProviderUseStateChanged);
+    }
+    let (record_version, key_epoch) = match runtime.broker.status().provider {
+        VaultSecretStatus::Available {
+            record_version,
+            key_epoch,
+        } => (record_version, key_epoch),
+        VaultSecretStatus::Missing | VaultSecretStatus::Forgotten { .. } => {
+            return Err(VaultFacadeDenied::Broker(VaultBrokerDenied::SecretMissing));
+        }
+    };
+    Ok((region, policy, record_version, key_epoch))
+}
+
+const OPENAI_AUTHORIZATION_PREFIX: &[u8] = b"Authorization: Bearer ";
+const OPENAI_AUTHORIZATION_CAPACITY: usize =
+    OPENAI_AUTHORIZATION_PREFIX.len() + MAX_PROVIDER_API_KEY_LEN + 2;
+
+struct ContainedProviderHeaderValidator {
+    bytes: [u8; OPENAI_AUTHORIZATION_CAPACITY],
+    len: usize,
+}
+
+impl ContainedProviderHeaderValidator {
+    const fn new() -> Self {
+        Self {
+            bytes: [0; OPENAI_AUTHORIZATION_CAPACITY],
+            len: 0,
+        }
+    }
+
+    fn accepted(&self) -> bool {
+        if self.len <= OPENAI_AUTHORIZATION_PREFIX.len() + 2
+            || self.len > OPENAI_AUTHORIZATION_CAPACITY
+            || !self.bytes[..self.len].starts_with(OPENAI_AUTHORIZATION_PREFIX)
+            || !self.bytes[..self.len].ends_with(b"\r\n")
+        {
+            return false;
+        }
+        self.bytes[OPENAI_AUTHORIZATION_PREFIX.len()..self.len - 2]
+            .iter()
+            .all(u8::is_ascii_graphic)
+    }
+}
+
+impl embedded_io::ErrorType for ContainedProviderHeaderValidator {
+    type Error = embedded_io::ErrorKind;
+}
+
+impl embedded_io::Write for ContainedProviderHeaderValidator {
+    fn write(&mut self, bytes: &[u8]) -> Result<usize, Self::Error> {
+        let end = self
+            .len
+            .checked_add(bytes.len())
+            .filter(|end| *end <= self.bytes.len())
+            .ok_or(embedded_io::ErrorKind::InvalidInput)?;
+        self.bytes[self.len..end].copy_from_slice(bytes);
+        self.len = end;
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+impl Drop for ContainedProviderHeaderValidator {
+    fn drop(&mut self) {
+        keyring::zeroize_recovery_input(&mut self.bytes);
+        self.len = 0;
+    }
+}
+
 pub(crate) fn recovery_wrapper_generation() -> Option<u64> {
     RUNTIME
         .lock()
@@ -479,6 +769,10 @@ pub(crate) fn recovery_wrapper_generation() -> Option<u64> {
 
 pub(crate) const fn recovery_wrapper_record_key() -> RecordKey {
     VaultRecordId::RecoveryWrapper.key()
+}
+
+pub(crate) const fn provider_record_key() -> RecordKey {
+    VaultRecordId::ProviderApiKey.key()
 }
 
 pub(crate) fn is_vault_namespace(namespace: [u8; 16]) -> bool {
