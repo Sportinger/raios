@@ -3,6 +3,7 @@ param(
     [string]$ScratchImage = "",
     [string]$AuditRollbackTargetImage = "",
     [string]$PersistDiskPath = "",
+    [string]$StructuredStoreDiskPath = "",
     [string]$UsbStorageImage = "",
     [ValidateSet("writethrough", "directsync", "writeback", "none", "unsafe")]
     [string]$PersistCacheMode = "writethrough",
@@ -61,6 +62,21 @@ $qemuArgs = @(
     "-drive", "file=$((Resolve-Path $Image).Path),format=raw,if=ide"
 )
 
+if ($StructuredStoreDiskPath) {
+    # C1 only accepts a disposable regular fixture. It never selects a host
+    # disk and deliberately has no relationship to the SEED_DATA path.
+    if ($StructuredStoreDiskPath -match '^(\\\\[.?]\\|\\Device\\)') {
+        throw "StructuredStoreDiskPath must name a disposable regular image file, not a device"
+    }
+    $structuredStoreItem = Get-Item -LiteralPath $StructuredStoreDiskPath -Force
+    if ($structuredStoreItem -isnot [System.IO.FileInfo] -or
+        $structuredStoreItem.Extension -notin ".img", ".raw" -or
+        $structuredStoreItem.Name -notmatch "structured-store") {
+        throw "StructuredStoreDiskPath must be a regular .img/.raw file named structured-store*"
+    }
+    $StructuredStoreDiskPath = $structuredStoreItem.FullName
+}
+
 if ($ScratchImage) {
     $qemuArgs += @(
         "-drive", "file=$((Resolve-Path $ScratchImage).Path),format=raw,if=none,id=raiosscratch0",
@@ -79,6 +95,13 @@ if ($PersistDiskPath) {
     $qemuArgs += @(
         "-drive", "file=$((Resolve-Path $PersistDiskPath).Path),format=raw,if=none,id=raiospersist0,cache=$PersistCacheMode",
         "-device", "ide-hd,drive=raiospersist0,bus=ide.3,unit=0"
+    )
+}
+
+if ($StructuredStoreDiskPath) {
+    $qemuArgs += @(
+        "-drive", "file=$StructuredStoreDiskPath,format=raw,if=none,id=raiosstructuredstore0,cache=writethrough",
+        "-device", "ide-hd,drive=raiosstructuredstore0,bus=ide.4,unit=0"
     )
 }
 

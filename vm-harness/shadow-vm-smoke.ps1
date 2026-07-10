@@ -10,7 +10,7 @@ param(
     [switch]$KeepImage,
     [int]$SerialWriteChunkSize = 256,
     [int]$SerialWriteDelayMilliseconds = 0,
-    [ValidateSet("full", "quick", "recovery", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m12-distribution-provenance", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow", "m11-7-httphead", "m11-8-certspki", "usb-hotplug")]
+    [ValidateSet("full", "quick", "recovery", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m12-distribution-provenance", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable", "structured-store", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow", "m11-7-httphead", "m11-8-certspki", "usb-hotplug")]
     [string]$Profile = "full"
 )
 
@@ -42,6 +42,8 @@ $MonitorTcpPort = 0
 $ScratchImage = $null
 $AuditRollbackTargetImage = $null
 $PersistDiskImage = $null
+$StructuredStoreDiskImage = $null
+$StructuredStoreFixture = $null
 $ResolvedArtifact = $null
 $ResolvedManifest = $null
 $ManifestValidation = $null
@@ -118,7 +120,24 @@ try {
         $auditRollbackTargetStream.Dispose()
     }
 
-    if ($Profile -eq "persistence" -or $Profile -eq "memory-durable" -or $PersistDiskPath) {
+    if ($Profile -eq "structured-store") {
+        if ($PersistDiskPath) {
+            throw "structured-store profile must not receive PersistDiskPath or the SEED_DATA fixture"
+        }
+        $StructuredStoreDiskImage = Join-Path $RunDir "raios-structured-store-c1.img"
+        $structuredStoreBuilder = Join-Path $RepoRoot "scripts\make-structured-store-image.py"
+        $fixtureJson = & python $structuredStoreBuilder create $StructuredStoreDiskImage --size-mib 16 --json 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "Structured-store fixture build failed: $($fixtureJson -join [Environment]::NewLine)"
+        }
+        $StructuredStoreFixture = ($fixtureJson -join [Environment]::NewLine) | ConvertFrom-Json
+        if (-not $StructuredStoreFixture.valid -or -not $StructuredStoreFixture.disposable_qemu_only -or
+            $StructuredStoreFixture.store_state -ne "empty_unformatted") {
+            throw "Structured-store fixture identity or empty-state validation failed"
+        }
+        $StructuredStoreDiskImage = (Resolve-Path -LiteralPath $StructuredStoreDiskImage).Path
+    }
+    elseif ($Profile -eq "persistence" -or $Profile -eq "memory-durable" -or $PersistDiskPath) {
         $PersistDiskImage = Resolve-PersistDiskImage -PersistDiskPath $PersistDiskPath -RunDir $RunDir
     }
     elseif ($Profile -eq "m8-lifeline") {
@@ -168,6 +187,12 @@ try {
         )
         $runParams.PersistDiskPath = $PersistDiskImage
     }
+    if ($StructuredStoreDiskImage) {
+        $QemuArgList += @(
+            "-StructuredStoreDiskPath", $StructuredStoreDiskImage
+        )
+        $runParams.StructuredStoreDiskPath = $StructuredStoreDiskImage
+    }
     if ($Profile -eq "usb-hotplug") {
         $MonitorTcpPort = $SerialTcpPort + 1000
         $QemuArgList += @(
@@ -204,6 +229,11 @@ try {
 
         if ($Profile -eq "memory-durable") {
             . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-memory-durable.ps1")
+            break SmokeProfileValidation
+        }
+
+        if ($Profile -eq "structured-store") {
+            . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-structured-store.ps1")
             break SmokeProfileValidation
         }
 
