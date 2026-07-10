@@ -8,7 +8,7 @@ use crate::{
         record_field as f, record_str as s,
     },
     ahci, echo_service, granted_candidate_service, hello_service, pci, provider, serial,
-    service_inventory, system_status,
+    service_inventory, system_problem_facts, system_status,
     system_status::{RowState, SystemSnapshot},
     ui, wifi,
 };
@@ -1188,72 +1188,14 @@ pub(crate) fn emit_problem_objects(
     spaces: usize,
 ) {
     let mut wrote = false;
-    emit_provider_trust_problem(&mut wrote, spaces, provider);
-    if !provider.api_key_set {
+    for fact in system_problem_facts::collect(status, provider, wifi::snapshot()) {
         emit_problem(
             &mut wrote,
             spaces,
-            "provider.openai.api_key_missing",
-            "info",
-            "OpenAI direct requests need a RAM-only API key",
+            fact.id,
+            fact.severity.as_protocol(),
+            fact.summary,
         );
-    }
-    emit_status_problem(
-        &mut wrote,
-        spaces,
-        "framebuffer.unavailable",
-        "error",
-        "Limine framebuffer is unavailable",
-        &status.framebuffer,
-    );
-    emit_status_problem(
-        &mut wrote,
-        spaces,
-        "entropy.not_ready",
-        "warning",
-        "Entropy is not ready yet",
-        &status.entropy,
-    );
-    emit_status_problem(
-        &mut wrote,
-        spaces,
-        "usb_xhci.unavailable",
-        "warning",
-        "xHCI USB path is missing or degraded",
-        &status.usb_xhci,
-    );
-    emit_status_problem(
-        &mut wrote,
-        spaces,
-        "network.unavailable",
-        "warning",
-        "e1000/IPv4 network path is not configured",
-        &status.network,
-    );
-    emit_status_problem(
-        &mut wrote,
-        spaces,
-        "input.unavailable",
-        "warning",
-        "keyboard or pointer input is missing",
-        &status.input,
-    );
-    match wifi::snapshot().state {
-        wifi::WifiState::Detected => emit_problem(
-            &mut wrote,
-            spaces,
-            "wifi.avastar.firmware_todo",
-            "info",
-            "Marvell AVASTAR target is detected, but firmware upload and WPA are not implemented",
-        ),
-        wifi::WifiState::Missing => emit_problem(
-            &mut wrote,
-            spaces,
-            "wifi.avastar.target_absent",
-            "info",
-            "Surface Pro 4 Marvell AVASTAR Wi-Fi target is not present in this machine profile",
-        ),
-        wifi::WifiState::NotProbed => {}
     }
     if !wrote {
         indent(spaces);
@@ -1262,59 +1204,6 @@ pub(crate) fn emit_problem_objects(
     } else {
         crlf();
     }
-}
-
-fn emit_provider_trust_problem(wrote: &mut bool, spaces: usize, provider: &provider::Snapshot) {
-    let (id, summary) = match provider.trust_state {
-        "unknown" => (
-            "provider.tls_unknown",
-            "OpenAI provider trust has not been established",
-        ),
-        "tls_certificate_verification_bypassed" => (
-            "provider.tls_unverified",
-            "OpenAI direct transport is using an explicit unverified TLS development override",
-        ),
-        "pin_config_missing" => (
-            "provider.tls_pin_config_missing",
-            "OpenAI direct transport is fail-closed until a provider pin is configured",
-        ),
-        "pin_config_invalid" => (
-            "provider.tls_pin_config_invalid",
-            "Configured OpenAI provider pin is invalid",
-        ),
-        "pin_verifier_unavailable" => (
-            "provider.tls_pin_verifier_unavailable",
-            "Configured OpenAI provider pin cannot be checked until TLS verifier input access exists",
-        ),
-        "pin_mismatch" => (
-            "provider.tls_pin_mismatch",
-            "OpenAI provider certificate did not match the configured pin",
-        ),
-        "pinned_cert_verified" | "pinned_spki_verified" | "webpki_verified" => return,
-        _ => (
-            "provider.tls_unknown",
-            "OpenAI provider trust state is not recognized by this protocol build",
-        ),
-    };
-
-    emit_problem(wrote, spaces, id, "high", summary);
-}
-
-fn emit_status_problem(
-    wrote: &mut bool,
-    spaces: usize,
-    id: &'static str,
-    severity: &'static str,
-    summary: &'static str,
-    line: &system_status::StatusLine,
-) {
-    if matches!(
-        line.state,
-        RowState::Ready | RowState::Configured | RowState::Detected
-    ) {
-        return;
-    }
-    emit_problem(wrote, spaces, id, severity, summary);
 }
 
 fn emit_problem(
