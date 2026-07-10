@@ -24,13 +24,14 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (I3/G5.4 Secret-Vault authority join): build the first real
-RR1 provisioning vertical slice. Genesis must generate the VMK and random recovery
-key from ready core entropy, show RR1 exactly once, require complete physical-input
-re-entry, persist and readback-verify the wrapper on the dedicated QEMU test store,
-and unlock the Broker through the already bound replay and Core Policy. Then add the
-durable pre-use audit receipt in the first real consumer slice, replace the two legacy
-RAM-copy consumers, and wire the remaining trusted Genesis actions. Preserve the existing
+Current exact next task (I3/G5.4 Secret-Vault authority join): add the durable
+pre-use audit receipt together with the first real bounded consumer, then replace the
+two legacy RAM-copy consumers and wire the remaining trusted Genesis actions. The
+RR1 provisioning/recovery vertical slice is green and must stay unchanged: Genesis
+generates the VMK and random recovery key from ready core entropy, shows RR1 exactly
+once, requires complete physical-input re-entry, persists/readback-verifies the wrapper
+on the dedicated QEMU test store, and unlocks the Broker after reboot through bound
+replay and Core Policy. Preserve the existing
 durable-store identity/rollback chain; do not expose plaintext to ShellHost/Wasm,
 add generic secret access, provider auto-load, broad mutation, or physical-target
 support. Disk 2 is unplugged; do not write a physical disk. The separate bare-metal
@@ -83,6 +84,165 @@ complete replay and exact Core Policy binding on both the initial boot and indep
 reboot. This still performs no provisioning, wrapper write, unlock, decrypt or secret
 use. The next positive capability is the physical-input RR1 provisioning/unlock path;
 durable audit remains mandatory before either named consumer may use plaintext.
+
+I3 real RR1 provisioning and recovery unlock verified (2026-07-10) - a user can
+now explicitly create a random RR1 in Genesis, capture its one-time trusted display,
+confirm it through physical-only input, persist/readback-verify the generation-1
+recovery wrapper on the exact dedicated QEMU store, reboot, replay that wrapper, and
+unlock the Broker with the same RR1. The focused two-boot report
+`release/vm-reports/shadow-20260710-160920-28360.json` passed 29/29 predicates,
+including exact 80-glyph visual structure/checksum, USB-HID-only actions, full store
+identity/replay/Core-Policy joins, no second display, and raw serial absence checks on
+both boots. The transient PPM is overwrite/truncate/deleted and the retained host byte
+array is cleared; RR1 never enters a report, predicate value, serial command or hash.
+This writes only the recovery wrapper: no WiFi/provider secret, durable pre-use audit,
+consumer use, provider auto-load, physical target or TPM auto-unlock is authorized yet.
+
+VM failure classification (2026-07-10, first Secret-Vault RR1 profile) - report
+`release/vm-reports/shadow-20260710-152552-3140.json` failed predicate
+`secret-vault:boot1:usb_keyboard_ready` with `serial_transport_failure:null`.
+Verdict: `host-transport` - the guest completed USB enumeration and emitted the
+current positive marker `usb-hid: keyboard ready on slot 1`, but the new profile
+waited for the obsolete text `usb-hid: boot keyboard ready`. The flow had not yet
+opened the RR1 display, captured a framebuffer, or attempted a Vault write. The
+bounded repair changes only the two boot-keyboard marker needles to the observed
+current guest marker before the focused retry.
+
+VM failure classification (2026-07-10, second Secret-Vault RR1 profile) - report
+`release/vm-reports/shadow-20260710-152906-24892.json` failed in the host cleanup
+stage before predicate `secret-vault:rr1_visual_structure_checksum`; all preceding
+predicates through the one-time display and physical USB action were green and
+`serial_transport_failure:null`. Verdict: `host-transport` - Windows PowerShell's
+loaded .NET runtime does not expose `System.Security.Cryptography.CryptographicOperations`,
+so the host byte-array cleanup helper threw after the transient PPM had already been
+truncated to zero bytes. The zero-length file was then removed with a verified path
+inside that run's temp directory; QEMU is stopped, and neither serial nor the report
+contains RR1. The bounded repair replaces only that unavailable managed API with
+portable in-place `Array.Clear`; the overwrite/truncate/delete tripwire is unchanged.
+
+VM failure classification (2026-07-10, third Secret-Vault RR1 profile) - report
+`release/vm-reports/shadow-20260710-153242-18952.json` failed predicate
+`secret-vault:boot1:rr1_confirmed` with `serial_transport_failure:null`.
+Verdict: `guest-behavior` - the once-rendered 80 glyphs passed exact bitmap-font,
+RR1 structure and checksum validation, the transient PPM was erased, and the full
+physical xHCI input reached the bounded overlay, but the guest emitted
+`VAULT_RR1_REJECTED` before any wrapper/store write. The input length was therefore
+exact while its parser/candidate result was not accepted. The bounded diagnostic
+repair adds only a stable non-secret rejection class (`format`, `checksum`,
+`confirmation_mismatch`, or another fixed facade code); it does not log input bytes,
+key material, a key hash, or weaken the parser before the focused retry.
+
+VM failure classification (2026-07-10, fourth Secret-Vault RR1 profile) - report
+`release/vm-reports/shadow-20260710-153822-6984.json` failed in packaging before
+predicate `boot:serial_console_ready` with `serial_transport_failure:null`.
+Verdict: `host-transport` - the tracked Limine binary remained present, but the
+PID-only temporary ESP directory could be reused after a prior process and PowerShell
+then copied `release/esp` one level deeper, so packaging correctly denied the missing
+staged `EFI/BOOT/BOOTX64.EFI`. QEMU never started. The bounded repair gives each
+temporary ESP a fresh GUID-qualified path, verifies it is below the host temp root,
+and refuses a pre-existing destination; no image, guest, Vault or RR1 behavior changes.
+
+VM failure classification (2026-07-10, fifth Secret-Vault RR1 profile) - report
+`release/vm-reports/shadow-20260710-154010-24700.json` failed predicate
+`secret-vault:boot1:rr1_confirmed` with `serial_transport_failure:null`.
+Verdict: `host-transport` - packaging, visual RR1 checksum and the 80 HMP key
+commands were positive, but this run emitted neither the guest success marker nor
+either rejection marker after the final submit; the last observed USB batch ended
+before a guest outcome. The bounded repair repeats only the idempotent physical Enter
+after a short pause (if the first arrived, the second merely closes the result view)
+and gives an incomplete overlay submission the fixed non-secret `input_shape` code.
+No key bytes, hashes, parser rule, wrapper or media authority change.
+
+VM failure classification (2026-07-10, sixth Secret-Vault RR1 profile) - report
+`release/vm-reports/shadow-20260710-154430-24600.json` failed in the host visual
+decoder before predicate `secret-vault:rr1_visual_structure_checksum`, with
+`serial_transport_failure:null`. Verdict: `host-transport` - the guest emitted the
+post-present layout marker, but that transient screendump differed from the exact
+font template at glyph position 0; the same decoder was exact in earlier runs. The
+PPM was erased and QEMU stopped before any recovery input or Vault write. The bounded
+repair permits one newly captured retry only for this exact pre-predicate bitmap-font
+mismatch; both PPMs take the same overwrite/delete path and the pixel comparison,
+RR1 structure and checksum rules remain unchanged.
+
+VM failure classification (2026-07-10, seventh Secret-Vault RR1 profile) - report
+`release/vm-reports/shadow-20260710-154745-27112.json` again failed in the host
+visual decoder before predicate `secret-vault:rr1_visual_structure_checksum`, with
+`serial_transport_failure:null`; both permitted captures mismatched fixed prefix
+glyph position 0 and both PPMs were erased before QEMU stopped. Verdict:
+`host-transport` - file existence alone was observed after a short HMP reply window,
+not a completed screendump reply/stable raster. The bounded repair waits for the full
+HMP screendump response and reports only non-secret template score/tie metadata if the
+fixed prefix still differs. Exact glyph matching, structure and checksum remain intact.
+
+VM failure classification (2026-07-10, eighth Secret-Vault RR1 profile) - report
+`release/vm-reports/shadow-20260710-154954-11052.json` again failed before predicate
+`secret-vault:rr1_visual_structure_checksum`, with `serial_transport_failure:null`.
+Verdict: `guest-behavior` - the completed HMP capture scored fixed prefix `R` against
+an effectively blank panel (`score=79368`, one candidate), while three USB input
+batches arrived immediately after the post-present marker. Trailing Enter events from
+the visible Vault-open action could therefore advance `Showing` into confirmation
+before capture. Both PPMs were erased and no Vault write occurred. The bounded repair
+separates gestures: Enter opens Vault, but only physical Space or the visible pointer
+button can dismiss the one-time display. Parser, key, wrapper and store rules do not
+change.
+
+VM failure classification (2026-07-10, ninth Secret-Vault RR1 profile) - run
+`shadow-20260710-155219-10356` failed before predicate `boot:serial_console_ready`
+and could not write a valid report because the C: volume had zero free bytes.
+Verdict: `host-transport` - retained failed-run QEMU fixtures had accumulated roughly
+3.7 GiB; the new persist fixture stopped at 51,462,144 bytes, QEMU never started and
+no RR1 PPM existed. After verifying every absolute target below `%TEMP%`, the eight
+exact run directories from this RR1 debugging sequence and the zero-byte report were
+removed; durable reports/classifications remain in the repo and free space returned
+to 3.74 GiB. No source, guest or security predicate changed for this cleanup.
+
+VM failure classification (2026-07-10, tenth Secret-Vault RR1 profile) - report
+`release/vm-reports/shadow-20260710-155510-28160.json` failed predicate
+`secret-vault:boot1:rr1_confirmed` with `serial_transport_failure:null`.
+Verdict: `host-transport` - the one-time display and exact visual checksum were now
+stable and the Space command produced USB batches, but no guest success/rejection
+outcome followed the 80 subsequent key commands. The report could not prove whether
+the distinct acknowledgement actually transitioned `Showing` to `Confirming`.
+The bounded repair emits a fixed non-secret `VAULT_RR1_CONFIRMATION_READY` only after
+the display handle has been consumed/zeroized and makes the harness require it before
+sending any RR1 byte. No parser, key, wrapper, store or authority rule changes.
+
+VM failure classification (2026-07-10, eleventh Secret-Vault RR1 profile) - report
+`release/vm-reports/shadow-20260710-155919-29896.json` failed predicate
+`secret-vault:boot1:rr1_confirmed` with `serial_transport_failure:null`.
+Verdict: `host-transport` - the exact visual key and the new destructive transition
+marker `VAULT_RR1_CONFIRMATION_READY` were positive, but the bounded overlay rejected
+the HMP/xHCI stream as `input_shape`, proving it did not observe exactly 80 characters.
+No wrapper/store write was attempted. The bounded repair lengthens each emulated key
+hold and reply interval and reports only the masked byte count on shape denial; it does
+not expose characters or relax length, format, checksum or candidate equality.
+
+VM failure classification (2026-07-10, twelfth Secret-Vault RR1 profile) - report
+`release/vm-reports/shadow-20260710-160251-10516.json` failed after all 17 boot-one
+predicates passed, including physical RR1 confirmation and exact wrapper commit/readback;
+`serial_transport_failure:null`. Verdict: `host-transport` - the harness attempted its
+mandatory raw serial leak scan while QEMU still held `serial.log` exclusively open, so
+Windows rejected `ReadAllBytes` before the independent reboot. The bounded repair stops
+and joins each QEMU process immediately before scanning that boot's immutable log. It
+does not alter guest behavior, RR1 handling, wrapper/store authority or scan criteria.
+
+VM failure classification (2026-07-10, thirteenth Secret-Vault RR1 profile) - report
+`release/vm-reports/shadow-20260710-160628-28152.json` failed before predicate
+`boot:serial_console_ready`; QEMU and guest did not start. Verdict:
+`host-transport/setup` - the direct PowerShell retry inherited the unavailable
+`F:\scorefollower-build\cargo` package-cache path instead of the repository-local
+Cargo home required on this machine. No image, RR1, Vault or store operation ran. The
+retry exports `.cargo-home` and the repository `target` directory before invoking the
+unchanged focused profile.
+
+VM failure classification (2026-07-10, fourteenth Secret-Vault RR1 profile) - report
+`release/vm-reports/shadow-20260710-160643-27024.json` failed after 14/14 recorded
+predicates passed, at predicate `secret-vault:boot1:rr1_confirmed`, with
+`serial_transport_failure:null`. Verdict: `host-transport` - the guest serial log
+already contains the positive confirmation marker, but the Windows PowerShell host
+could not select the two-argument `String.IndexOf` overload from an untyped helper
+result. The bounded repair casts the cached log result to `System.String` before the
+same ordinal marker comparison. No marker, guest, key, wrapper or authority changes.
 
 VM failure classification (2026-07-10, first Core-Policy profile) - report
 `release/vm-reports/shadow-20260710-144728-24560.json` failed predicate

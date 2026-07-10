@@ -10,7 +10,7 @@ param(
     [switch]$KeepImage,
     [int]$SerialWriteChunkSize = 256,
     [int]$SerialWriteDelayMilliseconds = 0,
-    [ValidateSet("full", "quick", "recovery", "genesis-ui", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m12-distribution-provenance", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable", "structured-store", "core-policy", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow", "m11-7-httphead", "m11-8-certspki", "usb-hotplug")]
+    [ValidateSet("full", "quick", "recovery", "genesis-ui", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m12-distribution-provenance", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable", "structured-store", "secret-vault", "core-policy", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow", "m11-7-httphead", "m11-8-certspki", "usb-hotplug")]
     [string]$Profile = "full"
 )
 
@@ -121,9 +121,9 @@ try {
         $auditRollbackTargetStream.Dispose()
     }
 
-    if ($Profile -eq "structured-store") {
+    if ($Profile -in @("structured-store", "secret-vault")) {
         if ($PersistDiskPath) {
-            throw "structured-store profile creates its own exact valid-a SEED_DATA fixture"
+            throw "$Profile profile creates its own exact valid-a SEED_DATA fixture"
         }
         $StructuredStoreDiskImage = Join-Path $RunDir "raios-structured-store-c1.img"
         $structuredStoreBuilder = Join-Path $RepoRoot "scripts\make-structured-store-image.py"
@@ -202,7 +202,7 @@ try {
         )
         $runParams.StructuredStoreDiskPath = $StructuredStoreDiskImage
     }
-    if ($Profile -eq "usb-hotplug" -or $Profile -eq "genesis-ui") {
+    if ($Profile -eq "usb-hotplug" -or $Profile -eq "genesis-ui" -or $Profile -eq "secret-vault") {
         $MonitorTcpPort = $SerialTcpPort + 1000
         $QemuArgList += @(
             "-MonitorTcpPort", "$MonitorTcpPort"
@@ -243,6 +243,11 @@ try {
 
         if ($Profile -eq "structured-store") {
             . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-structured-store.ps1")
+            break SmokeProfileValidation
+        }
+
+        if ($Profile -eq "secret-vault") {
+            . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-secret-vault.ps1")
             break SmokeProfileValidation
         }
 

@@ -10,8 +10,8 @@ use raios_core::{
     gpt_layout::GPT_ENTRY_ARRAY_BYTES,
     sha256_bytes,
     structured_store::{
-        plan_transaction, RecordKey, RecordOperation, StoreGeometry, StoreIdentity,
-        TransactionRequest, STORE_BLOCK_LEN,
+        plan_transaction, RecordKey, RecordOperation, RecordValue, ReplayTail, StoreGeometry,
+        StoreIdentity, TransactionRequest, STORE_BLOCK_LEN,
     },
     structured_store_partition::{
         validate_approved_structured_store_partition, ApprovedStructuredStorePartition,
@@ -65,6 +65,24 @@ pub(crate) enum DisposableQemuStoreDenied {
 }
 
 impl From<PortDenied<&'static str>> for DisposableQemuStoreDenied {
+    fn from(value: PortDenied<&'static str>) -> Self {
+        Self::Port(value)
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum RecoveryWrapperStoreDenied {
+    FixtureMissing,
+    Open(&'static str),
+    Port(PortDenied<&'static str>),
+    Core(raios_core::structured_store::StoreDenied),
+    IdentityChanged,
+    VaultHistoryNotEmpty,
+    ReadbackMismatch,
+    Bounds,
+}
+
+impl From<PortDenied<&'static str>> for RecoveryWrapperStoreDenied {
     fn from(value: PortDenied<&'static str>) -> Self {
         Self::Port(value)
     }
@@ -158,7 +176,85 @@ fn bind_vault_runtime_inputs(
     serial::write_line("C1_VAULT_COMPLETE_REPLAY_BOUND");
     secret_vault::bind_verified_core_policy().map_err(DisposableQemuStoreDenied::Vault)?;
     serial::write_line("C1_VAULT_CORE_POLICY_BOUND");
+    if let Some(generation) = secret_vault::recovery_wrapper_generation() {
+        serial::write_fmt(format_args!(
+            "C1_VAULT_RECOVERY_WRAPPER_REPLAYED generation={}\r\n",
+            generation
+        ));
+        serial::write_line("VAULT_RECOVERY_UNLOCK_READY");
+    }
     Ok(())
+}
+
+/// Appends only the initial recovery-wrapper record to the already admitted
+/// disposable QEMU Vault fixture. The port is reopened after physical input,
+/// and its complete prior identity is compared before any media operation.
+pub(crate) fn commit_initial_recovery_wrapper(
+    expected: ValidatedRegionIdentity,
+    payload: &[u8; secret_vault::RECOVERY_WRAPPER_PAYLOAD_LEN],
+) -> Result<ValidatedReplayWithHistory, RecoveryWrapperStoreDenied> {
+    let mut port = open_disposable_qemu_store_port()
+        .map_err(|error| RecoveryWrapperStoreDenied::Open(c1_error_reason(error)))?
+        .ok_or(RecoveryWrapperStoreDenied::FixtureMissing)?;
+    if port.identity() != expected {
+        return Err(RecoveryWrapperStoreDenied::IdentityChanged);
+    }
+
+    let snapshot_len = usize::try_from(
+        expected
+            .geometry
+            .log_byte_len()
+            .map_err(RecoveryWrapperStoreDenied::Core)?,
+    )
+    .map_err(|_| RecoveryWrapperStoreDenied::Bounds)?;
+    let mut snapshot = vec![0u8; snapshot_len];
+    let replay = open_and_replay_with_history(&mut port, expected, &mut snapshot)?;
+    if replay.state().tail != ReplayTail::ZeroFilled
+        || replay
+            .committed_history()
+            .map_err(RecoveryWrapperStoreDenied::Core)?
+            .iter()
+            .any(|record| secret_vault::is_vault_namespace(record.key.namespace))
+    {
+        return Err(RecoveryWrapperStoreDenied::VaultHistoryNotEmpty);
+    }
+
+    let key = secret_vault::recovery_wrapper_record_key();
+    if replay
+        .state()
+        .record(key)
+        .map_err(RecoveryWrapperStoreDenied::Core)?
+        .is_some()
+    {
+        return Err(RecoveryWrapperStoreDenied::VaultHistoryNotEmpty);
+    }
+    let plan = plan_transaction(
+        replay.state(),
+        TransactionRequest {
+            identity: expected.store,
+            key,
+            operation: RecordOperation::Put,
+            expected_committed_version: None,
+        },
+        payload,
+        expected
+            .geometry
+            .log_byte_len()
+            .map_err(RecoveryWrapperStoreDenied::Core)?,
+    )
+    .map_err(RecoveryWrapperStoreDenied::Core)?;
+    let _ = append_with_readback(&mut port, expected, &plan, &mut snapshot)?;
+    let replay = open_and_replay_with_history(&mut port, expected, &mut snapshot)?;
+    let record = replay
+        .state()
+        .record(key)
+        .map_err(RecoveryWrapperStoreDenied::Core)?
+        .ok_or(RecoveryWrapperStoreDenied::ReadbackMismatch)?;
+    if !matches!(&record.value, RecordValue::Present(bytes) if bytes.as_slice() == payload) {
+        return Err(RecoveryWrapperStoreDenied::ReadbackMismatch);
+    }
+    serial::write_line("C1_VAULT_RECOVERY_WRAPPER_COMMITTED generation=1 readback=verified");
+    Ok(replay)
 }
 
 /// A bounded I/O handle for the one disposable QEMU C1 fixture. It can be

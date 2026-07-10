@@ -5,6 +5,8 @@
 //! consumers.  TPM ACPI discovery alone never changes its `not_proven` TPM
 //! status; a future real seal/readback/unseal path must provide its own proof.
 
+use core::sync::atomic::{compiler_fence, Ordering};
+
 use sha2::{Digest, Sha256};
 
 use raios_core::core_policy::VerifiedCorePolicy;
@@ -58,7 +60,7 @@ impl RecoveryKeyText {
 
 impl Drop for RecoveryKeyText {
     fn drop(&mut self) {
-        self.bytes.fill(0);
+        zeroize_secret(&mut self.bytes);
     }
 }
 
@@ -66,28 +68,23 @@ impl Drop for RecoveryKeyText {
 /// receives a full re-entry, and only then converts it to the opaque C2 key.
 pub(crate) struct RecoveryKeyCandidate {
     bytes: [u8; RECOVERY_KEY_LEN],
-    text: RecoveryKeyText,
 }
 
 impl RecoveryKeyCandidate {
-    pub(crate) fn text(&self) -> &RecoveryKeyText {
-        &self.text
-    }
-
     pub(crate) fn confirm(mut self, reentered: &mut [u8]) -> Result<RecoveryKey, KeyringDenied> {
         let mut parsed = parse_recovery_key(reentered)?;
         if !constant_time_eq(&self.bytes, &parsed) {
-            parsed.fill(0);
+            zeroize_secret(&mut parsed);
             return Err(KeyringDenied::RecoveryKeyConfirmationMismatch);
         }
-        self.bytes.fill(0);
+        zeroize_secret(&mut self.bytes);
         Ok(RecoveryKey::take_from(&mut parsed))
     }
 }
 
 impl Drop for RecoveryKeyCandidate {
     fn drop(&mut self) {
-        self.bytes.fill(0);
+        zeroize_secret(&mut self.bytes);
     }
 }
 
@@ -154,14 +151,10 @@ impl RecoveryWrapperSlots {
     /// the structured-store replay path has read back.  This establishes no
     /// TPM, store-I/O, or secret-consumer authority; it only carries the
     /// readback proof into the in-RAM keyring.
-    pub(crate) fn restore_current_from_replayed_readback(
+    pub(super) fn restore_current_from_verified_replay(
         replayed: RecoveryVmkWrapperV1,
-        readback: &RecoveryVmkWrapperV1,
         expected: ApprovedCorePolicy,
     ) -> Result<Self, KeyringDenied> {
-        if !same_wrapper(&replayed, readback) {
-            return Err(KeyringDenied::ReadbackMismatch);
-        }
         validate_context(replayed.context)?;
         if replayed.version != RECOVERY_WRAPPER_VERSION
             || replayed.context.core_generation != expected.core_generation
@@ -423,14 +416,17 @@ pub(crate) fn generate_vault_master_key() -> Result<VaultMasterKey, KeyringDenie
 
 /// Generates the high-entropy recovery key and its exact RR1 presentation.
 /// The candidate must be re-entered and confirmed before wrapper persistence.
-pub(crate) fn generate_recovery_key_candidate() -> Result<RecoveryKeyCandidate, KeyringDenied> {
+pub(crate) fn generate_recovery_key_candidate(
+) -> Result<(RecoveryKeyCandidate, RecoveryKeyText), KeyringDenied> {
     if !entropy::is_ready() {
         return Err(KeyringDenied::EntropyNotReady);
     }
     let mut bytes = [0u8; RECOVERY_KEY_LEN];
     entropy::take(&mut bytes);
     let text = format_recovery_key(&bytes);
-    Ok(RecoveryKeyCandidate { bytes, text })
+    let candidate = RecoveryKeyCandidate { bytes };
+    zeroize_secret(&mut bytes);
+    Ok((candidate, text))
 }
 
 fn validate_context(context: RecoveryKekContext) -> Result<(), KeyringDenied> {
@@ -478,8 +474,17 @@ fn format_recovery_key(key: &[u8; RECOVERY_KEY_LEN]) -> RecoveryKeyText {
 
 fn parse_recovery_key(input: &mut [u8]) -> Result<[u8; RECOVERY_KEY_LEN], KeyringDenied> {
     let result = parse_recovery_key_inner(input);
-    input.fill(0);
+    zeroize_secret(input);
     result
+}
+
+pub(super) fn parse_recovery_key_input(input: &mut [u8]) -> Result<RecoveryKey, KeyringDenied> {
+    let mut parsed = parse_recovery_key(input)?;
+    Ok(RecoveryKey::take_from(&mut parsed))
+}
+
+pub(super) fn zeroize_recovery_input(input: &mut [u8]) {
+    zeroize_secret(input);
 }
 
 fn parse_recovery_key_inner(input: &[u8]) -> Result<[u8; RECOVERY_KEY_LEN], KeyringDenied> {
@@ -574,6 +579,14 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
     difference == 0
 }
 
+fn zeroize_secret(bytes: &mut [u8]) {
+    for byte in bytes {
+        // SAFETY: `byte` is a unique mutable reference into the caller-owned buffer.
+        unsafe { core::ptr::write_volatile(byte, 0) };
+    }
+    compiler_fence(Ordering::SeqCst);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -627,6 +640,12 @@ mod tests {
             [1; 12],
         )
         .unwrap();
+        let mut mismatched = duplicate_wrapper(slots.current_wrapper());
+        mismatched.tag[0] ^= 1;
+        assert_eq!(
+            slots.confirm_current_readback(&mismatched),
+            Err(KeyringDenied::ReadbackMismatch)
+        );
         let readback = duplicate_wrapper(slots.current_wrapper());
         slots.confirm_current_readback(&readback).unwrap();
         slots
@@ -661,32 +680,17 @@ mod tests {
         .unwrap();
         let approved = ApprovedCorePolicy::for_test(12, [0x55; 32]);
         let replayed = duplicate_wrapper(slots.current_wrapper());
-        let readback = duplicate_wrapper(slots.current_wrapper());
-        let restored = RecoveryWrapperSlots::restore_current_from_replayed_readback(
-            replayed, &readback, approved,
-        )
-        .unwrap();
+        let restored =
+            RecoveryWrapperSlots::restore_current_from_verified_replay(replayed, approved).unwrap();
         assert_eq!(
             restored.unlock_with_recovery(&key, approved).unwrap().1,
             RecoveryWrapperSlot::Current
         );
 
         let replayed = duplicate_wrapper(slots.current_wrapper());
-        let mut mismatched_readback = duplicate_wrapper(slots.current_wrapper());
-        mismatched_readback.tag[0] ^= 1;
         assert!(matches!(
-            RecoveryWrapperSlots::restore_current_from_replayed_readback(
+            RecoveryWrapperSlots::restore_current_from_verified_replay(
                 replayed,
-                &mismatched_readback,
-                approved,
-            ),
-            Err(KeyringDenied::ReadbackMismatch)
-        ));
-        let replayed = duplicate_wrapper(slots.current_wrapper());
-        assert!(matches!(
-            RecoveryWrapperSlots::restore_current_from_replayed_readback(
-                replayed,
-                &readback,
                 ApprovedCorePolicy::for_test(13, [0x66; 32]),
             ),
             Err(KeyringDenied::InvalidWrapperContext)

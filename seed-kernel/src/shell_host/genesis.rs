@@ -14,7 +14,7 @@ use raios_core::{
 use super::{
     context,
     personal_surface::{PersonalSurface, PersonalSurfaceRoute},
-    recovery, wifi_flow,
+    recovery, vault_flow, wifi_flow,
 };
 
 pub(crate) const FONT_ADVANCE: usize = 9;
@@ -54,6 +54,7 @@ pub struct ShellHost {
     recovery: recovery::RecoveryView,
     recovery_open: bool,
     personal: PersonalSurface,
+    vault: vault_flow::VaultFlow,
 }
 
 impl ShellHost {
@@ -72,6 +73,7 @@ impl ShellHost {
             recovery: recovery::RecoveryView::new(),
             recovery_open: false,
             personal: PersonalSurface::new(),
+            vault: vault_flow::VaultFlow::new(),
         }
     }
 
@@ -92,7 +94,11 @@ impl ShellHost {
         let flow_changed = self.wifi.advance();
         let framebuffer = self.surface.as_ref().map(|surface| surface.info());
         let snapshot = SystemSnapshot::collect(framebuffer, runtime);
-        let personal_changed = self.activate_pending_personal_shell(&snapshot);
+        let personal_changed = if self.vault.is_active() {
+            false
+        } else {
+            self.activate_pending_personal_shell(&snapshot)
+        };
         self.log_transitions(&snapshot);
         let states = snapshot.states();
         if flow_changed || personal_changed || force_draw || self.last_draw_states != Some(states) {
@@ -121,6 +127,7 @@ impl ShellHost {
                             &self.wifi,
                             &self.recovery,
                             self.recovery_open,
+                            &mut self.vault,
                         );
                     }
                 } else {
@@ -131,9 +138,11 @@ impl ShellHost {
                         &self.wifi,
                         &self.recovery,
                         self.recovery_open,
+                        &mut self.vault,
                     );
                 }
                 surface.present();
+                self.vault.note_presented();
                 self.last_cursor_rect = None;
                 draw_current_cursor(surface, &mut self.last_cursor_rect);
                 self.last_draw_states = Some(states);
@@ -154,9 +163,6 @@ impl ShellHost {
         &mut self,
         runtime: crate::system_status::RuntimeStatus,
     ) -> bool {
-        if self.personal.has_personal_focus() {
-            return false;
-        }
         let Some(surface) = self.surface.as_ref() else {
             return false;
         };
@@ -176,6 +182,12 @@ impl ShellHost {
         let width = layout.logical_size.width as usize;
         let height = layout.logical_size.height as usize;
 
+        if self.vault.is_active() {
+            return self.vault.handle_pointer(x, y, layout);
+        }
+        if self.personal.has_personal_focus() {
+            return false;
+        }
         if self.wifi.is_active() {
             return self.wifi.handle_pointer(x, y, width, height);
         }
@@ -214,6 +226,20 @@ impl ShellHost {
         event: input::InputEvent,
         runtime: crate::system_status::RuntimeStatus,
     ) -> bool {
+        if self.vault.is_active() {
+            return self.vault.handle_physical_input(event);
+        }
+        if console::snapshot().focus == console::UiFocus::SettingsVault
+            && matches!(
+                event.kind,
+                input::InputEventKind::Key {
+                    code: 28,
+                    pressed: true
+                }
+            )
+        {
+            return self.vault.begin_explicit();
+        }
         if matches!(event.kind, input::InputEventKind::SecureAttention) {
             let route = self.personal.handle_secure_attention();
             note_personal_route(route);
@@ -346,6 +372,9 @@ impl ShellHost {
     ) -> bool {
         let rect = rect_from_layout(layout.trusted_overlay);
         let action = setup_action_rects(rect);
+        if point_in(x, y, setup_vault_rect(rect)) {
+            return self.vault.begin_explicit();
+        }
         if point_in(x, y, action[0]) {
             return console::activate_focus(console::UiFocus::SettingsApiKey);
         }
@@ -400,6 +429,7 @@ fn draw_genesis(
     wifi: &wifi_flow::GuidedWifi,
     recovery: &recovery::RecoveryView,
     recovery_open: bool,
+    vault: &mut vault_flow::VaultFlow,
 ) {
     let Some(layout) = genesis_layout(surface.info()) else {
         return;
@@ -416,13 +446,14 @@ fn draw_genesis(
     }
     draw_composer(surface, layout, &console_snapshot);
     if console_snapshot.view == console::UiView::Settings {
-        draw_setup_overlay(surface, layout, &console_snapshot);
+        draw_setup_overlay(surface, layout, &console_snapshot, vault);
     }
     wifi.draw(
         surface,
         layout.logical_size.width as usize,
         layout.logical_size.height as usize,
     );
+    vault.draw(surface, layout);
 }
 
 fn genesis_layout(info: FramebufferInfo) -> Option<GenesisLayout> {
@@ -552,7 +583,11 @@ fn draw_context(
             context.network.value,
             context_tone_color(context.network.tone),
         ),
-        ("Secret Vault", "Not configured", TEXT_MUTED),
+        (
+            "Secret Vault",
+            vault_flow::VaultFlow::status_text(),
+            TEXT_MUTED,
+        ),
         ("Problems", problem_value, problem_color),
     ];
     let mut y = rect.y + 78;
@@ -767,6 +802,7 @@ fn draw_setup_overlay(
     surface: &mut FramebufferSurface,
     layout: GenesisLayout,
     snapshot: &console::ConsoleSnapshot,
+    vault: &vault_flow::VaultFlow,
 ) {
     let rect = rect_from_layout(layout.trusted_overlay);
     surface.fill_rect(
@@ -792,6 +828,12 @@ fn draw_setup_overlay(
         snapshot.input.as_str(),
         rect.w.saturating_sub(40) / FONT_ADVANCE,
         TEXT_MAIN,
+    );
+    draw_button(
+        surface,
+        setup_vault_rect(rect),
+        vault.action_label(),
+        snapshot.focus == console::UiFocus::SettingsVault,
     );
     let actions = setup_action_rects(rect);
     draw_button(surface, actions[0], "Set API key", true);
@@ -841,6 +883,10 @@ fn setup_action_rects(rect: LogicalRect) -> [LogicalRect; 4] {
         LogicalRect::new(left, first + 32, width, 24),
         LogicalRect::new(right, first + 32, width, 24),
     ]
+}
+
+fn setup_vault_rect(rect: LogicalRect) -> LogicalRect {
+    LogicalRect::new(rect.x + 20, rect.y + 104, rect.w.saturating_sub(40), 24)
 }
 
 pub(crate) fn draw_panel(surface: &mut FramebufferSurface, rect: LogicalRect, title: &str) {

@@ -44,8 +44,15 @@ try {
     }
 
     if ($UseTempEsp) {
-        $TempEspDir = Join-Path $env:TEMP "raios-stage0-esp-$PID"
-        Remove-Item -LiteralPath $TempEspDir -Recurse -Force -ErrorAction SilentlyContinue
+        $TempEspDir = Join-Path $env:TEMP ("raios-stage0-esp-{0}-{1}" -f $PID, [Guid]::NewGuid().ToString("N"))
+        $tempRoot = [IO.Path]::GetFullPath($env:TEMP).TrimEnd([char]'\', [char]'/') + [IO.Path]::DirectorySeparatorChar
+        $tempEspFullPath = [IO.Path]::GetFullPath($TempEspDir)
+        if (-not $tempEspFullPath.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing temporary ESP outside the host temp root: $tempEspFullPath"
+        }
+        if (Test-Path -LiteralPath $TempEspDir) {
+            throw "Refusing pre-existing temporary ESP path: $TempEspDir"
+        }
         Copy-Item -LiteralPath $BaseEspDir -Destination $TempEspDir -Recurse -Force
         $EspDir = $TempEspDir
         $BootConfig = Join-Path $EspDir "EFI\BOOT\limine.conf"

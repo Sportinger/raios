@@ -11,27 +11,25 @@ use raios_core::secret_vault::{
     MAX_WIFI_PASSPHRASE_LEN,
 };
 
+use crate::secret_vault::{RecoveryKeyConfirmation, VaultBrokerStatus, VaultFacadeDenied};
+
 const MIN_WIFI_PASSPHRASE_LEN: usize = 8;
+const RECOVERY_KEY_TEXT_LEN: usize = 80;
 
 /// The only trusted secret-entry prompts in Genesis V1.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SecureOverlayPrompt {
     ProviderApiKey,
     WifiPassphrase,
+    RecoveryKeyConfirmation,
 }
 
 impl SecureOverlayPrompt {
-    pub(crate) const fn secret_kind(self) -> SecretKind {
-        match self {
-            Self::ProviderApiKey => SecretKind::ProviderApiKey,
-            Self::WifiPassphrase => SecretKind::WifiPassphrase,
-        }
-    }
-
     const fn capacity(self) -> usize {
         match self {
             Self::ProviderApiKey => MAX_PROVIDER_API_KEY_LEN,
             Self::WifiPassphrase => MAX_WIFI_PASSPHRASE_LEN,
+            Self::RecoveryKeyConfirmation => RECOVERY_KEY_TEXT_LEN,
         }
     }
 
@@ -39,6 +37,7 @@ impl SecureOverlayPrompt {
         match self {
             Self::ProviderApiKey => byte.is_ascii_graphic(),
             Self::WifiPassphrase => byte >= 0x20 && byte <= 0x7e,
+            Self::RecoveryKeyConfirmation => byte.is_ascii_graphic(),
         }
     }
 }
@@ -66,6 +65,7 @@ pub(crate) enum SecureOverlayRejection {
     CapacityReached,
     Empty,
     WifiPassphraseTooShort,
+    RecoveryKeyLengthInvalid,
     PlaintextRejected,
 }
 
@@ -97,6 +97,31 @@ impl SecureSecretSubmission {
     }
 }
 
+/// Complete RR1 text with no byte accessor. It can cross only the two exact
+/// recovery facade joins and zeroizes on every return path.
+pub(crate) struct SecureRecoveryKeyInput {
+    bytes: [u8; RECOVERY_KEY_TEXT_LEN],
+}
+
+impl SecureRecoveryKeyInput {
+    pub(crate) fn confirm_initial(
+        mut self,
+        confirmation: RecoveryKeyConfirmation,
+    ) -> Result<VaultBrokerStatus, VaultFacadeDenied> {
+        crate::secret_vault::confirm_initial_recovery(confirmation, &mut self.bytes)
+    }
+
+    pub(crate) fn unlock(mut self) -> Result<VaultBrokerStatus, VaultFacadeDenied> {
+        crate::secret_vault::unlock_with_recovery_key(&mut self.bytes)
+    }
+}
+
+impl Drop for SecureRecoveryKeyInput {
+    fn drop(&mut self) {
+        erase(&mut self.bytes);
+    }
+}
+
 /// Result of an explicit trusted-overlay transition.
 #[must_use]
 pub(crate) enum SecureOverlayAction {
@@ -104,6 +129,7 @@ pub(crate) enum SecureOverlayAction {
     Changed(SecureOverlaySnapshot),
     Cancelled(SecureOverlayPrompt),
     Submitted(SecureSecretSubmission),
+    SubmittedRecovery(SecureRecoveryKeyInput),
     Rejected(SecureOverlayRejection),
     Inactive,
 }
@@ -189,13 +215,32 @@ impl SecureOverlay {
         if prompt == SecureOverlayPrompt::WifiPassphrase && self.len < MIN_WIFI_PASSPHRASE_LEN {
             return SecureOverlayAction::Rejected(SecureOverlayRejection::WifiPassphraseTooShort);
         }
+        if prompt == SecureOverlayPrompt::RecoveryKeyConfirmation
+            && self.len != RECOVERY_KEY_TEXT_LEN
+        {
+            return SecureOverlayAction::Rejected(SecureOverlayRejection::RecoveryKeyLengthInvalid);
+        }
 
         let len = self.len;
+        if prompt == SecureOverlayPrompt::RecoveryKeyConfirmation {
+            let mut bytes = [0u8; RECOVERY_KEY_TEXT_LEN];
+            bytes.copy_from_slice(&self.bytes[..RECOVERY_KEY_TEXT_LEN]);
+            self.clear();
+            return SecureOverlayAction::SubmittedRecovery(SecureRecoveryKeyInput { bytes });
+        }
         let mut staged = [0u8; MAX_PROVIDER_API_KEY_LEN];
         staged[..len].copy_from_slice(&self.bytes[..len]);
         self.clear();
 
-        let secret = match SecretPlaintext::take_from(prompt.secret_kind(), &mut staged[..len]) {
+        let kind = match prompt {
+            SecureOverlayPrompt::ProviderApiKey => SecretKind::ProviderApiKey,
+            SecureOverlayPrompt::WifiPassphrase => SecretKind::WifiPassphrase,
+            SecureOverlayPrompt::RecoveryKeyConfirmation => {
+                erase(&mut staged);
+                return SecureOverlayAction::Rejected(SecureOverlayRejection::PlaintextRejected);
+            }
+        };
+        let secret = match SecretPlaintext::take_from(kind, &mut staged[..len]) {
             Ok(secret) => secret,
             Err(error) => {
                 erase(&mut staged);

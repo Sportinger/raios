@@ -138,10 +138,16 @@ function Get-TextSha256 {
 }
 
 function Send-QemuMonitorCommand {
-    param([string]$Command)
+    param(
+        [string]$Command,
+        [int]$ReplyWaitMilliseconds = 3000
+    )
 
     if ($MonitorTcpPort -le 0) {
         throw "QEMU monitor is unavailable for profile '$Profile'"
+    }
+    if ($ReplyWaitMilliseconds -lt 0) {
+        throw "QEMU monitor reply wait must not be negative"
     }
     $client = [System.Net.Sockets.TcpClient]::new()
     try {
@@ -166,7 +172,7 @@ function Send-QemuMonitorCommand {
         $stream.Write($bytes, 0, $bytes.Length)
         $stream.Flush()
         $reply = [System.Text.StringBuilder]::new()
-        $deadline = [DateTime]::UtcNow.AddSeconds(3)
+        $deadline = [DateTime]::UtcNow.AddMilliseconds($ReplyWaitMilliseconds)
         do {
             if ($stream.DataAvailable) {
                 $count = $stream.Read($buffer, 0, $buffer.Length)

@@ -66,9 +66,11 @@ Limine executable and exact Normal/Probation BOOTCTL slot/generation;
 TPM measurement, deterministic ESP A/B selection, or anti-rollback. The Broker now
 retains that verified identity beside the complete replay on both boots, and rejects
 caller-supplied/replacement policy identity; focused
-`shadow-20260710-150107-28328.json` passes 13/13. I3 remains open on the real RR1
-provision/write/recovery-unlock path and durable per-use audit; consumer use remains
-denied.
+`shadow-20260710-150107-28328.json` passes 13/13. The first armed I3 vertical slice is
+now green: `shadow-20260710-160920-28360.json` (29/29) proves one-time RR1 display, physical
+re-entry, exact QEMU-store wrapper commit/readback, independent reboot/replay and RR1
+Broker unlock with no RR1 in either serial log or report. I3 remains open on durable
+pre-use audit and the two exact consumers; consumer use remains denied.
 
 **Genesis execution progress (A1/C3, 2026-07-10):** the normal release image
 now starts in the core-owned Genesis shell (Conversation, Context, Composer,

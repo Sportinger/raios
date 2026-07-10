@@ -108,6 +108,7 @@ pub enum UiFocus {
     ChatInput,
     ConsoleInput,
     SettingsProvider,
+    SettingsVault,
     SettingsApiKey,
     SettingsClear,
     SettingsWifiSsid,
@@ -402,6 +403,9 @@ impl ConsoleState {
             UiFocus::ChatInput => self.handle_chat_byte(b'\r'),
             UiFocus::ConsoleInput => self.handle_command_byte(b'\r'),
             UiFocus::SettingsProvider => ByteAction::ShowProviderStatus,
+            // ShellHost consumes physical Enter on this focus before Console.
+            // Serial has no Vault action and can only request a redraw here.
+            UiFocus::SettingsVault => ByteAction::Redraw,
             UiFocus::SettingsApiKey => {
                 self.mode = ConsoleMode::ApiKeyEntry;
                 self.input.clear();
@@ -735,8 +739,9 @@ const CONSOLE_FOCUS_ORDER: [UiFocus; 4] = [
     UiFocus::NavConsole,
     UiFocus::NavSettings,
 ];
-const SETTINGS_FOCUS_ORDER: [UiFocus; 12] = [
+const SETTINGS_FOCUS_ORDER: [UiFocus; 13] = [
     UiFocus::SettingsProvider,
+    UiFocus::SettingsVault,
     UiFocus::SettingsApiKey,
     UiFocus::SettingsClear,
     UiFocus::SettingsWifiSsid,
