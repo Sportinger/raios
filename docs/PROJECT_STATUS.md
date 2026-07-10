@@ -60,6 +60,38 @@ key reboot proof is required; `tpm_auto_unlock`, `vault_vmk_tpm_sealed`,
 `tpm_vmk_wrapper_ready`, and `physical_target_driver_supported` remain
 unproven. ADR 0007 `owner_sealed` is unaffected by this contract.
 
+Genesis geometry and personal-shell ABI foundation done (A0/B0, 2026-07-10) -
+a renderer and the future one-shot Wasm adapter can now derive the fixed calm
+Genesis geometry at 1024x768, 1280x800, and 1920x1080, route input without
+crossing the core-owned secure strip, validate one bounded/clipped RFRM V1
+display list atomically, and authorize exactly the six `svc.user.shell` `ui.*`
+imports only when concrete artifact, evidence, ordered-import hash, and linker
+list agree. The proof guest is a stateless no_std V1 source registered in the
+workspace; it receives only the six frozen imports and returns a visibly distinct
+frame from sanitized input. This is foundation only: no UI import is linked, no
+personal shell runs, the old release honesty projection remains unchanged until
+I2/G3, and the Genesis renderer/USB handoff are not yet claimed. Verified:
+`cargo test --locked --offline -p raios-core` passed 351/351; release kernel
+build passed; quick report `release/vm-reports/shadow-20260710-020632-29720.json`
+passed 542/542; secret scan passed.
+
+VM failure classification (2026-07-10, B0 foundation quick) - report
+`release/vm-reports/shadow-20260710-013553-29700.json` passed 41/42 predicates
+but failed `protocol:system_honesty_report_standing_posture`. Verdict:
+`guest-behavior` — deterministic protocol-projection mismatch, not a host flake:
+the orchestrator prematurely changed the release honesty record from its current
+two displayed imports while B0 merely registered the future UI vocabulary. The
+bounded repair restores that existing projection; G3/I2 alone owns the truthful
+displayed-import transition when the linker authority is actually integrated.
+
+VM retry classification (2026-07-10, B0 foundation quick) - the first repaired
+retry did not produce a report because the combined package-and-quick host command
+hit its 184-second caller timeout and left only its own QEMU PID `1384`, which was
+then explicitly stopped. Failing predicate: none (no report was emitted). Verdict:
+`host-transport` — insufficient outer command budget, not a guest result. The next
+retry runs the already packaged image with the quick profile alone and an independent
+timeout budget.
+
 VM failure classification (2026-07-10, D0 Genesis capture harness) - the first
 local capture launch exited before any guest predicate or framebuffer marker;
 QEMU stderr reported `Block node is read-only` for the IDE boot image. Failing

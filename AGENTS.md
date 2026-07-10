@@ -338,6 +338,21 @@ when durable project reality, startup instructions, or standing rules change.
 
 ## Useful Commands
 
+### Local Cargo cache on this machine
+
+The inherited `CARGO_HOME` and `CARGO_TARGET_DIR` may point to the unavailable
+`F:\scorefollower-build\cargo` path. Before any Cargo command or PowerShell build/
+package script, use the repository-local ignored cache and target directory instead:
+
+```powershell
+$env:CARGO_HOME = (Resolve-Path '.cargo-home').Path
+$env:CARGO_TARGET_DIR = Join-Path (Resolve-Path '.').Path 'target'
+```
+
+For concurrent agent lanes, keep the same local `CARGO_HOME` but give each lane its
+own target subdirectory, for example
+`$env:CARGO_TARGET_DIR = Join-Path (Resolve-Path '.').Path 'target\lanes\<lane>'`.
+
 Build the release kernel on Windows:
 
 ```powershell

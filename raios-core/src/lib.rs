@@ -14,6 +14,7 @@ pub mod distribution_registry;
 pub mod dot11_scan;
 pub mod driver_capability;
 pub mod durable_record_frame;
+pub mod genesis_layout;
 pub mod gpt_layout;
 pub mod kernel_surface;
 pub mod marvell_wifi_cmd;
@@ -45,6 +46,7 @@ pub mod scoped_seed_data_append;
 pub mod scoped_time_authority_honesty;
 pub mod scoped_wasm_import_grant;
 pub mod seed_data_layout;
+pub mod ui_frame;
 
 /// Computes the SHA-256 digest for `bytes` and returns the raw 32-byte digest.
 pub fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {

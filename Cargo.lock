@@ -1354,11 +1354,14 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 name = "raios-core"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
+ "hkdf",
  "p256",
  "raios-http-parse",
  "raios-x509-spki",
  "raios-x509-time",
  "sha2 0.10.9",
+ "zeroize",
 ]
 
 [[package]]
@@ -1840,6 +1843,10 @@ version = "0.1.0"
 dependencies = [
  "raios-http-parse",
 ]
+
+[[package]]
+name = "svc-personal-shell-proof"
+version = "0.1.0"
 
 [[package]]
 name = "syn"

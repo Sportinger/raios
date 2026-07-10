@@ -28,10 +28,12 @@ Owner-key status: RAM boot still creates only a secret RAM-only
 authority remains denied until the real sealing ceremony.
 
 Genesis status: the architecture and exact personal-shell boundary are owner-
-approved in ADR 0011; the new visible shell/runtime is not verified yet.
+approved in ADR 0011. A0/B0 now supplies responsive Genesis geometry, an
+atomic display-list validator, exact evidence-bound future `ui.*` grants, and
+a stateless proof-guest source; the new visible shell/runtime is not verified yet.
 
-Latest proof: 335/335 core host tests, global rustfmt, quick Shadow VM
-`shadow-20260710-010658-31684.json` 542/542, and verified Disk 2 copy hash.
+Latest proof: 351/351 raios-core host tests, release build, secret scan, quick
+Shadow VM `shadow-20260710-020632-29720.json` 542/542, and verified Disk 2 copy hash.
 
 Gate status: latest full profile remains green at
 `shadow-20260708-150428-34396.json` 7867/7867. This slice used focused USB VM
