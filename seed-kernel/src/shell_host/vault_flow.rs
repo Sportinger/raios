@@ -144,8 +144,11 @@ impl VaultFlow {
                 serial::write_line("VAULT_MANAGE_READY");
                 Mode::Managing(ManageAction::Close)
             }
-            secret_vault::VaultRecoveryState::Unavailable
-            | secret_vault::VaultRecoveryState::AwaitingConfirmation
+            secret_vault::VaultRecoveryState::Unavailable => {
+                serial::write_line("VAULT_UNAVAILABLE state=ram_only_denial current_boot=true");
+                Mode::Outcome(Outcome::Unavailable)
+            }
+            secret_vault::VaultRecoveryState::AwaitingConfirmation
             | secret_vault::VaultRecoveryState::PersistenceOutcomeUncertain => {
                 Mode::Outcome(Outcome::Unavailable)
             }

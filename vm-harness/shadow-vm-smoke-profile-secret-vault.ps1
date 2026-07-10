@@ -243,9 +243,9 @@ function Send-ProviderSentinelViaUsbKeyboard {
                 ($value -ge [byte][char]'a' -and $value -le [byte][char]'f'))) {
             throw "provider sentinel is not lowercase hexadecimal ASCII"
         }
-        Send-Rr1HmpKey -KeyName ([char]$value).ToString()
+        Send-SecureTextHmpKey -KeyName ([char]$value).ToString()
     }
-    Send-Rr1HmpKey -KeyName "ret"
+    Send-SecureTextHmpKey -KeyName "ret"
 }
 
 function Assert-ProviderSentinelAbsent {
@@ -729,6 +729,35 @@ function Send-Rr1HmpKey {
     Send-QemuMonitorCommand -Command "sendkey $KeyName 60" -ReplyWaitMilliseconds 125 | Out-Null
 }
 
+function Get-UsbInputEventCount {
+    if (-not (Test-Path -LiteralPath $SerialLog -PathType Leaf)) {
+        return 0
+    }
+    $total = 0
+    foreach ($match in [regex]::Matches(
+            (Get-Content -LiteralPath $SerialLog -Raw -ErrorAction Stop),
+            'usb input batch: (\d+) events')) {
+        $total += [int]$match.Groups[1].Value
+    }
+    return $total
+}
+
+function Send-SecureTextHmpKey {
+    param([string]$KeyName)
+
+    $expectedEvents = if ($KeyName -eq "shift-r") { 4 } elseif ($KeyName -eq "ret") { 1 } else { 2 }
+    $before = Get-UsbInputEventCount
+    Send-Rr1HmpKey -KeyName $KeyName
+    $deadline = [DateTime]::UtcNow.AddSeconds(3)
+    do {
+        Start-Sleep -Milliseconds 25
+        $observed = (Get-UsbInputEventCount) - $before
+    } while ($observed -lt $expectedEvents -and [DateTime]::UtcNow -lt $deadline)
+    if ($observed -lt $expectedEvents) {
+        throw "secure_hid_transition_timeout expected_events=$expectedEvents observed_events=$observed"
+    }
+}
+
 function Invoke-VaultVisibleAction {
     param([switch]$SkipFinalEnter)
 
@@ -765,9 +794,9 @@ function Send-Rr1ViaUsbKeyboard {
         else {
             throw "RR1 keyboard input contains an unsupported byte"
         }
-        Send-Rr1HmpKey -KeyName $keyName
+        Send-SecureTextHmpKey -KeyName $keyName
     }
-    Send-Rr1HmpKey -KeyName "ret"
+    Send-SecureTextHmpKey -KeyName "ret"
 }
 
 function Get-SerialMarkerCount {
@@ -950,6 +979,7 @@ $providerSentinel = $null
 $wifiSentinel = $null
 $safeProof = $null
 $powerCutProof = $null
+$storeDenialProof = $null
 $script:Rr1SecretPpmPath = Join-Path $RunDir "rr1-once.ppm"
 try {
     Assert-LogContains `
@@ -1110,6 +1140,7 @@ try {
     Stop-Rr1VmForLogInspection -QemuProcessId $firstQemuPid
     Assert-Rr1NotInSerial -Name "secret-vault:boot1:rr1_absent_from_serial" -Path $firstBootLog
 
+    $storeDenialProof = Invoke-SecretVaultStoreDenialProof
     $safeProof = Invoke-SecretVaultSafeReconnectProof `
         -Rr1 $rr1 `
         -InitialFrameCount $initialFrameCount
@@ -1177,6 +1208,13 @@ try {
         -RejectedMarker "VAULT_RR1_UNLOCK_REJECTED" `
         -TimeoutSeconds $TimeoutSeconds
     foreach ($marker in @(
+        @{ Name = "secret-vault:boot2:stale_policy_denied"; Text = "VAULT_G55_STALE_POLICY_DENIED reason=no_matching_recovery_wrapper test_infrastructure=true" },
+        @{ Name = "secret-vault:boot2:stale_context_denied"; Text = "VAULT_G55_STALE_CONTEXT_DENIED reason=policy_id_mismatch test_infrastructure=true" },
+        @{ Name = "secret-vault:boot2:corrupt_wrapper_denied"; Text = "VAULT_G55_CORRUPT_WRAPPER_DENIED reason=authentication_failed test_infrastructure=true" },
+        @{ Name = "secret-vault:boot2:tag_denied"; Text = "VAULT_G55_TAG_DENIED reason=authentication_failed slots=wifi,provider test_infrastructure=true" },
+        @{ Name = "secret-vault:boot2:aad_denied"; Text = "VAULT_G55_AAD_DENIED reason=aad_hash_mismatch slots=wifi,provider test_infrastructure=true" },
+        @{ Name = "secret-vault:boot2:binding_denials"; Text = "VAULT_G55_BINDINGS_DENIED reasons=kind,consumer,operation,target slots=wifi,provider test_infrastructure=true" },
+        @{ Name = "secret-vault:boot2:nonce_reuse_denied"; Text = "VAULT_G55_NONCE_REUSE_DENIED reason=duplicate_nonce slots=wifi,provider test_infrastructure=true" },
         @{ Name = "secret-vault:boot2:provider_auditless_denied"; Text = "VAULT_PROVIDER_AUDITLESS_DENIED reason=audit_binding_missing test_infrastructure=true" },
         @{ Name = "secret-vault:boot2:provider_preuse_audit_durable"; Text = "VAULT_PROVIDER_PREUSE_AUDIT_COMMITTED consumer=openai_direct operation=request_exact_host readback=verified reparse=verified rescan=verified" },
         @{ Name = "secret-vault:boot2:provider_contained_exact_header"; Text = "VAULT_PROVIDER_CONTAINED_CONSUMED target=api.openai.com accepted=true test_infrastructure=true" },
@@ -1252,21 +1290,22 @@ try {
     if (-not $unlockUsedUsb) {
         throw "Recovery RR1 input did not traverse USB HID input"
     }
+    Invoke-SecretVaultPersonalTrapContinuityProof
     $forgottenRebootLog = Invoke-SecretVaultForgottenRebootProof -Rr1 $rr1
 
     Clear-Rr1Bytes -Bytes $rr1
     $rr1 = $null
 
     $combinedLog = Join-Path $RunDir "serial-secret-vault-combined.log"
+    $combinedPaths = @($firstBootLog) + @($storeDenialProof.Logs) + @(
+        $safeProof.Log,
+        $powerCutProof.BeforeLog,
+        $powerCutProof.AfterLog,
+        $rebootLog,
+        $forgottenRebootLog
+    )
     Join-SecretVaultSerialLogs `
-        -Paths @(
-            $firstBootLog,
-            $safeProof.Log,
-            $powerCutProof.BeforeLog,
-            $powerCutProof.AfterLog,
-            $rebootLog,
-            $forgottenRebootLog
-        ) `
+        -Paths $combinedPaths `
         -Destination $combinedLog
 
     $defaultReleaseImage = Join-Path $RepoRoot "release\raios-stage0.img"
@@ -1276,6 +1315,9 @@ try {
             ForEach-Object { $_.FullName }
     )
     $defaultArtifactPaths = @($defaultReleaseImage) + $defaultEspFiles
+    $storeDenialPaths = @($storeDenialProof.Logs) +
+        @($storeDenialProof.StructuredStores) +
+        @($storeDenialProof.PersistImages)
     $defaultArtifactsReady = (Test-Path -LiteralPath $defaultReleaseImage -PathType Leaf) -and
         $defaultEspFiles.Count -gt 0
     Add-Predicate `
@@ -1291,7 +1333,7 @@ try {
         -Name "secret-vault:provider_sentinel_absent_from_all_artifacts" `
         -Label "provider" `
         -Sentinel $providerSentinel `
-        -RequiredPaths (@(
+        -RequiredPaths ((@(
             $firstBootLog,
             $safeProof.Log,
             $powerCutProof.BeforeLog,
@@ -1306,12 +1348,12 @@ try {
             $safeProof.Persist,
             $powerCutProof.StructuredStore,
             $powerCutProof.Persist
-        ) + $defaultArtifactPaths)
+        ) + $storeDenialPaths) + $defaultArtifactPaths)
     Assert-ProviderSentinelAbsent `
         -Name "secret-vault:wifi_sentinel_absent_from_all_artifacts" `
         -Label "WiFi" `
         -Sentinel $wifiSentinel `
-        -RequiredPaths (@(
+        -RequiredPaths ((@(
             $firstBootLog,
             $safeProof.Log,
             $powerCutProof.BeforeLog,
@@ -1326,7 +1368,7 @@ try {
             $safeProof.Persist,
             $powerCutProof.StructuredStore,
             $powerCutProof.Persist
-        ) + $defaultArtifactPaths)
+        ) + $storeDenialPaths) + $defaultArtifactPaths)
 
     $combinedContent = [string](Get-Content -LiteralPath $combinedLog -Raw -ErrorAction Stop)
     $forbiddenWifiSuccess = @(
@@ -1443,5 +1485,6 @@ finally {
     $wifiSentinel = $null
     $safeProof = $null
     $powerCutProof = $null
+    $storeDenialProof = $null
     Remove-Rr1SecretPpm -Path $script:Rr1SecretPpmPath
 }

@@ -73,6 +73,8 @@ pub(crate) enum VaultFacadeDenied {
     WifiStore(crate::structured_store_c1::WifiSecretStoreDenied),
     TombstoneStore(crate::structured_store_c1::VaultTombstoneStoreDenied),
     PowerCutStore(crate::structured_store_c1::VaultPowerCutStoreDenied),
+    ContainedCryptoProof(broker::ContainedQemuCryptoProofDenied),
+    ContainedRr1Proof(keyring::ContainedQemuRr1ProofDenied),
     Broker(VaultBrokerDenied),
     Audit(ProviderUseAuditDenied),
     WifiAudit(WifiUseAuditDenied),
@@ -111,6 +113,8 @@ impl VaultFacadeDenied {
             Self::WifiStore(_) => "wifi_store_denied",
             Self::TombstoneStore(_) => "vault_tombstone_store_denied",
             Self::PowerCutStore(_) => "vault_power_cut_store_denied",
+            Self::ContainedCryptoProof(_) => "contained_crypto_proof_denied",
+            Self::ContainedRr1Proof(_) => "contained_rr1_proof_denied",
             Self::Broker(_) => "broker_denied",
             Self::Audit(error) => error.reason(),
             Self::WifiAudit(error) => error.reason(),
@@ -576,8 +580,22 @@ pub(crate) fn unlock_with_recovery_key(
 ) -> Result<VaultBrokerStatus, VaultFacadeDenied> {
     let recovery_key =
         keyring::parse_recovery_key_input(reentered).map_err(VaultFacadeDenied::Keyring)?;
-    let status = {
+    let (status, contained_proof) = {
         let mut runtime = RUNTIME.lock();
+        let contained_proof = runtime.region.is_some_and(|region| {
+            crate::structured_store_c1::revalidate_qemu_wifi_store_identity(region).is_ok()
+        });
+        if contained_proof {
+            let policy = runtime
+                .approved_policy
+                .ok_or(VaultFacadeDenied::CorePolicy("core_policy_missing"))?;
+            runtime
+                .wrappers
+                .as_ref()
+                .ok_or(VaultFacadeDenied::RecoveryWrapperMissing)?
+                .prove_exact_contained_qemu_rr1_fail_closed(&recovery_key, policy)
+                .map_err(VaultFacadeDenied::ContainedRr1Proof)?;
+        }
         let wrappers = runtime
             .wrappers
             .take()
@@ -588,8 +606,19 @@ pub(crate) fn unlock_with_recovery_key(
             .map_err(VaultFacadeDenied::Broker);
         runtime.wrappers = Some(wrappers);
         unlock?;
-        runtime.broker.status()
+        (runtime.broker.status(), contained_proof)
     };
+    if contained_proof {
+        serial::write_line(
+            "VAULT_G55_STALE_POLICY_DENIED reason=no_matching_recovery_wrapper test_infrastructure=true",
+        );
+        serial::write_line(
+            "VAULT_G55_STALE_CONTEXT_DENIED reason=policy_id_mismatch test_infrastructure=true",
+        );
+        serial::write_line(
+            "VAULT_G55_CORRUPT_WRAPPER_DENIED reason=authentication_failed test_infrastructure=true",
+        );
+    }
     serial::write_line("VAULT_BROKER_UNLOCKED source=recovery slot=current");
     Ok(status)
 }
@@ -1227,6 +1256,25 @@ pub(crate) fn run_contained_qemu_provider_consumer_test() -> Result<(), VaultFac
     let (region, _, _, _) = current_provider_use_facts()?;
     crate::structured_store_c1::revalidate_qemu_store_identity(region)
         .map_err(VaultFacadeDenied::ProviderStore)?;
+    {
+        let runtime = RUNTIME.lock();
+        runtime
+            .broker
+            .prove_exact_contained_qemu_crypto_fail_closed()
+            .map_err(VaultFacadeDenied::ContainedCryptoProof)?;
+    }
+    serial::write_line(
+        "VAULT_G55_TAG_DENIED reason=authentication_failed slots=wifi,provider test_infrastructure=true",
+    );
+    serial::write_line(
+        "VAULT_G55_AAD_DENIED reason=aad_hash_mismatch slots=wifi,provider test_infrastructure=true",
+    );
+    serial::write_line(
+        "VAULT_G55_BINDINGS_DENIED reasons=kind,consumer,operation,target slots=wifi,provider test_infrastructure=true",
+    );
+    serial::write_line(
+        "VAULT_G55_NONCE_REUSE_DENIED reason=duplicate_nonce slots=wifi,provider test_infrastructure=true",
+    );
     {
         let runtime = RUNTIME.lock();
         runtime

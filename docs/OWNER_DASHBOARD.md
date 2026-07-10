@@ -3,7 +3,7 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-10.
+Updated: 2026-07-11.
 
 Current capability: the normal release image boots into calm Genesis with
 Conversation, typed Context, a Composer, RAM-only masked AI/WiFi setup, and an
@@ -65,14 +65,18 @@ commit/readback, reboot/replay and RR1 unlock are proven. Provider and contained
 use are bounded by opaque one-use leases after durable pre-use audit.
 
 Latest proof: focused Secret Vault report `shadow-20260711-001242-11280.json` passed
-118/118. A hard stop after an exact-C1 WiFi version-2 PREPARE plus TOMBSTONE but before
-COMMIT now reboots to the retained committed version 1; RR1 unlock and contained WiFi use
-still work and the core Vault handle survives. Report-self and default release/recursive
-ESP dynamic sentinel scans are green. This closes only G5.5a power-cut/torn-commit.
+118/118 for G5.5a. The newer G5.5b report
+`shadow-20260711-010926-21860.json` passed 152/152. Foreign-GUID copies deny before
+fixture acceptance; copied CRC-corrupt logs lock as `StoreChainLocked`; both show a
+physical RAM-only denial. Tag/AAD/binding/nonce and stale-policy/context/corrupt-wrapper
+copies fail closed. A physical Escape joins the bounded personal trap to real Genesis
+fallback/recovery, and physical Vault reopen preserves the unlocked handle without
+another unlock or provider/WiFi use. G5.5a torn/power-cut behavior remains green.
 
 Gate status: latest full profile remains green at
 `shadow-20260708-150428-34396.json` 7867/7867. This slice used focused Secret Vault
-evidence; the full baseline is unchanged per aggressive-fast cadence.
+evidence; the full baseline is unchanged per aggressive-fast cadence. G5 is not closed
+until the required recovery/full checkpoint and secret scan pass.
 
 Prior Vault-foundation proof: release build plus focused structured-store report
 `shadow-20260710-150107-28328.json` passed 13/13, including opaque complete-history
@@ -86,7 +90,7 @@ Latest Core-Policy proof: `shadow-20260710-145039-13864.json` passed 5/5 for the
 owner signature, complete Limine executable measurement, and exact A/1 BOOTCTL join.
 This is software-pinned, not Secure Boot/TPM, and does not unlock the Vault.
 
-Next task: finish G5.5 tag/AAD corruption, stale-wrapper, nonce-reuse, changed-partition,
-visible corrupt-store, personal-trap and true provider/WiFi isolation evidence. Physical
-persistence and TPM auto-unlock remain unproven. Production OpenAI is wired behind real
-pinned trust, but live provider success is not yet claimed. Disk 2 stays untouched.
+Next task: freeze and close G5 with the required recovery/full checkpoint regressions
+and secret scan, then move to G6 final release/hardware acceptance. Physical persistence
+and TPM auto-unlock remain unproven. Surface association/link/`PORT_RELEASE`/RX/TX/DHCP
+and live provider success are not yet claimed. Disk 2 stays untouched.

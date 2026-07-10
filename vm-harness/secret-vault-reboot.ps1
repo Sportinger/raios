@@ -63,6 +63,140 @@ function Invoke-SecretVaultForgetBothViaUsb {
     }
 }
 
+function Invoke-SecretVaultPersonalTrapContinuityProof {
+    $log = $script:SerialLog
+    $usbBefore = Get-SerialMarkerCount -Path $log -Marker "usb input batch:"
+    $setupClosedBefore = Get-SerialMarkerCount -Path $log -Marker "SETUP CLOSED"
+    $manageBefore = Get-SerialMarkerCount -Path $log -Marker "VAULT_MANAGE_READY"
+    $trapBefore = Get-SerialMarkerCount -Path $log -Marker "PERSONAL SHELL FALLBACK trap"
+    $rr1UnlockBefore = Get-SerialMarkerCount -Path $log -Marker "VAULT_RR1_UNLOCKED"
+    $brokerUnlockBefore = Get-SerialMarkerCount -Path $log -Marker "VAULT_BROKER_UNLOCKED source=recovery slot=current"
+    $unlockReadyBefore = Get-SerialMarkerCount -Path $log -Marker "VAULT_RECOVERY_UNLOCK_READY"
+    $providerAuditBefore = Get-SerialMarkerCount -Path $log -Marker "VAULT_PROVIDER_PREUSE_AUDIT_COMMITTED"
+    $providerConsumerBefore = Get-SerialMarkerCount -Path $log -Marker "VAULT_PROVIDER_CONTAINED_CONSUMED"
+    $wifiAuditBefore = Get-SerialMarkerCount -Path $log -Marker "VAULT_WIFI_PREUSE_AUDIT_COMMITTED"
+    $wifiConsumerBefore = Get-SerialMarkerCount -Path $log -Marker "VAULT_WIFI_CONTAINED_CONSUMED"
+
+    # Close the unlock outcome, then leave Settings physically so the existing
+    # typed agent command runs only through Command mode.
+    Send-Rr1HmpKey -KeyName "ret"
+    Start-Sleep -Milliseconds 150
+    Send-Rr1HmpKey -KeyName "esc"
+    Assert-VaultFixedLogMarker `
+        -Name "secret-vault:boot2:personal_trap_command_mode" `
+        -Marker "SETUP CLOSED" `
+        -TimeoutSeconds $TimeoutSeconds
+    $usbAfterClose = Get-SerialMarkerCount -Path $log -Marker "usb input batch:"
+    $setupClosedAfter = Get-SerialMarkerCount -Path $log -Marker "SETUP CLOSED"
+    if ($setupClosedAfter -ne ($setupClosedBefore + 1)) {
+        throw "Personal trap command route did not leave Settings exactly once"
+    }
+
+    Send-AgentCommand `
+        -Command "ui.personal_shell_proof trap" `
+        -ExpectedMarker "RAIOS_AGENT_END ui.personal_shell_proof" `
+        -Name "secret-vault:boot2:personal_trap_request"
+    $trapResponse = Get-LastAgentResponseJson -Method "ui.personal_shell_proof"
+    $trap = $trapResponse.body.result
+    $trapAccepted = $trap.activation_mode -eq "trap" -and
+        $trap.activation_requested -eq $true -and
+        $trap.activation_request_reason -eq "queued_for_core_owned_shell_host"
+    Add-Predicate `
+        -Name "secret-vault:boot2:personal_trap_request_bounded" `
+        -Expected "existing signed current-boot personal-shell trap proof is queued without a new crash command" `
+        -Passed $trapAccepted `
+        -Actual $(if ($trapAccepted) { "trap=queued existing_proof=true" } else { "trap=not_queued" })
+    if (-not $trapAccepted) {
+        throw "Secret Vault continuity proof could not queue the existing personal trap"
+    }
+
+    Assert-VaultFixedLogMarker `
+        -Name "secret-vault:boot2:personal_trap_fallback" `
+        -Marker "PERSONAL SHELL FALLBACK trap" `
+        -TimeoutSeconds $TimeoutSeconds
+    $trapAfter = Get-SerialMarkerCount -Path $log -Marker "PERSONAL SHELL FALLBACK trap"
+    $newTrapFallback = $trapAfter -eq ($trapBefore + 1)
+    Add-Predicate `
+        -Name "secret-vault:boot2:personal_trap_fallback_new" `
+        -Expected "the requested existing trap produces exactly one new fallback to core Genesis" `
+        -Passed $newTrapFallback `
+        -Actual "new_fallback=$($newTrapFallback.ToString().ToLowerInvariant())"
+    if (-not $newTrapFallback) {
+        throw "Personal trap did not produce exactly one new Genesis fallback"
+    }
+
+    Send-AgentCommand `
+        -Command "agent recovery.snapshot" `
+        -ExpectedMarker "RAIOS_AGENT_END recovery.snapshot" `
+        -Name "secret-vault:boot2:recovery_after_personal_trap"
+    $recoveryResponse = Get-LastAgentResponseJson -Method "recovery.snapshot"
+    $recovery = $recoveryResponse.body.result
+    $recoveryResponsive = $recovery.schema -eq "raios.recovery_snapshot.v0" -and
+        $recovery.scope -eq "current_boot" -and
+        $recovery.classification -eq "local_only" -and
+        $recovery.lifeline_available -eq $true -and
+        $recovery.mutates_state -eq $false -and
+        $recovery.routes_through_wasm -eq $false -and
+        $recovery.routes_through_provider -eq $false -and
+        $recovery.redacted -eq $true
+    Add-Predicate `
+        -Name "secret-vault:boot2:genesis_recovery_responsive_after_personal_trap" `
+        -Expected "core Genesis fallback still serves the redacted non-mutating recovery snapshot" `
+        -Passed $recoveryResponsive `
+        -Actual $(if ($recoveryResponsive) { "genesis=true recovery=responsive" } else { "genesis_or_recovery=invalid" })
+    if (-not $recoveryResponsive) {
+        throw "Genesis recovery was not responsive after the personal trap"
+    }
+
+    # Navigate from core Genesis back to Vault physically; an already unlocked
+    # Broker must enter Manage without RR1 input.
+    Invoke-VaultVisibleAction -SkipFinalEnter
+    Assert-VaultFixedLogMarker `
+        -Name "secret-vault:boot2:manage_after_personal_trap" `
+        -Marker "VAULT_MANAGE_READY" `
+        -TimeoutSeconds $TimeoutSeconds
+    $usbAfterReopen = Get-SerialMarkerCount -Path $log -Marker "usb input batch:"
+    $manageAfter = Get-SerialMarkerCount -Path $log -Marker "VAULT_MANAGE_READY"
+    $physical = $usbAfterClose -gt $usbBefore -and $usbAfterReopen -gt $usbAfterClose
+    $newManage = $manageAfter -eq ($manageBefore + 1)
+    Add-Predicate `
+        -Name "secret-vault:boot2:personal_trap_vault_actions_physical" `
+        -Expected "physical Enter/Escape leave Settings and later physical navigation opens one new Vault Manage view" `
+        -Passed ($physical -and $newManage) `
+        -Actual "physical=$($physical.ToString().ToLowerInvariant()) new_manage=$($newManage.ToString().ToLowerInvariant())"
+    if (-not ($physical -and $newManage)) {
+        throw "Vault close/reopen around the personal trap was not exactly physical"
+    }
+
+    $unlockUnchanged = $rr1UnlockBefore -gt 0 -and $brokerUnlockBefore -gt 0 -and
+        $unlockReadyBefore -gt 0 -and
+        (Get-SerialMarkerCount -Path $log -Marker "VAULT_RR1_UNLOCKED") -eq $rr1UnlockBefore -and
+        (Get-SerialMarkerCount -Path $log -Marker "VAULT_BROKER_UNLOCKED source=recovery slot=current") -eq $brokerUnlockBefore -and
+        (Get-SerialMarkerCount -Path $log -Marker "VAULT_RECOVERY_UNLOCK_READY") -eq $unlockReadyBefore
+    Add-Predicate `
+        -Name "secret-vault:boot2:personal_trap_preserves_unlocked_vault" `
+        -Expected "personal trap and Genesis fallback preserve the unlocked core Vault handle without RR1 or another unlock" `
+        -Passed $unlockUnchanged `
+        -Actual "unlock_unchanged=$($unlockUnchanged.ToString().ToLowerInvariant())"
+    if (-not $unlockUnchanged) {
+        throw "Personal trap changed the Vault unlock count"
+    }
+
+    $secretUseUnchanged =
+        (Get-SerialMarkerCount -Path $log -Marker "VAULT_PROVIDER_PREUSE_AUDIT_COMMITTED") -eq $providerAuditBefore -and
+        (Get-SerialMarkerCount -Path $log -Marker "VAULT_PROVIDER_CONTAINED_CONSUMED") -eq $providerConsumerBefore -and
+        (Get-SerialMarkerCount -Path $log -Marker "VAULT_WIFI_PREUSE_AUDIT_COMMITTED") -eq $wifiAuditBefore -and
+        (Get-SerialMarkerCount -Path $log -Marker "VAULT_WIFI_CONTAINED_CONSUMED") -eq $wifiConsumerBefore
+    Add-Predicate `
+        -Name "secret-vault:boot2:personal_trap_triggers_no_secret_use" `
+        -Expected "personal trap, recovery read and Vault reopen add no provider/WiFi audit or consumer use" `
+        -Passed $secretUseUnchanged `
+        -Actual "secret_use_unchanged=$($secretUseUnchanged.ToString().ToLowerInvariant())"
+    if (-not $secretUseUnchanged) {
+        throw "Personal trap unexpectedly triggered a secret audit or consumer"
+    }
+}
+
 function Start-SecretVaultQemu {
     param(
         [Parameter(Mandatory = $true)][string]$LogName,
@@ -108,6 +242,193 @@ function Restart-SecretVaultQemu {
     }
     Stop-Rr1VmForLogInspection -QemuProcessId $script:QemuPid
     return Start-SecretVaultQemu -LogName $LogName
+}
+
+function Invoke-SecretVaultStoreDenialProof {
+    if ($script:QemuPid -and (Get-Process -Id $script:QemuPid -ErrorAction SilentlyContinue)) {
+        Stop-Rr1VmForLogInspection -QemuProcessId $script:QemuPid
+    }
+
+    $mutator = Join-Path $RepoRoot "scripts\make-structured-store-image.py"
+    $persistBuilder = Join-Path $RepoRoot "scripts\make-gpt-persist-image.py"
+    $persist = Join-Path $RunDir "raios-persist-store-denial.img"
+    $foreignStore = Join-Path $RunDir "raios-structured-store-c1-foreign-guid.img"
+    $corruptStore = Join-Path $RunDir "raios-structured-store-c1-corrupt-frame.img"
+    foreach ($path in @($persist, $foreignStore, $corruptStore)) {
+        if (Test-Path -LiteralPath $path) {
+            throw "secret-vault store-denial output already exists: $path"
+        }
+    }
+
+    $null = @(& python $persistBuilder --self-check --seed-bootctl valid-a $persist 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "secret-vault store-denial valid-a persist fixture build failed"
+    }
+
+    $foreignMutationOutput = @(
+        & python $mutator mutate-partition-guid $StructuredStoreDiskImage $foreignStore 2>&1
+    )
+    if ($LASTEXITCODE -ne 0) {
+        throw "secret-vault foreign-partition copy mutation failed: $($foreignMutationOutput -join ' ')"
+    }
+    $foreignMutation = ($foreignMutationOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($foreignMutation.operation -ne "change_partition_unique_guid" -or
+        $foreignMutation.source_exact_identity -ne $true -or
+        $foreignMutation.mutated_exact_identity -ne $false -or
+        $foreignMutation.gpt_crcs_recomputed -ne $true -or
+        $foreignMutation.initialized_content_preserved -ne $true) {
+        throw "secret-vault foreign-partition copy mutation evidence is invalid"
+    }
+
+    $corruptMutationOutput = @(
+        & python $mutator corrupt-last-log-frame $StructuredStoreDiskImage $corruptStore 2>&1
+    )
+    if ($LASTEXITCODE -ne 0) {
+        throw "secret-vault corrupt-frame copy mutation failed: $($corruptMutationOutput -join ' ')"
+    }
+    $corruptMutation = ($corruptMutationOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($corruptMutation.operation -ne "corrupt_last_log_frame" -or
+        $corruptMutation.exact_test_image_identity -ne $true -or
+        $corruptMutation.gpt_unchanged -ne $true -or
+        $corruptMutation.initialized_content_present -ne $true) {
+        throw "secret-vault corrupt-frame copy mutation evidence is invalid"
+    }
+
+    $logs = @()
+    $cases = @(
+        [pscustomobject]@{
+            Name = "foreign-guid"
+            Store = $foreignStore
+            LogName = "serial-secret-vault-foreign-guid-denial.log"
+            Denial = "C1_STRUCTURED_STORE_DENIED: Gpt(PartitionIdentityMismatch)"
+            FixtureAccepted = $false
+        },
+        [pscustomobject]@{
+            Name = "corrupt-frame"
+            Store = $corruptStore
+            LogName = "serial-secret-vault-corrupt-frame-denial.log"
+            Denial = "C1_STRUCTURED_STORE_DENIED: Core(StoreChainLocked)"
+            FixtureAccepted = $true
+        }
+    )
+    $forbiddenSuccess = @(
+        "C1_VAULT_COMPLETE_REPLAY_BOUND",
+        "C1_VAULT_RECOVERY_WRAPPER_",
+        "VAULT_PROVIDER_PREUSE_AUDIT_COMMITTED",
+        "VAULT_WIFI_PREUSE_AUDIT_COMMITTED",
+        "VAULT_PROVIDER_CONTAINED_CONSUMED",
+        "VAULT_WIFI_CONTAINED_CONSUMED",
+        "VAULT_BROKER_UNLOCKED",
+        "VAULT_RR1_UNLOCKED"
+    )
+
+    foreach ($case in $cases) {
+        $log = Start-SecretVaultQemu `
+            -LogName $case.LogName `
+            -StructuredStorePath $case.Store `
+            -PersistPath $persist
+        $logs += $log
+        try {
+            Assert-VaultFixedLogMarker `
+                -Name "secret-vault:store-denial:$($case.Name):serial_ready" `
+                -Marker "SERIAL CONSOLE READY" `
+                -TimeoutSeconds $TimeoutSeconds
+            Assert-VaultFixedLogMarker `
+                -Name "secret-vault:store-denial:$($case.Name):usb_keyboard_ready" `
+                -Marker "usb-hid: keyboard ready on slot" `
+                -TimeoutSeconds $TimeoutSeconds
+            Assert-VaultFixedLogMarker `
+                -Name "secret-vault:store-denial:$($case.Name):c1_denied" `
+                -Marker $case.Denial `
+                -TimeoutSeconds $TimeoutSeconds
+
+            $acceptedCount = Get-SerialMarkerCount `
+                -Path $log `
+                -Marker "C1_STRUCTURED_STORE_FIXTURE_ACCEPTED"
+            $acceptedAsExpected = if ($case.FixtureAccepted) {
+                $acceptedCount -eq 1
+            }
+            else {
+                $acceptedCount -eq 0
+            }
+            if ($case.FixtureAccepted) {
+                $acceptedOffset = Get-FileByteSequenceOffset `
+                    -Path $log `
+                    -Needle ([System.Text.Encoding]::ASCII.GetBytes("C1_STRUCTURED_STORE_FIXTURE_ACCEPTED"))
+                $denialOffset = Get-FileByteSequenceOffset `
+                    -Path $log `
+                    -Needle ([System.Text.Encoding]::ASCII.GetBytes($case.Denial))
+                $acceptedAsExpected = $acceptedAsExpected -and
+                    $acceptedOffset -ge 0 -and $denialOffset -gt $acceptedOffset
+            }
+            Add-Predicate `
+                -Name "secret-vault:store-denial:$($case.Name):fixture_boundary" `
+                -Expected $(if ($case.FixtureAccepted) { "exact fixture accepted once before corrupt log denial" } else { "foreign partition identity denied before fixture acceptance" }) `
+                -Passed $acceptedAsExpected `
+                -Actual "fixture_accepted_count=$acceptedCount ordered=$($acceptedAsExpected.ToString().ToLowerInvariant())"
+            if (-not $acceptedAsExpected) {
+                throw "secret-vault $($case.Name) crossed the wrong fixture-acceptance boundary"
+            }
+
+            $forbidden = @(
+                $forbiddenSuccess | Where-Object {
+                    (Get-SerialMarkerCount -Path $log -Marker $_) -ne 0
+                }
+            )
+            $failedClosed = $forbidden.Count -eq 0
+            Add-Predicate `
+                -Name "secret-vault:store-denial:$($case.Name):no_vault_authority" `
+                -Expected "store denial emits no complete replay, wrapper, audit, consumer, or unlock success" `
+                -Passed $failedClosed `
+                -Actual $(if ($failedClosed) { "vault_authority=false" } else { "forbidden=$($forbidden -join ',')" })
+            if (-not $failedClosed) {
+                throw "secret-vault $($case.Name) emitted Vault authority after store denial"
+            }
+
+            $usbBefore = Get-SerialMarkerCount -Path $log -Marker "usb input batch:"
+            Invoke-VaultVisibleAction
+            Assert-VaultFixedLogMarker `
+                -Name "secret-vault:store-denial:$($case.Name):visible_ram_only_denial" `
+                -Marker "VAULT_UNAVAILABLE state=ram_only_denial current_boot=true" `
+                -TimeoutSeconds $TimeoutSeconds
+            $usbAfter = Get-SerialMarkerCount -Path $log -Marker "usb input batch:"
+            $physical = $usbAfter -gt $usbBefore
+            Add-Predicate `
+                -Name "secret-vault:store-denial:$($case.Name):physical_vault_action" `
+                -Expected "physical Genesis Vault action reaches the visible RAM-only denial" `
+                -Passed $physical `
+                -Actual "physical=$($physical.ToString().ToLowerInvariant()) before=$usbBefore after=$usbAfter"
+            if (-not $physical) {
+                throw "secret-vault $($case.Name) denial action did not traverse USB HID"
+            }
+
+            $lateForbidden = @(
+                $forbiddenSuccess | Where-Object {
+                    (Get-SerialMarkerCount -Path $log -Marker $_) -ne 0
+                }
+            )
+            $stillFailedClosed = $lateForbidden.Count -eq 0
+            Add-Predicate `
+                -Name "secret-vault:store-denial:$($case.Name):physical_denial_grants_nothing" `
+                -Expected "physical visible-denial action still emits no replay, wrapper, audit, consumer, or unlock success" `
+                -Passed $stillFailedClosed `
+                -Actual $(if ($stillFailedClosed) { "vault_authority=false" } else { "forbidden=$($lateForbidden -join ',')" })
+            if (-not $stillFailedClosed) {
+                throw "secret-vault $($case.Name) physical denial emitted forbidden success: $($lateForbidden -join ',')"
+            }
+        }
+        finally {
+            if ($script:QemuPid) {
+                Stop-Rr1VmForLogInspection -QemuProcessId $script:QemuPid
+            }
+        }
+    }
+
+    return [pscustomobject]@{
+        Logs = [string[]]$logs
+        StructuredStores = [string[]]@($foreignStore, $corruptStore)
+        PersistImages = [string[]]@($persist)
+    }
 }
 
 function Invoke-SecretVaultSafeReconnectProof {

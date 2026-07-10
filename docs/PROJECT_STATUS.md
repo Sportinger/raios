@@ -24,17 +24,18 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (C5/G5.5 after G5.5a): prove tag/AAD corruption, stale-wrapper
-and nonce-reuse denial, changed-partition identity denial, a visible RAM-only corrupt-
-store denial, the personal-shell trap join, and true provider/WiFi service isolation
-while preserving the unlocked core Vault handle and containing every sentinel. G5.5a
-already proves the exact torn/power-cut path and must remain unchanged. Keep the exact
-Broker consumers and general SAFE durable-write denial unchanged; preserve the durable-
-store identity/rollback chain. Do not expose plaintext to ShellHost/Wasm, add generic
-secret access, provider auto-load, broad mutation, or physical-target support. Disk 2
-is unplugged; do not write a physical disk. The separate bare-metal WiFi proof remains
-pending: capture `LINK`, association/AID, `PORT_RELEASE`, RX/TX, and DHCP evidence
-before live provider access is claimed.
+Current exact next task (G5 block close after verified G5.5a/G5.5b): freeze the G5
+code and run the required recovery/full checkpoint evidence plus the remaining named
+G5 close regressions and secret scan. Reuse the green focused Secret Vault evidence;
+do not reopen its authority boundaries merely to grow predicate count. If G5 closes,
+advance to I4/G6 final release/hardware acceptance. Keep the exact Broker consumers,
+general SAFE durable-write denial, durable-store identity/rollback chain and prior
+G5.5a torn/power-cut behavior unchanged. Do not expose plaintext to ShellHost/Wasm,
+add generic secret access, provider auto-load, broad mutation, or physical-target
+support. Disk 2 is unplugged; do not write a physical disk. Physical persistence and
+TPM auto-unlock remain unproven. The separate bare-metal WiFi proof still requires
+positive `LINK`, association/AID, `PORT_RELEASE`, RX/TX and DHCP evidence before live
+provider access is claimed.
 
 I3 complete-history Broker foundation verified (2026-07-10) - a kernel composition
 agent can now obtain the complete ordered list of committed records from the same
@@ -168,11 +169,79 @@ Vault handle preserved. Focused report
 `release/vm-reports/shadow-20260711-001242-11280.json` passed 118/118 predicates; report
 SHA-256 is `56b6e67010b4f407765eeb3b9b9d027df21bd9f006c6d713d969de376cc11265`.
 The final report readback itself and the default release image plus recursive ESP files
-also pass the exact dynamic provider/WiFi/RR1 sentinel scan. This completes only G5.5a
-torn-commit/power-cut evidence. Tag/AAD corruption, stale wrapper, nonce reuse, changed
-partition identity, visible corrupt-store denial, the personal-shell trap join, and
-true provider/WiFi service isolation remain open. Physical persistence, TPM auto-unlock,
-live radio/link/`PORT_RELEASE`/DHCP and provider network success remain unclaimed.
+also pass the exact dynamic provider/WiFi/RR1 sentinel scan. That checkpoint completed
+only G5.5a torn-commit/power-cut evidence; its then-open corruption, identity and
+personal-trap cases are closed separately by G5.5b below. Physical persistence, TPM
+auto-unlock, live radio/link/`PORT_RELEASE`/DHCP and provider network success remain
+denied or unclaimed.
+
+G5.5b corruption and personal-trap continuity verified (2026-07-11) - disposable
+copies of the exact QEMU C1 medium now fail closed without acquiring Vault authority:
+a foreign partition GUID is rejected before fixture acceptance, while a copy whose
+last committed frame has a changed CRC is accepted only as the exact fixture and then
+locked as `Core(StoreChainLocked)`. A physical Genesis Vault action exposes the honest
+RAM-only denial in both cases. Independent copied wrapper/envelope mutations reject
+stale policy, stale context, a corrupt wrapper, tag, AAD, consumer/operation/target
+bindings and nonce reuse. After recovery unlock, physical Enter/Escape leaves the
+core-owned Vault, the existing bounded typed `ui.personal_shell_proof trap` request
+produces exactly one real fallback, the redacted recovery lifeline still responds, and
+physical navigation reopens Vault Manage without another RR1/Broker unlock or any
+extra provider/WiFi audit or consumer use. The prior G5.5a exact torn/power-cut proof
+remains green and is exercised by the same focused profile.
+
+Authoritative focused report
+`release/vm-reports/shadow-20260711-010926-21860.json` passed 152/152 predicates with
+report SHA-256 `c88d6296c1a6572ef5bdf84e39abf2382ad64a01a339607a86b07904c2319a8c`,
+temporary base-image SHA-256
+`535fe9aa8688ba247266c552c765519991ca6708cc0c8662d74bb1d6f8523c42`, and combined
+serial-log SHA-256
+`4192094ff7b9a19a0c6ba415a77eec86b13562694cd1a6417f2e73b8696a7934`.
+This is focused disposable-QEMU evidence, not the G5 block-close checkpoint: recovery
+and full still must pass before G5 is closed. Physical durable-secret storage, TPM
+auto-unlock, live Surface association/link/`PORT_RELEASE`/RX/TX/DHCP, and live provider
+network success remain denied or unclaimed.
+
+VM failure classification (2026-07-11, first G5.5b corruption profile) - report
+`release/vm-reports/shadow-20260711-004301-20812.json` passed 15 predicates and failed
+`secret-vault:boot1:rr1_confirmed` with `serial_transport_failure:null`. Verdict:
+`guest-behavior` - physical xHCI input delivered only 75 of the 80 decoded RR1 bytes
+(`VAULT_RR1_INPUT_REJECTED reason=input_shape length=75`) before any new G5.5b
+store-denial, crypto-mutation or personal-trap path executed. This is a suspected
+intermittent guest USB-HID loss, not host transport; retry is allowed only after a
+bounded input-delivery repair or stronger acknowledgement.
+
+VM failure classification (2026-07-11, second G5.5b corruption profile) - report
+`release/vm-reports/shadow-20260711-005003-15928.json` passed all 15 recorded
+predicates and then stopped before adding a failing predicate with
+`serial_transport_failure:null`. Verdict: `host-transport/harness` - the new
+secure-HID acknowledgement observed all 80 RR1 characters, but incorrectly required
+both press and release after the terminal Enter even though the accepted press closes
+the secure overlay. It timed out with `expected_events=2 observed_events=1`; no G5.5b
+store-denial, crypto-mutation or personal-trap behavior ran. The bounded repair keeps
+full transition acknowledgement for secret characters and requires only the terminal
+Enter press before the existing typed outcome marker.
+
+VM failure classification (2026-07-11, third G5.5b corruption profile) - report
+`release/vm-reports/shadow-20260711-005330-25796.json` passed 39 predicates and failed
+`secret-vault:store-denial:corrupt-frame:c1_denied` with
+`serial_transport_failure:null`. Verdict: `host-transport/harness` - the copy-only
+host tool changed the last frame's CRC byte as intended, but the harness expected the
+internal parser reason `Port(Core(FrameCrcMismatch))`. Production replay deliberately
+converts any corrupt frame into a locked, record-cleared chain, so the real guest
+correctly emitted `C1_STRUCTURED_STORE_DENIED: Core(StoreChainLocked)` after accepting
+the exact fixture. The bounded repair changes only that expected fail-closed marker;
+the CRC mutation, GPT identity and authority-denial assertions remain unchanged.
+
+VM failure classification (2026-07-11, fourth G5.5b corruption profile) - report
+`release/vm-reports/shadow-20260711-005958-11396.json` passed 111 predicates and failed
+`secret-vault:boot2:personal_trap_request` with `serial_transport_failure:null`.
+Verdict: `guest-behavior` - RR1, both corrupt-store cases, SAFE, power-cut replay and
+all new wrapper/crypto denials completed, but the helper sent the typed personal-trap
+command while Genesis intentionally remained in Settings/Setup mode. The guest
+returned one Bell per rejected command byte and never dispatched an agent request.
+The bounded repair physically leaves Settings with Escape, proves `SETUP CLOSED`,
+uses the existing serial command only in Command mode, then physically navigates back
+to Vault after fallback. No serial Vault action or secret access is added.
 
 VM failure classification (2026-07-11, first G5.5 power-cut profile) - report
 `release/vm-reports/shadow-20260710-235921-23132.json` has no guest predicate because

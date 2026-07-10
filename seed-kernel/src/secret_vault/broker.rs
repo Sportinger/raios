@@ -172,6 +172,48 @@ pub(crate) enum VaultBrokerDenied {
     AuditlessUseUnexpectedlyAuthorized,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ContainedQemuCryptoProof;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ContainedQemuCryptoProofStep {
+    WifiTag,
+    WifiAad,
+    WifiKind,
+    WifiConsumer,
+    WifiOperation,
+    WifiTarget,
+    WifiDuplicateNonce,
+    ProviderTag,
+    ProviderAad,
+    ProviderKind,
+    ProviderConsumer,
+    ProviderOperation,
+    ProviderTarget,
+    ProviderDuplicateNonce,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ContainedQemuCryptoProofDenied {
+    Locked,
+    CompleteReplayRequired,
+    WifiMissing,
+    ProviderMissing,
+    KeyEpochMismatch,
+    EnvelopeAuthenticationFailed {
+        kind: SecretKind,
+        actual: SecretVaultError,
+    },
+    RetainedNonceAllocation,
+    RetainedNonceMissing(SecretKind),
+    RecordVersionExhausted(SecretKind),
+    UnexpectedCryptoResult {
+        step: ContainedQemuCryptoProofStep,
+        expected: SecretVaultError,
+        actual: Option<SecretVaultError>,
+    },
+}
+
 /// A typed ciphertext handoff for the structured-store transaction layer.  It
 /// contains no media operation and becomes active only after replay verifies
 /// the resulting committed record.
@@ -405,6 +447,62 @@ impl VaultBroker {
             wifi: self.wifi.status(),
             provider: self.provider.status(),
         }
+    }
+
+    /// Exercises fixed fail-closed mutations against both real replayed
+    /// envelopes. The helper returns no plaintext and accepts no fault selector.
+    pub(crate) fn prove_exact_contained_qemu_crypto_fail_closed(
+        &self,
+    ) -> Result<ContainedQemuCryptoProof, ContainedQemuCryptoProofDenied> {
+        let vmk = self
+            .vmk
+            .as_ref()
+            .ok_or(ContainedQemuCryptoProofDenied::Locked)?;
+        let retained = self
+            .retained_nonces
+            .as_ref()
+            .ok_or(ContainedQemuCryptoProofDenied::CompleteReplayRequired)?;
+        let wifi = self
+            .wifi
+            .present()
+            .map_err(|_| ContainedQemuCryptoProofDenied::WifiMissing)?;
+        let provider = self
+            .provider
+            .present()
+            .map_err(|_| ContainedQemuCryptoProofDenied::ProviderMissing)?;
+        if self.unlocked_key_epoch != Some(wifi.binding.key_epoch)
+            || self.unlocked_key_epoch != Some(provider.binding.key_epoch)
+        {
+            return Err(ContainedQemuCryptoProofDenied::KeyEpochMismatch);
+        }
+
+        prove_replayed_envelope_fail_closed(
+            vmk,
+            retained,
+            wifi,
+            provider.binding.target,
+            ContainedQemuCryptoProofStep::WifiTag,
+            ContainedQemuCryptoProofStep::WifiAad,
+            ContainedQemuCryptoProofStep::WifiKind,
+            ContainedQemuCryptoProofStep::WifiConsumer,
+            ContainedQemuCryptoProofStep::WifiOperation,
+            ContainedQemuCryptoProofStep::WifiTarget,
+            ContainedQemuCryptoProofStep::WifiDuplicateNonce,
+        )?;
+        prove_replayed_envelope_fail_closed(
+            vmk,
+            retained,
+            provider,
+            wifi.binding.target,
+            ContainedQemuCryptoProofStep::ProviderTag,
+            ContainedQemuCryptoProofStep::ProviderAad,
+            ContainedQemuCryptoProofStep::ProviderKind,
+            ContainedQemuCryptoProofStep::ProviderConsumer,
+            ContainedQemuCryptoProofStep::ProviderOperation,
+            ContainedQemuCryptoProofStep::ProviderTarget,
+            ContainedQemuCryptoProofStep::ProviderDuplicateNonce,
+        )?;
+        Ok(ContainedQemuCryptoProof)
     }
 
     /// Binds this broker to an already mounted, identity-checked structured
@@ -864,6 +962,188 @@ impl VaultBroker {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn prove_replayed_envelope_fail_closed(
+    vmk: &VaultMasterKey,
+    retained_metadata: &RetainedNonceMetadata,
+    envelope: &SecretEnvelopeV1,
+    mismatched_target: SecretTargetBinding,
+    tag_step: ContainedQemuCryptoProofStep,
+    aad_step: ContainedQemuCryptoProofStep,
+    kind_step: ContainedQemuCryptoProofStep,
+    consumer_step: ContainedQemuCryptoProofStep,
+    operation_step: ContainedQemuCryptoProofStep,
+    target_step: ContainedQemuCryptoProofStep,
+    nonce_step: ContainedQemuCryptoProofStep,
+) -> Result<(), ContainedQemuCryptoProofDenied> {
+    let baseline = decrypt_secret(
+        vmk,
+        envelope,
+        &envelope.binding,
+        envelope.binding.record_version,
+    )
+    .map_err(
+        |actual| ContainedQemuCryptoProofDenied::EnvelopeAuthenticationFailed {
+            kind: envelope.binding.kind,
+            actual,
+        },
+    )?;
+    drop(baseline);
+
+    let mut corrupt_tag = duplicate_envelope(envelope);
+    corrupt_tag.tag[0] ^= 1;
+    require_crypto_denial(
+        decrypt_secret(
+            vmk,
+            &corrupt_tag,
+            &envelope.binding,
+            envelope.binding.record_version,
+        ),
+        SecretVaultError::AuthenticationFailed,
+        tag_step,
+    )?;
+
+    let mut corrupt_aad = duplicate_envelope(envelope);
+    corrupt_aad.aad_hash[0] ^= 1;
+    require_crypto_denial(
+        decrypt_secret(
+            vmk,
+            &corrupt_aad,
+            &envelope.binding,
+            envelope.binding.record_version,
+        ),
+        SecretVaultError::AadHashMismatch,
+        aad_step,
+    )?;
+
+    let mut expected = envelope.binding;
+    expected.kind = other_kind(expected.kind);
+    require_crypto_denial(
+        decrypt_secret(vmk, envelope, &expected, envelope.binding.record_version),
+        SecretVaultError::SecretKindMismatch,
+        kind_step,
+    )?;
+
+    expected = envelope.binding;
+    expected.consumer = other_consumer(expected.consumer);
+    require_crypto_denial(
+        decrypt_secret(vmk, envelope, &expected, envelope.binding.record_version),
+        SecretVaultError::ConsumerMismatch,
+        consumer_step,
+    )?;
+
+    expected = envelope.binding;
+    expected.operation = other_operation(expected.operation);
+    require_crypto_denial(
+        decrypt_secret(vmk, envelope, &expected, envelope.binding.record_version),
+        SecretVaultError::OperationMismatch,
+        operation_step,
+    )?;
+
+    expected = envelope.binding;
+    expected.target = mismatched_target;
+    require_crypto_denial(
+        decrypt_secret(vmk, envelope, &expected, envelope.binding.record_version),
+        SecretVaultError::TargetMismatch,
+        target_step,
+    )?;
+
+    let mut binding = envelope.binding;
+    binding.record_version = binding.record_version.checked_add(1).ok_or(
+        ContainedQemuCryptoProofDenied::RecordVersionExhausted(binding.kind),
+    )?;
+    let mut proof_plaintext = *b"raios-contained-qemu";
+    let proof_plaintext =
+        SecretPlaintext::take_from(binding.kind, &mut proof_plaintext).map_err(|actual| {
+            ContainedQemuCryptoProofDenied::UnexpectedCryptoResult {
+                step: nonce_step,
+                expected: SecretVaultError::DuplicateNonce,
+                actual: Some(actual),
+            }
+        })?;
+    let mut retained = retained_nonces(retained_metadata, envelope.binding.key_epoch)
+        .map_err(|_| ContainedQemuCryptoProofDenied::RetainedNonceAllocation)?;
+    if !retained.contains(&envelope.nonce) {
+        for nonce in &mut retained {
+            nonce.fill(0);
+        }
+        return Err(ContainedQemuCryptoProofDenied::RetainedNonceMissing(
+            envelope.binding.kind,
+        ));
+    }
+    let result = encrypt_secret(
+        vmk,
+        proof_plaintext,
+        binding,
+        Some(envelope.binding.record_version),
+        FreshRecordNonce {
+            nonce: envelope.nonce,
+            retained_epoch_nonces: &retained,
+            retained_set_complete: true,
+        },
+    );
+    for nonce in &mut retained {
+        nonce.fill(0);
+    }
+    require_crypto_denial(result, SecretVaultError::DuplicateNonce, nonce_step)
+}
+
+fn require_crypto_denial<T>(
+    result: Result<T, SecretVaultError>,
+    expected: SecretVaultError,
+    step: ContainedQemuCryptoProofStep,
+) -> Result<(), ContainedQemuCryptoProofDenied> {
+    match result {
+        Err(actual) if actual == expected => Ok(()),
+        Err(actual) => Err(ContainedQemuCryptoProofDenied::UnexpectedCryptoResult {
+            step,
+            expected,
+            actual: Some(actual),
+        }),
+        Ok(value) => {
+            drop(value);
+            Err(ContainedQemuCryptoProofDenied::UnexpectedCryptoResult {
+                step,
+                expected,
+                actual: None,
+            })
+        }
+    }
+}
+
+fn duplicate_envelope(envelope: &SecretEnvelopeV1) -> SecretEnvelopeV1 {
+    SecretEnvelopeV1 {
+        version: envelope.version,
+        binding: envelope.binding,
+        plaintext_len: envelope.plaintext_len,
+        aad_hash: envelope.aad_hash,
+        nonce: envelope.nonce,
+        ciphertext: envelope.ciphertext,
+        tag: envelope.tag,
+    }
+}
+
+const fn other_kind(kind: SecretKind) -> SecretKind {
+    match kind {
+        SecretKind::WifiPassphrase => SecretKind::ProviderApiKey,
+        SecretKind::ProviderApiKey => SecretKind::WifiPassphrase,
+    }
+}
+
+const fn other_consumer(consumer: SecretConsumer) -> SecretConsumer {
+    match consumer {
+        SecretConsumer::NativeWifiSupplicant => SecretConsumer::OpenAiDirect,
+        SecretConsumer::OpenAiDirect => SecretConsumer::NativeWifiSupplicant,
+    }
+}
+
+const fn other_operation(operation: SecretOperation) -> SecretOperation {
+    match operation {
+        SecretOperation::AssociateBoundBss => SecretOperation::RequestExactHost,
+        SecretOperation::RequestExactHost => SecretOperation::AssociateBoundBss,
+    }
+}
+
 fn validate_identity(identity: StoreIdentity) -> Result<(), VaultBrokerDenied> {
     if identity.store_uuid == [0; 16] || identity.generation == 0 {
         return Err(VaultBrokerDenied::StoreIdentityInvalid);
@@ -1152,6 +1432,98 @@ mod tests {
                 SecretVaultError::PlaintextKindMismatch
             ))
         ));
+    }
+
+    #[test]
+    fn contained_qemu_crypto_proof_uses_replayed_envelopes_and_retained_nonces() {
+        let master = VaultMasterKey::take_from(&mut [0x73; 32]);
+        let wifi_binding = SecretBinding {
+            store_uuid: IDENTITY.store_uuid,
+            key_epoch: 7,
+            secret_id: VaultRecordId::WifiPassphrase.key().record_id,
+            record_version: 1,
+            kind: SecretKind::WifiPassphrase,
+            consumer: SecretConsumer::NativeWifiSupplicant,
+            operation: SecretOperation::AssociateBoundBss,
+            target: SecretTargetBinding::for_wifi_wpa2_psk_ccmp(b"proof-wifi", [2, 1, 2, 3, 4, 5])
+                .unwrap(),
+            previous_record_hash: None,
+        };
+        let provider_binding = SecretBinding {
+            store_uuid: IDENTITY.store_uuid,
+            key_epoch: 7,
+            secret_id: VaultRecordId::ProviderApiKey.key().record_id,
+            record_version: 1,
+            kind: SecretKind::ProviderApiKey,
+            consumer: SecretConsumer::OpenAiDirect,
+            operation: SecretOperation::RequestExactHost,
+            target: SecretTargetBinding::for_openai_host(OPENAI_API_HOST).unwrap(),
+            previous_record_hash: None,
+        };
+        let mut wifi_plaintext = *b"proof-passphrase";
+        let wifi = encrypt_secret(
+            &master,
+            SecretPlaintext::take_from(SecretKind::WifiPassphrase, &mut wifi_plaintext).unwrap(),
+            wifi_binding,
+            None,
+            FreshRecordNonce {
+                nonce: [0x31; 12],
+                retained_epoch_nonces: &[],
+                retained_set_complete: true,
+            },
+        )
+        .unwrap();
+        let mut provider_plaintext = *b"proof-provider-key";
+        let provider = encrypt_secret(
+            &master,
+            SecretPlaintext::take_from(SecretKind::ProviderApiKey, &mut provider_plaintext)
+                .unwrap(),
+            provider_binding,
+            None,
+            FreshRecordNonce {
+                nonce: [0x32; 12],
+                retained_epoch_nonces: &[[0x31; 12]],
+                retained_set_complete: true,
+            },
+        )
+        .unwrap();
+        let wifi_payload = encode_secret_envelope(VaultRecordId::WifiPassphrase, &wifi)
+            .unwrap()
+            .to_vec();
+        let provider_payload = encode_secret_envelope(VaultRecordId::ProviderApiKey, &provider)
+            .unwrap()
+            .to_vec();
+        let records = [
+            CommittedRecord {
+                key: VaultRecordId::WifiPassphrase.key(),
+                transaction_id: 9,
+                record_version: 1,
+                commit_frame_sha256: [0x71; 32],
+                payload_sha256: sha256_bytes(&wifi_payload),
+                value: RecordValue::Present(wifi_payload),
+            },
+            CommittedRecord {
+                key: VaultRecordId::ProviderApiKey.key(),
+                transaction_id: 10,
+                record_version: 1,
+                commit_frame_sha256: [0x72; 32],
+                payload_sha256: sha256_bytes(&provider_payload),
+                value: RecordValue::Present(provider_payload),
+            },
+        ];
+        let mut broker = VaultBroker::new();
+        broker
+            .load_complete_replay(
+                VaultCompleteReplay::from_complete_history(IDENTITY, &records).unwrap(),
+            )
+            .unwrap();
+        broker.vmk = Some(master);
+        broker.unlocked_key_epoch = Some(7);
+
+        assert_eq!(
+            broker.prove_exact_contained_qemu_crypto_fail_closed(),
+            Ok(ContainedQemuCryptoProof)
+        );
     }
 
     fn wifi_use_receipt(ssid: &[u8], bssid: [u8; 6]) -> DurableWifiUseReceipt {

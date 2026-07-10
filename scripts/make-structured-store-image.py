@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import binascii
+import hashlib
 import json
 import os
 import stat
@@ -36,6 +37,18 @@ PARTITION_TYPE_GUID = uuid.UUID("5eedda7a-c0de-4a55-9a15-000000000013")
 PARTITION_LABEL = "RAIOS_STRUCTURED_STORE"
 TEST_DISK_GUID = uuid.UUID("5eedda7a-c0de-4a55-9a15-000000001300")
 TEST_PARTITION_GUID = uuid.UUID("5eedda7a-c0de-4a55-9a15-000000001301")
+MUTATED_PARTITION_GUID = uuid.UUID("5eedda7a-c0de-4a55-9a15-ffffffff1301")
+
+STORE_BLOCK_LEN = 512
+STORE_SUPERBLOCK_MAGIC = b"RAIOSSB1"
+STORE_FRAME_MAGIC = b"RAIOSFR1"
+STORE_SUPERBLOCK_HASH_OFFSET = 88
+STORE_SUPERBLOCK_HASH_END = 120
+STORE_FRAME_HEADER_LEN = 208
+STORE_FRAME_HEADER_HASH_OFFSET = 168
+STORE_FRAME_HEADER_HASH_END = 200
+STORE_FRAME_CRC32_OFFSET = 200
+STORE_UUID = b"c1-test-store-v1"
 
 
 def crc32(data: bytes | bytearray) -> int:
@@ -480,6 +493,178 @@ def resign_entry_arrays(path: Path, mutation) -> None:
         os.fsync(handle.fileno())
 
 
+def verify_store_superblock(block: bytes, copy_index: int, partition: dict[str, object]) -> None:
+    partition_lba_count = partition["last_lba"] - partition["first_lba"] + 1
+    if (
+        block[:8] != STORE_SUPERBLOCK_MAGIC
+        or struct.unpack_from("<H", block, 8)[0] != 1
+        or struct.unpack_from("<H", block, 10)[0] != STORE_SUPERBLOCK_HASH_END
+        or block[12] != copy_index
+        or block[13] != copy_index
+        or any(block[14:16])
+        or struct.unpack_from("<I", block, 16)[0] != STORE_BLOCK_LEN
+        or any(block[20:24])
+        or block[24:40] != STORE_UUID
+        or struct.unpack_from("<Q", block, 40)[0] != 1
+        or struct.unpack_from("<Q", block, 56)[0] != partition["first_lba"]
+        or struct.unpack_from("<Q", block, 64)[0] != partition_lba_count
+        or struct.unpack_from("<Q", block, 72)[0] != 2
+        or struct.unpack_from("<Q", block, 80)[0] != partition_lba_count - 2
+        or any(block[STORE_SUPERBLOCK_HASH_END:])
+    ):
+        raise ValueError("structured-store superblock identity mismatch")
+    canonical = bytearray(block)
+    canonical[STORE_SUPERBLOCK_HASH_OFFSET:STORE_SUPERBLOCK_HASH_END] = b"\0" * 32
+    if hashlib.sha256(canonical).digest() != block[STORE_SUPERBLOCK_HASH_OFFSET:STORE_SUPERBLOCK_HASH_END]:
+        raise ValueError("structured-store superblock hash mismatch")
+
+
+def inspect_initialized_store(path: Path, inspection: dict[str, object]) -> dict[str, int]:
+    if inspection["store_state"] != "initialized_or_nonempty":
+        raise ValueError("mutation requires an initialized, nonempty structured-store image")
+    partition = inspection["partition"]
+    partition_offset = partition["first_lba"] * SECTOR_SIZE
+    partition_blocks = partition["last_lba"] - partition["first_lba"] + 1
+    previous_hash = bytes(32)
+    expected_sequence = 1
+    last_frame_offset = None
+    zero_tail_started = False
+
+    with path.open("rb") as handle:
+        for copy_index in range(2):
+            verify_store_superblock(
+                read_exact(handle, partition_offset + copy_index * STORE_BLOCK_LEN, STORE_BLOCK_LEN),
+                copy_index,
+                partition,
+            )
+        for relative_lba in range(2, partition_blocks):
+            offset = partition_offset + relative_lba * STORE_BLOCK_LEN
+            frame = read_exact(handle, offset, STORE_BLOCK_LEN)
+            if not any(frame):
+                zero_tail_started = True
+                continue
+            if zero_tail_started:
+                raise ValueError("structured-store log contains data after its zero tail")
+            payload_len = struct.unpack_from("<I", frame, 20)[0]
+            if (
+                frame[:8] != STORE_FRAME_MAGIC
+                or struct.unpack_from("<H", frame, 8)[0] != 1
+                or frame[10] not in {1, 2, 3, 4}
+                or frame[11] != 0
+                or struct.unpack_from("<H", frame, 12)[0] != STORE_FRAME_HEADER_LEN
+                or struct.unpack_from("<H", frame, 14)[0] != 0
+                or struct.unpack_from("<I", frame, 16)[0] != STORE_BLOCK_LEN
+                or payload_len > STORE_BLOCK_LEN - STORE_FRAME_HEADER_LEN
+                or struct.unpack_from("<Q", frame, 24)[0] != expected_sequence
+                or struct.unpack_from("<Q", frame, 48)[0] != 1
+                or frame[56:72] != STORE_UUID
+                or frame[104:136] != previous_hash
+                or any(frame[STORE_FRAME_HEADER_LEN + payload_len :])
+                or struct.unpack_from("<I", frame, 204)[0] != 0
+            ):
+                raise ValueError("structured-store log frame identity mismatch")
+            payload = frame[STORE_FRAME_HEADER_LEN : STORE_FRAME_HEADER_LEN + payload_len]
+            if hashlib.sha256(payload).digest() != frame[136:168]:
+                raise ValueError("structured-store log frame payload hash mismatch")
+            header = bytearray(frame[:STORE_FRAME_HEADER_LEN])
+            header[STORE_FRAME_HEADER_HASH_OFFSET:STORE_FRAME_HEADER_HASH_END] = b"\0" * 32
+            header[STORE_FRAME_CRC32_OFFSET:STORE_FRAME_CRC32_OFFSET + 4] = b"\0" * 4
+            if hashlib.sha256(header).digest() != frame[STORE_FRAME_HEADER_HASH_OFFSET:STORE_FRAME_HEADER_HASH_END]:
+                raise ValueError("structured-store log frame header hash mismatch")
+            checked = bytearray(frame)
+            checked[STORE_FRAME_CRC32_OFFSET:STORE_FRAME_CRC32_OFFSET + 4] = b"\0" * 4
+            if crc32(checked) != struct.unpack_from("<I", frame, STORE_FRAME_CRC32_OFFSET)[0]:
+                raise ValueError("structured-store log frame CRC mismatch")
+            previous_hash = hashlib.sha256(frame).digest()
+            expected_sequence += 1
+            last_frame_offset = offset
+
+    if last_frame_offset is None:
+        raise ValueError("mutation requires initialized structured-store log content")
+    return {
+        "partition_offset": partition_offset,
+        "last_frame_offset": last_frame_offset,
+    }
+
+
+def copy_initialized_test_image(source: Path, output: Path) -> tuple[Path, Path, dict[str, object], dict[str, int]]:
+    source = validate_image_path(source, output=False)
+    if "structured-store" not in source.name.lower():
+        raise ValueError("source filename must contain 'structured-store'")
+    inspection = verify_image(source, require_empty=False)
+    store = inspect_initialized_store(source, inspection)
+    output = validate_image_path(output, output=True)
+    if source == output:
+        raise ValueError("mutation output must be a new copy, not the source image")
+    if output.exists():
+        raise ValueError("mutation output already exists; refusing to replace it")
+    created = False
+    try:
+        with source.open("rb") as reader, output.open("xb") as writer:
+            created = True
+            while chunk := reader.read(READ_CHUNK_SIZE):
+                writer.write(chunk)
+            writer.flush()
+            os.fsync(writer.fileno())
+        verify_image(output, require_empty=False)
+    except Exception:
+        if created and output.exists():
+            output.unlink()
+        raise
+    return source, output, inspection, store
+
+
+def mutate_partition_guid(source: Path, output: Path) -> dict[str, object]:
+    _, output, _, _ = copy_initialized_test_image(source, output)
+    geo = geometry(output.stat().st_size)
+    try:
+        resign_entry_arrays(
+            output,
+            lambda entries, _geo: entries.__setitem__(
+                slice(16, 32), MUTATED_PARTITION_GUID.bytes_le
+            ),
+        )
+        expect_rejected(output, "unique_guid identity")
+    except Exception:
+        output.unlink(missing_ok=True)
+        raise
+    return {
+        "operation": "change_partition_unique_guid",
+        "primary_entry_byte_offset": PRIMARY_ENTRIES_LBA * SECTOR_SIZE + 16,
+        "backup_entry_byte_offset": geo["backup_entries_lba"] * SECTOR_SIZE + 16,
+        "source_exact_identity": True,
+        "mutated_exact_identity": False,
+        "gpt_crcs_recomputed": True,
+        "initialized_content_preserved": True,
+    }
+
+
+def corrupt_last_log_frame(source: Path, output: Path) -> dict[str, object]:
+    _, output, _, store = copy_initialized_test_image(source, output)
+    mutation_offset = store["last_frame_offset"] + STORE_FRAME_CRC32_OFFSET
+    try:
+        with output.open("r+b") as handle:
+            original = read_exact(handle, mutation_offset, 1)
+            handle.seek(mutation_offset)
+            handle.write(bytes([original[0] ^ 1]))
+            handle.flush()
+            os.fsync(handle.fileno())
+        identity = verify_image(output, require_empty=False)
+        if identity["store_state"] != "initialized_or_nonempty":
+            raise ValueError("corrupted copy lost initialized structured-store content")
+    except Exception:
+        output.unlink(missing_ok=True)
+        raise
+    return {
+        "operation": "corrupt_last_log_frame",
+        "frame_byte_offset": store["last_frame_offset"],
+        "mutated_byte_offset": mutation_offset,
+        "exact_test_image_identity": True,
+        "gpt_unchanged": True,
+        "initialized_content_present": True,
+    }
+
+
 def expect_rejected(path: Path, expected: str) -> None:
     try:
         verify_image(path)
@@ -488,6 +673,64 @@ def expect_rejected(path: Path, expected: str) -> None:
             raise ValueError(f"self-test expected {expected!r}, got: {exc}") from exc
         return
     raise ValueError(f"self-test mutation was accepted: {expected}")
+
+
+def write_selftest_initialized_store(path: Path) -> None:
+    inspection = verify_image(path)
+    partition = inspection["partition"]
+    partition_lba_count = partition["last_lba"] - partition["first_lba"] + 1
+    partition_offset = partition["first_lba"] * SECTOR_SIZE
+
+    def superblock(copy_index: int, selection_epoch: int) -> bytes:
+        block = bytearray(STORE_BLOCK_LEN)
+        block[:8] = STORE_SUPERBLOCK_MAGIC
+        struct.pack_into("<HH", block, 8, 1, STORE_SUPERBLOCK_HASH_END)
+        block[12] = copy_index
+        block[13] = copy_index
+        struct.pack_into("<I", block, 16, STORE_BLOCK_LEN)
+        block[24:40] = STORE_UUID
+        struct.pack_into(
+            "<QQQQQQ",
+            block,
+            40,
+            1,
+            selection_epoch,
+            partition["first_lba"],
+            partition_lba_count,
+            2,
+            partition_lba_count - 2,
+        )
+        block[STORE_SUPERBLOCK_HASH_OFFSET:STORE_SUPERBLOCK_HASH_END] = hashlib.sha256(block).digest()
+        return bytes(block)
+
+    payload = b"nonsecret-selftest"
+    frame = bytearray(STORE_BLOCK_LEN)
+    frame[:8] = STORE_FRAME_MAGIC
+    struct.pack_into("<HBBHHIIQQQ", frame, 8, 1, 1, 0, STORE_FRAME_HEADER_LEN, 0, STORE_BLOCK_LEN, len(payload), 1, 1, 1)
+    struct.pack_into("<Q", frame, 48, 1)
+    frame[56:72] = STORE_UUID
+    frame[72:88] = b"selftest-spacev1"
+    frame[88:104] = b"selftest-record!"
+    frame[136:168] = hashlib.sha256(payload).digest()
+    frame[STORE_FRAME_HEADER_LEN:STORE_FRAME_HEADER_LEN + len(payload)] = payload
+    header = bytearray(frame[:STORE_FRAME_HEADER_LEN])
+    header[STORE_FRAME_HEADER_HASH_OFFSET:STORE_FRAME_HEADER_HASH_END] = b"\0" * 32
+    header[STORE_FRAME_CRC32_OFFSET:STORE_FRAME_CRC32_OFFSET + 4] = b"\0" * 4
+    frame[STORE_FRAME_HEADER_HASH_OFFSET:STORE_FRAME_HEADER_HASH_END] = hashlib.sha256(header).digest()
+    checked = bytearray(frame)
+    checked[STORE_FRAME_CRC32_OFFSET:STORE_FRAME_CRC32_OFFSET + 4] = b"\0" * 4
+    struct.pack_into("<I", frame, STORE_FRAME_CRC32_OFFSET, crc32(checked))
+
+    with path.open("r+b") as handle:
+        for offset, data in (
+            (partition_offset, superblock(0, 1)),
+            (partition_offset + STORE_BLOCK_LEN, superblock(1, 2)),
+            (partition_offset + 2 * STORE_BLOCK_LEN, frame),
+        ):
+            handle.seek(offset)
+            handle.write(data)
+        handle.flush()
+        os.fsync(handle.fileno())
 
 
 def run_self_test() -> dict[str, object]:
@@ -538,6 +781,38 @@ def run_self_test() -> dict[str, object]:
             raise ValueError("self-test failed to report initialized partition content")
         create_image(image, size_mib=MIN_SIZE_MIB, replace=True)
 
+        refused_output = Path(directory) / "structured-store-empty-refused.img"
+        try:
+            corrupt_last_log_frame(image, refused_output)
+        except ValueError as exc:
+            if "initialized, nonempty" not in str(exc):
+                raise
+        else:
+            raise ValueError("empty structured-store mutation source was accepted")
+
+        write_selftest_initialized_store(image)
+        initialized = verify_image(image, require_empty=False)
+        inspect_initialized_store(image, initialized)
+
+        guid_output = Path(directory) / "structured-store-guid-mutated.img"
+        guid_result = mutate_partition_guid(image, guid_output)
+        if guid_result["mutated_exact_identity"] is not False:
+            raise ValueError("partition-GUID mutation did not reject exact identity")
+
+        frame_output = Path(directory) / "structured-store-frame-corrupt.img"
+        frame_result = corrupt_last_log_frame(image, frame_output)
+        if frame_result["exact_test_image_identity"] is not True:
+            raise ValueError("frame corruption changed the exact GPT identity")
+        try:
+            inspect_initialized_store(
+                frame_output, verify_image(frame_output, require_empty=False)
+            )
+        except ValueError as exc:
+            if "frame CRC mismatch" not in str(exc):
+                raise
+        else:
+            raise ValueError("corrupted structured-store frame passed integrity inspection")
+
     return {
         "self_test": "passed",
         "checks": [
@@ -549,12 +824,15 @@ def run_self_test() -> dict[str, object]:
             "nonempty_store_rejection",
             "initialized_store_inspection",
             "explicit_test_image_replacement",
+            "empty_mutation_source_rejection",
+            "partition_guid_copy_mutation",
+            "last_log_frame_copy_corruption",
         ],
     }
 
 
 def print_result(result: dict[str, object], *, as_json: bool) -> None:
-    if as_json:
+    if as_json or result.get("operation"):
         print(json.dumps(result, indent=2, sort_keys=True))
         return
     if result.get("self_test"):
@@ -602,6 +880,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     self_test = subparsers.add_parser("selftest", help="run disposable positive/negative checks")
     self_test.add_argument("--json", action="store_true")
+
+    for command, help_text in (
+        (
+            "mutate-partition-guid",
+            "copy an initialized exact test image and change both partition unique GUIDs",
+        ),
+        (
+            "corrupt-last-log-frame",
+            "copy an initialized exact test image and corrupt its last log-frame CRC byte",
+        ),
+    ):
+        mutation = subparsers.add_parser(command, help=help_text)
+        mutation.add_argument("source", type=Path)
+        mutation.add_argument("output", type=Path)
     return parser
 
 
@@ -615,9 +907,13 @@ def main() -> int:
             )
         elif args.command in {"inspect", "verify"}:
             result = verify_image(args.image, require_empty=args.command == "verify")
+        elif args.command == "mutate-partition-guid":
+            result = mutate_partition_guid(args.source, args.output)
+        elif args.command == "corrupt-last-log-frame":
+            result = corrupt_last_log_frame(args.source, args.output)
         else:
             result = run_self_test()
-        print_result(result, as_json=args.json)
+        print_result(result, as_json=getattr(args, "json", False))
         return 0
     except (OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)

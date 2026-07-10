@@ -46,6 +46,29 @@ pub(crate) enum KeyringDenied {
     RecoveryWrapper(SecretVaultError),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ContainedQemuRr1Proof;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ContainedQemuRr1ProofStep {
+    BaselineUnseal,
+    StalePolicySelection,
+    StaleContextUnseal,
+    CorruptWrapperUnseal,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ContainedQemuRr1ProofDenied {
+    UnexpectedSlotState,
+    CurrentNotReadbackVerified,
+    CurrentPolicyMismatch,
+    UnexpectedResult {
+        step: ContainedQemuRr1ProofStep,
+        expected: Option<SecretVaultError>,
+        actual: Option<SecretVaultError>,
+    },
+}
+
 /// A one-time secure-overlay value.  It zeroizes itself after the overlay
 /// dismisses it and exposes no heap allocation or string conversion.
 pub(crate) struct RecoveryKeyText {
@@ -254,6 +277,77 @@ impl RecoveryWrapperSlots {
         Err(KeyringDenied::NoMatchingRecoveryWrapper)
     }
 
+    /// Before the broker's real unlock, proves on copies that stale policy or
+    /// context and a corrupt wrapper cannot select or unseal the replayed RR1.
+    pub(crate) fn prove_exact_contained_qemu_rr1_fail_closed(
+        &self,
+        recovery_key: &RecoveryKey,
+        expected: ApprovedCorePolicy,
+    ) -> Result<ContainedQemuRr1Proof, ContainedQemuRr1ProofDenied> {
+        if self.next.is_some() || self.last_good.is_some() {
+            return Err(ContainedQemuRr1ProofDenied::UnexpectedSlotState);
+        }
+        if !self.current.readback_verified {
+            return Err(ContainedQemuRr1ProofDenied::CurrentNotReadbackVerified);
+        }
+        let context = self
+            .context_if_matches(&self.current.wrapper, expected)
+            .ok_or(ContainedQemuRr1ProofDenied::CurrentPolicyMismatch)?;
+
+        let baseline = unwrap_vmk_from_recovery(recovery_key, &self.current.wrapper, &context)
+            .map_err(|actual| ContainedQemuRr1ProofDenied::UnexpectedResult {
+                step: ContainedQemuRr1ProofStep::BaselineUnseal,
+                expected: None,
+                actual: Some(actual),
+            })?;
+        drop(baseline);
+
+        let mut stale_policy = expected;
+        stale_policy.policy_id_sha256[0] ^= 1;
+        match self.unlock_with_recovery(recovery_key, stale_policy) {
+            Err(KeyringDenied::NoMatchingRecoveryWrapper) => {}
+            Err(KeyringDenied::RecoveryWrapper(actual)) => {
+                return Err(ContainedQemuRr1ProofDenied::UnexpectedResult {
+                    step: ContainedQemuRr1ProofStep::StalePolicySelection,
+                    expected: None,
+                    actual: Some(actual),
+                });
+            }
+            Err(_) => {
+                return Err(ContainedQemuRr1ProofDenied::UnexpectedResult {
+                    step: ContainedQemuRr1ProofStep::StalePolicySelection,
+                    expected: None,
+                    actual: None,
+                });
+            }
+            Ok((vmk, _)) => {
+                drop(vmk);
+                return Err(ContainedQemuRr1ProofDenied::UnexpectedResult {
+                    step: ContainedQemuRr1ProofStep::StalePolicySelection,
+                    expected: None,
+                    actual: None,
+                });
+            }
+        }
+
+        let mut stale_context = context;
+        stale_context.policy_id_sha256[0] ^= 1;
+        require_rr1_denial(
+            unwrap_vmk_from_recovery(recovery_key, &self.current.wrapper, &stale_context),
+            SecretVaultError::PolicyIdMismatch,
+            ContainedQemuRr1ProofStep::StaleContextUnseal,
+        )?;
+
+        let mut corrupt = copy_recovery_wrapper(&self.current.wrapper);
+        corrupt.tag[0] ^= 1;
+        require_rr1_denial(
+            unwrap_vmk_from_recovery(recovery_key, &corrupt, &context),
+            SecretVaultError::AuthenticationFailed,
+            ContainedQemuRr1ProofStep::CorruptWrapperUnseal,
+        )?;
+        Ok(ContainedQemuRr1Proof)
+    }
+
     /// Once the selected current core has booted successfully, the older
     /// fallback is no longer retained as an active recovery wrapper slot.
     pub(crate) fn confirm_current_boot_success(&mut self) {
@@ -399,6 +493,40 @@ impl RecoveryWrapperSlots {
             return None;
         }
         Some(context)
+    }
+}
+
+fn require_rr1_denial(
+    result: Result<VaultMasterKey, SecretVaultError>,
+    expected: SecretVaultError,
+    step: ContainedQemuRr1ProofStep,
+) -> Result<(), ContainedQemuRr1ProofDenied> {
+    match result {
+        Err(actual) if actual == expected => Ok(()),
+        Err(actual) => Err(ContainedQemuRr1ProofDenied::UnexpectedResult {
+            step,
+            expected: Some(expected),
+            actual: Some(actual),
+        }),
+        Ok(vmk) => {
+            drop(vmk);
+            Err(ContainedQemuRr1ProofDenied::UnexpectedResult {
+                step,
+                expected: Some(expected),
+                actual: None,
+            })
+        }
+    }
+}
+
+fn copy_recovery_wrapper(value: &RecoveryVmkWrapperV1) -> RecoveryVmkWrapperV1 {
+    RecoveryVmkWrapperV1 {
+        version: value.version,
+        context: value.context,
+        plaintext_len: value.plaintext_len,
+        nonce: value.nonce,
+        ciphertext: value.ciphertext,
+        tag: value.tag,
     }
 }
 
@@ -741,6 +869,33 @@ mod tests {
             slots.unlock_with_recovery(&key, ApprovedCorePolicy::for_test(12, [0x55; 32]),),
             Err(KeyringDenied::NoMatchingRecoveryWrapper)
         ));
+    }
+
+    #[test]
+    fn contained_qemu_rr1_proof_uses_copies_and_leaves_current_unchanged() {
+        let key = recovery_key(0x42);
+        let master = vmk(0x17);
+        let mut slots = RecoveryWrapperSlots::provision_initial_with_nonce(
+            &master,
+            &key,
+            context(3, 12, 0x55),
+            [3; 12],
+        )
+        .unwrap();
+        let readback = duplicate_wrapper(slots.current_wrapper());
+        slots.confirm_current_readback(&readback).unwrap();
+        let before = duplicate_wrapper(slots.current_wrapper());
+
+        assert_eq!(
+            slots.prove_exact_contained_qemu_rr1_fail_closed(
+                &key,
+                ApprovedCorePolicy::for_test(12, [0x55; 32]),
+            ),
+            Ok(ContainedQemuRr1Proof)
+        );
+        assert!(same_wrapper(&before, slots.current_wrapper()));
+        assert!(slots.next_wrapper().is_none());
+        assert!(slots.last_good_wrapper().is_none());
     }
 
     fn duplicate_wrapper(value: &RecoveryVmkWrapperV1) -> RecoveryVmkWrapperV1 {
