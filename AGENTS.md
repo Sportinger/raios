@@ -153,6 +153,15 @@ full-per-sub-slice is low-yield. The structural fix for test time as the system
 grows is M11 (services out of kernel → a change tests only its own service). The
 Red Gate Rule still holds at every tier actually run.
 
+### Owner verification preference (2026-07-10): batch ordinary checks
+
+Prefer one well-targeted verification pass after a coherent set of independent,
+non-authorizing foundation changes over repeating the same build or VM check after
+every individual module. Keep the existing mandatory focused check at each real
+storage, recovery, authority, provider-trust, descriptor-signing, or boot boundary;
+never batch across those boundaries. Reuse still-current evidence for unchanged
+surfaces, then run the combined regression/profile when the joined behavior is ready.
+
 ## Capability Definition Of Done
 
 Adopted 2026-07-04 after
