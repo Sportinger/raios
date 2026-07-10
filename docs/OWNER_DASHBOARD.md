@@ -40,8 +40,10 @@ committed append and a second-boot replay (`shadow-20260710-032738-34812`, 9/9).
 C3 still reports TPM `NotProven`; no physical or durable secret claim is open.
 
 Vault crypto status: C2's exact AES-GCM/HKDF envelope, recovery-wrapper, zeroizing
-owners, and two-consumer evaluator pass 379 core tests; no plaintext lease or use
-path is wired into WiFi/provider yet.
+owners, and two-consumer evaluator pass 379 core tests. C4's unarmed composition
+foundation adds readback-verified keyring restore, typed ciphertext records, and
+complete-history-only nonce reconstruction; no Vault set/unlock/decrypt, plaintext
+lease, WiFi/provider use, audit, or physical-target path is wired.
 
 Latest proof: focused Genesis UI `shadow-20260710-034302-30252.json` 181/181,
 release package, and inspected safe no-secret Genesis capture. C1's structured-
@@ -52,7 +54,12 @@ Gate status: latest full profile remains green at
 `shadow-20260708-150428-34396.json` 7867/7867. This slice used its focused
 Genesis UI evidence; the full baseline is unchanged per aggressive-fast cadence.
 
-Next task: required Sol review then I2/G3's exact non-default display-list/Wasm
-proof join. I3/G5.4 Vault/Broker work remains separately review-gated; the bounded
-secure overlay is not a secret use path yet. Disk 2 stays untouched until the
-owner returns; do not claim provider access or durable secrets before evidence.
+Latest C4 proof: release build plus focused structured-store regression
+`shadow-20260710-040559-24348.json` passed 9/9 with zero failures; it does not arm
+Vault authority.
+
+Next task: I2/G3 has passed its Sol review but awaits the required local
+`target\descriptor-resign` tool; do not forge or substitute a descriptor signature. C4/I3 groundwork may
+continue, but the Vault/Broker join remains separately Sol-review-gated. Disk 2 stays
+untouched until the owner returns; do not claim provider access or durable secrets
+before evidence.

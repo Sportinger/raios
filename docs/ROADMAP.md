@@ -47,6 +47,15 @@ blank-formatted, dual-superblock readback-checked, append/flushed, and replayed
 after a second boot. This is deliberately QEMU fixture only; no physical target
 or secret authority is open.
 
+**C4/I3 unarmed Vault composition foundation (2026-07-10):** commits `95b7bf4`,
+`d27c96d`, and `f90e7db` add replayed/readback-verified recovery-keyring restore,
+a typed ciphertext-only Vault record codec, and complete-history-only nonce
+reconstruction. The `0920346` C1 extraction lets the composition root name the
+already bounded disposable QEMU port; the focused regression
+`shadow-20260710-040559-24348.json` passed 9/9 with zero failures. No Vault set,
+unlock/decrypt, plaintext use, WiFi/provider use, audit, physical-target, or
+durable-secret authority is armed; I3 remains separately Sol-review-gated.
+
 **Genesis execution progress (A1/C3, 2026-07-10):** the normal release image
 now starts in the core-owned Genesis shell (Conversation, Context, Composer,
 secure strip, AI/WiFi setup); the legacy renderer was deleted, with serial and
@@ -66,8 +75,11 @@ setup remains reachable from Genesis. The focused `genesis-ui` report
 and `target/captures/genesis-shell-a2.png` was inspected. The zeroizing secure
 overlay remains only a bounded input foundation: no Vault/Broker/plaintext-use,
 durable credential, recovery hash-load, or rollback authority is open. B1's
-display-list/import-grant foundation is already present; the active next join is
-I2/G3 after its required Sol review. I3/G5.4 remains independently review-gated.
+display-list/import-grant foundation is already present. I2/G3 passed its required
+Sol review and awaits the local `target\descriptor-resign` tool; its absence is a
+STOP tripwire and signatures must not be forged or substituted. That I2 wait does
+not block the independent C4/I3-unarmed foundation lane. I3/G5.4 remains
+independently review-gated.
 
 **M11 Kernel Slimming progress (all grants-nothing / strictly-more-restrictive,
 committed):** M11-1 kernel internet-parsing SURFACE baseline (the measurably-

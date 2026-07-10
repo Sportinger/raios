@@ -24,17 +24,21 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (I2/G3 personal-shell authority join): complete the
-required read-only Sol review of the frozen ADR 0011/UI-import grant and the
-now-verified A2 boundary. Only if that review accepts the exact six `ui.*`
-imports, integrate the non-default `current_boot` proof service through the
-validated display-list path; the normal release must still say `Personal shell:
-not created`. C4/I3 Vault/Broker work may be scoped in parallel but cannot gain
-write, unlock, plaintext-use, or durable-credential authority before its separate
-Sol review and named join. Disk 2 is unplugged; do not write a physical disk.
-The separate bare-metal WiFi proof remains pending for the owner's return:
-capture `LINK`, association/AID, `PORT_RELEASE`, RX/TX, and DHCP evidence before
-provider access is claimed.
+Current exact next task (I2/G3 personal-shell authority join): the required
+read-only Sol review accepted the frozen ADR 0011/UI-import grant and the
+now-verified A2 boundary, but I2 is waiting on the required local
+`target\descriptor-resign` tool (and its `.exe`); its absence is a STOP
+tripwire. Do not forge, alter, reuse, or substitute a descriptor signature, and
+do not treat an OTA signer as an approved alternative. Only if the real
+descriptor-resign path exists may the already-approved exact six `ui.*` imports
+for the non-default `current_boot` proof service join the validated display-list path; the
+normal release must still say `Personal shell: not created`. This pauses I2, not
+the independent C4/I3-unarmed Vault work. C4/I3 may not gain Vault set, unlock,
+decrypt, plaintext-use, WiFi/provider use, audit, physical-target, or durable-
+credential authority before its separate Sol review and named join. Disk 2 is
+unplugged; do not write a physical disk. The separate bare-metal WiFi proof remains
+pending for the owner's return: capture `LINK`, association/AID, `PORT_RELEASE`,
+RX/TX, and DHCP evidence before provider access is claimed.
 
 Genesis shell architecture contract accepted (I0/G0, 2026-07-10) - build agents
 can now implement the universal core-owned Genesis/recovery surface and the
@@ -167,6 +171,21 @@ create a Vault secret, Broker, durable credential, recovery hash-load, or
 rollback authority: secure-overlay submission is not yet wired to a secret use
 path, and recovery hash-load/rollback remain disabled. The default release stays
 in normal Genesis with no personal shell.
+
+C4/I3 unarmed Vault composition foundation completed (2026-07-10) - a future
+core-owned Broker can restore an in-RAM recovery keyring only from an exact
+replayed-and-readback-verified wrapper under approved core policy. The typed
+ciphertext-only record codec accepts only the two fixed secret slots and the
+recovery-wrapper slot, while retained AES-GCM nonce metadata can be reconstructed
+only from a complete, ordered, replay-verified history; incomplete, identity-
+mismatched, non-monotonic, or duplicate history fails closed. Commits `95b7bf4`,
+`d27c96d`, and `f90e7db` establish those boundaries; `0920346` makes the existing
+disposable QEMU C1 port available to the Vault composition root. The source was
+release-built and the focused structured-store regression
+`release/vm-reports/shadow-20260710-040559-24348.json` passed 9/9 with zero
+failures. This is explicitly not a Vault set/unlock/decrypt/plaintext-use,
+WiFi/provider, audit, physical-target, or durable-secret authority claim; I3 is
+still separately Sol-review-gated.
 
 VM failure classification (2026-07-10, C1 first structured-store profile) -
 the outer host command expired after 604 seconds before `shadow-vm-smoke.ps1`

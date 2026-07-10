@@ -8,10 +8,17 @@ format/append/reboot proof is `shadow-20260710-032738-34812.json` (9/9); C2 and
 C3 foundations are complete. A2/G2 core Context/recovery interaction is verified
 by `shadow-20260710-034302-30252.json` (181/181): shared typed problem facts,
 cached/redacted Recovery, and its shared Lifeline actions are live. The bounded
-zeroizing secure overlay is not yet a Broker/use path. I2/G3 is next after its
-required Sol review; I3/G5.4 is independently review-gated. Runtime secret and
-personal-shell authority remains unclaimed until its named integration and
-evidence land.
+zeroizing secure overlay is not yet a Broker/use path. C4/I3 unarmed groundwork
+(`95b7bf4`, `d27c96d`, `f90e7db`, and C1 extraction `0920346`) adds exact
+replayed/readback keyring restore, typed ciphertext records and complete-history-
+only nonce reconstruction; focused regression
+`shadow-20260710-040559-24348.json` passed 9/9 with zero failures. It grants no
+Vault set/unlock/decrypt/plaintext use, consumer, audit, physical-target or durable
+credential authority. I2/G3 passed its required Sol review and is waiting for the
+local `target\descriptor-resign` tool; its absence is a STOP tripwire, so no descriptor
+signature may be forged or substituted. That does not block C4 groundwork. I3/G5.4
+is independently review-gated. Runtime secret and personal-shell authority remain
+unclaimed until their named integration and evidence land.
 
 Target orchestrator: Codex 5.6, reasoning effort `xhigh`
 
@@ -1573,6 +1580,12 @@ QEMU test disk.
 I3 readiness: C1/C2/C3 are green, A2 exposes the frozen secure-overlay/status API, the
 foreign WiFi work is clean/frozen, and Sol has approved the exact authority diff. Only
 this join waits for those dependencies.
+
+Pre-I3 unarmed groundwork is allowed and has landed: recovery-keyring restoration
+requires exact replayed/readback wrapper equality and approved-core policy; the store
+codec carries ciphertext records only; retained nonce metadata requires complete,
+ordered, replay-verified history. These facts do not satisfy I3, do not create a Vault
+operation, and do not relax any readiness requirement above.
 
 Terr-Vault (`xhigh`) owns only:
 
