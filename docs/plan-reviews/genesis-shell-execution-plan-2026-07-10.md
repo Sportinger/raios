@@ -3,10 +3,11 @@
 Status: execution-ready owner plan, 2026-07-10
 
 Execution cursor: I0/G0 is complete at `73c9677` and C0/ADR 0012 is complete at
-`8e5ff8d`; A0/B0 foundations and D0 are complete. A1/G1 visible Genesis host
-integration and C1's bounded hardware/test-profile join are next; C2 is complete
-as a pure crypto/use-policy foundation and C3 keyring work continues independently.
-Runtime capabilities remain unclaimed until their named evidence lands.
+`8e5ff8d`; A0/B0, A1/G1, C1/G5.1 and D0 are complete. C1's isolated AHCI
+format/append/reboot proof is `shadow-20260710-032738-34812.json` (9/9); C2 and
+C3 foundations are complete. A2/G2 trusted Context, secure overlays and recovery
+interaction is next. Runtime secret and personal-shell authority remains unclaimed
+until its named integration and evidence land.
 
 Target orchestrator: Codex 5.6, reasoning effort `xhigh`
 

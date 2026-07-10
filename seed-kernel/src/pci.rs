@@ -37,6 +37,34 @@ pub struct PciMassStorageController {
     pub prog_if: u8,
 }
 
+/// Reads exactly one already-configured AHCI function. This is deliberately
+/// not a bus scan: storage authority must never follow the first controller
+/// that happens to advertise the mass-storage class.
+pub fn exact_ahci_controller(
+    address: PciAddress,
+) -> Result<PciMassStorageController, &'static str> {
+    if address.device >= 32 || address.function >= 8 {
+        return Err("pci_exact_ahci_address_invalid");
+    }
+    let vendor_id = read_vendor(&address);
+    if vendor_id == 0xffff {
+        return Err("pci_exact_ahci_absent");
+    }
+    let class = address.read_u8(0x0b);
+    let subclass = address.read_u8(0x0a);
+    let prog_if = address.read_u8(0x09);
+    if class != 0x01 || subclass != 0x06 || prog_if != 0x01 {
+        return Err("pci_exact_ahci_class_mismatch");
+    }
+    Ok(PciMassStorageController {
+        address,
+        vendor_id,
+        device_id: read_device_id(&address),
+        subclass,
+        prog_if,
+    })
+}
+
 impl PciBar {
     pub fn is_memory(&self) -> bool {
         self.kind != PciBarKind::Io
@@ -50,7 +78,7 @@ impl fmt::Display for PciAddress {
 }
 
 impl PciAddress {
-    pub fn new(bus: u8, device: u8, function: u8) -> Self {
+    pub const fn new(bus: u8, device: u8, function: u8) -> Self {
         Self {
             bus,
             device,

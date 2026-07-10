@@ -24,17 +24,16 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (Genesis storage vertical slice): add the dedicated
-QEMU-only AHCI region capability for the frozen `RAIOS_STRUCTURED_STORE` GPT
-fixture, including an actual ATA `FLUSH CACHE EXT`, bounded format/open/append/
-reboot proof, and the focused structured-store VM profile. It must select one
-exact BDF/port/device/GPT identity, never reuse the `SEED_DATA` detector or a
-first-match PCI controller, and must remain unable to format or select physical
-media. Disk 2 is currently absent; do not write a physical disk. The separate
-bare-metal WiFi proof remains pending for when the owner returns: capture the
-`LINK` stage, association status/AID, firmware `PORT_RELEASE`, RX/TX movement,
-and DHCP result. Provider network access and durable WiFi-secret claims remain
-denied until their named evidence chains succeed.
+Current exact next task (A2 Genesis trusted interaction): split the current
+Genesis Context into shared typed system/problem facts and add the core-owned
+secure provider/WiFi-entry overlay plus real recovery entry. Preserve the
+existing driver/provider authority and route UI actions through the shared
+evaluators, not serial text parsing. The C1 store is now real only for the
+hard-coded disposable QEMU fixture; there is still no physical-target driver,
+Vault record, recovery unlock, or durable credential claim. Disk 2 is absent;
+do not write a physical disk. The separate bare-metal WiFi proof remains pending
+for the owner's return: capture `LINK`, association/AID, `PORT_RELEASE`, RX/TX,
+and DHCP evidence before provider access is claimed.
 
 Genesis shell architecture contract accepted (I0/G0, 2026-07-10) - build agents
 can now implement the universal core-owned Genesis/recovery surface and the
@@ -131,8 +130,35 @@ match `RAIOS_STRUCTURED_STORE`, and whose disk plus partition GUIDs match the
 explicit approved identity supplied by the caller. It denies malformed GPT,
 foreign identity, wrong label/type, missing redundancy, out-of-range and
 overlapping targets. It cannot discover, choose, map, format, or write a disk;
-the needed AHCI capability and QEMU-only vertical proof are the current task.
-Verified by the three focused host tests included in the 386/386 core run.
+the later C1 AHCI capability and QEMU-only vertical proof supply that controlled
+runtime path. Verified by the three focused host tests included in the 386/386
+core run.
+
+Structured-store QEMU vertical slice done (C1/G5.1, 2026-07-10) - an agent can
+now run one isolated `structured-store` profile that creates a fresh 16-MiB
+`RAIOS_STRUCTURED_STORE` GPT image, admits only Q35 AHCI `00:1f.2` port 4 plus
+the frozen disk/partition GUIDs, validates both GPT copies, proves the region
+blank, formats the dual superblocks, appends a committed record through real
+ATA `FLUSH CACHE EXT`, and replays that record after a separate QEMU reboot.
+The port re-identifies the device and revalidates its exact BDF/port/GPT/geometry
+before every write/readback boundary. It cannot enumerate controllers, use the
+SEED_DATA detector, select a physical disk, or format any identity other than
+the hard-coded disposable fixture. Verified:
+`release/vm-reports/shadow-20260710-032738-34812.json` passed 9/9 predicates
+in 107065 ms, including format/open, append/flush/readback, and reboot replay.
+No physical partition, vault envelope, TPM unlock, secret broker, WiFi/provider
+consumer, or durable-secret behavior is claimed by this test-only store path.
+
+VM failure classification (2026-07-10, C1 first structured-store profile) -
+the outer host command expired after 604 seconds before `shadow-vm-smoke.ps1`
+could write a report, leaving its QEMU PID to be stopped explicitly. Failing
+predicate: none (no report). Verdict: `host-transport` for the outer timeout;
+the retained guest serial simultaneously exposes the deterministic underlying
+`guest-behavior` cause: `C1_STRUCTURED_STORE_DENIED:
+Device("ahci_explicit_port_read_buffer_phys_missing")`. The first bounded
+repair must use a dedicated aligned static DMA staging buffer for C1 rather
+than assuming a local stack `AhciSectorBuffer` has a physical mapping. Do not
+retry until that exact buffer path is repaired.
 
 VM failure classification (2026-07-10, B0 foundation quick) - report
 `release/vm-reports/shadow-20260710-013553-29700.json` passed 41/42 predicates

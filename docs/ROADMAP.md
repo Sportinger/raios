@@ -36,9 +36,17 @@ claim is opened by I0.
 **M13/Secret Vault contract accepted (C0/G5.0, 2026-07-10):** ADR 0012
 fixes the dedicated internal-partition boundary, crash-consistent structured
 store, exact cryptographic pins, RR1 recovery wrapper, TPM evidence gate, and
-two-consumer broker. This is design only: M13 mechanism work has not started,
-and physical-target support, durable secrets, recovery unlock, TPM auto-unlock,
-and Vault-VMK sealing remain unproven; ADR 0007 owner sealing is unaffected.
+two-consumer broker. C1 has now proven the isolated QEMU store mechanism; its
+physical-target support, durable secrets, recovery unlock, TPM auto-unlock, and
+Vault-VMK sealing remain unproven; ADR 0007 owner sealing is unaffected.
+
+**C1/G5.1 structured store verified (2026-07-10):** the focused
+`shadow-20260710-032738-34812.json` profile passed 9/9 after an isolated
+16-MiB QEMU fixture was admitted by exact BDF/port/device/GPT identity,
+blank-formatted, dual-superblock readback-checked, append/flushed, and replayed
+after a second boot. This is deliberately QEMU fixture only; no physical target
+or secret authority is open. The active Genesis plan cursor advances to A2/G2;
+C1/C2/C3 wait for that trusted interaction boundary before the Vault broker join.
 
 **Genesis execution progress (A1/C3, 2026-07-10):** the normal release image
 now starts in the core-owned Genesis shell (Conversation, Context, Composer,
@@ -47,8 +55,8 @@ guided WiFi behavior preserved through the shared console/action adapter. The
 no-secret 1280x800 capture is `target/captures/genesis-shell-a1.png`. The TPM
 codec/CRB-TIS transport and RR1 recovery-wrapper foundation are compiled and
 host-tested but grant no auto-unlock, secret broker, or durable-secret claim.
-The immediate C1 vertical slice is QEMU-only exact AHCI/GPT admission plus a
-real flush/format/open/append/reboot proof; physical targets remain denied.
+The C1 QEMU-only proof is green; physical targets remain denied. A2/G2 trusted
+Context, overlays and recovery is the next prerequisite for the broker join.
 
 **M11 Kernel Slimming progress (all grants-nothing / strictly-more-restrictive,
 committed):** M11-1 kernel internet-parsing SURFACE baseline (the measurably-

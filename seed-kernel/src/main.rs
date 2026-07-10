@@ -143,6 +143,7 @@ mod serial;
 mod service_inventory;
 mod shell_host;
 mod structured_store;
+mod structured_store_c1;
 mod system_status;
 mod text;
 mod time;
@@ -280,6 +281,7 @@ fn early_main() -> ! {
     let tsc_per_ms = time::tsc_per_ms();
 
     entropy::init();
+    structured_store_c1::run_disposable_qemu_boot_probe();
 
     input::init();
     runtime_status.input_probe_complete = true;

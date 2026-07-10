@@ -33,23 +33,23 @@ capture is `target/captures/genesis-shell-a1.png`; it honestly says Personal
 shell not created and Vault not configured. The proof personal shell remains
 unlinked test infrastructure.
 
-Vault/store status: C1 now also validates the exact redundant GPT/type/label/
-GUID admission boundary. C3 adds bounded TPM command/transport and RR1 wrapper
-custody, still `NotProven`. No physical or durable secret claim is open until
-the QEMU AHCI flush/format/append/reboot evidence lands.
+Vault/store status: C1 is now proven end-to-end on a fresh dedicated QEMU image:
+exact GPT admission, blank format, dual superblock readback, real ATA flush,
+committed append and a second-boot replay (`shadow-20260710-032738-34812`, 9/9).
+C3 still reports TPM `NotProven`; no physical or durable secret claim is open.
 
 Vault crypto status: C2's exact AES-GCM/HKDF envelope, recovery-wrapper, zeroizing
 owners, and two-consumer evaluator pass 379 core tests; no plaintext lease or use
 path is wired into WiFi/provider yet.
 
-Latest proof: 386/386 raios-core host tests, release package, and an inspected
-safe no-secret Genesis capture. The latest quick Shadow VM remains the unchanged
-`shadow-20260710-024402-2584.json` 542/542 baseline.
+Latest proof: C1 structured-store focused VM 9/9, release package, and an
+inspected safe no-secret Genesis capture. The latest quick Shadow VM remains the
+unchanged `shadow-20260710-024402-2584.json` 542/542 baseline.
 
 Gate status: latest full profile remains green at
 `shadow-20260708-150428-34396.json` 7867/7867. This slice used focused USB VM
 evidence plus quick profile per aggressive-fast cadence.
 
-Next task: execute the QEMU-only C1 AHCI structured-store vertical slice with
-real flush/format/open/append/reboot proof. Disk 2 stays untouched until the
-owner returns; do not claim provider access or durable secrets before evidence.
+Next task: A2 trusted Genesis Context, secure secret-entry overlays and real
+recovery entry. Disk 2 stays untouched until the owner returns; do not claim
+provider access or durable secrets before the later broker evidence.
