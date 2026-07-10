@@ -74,9 +74,9 @@ fallback/recovery, and physical Vault reopen preserves the unlocked handle witho
 another unlock or provider/WiFi use. G5.5a torn/power-cut behavior remains green.
 
 Gate status: latest full profile remains green at
-`shadow-20260708-150428-34396.json` 7867/7867. This slice used focused Secret Vault
-evidence; the full baseline is unchanged per aggressive-fast cadence. G5 is not closed
-until the required recovery/full checkpoint and secret scan pass.
+`shadow-20260711-012708-19288.json` 7870/7870; the matching G5 recovery checkpoint
+`shadow-20260711-012022-24924.json` passed 3677/3677. Together with focused G5.5a/G5.5b,
+this closes G5 only for disposable-QEMU store/Vault, recovery and full evidence.
 
 Prior Vault-foundation proof: release build plus focused structured-store report
 `shadow-20260710-150107-28328.json` passed 13/13, including opaque complete-history
@@ -90,7 +90,8 @@ Latest Core-Policy proof: `shadow-20260710-145039-13864.json` passed 5/5 for the
 owner signature, complete Limine executable measurement, and exact A/1 BOOTCTL join.
 This is software-pinned, not Secure Boot/TPM, and does not unlock the Vault.
 
-Next task: freeze and close G5 with the required recovery/full checkpoint regressions
-and secret scan, then move to G6 final release/hardware acceptance. Physical persistence
-and TPM auto-unlock remain unproven. Surface association/link/`PORT_RELEASE`/RX/TX/DHCP
-and live provider success are not yet claimed. Disk 2 stays untouched.
+Next task: I4/G6 final regression, visual and release-artifact acceptance, followed by
+the separately scoped I5/G7 hardware/USB handoff only if Disk 2 reappears and passes its
+identity/layout preflight. Disk 2 is unplugged and no physical write is permitted.
+Physical persistence, TPM auto-unlock, Surface association/link/`PORT_RELEASE`/RX/TX/
+DHCP and live provider success remain unclaimed.

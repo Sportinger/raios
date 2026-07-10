@@ -41,10 +41,12 @@ provider slice has proven RR1 recovery unlock there; physical-target support,
 production durable-secret persistence, TPM auto-unlock, and Vault-VMK sealing
 remain unproven. ADR 0007 owner sealing is unaffected.
 
-**Current Genesis/Vault cursor:** G5.5a and G5.5b are focused-green. Freeze G5 and
-run its required recovery/full block-close evidence and secret scan; after a green G5
-close, advance to I4/G6 final release and hardware acceptance. No physical persistence,
-TPM auto-unlock, live Surface network, or live provider claim is open.
+**Current Genesis/Vault cursor:** G5 is closed for disposable-QEMU/recovery/full
+evidence. Recovery `shadow-20260711-012022-24924.json` passed 3677/3677 and full
+`shadow-20260711-012708-19288.json` passed 7870/7870. Advance to I4/G6 final regression,
+visual and release-artifact acceptance; the I5/G7 physical USB handoff remains separate.
+Disk 2 is unplugged, so no physical write is permitted. Physical persistence, TPM
+auto-unlock, live Surface network and live provider claims remain closed.
 
 **C1/G5.1 structured store verified (2026-07-10):** the focused
 `shadow-20260710-032738-34812.json` profile passed 9/9 after an isolated
@@ -102,9 +104,9 @@ fixture acceptance; a copied CRC-corrupt log becomes `StoreChainLocked`; both ex
 physical visible RAM-only denial and grant no Vault authority. Copied tag/AAD/binding/
 nonce and stale-policy/context/corrupt-wrapper cases deny. A physical Escape permits
 the bounded typed personal-trap proof, recovery remains responsive, and physical Vault
-reopen preserves the unlocked handle without extra provider/WiFi use. G5 now waits only
-for its required block-close recovery/full regressions and secret scan; physical
-persistence and TPM auto-unlock remain unproven.
+reopen preserves the unlocked handle without extra provider/WiFi use. The green recovery
+and full reports named in the cursor close G5 only for disposable-QEMU evidence;
+physical persistence and TPM auto-unlock remain unproven.
 
 **Genesis execution progress (A1/C3, 2026-07-10):** the normal release image
 now starts in the core-owned Genesis shell (Conversation, Context, Composer,
@@ -141,8 +143,9 @@ non-default proof enters the clipped core-owned surface, accepts sanitized input
 leaves through core-only F12, falls back after trap/fuel, and never changes the
 secure-strip pixels. Its current-boot inventory row exists only while active. The
 I3/G5.4 provider, contained WiFi-use, physical forget and SAFE explicit-reconnect paths
-are verified by the focused reports above. G5.5a power-cut recovery and G5.5b copied-
-corruption/personal-trap continuity are green; G5 awaits its recovery/full block close.
+are verified by the focused reports above. G5.5a power-cut recovery, G5.5b copied-
+corruption/personal-trap continuity, recovery and full are green; disposable-QEMU G5
+is closed and the cursor is I4/G6.
 
 **M11 Kernel Slimming progress (all grants-nothing / strictly-more-restrictive,
 committed):** M11-1 kernel internet-parsing SURFACE baseline (the measurably-

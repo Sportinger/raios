@@ -24,18 +24,18 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (G5 block close after verified G5.5a/G5.5b): freeze the G5
-code and run the required recovery/full checkpoint evidence plus the remaining named
-G5 close regressions and secret scan. Reuse the green focused Secret Vault evidence;
-do not reopen its authority boundaries merely to grow predicate count. If G5 closes,
-advance to I4/G6 final release/hardware acceptance. Keep the exact Broker consumers,
-general SAFE durable-write denial, durable-store identity/rollback chain and prior
-G5.5a torn/power-cut behavior unchanged. Do not expose plaintext to ShellHost/Wasm,
-add generic secret access, provider auto-load, broad mutation, or physical-target
-support. Disk 2 is unplugged; do not write a physical disk. Physical persistence and
-TPM auto-unlock remain unproven. The separate bare-metal WiFi proof still requires
-positive `LINK`, association/AID, `PORT_RELEASE`, RX/TX and DHCP evidence before live
-provider access is claimed.
+Current exact next task (I4/G6 after disposable-QEMU G5 close): freeze the exact
+release candidate and perform the plan's final regression, visual and release-artifact
+acceptance, then enter the physical hardware/USB handoff only within its separately
+scoped I5/G7 boundary. Disk 2 is unplugged; do not attempt any physical write unless
+it reappears, passes the documented identity/layout preflight, and the operation is
+explicitly in scope. Keep the exact Broker consumers, general SAFE durable-write
+denial, durable-store identity/rollback chain and G5.5a/G5.5b behavior unchanged. Do
+not expose plaintext to ShellHost/Wasm, add generic secret access, provider auto-load,
+broad mutation, or physical-target support. G5's close proves disposable QEMU,
+recovery and full regression only. Physical persistence, TPM auto-unlock, positive
+Surface `LINK`/association/AID/`PORT_RELEASE`/RX/TX/DHCP and live provider access
+remain unproven and unclaimed.
 
 I3 complete-history Broker foundation verified (2026-07-10) - a kernel composition
 agent can now obtain the complete ordered list of committed records from the same
@@ -196,10 +196,28 @@ temporary base-image SHA-256
 `535fe9aa8688ba247266c552c765519991ca6708cc0c8662d74bb1d6f8523c42`, and combined
 serial-log SHA-256
 `4192094ff7b9a19a0c6ba415a77eec86b13562694cd1a6417f2e73b8696a7934`.
-This is focused disposable-QEMU evidence, not the G5 block-close checkpoint: recovery
-and full still must pass before G5 is closed. Physical durable-secret storage, TPM
+At that focused checkpoint, recovery and full still had to pass before G5 could close;
+their green block-close evidence follows below. Physical durable-secret storage, TPM
 auto-unlock, live Surface association/link/`PORT_RELEASE`/RX/TX/DHCP, and live provider
 network success remain denied or unclaimed.
+
+G5 disposable-QEMU block close verified (2026-07-11) - the focused G5.5a/G5.5b
+Secret Vault evidence is now joined by green recovery and full checkpoints. Recovery
+report `release/vm-reports/shadow-20260711-012022-24924.json` passed 3677/3677 with
+report SHA-256 `3425cebfe3e2a559b8ddf209d309f543cab7b3b2fb35a6d1f367716235b7a521`,
+base-image SHA-256
+`465f765c3b826fb2bad8fe30c2401616d043152b989b9e9f8320b3e43fe787eb`, and serial-log
+SHA-256 `696fcb97e5c014c12a7590ce726eafcfc8af4bc85b543789a0163bbd0df67aee`.
+Full report `release/vm-reports/shadow-20260711-012708-19288.json` passed 7870/7870
+with report SHA-256
+`f9466e225a9954d9dad8e4c447467e1c58bbb23b894cfc01e817a4d3feba72e9`, base-image
+SHA-256 `b925cff2ea542d78da9ee1243f533f7d8593a404cc7af733ef30fa8b0aa14799`, and
+serial-log SHA-256
+`68ddfa92957501f02bca4464b54ad64da86dd800d5cd4c767f52d899c7fd15bd`.
+This closes G5 only for the exact disposable-QEMU store/Vault, recovery and full
+regression evidence already described above. It does not prove physical persistence,
+TPM auto-unlock, live Surface WiFi association/link/`PORT_RELEASE`/RX/TX/DHCP, or a
+live provider request; those claims remain denied or unclaimed.
 
 VM failure classification (2026-07-11, first G5.5b corruption profile) - report
 `release/vm-reports/shadow-20260711-004301-20812.json` passed 15 predicates and failed
