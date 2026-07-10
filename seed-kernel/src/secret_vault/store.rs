@@ -84,14 +84,15 @@ pub(crate) enum VaultStoreDenied {
     WrapperVersionUnsupported,
     WrapperStoreUuidMismatch,
     WrapperContextInvalid,
-    WrapperRecordVersionMismatch,
     NonceHistoryIncomplete,
     NonceHistoryTooLong,
     NonceHistoryIdentityMismatch,
     NonceHistoryOrderInvalid,
     NonceHistoryRecordVersionInvalid,
     NonceHistoryPreviousRecordHashMismatch,
+    NonceHistoryWrapperGenerationInvalid,
     RetainedSecretNonceDuplicate,
+    RetainedRecoveryWrapperNonceDuplicate,
 }
 
 impl VaultStoreDenied {
@@ -116,7 +117,6 @@ impl VaultStoreDenied {
             Self::WrapperVersionUnsupported => "vault_wrapper_version_unsupported",
             Self::WrapperStoreUuidMismatch => "vault_wrapper_store_uuid_mismatch",
             Self::WrapperContextInvalid => "vault_wrapper_context_invalid",
-            Self::WrapperRecordVersionMismatch => "vault_wrapper_record_version_mismatch",
             Self::NonceHistoryIncomplete => "vault_nonce_history_incomplete",
             Self::NonceHistoryTooLong => "vault_nonce_history_too_long",
             Self::NonceHistoryIdentityMismatch => "vault_nonce_history_identity_mismatch",
@@ -125,7 +125,13 @@ impl VaultStoreDenied {
             Self::NonceHistoryPreviousRecordHashMismatch => {
                 "vault_nonce_history_previous_record_hash_mismatch"
             }
+            Self::NonceHistoryWrapperGenerationInvalid => {
+                "vault_nonce_history_wrapper_generation_invalid"
+            }
             Self::RetainedSecretNonceDuplicate => "vault_retained_secret_nonce_duplicate",
+            Self::RetainedRecoveryWrapperNonceDuplicate => {
+                "vault_retained_recovery_wrapper_nonce_duplicate"
+            }
         }
     }
 }
@@ -203,10 +209,8 @@ impl<'a> ReplayVerifiedVaultRecord<'a> {
                             VaultRecordId::RecoveryWrapper => unreachable!("secret slot"),
                         })
                 }
-                VaultRecordId::RecoveryWrapper => {
-                    decode_recovery_wrapper(payload, self.identity, self.record.record_version)
-                        .map(DecodedVaultRecord::RecoveryWrapper)
-                }
+                VaultRecordId::RecoveryWrapper => decode_recovery_wrapper(payload, self.identity)
+                    .map(DecodedVaultRecord::RecoveryWrapper),
             },
         }
     }
@@ -265,6 +269,19 @@ impl RetainedNonceMetadata {
             .iter()
             .any(|retained| retained.key_epoch == key_epoch && retained.nonce == nonce)
     }
+
+    pub(crate) fn contains_recovery_wrapper_nonce(
+        &self,
+        key_epoch: u64,
+        wrapper_generation: u64,
+        nonce: [u8; 12],
+    ) -> bool {
+        self.recovery_wrapper.iter().any(|retained| {
+            retained.key_epoch == key_epoch
+                && retained.wrapper_generation == wrapper_generation
+                && retained.nonce == nonce
+        })
+    }
 }
 
 /// Reconstructs nonce metadata only from a caller-supplied *complete*, ordered
@@ -285,6 +302,7 @@ pub(crate) fn reconstruct_retained_nonce_metadata(
     let mut previous_transaction_id = 0;
     let mut last_record_version = [0u64; 3];
     let mut last_commit_hash = [None; 3];
+    let mut last_wrapper_generation = 0;
     let mut secret = Vec::new();
     let mut recovery_wrapper = Vec::new();
 
@@ -327,11 +345,19 @@ pub(crate) fn reconstruct_retained_nonce_metadata(
                 secret.push(retained);
             }
             DecodedVaultRecord::RecoveryWrapper(wrapper) => {
-                recovery_wrapper.push(RetainedRecoveryWrapperNonce {
+                let retained = RetainedRecoveryWrapperNonce {
                     key_epoch: wrapper.context.key_epoch,
                     wrapper_generation: wrapper.context.wrapper_generation,
                     nonce: wrapper.nonce,
-                });
+                };
+                if recovery_wrapper.contains(&retained) {
+                    return Err(VaultStoreDenied::RetainedRecoveryWrapperNonceDuplicate);
+                }
+                if wrapper.context.wrapper_generation <= last_wrapper_generation {
+                    return Err(VaultStoreDenied::NonceHistoryWrapperGenerationInvalid);
+                }
+                last_wrapper_generation = wrapper.context.wrapper_generation;
+                recovery_wrapper.push(retained);
             }
             DecodedVaultRecord::Tombstone(_) => {}
         }
@@ -384,11 +410,7 @@ pub(crate) fn encode_secret_envelope(
 pub(crate) fn encode_recovery_wrapper(
     wrapper: &RecoveryVmkWrapperV1,
 ) -> Result<[u8; RECOVERY_WRAPPER_PAYLOAD_LEN], VaultStoreDenied> {
-    validate_recovery_wrapper(
-        wrapper,
-        wrapper.context.store_uuid,
-        wrapper.context.wrapper_generation,
-    )?;
+    validate_recovery_wrapper(wrapper, wrapper.context.store_uuid)?;
 
     let mut out = [0u8; RECOVERY_WRAPPER_PAYLOAD_LEN];
     write_payload_header(&mut out, PAYLOAD_KIND_RECOVERY_WRAPPER);
@@ -460,7 +482,6 @@ fn decode_secret_envelope(
 fn decode_recovery_wrapper(
     bytes: &[u8],
     identity: StoreIdentity,
-    committed_record_version: u64,
 ) -> Result<RecoveryVmkWrapperV1, VaultStoreDenied> {
     validate_store_identity(identity)?;
     parse_payload_header(
@@ -482,7 +503,7 @@ fn decode_recovery_wrapper(
         ciphertext: read_array::<32>(bytes, 104),
         tag: read_array::<16>(bytes, 136),
     };
-    validate_recovery_wrapper(&wrapper, identity.store_uuid, committed_record_version)?;
+    validate_recovery_wrapper(&wrapper, identity.store_uuid)?;
     Ok(wrapper)
 }
 
@@ -542,7 +563,6 @@ fn validate_secret_envelope(
 fn validate_recovery_wrapper(
     wrapper: &RecoveryVmkWrapperV1,
     store_uuid: [u8; 16],
-    committed_record_version: u64,
 ) -> Result<(), VaultStoreDenied> {
     if wrapper.version != RECOVERY_WRAPPER_VERSION {
         return Err(VaultStoreDenied::WrapperVersionUnsupported);
@@ -558,9 +578,6 @@ fn validate_recovery_wrapper(
         || wrapper.plaintext_len != 32
     {
         return Err(VaultStoreDenied::WrapperContextInvalid);
-    }
-    if wrapper.context.wrapper_generation != committed_record_version {
-        return Err(VaultStoreDenied::WrapperRecordVersionMismatch);
     }
     Ok(())
 }
@@ -715,7 +732,7 @@ mod tests {
         }
     }
 
-    fn wrapper(version: u64) -> RecoveryVmkWrapperV1 {
+    fn wrapper(version: u64, nonce: u8) -> RecoveryVmkWrapperV1 {
         RecoveryVmkWrapperV1 {
             version: RECOVERY_WRAPPER_VERSION,
             context: RecoveryKekContext {
@@ -726,7 +743,7 @@ mod tests {
                 policy_id_sha256: [0x51; 32],
             },
             plaintext_len: 32,
-            nonce: [0x61; 12],
+            nonce: [nonce; 12],
             ciphertext: [0x71; 32],
             tag: [0x81; 16],
         }
@@ -761,7 +778,7 @@ mod tests {
             .unwrap();
         assert!(matches!(decoded, DecodedVaultRecord::ProviderApiKey(_)));
 
-        let recovery_bytes = encode_recovery_wrapper(&wrapper(1)).unwrap();
+        let recovery_bytes = encode_recovery_wrapper(&wrapper(1, 0x61)).unwrap();
         let recovery_record = committed(
             VaultRecordId::RecoveryWrapper,
             2,
@@ -854,6 +871,54 @@ mod tests {
                 ReplayHistoryCompleteness::Complete
             ),
             Err(VaultStoreDenied::RetainedSecretNonceDuplicate)
+        ));
+    }
+
+    #[test]
+    fn wrapper_history_rejects_nonmonotonic_generation_and_duplicate_context() {
+        let generation_two = committed(
+            VaultRecordId::RecoveryWrapper,
+            1,
+            1,
+            encode_recovery_wrapper(&wrapper(2, 0x61)).unwrap().to_vec(),
+        );
+        let generation_one = committed(
+            VaultRecordId::RecoveryWrapper,
+            2,
+            2,
+            encode_recovery_wrapper(&wrapper(1, 0x62)).unwrap().to_vec(),
+        );
+        let nonmonotonic = [
+            ReplayVerifiedVaultRecord::from_committed(IDENTITY, &generation_two).unwrap(),
+            ReplayVerifiedVaultRecord::from_committed(IDENTITY, &generation_one).unwrap(),
+        ];
+        assert!(matches!(
+            reconstruct_retained_nonce_metadata(&nonmonotonic, ReplayHistoryCompleteness::Complete),
+            Err(VaultStoreDenied::NonceHistoryWrapperGenerationInvalid)
+        ));
+
+        let first = committed(
+            VaultRecordId::RecoveryWrapper,
+            1,
+            1,
+            encode_recovery_wrapper(&wrapper(1, 0x61)).unwrap().to_vec(),
+        );
+        let duplicate = committed(
+            VaultRecordId::RecoveryWrapper,
+            2,
+            2,
+            encode_recovery_wrapper(&wrapper(1, 0x61)).unwrap().to_vec(),
+        );
+        let duplicate_context = [
+            ReplayVerifiedVaultRecord::from_committed(IDENTITY, &first).unwrap(),
+            ReplayVerifiedVaultRecord::from_committed(IDENTITY, &duplicate).unwrap(),
+        ];
+        assert!(matches!(
+            reconstruct_retained_nonce_metadata(
+                &duplicate_context,
+                ReplayHistoryCompleteness::Complete
+            ),
+            Err(VaultStoreDenied::RetainedRecoveryWrapperNonceDuplicate)
         ));
     }
 }
