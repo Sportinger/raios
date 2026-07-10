@@ -2,6 +2,9 @@ use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
 use std::{env, fmt::Write as _, fs, path::PathBuf};
 
+#[path = "build/personal_shell_attestation.rs"]
+mod personal_shell_attestation;
+
 // Ordered repo-relative artifact source-set manifest; root first, then modules
 // in declaration order from seed-kernel/src/hello_service.rs.
 const HELLO_ARTIFACT_SOURCE_SET: &[&str] = &[
@@ -117,6 +120,20 @@ fn main() {
     println!("cargo:rerun-if-changed=descriptors/svc.demo.certspki.current_boot_load.p256.pub.hex");
     println!(
         "cargo:rerun-if-changed=descriptors/svc.demo.certspki.current_boot_load.p256.sig.der.hex"
+    );
+    println!("cargo:rerun-if-changed=build/personal_shell_attestation.rs");
+    println!("cargo:rerun-if-changed=artifacts/svc.user.shell.wasm");
+    println!("cargo:rerun-if-changed=descriptors/svc.user.shell.wasm_artifact_identity.desc");
+    println!(
+        "cargo:rerun-if-changed=descriptors/svc.user.shell.wasm_artifact_identity.p256.pub.hex"
+    );
+    println!(
+        "cargo:rerun-if-changed=descriptors/svc.user.shell.wasm_artifact_identity.p256.sig.der.hex"
+    );
+    println!("cargo:rerun-if-changed=descriptors/svc.user.shell.current_boot_load.desc");
+    println!("cargo:rerun-if-changed=descriptors/svc.user.shell.current_boot_load.p256.pub.hex");
+    println!(
+        "cargo:rerun-if-changed=descriptors/svc.user.shell.current_boot_load.p256.sig.der.hex"
     );
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
@@ -460,6 +477,7 @@ pub(crate) const HELLO_HOST_BOUND_DESCRIPTOR_SOURCE: &str = {};\n",
     attest_certwindow_wasm_artifact(&manifest_dir, &out_dir);
     attest_httphead_wasm_artifact(&manifest_dir, &out_dir);
     attest_certspki_wasm_artifact(&manifest_dir, &out_dir);
+    personal_shell_attestation::attest(&manifest_dir, &out_dir);
 }
 
 fn embed_marvell_wifi_firmware(manifest_dir: &std::path::Path, out_dir: &std::path::Path) {
@@ -1762,17 +1780,17 @@ fn frame_source_file(out: &mut Vec<u8>, path: &[u8], file_bytes: &[u8]) {
     out.push(b'\n');
 }
 
-fn read_hex_file(path: PathBuf) -> Vec<u8> {
+pub(crate) fn read_hex_file(path: PathBuf) -> Vec<u8> {
     parse_hex(fs::read_to_string(path).unwrap().trim()).unwrap()
 }
 
-fn verify_p256_signature(public_key: &[u8], signature_der: &[u8], payload: &[u8]) {
+pub(crate) fn verify_p256_signature(public_key: &[u8], signature_der: &[u8], payload: &[u8]) {
     let verifying_key = VerifyingKey::from_sec1_bytes(public_key).unwrap();
     let signature = Signature::from_der(signature_der).unwrap();
     verifying_key.verify(payload, &signature).unwrap();
 }
 
-fn text_field<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+pub(crate) fn text_field<'a>(text: &'a str, key: &str) -> Option<&'a str> {
     let mut found = None;
     for line in text.lines() {
         let line = line.trim();
@@ -1815,7 +1833,7 @@ fn hex_nibble(byte: u8) -> Result<u8, String> {
     }
 }
 
-fn sha256_hex(hash: &[u8]) -> String {
+pub(crate) fn sha256_hex(hash: &[u8]) -> String {
     let mut out = String::new();
     for byte in hash {
         write!(&mut out, "{:02x}", byte).unwrap();
@@ -1823,7 +1841,7 @@ fn sha256_hex(hash: &[u8]) -> String {
     out
 }
 
-fn rust_byte_array(bytes: &[u8]) -> String {
+pub(crate) fn rust_byte_array(bytes: &[u8]) -> String {
     let mut out = String::from("[");
     for (idx, byte) in bytes.iter().enumerate() {
         if idx != 0 {
@@ -1835,6 +1853,6 @@ fn rust_byte_array(bytes: &[u8]) -> String {
     out
 }
 
-fn rust_string(value: &str) -> String {
+pub(crate) fn rust_string(value: &str) -> String {
     format!("{:?}", value)
 }

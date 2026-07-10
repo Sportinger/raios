@@ -87,3 +87,71 @@ Add-Predicate -Name "genesis-ui:recovery-lifeline-available" -Expected "the reco
 if (-not $genesisLifelineOk) {
     throw "Expected Genesis recovery to bind the existing recovery lifeline"
 }
+
+Send-AgentCommand -Command "ui.personal_shell_proof" -ExpectedMarker "RAIOS_AGENT_END ui.personal_shell_proof" -Name "genesis-ui:personal-shell-proof"
+$personalShellResponse = Get-LastAgentResponseJson -Method "ui.personal_shell_proof"
+$personalShell = $personalShellResponse.body.result
+$personalShellImports = @($personalShell.authorized_imports | ForEach-Object { "$($_.module).$($_.name)" })
+$expectedPersonalShellImports = @(
+    "ui.viewport",
+    "ui.context_len",
+    "ui.context_read",
+    "ui.input_len",
+    "ui.input_read",
+    "ui.frame_submit"
+)
+$personalShellProofOk = (
+    $personalShell.schema -eq "raios.personal_shell_proof.v0" -and
+    $personalShell.scope -eq "current_boot" -and
+    $personalShell.classification -eq "local_only" -and
+    $personalShell.test_infrastructure -eq $true -and
+    $personalShell.non_default -eq $true -and
+    $personalShell.service_id -eq "svc.user.shell" -and
+    $personalShell.trust_tier -eq "dev_key_not_owner_sealed" -and
+    $personalShell.owner_sealed -eq $false -and
+    $personalShell.artifact_validation_ok -eq $true -and
+    $personalShell.authorized_import_count -eq 6 -and
+    $personalShell.linked_host_import_count -eq 6 -and
+    (($personalShellImports -join "|") -eq ($expectedPersonalShellImports -join "|")) -and
+    $personalShell.fuel_budget -eq 250000 -and
+    $personalShell.normal.accepted -eq $true -and
+    $personalShell.normal.instantiation_error_kind -eq "none" -and
+    $personalShell.normal.run_outcome -eq "success" -and
+    $personalShell.sanitized_input.accepted -eq $true -and
+    $personalShell.sanitized_input.instantiation_error_kind -eq "none" -and
+    $personalShell.sanitized_input.run_outcome -eq "success" -and
+    $personalShell.frame_changed_after_sanitized_input -eq $true -and
+    $personalShell.malformed_frame_rejected_atomically -eq $true -and
+    $personalShell.malformed_frame.instantiation_error_kind -eq "none" -and
+    $personalShell.malformed_frame.run_outcome -eq "frame_rejected" -and
+    $personalShell.clipped_overdraw_proved -eq $true -and
+    $personalShell.clipped_overdraw.instantiation_error_kind -eq "none" -and
+    $personalShell.guest_trap_rejected -eq $true -and
+    $personalShell.guest_trap.instantiation_error_kind -eq "none" -and
+    $personalShell.fuel_exhaustion_rejected -eq $true -and
+    $personalShell.fuel_exhaustion.instantiation_error_kind -eq "none" -and
+    $personalShell.missing_frame_submit_linker_denial -eq "linker_implementation_subset" -and
+    $personalShell.broader_import_denial -eq "personal_shell_import_superset" -and
+    $personalShell.generic_loader_used -eq $false -and
+    $personalShell.accepts_external_artifact_bytes -eq $false -and
+    $personalShell.authorizes_external_artifact_intake -eq $false -and
+    $personalShell.authorizes_arbitrary_shell_artifacts -eq $false -and
+    $personalShell.authorizes_persistent_install -eq $false -and
+    $personalShell.writes_persistent_state -eq $false -and
+    $personalShell.authorizes_provider_access -eq $false -and
+    $personalShell.authorizes_provider_export -eq $false -and
+    $personalShell.authorizes_secret_access -eq $false -and
+    $personalShell.authorizes_secret_plaintext -eq $false -and
+    $personalShell.authorizes_network_access -eq $false -and
+    $personalShell.authorizes_recovery_access -eq $false -and
+    $personalShell.authorizes_capability_decision -eq $false -and
+    $personalShell.authorizes_raw_framebuffer_access -eq $false -and
+    $personalShell.authorizes_broader_mutation -eq $false -and
+    $personalShell.persistent_service_install -eq $false -and
+    $personalShell.service_inventory_change -eq "none" -and
+    $personalShell.evidence_complete -eq $true
+)
+Add-Predicate -Name "genesis-ui:personal-shell-proof" -Expected "the signed current-boot personal shell renders through only six UI imports, rejects malformed/broader paths, and grants no broader authority" -Passed $personalShellProofOk -Actual $(if ($personalShellProofOk) { "artifact=$($personalShell.artifact_sha256) imports=$($personalShell.authorized_import_count)" } else { ($personalShell | ConvertTo-Json -Compress -Depth 6) })
+if (-not $personalShellProofOk) {
+    throw "Expected the signed bounded personal-shell proof path to hold every I2 boundary"
+}

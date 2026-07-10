@@ -24,21 +24,56 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (I2/G3 personal-shell authority join): ADR 0013 restores
-the lost descriptor-signing process as a tracked standalone host tool. Its host
-test proves that a fresh P-256 public-key/DER-signature tuple verifies exact
-descriptor bytes and rejects altered bytes. The tool grants only local
-`dev_key_not_owner_sealed` provenance: no OTA, runtime, loader, provider,
-promotion, persistence, or owner-sealed authority. I2 may now create and
-explicitly sign the two `svc.user.shell` current-boot proof descriptors through
-that tool, then join only the already-approved exact six `ui.*` imports to the
-validated display-list path; the normal release must still say `Personal shell:
-not created`. C4/I3 may not gain Vault set, unlock, decrypt, plaintext-use,
+Current exact next task (AB/G4 personal-shell lifecycle): activate the now-verified
+signed `svc.user.shell` proof only through one shared typed diagnostic starter,
+then let Genesis enter it, route one sanitized input event, intercept F12 before
+guest delivery, and fall back to Genesis after a trap or fuel failure. Keep the
+secure strip core-owned and rendered after every personal frame; the proof remains
+non-default/current-boot test infrastructure and the release must still say
+`Personal shell: not created`. Only dynamic inventory may show it while a real
+instance is active. C4/I3 may not gain Vault set, unlock, decrypt, plaintext-use,
 WiFi/provider use, audit, physical-target, or durable-credential authority before
 its separate Sol review and named join. Disk 2 is unplugged; do not write a
 physical disk. The separate bare-metal WiFi proof remains pending for the owner's
 return: capture `LINK`, association/AID, `PORT_RELEASE`, RX/TX, and DHCP evidence
 before provider access is claimed.
+
+VM failure classification (2026-07-10, I2 first Genesis UI profile) - report
+`release/vm-reports/shadow-20260710-120551-14196.json` failed predicate
+`protocol:system_honesty_report_standing_posture` with
+`serial_transport_failure:null`. Verdict: `host-transport` - the emitted
+`known_host_import_count` was 11 while its projected list still contained only
+the former two imports because the build used a lane-local `CARGO_TARGET_DIR`
+but `package-stage0.ps1` copied the stale hard-coded default-target kernel.
+QEMU therefore booted an old image, not the current projection. Rebuild and
+package through the repository-default target before the one permitted focused-
+profile retry.
+
+VM failure classification (2026-07-10, I2 packaged Genesis UI retry) - report
+`release/vm-reports/shadow-20260710-121027-10556.json` failed predicate
+`genesis-ui:personal-shell-proof` with `serial_transport_failure:null`.
+Verdict: `guest-behavior` - artifact and descriptor evidence, the exact six-import
+grant, and both evaluator denials were positive, but all six real proof calls
+returned `instantiation_failed` before consuming fuel. The next repair must retain
+and classify the concrete Wasmi link/instantiation error; do not weaken the proof
+predicate or retry before that exact boundary is diagnosed.
+
+I2/G3 signed personal-shell authority completed (2026-07-10) - an agent can now
+run exactly the checked-in, explicitly signed `svc.user.shell` Wasm proof in a
+fresh metered instance with only `ui.viewport`, `ui.context_len`,
+`ui.context_read`, `ui.input_len`, `ui.input_read`, and `ui.frame_submit` linked.
+The immutable V1 context/input packets contain no strings, pointers, or secrets;
+only a bounded validated/clipped display-list frame can return. Build-time
+attestation verifies both P-256 descriptor signatures and raw artifact bindings.
+The runtime admits the proof's one fixed two-element table, not a general table
+surface, after the classified initial `table_count_limit_exceeded` denial. Malformed
+frames, overdraw, traps, fuel exhaustion, missing linker implementation, and a
+broader import request remain observable failures; no loader, external artifact,
+framebuffer, secret, network, provider, recovery, persistence, or mutation
+authority is granted. Verified: `cargo test --locked --offline -p raios-core`
+passed 392/392; release build/package passed; focused
+`release/vm-reports/shadow-20260710-121953-4964.json` passed. The default release
+does not load or inventory the proof service.
 
 Genesis shell architecture contract accepted (I0/G0, 2026-07-10) - build agents
 can now implement the universal core-owned Genesis/recovery surface and the

@@ -287,6 +287,19 @@
         throw "Expected system.honesty_report provider/time subrecords to match existing live honesty labels"
     }
     $honestyKnownImports = @($honestyReport.wasm_import_surface.known_host_imports)
+    $expectedHonestyKnownImports = @(
+        "env.log",
+        "env.counter_get",
+        "env.input_len",
+        "env.input_read",
+        "env.output_write",
+        "ui.viewport",
+        "ui.context_len",
+        "ui.context_read",
+        "ui.input_len",
+        "ui.input_read",
+        "ui.frame_submit"
+    )
     $honestyStandingPosture = (
         $honestyReport.cert_time_validation.validates_cert_time -eq $false -and
         $honestyReport.cert_time_validation.basis -eq "unverified" -and
@@ -297,9 +310,9 @@
         $honestyReport.provider_export.provider_write -eq "not_attempted" -and
         $honestyReport.wasm_import_surface.capability_envelope -eq "wasmi_linker_import_surface" -and
         $honestyReport.wasm_import_surface.per_instance_linker_enforced -eq $true -and
-        $honestyKnownImports.Count -eq 2 -and
-        $honestyKnownImports[0] -eq "env.log" -and
-        $honestyKnownImports[1] -eq "env.counter_get" -and
+        $honestyKnownImports.Count -eq $expectedHonestyKnownImports.Count -and
+        (($honestyKnownImports -join "|") -eq ($expectedHonestyKnownImports -join "|")) -and
+        $honestyReport.wasm_import_surface.known_host_import_count -eq $expectedHonestyKnownImports.Count -and
         $honestyReport.wasm_import_surface.authorizes_new_imports -eq $false -and
         $honestyReport.wasm_import_surface.authorizes_beyond_env -eq $false -and
         $honestyReport.wasm_import_surface.report_grants_authority -eq $false -and

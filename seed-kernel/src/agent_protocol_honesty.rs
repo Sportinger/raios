@@ -257,7 +257,19 @@ fn wasm_import_surface_record() -> V<'static> {
         f("per_instance_linker_enforced", b(true)),
         f(
             "known_host_imports",
-            record_static_str_array(&["env.log", "env.counter_get"]),
+            record_static_str_array(&[
+                "env.log",
+                "env.counter_get",
+                "env.input_len",
+                "env.input_read",
+                "env.output_write",
+                "ui.viewport",
+                "ui.context_len",
+                "ui.context_read",
+                "ui.input_len",
+                "ui.input_read",
+                "ui.frame_submit",
+            ]),
         ),
         f(
             "known_host_import_count",

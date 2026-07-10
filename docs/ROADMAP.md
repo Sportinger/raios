@@ -80,8 +80,13 @@ Sol review. The owner accepted ADR 0013 after the ignored local signer was lost;
 its tracked `descriptor-resign` tool is host-tested for exact raw-byte P-256
 sign/verify and altered-byte rejection. It supplies only explicit
 `dev_key_not_owner_sealed` descriptor provenance and does not unpark OTA or grant
-runtime authority. I2 may now create and sign its two proof descriptors; I3/G5.4
-remains independently review-gated.
+runtime authority. **I2/G3 is now verified**: the signed `svc.user.shell` proof
+runs in a fresh metered Wasm instance through only its six listed `ui.*` imports;
+focused `shadow-20260710-121953-4964.json` passed. It is current-boot test
+infrastructure only: no general loader, external artifact intake, secret, network,
+provider, recovery, persistence, or mutation authority is open. The next Genesis
+join is AB/G4 lifecycle/F12/trap fallback; I3/G5.4 remains independently
+review-gated.
 
 **M11 Kernel Slimming progress (all grants-nothing / strictly-more-restrictive,
 committed):** M11-1 kernel internet-parsing SURFACE baseline (the measurably-

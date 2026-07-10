@@ -29,10 +29,11 @@ Owner-key status: RAM boot still creates only a secret RAM-only
 `current_boot` owner-key candidate. Persistent owner seal/install/load/durable
 authority remains denied until the real sealing ceremony.
 
-Genesis status: A0/B0, A1 and A2 core interaction are verified. The inspected
-no-secret 1280x800 capture is `target/captures/genesis-shell-a2.png`; the release
-still says Personal shell not created and Vault not configured. The proof personal
-shell remains unlinked test infrastructure.
+Genesis status: A0/B0, A1, A2 and I2/G3 are verified. The signed personal-shell
+proof now runs only on its exact six bounded UI imports in a fresh metered Wasm
+instance (`shadow-20260710-121953-4964.json` passed); it remains non-default test
+infrastructure. The release still says Personal shell not created and Vault not
+configured.
 
 Vault/store status: C1 is now proven end-to-end on a fresh dedicated QEMU image:
 exact GPT admission, blank format, dual superblock readback, real ATA flush,
@@ -45,10 +46,11 @@ foundation adds readback-verified keyring restore, typed ciphertext records, and
 complete-history-only nonce reconstruction; no Vault set/unlock/decrypt, plaintext
 lease, WiFi/provider use, audit, or physical-target path is wired.
 
-Latest proof: focused Genesis UI `shadow-20260710-034302-30252.json` 181/181,
-release package, and inspected safe no-secret Genesis capture. C1's structured-
-store QEMU proof remains 9/9. The latest quick Shadow VM remains the unchanged
-`shadow-20260710-024402-2584.json` 542/542 baseline.
+Latest proof: focused Genesis UI `shadow-20260710-121953-4964.json` passed with
+the signed six-import personal-shell proof, release package, and inspected safe
+no-secret Genesis capture. C1's structured-store QEMU proof remains 9/9. The latest
+quick Shadow VM remains the unchanged `shadow-20260710-024402-2584.json` 542/542
+baseline.
 
 Gate status: latest full profile remains green at
 `shadow-20260708-150428-34396.json` 7867/7867. This slice used its focused
@@ -58,10 +60,7 @@ Latest C4 proof: release build plus focused structured-store regression
 `shadow-20260710-040559-24348.json` passed 9/9 with zero failures; it does not arm
 Vault authority.
 
-Next task: ADR 0013 restores a small tracked descriptor signer after the ignored
-local helper was lost. Its host test accepts exact bytes and rejects altered bytes;
-it is local `dev_key_not_owner_sealed` provenance only, not OTA or runtime
-authority. I2/G3 can now sign its two proof descriptors and integrate the six
-approved UI imports. The Vault/Broker join remains separately Sol-review-gated.
-Disk 2 stays untouched until the owner returns; do not claim provider access or
-durable secrets before evidence.
+Next task: G4 activates the verified proof through one shared current-boot starter,
+adds F12 and trap/fuel fallback to Genesis, and keeps the secure strip above the
+personal frame. The Vault/Broker join remains separately Sol-review-gated. Disk 2
+stays untouched; do not claim provider access or durable secrets before evidence.

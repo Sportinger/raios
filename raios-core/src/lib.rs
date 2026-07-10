@@ -23,6 +23,7 @@ pub mod marvell_wifi_supplicant;
 pub mod memory_record;
 pub mod memory_record_resolve;
 pub mod owner_key_tpm2;
+pub mod personal_shell_abi;
 pub mod promotion_attestation;
 pub mod provider_trust_descriptor;
 pub mod record;

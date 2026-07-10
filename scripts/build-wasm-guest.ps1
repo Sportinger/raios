@@ -2,7 +2,7 @@
 param(
     [ValidateSet("release")]
     [string]$Profile = "release",
-    [ValidateSet("svc-demo-echo", "svc-demo-bufecho", "svc-demo-certwindow", "svc-demo-httphead", "svc-demo-certspki")]
+    [ValidateSet("svc-demo-echo", "svc-demo-bufecho", "svc-demo-certwindow", "svc-demo-httphead", "svc-demo-certspki", "svc-personal-shell-proof")]
     [string]$Guest = "svc-demo-echo"
 )
 
@@ -35,10 +35,15 @@ $guestConfig = @{
         Built = "svc_demo_certspki.wasm"
         Artifact = "svc.demo.certspki.wasm"
     }
+    "svc-personal-shell-proof" = @{
+        Manifest = "wasm-guests\svc-personal-shell-proof\Cargo.toml"
+        Built = "svc_personal_shell_proof.wasm"
+        Artifact = "svc.user.shell.wasm"
+    }
 }[$Guest]
 
 $manifest = Join-Path $repoRoot $guestConfig.Manifest
-$targetDir = Join-Path $repoRoot "target\m4-3-debug\wasm-guest-target"
+$targetDir = Join-Path $repoRoot "target\lanes\$Guest\wasm-guest-target"
 $artifactDir = Join-Path $repoRoot "seed-kernel\artifacts"
 $artifactPath = Join-Path $artifactDir $guestConfig.Artifact
 $nightlyRustc = Join-Path $env:USERPROFILE ".rustup\toolchains\nightly-2024-10-15-x86_64-pc-windows-msvc\bin\rustc.exe"

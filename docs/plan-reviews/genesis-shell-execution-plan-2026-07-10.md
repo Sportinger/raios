@@ -18,9 +18,14 @@ credential authority. I2/G3 passed its required Sol review. After the original
 ignored local signer was lost, the owner accepted ADR 0013 and its tracked
 `descriptor-resign` host tool now proves raw-byte P-256 sign/verify with an
 altered-byte rejection. It remains explicit local `dev_key_not_owner_sealed`
-provenance, not OTA or runtime authority. I3/G5.4 is independently review-gated.
-Runtime secret and personal-shell authority remain unclaimed until their named
-integration and evidence land.
+provenance, not OTA or runtime authority. I2/G3 is now verified by
+`shadow-20260710-121953-4964.json`: the exact signed `svc.user.shell` proof
+executes in one fresh metered Wasm instance through only the six specified `ui.*`
+imports, with bounded validated display-list return, malformed/trap/fuel negatives,
+and no loader, persistence, secret, network, provider, recovery, or broad mutation
+authority. It remains non-default current-boot test infrastructure; AB/G4 owns
+lifecycle, F12 and crash fallback. I3/G5.4 is independently review-gated. Runtime
+secret authority remains unclaimed until its named integration and evidence land.
 
 Target orchestrator: Codex 5.6, reasoning effort `xhigh`
 
