@@ -76,9 +76,11 @@ physical Genesis input can save encrypted OpenAI and exact-SSID/BSSID-bound WPA2
 credentials on the disposable QEMU C1 store; after reboot/replay and RR1 unlock, each
 reaches only its exact one-use consumer after a durable `local_only` pre-use audit.
 Wrong-BSSID and auditless WiFi use deny. The report does not prove a live provider
-request, association/link/`PORT_RELEASE`/DHCP, physical persistence, forget/SAFE
-behavior or TPM auto-unlock. I3/G5.4 remains open on the remaining forget/SAFE actions
-and G5.5 evidence.
+request, association/link/`PORT_RELEASE`/DHCP, physical persistence, SAFE behavior or
+TPM auto-unlock. The physical two-confirmation forget path is now green in
+`shadow-20260710-195715-22816.json` (78/78): both fixed slots append/readback/replay
+version-2 tombstones across a third boot and deny as `secret_forgotten` before audit or
+consumer use. I3/G5.4 remains open on SAFE explicit reconnect and G5.5 evidence.
 
 **Genesis execution progress (A1/C3, 2026-07-10):** the normal release image
 now starts in the core-owned Genesis shell (Conversation, Context, Composer,
@@ -114,8 +116,8 @@ AB/G4 join is now verified by `shadow-20260710-124838-24564.json` (206/206): the
 non-default proof enters the clipped core-owned surface, accepts sanitized input,
 leaves through core-only F12, falls back after trap/fuel, and never changes the
 secure-strip pixels. Its current-boot inventory row exists only while active. The
-I3/G5.4 provider and contained WiFi-use halves are verified by the focused 56/56
-report above; forget/SAFE and G5.5 remain independently gated.
+I3/G5.4 provider, contained WiFi-use and physical forget paths are verified by the
+focused reports above; SAFE reconnect and G5.5 remain independently gated.
 
 **M11 Kernel Slimming progress (all grants-nothing / strictly-more-restrictive,
 committed):** M11-1 kernel internet-parsing SURFACE baseline (the measurably-

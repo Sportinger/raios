@@ -68,6 +68,7 @@ pub(crate) enum VaultFacadeDenied {
     RecoveryStore(crate::structured_store_c1::RecoveryWrapperStoreDenied),
     ProviderStore(crate::structured_store_c1::ProviderSecretStoreDenied),
     WifiStore(crate::structured_store_c1::WifiSecretStoreDenied),
+    TombstoneStore(crate::structured_store_c1::VaultTombstoneStoreDenied),
     Broker(VaultBrokerDenied),
     Audit(ProviderUseAuditDenied),
     WifiAudit(WifiUseAuditDenied),
@@ -103,6 +104,7 @@ impl VaultFacadeDenied {
             Self::RecoveryStore(_) => "recovery_store_denied",
             Self::ProviderStore(_) => "provider_store_denied",
             Self::WifiStore(_) => "wifi_store_denied",
+            Self::TombstoneStore(_) => "vault_tombstone_store_denied",
             Self::Broker(_) => "broker_denied",
             Self::Audit(error) => error.reason(),
             Self::WifiAudit(error) => error.reason(),
@@ -732,6 +734,136 @@ pub(crate) fn save_or_replace_provider(
     Ok(status)
 }
 
+/// Appends the fixed WiFi-slot tombstone from a trusted Genesis action. Old
+/// media cells are not claimed erased; only the newest replayed state becomes
+/// `Forgotten`. Any uncertain I/O outcome disables further WiFi mutation/use
+/// for this boot.
+pub(crate) fn forget_wifi() -> Result<VaultBrokerStatus, VaultFacadeDenied> {
+    let (region, expected_version, proposed_version, previous_record_hash) = {
+        let mut runtime = RUNTIME.lock();
+        if runtime.wifi_write_outcome_uncertain {
+            return Err(VaultFacadeDenied::PersistenceOutcomeUncertain);
+        }
+        if !runtime.replay_loaded {
+            return Err(VaultFacadeDenied::HistoryLocked);
+        }
+        let expected_version = match runtime.broker.status().wifi {
+            VaultSecretStatus::Available { record_version, .. } => record_version,
+            VaultSecretStatus::Missing => {
+                return Err(VaultFacadeDenied::Broker(VaultBrokerDenied::SecretMissing));
+            }
+            VaultSecretStatus::Forgotten { .. } => {
+                return Err(VaultFacadeDenied::Broker(
+                    VaultBrokerDenied::SecretForgotten,
+                ));
+            }
+        };
+        let intent = runtime
+            .broker
+            .forget_wifi(broker::VaultMutation::genesis_secure_overlay())
+            .map_err(VaultFacadeDenied::Broker)?;
+        let region = runtime.region.ok_or(VaultFacadeDenied::HistoryLocked)?;
+        runtime.wifi_write_outcome_uncertain = true;
+        (
+            region,
+            expected_version,
+            intent.record_version,
+            intent.previous_record_hash,
+        )
+    };
+
+    let replay = crate::structured_store_c1::commit_wifi_tombstone(
+        region,
+        expected_version,
+        proposed_version,
+        previous_record_hash,
+    )
+    .map_err(VaultFacadeDenied::TombstoneStore)?;
+    let _ = load_verified_replay(&replay)?;
+
+    let mut runtime = RUNTIME.lock();
+    let status = runtime.broker.status();
+    if runtime.region != Some(region)
+        || status.wifi
+            != (VaultSecretStatus::Forgotten {
+                record_version: proposed_version,
+            })
+        || !runtime.wifi_write_outcome_uncertain
+    {
+        return Err(VaultFacadeDenied::PersistenceOutcomeUncertain);
+    }
+    runtime.wifi_write_outcome_uncertain = false;
+    serial::write_fmt(format_args!(
+        "VAULT_WIFI_FORGOTTEN version={} readback=verified\r\n",
+        proposed_version
+    ));
+    Ok(status)
+}
+
+/// Provider-slot counterpart to `forget_wifi`; it has the same exact-C1,
+/// append/readback/full-replay and uncertain-outcome rules.
+pub(crate) fn forget_provider() -> Result<VaultBrokerStatus, VaultFacadeDenied> {
+    let (region, expected_version, proposed_version, previous_record_hash) = {
+        let mut runtime = RUNTIME.lock();
+        if runtime.provider_write_outcome_uncertain {
+            return Err(VaultFacadeDenied::PersistenceOutcomeUncertain);
+        }
+        if !runtime.replay_loaded {
+            return Err(VaultFacadeDenied::HistoryLocked);
+        }
+        let expected_version = match runtime.broker.status().provider {
+            VaultSecretStatus::Available { record_version, .. } => record_version,
+            VaultSecretStatus::Missing => {
+                return Err(VaultFacadeDenied::Broker(VaultBrokerDenied::SecretMissing));
+            }
+            VaultSecretStatus::Forgotten { .. } => {
+                return Err(VaultFacadeDenied::Broker(
+                    VaultBrokerDenied::SecretForgotten,
+                ));
+            }
+        };
+        let intent = runtime
+            .broker
+            .forget_provider(broker::VaultMutation::genesis_secure_overlay())
+            .map_err(VaultFacadeDenied::Broker)?;
+        let region = runtime.region.ok_or(VaultFacadeDenied::HistoryLocked)?;
+        runtime.provider_write_outcome_uncertain = true;
+        (
+            region,
+            expected_version,
+            intent.record_version,
+            intent.previous_record_hash,
+        )
+    };
+
+    let replay = crate::structured_store_c1::commit_provider_tombstone(
+        region,
+        expected_version,
+        proposed_version,
+        previous_record_hash,
+    )
+    .map_err(VaultFacadeDenied::TombstoneStore)?;
+    let _ = load_verified_replay(&replay)?;
+
+    let mut runtime = RUNTIME.lock();
+    let status = runtime.broker.status();
+    if runtime.region != Some(region)
+        || status.provider
+            != (VaultSecretStatus::Forgotten {
+                record_version: proposed_version,
+            })
+        || !runtime.provider_write_outcome_uncertain
+    {
+        return Err(VaultFacadeDenied::PersistenceOutcomeUncertain);
+    }
+    runtime.provider_write_outcome_uncertain = false;
+    serial::write_fmt(format_args!(
+        "VAULT_PROVIDER_FORGOTTEN version={} readback=verified\r\n",
+        proposed_version
+    ));
+    Ok(status)
+}
+
 /// The only production WiFi-secret consumer entrypoint. It performs exact
 /// target/store/core checks, commits the metadata-only pre-use audit, rechecks
 /// all state, then consumes the one-use lease directly into the NXP command.
@@ -786,6 +918,37 @@ pub(crate) fn run_contained_qemu_wifi_consumer_test() -> Result<(), VaultFacadeD
     }
     serial::write_line(
         "VAULT_WIFI_CONTAINED_CONSUMED target=bound_bss accepted=true test_infrastructure=true",
+    );
+    Ok(())
+}
+
+/// Exact-C1 reboot proof that both tombstoned slots deny before audit or
+/// decrypt. It is callable only from the physical Genesis unlock flow and
+/// emits no consumer-success marker.
+pub(crate) fn run_contained_qemu_forgotten_denial_test() -> Result<(), VaultFacadeDenied> {
+    let region = RUNTIME
+        .lock()
+        .region
+        .ok_or(VaultFacadeDenied::HistoryLocked)?;
+    crate::structured_store_c1::revalidate_qemu_store_identity(region)
+        .map_err(VaultFacadeDenied::ProviderStore)?;
+
+    match current_provider_use_facts() {
+        Err(VaultFacadeDenied::Broker(VaultBrokerDenied::SecretForgotten)) => {}
+        Err(error) => return Err(error),
+        Ok(_) => return Err(VaultFacadeDenied::ContainedProviderValidationFailed),
+    }
+    serial::write_line(
+        "VAULT_PROVIDER_FORGOTTEN_USE_DENIED reason=secret_forgotten test_infrastructure=true",
+    );
+
+    match current_wifi_use_facts(CONTAINED_WIFI_SSID, CONTAINED_WIFI_BSSID) {
+        Err(VaultFacadeDenied::Broker(VaultBrokerDenied::SecretForgotten)) => {}
+        Err(error) => return Err(error),
+        Ok(_) => return Err(VaultFacadeDenied::ContainedWifiValidationFailed),
+    }
+    serial::write_line(
+        "VAULT_WIFI_FORGOTTEN_USE_DENIED reason=secret_forgotten test_infrastructure=true",
     );
     Ok(())
 }
@@ -1039,8 +1202,13 @@ fn current_provider_use_facts(
             record_version,
             key_epoch,
         } => (record_version, key_epoch),
-        VaultSecretStatus::Missing | VaultSecretStatus::Forgotten { .. } => {
+        VaultSecretStatus::Missing => {
             return Err(VaultFacadeDenied::Broker(VaultBrokerDenied::SecretMissing));
+        }
+        VaultSecretStatus::Forgotten { .. } => {
+            return Err(VaultFacadeDenied::Broker(
+                VaultBrokerDenied::SecretForgotten,
+            ));
         }
     };
     Ok((region, policy, record_version, key_epoch))

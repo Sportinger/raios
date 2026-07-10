@@ -24,6 +24,11 @@ enum Mode {
     Showing(secret_vault::RecoveryKeyDisplay),
     Confirming(secret_vault::RecoveryKeyConfirmation),
     Unlocking,
+    Managing(ManageAction),
+    ConfirmingForget {
+        target: ForgetTarget,
+        selected: ConfirmAction,
+    },
     ProviderEntry,
     WifiTestEntry,
     Outcome(Outcome),
@@ -35,9 +40,30 @@ enum Phase {
     Showing,
     Confirming,
     Unlocking,
+    Managing,
+    ConfirmingForget,
     ProviderEntry,
     WifiTestEntry,
     Outcome,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ManageAction {
+    ForgetProvider,
+    ForgetWifi,
+    Close,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ConfirmAction {
+    Cancel,
+    Forget,
+}
+
+#[derive(Clone, Copy)]
+enum ForgetTarget {
+    Provider,
+    Wifi,
 }
 
 #[derive(Clone, Copy)]
@@ -52,6 +78,10 @@ enum Outcome {
     WifiTestSaved,
     WifiTestRejected,
     WifiTestUnavailable,
+    ProviderForgotten,
+    ProviderForgetRejected,
+    WifiForgotten,
+    WifiForgetRejected,
 }
 
 /// Core-owned controller. Its only ingress is `ShellHost` physical input.
@@ -102,7 +132,10 @@ impl VaultFlow {
                 serial::write_line("VAULT_RECOVERY_UNLOCK_READY");
                 Mode::Unlocking
             }
-            secret_vault::VaultRecoveryState::Unlocked => Mode::Outcome(Outcome::Unlocked),
+            secret_vault::VaultRecoveryState::Unlocked => {
+                serial::write_line("VAULT_MANAGE_READY");
+                Mode::Managing(ManageAction::Close)
+            }
             secret_vault::VaultRecoveryState::Unavailable
             | secret_vault::VaultRecoveryState::AwaitingConfirmation
             | secret_vault::VaultRecoveryState::PersistenceOutcomeUncertain => {
@@ -201,6 +234,48 @@ impl VaultFlow {
                     ) => {}
                 }
             }
+            Phase::Managing => {
+                let Some(value) = input::event_to_console_input(event) else {
+                    return true;
+                };
+                match value {
+                    input::ConsoleInput::Special(
+                        input::SpecialKey::Tab | input::SpecialKey::Right | input::SpecialKey::Down,
+                    ) => self.move_manage_selection(true),
+                    input::ConsoleInput::Special(
+                        input::SpecialKey::BackTab
+                        | input::SpecialKey::Left
+                        | input::SpecialKey::Up,
+                    ) => self.move_manage_selection(false),
+                    input::ConsoleInput::Special(input::SpecialKey::Enter) => {
+                        self.activate_manage_selection()
+                    }
+                    input::ConsoleInput::Special(input::SpecialKey::Escape) => self.cancel(),
+                    input::ConsoleInput::Byte(_) => {}
+                }
+            }
+            Phase::ConfirmingForget => {
+                let Some(value) = input::event_to_console_input(event) else {
+                    return true;
+                };
+                match value {
+                    input::ConsoleInput::Special(
+                        input::SpecialKey::Tab
+                        | input::SpecialKey::Right
+                        | input::SpecialKey::Down
+                        | input::SpecialKey::BackTab
+                        | input::SpecialKey::Left
+                        | input::SpecialKey::Up,
+                    ) => self.toggle_confirmation_selection(),
+                    input::ConsoleInput::Special(input::SpecialKey::Enter) => {
+                        self.activate_confirmation_selection()
+                    }
+                    input::ConsoleInput::Special(input::SpecialKey::Escape) => {
+                        self.return_to_manage()
+                    }
+                    input::ConsoleInput::Byte(_) => {}
+                }
+            }
             Phase::Outcome => {
                 if is_pressed_key(event, 28) || is_pressed_key(event, 1) {
                     self.close();
@@ -215,19 +290,48 @@ impl VaultFlow {
         if !self.is_active() {
             return false;
         }
-        let (primary, cancel) = action_rects(rect_from_layout(layout.trusted_overlay));
-        if point_in(x, y, primary) {
-            match self.phase() {
-                Phase::Showing => self.begin_confirmation(),
-                Phase::Confirming
-                | Phase::Unlocking
-                | Phase::ProviderEntry
-                | Phase::WifiTestEntry => self.submit(),
-                Phase::Outcome => self.close(),
-                Phase::Closed => {}
+        let rect = rect_from_layout(layout.trusted_overlay);
+        match self.phase() {
+            Phase::Managing => {
+                for (index, action) in manage_action_rects(rect).iter().copied().enumerate() {
+                    if point_in(x, y, action) {
+                        self.mode = Mode::Managing(match index {
+                            0 => ManageAction::ForgetProvider,
+                            1 => ManageAction::ForgetWifi,
+                            _ => ManageAction::Close,
+                        });
+                        self.activate_manage_selection();
+                        break;
+                    }
+                }
             }
-        } else if point_in(x, y, cancel) {
-            self.cancel();
+            Phase::ConfirmingForget => {
+                let (cancel, forget) = action_rects(rect);
+                if point_in(x, y, cancel) {
+                    self.return_to_manage();
+                } else if point_in(x, y, forget) {
+                    if let Mode::ConfirmingForget { selected, .. } = &mut self.mode {
+                        *selected = ConfirmAction::Forget;
+                    }
+                    self.activate_confirmation_selection();
+                }
+            }
+            phase => {
+                let (primary, cancel) = action_rects(rect);
+                if point_in(x, y, primary) {
+                    match phase {
+                        Phase::Showing => self.begin_confirmation(),
+                        Phase::Confirming
+                        | Phase::Unlocking
+                        | Phase::ProviderEntry
+                        | Phase::WifiTestEntry => self.submit(),
+                        Phase::Outcome => self.close(),
+                        Phase::Closed | Phase::Managing | Phase::ConfirmingForget => {}
+                    }
+                } else if point_in(x, y, cancel) {
+                    self.cancel();
+                }
+            }
         }
         true
     }
@@ -251,6 +355,10 @@ impl VaultFlow {
             }
             Mode::Confirming(_) => self.draw_entry(surface, rect, false),
             Mode::Unlocking => self.draw_entry(surface, rect, true),
+            Mode::Managing(selected) => draw_manage(surface, rect, *selected),
+            Mode::ConfirmingForget { target, selected } => {
+                draw_forget_confirmation(surface, rect, *target, *selected)
+            }
             Mode::ProviderEntry => self.draw_provider_entry(surface, rect),
             Mode::WifiTestEntry => self.draw_wifi_test_entry(surface, rect),
             Mode::Outcome(outcome) => draw_outcome(surface, rect, *outcome),
@@ -291,7 +399,7 @@ impl VaultFlow {
         match secret_vault::recovery_state() {
             secret_vault::VaultRecoveryState::ReadyToProvision => "Set up Secret Vault",
             secret_vault::VaultRecoveryState::Locked => "Unlock Secret Vault",
-            secret_vault::VaultRecoveryState::Unlocked => "Secret Vault ready",
+            secret_vault::VaultRecoveryState::Unlocked => "Manage Secret Vault",
             secret_vault::VaultRecoveryState::Unavailable
             | secret_vault::VaultRecoveryState::AwaitingConfirmation
             | secret_vault::VaultRecoveryState::PersistenceOutcomeUncertain => {
@@ -407,6 +515,23 @@ impl VaultFlow {
                         return;
                     }
                 }
+                if matches!(
+                    secret_vault::provider_status(),
+                    secret_vault::VaultSecretStatus::Forgotten { .. }
+                ) && matches!(
+                    secret_vault::wifi_status(),
+                    secret_vault::VaultSecretStatus::Forgotten { .. }
+                ) && secret_vault::contained_qemu_wifi_test_available()
+                {
+                    if let Err(error) = secret_vault::run_contained_qemu_forgotten_denial_test() {
+                        serial::write_fmt(format_args!(
+                            "VAULT_FORGOTTEN_DENIAL_TEST_REJECTED reason={} test_infrastructure=true\r\n",
+                            error.recovery_reason()
+                        ));
+                        self.mode = Mode::Outcome(Outcome::Rejected);
+                        return;
+                    }
+                }
                 serial::write_line("VAULT_RR1_UNLOCKED");
                 self.mode = Mode::Outcome(Outcome::Unlocked);
             }
@@ -473,6 +598,108 @@ impl VaultFlow {
             serial::write_line("VAULT_WIFI_SECRET_REJECTED test_infrastructure=true");
             self.mode = Mode::Outcome(Outcome::WifiTestRejected);
         }
+    }
+
+    fn move_manage_selection(&mut self, forward: bool) {
+        if let Mode::Managing(selected) = &mut self.mode {
+            *selected = match (*selected, forward) {
+                (ManageAction::ForgetProvider, true) | (ManageAction::Close, false) => {
+                    ManageAction::ForgetWifi
+                }
+                (ManageAction::ForgetWifi, true) => ManageAction::Close,
+                (ManageAction::ForgetWifi, false) => ManageAction::ForgetProvider,
+                (ManageAction::Close, true) => ManageAction::ForgetProvider,
+                (ManageAction::ForgetProvider, false) => ManageAction::Close,
+            };
+        }
+    }
+
+    fn activate_manage_selection(&mut self) {
+        let selected = match &self.mode {
+            Mode::Managing(selected) => *selected,
+            _ => return,
+        };
+        match selected {
+            ManageAction::ForgetProvider => {
+                serial::write_line("VAULT_PROVIDER_FORGET_CONFIRM_READY");
+                self.mode = Mode::ConfirmingForget {
+                    target: ForgetTarget::Provider,
+                    selected: ConfirmAction::Cancel,
+                };
+            }
+            ManageAction::ForgetWifi => {
+                serial::write_line("VAULT_WIFI_FORGET_CONFIRM_READY");
+                self.mode = Mode::ConfirmingForget {
+                    target: ForgetTarget::Wifi,
+                    selected: ConfirmAction::Cancel,
+                };
+            }
+            ManageAction::Close => self.close(),
+        }
+    }
+
+    fn toggle_confirmation_selection(&mut self) {
+        if let Mode::ConfirmingForget { selected, .. } = &mut self.mode {
+            *selected = match selected {
+                ConfirmAction::Cancel => ConfirmAction::Forget,
+                ConfirmAction::Forget => ConfirmAction::Cancel,
+            };
+        }
+    }
+
+    fn activate_confirmation_selection(&mut self) {
+        let (target, selected) = match &self.mode {
+            Mode::ConfirmingForget { target, selected } => (*target, *selected),
+            _ => return,
+        };
+        if selected == ConfirmAction::Cancel {
+            self.return_to_manage();
+            return;
+        }
+        match target {
+            ForgetTarget::Provider => match secret_vault::forget_provider() {
+                Ok(_) => {
+                    provider_config::clear_api_key();
+                    self.mode = Mode::Outcome(Outcome::ProviderForgotten);
+                }
+                Err(error) => {
+                    serial::write_fmt(format_args!(
+                        "VAULT_PROVIDER_FORGET_REJECTED reason={}\r\n",
+                        error.recovery_reason()
+                    ));
+                    self.mode = Mode::Outcome(Outcome::ProviderForgetRejected);
+                }
+            },
+            ForgetTarget::Wifi => match secret_vault::forget_wifi() {
+                Ok(_) => {
+                    wifi::clear_legacy_passphrase();
+                    self.mode = Mode::Outcome(Outcome::WifiForgotten);
+                }
+                Err(error) => {
+                    serial::write_fmt(format_args!(
+                        "VAULT_WIFI_FORGET_REJECTED reason={}\r\n",
+                        error.recovery_reason()
+                    ));
+                    self.mode = Mode::Outcome(Outcome::WifiForgetRejected);
+                }
+            },
+        }
+    }
+
+    fn return_to_manage(&mut self) {
+        let selected = match &self.mode {
+            Mode::ConfirmingForget {
+                target: ForgetTarget::Provider,
+                ..
+            } => ManageAction::ForgetProvider,
+            Mode::ConfirmingForget {
+                target: ForgetTarget::Wifi,
+                ..
+            } => ManageAction::ForgetWifi,
+            _ => return,
+        };
+        self.mode = Mode::Managing(selected);
+        serial::write_line("VAULT_MANAGE_READY");
     }
 
     fn draw_entry(&self, surface: &mut FramebufferSurface, rect: LogicalRect, unlock: bool) {
@@ -572,6 +799,14 @@ impl VaultFlow {
             | Mode::Outcome(
                 Outcome::WifiTestSaved | Outcome::WifiTestRejected | Outcome::WifiTestUnavailable,
             ) => "VAULT_WIFI_SECRET_CANCELLED test_infrastructure=true",
+            Mode::Managing(_)
+            | Mode::ConfirmingForget { .. }
+            | Mode::Outcome(
+                Outcome::ProviderForgotten
+                | Outcome::ProviderForgetRejected
+                | Outcome::WifiForgotten
+                | Outcome::WifiForgetRejected,
+            ) => "VAULT_MANAGE_CANCELLED",
             _ => "VAULT_RR1_CANCELLED",
         };
         self.close();
@@ -591,6 +826,8 @@ impl VaultFlow {
             Mode::Showing(_) => Phase::Showing,
             Mode::Confirming(_) => Phase::Confirming,
             Mode::Unlocking => Phase::Unlocking,
+            Mode::Managing(_) => Phase::Managing,
+            Mode::ConfirmingForget { .. } => Phase::ConfirmingForget,
             Mode::ProviderEntry => Phase::ProviderEntry,
             Mode::WifiTestEntry => Phase::WifiTestEntry,
             Mode::Outcome(_) => Phase::Outcome,
@@ -651,6 +888,86 @@ fn draw_display(
     origin
 }
 
+fn draw_manage(surface: &mut FramebufferSurface, rect: LogicalRect, selected: ManageAction) {
+    draw_panel(surface, rect, "Manage Secret Vault");
+    text::draw_text(
+        surface,
+        rect.x + 20,
+        rect.y + 44,
+        match secret_vault::provider_status() {
+            secret_vault::VaultSecretStatus::Available { .. } => "Provider credential: saved",
+            secret_vault::VaultSecretStatus::Missing => "Provider credential: not saved",
+            secret_vault::VaultSecretStatus::Forgotten { .. } => "Provider credential: forgotten",
+        },
+        TEXT_MAIN,
+        None,
+    );
+    text::draw_text(
+        surface,
+        rect.x + 20,
+        rect.y + 62,
+        match secret_vault::wifi_status() {
+            secret_vault::VaultSecretStatus::Available { .. } => "WiFi credential: saved",
+            secret_vault::VaultSecretStatus::Missing => "WiFi credential: not saved",
+            secret_vault::VaultSecretStatus::Forgotten { .. } => "WiFi credential: forgotten",
+        },
+        TEXT_MAIN,
+        None,
+    );
+    let actions = manage_action_rects(rect);
+    draw_button(
+        surface,
+        actions[0],
+        "Forget provider credential",
+        selected == ManageAction::ForgetProvider,
+    );
+    draw_button(
+        surface,
+        actions[1],
+        "Forget WiFi credential",
+        selected == ManageAction::ForgetWifi,
+    );
+    draw_button(
+        surface,
+        actions[2],
+        "Close",
+        selected == ManageAction::Close,
+    );
+}
+
+fn draw_forget_confirmation(
+    surface: &mut FramebufferSurface,
+    rect: LogicalRect,
+    target: ForgetTarget,
+    selected: ConfirmAction,
+) {
+    let (title, message, action) = match target {
+        ForgetTarget::Provider => (
+            "Forget provider credential?",
+            "Future provider use will be denied until a new key is saved.",
+            "Forget provider",
+        ),
+        ForgetTarget::Wifi => (
+            "Forget WiFi credential?",
+            "Future WiFi use will be denied until a new credential is saved.",
+            "Forget WiFi",
+        ),
+    };
+    draw_panel(surface, rect, title);
+    text::draw_text(surface, rect.x + 20, rect.y + 54, message, APP_RED, None);
+    text::draw_text(
+        surface,
+        rect.x + 20,
+        rect.y + 76,
+        "This action requires this second explicit confirmation.",
+        TEXT_MUTED,
+        None,
+    );
+    let (cancel, forget) = action_rects(rect);
+    draw_button(surface, cancel, "Cancel", selected == ConfirmAction::Cancel);
+    draw_button(surface, forget, action, selected == ConfirmAction::Forget);
+}
+
 fn draw_outcome(surface: &mut FramebufferSurface, rect: LogicalRect, outcome: Outcome) {
     draw_panel(surface, rect, "Secret Vault");
     let (message, color) = match outcome {
@@ -667,10 +984,25 @@ fn draw_outcome(surface: &mut FramebufferSurface, rect: LogicalRect, outcome: Ou
         ),
         Outcome::WifiTestRejected => ("Contained WiFi Vault proof was denied.", APP_RED),
         Outcome::WifiTestUnavailable => ("Contained WiFi proof is unavailable here.", APP_RED),
+        Outcome::ProviderForgotten => ("Provider credential forgotten.", APP_GREEN),
+        Outcome::ProviderForgetRejected => ("Provider credential was not forgotten.", APP_RED),
+        Outcome::WifiForgotten => ("WiFi credential forgotten.", APP_GREEN),
+        Outcome::WifiForgetRejected => ("WiFi credential was not forgotten.", APP_RED),
     };
     text::draw_text(surface, rect.x + 20, rect.y + 64, message, color, None);
     let (primary, _) = action_rects(rect);
     draw_button(surface, primary, "Close", true);
+}
+
+fn manage_action_rects(rect: LogicalRect) -> [LogicalRect; 3] {
+    let x = rect.x + 20;
+    let y = rect.y + 92;
+    let width = rect.w.saturating_sub(40);
+    [
+        LogicalRect::new(x, y, width, 24),
+        LogicalRect::new(x, y + 32, width, 24),
+        LogicalRect::new(x, y + 64, width, 24),
+    ]
 }
 
 fn action_rects(rect: LogicalRect) -> (LogicalRect, LogicalRect) {

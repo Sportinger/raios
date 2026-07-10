@@ -24,9 +24,11 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (I3/G5.4 trusted actions + G5.5): add the core-owned
-Genesis forget/tombstone path for provider and WiFi, then prove NORMAL reconnect and
-SAFE explicit-only reconnect without broadening the exact Broker consumers. Extend
+Current exact next task (I3/G5.4 SAFE action + G5.5): prove NORMAL reconnect and
+SAFE explicit-only reconnect without broadening the exact Broker consumers. The SAFE
+path needs a distinct owner-policy/last-good verifier and a single token-consuming
+WiFi-use audit append; the general SAFE durable-write denial must remain unchanged.
+Extend
 the focused Secret-Vault evidence to cover corruption, torn/power-cut replay and
 WiFi/provider/personal-shell crash return while keeping the Vault handle and all
 sentinels contained. The RR1, provider and WiFi exact-C1 vertical slices are green and
@@ -127,6 +129,19 @@ forgotten Vault record cannot fall back to the legacy RAM credential. This prove
 physical persistence, live radio association, NORMAL/SAFE reconnect, forget tombstone,
 service-crash isolation, TPM auto-unlock, or provider network request.
 
+I3 durable Secret-Vault forget path verified (2026-07-10) - an unlocked user can now
+open the core-owned Genesis Vault manager and tombstone either provider or WiFi only
+after a second physical confirmation. Each fixed-slot intent binds the current record
+version and previous commit-frame hash before the exact disposable C1 store appends,
+flushes, readback-verifies and fully replays version 2; only then is the matching legacy
+RAM mirror cleared. Focused three-boot report
+`release/vm-reports/shadow-20260710-195715-22816.json` passed 78/78 predicates: both
+tombstones replay as `Forgotten`, RR1 still unlocks, both contained exact-use attempts
+return `secret_forgotten`, and boot three emits neither pre-use audit nor consumer
+success. The old encrypted store history remains physically present and is not claimed
+erased. This proves no SAFE reconnect, physical persistence, crash isolation, TPM
+auto-unlock, provider request, radio association, `PORT_RELEASE` or DHCP.
+
 VM failure classification (2026-07-10, first provider-Secret-Vault profile) - report
 `release/vm-reports/shadow-20260710-173553-10436.json` failed predicate
 `secret-vault:boot2:broker_unlocked` with `accepted=false reason=input_shape` and
@@ -180,6 +195,21 @@ the interruption. It emitted no WiFi commit, audit, consumer, link, `PORT_RELEAS
 or DHCP marker. The bounded retry changes no guest code or predicate; the exact
 orphaned disposable run directory is removed only after this classification and
 path verification below `%TEMP%`.
+
+VM failure classification (2026-07-10, first Secret-Vault forget profile) - report
+`release/vm-reports/shadow-20260710-194954-9688.json` failed predicate
+`secret-vault:boot3:broker_unlocked` with `accepted=false reason=timeout` after
+66 preceding predicates passed and `serial_transport_failure:null`. Verdict:
+`guest-behavior` - the third boot replayed both version-2 tombstones and accepted the
+complete physical RR1 (`VAULT_BROKER_UNLOCKED source=recovery slot=current`), but the
+contained forgotten-state proof then emitted
+`VAULT_FORGOTTEN_DENIAL_TEST_REJECTED reason=broker_denied` and changed the UI outcome
+before `VAULT_RR1_UNLOCKED`. The shared provider fact path incorrectly collapsed
+`Forgotten` together with `Missing` into `SecretMissing`, while the WiFi path already
+preserved the distinct `SecretForgotten` denial. No boot-three pre-use audit or
+consumer-success marker was emitted. The bounded repair splits that single provider
+match arm so the durable tombstone is reported and proved as forgotten; it does not
+change store, unlock, audit, decrypt, consumer, fallback or mutation authority.
 
 VM failure classification (2026-07-10, first Secret-Vault RR1 profile) - report
 `release/vm-reports/shadow-20260710-152552-3140.json` failed predicate

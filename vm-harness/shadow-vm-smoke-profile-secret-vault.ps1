@@ -1,7 +1,7 @@
 # Secret Vault RR1 provisioning and recovery-unlock focused profile.
 #
 # The RR1 presentation exists on the host only as one transient PPM plus one
-# byte array retained between the two boots. It never enters a serial command,
+# byte array retained across the three focused boots. It never enters a serial command,
 # predicate value, report field, permanent capture, or hash.
 
 function Clear-Rr1Bytes {
@@ -11,6 +11,8 @@ function Clear-Rr1Bytes {
         [Array]::Clear($Bytes, 0, $Bytes.Length)
     }
 }
+
+. (Join-Path $PSScriptRoot "secret-vault-reboot.ps1")
 
 function New-ProviderSentinelBytes {
     param([ValidateRange(4, 32)][int]$ByteCount = 32)
@@ -1265,14 +1267,15 @@ try {
     if (-not $unlockUsedUsb) {
         throw "Recovery RR1 input did not traverse USB HID input"
     }
-    Stop-Rr1VmForLogInspection -QemuProcessId $QemuPid
-    Assert-Rr1NotInSerial -Name "secret-vault:boot2:rr1_absent_from_serial" -Path $SerialLog
+    $forgottenRebootLog = Invoke-SecretVaultForgottenRebootProof -Rr1 $rr1
 
     Clear-Rr1Bytes -Bytes $rr1
     $rr1 = $null
 
     $combinedLog = Join-Path $RunDir "serial-secret-vault-combined.log"
-    Join-VaultSerialLogs -First $firstBootLog -Second $rebootLog -Destination $combinedLog
+    Join-SecretVaultSerialLogs `
+        -Paths @($firstBootLog, $rebootLog, $forgottenRebootLog) `
+        -Destination $combinedLog
 
     Assert-ProviderSentinelAbsent `
         -Name "secret-vault:provider_sentinel_absent_from_all_artifacts" `
@@ -1281,6 +1284,7 @@ try {
         -RequiredPaths @(
             $firstBootLog,
             $rebootLog,
+            $forgottenRebootLog,
             $combinedLog,
             $ResolvedImage,
             $StructuredStoreDiskImage,
@@ -1293,6 +1297,7 @@ try {
         -RequiredPaths @(
             $firstBootLog,
             $rebootLog,
+            $forgottenRebootLog,
             $combinedLog,
             $ResolvedImage,
             $StructuredStoreDiskImage,

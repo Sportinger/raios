@@ -106,6 +106,18 @@ pub(crate) enum WifiSecretStoreDenied {
     Bounds,
 }
 
+#[derive(Debug)]
+pub(crate) enum VaultTombstoneStoreDenied {
+    FixtureMissing,
+    Open(&'static str),
+    Port(PortDenied<&'static str>),
+    Core(raios_core::structured_store::StoreDenied),
+    IdentityChanged,
+    CurrentRecordChanged,
+    ReadbackMismatch,
+    Bounds,
+}
+
 impl From<PortDenied<&'static str>> for ProviderSecretStoreDenied {
     fn from(value: PortDenied<&'static str>) -> Self {
         Self::Port(value)
@@ -113,6 +125,12 @@ impl From<PortDenied<&'static str>> for ProviderSecretStoreDenied {
 }
 
 impl From<PortDenied<&'static str>> for WifiSecretStoreDenied {
+    fn from(value: PortDenied<&'static str>) -> Self {
+        Self::Port(value)
+    }
+}
+
+impl From<PortDenied<&'static str>> for VaultTombstoneStoreDenied {
     fn from(value: PortDenied<&'static str>) -> Self {
         Self::Port(value)
     }
@@ -219,21 +237,35 @@ fn bind_vault_runtime_inputs(
         ));
         serial::write_line("VAULT_RECOVERY_UNLOCK_READY");
     }
-    if let secret_vault::VaultSecretStatus::Available { record_version, .. } =
-        secret_vault::provider_status()
-    {
-        serial::write_fmt(format_args!(
-            "C1_VAULT_PROVIDER_REPLAYED version={}\r\n",
-            record_version
-        ));
+    match secret_vault::provider_status() {
+        secret_vault::VaultSecretStatus::Available { record_version, .. } => {
+            serial::write_fmt(format_args!(
+                "C1_VAULT_PROVIDER_REPLAYED version={}\r\n",
+                record_version
+            ));
+        }
+        secret_vault::VaultSecretStatus::Forgotten { record_version } => {
+            serial::write_fmt(format_args!(
+                "C1_VAULT_PROVIDER_TOMBSTONE_REPLAYED version={}\r\n",
+                record_version
+            ));
+        }
+        secret_vault::VaultSecretStatus::Missing => {}
     }
-    if let secret_vault::VaultSecretStatus::Available { record_version, .. } =
-        secret_vault::wifi_status()
-    {
-        serial::write_fmt(format_args!(
-            "C1_VAULT_WIFI_REPLAYED version={}\r\n",
-            record_version
-        ));
+    match secret_vault::wifi_status() {
+        secret_vault::VaultSecretStatus::Available { record_version, .. } => {
+            serial::write_fmt(format_args!(
+                "C1_VAULT_WIFI_REPLAYED version={}\r\n",
+                record_version
+            ));
+        }
+        secret_vault::VaultSecretStatus::Forgotten { record_version } => {
+            serial::write_fmt(format_args!(
+                "C1_VAULT_WIFI_TOMBSTONE_REPLAYED version={}\r\n",
+                record_version
+            ));
+        }
+        secret_vault::VaultSecretStatus::Missing => {}
     }
     Ok(())
 }
@@ -453,6 +485,116 @@ pub(crate) fn commit_wifi_secret(
     serial::write_fmt(format_args!(
         "C1_VAULT_WIFI_COMMITTED version={} readback=verified\r\n",
         proposed_version
+    ));
+    Ok(replay)
+}
+
+/// Appends a tombstone only for the fixed provider slot on the exact C1
+/// fixture. The prior committed record must still match the Broker intent.
+pub(crate) fn commit_provider_tombstone(
+    expected: ValidatedRegionIdentity,
+    expected_committed_version: u64,
+    proposed_version: u64,
+    expected_previous_record_hash: [u8; 32],
+) -> Result<ValidatedReplayWithHistory, VaultTombstoneStoreDenied> {
+    commit_vault_tombstone(
+        expected,
+        secret_vault::provider_record_key(),
+        expected_committed_version,
+        proposed_version,
+        expected_previous_record_hash,
+        "C1_VAULT_PROVIDER_TOMBSTONE_COMMITTED",
+    )
+}
+
+/// Appends a tombstone only for the fixed WiFi slot on the exact C1 fixture.
+/// It has no device discovery, physical-media fallback, or generic record API.
+pub(crate) fn commit_wifi_tombstone(
+    expected: ValidatedRegionIdentity,
+    expected_committed_version: u64,
+    proposed_version: u64,
+    expected_previous_record_hash: [u8; 32],
+) -> Result<ValidatedReplayWithHistory, VaultTombstoneStoreDenied> {
+    commit_vault_tombstone(
+        expected,
+        secret_vault::wifi_record_key(),
+        expected_committed_version,
+        proposed_version,
+        expected_previous_record_hash,
+        "C1_VAULT_WIFI_TOMBSTONE_COMMITTED",
+    )
+}
+
+fn commit_vault_tombstone(
+    expected: ValidatedRegionIdentity,
+    key: RecordKey,
+    expected_committed_version: u64,
+    proposed_version: u64,
+    expected_previous_record_hash: [u8; 32],
+    marker: &'static str,
+) -> Result<ValidatedReplayWithHistory, VaultTombstoneStoreDenied> {
+    let mut port = open_disposable_qemu_store_port()
+        .map_err(|error| VaultTombstoneStoreDenied::Open(c1_error_reason(error)))?
+        .ok_or(VaultTombstoneStoreDenied::FixtureMissing)?;
+    if port.identity() != expected {
+        return Err(VaultTombstoneStoreDenied::IdentityChanged);
+    }
+
+    let snapshot_len = usize::try_from(
+        expected
+            .geometry
+            .log_byte_len()
+            .map_err(VaultTombstoneStoreDenied::Core)?,
+    )
+    .map_err(|_| VaultTombstoneStoreDenied::Bounds)?;
+    let mut snapshot = vec![0u8; snapshot_len];
+    let replay = open_and_replay_with_history(&mut port, expected, &mut snapshot)?;
+    let current = replay
+        .state()
+        .record(key)
+        .map_err(VaultTombstoneStoreDenied::Core)?
+        .ok_or(VaultTombstoneStoreDenied::CurrentRecordChanged)?;
+    if current.record_version != expected_committed_version
+        || current.commit_frame_sha256 != expected_previous_record_hash
+        || !matches!(&current.value, RecordValue::Present(_))
+        || expected_committed_version.checked_add(1) != Some(proposed_version)
+    {
+        return Err(VaultTombstoneStoreDenied::CurrentRecordChanged);
+    }
+
+    let plan = plan_transaction(
+        replay.state(),
+        TransactionRequest {
+            identity: expected.store,
+            key,
+            operation: RecordOperation::Delete,
+            expected_committed_version: Some(expected_committed_version),
+        },
+        &[],
+        expected
+            .geometry
+            .log_byte_len()
+            .map_err(VaultTombstoneStoreDenied::Core)?,
+    )
+    .map_err(VaultTombstoneStoreDenied::Core)?;
+    if plan.record_version != proposed_version {
+        return Err(VaultTombstoneStoreDenied::CurrentRecordChanged);
+    }
+
+    let _ = append_with_readback(&mut port, expected, &plan, &mut snapshot)?;
+    let replay = open_and_replay_with_history(&mut port, expected, &mut snapshot)?;
+    let record = replay
+        .state()
+        .record(key)
+        .map_err(VaultTombstoneStoreDenied::Core)?
+        .ok_or(VaultTombstoneStoreDenied::ReadbackMismatch)?;
+    if record.record_version != proposed_version || !matches!(&record.value, RecordValue::Tombstone)
+    {
+        return Err(VaultTombstoneStoreDenied::ReadbackMismatch);
+    }
+    serial::write_fmt(format_args!(
+        "{} version={} readback=verified\r\n",
+        marker, proposed_version
     ));
     Ok(replay)
 }
