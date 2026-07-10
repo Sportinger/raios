@@ -381,6 +381,138 @@ function ConvertTo-ReportJson {
     return ($Value | ConvertTo-Json -Depth 20 -Compress)
 }
 
+function Register-ReportForbiddenDynamicValue {
+    param(
+        [Parameter(Mandatory = $true)][string]$Label,
+        [Parameter(Mandatory = $true)][byte[]]$Value
+    )
+
+    if ($Label -notmatch '^[a-z0-9][a-z0-9._-]{0,63}$') {
+        throw "Forbidden report value label must be bounded lowercase ASCII"
+    }
+    if ($Value.Length -eq 0 -or $Value.Length -gt 4096) {
+        throw "Forbidden report value '$Label' must contain 1..4096 bytes"
+    }
+
+    $owned = [byte[]]::new($Value.Length)
+    [Array]::Copy($Value, $owned, $Value.Length)
+    try {
+        $script:ReportForbiddenDynamicValues.Add([pscustomobject]@{
+            Label = $Label
+            Value = $owned
+        }) | Out-Null
+    }
+    catch {
+        [Array]::Clear($owned, 0, $owned.Length)
+        throw
+    }
+}
+
+function Test-ByteSequencePresent {
+    param(
+        [byte[]]$Bytes,
+        [byte[]]$Needle
+    )
+
+    if ($null -eq $Bytes -or $null -eq $Needle -or $Needle.Length -eq 0 -or
+        $Needle.Length -gt $Bytes.Length) {
+        return $false
+    }
+    $lastStart = $Bytes.Length - $Needle.Length
+    for ($offset = 0; $offset -le $lastStart; $offset++) {
+        if ($Bytes[$offset] -ne $Needle[0]) {
+            continue
+        }
+        $matches = $true
+        for ($index = 1; $index -lt $Needle.Length; $index++) {
+            if ($Bytes[$offset + $index] -ne $Needle[$index]) {
+                $matches = $false
+                break
+            }
+        }
+        if ($matches) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Get-MatchedForbiddenDynamicLabels {
+    param([byte[]]$Bytes)
+
+    $labels = [System.Collections.Generic.List[string]]::new()
+    foreach ($entry in $script:ReportForbiddenDynamicValues) {
+        if (Test-ByteSequencePresent -Bytes $Bytes -Needle $entry.Value) {
+            $labels.Add($entry.Label) | Out-Null
+        }
+    }
+    return @($labels)
+}
+
+function Redact-ForbiddenDynamicValues {
+    param([byte[]]$Bytes)
+
+    foreach ($entry in $script:ReportForbiddenDynamicValues) {
+        $needle = $entry.Value
+        $allAsterisks = $true
+        foreach ($value in $needle) {
+            if ($value -ne [byte][char]'*') {
+                $allAsterisks = $false
+                break
+            }
+        }
+        $replacement = [byte][char]$(if ($allAsterisks) { '#' } else { '*' })
+        $lastStart = $Bytes.Length - $needle.Length
+        for ($offset = 0; $offset -le $lastStart; $offset++) {
+            $matches = $true
+            for ($index = 0; $index -lt $needle.Length; $index++) {
+                if ($Bytes[$offset + $index] -ne $needle[$index]) {
+                    $matches = $false
+                    break
+                }
+            }
+            if ($matches) {
+                for ($index = 0; $index -lt $needle.Length; $index++) {
+                    $Bytes[$offset + $index] = $replacement
+                }
+                $offset += $needle.Length - 1
+            }
+        }
+    }
+}
+
+function Clear-ReportForbiddenDynamicValues {
+    foreach ($entry in $script:ReportForbiddenDynamicValues) {
+        if ($null -ne $entry.Value -and $entry.Value.Length -gt 0) {
+            [Array]::Clear($entry.Value, 0, $entry.Value.Length)
+        }
+    }
+    $script:ReportForbiddenDynamicValues.Clear()
+}
+
+function Set-ForbiddenDynamicReportFailure {
+    param(
+        [object]$Report,
+        [int]$PredicateIndex,
+        [string[]]$Labels
+    )
+
+    $labelSummary = $Labels -join ','
+    $script:Result = "failed"
+    $script:ReportSecurityTripwire = $labelSummary
+    $predicate = $Predicates[$PredicateIndex]
+    $predicate.passed = $false
+    $predicate.actual = "absent=false labels=$labelSummary"
+    if (-not $Failures.Contains($predicate.name)) {
+        $Failures.Add($predicate.name) | Out-Null
+    }
+    $Report.result = "failed"
+    $Report.evidence_binding.result = "failed"
+    $Report.evidence_binding.predicate_passed_count = @($Predicates.ToArray() | Where-Object { $_.passed }).Count
+    $Report.evidence_binding.predicate_failed_count = @($Predicates.ToArray() | Where-Object { -not $_.passed }).Count
+    $Report.failures = @($Failures.ToArray())
+}
+
 function Get-NullablePath {
     param([string]$Path)
     if ([string]::IsNullOrWhiteSpace($Path)) {
@@ -992,6 +1124,17 @@ function Write-Report {
 
     New-Item -ItemType Directory -Force -Path $ReportDir | Out-Null
 
+    $forbiddenValuesRegistered = $script:ReportForbiddenDynamicValues.Count -gt 0
+    $forbiddenPredicateIndex = -1
+    if ($forbiddenValuesRegistered) {
+        $forbiddenPredicateIndex = $Predicates.Count
+        Add-Predicate `
+            -Name "report:forbidden_dynamic_values_absent" `
+            -Expected "registered dynamic values absent from final report bytes before write and after readback" `
+            -Passed $true `
+            -Actual "absent=true scope=report_json"
+    }
+
     $serialHash = Get-FileSha256OrNull -Path $SerialLog
     $errLog = [System.IO.Path]::ChangeExtension($SerialLog, ".err.txt")
     $endedAt = [DateTime]::UtcNow
@@ -1081,7 +1224,71 @@ function Write-Report {
     }
 
     $json = $report | ConvertTo-Json -Depth 20
-    Set-Content -LiteralPath $ReportPath -Value $json -Encoding UTF8
-    $reportHash = Get-FileSha256OrNull -Path $ReportPath
-    Set-Content -LiteralPath $ReportHashPath -Value "$reportHash  $ReportPath" -Encoding ASCII
+    if (-not $forbiddenValuesRegistered) {
+        Set-Content -LiteralPath $ReportPath -Value $json -Encoding UTF8
+        $reportHash = Get-FileSha256OrNull -Path $ReportPath
+        Set-Content -LiteralPath $ReportHashPath -Value "$reportHash  $ReportPath" -Encoding ASCII
+        return
+    }
+
+    $jsonBytes = $null
+    $readback = $null
+    try {
+        $encoding = [System.Text.UTF8Encoding]::new($false)
+        $jsonBytes = $encoding.GetBytes($json)
+        $matchedLabels = @(Get-MatchedForbiddenDynamicLabels -Bytes $jsonBytes)
+        if ($matchedLabels.Count -gt 0) {
+            Set-ForbiddenDynamicReportFailure `
+                -Report $report `
+                -PredicateIndex $forbiddenPredicateIndex `
+                -Labels $matchedLabels
+            [Array]::Clear($jsonBytes, 0, $jsonBytes.Length)
+            $jsonBytes = $encoding.GetBytes(($report | ConvertTo-Json -Depth 20))
+            Redact-ForbiddenDynamicValues -Bytes $jsonBytes
+        }
+
+        $remainingLabels = @(Get-MatchedForbiddenDynamicLabels -Bytes $jsonBytes)
+        if ($remainingLabels.Count -gt 0) {
+            Remove-Item -LiteralPath $ReportPath -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $ReportHashPath -Force -ErrorAction SilentlyContinue
+            if (-not $script:ReportSecurityTripwire) {
+                $script:ReportSecurityTripwire = $remainingLabels -join ','
+            }
+            throw "Registered dynamic report value could not be redacted"
+        }
+
+        [System.IO.File]::WriteAllBytes($ReportPath, $jsonBytes)
+        $readback = [System.IO.File]::ReadAllBytes($ReportPath)
+        $readbackLabels = @(Get-MatchedForbiddenDynamicLabels -Bytes $readback)
+        if ($readbackLabels.Count -gt 0) {
+            Set-ForbiddenDynamicReportFailure `
+                -Report $report `
+                -PredicateIndex $forbiddenPredicateIndex `
+                -Labels $readbackLabels
+            [Array]::Clear($jsonBytes, 0, $jsonBytes.Length)
+            $jsonBytes = $encoding.GetBytes(($report | ConvertTo-Json -Depth 20))
+            Redact-ForbiddenDynamicValues -Bytes $jsonBytes
+            [System.IO.File]::WriteAllBytes($ReportPath, $jsonBytes)
+            [Array]::Clear($readback, 0, $readback.Length)
+            $readback = [System.IO.File]::ReadAllBytes($ReportPath)
+            $remainingLabels = @(Get-MatchedForbiddenDynamicLabels -Bytes $readback)
+            if ($remainingLabels.Count -gt 0) {
+                Remove-Item -LiteralPath $ReportPath -Force -ErrorAction SilentlyContinue
+                Remove-Item -LiteralPath $ReportHashPath -Force -ErrorAction SilentlyContinue
+                throw "Registered dynamic report value remained after redaction"
+            }
+        }
+
+        $reportHash = Get-FileSha256OrNull -Path $ReportPath
+        Set-Content -LiteralPath $ReportHashPath -Value "$reportHash  $ReportPath" -Encoding ASCII
+    }
+    finally {
+        if ($null -ne $jsonBytes -and $jsonBytes.Length -gt 0) {
+            [Array]::Clear($jsonBytes, 0, $jsonBytes.Length)
+        }
+        if ($null -ne $readback -and $readback.Length -gt 0) {
+            [Array]::Clear($readback, 0, $readback.Length)
+        }
+        Clear-ReportForbiddenDynamicValues
+    }
 }

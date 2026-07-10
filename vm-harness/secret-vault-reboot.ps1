@@ -253,6 +253,123 @@ function Invoke-SecretVaultSafeReconnectProof {
     }
 }
 
+function Invoke-SecretVaultPowerCutProof {
+    param([Parameter(Mandatory = $true)][byte[]]$Rr1)
+
+    $powerCutStore = Join-Path $RunDir "raios-structured-store-c1-power-cut.img"
+    $powerCutPersist = Join-Path $RunDir "raios-persist-power-cut.img"
+    Copy-Item -LiteralPath $StructuredStoreDiskImage -Destination $powerCutStore -Force
+
+    $builder = Join-Path $RepoRoot "scripts\make-gpt-persist-image.py"
+    $null = @(& python $builder --self-check --seed-bootctl valid-a $powerCutPersist 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "secret-vault power-cut BOOTCTL fixture build failed"
+    }
+
+    $beforeLog = Start-SecretVaultQemu `
+        -LogName "serial-secret-vault-power-cut-before.log" `
+        -StructuredStorePath $powerCutStore `
+        -PersistPath $powerCutPersist
+    foreach ($marker in @(
+        @{ Name = "secret-vault:power-cut:before:serial_ready"; Text = "SERIAL CONSOLE READY" },
+        @{ Name = "secret-vault:power-cut:before:complete_replay_bound"; Text = "C1_VAULT_COMPLETE_REPLAY_BOUND" },
+        @{ Name = "secret-vault:power-cut:before:wrapper_replayed"; Text = "C1_VAULT_RECOVERY_WRAPPER_REPLAYED generation=1" },
+        @{ Name = "secret-vault:power-cut:before:wifi_replayed"; Text = "C1_VAULT_WIFI_REPLAYED version=1" }
+    )) {
+        Assert-VaultFixedLogMarker -Name $marker.Name -Marker $marker.Text -TimeoutSeconds $TimeoutSeconds
+    }
+
+    Invoke-VaultVisibleAction -SkipFinalEnter
+    Assert-VaultFixedLogMarker `
+        -Name "secret-vault:power-cut:before:recovery_unlock_ready" `
+        -Marker "VAULT_RECOVERY_UNLOCK_READY" `
+        -TimeoutSeconds $TimeoutSeconds
+    Send-Rr1ViaUsbKeyboard -Rr1 $Rr1
+    Assert-VaultSerialOutcome `
+        -Name "secret-vault:power-cut:before:broker_unlocked" `
+        -SuccessMarker "VAULT_RR1_UNLOCKED" `
+        -RejectedMarker "VAULT_RR1_UNLOCK_REJECTED" `
+        -TimeoutSeconds $TimeoutSeconds
+
+    $usbBefore = Get-SerialMarkerCount -Path $script:SerialLog -Marker "usb input batch:"
+    Send-Rr1HmpKey -KeyName "f9"
+    Assert-VaultFixedLogMarker `
+        -Name "secret-vault:power-cut:precommit_ready" `
+        -Marker "C1_VAULT_POWER_CUT_PRECOMMIT_READY key=wifi previous_version=1 proposed_version=2 commit_written=false test_infrastructure=true" `
+        -TimeoutSeconds $TimeoutSeconds
+    $usbAfter = Get-SerialMarkerCount -Path $script:SerialLog -Marker "usb input batch:"
+    $physical = $usbAfter -gt $usbBefore
+    Add-Predicate `
+        -Name "secret-vault:power-cut:physical_f9_action" `
+        -Expected "physical F9 on the exact contained C1 fixture arms the pre-COMMIT boundary" `
+        -Passed $physical `
+        -Actual "physical=$($physical.ToString().ToLowerInvariant())"
+    if (-not $physical) {
+        throw "secret-vault power-cut action did not traverse USB HID"
+    }
+    $commitAbsent = (Get-SerialMarkerCount -Path $script:SerialLog -Marker "C1_VAULT_WIFI_TOMBSTONE_COMMITTED version=2") -eq 0
+    Add-Predicate `
+        -Name "secret-vault:power-cut:no_commit_before_kill" `
+        -Expected "no v2 WiFi tombstone COMMIT success before hard QEMU stop" `
+        -Passed $commitAbsent `
+        -Actual "commit_written=$(((-not $commitAbsent)).ToString().ToLowerInvariant())"
+    if (-not $commitAbsent) {
+        throw "power-cut fixture unexpectedly committed WiFi v2"
+    }
+
+    Stop-Rr1VmForLogInspection -QemuProcessId $script:QemuPid
+    Assert-Rr1NotInSerial -Name "secret-vault:power-cut:before:rr1_absent_from_serial" -Path $beforeLog
+
+    $afterLog = Start-SecretVaultQemu `
+        -LogName "serial-secret-vault-power-cut-after.log" `
+        -StructuredStorePath $powerCutStore `
+        -PersistPath $powerCutPersist
+    foreach ($marker in @(
+        @{ Name = "secret-vault:power-cut:after:serial_ready"; Text = "SERIAL CONSOLE READY" },
+        @{ Name = "secret-vault:power-cut:after:replay_preserved"; Text = "C1_VAULT_POWER_CUT_REPLAY_PRESERVED key=wifi version=1 tail=incomplete_transaction test_infrastructure=true" },
+        @{ Name = "secret-vault:power-cut:after:complete_replay_bound"; Text = "C1_VAULT_COMPLETE_REPLAY_BOUND" },
+        @{ Name = "secret-vault:power-cut:after:wrapper_replayed"; Text = "C1_VAULT_RECOVERY_WRAPPER_REPLAYED generation=1" },
+        @{ Name = "secret-vault:power-cut:after:wifi_v1_replayed"; Text = "C1_VAULT_WIFI_REPLAYED version=1" }
+    )) {
+        Assert-VaultFixedLogMarker -Name $marker.Name -Marker $marker.Text -TimeoutSeconds $TimeoutSeconds
+    }
+
+    Invoke-VaultVisibleAction -SkipFinalEnter
+    Assert-VaultFixedLogMarker `
+        -Name "secret-vault:power-cut:after:recovery_unlock_ready" `
+        -Marker "VAULT_RECOVERY_UNLOCK_READY" `
+        -TimeoutSeconds $TimeoutSeconds
+    Send-Rr1ViaUsbKeyboard -Rr1 $Rr1
+    Assert-VaultSerialOutcome `
+        -Name "secret-vault:power-cut:after:broker_unlocked" `
+        -SuccessMarker "VAULT_RR1_UNLOCKED" `
+        -RejectedMarker "VAULT_RR1_UNLOCK_REJECTED" `
+        -TimeoutSeconds $TimeoutSeconds
+    foreach ($marker in @(
+        @{ Name = "secret-vault:power-cut:after:provider_consumer"; Text = "VAULT_PROVIDER_CONTAINED_CONSUMED target=api.openai.com accepted=true test_infrastructure=true" },
+        @{ Name = "secret-vault:power-cut:after:wifi_consumer"; Text = "VAULT_WIFI_CONTAINED_CONSUMED target=bound_bss accepted=true test_infrastructure=true" }
+    )) {
+        Assert-VaultFixedLogMarker -Name $marker.Name -Marker $marker.Text -TimeoutSeconds $TimeoutSeconds
+    }
+
+    Send-Rr1HmpKey -KeyName "ret"
+    Start-Sleep -Milliseconds 150
+    Send-Rr1HmpKey -KeyName "ret"
+    Assert-VaultFixedLogMarker `
+        -Name "secret-vault:power-cut:after:vault_handle_preserved" `
+        -Marker "VAULT_MANAGE_READY" `
+        -TimeoutSeconds $TimeoutSeconds
+
+    Stop-Rr1VmForLogInspection -QemuProcessId $script:QemuPid
+    Assert-Rr1NotInSerial -Name "secret-vault:power-cut:after:rr1_absent_from_serial" -Path $afterLog
+    return [pscustomobject]@{
+        BeforeLog = $beforeLog
+        AfterLog = $afterLog
+        StructuredStore = $powerCutStore
+        Persist = $powerCutPersist
+    }
+}
+
 function Invoke-SecretVaultForgottenRebootProof {
     param([Parameter(Mandatory = $true)][byte[]]$Rr1)
 

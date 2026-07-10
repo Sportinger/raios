@@ -72,6 +72,7 @@ pub(crate) enum VaultFacadeDenied {
     ProviderStore(crate::structured_store_c1::ProviderSecretStoreDenied),
     WifiStore(crate::structured_store_c1::WifiSecretStoreDenied),
     TombstoneStore(crate::structured_store_c1::VaultTombstoneStoreDenied),
+    PowerCutStore(crate::structured_store_c1::VaultPowerCutStoreDenied),
     Broker(VaultBrokerDenied),
     Audit(ProviderUseAuditDenied),
     WifiAudit(WifiUseAuditDenied),
@@ -109,6 +110,7 @@ impl VaultFacadeDenied {
             Self::ProviderStore(_) => "provider_store_denied",
             Self::WifiStore(_) => "wifi_store_denied",
             Self::TombstoneStore(_) => "vault_tombstone_store_denied",
+            Self::PowerCutStore(_) => "vault_power_cut_store_denied",
             Self::Broker(_) => "broker_denied",
             Self::Audit(error) => error.reason(),
             Self::WifiAudit(error) => error.reason(),
@@ -611,6 +613,25 @@ pub(crate) fn contained_qemu_wifi_test_available() -> bool {
         return false;
     };
     crate::structured_store_c1::revalidate_qemu_wifi_store_identity(region).is_ok()
+}
+
+/// Physical-input-only test infrastructure for the exact disposable C1 disk.
+/// It writes a real WiFi-v2 tombstone prefix but deliberately never its COMMIT.
+pub(crate) fn arm_contained_qemu_wifi_power_cut_test() -> Result<(), VaultFacadeDenied> {
+    let region = {
+        let runtime = RUNTIME.lock();
+        if !matches!(
+            runtime.broker.status().lock,
+            VaultLockStatus::UnlockedFromRecovery(_)
+        ) {
+            return Err(VaultFacadeDenied::Broker(VaultBrokerDenied::Locked));
+        }
+        runtime.region.ok_or(VaultFacadeDenied::HistoryLocked)?
+    };
+    crate::structured_store_c1::revalidate_qemu_wifi_store_identity(region)
+        .map_err(VaultFacadeDenied::WifiStore)?;
+    crate::structured_store_c1::arm_exact_c1_wifi_power_cut_precommit_test(region)
+        .map_err(VaultFacadeDenied::PowerCutStore)
 }
 
 /// Persists only one WPA2-PSK/CCMP credential bound to the selected live BSS.

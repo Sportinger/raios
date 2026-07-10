@@ -1,8 +1,8 @@
 use raios_core::structured_store::{
     encode_superblock, parse_superblock, replay_log, replay_log_with_history, select_superblock,
-    validate_transaction_plan, verify_committed_plan, verify_frame_readback, ReplayState,
-    ReplayWithHistory, SelectedSuperblock, StoreDenied, StoreGeometry, StoreIdentity,
-    TransactionPlan, STORE_BLOCK_LEN, SUPERBLOCK_LEN,
+    validate_transaction_plan, verify_committed_plan, verify_frame_readback, FrameKind,
+    PlannedFrame, RecordOperation, ReplayState, ReplayTail, ReplayWithHistory, SelectedSuperblock,
+    StoreDenied, StoreGeometry, StoreIdentity, TransactionPlan, STORE_BLOCK_LEN, SUPERBLOCK_LEN,
 };
 use raios_core::{
     sha256_bytes,
@@ -255,8 +255,21 @@ pub(crate) fn append_with_readback<P: ValidatedStoreRegionPort>(
         .ok_or(PortDenied::BoundsDenied)?;
     validate_transaction_plan(plan, log_byte_len).map_err(PortDenied::Core)?;
 
+    write_frames_with_readback(port, expected, &plan.frames, log_byte_len)?;
+
+    let replay = open_and_replay(port, expected, full_log_snapshot)?;
+    verify_committed_plan(&replay, plan).map_err(PortDenied::Core)?;
+    Ok(replay)
+}
+
+fn write_frames_with_readback<P: ValidatedStoreRegionPort>(
+    port: &mut P,
+    expected: ValidatedRegionIdentity,
+    frames: &[PlannedFrame],
+    log_byte_len: u64,
+) -> Result<(), PortDenied<P::Error>> {
     let mut readback = [0u8; STORE_BLOCK_LEN];
-    for frame in &plan.frames {
+    for frame in frames {
         let end = frame
             .offset
             .checked_add(STORE_BLOCK_LEN as u64)
@@ -279,9 +292,39 @@ pub(crate) fn append_with_readback<P: ValidatedStoreRegionPort>(
             .map_err(PortDenied::Device)?;
         verify_frame_readback(frame, &readback).map_err(PortDenied::Core)?;
     }
+    Ok(())
+}
 
+/// Exact disposable-QEMU power-cut test primitive. It accepts only a fully
+/// valid three-frame DELETE transaction and writes the PREPARE + TOMBSTONE
+/// prefix through the production flush/readback loop, never the COMMIT. The
+/// only runtime caller is `structured_store_c1`'s fixed WiFi-v2 test entry.
+pub(super) fn append_exact_qemu_test_delete_without_commit<P: ValidatedStoreRegionPort>(
+    port: &mut P,
+    expected: ValidatedRegionIdentity,
+    plan: &TransactionPlan,
+    full_log_snapshot: &mut [u8],
+) -> Result<ReplayState, PortDenied<P::Error>> {
+    if !is_frozen_qemu_test_media(expected)
+        || plan.identity != expected.store
+        || plan.operation != RecordOperation::Delete
+        || plan.frames.len() != 3
+        || plan.frames[0].kind != FrameKind::Prepare
+        || plan.frames[1].kind != FrameKind::Tombstone
+        || plan.frames[2].kind != FrameKind::Commit
+    {
+        return Err(PortDenied::FormatTestMediaDenied);
+    }
+    let block_count = expected.log_block_count().map_err(PortDenied::Core)?;
+    let log_byte_len = block_count
+        .checked_mul(STORE_BLOCK_LEN as u64)
+        .ok_or(PortDenied::BoundsDenied)?;
+    validate_transaction_plan(plan, log_byte_len).map_err(PortDenied::Core)?;
+    write_frames_with_readback(port, expected, &plan.frames[..2], log_byte_len)?;
     let replay = open_and_replay(port, expected, full_log_snapshot)?;
-    verify_committed_plan(&replay, plan).map_err(PortDenied::Core)?;
+    if replay.tail != ReplayTail::IncompleteTransaction {
+        return Err(PortDenied::Core(StoreDenied::CommitReplayMismatch));
+    }
     Ok(replay)
 }
 
@@ -595,6 +638,62 @@ mod tests {
 
         assert_eq!(port.writes, plan.frames.len() as u64);
         assert_eq!(replay.record(KEY).unwrap().unwrap().record_version, 1);
+    }
+
+    #[test]
+    fn exact_qemu_delete_prefix_flushes_without_publishing_tombstone() {
+        let identity = qemu_test_identity();
+        let mut port = MemoryPort::empty(identity);
+        port.superblocks = [
+            encode_superblock(0, 0, identity.store, 1, identity.geometry).unwrap(),
+            encode_superblock(1, 1, identity.store, 2, identity.geometry).unwrap(),
+        ];
+        let mut snapshot = vec![0; port.bytes.len()];
+        let empty = open_and_replay(&mut port, identity, &mut snapshot).unwrap();
+        let put = plan_transaction(
+            &empty,
+            TransactionRequest {
+                identity: identity.store,
+                key: KEY,
+                operation: RecordOperation::Put,
+                expected_committed_version: None,
+            },
+            b"ciphertext-envelope",
+            port.bytes.len() as u64,
+        )
+        .unwrap();
+        append_with_readback(&mut port, identity, &put, &mut snapshot).unwrap();
+        let committed = open_and_replay(&mut port, identity, &mut snapshot).unwrap();
+        let delete = plan_transaction(
+            &committed,
+            TransactionRequest {
+                identity: identity.store,
+                key: KEY,
+                operation: RecordOperation::Delete,
+                expected_committed_version: Some(1),
+            },
+            &[],
+            port.bytes.len() as u64,
+        )
+        .unwrap();
+        let writes_before = port.writes;
+
+        let after_cut = append_exact_qemu_test_delete_without_commit(
+            &mut port,
+            identity,
+            &delete,
+            &mut snapshot,
+        )
+        .unwrap();
+
+        assert_eq!(port.writes - writes_before, 2);
+        assert_eq!(after_cut.tail, ReplayTail::IncompleteTransaction);
+        let retained = after_cut.record(KEY).unwrap().unwrap();
+        assert_eq!(retained.record_version, 1);
+        assert!(matches!(
+            &retained.value,
+            raios_core::structured_store::RecordValue::Present(_)
+        ));
     }
 
     #[test]

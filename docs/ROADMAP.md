@@ -86,9 +86,14 @@ WiFi after unlock; an owner-signed last-good SAFE boot emits no provider/WiFi us
 one physical Genesis action, then exactly one metadata-only `local_only`
 `safe_recovery` audit and contained WiFi consumer. General SAFE durable-write denial and
 the provider path are unchanged; a move-only token reaches only `SupplicantPmk`, and
-`AlreadyReady` now requires the exact retained target. G5.5 remains open on corruption,
-torn/power-cut, crash and default-release sentinel evidence; physical persistence and
-TPM auto-unlock remain unproven.
+`AlreadyReady` now requires the exact retained target. **G5.5a torn/power-cut recovery
+is verified** by `shadow-20260711-001242-11280.json` (118/118): after an exact-C1 WiFi
+version-2 PREPARE plus TOMBSTONE with no COMMIT and a hard QEMU stop, reboot/replay keeps
+the committed version 1 usable after unlock and preserves the core Vault handle. The
+report itself and default release/recursive ESP pass the dynamic sentinel scan. G5.5
+remains open on tag/AAD corruption, stale wrapper, nonce reuse, changed partition
+identity, visible corrupt-store denial, personal trap join and true provider/WiFi
+service isolation; physical persistence and TPM auto-unlock remain unproven.
 
 **Genesis execution progress (A1/C3, 2026-07-10):** the normal release image
 now starts in the core-owned Genesis shell (Conversation, Context, Composer,
@@ -125,7 +130,8 @@ non-default proof enters the clipped core-owned surface, accepts sanitized input
 leaves through core-only F12, falls back after trap/fuel, and never changes the
 secure-strip pixels. Its current-boot inventory row exists only while active. The
 I3/G5.4 provider, contained WiFi-use, physical forget and SAFE explicit-reconnect paths
-are verified by the focused reports above; G5.5 remains independently gated.
+are verified by the focused reports above; G5.5a power-cut recovery is also green, while
+the remaining G5.5 negative and isolation cases stay independently gated.
 
 **M11 Kernel Slimming progress (all grants-nothing / strictly-more-restrictive,
 committed):** M11-1 kernel internet-parsing SURFACE baseline (the measurably-

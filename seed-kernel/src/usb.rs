@@ -4526,6 +4526,7 @@ fn hid_usage_to_keycode(usage: u8) -> Option<u16> {
         0x36 => 51,
         0x37 => 52,
         0x38 => 53,
+        0x42 => 67,
         // USB HID Keyboard F12. Preserve the existing set-1 internal keycode
         // so Input can turn it into core-only secure attention before routing.
         0x45 => 88,

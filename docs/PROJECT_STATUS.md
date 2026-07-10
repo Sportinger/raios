@@ -24,19 +24,17 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (C5/G5.5): extend the focused Secret-Vault evidence to cover
-corruption, torn/power-cut replay and
-WiFi/provider/personal-shell crash return while keeping the Vault handle and all
-sentinels contained. I3/G5.4 is now green, including NORMAL saved-target reconnect
-selection and SAFE explicit-only reconnect through a distinct owner-policy/last-good
-proof plus one token-consuming WiFi audit; keep those exact consumers and the general
-SAFE durable-write denial unchanged. Preserve the durable-store identity/rollback
-chain; do not expose
-plaintext to ShellHost/Wasm, add generic secret access, provider auto-load, broad
-mutation, or physical-target support. Disk 2 is unplugged; do not write a physical
-disk. The separate bare-metal WiFi proof remains pending: capture `LINK`,
-association/AID, `PORT_RELEASE`, RX/TX, and DHCP evidence before live provider access
-is claimed.
+Current exact next task (C5/G5.5 after G5.5a): prove tag/AAD corruption, stale-wrapper
+and nonce-reuse denial, changed-partition identity denial, a visible RAM-only corrupt-
+store denial, the personal-shell trap join, and true provider/WiFi service isolation
+while preserving the unlocked core Vault handle and containing every sentinel. G5.5a
+already proves the exact torn/power-cut path and must remain unchanged. Keep the exact
+Broker consumers and general SAFE durable-write denial unchanged; preserve the durable-
+store identity/rollback chain. Do not expose plaintext to ShellHost/Wasm, add generic
+secret access, provider auto-load, broad mutation, or physical-target support. Disk 2
+is unplugged; do not write a physical disk. The separate bare-metal WiFi proof remains
+pending: capture `LINK`, association/AID, `PORT_RELEASE`, RX/TX, and DHCP evidence
+before live provider access is claimed.
 
 I3 complete-history Broker foundation verified (2026-07-10) - a kernel composition
 agent can now obtain the complete ordered list of committed records from the same
@@ -159,9 +157,41 @@ It proves SAFE no-auto-use, exactly one physical WiFi audit+contained consumer,
 offline exact record shape, both sentinel scans, the prior NORMAL provider/WiFi path,
 and third-boot tombstones. `raios-core` passed 405/405, the release kernel and direct
 Core-Policy sign/verify package path built, and PowerShell parsing/format checks were
-green. This closes I3/G5.4, not G5.5: live radio association/link/`PORT_RELEASE`/DHCP,
-physical persistence, crash/corruption/power-cut evidence, TPM auto-unlock and provider
-network success remain unclaimed.
+green. At that point this closed I3/G5.4, not G5.5: live radio association/link/
+`PORT_RELEASE`/DHCP, physical persistence, crash/corruption/power-cut evidence, TPM
+auto-unlock and provider network success remained unclaimed.
+
+G5.5a exact-C1 torn/power-cut recovery verified (2026-07-11) - a user can now survive a
+real exact-C1 WiFi version-2 PREPARE plus TOMBSTONE write with no COMMIT and a hard QEMU
+stop, then reboot, unlock and use the retained committed WiFi version 1 with the core
+Vault handle preserved. Focused report
+`release/vm-reports/shadow-20260711-001242-11280.json` passed 118/118 predicates; report
+SHA-256 is `56b6e67010b4f407765eeb3b9b9d027df21bd9f006c6d713d969de376cc11265`.
+The final report readback itself and the default release image plus recursive ESP files
+also pass the exact dynamic provider/WiFi/RR1 sentinel scan. This completes only G5.5a
+torn-commit/power-cut evidence. Tag/AAD corruption, stale wrapper, nonce reuse, changed
+partition identity, visible corrupt-store denial, the personal-shell trap join, and
+true provider/WiFi service isolation remain open. Physical persistence, TPM auto-unlock,
+live radio/link/`PORT_RELEASE`/DHCP and provider network success remain unclaimed.
+
+VM failure classification (2026-07-11, first G5.5 power-cut profile) - report
+`release/vm-reports/shadow-20260710-235921-23132.json` has no guest predicate because
+the host exhausted C: while creating the initial 538-MiB disposable valid-a persist
+fixture; its JSON report was itself truncated by the same disk-full condition. QEMU
+never started (`pid:null`, empty QEMU args, no serial hash). Verdict:
+`host-transport/setup` - no guest, Vault, partial transaction or recovery behavior ran.
+Before retry, remove only the exact failed run directory plus the already classified
+`shadow-20260710-144728-24560` forensics directory; keep all reports and repository
+artifacts. No code/security inference is made from this attempt.
+
+VM failure classification (2026-07-11, second G5.5 power-cut profile) - report
+`release/vm-reports/shadow-20260711-000516-24272.json` passed 52 predicates and failed
+`secret-vault:power-cut:precommit_ready` with `serial_transport_failure:null`. Verdict:
+`guest-behavior` - HMP delivered a physical USB input batch for F9, but the xHCI HID
+translator did not map usage `0x42` to the existing set-1 F9 code `67`, so Genesis never
+received the contained trigger and no partial Store write ran. The bounded repair adds
+only that standard HID-to-keycode mapping; the exact-C1/unlocked checks and all Store
+authority remain unchanged before the focused retry.
 
 VM failure classification (2026-07-10, first SAFE-Secret-Vault profile) - report
 `release/vm-reports/shadow-20260710-204013-3440.json` contains no failing predicate

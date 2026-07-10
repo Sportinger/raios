@@ -57,6 +57,8 @@ $script:QemuProcessAfterTeardown = $null
 $script:QemuTeardownAction = "not_started"
 $script:SerialTransportFailure = $null
 $script:VisualEvidence = New-Object System.Collections.Generic.List[object]
+$script:ReportForbiddenDynamicValues = New-Object System.Collections.Generic.List[object]
+$script:ReportSecurityTripwire = $null
 
 . (Join-Path $PSScriptRoot "shadow-vm-smoke-support.ps1")
 
@@ -401,14 +403,24 @@ finally {
     }
     $script:QemuProcessAfterTeardown = Get-QemuProcessSnapshot -Observation "after_teardown"
 
-    Write-Report `
-        -FinalResult $Result `
-        -ResolvedImage $ResolvedImage `
-        -ResolvedArtifact $ResolvedArtifact `
-        -ResolvedManifest $ResolvedManifest `
-        -QemuArgList $QemuArgList `
-        -HardwareProfile $HardwareProfile `
-        -StartedAt $StartedAt
+    $reportWriteException = $null
+    try {
+        Write-Report `
+            -FinalResult $Result `
+            -ResolvedImage $ResolvedImage `
+            -ResolvedArtifact $ResolvedArtifact `
+            -ResolvedManifest $ResolvedManifest `
+            -QemuArgList $QemuArgList `
+            -HardwareProfile $HardwareProfile `
+            -StartedAt $StartedAt
+    }
+    catch {
+        $reportWriteException = $_.Exception
+        $Result = "failed"
+    }
+    finally {
+        Clear-ReportForbiddenDynamicValues
+    }
 
     if ($TempImage -and -not $KeepImage) {
         Remove-Item -LiteralPath $ResolvedImage -Force -ErrorAction SilentlyContinue
@@ -424,4 +436,11 @@ finally {
     Write-Host "report: $ReportPath"
     Write-Host "report sha256: $ReportHashPath"
     Write-Host "serial log: $SerialLog"
+
+    if ($script:ReportSecurityTripwire) {
+        throw "SECURITY_TRIPWIRE_REPORT_FORBIDDEN_DYNAMIC_VALUE labels=$($script:ReportSecurityTripwire)"
+    }
+    if ($reportWriteException) {
+        throw $reportWriteException
+    }
 }

@@ -10,8 +10,8 @@ use raios_core::{
     gpt_layout::GPT_ENTRY_ARRAY_BYTES,
     sha256_bytes,
     structured_store::{
-        plan_transaction, RecordKey, RecordOperation, RecordValue, ReplayTail, StoreGeometry,
-        StoreIdentity, TransactionRequest, STORE_BLOCK_LEN,
+        plan_transaction, FrameKind, RecordKey, RecordOperation, RecordValue, ReplayTail,
+        StoreGeometry, StoreIdentity, TransactionRequest, STORE_BLOCK_LEN,
     },
     structured_store_partition::{
         validate_approved_structured_store_partition, ApprovedStructuredStorePartition,
@@ -26,8 +26,9 @@ use crate::{
     pci::{self, PciAddress},
     secret_vault, serial,
     structured_store::{
-        append_with_readback, format_empty_disposable_test_media, open_and_replay_with_history,
-        PortDenied, ValidatedRegionIdentity, ValidatedReplayWithHistory, ValidatedStoreRegionPort,
+        append_exact_qemu_test_delete_without_commit, append_with_readback,
+        format_empty_disposable_test_media, open_and_replay_with_history, PortDenied,
+        ValidatedRegionIdentity, ValidatedReplayWithHistory, ValidatedStoreRegionPort,
     },
 };
 
@@ -118,6 +119,19 @@ pub(crate) enum VaultTombstoneStoreDenied {
     Bounds,
 }
 
+#[derive(Debug)]
+pub(crate) enum VaultPowerCutStoreDenied {
+    FixtureMissing,
+    Open(&'static str),
+    Port(PortDenied<&'static str>),
+    Core(raios_core::structured_store::StoreDenied),
+    IdentityChanged,
+    TailNotClean,
+    WifiV1Missing,
+    PlanMismatch,
+    Bounds,
+}
+
 impl From<PortDenied<&'static str>> for ProviderSecretStoreDenied {
     fn from(value: PortDenied<&'static str>) -> Self {
         Self::Port(value)
@@ -137,6 +151,12 @@ impl From<PortDenied<&'static str>> for VaultTombstoneStoreDenied {
 }
 
 impl From<PortDenied<&'static str>> for RecoveryWrapperStoreDenied {
+    fn from(value: PortDenied<&'static str>) -> Self {
+        Self::Port(value)
+    }
+}
+
+impl From<PortDenied<&'static str>> for VaultPowerCutStoreDenied {
     fn from(value: PortDenied<&'static str>) -> Self {
         Self::Port(value)
     }
@@ -188,7 +208,20 @@ fn run_fixture(port: &mut DisposableQemuStorePort) -> Result<(), DisposableQemuS
         .map_err(DisposableQemuStoreDenied::Core)?
         .is_some()
     {
+        let power_cut_wifi_v1_preserved = replay.state().tail == ReplayTail::IncompleteTransaction
+            && replay
+                .state()
+                .record(secret_vault::wifi_record_key())
+                .map_err(DisposableQemuStoreDenied::Core)?
+                .is_some_and(|record| {
+                    record.record_version == 1 && matches!(&record.value, RecordValue::Present(_))
+                });
         bind_vault_runtime_inputs(&replay)?;
+        if power_cut_wifi_v1_preserved {
+            serial::write_line(
+                "C1_VAULT_POWER_CUT_REPLAY_PRESERVED key=wifi version=1 tail=incomplete_transaction test_infrastructure=true",
+            );
+        }
         serial::write_line("C1_STRUCTURED_STORE_REBOOT_REPLAY_OK");
         return Ok(());
     }
@@ -487,6 +520,88 @@ pub(crate) fn commit_wifi_secret(
         proposed_version
     ));
     Ok(replay)
+}
+
+/// Exact-C1 test infrastructure for one real power-cut boundary. It plans a
+/// fixed WiFi v2 tombstone over a committed v1 ciphertext, then writes and
+/// readback-verifies only PREPARE + TOMBSTONE. The COMMIT frame is never sent
+/// to the device, and this function has no physical-media or generic-key path.
+pub(crate) fn arm_exact_c1_wifi_power_cut_precommit_test(
+    expected: ValidatedRegionIdentity,
+) -> Result<(), VaultPowerCutStoreDenied> {
+    let mut port = open_disposable_qemu_store_port()
+        .map_err(|error| VaultPowerCutStoreDenied::Open(c1_error_reason(error)))?
+        .ok_or(VaultPowerCutStoreDenied::FixtureMissing)?;
+    if port.identity() != expected {
+        return Err(VaultPowerCutStoreDenied::IdentityChanged);
+    }
+
+    let snapshot_len = usize::try_from(
+        expected
+            .geometry
+            .log_byte_len()
+            .map_err(VaultPowerCutStoreDenied::Core)?,
+    )
+    .map_err(|_| VaultPowerCutStoreDenied::Bounds)?;
+    let mut snapshot = vec![0u8; snapshot_len];
+    let replay = open_and_replay_with_history(&mut port, expected, &mut snapshot)?;
+    if replay.state().tail != ReplayTail::ZeroFilled {
+        return Err(VaultPowerCutStoreDenied::TailNotClean);
+    }
+
+    let key = secret_vault::wifi_record_key();
+    let current = replay
+        .state()
+        .record(key)
+        .map_err(VaultPowerCutStoreDenied::Core)?
+        .ok_or(VaultPowerCutStoreDenied::WifiV1Missing)?;
+    if current.record_version != 1 || !matches!(&current.value, RecordValue::Present(_)) {
+        return Err(VaultPowerCutStoreDenied::WifiV1Missing);
+    }
+
+    let plan = plan_transaction(
+        replay.state(),
+        TransactionRequest {
+            identity: expected.store,
+            key,
+            operation: RecordOperation::Delete,
+            expected_committed_version: Some(1),
+        },
+        &[],
+        expected
+            .geometry
+            .log_byte_len()
+            .map_err(VaultPowerCutStoreDenied::Core)?,
+    )
+    .map_err(VaultPowerCutStoreDenied::Core)?;
+    if plan.key != key
+        || plan.operation != RecordOperation::Delete
+        || plan.record_version != 2
+        || plan.frames.len() != 3
+        || plan.frames[0].kind != FrameKind::Prepare
+        || plan.frames[1].kind != FrameKind::Tombstone
+        || plan.frames[2].kind != FrameKind::Commit
+    {
+        return Err(VaultPowerCutStoreDenied::PlanMismatch);
+    }
+
+    let after_cut =
+        append_exact_qemu_test_delete_without_commit(&mut port, expected, &plan, &mut snapshot)?;
+    let retained = after_cut
+        .record(key)
+        .map_err(VaultPowerCutStoreDenied::Core)?
+        .ok_or(VaultPowerCutStoreDenied::WifiV1Missing)?;
+    if after_cut.tail != ReplayTail::IncompleteTransaction
+        || retained.record_version != 1
+        || !matches!(&retained.value, RecordValue::Present(_))
+    {
+        return Err(VaultPowerCutStoreDenied::PlanMismatch);
+    }
+
+    serial::write_line(
+        "C1_VAULT_POWER_CUT_PRECOMMIT_READY key=wifi previous_version=1 proposed_version=2 commit_written=false test_infrastructure=true",
+    );
+    Ok(())
 }
 
 /// Appends a tombstone only for the fixed provider slot on the exact C1

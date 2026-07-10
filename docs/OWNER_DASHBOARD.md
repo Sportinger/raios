@@ -64,10 +64,11 @@ pinned and retained by the Broker. Explicit Genesis RR1 provisioning, wrapper
 commit/readback, reboot/replay and RR1 unlock are proven. Provider and contained WiFi
 use are bounded by opaque one-use leases after durable pre-use audit.
 
-Latest proof: focused Secret Vault report `shadow-20260710-204801-23168.json` passed
-95/95, including the prior encrypted save/use/forget path plus NORMAL/Probation exact
-saved-WiFi matching and physical-only SAFE reconnect. It proves no live provider request
-or association/link/`PORT_RELEASE`/DHCP.
+Latest proof: focused Secret Vault report `shadow-20260711-001242-11280.json` passed
+118/118. A hard stop after an exact-C1 WiFi version-2 PREPARE plus TOMBSTONE but before
+COMMIT now reboots to the retained committed version 1; RR1 unlock and contained WiFi use
+still work and the core Vault handle survives. Report-self and default release/recursive
+ESP dynamic sentinel scans are green. This closes only G5.5a power-cut/torn-commit.
 
 Gate status: latest full profile remains green at
 `shadow-20260708-150428-34396.json` 7867/7867. This slice used focused Secret Vault
@@ -85,7 +86,7 @@ Latest Core-Policy proof: `shadow-20260710-145039-13864.json` passed 5/5 for the
 owner signature, complete Limine executable measurement, and exact A/1 BOOTCTL join.
 This is software-pinned, not Secure Boot/TPM, and does not unlock the Vault.
 
-Next task: finish G5.5 corruption, torn/power-cut, crash-return and default-release
-sentinel evidence. Physical persistence and TPM auto-unlock remain unproven. Production
-OpenAI is wired behind real pinned trust, but live provider success is not yet claimed.
-Disk 2 stays untouched.
+Next task: finish G5.5 tag/AAD corruption, stale-wrapper, nonce-reuse, changed-partition,
+visible corrupt-store, personal-trap and true provider/WiFi isolation evidence. Physical
+persistence and TPM auto-unlock remain unproven. Production OpenAI is wired behind real
+pinned trust, but live provider success is not yet claimed. Disk 2 stays untouched.

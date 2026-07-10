@@ -17,6 +17,8 @@ use super::{
     recovery, vault_flow, wifi_flow,
 };
 
+const CONTAINED_QEMU_POWER_CUT_KEYCODE_F9: u16 = 67;
+
 pub(crate) const FONT_ADVANCE: usize = 9;
 pub(crate) const APP_BG: Color = Color::new(20, 22, 26);
 pub(crate) const SURFACE_BG: Color = Color::new(29, 32, 38);
@@ -228,6 +230,22 @@ impl ShellHost {
         event: input::InputEvent,
         runtime: crate::system_status::RuntimeStatus,
     ) -> bool {
+        if matches!(
+            event.kind,
+            input::InputEventKind::Key {
+                code: CONTAINED_QEMU_POWER_CUT_KEYCODE_F9,
+                pressed: true
+            }
+        ) && secret_vault::contained_qemu_wifi_test_available()
+        {
+            if let Err(error) = secret_vault::arm_contained_qemu_wifi_power_cut_test() {
+                serial::write_fmt(format_args!(
+                    "C1_VAULT_POWER_CUT_PRECOMMIT_REJECTED reason={} test_infrastructure=true\r\n",
+                    error.recovery_reason()
+                ));
+            }
+            return true;
+        }
         if self.vault.is_active() {
             return self.vault.handle_physical_input(event);
         }

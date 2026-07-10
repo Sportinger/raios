@@ -63,7 +63,11 @@ metadata-only `local_only` `safe_recovery` audit and contained WiFi consumer. Ge
 SAFE durable-write denial and provider use remain unchanged. The driver carries a
 move-only token only to `SupplicantPmk`, and `AlreadyReady` requires the exact retained
 target. This does not claim radio/link/`PORT_RELEASE`/DHCP, physical persistence or TPM
-auto-unlock.
+auto-unlock. **G5.5a is now verified** by `shadow-20260711-001242-11280.json` (118/118):
+an exact-C1 WiFi version-2 PREPARE plus TOMBSTONE without COMMIT is interrupted by a hard
+QEMU stop; reboot/replay retains committed version 1, RR1 unlock and contained WiFi use,
+with the core Vault handle intact. Report-self and default release/recursive ESP dynamic
+sentinel scans are green. Only this torn-commit/power-cut sub-slice is complete.
 
 Target orchestrator: Codex 5.6, reasoning effort `xhigh`
 
@@ -1645,9 +1649,9 @@ one physical Genesis action, then exactly one metadata-only `local_only`
 `safe_recovery` audit and contained WiFi consumer. General SAFE durable-write denial and
 provider use remain unchanged; the driver carries a move-only token only to
 `SupplicantPmk`, and `AlreadyReady` requires the exact retained target. I3/G5.4 is
-verified on the exact QEMU/recovery path. G5.5 crash/corruption/torn/power-cut and
-default-release sentinel evidence remain open; physical persistence and TPM auto-unlock
-remain unproven.
+verified on the exact QEMU/recovery path. G5.5a torn/power-cut recovery and report/default-
+release/ESP dynamic sentinel scans are now green; the remaining G5.5 corruption and
+isolation cases stay open. Physical persistence and TPM auto-unlock remain unproven.
 
 I3 readiness: C1/C2/C3 are green, A2 exposes the frozen secure-overlay/status API, the
 foreign WiFi work is clean/frozen, and Sol has approved the exact authority diff. Only
@@ -1696,11 +1700,18 @@ Checks: scoped host tests, existing WiFi/provider tests, release build/package,
 
 #### G5.5 — Reboot, crash, corruption and recovery evidence
 
-Progress (2026-07-10): reboot/recovery-key replay, exact contained consumers,
-physical-only SAFE reconnect and durable forget/tombstone behavior are green in the
-focused reports above. G5.5 remains open on tag/AAD corruption, torn commit, power-cut
-replay, WiFi/provider/personal-shell crash return, and default-release/ESP sentinel
-absence. Physical persistence and TPM auto-unlock remain explicitly unproven.
+Progress (2026-07-11): reboot/recovery-key replay, exact contained consumers,
+physical-only SAFE reconnect and durable forget/tombstone behavior remain green.
+G5.5a report `shadow-20260711-001242-11280.json` passes 118/118: a real exact-C1 WiFi
+version-2 PREPARE plus TOMBSTONE without COMMIT is hard-stopped; reboot/replay ignores it,
+retains committed version 1, unlocks and reaches the same contained WiFi consumer with
+the core Vault handle preserved. The report itself and default release/recursive ESP
+files pass exact dynamic provider/WiFi/RR1 sentinel scans. This completes only the
+torn-commit/power-cut case. G5.5 remains open on tag/AAD corruption, stale wrapper,
+nonce reuse, changed partition identity, visible corrupt-store denial, the personal-
+shell trap join, and true provider/WiFi service isolation. Physical persistence and TPM
+auto-unlock remain explicitly unproven; live radio/link/`PORT_RELEASE`/DHCP and provider
+network success remain unclaimed.
 
 Ready after I3. Track D may have authored the separate profile earlier against frozen
 needles, but the orchestrator alone launches its authoritative two-boot runs.

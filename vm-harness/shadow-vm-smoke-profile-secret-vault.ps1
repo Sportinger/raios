@@ -949,6 +949,7 @@ $rr1 = $null
 $providerSentinel = $null
 $wifiSentinel = $null
 $safeProof = $null
+$powerCutProof = $null
 $script:Rr1SecretPpmPath = Join-Path $RunDir "rr1-once.ppm"
 try {
     Assert-LogContains `
@@ -995,6 +996,7 @@ try {
     if (Test-Path -LiteralPath $script:Rr1SecretPpmPath) {
         throw "SECURITY_TRIPWIRE_RR1_PPM_RETAINED"
     }
+    Register-ReportForbiddenDynamicValue -Label "rr1" -Value $rr1
 
     $usbBeforeReentry = Get-SerialMarkerCount -Path $SerialLog -Marker "usb input batch:"
     # A distinct physical Space acknowledges the already captured one-time
@@ -1039,6 +1041,7 @@ try {
         -TimeoutSeconds $TimeoutSeconds
 
     $providerSentinel = New-ProviderSentinelBytes
+    Register-ReportForbiddenDynamicValue -Label "provider-sentinel" -Value $providerSentinel
     Send-ProviderSentinelViaUsbKeyboard -Sentinel $providerSentinel
     foreach ($marker in @(
         @{ Name = "secret-vault:boot1:provider_committed_readback"; Text = "C1_VAULT_PROVIDER_COMMITTED version=1 readback=verified" },
@@ -1076,6 +1079,7 @@ try {
         -TimeoutSeconds $TimeoutSeconds
 
     $wifiSentinel = New-ProviderSentinelBytes -ByteCount 31
+    Register-ReportForbiddenDynamicValue -Label "wifi-sentinel" -Value $wifiSentinel
     Send-ProviderSentinelViaUsbKeyboard -Sentinel $wifiSentinel
     foreach ($marker in @(
         @{ Name = "secret-vault:boot1:wifi_committed_readback"; Text = "C1_VAULT_WIFI_COMMITTED version=1 readback=verified" },
@@ -1109,6 +1113,7 @@ try {
     $safeProof = Invoke-SecretVaultSafeReconnectProof `
         -Rr1 $rr1 `
         -InitialFrameCount $initialFrameCount
+    $powerCutProof = Invoke-SecretVaultPowerCutProof -Rr1 $rr1
     $rebootLog = Start-SecretVaultQemu -LogName "serial-secret-vault-reboot.log"
 
     Assert-VaultFixedLogMarker -Name "secret-vault:boot2:serial_ready" -Marker "SERIAL CONSOLE READY" -TimeoutSeconds $TimeoutSeconds
@@ -1254,16 +1259,43 @@ try {
 
     $combinedLog = Join-Path $RunDir "serial-secret-vault-combined.log"
     Join-SecretVaultSerialLogs `
-        -Paths @($firstBootLog, $safeProof.Log, $rebootLog, $forgottenRebootLog) `
+        -Paths @(
+            $firstBootLog,
+            $safeProof.Log,
+            $powerCutProof.BeforeLog,
+            $powerCutProof.AfterLog,
+            $rebootLog,
+            $forgottenRebootLog
+        ) `
         -Destination $combinedLog
+
+    $defaultReleaseImage = Join-Path $RepoRoot "release\raios-stage0.img"
+    $defaultEspRoot = Join-Path $RepoRoot "release\esp"
+    $defaultEspFiles = @(
+        Get-ChildItem -LiteralPath $defaultEspRoot -File -Recurse -ErrorAction Stop |
+            ForEach-Object { $_.FullName }
+    )
+    $defaultArtifactPaths = @($defaultReleaseImage) + $defaultEspFiles
+    $defaultArtifactsReady = (Test-Path -LiteralPath $defaultReleaseImage -PathType Leaf) -and
+        $defaultEspFiles.Count -gt 0
+    Add-Predicate `
+        -Name "secret-vault:default_release_artifact_scope_ready" `
+        -Expected "default release image plus every release/esp file are present for exact dynamic sentinel scanning" `
+        -Passed $defaultArtifactsReady `
+        -Actual "ready=$($defaultArtifactsReady.ToString().ToLowerInvariant()) esp_files=$($defaultEspFiles.Count)"
+    if (-not $defaultArtifactsReady) {
+        throw "Default release artifact sentinel scope is incomplete"
+    }
 
     Assert-ProviderSentinelAbsent `
         -Name "secret-vault:provider_sentinel_absent_from_all_artifacts" `
         -Label "provider" `
         -Sentinel $providerSentinel `
-        -RequiredPaths @(
+        -RequiredPaths (@(
             $firstBootLog,
             $safeProof.Log,
+            $powerCutProof.BeforeLog,
+            $powerCutProof.AfterLog,
             $rebootLog,
             $forgottenRebootLog,
             $combinedLog,
@@ -1271,15 +1303,19 @@ try {
             $StructuredStoreDiskImage,
             $PersistDiskImage,
             $safeProof.StructuredStore,
-            $safeProof.Persist
-        )
+            $safeProof.Persist,
+            $powerCutProof.StructuredStore,
+            $powerCutProof.Persist
+        ) + $defaultArtifactPaths)
     Assert-ProviderSentinelAbsent `
         -Name "secret-vault:wifi_sentinel_absent_from_all_artifacts" `
         -Label "WiFi" `
         -Sentinel $wifiSentinel `
-        -RequiredPaths @(
+        -RequiredPaths (@(
             $firstBootLog,
             $safeProof.Log,
+            $powerCutProof.BeforeLog,
+            $powerCutProof.AfterLog,
             $rebootLog,
             $forgottenRebootLog,
             $combinedLog,
@@ -1287,8 +1323,10 @@ try {
             $StructuredStoreDiskImage,
             $PersistDiskImage,
             $safeProof.StructuredStore,
-            $safeProof.Persist
-        )
+            $safeProof.Persist,
+            $powerCutProof.StructuredStore,
+            $powerCutProof.Persist
+        ) + $defaultArtifactPaths)
 
     $combinedContent = [string](Get-Content -LiteralPath $combinedLog -Raw -ErrorAction Stop)
     $forbiddenWifiSuccess = @(
@@ -1404,5 +1442,6 @@ finally {
     Clear-Rr1Bytes -Bytes $wifiSentinel
     $wifiSentinel = $null
     $safeProof = $null
+    $powerCutProof = $null
     Remove-Rr1SecretPpm -Path $script:Rr1SecretPpmPath
 }
