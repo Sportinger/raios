@@ -11,7 +11,11 @@ param(
     [switch]$EmbedOpenAiSpkiRotationPinFromEnv,
     [string]$OpenAiSpkiRotationPinEnvVar = "OPENAI_SPKI_SHA256_NEXT",
     [switch]$AllowUnverifiedOpenAiTls,
-    [switch]$UseTempEsp
+    [switch]$UseTempEsp,
+    [ValidateSet("A", "B")]
+    [string]$CorePolicySlot = "A",
+    [UInt64]$CorePolicyGeneration = 1,
+    [string]$CorePolicyPrivateKey = (Join-Path $env:LOCALAPPDATA "raiOS\keys\core-policy-owner.p256.secret")
 )
 
 $ErrorActionPreference = "Stop"
@@ -80,6 +84,33 @@ try {
     Copy-Item -LiteralPath $Kernel -Destination (Join-Path $EspDir "kernel\seed-kernel.elf") -Force
     Copy-Item -LiteralPath $LimineConfig -Destination (Join-Path $EspDir "limine.conf") -Force
     Copy-Item -LiteralPath $LimineConfig -Destination $BootConfig -Force
+
+    $PolicyDir = Join-Path $EspDir "raios"
+    $PolicyPath = Join-Path $PolicyDir "core-policy.bin"
+    Remove-Item -LiteralPath $PolicyPath -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $CorePolicyPrivateKey -PathType Leaf) {
+        if ($CorePolicyGeneration -eq 0) {
+            throw "CorePolicyGeneration must be greater than zero."
+        }
+        New-Item -ItemType Directory -Force -Path $PolicyDir | Out-Null
+        & cargo run --locked --quiet -p core-policy-sign -- sign `
+            $CorePolicyPrivateKey $Kernel $CorePolicySlot $CorePolicyGeneration $PolicyPath
+        if ($LASTEXITCODE -ne 0) {
+            throw "Core Policy signing failed with exit code $LASTEXITCODE"
+        }
+        & cargo run --locked --quiet -p core-policy-sign -- verify `
+            $Kernel $CorePolicySlot $CorePolicyGeneration $PolicyPath
+        if ($LASTEXITCODE -ne 0) {
+            throw "Core Policy verification failed with exit code $LASTEXITCODE"
+        }
+    }
+    else {
+        Write-Warning "Core Policy owner key is absent; packaged image remains fail-closed for Vault authority."
+        if ((Test-Path -LiteralPath $PolicyDir) -and
+            -not (Get-ChildItem -LiteralPath $PolicyDir -Force | Select-Object -First 1)) {
+            Remove-Item -LiteralPath $PolicyDir -Force
+        }
+    }
 
     if (-not (Test-Path (Join-Path $EspDir "EFI\BOOT\BOOTX64.EFI"))) {
         throw "Missing Limine bootloader at $EspDir\EFI\BOOT\BOOTX64.EFI"

@@ -25,9 +25,9 @@ implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
 Current exact next task (I3/G5.4 Secret-Vault authority join): retain the now-green
-complete-history Broker foundation, then add only the missing authoritative runtime
-inputs: a real current-core policy binding and durable per-use audit evidence before
-unlock/decrypt can become positive. After those inputs exist, replace the two legacy
+complete-history Broker and owner-signed executing-core policy, then add the one
+remaining authoritative runtime input: a durable pre-use audit receipt before
+unlock/decrypt can become positive. After that receipt exists, replace the two legacy
 RAM-copy consumers and wire the trusted Genesis overlay. Preserve the existing
 durable-store identity/rollback chain; do not expose plaintext to ShellHost/Wasm,
 add generic secret access, provider auto-load, broad mutation, or physical-target
@@ -56,6 +56,33 @@ loads that complete commit history into the Broker; the unrelated C1 proof recor
 excluded. Focused `release/vm-reports/shadow-20260710-133203-24112.json` passed 11/11,
 including `C1_VAULT_COMPLETE_REPLAY_BOUND` on both boots. This binds no physical
 target and still grants no provision, unlock, decrypt, consumer use, or secret write.
+
+I3 owner Core-Policy root verified (2026-07-10) - raiOS can now recompute the
+complete raw executable file supplied by Limine and accept its logical BOOTCTL
+slot/generation only when the fixed 128-byte policy verifies under the distinct
+owner software pin. The private P-256 scalar exists only under the ACL-protected
+local owner-key directory outside the repository; packaging derives and checks the
+pinned public key before signing the exact linked kernel. Core Policy is separate
+from descriptor, promotion, distribution, Vault, and recovery keys. Host/Core tests
+passed 406/406 including the pinned-root fingerprint assertion; the focused
+`release/vm-reports/shadow-20260710-145039-13864.json` then passed 5/5 with an exact
+A/1 BOOTCTL join and no denial. This proves software-pinned current-boot consistency,
+not Secure Boot, TPM measurement, hardware identity, in-memory integrity,
+deterministic ESP A/B selection, or anti-rollback. It creates no Vault unlock,
+decrypt, use, write, or TPM authority; durable pre-use audit evidence remains the
+next gate.
+
+VM failure classification (2026-07-10, first Core-Policy profile) - report
+`release/vm-reports/shadow-20260710-144728-24560.json` failed predicate
+`core-policy:owner_signature_kernel_bootctl_bound` with
+`serial_transport_failure:null`. Verdict: `guest-behavior` - Limine booted the
+kernel and the valid A/1 persist fixture was attached, but the internal-module
+request incorrectly supplied the full `boot():` URI where Limine expects an
+absolute module path. Limine therefore resolved it below `/kernel/boot():/` and
+the core correctly emitted `CORE_POLICY_DENIED reason=core_policy_module_missing`.
+The bounded repair changes only the requested/expected module path to
+`/raios/core-policy.bin`; it does not weaken signature, executable measurement,
+or BOOTCTL predicates before the focused retry.
 
 VM failure classification (2026-07-10, G4 first Genesis UI profile) - report
 `release/vm-reports/shadow-20260710-123636-21624.json` failed predicate

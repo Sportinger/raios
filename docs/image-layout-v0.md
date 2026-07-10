@@ -41,15 +41,22 @@ Current files written into the image are:
 /EFI/BOOT/BOOTX64.EFI
 /EFI/BOOT/limine.conf
 /kernel/kernel.elf
+/raios/core-policy.bin
 ```
 
 The tracked staging tree also contains `release/esp/kernel/seed-kernel.elf` and
 `release/esp/limine-uefi-cd.bin`, but the Windows FAT32 image builder only
-copies the files listed above.
+copies the files listed above. The Core Policy sidecar is conditional: packaging
+removes any stale copy and includes a freshly signed record only when the exact
+local owner key and tracked public pin match; otherwise Vault policy authority
+stays denied.
 
 Current runtime properties:
 
 - Limine 10 loads `/kernel/kernel.elf` from the same FAT32 filesystem.
+- Limine may expose the non-required `/raios/core-policy.bin` module. ADR 0014
+  fixes it to one 128-byte owner-software-key-signed record over the complete
+  raw Limine executable file plus one logical BOOTCTL slot/generation.
 - Stage-0 treats the image as read-only at runtime.
 - Provider API keys are RAM-only unless a separate ignored local image is built
   with `-UseTempEsp -EmbedOpenAiApiKeyFromEnv`.
@@ -104,9 +111,18 @@ addendum; see `docs/plan-reviews/m7-persistence-map-2026-07-06.md` sections 3.2-
 /EFI/BOOT/limine.conf
 /limine.conf
 /kernel/kernel.elf
+/raios/core-policy.bin
 /raios/slot.json
 /raios/manifest.json
 ```
+
+`/raios/core-policy.bin` is the only signed Core Policy input described by ADR
+0014. Its logical A/B slot binding does not make the current single
+`/kernel/kernel.elf` path into a deterministic A/B selector: firmware/Limine
+ESP selection, Secure Boot, TPM measurement, in-memory integrity, and
+anti-rollback remain separate unproven boundaries. Missing or invalid policy
+denies Secret Vault core-policy authority but does not prevent the permanent
+core or local recovery from booting.
 
 `SEED_DATA` contains mutable state only:
 

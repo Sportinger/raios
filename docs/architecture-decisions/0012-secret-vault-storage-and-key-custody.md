@@ -127,6 +127,13 @@ stores only typed ciphertext envelopes and never weakens or bypasses
 
 The in-RAM VMK handle may be opened by two wrapper families:
 
+`ApprovedCorePolicy` comes only from the opaque, positively verified owner
+Core Policy measurement and BOOTCTL join defined by ADR 0014. A caller-supplied
+generation, hash, key, or verification boolean cannot construct it. This
+policy evidence alone does not unlock or decrypt the Vault; the wrapper,
+recovery input, exact store, durable use-audit, and Broker gates below remain
+independently required.
+
 1. A TPM wrapper intended for automatic normal-boot unlock. A positive claim
    requires real bounded TPM2 command transport and a successful create, load,
    seal, reboot, and unseal chain bound to current/next/last-good core policy.

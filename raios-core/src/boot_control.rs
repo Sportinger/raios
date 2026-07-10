@@ -197,6 +197,12 @@ pub struct BootControlDecision {
     pub reason: &'static str,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BootCorePolicyBinding {
+    pub slot: BootSlotId,
+    pub generation: u64,
+}
+
 impl BootControlDecision {
     pub const fn persistence_unavailable(reason: &'static str) -> Self {
         Self {
@@ -225,6 +231,43 @@ impl BootControlDecision {
             reason,
         }
     }
+}
+
+/// Returns the exact Normal/Probation BOOTCTL payload slot and generation that
+/// a signed policy for the currently executing core must bind. SAFE and
+/// persistence-unavailable postures never authorize a core policy.
+pub fn core_policy_boot_binding(
+    decision: &BootControlDecision,
+    authoritative_record: &ParsedBootControl,
+) -> Result<BootCorePolicyBinding, &'static str> {
+    if !matches!(
+        decision.posture,
+        BootPosture::Normal | BootPosture::Probation
+    ) {
+        return Err("boot_control_posture_not_authorizing");
+    }
+    let authoritative_slot = decision
+        .authoritative_bootctl_slot
+        .ok_or("boot_control_authoritative_slot_missing")?;
+    if decision.selected_storage_slot != Some(authoritative_slot)
+        || decision.seq != Some(authoritative_record.seq)
+    {
+        return Err("boot_control_authoritative_record_mismatch");
+    }
+    let selected = decision.selected_payload_slot;
+    let payload_slot = authoritative_record
+        .slot(selected)
+        .ok_or("boot_control_policy_slot_missing")?;
+    if !payload_slot.state.is_bootable() {
+        return Err("boot_control_policy_slot_not_bootable");
+    }
+    if payload_slot.generation == 0 {
+        return Err("boot_control_policy_generation_invalid");
+    }
+    Ok(BootCorePolicyBinding {
+        slot: selected,
+        generation: payload_slot.generation,
+    })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

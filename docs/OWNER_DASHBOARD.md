@@ -41,10 +41,11 @@ committed append and a second-boot replay (`shadow-20260710-032738-34812`, 9/9).
 C3 still reports TPM `NotProven`; no physical or durable secret claim is open.
 
 Vault crypto status: exact AES-GCM/HKDF, recovery wrappers, opaque complete-history
-replay and the fail-closed Broker now pass 396 core tests. Its one-use outputs are
+replay and the fail-closed Broker now pass 406 focused core/tool tests. Its one-use outputs are
 only the bounded NXP WPA2 command or exact OpenAI header; no plaintext accessor
-exists. Runtime unlock/use stays denied until executing-core policy and durable
-use-audit evidence are authoritative.
+exists. The complete Limine kernel plus A/1 BOOTCTL policy is now owner-software-
+pinned and VM-proven; runtime unlock/use stays denied until durable use-audit
+evidence is authoritative.
 
 Latest proof: focused Genesis UI `shadow-20260710-124838-24564.json` passed 206/206
 with signed personal-shell entry/input/F12/trap/fuel evidence and five bound PNG
@@ -59,6 +60,10 @@ Latest Vault-foundation proof: release build plus focused structured-store repor
 `shadow-20260710-133203-24112.json` passed 11/11, including opaque complete-history
 binding on both boots. It does not arm Vault authority.
 
-Next task: I3/G5.4 adds the missing core-policy and durable use-audit bindings, then
+Latest Core-Policy proof: `shadow-20260710-145039-13864.json` passed 5/5 for the
+owner signature, complete Limine executable measurement, and exact A/1 BOOTCTL join.
+This is software-pinned, not Secure Boot/TPM, and does not unlock the Vault.
+
+Next task: I3/G5.4 adds the durable pre-use audit receipt, then
 joins only the named consumers. Disk 2 stays untouched; do not claim provider access
 or durable secrets before evidence.

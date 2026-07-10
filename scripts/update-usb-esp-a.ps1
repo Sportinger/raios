@@ -61,7 +61,7 @@ Log "mounting Disk $DiskNumber partition 1 at $access"
 Add-PartitionAccessPath -DiskNumber $DiskNumber -PartitionNumber 1 -AccessPath $access
 try {
     $target = "${access}\"
-    foreach ($name in @("EFI", "kernel", "limine-uefi-cd.bin", "limine.conf")) {
+    foreach ($name in @("EFI", "kernel", "raios", "limine-uefi-cd.bin", "limine.conf")) {
         $path = Join-Path $target $name
         if (Test-Path -LiteralPath $path) {
             Remove-Item -LiteralPath $path -Recurse -Force
@@ -73,6 +73,23 @@ try {
     $dstHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $target "kernel\kernel.elf")).Hash
     if ($srcHash -ne $dstHash) {
         throw "kernel hash mismatch: src=$srcHash dst=$dstHash"
+    }
+
+    $sourcePolicy = Join-Path $SourceEsp "raios\core-policy.bin"
+    $targetPolicy = Join-Path $target "raios\core-policy.bin"
+    if (Test-Path -LiteralPath $sourcePolicy) {
+        if (-not (Test-Path -LiteralPath $targetPolicy)) {
+            throw "Core Policy was not copied to ESP A."
+        }
+        $sourcePolicyHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $sourcePolicy).Hash
+        $targetPolicyHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $targetPolicy).Hash
+        if ($sourcePolicyHash -ne $targetPolicyHash) {
+            throw "Core Policy hash mismatch: src=$sourcePolicyHash dst=$targetPolicyHash"
+        }
+        Log "core policy sha256 $targetPolicyHash"
+    }
+    elseif (Test-Path -LiteralPath $targetPolicy) {
+        throw "Stale Core Policy remained on ESP A."
     }
 
     Log "SEED_ESP_A updated on Disk $DiskNumber ($($disk.FriendlyName))"

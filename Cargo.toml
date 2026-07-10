@@ -9,6 +9,7 @@ members = [
     "raios-x509-spki",
     "raios-http-parse",
     "tools/descriptor-resign",
+    "tools/core-policy-sign",
     "seed-kernel",
     "wasm-guests/svc-demo-echo",
     "wasm-guests/svc-demo-bufecho",

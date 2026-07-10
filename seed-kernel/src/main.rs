@@ -9,9 +9,10 @@ use core::arch::asm;
 use core::hint::spin_loop;
 use core::panic::PanicInfo;
 use core::ptr;
+use limine::modules::InternalModule;
 use limine::request::{
-    ExecutableAddressRequest, FramebufferRequest, HhdmRequest, RequestsEndMarker,
-    RequestsStartMarker, StackSizeRequest,
+    ExecutableAddressRequest, ExecutableFileRequest, FramebufferRequest, HhdmRequest,
+    ModuleRequest, RequestsEndMarker, RequestsStartMarker, StackSizeRequest,
 };
 use limine::BaseRevision;
 use linked_list_allocator::LockedHeap;
@@ -105,6 +106,7 @@ mod agent_protocol_ui;
 mod agent_protocol_wasm;
 mod ahci;
 mod console;
+mod core_policy_runtime;
 mod current_boot_service;
 mod descriptor_sources;
 mod distribution_candidate;
@@ -169,6 +171,19 @@ static FRAMEBUFFER_REQUEST: FramebufferRequest = FramebufferRequest::new();
 #[used]
 #[link_section = ".limine_requests"]
 static KERNEL_ADDRESS_REQUEST: ExecutableAddressRequest = ExecutableAddressRequest::new();
+
+static CORE_POLICY_INTERNAL_MODULE: InternalModule =
+    InternalModule::new().with_path(c"/raios/core-policy.bin");
+static CORE_POLICY_INTERNAL_MODULES: [&InternalModule; 1] = [&CORE_POLICY_INTERNAL_MODULE];
+
+#[used]
+#[link_section = ".limine_requests"]
+static EXECUTABLE_FILE_REQUEST: ExecutableFileRequest = ExecutableFileRequest::new();
+
+#[used]
+#[link_section = ".limine_requests"]
+static MODULE_REQUEST: ModuleRequest =
+    ModuleRequest::new().with_internal_modules(&CORE_POLICY_INTERNAL_MODULES);
 
 #[used]
 #[link_section = ".limine_requests"]
@@ -285,6 +300,10 @@ fn early_main() -> ! {
     let tsc_per_ms = time::tsc_per_ms();
 
     entropy::init();
+    core_policy_runtime::init(
+        EXECUTABLE_FILE_REQUEST.get_response(),
+        MODULE_REQUEST.get_response(),
+    );
     structured_store_c1::run_disposable_qemu_boot_probe();
 
     input::init();
@@ -507,6 +526,15 @@ pub unsafe extern "C" fn memcmp(a: *const u8, b: *const u8, count: usize) -> i32
         }
     }
     0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn strlen(value: *const u8) -> usize {
+    let mut len = 0usize;
+    while ptr::read_volatile(value.add(len)) != 0 {
+        len += 1;
+    }
+    len
 }
 
 #[panic_handler]

@@ -6,6 +6,7 @@ use sha2::{Digest, Sha256};
 
 pub mod artifact_blob_frame;
 pub mod boot_control;
+pub mod core_policy;
 pub use raios_http_parse as http_response_parse;
 pub use raios_x509_spki as x509_spki;
 pub use raios_x509_time as cert_validity_window;

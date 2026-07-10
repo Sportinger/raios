@@ -322,12 +322,18 @@ def main() -> None:
         ("EFI/BOOT/limine.conf", root / "EFI" / "BOOT" / "limine.conf"),
         ("kernel/kernel.elf", root / "kernel" / "kernel.elf"),
     ]
+    optional_files = [
+        ("raios/core-policy.bin", root / "raios" / "core-policy.bin"),
+    ]
 
     builder = Fat32Builder(args.size)
     for image_path, source in files:
         if not source.exists():
             raise FileNotFoundError(source)
         builder.add_file(image_path, source.read_bytes())
+    for image_path, source in optional_files:
+        if source.exists():
+            builder.add_file(image_path, source.read_bytes())
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(builder.build())

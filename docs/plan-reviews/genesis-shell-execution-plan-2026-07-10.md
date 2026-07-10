@@ -33,8 +33,11 @@ mutation and use evidence and exposes only fixed NXP/OpenAI one-use outputs; cor
 tests pass 396/396 and `shadow-20260710-132631-20352.json` passes 9/9. Runtime secret
 history is now bound from the exact revalidated QEMU store on both boots by
 `shadow-20260710-133203-24112.json` (11/11). Runtime secret authority remains
-unclaimed: executing-core policy and durable use-audit evidence must become
-authoritative before unlock/use can be wired.
+unclaimed: the distinct owner software-pinned Core Policy now binds the complete
+Limine executable to exact A/1 BOOTCTL state (`shadow-20260710-145039-13864.json`,
+5/5), but durable pre-use audit evidence must still become authoritative before
+unlock/use can be wired. This is not Secure Boot, TPM measurement, deterministic
+ESP A/B selection, or anti-rollback.
 
 Target orchestrator: Codex 5.6, reasoning effort `xhigh`
 

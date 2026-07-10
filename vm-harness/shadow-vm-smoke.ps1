@@ -10,7 +10,7 @@ param(
     [switch]$KeepImage,
     [int]$SerialWriteChunkSize = 256,
     [int]$SerialWriteDelayMilliseconds = 0,
-    [ValidateSet("full", "quick", "recovery", "genesis-ui", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m12-distribution-provenance", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable", "structured-store", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow", "m11-7-httphead", "m11-8-certspki", "usb-hotplug")]
+    [ValidateSet("full", "quick", "recovery", "genesis-ui", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m12-distribution-provenance", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable", "structured-store", "core-policy", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow", "m11-7-httphead", "m11-8-certspki", "usb-hotplug")]
     [string]$Profile = "full"
 )
 
@@ -141,15 +141,14 @@ try {
     elseif ($Profile -eq "persistence" -or $Profile -eq "memory-durable" -or $PersistDiskPath) {
         $PersistDiskImage = Resolve-PersistDiskImage -PersistDiskPath $PersistDiskPath -RunDir $RunDir
     }
-    elseif ($Profile -eq "m8-lifeline") {
-        # M8B-1: recovery.disable_module writes a durable recovery-action record, which
-        # (per the M7C-2a discipline) requires Normal boot posture. Boot m8-lifeline with
-        # a valid-a BOOTCTL persist disk (Normal posture) + an empty reclog so the durable
-        # append lands at seq 1 and live target-classification denials are reached.
-        $m8PersistDisk = Assert-PersistDiskPathSafe -Path (Join-Path $RunDir "raios-persist-m8-lifeline.img")
+    elseif ($Profile -eq "m8-lifeline" -or $Profile -eq "core-policy") {
+        # Both profiles require a real Normal A/1 BOOTCTL decision. M8 also uses
+        # the empty RECLOG for its bounded durable recovery-action append.
+        $persistFixtureName = if ($Profile -eq "core-policy") { "raios-persist-core-policy.img" } else { "raios-persist-m8-lifeline.img" }
+        $m8PersistDisk = Assert-PersistDiskPathSafe -Path (Join-Path $RunDir $persistFixtureName)
         $null = & python (Join-Path $RepoRoot "scripts\make-gpt-persist-image.py") --self-check --seed-bootctl valid-a $m8PersistDisk 2>&1
         if ($LASTEXITCODE -ne 0) {
-            throw "m8-lifeline persist disk build failed with exit code $LASTEXITCODE"
+            throw "$Profile persist disk build failed with exit code $LASTEXITCODE"
         }
         $PersistDiskImage = (Resolve-Path -LiteralPath $m8PersistDisk).Path
     }
@@ -235,6 +234,11 @@ try {
 
         if ($Profile -eq "structured-store") {
             . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-structured-store.ps1")
+            break SmokeProfileValidation
+        }
+
+        if ($Profile -eq "core-policy") {
+            . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-core-policy.ps1")
             break SmokeProfileValidation
         }
 

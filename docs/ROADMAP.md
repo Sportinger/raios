@@ -60,8 +60,12 @@ bounded NXP WPA2 command and exact OpenAI header, never plaintext access. Core t
 pass 396/396 and focused regression `shadow-20260710-132631-20352.json` passes 9/9.
 The exact QEMU store now also delivers its opaque identity-revalidated complete
 history into the Broker on both boots; `shadow-20260710-133203-24112.json` passes
-11/11. I3 remains open on an authoritative executing-core policy binding and
-durable per-use audit evidence; until both exist runtime unlock/use remains denied.
+11/11. The new distinct owner software-pinned Core Policy now verifies the complete
+Limine executable and exact Normal/Probation BOOTCTL slot/generation;
+`shadow-20260710-145039-13864.json` passes 5/5. It is explicitly not Secure Boot,
+TPM measurement, deterministic ESP A/B selection, or anti-rollback. I3 remains open
+on durable per-use audit evidence; until that receipt and the consumer joins exist,
+runtime unlock/use remains denied.
 
 **Genesis execution progress (A1/C3, 2026-07-10):** the normal release image
 now starts in the core-owned Genesis shell (Conversation, Context, Composer,

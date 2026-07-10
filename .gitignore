@@ -17,6 +17,7 @@ release/esp/NvVars
 /release/raios-stage0.img
 /release/esp/kernel/kernel.elf
 /release/esp/kernel/seed-kernel.elf
+/release/esp/raios/core-policy.bin
 
 # Proprietary Marvell WiFi firmware blob (redistributable, local-only, NOT committed)
 seed-kernel/firmware/*.bin
