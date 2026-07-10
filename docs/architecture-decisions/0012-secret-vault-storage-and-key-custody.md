@@ -34,6 +34,15 @@ and every write revalidates the exact controller, port, device, GPT disk and
 partition identity, raiOS partition type/label, store UUID, generation, start,
 length, and operation bounds.
 
+The generic M13 partition marker is GPT type GUID
+`5eedda7a-c0de-4a55-9a15-000000000013` with the exact UTF-16 label
+`RAIOS_STRUCTURED_STORE`. A real already-provisioned target retains its own
+unique GPT partition GUID and is admitted only when that GUID is included in
+the approved device fingerprint; raiOS never rewrites it to a test value. The
+disposable QEMU fixture uses its separately documented deterministic disk and
+partition GUIDs solely to exercise this marker and must never be accepted as a
+physical-target identity.
+
 The following are never Vault targets:
 
 - the boot USB stick or another removable boot medium;

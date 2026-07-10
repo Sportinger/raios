@@ -32,6 +32,10 @@ approved in ADR 0011. A0/B0 now supplies responsive Genesis geometry, an
 atomic display-list validator, exact evidence-bound future `ui.*` grants, and
 a stateless proof-guest source; the new visible shell/runtime is not verified yet.
 
+Vault/store status: C1's identity-bound PREPARE/DATA/COMMIT/TOMBSTONE codec,
+readback port, and disposable GPT fixture are ready; no physical or durable secret
+claim is open until the AHCI join and focused VM evidence land.
+
 Latest proof: 351/351 raios-core host tests, release build, secret scan, quick
 Shadow VM `shadow-20260710-020632-29720.json` 542/542, and verified Disk 2 copy hash.
 

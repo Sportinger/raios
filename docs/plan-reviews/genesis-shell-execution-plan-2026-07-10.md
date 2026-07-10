@@ -4,8 +4,9 @@ Status: execution-ready owner plan, 2026-07-10
 
 Execution cursor: I0/G0 is complete at `73c9677` and C0/ADR 0012 is complete at
 `8e5ff8d`; A0/B0 foundations and D0 are complete. A1/G1 visible Genesis host
-integration and the independent C1-C3 Vault/store foundations are next. Runtime
-capabilities remain unclaimed until their named evidence lands.
+integration and C1's bounded hardware/test-profile join are next; C2/C3 Vault
+and keyring foundations continue independently. Runtime capabilities remain
+unclaimed until their named evidence lands.
 
 Target orchestrator: Codex 5.6, reasoning effort `xhigh`
 

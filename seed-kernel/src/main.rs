@@ -140,6 +140,7 @@ mod ps2;
 mod scheduler;
 mod serial;
 mod service_inventory;
+mod structured_store;
 mod system_status;
 mod text;
 mod time;

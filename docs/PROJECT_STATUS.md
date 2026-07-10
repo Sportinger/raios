@@ -75,6 +75,20 @@ I2/G3, and the Genesis renderer/USB handoff are not yet claimed. Verified:
 build passed; quick report `release/vm-reports/shadow-20260710-020632-29720.json`
 passed 542/542; secret scan passed.
 
+Structured-store foundation done (C1 foundation, 2026-07-10) - a kernel adapter
+can now execute the real PREPARE/DATA/COMMIT/TOMBSTONE replay and append protocol
+only through an already identity-validated region port, rechecking its controller,
+device, GPT/partition identity, geometry, superblocks, bounds, flush and readback
+before every write. The pure M13 record codec rejects torn/corrupt commits and
+never selects, formats, repartitions, or redirects a device. The disposable-only
+GPT fixture uses the frozen M13 type `5eedda7a-c0de-4a55-9a15-000000000013` and
+label `RAIOS_STRUCTURED_STORE`; it accepts regular test images below `target/` or
+the host temp directory only. Verified: raios-core structured-store tests pass,
+the release kernel compiles this module, and the fixture self-test/create/verify
+paths pass. This is not physical persistence yet: no AHCI region capability,
+format-on-explicit-test-media runtime path, focused structured-store VM report,
+or physical-target support claim exists.
+
 VM failure classification (2026-07-10, B0 foundation quick) - report
 `release/vm-reports/shadow-20260710-013553-29700.json` passed 41/42 predicates
 but failed `protocol:system_honesty_report_standing_posture`. Verdict:
