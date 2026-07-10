@@ -1,8 +1,29 @@
 use raios_core::structured_store::{
-    parse_superblock, replay_log, select_superblock, validate_transaction_plan,
+    encode_superblock, parse_superblock, replay_log, select_superblock, validate_transaction_plan,
     verify_committed_plan, verify_frame_readback, ReplayState, SelectedSuperblock, StoreDenied,
     StoreGeometry, StoreIdentity, TransactionPlan, STORE_BLOCK_LEN, SUPERBLOCK_LEN,
 };
+use raios_core::{
+    sha256_bytes,
+    structured_store_partition::{STRUCTURED_STORE_LABEL, STRUCTURED_STORE_TYPE_GUID_LE},
+};
+
+// This is the only format target. `run-stage0-qemu.ps1` must attach the
+// disposable structured-store image to Q35's ICH9 AHCI controller at `ide.4`.
+// The device digest remains an input because it is established by the bounded
+// AHCI identify path and rechecked before the zero scan, the first write, and
+// every subsequent write/readback pair.
+const QEMU_TEST_PCI_SEGMENT: u16 = 0;
+const QEMU_TEST_PCI_BUS: u8 = 0;
+const QEMU_TEST_PCI_DEVICE: u8 = 31;
+const QEMU_TEST_PCI_FUNCTION: u8 = 2;
+const QEMU_TEST_AHCI_PORT: u8 = 4;
+const QEMU_TEST_DISK_GUID_LE: [u8; 16] = [
+    0x7a, 0xda, 0xed, 0x5e, 0xde, 0xc0, 0x55, 0x4a, 0x9a, 0x15, 0x00, 0x00, 0x00, 0x00, 0x13, 0x00,
+];
+const QEMU_TEST_PARTITION_GUID_LE: [u8; 16] = [
+    0x7a, 0xda, 0xed, 0x5e, 0xde, 0xc0, 0x55, 0x4a, 0x9a, 0x15, 0x00, 0x00, 0x00, 0x00, 0x13, 0x01,
+];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ValidatedRegionIdentity {
@@ -68,6 +89,8 @@ pub(crate) trait ValidatedStoreRegionPort {
 pub(crate) enum PortDenied<E> {
     Device(E),
     IdentityChanged,
+    FormatTestMediaDenied,
+    FormatRequiresEmptyRegion,
     SnapshotLengthMismatch,
     BoundsDenied,
     Core(StoreDenied),
@@ -77,6 +100,68 @@ impl<E> From<StoreDenied> for PortDenied<E> {
     fn from(value: StoreDenied) -> Self {
         Self::Core(value)
     }
+}
+
+/// Formats only the frozen disposable QEMU store image after proving that every
+/// exposed store block is zero. This is intentionally not a general format API:
+/// a physical or differently attached region is denied before any media write.
+pub(crate) fn format_empty_disposable_test_media<P: ValidatedStoreRegionPort>(
+    port: &mut P,
+    expected: ValidatedRegionIdentity,
+) -> Result<(), PortDenied<P::Error>> {
+    if !is_frozen_qemu_test_media(expected) {
+        return Err(PortDenied::FormatTestMediaDenied);
+    }
+    revalidate(port, expected)?;
+
+    let mut block = [0u8; STORE_BLOCK_LEN];
+    for copy_index in 0..2 {
+        port.read_superblock_copy(copy_index, &mut block)
+            .map_err(PortDenied::Device)?;
+        if block != [0; STORE_BLOCK_LEN] {
+            return Err(PortDenied::FormatRequiresEmptyRegion);
+        }
+    }
+    for relative_block in 0..expected.log_block_count().map_err(PortDenied::Core)? {
+        port.read_log_block(relative_block, &mut block)
+            .map_err(PortDenied::Device)?;
+        if block != [0; STORE_BLOCK_LEN] {
+            return Err(PortDenied::FormatRequiresEmptyRegion);
+        }
+    }
+    revalidate(port, expected)?;
+
+    let copies = [
+        encode_superblock(0, 0, expected.store, 1, expected.geometry).map_err(PortDenied::Core)?,
+        encode_superblock(1, 1, expected.store, 2, expected.geometry).map_err(PortDenied::Core)?,
+    ];
+    for (copy_index, formatted) in copies.iter().enumerate() {
+        let copy_index = copy_index as u8;
+        revalidate(port, expected)?;
+        port.write_superblock_copy(copy_index, formatted)
+            .map_err(PortDenied::Device)?;
+        port.flush().map_err(PortDenied::Device)?;
+
+        revalidate(port, expected)?;
+        port.read_superblock_copy(copy_index, &mut block)
+            .map_err(PortDenied::Device)?;
+        if block != *formatted || parse_superblock(&block).is_err() {
+            return Err(PortDenied::Core(StoreDenied::ReadbackMismatch));
+        }
+    }
+    revalidate_store(port, expected)
+}
+
+fn is_frozen_qemu_test_media(identity: ValidatedRegionIdentity) -> bool {
+    identity.pci_segment == QEMU_TEST_PCI_SEGMENT
+        && identity.pci_bus == QEMU_TEST_PCI_BUS
+        && identity.pci_device == QEMU_TEST_PCI_DEVICE
+        && identity.pci_function == QEMU_TEST_PCI_FUNCTION
+        && identity.controller_port == QEMU_TEST_AHCI_PORT
+        && identity.gpt_disk_guid == QEMU_TEST_DISK_GUID_LE
+        && identity.partition_type_guid == STRUCTURED_STORE_TYPE_GUID_LE
+        && identity.partition_guid == QEMU_TEST_PARTITION_GUID_LE
+        && identity.partition_label_sha256 == sha256_bytes(STRUCTURED_STORE_LABEL.as_bytes())
 }
 
 pub(crate) fn open_and_replay<P: ValidatedStoreRegionPort>(
@@ -317,22 +402,57 @@ mod tests {
         fail_flush: bool,
         mutate_identity_after_write: bool,
         writes: u64,
+        superblock_writes: u8,
+        flushes: u8,
+        log_reads: u64,
+        superblock_reads: u64,
+        first_superblock_write_after_reads: Option<(u64, u64)>,
     }
 
     impl MemoryPort {
-        fn new() -> Self {
-            let superblocks = [
-                raios_core::structured_store::encode_superblock(0, 0, STORE, 1, GEOMETRY).unwrap(),
-                raios_core::structured_store::encode_superblock(1, 1, STORE, 2, GEOMETRY).unwrap(),
-            ];
+        fn empty(identity: ValidatedRegionIdentity) -> Self {
             Self {
-                identity: IDENTITY,
-                superblocks,
-                bytes: vec![0; GEOMETRY.log_lba_count as usize * STORE_BLOCK_LEN],
+                identity,
+                superblocks: [[0; SUPERBLOCK_LEN]; 2],
+                bytes: vec![0; identity.geometry.log_lba_count as usize * STORE_BLOCK_LEN],
                 fail_flush: false,
                 mutate_identity_after_write: false,
                 writes: 0,
+                superblock_writes: 0,
+                flushes: 0,
+                log_reads: 0,
+                superblock_reads: 0,
+                first_superblock_write_after_reads: None,
             }
+        }
+
+        fn new() -> Self {
+            let mut port = Self::empty(IDENTITY);
+            port.superblocks = [
+                encode_superblock(0, 0, STORE, 1, GEOMETRY).unwrap(),
+                encode_superblock(1, 1, STORE, 2, GEOMETRY).unwrap(),
+            ];
+            port
+        }
+    }
+
+    fn qemu_test_identity() -> ValidatedRegionIdentity {
+        ValidatedRegionIdentity {
+            pci_segment: QEMU_TEST_PCI_SEGMENT,
+            pci_bus: QEMU_TEST_PCI_BUS,
+            pci_device: QEMU_TEST_PCI_DEVICE,
+            pci_function: QEMU_TEST_PCI_FUNCTION,
+            controller_port: QEMU_TEST_AHCI_PORT,
+            device_identity_sha256: [0x66; 32],
+            gpt_disk_guid: QEMU_TEST_DISK_GUID_LE,
+            partition_type_guid: STRUCTURED_STORE_TYPE_GUID_LE,
+            partition_guid: QEMU_TEST_PARTITION_GUID_LE,
+            partition_label_sha256: sha256_bytes(STRUCTURED_STORE_LABEL.as_bytes()),
+            store: StoreIdentity {
+                store_uuid: *b"raios-qemu-test-",
+                generation: 1,
+            },
+            geometry: GEOMETRY,
         }
     }
 
@@ -348,6 +468,7 @@ mod tests {
             copy_index: u8,
             out: &mut [u8; SUPERBLOCK_LEN],
         ) -> Result<(), Self::Error> {
+            self.superblock_reads += 1;
             out.copy_from_slice(&self.superblocks[copy_index as usize]);
             Ok(())
         }
@@ -357,6 +478,11 @@ mod tests {
             copy_index: u8,
             block: &[u8; SUPERBLOCK_LEN],
         ) -> Result<(), Self::Error> {
+            if self.superblock_writes == 0 {
+                self.first_superblock_write_after_reads =
+                    Some((self.superblock_reads, self.log_reads));
+            }
+            self.superblock_writes += 1;
             self.superblocks[copy_index as usize].copy_from_slice(block);
             self.identity.store = parse_superblock(block).unwrap().identity;
             Ok(())
@@ -367,6 +493,7 @@ mod tests {
             relative_block: u64,
             out: &mut [u8; STORE_BLOCK_LEN],
         ) -> Result<(), Self::Error> {
+            self.log_reads += 1;
             let start = relative_block as usize * STORE_BLOCK_LEN;
             out.copy_from_slice(&self.bytes[start..start + STORE_BLOCK_LEN]);
             Ok(())
@@ -390,6 +517,7 @@ mod tests {
             if self.fail_flush {
                 Err(DeviceError::Io)
             } else {
+                self.flushes += 1;
                 Ok(())
             }
         }
@@ -463,5 +591,49 @@ mod tests {
             preserved
         );
         assert_eq!(port.identity, next);
+    }
+
+    #[test]
+    fn qemu_only_format_reads_every_zero_block_then_dual_writes_and_readbacks() {
+        let identity = qemu_test_identity();
+        let mut port = MemoryPort::empty(identity);
+
+        format_empty_disposable_test_media(&mut port, identity).unwrap();
+
+        assert_eq!(
+            port.first_superblock_write_after_reads,
+            Some((2, identity.geometry.log_lba_count))
+        );
+        assert_eq!(port.superblock_writes, 2);
+        assert_eq!(port.flushes, 2);
+        let selected = select_superblock(
+            &port.superblocks[0],
+            &port.superblocks[1],
+            identity.store,
+            identity.geometry,
+        )
+        .unwrap();
+        assert_eq!(selected.superblock.copy_index, 1);
+    }
+
+    #[test]
+    fn qemu_only_format_denies_foreign_or_nonempty_media_before_writing() {
+        let mut foreign = qemu_test_identity();
+        foreign.controller_port -= 1;
+        let mut port = MemoryPort::empty(foreign);
+        assert_eq!(
+            format_empty_disposable_test_media(&mut port, foreign),
+            Err(PortDenied::FormatTestMediaDenied)
+        );
+        assert_eq!(port.superblock_writes, 0);
+
+        let identity = qemu_test_identity();
+        let mut port = MemoryPort::empty(identity);
+        port.bytes[0] = 1;
+        assert_eq!(
+            format_empty_disposable_test_media(&mut port, identity),
+            Err(PortDenied::FormatRequiresEmptyRegion)
+        );
+        assert_eq!(port.superblock_writes, 0);
     }
 }
