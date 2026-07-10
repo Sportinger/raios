@@ -24,10 +24,10 @@ use spin::Mutex;
 use crate::{
     ahci::{AhciBlockDeviceIdentity, AhciExplicitAtaPort, AhciSectorBuffer, SECTOR_BYTES},
     pci::{self, PciAddress},
-    serial,
+    secret_vault, serial,
     structured_store::{
-        append_with_readback, format_empty_disposable_test_media, open_and_replay, PortDenied,
-        ValidatedRegionIdentity, ValidatedStoreRegionPort,
+        append_with_readback, format_empty_disposable_test_media, open_and_replay_with_history,
+        PortDenied, ValidatedRegionIdentity, ValidatedStoreRegionPort,
     },
 };
 
@@ -59,6 +59,7 @@ pub(crate) enum DisposableQemuStoreDenied {
     Port(PortDenied<&'static str>),
     Core(raios_core::structured_store::StoreDenied),
     Gpt(raios_core::structured_store_partition::StructuredStorePartitionDenied),
+    Vault(secret_vault::VaultFacadeDenied),
     InvalidDeviceGeometry,
     Bounds,
 }
@@ -98,11 +99,11 @@ fn run_fixture(port: &mut DisposableQemuStorePort) -> Result<(), DisposableQemuS
     .map_err(|_| DisposableQemuStoreDenied::Bounds)?;
     let mut snapshot = vec![0u8; snapshot_len];
 
-    let replay = match open_and_replay(port, identity, &mut snapshot) {
+    let replay = match open_and_replay_with_history(port, identity, &mut snapshot) {
         Ok(replay) => replay,
         Err(PortDenied::Core(raios_core::structured_store::StoreDenied::NoValidSuperblock)) => {
             format_empty_disposable_test_media(port, identity)?;
-            let replay = open_and_replay(port, identity, &mut snapshot)?;
+            let replay = open_and_replay_with_history(port, identity, &mut snapshot)?;
             serial::write_line("C1_STRUCTURED_STORE_FORMAT_OPEN_OK");
             replay
         }
@@ -110,16 +111,19 @@ fn run_fixture(port: &mut DisposableQemuStorePort) -> Result<(), DisposableQemuS
     };
 
     if replay
+        .state()
         .record(PROOF_KEY)
         .map_err(DisposableQemuStoreDenied::Core)?
         .is_some()
     {
+        secret_vault::load_verified_replay(&replay).map_err(DisposableQemuStoreDenied::Vault)?;
+        serial::write_line("C1_VAULT_COMPLETE_REPLAY_BOUND");
         serial::write_line("C1_STRUCTURED_STORE_REBOOT_REPLAY_OK");
         return Ok(());
     }
 
     let plan = plan_transaction(
-        &replay,
+        replay.state(),
         TransactionRequest {
             identity: STORE,
             key: PROOF_KEY,
@@ -133,14 +137,18 @@ fn run_fixture(port: &mut DisposableQemuStorePort) -> Result<(), DisposableQemuS
             .map_err(DisposableQemuStoreDenied::Core)?,
     )
     .map_err(DisposableQemuStoreDenied::Core)?;
-    let replay = append_with_readback(port, identity, &plan, &mut snapshot)?;
+    let _ = append_with_readback(port, identity, &plan, &mut snapshot)?;
+    let replay = open_and_replay_with_history(port, identity, &mut snapshot)?;
     if replay
+        .state()
         .record(PROOF_KEY)
         .map_err(DisposableQemuStoreDenied::Core)?
         .is_none()
     {
         return Err(DisposableQemuStoreDenied::Bounds);
     }
+    secret_vault::load_verified_replay(&replay).map_err(DisposableQemuStoreDenied::Vault)?;
+    serial::write_line("C1_VAULT_COMPLETE_REPLAY_BOUND");
     serial::write_line("C1_STRUCTURED_STORE_APPEND_FLUSH_READBACK_OK");
     Ok(())
 }
@@ -415,6 +423,7 @@ fn c1_error_reason(error: DisposableQemuStoreDenied) -> &'static str {
         DisposableQemuStoreDenied::Port(_) => "c1_structured_store_revalidation_denied",
         DisposableQemuStoreDenied::Core(_) => "c1_structured_store_revalidation_core_denied",
         DisposableQemuStoreDenied::Gpt(_) => "c1_structured_store_revalidation_gpt_denied",
+        DisposableQemuStoreDenied::Vault(_) => "c1_vault_complete_replay_denied",
         DisposableQemuStoreDenied::InvalidDeviceGeometry => {
             "c1_structured_store_revalidation_device_geometry_invalid"
         }

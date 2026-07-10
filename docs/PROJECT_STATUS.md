@@ -48,6 +48,15 @@ normalization, incomplete replay and nonce-completeness claims before runtime wi
 found no OpenAI-key-like values. This remains unarmed: no runtime core-policy source
 or WiFi use-audit binding exists yet, so recovery unlock and secret use stay denied.
 
+I3 validated Store-to-Vault replay join verified (2026-07-10) - the exact QEMU-only
+AHCI/GPT store path now returns an opaque replay capability only after revalidating
+the same device region before and after the full read. On both the initial boot and
+the independent reboot, the Secret Vault facade filters only its fixed namespace and
+loads that complete commit history into the Broker; the unrelated C1 proof record is
+excluded. Focused `release/vm-reports/shadow-20260710-133203-24112.json` passed 11/11,
+including `C1_VAULT_COMPLETE_REPLAY_BOUND` on both boots. This binds no physical
+target and still grants no provision, unlock, decrypt, consumer use, or secret write.
+
 VM failure classification (2026-07-10, G4 first Genesis UI profile) - report
 `release/vm-reports/shadow-20260710-123636-21624.json` failed predicate
 `genesis-ui:personal-shell-f12-exit` with `serial_transport_failure:null`.

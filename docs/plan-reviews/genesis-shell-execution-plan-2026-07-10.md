@@ -31,8 +31,10 @@ secure-strip pixel hash across personal rendering. I3/G5.4 is independently
 review-gated. Its unarmed Broker foundation now requires opaque complete-history,
 mutation and use evidence and exposes only fixed NXP/OpenAI one-use outputs; core
 tests pass 396/396 and `shadow-20260710-132631-20352.json` passes 9/9. Runtime secret
-authority remains unclaimed: executing-core policy and durable use-audit evidence
-must become authoritative before unlock/use can be wired.
+history is now bound from the exact revalidated QEMU store on both boots by
+`shadow-20260710-133203-24112.json` (11/11). Runtime secret authority remains
+unclaimed: executing-core policy and durable use-audit evidence must become
+authoritative before unlock/use can be wired.
 
 Target orchestrator: Codex 5.6, reasoning effort `xhigh`
 

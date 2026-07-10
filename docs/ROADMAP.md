@@ -58,8 +58,10 @@ durable-secret authority is armed. The post-review Broker foundation now consume
 only opaque complete-history, mutation and use evidence; its one-use outputs are the
 bounded NXP WPA2 command and exact OpenAI header, never plaintext access. Core tests
 pass 396/396 and focused regression `shadow-20260710-132631-20352.json` passes 9/9.
-I3 remains open on an authoritative executing-core policy binding and durable
-per-use audit evidence; until both exist runtime unlock/use remains denied.
+The exact QEMU store now also delivers its opaque identity-revalidated complete
+history into the Broker on both boots; `shadow-20260710-133203-24112.json` passes
+11/11. I3 remains open on an authoritative executing-core policy binding and
+durable per-use audit evidence; until both exist runtime unlock/use remains denied.
 
 **Genesis execution progress (A1/C3, 2026-07-10):** the normal release image
 now starts in the core-owned Genesis shell (Conversation, Context, Composer,

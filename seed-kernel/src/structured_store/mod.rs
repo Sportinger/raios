@@ -86,6 +86,29 @@ pub(crate) trait ValidatedStoreRegionPort {
     fn flush(&mut self) -> Result<(), Self::Error>;
 }
 
+/// Complete replay evidence produced only after this module has revalidated
+/// the exact device/GPT region before and after the full log read.
+pub(crate) struct ValidatedReplayWithHistory {
+    identity: ValidatedRegionIdentity,
+    replay: ReplayWithHistory,
+}
+
+impl ValidatedReplayWithHistory {
+    pub(crate) const fn identity(&self) -> ValidatedRegionIdentity {
+        self.identity
+    }
+
+    pub(crate) fn state(&self) -> &ReplayState {
+        self.replay.state()
+    }
+
+    pub(crate) fn committed_history(
+        &self,
+    ) -> Result<&[raios_core::structured_store::CommittedRecord], StoreDenied> {
+        self.replay.committed_history()
+    }
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum PortDenied<E> {
     Device(E),
@@ -178,9 +201,13 @@ pub(crate) fn open_and_replay_with_history<P: ValidatedStoreRegionPort>(
     port: &mut P,
     expected: ValidatedRegionIdentity,
     snapshot: &mut [u8],
-) -> Result<ReplayWithHistory, PortDenied<P::Error>> {
+) -> Result<ValidatedReplayWithHistory, PortDenied<P::Error>> {
     read_validated_snapshot(port, expected, snapshot)?;
-    replay_log_with_history(snapshot, expected.store).map_err(PortDenied::Core)
+    let replay = replay_log_with_history(snapshot, expected.store).map_err(PortDenied::Core)?;
+    Ok(ValidatedReplayWithHistory {
+        identity: expected,
+        replay,
+    })
 }
 
 fn read_validated_snapshot<P: ValidatedStoreRegionPort>(
@@ -581,6 +608,7 @@ mod tests {
         let history = replay.committed_history().unwrap();
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].transaction_id, plan.transaction_id);
+        assert_eq!(replay.identity(), IDENTITY);
         assert_eq!(replay.state().record(KEY).unwrap(), Some(&history[0]));
 
         port.identity.partition_guid[0] ^= 1;

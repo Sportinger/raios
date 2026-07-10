@@ -22,6 +22,7 @@ if (-not $fixtureReady) {
 foreach ($marker in @(
     "C1_STRUCTURED_STORE_FIXTURE_ACCEPTED",
     "C1_STRUCTURED_STORE_FORMAT_OPEN_OK",
+    "C1_VAULT_COMPLETE_REPLAY_BOUND",
     "C1_STRUCTURED_STORE_APPEND_FLUSH_READBACK_OK"
 )) {
     Assert-LogContains `
@@ -73,6 +74,10 @@ Assert-LogContains -Name "structured-store:reboot_serial_console_ready" -Needle 
 Assert-LogContains `
     -Name "structured-store:C1_STRUCTURED_STORE_REBOOT_REPLAY_OK" `
     -Needle "C1_STRUCTURED_STORE_REBOOT_REPLAY_OK" `
+    -TimeoutSeconds $TimeoutSeconds
+Assert-LogContains `
+    -Name "structured-store:reboot_vault_complete_replay_bound" `
+    -Needle "C1_VAULT_COMPLETE_REPLAY_BOUND" `
     -TimeoutSeconds $TimeoutSeconds
 
 # Keep one report with a serial hash covering both boots; no first-boot report

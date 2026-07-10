@@ -56,8 +56,8 @@ Gate status: latest full profile remains green at
 Genesis UI evidence; the full baseline is unchanged per aggressive-fast cadence.
 
 Latest Vault-foundation proof: release build plus focused structured-store report
-`shadow-20260710-132631-20352.json` passed 9/9; secret scan is clean. It does not arm
-Vault authority.
+`shadow-20260710-133203-24112.json` passed 11/11, including opaque complete-history
+binding on both boots. It does not arm Vault authority.
 
 Next task: I3/G5.4 adds the missing core-policy and durable use-audit bindings, then
 joins only the named consumers. Disk 2 stays untouched; do not claim provider access
