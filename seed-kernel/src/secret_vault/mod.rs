@@ -4,6 +4,7 @@ use alloc::vec::Vec;
 use spin::Mutex;
 
 use raios_core::{
+    boot_control::BootPosture,
     secret_vault::{
         RecoveryKekContext, RecoveryVmkWrapperV1, SecretConsumerError, SecretPlaintext,
         VaultMasterKey, MAX_PROVIDER_API_KEY_LEN,
@@ -14,8 +15,9 @@ use raios_core::{
 
 use self::{
     audit::{
-        append_provider_use_audit, append_wifi_use_audit, ProviderRequestTrust,
-        ProviderUseAuditBinding, ProviderUseAuditDenied, WifiUseAuditBinding, WifiUseAuditDenied,
+        append_provider_use_audit, append_safe_wifi_use_audit, append_wifi_use_audit,
+        new_safe_wifi_audit_authority, ProviderRequestTrust, ProviderUseAuditBinding,
+        ProviderUseAuditDenied, SafeWifiAuditAuthority, WifiUseAuditBinding, WifiUseAuditDenied,
     },
     broker::{
         VaultBroker, VaultBrokerDenied, VaultCompleteReplay, VaultLockStatus, WifiSecretLease,
@@ -30,6 +32,7 @@ use self::{
     },
 };
 use crate::{
+    agent_protocol::boot_control,
     serial,
     structured_store::{ValidatedRegionIdentity, ValidatedReplayWithHistory},
 };
@@ -75,6 +78,7 @@ pub(crate) enum VaultFacadeDenied {
     Consumer(SecretConsumerError),
     ProviderUseStateChanged,
     WifiUseStateChanged,
+    SafeWifiReconnectUnavailable,
     ContainedProviderValidationFailed,
     ContainedWifiValidationFailed,
 }
@@ -111,6 +115,7 @@ impl VaultFacadeDenied {
             Self::Consumer(_) => "provider_consumer_denied",
             Self::ProviderUseStateChanged => "provider_use_state_changed",
             Self::WifiUseStateChanged => "wifi_use_state_changed",
+            Self::SafeWifiReconnectUnavailable => "safe_wifi_reconnect_unavailable",
             Self::ContainedProviderValidationFailed => "contained_provider_validation_failed",
             Self::ContainedWifiValidationFailed => "contained_wifi_validation_failed",
         }
@@ -128,6 +133,7 @@ impl VaultFacadeDenied {
             Self::WifiAudit(error) => (*error).reason(),
             Self::Consumer(_) => "wifi_consumer_denied",
             Self::WifiUseStateChanged => "wifi_use_state_changed",
+            Self::SafeWifiReconnectUnavailable => "safe_wifi_reconnect_unavailable",
             Self::Broker(VaultBrokerDenied::Locked) => "vault_locked",
             Self::Broker(VaultBrokerDenied::SecretMissing) => "secret_missing",
             Self::Broker(VaultBrokerDenied::SecretForgotten) => "secret_forgotten",
@@ -208,6 +214,13 @@ impl Drop for RecoveryKeyDisplay {
 /// Non-secret proof that the one-time display was consumed before re-entry.
 pub(crate) struct RecoveryKeyConfirmation {
     owns_session: bool,
+}
+
+/// A single exact SAFE WiFi use authorized by a physical Genesis action.
+/// It is deliberately neither cloneable nor formattable.
+pub(crate) struct ExplicitSafeWifiReconnect {
+    audit: SafeWifiAuditAuthority,
+    target_binding_sha256: [u8; 32],
 }
 
 impl Drop for RecoveryKeyConfirmation {
@@ -348,13 +361,32 @@ pub(crate) fn load_verified_replay(
 /// Separately binds the already verified executing-core identity. Replay may
 /// load without it, but recovery unlock remains denied until both are present.
 pub(crate) fn bind_verified_core_policy() -> Result<VaultBrokerStatus, VaultFacadeDenied> {
-    let verified = crate::core_policy_runtime::verified().map_err(VaultFacadeDenied::CorePolicy)?;
-    let approved = ApprovedCorePolicy::from_verified(verified);
     let mut runtime = RUNTIME.lock();
-    runtime
-        .broker
-        .bind_verified_core_policy(verified)
-        .map_err(VaultFacadeDenied::Broker)?;
+    let approved = match boot_control::current_boot_posture() {
+        BootPosture::Normal | BootPosture::Probation => {
+            let verified =
+                crate::core_policy_runtime::verified().map_err(VaultFacadeDenied::CorePolicy)?;
+            runtime
+                .broker
+                .bind_verified_core_policy(verified)
+                .map_err(VaultFacadeDenied::Broker)?;
+            ApprovedCorePolicy::from_verified(verified)
+        }
+        BootPosture::Safe => {
+            let verified = crate::core_policy_runtime::safe_last_good_verified()
+                .map_err(VaultFacadeDenied::CorePolicy)?;
+            runtime
+                .broker
+                .bind_verified_safe_last_good_core_policy(verified)
+                .map_err(VaultFacadeDenied::Broker)?;
+            ApprovedCorePolicy::from_safe_last_good(verified)
+        }
+        BootPosture::PersistenceUnavailable => {
+            return Err(VaultFacadeDenied::CorePolicy(
+                "core_policy_persistence_unavailable",
+            ));
+        }
+    };
     if runtime
         .approved_policy
         .is_some_and(|bound| bound != approved)
@@ -873,15 +905,68 @@ pub(crate) fn write_wifi_pmk_for_association(
     bssid: [u8; 6],
     out: &mut [u8],
 ) -> Result<usize, VaultFacadeDenied> {
-    wifi_lease_after_durable_audit(ssid, bssid, false)?
+    wifi_lease_after_durable_audit(ssid, bssid, false, WifiUseAuthority::CurrentBoot)?
         .into_wpa2_psk_ccmp_pmk_set(seq, bssid, ssid, out)
         .map_err(VaultFacadeDenied::Consumer)
+}
+
+/// Begins one SAFE association only after the trusted Genesis physical path
+/// has selected the exact stored SSID/BSSID. The returned authority is
+/// move-only and is consumed at the supplicant PMK stage.
+pub(crate) fn begin_explicit_safe_wifi_reconnect(
+    ssid: &[u8],
+    bssid: [u8; 6],
+) -> Result<ExplicitSafeWifiReconnect, VaultFacadeDenied> {
+    if boot_control::current_boot_posture() != BootPosture::Safe {
+        return Err(VaultFacadeDenied::SafeWifiReconnectUnavailable);
+    }
+    let (_, _, _, _, target_binding_sha256) = current_wifi_use_facts(ssid, bssid)?;
+    Ok(ExplicitSafeWifiReconnect {
+        audit: new_safe_wifi_audit_authority(),
+        target_binding_sha256,
+    })
+}
+
+/// Metadata-only selector check for Genesis. It never decrypts, audits, logs,
+/// or returns any stored target material.
+pub(crate) fn wifi_target_matches(ssid: &[u8], bssid: [u8; 6]) -> bool {
+    current_wifi_use_facts(ssid, bssid).is_ok()
+}
+
+pub(crate) fn write_wifi_pmk_for_safe_association(
+    authority: ExplicitSafeWifiReconnect,
+    seq: u16,
+    ssid: &[u8],
+    bssid: [u8; 6],
+    out: &mut [u8],
+) -> Result<usize, VaultFacadeDenied> {
+    wifi_lease_after_durable_audit(
+        ssid,
+        bssid,
+        false,
+        WifiUseAuthority::SafeExplicit(authority),
+    )?
+    .into_wpa2_psk_ccmp_pmk_set(seq, bssid, ssid, out)
+    .map_err(VaultFacadeDenied::Consumer)
 }
 
 /// Contained test infrastructure for the real WiFi lease path. It accepts
 /// only the repo's fixed `RaiWPA2` beacon on the exact re-identified C1 store,
 /// formats one local command, and claims no radio, association, link, or DHCP.
 pub(crate) fn run_contained_qemu_wifi_consumer_test() -> Result<(), VaultFacadeDenied> {
+    run_contained_qemu_wifi_consumer_test_with_authority(WifiUseAuthority::CurrentBoot)
+}
+
+/// The QEMU-only proof adapter for the same physical SAFE authority used by
+/// the real driver. It never claims radio, link or DHCP behavior.
+pub(crate) fn run_contained_qemu_safe_wifi_consumer_test() -> Result<(), VaultFacadeDenied> {
+    let authority = begin_explicit_safe_wifi_reconnect(CONTAINED_WIFI_SSID, CONTAINED_WIFI_BSSID)?;
+    run_contained_qemu_wifi_consumer_test_with_authority(WifiUseAuthority::SafeExplicit(authority))
+}
+
+fn run_contained_qemu_wifi_consumer_test_with_authority(
+    authority: WifiUseAuthority,
+) -> Result<(), VaultFacadeDenied> {
     let (region, _, _, _, _) = current_wifi_use_facts(CONTAINED_WIFI_SSID, CONTAINED_WIFI_BSSID)?;
     crate::structured_store_c1::revalidate_qemu_wifi_store_identity(region)
         .map_err(VaultFacadeDenied::WifiStore)?;
@@ -911,7 +996,8 @@ pub(crate) fn run_contained_qemu_wifi_consumer_test() -> Result<(), VaultFacadeD
         "VAULT_WIFI_AUDITLESS_DENIED reason=audit_binding_missing test_infrastructure=true",
     );
 
-    let lease = wifi_lease_after_durable_audit(CONTAINED_WIFI_SSID, CONTAINED_WIFI_BSSID, true)?;
+    let lease =
+        wifi_lease_after_durable_audit(CONTAINED_WIFI_SSID, CONTAINED_WIFI_BSSID, true, authority)?;
     let mut validator = ContainedWifiCommandValidator::new();
     if !validator.consume(lease)? {
         return Err(VaultFacadeDenied::ContainedWifiValidationFailed);
@@ -920,6 +1006,11 @@ pub(crate) fn run_contained_qemu_wifi_consumer_test() -> Result<(), VaultFacadeD
         "VAULT_WIFI_CONTAINED_CONSUMED target=bound_bss accepted=true test_infrastructure=true",
     );
     Ok(())
+}
+
+enum WifiUseAuthority {
+    CurrentBoot,
+    SafeExplicit(ExplicitSafeWifiReconnect),
 }
 
 /// Exact-C1 reboot proof that both tombstoned slots deny before audit or
@@ -957,6 +1048,7 @@ fn wifi_lease_after_durable_audit(
     ssid: &[u8],
     bssid: [u8; 6],
     test_infrastructure: bool,
+    authority: WifiUseAuthority,
 ) -> Result<WifiSecretLease, VaultFacadeDenied> {
     let (region, policy, record_version, key_epoch, target_binding_sha256) =
         current_wifi_use_facts(ssid, bssid)?;
@@ -972,12 +1064,22 @@ fn wifi_lease_after_durable_audit(
         test_infrastructure,
     )
     .map_err(VaultFacadeDenied::WifiAudit)?;
-    let receipt = append_wifi_use_audit(binding).map_err(VaultFacadeDenied::WifiAudit)?;
+    let receipt = match authority {
+        WifiUseAuthority::CurrentBoot => {
+            append_wifi_use_audit(binding).map_err(VaultFacadeDenied::WifiAudit)?
+        }
+        WifiUseAuthority::SafeExplicit(authority) => {
+            if authority.target_binding_sha256 != target_binding_sha256 {
+                return Err(VaultFacadeDenied::WifiUseStateChanged);
+            }
+            append_safe_wifi_use_audit(binding, authority.audit)
+                .map_err(VaultFacadeDenied::WifiAudit)?
+        }
+    };
 
     crate::structured_store_c1::revalidate_qemu_wifi_store_identity(region)
         .map_err(VaultFacadeDenied::WifiStore)?;
-    let verified = crate::core_policy_runtime::verified().map_err(VaultFacadeDenied::CorePolicy)?;
-    let current_policy = ApprovedCorePolicy::from_verified(verified);
+    let current_policy = current_wifi_core_policy()?;
     let runtime = RUNTIME.lock();
     let current_wifi = runtime.broker.status().wifi;
     let current_target_sha256 = runtime
@@ -1025,8 +1127,7 @@ fn current_wifi_use_facts(
     ),
     VaultFacadeDenied,
 > {
-    let verified = crate::core_policy_runtime::verified().map_err(VaultFacadeDenied::CorePolicy)?;
-    let current_policy = ApprovedCorePolicy::from_verified(verified);
+    let current_policy = current_wifi_core_policy()?;
     let runtime = RUNTIME.lock();
     if runtime.wifi_write_outcome_uncertain {
         return Err(VaultFacadeDenied::PersistenceOutcomeUncertain);
@@ -1072,6 +1173,20 @@ fn current_wifi_use_facts(
         key_epoch,
         target_binding_sha256,
     ))
+}
+
+fn current_wifi_core_policy() -> Result<ApprovedCorePolicy, VaultFacadeDenied> {
+    match boot_control::current_boot_posture() {
+        BootPosture::Normal | BootPosture::Probation => crate::core_policy_runtime::verified()
+            .map(ApprovedCorePolicy::from_verified)
+            .map_err(VaultFacadeDenied::CorePolicy),
+        BootPosture::Safe => crate::core_policy_runtime::safe_last_good_verified()
+            .map(ApprovedCorePolicy::from_safe_last_good)
+            .map_err(VaultFacadeDenied::CorePolicy),
+        BootPosture::PersistenceUnavailable => Err(VaultFacadeDenied::CorePolicy(
+            "core_policy_persistence_unavailable",
+        )),
+    }
 }
 
 /// Production entrypoint: only the provider module's moved, opaque verifier

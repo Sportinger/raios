@@ -91,7 +91,9 @@ impl ShellHost {
         runtime: crate::system_status::RuntimeStatus,
         force_draw: bool,
     ) {
-        let flow_changed = self.wifi.advance();
+        let reconnect_started =
+            self.vault.take_normal_reconnect_request() && self.wifi.begin_normal_saved_reconnect();
+        let flow_changed = reconnect_started | self.wifi.advance();
         let framebuffer = self.surface.as_ref().map(|surface| surface.info());
         let snapshot = SystemSnapshot::collect(framebuffer, runtime);
         let personal_changed = if self.vault.is_active() {

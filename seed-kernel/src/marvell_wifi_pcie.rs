@@ -9,6 +9,7 @@ use core::ptr;
 use core::slice;
 use core::sync::atomic::{compiler_fence, AtomicBool, AtomicU32, Ordering};
 
+use raios_core::boot_control::BootPosture;
 use raios_core::dot11_scan::Dot11Security;
 use raios_core::marvell_wifi_cmd::{self, HwSpecCmdError, MarvellCmdError};
 use raios_core::marvell_wifi_fw::{
@@ -465,6 +466,8 @@ pub enum ConnectionResult {
     UnsupportedSecurity,
     FirmwareSupplicantUnavailable,
     PassphraseUnavailable,
+    SafeRecoveryActionMissing,
+    BootPostureDenied,
     DataRingUnavailable,
     DmaAddressUnavailable,
     CommandBuild(MarvellCmdError),
@@ -487,6 +490,8 @@ impl ConnectionResult {
             Self::UnsupportedSecurity => "security_unsupported",
             Self::FirmwareSupplicantUnavailable => "firmware_supplicant_unavailable",
             Self::PassphraseUnavailable => "passphrase_unavailable",
+            Self::SafeRecoveryActionMissing => "safe_recovery_action_missing",
+            Self::BootPostureDenied => "boot_posture_denied",
             Self::DataRingUnavailable => "data_ring_unavailable",
             Self::DmaAddressUnavailable => "dma_address_unavailable",
             Self::CommandBuild(_) => "command_build_failed",
@@ -844,6 +849,7 @@ struct ScanCmdRuntime {
 struct ConnectionRuntime {
     snapshot: ConnectionSnapshot,
     job: Option<ConnectionJob>,
+    ready_target: Option<wifi::ScannedNetwork>,
     next_seq: u16,
 }
 
@@ -923,6 +929,7 @@ impl ConnectionRuntime {
         Self {
             snapshot: ConnectionSnapshot::new(),
             job: None,
+            ready_target: None,
             next_seq: 0x100,
         }
     }
@@ -967,6 +974,7 @@ struct ConnectionJob {
     phase_started_tsc: u64,
     seq: u16,
     target: wifi::ScannedNetwork,
+    safe_reconnect: Option<secret_vault::ExplicitSafeWifiReconnect>,
 }
 
 #[derive(Clone, Copy)]
@@ -1015,14 +1023,72 @@ pub fn data_link_ready() -> bool {
 }
 
 pub fn start_association() -> ConnectionTriggerResult {
-    {
+    match crate::agent_protocol::boot_control::current_boot_posture() {
+        BootPosture::Normal | BootPosture::Probation => {}
+        BootPosture::Safe => {
+            return fail_connection_start(ConnectionResult::SafeRecoveryActionMissing)
+        }
+        BootPosture::PersistenceUnavailable => {
+            return fail_connection_start(ConnectionResult::BootPostureDenied)
+        }
+    }
+    let Some(target) = wifi::association_target() else {
+        return fail_connection_start(ConnectionResult::NoSelectedBss);
+    };
+    start_association_inner(target, None)
+}
+
+/// The only SAFE association entrypoint. Its caller is the trusted physical
+/// Genesis flow; serial and legacy setup continue through `start_association`.
+pub fn start_association_from_physical_genesis() -> ConnectionTriggerResult {
+    match crate::agent_protocol::boot_control::current_boot_posture() {
+        BootPosture::Normal | BootPosture::Probation => start_association(),
+        BootPosture::Safe => {
+            let Some(target) = wifi::association_target() else {
+                return fail_connection_start(ConnectionResult::NoSelectedBss);
+            };
+            let safe_reconnect = match secret_vault::begin_explicit_safe_wifi_reconnect(
+                target.ssid.as_bytes(),
+                target.bssid,
+            ) {
+                Ok(authority) => authority,
+                Err(denied) => {
+                    serial::write_fmt(format_args!(
+                        "VAULT_WIFI_SAFE_RECONNECT_REJECTED reason={}\r\n",
+                        denied.wifi_use_reason()
+                    ));
+                    return fail_connection_start(ConnectionResult::SafeRecoveryActionMissing);
+                }
+            };
+            start_association_inner(target, Some(safe_reconnect))
+        }
+        BootPosture::PersistenceUnavailable => {
+            fail_connection_start(ConnectionResult::BootPostureDenied)
+        }
+    }
+}
+
+fn start_association_inner(
+    target: wifi::ScannedNetwork,
+    safe_reconnect: Option<secret_vault::ExplicitSafeWifiReconnect>,
+) -> ConnectionTriggerResult {
+    let replace_ready = {
         let runtime = CONNECTION.lock();
-        if runtime.snapshot.is_ready() {
+        if runtime.snapshot.is_ready()
+            && data_link_ready()
+            && runtime
+                .ready_target
+                .is_some_and(|ready| same_connection_target(ready, target))
+        {
             return ConnectionTriggerResult::AlreadyReady;
         }
         if runtime.job.is_some() {
             return ConnectionTriggerResult::AlreadyRunning;
         }
+        runtime.snapshot.is_ready()
+    };
+    if replace_ready {
+        quarantine_retained_ready_connection();
     }
     if !snapshot().is_ready() {
         return fail_connection_start(ConnectionResult::FirmwareNotReady);
@@ -1031,9 +1097,6 @@ pub fn start_association() -> ConnectionTriggerResult {
     if !hw_spec.is_ready() {
         return fail_connection_start(ConnectionResult::HwSpecNotReady);
     }
-    let Some(target) = wifi::association_target() else {
-        return fail_connection_start(ConnectionResult::NoSelectedBss);
-    };
     let secure = match target.security {
         Dot11Security::Open => false,
         Dot11Security::Wpa2 if target.supports_wpa2_psk_ccmp() => true,
@@ -1060,7 +1123,12 @@ pub fn start_association() -> ConnectionTriggerResult {
     };
 
     let mut runtime = CONNECTION.lock();
-    if runtime.snapshot.is_ready() {
+    if runtime.snapshot.is_ready()
+        && data_link_ready()
+        && runtime
+            .ready_target
+            .is_some_and(|ready| same_connection_target(ready, target))
+    {
         return ConnectionTriggerResult::AlreadyReady;
     }
     if runtime.job.is_some() {
@@ -1068,6 +1136,7 @@ pub fn start_association() -> ConnectionTriggerResult {
     }
     let seq = runtime.next_seq;
     runtime.next_seq = runtime.next_seq.wrapping_add(8).max(1);
+    let replacing_ready = runtime.snapshot.is_ready();
     runtime.snapshot = ConnectionSnapshot {
         attempted: true,
         running: true,
@@ -1087,13 +1156,41 @@ pub fn start_association() -> ConnectionTriggerResult {
         phase_started_tsc: time::rdtsc(),
         seq,
         target,
+        safe_reconnect,
     });
+    runtime.ready_target = None;
     DATA_LINK_READY.store(false, Ordering::Release);
+    drop(runtime);
+    if replacing_ready {
+        net::detach_wifi();
+    }
     serial::write_line("marvell wifi: bounded association sequence started");
     ConnectionTriggerResult::Started
 }
 
+fn same_connection_target(left: wifi::ScannedNetwork, right: wifi::ScannedNetwork) -> bool {
+    left.bssid == right.bssid
+        && left.ssid.as_bytes() == right.ssid.as_bytes()
+        && left.security == right.security
+}
+
+fn quarantine_retained_ready_connection() {
+    if let Some(address) = wifi::snapshot().address {
+        pci::disable_bus_master(address);
+    }
+    DATA_LINK_READY.store(false, Ordering::Release);
+    net::detach_wifi();
+    let mut runtime = CONNECTION.lock();
+    if runtime.snapshot.is_ready() {
+        runtime.snapshot = ConnectionSnapshot::new();
+        runtime.ready_target = None;
+    }
+}
+
 fn fail_connection_start(result: ConnectionResult) -> ConnectionTriggerResult {
+    if let Some(address) = wifi::snapshot().address {
+        pci::disable_bus_master(address);
+    }
     let mut runtime = CONNECTION.lock();
     runtime.snapshot = ConnectionSnapshot {
         attempted: true,
@@ -1104,7 +1201,10 @@ fn fail_connection_start(result: ConnectionResult) -> ConnectionTriggerResult {
         association_id: None,
         host_int_status: 0,
     };
+    runtime.ready_target = None;
     DATA_LINK_READY.store(false, Ordering::Release);
+    drop(runtime);
+    net::detach_wifi();
     ConnectionTriggerResult::Failed(result)
 }
 
@@ -1774,7 +1874,7 @@ pub fn poll_connection() -> bool {
     }
 
     if !job.waiting {
-        let command_len = match prepare_connection_dma(&job) {
+        let command_len = match prepare_connection_dma(&mut job) {
             Ok(len) => len,
             Err(result) => {
                 quarantine_connection_job(&job);
@@ -1874,12 +1974,14 @@ pub fn poll_connection() -> bool {
     }
     if job.phase == ConnectionStage::LinkReady {
         let mac = hw_spec_snapshot().mac;
+        let ready_target = job.target;
         finish_connection_locked(
             &mut runtime,
             ConnectionResult::LinkReady,
             ConnectionStage::LinkReady,
             status,
         );
+        runtime.ready_target = Some(ready_target);
         DATA_LINK_READY.store(true, Ordering::Release);
         if let Some(mac) = mac {
             net::attach_wifi(mac);
@@ -1921,6 +2023,7 @@ fn finish_connection_locked(
     runtime.snapshot.stage = stage;
     runtime.snapshot.result = Some(result);
     runtime.snapshot.host_int_status = host_int_status;
+    runtime.ready_target = None;
 }
 
 fn quarantine_connection_job(job: &ConnectionJob) {
@@ -2054,6 +2157,7 @@ fn handle_connection_event(cause: u32) {
             runtime.snapshot.running = false;
             runtime.snapshot.stage = ConnectionStage::Failed;
             runtime.snapshot.result = Some(ConnectionResult::LinkLost(event_id as u16));
+            runtime.ready_target = None;
             DATA_LINK_READY.store(false, Ordering::Release);
             drop(runtime);
             net::detach_wifi();
@@ -2075,9 +2179,11 @@ fn handle_connection_event(cause: u32) {
     let Some(job) = runtime.job.take() else {
         return;
     };
+    let ready_target = job.target;
     runtime.snapshot.running = false;
     runtime.snapshot.stage = ConnectionStage::LinkReady;
     runtime.snapshot.result = Some(ConnectionResult::LinkReady);
+    runtime.ready_target = Some(ready_target);
     DATA_LINK_READY.store(true, Ordering::Release);
     drop(job);
     drop(runtime);
@@ -2745,7 +2851,7 @@ fn prepare_scan_dma(seq: u16) -> Result<usize, HwSpecCmdError> {
     }
 }
 
-fn prepare_connection_dma(job: &ConnectionJob) -> Result<usize, ConnectionResult> {
+fn prepare_connection_dma(job: &mut ConnectionJob) -> Result<usize, ConnectionResult> {
     unsafe {
         // SAFETY: CONNECTION serializes the dedicated command/response DMA
         // block and every pure builder is bounded by CONNECT_CMD_BUFFER_SIZE.
@@ -2768,9 +2874,10 @@ fn prepare_connection_dma(job: &ConnectionJob) -> Result<usize, ConnectionResult
                 marvell_wifi_supplicant::build_supplicant_profile_set(seq, out)
                     .map_err(ConnectionResult::SupplicantBuild)
             }
-            ConnectionStage::SupplicantPmk => match secret_vault::wifi_status() {
-                secret_vault::VaultSecretStatus::Available { .. } => {
-                    secret_vault::write_wifi_pmk_for_association(
+            ConnectionStage::SupplicantPmk => {
+                if let Some(authority) = job.safe_reconnect.take() {
+                    return secret_vault::write_wifi_pmk_for_safe_association(
+                        authority,
                         seq,
                         job.target.ssid.as_bytes(),
                         job.target.bssid,
@@ -2778,24 +2885,43 @@ fn prepare_connection_dma(job: &ConnectionJob) -> Result<usize, ConnectionResult
                     )
                     .map_err(|denied| {
                         serial::write_fmt(format_args!(
-                            "VAULT_WIFI_USE_REJECTED reason={}\r\n",
+                            "VAULT_WIFI_SAFE_USE_REJECTED reason={}\r\n",
                             denied.wifi_use_reason()
                         ));
                         ConnectionResult::PassphraseUnavailable
-                    })
+                    });
                 }
-                secret_vault::VaultSecretStatus::Missing => wifi::format_legacy_supplicant_pmk_set(
-                    seq,
-                    job.target.bssid,
-                    job.target.ssid.as_bytes(),
-                    out,
-                )
-                .map_err(ConnectionResult::SupplicantBuild),
-                secret_vault::VaultSecretStatus::Forgotten { .. } => {
-                    serial::write_line("VAULT_WIFI_USE_REJECTED reason=secret_forgotten");
-                    Err(ConnectionResult::PassphraseUnavailable)
+                match secret_vault::wifi_status() {
+                    secret_vault::VaultSecretStatus::Available { .. } => {
+                        secret_vault::write_wifi_pmk_for_association(
+                            seq,
+                            job.target.ssid.as_bytes(),
+                            job.target.bssid,
+                            out,
+                        )
+                        .map_err(|denied| {
+                            serial::write_fmt(format_args!(
+                                "VAULT_WIFI_USE_REJECTED reason={}\r\n",
+                                denied.wifi_use_reason()
+                            ));
+                            ConnectionResult::PassphraseUnavailable
+                        })
+                    }
+                    secret_vault::VaultSecretStatus::Missing => {
+                        wifi::format_legacy_supplicant_pmk_set(
+                            seq,
+                            job.target.bssid,
+                            job.target.ssid.as_bytes(),
+                            out,
+                        )
+                        .map_err(ConnectionResult::SupplicantBuild)
+                    }
+                    secret_vault::VaultSecretStatus::Forgotten { .. } => {
+                        serial::write_line("VAULT_WIFI_USE_REJECTED reason=secret_forgotten");
+                        Err(ConnectionResult::PassphraseUnavailable)
+                    }
                 }
-            },
+            }
             ConnectionStage::Associate => {
                 let security_ie = if job.target.security_ie().is_empty() {
                     None

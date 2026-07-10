@@ -8,7 +8,7 @@
 use alloc::vec::Vec;
 
 use raios_core::{
-    core_policy::VerifiedCorePolicy,
+    core_policy::{VerifiedCorePolicy, VerifiedSafeLastGoodCorePolicy},
     scoped_secret_use::{
         authorize_secret_use, SecretUseAuthorization, SecretUseDenial, SecretUseEvidence,
         SecretUseRequest,
@@ -445,6 +445,13 @@ impl VaultBroker {
         verified: &VerifiedCorePolicy,
     ) -> Result<(), VaultBrokerDenied> {
         self.bind_approved_core_policy(ApprovedCorePolicy::from_verified(verified))
+    }
+
+    pub(crate) fn bind_verified_safe_last_good_core_policy(
+        &mut self,
+        verified: &VerifiedSafeLastGoodCorePolicy,
+    ) -> Result<(), VaultBrokerDenied> {
+        self.bind_approved_core_policy(ApprovedCorePolicy::from_safe_last_good(verified))
     }
 
     fn bind_approved_core_policy(

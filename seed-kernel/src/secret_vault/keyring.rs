@@ -9,7 +9,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 
 use sha2::{Digest, Sha256};
 
-use raios_core::core_policy::VerifiedCorePolicy;
+use raios_core::core_policy::{VerifiedCorePolicy, VerifiedSafeLastGoodCorePolicy};
 use raios_core::secret_vault::{
     unwrap_vmk_from_recovery, wrap_vmk_for_recovery, FreshWrapperNonce, RecoveryKekContext,
     RecoveryKey, RecoveryVmkWrapperV1, SecretVaultError, VaultMasterKey, RECOVERY_WRAPPER_VERSION,
@@ -100,6 +100,13 @@ impl ApprovedCorePolicy {
     /// The only runtime constructor: callers cannot turn generation/hash
     /// claims into Vault authority without the opaque Core Policy proof.
     pub(super) const fn from_verified(policy: &VerifiedCorePolicy) -> Self {
+        Self {
+            core_generation: policy.core_generation(),
+            policy_id_sha256: policy.policy_id_sha256(),
+        }
+    }
+
+    pub(super) const fn from_safe_last_good(policy: &VerifiedSafeLastGoodCorePolicy) -> Self {
         Self {
             core_generation: policy.core_generation(),
             policy_id_sha256: policy.policy_id_sha256(),

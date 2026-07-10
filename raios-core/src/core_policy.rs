@@ -2,7 +2,10 @@ use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    boot_control::{core_policy_boot_binding, BootControlDecision, BootSlotId, ParsedBootControl},
+    boot_control::{
+        core_policy_boot_binding, safe_last_good_core_policy_boot_binding, BootControlDecision,
+        BootCorePolicyBinding, BootSlotId, ParsedBootControl,
+    },
     sha256_bytes,
 };
 
@@ -104,6 +107,40 @@ impl VerifiedCorePolicy {
     }
 }
 
+/// Owner-signed executing-core identity bound specifically to an explicit SAFE
+/// boot's authoritative last-good slot. It cannot be converted into the
+/// Normal/Probation proof accidentally.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VerifiedSafeLastGoodCorePolicy {
+    verified: VerifiedCorePolicy,
+}
+
+impl VerifiedSafeLastGoodCorePolicy {
+    pub const fn slot(&self) -> CorePolicySlot {
+        self.verified.slot()
+    }
+
+    pub const fn core_generation(&self) -> u64 {
+        self.verified.core_generation()
+    }
+
+    pub const fn executable_len(&self) -> u64 {
+        self.verified.executable_len()
+    }
+
+    pub const fn executable_sha256(&self) -> [u8; 32] {
+        self.verified.executable_sha256()
+    }
+
+    pub const fn policy_id_sha256(&self) -> [u8; 32] {
+        self.verified.policy_id_sha256()
+    }
+
+    pub const fn owner_key_sha256(&self) -> [u8; 32] {
+        self.verified.owner_key_sha256()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CorePolicyDenied {
     BlobSizeMismatch,
@@ -168,11 +205,76 @@ pub fn verify_current_core_policy(
     )
 }
 
+pub fn verify_safe_last_good_core_policy(
+    blob: &[u8],
+    executable: &[u8],
+    decision: &BootControlDecision,
+    authoritative_record: Option<&ParsedBootControl>,
+) -> Result<VerifiedSafeLastGoodCorePolicy, CorePolicyDenied> {
+    verify_safe_last_good_core_policy_with_root(
+        blob,
+        executable,
+        decision,
+        authoritative_record,
+        &OWNER_CORE_POLICY_PUBLIC_KEY_SEC1,
+        OWNER_CORE_POLICY_PUBLIC_KEY_SHA256,
+        OWNER_CORE_POLICY_KEY_IS_PLACEHOLDER,
+    )
+}
+
 fn verify_current_core_policy_with_root(
     blob: &[u8],
     executable: &[u8],
     decision: &BootControlDecision,
     authoritative_record: Option<&ParsedBootControl>,
+    owner_public_key_sec1: &[u8],
+    owner_public_key_sha256: [u8; 32],
+    owner_key_is_placeholder: bool,
+) -> Result<VerifiedCorePolicy, CorePolicyDenied> {
+    let verified = verify_owner_signed_executing_core_policy_with_root(
+        blob,
+        executable,
+        owner_public_key_sec1,
+        owner_public_key_sha256,
+        owner_key_is_placeholder,
+    )?;
+    let authoritative_record = authoritative_record.ok_or(CorePolicyDenied::BootControl(
+        "boot_control_authoritative_record_missing",
+    ))?;
+    let binding = core_policy_boot_binding(decision, authoritative_record)
+        .map_err(CorePolicyDenied::BootControl)?;
+    verify_boot_binding(&verified, binding)?;
+    Ok(verified)
+}
+
+fn verify_safe_last_good_core_policy_with_root(
+    blob: &[u8],
+    executable: &[u8],
+    decision: &BootControlDecision,
+    authoritative_record: Option<&ParsedBootControl>,
+    owner_public_key_sec1: &[u8],
+    owner_public_key_sha256: [u8; 32],
+    owner_key_is_placeholder: bool,
+) -> Result<VerifiedSafeLastGoodCorePolicy, CorePolicyDenied> {
+    let verified = verify_owner_signed_executing_core_policy_with_root(
+        blob,
+        executable,
+        owner_public_key_sec1,
+        owner_public_key_sha256,
+        owner_key_is_placeholder,
+    )?;
+    let authoritative_record = authoritative_record.ok_or(CorePolicyDenied::BootControl(
+        "boot_control_authoritative_record_missing",
+    ))?;
+    let binding = safe_last_good_core_policy_boot_binding(decision, authoritative_record)
+        .map_err(CorePolicyDenied::BootControl)?;
+    verify_boot_binding(&verified, binding)?;
+    Ok(VerifiedSafeLastGoodCorePolicy { verified })
+}
+
+fn verify_owner_signed_executing_core_policy_with_root(
+    blob: &[u8],
+    executable: &[u8],
     owner_public_key_sec1: &[u8],
     owner_public_key_sha256: [u8; 32],
     owner_key_is_placeholder: bool,
@@ -210,23 +312,24 @@ fn verify_current_core_policy_with_root(
         .verify(&message, &signature)
         .map_err(|_| CorePolicyDenied::SignatureInvalid)?;
 
-    let authoritative_record = authoritative_record.ok_or(CorePolicyDenied::BootControl(
-        "boot_control_authoritative_record_missing",
-    ))?;
-    let binding = core_policy_boot_binding(decision, authoritative_record)
-        .map_err(CorePolicyDenied::BootControl)?;
-    if binding.slot != payload.slot.boot_slot() {
-        return Err(CorePolicyDenied::BootSlotMismatch);
-    }
-    if binding.generation != payload.core_generation {
-        return Err(CorePolicyDenied::BootGenerationMismatch);
-    }
-
     Ok(VerifiedCorePolicy {
         payload,
         policy_id_sha256: policy_id(owner_public_key_sha256, &blob[..CORE_POLICY_PAYLOAD_LEN]),
         owner_key_sha256: owner_public_key_sha256,
     })
+}
+
+fn verify_boot_binding(
+    verified: &VerifiedCorePolicy,
+    binding: BootCorePolicyBinding,
+) -> Result<(), CorePolicyDenied> {
+    if binding.slot != verified.payload.slot.boot_slot() {
+        return Err(CorePolicyDenied::BootSlotMismatch);
+    }
+    if binding.generation != verified.payload.core_generation {
+        return Err(CorePolicyDenied::BootGenerationMismatch);
+    }
+    Ok(())
 }
 
 fn parse_payload(blob: &[u8]) -> Result<CorePolicyPayload, CorePolicyDenied> {
@@ -399,14 +502,22 @@ mod tests {
         };
         let decision = BootControlDecision {
             selected_storage_slot: Some(BootStorageSlot::A),
-            selected_payload_slot: slot,
+            selected_payload_slot: if posture == BootPosture::Safe {
+                BootSlotId::None
+            } else {
+                slot
+            },
             authoritative_bootctl_slot: Some(BootStorageSlot::A),
             seq: Some(record.seq),
             posture,
             pending_consumed: false,
             would_mark_good: false,
             failure_count: None,
-            reason: "test",
+            reason: if posture == BootPosture::Safe {
+                "safe_mode_requested"
+            } else {
+                "test"
+            },
         };
         (decision, record)
     }
@@ -437,6 +548,24 @@ mod tests {
             executable,
             decision,
             Some(record),
+            &key,
+            fingerprint,
+            false,
+        )
+    }
+
+    fn verify_safe_last_good(
+        blob: &[u8],
+        executable: &[u8],
+        decision: &BootControlDecision,
+        record: Option<&ParsedBootControl>,
+    ) -> Result<VerifiedSafeLastGoodCorePolicy, CorePolicyDenied> {
+        let (key, fingerprint) = root();
+        verify_safe_last_good_core_policy_with_root(
+            blob,
+            executable,
+            decision,
+            record,
             &key,
             fingerprint,
             false,
@@ -540,6 +669,85 @@ mod tests {
                 executable,
                 &decision,
                 &record
+            ),
+            Err(CorePolicyDenied::BootGenerationMismatch)
+        );
+    }
+
+    #[test]
+    fn exact_record_verifies_against_explicit_safe_last_good() {
+        let executable = b"last-good kernel";
+        let (safe, record) = boot(BootSlotId::A, 7, BootPosture::Safe);
+        let verified = verify_safe_last_good(
+            &blob(executable, CorePolicySlot::A, 7),
+            executable,
+            &safe,
+            Some(&record),
+        )
+        .unwrap();
+
+        assert_eq!(verified.slot(), CorePolicySlot::A);
+        assert_eq!(verified.core_generation(), 7);
+        assert_eq!(verified.executable_len(), executable.len() as u64);
+        assert_eq!(verified.executable_sha256(), sha256_bytes(executable));
+        assert_ne!(verified.policy_id_sha256(), [0; 32]);
+        assert_ne!(verified.owner_key_sha256(), [0; 32]);
+    }
+
+    #[test]
+    fn safe_last_good_missing_state_and_policy_mismatches_fail_closed() {
+        let executable = b"last-good kernel";
+        let signed = blob(executable, CorePolicySlot::A, 7);
+        let (safe, record) = boot(BootSlotId::A, 7, BootPosture::Safe);
+
+        assert_eq!(
+            verify_safe_last_good(&signed, executable, &safe, None),
+            Err(CorePolicyDenied::BootControl(
+                "boot_control_authoritative_record_missing"
+            ))
+        );
+
+        let unavailable = BootControlDecision::persistence_unavailable("test");
+        assert_eq!(
+            verify_safe_last_good(&signed, executable, &unavailable, Some(&record)),
+            Err(CorePolicyDenied::BootControl(
+                "boot_control_posture_not_safe"
+            ))
+        );
+
+        let mut no_last_good = record;
+        no_last_good.last_good = BootSlotId::None;
+        assert_eq!(
+            verify_safe_last_good(&signed, executable, &safe, Some(&no_last_good)),
+            Err(CorePolicyDenied::BootControl(
+                "boot_control_last_good_slot_missing"
+            ))
+        );
+
+        let mut not_explicit_safe = record;
+        not_explicit_safe.safe_mode = false;
+        assert_eq!(
+            verify_safe_last_good(&signed, executable, &safe, Some(&not_explicit_safe)),
+            Err(CorePolicyDenied::BootControl(
+                "boot_control_safe_mode_not_requested"
+            ))
+        );
+
+        assert_eq!(
+            verify_safe_last_good(
+                &blob(executable, CorePolicySlot::B, 7),
+                executable,
+                &safe,
+                Some(&record),
+            ),
+            Err(CorePolicyDenied::BootSlotMismatch)
+        );
+        assert_eq!(
+            verify_safe_last_good(
+                &blob(executable, CorePolicySlot::A, 8),
+                executable,
+                &safe,
+                Some(&record),
             ),
             Err(CorePolicyDenied::BootGenerationMismatch)
         );

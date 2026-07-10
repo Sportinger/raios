@@ -2,7 +2,7 @@
 
 use core::fmt::Write;
 
-use raios_core::dot11_scan::Dot11Security;
+use raios_core::{boot_control::BootPosture, dot11_scan::Dot11Security};
 
 use crate::framebuffer::FramebufferSurface;
 use crate::system_status::TextBuf;
@@ -56,6 +56,7 @@ enum State {
 pub struct GuidedWifi {
     state: State,
     overlay: SecureOverlay,
+    connect_saved_after_scan: bool,
 }
 
 impl GuidedWifi {
@@ -63,6 +64,7 @@ impl GuidedWifi {
         Self {
             state: State::Idle,
             overlay: SecureOverlay::new(),
+            connect_saved_after_scan: false,
         }
     }
 
@@ -71,6 +73,31 @@ impl GuidedWifi {
     }
 
     pub fn begin(&mut self) -> bool {
+        self.connect_saved_after_scan = false;
+        self.begin_scan()
+    }
+
+    /// Starts one automatic saved-profile attempt only in an ordinary boot.
+    /// SAFE requires a separate physical Genesis action and legacy RAM state
+    /// can never enter this path.
+    pub fn begin_normal_saved_reconnect(&mut self) -> bool {
+        if !matches!(
+            crate::agent_protocol::boot_control::current_boot_posture(),
+            BootPosture::Normal | BootPosture::Probation
+        ) || secret_vault::recovery_state() != secret_vault::VaultRecoveryState::Unlocked
+            || !matches!(
+                secret_vault::wifi_status(),
+                secret_vault::VaultSecretStatus::Available { .. }
+            )
+        {
+            self.state = State::Failed("saved_wifi_reconnect_denied");
+            return true;
+        }
+        self.connect_saved_after_scan = true;
+        self.begin_scan()
+    }
+
+    fn begin_scan(&mut self) -> bool {
         if wifi::snapshot().state != wifi::WifiState::Detected {
             self.state = State::Failed("wifi_device_not_detected");
             return true;
@@ -203,7 +230,19 @@ impl GuidedWifi {
             );
             true
         } else if scan.stage == marvell_wifi_pcie::ScanCmdStage::Done {
-            self.state = State::Selecting;
+            if self.connect_saved_after_scan {
+                self.connect_saved_after_scan = false;
+                self.state = match select_saved_scan_target() {
+                    Some(network) => State::Associating {
+                        network,
+                        storage: CredentialStorage::Vault,
+                        started: false,
+                    },
+                    None => State::Failed("saved_wifi_not_visible"),
+                };
+            } else {
+                self.state = State::Selecting;
+            }
             true
         } else {
             false
@@ -217,7 +256,11 @@ impl GuidedWifi {
         started: bool,
     ) -> bool {
         if !started {
-            let result = marvell_wifi_pcie::start_association();
+            let result = if storage == CredentialStorage::Vault {
+                marvell_wifi_pcie::start_association_from_physical_genesis()
+            } else {
+                marvell_wifi_pcie::start_association()
+            };
             console::write_event(format_args!("WIFI ASSOC: {}", result.label()));
             return match result {
                 marvell_wifi_pcie::ConnectionTriggerResult::Started
@@ -461,6 +504,18 @@ impl GuidedWifi {
             let storage = if secret_vault::recovery_state()
                 == secret_vault::VaultRecoveryState::Unlocked
             {
+                if matches!(
+                    secret_vault::wifi_status(),
+                    secret_vault::VaultSecretStatus::Available { .. }
+                ) && secret_vault::wifi_target_matches(network.ssid.as_bytes(), network.bssid)
+                {
+                    self.state = State::Associating {
+                        network,
+                        storage: CredentialStorage::Vault,
+                        started: false,
+                    };
+                    return true;
+                }
                 let _ = self.overlay.open(SecureOverlayPrompt::WifiPassphrase);
                 CredentialStorage::Vault
             } else {
@@ -536,6 +591,26 @@ impl GuidedWifi {
             State::Failed(reason) => draw_failed(surface, width, height, reason),
         }
     }
+}
+
+fn select_saved_scan_target() -> Option<wifi::ScannedNetwork> {
+    let scan = wifi::scan_results();
+    for index in 0..scan.count {
+        let network = scan.networks[index];
+        if network.hidden_ssid
+            || !network.association_ready()
+            || !network.supports_wpa2_psk_ccmp()
+            || !secret_vault::wifi_target_matches(network.ssid.as_bytes(), network.bssid)
+        {
+            continue;
+        }
+        wifi::clear_config();
+        if wifi::select_scan_result(index).is_ok() {
+            return Some(network);
+        }
+        return None;
+    }
+    None
 }
 
 fn draw_progress(surface: &mut FramebufferSurface, width: usize, height: usize, associating: bool) {

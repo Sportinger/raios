@@ -63,18 +63,18 @@ function Invoke-SecretVaultForgetBothViaUsb {
     }
 }
 
-function Restart-SecretVaultQemu {
-    param([Parameter(Mandatory = $true)][string]$LogName)
-
-    if (-not $script:QemuPid) {
-        throw "secret-vault reboot requires a live QEMU process"
-    }
-    Stop-Rr1VmForLogInspection -QemuProcessId $script:QemuPid
-
+function Start-SecretVaultQemu {
+    param(
+        [Parameter(Mandatory = $true)][string]$LogName,
+        [string]$StructuredStorePath = $StructuredStoreDiskImage,
+        [string]$PersistPath = $PersistDiskImage
+    )
     $nextLog = Join-Path $RunDir $LogName
     $params = $runParams.Clone()
     $params.StopExisting = $false
     $params.SerialLog = $nextLog
+    $params.StructuredStoreDiskPath = $StructuredStorePath
+    $params.PersistDiskPath = $PersistPath
     $output = & $RunScript @params
 
     $script:SerialLog = $nextLog
@@ -98,6 +98,159 @@ function Restart-SecretVaultQemu {
         $script:QemuProcess = $null
     }
     return $nextLog
+}
+
+function Restart-SecretVaultQemu {
+    param([Parameter(Mandatory = $true)][string]$LogName)
+
+    if (-not $script:QemuPid) {
+        throw "secret-vault reboot requires a live QEMU process"
+    }
+    Stop-Rr1VmForLogInspection -QemuProcessId $script:QemuPid
+    return Start-SecretVaultQemu -LogName $LogName
+}
+
+function Invoke-SecretVaultSafeReconnectProof {
+    param(
+        [Parameter(Mandatory = $true)][byte[]]$Rr1,
+        [Parameter(Mandatory = $true)][int]$InitialFrameCount
+    )
+
+    $safeStore = Join-Path $RunDir "raios-structured-store-c1-safe.img"
+    $safePersist = Join-Path $RunDir "raios-persist-safe.img"
+    Copy-Item -LiteralPath $StructuredStoreDiskImage -Destination $safeStore -Force
+
+    $builder = Join-Path $RepoRoot "scripts\make-gpt-persist-image.py"
+    if ($InitialFrameCount -ne 0) {
+        throw "secret-vault SAFE fixture requires the observed empty pre-audit RECLOG"
+    }
+    $null = @(& python $builder --self-check --seed-bootctl pending-safe $safePersist 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "secret-vault SAFE BOOTCTL fixture build failed"
+    }
+    $seed = Get-PersistInspectionForVault -Path $safePersist
+    $seeded = $seed.bootctl_read.decision.posture -eq "Safe" -and
+        [int]$seed.reclog_scan.count -eq 0
+    Add-Predicate `
+        -Name "secret-vault:safe:fixture_seeded" `
+        -Expected "separate sparse fixture has authoritative pending-safe BOOTCTL and the observed empty pre-audit RECLOG" `
+        -Passed $seeded `
+        -Actual $(if ($seeded) { "posture=Safe reclog_count=0" } else { "posture_or_reclog=invalid" })
+    if (-not $seeded) {
+        throw "secret-vault SAFE BOOTCTL fixture did not inspect as Safe"
+    }
+
+    $safeLog = Start-SecretVaultQemu `
+        -LogName "serial-secret-vault-safe-reconnect.log" `
+        -StructuredStorePath $safeStore `
+        -PersistPath $safePersist
+    foreach ($marker in @(
+        @{ Name = "secret-vault:safe:serial_ready"; Text = "SERIAL CONSOLE READY" },
+        @{ Name = "secret-vault:safe:last_good_core_policy"; Text = "CORE_POLICY_SAFE_LAST_GOOD_OWNER_VERIFIED slot=A generation=1" },
+        @{ Name = "secret-vault:safe:complete_replay_bound"; Text = "C1_VAULT_COMPLETE_REPLAY_BOUND" },
+        @{ Name = "secret-vault:safe:core_policy_bound"; Text = "C1_VAULT_CORE_POLICY_BOUND" },
+        @{ Name = "secret-vault:safe:wrapper_replayed"; Text = "C1_VAULT_RECOVERY_WRAPPER_REPLAYED generation=1" },
+        @{ Name = "secret-vault:safe:wifi_replayed"; Text = "C1_VAULT_WIFI_REPLAYED version=1" }
+    )) {
+        Assert-VaultFixedLogMarker -Name $marker.Name -Marker $marker.Text -TimeoutSeconds $TimeoutSeconds
+    }
+
+    $usbBefore = Get-SerialMarkerCount -Path $script:SerialLog -Marker "usb input batch:"
+    Invoke-VaultVisibleAction -SkipFinalEnter
+    Assert-VaultFixedLogMarker `
+        -Name "secret-vault:safe:recovery_unlock_ready" `
+        -Marker "VAULT_RECOVERY_UNLOCK_READY" `
+        -TimeoutSeconds $TimeoutSeconds
+    Send-Rr1ViaUsbKeyboard -Rr1 $Rr1
+    Assert-VaultSerialOutcome `
+        -Name "secret-vault:safe:broker_unlocked" `
+        -SuccessMarker "VAULT_RR1_UNLOCKED" `
+        -RejectedMarker "VAULT_RR1_UNLOCK_REJECTED" `
+        -TimeoutSeconds $TimeoutSeconds
+    Assert-VaultFixedLogMarker `
+        -Name "secret-vault:safe:auto_connect_denied" `
+        -Marker "VAULT_SAFE_UNLOCKED_AUTO_CONNECT_DENIED explicit_genesis_action_required=true" `
+        -TimeoutSeconds $TimeoutSeconds
+
+    $preActionForbidden = @(
+        "VAULT_PROVIDER_PREUSE_AUDIT_COMMITTED",
+        "VAULT_PROVIDER_CONTAINED_CONSUMED",
+        "VAULT_WIFI_PREUSE_AUDIT_COMMITTED",
+        "VAULT_WIFI_CONTAINED_CONSUMED"
+    ) | Where-Object { (Get-SerialMarkerCount -Path $script:SerialLog -Marker $_) -ne 0 }
+    $noAutoUse = @($preActionForbidden).Count -eq 0
+    Add-Predicate `
+        -Name "secret-vault:safe:no_use_before_physical_action" `
+        -Expected "SAFE unlock emits no provider/WiFi audit or consumer success" `
+        -Passed $noAutoUse `
+        -Actual $(if ($noAutoUse) { "audit=false consumer=false" } else { "forbidden=$($preActionForbidden -join ',')" })
+    if (-not $noAutoUse) {
+        throw "SAFE unlock reached a secret audit or consumer before physical action"
+    }
+
+    # Close the unlock outcome, move from Vault to the contained Set-WiFi
+    # action, then activate it physically. No serial command can reach it.
+    Send-Rr1HmpKey -KeyName "ret"
+    Start-Sleep -Milliseconds 150
+    for ($index = 0; $index -lt 3; $index++) {
+        Send-Rr1HmpKey -KeyName "tab"
+    }
+    Send-Rr1HmpKey -KeyName "ret"
+    foreach ($marker in @(
+        @{ Name = "secret-vault:safe:wifi_preuse_audit"; Text = "VAULT_WIFI_PREUSE_AUDIT_COMMITTED consumer=native_wifi_supplicant operation=associate_bound_bss readback=verified reparse=verified rescan=verified" },
+        @{ Name = "secret-vault:safe:wifi_consumer"; Text = "VAULT_WIFI_CONTAINED_CONSUMED target=bound_bss accepted=true test_infrastructure=true" },
+        @{ Name = "secret-vault:safe:explicit_reconnect_completed"; Text = "VAULT_WIFI_SAFE_EXPLICIT_RECONNECT_COMPLETED test_infrastructure=true" }
+    )) {
+        Assert-VaultFixedLogMarker -Name $marker.Name -Marker $marker.Text -TimeoutSeconds $TimeoutSeconds
+    }
+
+    $exactOneWifiUse = (Get-SerialMarkerCount -Path $script:SerialLog -Marker "VAULT_WIFI_PREUSE_AUDIT_COMMITTED") -eq 1 -and
+        (Get-SerialMarkerCount -Path $script:SerialLog -Marker "VAULT_WIFI_CONTAINED_CONSUMED") -eq 1 -and
+        (Get-SerialMarkerCount -Path $script:SerialLog -Marker "VAULT_PROVIDER_PREUSE_AUDIT_COMMITTED") -eq 0 -and
+        (Get-SerialMarkerCount -Path $script:SerialLog -Marker "VAULT_PROVIDER_CONTAINED_CONSUMED") -eq 0
+    $usbAfter = Get-SerialMarkerCount -Path $script:SerialLog -Marker "usb input batch:"
+    $explicitPhysical = $usbAfter -gt $usbBefore
+    Add-Predicate `
+        -Name "secret-vault:safe:exactly_one_physical_wifi_use" `
+        -Expected "one physical Genesis action yields exactly one SAFE WiFi audit+consumer and no provider use" `
+        -Passed ($exactOneWifiUse -and $explicitPhysical) `
+        -Actual "wifi_use_once=$($exactOneWifiUse.ToString().ToLowerInvariant()) physical=$($explicitPhysical.ToString().ToLowerInvariant())"
+    if (-not ($exactOneWifiUse -and $explicitPhysical)) {
+        throw "SAFE WiFi reconnect was not exactly-once and physical"
+    }
+
+    Stop-Rr1VmForLogInspection -QemuProcessId $script:QemuPid
+    Assert-Rr1NotInSerial -Name "secret-vault:safe:rr1_absent_from_serial" -Path $safeLog
+
+    $inspection = Get-PersistInspectionForVault -Path $safePersist
+    $frames = @($inspection.reclog_frames)
+    $newFrames = @($frames | Select-Object -Skip $InitialFrameCount)
+    $record = if ($newFrames.Count -eq 1) { $newFrames[0].payload_json } else { $null }
+    $value = if ($record) { $record.value } else { $null }
+    $fields = if ($value) { @($value.PSObject.Properties.Name) } else { @() }
+    $exactSafeAudit = $inspection.reclog_scan.status -eq "valid" -and
+        [int]$inspection.reclog_scan.count -eq ($InitialFrameCount + 1) -and
+        $record.entity -eq "native_wifi_supplicant" -and
+        $record.predicate -eq "associate_bound_bss" -and
+        $record.classification -eq "local_only" -and
+        $value.boot_scope -eq "safe_recovery" -and
+        $value.explicit_recovery_action -eq $true -and
+        $fields -notcontains "ssid" -and
+        $fields -notcontains "bssid" -and
+        $fields -notcontains "target"
+    Add-Predicate `
+        -Name "secret-vault:safe:offline_exact_audit" `
+        -Expected "exactly one new local_only WiFi record binds safe_recovery+explicit action and no raw BSS" `
+        -Passed $exactSafeAudit `
+        -Actual $(if ($exactSafeAudit) { "delta=one scope=safe_recovery explicit=true" } else { "delta_or_binding=invalid" })
+    if (-not $exactSafeAudit) {
+        throw "offline SAFE WiFi audit binding is invalid"
+    }
+    return [pscustomobject]@{
+        Log = $safeLog
+        StructuredStore = $safeStore
+        Persist = $safePersist
+    }
 }
 
 function Invoke-SecretVaultForgottenRebootProof {

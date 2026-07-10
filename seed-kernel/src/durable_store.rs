@@ -1,4 +1,4 @@
-use alloc::{string::String, vec, vec::Vec};
+use alloc::{format, string::String, vec, vec::Vec};
 use core::str;
 
 use spin::Mutex;
@@ -2445,6 +2445,11 @@ fn copy_links(links: &[(&str, &str)]) -> Vec<DurableMemorySupersedeLink> {
 const MEMORY_WRITE_QUOTA_MAX_RECORDS: u32 = 128;
 const MEMORY_WRITE_QUOTA_MAX_BYTES: u64 = 32 * 1024;
 const MEMORY_RECORD_APPEND_SUCCESS_AUTHORITY: &str = "scoped_memory_record_append_authorized";
+const SAFE_WIFI_AUDIT_RECORD_ID_PREFIX: &str =
+    "mem.capability_grant.secret_use.native_wifi_supplicant";
+const SAFE_WIFI_AUDIT_ENTITY: &str = "native_wifi_supplicant";
+const SAFE_WIFI_AUDIT_OPERATION: &str = "associate_bound_bss";
+const SAFE_WIFI_AUDIT_SOURCE: &str = "secret_vault.wifi_use_audit";
 
 /// Informational budget constants surfaced by the selftest response so the VM
 /// profile can assert the quota is honestly per-boot bounded.
@@ -2574,15 +2579,28 @@ pub(crate) struct MemoryRecordAppendEvidence<'a> {
 /// entry points below (`append_memory_record` / `append_agent_observation_record`)
 /// pick the quota charge and the `agent_authored` flag this body forwards to
 /// `evaluate_scoped_memory_record_append` UNCHANGED otherwise.
+#[derive(Clone, Copy)]
+enum MemoryRecordAppendMode {
+    General,
+    SafeWifiAudit,
+}
+
 fn append_memory_record_inner<'a>(
     record: &MemoryRecord<'a>,
     agent_authored: bool,
+    mode: MemoryRecordAppendMode,
 ) -> MemoryRecordAppendEvidence<'a> {
-    if !matches!(
-        super::boot_control::current_boot_posture(),
-        BootPosture::Normal | BootPosture::Probation
-    ) {
-        return memory_record_append_denied(record, "boot_control_safe_mode");
+    let posture = super::boot_control::current_boot_posture();
+    match mode {
+        MemoryRecordAppendMode::General
+            if !matches!(posture, BootPosture::Normal | BootPosture::Probation) =>
+        {
+            return memory_record_append_denied(record, "boot_control_safe_mode");
+        }
+        MemoryRecordAppendMode::SafeWifiAudit if posture != BootPosture::Safe => {
+            return memory_record_append_denied(record, "safe_wifi_audit_requires_safe_posture");
+        }
+        _ => {}
     }
 
     let before = current_boot_reclog_scan();
@@ -2772,7 +2790,7 @@ fn append_memory_record_inner<'a>(
 pub(crate) fn append_memory_record<'a>(
     record: &MemoryRecord<'a>,
 ) -> MemoryRecordAppendEvidence<'a> {
-    append_memory_record_inner(record, false)
+    append_memory_record_inner(record, false, MemoryRecordAppendMode::General)
 }
 
 /// Agent-authored observation append: exact charge capped at
@@ -2783,7 +2801,73 @@ pub(crate) fn append_memory_record<'a>(
 pub(crate) fn append_agent_observation_record<'a>(
     record: &MemoryRecord<'a>,
 ) -> MemoryRecordAppendEvidence<'a> {
-    append_memory_record_inner(record, true)
+    append_memory_record_inner(record, true, MemoryRecordAppendMode::General)
+}
+
+/// The sole SAFE exception to the general durable-memory write denial. It
+/// accepts only the exact metadata-only native WiFi pre-use audit shape; every
+/// other record is rejected before planning, quota reservation, or media I/O.
+pub(crate) fn append_safe_wifi_audit_record<'a>(
+    record: &MemoryRecord<'a>,
+) -> MemoryRecordAppendEvidence<'a> {
+    if !is_exact_safe_wifi_audit_record(record) {
+        return memory_record_append_denied(record, "safe_wifi_audit_record_shape_invalid");
+    }
+    append_memory_record_inner(record, false, MemoryRecordAppendMode::SafeWifiAudit)
+}
+
+fn is_exact_safe_wifi_audit_record(record: &MemoryRecord<'_>) -> bool {
+    let expected_id = format!(
+        "{SAFE_WIFI_AUDIT_RECORD_ID_PREFIX}.{}.safe_recovery.v0",
+        record.sequence
+    );
+    if record.id != expected_id
+        || record.kind.as_str() != "capability_grant"
+        || record.entity != SAFE_WIFI_AUDIT_ENTITY
+        || record.predicate != SAFE_WIFI_AUDIT_OPERATION
+        || record.classification.as_str() != "local_only"
+        || record.authority != "owner_verified_core_policy"
+        || record.boot_id != "current_boot"
+        || record.source.method != SAFE_WIFI_AUDIT_SOURCE
+        || record.source.record_id != "core_policy.current"
+        || !record.evidence.is_empty()
+        || record.tags.as_slice() != ["secret_use", "wifi", "audit"]
+        || !record.supersedes.is_empty()
+        || record.created_at_ticks != 0
+    {
+        return false;
+    }
+
+    let V::Object(fields) = &record.value else {
+        return false;
+    };
+    fields.len() == 13
+        && fields[0].key == "consumer"
+        && matches!(&fields[0].value, V::Str(value) if *value == SAFE_WIFI_AUDIT_ENTITY)
+        && fields[1].key == "operation"
+        && matches!(&fields[1].value, V::Str(value) if *value == SAFE_WIFI_AUDIT_OPERATION)
+        && fields[2].key == "target_binding_sha256"
+        && matches!(&fields[2].value, V::Sha256(value) if *value != [0; 32])
+        && fields[3].key == "store_uuid_sha256"
+        && matches!(&fields[3].value, V::Sha256(value) if *value != [0; 32])
+        && fields[4].key == "record_version"
+        && matches!(&fields[4].value, V::U64(value) if *value != 0)
+        && fields[5].key == "key_epoch"
+        && matches!(&fields[5].value, V::U64(value) if *value != 0)
+        && fields[6].key == "native_consumer_generation"
+        && matches!(&fields[6].value, V::U64(value) if *value != 0)
+        && fields[7].key == "core_generation"
+        && matches!((&fields[6].value, &fields[7].value), (V::U64(native), V::U64(core)) if native == core)
+        && fields[8].key == "core_policy_sha256"
+        && matches!(&fields[8].value, V::Sha256(value) if *value != [0; 32])
+        && fields[9].key == "network_export_authorized"
+        && matches!(&fields[9].value, V::Bool(false))
+        && fields[10].key == "test_infrastructure"
+        && matches!(&fields[10].value, V::Bool(_))
+        && fields[11].key == "boot_scope"
+        && matches!(&fields[11].value, V::Str("safe_recovery"))
+        && fields[12].key == "explicit_recovery_action"
+        && matches!(&fields[12].value, V::Bool(true))
 }
 
 fn memory_record_append_denied<'a>(

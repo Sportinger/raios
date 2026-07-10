@@ -2,9 +2,10 @@
 
 use core::str;
 
-use raios_core::genesis_layout::GenesisLayout;
+use raios_core::{boot_control::BootPosture, genesis_layout::GenesisLayout};
 
 use crate::{
+    agent_protocol::boot_control,
     framebuffer::{Color, FramebufferSurface},
     input, provider_config, secret_vault,
     secure_overlay::{SecureOverlay, SecureOverlayAction, SecureOverlayInput, SecureOverlayPrompt},
@@ -76,6 +77,7 @@ enum Outcome {
     ProviderRejected,
     ProviderUnavailable,
     WifiTestSaved,
+    WifiSafeReconnected,
     WifiTestRejected,
     WifiTestUnavailable,
     ProviderForgotten,
@@ -90,6 +92,7 @@ pub(crate) struct VaultFlow {
     overlay: SecureOverlay,
     display_origin: Option<(usize, usize)>,
     display_logged: bool,
+    normal_reconnect_requested: bool,
 }
 
 impl VaultFlow {
@@ -99,11 +102,16 @@ impl VaultFlow {
             overlay: SecureOverlay::new(),
             display_origin: None,
             display_logged: false,
+            normal_reconnect_requested: false,
         }
     }
 
     pub(crate) fn is_active(&self) -> bool {
         !matches!(&self.mode, Mode::Closed)
+    }
+
+    pub(crate) fn take_normal_reconnect_request(&mut self) -> bool {
+        core::mem::take(&mut self.normal_reconnect_requested)
     }
 
     /// Starts only after a physical Genesis action. There is deliberately no
@@ -175,6 +183,29 @@ impl VaultFlow {
         self.display_origin = None;
         self.display_logged = false;
         if secret_vault::recovery_state() == secret_vault::VaultRecoveryState::Unlocked
+            && secret_vault::contained_qemu_wifi_test_available()
+            && boot_control::current_boot_posture() == BootPosture::Safe
+            && matches!(
+                secret_vault::wifi_status(),
+                secret_vault::VaultSecretStatus::Available { .. }
+            )
+        {
+            self.mode = match secret_vault::run_contained_qemu_safe_wifi_consumer_test() {
+                Ok(()) => {
+                    serial::write_line(
+                        "VAULT_WIFI_SAFE_EXPLICIT_RECONNECT_COMPLETED test_infrastructure=true",
+                    );
+                    Mode::Outcome(Outcome::WifiSafeReconnected)
+                }
+                Err(error) => {
+                    serial::write_fmt(format_args!(
+                        "VAULT_WIFI_SAFE_EXPLICIT_RECONNECT_REJECTED reason={} test_infrastructure=true\r\n",
+                        error.wifi_use_reason()
+                    ));
+                    Mode::Outcome(Outcome::WifiTestRejected)
+                }
+            };
+        } else if secret_vault::recovery_state() == secret_vault::VaultRecoveryState::Unlocked
             && secret_vault::contained_qemu_wifi_test_available()
         {
             let _ = self.overlay.open(SecureOverlayPrompt::WifiPassphrase);
@@ -490,30 +521,48 @@ impl VaultFlow {
             }
             (true, Ok(_)) => {
                 if matches!(
-                    secret_vault::provider_status(),
-                    secret_vault::VaultSecretStatus::Available { .. }
+                    boot_control::current_boot_posture(),
+                    BootPosture::Normal | BootPosture::Probation
                 ) {
-                    if let Err(error) = secret_vault::run_contained_qemu_provider_consumer_test() {
-                        serial::write_fmt(format_args!(
-                            "VAULT_PROVIDER_CONTAINED_REJECTED reason={} test_infrastructure=true\r\n",
-                            error.recovery_reason()
-                        ));
-                        self.mode = Mode::Outcome(Outcome::ProviderRejected);
-                        return;
+                    if matches!(
+                        secret_vault::provider_status(),
+                        secret_vault::VaultSecretStatus::Available { .. }
+                    ) && secret_vault::contained_qemu_wifi_test_available()
+                    {
+                        if let Err(error) =
+                            secret_vault::run_contained_qemu_provider_consumer_test()
+                        {
+                            serial::write_fmt(format_args!(
+                                "VAULT_PROVIDER_CONTAINED_REJECTED reason={} test_infrastructure=true\r\n",
+                                error.recovery_reason()
+                            ));
+                            self.mode = Mode::Outcome(Outcome::ProviderRejected);
+                            return;
+                        }
                     }
-                }
-                if matches!(
-                    secret_vault::wifi_status(),
-                    secret_vault::VaultSecretStatus::Available { .. }
-                ) {
-                    if let Err(error) = secret_vault::run_contained_qemu_wifi_consumer_test() {
-                        serial::write_fmt(format_args!(
-                            "VAULT_WIFI_CONTAINED_REJECTED reason={} test_infrastructure=true\r\n",
-                            error.wifi_use_reason()
-                        ));
-                        self.mode = Mode::Outcome(Outcome::WifiTestRejected);
-                        return;
+                    if matches!(
+                        secret_vault::wifi_status(),
+                        secret_vault::VaultSecretStatus::Available { .. }
+                    ) {
+                        if secret_vault::contained_qemu_wifi_test_available() {
+                            if let Err(error) =
+                                secret_vault::run_contained_qemu_wifi_consumer_test()
+                            {
+                                serial::write_fmt(format_args!(
+                                    "VAULT_WIFI_CONTAINED_REJECTED reason={} test_infrastructure=true\r\n",
+                                    error.wifi_use_reason()
+                                ));
+                                self.mode = Mode::Outcome(Outcome::WifiTestRejected);
+                                return;
+                            }
+                        } else {
+                            self.normal_reconnect_requested = true;
+                        }
                     }
+                } else {
+                    serial::write_line(
+                        "VAULT_SAFE_UNLOCKED_AUTO_CONNECT_DENIED explicit_genesis_action_required=true",
+                    );
                 }
                 if matches!(
                     secret_vault::provider_status(),
@@ -982,6 +1031,9 @@ fn draw_outcome(surface: &mut FramebufferSurface, rect: LogicalRect, outcome: Ou
             "Contained WiFi credential saved in Secret Vault.",
             APP_GREEN,
         ),
+        Outcome::WifiSafeReconnected => {
+            ("SAFE WiFi reconnect was explicitly authorized.", APP_GREEN)
+        }
         Outcome::WifiTestRejected => ("Contained WiFi Vault proof was denied.", APP_RED),
         Outcome::WifiTestUnavailable => ("Contained WiFi proof is unavailable here.", APP_RED),
         Outcome::ProviderForgotten => ("Provider credential forgotten.", APP_GREEN),

@@ -270,6 +270,45 @@ pub fn core_policy_boot_binding(
     })
 }
 
+/// Returns the exact last-good BOOTCTL slot and generation that an explicitly
+/// requested SAFE boot may use for recovery-only Core Policy authority.
+pub fn safe_last_good_core_policy_boot_binding(
+    decision: &BootControlDecision,
+    authoritative_record: &ParsedBootControl,
+) -> Result<BootCorePolicyBinding, &'static str> {
+    if decision.posture != BootPosture::Safe {
+        return Err("boot_control_posture_not_safe");
+    }
+    let authoritative_slot = decision
+        .authoritative_bootctl_slot
+        .ok_or("boot_control_authoritative_slot_missing")?;
+    if decision.selected_storage_slot != Some(authoritative_slot)
+        || decision.seq != Some(authoritative_record.seq)
+    {
+        return Err("boot_control_authoritative_record_mismatch");
+    }
+    if !authoritative_record.safe_mode || decision.reason != "safe_mode_requested" {
+        return Err("boot_control_safe_mode_not_requested");
+    }
+    if decision.selected_payload_slot != BootSlotId::None {
+        return Err("boot_control_safe_selected_payload_present");
+    }
+    let last_good = authoritative_record.last_good;
+    let payload_slot = authoritative_record
+        .slot(last_good)
+        .ok_or("boot_control_last_good_slot_missing")?;
+    if !payload_slot.state.is_bootable() {
+        return Err("boot_control_last_good_slot_not_bootable");
+    }
+    if payload_slot.generation == 0 {
+        return Err("boot_control_last_good_generation_invalid");
+    }
+    Ok(BootCorePolicyBinding {
+        slot: last_good,
+        generation: payload_slot.generation,
+    })
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BootSuccessMarkPlan {
     pub write_offset: u64,
@@ -1341,6 +1380,77 @@ mod tests {
         assert_eq!(decision.selected_payload_slot, BootSlotId::None);
         assert_eq!(decision.failure_count, Some(0));
         assert!(!decision.pending_consumed);
+    }
+
+    #[test]
+    fn safe_last_good_core_policy_binding_requires_exact_explicit_safe_record() {
+        let mut fixture = Fixture::normal_a();
+        fixture.safe_mode = true;
+        let record = parse_boot_slot(&slot(9, fixture)).unwrap();
+        let decision = evaluate_chosen(BootStorageSlot::A, record);
+
+        assert_eq!(
+            safe_last_good_core_policy_boot_binding(&decision, &record),
+            Ok(BootCorePolicyBinding {
+                slot: BootSlotId::A,
+                generation: 1,
+            })
+        );
+
+        let normal_record = parse_boot_slot(&slot(9, Fixture::normal_a())).unwrap();
+        let normal = evaluate_chosen(BootStorageSlot::A, normal_record);
+        assert_eq!(
+            safe_last_good_core_policy_boot_binding(&normal, &normal_record),
+            Err("boot_control_posture_not_safe")
+        );
+
+        let mut mismatched = decision;
+        mismatched.seq = Some(record.seq + 1);
+        assert_eq!(
+            safe_last_good_core_policy_boot_binding(&mismatched, &record),
+            Err("boot_control_authoritative_record_mismatch")
+        );
+
+        let mut no_safe_flag = record;
+        no_safe_flag.safe_mode = false;
+        assert_eq!(
+            safe_last_good_core_policy_boot_binding(&decision, &no_safe_flag),
+            Err("boot_control_safe_mode_not_requested")
+        );
+
+        let mut selected = decision;
+        selected.selected_payload_slot = BootSlotId::A;
+        assert_eq!(
+            safe_last_good_core_policy_boot_binding(&selected, &record),
+            Err("boot_control_safe_selected_payload_present")
+        );
+
+        let mut no_last_good = record;
+        no_last_good.last_good = BootSlotId::None;
+        assert_eq!(
+            safe_last_good_core_policy_boot_binding(&decision, &no_last_good),
+            Err("boot_control_last_good_slot_missing")
+        );
+
+        let mut not_bootable = record;
+        not_bootable.slot_a.state = BootPayloadSlotState::Bad;
+        assert_eq!(
+            safe_last_good_core_policy_boot_binding(&decision, &not_bootable),
+            Err("boot_control_last_good_slot_not_bootable")
+        );
+
+        let mut zero_generation = record;
+        zero_generation.slot_a.generation = 0;
+        assert_eq!(
+            safe_last_good_core_policy_boot_binding(&decision, &zero_generation),
+            Err("boot_control_last_good_generation_invalid")
+        );
+
+        let unavailable = BootControlDecision::persistence_unavailable("test");
+        assert_eq!(
+            safe_last_good_core_policy_boot_binding(&unavailable, &record),
+            Err("boot_control_posture_not_safe")
+        );
     }
 
     #[test]

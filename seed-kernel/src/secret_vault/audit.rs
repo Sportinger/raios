@@ -26,6 +26,18 @@ const WIFI_CONSUMER: &str = "native_wifi_supplicant";
 const WIFI_OPERATION: &str = "associate_bound_bss";
 static NEXT_AUDIT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
+/// One explicit, core-owned Genesis Recovery request to reconnect WiFi in
+/// SAFE posture. The parent facade mints it only after its physical-action and
+/// owner-policy/last-good checks; moving it into the SAFE append consumes it.
+/// Deliberately neither `Clone`, `Copy`, nor `Debug`.
+pub(super) struct SafeWifiAuditAuthority {
+    _facade_only: (),
+}
+
+pub(super) const fn new_safe_wifi_audit_authority() -> SafeWifiAuditAuthority {
+    SafeWifiAuditAuthority { _facade_only: () }
+}
+
 /// Trust already established for this exact provider request. Constructors
 /// reject development bypass and ambiguous/partial trust state.
 pub(crate) enum ProviderRequestTrust {
@@ -355,6 +367,28 @@ pub(super) fn append_provider_use_audit(
 pub(super) fn append_wifi_use_audit(
     binding: WifiUseAuditBinding,
 ) -> Result<DurableWifiUseReceipt, WifiUseAuditDenied> {
+    append_wifi_use_audit_inner(binding, WifiAuditScope::CurrentBoot)
+}
+
+/// SAFE-only counterpart to `append_wifi_use_audit`. Its move-only authority
+/// can mint exactly one WiFi receipt, and the durable layer independently
+/// rejects every non-WiFi/non-SAFE record shape before media I/O.
+pub(super) fn append_safe_wifi_use_audit(
+    binding: WifiUseAuditBinding,
+    authority: SafeWifiAuditAuthority,
+) -> Result<DurableWifiUseReceipt, WifiUseAuditDenied> {
+    append_wifi_use_audit_inner(binding, WifiAuditScope::SafeRecovery(authority))
+}
+
+enum WifiAuditScope {
+    CurrentBoot,
+    SafeRecovery(SafeWifiAuditAuthority),
+}
+
+fn append_wifi_use_audit_inner(
+    binding: WifiUseAuditBinding,
+    scope: WifiAuditScope,
+) -> Result<DurableWifiUseReceipt, WifiUseAuditDenied> {
     let sequence = NEXT_AUDIT_SEQUENCE
         .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
             current.checked_add(1)
@@ -362,11 +396,22 @@ pub(super) fn append_wifi_use_audit(
         .map_err(|_| WifiUseAuditDenied::AuditSequenceExhausted)?
         .checked_add(1)
         .ok_or(WifiUseAuditDenied::AuditSequenceExhausted)?;
-    let record_id = format!("{WIFI_RECORD_ID_PREFIX}.{sequence}.current_boot.v0");
-    let record =
-        wifi_use_record(&binding, &record_id, sequence).map_err(WifiUseAuditDenied::Record)?;
+    let safe_recovery = matches!(&scope, WifiAuditScope::SafeRecovery(_));
+    let scope_name = if safe_recovery {
+        "safe_recovery"
+    } else {
+        "current_boot"
+    };
+    let record_id = format!("{WIFI_RECORD_ID_PREFIX}.{sequence}.{scope_name}.v0");
+    let record = wifi_use_record(&binding, &record_id, sequence, safe_recovery)
+        .map_err(WifiUseAuditDenied::Record)?;
     let expected_payload_sha256 = record.record_sha256();
-    let append = durable_store::append_memory_record(&record);
+    let append = match scope {
+        WifiAuditScope::CurrentBoot => durable_store::append_memory_record(&record),
+        WifiAuditScope::SafeRecovery(_authority) => {
+            durable_store::append_safe_wifi_audit_record(&record)
+        }
+    };
     if !append.performed {
         return Err(WifiUseAuditDenied::DurableAppend(append.reason));
     }
@@ -393,8 +438,12 @@ pub(super) fn append_wifi_use_audit(
     Ok(DurableWifiUseReceipt {
         evidence: SecretUseEvidence {
             vault_unlocked: true,
-            boot_scope: SecretBootScope::CurrentBoot,
-            explicit_recovery_action: false,
+            boot_scope: if safe_recovery {
+                SecretBootScope::SafeRecovery
+            } else {
+                SecretBootScope::CurrentBoot
+            },
+            explicit_recovery_action: safe_recovery,
             service_generation: binding.native_core_generation,
             current_service_generation: binding.native_core_generation,
             record_version: binding.record_version,
@@ -471,43 +520,54 @@ fn wifi_use_record<'a>(
     binding: &WifiUseAuditBinding,
     record_id: &'a str,
     sequence: u64,
+    safe_recovery: bool,
 ) -> Result<MemoryRecord<'a>, MemoryRecordError> {
+    let value = vec![
+        Field::new("consumer", Value::Str(WIFI_CONSUMER)),
+        Field::new("operation", Value::Str(WIFI_OPERATION)),
+        Field::new(
+            "target_binding_sha256",
+            Value::Sha256(binding.target_binding_sha256),
+        ),
+        Field::new(
+            "store_uuid_sha256",
+            Value::Sha256(sha256_bytes(&binding.store_uuid)),
+        ),
+        Field::new("record_version", Value::U64(binding.record_version)),
+        Field::new("key_epoch", Value::U64(binding.key_epoch)),
+        Field::new(
+            "native_consumer_generation",
+            Value::U64(binding.native_core_generation),
+        ),
+        Field::new(
+            "core_generation",
+            Value::U64(binding.native_core_generation),
+        ),
+        Field::new(
+            "core_policy_sha256",
+            Value::Sha256(binding.policy_id_sha256),
+        ),
+        Field::new("network_export_authorized", Value::Bool(false)),
+        Field::new(
+            "test_infrastructure",
+            Value::Bool(binding.test_infrastructure),
+        ),
+        Field::new(
+            "boot_scope",
+            Value::Str(if safe_recovery {
+                "safe_recovery"
+            } else {
+                "current_boot"
+            }),
+        ),
+        Field::new("explicit_recovery_action", Value::Bool(safe_recovery)),
+    ];
     MemoryRecord::new(MemoryRecordInput {
         id: record_id,
         kind: "capability_grant",
         entity: WIFI_CONSUMER,
         predicate: WIFI_OPERATION,
-        value: Value::Object(vec![
-            Field::new("consumer", Value::Str(WIFI_CONSUMER)),
-            Field::new("operation", Value::Str(WIFI_OPERATION)),
-            Field::new(
-                "target_binding_sha256",
-                Value::Sha256(binding.target_binding_sha256),
-            ),
-            Field::new(
-                "store_uuid_sha256",
-                Value::Sha256(sha256_bytes(&binding.store_uuid)),
-            ),
-            Field::new("record_version", Value::U64(binding.record_version)),
-            Field::new("key_epoch", Value::U64(binding.key_epoch)),
-            Field::new(
-                "native_consumer_generation",
-                Value::U64(binding.native_core_generation),
-            ),
-            Field::new(
-                "core_generation",
-                Value::U64(binding.native_core_generation),
-            ),
-            Field::new(
-                "core_policy_sha256",
-                Value::Sha256(binding.policy_id_sha256),
-            ),
-            Field::new("network_export_authorized", Value::Bool(false)),
-            Field::new(
-                "test_infrastructure",
-                Value::Bool(binding.test_infrastructure),
-            ),
-        ]),
+        value: Value::Object(value),
         classification: "local_only",
         authority: "owner_verified_core_policy",
         boot_id: "current_boot",

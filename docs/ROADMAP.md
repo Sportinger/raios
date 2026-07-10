@@ -75,12 +75,20 @@ of I3/G5.4 are now green together in `shadow-20260710-192431-4220.json` (56/56):
 physical Genesis input can save encrypted OpenAI and exact-SSID/BSSID-bound WPA2
 credentials on the disposable QEMU C1 store; after reboot/replay and RR1 unlock, each
 reaches only its exact one-use consumer after a durable `local_only` pre-use audit.
-Wrong-BSSID and auditless WiFi use deny. The report does not prove a live provider
-request, association/link/`PORT_RELEASE`/DHCP, physical persistence, SAFE behavior or
-TPM auto-unlock. The physical two-confirmation forget path is now green in
+Wrong-BSSID and auditless WiFi use deny. That report does not prove a live provider
+request, association/link/`PORT_RELEASE`/DHCP, physical persistence or TPM auto-unlock.
+The physical two-confirmation forget path is now green in
 `shadow-20260710-195715-22816.json` (78/78): both fixed slots append/readback/replay
 version-2 tombstones across a third boot and deny as `secret_forgotten` before audit or
-consumer use. I3/G5.4 remains open on SAFE explicit reconnect and G5.5 evidence.
+consumer use. **I3/G5.4 SAFE explicit reconnect is verified** by
+`shadow-20260710-204801-23168.json` (95/95): Normal/Probation may exact-match the saved
+WiFi after unlock; an owner-signed last-good SAFE boot emits no provider/WiFi use until
+one physical Genesis action, then exactly one metadata-only `local_only`
+`safe_recovery` audit and contained WiFi consumer. General SAFE durable-write denial and
+the provider path are unchanged; a move-only token reaches only `SupplicantPmk`, and
+`AlreadyReady` now requires the exact retained target. G5.5 remains open on corruption,
+torn/power-cut, crash and default-release sentinel evidence; physical persistence and
+TPM auto-unlock remain unproven.
 
 **Genesis execution progress (A1/C3, 2026-07-10):** the normal release image
 now starts in the core-owned Genesis shell (Conversation, Context, Composer,
@@ -116,8 +124,8 @@ AB/G4 join is now verified by `shadow-20260710-124838-24564.json` (206/206): the
 non-default proof enters the clipped core-owned surface, accepts sanitized input,
 leaves through core-only F12, falls back after trap/fuel, and never changes the
 secure-strip pixels. Its current-boot inventory row exists only while active. The
-I3/G5.4 provider, contained WiFi-use and physical forget paths are verified by the
-focused reports above; SAFE reconnect and G5.5 remain independently gated.
+I3/G5.4 provider, contained WiFi-use, physical forget and SAFE explicit-reconnect paths
+are verified by the focused reports above; G5.5 remains independently gated.
 
 **M11 Kernel Slimming progress (all grants-nothing / strictly-more-restrictive,
 committed):** M11-1 kernel internet-parsing SURFACE baseline (the measurably-

@@ -24,15 +24,14 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (I3/G5.4 SAFE action + G5.5): prove NORMAL reconnect and
-SAFE explicit-only reconnect without broadening the exact Broker consumers. The SAFE
-path needs a distinct owner-policy/last-good verifier and a single token-consuming
-WiFi-use audit append; the general SAFE durable-write denial must remain unchanged.
-Extend
-the focused Secret-Vault evidence to cover corruption, torn/power-cut replay and
+Current exact next task (C5/G5.5): extend the focused Secret-Vault evidence to cover
+corruption, torn/power-cut replay and
 WiFi/provider/personal-shell crash return while keeping the Vault handle and all
-sentinels contained. The RR1, provider and WiFi exact-C1 vertical slices are green and
-must stay unchanged. Preserve the durable-store identity/rollback chain; do not expose
+sentinels contained. I3/G5.4 is now green, including NORMAL saved-target reconnect
+selection and SAFE explicit-only reconnect through a distinct owner-policy/last-good
+proof plus one token-consuming WiFi audit; keep those exact consumers and the general
+SAFE durable-write denial unchanged. Preserve the durable-store identity/rollback
+chain; do not expose
 plaintext to ShellHost/Wasm, add generic secret access, provider auto-load, broad
 mutation, or physical-target support. Disk 2 is unplugged; do not write a physical
 disk. The separate bare-metal WiFi proof remains pending: capture `LINK`,
@@ -141,6 +140,47 @@ return `secret_forgotten`, and boot three emits neither pre-use audit nor consum
 success. The old encrypted store history remains physically present and is not claimed
 erased. This proves no SAFE reconnect, physical persistence, crash isolation, TPM
 auto-unlock, provider request, radio association, `PORT_RELEASE` or DHCP.
+
+I3/G5.4 NORMAL + SAFE reconnect verified (2026-07-10) - after RR1 unlock, an ordinary
+boot may scan and select only the exact metadata-matching stored SSID/BSSID without a
+new password prompt. SAFE instead binds the executing kernel to the authoritative
+owner-signed bootable `last_good` BOOTCTL slot, unlocks the same wrapper, and emits no
+provider/WiFi audit or consumer success until one physical Genesis action. That action
+carries a move-only target-bound token through `ConnectionJob` to `SupplicantPmk`,
+consumes one exact `local_only` `safe_recovery`/explicit WiFi audit append, then reaches
+only the existing bounded NXP consumer. The general SAFE durable-memory append and
+provider paths remain denied; `AlreadyReady` now applies only to the retained exact
+connection target. Focused four-boot report
+`release/vm-reports/shadow-20260710-204801-23168.json` passed 95/95 predicates with
+base-image SHA-256 `1eabdcdc7ab61d6a3f1a82f4aa7e7609bc46934b99f1058ccf29c59290da14a3`
+and report SHA-256
+`c7bc1001b94b4e1c7c154b769ba9d646f92784d3f28e06bf0a2c73262223c838`.
+It proves SAFE no-auto-use, exactly one physical WiFi audit+contained consumer,
+offline exact record shape, both sentinel scans, the prior NORMAL provider/WiFi path,
+and third-boot tombstones. `raios-core` passed 405/405, the release kernel and direct
+Core-Policy sign/verify package path built, and PowerShell parsing/format checks were
+green. This closes I3/G5.4, not G5.5: live radio association/link/`PORT_RELEASE`/DHCP,
+physical persistence, crash/corruption/power-cut evidence, TPM auto-unlock and provider
+network success remain unclaimed.
+
+VM failure classification (2026-07-10, first SAFE-Secret-Vault profile) - report
+`release/vm-reports/shadow-20260710-204013-3440.json` contains no failing predicate
+because packaging stopped before QEMU with `Core Policy verification failed with exit
+code 101`; QEMU PID, hardware profile, serial log and base-image hash are all absent.
+Verdict: `host-transport/setup` - no guest behavior executed and neither disposable
+Vault medium was attached or mutated. The retry is forbidden until the host
+Core-Policy signer/verifier failure is reproduced directly and repaired; SAFE guest
+authority, Vault, audit, driver and harness behavior are not inferred from this run.
+
+VM failure classification (2026-07-10, second SAFE-Secret-Vault profile) - report
+`release/vm-reports/shadow-20260710-204313-12148.json` has 28/28 preceding predicates
+green and no failed predicate; after boot one provisioned the disposable C1 media and
+stopped QEMU, host `Copy-Item` failed with `not enough space on the disk` while
+materializing the 538-MiB SAFE BOOTCTL clone. Verdict: `host-transport/setup` - the
+SAFE VM never started, no SAFE audit/consumer ran, no QEMU process remains, and the
+failure is outside guest behavior. The bounded repair preserves the source image and
+creates a separate sparse `pending-safe` image with the same observed empty pre-audit
+RECLOG; deleting or rewriting the original normal/forget fixture is forbidden.
 
 VM failure classification (2026-07-10, first provider-Secret-Vault profile) - report
 `release/vm-reports/shadow-20260710-173553-10436.json` failed predicate

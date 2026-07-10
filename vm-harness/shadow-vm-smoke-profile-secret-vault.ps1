@@ -948,6 +948,7 @@ $initialPersistInspection = $null
 $rr1 = $null
 $providerSentinel = $null
 $wifiSentinel = $null
+$safeProof = $null
 $script:Rr1SecretPpmPath = Join-Path $RunDir "rr1-once.ppm"
 try {
     Assert-LogContains `
@@ -1105,31 +1106,10 @@ try {
     Stop-Rr1VmForLogInspection -QemuProcessId $firstQemuPid
     Assert-Rr1NotInSerial -Name "secret-vault:boot1:rr1_absent_from_serial" -Path $firstBootLog
 
-    $rebootLog = Join-Path $RunDir "serial-secret-vault-reboot.log"
-    $rebootParams = $runParams.Clone()
-    $rebootParams.StopExisting = $false
-    $rebootParams.SerialLog = $rebootLog
-    $rebootOutput = & $RunScript @rebootParams
-    $SerialLog = $rebootLog
-    $script:SerialLogCachePath = $null
-    $script:SerialLogCacheLength = [int64]-1
-    $script:SerialLogCacheWriteTicks = [int64]-1
-    $script:SerialLogCacheContent = $null
-    $QemuPid = $null
-    foreach ($line in $rebootOutput) {
-        if ($line -match '^qemu pid:\s*(\d+)') {
-            $QemuPid = [int]$Matches[1]
-        }
-    }
-    if (-not $QemuPid) {
-        throw "secret-vault reboot did not return a QEMU pid"
-    }
-    try {
-        $script:QemuProcess = Get-Process -Id $QemuPid -ErrorAction Stop
-    }
-    catch {
-        $script:QemuProcess = $null
-    }
+    $safeProof = Invoke-SecretVaultSafeReconnectProof `
+        -Rr1 $rr1 `
+        -InitialFrameCount $initialFrameCount
+    $rebootLog = Start-SecretVaultQemu -LogName "serial-secret-vault-reboot.log"
 
     Assert-VaultFixedLogMarker -Name "secret-vault:boot2:serial_ready" -Marker "SERIAL CONSOLE READY" -TimeoutSeconds $TimeoutSeconds
     Assert-VaultFixedLogMarker `
@@ -1274,7 +1254,7 @@ try {
 
     $combinedLog = Join-Path $RunDir "serial-secret-vault-combined.log"
     Join-SecretVaultSerialLogs `
-        -Paths @($firstBootLog, $rebootLog, $forgottenRebootLog) `
+        -Paths @($firstBootLog, $safeProof.Log, $rebootLog, $forgottenRebootLog) `
         -Destination $combinedLog
 
     Assert-ProviderSentinelAbsent `
@@ -1283,12 +1263,15 @@ try {
         -Sentinel $providerSentinel `
         -RequiredPaths @(
             $firstBootLog,
+            $safeProof.Log,
             $rebootLog,
             $forgottenRebootLog,
             $combinedLog,
             $ResolvedImage,
             $StructuredStoreDiskImage,
-            $PersistDiskImage
+            $PersistDiskImage,
+            $safeProof.StructuredStore,
+            $safeProof.Persist
         )
     Assert-ProviderSentinelAbsent `
         -Name "secret-vault:wifi_sentinel_absent_from_all_artifacts" `
@@ -1296,12 +1279,15 @@ try {
         -Sentinel $wifiSentinel `
         -RequiredPaths @(
             $firstBootLog,
+            $safeProof.Log,
             $rebootLog,
             $forgottenRebootLog,
             $combinedLog,
             $ResolvedImage,
             $StructuredStoreDiskImage,
-            $PersistDiskImage
+            $PersistDiskImage,
+            $safeProof.StructuredStore,
+            $safeProof.Persist
         )
 
     $combinedContent = [string](Get-Content -LiteralPath $combinedLog -Raw -ErrorAction Stop)
@@ -1417,5 +1403,6 @@ finally {
     $providerSentinel = $null
     Clear-Rr1Bytes -Bytes $wifiSentinel
     $wifiSentinel = $null
+    $safeProof = $null
     Remove-Rr1SecretPpm -Path $script:Rr1SecretPpmPath
 }
