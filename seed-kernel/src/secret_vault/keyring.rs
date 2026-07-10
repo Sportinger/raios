@@ -122,6 +122,38 @@ pub(crate) struct RecoveryWrapperSlots {
 }
 
 impl RecoveryWrapperSlots {
+    /// Reconstructs the current recovery slot only from the exact wrapper that
+    /// the structured-store replay path has read back.  This establishes no
+    /// TPM, store-I/O, or secret-consumer authority; it only carries the
+    /// readback proof into the in-RAM keyring.
+    pub(crate) fn restore_current_from_replayed_readback(
+        replayed: RecoveryVmkWrapperV1,
+        readback: &RecoveryVmkWrapperV1,
+        expected: ApprovedCorePolicy,
+    ) -> Result<Self, KeyringDenied> {
+        if !same_wrapper(&replayed, readback) {
+            return Err(KeyringDenied::ReadbackMismatch);
+        }
+        validate_context(replayed.context)?;
+        if replayed.version != RECOVERY_WRAPPER_VERSION
+            || replayed.context.core_generation != expected.core_generation
+            || replayed.context.policy_id_sha256 != expected.policy_id_sha256
+        {
+            return Err(KeyringDenied::InvalidWrapperContext);
+        }
+        Ok(Self {
+            store_uuid: replayed.context.store_uuid,
+            key_epoch: replayed.context.key_epoch,
+            current: WrapperSlot {
+                wrapper: replayed,
+                readback_verified: true,
+            },
+            next: None,
+            last_good: None,
+            tpm_auto_unlock: TpmAutoUnlockStatus::NotProven,
+        })
+    }
+
     /// Creates the initial recovery wrapper from ready core entropy.  This
     /// function makes no TPM claim and performs no store write.
     pub(crate) fn provision_initial(
@@ -598,6 +630,80 @@ mod tests {
             slots.tpm_auto_unlock_status(),
             TpmAutoUnlockStatus::NotProven
         );
+    }
+
+    #[test]
+    fn replayed_readback_restores_only_the_approved_current_wrapper() {
+        let key = recovery_key(0x42);
+        let master = vmk(0x17);
+        let slots = RecoveryWrapperSlots::provision_initial_with_nonce(
+            &master,
+            &key,
+            context(3, 12, 0x55),
+            [3; 12],
+        )
+        .unwrap();
+        let approved = ApprovedCorePolicy {
+            core_generation: 12,
+            policy_id_sha256: [0x55; 32],
+        };
+        let replayed = duplicate_wrapper(slots.current_wrapper());
+        let readback = duplicate_wrapper(slots.current_wrapper());
+        let restored = RecoveryWrapperSlots::restore_current_from_replayed_readback(
+            replayed, &readback, approved,
+        )
+        .unwrap();
+        assert_eq!(
+            restored.unlock_with_recovery(&key, approved).unwrap().1,
+            RecoveryWrapperSlot::Current
+        );
+
+        let replayed = duplicate_wrapper(slots.current_wrapper());
+        let mut mismatched_readback = duplicate_wrapper(slots.current_wrapper());
+        mismatched_readback.tag[0] ^= 1;
+        assert!(matches!(
+            RecoveryWrapperSlots::restore_current_from_replayed_readback(
+                replayed,
+                &mismatched_readback,
+                approved,
+            ),
+            Err(KeyringDenied::ReadbackMismatch)
+        ));
+        let replayed = duplicate_wrapper(slots.current_wrapper());
+        assert!(matches!(
+            RecoveryWrapperSlots::restore_current_from_replayed_readback(
+                replayed,
+                &readback,
+                ApprovedCorePolicy {
+                    core_generation: 13,
+                    policy_id_sha256: [0x66; 32],
+                },
+            ),
+            Err(KeyringDenied::InvalidWrapperContext)
+        ));
+    }
+
+    #[test]
+    fn unverified_current_cannot_be_selected_before_readback() {
+        let key = recovery_key(0x42);
+        let master = vmk(0x17);
+        let slots = RecoveryWrapperSlots::provision_initial_with_nonce(
+            &master,
+            &key,
+            context(3, 12, 0x55),
+            [3; 12],
+        )
+        .unwrap();
+        assert!(matches!(
+            slots.unlock_with_recovery(
+                &key,
+                ApprovedCorePolicy {
+                    core_generation: 12,
+                    policy_id_sha256: [0x55; 32],
+                },
+            ),
+            Err(KeyringDenied::NoMatchingRecoveryWrapper)
+        ));
     }
 
     #[test]
