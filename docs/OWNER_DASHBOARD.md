@@ -58,8 +58,10 @@ Latest C4 proof: release build plus focused structured-store regression
 `shadow-20260710-040559-24348.json` passed 9/9 with zero failures; it does not arm
 Vault authority.
 
-Next task: I2/G3 has passed its Sol review but awaits the required local
-`target\descriptor-resign` tool; do not forge or substitute a descriptor signature. C4/I3 groundwork may
-continue, but the Vault/Broker join remains separately Sol-review-gated. Disk 2 stays
-untouched until the owner returns; do not claim provider access or durable secrets
-before evidence.
+Next task: ADR 0013 restores a small tracked descriptor signer after the ignored
+local helper was lost. Its host test accepts exact bytes and rejects altered bytes;
+it is local `dev_key_not_owner_sealed` provenance only, not OTA or runtime
+authority. I2/G3 can now sign its two proof descriptors and integrate the six
+approved UI imports. The Vault/Broker join remains separately Sol-review-gated.
+Disk 2 stays untouched until the owner returns; do not claim provider access or
+durable secrets before evidence.

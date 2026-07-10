@@ -340,6 +340,12 @@ Then:
   gitignored `target/`, so `cargo clean` or a fresh clone silently deletes
   it. If it is missing, that is a STOP-tripwire (recreating signing tooling
   is trust-model-adjacent; section 7 item 1).
+- **ADR 0013 supersession:** the owner accepted the tracked standalone
+  `descriptor-resign` tool after the ignored helper was lost. Build it with
+  `cargo build --locked -p descriptor-resign`, then explicitly `sign` and
+  `verify` each descriptor/public-key/signature tuple. It is local
+  `dev_key_not_owner_sealed` provenance only: never use the OTA signer, never
+  invoke it automatically, and never weaken `build.rs` after a failed check.
 - **CRLF:** signed source bytes are EOL-sensitive; a Windows checkout once
   broke the signed snapshots via CRLF conversion (fixed by `.gitattributes`
   forcing LF, commit `943a9a0`). If attestation fails right after a

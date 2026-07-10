@@ -51,10 +51,15 @@ Signature files live in `seed-kernel/descriptors/`: current descriptor pub/sig, 
 
 Original signing tooling found: only local ignored helper [target/descriptor-resign/src/main.rs](C:/Users/admin/Documents/raios2/target/descriptor-resign/src/main.rs:14). It generates a fresh random P-256 key with `OsRng` at line 16 and writes public key plus DER signature at lines 19-20. No persistent private key file was found; the repo-local dev chain stores public keys and signatures, not signing private keys. The helper only signs two payloads per run, so it covers v1+v2 identities after a Hello source edit, but not all three descriptor payloads in one invocation.
 
+**Superseded signing-tool note (2026-07-10):** the ignored helper was lost.
+ADR 0013 replaces it with the tracked standalone `descriptor-resign` tool,
+which retains the same fresh-key/no-private-key model while adding an explicit
+raw-byte `verify` command. The OTA signer remains out of scope.
+
 Re-sign after a normal `hello_service` edit:
 1. Recompute the source hash, content-binding hash, and artifact-reference hash exactly as `build.rs` does.
 2. Update both identity descs: `artifact_content_source_sha256`, `artifact_content_binding_sha256`, `artifact_reference_sha256`, `artifact_reference_content_binding_sha256`.
-3. Re-sign v1 and v2 identity descs with `target\descriptor-resign\target\debug\descriptor-resign.exe ...v1 desc/pub/sig ...v2 desc/pub/sig`.
+3. Re-sign v1 and v2 identity descs with `cargo run --locked -p descriptor-resign -- sign <desc> <pub> <sig>`, then run the matching `verify` command for each tuple.
 4. If `svc.demo.hello.current_image.desc` changes too, use/extend a signer to sign that descriptor as well.
 
 **Split Feasibility**

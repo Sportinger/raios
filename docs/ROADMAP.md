@@ -76,10 +76,12 @@ and `target/captures/genesis-shell-a2.png` was inspected. The zeroizing secure
 overlay remains only a bounded input foundation: no Vault/Broker/plaintext-use,
 durable credential, recovery hash-load, or rollback authority is open. B1's
 display-list/import-grant foundation is already present. I2/G3 passed its required
-Sol review and awaits the local `target\descriptor-resign` tool; its absence is a
-STOP tripwire and signatures must not be forged or substituted. That I2 wait does
-not block the independent C4/I3-unarmed foundation lane. I3/G5.4 remains
-independently review-gated.
+Sol review. The owner accepted ADR 0013 after the ignored local signer was lost;
+its tracked `descriptor-resign` tool is host-tested for exact raw-byte P-256
+sign/verify and altered-byte rejection. It supplies only explicit
+`dev_key_not_owner_sealed` descriptor provenance and does not unpark OTA or grant
+runtime authority. I2 may now create and sign its two proof descriptors; I3/G5.4
+remains independently review-gated.
 
 **M11 Kernel Slimming progress (all grants-nothing / strictly-more-restrictive,
 committed):** M11-1 kernel internet-parsing SURFACE baseline (the measurably-

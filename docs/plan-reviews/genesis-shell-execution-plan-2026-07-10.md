@@ -14,11 +14,13 @@ replayed/readback keyring restore, typed ciphertext records and complete-history
 only nonce reconstruction; focused regression
 `shadow-20260710-040559-24348.json` passed 9/9 with zero failures. It grants no
 Vault set/unlock/decrypt/plaintext use, consumer, audit, physical-target or durable
-credential authority. I2/G3 passed its required Sol review and is waiting for the
-local `target\descriptor-resign` tool; its absence is a STOP tripwire, so no descriptor
-signature may be forged or substituted. That does not block C4 groundwork. I3/G5.4
-is independently review-gated. Runtime secret and personal-shell authority remain
-unclaimed until their named integration and evidence land.
+credential authority. I2/G3 passed its required Sol review. After the original
+ignored local signer was lost, the owner accepted ADR 0013 and its tracked
+`descriptor-resign` host tool now proves raw-byte P-256 sign/verify with an
+altered-byte rejection. It remains explicit local `dev_key_not_owner_sealed`
+provenance, not OTA or runtime authority. I3/G5.4 is independently review-gated.
+Runtime secret and personal-shell authority remain unclaimed until their named
+integration and evidence land.
 
 Target orchestrator: Codex 5.6, reasoning effort `xhigh`
 

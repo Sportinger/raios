@@ -24,21 +24,21 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (I2/G3 personal-shell authority join): the required
-read-only Sol review accepted the frozen ADR 0011/UI-import grant and the
-now-verified A2 boundary, but I2 is waiting on the required local
-`target\descriptor-resign` tool (and its `.exe`); its absence is a STOP
-tripwire. Do not forge, alter, reuse, or substitute a descriptor signature, and
-do not treat an OTA signer as an approved alternative. Only if the real
-descriptor-resign path exists may the already-approved exact six `ui.*` imports
-for the non-default `current_boot` proof service join the validated display-list path; the
-normal release must still say `Personal shell: not created`. This pauses I2, not
-the independent C4/I3-unarmed Vault work. C4/I3 may not gain Vault set, unlock,
-decrypt, plaintext-use, WiFi/provider use, audit, physical-target, or durable-
-credential authority before its separate Sol review and named join. Disk 2 is
-unplugged; do not write a physical disk. The separate bare-metal WiFi proof remains
-pending for the owner's return: capture `LINK`, association/AID, `PORT_RELEASE`,
-RX/TX, and DHCP evidence before provider access is claimed.
+Current exact next task (I2/G3 personal-shell authority join): ADR 0013 restores
+the lost descriptor-signing process as a tracked standalone host tool. Its host
+test proves that a fresh P-256 public-key/DER-signature tuple verifies exact
+descriptor bytes and rejects altered bytes. The tool grants only local
+`dev_key_not_owner_sealed` provenance: no OTA, runtime, loader, provider,
+promotion, persistence, or owner-sealed authority. I2 may now create and
+explicitly sign the two `svc.user.shell` current-boot proof descriptors through
+that tool, then join only the already-approved exact six `ui.*` imports to the
+validated display-list path; the normal release must still say `Personal shell:
+not created`. C4/I3 may not gain Vault set, unlock, decrypt, plaintext-use,
+WiFi/provider use, audit, physical-target, or durable-credential authority before
+its separate Sol review and named join. Disk 2 is unplugged; do not write a
+physical disk. The separate bare-metal WiFi proof remains pending for the owner's
+return: capture `LINK`, association/AID, `PORT_RELEASE`, RX/TX, and DHCP evidence
+before provider access is claimed.
 
 Genesis shell architecture contract accepted (I0/G0, 2026-07-10) - build agents
 can now implement the universal core-owned Genesis/recovery surface and the

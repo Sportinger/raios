@@ -8,6 +8,7 @@ members = [
     "raios-x509-time",
     "raios-x509-spki",
     "raios-http-parse",
+    "tools/descriptor-resign",
     "seed-kernel",
     "wasm-guests/svc-demo-echo",
     "wasm-guests/svc-demo-bufecho",
