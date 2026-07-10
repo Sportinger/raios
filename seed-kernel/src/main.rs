@@ -138,13 +138,16 @@ mod provider_config;
 mod provider_trust;
 mod ps2;
 mod scheduler;
+mod secret_vault;
 mod serial;
 mod service_inventory;
+mod shell_host;
 mod structured_store;
 mod system_status;
 mod text;
 mod time;
 mod tls_io;
+mod tpm2_transport;
 mod ui;
 mod usb;
 mod wasm_runtime;
@@ -243,9 +246,9 @@ fn early_main() -> ! {
     }
 
     let framebuffer_info = framebuffer_surface.as_ref().map(|surface| surface.info());
-    let mut runtime_status = ui::RuntimeStatus::new();
+    let mut runtime_status = system_status::RuntimeStatus::new();
     runtime_status.framebuffer = framebuffer_info;
-    let mut status_ui = ui::StatusUi::new(framebuffer_surface);
+    let mut status_ui = shell_host::ShellHost::new(framebuffer_surface);
     if provider_config::init_default_config() {
         serial::write_line("Default provider loaded: OPENAI API key set");
     }
@@ -363,8 +366,8 @@ impl PeriodicTasks {
     fn run(
         &mut self,
         now_tsc: u64,
-        status_ui: &mut ui::StatusUi,
-        runtime_status: &mut ui::RuntimeStatus,
+        status_ui: &mut shell_host::ShellHost,
+        runtime_status: &mut system_status::RuntimeStatus,
     ) {
         self.console.try_run(now_tsc, || {
             if console::poll(*runtime_status) {

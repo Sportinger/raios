@@ -40,6 +40,16 @@ two-consumer broker. This is design only: M13 mechanism work has not started,
 and physical-target support, durable secrets, recovery unlock, TPM auto-unlock,
 and Vault-VMK sealing remain unproven; ADR 0007 owner sealing is unaffected.
 
+**Genesis execution progress (A1/C3, 2026-07-10):** the normal release image
+now starts in the core-owned Genesis shell (Conversation, Context, Composer,
+secure strip, AI/WiFi setup); the legacy renderer was deleted, with serial and
+guided WiFi behavior preserved through the shared console/action adapter. The
+no-secret 1280x800 capture is `target/captures/genesis-shell-a1.png`. The TPM
+codec/CRB-TIS transport and RR1 recovery-wrapper foundation are compiled and
+host-tested but grant no auto-unlock, secret broker, or durable-secret claim.
+The immediate C1 vertical slice is QEMU-only exact AHCI/GPT admission plus a
+real flush/format/open/append/reboot proof; physical targets remain denied.
+
 **M11 Kernel Slimming progress (all grants-nothing / strictly-more-restrictive,
 committed):** M11-1 kernel internet-parsing SURFACE baseline (the measurably-
 shrinks reference, ~9640 candidate LOC); ADR 0008 the per-service-import-grant

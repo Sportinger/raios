@@ -24,12 +24,17 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (bare-metal WiFi link proof): write the current image to
-Disk 2 and prove the new association/data path on the Surface. Capture the
-`LINK` stage, association status/AID, firmware `PORT_RELEASE` event for WPA2,
-RX/TX pointer movement, and DHCP result through RECLOG/screen evidence. Keep
-provider network access and any durable WiFi-secret claim denied until that
-positive hardware chain succeeds.
+Current exact next task (Genesis storage vertical slice): add the dedicated
+QEMU-only AHCI region capability for the frozen `RAIOS_STRUCTURED_STORE` GPT
+fixture, including an actual ATA `FLUSH CACHE EXT`, bounded format/open/append/
+reboot proof, and the focused structured-store VM profile. It must select one
+exact BDF/port/device/GPT identity, never reuse the `SEED_DATA` detector or a
+first-match PCI controller, and must remain unable to format or select physical
+media. Disk 2 is currently absent; do not write a physical disk. The separate
+bare-metal WiFi proof remains pending for when the owner returns: capture the
+`LINK` stage, association status/AID, firmware `PORT_RELEASE`, RX/TX movement,
+and DHCP result. Provider network access and durable WiFi-secret claims remain
+denied until their named evidence chains succeed.
 
 Genesis shell architecture contract accepted (I0/G0, 2026-07-10) - build agents
 can now implement the universal core-owned Genesis/recovery surface and the
@@ -100,6 +105,34 @@ DEK and plaintext owners zeroize on drop. Verified: `cargo test --locked --offli
 passed 379/379 and the secret scan passed. This does not create a
 Vault, key source, recovery unlock, store write, broker lease, WiFi/provider
 integration, TPM claim, or durable-secret claim; those remain gated by C1/C3/I3.
+
+Genesis host and key-custody foundations done (A1/C3, 2026-07-10) - a user can
+now boot the normal release image directly into the calm, core-owned Genesis
+surface: secure strip, Conversation, typed Context, AI and WiFi setup actions,
+and the Composer are the only framebuffer host; the former `AI`/`CONSOLE`/`SET`
+renderer has been removed rather than left as a second visual path. Existing
+serial chat, provider setup, masked entry, and guided WiFi firmware/scan/BSS/
+association flow remain the shared action/state path. The Context starts
+honestly with `Personal shell: Not created`, `AI connection: Needs key`,
+`Secret Vault: Not configured`, and observed network state. C3 also adds a
+bounded TPM 2 command codec, CRB/TIS transport plan, zeroizing response/command
+buffers, RR1 recovery-key confirmation, and exact recovery-wrapper readback
+selection. It does not make a TPM sealed/unsealed, a vault provisioned, an
+automatic unlock, a secret broker, or durable credential claim. Verified:
+`cargo test --locked -p raios-core` passed 386/386; release packaging succeeded;
+and the safe no-secret capture of that exact release image produced
+`target/captures/genesis-shell-a1.png` at 1280x800. No focused VM report has
+been claimed for C3 because no storage/authority path is active yet.
+
+Structured-store partition admission foundation done (C1, 2026-07-10) - the
+future AHCI region port can now accept only a redundant GPT whose primary and
+backup headers/entry arrays validate, whose exact frozen type and UTF-16 label
+match `RAIOS_STRUCTURED_STORE`, and whose disk plus partition GUIDs match the
+explicit approved identity supplied by the caller. It denies malformed GPT,
+foreign identity, wrong label/type, missing redundancy, out-of-range and
+overlapping targets. It cannot discover, choose, map, format, or write a disk;
+the needed AHCI capability and QEMU-only vertical proof are the current task.
+Verified by the three focused host tests included in the 386/386 core run.
 
 VM failure classification (2026-07-10, B0 foundation quick) - report
 `release/vm-reports/shadow-20260710-013553-29700.json` passed 41/42 predicates

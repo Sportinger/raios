@@ -49,6 +49,8 @@ pub mod scoped_wasm_import_grant;
 pub mod secret_vault;
 pub mod seed_data_layout;
 pub mod structured_store;
+pub mod structured_store_partition;
+pub mod tpm2_commands;
 pub mod ui_frame;
 
 /// Computes the SHA-256 digest for `bytes` and returns the raw 32-byte digest.

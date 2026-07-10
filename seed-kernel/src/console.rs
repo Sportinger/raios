@@ -167,8 +167,10 @@ struct ConsoleState {
 impl ConsoleState {
     const fn new() -> Self {
         Self {
-            view: UiView::Console,
-            focus: UiFocus::ConsoleInput,
+            // Genesis owns the only framebuffer shell; keyboard text must reach
+            // its Composer immediately. Serial command handling remains separate.
+            view: UiView::Ai,
+            focus: UiFocus::ChatInput,
             mode: ConsoleMode::Command,
             input: CommandLine::new(),
             serial_input: CommandLine::new(),
