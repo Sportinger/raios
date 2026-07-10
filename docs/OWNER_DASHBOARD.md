@@ -44,8 +44,8 @@ Vault crypto status: exact AES-GCM/HKDF, recovery wrappers, opaque complete-hist
 replay and the fail-closed Broker now pass 406 focused core/tool tests. Its one-use outputs are
 only the bounded NXP WPA2 command or exact OpenAI header; no plaintext accessor
 exists. The complete Limine kernel plus A/1 BOOTCTL policy is now owner-software-
-pinned and VM-proven; runtime unlock/use stays denied until durable use-audit
-evidence is authoritative.
+pinned and retained by the Broker on both proven boots; provisioning/unlock and use
+remain denied.
 
 Latest proof: focused Genesis UI `shadow-20260710-124838-24564.json` passed 206/206
 with signed personal-shell entry/input/F12/trap/fuel evidence and five bound PNG
@@ -57,13 +57,13 @@ Gate status: latest full profile remains green at
 Genesis UI evidence; the full baseline is unchanged per aggressive-fast cadence.
 
 Latest Vault-foundation proof: release build plus focused structured-store report
-`shadow-20260710-133203-24112.json` passed 11/11, including opaque complete-history
-binding on both boots. It does not arm Vault authority.
+`shadow-20260710-150107-28328.json` passed 13/13, including opaque complete-history
+and owner-verified Core Policy binding on both boots. It does not arm Vault authority.
 
 Latest Core-Policy proof: `shadow-20260710-145039-13864.json` passed 5/5 for the
 owner signature, complete Limine executable measurement, and exact A/1 BOOTCTL join.
 This is software-pinned, not Secure Boot/TPM, and does not unlock the Vault.
 
-Next task: I3/G5.4 adds the durable pre-use audit receipt, then
-joins only the named consumers. Disk 2 stays untouched; do not claim provider access
-or durable secrets before evidence.
+Next task: I3/G5.4 builds the real one-time RR1 display/re-entry, wrapper persistence
+and recovery unlock path; the first consumer slice must add durable pre-use audit.
+Disk 2 stays untouched; do not claim provider access or durable secrets before evidence.

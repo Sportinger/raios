@@ -7,6 +7,7 @@
 
 use sha2::{Digest, Sha256};
 
+use raios_core::core_policy::VerifiedCorePolicy;
 use raios_core::secret_vault::{
     unwrap_vmk_from_recovery, wrap_vmk_for_recovery, FreshWrapperNonce, RecoveryKekContext,
     RecoveryKey, RecoveryVmkWrapperV1, SecretVaultError, VaultMasterKey, RECOVERY_WRAPPER_VERSION,
@@ -94,8 +95,35 @@ impl Drop for RecoveryKeyCandidate {
 /// this only from the current, next, or last-good core policy records.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ApprovedCorePolicy {
-    pub(crate) core_generation: u64,
-    pub(crate) policy_id_sha256: [u8; 32],
+    core_generation: u64,
+    policy_id_sha256: [u8; 32],
+}
+
+impl ApprovedCorePolicy {
+    /// The only runtime constructor: callers cannot turn generation/hash
+    /// claims into Vault authority without the opaque Core Policy proof.
+    pub(super) const fn from_verified(policy: &VerifiedCorePolicy) -> Self {
+        Self {
+            core_generation: policy.core_generation(),
+            policy_id_sha256: policy.policy_id_sha256(),
+        }
+    }
+
+    pub(super) const fn core_generation(self) -> u64 {
+        self.core_generation
+    }
+
+    pub(super) const fn policy_id_sha256(self) -> [u8; 32] {
+        self.policy_id_sha256
+    }
+
+    #[cfg(test)]
+    pub(super) const fn for_test(core_generation: u64, policy_id_sha256: [u8; 32]) -> Self {
+        Self {
+            core_generation,
+            policy_id_sha256,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -608,22 +636,10 @@ mod tests {
         slots.confirm_next_readback(&next_readback).unwrap();
         assert!(slots.next_wrapper().is_some());
         slots
-            .promote_verified_next(
-                &key,
-                ApprovedCorePolicy {
-                    core_generation: 11,
-                    policy_id_sha256: [0x44; 32],
-                },
-            )
+            .promote_verified_next(&key, ApprovedCorePolicy::for_test(11, [0x44; 32]))
             .unwrap();
         let (_, selected) = slots
-            .unlock_with_recovery(
-                &key,
-                ApprovedCorePolicy {
-                    core_generation: 10,
-                    policy_id_sha256: [0x33; 32],
-                },
-            )
+            .unlock_with_recovery(&key, ApprovedCorePolicy::for_test(10, [0x33; 32]))
             .unwrap();
         assert_eq!(selected, RecoveryWrapperSlot::LastGood);
         assert_eq!(
@@ -643,10 +659,7 @@ mod tests {
             [3; 12],
         )
         .unwrap();
-        let approved = ApprovedCorePolicy {
-            core_generation: 12,
-            policy_id_sha256: [0x55; 32],
-        };
+        let approved = ApprovedCorePolicy::for_test(12, [0x55; 32]);
         let replayed = duplicate_wrapper(slots.current_wrapper());
         let readback = duplicate_wrapper(slots.current_wrapper());
         let restored = RecoveryWrapperSlots::restore_current_from_replayed_readback(
@@ -674,10 +687,7 @@ mod tests {
             RecoveryWrapperSlots::restore_current_from_replayed_readback(
                 replayed,
                 &readback,
-                ApprovedCorePolicy {
-                    core_generation: 13,
-                    policy_id_sha256: [0x66; 32],
-                },
+                ApprovedCorePolicy::for_test(13, [0x66; 32]),
             ),
             Err(KeyringDenied::InvalidWrapperContext)
         ));
@@ -695,13 +705,7 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(
-            slots.unlock_with_recovery(
-                &key,
-                ApprovedCorePolicy {
-                    core_generation: 12,
-                    policy_id_sha256: [0x55; 32],
-                },
-            ),
+            slots.unlock_with_recovery(&key, ApprovedCorePolicy::for_test(12, [0x55; 32]),),
             Err(KeyringDenied::NoMatchingRecoveryWrapper)
         ));
     }
@@ -723,13 +727,7 @@ mod tests {
         );
         slots.current.wrapper.tag[0] ^= 1;
         assert!(matches!(
-            slots.unlock_with_recovery(
-                &key,
-                ApprovedCorePolicy {
-                    core_generation: 12,
-                    policy_id_sha256: [0x55; 32],
-                },
-            ),
+            slots.unlock_with_recovery(&key, ApprovedCorePolicy::for_test(12, [0x55; 32]),),
             Err(KeyringDenied::NoMatchingRecoveryWrapper)
         ));
     }

@@ -35,9 +35,12 @@ history is now bound from the exact revalidated QEMU store on both boots by
 `shadow-20260710-133203-24112.json` (11/11). Runtime secret authority remains
 unclaimed: the distinct owner software-pinned Core Policy now binds the complete
 Limine executable to exact A/1 BOOTCTL state (`shadow-20260710-145039-13864.json`,
-5/5), but durable pre-use audit evidence must still become authoritative before
-unlock/use can be wired. This is not Secure Boot, TPM measurement, deterministic
-ESP A/B selection, or anti-rollback.
+5/5), and the Broker retains that verified identity beside the replay on both boots
+(`shadow-20260710-150107-28328.json`, 13/13) without accepting caller policy data.
+The next positive slice is real RR1 display/re-entry, wrapper persistence and recovery
+unlock; durable pre-use audit must become authoritative before either exact consumer
+uses plaintext. This is not Secure Boot, TPM measurement, deterministic ESP A/B
+selection, or anti-rollback.
 
 Target orchestrator: Codex 5.6, reasoning effort `xhigh`
 

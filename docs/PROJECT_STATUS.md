@@ -24,11 +24,13 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (I3/G5.4 Secret-Vault authority join): retain the now-green
-complete-history Broker and owner-signed executing-core policy, then add the one
-remaining authoritative runtime input: a durable pre-use audit receipt before
-unlock/decrypt can become positive. After that receipt exists, replace the two legacy
-RAM-copy consumers and wire the trusted Genesis overlay. Preserve the existing
+Current exact next task (I3/G5.4 Secret-Vault authority join): build the first real
+RR1 provisioning vertical slice. Genesis must generate the VMK and random recovery
+key from ready core entropy, show RR1 exactly once, require complete physical-input
+re-entry, persist and readback-verify the wrapper on the dedicated QEMU test store,
+and unlock the Broker through the already bound replay and Core Policy. Then add the
+durable pre-use audit receipt in the first real consumer slice, replace the two legacy
+RAM-copy consumers, and wire the remaining trusted Genesis actions. Preserve the existing
 durable-store identity/rollback chain; do not expose plaintext to ShellHost/Wasm,
 add generic secret access, provider auto-load, broad mutation, or physical-target
 support. Disk 2 is unplugged; do not write a physical disk. The separate bare-metal
@@ -71,6 +73,16 @@ not Secure Boot, TPM measurement, hardware identity, in-memory integrity,
 deterministic ESP A/B selection, or anti-rollback. It creates no Vault unlock,
 decrypt, use, write, or TPM authority; durable pre-use audit evidence remains the
 next gate.
+
+I3 runtime Core-Policy-to-Vault join verified (2026-07-10) - after the exact QEMU
+store replay is bound, the Vault Broker now also retains only the executing policy
+accepted by the owner-pinned Core Policy verifier. Callers can no longer supply or
+replace a claimed kernel generation/policy hash during recovery unlock. The focused
+`release/vm-reports/shadow-20260710-150107-28328.json` passed 13/13, including
+complete replay and exact Core Policy binding on both the initial boot and independent
+reboot. This still performs no provisioning, wrapper write, unlock, decrypt or secret
+use. The next positive capability is the physical-input RR1 provisioning/unlock path;
+durable audit remains mandatory before either named consumer may use plaintext.
 
 VM failure classification (2026-07-10, first Core-Policy profile) - report
 `release/vm-reports/shadow-20260710-144728-24560.json` failed predicate

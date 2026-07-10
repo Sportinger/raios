@@ -63,9 +63,12 @@ history into the Broker on both boots; `shadow-20260710-133203-24112.json` passe
 11/11. The new distinct owner software-pinned Core Policy now verifies the complete
 Limine executable and exact Normal/Probation BOOTCTL slot/generation;
 `shadow-20260710-145039-13864.json` passes 5/5. It is explicitly not Secure Boot,
-TPM measurement, deterministic ESP A/B selection, or anti-rollback. I3 remains open
-on durable per-use audit evidence; until that receipt and the consumer joins exist,
-runtime unlock/use remains denied.
+TPM measurement, deterministic ESP A/B selection, or anti-rollback. The Broker now
+retains that verified identity beside the complete replay on both boots, and rejects
+caller-supplied/replacement policy identity; focused
+`shadow-20260710-150107-28328.json` passes 13/13. I3 remains open on the real RR1
+provision/write/recovery-unlock path and durable per-use audit; consumer use remains
+denied.
 
 **Genesis execution progress (A1/C3, 2026-07-10):** the normal release image
 now starts in the core-owned Genesis shell (Conversation, Context, Composer,

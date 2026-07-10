@@ -8,6 +8,7 @@
 use alloc::vec::Vec;
 
 use raios_core::{
+    core_policy::VerifiedCorePolicy,
     scoped_secret_use::{
         authorize_secret_use, SecretUseAuthorization, SecretUseDenial, SecretUseEvidence,
         SecretUseRequest,
@@ -120,8 +121,18 @@ pub(crate) enum VaultStoreStatus {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum VaultCorePolicyStatus {
+    Unbound,
+    Bound {
+        core_generation: u64,
+        policy_id_sha256: [u8; 32],
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct VaultBrokerStatus {
     pub(crate) store: VaultStoreStatus,
+    pub(crate) core_policy: VaultCorePolicyStatus,
     pub(crate) lock: VaultLockStatus,
     pub(crate) wifi: VaultSecretStatus,
     pub(crate) provider: VaultSecretStatus,
@@ -142,6 +153,8 @@ pub(crate) enum VaultBrokerDenied {
     KeyEpochInvalid,
     KeyEpochMismatch,
     CompleteReplayRequired,
+    CorePolicyMissing,
+    CorePolicyIdentityMismatch,
     RecordVersionExhausted,
     EntropyNotReady,
     RetainedNonceAllocation,
@@ -343,6 +356,7 @@ impl SlotState {
 /// unlock and does not own any raw device, partition, or write fallback.
 pub(crate) struct VaultBroker {
     identity: Option<StoreIdentity>,
+    approved_core_policy: Option<ApprovedCorePolicy>,
     vmk: Option<VaultMasterKey>,
     unlocked_key_epoch: Option<u64>,
     retained_nonces: Option<RetainedNonceMetadata>,
@@ -355,6 +369,7 @@ impl VaultBroker {
     pub(crate) const fn new() -> Self {
         Self {
             identity: None,
+            approved_core_policy: None,
             vmk: None,
             unlocked_key_epoch: None,
             retained_nonces: None,
@@ -371,6 +386,13 @@ impl VaultBroker {
                     generation: identity.generation,
                 }
             }),
+            core_policy: self.approved_core_policy.map_or(
+                VaultCorePolicyStatus::Unbound,
+                |policy| VaultCorePolicyStatus::Bound {
+                    core_generation: policy.core_generation(),
+                    policy_id_sha256: policy.policy_id_sha256(),
+                },
+            ),
             lock: self.lock_status,
             wifi: self.wifi.status(),
             provider: self.provider.status(),
@@ -408,6 +430,29 @@ impl VaultBroker {
         Ok(())
     }
 
+    /// Retains only the identity copied from the opaque verified Core Policy.
+    /// This does not open a wrapper, decrypt a secret, or create use authority.
+    pub(crate) fn bind_verified_core_policy(
+        &mut self,
+        verified: &VerifiedCorePolicy,
+    ) -> Result<(), VaultBrokerDenied> {
+        self.bind_approved_core_policy(ApprovedCorePolicy::from_verified(verified))
+    }
+
+    fn bind_approved_core_policy(
+        &mut self,
+        policy: ApprovedCorePolicy,
+    ) -> Result<(), VaultBrokerDenied> {
+        if self
+            .approved_core_policy
+            .is_some_and(|bound| bound != policy)
+        {
+            return Err(VaultBrokerDenied::CorePolicyIdentityMismatch);
+        }
+        self.approved_core_policy = Some(policy);
+        Ok(())
+    }
+
     /// Opens the non-exportable VMK only through a readback-verified recovery
     /// wrapper and exact approved policy.  TPM auto-unlock is intentionally
     /// absent from this interface.
@@ -415,11 +460,13 @@ impl VaultBroker {
         &mut self,
         recovery_key: &RecoveryKey,
         wrappers: &RecoveryWrapperSlots,
-        policy: ApprovedCorePolicy,
     ) -> Result<(), VaultBrokerDenied> {
         if self.vmk.is_some() {
             return Err(VaultBrokerDenied::AlreadyUnlocked);
         }
+        let policy = self
+            .approved_core_policy
+            .ok_or(VaultBrokerDenied::CorePolicyMissing)?;
         let identity = self
             .identity
             .ok_or(VaultBrokerDenied::StoreIdentityInvalid)?;
@@ -874,6 +921,7 @@ mod tests {
             broker.status(),
             VaultBrokerStatus {
                 store: VaultStoreStatus::Bound { generation: 5 },
+                core_policy: VaultCorePolicyStatus::Unbound,
                 lock: VaultLockStatus::Locked,
                 wifi: VaultSecretStatus::Available {
                     record_version: 1,
@@ -886,6 +934,25 @@ mod tests {
             broker.use_for_wifi(b"test", [2, 1, 2, 3, 4, 5], use_evidence()),
             Err(VaultBrokerDenied::Use(SecretUseDenial::VaultLocked))
         ));
+    }
+
+    #[test]
+    fn policy_binding_is_idempotent_and_rejects_identity_replacement() {
+        let mut broker = VaultBroker::new();
+        let policy = ApprovedCorePolicy::for_test(7, [0x44; 32]);
+        broker.bind_approved_core_policy(policy).unwrap();
+        broker.bind_approved_core_policy(policy).unwrap();
+        assert_eq!(
+            broker.status().core_policy,
+            VaultCorePolicyStatus::Bound {
+                core_generation: 7,
+                policy_id_sha256: [0x44; 32],
+            }
+        );
+        assert_eq!(
+            broker.bind_approved_core_policy(ApprovedCorePolicy::for_test(8, [0x55; 32])),
+            Err(VaultBrokerDenied::CorePolicyIdentityMismatch)
+        );
     }
 
     #[test]

@@ -27,7 +27,7 @@ use crate::{
     secret_vault, serial,
     structured_store::{
         append_with_readback, format_empty_disposable_test_media, open_and_replay_with_history,
-        PortDenied, ValidatedRegionIdentity, ValidatedStoreRegionPort,
+        PortDenied, ValidatedRegionIdentity, ValidatedReplayWithHistory, ValidatedStoreRegionPort,
     },
 };
 
@@ -116,8 +116,7 @@ fn run_fixture(port: &mut DisposableQemuStorePort) -> Result<(), DisposableQemuS
         .map_err(DisposableQemuStoreDenied::Core)?
         .is_some()
     {
-        secret_vault::load_verified_replay(&replay).map_err(DisposableQemuStoreDenied::Vault)?;
-        serial::write_line("C1_VAULT_COMPLETE_REPLAY_BOUND");
+        bind_vault_runtime_inputs(&replay)?;
         serial::write_line("C1_STRUCTURED_STORE_REBOOT_REPLAY_OK");
         return Ok(());
     }
@@ -147,9 +146,18 @@ fn run_fixture(port: &mut DisposableQemuStorePort) -> Result<(), DisposableQemuS
     {
         return Err(DisposableQemuStoreDenied::Bounds);
     }
-    secret_vault::load_verified_replay(&replay).map_err(DisposableQemuStoreDenied::Vault)?;
-    serial::write_line("C1_VAULT_COMPLETE_REPLAY_BOUND");
+    bind_vault_runtime_inputs(&replay)?;
     serial::write_line("C1_STRUCTURED_STORE_APPEND_FLUSH_READBACK_OK");
+    Ok(())
+}
+
+fn bind_vault_runtime_inputs(
+    replay: &ValidatedReplayWithHistory,
+) -> Result<(), DisposableQemuStoreDenied> {
+    secret_vault::load_verified_replay(replay).map_err(DisposableQemuStoreDenied::Vault)?;
+    serial::write_line("C1_VAULT_COMPLETE_REPLAY_BOUND");
+    secret_vault::bind_verified_core_policy().map_err(DisposableQemuStoreDenied::Vault)?;
+    serial::write_line("C1_VAULT_CORE_POLICY_BOUND");
     Ok(())
 }
 

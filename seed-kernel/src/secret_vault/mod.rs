@@ -18,6 +18,7 @@ pub(crate) use self::broker::VaultBrokerStatus;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum VaultFacadeDenied {
     HistoryLocked,
+    CorePolicy(&'static str),
     Broker(VaultBrokerDenied),
 }
 
@@ -54,6 +55,17 @@ pub(crate) fn load_verified_replay(
     let mut broker = BROKER.lock();
     broker
         .load_complete_replay(complete)
+        .map_err(VaultFacadeDenied::Broker)?;
+    Ok(broker.status())
+}
+
+/// Separately binds the already verified executing-core identity. Replay may
+/// load without it, but recovery unlock remains denied until both are present.
+pub(crate) fn bind_verified_core_policy() -> Result<VaultBrokerStatus, VaultFacadeDenied> {
+    let verified = crate::core_policy_runtime::verified().map_err(VaultFacadeDenied::CorePolicy)?;
+    let mut broker = BROKER.lock();
+    broker
+        .bind_verified_core_policy(verified)
         .map_err(VaultFacadeDenied::Broker)?;
     Ok(broker.status())
 }

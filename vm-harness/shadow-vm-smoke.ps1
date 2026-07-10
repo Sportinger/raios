@@ -123,7 +123,7 @@ try {
 
     if ($Profile -eq "structured-store") {
         if ($PersistDiskPath) {
-            throw "structured-store profile must not receive PersistDiskPath or the SEED_DATA fixture"
+            throw "structured-store profile creates its own exact valid-a SEED_DATA fixture"
         }
         $StructuredStoreDiskImage = Join-Path $RunDir "raios-structured-store-c1.img"
         $structuredStoreBuilder = Join-Path $RepoRoot "scripts\make-structured-store-image.py"
@@ -137,6 +137,15 @@ try {
             throw "Structured-store fixture identity or empty-state validation failed"
         }
         $StructuredStoreDiskImage = (Resolve-Path -LiteralPath $StructuredStoreDiskImage).Path
+
+        # BOOTCTL remains on its own SEED_DATA disk. The C1 Vault store keeps
+        # its distinct controller-port/GPT identity and is never a fallback.
+        $structuredStorePersist = Assert-PersistDiskPathSafe -Path (Join-Path $RunDir "raios-persist-structured-store.img")
+        $null = & python (Join-Path $RepoRoot "scripts\make-gpt-persist-image.py") --self-check --seed-bootctl valid-a $structuredStorePersist 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "structured-store BOOTCTL fixture build failed with exit code $LASTEXITCODE"
+        }
+        $PersistDiskImage = (Resolve-Path -LiteralPath $structuredStorePersist).Path
     }
     elseif ($Profile -eq "persistence" -or $Profile -eq "memory-durable" -or $PersistDiskPath) {
         $PersistDiskImage = Resolve-PersistDiskImage -PersistDiskPath $PersistDiskPath -RunDir $RunDir

@@ -1,15 +1,16 @@
-if (-not $StructuredStoreDiskImage -or -not $StructuredStoreFixture) {
-    throw "structured-store profile requires the dedicated QEMU-only C1 fixture"
+if (-not $StructuredStoreDiskImage -or -not $StructuredStoreFixture -or -not $PersistDiskImage) {
+    throw "structured-store profile requires separate C1 store and valid-a BOOTCTL fixtures"
 }
 
 $fixtureReady = (
     [bool]$StructuredStoreFixture.valid -and
     [bool]$StructuredStoreFixture.disposable_qemu_only -and
-    $StructuredStoreFixture.store_state -eq "empty_unformatted"
+    $StructuredStoreFixture.store_state -eq "empty_unformatted" -and
+    (Test-Path -LiteralPath $PersistDiskImage)
 )
 Add-Predicate `
     -Name "structured-store:host_fixture_ready" `
-    -Expected "a dedicated empty RAIOS_STRUCTURED_STORE QEMU fixture, never SEED_DATA or a host disk" `
+    -Expected "a dedicated empty C1 store plus a separate valid-a SEED_DATA BOOTCTL fixture" `
     -Passed $fixtureReady `
     -Actual $(if ($fixtureReady) { $StructuredStoreDiskImage } else { $StructuredStoreFixture | ConvertTo-Json -Compress -Depth 6 })
 
@@ -23,6 +24,7 @@ foreach ($marker in @(
     "C1_STRUCTURED_STORE_FIXTURE_ACCEPTED",
     "C1_STRUCTURED_STORE_FORMAT_OPEN_OK",
     "C1_VAULT_COMPLETE_REPLAY_BOUND",
+    "C1_VAULT_CORE_POLICY_BOUND",
     "C1_STRUCTURED_STORE_APPEND_FLUSH_READBACK_OK"
 )) {
     Assert-LogContains `
@@ -78,6 +80,10 @@ Assert-LogContains `
 Assert-LogContains `
     -Name "structured-store:reboot_vault_complete_replay_bound" `
     -Needle "C1_VAULT_COMPLETE_REPLAY_BOUND" `
+    -TimeoutSeconds $TimeoutSeconds
+Assert-LogContains `
+    -Name "structured-store:reboot_vault_core_policy_bound" `
+    -Needle "C1_VAULT_CORE_POLICY_BOUND" `
     -TimeoutSeconds $TimeoutSeconds
 
 # Keep one report with a serial hash covering both boots; no first-boot report
