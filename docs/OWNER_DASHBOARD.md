@@ -5,10 +5,11 @@ One page, plain language, updated every session (rule: AGENTS.md,
 
 Updated: 2026-07-10.
 
-Current capability: the normal release image now boots directly into the calm
-Genesis shell: Conversation, Context, safe AI/WiFi setup and a Composer. The
-former technical mode renderer is gone; serial chat and the real guided WiFi
-path remain connected through their shared action/state path.
+Current capability: the normal release image boots into calm Genesis with
+Conversation, typed Context, a Composer, RAM-only masked AI/WiFi setup, and an
+openable cached Recovery view. Genesis Recovery can restart or disable the fixed
+demo echo through the same typed Lifeline executor as serial; no second authority
+or visual fallback was added.
 
 What is still denied: broad USB disk mutation, writes outside `SEED_DATA/RECLOG`,
 durable secret storage, owner-sealed persistence, unsupported WiFi security,
@@ -28,10 +29,10 @@ Owner-key status: RAM boot still creates only a secret RAM-only
 `current_boot` owner-key candidate. Persistent owner seal/install/load/durable
 authority remains denied until the real sealing ceremony.
 
-Genesis status: A0/B0 plus A1 are live locally. The verified no-secret 1280x800
-capture is `target/captures/genesis-shell-a1.png`; it honestly says Personal
-shell not created and Vault not configured. The proof personal shell remains
-unlinked test infrastructure.
+Genesis status: A0/B0, A1 and A2 core interaction are verified. The inspected
+no-secret 1280x800 capture is `target/captures/genesis-shell-a2.png`; the release
+still says Personal shell not created and Vault not configured. The proof personal
+shell remains unlinked test infrastructure.
 
 Vault/store status: C1 is now proven end-to-end on a fresh dedicated QEMU image:
 exact GPT admission, blank format, dual superblock readback, real ATA flush,
@@ -42,14 +43,16 @@ Vault crypto status: C2's exact AES-GCM/HKDF envelope, recovery-wrapper, zeroizi
 owners, and two-consumer evaluator pass 379 core tests; no plaintext lease or use
 path is wired into WiFi/provider yet.
 
-Latest proof: C1 structured-store focused VM 9/9, release package, and an
-inspected safe no-secret Genesis capture. The latest quick Shadow VM remains the
-unchanged `shadow-20260710-024402-2584.json` 542/542 baseline.
+Latest proof: focused Genesis UI `shadow-20260710-034302-30252.json` 181/181,
+release package, and inspected safe no-secret Genesis capture. C1's structured-
+store QEMU proof remains 9/9. The latest quick Shadow VM remains the unchanged
+`shadow-20260710-024402-2584.json` 542/542 baseline.
 
 Gate status: latest full profile remains green at
-`shadow-20260708-150428-34396.json` 7867/7867. This slice used focused USB VM
-evidence plus quick profile per aggressive-fast cadence.
+`shadow-20260708-150428-34396.json` 7867/7867. This slice used its focused
+Genesis UI evidence; the full baseline is unchanged per aggressive-fast cadence.
 
-Next task: A2 trusted Genesis Context, secure secret-entry overlays and real
-recovery entry. Disk 2 stays untouched until the owner returns; do not claim
-provider access or durable secrets before the later broker evidence.
+Next task: required Sol review then I2/G3's exact non-default display-list/Wasm
+proof join. I3/G5.4 Vault/Broker work remains separately review-gated; the bounded
+secure overlay is not a secret use path yet. Disk 2 stays untouched until the
+owner returns; do not claim provider access or durable secrets before evidence.

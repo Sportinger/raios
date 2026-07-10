@@ -9,13 +9,14 @@
 use raios_core::boot_control::{BootPosture, BootSlotId};
 use raios_core::recovery_lifeline_table as lifeline;
 
+use crate::agent_protocol::boot_control;
 use crate::framebuffer::FramebufferSurface;
 use crate::system_status::{RuntimeStatus, SystemSnapshot};
-use crate::{boot_control, echo_service, provider, service_inventory, text};
+use crate::{echo_service, provider, service_inventory, text};
 
 use super::genesis::{
     draw_button, draw_panel, draw_truncated_text, point_in, rect_from_layout, LogicalRect,
-    APP_AMBER, APP_BLUE, APP_GREEN, TEXT_MUTED,
+    APP_AMBER, APP_GREEN, TEXT_MUTED,
 };
 
 pub(crate) const RECOVERY_ACTION_COUNT: usize = 4;
@@ -105,6 +106,7 @@ impl RecoveryView {
                 actions[index],
                 offer.label,
                 shared_executor_ready
+                    && genesis_executor_supports(selection)
                     && offer.availability == RecoveryActionAvailability::RequiresSharedExecutor,
             );
         }
@@ -129,6 +131,7 @@ impl RecoveryView {
         let rects = action_rects(context);
         for (index, selection) in RecoveryActionSelection::ALL.iter().copied().enumerate() {
             if point_in(x, y, rects[index])
+                && genesis_executor_supports(selection)
                 && recovery_action_offer(selection).availability
                     == RecoveryActionAvailability::RequiresSharedExecutor
             {
@@ -137,6 +140,16 @@ impl RecoveryView {
         }
         None
     }
+}
+
+/// The first shared UI adapter deliberately exposes only the two recovery actions
+/// that have a complete, argument-free trusted target. Hash loading requires an
+/// explicit validated hash entry, and rollback remains unavailable in the frozen table.
+pub(crate) const fn genesis_executor_supports(selection: RecoveryActionSelection) -> bool {
+    matches!(
+        selection,
+        RecoveryActionSelection::RestartLastGood | RecoveryActionSelection::DisableModule
+    )
 }
 
 #[derive(Clone, Copy)]

@@ -3,13 +3,13 @@ mod agent_protocol_registry;
 #[path = "artifact_store.rs"]
 pub(crate) mod artifact_store;
 #[path = "boot_control.rs"]
-mod boot_control;
+pub(crate) mod boot_control;
 #[path = "distribution_registry.rs"]
 mod distribution_registry;
 #[path = "durable_store.rs"]
 pub(crate) mod durable_store;
 #[path = "recovery_lifeline.rs"]
-mod recovery_lifeline;
+pub(crate) mod recovery_lifeline;
 #[path = "repromotion.rs"]
 mod repromotion;
 

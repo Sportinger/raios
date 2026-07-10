@@ -24,16 +24,17 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (A2 Genesis trusted interaction): split the current
-Genesis Context into shared typed system/problem facts and add the core-owned
-secure provider/WiFi-entry overlay plus real recovery entry. Preserve the
-existing driver/provider authority and route UI actions through the shared
-evaluators, not serial text parsing. The C1 store is now real only for the
-hard-coded disposable QEMU fixture; there is still no physical-target driver,
-Vault record, recovery unlock, or durable credential claim. Disk 2 is absent;
-do not write a physical disk. The separate bare-metal WiFi proof remains pending
-for the owner's return: capture `LINK`, association/AID, `PORT_RELEASE`, RX/TX,
-and DHCP evidence before provider access is claimed.
+Current exact next task (I2/G3 personal-shell authority join): complete the
+required read-only Sol review of the frozen ADR 0011/UI-import grant and the
+now-verified A2 boundary. Only if that review accepts the exact six `ui.*`
+imports, integrate the non-default `current_boot` proof service through the
+validated display-list path; the normal release must still say `Personal shell:
+not created`. C4/I3 Vault/Broker work may be scoped in parallel but cannot gain
+write, unlock, plaintext-use, or durable-credential authority before its separate
+Sol review and named join. Disk 2 is unplugged; do not write a physical disk.
+The separate bare-metal WiFi proof remains pending for the owner's return:
+capture `LINK`, association/AID, `PORT_RELEASE`, RX/TX, and DHCP evidence before
+provider access is claimed.
 
 Genesis shell architecture contract accepted (I0/G0, 2026-07-10) - build agents
 can now implement the universal core-owned Genesis/recovery surface and the
@@ -148,6 +149,24 @@ the hard-coded disposable fixture. Verified:
 in 107065 ms, including format/open, append/flush/readback, and reboot replay.
 No physical partition, vault envelope, TPM unlock, secret broker, WiFi/provider
 consumer, or durable-secret behavior is claimed by this test-only store path.
+
+Genesis trusted-interaction core completed (A2/G2, 2026-07-10) - a user can now
+inspect the same typed current-boot problem facts in Genesis and the agent
+protocol, open a cached/redacted Recovery view from the secure strip, and use
+Genesis Recovery controls to restart or disable the fixed demo echo through the
+same typed Lifeline executor used by the serial path. Existing masked RAM-only
+provider/WiFi setup remains reachable from Genesis; the driver, provider and
+serial authority paths were not duplicated. Component commits `1a8b1d7`,
+`3dd7f96`, `69c29fe`, and `008be89` respectively add the shared facts, bounded
+zeroizing secure-overlay foundation, cached Recovery model, and focused profile
+foundation. Verified: the integrated `genesis-ui` profile
+`release/vm-reports/shadow-20260710-034302-30252.json` passed 181/181; release
+build/package passed; and the no-secret 1280x800 capture
+`target/captures/genesis-shell-a2.png` was visually inspected. This does not
+create a Vault secret, Broker, durable credential, recovery hash-load, or
+rollback authority: secure-overlay submission is not yet wired to a secret use
+path, and recovery hash-load/rollback remain disabled. The default release stays
+in normal Genesis with no personal shell.
 
 VM failure classification (2026-07-10, C1 first structured-store profile) -
 the outer host command expired after 604 seconds before `shadow-vm-smoke.ps1`

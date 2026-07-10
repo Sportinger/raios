@@ -139,11 +139,13 @@ mod provider_trust;
 mod ps2;
 mod scheduler;
 mod secret_vault;
+mod secure_overlay;
 mod serial;
 mod service_inventory;
 mod shell_host;
 mod structured_store;
 mod structured_store_c1;
+mod system_problem_facts;
 mod system_status;
 mod text;
 mod time;
@@ -399,7 +401,7 @@ impl PeriodicTasks {
         });
         self.input.try_run(now_tsc, || {
             let pointer_changed = input::poll();
-            let ui_changed = status_ui.handle_pointer_interaction();
+            let ui_changed = status_ui.handle_pointer_interaction(*runtime_status);
             if ui_changed {
                 status_ui.render_forced(uptime_ms(), *runtime_status);
             } else if pointer_changed {

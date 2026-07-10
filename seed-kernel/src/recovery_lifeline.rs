@@ -240,7 +240,14 @@ fn emit_snapshot(method: &'static str, runtime: ui::RuntimeStatus) {
 /// reclog gauntlet (scan -> plan -> write -> readback -> reparse -> evaluate -> rescan,
 /// authorized ONLY by the 1a evaluator) and — ONLY if that append is `performed` —
 /// stops+disables `svc.demo.echo` for the current boot. Restore-only; grants nothing.
-fn emit_disable_module(arg: &str) -> DispatchOutcome {
+struct DisableModuleExecution {
+    evidence: durable_store::RecoveryActionAppendEvidence,
+    disable_event_id: Option<event_log::EventId>,
+}
+
+/// The one shared disable executor. Both the serial lifeline adapter and the
+/// Genesis adapter call this exact evaluator/append-before-mutate path.
+fn execute_disable_module(arg: &str) -> DisableModuleExecution {
     let arg = arg.trim();
     let is_lifeline = target_is_lifeline_endpoint(arg);
     let core_owned = target_is_core_owned(arg);
@@ -265,20 +272,33 @@ fn emit_disable_module(arg: &str) -> DispatchOutcome {
         record.classification(),
     ) {
         let evidence = durable_store::recovery_action_append_denied(&record, reason);
-        emit_recovery_action_response(arg, &evidence, None);
-        return DispatchOutcome::Denied(table::METHOD_DISABLE_MODULE);
+        return DisableModuleExecution {
+            evidence,
+            disable_event_id: None,
+        };
     }
 
     // Durable recovery_action record FIRST, authorized only via the 1a evaluator.
     let evidence = durable_store::append_recovery_action(&record);
-    if evidence.performed {
+    let disable_event_id = if evidence.performed {
         // Only a durably-recorded, readback + reparse-verified authorization mutates
         // live state: stop+disable echo for the current boot.
-        let disable_event_id = echo_service::disable();
-        emit_recovery_action_response(arg, &evidence, Some(disable_event_id));
+        Some(echo_service::disable())
+    } else {
+        None
+    };
+    DisableModuleExecution {
+        evidence,
+        disable_event_id,
+    }
+}
+
+fn emit_disable_module(arg: &str) -> DispatchOutcome {
+    let execution = execute_disable_module(arg);
+    emit_recovery_action_response(arg.trim(), &execution.evidence, execution.disable_event_id);
+    if execution.evidence.performed {
         DispatchOutcome::Response(table::METHOD_DISABLE_MODULE)
     } else {
-        emit_recovery_action_response(arg, &evidence, None);
         DispatchOutcome::Denied(table::METHOD_DISABLE_MODULE)
     }
 }
@@ -425,7 +445,16 @@ fn emit_recovery_action_response(
 /// append is `performed` — clears echo's disabled+crashed latches and re-runs the
 /// EXISTING verified start path back to healthy/running. Restore-only; grants nothing;
 /// restores a built-in module already in RAM (no persistence, no new bytes).
-fn emit_restart_last_good(arg: &str) -> DispatchOutcome {
+struct RestartLastGoodExecution {
+    evidence: durable_store::RecoveryActionAppendEvidence,
+    restart_event_id: Option<event_log::EventId>,
+    restart_health: Option<&'static str>,
+    restarted_to_running: bool,
+}
+
+/// The one shared restart executor. It intentionally owns no serial rendering so
+/// Genesis and the serial adapter cannot diverge in recovery authority.
+fn execute_restart_last_good(arg: &str) -> RestartLastGoodExecution {
     let arg = arg.trim();
     let is_lifeline = target_is_lifeline_endpoint(arg);
     let core_owned = target_is_core_owned(arg);
@@ -456,8 +485,12 @@ fn emit_restart_last_good(arg: &str) -> DispatchOutcome {
         restorable,
     ) {
         let evidence = durable_store::recovery_action_append_denied(&record, reason);
-        emit_restart_response(arg, &evidence, None, None, false);
-        return DispatchOutcome::Denied(table::METHOD_RESTART_LAST_GOOD);
+        return RestartLastGoodExecution {
+            evidence,
+            restart_event_id: None,
+            restart_health: None,
+            restarted_to_running: false,
+        };
     }
 
     // Durable recovery_action record FIRST, authorized only via the 2a evaluator.
@@ -466,11 +499,73 @@ fn emit_restart_last_good(arg: &str) -> DispatchOutcome {
         // Only a durably-recorded, readback + reparse-verified authorization mutates
         // live state: clear the latches and re-run the verified start path.
         let (event_id, health, running) = echo_service::restart_last_good();
-        emit_restart_response(arg, &evidence, Some(event_id), Some(health), running);
+        RestartLastGoodExecution {
+            evidence,
+            restart_event_id: Some(event_id),
+            restart_health: Some(health),
+            restarted_to_running: running,
+        }
+    } else {
+        RestartLastGoodExecution {
+            evidence,
+            restart_event_id: None,
+            restart_health: None,
+            restarted_to_running: false,
+        }
+    }
+}
+
+fn emit_restart_last_good(arg: &str) -> DispatchOutcome {
+    let execution = execute_restart_last_good(arg);
+    emit_restart_response(
+        arg.trim(),
+        &execution.evidence,
+        execution.restart_event_id,
+        execution.restart_health,
+        execution.restarted_to_running,
+    );
+    if execution.evidence.performed {
         DispatchOutcome::Response(table::METHOD_RESTART_LAST_GOOD)
     } else {
-        emit_restart_response(arg, &evidence, None, None, false);
         DispatchOutcome::Denied(table::METHOD_RESTART_LAST_GOOD)
+    }
+}
+
+/// Fixed trusted Genesis actions. There is deliberately no string/method input here:
+/// the UI can select only the same bounded demo target the lifeline already governs.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum GenesisRecoveryAction {
+    RestartLastGoodDemoEcho,
+    DisableDemoEcho,
+}
+
+/// Redacted result for the Genesis presentation. The detailed evidence remains on
+/// the existing serial adapter; this result gives the UI no raw audit or disk data.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct GenesisRecoveryActionResult {
+    pub(crate) performed: bool,
+    pub(crate) reason: &'static str,
+}
+
+/// Executes the same typed recovery executor as the serial lifeline, without parsing
+/// a command string or routing through the console dispatcher.
+pub(crate) fn execute_genesis_action(action: GenesisRecoveryAction) -> GenesisRecoveryActionResult {
+    let target = echo_service::ECHO_SERVICE_DESCRIPTOR.service_id;
+    match action {
+        GenesisRecoveryAction::RestartLastGoodDemoEcho => {
+            let execution = execute_restart_last_good(target);
+            GenesisRecoveryActionResult {
+                performed: execution.evidence.performed,
+                reason: execution.evidence.reason,
+            }
+        }
+        GenesisRecoveryAction::DisableDemoEcho => {
+            let execution = execute_disable_module(target);
+            GenesisRecoveryActionResult {
+                performed: execution.evidence.performed,
+                reason: execution.evidence.reason,
+            }
+        }
     }
 }
 

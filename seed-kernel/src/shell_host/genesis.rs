@@ -1,12 +1,13 @@
 //! Core-owned Genesis presentation.  It renders only typed snapshots and delegates
 //! existing setup actions to the current console/provider adapters.
 
+use crate::agent_protocol::recovery_lifeline;
 use crate::framebuffer::{Color, FramebufferInfo, FramebufferSurface};
 use crate::system_status::{RowState, SnapshotStates, StatusLine, SystemSnapshot};
-use crate::{console, input, serial, text};
+use crate::{console, input, provider, serial, text, wifi};
 use raios_core::genesis_layout::{GenesisLayout, Point, Size};
 
-use super::wifi_flow;
+use super::{context, recovery, wifi_flow};
 
 pub(crate) const FONT_ADVANCE: usize = 9;
 pub(crate) const APP_BG: Color = Color::new(20, 22, 26);
@@ -42,6 +43,8 @@ pub struct ShellHost {
     last_mouse_buttons: u8,
     last_cursor_rect: Option<CursorRect>,
     wifi: wifi_flow::GuidedWifi,
+    recovery: recovery::RecoveryView,
+    recovery_open: bool,
 }
 
 impl ShellHost {
@@ -57,6 +60,8 @@ impl ShellHost {
             last_mouse_buttons: 0,
             last_cursor_rect: None,
             wifi: wifi_flow::GuidedWifi::new(),
+            recovery: recovery::RecoveryView::new(),
+            recovery_open: false,
         }
     }
 
@@ -81,7 +86,14 @@ impl ShellHost {
         let states = snapshot.states();
         if flow_changed || force_draw || self.last_draw_states != Some(states) {
             if let Some(surface) = self.surface.as_mut() {
-                draw_genesis(surface, uptime_ms, &snapshot, &self.wifi);
+                draw_genesis(
+                    surface,
+                    uptime_ms,
+                    &snapshot,
+                    &self.wifi,
+                    &self.recovery,
+                    self.recovery_open,
+                );
                 surface.present();
                 self.last_cursor_rect = None;
                 draw_current_cursor(surface, &mut self.last_cursor_rect);
@@ -99,7 +111,10 @@ impl ShellHost {
         }
     }
 
-    pub fn handle_pointer_interaction(&mut self) -> bool {
+    pub fn handle_pointer_interaction(
+        &mut self,
+        runtime: crate::system_status::RuntimeStatus,
+    ) -> bool {
         let Some(surface) = self.surface.as_ref() else {
             return false;
         };
@@ -126,6 +141,12 @@ impl ShellHost {
         if view == console::UiView::Settings {
             return self.handle_setup_pointer(layout, x, y, width, height);
         }
+        if point_in(x, y, recovery_strip_rect(layout)) {
+            return self.toggle_recovery(runtime);
+        }
+        if self.recovery_open {
+            return self.handle_recovery_pointer(layout, x, y, runtime);
+        }
         if layout.composer.contains(Point::new(x as u32, y as u32)) {
             return console::set_view(console::UiView::Ai);
         }
@@ -136,6 +157,51 @@ impl ShellHost {
             return self.wifi.begin();
         }
         false
+    }
+
+    fn toggle_recovery(&mut self, runtime: crate::system_status::RuntimeStatus) -> bool {
+        if self.recovery_open {
+            self.recovery_open = false;
+        } else {
+            self.recovery.refresh(runtime);
+            self.recovery_open = true;
+        }
+        true
+    }
+
+    fn handle_recovery_pointer(
+        &mut self,
+        layout: GenesisLayout,
+        x: usize,
+        y: usize,
+        runtime: crate::system_status::RuntimeStatus,
+    ) -> bool {
+        let Some(selection) = self.recovery.pointer_selection(layout, x, y, true) else {
+            return false;
+        };
+        let action = match selection {
+            recovery::RecoveryActionSelection::RestartLastGood => {
+                recovery_lifeline::GenesisRecoveryAction::RestartLastGoodDemoEcho
+            }
+            recovery::RecoveryActionSelection::DisableModule => {
+                recovery_lifeline::GenesisRecoveryAction::DisableDemoEcho
+            }
+            recovery::RecoveryActionSelection::LoadLocalHash
+            | recovery::RecoveryActionSelection::Rollback => return false,
+        };
+        let result = recovery_lifeline::execute_genesis_action(action);
+        console::write_event(format_args!(
+            "GENESIS RECOVERY {} {}: {}",
+            selection.method(),
+            if result.performed {
+                "APPLIED"
+            } else {
+                "DENIED"
+            },
+            result.reason
+        ));
+        self.recovery.refresh(runtime);
+        true
     }
 
     fn handle_setup_pointer(
@@ -200,6 +266,8 @@ fn draw_genesis(
     uptime_ms: u64,
     snapshot: &SystemSnapshot,
     wifi: &wifi_flow::GuidedWifi,
+    recovery: &recovery::RecoveryView,
+    recovery_open: bool,
 ) {
     let Some(layout) = genesis_layout(surface.info()) else {
         return;
@@ -207,9 +275,13 @@ fn draw_genesis(
     surface.set_draw_scale(2);
     surface.fill(APP_BG);
     let console_snapshot = console::snapshot();
-    draw_secure_strip(surface, layout, uptime_ms, snapshot);
+    draw_secure_strip(surface, layout, uptime_ms, snapshot, recovery_open);
     draw_conversation(surface, layout, &console_snapshot);
-    draw_context(surface, layout, snapshot, &console_snapshot);
+    if recovery_open {
+        recovery.draw_context(surface, layout, true);
+    } else {
+        draw_context(surface, layout, snapshot);
+    }
     draw_composer(surface, layout, &console_snapshot);
     if console_snapshot.view == console::UiView::Settings {
         draw_setup_overlay(surface, layout, &console_snapshot);
@@ -230,6 +302,7 @@ fn draw_secure_strip(
     layout: GenesisLayout,
     _uptime_ms: u64,
     snapshot: &SystemSnapshot,
+    recovery_open: bool,
 ) {
     let rect = rect_from_layout(layout.secure_strip);
     surface.fill_rect(rect.x, rect.y, rect.w, rect.h, SURFACE_BG);
@@ -241,7 +314,9 @@ fn draw_secure_strip(
         HAIRLINE,
     );
     text::draw_text(surface, 12, 14, "raiOS / Genesis", TEXT_MAIN, None);
-    let right = if snapshot.network.state == RowState::Ready {
+    let right = if recovery_open {
+        "Recovery context / Click to close"
+    } else if snapshot.network.state == RowState::Ready {
         "Core safe / Recovery ready"
     } else {
         "Core safe / Recovery available"
@@ -314,32 +389,34 @@ fn draw_context(
     surface: &mut FramebufferSurface,
     layout: GenesisLayout,
     snapshot: &SystemSnapshot,
-    console_snapshot: &console::ConsoleSnapshot,
 ) {
     let rect = rect_from_layout(layout.context);
     draw_panel(surface, rect, "Context");
+    let context = context::project(snapshot, &provider::snapshot(), wifi::snapshot());
+    let problem_value = if context.problems.critical == 0 {
+        "No critical problems"
+    } else {
+        "Critical problem present"
+    };
+    let problem_color = if context.problems.critical == 0 {
+        APP_GREEN
+    } else {
+        APP_RED
+    };
     let rows = [
         ("Personal shell", "Not created", TEXT_MUTED),
         (
             "AI connection",
-            if console_snapshot.api_key_set {
-                "Ready"
-            } else {
-                "Needs key"
-            },
-            if console_snapshot.api_key_set {
-                APP_GREEN
-            } else {
-                APP_AMBER
-            },
+            context.ai_connection.value,
+            context_tone_color(context.ai_connection.tone),
         ),
         (
             "Network",
-            snapshot.network.detail.as_str(),
-            row_color(snapshot.network.state),
+            context.network.value,
+            context_tone_color(context.network.tone),
         ),
         ("Secret Vault", "Not configured", TEXT_MUTED),
-        ("Problems", "0 critical", APP_GREEN),
+        ("Problems", problem_value, problem_color),
     ];
     let mut y = rect.y + 44;
     for (label, value, color) in rows {
@@ -356,6 +433,15 @@ fn draw_context(
     }
     draw_button(surface, context_setup_rect(layout), "AI setup", false);
     draw_button(surface, context_wifi_rect(layout), "WiFi setup", true);
+}
+
+fn context_tone_color(tone: context::ContextTone) -> Color {
+    match tone {
+        context::ContextTone::Neutral => TEXT_MUTED,
+        context::ContextTone::Good => APP_GREEN,
+        context::ContextTone::Attention => APP_AMBER,
+        context::ContextTone::Critical => APP_RED,
+    }
 }
 
 fn draw_composer(
@@ -449,6 +535,11 @@ fn context_wifi_rect(layout: GenesisLayout) -> LogicalRect {
         context.w - 24,
         22,
     )
+}
+
+fn recovery_strip_rect(layout: GenesisLayout) -> LogicalRect {
+    let strip = rect_from_layout(layout.secure_strip);
+    LogicalRect::new(strip.x + strip.w.saturating_sub(238), strip.y, 238, strip.h)
 }
 
 fn setup_action_rects(rect: LogicalRect) -> [LogicalRect; 4] {

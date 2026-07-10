@@ -5,9 +5,13 @@ Status: execution-ready owner plan, 2026-07-10
 Execution cursor: I0/G0 is complete at `73c9677` and C0/ADR 0012 is complete at
 `8e5ff8d`; A0/B0, A1/G1, C1/G5.1 and D0 are complete. C1's isolated AHCI
 format/append/reboot proof is `shadow-20260710-032738-34812.json` (9/9); C2 and
-C3 foundations are complete. A2/G2 trusted Context, secure overlays and recovery
-interaction is next. Runtime secret and personal-shell authority remains unclaimed
-until its named integration and evidence land.
+C3 foundations are complete. A2/G2 core Context/recovery interaction is verified
+by `shadow-20260710-034302-30252.json` (181/181): shared typed problem facts,
+cached/redacted Recovery, and its shared Lifeline actions are live. The bounded
+zeroizing secure overlay is not yet a Broker/use path. I2/G3 is next after its
+required Sol review; I3/G5.4 is independently review-gated. Runtime secret and
+personal-shell authority remains unclaimed until its named integration and
+evidence land.
 
 Target orchestrator: Codex 5.6, reasoning effort `xhigh`
 

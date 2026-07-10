@@ -45,8 +45,7 @@ Vault-VMK sealing remain unproven; ADR 0007 owner sealing is unaffected.
 16-MiB QEMU fixture was admitted by exact BDF/port/device/GPT identity,
 blank-formatted, dual-superblock readback-checked, append/flushed, and replayed
 after a second boot. This is deliberately QEMU fixture only; no physical target
-or secret authority is open. The active Genesis plan cursor advances to A2/G2;
-C1/C2/C3 wait for that trusted interaction boundary before the Vault broker join.
+or secret authority is open.
 
 **Genesis execution progress (A1/C3, 2026-07-10):** the normal release image
 now starts in the core-owned Genesis shell (Conversation, Context, Composer,
@@ -56,7 +55,19 @@ no-secret 1280x800 capture is `target/captures/genesis-shell-a1.png`. The TPM
 codec/CRB-TIS transport and RR1 recovery-wrapper foundation are compiled and
 host-tested but grant no auto-unlock, secret broker, or durable-secret claim.
 The C1 QEMU-only proof is green; physical targets remain denied. A2/G2 trusted
-Context, overlays and recovery is the next prerequisite for the broker join.
+Context, overlays and recovery was the prerequisite for the broker join.
+
+**Genesis trusted interaction verified (A2/G2, 2026-07-10):** Genesis and the
+agent protocol now share typed current-boot problem facts; its secure strip opens
+a cached/redacted Recovery projection, and Recovery restart/disable controls use
+the same typed Lifeline executor as serial. Existing masked RAM-only provider/WiFi
+setup remains reachable from Genesis. The focused `genesis-ui` report
+`shadow-20260710-034302-30252.json` passed 181/181, release build/package passed,
+and `target/captures/genesis-shell-a2.png` was inspected. The zeroizing secure
+overlay remains only a bounded input foundation: no Vault/Broker/plaintext-use,
+durable credential, recovery hash-load, or rollback authority is open. B1's
+display-list/import-grant foundation is already present; the active next join is
+I2/G3 after its required Sol review. I3/G5.4 remains independently review-gated.
 
 **M11 Kernel Slimming progress (all grants-nothing / strictly-more-restrictive,
 committed):** M11-1 kernel internet-parsing SURFACE baseline (the measurably-

@@ -10,7 +10,7 @@ param(
     [switch]$KeepImage,
     [int]$SerialWriteChunkSize = 256,
     [int]$SerialWriteDelayMilliseconds = 0,
-    [ValidateSet("full", "quick", "recovery", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m12-distribution-provenance", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable", "structured-store", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow", "m11-7-httphead", "m11-8-certspki", "usb-hotplug")]
+    [ValidateSet("full", "quick", "recovery", "genesis-ui", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m12-distribution-provenance", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable", "structured-store", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow", "m11-7-httphead", "m11-8-certspki", "usb-hotplug")]
     [string]$Profile = "full"
 )
 
@@ -243,6 +243,11 @@ try {
         }
 
         . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-common.ps1")
+
+        if ($Profile -eq "genesis-ui") {
+            . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-genesis-ui.ps1")
+            break SmokeProfileValidation
+        }
 
         if ($Profile -eq "provider-memory") {
             . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-provider-memory.ps1")
