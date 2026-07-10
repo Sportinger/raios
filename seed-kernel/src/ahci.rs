@@ -236,6 +236,7 @@ const SATA_SIG_ATA: u32 = 0x0000_0101;
 const IDENTIFY_DEVICE: u8 = 0xec;
 const READ_DMA_EXT: u8 = 0x25;
 const WRITE_DMA_EXT: u8 = 0x35;
+const FLUSH_CACHE_EXT: u8 = 0xea;
 const IDENTIFY_BYTES: usize = 512;
 pub(crate) const SECTOR_BYTES: usize = 512;
 const MBR_SIGNATURE: u16 = 0xaa55;
@@ -261,6 +262,9 @@ static AUDIT_ROLLBACK_TARGET_SECTOR_WRITE_READBACK: Mutex<
 static AUDIT_ROLLBACK_TARGET_SECTOR_INSPECTION: Mutex<
     Option<AhciAuditRollbackTargetSectorInspectionEvidence>,
 > = Mutex::new(None);
+// The explicit C1 port reuses the legacy command-list DMA statics. The guard
+// gives one C1 caller ownership for the full command plus completion window.
+static EXPLICIT_ATA_COMMAND_LOCK: Mutex<()> = Mutex::new(());
 
 pub(crate) const SCRATCH_BLOCK_REGION_SCHEMA: &str = "raios.scratch_block_region_write_readback.v0";
 pub(crate) const SCRATCH_BLOCK_REGION_ID: &str = "scratch.block_region.current_boot.v0";
@@ -289,7 +293,13 @@ struct AhciCommandTable([u8; 256]);
 struct AhciIdentifyBuffer([u8; IDENTIFY_BYTES]);
 
 #[repr(C, align(512))]
-struct AhciSectorBuffer([u8; SECTOR_BYTES]);
+pub(crate) struct AhciSectorBuffer(pub(crate) [u8; SECTOR_BYTES]);
+
+impl AhciSectorBuffer {
+    pub(crate) const fn zeroed() -> Self {
+        Self([0; SECTOR_BYTES])
+    }
+}
 
 static mut COMMAND_LIST: AhciCommandList = AhciCommandList([0; 1024]);
 static mut RECEIVED_FIS: AhciReceivedFis = AhciReceivedFis([0; 256]);
@@ -297,6 +307,137 @@ static mut COMMAND_TABLE: AhciCommandTable = AhciCommandTable([0; 256]);
 static mut IDENTIFY_BUFFER: AhciIdentifyBuffer = AhciIdentifyBuffer([0; IDENTIFY_BYTES]);
 static mut SECTOR0_BUFFER: AhciSectorBuffer = AhciSectorBuffer([0; SECTOR_BYTES]);
 static mut SCRATCH_BUFFER: AhciSectorBuffer = AhciSectorBuffer([0; SECTOR_BYTES]);
+
+/// An AHCI port selected by the caller's already-validated controller and
+/// port binding. This type never scans PCI, selects a different port, or
+/// consults the legacy persistence layout.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct AhciExplicitAtaPort {
+    controller: PciMassStorageController,
+    port_index: u8,
+    base: *mut u8,
+    port_offset: usize,
+}
+
+impl AhciExplicitAtaPort {
+    /// Maps and validates only the caller-selected AHCI port. The mapping is
+    /// retained by the kernel MMIO window, so a caller keeps this handle for a
+    /// whole store operation rather than consuming a new MMIO page per sector.
+    pub(crate) fn open(
+        controller: PciMassStorageController,
+        port_index: u8,
+    ) -> Result<Self, &'static str> {
+        if controller.subclass != AHCI_SUBCLASS {
+            return Err("ahci_explicit_port_controller_not_ahci");
+        }
+        if port_index >= 32 {
+            return Err("ahci_explicit_port_index_invalid");
+        }
+
+        let Some(bar) = pci::read_bar_info(controller.address, AHCI_BAR) else {
+            return Err("ahci_explicit_port_abar_missing");
+        };
+        if !bar.is_memory() {
+            return Err("ahci_explicit_port_abar_not_mmio");
+        }
+
+        let port_offset = PORT_BASE + port_index as usize * PORT_STRIDE;
+        let required_len = port_offset
+            .checked_add(PORT_CI + core::mem::size_of::<u32>())
+            .ok_or("ahci_explicit_port_register_range_invalid")?;
+        let bar_len = usize::try_from(bar.size).map_err(|_| "ahci_explicit_port_abar_too_large")?;
+        if bar_len < required_len {
+            return Err("ahci_explicit_port_register_range_unavailable");
+        }
+
+        let mapping = memory::map_mmio(bar.base, required_len)
+            .map_err(|_| "ahci_explicit_port_abar_mmio_map_failed")?;
+        let port = Self {
+            controller,
+            port_index,
+            base: mapping.as_ptr::<u8>(),
+            port_offset,
+        };
+        unsafe { validate_explicit_ata_port(port)? };
+        Ok(port)
+    }
+
+    pub(crate) const fn port_index(self) -> u8 {
+        self.port_index
+    }
+
+    /// # Safety
+    /// The caller must not race legacy AHCI entry points, which share the
+    /// command-list DMA statics but predate the explicit-port guard.
+    pub(crate) unsafe fn identify(self) -> Result<AhciBlockDeviceIdentity, &'static str> {
+        let _command = EXPLICIT_ATA_COMMAND_LOCK.lock();
+        validate_explicit_ata_port(self)?;
+        issue_identify(self.controller, self.base, self.port_offset)
+    }
+
+    /// # Safety
+    /// The caller must not race legacy AHCI entry points, which share the
+    /// command-list DMA statics but predate the explicit-port guard.
+    pub(crate) unsafe fn read_sector(
+        self,
+        lba: u64,
+        buffer: &mut AhciSectorBuffer,
+    ) -> Result<(), &'static str> {
+        let _command = EXPLICIT_ATA_COMMAND_LOCK.lock();
+        validate_explicit_ata_port(self)?;
+        issue_read_sector_into(
+            self.controller,
+            self.base,
+            self.port_offset,
+            lba,
+            buffer.0.as_mut_ptr(),
+            "ahci_explicit_port_read_buffer_phys_missing",
+            "ahci_explicit_port_read_timeout",
+            "ahci_explicit_port_read_task_file_error",
+            "ahci_explicit_port_read_incomplete",
+        )
+    }
+
+    /// # Safety
+    /// The caller must not race legacy AHCI entry points, which share the
+    /// command-list DMA statics but predate the explicit-port guard.
+    pub(crate) unsafe fn write_sector(
+        self,
+        lba: u64,
+        buffer: &mut AhciSectorBuffer,
+    ) -> Result<(), &'static str> {
+        let _command = EXPLICIT_ATA_COMMAND_LOCK.lock();
+        validate_explicit_ata_port(self)?;
+        issue_write_sector_with_reasons(
+            self.controller,
+            self.base,
+            self.port_offset,
+            lba,
+            buffer.0.as_mut_ptr(),
+            "ahci_explicit_port_write_buffer_phys_missing",
+            "ahci_explicit_port_write_timeout",
+            "ahci_explicit_port_write_task_file_error",
+            "ahci_explicit_port_write_incomplete",
+        )
+    }
+
+    /// # Safety
+    /// The caller must not race legacy AHCI entry points, which share the
+    /// command-list DMA statics but predate the explicit-port guard.
+    pub(crate) unsafe fn flush_cache_ext(self) -> Result<(), &'static str> {
+        let _command = EXPLICIT_ATA_COMMAND_LOCK.lock();
+        validate_explicit_ata_port(self)?;
+        issue_no_data_command(
+            self.controller,
+            self.base,
+            self.port_offset,
+            FLUSH_CACHE_EXT,
+            "ahci_explicit_port_flush_timeout",
+            "ahci_explicit_port_flush_task_file_error",
+            "ahci_explicit_port_flush_incomplete",
+        )
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct AhciBlockDeviceIdentity {
@@ -3518,6 +3659,25 @@ unsafe fn inspect_labeled_audit_rollback_target_sector_image(
     evidence
 }
 
+unsafe fn validate_explicit_ata_port(port: AhciExplicitAtaPort) -> Result<(), &'static str> {
+    if read32(port.base, REG_PI) & (1u32 << port.port_index) == 0 {
+        return Err("ahci_explicit_port_not_implemented");
+    }
+
+    let ssts = read32(port.base, port.port_offset + PORT_SSTS);
+    if (ssts & 0x0f) != 0x03 {
+        return Err("ahci_explicit_port_device_not_present");
+    }
+    if ((ssts >> 8) & 0x0f) != 0x01 {
+        return Err("ahci_explicit_port_interface_inactive");
+    }
+    if read32(port.base, port.port_offset + PORT_SIG) != SATA_SIG_ATA {
+        return Err("ahci_explicit_port_not_ata");
+    }
+
+    Ok(())
+}
+
 unsafe fn issue_dma_read_command(
     controller: PciMassStorageController,
     base: *mut u8,
@@ -3561,6 +3721,59 @@ unsafe fn issue_dma_command(
     task_file_reason: &'static str,
     incomplete_reason: &'static str,
 ) -> Result<(), &'static str> {
+    if data_len == 0 || data_len > u32::MAX as usize {
+        return Err("ahci_dma_data_len_invalid");
+    }
+    let data_buffer_phys = phys_of(data_buffer, data_phys_reason)?;
+    issue_ata_command(
+        controller,
+        base,
+        port_offset,
+        command,
+        lba,
+        is_write,
+        Some((data_buffer_phys, data_len)),
+        timeout_reason,
+        task_file_reason,
+        incomplete_reason,
+    )
+}
+
+unsafe fn issue_no_data_command(
+    controller: PciMassStorageController,
+    base: *mut u8,
+    port_offset: usize,
+    command: u8,
+    timeout_reason: &'static str,
+    task_file_reason: &'static str,
+    incomplete_reason: &'static str,
+) -> Result<(), &'static str> {
+    issue_ata_command(
+        controller,
+        base,
+        port_offset,
+        command,
+        0,
+        false,
+        None,
+        timeout_reason,
+        task_file_reason,
+        incomplete_reason,
+    )
+}
+
+unsafe fn issue_ata_command(
+    controller: PciMassStorageController,
+    base: *mut u8,
+    port_offset: usize,
+    command: u8,
+    lba: u64,
+    is_write: bool,
+    data: Option<(u64, usize)>,
+    timeout_reason: &'static str,
+    task_file_reason: &'static str,
+    incomplete_reason: &'static str,
+) -> Result<(), &'static str> {
     pci::enable_bus_master(controller.address);
 
     let ghc = read32(base, REG_GHC);
@@ -3578,7 +3791,6 @@ unsafe fn issue_dma_command(
     let command_list_phys = phys_of(command_list, "ahci_command_list_phys_missing")?;
     let received_fis_phys = phys_of(received_fis, "ahci_received_fis_phys_missing")?;
     let command_table_phys = phys_of(command_table, "ahci_command_table_phys_missing")?;
-    let data_buffer_phys = phys_of(data_buffer, data_phys_reason)?;
 
     write32(base, port_offset + PORT_CLB, command_list_phys as u32);
     write32(
@@ -3594,7 +3806,8 @@ unsafe fn issue_dma_command(
     );
 
     let write_bit = if is_write { 1 << 6 } else { 0 };
-    write_mem32(command_list, 0x00, 5 | write_bit | (1 << 16));
+    let prdt_len = if data.is_some() { 1 << 16 } else { 0 };
+    write_mem32(command_list, 0x00, 5 | write_bit | prdt_len);
     write_mem32(command_list, 0x04, 0);
     write_mem32(command_list, 0x08, command_table_phys as u32);
     write_mem32(command_list, 0x0c, (command_table_phys >> 32) as u32);
@@ -3612,11 +3825,13 @@ unsafe fn issue_dma_command(
         ptr::write_volatile(command_table.add(10), (lba >> 40) as u8);
         ptr::write_volatile(command_table.add(12), 1);
     }
-    let prdt = command_table.add(0x80);
-    write_mem32(prdt, 0x00, data_buffer_phys as u32);
-    write_mem32(prdt, 0x04, (data_buffer_phys >> 32) as u32);
-    write_mem32(prdt, 0x08, 0);
-    write_mem32(prdt, 0x0c, (data_len as u32) - 1);
+    if let Some((data_buffer_phys, data_len)) = data {
+        let prdt = command_table.add(0x80);
+        write_mem32(prdt, 0x00, data_buffer_phys as u32);
+        write_mem32(prdt, 0x04, (data_buffer_phys >> 32) as u32);
+        write_mem32(prdt, 0x08, 0);
+        write_mem32(prdt, 0x0c, (data_len as u32) - 1);
+    }
 
     write32(base, port_offset + PORT_IS, u32::MAX);
     write32(base, port_offset + PORT_SERR, u32::MAX);
