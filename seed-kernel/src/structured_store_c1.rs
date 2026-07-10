@@ -94,7 +94,25 @@ pub(crate) enum ProviderSecretStoreDenied {
     Bounds,
 }
 
+#[derive(Debug)]
+pub(crate) enum WifiSecretStoreDenied {
+    FixtureMissing,
+    Open(&'static str),
+    Port(PortDenied<&'static str>),
+    Core(raios_core::structured_store::StoreDenied),
+    IdentityChanged,
+    CurrentVersionChanged,
+    ReadbackMismatch,
+    Bounds,
+}
+
 impl From<PortDenied<&'static str>> for ProviderSecretStoreDenied {
+    fn from(value: PortDenied<&'static str>) -> Self {
+        Self::Port(value)
+    }
+}
+
+impl From<PortDenied<&'static str>> for WifiSecretStoreDenied {
     fn from(value: PortDenied<&'static str>) -> Self {
         Self::Port(value)
     }
@@ -206,6 +224,14 @@ fn bind_vault_runtime_inputs(
     {
         serial::write_fmt(format_args!(
             "C1_VAULT_PROVIDER_REPLAYED version={}\r\n",
+            record_version
+        ));
+    }
+    if let secret_vault::VaultSecretStatus::Available { record_version, .. } =
+        secret_vault::wifi_status()
+    {
+        serial::write_fmt(format_args!(
+            "C1_VAULT_WIFI_REPLAYED version={}\r\n",
             record_version
         ));
     }
@@ -357,6 +383,80 @@ pub(crate) fn commit_provider_secret(
     Ok(replay)
 }
 
+/// Appends exactly one encrypted bound-BSS credential to the already admitted
+/// disposable QEMU fixture. It has no device discovery, physical-media
+/// fallback, or generic record API.
+pub(crate) fn commit_wifi_secret(
+    expected: ValidatedRegionIdentity,
+    expected_committed_version: Option<u64>,
+    proposed_version: u64,
+    payload: &[u8; secret_vault::WIFI_SECRET_PAYLOAD_LEN],
+) -> Result<ValidatedReplayWithHistory, WifiSecretStoreDenied> {
+    let mut port = open_disposable_qemu_store_port()
+        .map_err(|error| WifiSecretStoreDenied::Open(c1_error_reason(error)))?
+        .ok_or(WifiSecretStoreDenied::FixtureMissing)?;
+    if port.identity() != expected {
+        return Err(WifiSecretStoreDenied::IdentityChanged);
+    }
+
+    let snapshot_len = usize::try_from(
+        expected
+            .geometry
+            .log_byte_len()
+            .map_err(WifiSecretStoreDenied::Core)?,
+    )
+    .map_err(|_| WifiSecretStoreDenied::Bounds)?;
+    let mut snapshot = vec![0u8; snapshot_len];
+    let replay = open_and_replay_with_history(&mut port, expected, &mut snapshot)?;
+    let key = secret_vault::wifi_record_key();
+    let current_version = replay
+        .state()
+        .record(key)
+        .map_err(WifiSecretStoreDenied::Core)?
+        .map(|record| record.record_version);
+    if current_version != expected_committed_version
+        || proposed_version
+            != expected_committed_version
+                .and_then(|version| version.checked_add(1))
+                .unwrap_or(1)
+    {
+        return Err(WifiSecretStoreDenied::CurrentVersionChanged);
+    }
+
+    let plan = plan_transaction(
+        replay.state(),
+        TransactionRequest {
+            identity: expected.store,
+            key,
+            operation: RecordOperation::Put,
+            expected_committed_version,
+        },
+        payload,
+        expected
+            .geometry
+            .log_byte_len()
+            .map_err(WifiSecretStoreDenied::Core)?,
+    )
+    .map_err(WifiSecretStoreDenied::Core)?;
+    let _ = append_with_readback(&mut port, expected, &plan, &mut snapshot)?;
+    let replay = open_and_replay_with_history(&mut port, expected, &mut snapshot)?;
+    let record = replay
+        .state()
+        .record(key)
+        .map_err(WifiSecretStoreDenied::Core)?
+        .ok_or(WifiSecretStoreDenied::ReadbackMismatch)?;
+    if record.record_version != proposed_version
+        || !matches!(&record.value, RecordValue::Present(bytes) if bytes.as_slice() == payload)
+    {
+        return Err(WifiSecretStoreDenied::ReadbackMismatch);
+    }
+    serial::write_fmt(format_args!(
+        "C1_VAULT_WIFI_COMMITTED version={} readback=verified\r\n",
+        proposed_version
+    ));
+    Ok(replay)
+}
+
 /// Reopens and re-identifies the exact disposable C1 fixture before the
 /// contained provider-consumer proof. This grants no write or secret access.
 pub(crate) fn revalidate_qemu_store_identity(
@@ -367,6 +467,21 @@ pub(crate) fn revalidate_qemu_store_identity(
         .ok_or(ProviderSecretStoreDenied::FixtureMissing)?;
     if port.identity() != expected {
         return Err(ProviderSecretStoreDenied::IdentityChanged);
+    }
+    Ok(())
+}
+
+/// WiFi-typed counterpart to the same exact C1 identity check. Keeping the
+/// error type distinct prevents the driver path from reporting provider
+/// custody errors while granting no additional device-selection authority.
+pub(crate) fn revalidate_qemu_wifi_store_identity(
+    expected: ValidatedRegionIdentity,
+) -> Result<(), WifiSecretStoreDenied> {
+    let port = open_disposable_qemu_store_port()
+        .map_err(|error| WifiSecretStoreDenied::Open(c1_error_reason(error)))?
+        .ok_or(WifiSecretStoreDenied::FixtureMissing)?;
+    if port.identity() != expected {
+        return Err(WifiSecretStoreDenied::IdentityChanged);
     }
     Ok(())
 }

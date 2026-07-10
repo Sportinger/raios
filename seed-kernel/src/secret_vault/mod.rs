@@ -14,10 +14,12 @@ use raios_core::{
 
 use self::{
     audit::{
-        append_provider_use_audit, ProviderRequestTrust, ProviderUseAuditBinding,
-        ProviderUseAuditDenied,
+        append_provider_use_audit, append_wifi_use_audit, ProviderRequestTrust,
+        ProviderUseAuditBinding, ProviderUseAuditDenied, WifiUseAuditBinding, WifiUseAuditDenied,
     },
-    broker::{VaultBroker, VaultBrokerDenied, VaultCompleteReplay, VaultLockStatus},
+    broker::{
+        VaultBroker, VaultBrokerDenied, VaultCompleteReplay, VaultLockStatus, WifiSecretLease,
+    },
     keyring::{
         ApprovedCorePolicy, KeyringDenied, RecoveryKeyCandidate, RecoveryKeyText,
         RecoveryWrapperSlots,
@@ -41,8 +43,13 @@ pub(crate) use self::{
     broker::{ProviderSecretLease, VaultBrokerStatus, VaultSecretStatus},
     store::{
         RECOVERY_WRAPPER_PAYLOAD_LEN, SECRET_ENVELOPE_PAYLOAD_LEN as PROVIDER_SECRET_PAYLOAD_LEN,
+        SECRET_ENVELOPE_PAYLOAD_LEN as WIFI_SECRET_PAYLOAD_LEN,
     },
 };
+
+const CONTAINED_WIFI_SSID: &[u8] = b"RaiWPA2";
+const CONTAINED_WIFI_BSSID: [u8; 6] = [0x20, 0x22, 0x33, 0x44, 0x55, 0x66];
+const CONTAINED_WIFI_WRONG_BSSID: [u8; 6] = [0x22, 0x22, 0x33, 0x44, 0x55, 0x66];
 
 #[derive(Debug)]
 pub(crate) enum VaultFacadeDenied {
@@ -60,11 +67,15 @@ pub(crate) enum VaultFacadeDenied {
     StructuredStore(StoreDenied),
     RecoveryStore(crate::structured_store_c1::RecoveryWrapperStoreDenied),
     ProviderStore(crate::structured_store_c1::ProviderSecretStoreDenied),
+    WifiStore(crate::structured_store_c1::WifiSecretStoreDenied),
     Broker(VaultBrokerDenied),
     Audit(ProviderUseAuditDenied),
+    WifiAudit(WifiUseAuditDenied),
     Consumer(SecretConsumerError),
     ProviderUseStateChanged,
+    WifiUseStateChanged,
     ContainedProviderValidationFailed,
+    ContainedWifiValidationFailed,
 }
 
 impl VaultFacadeDenied {
@@ -91,12 +102,66 @@ impl VaultFacadeDenied {
             Self::StructuredStore(_) => "structured_store_denied",
             Self::RecoveryStore(_) => "recovery_store_denied",
             Self::ProviderStore(_) => "provider_store_denied",
+            Self::WifiStore(_) => "wifi_store_denied",
             Self::Broker(_) => "broker_denied",
             Self::Audit(error) => error.reason(),
+            Self::WifiAudit(error) => error.reason(),
             Self::Consumer(_) => "provider_consumer_denied",
             Self::ProviderUseStateChanged => "provider_use_state_changed",
+            Self::WifiUseStateChanged => "wifi_use_state_changed",
             Self::ContainedProviderValidationFailed => "contained_provider_validation_failed",
+            Self::ContainedWifiValidationFailed => "contained_wifi_validation_failed",
         }
+    }
+
+    /// Stable, non-secret reason for the driver marker. It never includes a
+    /// submitted SSID/BSSID, secret metadata, ciphertext, or caller text.
+    pub(crate) const fn wifi_use_reason(&self) -> &'static str {
+        match self {
+            Self::HistoryLocked => "history_locked",
+            Self::CorePolicy(_) => "core_policy_denied",
+            Self::RegionIdentityMismatch => "region_identity_mismatch",
+            Self::PersistenceOutcomeUncertain => "persistence_outcome_uncertain",
+            Self::WifiStore(_) => "wifi_store_denied",
+            Self::WifiAudit(error) => (*error).reason(),
+            Self::Consumer(_) => "wifi_consumer_denied",
+            Self::WifiUseStateChanged => "wifi_use_state_changed",
+            Self::Broker(VaultBrokerDenied::Locked) => "vault_locked",
+            Self::Broker(VaultBrokerDenied::SecretMissing) => "secret_missing",
+            Self::Broker(VaultBrokerDenied::SecretForgotten) => "secret_forgotten",
+            Self::Broker(VaultBrokerDenied::Use(reason)) => wifi_use_denial_reason(*reason),
+            Self::Broker(VaultBrokerDenied::Crypto(_)) => "invalid_bound_bss",
+            Self::ContainedWifiValidationFailed => "contained_wifi_validation_failed",
+            _ => "wifi_vault_denied",
+        }
+    }
+}
+
+const fn wifi_use_denial_reason(
+    reason: raios_core::scoped_secret_use::SecretUseDenial,
+) -> &'static str {
+    use raios_core::scoped_secret_use::SecretUseDenial;
+
+    match reason {
+        SecretUseDenial::SecretKindMismatch => "secret_kind_mismatch",
+        SecretUseDenial::ConsumerMismatch => "consumer_mismatch",
+        SecretUseDenial::OperationMismatch => "operation_mismatch",
+        SecretUseDenial::TargetKindMismatch => "target_kind_mismatch",
+        SecretUseDenial::TargetMismatch => "target_mismatch",
+        SecretUseDenial::ProviderHostMissing => "provider_host_missing",
+        SecretUseDenial::ProviderHostMismatch => "provider_host_mismatch",
+        SecretUseDenial::UnexpectedProviderHost => "unexpected_provider_host",
+        SecretUseDenial::VaultLocked => "vault_locked",
+        SecretUseDenial::SafeRecoveryActionMissing => "safe_recovery_action_missing",
+        SecretUseDenial::InvalidServiceGeneration => "invalid_service_generation",
+        SecretUseDenial::ServiceGenerationMismatch => "service_generation_mismatch",
+        SecretUseDenial::InvalidRecordVersion => "invalid_record_version",
+        SecretUseDenial::RecordVersionMismatch => "record_version_mismatch",
+        SecretUseDenial::InvalidKeyEpoch => "invalid_key_epoch",
+        SecretUseDenial::KeyEpochMismatch => "key_epoch_mismatch",
+        SecretUseDenial::TrustDecisionMissing => "trust_decision_missing",
+        SecretUseDenial::CommittedStoreEvidenceMissing => "store_evidence_missing",
+        SecretUseDenial::AuditBindingMissing => "audit_binding_missing",
     }
 }
 
@@ -176,6 +241,7 @@ struct VaultRuntime {
     vault_history_empty: bool,
     provisioning: ProvisioningState,
     provider_write_outcome_uncertain: bool,
+    wifi_write_outcome_uncertain: bool,
 }
 
 impl VaultRuntime {
@@ -190,6 +256,7 @@ impl VaultRuntime {
             vault_history_empty: false,
             provisioning: ProvisioningState::Idle,
             provider_write_outcome_uncertain: false,
+            wifi_write_outcome_uncertain: false,
         }
     }
 
@@ -499,6 +566,106 @@ pub(crate) fn provider_status() -> VaultSecretStatus {
     RUNTIME.lock().broker.status().provider
 }
 
+pub(crate) fn wifi_status() -> VaultSecretStatus {
+    RUNTIME.lock().broker.status().wifi
+}
+
+/// True only while this boot is bound to the exact disposable C1 QEMU store.
+/// It exists solely to hide the contained proof UI on every other target.
+pub(crate) fn contained_qemu_wifi_test_available() -> bool {
+    let Some(region) = RUNTIME.lock().region else {
+        return false;
+    };
+    crate::structured_store_c1::revalidate_qemu_wifi_store_identity(region).is_ok()
+}
+
+/// Persists only one WPA2-PSK/CCMP credential bound to the selected live BSS.
+/// Once media I/O starts, any unproven outcome remains denied for this boot;
+/// only exact readback plus a fresh full replay clears it.
+pub(crate) fn save_or_replace_wifi(
+    ssid: &[u8],
+    bssid: [u8; 6],
+    plaintext: SecretPlaintext,
+) -> Result<VaultBrokerStatus, VaultFacadeDenied> {
+    let (region, expected_committed_version, proposed_version, payload) = {
+        let mut runtime = RUNTIME.lock();
+        if runtime.wifi_write_outcome_uncertain {
+            return Err(VaultFacadeDenied::PersistenceOutcomeUncertain);
+        }
+        if !runtime.replay_loaded {
+            return Err(VaultFacadeDenied::HistoryLocked);
+        }
+        let expected_committed_version = match runtime.broker.status().wifi {
+            VaultSecretStatus::Missing => None,
+            VaultSecretStatus::Available { record_version, .. }
+            | VaultSecretStatus::Forgotten { record_version } => Some(record_version),
+        };
+        let envelope = runtime
+            .broker
+            .save_or_replace_wifi(
+                broker::VaultMutation::genesis_secure_overlay(),
+                ssid,
+                bssid,
+                plaintext,
+            )
+            .map_err(VaultFacadeDenied::Broker)?
+            .into_store_envelope();
+        let proposed_version = envelope.binding.record_version;
+        let payload = encode_secret_envelope(VaultRecordId::WifiPassphrase, &envelope)
+            .map_err(VaultFacadeDenied::Store)?;
+        let region = runtime.region.ok_or(VaultFacadeDenied::HistoryLocked)?;
+        runtime.wifi_write_outcome_uncertain = true;
+        (
+            region,
+            expected_committed_version,
+            proposed_version,
+            payload,
+        )
+    };
+
+    let replay = crate::structured_store_c1::commit_wifi_secret(
+        region,
+        expected_committed_version,
+        proposed_version,
+        &payload,
+    )
+    .map_err(VaultFacadeDenied::WifiStore)?;
+    let _ = load_verified_replay(&replay)?;
+
+    let mut runtime = RUNTIME.lock();
+    let status = runtime.broker.status();
+    if runtime.region != Some(region)
+        || !matches!(
+            status.wifi,
+            VaultSecretStatus::Available { record_version, .. }
+                if record_version == proposed_version
+        )
+        || !runtime.wifi_write_outcome_uncertain
+    {
+        return Err(VaultFacadeDenied::PersistenceOutcomeUncertain);
+    }
+    runtime.wifi_write_outcome_uncertain = false;
+    serial::write_fmt(format_args!(
+        "VAULT_WIFI_STORED version={} readback=verified\r\n",
+        proposed_version
+    ));
+    Ok(status)
+}
+
+/// Test-media-only save adapter for the repo's existing fixed WPA2 beacon.
+/// Neither UI nor harness may supply a target to this path.
+pub(crate) fn save_or_replace_contained_qemu_wifi_for_test(
+    plaintext: SecretPlaintext,
+) -> Result<VaultBrokerStatus, VaultFacadeDenied> {
+    let region = RUNTIME
+        .lock()
+        .region
+        .ok_or(VaultFacadeDenied::HistoryLocked)?;
+    crate::structured_store_c1::revalidate_qemu_wifi_store_identity(region)
+        .map_err(VaultFacadeDenied::WifiStore)?;
+    save_or_replace_wifi(CONTAINED_WIFI_SSID, CONTAINED_WIFI_BSSID, plaintext)
+}
+
 /// Persists only the fixed direct-OpenAI credential from the trusted Genesis
 /// overlay. Once media I/O starts, any unproven outcome remains denied for the
 /// rest of this boot; only exact readback plus a fresh full replay clears it.
@@ -563,6 +730,185 @@ pub(crate) fn save_or_replace_provider(
         proposed_version
     ));
     Ok(status)
+}
+
+/// The only production WiFi-secret consumer entrypoint. It performs exact
+/// target/store/core checks, commits the metadata-only pre-use audit, rechecks
+/// all state, then consumes the one-use lease directly into the NXP command.
+pub(crate) fn write_wifi_pmk_for_association(
+    seq: u16,
+    ssid: &[u8],
+    bssid: [u8; 6],
+    out: &mut [u8],
+) -> Result<usize, VaultFacadeDenied> {
+    wifi_lease_after_durable_audit(ssid, bssid, false)?
+        .into_wpa2_psk_ccmp_pmk_set(seq, bssid, ssid, out)
+        .map_err(VaultFacadeDenied::Consumer)
+}
+
+/// Contained test infrastructure for the real WiFi lease path. It accepts
+/// only the repo's fixed `RaiWPA2` beacon on the exact re-identified C1 store,
+/// formats one local command, and claims no radio, association, link, or DHCP.
+pub(crate) fn run_contained_qemu_wifi_consumer_test() -> Result<(), VaultFacadeDenied> {
+    let (region, _, _, _, _) = current_wifi_use_facts(CONTAINED_WIFI_SSID, CONTAINED_WIFI_BSSID)?;
+    crate::structured_store_c1::revalidate_qemu_wifi_store_identity(region)
+        .map_err(VaultFacadeDenied::WifiStore)?;
+
+    match current_wifi_use_facts(CONTAINED_WIFI_SSID, CONTAINED_WIFI_WRONG_BSSID) {
+        Err(VaultFacadeDenied::Broker(VaultBrokerDenied::Use(
+            raios_core::scoped_secret_use::SecretUseDenial::TargetMismatch,
+        ))) => {}
+        Err(error) => return Err(error),
+        Ok(_) => return Err(VaultFacadeDenied::ContainedWifiValidationFailed),
+    }
+    serial::write_line(
+        "VAULT_WIFI_WRONG_BSSID_DENIED reason=target_mismatch test_infrastructure=true",
+    );
+
+    {
+        let runtime = RUNTIME.lock();
+        runtime
+            .broker
+            .prove_wifi_auditless_use_denied_for_contained_test(
+                CONTAINED_WIFI_SSID,
+                CONTAINED_WIFI_BSSID,
+            )
+            .map_err(VaultFacadeDenied::Broker)?;
+    }
+    serial::write_line(
+        "VAULT_WIFI_AUDITLESS_DENIED reason=audit_binding_missing test_infrastructure=true",
+    );
+
+    let lease = wifi_lease_after_durable_audit(CONTAINED_WIFI_SSID, CONTAINED_WIFI_BSSID, true)?;
+    let mut validator = ContainedWifiCommandValidator::new();
+    if !validator.consume(lease)? {
+        return Err(VaultFacadeDenied::ContainedWifiValidationFailed);
+    }
+    serial::write_line(
+        "VAULT_WIFI_CONTAINED_CONSUMED target=bound_bss accepted=true test_infrastructure=true",
+    );
+    Ok(())
+}
+
+fn wifi_lease_after_durable_audit(
+    ssid: &[u8],
+    bssid: [u8; 6],
+    test_infrastructure: bool,
+) -> Result<WifiSecretLease, VaultFacadeDenied> {
+    let (region, policy, record_version, key_epoch, target_binding_sha256) =
+        current_wifi_use_facts(ssid, bssid)?;
+    crate::structured_store_c1::revalidate_qemu_wifi_store_identity(region)
+        .map_err(VaultFacadeDenied::WifiStore)?;
+    let binding = WifiUseAuditBinding::from_current_wifi_slot(
+        region.store.store_uuid,
+        target_binding_sha256,
+        record_version,
+        key_epoch,
+        policy.core_generation(),
+        policy.policy_id_sha256(),
+        test_infrastructure,
+    )
+    .map_err(VaultFacadeDenied::WifiAudit)?;
+    let receipt = append_wifi_use_audit(binding).map_err(VaultFacadeDenied::WifiAudit)?;
+
+    crate::structured_store_c1::revalidate_qemu_wifi_store_identity(region)
+        .map_err(VaultFacadeDenied::WifiStore)?;
+    let verified = crate::core_policy_runtime::verified().map_err(VaultFacadeDenied::CorePolicy)?;
+    let current_policy = ApprovedCorePolicy::from_verified(verified);
+    let runtime = RUNTIME.lock();
+    let current_wifi = runtime.broker.status().wifi;
+    let current_target_sha256 = runtime
+        .broker
+        .require_wifi_target(ssid, bssid)
+        .map_err(VaultFacadeDenied::Broker)?;
+    if runtime.wifi_write_outcome_uncertain
+        || !runtime.replay_loaded
+        || runtime.region != Some(region)
+        || runtime.approved_policy != Some(policy)
+        || current_policy != policy
+        || !matches!(
+            runtime.broker.status().lock,
+            VaultLockStatus::UnlockedFromRecovery(_)
+        )
+        || current_wifi
+            != (VaultSecretStatus::Available {
+                record_version,
+                key_epoch,
+            })
+        || current_target_sha256 != target_binding_sha256
+    {
+        return Err(VaultFacadeDenied::WifiUseStateChanged);
+    }
+    let lease = runtime
+        .broker
+        .use_for_wifi(ssid, bssid, receipt)
+        .map_err(VaultFacadeDenied::Broker)?;
+    serial::write_line(
+        "VAULT_WIFI_PREUSE_AUDIT_COMMITTED consumer=native_wifi_supplicant operation=associate_bound_bss readback=verified reparse=verified rescan=verified",
+    );
+    Ok(lease)
+}
+
+fn current_wifi_use_facts(
+    ssid: &[u8],
+    bssid: [u8; 6],
+) -> Result<
+    (
+        ValidatedRegionIdentity,
+        ApprovedCorePolicy,
+        u64,
+        u64,
+        [u8; 32],
+    ),
+    VaultFacadeDenied,
+> {
+    let verified = crate::core_policy_runtime::verified().map_err(VaultFacadeDenied::CorePolicy)?;
+    let current_policy = ApprovedCorePolicy::from_verified(verified);
+    let runtime = RUNTIME.lock();
+    if runtime.wifi_write_outcome_uncertain {
+        return Err(VaultFacadeDenied::PersistenceOutcomeUncertain);
+    }
+    if !runtime.replay_loaded {
+        return Err(VaultFacadeDenied::HistoryLocked);
+    }
+    if !matches!(
+        runtime.broker.status().lock,
+        VaultLockStatus::UnlockedFromRecovery(_)
+    ) {
+        return Err(VaultFacadeDenied::Broker(VaultBrokerDenied::Locked));
+    }
+    let region = runtime.region.ok_or(VaultFacadeDenied::HistoryLocked)?;
+    let policy = runtime
+        .approved_policy
+        .ok_or(VaultFacadeDenied::CorePolicy("core_policy_missing"))?;
+    if policy != current_policy {
+        return Err(VaultFacadeDenied::WifiUseStateChanged);
+    }
+    let (record_version, key_epoch) = match runtime.broker.status().wifi {
+        VaultSecretStatus::Available {
+            record_version,
+            key_epoch,
+        } => (record_version, key_epoch),
+        VaultSecretStatus::Missing => {
+            return Err(VaultFacadeDenied::Broker(VaultBrokerDenied::SecretMissing));
+        }
+        VaultSecretStatus::Forgotten { .. } => {
+            return Err(VaultFacadeDenied::Broker(
+                VaultBrokerDenied::SecretForgotten,
+            ));
+        }
+    };
+    let target_binding_sha256 = runtime
+        .broker
+        .require_wifi_target(ssid, bssid)
+        .map_err(VaultFacadeDenied::Broker)?;
+    Ok((
+        region,
+        policy,
+        record_version,
+        key_epoch,
+        target_binding_sha256,
+    ))
 }
 
 /// Production entrypoint: only the provider module's moved, opaque verifier
@@ -700,6 +1046,52 @@ fn current_provider_use_facts(
     Ok((region, policy, record_version, key_epoch))
 }
 
+const CONTAINED_WIFI_SEQ: u16 = 0x4001;
+
+struct ContainedWifiCommandValidator {
+    bytes: [u8; raios_core::marvell_wifi_supplicant::SUPPLICANT_PMK_SET_MAX_TOTAL_LEN],
+}
+
+impl ContainedWifiCommandValidator {
+    const fn new() -> Self {
+        Self {
+            bytes: [0; raios_core::marvell_wifi_supplicant::SUPPLICANT_PMK_SET_MAX_TOTAL_LEN],
+        }
+    }
+
+    fn consume(&mut self, lease: WifiSecretLease) -> Result<bool, VaultFacadeDenied> {
+        let len = lease
+            .into_wpa2_psk_ccmp_pmk_set(
+                CONTAINED_WIFI_SEQ,
+                CONTAINED_WIFI_BSSID,
+                CONTAINED_WIFI_SSID,
+                &mut self.bytes,
+            )
+            .map_err(VaultFacadeDenied::Consumer)?;
+        let bssid_offset = 20 + CONTAINED_WIFI_SSID.len() + 4;
+        Ok(len <= self.bytes.len()
+            && len > bssid_offset + CONTAINED_WIFI_BSSID.len()
+            && read_le_u16(&self.bytes, 0) as usize == len
+            && read_le_u16(&self.bytes, 2) == 1
+            && read_le_u16(&self.bytes, 4)
+                == raios_core::marvell_wifi_supplicant::SUPPLICANT_PMK_CMD
+            && read_le_u16(&self.bytes, 8) == CONTAINED_WIFI_SEQ
+            && self.bytes[20..20 + CONTAINED_WIFI_SSID.len()] == *CONTAINED_WIFI_SSID
+            && self.bytes[bssid_offset..bssid_offset + CONTAINED_WIFI_BSSID.len()]
+                == CONTAINED_WIFI_BSSID)
+    }
+}
+
+impl Drop for ContainedWifiCommandValidator {
+    fn drop(&mut self) {
+        keyring::zeroize_recovery_input(&mut self.bytes);
+    }
+}
+
+fn read_le_u16(bytes: &[u8], offset: usize) -> u16 {
+    u16::from_le_bytes([bytes[offset], bytes[offset + 1]])
+}
+
 const OPENAI_AUTHORIZATION_PREFIX: &[u8] = b"Authorization: Bearer ";
 const OPENAI_AUTHORIZATION_CAPACITY: usize =
     OPENAI_AUTHORIZATION_PREFIX.len() + MAX_PROVIDER_API_KEY_LEN + 2;
@@ -773,6 +1165,10 @@ pub(crate) const fn recovery_wrapper_record_key() -> RecordKey {
 
 pub(crate) const fn provider_record_key() -> RecordKey {
     VaultRecordId::ProviderApiKey.key()
+}
+
+pub(crate) const fn wifi_record_key() -> RecordKey {
+    VaultRecordId::WifiPassphrase.key()
 }
 
 pub(crate) fn is_vault_namespace(namespace: [u8; 16]) -> bool {

@@ -1,6 +1,7 @@
 use core::str;
 
 use raios_core::dot11_scan::{parse_scan_frame, Dot11ScanError, Dot11Security};
+use raios_core::marvell_wifi_supplicant::{self, SupplicantError};
 use spin::Mutex;
 
 use crate::pci::{self, PciAddress};
@@ -441,14 +442,33 @@ pub fn set_remember_passphrase_for_boot(remember: bool) {
     STATE.lock().snapshot.remember_passphrase_for_boot = remember;
 }
 
-pub fn copy_passphrase(out: &mut [u8]) -> Option<usize> {
-    let guard = STATE.lock();
-    if guard.passphrase.is_empty() || out.len() < guard.passphrase.as_bytes().len() {
-        return None;
+/// Formats the legacy RAM-only credential directly into the one NXP command.
+/// No plaintext slice or passphrase length leaves this module.
+pub(crate) fn format_legacy_supplicant_pmk_set(
+    seq: u16,
+    bssid: [u8; 6],
+    ssid: &[u8],
+    out: &mut [u8],
+) -> Result<usize, SupplicantError> {
+    let mut guard = STATE.lock();
+    let result = marvell_wifi_supplicant::build_supplicant_pmk_set(
+        seq,
+        bssid,
+        ssid,
+        guard.passphrase.as_bytes(),
+        out,
+    );
+    if !guard.snapshot.remember_passphrase_for_boot {
+        guard.passphrase.clear();
+        guard.snapshot.passphrase_set = false;
     }
-    let len = guard.passphrase.as_bytes().len();
-    out[..len].copy_from_slice(guard.passphrase.as_bytes());
-    Some(len)
+    result
+}
+
+pub(crate) fn clear_legacy_passphrase() {
+    let mut guard = STATE.lock();
+    guard.passphrase.clear();
+    guard.snapshot.passphrase_set = false;
 }
 
 pub fn clear_config() {

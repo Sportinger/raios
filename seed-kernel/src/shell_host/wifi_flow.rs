@@ -6,7 +6,11 @@ use raios_core::dot11_scan::Dot11Security;
 
 use crate::framebuffer::FramebufferSurface;
 use crate::system_status::TextBuf;
-use crate::{console, marvell_wifi_pcie, net, text, wifi};
+use crate::{
+    console, input, marvell_wifi_pcie, net, secret_vault,
+    secure_overlay::{SecureOverlay, SecureOverlayAction, SecureOverlayInput, SecureOverlayPrompt},
+    serial, text, wifi,
+};
 
 use super::genesis::{
     draw_button, draw_outline, draw_panel, draw_truncated_text, point_in, LogicalRect, APP_AMBER,
@@ -18,6 +22,13 @@ const LIST_LIMIT: usize = 8;
 const LIST_ROW_HEIGHT: usize = 28;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+enum CredentialStorage {
+    Open,
+    LegacyRamOnly,
+    Vault,
+}
+
+#[derive(Clone, Copy)]
 enum State {
     Idle,
     Starting {
@@ -25,33 +36,38 @@ enum State {
     },
     Selecting,
     Password {
-        network_index: usize,
+        network: wifi::ScannedNetwork,
+        storage: CredentialStorage,
         remember_for_boot: bool,
         rejected: bool,
     },
     Associating {
-        network_index: usize,
-        remember_for_boot: bool,
+        network: wifi::ScannedNetwork,
+        storage: CredentialStorage,
         started: bool,
     },
     Configured {
-        network_index: usize,
-        remember_for_boot: bool,
+        network: wifi::ScannedNetwork,
+        storage: CredentialStorage,
     },
     Failed(&'static str),
 }
 
 pub struct GuidedWifi {
     state: State,
+    overlay: SecureOverlay,
 }
 
 impl GuidedWifi {
     pub const fn new() -> Self {
-        Self { state: State::Idle }
+        Self {
+            state: State::Idle,
+            overlay: SecureOverlay::new(),
+        }
     }
 
     pub fn is_active(&self) -> bool {
-        self.state != State::Idle
+        !matches!(self.state, State::Idle)
     }
 
     pub fn begin(&mut self) -> bool {
@@ -95,38 +111,43 @@ impl GuidedWifi {
         match self.state {
             State::Starting { scan_started } => self.advance_starting(scan_started),
             State::Password {
-                network_index,
+                network,
+                storage,
                 remember_for_boot,
                 ..
-            } => match console::snapshot().wifi_passphrase_entry_result {
-                console::WifiPassphraseEntryResult::Set => {
-                    self.state = State::Associating {
-                        network_index,
-                        remember_for_boot,
-                        started: false,
-                    };
-                    true
+            } if storage == CredentialStorage::LegacyRamOnly => {
+                match console::snapshot().wifi_passphrase_entry_result {
+                    console::WifiPassphraseEntryResult::Set => {
+                        self.state = State::Associating {
+                            network,
+                            storage,
+                            started: false,
+                        };
+                        true
+                    }
+                    console::WifiPassphraseEntryResult::Cancelled => {
+                        self.state = State::Selecting;
+                        true
+                    }
+                    console::WifiPassphraseEntryResult::Rejected => {
+                        let _ = console::activate_focus(console::UiFocus::SettingsWifiPassphrase);
+                        self.state = State::Password {
+                            network,
+                            storage,
+                            remember_for_boot,
+                            rejected: true,
+                        };
+                        true
+                    }
+                    console::WifiPassphraseEntryResult::None => false,
                 }
-                console::WifiPassphraseEntryResult::Cancelled => {
-                    self.state = State::Selecting;
-                    true
-                }
-                console::WifiPassphraseEntryResult::Rejected => {
-                    let _ = console::activate_focus(console::UiFocus::SettingsWifiPassphrase);
-                    self.state = State::Password {
-                        network_index,
-                        remember_for_boot,
-                        rejected: true,
-                    };
-                    true
-                }
-                console::WifiPassphraseEntryResult::None => false,
-            },
+            }
+            State::Password { .. } => false,
             State::Associating {
-                network_index,
-                remember_for_boot,
+                network,
+                storage,
                 started,
-            } => self.advance_association(network_index, remember_for_boot, started),
+            } => self.advance_association(network, storage, started),
             State::Idle | State::Selecting | State::Configured { .. } | State::Failed(_) => false,
         }
     }
@@ -191,8 +212,8 @@ impl GuidedWifi {
 
     fn advance_association(
         &mut self,
-        network_index: usize,
-        remember_for_boot: bool,
+        network: wifi::ScannedNetwork,
+        storage: CredentialStorage,
         started: bool,
     ) -> bool {
         if !started {
@@ -202,17 +223,14 @@ impl GuidedWifi {
                 marvell_wifi_pcie::ConnectionTriggerResult::Started
                 | marvell_wifi_pcie::ConnectionTriggerResult::AlreadyRunning => {
                     self.state = State::Associating {
-                        network_index,
-                        remember_for_boot,
+                        network,
+                        storage,
                         started: true,
                     };
                     true
                 }
                 marvell_wifi_pcie::ConnectionTriggerResult::AlreadyReady => {
-                    self.state = State::Configured {
-                        network_index,
-                        remember_for_boot,
-                    };
+                    self.state = State::Configured { network, storage };
                     true
                 }
                 marvell_wifi_pcie::ConnectionTriggerResult::Failed(error) => {
@@ -231,14 +249,53 @@ impl GuidedWifi {
             );
             true
         } else if connection.is_ready() {
-            self.state = State::Configured {
-                network_index,
-                remember_for_boot,
-            };
+            self.state = State::Configured { network, storage };
             true
         } else {
             false
         }
+    }
+
+    /// Consumes physical input only for the trusted Vault prompt. Serial input
+    /// never reaches this path and remains the explicitly legacy RAM-only path.
+    pub fn handle_physical_input(&mut self, event: input::InputEvent) -> bool {
+        let State::Password {
+            network,
+            storage: CredentialStorage::Vault,
+            remember_for_boot,
+            ..
+        } = self.state
+        else {
+            return false;
+        };
+        if matches!(event.kind, input::InputEventKind::SecureAttention) {
+            self.cancel_vault_password();
+            return true;
+        }
+        let Some(value) = input::event_to_console_input(event) else {
+            return true;
+        };
+        match value {
+            input::ConsoleInput::Byte(0x08) | input::ConsoleInput::Byte(0x7f) => {
+                let _ = self.overlay.handle(SecureOverlayInput::Backspace);
+            }
+            input::ConsoleInput::Byte(byte) => {
+                let _ = self.overlay.handle(SecureOverlayInput::TextByte(byte));
+            }
+            input::ConsoleInput::Special(input::SpecialKey::Enter) => {
+                self.submit_vault_password(network, remember_for_boot)
+            }
+            input::ConsoleInput::Special(input::SpecialKey::Escape) => self.cancel_vault_password(),
+            input::ConsoleInput::Special(
+                input::SpecialKey::Tab
+                | input::SpecialKey::BackTab
+                | input::SpecialKey::Up
+                | input::SpecialKey::Down
+                | input::SpecialKey::Left
+                | input::SpecialKey::Right,
+            ) => {}
+        }
+        true
     }
 
     pub fn handle_pointer(&mut self, x: usize, y: usize, width: usize, height: usize) -> bool {
@@ -246,18 +303,22 @@ impl GuidedWifi {
             State::Idle | State::Starting { .. } | State::Associating { .. } => false,
             State::Selecting => self.select_pointer(x, y, width, height),
             State::Password {
-                network_index,
+                network,
+                storage,
                 remember_for_boot,
                 rejected,
             } => {
                 let rect = password_rect(width, height);
-                if point_in(
-                    x,
-                    y,
-                    LogicalRect::new(rect.x + 24, rect.y + 116, rect.w - 48, 20),
-                ) {
+                if storage == CredentialStorage::LegacyRamOnly
+                    && point_in(
+                        x,
+                        y,
+                        LogicalRect::new(rect.x + 24, rect.y + 116, rect.w - 48, 20),
+                    )
+                {
                     self.state = State::Password {
-                        network_index,
+                        network,
+                        storage,
                         remember_for_boot: !remember_for_boot,
                         rejected,
                     };
@@ -266,11 +327,19 @@ impl GuidedWifi {
                 }
                 let [back, submit] = action_rects(rect);
                 if point_in(x, y, back) {
-                    let _ = console::cancel_wifi_passphrase_entry();
-                    self.state = State::Selecting;
+                    if storage == CredentialStorage::Vault {
+                        self.cancel_vault_password();
+                    } else {
+                        let _ = console::cancel_wifi_passphrase_entry();
+                        self.state = State::Selecting;
+                    }
                     return true;
                 }
                 if point_in(x, y, submit) {
+                    if storage == CredentialStorage::Vault {
+                        self.submit_vault_password(network, remember_for_boot);
+                        return true;
+                    }
                     wifi::set_remember_passphrase_for_boot(remember_for_boot);
                     return console::submit_wifi_passphrase_entry();
                 }
@@ -299,6 +368,61 @@ impl GuidedWifi {
         }
     }
 
+    fn submit_vault_password(&mut self, network: wifi::ScannedNetwork, remember_for_boot: bool) {
+        let selected = wifi::association_target();
+        let target_matches = selected.is_some_and(|selected| {
+            selected.association_ready()
+                && selected.supports_wpa2_psk_ccmp()
+                && selected.bssid == network.bssid
+                && selected.ssid.as_bytes() == network.ssid.as_bytes()
+        });
+        if !target_matches {
+            self.overlay.clear();
+            self.state = State::Failed("selected_bss_changed");
+            return;
+        }
+        let saved = match self.overlay.handle(SecureOverlayInput::Submit) {
+            SecureOverlayAction::Submitted(submission)
+                if submission.prompt() == SecureOverlayPrompt::WifiPassphrase =>
+            {
+                secret_vault::save_or_replace_wifi(
+                    network.ssid.as_bytes(),
+                    network.bssid,
+                    submission.into_plaintext_for_broker(),
+                )
+                .is_ok()
+            }
+            SecureOverlayAction::Rejected(_) => {
+                self.state = State::Password {
+                    network,
+                    storage: CredentialStorage::Vault,
+                    remember_for_boot,
+                    rejected: true,
+                };
+                return;
+            }
+            _ => false,
+        };
+        self.overlay.clear();
+        if saved {
+            wifi::clear_legacy_passphrase();
+            serial::write_line("VAULT_WIFI_SECRET_SAVED target=bound_bss");
+            self.state = State::Associating {
+                network,
+                storage: CredentialStorage::Vault,
+                started: false,
+            };
+        } else {
+            self.state = State::Failed("vault_wifi_save_rejected");
+        }
+    }
+
+    fn cancel_vault_password(&mut self) {
+        let _ = self.overlay.handle(SecureOverlayInput::Cancel);
+        self.overlay.clear();
+        self.state = State::Selecting;
+    }
+
     fn select_pointer(&mut self, x: usize, y: usize, width: usize, height: usize) -> bool {
         let scan = wifi::scan_results();
         let rect = selection_rect(width, height, scan.count);
@@ -324,16 +448,41 @@ impl GuidedWifi {
             }
             if network.security == Dot11Security::Open {
                 self.state = State::Associating {
-                    network_index: index,
-                    remember_for_boot: false,
+                    network,
+                    storage: CredentialStorage::Open,
                     started: false,
                 };
                 return true;
             }
-            wifi::set_remember_passphrase_for_boot(true);
-            let _ = console::activate_focus(console::UiFocus::SettingsWifiPassphrase);
+            if !network.supports_wpa2_psk_ccmp() {
+                self.state = State::Failed("unsupported_wifi_security");
+                return true;
+            }
+            let storage = if secret_vault::recovery_state()
+                == secret_vault::VaultRecoveryState::Unlocked
+            {
+                let _ = self.overlay.open(SecureOverlayPrompt::WifiPassphrase);
+                CredentialStorage::Vault
+            } else {
+                match secret_vault::wifi_status() {
+                    secret_vault::VaultSecretStatus::Missing => {
+                        wifi::set_remember_passphrase_for_boot(true);
+                        let _ = console::activate_focus(console::UiFocus::SettingsWifiPassphrase);
+                        CredentialStorage::LegacyRamOnly
+                    }
+                    secret_vault::VaultSecretStatus::Available { .. } => {
+                        self.state = State::Failed("unlock_secret_vault_before_wifi");
+                        return true;
+                    }
+                    secret_vault::VaultSecretStatus::Forgotten { .. } => {
+                        self.state = State::Failed("wifi_secret_forgotten");
+                        return true;
+                    }
+                }
+            };
             self.state = State::Password {
-                network_index: index,
+                network,
+                storage,
                 remember_for_boot: true,
                 rejected: false,
             };
@@ -359,22 +508,31 @@ impl GuidedWifi {
             State::Starting { .. } => draw_progress(surface, width, height, false),
             State::Selecting => draw_selection(surface, width, height),
             State::Password {
-                network_index,
+                network,
+                storage,
                 remember_for_boot,
                 rejected,
-            } => draw_password(
-                surface,
-                width,
-                height,
-                network_index,
-                remember_for_boot,
-                rejected,
-            ),
+            } => {
+                let masked_len = if storage == CredentialStorage::Vault {
+                    self.overlay.snapshot().masked_len
+                } else {
+                    console::snapshot().input.as_str().chars().count()
+                };
+                draw_password(
+                    surface,
+                    width,
+                    height,
+                    network,
+                    storage,
+                    remember_for_boot,
+                    rejected,
+                    masked_len,
+                )
+            }
             State::Associating { .. } => draw_progress(surface, width, height, true),
-            State::Configured {
-                network_index,
-                remember_for_boot,
-            } => draw_configured(surface, width, height, network_index, remember_for_boot),
+            State::Configured { network, storage } => {
+                draw_configured(surface, width, height, network, storage)
+            }
             State::Failed(reason) => draw_failed(surface, width, height, reason),
         }
     }
@@ -466,41 +624,39 @@ fn draw_password(
     surface: &mut FramebufferSurface,
     width: usize,
     height: usize,
-    network_index: usize,
+    network: wifi::ScannedNetwork,
+    storage: CredentialStorage,
     remember_for_boot: bool,
     rejected: bool,
+    masked_len: usize,
 ) {
     let rect = password_rect(width, height);
     draw_panel(surface, rect, "WiFi password");
-    let scan = wifi::scan_results();
-    let ssid = scan
-        .networks
-        .get(network_index)
-        .map(|item| item.ssid.as_str())
-        .unwrap_or("Unknown network");
     draw_truncated_text(
         surface,
         rect.x + 20,
         rect.y + 48,
-        ssid,
+        network.ssid.as_str(),
         (rect.w - 40) / FONT_ADVANCE,
         TEXT_MAIN,
     );
-    let input = console::snapshot().input;
     surface.fill_rect(rect.x + 20, rect.y + 66, rect.w - 40, 28, SURFACE_ALT);
     draw_outline(
         surface,
         LogicalRect::new(rect.x + 20, rect.y + 66, rect.w - 40, 28),
         APP_BLUE,
     );
-    draw_truncated_text(
-        surface,
-        rect.x + 28,
-        rect.y + 76,
-        input.as_str(),
-        (rect.w - 56) / FONT_ADVANCE,
-        TEXT_MAIN,
-    );
+    let visible_len = masked_len.min((rect.w - 56) / FONT_ADVANCE);
+    for index in 0..visible_len {
+        text::draw_text(
+            surface,
+            rect.x + 28 + index * FONT_ADVANCE,
+            rect.y + 76,
+            "*",
+            TEXT_MAIN,
+            None,
+        );
+    }
     text::draw_text(
         surface,
         rect.x + 20,
@@ -517,39 +673,44 @@ fn draw_password(
         surface,
         rect.x + 20,
         rect.y + 120,
-        if remember_for_boot {
-            "[x] Remember for this boot (RAM only)"
+        if storage == CredentialStorage::Vault {
+            "Will be encrypted for this exact access point"
+        } else if remember_for_boot {
+            "[x] Remember for this boot (LEGACY RAM-ONLY)"
         } else {
-            "[ ] Remember for this boot (RAM only)"
+            "[ ] Remember for this boot (LEGACY RAM-ONLY)"
         },
         TEXT_MUTED,
         None,
     );
     let [back, submit] = action_rects(rect);
     draw_button(surface, back, "Back", false);
-    draw_button(surface, submit, "Set credentials", true);
+    draw_button(
+        surface,
+        submit,
+        if storage == CredentialStorage::Vault {
+            "Save and connect"
+        } else {
+            "Set credentials"
+        },
+        true,
+    );
 }
 
 fn draw_configured(
     surface: &mut FramebufferSurface,
     width: usize,
     height: usize,
-    network_index: usize,
-    remember_for_boot: bool,
+    network: wifi::ScannedNetwork,
+    storage: CredentialStorage,
 ) {
     let rect = result_rect(width, height);
     draw_panel(surface, rect, "WiFi setup");
-    let scan = wifi::scan_results();
-    let ssid = scan
-        .networks
-        .get(network_index)
-        .map(|item| item.ssid.as_str())
-        .unwrap_or("Selected network");
     draw_truncated_text(
         surface,
         rect.x + 20,
         rect.y + 50,
-        ssid,
+        network.ssid.as_str(),
         (rect.w - 40) / FONT_ADVANCE,
         APP_GREEN,
     );
@@ -557,10 +718,10 @@ fn draw_configured(
         surface,
         rect.x + 20,
         rect.y + 70,
-        if remember_for_boot {
-            "Credentials ready in RAM for this boot"
-        } else {
-            "Open network selected for this boot"
+        match storage {
+            CredentialStorage::Vault => "Credential saved in Secret Vault",
+            CredentialStorage::LegacyRamOnly => "Credential ready (LEGACY RAM-ONLY)",
+            CredentialStorage::Open => "Open network selected for this boot",
         },
         TEXT_MAIN,
         None,
@@ -613,7 +774,7 @@ fn connection_progress() -> (usize, &'static str) {
         marvell_wifi_pcie::ConnectionStage::RegisterRings => (18, "Registering data rings"),
         marvell_wifi_pcie::ConnectionStage::MacControl => (32, "Enabling radio data path"),
         marvell_wifi_pcie::ConnectionStage::SupplicantProfile => (48, "Configuring WPA2 profile"),
-        marvell_wifi_pcie::ConnectionStage::SupplicantPmk => (62, "Loading boot-only credential"),
+        marvell_wifi_pcie::ConnectionStage::SupplicantPmk => (62, "Loading connection credential"),
         marvell_wifi_pcie::ConnectionStage::Associate => (76, "Associating with access point"),
         marvell_wifi_pcie::ConnectionStage::WaitPortRelease => (90, "Completing WPA2 key exchange"),
         marvell_wifi_pcie::ConnectionStage::LinkReady => (100, "Link ready; requesting address"),

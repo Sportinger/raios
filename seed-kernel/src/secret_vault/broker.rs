@@ -27,7 +27,7 @@ use crate::entropy;
 use raios_core::scoped_secret_use::SecretBootScope;
 
 use super::{
-    audit::DurableProviderUseReceipt,
+    audit::{DurableProviderUseReceipt, DurableWifiUseReceipt},
     keyring::{ApprovedCorePolicy, KeyringDenied, RecoveryWrapperSlot, RecoveryWrapperSlots},
     store::{
         reconstruct_retained_nonce_metadata, DecodedVaultRecord, ReplayHistoryCompleteness,
@@ -64,6 +64,11 @@ impl VaultUseAuthority {
         Self {
             evidence: receipt.into_secret_use_evidence(),
         }
+    }
+
+    fn from_durable_wifi_receipt(receipt: DurableWifiUseReceipt) -> (Self, [u8; 32]) {
+        let (evidence, target_binding_sha256) = receipt.into_secret_use_evidence();
+        (Self { evidence }, target_binding_sha256)
     }
 }
 
@@ -572,10 +577,15 @@ impl VaultBroker {
         &self,
         ssid: &[u8],
         bssid: [u8; 6],
-        authority: VaultUseAuthority,
+        receipt: DurableWifiUseReceipt,
     ) -> Result<WifiSecretLease, VaultBrokerDenied> {
+        let (authority, audited_target_sha256) =
+            VaultUseAuthority::from_durable_wifi_receipt(receipt);
         let requested_target = SecretTargetBinding::for_wifi_wpa2_psk_ccmp(ssid, bssid)
             .map_err(VaultBrokerDenied::Crypto)?;
+        if requested_target.hash() != audited_target_sha256 {
+            return Err(VaultBrokerDenied::Use(SecretUseDenial::TargetMismatch));
+        }
         let (plaintext, authorization) = self.authorize_and_decrypt(
             self.wifi.present()?,
             SecretConsumer::NativeWifiSupplicant,
@@ -588,6 +598,65 @@ impl VaultBroker {
             plaintext,
             _authorization: authorization,
         })
+    }
+
+    /// Checks the requested BSS against the replayed ciphertext metadata
+    /// without touching the VMK or plaintext. The facade uses this before it
+    /// writes a durable pre-use audit record.
+    pub(super) fn require_wifi_target(
+        &self,
+        ssid: &[u8],
+        bssid: [u8; 6],
+    ) -> Result<[u8; 32], VaultBrokerDenied> {
+        let requested = SecretTargetBinding::for_wifi_wpa2_psk_ccmp(ssid, bssid)
+            .map_err(VaultBrokerDenied::Crypto)?;
+        if self.wifi.present()?.binding.target != requested {
+            return Err(VaultBrokerDenied::Use(SecretUseDenial::TargetMismatch));
+        }
+        Ok(requested.hash())
+    }
+
+    /// Contained-QEMU negative proof only: the BSS and all current WiFi
+    /// evidence are exact except the durable pre-use audit bit. Authorization
+    /// must stop before decrypting with `AuditBindingMissing`.
+    pub(super) fn prove_wifi_auditless_use_denied_for_contained_test(
+        &self,
+        ssid: &[u8],
+        bssid: [u8; 6],
+    ) -> Result<(), VaultBrokerDenied> {
+        let envelope = self.wifi.present()?;
+        let policy = self
+            .approved_core_policy
+            .ok_or(VaultBrokerDenied::CorePolicyMissing)?;
+        let requested_target = SecretTargetBinding::for_wifi_wpa2_psk_ccmp(ssid, bssid)
+            .map_err(VaultBrokerDenied::Crypto)?;
+        let request = SecretUseRequest {
+            kind: envelope.binding.kind,
+            consumer: SecretConsumer::NativeWifiSupplicant,
+            operation: SecretOperation::AssociateBoundBss,
+            bound_target: envelope.binding.target,
+            requested_target,
+            provider_host: None,
+            evidence: SecretUseEvidence {
+                vault_unlocked: self.vmk.is_some(),
+                boot_scope: raios_core::scoped_secret_use::SecretBootScope::CurrentBoot,
+                explicit_recovery_action: false,
+                service_generation: policy.core_generation(),
+                current_service_generation: policy.core_generation(),
+                record_version: envelope.binding.record_version,
+                current_record_version: envelope.binding.record_version,
+                key_epoch: envelope.binding.key_epoch,
+                current_key_epoch: envelope.binding.key_epoch,
+                trust_decision_positive: true,
+                committed_store_record_verified: self.retained_nonces.is_some(),
+                audit_binding_present: false,
+            },
+        };
+        match authorize_secret_use(&request) {
+            Err(SecretUseDenial::AuditBindingMissing) => Ok(()),
+            Err(denied) => Err(VaultBrokerDenied::Use(denied)),
+            Ok(_) => Err(VaultBrokerDenied::AuditlessUseUnexpectedlyAuthorized),
+        }
     }
 
     /// Creates one lease only for a trust-authorized direct request to the
@@ -976,7 +1045,11 @@ mod tests {
             }
         );
         assert!(matches!(
-            broker.use_for_wifi(b"test", [2, 1, 2, 3, 4, 5], use_evidence()),
+            broker.use_for_wifi(
+                b"test",
+                [2, 1, 2, 3, 4, 5],
+                wifi_use_receipt(b"test", [2, 1, 2, 3, 4, 5]),
+            ),
             Err(VaultBrokerDenied::Use(SecretUseDenial::VaultLocked))
         ));
     }
@@ -1022,7 +1095,11 @@ mod tests {
             VaultSecretStatus::Forgotten { record_version: 2 }
         );
         assert!(matches!(
-            broker.use_for_wifi(b"test", [2, 1, 2, 3, 4, 5], use_evidence()),
+            broker.use_for_wifi(
+                b"test",
+                [2, 1, 2, 3, 4, 5],
+                wifi_use_receipt(b"test", [2, 1, 2, 3, 4, 5]),
+            ),
             Err(VaultBrokerDenied::SecretForgotten)
         ));
     }
@@ -1070,9 +1147,9 @@ mod tests {
         ));
     }
 
-    fn use_evidence() -> VaultUseAuthority {
-        VaultUseAuthority {
-            evidence: SecretUseEvidence {
+    fn wifi_use_receipt(ssid: &[u8], bssid: [u8; 6]) -> DurableWifiUseReceipt {
+        DurableWifiUseReceipt::for_test(
+            SecretUseEvidence {
                 vault_unlocked: true,
                 boot_scope: SecretBootScope::CurrentBoot,
                 explicit_recovery_action: false,
@@ -1086,6 +1163,9 @@ mod tests {
                 committed_store_record_verified: true,
                 audit_binding_present: true,
             },
-        }
+            SecretTargetBinding::for_wifi_wpa2_psk_ccmp(ssid, bssid)
+                .unwrap()
+                .hash(),
+        )
     }
 }

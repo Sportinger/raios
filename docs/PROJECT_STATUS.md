@@ -24,17 +24,16 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (I3/G5.4 Secret-Vault WiFi join): persist the selected
-WPA2 credential against its exact SSID/BSSID binding, mint a typed durable pre-use
-audit receipt, and consume the resulting one-use Broker lease only inside the NXP PMK
-formatter. Delete/confine `wifi::copy_passphrase()` and remove plaintext from the
-long-lived `ConnectionJob`; an existing Vault record must never fall back to the
-legacy RAM credential. The provider vertical slice and prior RR1 recovery path are
-green and must stay unchanged. Then wire the remaining trusted Genesis forget/SAFE
-actions and G5.5 evidence. Preserve the durable-store identity/rollback chain; do not
-expose plaintext to ShellHost/Wasm, add generic secret access, provider auto-load,
-broad mutation, or physical-target support. Disk 2 is unplugged; do not write a
-physical disk. The separate bare-metal WiFi proof remains pending: capture `LINK`,
+Current exact next task (I3/G5.4 trusted actions + G5.5): add the core-owned
+Genesis forget/tombstone path for provider and WiFi, then prove NORMAL reconnect and
+SAFE explicit-only reconnect without broadening the exact Broker consumers. Extend
+the focused Secret-Vault evidence to cover corruption, torn/power-cut replay and
+WiFi/provider/personal-shell crash return while keeping the Vault handle and all
+sentinels contained. The RR1, provider and WiFi exact-C1 vertical slices are green and
+must stay unchanged. Preserve the durable-store identity/rollback chain; do not expose
+plaintext to ShellHost/Wasm, add generic secret access, provider auto-load, broad
+mutation, or physical-target support. Disk 2 is unplugged; do not write a physical
+disk. The separate bare-metal WiFi proof remains pending: capture `LINK`,
 association/AID, `PORT_RELEASE`, RX/TX, and DHCP evidence before live provider access
 is claimed.
 
@@ -114,6 +113,20 @@ cannot fall back to the legacy RAM key. This does not claim a live provider requ
 physical Vault persistence, WiFi Vault use, forget/SAFE behavior, provider auto-load,
 TPM auto-unlock, WebPKI trusted-time completeness, or physical Surface networking.
 
+I3 durable WiFi Secret-Vault vertical slice verified (2026-07-10) - a user can now
+physically enter a WPA2 credential through the trusted Genesis overlay, bind it to the
+selected exact SSID/BSSID, persist/readback-verify only its encrypted record on the
+disposable QEMU C1 store, reboot/replay it, unlock with RR1, and deliver it once only
+to the NXP WPA2 PMK formatter after a durable `local_only` pre-use audit. Focused
+`release/vm-reports/shadow-20260710-192431-4220.json` passed 56/56 predicates,
+including dynamic provider and WiFi sentinel absence, wrong-BSSID and auditless
+denials, audit-before-consumer ordering, exact offline two-record RECLOG inspection,
+and no association/link/`PORT_RELEASE`/DHCP success marker. `wifi::copy_passphrase()`
+and long-lived `ConnectionJob` plaintext were removed; an available, locked or
+forgotten Vault record cannot fall back to the legacy RAM credential. This proves no
+physical persistence, live radio association, NORMAL/SAFE reconnect, forget tombstone,
+service-crash isolation, TPM auto-unlock, or provider network request.
+
 VM failure classification (2026-07-10, first provider-Secret-Vault profile) - report
 `release/vm-reports/shadow-20260710-173553-10436.json` failed predicate
 `secret-vault:boot2:broker_unlocked` with `accepted=false reason=input_shape` and
@@ -129,6 +142,44 @@ bounded repair removes only the redundant third Enter from the boot-two unlock-o
 gesture, so the overlay no longer submits an empty value before the real USB-HID RR1;
 it does not relax RR1 length/parsing, hide an explicit unlock rejection, or alter
 Vault, audit, consumer, trust, storage, or secret handling.
+
+VM failure classification (2026-07-10, first WiFi-Secret-Vault profile) - report
+`release/vm-reports/shadow-20260710-182518-7320.json` failed predicate
+`secret-vault:boot1:wifi_entry_ready` with `found=false` and
+`serial_transport_failure:null`. Verdict: `host-transport` / harness navigation -
+all 22 preceding predicates passed, including RR1 and encrypted provider commit, but
+the harness assumed one Tab moved Settings focus from API key directly to WiFi. The
+actual frozen focus order contains `Clear API key` between them; serial proves the
+physical Enter activated that harmless action and emitted `API KEY CLEARED`, while no
+WiFi secure overlay opened and no WiFi sentinel was created or entered. The bounded
+repair sends the second required physical Tab before Enter. It changes no guest UI,
+Vault, audit, target, formatter, storage, secret, association, link, or DHCP behavior.
+
+VM failure classification (2026-07-10, second WiFi-Secret-Vault profile) - report
+`release/vm-reports/shadow-20260710-183042-15696.json` failed only predicate
+`secret-vault:offline_exact_wifi_audit_record` after 55/55 preceding predicates
+passed, with `serial_transport_failure:null`. Verdict: `host-transport` / harness
+canonicalization - the offline inspector proves the exact second `local_only`
+`native_wifi_supplicant/associate_bound_bss` record, no raw `ssid`/`bssid`/`target`
+fields, `network_export_authorized:false`, and `test_infrastructure:true`; its typed
+SHA-256 value is canonically rendered as `sha256:<64 lowercase hex>`, while the new
+harness expected only the bare 64 hex characters. Both dynamic sentinel scans, both
+audit-before-consumer predicates, wrong-BSSID/auditless denials, and no-link/DHCP
+claim were already green. The bounded repair accepts only the existing canonical
+`sha256:` form; it does not weaken record fields, hashes, Vault, audit, target,
+formatter, storage, secret, association, link, or DHCP behavior.
+
+VM failure classification (2026-07-10, third WiFi-Secret-Vault attempt) - run
+`shadow-20260710-184311-20692` ended before a report or predicate result was
+written when the outer Windows process exited with `0xC000013A`; therefore the
+failing predicate is `none (outer harness interrupted before report)`. Verdict:
+`host-transport` - no QEMU process remains, and the retained serial log proves
+the guest completed boot, RR1 creation and encrypted provider commit, then opened
+the WiFi secure-entry overlay and was still receiving physical USB-HID input at
+the interruption. It emitted no WiFi commit, audit, consumer, link, `PORT_RELEASE`
+or DHCP marker. The bounded retry changes no guest code or predicate; the exact
+orphaned disposable run directory is removed only after this classification and
+path verification below `%TEMP%`.
 
 VM failure classification (2026-07-10, first Secret-Vault RR1 profile) - report
 `release/vm-reports/shadow-20260710-152552-3140.json` failed predicate

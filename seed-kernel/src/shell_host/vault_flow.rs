@@ -8,7 +8,7 @@ use crate::{
     framebuffer::{Color, FramebufferSurface},
     input, provider_config, secret_vault,
     secure_overlay::{SecureOverlay, SecureOverlayAction, SecureOverlayInput, SecureOverlayPrompt},
-    serial, text,
+    serial, text, wifi,
 };
 
 use super::genesis::{
@@ -25,6 +25,7 @@ enum Mode {
     Confirming(secret_vault::RecoveryKeyConfirmation),
     Unlocking,
     ProviderEntry,
+    WifiTestEntry,
     Outcome(Outcome),
 }
 
@@ -35,6 +36,7 @@ enum Phase {
     Confirming,
     Unlocking,
     ProviderEntry,
+    WifiTestEntry,
     Outcome,
 }
 
@@ -47,6 +49,9 @@ enum Outcome {
     ProviderSaved,
     ProviderRejected,
     ProviderUnavailable,
+    WifiTestSaved,
+    WifiTestRejected,
+    WifiTestUnavailable,
 }
 
 /// Core-owned controller. Its only ingress is `ShellHost` physical input.
@@ -127,6 +132,30 @@ impl VaultFlow {
         true
     }
 
+    /// Opens the physical-input-only credential entry used by the exact C1
+    /// QEMU proof. The dispatcher exposes it on no other storage identity.
+    pub(crate) fn begin_contained_wifi_explicit(&mut self) -> bool {
+        if self.is_active() {
+            return true;
+        }
+        self.overlay.clear();
+        self.display_origin = None;
+        self.display_logged = false;
+        if secret_vault::recovery_state() == secret_vault::VaultRecoveryState::Unlocked
+            && secret_vault::contained_qemu_wifi_test_available()
+        {
+            let _ = self.overlay.open(SecureOverlayPrompt::WifiPassphrase);
+            self.mode = Mode::WifiTestEntry;
+            serial::write_line(
+                "VAULT_WIFI_SECRET_ENTRY_READY target=bound_bss test_infrastructure=true",
+            );
+        } else {
+            self.mode = Mode::Outcome(Outcome::WifiTestUnavailable);
+            serial::write_line("VAULT_WIFI_SECRET_REJECTED test_infrastructure=true");
+        }
+        true
+    }
+
     /// Consumes every physical event while active, including releases and
     /// pointer packets that must not fall through to Console or a guest.
     pub(crate) fn handle_physical_input(&mut self, event: input::InputEvent) -> bool {
@@ -149,7 +178,7 @@ impl VaultFlow {
                     self.cancel();
                 }
             }
-            Phase::Confirming | Phase::Unlocking | Phase::ProviderEntry => {
+            Phase::Confirming | Phase::Unlocking | Phase::ProviderEntry | Phase::WifiTestEntry => {
                 let Some(value) = input::event_to_console_input(event) else {
                     return true;
                 };
@@ -190,7 +219,10 @@ impl VaultFlow {
         if point_in(x, y, primary) {
             match self.phase() {
                 Phase::Showing => self.begin_confirmation(),
-                Phase::Confirming | Phase::Unlocking | Phase::ProviderEntry => self.submit(),
+                Phase::Confirming
+                | Phase::Unlocking
+                | Phase::ProviderEntry
+                | Phase::WifiTestEntry => self.submit(),
                 Phase::Outcome => self.close(),
                 Phase::Closed => {}
             }
@@ -220,6 +252,7 @@ impl VaultFlow {
             Mode::Confirming(_) => self.draw_entry(surface, rect, false),
             Mode::Unlocking => self.draw_entry(surface, rect, true),
             Mode::ProviderEntry => self.draw_provider_entry(surface, rect),
+            Mode::WifiTestEntry => self.draw_wifi_test_entry(surface, rect),
             Mode::Outcome(outcome) => draw_outcome(surface, rect, *outcome),
             Mode::Closed => {}
         }
@@ -312,6 +345,10 @@ impl VaultFlow {
             self.submit_provider();
             return;
         }
+        if matches!(&self.mode, Mode::WifiTestEntry) {
+            self.submit_contained_wifi();
+            return;
+        }
         let action = self.overlay.handle(SecureOverlayInput::Submit);
         let input = match action {
             SecureOverlayAction::SubmittedRecovery(input) => input,
@@ -357,6 +394,19 @@ impl VaultFlow {
                         return;
                     }
                 }
+                if matches!(
+                    secret_vault::wifi_status(),
+                    secret_vault::VaultSecretStatus::Available { .. }
+                ) {
+                    if let Err(error) = secret_vault::run_contained_qemu_wifi_consumer_test() {
+                        serial::write_fmt(format_args!(
+                            "VAULT_WIFI_CONTAINED_REJECTED reason={} test_infrastructure=true\r\n",
+                            error.wifi_use_reason()
+                        ));
+                        self.mode = Mode::Outcome(Outcome::WifiTestRejected);
+                        return;
+                    }
+                }
                 serial::write_line("VAULT_RR1_UNLOCKED");
                 self.mode = Mode::Outcome(Outcome::Unlocked);
             }
@@ -397,6 +447,31 @@ impl VaultFlow {
         } else {
             serial::write_line("VAULT_PROVIDER_SECRET_REJECTED");
             self.mode = Mode::Outcome(Outcome::ProviderRejected);
+        }
+    }
+
+    fn submit_contained_wifi(&mut self) {
+        let saved = match self.overlay.handle(SecureOverlayInput::Submit) {
+            SecureOverlayAction::Submitted(submission)
+                if submission.prompt() == SecureOverlayPrompt::WifiPassphrase =>
+            {
+                secret_vault::save_or_replace_contained_qemu_wifi_for_test(
+                    submission.into_plaintext_for_broker(),
+                )
+                .is_ok()
+            }
+            _ => false,
+        };
+        self.overlay.clear();
+        self.display_origin = None;
+        self.display_logged = false;
+        if saved {
+            wifi::clear_legacy_passphrase();
+            serial::write_line("VAULT_WIFI_SECRET_SAVED target=bound_bss test_infrastructure=true");
+            self.mode = Mode::Outcome(Outcome::WifiTestSaved);
+        } else {
+            serial::write_line("VAULT_WIFI_SECRET_REJECTED test_infrastructure=true");
+            self.mode = Mode::Outcome(Outcome::WifiTestRejected);
         }
     }
 
@@ -460,25 +535,47 @@ impl VaultFlow {
         draw_button(surface, cancel, "Cancel", false);
     }
 
+    fn draw_wifi_test_entry(&self, surface: &mut FramebufferSurface, rect: LogicalRect) {
+        draw_panel(surface, rect, "Contained WiFi Vault proof");
+        text::draw_text(
+            surface,
+            rect.x + 20,
+            rect.y + 44,
+            "C1/QEMU test BSS only. No radio connection is claimed.",
+            TEXT_MUTED,
+            None,
+        );
+        let field = LogicalRect::new(rect.x + 20, rect.y + 70, rect.w.saturating_sub(40), 52);
+        surface.fill_rect(field.x, field.y, field.w, field.h, SURFACE_ALT);
+        draw_outline(surface, field, HAIRLINE);
+        draw_masked(
+            surface,
+            field.x + 10,
+            field.y + 12,
+            self.overlay.snapshot().masked_len,
+        );
+        let (primary, cancel) = action_rects(rect);
+        draw_button(surface, primary, "Save test credential", true);
+        draw_button(surface, cancel, "Cancel", false);
+    }
+
     fn cancel(&mut self) {
         if !self.is_active() {
             return;
         }
-        let provider = matches!(
-            &self.mode,
+        let marker = match &self.mode {
             Mode::ProviderEntry
-                | Mode::Outcome(
-                    Outcome::ProviderSaved
-                        | Outcome::ProviderRejected
-                        | Outcome::ProviderUnavailable
-                )
-        );
+            | Mode::Outcome(
+                Outcome::ProviderSaved | Outcome::ProviderRejected | Outcome::ProviderUnavailable,
+            ) => "VAULT_PROVIDER_SECRET_CANCELLED",
+            Mode::WifiTestEntry
+            | Mode::Outcome(
+                Outcome::WifiTestSaved | Outcome::WifiTestRejected | Outcome::WifiTestUnavailable,
+            ) => "VAULT_WIFI_SECRET_CANCELLED test_infrastructure=true",
+            _ => "VAULT_RR1_CANCELLED",
+        };
         self.close();
-        serial::write_line(if provider {
-            "VAULT_PROVIDER_SECRET_CANCELLED"
-        } else {
-            "VAULT_RR1_CANCELLED"
-        });
+        serial::write_line(marker);
     }
 
     fn close(&mut self) {
@@ -495,6 +592,7 @@ impl VaultFlow {
             Mode::Confirming(_) => Phase::Confirming,
             Mode::Unlocking => Phase::Unlocking,
             Mode::ProviderEntry => Phase::ProviderEntry,
+            Mode::WifiTestEntry => Phase::WifiTestEntry,
             Mode::Outcome(_) => Phase::Outcome,
         }
     }
@@ -563,6 +661,12 @@ fn draw_outcome(surface: &mut FramebufferSurface, rect: LogicalRect, outcome: Ou
         Outcome::ProviderSaved => ("Provider API key saved in Secret Vault.", APP_GREEN),
         Outcome::ProviderRejected => ("Provider API key was not saved.", APP_RED),
         Outcome::ProviderUnavailable => ("Unlock Secret Vault before saving an API key.", APP_RED),
+        Outcome::WifiTestSaved => (
+            "Contained WiFi credential saved in Secret Vault.",
+            APP_GREEN,
+        ),
+        Outcome::WifiTestRejected => ("Contained WiFi Vault proof was denied.", APP_RED),
+        Outcome::WifiTestUnavailable => ("Contained WiFi proof is unavailable here.", APP_RED),
     };
     text::draw_text(surface, rect.x + 20, rect.y + 64, message, color, None);
     let (primary, _) = action_rects(rect);

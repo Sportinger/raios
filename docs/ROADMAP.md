@@ -70,14 +70,15 @@ caller-supplied/replacement policy identity; focused
 `shadow-20260710-150107-28328.json` passes 13/13. The first armed I3 vertical slice is
 green: `shadow-20260710-160920-28360.json` (29/29) proves one-time RR1 display, physical
 re-entry, exact QEMU-store wrapper commit/readback, independent reboot/replay and RR1
-Broker unlock with no RR1 in either serial log or report. The provider half of I3/G5.4
-is now green in `shadow-20260710-174308-19744.json` (42/42): a physical Genesis action
-saves an encrypted OpenAI credential on the exact disposable QEMU C1 store; after
-reboot/replay and RR1 unlock, the contained exact Authorization-header consumer receives
-it only after a durable `local_only` pre-use audit passes readback, typed reparse and
-rescan. The production OpenAI path is wired behind real pinned trust, but this report
-does not prove a live provider request, physical persistence, WiFi Vault use,
-forget/SAFE behavior or TPM auto-unlock. I3/G5.4 remains open on those named parts.
+Broker unlock with no RR1 in either serial log or report. The provider and WiFi halves
+of I3/G5.4 are now green together in `shadow-20260710-192431-4220.json` (56/56):
+physical Genesis input can save encrypted OpenAI and exact-SSID/BSSID-bound WPA2
+credentials on the disposable QEMU C1 store; after reboot/replay and RR1 unlock, each
+reaches only its exact one-use consumer after a durable `local_only` pre-use audit.
+Wrong-BSSID and auditless WiFi use deny. The report does not prove a live provider
+request, association/link/`PORT_RELEASE`/DHCP, physical persistence, forget/SAFE
+behavior or TPM auto-unlock. I3/G5.4 remains open on the remaining forget/SAFE actions
+and G5.5 evidence.
 
 **Genesis execution progress (A1/C3, 2026-07-10):** the normal release image
 now starts in the core-owned Genesis shell (Conversation, Context, Composer,
@@ -95,9 +96,10 @@ a cached/redacted Recovery projection, and Recovery restart/disable controls use
 the same typed Lifeline executor as serial. Existing masked RAM-only provider/WiFi
 setup remains reachable from Genesis. The focused `genesis-ui` report
 `shadow-20260710-034302-30252.json` passed 181/181, release build/package passed,
-and `target/captures/genesis-shell-a2.png` was inspected. The zeroizing secure
-overlay remains only a bounded input foundation: no Vault/Broker/plaintext-use,
-durable credential, recovery hash-load, or rollback authority is open. B1's
+and `target/captures/genesis-shell-a2.png` was inspected. At A2 the zeroizing secure
+overlay was only a bounded input foundation; I3 now uses that same core-owned ingress
+for the exact provider/WiFi Vault paths described above, without exposing plaintext.
+Recovery hash-load and rollback authority remain closed. B1's
 display-list/import-grant foundation is already present. I2/G3 passed its required
 Sol review. The owner accepted ADR 0013 after the ignored local signer was lost;
 its tracked `descriptor-resign` tool is host-tested for exact raw-byte P-256
@@ -112,8 +114,8 @@ AB/G4 join is now verified by `shadow-20260710-124838-24564.json` (206/206): the
 non-default proof enters the clipped core-owned surface, accepts sanitized input,
 leaves through core-only F12, falls back after trap/fuel, and never changes the
 secure-strip pixels. Its current-boot inventory row exists only while active. The
-I3/G5.4 provider half is verified by the focused 42/42 report above; its WiFi and
-remaining trusted-action halves remain independently gated.
+I3/G5.4 provider and contained WiFi-use halves are verified by the focused 56/56
+report above; forget/SAFE and G5.5 remain independently gated.
 
 **M11 Kernel Slimming progress (all grants-nothing / strictly-more-restrictive,
 committed):** M11-1 kernel internet-parsing SURFACE baseline (the measurably-

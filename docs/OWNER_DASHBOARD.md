@@ -10,9 +10,9 @@ Conversation, typed Context, a Composer, RAM-only masked AI/WiFi setup, and an
 openable cached Recovery view. A deliberate signed proof can enter the bounded
 personal surface, accept sanitized input, leave by F12, and automatically fall back
 to Genesis after trap/fuel; it is not installed as the default shell. On the exact
-disposable QEMU C1 fixture, a physical Genesis action can also save an encrypted
-OpenAI credential and reuse it after reboot/RR1 unlock only through durable pre-use
-audit and the contained exact header consumer.
+disposable QEMU C1 fixture, physical Genesis input can also save encrypted OpenAI and
+exact-SSID/BSSID-bound WPA2 credentials. After reboot/replay and RR1 unlock, each is
+delivered once only to its exact contained consumer after durable pre-use audit.
 
 What is still denied: broad USB disk mutation, writes outside `SEED_DATA/RECLOG`,
 physical/production durable-secret storage, owner-sealed persistence, unsupported
@@ -23,7 +23,8 @@ or attempted; the prior `SEED_ESP_A` evidence remains historical only.
 
 WiFi status: Surface-proven firmware, HW_SPEC, live SSIDs, selection, and input
 are green. Association, WPA2 `PORT_RELEASE`, PFU data, and DHCP are implemented;
-their first positive bare-metal proof is the current test.
+their first positive bare-metal proof is still pending. The disposable QEMU C1 path
+now proves encrypted exact-BSS credential replay and contained NXP PMK formatting only.
 
 Hub/input status: Surface-proven stable through the full guided flow at 65.7s
 uptime with `KBD READY`, `MOUSE READY`, `ERR 0`, and no replug.
@@ -38,25 +39,26 @@ trap/fuel fallback, dynamic inventory removal, and the byte-identical secure str
 are proven by `shadow-20260710-124838-24564.json` (206/206, five captures). The
 release still says Personal shell not created and Vault not configured.
 
-Vault/store status: C1 is proven end-to-end on a fresh dedicated QEMU image. A
-physical Genesis action can now save an encrypted OpenAI credential there; after
-reboot/replay and RR1 unlock, the contained exact header consumer receives it only
-after durable local-only audit readback/reparse/rescan
-(`shadow-20260710-174308-19744.json`, 42/42). This is disposable QEMU evidence;
-physical persistence and TPM auto-unlock remain unproven.
+Vault/store status: C1 is proven end-to-end on a fresh dedicated QEMU image. Physical
+Genesis input can save encrypted OpenAI and exact-BSS WPA2 credentials there; after
+reboot/replay and RR1 unlock, each one-use consumer receives only its exact output after
+durable local-only audit readback/reparse/rescan
+(`shadow-20260710-192431-4220.json`, 56/56). Wrong-BSSID and auditless WiFi use deny.
+This is disposable QEMU evidence; physical persistence and TPM auto-unlock remain unproven.
 
 Vault crypto status: exact AES-GCM/HKDF, recovery wrappers, opaque complete-history
-replay and the fail-closed Broker now pass 406 focused core/tool tests. Its one-use outputs are
+replay and the fail-closed Broker now pass 402/402 raios-core tests. Its one-use outputs are
 only the bounded NXP WPA2 command or exact OpenAI header; no plaintext accessor
 exists. The complete Limine kernel plus A/1 BOOTCTL policy is now owner-software-
 pinned and retained by the Broker. Explicit Genesis RR1 provisioning, wrapper
-commit/readback, reboot/replay and RR1 unlock are proven. Provider use is now bounded
-by an opaque one-use lease after durable pre-use audit; WiFi Vault use remains open.
+commit/readback, reboot/replay and RR1 unlock are proven. Provider and contained WiFi
+use are bounded by opaque one-use leases after durable pre-use audit.
 
-Latest proof: focused Secret Vault report `shadow-20260710-174308-19744.json` passed
-42/42, including encrypted provider save, two-boot replay/unlock, audit-before-use,
-exact contained header delivery, and dynamic-sentinel absence from all required
-artifacts. It does not prove a live network provider request.
+Latest proof: focused Secret Vault report `shadow-20260710-192431-4220.json` passed
+56/56, including encrypted provider/WiFi save, two-boot replay/unlock, both durable
+audit-before-use orders, exact contained consumers, wrong-BSSID/auditless denials, and
+both dynamic sentinels absent from required artifacts. It proves no live provider
+request or association/link/`PORT_RELEASE`/DHCP.
 
 Gate status: latest full profile remains green at
 `shadow-20260708-150428-34396.json` 7867/7867. This slice used focused Secret Vault
@@ -74,7 +76,6 @@ Latest Core-Policy proof: `shadow-20260710-145039-13864.json` passed 5/5 for the
 owner signature, complete Limine executable measurement, and exact A/1 BOOTCTL join.
 This is software-pinned, not Secure Boot/TPM, and does not unlock the Vault.
 
-Next task: finish I3/G5.4 with WiFi Vault use and the remaining forget/SAFE actions,
-then prove the physical store and G5.5 recovery/corruption cases. Production OpenAI
-is wired behind real pinned trust, but live provider success is not yet claimed.
-Disk 2 stays untouched.
+Next task: finish I3/G5.4 with the remaining forget/SAFE actions, then prove the
+physical store and G5.5 recovery/corruption cases. Production OpenAI is wired behind
+real pinned trust, but live provider success is not yet claimed. Disk 2 stays untouched.

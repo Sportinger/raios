@@ -1323,20 +1323,21 @@ fn build_http_preamble() -> String {
 }
 
 fn provider_credential_configured() -> bool {
-    provider_config::api_key_set()
-        || matches!(
-            secret_vault::provider_status(),
-            secret_vault::VaultSecretStatus::Available { .. }
-        )
+    match secret_vault::provider_status() {
+        secret_vault::VaultSecretStatus::Available { .. } => true,
+        secret_vault::VaultSecretStatus::Missing => provider_config::api_key_set(),
+        secret_vault::VaultSecretStatus::Forgotten { .. } => false,
+    }
 }
 
 fn provider_credential_usable() -> bool {
-    provider_config::api_key_set()
-        || (secret_vault::recovery_state() == secret_vault::VaultRecoveryState::Unlocked
-            && matches!(
-                secret_vault::provider_status(),
-                secret_vault::VaultSecretStatus::Available { .. }
-            ))
+    match secret_vault::provider_status() {
+        secret_vault::VaultSecretStatus::Available { .. } => {
+            secret_vault::recovery_state() == secret_vault::VaultRecoveryState::Unlocked
+        }
+        secret_vault::VaultSecretStatus::Missing => provider_config::api_key_set(),
+        secret_vault::VaultSecretStatus::Forgotten { .. } => false,
+    }
 }
 
 fn build_request_body(prompt: &str) -> String {

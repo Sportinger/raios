@@ -8,7 +8,8 @@ format/append/reboot proof is `shadow-20260710-032738-34812.json` (9/9); C2 and
 C3 foundations are complete. A2/G2 core Context/recovery interaction is verified
 by `shadow-20260710-034302-30252.json` (181/181): shared typed problem facts,
 cached/redacted Recovery, and its shared Lifeline actions are live. The bounded
-zeroizing secure overlay is not yet a Broker/use path. C4/I3 unarmed groundwork
+zeroizing secure overlay now fronts the exact provider/WiFi Broker paths proven below;
+forget/SAFE and G5.5 remain gated. C4/I3 unarmed groundwork
 (`95b7bf4`, `d27c96d`, `f90e7db`, and C1 extraction `0920346`) adds exact
 replayed/readback keyring restore, typed ciphertext records and complete-history-
 only nonce reconstruction; focused regression
@@ -27,8 +28,8 @@ authority. It remains non-default current-boot test infrastructure. **AB/G4 is n
 complete**: `shadow-20260710-124838-24564.json` passed 206/206 with signed entry,
 sanitized input, core-only F12, trap/fuel fallback, dynamic current-boot inventory
 removal, Recovery after fallback, five bound QEMU captures, and a byte-identical
-secure-strip pixel hash across personal rendering. I3/G5.4 is independently
-review-gated. Its unarmed Broker foundation now requires opaque complete-history,
+secure-strip pixel hash across personal rendering. I3/G5.4 forget/SAFE and G5.5 remain
+independently gated. Its unarmed Broker foundation required opaque complete-history,
 mutation and use evidence and exposes only fixed NXP/OpenAI one-use outputs; core
 tests pass 396/396 and `shadow-20260710-132631-20352.json` passes 9/9. Runtime secret
 history is now bound from the exact revalidated QEMU store on both boots by
@@ -45,9 +46,13 @@ evidence. The provider half of I3/G5.4 is now verified by
 OpenAI credential on the exact disposable QEMU C1 store; after reboot/replay and RR1
 unlock, a contained exact Authorization-header consumer receives it only after durable
 `local_only` pre-use audit readback, typed reparse and rescan. Production OpenAI is
-wired behind real pinned trust. This does not prove live network provider success,
-physical persistence, WiFi Vault use, forget/SAFE behavior, TPM auto-unlock, Secure
-Boot, deterministic ESP A/B selection or anti-rollback.
+wired behind real pinned trust. The WiFi half is now verified by
+`shadow-20260710-192431-4220.json` (56/56): physical masked entry, exact SSID/BSSID
+binding, encrypted exact-C1 commit, reboot/replay/RR1 unlock, wrong-target and auditless
+denials, durable local-only audit, and the exact contained NXP PMK formatter all pass
+without a link/`PORT_RELEASE`/DHCP claim or sentinel leak. This does not prove live
+network provider success, physical persistence, forget/SAFE behavior, TPM auto-unlock,
+Secure Boot, deterministic ESP A/B selection or anti-rollback.
 
 Target orchestrator: Codex 5.6, reasoning effort `xhigh`
 
@@ -1613,9 +1618,13 @@ commit, second-boot replay/RR1 unlock, durable local-only pre-use audit with ver
 readback/reparse/rescan, and one contained exact Authorization-header consumer all
 pass; the dynamic sentinel is absent from every required artifact. The production
 OpenAI writer requires real pinned trust before it can request the same one-use lease.
-This report does not claim a live network provider request or physical persistence.
-WiFi Vault use, forget/SAFE behavior and TPM auto-unlock remain open, so I3/G5.4 is not
-complete.
+The WiFi sub-slice is green in `shadow-20260710-192431-4220.json` (56/56): physical
+masked save, exact SSID/BSSID binding, encrypted exact-C1 commit, second-boot replay/RR1
+unlock, wrong-BSSID and auditless denials, durable local-only pre-use audit, and one
+contained exact NXP PMK formatter all pass; both dynamic sentinels are absent and the
+profile emits no radio/link/`PORT_RELEASE`/DHCP success. Neither report claims a live
+network request or physical persistence. Forget/SAFE behavior, crash/corruption
+evidence and TPM auto-unlock remain open, so I3/G5.4 is not complete.
 
 I3 readiness: C1/C2/C3 are green, A2 exposes the frozen secure-overlay/status API, the
 foreign WiFi work is clean/frozen, and Sol has approved the exact authority diff. Only

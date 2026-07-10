@@ -22,7 +22,7 @@ use raios_core::marvell_wifi_fw::{
 use raios_core::marvell_wifi_supplicant::{self, SupplicantError};
 use spin::Mutex;
 
-use crate::{memory, net, pci, serial, time, wifi};
+use crate::{memory, net, pci, secret_vault, serial, time, wifi};
 
 // Linux resource index 2: PCI config offset 0x18. BAR0 is 64-bit on this part.
 const MARVELL_REGISTER_BAR: u8 = 2;
@@ -967,15 +967,6 @@ struct ConnectionJob {
     phase_started_tsc: u64,
     seq: u16,
     target: wifi::ScannedNetwork,
-    passphrase: [u8; wifi::PASSPHRASE_CAPACITY],
-    passphrase_len: usize,
-}
-
-impl Drop for ConnectionJob {
-    fn drop(&mut self) {
-        self.passphrase.fill(0);
-        compiler_fence(Ordering::SeqCst);
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -1068,23 +1059,11 @@ pub fn start_association() -> ConnectionTriggerResult {
         return fail_connection_start(ConnectionResult::DmaAddressUnavailable);
     };
 
-    let mut passphrase = [0u8; wifi::PASSPHRASE_CAPACITY];
-    let passphrase_len = if secure {
-        let Some(len) = wifi::copy_passphrase(&mut passphrase) else {
-            return fail_connection_start(ConnectionResult::PassphraseUnavailable);
-        };
-        len
-    } else {
-        0
-    };
-
     let mut runtime = CONNECTION.lock();
     if runtime.snapshot.is_ready() {
-        passphrase.fill(0);
         return ConnectionTriggerResult::AlreadyReady;
     }
     if runtime.job.is_some() {
-        passphrase.fill(0);
         return ConnectionTriggerResult::AlreadyRunning;
     }
     let seq = runtime.next_seq;
@@ -1108,8 +1087,6 @@ pub fn start_association() -> ConnectionTriggerResult {
         phase_started_tsc: time::rdtsc(),
         seq,
         target,
-        passphrase,
-        passphrase_len,
     });
     DATA_LINK_READY.store(false, Ordering::Release);
     serial::write_line("marvell wifi: bounded association sequence started");
@@ -1890,7 +1867,6 @@ pub fn poll_connection() -> bool {
     job.phase_started_tsc = time::rdtsc();
     job.phase = next_connection_phase(job.phase, job.target.security);
     if job.phase == ConnectionStage::WaitPortRelease {
-        job.passphrase.fill(0);
         runtime.snapshot.stage = ConnectionStage::WaitPortRelease;
         runtime.job = Some(job);
         serial::write_line("marvell wifi: association accepted; waiting for secure port release");
@@ -2792,14 +2768,34 @@ fn prepare_connection_dma(job: &ConnectionJob) -> Result<usize, ConnectionResult
                 marvell_wifi_supplicant::build_supplicant_profile_set(seq, out)
                     .map_err(ConnectionResult::SupplicantBuild)
             }
-            ConnectionStage::SupplicantPmk => marvell_wifi_supplicant::build_supplicant_pmk_set(
-                seq,
-                job.target.bssid,
-                job.target.ssid.as_bytes(),
-                &job.passphrase[..job.passphrase_len],
-                out,
-            )
-            .map_err(ConnectionResult::SupplicantBuild),
+            ConnectionStage::SupplicantPmk => match secret_vault::wifi_status() {
+                secret_vault::VaultSecretStatus::Available { .. } => {
+                    secret_vault::write_wifi_pmk_for_association(
+                        seq,
+                        job.target.ssid.as_bytes(),
+                        job.target.bssid,
+                        out,
+                    )
+                    .map_err(|denied| {
+                        serial::write_fmt(format_args!(
+                            "VAULT_WIFI_USE_REJECTED reason={}\r\n",
+                            denied.wifi_use_reason()
+                        ));
+                        ConnectionResult::PassphraseUnavailable
+                    })
+                }
+                secret_vault::VaultSecretStatus::Missing => wifi::format_legacy_supplicant_pmk_set(
+                    seq,
+                    job.target.bssid,
+                    job.target.ssid.as_bytes(),
+                    out,
+                )
+                .map_err(ConnectionResult::SupplicantBuild),
+                secret_vault::VaultSecretStatus::Forgotten { .. } => {
+                    serial::write_line("VAULT_WIFI_USE_REJECTED reason=secret_forgotten");
+                    Err(ConnectionResult::PassphraseUnavailable)
+                }
+            },
             ConnectionStage::Associate => {
                 let security_ie = if job.target.security_ie().is_empty() {
                     None

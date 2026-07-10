@@ -1661,7 +1661,7 @@ fn show_setup_menu() {
         wifi_ssid_status(&wifi.ssid)
     ));
     write_output(format_args!(
-        "5 WIFI KEY: {}    6 CLEAR WIFI",
+        "5 WIFI KEY LEGACY RAM-ONLY: {}    6 CLEAR WIFI",
         api_key_status(wifi.passphrase_set)
     ));
     write_output(format_args!("7 START WIFI FW    8 SCAN NETWORKS    Q EXIT"));
@@ -1680,7 +1680,7 @@ fn show_wifi_ssid_entry() {
 }
 
 fn show_wifi_passphrase_entry() {
-    write_output(format_args!("WIFI KEY ENTRY"));
+    write_output(format_args!("WIFI KEY ENTRY: LEGACY RAM-ONLY"));
     write_output(format_args!("TYPE WPA KEY, ENTER TO SAVE, ESC TO CANCEL"));
 }
 
@@ -1750,7 +1750,9 @@ fn show_setup_message(message: SetupMessage) {
         }
         SetupMessage::ApiKeyCancelled => write_output(format_args!("API KEY ENTRY CANCELLED")),
         SetupMessage::WifiSsidSet => write_output(format_args!("WIFI SSID SET (RAM ONLY)")),
-        SetupMessage::WifiPassphraseSet => write_output(format_args!("WIFI KEY SET (RAM ONLY)")),
+        SetupMessage::WifiPassphraseSet => {
+            write_output(format_args!("WIFI KEY SET (LEGACY RAM-ONLY)"))
+        }
         SetupMessage::WifiConfigCleared => write_output(format_args!("WIFI CONFIG CLEARED")),
         SetupMessage::WifiSsidEmpty => write_output(format_args!("WIFI SSID NOT CHANGED: EMPTY")),
         SetupMessage::WifiSsidTooLong => {

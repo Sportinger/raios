@@ -13,8 +13,10 @@ function Clear-Rr1Bytes {
 }
 
 function New-ProviderSentinelBytes {
-    $random = [byte[]]::new(32)
-    $sentinel = [byte[]]::new(64)
+    param([ValidateRange(4, 32)][int]$ByteCount = 32)
+
+    $random = [byte[]]::new($ByteCount)
+    $sentinel = [byte[]]::new($ByteCount * 2)
     $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
     try {
         $rng.GetBytes($random)
@@ -246,6 +248,8 @@ function Send-ProviderSentinelViaUsbKeyboard {
 
 function Assert-ProviderSentinelAbsent {
     param(
+        [string]$Name,
+        [string]$Label,
         [byte[]]$Sentinel,
         [string[]]$RequiredPaths
     )
@@ -264,8 +268,8 @@ function Assert-ProviderSentinelAbsent {
     }
     if (-not $requiredReady) {
         Add-Predicate `
-            -Name "secret-vault:provider_sentinel_absent_from_all_artifacts" `
-            -Expected "exact dynamic provider sentinel absent from both serial logs, combined log, boot image, C1, persist, and every run file" `
+            -Name $Name `
+            -Expected "exact dynamic $Label sentinel absent from both serial logs, combined log, boot image, C1, persist, and every run file" `
             -Passed $false `
             -Actual "absent=unproven scope=required_artifact_missing"
         throw "Provider sentinel scan is missing a required artifact"
@@ -296,8 +300,8 @@ function Assert-ProviderSentinelAbsent {
         }
     }
     Add-Predicate `
-        -Name "secret-vault:provider_sentinel_absent_from_all_artifacts" `
-        -Expected "exact dynamic provider sentinel absent from both serial logs, combined log, boot image, C1, persist, and every run file" `
+        -Name $Name `
+        -Expected "exact dynamic $Label sentinel absent from both serial logs, combined log, boot image, C1, persist, and every run file" `
         -Passed (-not $leaked) `
         -Actual $(if ($leaked) { "absent=false scope=all_required_artifacts" } else { "absent=true scope=all_required_artifacts" })
     if ($leaked) {
@@ -941,6 +945,7 @@ $initialPersistInspection = $null
 
 $rr1 = $null
 $providerSentinel = $null
+$wifiSentinel = $null
 $script:Rr1SecretPpmPath = Join-Path $RunDir "rr1-once.ppm"
 try {
     Assert-LogContains `
@@ -1053,6 +1058,43 @@ try {
         throw "Provider save did not traverse USB HID input"
     }
 
+    $usbBeforeWifi = Get-SerialMarkerCount -Path $SerialLog -Marker "usb input batch:"
+    # Close the provider outcome, move through Clear API key to Set WiFi, and
+    # open the exact-C1 proof entry. No serial command carries the credential.
+    Send-Rr1HmpKey -KeyName "ret"
+    Start-Sleep -Milliseconds 150
+    for ($index = 0; $index -lt 2; $index++) {
+        Send-Rr1HmpKey -KeyName "tab"
+    }
+    Send-Rr1HmpKey -KeyName "ret"
+    Assert-VaultFixedLogMarker `
+        -Name "secret-vault:boot1:wifi_entry_ready" `
+        -Marker "VAULT_WIFI_SECRET_ENTRY_READY target=bound_bss test_infrastructure=true" `
+        -TimeoutSeconds $TimeoutSeconds
+
+    $wifiSentinel = New-ProviderSentinelBytes -ByteCount 31
+    Send-ProviderSentinelViaUsbKeyboard -Sentinel $wifiSentinel
+    foreach ($marker in @(
+        @{ Name = "secret-vault:boot1:wifi_committed_readback"; Text = "C1_VAULT_WIFI_COMMITTED version=1 readback=verified" },
+        @{ Name = "secret-vault:boot1:wifi_stored_readback"; Text = "VAULT_WIFI_STORED version=1 readback=verified" },
+        @{ Name = "secret-vault:boot1:wifi_saved"; Text = "VAULT_WIFI_SECRET_SAVED target=bound_bss test_infrastructure=true" }
+    )) {
+        Assert-VaultFixedLogMarker `
+            -Name $marker.Name `
+            -Marker $marker.Text `
+            -TimeoutSeconds $TimeoutSeconds
+    }
+    $usbAfterWifi = Get-SerialMarkerCount -Path $SerialLog -Marker "usb input batch:"
+    $wifiUsedUsb = $usbAfterWifi -gt $usbBeforeWifi
+    Add-Predicate `
+        -Name "secret-vault:boot1:wifi_save_uses_usb_hid" `
+        -Expected "physical contained-WiFi action and masked submission increment USB input batches" `
+        -Passed $wifiUsedUsb `
+        -Actual $(if ($wifiUsedUsb) { "physical=true transport=usb_hid" } else { "physical=false transport=usb_hid" })
+    if (-not $wifiUsedUsb) {
+        throw "WiFi Vault save did not traverse USB HID input"
+    }
+
     $firstBootLog = $SerialLog
     if (-not $QemuPid) {
         throw "secret-vault profile cannot reboot without the first QEMU process"
@@ -1108,6 +1150,10 @@ try {
         -Name "secret-vault:boot2:provider_replayed" `
         -Marker "C1_VAULT_PROVIDER_REPLAYED version=1" `
         -TimeoutSeconds $TimeoutSeconds
+    Assert-VaultFixedLogMarker `
+        -Name "secret-vault:boot2:wifi_replayed" `
+        -Marker "C1_VAULT_WIFI_REPLAYED version=1" `
+        -TimeoutSeconds $TimeoutSeconds
 
     $usbBeforeUnlockAction = Get-SerialMarkerCount -Path $SerialLog -Marker "usb input batch:"
     Invoke-VaultVisibleAction -SkipFinalEnter
@@ -1146,7 +1192,11 @@ try {
     foreach ($marker in @(
         @{ Name = "secret-vault:boot2:provider_auditless_denied"; Text = "VAULT_PROVIDER_AUDITLESS_DENIED reason=audit_binding_missing test_infrastructure=true" },
         @{ Name = "secret-vault:boot2:provider_preuse_audit_durable"; Text = "VAULT_PROVIDER_PREUSE_AUDIT_COMMITTED consumer=openai_direct operation=request_exact_host readback=verified reparse=verified rescan=verified" },
-        @{ Name = "secret-vault:boot2:provider_contained_exact_header"; Text = "VAULT_PROVIDER_CONTAINED_CONSUMED target=api.openai.com accepted=true test_infrastructure=true" }
+        @{ Name = "secret-vault:boot2:provider_contained_exact_header"; Text = "VAULT_PROVIDER_CONTAINED_CONSUMED target=api.openai.com accepted=true test_infrastructure=true" },
+        @{ Name = "secret-vault:boot2:wifi_wrong_bssid_denied"; Text = "VAULT_WIFI_WRONG_BSSID_DENIED reason=target_mismatch test_infrastructure=true" },
+        @{ Name = "secret-vault:boot2:wifi_auditless_denied"; Text = "VAULT_WIFI_AUDITLESS_DENIED reason=audit_binding_missing test_infrastructure=true" },
+        @{ Name = "secret-vault:boot2:wifi_preuse_audit_durable"; Text = "VAULT_WIFI_PREUSE_AUDIT_COMMITTED consumer=native_wifi_supplicant operation=associate_bound_bss readback=verified reparse=verified rescan=verified" },
+        @{ Name = "secret-vault:boot2:wifi_contained_exact_command"; Text = "VAULT_WIFI_CONTAINED_CONSUMED target=bound_bss accepted=true test_infrastructure=true" }
     )) {
         Assert-VaultFixedLogMarker `
             -Name $marker.Name `
@@ -1179,6 +1229,32 @@ try {
         $auditMarkerBytes = $null
         $consumerMarkerBytes = $null
     }
+
+    $wifiAuditMarkerBytes = [System.Text.Encoding]::ASCII.GetBytes(
+        "VAULT_WIFI_PREUSE_AUDIT_COMMITTED consumer=native_wifi_supplicant operation=associate_bound_bss"
+    )
+    $wifiConsumerMarkerBytes = [System.Text.Encoding]::ASCII.GetBytes(
+        "VAULT_WIFI_CONTAINED_CONSUMED target=bound_bss accepted=true test_infrastructure=true"
+    )
+    try {
+        $wifiAuditOffset = Get-FileByteSequenceOffset -Path $SerialLog -Needle $wifiAuditMarkerBytes
+        $wifiConsumerOffset = Get-FileByteSequenceOffset -Path $SerialLog -Needle $wifiConsumerMarkerBytes
+        $wifiAuditPrecedesConsumer = $wifiAuditOffset -ge 0 -and $wifiConsumerOffset -gt $wifiAuditOffset
+        Add-Predicate `
+            -Name "secret-vault:boot2:audit_precedes_wifi_consumer" `
+            -Expected "durable pre-use audit marker precedes exact NXP-command contained consumer marker" `
+            -Passed $wifiAuditPrecedesConsumer `
+            -Actual $(if ($wifiAuditPrecedesConsumer) { "ordered=true audit_before_consumer=true" } else { "ordered=false audit_before_consumer=false" })
+        if (-not $wifiAuditPrecedesConsumer) {
+            throw "WiFi consumer marker order is invalid"
+        }
+    }
+    finally {
+        Clear-Rr1Bytes -Bytes $wifiAuditMarkerBytes
+        Clear-Rr1Bytes -Bytes $wifiConsumerMarkerBytes
+        $wifiAuditMarkerBytes = $null
+        $wifiConsumerMarkerBytes = $null
+    }
     $usbAfterUnlock = Get-SerialMarkerCount -Path $SerialLog -Marker "usb input batch:"
     $unlockUsedUsb = $usbAfterUnlock -gt $usbBeforeUnlock
     Add-Predicate `
@@ -1199,6 +1275,8 @@ try {
     Join-VaultSerialLogs -First $firstBootLog -Second $rebootLog -Destination $combinedLog
 
     Assert-ProviderSentinelAbsent `
+        -Name "secret-vault:provider_sentinel_absent_from_all_artifacts" `
+        -Label "provider" `
         -Sentinel $providerSentinel `
         -RequiredPaths @(
             $firstBootLog,
@@ -1208,6 +1286,35 @@ try {
             $StructuredStoreDiskImage,
             $PersistDiskImage
         )
+    Assert-ProviderSentinelAbsent `
+        -Name "secret-vault:wifi_sentinel_absent_from_all_artifacts" `
+        -Label "WiFi" `
+        -Sentinel $wifiSentinel `
+        -RequiredPaths @(
+            $firstBootLog,
+            $rebootLog,
+            $combinedLog,
+            $ResolvedImage,
+            $StructuredStoreDiskImage,
+            $PersistDiskImage
+        )
+
+    $combinedContent = [string](Get-Content -LiteralPath $combinedLog -Raw -ErrorAction Stop)
+    $forbiddenWifiSuccess = @(
+        "marvell wifi: secure port released; data link and DHCP enabled",
+        "authenticated Marvell WiFi link attached; DHCP polling enabled",
+        "DHCP lease acquired:"
+    ) | Where-Object { $combinedContent.IndexOf($_, [StringComparison]::Ordinal) -ge 0 }
+    $noRadioClaim = @($forbiddenWifiSuccess).Count -eq 0
+    Add-Predicate `
+        -Name "secret-vault:contained_wifi_claims_no_link_or_dhcp" `
+        -Expected "contained credential consumer emits no radio-link, port-release, or DHCP success" `
+        -Passed $noRadioClaim `
+        -Actual $(if ($noRadioClaim) { "radio=false link=false dhcp=false" } else { "radio_claim_unexpected=true" })
+    if (-not $noRadioClaim) {
+        throw "Contained WiFi proof emitted a forbidden live-network success marker"
+    }
+    $combinedContent = $null
 
     $finalPersistInspection = Get-PersistInspectionForVault -Path $PersistDiskImage
     $finalFrames = @($finalPersistInspection.reclog_frames)
@@ -1215,11 +1322,11 @@ try {
         [int]$finalPersistInspection.reclog_scan.count -eq $finalFrames.Count
     Add-Predicate `
         -Name "secret-vault:offline_reclog_valid" `
-        -Expected "offline inspector reports one valid chained RECLOG after contained provider use" `
+        -Expected "offline inspector reports one valid chained RECLOG after contained provider and WiFi use" `
         -Passed $finalReclogValid `
         -Actual $(if ($finalReclogValid) { "valid=true chain=verified" } else { "valid=false chain=unverified" })
     if (-not $finalReclogValid) {
-        throw "Provider audit RECLOG is invalid under offline inspection"
+        throw "Secret-use audit RECLOG is invalid under offline inspection"
     }
 
     $prefixUnchanged = $finalFrames.Count -ge $initialFrameCount
@@ -1227,34 +1334,67 @@ try {
         $prefixUnchanged = [string]$finalFrames[$index].frame_sha256 -eq $initialFrameHashes[$index]
     }
     $newFrames = @($finalFrames | Select-Object -Skip $initialFrameCount)
-    $record = if ($newFrames.Count -eq 1) { $newFrames[0].payload_json } else { $null }
-    $recordValue = if ($record) { $record.value } else { $null }
-    $exactAuditRecord = $prefixUnchanged -and
-        $newFrames.Count -eq 1 -and
-        $finalFrames.Count -eq ($initialFrameCount + 1) -and
-        $record -and
-        $record.schema -eq "raios.memory_record.v0" -and
-        $record.kind -eq "capability_grant" -and
-        $record.classification -eq "local_only" -and
-        $record.authority -eq "owner_verified_core_policy" -and
-        $record.entity -eq "openai_direct" -and
-        $record.predicate -eq "request_exact_host" -and
-        $recordValue -and
-        $recordValue.consumer -eq "openai_direct" -and
-        $recordValue.operation -eq "request_exact_host" -and
-        $recordValue.target -eq "api.openai.com" -and
-        $recordValue.network_export_authorized -eq $false -and
-        $recordValue.test_infrastructure -eq $true
+    $providerRecord = if ($newFrames.Count -eq 2) { $newFrames[0].payload_json } else { $null }
+    $wifiRecord = if ($newFrames.Count -eq 2) { $newFrames[1].payload_json } else { $null }
+    $providerValue = if ($providerRecord) { $providerRecord.value } else { $null }
+    $wifiValue = if ($wifiRecord) { $wifiRecord.value } else { $null }
+    $exactAuditDelta = $prefixUnchanged -and
+        $newFrames.Count -eq 2 -and
+        $finalFrames.Count -eq ($initialFrameCount + 2)
+    $exactProviderAuditRecord = $exactAuditDelta -and
+        $providerRecord -and
+        $providerRecord.schema -eq "raios.memory_record.v0" -and
+        $providerRecord.kind -eq "capability_grant" -and
+        $providerRecord.classification -eq "local_only" -and
+        $providerRecord.authority -eq "owner_verified_core_policy" -and
+        $providerRecord.entity -eq "openai_direct" -and
+        $providerRecord.predicate -eq "request_exact_host" -and
+        $providerValue -and
+        $providerValue.consumer -eq "openai_direct" -and
+        $providerValue.operation -eq "request_exact_host" -and
+        $providerValue.target -eq "api.openai.com" -and
+        $providerValue.network_export_authorized -eq $false -and
+        $providerValue.test_infrastructure -eq $true
     Add-Predicate `
         -Name "secret-vault:offline_exact_provider_audit_record" `
-        -Expected "exactly one new local_only capability_grant for provider use, non-exportable and labeled test infrastructure" `
-        -Passed $exactAuditRecord `
-        -Actual $(if ($exactAuditRecord) { "delta=one record=provider_use export=false test=true" } else { "delta=invalid record=provider_use export=unknown test=unknown" })
-    if (-not $exactAuditRecord) {
+        -Expected "first of exactly two new records is the non-exportable local_only provider-use grant" `
+        -Passed $exactProviderAuditRecord `
+        -Actual $(if ($exactProviderAuditRecord) { "delta=two record1=provider_use export=false test=true" } else { "delta=invalid record1=provider_use" })
+    if (-not $exactProviderAuditRecord) {
         throw "Offline inspection did not prove the exact provider-use audit record"
     }
-    $recordValue = $null
-    $record = $null
+
+    $wifiFields = if ($wifiValue) { @($wifiValue.PSObject.Properties.Name) } else { @() }
+    $exactWifiAuditRecord = $exactAuditDelta -and
+        $wifiRecord -and
+        $wifiRecord.schema -eq "raios.memory_record.v0" -and
+        $wifiRecord.kind -eq "capability_grant" -and
+        $wifiRecord.classification -eq "local_only" -and
+        $wifiRecord.authority -eq "owner_verified_core_policy" -and
+        $wifiRecord.entity -eq "native_wifi_supplicant" -and
+        $wifiRecord.predicate -eq "associate_bound_bss" -and
+        $wifiValue -and
+        $wifiValue.consumer -eq "native_wifi_supplicant" -and
+        $wifiValue.operation -eq "associate_bound_bss" -and
+        [string]$wifiValue.target_binding_sha256 -match '^sha256:[0-9a-f]{64}$' -and
+        $wifiValue.network_export_authorized -eq $false -and
+        $wifiValue.test_infrastructure -eq $true -and
+        $wifiFields -notcontains "ssid" -and
+        $wifiFields -notcontains "bssid" -and
+        $wifiFields -notcontains "target"
+    Add-Predicate `
+        -Name "secret-vault:offline_exact_wifi_audit_record" `
+        -Expected "second of exactly two new records is the hashed-target non-exportable local_only WiFi-use grant with no raw BSS fields" `
+        -Passed $exactWifiAuditRecord `
+        -Actual $(if ($exactWifiAuditRecord) { "delta=two record2=wifi_use target=hash_only export=false test=true" } else { "delta=invalid record2=wifi_use" })
+    if (-not $exactWifiAuditRecord) {
+        throw "Offline inspection did not prove the exact WiFi-use audit record"
+    }
+    $wifiFields = $null
+    $providerValue = $null
+    $wifiValue = $null
+    $providerRecord = $null
+    $wifiRecord = $null
     $newFrames = $null
     $finalFrames = $null
     $finalPersistInspection = $null
@@ -1270,5 +1410,7 @@ finally {
     $rr1 = $null
     Clear-Rr1Bytes -Bytes $providerSentinel
     $providerSentinel = $null
+    Clear-Rr1Bytes -Bytes $wifiSentinel
+    $wifiSentinel = $null
     Remove-Rr1SecretPpm -Path $script:Rr1SecretPpmPath
 }

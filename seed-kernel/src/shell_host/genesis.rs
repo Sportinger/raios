@@ -4,7 +4,7 @@
 use crate::agent_protocol::recovery_lifeline;
 use crate::framebuffer::{Color, FramebufferInfo, FramebufferSurface};
 use crate::system_status::{RowState, SnapshotStates, StatusLine, SystemSnapshot};
-use crate::{console, input, personal_shell_service, provider, serial, text, wifi};
+use crate::{console, input, personal_shell_service, provider, secret_vault, serial, text, wifi};
 use raios_core::{
     genesis_layout::{GenesisLayout, Point, Size},
     personal_shell_abi::{PersonalShellContext, SanitizedInputEvent, SanitizedInputKind},
@@ -229,6 +229,9 @@ impl ShellHost {
         if self.vault.is_active() {
             return self.vault.handle_physical_input(event);
         }
+        if self.wifi.handle_physical_input(event) {
+            return true;
+        }
         let console_snapshot = console::snapshot();
         if !self.personal.has_personal_focus()
             && console_snapshot.view == console::UiView::Settings
@@ -244,6 +247,11 @@ impl ShellHost {
                 console::UiFocus::SettingsVault => return self.vault.begin_explicit(),
                 console::UiFocus::SettingsApiKey => {
                     return self.vault.begin_provider_explicit();
+                }
+                console::UiFocus::SettingsWifiSsid
+                    if secret_vault::contained_qemu_wifi_test_available() =>
+                {
+                    return self.vault.begin_contained_wifi_explicit();
                 }
                 _ => {}
             }
@@ -387,6 +395,9 @@ impl ShellHost {
             return self.vault.begin_provider_explicit();
         }
         if point_in(x, y, action[1]) {
+            if secret_vault::contained_qemu_wifi_test_available() {
+                return self.vault.begin_contained_wifi_explicit();
+            }
             return console::activate_focus(console::UiFocus::SettingsWifiSsid);
         }
         if point_in(x, y, action[2]) {
