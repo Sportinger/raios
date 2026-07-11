@@ -84,7 +84,7 @@ impl RecoveryView {
             ("Crashed services", snapshot.crashed.label(), TEXT_MUTED),
             ("Disabled modules", snapshot.disabled.label(), TEXT_MUTED),
         ];
-        let mut y = rect.y + 45;
+        let mut y = rect.y + 43;
         for (label, value, color) in rows {
             text::draw_text(surface, rect.x + 14, y, label, TEXT_MUTED, None);
             draw_truncated_text(
@@ -95,7 +95,7 @@ impl RecoveryView {
                 rect.w.saturating_sub(28) / super::genesis::FONT_ADVANCE,
                 color,
             );
-            y = y.saturating_add(29);
+            y = y.saturating_add(26);
         }
 
         let actions = action_rects(rect);

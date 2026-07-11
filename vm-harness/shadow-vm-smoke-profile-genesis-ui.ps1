@@ -8,8 +8,14 @@
 #
 # What this proves today: the typed current-boot facts that Genesis renders and
 # its read-only recovery source are live, coherent and remain outside Wasm and
-# provider authority.  Secure-entry and recovery-button interaction need their
-# own non-secret runtime acknowledgement before they can be asserted here.
+# provider authority. Trusted setup and Recovery are driven through physical
+# QEMU HID input and require non-secret guest acknowledgements before capture.
+
+function Send-GenesisUiKey {
+    param([string]$KeyName)
+
+    Send-QemuMonitorCommand -Command "sendkey $KeyName 60" -ReplyWaitMilliseconds 250 | Out-Null
+}
 
 Send-AgentCommand -Command "snapshot" -ExpectedMarker "RAIOS_AGENT_END system.snapshot" -Name "genesis-ui:context-snapshot"
 $genesisSnapshot = Get-LastAgentResponseJson -Method "system.snapshot"
@@ -88,7 +94,26 @@ if (-not $genesisLifelineOk) {
     throw "Expected Genesis recovery to bind the existing recovery lifeline"
 }
 
-$genesisBeforePersonalProof = Save-QemuScreendump -Name "genesis-before-personal-proof"
+for ($index = 0; $index -lt 3; $index++) {
+    Send-GenesisUiKey -KeyName "tab"
+}
+Send-GenesisUiKey -KeyName "ret"
+Assert-LogContains -Name "genesis-ui:trusted-provider-setup-open" -Needle "1 PROVIDER: OPENAI DIRECT" -TimeoutSeconds $TimeoutSeconds
+Send-GenesisUiKey -KeyName "tab"
+Send-GenesisUiKey -KeyName "tab"
+Start-Sleep -Milliseconds 300
+Save-QemuScreendump -Name "trusted-provider-setup" | Out-Null
+Send-GenesisUiKey -KeyName "esc"
+Assert-LogContains -Name "genesis-ui:trusted-provider-setup-close" -Needle "SETUP CLOSED" -TimeoutSeconds $TimeoutSeconds
+
+Send-GenesisUiKey -KeyName "f12"
+Assert-LogContains -Name "genesis-ui:recovery-view-open" -Needle "GENESIS_RECOVERY_VIEW_OPENED current_boot=true" -TimeoutSeconds $TimeoutSeconds
+Start-Sleep -Milliseconds 300
+Save-QemuScreendump -Name "recovery-open" | Out-Null
+Send-GenesisUiKey -KeyName "f12"
+Assert-LogContains -Name "genesis-ui:recovery-view-close" -Needle "GENESIS_RECOVERY_VIEW_CLOSED current_boot=true" -TimeoutSeconds $TimeoutSeconds
+
+$genesisBeforePersonalProof = Save-QemuScreendump -Name "genesis-context-diagnostics"
 Send-AgentCommand -Command "ui.personal_shell_proof" -ExpectedMarker "RAIOS_AGENT_END ui.personal_shell_proof" -Name "genesis-ui:personal-shell-proof"
 $personalShellResponse = Get-LastAgentResponseJson -Method "ui.personal_shell_proof"
 $personalShell = $personalShellResponse.body.result
@@ -217,6 +242,8 @@ if (-not $personalTrapRequestOk) {
     throw "Expected the typed built-in trap mode to queue exactly once"
 }
 Assert-LogContains -Name "genesis-ui:personal-shell-trap-fallback" -Needle "PERSONAL SHELL FALLBACK trap" -TimeoutSeconds $TimeoutSeconds
+Start-Sleep -Milliseconds 300
+Save-QemuScreendump -Name "genesis-after-personal-trap" | Out-Null
 
 Send-AgentCommand -Command "ui.personal_shell_proof fuel" -ExpectedMarker "RAIOS_AGENT_END ui.personal_shell_proof" -Name "genesis-ui:personal-shell-fuel-request"
 $personalFuelResponse = Get-LastAgentResponseJson -Method "ui.personal_shell_proof"

@@ -277,9 +277,12 @@ impl ShellHost {
             }
         }
         if matches!(event.kind, input::InputEventKind::SecureAttention) {
-            let route = self.personal.handle_secure_attention();
-            note_personal_route(route);
-            return true;
+            if self.personal.has_personal_focus() {
+                let route = self.personal.handle_secure_attention();
+                note_personal_route(route);
+                return true;
+            }
+            return self.toggle_recovery(runtime);
         }
         if !self.personal.has_personal_focus() {
             return false;
@@ -356,9 +359,11 @@ impl ShellHost {
     fn toggle_recovery(&mut self, runtime: crate::system_status::RuntimeStatus) -> bool {
         if self.recovery_open {
             self.recovery_open = false;
+            serial::write_line("GENESIS_RECOVERY_VIEW_CLOSED current_boot=true");
         } else {
             self.recovery.refresh(runtime);
             self.recovery_open = true;
+            serial::write_line("GENESIS_RECOVERY_VIEW_OPENED current_boot=true");
         }
         true
     }

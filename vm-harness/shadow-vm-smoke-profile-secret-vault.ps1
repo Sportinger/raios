@@ -980,6 +980,9 @@ $wifiSentinel = $null
 $safeProof = $null
 $powerCutProof = $null
 $storeDenialProof = $null
+$vaultLockedCapture = $null
+$vaultManageCapture = $null
+$vaultVisualPaths = @()
 $script:Rr1SecretPpmPath = Join-Path $RunDir "rr1-once.ppm"
 try {
     Assert-LogContains `
@@ -1179,6 +1182,8 @@ try {
         -Name "secret-vault:boot2:recovery_unlock_ready" `
         -Marker "VAULT_RECOVERY_UNLOCK_READY" `
         -TimeoutSeconds $TimeoutSeconds
+    Start-Sleep -Milliseconds 300
+    $vaultLockedCapture = Save-QemuScreendump -Name "vault-locked"
     $displayCountBoot2 = Get-SerialMarkerCount -Path $SerialLog -Marker "VAULT_RR1_DISPLAY_READY"
     $notRedisplayed = $displayCountBoot2 -eq 0
     Add-Predicate `
@@ -1291,6 +1296,19 @@ try {
         throw "Recovery RR1 input did not traverse USB HID input"
     }
     Invoke-SecretVaultPersonalTrapContinuityProof
+    Start-Sleep -Milliseconds 300
+    $vaultManageCapture = Save-QemuScreendump -Name "vault-ready-manage"
+    $vaultVisualPaths = @(
+        $vaultLockedCapture.path,
+        [IO.Path]::ChangeExtension($vaultLockedCapture.path, ".ppm"),
+        $vaultManageCapture.path,
+        [IO.Path]::ChangeExtension($vaultManageCapture.path, ".ppm")
+    )
+    Assert-ProviderSentinelAbsent `
+        -Name "secret-vault:rr1_absent_from_vault_captures" `
+        -Label "RR1" `
+        -Sentinel $rr1 `
+        -RequiredPaths $vaultVisualPaths
     $forgottenRebootLog = Invoke-SecretVaultForgottenRebootProof -Rr1 $rr1
 
     Clear-Rr1Bytes -Bytes $rr1
@@ -1348,7 +1366,7 @@ try {
             $safeProof.Persist,
             $powerCutProof.StructuredStore,
             $powerCutProof.Persist
-        ) + $storeDenialPaths) + $defaultArtifactPaths)
+        ) + $storeDenialPaths + $vaultVisualPaths) + $defaultArtifactPaths)
     Assert-ProviderSentinelAbsent `
         -Name "secret-vault:wifi_sentinel_absent_from_all_artifacts" `
         -Label "WiFi" `
@@ -1368,7 +1386,7 @@ try {
             $safeProof.Persist,
             $powerCutProof.StructuredStore,
             $powerCutProof.Persist
-        ) + $storeDenialPaths) + $defaultArtifactPaths)
+        ) + $storeDenialPaths + $vaultVisualPaths) + $defaultArtifactPaths)
 
     $combinedContent = [string](Get-Content -LiteralPath $combinedLog -Raw -ErrorAction Stop)
     $forbiddenWifiSuccess = @(
@@ -1486,5 +1504,8 @@ finally {
     $safeProof = $null
     $powerCutProof = $null
     $storeDenialProof = $null
+    $vaultLockedCapture = $null
+    $vaultManageCapture = $null
+    $vaultVisualPaths = @()
     Remove-Rr1SecretPpm -Path $script:Rr1SecretPpmPath
 }

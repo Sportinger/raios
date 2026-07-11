@@ -231,6 +231,10 @@ try {
     Assert-LogContains -Name "boot:serial_console_ready" -Needle "SERIAL CONSOLE READY" -TimeoutSeconds $TimeoutSeconds
     Assert-LogContains -Name "boot:framebuffer_ready" -Needle "status FRAMEBUFFER: READY" -TimeoutSeconds $TimeoutSeconds
     Assert-LogContains -Name "boot:usb_xhci_ready" -Needle "status USB-XHCI: READY" -TimeoutSeconds $TimeoutSeconds
+    if ($Network) {
+        Assert-LogContains -Name "network:e1000_initialised" -Needle "e1000 network initialised; DHCP polling enabled" -TimeoutSeconds $TimeoutSeconds
+        Assert-LogContains -Name "network:dhcp_lease_acquired" -Needle "DHCP lease acquired:" -TimeoutSeconds $TimeoutSeconds
+    }
 
     :SmokeProfileValidation while ($true) {
         if ($Profile -eq "persistence") {
