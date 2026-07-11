@@ -9,7 +9,8 @@ Current capability: the normal release image boots into calm Genesis with
 Conversation, typed Context, a Composer, RAM-only masked AI/WiFi setup, and an
 openable cached Recovery view. A deliberate signed proof can enter the bounded
 personal surface, accept sanitized input, leave by F12, and automatically fall back
-to Genesis after trap/fuel; it is not installed as the default shell. On the exact
+to Genesis after trap/fuel; physical F12 now also opens core Recovery directly when
+no personal shell has focus. The proof shell is not installed as the default. On the exact
 disposable QEMU C1 fixture, physical Genesis input can also save encrypted OpenAI and
 exact-SSID/BSSID-bound WPA2 credentials. After reboot/replay and RR1 unlock, each is
 delivered once only to its exact contained consumer after durable pre-use audit. The
@@ -21,8 +22,9 @@ What is still denied: broad USB disk mutation, writes outside `SEED_DATA/RECLOG`
 physical/production durable-secret storage, owner-sealed persistence, unsupported
 WiFi security, and provider access before positive Surface link/DHCP evidence.
 
-Stick status: currently unplugged by the owner. No physical write is permitted
-or attempted; the prior `SEED_ESP_A` evidence remains historical only.
+Stick status: read-only `Get-Disk -Number 2` found no disk
+(`G7_TRIPWIRE_DISK_2_ABSENT`), and the ignored G0 fingerprint file is absent. No
+physical write was attempted or is permitted; prior `SEED_ESP_A` evidence is historical.
 
 WiFi status: Surface-proven firmware, HW_SPEC, live SSIDs, selection, and input
 are green. Association, WPA2 `PORT_RELEASE`, PFU data, and DHCP are implemented;
@@ -73,10 +75,13 @@ copies fail closed. A physical Escape joins the bounded personal trap to real Ge
 fallback/recovery, and physical Vault reopen preserves the unlocked handle without
 another unlock or provider/WiFi use. G5.5a torn/power-cut behavior remains green.
 
-Gate status: latest full profile remains green at
-`shadow-20260711-012708-19288.json` 7870/7870; the matching G5 recovery checkpoint
-`shadow-20260711-012022-24924.json` passed 3677/3677. Together with focused G5.5a/G5.5b,
-this closes G5 only for disposable-QEMU store/Vault, recovery and full evidence.
+Gate status: I4/G6 is green on the exact release candidate. Structured-store 13/13,
+Secret Vault 155/155, Genesis UI 213/213, Recovery 3677/3677, quick `-Network` 544/544
+with e1000+DHCP, and final Full 7870/7870 all pass; Full was the last VM boot. The final
+image SHA is `8f3bc250...51b93ba` and kernel SHA is `e617d2de...ddabace`. All ten final
+1280x800 originals were accepted with no pure-black pixels and the same Core strip.
+Host tests 405/405, formatting and secret scan are green. The no-data-disk full run is
+honestly Core-Policy-denied, not owner-verified evidence.
 
 Prior Vault-foundation proof: release build plus focused structured-store report
 `shadow-20260710-150107-28328.json` passed 13/13, including opaque complete-history
@@ -90,8 +95,8 @@ Latest Core-Policy proof: `shadow-20260710-145039-13864.json` passed 5/5 for the
 owner signature, complete Limine executable measurement, and exact A/1 BOOTCTL join.
 This is software-pinned, not Secure Boot/TPM, and does not unlock the Vault.
 
-Next task: I4/G6 final regression, visual and release-artifact acceptance, followed by
-the separately scoped I5/G7 hardware/USB handoff only if Disk 2 reappears and passes its
-identity/layout preflight. Disk 2 is unplugged and no physical write is permitted.
-Physical persistence, TPM auto-unlock, Surface association/link/`PORT_RELEASE`/RX/TX/
-DHCP and live provider success remain unclaimed.
+Next task: only the I5/G7 read-only disk-presence and G0-fingerprint tripwire. It is
+currently stopped because both prerequisites are absent. If they reappear, identity,
+layout and pre-write hashes must match before explicit physical-write scope is even
+considered. Physical boot/persistence, TPM auto-unlock, Surface association/link/
+`PORT_RELEASE`/RX/TX/DHCP and live provider success remain unclaimed.

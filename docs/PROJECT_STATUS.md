@@ -24,16 +24,15 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Current exact next task (I4/G6 after disposable-QEMU G5 close): freeze the exact
-release candidate and perform the plan's final regression, visual and release-artifact
-acceptance, then enter the physical hardware/USB handoff only within its separately
-scoped I5/G7 boundary. Disk 2 is unplugged; do not attempt any physical write unless
-it reappears, passes the documented identity/layout preflight, and the operation is
-explicitly in scope. Keep the exact Broker consumers, general SAFE durable-write
-denial, durable-store identity/rollback chain and G5.5a/G5.5b behavior unchanged. Do
-not expose plaintext to ShellHost/Wasm, add generic secret access, provider auto-load,
-broad mutation, or physical-target support. G5's close proves disposable QEMU,
-recovery and full regression only. Physical persistence, TPM auto-unlock, positive
+Current exact next task (I5/G7 read-only presence/fingerprint tripwire after G6):
+recheck only whether Disk 2 exists and whether the ignored G0 fingerprint file exists.
+The latest read-only `Get-Disk -Number 2` returned no `MSFT_Disk` object
+(`G7_TRIPWIRE_DISK_2_ABSENT`), and the G0 fingerprint file is absent. Stop there: no
+physical write, format, repartition, replacement fingerprint or guessed identity is
+permitted. If both prerequisites later reappear, rerun the documented read-only
+identity/layout/hash preflight and require explicit physical-write scope before any
+I5/G7 handoff. Keep the exact G6 candidate and all Broker, SAFE, store, recovery and
+secret boundaries unchanged. Physical boot/persistence, TPM auto-unlock, positive
 Surface `LINK`/association/AID/`PORT_RELEASE`/RX/TX/DHCP and live provider access
 remain unproven and unclaimed.
 
@@ -218,6 +217,41 @@ This closes G5 only for the exact disposable-QEMU store/Vault, recovery and full
 regression evidence already described above. It does not prove physical persistence,
 TPM auto-unlock, live Surface WiFi association/link/`PORT_RELEASE`/RX/TX/DHCP, or a
 live provider request; those claims remain denied or unclaimed.
+
+I4/G6 final release candidate verified (2026-07-11) - the exact committed candidate
+now opens the core-owned Recovery view with physical F12 even when no personal shell
+has focus, while F12 inside the proof shell still exits safely to Genesis. Its final
+1280x800 provider, Recovery, diagnostics, personal, post-F12, post-trap/fallback and
+Vault locked/ready evidence was visually accepted: all ten original captures contain
+zero pure-black pixels and retain a byte-identical left Core secure strip with SHA-256
+`2a0b1deb050ae64837157486f5bd906c1d9c3e8c74ab474e83837e017996bf1a`.
+
+The frozen G6 suite passed: structured-store
+`release/vm-reports/shadow-20260711-024108-8004.json` 13/13, report SHA-256
+`e694f522f696221f223a0370656166518a810a8732b0547a8fe083b569b8c97e`;
+secret-vault `release/vm-reports/shadow-20260711-024147-24008.json` 155/155,
+`da12c2b1b980ea8c3f8646593a3ee0253c7abf33ca52dbf481e53adc988b3e1d`;
+genesis-ui `release/vm-reports/shadow-20260711-024805-24880.json` 213/213,
+`41e99d3fdd288d5228e045b61a3bce5de7fa723f76566f5eb9a6f93b5017b233`;
+recovery `release/vm-reports/shadow-20260711-024914-26232.json` 3677/3677,
+`0fe89c1d3598bd44a831b7d74748105176fa87fc37e46b3218b9b8d7d52799c3`;
+quick `-Network` `release/vm-reports/shadow-20260711-025422-12600.json` 544/544,
+`c82b70938c7801436e659c77e633b9a3954d1be0b449abc82652fa86fa2aa070`,
+including e1000 initialization and DHCP; and full
+`release/vm-reports/shadow-20260711-025731-23460.json` 7870/7870, report SHA-256
+`72c9a014d687f35cb743827b67c8139913d06d238d9c550580b44a6fc67ebe3b`.
+The full report is the final VM boot.
+
+The final image and full-report base SHA-256 are both
+`8f3bc2500f3d9f20efc297a5381c4e0744e297b868b93f60afce8509551b93ba`.
+The built kernel, both ESP kernel copies and independently parsed FAT-contained kernel
+all match SHA-256
+`e617d2de1e3bad438ec6e6e27e3a1d1ff1922d932d4ef71e12c527e17ddabace`.
+The 405 host tests, format check and secret scan are green. The no-data-disk full guest
+honestly reports `CORE_POLICY_DENIED reason=boot_control_authoritative_record_missing`;
+G6 does not claim an owner-verified Core Policy marker. I4/G6 is complete for the exact
+QEMU release candidate only. Physical boot/persistence, TPM auto-unlock, live Surface
+WiFi and live provider success remain denied or unclaimed.
 
 VM failure classification (2026-07-11, first G5.5b corruption profile) - report
 `release/vm-reports/shadow-20260711-004301-20812.json` passed 15 predicates and failed

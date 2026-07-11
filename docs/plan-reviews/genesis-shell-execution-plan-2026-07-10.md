@@ -1,15 +1,24 @@
 # Genesis Shell + Personal Shell Execution Plan
 
-Status: execution-ready owner plan, 2026-07-10
+Status: I4/G6 complete; I5/G7 stopped at read-only prerequisite, 2026-07-11
 
-Execution cursor: I0/G0 is complete at `73c9677` and C0/ADR 0012 is complete at
+Current execution cursor: the exact committed QEMU release candidate passed the final
+G6 structured-store, Secret Vault, Genesis UI, Recovery, e1000+DHCP and Full suite;
+physical F12 outside the personal shell opens core Recovery, and the ten final visual
+originals are accepted. I5/G7 stopped safely because read-only
+`Get-Disk -Number 2` returned no `MSFT_Disk` object
+(`G7_TRIPWIRE_DISK_2_ABSENT`) and the ignored G0 fingerprint file is absent. No
+physical write was attempted. Physical boot/persistence, TPM auto-unlock, live Surface
+WiFi and live provider success remain unproven.
+
+Historical execution cursor: I0/G0 is complete at `73c9677` and C0/ADR 0012 is complete at
 `8e5ff8d`; A0/B0, A1/G1, C1/G5.1 and D0 are complete. C1's isolated AHCI
 format/append/reboot proof is `shadow-20260710-032738-34812.json` (9/9); C2 and
 C3 foundations are complete. A2/G2 core Context/recovery interaction is verified
 by `shadow-20260710-034302-30252.json` (181/181): shared typed problem facts,
 cached/redacted Recovery, and its shared Lifeline actions are live. The bounded
 zeroizing secure overlay now fronts the exact provider/WiFi Broker paths proven below;
-SAFE explicit reconnect is verified below and G5.5 remains gated. C4/I3 unarmed groundwork
+SAFE explicit reconnect is verified below; later G5/G6 closure is recorded above. C4/I3 unarmed groundwork
 (`95b7bf4`, `d27c96d`, `f90e7db`, and C1 extraction `0920346`) adds exact
 replayed/readback keyring restore, typed ciphertext records and complete-history-
 only nonce reconstruction; focused regression
@@ -29,7 +38,7 @@ complete**: `shadow-20260710-124838-24564.json` passed 206/206 with signed entry
 sanitized input, core-only F12, trap/fuel fallback, dynamic current-boot inventory
 removal, Recovery after fallback, five bound QEMU captures, and a byte-identical
 secure-strip pixel hash across personal rendering. I3/G5.4 SAFE reconnect is verified;
-G5.5 remains independently gated. Its unarmed Broker foundation required opaque complete-history,
+G5.5 was independently gated at that checkpoint. Its unarmed Broker foundation required opaque complete-history,
 mutation and use evidence and exposes only fixed NXP/OpenAI one-use outputs; core
 tests pass 396/396 and `shadow-20260710-132631-20352.json` passes 9/9. Runtime secret
 history is now bound from the exact revalidated QEMU store on both boots by
@@ -67,7 +76,8 @@ auto-unlock. **G5.5a is now verified** by `shadow-20260711-001242-11280.json` (1
 an exact-C1 WiFi version-2 PREPARE plus TOMBSTONE without COMMIT is interrupted by a hard
 QEMU stop; reboot/replay retains committed version 1, RR1 unlock and contained WiFi use,
 with the core Vault handle intact. Report-self and default release/recursive ESP dynamic
-sentinel scans are green. Only this torn-commit/power-cut sub-slice is complete.
+sentinel scans are green. At that checkpoint only this torn-commit/power-cut sub-slice
+was complete; the final G5/G6 closure is recorded above and below.
 
 Target orchestrator: Codex 5.6, reasoning effort `xhigh`
 
@@ -1700,16 +1710,12 @@ Checks: scoped host tests, existing WiFi/provider tests, release build/package,
 
 #### G5.5 — Reboot, crash, corruption and recovery evidence
 
-Progress (2026-07-11): reboot/recovery-key replay, exact contained consumers,
-physical-only SAFE reconnect and durable forget/tombstone behavior remain green.
-G5.5a report `shadow-20260711-001242-11280.json` passes 118/118: a real exact-C1 WiFi
-version-2 PREPARE plus TOMBSTONE without COMMIT is hard-stopped; reboot/replay ignores it,
-retains committed version 1, unlocks and reaches the same contained WiFi consumer with
-the core Vault handle preserved. The report itself and default release/recursive ESP
-files pass exact dynamic provider/WiFi/RR1 sentinel scans. This completes only the
-torn-commit/power-cut case. G5.5 remains open on tag/AAD corruption, stale wrapper,
-nonce reuse, changed partition identity, visible corrupt-store denial, the personal-
-shell trap join, and true provider/WiFi service isolation. Physical persistence and TPM
+Completion (2026-07-11): **COMPLETE for disposable-QEMU evidence.** G5.5a report
+`shadow-20260711-001242-11280.json` passes 118/118 for the hard-stop/torn-commit case.
+G5.5b `shadow-20260711-010926-21860.json` passes 152/152 for copied foreign identity,
+corrupt-frame, tag/AAD/binding/nonce/stale-wrapper denials and the personal-trap/Vault-
+continuity join. Final Secret Vault `shadow-20260711-024147-24008.json` passes 155/155;
+Recovery and Full close reports are recorded under G6. Physical persistence and TPM
 auto-unlock remain explicitly unproven; live radio/link/`PORT_RELEASE`/DHCP and provider
 network success remain unclaimed.
 
@@ -1759,6 +1765,32 @@ Capability: the exact release candidate is demonstrably bootable, recoverable,
 network-preserving, free of plaintext secrets, capable of encrypted credential reuse,
 and visually matches the universal Genesis design.
 
+Completion (2026-07-11): **COMPLETE for the exact QEMU release candidate.** Physical
+F12 outside the personal shell opens core Recovery; F12 inside the proof still exits to
+Genesis. Final reports pass: structured-store `shadow-20260711-024108-8004.json` 13/13
+(SHA-256 `e694f522f696221f223a0370656166518a810a8732b0547a8fe083b569b8c97e`),
+secret-vault `shadow-20260711-024147-24008.json` 155/155
+(`da12c2b1b980ea8c3f8646593a3ee0253c7abf33ca52dbf481e53adc988b3e1d`),
+genesis-ui `shadow-20260711-024805-24880.json` 213/213
+(`41e99d3fdd288d5228e045b61a3bce5de7fa723f76566f5eb9a6f93b5017b233`),
+recovery `shadow-20260711-024914-26232.json` 3677/3677
+(`0fe89c1d3598bd44a831b7d74748105176fa87fc37e46b3218b9b8d7d52799c3`),
+quick `-Network` `shadow-20260711-025422-12600.json` 544/544 with e1000+DHCP
+(`c82b70938c7801436e659c77e633b9a3954d1be0b449abc82652fa86fa2aa070`),
+and final Full `shadow-20260711-025731-23460.json` 7870/7870
+(`72c9a014d687f35cb743827b67c8139913d06d238d9c550580b44a6fc67ebe3b`).
+Full is the last VM boot. The final image/report-base SHA-256 is
+`8f3bc2500f3d9f20efc297a5381c4e0744e297b868b93f60afce8509551b93ba`;
+both ESP copies, the build output and independently parsed FAT-contained kernel equal
+`e617d2de1e3bad438ec6e6e27e3a1d1ff1922d932d4ef71e12c527e17ddabace`.
+All ten final 1280x800 originals have zero pure-black pixels and the byte-identical
+left Core-strip SHA-256
+`2a0b1deb050ae64837157486f5bd906c1d9c3e8c74ab474e83837e017996bf1a`.
+Host tests 405/405, formatting and secret scan are green. The no-data-disk Full guest
+correctly says `CORE_POLICY_DENIED reason=boot_control_authoritative_record_missing`;
+no owner-verified marker is claimed. Physical boot/persistence, TPM and live Surface
+WiFi/provider success are not part of this completion.
+
 The orchestrator freezes code and runs, serially:
 
 1. full diff read against the plan/ADR and every preservation boundary;
@@ -1800,6 +1832,12 @@ failure stops. A red newest full report turns all work into Red Gate repair.
 Capability: the owner has a prepared raiOS stick whose ESP A contains the exact
 QEMU-verified Genesis release while ESP B and `SEED_DATA/RECLOG` remain intact and the
 stick contains no Secret Vault material.
+
+Current tripwire (2026-07-11): **STOPPED before handoff.** Read-only
+`Get-Disk -Number 2` returned no `MSFT_Disk` object
+(`G7_TRIPWIRE_DISK_2_ABSENT`), and the ignored G0 fingerprint file is absent. No
+physical write was attempted. Do not invent a replacement identity or proceed unless
+the disk and exact fingerprint reappear and pass every read-only preflight below.
 
 Preflight, read-only:
 

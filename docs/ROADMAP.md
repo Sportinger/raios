@@ -41,12 +41,26 @@ provider slice has proven RR1 recovery unlock there; physical-target support,
 production durable-secret persistence, TPM auto-unlock, and Vault-VMK sealing
 remain unproven. ADR 0007 owner sealing is unaffected.
 
-**Current Genesis/Vault cursor:** G5 is closed for disposable-QEMU/recovery/full
-evidence. Recovery `shadow-20260711-012022-24924.json` passed 3677/3677 and full
-`shadow-20260711-012708-19288.json` passed 7870/7870. Advance to I4/G6 final regression,
-visual and release-artifact acceptance; the I5/G7 physical USB handoff remains separate.
-Disk 2 is unplugged, so no physical write is permitted. Physical persistence, TPM
-auto-unlock, live Surface network and live provider claims remain closed.
+**Current Genesis/Vault cursor:** I4/G6 is complete for the exact QEMU release
+candidate. Physical F12 outside the personal shell opens core Recovery; the final six
+VM profiles, network-preservation run, visual acceptance, 405 host tests, format and
+secret checks are green. I5/G7 is stopped at its read-only prerequisite:
+`Get-Disk -Number 2` returned no `MSFT_Disk` object
+(`G7_TRIPWIRE_DISK_2_ABSENT`) and the ignored G0 fingerprint is absent. No physical
+write is permitted. Physical boot/persistence, TPM auto-unlock, live Surface network
+and live provider claims remain closed.
+
+**I4/G6 final evidence (2026-07-11):** structured-store
+`shadow-20260711-024108-8004.json` 13/13, secret-vault
+`shadow-20260711-024147-24008.json` 155/155, genesis-ui
+`shadow-20260711-024805-24880.json` 213/213, recovery
+`shadow-20260711-024914-26232.json` 3677/3677, quick `-Network`
+`shadow-20260711-025422-12600.json` 544/544 with e1000+DHCP, and final full
+`shadow-20260711-025731-23460.json` 7870/7870 all pass. The final image/report base is
+`8f3bc250...51b93ba`; the built, ESP-copy and FAT-contained kernel is
+`e617d2de...ddabace`. Ten accepted 1280x800 originals have no pure-black pixels and
+the same left Core secure strip. The no-data-disk full run remains honestly
+Core-Policy-denied; it is not owner-verified evidence.
 
 **C1/G5.1 structured store verified (2026-07-10):** the focused
 `shadow-20260710-032738-34812.json` profile passed 9/9 after an isolated
@@ -145,7 +159,7 @@ secure-strip pixels. Its current-boot inventory row exists only while active. Th
 I3/G5.4 provider, contained WiFi-use, physical forget and SAFE explicit-reconnect paths
 are verified by the focused reports above. G5.5a power-cut recovery, G5.5b copied-
 corruption/personal-trap continuity, recovery and full are green; disposable-QEMU G5
-is closed and the cursor is I4/G6.
+and QEMU release-candidate G6 are closed, and the cursor is the read-only G7 tripwire.
 
 **M11 Kernel Slimming progress (all grants-nothing / strictly-more-restrictive,
 committed):** M11-1 kernel internet-parsing SURFACE baseline (the measurably-
