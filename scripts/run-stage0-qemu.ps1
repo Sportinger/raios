@@ -121,7 +121,7 @@ if ($UsbXhciInput) {
         "-device", "qemu-xhci,id=xhci",
         "-device", "usb-kbd,bus=xhci.0,id=bootkbd"
     )
-    if ($RelativeMouse -or $MouseGrab) {
+    if ($RelativeMouse) {
         $qemuArgs += @("-device", "usb-mouse,bus=xhci.0")
     }
     else {

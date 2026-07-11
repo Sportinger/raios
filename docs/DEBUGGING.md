@@ -88,6 +88,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting
 ```
 
+The normal visible release configuration requests Genesis at 1920x1080x32. A
+successful boot reports exact `status FRAMEBUFFER: READY - 1920x1080 PITCH 7680`.
+Use `-MouseGrab` when host/guest pointer alignment matters during interaction;
+press `Ctrl+Alt+G` to release the grab.
+
 Run with interactive serial commands on TCP port 4555:
 
 ```powershell
@@ -126,10 +131,10 @@ The runner uses:
 - firmware code: `C:\Program Files\qemu\share\edk2-x86_64-code.fd`
 - firmware vars copy from `release\ovmf_vars.fd`
 - image: `release\raios-stage0.img`
-- display: GTK with the host cursor hidden over the guest area by default, but
-  without automatic mouse grab, so raiOS shows one pointer and the QEMU window
-  can still be moved or closed. Add `-MouseGrab` for grab-on-hover while raiOS
-  draws its own pointer. Press `Ctrl+Alt+G` to release a grabbed QEMU mouse.
+- display: GTK with the host cursor hidden over the guest area by default, so
+  raiOS shows its scaled legacy pointer. Add `-MouseGrab` for grab-on-hover;
+  this keeps the same absolute tablet device. Press `Ctrl+Alt+G` to release a
+  grabbed QEMU mouse.
 - serial log: `%TEMP%\raios-stage0.serial.txt`
 - `-UsbXhciInput` adds `qemu-xhci`, `usb-kbd`, and `usb-tablet` by default.
   The tablet is still USB HID, but it reports absolute pointer coordinates, so

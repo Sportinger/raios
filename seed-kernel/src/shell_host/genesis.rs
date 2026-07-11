@@ -1090,8 +1090,24 @@ fn draw_current_cursor(surface: &mut FramebufferSurface, last_rect: &mut Option<
         TEXT_MAIN
     };
     let outline = Color::new(5, 8, 12);
+    let scale = surface.draw_scale();
     let shape = [
-        "X", "XX", "XOX", "XOOX", "XOOOX", "XOOOOX", "XOOOOOX", "XX  XOX", "X    X",
+        "X",
+        "XX",
+        "XOX",
+        "XOOX",
+        "XOOOX",
+        "XOOOOX",
+        "XOOOOOX",
+        "XOOOOOOX",
+        "XOOOOOOOX",
+        "XOOOOX",
+        "XOOXOX",
+        "XOXXOX",
+        "XX  XOX",
+        "X    XOX",
+        "     XOX",
+        "      X",
     ];
     for (row, pattern) in shape.iter().enumerate() {
         for (col, pixel) in pattern.bytes().enumerate() {
@@ -1100,8 +1116,31 @@ fn draw_current_cursor(surface: &mut FramebufferSurface, last_rect: &mut Option<
                 b'O' => fill,
                 _ => continue,
             };
-            surface.set_front_pixel(x + col, y + row, color);
+            draw_front_block(surface, x, y, col, row, scale, color);
         }
     }
-    *last_rect = Some(CursorRect { x, y, w: 10, h: 10 });
+    *last_rect = Some(CursorRect {
+        x,
+        y,
+        w: usize::min(10usize.saturating_mul(scale), info.width as usize - x),
+        h: usize::min(16usize.saturating_mul(scale), info.height as usize - y),
+    });
+}
+
+fn draw_front_block(
+    surface: &mut FramebufferSurface,
+    x: usize,
+    y: usize,
+    col: usize,
+    row: usize,
+    scale: usize,
+    color: Color,
+) {
+    let start_x = x + col.saturating_mul(scale);
+    let start_y = y + row.saturating_mul(scale);
+    for dy in 0..scale {
+        for dx in 0..scale {
+            surface.set_front_pixel(start_x + dx, start_y + dy, color);
+        }
+    }
 }

@@ -253,6 +253,17 @@ G6 does not claim an owner-verified Core Policy marker. I4/G6 is complete for th
 QEMU release candidate only. Physical boot/persistence, TPM auto-unlock, live Surface
 WiFi and live provider success remain denied or unclaimed.
 
+Post-G6 visible-QEMU UI follow-up verified (2026-07-11) - the normal visible path now
+boots Genesis at 1920x1080x32, restores the scaled legacy cursor shape, and keeps the
+absolute `usb-tablet` pointer aligned when `-MouseGrab` enables GTK grab-on-hover. Only
+explicit `-RelativeMouse` selects the relative `usb-mouse`. Targeted host
+`genesis_layout` tests passed 5/5, the release build/package completed, and focused
+Genesis UI report `release/vm-reports/shadow-20260711-121555-27380.json` passed 213/213.
+Local serial emitted exact `status FRAMEBUFFER: READY - 1920x1080 PITCH 7680`, while
+the visible QEMU command line retained `usb-tablet` with GTK grab-on-hover. This
+focused post-G6 UI evidence does not supersede or redefine the frozen G6 final Full
+report above, and it does not change the I5/G7 physical-disk/fingerprint tripwire.
+
 VM failure classification (2026-07-11, first G5.5b corruption profile) - report
 `release/vm-reports/shadow-20260711-004301-20812.json` passed 15 predicates and failed
 `secret-vault:boot1:rr1_confirmed` with `serial_transport_failure:null`. Verdict:
@@ -7169,10 +7180,10 @@ Historical verified recovery foundation retained for reference:
   redraw flicker, and pointer movement now updates only a small cursor overlay
   instead of forcing a full UI redraw.
 - the visible QEMU GTK profile uses `usb-tablet` absolute pointer input by
-  default and hides the host cursor over the guest area without automatic mouse
-  grab, so only the raiOS pointer is visible and remains aligned after focus
-  changes; `-RelativeMouse` or `-MouseGrab` switches back to relative
-  `usb-mouse` for stricter boot-mouse testing.
+  default and hides the host cursor over the guest area, so only the scaled raiOS
+  pointer is visible and remains aligned after focus changes; `-MouseGrab` adds
+  GTK grab-on-hover without changing the absolute device, while only explicit
+  `-RelativeMouse` selects relative `usb-mouse` for stricter boot-mouse testing.
 - the visible UI now defaults to a chat-first surface with `AI`, `CONSOLE`, and
   `SET` modes. Serial commands continue to use the command interpreter so VM
   harnesses remain deterministic.

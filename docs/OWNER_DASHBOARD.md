@@ -7,8 +7,11 @@ Updated: 2026-07-11.
 
 Current capability: the normal release image boots into calm Genesis with
 Conversation, typed Context, a Composer, RAM-only masked AI/WiFi setup, and an
-openable cached Recovery view. A deliberate signed proof can enter the bounded
-personal surface, accept sanitized input, leave by F12, and automatically fall back
+openable cached Recovery view. The visible QEMU path now uses 1920x1080x32, restores
+the scaled legacy cursor, and keeps absolute `usb-tablet` alignment with or without
+`-MouseGrab`; only explicit `-RelativeMouse` selects relative input. A deliberate
+signed proof can enter the bounded personal surface, accept sanitized input, leave
+by F12, and automatically fall back
 to Genesis after trap/fuel; physical F12 now also opens core Recovery directly when
 no personal shell has focus. The proof shell is not installed as the default. On the exact
 disposable QEMU C1 fixture, physical Genesis input can also save encrypted OpenAI and
@@ -82,6 +85,11 @@ image SHA is `8f3bc250...51b93ba` and kernel SHA is `e617d2de...ddabace`. All te
 1280x800 originals were accepted with no pure-black pixels and the same Core strip.
 Host tests 405/405, formatting and secret scan are green. The no-data-disk full run is
 honestly Core-Policy-denied, not owner-verified evidence.
+
+Post-G6 UI follow-up: targeted `genesis_layout` tests passed 5/5, release packaging
+completed, local serial reported exact `1920x1080 PITCH 7680`, and focused Genesis UI
+report `shadow-20260711-121555-27380.json` passed 213/213. This focused run does not
+supersede the final G6 Full checkpoint or alter the G7 physical blocker.
 
 Prior Vault-foundation proof: release build plus focused structured-store report
 `shadow-20260710-150107-28328.json` passed 13/13, including opaque complete-history
