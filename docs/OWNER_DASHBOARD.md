@@ -32,3 +32,9 @@ preflight; never assume the former Disk 2 number or recreate a missing fingerpri
 Next product slice: design durable program installation only through the existing
 persistence, evidence, capability and rollback gates. Next hardware slice: the
 explicit read-only G7 stick preflight. Neither grants physical-write authority.
+
+Planning update: `docs/plan-reviews/secure-ai-workspace-and-media-app-plan-2026-07-12.md`
+defines the final-path secure source workspace, quarantined acquisition,
+reproducible Rust-to-Wasm build, and split Wasm/native media application shape.
+It is design-only and grants no workspace, fetch, build, install, native-code,
+media, GPU, or physical-storage authority.
