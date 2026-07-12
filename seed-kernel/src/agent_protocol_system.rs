@@ -10,7 +10,7 @@ use crate::{
     ahci, echo_service, granted_candidate_service, hello_service, pci, personal_shell_service,
     provider, serial, service_inventory, system_problem_facts, system_status,
     system_status::{RowState, SystemSnapshot},
-    ui, wifi,
+    ui, wifi, workspace_candidate_service,
 };
 use raios_core::record::Value as V;
 pub(crate) struct Capability {
@@ -715,6 +715,8 @@ pub(crate) fn emit_service_inventory(runtime: ui::RuntimeStatus) {
     let echo = echo_service::loaded_snapshot();
     let granted = granted_candidate_service::loaded_snapshot();
     let personal = personal_shell_service::lifecycle_snapshot();
+    let workspace = workspace_candidate_service::visible_in_inventory()
+        .then(workspace_candidate_service::snapshot);
     begin_response("service.inventory");
     raw_line("      \"schema\": \"service.inventory.v0\",");
     raw_line("      \"services\": [");
@@ -746,6 +748,7 @@ pub(crate) fn emit_service_inventory(runtime: ui::RuntimeStatus) {
             || hello.is_some()
             || echo.is_some()
             || granted.is_some()
+            || workspace.is_some()
             || personal.running
         {
             raw(",");
@@ -756,20 +759,102 @@ pub(crate) fn emit_service_inventory(runtime: ui::RuntimeStatus) {
     if personal.running {
         emit_personal_shell_service_inventory(
             personal,
-            echo.is_some() || granted.is_some() || hello.is_some(),
+            echo.is_some() || granted.is_some() || workspace.is_some() || hello.is_some(),
         );
     }
     if let Some(echo) = echo {
-        emit_echo_service_inventory(echo, hello.is_some() || granted.is_some());
+        emit_echo_service_inventory(
+            echo,
+            hello.is_some() || granted.is_some() || workspace.is_some(),
+        );
     }
     if let Some(granted) = granted {
-        emit_granted_candidate_service_inventory(granted, hello.is_some());
+        emit_granted_candidate_service_inventory(granted, workspace.is_some() || hello.is_some());
+    }
+    if let Some(workspace) = workspace {
+        emit_workspace_candidate_inventory(workspace, hello.is_some());
     }
     if let Some(hello) = hello {
         emit_hello_service_inventory(hello);
     }
     raw_line("      ]");
     end_response("service.inventory");
+}
+
+fn emit_workspace_candidate_inventory(
+    workspace: workspace_candidate_service::Snapshot,
+    comma: bool,
+) {
+    let binding = workspace.binding;
+    indent(8);
+    raw("{\"id\": ");
+    json_str(workspace_candidate_service::service_id());
+    raw(", \"kind\": \"wasm_service\"");
+    raw(", \"health\": ");
+    json_str(workspace_candidate_service::health_state(workspace));
+    raw(", \"replaceable\": true, \"core_owned\": false, \"last_error\": ");
+    if workspace.phase == "crashed" {
+        json_str(workspace.last_reason);
+    } else {
+        raw("null");
+    }
+    raw(", \"scope\": \"current_boot\", \"persistence\": \"none\"");
+    raw(", \"classification\": \"local_only\", \"trust_tier\": ");
+    json_str(workspace_candidate_service::trust_tier());
+    raw(", \"entrypoint\": \"raios_service_main\", \"granted_host_imports\": []");
+    raw(", \"host_import_count\": 0, \"phase\": ");
+    json_str(workspace.phase);
+    raw(", \"running\": ");
+    raw_bool(workspace.phase == "running");
+    raw(", \"generation\": ");
+    raw_fmt(format_args!("{}", workspace.generation));
+    raw(", \"run_count\": ");
+    raw_fmt(format_args!("{}", workspace.run_count));
+    raw(", \"last_run_outcome\": ");
+    json_str(workspace.last_run_outcome);
+    raw(", \"last_return_value_i32\": ");
+    match workspace.last_return_value {
+        Some(value) => raw_fmt(format_args!("{}", value)),
+        None => raw("null"),
+    }
+    raw(", \"last_fuel_used\": ");
+    raw_fmt(format_args!("{}", workspace.last_fuel_used));
+    raw(", \"candidate_sha256\": ");
+    json_sha256_option(binding.map(|item| item.candidate_sha256));
+    raw(", \"receipt_sha256\": ");
+    json_sha256_option(binding.map(|item| item.receipt_sha256));
+    raw(", \"physical_approval_present\": ");
+    raw_bool(workspace.approval.is_some());
+    raw(", \"fuel_budget\": ");
+    raw_fmt(format_args!(
+        "{}",
+        binding.map(|item| item.fuel_budget).unwrap_or(0)
+    ));
+    raw(", \"memory_limit_bytes\": ");
+    raw_fmt(format_args!(
+        "{}",
+        binding.map(|item| item.memory_limit_bytes).unwrap_or(0)
+    ));
+    raw(", \"instance_limit\": ");
+    raw_fmt(format_args!(
+        "{}",
+        workspace_candidate_service::instance_limit()
+    ));
+    raw(", \"memory_count_limit\": ");
+    raw_fmt(format_args!(
+        "{}",
+        workspace_candidate_service::memory_count_limit()
+    ));
+    raw(", \"table_limit\": ");
+    raw_fmt(format_args!(
+        "{}",
+        workspace_candidate_service::table_limit()
+    ));
+    raw(", \"capabilities\": []}");
+    if comma {
+        raw(",");
+    }
+    crlf();
 }
 
 fn emit_personal_shell_service_inventory(

@@ -5,11 +5,16 @@ use raios_core::{
         PersonalShellContext, PersonalShellInput, SanitizedInputEvent, SanitizedInputKind,
         MAX_PROGRAM_CONTEXT_LEN,
     },
+    project_runtime::{
+        WORKSPACE_ENTRYPOINT, WORKSPACE_FUEL_BUDGET, WORKSPACE_MEMORY_LIMIT_BYTES,
+        WORKSPACE_SERVICE_ID,
+    },
     scoped_wasm_import_grant::{
-        authorized_import_list_sha256, evaluate_personal_shell_import_grant,
-        evaluate_wasm_import_grant, PersonalShellImportGrantDecision,
-        PersonalShellImportGrantInput, VerifiedImportEvidence, WasmImportGrantDecision,
-        WasmImportGrantInput, PERSONAL_SHELL_SERVICE_ID, PERSONAL_SHELL_UI_IMPORTS,
+        authorized_import_list_sha256, evaluate_observed_wasm_import_grant,
+        evaluate_personal_shell_import_grant, evaluate_wasm_import_grant,
+        PersonalShellImportGrantDecision, PersonalShellImportGrantInput, VerifiedImportEvidence,
+        WasmImportGrantDecision, WasmImportGrantInput, PERSONAL_SHELL_SERVICE_ID,
+        PERSONAL_SHELL_UI_IMPORTS,
     },
     sha256_bytes,
     ui_frame::{self, Viewport},
@@ -801,6 +806,14 @@ pub(crate) struct EchoRunEvidence {
     pub(crate) missing_import_name: Option<String>,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct WorkspaceImportInspection {
+    pub(crate) validation_ok: bool,
+    pub(crate) import_list_observed: bool,
+    pub(crate) import_count: usize,
+    pub(crate) reason: &'static str,
+}
+
 pub(crate) struct BufechoRoundtripEvidence {
     pub(crate) run: EchoRunEvidence,
     pub(crate) input_len: u64,
@@ -1206,6 +1219,192 @@ pub(crate) fn execute_module_bytes(
         &[],
         ECHO_WASM_FUEL_BUDGET,
     )
+}
+
+pub(crate) fn inspect_workspace_imports(bytes: &[u8]) -> WorkspaceImportInspection {
+    let engine = metered_engine();
+    let module = match Module::new(&engine, bytes) {
+        Ok(module) => module,
+        Err(_) => {
+            return WorkspaceImportInspection {
+                validation_ok: false,
+                import_list_observed: false,
+                import_count: 0,
+                reason: "workspace_module_invalid",
+            }
+        }
+    };
+    let import_count = module.imports().count();
+    WorkspaceImportInspection {
+        validation_ok: true,
+        import_list_observed: true,
+        import_count,
+        reason: if import_count == 0 {
+            "workspace_import_surface_observed_empty"
+        } else {
+            "workspace_import_surface_not_empty"
+        },
+    }
+}
+
+pub(crate) fn execute_workspace_no_import_candidate(bytes: &[u8]) -> EchoRunEvidence {
+    let inspection = inspect_workspace_imports(bytes);
+    let grant = evaluate_observed_wasm_import_grant(
+        &WasmImportGrantInput {
+            service_id: Some(WORKSPACE_SERVICE_ID),
+            artifact_sha256_present: true,
+            requested_imports: &[],
+            policy_allows_beyond_env: false,
+        },
+        inspection.import_list_observed,
+    );
+    let import_evidence = ImportGrantEvidence {
+        performed: grant.performed,
+        status: grant.status,
+        reason: grant.reason,
+        authorized_import_count: grant.authorized_import_count as u64,
+        authorized_import_list_sha256: authorized_import_list_sha256(WORKSPACE_SERVICE_ID, &[]),
+        linked_host_import_count: 0,
+        module_imports_within_authorized_list: inspection.import_count == 0,
+        missing_import_module: None,
+        missing_import_name: None,
+    };
+    if !inspection.validation_ok || inspection.import_count != 0 || !grant.performed {
+        return positive_run(
+            WORKSPACE_SERVICE_ID,
+            WORKSPACE_FUEL_BUDGET,
+            inspection.validation_ok,
+            false,
+            inspection.reason,
+            None,
+            0,
+            None,
+            import_evidence,
+        );
+    }
+    let engine = metered_engine();
+    let module = match Module::new(&engine, bytes) {
+        Ok(module) => module,
+        Err(_) => {
+            return positive_run(
+                WORKSPACE_SERVICE_ID,
+                WORKSPACE_FUEL_BUDGET,
+                false,
+                false,
+                "workspace_module_invalid",
+                None,
+                0,
+                None,
+                import_evidence,
+            )
+        }
+    };
+    let mut store = Store::new(&engine, limited_state(WORKSPACE_MEMORY_LIMIT_BYTES));
+    store.limiter(|state| &mut state.limits);
+    if store.add_fuel(WORKSPACE_FUEL_BUDGET).is_err() {
+        return positive_run(
+            WORKSPACE_SERVICE_ID,
+            WORKSPACE_FUEL_BUDGET,
+            true,
+            false,
+            "fuel_metering_unavailable",
+            None,
+            0,
+            None,
+            import_evidence,
+        );
+    }
+    let linker = Linker::<EnvelopeState>::new(&engine);
+    let instance = match linker.instantiate(&mut store, &module) {
+        Ok(pre) => match pre.start(&mut store) {
+            Ok(instance) => instance,
+            Err(error) => {
+                return positive_run(
+                    WORKSPACE_SERVICE_ID,
+                    WORKSPACE_FUEL_BUDGET,
+                    true,
+                    false,
+                    classify_workspace_error(error),
+                    None,
+                    store.fuel_consumed().unwrap_or(0),
+                    None,
+                    import_evidence,
+                )
+            }
+        },
+        Err(error) => {
+            return positive_run(
+                WORKSPACE_SERVICE_ID,
+                WORKSPACE_FUEL_BUDGET,
+                true,
+                false,
+                classify_workspace_error(error),
+                None,
+                store.fuel_consumed().unwrap_or(0),
+                None,
+                import_evidence,
+            )
+        }
+    };
+    let Some(function) = instance
+        .get_export(&store, WORKSPACE_ENTRYPOINT)
+        .and_then(Extern::into_func)
+    else {
+        return positive_run(
+            WORKSPACE_SERVICE_ID,
+            WORKSPACE_FUEL_BUDGET,
+            true,
+            true,
+            "entrypoint_missing",
+            None,
+            store.fuel_consumed().unwrap_or(0),
+            None,
+            import_evidence,
+        );
+    };
+    let mut output = [Value::I32(0)];
+    match function.call(&mut store, &[], &mut output) {
+        Ok(()) => positive_run(
+            WORKSPACE_SERVICE_ID,
+            WORKSPACE_FUEL_BUDGET,
+            true,
+            true,
+            if output[0].i32().is_some() {
+                "success"
+            } else {
+                "entrypoint_type_mismatch"
+            },
+            output[0].i32(),
+            store.fuel_consumed().unwrap_or(0),
+            None,
+            import_evidence,
+        ),
+        Err(error) => positive_run(
+            WORKSPACE_SERVICE_ID,
+            WORKSPACE_FUEL_BUDGET,
+            true,
+            true,
+            classify_workspace_error(error),
+            None,
+            store.fuel_consumed().unwrap_or(0),
+            None,
+            import_evidence,
+        ),
+    }
+}
+
+fn classify_workspace_error(error: wasmi::Error) -> &'static str {
+    match error {
+        wasmi::Error::Trap(trap) => match trap.trap_code() {
+            Some(TrapCode::OutOfFuel) => "fuel_exhausted",
+            Some(TrapCode::UnreachableCodeReached) => "guest_trap",
+            Some(_) => "guest_trap",
+            None => "guest_trap",
+        },
+        wasmi::Error::Memory(_) => "memory_limit_exceeded",
+        wasmi::Error::Instantiation(_) => "instantiation_failed",
+        _ => "workspace_run_failed",
+    }
 }
 
 fn execute_validated_module_bytes(

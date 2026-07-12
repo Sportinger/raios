@@ -54,10 +54,10 @@ collision, wrong hash, quota denial, manifest-last visibility and explicit
 no-build/no-install/no-execute posture. `/revise <feedback>` also reuses the
 existing current-boot provider/spec/runtime path with parent/root lineage while
 preserving the prior valid draft on failure. W2 project query/edit and W3
-dependency quarantine and W4 reproducible workstation build are now complete
-as recorded below. The active product cursor is W5 tested current-boot
-application under computed Wasm imports, while
-install, execution, promotion and rollback authority remain closed. Hardware
+dependency quarantine, W4 reproducible workstation build and W5 tested
+current-boot execution are now complete as recorded below. The active product
+cursor is W6 durable install/autoload/rollback, while durable install,
+promotion and rollback authority remain closed. Hardware
 I5/G7 remains a separate read-only identity tripwire.
 
 **W2a project query complete (2026-07-12):** exact project/path byte-range
@@ -104,9 +104,18 @@ and 313118 ms. The receipt is `builder_attested_not_local_rebuild`,
 `independently_verified=false`, and grants no install/load/execute/promotion or
 persistence authority; this is not an owner-sealed toolchain or independent local
 rebuild claim. Contract, build-script, read, run/output/candidate and stale-receipt
-negatives failed closed. The active product cursor is W5: run the exact candidate
-current-boot under computed Wasm imports with physical approval, Recovery/F12,
-fuel bounds and crash fallback.
+negatives failed closed.
+
+**W5 tested current-boot application complete (2026-07-12):** the exact W4
+candidate is reparsed locally, accepted only with an observed zero-import
+surface, previewed by core Genesis and run only after physical pointer approval.
+The real fixture returned 42 under 250000 fuel, 4 MiB memory, one instance/one
+memory/zero tables; stale/tampered/replay/serial-approval paths denied, and F12
+dropped the RAM service/candidate while Recovery stayed available.
+`shadow-20260712-153736-17972.json` passes 276/276 across 112 commands, one boot
+and 553863 ms. No install, persistence, promotion, native load or broader app
+capability opened. The active product cursor is W6: durable ARTSTOR/RECLOG
+install, reboot autoload, last-good activation, rollback and uninstall.
 
 **M13/Secret Vault contract accepted (C0/G5.0, 2026-07-10):** ADR 0012
 fixes the dedicated internal-partition boundary, crash-consistent structured

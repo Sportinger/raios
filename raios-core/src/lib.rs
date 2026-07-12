@@ -28,6 +28,7 @@ pub mod personal_shell_abi;
 pub mod project_build;
 pub mod project_dependency;
 pub mod project_overlay;
+pub mod project_runtime;
 pub mod project_workspace;
 pub mod promotion_attestation;
 pub mod provider_trust_descriptor;

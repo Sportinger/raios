@@ -24,6 +24,24 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+VM failure classification (2026-07-12, first W5 project-app profile) - report
+`release/vm-reports/shadow-20260712-153020-19824.json` reached the real W1-W4
+build and accepted `project.run_prepare`, then failed only
+`project-build:app_prepare:exact_binding`. The guest returned the exact project,
+revision, receipt, candidate, limits and locally observed zero-import surface;
+the harness expected a stale hard-coded empty-import hash
+`14c49e...d595` instead of the canonical service-bound value actually computed
+by both core and guest, `fd43da...f84e`. Verdict: `host-transport/harness` - no
+guest trust or runtime predicate failed and physical approval was not attempted.
+Retry is forbidden until the harness derives or pins the canonical
+`svc.workspace.current_boot` empty-import hash correctly.
+
+Resolution (2026-07-12) - the harness now independently derives the canonical
+service-bound empty-import record bytes. Focused report
+`release/vm-reports/shadow-20260712-153736-17972.json` passes 276/276 across
+112 observed commands, one boot and 553863 ms; it uses the same kernel and
+candidate as the failed harness-only run.
+
 VM failure classification (2026-07-12, first W1 project-workspace profile) -
 report `release/vm-reports/shadow-20260712-123933-25668.json` contains zero
 predicates and failed during temporary image packaging with exit code 101.
@@ -275,10 +293,26 @@ non-reproducible runs, output/candidate mismatch, and a receipt made stale by a
 later dependency mutation all failed closed. No install, load, execution,
 promotion, persistence or other authority was granted.
 
-Current exact next product task (W5 tested current-boot application): run that
-exact candidate under computed Wasm imports only after physical approval, with
-focused Shadow evidence, F12 recovery, fuel bounds and crash fallback. W1-W4 are
-complete; durable install, promotion, persistence and rollback remain closed.
+W5 tested current-boot application verified (2026-07-12) - the exact W4
+receipt-bound candidate is reparsed locally, admitted only with an explicitly
+observed empty Wasm import surface, shown in a core-owned Genesis preview, and
+run only after a fresh physical pointer click. The typed `raios_service_main`
+call returned the fixture value 42 under 250000 fuel, 4 MiB linear memory, one
+instance, one memory and zero tables. Serial approval/start before approval,
+stale revision, wrong receipt/candidate and replay all failed closed; inventory
+and health exposed only `svc.workspace.current_boot`, and F12 removed the
+service, approval and retained candidate while core Recovery remained callable.
+Focused report `release/vm-reports/shadow-20260712-153736-17972.json` passes
+276/276 across 112 commands, one boot and 553863 ms. The scope remains RAM-only:
+no install, promotion, persistence, native load, file/network/secret access or
+durable state authority was granted.
+
+Current exact next product task (W6 durable install and rollback): persist the
+separately approved W5 artifact plus canonical receipt through the existing
+ARTSTOR/RECLOG mechanisms, revalidate and autoload it after reboot, confirm a
+last-good activation, and prove rollback plus uninstall without modifying source
+workspaces or user media. W1-W5 are complete; W6 writes and autoload remain
+closed until their focused storage/recovery/boot evidence is green.
 The hardware cursor remains I5/G7 read-only stick
 identity/fingerprint preflight: the stick was not enumerated or touched here,
 its old Disk number must not be assumed, and no physical write, format,

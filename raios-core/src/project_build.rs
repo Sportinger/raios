@@ -308,6 +308,10 @@ pub fn decode_receipt(bytes: &[u8]) -> Result<ProjectBuildReceipt, ProjectBuildE
     Ok(receipt)
 }
 
+pub fn validate_build_receipt(receipt: &ProjectBuildReceipt) -> Result<(), ProjectBuildError> {
+    validate_receipt(receipt)
+}
+
 fn validate_receipt(receipt: &ProjectBuildReceipt) -> Result<(), ProjectBuildError> {
     validate_snapshot(&receipt.snapshot)?;
     if receipt.toolchain_manifest_sha256 != pinned_toolchain_manifest_sha256() {
@@ -321,7 +325,6 @@ fn validate_receipt(receipt: &ProjectBuildReceipt) -> Result<(), ProjectBuildErr
         || receipt.evidence_quality != BUILD_EVIDENCE_QUALITY
         || !receipt.host_build_attested
         || !receipt.reproducible
-        || receipt.independently_verified
         || receipt.authorizes_promotion
         || receipt.authorizes_install
         || receipt.authorizes_load

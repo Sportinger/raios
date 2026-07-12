@@ -118,6 +118,13 @@ use crate::{
     agent_protocol_project_query::{
         emit_read as emit_project_read, emit_search as emit_project_search,
     },
+    agent_protocol_project_run::{
+        emit_cancel as emit_project_run_cancel, emit_drop as emit_workspace_drop,
+        emit_health as emit_workspace_health, emit_prepare as emit_project_run_prepare,
+        emit_serial_approval_denied as emit_project_run_approval_denied,
+        emit_start as emit_workspace_start, emit_status as emit_project_run_status,
+        emit_stop as emit_workspace_stop,
+    },
     agent_protocol_provider::{
         emit_provider_context_export_authorized_selftest,
         emit_provider_context_export_authorized_selftest_smuggle,
@@ -219,6 +226,7 @@ use crate::{
         emit_wasm_httphead_probe,
     },
     echo_service, event_log, granted_candidate_service, hello_service, memory_store, ui,
+    workspace_candidate_service,
 };
 
 use self::agent_protocol_registry::{
@@ -428,6 +436,7 @@ const AGENT_METHODS: &[MethodEntry] = &[
     pred_method!("module.granted_candidate_selftest", granted_candidate_service::is_selftest_method, [route!("module.granted_candidate_selftest")], MethodAction::Response0Read(granted_candidate_service::emit_selftest)),
     pred_envelope_method!("service.health", hello_service::is_health_method, [route!("service.health")], 6, "service.health", "cap.service.health.read", "agent_command_envelope.current_boot.serial.service_health.v0", "service.health svc.demo.hello", MethodAction::ResponseMethod(hello_service::emit_health)),
     pred_method!("service.health", echo_service::is_health_method, [], MethodAction::ResponseMethod(echo_service::emit_health)),
+    pred_method!("service.health", workspace_candidate_service::is_health_method, [], MethodAction::ResponseMethod(emit_workspace_health)),
     method!("memory.profile", Exact, ["memprofile"], [route!("memory.profile" => "memory.profile"), route!("memprofile" => "memory.profile")], MethodAction::Read0(emit_memory_profile)),
     method!("memory.context", Head, ["memctx"], [route!("memory.context"), route!("memctx")], MethodAction::ReadRuntimeMethodEvent(emit_memory_context)),
     method!("memory.query", Head, ["memquery"], [route!("memory.query"), route!("memquery")], MethodAction::Read0(emit_memory_query)),
@@ -525,6 +534,10 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("project.build_commit", Exact, [], [route!("project.build_commit")], MethodAction::Read0(emit_project_build_commit)),
     method!("project.build_discard", Exact, [], [route!("project.build_discard")], MethodAction::Read0(emit_project_build_discard)),
     method!("project.build_receipts", Head, [], [route!("project.build_receipts")], MethodAction::ReadMethod(emit_project_build_receipts)),
+    method!("project.run_prepare", Head, [], [route!("project.run_prepare")], MethodAction::ReadMethod(emit_project_run_prepare)),
+    method!("project.run_status", Exact, [], [route!("project.run_status")], MethodAction::Read0(emit_project_run_status)),
+    method!("project.run_cancel", Exact, [], [route!("project.run_cancel")], MethodAction::Read0(emit_project_run_cancel)),
+    method!("project.run_approve", Head, [], [route!("project.run_approve")], MethodAction::ReadMethod(emit_project_run_approval_denied)),
     method!("project.dependencies", Head, [], [route!("project.dependencies")], MethodAction::ReadMethod(emit_project_dependencies)),
     method!("module.submit_distribution_catalog_entry", Head, [], [route!("module.submit_distribution_catalog_entry")], MethodAction::ReadMethod(emit_submit_distribution_catalog_entry)),
     method!("module.submit_distribution_receiver_identity", Head, [], [route!("module.submit_distribution_receiver_identity")], MethodAction::ReadMethod(emit_submit_distribution_receiver_identity)),
@@ -654,6 +667,7 @@ const AGENT_METHODS: &[MethodEntry] = &[
     pred_method!("service.start", hello_service::is_start_method, [route!("service.start")], MethodAction::ResponseMethod(hello_service::emit_start)),
     pred_method!("service.start", echo_service::is_start_method, [], MethodAction::ResponseMethod(echo_service::emit_start)),
     pred_method!("service.start", granted_candidate_service::is_start_method, [], MethodAction::ResponseMethod(granted_candidate_service::emit_start)),
+    pred_method!("service.start", workspace_candidate_service::is_start_method, [], MethodAction::ResponseMethod(emit_workspace_start)),
     pred_method!("service.restart", hello_service::is_restart_method, [route!("service.restart")], MethodAction::ResponseMethod(hello_service::emit_restart)),
     pred_method!("service.hot_swap", hello_service::is_hot_swap_method, [route!("service.hot_swap")], MethodAction::ResponseMethod(hello_service::emit_hot_swap)),
     pred_envelope_method!("service.rollback_preview", hello_service::is_rollback_preview_method, [route!("service.rollback_preview")], 7, "service.rollback_preview", "cap.service.rollback_preview.read", "agent_command_envelope.current_boot.serial.service_rollback_preview.v0", "service.rollback_preview svc.demo.hello", MethodAction::ResponseMethod(hello_service::emit_rollback_preview)),
@@ -665,9 +679,11 @@ const AGENT_METHODS: &[MethodEntry] = &[
     pred_method!("service.stop", hello_service::is_stop_method, [route!("service.stop")], MethodAction::ResponseMethod(hello_service::emit_stop)),
     pred_method!("service.stop", echo_service::is_stop_method, [], MethodAction::ResponseMethod(echo_service::emit_stop)),
     pred_method!("service.stop", granted_candidate_service::is_stop_method, [], MethodAction::ResponseMethod(granted_candidate_service::emit_stop)),
+    pred_method!("service.stop", workspace_candidate_service::is_stop_method, [], MethodAction::ResponseMethod(emit_workspace_stop)),
     pred_method!("service.drop", hello_service::is_drop_method, [route!("service.drop")], MethodAction::ResponseMethod(hello_service::emit_drop)),
     pred_method!("service.drop", echo_service::is_drop_method, [], MethodAction::ResponseMethod(echo_service::emit_drop)),
     pred_method!("service.drop", granted_candidate_service::is_drop_method, [], MethodAction::ResponseMethod(granted_candidate_service::emit_drop)),
+    pred_method!("service.drop", workspace_candidate_service::is_drop_method, [], MethodAction::ResponseMethod(emit_workspace_drop)),
     method!("module.load_ephemeral", Head, ["service.load_ephemeral"], [route!("module.load_ephemeral"), route!("service.load_ephemeral")], MethodAction::DeniedModuleLoadEphemeral),
     method!("recovery.load_artifact", Exact, ["module.load_recovery_artifact"], [route!("recovery.load_artifact"), route!("module.load_recovery_artifact")], MethodAction::DeniedRecoveryArtifactLoad),
     method!("memory.record_observation", Exact, [], [route!("memory.record_observation" => "memory.record_observation")], MethodAction::DeniedMemoryMutation),

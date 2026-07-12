@@ -120,6 +120,23 @@ pub struct PersonalShellImportGrantDecision {
 }
 
 pub fn evaluate_wasm_import_grant(input: &WasmImportGrantInput<'_>) -> WasmImportGrantDecision {
+    evaluate_wasm_import_grant_inner(input, false)
+}
+
+/// Evaluates an import list read from the Wasm module itself. An observed empty
+/// list is a real least-privilege surface; an absent caller declaration remains
+/// denied through `evaluate_wasm_import_grant`.
+pub fn evaluate_observed_wasm_import_grant(
+    input: &WasmImportGrantInput<'_>,
+    import_list_observed: bool,
+) -> WasmImportGrantDecision {
+    evaluate_wasm_import_grant_inner(input, import_list_observed)
+}
+
+fn evaluate_wasm_import_grant_inner(
+    input: &WasmImportGrantInput<'_>,
+    import_list_observed: bool,
+) -> WasmImportGrantDecision {
     match input.service_id {
         Some(service_id) if !service_id.is_empty() => {}
         _ => return denied("missing_service_id"),
@@ -128,7 +145,16 @@ pub fn evaluate_wasm_import_grant(input: &WasmImportGrantInput<'_>) -> WasmImpor
         return denied("missing_artifact_binding");
     }
     if input.requested_imports.is_empty() {
-        return denied("missing_import_list");
+        return if import_list_observed {
+            WasmImportGrantDecision {
+                performed: true,
+                status: "import_grant_authorized",
+                reason: "authorized_observed_empty_import_surface",
+                authorized_import_count: 0,
+            }
+        } else {
+            denied("missing_import_list")
+        };
     }
     if input.requested_imports.len() > MAX_GRANTED_IMPORTS {
         return denied("import_list_exceeds_max");

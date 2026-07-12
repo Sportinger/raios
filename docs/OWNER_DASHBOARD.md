@@ -86,6 +86,14 @@ neither an owner-sealed toolchain nor an independent local rebuild. Toolchain,
 flags, environment, source/dependency build-script, read, run/output/candidate
 and stale-receipt negatives failed closed.
 
+W5 proof: `shadow-20260712-153736-17972.json` passed 276/276 across 112
+commands, one boot and 553863 ms. The exact W4 candidate was locally reparsed,
+had zero imports, showed an owner-visible current-boot preview, and ran only
+after the real Genesis pointer approval. It returned 42 within fixed fuel/memory
+limits; health/inventory matched the exact receipt and candidate. Serial approval,
+stale/tampered/replay paths denied, and F12 removed the service/candidate while
+core Recovery stayed available. This grants no durable or broader authority.
+
 Still denied: arbitrary external/native/Wasm intake, file/network/secret access
 from generated programs, durable program install/state, broad mutation,
 promotion, rollback application, TPM auto-unlock, physical persistence, and live
@@ -96,16 +104,25 @@ Stick: the owner reports it has been found, but this session did not enumerate
 or touch it. The next G7 action is read-only identity/layout/fingerprint
 preflight; never assume the former Disk 2 number or recreate a missing fingerprint.
 
-Next product slice: W5 runs that exact candidate current-boot under computed
-Wasm imports with physical approval, focused Shadow evidence, F12 recovery,
-fuel bounds and crash fallback. Install, promotion, persistence and rollback
-remain closed until their named gates. Next hardware slice:
+Next product slice: W6 separately installs an approved W5 artifact into the
+existing content-addressed store/log, autoloads it after reboot, confirms
+last-good, and proves rollback plus uninstall. Install, promotion, persistence
+and rollback remain closed until that focused storage/recovery/boot profile is
+green. Next hardware slice:
 the explicit read-only G7 stick preflight. Neither grants physical-write authority.
+
+Refactor decision: the owner ordered a real kernel-mass refactor
+(2026-07-12, cost accepted). `docs/plan-reviews/kernel-mass-refactor-plan-2026-07-12.md`
+defines the four-phase program: inventory, readability splits, host
+relocation of pure logic, retirement of superseded evidence, then vocabulary
+compaction (formal Batch 6, reopening ADR 0006) last. Plan only — no code
+moved yet; P0 is a read-only inventory slice.
 
 Planning update: `docs/plan-reviews/secure-ai-workspace-and-media-app-plan-2026-07-12.md`
 defines the final-path secure source workspace, quarantined acquisition,
 reproducible Rust-to-Wasm build, and split Wasm/native media application shape.
-Its W1-W4 workspace/dependency/build path is now implemented and verified;
+Its W1-W5 workspace/dependency/build/current-boot-run path is now implemented
+and verified;
 Cargo resolution, verified origin/license truth, archive extraction, fetch,
 dependency execution, install, native-code, media, GPU and
 physical-storage authority remain closed.

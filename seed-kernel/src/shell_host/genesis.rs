@@ -6,7 +6,7 @@ use crate::framebuffer::{Color, FramebufferInfo, FramebufferSurface};
 use crate::system_status::{RowState, SnapshotStates, StatusLine, SystemSnapshot};
 use crate::{
     console, input, personal_shell_service, program_workspace, provider, secret_vault, serial,
-    text, wifi,
+    text, wifi, workspace_candidate_service,
 };
 use raios_core::{
     genesis_layout::{GenesisLayout, Point, Size},
@@ -255,6 +255,9 @@ impl ShellHost {
             return self.handle_recovery_pointer(layout, x, y, runtime);
         }
         if point_in(x, y, context_personal_shell_rect(layout)) {
+            if workspace_candidate_service::pending_approval() {
+                return workspace_candidate_service::approve_and_run_from_pointer();
+            }
             if let Some(program) = program_workspace::retained_program() {
                 let identity = program.identity();
                 let Some(context) = self.personal_context(runtime) else {
@@ -345,12 +348,13 @@ impl ShellHost {
             }
         }
         if matches!(event.kind, input::InputEventKind::SecureAttention) {
+            let workspace_dropped = workspace_candidate_service::secure_attention_drop();
             if self.personal.has_personal_focus() {
                 let route = self.personal.handle_secure_attention();
                 note_personal_route(route);
                 return true;
             }
-            return self.toggle_recovery(runtime);
+            return self.toggle_recovery(runtime) || workspace_dropped;
         }
         if !self.personal.has_personal_focus() {
             return false;
@@ -875,16 +879,19 @@ fn draw_context(
     } else {
         APP_RED
     };
+    let workspace_pending = workspace_candidate_service::pending_approval();
     let program_ready = program_workspace::snapshot().present;
     draw_button(
         surface,
         context_personal_shell_rect(layout),
-        if program_ready {
+        if workspace_pending {
+            "Approve + run workspace app"
+        } else if program_ready {
             "Approve + run program"
         } else {
             "Run signed shell proof"
         },
-        program_ready,
+        workspace_pending || program_ready,
     );
     let rows = [
         (

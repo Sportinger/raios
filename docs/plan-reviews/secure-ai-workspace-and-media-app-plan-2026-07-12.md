@@ -2,10 +2,10 @@
 
 ## Status and target
 
-W1-W4 are implemented and verified on the disposable QEMU structured store and
-owner-controlled workstation build path. The remaining plan opens no network
-fetch, provider export, install, native-code, media-file, GPU, or physical-storage
-authority.
+W1-W5 are implemented and verified on the disposable QEMU structured store,
+owner-controlled workstation build path and bounded current-boot Wasm runtime.
+The remaining plan opens no network fetch, provider export, durable install,
+native-code, media-file, GPU, or physical-storage authority.
 
 Capability target: a user and AI can create or import a reviewable source tree,
 edit it through a project-scoped workspace, build a reproducible bounded
@@ -354,13 +354,20 @@ load, execution, promotion and persistence remain closed.
 The user can run that exact candidate current-boot under computed Wasm imports,
 with Shadow evidence, physical approval, F12 recovery, and crash/fuel fallback.
 
-Status: active next slice.
+Status: complete. Focused report
+`shadow-20260712-153736-17972.json` passes 276/276 across 112 commands and one
+boot. It proves the exact W4 receipt/candidate, locally observed zero imports,
+core preview plus physical pointer approval, result 42 under fixed limits,
+inventory/health, replay denials, and F12 cleanup/recovery.
 
 ### W6 - durable install and rollback
 
 The approved app, source/build receipts, grant, state schema, and previous hash
 survive reboot; a failed boot or explicit rollback restores last-good without
 modifying source workspaces or user media.
+
+Status: active next slice. ARTSTOR/RECLOG wiring, boot autoload, physical install
+approval and focused VM evidence remain absent; no W6 authority is claimed yet.
 
 ### W7 - quarantined network acquisition
 

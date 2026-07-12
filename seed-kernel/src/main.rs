@@ -57,6 +57,7 @@ mod agent_protocol_project_build;
 mod agent_protocol_project_dependency;
 mod agent_protocol_project_editor;
 mod agent_protocol_project_query;
+mod agent_protocol_project_run;
 mod agent_protocol_provider;
 mod agent_protocol_recovery;
 mod agent_protocol_recovery_artifact_reference;
@@ -173,6 +174,7 @@ mod ui;
 mod usb;
 mod wasm_runtime;
 mod wifi;
+mod workspace_candidate_service;
 
 #[used]
 #[link_section = ".limine_requests_start"]

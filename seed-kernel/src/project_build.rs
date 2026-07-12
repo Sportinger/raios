@@ -461,6 +461,32 @@ pub(crate) fn receipts(input: &str) -> BuildView {
     view
 }
 
+pub(crate) fn verified_receipt_exact(
+    project_id: [u8; 16],
+    revision_sha256: [u8; 32],
+    receipt_sha256: [u8; 32],
+) -> Result<Option<ProjectBuildReceipt>, &'static str> {
+    let current = snapshot_exact(project_id, revision_sha256, false)?;
+    let retained = RECEIPTS
+        .lock()
+        .iter()
+        .find(|receipt| {
+            receipt.snapshot.project_id.bytes() == project_id
+                && receipt.snapshot.project_revision_sha256 == revision_sha256
+                && receipt.receipt_sha256 == receipt_sha256
+        })
+        .cloned();
+    let Some(receipt) = retained else {
+        return Ok(None);
+    };
+    raios_core::project_build::validate_build_receipt(&receipt)
+        .map_err(|_| "workspace_receipt_invalid")?;
+    if receipt.snapshot != current {
+        return Err("workspace_receipt_input_snapshot_stale");
+    }
+    Ok(Some(receipt))
+}
+
 fn snapshot_exact(
     project_id: [u8; 16],
     revision_sha256: [u8; 32],

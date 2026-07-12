@@ -748,6 +748,11 @@ Add-BuildPredicate 'positive:inspect_receipt' 'current-boot receipt inspection r
 ) $receipts
 Assert-BuildPosture $receipts 'positive_receipts'
 
+if ($Profile -eq 'project-app') {
+    . (Join-Path $PSScriptRoot 'shadow-vm-smoke-profile-project-app.ps1')
+    return
+}
+
 # A later safe dependency changes the exact input snapshot; the retained receipt must fail closed.
 $laterDependencyFiles = @(
     [pscustomobject]@{ path = 'Cargo.toml'; media_type = 'text/toml'; bytes = [Text.Encoding]::UTF8.GetBytes("[package]`nname = `"raios-second-helper`"`nversion = `"0.1.0`"`nedition = `"2021`"`n`n[lib]`npath = `"src/lib.rs`"`n") },
