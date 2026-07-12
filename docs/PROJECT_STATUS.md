@@ -210,6 +210,41 @@ writes the disposable QEMU structured store. Direct cloud-provider tool use,
 dependency intake, build, install, load, execution, physical storage and
 provider export remain denied.
 
+W3 focused-run failure classification (2026-07-12) - predicate
+`project-workspace:host_wall_clock_timeout_before_report`; verdict:
+`host-transport`. The outer command reached its 900-second host timeout while
+the harness child was still alive and had just launched the third QEMU boot
+(`raios-shadow-20260712-135131-25884`, QEMU start 14:06:31). No guest predicate
+failure or red VM report existed at classification time. Do not classify this
+as guest success or retry it unchanged; first collect the still-running child
+result or reduce redundant serial/store work while preserving the same W3
+evidence.
+
+W3 focused-run timeout resolution (2026-07-12) - the already-running harness
+child completed green 17 seconds after the outer host timeout, without a retry
+or code change. The timeout was therefore host wall-clock transport only; guest
+behavior passed. Final report
+`release/vm-reports/shadow-20260712-135131-25884.json` passes 600/600 across 214
+observed commands, three boots and 917166 ms; report-file SHA-256 is
+`8a6c5933b6d9c0e8407ecf128a369ed57be9c8941894441753462d8633d58746`.
+
+W3 dependency quarantine verified (2026-07-12) - a user can now import an
+exact-version dependency package through local serial chunks, bind its
+owner-declared origin locator, license expression/file/hash and exact
+`Cargo.lock` blob to one immutable project revision, and inspect the exact
+file/chunk/tree/bundle hashes after reboot. The positive package included
+`LICENSE`, `build.rs` and a greater-than-24-KiB multi-chunk `src/lib.rs`;
+`build.rs` was detected but never run. Re-importing the identical package
+verified all existing chunks and the manifest without another write, while the
+source revision remained byte-identical across three boots. Wrong project or
+revision, missing `Cargo.lock`, invalid metadata/license path/hash, malformed or
+oversized input, whole-file hash mismatch and case-colliding paths published no
+new bundle. Network fetch, archive parsing, provider export, compiler, build,
+build-script execution, install, load, execution, secret access and physical
+media authority remain closed. This slice does not semantically parse Cargo
+dependency resolution, verify the truth of the owner-declared origin/license,
+extract archives or fetch from a network.
+
 Current-boot AI program revision loop release-built (2026-07-12) - after an
 accepted provider-authored `RAIOS_UI_SPEC_V1` draft, a user can enter
 `/revise <feedback>`; Genesis binds the original request, exact prior source
@@ -221,19 +256,18 @@ path. This loop is bounded RAM-only and release-built; it does not persist a
 source project, install a revision, retry providers automatically, or claim a
 live revision-provider smoke in this slice.
 
-Current exact next product task (W3 dependency quarantine): import one bounded,
-locked dependency bundle as inert content-addressed data, inspect its exact
-origin, license and hashes, and bind it to one immutable source revision. W2
-list/read/search plus basis-bound add/replace/delete/diff/commit/discard is
-complete. No dependency may execute, run a build script, grant a compiler or
-installer capability, or reach another project, Vault data, raw storage or
-unselected provider export. This is not yet a direct cloud-provider editing
-toolloop.
+Current exact next product task (W4 reproducible offline workstation
+Rust-to-Wasm build receipt): an owner-controlled workstation builder consumes
+one reviewed exact project revision plus its quarantined locked inputs with
+networking disabled, returns a Wasm candidate and complete non-authorizing build
+receipt, and proves the same inputs reproduce the output hash or deny promotion.
+W1-W3 source workspace, editing and inert dependency quarantine are complete;
+build, install, load, execution and promotion authority remain closed.
 The hardware cursor remains I5/G7 read-only stick
 identity/fingerprint preflight: the stick was not enumerated or touched here,
 its old Disk number must not be assumed, and no physical write, format,
-repartition or replacement fingerprint is authorized. Build, dependency,
-install, load, execution, physical persistence, TPM auto-unlock and live Surface
+repartition or replacement fingerprint is authorized. Build, install, load,
+execution, physical persistence, TPM auto-unlock and live Surface
 association/`PORT_RELEASE`/DHCP remain unproven.
 
 I3 complete-history Broker foundation verified (2026-07-10) - a kernel composition

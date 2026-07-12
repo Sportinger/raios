@@ -307,13 +307,28 @@ closed.
 A user can import a locked dependency bundle, inspect origin/license/hash, and
 bind it to one source revision. No dependency executes or runs a build script.
 
-Status: active next slice. Build, install, load and execution remain denied.
+Status: complete for bounded local-serial exact-version package import. The
+verified package bound owner-declared origin/license and the exact `Cargo.lock`
+blob to one immutable source revision, included `LICENSE`, detected-but-never-run
+`build.rs` and a greater-than-24-KiB multi-chunk `src/lib.rs`, survived reboot
+with exact file/chunk/tree/bundle hashes, and re-imported idempotently without
+writes. The source revision remained byte-identical. Focused report
+`shadow-20260712-135131-25884.json` passes 600/600 across 214 commands and three
+boots. Its harness child completed green 17 seconds after the outer 900-second
+host wait expired, without retry or code change; the timeout was host wall-clock,
+not guest behavior. This does not claim Cargo semantic parsing, verified
+origin/license truth, archive extraction or network fetch. Network/export,
+build-script execution, compiler, build, install, load and execution remain
+denied.
 
 ### W4 - real offline Rust-to-Wasm build
 
 An owner-controlled builder compiles one reviewed Rust project with networking
 disabled and returns a Wasm candidate plus complete build receipt. Rebuilding
 the same inputs reproduces the output hash or promotion denies.
+
+Status: active next slice. The receipt is non-authorizing; install, load,
+execution and promotion remain closed.
 
 ### W5 - tested current-boot application
 

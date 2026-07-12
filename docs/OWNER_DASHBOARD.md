@@ -61,6 +61,17 @@ commands and three boots in 258488 ms. Its add/replace/delete child revision
 `87339872c8016d88068d4aef754db50e0e5d476cbb9d77edd5e8e3821d47a7cb`
 survived reboot byte-identically; discard, stale-base, malformed, wrong-hash,
 invalid-delete, no-op and case-collision paths left committed state intact.
+W3 report `shadow-20260712-135131-25884.json` passed 600/600 across 214 commands,
+three boots and 917166 ms (report SHA-256
+`8a6c5933b6d9c0e8407ecf128a369ed57be9c8941894441753462d8633d58746`).
+The same still-running child finished green 17 seconds after the outer
+900-second host wait expired, without retry or code change: host wall-clock
+timeout, guest behavior passed. A local-serial exact-version package with
+`LICENSE`, detected-but-never-run `build.rs`, and greater-than-24-KiB
+multi-chunk `src/lib.rs` remained bound to exact project revision,
+`Cargo.lock`, owner-declared origin/license and content hashes after reboot.
+Idempotent re-import wrote nothing, and the source revision stayed
+byte-identical.
 
 Still denied: arbitrary external/native/Wasm intake, file/network/secret access
 from generated programs, durable program install/state, broad mutation,
@@ -72,15 +83,17 @@ Stick: the owner reports it has been found, but this session did not enumerate
 or touch it. The next G7 action is read-only identity/layout/fingerprint
 preflight; never assume the former Disk 2 number or recreate a missing fingerprint.
 
-Next product slice: W3 dependency quarantine for one locked, inspectable,
-inert dependency bundle bound to an exact source revision. This is not yet a
-direct cloud-provider editing toolloop; build, install, execute and rollback
-follow only after their named gates. Next hardware slice:
+Next product slice: W4 reproducible offline workstation Rust-to-Wasm build
+receipt for one reviewed exact project revision and its quarantined locked
+inputs. It must keep networking off, return a non-authorizing receipt and prove
+the same inputs reproduce the output hash or deny promotion. Build, install,
+execute and rollback remain closed until their named gates. Next hardware slice:
 the explicit read-only G7 stick preflight. Neither grants physical-write authority.
 
 Planning update: `docs/plan-reviews/secure-ai-workspace-and-media-app-plan-2026-07-12.md`
 defines the final-path secure source workspace, quarantined acquisition,
 reproducible Rust-to-Wasm build, and split Wasm/native media application shape.
-Its W1/W2 workspace path is now partially implemented and verified; fetch,
+Its W1-W3 workspace/dependency path is now implemented and verified; semantic
+Cargo resolution, verified origin/license truth, archive extraction, fetch,
 dependency execution, build, install, native-code, media, GPU and
 physical-storage authority remain closed.

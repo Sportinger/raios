@@ -53,10 +53,10 @@ store and replays byte-identically after reboot. Focused report
 collision, wrong hash, quota denial, manifest-last visibility and explicit
 no-build/no-install/no-execute posture. `/revise <feedback>` also reuses the
 existing current-boot provider/spec/runtime path with parent/root lineage while
-preserving the prior valid draft on failure. The active product cursor is W2:
-project-scoped list/read/search plus copy-on-write edit/diff/commit/discard. W2
-is now complete as recorded below; the active product cursor is W3 dependency
-quarantine, while W4+ builder, promotion and rollback authority remain closed. Hardware
+preserving the prior valid draft on failure. W2 project query/edit and W3
+dependency quarantine are now complete as recorded below. The active product
+cursor is W4 reproducible offline workstation Rust-to-Wasm build receipt, while
+install, execution, promotion and rollback authority remain closed. Hardware
 I5/G7 remains a separate read-only identity tripwire.
 
 **W2a project query complete (2026-07-12):** exact project/path byte-range
@@ -73,8 +73,25 @@ one immutable `agent_overlay_commit` child. Stale, malformed, hash-mismatched,
 no-op, invalid-delete and case-collision paths leave the stored base unchanged.
 `shadow-20260712-130758-7668.json` passes 304/304 across 114 commands and three
 boots; the exact child replayed byte-identically after reboot. W2 is complete.
-The active product cursor is W3 dependency quarantine; direct cloud-provider
-tool use, build, install, load and execution remain closed.
+Direct cloud-provider tool use, build, install, load and execution remain closed.
+
+**W3 dependency quarantine complete (2026-07-12):** a user can local-serial
+import chunked exact-version dependency package sources, bind an owner-declared
+origin locator and license evidence plus the exact `Cargo.lock` blob to one
+immutable project revision, and inspect exact file/chunk/tree/bundle hashes
+after reboot. The verified package included `LICENSE`, detected-but-never-run
+`build.rs`, and a
+greater-than-24-KiB multi-chunk `src/lib.rs`; build-script execution and every
+network/export/compiler/build/install/load/execute authority stayed false.
+Idempotent re-import verified existing chunks/manifest without writes, and the
+source revision remained byte-identical. Focused report
+`shadow-20260712-135131-25884.json` passes 600/600 across 214 commands, three
+boots and 917166 ms. The host's 900-second wait expired 17 seconds before the
+same child produced this green report, so the recorded timeout was host
+wall-clock transport, not guest failure; no retry or code change occurred. W3
+does not claim Cargo semantic parsing, verified origin/license truth, archive
+extraction or network fetch. The active product cursor is W4 reproducible
+offline workstation Rust-to-Wasm build receipt.
 
 **M13/Secret Vault contract accepted (C0/G5.0, 2026-07-10):** ADR 0012
 fixes the dedicated internal-partition boundary, crash-consistent structured

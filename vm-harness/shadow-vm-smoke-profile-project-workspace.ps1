@@ -96,10 +96,304 @@ function Get-ProjectRevisionSha256 {
     finally { $writer.Dispose(); $stream.Dispose() }
 }
 
+function Get-DependencyTreeSha256 {
+    param([object[]]$Files)
+    $stream = [System.IO.MemoryStream]::new()
+    $writer = [System.IO.BinaryWriter]::new($stream, [System.Text.Encoding]::UTF8, $true)
+    try {
+        $writer.Write([System.Text.Encoding]::ASCII.GetBytes('raios.dependency_tree.v1'))
+        $writer.Write([uint16]$Files.Count)
+        foreach ($file in $Files) {
+            Write-CanonicalString -Writer $writer -Value $file.path
+            Write-CanonicalString -Writer $writer -Value $file.media_type
+            $writer.Write([uint32]$file.bytes.Length)
+            $writer.Write([byte[]](Convert-HexToBytes -Hex $file.sha256))
+            $writer.Write([uint16]$file.chunks.Count)
+            foreach ($chunk in $file.chunks) {
+                $writer.Write([uint32]$chunk.bytes.Length)
+                $writer.Write([byte[]](Convert-HexToBytes -Hex $chunk.sha256))
+            }
+        }
+        $writer.Flush()
+        return Get-ByteSha256Hex -Bytes $stream.ToArray()
+    }
+    finally { $writer.Dispose(); $stream.Dispose() }
+}
+
+function Get-DependencyBundleSha256 {
+    param(
+        [string]$ProjectId,
+        [string]$RevisionSha256,
+        [string]$CargoLockSha256,
+        [string]$Name,
+        [string]$Version,
+        [string]$Origin,
+        [string]$LicenseExpression,
+        [string]$LicensePath,
+        [string]$LicenseSha256,
+        [string]$TreeSha256
+    )
+    $stream = [System.IO.MemoryStream]::new()
+    $writer = [System.IO.BinaryWriter]::new($stream, [System.Text.Encoding]::UTF8, $true)
+    try {
+        $writer.Write([System.Text.Encoding]::ASCII.GetBytes('raios.dependency_bundle.v1'))
+        $writer.Write([byte[]](Convert-HexToBytes -Hex $ProjectId))
+        $writer.Write([byte[]](Convert-HexToBytes -Hex $RevisionSha256))
+        $writer.Write([byte[]](Convert-HexToBytes -Hex $CargoLockSha256))
+        Write-CanonicalString -Writer $writer -Value $Name
+        Write-CanonicalString -Writer $writer -Value $Version
+        Write-CanonicalString -Writer $writer -Value $Origin
+        Write-CanonicalString -Writer $writer -Value $LicenseExpression
+        Write-CanonicalString -Writer $writer -Value $LicensePath
+        $writer.Write([byte[]](Convert-HexToBytes -Hex $LicenseSha256))
+        $writer.Write([byte[]](Convert-HexToBytes -Hex $TreeSha256))
+        $writer.Flush()
+        return Get-ByteSha256Hex -Bytes $stream.ToArray()
+    }
+    finally { $writer.Dispose(); $stream.Dispose() }
+}
+
 function Send-ProjectCommand {
     param([string]$Command, [string]$Method, [string]$Name)
     Send-AgentCommand -Command $Command -ExpectedMarker "RAIOS_AGENT_END $Method" -Name "project-workspace:$Name"
     return (Get-LastAgentResponseJson -Method $Method).body.result
+}
+
+function ConvertTo-Base64Text {
+    param([string]$Value)
+    return [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Value))
+}
+
+function Assert-DependencyPosture {
+    param(
+        [object]$Result,
+        [bool]$StorageWriteAttempted,
+        [bool]$WritesPersistentState,
+        [string]$Name
+    )
+    Add-ProjectPredicate -Name "$Name`:dependency_posture" -Expected 'local-only inert dependency data with no network/archive/export/compiler/build-script/install/load/execute/secret/physical authority' -Passed (
+        $Result.scope -eq 'project_dependency' -and $Result.classification -eq 'local_only' -and
+        $Result.persistence_posture -eq 'qemu_disposable_structured_store_only' -and
+        $Result.qemu_only -eq $true -and $Result.source_kind -eq 'owner_local_serial' -and
+        $Result.origin_verified -eq $false -and $Result.origin_evidence -eq 'owner_declared_unverified' -and
+        $Result.license_verified -eq $false -and $Result.license_evidence -eq 'owner_declared_unverified' -and
+        $Result.storage_write_attempted -eq $StorageWriteAttempted -and
+        $Result.writes_persistent_state -eq $WritesPersistentState -and
+        $Result.network_fetch_attempted -eq $false -and $Result.archive_parse_attempted -eq $false -and
+        $Result.provider_export_attempted -eq $false -and $Result.provider_export_authorized -eq $false -and
+        $Result.compiler_attempted -eq $false -and
+        $Result.build_attempted -eq $false -and $Result.build_authorized -eq $false -and
+        $Result.build_script_execution_attempted -eq $false -and $Result.build_script_execution_authorized -eq $false -and
+        $Result.install_attempted -eq $false -and $Result.install_authorized -eq $false -and
+        $Result.load_attempted -eq $false -and $Result.load_authorized -eq $false -and
+        $Result.execution_attempted -eq $false -and $Result.execution_authorized -eq $false -and
+        $Result.secret_access_attempted -eq $false -and
+        $Result.physical_media_attempted -eq $false -and $Result.physical_media_supported -eq $false
+    ) -Actual $Result
+}
+
+function Assert-DependencyDenied {
+    param(
+        [object]$Result,
+        [string]$Reason,
+        [string]$Name,
+        [bool]$StorageWriteAttempted = $false,
+        [bool]$WritesPersistentState = $false
+    )
+    Add-ProjectPredicate -Name "$Name`:dependency_denied" -Expected "$Reason exposes no dependency bundle" -Passed (
+        $Result.status -eq 'denied' -and $Result.reason -eq $Reason -and
+        $Result.accepted -eq $false -and $Result.rejected -eq $true -and
+        $Result.bundle_visible -eq $false -and $null -eq $Result.bundle_sha256 -and
+        [int]$Result.bundle_count -eq 0 -and @($Result.bundles).Count -eq 0
+    ) -Actual $Result
+    Assert-DependencyPosture -Result $Result -StorageWriteAttempted $StorageWriteAttempted -WritesPersistentState $WritesPersistentState -Name $Name
+}
+
+function Assert-NoDependencyBundles {
+    param(
+        [string]$ProjectId,
+        [string]$RevisionSha256,
+        [string]$CargoLockSha256,
+        [string]$Name
+    )
+    $result = Send-ProjectCommand -Command "project.dependencies $ProjectId sha256:$RevisionSha256" -Method 'project.dependencies' -Name "$Name`:dependencies"
+    Add-ProjectPredicate -Name "$Name`:no_bundle_visible" -Expected 'verified source revision has no committed dependency manifest' -Passed (
+        $result.status -eq 'accepted' -and $result.reason -eq 'dependency_bundles_verified' -and
+        $result.accepted -eq $true -and $result.rejected -eq $false -and
+        $result.project_id -eq $ProjectId -and $result.project_revision_sha256 -eq "sha256:$RevisionSha256" -and
+        (($CargoLockSha256 -and $result.cargo_lock_sha256 -eq "sha256:$CargoLockSha256") -or
+            (-not $CargoLockSha256 -and $null -eq $result.cargo_lock_sha256)) -and
+        $result.bundle_visible -eq $false -and [int]$result.bundle_count -eq 0 -and @($result.bundles).Count -eq 0
+    ) -Actual $result
+    Assert-DependencyPosture -Result $result -StorageWriteAttempted $false -WritesPersistentState $false -Name "$Name`:dependencies"
+    return $result
+}
+
+function Start-DependencyImport {
+    param(
+        [string]$ProjectId,
+        [string]$RevisionSha256,
+        [string]$PackageName,
+        [string]$PackageVersion,
+        [string]$Origin,
+        [string]$LicenseExpression,
+        [string]$LicensePath,
+        [string]$LicenseSha256,
+        [string]$Name
+    )
+    $command = 'project.dependency_begin {0} sha256:{1} {2} {3} {4} {5} {6} sha256:{7}' -f @(
+        $ProjectId, $RevisionSha256,
+        (ConvertTo-Base64Text -Value $PackageName),
+        (ConvertTo-Base64Text -Value $PackageVersion),
+        (ConvertTo-Base64Text -Value $Origin),
+        (ConvertTo-Base64Text -Value $LicenseExpression),
+        (ConvertTo-Base64Text -Value $LicensePath),
+        $LicenseSha256
+    )
+    $result = Send-ProjectCommand -Command $command -Method 'project.dependency_begin' -Name "$Name`:begin"
+    return $result
+}
+
+function Assert-DependencyBeginAccepted {
+    param(
+        [object]$Result,
+        [string]$ProjectId,
+        [string]$RevisionSha256,
+        [string]$CargoLockSha256,
+        [string]$PackageName,
+        [string]$PackageVersion,
+        [string]$LicensePath,
+        [string]$LicenseSha256,
+        [string]$Name
+    )
+    Add-ProjectPredicate -Name "$Name`:dependency_started" -Expected 'exact immutable project revision and Cargo.lock bound to a RAM import session' -Passed (
+        $Result.status -eq 'accepted' -and $Result.reason -eq 'dependency_import_started' -and
+        $Result.accepted -eq $true -and $Result.rejected -eq $false -and
+        $Result.project_id -eq $ProjectId -and $Result.project_revision_sha256 -eq "sha256:$RevisionSha256" -and
+        $Result.cargo_lock_sha256 -eq "sha256:$CargoLockSha256" -and
+        $Result.name -ceq $PackageName -and $Result.version -ceq $PackageVersion -and
+        $Result.origin -ceq $dependencyPackageOrigin -and
+        $Result.license_expression -ceq 'MIT' -and $Result.license_path -ceq $LicensePath -and
+        $Result.license_sha256 -eq "sha256:$LicenseSha256" -and
+        $Result.bundle_visible -eq $false -and [int]$Result.file_count -eq 0 -and [int]$Result.chunk_count -eq 0
+    ) -Actual $Result
+    Assert-DependencyPosture -Result $Result -StorageWriteAttempted $false -WritesPersistentState $false -Name $Name
+}
+
+function Send-DependencyFile {
+    param(
+        [object]$File,
+        [string]$Name,
+        [bool]$ExpectedChunkStorageWrite = $true,
+        [bool]$ExpectedChunkPersistentWrite = $true
+    )
+    $pathBase64 = ConvertTo-Base64Text -Value $File.path
+    $begin = Send-ProjectCommand -Command "project.dependency_file_begin $pathBase64 $($File.media_type) $($File.bytes.Length) sha256:$($File.sha256)" -Method 'project.dependency_file_begin' -Name "$Name`:file_begin"
+    Add-ProjectPredicate -Name "$Name`:file_started" -Expected "exact inert dependency file $($File.path) opened" -Passed (
+        $begin.status -eq 'accepted' -and $begin.reason -eq 'dependency_file_started' -and
+        $begin.accepted -eq $true -and $begin.active_path -ceq $File.path -and
+        [int]$begin.active_byte_len -eq 0 -and [int]$begin.expected_byte_len -eq $File.bytes.Length -and
+        $begin.bundle_visible -eq $false
+    ) -Actual $begin
+    Assert-DependencyPosture -Result $begin -StorageWriteAttempted $false -WritesPersistentState $false -Name "$Name`:file_begin"
+
+    $chunkIndex = 0
+    foreach ($chunk in $File.chunks) {
+        $chunkIndex++
+        $chunkBase64 = [Convert]::ToBase64String($chunk.bytes)
+        $chunkResult = Send-ProjectCommand -Command "project.dependency_chunk $chunkBase64" -Method 'project.dependency_chunk' -Name "$Name`:chunk_$chunkIndex"
+        Add-ProjectPredicate -Name "$Name`:chunk_$chunkIndex`_orphan" -Expected 'exact chunk verified for the uncommitted session without exposing a new candidate manifest' -Passed (
+            $chunkResult.status -eq 'accepted' -and $chunkResult.reason -eq 'dependency_chunk_persisted' -and
+            $chunkResult.accepted -eq $true -and
+            $chunkResult.chunk_sha256 -eq "sha256:$($chunk.sha256)" -and
+            [int]$chunkResult.chunk_byte_len -eq $chunk.bytes.Length -and
+            $chunkResult.chunk_persisted -eq $true -and $chunkResult.bundle_visible -eq $false -and
+            [int]$chunkResult.orphan_chunk_count -eq [int]$chunkResult.chunk_count -and
+            [int]$chunkResult.orphan_chunk_count -ge 1
+        ) -Actual $chunkResult
+        Assert-DependencyPosture -Result $chunkResult -StorageWriteAttempted $ExpectedChunkStorageWrite -WritesPersistentState $ExpectedChunkPersistentWrite -Name "$Name`:chunk_$chunkIndex"
+    }
+
+    $finalize = Send-ProjectCommand -Command 'project.dependency_file_finalize' -Method 'project.dependency_file_finalize' -Name "$Name`:file_finalize"
+    Add-ProjectPredicate -Name "$Name`:file_finalized" -Expected 'whole-file length/hash verified while dependency remains invisible' -Passed (
+        $finalize.status -eq 'accepted' -and $finalize.reason -eq 'dependency_file_finalized' -and
+        $finalize.accepted -eq $true -and $null -eq $finalize.active_path -and
+        $finalize.bundle_visible -eq $false
+    ) -Actual $finalize
+    Assert-DependencyPosture -Result $finalize -StorageWriteAttempted $false -WritesPersistentState $false -Name "$Name`:file_finalize"
+    return $finalize
+}
+
+function Test-ExactDependencyFiles {
+    param([object[]]$ActualFiles, [object[]]$ExpectedFiles)
+    if ($ActualFiles.Count -ne $ExpectedFiles.Count) { return $false }
+    for ($fileIndex = 0; $fileIndex -lt $ExpectedFiles.Count; $fileIndex++) {
+        $actualFile = $ActualFiles[$fileIndex]
+        $expectedFile = $ExpectedFiles[$fileIndex]
+        if (
+            $actualFile.path -cne $expectedFile.path -or
+            $actualFile.classification -ne 'local_only' -or
+            $actualFile.media_type -ne $expectedFile.media_type -or
+            [int]$actualFile.whole_byte_len -ne $expectedFile.bytes.Length -or
+            $actualFile.whole_sha256 -ne "sha256:$($expectedFile.sha256)" -or
+            [int]$actualFile.chunk_count -ne $expectedFile.chunks.Count
+        ) { return $false }
+        $actualChunks = @($actualFile.chunks)
+        if ($actualChunks.Count -ne $expectedFile.chunks.Count) { return $false }
+        for ($chunkIndex = 0; $chunkIndex -lt $expectedFile.chunks.Count; $chunkIndex++) {
+            if (
+                [int]$actualChunks[$chunkIndex].byte_len -ne $expectedFile.chunks[$chunkIndex].bytes.Length -or
+                $actualChunks[$chunkIndex].sha256 -ne "sha256:$($expectedFile.chunks[$chunkIndex].sha256)"
+            ) { return $false }
+        }
+    }
+    return $true
+}
+
+function Assert-ExactDependencyBundleFields {
+    param([object]$Actual, [object[]]$Files, [string]$Name)
+    $filesExact = Test-ExactDependencyFiles -ActualFiles @($Actual.files) -ExpectedFiles $Files
+    Add-ProjectPredicate -Name "$Name`:exact_bundle" -Expected 'exact sorted metadata/file/chunk/tree/bundle hashes including inert build.rs presence' -Passed (
+        $Actual.name -ceq $dependencyPackageName -and
+        $Actual.version -ceq $dependencyPackageVersion -and
+        $Actual.origin -ceq $dependencyPackageOrigin -and
+        $Actual.license_expression -ceq $dependencyLicenseExpression -and
+        $Actual.license_path -ceq $dependencyLicensePath -and
+        $Actual.license_sha256 -eq "sha256:$dependencyLicenseSha256" -and
+        $Actual.tree_sha256 -eq "sha256:$dependencyPackageTreeSha256" -and
+        $Actual.bundle_sha256 -eq "sha256:$dependencyBundleSha256" -and
+        $Actual.build_script_present -eq $true -and $filesExact
+    ) -Actual $Actual
+}
+
+function Assert-ExactDependencyInspection {
+    param([object]$Result, [string]$Name)
+    $bundles = @($Result.bundles)
+    Add-ProjectPredicate -Name "$Name`:exact_inspection" -Expected 'one exact source-revision-bound visible dependency bundle' -Passed (
+        $Result.status -eq 'accepted' -and $Result.reason -eq 'dependency_bundles_verified' -and
+        $Result.accepted -eq $true -and $Result.rejected -eq $false -and
+        $Result.project_id -eq $dependencyProjectId -and
+        $Result.project_revision_sha256 -eq "sha256:$dependencyRevisionSha256" -and
+        $Result.cargo_lock_sha256 -eq "sha256:$cargoLockSha256" -and
+        $Result.bundle_visible -eq $true -and [int]$Result.bundle_count -eq 1 -and $bundles.Count -eq 1 -and
+        $null -eq $Result.tree_sha256 -and $null -eq $Result.bundle_sha256 -and @($Result.files).Count -eq 0
+    ) -Actual $Result
+    if ($bundles.Count -eq 1) {
+        Assert-ExactDependencyBundleFields -Actual $bundles[0] -Files $dependencyPackageFiles -Name "$Name`:bundle"
+    }
+    Assert-DependencyPosture -Result $Result -StorageWriteAttempted $false -WritesPersistentState $false -Name $Name
+}
+
+function New-SingleChunkDependencyFile {
+    param([string]$Path, [string]$MediaType, [byte[]]$Bytes)
+    $sha256 = Get-ByteSha256Hex -Bytes $Bytes
+    return [pscustomobject]@{
+        path = $Path
+        media_type = $MediaType
+        bytes = $Bytes
+        sha256 = $sha256
+        chunks = @([pscustomobject]@{ bytes = $Bytes; sha256 = $sha256 })
+    }
 }
 
 function Start-ProjectImport {
@@ -546,6 +840,122 @@ Assert-ProjectEditDenied -Result $staleCommit -Reason 'project_edit_base_stale' 
 $afterStale = Send-ProjectCommand -Command "project.inspect $negativeEditProjectId" -Method 'project.inspect' -Name 'w2b_stale:inspect'
 Assert-ExactProjectRevision -Result $afterStale -Files $advancedNegativeFiles -ProjectId $negativeEditProjectId -TreeSha256 $advancedNegativeTree -RevisionSha256 $advancedNegativeRevision -ParentRevisionSha256 $negativeEditRevision -Name 'w2b_stale_latest'
 
+# W3 uses a separate immutable source project. The exact Cargo.lock is source
+# evidence, while the dependency bytes below remain a distinct inert bundle.
+$dependencyProjectId = '30000000000000000000000000000001'
+$dependencyFiles = @(
+    [pscustomobject]@{
+        path = 'Cargo.lock'; classification = 'local_only'; media_type = 'text/plain'
+        bytes = [System.Text.Encoding]::UTF8.GetBytes("# This file is automatically @generated by Cargo.`n# It is not intended for manual editing.`nversion = 3`n`n[[package]]`nname = `"genesis-dependency-root`"`nversion = `"0.1.0`"`ndependencies = [`n `"raios-local-helper`",`n]`n`n[[package]]`nname = `"raios-local-helper`"`nversion = `"0.1.0`"`n")
+    },
+    [pscustomobject]@{
+        path = 'Cargo.toml'; classification = 'local_only'; media_type = 'text/toml'
+        bytes = [System.Text.Encoding]::UTF8.GetBytes("[package]`nname = `"genesis-dependency-root`"`nversion = `"0.1.0`"`nedition = `"2021`"`n`n[dependencies]`nraios-local-helper = `"=0.1.0`"`n")
+    }
+)
+foreach ($file in $dependencyFiles) { $file | Add-Member -NotePropertyName sha256 -NotePropertyValue (Get-ByteSha256Hex -Bytes $file.bytes) }
+$dependencyTreeSha256 = Get-ProjectTreeSha256 -Files $dependencyFiles
+$dependencyRevisionSha256 = Get-ProjectRevisionSha256 -ProjectId $dependencyProjectId -TreeSha256 $dependencyTreeSha256
+$cargoLockSha256 = $dependencyFiles[0].sha256
+
+Start-ProjectImport -ProjectId $dependencyProjectId -Name 'w3_source'
+foreach ($file in $dependencyFiles) {
+    $finalize = Send-ProjectFile -Name "w3_source_$($file.path)" -Path $file.path -Classification $file.classification -MediaType $file.media_type -Bytes $file.bytes
+    Add-ProjectPredicate -Name "w3_source_$($file.path)`:finalized" -Expected 'exact W3 source file staged before manifest-last commit' -Passed (
+        $finalize.status -eq 'accepted' -and $finalize.reason -eq 'project_import_file_finalized' -and $finalize.accepted -eq $true
+    ) -Actual $finalize
+}
+$dependencySourceCommit = Send-ProjectCommand -Command 'project.import_commit' -Method 'project.import_commit' -Name 'w3_source:commit'
+Add-ProjectPredicate -Name 'w3_source:committed' -Expected 'separate exact Cargo.lock source revision committed on boot 1' -Passed (
+    $dependencySourceCommit.status -eq 'accepted' -and $dependencySourceCommit.reason -eq 'project_revision_committed' -and
+    $dependencySourceCommit.project_id -eq $dependencyProjectId -and
+    $dependencySourceCommit.tree_sha256 -eq "sha256:$dependencyTreeSha256" -and
+    $dependencySourceCommit.revision_sha256 -eq "sha256:$dependencyRevisionSha256"
+) -Actual $dependencySourceCommit
+$dependencySourceInspect = Send-ProjectCommand -Command "project.inspect $dependencyProjectId" -Method 'project.inspect' -Name 'w3_source:inspect'
+Assert-ExactProjectRevision -Result $dependencySourceInspect -Files $dependencyFiles -ProjectId $dependencyProjectId -TreeSha256 $dependencyTreeSha256 -RevisionSha256 $dependencyRevisionSha256 -Name 'w3_source'
+$dependencySourceJson = $dependencySourceInspect | ConvertTo-Json -Compress -Depth 8
+
+# A second real source revision intentionally lacks Cargo.lock. W3 must deny it
+# without confusing "missing lock" with a malformed synthetic request.
+$dependencyNoLockProjectId = '30000000000000000000000000000002'
+$dependencyNoLockFiles = @(
+    [pscustomobject]@{
+        path = 'Cargo.toml'; classification = 'local_only'; media_type = 'text/toml'
+        bytes = [System.Text.Encoding]::UTF8.GetBytes("[package]`nname = `"genesis-unlocked-root`"`nversion = `"0.1.0`"`nedition = `"2021`"`n")
+    }
+)
+foreach ($file in $dependencyNoLockFiles) { $file | Add-Member -NotePropertyName sha256 -NotePropertyValue (Get-ByteSha256Hex -Bytes $file.bytes) }
+$dependencyNoLockTreeSha256 = Get-ProjectTreeSha256 -Files $dependencyNoLockFiles
+$dependencyNoLockRevisionSha256 = Get-ProjectRevisionSha256 -ProjectId $dependencyNoLockProjectId -TreeSha256 $dependencyNoLockTreeSha256
+Start-ProjectImport -ProjectId $dependencyNoLockProjectId -Name 'w3_no_lock_source'
+$noLockFinalize = Send-ProjectFile -Name 'w3_no_lock_source' -Path $dependencyNoLockFiles[0].path -Classification $dependencyNoLockFiles[0].classification -MediaType $dependencyNoLockFiles[0].media_type -Bytes $dependencyNoLockFiles[0].bytes
+Add-ProjectPredicate -Name 'w3_no_lock_source:file_finalized' -Expected 'real no-lock source file staged' -Passed ($noLockFinalize.accepted -eq $true) -Actual $noLockFinalize
+$noLockCommit = Send-ProjectCommand -Command 'project.import_commit' -Method 'project.import_commit' -Name 'w3_no_lock_source:commit'
+Add-ProjectPredicate -Name 'w3_no_lock_source:committed' -Expected 'separate no-lock revision exists for exact W3 denial' -Passed ($noLockCommit.revision_sha256 -eq "sha256:$dependencyNoLockRevisionSha256") -Actual $noLockCommit
+
+# The positive inert package uses several files and a >24 KiB Rust source so
+# project.dependency_chunk must prove ordered multi-chunk assembly. build.rs is
+# deliberately harmless input, but its mere presence must never trigger it.
+$dependencyPackageFiles = @(
+    [pscustomobject]@{
+        path = 'LICENSE'; media_type = 'text/plain'
+        bytes = [System.Text.Encoding]::UTF8.GetBytes("Permission is hereby granted to use this inert raiOS test package.`n")
+    },
+    [pscustomobject]@{
+        path = 'build.rs'; media_type = 'text/rust'
+        bytes = [System.Text.Encoding]::UTF8.GetBytes("fn main() { println!(`"cargo:rerun-if-changed=build.rs`"`); }`n")
+    },
+    [pscustomobject]@{
+        path = 'src/lib.rs'; media_type = 'text/rust'
+        bytes = [System.Text.Encoding]::UTF8.GetBytes("pub fn answer() -> u32 { 42 }`n" + ((0..749 | ForEach-Object { "// inert ordered chunk {0:D4} padding`n" -f $_ }) -join ''))
+    }
+)
+foreach ($file in $dependencyPackageFiles) { $file | Add-Member -NotePropertyName sha256 -NotePropertyValue (Get-ByteSha256Hex -Bytes $file.bytes) }
+Add-ProjectPredicate -Name 'w3_fixture:multi_chunk_source' -Expected 'bounded inert Rust source exceeds 24 KiB' -Passed (
+    $dependencyPackageFiles[2].bytes.Length -gt (24 * 1024) -and $dependencyPackageFiles[2].bytes.Length -le (32 * 1024)
+) -Actual $dependencyPackageFiles[2].bytes.Length
+# The serial console command buffer is 4096 bytes, narrower than the 24 KiB
+# dependency chunk contract. Keep raw chunks below the base64-expanded limit.
+$dependencyChunkBytes = 2048
+foreach ($file in $dependencyPackageFiles) {
+    $chunks = @()
+    for ($offset = 0; $offset -lt $file.bytes.Length; $offset += $dependencyChunkBytes) {
+        $count = [Math]::Min($dependencyChunkBytes, $file.bytes.Length - $offset)
+        $bytes = [byte[]]::new($count)
+        [Array]::Copy($file.bytes, $offset, $bytes, 0, $count)
+        $chunks += [pscustomobject]@{
+            bytes = $bytes
+            sha256 = Get-ByteSha256Hex -Bytes $bytes
+        }
+    }
+    $file | Add-Member -NotePropertyName chunks -NotePropertyValue $chunks
+}
+$dependencyChunkHashes = @($dependencyPackageFiles | ForEach-Object { $_.chunks } | ForEach-Object { $_.sha256 })
+Add-ProjectPredicate -Name 'w3_fixture:ordered_unique_chunks' -Expected 'multi-file package requires multiple uniquely hashed ordered chunks within the 64-chunk bound' -Passed (
+    $dependencyPackageFiles[2].chunks.Count -gt 1 -and
+    $dependencyChunkHashes.Count -le 64 -and
+    @($dependencyChunkHashes | Sort-Object -Unique).Count -eq $dependencyChunkHashes.Count
+) -Actual $dependencyChunkHashes.Count
+$dependencyPackageName = 'raios-local-helper'
+$dependencyPackageVersion = '0.1.0'
+$dependencyPackageOrigin = 'owner-local://serial/raios-local-helper/0.1.0'
+$dependencyLicenseExpression = 'MIT'
+$dependencyLicensePath = 'LICENSE'
+$dependencyLicenseSha256 = $dependencyPackageFiles[0].sha256
+$dependencyPackageTreeSha256 = Get-DependencyTreeSha256 -Files $dependencyPackageFiles
+$dependencyBundleSha256 = Get-DependencyBundleSha256 `
+    -ProjectId $dependencyProjectId `
+    -RevisionSha256 $dependencyRevisionSha256 `
+    -CargoLockSha256 $cargoLockSha256 `
+    -Name $dependencyPackageName `
+    -Version $dependencyPackageVersion `
+    -Origin $dependencyPackageOrigin `
+    -LicenseExpression $dependencyLicenseExpression `
+    -LicensePath $dependencyLicensePath `
+    -LicenseSha256 $dependencyLicenseSha256 `
+    -TreeSha256 $dependencyPackageTreeSha256
+
 $firstBootLog = $SerialLog
 Close-SerialTcpConnection
 if (-not $QemuPid) { throw 'project-workspace profile cannot reboot without the first QEMU process' }
@@ -572,6 +982,228 @@ Assert-ProjectReadAndSearch -ProjectId $projectId -RevisionSha256 $revisionSha25
 Assert-ProjectQueryDenials -ProjectId $projectId -SourceFile $files[1] -Name 'reboot'
 $rebootRevisionJson = $rebootInspect | ConvertTo-Json -Compress -Depth 8
 Add-ProjectPredicate -Name 'reboot:byte_identical_revision_facts' -Expected 'project/tree/revision/file facts byte-identical across two boots' -Passed ($rebootRevisionJson -ceq $firstRevisionJson) -Actual $(if ($rebootRevisionJson -ceq $firstRevisionJson) { $revisionSha256 } else { 'response_mismatch' })
+
+$dependencySourceRebootInspect = Send-ProjectCommand -Command "project.inspect $dependencyProjectId" -Method 'project.inspect' -Name 'w3_source:inspect_reboot'
+Assert-ExactProjectRevision -Result $dependencySourceRebootInspect -Files $dependencyFiles -ProjectId $dependencyProjectId -TreeSha256 $dependencyTreeSha256 -RevisionSha256 $dependencyRevisionSha256 -Name 'w3_source_reboot'
+$dependencySourceRebootJson = $dependencySourceRebootInspect | ConvertTo-Json -Compress -Depth 8
+Add-ProjectPredicate -Name 'w3_source:boot2_revision_unchanged' -Expected 'exact Cargo.lock source revision byte-identical and unchanged on boot 2' -Passed (
+    $dependencySourceRebootJson -ceq $dependencySourceJson
+) -Actual $(if ($dependencySourceRebootJson -ceq $dependencySourceJson) { $dependencyRevisionSha256 } else { 'response_mismatch' })
+
+$dependencyNoLockInspect = Send-ProjectCommand -Command "project.inspect $dependencyNoLockProjectId" -Method 'project.inspect' -Name 'w3_no_lock_source:inspect_reboot'
+Assert-ExactProjectRevision -Result $dependencyNoLockInspect -Files $dependencyNoLockFiles -ProjectId $dependencyNoLockProjectId -TreeSha256 $dependencyNoLockTreeSha256 -RevisionSha256 $dependencyNoLockRevisionSha256 -Name 'w3_no_lock_source_reboot'
+
+# W3 begin denials bind to real stored project facts and write nothing.
+$wrongDependencyProject = Start-DependencyImport `
+    -ProjectId '40000000000000000000000000000001' -RevisionSha256 $dependencyRevisionSha256 `
+    -PackageName $dependencyPackageName -PackageVersion $dependencyPackageVersion -Origin $dependencyPackageOrigin `
+    -LicenseExpression $dependencyLicenseExpression -LicensePath $dependencyLicensePath -LicenseSha256 $dependencyLicenseSha256 `
+    -Name 'w3_wrong_project'
+Assert-DependencyDenied -Result $wrongDependencyProject -Reason 'project_not_found' -Name 'w3_wrong_project'
+
+$wrongDependencyRevision = Start-DependencyImport `
+    -ProjectId $dependencyProjectId -RevisionSha256 ('1' * 64) `
+    -PackageName $dependencyPackageName -PackageVersion $dependencyPackageVersion -Origin $dependencyPackageOrigin `
+    -LicenseExpression $dependencyLicenseExpression -LicensePath $dependencyLicensePath -LicenseSha256 $dependencyLicenseSha256 `
+    -Name 'w3_wrong_revision'
+Assert-DependencyDenied -Result $wrongDependencyRevision -Reason 'dependency_project_revision_stale' -Name 'w3_wrong_revision'
+
+$missingCargoLock = Start-DependencyImport `
+    -ProjectId $dependencyNoLockProjectId -RevisionSha256 $dependencyNoLockRevisionSha256 `
+    -PackageName $dependencyPackageName -PackageVersion $dependencyPackageVersion -Origin $dependencyPackageOrigin `
+    -LicenseExpression $dependencyLicenseExpression -LicensePath $dependencyLicensePath -LicenseSha256 $dependencyLicenseSha256 `
+    -Name 'w3_missing_cargo_lock'
+Assert-DependencyDenied -Result $missingCargoLock -Reason 'dependency_cargo_lock_missing' -Name 'w3_missing_cargo_lock'
+
+$invalidMetadata = Start-DependencyImport `
+    -ProjectId $dependencyProjectId -RevisionSha256 $dependencyRevisionSha256 `
+    -PackageName "bad`nname" -PackageVersion $dependencyPackageVersion -Origin $dependencyPackageOrigin `
+    -LicenseExpression $dependencyLicenseExpression -LicensePath $dependencyLicensePath -LicenseSha256 $dependencyLicenseSha256 `
+    -Name 'w3_invalid_metadata'
+Assert-DependencyDenied -Result $invalidMetadata -Reason 'dependency_metadata_invalid' -Name 'w3_invalid_metadata'
+
+$invalidLicensePath = Start-DependencyImport `
+    -ProjectId $dependencyProjectId -RevisionSha256 $dependencyRevisionSha256 `
+    -PackageName $dependencyPackageName -PackageVersion $dependencyPackageVersion -Origin $dependencyPackageOrigin `
+    -LicenseExpression $dependencyLicenseExpression -LicensePath '../LICENSE' -LicenseSha256 $dependencyLicenseSha256 `
+    -Name 'w3_invalid_license_path'
+Assert-DependencyDenied -Result $invalidLicensePath -Reason 'dependency_path_invalid' -Name 'w3_invalid_license_path'
+
+$invalidLicenseHash = Start-DependencyImport `
+    -ProjectId $dependencyProjectId -RevisionSha256 $dependencyRevisionSha256 `
+    -PackageName $dependencyPackageName -PackageVersion $dependencyPackageVersion -Origin $dependencyPackageOrigin `
+    -LicenseExpression $dependencyLicenseExpression -LicensePath $dependencyLicensePath -LicenseSha256 'xyz' `
+    -Name 'w3_invalid_license_hash'
+Assert-DependencyDenied -Result $invalidLicenseHash -Reason 'dependency_license_sha256_invalid' -Name 'w3_invalid_license_hash'
+
+# Positive package: every valid chunk is a durable orphan until the exact
+# manifest is committed last. Inspection before commit must still be empty.
+$dependencyBegin = Start-DependencyImport `
+    -ProjectId $dependencyProjectId -RevisionSha256 $dependencyRevisionSha256 `
+    -PackageName $dependencyPackageName -PackageVersion $dependencyPackageVersion -Origin $dependencyPackageOrigin `
+    -LicenseExpression $dependencyLicenseExpression -LicensePath $dependencyLicensePath -LicenseSha256 $dependencyLicenseSha256 `
+    -Name 'w3_positive'
+Assert-DependencyBeginAccepted -Result $dependencyBegin `
+    -ProjectId $dependencyProjectId -RevisionSha256 $dependencyRevisionSha256 -CargoLockSha256 $cargoLockSha256 `
+    -PackageName $dependencyPackageName -PackageVersion $dependencyPackageVersion `
+    -LicensePath $dependencyLicensePath -LicenseSha256 $dependencyLicenseSha256 -Name 'w3_positive'
+foreach ($file in $dependencyPackageFiles) {
+    Send-DependencyFile -File $file -Name "w3_positive_$($file.path)" | Out-Null
+}
+$dependencyBeforeCommit = Assert-NoDependencyBundles `
+    -ProjectId $dependencyProjectId -RevisionSha256 $dependencyRevisionSha256 -CargoLockSha256 $cargoLockSha256 `
+    -Name 'w3_positive_before_commit'
+
+$dependencyCommit = Send-ProjectCommand -Command 'project.dependency_commit' -Method 'project.dependency_commit' -Name 'w3_positive:commit'
+Add-ProjectPredicate -Name 'w3_positive:manifest_last_commit' -Expected 'manifest becomes visible only after all exact chunk and whole-file hashes verify' -Passed (
+    $dependencyCommit.status -eq 'accepted' -and $dependencyCommit.reason -eq 'dependency_bundle_committed' -and
+    $dependencyCommit.accepted -eq $true -and $dependencyCommit.rejected -eq $false -and
+    $dependencyCommit.project_id -eq $dependencyProjectId -and
+    $dependencyCommit.project_revision_sha256 -eq "sha256:$dependencyRevisionSha256" -and
+    $dependencyCommit.cargo_lock_sha256 -eq "sha256:$cargoLockSha256" -and
+    [int]$dependencyCommit.file_count -eq $dependencyPackageFiles.Count -and
+    [int]$dependencyCommit.chunk_count -eq $dependencyChunkHashes.Count -and
+    $dependencyCommit.bundle_visible -eq $true -and
+    $dependencyCommit.build_script_present -eq $true
+) -Actual $dependencyCommit
+Assert-ExactDependencyBundleFields -Actual $dependencyCommit -Files $dependencyPackageFiles -Name 'w3_positive_commit'
+Assert-DependencyPosture -Result $dependencyCommit -StorageWriteAttempted $true -WritesPersistentState $true -Name 'w3_positive_commit'
+
+$dependencyInspect = Send-ProjectCommand -Command "project.dependencies $dependencyProjectId sha256:$dependencyRevisionSha256" -Method 'project.dependencies' -Name 'w3_positive:inspect'
+Assert-ExactDependencyInspection -Result $dependencyInspect -Name 'w3_positive_inspect'
+$dependencyInspectJson = $dependencyInspect | ConvertTo-Json -Compress -Depth 12
+
+# Re-importing the byte-identical package proves content-addressed idempotence:
+# existing chunks and the existing manifest verify, but neither claims a write.
+$idempotentDependencyBegin = Start-DependencyImport `
+    -ProjectId $dependencyProjectId -RevisionSha256 $dependencyRevisionSha256 `
+    -PackageName $dependencyPackageName -PackageVersion $dependencyPackageVersion -Origin $dependencyPackageOrigin `
+    -LicenseExpression $dependencyLicenseExpression -LicensePath $dependencyLicensePath -LicenseSha256 $dependencyLicenseSha256 `
+    -Name 'w3_idempotent'
+Assert-DependencyBeginAccepted -Result $idempotentDependencyBegin `
+    -ProjectId $dependencyProjectId -RevisionSha256 $dependencyRevisionSha256 -CargoLockSha256 $cargoLockSha256 `
+    -PackageName $dependencyPackageName -PackageVersion $dependencyPackageVersion `
+    -LicensePath $dependencyLicensePath -LicenseSha256 $dependencyLicenseSha256 -Name 'w3_idempotent'
+foreach ($file in $dependencyPackageFiles) {
+    Send-DependencyFile -File $file -Name "w3_idempotent_$($file.path)" `
+        -ExpectedChunkStorageWrite $false -ExpectedChunkPersistentWrite $false | Out-Null
+}
+$idempotentDependencyCommit = Send-ProjectCommand -Command 'project.dependency_commit' -Method 'project.dependency_commit' -Name 'w3_idempotent:commit'
+Add-ProjectPredicate -Name 'w3_idempotent:manifest_verified_without_write' -Expected 'identical existing manifest accepted and visible without claiming a storage write' -Passed (
+    $idempotentDependencyCommit.status -eq 'accepted' -and
+    $idempotentDependencyCommit.reason -eq 'dependency_bundle_already_present' -and
+    $idempotentDependencyCommit.accepted -eq $true -and
+    $idempotentDependencyCommit.bundle_visible -eq $true -and
+    $idempotentDependencyCommit.bundle_sha256 -eq "sha256:$dependencyBundleSha256"
+) -Actual $idempotentDependencyCommit
+Assert-ExactDependencyBundleFields -Actual $idempotentDependencyCommit -Files $dependencyPackageFiles -Name 'w3_idempotent_commit'
+Assert-DependencyPosture -Result $idempotentDependencyCommit -StorageWriteAttempted $false -WritesPersistentState $false -Name 'w3_idempotent_commit'
+$dependencyAfterIdempotent = Send-ProjectCommand -Command "project.dependencies $dependencyProjectId sha256:$dependencyRevisionSha256" -Method 'project.dependencies' -Name 'w3_idempotent:inspect'
+Assert-ExactDependencyInspection -Result $dependencyAfterIdempotent -Name 'w3_idempotent_inspect'
+$dependencyAfterIdempotentJson = $dependencyAfterIdempotent | ConvertTo-Json -Compress -Depth 12
+Add-ProjectPredicate -Name 'w3_idempotent:inspection_unchanged' -Expected 'idempotent re-import leaves exact inspection byte-identical' -Passed (
+    $dependencyAfterIdempotentJson -ceq $dependencyInspectJson
+) -Actual $(if ($dependencyAfterIdempotentJson -ceq $dependencyInspectJson) { $dependencyBundleSha256 } else { 'response_mismatch' })
+
+# Malformed and overflow requests discard only their RAM session.
+$malformedDependencyBegin = Start-DependencyImport `
+    -ProjectId $dependencyProjectId -RevisionSha256 $dependencyRevisionSha256 `
+    -PackageName 'negative-malformed' -PackageVersion '0.1.0' -Origin $dependencyPackageOrigin `
+    -LicenseExpression 'MIT' -LicensePath 'LICENSE' -LicenseSha256 $dependencyLicenseSha256 `
+    -Name 'w3_malformed_chunk'
+Assert-DependencyBeginAccepted -Result $malformedDependencyBegin `
+    -ProjectId $dependencyProjectId -RevisionSha256 $dependencyRevisionSha256 -CargoLockSha256 $cargoLockSha256 `
+    -PackageName 'negative-malformed' -PackageVersion '0.1.0' -LicensePath 'LICENSE' -LicenseSha256 $dependencyLicenseSha256 `
+    -Name 'w3_malformed_chunk'
+$malformedPath = ConvertTo-Base64Text -Value 'malformed.bin'
+$malformedFileBegin = Send-ProjectCommand -Command "project.dependency_file_begin $malformedPath application/octet-stream 1 sha256:$oneByteHash" -Method 'project.dependency_file_begin' -Name 'w3_malformed_chunk:file_begin'
+Add-ProjectPredicate -Name 'w3_malformed_chunk:file_started' -Expected 'malformed chunk case has one active bounded file' -Passed ($malformedFileBegin.accepted -eq $true) -Actual $malformedFileBegin
+$malformedChunk = Send-ProjectCommand -Command 'project.dependency_chunk' -Method 'project.dependency_chunk' -Name 'w3_malformed_chunk:chunk'
+Assert-DependencyDenied -Result $malformedChunk -Reason 'dependency_chunk_malformed' -Name 'w3_malformed_chunk'
+
+$overflowDependencyBegin = Start-DependencyImport `
+    -ProjectId $dependencyProjectId -RevisionSha256 $dependencyRevisionSha256 `
+    -PackageName 'negative-overflow' -PackageVersion '0.1.0' -Origin $dependencyPackageOrigin `
+    -LicenseExpression 'MIT' -LicensePath 'LICENSE' -LicenseSha256 $dependencyLicenseSha256 `
+    -Name 'w3_file_overflow'
+Assert-DependencyBeginAccepted -Result $overflowDependencyBegin `
+    -ProjectId $dependencyProjectId -RevisionSha256 $dependencyRevisionSha256 -CargoLockSha256 $cargoLockSha256 `
+    -PackageName 'negative-overflow' -PackageVersion '0.1.0' -LicensePath 'LICENSE' -LicenseSha256 $dependencyLicenseSha256 `
+    -Name 'w3_file_overflow'
+$overflowPath = ConvertTo-Base64Text -Value 'overflow.bin'
+$overflowFile = Send-ProjectCommand -Command "project.dependency_file_begin $overflowPath application/octet-stream 524289 sha256:$('2' * 64)" -Method 'project.dependency_file_begin' -Name 'w3_file_overflow:file_begin'
+Assert-DependencyDenied -Result $overflowFile -Reason 'dependency_file_too_large' -Name 'w3_file_overflow'
+
+# A correct persisted chunk followed by a wrong whole-file hash must remain an
+# orphan and must not alter the already visible exact bundle.
+$hashMismatchBytes = [System.Text.Encoding]::UTF8.GetBytes('unique negative hash mismatch bytes')
+$hashMismatchActualSha = Get-ByteSha256Hex -Bytes $hashMismatchBytes
+$hashMismatchBegin = Start-DependencyImport `
+    -ProjectId $dependencyProjectId -RevisionSha256 $dependencyRevisionSha256 `
+    -PackageName 'negative-hash' -PackageVersion '0.1.0' -Origin $dependencyPackageOrigin `
+    -LicenseExpression 'MIT' -LicensePath 'hash.bin' -LicenseSha256 ('3' * 64) `
+    -Name 'w3_file_hash_mismatch'
+Assert-DependencyBeginAccepted -Result $hashMismatchBegin `
+    -ProjectId $dependencyProjectId -RevisionSha256 $dependencyRevisionSha256 -CargoLockSha256 $cargoLockSha256 `
+    -PackageName 'negative-hash' -PackageVersion '0.1.0' -LicensePath 'hash.bin' -LicenseSha256 ('3' * 64) `
+    -Name 'w3_file_hash_mismatch'
+$hashMismatchPath = ConvertTo-Base64Text -Value 'hash.bin'
+$hashMismatchFileBegin = Send-ProjectCommand -Command "project.dependency_file_begin $hashMismatchPath application/octet-stream $($hashMismatchBytes.Length) sha256:$('4' * 64)" -Method 'project.dependency_file_begin' -Name 'w3_file_hash_mismatch:file_begin'
+Add-ProjectPredicate -Name 'w3_file_hash_mismatch:file_started' -Expected 'wrong declared whole hash accepted only as an unverified pending claim' -Passed ($hashMismatchFileBegin.accepted -eq $true) -Actual $hashMismatchFileBegin
+$hashMismatchChunk = Send-ProjectCommand -Command "project.dependency_chunk $([Convert]::ToBase64String($hashMismatchBytes))" -Method 'project.dependency_chunk' -Name 'w3_file_hash_mismatch:chunk'
+Add-ProjectPredicate -Name 'w3_file_hash_mismatch:orphan_written' -Expected 'valid unique chunk persists truthfully while bundle remains invisible' -Passed (
+    $hashMismatchChunk.accepted -eq $true -and $hashMismatchChunk.reason -eq 'dependency_chunk_persisted' -and
+    $hashMismatchChunk.chunk_sha256 -eq "sha256:$hashMismatchActualSha" -and
+    $hashMismatchChunk.chunk_persisted -eq $true -and $hashMismatchChunk.bundle_visible -eq $false
+) -Actual $hashMismatchChunk
+Assert-DependencyPosture -Result $hashMismatchChunk -StorageWriteAttempted $true -WritesPersistentState $true -Name 'w3_file_hash_mismatch:chunk'
+$hashMismatchFinalize = Send-ProjectCommand -Command 'project.dependency_file_finalize' -Method 'project.dependency_file_finalize' -Name 'w3_file_hash_mismatch:finalize'
+Assert-DependencyDenied -Result $hashMismatchFinalize -Reason 'dependency_file_hash_mismatch' -Name 'w3_file_hash_mismatch'
+
+# A valid license file with a different declared license hash reaches the
+# exact commit-time license binding and still cannot publish a manifest.
+$wrongLicenseFile = New-SingleChunkDependencyFile -Path 'LICENSE' -MediaType 'text/plain' -Bytes ([System.Text.Encoding]::UTF8.GetBytes("unique wrong-license fixture`n"))
+$wrongLicenseBegin = Start-DependencyImport `
+    -ProjectId $dependencyProjectId -RevisionSha256 $dependencyRevisionSha256 `
+    -PackageName 'negative-license' -PackageVersion '0.1.0' -Origin $dependencyPackageOrigin `
+    -LicenseExpression 'MIT' -LicensePath 'LICENSE' -LicenseSha256 ('5' * 64) `
+    -Name 'w3_license_hash_mismatch'
+Assert-DependencyBeginAccepted -Result $wrongLicenseBegin `
+    -ProjectId $dependencyProjectId -RevisionSha256 $dependencyRevisionSha256 -CargoLockSha256 $cargoLockSha256 `
+    -PackageName 'negative-license' -PackageVersion '0.1.0' -LicensePath 'LICENSE' -LicenseSha256 ('5' * 64) `
+    -Name 'w3_license_hash_mismatch'
+Send-DependencyFile -File $wrongLicenseFile -Name 'w3_license_hash_mismatch' | Out-Null
+$wrongLicenseCommit = Send-ProjectCommand -Command 'project.dependency_commit' -Method 'project.dependency_commit' -Name 'w3_license_hash_mismatch:commit'
+Assert-DependencyDenied -Result $wrongLicenseCommit -Reason 'dependency_license_hash_mismatch' -Name 'w3_license_hash_mismatch'
+
+# Case aliases persist only content-addressed orphan chunks; the sorted bundle
+# validator refuses to publish an ambiguous path tree.
+$caseFileA = New-SingleChunkDependencyFile -Path 'Case.rs' -MediaType 'text/rust' -Bytes ([System.Text.Encoding]::UTF8.GetBytes("// unique case A`n"))
+$caseFileB = New-SingleChunkDependencyFile -Path 'case.RS' -MediaType 'text/rust' -Bytes ([System.Text.Encoding]::UTF8.GetBytes("// unique case B`n"))
+$caseCollisionBegin = Start-DependencyImport `
+    -ProjectId $dependencyProjectId -RevisionSha256 $dependencyRevisionSha256 `
+    -PackageName 'negative-collision' -PackageVersion '0.1.0' -Origin $dependencyPackageOrigin `
+    -LicenseExpression 'MIT' -LicensePath 'Case.rs' -LicenseSha256 $caseFileA.sha256 `
+    -Name 'w3_case_collision'
+Assert-DependencyBeginAccepted -Result $caseCollisionBegin `
+    -ProjectId $dependencyProjectId -RevisionSha256 $dependencyRevisionSha256 -CargoLockSha256 $cargoLockSha256 `
+    -PackageName 'negative-collision' -PackageVersion '0.1.0' -LicensePath 'Case.rs' -LicenseSha256 $caseFileA.sha256 `
+    -Name 'w3_case_collision'
+Send-DependencyFile -File $caseFileA -Name 'w3_case_collision_a' | Out-Null
+Send-DependencyFile -File $caseFileB -Name 'w3_case_collision_b' | Out-Null
+$caseCollisionCommit = Send-ProjectCommand -Command 'project.dependency_commit' -Method 'project.dependency_commit' -Name 'w3_case_collision:commit'
+Assert-DependencyDenied -Result $caseCollisionCommit -Reason 'dependency_path_collision' -Name 'w3_case_collision'
+
+$dependencyAfterDenials = Send-ProjectCommand -Command "project.dependencies $dependencyProjectId sha256:$dependencyRevisionSha256" -Method 'project.dependencies' -Name 'w3_after_denials:inspect'
+Assert-ExactDependencyInspection -Result $dependencyAfterDenials -Name 'w3_after_denials'
+$dependencyAfterDenialsJson = $dependencyAfterDenials | ConvertTo-Json -Compress -Depth 12
+Add-ProjectPredicate -Name 'w3_after_denials:manifest_unchanged' -Expected 'all denied sessions leave the exact committed dependency inspection byte-identical' -Passed (
+    $dependencyAfterDenialsJson -ceq $dependencyInspectJson
+) -Actual $(if ($dependencyAfterDenialsJson -ceq $dependencyInspectJson) { $dependencyBundleSha256 } else { 'response_mismatch' })
+$dependencySourceAfterW3 = Send-ProjectCommand -Command "project.inspect $dependencyProjectId" -Method 'project.inspect' -Name 'w3_source:inspect_after_dependency'
+Add-ProjectPredicate -Name 'w3_source:unchanged_after_dependency' -Expected 'dependency quarantine cannot mutate the immutable source revision' -Passed (
+    ($dependencySourceAfterW3 | ConvertTo-Json -Compress -Depth 8) -ceq $dependencySourceJson
+) -Actual $dependencySourceAfterW3
 
 # W2b positive child revision: one replacement, one addition, one deletion.
 $childFiles = @(
@@ -710,6 +1342,20 @@ Add-ProjectPredicate -Name 'w2b_child_reboot:parent_bound' -Expected 'rebooted c
 Assert-ProjectReadAndSearch -ProjectId $projectId -RevisionSha256 $childRevisionSha256 -SourceFile $childFiles[1] -Name 'w2b_child_reboot'
 $childRebootJson = $childRebootInspect | ConvertTo-Json -Compress -Depth 8
 Add-ProjectPredicate -Name 'w2b_child_reboot:byte_identical_child_facts' -Expected 'child project/tree/revision/file facts byte-identical across reboot' -Passed ($childRebootJson -ceq $childRevisionJson) -Actual $(if ($childRebootJson -ceq $childRevisionJson) { $childRevisionSha256 } else { 'response_mismatch' })
+
+$dependencySourceChildRebootInspect = Send-ProjectCommand -Command "project.inspect $dependencyProjectId" -Method 'project.inspect' -Name 'w3_source:inspect_child_reboot'
+Assert-ExactProjectRevision -Result $dependencySourceChildRebootInspect -Files $dependencyFiles -ProjectId $dependencyProjectId -TreeSha256 $dependencyTreeSha256 -RevisionSha256 $dependencyRevisionSha256 -Name 'w3_source_child_reboot'
+$dependencySourceChildRebootJson = $dependencySourceChildRebootInspect | ConvertTo-Json -Compress -Depth 8
+Add-ProjectPredicate -Name 'w3_source:boot3_revision_unchanged' -Expected 'dependency import cannot mutate its exact source revision across three boots' -Passed (
+    $dependencySourceChildRebootJson -ceq $dependencySourceJson
+) -Actual $(if ($dependencySourceChildRebootJson -ceq $dependencySourceJson) { $dependencyRevisionSha256 } else { 'response_mismatch' })
+
+$dependencyChildRebootInspect = Send-ProjectCommand -Command "project.dependencies $dependencyProjectId sha256:$dependencyRevisionSha256" -Method 'project.dependencies' -Name 'w3_child_reboot:inspect'
+Assert-ExactDependencyInspection -Result $dependencyChildRebootInspect -Name 'w3_child_reboot'
+$dependencyChildRebootJson = $dependencyChildRebootInspect | ConvertTo-Json -Compress -Depth 12
+Add-ProjectPredicate -Name 'w3_child_reboot:byte_identical_inspection' -Expected 'metadata/file/chunk/tree/bundle hashes and build.rs inertness replay byte-identically on boot 3' -Passed (
+    $dependencyChildRebootJson -ceq $dependencyInspectJson
+) -Actual $(if ($dependencyChildRebootJson -ceq $dependencyInspectJson) { $dependencyBundleSha256 } else { 'response_mismatch' })
 
 $combinedLog = Join-Path $RunDir 'serial-project-workspace-combined.log'
 $firstBootContent = Get-Content -LiteralPath $firstBootLog -Raw -ErrorAction Stop
