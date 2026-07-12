@@ -8,6 +8,14 @@ the bounded typed `RAIOS_UI_SPEC_V1` data language, compiles it locally to
 canonical hash-bound RUIP, and keeps the draft inert until a physical click.
 The signed `svc.user.shell` then runs it current-boot in a fresh metered Wasmi
 instance with exactly six UI imports; state commits only after a valid frame.
+An accepted provider-authored draft can now be refined with
+`/revise <feedback>` while retaining parent/root hash lineage; a rejected
+replacement leaves the prior runnable draft intact.
+
+Workspace: W1 is real. A bounded local multi-file source project can be
+committed as immutable content-addressed blobs plus deterministic tree/revision
+evidence to the disposable QEMU structured store, rebooted, and inspected with
+the same exact file and revision hashes. It remains inert source data.
 
 Genesis UX: conversation entries wrap instead of truncating, older rows are
 reachable with the wheel or PageUp/PageDown, the composer keeps its visible
@@ -36,6 +44,12 @@ trap/fuel fallback. The unchanged full baseline
 `shadow-20260712-025759-11164.json` passed 7870/7870. Core tests pass 415/415;
 the UX release build, format, diff and secret checks are green.
 
+Workspace proof: `shadow-20260712-124220-8296.json` passed 76/76 across 33
+observed commands and two boots. Invalid paths, case aliases, wrong hashes and
+quota overflow produced no visible revision; the valid two-file project replayed
+with exact revision hash
+`11df2422e2592225c3687d7cd845e6991628bed9c49611e01b51ff9c9dda6a05`.
+
 Still denied: arbitrary external/native/Wasm intake, file/network/secret access
 from generated programs, durable program install/state, broad mutation,
 promotion, rollback application, TPM auto-unlock, physical persistence, and live
@@ -46,9 +60,10 @@ Stick: the owner reports it has been found, but this session did not enumerate
 or touch it. The next G7 action is read-only identity/layout/fingerprint
 preflight; never assume the former Disk 2 number or recreate a missing fingerprint.
 
-Next product slice: design durable program installation only through the existing
-persistence, evidence, capability and rollback gates. Next hardware slice: the
-explicit read-only G7 stick preflight. Neither grants physical-write authority.
+Next product slice: W2 project-scoped list/read/search and an isolated edit
+overlay whose exact diff can be committed or discarded. Build, dependencies,
+install and rollback follow only after their named gates. Next hardware slice:
+the explicit read-only G7 stick preflight. Neither grants physical-write authority.
 
 Planning update: `docs/plan-reviews/secure-ai-workspace-and-media-app-plan-2026-07-12.md`
 defines the final-path secure source workspace, quarantined acquisition,

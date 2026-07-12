@@ -1,6 +1,7 @@
 use alloc::{string::String, vec::Vec};
 
 use raios_core::{
+    sha256_bytes,
     ui_program::{Program, ProgramError, ProgramIdentity, MAX_PROGRAM_BYTES},
     ui_program_spec::{self, SpecError},
 };
@@ -50,6 +51,28 @@ struct Draft {
     identity: ProgramIdentity,
     source: Source,
     revision: u64,
+    original_request: Option<String>,
+    provider_source_spec: Option<String>,
+    provider_source_spec_sha256: Option<[u8; 32]>,
+    parent_sha256: Option<[u8; 32]>,
+    root_sha256: [u8; 32],
+    lineage_depth: u64,
+}
+
+struct PendingProviderRequest {
+    request_id: u32,
+    original_request: String,
+    parent_sha256: Option<[u8; 32]>,
+    root_sha256: Option<[u8; 32]>,
+    lineage_depth: u64,
+}
+
+pub(crate) struct RevisionContext {
+    pub(crate) original_request: String,
+    pub(crate) provider_source_spec: String,
+    pub(crate) parent_sha256: [u8; 32],
+    pub(crate) root_sha256: [u8; 32],
+    pub(crate) lineage_depth: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -61,6 +84,17 @@ pub(crate) struct Snapshot {
     pub(crate) source: Option<Source>,
     pub(crate) pending_byte_len: usize,
     pub(crate) pending_chunk_count: usize,
+    pub(crate) pending_provider_request_id: Option<u32>,
+    pub(crate) original_request_present: bool,
+    pub(crate) original_request_byte_len: usize,
+    pub(crate) provider_source_spec_present: bool,
+    pub(crate) provider_source_spec_byte_len: usize,
+    pub(crate) provider_source_spec_sha256: Option<[u8; 32]>,
+    pub(crate) parent_sha256: Option<[u8; 32]>,
+    pub(crate) root_sha256: Option<[u8; 32]>,
+    pub(crate) lineage_depth: u64,
+    pub(crate) last_rejection_reason: Option<&'static str>,
+    pub(crate) last_rejection_attempted_byte_len: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -88,6 +122,9 @@ struct Workspace {
     pending_chunk_count: usize,
     next_revision: u64,
     retained: Option<Draft>,
+    pending_provider: Option<PendingProviderRequest>,
+    last_rejection_reason: Option<&'static str>,
+    last_rejection_attempted_byte_len: usize,
 }
 
 impl Workspace {
@@ -97,19 +134,46 @@ impl Workspace {
             pending_chunk_count: 0,
             next_revision: 1,
             retained: None,
+            pending_provider: None,
+            last_rejection_reason: None,
+            last_rejection_attempted_byte_len: 0,
         }
     }
 
     fn snapshot(&self) -> Snapshot {
-        let (present, revision, byte_len, sha256, source) = match self.retained.as_ref() {
+        let (
+            present,
+            revision,
+            byte_len,
+            sha256,
+            source,
+            original_request_present,
+            original_request_byte_len,
+            provider_source_spec_present,
+            provider_source_spec_byte_len,
+            provider_source_spec_sha256,
+            parent_sha256,
+            root_sha256,
+            lineage_depth,
+        ) = match self.retained.as_ref() {
             Some(draft) => (
                 true,
                 draft.revision,
                 draft._canonical_bytes.len(),
                 Some(draft.identity.sha256),
                 Some(draft.source),
+                draft.original_request.is_some(),
+                draft.original_request.as_ref().map_or(0, String::len),
+                draft.provider_source_spec.is_some(),
+                draft.provider_source_spec.as_ref().map_or(0, String::len),
+                draft.provider_source_spec_sha256,
+                draft.parent_sha256,
+                Some(draft.root_sha256),
+                draft.lineage_depth,
             ),
-            None => (false, 0, 0, None, None),
+            None => (
+                false, 0, 0, None, None, false, 0, false, 0, None, None, None, 0,
+            ),
         };
         Snapshot {
             present,
@@ -119,6 +183,20 @@ impl Workspace {
             source,
             pending_byte_len: self.pending_serial.len(),
             pending_chunk_count: self.pending_chunk_count,
+            pending_provider_request_id: self
+                .pending_provider
+                .as_ref()
+                .map(|pending| pending.request_id),
+            original_request_present,
+            original_request_byte_len,
+            provider_source_spec_present,
+            provider_source_spec_byte_len,
+            provider_source_spec_sha256,
+            parent_sha256,
+            root_sha256,
+            lineage_depth,
+            last_rejection_reason: self.last_rejection_reason,
+            last_rejection_attempted_byte_len: self.last_rejection_attempted_byte_len,
         }
     }
 
@@ -132,6 +210,7 @@ impl Workspace {
         let program = match Program::parse(&bytes) {
             Ok(program) => program,
             Err(error) => {
+                self.note_rejection(program_error_reason(error), attempted_byte_len);
                 return IntakeOutcome {
                     accepted: false,
                     rejected: true,
@@ -142,6 +221,7 @@ impl Workspace {
             }
         };
         if program.canonical_bytes() != bytes {
+            self.note_rejection("program_not_canonical", attempted_byte_len);
             return IntakeOutcome {
                 accepted: false,
                 rejected: true,
@@ -150,7 +230,7 @@ impl Workspace {
                 snapshot: self.snapshot(),
             };
         }
-        self.retain_program(program, attempted_byte_len, source)
+        self.retain_program(program, attempted_byte_len, source, None, None)
     }
 
     fn retain_program(
@@ -158,18 +238,38 @@ impl Workspace {
         program: Program,
         attempted_byte_len: usize,
         source: Source,
+        provider: Option<PendingProviderRequest>,
+        provider_source_spec: Option<String>,
     ) -> IntakeOutcome {
         let canonical_bytes = program.canonical_bytes();
         let identity = program.identity();
         let revision = self.next_revision;
         self.next_revision = self.next_revision.saturating_add(1);
+        let parent_sha256 = provider.as_ref().and_then(|pending| pending.parent_sha256);
+        let root_sha256 = provider
+            .as_ref()
+            .and_then(|pending| pending.root_sha256)
+            .unwrap_or(identity.sha256);
+        let lineage_depth = provider.as_ref().map_or(0, |pending| pending.lineage_depth);
+        let original_request = provider.map(|pending| pending.original_request);
+        let provider_source_spec_sha256 = provider_source_spec
+            .as_ref()
+            .map(|spec| sha256_bytes(spec.as_bytes()));
         self.retained = Some(Draft {
             program,
             _canonical_bytes: canonical_bytes,
             identity,
             source,
             revision,
+            original_request,
+            provider_source_spec,
+            provider_source_spec_sha256,
+            parent_sha256,
+            root_sha256,
+            lineage_depth,
         });
+        self.last_rejection_reason = None;
+        self.last_rejection_attempted_byte_len = 0;
         IntakeOutcome {
             accepted: true,
             rejected: false,
@@ -177,6 +277,11 @@ impl Workspace {
             attempted_byte_len,
             snapshot: self.snapshot(),
         }
+    }
+
+    fn note_rejection(&mut self, reason: &'static str, attempted_byte_len: usize) {
+        self.last_rejection_reason = Some(reason);
+        self.last_rejection_attempted_byte_len = attempted_byte_len;
     }
 }
 
@@ -192,6 +297,64 @@ pub(crate) fn retained_program() -> Option<Program> {
         .retained
         .as_ref()
         .map(|draft| draft.program.clone())
+}
+
+pub(crate) fn note_provider_build_request(request_id: u32, request: &str) {
+    WORKSPACE.lock().pending_provider = Some(PendingProviderRequest {
+        request_id,
+        original_request: String::from(request),
+        parent_sha256: None,
+        root_sha256: None,
+        lineage_depth: 0,
+    });
+}
+
+pub(crate) fn revision_context() -> Result<RevisionContext, &'static str> {
+    let workspace = WORKSPACE.lock();
+    let draft = workspace
+        .retained
+        .as_ref()
+        .ok_or("program_revision_requires_retained_program")?;
+    if matches!(draft.source, Source::Serial { .. }) {
+        return Err("program_revision_serial_source_unsupported");
+    }
+    let original_request = draft
+        .original_request
+        .as_ref()
+        .ok_or("program_revision_original_request_missing")?;
+    let provider_source_spec = draft
+        .provider_source_spec
+        .as_ref()
+        .ok_or("program_revision_provider_source_spec_unavailable")?;
+    Ok(RevisionContext {
+        original_request: original_request.clone(),
+        provider_source_spec: provider_source_spec.clone(),
+        parent_sha256: draft.identity.sha256,
+        root_sha256: draft.root_sha256,
+        lineage_depth: draft.lineage_depth.saturating_add(1),
+    })
+}
+
+pub(crate) fn note_provider_revision_request(request_id: u32, context: RevisionContext) {
+    WORKSPACE.lock().pending_provider = Some(PendingProviderRequest {
+        request_id,
+        original_request: context.original_request,
+        parent_sha256: Some(context.parent_sha256),
+        root_sha256: Some(context.root_sha256),
+        lineage_depth: context.lineage_depth,
+    });
+}
+
+pub(crate) fn note_provider_error(request_id: u32) {
+    let mut workspace = WORKSPACE.lock();
+    if workspace
+        .pending_provider
+        .as_ref()
+        .is_some_and(|pending| pending.request_id == request_id)
+    {
+        workspace.pending_provider = None;
+        workspace.note_rejection("provider_program_request_failed", 0);
+    }
 }
 
 pub(crate) fn submit_serial_chunk(input: &str) -> ChunkOutcome {
@@ -259,6 +422,30 @@ pub(crate) fn finalize_serial() -> IntakeOutcome {
 }
 
 pub(crate) fn accept_provider_answer(request_id: u32, answer: String) -> IntakeOutcome {
+    let provider = {
+        let mut workspace = WORKSPACE.lock();
+        match workspace.pending_provider.take() {
+            Some(pending) if pending.request_id == request_id => Some(pending),
+            Some(pending) => {
+                workspace.pending_provider = Some(pending);
+                None
+            }
+            None => None,
+        }
+    };
+    let Some(provider) = provider else {
+        return rejected_provider_answer("provider_program_request_not_tracked", answer.len());
+    };
+    if let Some(parent_sha256) = provider.parent_sha256 {
+        let parent_still_current = WORKSPACE
+            .lock()
+            .retained
+            .as_ref()
+            .is_some_and(|draft| draft.identity.sha256 == parent_sha256);
+        if !parent_still_current {
+            return rejected_provider_answer("program_revision_parent_changed", answer.len());
+        }
+    }
     if let Some(encoded) = answer.strip_prefix(PROVIDER_PREFIX) {
         if encoded.len() > MAX_PROGRAM_BASE64_BYTES {
             return rejected_provider_answer("provider_program_base64_too_large", encoded.len());
@@ -269,9 +456,21 @@ pub(crate) fn accept_provider_answer(request_id: u32, answer: String) -> IntakeO
                 return rejected_provider_answer("provider_program_base64_invalid", encoded.len())
             }
         };
-        return WORKSPACE
-            .lock()
-            .retain(bytes, Source::Provider { request_id });
+        let attempted_byte_len = bytes.len();
+        let program = match Program::parse(&bytes) {
+            Ok(program) if program.canonical_bytes() == bytes => program,
+            Ok(_) => return rejected_provider_answer("program_not_canonical", attempted_byte_len),
+            Err(error) => {
+                return rejected_provider_answer(program_error_reason(error), attempted_byte_len)
+            }
+        };
+        return WORKSPACE.lock().retain_program(
+            program,
+            attempted_byte_len,
+            Source::Provider { request_id },
+            Some(provider),
+            None,
+        );
     }
 
     if answer == "RAIOS_UI_SPEC_V1"
@@ -289,6 +488,8 @@ pub(crate) fn accept_provider_answer(request_id: u32, answer: String) -> IntakeO
             program,
             attempted_byte_len,
             Source::Provider { request_id },
+            Some(provider),
+            Some(answer),
         );
     }
 
@@ -296,7 +497,8 @@ pub(crate) fn accept_provider_answer(request_id: u32, answer: String) -> IntakeO
 }
 
 fn rejected_provider_answer(reason: &'static str, attempted_byte_len: usize) -> IntakeOutcome {
-    let workspace = WORKSPACE.lock();
+    let mut workspace = WORKSPACE.lock();
+    workspace.note_rejection(reason, attempted_byte_len);
     IntakeOutcome {
         accepted: false,
         rejected: true,

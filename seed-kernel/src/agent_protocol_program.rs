@@ -5,7 +5,7 @@ use raios_core::record::Value as V;
 use crate::{
     agent_protocol_support::{
         begin_response, emit_record_fields, end_response, record_bool as b, record_field as f,
-        record_sha_or_null, record_str as s,
+        record_sha_or_null, record_str as s, record_str_or_null,
     },
     program_workspace,
 };
@@ -112,6 +112,50 @@ fn emit_snapshot(
         f(
             "pending_chunk_count",
             V::U64(snapshot.pending_chunk_count as u64),
+        ),
+        f(
+            "pending_provider_request_id",
+            snapshot
+                .pending_provider_request_id
+                .map(|value| V::U64(value as u64))
+                .unwrap_or(V::Null),
+        ),
+        f(
+            "original_request_present",
+            b(snapshot.original_request_present),
+        ),
+        f(
+            "original_request_byte_len",
+            V::U64(snapshot.original_request_byte_len as u64),
+        ),
+        f(
+            "provider_source_spec_present",
+            b(snapshot.provider_source_spec_present),
+        ),
+        f(
+            "provider_source_spec_byte_len",
+            V::U64(snapshot.provider_source_spec_byte_len as u64),
+        ),
+        f(
+            "provider_source_spec_sha256",
+            record_sha_or_null(snapshot.provider_source_spec_sha256),
+        ),
+        f(
+            "parent_program_sha256",
+            record_sha_or_null(snapshot.parent_sha256),
+        ),
+        f(
+            "root_program_sha256",
+            record_sha_or_null(snapshot.root_sha256),
+        ),
+        f("lineage_depth", V::U64(snapshot.lineage_depth)),
+        f(
+            "last_rejection_reason",
+            record_str_or_null(snapshot.last_rejection_reason),
+        ),
+        f(
+            "last_rejection_attempted_byte_len",
+            V::U64(snapshot.last_rejection_attempted_byte_len as u64),
         ),
         f("signing_attempted", b(false)),
         f("load_attempted", b(false)),

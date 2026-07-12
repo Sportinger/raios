@@ -24,6 +24,22 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+VM failure classification (2026-07-12, first W1 project-workspace profile) -
+report `release/vm-reports/shadow-20260712-123933-25668.json` contains zero
+predicates and failed during temporary image packaging with exit code 101.
+QEMU never started; hardware profile, serial hash and base-image hash are
+absent. Verdict: `host-transport/setup` - no project import, structured-store
+write, reboot or guest inspection ran. Retry is forbidden until the same
+package/build path is run directly and the concrete compiler or packaging
+failure is repaired.
+
+Resolution (2026-07-12) - the same temporary package path then completed
+directly with a signed/verified Core Policy kernel and 64-MiB image. The
+stable-source focused retry is
+`release/vm-reports/shadow-20260712-124220-8296.json` and passes 76/76; the
+first report remains classified as host setup/parallel-build overlap, not guest
+evidence.
+
 VM failure classification (2026-07-12, first AI-program Genesis UI profile) -
 report `release/vm-reports/shadow-20260712-015318-7240.json` contains zero guest
 predicates and failed during image packaging with exit code 101; QEMU PID, args,
@@ -142,19 +158,44 @@ proves the bounded runtime path and this calculator behavior, not general
 natural-language functional correctness of arbitrary AI output; future program
 installation still needs typed acceptance contracts/tests bound into evidence.
 
-Current exact next task (I5/G7 read-only presence/fingerprint tripwire after G6):
-the owner reports that the USB stick has been found again, but this session did
-not enumerate or touch it. On the next explicit G7 run, first list disk candidates
-read-only, establish the exact device identity, and check for the ignored original
-G0 fingerprint. The last probe's Disk 2 number must not be assumed, and the earlier
-fingerprint was absent. Stop if either identity prerequisite is missing: no physical
-write, format, repartition, replacement fingerprint or guessed identity is permitted.
-Only after an exact read-only identity/layout/hash preflight may the owner grant a
-separate physical-write scope. Keep the program capability, G6 candidate, Broker,
-SAFE, store, recovery and secret boundaries unchanged. Durable program install,
-physical boot/persistence, TPM auto-unlock, and positive Surface association/link/
-`PORT_RELEASE`/RX/TX/DHCP remain unproven and unclaimed; live pinned provider access
-is now proven only for the current-boot UI-program slice above.
+W1 durable inspectable source revision verified (2026-07-12) - a user or agent
+can now stream a bounded local multi-file source project into an isolated RAM
+import session, commit immutable content-addressed blobs plus a deterministic
+tree/revision manifest to the exact disposable QEMU structured store, reboot,
+and inspect the same paths, classifications, media types, byte lengths, blob
+hashes, tree hash and revision hash. The manifest commits last, so interrupted
+or rejected imports cannot expose partial trees; every inspect replays the
+store, decodes and rehashes the manifest and all referenced blobs. Absolute and
+parent paths, device/path syntax, case aliases, malformed base64, wrong length
+or hash, record-prefix collision and quota overflow fail closed. Core workspace
+tests pass 5/5 and focused report
+`release/vm-reports/shadow-20260712-124220-8296.json` passes 76/76 across 33
+observed commands and two independent boots. Its exact 120-byte two-file
+revision is `sha256:11df2422e2592225c3687d7cd845e6991628bed9c49611e01b51ff9c9dda6a05`.
+This is source data only and QEMU-only: no provider export, builder, dependency,
+install, load, execution, physical-storage or secret authority is created.
+
+Current-boot AI program revision loop release-built (2026-07-12) - after an
+accepted provider-authored `RAIOS_UI_SPEC_V1` draft, a user can enter
+`/revise <feedback>`; Genesis binds the original request, exact prior source
+spec, parent/root program hashes and lineage depth into the next sequential
+provider request. Invalid or failed replacements retain the prior runnable
+draft and expose the exact diagnostic; serial binary RUIP drafts deny revision
+explicitly. Physical preview approval and F12 remain the unchanged runtime
+path. This loop is bounded RAM-only and release-built; it does not persist a
+source project, install a revision, retry providers automatically, or claim a
+live revision-provider smoke in this slice.
+
+Current exact next product task (W2 project-scoped AI editing): expose bounded
+list/read/search over one verified W1 revision, let an agent create an isolated
+copy-on-write overlay, and let the user inspect and commit or discard its exact
+diff. Another project, Vault data, raw storage and unselected provider export
+must remain unreachable. The hardware cursor remains I5/G7 read-only stick
+identity/fingerprint preflight: the stick was not enumerated or touched here,
+its old Disk number must not be assumed, and no physical write, format,
+repartition or replacement fingerprint is authorized. Build, dependency,
+install, load, execution, physical persistence, TPM auto-unlock and live Surface
+association/`PORT_RELEASE`/DHCP remain unproven.
 
 I3 complete-history Broker foundation verified (2026-07-10) - a kernel composition
 agent can now obtain the complete ordered list of committed records from the same

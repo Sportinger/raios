@@ -1133,12 +1133,18 @@ pub fn write_program_outcome(request_id: u32, outcome: program_workspace::Intake
                 let _ = write!(line, "{:02x}", byte);
             }
         }
+        if let Some(parent) = snapshot.parent_sha256 {
+            let _ = line.write_str(" parent=sha256:");
+            for byte in parent {
+                let _ = write!(line, "{:02x}", byte);
+            }
+        }
         let _ = line.write_str(" current_boot inert");
     } else {
         let _ = write!(
             line,
-            "PROGRAM DRAFT REJECTED request={} reason={} input_bytes={}",
-            request_id, outcome.reason, outcome.attempted_byte_len
+            "PROGRAM DRAFT REJECTED request={} reason={} input_bytes={} retained_revision={}",
+            request_id, outcome.reason, outcome.attempted_byte_len, outcome.snapshot.revision
         );
     }
     serial::write_line(line.as_str());
@@ -2084,6 +2090,10 @@ fn submit_chat(prompt: ConsoleLine, runtime: ui::RuntimeStatus) {
         submit_program_prompt("", runtime);
     } else if let Some(request) = prompt.strip_prefix("/build ") {
         submit_program_prompt(request.trim(), runtime);
+    } else if prompt == "/revise" {
+        submit_program_revision("", runtime);
+    } else if let Some(feedback) = prompt.strip_prefix("/revise ") {
+        submit_program_revision(feedback.trim(), runtime);
     } else {
         submit_prompt(prompt, runtime);
     }
@@ -2160,6 +2170,7 @@ fn submit_program_prompt(request: &str, runtime: ui::RuntimeStatus) {
     let prompt = program_authoring_prompt(request);
     match provider::submit(provider::AgentRequest::program(prompt.as_str()), runtime) {
         Ok(submitted) => {
+            program_workspace::note_provider_build_request(submitted.id, request);
             push_chat_str(ChatSpeaker::User, request);
             push_chat_args(
                 ChatSpeaker::System,
@@ -2170,26 +2181,68 @@ fn submit_program_prompt(request: &str, runtime: ui::RuntimeStatus) {
                 submitted.id
             ));
         }
-        Err(provider::SubmitError::Empty) => {
-            write_provider_status("BUILD REQUIRES A PROGRAM DESCRIPTION");
+        Err(error) => write_program_submit_error(error),
+    }
+}
+
+fn submit_program_revision(feedback: &str, runtime: ui::RuntimeStatus) {
+    if feedback.is_empty() {
+        write_provider_status("REVISE REQUIRES FEEDBACK");
+        return;
+    }
+    let context = match program_workspace::revision_context() {
+        Ok(context) => context,
+        Err(reason) => {
+            push_chat_args(
+                ChatSpeaker::System,
+                format_args!("PROGRAM REVISION DENIED: {}", reason),
+            );
+            write_output(format_args!("PROGRAM REVISION DENIED: {}", reason));
+            return;
         }
-        Err(provider::SubmitError::UnsupportedModel) => {
-            write_provider_status("OPENAI MODEL NOT SUPPORTED");
+    };
+    let prompt = program_revision_prompt(&context, feedback);
+    match provider::submit(provider::AgentRequest::program(prompt.as_str()), runtime) {
+        Ok(submitted) => {
+            let parent = context.parent_sha256;
+            program_workspace::note_provider_revision_request(submitted.id, context);
+            push_chat_str(ChatSpeaker::User, feedback);
+            let mut line = ConsoleLine::empty();
+            let _ = write!(
+                line,
+                "PROGRAM REVISION REQUEST {} STARTED parent=sha256:",
+                submitted.id
+            );
+            for byte in parent {
+                let _ = write!(line, "{:02x}", byte);
+            }
+            serial::write_line(line.as_str());
+            CONSOLE.lock().push_chat(ChatSpeaker::System, line);
         }
-        Err(provider::SubmitError::InvalidMaxOutput) => {
-            write_provider_status("OPENAI MAX OUTPUT INVALID");
+        Err(error) => write_program_submit_error(error),
+    }
+}
+
+fn write_program_submit_error(error: provider::SubmitError) {
+    match error {
+        provider::SubmitError::Empty => {
+            write_provider_status("BUILD REQUIRES A PROGRAM DESCRIPTION")
         }
-        Err(provider::SubmitError::MissingApiKey) => {
-            write_provider_status("OPENAI REQUIRES API KEY");
+        provider::SubmitError::UnsupportedModel => {
+            write_provider_status("OPENAI MODEL NOT SUPPORTED")
         }
-        Err(provider::SubmitError::TrustDenied { state }) => {
+        provider::SubmitError::InvalidMaxOutput => {
+            write_provider_status("OPENAI MAX OUTPUT INVALID")
+        }
+        provider::SubmitError::MissingApiKey => write_provider_status("OPENAI REQUIRES API KEY"),
+        provider::SubmitError::TrustDenied { state } => {
             push_chat_args(
                 ChatSpeaker::System,
                 format_args!("OPENAI TLS TRUST DENIED: {}", state),
             );
             write_output(format_args!("OPENAI TLS TRUST DENIED: {}", state));
         }
-        Err(provider::SubmitError::Busy { route, id }) => {
+        provider::SubmitError::Busy { route, id } => {
             push_chat_args(
                 ChatSpeaker::System,
                 format_args!("{} BUSY: REQUEST {} PENDING", route.as_str(), id),
@@ -2239,6 +2292,16 @@ Quoted labels may escape only backslash and quote. The final line must be end. \
 This is deterministic UI data only: no source code, markdown, tools, network, files, persistence, or capabilities."
     );
     prompt
+}
+
+fn program_revision_prompt(context: &program_workspace::RevisionContext, feedback: &str) -> String {
+    let mut request = String::new();
+    let _ = write!(
+        request,
+        "Revise the previously accepted program. Preserve behavior not changed by the feedback.\nOriginal user request:\n{}\nRevision feedback:\n{}\nPrevious exact accepted RAIOS_UI_SPEC_V1 source:\n{}",
+        context.original_request, feedback, context.provider_source_spec
+    );
+    program_authoring_prompt(request.as_str())
 }
 
 fn yes_no(value: bool) -> &'static str {

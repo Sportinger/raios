@@ -2,7 +2,8 @@
 
 ## Status and target
 
-Design plan only. It opens no network fetch, workspace write, build, install,
+W1 is implemented and verified on the disposable QEMU structured store. The
+remaining plan opens no network fetch, provider export, build, install,
 native-code, media-file, GPU, or physical-storage authority.
 
 Capability target: a user and AI can create or import a reviewable source tree,
@@ -282,6 +283,9 @@ Each slice ends with something a user or agent can do, not a schema-only gate.
 A user can import a bounded local source bundle into the QEMU structured store,
 reboot, and inspect the same immutable tree and file hashes in Genesis. Foreign
 media, path escapes, archive bombs, and quota overflow deny without partial trees.
+
+Status: complete for direct bounded multi-file serial import (no archive
+extraction yet), verified by `shadow-20260712-124220-8296.json` at 76/76.
 
 ### W2 - project-scoped AI editing
 

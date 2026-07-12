@@ -45,6 +45,19 @@ authority. The next product slice here is durable program installation only
 after its persistence/evidence/rollback gates are designed; the active hardware
 cursor remains the read-only G7 identity tripwire.
 
+**Secure project workspace W1 complete (2026-07-12):** a bounded local
+multi-file source project now commits as immutable content-addressed blobs plus
+deterministic tree/revision evidence to the exact disposable QEMU structured
+store and replays byte-identically after reboot. Focused report
+`shadow-20260712-124220-8296.json` passes 76/76, including invalid paths, case
+collision, wrong hash, quota denial, manifest-last visibility and explicit
+no-build/no-install/no-execute posture. `/revise <feedback>` also reuses the
+existing current-boot provider/spec/runtime path with parent/root lineage while
+preserving the prior valid draft on failure. The active product cursor is W2:
+project-scoped list/read/search plus copy-on-write edit/diff/commit/discard; W3+
+builder, dependency, promotion and rollback authority remain closed. Hardware
+I5/G7 remains a separate read-only identity tripwire.
+
 **M13/Secret Vault contract accepted (C0/G5.0, 2026-07-10):** ADR 0012
 fixes the dedicated internal-partition boundary, crash-consistent structured
 store, exact cryptographic pins, RR1 recovery wrapper, TPM evidence gate, and

@@ -52,6 +52,7 @@ mod agent_protocol_module_write_boundary_storage_layout;
 mod agent_protocol_module_write_boundary_write_policy;
 mod agent_protocol_policy;
 mod agent_protocol_program;
+mod agent_protocol_project;
 mod agent_protocol_provider;
 mod agent_protocol_recovery;
 mod agent_protocol_recovery_artifact_reference;
@@ -139,6 +140,8 @@ mod owner_key;
 mod pci;
 mod personal_shell_service;
 mod program_workspace;
+mod project_store;
+mod project_workspace;
 mod provider;
 mod provider_config;
 mod provider_trust;
@@ -472,6 +475,9 @@ impl PeriodicTasks {
                             }
                         },
                         provider::EventKind::Error(error) => {
+                            if event.target == provider::RequestTarget::ProgramWorkspace {
+                                program_workspace::note_provider_error(event.id);
+                            }
                             console::write_event(format_args!("{}", error));
                         }
                     }
