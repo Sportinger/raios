@@ -13,8 +13,15 @@ if (-not $PersistDiskImage) {
 # heavier guest redraw timing (three consecutive host runs). Halved the chunk and
 # more-than-doubled the delay so a full guest poll+redraw cycle always drains the RX
 # FIFO between chunks; costs the long line ~0.35s, negligible for the short commands.
-$script:SerialWriteChunkSize = 16
-$script:SerialWriteDelayMilliseconds = 25
+# 2026-07-12: chunk 16 / 25ms truncated the child-fixture memory.record_log_append
+# line in three consecutive host runs ("agent memory.r" in the child log; child
+# booted READY and answered nothing). Since W6, project-app autoload runs in every
+# boot including the child fixture, so the guest is busier at command time. Same
+# remedy as 07-08: halve the chunk, more-than-double the delay. The ~213-byte line
+# now costs ~1.6s to send; short commands gain a few ms each. Classified
+# host-transport per the failure classification rule.
+$script:SerialWriteChunkSize = 8
+$script:SerialWriteDelayMilliseconds = 60
 
 # M9C-2b: child-VM serial waits must be OCCURRENCE-aware, not whole-file substring.
 # The export-denial family is the first child probe to send a REPEATED method
