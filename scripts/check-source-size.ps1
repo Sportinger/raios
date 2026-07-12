@@ -19,10 +19,6 @@ try {
         'seed-kernel/src/agent_protocol_memory.rs' = @(11494, 612809)
         # post-P1-C measurement: the concat! literal splits add fragment lines.
         'seed-kernel/src/agent_protocol_module_load_gate_render.rs' = @(6878, 323844)
-        # P1-A loader split is PARKED (see the P1 design doc outcome note);
-        # this entry disappears when the split lands. Bytes are the CRLF
-        # on-disk measurement.
-        'seed-kernel/src/agent_protocol_module_loader_runtime.rs' = @(10156, 498005)
         'seed-kernel/src/agent_protocol_recovery.rs' = @(6167, 296022)
         'seed-kernel/src/event_log.rs' = @(7141, 282628)
         'seed-kernel/src/event_log_types.rs' = @(3918, 216113)
@@ -42,7 +38,16 @@ try {
         foreach ($line in [IO.File]::ReadLines((Resolve-Path -LiteralPath $path))) {
             $lineCount++
         }
-        $byteCount = (Get-Item -LiteralPath $path).Length
+        # Count bytes with CRLF normalized to LF: checkout smudge (core.autocrlf)
+        # must not move a file relative to the byte caps or its exemption
+        # baseline (2026-07-13: agent_protocol_memory.rs gained exactly +1
+        # byte/line after a revert re-checked it out with CRLF).
+        $rawBytes = [IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $path))
+        $crlfCount = 0
+        for ($i = 1; $i -lt $rawBytes.Length; $i++) {
+            if ($rawBytes[$i] -eq 0x0A -and $rawBytes[$i - 1] -eq 0x0D) { $crlfCount++ }
+        }
+        $byteCount = $rawBytes.Length - $crlfCount
 
         $thresholds = @()
         if ($lineCount -ge 3000) { $thresholds += 'lines-warning' }
