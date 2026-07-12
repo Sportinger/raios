@@ -1224,6 +1224,10 @@ fn evaluate_audit_rollback_reference(
             "retained_audit_rollback_reference_substituted_record",
         );
     };
+    if r.ram_only_service_slot_id != crate::module_types::MODULE_AUDIT_TEST_RAM_ONLY_SERVICE_SLOT_ID
+    {
+        return retained_result("rejected", "retained_audit_rollback_service_slot_mismatch");
+    }
     if r.denial_event_id != 31 || r.retained_reference_event_id != 27 {
         return retained_result(
             "rejected",
@@ -1402,6 +1406,19 @@ pub fn ram_only_service_slot_id_valid(value: &str) -> bool {
 }
 
 struct HashLines(Sha256);
+
+fn current_boot_event_id(value: u64) -> [u8; 27] {
+    const PREFIX: &[u8; 19] = b"event.current_boot.";
+    let mut text = [0u8; 27];
+    text[..PREFIX.len()].copy_from_slice(PREFIX);
+    let mut divisor = 10_000_000u64;
+    for digit in &mut text[PREFIX.len()..] {
+        *digit = b'0' + ((value / divisor) % 10) as u8;
+        divisor /= 10;
+    }
+    text
+}
+
 impl HashLines {
     fn new() -> Self {
         Self(Sha256::new())
@@ -1422,7 +1439,7 @@ impl HashLines {
     }
     fn hash(&mut self, name: &'static [u8], value: [u8; 32], newline: bool) {
         self.0.update(name);
-        self.0.update(b"=sha256:");
+        self.0.update(b"=");
         let mut hex = [0u8; 64];
         for (i, b) in value.iter().enumerate() {
             hex[i * 2] = b"0123456789abcdef"[(b >> 4) as usize];
@@ -1434,18 +1451,9 @@ impl HashLines {
         }
     }
     fn event(&mut self, name: &'static [u8], value: u64, newline: bool) {
-        let mut text = [0u8; 28];
-        text[..20].copy_from_slice(b"event.current_boot.");
-        let mut n = value;
-        let mut i = 28;
-        while i > 20 {
-            i -= 1;
-            text[i] = b'0' + (n % 10) as u8;
-            n /= 10;
-        }
         self.0.update(name);
         self.0.update(b"=");
-        self.0.update(&text);
+        self.0.update(current_boot_event_id(value));
         if newline {
             self.0.update(b"\n");
         }
@@ -2238,9 +2246,159 @@ pub const MODULE_LOAD_GATE_SERVICE_SLOT_CASES: &[(&str, &str, &str)] = &[
 mod tests {
     use super::*;
     use crate::module_types::{
-        MODULE_GRANT_TEST_MANIFEST_HASH, MODULE_LOAD_GATE_AUDIT_ROLLBACK_SELFTEST_CASES,
+        MODULE_AUDIT_TEST_CLEANUP_HASH, MODULE_AUDIT_TEST_LOCAL_APPROVAL_HASH,
+        MODULE_AUDIT_TEST_PRE_INVENTORY_HASH, MODULE_AUDIT_TEST_RAM_ONLY_SERVICE_SLOT_ID,
+        MODULE_GRANT_MISMATCH_MANIFEST_HASH, MODULE_GRANT_TEST_ARTIFACT_HASH,
+        MODULE_GRANT_TEST_ATTESTATION_HASH, MODULE_GRANT_TEST_MANIFEST_HASH,
+        MODULE_GRANT_TEST_VM_REPORT_HASH, MODULE_LOAD_GATE_AUDIT_ROLLBACK_SELFTEST_CASES,
         MODULE_LOAD_GATE_RETAINED_SELFTEST_CASES, MODULE_LOAD_GATE_SERVICE_SLOT_SELFTEST_CASES,
     };
+
+    #[derive(Clone, Copy)]
+    struct ReferenceChain {
+        manifest: ModuleManifestReference,
+        retained: ModuleComputedGrantReference,
+        artifact: ModuleCandidateArtifactReference,
+        report: ModuleVmTestReportReference,
+        attestation: ModuleLocalAttestationReference,
+        approval: ModuleLocalApprovalReference,
+    }
+
+    fn reference_chain() -> ReferenceChain {
+        let m = MODULE_GRANT_TEST_MANIFEST_HASH;
+        let a = MODULE_GRANT_TEST_ARTIFACT_HASH;
+        let v = MODULE_GRANT_TEST_VM_REPORT_HASH;
+        let l = MODULE_GRANT_TEST_ATTESTATION_HASH;
+        let p = MODULE_AUDIT_TEST_LOCAL_APPROVAL_HASH;
+        let manifest = ModuleManifestReference {
+            manifest_reference_hash: computed_module_manifest_reference_hash(m),
+            manifest_hash: m,
+        };
+        let retained = ModuleComputedGrantReference {
+            computed_grant_hash: computed_module_grant_hash(m, a, v, l),
+            manifest_hash: m,
+            artifact_hash: a,
+            vm_report_hash: v,
+            local_attestation_hash: l,
+        };
+        let artifact = ModuleCandidateArtifactReference {
+            artifact_reference_hash:
+                computed_module_candidate_artifact_reference_hash_from_sequences(
+                    26,
+                    27,
+                    manifest.manifest_reference_hash,
+                    m,
+                    retained.computed_grant_hash,
+                    a,
+                    v,
+                    l,
+                ),
+            retained_manifest_reference_event_id: 26,
+            retained_reference_event_id: 27,
+            manifest_reference_hash: manifest.manifest_reference_hash,
+            manifest_hash: m,
+            computed_grant_hash: retained.computed_grant_hash,
+            artifact_hash: a,
+            vm_report_hash: v,
+            local_attestation_hash: l,
+        };
+        let report = ModuleVmTestReportReference {
+            report_reference_hash: computed_module_vm_test_report_reference_hash_from_sequences(
+                26,
+                28,
+                27,
+                manifest.manifest_reference_hash,
+                artifact.artifact_reference_hash,
+                m,
+                a,
+                retained.computed_grant_hash,
+                v,
+                l,
+            ),
+            retained_manifest_reference_event_id: 26,
+            retained_artifact_reference_event_id: 28,
+            retained_reference_event_id: 27,
+            manifest_reference_hash: manifest.manifest_reference_hash,
+            artifact_reference_hash: artifact.artifact_reference_hash,
+            manifest_hash: m,
+            artifact_hash: a,
+            computed_grant_hash: retained.computed_grant_hash,
+            vm_report_hash: v,
+            local_attestation_hash: l,
+        };
+        let attestation = ModuleLocalAttestationReference {
+            attestation_reference_hash:
+                computed_module_local_attestation_reference_hash_from_sequences(
+                    26,
+                    28,
+                    29,
+                    27,
+                    manifest.manifest_reference_hash,
+                    artifact.artifact_reference_hash,
+                    report.report_reference_hash,
+                    m,
+                    a,
+                    retained.computed_grant_hash,
+                    v,
+                    l,
+                ),
+            retained_manifest_reference_event_id: 26,
+            retained_artifact_reference_event_id: 28,
+            retained_vm_report_reference_event_id: 29,
+            retained_reference_event_id: 27,
+            manifest_reference_hash: manifest.manifest_reference_hash,
+            artifact_reference_hash: artifact.artifact_reference_hash,
+            vm_report_reference_hash: report.report_reference_hash,
+            manifest_hash: m,
+            artifact_hash: a,
+            computed_grant_hash: retained.computed_grant_hash,
+            vm_report_hash: v,
+            local_attestation_hash: l,
+            signature_verified: true,
+        };
+        let approval = ModuleLocalApprovalReference {
+            approval_reference_hash: computed_module_local_approval_reference_hash_from_sequences(
+                26,
+                28,
+                29,
+                30,
+                27,
+                manifest.manifest_reference_hash,
+                artifact.artifact_reference_hash,
+                report.report_reference_hash,
+                attestation.attestation_reference_hash,
+                m,
+                a,
+                retained.computed_grant_hash,
+                v,
+                l,
+                p,
+            ),
+            retained_manifest_reference_event_id: 26,
+            retained_artifact_reference_event_id: 28,
+            retained_vm_report_reference_event_id: 29,
+            retained_local_attestation_reference_event_id: 30,
+            retained_reference_event_id: 27,
+            manifest_reference_hash: manifest.manifest_reference_hash,
+            artifact_reference_hash: artifact.artifact_reference_hash,
+            vm_report_reference_hash: report.report_reference_hash,
+            local_attestation_reference_hash: attestation.attestation_reference_hash,
+            manifest_hash: m,
+            artifact_hash: a,
+            computed_grant_hash: retained.computed_grant_hash,
+            vm_report_hash: v,
+            local_attestation_hash: l,
+            local_approval_hash: p,
+        };
+        ReferenceChain {
+            manifest,
+            retained,
+            artifact,
+            report,
+            attestation,
+            approval,
+        }
+    }
     #[test]
     fn reference_case_table_preserves_names_statuses_and_reasons() {
         assert_eq!(MODULE_LOAD_GATE_REFERENCE_CASES.len(), 50);
@@ -2320,5 +2478,621 @@ mod tests {
             candidate_reference: Some(r),
         });
         assert_eq!(e.reason, "retained_module_manifest_reference_hash_mismatch");
+    }
+
+    #[test]
+    fn event_hash_input_matches_kernel_current_boot_format() {
+        for value in [0, 1, 26, 12_345_678, 99_999_999] {
+            assert_eq!(
+                current_boot_event_id(value).as_slice(),
+                format!("event.current_boot.{value:08}").as_bytes()
+            );
+        }
+        for value in [100_000_000, 123_456_789, u64::MAX] {
+            assert_eq!(
+                current_boot_event_id(value).as_slice(),
+                format!("event.current_boot.{:08}", value % 100_000_000).as_bytes()
+            );
+        }
+    }
+
+    #[test]
+    fn artifact_reference_case_table_matches_kernel_fixtures() {
+        let manifest_hash = MODULE_GRANT_TEST_MANIFEST_HASH;
+        let artifact_hash = [0x22; 32];
+        let vm_report_hash = [0x33; 32];
+        let local_attestation_hash = [0x44; 32];
+        let manifest_reference = ModuleManifestReference {
+            manifest_reference_hash: computed_module_manifest_reference_hash(manifest_hash),
+            manifest_hash,
+        };
+        let retained_reference = ModuleComputedGrantReference {
+            computed_grant_hash: computed_module_grant_hash(
+                manifest_hash,
+                artifact_hash,
+                vm_report_hash,
+                local_attestation_hash,
+            ),
+            manifest_hash,
+            artifact_hash,
+            vm_report_hash,
+            local_attestation_hash,
+        };
+        let reference = ModuleCandidateArtifactReference {
+            artifact_reference_hash:
+                computed_module_candidate_artifact_reference_hash_from_sequences(
+                    26,
+                    27,
+                    manifest_reference.manifest_reference_hash,
+                    manifest_hash,
+                    retained_reference.computed_grant_hash,
+                    artifact_hash,
+                    vm_report_hash,
+                    local_attestation_hash,
+                ),
+            retained_manifest_reference_event_id: 26,
+            retained_reference_event_id: 27,
+            manifest_reference_hash: manifest_reference.manifest_reference_hash,
+            manifest_hash,
+            computed_grant_hash: retained_reference.computed_grant_hash,
+            artifact_hash,
+            vm_report_hash,
+            local_attestation_hash,
+        };
+
+        let valid = ModuleLoadGateArtifactReferenceCandidate {
+            scope: "current_boot",
+            retained: true,
+            schema_ok: true,
+            event_reference: Some(reference),
+            candidate_reference: Some(reference),
+            manifest_event_id: Some(26),
+            manifest_reference: Some(manifest_reference),
+            retained_event_id: Some(27),
+            retained_reference: Some(retained_reference),
+        };
+
+        for (index, &(name, expected_status, expected_reason)) in
+            MODULE_LOAD_GATE_REFERENCE_CASES[7..16].iter().enumerate()
+        {
+            let mut candidate = valid;
+            match index {
+                0 => {
+                    candidate.retained = false;
+                    candidate.event_reference = None;
+                    candidate.candidate_reference = None;
+                }
+                1 => {}
+                2 => candidate.retained = false,
+                3 => candidate.scope = "previous_boot",
+                4 => candidate.schema_ok = false,
+                5 => {
+                    let substituted_retained = ModuleComputedGrantReference {
+                        artifact_hash: [0xbb; 32],
+                        ..retained_reference
+                    };
+                    candidate.candidate_reference = Some(ModuleCandidateArtifactReference {
+                        artifact_reference_hash:
+                            computed_module_candidate_artifact_reference_hash_from_sequences(
+                                26,
+                                27,
+                                manifest_reference.manifest_reference_hash,
+                                manifest_hash,
+                                substituted_retained.computed_grant_hash,
+                                substituted_retained.artifact_hash,
+                                vm_report_hash,
+                                local_attestation_hash,
+                            ),
+                        artifact_hash: substituted_retained.artifact_hash,
+                        ..reference
+                    });
+                }
+                6 => {
+                    let mismatched = ModuleCandidateArtifactReference {
+                        artifact_reference_hash: [0x99; 32],
+                        ..reference
+                    };
+                    candidate.event_reference = Some(mismatched);
+                    candidate.candidate_reference = Some(mismatched);
+                }
+                7 => candidate.manifest_event_id = Some(99),
+                8 => candidate.retained_event_id = Some(98),
+                _ => unreachable!(),
+            }
+            let result = evaluate_artifact_reference(candidate);
+            assert_eq!(
+                (result.status, result.reason),
+                (expected_status, expected_reason),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn downstream_reference_case_tables_match_kernel_fixtures() {
+        let chain = reference_chain();
+
+        for (index, &(name, status, reason)) in
+            MODULE_LOAD_GATE_REFERENCE_CASES[16..27].iter().enumerate()
+        {
+            let mut candidate = ModuleLoadGateVmReportReferenceCandidate {
+                scope: "current_boot",
+                retained: true,
+                schema_ok: true,
+                event_reference: Some(chain.report),
+                candidate_reference: Some(chain.report),
+                manifest_event_id: Some(26),
+                manifest_reference: Some(chain.manifest),
+                artifact_event_id: Some(28),
+                artifact_reference: Some(chain.artifact),
+                retained_event_id: Some(27),
+                retained_reference: Some(chain.retained),
+            };
+            match index {
+                0 => {
+                    candidate.retained = false;
+                    candidate.event_reference = None;
+                    candidate.candidate_reference = None;
+                }
+                1 => {}
+                2 => candidate.retained = false,
+                3 => candidate.scope = "previous_boot",
+                4 => candidate.schema_ok = false,
+                5 => {
+                    candidate.candidate_reference = Some(ModuleVmTestReportReference {
+                        artifact_hash: [0xbb; 32],
+                        ..chain.report
+                    })
+                }
+                6 => {
+                    let r = ModuleVmTestReportReference {
+                        report_reference_hash: [0x99; 32],
+                        ..chain.report
+                    };
+                    candidate.event_reference = Some(r);
+                    candidate.candidate_reference = Some(r);
+                }
+                7 => candidate.manifest_event_id = Some(99),
+                8 => candidate.artifact_event_id = Some(98),
+                9 => candidate.retained_event_id = Some(97),
+                10 => {
+                    let r = ModuleVmTestReportReference {
+                        report_reference_hash:
+                            computed_module_vm_test_report_reference_hash_from_sequences(
+                                26,
+                                28,
+                                27,
+                                chain.manifest.manifest_reference_hash,
+                                chain.artifact.artifact_reference_hash,
+                                chain.report.manifest_hash,
+                                chain.report.artifact_hash,
+                                chain.report.computed_grant_hash,
+                                [0xbb; 32],
+                                chain.report.local_attestation_hash,
+                            ),
+                        vm_report_hash: [0xbb; 32],
+                        ..chain.report
+                    };
+                    candidate.event_reference = Some(r);
+                    candidate.candidate_reference = Some(r);
+                }
+                _ => unreachable!(),
+            }
+            let actual = evaluate_vm_report_reference(candidate);
+            assert_eq!((actual.status, actual.reason), (status, reason), "{name}");
+        }
+
+        for (index, &(name, status, reason)) in
+            MODULE_LOAD_GATE_REFERENCE_CASES[27..38].iter().enumerate()
+        {
+            let mut candidate = ModuleLoadGateLocalAttestationReferenceCandidate {
+                scope: "current_boot",
+                retained: true,
+                schema_ok: true,
+                event_reference: Some(chain.attestation),
+                candidate_reference: Some(chain.attestation),
+                manifest_event_id: Some(26),
+                manifest_reference: Some(chain.manifest),
+                artifact_event_id: Some(28),
+                artifact_reference: Some(chain.artifact),
+                vm_report_event_id: Some(29),
+                vm_report_reference: Some(chain.report),
+                retained_event_id: Some(27),
+                retained_reference: Some(chain.retained),
+            };
+            match index {
+                0 => {
+                    candidate.retained = false;
+                    candidate.event_reference = None;
+                    candidate.candidate_reference = None;
+                }
+                1 => {}
+                2 => candidate.retained = false,
+                3 => candidate.scope = "previous_boot",
+                4 => candidate.schema_ok = false,
+                5 => {
+                    candidate.candidate_reference = Some(ModuleLocalAttestationReference {
+                        artifact_hash: [0xbb; 32],
+                        ..chain.attestation
+                    })
+                }
+                6 => {
+                    let r = ModuleLocalAttestationReference {
+                        attestation_reference_hash: [0x99; 32],
+                        signature_verified: false,
+                        ..chain.attestation
+                    };
+                    candidate.event_reference = Some(r);
+                    candidate.candidate_reference = Some(r);
+                }
+                7 => candidate.manifest_event_id = Some(99),
+                8 => candidate.artifact_event_id = Some(98),
+                9 => candidate.vm_report_event_id = Some(97),
+                10 => candidate.retained_event_id = Some(96),
+                _ => unreachable!(),
+            }
+            let actual = evaluate_local_attestation_reference(candidate);
+            assert_eq!((actual.status, actual.reason), (status, reason), "{name}");
+        }
+
+        for (index, &(name, status, reason)) in
+            MODULE_LOAD_GATE_REFERENCE_CASES[38..50].iter().enumerate()
+        {
+            let mut candidate = ModuleLoadGateLocalApprovalReferenceCandidate {
+                scope: "current_boot",
+                retained: true,
+                schema_ok: true,
+                event_reference: Some(chain.approval),
+                candidate_reference: Some(chain.approval),
+                manifest_event_id: Some(26),
+                manifest_reference: Some(chain.manifest),
+                artifact_event_id: Some(28),
+                artifact_reference: Some(chain.artifact),
+                vm_report_event_id: Some(29),
+                vm_report_reference: Some(chain.report),
+                attestation_event_id: Some(30),
+                attestation_reference: Some(chain.attestation),
+                retained_event_id: Some(27),
+                retained_reference: Some(chain.retained),
+            };
+            match index {
+                0 => {
+                    candidate.retained = false;
+                    candidate.event_reference = None;
+                    candidate.candidate_reference = None;
+                }
+                1 => {}
+                2 => candidate.retained = false,
+                3 => candidate.scope = "previous_boot",
+                4 => candidate.schema_ok = false,
+                5 => {
+                    // The guest mutates attestation fields that its approval builder does not
+                    // consume, so the rebuilt approval is byte-identical. This pre-existing
+                    // fixture defect was historically masked by appearance-only predicates.
+                    candidate.candidate_reference = Some(chain.approval)
+                }
+                6 => {
+                    let r = ModuleLocalApprovalReference {
+                        approval_reference_hash: [0x99; 32],
+                        ..chain.approval
+                    };
+                    candidate.event_reference = Some(r);
+                    candidate.candidate_reference = Some(r);
+                }
+                7 => candidate.manifest_event_id = Some(99),
+                8 => candidate.artifact_event_id = Some(98),
+                9 => candidate.vm_report_event_id = Some(97),
+                10 => candidate.attestation_event_id = Some(96),
+                11 => candidate.retained_event_id = Some(95),
+                _ => unreachable!(),
+            }
+            let actual = evaluate_local_approval_reference(candidate);
+            let expected = if index == 5 {
+                (
+                    "retained_hash_reference_only",
+                    "retained_local_approval_reference_not_authorizing",
+                )
+            } else {
+                (status, reason)
+            };
+            assert_eq!((actual.status, actual.reason), expected, "{name}");
+        }
+    }
+
+    fn audit_reference(
+        slot: &'static str,
+        grant_override: Option<[u8; 32]>,
+        rollback_override: Option<[u8; 32]>,
+        audit_override: Option<[u8; 32]>,
+    ) -> ModuleAuditRollbackReference<'static> {
+        let grant = computed_module_grant_hash(
+            MODULE_GRANT_TEST_MANIFEST_HASH,
+            MODULE_GRANT_TEST_ARTIFACT_HASH,
+            MODULE_GRANT_TEST_VM_REPORT_HASH,
+            MODULE_GRANT_TEST_ATTESTATION_HASH,
+        );
+        let rollback = computed_module_rollback_plan_hash(
+            MODULE_GRANT_TEST_ARTIFACT_HASH,
+            MODULE_AUDIT_TEST_PRE_INVENTORY_HASH,
+            slot,
+            MODULE_AUDIT_TEST_CLEANUP_HASH,
+        );
+        let mut reference = ModuleAuditRollbackReference {
+            audit_record_hash: [0; 32],
+            rollback_plan_hash: rollback_override.unwrap_or(rollback),
+            computed_grant_hash: grant_override.unwrap_or(grant),
+            manifest_hash: MODULE_GRANT_TEST_MANIFEST_HASH,
+            artifact_hash: MODULE_GRANT_TEST_ARTIFACT_HASH,
+            vm_report_hash: MODULE_GRANT_TEST_VM_REPORT_HASH,
+            local_attestation_hash: MODULE_GRANT_TEST_ATTESTATION_HASH,
+            local_approval_hash: MODULE_AUDIT_TEST_LOCAL_APPROVAL_HASH,
+            pre_load_service_inventory_hash: MODULE_AUDIT_TEST_PRE_INVENTORY_HASH,
+            cleanup_actions_hash: MODULE_AUDIT_TEST_CLEANUP_HASH,
+            denial_event_id: 31,
+            retained_reference_event_id: 27,
+            ram_only_service_slot_id: slot,
+        };
+        reference.audit_record_hash = audit_override.unwrap_or_else(|| {
+            let mut hash_input = reference;
+            hash_input.computed_grant_hash = grant;
+            hash_input.rollback_plan_hash = rollback;
+            computed_module_audit_record_hash(hash_input)
+        });
+        reference
+    }
+
+    fn audit_candidate() -> ModuleLoadGateAuditRollbackCandidate<'static> {
+        let reference =
+            audit_reference(MODULE_AUDIT_TEST_RAM_ONLY_SERVICE_SLOT_ID, None, None, None);
+        ModuleLoadGateAuditRollbackCandidate {
+            retained_reference: true,
+            retained_audit_rollback_reference: ModuleLoadGateAuditRollbackReferenceCandidate {
+                scope: "current_boot",
+                retained: true,
+                schema_ok: true,
+                event_reference: Some(reference),
+                candidate_reference: Some(reference),
+            },
+            durable_audit_record: true,
+            rollback_plan: true,
+            audit_schema_ok: true,
+            rollback_schema_ok: true,
+            audit_binds_retained_grant: true,
+            audit_binds_manifest: true,
+            audit_binds_artifact: true,
+            audit_binds_vm_report: true,
+            audit_binds_local_attestation: true,
+            audit_binds_local_approval: true,
+            audit_binds_rollback_plan: true,
+            rollback_binds_artifact: true,
+            rollback_binds_service_slot: true,
+            ram_only_service_slot_allocated: false,
+            loader_available: false,
+        }
+    }
+
+    fn slot_reservation(
+        grant: Option<[u8; 32]>,
+        audit_hash: Option<[u8; 32]>,
+        rollback: Option<[u8; 32]>,
+        inventory: Option<[u8; 32]>,
+        slot: Option<&'static str>,
+        reservation_hash: Option<[u8; 32]>,
+    ) -> ModuleServiceSlotReservation<'static> {
+        let audit = audit_reference(MODULE_AUDIT_TEST_RAM_ONLY_SERVICE_SLOT_ID, None, None, None);
+        let mut reservation = ModuleServiceSlotReservation {
+            reservation_hash: [0; 32],
+            retained_reference_event_id: 27,
+            retained_audit_rollback_reference_event_id: 33,
+            computed_grant_hash: grant.unwrap_or(audit.computed_grant_hash),
+            audit_record_hash: audit_hash.unwrap_or(audit.audit_record_hash),
+            rollback_plan_hash: rollback.unwrap_or(audit.rollback_plan_hash),
+            pre_load_service_inventory_hash: inventory
+                .unwrap_or(audit.pre_load_service_inventory_hash),
+            ram_only_service_slot_id: slot.unwrap_or(MODULE_AUDIT_TEST_RAM_ONLY_SERVICE_SLOT_ID),
+        };
+        reservation.reservation_hash = reservation_hash
+            .unwrap_or_else(|| computed_module_service_slot_reservation_hash(reservation));
+        reservation
+    }
+
+    #[test]
+    fn retained_case_table_matches_kernel_fixtures() {
+        let valid = reference_chain().retained;
+        for (index, &(name, status, reason)) in MODULE_LOAD_GATE_RETAINED_CASES.iter().enumerate() {
+            let mut candidate = ModuleLoadGateRetainedCandidate {
+                scope: "current_boot",
+                retained: true,
+                schema_ok: true,
+                event_reference: Some(valid),
+                candidate_reference: Some(valid),
+            };
+            match index {
+                0 => {
+                    candidate.retained = false;
+                    candidate.event_reference = None;
+                    candidate.candidate_reference = None;
+                }
+                1 => {}
+                2 => candidate.retained = false,
+                3 => candidate.scope = "previous_boot",
+                4 => candidate.schema_ok = false,
+                5 => {
+                    let manifest_hash = MODULE_GRANT_MISMATCH_MANIFEST_HASH;
+                    candidate.candidate_reference = Some(ModuleComputedGrantReference {
+                        computed_grant_hash: computed_module_grant_hash(
+                            manifest_hash,
+                            valid.artifact_hash,
+                            valid.vm_report_hash,
+                            valid.local_attestation_hash,
+                        ),
+                        manifest_hash,
+                        ..valid
+                    });
+                }
+                6 => {
+                    let mismatch = ModuleComputedGrantReference {
+                        computed_grant_hash: [0x66; 32],
+                        ..valid
+                    };
+                    candidate.event_reference = Some(mismatch);
+                    candidate.candidate_reference = Some(mismatch);
+                }
+                _ => unreachable!(),
+            }
+            let actual = evaluate_retained_candidate(candidate);
+            assert_eq!((actual.status, actual.reason), (status, reason), "{name}");
+        }
+    }
+
+    #[test]
+    fn audit_rollback_case_table_matches_kernel_fixtures() {
+        for (index, &(name, status, reason)) in
+            MODULE_LOAD_GATE_AUDIT_ROLLBACK_CASES.iter().enumerate()
+        {
+            let mut candidate = audit_candidate();
+            let reference = match index {
+                4 => {
+                    let mut r = audit_reference(
+                        MODULE_AUDIT_TEST_RAM_ONLY_SERVICE_SLOT_ID,
+                        None,
+                        None,
+                        None,
+                    );
+                    r.manifest_hash = MODULE_GRANT_MISMATCH_MANIFEST_HASH;
+                    r.computed_grant_hash = computed_module_grant_hash(
+                        r.manifest_hash,
+                        r.artifact_hash,
+                        r.vm_report_hash,
+                        r.local_attestation_hash,
+                    );
+                    r.audit_record_hash = computed_module_audit_record_hash(r);
+                    Some(r)
+                }
+                5 => Some(audit_reference(
+                    MODULE_AUDIT_TEST_RAM_ONLY_SERVICE_SLOT_ID,
+                    Some([0x99; 32]),
+                    None,
+                    None,
+                )),
+                6 => Some(audit_reference(
+                    MODULE_AUDIT_TEST_RAM_ONLY_SERVICE_SLOT_ID,
+                    None,
+                    None,
+                    Some([0xaa; 32]),
+                )),
+                7 => Some(audit_reference(
+                    MODULE_AUDIT_TEST_RAM_ONLY_SERVICE_SLOT_ID,
+                    None,
+                    Some([0xbb; 32]),
+                    None,
+                )),
+                8 => Some(audit_reference("ram_only:svc.test.other", None, None, None)),
+                _ => None,
+            };
+            match index {
+                0 => {
+                    candidate.retained_audit_rollback_reference.retained = false;
+                    candidate.retained_audit_rollback_reference.event_reference = None;
+                    candidate
+                        .retained_audit_rollback_reference
+                        .candidate_reference = None;
+                }
+                1 => candidate.retained_audit_rollback_reference.retained = false,
+                2 => candidate.retained_audit_rollback_reference.scope = "previous_boot",
+                3 => candidate.retained_audit_rollback_reference.schema_ok = false,
+                4 => {
+                    candidate
+                        .retained_audit_rollback_reference
+                        .candidate_reference = reference
+                }
+                5..=8 => {
+                    candidate.retained_audit_rollback_reference.event_reference = reference;
+                    candidate
+                        .retained_audit_rollback_reference
+                        .candidate_reference = reference;
+                }
+                9 => candidate.durable_audit_record = false,
+                10 => candidate.rollback_plan = false,
+                11 => candidate.audit_schema_ok = false,
+                12 => candidate.rollback_schema_ok = false,
+                13 => {}
+                14 => candidate.audit_binds_retained_grant = false,
+                15 => candidate.audit_binds_manifest = false,
+                16 => candidate.audit_binds_artifact = false,
+                17 => candidate.audit_binds_vm_report = false,
+                18 => candidate.audit_binds_local_attestation = false,
+                19 => candidate.audit_binds_local_approval = false,
+                20 => candidate.audit_binds_rollback_plan = false,
+                21 => candidate.rollback_binds_artifact = false,
+                22 => candidate.rollback_binds_service_slot = false,
+                _ => unreachable!(),
+            }
+            let actual = evaluate_audit_rollback_candidate(candidate);
+            assert_eq!((actual.status, actual.reason), (status, reason), "{name}");
+        }
+    }
+
+    #[test]
+    fn service_slot_case_table_matches_kernel_fixtures() {
+        let retained = reference_chain().retained;
+        let audit = audit_reference(MODULE_AUDIT_TEST_RAM_ONLY_SERVICE_SLOT_ID, None, None, None);
+        let valid = slot_reservation(None, None, None, None, None, None);
+        for (index, &(name, status, reason)) in
+            MODULE_LOAD_GATE_SERVICE_SLOT_CASES.iter().enumerate()
+        {
+            let reservation = match index {
+                4 => slot_reservation(Some([0x91; 32]), None, None, None, None, None),
+                7 => slot_reservation(Some([0x92; 32]), None, None, None, None, None),
+                8 => slot_reservation(None, Some([0x93; 32]), None, None, None, None),
+                9 => slot_reservation(None, None, Some([0x94; 32]), None, None, None),
+                10 => slot_reservation(None, None, None, Some([0x95; 32]), None, None),
+                11 => slot_reservation(
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some("ram_only:svc.test.other"),
+                    None,
+                ),
+                12 => slot_reservation(None, None, None, None, None, Some([0x96; 32])),
+                _ => valid,
+            };
+            let mut candidate = ModuleLoadGateServiceSlotCandidate {
+                retained_reference: Some(retained),
+                audit_rollback_reference: Some(audit),
+                audit_rollback_valid: true,
+                service_slot_reservation: ModuleLoadGateServiceSlotReservationCandidate {
+                    scope: "current_boot",
+                    retained: true,
+                    schema_ok: true,
+                    grant_event_schema_ok: true,
+                    audit_event_schema_ok: true,
+                    grant_event_reference: Some(retained),
+                    audit_event_reference: Some(audit),
+                    event_reservation: Some(valid),
+                    candidate_reservation: Some(valid),
+                },
+            };
+            match index {
+                0 => {
+                    candidate.service_slot_reservation.event_reservation = None;
+                    candidate.service_slot_reservation.candidate_reservation = None;
+                }
+                1 => {}
+                2 => candidate.service_slot_reservation.retained = false,
+                3 => candidate.service_slot_reservation.schema_ok = false,
+                4 => candidate.service_slot_reservation.candidate_reservation = Some(reservation),
+                5 => candidate.service_slot_reservation.grant_event_schema_ok = false,
+                6 => candidate.service_slot_reservation.audit_event_schema_ok = false,
+                7..=12 => {
+                    candidate.service_slot_reservation.event_reservation = Some(reservation);
+                    candidate.service_slot_reservation.candidate_reservation = Some(reservation);
+                }
+                _ => unreachable!(),
+            }
+            let actual = evaluate_service_slot_candidate(candidate);
+            assert_eq!((actual.status, actual.reason), (status, reason), "{name}");
+        }
     }
 }
