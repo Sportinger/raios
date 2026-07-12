@@ -6,3 +6,8 @@ seed-kernel/src/hello_service.rs -text
 seed-kernel/src/hello_service/** -text
 seed-kernel/src/current_boot_service.rs -text
 seed-kernel/descriptors/** -text
+# artifacts/ holds byte-attested artifact payloads (build.rs pins their sha256).
+# svc.demo.hello.builtin.artifact is pure text, so git's binary heuristic does NOT
+# protect it: a fresh checkout/worktree smudged it 249->256 bytes (LF->CRLF) and
+# build.rs died at the artifact_reference_sha256 assert (2026-07-12).
+seed-kernel/artifacts/** -text

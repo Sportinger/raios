@@ -2196,6 +2196,22 @@ Important files:
 
 ## Known Failure Modes
 
+### build.rs dies with an artifact/identity sha256 assert in a fresh checkout
+
+Symptom: `seed-kernel\build.rs` panics on an `assertion left == right failed`
+comparing two `sha256:...` values, in a FRESH clone or `git worktree add` tree,
+while the primary working tree builds fine.
+
+Likely cause: `core.autocrlf` smudged a byte-attested text file on checkout
+(LF -> CRLF), changing its pinned hash. Observed 2026-07-12 with
+`seed-kernel/artifacts/svc.demo.hello.builtin.artifact` (249 -> 256 bytes)
+failing the `artifact_reference_sha256` assert.
+
+Fix: every byte-attested path must be listed with `-text` in `.gitattributes`
+(hello source set, `seed-kernel/descriptors/**`, `seed-kernel/artifacts/**`).
+For an already-smudged tree, copy the file byte-exact from the primary
+worktree or re-checkout after the `.gitattributes` fix.
+
 ### Limine says config file not found
 
 Likely cause: using `limine.cfg` with Limine 10.
