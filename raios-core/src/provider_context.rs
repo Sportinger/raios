@@ -569,8 +569,11 @@ pub fn provider_projection_packet_hash(input: &ProviderProjectionInput<'_>) -> [
     for capability in input.capabilities {
         h.field("current.capabilities[]", capability)
     }
-    for problem in input.problems {
-        h.field(problem.field, problem.value)
+    for (idx, problem) in input.problems.iter().enumerate() {
+        h.field(problem.field, problem.value);
+        if (idx + 1) % 3 == 0 {
+            h.separator();
+        }
     }
     for record in input.records {
         if record.exportable {
@@ -695,6 +698,80 @@ mod tests {
         assert_eq!(
             sha256_of_json(&value),
             provider_export_packet_hash(&records)
+        );
+    }
+
+    #[test]
+    fn projection_packet_problem_separators_match_hand_derived_hashes() {
+        fn input<'a>(problems: &'a [ProviderProjectionField<'a>]) -> ProviderProjectionInput<'a> {
+            ProviderProjectionInput {
+                status: &[],
+                provider: &[],
+                services: &[],
+                capabilities: &[],
+                problems,
+                records: &[],
+            }
+        }
+
+        let empty = input(&[]);
+        assert_eq!(
+            provider_projection_packet_hash(&empty),
+            [
+                0x87, 0x43, 0x09, 0x7c, 0x18, 0xb7, 0x66, 0x9e, 0x1b, 0x49, 0x36, 0xb7, 0x2a, 0x32,
+                0x96, 0xf7, 0xaa, 0x88, 0x1c, 0x44, 0x90, 0x61, 0x89, 0x02, 0x51, 0x64, 0xa1, 0x66,
+                0xdf, 0xd8, 0xc9, 0x48,
+            ]
+        );
+
+        let one_problem = [
+            ProviderProjectionField {
+                field: "current.problems[].id",
+                value: "p1",
+            },
+            ProviderProjectionField {
+                field: "current.problems[].severity",
+                value: "warning",
+            },
+            ProviderProjectionField {
+                field: "current.problems[].summary",
+                value: "problem 1",
+            },
+        ];
+        assert_eq!(
+            provider_projection_packet_hash(&input(&one_problem)),
+            [
+                0x9a, 0x09, 0x35, 0xa6, 0xe6, 0xf7, 0x13, 0xcf, 0x4a, 0x5e, 0x0c, 0x84, 0x80, 0x53,
+                0x55, 0x58, 0xc3, 0xd3, 0xb2, 0x09, 0xec, 0xef, 0xb9, 0x9d, 0x7d, 0xfd, 0x4b, 0x0d,
+                0xd6, 0xab, 0xc4, 0x8d,
+            ]
+        );
+
+        let two_problems = [
+            one_problem[0],
+            one_problem[1],
+            one_problem[2],
+            ProviderProjectionField {
+                field: "current.problems[].id",
+                value: "p2",
+            },
+            ProviderProjectionField {
+                field: "current.problems[].severity",
+                value: "warning",
+            },
+            ProviderProjectionField {
+                field: "current.problems[].summary",
+                value: "problem 2",
+            },
+        ];
+        // Hand-derived from the canonical stream, including "--\n" after each problem triplet.
+        assert_eq!(
+            provider_projection_packet_hash(&input(&two_problems)),
+            [
+                0x3c, 0xc9, 0x28, 0x8c, 0x6c, 0x15, 0x2b, 0xa7, 0xd0, 0x5f, 0x63, 0x00, 0xf0, 0xcb,
+                0x92, 0xfd, 0x79, 0x77, 0xa2, 0x69, 0xf4, 0x1c, 0x4e, 0x4b, 0xf6, 0xda, 0xf3, 0x9d,
+                0x12, 0x2c, 0xde, 0x6d,
+            ]
         );
     }
 }
