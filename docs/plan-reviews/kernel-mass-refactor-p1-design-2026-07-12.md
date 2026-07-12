@@ -7,11 +7,27 @@
 > entry in `docs/PROJECT_STATUS.md`). Suspected mechanism: module structure
 > changes codegen-unit partitioning, degrading the loader emit path on the
 > import-grant boot path. P1-A is PARKED in stash `p1-kernel-attribution-test`
-> until a dedicated slice proves and fixes the mechanism (`codegen-units=1`
-> comparison, stack headroom, loader-response timing). P1-B and P1-C are
+> until a dedicated slice proves and fixes the mechanism. P1-B and P1-C are
 > landed separately. Lesson recorded: source-level equivalence proofs do not
 > cover codegen-sensitive kernel paths; VM evidence stays mandatory for
 > structural moves.
+>
+> **Investigation update (2026-07-12 evening, four probes):** RULED OUT by
+> controlled probes, all with the identical probe-6 freeze signature:
+> (1) hidden content difference — a mechanical item-level token audit matched
+> all 110 items, all string literals, and found only trailing-comma
+> formatting; (2) codegen-unit partitioning — red with `codegen-units = 1`;
+> (3) Limine main-stack exhaustion — red with the stack raised 1 MiB -> 4 MiB;
+> (4) environment — bisection-controlled. Prime remaining suspect: a LATENT
+> layout-sensitive memory-safety defect — the split changes symbol paths and
+> therefore static/data placement, and a buffer overrun near the
+> wasm-import-grant audit boot path that is harmless under the HEAD layout
+> would clobber serial-input state under the split layout. Defined next
+> probe for the investigation slice: build HEAD and HEAD+split kernels,
+> diff the .bss/.data symbol maps around the serial/input statics, then
+> guard-page or canary the adjacent regions and instrument the serial
+> consumer. The freeze reproduces deterministically in under 10 minutes via
+> `-Profile memory-durable`, so the slice has a fast oracle.
 
 Packet: `REFACTOR-P1-DESIGN`. This design is limited to P1 readability work on
 inventory rows routed `RELOCATE`. It assigns no implementation work to a
