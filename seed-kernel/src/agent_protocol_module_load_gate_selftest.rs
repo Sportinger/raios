@@ -1,4 +1,8 @@
 use crate::{
+    agent_protocol_module_load_gate::{
+        ModuleLoadGateAuditRollbackEvaluation, ModuleLoadGateRetainedCheck,
+        ModuleLoadGateServiceSlotEvaluation,
+    },
     agent_protocol_module_load_gate_selftest_eval::{
         computed_module_audit_record_hash, computed_module_grant_hash,
         computed_module_rollback_plan_hash, computed_module_service_slot_reservation_hash,

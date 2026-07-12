@@ -1,4 +1,9 @@
 use crate::{
+    agent_protocol_module_load_gate::{
+        ModuleLoadGateArtifactEvaluation, ModuleLoadGateLocalApprovalEvaluation,
+        ModuleLoadGateLocalAttestationEvaluation, ModuleLoadGateManifestEvaluation,
+        ModuleLoadGateVmReportEvaluation,
+    },
     agent_protocol_module_load_gate_selftest::module_load_gate_test_reference,
     agent_protocol_module_load_gate_selftest_eval::{
         computed_module_manifest_reference_hash, evaluate_module_load_gate_artifact_candidate,

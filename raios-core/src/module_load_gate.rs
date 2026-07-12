@@ -8,13 +8,13 @@ use sha2::{Digest, Sha256};
 
 use crate::method_eq;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ModuleManifestReference {
     pub manifest_reference_hash: [u8; 32],
     pub manifest_hash: [u8; 32],
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ModuleCandidateArtifactReference {
     pub artifact_reference_hash: [u8; 32],
     pub retained_manifest_reference_event_id: u64,
@@ -27,7 +27,7 @@ pub struct ModuleCandidateArtifactReference {
     pub local_attestation_hash: [u8; 32],
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ModuleVmTestReportReference {
     pub report_reference_hash: [u8; 32],
     pub retained_manifest_reference_event_id: u64,
@@ -42,7 +42,7 @@ pub struct ModuleVmTestReportReference {
     pub local_attestation_hash: [u8; 32],
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ModuleLocalAttestationReference {
     pub attestation_reference_hash: [u8; 32],
     pub retained_manifest_reference_event_id: u64,
@@ -60,7 +60,7 @@ pub struct ModuleLocalAttestationReference {
     pub signature_verified: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ModuleLocalApprovalReference {
     pub approval_reference_hash: [u8; 32],
     pub retained_manifest_reference_event_id: u64,
@@ -80,7 +80,7 @@ pub struct ModuleLocalApprovalReference {
     pub local_approval_hash: [u8; 32],
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleComputedGrantReference {
     pub computed_grant_hash: [u8; 32],
     pub manifest_hash: [u8; 32],
@@ -89,7 +89,7 @@ pub struct ModuleComputedGrantReference {
     pub local_attestation_hash: [u8; 32],
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleAuditRollbackReference<'a> {
     pub audit_record_hash: [u8; 32],
     pub rollback_plan_hash: [u8; 32],
@@ -106,7 +106,7 @@ pub struct ModuleAuditRollbackReference<'a> {
     pub ram_only_service_slot_id: &'a str,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleServiceSlotReservation<'a> {
     pub reservation_hash: [u8; 32],
     pub retained_reference_event_id: u64,
@@ -118,7 +118,7 @@ pub struct ModuleServiceSlotReservation<'a> {
     pub ram_only_service_slot_id: &'a str,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleLoadGateManifestReferenceCandidate {
     pub scope: &'static str,
     pub retained: bool,
@@ -127,7 +127,7 @@ pub struct ModuleLoadGateManifestReferenceCandidate {
     pub candidate_reference: Option<ModuleManifestReference>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleLoadGateArtifactReferenceCandidate {
     pub scope: &'static str,
     pub retained: bool,
@@ -140,7 +140,7 @@ pub struct ModuleLoadGateArtifactReferenceCandidate {
     pub retained_reference: Option<ModuleComputedGrantReference>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleLoadGateVmReportReferenceCandidate {
     pub scope: &'static str,
     pub retained: bool,
@@ -155,7 +155,7 @@ pub struct ModuleLoadGateVmReportReferenceCandidate {
     pub retained_reference: Option<ModuleComputedGrantReference>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleLoadGateLocalAttestationReferenceCandidate {
     pub scope: &'static str,
     pub retained: bool,
@@ -172,7 +172,7 @@ pub struct ModuleLoadGateLocalAttestationReferenceCandidate {
     pub retained_reference: Option<ModuleComputedGrantReference>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleLoadGateLocalApprovalReferenceCandidate {
     pub scope: &'static str,
     pub retained: bool,
@@ -191,7 +191,7 @@ pub struct ModuleLoadGateLocalApprovalReferenceCandidate {
     pub retained_reference: Option<ModuleComputedGrantReference>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleLoadGateManifestEvaluation {
     pub status: &'static str,
     pub reason: &'static str,
@@ -201,7 +201,7 @@ pub struct ModuleLoadGateManifestEvaluation {
     pub load_attempted: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleLoadGateArtifactEvaluation {
     pub status: &'static str,
     pub reason: &'static str,
@@ -211,7 +211,7 @@ pub struct ModuleLoadGateArtifactEvaluation {
     pub load_attempted: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleLoadGateVmReportEvaluation {
     pub status: &'static str,
     pub reason: &'static str,
@@ -221,7 +221,7 @@ pub struct ModuleLoadGateVmReportEvaluation {
     pub load_attempted: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleLoadGateLocalAttestationEvaluation {
     pub status: &'static str,
     pub reason: &'static str,
@@ -231,7 +231,7 @@ pub struct ModuleLoadGateLocalAttestationEvaluation {
     pub load_attempted: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleLoadGateLocalApprovalEvaluation {
     pub status: &'static str,
     pub reason: &'static str,
@@ -241,7 +241,7 @@ pub struct ModuleLoadGateLocalApprovalEvaluation {
     pub load_attempted: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleLoadGateRetainedCandidate {
     pub scope: &'static str,
     pub retained: bool,
@@ -250,7 +250,7 @@ pub struct ModuleLoadGateRetainedCandidate {
     pub candidate_reference: Option<ModuleComputedGrantReference>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleLoadGateRetainedCheck {
     pub status: &'static str,
     pub reason: &'static str,
@@ -258,7 +258,7 @@ pub struct ModuleLoadGateRetainedCheck {
     pub load_attempted: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleLoadGateAuditRollbackReferenceCandidate<'a> {
     pub scope: &'a str,
     pub retained: bool,
@@ -267,7 +267,7 @@ pub struct ModuleLoadGateAuditRollbackReferenceCandidate<'a> {
     pub candidate_reference: Option<ModuleAuditRollbackReference<'a>>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleLoadGateAuditRollbackCandidate<'a> {
     pub retained_reference: bool,
     pub retained_audit_rollback_reference: ModuleLoadGateAuditRollbackReferenceCandidate<'a>,
@@ -288,7 +288,7 @@ pub struct ModuleLoadGateAuditRollbackCandidate<'a> {
     pub loader_available: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleLoadGateAuditRollbackEvaluation {
     pub status: &'static str,
     pub reason: &'static str,
@@ -296,7 +296,7 @@ pub struct ModuleLoadGateAuditRollbackEvaluation {
     pub load_attempted: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleLoadGateServiceSlotReservationCandidate<'a> {
     pub scope: &'a str,
     pub retained: bool,
@@ -309,7 +309,7 @@ pub struct ModuleLoadGateServiceSlotReservationCandidate<'a> {
     pub candidate_reservation: Option<ModuleServiceSlotReservation<'a>>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleLoadGateServiceSlotCandidate<'a> {
     pub retained_reference: Option<ModuleComputedGrantReference>,
     pub audit_rollback_reference: Option<ModuleAuditRollbackReference<'a>>,
@@ -317,7 +317,7 @@ pub struct ModuleLoadGateServiceSlotCandidate<'a> {
     pub service_slot_reservation: ModuleLoadGateServiceSlotReservationCandidate<'a>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleLoadGateServiceSlotEvaluation {
     pub status: &'static str,
     pub reason: &'static str,
@@ -806,7 +806,7 @@ pub fn evaluate_retained_candidate(
     let Some(event_reference) = candidate.event_reference else {
         return retained_result("rejected", "retained_reference_stale_or_dropped_event_id");
     };
-    if event_reference != reference {
+    if !computed_grant_reference_matches(event_reference, reference) {
         return retained_result("rejected", "retained_reference_substituted_record");
     }
     if !module_computed_grant_reference_hashes_consistent(reference) {
@@ -964,7 +964,7 @@ pub fn evaluate_service_slot_candidate(
             "retained_service_slot_reservation_stale_or_dropped_event_id",
         );
     };
-    if event_reservation != reservation {
+    if !service_slot_reservation_matches(event_reservation, reservation) {
         return service_slot_result(
             "rejected",
             "retained_service_slot_reservation_substituted_record",
@@ -984,7 +984,9 @@ pub fn evaluate_service_slot_candidate(
             "retained_service_slot_reservation_stale_or_dropped_event_id",
         );
     };
-    if grant_event != grant || audit_event != audit {
+    if !computed_grant_reference_matches(grant_event, grant)
+        || !audit_rollback_reference_matches(audit_event, audit)
+    {
         return service_slot_result(
             "rejected",
             "retained_service_slot_reservation_substituted_record",
@@ -1144,6 +1146,48 @@ fn module_computed_grant_reference_hashes_consistent(r: ModuleComputedGrantRefer
             r.local_attestation_hash,
         )
 }
+fn computed_grant_reference_matches(
+    left: ModuleComputedGrantReference,
+    right: ModuleComputedGrantReference,
+) -> bool {
+    left.computed_grant_hash == right.computed_grant_hash
+        && left.manifest_hash == right.manifest_hash
+        && left.artifact_hash == right.artifact_hash
+        && left.vm_report_hash == right.vm_report_hash
+        && left.local_attestation_hash == right.local_attestation_hash
+}
+fn audit_rollback_reference_matches(
+    left: ModuleAuditRollbackReference<'_>,
+    right: ModuleAuditRollbackReference<'_>,
+) -> bool {
+    left.audit_record_hash == right.audit_record_hash
+        && left.rollback_plan_hash == right.rollback_plan_hash
+        && left.computed_grant_hash == right.computed_grant_hash
+        && left.manifest_hash == right.manifest_hash
+        && left.artifact_hash == right.artifact_hash
+        && left.vm_report_hash == right.vm_report_hash
+        && left.local_attestation_hash == right.local_attestation_hash
+        && left.local_approval_hash == right.local_approval_hash
+        && left.pre_load_service_inventory_hash == right.pre_load_service_inventory_hash
+        && left.cleanup_actions_hash == right.cleanup_actions_hash
+        && left.denial_event_id == right.denial_event_id
+        && left.retained_reference_event_id == right.retained_reference_event_id
+        && left.ram_only_service_slot_id == right.ram_only_service_slot_id
+}
+fn service_slot_reservation_matches(
+    left: ModuleServiceSlotReservation<'_>,
+    right: ModuleServiceSlotReservation<'_>,
+) -> bool {
+    left.reservation_hash == right.reservation_hash
+        && left.retained_reference_event_id == right.retained_reference_event_id
+        && left.retained_audit_rollback_reference_event_id
+            == right.retained_audit_rollback_reference_event_id
+        && left.computed_grant_hash == right.computed_grant_hash
+        && left.audit_record_hash == right.audit_record_hash
+        && left.rollback_plan_hash == right.rollback_plan_hash
+        && left.pre_load_service_inventory_hash == right.pre_load_service_inventory_hash
+        && left.ram_only_service_slot_id == right.ram_only_service_slot_id
+}
 fn evaluate_audit_rollback_reference(
     c: ModuleLoadGateAuditRollbackReferenceCandidate<'_>,
 ) -> ModuleLoadGateRetainedCheck {
@@ -1168,7 +1212,13 @@ fn evaluate_audit_rollback_reference(
             "retained_audit_rollback_reference_wrong_schema_or_variant",
         );
     };
-    if c.event_reference != c.candidate_reference {
+    let Some(event_reference) = c.event_reference else {
+        return retained_result(
+            "rejected",
+            "retained_audit_rollback_reference_stale_or_dropped_event_id",
+        );
+    };
+    if !audit_rollback_reference_matches(event_reference, r) {
         return retained_result(
             "rejected",
             "retained_audit_rollback_reference_substituted_record",

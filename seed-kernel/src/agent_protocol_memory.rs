@@ -9,21 +9,19 @@ use crate::{
     agent_protocol_support::{
         begin_response, crlf, emit_inline_string_array, emit_record_value_fragment, end_response,
         indent, json_event_id, json_event_id_option, json_event_sequence, json_opt_str,
-        json_sha256, json_sha256_option, json_str, method_eq, method_head_eq, raw, raw_bool,
-        raw_fmt, raw_line,
+        json_sha256, json_sha256_option, json_str, method_eq, raw, raw_bool, raw_fmt, raw_line,
     },
     agent_protocol_system::{emit_problem_objects, emit_service_ids, emit_status_state},
     event_log, memory_store, provider, provider_trust, serial,
     system_status::SystemSnapshot,
     ui,
 };
-const MEMORY_MUTATION_METHODS: &[&str] = &[
-    "memory.record_observation",
-    "memory.propose_policy",
-    "memory.supersede_fact",
-    "memory.redact",
-    "memory.compact",
-];
+
+pub use raios_core::memory_context::{
+    event_limit_arg, memory_context_estimated_tokens, memory_context_profile,
+    memory_context_target_tokens, memory_method_arg, memory_mutation_method, MemoryContextPlan,
+    MEMORY_MUTATION_METHODS,
+};
 
 pub(crate) fn emit_memory_profile() {
     begin_response("memory.profile");
@@ -11393,102 +11391,5 @@ fn emit_single_trace_record(id: &str) {
         json_str(id);
         raw(", \"found\": false, \"reason\": \"record id is not in the current_boot memory index\"}");
         crlf();
-    }
-}
-
-pub(crate) fn memory_mutation_method(method: &str) -> bool {
-    let mut idx = 0usize;
-    while idx < MEMORY_MUTATION_METHODS.len() {
-        if method_eq(method, MEMORY_MUTATION_METHODS[idx]) {
-            return true;
-        }
-        idx += 1;
-    }
-    false
-}
-
-fn memory_context_profile(method: &str) -> &'static str {
-    let arg = memory_method_arg(method, "memory.context");
-    if method_eq(arg, "planning") {
-        "planning"
-    } else if method_eq(arg, "provider_minimal") {
-        "provider_minimal"
-    } else {
-        "diagnostic"
-    }
-}
-
-fn memory_context_target_tokens(profile: &str) -> u16 {
-    if method_eq(profile, "planning") {
-        8000
-    } else if method_eq(profile, "provider_minimal") {
-        2000
-    } else {
-        4000
-    }
-}
-
-fn memory_context_estimated_tokens(profile: &str) -> u16 {
-    if method_eq(profile, "planning") {
-        1600
-    } else if method_eq(profile, "provider_minimal") {
-        900
-    } else {
-        1200
-    }
-}
-
-fn memory_method_arg<'a>(method: &'a str, canonical: &str) -> &'a str {
-    let method = method.trim();
-    let head_len = if method_head_eq(method, canonical) {
-        canonical.len()
-    } else if method_head_eq(method, "memctx") {
-        "memctx".len()
-    } else if method_head_eq(method, "memtrace") {
-        "memtrace".len()
-    } else {
-        return "";
-    };
-    method[head_len..].trim()
-}
-
-fn event_limit_arg(method: &str) -> usize {
-    let method = method.trim();
-    let head_len = if method_head_eq(method, "memory.recent_events") {
-        "memory.recent_events".len()
-    } else if method_head_eq(method, "audit.events") {
-        "audit.events".len()
-    } else if method_head_eq(method, "events") {
-        "events".len()
-    } else {
-        return event_log::DEFAULT_EVENT_LIMIT;
-    };
-
-    parse_usize_arg(method[head_len..].trim())
-}
-
-fn parse_usize_arg(value: &str) -> usize {
-    let mut parsed = 0usize;
-    let mut saw_digit = false;
-    for byte in value.bytes() {
-        if byte.is_ascii_whitespace() {
-            if saw_digit {
-                break;
-            }
-            continue;
-        }
-        if !byte.is_ascii_digit() {
-            break;
-        }
-        saw_digit = true;
-        parsed = parsed
-            .saturating_mul(10)
-            .saturating_add((byte - b'0') as usize);
-    }
-
-    if saw_digit {
-        parsed
-    } else {
-        event_log::DEFAULT_EVENT_LIMIT
     }
 }

@@ -3,7 +3,7 @@
 //! These records carry evidence only.  They do not load modules, consume
 //! authority, write storage, or inspect kernel state.
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleManifestReferenceCheck<'a> {
     pub has_reference: bool,
     pub arity_valid: bool,
@@ -16,7 +16,6 @@ pub struct ModuleManifestReferenceCheck<'a> {
     pub valid: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ModuleManifestSelfTestCase {
     pub name: &'static str,
     pub expected_status: &'static str,
@@ -26,7 +25,7 @@ pub struct ModuleManifestSelfTestCase {
     pub passed: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleArtifactReferenceInput<'a> {
     pub has_reference: bool,
     pub arity_valid: bool,
@@ -42,7 +41,7 @@ pub struct ModuleArtifactReferenceInput<'a> {
     pub local_attestation_hash: Option<[u8; 32]>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleArtifactReferenceCheck<'a> {
     pub has_reference: bool,
     pub arity_valid: bool,
@@ -63,7 +62,6 @@ pub struct ModuleArtifactReferenceCheck<'a> {
     pub valid: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ModuleArtifactSelfTestCase {
     pub name: &'static str,
     pub expected_status: &'static str,
@@ -73,7 +71,7 @@ pub struct ModuleArtifactSelfTestCase {
     pub passed: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleVmReportReferenceInput<'a> {
     pub has_reference: bool,
     pub arity_valid: bool,
@@ -91,7 +89,7 @@ pub struct ModuleVmReportReferenceInput<'a> {
     pub local_attestation_hash: Option<[u8; 32]>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleVmReportReferenceCheck<'a> {
     pub has_reference: bool,
     pub arity_valid: bool,
@@ -114,7 +112,6 @@ pub struct ModuleVmReportReferenceCheck<'a> {
     pub valid: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ModuleVmReportSelfTestCase {
     pub name: &'static str,
     pub expected_status: &'static str,
@@ -124,7 +121,7 @@ pub struct ModuleVmReportSelfTestCase {
     pub passed: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleLocalAttestationReferenceInput<'a> {
     pub has_reference: bool,
     pub arity_valid: bool,
@@ -146,7 +143,7 @@ pub struct ModuleLocalAttestationReferenceInput<'a> {
     pub signature_verified: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleLocalAttestationReferenceCheck<'a> {
     pub has_reference: bool,
     pub arity_valid: bool,
@@ -173,7 +170,6 @@ pub struct ModuleLocalAttestationReferenceCheck<'a> {
     pub valid: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ModuleLocalAttestationSelfTestCase {
     pub name: &'static str,
     pub expected_status: &'static str,
@@ -183,7 +179,7 @@ pub struct ModuleLocalAttestationSelfTestCase {
     pub passed: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleLocalApprovalReferenceInput<'a> {
     pub has_reference: bool,
     pub arity_valid: bool,
@@ -206,7 +202,7 @@ pub struct ModuleLocalApprovalReferenceInput<'a> {
     pub local_approval_hash: Option<[u8; 32]>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleLocalApprovalReferenceCheck<'a> {
     pub has_reference: bool,
     pub arity_valid: bool,
@@ -234,7 +230,6 @@ pub struct ModuleLocalApprovalReferenceCheck<'a> {
     pub valid: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ModuleLocalApprovalSelfTestCase {
     pub name: &'static str,
     pub expected_status: &'static str,
@@ -244,7 +239,7 @@ pub struct ModuleLocalApprovalSelfTestCase {
     pub passed: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleGrantReferenceCheck<'a> {
     pub has_reference: bool,
     pub arity_valid: bool,
@@ -260,7 +255,6 @@ pub struct ModuleGrantReferenceCheck<'a> {
     pub valid: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ModuleGrantSelfTestCase {
     pub name: &'static str,
     pub expected_status: &'static str,
@@ -270,7 +264,7 @@ pub struct ModuleGrantSelfTestCase {
     pub passed: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleAuditRollbackReferenceInput<'a> {
     pub has_reference: bool,
     pub arity_valid: bool,
@@ -292,7 +286,7 @@ pub struct ModuleAuditRollbackReferenceInput<'a> {
     pub ram_only_service_slot_id: Option<&'a str>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleAuditRollbackReferenceCheck<'a> {
     pub has_reference: bool,
     pub arity_valid: bool,
@@ -318,7 +312,6 @@ pub struct ModuleAuditRollbackReferenceCheck<'a> {
     pub valid: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ModuleAuditRollbackSelfTestCase {
     pub name: &'static str,
     pub expected_status: &'static str,
@@ -328,7 +321,7 @@ pub struct ModuleAuditRollbackSelfTestCase {
     pub passed: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleServiceSlotReservationInput<'a> {
     pub has_reference: bool,
     pub arity_valid: bool,
@@ -343,7 +336,7 @@ pub struct ModuleServiceSlotReservationInput<'a> {
     pub ram_only_service_slot_id: Option<&'a str>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ModuleServiceSlotReservationCheck<'a> {
     pub has_reference: bool,
     pub arity_valid: bool,
@@ -362,7 +355,6 @@ pub struct ModuleServiceSlotReservationCheck<'a> {
     pub valid: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ModuleServiceSlotSelfTestCase {
     pub name: &'static str,
     pub expected_status: &'static str,

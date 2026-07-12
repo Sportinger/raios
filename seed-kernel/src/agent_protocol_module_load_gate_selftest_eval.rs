@@ -1,1123 +1,580 @@
 use crate::{
-    agent_protocol_module_grant::{
-        module_computed_grant_reference_hashes_consistent, module_computed_grant_reference_matches,
+    agent_protocol_module_load_gate::{
+        ModuleLoadGateArtifactEvaluation, ModuleLoadGateAuditRollbackEvaluation,
+        ModuleLoadGateLocalApprovalEvaluation, ModuleLoadGateLocalAttestationEvaluation,
+        ModuleLoadGateManifestEvaluation, ModuleLoadGateRetainedCheck,
+        ModuleLoadGateServiceSlotEvaluation, ModuleLoadGateVmReportEvaluation,
     },
     agent_protocol_module_types::*,
     agent_protocol_support::{method_eq, parse_current_boot_event_id},
     event_log,
-    module_evidence::{self, ModuleAuditRecordHashInput, ModuleServiceSlotReservationHashInput},
+    module_evidence::{ModuleAuditRecordHashInput, ModuleServiceSlotReservationHashInput},
 };
+
+use raios_core::module_load_gate as core_load_gate;
+
+fn core_manifest_reference(
+    reference: event_log::ModuleManifestReference,
+) -> core_load_gate::ModuleManifestReference {
+    core_load_gate::ModuleManifestReference {
+        manifest_reference_hash: reference.manifest_reference_hash,
+        manifest_hash: reference.manifest_hash,
+    }
+}
+
+fn core_artifact_reference(
+    reference: event_log::ModuleCandidateArtifactReference,
+) -> core_load_gate::ModuleCandidateArtifactReference {
+    core_load_gate::ModuleCandidateArtifactReference {
+        artifact_reference_hash: reference.artifact_reference_hash,
+        retained_manifest_reference_event_id: reference
+            .retained_manifest_reference_event_id
+            .sequence(),
+        retained_reference_event_id: reference.retained_reference_event_id.sequence(),
+        manifest_reference_hash: reference.manifest_reference_hash,
+        manifest_hash: reference.manifest_hash,
+        computed_grant_hash: reference.computed_grant_hash,
+        artifact_hash: reference.artifact_hash,
+        vm_report_hash: reference.vm_report_hash,
+        local_attestation_hash: reference.local_attestation_hash,
+    }
+}
+
+fn core_vm_report_reference(
+    reference: event_log::ModuleVmTestReportReference,
+) -> core_load_gate::ModuleVmTestReportReference {
+    core_load_gate::ModuleVmTestReportReference {
+        report_reference_hash: reference.report_reference_hash,
+        retained_manifest_reference_event_id: reference
+            .retained_manifest_reference_event_id
+            .sequence(),
+        retained_artifact_reference_event_id: reference
+            .retained_artifact_reference_event_id
+            .sequence(),
+        retained_reference_event_id: reference.retained_reference_event_id.sequence(),
+        manifest_reference_hash: reference.manifest_reference_hash,
+        artifact_reference_hash: reference.artifact_reference_hash,
+        manifest_hash: reference.manifest_hash,
+        artifact_hash: reference.artifact_hash,
+        computed_grant_hash: reference.computed_grant_hash,
+        vm_report_hash: reference.vm_report_hash,
+        local_attestation_hash: reference.local_attestation_hash,
+    }
+}
+
+fn core_attestation_reference(
+    reference: event_log::ModuleLocalAttestationReference,
+) -> core_load_gate::ModuleLocalAttestationReference {
+    core_load_gate::ModuleLocalAttestationReference {
+        attestation_reference_hash: reference.attestation_reference_hash,
+        retained_manifest_reference_event_id: reference
+            .retained_manifest_reference_event_id
+            .sequence(),
+        retained_artifact_reference_event_id: reference
+            .retained_artifact_reference_event_id
+            .sequence(),
+        retained_vm_report_reference_event_id: reference
+            .retained_vm_report_reference_event_id
+            .sequence(),
+        retained_reference_event_id: reference.retained_reference_event_id.sequence(),
+        manifest_reference_hash: reference.manifest_reference_hash,
+        artifact_reference_hash: reference.artifact_reference_hash,
+        vm_report_reference_hash: reference.vm_report_reference_hash,
+        manifest_hash: reference.manifest_hash,
+        artifact_hash: reference.artifact_hash,
+        computed_grant_hash: reference.computed_grant_hash,
+        vm_report_hash: reference.vm_report_hash,
+        local_attestation_hash: reference.local_attestation_hash,
+        signature_verified: reference.signature_verified,
+    }
+}
+
+fn core_approval_reference(
+    reference: event_log::ModuleLocalApprovalReference,
+) -> core_load_gate::ModuleLocalApprovalReference {
+    core_load_gate::ModuleLocalApprovalReference {
+        approval_reference_hash: reference.approval_reference_hash,
+        retained_manifest_reference_event_id: reference
+            .retained_manifest_reference_event_id
+            .sequence(),
+        retained_artifact_reference_event_id: reference
+            .retained_artifact_reference_event_id
+            .sequence(),
+        retained_vm_report_reference_event_id: reference
+            .retained_vm_report_reference_event_id
+            .sequence(),
+        retained_local_attestation_reference_event_id: reference
+            .retained_local_attestation_reference_event_id
+            .sequence(),
+        retained_reference_event_id: reference.retained_reference_event_id.sequence(),
+        manifest_reference_hash: reference.manifest_reference_hash,
+        artifact_reference_hash: reference.artifact_reference_hash,
+        vm_report_reference_hash: reference.vm_report_reference_hash,
+        local_attestation_reference_hash: reference.local_attestation_reference_hash,
+        manifest_hash: reference.manifest_hash,
+        artifact_hash: reference.artifact_hash,
+        computed_grant_hash: reference.computed_grant_hash,
+        vm_report_hash: reference.vm_report_hash,
+        local_attestation_hash: reference.local_attestation_hash,
+        local_approval_hash: reference.local_approval_hash,
+    }
+}
+
+fn core_grant_reference(
+    reference: event_log::ModuleComputedGrantReference,
+) -> core_load_gate::ModuleComputedGrantReference {
+    core_load_gate::ModuleComputedGrantReference {
+        computed_grant_hash: reference.computed_grant_hash,
+        manifest_hash: reference.manifest_hash,
+        artifact_hash: reference.artifact_hash,
+        vm_report_hash: reference.vm_report_hash,
+        local_attestation_hash: reference.local_attestation_hash,
+    }
+}
+
+fn core_manifest_candidate(
+    candidate: ModuleLoadGateManifestReferenceCandidate,
+) -> core_load_gate::ModuleLoadGateManifestReferenceCandidate {
+    core_load_gate::ModuleLoadGateManifestReferenceCandidate {
+        scope: candidate.scope,
+        retained: candidate.retained,
+        schema_ok: candidate.schema_ok,
+        event_reference: candidate.event_reference.map(core_manifest_reference),
+        candidate_reference: candidate.candidate_reference.map(core_manifest_reference),
+    }
+}
+
+fn core_artifact_candidate(
+    candidate: ModuleLoadGateArtifactReferenceCandidate,
+) -> core_load_gate::ModuleLoadGateArtifactReferenceCandidate {
+    core_load_gate::ModuleLoadGateArtifactReferenceCandidate {
+        scope: candidate.scope,
+        retained: candidate.retained,
+        schema_ok: candidate.schema_ok,
+        event_reference: candidate.event_reference.map(core_artifact_reference),
+        candidate_reference: candidate.candidate_reference.map(core_artifact_reference),
+        manifest_event_id: candidate
+            .manifest_event_id
+            .map(|event_id| event_id.sequence()),
+        manifest_reference: candidate.manifest_reference.map(core_manifest_reference),
+        retained_event_id: candidate
+            .retained_event_id
+            .map(|event_id| event_id.sequence()),
+        retained_reference: candidate.retained_reference.map(core_grant_reference),
+    }
+}
+
+fn core_vm_report_candidate(
+    candidate: ModuleLoadGateVmReportReferenceCandidate,
+) -> core_load_gate::ModuleLoadGateVmReportReferenceCandidate {
+    core_load_gate::ModuleLoadGateVmReportReferenceCandidate {
+        scope: candidate.scope,
+        retained: candidate.retained,
+        schema_ok: candidate.schema_ok,
+        event_reference: candidate.event_reference.map(core_vm_report_reference),
+        candidate_reference: candidate.candidate_reference.map(core_vm_report_reference),
+        manifest_event_id: candidate
+            .manifest_event_id
+            .map(|event_id| event_id.sequence()),
+        manifest_reference: candidate.manifest_reference.map(core_manifest_reference),
+        artifact_event_id: candidate
+            .artifact_event_id
+            .map(|event_id| event_id.sequence()),
+        artifact_reference: candidate.artifact_reference.map(core_artifact_reference),
+        retained_event_id: candidate
+            .retained_event_id
+            .map(|event_id| event_id.sequence()),
+        retained_reference: candidate.retained_reference.map(core_grant_reference),
+    }
+}
+
+fn core_attestation_candidate(
+    candidate: ModuleLoadGateLocalAttestationReferenceCandidate,
+) -> core_load_gate::ModuleLoadGateLocalAttestationReferenceCandidate {
+    core_load_gate::ModuleLoadGateLocalAttestationReferenceCandidate {
+        scope: candidate.scope,
+        retained: candidate.retained,
+        schema_ok: candidate.schema_ok,
+        event_reference: candidate.event_reference.map(core_attestation_reference),
+        candidate_reference: candidate
+            .candidate_reference
+            .map(core_attestation_reference),
+        manifest_event_id: candidate
+            .manifest_event_id
+            .map(|event_id| event_id.sequence()),
+        manifest_reference: candidate.manifest_reference.map(core_manifest_reference),
+        artifact_event_id: candidate
+            .artifact_event_id
+            .map(|event_id| event_id.sequence()),
+        artifact_reference: candidate.artifact_reference.map(core_artifact_reference),
+        vm_report_event_id: candidate
+            .vm_report_event_id
+            .map(|event_id| event_id.sequence()),
+        vm_report_reference: candidate.vm_report_reference.map(core_vm_report_reference),
+        retained_event_id: candidate
+            .retained_event_id
+            .map(|event_id| event_id.sequence()),
+        retained_reference: candidate.retained_reference.map(core_grant_reference),
+    }
+}
+
+fn core_approval_candidate(
+    candidate: ModuleLoadGateLocalApprovalReferenceCandidate,
+) -> core_load_gate::ModuleLoadGateLocalApprovalReferenceCandidate {
+    core_load_gate::ModuleLoadGateLocalApprovalReferenceCandidate {
+        scope: candidate.scope,
+        retained: candidate.retained,
+        schema_ok: candidate.schema_ok,
+        event_reference: candidate.event_reference.map(core_approval_reference),
+        candidate_reference: candidate.candidate_reference.map(core_approval_reference),
+        manifest_event_id: candidate
+            .manifest_event_id
+            .map(|event_id| event_id.sequence()),
+        manifest_reference: candidate.manifest_reference.map(core_manifest_reference),
+        artifact_event_id: candidate
+            .artifact_event_id
+            .map(|event_id| event_id.sequence()),
+        artifact_reference: candidate.artifact_reference.map(core_artifact_reference),
+        vm_report_event_id: candidate
+            .vm_report_event_id
+            .map(|event_id| event_id.sequence()),
+        vm_report_reference: candidate.vm_report_reference.map(core_vm_report_reference),
+        attestation_event_id: candidate
+            .attestation_event_id
+            .map(|event_id| event_id.sequence()),
+        attestation_reference: candidate
+            .attestation_reference
+            .map(core_attestation_reference),
+        retained_event_id: candidate
+            .retained_event_id
+            .map(|event_id| event_id.sequence()),
+        retained_reference: candidate.retained_reference.map(core_grant_reference),
+    }
+}
+
+fn core_retained_candidate(
+    candidate: ModuleLoadGateRetainedCandidate,
+) -> core_load_gate::ModuleLoadGateRetainedCandidate {
+    core_load_gate::ModuleLoadGateRetainedCandidate {
+        scope: candidate.scope,
+        retained: candidate.retained,
+        schema_ok: candidate.schema_ok,
+        event_reference: candidate.event_reference.map(core_grant_reference),
+        candidate_reference: candidate.candidate_reference.map(core_grant_reference),
+    }
+}
+
+fn core_audit_reference<'a>(
+    reference: &'a event_log::ModuleAuditRollbackReference,
+) -> core_load_gate::ModuleAuditRollbackReference<'a> {
+    core_load_gate::ModuleAuditRollbackReference {
+        audit_record_hash: reference.audit_record_hash,
+        rollback_plan_hash: reference.rollback_plan_hash,
+        computed_grant_hash: reference.computed_grant_hash,
+        manifest_hash: reference.manifest_hash,
+        artifact_hash: reference.artifact_hash,
+        vm_report_hash: reference.vm_report_hash,
+        local_attestation_hash: reference.local_attestation_hash,
+        local_approval_hash: reference.local_approval_hash,
+        pre_load_service_inventory_hash: reference.pre_load_service_inventory_hash,
+        cleanup_actions_hash: reference.cleanup_actions_hash,
+        denial_event_id: reference.denial_event_id.sequence(),
+        retained_reference_event_id: reference.retained_reference_event_id.sequence(),
+        ram_only_service_slot_id: reference.ram_only_service_slot_id.as_str(),
+    }
+}
+
+fn core_audit_reference_candidate<'a>(
+    candidate: &'a ModuleLoadGateAuditRollbackReferenceCandidate,
+) -> core_load_gate::ModuleLoadGateAuditRollbackReferenceCandidate<'a> {
+    core_load_gate::ModuleLoadGateAuditRollbackReferenceCandidate {
+        scope: candidate.scope,
+        retained: candidate.retained,
+        schema_ok: candidate.schema_ok,
+        event_reference: candidate.event_reference.as_ref().map(core_audit_reference),
+        candidate_reference: candidate
+            .candidate_reference
+            .as_ref()
+            .map(core_audit_reference),
+    }
+}
+
+fn core_audit_candidate<'a>(
+    candidate: &'a ModuleLoadGateAuditRollbackCandidate,
+) -> core_load_gate::ModuleLoadGateAuditRollbackCandidate<'a> {
+    core_load_gate::ModuleLoadGateAuditRollbackCandidate {
+        retained_reference: candidate.retained_reference,
+        retained_audit_rollback_reference: core_audit_reference_candidate(
+            &candidate.retained_audit_rollback_reference,
+        ),
+        durable_audit_record: candidate.durable_audit_record,
+        rollback_plan: candidate.rollback_plan,
+        audit_schema_ok: candidate.audit_schema_ok,
+        rollback_schema_ok: candidate.rollback_schema_ok,
+        audit_binds_retained_grant: candidate.audit_binds_retained_grant,
+        audit_binds_manifest: candidate.audit_binds_manifest,
+        audit_binds_artifact: candidate.audit_binds_artifact,
+        audit_binds_vm_report: candidate.audit_binds_vm_report,
+        audit_binds_local_attestation: candidate.audit_binds_local_attestation,
+        audit_binds_local_approval: candidate.audit_binds_local_approval,
+        audit_binds_rollback_plan: candidate.audit_binds_rollback_plan,
+        rollback_binds_artifact: candidate.rollback_binds_artifact,
+        rollback_binds_service_slot: candidate.rollback_binds_service_slot,
+        ram_only_service_slot_allocated: candidate.ram_only_service_slot_allocated,
+        loader_available: candidate.loader_available,
+    }
+}
+
+fn core_slot_reservation<'a>(
+    reservation: &'a event_log::ModuleServiceSlotReservation,
+) -> core_load_gate::ModuleServiceSlotReservation<'a> {
+    core_load_gate::ModuleServiceSlotReservation {
+        reservation_hash: reservation.reservation_hash,
+        retained_reference_event_id: reservation.retained_reference_event_id.sequence(),
+        retained_audit_rollback_reference_event_id: reservation
+            .retained_audit_rollback_reference_event_id
+            .sequence(),
+        computed_grant_hash: reservation.computed_grant_hash,
+        audit_record_hash: reservation.audit_record_hash,
+        rollback_plan_hash: reservation.rollback_plan_hash,
+        pre_load_service_inventory_hash: reservation.pre_load_service_inventory_hash,
+        ram_only_service_slot_id: reservation.ram_only_service_slot_id.as_str(),
+    }
+}
+
+fn core_slot_reservation_candidate<'a>(
+    candidate: &'a ModuleLoadGateServiceSlotReservationCandidate,
+) -> core_load_gate::ModuleLoadGateServiceSlotReservationCandidate<'a> {
+    core_load_gate::ModuleLoadGateServiceSlotReservationCandidate {
+        scope: candidate.scope,
+        retained: candidate.retained,
+        schema_ok: candidate.schema_ok,
+        grant_event_schema_ok: candidate.grant_event_schema_ok,
+        audit_event_schema_ok: candidate.audit_event_schema_ok,
+        grant_event_reference: candidate.grant_event_reference.map(core_grant_reference),
+        audit_event_reference: candidate
+            .audit_event_reference
+            .as_ref()
+            .map(core_audit_reference),
+        event_reservation: candidate
+            .event_reservation
+            .as_ref()
+            .map(core_slot_reservation),
+        candidate_reservation: candidate
+            .candidate_reservation
+            .as_ref()
+            .map(core_slot_reservation),
+    }
+}
+
+fn core_slot_candidate<'a>(
+    candidate: &'a ModuleLoadGateServiceSlotCandidate,
+) -> core_load_gate::ModuleLoadGateServiceSlotCandidate<'a> {
+    core_load_gate::ModuleLoadGateServiceSlotCandidate {
+        retained_reference: candidate.retained_reference.map(core_grant_reference),
+        audit_rollback_reference: candidate
+            .audit_rollback_reference
+            .as_ref()
+            .map(core_audit_reference),
+        audit_rollback_valid: candidate.audit_rollback_valid,
+        service_slot_reservation: core_slot_reservation_candidate(
+            &candidate.service_slot_reservation,
+        ),
+    }
+}
 
 pub(crate) fn evaluate_module_load_gate_manifest_candidate(
     candidate: ModuleLoadGateManifestReferenceCandidate,
 ) -> ModuleLoadGateManifestEvaluation {
-    if candidate.candidate_reference.is_none() {
-        return module_load_gate_manifest_check(
-            "missing",
-            "retained_module_manifest_reference_missing",
-        );
-    }
-    if !method_eq(candidate.scope, "current_boot") {
-        return module_load_gate_manifest_check(
-            "rejected",
-            "retained_module_manifest_reference_previous_boot_or_unretained",
-        );
-    }
-    if !candidate.retained {
-        return module_load_gate_manifest_check(
-            "rejected",
-            "retained_module_manifest_reference_stale_or_dropped_event_id",
-        );
-    }
-    if !candidate.schema_ok {
-        return module_load_gate_manifest_check(
-            "rejected",
-            "retained_module_manifest_reference_wrong_schema_or_variant",
-        );
-    }
-    if candidate.event_reference != candidate.candidate_reference {
-        return module_load_gate_manifest_check(
-            "rejected",
-            "retained_module_manifest_reference_substituted_record",
-        );
-    }
-    let Some(reference) = candidate.candidate_reference else {
-        return module_load_gate_manifest_check(
-            "missing",
-            "retained_module_manifest_reference_missing",
-        );
-    };
-    if reference.manifest_reference_hash
-        != computed_module_manifest_reference_hash(reference.manifest_hash)
-    {
-        return module_load_gate_manifest_check(
-            "rejected",
-            "retained_module_manifest_reference_hash_mismatch",
-        );
-    }
-    module_load_gate_manifest_check(
-        "retained_hash_reference_only",
-        "retained_module_manifest_reference_not_authorizing",
-    )
-}
-
-fn module_load_gate_manifest_check(
-    status: &'static str,
-    reason: &'static str,
-) -> ModuleLoadGateManifestEvaluation {
-    let accepted = method_eq(status, "retained_hash_reference_only");
+    let result = core_load_gate::evaluate_manifest_reference(core_manifest_candidate(candidate));
     ModuleLoadGateManifestEvaluation {
-        status,
-        reason,
-        module_manifest_state: if accepted {
-            "retained_hash_reference_only"
-        } else if method_eq(status, "rejected") {
-            "rejected_retained_reference"
-        } else {
-            "missing"
-        },
-        accepted_manifest_hash: accepted,
-        can_load: false,
-        load_attempted: false,
+        status: result.status,
+        reason: result.reason,
+        module_manifest_state: result.module_manifest_state,
+        accepted_manifest_hash: result.accepted_manifest_hash,
+        can_load: result.can_load,
+        load_attempted: result.load_attempted,
     }
 }
 
 pub(crate) fn evaluate_module_load_gate_artifact_candidate(
     candidate: ModuleLoadGateArtifactReferenceCandidate,
 ) -> ModuleLoadGateArtifactEvaluation {
-    let Some(candidate_reference) = candidate.candidate_reference else {
-        return module_load_gate_artifact_check(
-            "missing",
-            "retained_candidate_artifact_reference_missing",
-        );
-    };
-    if !method_eq(candidate.scope, "current_boot") {
-        return module_load_gate_artifact_check(
-            "rejected",
-            "retained_candidate_artifact_reference_previous_boot_or_unretained",
-        );
+    let result = core_load_gate::evaluate_artifact_reference(core_artifact_candidate(candidate));
+    ModuleLoadGateArtifactEvaluation {
+        status: result.status,
+        reason: result.reason,
+        candidate_artifact_state: result.candidate_artifact_state,
+        accepted_artifact_hash: result.accepted_artifact_hash,
+        can_load: result.can_load,
+        load_attempted: result.load_attempted,
     }
-    if !candidate.retained {
-        return module_load_gate_artifact_check(
-            "rejected",
-            "retained_candidate_artifact_reference_stale_or_dropped_event_id",
-        );
-    }
-    if !candidate.schema_ok {
-        return module_load_gate_artifact_check(
-            "rejected",
-            "retained_candidate_artifact_reference_wrong_schema_or_variant",
-        );
-    }
-    if candidate.event_reference != candidate.candidate_reference {
-        return module_load_gate_artifact_check(
-            "rejected",
-            "retained_candidate_artifact_reference_substituted_record",
-        );
-    }
-    if candidate_reference.artifact_reference_hash
-        != module_evidence::computed_module_candidate_artifact_reference_hash_from_sequences(
-            candidate_reference
-                .retained_manifest_reference_event_id
-                .sequence(),
-            candidate_reference.retained_reference_event_id.sequence(),
-            candidate_reference.manifest_reference_hash,
-            candidate_reference.manifest_hash,
-            candidate_reference.computed_grant_hash,
-            candidate_reference.artifact_hash,
-            candidate_reference.vm_report_hash,
-            candidate_reference.local_attestation_hash,
-        )
-    {
-        return module_load_gate_artifact_check(
-            "rejected",
-            "retained_candidate_artifact_reference_hash_mismatch",
-        );
-    }
-
-    let (Some(manifest_event_id), Some(manifest_reference)) =
-        (candidate.manifest_event_id, candidate.manifest_reference)
-    else {
-        return module_load_gate_artifact_check(
-            "rejected",
-            "retained_candidate_artifact_reference_manifest_reference_mismatch",
-        );
-    };
-    if candidate_reference.retained_manifest_reference_event_id != manifest_event_id
-        || candidate_reference.manifest_reference_hash != manifest_reference.manifest_reference_hash
-        || candidate_reference.manifest_hash != manifest_reference.manifest_hash
-    {
-        return module_load_gate_artifact_check(
-            "rejected",
-            "retained_candidate_artifact_reference_manifest_reference_mismatch",
-        );
-    }
-
-    let (Some(retained_event_id), Some(retained_reference)) =
-        (candidate.retained_event_id, candidate.retained_reference)
-    else {
-        return module_load_gate_artifact_check(
-            "rejected",
-            "retained_candidate_artifact_reference_computed_grant_reference_mismatch",
-        );
-    };
-    if candidate_reference.retained_reference_event_id != retained_event_id
-        || candidate_reference.computed_grant_hash != retained_reference.computed_grant_hash
-        || candidate_reference.manifest_hash != retained_reference.manifest_hash
-        || candidate_reference.vm_report_hash != retained_reference.vm_report_hash
-        || candidate_reference.local_attestation_hash != retained_reference.local_attestation_hash
-    {
-        return module_load_gate_artifact_check(
-            "rejected",
-            "retained_candidate_artifact_reference_computed_grant_reference_mismatch",
-        );
-    }
-    if candidate_reference.artifact_hash != retained_reference.artifact_hash {
-        return module_load_gate_artifact_check(
-            "rejected",
-            "retained_candidate_artifact_hash_mismatch",
-        );
-    }
-
-    module_load_gate_artifact_check(
-        "retained_hash_reference_only",
-        "retained_candidate_artifact_reference_not_authorizing",
-    )
 }
 
 pub(crate) fn evaluate_module_load_gate_vm_report_candidate(
     candidate: ModuleLoadGateVmReportReferenceCandidate,
 ) -> ModuleLoadGateVmReportEvaluation {
-    let Some(candidate_reference) = candidate.candidate_reference else {
-        return module_load_gate_vm_report_check(
-            "missing",
-            "retained_vm_test_report_reference_missing",
-        );
-    };
-    if !method_eq(candidate.scope, "current_boot") {
-        return module_load_gate_vm_report_check(
-            "rejected",
-            "retained_vm_test_report_reference_previous_boot_or_unretained",
-        );
+    let result = core_load_gate::evaluate_vm_report_reference(core_vm_report_candidate(candidate));
+    ModuleLoadGateVmReportEvaluation {
+        status: result.status,
+        reason: result.reason,
+        vm_test_report_state: result.vm_test_report_state,
+        accepted_vm_report_hash: result.accepted_vm_report_hash,
+        can_load: result.can_load,
+        load_attempted: result.load_attempted,
     }
-    if !candidate.retained {
-        return module_load_gate_vm_report_check(
-            "rejected",
-            "retained_vm_test_report_reference_stale_or_dropped_event_id",
-        );
-    }
-    if !candidate.schema_ok {
-        return module_load_gate_vm_report_check(
-            "rejected",
-            "retained_vm_test_report_reference_wrong_schema_or_variant",
-        );
-    }
-    if candidate.event_reference != candidate.candidate_reference {
-        return module_load_gate_vm_report_check(
-            "rejected",
-            "retained_vm_test_report_reference_substituted_record",
-        );
-    }
-    if candidate_reference.report_reference_hash
-        != module_evidence::computed_module_vm_test_report_reference_hash_from_sequences(
-            candidate_reference
-                .retained_manifest_reference_event_id
-                .sequence(),
-            candidate_reference
-                .retained_artifact_reference_event_id
-                .sequence(),
-            candidate_reference.retained_reference_event_id.sequence(),
-            candidate_reference.manifest_reference_hash,
-            candidate_reference.artifact_reference_hash,
-            candidate_reference.manifest_hash,
-            candidate_reference.artifact_hash,
-            candidate_reference.computed_grant_hash,
-            candidate_reference.vm_report_hash,
-            candidate_reference.local_attestation_hash,
-        )
-    {
-        return module_load_gate_vm_report_check(
-            "rejected",
-            "retained_vm_test_report_reference_hash_mismatch",
-        );
-    }
-
-    let (Some(manifest_event_id), Some(manifest_reference)) =
-        (candidate.manifest_event_id, candidate.manifest_reference)
-    else {
-        return module_load_gate_vm_report_check(
-            "rejected",
-            "retained_vm_test_report_reference_manifest_reference_mismatch",
-        );
-    };
-    if candidate_reference.retained_manifest_reference_event_id != manifest_event_id
-        || candidate_reference.manifest_reference_hash != manifest_reference.manifest_reference_hash
-        || candidate_reference.manifest_hash != manifest_reference.manifest_hash
-    {
-        return module_load_gate_vm_report_check(
-            "rejected",
-            "retained_vm_test_report_reference_manifest_reference_mismatch",
-        );
-    }
-
-    let (Some(artifact_event_id), Some(artifact_reference)) =
-        (candidate.artifact_event_id, candidate.artifact_reference)
-    else {
-        return module_load_gate_vm_report_check(
-            "rejected",
-            "retained_vm_test_report_reference_artifact_reference_mismatch",
-        );
-    };
-    if candidate_reference.retained_artifact_reference_event_id != artifact_event_id
-        || candidate_reference.artifact_reference_hash != artifact_reference.artifact_reference_hash
-        || candidate_reference.manifest_reference_hash != artifact_reference.manifest_reference_hash
-        || candidate_reference.manifest_hash != artifact_reference.manifest_hash
-        || candidate_reference.artifact_hash != artifact_reference.artifact_hash
-        || candidate_reference.local_attestation_hash != artifact_reference.local_attestation_hash
-    {
-        return module_load_gate_vm_report_check(
-            "rejected",
-            "retained_vm_test_report_reference_artifact_reference_mismatch",
-        );
-    }
-    if candidate_reference.vm_report_hash != artifact_reference.vm_report_hash {
-        return module_load_gate_vm_report_check(
-            "rejected",
-            "retained_vm_test_report_hash_mismatch",
-        );
-    }
-
-    let (Some(retained_event_id), Some(retained_reference)) =
-        (candidate.retained_event_id, candidate.retained_reference)
-    else {
-        return module_load_gate_vm_report_check(
-            "rejected",
-            "retained_vm_test_report_reference_computed_grant_reference_mismatch",
-        );
-    };
-    if candidate_reference.retained_reference_event_id != retained_event_id
-        || candidate_reference.computed_grant_hash != retained_reference.computed_grant_hash
-        || candidate_reference.manifest_hash != retained_reference.manifest_hash
-        || candidate_reference.artifact_hash != retained_reference.artifact_hash
-        || candidate_reference.local_attestation_hash != retained_reference.local_attestation_hash
-    {
-        return module_load_gate_vm_report_check(
-            "rejected",
-            "retained_vm_test_report_reference_computed_grant_reference_mismatch",
-        );
-    }
-    if candidate_reference.vm_report_hash != retained_reference.vm_report_hash {
-        return module_load_gate_vm_report_check(
-            "rejected",
-            "retained_vm_test_report_hash_mismatch",
-        );
-    }
-
-    module_load_gate_vm_report_check(
-        "retained_hash_reference_only",
-        "retained_vm_test_report_reference_not_authorizing",
-    )
 }
 
 pub(crate) fn evaluate_module_load_gate_local_attestation_candidate(
     candidate: ModuleLoadGateLocalAttestationReferenceCandidate,
 ) -> ModuleLoadGateLocalAttestationEvaluation {
-    let Some(candidate_reference) = candidate.candidate_reference else {
-        return module_load_gate_local_attestation_check(
-            "missing",
-            "retained_local_attestation_reference_missing",
-        );
-    };
-    if !method_eq(candidate.scope, "current_boot") {
-        return module_load_gate_local_attestation_check(
-            "rejected",
-            "retained_local_attestation_reference_previous_boot_or_unretained",
-        );
+    let result =
+        core_load_gate::evaluate_local_attestation_reference(core_attestation_candidate(candidate));
+    ModuleLoadGateLocalAttestationEvaluation {
+        status: result.status,
+        reason: result.reason,
+        local_attestation_state: result.local_attestation_state,
+        accepted_local_attestation_hash: result.accepted_local_attestation_hash,
+        can_load: result.can_load,
+        load_attempted: result.load_attempted,
     }
-    if !candidate.retained {
-        return module_load_gate_local_attestation_check(
-            "rejected",
-            "retained_local_attestation_reference_stale_or_dropped_event_id",
-        );
-    }
-    if !candidate.schema_ok {
-        return module_load_gate_local_attestation_check(
-            "rejected",
-            "retained_local_attestation_reference_wrong_schema_or_variant",
-        );
-    }
-    if candidate.event_reference != candidate.candidate_reference {
-        return module_load_gate_local_attestation_check(
-            "rejected",
-            "retained_local_attestation_reference_substituted_record",
-        );
-    }
-    if candidate_reference.attestation_reference_hash
-        != module_evidence::computed_module_local_attestation_reference_hash_from_sequences(
-            candidate_reference
-                .retained_manifest_reference_event_id
-                .sequence(),
-            candidate_reference
-                .retained_artifact_reference_event_id
-                .sequence(),
-            candidate_reference
-                .retained_vm_report_reference_event_id
-                .sequence(),
-            candidate_reference.retained_reference_event_id.sequence(),
-            candidate_reference.manifest_reference_hash,
-            candidate_reference.artifact_reference_hash,
-            candidate_reference.vm_report_reference_hash,
-            candidate_reference.manifest_hash,
-            candidate_reference.artifact_hash,
-            candidate_reference.computed_grant_hash,
-            candidate_reference.vm_report_hash,
-            candidate_reference.local_attestation_hash,
-        )
-    {
-        return module_load_gate_local_attestation_check(
-            "rejected",
-            "retained_local_attestation_reference_hash_mismatch",
-        );
-    }
-
-    let (Some(manifest_event_id), Some(manifest_reference)) =
-        (candidate.manifest_event_id, candidate.manifest_reference)
-    else {
-        return module_load_gate_local_attestation_check(
-            "rejected",
-            "retained_local_attestation_reference_manifest_reference_mismatch",
-        );
-    };
-    if candidate_reference.retained_manifest_reference_event_id != manifest_event_id
-        || candidate_reference.manifest_reference_hash != manifest_reference.manifest_reference_hash
-        || candidate_reference.manifest_hash != manifest_reference.manifest_hash
-    {
-        return module_load_gate_local_attestation_check(
-            "rejected",
-            "retained_local_attestation_reference_manifest_reference_mismatch",
-        );
-    }
-
-    let (Some(artifact_event_id), Some(artifact_reference)) =
-        (candidate.artifact_event_id, candidate.artifact_reference)
-    else {
-        return module_load_gate_local_attestation_check(
-            "rejected",
-            "retained_local_attestation_reference_artifact_reference_mismatch",
-        );
-    };
-    if candidate_reference.retained_artifact_reference_event_id != artifact_event_id
-        || candidate_reference.artifact_reference_hash != artifact_reference.artifact_reference_hash
-        || candidate_reference.manifest_reference_hash != artifact_reference.manifest_reference_hash
-        || candidate_reference.manifest_hash != artifact_reference.manifest_hash
-        || candidate_reference.artifact_hash != artifact_reference.artifact_hash
-        || candidate_reference.local_attestation_hash != artifact_reference.local_attestation_hash
-    {
-        return module_load_gate_local_attestation_check(
-            "rejected",
-            "retained_local_attestation_reference_artifact_reference_mismatch",
-        );
-    }
-
-    let (Some(vm_report_event_id), Some(vm_report_reference)) =
-        (candidate.vm_report_event_id, candidate.vm_report_reference)
-    else {
-        return module_load_gate_local_attestation_check(
-            "rejected",
-            "retained_local_attestation_reference_vm_report_reference_mismatch",
-        );
-    };
-    if candidate_reference.retained_vm_report_reference_event_id != vm_report_event_id
-        || candidate_reference.vm_report_reference_hash != vm_report_reference.report_reference_hash
-        || candidate_reference.artifact_reference_hash
-            != vm_report_reference.artifact_reference_hash
-        || candidate_reference.vm_report_hash != vm_report_reference.vm_report_hash
-        || candidate_reference.local_attestation_hash != vm_report_reference.local_attestation_hash
-    {
-        return module_load_gate_local_attestation_check(
-            "rejected",
-            "retained_local_attestation_reference_vm_report_reference_mismatch",
-        );
-    }
-
-    let (Some(retained_event_id), Some(retained_reference)) =
-        (candidate.retained_event_id, candidate.retained_reference)
-    else {
-        return module_load_gate_local_attestation_check(
-            "rejected",
-            "retained_local_attestation_reference_computed_grant_reference_mismatch",
-        );
-    };
-    if candidate_reference.retained_reference_event_id != retained_event_id
-        || candidate_reference.computed_grant_hash != retained_reference.computed_grant_hash
-        || candidate_reference.manifest_hash != retained_reference.manifest_hash
-        || candidate_reference.artifact_hash != retained_reference.artifact_hash
-        || candidate_reference.vm_report_hash != retained_reference.vm_report_hash
-        || candidate_reference.local_attestation_hash != retained_reference.local_attestation_hash
-    {
-        return module_load_gate_local_attestation_check(
-            "rejected",
-            "retained_local_attestation_reference_computed_grant_reference_mismatch",
-        );
-    }
-
-    module_load_gate_local_attestation_check(
-        "retained_hash_reference_only",
-        "retained_local_attestation_reference_not_authorizing",
-    )
 }
 
 pub(crate) fn evaluate_module_load_gate_local_approval_candidate(
     candidate: ModuleLoadGateLocalApprovalReferenceCandidate,
 ) -> ModuleLoadGateLocalApprovalEvaluation {
-    let Some(candidate_reference) = candidate.candidate_reference else {
-        return module_load_gate_local_approval_check(
-            "missing",
-            "retained_local_approval_reference_missing",
-        );
-    };
-    if !method_eq(candidate.scope, "current_boot") {
-        return module_load_gate_local_approval_check(
-            "rejected",
-            "retained_local_approval_reference_previous_boot_or_unretained",
-        );
-    }
-    if !candidate.retained {
-        return module_load_gate_local_approval_check(
-            "rejected",
-            "retained_local_approval_reference_stale_or_dropped_event_id",
-        );
-    }
-    if !candidate.schema_ok {
-        return module_load_gate_local_approval_check(
-            "rejected",
-            "retained_local_approval_reference_wrong_schema_or_variant",
-        );
-    }
-    if candidate.event_reference != candidate.candidate_reference {
-        return module_load_gate_local_approval_check(
-            "rejected",
-            "retained_local_approval_reference_substituted_record",
-        );
-    }
-    if candidate_reference.approval_reference_hash
-        != module_evidence::computed_module_local_approval_reference_hash_from_sequences(
-            candidate_reference
-                .retained_manifest_reference_event_id
-                .sequence(),
-            candidate_reference
-                .retained_artifact_reference_event_id
-                .sequence(),
-            candidate_reference
-                .retained_vm_report_reference_event_id
-                .sequence(),
-            candidate_reference
-                .retained_local_attestation_reference_event_id
-                .sequence(),
-            candidate_reference.retained_reference_event_id.sequence(),
-            candidate_reference.manifest_reference_hash,
-            candidate_reference.artifact_reference_hash,
-            candidate_reference.vm_report_reference_hash,
-            candidate_reference.local_attestation_reference_hash,
-            candidate_reference.manifest_hash,
-            candidate_reference.artifact_hash,
-            candidate_reference.computed_grant_hash,
-            candidate_reference.vm_report_hash,
-            candidate_reference.local_attestation_hash,
-            candidate_reference.local_approval_hash,
-        )
-    {
-        return module_load_gate_local_approval_check(
-            "rejected",
-            "retained_local_approval_reference_hash_mismatch",
-        );
-    }
-
-    let (Some(manifest_event_id), Some(manifest_reference)) =
-        (candidate.manifest_event_id, candidate.manifest_reference)
-    else {
-        return module_load_gate_local_approval_check(
-            "rejected",
-            "retained_local_approval_reference_manifest_reference_mismatch",
-        );
-    };
-    if candidate_reference.retained_manifest_reference_event_id != manifest_event_id
-        || candidate_reference.manifest_reference_hash != manifest_reference.manifest_reference_hash
-        || candidate_reference.manifest_hash != manifest_reference.manifest_hash
-    {
-        return module_load_gate_local_approval_check(
-            "rejected",
-            "retained_local_approval_reference_manifest_reference_mismatch",
-        );
-    }
-
-    let (Some(artifact_event_id), Some(artifact_reference)) =
-        (candidate.artifact_event_id, candidate.artifact_reference)
-    else {
-        return module_load_gate_local_approval_check(
-            "rejected",
-            "retained_local_approval_reference_artifact_reference_mismatch",
-        );
-    };
-    if candidate_reference.retained_artifact_reference_event_id != artifact_event_id
-        || candidate_reference.artifact_reference_hash != artifact_reference.artifact_reference_hash
-        || candidate_reference.manifest_reference_hash != artifact_reference.manifest_reference_hash
-        || candidate_reference.manifest_hash != artifact_reference.manifest_hash
-        || candidate_reference.artifact_hash != artifact_reference.artifact_hash
-        || candidate_reference.local_attestation_hash != artifact_reference.local_attestation_hash
-    {
-        return module_load_gate_local_approval_check(
-            "rejected",
-            "retained_local_approval_reference_artifact_reference_mismatch",
-        );
-    }
-
-    let (Some(vm_report_event_id), Some(vm_report_reference)) =
-        (candidate.vm_report_event_id, candidate.vm_report_reference)
-    else {
-        return module_load_gate_local_approval_check(
-            "rejected",
-            "retained_local_approval_reference_vm_report_reference_mismatch",
-        );
-    };
-    if candidate_reference.retained_vm_report_reference_event_id != vm_report_event_id
-        || candidate_reference.vm_report_reference_hash != vm_report_reference.report_reference_hash
-        || candidate_reference.artifact_reference_hash
-            != vm_report_reference.artifact_reference_hash
-        || candidate_reference.vm_report_hash != vm_report_reference.vm_report_hash
-        || candidate_reference.local_attestation_hash != vm_report_reference.local_attestation_hash
-    {
-        return module_load_gate_local_approval_check(
-            "rejected",
-            "retained_local_approval_reference_vm_report_reference_mismatch",
-        );
-    }
-
-    let (Some(attestation_event_id), Some(attestation_reference)) = (
-        candidate.attestation_event_id,
-        candidate.attestation_reference,
-    ) else {
-        return module_load_gate_local_approval_check(
-            "rejected",
-            "retained_local_approval_reference_local_attestation_reference_mismatch",
-        );
-    };
-    if candidate_reference.retained_local_attestation_reference_event_id != attestation_event_id
-        || candidate_reference.local_attestation_reference_hash
-            != attestation_reference.attestation_reference_hash
-        || candidate_reference.vm_report_reference_hash
-            != attestation_reference.vm_report_reference_hash
-        || candidate_reference.local_attestation_hash
-            != attestation_reference.local_attestation_hash
-    {
-        return module_load_gate_local_approval_check(
-            "rejected",
-            "retained_local_approval_reference_local_attestation_reference_mismatch",
-        );
-    }
-
-    let (Some(retained_event_id), Some(retained_reference)) =
-        (candidate.retained_event_id, candidate.retained_reference)
-    else {
-        return module_load_gate_local_approval_check(
-            "rejected",
-            "retained_local_approval_reference_computed_grant_reference_mismatch",
-        );
-    };
-    if candidate_reference.retained_reference_event_id != retained_event_id
-        || candidate_reference.computed_grant_hash != retained_reference.computed_grant_hash
-        || candidate_reference.manifest_hash != retained_reference.manifest_hash
-        || candidate_reference.artifact_hash != retained_reference.artifact_hash
-        || candidate_reference.vm_report_hash != retained_reference.vm_report_hash
-        || candidate_reference.local_attestation_hash != retained_reference.local_attestation_hash
-    {
-        return module_load_gate_local_approval_check(
-            "rejected",
-            "retained_local_approval_reference_computed_grant_reference_mismatch",
-        );
-    }
-
-    module_load_gate_local_approval_check(
-        "retained_hash_reference_only",
-        "retained_local_approval_reference_not_authorizing",
-    )
-}
-
-fn module_load_gate_artifact_check(
-    status: &'static str,
-    reason: &'static str,
-) -> ModuleLoadGateArtifactEvaluation {
-    let accepted = method_eq(status, "retained_hash_reference_only");
-    ModuleLoadGateArtifactEvaluation {
-        status,
-        reason,
-        candidate_artifact_state: if accepted {
-            "retained_hash_reference_only"
-        } else if method_eq(status, "rejected") {
-            "rejected_retained_reference"
-        } else {
-            "missing"
-        },
-        accepted_artifact_hash: accepted,
-        can_load: false,
-        load_attempted: false,
-    }
-}
-
-fn module_load_gate_vm_report_check(
-    status: &'static str,
-    reason: &'static str,
-) -> ModuleLoadGateVmReportEvaluation {
-    let accepted = method_eq(status, "retained_hash_reference_only");
-    ModuleLoadGateVmReportEvaluation {
-        status,
-        reason,
-        vm_test_report_state: if accepted {
-            "retained_hash_reference_only"
-        } else if method_eq(status, "rejected") {
-            "rejected_retained_reference"
-        } else {
-            "missing"
-        },
-        accepted_vm_report_hash: accepted,
-        can_load: false,
-        load_attempted: false,
-    }
-}
-
-fn module_load_gate_local_attestation_check(
-    status: &'static str,
-    reason: &'static str,
-) -> ModuleLoadGateLocalAttestationEvaluation {
-    let accepted = method_eq(status, "retained_hash_reference_only");
-    ModuleLoadGateLocalAttestationEvaluation {
-        status,
-        reason,
-        local_attestation_state: if accepted {
-            "retained_hash_reference_only"
-        } else if method_eq(status, "rejected") {
-            "rejected_retained_reference"
-        } else {
-            "missing"
-        },
-        accepted_local_attestation_hash: accepted,
-        can_load: false,
-        load_attempted: false,
-    }
-}
-
-fn module_load_gate_local_approval_check(
-    status: &'static str,
-    reason: &'static str,
-) -> ModuleLoadGateLocalApprovalEvaluation {
-    let accepted = method_eq(status, "retained_hash_reference_only");
+    let result =
+        core_load_gate::evaluate_local_approval_reference(core_approval_candidate(candidate));
     ModuleLoadGateLocalApprovalEvaluation {
-        status,
-        reason,
-        local_approval_state: if accepted {
-            "retained_hash_reference_only"
-        } else if method_eq(status, "rejected") {
-            "rejected_retained_reference"
-        } else {
-            "missing"
-        },
-        accepted_local_approval_hash: accepted,
-        can_load: false,
-        load_attempted: false,
+        status: result.status,
+        reason: result.reason,
+        local_approval_state: result.local_approval_state,
+        accepted_local_approval_hash: result.accepted_local_approval_hash,
+        can_load: result.can_load,
+        load_attempted: result.load_attempted,
     }
 }
 
 pub(crate) fn evaluate_module_load_gate_retained_candidate(
     candidate: ModuleLoadGateRetainedCandidate,
 ) -> ModuleLoadGateRetainedCheck {
-    let Some(candidate_reference) = candidate.candidate_reference else {
-        return module_load_gate_retained_check(
-            "missing",
-            "computed_capability_grant_reference_missing",
-        );
-    };
-    if !method_eq(candidate.scope, "current_boot") {
-        return module_load_gate_retained_check(
-            "rejected",
-            "retained_reference_previous_boot_or_unretained",
-        );
-    }
-    if !candidate.retained {
-        return module_load_gate_retained_check(
-            "rejected",
-            "retained_reference_stale_or_dropped_event_id",
-        );
-    }
-    if !candidate.schema_ok {
-        return module_load_gate_retained_check(
-            "rejected",
-            "retained_reference_wrong_schema_or_variant",
-        );
-    }
-    let Some(event_reference) = candidate.event_reference else {
-        return module_load_gate_retained_check(
-            "rejected",
-            "retained_reference_stale_or_dropped_event_id",
-        );
-    };
-    if !module_computed_grant_reference_matches(event_reference, candidate_reference) {
-        return module_load_gate_retained_check(
-            "rejected",
-            "retained_reference_substituted_record",
-        );
-    }
-    if !module_computed_grant_reference_hashes_consistent(candidate_reference) {
-        return module_load_gate_retained_check("rejected", "retained_reference_hash_mismatch");
-    }
-    module_load_gate_retained_check(
-        "retained_hash_reference_only",
-        "retained_computed_grant_reference_not_authorizing",
-    )
-}
-
-fn module_load_gate_retained_check(
-    status: &'static str,
-    reason: &'static str,
-) -> ModuleLoadGateRetainedCheck {
+    let result = core_load_gate::evaluate_retained_candidate(core_retained_candidate(candidate));
     ModuleLoadGateRetainedCheck {
-        status,
-        reason,
-        can_load: false,
-        load_attempted: false,
+        status: result.status,
+        reason: result.reason,
+        can_load: result.can_load,
+        load_attempted: result.load_attempted,
     }
 }
 
 pub(crate) fn evaluate_module_load_gate_audit_rollback_candidate(
     candidate: ModuleLoadGateAuditRollbackCandidate,
 ) -> ModuleLoadGateAuditRollbackEvaluation {
-    if !candidate.retained_reference {
-        return module_load_gate_audit_rollback_check(
-            "missing",
-            "retained_computed_grant_reference_missing",
-        );
+    let result =
+        core_load_gate::evaluate_audit_rollback_candidate(core_audit_candidate(&candidate));
+    ModuleLoadGateAuditRollbackEvaluation {
+        status: result.status,
+        reason: result.reason,
+        can_load: result.can_load,
+        load_attempted: result.load_attempted,
     }
-    let retained_audit_rollback_check =
-        evaluate_module_load_gate_audit_rollback_reference_candidate(
-            candidate.retained_audit_rollback_reference,
-        );
-    if !method_eq(
-        retained_audit_rollback_check.status,
-        "retained_hash_reference_only",
-    ) {
-        return module_load_gate_audit_rollback_check(
-            retained_audit_rollback_check.status,
-            retained_audit_rollback_check.reason,
-        );
-    }
-    if !candidate.durable_audit_record {
-        return module_load_gate_audit_rollback_check("missing", "durable_audit_write_missing");
-    }
-    if !candidate.rollback_plan {
-        return module_load_gate_audit_rollback_check("missing", "rollback_install_missing");
-    }
-    if !candidate.audit_schema_ok {
-        return module_load_gate_audit_rollback_check(
-            "rejected",
-            "durable_audit_record_schema_mismatch",
-        );
-    }
-    if !candidate.rollback_schema_ok {
-        return module_load_gate_audit_rollback_check("rejected", "rollback_plan_schema_mismatch");
-    }
-    if !candidate.audit_binds_retained_grant {
-        return module_load_gate_audit_rollback_check(
-            "rejected",
-            "audit_retained_grant_hash_mismatch",
-        );
-    }
-    if !candidate.audit_binds_manifest {
-        return module_load_gate_audit_rollback_check("rejected", "audit_manifest_hash_mismatch");
-    }
-    if !candidate.audit_binds_artifact {
-        return module_load_gate_audit_rollback_check("rejected", "audit_artifact_hash_mismatch");
-    }
-    if !candidate.audit_binds_vm_report {
-        return module_load_gate_audit_rollback_check(
-            "rejected",
-            "audit_vm_test_report_hash_mismatch",
-        );
-    }
-    if !candidate.audit_binds_local_attestation {
-        return module_load_gate_audit_rollback_check(
-            "rejected",
-            "audit_local_attestation_hash_mismatch",
-        );
-    }
-    if !candidate.audit_binds_local_approval {
-        return module_load_gate_audit_rollback_check(
-            "rejected",
-            "local_approval_missing_or_mismatch",
-        );
-    }
-    if !candidate.audit_binds_rollback_plan {
-        return module_load_gate_audit_rollback_check(
-            "rejected",
-            "audit_rollback_plan_hash_mismatch",
-        );
-    }
-    if !candidate.rollback_binds_artifact {
-        return module_load_gate_audit_rollback_check(
-            "rejected",
-            "rollback_artifact_hash_mismatch",
-        );
-    }
-    if !candidate.rollback_binds_service_slot {
-        return module_load_gate_audit_rollback_check("rejected", "rollback_service_slot_mismatch");
-    }
-    if !candidate.ram_only_service_slot_allocated && !candidate.loader_available {
-        return module_load_gate_audit_rollback_check(
-            "validated_non_authorizing",
-            "loader_and_service_slot_missing",
-        );
-    }
-    if !candidate.ram_only_service_slot_allocated {
-        return module_load_gate_audit_rollback_check(
-            "rejected",
-            "ram_only_service_slot_unallocated",
-        );
-    }
-    if !candidate.loader_available {
-        return module_load_gate_audit_rollback_check(
-            "validated_non_authorizing",
-            "module_loader_unimplemented",
-        );
-    }
-    module_load_gate_audit_rollback_check("rejected", "positive_loader_path_unimplemented")
-}
-
-fn evaluate_module_load_gate_audit_rollback_reference_candidate(
-    candidate: ModuleLoadGateAuditRollbackReferenceCandidate,
-) -> ModuleLoadGateRetainedCheck {
-    let Some(candidate_reference) = candidate.candidate_reference else {
-        return module_load_gate_retained_check(
-            "missing",
-            "retained_audit_rollback_reference_missing",
-        );
-    };
-    if !method_eq(candidate.scope, "current_boot") {
-        return module_load_gate_retained_check(
-            "rejected",
-            "retained_audit_rollback_reference_previous_boot_or_unretained",
-        );
-    }
-    if !candidate.retained {
-        return module_load_gate_retained_check(
-            "rejected",
-            "retained_audit_rollback_reference_stale_or_dropped_event_id",
-        );
-    }
-    if !candidate.schema_ok {
-        return module_load_gate_retained_check(
-            "rejected",
-            "retained_audit_rollback_reference_wrong_schema_or_variant",
-        );
-    }
-    let Some(event_reference) = candidate.event_reference else {
-        return module_load_gate_retained_check(
-            "rejected",
-            "retained_audit_rollback_reference_stale_or_dropped_event_id",
-        );
-    };
-    if !module_audit_rollback_event_reference_matches(event_reference, candidate_reference) {
-        return module_load_gate_retained_check(
-            "rejected",
-            "retained_audit_rollback_reference_substituted_record",
-        );
-    }
-    if candidate_reference.ram_only_service_slot_id.as_str()
-        != MODULE_AUDIT_TEST_RAM_ONLY_SERVICE_SLOT_ID
-    {
-        return module_load_gate_retained_check(
-            "rejected",
-            "retained_audit_rollback_service_slot_mismatch",
-        );
-    }
-    if let Some(reason) = module_audit_rollback_reference_hash_mismatch(candidate_reference) {
-        return module_load_gate_retained_check("rejected", reason);
-    }
-    module_load_gate_retained_check(
-        "retained_hash_reference_only",
-        "retained_audit_rollback_reference_not_authorizing",
-    )
 }
 
 pub(crate) fn evaluate_module_load_gate_service_slot_candidate(
     candidate: ModuleLoadGateServiceSlotCandidate,
 ) -> ModuleLoadGateServiceSlotEvaluation {
-    let Some(reservation) = candidate.service_slot_reservation.candidate_reservation else {
-        return module_load_gate_service_slot_check(
-            "missing",
-            "retained_service_slot_reservation_missing",
-        );
-    };
-    let Some(retained_reference) = candidate.retained_reference else {
-        return module_load_gate_service_slot_check(
-            "rejected",
-            "retained_computed_grant_reference_missing",
-        );
-    };
-    let Some(audit_rollback_reference) = candidate.audit_rollback_reference else {
-        return module_load_gate_service_slot_check(
-            "rejected",
-            "retained_audit_rollback_reference_missing",
-        );
-    };
-    if !candidate.audit_rollback_valid {
-        return module_load_gate_service_slot_check(
-            "rejected",
-            "retained_audit_rollback_reference_not_valid_for_service_slot",
-        );
+    let result = core_load_gate::evaluate_service_slot_candidate(core_slot_candidate(&candidate));
+    ModuleLoadGateServiceSlotEvaluation {
+        status: result.status,
+        reason: result.reason,
+        service_slot_state: result.service_slot_state,
+        accepted_service_slot_reservation_hash: result.accepted_service_slot_reservation_hash,
+        can_load: result.can_load,
+        load_attempted: result.load_attempted,
     }
+}
 
-    let Some(retained_reference_event_id) =
-        parse_current_boot_event_id(MODULE_AUDIT_TEST_RETAINED_REFERENCE_EVENT_ID)
-    else {
-        return module_load_gate_service_slot_check(
-            "rejected",
-            "retained_service_slot_reservation_grant_reference_mismatch",
-        );
-    };
-    let Some(audit_rollback_event_id) =
-        parse_current_boot_event_id(MODULE_SERVICE_SLOT_TEST_RETAINED_AUDIT_ROLLBACK_EVENT_ID)
-    else {
-        return module_load_gate_service_slot_check(
-            "rejected",
-            "retained_service_slot_reservation_audit_rollback_reference_mismatch",
-        );
-    };
+pub(crate) fn computed_module_manifest_reference_hash(manifest_hash: [u8; 32]) -> [u8; 32] {
+    core_load_gate::computed_module_manifest_reference_hash(manifest_hash)
+}
 
-    if reservation.retained_reference_event_id != retained_reference_event_id {
-        return module_load_gate_service_slot_check(
-            "rejected",
-            "retained_service_slot_reservation_grant_reference_mismatch",
-        );
-    }
-    if reservation.retained_audit_rollback_reference_event_id != audit_rollback_event_id {
-        return module_load_gate_service_slot_check(
-            "rejected",
-            "retained_service_slot_reservation_audit_rollback_reference_mismatch",
-        );
-    }
+pub(crate) fn computed_module_grant_hash(
+    manifest_hash: [u8; 32],
+    artifact_hash: [u8; 32],
+    vm_report_hash: [u8; 32],
+    local_attestation_hash: [u8; 32],
+) -> [u8; 32] {
+    core_load_gate::computed_module_grant_hash(
+        manifest_hash,
+        artifact_hash,
+        vm_report_hash,
+        local_attestation_hash,
+    )
+}
 
-    let service_slot_candidate = candidate.service_slot_reservation;
-    if !method_eq(service_slot_candidate.scope, "current_boot") || !service_slot_candidate.retained
-    {
-        return module_load_gate_service_slot_check(
-            "rejected",
-            "retained_service_slot_reservation_stale_or_dropped_event_id",
-        );
-    }
-    if !service_slot_candidate.schema_ok {
-        return module_load_gate_service_slot_check(
-            "rejected",
-            "retained_service_slot_reservation_wrong_schema_or_variant",
-        );
-    }
-    let Some(event_reservation) = service_slot_candidate.event_reservation else {
-        return module_load_gate_service_slot_check(
-            "rejected",
-            "retained_service_slot_reservation_stale_or_dropped_event_id",
-        );
-    };
-    if !module_service_slot_reservation_matches(event_reservation, reservation) {
-        return module_load_gate_service_slot_check(
-            "rejected",
-            "retained_service_slot_reservation_substituted_record",
-        );
-    }
+pub(crate) fn computed_module_rollback_plan_hash(
+    artifact_hash: [u8; 32],
+    pre_load_service_inventory_hash: [u8; 32],
+    ram_only_service_slot_id: &str,
+    cleanup_actions_hash: [u8; 32],
+) -> [u8; 32] {
+    core_load_gate::computed_module_rollback_plan_hash(
+        artifact_hash,
+        pre_load_service_inventory_hash,
+        ram_only_service_slot_id,
+        cleanup_actions_hash,
+    )
+}
 
-    if !service_slot_candidate.grant_event_schema_ok {
-        return module_load_gate_service_slot_check(
-            "rejected",
-            "retained_service_slot_reservation_wrong_schema_or_variant",
-        );
-    }
-    let Some(grant_event_reference) = service_slot_candidate.grant_event_reference else {
-        return module_load_gate_service_slot_check(
-            "rejected",
-            "retained_service_slot_reservation_stale_or_dropped_event_id",
-        );
-    };
-    if !module_computed_grant_reference_matches(retained_reference, grant_event_reference) {
-        return module_load_gate_service_slot_check(
-            "rejected",
-            "retained_service_slot_reservation_substituted_record",
-        );
-    }
+pub(crate) fn computed_module_audit_record_hash(input: ModuleAuditRecordHashInput<'_>) -> [u8; 32] {
+    let denial_event_id = parse_current_boot_event_id(input.denial_event_id)
+        .map(|event_id| event_id.sequence())
+        .unwrap_or(0);
+    let retained_reference_event_id =
+        parse_current_boot_event_id(input.retained_reference_event_id)
+            .map(|event_id| event_id.sequence())
+            .unwrap_or(0);
+    core_load_gate::computed_module_audit_record_hash(
+        core_load_gate::ModuleAuditRollbackReference {
+            audit_record_hash: [0; 32],
+            rollback_plan_hash: input.rollback_plan_hash,
+            computed_grant_hash: input.computed_grant_hash,
+            manifest_hash: input.manifest_hash,
+            artifact_hash: input.artifact_hash,
+            vm_report_hash: input.vm_report_hash,
+            local_attestation_hash: input.local_attestation_hash,
+            local_approval_hash: input.local_approval_hash,
+            pre_load_service_inventory_hash: [0; 32],
+            cleanup_actions_hash: [0; 32],
+            denial_event_id,
+            retained_reference_event_id,
+            ram_only_service_slot_id: input.ram_only_service_slot_id,
+        },
+    )
+}
 
-    if !service_slot_candidate.audit_event_schema_ok {
-        return module_load_gate_service_slot_check(
-            "rejected",
-            "retained_service_slot_reservation_wrong_schema_or_variant",
-        );
-    }
-    let Some(audit_event_reference) = service_slot_candidate.audit_event_reference else {
-        return module_load_gate_service_slot_check(
-            "rejected",
-            "retained_service_slot_reservation_stale_or_dropped_event_id",
-        );
-    };
-    if !module_audit_rollback_event_reference_matches(
-        audit_rollback_reference,
-        audit_event_reference,
-    ) {
-        return module_load_gate_service_slot_check(
-            "rejected",
-            "retained_service_slot_reservation_substituted_record",
-        );
-    }
-
-    if reservation.computed_grant_hash != retained_reference.computed_grant_hash
-        || reservation.computed_grant_hash != audit_rollback_reference.computed_grant_hash
-    {
-        return module_load_gate_service_slot_check(
-            "rejected",
-            "retained_service_slot_reservation_computed_grant_hash_mismatch",
-        );
-    }
-    if reservation.audit_record_hash != audit_rollback_reference.audit_record_hash {
-        return module_load_gate_service_slot_check(
-            "rejected",
-            "retained_service_slot_reservation_audit_record_hash_mismatch",
-        );
-    }
-    if reservation.rollback_plan_hash != audit_rollback_reference.rollback_plan_hash {
-        return module_load_gate_service_slot_check(
-            "rejected",
-            "retained_service_slot_reservation_rollback_plan_hash_mismatch",
-        );
-    }
-    if reservation.pre_load_service_inventory_hash
-        != audit_rollback_reference.pre_load_service_inventory_hash
-    {
-        return module_load_gate_service_slot_check(
-            "rejected",
-            "retained_service_slot_reservation_pre_load_inventory_hash_mismatch",
-        );
-    }
-    if reservation.ram_only_service_slot_id.as_str()
-        != audit_rollback_reference.ram_only_service_slot_id.as_str()
-        || !module_evidence::ram_only_service_slot_id_valid(
-            reservation.ram_only_service_slot_id.as_str(),
-        )
-    {
-        return module_load_gate_service_slot_check(
-            "rejected",
-            "retained_service_slot_reservation_service_slot_mismatch",
-        );
-    }
-    if let Some(reason) = module_service_slot_reservation_hash_mismatch(reservation) {
-        return module_load_gate_service_slot_check("rejected", reason);
-    }
-
-    module_load_gate_service_slot_check(
-        "retained_hash_reference_only_not_allocated",
-        "retained_service_slot_reservation_not_allocated",
+pub(crate) fn computed_module_service_slot_reservation_hash(
+    input: ModuleServiceSlotReservationHashInput<'_>,
+) -> [u8; 32] {
+    let retained_reference_event_id =
+        parse_current_boot_event_id(input.retained_reference_event_id)
+            .map(|event_id| event_id.sequence())
+            .unwrap_or(0);
+    let retained_audit_rollback_reference_event_id =
+        parse_current_boot_event_id(input.retained_audit_rollback_reference_event_id)
+            .map(|event_id| event_id.sequence())
+            .unwrap_or(0);
+    core_load_gate::computed_module_service_slot_reservation_hash(
+        core_load_gate::ModuleServiceSlotReservation {
+            reservation_hash: [0; 32],
+            retained_reference_event_id,
+            retained_audit_rollback_reference_event_id,
+            computed_grant_hash: input.computed_grant_hash,
+            audit_record_hash: input.audit_record_hash,
+            rollback_plan_hash: input.rollback_plan_hash,
+            pre_load_service_inventory_hash: input.pre_load_service_inventory_hash,
+            ram_only_service_slot_id: input.ram_only_service_slot_id,
+        },
     )
 }
 
@@ -1190,123 +647,6 @@ pub(crate) fn evaluate_module_load_gate_loader_runtime_candidate(
         can_load: false,
         load_attempted: false,
     }
-}
-
-fn module_audit_rollback_event_reference_matches(
-    event_reference: event_log::ModuleAuditRollbackReference,
-    candidate_reference: event_log::ModuleAuditRollbackReference,
-) -> bool {
-    event_reference.audit_record_hash == candidate_reference.audit_record_hash
-        && event_reference.rollback_plan_hash == candidate_reference.rollback_plan_hash
-        && event_reference.computed_grant_hash == candidate_reference.computed_grant_hash
-        && event_reference.manifest_hash == candidate_reference.manifest_hash
-        && event_reference.artifact_hash == candidate_reference.artifact_hash
-        && event_reference.vm_report_hash == candidate_reference.vm_report_hash
-        && event_reference.local_attestation_hash == candidate_reference.local_attestation_hash
-        && event_reference.local_approval_hash == candidate_reference.local_approval_hash
-        && event_reference.pre_load_service_inventory_hash
-            == candidate_reference.pre_load_service_inventory_hash
-        && event_reference.cleanup_actions_hash == candidate_reference.cleanup_actions_hash
-        && event_reference.denial_event_id == candidate_reference.denial_event_id
-        && event_reference.retained_reference_event_id
-            == candidate_reference.retained_reference_event_id
-        && event_reference.ram_only_service_slot_id.as_str()
-            == candidate_reference.ram_only_service_slot_id.as_str()
-}
-
-fn module_audit_rollback_reference_hash_mismatch(
-    reference: event_log::ModuleAuditRollbackReference,
-) -> Option<&'static str> {
-    if parse_current_boot_event_id(MODULE_AUDIT_TEST_DENIAL_EVENT_ID)
-        != Some(reference.denial_event_id)
-        || parse_current_boot_event_id(MODULE_AUDIT_TEST_RETAINED_REFERENCE_EVENT_ID)
-            != Some(reference.retained_reference_event_id)
-    {
-        return Some("retained_audit_rollback_reference_substituted_record");
-    }
-
-    let expected_computed_grant_hash = computed_module_grant_hash(
-        reference.manifest_hash,
-        reference.artifact_hash,
-        reference.vm_report_hash,
-        reference.local_attestation_hash,
-    );
-    if reference.computed_grant_hash != expected_computed_grant_hash {
-        return Some("retained_audit_rollback_computed_grant_hash_mismatch");
-    }
-
-    let expected_rollback_plan_hash = computed_module_rollback_plan_hash(
-        reference.artifact_hash,
-        reference.pre_load_service_inventory_hash,
-        reference.ram_only_service_slot_id.as_str(),
-        reference.cleanup_actions_hash,
-    );
-    if reference.rollback_plan_hash != expected_rollback_plan_hash {
-        return Some("retained_rollback_plan_hash_mismatch");
-    }
-
-    let expected_audit_record_hash =
-        computed_module_audit_record_hash(ModuleAuditRecordHashInput {
-            denial_event_id: MODULE_AUDIT_TEST_DENIAL_EVENT_ID,
-            retained_reference_event_id: MODULE_AUDIT_TEST_RETAINED_REFERENCE_EVENT_ID,
-            computed_grant_hash: reference.computed_grant_hash,
-            manifest_hash: reference.manifest_hash,
-            artifact_hash: reference.artifact_hash,
-            vm_report_hash: reference.vm_report_hash,
-            local_attestation_hash: reference.local_attestation_hash,
-            local_approval_hash: reference.local_approval_hash,
-            rollback_plan_hash: reference.rollback_plan_hash,
-            ram_only_service_slot_id: reference.ram_only_service_slot_id.as_str(),
-        });
-    if reference.audit_record_hash != expected_audit_record_hash {
-        return Some("retained_audit_record_hash_mismatch");
-    }
-
-    None
-}
-
-fn module_service_slot_reservation_matches(
-    left: event_log::ModuleServiceSlotReservation,
-    right: event_log::ModuleServiceSlotReservation,
-) -> bool {
-    left.reservation_hash == right.reservation_hash
-        && left.retained_reference_event_id == right.retained_reference_event_id
-        && left.retained_audit_rollback_reference_event_id
-            == right.retained_audit_rollback_reference_event_id
-        && left.computed_grant_hash == right.computed_grant_hash
-        && left.audit_record_hash == right.audit_record_hash
-        && left.rollback_plan_hash == right.rollback_plan_hash
-        && left.pre_load_service_inventory_hash == right.pre_load_service_inventory_hash
-        && left.ram_only_service_slot_id.as_str() == right.ram_only_service_slot_id.as_str()
-}
-
-fn module_service_slot_reservation_hash_mismatch(
-    reservation: event_log::ModuleServiceSlotReservation,
-) -> Option<&'static str> {
-    if parse_current_boot_event_id(MODULE_AUDIT_TEST_RETAINED_REFERENCE_EVENT_ID)
-        != Some(reservation.retained_reference_event_id)
-        || parse_current_boot_event_id(MODULE_SERVICE_SLOT_TEST_RETAINED_AUDIT_ROLLBACK_EVENT_ID)
-            != Some(reservation.retained_audit_rollback_reference_event_id)
-    {
-        return Some("retained_service_slot_reservation_hash_mismatch");
-    }
-
-    let expected_reservation_hash =
-        computed_module_service_slot_reservation_hash(ModuleServiceSlotReservationHashInput {
-            retained_reference_event_id: MODULE_AUDIT_TEST_RETAINED_REFERENCE_EVENT_ID,
-            retained_audit_rollback_reference_event_id:
-                MODULE_SERVICE_SLOT_TEST_RETAINED_AUDIT_ROLLBACK_EVENT_ID,
-            computed_grant_hash: reservation.computed_grant_hash,
-            audit_record_hash: reservation.audit_record_hash,
-            rollback_plan_hash: reservation.rollback_plan_hash,
-            pre_load_service_inventory_hash: reservation.pre_load_service_inventory_hash,
-            ram_only_service_slot_id: reservation.ram_only_service_slot_id.as_str(),
-        });
-    if reservation.reservation_hash != expected_reservation_hash {
-        return Some("retained_service_slot_reservation_hash_mismatch");
-    }
-
-    None
 }
 
 fn module_load_gate_loader_runtime_retained_evidence_complete(
@@ -1401,80 +741,4 @@ fn module_load_gate_loader_runtime_reference_available(state: &'static str) -> b
 
 fn module_load_gate_loader_runtime_reference_rejected(state: &'static str) -> bool {
     method_eq(state, "rejected")
-}
-
-fn module_load_gate_service_slot_check(
-    status: &'static str,
-    reason: &'static str,
-) -> ModuleLoadGateServiceSlotEvaluation {
-    let accepted = method_eq(status, "retained_hash_reference_only_not_allocated");
-    let service_slot_state = if accepted {
-        "retained_hash_reference_only_not_allocated"
-    } else if method_eq(status, "rejected") {
-        "rejected_retained_reference"
-    } else {
-        "unallocated"
-    };
-    ModuleLoadGateServiceSlotEvaluation {
-        status,
-        reason,
-        service_slot_state,
-        accepted_service_slot_reservation_hash: accepted,
-        can_load: false,
-        load_attempted: false,
-    }
-}
-
-fn module_load_gate_audit_rollback_check(
-    status: &'static str,
-    reason: &'static str,
-) -> ModuleLoadGateAuditRollbackEvaluation {
-    ModuleLoadGateAuditRollbackEvaluation {
-        status,
-        reason,
-        can_load: false,
-        load_attempted: false,
-    }
-}
-
-pub(crate) fn computed_module_manifest_reference_hash(manifest_hash: [u8; 32]) -> [u8; 32] {
-    module_evidence::computed_module_manifest_reference_hash(manifest_hash)
-}
-
-pub(crate) fn computed_module_grant_hash(
-    manifest_hash: [u8; 32],
-    artifact_hash: [u8; 32],
-    vm_report_hash: [u8; 32],
-    local_attestation_hash: [u8; 32],
-) -> [u8; 32] {
-    module_evidence::computed_module_grant_hash(
-        manifest_hash,
-        artifact_hash,
-        vm_report_hash,
-        local_attestation_hash,
-    )
-}
-
-pub(crate) fn computed_module_rollback_plan_hash(
-    artifact_hash: [u8; 32],
-    pre_load_service_inventory_hash: [u8; 32],
-    ram_only_service_slot_id: &str,
-    cleanup_actions_hash: [u8; 32],
-) -> [u8; 32] {
-    module_evidence::computed_module_rollback_plan_hash(
-        artifact_hash,
-        pre_load_service_inventory_hash,
-        ram_only_service_slot_id,
-        cleanup_actions_hash,
-    )
-}
-
-pub(crate) fn computed_module_audit_record_hash(input: ModuleAuditRecordHashInput<'_>) -> [u8; 32] {
-    module_evidence::computed_module_audit_record_hash(input)
-}
-
-pub(crate) fn computed_module_service_slot_reservation_hash(
-    input: ModuleServiceSlotReservationHashInput<'_>,
-) -> [u8; 32] {
-    module_evidence::computed_module_service_slot_reservation_hash(input)
 }
