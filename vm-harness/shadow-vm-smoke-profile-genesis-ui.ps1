@@ -2,9 +2,8 @@
 #
 # Dot-source this after shadow-vm-smoke-profile-common.ps1.  The dispatcher
 # already owns boot, framebuffer, USB, serial TCP and QEMU lifecycle.  This
-# profile deliberately uses only the normal serial command path: Genesis has
-# no serial "pixel rendered" marker and the common runner has no pointer-input
-# API, so a framebuffer screenshot must not become the test oracle.
+# profile uses the normal serial command path plus physical QEMU HID input;
+# framebuffer captures remain supporting evidence rather than the sole oracle.
 #
 # What this proves today: the typed current-boot facts that Genesis renders and
 # its read-only recovery source are live, coherent and remain outside Wasm and
@@ -16,6 +15,53 @@ function Send-GenesisUiKey {
 
     Send-QemuMonitorCommand -Command "sendkey $KeyName 60" -ReplyWaitMilliseconds 250 | Out-Null
 }
+
+function Send-GenesisUiProgramBytes {
+    param(
+        [byte[]]$Bytes,
+        [string]$NamePrefix
+    )
+
+    $base64 = [Convert]::ToBase64String($Bytes)
+    $chunkChars = 3000
+    $chunkIndex = 0
+    $pendingBytes = 0
+    for ($offset = 0; $offset -lt $base64.Length; $offset += $chunkChars) {
+        $count = [Math]::Min($chunkChars, $base64.Length - $offset)
+        $chunk = $base64.Substring($offset, $count)
+        $decodedBytes = [Convert]::FromBase64String($chunk).Length
+        $chunkIndex += 1
+        $pendingBytes += $decodedBytes
+        Send-AgentCommand -Command "program.submit_chunk $chunk" -ExpectedMarker "RAIOS_AGENT_END program.submit_chunk" -Name "$NamePrefix`:chunk_$chunkIndex"
+        $result = (Get-LastAgentResponseJson -Method "program.submit_chunk").body.result
+        $chunkOk = (
+            $result.accepted -eq $true -and
+            $result.rejected -eq $false -and
+            $result.reason -eq "accepted_program_chunk" -and
+            [int]$result.decoded_byte_len -eq $decodedBytes -and
+            [int]$result.pending_byte_len -eq $pendingBytes -and
+            [int]$result.pending_chunk_count -eq $chunkIndex -and
+            $result.discarded_pending_delivery -eq $false -and
+            $result.signing_attempted -eq $false -and
+            $result.load_attempted -eq $false -and
+            $result.execution_attempted -eq $false -and
+            $result.writes_persistent_state -eq $false
+        )
+        Add-Predicate -Name "$NamePrefix`:chunk_$chunkIndex-inert" -Expected "canonical RUIP chunk is retained pending without signing, loading, execution or persistence" -Passed $chunkOk -Actual $(if ($chunkOk) { "pending_bytes=$pendingBytes" } else { ($result | ConvertTo-Json -Compress -Depth 5) })
+        if (-not $chunkOk) {
+            throw "Expected RUIP chunk $chunkIndex to remain pending and inert"
+        }
+    }
+    return $chunkIndex
+}
+
+# Frozen output of raios_core::ui_program::calculator_program().canonical_bytes().
+$genesisCalculatorBase64 = @'
+UlVJUAEAIAD8FAAABBISMwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEACgAAAAAAQAEgAAAAAABDYWxjdWxhdG9yAAACAAAAAAAoAEABOAAAAAAAAwABAAAAaABIADgACAAAADcAAAADAAEAUABoAEgAOAAJAAAAOAAAAAMAAQCgAGgASAA4AAoAAAA5AAAAAwABAPAAaABIADgADgAAAC8AAAADAAEAAACoAEgAOAAFAAAANAAAAAMAAQBQAKgASAA4AAYAAAA1AAAAAwABAKAAqABIADgABwAAADYAAAADAAEA8ACoAEgAOAANAAAAKgAAAAMAAQAAAOgASAA4AAIAAAAxAAAAAwABAFAA6ABIADgAAwAAADIAAAADAAEAoADoAEgAOAAEAAAAMwAAAAMAAQDwAOgASAA4AAwAAAAtAAAAAwABAAAAKAFIADgAEAAAAEMAAAADAAEAUAAoAUgAOAABAAAAMAAAAAMAAQCgACgBSAA4AA8AAAA9AAAAAwABAPAAKAFIADgACwAAACsAAAAwAAAAAQAAADEAAAACAAAAMgAAAAMAAAAzAAAABAAAADQAAAAFAAAANQAAAAYAAAA2AAAABwAAADcAAAAIAAAAOAAAAAkAAAA5AAAACgAAACsAAAALAAAALQAAAAwAAAAqAAAADQAAAC8AAAAOAAAAPQAAAA8AAAANAAAADwAAAGMAAAAQAAAAQwAAABAAAAABAAECAAAAAAMBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEDAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAEAAQEAAAAAAwEAAAEAAAAAAAAAAAAAAAAAAAAAAAAABwAAAAAAAAAKAAAAAAAAAAAAAAAAAAAAAgABAgAAAAADAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAwAAAAAAAAEAAAAAAAAAAAAAAAAAAAACAAEBAAAAAAMBAAABAAAAAAAAAAAAAAAAAAAAAAAAAAcAAAAAAAAACgAAAAAAAAABAAAAAAAAAAMAAQIAAAAAAwEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAQMAAAAAAAABAAAAAAAAAAAAAAAAAAAAAwABAQAAAAADAQAAAQAAAAAAAAAAAAAAAAAAAAAAAAAHAAAAAAAAAAoAAAAAAAAAAgAAAAAAAAAEAAECAAAAAAMBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAwAAAAAAAAAAAAAAAAAAAAEDAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAQAAQEAAAAAAwEAAAEAAAAAAAAAAAAAAAAAAAAAAAAABwAAAAAAAAAKAAAAAAAAAAMAAAAAAAAABQABAgAAAAADAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAABAwAAAAAAAAEAAAAAAAAAAAAAAAAAAAAFAAEBAAAAAAMBAAABAAAAAAAAAAAAAAAAAAAAAAAAAAcAAAAAAAAACgAAAAAAAAAEAAAAAAAAAAYAAQIAAAAAAwEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAFAAAAAAAAAAAAAAAAAAAAAQMAAAAAAAABAAAAAAAAAAAAAAAAAAAABgABAQAAAAADAQAAAQAAAAAAAAAAAAAAAAAAAAAAAAAHAAAAAAAAAAoAAAAAAAAABQAAAAAAAAAHAAECAAAAAAMBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAABgAAAAAAAAAAAAAAAAAAAAEDAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAcAAQEAAAAAAwEAAAEAAAAAAAAAAAAAAAAAAAAAAAAABwAAAAAAAAAKAAAAAAAAAAYAAAAAAAAACAABAgAAAAADAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAcAAAAAAAAAAAAAAAAAAAABAwAAAAAAAAEAAAAAAAAAAAAAAAAAAAAIAAEBAAAAAAMBAAABAAAAAAAAAAAAAAAAAAAAAAAAAAcAAAAAAAAACgAAAAAAAAAHAAAAAAAAAAkAAQIAAAAAAwEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAQMAAAAAAAABAAAAAAAAAAAAAAAAAAAACQABAQAAAAADAQAAAQAAAAAAAAAAAAAAAAAAAAAAAAAHAAAAAAAAAAoAAAAAAAAACAAAAAAAAAAKAAECAAAAAAMBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAACQAAAAAAAAAAAAAAAAAAAAEDAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAoAAQEAAAAAAwEAAAEAAAAAAAAAAAAAAAAAAAAAAAAABwAAAAAAAAAKAAAAAAAAAAkAAAAAAAAACwABAQAAAAADAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAgAAAAAAAAEAAAAAAAAAAAAAAAAAAAALAAIDAAAAAAMBAAABAAAAAAAAAAIBAAAAAAAAAAAAAAIBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAECAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAEDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAsAAgQAAAAAAwEAAAEAAAAAAAAAAgEAAAEAAAAAAAAAAwEBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQIAAAAAAAABAAAAAAAAAAAAAAAAAAAAAQMAAAAAAAAAAAAAAAAAAAAAAAAAAAAACwACBAAAAAADAQAAAQAAAAAAAAACAQAAAgAAAAAAAAAEAQEAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAABAgAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAALAAIEAAAAAAMBAAABAAAAAAAAAAIBAAADAAAAAAAAAAUBAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAECAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAEDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAsAAgQAAAAAAwEAAAEAAAAAAAAAAgEAAAQAAAAAAAAABgEBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQIAAAAAAAABAAAAAAAAAAAAAAAAAAAAAQMAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAABAQAAAAADAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAgAAAAAAAAIAAAAAAAAAAAAAAAAAAAAMAAIDAAAAAAMBAAABAAAAAAAAAAIBAAAAAAAAAAAAAAIBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAECAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAEDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAgQAAAAAAwEAAAEAAAAAAAAAAgEAAAEAAAAAAAAAAwEBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQIAAAAAAAACAAAAAAAAAAAAAAAAAAAAAQMAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAACBAAAAAADAQAAAQAAAAAAAAACAQAAAgAAAAAAAAAEAQEAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAABAgAAAAAAAAIAAAAAAAAAAAAAAAAAAAABAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMAAIEAAAAAAMBAAABAAAAAAAAAAIBAAADAAAAAAAAAAUBAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAECAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAEDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAgQAAAAAAwEAAAEAAAAAAAAAAgEAAAQAAAAAAAAABgEBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQIAAAAAAAACAAAAAAAAAAAAAAAAAAAAAQMAAAAAAAAAAAAAAAAAAAAAAAAAAAAADQABAQAAAAADAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAgAAAAAAAAMAAAAAAAAAAAAAAAAAAAANAAIDAAAAAAMBAAABAAAAAAAAAAIBAAAAAAAAAAAAAAIBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAECAAAAAAAAAwAAAAAAAAAAAAAAAAAAAAEDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA0AAgQAAAAAAwEAAAEAAAAAAAAAAgEAAAEAAAAAAAAAAwEBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQIAAAAAAAADAAAAAAAAAAAAAAAAAAAAAQMAAAAAAAAAAAAAAAAAAAAAAAAAAAAADQACBAAAAAADAQAAAQAAAAAAAAACAQAAAgAAAAAAAAAEAQEAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAABAgAAAAAAAAMAAAAAAAAAAAAAAAAAAAABAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAANAAIEAAAAAAMBAAABAAAAAAAAAAIBAAADAAAAAAAAAAUBAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAECAAAAAAAAAwAAAAAAAAAAAAAAAAAAAAEDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA0AAgQAAAAAAwEAAAEAAAAAAAAAAgEAAAQAAAAAAAAABgEBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQIAAAAAAAADAAAAAAAAAAAAAAAAAAAAAQMAAAAAAAAAAAAAAAAAAAAAAAAAAAAADgABAQAAAAADAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAgAAAAAAAAQAAAAAAAAAAAAAAAAAAAAOAAIDAAAAAAMBAAABAAAAAAAAAAIBAAAAAAAAAAAAAAIBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAECAAAAAAAABAAAAAAAAAAAAAAAAAAAAAEDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA4AAgQAAAAAAwEAAAEAAAAAAAAAAgEAAAEAAAAAAAAAAwEBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQIAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAQMAAAAAAAAAAAAAAAAAAAAAAAAAAAAADgACBAAAAAADAQAAAQAAAAAAAAACAQAAAgAAAAAAAAAEAQEAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAABAgAAAAAAAAQAAAAAAAAAAAAAAAAAAAABAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOAAIEAAAAAAMBAAABAAAAAAAAAAIBAAADAAAAAAAAAAUBAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAECAAAAAAAABAAAAAAAAAAAAAAAAAAAAAEDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA4AAgQAAAAAAwEAAAEAAAAAAAAAAgEAAAQAAAAAAAAABgEBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQIAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAQMAAAAAAAAAAAAAAAAAAAAAAAAAAAAADwABAQAAAAADAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPAAIBAAAAAAMBAAABAAAAAAAAAAIBAAAAAAAAAAAAAAEDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA8AAgQAAAAAAwEAAAEAAAAAAAAAAgEAAAEAAAAAAAAAAwEBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQMAAAAAAAAAAAAAAAAAAAAAAAAAAAAADwACBAAAAAADAQAAAQAAAAAAAAACAQAAAgAAAAAAAAAEAQEAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAABAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPAAIEAAAAAAMBAAABAAAAAAAAAAIBAAADAAAAAAAAAAUBAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAECAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA8AAgQAAAAAAwEAAAEAAAAAAAAAAgEAAAQAAAAAAAAABgEBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+'@ -replace '\s', ''
+$genesisCalculatorBytes = [Convert]::FromBase64String($genesisCalculatorBase64)
+$genesisCalculatorSha256 = "7ca0aa21d69baae072675c20f7b44d0e2d9f99ac4e72d6aa64e7a25586dfcd6e"
+$genesisCalculatorHash = "sha256:$genesisCalculatorSha256"
 
 Send-AgentCommand -Command "snapshot" -ExpectedMarker "RAIOS_AGENT_END system.snapshot" -Name "genesis-ui:context-snapshot"
 $genesisSnapshot = Get-LastAgentResponseJson -Method "system.snapshot"
@@ -112,6 +158,204 @@ Start-Sleep -Milliseconds 300
 Save-QemuScreendump -Name "recovery-open" | Out-Null
 Send-GenesisUiKey -KeyName "f12"
 Assert-LogContains -Name "genesis-ui:recovery-view-close" -Needle "GENESIS_RECOVERY_VIEW_CLOSED current_boot=true" -TimeoutSeconds $TimeoutSeconds
+
+Send-AgentCommand -Command "program.workspace" -ExpectedMarker "RAIOS_AGENT_END program.workspace" -Name "genesis-ui:program-workspace-empty"
+$emptyProgramWorkspace = (Get-LastAgentResponseJson -Method "program.workspace").body.result
+$emptyProgramWorkspaceOk = (
+    $emptyProgramWorkspace.status -eq "empty" -and
+    $emptyProgramWorkspace.scope -eq "current_boot" -and
+    $emptyProgramWorkspace.classification -eq "local_only" -and
+    $emptyProgramWorkspace.retention -eq "current_boot_ram_only" -and
+    $emptyProgramWorkspace.present -eq $false -and
+    [int]$emptyProgramWorkspace.revision -eq 0 -and
+    [int]$emptyProgramWorkspace.byte_len -eq 0 -and
+    $null -eq $emptyProgramWorkspace.program_sha256 -and
+    [int]$emptyProgramWorkspace.pending_byte_len -eq 0 -and
+    [int]$emptyProgramWorkspace.pending_chunk_count -eq 0 -and
+    $emptyProgramWorkspace.signing_attempted -eq $false -and
+    $emptyProgramWorkspace.load_attempted -eq $false -and
+    $emptyProgramWorkspace.execution_attempted -eq $false -and
+    $emptyProgramWorkspace.authorizes_load -eq $false -and
+    $emptyProgramWorkspace.authorizes_execution -eq $false -and
+    $emptyProgramWorkspace.writes_persistent_state -eq $false
+)
+Add-Predicate -Name "genesis-ui:program-workspace-starts-empty-inert" -Expected "program workspace starts empty, current-boot RAM-only and grants no authority" -Passed $emptyProgramWorkspaceOk -Actual $(if ($emptyProgramWorkspaceOk) { "empty current_boot" } else { ($emptyProgramWorkspace | ConvertTo-Json -Compress -Depth 5) })
+if (-not $emptyProgramWorkspaceOk) {
+    throw "Expected a fresh inert current-boot program workspace"
+}
+
+$sha = [System.Security.Cryptography.SHA256]::Create()
+try {
+    $calculatorActualSha256 = ([BitConverter]::ToString($sha.ComputeHash($genesisCalculatorBytes)) -replace "-", "").ToLowerInvariant()
+}
+finally {
+    $sha.Dispose()
+}
+$calculatorFixtureOk = $genesisCalculatorBytes.Length -eq 5372 -and $calculatorActualSha256 -eq $genesisCalculatorSha256
+Add-Predicate -Name "genesis-ui:calculator-ruip-exact-fixture" -Expected "raios-core calculator canonical RUIP is exactly 5372 bytes with the pinned SHA-256" -Passed $calculatorFixtureOk -Actual "bytes=$($genesisCalculatorBytes.Length) sha256=$calculatorActualSha256"
+if (-not $calculatorFixtureOk) {
+    throw "Canonical calculator RUIP fixture does not match its pinned identity"
+}
+
+$calculatorChunkCount = Send-GenesisUiProgramBytes -Bytes $genesisCalculatorBytes -NamePrefix "genesis-ui:calculator-delivery"
+Send-AgentCommand -Command "program.submit_finalize" -ExpectedMarker "RAIOS_AGENT_END program.submit_finalize" -Name "genesis-ui:calculator-finalize"
+$calculatorFinalize = (Get-LastAgentResponseJson -Method "program.submit_finalize").body.result
+$calculatorFinalizeOk = (
+    $calculatorFinalize.method -eq "program.submit_finalize" -and
+    $calculatorFinalize.status -eq "ready" -and
+    $calculatorFinalize.scope -eq "current_boot" -and
+    $calculatorFinalize.classification -eq "local_only" -and
+    $calculatorFinalize.retention -eq "current_boot_ram_only" -and
+    $calculatorFinalize.accepted -eq $true -and
+    $calculatorFinalize.rejected -eq $false -and
+    $calculatorFinalize.reason -eq "retained_current_boot_inert_ui_program" -and
+    [int]$calculatorFinalize.attempted_byte_len -eq 5372 -and
+    $calculatorFinalize.present -eq $true -and
+    [int]$calculatorFinalize.revision -eq 1 -and
+    [int]$calculatorFinalize.byte_len -eq 5372 -and
+    $calculatorFinalize.program_sha256 -eq $genesisCalculatorHash -and
+    $calculatorFinalize.source -eq "serial" -and
+    $null -eq $calculatorFinalize.provider_request_id -and
+    [int]$calculatorFinalize.serial_chunk_count -eq $calculatorChunkCount -and
+    [int]$calculatorFinalize.pending_byte_len -eq 0 -and
+    [int]$calculatorFinalize.pending_chunk_count -eq 0 -and
+    $calculatorFinalize.signing_attempted -eq $false -and
+    $calculatorFinalize.load_attempted -eq $false -and
+    $calculatorFinalize.execution_attempted -eq $false -and
+    $calculatorFinalize.authorizes_load -eq $false -and
+    $calculatorFinalize.authorizes_execution -eq $false -and
+    $calculatorFinalize.writes_persistent_state -eq $false
+)
+Add-Predicate -Name "genesis-ui:calculator-retained-exact-current-boot-inert" -Expected "canonical calculator RUIP is retained under its exact hash but cannot sign, load, execute or persist" -Passed $calculatorFinalizeOk -Actual $(if ($calculatorFinalizeOk) { "$genesisCalculatorHash revision=1 chunks=$calculatorChunkCount" } else { ($calculatorFinalize | ConvertTo-Json -Compress -Depth 5) })
+if (-not $calculatorFinalizeOk) {
+    throw "Expected exact canonical calculator RUIP to be retained inertly"
+}
+
+Send-AgentCommand -Command "program.workspace" -ExpectedMarker "RAIOS_AGENT_END program.workspace" -Name "genesis-ui:calculator-workspace"
+$calculatorWorkspace = (Get-LastAgentResponseJson -Method "program.workspace").body.result
+$calculatorWorkspaceOk = (
+    $calculatorWorkspace.status -eq "ready" -and
+    $calculatorWorkspace.scope -eq "current_boot" -and
+    $calculatorWorkspace.retention -eq "current_boot_ram_only" -and
+    $calculatorWorkspace.present -eq $true -and
+    [int]$calculatorWorkspace.revision -eq 1 -and
+    [int]$calculatorWorkspace.byte_len -eq 5372 -and
+    $calculatorWorkspace.program_sha256 -eq $genesisCalculatorHash -and
+    $calculatorWorkspace.source -eq "serial" -and
+    [int]$calculatorWorkspace.serial_chunk_count -eq $calculatorChunkCount -and
+    $calculatorWorkspace.signing_attempted -eq $false -and
+    $calculatorWorkspace.load_attempted -eq $false -and
+    $calculatorWorkspace.execution_attempted -eq $false -and
+    $calculatorWorkspace.authorizes_load -eq $false -and
+    $calculatorWorkspace.authorizes_execution -eq $false -and
+    $calculatorWorkspace.writes_persistent_state -eq $false
+)
+Add-Predicate -Name "genesis-ui:calculator-workspace-exact-hash-inert" -Expected "program.workspace exposes the exact current-boot calculator hash while retaining no execution authority" -Passed $calculatorWorkspaceOk -Actual $(if ($calculatorWorkspaceOk) { "$genesisCalculatorHash current_boot inert" } else { ($calculatorWorkspace | ConvertTo-Json -Compress -Depth 5) })
+if (-not $calculatorWorkspaceOk) {
+    throw "Expected exact inert calculator identity in program.workspace"
+}
+
+[byte[]]$malformedCalculator = $genesisCalculatorBytes.Clone()
+$malformedCalculator[16] = 1
+$malformedChunkCount = Send-GenesisUiProgramBytes -Bytes $malformedCalculator -NamePrefix "genesis-ui:malformed-program-delivery"
+Send-AgentCommand -Command "program.submit_finalize" -ExpectedMarker "RAIOS_AGENT_END program.submit_finalize" -Name "genesis-ui:malformed-program-finalize"
+$malformedFinalize = (Get-LastAgentResponseJson -Method "program.submit_finalize").body.result
+$malformedFinalizeOk = (
+    $malformedFinalize.accepted -eq $false -and
+    $malformedFinalize.rejected -eq $true -and
+    $malformedFinalize.reason -eq "program_malformed" -and
+    [int]$malformedFinalize.attempted_byte_len -eq 5372 -and
+    $malformedFinalize.status -eq "ready" -and
+    $malformedFinalize.present -eq $true -and
+    [int]$malformedFinalize.revision -eq 1 -and
+    [int]$malformedFinalize.byte_len -eq 5372 -and
+    $malformedFinalize.program_sha256 -eq $genesisCalculatorHash -and
+    [int]$malformedFinalize.pending_byte_len -eq 0 -and
+    [int]$malformedFinalize.pending_chunk_count -eq 0 -and
+    $malformedFinalize.signing_attempted -eq $false -and
+    $malformedFinalize.load_attempted -eq $false -and
+    $malformedFinalize.execution_attempted -eq $false -and
+    $malformedFinalize.authorizes_load -eq $false -and
+    $malformedFinalize.authorizes_execution -eq $false -and
+    $malformedFinalize.writes_persistent_state -eq $false
+)
+Add-Predicate -Name "genesis-ui:malformed-program-rejected-with-retained-calculator-inert" -Expected "nonzero reserved RUIP byte rejects atomically and leaves the exact prior calculator inert" -Passed $malformedFinalizeOk -Actual $(if ($malformedFinalizeOk) { "rejected chunks=$malformedChunkCount retained=$genesisCalculatorHash revision=1" } else { ($malformedFinalize | ConvertTo-Json -Compress -Depth 5) })
+if (-not $malformedFinalizeOk) {
+    throw "Expected malformed RUIP to reject without replacing or activating the calculator"
+}
+
+Send-AgentCommand -Command "program.workspace" -ExpectedMarker "RAIOS_AGENT_END program.workspace" -Name "genesis-ui:workspace-after-malformed-program"
+$workspaceAfterMalformed = (Get-LastAgentResponseJson -Method "program.workspace").body.result
+$workspaceAfterMalformedOk = (
+    $workspaceAfterMalformed.status -eq "ready" -and
+    $workspaceAfterMalformed.present -eq $true -and
+    [int]$workspaceAfterMalformed.revision -eq 1 -and
+    [int]$workspaceAfterMalformed.byte_len -eq 5372 -and
+    $workspaceAfterMalformed.program_sha256 -eq $genesisCalculatorHash -and
+    [int]$workspaceAfterMalformed.pending_byte_len -eq 0 -and
+    [int]$workspaceAfterMalformed.pending_chunk_count -eq 0 -and
+    $workspaceAfterMalformed.load_attempted -eq $false -and
+    $workspaceAfterMalformed.execution_attempted -eq $false -and
+    $workspaceAfterMalformed.authorizes_load -eq $false -and
+    $workspaceAfterMalformed.authorizes_execution -eq $false -and
+    $workspaceAfterMalformed.writes_persistent_state -eq $false
+)
+Add-Predicate -Name "genesis-ui:workspace-unchanged-after-malformed-program" -Expected "malformed delivery cannot change the retained hash, revision, pending state or authority" -Passed $workspaceAfterMalformedOk -Actual $(if ($workspaceAfterMalformedOk) { "$genesisCalculatorHash revision=1 unchanged" } else { ($workspaceAfterMalformed | ConvertTo-Json -Compress -Depth 5) })
+if (-not $workspaceAfterMalformedOk) {
+    throw "Expected malformed RUIP delivery to leave program.workspace unchanged"
+}
+
+Save-QemuScreendump -Name "calculator-awaiting-physical-approval" | Out-Null
+# QMP sends the absolute USB-tablet event HMP mouse_move cannot represent.
+# These are the approval-button center in QEMU's documented 0..32767 range.
+Send-QemuAbsolutePointerClick -X 27017 -Y 6559
+$programActivationMarker = "PROGRAM_CURRENT_BOOT_ACTIVATION physical_approval=pointer program_sha256=$genesisCalculatorHash engine=svc.user.shell capability_surface=ui_only wasm=true result=accepted"
+Assert-LogContains -Name "genesis-ui:calculator-physical-approval-wasm-accepted" -Needle $programActivationMarker -TimeoutSeconds $TimeoutSeconds
+Start-Sleep -Milliseconds 300
+Save-QemuScreendump -Name "calculator-active-after-physical-approval" | Out-Null
+
+Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "genesis-ui:calculator-current-boot-inventory"
+$calculatorInventoryResponse = Get-LastAgentResponseJson -Method "service.inventory"
+$calculatorInventory = @($calculatorInventoryResponse.body.result.services | Where-Object { $_.id -eq "svc.user.shell" })
+$calculatorInventoryOk = (
+    $calculatorInventory.Count -eq 1 -and
+    $calculatorInventory[0].kind -eq "service" -and
+    $calculatorInventory[0].scope -eq "current_boot" -and
+    $calculatorInventory[0].persistence -eq "none" -and
+    $calculatorInventory[0].capability_envelope -eq "wasmi_linker_import_surface" -and
+    $calculatorInventory[0].host_import_count -eq 6 -and
+    $calculatorInventory[0].running -eq $true
+)
+Add-Predicate -Name "genesis-ui:calculator-runs-only-as-ui-current-boot-service" -Expected "physical approval starts svc.user.shell only as a current-boot Wasmi UI service" -Passed $calculatorInventoryOk -Actual $(if ($calculatorInventoryOk) { "svc.user.shell current_boot ui_only running" } else { ($calculatorInventory | ConvertTo-Json -Compress -Depth 5) })
+if (-not $calculatorInventoryOk) {
+    throw "Expected calculator to run only through the current-boot UI Wasm service"
+}
+
+foreach ($key in @("1", "2", "shift-equal", "3", "0", "equal")) {
+    $inputOffset = Get-SerialLogOffset
+    Send-GenesisUiKey -KeyName $key
+    $updated = Wait-ForLogTextAfterOffset -Path $SerialLog -Needle "PERSONAL SHELL FRAME UPDATED sanitized_input" -Offset $inputOffset -TimeoutSeconds $TimeoutSeconds
+    Add-Predicate -Name "genesis-ui:calculator-input-$($key.Replace('shift-', 'shift_'))" -Expected "physical calculator key '$key' updates the Wasm-rendered program frame" -Passed $updated -Actual $(if ($updated) { "frame updated" } else { Get-SerialLogTail -Path $SerialLog })
+    if (-not $updated) {
+        throw "Expected calculator input '$key' to update the personal frame"
+    }
+}
+Start-Sleep -Milliseconds 300
+Save-QemuScreendump -Name "calculator-result-42" | Out-Null
+
+Send-GenesisUiKey -KeyName "f12"
+Assert-LogContains -Name "genesis-ui:calculator-f12-exit" -Needle "PERSONAL SHELL EXIT F12 genesis" -TimeoutSeconds $TimeoutSeconds
+Start-Sleep -Milliseconds 300
+Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "genesis-ui:calculator-f12-inventory"
+$calculatorAfterF12Inventory = Get-LastAgentResponseJson -Method "service.inventory"
+$calculatorAfterF12Personal = @($calculatorAfterF12Inventory.body.result.services | Where-Object { $_.id -eq "svc.user.shell" })
+$calculatorAfterF12Genesis = @($calculatorAfterF12Inventory.body.result.services | Where-Object { $_.id -eq "core.ui.genesis" })
+$calculatorAfterF12Ok = $calculatorAfterF12Personal.Count -eq 0 -and $calculatorAfterF12Genesis.Count -eq 1 -and $calculatorAfterF12Genesis[0].core_owned -eq $true -and $calculatorAfterF12Genesis[0].replaceable -eq $false
+Add-Predicate -Name "genesis-ui:calculator-f12-restores-core-genesis" -Expected "F12 exits the calculator, removes svc.user.shell and restores immutable core Genesis" -Passed $calculatorAfterF12Ok -Actual $(if ($calculatorAfterF12Ok) { "core.ui.genesis only" } else { ($calculatorAfterF12Inventory.body.result.services | ConvertTo-Json -Compress -Depth 5) })
+if (-not $calculatorAfterF12Ok) {
+    throw "Expected F12 to restore Genesis after the current-boot calculator"
+}
+Save-QemuScreendump -Name "genesis-after-calculator-f12" | Out-Null
 
 $genesisBeforePersonalProof = Save-QemuScreendump -Name "genesis-context-diagnostics"
 Send-AgentCommand -Command "ui.personal_shell_proof" -ExpectedMarker "RAIOS_AGENT_END ui.personal_shell_proof" -Name "genesis-ui:personal-shell-proof"

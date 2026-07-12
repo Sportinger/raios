@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 use spin::Mutex;
 
 use crate::{
-    agent_protocol, entropy, event_log, net, openai_trust::OpenAiPinnedCertVerifier,
+    agent_protocol, entropy, event_log, net, openai_trust::OpenAiPinnedCertVerifier, provider,
     provider_config, provider_trust, secret_vault, serial, time, tls_io::KernelTcpStream, ui,
 };
 
@@ -26,20 +26,22 @@ const API_HOST: &str = provider_trust::OPENAI_PINNED_TLS_VERIFIER_METADATA.host;
 const API_PORT: u16 = 443;
 const API_PATH: &str = "/v1/responses";
 const MODEL: &str = "gpt-5.4";
-const MAX_OUTPUT_TOKENS: u16 = 512;
+pub(crate) const DEFAULT_MAX_OUTPUT_TOKENS: u16 = 512;
+pub(crate) const MAX_OUTPUT_TOKENS: u16 = 8_192;
 const LINE_CAPACITY: usize = 2048;
 const DNS_TIMEOUT_MS: u64 = 6_000;
 const TCP_TIMEOUT_MS: u64 = 8_000;
 const HTTPS_TIMEOUT_MS: u64 = 60_000;
 const TLS_RECORD_BUFFER_SIZE: usize = 16_640;
 const TLS_WRITE_BUFFER_SIZE: usize = 4_096;
-const HTTP_RESPONSE_LIMIT: usize = 32 * 1024;
+const HTTP_RESPONSE_LIMIT: usize = 128 * 1024;
 
 static STATE: Mutex<OpenAiState> = Mutex::new(OpenAiState::new());
 
 #[derive(Clone, Copy)]
 pub enum SubmitError {
     Empty,
+    InvalidMaxOutput,
     Busy(u32),
 }
 
@@ -121,17 +123,32 @@ struct PendingRequest {
     phase_started_ms: u64,
     envelope: ProviderRequestEnvelope,
     envelope_event_id: event_log::EventId,
+    body: String,
+    target: provider::RequestTarget,
     runtime: ui::RuntimeStatus,
 }
 
 #[derive(Clone, Copy)]
 struct ProviderRequestEnvelope {
     request_id: u32,
+    max_output_tokens: u16,
+    source_method: &'static str,
     request_body_hash: [u8; 32],
     envelope_hash: [u8; 32],
     provider_trust_state: &'static str,
     provider_trust_positive: bool,
     development_tls_bypass: bool,
+}
+
+pub(crate) struct Event {
+    pub(crate) id: u32,
+    pub(crate) target: provider::RequestTarget,
+    pub(crate) kind: EventKind,
+}
+
+pub(crate) enum EventKind {
+    Answer(String),
+    Error(FixedLine),
 }
 
 impl ProviderRequestEnvelope {
@@ -186,10 +203,22 @@ impl OpenAiState {
     }
 }
 
-pub fn submit_request(prompt: &str, runtime: ui::RuntimeStatus) -> Result<u32, SubmitError> {
+pub(crate) const fn model() -> &'static str {
+    MODEL
+}
+
+pub fn submit_request(
+    prompt: &str,
+    max_output_tokens: u16,
+    target: provider::RequestTarget,
+    runtime: ui::RuntimeStatus,
+) -> Result<u32, SubmitError> {
     let prompt = prompt.trim();
     if prompt.is_empty() {
         return Err(SubmitError::Empty);
+    }
+    if !(1..=MAX_OUTPUT_TOKENS).contains(&max_output_tokens) {
+        return Err(SubmitError::InvalidMaxOutput);
     }
 
     let mut state = STATE.lock();
@@ -199,9 +228,11 @@ pub fn submit_request(prompt: &str, runtime: ui::RuntimeStatus) -> Result<u32, S
 
     let id = state.next_id;
     state.next_id = state.next_id.wrapping_add(1).max(1);
-    let body = build_request_body(prompt);
+    let body = build_request_body(prompt, max_output_tokens);
     let envelope = build_provider_request_envelope(
         id,
+        max_output_tokens,
+        target,
         hash_bytes(body.as_bytes()),
         provider_trust::snapshot(),
     );
@@ -214,6 +245,8 @@ pub fn submit_request(prompt: &str, runtime: ui::RuntimeStatus) -> Result<u32, S
         phase_started_ms: now_ms(),
         envelope,
         envelope_event_id,
+        body,
+        target,
         runtime,
     });
     state.last_request_id = Some(id);
@@ -232,7 +265,7 @@ pub fn submit_request(prompt: &str, runtime: ui::RuntimeStatus) -> Result<u32, S
     Ok(id)
 }
 
-pub fn poll() -> Option<FixedLine> {
+pub fn poll() -> Option<Event> {
     let now = now_ms();
     let (phase, phase_started_ms, address) = {
         let state = STATE.lock();
@@ -281,7 +314,9 @@ pub fn poll() -> Option<FixedLine> {
                 TcpAction::None => None,
                 TcpAction::Event(line) => Some(line),
                 TcpAction::StartHttps {
-                    prompt,
+                    id,
+                    target,
+                    body,
                     envelope,
                     envelope_event_id,
                     runtime,
@@ -294,25 +329,21 @@ pub fn poll() -> Option<FixedLine> {
                         .last_event
                         .set_from_bytes(b"OPENAI DIRECT: TLS HANDSHAKE STARTED");
                     drop(state);
-                    let result = perform_https_request(
-                        prompt.as_str(),
-                        envelope,
-                        envelope_event_id,
-                        runtime,
-                    );
+                    let result =
+                        perform_https_request(body.as_str(), envelope, envelope_event_id, runtime);
                     net::tcp_abort();
                     let mut state = STATE.lock();
                     match result {
                         HttpsResult::Answer(answer) => {
-                            let mut line = FixedLine::empty();
-                            let _ = write!(line, "OPENAI: {}", answer.as_str());
-                            serial::write_fmt(format_args!(
-                                "openai: response text: {}\r\n",
-                                answer.as_str()
-                            ));
-                            state.last_event = line;
+                            state
+                                .last_event
+                                .set_from_bytes(b"OPENAI DIRECT: RESPONSE COMPLETED");
                             state.pending = None;
-                            Some(line)
+                            Some(Event {
+                                id,
+                                target,
+                                kind: EventKind::Answer(answer),
+                            })
                         }
                         HttpsResult::Status(status, detail) => {
                             let mut line = FixedLine::empty();
@@ -320,7 +351,11 @@ pub fn poll() -> Option<FixedLine> {
                             state.last_error = line;
                             state.last_event = line;
                             state.pending = None;
-                            Some(line)
+                            Some(Event {
+                                id,
+                                target,
+                                kind: EventKind::Error(line),
+                            })
                         }
                         HttpsResult::Error(error) => complete_error(&mut state, error),
                     }
@@ -345,9 +380,11 @@ pub fn snapshot() -> Snapshot {
 
 enum TcpAction {
     None,
-    Event(FixedLine),
+    Event(Event),
     StartHttps {
-        prompt: FixedLine,
+        id: u32,
+        target: provider::RequestTarget,
+        body: String,
         envelope: ProviderRequestEnvelope,
         envelope_event_id: event_log::EventId,
         runtime: ui::RuntimeStatus,
@@ -358,13 +395,12 @@ fn handle_tcp_result(state: &mut OpenAiState, result: net::TcpConnectResult) -> 
     match result {
         net::TcpConnectResult::Connected => {
             let Some(pending) = state.pending.as_ref() else {
-                return TcpAction::Event(
-                    complete_error(state, b"OPENAI DIRECT REQUEST ENVELOPE MISSING")
-                        .unwrap_or_else(FixedLine::empty),
-                );
+                return TcpAction::None;
             };
             TcpAction::StartHttps {
-                prompt: state.last_prompt,
+                id: pending.id,
+                target: pending.target,
+                body: pending.body.clone(),
                 envelope: pending.envelope,
                 envelope_event_id: pending.envelope_event_id,
                 runtime: pending.runtime,
@@ -382,27 +418,36 @@ fn handle_tcp_result(state: &mut OpenAiState, result: net::TcpConnectResult) -> 
             state.last_event = line;
             TcpAction::None
         }
-        net::TcpConnectResult::NetworkUnavailable => TcpAction::Event(
+        net::TcpConnectResult::NetworkUnavailable => {
             complete_error(state, b"OPENAI DIRECT NETWORK UNAVAILABLE")
-                .unwrap_or_else(FixedLine::empty),
-        ),
-        net::TcpConnectResult::NetworkUnconfigured => TcpAction::Event(
+                .map(TcpAction::Event)
+                .unwrap_or(TcpAction::None)
+        }
+        net::TcpConnectResult::NetworkUnconfigured => {
             complete_error(state, b"OPENAI DIRECT NETWORK UNCONFIGURED")
-                .unwrap_or_else(FixedLine::empty),
-        ),
-        net::TcpConnectResult::ConnectError => TcpAction::Event(
-            complete_error(state, b"OPENAI DIRECT TCP ERROR").unwrap_or_else(FixedLine::empty),
-        ),
+                .map(TcpAction::Event)
+                .unwrap_or(TcpAction::None)
+        }
+        net::TcpConnectResult::ConnectError => complete_error(state, b"OPENAI DIRECT TCP ERROR")
+            .map(TcpAction::Event)
+            .unwrap_or(TcpAction::None),
     }
 }
 
-fn complete_error(state: &mut OpenAiState, message: &[u8]) -> Option<FixedLine> {
+fn complete_error(state: &mut OpenAiState, message: &[u8]) -> Option<Event> {
+    let pending = state.pending.as_ref()?;
+    let id = pending.id;
+    let target = pending.target;
     let mut line = FixedLine::empty();
     line.set_from_bytes(message);
     state.last_error = line;
     state.last_event = line;
     state.pending = None;
-    Some(line)
+    Some(Event {
+        id,
+        target,
+        kind: EventKind::Error(line),
+    })
 }
 
 fn phase_name(phase: Phase) -> &'static str {
@@ -420,14 +465,22 @@ fn now_ms() -> u64 {
 
 fn build_provider_request_envelope(
     request_id: u32,
+    max_output_tokens: u16,
+    target: provider::RequestTarget,
     request_body_hash: [u8; 32],
     trust: provider_trust::Snapshot,
 ) -> ProviderRequestEnvelope {
     let provider_trust_state = trust.state.as_protocol();
     let provider_trust_positive = provider_trust_positive(trust.state);
     let development_tls_bypass = trust.development_bypass;
+    let source_method = match target {
+        provider::RequestTarget::Conversation => "ask",
+        provider::RequestTarget::ProgramWorkspace => "program.ask",
+    };
     let envelope_hash = provider_request_envelope_hash(
         request_id,
+        max_output_tokens,
+        source_method,
         request_body_hash,
         provider_trust_state,
         provider_trust_positive,
@@ -436,6 +489,8 @@ fn build_provider_request_envelope(
 
     ProviderRequestEnvelope {
         request_id,
+        max_output_tokens,
+        source_method,
         request_body_hash,
         envelope_hash,
         provider_trust_state,
@@ -455,6 +510,8 @@ fn provider_trust_positive(state: provider_trust::TrustState) -> bool {
 
 fn provider_request_envelope_hash(
     request_id: u32,
+    max_output_tokens: u16,
+    source_method: &'static str,
     request_body_hash: [u8; 32],
     provider_trust_state: &'static str,
     provider_trust_positive: bool,
@@ -472,7 +529,7 @@ fn provider_request_envelope_hash(
     hash_field(&mut hash, "persistence", "none");
     hash_field(&mut hash, "status", "local_prewrite_envelope");
     hash_field(&mut hash, "provider_write", "not_attempted");
-    hash_field(&mut hash, "source.method", "ask");
+    hash_field(&mut hash, "source.method", source_method);
     hash_field(&mut hash, "source.capability", "cap.provider.request");
     hash_field(&mut hash, "source.risk", "export");
     hash_field(&mut hash, "source.code_path", "seed-kernel/src/openai.rs");
@@ -493,7 +550,7 @@ fn provider_request_envelope_hash(
     hash_field(
         &mut hash,
         "request_body.max_output_tokens",
-        format!("{}", MAX_OUTPUT_TOKENS).as_str(),
+        format!("{}", max_output_tokens).as_str(),
     );
     hash_field(&mut hash, "request_body.store", "false");
     hash_field(
@@ -560,7 +617,9 @@ fn hash_hash_field(hash: &mut Sha256, name: &str, value: [u8; 32]) {
 fn emit_provider_request_envelope(envelope: ProviderRequestEnvelope, _runtime: ui::RuntimeStatus) {
     serial::write_raw_str("OPENAI_PROVIDER_REQUEST_ENVELOPE {\"schema\":\"raios.provider_request_envelope.v0\",\"id\":\"provider_request_envelope.current_boot.");
     serial::write_raw_fmt(format_args!("{:08}", envelope.request_id));
-    serial::write_raw_str("\",\"scope\":\"current_boot\",\"classification\":\"local_only\",\"persistence\":\"none\",\"status\":\"local_prewrite_envelope\",\"provider_write\":\"not_attempted\",\"source\":{\"method\":\"ask\",\"capability\":\"cap.provider.request\",\"risk\":\"export\",\"code_path\":\"seed-kernel/src/openai.rs\"},\"provider\":{\"selected\":\"OPENAI\",\"route\":\"OPENAI DIRECT\",\"host\":\"");
+    serial::write_raw_str("\",\"scope\":\"current_boot\",\"classification\":\"local_only\",\"persistence\":\"none\",\"status\":\"local_prewrite_envelope\",\"provider_write\":\"not_attempted\",\"source\":{\"method\":\"");
+    serial::write_raw_str(envelope.source_method);
+    serial::write_raw_str("\",\"capability\":\"cap.provider.request\",\"risk\":\"export\",\"code_path\":\"seed-kernel/src/openai.rs\"},\"provider\":{\"selected\":\"OPENAI\",\"route\":\"OPENAI DIRECT\",\"host\":\"");
     serial::write_raw_str(API_HOST);
     serial::write_raw_str("\",\"port\":");
     serial::write_raw_fmt(format_args!("{}", API_PORT));
@@ -569,7 +628,7 @@ fn emit_provider_request_envelope(envelope: ProviderRequestEnvelope, _runtime: u
     serial::write_raw_str("\",\"model\":\"");
     serial::write_raw_str(MODEL);
     serial::write_raw_str("\"},\"request_body\":{\"schema\":\"openai.responses.request.redacted.v0\",\"user_prompt\":\"present_redacted\",\"max_output_tokens\":");
-    serial::write_raw_fmt(format_args!("{}", MAX_OUTPUT_TOKENS));
+    serial::write_raw_fmt(format_args!("{}", envelope.max_output_tokens));
     serial::write_raw_str(
         ",\"store\":false,\"context_attached_to_provider_body\":false,\"body_sha256\":",
     );
@@ -1146,13 +1205,13 @@ fn write_raw_context_hashes(context: event_log::ProviderContextHashes) {
 }
 
 enum HttpsResult {
-    Answer(FixedLine),
+    Answer(String),
     Status(u16, FixedLine),
     Error(&'static [u8]),
 }
 
 fn perform_https_request(
-    prompt: &str,
+    request_body: &str,
     envelope: ProviderRequestEnvelope,
     envelope_event_id: event_log::EventId,
     runtime: ui::RuntimeStatus,
@@ -1229,8 +1288,7 @@ fn perform_https_request(
         }
     }
 
-    let body = build_request_body(prompt);
-    if hash_bytes(body.as_bytes()) != envelope.request_body_hash {
+    if hash_bytes(request_body.as_bytes()) != envelope.request_body_hash {
         return HttpsResult::Error(b"OPENAI DIRECT REQUEST ENVELOPE BODY HASH MISMATCH");
     }
     record_positive_provider_context_bindings(envelope, envelope_event_id, runtime, trust);
@@ -1274,11 +1332,13 @@ fn perform_https_request(
 
     if !authorization_written
         || tls.write_all(b"Content-Type: application/json\r\nContent-Length: ").is_err()
-        || tls.write_all(format!("{}", body.len()).as_bytes()).is_err()
+        || tls
+            .write_all(format!("{}", request_body.len()).as_bytes())
+            .is_err()
         || tls
             .write_all(b"\r\nAccept: application/json\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n")
             .is_err()
-        || tls.write_all(body.as_bytes()).is_err()
+        || tls.write_all(request_body.as_bytes()).is_err()
         || tls.flush().is_err()
     {
         return HttpsResult::Error(b"OPENAI DIRECT HTTPS WRITE FAILED");
@@ -1306,13 +1366,15 @@ fn perform_https_request(
         None => return HttpsResult::Error(b"OPENAI DIRECT HTTP PARSE FAILED"),
     };
     let body = decoded_body(&response, body_start);
+    match extract_json_string_after(&body, 0, "status").as_deref() {
+        Some("completed") => {}
+        Some(_) => return HttpsResult::Error(b"OPENAI DIRECT RESPONSE INCOMPLETE"),
+        None => return HttpsResult::Error(b"OPENAI DIRECT RESPONSE STATUS MISSING"),
+    }
     let Some(answer) = extract_output_text(&body) else {
         return HttpsResult::Error(b"OPENAI DIRECT RESPONSE PARSE FAILED");
     };
-
-    let mut line = FixedLine::empty();
-    line.set_from_bytes(answer.as_bytes());
-    HttpsResult::Answer(line)
+    HttpsResult::Answer(answer)
 }
 
 fn build_http_preamble() -> String {
@@ -1340,14 +1402,14 @@ fn provider_credential_usable() -> bool {
     }
 }
 
-fn build_request_body(prompt: &str) -> String {
+fn build_request_body(prompt: &str, max_output_tokens: u16) -> String {
     let mut body = String::new();
     body.push_str("{\"model\":\"");
     body.push_str(MODEL);
     body.push_str("\",\"input\":\"");
     push_json_string(&mut body, prompt);
     body.push_str("\",\"max_output_tokens\":");
-    body.push_str(format!("{}", MAX_OUTPUT_TOKENS).as_str());
+    body.push_str(format!("{}", max_output_tokens).as_str());
     body.push_str(",\"store\":false}");
     body
 }

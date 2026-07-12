@@ -189,6 +189,72 @@ function Send-QemuMonitorCommand {
     }
 }
 
+function Send-QemuAbsolutePointerClick {
+    param(
+        [ValidateRange(0, 32767)][int]$X,
+        [ValidateRange(0, 32767)][int]$Y
+    )
+
+    if ($QmpTcpPort -le 0) {
+        throw "QEMU QMP is unavailable for profile '$Profile'"
+    }
+    $client = [System.Net.Sockets.TcpClient]::new()
+    try {
+        $client.Connect("127.0.0.1", $QmpTcpPort)
+        $client.ReceiveTimeout = 4000
+        $client.SendTimeout = 4000
+        $stream = $client.GetStream()
+        $reader = [System.IO.StreamReader]::new($stream, [System.Text.Encoding]::UTF8, $false, 4096, $true)
+        $writer = [System.IO.StreamWriter]::new($stream, [System.Text.UTF8Encoding]::new($false), 4096, $true)
+        $writer.NewLine = "`n"
+        $writer.AutoFlush = $true
+
+        $greeting = $reader.ReadLine() | ConvertFrom-Json
+        if ($null -eq $greeting.QMP) {
+            throw "QMP greeting was missing"
+        }
+        $writer.WriteLine('{"execute":"qmp_capabilities"}')
+        $capabilities = $reader.ReadLine() | ConvertFrom-Json
+        if ($null -ne $capabilities.error) {
+            throw "QMP capabilities failed: $($capabilities.error | ConvertTo-Json -Compress)"
+        }
+
+        $moveAndPress = [ordered]@{
+            execute = "input-send-event"
+            arguments = [ordered]@{
+                events = @(
+                    [ordered]@{ type = "abs"; data = [ordered]@{ axis = "x"; value = $X } },
+                    [ordered]@{ type = "abs"; data = [ordered]@{ axis = "y"; value = $Y } },
+                    [ordered]@{ type = "btn"; data = [ordered]@{ down = $true; button = "left" } }
+                )
+            }
+        } | ConvertTo-Json -Compress -Depth 8
+        $writer.WriteLine($moveAndPress)
+        $pressed = $reader.ReadLine() | ConvertFrom-Json
+        if ($null -ne $pressed.error) {
+            throw "QMP pointer press failed: $($pressed.error | ConvertTo-Json -Compress)"
+        }
+
+        Start-Sleep -Milliseconds 150
+        $release = [ordered]@{
+            execute = "input-send-event"
+            arguments = [ordered]@{
+                events = @(
+                    [ordered]@{ type = "btn"; data = [ordered]@{ down = $false; button = "left" } }
+                )
+            }
+        } | ConvertTo-Json -Compress -Depth 8
+        $writer.WriteLine($release)
+        $released = $reader.ReadLine() | ConvertFrom-Json
+        if ($null -ne $released.error) {
+            throw "QMP pointer release failed: $($released.error | ConvertTo-Json -Compress)"
+        }
+    }
+    finally {
+        $client.Dispose()
+    }
+}
+
 function Save-QemuScreendump {
     param([string]$Name)
 

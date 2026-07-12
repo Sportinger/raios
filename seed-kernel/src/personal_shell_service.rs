@@ -6,10 +6,12 @@
 use alloc::vec::Vec;
 use raios_core::{
     personal_shell_abi::{
-        validate_invocation_pair, PersonalShellContext, PersonalShellInput, CONTEXT_LEN,
-        MAX_INPUT_LEN,
+        validate_invocation_pair, validate_program_invocation_pair, PersonalShellContext,
+        PersonalShellInput, PersonalShellProgramContext, CONTEXT_LEN, MAX_INPUT_LEN,
+        MAX_PROGRAM_CONTEXT_LEN,
     },
     ui_frame::Viewport,
+    ui_program::{Program, ProgramState},
 };
 use spin::Mutex;
 
@@ -128,13 +130,51 @@ pub(crate) fn invoke_current_boot_proof(
         return rejected("invocation_packet_invalid");
     }
 
-    from_runtime(wasm_runtime::run_personal_shell_proof(
+    invoke_packet(
         &context_bytes,
         input_bytes.as_bytes(),
         Viewport {
             width: context.viewport_width,
             height: context.viewport_height,
         },
+    )
+}
+
+/// Invokes the same signed shell artifact with one core-validated RUIP program
+/// and its current core-owned state. The packet is immutable and current-boot;
+/// the guest receives no state-write or loader authority.
+pub(crate) fn invoke_current_boot_program(
+    invocation_id: u32,
+    viewport: Viewport,
+    program: &Program,
+    state: ProgramState,
+    input: &PersonalShellInput,
+) -> PersonalShellAttempt {
+    let packet =
+        match PersonalShellProgramContext::new(invocation_id, viewport, program.clone(), state) {
+            Ok(packet) => packet,
+            Err(_) => return rejected("program_context_invalid"),
+        };
+    if validate_program_invocation_pair(&packet, input).is_err() {
+        return rejected("invocation_id_mismatch");
+    }
+    let context_bytes = packet.encode();
+    let input_bytes = input.encode();
+    if context_bytes.len() > MAX_PROGRAM_CONTEXT_LEN || input_bytes.as_bytes().len() > MAX_INPUT_LEN
+    {
+        return rejected("invocation_packet_out_of_bounds");
+    }
+    if PersonalShellProgramContext::decode(&context_bytes).is_err()
+        || PersonalShellInput::decode(input_bytes.as_bytes()).is_err()
+    {
+        return rejected("invocation_packet_invalid");
+    }
+    invoke_packet(&context_bytes, input_bytes.as_bytes(), viewport)
+}
+
+fn invoke_packet(context: &[u8], input: &[u8], viewport: Viewport) -> PersonalShellAttempt {
+    from_runtime(wasm_runtime::run_personal_shell_proof(
+        context, input, viewport,
     ))
 }
 

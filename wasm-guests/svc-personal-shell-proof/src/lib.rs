@@ -1,13 +1,17 @@
 #![no_std]
+#![cfg_attr(test, allow(dead_code))]
+
+mod ui_program;
 
 #[cfg(not(test))]
 use core::panic::PanicInfo;
 
 const CONTEXT_LEN: usize = 32;
+const MAX_PROGRAM_CONTEXT_LEN: usize = 32 + 16 * 8 + 16 * 1024;
 const INPUT_HEADER_LEN: usize = 16;
 const INPUT_EVENT_LEN: usize = 16;
 const MAX_INPUT_LEN: usize = INPUT_HEADER_LEN + 64 * INPUT_EVENT_LEN;
-const FRAME_CAPACITY: usize = 512;
+const FRAME_CAPACITY: usize = 16 * 1024;
 
 // These are test-only sanitized key codes. Every other event, including an
 // empty input packet, keeps the proof guest in its normal render mode.
@@ -50,15 +54,14 @@ pub extern "C" fn raios_service_main() -> i32 {
     let height = packed_viewport as u32;
 
     let context_len = unsafe { ui_context_len() };
-    if context_len != CONTEXT_LEN as i32 {
+    if context_len < CONTEXT_LEN as i32 || context_len > MAX_PROGRAM_CONTEXT_LEN as i32 {
         return -1;
     }
-    let mut context = [0u8; CONTEXT_LEN];
-    if unsafe { ui_context_read(context.as_mut_ptr() as i32, CONTEXT_LEN as i32) }
-        != CONTEXT_LEN as i32
-    {
+    let mut context = [0u8; MAX_PROGRAM_CONTEXT_LEN];
+    if unsafe { ui_context_read(context.as_mut_ptr() as i32, context_len) } != context_len {
         return -2;
     }
+    let context = &context[..context_len as usize];
 
     let input_len = unsafe { ui_input_len() };
     if input_len < INPUT_HEADER_LEN as i32 || input_len > MAX_INPUT_LEN as i32 {
@@ -70,7 +73,31 @@ pub extern "C" fn raios_service_main() -> i32 {
     }
 
     let input = &input[..input_len as usize];
-    if !valid_packets(&context, input, width, height) {
+    if !valid_input_packet(input)
+        || width == 0
+        || height == 0
+        || width > u16::MAX as u32
+        || height > u16::MAX as u32
+    {
+        return -2;
+    }
+
+    let mut frame = [0u8; FRAME_CAPACITY];
+    if context.get(..4) == Some(b"RAPP") {
+        if read_u32(input, 8) != read_u32(context, 12) {
+            return -2;
+        }
+        let Some(frame_len) =
+            ui_program::build_frame(context, input, width as u16, height as u16, &mut frame)
+        else {
+            return -3;
+        };
+        return unsafe { ui_frame_submit(frame.as_ptr() as i32, frame_len as i32) };
+    }
+    let Ok(context): Result<&[u8; CONTEXT_LEN], _> = context.try_into() else {
+        return -2;
+    };
+    if read_u32(input, 8) != read_u32(context, 8) || !valid_proof_context(context, width, height) {
         return -2;
     }
 
@@ -81,7 +108,6 @@ pub extern "C" fn raios_service_main() -> i32 {
         _ => {}
     }
 
-    let mut frame = [0u8; FRAME_CAPACITY];
     let Some(frame_len) = build_frame(
         &mut frame,
         width as u16,
@@ -139,7 +165,7 @@ fn exhaust_fuel() -> ! {
     }
 }
 
-fn valid_packets(context: &[u8; CONTEXT_LEN], input: &[u8], width: u32, height: u32) -> bool {
+fn valid_proof_context(context: &[u8; CONTEXT_LEN], width: u32, height: u32) -> bool {
     if width == 0
         || height == 0
         || width > u16::MAX as u32
@@ -151,10 +177,18 @@ fn valid_packets(context: &[u8; CONTEXT_LEN], input: &[u8], width: u32, height: 
         || read_u16(context, 14) != height as u16
         || read_u16(context, 22) & !0b11 != 0
         || read_u32(context, 28) != 0
+    {
+        return false;
+    }
+
+    true
+}
+
+fn valid_input_packet(input: &[u8]) -> bool {
+    if input.len() < INPUT_HEADER_LEN
         || input[..4] != *b"RINP"
         || read_u16(input, 4) != 1
         || read_u16(input, 6) != INPUT_HEADER_LEN as u16
-        || read_u32(input, 8) != read_u32(context, 8)
         || read_u16(input, 14) != 0
     {
         return false;

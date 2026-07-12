@@ -1,3 +1,4 @@
+use alloc::string::String;
 use core::fmt::{self, Write};
 use core::str;
 
@@ -9,8 +10,8 @@ use crate::{
         begin_response, end_response, json_event_id, json_opt_str, json_str, method_eq,
         method_head_eq, raw, raw_bool, raw_line,
     },
-    event_log, input, marvell_wifi_pcie, owner_key, provider, provider_config, serial,
-    system_status, ui, wifi,
+    event_log, input, marvell_wifi_pcie, owner_key, program_workspace, provider, provider_config,
+    serial, system_status, ui, wifi,
 };
 
 const COMMAND_WIDTH: usize = 4096;
@@ -1090,6 +1091,62 @@ pub fn write_event(args: fmt::Arguments<'_>) {
     }
 }
 
+pub fn write_provider_answer(answer: &str) {
+    serial::write_raw_str("OPENAI: ");
+    serial::write_raw_str(answer);
+    serial::write_raw_str("\r\n");
+
+    let mut output = ConsoleLine::empty();
+    let _ = output.write_str("OPENAI: ");
+    let _ = output.write_str(answer);
+    let mut state = CONSOLE.lock();
+    state.push_line(output);
+    push_chat_chunks(&mut state, ChatSpeaker::Assistant, answer);
+}
+
+pub fn write_program_outcome(request_id: u32, outcome: program_workspace::IntakeOutcome) {
+    let mut line = ConsoleLine::empty();
+    if outcome.accepted {
+        let snapshot = outcome.snapshot;
+        let _ = write!(
+            line,
+            "PROGRAM DRAFT READY request={} revision={} bytes={} sha256:",
+            request_id, snapshot.revision, snapshot.byte_len
+        );
+        if let Some(hash) = snapshot.sha256 {
+            for byte in hash {
+                let _ = write!(line, "{:02x}", byte);
+            }
+        }
+        let _ = line.write_str(" current_boot inert");
+    } else {
+        let _ = write!(
+            line,
+            "PROGRAM DRAFT REJECTED request={} reason={}",
+            request_id, outcome.reason
+        );
+    }
+    serial::write_line(line.as_str());
+    let mut state = CONSOLE.lock();
+    state.push_line(line);
+    state.push_chat(ChatSpeaker::System, line);
+}
+
+fn push_chat_chunks(state: &mut ConsoleState, speaker: ChatSpeaker, text: &str) {
+    let mut line = ConsoleLine::empty();
+    for ch in text.chars() {
+        if line.len.saturating_add(ch.len_utf8()) > line.bytes.len() {
+            state.push_chat(speaker, line);
+            line = ConsoleLine::empty();
+        }
+        let mut encoded = [0u8; 4];
+        let _ = line.write_str(ch.encode_utf8(&mut encoded));
+    }
+    if line.len != 0 || text.is_empty() {
+        state.push_chat(speaker, line);
+    }
+}
+
 fn process_input(input: input::ConsoleInput, runtime: ui::RuntimeStatus) -> bool {
     let action = {
         let mut state = CONSOLE.lock();
@@ -1224,6 +1281,7 @@ fn execute(command_line: CommandLine, runtime: ui::RuntimeStatus) {
         "ownerkey" => command_owner_key_status(),
         "setup" => command_setup_enter(),
         "ask" => command_ask(command_line.arguments_after_command(), runtime),
+        "program.ask" => command_program_ask(command_line.arguments_after_command(), runtime),
         _ => write_output(format_args!(
             "UNKNOWN COMMAND: {}",
             command_line.trimmed_str()
@@ -1233,7 +1291,7 @@ fn execute(command_line: CommandLine, runtime: ui::RuntimeStatus) {
 
 fn command_help() {
     write_output(format_args!(
-        "COMMANDS: help status devices log provider openai wifi ownerkey setup ask <text>"
+        "COMMANDS: help status devices log provider openai wifi ownerkey setup ask <text> program.ask <request>"
     ));
     write_output(format_args!(
         "SETUP: key 7 starts WiFi firmware bring-up once; key 8 starts live scan or self-test fallback"
@@ -2006,7 +2064,18 @@ fn command_ask(prompt: &str, runtime: ui::RuntimeStatus) {
 }
 
 fn submit_chat(prompt: ConsoleLine, runtime: ui::RuntimeStatus) {
-    submit_prompt(prompt.trimmed_str(), runtime);
+    let prompt = prompt.trimmed_str();
+    if prompt == "/build" {
+        submit_program_prompt("", runtime);
+    } else if let Some(request) = prompt.strip_prefix("/build ") {
+        submit_program_prompt(request.trim(), runtime);
+    } else {
+        submit_prompt(prompt, runtime);
+    }
+}
+
+fn command_program_ask(request: &str, runtime: ui::RuntimeStatus) {
+    submit_program_prompt(request, runtime);
 }
 
 fn submit_prompt(prompt: &str, runtime: ui::RuntimeStatus) {
@@ -2022,6 +2091,20 @@ fn submit_prompt(prompt: &str, runtime: ui::RuntimeStatus) {
         Err(provider::SubmitError::Empty) => {
             push_chat_args(ChatSpeaker::System, format_args!("ASK REQUIRES TEXT"));
             write_output(format_args!("ASK REQUIRES TEXT"));
+        }
+        Err(provider::SubmitError::UnsupportedModel) => {
+            push_chat_args(
+                ChatSpeaker::System,
+                format_args!("OPENAI MODEL NOT SUPPORTED"),
+            );
+            write_output(format_args!("OPENAI MODEL NOT SUPPORTED"));
+        }
+        Err(provider::SubmitError::InvalidMaxOutput) => {
+            push_chat_args(
+                ChatSpeaker::System,
+                format_args!("OPENAI MAX OUTPUT INVALID"),
+            );
+            write_output(format_args!("OPENAI MAX OUTPUT INVALID"));
         }
         Err(provider::SubmitError::MissingApiKey) => {
             push_chat_args(ChatSpeaker::System, format_args!("OPENAI REQUIRES API KEY"));
@@ -2046,6 +2129,98 @@ fn submit_prompt(prompt: &str, runtime: ui::RuntimeStatus) {
             ));
         }
     }
+}
+
+fn submit_program_prompt(request: &str, runtime: ui::RuntimeStatus) {
+    let request = request.trim();
+    if request.is_empty() {
+        push_chat_args(
+            ChatSpeaker::System,
+            format_args!("BUILD REQUIRES A PROGRAM DESCRIPTION"),
+        );
+        write_output(format_args!("BUILD REQUIRES A PROGRAM DESCRIPTION"));
+        return;
+    }
+
+    let prompt = program_authoring_prompt(request);
+    match provider::submit(provider::AgentRequest::program(prompt.as_str()), runtime) {
+        Ok(submitted) => {
+            push_chat_str(ChatSpeaker::User, request);
+            push_chat_args(
+                ChatSpeaker::System,
+                format_args!("PROGRAM DRAFT REQUEST {} STARTED", submitted.id),
+            );
+            write_output(format_args!(
+                "PROGRAM DRAFT REQUEST {} STARTED",
+                submitted.id
+            ));
+        }
+        Err(provider::SubmitError::Empty) => {
+            write_provider_status("BUILD REQUIRES A PROGRAM DESCRIPTION");
+        }
+        Err(provider::SubmitError::UnsupportedModel) => {
+            write_provider_status("OPENAI MODEL NOT SUPPORTED");
+        }
+        Err(provider::SubmitError::InvalidMaxOutput) => {
+            write_provider_status("OPENAI MAX OUTPUT INVALID");
+        }
+        Err(provider::SubmitError::MissingApiKey) => {
+            write_provider_status("OPENAI REQUIRES API KEY");
+        }
+        Err(provider::SubmitError::TrustDenied { state }) => {
+            push_chat_args(
+                ChatSpeaker::System,
+                format_args!("OPENAI TLS TRUST DENIED: {}", state),
+            );
+            write_output(format_args!("OPENAI TLS TRUST DENIED: {}", state));
+        }
+        Err(provider::SubmitError::Busy { route, id }) => {
+            push_chat_args(
+                ChatSpeaker::System,
+                format_args!("{} BUSY: REQUEST {} PENDING", route.as_str(), id),
+            );
+            write_output(format_args!(
+                "{} BUSY: REQUEST {} PENDING",
+                route.as_str(),
+                id
+            ));
+        }
+    }
+}
+
+fn write_provider_status(message: &str) {
+    push_chat_str(ChatSpeaker::System, message);
+    write_output(format_args!("{}", message));
+}
+
+fn program_authoring_prompt(request: &str) -> String {
+    let mut prompt = String::new();
+    let _ = write!(
+        prompt,
+        "Create one bounded raiOS UI program for this request: {request}\n\
+Return only the following line-oriented UTF-8 format, with no markdown or comments:\n\
+RAIOS_UI_SPEC_V1\n\
+state <signed-integer>\n\
+text <x> <y> <width> <height> \"label\"\n\
+display <x> <y> <width> <height> <zero-based-state-slot>\n\
+button <x> <y> <width> <height> <event-id> \"label\"\n\
+key <keycode> <modifiers> <event-id>\n\
+rule <event-id>\n\
+when <state-slot> <eq-or-ne> <signed-integer>\n\
+set <dst-slot> <signed-integer>\n\
+copy <dst-slot> <src-slot>\n\
+add|sub|mul|div <dst-slot> <left-slot> <right-slot>\n\
+muladd <dst-slot> <src-slot> <signed-multiplier> <signed-addend>\n\
+endrule\n\
+end\n\
+Repeat state/widgets/keys/rules as needed; when is optional and only valid inside a rule. \
+Every rule needs one or more actions. Every button/key event needs exactly one matching rule. \
+Use event ids 1..64, 1..16 state values, at most 64 widgets/keys, 128 rules, 2 when lines and 8 actions per rule. \
+Use nonzero rectangles, nonoverlapping buttons, labels of at most 64 UTF-8 bytes, and simple coordinates within 0..900 by 0..440. \
+Quoted labels may escape only backslash and quote. The final line must be end. \
+This is deterministic UI data only: no source code, markdown, tools, network, files, persistence, or capabilities."
+    );
+    prompt
 }
 
 fn yes_no(value: bool) -> &'static str {

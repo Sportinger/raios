@@ -54,6 +54,8 @@ pub mod structured_store;
 pub mod structured_store_partition;
 pub mod tpm2_commands;
 pub mod ui_frame;
+pub mod ui_program;
+pub mod ui_program_spec;
 
 /// Computes the SHA-256 digest for `bytes` and returns the raw 32-byte digest.
 pub fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {

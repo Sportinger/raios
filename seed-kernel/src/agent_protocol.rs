@@ -82,6 +82,10 @@ use crate::{
         emit_module_audit_rollback_write_policy, emit_module_audit_rollback_write_policy_selftest,
     },
     agent_protocol_policy::{emit_capability_denied, record_denial, record_read},
+    agent_protocol_program::{
+        emit_finalize as emit_program_finalize, emit_submit_chunk as emit_program_submit_chunk,
+        emit_workspace as emit_program_workspace,
+    },
     agent_protocol_provider::{
         emit_provider_context_export_authorized_selftest,
         emit_provider_context_export_authorized_selftest_smuggle,
@@ -457,6 +461,9 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("echo.invoke_fuel_starved", Exact, [], [route!("echo.invoke_fuel_starved")], MethodAction::Read0(echo_service::emit_invoke_fuel_starved)),
     method!("module.submit_candidate_chunk", Head, [], [route!("module.submit_candidate_chunk")], MethodAction::ReadMethod(emit_submit_candidate_chunk)),
     method!("module.submit_candidate_finalize", Exact, [], [route!("module.submit_candidate_finalize")], MethodAction::Read0(emit_submit_candidate_finalize)),
+    method!("program.submit_chunk", Head, [], [route!("program.submit_chunk")], MethodAction::ReadMethod(emit_program_submit_chunk)),
+    method!("program.submit_finalize", Exact, [], [route!("program.submit_finalize")], MethodAction::Read0(emit_program_finalize)),
+    method!("program.workspace", Exact, [], [route!("program.workspace")], MethodAction::Read0(emit_program_workspace)),
     method!("module.submit_distribution_catalog_entry", Head, [], [route!("module.submit_distribution_catalog_entry")], MethodAction::ReadMethod(emit_submit_distribution_catalog_entry)),
     method!("module.submit_distribution_receiver_identity", Head, [], [route!("module.submit_distribution_receiver_identity")], MethodAction::ReadMethod(emit_submit_distribution_receiver_identity)),
     method!("module.submit_distribution_receiver_identity_evidence", Head, [], [route!("module.submit_distribution_receiver_identity_evidence")], MethodAction::ReadMethod(emit_submit_distribution_receiver_identity_evidence)),

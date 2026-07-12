@@ -51,6 +51,7 @@ mod agent_protocol_module_write_boundary_emit;
 mod agent_protocol_module_write_boundary_storage_layout;
 mod agent_protocol_module_write_boundary_write_policy;
 mod agent_protocol_policy;
+mod agent_protocol_program;
 mod agent_protocol_provider;
 mod agent_protocol_recovery;
 mod agent_protocol_recovery_artifact_reference;
@@ -137,6 +138,7 @@ mod openai_trust;
 mod owner_key;
 mod pci;
 mod personal_shell_service;
+mod program_workspace;
 mod provider;
 mod provider_config;
 mod provider_trust;
@@ -458,7 +460,21 @@ impl PeriodicTasks {
             self.provider.try_run(now_tsc, || {
                 if let Some(event) = provider::poll() {
                     let _route = event.route;
-                    console::write_event(format_args!("{}", event.line.as_str()));
+                    match event.kind {
+                        provider::EventKind::Answer(answer) => match event.target {
+                            provider::RequestTarget::Conversation => {
+                                console::write_provider_answer(answer.as_str());
+                            }
+                            provider::RequestTarget::ProgramWorkspace => {
+                                let outcome =
+                                    program_workspace::accept_provider_answer(event.id, answer);
+                                console::write_program_outcome(event.id, outcome);
+                            }
+                        },
+                        provider::EventKind::Error(error) => {
+                            console::write_event(format_args!("{}", error));
+                        }
+                    }
                     status_ui.render_forced(uptime_ms(), *runtime_status);
                 }
             });

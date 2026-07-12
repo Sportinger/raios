@@ -15,7 +15,7 @@ vocabulary).
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-11.
+Last updated: 2026-07-12.
 
 Current milestone: **M10 + M11 IN PROGRESS** — both have their grants-nothing
 mechanism foundations committed; the substantive remainder of each is
@@ -33,6 +33,18 @@ may proceed while the next hardware task remains positive Surface association,
 `PORT_RELEASE`, RX/TX, and DHCP proof; no provider-access or durable-secret
 claim is opened by I0.
 
+**AI-authored current-boot program loop complete (2026-07-12):** Genesis
+`/build` now sends a real evidence-bound `program.ask`, accepts only bounded
+typed `RAIOS_UI_SPEC_V1`, compiles locally to canonical RUIP, retains the draft
+inert by hash, and requires physical approval before the signed six-import
+`svc.user.shell` Wasm engine runs it. Live pinned-SPKI OpenAI authoring and
+same-boot activation are proven; focused key-free Genesis regression
+`shadow-20260712-025218-6208.json` passes 252/252. This opens no durable install,
+external arbitrary Wasm, file/network/secret access, promotion or rollback
+authority. The next product slice here is durable program installation only
+after its persistence/evidence/rollback gates are designed; the active hardware
+cursor remains the read-only G7 identity tripwire.
+
 **M13/Secret Vault contract accepted (C0/G5.0, 2026-07-10):** ADR 0012
 fixes the dedicated internal-partition boundary, crash-consistent structured
 store, exact cryptographic pins, RR1 recovery wrapper, TPM evidence gate, and
@@ -41,14 +53,17 @@ provider slice has proven RR1 recovery unlock there; physical-target support,
 production durable-secret persistence, TPM auto-unlock, and Vault-VMK sealing
 remain unproven. ADR 0007 owner sealing is unaffected.
 
-**Current Genesis/Vault cursor:** I4/G6 is complete for the exact QEMU release
-candidate. Physical F12 outside the personal shell opens core Recovery; the final six
-VM profiles, network-preservation run, visual acceptance, 405 host tests, format and
-secret checks are green. I5/G7 is stopped at its read-only prerequisite:
-`Get-Disk -Number 2` returned no `MSFT_Disk` object
-(`G7_TRIPWIRE_DISK_2_ABSENT`) and the ignored G0 fingerprint is absent. No physical
-write is permitted. Physical boot/persistence, TPM auto-unlock, live Surface network
-and live provider claims remain closed.
+**Current Genesis/Vault cursor:** I4/G6 and the current-boot AI program loop are
+complete for QEMU. The owner reports the USB stick has been found, but it was not
+enumerated or touched in the program session. I5/G7 therefore resumes only at a
+read-only candidate/identity/fingerprint preflight; never assume the former Disk 2
+number and never recreate a missing fingerprint. The exact QEMU G6 release
+candidate and its final six profiles remain green; physical F12 outside the
+personal shell opens core Recovery. The historical last probe found no Disk 2 and
+no G0 fingerprint, so no physical write is permitted until both are re-established
+read-only. Physical boot/persistence, TPM auto-unlock and live Surface network remain
+closed. Live pinned provider access is proven only for the current-boot UI-program
+slice; broader provider authority remains closed.
 
 **I4/G6 final evidence (2026-07-11):** structured-store
 `shadow-20260711-024108-8004.json` 13/13, secret-vault

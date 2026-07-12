@@ -24,17 +24,98 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+VM failure classification (2026-07-12, first AI-program Genesis UI profile) -
+report `release/vm-reports/shadow-20260712-015318-7240.json` contains zero guest
+predicates and failed during image packaging with exit code 101; QEMU PID, args,
+hardware profile, serial hash and base-image hash are absent. Verdict:
+`host-transport/setup` - no RUIP intake, personal-shell Wasm execution, physical
+approval or Genesis behavior ran. Retry is forbidden until the packaging failure
+is reproduced directly and repaired or classified more precisely.
+
+VM failure classification (2026-07-12, second AI-program Genesis UI profile) -
+report `release/vm-reports/shadow-20260712-015657-23860.json` passed 187 of 188
+predicates and failed `genesis-ui:program-workspace-empty`; serial showed
+`UNKNOWN COMMAND: program.workspace`. Verdict: `host-transport/setup` - the
+lane-built kernel contains the registered method, but `package-stage0.ps1` ignored
+the lane `CARGO_TARGET_DIR` and copied the stale default-target kernel into the
+image. No RUIP delivery or execution ran. Retry is forbidden until package/build
+resolve the same target directory and the packaged kernel hash matches that build.
+
+VM failure classification (2026-07-12, third AI-program Genesis UI profile) -
+report `release/vm-reports/shadow-20260712-020921-25560.json` reached the new
+program path and failed only
+`genesis-ui:calculator-physical-approval-wasm-accepted`. The visual capture shows
+the retained calculator and its active `Approve + run program` button; all exact
+RUIP delivery, hash, current-boot workspace and malformed-input preservation
+checks before the click passed. Verdict: `host-transport/harness` - HMP
+`mouse_move` drives the emulated absolute tablet in its 0..32767 coordinate space,
+but the harness supplied 1920x1080 framebuffer pixels, so the click landed outside
+the button. No guest activation marker was emitted. Retry is forbidden until the
+button center is converted into tablet coordinates.
+
+VM failure classification (2026-07-12, fourth AI-program Genesis UI profile) -
+report `release/vm-reports/shadow-20260712-021438-3652.json` again failed only
+`genesis-ui:calculator-physical-approval-wasm-accepted` after all preceding
+workspace checks passed. The corrected numeric coordinates still produced no
+post-command USB input batch in the guest. Verdict: `host-transport/harness` -
+HMP `mouse_move` emits relative motion, while this profile deliberately exposes
+only the absolute `usb-tablet`; changing the HMP numbers cannot turn the event
+into absolute tablet input. No guest activation ran. Retry is forbidden until
+the harness uses QMP `input-send-event` with `abs` x/y values followed by a real
+left-button press/release.
+
+Live provider finding (2026-07-12, AI program authoring attempt 1) - the ignored,
+temporary key image booted with e1000/DHCP, established TLS 1.3, verified the
+fresh system-trusted OpenAI P-256 SPKI pin, emitted the redacted request envelope
+for `program.ask`, and wrote the HTTPS request. The returned hand-authored binary
+payload was correctly denied as `PROGRAM DRAFT REJECTED request=1
+reason=program_malformed`; no workspace replacement or execution occurred. This
+is `guest-behavior/external-output`, not a transport failure: requiring a model to
+manually encode canonical binary RUIP is not a reliable authoring boundary. The
+temporary serial log had SHA-256
+`ce9832b37a454e175c1668e9f83aff3f3d99e40833d3b1fc28827141e9cc193a`; the log,
+key image and isolated key-bearing target lane were deleted. The durable repair
+is a bounded typed text spec compiled by raiOS into the unchanged canonical RUIP,
+not weakening the parser or accepting malformed bytes.
+
+AI-authored current-boot UI programs verified (2026-07-12) - a user can now
+enter `/build <request>` in Genesis; raiOS sends a redacted, hash-bound
+`program.ask` through the existing direct provider path, accepts only the
+bounded `RAIOS_UI_SPEC_V1` text grammar (or the existing exact binary delivery
+path), compiles it locally through the typed `Program` model into canonical
+RUIP, retains only its hash-bound current-boot draft, and requires a physical
+pointer approval before the existing signed `svc.user.shell` engine runs it in
+a fresh metered Wasmi instance with exactly six UI imports. State is core-owned
+and commits only after an accepted guest frame; F12, trap and fuel exhaustion
+return to core Genesis. A same-boot live OpenAI run verified pinned-SPKI TLS,
+HTTPS write, `PROGRAM DRAFT READY` for a 168-byte counter with SHA-256
+`5c6e14acce43ce8f717c5a62a84e7541d2082438267fbe7089d0b3793d9ed44a`,
+then the matching physical-approval activation marker with `ui_only` and
+`wasm=true`; the redacted serial log SHA-256 was
+`7ecdac6e4abeab6bb5658f17cc4042ebc3edbaca43c21f35dfbc2e38682cbd35`
+and contained no Authorization header. The key image, key-bearing target lane
+and live log were deleted. Core tests pass 415/415. Focused key-free report
+`release/vm-reports/shadow-20260712-025218-6208.json` passes 252/252 and proves
+exact delivery/hash, malformed preservation, physical approval, Wasm inventory,
+real HID state changes through `12+30=42`, F12 removal, proof compatibility,
+secure-strip clipping, and trap/fuel fallback. This capability is deliberately
+UI-only and current-boot: no arbitrary native/Wasm intake, file/network/secret
+capability, durable install, persistence, promotion, rollback application or
+broad mutation is granted.
+
 Current exact next task (I5/G7 read-only presence/fingerprint tripwire after G6):
-recheck only whether Disk 2 exists and whether the ignored G0 fingerprint file exists.
-The latest read-only `Get-Disk -Number 2` returned no `MSFT_Disk` object
-(`G7_TRIPWIRE_DISK_2_ABSENT`), and the G0 fingerprint file is absent. Stop there: no
-physical write, format, repartition, replacement fingerprint or guessed identity is
-permitted. If both prerequisites later reappear, rerun the documented read-only
-identity/layout/hash preflight and require explicit physical-write scope before any
-I5/G7 handoff. Keep the exact G6 candidate and all Broker, SAFE, store, recovery and
-secret boundaries unchanged. Physical boot/persistence, TPM auto-unlock, positive
-Surface `LINK`/association/AID/`PORT_RELEASE`/RX/TX/DHCP and live provider access
-remain unproven and unclaimed.
+the owner reports that the USB stick has been found again, but this session did
+not enumerate or touch it. On the next explicit G7 run, first list disk candidates
+read-only, establish the exact device identity, and check for the ignored original
+G0 fingerprint. The last probe's Disk 2 number must not be assumed, and the earlier
+fingerprint was absent. Stop if either identity prerequisite is missing: no physical
+write, format, repartition, replacement fingerprint or guessed identity is permitted.
+Only after an exact read-only identity/layout/hash preflight may the owner grant a
+separate physical-write scope. Keep the program capability, G6 candidate, Broker,
+SAFE, store, recovery and secret boundaries unchanged. Durable program install,
+physical boot/persistence, TPM auto-unlock, and positive Surface association/link/
+`PORT_RELEASE`/RX/TX/DHCP remain unproven and unclaimed; live pinned provider access
+is now proven only for the current-boot UI-program slice above.
 
 I3 complete-history Broker foundation verified (2026-07-10) - a kernel composition
 agent can now obtain the complete ordered list of committed records from the same

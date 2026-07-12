@@ -408,7 +408,7 @@ pub(crate) fn event_to_console_input(event: InputEvent) -> Option<ConsoleInput> 
     keycode_to_ascii(code, shifted).map(ConsoleInput::Byte)
 }
 
-fn keycode_to_ascii(code: u16, shifted: bool) -> Option<u8> {
+pub(crate) fn keycode_to_ascii(code: u16, shifted: bool) -> Option<u8> {
     let byte = match code {
         2 => digit_ascii(b'1', b'!', shifted),
         3 => digit_ascii(b'2', b'@', shifted),

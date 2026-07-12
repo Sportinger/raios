@@ -1,4 +1,5 @@
 /target/
+/.cargo-home/
 /keys/
 /.cargo/
 **/*.log

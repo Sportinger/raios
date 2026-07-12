@@ -26,7 +26,13 @@ $BaseEspDir = Join-Path $RepoRoot "release\esp"
 $TempEspDir = $null
 $EspDir = $BaseEspDir
 $KernelProfileDir = if ($Profile -eq "release") { "release" } else { "debug" }
-$Kernel = Join-Path $RepoRoot "target\x86_64-seed\$KernelProfileDir\seed-kernel"
+$CargoTargetRoot = if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) {
+    Join-Path $RepoRoot "target"
+}
+else {
+    [IO.Path]::GetFullPath($env:CARGO_TARGET_DIR)
+}
+$Kernel = Join-Path $CargoTargetRoot "x86_64-seed\$KernelProfileDir\seed-kernel"
 $LimineConfig = Join-Path $RepoRoot "seed-kernel\limine\limine.conf"
 $BootConfig = Join-Path $EspDir "EFI\BOOT\limine.conf"
 $ImageTool = Join-Path $RepoRoot "scripts\make-fat32-image.py"

@@ -141,4 +141,10 @@ finally {
 }
 
 $profileDir = if ($Profile -eq "release") { "release" } else { "debug" }
-Write-Output "built target/x86_64-seed/$profileDir/seed-kernel"
+$targetRoot = if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) {
+    Join-Path $RepoRoot "target"
+}
+else {
+    [IO.Path]::GetFullPath($env:CARGO_TARGET_DIR)
+}
+Write-Output "built $(Join-Path $targetRoot "x86_64-seed\$profileDir\seed-kernel")"

@@ -12,6 +12,7 @@ param(
     [string]$SerialMode = "file",
     [int]$SerialTcpPort = 4555,
     [int]$MonitorTcpPort = 0,
+    [int]$QmpTcpPort = 0,
     [string]$Cpu = "",
     [ValidateSet("", "none", "e1000")]
     [string]$Nic = "",
@@ -162,6 +163,9 @@ else {
 if ($MonitorTcpPort -gt 0) {
     $qemuArgs += @("-monitor", "tcp:127.0.0.1:$MonitorTcpPort,server,nowait")
 }
+if ($QmpTcpPort -gt 0) {
+    $qemuArgs += @("-qmp", "tcp:127.0.0.1:$QmpTcpPort,server=on,wait=off")
+}
 
 $qemuArgs += @("-no-reboot")
 
@@ -173,4 +177,7 @@ if ($SerialMode -eq "tcp") {
 }
 if ($MonitorTcpPort -gt 0) {
     Write-Output "monitor tcp: 127.0.0.1:$MonitorTcpPort"
+}
+if ($QmpTcpPort -gt 0) {
+    Write-Output "qmp tcp: 127.0.0.1:$QmpTcpPort"
 }

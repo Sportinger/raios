@@ -9,6 +9,10 @@ use alloc::vec::Vec;
 use raios_core::personal_shell_abi::{
     PersonalShellContext, PersonalShellInput, SanitizedInputEvent,
 };
+use raios_core::{
+    ui_frame::Viewport,
+    ui_program::{DispatchOutcome, Program, ProgramState, RuntimeError, UiInput},
+};
 
 use crate::personal_shell_service::{
     self, PersonalShellAttempt, PersonalShellAttemptFrame, PersonalShellHealth,
@@ -40,6 +44,10 @@ pub(crate) struct PersonalSurface {
     health: PersonalSurfaceHealth,
     personal_focus: bool,
     next_invocation_id: u32,
+    program: Option<Program>,
+    program_state: Option<ProgramState>,
+    shift_active: bool,
+    pointer_blocked_until_release: bool,
 }
 
 impl PersonalSurface {
@@ -49,6 +57,10 @@ impl PersonalSurface {
             health: PersonalSurfaceHealth::Genesis,
             personal_focus: false,
             next_invocation_id: 1,
+            program: None,
+            program_state: None,
+            shift_active: false,
+            pointer_blocked_until_release: false,
         }
     }
 
@@ -68,7 +80,25 @@ impl PersonalSurface {
 
     /// Starts the non-default signed proof with an empty, typed input packet.
     pub(crate) fn enter(&mut self, context: PersonalShellContext) -> PersonalSurfaceRoute {
+        self.program = None;
+        self.program_state = None;
+        self.shift_active = false;
+        self.pointer_blocked_until_release = false;
         self.invoke(context, None, PersonalSurfaceRoute::Entered)
+    }
+
+    /// Starts one validated current-boot program through the existing signed
+    /// shell artifact. Its state stays here across fresh Wasmi invocations.
+    pub(crate) fn enter_program(
+        &mut self,
+        context: PersonalShellContext,
+        program: Program,
+    ) -> PersonalSurfaceRoute {
+        self.program_state = Some(program.initial_state());
+        self.program = Some(program);
+        self.shift_active = false;
+        self.pointer_blocked_until_release = true;
+        self.invoke_program(context, None, PersonalSurfaceRoute::Entered)
     }
 
     /// Starts only a named built-in proof case. The trap/fuel variants are
@@ -83,6 +113,9 @@ impl PersonalSurface {
             PersonalShellProofMode::Trap => proof_key(PROOF_TEST_KEY_TRAP),
             PersonalShellProofMode::FuelExhaustion => proof_key(PROOF_TEST_KEY_FUEL_EXHAUSTION),
         };
+        self.program = None;
+        self.program_state = None;
+        self.pointer_blocked_until_release = false;
         self.invoke(context, Some(event), PersonalSurfaceRoute::Entered)
     }
 
@@ -94,6 +127,12 @@ impl PersonalSurface {
     ) -> PersonalSurfaceRoute {
         if !self.personal_focus {
             return PersonalSurfaceRoute::Ignored;
+        }
+        if self.program.is_some() {
+            let Some(input) = self.program_input(event) else {
+                return PersonalSurfaceRoute::Ignored;
+            };
+            return self.invoke_program(context, Some(input), PersonalSurfaceRoute::FrameUpdated);
         }
         self.invoke(context, Some(event), PersonalSurfaceRoute::FrameUpdated)
     }
@@ -111,6 +150,8 @@ impl PersonalSurface {
         self.frame = None;
         self.health = PersonalSurfaceHealth::Genesis;
         self.personal_focus = false;
+        self.shift_active = false;
+        self.pointer_blocked_until_release = false;
         personal_shell_service::note_personal_shell_stopped("f12_exit");
     }
 
@@ -136,6 +177,92 @@ impl PersonalSurface {
             personal_shell_service::invoke_current_boot_proof(&context, &input),
             accepted_route,
         )
+    }
+
+    fn invoke_program(
+        &mut self,
+        source: PersonalShellContext,
+        event: Option<UiInput>,
+        accepted_route: PersonalSurfaceRoute,
+    ) -> PersonalSurfaceRoute {
+        let context = self.next_context(source);
+        let input = PersonalShellInput::new(context.invocation_id);
+        let Some(mut candidate_state) = self.program_state else {
+            return self.fallback("program_state_missing", 0);
+        };
+        if let Some(event) = event {
+            let Some(program) = self.program.as_ref() else {
+                return self.fallback("program_missing", 0);
+            };
+            match program.dispatch(&mut candidate_state, event) {
+                Ok(DispatchOutcome::Handled { .. }) => {}
+                Ok(DispatchOutcome::Ignored) => return PersonalSurfaceRoute::Ignored,
+                Err(error) => return self.fallback(program_error_reason(error), 0),
+            }
+        }
+
+        // A stale frame may never survive a rejected fresh invocation, but an
+        // ignored event above must leave the active surface untouched.
+        self.frame = None;
+        self.personal_focus = false;
+        let attempt = {
+            let Some(program) = self.program.as_ref() else {
+                return self.fallback("program_missing", 0);
+            };
+            personal_shell_service::invoke_current_boot_program(
+                context.invocation_id,
+                Viewport {
+                    width: context.viewport_width,
+                    height: context.viewport_height,
+                },
+                program,
+                candidate_state,
+                &input,
+            )
+        };
+        if attempt.health == PersonalShellHealth::Healthy
+            && matches!(&attempt.frame, PersonalShellAttemptFrame::Accepted(_))
+        {
+            self.program_state = Some(candidate_state);
+        }
+        self.apply_attempt(attempt, accepted_route)
+    }
+
+    fn program_input(&mut self, event: SanitizedInputEvent) -> Option<UiInput> {
+        use raios_core::personal_shell_abi::SanitizedInputKind;
+
+        if self.pointer_blocked_until_release {
+            match event.kind {
+                SanitizedInputKind::PointerButton if !event.pressed => {
+                    self.pointer_blocked_until_release = false;
+                    return None;
+                }
+                SanitizedInputKind::PointerButton | SanitizedInputKind::PointerMove => return None,
+                SanitizedInputKind::Key => {}
+            }
+        }
+
+        match event.kind {
+            SanitizedInputKind::Key if event.code == 42 || event.code == 54 => {
+                self.shift_active = event.pressed;
+                None
+            }
+            SanitizedInputKind::Key if event.pressed => {
+                let code = match event.code {
+                    28 => 13,
+                    57 => u16::from(b' '),
+                    code => u16::from(crate::input::keycode_to_ascii(code, self.shift_active)?),
+                };
+                Some(UiInput::Key { code, modifiers: 0 })
+            }
+            SanitizedInputKind::PointerButton if event.pressed && event.code == 272 => {
+                Some(UiInput::PointerClick {
+                    x: u16::try_from(event.x).ok()?,
+                    y: u16::try_from(event.y).ok()?,
+                })
+            }
+            _ => None,
+        }
     }
 
     fn next_context(&mut self, source: PersonalShellContext) -> PersonalShellContext {
@@ -182,6 +309,15 @@ impl PersonalSurface {
     }
 }
 
+fn program_error_reason(error: RuntimeError) -> &'static str {
+    match error {
+        RuntimeError::StateMismatch => "program_state_mismatch",
+        RuntimeError::AmbiguousEvent => "program_event_ambiguous",
+        RuntimeError::Overflow => "program_arithmetic_overflow",
+        RuntimeError::DivisionByZero => "program_division_by_zero",
+    }
+}
+
 fn proof_key(code: u16) -> SanitizedInputEvent {
     SanitizedInputEvent::new(
         raios_core::personal_shell_abi::SanitizedInputKind::Key,
@@ -199,6 +335,7 @@ fn proof_key(code: u16) -> SanitizedInputEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use raios_core::{personal_shell_abi::SanitizedInputKind, ui_program::calculator_program};
 
     #[test]
     fn secure_attention_exits_without_staging_a_guest_event() {
@@ -234,6 +371,104 @@ mod tests {
                 PersonalSurfaceHealth::GenesisFallback { reason }
             );
         }
+    }
+
+    #[test]
+    fn calculator_keys_and_local_pointer_map_to_program_inputs() {
+        assert_eq!(crate::input::keycode_to_ascii(2, false), Some(b'1'));
+        assert_eq!(crate::input::keycode_to_ascii(11, false), Some(b'0'));
+        assert_eq!(crate::input::keycode_to_ascii(13, true), Some(b'+'));
+        assert_eq!(crate::input::keycode_to_ascii(9, true), Some(b'*'));
+        assert_eq!(crate::input::keycode_to_ascii(46, false), Some(b'c'));
+
+        let mut surface = PersonalSurface::new();
+        assert_eq!(
+            surface.program_input(SanitizedInputEvent::new(
+                SanitizedInputKind::Key,
+                true,
+                false,
+                28,
+                0,
+                0,
+                0,
+                0,
+                0,
+            )),
+            Some(UiInput::Key {
+                code: 13,
+                modifiers: 0
+            })
+        );
+
+        assert_eq!(
+            surface.program_input(SanitizedInputEvent::new(
+                SanitizedInputKind::PointerButton,
+                true,
+                false,
+                272,
+                81,
+                105,
+                0,
+                0,
+                0,
+            )),
+            Some(UiInput::PointerClick { x: 81, y: 105 })
+        );
+
+        let program = calculator_program();
+        let mut state = program.initial_state();
+        program
+            .dispatch(&mut state, UiInput::PointerClick { x: 81, y: 105 })
+            .unwrap();
+        assert_eq!(state.values()[0], 8);
+    }
+
+    #[test]
+    fn physical_activation_click_is_ignored_until_pointer_release() {
+        let mut surface = PersonalSurface::new();
+        surface.pointer_blocked_until_release = true;
+        let pointer = |pressed| {
+            SanitizedInputEvent::new(
+                SanitizedInputKind::PointerButton,
+                pressed,
+                false,
+                272,
+                81,
+                105,
+                0,
+                0,
+                0,
+            )
+        };
+
+        assert_eq!(surface.program_input(pointer(true)), None);
+        assert_eq!(surface.program_input(pointer(false)), None);
+        assert_eq!(
+            surface.program_input(pointer(true)),
+            Some(UiInput::PointerClick { x: 81, y: 105 })
+        );
+    }
+
+    #[test]
+    fn ignored_program_input_keeps_the_active_frame_and_focus() {
+        let program = calculator_program();
+        let mut surface = PersonalSurface::new();
+        surface.program_state = Some(program.initial_state());
+        surface.program = Some(program);
+        surface.personal_focus = true;
+        surface.health = PersonalSurfaceHealth::Active;
+        surface.frame = Some(alloc::vec![1]);
+
+        assert_eq!(
+            surface.invoke_program(
+                PersonalShellContext::new(0, 640, 480, 0, 0, 0, true, true, 0),
+                Some(UiInput::PointerClick { x: 500, y: 400 }),
+                PersonalSurfaceRoute::FrameUpdated,
+            ),
+            PersonalSurfaceRoute::Ignored
+        );
+        assert!(surface.has_personal_focus());
+        assert_eq!(surface.frame(), Some(&[1][..]));
     }
 
     fn rejected(reason: &'static str, fuel_used: u64) -> PersonalShellAttempt {

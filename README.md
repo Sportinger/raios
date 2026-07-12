@@ -276,13 +276,20 @@ Stable current shape:
 
 - Stage-0 is a bootable Rust kernel handed off by Limine from UEFI.
 - The kernel renders a double-buffered framebuffer UI with `AI`, `CONSOLE`,
-  and `SET` modes, accepts serial input, and has QEMU HID/e1000 VM bring-up.
+  and `SET` modes plus core-owned Genesis/recovery, accepts serial and HID input,
+  and has QEMU HID/e1000 VM bring-up.
 - The in-guest provider path can reach OpenAI through DNS, TCP, TLS, HTTPS,
   and response parsing. The current TLS path is pin/SPKI based and still lacks
   full WebPKI chain validation and trusted-time validation.
 - Native read-only agent protocol surfaces exist for system/device/service/
   problem/provider/event-log style inspection, including a local-only typed
   command-envelope path for read-only dispatch.
+- Genesis `/build <request>` can now obtain a real provider-authored bounded UI
+  specification, compile it locally into canonical hash-bound RUIP, hold it inert
+  until physical approval, and run it current-boot through the signed metered
+  `svc.user.shell` Wasm engine with only six UI imports. Durable installation,
+  file/network/secret access, arbitrary external Wasm, and broad mutation remain
+  denied.
 - `svc.demo.hello` is the real current-boot built-in service test path. It
   exercises signed descriptor/artifact evidence, lifecycle/inventory,
   hot-swap/state migration, rollback preview/apply denial, test-media
@@ -307,11 +314,9 @@ Stable current shape:
 
 Still intentionally missing:
 
-- signed replaceable modules and an isolated runtime that can actually load
-  them
-- positive module/service/config mutation authority
-- durable audit ledger, rollback store, persistent memory, recovery shell, and
-  real transaction append
+- general external signed-module intake and positive module/service/config
+  mutation authority beyond the bounded current-boot UI-program engine
+- durable installation/promotion of AI-authored programs and their state
 - TLS/HTTPS as a replaceable service rather than Stage-0 kernel-resident code
 - broad provider trust, WebPKI, trusted time, provider-agnostic adapters, and
   production Wi-Fi support

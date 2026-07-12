@@ -4,7 +4,10 @@
 use crate::agent_protocol::recovery_lifeline;
 use crate::framebuffer::{Color, FramebufferInfo, FramebufferSurface};
 use crate::system_status::{RowState, SnapshotStates, StatusLine, SystemSnapshot};
-use crate::{console, input, personal_shell_service, provider, secret_vault, serial, text, wifi};
+use crate::{
+    console, input, personal_shell_service, program_workspace, provider, secret_vault, serial,
+    text, wifi,
+};
 use raios_core::{
     genesis_layout::{GenesisLayout, Point, Size},
     personal_shell_abi::{PersonalShellContext, SanitizedInputEvent, SanitizedInputKind},
@@ -206,6 +209,18 @@ impl ShellHost {
             return self.handle_recovery_pointer(layout, x, y, runtime);
         }
         if point_in(x, y, context_personal_shell_rect(layout)) {
+            if let Some(program) = program_workspace::retained_program() {
+                let identity = program.identity();
+                let Some(context) = self.personal_context(runtime) else {
+                    console::write_event(format_args!(
+                        "PROGRAM START DENIED: framebuffer unavailable"
+                    ));
+                    return true;
+                };
+                let route = self.personal.enter_program(context, program);
+                note_program_route(identity.sha256, route);
+                return true;
+            }
             return personal_shell_service::request_current_boot_proof_start(
                 personal_shell_service::PersonalShellProofMode::Normal,
             );
@@ -294,7 +309,18 @@ impl ShellHost {
             ));
             return true;
         };
-        let Some(event) = sanitize_personal_input(event) else {
+        let Some(layout) = self
+            .surface
+            .as_ref()
+            .and_then(|surface| genesis_layout(surface.info()))
+        else {
+            self.personal.exit();
+            console::write_event(format_args!(
+                "PERSONAL SHELL FALLBACK: framebuffer unavailable"
+            ));
+            return true;
+        };
+        let Some(event) = sanitize_personal_input(event, layout) else {
             return true;
         };
         let route = self.personal.route_sanitized_event(context, event);
@@ -610,11 +636,16 @@ fn draw_context(
     } else {
         APP_RED
     };
+    let program_ready = program_workspace::snapshot().present;
     draw_button(
         surface,
         context_personal_shell_rect(layout),
-        "Run signed shell proof",
-        false,
+        if program_ready {
+            "Approve + run program"
+        } else {
+            "Run signed shell proof"
+        },
+        program_ready,
     );
     let rows = [
         (
@@ -729,11 +760,19 @@ fn personal_color(rgba: u32) -> Color {
     }
 }
 
-fn sanitize_personal_input(event: input::InputEvent) -> Option<SanitizedInputEvent> {
+fn sanitize_personal_input(
+    event: input::InputEvent,
+    layout: GenesisLayout,
+) -> Option<SanitizedInputEvent> {
     let (kind, pressed, code, x, y, dx, dy) = match event.kind {
         input::InputEventKind::SecureAttention => return None,
         input::InputEventKind::Key { code, pressed } if (272..=274).contains(&code) => {
-            (SanitizedInputKind::PointerButton, pressed, code, 0, 0, 0, 0)
+            let position = current_personal_pointer(layout);
+            if pressed && position.is_none() {
+                return None;
+            }
+            let (x, y) = position.unwrap_or((0, 0));
+            (SanitizedInputKind::PointerButton, pressed, code, x, y, 0, 0)
         }
         input::InputEventKind::Key { code, pressed } => {
             (SanitizedInputKind::Key, pressed, code, 0, 0, 0, 0)
@@ -757,18 +796,36 @@ fn sanitize_personal_input(event: input::InputEvent) -> Option<SanitizedInputEve
             clamp_input_axis(value),
         ),
         input::InputEventKind::Relative(input::RelativeAxis::Wheel, _) => return None,
-        input::InputEventKind::Absolute { x, y, .. } => (
-            SanitizedInputKind::PointerMove,
-            false,
-            0,
-            x.min(i16::MAX as u16) as i16,
-            y.min(i16::MAX as u16) as i16,
-            0,
-            0,
-        ),
+        input::InputEventKind::Absolute { .. } => {
+            let (x, y) = current_personal_pointer(layout)?;
+            (SanitizedInputKind::PointerMove, false, 0, x, y, 0, 0)
+        }
     };
     Some(SanitizedInputEvent::new(
         kind, pressed, false, code, x, y, dx, dy, 0,
+    ))
+}
+
+fn current_personal_pointer(layout: GenesisLayout) -> Option<(i16, i16)> {
+    let mouse = input::mouse_snapshot();
+    if !mouse.seen {
+        return None;
+    }
+    localize_personal_pointer(layout, mouse.x, mouse.y)
+}
+
+fn localize_personal_pointer(
+    layout: GenesisLayout,
+    physical_x: usize,
+    physical_y: usize,
+) -> Option<(i16, i16)> {
+    let logical = Point::new((physical_x / 2) as u32, (physical_y / 2) as u32);
+    if !layout.personal_surface.contains(logical) {
+        return None;
+    }
+    Some((
+        i16::try_from(logical.x - layout.personal_surface.x).ok()?,
+        i16::try_from(logical.y - layout.personal_surface.y).ok()?,
     ))
 }
 
@@ -797,6 +854,29 @@ fn note_personal_route(route: PersonalSurfaceRoute) {
     }
 }
 
+fn note_program_route(sha256: [u8; 32], route: PersonalSurfaceRoute) {
+    serial::write_raw_str(
+        "PROGRAM_CURRENT_BOOT_ACTIVATION physical_approval=pointer program_sha256=sha256:",
+    );
+    for byte in sha256 {
+        serial::write_raw_fmt(format_args!("{byte:02x}"));
+    }
+    match route {
+        PersonalSurfaceRoute::Entered => serial::write_raw_str(
+            " engine=svc.user.shell capability_surface=ui_only wasm=true result=accepted\r\n",
+        ),
+        PersonalSurfaceRoute::GenesisFallback { reason, fuel_used } => serial::write_raw_fmt(
+            format_args!(
+                " engine=svc.user.shell capability_surface=ui_only wasm=true result=denied reason={reason} fuel_used={fuel_used}\r\n"
+            ),
+        ),
+        _ => serial::write_raw_str(
+            " engine=svc.user.shell capability_surface=ui_only wasm=true result=denied reason=unexpected_route\r\n",
+        ),
+    }
+    note_personal_route(route);
+}
+
 fn context_tone_color(tone: context::ContextTone) -> Color {
     match tone {
         context::ContextTone::Neutral => TEXT_MUTED,
@@ -820,7 +900,7 @@ fn draw_composer(
             surface,
             rect.x + 14,
             rect.y + 18,
-            "Describe what raiOS should become...",
+            "Ask anything, or /build <program>...",
             TEXT_FAINT,
             None,
         );
@@ -1142,5 +1222,20 @@ fn draw_front_block(
         for dx in 0..scale {
             surface.set_front_pixel(start_x + dx, start_y + dy, color);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn personal_pointer_coordinates_are_viewport_local_and_exclude_secure_ui() {
+        let layout = GenesisLayout::new(Size::new(1920, 1080)).unwrap();
+        assert_eq!(
+            localize_personal_pointer(layout, 81 * 2, (38 + 105) * 2),
+            Some((81, 105))
+        );
+        assert_eq!(localize_personal_pointer(layout, 10, 10), None);
     }
 }

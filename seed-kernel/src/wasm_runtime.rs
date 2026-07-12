@@ -3,6 +3,7 @@ use core::fmt::Write;
 use raios_core::{
     personal_shell_abi::{
         PersonalShellContext, PersonalShellInput, SanitizedInputEvent, SanitizedInputKind,
+        MAX_PROGRAM_CONTEXT_LEN,
     },
     scoped_wasm_import_grant::{
         authorized_import_list_sha256, evaluate_personal_shell_import_grant,
@@ -431,7 +432,8 @@ pub(crate) fn run_personal_shell_proof(
     viewport: Viewport,
 ) -> PersonalShellRuntimeResult {
     let validation_ok = validate_personal_shell_proof_artifact();
-    if context.len() != PERSONAL_SHELL_CONTEXT_BYTES
+    if context.len() < PERSONAL_SHELL_CONTEXT_BYTES
+        || context.len() > MAX_PROGRAM_CONTEXT_LEN
         || input.len() > PERSONAL_SHELL_MAX_INPUT_BYTES
         || viewport.width == 0
         || viewport.height == 0
@@ -2016,7 +2018,7 @@ fn host_personal_context_len(
 ) -> Result<i32, Trap> {
     charge_personal_call(&mut caller, PERSONAL_CALL_CONTEXT_LEN)?;
     let len = caller.data().context.len();
-    if len != PERSONAL_SHELL_CONTEXT_BYTES {
+    if len < PERSONAL_SHELL_CONTEXT_BYTES || len > MAX_PROGRAM_CONTEXT_LEN {
         return Err(Trap::new("personal shell context length is invalid"));
     }
     Ok(len as i32)

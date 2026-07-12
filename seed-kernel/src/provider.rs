@@ -1,3 +1,4 @@
+use alloc::string::String;
 use core::fmt::{self, Write};
 use core::str;
 
@@ -23,6 +24,7 @@ pub struct AgentRequest<'a> {
     pub prompt: &'a str,
     pub model: Option<&'a str>,
     pub max_output: Option<u16>,
+    pub target: RequestTarget,
 }
 
 impl<'a> AgentRequest<'a> {
@@ -31,8 +33,24 @@ impl<'a> AgentRequest<'a> {
             prompt,
             model: None,
             max_output: None,
+            target: RequestTarget::Conversation,
         }
     }
+
+    pub fn program(prompt: &'a str) -> Self {
+        Self {
+            prompt,
+            model: None,
+            max_output: Some(openai::MAX_OUTPUT_TOKENS),
+            target: RequestTarget::ProgramWorkspace,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum RequestTarget {
+    Conversation,
+    ProgramWorkspace,
 }
 
 #[derive(Clone, Copy)]
@@ -44,15 +62,23 @@ pub struct Submitted {
 #[derive(Clone, Copy)]
 pub enum SubmitError {
     Empty,
+    UnsupportedModel,
+    InvalidMaxOutput,
     MissingApiKey,
     TrustDenied { state: &'static str },
     Busy { route: Route, id: u32 },
 }
 
-#[derive(Clone, Copy)]
 pub struct Event {
     pub route: Route,
-    pub line: FixedLine,
+    pub id: u32,
+    pub target: RequestTarget,
+    pub kind: EventKind,
+}
+
+pub enum EventKind {
+    Answer(String),
+    Error(String),
 }
 
 #[derive(Clone, Copy)]
@@ -130,10 +156,20 @@ pub fn submit(
     runtime: ui::RuntimeStatus,
 ) -> Result<Submitted, SubmitError> {
     let prompt = request.prompt.trim();
-    let _model = request.model;
-    let _max_output = request.max_output;
     if prompt.is_empty() {
         return Err(SubmitError::Empty);
+    }
+    if request
+        .model
+        .is_some_and(|model| !model.eq_ignore_ascii_case(openai::model()))
+    {
+        return Err(SubmitError::UnsupportedModel);
+    }
+    let max_output = request
+        .max_output
+        .unwrap_or(openai::DEFAULT_MAX_OUTPUT_TOKENS);
+    if !(1..=openai::MAX_OUTPUT_TOKENS).contains(&max_output) {
+        return Err(SubmitError::InvalidMaxOutput);
     }
 
     if !provider_credential_usable() {
@@ -147,12 +183,13 @@ pub fn submit(
         });
     }
 
-    match openai::submit_request(prompt, runtime) {
+    match openai::submit_request(prompt, max_output, request.target, runtime) {
         Ok(id) => Ok(Submitted {
             route: Route::OpenAiDirect,
             id,
         }),
         Err(openai::SubmitError::Empty) => Err(SubmitError::Empty),
+        Err(openai::SubmitError::InvalidMaxOutput) => Err(SubmitError::InvalidMaxOutput),
         Err(openai::SubmitError::Busy(id)) => Err(SubmitError::Busy {
             route: Route::OpenAiDirect,
             id,
@@ -161,12 +198,16 @@ pub fn submit(
 }
 
 pub fn poll() -> Option<Event> {
-    openai::poll().map(|line| {
-        let mut event_line = FixedLine::empty();
-        event_line.set_from_str(line.as_str());
+    openai::poll().map(|event| {
+        let kind = match event.kind {
+            openai::EventKind::Answer(answer) => EventKind::Answer(answer),
+            openai::EventKind::Error(error) => EventKind::Error(String::from(error.as_str())),
+        };
         Event {
             route: Route::OpenAiDirect,
-            line: event_line,
+            id: event.id,
+            target: event.target,
+            kind,
         }
     })
 }

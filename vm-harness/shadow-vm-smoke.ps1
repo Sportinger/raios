@@ -39,6 +39,7 @@ $QemuArgList = @()
 $HardwareProfile = $null
 $ResolvedImage = $null
 $MonitorTcpPort = 0
+$QmpTcpPort = 0
 $ScratchImage = $null
 $AuditRollbackTargetImage = $null
 $PersistDiskImage = $null
@@ -210,6 +211,13 @@ try {
             "-MonitorTcpPort", "$MonitorTcpPort"
         )
         $runParams.MonitorTcpPort = $MonitorTcpPort
+    }
+    if ($Profile -eq "genesis-ui") {
+        $QmpTcpPort = $SerialTcpPort + 2000
+        $QemuArgList += @(
+            "-QmpTcpPort", "$QmpTcpPort"
+        )
+        $runParams.QmpTcpPort = $QmpTcpPort
     }
 
     $runOutput = & $RunScript @runParams
