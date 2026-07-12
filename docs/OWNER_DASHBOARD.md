@@ -141,8 +141,24 @@ profile `shadow-20260712-184856-27972.json` 7870/7870 byte-identical green.
 The loader-file split (P1-A) is PARKED: provably content-identical, yet it
 deterministically froze one child-VM probe — bisection isolated it, and the
 suspected cause is compiler code layout exposing a pre-existing kernel
-fragility. It returns as its own investigation slice (classification and
-probe plan in `docs/PROJECT_STATUS.md`) before P2 touches that family.
+fragility.
+
+Evening update — REAL KERNEL BUG CONFIRMED, refactor paused at a safe
+point: the P2 relocation wave (built and host-verified, -1,721 kernel
+lines, 449 fast PC tests) triggered the SAME freeze class at a DIFFERENT
+test probe, and even the nominally inert core-module commits shifted the
+binary layout enough to move the freeze to a third probe. Conclusion: a
+pre-existing hidden memory-corruption defect in the kernel picks its victim
+by binary layout; earlier byte-exact green runs were partly layout luck.
+Main was repaired under the Red Gate rule by reverting the two core
+commits and is confirmed green again
+(`shadow-20260712-220828-26452.json`); the complete P2 wave is preserved
+on branch `refactor/p2-wave1-parked`. NOTHING structural lands until the
+bug is found — the hunt is the next refactor slice and it is well-armed:
+four known layouts with three distinct victim probes, a 10-minute
+reproduction per layout, and a narrowed suspect region (child-boot
+persist-region parsing). Finding this bug now, on the test bench, is far
+better than meeting it later on real hardware.
 
 Planning update: `docs/plan-reviews/secure-ai-workspace-and-media-app-plan-2026-07-12.md`
 defines the final-path secure source workspace, quarantined acquisition,

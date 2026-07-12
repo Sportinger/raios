@@ -24,6 +24,33 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+LATENT LAYOUT-SENSITIVE KERNEL BUG — PROGRAM BLOCKER (2026-07-12 evening).
+The P1-A investigation's prime suspect is now CONFIRMED as a program-wide
+blocker by the P2 wave: a latent kernel memory-safety defect corrupts
+layout-adjacent state, and WHICH memory-durable child probe freezes (or
+none) depends purely on the binary symbol layout. Evidence chain, all with
+the same truncated-command/child-freeze signature: HEAD layout green
+(`shadow-20260712-184533-27876.json`); HEAD+P1-A split freezes probe 6
+(wasm-import-grant); HEAD+P2-wave freezes probe 4 (broker,
+`shadow-20260712-214657-20004`); HEAD+P2-A-core-modules-only (nominally
+dead code, but it shifts the layout) freezes probe 7 (export-packet) —
+while probes 4 and 6 pass in that same layout. Repair executed under the
+Red Gate rule: commits 9b514aa and 976e776 REVERTED on main (7e9b415,
+68df62c); the source-identical green layout is restored and confirmed by
+`shadow-20260712-220828-26452.json` (memory-durable, passed). The full P2
+wave 1 (core modules + B/C/D switches + FIX2, net -1,721 kernel lines,
+compile-green, host tests 449 green, provider-memory green
+`shadow-20260712-214508-27892.json`) is preserved on branch
+`refactor/p2-wave1-parked` (29c56eb). CONSEQUENCE: no structural
+relocation, split, or link-visible addition may land on main until the
+defect is found and fixed. The bug hunt is the next refactor slice, with
+an excellent dataset: four layouts with three distinct victim probes and
+one asymptomatic layout, a sub-10-minute deterministic oracle per layout,
+and the suspect region (child-boot persist-region parsing around the
+broker/import-grant/export fixtures). Defined probes: symbol-map diff of
+.bss/.data around serial/input statics across the four layouts; canary
+statics bracketing the suspects; instrumented serial consumer.
+
 VM failure classification (2026-07-12, memory-durable during P1 refactor
 verification) - four consecutive `memory-durable` failures (latest
 `release/vm-reports/shadow-20260712-183204-9448.json`) all threw
