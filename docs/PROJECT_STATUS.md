@@ -256,13 +256,29 @@ path. This loop is bounded RAM-only and release-built; it does not persist a
 source project, install a revision, retry providers automatically, or claim a
 live revision-provider smoke in this slice.
 
-Current exact next product task (W4 reproducible offline workstation
-Rust-to-Wasm build receipt): an owner-controlled workstation builder consumes
-one reviewed exact project revision plus its quarantined locked inputs with
-networking disabled, returns a Wasm candidate and complete non-authorizing build
-receipt, and proves the same inputs reproduce the output hash or deny promotion.
-W1-W3 source workspace, editing and inert dependency quarantine are complete;
-build, install, load, execution and promotion authority remain closed.
+W4 reproducible offline workstation Rust-to-Wasm build verified (2026-07-12) -
+an owner workstation can exact-read one reviewed immutable project revision and
+one safe quarantined local path dependency, materialize only those hash-bound
+bytes, and build the Rust `cdylib` twice with `--frozen`, `--offline`, a fixed
+environment/flags contract and a pinned, measured toolchain. Both builds produced
+the identical validated inert current-boot Wasm candidate
+`sha256:05854c56665a9fee9990712126e1f19269059375cb37fcdccacaa990ab3d30fb`,
+and raiOS accepted and inspected an exact non-authorizing receipt. Focused report
+`release/vm-reports/shadow-20260712-145618-13408.json` passes 248/248 across 108
+observed commands, one boot and 313118 ms; report SHA-256 is
+`e7fd8bf954e2b3b75af384d9215d13be7067316dd7e4cb47c5a1c332340e556c`.
+The evidence quality is honestly `builder_attested_not_local_rebuild` with
+`independently_verified=false`: this does not claim an owner-sealed toolchain or
+an independent local rebuild. Wrong toolchain/flags/environment, stale or wrong
+source/dependency reads, source and dependency `build.rs`, missing/failed/
+non-reproducible runs, output/candidate mismatch, and a receipt made stale by a
+later dependency mutation all failed closed. No install, load, execution,
+promotion, persistence or other authority was granted.
+
+Current exact next product task (W5 tested current-boot application): run that
+exact candidate under computed Wasm imports only after physical approval, with
+focused Shadow evidence, F12 recovery, fuel bounds and crash fallback. W1-W4 are
+complete; durable install, promotion, persistence and rollback remain closed.
 The hardware cursor remains I5/G7 read-only stick
 identity/fingerprint preflight: the stick was not enumerated or touched here,
 its old Disk number must not be assumed, and no physical write, format,

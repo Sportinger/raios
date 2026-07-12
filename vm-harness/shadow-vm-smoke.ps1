@@ -10,7 +10,7 @@ param(
     [switch]$KeepImage,
     [int]$SerialWriteChunkSize = 256,
     [int]$SerialWriteDelayMilliseconds = 0,
-    [ValidateSet("full", "quick", "recovery", "genesis-ui", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m12-distribution-provenance", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable", "structured-store", "project-workspace", "secret-vault", "core-policy", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow", "m11-7-httphead", "m11-8-certspki", "usb-hotplug")]
+    [ValidateSet("full", "quick", "recovery", "genesis-ui", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m12-distribution-provenance", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable", "structured-store", "project-workspace", "project-build", "secret-vault", "core-policy", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow", "m11-7-httphead", "m11-8-certspki", "usb-hotplug")]
     [string]$Profile = "full"
 )
 
@@ -124,7 +124,7 @@ try {
         $auditRollbackTargetStream.Dispose()
     }
 
-    if ($Profile -in @("structured-store", "project-workspace", "secret-vault")) {
+    if ($Profile -in @("structured-store", "project-workspace", "project-build", "secret-vault")) {
         if ($PersistDiskPath) {
             throw "$Profile profile creates its own exact valid-a SEED_DATA fixture"
         }
@@ -262,6 +262,11 @@ try {
 
         if ($Profile -eq "project-workspace") {
             . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-project-workspace.ps1")
+            break SmokeProfileValidation
+        }
+
+        if ($Profile -eq "project-build") {
+            . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-project-build.ps1")
             break SmokeProfileValidation
         }
 

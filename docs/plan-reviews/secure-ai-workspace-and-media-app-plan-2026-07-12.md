@@ -2,9 +2,10 @@
 
 ## Status and target
 
-W1 is implemented and verified on the disposable QEMU structured store. The
-remaining plan opens no network fetch, provider export, build, install,
-native-code, media-file, GPU, or physical-storage authority.
+W1-W4 are implemented and verified on the disposable QEMU structured store and
+owner-controlled workstation build path. The remaining plan opens no network
+fetch, provider export, install, native-code, media-file, GPU, or physical-storage
+authority.
 
 Capability target: a user and AI can create or import a reviewable source tree,
 edit it through a project-scoped workspace, build a reproducible bounded
@@ -36,8 +37,12 @@ inside the permanent core.
   yet proven on the owner's selected medium.
 
 So the answer to “does the AI already have a secure place for downloaded code?”
-is **no**. It has a safe bounded UI-program inbox, not a filesystem, source
-repository, dependency cache, or build sandbox.
+is **not yet for network-downloaded code**. It now has the proven bounded local
+path: immutable project revisions and quarantined local dependency bundles live
+in the disposable QEMU structured store and can feed the exact offline
+workstation build contract. This is not a general filesystem, production
+physical store, network download cache, generic dependency resolver, owner-sealed
+toolchain, or independently verified local build.
 
 ## Standing invariants
 
@@ -327,13 +332,29 @@ An owner-controlled builder compiles one reviewed Rust project with networking
 disabled and returns a Wasm candidate plus complete build receipt. Rebuilding
 the same inputs reproduces the output hash or promotion denies.
 
-Status: active next slice. The receipt is non-authorizing; install, load,
-execution and promotion remain closed.
+Status: complete for one bounded Rust `cdylib` plus one safe quarantined local
+path dependency. The workstation exact-read only the reviewed revision/bundle,
+built twice `--frozen` and `--offline` with exact flags/environment and a pinned,
+measured toolchain, and returned identical validated inert current-boot Wasm
+candidate
+`sha256:05854c56665a9fee9990712126e1f19269059375cb37fcdccacaa990ab3d30fb`
+plus an inspectable receipt. Focused report
+`shadow-20260712-145618-13408.json` passes 248/248 across 108 commands, one boot
+and 313118 ms; report SHA-256 is
+`e7fd8bf954e2b3b75af384d9215d13be7067316dd7e4cb47c5a1c332340e556c`.
+The receipt remains `builder_attested_not_local_rebuild` and
+`independently_verified=false`; no owner-sealed-toolchain or independent-rebuild
+claim is made. Wrong toolchain/flags/environment, stale/wrong reads, source and
+dependency `build.rs`, missing/failed/mismatched runs, output/candidate mismatch,
+and receipt staleness after dependency mutation deny without authority. Install,
+load, execution, promotion and persistence remain closed.
 
 ### W5 - tested current-boot application
 
 The user can run that exact candidate current-boot under computed Wasm imports,
 with Shadow evidence, physical approval, F12 recovery, and crash/fuel fallback.
+
+Status: active next slice.
 
 ### W6 - durable install and rollback
 

@@ -54,8 +54,9 @@ collision, wrong hash, quota denial, manifest-last visibility and explicit
 no-build/no-install/no-execute posture. `/revise <feedback>` also reuses the
 existing current-boot provider/spec/runtime path with parent/root lineage while
 preserving the prior valid draft on failure. W2 project query/edit and W3
-dependency quarantine are now complete as recorded below. The active product
-cursor is W4 reproducible offline workstation Rust-to-Wasm build receipt, while
+dependency quarantine and W4 reproducible workstation build are now complete
+as recorded below. The active product cursor is W5 tested current-boot
+application under computed Wasm imports, while
 install, execution, promotion and rollback authority remain closed. Hardware
 I5/G7 remains a separate read-only identity tripwire.
 
@@ -90,8 +91,22 @@ boots and 917166 ms. The host's 900-second wait expired 17 seconds before the
 same child produced this green report, so the recorded timeout was host
 wall-clock transport, not guest failure; no retry or code change occurred. W3
 does not claim Cargo semantic parsing, verified origin/license truth, archive
-extraction or network fetch. The active product cursor is W4 reproducible
-offline workstation Rust-to-Wasm build receipt.
+extraction or network fetch. W4 is complete below.
+
+**W4 reproducible offline workstation build complete (2026-07-12):** the owner
+workstation exact-read one reviewed immutable Rust revision plus one safe
+quarantined local path dependency, then built it twice `--frozen` and `--offline`
+under exact flags/environment and a pinned, measured toolchain. Both outputs were
+byte-identical; the validated inert current-boot candidate is
+`05854c56665a9fee9990712126e1f19269059375cb37fcdccacaa990ab3d30fb`.
+`shadow-20260712-145618-13408.json` passes 248/248 across 108 commands, one boot
+and 313118 ms. The receipt is `builder_attested_not_local_rebuild`,
+`independently_verified=false`, and grants no install/load/execute/promotion or
+persistence authority; this is not an owner-sealed toolchain or independent local
+rebuild claim. Contract, build-script, read, run/output/candidate and stale-receipt
+negatives failed closed. The active product cursor is W5: run the exact candidate
+current-boot under computed Wasm imports with physical approval, Recovery/F12,
+fuel bounds and crash fallback.
 
 **M13/Secret Vault contract accepted (C0/G5.0, 2026-07-10):** ADR 0012
 fixes the dedicated internal-partition boundary, crash-consistent structured

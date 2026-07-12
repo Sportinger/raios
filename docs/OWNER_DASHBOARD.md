@@ -73,6 +73,19 @@ multi-chunk `src/lib.rs` remained bound to exact project revision,
 Idempotent re-import wrote nothing, and the source revision stayed
 byte-identical.
 
+W4 proof: `shadow-20260712-145618-13408.json` passed 248/248 across 108
+commands, one boot and 313118 ms (report SHA-256
+`e7fd8bf954e2b3b75af384d9215d13be7067316dd7e4cb47c5a1c332340e556c`).
+The owner workstation exact-read one reviewed revision plus one safe quarantined
+local path dependency and built it twice frozen/offline under fixed contracts and
+a pinned, measured toolchain. Both builds yielded the identical validated inert
+candidate `05854c56665a9fee9990712126e1f19269059375cb37fcdccacaa990ab3d30fb`.
+Its exact receipt is non-authorizing and honestly records
+`builder_attested_not_local_rebuild` and `independently_verified=false`; this is
+neither an owner-sealed toolchain nor an independent local rebuild. Toolchain,
+flags, environment, source/dependency build-script, read, run/output/candidate
+and stale-receipt negatives failed closed.
+
 Still denied: arbitrary external/native/Wasm intake, file/network/secret access
 from generated programs, durable program install/state, broad mutation,
 promotion, rollback application, TPM auto-unlock, physical persistence, and live
@@ -83,17 +96,16 @@ Stick: the owner reports it has been found, but this session did not enumerate
 or touch it. The next G7 action is read-only identity/layout/fingerprint
 preflight; never assume the former Disk 2 number or recreate a missing fingerprint.
 
-Next product slice: W4 reproducible offline workstation Rust-to-Wasm build
-receipt for one reviewed exact project revision and its quarantined locked
-inputs. It must keep networking off, return a non-authorizing receipt and prove
-the same inputs reproduce the output hash or deny promotion. Build, install,
-execute and rollback remain closed until their named gates. Next hardware slice:
+Next product slice: W5 runs that exact candidate current-boot under computed
+Wasm imports with physical approval, focused Shadow evidence, F12 recovery,
+fuel bounds and crash fallback. Install, promotion, persistence and rollback
+remain closed until their named gates. Next hardware slice:
 the explicit read-only G7 stick preflight. Neither grants physical-write authority.
 
 Planning update: `docs/plan-reviews/secure-ai-workspace-and-media-app-plan-2026-07-12.md`
 defines the final-path secure source workspace, quarantined acquisition,
 reproducible Rust-to-Wasm build, and split Wasm/native media application shape.
-Its W1-W3 workspace/dependency path is now implemented and verified; semantic
+Its W1-W4 workspace/dependency/build path is now implemented and verified;
 Cargo resolution, verified origin/license truth, archive extraction, fetch,
-dependency execution, build, install, native-code, media, GPU and
+dependency execution, install, native-code, media, GPU and
 physical-storage authority remain closed.

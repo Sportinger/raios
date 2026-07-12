@@ -25,6 +25,7 @@ pub mod memory_record;
 pub mod memory_record_resolve;
 pub mod owner_key_tpm2;
 pub mod personal_shell_abi;
+pub mod project_build;
 pub mod project_dependency;
 pub mod project_overlay;
 pub mod project_workspace;

@@ -7,8 +7,16 @@ use raios_core::{
         DependencyBundle,
     },
     project_workspace::ProjectId,
+    sha256_bytes,
     structured_store::{plan_transaction, RecordOperation, RecordValue, TransactionRequest},
 };
+
+#[derive(Clone)]
+pub(crate) struct LoadedDependencyFile {
+    pub(crate) bundle: DependencyBundle,
+    pub(crate) file: raios_core::project_dependency::DependencyFileEntry,
+    pub(crate) bytes: Vec<u8>,
+}
 use sha2::{Digest, Sha256};
 
 use crate::{
@@ -178,6 +186,52 @@ pub(crate) fn load_bundles(
         project_id,
         revision_sha256,
     )
+}
+
+pub(crate) fn load_bundle_file(
+    project_id: ProjectId,
+    revision_sha256: [u8; 32],
+    bundle_sha256: [u8; 32],
+    path: &str,
+) -> Result<Option<LoadedDependencyFile>, DependencyStoreDenied> {
+    let bundles = load_bundles(project_id, revision_sha256)?;
+    let Some(bundle) = bundles
+        .into_iter()
+        .find(|bundle| bundle.bundle_sha256 == bundle_sha256)
+    else {
+        return Ok(None);
+    };
+    let Some(file) = bundle.files.iter().find(|file| file.path == path).cloned() else {
+        return Ok(None);
+    };
+    let (mut port, identity, mut snapshot) = open()?;
+    let replay =
+        open_and_replay_with_history(&mut port, identity, &mut snapshot).map_err(map_port)?;
+    let mut bytes = Vec::with_capacity(file.whole_byte_len);
+    for chunk in &file.chunks {
+        let record = replay
+            .state()
+            .record(dependency_chunk_record_key(chunk.sha256))
+            .map_err(|_| DependencyStoreDenied::Core)?
+            .ok_or(DependencyStoreDenied::ChunkMissing)?;
+        let RecordValue::Present(payload) = &record.value else {
+            return Err(DependencyStoreDenied::ChunkMissing);
+        };
+        let decoded =
+            decode_dependency_chunk(payload).map_err(|_| DependencyStoreDenied::ChunkInvalid)?;
+        if decoded.sha256 != chunk.sha256 || decoded.bytes.len() != chunk.byte_len {
+            return Err(DependencyStoreDenied::ChunkInvalid);
+        }
+        bytes.extend_from_slice(&decoded.bytes);
+    }
+    if bytes.len() != file.whole_byte_len || sha256_bytes(&bytes) != file.whole_sha256 {
+        return Err(DependencyStoreDenied::FileHashMismatch);
+    }
+    Ok(Some(LoadedDependencyFile {
+        bundle,
+        file,
+        bytes,
+    }))
 }
 
 fn load_from_open(
