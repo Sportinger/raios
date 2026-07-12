@@ -128,12 +128,21 @@ request into quarantine as inert content-addressed source/tree evidence. It may
 not build, execute or install automatically. Next hardware slice:
 the explicit read-only G7 stick preflight. Neither grants physical-write authority.
 
-Refactor decision: the owner ordered a real kernel-mass refactor
-(2026-07-12, cost accepted). `docs/plan-reviews/kernel-mass-refactor-plan-2026-07-12.md`
-defines the four-phase program: inventory, readability splits, host
-relocation of pure logic, retirement of superseded evidence, then vocabulary
-compaction (formal Batch 6, reopening ADR 0006) last. Plan only — no code
-moved yet; P0 is a read-only inventory slice.
+Refactor program (owner-ordered 2026-07-12, cost accepted): P0 and two of
+three P1 packets are DONE. The P0 inventory routed all 121 evidence files:
+58,663 lines to delete (superseded by the real promotion/persistence/
+recovery loops), 70,326 to relocate into PC-testable crates, kernel target
+~84k lines (from 206k). P1 landed the memory-vocabulary readability reflow
+(611-KB file fully readable, 108 giant lines eliminated, content byte-proven
+identical) and the load-gate literal splits (17 giant lines, fragments
+proven identical), plus a session-check size gate on lines AND bytes.
+Proof: `memory-durable` `shadow-20260712-184533-27876.json` green; full
+profile `shadow-20260712-184856-27972.json` 7870/7870 byte-identical green.
+The loader-file split (P1-A) is PARKED: provably content-identical, yet it
+deterministically froze one child-VM probe — bisection isolated it, and the
+suspected cause is compiler code layout exposing a pre-existing kernel
+fragility. It returns as its own investigation slice (classification and
+probe plan in `docs/PROJECT_STATUS.md`) before P2 touches that family.
 
 Planning update: `docs/plan-reviews/secure-ai-workspace-and-media-app-plan-2026-07-12.md`
 defines the final-path secure source workspace, quarantined acquisition,

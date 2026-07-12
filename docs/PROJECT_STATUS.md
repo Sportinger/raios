@@ -24,6 +24,36 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+VM failure classification (2026-07-12, memory-durable during P1 refactor
+verification) - four consecutive `memory-durable` failures (latest
+`release/vm-reports/shadow-20260712-183204-9448.json`) all threw
+`Memory-record fixture child VM did not answer memory.record_log_append` at
+the wasm-import-grant child probe (probe 6): its child received exactly
+`agent memory.record_log_appen`, consumed no further serial input, and
+printed nothing more, while probes 1-5 answered completely in the same runs.
+The first failure overlapped a concurrent-session `full` run (two QEMU
+suites at once — orchestrator error, both runs discarded as evidence).
+Controlled bisection under identical host conditions (19 GB free disk,
+exclusive QEMU, softened profile pacing 8/60ms): pure post-W6 HEAD is GREEN
+(`shadow-20260712-182707-4080.json`); HEAD plus ONLY the P1-A loader-runtime
+module split is RED (`shadow-20260712-183204-9448.json`); HEAD plus only
+P1-B/P1-C is GREEN (`shadow-20260712-184533-27876.json`). Verdict:
+`guest-behavior`, caused by the uncommitted P1-A split — statically
+equivalence-proven (fn conservation, no reorder, build green), so the
+suspected mechanism is codegen change (codegen-unit/inlining partitioning by
+module) making the module-loader emit path drastically slower or
+stack-deeper on the import-grant boot path. Supporting evidence: the
+concurrent session's W6-close full attempt
+(`shadow-20260712-172716-29728.json`, 489/490) ran on a tree containing
+P1-A and its only failure was the large-response
+`module.load_ephemeral.rejected_audit_ref` serial deadline — likely the
+same effect, not the documented flake. P1-A is PARKED (git stash
+`p1-kernel-attribution-test` plus scratchpad backup) and must not land
+until a dedicated slice explains and fixes the mechanism (first probes:
+`codegen-units=1` build comparison, kernel stack headroom measurement,
+loader-response wall-clock before/after). The `memory-durable` profile
+pacing change (16/25ms to 8/60ms) is retained as harness hardening.
+
 VM failure classification (2026-07-12, W6-close full profile first attempt) -
 report `release/vm-reports/shadow-20260712-172716-29728.json` passed 489/490
 recorded predicates and failed only

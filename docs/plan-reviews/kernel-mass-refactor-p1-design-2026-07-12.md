@@ -1,5 +1,18 @@
 # Kernel Mass Refactor P1 Implementation Design (2026-07-12)
 
+> **P1-A OUTCOME (2026-07-12, post-implementation):** the loader split was
+> implemented, statically equivalence-proven, and build-green — and then
+> deterministically froze the `memory-durable` wasm-import-grant child probe
+> (bisection: HEAD green, HEAD+P1-A red, HEAD+P1-B/C green; classification
+> entry in `docs/PROJECT_STATUS.md`). Suspected mechanism: module structure
+> changes codegen-unit partitioning, degrading the loader emit path on the
+> import-grant boot path. P1-A is PARKED in stash `p1-kernel-attribution-test`
+> until a dedicated slice proves and fixes the mechanism (`codegen-units=1`
+> comparison, stack headroom, loader-response timing). P1-B and P1-C are
+> landed separately. Lesson recorded: source-level equivalence proofs do not
+> cover codegen-sensitive kernel paths; VM evidence stays mandatory for
+> structural moves.
+
 Packet: `REFACTOR-P1-DESIGN`. This design is limited to P1 readability work on
 inventory rows routed `RELOCATE`. It assigns no implementation work to a
 `RETIRE` row. P1 is behavior-neutral: serial bytes, gate decisions, authority,
@@ -59,7 +72,7 @@ two of the five named files have such lines.
 
 | File | >400-char lines | Cause and classification | Safe transform | Cheapest sufficient proof |
 | --- | ---: | --- | --- | --- |
-| `agent_protocol_memory.rs` | 108; max 23,859 | 51 tuple rows around 1,018-1,702 and 57 invocations of `define_direct_binding_fields!` around 2,099-2,880. They are code/tables containing string literals, but the width comes from many macro tokens on one physical line, not from one indivisible value. | Insert newlines/indentation only between existing tokens and tuple arms. Do not split identifiers or literal contents and do not reorder arms. | `git diff -w --exit-code -- seed-kernel/src/agent_protocol_memory.rs` must be empty, then release build. This proves the source token stream is unchanged. |
+| `agent_protocol_memory.rs` | 108; max 23,859 | 51 tuple rows around 1,018-1,702 and 57 invocations of `define_direct_binding_fields!` around 2,099-2,880. They are code/tables containing string literals, but the width comes from many macro tokens on one physical line, not from one indivisible value. | Insert newlines/indentation only between existing tokens and tuple arms. Do not split identifiers or literal contents and do not reorder arms. | Whitespace-stripped byte-stream equality: the SHA-256 of the file with ALL whitespace characters removed must equal the same hash of the HEAD version (line-based `git diff -w` can never pass on newline insertion — found by P1-B run 1), then release build. Together these prove the token stream is unchanged. |
 | `agent_protocol_module_load_gate_render.rs` | 17; max 2,994 | One macro table row, one long `required` JSON literal, seven long retained-reference JSON literals, one long descriptor-boundary literal, and seven long requested-capability/boundary literals. Most width is serialized string data passed to `raw`. | Reflow the macro row with whitespace only. For strings, use `raw(concat!("fragment", "fragment"))` to preserve one call, or consecutive `raw("fragment")` calls only after checking `raw` is append-only. Split only between complete escaped JSON tokens; never introduce/remove spaces. | Token changes are not established by `diff -w`: run release build and the `full-module-load-gate` focused profile, and compare the affected command serial bytes with the pinned pre-P1 baseline. Treat consecutive `raw` calls as the same expensive class. |
 | `event_log.rs` | 0; max line <=400 | No wide-line defect in the sampled 7,141-line file. Its problem is total size (282,628 B), not long literals or tables. | No P1 rewrap. Leave on the explicit cap exemption; P2 relocates pure event logic while keeping the RAM-ring adapter. | No transform, hence no proof run attributable to this file. |
 | `event_log_types.rs` | 0; max line <=400 | No wide-line defect in the sampled 3,918-line file. It exceeds 200 KiB through accumulated type vocabulary. | No P1 rewrap. Leave on the explicit cap exemption for P2 relocation. | No transform. |
@@ -67,8 +80,8 @@ two of the five named files have such lines.
 
 Use two proof batches: (A) whitespace-only `agent_protocol_memory.rs`; (B)
 value-preserving token changes in `agent_protocol_module_load_gate_render.rs`.
-Do not mix them. Although `git diff -w` plus a release build is sufficient to
-classify batch A, the P1 phase contract independently requires a focused VM
+Do not mix them. Although stripped-hash equality plus a release build is
+sufficient to classify batch A, the P1 phase contract independently requires a focused VM
 profile for every implementation slice; run it after the cheap proof rather
 than using it to compensate for a non-empty whitespace diff. Batch B always
 requires byte-identical focused serial evidence. `cargo fmt` may be used only
@@ -94,7 +107,14 @@ then reports deterministic path-sorted rows. Count physical lines with
   "documented plan" bypass is accepted.
 
 Adoption exemptions (the RETIRE rows are listed only because the checker must
-adopt against the real tree; P1 assigns them zero design or refactor work):
+adopt against the real tree; P1 assigns them zero design or refactor work).
+IMPORTANT (P1-B run 2 finding): the baselines below are pre-P1 planning
+references only. The checker adopts MEASURED working-tree values at adoption
+time, i.e. after the P1-A split and the P1-B reflow: `agent_protocol_memory.rs`
+adopts its post-reflow line/byte measurement (the reflow adds lines by
+design), and `agent_protocol_module_loader_runtime.rs` receives NO entry when
+the P1-A split already holds every resulting file under the hard caps. An
+entry exists only for a file still over a hard cap at adoption time:
 
 | File | Baseline lines | Baseline bytes | Route |
 | --- | ---: | ---: | --- |
@@ -131,9 +151,11 @@ Exact write set:
 - `seed-kernel/src/agent_protocol_module_loader_runtime/selftest.rs`
 
 Checks: confirm every result is below both warning thresholds; `cargo fmt --all
--- --check`; release kernel build; focused `full-module-load-gate` profile with
-affected serial output byte-identical to baseline; secret scan. Verification
-tier: focused VM because this moves trust/gate and boot-compiled module code.
+-- --check`; release kernel build; VM proof via the `full` profile (P1
+correction: the load-gate coverage lives in a fragment of `full`; there is no
+standalone focused profile for it in the harness ValidateSet) with affected
+serial output byte-identical to baseline; secret scan. Verification tier: the
+phase-close `full` run doubles as this packet's VM evidence.
 
 ### P1-B — whitespace-only memory reflow and size-rule adoption
 
@@ -143,7 +165,8 @@ Exact write set:
 - `scripts/check-source-size.ps1`
 - `AGENTS.md`
 
-Checks: `git diff -w --exit-code -- seed-kernel/src/agent_protocol_memory.rs`;
+Checks: whitespace-stripped SHA-256 equality of `agent_protocol_memory.rs`
+against HEAD (section 2 proof);
 run the new size checker and confirm only named exemptions can exceed hard caps;
 `cargo fmt --all -- --check`; release kernel build; focused `memory-durable`
 profile; secret scan. Verification tier: cheap whitespace/build proof first,
@@ -155,10 +178,12 @@ Exact write set:
 
 - `seed-kernel/src/agent_protocol_module_load_gate_render.rs`
 
-Checks: `cargo fmt --all -- --check`; release kernel build; focused
-`full-module-load-gate` profile with byte-identical affected serial output;
-rerun the size checker; secret scan. Verification tier: focused VM because the
-transform changes Rust tokens on a trust/gate serialization path.
+Checks: `cargo fmt --all -- --check`; release kernel build; VM proof via the
+`full` profile (see P1-A correction — no standalone load-gate profile exists)
+with byte-identical affected serial output;
+rerun the size checker; secret scan. Verification tier: the phase-close `full`
+run carries this packet's VM evidence because the transform changes Rust
+tokens on a trust/gate serialization path.
 
 At phase close, the orchestrator carefully reads the joined diff, runs the
 `full` profile (the P1 contract requires full at phase close), runs the secret
