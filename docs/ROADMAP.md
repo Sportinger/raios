@@ -58,6 +58,13 @@ project-scoped list/read/search plus copy-on-write edit/diff/commit/discard; W3+
 builder, dependency, promotion and rollback authority remain closed. Hardware
 I5/G7 remains a separate read-only identity tripwire.
 
+**W2a project query complete (2026-07-12):** exact project/path byte-range
+reads and locator-only text search now replay and rehash the W1 revision on
+every call. `shadow-20260712-125335-27844.json` passes 136/136 across 53 commands
+and both boots, including wrong-project/path, range/query/limit denials and
+explicit no-write/no-export/no-build/no-install/no-execute posture. W2b overlay
+edit/diff/commit/discard is now the active product slice.
+
 **M13/Secret Vault contract accepted (C0/G5.0, 2026-07-10):** ADR 0012
 fixes the dedicated internal-partition boundary, crash-consistent structured
 store, exact cryptographic pins, RR1 recovery wrapper, TPM evidence gate, and

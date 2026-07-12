@@ -293,6 +293,10 @@ The AI can list/read/search one project, propose file edits in an overlay, and
 the user can inspect and commit or discard the exact diff. It cannot see another
 project, secrets, raw storage, or unselected cloud-export content.
 
+Status: W2a list/read/search complete, verified by
+`shadow-20260712-125335-27844.json` at 136/136. W2b overlay edit/diff/commit/
+discard remains active; provider export remains closed.
+
 ### W3 - dependency quarantine
 
 A user can import a locked dependency bundle, inspect origin/license/hash, and

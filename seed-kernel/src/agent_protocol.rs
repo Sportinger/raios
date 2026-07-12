@@ -94,6 +94,9 @@ use crate::{
         emit_import_file_finalize as emit_project_import_file_finalize,
         emit_inspect as emit_project_inspect,
     },
+    agent_protocol_project_query::{
+        emit_read as emit_project_read, emit_search as emit_project_search,
+    },
     agent_protocol_provider::{
         emit_provider_context_export_authorized_selftest,
         emit_provider_context_export_authorized_selftest_smuggle,
@@ -478,6 +481,8 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("project.import_file_finalize", Exact, [], [route!("project.import_file_finalize")], MethodAction::Read0(emit_project_import_file_finalize)),
     method!("project.import_commit", Exact, [], [route!("project.import_commit")], MethodAction::Read0(emit_project_import_commit)),
     method!("project.inspect", Head, [], [route!("project.inspect")], MethodAction::ReadMethod(emit_project_inspect)),
+    method!("project.read", Head, [], [route!("project.read")], MethodAction::ReadMethod(emit_project_read)),
+    method!("project.search", Head, [], [route!("project.search")], MethodAction::ReadMethod(emit_project_search)),
     method!("module.submit_distribution_catalog_entry", Head, [], [route!("module.submit_distribution_catalog_entry")], MethodAction::ReadMethod(emit_submit_distribution_catalog_entry)),
     method!("module.submit_distribution_receiver_identity", Head, [], [route!("module.submit_distribution_receiver_identity")], MethodAction::ReadMethod(emit_submit_distribution_receiver_identity)),
     method!("module.submit_distribution_receiver_identity_evidence", Head, [], [route!("module.submit_distribution_receiver_identity_evidence")], MethodAction::ReadMethod(emit_submit_distribution_receiver_identity_evidence)),

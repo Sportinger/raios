@@ -40,6 +40,11 @@ function Convert-HexToBytes {
     return $bytes
 }
 
+function Convert-BytesToHex {
+    param([byte[]]$Bytes)
+    return ([BitConverter]::ToString($Bytes) -replace '-', '').ToLowerInvariant()
+}
+
 function Write-CanonicalString {
     param([System.IO.BinaryWriter]$Writer, [string]$Value)
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($Value)
@@ -195,6 +200,108 @@ function Assert-ExactProjectRevision {
     ) -Actual $Result
 }
 
+function Assert-ProjectQueryPosture {
+    param([object]$Result, [string]$Name)
+    Add-ProjectPredicate -Name "$Name`:non_authority" -Expected 'read-only local-only QEMU query with no write/export/build/install/load/execute authority' -Passed (
+        $Result.classification -eq 'local_only' -and $Result.qemu_only -eq $true -and
+        $Result.physical_media_supported -eq $false -and
+        $Result.storage_write_attempted -eq $false -and $Result.writes_persistent_state -eq $false -and
+        $Result.provider_export_attempted -eq $false -and $Result.provider_export_authorized -eq $false -and
+        $Result.builder_attempted -eq $false -and $Result.build_authorized -eq $false -and
+        $Result.install_attempted -eq $false -and $Result.install_authorized -eq $false -and
+        $Result.load_attempted -eq $false -and $Result.load_authorized -eq $false -and
+        $Result.execution_attempted -eq $false -and $Result.execution_authorized -eq $false
+    ) -Actual $Result
+}
+
+function Assert-ProjectReadDenied {
+    param([string]$Command, [string]$Reason, [string]$Name)
+    $result = Send-ProjectCommand -Command $Command -Method 'project.read' -Name "$Name`:command"
+    Add-ProjectPredicate -Name "$Name`:denied" -Expected "project.read denies $Reason without returning bytes" -Passed (
+        $result.status -eq 'denied' -and $result.reason -eq $Reason -and
+        [int]$result.returned_len -eq 0 -and $null -eq $result.bytes_hex
+    ) -Actual $result
+    Assert-ProjectQueryPosture -Result $result -Name $Name
+}
+
+function Assert-ProjectSearchDenied {
+    param([string]$Command, [string]$Reason, [string]$Name)
+    $result = Send-ProjectCommand -Command $Command -Method 'project.search' -Name "$Name`:command"
+    Add-ProjectPredicate -Name "$Name`:denied" -Expected "project.search denies $Reason without returning locators or source bytes" -Passed (
+        $result.status -eq 'denied' -and $result.reason -eq $Reason -and
+        [int]$result.match_count -eq 0 -and @($result.matches).Count -eq 0 -and
+        $null -eq $result.PSObject.Properties['snippet'] -and
+        $null -eq $result.PSObject.Properties['bytes_hex']
+    ) -Actual $result
+    Assert-ProjectQueryPosture -Result $result -Name $Name
+}
+
+function Assert-ProjectReadAndSearch {
+    param(
+        [string]$ProjectId,
+        [string]$RevisionSha256,
+        [object]$SourceFile,
+        [string]$Name
+    )
+    $pathBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($SourceFile.path))
+    $sourceText = [System.Text.Encoding]::UTF8.GetString($SourceFile.bytes)
+    $readOffset = $sourceText.IndexOf('println!', [StringComparison]::Ordinal)
+    if ($readOffset -lt 0) { throw 'project-workspace fixture lost expected println! source range' }
+    $readLength = $SourceFile.bytes.Length - $readOffset
+    $expectedRead = [byte[]]$SourceFile.bytes[$readOffset..($SourceFile.bytes.Length - 1)]
+    $read = Send-ProjectCommand -Command "project.read $ProjectId $pathBase64 $readOffset $readLength" -Method 'project.read' -Name "$Name`:read"
+    Add-ProjectPredicate -Name "$Name`:read_exact_range" -Expected 'exact src/main.rs tail bytes plus immutable file/revision metadata and eof' -Passed (
+        $read.status -eq 'present' -and $read.reason -eq 'project_read_verified' -and
+        $read.project_id -eq $ProjectId -and $read.revision_sha256 -eq "sha256:$RevisionSha256" -and
+        $read.path -ceq $SourceFile.path -and $read.file_classification -eq $SourceFile.classification -and
+        $read.media_type -eq $SourceFile.media_type -and $read.blob_sha256 -eq "sha256:$($SourceFile.sha256)" -and
+        [int]$read.file_byte_len -eq $SourceFile.bytes.Length -and [int]$read.offset -eq $readOffset -and
+        [int]$read.requested_len -eq $readLength -and [int]$read.returned_len -eq $readLength -and
+        $read.bytes_hex -ceq (Convert-BytesToHex -Bytes $expectedRead) -and $read.eof -eq $true
+    ) -Actual $read
+    Assert-ProjectQueryPosture -Result $read -Name "$Name`:read"
+
+    $queryBytes = [System.Text.Encoding]::UTF8.GetBytes('hello from raiOS')
+    $queryBase64 = [Convert]::ToBase64String($queryBytes)
+    $expectedMatchOffset = $sourceText.IndexOf('hello from raiOS', [StringComparison]::Ordinal)
+    $search = Send-ProjectCommand -Command "project.search $ProjectId $queryBase64 4" -Method 'project.search' -Name "$Name`:search"
+    $matches = @($search.matches)
+    Add-ProjectPredicate -Name "$Name`:search_exact_locator" -Expected 'one exact path/offset/length locator, with no snippet or source bytes' -Passed (
+        $search.status -eq 'present' -and $search.reason -eq 'project_search_verified' -and
+        $search.project_id -eq $ProjectId -and $search.revision_sha256 -eq "sha256:$RevisionSha256" -and
+        $search.query_sha256 -eq "sha256:$(Get-ByteSha256Hex -Bytes $queryBytes)" -and
+        [int]$search.query_byte_len -eq $queryBytes.Length -and [int]$search.searched_file_count -eq 2 -and
+        [int]$search.limit -eq 4 -and
+        [int]$search.match_count -eq 1 -and $search.truncated -eq $false -and $matches.Count -eq 1 -and
+        $matches[0].path -ceq $SourceFile.path -and [int]$matches[0].byte_offset -eq $expectedMatchOffset -and
+        [int]$matches[0].match_len -eq $queryBytes.Length -and
+        $null -eq $search.PSObject.Properties['snippet'] -and
+        $null -eq $search.PSObject.Properties['bytes_hex'] -and
+        $null -eq $matches[0].PSObject.Properties['snippet'] -and
+        $null -eq $matches[0].PSObject.Properties['bytes_hex']
+    ) -Actual $search
+    Assert-ProjectQueryPosture -Result $search -Name "$Name`:search"
+}
+
+function Assert-ProjectQueryDenials {
+    param([string]$ProjectId, [object]$SourceFile, [string]$Name)
+    $pathBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($SourceFile.path))
+    $missingPathBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes('src/missing.rs'))
+    $missingProjectId = 'ffeeddccbbaa99887766554433221100'
+    $queryBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes('hello'))
+
+    Assert-ProjectReadDenied -Command "project.read $missingProjectId $pathBase64 0 1" -Reason 'project_not_found' -Name "$Name`:read_wrong_project"
+    Assert-ProjectReadDenied -Command "project.read $ProjectId $missingPathBase64 0 1" -Reason 'project_path_not_found' -Name "$Name`:read_wrong_path"
+    Assert-ProjectReadDenied -Command "project.read $ProjectId $pathBase64 $($SourceFile.bytes.Length + 1) 1" -Reason 'project_read_offset_out_of_bounds' -Name "$Name`:read_offset_out_of_range"
+    Assert-ProjectReadDenied -Command "project.read $ProjectId $pathBase64 0 513" -Reason 'project_read_limit_exceeded' -Name "$Name`:read_oversize"
+
+    Assert-ProjectSearchDenied -Command "project.search $missingProjectId $queryBase64 4" -Reason 'project_not_found' -Name "$Name`:search_wrong_project"
+    Assert-ProjectSearchDenied -Command "project.search $ProjectId  4" -Reason 'project_query_malformed' -Name "$Name`:search_empty_query"
+    $oversizeQueryBase64 = [Convert]::ToBase64String([byte[]]::new(129))
+    Assert-ProjectSearchDenied -Command "project.search $ProjectId $oversizeQueryBase64 4" -Reason 'project_search_query_limit_exceeded' -Name "$Name`:search_oversize_query"
+    Assert-ProjectSearchDenied -Command "project.search $ProjectId $queryBase64 17" -Reason 'project_search_limit_invalid' -Name "$Name`:search_limit_overflow"
+}
+
 foreach ($marker in @('C1_STRUCTURED_STORE_FIXTURE_ACCEPTED', 'C1_STRUCTURED_STORE_FORMAT_OPEN_OK')) {
     Assert-LogContains -Name "project-workspace:$marker" -Needle $marker -TimeoutSeconds $TimeoutSeconds
 }
@@ -276,6 +383,8 @@ Add-ProjectPredicate -Name 'positive:durable_commit' -Expected 'qemu-only durabl
 
 $firstInspect = Send-ProjectCommand -Command "project.inspect $projectId" -Method 'project.inspect' -Name 'positive:inspect_first_boot'
 Assert-ExactProjectRevision -Result $firstInspect -Files $files -ProjectId $projectId -TreeSha256 $treeSha256 -RevisionSha256 $revisionSha256 -Name 'first_boot'
+Assert-ProjectReadAndSearch -ProjectId $projectId -RevisionSha256 $revisionSha256 -SourceFile $files[1] -Name 'first_boot'
+Assert-ProjectQueryDenials -ProjectId $projectId -SourceFile $files[1] -Name 'first_boot'
 $firstRevisionJson = $firstInspect | ConvertTo-Json -Compress -Depth 8
 
 $firstBootLog = $SerialLog
@@ -300,6 +409,8 @@ try { $script:QemuProcess = Get-Process -Id $QemuPid -ErrorAction Stop } catch {
 Assert-LogContains -Name 'project-workspace:reboot_serial_console_ready' -Needle 'SERIAL CONSOLE READY' -TimeoutSeconds $TimeoutSeconds
 $rebootInspect = Send-ProjectCommand -Command "project.inspect $projectId" -Method 'project.inspect' -Name 'positive:inspect_reboot'
 Assert-ExactProjectRevision -Result $rebootInspect -Files $files -ProjectId $projectId -TreeSha256 $treeSha256 -RevisionSha256 $revisionSha256 -Name 'reboot'
+Assert-ProjectReadAndSearch -ProjectId $projectId -RevisionSha256 $revisionSha256 -SourceFile $files[1] -Name 'reboot'
+Assert-ProjectQueryDenials -ProjectId $projectId -SourceFile $files[1] -Name 'reboot'
 $rebootRevisionJson = $rebootInspect | ConvertTo-Json -Compress -Depth 8
 Add-ProjectPredicate -Name 'reboot:byte_identical_revision_facts' -Expected 'project/tree/revision/file facts byte-identical across two boots' -Passed ($rebootRevisionJson -ceq $firstRevisionJson) -Actual $(if ($rebootRevisionJson -ceq $firstRevisionJson) { $revisionSha256 } else { 'response_mismatch' })
 

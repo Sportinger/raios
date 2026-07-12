@@ -175,6 +175,19 @@ revision is `sha256:11df2422e2592225c3687d7cd845e6991628bed9c49611e01b51ff9c9dda
 This is source data only and QEMU-only: no provider export, builder, dependency,
 install, load, execution, physical-storage or secret authority is created.
 
+W2a project-scoped source read/search verified (2026-07-12) - an agent can now
+read an exact byte range from one path in one fully replayed W1 revision and
+search valid UTF-8 `text/*` files for a bounded exact byte query. Reads return
+at most 512 bytes plus immutable project/revision/blob metadata; search accepts
+1-128 query bytes and at most 16 results, and returns only path/byte-offset/
+match-length locators with the query hash, never snippets or source bytes.
+Wrong project/path, out-of-range or oversized reads, empty/oversized queries and
+invalid limits deny before returning data. Focused two-boot report
+`release/vm-reports/shadow-20260712-125335-27844.json` passes 136/136 across 53
+observed commands. Both boots reloaded and rehashed the same project from the
+QEMU structured store. Every query remains `local_only`, makes no write, and
+grants no provider export, builder, install, load or execution authority.
+
 Current-boot AI program revision loop release-built (2026-07-12) - after an
 accepted provider-authored `RAIOS_UI_SPEC_V1` draft, a user can enter
 `/revise <feedback>`; Genesis binds the original request, exact prior source
@@ -186,11 +199,12 @@ path. This loop is bounded RAM-only and release-built; it does not persist a
 source project, install a revision, retry providers automatically, or claim a
 live revision-provider smoke in this slice.
 
-Current exact next product task (W2 project-scoped AI editing): expose bounded
-list/read/search over one verified W1 revision, let an agent create an isolated
-copy-on-write overlay, and let the user inspect and commit or discard its exact
-diff. Another project, Vault data, raw storage and unselected provider export
-must remain unreachable. The hardware cursor remains I5/G7 read-only stick
+Current exact next product task (W2b project-scoped AI editing): bind an
+isolated copy-on-write overlay to the exact verified base revision, let an agent
+add/replace/delete files, and let the user inspect and commit or discard its
+deterministic hash-bound diff. W2a list/read/search is complete. Another project,
+Vault data, raw storage and unselected provider export must remain unreachable.
+The hardware cursor remains I5/G7 read-only stick
 identity/fingerprint preflight: the stick was not enumerated or touched here,
 its old Disk number must not be assumed, and no physical write, format,
 repartition or replacement fingerprint is authorized. Build, dependency,

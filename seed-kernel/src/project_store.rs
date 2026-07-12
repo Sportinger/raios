@@ -3,10 +3,20 @@ use alloc::{vec, vec::Vec};
 use raios_core::{
     project_workspace::{
         blob_record_key, decode_blob_record, decode_revision_manifest, is_revision_record_key,
-        revision_record_key, BuiltRevision, ProjectId, ProjectRevision,
+        revision_record_key, BuiltRevision, ProjectId, ProjectRevision, TreeEntry,
     },
     structured_store::{plan_transaction, RecordOperation, RecordValue, TransactionRequest},
 };
+
+pub(crate) struct LoadedFile {
+    pub(crate) entry: TreeEntry,
+    pub(crate) bytes: Vec<u8>,
+}
+
+pub(crate) struct LoadedProject {
+    pub(crate) revision: ProjectRevision,
+    pub(crate) files: Vec<LoadedFile>,
+}
 
 use crate::{
     structured_store::{append_with_readback, open_and_replay_with_history, PortDenied},
@@ -100,14 +110,14 @@ pub(crate) fn commit(built: &BuiltRevision) -> Result<(), ProjectStoreDenied> {
         )?;
     }
 
-    let loaded = inspect_from_open(
+    let loaded = load_from_open(
         &mut port,
         identity,
         &mut snapshot,
         built.revision.project_id,
     )?
     .ok_or(ProjectStoreDenied::RevisionInvalid)?;
-    if loaded != built.revision {
+    if loaded.revision != built.revision {
         return Err(ProjectStoreDenied::RevisionInvalid);
     }
     Ok(())
@@ -116,16 +126,20 @@ pub(crate) fn commit(built: &BuiltRevision) -> Result<(), ProjectStoreDenied> {
 pub(crate) fn inspect(
     project_id: ProjectId,
 ) -> Result<Option<ProjectRevision>, ProjectStoreDenied> {
-    let (mut port, identity, mut snapshot) = open()?;
-    inspect_from_open(&mut port, identity, &mut snapshot, project_id)
+    Ok(load(project_id)?.map(|loaded| loaded.revision))
 }
 
-fn inspect_from_open(
+pub(crate) fn load(project_id: ProjectId) -> Result<Option<LoadedProject>, ProjectStoreDenied> {
+    let (mut port, identity, mut snapshot) = open()?;
+    load_from_open(&mut port, identity, &mut snapshot, project_id)
+}
+
+fn load_from_open(
     port: &mut DisposableQemuStorePort,
     identity: crate::structured_store::ValidatedRegionIdentity,
     snapshot: &mut [u8],
     project_id: ProjectId,
-) -> Result<Option<ProjectRevision>, ProjectStoreDenied> {
+) -> Result<Option<LoadedProject>, ProjectStoreDenied> {
     let replay = open_and_replay_with_history(port, identity, snapshot).map_err(map_port)?;
     let mut latest = None;
     for record in replay
@@ -154,6 +168,7 @@ fn inspect_from_open(
         return Ok(None);
     };
 
+    let mut files = Vec::with_capacity(revision.entries.len());
     for entry in &revision.entries {
         let record = replay
             .state()
@@ -170,8 +185,12 @@ fn inspect_from_open(
         {
             return Err(ProjectStoreDenied::BlobInvalid);
         }
+        files.push(LoadedFile {
+            entry: entry.clone(),
+            bytes: decoded.bytes,
+        });
     }
-    Ok(Some(revision))
+    Ok(Some(LoadedProject { revision, files }))
 }
 
 fn open() -> Result<

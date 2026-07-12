@@ -16,6 +16,8 @@ Workspace: W1 is real. A bounded local multi-file source project can be
 committed as immutable content-addressed blobs plus deterministic tree/revision
 evidence to the disposable QEMU structured store, rebooted, and inspected with
 the same exact file and revision hashes. It remains inert source data.
+An agent can now read at most 512 exact bytes from one bound path and search
+text for capped locator-only matches; searches never return snippets.
 
 Genesis UX: conversation entries wrap instead of truncating, older rows are
 reachable with the wheel or PageUp/PageDown, the composer keeps its visible
@@ -49,6 +51,8 @@ observed commands and two boots. Invalid paths, case aliases, wrong hashes and
 quota overflow produced no visible revision; the valid two-file project replayed
 with exact revision hash
 `11df2422e2592225c3687d7cd845e6991628bed9c49611e01b51ff9c9dda6a05`.
+W2a report `shadow-20260712-125335-27844.json` passed 136/136 across 53
+commands and both boots, including bounded reads/search and all negative cases.
 
 Still denied: arbitrary external/native/Wasm intake, file/network/secret access
 from generated programs, durable program install/state, broad mutation,
@@ -60,8 +64,8 @@ Stick: the owner reports it has been found, but this session did not enumerate
 or touch it. The next G7 action is read-only identity/layout/fingerprint
 preflight; never assume the former Disk 2 number or recreate a missing fingerprint.
 
-Next product slice: W2 project-scoped list/read/search and an isolated edit
-overlay whose exact diff can be committed or discarded. Build, dependencies,
+Next product slice: W2b isolated editing whose exact hash-bound diff can be
+committed or discarded. Build, dependencies,
 install and rollback follow only after their named gates. Next hardware slice:
 the explicit read-only G7 stick preflight. Neither grants physical-write authority.
 
