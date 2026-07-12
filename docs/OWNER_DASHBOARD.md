@@ -1,6 +1,29 @@
 # Owner Dashboard
 
-Updated: 2026-07-12.
+Updated: 2026-07-13.
+
+Refactor program: the feared "layout-sensitive kernel bug" is solved — and the
+kernel was innocent. The real defect sat in our own test tooling: the helper
+that types commands into a child test VM hung up its network connection in a
+way Windows turns into a hard abort, so QEMU threw away command bytes it had
+not yet delivered. Which test froze depended purely on machine timing, which
+shifts with every rebuild — that is why it looked like a deep memory bug. The
+helper now reads its echoes and hangs up cleanly; the same tests that froze
+three different kernel builds now pass on all of them. With that unblocked,
+the parked refactor work landed the same night: the 10,156-line module-loader
+file is now six readable modules, and the first relocation wave moved
+module-gate/provider/memory decision logic into normal PC-testable code
+(seconds instead of QEMU minutes) while removing about 1,700 kernel lines.
+The wave's family-close full run then earned its keep: it caught three real
+copying mistakes the parked wave had been hiding (a crash in a formatter, a
+wrong separator that silently changed every computed reference hash, and one
+dropped safety comparison). All three are fixed, and all 93 of the module
+gate's built-in test cases now also run as normal PC tests in a tenth of a
+second — so this whole class of mistake can never again hide until a
+20-minute VM run. The full test suite is green on the landed result
+(shadow-20260713-013105-20952.json). One pre-existing cosmetic test-fixture
+gap was found and documented; it changes nothing in behavior. Deletion of the
+superseded diagnostic surfaces (~58,700 lines) is designed, approved, and next.
 
 Current capability: a user can type `/build <request>` in Genesis. raiOS sends
 the request through its existing pinned-trust direct provider path, accepts only

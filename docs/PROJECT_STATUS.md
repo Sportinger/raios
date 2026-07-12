@@ -24,6 +24,88 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+P2 WAVE 1 LANDED — FAMILY-CLOSE FULL GREEN (2026-07-13). Full profile passed
+on the landed tree: `release/vm-reports/shadow-20260713-013105-20952.json`,
+after P1-A (5e75c1a) and the wave cherry-picks (4af5624, c0f9fa6, bfd24ed)
+plus the mirror-faithfulness repair series P2-FIX3..7 in
+`raios-core/src/module_load_gate.rs`. The family close caught and fixed three
+real core-mirror divergences that provider-memory/memory-durable could not
+see: (1) the event-id hasher paniced (19-byte literal into a 20-byte slice;
+canon is prefix+8 zero-padded digits), (2) canonical hash inputs wrote
+`=sha256:` where the kernel original wrote `=` (every aggregate reference
+hash diverged), (3) the audit-rollback evaluator omitted the original
+ram-only service-slot mismatch check. All 93 in-guest load-gate selftest
+cases (50 reference + 7 retained + 23 audit/rollback + 13 service-slot) are
+now transliterated into raios-core host tests (455 green), so this class of
+divergence fails in seconds on the host instead of after a QEMU boot. KNOWN
+PRE-EXISTING GAP (not a wave regression, unchanged behavior): the guest case
+`substituted_local_approval_reference_record` expects
+`retained_local_approval_reference_substituted_record` but its fixture
+mutation is not consumed by the approval builder, so the rebuilt candidate is
+byte-identical and the substituted check cannot fire; historically masked by
+appearance-only (`serial_contains: case name`) predicates. Documented in the
+host test; candidates for the fix are a fixture correction or retirement of
+the surface in P3/P4. Wave capability: module-gate/provider/memory decision
+logic now runs as host tests in seconds; net -1,721 kernel lines.
+
+VM failure classification (2026-07-13, P2-wave-1 family-close full retry 3) -
+report `release/vm-reports/shadow-20260713-011429-14684.json`: P2-FIX5 landed
+the real hasher divergence (core wrote `=sha256:` into canonical hash inputs
+where the kernel original wrote `=`) and the whole artifact/report/attestation
+chain passes; two NEW same-class divergences surfaced further down:
+`substituted_local_approval_reference_record` (substituted-record check
+event_reference != candidate_reference not firing; guest mutates only one
+side) and `retained_audit_rollback_service_slot_mismatch` (companion handling
+falls into the missing path). Verdict: `guest-behavior`, P2-wave core mirror.
+Repair P2-FIX6 switches from case-by-case whack-a-mole to a systematic sweep:
+every load-gate evaluator transliterated line-faithfully against bfd24ed^ and
+ALL selftest case tables ported to host tests.
+
+VM failure classification (2026-07-13, P2-wave-1 family-close full retry 2) -
+report `release/vm-reports/shadow-20260713-010213-11924.json`: after P2-FIX4
+reordered the aggregate reference-hash checks, the two mismatch cases pass
+but the VALID case `accepted_current_boot_artifact_still_denied` now fails
+(`rejected`/`retained_candidate_artifact_reference_hash_mismatch` instead of
+`retained_hash_reference_only`). Verdict: `guest-behavior`, same P2-wave core
+mirror; FIX4 treated a field-source divergence as a check-order problem —
+the aggregate-hash recomputation consumes different inputs than the deleted
+kernel original, so reordering only moves which case trips. FIX4's host tests
+passed while the guest failed because they invented their own fixture
+construction instead of transliterating the guest fixture builders. Repair
+P2-FIX5 (fresh worker): quote the bfd24ed^ originals verbatim, paper-trace
+the three decisive cases, transliterate evaluators and fixtures exactly.
+
+VM failure classification (2026-07-13, P2-wave-1 family-close full retry) -
+report `release/vm-reports/shadow-20260713-004844-21452.json`: the P2-FIX3
+panic is gone and `module.load_gate_artifact_selftest` runs to completion,
+but two of its reference cases fail with the WRONG denial reason:
+`manifest_reference_mismatch` and `computed_grant_reference_mismatch` both
+yield the generic `retained_candidate_artifact_reference_hash_mismatch`
+instead of their specific reasons. Verdict: `guest-behavior`, P2-wave core
+mirror semantic divergence — check order or hash field-side differs from the
+deleted kernel original. Repair P2-FIX4 in progress: make the evaluator
+faithful to the bfd24ed^ original and port the ENTIRE in-guest case table to
+host tests (FIX3's single-case test was insufficient — the porting rule of
+the P2 plan exists precisely for this).
+
+VM failure classification (2026-07-13, P2-wave-1 family-close full profile) -
+report `release/vm-reports/shadow-20260713-003429-13992.json` failed at
+`command:agent module.load_gate_artifact_selftest` with a KERNEL PANIC:
+`source slice length (19) does not match destination slice length (20)` at
+`raios-core/src/module_load_gate.rs:1438`. Verdict: `guest-behavior`, caused
+by the landed P2 wave's core mirror: its canonical-hash helper `fn event`
+copies the 19-byte literal `event.current_boot.` into a 20-byte slice
+(instant panic on first call) inside a 28-byte buffer, while the kernel canon
+is prefix + exactly 8 zero-padded digits (27 bytes,
+`agent_protocol_recovery_execution.rs:529`). No host test ever calls
+`event()` — a coverage hole in the mirrored reference tables, being closed in
+the same fix (P2-FIX3). provider-memory
+(`shadow-20260713-002949-9700.json`) and memory-durable
+(`shadow-20260713-003106-19252.json`) passed on the same tree because only
+the full-profile module selftests reach this hasher — exactly the gap the
+family-close full run exists to catch. Red Gate: repair in progress; retry
+only after the fix plus a new host test that fails on the panic path.
+
 LAYOUT-SENSITIVE FREEZE RESOLVED — RECLASSIFIED HOST-TRANSPORT, PARKED WORK
 UNBLOCKED (2026-07-13). The program blocker below is closed. Root cause: the
 child-probe serial sender `Send-SerialText`
