@@ -1042,11 +1042,46 @@ function Send-SerialText {
         throw "Timed out connecting to QEMU serial TCP port $Port"
     }
 
+    $drain = {
+        param([System.Net.Sockets.NetworkStream]$Stream)
+
+        $buffer = [byte[]]::new(256)
+        $count = 0
+        while ($Stream.DataAvailable) {
+            $count += $Stream.Read($buffer, 0, $buffer.Length)
+        }
+        return $count
+    }
+
     try {
         $stream = $client.GetStream()
-        Write-SerialTcpText -Stream $stream -Text $Text
+        $drained = & $drain $stream
+        $bytes = [System.Text.Encoding]::ASCII.GetBytes($Text)
+        $chunkSize = [Math]::Max(1, $SerialWriteChunkSize)
+        $chunks = 0
+        for ($offset = 0; $offset -lt $bytes.Length; $offset += $chunkSize) {
+            $count = [Math]::Min($chunkSize, $bytes.Length - $offset)
+            $stream.Write($bytes, $offset, $count)
+            $chunks++
+            $drained += & $drain $stream
+            if ($SerialWriteDelayMilliseconds -gt 0) {
+                Start-Sleep -Milliseconds $SerialWriteDelayMilliseconds
+            }
+        }
         $stream.Flush()
-        Start-Sleep -Milliseconds 250
+        $holdDeadline = [DateTime]::UtcNow.AddMilliseconds(1500)
+        while ([DateTime]::UtcNow -lt $holdDeadline) {
+            $drained += & $drain $stream
+            Start-Sleep -Milliseconds 50
+        }
+        $client.Client.Shutdown([System.Net.Sockets.SocketShutdown]::Send)
+        $drainDeadline = [DateTime]::UtcNow.AddMilliseconds(250)
+        while ([DateTime]::UtcNow -lt $drainDeadline) {
+            $drained += & $drain $stream
+            Start-Sleep -Milliseconds 50
+        }
+        $drained += & $drain $stream
+        Write-Host "send-serial: wrote=$($bytes.Length) chunks=$chunks drained=$drained port=$Port"
     }
     finally {
         $client.Close()

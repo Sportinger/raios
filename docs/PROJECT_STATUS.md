@@ -24,6 +24,47 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+LAYOUT-SENSITIVE FREEZE RESOLVED — RECLASSIFIED HOST-TRANSPORT, PARKED WORK
+UNBLOCKED (2026-07-13). The program blocker below is closed. Root cause: the
+child-probe serial sender `Send-SerialText`
+(`vm-harness/shadow-vm-smoke-support.ps1`, old body at lines 1045-1053) opened
+a fresh TCP connection to the child QEMU serial chardev, wrote the paced
+command chunks, slept 250 ms, and closed WITHOUT ever reading the socket. The
+child echoes every accepted byte, so unread receive data was always pending at
+`Close()`; Windows then aborts the connection (RST) instead of a graceful FIN,
+and QEMU discards the inbound bytes it has not yet delivered to the UART. How
+many bytes the guest had consumed by that moment depends on its boot/poll
+cadence, which shifts with binary symbol layout and fixture contents — hence
+the deterministic (layout x probe) freeze pattern that looked exactly like a
+latent kernel memory-safety defect. The main-VM path was never affected
+because `Send-AgentCommand` keeps one persistent, drained stream — the
+asymmetry that localized the defect. Kernel exoneration evidence (instrumented
+l1 runs): guard canaries embedded around `console::CONSOLE`, `serial::COM1`,
+`serial::LOG`, and the heap tail stayed clean; per-task heartbeat counters
+showed the console task polling every main-loop iteration for minutes while
+`try_read_byte` success stuck at 14 bytes (`agent memory.r`) — the kernel was
+alive and draining, the bytes never arrived (failed forensic reports
+`shadow-20260712-232230-21120.json`, `shadow-20260712-233806-10404.json`;
+classification: host-transport). Static probes had already ruled out
+persist-parse OOB writes, static stacks, DMA page-straddle, uninit statics,
+and lock deadlocks. Fix: `Send-SerialText` now drains echoed bytes during the
+paced send, holds/drains 1.5 s, performs a send-side `Shutdown` (graceful
+FIN), drains again, then closes. Regression matrix, all `memory-durable`
+GREEN: main + fix `shadow-20260713-001603-14108.json`; previously-red
+main+P1-A layout `shadow-20260713-000633-19640.json` (froze probe 6 before);
+previously-red P2-wave layout 29c56eb `shadow-20260713-001037-20080.json`
+(froze probe 4 before); instrumented l1 `shadow-20260712-235535-28572.json`.
+The 2026-07-12 `guest-behavior` verdict on the P1-A bisection is corrected to
+`host-transport`: the bisection was sound, but the guest binary only shifts
+timing that the host-side close/RST race turns into byte loss. CONSEQUENCE
+REVERSED: structural relocations, splits, and link-visible additions may land
+on main again. Landing order: P1-A stash `p1-kernel-attribution-test`, then P2
+wave 1 as cherry-picks 976e776 + 9b514aa + 29c56eb (a plain branch merge would
+silently drop the core modules because main carries reverts of the first two),
+then P3 deletions (owner blanket approval given 2026-07-12: "ich gebe es
+hiermit frei").
+
+SUPERSEDED BY THE ENTRY ABOVE (kept for history):
 LATENT LAYOUT-SENSITIVE KERNEL BUG — PROGRAM BLOCKER (2026-07-12 evening).
 The P1-A investigation's prime suspect is now CONFIRMED as a program-wide
 blocker by the P2 wave: a latent kernel memory-safety defect corrupts
