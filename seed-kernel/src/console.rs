@@ -1037,6 +1037,13 @@ pub fn snapshot() -> ConsoleSnapshot {
     CONSOLE.lock().snapshot()
 }
 
+pub fn composer_active() -> bool {
+    let state = CONSOLE.lock();
+    state.view == UiView::Ai
+        && state.focus == UiFocus::ChatInput
+        && state.mode == ConsoleMode::Command
+}
+
 pub fn set_view(view: UiView) -> bool {
     let action = {
         let mut state = CONSOLE.lock();
@@ -1130,8 +1137,8 @@ pub fn write_program_outcome(request_id: u32, outcome: program_workspace::Intake
     } else {
         let _ = write!(
             line,
-            "PROGRAM DRAFT REJECTED request={} reason={}",
-            request_id, outcome.reason
+            "PROGRAM DRAFT REJECTED request={} reason={} input_bytes={}",
+            request_id, outcome.reason, outcome.attempted_byte_len
         );
     }
     serial::write_line(line.as_str());
@@ -2222,8 +2229,11 @@ muladd <dst-slot> <src-slot> <signed-multiplier> <signed-addend>\n\
 endrule\n\
 end\n\
 Repeat state/widgets/keys/rules as needed; when is optional and only valid inside a rule. \
-Every rule needs one or more actions. Every button/key event needs exactly one matching rule. \
+State lines append signed-integer slots in zero-based order. Display renders one slot as signed decimal text. Buttons and keys emit their event id. \
+Multiple rules may share an event id when their conditions are mutually exclusive: at runtime exactly one rule may match, zero matches ignores the event, and multiple matches trap. Rule actions execute sequentially. \
+Every rule needs one or more actions, and every requested interaction must have real rules for all intended states. \
 Use event ids 1..64, 1..16 state values, at most 64 widgets/keys, 128 rules, 2 when lines and 8 actions per rule. \
+Prefer the smallest program that satisfies the request and whose canonical form stays below 16384 bytes. Do not emit placeholders such as ?, TODO, or unfinished labels. Mentally simulate representative user interactions before returning the final data. \
 Use nonzero rectangles, nonoverlapping buttons, labels of at most 64 UTF-8 bytes, and simple coordinates within 0..900 by 0..440. \
 Quoted labels may escape only backslash and quote. The final line must be end. \
 This is deterministic UI data only: no source code, markdown, tools, network, files, persistence, or capabilities."

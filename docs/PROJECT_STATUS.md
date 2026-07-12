@@ -119,6 +119,29 @@ The setting is intentionally current-boot; Unicode/umlaut input, personal-app
 AltGr forwarding, locale rules, and persistence remain unimplemented rather
 than silently claimed.
 
+Readable and scrollable Genesis conversation verified (2026-07-12) - a user can
+now read complete wrapped chat entries, move through older rows with the mouse
+wheel over Conversation or PageUp/PageDown, see a proportional scroll marker,
+keep the visible tail of long composer input, and locate the active insertion
+point through a blinking cursor. The cursor changes through a small frontbuffer
+overlay instead of presenting the entire framebuffer every half second; this
+avoids exposing an in-progress backbuffer copy as a transient dark frame.
+High-frequency personal-shell frame markers remain available on serial but no
+longer evict useful user/assistant messages from the bounded on-screen chat.
+The live pinned-provider session produced a 2532-byte calculator draft, the
+owner physically approved and launched it, and F12 returned to Genesis. The
+same session visually confirmed wrapped conversation output and absence of the
+former frame-marker flood. Release build, format, diff and secret checks are
+the local DoD; the seed-kernel host test harness remains unavailable because
+the no-std binary conflicts with the standard Rust test harness. The
+unchanged full baseline remains
+`release/vm-reports/shadow-20260712-025759-11164.json` at 7870/7870 and the
+focused Genesis baseline remains
+`release/vm-reports/shadow-20260712-025218-6208.json` at 252/252. The live result
+proves the bounded runtime path and this calculator behavior, not general
+natural-language functional correctness of arbitrary AI output; future program
+installation still needs typed acceptance contracts/tests bound into evidence.
+
 Current exact next task (I5/G7 read-only presence/fingerprint tripwire after G6):
 the owner reports that the USB stick has been found again, but this session did
 not enumerate or touch it. On the next explicit G7 run, first list disk candidates

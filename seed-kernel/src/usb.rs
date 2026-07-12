@@ -4535,6 +4535,8 @@ fn hid_usage_to_keycode(usage: u8) -> Option<u16> {
         0x50 => 105,
         0x51 => 108,
         0x52 => 103,
+        0x4B => 104,
+        0x4E => 109,
         0x64 => 86,
         _ => return None,
     };

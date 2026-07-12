@@ -9,6 +9,12 @@ canonical hash-bound RUIP, and keeps the draft inert until a physical click.
 The signed `svc.user.shell` then runs it current-boot in a fresh metered Wasmi
 instance with exactly six UI imports; state commits only after a valid frame.
 
+Genesis UX: conversation entries wrap instead of truncating, older rows are
+reachable with the wheel or PageUp/PageDown, the composer keeps its visible
+input tail and has a blinking cursor, and high-frequency personal-shell frame
+markers remain serial-only rather than flooding the chat. Cursor blinking is a
+small frontbuffer overlay, so it does not trigger a full-screen present.
+
 Input: `AI Setup` now offers a current-boot US/German keyboard picker. The
 central mapping supplies QWERTZ plus German ASCII punctuation and AltGr symbols
 to Genesis, setup fields, and Console; basic personal-program keys also use the
@@ -17,13 +23,18 @@ persistence remain explicit gaps.
 
 Proof: a live same-boot OpenAI request produced a 168-byte counter, pinned-SPKI
 TLS and redacted evidence were positive, and the matching physical click started
-that exact hash as `ui_only` Wasm. No Authorization header entered the serial
-log. Key-bearing image, target lane and log were deleted after hashing.
+that exact hash as `ui_only` Wasm. A later live request produced a 2532-byte
+calculator draft; the owner approved and launched it, then returned with F12.
+No Authorization header entered the serial log. The evidence proves bounded
+intake/runtime behavior and the exercised examples, not universal semantic
+correctness of AI-authored programs.
 
 Regression: `shadow-20260712-025218-6208.json` passed 252/252. It covers exact
 delivery/hash, malformed preservation, physical approval, `12+30=42` through
 real HID events, F12 return, secure-strip clipping, proof compatibility, and
-trap/fuel fallback. Core tests pass 415/415; format and release build are green.
+trap/fuel fallback. The unchanged full baseline
+`shadow-20260712-025759-11164.json` passed 7870/7870. Core tests pass 415/415;
+the UX release build, format, diff and secret checks are green.
 
 Still denied: arbitrary external/native/Wasm intake, file/network/secret access
 from generated programs, durable program install/state, broad mutation,

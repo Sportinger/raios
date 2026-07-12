@@ -21,6 +21,9 @@ use super::{
 };
 
 const CONTAINED_QEMU_POWER_CUT_KEYCODE_F9: u16 = 67;
+const CONVERSATION_ROW_HEIGHT: usize = 12;
+const CONVERSATION_WHEEL_ROWS: usize = 3;
+const COMPOSER_CURSOR_BLINK_MS: u64 = 500;
 
 pub(crate) const FONT_ADVANCE: usize = 9;
 pub(crate) const APP_BG: Color = Color::new(20, 22, 26);
@@ -55,9 +58,12 @@ pub struct ShellHost {
     last_draw_states: Option<SnapshotStates>,
     last_mouse_buttons: u8,
     last_cursor_rect: Option<CursorRect>,
+    last_composer_cursor_rect: Option<CursorRect>,
     wifi: wifi_flow::GuidedWifi,
     recovery: recovery::RecoveryView,
     recovery_open: bool,
+    conversation_scroll_rows: usize,
+    last_composer_cursor_phase: bool,
     personal: PersonalSurface,
     vault: vault_flow::VaultFlow,
 }
@@ -74,9 +80,12 @@ impl ShellHost {
             last_draw_states: None,
             last_mouse_buttons: 0,
             last_cursor_rect: None,
+            last_composer_cursor_rect: None,
             wifi: wifi_flow::GuidedWifi::new(),
             recovery: recovery::RecoveryView::new(),
             recovery_open: false,
+            conversation_scroll_rows: 0,
+            last_composer_cursor_phase: false,
             personal: PersonalSurface::new(),
             vault: vault_flow::VaultFlow::new(),
         }
@@ -131,6 +140,7 @@ impl ShellHost {
                             surface,
                             uptime_ms,
                             &snapshot,
+                            self.conversation_scroll_rows,
                             &self.wifi,
                             &self.recovery,
                             self.recovery_open,
@@ -142,6 +152,7 @@ impl ShellHost {
                         surface,
                         uptime_ms,
                         &snapshot,
+                        self.conversation_scroll_rows,
                         &self.wifi,
                         &self.recovery,
                         self.recovery_open,
@@ -150,11 +161,13 @@ impl ShellHost {
                 }
                 surface.present();
                 self.vault.note_presented();
+                self.last_composer_cursor_rect = None;
                 self.last_cursor_rect = None;
                 draw_current_cursor(surface, &mut self.last_cursor_rect);
                 self.last_draw_states = Some(states);
             }
         }
+        self.render_composer_cursor(uptime_ms);
     }
 
     pub fn render_pointer(&mut self) {
@@ -162,8 +175,41 @@ impl ShellHost {
             if let Some(rect) = self.last_cursor_rect.take() {
                 surface.restore_from_back_rect(rect.x, rect.y, rect.w, rect.h);
             }
+            if let Some(rect) = self.last_composer_cursor_rect {
+                draw_front_rect(surface, rect, APP_BLUE);
+            }
             draw_current_cursor(surface, &mut self.last_cursor_rect);
         }
+    }
+
+    fn render_composer_cursor(&mut self, uptime_ms: u64) {
+        let phase = composer_cursor_phase(uptime_ms);
+        let active = !self.personal.has_personal_focus() && console::composer_active();
+        let visible = active && phase;
+        if !active && self.last_composer_cursor_rect.is_none() {
+            self.last_composer_cursor_phase = phase;
+            return;
+        }
+        if visible == self.last_composer_cursor_rect.is_some()
+            && phase == self.last_composer_cursor_phase
+        {
+            return;
+        }
+        let snapshot = console::snapshot();
+        if let Some(surface) = self.surface.as_mut() {
+            if let Some(rect) = self.last_cursor_rect.take() {
+                surface.restore_from_back_rect(rect.x, rect.y, rect.w, rect.h);
+            }
+            if let Some(rect) = self.last_composer_cursor_rect.take() {
+                surface.restore_from_back_rect(rect.x, rect.y, rect.w, rect.h);
+            }
+            if visible {
+                self.last_composer_cursor_rect = genesis_layout(surface.info())
+                    .and_then(|layout| draw_composer_cursor_front(surface, layout, &snapshot));
+            }
+            draw_current_cursor(surface, &mut self.last_cursor_rect);
+        }
+        self.last_composer_cursor_phase = phase;
     }
 
     pub fn handle_pointer_interaction(
@@ -269,6 +315,13 @@ impl ShellHost {
         }
         let console_snapshot = console::snapshot();
         if !self.personal.has_personal_focus()
+            && !self.recovery_open
+            && console_snapshot.view == console::UiView::Ai
+            && self.handle_conversation_scroll(event, &console_snapshot)
+        {
+            return true;
+        }
+        if !self.personal.has_personal_focus()
             && console_snapshot.view == console::UiView::Settings
             && matches!(
                 event.kind,
@@ -326,6 +379,54 @@ impl ShellHost {
         let route = self.personal.route_sanitized_event(context, event);
         note_personal_route(route);
         true
+    }
+
+    fn handle_conversation_scroll(
+        &mut self,
+        event: input::InputEvent,
+        snapshot: &console::ConsoleSnapshot,
+    ) -> bool {
+        let Some(layout) = self
+            .surface
+            .as_ref()
+            .and_then(|surface| genesis_layout(surface.info()))
+        else {
+            return false;
+        };
+        let max_scroll = conversation_max_scroll(layout, snapshot);
+        let delta = match event.kind {
+            input::InputEventKind::Relative(input::RelativeAxis::Wheel, value) => {
+                let mouse = input::mouse_snapshot();
+                let point = Point::new((mouse.x / 2) as u32, (mouse.y / 2) as u32);
+                if !layout.conversation.contains(point) {
+                    return false;
+                }
+                isize::try_from(value)
+                    .unwrap_or(if value < 0 { isize::MIN } else { isize::MAX })
+                    .saturating_mul(CONVERSATION_WHEEL_ROWS as isize)
+            }
+            input::InputEventKind::Key {
+                code: 104,
+                pressed: true,
+            } => conversation_visible_rows(layout).saturating_sub(1) as isize,
+            input::InputEventKind::Key {
+                code: 109,
+                pressed: true,
+            } => -(conversation_visible_rows(layout).saturating_sub(1) as isize),
+            _ => return false,
+        };
+        let previous = self.conversation_scroll_rows;
+        if delta > 0 {
+            self.conversation_scroll_rows = self
+                .conversation_scroll_rows
+                .saturating_add(delta as usize)
+                .min(max_scroll);
+        } else {
+            self.conversation_scroll_rows = self
+                .conversation_scroll_rows
+                .saturating_sub(delta.unsigned_abs());
+        }
+        self.conversation_scroll_rows != previous
     }
 
     fn activate_pending_personal_shell(&mut self, snapshot: &SystemSnapshot) -> bool {
@@ -499,6 +600,7 @@ fn draw_genesis(
     surface: &mut FramebufferSurface,
     uptime_ms: u64,
     snapshot: &SystemSnapshot,
+    conversation_scroll_rows: usize,
     wifi: &wifi_flow::GuidedWifi,
     recovery: &recovery::RecoveryView,
     recovery_open: bool,
@@ -511,7 +613,7 @@ fn draw_genesis(
     surface.fill(APP_BG);
     let console_snapshot = console::snapshot();
     draw_secure_strip(surface, layout, uptime_ms, snapshot, recovery_open);
-    draw_conversation(surface, layout, &console_snapshot);
+    draw_conversation(surface, layout, &console_snapshot, conversation_scroll_rows);
     if recovery_open {
         recovery.draw_context(surface, layout, true);
     } else {
@@ -565,6 +667,7 @@ fn draw_conversation(
     surface: &mut FramebufferSurface,
     layout: GenesisLayout,
     snapshot: &console::ConsoleSnapshot,
+    scroll_rows: usize,
 ) {
     let rect = rect_from_layout(layout.conversation);
     draw_panel(surface, rect, "Conversation");
@@ -588,11 +691,15 @@ fn draw_conversation(
         return;
     }
 
-    let mut y = rect.y + rect.h.saturating_sub(24);
-    let mut index = snapshot.chat_lines.len();
-    while index > 0 && y > rect.y + 42 {
-        index -= 1;
-        let line = snapshot.chat_lines[index];
+    let max_chars = rect.w.saturating_sub(48) / FONT_ADVANCE;
+    let visible_rows = conversation_visible_rows(layout);
+    let total_rows = conversation_row_count(snapshot, max_chars);
+    let scroll_rows = scroll_rows.min(total_rows.saturating_sub(visible_rows));
+    let end_row = total_rows.saturating_sub(scroll_rows);
+    let start_row = end_row.saturating_sub(visible_rows);
+    let content_y = rect.y + 42;
+    let mut row = 0usize;
+    for line in snapshot.chat_lines {
         let text_value = line.text.as_str();
         if text_value.is_empty() {
             continue;
@@ -607,18 +714,147 @@ fn draw_conversation(
             console::ChatSpeaker::Assistant => "raiOS",
             console::ChatSpeaker::System => "System",
         };
-        let line_y = y.saturating_sub(18);
-        text::draw_text(surface, rect.x + 18, line_y, label, color, None);
-        draw_truncated_text(
+        draw_conversation_row(
             surface,
             rect.x + 18,
-            line_y + 11,
-            text_value,
-            rect.w.saturating_sub(36) / FONT_ADVANCE,
-            TEXT_MUTED,
+            content_y,
+            row,
+            start_row,
+            end_row,
+            label,
+            color,
         );
-        y = line_y.saturating_sub(18);
+        row += 1;
+        let body_color = if line.speaker == console::ChatSpeaker::Assistant {
+            TEXT_MAIN
+        } else {
+            TEXT_MUTED
+        };
+        visit_wrapped_lines(text_value, max_chars, |wrapped| {
+            draw_conversation_row(
+                surface,
+                rect.x + 18,
+                content_y,
+                row,
+                start_row,
+                end_row,
+                wrapped,
+                body_color,
+            );
+            row += 1;
+        });
+        row += 1;
     }
+    draw_conversation_scrollbar(surface, rect, total_rows, visible_rows, start_row);
+}
+
+fn conversation_visible_rows(layout: GenesisLayout) -> usize {
+    let rect = rect_from_layout(layout.conversation);
+    rect.h
+        .saturating_sub(54)
+        .checked_div(CONVERSATION_ROW_HEIGHT)
+        .unwrap_or(0)
+        .max(1)
+}
+
+fn conversation_max_scroll(layout: GenesisLayout, snapshot: &console::ConsoleSnapshot) -> usize {
+    let rect = rect_from_layout(layout.conversation);
+    let max_chars = rect.w.saturating_sub(48) / FONT_ADVANCE;
+    conversation_row_count(snapshot, max_chars).saturating_sub(conversation_visible_rows(layout))
+}
+
+fn conversation_row_count(snapshot: &console::ConsoleSnapshot, max_chars: usize) -> usize {
+    let mut rows = 0usize;
+    for line in snapshot.chat_lines {
+        if line.text.as_str().is_empty() {
+            continue;
+        }
+        rows = rows.saturating_add(2);
+        visit_wrapped_lines(line.text.as_str(), max_chars, |_| {
+            rows = rows.saturating_add(1);
+        });
+    }
+    rows.saturating_sub(1)
+}
+
+fn visit_wrapped_lines<'a>(value: &'a str, max_chars: usize, mut visit: impl FnMut(&'a str)) {
+    if max_chars == 0 {
+        return;
+    }
+    let mut start = 0usize;
+    let mut chars = 0usize;
+    for (index, ch) in value.char_indices() {
+        if ch == '\n' {
+            visit(&value[start..index]);
+            start = index + ch.len_utf8();
+            chars = 0;
+        } else {
+            if chars == max_chars {
+                visit(&value[start..index]);
+                start = index;
+                chars = 0;
+            }
+            chars += 1;
+        }
+    }
+    visit(&value[start..]);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_conversation_row(
+    surface: &mut FramebufferSurface,
+    x: usize,
+    content_y: usize,
+    row: usize,
+    start_row: usize,
+    end_row: usize,
+    value: &str,
+    color: Color,
+) {
+    if row >= start_row && row < end_row {
+        text::draw_text(
+            surface,
+            x,
+            content_y + (row - start_row) * CONVERSATION_ROW_HEIGHT,
+            value,
+            color,
+            None,
+        );
+    }
+}
+
+fn draw_conversation_scrollbar(
+    surface: &mut FramebufferSurface,
+    rect: LogicalRect,
+    total_rows: usize,
+    visible_rows: usize,
+    start_row: usize,
+) {
+    if total_rows <= visible_rows {
+        return;
+    }
+    let track_y = rect.y + 42;
+    let track_h = rect.h.saturating_sub(54);
+    if track_h == 0 {
+        return;
+    }
+    let thumb_h = (track_h * visible_rows / total_rows).max(12).min(track_h);
+    let max_start = total_rows.saturating_sub(visible_rows).max(1);
+    let thumb_y = track_y + (track_h - thumb_h) * start_row.min(max_start) / max_start;
+    surface.fill_rect(
+        rect.x + rect.w.saturating_sub(7),
+        track_y,
+        2,
+        track_h,
+        HAIRLINE,
+    );
+    surface.fill_rect(
+        rect.x + rect.w.saturating_sub(8),
+        thumb_y,
+        4,
+        thumb_h,
+        APP_BLUE,
+    );
 }
 
 fn draw_context(
@@ -843,7 +1079,7 @@ fn note_personal_route(route: PersonalSurfaceRoute) {
             console::write_event(format_args!("PERSONAL SHELL ACTIVE current_boot proof"));
         }
         PersonalSurfaceRoute::FrameUpdated => {
-            console::write_event(format_args!("PERSONAL SHELL FRAME UPDATED sanitized_input"));
+            serial::write_line("PERSONAL SHELL FRAME UPDATED sanitized_input");
         }
         PersonalSurfaceRoute::ExitedToGenesis => {
             console::write_event(format_args!("PERSONAL SHELL EXIT F12 genesis"));
@@ -898,24 +1134,32 @@ fn draw_composer(
     surface.fill_rect(rect.x, rect.y, rect.w, rect.h, SURFACE_ALT);
     draw_outline(surface, rect, HAIRLINE);
     let text_value = snapshot.chat_input.as_str();
+    let text_x = rect.x + 14;
+    let max_chars = rect.w.saturating_sub(58) / FONT_ADVANCE;
     if text_value.is_empty() {
         text::draw_text(
             surface,
-            rect.x + 14,
+            text_x,
             rect.y + 18,
             "Ask anything, or /build <program>...",
             TEXT_FAINT,
             None,
         );
     } else {
-        draw_truncated_text(
-            surface,
-            rect.x + 14,
-            rect.y + 18,
-            text_value,
-            rect.w.saturating_sub(58) / FONT_ADVANCE,
-            TEXT_MAIN,
-        );
+        let (visible, truncated) = trailing_chars(text_value, max_chars.saturating_sub(1));
+        if truncated {
+            text::draw_text(surface, text_x, rect.y + 18, "<", TEXT_FAINT, None);
+            text::draw_text(
+                surface,
+                text_x + FONT_ADVANCE,
+                rect.y + 18,
+                visible,
+                TEXT_MAIN,
+                None,
+            );
+        } else {
+            text::draw_text(surface, text_x, rect.y + 18, visible, TEXT_MAIN, None);
+        }
     }
     draw_button(
         surface,
@@ -923,6 +1167,60 @@ fn draw_composer(
         ">",
         true,
     );
+}
+
+fn composer_cursor_phase(uptime_ms: u64) -> bool {
+    (uptime_ms / COMPOSER_CURSOR_BLINK_MS) % 2 == 0
+}
+
+fn draw_composer_cursor_front(
+    surface: &mut FramebufferSurface,
+    layout: GenesisLayout,
+    snapshot: &console::ConsoleSnapshot,
+) -> Option<CursorRect> {
+    if snapshot.view != console::UiView::Ai || snapshot.focus != console::UiFocus::ChatInput {
+        return None;
+    }
+    let rect = rect_from_layout(layout.composer);
+    let max_chars = rect.w.saturating_sub(58) / FONT_ADVANCE;
+    let text_value = snapshot.chat_input.as_str();
+    let cursor_chars = if text_value.is_empty() {
+        0
+    } else {
+        let (visible, truncated) = trailing_chars(text_value, max_chars.saturating_sub(1));
+        visible.chars().count() + usize::from(truncated)
+    };
+    let scale = surface.draw_scale();
+    let cursor = CursorRect {
+        x: (rect.x + 14 + cursor_chars * FONT_ADVANCE).saturating_mul(scale),
+        y: (rect.y + 15).saturating_mul(scale),
+        w: 2usize.saturating_mul(scale),
+        h: 15usize.saturating_mul(scale),
+    };
+    draw_front_rect(surface, cursor, APP_BLUE);
+    Some(cursor)
+}
+
+fn draw_front_rect(surface: &mut FramebufferSurface, rect: CursorRect, color: Color) {
+    for y in rect.y..rect.y.saturating_add(rect.h) {
+        for x in rect.x..rect.x.saturating_add(rect.w) {
+            surface.set_front_pixel(x, y, color);
+        }
+    }
+}
+
+fn trailing_chars(value: &str, max_chars: usize) -> (&str, bool) {
+    let count = value.chars().count();
+    if count <= max_chars {
+        return (value, false);
+    }
+    let skip = count - max_chars;
+    let start = value
+        .char_indices()
+        .nth(skip)
+        .map(|(index, _)| index)
+        .unwrap_or(value.len());
+    (&value[start..], true)
 }
 
 fn draw_setup_overlay(
