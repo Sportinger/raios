@@ -1,6 +1,6 @@
 use core::cell::{Cell, UnsafeCell};
 use core::mem::MaybeUninit;
-use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 
 use spin::{Mutex, Once};
 
@@ -22,6 +22,8 @@ static RING: InputRing = InputRing::new();
 static MOUSE: Mutex<MouseState> = Mutex::new(MouseState::new());
 static INIT_ONCE: Once<()> = Once::new();
 static SHIFT_ACTIVE: AtomicBool = AtomicBool::new(false);
+static ALTGR_ACTIVE: AtomicBool = AtomicBool::new(false);
+static KEYBOARD_LAYOUT: AtomicU8 = AtomicU8::new(KeyboardLayout::Us as u8);
 
 pub fn init() {
     INIT_ONCE.call_once(|| {
@@ -229,6 +231,42 @@ pub enum SpecialKey {
     Right,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum KeyboardLayout {
+    Us = 0,
+    German = 1,
+}
+
+impl KeyboardLayout {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Us => "US",
+            Self::German => "DE",
+        }
+    }
+}
+
+pub fn keyboard_layout() -> KeyboardLayout {
+    match KEYBOARD_LAYOUT.load(Ordering::Relaxed) {
+        1 => KeyboardLayout::German,
+        _ => KeyboardLayout::Us,
+    }
+}
+
+pub fn toggle_keyboard_layout() -> KeyboardLayout {
+    let next = match keyboard_layout() {
+        KeyboardLayout::Us => KeyboardLayout::German,
+        KeyboardLayout::German => KeyboardLayout::Us,
+    };
+    KEYBOARD_LAYOUT.store(next as u8, Ordering::Relaxed);
+    serial::write_fmt(format_args!(
+        "keyboard layout selected: {} current_boot=true\r\n",
+        next.label()
+    ));
+    next
+}
+
 fn update_mouse(kind: InputEventKind) -> bool {
     let mut mouse = MOUSE.lock();
     match kind {
@@ -388,6 +426,10 @@ pub(crate) fn event_to_console_input(event: InputEvent) -> Option<ConsoleInput> 
             SHIFT_ACTIVE.store(pressed, Ordering::Relaxed);
             return None;
         }
+        100 => {
+            ALTGR_ACTIVE.store(pressed, Ordering::Relaxed);
+            return None;
+        }
         _ if !pressed => return None,
         1 => return Some(ConsoleInput::Special(SpecialKey::Escape)),
         14 => return Some(ConsoleInput::Byte(0x08)),
@@ -405,10 +447,27 @@ pub(crate) fn event_to_console_input(event: InputEvent) -> Option<ConsoleInput> 
     }
 
     let shifted = SHIFT_ACTIVE.load(Ordering::Relaxed);
-    keycode_to_ascii(code, shifted).map(ConsoleInput::Byte)
+    let altgr = ALTGR_ACTIVE.load(Ordering::Relaxed);
+    keycode_to_ascii_for_layout(code, shifted, altgr, keyboard_layout()).map(ConsoleInput::Byte)
 }
 
 pub(crate) fn keycode_to_ascii(code: u16, shifted: bool) -> Option<u8> {
+    keycode_to_ascii_for_layout(code, shifted, false, keyboard_layout())
+}
+
+fn keycode_to_ascii_for_layout(
+    code: u16,
+    shifted: bool,
+    altgr: bool,
+    layout: KeyboardLayout,
+) -> Option<u8> {
+    match layout {
+        KeyboardLayout::Us => us_keycode_to_ascii(code, shifted),
+        KeyboardLayout::German => german_keycode_to_ascii(code, shifted, altgr),
+    }
+}
+
+fn us_keycode_to_ascii(code: u16, shifted: bool) -> Option<u8> {
     let byte = match code {
         2 => digit_ascii(b'1', b'!', shifted),
         3 => digit_ascii(b'2', b'@', shifted),
@@ -457,6 +516,76 @@ pub(crate) fn keycode_to_ascii(code: u16, shifted: bool) -> Option<u8> {
         51 => digit_ascii(b',', b'<', shifted),
         52 => digit_ascii(b'.', b'>', shifted),
         53 => digit_ascii(b'/', b'?', shifted),
+        _ => return None,
+    };
+    Some(byte)
+}
+
+fn german_keycode_to_ascii(code: u16, shifted: bool, altgr: bool) -> Option<u8> {
+    if altgr {
+        return Some(match code {
+            8 => b'{',
+            9 => b'[',
+            10 => b']',
+            11 => b'}',
+            12 => b'\\',
+            16 => b'@',
+            27 => b'~',
+            86 => b'|',
+            _ => return None,
+        });
+    }
+
+    let byte = match code {
+        2 => digit_ascii(b'1', b'!', shifted),
+        3 => digit_ascii(b'2', b'"', shifted),
+        4 if shifted => return None,
+        4 => b'3',
+        5 => digit_ascii(b'4', b'$', shifted),
+        6 => digit_ascii(b'5', b'%', shifted),
+        7 => digit_ascii(b'6', b'&', shifted),
+        8 => digit_ascii(b'7', b'/', shifted),
+        9 => digit_ascii(b'8', b'(', shifted),
+        10 => digit_ascii(b'9', b')', shifted),
+        11 => digit_ascii(b'0', b'=', shifted),
+        12 if shifted => b'?',
+        12 => return None,
+        13 => digit_ascii(b'\'', b'`', shifted),
+        16 => letter_ascii(b'q', shifted),
+        17 => letter_ascii(b'w', shifted),
+        18 => letter_ascii(b'e', shifted),
+        19 => letter_ascii(b'r', shifted),
+        20 => letter_ascii(b't', shifted),
+        21 => letter_ascii(b'z', shifted),
+        22 => letter_ascii(b'u', shifted),
+        23 => letter_ascii(b'i', shifted),
+        24 => letter_ascii(b'o', shifted),
+        25 => letter_ascii(b'p', shifted),
+        26 | 39 | 40 => return None,
+        27 => digit_ascii(b'+', b'*', shifted),
+        30 => letter_ascii(b'a', shifted),
+        31 => letter_ascii(b's', shifted),
+        32 => letter_ascii(b'd', shifted),
+        33 => letter_ascii(b'f', shifted),
+        34 => letter_ascii(b'g', shifted),
+        35 => letter_ascii(b'h', shifted),
+        36 => letter_ascii(b'j', shifted),
+        37 => letter_ascii(b'k', shifted),
+        38 => letter_ascii(b'l', shifted),
+        41 if shifted => return None,
+        41 => b'^',
+        43 => digit_ascii(b'#', b'\'', shifted),
+        44 => letter_ascii(b'y', shifted),
+        45 => letter_ascii(b'x', shifted),
+        46 => letter_ascii(b'c', shifted),
+        47 => letter_ascii(b'v', shifted),
+        48 => letter_ascii(b'b', shifted),
+        49 => letter_ascii(b'n', shifted),
+        50 => letter_ascii(b'm', shifted),
+        51 => digit_ascii(b',', b';', shifted),
+        52 => digit_ascii(b'.', b':', shifted),
+        53 => digit_ascii(b'-', b'_', shifted),
+        86 => digit_ascii(b'<', b'>', shifted),
         _ => return None,
     };
     Some(byte)
@@ -519,5 +648,31 @@ impl InputRing {
         let event = unsafe { (*self.buffer[slot].get()).assume_init_read() };
         self.tail.store(tail.wrapping_add(1), Ordering::Release);
         Some(event)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn german_layout_maps_qwertz_command_and_altgr_ascii() {
+        let de = KeyboardLayout::German;
+        assert_eq!(
+            keycode_to_ascii_for_layout(21, false, false, de),
+            Some(b'z')
+        );
+        assert_eq!(
+            keycode_to_ascii_for_layout(44, false, false, de),
+            Some(b'y')
+        );
+        assert_eq!(keycode_to_ascii_for_layout(8, true, false, de), Some(b'/'));
+        assert_eq!(keycode_to_ascii_for_layout(16, false, true, de), Some(b'@'));
+        assert_eq!(keycode_to_ascii_for_layout(86, false, true, de), Some(b'|'));
+        assert_eq!(keycode_to_ascii_for_layout(26, false, false, de), None);
+        assert_eq!(
+            keycode_to_ascii_for_layout(21, false, false, KeyboardLayout::Us),
+            Some(b'y')
+        );
     }
 }

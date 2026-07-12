@@ -442,6 +442,9 @@ impl ShellHost {
         if point_in(x, y, setup_vault_rect(rect)) {
             return self.vault.begin_explicit();
         }
+        if point_in(x, y, setup_keyboard_rect(rect)) {
+            return console::activate_focus(console::UiFocus::SettingsKeyboardLayout);
+        }
         if point_in(x, y, action[0]) {
             return self.vault.begin_provider_explicit();
         }
@@ -959,6 +962,16 @@ fn draw_setup_overlay(
         vault.action_label(),
         snapshot.focus == console::UiFocus::SettingsVault,
     );
+    let keyboard_label = match snapshot.keyboard_layout {
+        input::KeyboardLayout::Us => "Keyboard: US / switch to DE",
+        input::KeyboardLayout::German => "Keyboard: DE / switch to US",
+    };
+    draw_button(
+        surface,
+        setup_keyboard_rect(rect),
+        keyboard_label,
+        snapshot.focus == console::UiFocus::SettingsKeyboardLayout,
+    );
     let actions = setup_action_rects(rect);
     draw_button(
         surface,
@@ -1016,6 +1029,10 @@ fn setup_action_rects(rect: LogicalRect) -> [LogicalRect; 4] {
 
 fn setup_vault_rect(rect: LogicalRect) -> LogicalRect {
     LogicalRect::new(rect.x + 20, rect.y + 104, rect.w.saturating_sub(40), 24)
+}
+
+fn setup_keyboard_rect(rect: LogicalRect) -> LogicalRect {
+    LogicalRect::new(rect.x + 20, rect.y + 136, rect.w.saturating_sub(40), 24)
 }
 
 pub(crate) fn draw_panel(surface: &mut FramebufferSurface, rect: LogicalRect, title: &str) {

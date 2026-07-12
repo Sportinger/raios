@@ -103,6 +103,22 @@ UI-only and current-boot: no arbitrary native/Wasm intake, file/network/secret
 capability, durable install, persistence, promotion, rollback application or
 broad mutation is granted.
 
+Selectable US/German keyboard input verified (2026-07-12) - a user can now
+open `AI Setup`, switch the current-boot keyboard mapping between US and German
+QWERTZ, and type commands, prompts, and setup values through the same central
+translation path; basic personal-program keys reuse the selected layout. The
+normal host text route includes the ASCII punctuation needed for `/build`,
+QWERTZ Y/Z, AltGr `@`, backslash, braces, brackets, pipe, and tilde; the two ISO
+HID usages previously dropped by the USB adapter now reach that translator. A
+release key-image build succeeded,
+and a live 1920x1080 QEMU USB-HID smoke emitted `keyboard layout selected: DE
+current_boot=true` and visibly rendered `/build baue einen einfachen zaehler
+mit plus minus und reset` from German physical positions. The current clean
+interactive QEMU boot loaded the provider key and reached configured network.
+The setting is intentionally current-boot; Unicode/umlaut input, personal-app
+AltGr forwarding, locale rules, and persistence remain unimplemented rather
+than silently claimed.
+
 Current exact next task (I5/G7 read-only presence/fingerprint tripwire after G6):
 the owner reports that the USB stick has been found again, but this session did
 not enumerate or touch it. On the next explicit G7 run, first list disk candidates
@@ -8092,8 +8108,10 @@ Historical verified recovery foundation retained for reference:
 - `scripts/package-stage0.sh` is Linux/WSL-oriented and expects `mkfs.fat`,
   `mmd`, and `mcopy`.
 - Network failure/timeout states and packet counters are still minimal.
-- Keyboard input uses a minimal US/Linux keycode mapping; no layout selection,
-  modifier completeness, or text editing beyond Backspace exists yet.
+- Keyboard input has a current-boot US/German-ASCII picker and German QWERTZ,
+  punctuation, and normal-host AltGr mapping. Unicode/umlaut input, personal-app
+  AltGr forwarding, layout persistence, full modifier/dead-key handling, and
+  text editing beyond Backspace remain.
 - Bare-metal support is experimental. Minimal direct xHCI USB-HID boot keyboard,
   mouse, hub traversal, and a limited no-input USB hotplug rescan exist, but full
   detach/reconfigure handling and broad NIC coverage do not exist yet, so real

@@ -9,6 +9,12 @@ canonical hash-bound RUIP, and keeps the draft inert until a physical click.
 The signed `svc.user.shell` then runs it current-boot in a fresh metered Wasmi
 instance with exactly six UI imports; state commits only after a valid frame.
 
+Input: `AI Setup` now offers a current-boot US/German keyboard picker. The
+central mapping supplies QWERTZ plus German ASCII punctuation and AltGr symbols
+to Genesis, setup fields, and Console; basic personal-program keys also use the
+selected layout. Unicode umlauts, personal-app AltGr, dead keys, and layout
+persistence remain explicit gaps.
+
 Proof: a live same-boot OpenAI request produced a 168-byte counter, pinned-SPKI
 TLS and redacted evidence were positive, and the matching physical click started
 that exact hash as `ui_only` Wasm. No Authorization header entered the serial

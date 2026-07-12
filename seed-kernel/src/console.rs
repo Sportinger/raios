@@ -76,6 +76,7 @@ pub struct ConsoleSnapshot {
     pub focus: UiFocus,
     pub chat_lines: [ChatLine; CHAT_LINES],
     pub chat_input: ConsoleLine,
+    pub keyboard_layout: input::KeyboardLayout,
     pub settings_entry_active: bool,
     pub api_key_set: bool,
     pub provider_name: &'static str,
@@ -109,6 +110,7 @@ pub enum UiFocus {
     ChatInput,
     ConsoleInput,
     SettingsProvider,
+    SettingsKeyboardLayout,
     SettingsVault,
     SettingsApiKey,
     SettingsClear,
@@ -268,6 +270,7 @@ impl ConsoleState {
             focus: self.focus,
             chat_lines,
             chat_input,
+            keyboard_layout: input::keyboard_layout(),
             settings_entry_active: matches!(
                 self.mode,
                 ConsoleMode::ApiKeyEntry
@@ -404,6 +407,10 @@ impl ConsoleState {
             UiFocus::ChatInput => self.handle_chat_byte(b'\r'),
             UiFocus::ConsoleInput => self.handle_command_byte(b'\r'),
             UiFocus::SettingsProvider => ByteAction::ShowProviderStatus,
+            UiFocus::SettingsKeyboardLayout => {
+                input::toggle_keyboard_layout();
+                ByteAction::Redraw
+            }
             // ShellHost consumes physical Enter on this focus before Console.
             // Serial has no Vault action and can only request a redraw here.
             UiFocus::SettingsVault => ByteAction::Redraw,
@@ -742,8 +749,9 @@ const CONSOLE_FOCUS_ORDER: [UiFocus; 4] = [
     UiFocus::NavConsole,
     UiFocus::NavSettings,
 ];
-const SETTINGS_FOCUS_ORDER: [UiFocus; 13] = [
+const SETTINGS_FOCUS_ORDER: [UiFocus; 14] = [
     UiFocus::SettingsProvider,
+    UiFocus::SettingsKeyboardLayout,
     UiFocus::SettingsVault,
     UiFocus::SettingsApiKey,
     UiFocus::SettingsClear,
