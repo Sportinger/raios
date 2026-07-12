@@ -209,9 +209,7 @@ closed as a host flake.
 
 Run and paste output from all three before ending a session:
 
-1. File-size check: no touched `.rs` file above 5,000 lines without a
-   documented split plan (`wc -l` the touched files until a check script
-   exists).
+1. Source-size check: run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\check-source-size.ps1`. It warns at 3,000 lines or 120 KiB and fails at 5,000 lines or 200 KiB per owned `.rs` file. Temporary adoption exemptions are exact no-growth baselines and must be removed as P1-P3 shrink the files; do not add or widen an exemption instead of splitting or relocating a file.
 2. Gate check: the newest full-profile report says `result: passed` and is
    newer than the last commit, or the session was Red Gate repair work.
 3. `cargo fmt --all -- --check` (scoped to crates rustfmt can process until
