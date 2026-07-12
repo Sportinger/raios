@@ -54,16 +54,27 @@ collision, wrong hash, quota denial, manifest-last visibility and explicit
 no-build/no-install/no-execute posture. `/revise <feedback>` also reuses the
 existing current-boot provider/spec/runtime path with parent/root lineage while
 preserving the prior valid draft on failure. The active product cursor is W2:
-project-scoped list/read/search plus copy-on-write edit/diff/commit/discard; W3+
-builder, dependency, promotion and rollback authority remain closed. Hardware
+project-scoped list/read/search plus copy-on-write edit/diff/commit/discard. W2
+is now complete as recorded below; the active product cursor is W3 dependency
+quarantine, while W4+ builder, promotion and rollback authority remain closed. Hardware
 I5/G7 remains a separate read-only identity tripwire.
 
 **W2a project query complete (2026-07-12):** exact project/path byte-range
 reads and locator-only text search now replay and rehash the W1 revision on
 every call. `shadow-20260712-125335-27844.json` passes 136/136 across 53 commands
 and both boots, including wrong-project/path, range/query/limit denials and
-explicit no-write/no-export/no-build/no-install/no-execute posture. W2b overlay
-edit/diff/commit/discard is now the active product slice.
+explicit no-write/no-export/no-build/no-install/no-execute posture. The W2b
+result below closes the remaining overlay edit/diff/commit/discard slice.
+
+**W2b project overlay editing complete (2026-07-12):** an agent can bind a
+RAM-only overlay to the exact verified latest revision, add/replace/delete
+files, inspect the deterministic old/new hash-bound diff, discard it, or commit
+one immutable `agent_overlay_commit` child. Stale, malformed, hash-mismatched,
+no-op, invalid-delete and case-collision paths leave the stored base unchanged.
+`shadow-20260712-130758-7668.json` passes 304/304 across 114 commands and three
+boots; the exact child replayed byte-identically after reboot. W2 is complete.
+The active product cursor is W3 dependency quarantine; direct cloud-provider
+tool use, build, install, load and execution remain closed.
 
 **M13/Secret Vault contract accepted (C0/G5.0, 2026-07-10):** ADR 0012
 fixes the dedicated internal-partition boundary, crash-consistent structured

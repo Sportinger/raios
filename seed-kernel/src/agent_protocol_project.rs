@@ -74,6 +74,7 @@ pub(crate) fn emit_inspect(input: &str) {
             f("present", b(false)),
             f("project_id", V::Null),
             f("parent_revision_sha256", V::Null),
+            f("revision_action", V::Null),
             f("tree_sha256", V::Null),
             f("revision_sha256", V::Null),
             f("file_count", V::U64(0)),
@@ -86,6 +87,7 @@ pub(crate) fn emit_inspect(input: &str) {
             f("present", b(false)),
             f("project_id", V::Null),
             f("parent_revision_sha256", V::Null),
+            f("revision_action", V::Null),
             f("tree_sha256", V::Null),
             f("revision_sha256", V::Null),
             f("file_count", V::U64(0)),
@@ -140,6 +142,14 @@ fn emit_operation(method: &'static str, outcome: project_workspace::OperationRes
                     .as_ref()
                     .and_then(|revision| revision.parent_revision_sha256),
             ),
+        ),
+        f(
+            "revision_action",
+            outcome
+                .revision
+                .as_ref()
+                .map(|revision| s(revision.action.label()))
+                .unwrap_or(V::Null),
         ),
         f(
             "tree_sha256",
@@ -205,6 +215,7 @@ fn revision_fields<'a>(
             "parent_revision_sha256",
             record_sha_or_null(revision.parent_revision_sha256),
         ),
+        f("revision_action", s(revision.action.label())),
         f("tree_sha256", V::Sha256(revision.tree_sha256)),
         f("revision_sha256", V::Sha256(revision.revision_sha256)),
         f("file_count", V::U64(revision.entries.len() as u64)),

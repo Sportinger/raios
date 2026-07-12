@@ -294,13 +294,20 @@ the user can inspect and commit or discard the exact diff. It cannot see another
 project, secrets, raw storage, or unselected cloud-export content.
 
 Status: W2a list/read/search complete, verified by
-`shadow-20260712-125335-27844.json` at 136/136. W2b overlay edit/diff/commit/
-discard remains active; provider export remains closed.
+`shadow-20260712-125335-27844.json` at 136/136. W2b is also complete: an exact
+latest-revision-bound RAM overlay can add/replace/delete, expose its sorted
+old/new hash-bound diff, discard without mutation, or commit one immutable
+`agent_overlay_commit` child that survives reboot. Focused report
+`shadow-20260712-130758-7668.json` passes 304/304 across 114 commands and three
+boots. W2 is complete; direct cloud-provider tool use and provider export remain
+closed.
 
 ### W3 - dependency quarantine
 
 A user can import a locked dependency bundle, inspect origin/license/hash, and
 bind it to one source revision. No dependency executes or runs a build script.
+
+Status: active next slice. Build, install, load and execution remain denied.
 
 ### W4 - real offline Rust-to-Wasm build
 

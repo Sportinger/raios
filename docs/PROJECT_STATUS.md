@@ -188,6 +188,28 @@ observed commands. Both boots reloaded and rehashed the same project from the
 QEMU structured store. Every query remains `local_only`, makes no write, and
 grants no provider export, builder, install, load or execution authority.
 
+W2b project-scoped overlay editing verified (2026-07-12) - an agent can now
+bind one RAM-only copy-on-write overlay to the exact latest verified project
+revision, add or replace bounded files, delete existing paths, inspect the
+deterministic sorted diff with exact old/new blob and metadata bindings, discard
+the overlay, or commit it as a new immutable `agent_overlay_commit` child
+revision. The commit rechecks that the base is still latest before writing;
+wrong hashes, malformed chunks, invalid deletes, no-op edits, case aliases and
+stale-base commits leave the stored base unchanged. The verified positive edit
+replaced `src/main.rs`, added `README.md`, deleted `Cargo.toml`, and committed
+child revision
+`sha256:87339872c8016d88068d4aef754db50e0e5d476cbb9d77edd5e8e3821d47a7cb`
+with parent
+`sha256:11df2422e2592225c3687d7cd845e6991628bed9c49611e01b51ff9c9dda6a05`.
+A second real overlay was discarded without changing that child; a third boot
+replayed and rehashed byte-identical child facts, then exact read and
+locator-only search remained available. Focused report
+`release/vm-reports/shadow-20260712-130758-7668.json` passes 304/304 across 114
+observed commands and three boots in 258488 ms. Only successful `edit_commit`
+writes the disposable QEMU structured store. Direct cloud-provider tool use,
+dependency intake, build, install, load, execution, physical storage and
+provider export remain denied.
+
 Current-boot AI program revision loop release-built (2026-07-12) - after an
 accepted provider-authored `RAIOS_UI_SPEC_V1` draft, a user can enter
 `/revise <feedback>`; Genesis binds the original request, exact prior source
@@ -199,11 +221,14 @@ path. This loop is bounded RAM-only and release-built; it does not persist a
 source project, install a revision, retry providers automatically, or claim a
 live revision-provider smoke in this slice.
 
-Current exact next product task (W2b project-scoped AI editing): bind an
-isolated copy-on-write overlay to the exact verified base revision, let an agent
-add/replace/delete files, and let the user inspect and commit or discard its
-deterministic hash-bound diff. W2a list/read/search is complete. Another project,
-Vault data, raw storage and unselected provider export must remain unreachable.
+Current exact next product task (W3 dependency quarantine): import one bounded,
+locked dependency bundle as inert content-addressed data, inspect its exact
+origin, license and hashes, and bind it to one immutable source revision. W2
+list/read/search plus basis-bound add/replace/delete/diff/commit/discard is
+complete. No dependency may execute, run a build script, grant a compiler or
+installer capability, or reach another project, Vault data, raw storage or
+unselected provider export. This is not yet a direct cloud-provider editing
+toolloop.
 The hardware cursor remains I5/G7 read-only stick
 identity/fingerprint preflight: the stick was not enumerated or touched here,
 its old Disk number must not be assumed, and no physical write, format,

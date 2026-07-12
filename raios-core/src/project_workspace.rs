@@ -8,6 +8,7 @@ pub const MAX_MEDIA_TYPE_BYTES: usize = 64;
 pub const MAX_FILE_BYTES: usize = 32 * 1024;
 pub const MAX_TOTAL_SOURCE_BYTES: usize = 48 * 1024;
 pub const LOCAL_IMPORT_ACTION: &str = "owner_local_import";
+pub const AGENT_OVERLAY_ACTION: &str = "agent_overlay_commit";
 pub const LOCAL_IMPORT_TIME_BASIS: &str = "none_deterministic";
 
 pub const WORKSPACE_BLOB_NAMESPACE: [u8; 16] = *b"project.blob.v1!";
@@ -61,6 +62,29 @@ impl Classification {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RevisionAction {
+    OwnerLocalImport,
+    AgentOverlayCommit,
+}
+
+impl RevisionAction {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::OwnerLocalImport => LOCAL_IMPORT_ACTION,
+            Self::AgentOverlayCommit => AGENT_OVERLAY_ACTION,
+        }
+    }
+
+    fn from_label(label: &str) -> Result<Self, WorkspaceError> {
+        match label {
+            LOCAL_IMPORT_ACTION => Ok(Self::OwnerLocalImport),
+            AGENT_OVERLAY_ACTION => Ok(Self::AgentOverlayCommit),
+            _ => Err(WorkspaceError::Malformed),
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct SourceFile<'a> {
     pub path: &'a str,
@@ -82,6 +106,7 @@ pub struct TreeEntry {
 pub struct ProjectRevision {
     pub project_id: ProjectId,
     pub parent_revision_sha256: Option<[u8; 32]>,
+    pub action: RevisionAction,
     pub tree_sha256: [u8; 32],
     pub revision_sha256: [u8; 32],
     pub entries: Vec<TreeEntry>,
@@ -164,6 +189,33 @@ pub fn build_local_import(
     parent_revision_sha256: Option<[u8; 32]>,
     files: &[SourceFile<'_>],
 ) -> Result<BuiltRevision, WorkspaceError> {
+    build_revision(
+        project_id,
+        parent_revision_sha256,
+        RevisionAction::OwnerLocalImport,
+        files,
+    )
+}
+
+pub fn build_agent_edit(
+    project_id: ProjectId,
+    parent_revision_sha256: [u8; 32],
+    files: &[SourceFile<'_>],
+) -> Result<BuiltRevision, WorkspaceError> {
+    build_revision(
+        project_id,
+        Some(parent_revision_sha256),
+        RevisionAction::AgentOverlayCommit,
+        files,
+    )
+}
+
+fn build_revision(
+    project_id: ProjectId,
+    parent_revision_sha256: Option<[u8; 32]>,
+    action: RevisionAction,
+    files: &[SourceFile<'_>],
+) -> Result<BuiltRevision, WorkspaceError> {
     if files.is_empty() {
         return Err(WorkspaceError::NoFiles);
     }
@@ -214,12 +266,13 @@ pub fn build_local_import(
         project_id,
         parent_revision_sha256,
         tree_sha256,
-        LOCAL_IMPORT_ACTION,
+        action,
         LOCAL_IMPORT_TIME_BASIS,
     )?;
     let revision = ProjectRevision {
         project_id,
         parent_revision_sha256,
+        action,
         tree_sha256,
         revision_sha256,
         entries,
@@ -276,7 +329,7 @@ pub fn encode_revision_manifest(revision: &ProjectRevision) -> Result<Vec<u8>, W
             revision.project_id,
             revision.parent_revision_sha256,
             revision.tree_sha256,
-            LOCAL_IMPORT_ACTION,
+            revision.action,
             LOCAL_IMPORT_TIME_BASIS,
         )? != revision.revision_sha256
     {
@@ -288,7 +341,7 @@ pub fn encode_revision_manifest(revision: &ProjectRevision) -> Result<Vec<u8>, W
     put_optional_hash(&mut out, revision.parent_revision_sha256);
     out.extend_from_slice(&revision.tree_sha256);
     out.extend_from_slice(&revision.revision_sha256);
-    put_string(&mut out, LOCAL_IMPORT_ACTION)?;
+    put_string(&mut out, revision.action.label())?;
     put_string(&mut out, LOCAL_IMPORT_TIME_BASIS)?;
     put_u16(&mut out, revision.entries.len())?;
     encode_entries(&mut out, &revision.entries)?;
@@ -311,9 +364,8 @@ pub fn decode_revision_manifest(payload: &[u8]) -> Result<ProjectRevision, Works
     let parent_revision_sha256 = cursor.optional_hash()?;
     let tree_sha256 = cursor.hash()?;
     let revision_sha256 = cursor.hash()?;
-    if cursor.string(MAX_PATH_BYTES)? != LOCAL_IMPORT_ACTION
-        || cursor.string(MAX_PATH_BYTES)? != LOCAL_IMPORT_TIME_BASIS
-    {
+    let action = RevisionAction::from_label(cursor.string(MAX_PATH_BYTES)?)?;
+    if cursor.string(MAX_PATH_BYTES)? != LOCAL_IMPORT_TIME_BASIS {
         return Err(WorkspaceError::Malformed);
     }
     let count = cursor.u16()? as usize;
@@ -345,7 +397,7 @@ pub fn decode_revision_manifest(payload: &[u8]) -> Result<ProjectRevision, Works
             project_id,
             parent_revision_sha256,
             tree_sha256,
-            LOCAL_IMPORT_ACTION,
+            action,
             LOCAL_IMPORT_TIME_BASIS,
         )? != revision_sha256
     {
@@ -354,6 +406,7 @@ pub fn decode_revision_manifest(payload: &[u8]) -> Result<ProjectRevision, Works
     Ok(ProjectRevision {
         project_id,
         parent_revision_sha256,
+        action,
         tree_sha256,
         revision_sha256,
         entries,
@@ -472,7 +525,7 @@ fn revision_hash(
     project_id: ProjectId,
     parent: Option<[u8; 32]>,
     tree: [u8; 32],
-    action: &str,
+    action: RevisionAction,
     time_basis: &str,
 ) -> Result<[u8; 32], WorkspaceError> {
     let mut canonical = Vec::new();
@@ -480,7 +533,7 @@ fn revision_hash(
     canonical.extend_from_slice(&project_id.bytes());
     put_optional_hash(&mut canonical, parent);
     canonical.extend_from_slice(&tree);
-    put_string(&mut canonical, action)?;
+    put_string(&mut canonical, action.label())?;
     put_string(&mut canonical, time_basis)?;
     Ok(sha256_bytes(&canonical))
 }
@@ -630,6 +683,7 @@ mod tests {
     #[test]
     fn local_import_is_sorted_deterministic_and_round_trips() {
         let built = build_local_import(PROJECT, None, &files()).unwrap();
+        assert_eq!(built.revision.action, RevisionAction::OwnerLocalImport);
         assert_eq!(built.revision.entries[0].path, "Cargo.toml");
         assert_eq!(built.revision.entries[1].path, "src/main.rs");
         assert_eq!(
@@ -654,6 +708,12 @@ mod tests {
             build_local_import(PROJECT, Some(first.revision.revision_sha256), &files()).unwrap();
         assert_ne!(
             first.revision.revision_sha256,
+            second.revision.revision_sha256
+        );
+        let agent = build_agent_edit(PROJECT, first.revision.revision_sha256, &files()).unwrap();
+        assert_eq!(agent.revision.action, RevisionAction::AgentOverlayCommit);
+        assert_ne!(
+            agent.revision.revision_sha256,
             second.revision.revision_sha256
         );
     }

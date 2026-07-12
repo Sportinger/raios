@@ -18,6 +18,9 @@ evidence to the disposable QEMU structured store, rebooted, and inspected with
 the same exact file and revision hashes. It remains inert source data.
 An agent can now read at most 512 exact bytes from one bound path and search
 text for capped locator-only matches; searches never return snippets.
+An agent can now also open an exact-base RAM overlay, add, replace or delete
+files, inspect the complete old/new hash-bound diff, discard it, or commit it as
+an immutable child revision. A stale overlay cannot overwrite a newer base.
 
 Genesis UX: conversation entries wrap instead of truncating, older rows are
 reachable with the wheel or PageUp/PageDown, the composer keeps its visible
@@ -53,6 +56,11 @@ with exact revision hash
 `11df2422e2592225c3687d7cd845e6991628bed9c49611e01b51ff9c9dda6a05`.
 W2a report `shadow-20260712-125335-27844.json` passed 136/136 across 53
 commands and both boots, including bounded reads/search and all negative cases.
+W2b report `shadow-20260712-130758-7668.json` passed 304/304 across 114
+commands and three boots in 258488 ms. Its add/replace/delete child revision
+`87339872c8016d88068d4aef754db50e0e5d476cbb9d77edd5e8e3821d47a7cb`
+survived reboot byte-identically; discard, stale-base, malformed, wrong-hash,
+invalid-delete, no-op and case-collision paths left committed state intact.
 
 Still denied: arbitrary external/native/Wasm intake, file/network/secret access
 from generated programs, durable program install/state, broad mutation,
@@ -64,13 +72,15 @@ Stick: the owner reports it has been found, but this session did not enumerate
 or touch it. The next G7 action is read-only identity/layout/fingerprint
 preflight; never assume the former Disk 2 number or recreate a missing fingerprint.
 
-Next product slice: W2b isolated editing whose exact hash-bound diff can be
-committed or discarded. Build, dependencies,
-install and rollback follow only after their named gates. Next hardware slice:
+Next product slice: W3 dependency quarantine for one locked, inspectable,
+inert dependency bundle bound to an exact source revision. This is not yet a
+direct cloud-provider editing toolloop; build, install, execute and rollback
+follow only after their named gates. Next hardware slice:
 the explicit read-only G7 stick preflight. Neither grants physical-write authority.
 
 Planning update: `docs/plan-reviews/secure-ai-workspace-and-media-app-plan-2026-07-12.md`
 defines the final-path secure source workspace, quarantined acquisition,
 reproducible Rust-to-Wasm build, and split Wasm/native media application shape.
-It is design-only and grants no workspace, fetch, build, install, native-code,
-media, GPU, or physical-storage authority.
+Its W1/W2 workspace path is now partially implemented and verified; fetch,
+dependency execution, build, install, native-code, media, GPU and
+physical-storage authority remain closed.
