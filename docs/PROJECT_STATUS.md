@@ -24,6 +24,57 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+VM failure classification (2026-07-12, W6-close full profile first attempt) -
+report `release/vm-reports/shadow-20260712-172716-29728.json` passed 489/490
+recorded predicates and failed only
+`command:module.load_ephemeral.rejected_audit_ref`. The serial tail ends inside
+the already-running, very large `module.load_ephemeral` JSON response at
+`service_registry_mutat...`; the guest had not returned the end marker before
+the 90-second host reader deadline. Verdict: `host-transport/serial-reader
+timeout`, matching the documented large module-loader response flake; this is
+outside W6 and no project-install state was present in the fresh full-profile
+image. Retry may only widen the host observation deadline, not guest policy or
+response semantics.
+
+VM failure classification (2026-07-12, fourth W6 project-install profile) -
+report `release/vm-reports/shadow-20260712-170633-27088.json` reached the signed
+v1 install preview with serial approval still denied, then stopped before the
+Genesis click because the visual-evidence helper rejects underscores in capture
+names (`boot1_v1_install-signed-physical-preview`). Verdict:
+`host-transport/harness`; no guest predicate rejected the signature or preview
+and no persistent install write was attempted. Retry is forbidden until the
+capture-only name is normalized to the helper's lowercase hyphenated grammar.
+
+VM failure classification (2026-07-12, third W6 project-install profile) -
+report `release/vm-reports/shadow-20260712-165616-29944.json` passed the corrected
+immutable-source check and reached the real W6 signed install preview, then the
+host harness could not locate `dev-promotion-signer` under the isolated
+worktree's ignored `target/debug` path. Verdict: `host-transport/setup`; the
+guest produced the exact action-signature message and no invalid signature,
+physical install approval, or persistent install write was attempted. Retry is
+forbidden until the isolated worktree exposes the existing byte-identical local
+signer at the harness's expected path.
+
+VM failure classification (2026-07-12, second W6 project-install profile) -
+report `release/vm-reports/shadow-20260712-164556-27072.json` passed the reused
+W1-W5 path through the real reproducible Wasm result, then failed only
+`project-install:source_v1_before_install`. The guest returned
+`status=present`, the exact expected project/revision and immutable file facts;
+the new W6 helper incorrectly required `status=accepted`. Verdict:
+`host-transport/harness`; no install write or physical install approval had yet
+run. Retry is forbidden until the source-revision helper accepts the existing
+typed `present` status while retaining its exact revision comparison.
+
+VM failure classification (2026-07-12, first W6 project-install profile) -
+report `release/vm-reports/shadow-20260712-163829-24128.json` contains no W6
+guest predicate failure. The isolated verification worktree booted the W6
+kernel and entered the reused W1-W5 project-build path, then the host-side
+`build-project-wasm.ps1` stopped because that worktree did not contain the
+ignored repository-local `.cargo-home` directory. Verdict:
+`host-transport/setup`; the guest did not reject an install, persistence write,
+autoload, rollback, or uninstall. Retry is forbidden until the isolated
+worktree resolves `.cargo-home` to the real repository-local cache.
+
 VM failure classification (2026-07-12, first W5 project-app profile) - report
 `release/vm-reports/shadow-20260712-153020-19824.json` reached the real W1-W4
 build and accepted `project.run_prepare`, then failed only
@@ -307,17 +358,44 @@ Focused report `release/vm-reports/shadow-20260712-153736-17972.json` passes
 no install, promotion, persistence, native load, file/network/secret access or
 durable state authority was granted.
 
-Current exact next product task (W6 durable install and rollback): persist the
-separately approved W5 artifact plus canonical receipt through the existing
-ARTSTOR/RECLOG mechanisms, revalidate and autoload it after reboot, confirm a
-last-good activation, and prove rollback plus uninstall without modifying source
-workspaces or user media. W1-W5 are complete; W6 writes and autoload remain
-closed until their focused storage/recovery/boot evidence is green.
+W6 durable project install and rollback verified (2026-07-12) - a user can now
+take the exact healthy W5 workspace candidate, bind its canonical receipt and
+runtime limits into a signed install envelope, inspect that durable effect in
+core Genesis, and cross into the narrow ARTSTOR/RECLOG write path only through a
+second physical pointer approval. Serial approval remains denied. Install replay
+re-verifies the development-authority signature, immediately preceding intent,
+commit chain, receipt and candidate blob references. A Normal boot with an
+authoritative success-marked BOOTCTL record writes an activation attempt before
+reading/executing probation bytes, writes activation success only after the exact
+stored Wasm runs healthy, and retains the last-good commit. Focused report
+`release/vm-reports/shadow-20260712-171300-16808.json` passes 403/403 across 156
+observed commands and four boots: it installs v1, autoloads it, creates and
+installs a genuinely different v2 source child, flips one byte in the exact
+guest-reported v2 ARTSTOR frame, observes the real frame-hash failure, persists a
+recovery rollback and starts v1, then physically uninstalls it and proves boot 4
+does not autoload it. The immutable source workspace remains byte-identical
+through install, rollback and uninstall. W6-close full report
+`release/vm-reports/shadow-20260712-173148-25720.json` passes 7870/7870 across
+338 commands; recovery report
+`release/vm-reports/shadow-20260712-174432-7724.json` passes 3677/3677 across 193
+commands. Trust is honestly `dev_key_not_owner_sealed`, state is currently the
+explicit stateless schema, and the proof is on disposable QEMU media rather than
+the owner's physical stick. A deliberately corrupted occupied ARTSTOR frame is
+left reserved and makes future allocation fail closed until a later authenticated
+GC/repair slice owns reclamation; W6 does not silently reuse it.
+
+Current exact next product task (W7 quarantined network acquisition): admit one
+owner-approved, bounded HTTPS source request only after provider trust/time and
+import gates are satisfied, and retain the result as inert content-addressed
+source/tree evidence for review. Network acquisition must not build, execute or
+install automatically, and must not weaken the W6 signature, physical approval,
+autoload, rollback or uninstall chain.
 The hardware cursor remains I5/G7 read-only stick
 identity/fingerprint preflight: the stick was not enumerated or touched here,
 its old Disk number must not be assumed, and no physical write, format,
 repartition or replacement fingerprint is authorized. Build, install, load,
-execution, physical persistence, TPM auto-unlock and live Surface
+execution outside the exact verified project-app path, physical persistence,
+TPM auto-unlock and live Surface
 association/`PORT_RELEASE`/DHCP remain unproven.
 
 I3 complete-history Broker foundation verified (2026-07-10) - a kernel composition

@@ -1,8 +1,16 @@
-use raios_core::project_runtime::{
-    build_workspace_pointer_approval, build_workspace_run_binding, WorkspacePhysicalApproval,
-    WorkspaceRunBinding, WORKSPACE_ENTRYPOINT, WORKSPACE_FUEL_BUDGET, WORKSPACE_INSTANCE_LIMIT,
-    WORKSPACE_MEMORY_COUNT_LIMIT, WORKSPACE_MEMORY_LIMIT_BYTES, WORKSPACE_SERVICE_ID,
-    WORKSPACE_TABLE_LIMIT, WORKSPACE_TRUST_TIER,
+use alloc::vec::Vec;
+
+use raios_core::{
+    project_install::{
+        validate_install_envelope, ProjectInstallEnvelope, PROJECT_INSTALL_TRUST_TIER,
+    },
+    project_runtime::{
+        build_workspace_pointer_approval, build_workspace_run_binding, WorkspacePhysicalApproval,
+        WorkspaceRunBinding, WORKSPACE_ENTRYPOINT, WORKSPACE_FUEL_BUDGET, WORKSPACE_INSTANCE_LIMIT,
+        WORKSPACE_MEMORY_COUNT_LIMIT, WORKSPACE_MEMORY_LIMIT_BYTES, WORKSPACE_SERVICE_ID,
+        WORKSPACE_TABLE_LIMIT, WORKSPACE_TRUST_TIER,
+    },
+    sha256_bytes,
 };
 use spin::Mutex;
 
@@ -39,6 +47,7 @@ struct State {
     last_run_outcome: &'static str,
     last_return_value: Option<i32>,
     last_fuel_used: u64,
+    activation_authority: &'static str,
 }
 
 impl State {
@@ -53,6 +62,7 @@ impl State {
             last_run_outcome: "not_run",
             last_return_value: None,
             last_fuel_used: 0,
+            activation_authority: "none",
         }
     }
 
@@ -67,6 +77,7 @@ impl State {
             last_run_outcome: self.last_run_outcome,
             last_return_value: self.last_return_value,
             last_fuel_used: self.last_fuel_used,
+            activation_authority: self.activation_authority,
         }
     }
 }
@@ -82,6 +93,7 @@ pub(crate) struct Snapshot {
     pub(crate) last_run_outcome: &'static str,
     pub(crate) last_return_value: Option<i32>,
     pub(crate) last_fuel_used: u64,
+    pub(crate) activation_authority: &'static str,
 }
 
 pub(crate) struct Outcome {
@@ -143,6 +155,7 @@ pub(crate) fn prepare(
     state.last_run_outcome = "not_run";
     state.last_return_value = None;
     state.last_fuel_used = 0;
+    state.activation_authority = "genesis_pointer_pending";
     let outcome = Outcome {
         accepted: true,
         reason: state.last_reason,
@@ -213,10 +226,44 @@ pub(crate) fn approve_and_run_from_pointer() -> bool {
     {
         let mut state = STATE.lock();
         state.approval = Some(approval);
+        state.activation_authority = "genesis_pointer";
         state.generation = state.generation.saturating_add(1);
     }
     run_approved("workspace_physical_pointer_approved");
     true
+}
+
+/// Restores and executes one physically installed, durable app without inventing
+/// a fresh Genesis approval. The signed install action is the activation
+/// authority; every runtime field is rederived from the receipt and candidate
+/// and compared to the sealed envelope before either byte is retained.
+pub(crate) fn activate_installed(
+    envelope: &ProjectInstallEnvelope,
+    receipt_bytes: &[u8],
+    candidate_bytes: Vec<u8>,
+    reason: &'static str,
+) -> Outcome {
+    {
+        let state = STATE.lock();
+        if state.phase != Phase::Missing {
+            return denied(&state, "project_install_workspace_slot_occupied");
+        }
+    }
+    let binding = match validate_installed(envelope, receipt_bytes, &candidate_bytes) {
+        Ok(binding) => binding,
+        Err(reason) => return denied(&STATE.lock(), reason),
+    };
+    module_candidate_intake::retain(candidate_bytes, binding.candidate_sha256, true);
+    {
+        let mut state = STATE.lock();
+        *state = State::new();
+        state.phase = Phase::Stopped;
+        state.binding = Some(binding);
+        state.generation = envelope.generation;
+        state.last_reason = "project_install_restored_exact";
+        state.activation_authority = "durable_project_install";
+    }
+    run_approved(reason)
 }
 
 pub(crate) fn start() -> Outcome {
@@ -271,11 +318,14 @@ pub(crate) fn drop_service(reason: &'static str) -> Outcome {
     }
     *state = State::new();
     state.last_reason = reason;
-    Outcome {
+    let outcome = Outcome {
         accepted: true,
         reason,
         snapshot: state.snapshot(),
-    }
+    };
+    drop(state);
+    crate::project_app_autoload::note_runtime_drop_without_tombstone();
+    outcome
 }
 
 pub(crate) fn secure_attention_drop() -> bool {
@@ -372,6 +422,62 @@ fn validate_binding(binding: WorkspaceRunBinding) -> Result<(), &'static str> {
         return Err("workspace_approval_binding_stale");
     }
     Ok(())
+}
+
+fn validate_installed(
+    envelope: &ProjectInstallEnvelope,
+    receipt_bytes: &[u8],
+    candidate_bytes: &[u8],
+) -> Result<WorkspaceRunBinding, &'static str> {
+    validate_install_envelope(envelope).map_err(|error| error.reason())?;
+    if envelope.service_id != WORKSPACE_SERVICE_ID {
+        return Err("project_install_service_id_mismatch");
+    }
+    if !envelope.auto_start {
+        return Err("project_install_autostart_disabled");
+    }
+    if sha256_bytes(receipt_bytes) != envelope.encoded_receipt_sha256 {
+        return Err("project_install_receipt_blob_hash_mismatch");
+    }
+    let receipt = raios_core::project_build::decode_receipt(receipt_bytes)
+        .map_err(|_| "project_install_receipt_invalid")?;
+    if sha256_bytes(candidate_bytes) != envelope.candidate_sha256
+        || candidate_bytes.len() as u64 != envelope.candidate_byte_len
+    {
+        return Err("project_install_candidate_blob_hash_mismatch");
+    }
+    let inspection = wasm_runtime::inspect_workspace_imports(candidate_bytes);
+    if !inspection.validation_ok {
+        return Err(inspection.reason);
+    }
+    let binding = build_workspace_run_binding(
+        &receipt,
+        envelope.candidate_sha256,
+        candidate_bytes.len(),
+        inspection.import_list_observed,
+        inspection.import_count,
+    )
+    .map_err(|error| error.reason())?;
+    let exact = envelope.project_id == binding.project_id
+        && envelope.project_revision_sha256 == binding.project_revision_sha256
+        && envelope.input_manifest_sha256 == binding.input_manifest_sha256
+        && envelope.build_receipt_sha256 == binding.receipt_sha256
+        && envelope.workspace_run_binding_sha256 == binding.approval_challenge_sha256
+        && envelope.candidate_sha256 == binding.candidate_sha256
+        && envelope.candidate_byte_len == binding.candidate_byte_len as u64
+        && envelope.import_list_sha256 == binding.import_list_sha256
+        && envelope.import_count == binding.import_count as u32
+        && envelope.entrypoint == WORKSPACE_ENTRYPOINT
+        && envelope.fuel_budget == binding.fuel_budget
+        && envelope.memory_limit_bytes == binding.memory_limit_bytes as u64
+        && envelope.instance_limit == binding.instance_limit as u32
+        && envelope.memory_count_limit == binding.memory_count_limit as u32
+        && envelope.table_limit == binding.table_limit as u32
+        && envelope.trust_tier == PROJECT_INSTALL_TRUST_TIER;
+    if !exact {
+        return Err("project_install_runtime_binding_mismatch");
+    }
+    Ok(binding)
 }
 
 fn accepted(reason: &'static str) -> Outcome {

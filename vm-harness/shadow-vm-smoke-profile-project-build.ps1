@@ -748,7 +748,7 @@ Add-BuildPredicate 'positive:inspect_receipt' 'current-boot receipt inspection r
 ) $receipts
 Assert-BuildPosture $receipts 'positive_receipts'
 
-if ($Profile -eq 'project-app') {
+if ($Profile -in @('project-app', 'project-install')) {
     . (Join-Path $PSScriptRoot 'shadow-vm-smoke-profile-project-app.ps1')
     return
 }

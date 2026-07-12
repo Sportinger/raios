@@ -55,9 +55,10 @@ no-build/no-install/no-execute posture. `/revise <feedback>` also reuses the
 existing current-boot provider/spec/runtime path with parent/root lineage while
 preserving the prior valid draft on failure. W2 project query/edit and W3
 dependency quarantine, W4 reproducible workstation build and W5 tested
-current-boot execution are now complete as recorded below. The active product
-cursor is W6 durable install/autoload/rollback, while durable install,
-promotion and rollback authority remain closed. Hardware
+current-boot execution are now complete as recorded below. W6 durable
+install/autoload/rollback is also complete. The active product cursor is W7
+quarantined network acquisition; automatic build/install and broader mutation
+remain closed. Hardware
 I5/G7 remains a separate read-only identity tripwire.
 
 **W2a project query complete (2026-07-12):** exact project/path byte-range
@@ -114,8 +115,21 @@ memory/zero tables; stale/tampered/replay/serial-approval paths denied, and F12
 dropped the RAM service/candidate while Recovery stayed available.
 `shadow-20260712-153736-17972.json` passes 276/276 across 112 commands, one boot
 and 553863 ms. No install, persistence, promotion, native load or broader app
-capability opened. The active product cursor is W6: durable ARTSTOR/RECLOG
-install, reboot autoload, last-good activation, rollback and uninstall.
+capability opened at W5.
+
+**W6 durable project install and rollback complete (2026-07-12):** the exact
+healthy W5 candidate and canonical receipt can now be signed, previewed in core
+Genesis, durably committed only after a second physical pointer approval, and
+replayed/autoloaded on a success-marked Normal boot. Probation records an attempt
+before byte intake and marks last-good only after healthy execution. Focused
+report `shadow-20260712-171300-16808.json` passes 403/403 across 156 commands and
+four boots, including a real v2 ARTSTOR byte corruption, persisted rollback to
+v1, physical uninstall, no boot-4 autoload and unchanged source revisions. W6
+close is backed by full `shadow-20260712-173148-25720.json` at 7870/7870 and
+recovery `shadow-20260712-174432-7724.json` at 3677/3677. Trust remains
+`dev_key_not_owner_sealed`, state is explicitly stateless, and physical-stick
+persistence is not claimed. The active product cursor is W7 quarantined network
+acquisition; downloaded bytes must remain inert until separately reviewed.
 
 **M13/Secret Vault contract accepted (C0/G5.0, 2026-07-10):** ADR 0012
 fixes the dedicated internal-partition boundary, crash-consistent structured

@@ -2,10 +2,11 @@
 
 ## Status and target
 
-W1-W5 are implemented and verified on the disposable QEMU structured store,
+W1-W6 are implemented and verified on the disposable QEMU structured store,
 owner-controlled workstation build path and bounded current-boot Wasm runtime.
-The remaining plan opens no network fetch, provider export, durable install,
-native-code, media-file, GPU, or physical-storage authority.
+The remaining plan opens no network fetch, provider export, broader install or
+durable state beyond the exact W6 project-app path, native-code, media-file,
+GPU, or physical-storage authority.
 
 Capability target: a user and AI can create or import a reviewable source tree,
 edit it through a project-scoped workspace, build a reproducible bounded
@@ -366,8 +367,21 @@ The approved app, source/build receipts, grant, state schema, and previous hash
 survive reboot; a failed boot or explicit rollback restores last-good without
 modifying source workspaces or user media.
 
-Status: active next slice. ARTSTOR/RECLOG wiring, boot autoload, physical install
-approval and focused VM evidence remain absent; no W6 authority is claimed yet.
+Status: complete. The exact healthy W5 candidate and canonical receipt are
+sealed into a signed install envelope, shown as an informed core Genesis
+preview, and written to the shared ARTSTOR/RECLOG path only after a separate
+physical pointer approval; serial approval remains denied. A success-marked
+Normal boot records probation before reading/executing the stored bytes, marks
+last-good only after healthy execution, rolls back durably on exact artifact
+verification failure, and honors a physical uninstall tombstone. Focused report
+`shadow-20260712-171300-16808.json` passes 403/403 across 156 commands and four
+boots; full `shadow-20260712-173148-25720.json` passes 7870/7870 and recovery
+`shadow-20260712-174432-7724.json` passes 3677/3677. The proof uses a real v1,
+real distinct v2, one-byte persisted v2 corruption, v1 rollback and boot-4
+no-autoload while source revisions remain byte-identical. Trust remains
+`dev_key_not_owner_sealed`; the current state schema is explicitly stateless,
+physical-stick persistence is unproven, and corrupt ARTSTOR-frame reclamation is
+deferred to an authenticated GC/repair slice rather than silently reusing bytes.
 
 ### W7 - quarantined network acquisition
 

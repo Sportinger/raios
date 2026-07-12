@@ -175,6 +175,13 @@ Add-BuildPredicate -Name 'app_inventory:running' -Expected 'one current-boot zer
     [int]$workspaceRows[0].run_count -eq 1 -and [int]$workspaceRows[0].last_return_value_i32 -eq 42
 ) -Actual $workspaceRows
 
+# The project-install profile continues from this exact healthy W5 binding.
+# Its separate signed install preview and second physical approval must happen
+# before the W5-only replay and F12 teardown below clear the candidate.
+if ($Profile -eq 'project-install') {
+    return
+}
+
 $replayPrepare = Send-WorkspaceCommand $workspacePrepare 'project.run_prepare' 'negative_replay_prepare'
 Add-BuildPredicate -Name 'app_negative_replay_prepare:denied' -Expected 'the running one-shot slot rejects a replay without a second run' -Passed (
     $replayPrepare.status -eq 'denied' -and $replayPrepare.reason -eq 'workspace_service_slot_occupied' -and

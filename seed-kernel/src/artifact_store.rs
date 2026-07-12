@@ -262,12 +262,7 @@ pub(crate) fn persist_promoted_artifact(
     if !before.scan.full_region_valid {
         return ArtifactPersistEvidence::denied("reclog_not_appendable");
     }
-    let records = before
-        .bytes
-        .as_deref()
-        .map(artifact_persist_records_from_reclog)
-        .unwrap_or_default();
-    let next_free = match next_free_artstor_offset(&records) {
+    let next_free = match next_free_artstor_offset_on_disk(controller) {
         Ok(offset) => offset,
         Err(reason) => return ArtifactPersistEvidence::denied(reason),
     };
@@ -632,22 +627,54 @@ fn append_denied_evidence(
     }
 }
 
-fn next_free_artstor_offset(records: &[ArtifactPersistRecord]) -> Result<u64, &'static str> {
-    let mut next = 0u64;
-    let mut idx = 0usize;
-    while idx < records.len() {
-        let Some(end) = records[idx]
-            .artstor_blob_offset
-            .checked_add(records[idx].artstor_blob_len)
-        else {
-            return Err("artifact_store_record_span_overflow");
-        };
-        if end > next {
-            next = end;
-        }
-        idx += 1;
+/// Scans the actual dense ARTSTOR frame prefix. This is shared by M6 and W6 so
+/// a power-cut orphan remains reserved until an explicit future GC owns it.
+pub(crate) fn next_free_artstor_offset_on_disk(
+    controller: pci::PciMassStorageController,
+) -> Result<u64, &'static str> {
+    let probe = ahci::read_persist_artstor_region(controller, 0, ARTSTOR_SCAN_WINDOW_BYTES);
+    if !probe.read_completed || !probe.region_bounds_valid {
+        return Err(probe.reason);
     }
-    Ok(next)
+    let region_len = probe.byte_count;
+    let mut offset = 0u64;
+    while offset < region_len {
+        let sector =
+            ahci::read_persist_artstor_region(controller, offset, ARTSTOR_SCAN_WINDOW_BYTES);
+        let bytes = sector.bytes.ok_or(sector.reason)?;
+        if bytes.iter().all(|byte| *byte == 0) {
+            return Ok(offset);
+        }
+        if bytes.len() < ARTIFACT_BLOB_FRAME_HEADER_LEN
+            || &bytes[..ARTIFACT_BLOB_MAGIC.len()] != ARTIFACT_BLOB_MAGIC
+        {
+            return Err("artifact_store_occupied_sector_malformed");
+        }
+        let frame_len = u32::from_le_bytes(
+            bytes[8..12]
+                .try_into()
+                .map_err(|_| "artifact_store_frame_len_invalid")?,
+        ) as u64;
+        if frame_len < ARTIFACT_BLOB_FRAME_HEADER_LEN as u64
+            || frame_len % ARTSTOR_SCAN_WINDOW_BYTES != 0
+            || offset
+                .checked_add(frame_len)
+                .is_none_or(|end| end > region_len)
+        {
+            return Err("artifact_store_frame_len_invalid");
+        }
+        let frame = ahci::read_persist_artstor_region(controller, offset, frame_len);
+        let frame_bytes = frame.bytes.ok_or(frame.reason)?;
+        let parsed = parse_artifact_blob_frame(&frame_bytes, 0)
+            .map_err(|_| "artifact_store_occupied_frame_invalid")?;
+        if parsed.frame_len as u64 != frame_len {
+            return Err("artifact_store_occupied_frame_len_mismatch");
+        }
+        offset = offset
+            .checked_add(frame_len)
+            .ok_or("artifact_store_frame_span_overflow")?;
+    }
+    Ok(offset)
 }
 
 pub(crate) fn artifact_persist_records_from_reclog(bytes: &[u8]) -> Vec<ArtifactPersistRecord> {

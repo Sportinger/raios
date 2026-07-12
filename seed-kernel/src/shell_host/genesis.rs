@@ -1,12 +1,14 @@
 //! Core-owned Genesis presentation.  It renders only typed snapshots and delegates
 //! existing setup actions to the current console/provider adapters.
 
+use alloc::format;
+
 use crate::agent_protocol::recovery_lifeline;
 use crate::framebuffer::{Color, FramebufferInfo, FramebufferSurface};
 use crate::system_status::{RowState, SnapshotStates, StatusLine, SystemSnapshot};
 use crate::{
-    console, input, personal_shell_service, program_workspace, provider, secret_vault, serial,
-    text, wifi, workspace_candidate_service,
+    agent_protocol_project_install, console, input, personal_shell_service, program_workspace,
+    provider, secret_vault, serial, text, wifi, workspace_candidate_service,
 };
 use raios_core::{
     genesis_layout::{GenesisLayout, Point, Size},
@@ -255,6 +257,9 @@ impl ShellHost {
             return self.handle_recovery_pointer(layout, x, y, runtime);
         }
         if point_in(x, y, context_personal_shell_rect(layout)) {
+            if agent_protocol_project_install::pending_physical_approval() {
+                return agent_protocol_project_install::approve_from_pointer();
+            }
             if workspace_candidate_service::pending_approval() {
                 return workspace_candidate_service::approve_and_run_from_pointer();
             }
@@ -879,19 +884,31 @@ fn draw_context(
     } else {
         APP_RED
     };
+    let install_preview = agent_protocol_project_install::snapshot();
+    let install_pending = agent_protocol_project_install::pending_physical_approval();
     let workspace_pending = workspace_candidate_service::pending_approval();
     let program_ready = program_workspace::snapshot().present;
     draw_button(
         surface,
         context_personal_shell_rect(layout),
-        if workspace_pending {
+        if install_pending {
+            match install_preview.kind {
+                Some(agent_protocol_project_install::PreviewKind::Install) => {
+                    "Approve + install app"
+                }
+                Some(agent_protocol_project_install::PreviewKind::Uninstall) => {
+                    "Approve + uninstall app"
+                }
+                None => "Signed project action",
+            }
+        } else if workspace_pending {
             "Approve + run workspace app"
         } else if program_ready {
             "Approve + run program"
         } else {
             "Run signed shell proof"
         },
-        workspace_pending || program_ready,
+        install_pending || workspace_pending || program_ready,
     );
     let rows = [
         (
@@ -912,6 +929,68 @@ fn draw_context(
         ("Problems", problem_value, problem_color),
     ];
     let mut y = rect.y + 78;
+    if install_pending {
+        text::draw_text(
+            surface,
+            rect.x + 14,
+            y,
+            "Signed physical-owner preview",
+            APP_AMBER,
+            None,
+        );
+        y = y.saturating_add(14);
+        let effect = format!(
+            "{} generation {} / durable",
+            install_preview
+                .kind
+                .map(|kind| kind.label())
+                .unwrap_or("project"),
+            install_preview.generation,
+        );
+        draw_truncated_text(
+            surface,
+            rect.x + 14,
+            y,
+            &effect,
+            rect.w.saturating_sub(28) / FONT_ADVANCE,
+            TEXT_MUTED,
+        );
+        y = y.saturating_add(14);
+        let subject = install_preview
+            .candidate_sha256
+            .or(install_preview.previous_commit_sha256)
+            .unwrap_or([0; 32]);
+        let subject_line = format!(
+            "subject sha256:{:02x}{:02x}{:02x}{:02x}...",
+            subject[0], subject[1], subject[2], subject[3]
+        );
+        text::draw_text(surface, rect.x + 14, y, &subject_line, TEXT_MUTED, None);
+        y = y.saturating_add(14);
+        let binding = install_preview
+            .receipt_sha256
+            .or(install_preview.previous_commit_sha256)
+            .unwrap_or([0; 32]);
+        let binding_label = if install_preview.receipt_sha256.is_some() {
+            "receipt"
+        } else {
+            "install head"
+        };
+        let binding_line = format!(
+            "{} sha256:{:02x}{:02x}{:02x}{:02x}...",
+            binding_label, binding[0], binding[1], binding[2], binding[3]
+        );
+        text::draw_text(surface, rect.x + 14, y, &binding_line, TEXT_MUTED, None);
+        y = y.saturating_add(14);
+        text::draw_text(
+            surface,
+            rect.x + 14,
+            y,
+            "durable autostart / dev key not owner sealed",
+            APP_AMBER,
+            None,
+        );
+        y = y.saturating_add(20);
+    }
     for (label, value, color) in rows {
         text::draw_text(surface, rect.x + 14, y, label, TEXT_MUTED, None);
         draw_truncated_text(

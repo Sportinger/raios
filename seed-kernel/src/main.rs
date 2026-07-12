@@ -56,6 +56,7 @@ mod agent_protocol_project;
 mod agent_protocol_project_build;
 mod agent_protocol_project_dependency;
 mod agent_protocol_project_editor;
+mod agent_protocol_project_install;
 mod agent_protocol_project_query;
 mod agent_protocol_project_run;
 mod agent_protocol_provider;
@@ -145,10 +146,12 @@ mod owner_key;
 mod pci;
 mod personal_shell_service;
 mod program_workspace;
+mod project_app_autoload;
 mod project_build;
 mod project_dependency;
 mod project_dependency_store;
 mod project_editor;
+mod project_install_store;
 mod project_query;
 mod project_store;
 mod project_workspace;
@@ -321,6 +324,7 @@ fn early_main() -> ! {
         MODULE_REQUEST.get_response(),
     );
     structured_store_c1::run_disposable_qemu_boot_probe();
+    project_app_autoload::run_boot_autoload();
 
     input::init();
     runtime_status.input_probe_complete = true;

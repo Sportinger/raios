@@ -8,7 +8,7 @@ use crate::{
         record_field as f, record_str as s,
     },
     ahci, echo_service, granted_candidate_service, hello_service, pci, personal_shell_service,
-    provider, serial, service_inventory, system_problem_facts, system_status,
+    project_app_autoload, provider, serial, service_inventory, system_problem_facts, system_status,
     system_status::{RowState, SystemSnapshot},
     ui, wifi, workspace_candidate_service,
 };
@@ -715,7 +715,8 @@ pub(crate) fn emit_service_inventory(runtime: ui::RuntimeStatus) {
     let echo = echo_service::loaded_snapshot();
     let granted = granted_candidate_service::loaded_snapshot();
     let personal = personal_shell_service::lifecycle_snapshot();
-    let workspace = workspace_candidate_service::visible_in_inventory()
+    let autoload = project_app_autoload::snapshot();
+    let workspace = (workspace_candidate_service::visible_in_inventory() || autoload.installed)
         .then(workspace_candidate_service::snapshot);
     begin_response("service.inventory");
     raw_line("      \"schema\": \"service.inventory.v0\",");
@@ -772,7 +773,7 @@ pub(crate) fn emit_service_inventory(runtime: ui::RuntimeStatus) {
         emit_granted_candidate_service_inventory(granted, workspace.is_some() || hello.is_some());
     }
     if let Some(workspace) = workspace {
-        emit_workspace_candidate_inventory(workspace, hello.is_some());
+        emit_workspace_candidate_inventory(workspace, autoload, hello.is_some());
     }
     if let Some(hello) = hello {
         emit_hello_service_inventory(hello);
@@ -783,6 +784,7 @@ pub(crate) fn emit_service_inventory(runtime: ui::RuntimeStatus) {
 
 fn emit_workspace_candidate_inventory(
     workspace: workspace_candidate_service::Snapshot,
+    autoload: project_app_autoload::Snapshot,
     comma: bool,
 ) {
     let binding = workspace.binding;
@@ -798,9 +800,58 @@ fn emit_workspace_candidate_inventory(
     } else {
         raw("null");
     }
-    raw(", \"scope\": \"current_boot\", \"persistence\": \"none\"");
+    raw(", \"scope\": \"current_boot\", \"persistence\": ");
+    json_str(if autoload.installed {
+        "durable_install"
+    } else {
+        "none"
+    });
     raw(", \"classification\": \"local_only\", \"trust_tier\": ");
     json_str(workspace_candidate_service::trust_tier());
+    raw(", \"durable_install_trust_tier\": ");
+    if autoload.installed {
+        json_str(raios_core::project_install::PROJECT_INSTALL_TRUST_TIER);
+    } else {
+        raw("null");
+    }
+    raw(", \"activation_authority\": ");
+    json_str(workspace.activation_authority);
+    raw(", \"install_checked\": ");
+    raw_bool(autoload.checked);
+    raw(", \"install_phase\": ");
+    json_str(autoload.phase);
+    raw(", \"install_reason\": ");
+    json_str(autoload.reason);
+    raw(", \"install_boot_posture\": ");
+    json_str(autoload.boot_posture);
+    raw(", \"durable_installed\": ");
+    raw_bool(autoload.installed);
+    raw(", \"auto_start\": ");
+    raw_bool(autoload.auto_start);
+    raw(", \"install_generation\": ");
+    raw_fmt(format_args!("{}", autoload.generation));
+    raw(", \"install_head_commit_sha256\": ");
+    json_sha256_option(autoload.head_commit_sha256);
+    raw(", \"probation_install_commit_sha256\": ");
+    json_sha256_option(autoload.probation_install_commit_sha256);
+    raw(", \"active_install_commit_sha256\": ");
+    json_sha256_option(autoload.active_install_commit_sha256);
+    raw(", \"last_good_install_commit_sha256\": ");
+    json_sha256_option(autoload.last_good_install_commit_sha256);
+    raw(", \"install_candidate_sha256\": ");
+    json_sha256_option(autoload.candidate_sha256);
+    raw(", \"install_receipt_sha256\": ");
+    json_sha256_option(autoload.receipt_sha256);
+    raw(", \"activation_attempt_persisted\": ");
+    raw_bool(autoload.activation_attempt_persisted);
+    raw(", \"activation_success_persisted\": ");
+    raw_bool(autoload.activation_success_persisted);
+    raw(", \"rollback_persisted\": ");
+    raw_bool(autoload.rollback_persisted);
+    raw(", \"fallback_running\": ");
+    raw_bool(autoload.fallback_running);
+    raw(", \"install_tombstone_written\": ");
+    raw_bool(autoload.install_tombstone_written);
     raw(", \"entrypoint\": \"raios_service_main\", \"granted_host_imports\": []");
     raw(", \"host_import_count\": 0, \"phase\": ");
     json_str(workspace.phase);

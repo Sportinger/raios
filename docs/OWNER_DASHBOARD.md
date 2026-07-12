@@ -12,6 +12,13 @@ An accepted provider-authored draft can now be refined with
 `/revise <feedback>` while retaining parent/root hash lineage; a rejected
 replacement leaves the prior runnable draft intact.
 
+The secure project workspace loop is now closed through W6: an exact healthy
+Rust-to-Wasm project candidate can be signed, reviewed in Genesis, durably
+installed only after a second physical click, autoloaded after reboot, promoted
+to last-good only after healthy execution, rolled back automatically when its
+stored bytes fail verification, and physically uninstalled without changing its
+immutable source revision.
+
 Workspace: W1 is real. A bounded local multi-file source project can be
 committed as immutable content-addressed blobs plus deterministic tree/revision
 evidence to the disposable QEMU structured store, rebooted, and inspected with
@@ -94,9 +101,21 @@ limits; health/inventory matched the exact receipt and candidate. Serial approva
 stale/tampered/replay paths denied, and F12 removed the service/candidate while
 core Recovery stayed available. This grants no durable or broader authority.
 
+W6 proof: `shadow-20260712-171300-16808.json` passed 403/403 across 156
+commands and four boots. It installed and autoloaded v1, built and installed a
+genuinely different v2 child, corrupted one exact persisted v2 Wasm byte,
+observed the real ARTSTOR frame-hash failure and durable rollback to v1, then
+physically uninstalled the app and proved boot 4 did not autoload it. Source
+facts remained byte-identical. Full close
+`shadow-20260712-173148-25720.json` passed 7870/7870; recovery
+`shadow-20260712-174432-7724.json` passed 3677/3677. This is disposable-QEMU,
+stateless-app evidence under `dev_key_not_owner_sealed`, not owner-sealed or
+physical-stick persistence.
+
 Still denied: arbitrary external/native/Wasm intake, file/network/secret access
-from generated programs, durable program install/state, broad mutation,
-promotion, rollback application, TPM auto-unlock, physical persistence, and live
+from generated programs, durable state and broader program installation outside
+the exact W6 project-app path, broad mutation, owner sealing, authenticated
+ARTSTOR garbage collection, TPM auto-unlock, physical persistence, and live
 Surface association/`PORT_RELEASE`/DHCP. Provider TLS still lacks full WebPKI
 chain and trusted-time validation.
 
@@ -104,11 +123,9 @@ Stick: the owner reports it has been found, but this session did not enumerate
 or touch it. The next G7 action is read-only identity/layout/fingerprint
 preflight; never assume the former Disk 2 number or recreate a missing fingerprint.
 
-Next product slice: W6 separately installs an approved W5 artifact into the
-existing content-addressed store/log, autoloads it after reboot, confirms
-last-good, and proves rollback plus uninstall. Install, promotion, persistence
-and rollback remain closed until that focused storage/recovery/boot profile is
-green. Next hardware slice:
+Next product slice: W7 admits one explicitly approved, bounded HTTPS source
+request into quarantine as inert content-addressed source/tree evidence. It may
+not build, execute or install automatically. Next hardware slice:
 the explicit read-only G7 stick preflight. Neither grants physical-write authority.
 
 Refactor decision: the owner ordered a real kernel-mass refactor
@@ -121,8 +138,7 @@ moved yet; P0 is a read-only inventory slice.
 Planning update: `docs/plan-reviews/secure-ai-workspace-and-media-app-plan-2026-07-12.md`
 defines the final-path secure source workspace, quarantined acquisition,
 reproducible Rust-to-Wasm build, and split Wasm/native media application shape.
-Its W1-W5 workspace/dependency/build/current-boot-run path is now implemented
-and verified;
-Cargo resolution, verified origin/license truth, archive extraction, fetch,
-dependency execution, install, native-code, media, GPU and
-physical-storage authority remain closed.
+Its W1-W6 workspace/dependency/build/run/install/rollback path is now implemented
+and verified on disposable QEMU storage; Cargo resolution, verified
+origin/license truth, archive extraction, fetch, dependency execution,
+native-code, media, GPU and physical-storage authority remain closed.

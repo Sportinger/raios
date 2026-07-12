@@ -27,6 +27,7 @@ pub mod owner_key_tpm2;
 pub mod personal_shell_abi;
 pub mod project_build;
 pub mod project_dependency;
+pub mod project_install;
 pub mod project_overlay;
 pub mod project_runtime;
 pub mod project_workspace;
