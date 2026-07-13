@@ -45,9 +45,41 @@ ROOT CLASS = SUPPORT DRIFT: support.ps1 is dot-sourced and reads caller-owned
 script-scope state. When it grows a new one, EVERY dot-sourcing script must initialize
 it. Grep for the dot-sourcers before adding state.
 
-P4 EVIDENCE-VOCABULARY-V1: PHASE CLOSED (2026-07-13 ~20:25). All nine families
-(module refs, load gate, loader/allocator, events, memory, hello lifecycle,
-rollback/write boundary, provider, system/status) now answer in ONE shared
+CORRECTION (2026-07-13 ~20:55) — I CALLED P4 CLOSED AND IT IS NOT. Retracting that,
+below, in the same file where I claimed it. The nine families ARE on the v1 ENVELOPE
+(everything in the next block is true and verified). But the design's section 1
+"Emission driver" states a second half of the contract that I did not check before
+declaring victory:
+
+  "There is one generic table walker and the existing one generic JSON renderer.
+   No family may call raw(), json_str(), or raw_bool() inside a JSON object after
+   conversion."
+
+Measured against the tree: ~4,400 lines still hand-write JSON punctuation INSIDE the
+v1 envelope — agent_protocol_memory.rs (1,998), hello_service/emitters.rs (1,413),
+agent_protocol_module_load_gate_render.rs (658), agent_protocol_provider.rs (255),
+hello_service/runtime.rs (112). (agent_protocol_support.rs's 32 are the substrate that
+DEFINES raw(); console.rs's 25 are not JSON. Both legitimate.) P4-9's own slice row
+demands "remove last JSON raw() sites and obsolete support helpers" — not done.
+
+THIS IS THE SAME FACT AS THE LINE MISS. Those four files are 11,294 + 6,058 + 5,014
+lines, and they are large BECAUSE the emission is hand-written. The field-table
+collapse is where the missing reduction lives; the design projected exactly this. So
+"P4 met its capability goals but missed its line goal" was too kind to me: P4 has not
+finished its own mechanism.
+
+Now in flight as P4-9c (byte-identical MECHANISM swap, not a vocabulary change): build
+a record::Value tree and let the ONE generic renderer emit it. This is provably safe —
+raios-core/src/record.rs `write_inline_object` emits `{`, then per field
+`", "`(if not first) + `write_json_str(key)` + `": "` + value, then `}`, which is
+byte-for-byte what the hand-written raw() sequence produces. So the bytes MUST NOT
+change: zero needle edits, zero hash regeneration, and a green full profile with an
+untouched vm-harness/ IS the equivalence proof. If a needle would have to move, the
+conversion is wrong.
+
+P4 EVIDENCE-VOCABULARY-V1: ENVELOPE DONE, EMISSION DRIVER NOT (2026-07-13 ~20:25).
+All nine families (module refs, load gate, loader/allocator, events, memory, hello
+lifecycle, rollback/write boundary, provider, system/status) now answer in ONE shared
 envelope `raios.evidence_response.v1`: schema/id/family/scope/classification/
 source_method/event_id + facts + ordered evidence + one decision. An OBSERVED
 decision carries no grants/effects keys AT ALL; only a DENIAL renders

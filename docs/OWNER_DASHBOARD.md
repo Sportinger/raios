@@ -2,7 +2,17 @@
 
 Updated: 2026-07-13 (evening).
 
-ONE LANGUAGE, ALL NINE FAMILIES — the vocabulary work is finished. Every answer
+KORREKTUR (Abend): Ich hatte gemeldet, die Vokabel-Arbeit sei FERTIG. Das war zu
+früh, und ich nehme es zurück. Fertig ist die **Form** der Antworten (alles im
+nächsten Absatz stimmt und ist geprüft). Nicht fertig ist der **Motor dahinter**:
+Der Plan verlangt, dass keine Familie das JSON mehr von Hand zusammenschreibt —
+und ~4.400 Zeilen tun das noch immer. Genau daran hängt auch das verfehlte
+Größenziel: Diese Dateien sind so groß, WEIL das JSON von Hand geschrieben wird.
+Das läuft gerade (P4-9c) und ist ein reiner Motorwechsel: Die ausgegebenen Daten
+bleiben Byte für Byte identisch — kein einziger Test muss angefasst werden, und
+genau das ist der Beweis, dass nichts kaputtgeht.
+
+ONE LANGUAGE, ALL NINE FAMILIES — the answer FORM is finished. Every answer
 raiOS gives — about a module, about loading, about its memory, its events, its
 own health, its clock, the AI provider, and its own list of capabilities — now
 comes back in the SAME shape: here are the facts, here is the evidence in the

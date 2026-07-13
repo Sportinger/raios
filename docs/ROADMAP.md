@@ -17,7 +17,18 @@ vocabulary).
 
 Last updated: 2026-07-13.
 
-**P4 EVIDENCE-VOCABULARY-V1 IS CLOSED (2026-07-13).** All nine families answer in
+**P4 IS NOT CLOSED — I said it was, and I was wrong (corrected 2026-07-13 ~20:55).**
+The ENVELOPE half is done and verified (below). The design's OTHER half — section 1,
+"Emission driver": *"No family may call raw(), json_str(), or raw_bool() inside a JSON
+object after conversion"* — is NOT met. ~4,400 lines still hand-write JSON punctuation
+inside the v1 envelope (memory 1,998; hello emitters 1,413; load-gate render 658;
+provider 255; hello runtime 112), and P4-9's slice row explicitly demands "remove last
+JSON raw() sites". That is the same fact as the line miss: those files are huge BECAUSE
+the emission is hand-written. In flight as P4-9c — a BYTE-IDENTICAL mechanism swap
+(Value tree + the one generic renderer), so zero needle edits and zero hash regeneration;
+a green full profile with an untouched vm-harness/ is the equivalence proof.
+
+**P4 ENVELOPE (done).** All nine families answer in
 one `raios.evidence_response.v1` envelope; an OBSERVED decision has no
 grants/effects keys at all, only a DENIAL renders them. Evidence: FULL
 shadow-20260713-200540-17832.json (2,685 predicates, 0 failed) + RECOVERY
