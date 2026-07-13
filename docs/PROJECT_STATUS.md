@@ -24,6 +24,18 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+P4 OPENED — OWNER CHOSE VOCABULARY V1 (2026-07-13). After the W2a
+calibration proved the byte-identical P2 lever largely exhausted (the
+remaining kernel "duplicates" are distinct raw-diagnostic layers, commit
+0a3a66d), the owner explicitly chose the full P4 ambition: evidence
+vocabulary v1 — a from-scratch redesign of the emitted schema set on the
+typed record model, table-driven emission, every golden regenerated per
+family, ADR 0006 formally reopened. Exact next task: the P4 vocabulary-v1
+design (families, record-model mapping, golden-regeneration strategy per
+family, slice cut), then family-by-family execution with focused profiles
+and full+recovery at closes. P2 waves W3+ are folded into P4 slices where
+the same files are touched (avoid double golden churn).
+
 REFACTOR PROGRAM CURSOR (2026-07-13, after the recovery retirement). Exact
 next task: produce a FRESH P2 wave design against the CURRENT 176,346-line
 tree before dispatching further relocation waves. Two W2 dispatch attempts
