@@ -2002,6 +2002,37 @@ Important files:
 
 ## Known Failure Modes
 
+### A harness script dies with "cannot call a method on a null-valued expression" pointing at a line that is demonstrably fine
+
+Symptom: a PowerShell harness script fails in `Write-Report` (shadow-vm-smoke-support.ps1)
+with `InvokeMethodOnNull`, and the reported line is `$Predicates.ToArray()`. Chasing it
+leads to an imaginary scope bug: `$Predicates` is NOT null. Hit 2026-07-13 on
+`shadow-vm-persistence-reboot.ps1`.
+
+TWO traps, and you must know both or you will lose hours:
+
+1. **PowerShell misattributes the line inside a big multi-line hashtable literal.** The
+   real failure was `@($script:VisualEvidence.ToArray())` a few lines below; the error was
+   reported against a neighbouring `$Predicates` line. NEVER trust the reported line inside
+   an `[ordered]@{ ... }` literal. Probe instead: paste the "failing" expression at the TOP
+   of the function and print it. If it evaluates fine there, the reported line is a lie —
+   look for another METHOD call (`.ToArray()`, not `.Count`; `$null.Count` returns 0 without
+   throwing, so only method calls raise `InvokeMethodOnNull`) on a variable the caller never
+   initialized.
+
+2. **An unguarded `Write-Report` in a top-level `finally` eats the primary exception.** Its
+   throw REPLACES the exception already unwinding, so every failure of the script arrives
+   disguised as a report-write error. `shadow-vm-smoke.ps1` guards this call; any script that
+   does not, must. Guard it, and print the primary failure in the `catch` of the main body at
+   the moment it happens — do not let the rethrow race the finally.
+
+Root cause class: **support drift.** `shadow-vm-smoke-support.ps1` is dot-sourced and reads
+caller-owned script-scope state (`$Predicates`, `$ExecutedCommands`, `$script:VisualEvidence`,
+...). When support grows a new one, every dot-sourcing script must initialize it.
+`shadow-vm-smoke.ps1` was updated; `shadow-vm-persistence-reboot.ps1` was not, and its 119
+passing predicates went dark for weeks. When adding state to support.ps1, grep for every
+script that dot-sources it.
+
 ### build.rs dies with an artifact/identity sha256 assert in a fresh checkout
 
 Symptom: `seed-kernel\build.rs` panics on an `assertion left == right failed`

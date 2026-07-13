@@ -24,6 +24,27 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+HARNESS: THE PERSISTENCE-REBOOT SUITE IS BACK (2026-07-13 ~20:37). 119 predicates,
+all passing, previously invisible: shadow-persistence-reboot-20260713-203726-18504.json.
+The suite was never failing — it could not WRITE ITS REPORT. `Write-Report` renders
+`@($script:VisualEvidence.ToArray())`; shadow-vm-smoke.ps1 initializes that list,
+shadow-vm-persistence-reboot.ps1 never did, so a method call on null threw AFTER the
+whole two-boot test had already passed. Restored coverage: durable memory across
+reboots, load-artifact-by-hash, by-hash tamper denial, torn-reclog child probe.
+Two traps worth knowing (both now in docs/DEBUGGING.md, Known Failure Modes):
+(1) PowerShell MISATTRIBUTES the failing line inside a large multi-line hashtable
+literal — it blamed `$Predicates.ToArray()`, which is why the drift was recorded as
+"$Predicates is null". It is not, and never was; a probe at the top of Write-Report
+evaluates that exact expression fine in the same call that then "fails" on it. Only
+METHOD calls raise InvokeMethodOnNull — `$null.Count` quietly returns 0.
+(2) The unguarded Write-Report in the top-level `finally` REPLACED the exception that
+was already unwinding, so every failure arrived disguised as a report-write error.
+Guarding it is what made the diagnosis possible: with the mask off, the run printed no
+primary failure at all — which is how we learned the test body had been passing.
+ROOT CLASS = SUPPORT DRIFT: support.ps1 is dot-sourced and reads caller-owned
+script-scope state. When it grows a new one, EVERY dot-sourcing script must initialize
+it. Grep for the dot-sourcers before adding state.
+
 P4 EVIDENCE-VOCABULARY-V1: PHASE CLOSED (2026-07-13 ~20:25). All nine families
 (module refs, load gate, loader/allocator, events, memory, hello lifecycle,
 rollback/write boundary, provider, system/status) now answer in ONE shared
