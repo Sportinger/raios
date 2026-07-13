@@ -24,6 +24,42 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+SECURITY FIX LANDED — THE ROLLBACK "PROOF" WAS NOT A PROOF (2026-07-13 ~18:30).
+P4-7a raised it; the code confirmed it. `ScopedRollbackApplyProof` in
+seed-kernel/src/hello_service/emitters.rs was a struct the RENDERER assembled out
+of evaluator booleans and hashes. Any kernel code could have constructed one with
+`authorized: true` and nothing — not the type system, not a constructor, not a
+review — would have stopped it. The name promised unforgeability the type did not
+deliver.
+raios-core now owns three real proofs (scope decision, authorized append, verified
+apply): private fields, no public constructor, constructible ONLY on the success
+branch after the entire chain verifies, and ONLY if the caller declared a
+capability. A fully verified chain with NO declared capability yields NO PROOF —
+you cannot obtain a grant by forgetting to ask for one. Every chain element,
+mutated alone, independently prevents the proof (54 scope inputs + 40 apply inputs
+are walked by test). The gate logic did not change: the diff removes exactly two
+lines, both commas in test struct literals.
+STILL OPEN (P4-7b2, in flight): the real LBA1 media write is gated by a CONVENTION
+— one `if !scope_decision.authorized` in the single call site. The write function
+itself would happily write for any caller. R2 makes it REQUIRE the scope proof as
+an argument, so verify-then-write becomes a compile-time fact rather than something
+a future author must remember to copy. In a fail-closed substrate the unsafe
+program should not compile.
+
+P4-6 CLOSED — HELLO LIFECYCLE ON V1 (2026-07-13 ~18:36). FULL green
+shadow-20260713-183634-25924.json. THIRD STRUCTURAL FINDING: the lifecycle could
+not describe its own state change. The emitter only ever saw the POST-action
+snapshot; the only captured "previous" state anywhere came from the hot-swap
+probation record, so load/start/restart/stop/drop reported the current state and
+no transition at all. An honest answer was only obtainable by re-reading state
+after the mutation (a torn snapshot) or by inventing it. P4-6b2 captures the
+pre-state under the SAME lock that mutates. Same shape as the P4-4 event-ring
+race: a response must render from ONE coherent capture, and twice the capture did
+not exist. Editing the attested hello sources broke the build until the descriptor
+pins were regenerated and both descriptors re-signed (descriptor-resign, ADR 0013)
+— the attestation working exactly as designed; the build was the oracle for all
+four pins.
+
 P4-5 CLOSED — MEMORY FAMILY ON V1 (2026-07-13 ~18:00). memory.profile/context/
 query/trace + the mutation denial render the shared envelope from the committed
 core projection; the provider projection was extracted from its raw serial
