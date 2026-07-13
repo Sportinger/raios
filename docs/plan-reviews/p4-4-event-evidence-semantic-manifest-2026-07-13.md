@@ -628,3 +628,43 @@ Scope-creep observation: `event_log_evidence.rs` (ordered source-label arrays),
 event-family dependencies absent from the P4 row. They need not all change in
 P4-4b, but treating them as unrelated would make the semantic and selftest
 inventory incomplete.
+
+## Orchestrator rulings (2026-07-13, binding for P4-4b)
+
+**R1 — write set follows the emitter, not the design row.** The design row named
+`event_log.rs`/`event_log_types.rs` because that is where the event TYPES live;
+the serial emitter is `agent_protocol_memory.rs`. P4-4b's write set is the real
+renderer set: `agent_protocol_memory.rs`, the load-gate event-binding fragment
+in `agent_protocol_module_load_gate_render.rs` (the 26-function compact cluster
+restored verbatim during P4-2b2a and explicitly deferred to P4-4), and
+`event_log_evidence.rs` for the ordered evidence labels. Deleting emitters in
+the two named files alone would leave the vocabulary split across two grammars.
+
+**R2 — nested per-event evidence records; ONE decision about the READ.**
+`memory.recent_events` returns 0..256 historical events, each with its own
+outcome/reason. Flattening those into the envelope's single `decision` would
+erase historical denials, and repeating full envelopes would break the one-
+envelope-per-response grammar. Ruling: each event renders as an ORDERED EVIDENCE
+RECORD carrying its own status/reason/source_event_id/classification; the
+envelope's single `decision` is `observed("recent_events_read")` — the response
+decides about the READ, not about the history. This is the same principle
+already ratified for retention (commit b6e13bc: retention is provenance, not an
+effect): a historical denial is evidence, not a fresh effect of this response.
+
+**R3 — envelope `event_id: null`.** `ReadMethod` discards the read event ID.
+Do NOT alias the newest returned event into the envelope (that would make one
+event's provenance stand for the whole batch). Bind `event_id: null` exactly as
+P4-3 does for observational responses; per-event provenance lives on each
+evidence record's `source_event_id`. Threading a real read-event ID is a later,
+separate change with its own evidence.
+
+**R4 — P4-5 boundary confirmed as stated.** P4-4 OWNS the event record and ring
+projection inside `memory.recent_events`. P4-5 owns memory selection/enveloping
+and must REUSE P4-4's projection. Both slices regenerating the same record is a
+STOP.
+
+**R5 — `ModulePromotionSignatureReference` gets a real binding evidence unit.**
+It is a signature reference; silently omitting a signature from the evidence
+stream is precisely the appearance-only gap that P4-2b2b had to correct in the
+substituted-approval fixture. If the evaluator genuinely has no consumer for it,
+retire it EXPLICITLY with a named manifest note and a reason — never by omission.

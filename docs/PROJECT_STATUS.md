@@ -24,6 +24,27 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+MODULE BLOCK CLOSED — P4-1, P4-2 AND P4-3 ALL ON EVIDENCE VOCABULARY V1
+(2026-07-13 ~15:10). P4-3 switched the eight loader-fact methods, loader
+identity, artifact-hash binding, loader runtime and the service-slot allocator
+onto the shared v1 envelope built from the committed core projection; the
+1,784-line legacy runtime renderer is now a single boundary note. BLOCK-CLOSE
+EVIDENCE (required by the P4 plan at this point): FULL green
+shadow-20260713-150007-25964.json (2,710/2,710) AND RECOVERY green
+shadow-20260713-150546-15272.json. fmt, size gate, secret scan clean.
+LINE REFORECAST: kernel 176,331 (baseline) -> 162,947 now, i.e. -13,384 with
+three of nine families done; the plan's ~139,281 target needs -23,666 more
+from P4-4..P4-9, whose committed manifests inventory 511+224+326+929+93
+predicates of still-legacy vocabulary — the remaining families are collectively
+larger than the three just done, so the target still looks reachable.
+Exact next task: P4-4 (event evidence) — the family every other slice has been
+deferring to. The compact `memory.recent_events` binding vocabulary was
+deliberately frozen through P4-1..P4-3 (a first P4-2 attempt spliced a v1
+envelope into the event stream and produced malformed JSON; the 26-function
+compact binding cluster was restored verbatim and left pre-v1). P4-4 unfreezes
+it. Its manifest is committed; its five decisions still need orchestrator
+rulings before the kernel switch.
+
 P4-2 CLOSED — LOAD-GATE FAMILY FULLY ON V1 (2026-07-13 ~14:00). b2b landed
 the nine selftests on the v1 envelope AND corrected the two known
 non-functional fixtures (substituted_local_approval_reference_record and
