@@ -1,17 +1,13 @@
 use alloc::{format, string::String, vec, vec::Vec};
-use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{
-    agent_protocol_module_load_gate::emit_module_load_gate_event_binding,
     agent_protocol_module_load_gate_render::project_module_load_gate_event_binding,
     agent_protocol_provider::{
-        current_problem_objects_value, current_service_ids_value, emit_provider_context_hashes,
-        provider_context_block_reason, provider_minimal_projection_value,
+        current_problem_objects_value, current_service_ids_value, provider_context_block_reason,
+        provider_minimal_projection_value,
     },
-    agent_protocol_support::{
-        crlf, emit_record_value_fragment, json_event_id, json_event_id_option, json_opt_str,
-        json_sha256, json_sha256_option, json_str, method_eq, raw, raw_bool, raw_fmt, raw_line,
-    },
+    agent_protocol_support::{crlf, emit_record_value_fragment, method_eq, raw, raw_fmt, raw_line},
     event_log, memory_store, provider, provider_trust,
     system_status::SystemSnapshot,
     ui,
@@ -21,7 +17,7 @@ use raios_core::{
         project_recent_events, CapturedEvent, EventClassification, EventEvidenceProjection,
         EventKind, EventProjectionClass, EventSnapshotInput, HistoricalEventOutcome,
     },
-    evidence_response::{self as ev, Envelope, Evidence, SCHEMA as EVIDENCE_RESPONSE_SCHEMA},
+    evidence_response::{self as ev, Envelope, Evidence},
     memory_projection::{
         evaluate_memory_mutation, CurrentMemorySnapshot, CurrentStatus, DurableRecordView,
         EmbeddedProviderProjection, IncludedSelection, MemoryClassification, MemoryContextInput,
@@ -31,7 +27,7 @@ use raios_core::{
         SelectedRecord, SupersedeLink, TraceHit,
     },
     memory_record::MemoryKind,
-    record::Value as V,
+    record::{Field, Value as V},
 };
 
 pub use raios_core::memory_context::{
@@ -42,7 +38,6 @@ pub use raios_core::memory_context::{
 
 static NEXT_EVENT_RESPONSE_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_MEMORY_ID: AtomicU64 = AtomicU64::new(1);
-static EMIT_BINDING_FACTS_OBJECT: AtomicBool = AtomicBool::new(false);
 
 #[rustfmt::skip]
 pub(crate) fn emit_memory_profile() {
@@ -510,94 +505,61 @@ fn event_projection_class(event: &event_log::Event) -> EventProjectionClass {
 }
 
 fn emit_recent_events_v1(projection: EventEvidenceProjection<'_>, events: &[event_log::Event]) {
-    raw_fmt(format_args!(
-        "RAIOS_AGENT_BEGIN memory.recent_events\r\n{{\r\n"
-    ));
-    emit_v1_property("schema", V::Str(EVIDENCE_RESPONSE_SCHEMA), true, 2);
-    emit_v1_property(
-        "id",
-        V::ResponseSequence(NEXT_EVENT_RESPONSE_ID.fetch_add(1, Ordering::Relaxed)),
-        true,
-        2,
-    );
-    emit_v1_property("family", V::Str("event"), true, 2);
-    emit_v1_property("scope", V::Str("current_boot"), true, 2);
-    emit_v1_property("classification", V::Str("local_only"), true, 2);
-    emit_v1_property("source_method", V::Str("memory.recent_events"), true, 2);
-    emit_v1_property("event_id", V::Null, true, 2);
-    emit_v1_property("facts", projection.facts, true, 2);
-    raw_fmt(format_args!("  "));
-    emit_record_value_fragment(V::Str("evidence"), 0);
-    raw_fmt(format_args!(": [\r\n"));
-    for (idx, (evidence, event)) in projection.evidence.into_iter().zip(events).enumerate() {
-        emit_event_evidence(evidence, event, idx + 1 != events.len());
-    }
-    raw_fmt(format_args!("  ],\r\n"));
-    emit_v1_property("decision", projection.decision, false, 2);
-    raw_fmt(format_args!(
-        "}}\r\nRAIOS_AGENT_END memory.recent_events\r\n"
-    ));
-}
-
-fn emit_v1_property(key: &str, value: V<'_>, comma: bool, spaces: usize) {
-    raw_fmt(format_args!("{:width$}", "", width = spaces));
-    emit_record_value_fragment(V::Str(key), 0);
-    raw_fmt(format_args!(": "));
-    emit_record_value_fragment(value, spaces);
-    raw_fmt(format_args!("{}\r\n", if comma { "," } else { "" }));
-}
-
-fn emit_event_evidence(evidence: Evidence<'_>, event: &event_log::Event, comma: bool) {
-    raw_fmt(format_args!("    {{\r\n"));
-    emit_v1_property("id", V::Str(evidence.id), true, 6);
-    emit_v1_property("kind", V::Str(evidence.kind), true, 6);
-    emit_v1_property("status", V::Str(evidence.status), true, 6);
-    emit_v1_property("reason", V::Str(evidence.reason), true, 6);
-    emit_v1_property(
-        "source_event_id",
-        evidence
-            .source_event_sequence
-            .map(V::EventSequence)
-            .unwrap_or(V::Null),
-        true,
-        6,
-    );
-    emit_v1_property("classification", V::Str(evidence.classification), true, 6);
-    raw_fmt(format_args!("      "));
-    emit_record_value_fragment(V::Str("facts"), 0);
-    raw_fmt(format_args!(": {{\r\n"));
-    let fields = match evidence.facts {
-        V::InlineObject(fields) => fields,
-        _ => unreachable!("event projection facts are always an inline object"),
+    let envelope = Envelope {
+        response_sequence: NEXT_EVENT_RESPONSE_ID.fetch_add(1, Ordering::Relaxed),
+        family: "event",
+        scope: "current_boot",
+        classification: "local_only",
+        source_method: "memory.recent_events",
+        event_sequence: None,
+        facts: projection.facts,
+        evidence: projection
+            .evidence
+            .into_iter()
+            .zip(events)
+            .map(|(evidence, event)| event_evidence_value(evidence, event))
+            .collect(),
+        decision: projection.decision,
     };
-    let compact_binding = !matches!(
+    raw_line("RAIOS_AGENT_BEGIN memory.recent_events");
+    emit_record_value_fragment(ev::response_value(&envelope), 0);
+    crlf();
+    raw_line("RAIOS_AGENT_END memory.recent_events");
+}
+
+fn event_evidence_value<'a>(evidence: Evidence<'a>, event: &'a event_log::Event) -> V<'a> {
+    let V::InlineObject(mut facts) = evidence.facts else {
+        unreachable!("event projection facts are always inline objects")
+    };
+    if !matches!(
         event.bindings,
         event_log::EventBindings::None
             | event_log::EventBindings::ModuleLoadGate(_)
             | event_log::EventBindings::ModulePromotionSignatureReference(_)
-    );
-    let field_count = fields.len();
-    for (idx, field) in fields.into_iter().enumerate() {
-        emit_v1_property(
-            field.key,
-            field.value,
-            idx + 1 != field_count || compact_binding,
-            8,
-        );
+    ) {
+        // The legacy compact binding vocabulary includes decision-like names. Keep
+        // projection-owned facts validated, then attach the byte-identical evidence
+        // object here without treating those historical names as new authority.
+        facts.push(Field::new(
+            "binding",
+            event_bindings_value(event.kind, &event.bindings),
+        ));
     }
-    if compact_binding {
-        raw_fmt(format_args!("        "));
-        emit_record_value_fragment(V::Str("binding"), 0);
-        raw_fmt(format_args!(": "));
-        EMIT_BINDING_FACTS_OBJECT.store(true, Ordering::Relaxed);
-        emit_event_bindings(event.kind, &event.bindings);
-        EMIT_BINDING_FACTS_OBJECT.store(false, Ordering::Relaxed);
-        crlf();
-    }
-    raw_fmt(format_args!(
-        "      }}\r\n    }}{}\r\n",
-        if comma { "," } else { "" }
-    ));
+    V::Object(vec![
+        Field::new("id", V::Str(evidence.id)),
+        Field::new("kind", V::Str(evidence.kind)),
+        Field::new("status", V::Str(evidence.status)),
+        Field::new("reason", V::Str(evidence.reason)),
+        Field::new(
+            "source_event_id",
+            evidence
+                .source_event_sequence
+                .map(V::EventSequence)
+                .unwrap_or(V::Null),
+        ),
+        Field::new("classification", V::Str(evidence.classification)),
+        Field::new("facts", V::Object(facts)),
+    ])
 }
 
 pub(crate) fn emit_memory_capability_denied(method: &'static str, event_id: event_log::EventId) {
@@ -647,30 +609,40 @@ pub(crate) struct BindingField<F: Copy> {
     pub(crate) field: F,
 }
 
-fn emit_binding_object<B, F: Copy>(
+fn binding_object_value<B, F: Copy>(
     binding: &B,
     kind: &str,
     fields: &[BindingField<F>],
     value: fn(&B, &str, F) -> BindingValue,
-) {
-    // ponytail: serial command emission is single-threaded; P4-4b2b typed fields
-    // remove this compact-renderer mode flag before concurrent response emission.
-    raw(if EMIT_BINDING_FACTS_OBJECT.load(Ordering::Relaxed) {
-        "{"
-    } else {
-        ", \"bindings\": {"
-    });
-    let mut idx = 0usize;
-    while idx < fields.len() {
-        if idx != 0 {
-            raw(", ");
-        }
-        emit_record_value_fragment(raios_core::record::Value::Str(fields[idx].key), 0);
-        raw(": ");
-        emit_binding_value(value(binding, kind, fields[idx].field));
-        idx += 1;
-    }
-    raw("}");
+) -> V<'static> {
+    V::InlineObject(
+        fields
+            .iter()
+            .map(|field| {
+                Field::new(
+                    field.key,
+                    binding_value_to_v(value(binding, kind, field.field)),
+                )
+            })
+            .collect(),
+    )
+}
+
+// The value borrows from `binding` (e.g. ModuleServiceSlotId::as_str), so the tree
+// carries the binding's lifetime rather than claiming 'static. It is rendered inside
+// the caller's scope, so nothing escapes.
+pub(crate) fn binding_object_value_direct<'a, B, F: Copy>(
+    binding: &'a B,
+    kind: &str,
+    fields: &[BindingField<F>],
+    value: fn(&'a B, &str, F) -> V<'a>,
+) -> V<'a> {
+    V::InlineObject(
+        fields
+            .iter()
+            .map(|field| Field::new(field.key, value(binding, kind, field.field)))
+            .collect(),
+    )
 }
 
 pub(crate) fn emit_binding_object_direct<B, F: Copy>(
@@ -679,17 +651,13 @@ pub(crate) fn emit_binding_object_direct<B, F: Copy>(
     fields: &[BindingField<F>],
     emit_value: fn(&B, &str, F),
 ) {
-    raw(if EMIT_BINDING_FACTS_OBJECT.load(Ordering::Relaxed) {
-        "{"
-    } else {
-        ", \"bindings\": {"
-    });
+    raw(", \"bindings\": {");
     let mut idx = 0usize;
     while idx < fields.len() {
         if idx != 0 {
             raw(", ");
         }
-        emit_record_value_fragment(raios_core::record::Value::Str(fields[idx].key), 0);
+        emit_record_value_fragment(V::Str(fields[idx].key), 0);
         raw(": ");
         emit_value(binding, kind, fields[idx].field);
         idx += 1;
@@ -729,46 +697,124 @@ macro_rules! define_direct_binding_fields {
 
 pub(crate) use define_direct_binding_fields;
 
-fn emit_binding_value(value: BindingValue) {
+macro_rules! define_direct_binding_value_fields {
+    (
+        $field_enum:ident,
+        $fields_const:ident,
+        $value:ident,
+        $binding_ty:ty,
+        $binding:ident,
+        $kind:ident;
+        $(($variant:ident, $key:literal, $body:block),)+
+    ) => {
+        #[derive(Clone, Copy)]
+        enum $field_enum {
+            $($variant),+
+        }
+
+        const $fields_const: &[BindingField<$field_enum>] = &[
+            $(BindingField {
+                key: $key,
+                field: $field_enum::$variant,
+            }),+
+        ];
+
+        fn $value<'a>($binding: &'a $binding_ty, $kind: &str, field: $field_enum) -> V<'a> {
+            match field {
+                $($field_enum::$variant => $body),+
+            }
+        }
+    };
+}
+
+fn binding_value_to_v(value: BindingValue) -> V<'static> {
     match value {
-        BindingValue::Str(value) => {
-            emit_record_value_fragment(raios_core::record::Value::Str(value), 0)
-        }
-        BindingValue::OptStr(Some(value)) => {
-            emit_record_value_fragment(raios_core::record::Value::Str(value), 0)
-        }
-        BindingValue::OptStr(None) => {
-            emit_record_value_fragment(raios_core::record::Value::Null, 0)
-        }
-        BindingValue::Bool(value) => {
-            emit_record_value_fragment(raios_core::record::Value::Bool(value), 0)
-        }
-        BindingValue::U64(value) => {
-            emit_record_value_fragment(raios_core::record::Value::U64(value), 0)
-        }
-        BindingValue::OptU64(Some(value)) => {
-            emit_record_value_fragment(raios_core::record::Value::U64(value), 0)
-        }
-        BindingValue::OptU64(None) => {
-            emit_record_value_fragment(raios_core::record::Value::Null, 0)
-        }
-        BindingValue::Sha256(value) => {
-            emit_record_value_fragment(raios_core::record::Value::Sha256(value), 0)
-        }
-        BindingValue::OptSha256(Some(value)) => {
-            emit_record_value_fragment(raios_core::record::Value::Sha256(value), 0)
-        }
-        BindingValue::OptSha256(None) => {
-            emit_record_value_fragment(raios_core::record::Value::Null, 0)
-        }
-        BindingValue::OptEventId(Some(value)) => emit_record_value_fragment(
-            raios_core::record::Value::EventSequence(value.sequence()),
-            0,
-        ),
-        BindingValue::OptEventId(None) => {
-            emit_record_value_fragment(raios_core::record::Value::Null, 0)
-        }
+        BindingValue::Str(value) | BindingValue::OptStr(Some(value)) => V::Str(value),
+        BindingValue::OptStr(None)
+        | BindingValue::OptU64(None)
+        | BindingValue::OptSha256(None)
+        | BindingValue::OptEventId(None) => V::Null,
+        BindingValue::Bool(value) => V::Bool(value),
+        BindingValue::U64(value) | BindingValue::OptU64(Some(value)) => V::U64(value),
+        BindingValue::Sha256(value) | BindingValue::OptSha256(Some(value)) => V::Sha256(value),
+        BindingValue::OptEventId(Some(value)) => V::EventSequence(value.sequence()),
     }
+}
+
+fn opt_str_value(value: Option<&'static str>) -> V<'static> {
+    value.map(V::Str).unwrap_or(V::Null)
+}
+
+fn opt_sha256_value(value: Option<[u8; 32]>) -> V<'static> {
+    value.map(V::Sha256).unwrap_or(V::Null)
+}
+
+fn opt_event_id_value(value: Option<event_log::EventId>) -> V<'static> {
+    value
+        .map(|event_id| V::EventSequence(event_id.sequence()))
+        .unwrap_or(V::Null)
+}
+
+fn provider_context_hashes_value(hashes: event_log::ProviderContextHashes) -> V<'static> {
+    V::InlineObject(vec![
+        Field::new(
+            "packet_canonicalization",
+            V::Str("raios.provider_minimal.packet.canonical.v0"),
+        ),
+        Field::new(
+            "projected_packet_hash",
+            V::Sha256(hashes.projected_packet_hash),
+        ),
+        Field::new(
+            "exported_field_list_hash",
+            V::Sha256(hashes.exported_field_list_hash),
+        ),
+        Field::new(
+            "omitted_field_list_hash",
+            V::Sha256(hashes.omitted_field_list_hash),
+        ),
+        Field::new(
+            "redaction_policy_hash",
+            V::Sha256(hashes.redaction_policy_hash),
+        ),
+        Field::new(
+            "field_classification_hash",
+            V::Sha256(hashes.field_classification_hash),
+        ),
+        Field::new("token_budget_hash", V::Sha256(hashes.token_budget_hash)),
+    ])
+}
+
+fn provider_trust_verifier_metadata_value(
+    metadata: provider_trust::ProviderTrustVerifierMetadata,
+) -> V<'static> {
+    V::InlineObject(vec![
+        Field::new("schema", V::Str(metadata.schema)),
+        Field::new("id", V::Str(metadata.id)),
+        Field::new("host", V::Str(metadata.host)),
+        Field::new("port", V::Str(metadata.port)),
+        Field::new("transport", V::Str(metadata.transport)),
+        Field::new("hostname_policy", V::Str(metadata.hostname_policy)),
+        Field::new("pin_policy", V::Str(metadata.pin_policy)),
+        Field::new("chain_policy", V::Str(metadata.chain_policy)),
+        Field::new("time_policy", V::Str(metadata.time_policy)),
+        Field::new(
+            "certificate_verify_policy",
+            V::Str(metadata.certificate_verify_policy),
+        ),
+    ])
+}
+
+fn provider_trust_verifier_decision_value(
+    decision: provider_trust::ProviderTrustVerifierDecision,
+) -> V<'static> {
+    V::InlineObject(vec![
+        Field::new("schema", V::Str(decision.schema)),
+        Field::new("verifier_id", V::Str(decision.verifier_id)),
+        Field::new("stage", V::Str(decision.stage)),
+        Field::new("outcome", V::Str(decision.outcome)),
+        Field::new("reason", V::Str(decision.reason)),
+    ])
 }
 
 macro_rules! define_hello_lifecycle_binding_fields {
@@ -2168,120 +2214,122 @@ fn hello_lifecycle_binding_status(
     }
 }
 
-fn emit_hello_service_lifecycle_binding(
+fn hello_service_lifecycle_binding_value(
     kind: &str,
     binding: &event_log::HelloServiceLifecycleBinding,
-) {
-    emit_binding_object(
+) -> V<'static> {
+    binding_object_value(
         binding,
         kind,
         HELLO_LIFECYCLE_BINDING_FIELDS,
         hello_lifecycle_binding_value,
-    );
+    )
 }
 
-fn emit_event_bindings(kind: &str, bindings: &event_log::EventBindings) {
+fn event_bindings_value<'a>(kind: &str, bindings: &'a event_log::EventBindings) -> V<'a> {
     match bindings {
-        event_log::EventBindings::None => {}
+        event_log::EventBindings::None => unreachable!("unbound event has no binding value"),
         event_log::EventBindings::HelloServiceLifecycle(binding) => {
-            emit_hello_service_lifecycle_binding(kind, binding);
+            hello_service_lifecycle_binding_value(kind, binding)
         }
         event_log::EventBindings::HelloRecoveryRollbackInspectSourceReference(binding) => {
-            emit_hello_recovery_rollback_inspect_source_reference_binding(kind, binding);
+            hello_recovery_rollback_inspect_source_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::AgentCommandEnvelopeDecision(binding) => {
-            emit_agent_command_envelope_decision_binding(kind, binding);
+            agent_command_envelope_decision_binding_value(kind, binding)
         }
         event_log::EventBindings::ProviderRequestEnvelope(binding) => {
-            emit_provider_request_envelope_binding(kind, binding);
+            provider_request_envelope_binding_value(kind, binding)
         }
         event_log::EventBindings::ProviderRequestBound(binding) => {
-            emit_provider_request_bound_binding(kind, binding);
+            provider_request_bound_binding_value(kind, binding)
         }
         event_log::EventBindings::ProviderExportAuditBound(binding) => {
-            emit_provider_export_audit_bound_binding(kind, binding);
+            provider_export_audit_bound_binding_value(kind, binding)
         }
         event_log::EventBindings::ProviderBindingConsumption(binding) => {
-            emit_provider_binding_consumption_binding(kind, binding);
+            provider_binding_consumption_binding_value(kind, binding)
         }
         event_log::EventBindings::ProviderContextInjectionAuthorization(binding) => {
-            emit_provider_context_injection_authorization_binding(kind, binding);
+            provider_context_injection_authorization_binding_value(kind, binding)
         }
         event_log::EventBindings::ProviderRequestBindingDenied(hashes) => {
-            emit_provider_request_binding_denied_binding(kind, hashes);
+            provider_request_binding_denied_binding_value(kind, hashes)
         }
         event_log::EventBindings::ProviderExportDenialAudit(hashes) => {
-            emit_provider_export_denial_audit_binding(kind, hashes);
+            provider_export_denial_audit_binding_value(kind, hashes)
         }
         event_log::EventBindings::ModuleManifestReference(binding) => {
-            emit_module_manifest_reference_binding(kind, binding);
+            module_manifest_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::ModuleCandidateArtifactReference(binding) => {
-            emit_module_candidate_artifact_reference_binding(kind, binding);
+            module_candidate_artifact_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::ModuleVmTestReportReference(binding) => {
-            emit_module_vm_test_report_reference_binding(kind, binding);
+            module_vm_test_report_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::ModuleLocalAttestationReference(binding) => {
-            emit_module_local_attestation_reference_binding(kind, binding);
+            module_local_attestation_reference_binding_value(kind, binding)
         }
-        event_log::EventBindings::ModulePromotionSignatureReference(_) => {}
+        event_log::EventBindings::ModulePromotionSignatureReference(_) => {
+            unreachable!("unrenderable promotion signature has no binding value")
+        }
         event_log::EventBindings::ModuleLocalApprovalReference(binding) => {
-            emit_module_local_approval_reference_binding(kind, binding);
+            module_local_approval_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::ModuleComputedGrantReference(binding) => {
-            emit_module_computed_grant_reference_binding(kind, binding);
+            module_computed_grant_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::ModuleAuditRollbackReference(binding) => {
-            emit_module_audit_rollback_reference_binding(kind, binding);
+            module_audit_rollback_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::ModuleServiceSlotReservation(binding) => {
-            emit_module_service_slot_reservation_binding(kind, binding);
+            module_service_slot_reservation_binding_value(kind, binding)
         }
         event_log::EventBindings::ModuleServiceSlotAllocatorFactSourceEvidence(binding) => {
-            emit_module_service_slot_allocator_fact_source_evidence_binding(kind, binding);
+            module_service_slot_allocator_fact_source_evidence_binding_value(kind, binding)
         }
         event_log::EventBindings::ModuleServiceSlotAllocatorPrerequisiteSourceEvidence(binding) => {
-            emit_module_service_slot_allocator_prerequisite_source_evidence_binding(kind, binding);
+            module_service_slot_allocator_prerequisite_source_evidence_binding_value(kind, binding)
         }
         event_log::EventBindings::ModuleServiceSlotAllocatorAuthoritySourceEvidence(binding) => {
-            emit_module_service_slot_allocator_authority_source_evidence_binding(kind, binding);
+            module_service_slot_allocator_authority_source_evidence_binding_value(kind, binding)
         }
         event_log::EventBindings::ModuleServiceSlotAllocationIntentSourceEvidence(binding) => {
-            emit_module_service_slot_allocation_intent_source_evidence_binding(kind, binding);
+            module_service_slot_allocation_intent_source_evidence_binding_value(kind, binding)
         }
         event_log::EventBindings::ModuleServiceSlotAuthorityInputSourceEvidence(binding) => {
-            emit_module_service_slot_authority_input_source_evidence_binding(kind, binding);
+            module_service_slot_authority_input_source_evidence_binding_value(kind, binding)
         }
         event_log::EventBindings::ModuleServiceSlotAllocatorAuthorityDecisionSourceEvidence(binding) => {
-            emit_module_service_slot_allocator_authority_decision_source_evidence_binding(kind, binding);
+            module_service_slot_allocator_authority_decision_source_evidence_binding_value(kind, binding)
         }
         event_log::EventBindings::ModuleServiceSlotRegistryWriteCommitGateSourceEvidence(binding) => {
-            emit_module_service_slot_registry_write_commit_gate_source_evidence_binding(kind, binding);
+            module_service_slot_registry_write_commit_gate_source_evidence_binding_value(kind, binding)
         }
         event_log::EventBindings::ModuleLoaderIdentitySourceEvidence(binding) => {
-            emit_module_loader_identity_source_evidence_binding(kind, binding);
+            module_loader_identity_source_evidence_binding_value(kind, binding)
         }
         event_log::EventBindings::ModuleLoaderArtifactHashBindingSourceEvidence(binding) => {
-            emit_module_loader_artifact_hash_binding_source_evidence_binding(kind, binding);
+            module_loader_artifact_hash_binding_source_evidence_binding_value(kind, binding)
         }
         event_log::EventBindings::ModuleLoaderFactSourceEvidence(binding) => {
-            emit_module_loader_fact_source_evidence_binding(kind, binding);
+            module_loader_fact_source_evidence_binding_value(kind, binding)
         }
         event_log::EventBindings::ModuleLoaderRuntimeExecutionCommitGateSourceEvidence(binding) => {
-            emit_module_loader_runtime_execution_commit_gate_source_evidence_binding(kind, binding);
+            module_loader_runtime_execution_commit_gate_source_evidence_binding_value(kind, binding)
         }
         event_log::EventBindings::ModuleLoaderDescriptorIntakeBoundarySourceEvidence(binding) => {
-            emit_module_loader_descriptor_intake_boundary_source_evidence_binding(kind, binding);
+            module_loader_descriptor_intake_boundary_source_evidence_binding_value(kind, binding)
         }
         event_log::EventBindings::ModuleLoaderArtifactByteIntakeBoundarySourceEvidence(binding) => {
-            emit_module_loader_artifact_byte_intake_boundary_source_evidence_binding(kind, binding);
+            module_loader_artifact_byte_intake_boundary_source_evidence_binding_value(kind, binding)
         }
         event_log::EventBindings::ModuleLoaderExecutionAuthorizationBoundarySourceEvidence(binding) => {
-            emit_module_loader_execution_authorization_boundary_source_evidence_binding(kind, binding);
+            module_loader_execution_authorization_boundary_source_evidence_binding_value(kind, binding)
         }
         event_log::EventBindings::ModuleLoaderServiceRegistryMutationBoundarySourceEvidence(binding) => {
-            emit_module_loader_service_registry_mutation_boundary_source_evidence_binding(kind, binding);
+            module_loader_service_registry_mutation_boundary_source_evidence_binding_value(kind, binding)
         }
         event_log::EventBindings::ModuleLoaderLoadAttemptBoundarySourceEvidence(binding)
         | event_log::EventBindings::ModuleLoaderArtifactLoadBoundarySourceEvidence(binding)
@@ -2353,87 +2401,87 @@ fn emit_event_bindings(kind: &str, bindings: &event_log::EventBindings) {
         | event_log::EventBindings::ModuleLoaderExecutableEntrypointInvocationBoundarySourceEvidence(
             binding,
         ) => {
-            emit_module_loader_live_load_boundary_binding(kind, binding);
+            module_loader_live_load_boundary_binding_value(kind, binding)
         }
-        event_log::EventBindings::ModuleLoadGate(binding) => {
-            emit_module_load_gate_event_binding(*binding);
+        event_log::EventBindings::ModuleLoadGate(_) => {
+            unreachable!("load-gate binding is projected by raios-core")
         }
         event_log::EventBindings::RecoveryArtifactIdentityReference(binding) => {
-            emit_recovery_artifact_identity_reference_binding(kind, binding);
+            recovery_artifact_identity_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::RecoveryArtifactTrustReference(binding) => {
-            emit_recovery_artifact_trust_reference_binding(kind, binding);
+            recovery_artifact_trust_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::RecoveryArtifactVmTestReference(binding) => {
-            emit_recovery_artifact_vm_test_reference_binding(kind, binding);
+            recovery_artifact_vm_test_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::RecoveryArtifactLocalApprovalReference(binding) => {
-            emit_recovery_artifact_local_approval_reference_binding(kind, binding);
+            recovery_artifact_local_approval_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::RecoveryArtifactLoaderReference(binding) => {
-            emit_recovery_artifact_loader_reference_binding(kind, binding);
+            recovery_artifact_loader_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::RecoveryArtifactRollbackEvidenceReference(binding) => {
-            emit_recovery_artifact_rollback_evidence_reference_binding(kind, binding);
+            recovery_artifact_rollback_evidence_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::RecoveryLifelineRequestReference(binding) => {
-            emit_recovery_lifeline_request_reference_binding(kind, binding);
+            recovery_lifeline_request_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::RecoveryLifelineCommandEnvelopeReference(binding) => {
-            emit_recovery_lifeline_command_envelope_reference_binding(kind, binding);
+            recovery_lifeline_command_envelope_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::RecoveryLifelineCommandBodyCanonicalizationReference(binding) => {
-            emit_recovery_lifeline_command_body_canonicalization_reference_binding(kind, binding);
+            recovery_lifeline_command_body_canonicalization_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::RecoveryLifelineCommandHandlerBindingReference(binding) => {
-            emit_recovery_lifeline_command_handler_binding_reference_binding(kind, binding);
+            recovery_lifeline_command_handler_binding_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::RecoveryLifelineStatusReadHandlerReference(binding) => {
-            emit_recovery_lifeline_status_read_handler_reference_binding(kind, binding);
+            recovery_lifeline_status_read_handler_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::RecoveryRollbackPreviewAuthorizationReference(binding) => {
-            emit_recovery_rollback_preview_authorization_reference_binding(kind, binding);
+            recovery_rollback_preview_authorization_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::RecoveryRollbackApplyAuthorizationReference(binding) => {
-            emit_recovery_rollback_apply_authorization_reference_binding(kind, binding);
+            recovery_rollback_apply_authorization_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::RecoveryDisableModuleTargetBindingReference(binding) => {
-            emit_recovery_disable_module_target_binding_reference_binding(kind, binding);
+            recovery_disable_module_target_binding_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::RecoveryRestartLastGoodTargetBindingReference(binding) => {
-            emit_recovery_restart_last_good_target_binding_reference_binding(kind, binding);
+            recovery_restart_last_good_target_binding_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::RecoveryLoadArtifactByHashTargetBindingReference(binding) => {
-            emit_recovery_load_artifact_by_hash_target_binding_reference_binding(kind, binding);
+            recovery_load_artifact_by_hash_target_binding_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::RecoveryMemoryWriteAuthorityReference(binding) => {
-            emit_recovery_memory_write_authority_reference_binding(kind, binding);
+            recovery_memory_write_authority_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::DurableAuditRollbackWriteAuthorityReference(binding) => {
-            emit_durable_audit_rollback_write_authority_reference_binding(kind, binding);
+            durable_audit_rollback_write_authority_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::RecoveryServiceInventorySideEffectBoundaryReference(binding) => {
-            emit_recovery_service_inventory_side_effect_boundary_reference_binding(kind, binding);
+            recovery_service_inventory_side_effect_boundary_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::RecoveryLifelineCommandDispatchBehaviorReference(binding) => {
-            emit_recovery_lifeline_command_dispatch_behavior_reference_binding(kind, binding);
+            recovery_lifeline_command_dispatch_behavior_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::RecoveryLifelineCommandExecutorCapabilityTableReference(binding) => {
-            emit_recovery_lifeline_command_executor_capability_table_reference_binding(kind, binding);
+            recovery_lifeline_command_executor_capability_table_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::RecoveryLifelineCommandSideEffectGateReference(binding) => {
-            emit_recovery_lifeline_command_side_effect_gate_reference_binding(kind, binding);
+            recovery_lifeline_command_side_effect_gate_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::RecoveryLifelineCommandExecutionStageReference(binding) => {
-            emit_recovery_lifeline_command_execution_stage_reference_binding(kind, binding);
+            recovery_lifeline_command_execution_stage_reference_binding_value(kind, binding)
         }
         event_log::EventBindings::RecoveryLifelineStatusExecutionResultReference(binding) => {
-            emit_recovery_lifeline_status_execution_result_reference_binding(kind, binding);
+            recovery_lifeline_status_execution_result_reference_binding_value(kind, binding)
         }
     }
 }
 
-define_direct_binding_fields! { ModuleLoaderLiveLoadBoundaryBindingField,
+define_direct_binding_value_fields! { ModuleLoaderLiveLoadBoundaryBindingField,
 MODULE_LOADER_LIVE_LOAD_BOUNDARY_BINDING_FIELDS,
 emit_module_loader_live_load_boundary_binding_value,
 event_log::ModuleLoaderLiveLoadBoundarySourceEvidence,
@@ -2441,675 +2489,496 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ json_str(binding.schema);
-}),
+{ V::Str(binding.schema) }),
 (BoundarySchema,
 "boundary_schema",
-{ json_str(binding.boundary_schema);
-}),
+{ V::Str(binding.boundary_schema) }),
 (BoundaryId,
 "boundary_id",
-{ json_str(binding.boundary_id);
-}),
+{ V::Str(binding.boundary_id) }),
 (Status,
 "status",
-{ json_str(binding.readiness_status);
-}),
+{ V::Str(binding.readiness_status) }),
 (Reason,
 "reason",
-{ json_str(binding.readiness_reason);
-}),
+{ V::Str(binding.readiness_reason) }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ json_str(binding.requested_capability);
-}),
+{ V::Str(binding.requested_capability) }),
 (LoadMode,
 "load_mode",
-{ json_str(binding.load_mode);
-}),
+{ V::Str(binding.load_mode) }),
 (Target,
 "target",
-{ json_str(binding.target);
-}),
+{ V::Str(binding.target) }),
 (SourceMethod,
 "source_method",
-{ json_str(binding.source_method);
-}),
+{ V::Str(binding.source_method) }),
 (SourceFactLocator,
 "source_fact_locator",
-{ json_str(binding.source_fact_locator);
-}),
+{ V::Str(binding.source_fact_locator) }),
 (BoundaryStatus,
 "boundary_status",
-{ json_str(binding.boundary_status);
-}),
+{ V::Str(binding.boundary_status) }),
 (BoundaryReason,
 "boundary_reason",
-{ json_str(binding.boundary_reason);
-}),
+{ V::Str(binding.boundary_reason) }),
 (BoundaryPresent,
 "boundary_present",
-{ raw_bool(binding.boundary_present);
-}),
+{ V::Bool(binding.boundary_present) }),
 (BoundaryScope,
 "boundary_scope",
-{ json_str(binding.boundary_scope);
-}),
+{ V::Str(binding.boundary_scope) }),
 (BoundarySchemaOk,
 "boundary_schema_ok",
-{ raw_bool(binding.boundary_schema_ok);
-}),
+{ V::Bool(binding.boundary_schema_ok) }),
 (BoundaryProvenanceOk,
 "boundary_provenance_ok",
-{ raw_bool(binding.boundary_provenance_ok);
-}),
+{ V::Bool(binding.boundary_provenance_ok) }),
 (BoundaryClassification,
 "boundary_classification",
-{ json_str(binding.boundary_classification);
-}),
+{ V::Str(binding.boundary_classification) }),
 (SourceChainComplete,
 "source_chain_complete",
-{ raw_bool(binding.source_chain_complete);
-}),
+{ V::Bool(binding.source_chain_complete) }),
 (LoadAttemptBoundaryPresent,
 "load_attempt_boundary_present",
-{ raw_bool(binding.load_attempt_boundary_present);
-}),
+{ V::Bool(binding.load_attempt_boundary_present) }),
 (ArtifactLoadBoundaryPresent,
 "artifact_load_boundary_present",
-{ raw_bool(binding.artifact_load_boundary_present);
-}),
+{ V::Bool(binding.artifact_load_boundary_present) }),
 (ExecutableMappingBoundaryPresent,
 "executable_mapping_boundary_present",
-{ raw_bool(binding.executable_mapping_boundary_present);
-}),
+{ V::Bool(binding.executable_mapping_boundary_present) }),
 (EntrypointTransferBoundaryPresent,
 "entrypoint_transfer_boundary_present",
-{ raw_bool(binding.entrypoint_transfer_boundary_present);
-}),
+{ V::Bool(binding.entrypoint_transfer_boundary_present) }),
 (ServiceStartBoundaryPresent,
 "service_start_boundary_present",
-{ raw_bool(binding.service_start_boundary_present);
-}),
+{ V::Bool(binding.service_start_boundary_present) }),
 (ServiceHealthBindingBoundaryPresent,
 "service_health_binding_boundary_present",
-{ raw_bool(binding.service_health_binding_boundary_present);
-}),
+{ V::Bool(binding.service_health_binding_boundary_present) }),
 (ServiceRunningStateBoundaryPresent,
 "service_running_state_boundary_present",
-{ raw_bool(binding.service_running_state_boundary_present);
-}),
+{ V::Bool(binding.service_running_state_boundary_present) }),
 (ServiceStartAuditBoundaryPresent,
 "service_start_audit_boundary_present",
-{ raw_bool(binding.service_start_audit_boundary_present);
-}),
+{ V::Bool(binding.service_start_audit_boundary_present) }),
 (ServiceUnloadCleanupBoundaryPresent,
 "service_unload_cleanup_boundary_present",
-{ raw_bool(binding.service_unload_cleanup_boundary_present);
-}),
+{ V::Bool(binding.service_unload_cleanup_boundary_present) }),
 (LiveLoadCommitBoundaryPresent,
 "live_load_commit_boundary_present",
-{ raw_bool(binding.live_load_commit_boundary_present);
-}),
+{ V::Bool(binding.live_load_commit_boundary_present) }),
 (CommitAuditBoundaryPresent,
 "commit_audit_boundary_present",
-{ raw_bool(binding.commit_audit_boundary_present);
-}),
+{ V::Bool(binding.commit_audit_boundary_present) }),
 (CommitRollbackBoundaryPresent,
 "commit_rollback_boundary_present",
-{ raw_bool(binding.commit_rollback_boundary_present);
-}),
+{ V::Bool(binding.commit_rollback_boundary_present) }),
 (CommitResultBoundaryPresent,
 "commit_result_boundary_present",
-{ raw_bool(binding.commit_result_boundary_present);
-}),
+{ V::Bool(binding.commit_result_boundary_present) }),
 (DescriptorAcceptanceAuthorityBoundaryPresent,
 "descriptor_acceptance_authority_boundary_present",
-{ raw_bool(binding.descriptor_acceptance_authority_boundary_present);
-}),
+{ V::Bool(binding.descriptor_acceptance_authority_boundary_present) }),
 (DescriptorParserContractBoundaryPresent,
 "descriptor_parser_contract_boundary_present",
-{ raw_bool(binding.descriptor_parser_contract_boundary_present);
-}),
+{ V::Bool(binding.descriptor_parser_contract_boundary_present) }),
 (DescriptorParserResultBoundaryPresent,
 "descriptor_parser_result_boundary_present",
-{ raw_bool(binding.descriptor_parser_result_boundary_present);
-}),
+{ V::Bool(binding.descriptor_parser_result_boundary_present) }),
 (DescriptorSchemaValidationBoundaryPresent,
 "descriptor_schema_validation_boundary_present",
-{ raw_bool(binding.descriptor_schema_validation_boundary_present);
-}),
+{ V::Bool(binding.descriptor_schema_validation_boundary_present) }),
 (DescriptorSchemaValidationBoundarySourceChainComplete,
 "descriptor_schema_validation_boundary_source_chain_complete",
-{ raw_bool(binding.descriptor_schema_validation_boundary_source_chain_complete);
-}),
+{ V::Bool(binding.descriptor_schema_validation_boundary_source_chain_complete) }),
 (DescriptorCapabilityValidationBoundaryPresent,
 "descriptor_capability_validation_boundary_present",
-{ raw_bool(binding.descriptor_capability_validation_boundary_present);
-}),
+{ V::Bool(binding.descriptor_capability_validation_boundary_present) }),
 (DescriptorCapabilityValidationBoundarySourceChainComplete,
 "descriptor_capability_validation_boundary_source_chain_complete",
-{ raw_bool(binding.descriptor_capability_validation_boundary_source_chain_complete);
-}),
+{ V::Bool(binding.descriptor_capability_validation_boundary_source_chain_complete) }),
 (DescriptorLoadPlanBoundaryPresent,
 "descriptor_load_plan_boundary_present",
-{ raw_bool(binding.descriptor_load_plan_boundary_present);
-}),
+{ V::Bool(binding.descriptor_load_plan_boundary_present) }),
 (DescriptorLoadPlanBoundarySourceChainComplete,
 "descriptor_load_plan_boundary_source_chain_complete",
-{ raw_bool(binding.descriptor_load_plan_boundary_source_chain_complete);
-}),
+{ V::Bool(binding.descriptor_load_plan_boundary_source_chain_complete) }),
 (ExecutableLoadPlanAuthorityBoundaryPresent,
 "executable_load_plan_authority_boundary_present",
-{ raw_bool(binding.executable_load_plan_authority_boundary_present);
-}),
+{ V::Bool(binding.executable_load_plan_authority_boundary_present) }),
 (ExecutableLoadPlanAuthorityBoundarySourceChainComplete,
 "executable_load_plan_authority_boundary_source_chain_complete",
-{ raw_bool(binding.executable_load_plan_authority_boundary_source_chain_complete);
-}),
+{ V::Bool(binding.executable_load_plan_authority_boundary_source_chain_complete) }),
 (ExecutableLoadPlanResultBoundaryPresent,
 "executable_load_plan_result_boundary_present",
-{ raw_bool(binding.executable_load_plan_result_boundary_present);
-}),
+{ V::Bool(binding.executable_load_plan_result_boundary_present) }),
 (ExecutableLoadPlanResultBoundarySourceChainComplete,
 "executable_load_plan_result_boundary_source_chain_complete",
-{ raw_bool(binding.executable_load_plan_result_boundary_source_chain_complete);
-}),
+{ V::Bool(binding.executable_load_plan_result_boundary_source_chain_complete) }),
 (ExecutableImageLayoutBoundaryPresent,
 "executable_image_layout_boundary_present",
-{ raw_bool(binding.executable_image_layout_boundary_present);
-}),
+{ V::Bool(binding.executable_image_layout_boundary_present) }),
 (ExecutableImageLayoutBoundarySourceChainComplete,
 "executable_image_layout_boundary_source_chain_complete",
-{ raw_bool(binding.executable_image_layout_boundary_source_chain_complete);
-}),
+{ V::Bool(binding.executable_image_layout_boundary_source_chain_complete) }),
 (ExecutablePageMappingPlanBoundaryPresent,
 "executable_page_mapping_plan_boundary_present",
-{ raw_bool(binding.executable_page_mapping_plan_boundary_present);
-}),
+{ V::Bool(binding.executable_page_mapping_plan_boundary_present) }),
 (ExecutablePageMappingPlanBoundarySourceChainComplete,
 "executable_page_mapping_plan_boundary_source_chain_complete",
-{ raw_bool(binding.executable_page_mapping_plan_boundary_source_chain_complete);
-}),
+{ V::Bool(binding.executable_page_mapping_plan_boundary_source_chain_complete) }),
 (ExecutablePageMappingBoundaryPresent,
 "executable_page_mapping_boundary_present",
-{ raw_bool(binding.executable_page_mapping_boundary_present);
-}),
+{ V::Bool(binding.executable_page_mapping_boundary_present) }),
 (ExecutablePageMappingBoundarySourceChainComplete,
 "executable_page_mapping_boundary_source_chain_complete",
-{ raw_bool(binding.executable_page_mapping_boundary_source_chain_complete);
-}),
+{ V::Bool(binding.executable_page_mapping_boundary_source_chain_complete) }),
 (DescriptorExecutablePageBindingBoundaryPresent,
 "descriptor_executable_page_binding_boundary_present",
-{ raw_bool(binding.descriptor_executable_page_binding_boundary_present);
-}),
+{ V::Bool(binding.descriptor_executable_page_binding_boundary_present) }),
 (DescriptorExecutablePageBindingBoundarySourceChainComplete,
 "descriptor_executable_page_binding_boundary_source_chain_complete",
-{ raw_bool(binding.descriptor_executable_page_binding_boundary_source_chain_complete);
-}),
+{ V::Bool(binding.descriptor_executable_page_binding_boundary_source_chain_complete) }),
 (ExecutableEntrypointBindingBoundaryPresent,
 "executable_entrypoint_binding_boundary_present",
-{ raw_bool(binding.executable_entrypoint_binding_boundary_present);
-}),
+{ V::Bool(binding.executable_entrypoint_binding_boundary_present) }),
 (ExecutableEntrypointBindingBoundarySourceChainComplete,
 "executable_entrypoint_binding_boundary_source_chain_complete",
-{ raw_bool(binding.executable_entrypoint_binding_boundary_source_chain_complete);
-}),
+{ V::Bool(binding.executable_entrypoint_binding_boundary_source_chain_complete) }),
 (ExecutableEntrypointTransferAuthorizationBoundaryPresent,
 "executable_entrypoint_transfer_authorization_boundary_present",
-{ raw_bool(binding.executable_entrypoint_transfer_authorization_boundary_present);
-}),
+{ V::Bool(binding.executable_entrypoint_transfer_authorization_boundary_present) }),
 (ExecutableEntrypointTransferAuthorizationBoundarySourceChainComplete,
 "executable_entrypoint_transfer_authorization_boundary_source_chain_complete",
-{ raw_bool(binding.executable_entrypoint_transfer_authorization_boundary_source_chain_complete);
-}),
+{ V::Bool(binding.executable_entrypoint_transfer_authorization_boundary_source_chain_complete) }),
 (ExecutableEntrypointTransferBoundaryPresent,
 "executable_entrypoint_transfer_boundary_present",
-{ raw_bool(binding.executable_entrypoint_transfer_boundary_present);
-}),
+{ V::Bool(binding.executable_entrypoint_transfer_boundary_present) }),
 (ExecutableEntrypointTransferBoundarySourceChainComplete,
 "executable_entrypoint_transfer_boundary_source_chain_complete",
-{ raw_bool(binding.executable_entrypoint_transfer_boundary_source_chain_complete);
-}),
+{ V::Bool(binding.executable_entrypoint_transfer_boundary_source_chain_complete) }),
 (ExecutableEntrypointHandoffBoundaryPresent,
 "executable_entrypoint_handoff_boundary_present",
-{ raw_bool(binding.executable_entrypoint_handoff_boundary_present);
-}),
+{ V::Bool(binding.executable_entrypoint_handoff_boundary_present) }),
 (ExecutableEntrypointHandoffBoundarySourceChainComplete,
 "executable_entrypoint_handoff_boundary_source_chain_complete",
-{ raw_bool(binding.executable_entrypoint_handoff_boundary_source_chain_complete);
-}),
+{ V::Bool(binding.executable_entrypoint_handoff_boundary_source_chain_complete) }),
 (ArtifactByteIntakeBoundaryPresent,
 "artifact_byte_intake_boundary_present",
-{ raw_bool(binding.artifact_byte_intake_boundary_present);
-}),
+{ V::Bool(binding.artifact_byte_intake_boundary_present) }),
 (ExecutionAuthorizationBoundaryPresent,
 "execution_authorization_boundary_present",
-{ raw_bool(binding.execution_authorization_boundary_present);
-}),
+{ V::Bool(binding.execution_authorization_boundary_present) }),
 (ServiceRegistryMutationBoundaryPresent,
 "service_registry_mutation_boundary_present",
-{ raw_bool(binding.service_registry_mutation_boundary_present);
-}),
+{ V::Bool(binding.service_registry_mutation_boundary_present) }),
 (ServiceSlotBindingSourceEvidencePresent,
 "service_slot_binding_source_evidence_present",
-{ raw_bool(binding.service_slot_binding_source_evidence_present);
-}),
+{ V::Bool(binding.service_slot_binding_source_evidence_present) }),
 (HealthStateHooksSourceEvidencePresent,
 "health_state_hooks_source_evidence_present",
-{ raw_bool(binding.health_state_hooks_source_evidence_present);
-}),
+{ V::Bool(binding.health_state_hooks_source_evidence_present) }),
 (ArtifactHashBindingPresent,
 "artifact_hash_binding_present",
-{ raw_bool(binding.artifact_hash_binding_present);
-}),
+{ V::Bool(binding.artifact_hash_binding_present) }),
 (EntrypointAbiSourceEvidencePresent,
 "entrypoint_abi_source_evidence_present",
-{ raw_bool(binding.entrypoint_abi_source_evidence_present);
-}),
+{ V::Bool(binding.entrypoint_abi_source_evidence_present) }),
 (AddressSpaceSourceEvidencePresent,
 "address_space_source_evidence_present",
-{ raw_bool(binding.address_space_source_evidence_present);
-}),
+{ V::Bool(binding.address_space_source_evidence_present) }),
 (MemoryMapSourceEvidencePresent,
 "memory_map_source_evidence_present",
-{ raw_bool(binding.memory_map_source_evidence_present);
-}),
+{ V::Bool(binding.memory_map_source_evidence_present) }),
 (CapabilityImportTableSourceEvidencePresent,
 "capability_import_table_source_evidence_present",
-{ raw_bool(binding.capability_import_table_source_evidence_present);
-}),
+{ V::Bool(binding.capability_import_table_source_evidence_present) }),
 (AuditRollbackWriteBoundarySourceEvidencePresent,
 "audit_rollback_write_boundary_source_evidence_present",
-{ raw_bool(binding.audit_rollback_write_boundary_source_evidence_present);
-}),
+{ V::Bool(binding.audit_rollback_write_boundary_source_evidence_present) }),
 (RetainedModuleEvidencePresent,
 "retained_module_evidence_present",
-{ raw_bool(binding.retained_module_evidence_present);
-}),
+{ V::Bool(binding.retained_module_evidence_present) }),
 (RetainedArtifactReferencePresent,
 "retained_artifact_reference_present",
-{ raw_bool(binding.retained_artifact_reference_present);
-}),
+{ V::Bool(binding.retained_artifact_reference_present) }),
 (RetainedServiceSlotReservationPresent,
 "retained_service_slot_reservation_present",
-{ raw_bool(binding.retained_service_slot_reservation_present);
-}),
+{ V::Bool(binding.retained_service_slot_reservation_present) }),
 (LoadAttemptBoundarySourceEvidenceEventId,
 "load_attempt_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.load_attempt_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.load_attempt_boundary_source_evidence_event_id) }),
 (ArtifactLoadBoundarySourceEvidenceEventId,
 "artifact_load_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.artifact_load_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.artifact_load_boundary_source_evidence_event_id) }),
 (ExecutableMappingBoundarySourceEvidenceEventId,
 "executable_mapping_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.executable_mapping_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.executable_mapping_boundary_source_evidence_event_id) }),
 (EntrypointTransferBoundarySourceEvidenceEventId,
 "entrypoint_transfer_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.entrypoint_transfer_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.entrypoint_transfer_boundary_source_evidence_event_id) }),
 (ServiceStartBoundarySourceEvidenceEventId,
 "service_start_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.service_start_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.service_start_boundary_source_evidence_event_id) }),
 (ServiceHealthBindingBoundarySourceEvidenceEventId,
 "service_health_binding_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.service_health_binding_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.service_health_binding_boundary_source_evidence_event_id) }),
 (ServiceRunningStateBoundarySourceEvidenceEventId,
 "service_running_state_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.service_running_state_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.service_running_state_boundary_source_evidence_event_id) }),
 (ServiceStartAuditBoundarySourceEvidenceEventId,
 "service_start_audit_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.service_start_audit_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.service_start_audit_boundary_source_evidence_event_id) }),
 (ServiceUnloadCleanupBoundarySourceEvidenceEventId,
 "service_unload_cleanup_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.service_unload_cleanup_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.service_unload_cleanup_boundary_source_evidence_event_id) }),
 (LiveLoadCommitBoundarySourceEvidenceEventId,
 "live_load_commit_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.live_load_commit_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.live_load_commit_boundary_source_evidence_event_id) }),
 (CommitAuditBoundarySourceEvidenceEventId,
 "commit_audit_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.commit_audit_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.commit_audit_boundary_source_evidence_event_id) }),
 (CommitRollbackBoundarySourceEvidenceEventId,
 "commit_rollback_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.commit_rollback_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.commit_rollback_boundary_source_evidence_event_id) }),
 (CommitResultBoundarySourceEvidenceEventId,
 "commit_result_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.commit_result_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.commit_result_boundary_source_evidence_event_id) }),
 (DescriptorAcceptanceAuthorityBoundarySourceEvidenceEventId,
 "descriptor_acceptance_authority_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.descriptor_acceptance_authority_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.descriptor_acceptance_authority_boundary_source_evidence_event_id) }),
 (DescriptorParserContractBoundarySourceEvidenceEventId,
 "descriptor_parser_contract_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.descriptor_parser_contract_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.descriptor_parser_contract_boundary_source_evidence_event_id) }),
 (DescriptorParserResultBoundarySourceEvidenceEventId,
 "descriptor_parser_result_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.descriptor_parser_result_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.descriptor_parser_result_boundary_source_evidence_event_id) }),
 (DescriptorSchemaValidationBoundarySourceEvidenceEventId,
 "descriptor_schema_validation_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.descriptor_schema_validation_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.descriptor_schema_validation_boundary_source_evidence_event_id) }),
 (DescriptorCapabilityValidationBoundarySourceEvidenceEventId,
 "descriptor_capability_validation_boundary_source_evidence_event_id",
-{ json_event_id_option( binding.descriptor_capability_validation_boundary_source_evidence_event_id,
-);
-}),
+{ opt_event_id_value(binding.descriptor_capability_validation_boundary_source_evidence_event_id,) }),
 (DescriptorLoadPlanBoundarySourceEvidenceEventId,
 "descriptor_load_plan_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.descriptor_load_plan_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.descriptor_load_plan_boundary_source_evidence_event_id) }),
 (ExecutableLoadPlanAuthorityBoundarySourceEvidenceEventId,
 "executable_load_plan_authority_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.executable_load_plan_authority_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.executable_load_plan_authority_boundary_source_evidence_event_id) }),
 (ExecutableLoadPlanResultBoundarySourceEvidenceEventId,
 "executable_load_plan_result_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.executable_load_plan_result_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.executable_load_plan_result_boundary_source_evidence_event_id) }),
 (ExecutableImageLayoutBoundarySourceEvidenceEventId,
 "executable_image_layout_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.executable_image_layout_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.executable_image_layout_boundary_source_evidence_event_id) }),
 (ExecutablePageMappingPlanBoundarySourceEvidenceEventId,
 "executable_page_mapping_plan_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.executable_page_mapping_plan_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.executable_page_mapping_plan_boundary_source_evidence_event_id) }),
 (ExecutablePageMappingBoundarySourceEvidenceEventId,
 "executable_page_mapping_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.executable_page_mapping_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.executable_page_mapping_boundary_source_evidence_event_id) }),
 (DescriptorExecutablePageBindingBoundarySourceEvidenceEventId,
 "descriptor_executable_page_binding_boundary_source_evidence_event_id",
-{ json_event_id_option( binding.descriptor_executable_page_binding_boundary_source_evidence_event_id,
-);
-}),
+{ opt_event_id_value(binding.descriptor_executable_page_binding_boundary_source_evidence_event_id,) }),
 (ExecutableEntrypointBindingBoundarySourceEvidenceEventId,
 "executable_entrypoint_binding_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.executable_entrypoint_binding_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.executable_entrypoint_binding_boundary_source_evidence_event_id) }),
 (ExecutableEntrypointTransferAuthorizationBoundarySourceEvidenceEventId,
 "executable_entrypoint_transfer_authorization_boundary_source_evidence_event_id",
-{ json_event_id_option( binding.executable_entrypoint_transfer_authorization_boundary_source_evidence_event_id,
-);
-}),
+{ opt_event_id_value(binding.executable_entrypoint_transfer_authorization_boundary_source_evidence_event_id,) }),
 (ExecutableEntrypointTransferBoundarySourceEvidenceEventId,
 "executable_entrypoint_transfer_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.executable_entrypoint_transfer_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.executable_entrypoint_transfer_boundary_source_evidence_event_id) }),
 (ExecutableEntrypointHandoffBoundarySourceEvidenceEventId,
 "executable_entrypoint_handoff_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.executable_entrypoint_handoff_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.executable_entrypoint_handoff_boundary_source_evidence_event_id) }),
 (ArtifactByteIntakeBoundarySourceEvidenceEventId,
 "artifact_byte_intake_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.artifact_byte_intake_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.artifact_byte_intake_boundary_source_evidence_event_id) }),
 (ExecutionAuthorizationBoundarySourceEvidenceEventId,
 "execution_authorization_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.execution_authorization_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.execution_authorization_boundary_source_evidence_event_id) }),
 (ServiceRegistryMutationBoundarySourceEvidenceEventId,
 "service_registry_mutation_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.service_registry_mutation_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.service_registry_mutation_boundary_source_evidence_event_id) }),
 (ServiceSlotBindingSourceEvidenceEventId,
 "service_slot_binding_source_evidence_event_id",
-{ json_event_id_option(binding.service_slot_binding_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.service_slot_binding_source_evidence_event_id) }),
 (HealthStateHooksSourceEvidenceEventId,
 "health_state_hooks_source_evidence_event_id",
-{ json_event_id_option(binding.health_state_hooks_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.health_state_hooks_source_evidence_event_id) }),
 (ArtifactHashBindingSourceEvidenceEventId,
 "artifact_hash_binding_source_evidence_event_id",
-{ json_event_id_option(binding.artifact_hash_binding_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.artifact_hash_binding_source_evidence_event_id) }),
 (EntrypointAbiSourceEvidenceEventId,
 "entrypoint_abi_source_evidence_event_id",
-{ json_event_id_option(binding.entrypoint_abi_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.entrypoint_abi_source_evidence_event_id) }),
 (AddressSpaceSourceEvidenceEventId,
 "address_space_source_evidence_event_id",
-{ json_event_id_option(binding.address_space_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.address_space_source_evidence_event_id) }),
 (MemoryMapSourceEvidenceEventId,
 "memory_map_source_evidence_event_id",
-{ json_event_id_option(binding.memory_map_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.memory_map_source_evidence_event_id) }),
 (CapabilityImportTableSourceEvidenceEventId,
 "capability_import_table_source_evidence_event_id",
-{ json_event_id_option(binding.capability_import_table_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.capability_import_table_source_evidence_event_id) }),
 (AuditRollbackWriteBoundarySourceEvidenceEventId,
 "audit_rollback_write_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.audit_rollback_write_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.audit_rollback_write_boundary_source_evidence_event_id) }),
 (RetainedModuleEvidenceEventIds,
 "retained_module_evidence_event_ids",
-{ raw("{\"manifest_reference_event_id\": ");
-json_event_id_option(binding.manifest_reference_event_id);
-raw(", \"candidate_artifact_reference_event_id\": ");
-json_event_id_option(binding.artifact_reference_event_id);
-raw(", \"vm_test_report_reference_event_id\": ");
-json_event_id_option(binding.vm_test_report_reference_event_id);
-raw(", \"local_attestation_reference_event_id\": ");
-json_event_id_option(binding.local_attestation_reference_event_id);
-raw(", \"local_approval_reference_event_id\": ");
-json_event_id_option(binding.local_approval_reference_event_id);
-raw(", \"computed_grant_reference_event_id\": ");
-json_event_id_option(binding.computed_grant_reference_event_id);
-raw(", \"audit_rollback_reference_event_id\": ");
-json_event_id_option(binding.audit_rollback_reference_event_id);
-raw(", \"service_slot_reservation_event_id\": ");
-json_event_id_option(binding.service_slot_reservation_event_id);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("manifest_reference_event_id", opt_event_id_value(binding.manifest_reference_event_id)), Field::new("candidate_artifact_reference_event_id", opt_event_id_value(binding.artifact_reference_event_id)), Field::new("vm_test_report_reference_event_id", opt_event_id_value(binding.vm_test_report_reference_event_id)), Field::new("local_attestation_reference_event_id", opt_event_id_value(binding.local_attestation_reference_event_id)), Field::new("local_approval_reference_event_id", opt_event_id_value(binding.local_approval_reference_event_id)), Field::new("computed_grant_reference_event_id", opt_event_id_value(binding.computed_grant_reference_event_id)), Field::new("audit_rollback_reference_event_id", opt_event_id_value(binding.audit_rollback_reference_event_id)), Field::new("service_slot_reservation_event_id", opt_event_id_value(binding.service_slot_reservation_event_id))]) }),
 (RamOnlyServiceSlotId,
 "ram_only_service_slot_id",
-{ if let Some(id) = binding.ram_only_service_slot_id { json_str(id.as_str());
-} else { raw("null");
-} }),
+{ match binding.ram_only_service_slot_id { Some(ref id) => V::Str(id.as_str()), None => V::Null } }),
 (SourceEvidenceRetained,
 "source_evidence_retained",
-{ raw("true");
-}),
+{ V::Bool(true) }),
 (Retention,
 "retention",
-{ raw("\"current_boot_ram_event_log\"");
-}),
+{ V::Str("current_boot_ram_event_log") }),
 (AcceptsLoaderDescriptor,
 "accepts_loader_descriptor",
-{ raw_bool(binding.accepts_loader_descriptor);
-}),
+{ V::Bool(binding.accepts_loader_descriptor) }),
 (AcceptsDescriptorBytes,
 "accepts_descriptor_bytes",
-{ raw_bool(binding.accepts_descriptor_bytes);
-}),
+{ V::Bool(binding.accepts_descriptor_bytes) }),
 (ProducesParsedDescriptor,
 "produces_parsed_descriptor",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ValidatesDescriptorSchema,
 "validates_descriptor_schema",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ProducesValidatedDescriptor,
 "produces_validated_descriptor",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ValidatesDescriptorCapabilities,
 "validates_descriptor_capabilities",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ProducesCapabilityValidatedDescriptor,
 "produces_capability_validated_descriptor",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesExecutableLoadPlan,
 "authorizes_executable_load_plan",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ProducesExecutableLoadPlan,
 "produces_executable_load_plan",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ProducesExecutableImageLayout,
 "produces_executable_image_layout",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ProducesExecutablePageMappingPlan,
 "produces_executable_page_mapping_plan",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (BindsCapabilityValidatedDescriptorToExecutablePages,
 "binds_capability_validated_descriptor_to_executable_pages",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ParsesDescriptorBytes,
 "parses_descriptor_bytes",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsArtifactBytes,
 "accepts_artifact_bytes",
-{ raw_bool(binding.accepts_artifact_bytes);
-}),
+{ V::Bool(binding.accepts_artifact_bytes) }),
 (AuthorizesDescriptorIntake,
 "authorizes_descriptor_intake",
-{ raw_bool(binding.authorizes_descriptor_intake);
-}),
+{ V::Bool(binding.authorizes_descriptor_intake) }),
 (AuthorizesArtifactByteIntake,
 "authorizes_artifact_byte_intake",
-{ raw_bool(binding.authorizes_artifact_byte_intake);
-}),
+{ V::Bool(binding.authorizes_artifact_byte_intake) }),
 (MapsExecutablePages,
 "maps_executable_pages",
-{ raw_bool(binding.maps_executable_pages);
-}),
+{ V::Bool(binding.maps_executable_pages) }),
 (JumpsToEntrypoint,
 "jumps_to_entrypoint",
-{ raw_bool(binding.jumps_to_entrypoint);
-}),
+{ V::Bool(binding.jumps_to_entrypoint) }),
 (AuthorizesExecution,
 "authorizes_execution",
-{ raw_bool(binding.authorizes_execution);
-}),
+{ V::Bool(binding.authorizes_execution) }),
 (MutatesServiceRegistry,
 "mutates_service_registry",
-{ raw_bool(binding.mutates_service_registry);
-}),
+{ V::Bool(binding.mutates_service_registry) }),
 (WritesDurableAuditState,
 "writes_durable_audit_state",
-{ raw_bool(binding.writes_durable_audit_state);
-}),
+{ V::Bool(binding.writes_durable_audit_state) }),
 (InstallsRollbackState,
 "installs_rollback_state",
-{ raw_bool(binding.installs_rollback_state);
-}),
+{ V::Bool(binding.installs_rollback_state) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw_bool(binding.allocates_service_slot);
-}),
+{ V::Bool(binding.allocates_service_slot) }),
 (CreatesServiceInventoryRecords,
 "creates_service_inventory_records",
-{ raw_bool(binding.creates_service_inventory_records);
-}),
+{ V::Bool(binding.creates_service_inventory_records) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsArtifact,
 "loads_artifact",
-{ raw_bool(binding.loads_artifact);
-}),
+{ V::Bool(binding.loads_artifact) }),
 (StartsService,
 "starts_service",
-{ raw_bool(binding.starts_service);
-}),
+{ V::Bool(binding.starts_service) }),
 (MarksServiceRunning,
 "marks_service_running",
-{ raw_bool(binding.marks_service_running);
-}),
+{ V::Bool(binding.marks_service_running) }),
 (CreatesServiceHealthRecords,
 "creates_service_health_records",
-{ raw_bool(binding.creates_service_health_records);
-}),
+{ V::Bool(binding.creates_service_health_records) }),
 (WritesServiceStartAuditRecord,
 "writes_service_start_audit_record",
-{ raw_bool(binding.writes_service_start_audit_record);
-}),
+{ V::Bool(binding.writes_service_start_audit_record) }),
 (UnloadsService,
 "unloads_service",
-{ raw_bool(binding.unloads_service);
-}),
+{ V::Bool(binding.unloads_service) }),
 (CleansUpServiceSlot,
 "cleans_up_service_slot",
-{ raw_bool(binding.cleans_up_service_slot);
-}),
+{ V::Bool(binding.cleans_up_service_slot) }),
 (CommitsLiveLoad,
 "commits_live_load",
-{ raw_bool(binding.commits_live_load);
-}),
+{ V::Bool(binding.commits_live_load) }),
 (WritesLoadCommitAuditRecord,
 "writes_load_commit_audit_record",
-{ raw_bool(binding.writes_load_commit_audit_record);
-}),
+{ V::Bool(binding.writes_load_commit_audit_record) }),
 (InstallsCommitRollbackRecord,
 "installs_commit_rollback_record",
-{ raw_bool(binding.installs_commit_rollback_record);
-}),
+{ V::Bool(binding.installs_commit_rollback_record) }),
 (RecordsLoadResult,
 "records_load_result",
-{ raw_bool(binding.records_load_result);
-}),
+{ V::Bool(binding.records_load_result) }),
 (LoadAttempted,
 "load_attempted",
-{ raw_bool(binding.load_attempted);
-}),
+{ V::Bool(binding.load_attempted) }),
 (AuthorizesLoad,
 "authorizes_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 }
 
-fn emit_module_loader_live_load_boundary_binding(
+fn module_loader_live_load_boundary_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleLoaderLiveLoadBoundarySourceEvidence,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_LOADER_LIVE_LOAD_BOUNDARY_BINDING_FIELDS,
         emit_module_loader_live_load_boundary_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { HelloRecoveryRollbackInspectSourceReferenceBindingField,
+define_direct_binding_value_fields! { HelloRecoveryRollbackInspectSourceReferenceBindingField,
 HELLO_RECOVERY_ROLLBACK_INSPECT_SOURCE_REFERENCE_BINDING_FIELDS,
 emit_hello_recovery_rollback_inspect_source_reference_binding_value,
 event_log::HelloRecoveryRollbackInspectSourceReferenceBinding,
@@ -3117,59 +2986,49 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.recovery_rollback_inspect_source_reference_binding.v0\"");
-}),
+{ V::Str("raios.recovery_rollback_inspect_source_reference_binding.v0") }),
 (Status,
 "status",
-{ raw("\"retained_audit_event_verified\"");
-}),
+{ V::Str("retained_audit_event_verified") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (SourceEventId,
 "source_event_id",
-{ json_event_id(binding.source_event_id);
-}),
+{ V::EventSequence((binding.source_event_id).sequence()) }),
 (ReferenceHash,
 "reference_hash",
-{ json_sha256(binding.reference_hash);
-}),
+{ V::Sha256(binding.reference_hash) }),
 (InspectionHash,
 "inspection_hash",
-{ json_sha256(binding.inspection_hash);
-}),
+{ V::Sha256(binding.inspection_hash) }),
 (SourceSectorPlanHash,
 "source_sector_plan_hash",
-{ json_sha256(binding.source_sector_plan_hash);
-}),
+{ V::Sha256(binding.source_sector_plan_hash) }),
 (SourceTargetRegionWriteReadbackHash,
 "source_target_region_write_readback_hash",
-{ json_sha256(binding.source_target_region_write_readback_hash);
-}),
+{ V::Sha256(binding.source_target_region_write_readback_hash) }),
 (AuthorizesRollbackApply,
 "authorizes_rollback_apply",
-{ raw_bool(binding.authorizes_rollback_apply);
-}),
+{ V::Bool(binding.authorizes_rollback_apply) }),
 }
 
-fn emit_hello_recovery_rollback_inspect_source_reference_binding(
+fn hello_recovery_rollback_inspect_source_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::HelloRecoveryRollbackInspectSourceReferenceBinding,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::HelloRecoveryRollbackInspectSourceReferenceBinding,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         HELLO_RECOVERY_ROLLBACK_INSPECT_SOURCE_REFERENCE_BINDING_FIELDS,
         emit_hello_recovery_rollback_inspect_source_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { AgentCommandEnvelopeDecisionBindingField,
+define_direct_binding_value_fields! { AgentCommandEnvelopeDecisionBindingField,
 AGENT_COMMAND_ENVELOPE_DECISION_BINDING_FIELDS,
 emit_agent_command_envelope_decision_binding_value,
 event_log::AgentCommandEnvelopeBinding,
@@ -3177,115 +3036,91 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.agent_command_envelope.audit_binding.v0\"");
-}),
+{ V::Str("raios.agent_command_envelope.audit_binding.v0") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (CommandSchema,
 "command_schema",
-{ raw("\"raios.agent_command_envelope.v0\"");
-}),
+{ V::Str("raios.agent_command_envelope.v0") }),
 (SchemaOk,
 "schema_ok",
-{ raw_bool(binding.schema_ok);
-}),
+{ V::Bool(binding.schema_ok) }),
 (TargetMethod,
 "target_method",
-{ json_opt_str(binding.target_method);
-}),
+{ opt_str_value(binding.target_method) }),
 (TargetMethodAllowed,
 "target_method_allowed",
-{ raw_bool(binding.target_method_allowed);
-}),
+{ V::Bool(binding.target_method_allowed) }),
 (RequestedCapability,
 "requested_capability",
-{ json_opt_str(binding.requested_capability);
-}),
+{ opt_str_value(binding.requested_capability) }),
 (RequestedCapabilityAllowed,
 "requested_capability_allowed",
-{ raw_bool(binding.requested_capability_allowed);
-}),
+{ V::Bool(binding.requested_capability_allowed) }),
 (SubmittedClassification,
 "submitted_classification",
-{ json_opt_str(binding.submitted_classification);
-}),
+{ opt_str_value(binding.submitted_classification) }),
 (ClassificationAllowed,
 "classification_allowed",
-{ raw_bool(binding.classification_allowed);
-}),
+{ V::Bool(binding.classification_allowed) }),
 (Accepted,
 "accepted",
-{ raw_bool(binding.accepted);
-}),
+{ V::Bool(binding.accepted) }),
 (Code,
 "code",
-{ json_str(binding.code);
-}),
+{ V::Str(binding.code) }),
 (Reason,
 "reason",
-{ json_str(binding.reason);
-}),
+{ V::Str(binding.reason) }),
 (DispatchesExistingAgentMethod,
 "dispatches_existing_agent_method",
-{ raw_bool(binding.dispatches_existing_agent_method);
-}),
+{ V::Bool(binding.dispatches_existing_agent_method) }),
 (CreatesParallelDispatcher,
 "creates_parallel_dispatcher",
-{ raw_bool(binding.creates_parallel_dispatcher);
-}),
+{ V::Bool(binding.creates_parallel_dispatcher) }),
 (ProviderWrite,
 "provider_write",
-{ json_str(binding.provider_write);
-}),
+{ V::Str(binding.provider_write) }),
 (LoadsCandidateBytes,
 "loads_candidate_bytes",
-{ raw_bool(binding.loads_candidate_bytes);
-}),
+{ V::Bool(binding.loads_candidate_bytes) }),
 (WritesPersistentState,
 "writes_persistent_state",
-{ raw_bool(binding.writes_persistent_state);
-}),
+{ V::Bool(binding.writes_persistent_state) }),
 (WritesDurableAuditLog,
 "writes_durable_audit_log",
-{ raw_bool(binding.writes_durable_audit_log);
-}),
+{ V::Bool(binding.writes_durable_audit_log) }),
 (InstallsRollbackPlan,
 "installs_rollback_plan",
-{ raw_bool(binding.installs_rollback_plan);
-}),
+{ V::Bool(binding.installs_rollback_plan) }),
 (GrantsBroadMutation,
 "grants_broad_mutation",
-{ raw_bool(binding.grants_broad_mutation);
-}),
+{ V::Bool(binding.grants_broad_mutation) }),
 (SourceEvidenceRetained,
 "source_evidence_retained",
-{ raw("true");
-}),
+{ V::Bool(true) }),
 (Retention,
 "retention",
-{ raw("\"current_boot_ram_event_log\"");
-}),
+{ V::Str("current_boot_ram_event_log") }),
 }
 
-fn emit_agent_command_envelope_decision_binding(
+fn agent_command_envelope_decision_binding_value<'a>(
     kind: &str,
-    binding: &event_log::AgentCommandEnvelopeBinding,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::AgentCommandEnvelopeBinding,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         AGENT_COMMAND_ENVELOPE_DECISION_BINDING_FIELDS,
         emit_agent_command_envelope_decision_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ProviderRequestEnvelopeBindingField,
+define_direct_binding_value_fields! { ProviderRequestEnvelopeBindingField,
 PROVIDER_REQUEST_ENVELOPE_BINDING_FIELDS,
 emit_provider_request_envelope_binding_value,
 event_log::ProviderRequestEnvelopeBinding,
@@ -3293,62 +3128,46 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.provider_request_envelope.v0\"");
-}),
+{ V::Str("raios.provider_request_envelope.v0") }),
 (Status,
 "status",
-{ raw("\"local_prewrite_envelope\"");
-}),
+{ V::Str("local_prewrite_envelope") }),
 (SatisfiesCurrentBootExportGate,
 "satisfies_current_boot_export_gate",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ProviderWrite,
 "provider_write",
-{ raw("\"not_attempted\"");
-}),
+{ V::Str("not_attempted") }),
 (ContextAttachedToProviderBody,
 "context_attached_to_provider_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RequestId,
 "request_id",
-{ raw_fmt(format_args!("{}",
-binding.request_id));
-}),
+{ V::U64(binding.request_id.into()) }),
 (RequestBodyHash,
 "request_body_hash",
-{ json_sha256(binding.request_body_hash);
-}),
+{ V::Sha256(binding.request_body_hash) }),
 (EnvelopeHash,
 "envelope_hash",
-{ json_sha256(binding.envelope_hash);
-}),
+{ V::Sha256(binding.envelope_hash) }),
 (TrustSnapshot,
 "trust_snapshot",
-{ raw("{\"provider_trust_state\": ");
-json_str(binding.provider_trust_state);
-raw(", \"provider_trust_positive\": ");
-raw_bool(binding.provider_trust_positive);
-raw(", \"development_tls_bypass\": ");
-raw_bool(binding.development_tls_bypass);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("provider_trust_state", V::Str(binding.provider_trust_state)), Field::new("provider_trust_positive", V::Bool(binding.provider_trust_positive)), Field::new("development_tls_bypass", V::Bool(binding.development_tls_bypass))]) }),
 }
 
-fn emit_provider_request_envelope_binding(
+fn provider_request_envelope_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ProviderRequestEnvelopeBinding,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ProviderRequestEnvelopeBinding,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         PROVIDER_REQUEST_ENVELOPE_BINDING_FIELDS,
         emit_provider_request_envelope_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ProviderRequestBoundBindingField,
+define_direct_binding_value_fields! { ProviderRequestBoundBindingField,
 PROVIDER_REQUEST_BOUND_BINDING_FIELDS,
 emit_provider_request_bound_binding_value,
 event_log::ProviderRequestBinding,
@@ -3356,89 +3175,58 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.provider_request_binding.v0\"");
-}),
+{ V::Str("raios.provider_request_binding.v0") }),
 (Status,
 "status",
-{ raw("\"bound\"");
-}),
+{ V::Str("bound") }),
 (SatisfiesRequestBindingGate,
 "satisfies_request_binding_gate",
-{ raw("true");
-}),
+{ V::Bool(true) }),
 (SatisfiesCurrentBootExportGate,
 "satisfies_current_boot_export_gate",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ProviderWriteAtBinding,
 "provider_write_at_binding",
-{ raw("\"not_attempted\"");
-}),
+{ V::Str("not_attempted") }),
 (ContextAttachedToProviderBody,
 "context_attached_to_provider_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RequestId,
 "request_id",
-{ raw_fmt(format_args!("{}",
-binding.request_id));
-}),
+{ V::U64(binding.request_id.into()) }),
 (RequestEnvelopeEventId,
 "request_envelope_event_id",
-{ json_event_id(binding.request_envelope_event_id);
-}),
+{ V::EventSequence((binding.request_envelope_event_id).sequence()) }),
 (RequestBodyHash,
 "request_body_hash",
-{ json_sha256(binding.request_body_hash);
-}),
+{ V::Sha256(binding.request_body_hash) }),
 (RequestEnvelopeHash,
 "request_envelope_hash",
-{ json_sha256(binding.request_envelope_hash);
-}),
+{ V::Sha256(binding.request_envelope_hash) }),
 (RequestBindingHash,
 "request_binding_hash",
-{ json_sha256(binding.request_binding_hash);
-}),
+{ V::Sha256(binding.request_binding_hash) }),
 (TrustSnapshot,
 "trust_snapshot",
-{ raw("{\"provider_trust_state\": ");
-json_str(binding.provider_trust_state);
-raw(", \"provider_trust_positive\": true, \"provider_trust_pin_kind\": ");
-json_opt_str(binding.provider_trust_pin_kind);
-raw(", \"provider_trust_pin_id\": ");
-json_opt_str(binding.provider_trust_pin_id);
-raw(", \"provider_trust_pin_slot\": ");
-json_opt_str(binding.provider_trust_pin_slot);
-raw(", \"provider_trust_pin_rotation_policy\": ");
-json_str(binding.provider_trust_pin_rotation_policy);
-raw(", \"provider_trust_pin_rotation_id\": ");
-json_opt_str(binding.provider_trust_pin_rotation_id);
-raw(", \"provider_trust_verifier\": ");
-emit_provider_trust_verifier_metadata(binding.provider_trust_verifier);
-raw(", \"provider_trust_verifier_decision\": ");
-emit_provider_trust_verifier_decision(binding.provider_trust_verifier_decision);
-raw(", \"provider_trust_evidence_hash\": ");
-json_sha256(binding.provider_trust_evidence_hash);
-raw(", \"development_tls_bypass\": ");
-raw_bool(binding.development_tls_bypass);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("provider_trust_state", V::Str(binding.provider_trust_state)), Field::new("provider_trust_positive", V::Bool(true)), Field::new("provider_trust_pin_kind", opt_str_value(binding.provider_trust_pin_kind)), Field::new("provider_trust_pin_id", opt_str_value(binding.provider_trust_pin_id)), Field::new("provider_trust_pin_slot", opt_str_value(binding.provider_trust_pin_slot)), Field::new("provider_trust_pin_rotation_policy", V::Str(binding.provider_trust_pin_rotation_policy)), Field::new("provider_trust_pin_rotation_id", opt_str_value(binding.provider_trust_pin_rotation_id)), Field::new("provider_trust_verifier", provider_trust_verifier_metadata_value(binding.provider_trust_verifier)), Field::new("provider_trust_verifier_decision", provider_trust_verifier_decision_value(binding.provider_trust_verifier_decision)), Field::new("provider_trust_evidence_hash", V::Sha256(binding.provider_trust_evidence_hash)), Field::new("development_tls_bypass", V::Bool(binding.development_tls_bypass))]) }),
 (Hashes,
 "hashes",
-{ emit_provider_context_hashes(binding.context);
-}),
+{ provider_context_hashes_value(binding.context) }),
 }
 
-fn emit_provider_request_bound_binding(kind: &str, binding: &event_log::ProviderRequestBinding) {
-    emit_binding_object_direct(
+fn provider_request_bound_binding_value<'a>(
+    kind: &str,
+    binding: &'a event_log::ProviderRequestBinding,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         PROVIDER_REQUEST_BOUND_BINDING_FIELDS,
         emit_provider_request_bound_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ProviderExportAuditBoundBindingField,
+define_direct_binding_value_fields! { ProviderExportAuditBoundBindingField,
 PROVIDER_EXPORT_AUDIT_BOUND_BINDING_FIELDS,
 emit_provider_export_audit_bound_binding_value,
 event_log::ProviderExportAuditBinding,
@@ -3446,106 +3234,70 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.provider_context_export_audit_binding.v0\"");
-}),
+{ V::Str("raios.provider_context_export_audit_binding.v0") }),
 (Status,
 "status",
-{ raw("\"authorized_for_single_provider_request\"");
-}),
+{ V::Str("authorized_for_single_provider_request") }),
 (SatisfiesExportAuditBindingGate,
 "satisfies_export_audit_binding_gate",
-{ raw("true");
-}),
+{ V::Bool(true) }),
 (SatisfiesCurrentBootExportGate,
 "satisfies_current_boot_export_gate",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (PositiveExportAuthorization,
 "positive_export_authorization",
-{ raw("true");
-}),
+{ V::Bool(true) }),
 (AutomaticContextInjection,
 "automatic_context_injection",
-{ raw("\"disabled\"");
-}),
+{ V::Str("disabled") }),
 (ProviderWriteAtBinding,
 "provider_write_at_binding",
-{ raw("\"not_attempted\"");
-}),
+{ V::Str("not_attempted") }),
 (ContextAttachedToProviderBody,
 "context_attached_to_provider_body",
-{ raw_bool(binding.context_attached_to_provider_body);
-}),
+{ V::Bool(binding.context_attached_to_provider_body) }),
 (RequestId,
 "request_id",
-{ raw_fmt(format_args!("{}",
-binding.request_id));
-}),
+{ V::U64(binding.request_id.into()) }),
 (RequestEnvelopeEventId,
 "request_envelope_event_id",
-{ json_event_id(binding.request_envelope_event_id);
-}),
+{ V::EventSequence((binding.request_envelope_event_id).sequence()) }),
 (RequestBindingEventId,
 "request_binding_event_id",
-{ json_event_id(binding.request_binding_event_id);
-}),
+{ V::EventSequence((binding.request_binding_event_id).sequence()) }),
 (RequestBodyHash,
 "request_body_hash",
-{ json_sha256(binding.request_body_hash);
-}),
+{ V::Sha256(binding.request_body_hash) }),
 (RequestEnvelopeHash,
 "request_envelope_hash",
-{ json_sha256(binding.request_envelope_hash);
-}),
+{ V::Sha256(binding.request_envelope_hash) }),
 (RequestBindingHash,
 "request_binding_hash",
-{ json_sha256(binding.request_binding_hash);
-}),
+{ V::Sha256(binding.request_binding_hash) }),
 (ExportAuditBindingHash,
 "export_audit_binding_hash",
-{ json_sha256(binding.export_audit_binding_hash);
-}),
+{ V::Sha256(binding.export_audit_binding_hash) }),
 (TrustSnapshot,
 "trust_snapshot",
-{ raw("{\"provider_trust_state\": ");
-json_str(binding.provider_trust_state);
-raw(", \"provider_trust_positive\": true, \"provider_trust_pin_kind\": ");
-json_opt_str(binding.provider_trust_pin_kind);
-raw(", \"provider_trust_pin_id\": ");
-json_opt_str(binding.provider_trust_pin_id);
-raw(", \"provider_trust_pin_slot\": ");
-json_opt_str(binding.provider_trust_pin_slot);
-raw(", \"provider_trust_pin_rotation_policy\": ");
-json_str(binding.provider_trust_pin_rotation_policy);
-raw(", \"provider_trust_pin_rotation_id\": ");
-json_opt_str(binding.provider_trust_pin_rotation_id);
-raw(", \"provider_trust_verifier\": ");
-emit_provider_trust_verifier_metadata(binding.provider_trust_verifier);
-raw(", \"provider_trust_verifier_decision\": ");
-emit_provider_trust_verifier_decision(binding.provider_trust_verifier_decision);
-raw(", \"provider_trust_evidence_hash\": ");
-json_sha256(binding.provider_trust_evidence_hash);
-raw(", \"development_tls_bypass\": false}");
-}),
+{ V::InlineObject(vec![Field::new("provider_trust_state", V::Str(binding.provider_trust_state)), Field::new("provider_trust_positive", V::Bool(true)), Field::new("provider_trust_pin_kind", opt_str_value(binding.provider_trust_pin_kind)), Field::new("provider_trust_pin_id", opt_str_value(binding.provider_trust_pin_id)), Field::new("provider_trust_pin_slot", opt_str_value(binding.provider_trust_pin_slot)), Field::new("provider_trust_pin_rotation_policy", V::Str(binding.provider_trust_pin_rotation_policy)), Field::new("provider_trust_pin_rotation_id", opt_str_value(binding.provider_trust_pin_rotation_id)), Field::new("provider_trust_verifier", provider_trust_verifier_metadata_value(binding.provider_trust_verifier)), Field::new("provider_trust_verifier_decision", provider_trust_verifier_decision_value(binding.provider_trust_verifier_decision)), Field::new("provider_trust_evidence_hash", V::Sha256(binding.provider_trust_evidence_hash)), Field::new("development_tls_bypass", V::Bool(false))]) }),
 (Hashes,
 "hashes",
-{ emit_provider_context_hashes(binding.context);
-}),
+{ provider_context_hashes_value(binding.context) }),
 }
 
-fn emit_provider_export_audit_bound_binding(
+fn provider_export_audit_bound_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ProviderExportAuditBinding,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ProviderExportAuditBinding,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         PROVIDER_EXPORT_AUDIT_BOUND_BINDING_FIELDS,
         emit_provider_export_audit_bound_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ProviderBindingConsumptionBindingField,
+define_direct_binding_value_fields! { ProviderBindingConsumptionBindingField,
 PROVIDER_BINDING_CONSUMPTION_BINDING_FIELDS,
 emit_provider_binding_consumption_binding_value,
 event_log::ProviderBindingConsumption,
@@ -3553,76 +3305,61 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.provider_context_binding_consumption.v0\"");
-}),
+{ V::Str("raios.provider_context_binding_consumption.v0") }),
 (Status,
 "status",
-{ raw("\"consumed_for_gate_evaluation\"");
-}),
+{ V::Str("consumed_for_gate_evaluation") }),
 (SatisfiesCurrentBootExportGate,
 "satisfies_current_boot_export_gate",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AutomaticContextInjection,
 "automatic_context_injection",
-{ raw("\"disabled\"");
-}),
+{ V::Str("disabled") }),
 (ProviderWrite,
 "provider_write",
-{ raw("\"not_attempted\"");
-}),
+{ V::Str("not_attempted") }),
 (ContextAttachedToProviderBody,
 "context_attached_to_provider_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RequestId,
 "request_id",
-{ raw_fmt(format_args!("{}",
-binding.request_id));
-}),
+{ V::U64(binding.request_id.into()) }),
 (RequestEnvelopeEventId,
 "request_envelope_event_id",
-{ json_event_id(binding.request_envelope_event_id);
-}),
+{ V::EventSequence((binding.request_envelope_event_id).sequence()) }),
 (RequestBindingEventId,
 "request_binding_event_id",
-{ json_event_id(binding.request_binding_event_id);
-}),
+{ V::EventSequence((binding.request_binding_event_id).sequence()) }),
 (ExportAuditBindingEventId,
 "export_audit_binding_event_id",
-{ json_event_id(binding.export_audit_binding_event_id);
-}),
+{ V::EventSequence((binding.export_audit_binding_event_id).sequence()) }),
 (RequestBindingHash,
 "request_binding_hash",
-{ json_sha256(binding.request_binding_hash);
-}),
+{ V::Sha256(binding.request_binding_hash) }),
 (ExportAuditBindingHash,
 "export_audit_binding_hash",
-{ json_sha256(binding.export_audit_binding_hash);
-}),
+{ V::Sha256(binding.export_audit_binding_hash) }),
 (ProviderTrustEvidenceHash,
 "provider_trust_evidence_hash",
-{ json_sha256(binding.provider_trust_evidence_hash);
-}),
+{ V::Sha256(binding.provider_trust_evidence_hash) }),
 (Hashes,
 "hashes",
-{ emit_provider_context_hashes(binding.context);
-}),
+{ provider_context_hashes_value(binding.context) }),
 }
 
-fn emit_provider_binding_consumption_binding(
+fn provider_binding_consumption_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ProviderBindingConsumption,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ProviderBindingConsumption,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         PROVIDER_BINDING_CONSUMPTION_BINDING_FIELDS,
         emit_provider_binding_consumption_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ProviderContextInjectionAuthorizationBindingField,
+define_direct_binding_value_fields! { ProviderContextInjectionAuthorizationBindingField,
 PROVIDER_CONTEXT_INJECTION_AUTHORIZATION_BINDING_FIELDS,
 emit_provider_context_injection_authorization_binding_value,
 event_log::ProviderContextInjectionAuthorization,
@@ -3630,96 +3367,73 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.provider_context_injection_authorization.v0\"");
-}),
+{ V::Str("raios.provider_context_injection_authorization.v0") }),
 (Status,
 "status",
-{ raw("\"authorized_for_single_provider_request\"");
-}),
+{ V::Str("authorized_for_single_provider_request") }),
 (SatisfiesCurrentBootExportGate,
 "satisfies_current_boot_export_gate",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AutomaticContextInjection,
 "automatic_context_injection",
-{ raw("\"disabled\"");
-}),
+{ V::Str("disabled") }),
 (ProviderWrite,
 "provider_write",
-{ raw("\"not_attempted\"");
-}),
+{ V::Str("not_attempted") }),
 (ContextAttachedToProviderBody,
 "context_attached_to_provider_body",
-{ raw_bool(binding.context_attached_to_provider_body);
-}),
+{ V::Bool(binding.context_attached_to_provider_body) }),
 (RequestId,
 "request_id",
-{ raw_fmt(format_args!("{}",
-binding.request_id));
-}),
+{ V::U64(binding.request_id.into()) }),
 (RequestEnvelopeEventId,
 "request_envelope_event_id",
-{ json_event_id(binding.request_envelope_event_id);
-}),
+{ V::EventSequence((binding.request_envelope_event_id).sequence()) }),
 (RequestBindingEventId,
 "request_binding_event_id",
-{ json_event_id(binding.request_binding_event_id);
-}),
+{ V::EventSequence((binding.request_binding_event_id).sequence()) }),
 (ExportAuditBindingEventId,
 "export_audit_binding_event_id",
-{ json_event_id(binding.export_audit_binding_event_id);
-}),
+{ V::EventSequence((binding.export_audit_binding_event_id).sequence()) }),
 (BindingConsumptionEventId,
 "binding_consumption_event_id",
-{ json_event_id(binding.binding_consumption_event_id);
-}),
+{ V::EventSequence((binding.binding_consumption_event_id).sequence()) }),
 (RequestBodyHash,
 "request_body_hash",
-{ json_sha256(binding.request_body_hash);
-}),
+{ V::Sha256(binding.request_body_hash) }),
 (RequestEnvelopeHash,
 "request_envelope_hash",
-{ json_sha256(binding.request_envelope_hash);
-}),
+{ V::Sha256(binding.request_envelope_hash) }),
 (RequestBindingHash,
 "request_binding_hash",
-{ json_sha256(binding.request_binding_hash);
-}),
+{ V::Sha256(binding.request_binding_hash) }),
 (ExportAuditBindingHash,
 "export_audit_binding_hash",
-{ json_sha256(binding.export_audit_binding_hash);
-}),
+{ V::Sha256(binding.export_audit_binding_hash) }),
 (FinalAuthorizationHash,
 "final_authorization_hash",
-{ json_sha256(binding.final_authorization_hash);
-}),
+{ V::Sha256(binding.final_authorization_hash) }),
 (TrustSnapshot,
 "trust_snapshot",
-{ raw("{\"provider_trust_state\": ");
-json_str(binding.provider_trust_state);
-raw(", \"provider_trust_positive\": true, \"provider_trust_evidence_hash\": ");
-json_sha256(binding.provider_trust_evidence_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("provider_trust_state", V::Str(binding.provider_trust_state)), Field::new("provider_trust_positive", V::Bool(true)), Field::new("provider_trust_evidence_hash", V::Sha256(binding.provider_trust_evidence_hash))]) }),
 (Hashes,
 "hashes",
-{ emit_provider_context_hashes(binding.context);
-}),
+{ provider_context_hashes_value(binding.context) }),
 }
 
-fn emit_provider_context_injection_authorization_binding(
+fn provider_context_injection_authorization_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ProviderContextInjectionAuthorization,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ProviderContextInjectionAuthorization,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         PROVIDER_CONTEXT_INJECTION_AUTHORIZATION_BINDING_FIELDS,
         emit_provider_context_injection_authorization_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ProviderRequestBindingDeniedBindingField,
+define_direct_binding_value_fields! { ProviderRequestBindingDeniedBindingField,
 PROVIDER_REQUEST_BINDING_DENIED_BINDING_FIELDS,
 emit_provider_request_binding_denied_binding_value,
 event_log::ProviderContextHashes,
@@ -3727,39 +3441,34 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.provider_request_binding_denial.v0\"");
-}),
+{ V::Str("raios.provider_request_binding_denial.v0") }),
 (Status,
 "status",
-{ raw("\"denied_not_bound\"");
-}),
+{ V::Str("denied_not_bound") }),
 (SatisfiesCurrentBootExportGate,
 "satisfies_current_boot_export_gate",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ProviderWrite,
 "provider_write",
-{ raw("\"not_attempted\"");
-}),
+{ V::Str("not_attempted") }),
 (Hashes,
 "hashes",
-{ emit_provider_context_hashes(*binding);
-}),
+{ provider_context_hashes_value(*binding) }),
 }
 
-fn emit_provider_request_binding_denied_binding(
+fn provider_request_binding_denied_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ProviderContextHashes,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ProviderContextHashes,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         PROVIDER_REQUEST_BINDING_DENIED_BINDING_FIELDS,
         emit_provider_request_binding_denied_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ProviderExportDenialAuditBindingField,
+define_direct_binding_value_fields! { ProviderExportDenialAuditBindingField,
 PROVIDER_EXPORT_DENIAL_AUDIT_BINDING_FIELDS,
 emit_provider_export_denial_audit_binding_value,
 event_log::ProviderContextHashes,
@@ -3767,43 +3476,37 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.provider_context_export_denial_audit.v0\"");
-}),
+{ V::Str("raios.provider_context_export_denial_audit.v0") }),
 (Status,
 "status",
-{ raw("\"denied_no_provider_write\"");
-}),
+{ V::Str("denied_no_provider_write") }),
 (SatisfiesCurrentBootExportGate,
 "satisfies_current_boot_export_gate",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (PositiveExportAuthorization,
 "positive_export_authorization",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ProviderWrite,
 "provider_write",
-{ raw("\"not_attempted\"");
-}),
+{ V::Str("not_attempted") }),
 (Hashes,
 "hashes",
-{ emit_provider_context_hashes(*binding);
-}),
+{ provider_context_hashes_value(*binding) }),
 }
 
-fn emit_provider_export_denial_audit_binding(
+fn provider_export_denial_audit_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ProviderContextHashes,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ProviderContextHashes,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         PROVIDER_EXPORT_DENIAL_AUDIT_BINDING_FIELDS,
         emit_provider_export_denial_audit_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ModuleManifestReferenceBindingField,
+define_direct_binding_value_fields! { ModuleManifestReferenceBindingField,
 MODULE_MANIFEST_REFERENCE_BINDING_FIELDS,
 emit_module_manifest_reference_binding_value,
 event_log::ModuleManifestReference,
@@ -3811,83 +3514,64 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.module_manifest_reference.v0\"");
-}),
+{ V::Str("raios.module_manifest_reference.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_load_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_load_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.module.load_ephemeral\"");
-}),
+{ V::Str("cap.module.load_ephemeral") }),
 (LoadMode,
 "load_mode",
-{ raw("\"ram_only\"");
-}),
+{ V::Str("ram_only") }),
 (ManifestSchema,
 "manifest_schema",
-{ raw("\"raios.module_manifest.v0\"");
-}),
+{ V::Str("raios.module_manifest.v0") }),
 (AcceptsManifestJson,
 "accepts_manifest_json",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsArtifactBytes,
 "accepts_artifact_bytes",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsUnsignedServiceCode,
 "accepts_unsigned_service_code",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesGuestLoad,
 "authorizes_guest_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (Hashes,
 "hashes",
-{ raw("{\"manifest_reference_hash\": ");
-json_sha256(binding.manifest_reference_hash);
-raw(", \"manifest_hash\": ");
-json_sha256(binding.manifest_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("manifest_reference_hash", V::Sha256(binding.manifest_reference_hash)), Field::new("manifest_hash", V::Sha256(binding.manifest_hash))]) }),
 }
 
-fn emit_module_manifest_reference_binding(
+fn module_manifest_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleManifestReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleManifestReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_MANIFEST_REFERENCE_BINDING_FIELDS,
         emit_module_manifest_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ModuleCandidateArtifactReferenceBindingField,
+define_direct_binding_value_fields! { ModuleCandidateArtifactReferenceBindingField,
 MODULE_CANDIDATE_ARTIFACT_REFERENCE_BINDING_FIELDS,
 emit_module_candidate_artifact_reference_binding_value,
 event_log::ModuleCandidateArtifactReference,
@@ -3895,97 +3579,67 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.module_candidate_artifact_reference.v0\"");
-}),
+{ V::Str("raios.module_candidate_artifact_reference.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_load_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_load_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.module.load_ephemeral\"");
-}),
+{ V::Str("cap.module.load_ephemeral") }),
 (LoadMode,
 "load_mode",
-{ raw("\"ram_only\"");
-}),
+{ V::Str("ram_only") }),
 (AcceptsManifestJson,
 "accepts_manifest_json",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsArtifactBytes,
 "accepts_artifact_bytes",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsUnsignedServiceCode,
 "accepts_unsigned_service_code",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesGuestLoad,
 "authorizes_guest_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedManifestReferenceEventId,
 "retained_manifest_reference_event_id",
-{ json_event_id(binding.retained_manifest_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_manifest_reference_event_id).sequence()) }),
 (RetainedComputedGrantReferenceEventId,
 "retained_computed_grant_reference_event_id",
-{ json_event_id(binding.retained_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_reference_event_id).sequence()) }),
 (Hashes,
 "hashes",
-{ raw("{\"artifact_reference_hash\": ");
-json_sha256(binding.artifact_reference_hash);
-raw(", \"manifest_reference_hash\": ");
-json_sha256(binding.manifest_reference_hash);
-raw(", \"manifest_hash\": ");
-json_sha256(binding.manifest_hash);
-raw(", \"computed_capability_grant_hash\": ");
-json_sha256(binding.computed_grant_hash);
-raw(", \"artifact_hash\": ");
-json_sha256(binding.artifact_hash);
-raw(", \"vm_test_report_hash\": ");
-json_sha256(binding.vm_report_hash);
-raw(", \"local_attestation_hash\": ");
-json_sha256(binding.local_attestation_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("artifact_reference_hash", V::Sha256(binding.artifact_reference_hash)), Field::new("manifest_reference_hash", V::Sha256(binding.manifest_reference_hash)), Field::new("manifest_hash", V::Sha256(binding.manifest_hash)), Field::new("computed_capability_grant_hash", V::Sha256(binding.computed_grant_hash)), Field::new("artifact_hash", V::Sha256(binding.artifact_hash)), Field::new("vm_test_report_hash", V::Sha256(binding.vm_report_hash)), Field::new("local_attestation_hash", V::Sha256(binding.local_attestation_hash))]) }),
 }
 
-fn emit_module_candidate_artifact_reference_binding(
+fn module_candidate_artifact_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleCandidateArtifactReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleCandidateArtifactReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_CANDIDATE_ARTIFACT_REFERENCE_BINDING_FIELDS,
         emit_module_candidate_artifact_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ModuleVmTestReportReferenceBindingField,
+define_direct_binding_value_fields! { ModuleVmTestReportReferenceBindingField,
 MODULE_VM_TEST_REPORT_REFERENCE_BINDING_FIELDS,
 emit_module_vm_test_report_reference_binding_value,
 event_log::ModuleVmTestReportReference,
@@ -3993,111 +3647,76 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.module_vm_test_report_reference.v0\"");
-}),
+{ V::Str("raios.module_vm_test_report_reference.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_load_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_load_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.module.load_ephemeral\"");
-}),
+{ V::Str("cap.module.load_ephemeral") }),
 (LoadMode,
 "load_mode",
-{ raw("\"ram_only\"");
-}),
+{ V::Str("ram_only") }),
 (VmTestReportSchema,
 "vm_test_report_schema",
-{ raw("\"raios.vm_test_report.v0\"");
-}),
+{ V::Str("raios.vm_test_report.v0") }),
 (AcceptsManifestJson,
 "accepts_manifest_json",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsArtifactBytes,
 "accepts_artifact_bytes",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsVmReportJson,
 "accepts_vm_report_json",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsUnsignedServiceCode,
 "accepts_unsigned_service_code",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesGuestLoad,
 "authorizes_guest_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedManifestReferenceEventId,
 "retained_manifest_reference_event_id",
-{ json_event_id(binding.retained_manifest_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_manifest_reference_event_id).sequence()) }),
 (RetainedCandidateArtifactReferenceEventId,
 "retained_candidate_artifact_reference_event_id",
-{ json_event_id(binding.retained_artifact_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_artifact_reference_event_id).sequence()) }),
 (RetainedComputedGrantReferenceEventId,
 "retained_computed_grant_reference_event_id",
-{ json_event_id(binding.retained_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_reference_event_id).sequence()) }),
 (Hashes,
 "hashes",
-{ raw("{\"vm_test_report_reference_hash\": ");
-json_sha256(binding.report_reference_hash);
-raw(", \"manifest_reference_hash\": ");
-json_sha256(binding.manifest_reference_hash);
-raw(", \"artifact_reference_hash\": ");
-json_sha256(binding.artifact_reference_hash);
-raw(", \"manifest_hash\": ");
-json_sha256(binding.manifest_hash);
-raw(", \"artifact_hash\": ");
-json_sha256(binding.artifact_hash);
-raw(", \"computed_capability_grant_hash\": ");
-json_sha256(binding.computed_grant_hash);
-raw(", \"vm_test_report_hash\": ");
-json_sha256(binding.vm_report_hash);
-raw(", \"local_attestation_hash\": ");
-json_sha256(binding.local_attestation_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("vm_test_report_reference_hash", V::Sha256(binding.report_reference_hash)), Field::new("manifest_reference_hash", V::Sha256(binding.manifest_reference_hash)), Field::new("artifact_reference_hash", V::Sha256(binding.artifact_reference_hash)), Field::new("manifest_hash", V::Sha256(binding.manifest_hash)), Field::new("artifact_hash", V::Sha256(binding.artifact_hash)), Field::new("computed_capability_grant_hash", V::Sha256(binding.computed_grant_hash)), Field::new("vm_test_report_hash", V::Sha256(binding.vm_report_hash)), Field::new("local_attestation_hash", V::Sha256(binding.local_attestation_hash))]) }),
 }
 
-fn emit_module_vm_test_report_reference_binding(
+fn module_vm_test_report_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleVmTestReportReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleVmTestReportReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_VM_TEST_REPORT_REFERENCE_BINDING_FIELDS,
         emit_module_vm_test_report_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ModuleLocalAttestationReferenceBindingField,
+define_direct_binding_value_fields! { ModuleLocalAttestationReferenceBindingField,
 MODULE_LOCAL_ATTESTATION_REFERENCE_BINDING_FIELDS,
 emit_module_local_attestation_reference_binding_value,
 event_log::ModuleLocalAttestationReference,
@@ -4105,113 +3724,76 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.module_local_attestation_reference.v0\"");
-}),
+{ V::Str("raios.module_local_attestation_reference.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_load_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_load_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.module.load_ephemeral\"");
-}),
+{ V::Str("cap.module.load_ephemeral") }),
 (LoadMode,
 "load_mode",
-{ raw("\"ram_only\"");
-}),
+{ V::Str("ram_only") }),
 (LocalAttestationSchema,
 "local_attestation_schema",
-{ raw("\"raios.local_attestation.v0\"");
-}),
+{ V::Str("raios.local_attestation.v0") }),
 (AcceptsLocalAttestationJson,
 "accepts_local_attestation_json",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsArtifactBytes,
 "accepts_artifact_bytes",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsUnsignedServiceCode,
 "accepts_unsigned_service_code",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesGuestLoad,
 "authorizes_guest_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedManifestReferenceEventId,
 "retained_manifest_reference_event_id",
-{ json_event_id(binding.retained_manifest_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_manifest_reference_event_id).sequence()) }),
 (RetainedCandidateArtifactReferenceEventId,
 "retained_candidate_artifact_reference_event_id",
-{ json_event_id(binding.retained_artifact_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_artifact_reference_event_id).sequence()) }),
 (RetainedVmTestReportReferenceEventId,
 "retained_vm_test_report_reference_event_id",
-{ json_event_id(binding.retained_vm_report_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_vm_report_reference_event_id).sequence()) }),
 (RetainedComputedGrantReferenceEventId,
 "retained_computed_grant_reference_event_id",
-{ json_event_id(binding.retained_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_reference_event_id).sequence()) }),
 (Hashes,
 "hashes",
-{ raw("{\"local_attestation_reference_hash\": ");
-json_sha256(binding.attestation_reference_hash);
-raw(", \"manifest_reference_hash\": ");
-json_sha256(binding.manifest_reference_hash);
-raw(", \"artifact_reference_hash\": ");
-json_sha256(binding.artifact_reference_hash);
-raw(", \"vm_test_report_reference_hash\": ");
-json_sha256(binding.vm_report_reference_hash);
-raw(", \"manifest_hash\": ");
-json_sha256(binding.manifest_hash);
-raw(", \"artifact_hash\": ");
-json_sha256(binding.artifact_hash);
-raw(", \"computed_capability_grant_hash\": ");
-json_sha256(binding.computed_grant_hash);
-raw(", \"vm_test_report_hash\": ");
-json_sha256(binding.vm_report_hash);
-raw(", \"local_attestation_hash\": ");
-json_sha256(binding.local_attestation_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("local_attestation_reference_hash", V::Sha256(binding.attestation_reference_hash)), Field::new("manifest_reference_hash", V::Sha256(binding.manifest_reference_hash)), Field::new("artifact_reference_hash", V::Sha256(binding.artifact_reference_hash)), Field::new("vm_test_report_reference_hash", V::Sha256(binding.vm_report_reference_hash)), Field::new("manifest_hash", V::Sha256(binding.manifest_hash)), Field::new("artifact_hash", V::Sha256(binding.artifact_hash)), Field::new("computed_capability_grant_hash", V::Sha256(binding.computed_grant_hash)), Field::new("vm_test_report_hash", V::Sha256(binding.vm_report_hash)), Field::new("local_attestation_hash", V::Sha256(binding.local_attestation_hash))]) }),
 }
 
-fn emit_module_local_attestation_reference_binding(
+fn module_local_attestation_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleLocalAttestationReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleLocalAttestationReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_LOCAL_ATTESTATION_REFERENCE_BINDING_FIELDS,
         emit_module_local_attestation_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ModuleLocalApprovalReferenceBindingField,
+define_direct_binding_value_fields! { ModuleLocalApprovalReferenceBindingField,
 MODULE_LOCAL_APPROVAL_REFERENCE_BINDING_FIELDS,
 emit_module_local_approval_reference_binding_value,
 event_log::ModuleLocalApprovalReference,
@@ -4219,121 +3801,79 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.module_local_approval_reference.v0\"");
-}),
+{ V::Str("raios.module_local_approval_reference.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_load_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_load_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.module.load_ephemeral\"");
-}),
+{ V::Str("cap.module.load_ephemeral") }),
 (LoadMode,
 "load_mode",
-{ raw("\"ram_only\"");
-}),
+{ V::Str("ram_only") }),
 (LocalApprovalSchema,
 "local_approval_schema",
-{ raw("\"raios.local_approval.v0\"");
-}),
+{ V::Str("raios.local_approval.v0") }),
 (AcceptsLocalApprovalText,
 "accepts_local_approval_text",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsArtifactBytes,
 "accepts_artifact_bytes",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsUnsignedServiceCode,
 "accepts_unsigned_service_code",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesGuestLoad,
 "authorizes_guest_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedManifestReferenceEventId,
 "retained_manifest_reference_event_id",
-{ json_event_id(binding.retained_manifest_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_manifest_reference_event_id).sequence()) }),
 (RetainedCandidateArtifactReferenceEventId,
 "retained_candidate_artifact_reference_event_id",
-{ json_event_id(binding.retained_artifact_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_artifact_reference_event_id).sequence()) }),
 (RetainedVmTestReportReferenceEventId,
 "retained_vm_test_report_reference_event_id",
-{ json_event_id(binding.retained_vm_report_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_vm_report_reference_event_id).sequence()) }),
 (RetainedLocalAttestationReferenceEventId,
 "retained_local_attestation_reference_event_id",
-{ json_event_id(binding.retained_local_attestation_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_local_attestation_reference_event_id).sequence()) }),
 (RetainedComputedGrantReferenceEventId,
 "retained_computed_grant_reference_event_id",
-{ json_event_id(binding.retained_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_reference_event_id).sequence()) }),
 (Hashes,
 "hashes",
-{ raw("{\"local_approval_reference_hash\": ");
-json_sha256(binding.approval_reference_hash);
-raw(", \"manifest_reference_hash\": ");
-json_sha256(binding.manifest_reference_hash);
-raw(", \"artifact_reference_hash\": ");
-json_sha256(binding.artifact_reference_hash);
-raw(", \"vm_test_report_reference_hash\": ");
-json_sha256(binding.vm_report_reference_hash);
-raw(", \"local_attestation_reference_hash\": ");
-json_sha256(binding.local_attestation_reference_hash);
-raw(", \"manifest_hash\": ");
-json_sha256(binding.manifest_hash);
-raw(", \"artifact_hash\": ");
-json_sha256(binding.artifact_hash);
-raw(", \"computed_capability_grant_hash\": ");
-json_sha256(binding.computed_grant_hash);
-raw(", \"vm_test_report_hash\": ");
-json_sha256(binding.vm_report_hash);
-raw(", \"local_attestation_hash\": ");
-json_sha256(binding.local_attestation_hash);
-raw(", \"local_approval_hash\": ");
-json_sha256(binding.local_approval_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("local_approval_reference_hash", V::Sha256(binding.approval_reference_hash)), Field::new("manifest_reference_hash", V::Sha256(binding.manifest_reference_hash)), Field::new("artifact_reference_hash", V::Sha256(binding.artifact_reference_hash)), Field::new("vm_test_report_reference_hash", V::Sha256(binding.vm_report_reference_hash)), Field::new("local_attestation_reference_hash", V::Sha256(binding.local_attestation_reference_hash)), Field::new("manifest_hash", V::Sha256(binding.manifest_hash)), Field::new("artifact_hash", V::Sha256(binding.artifact_hash)), Field::new("computed_capability_grant_hash", V::Sha256(binding.computed_grant_hash)), Field::new("vm_test_report_hash", V::Sha256(binding.vm_report_hash)), Field::new("local_attestation_hash", V::Sha256(binding.local_attestation_hash)), Field::new("local_approval_hash", V::Sha256(binding.local_approval_hash))]) }),
 }
 
-fn emit_module_local_approval_reference_binding(
+fn module_local_approval_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleLocalApprovalReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleLocalApprovalReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_LOCAL_APPROVAL_REFERENCE_BINDING_FIELDS,
         emit_module_local_approval_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ModuleComputedGrantReferenceBindingField,
+define_direct_binding_value_fields! { ModuleComputedGrantReferenceBindingField,
 MODULE_COMPUTED_GRANT_REFERENCE_BINDING_FIELDS,
 emit_module_computed_grant_reference_binding_value,
 event_log::ModuleComputedGrantReference,
@@ -4341,81 +3881,58 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.module_computed_grant_reference.v0\"");
-}),
+{ V::Str("raios.module_computed_grant_reference.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_load_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_load_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.module.load_ephemeral\"");
-}),
+{ V::Str("cap.module.load_ephemeral") }),
 (LoadMode,
 "load_mode",
-{ raw("\"ram_only\"");
-}),
+{ V::Str("ram_only") }),
 (GrantsCapability,
 "grants_capability",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (GrantsLoadNow,
 "grants_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesGuestLoad,
 "authorizes_guest_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (Hashes,
 "hashes",
-{ raw("{\"computed_capability_grant_hash\": ");
-json_sha256(binding.computed_grant_hash);
-raw(", \"manifest_hash\": ");
-json_sha256(binding.manifest_hash);
-raw(", \"artifact_hash\": ");
-json_sha256(binding.artifact_hash);
-raw(", \"vm_test_report_hash\": ");
-json_sha256(binding.vm_report_hash);
-raw(", \"local_attestation_hash\": ");
-json_sha256(binding.local_attestation_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("computed_capability_grant_hash", V::Sha256(binding.computed_grant_hash)), Field::new("manifest_hash", V::Sha256(binding.manifest_hash)), Field::new("artifact_hash", V::Sha256(binding.artifact_hash)), Field::new("vm_test_report_hash", V::Sha256(binding.vm_report_hash)), Field::new("local_attestation_hash", V::Sha256(binding.local_attestation_hash))]) }),
 }
 
-fn emit_module_computed_grant_reference_binding(
+fn module_computed_grant_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleComputedGrantReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleComputedGrantReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_COMPUTED_GRANT_REFERENCE_BINDING_FIELDS,
         emit_module_computed_grant_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ModuleAuditRollbackReferenceBindingField,
+define_direct_binding_value_fields! { ModuleAuditRollbackReferenceBindingField,
 MODULE_AUDIT_ROLLBACK_REFERENCE_BINDING_FIELDS,
 emit_module_audit_rollback_reference_binding_value,
 event_log::ModuleAuditRollbackReference,
@@ -4423,111 +3940,73 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.module_audit_rollback_reference.v0\"");
-}),
+{ V::Str("raios.module_audit_rollback_reference.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_load_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_load_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.module.load_ephemeral\"");
-}),
+{ V::Str("cap.module.load_ephemeral") }),
 (LoadMode,
 "load_mode",
-{ raw("\"ram_only\"");
-}),
+{ V::Str("ram_only") }),
 (DurableAuditWritten,
 "durable_audit_written",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RollbackPlanInstalled,
 "rollback_plan_installed",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (GrantsCapability,
 "grants_capability",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (GrantsLoadNow,
 "grants_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesGuestLoad,
 "authorizes_guest_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DenialEventId,
 "denial_event_id",
-{ json_event_id(binding.denial_event_id);
-}),
+{ V::EventSequence((binding.denial_event_id).sequence()) }),
 (RetainedComputedGrantReferenceEventId,
 "retained_computed_grant_reference_event_id",
-{ json_event_id(binding.retained_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_reference_event_id).sequence()) }),
 (RamOnlyServiceSlotId,
 "ram_only_service_slot_id",
-{ json_str(binding.ram_only_service_slot_id.as_str());
-}),
+{ V::Str(binding.ram_only_service_slot_id.as_str()) }),
 (Hashes,
 "hashes",
-{ raw("{\"audit_record_hash\": ");
-json_sha256(binding.audit_record_hash);
-raw(", \"rollback_plan_hash\": ");
-json_sha256(binding.rollback_plan_hash);
-raw(", \"computed_capability_grant_hash\": ");
-json_sha256(binding.computed_grant_hash);
-raw(", \"manifest_hash\": ");
-json_sha256(binding.manifest_hash);
-raw(", \"artifact_hash\": ");
-json_sha256(binding.artifact_hash);
-raw(", \"vm_test_report_hash\": ");
-json_sha256(binding.vm_report_hash);
-raw(", \"local_attestation_hash\": ");
-json_sha256(binding.local_attestation_hash);
-raw(", \"local_approval_hash\": ");
-json_sha256(binding.local_approval_hash);
-raw(", \"pre_load_service_inventory_hash\": ");
-json_sha256(binding.pre_load_service_inventory_hash);
-raw(", \"cleanup_actions_hash\": ");
-json_sha256(binding.cleanup_actions_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("audit_record_hash", V::Sha256(binding.audit_record_hash)), Field::new("rollback_plan_hash", V::Sha256(binding.rollback_plan_hash)), Field::new("computed_capability_grant_hash", V::Sha256(binding.computed_grant_hash)), Field::new("manifest_hash", V::Sha256(binding.manifest_hash)), Field::new("artifact_hash", V::Sha256(binding.artifact_hash)), Field::new("vm_test_report_hash", V::Sha256(binding.vm_report_hash)), Field::new("local_attestation_hash", V::Sha256(binding.local_attestation_hash)), Field::new("local_approval_hash", V::Sha256(binding.local_approval_hash)), Field::new("pre_load_service_inventory_hash", V::Sha256(binding.pre_load_service_inventory_hash)), Field::new("cleanup_actions_hash", V::Sha256(binding.cleanup_actions_hash))]) }),
 }
 
-fn emit_module_audit_rollback_reference_binding(
+fn module_audit_rollback_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleAuditRollbackReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleAuditRollbackReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_AUDIT_ROLLBACK_REFERENCE_BINDING_FIELDS,
         emit_module_audit_rollback_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ModuleServiceSlotReservationBindingField,
+define_direct_binding_value_fields! { ModuleServiceSlotReservationBindingField,
 MODULE_SERVICE_SLOT_RESERVATION_BINDING_FIELDS,
 emit_module_service_slot_reservation_binding_value,
 event_log::ModuleServiceSlotReservation,
@@ -4535,101 +4014,73 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.module_service_slot_reservation.v0\"");
-}),
+{ V::Str("raios.module_service_slot_reservation.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_load_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_load_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.module.load_ephemeral\"");
-}),
+{ V::Str("cap.module.load_ephemeral") }),
 (LoadMode,
 "load_mode",
-{ raw("\"ram_only\"");
-}),
+{ V::Str("ram_only") }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesServiceInventoryRecords,
 "creates_service_inventory_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (GrantsCapability,
 "grants_capability",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (GrantsLoadNow,
 "grants_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesGuestLoad,
 "authorizes_guest_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedComputedGrantReferenceEventId,
 "retained_computed_grant_reference_event_id",
-{ json_event_id(binding.retained_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_reference_event_id).sequence()) }),
 (RetainedAuditRollbackReferenceEventId,
 "retained_audit_rollback_reference_event_id",
-{ json_event_id(binding.retained_audit_rollback_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_audit_rollback_reference_event_id).sequence()) }),
 (RamOnlyServiceSlotId,
 "ram_only_service_slot_id",
-{ json_str(binding.ram_only_service_slot_id.as_str());
-}),
+{ V::Str(binding.ram_only_service_slot_id.as_str()) }),
 (Hashes,
 "hashes",
-{ raw("{\"reservation_hash\": ");
-json_sha256(binding.reservation_hash);
-raw(", \"computed_capability_grant_hash\": ");
-json_sha256(binding.computed_grant_hash);
-raw(", \"audit_record_hash\": ");
-json_sha256(binding.audit_record_hash);
-raw(", \"rollback_plan_hash\": ");
-json_sha256(binding.rollback_plan_hash);
-raw(", \"pre_load_service_inventory_hash\": ");
-json_sha256(binding.pre_load_service_inventory_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("reservation_hash", V::Sha256(binding.reservation_hash)), Field::new("computed_capability_grant_hash", V::Sha256(binding.computed_grant_hash)), Field::new("audit_record_hash", V::Sha256(binding.audit_record_hash)), Field::new("rollback_plan_hash", V::Sha256(binding.rollback_plan_hash)), Field::new("pre_load_service_inventory_hash", V::Sha256(binding.pre_load_service_inventory_hash))]) }),
 }
 
-fn emit_module_service_slot_reservation_binding(
+fn module_service_slot_reservation_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleServiceSlotReservation,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleServiceSlotReservation,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_SERVICE_SLOT_RESERVATION_BINDING_FIELDS,
         emit_module_service_slot_reservation_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ModuleServiceSlotAllocatorFactSourceEvidenceBindingField,
+define_direct_binding_value_fields! { ModuleServiceSlotAllocatorFactSourceEvidenceBindingField,
 MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCE_EVIDENCE_BINDING_FIELDS,
 emit_module_service_slot_allocator_fact_source_evidence_binding_value,
 event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
@@ -4637,127 +4088,100 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ json_str(binding.schema);
-}),
+{ V::Str(binding.schema) }),
 (FactSchema,
 "fact_schema",
-{ json_str(binding.fact_schema);
-}),
+{ V::Str(binding.fact_schema) }),
 (Status,
 "status",
-{ json_str(binding.readiness_status);
-}),
+{ V::Str(binding.readiness_status) }),
 (Reason,
 "reason",
-{ json_str(binding.readiness_reason);
-}),
+{ V::Str(binding.readiness_reason) }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.module.load_ephemeral\"");
-}),
+{ V::Str("cap.module.load_ephemeral") }),
 (SourceMethod,
 "source_method",
-{ json_str(binding.source_method);
-}),
+{ V::Str(binding.source_method) }),
 (SourceFactLocator,
 "source_fact_locator",
-{ json_str(binding.source_fact_locator);
-}),
+{ V::Str(binding.source_fact_locator) }),
 (FactId,
 "fact_id",
-{ json_str(binding.fact_id);
-}),
+{ V::Str(binding.fact_id) }),
 (FactStatus,
 "fact_status",
-{ json_str(binding.fact_status);
-}),
+{ V::Str(binding.fact_status) }),
 (FactReason,
 "fact_reason",
-{ json_str(binding.fact_reason);
-}),
+{ V::Str(binding.fact_reason) }),
 (FactPresent,
 "fact_present",
-{ raw_bool(binding.fact_present);
-}),
+{ V::Bool(binding.fact_present) }),
 (RetainedServiceSlotReservationPresent,
 "retained_service_slot_reservation_present",
-{ raw_bool(binding.retained_service_slot_reservation_present);
-}),
+{ V::Bool(binding.retained_service_slot_reservation_present) }),
 (AllocatorRuntimeSourceEvidencePresent,
 "allocator_runtime_source_evidence_present",
-{ raw_bool(binding.allocator_runtime_source_evidence_present);
-}),
+{ V::Bool(binding.allocator_runtime_source_evidence_present) }),
 (RetainedServiceSlotReservationEventId,
 "retained_service_slot_reservation_event_id",
-{ json_event_id_option(binding.retained_service_slot_reservation_event_id);
-}),
+{ opt_event_id_value(binding.retained_service_slot_reservation_event_id) }),
 (AllocatorRuntimeSourceEvidenceEventId,
 "allocator_runtime_source_evidence_event_id",
-{ json_event_id_option(binding.allocator_runtime_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.allocator_runtime_source_evidence_event_id) }),
 (BindsRetainedServiceSlotReservation,
 "binds_retained_service_slot_reservation",
-{ raw_bool(binding.binds_retained_service_slot_reservation);
-}),
+{ V::Bool(binding.binds_retained_service_slot_reservation) }),
 (BindsAllocatorRuntime,
 "binds_allocator_runtime",
-{ raw_bool(binding.binds_allocator_runtime);
-}),
+{ V::Bool(binding.binds_allocator_runtime) }),
 (SourceEvidenceRetained,
 "source_evidence_retained",
-{ raw("true");
-}),
+{ V::Bool(true) }),
 (Retention,
 "retention",
-{ raw("\"current_boot_ram_event_log\"");
-}),
+{ V::Str("current_boot_ram_event_log") }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesServiceInventoryRecords,
 "creates_service_inventory_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesLoad,
 "authorizes_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 }
 
-fn emit_module_service_slot_allocator_fact_source_evidence_binding(
+fn module_service_slot_allocator_fact_source_evidence_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCE_EVIDENCE_BINDING_FIELDS,
         emit_module_service_slot_allocator_fact_source_evidence_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ModuleServiceSlotAllocatorPrerequisiteSourceEvidenceBindingField,
+define_direct_binding_value_fields! { ModuleServiceSlotAllocatorPrerequisiteSourceEvidenceBindingField,
 MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCE_EVIDENCE_BINDING_FIELDS,
 emit_module_service_slot_allocator_prerequisite_source_evidence_binding_value,
 event_log::ModuleServiceSlotAllocatorPrerequisiteSourceEvidence,
@@ -4765,139 +4189,109 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ json_str(binding.schema);
-}),
+{ V::Str(binding.schema) }),
 (PrerequisiteSchema,
 "prerequisite_schema",
-{ json_str(binding.prerequisite_schema);
-}),
+{ V::Str(binding.prerequisite_schema) }),
 (Status,
 "status",
-{ json_str(binding.readiness_status);
-}),
+{ V::Str(binding.readiness_status) }),
 (Reason,
 "reason",
-{ json_str(binding.readiness_reason);
-}),
+{ V::Str(binding.readiness_reason) }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.module.load_ephemeral\"");
-}),
+{ V::Str("cap.module.load_ephemeral") }),
 (SourceMethod,
 "source_method",
-{ json_str(binding.source_method);
-}),
+{ V::Str(binding.source_method) }),
 (SourceFactLocator,
 "source_fact_locator",
-{ json_str(binding.source_fact_locator);
-}),
+{ V::Str(binding.source_fact_locator) }),
 (PrerequisiteId,
 "prerequisite_id",
-{ json_str(binding.prerequisite_id);
-}),
+{ V::Str(binding.prerequisite_id) }),
 (PrerequisiteStatus,
 "prerequisite_status",
-{ json_str(binding.prerequisite_status);
-}),
+{ V::Str(binding.prerequisite_status) }),
 (PrerequisiteReason,
 "prerequisite_reason",
-{ json_str(binding.prerequisite_reason);
-}),
+{ V::Str(binding.prerequisite_reason) }),
 (PrerequisiteAvailable,
 "prerequisite_available",
-{ raw_bool(binding.prerequisite_available);
-}),
+{ V::Bool(binding.prerequisite_available) }),
 (RetainedServiceSlotReservationPresent,
 "retained_service_slot_reservation_present",
-{ raw_bool(binding.retained_service_slot_reservation_present);
-}),
+{ V::Bool(binding.retained_service_slot_reservation_present) }),
 (AllocatorRuntimeAvailable,
 "allocator_runtime_available",
-{ raw_bool(binding.allocator_runtime_available);
-}),
+{ V::Bool(binding.allocator_runtime_available) }),
 (RegistryBindingAvailable,
 "registry_binding_available",
-{ raw_bool(binding.registry_binding_available);
-}),
+{ V::Bool(binding.registry_binding_available) }),
 (HealthStateAvailable,
 "health_state_available",
-{ raw_bool(binding.health_state_available);
-}),
+{ V::Bool(binding.health_state_available) }),
 (UnloadCleanupAvailable,
 "unload_cleanup_available",
-{ raw_bool(binding.unload_cleanup_available);
-}),
+{ V::Bool(binding.unload_cleanup_available) }),
 (AllocatorRuntimeSourceEvidenceEventId,
 "allocator_runtime_source_evidence_event_id",
-{ json_event_id_option(binding.allocator_runtime_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.allocator_runtime_source_evidence_event_id) }),
 (RegistryBindingSourceEvidenceEventId,
 "registry_binding_source_evidence_event_id",
-{ json_event_id_option(binding.registry_binding_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.registry_binding_source_evidence_event_id) }),
 (HealthStateSourceEvidenceEventId,
 "health_state_source_evidence_event_id",
-{ json_event_id_option(binding.health_state_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.health_state_source_evidence_event_id) }),
 (UnloadCleanupSourceEvidenceEventId,
 "unload_cleanup_source_evidence_event_id",
-{ json_event_id_option(binding.unload_cleanup_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.unload_cleanup_source_evidence_event_id) }),
 (SourceEvidenceRetained,
 "source_evidence_retained",
-{ raw("true");
-}),
+{ V::Bool(true) }),
 (Retention,
 "retention",
-{ raw("\"current_boot_ram_event_log\"");
-}),
+{ V::Str("current_boot_ram_event_log") }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesServiceInventoryRecords,
 "creates_service_inventory_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesLoad,
 "authorizes_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 }
 
-fn emit_module_service_slot_allocator_prerequisite_source_evidence_binding(
+fn module_service_slot_allocator_prerequisite_source_evidence_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleServiceSlotAllocatorPrerequisiteSourceEvidence,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleServiceSlotAllocatorPrerequisiteSourceEvidence,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCE_EVIDENCE_BINDING_FIELDS,
         emit_module_service_slot_allocator_prerequisite_source_evidence_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ModuleServiceSlotAllocatorAuthoritySourceEvidenceBindingField,
+define_direct_binding_value_fields! { ModuleServiceSlotAllocatorAuthoritySourceEvidenceBindingField,
 MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_SOURCE_EVIDENCE_BINDING_FIELDS,
 emit_module_service_slot_allocator_authority_source_evidence_binding_value,
 event_log::ModuleServiceSlotAllocatorAuthoritySourceEvidence,
@@ -4905,139 +4299,109 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ json_str(binding.schema);
-}),
+{ V::Str(binding.schema) }),
 (AuthoritySchema,
 "authority_schema",
-{ json_str(binding.authority_schema);
-}),
+{ V::Str(binding.authority_schema) }),
 (Status,
 "status",
-{ json_str(binding.readiness_status);
-}),
+{ V::Str(binding.readiness_status) }),
 (Reason,
 "reason",
-{ json_str(binding.readiness_reason);
-}),
+{ V::Str(binding.readiness_reason) }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.module.load_ephemeral\"");
-}),
+{ V::Str("cap.module.load_ephemeral") }),
 (SourceMethod,
 "source_method",
-{ json_str(binding.source_method);
-}),
+{ V::Str(binding.source_method) }),
 (SourceFactLocator,
 "source_fact_locator",
-{ json_str(binding.source_fact_locator);
-}),
+{ V::Str(binding.source_fact_locator) }),
 (AuthorityId,
 "authority_id",
-{ json_str(binding.authority_id);
-}),
+{ V::Str(binding.authority_id) }),
 (AuthorityStatus,
 "authority_status",
-{ json_str(binding.authority_status);
-}),
+{ V::Str(binding.authority_status) }),
 (AuthorityReason,
 "authority_reason",
-{ json_str(binding.authority_reason);
-}),
+{ V::Str(binding.authority_reason) }),
 (AuthorityPresent,
 "authority_present",
-{ raw_bool(binding.authority_present);
-}),
+{ V::Bool(binding.authority_present) }),
 (SourceChainComplete,
 "source_chain_complete",
-{ raw_bool(binding.source_chain_complete);
-}),
+{ V::Bool(binding.source_chain_complete) }),
 (AllocatorRuntimeSourceEvidenceEventId,
 "allocator_runtime_source_evidence_event_id",
-{ json_event_id_option(binding.allocator_runtime_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.allocator_runtime_source_evidence_event_id) }),
 (RegistryBindingSourceEvidenceEventId,
 "registry_binding_source_evidence_event_id",
-{ json_event_id_option(binding.registry_binding_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.registry_binding_source_evidence_event_id) }),
 (HealthStateSourceEvidenceEventId,
 "health_state_source_evidence_event_id",
-{ json_event_id_option(binding.health_state_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.health_state_source_evidence_event_id) }),
 (UnloadCleanupSourceEvidenceEventId,
 "unload_cleanup_source_evidence_event_id",
-{ json_event_id_option(binding.unload_cleanup_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.unload_cleanup_source_evidence_event_id) }),
 (DurableAuditSourceEvidenceEventId,
 "durable_audit_source_evidence_event_id",
-{ json_event_id_option(binding.durable_audit_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.durable_audit_source_evidence_event_id) }),
 (RollbackInstallSourceEvidenceEventId,
 "rollback_install_source_evidence_event_id",
-{ json_event_id_option(binding.rollback_install_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.rollback_install_source_evidence_event_id) }),
 (ModuleLoaderSourceEvidenceEventId,
 "module_loader_source_evidence_event_id",
-{ json_event_id_option(binding.module_loader_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.module_loader_source_evidence_event_id) }),
 (SourceEvidenceRetained,
 "source_evidence_retained",
-{ raw("true");
-}),
+{ V::Bool(true) }),
 (Retention,
 "retention",
-{ raw("\"current_boot_ram_event_log\"");
-}),
+{ V::Str("current_boot_ram_event_log") }),
 (FutureAuthorityInputsNamed,
 "future_authority_inputs_named",
-{ raw("true");
-}),
+{ V::Bool(true) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesServiceInventoryRecords,
 "creates_service_inventory_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesLoad,
 "authorizes_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 }
 
-fn emit_module_service_slot_allocator_authority_source_evidence_binding(
+fn module_service_slot_allocator_authority_source_evidence_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleServiceSlotAllocatorAuthoritySourceEvidence,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleServiceSlotAllocatorAuthoritySourceEvidence,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_SOURCE_EVIDENCE_BINDING_FIELDS,
         emit_module_service_slot_allocator_authority_source_evidence_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ModuleServiceSlotAllocationIntentSourceEvidenceBindingField,
+define_direct_binding_value_fields! { ModuleServiceSlotAllocationIntentSourceEvidenceBindingField,
 MODULE_SERVICE_SLOT_ALLOCATION_INTENT_SOURCE_EVIDENCE_BINDING_FIELDS,
 emit_module_service_slot_allocation_intent_source_evidence_binding_value,
 event_log::ModuleServiceSlotAllocationIntentSourceEvidence,
@@ -5045,160 +4409,124 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ json_str(binding.schema);
-}),
+{ V::Str(binding.schema) }),
 (IntentSchema,
 "intent_schema",
-{ json_str(binding.intent_schema);
-}),
+{ V::Str(binding.intent_schema) }),
 (Status,
 "status",
-{ json_str(binding.readiness_status);
-}),
+{ V::Str(binding.readiness_status) }),
 (Reason,
 "reason",
-{ json_str(binding.readiness_reason);
-}),
+{ V::Str(binding.readiness_reason) }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ json_str(binding.requested_capability);
-}),
+{ V::Str(binding.requested_capability) }),
 (LoadMode,
 "load_mode",
-{ json_str(binding.load_mode);
-}),
+{ V::Str(binding.load_mode) }),
 (Target,
 "target",
-{ json_str(binding.target);
-}),
+{ V::Str(binding.target) }),
 (SourceMethod,
 "source_method",
-{ json_str(binding.source_method);
-}),
+{ V::Str(binding.source_method) }),
 (SourceFactLocator,
 "source_fact_locator",
-{ json_str(binding.source_fact_locator);
-}),
+{ V::Str(binding.source_fact_locator) }),
 (IntentId,
 "intent_id",
-{ json_str(binding.intent_id);
-}),
+{ V::Str(binding.intent_id) }),
 (IntentStatus,
 "intent_status",
-{ json_str(binding.intent_status);
-}),
+{ V::Str(binding.intent_status) }),
 (IntentReason,
 "intent_reason",
-{ json_str(binding.intent_reason);
-}),
+{ V::Str(binding.intent_reason) }),
 (IntentPresent,
 "intent_present",
-{ raw_bool(binding.intent_present);
-}),
+{ V::Bool(binding.intent_present) }),
 (IntentScope,
 "intent_scope",
-{ json_str(binding.intent_scope);
-}),
+{ V::Str(binding.intent_scope) }),
 (SourceChainComplete,
 "source_chain_complete",
-{ raw_bool(binding.source_chain_complete);
-}),
+{ V::Bool(binding.source_chain_complete) }),
 (ManifestReferenceEventId,
 "manifest_reference_event_id",
-{ json_event_id_option(binding.manifest_reference_event_id);
-}),
+{ opt_event_id_value(binding.manifest_reference_event_id) }),
 (CandidateArtifactReferenceEventId,
 "candidate_artifact_reference_event_id",
-{ json_event_id_option(binding.artifact_reference_event_id);
-}),
+{ opt_event_id_value(binding.artifact_reference_event_id) }),
 (VmTestReportReferenceEventId,
 "vm_test_report_reference_event_id",
-{ json_event_id_option(binding.vm_report_reference_event_id);
-}),
+{ opt_event_id_value(binding.vm_report_reference_event_id) }),
 (LocalAttestationReferenceEventId,
 "local_attestation_reference_event_id",
-{ json_event_id_option(binding.local_attestation_reference_event_id);
-}),
+{ opt_event_id_value(binding.local_attestation_reference_event_id) }),
 (LocalApprovalReferenceEventId,
 "local_approval_reference_event_id",
-{ json_event_id_option(binding.local_approval_reference_event_id);
-}),
+{ opt_event_id_value(binding.local_approval_reference_event_id) }),
 (ComputedGrantReferenceEventId,
 "computed_grant_reference_event_id",
-{ json_event_id_option(binding.computed_grant_reference_event_id);
-}),
+{ opt_event_id_value(binding.computed_grant_reference_event_id) }),
 (AuditRollbackReferenceEventId,
 "audit_rollback_reference_event_id",
-{ json_event_id_option(binding.audit_rollback_reference_event_id);
-}),
+{ opt_event_id_value(binding.audit_rollback_reference_event_id) }),
 (ServiceSlotReservationEventId,
 "service_slot_reservation_event_id",
-{ json_event_id_option(binding.service_slot_reservation_event_id);
-}),
+{ opt_event_id_value(binding.service_slot_reservation_event_id) }),
 (AllocatorAuthoritySourceEvidenceEventId,
 "allocator_authority_source_evidence_event_id",
-{ json_event_id_option(binding.allocator_authority_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.allocator_authority_source_evidence_event_id) }),
 (RamOnlyServiceSlotId,
 "ram_only_service_slot_id",
-{ if let Some(id) = binding.ram_only_service_slot_id { json_str(id.as_str());
-} else { raw("null");
-} }),
+{ match binding.ram_only_service_slot_id { Some(ref id) => V::Str(id.as_str()), None => V::Null } }),
 (SourceEvidenceRetained,
 "source_evidence_retained",
-{ raw("true");
-}),
+{ V::Bool(true) }),
 (Retention,
 "retention",
-{ raw("\"current_boot_ram_event_log\"");
-}),
+{ V::Str("current_boot_ram_event_log") }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesServiceInventoryRecords,
 "creates_service_inventory_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesLoad,
 "authorizes_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 }
 
-fn emit_module_service_slot_allocation_intent_source_evidence_binding(
+fn module_service_slot_allocation_intent_source_evidence_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleServiceSlotAllocationIntentSourceEvidence,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleServiceSlotAllocationIntentSourceEvidence,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_SERVICE_SLOT_ALLOCATION_INTENT_SOURCE_EVIDENCE_BINDING_FIELDS,
         emit_module_service_slot_allocation_intent_source_evidence_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ModuleServiceSlotAuthorityInputSourceEvidenceBindingField,
+define_direct_binding_value_fields! { ModuleServiceSlotAuthorityInputSourceEvidenceBindingField,
 MODULE_SERVICE_SLOT_AUTHORITY_INPUT_SOURCE_EVIDENCE_BINDING_FIELDS,
 emit_module_service_slot_authority_input_source_evidence_binding_value,
 event_log::ModuleServiceSlotAuthorityInputSourceEvidence,
@@ -5206,164 +4534,127 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ json_str(binding.schema);
-}),
+{ V::Str(binding.schema) }),
 (InputSchema,
 "input_schema",
-{ json_str(binding.input_schema);
-}),
+{ V::Str(binding.input_schema) }),
 (InputId,
 "input_id",
-{ json_str(binding.input_id);
-}),
+{ V::Str(binding.input_id) }),
 (InputName,
 "input_name",
-{ json_str(binding.input_name);
-}),
+{ V::Str(binding.input_name) }),
 (Status,
 "status",
-{ json_str(binding.readiness_status);
-}),
+{ V::Str(binding.readiness_status) }),
 (Reason,
 "reason",
-{ json_str(binding.readiness_reason);
-}),
+{ V::Str(binding.readiness_reason) }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ json_str(binding.requested_capability);
-}),
+{ V::Str(binding.requested_capability) }),
 (LoadMode,
 "load_mode",
-{ json_str(binding.load_mode);
-}),
+{ V::Str(binding.load_mode) }),
 (Target,
 "target",
-{ json_str(binding.target);
-}),
+{ V::Str(binding.target) }),
 (SourceMethod,
 "source_method",
-{ json_str(binding.source_method);
-}),
+{ V::Str(binding.source_method) }),
 (SourceFactLocator,
 "source_fact_locator",
-{ json_str(binding.source_fact_locator);
-}),
+{ V::Str(binding.source_fact_locator) }),
 (InputStatus,
 "input_status",
-{ json_str(binding.input_status);
-}),
+{ V::Str(binding.input_status) }),
 (InputReason,
 "input_reason",
-{ json_str(binding.input_reason);
-}),
+{ V::Str(binding.input_reason) }),
 (InputPresent,
 "input_present",
-{ raw_bool(binding.input_present);
-}),
+{ V::Bool(binding.input_present) }),
 (InputScope,
 "input_scope",
-{ json_str(binding.input_scope);
-}),
+{ V::Str(binding.input_scope) }),
 (DependencySchema,
 "dependency_schema",
-{ json_str(binding.dependency_schema);
-}),
+{ V::Str(binding.dependency_schema) }),
 (DependencySourceEvidenceEventId,
 "dependency_source_evidence_event_id",
-{ json_event_id_option(binding.dependency_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.dependency_source_evidence_event_id) }),
 (DependencyPresent,
 "dependency_present",
-{ raw_bool(binding.dependency_present);
-}),
+{ V::Bool(binding.dependency_present) }),
 (RetainedModuleEvidencePresent,
 "retained_module_evidence_present",
-{ raw_bool(binding.retained_module_evidence_present);
-}),
+{ V::Bool(binding.retained_module_evidence_present) }),
 (RetainedServiceSlotReservationPresent,
 "retained_service_slot_reservation_present",
-{ raw_bool(binding.retained_service_slot_reservation_present);
-}),
+{ V::Bool(binding.retained_service_slot_reservation_present) }),
 (AllocatorAuthorityPresent,
 "allocator_authority_present",
-{ raw_bool(binding.allocator_authority_present);
-}),
+{ V::Bool(binding.allocator_authority_present) }),
 (AllocationIntentSourceEvidenceEventId,
 "allocation_intent_source_evidence_event_id",
-{ json_event_id_option(binding.allocation_intent_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.allocation_intent_source_evidence_event_id) }),
 (SourceChainComplete,
 "source_chain_complete",
-{ raw_bool(binding.source_chain_complete);
-}),
+{ V::Bool(binding.source_chain_complete) }),
 (ServiceSlotReservationEventId,
 "service_slot_reservation_event_id",
-{ json_event_id_option(binding.service_slot_reservation_event_id);
-}),
+{ opt_event_id_value(binding.service_slot_reservation_event_id) }),
 (AllocatorAuthoritySourceEvidenceEventId,
 "allocator_authority_source_evidence_event_id",
-{ json_event_id_option(binding.allocator_authority_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.allocator_authority_source_evidence_event_id) }),
 (RamOnlyServiceSlotId,
 "ram_only_service_slot_id",
-{ if let Some(id) = binding.ram_only_service_slot_id { json_str(id.as_str());
-} else { raw("null");
-} }),
+{ match binding.ram_only_service_slot_id { Some(ref id) => V::Str(id.as_str()), None => V::Null } }),
 (SourceEvidenceRetained,
 "source_evidence_retained",
-{ raw("true");
-}),
+{ V::Bool(true) }),
 (Retention,
 "retention",
-{ raw("\"current_boot_ram_event_log\"");
-}),
+{ V::Str("current_boot_ram_event_log") }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesServiceInventoryRecords,
 "creates_service_inventory_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesLoad,
 "authorizes_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 }
 
-fn emit_module_service_slot_authority_input_source_evidence_binding(
+fn module_service_slot_authority_input_source_evidence_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleServiceSlotAuthorityInputSourceEvidence,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleServiceSlotAuthorityInputSourceEvidence,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_SERVICE_SLOT_AUTHORITY_INPUT_SOURCE_EVIDENCE_BINDING_FIELDS,
         emit_module_service_slot_authority_input_source_evidence_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ModuleServiceSlotAllocatorAuthorityDecisionSourceEvidenceBindingField,
+define_direct_binding_value_fields! { ModuleServiceSlotAllocatorAuthorityDecisionSourceEvidenceBindingField,
 MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_SOURCE_EVIDENCE_BINDING_FIELDS,
 emit_module_service_slot_allocator_authority_decision_source_evidence_binding_value,
 event_log::ModuleServiceSlotAllocatorAuthorityDecisionSourceEvidence,
@@ -5371,174 +4662,127 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ json_str(binding.schema);
-}),
+{ V::Str(binding.schema) }),
 (DecisionSchema,
 "decision_schema",
-{ json_str(binding.decision_schema);
-}),
+{ V::Str(binding.decision_schema) }),
 (DecisionId,
 "decision_id",
-{ json_str(binding.decision_id);
-}),
+{ V::Str(binding.decision_id) }),
 (Status,
 "status",
-{ json_str(binding.readiness_status);
-}),
+{ V::Str(binding.readiness_status) }),
 (Reason,
 "reason",
-{ json_str(binding.readiness_reason);
-}),
+{ V::Str(binding.readiness_reason) }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ json_str(binding.requested_capability);
-}),
+{ V::Str(binding.requested_capability) }),
 (LoadMode,
 "load_mode",
-{ json_str(binding.load_mode);
-}),
+{ V::Str(binding.load_mode) }),
 (Target,
 "target",
-{ json_str(binding.target);
-}),
+{ V::Str(binding.target) }),
 (SourceMethod,
 "source_method",
-{ json_str(binding.source_method);
-}),
+{ V::Str(binding.source_method) }),
 (SourceFactLocator,
 "source_fact_locator",
-{ json_str(binding.source_fact_locator);
-}),
+{ V::Str(binding.source_fact_locator) }),
 (DecisionStatus,
 "decision_status",
-{ json_str(binding.decision_status);
-}),
+{ V::Str(binding.decision_status) }),
 (DecisionReason,
 "decision_reason",
-{ json_str(binding.decision_reason);
-}),
+{ V::Str(binding.decision_reason) }),
 (DecisionPresent,
 "decision_present",
-{ raw_bool(binding.decision_present);
-}),
+{ V::Bool(binding.decision_present) }),
 (DecisionScope,
 "decision_scope",
-{ json_str(binding.decision_scope);
-}),
+{ V::Str(binding.decision_scope) }),
 (AllocatorAuthorityPresent,
 "allocator_authority_present",
-{ raw_bool(binding.allocator_authority_present);
-}),
+{ V::Bool(binding.allocator_authority_present) }),
 (AllocationIntentPresent,
 "allocation_intent_present",
-{ raw_bool(binding.allocation_intent_present);
-}),
+{ V::Bool(binding.allocation_intent_present) }),
 (AuthorityInputsComplete,
 "authority_inputs_complete",
-{ raw_bool(binding.authority_inputs_complete);
-}),
+{ V::Bool(binding.authority_inputs_complete) }),
 (SourceChainComplete,
 "source_chain_complete",
-{ raw_bool(binding.source_chain_complete);
-}),
+{ V::Bool(binding.source_chain_complete) }),
 (AllocatorAuthoritySourceEvidenceEventId,
 "allocator_authority_source_evidence_event_id",
-{ json_event_id_option(binding.allocator_authority_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.allocator_authority_source_evidence_event_id) }),
 (AllocationIntentSourceEvidenceEventId,
 "allocation_intent_source_evidence_event_id",
-{ json_event_id_option(binding.allocation_intent_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.allocation_intent_source_evidence_event_id) }),
 (AuthorityInputSourceEvidenceEventIds,
 "authority_input_source_evidence_event_ids",
-{ raw("[");
-let mut idx = 0usize;
-while idx < binding.authority_input_source_evidence_event_ids.len() { json_event_id_option(binding.authority_input_source_evidence_event_ids[idx]);
-if idx + 1 != binding.authority_input_source_evidence_event_ids.len() { raw(", ");
-} idx += 1;
-} raw("]");
-}),
+{ V::InlineArray(binding.authority_input_source_evidence_event_ids.iter().copied().map(opt_event_id_value).collect()) }),
 (AuthorityInputPresent,
 "authority_input_present",
-{ raw("[");
-let mut idx = 0usize;
-while idx < binding.authority_input_present.len() { raw_bool(binding.authority_input_present[idx]);
-if idx + 1 != binding.authority_input_present.len() { raw(", ");
-} idx += 1;
-} raw("]");
-}),
+{ V::InlineArray(binding.authority_input_present.iter().copied().map(V::Bool).collect()) }),
 (RetainedModuleEvidencePresent,
 "retained_module_evidence_present",
-{ raw_bool(binding.retained_module_evidence_present);
-}),
+{ V::Bool(binding.retained_module_evidence_present) }),
 (RetainedServiceSlotReservationPresent,
 "retained_service_slot_reservation_present",
-{ raw_bool(binding.retained_service_slot_reservation_present);
-}),
+{ V::Bool(binding.retained_service_slot_reservation_present) }),
 (ServiceSlotReservationEventId,
 "service_slot_reservation_event_id",
-{ json_event_id_option(binding.service_slot_reservation_event_id);
-}),
+{ opt_event_id_value(binding.service_slot_reservation_event_id) }),
 (RamOnlyServiceSlotId,
 "ram_only_service_slot_id",
-{ if let Some(id) = binding.ram_only_service_slot_id { json_str(id.as_str());
-} else { raw("null");
-} }),
+{ match binding.ram_only_service_slot_id { Some(ref id) => V::Str(id.as_str()), None => V::Null } }),
 (SourceEvidenceRetained,
 "source_evidence_retained",
-{ raw("true");
-}),
+{ V::Bool(true) }),
 (Retention,
 "retention",
-{ raw("\"current_boot_ram_event_log\"");
-}),
+{ V::Str("current_boot_ram_event_log") }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesServiceInventoryRecords,
 "creates_service_inventory_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesLoad,
 "authorizes_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 }
 
-fn emit_module_service_slot_allocator_authority_decision_source_evidence_binding(
+fn module_service_slot_allocator_authority_decision_source_evidence_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleServiceSlotAllocatorAuthorityDecisionSourceEvidence,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleServiceSlotAllocatorAuthorityDecisionSourceEvidence,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_SOURCE_EVIDENCE_BINDING_FIELDS,
         emit_module_service_slot_allocator_authority_decision_source_evidence_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ModuleServiceSlotRegistryWriteCommitGateSourceEvidenceBindingField,
+define_direct_binding_value_fields! { ModuleServiceSlotRegistryWriteCommitGateSourceEvidenceBindingField,
 MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_SOURCE_EVIDENCE_BINDING_FIELDS,
 emit_module_service_slot_registry_write_commit_gate_source_evidence_binding_value,
 event_log::ModuleServiceSlotRegistryWriteCommitGateSourceEvidence,
@@ -5546,204 +4790,157 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ json_str(binding.schema);
-}),
+{ V::Str(binding.schema) }),
 (GateSchema,
 "gate_schema",
-{ json_str(binding.gate_schema);
-}),
+{ V::Str(binding.gate_schema) }),
 (GateId,
 "gate_id",
-{ json_str(binding.gate_id);
-}),
+{ V::Str(binding.gate_id) }),
 (Status,
 "status",
-{ json_str(binding.readiness_status);
-}),
+{ V::Str(binding.readiness_status) }),
 (Reason,
 "reason",
-{ json_str(binding.readiness_reason);
-}),
+{ V::Str(binding.readiness_reason) }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ json_str(binding.requested_capability);
-}),
+{ V::Str(binding.requested_capability) }),
 (LoadMode,
 "load_mode",
-{ json_str(binding.load_mode);
-}),
+{ V::Str(binding.load_mode) }),
 (Target,
 "target",
-{ json_str(binding.target);
-}),
+{ V::Str(binding.target) }),
 (SourceMethod,
 "source_method",
-{ json_str(binding.source_method);
-}),
+{ V::Str(binding.source_method) }),
 (SourceFactLocator,
 "source_fact_locator",
-{ json_str(binding.source_fact_locator);
-}),
+{ V::Str(binding.source_fact_locator) }),
 (GateStatus,
 "gate_status",
-{ json_str(binding.gate_status);
-}),
+{ V::Str(binding.gate_status) }),
 (GateReason,
 "gate_reason",
-{ json_str(binding.gate_reason);
-}),
+{ V::Str(binding.gate_reason) }),
 (GatePresent,
 "gate_present",
-{ raw_bool(binding.gate_present);
-}),
+{ V::Bool(binding.gate_present) }),
 (GateScope,
 "gate_scope",
-{ json_str(binding.gate_scope);
-}),
+{ V::Str(binding.gate_scope) }),
 (GateSchemaOk,
 "gate_schema_ok",
-{ raw_bool(binding.gate_schema_ok);
-}),
+{ V::Bool(binding.gate_schema_ok) }),
 (GateProvenanceOk,
 "gate_provenance_ok",
-{ raw_bool(binding.gate_provenance_ok);
-}),
+{ V::Bool(binding.gate_provenance_ok) }),
 (GateClassification,
 "gate_classification",
-{ json_str(binding.gate_classification);
-}),
+{ V::Str(binding.gate_classification) }),
 (AuthorityDecisionPresent,
 "authority_decision_present",
-{ raw_bool(binding.authority_decision_present);
-}),
+{ V::Bool(binding.authority_decision_present) }),
 (RegistryWriteAuthorityPresent,
 "registry_write_authority_present",
-{ raw_bool(binding.registry_write_authority_present);
-}),
+{ V::Bool(binding.registry_write_authority_present) }),
 (RegistryBindingAvailable,
 "registry_binding_available",
-{ raw_bool(binding.registry_binding_available);
-}),
+{ V::Bool(binding.registry_binding_available) }),
 (DurableAuditWriteAvailable,
 "durable_audit_write_available",
-{ raw_bool(binding.durable_audit_write_available);
-}),
+{ V::Bool(binding.durable_audit_write_available) }),
 (RollbackPlanInstallAvailable,
 "rollback_plan_install_available",
-{ raw_bool(binding.rollback_plan_install_available);
-}),
+{ V::Bool(binding.rollback_plan_install_available) }),
 (RetainedServiceSlotReservationPresent,
 "retained_service_slot_reservation_present",
-{ raw_bool(binding.retained_service_slot_reservation_present);
-}),
+{ V::Bool(binding.retained_service_slot_reservation_present) }),
 (SourceChainComplete,
 "source_chain_complete",
-{ raw_bool(binding.source_chain_complete);
-}),
+{ V::Bool(binding.source_chain_complete) }),
 (AuthorityDecisionSourceEvidenceEventId,
 "authority_decision_source_evidence_event_id",
-{ json_event_id_option(binding.authority_decision_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.authority_decision_source_evidence_event_id) }),
 (RegistryWriteAuthoritySourceEvidenceEventId,
 "registry_write_authority_source_evidence_event_id",
-{ json_event_id_option(binding.registry_write_authority_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.registry_write_authority_source_evidence_event_id) }),
 (RegistryBindingSourceEvidenceEventId,
 "registry_binding_source_evidence_event_id",
-{ json_event_id_option(binding.registry_binding_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.registry_binding_source_evidence_event_id) }),
 (DurableAuditSourceEvidenceEventId,
 "durable_audit_source_evidence_event_id",
-{ json_event_id_option(binding.durable_audit_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.durable_audit_source_evidence_event_id) }),
 (RollbackInstallSourceEvidenceEventId,
 "rollback_install_source_evidence_event_id",
-{ json_event_id_option(binding.rollback_install_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.rollback_install_source_evidence_event_id) }),
 (ServiceSlotReservationEventId,
 "service_slot_reservation_event_id",
-{ json_event_id_option(binding.service_slot_reservation_event_id);
-}),
+{ opt_event_id_value(binding.service_slot_reservation_event_id) }),
 (RamOnlyServiceSlotId,
 "ram_only_service_slot_id",
-{ if let Some(id) = binding.ram_only_service_slot_id { json_str(id.as_str());
-} else { raw("null");
-} }),
+{ match binding.ram_only_service_slot_id { Some(ref id) => V::Str(id.as_str()), None => V::Null } }),
 (SourceEvidenceRetained,
 "source_evidence_retained",
-{ raw("true");
-}),
+{ V::Bool(true) }),
 (Retention,
 "retention",
-{ raw("\"current_boot_ram_event_log\"");
-}),
+{ V::Str("current_boot_ram_event_log") }),
 (AuthorizesRegistryWrite,
 "authorizes_registry_write",
-{ raw_bool(binding.authorizes_registry_write);
-}),
+{ V::Bool(binding.authorizes_registry_write) }),
 (MutatesServiceRegistry,
 "mutates_service_registry",
-{ raw_bool(binding.mutates_service_registry);
-}),
+{ V::Bool(binding.mutates_service_registry) }),
 (WritesDurableAuditState,
 "writes_durable_audit_state",
-{ raw_bool(binding.writes_durable_audit_state);
-}),
+{ V::Bool(binding.writes_durable_audit_state) }),
 (InstallsRollbackState,
 "installs_rollback_state",
-{ raw_bool(binding.installs_rollback_state);
-}),
+{ V::Bool(binding.installs_rollback_state) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw_bool(binding.allocates_service_slot);
-}),
+{ V::Bool(binding.allocates_service_slot) }),
 (CreatesServiceInventoryRecords,
 "creates_service_inventory_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsArtifact,
 "loads_artifact",
-{ raw_bool(binding.loads_artifact);
-}),
+{ V::Bool(binding.loads_artifact) }),
 (LoadAttempted,
 "load_attempted",
-{ raw_bool(binding.loads_artifact);
-}),
+{ V::Bool(binding.loads_artifact) }),
 (AuthorizesLoad,
 "authorizes_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 }
 
-fn emit_module_service_slot_registry_write_commit_gate_source_evidence_binding(
+fn module_service_slot_registry_write_commit_gate_source_evidence_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleServiceSlotRegistryWriteCommitGateSourceEvidence,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleServiceSlotRegistryWriteCommitGateSourceEvidence,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_SOURCE_EVIDENCE_BINDING_FIELDS,
         emit_module_service_slot_registry_write_commit_gate_source_evidence_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ModuleLoaderIdentitySourceEvidenceBindingField,
+define_direct_binding_value_fields! { ModuleLoaderIdentitySourceEvidenceBindingField,
 MODULE_LOADER_IDENTITY_SOURCE_EVIDENCE_BINDING_FIELDS,
 emit_module_loader_identity_source_evidence_binding_value,
 event_log::ModuleLoaderIdentitySourceEvidence,
@@ -5751,151 +4948,106 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ json_str(binding.schema);
-}),
+{ V::Str(binding.schema) }),
 (FactSchema,
 "fact_schema",
-{ json_str(binding.fact_schema);
-}),
+{ V::Str(binding.fact_schema) }),
 (Status,
 "status",
-{ json_str(binding.readiness_status);
-}),
+{ V::Str(binding.readiness_status) }),
 (Reason,
 "reason",
-{ json_str(binding.readiness_reason);
-}),
+{ V::Str(binding.readiness_reason) }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.module.load_ephemeral\"");
-}),
+{ V::Str("cap.module.load_ephemeral") }),
 (SourceMethod,
 "source_method",
-{ json_str(binding.source_method);
-}),
+{ V::Str(binding.source_method) }),
 (SourceFactLocator,
 "source_fact_locator",
-{ json_str(binding.source_fact_locator);
-}),
+{ V::Str(binding.source_fact_locator) }),
 (FactId,
 "fact_id",
-{ json_str(binding.fact_id);
-}),
+{ V::Str(binding.fact_id) }),
 (IdentityStatus,
 "identity_status",
-{ json_str(binding.identity_status);
-}),
+{ V::Str(binding.identity_status) }),
 (IdentityReason,
 "identity_reason",
-{ json_str(binding.identity_reason);
-}),
+{ V::Str(binding.identity_reason) }),
 (IdentityPresent,
 "identity_present",
-{ raw_bool(binding.identity_present);
-}),
+{ V::Bool(binding.identity_present) }),
 (SourceEvidenceRetained,
 "source_evidence_retained",
-{ raw("true");
-}),
+{ V::Bool(true) }),
 (Retention,
 "retention",
-{ raw("\"current_boot_ram_event_log\"");
-}),
+{ V::Str("current_boot_ram_event_log") }),
 (AcceptsLoaderDescriptor,
 "accepts_loader_descriptor",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsArtifactBytes,
 "accepts_artifact_bytes",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsArtifact,
 "loads_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesServiceInventoryRecords,
 "creates_service_inventory_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesLoad,
 "authorizes_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedModuleEvidencePresent,
 "retained_module_evidence_present",
-{ raw_bool(binding.retained_module_evidence_present);
-}),
+{ V::Bool(binding.retained_module_evidence_present) }),
 (ServiceSlotAllocatorReadinessPresent,
 "service_slot_allocator_readiness_present",
-{ raw_bool(binding.service_slot_allocator_readiness_present);
-}),
+{ V::Bool(binding.service_slot_allocator_readiness_present) }),
 (ServiceSlotAllocatorReady,
 "service_slot_allocator_ready",
-{ raw_bool(binding.service_slot_allocator_ready);
-}),
+{ V::Bool(binding.service_slot_allocator_ready) }),
 (AuditRollbackWriteBoundaryPresent,
 "audit_rollback_write_boundary_present",
-{ raw_bool(binding.audit_rollback_write_boundary_present);
-}),
+{ V::Bool(binding.audit_rollback_write_boundary_present) }),
 (RetainedModuleEvidenceEventIds,
 "retained_module_evidence_event_ids",
-{ raw("{\"manifest_reference_event_id\": ");
-json_event_id_option(binding.manifest_reference_event_id);
-raw(", \"candidate_artifact_reference_event_id\": ");
-json_event_id_option(binding.artifact_reference_event_id);
-raw(", \"vm_test_report_reference_event_id\": ");
-json_event_id_option(binding.vm_test_report_reference_event_id);
-raw(", \"local_attestation_reference_event_id\": ");
-json_event_id_option(binding.local_attestation_reference_event_id);
-raw(", \"local_approval_reference_event_id\": ");
-json_event_id_option(binding.local_approval_reference_event_id);
-raw(", \"computed_grant_reference_event_id\": ");
-json_event_id_option(binding.computed_grant_reference_event_id);
-raw(", \"audit_rollback_reference_event_id\": ");
-json_event_id_option(binding.audit_rollback_reference_event_id);
-raw(", \"service_slot_reservation_event_id\": ");
-json_event_id_option(binding.service_slot_reservation_event_id);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("manifest_reference_event_id", opt_event_id_value(binding.manifest_reference_event_id)), Field::new("candidate_artifact_reference_event_id", opt_event_id_value(binding.artifact_reference_event_id)), Field::new("vm_test_report_reference_event_id", opt_event_id_value(binding.vm_test_report_reference_event_id)), Field::new("local_attestation_reference_event_id", opt_event_id_value(binding.local_attestation_reference_event_id)), Field::new("local_approval_reference_event_id", opt_event_id_value(binding.local_approval_reference_event_id)), Field::new("computed_grant_reference_event_id", opt_event_id_value(binding.computed_grant_reference_event_id)), Field::new("audit_rollback_reference_event_id", opt_event_id_value(binding.audit_rollback_reference_event_id)), Field::new("service_slot_reservation_event_id", opt_event_id_value(binding.service_slot_reservation_event_id))]) }),
 }
 
-fn emit_module_loader_identity_source_evidence_binding(
+fn module_loader_identity_source_evidence_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleLoaderIdentitySourceEvidence,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleLoaderIdentitySourceEvidence,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_LOADER_IDENTITY_SOURCE_EVIDENCE_BINDING_FIELDS,
         emit_module_loader_identity_source_evidence_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ModuleLoaderArtifactHashBindingSourceEvidenceBindingField,
+define_direct_binding_value_fields! { ModuleLoaderArtifactHashBindingSourceEvidenceBindingField,
 MODULE_LOADER_ARTIFACT_HASH_BINDING_SOURCE_EVIDENCE_BINDING_FIELDS,
 emit_module_loader_artifact_hash_binding_source_evidence_binding_value,
 event_log::ModuleLoaderArtifactHashBindingSourceEvidence,
@@ -5903,143 +5055,112 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ json_str(binding.schema);
-}),
+{ V::Str(binding.schema) }),
 (FactSchema,
 "fact_schema",
-{ json_str(binding.fact_schema);
-}),
+{ V::Str(binding.fact_schema) }),
 (Status,
 "status",
-{ json_str(binding.readiness_status);
-}),
+{ V::Str(binding.readiness_status) }),
 (Reason,
 "reason",
-{ json_str(binding.readiness_reason);
-}),
+{ V::Str(binding.readiness_reason) }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.module.load_ephemeral\"");
-}),
+{ V::Str("cap.module.load_ephemeral") }),
 (SourceMethod,
 "source_method",
-{ json_str(binding.source_method);
-}),
+{ V::Str(binding.source_method) }),
 (SourceFactLocator,
 "source_fact_locator",
-{ json_str(binding.source_fact_locator);
-}),
+{ V::Str(binding.source_fact_locator) }),
 (FactId,
 "fact_id",
-{ json_str(binding.fact_id);
-}),
+{ V::Str(binding.fact_id) }),
 (ArtifactHashBindingStatus,
 "artifact_hash_binding_status",
-{ json_str(binding.artifact_hash_binding_status);
-}),
+{ V::Str(binding.artifact_hash_binding_status) }),
 (ArtifactHashBindingReason,
 "artifact_hash_binding_reason",
-{ json_str(binding.artifact_hash_binding_reason);
-}),
+{ V::Str(binding.artifact_hash_binding_reason) }),
 (ArtifactHashBindingPresent,
 "artifact_hash_binding_present",
-{ raw_bool(binding.artifact_hash_binding_present);
-}),
+{ V::Bool(binding.artifact_hash_binding_present) }),
 (SourceEvidenceRetained,
 "source_evidence_retained",
-{ raw("true");
-}),
+{ V::Bool(true) }),
 (Retention,
 "retention",
-{ raw("\"current_boot_ram_event_log\"");
-}),
+{ V::Str("current_boot_ram_event_log") }),
 (AcceptsLoaderDescriptor,
 "accepts_loader_descriptor",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsArtifactBytes,
 "accepts_artifact_bytes",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsArtifact,
 "loads_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesServiceInventoryRecords,
 "creates_service_inventory_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesLoad,
 "authorizes_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedModuleEvidencePresent,
 "retained_module_evidence_present",
-{ raw_bool(binding.retained_module_evidence_present);
-}),
+{ V::Bool(binding.retained_module_evidence_present) }),
 (ServiceSlotAllocatorReadinessPresent,
 "service_slot_allocator_readiness_present",
-{ raw_bool(binding.service_slot_allocator_readiness_present);
-}),
+{ V::Bool(binding.service_slot_allocator_readiness_present) }),
 (ServiceSlotAllocatorReady,
 "service_slot_allocator_ready",
-{ raw_bool(binding.service_slot_allocator_ready);
-}),
+{ V::Bool(binding.service_slot_allocator_ready) }),
 (AuditRollbackWriteBoundaryPresent,
 "audit_rollback_write_boundary_present",
-{ raw_bool(binding.audit_rollback_write_boundary_present);
-}),
+{ V::Bool(binding.audit_rollback_write_boundary_present) }),
 (LoaderIdentityPresent,
 "loader_identity_present",
-{ raw_bool(binding.loader_identity_present);
-}),
+{ V::Bool(binding.loader_identity_present) }),
 (BindsLoaderIdentity,
 "binds_loader_identity",
-{ raw_bool(binding.binds_loader_identity);
-}),
+{ V::Bool(binding.binds_loader_identity) }),
 (LoaderIdentitySourceEvidenceEventId,
 "loader_identity_source_evidence_event_id",
-{ json_event_id_option(binding.loader_identity_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.loader_identity_source_evidence_event_id) }),
 }
 
-fn emit_module_loader_artifact_hash_binding_source_evidence_binding(
+fn module_loader_artifact_hash_binding_source_evidence_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleLoaderArtifactHashBindingSourceEvidence,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleLoaderArtifactHashBindingSourceEvidence,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_LOADER_ARTIFACT_HASH_BINDING_SOURCE_EVIDENCE_BINDING_FIELDS,
         emit_module_loader_artifact_hash_binding_source_evidence_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ModuleLoaderFactSourceEvidenceBindingField,
+define_direct_binding_value_fields! { ModuleLoaderFactSourceEvidenceBindingField,
 MODULE_LOADER_FACT_SOURCE_EVIDENCE_BINDING_FIELDS,
 emit_module_loader_fact_source_evidence_binding_value,
 event_log::ModuleLoaderFactSourceEvidence,
@@ -6047,167 +5168,130 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ json_str(binding.schema);
-}),
+{ V::Str(binding.schema) }),
 (FactSchema,
 "fact_schema",
-{ json_str(binding.fact_schema);
-}),
+{ V::Str(binding.fact_schema) }),
 (Status,
 "status",
-{ json_str(binding.readiness_status);
-}),
+{ V::Str(binding.readiness_status) }),
 (Reason,
 "reason",
-{ json_str(binding.readiness_reason);
-}),
+{ V::Str(binding.readiness_reason) }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.module.load_ephemeral\"");
-}),
+{ V::Str("cap.module.load_ephemeral") }),
 (SourceMethod,
 "source_method",
-{ json_str(binding.source_method);
-}),
+{ V::Str(binding.source_method) }),
 (SourceFactLocator,
 "source_fact_locator",
-{ json_str(binding.source_fact_locator);
-}),
+{ V::Str(binding.source_fact_locator) }),
 (FactId,
 "fact_id",
-{ json_str(binding.fact_id);
-}),
+{ V::Str(binding.fact_id) }),
 (FactStatus,
 "fact_status",
-{ json_str(binding.fact_status);
-}),
+{ V::Str(binding.fact_status) }),
 (FactReason,
 "fact_reason",
-{ json_str(binding.fact_reason);
-}),
+{ V::Str(binding.fact_reason) }),
 (FactPresent,
 "fact_present",
-{ raw_bool(binding.fact_present);
-}),
+{ V::Bool(binding.fact_present) }),
 (DependencyGate,
 "dependency_gate",
-{ json_str(binding.dependency_gate);
-}),
+{ V::Str(binding.dependency_gate) }),
 (DependencySchema,
 "dependency_schema",
-{ json_str(binding.dependency_schema);
-}),
+{ V::Str(binding.dependency_schema) }),
 (DependencyMethod,
 "dependency_method",
-{ json_str(binding.dependency_method);
-}),
+{ V::Str(binding.dependency_method) }),
 (DependencyPresent,
 "dependency_present",
-{ raw_bool(binding.dependency_present);
-}),
+{ V::Bool(binding.dependency_present) }),
 (DependencySourceEvidenceEventId,
 "dependency_source_evidence_event_id",
-{ json_event_id_option(binding.dependency_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.dependency_source_evidence_event_id) }),
 (SourceEvidenceRetained,
 "source_evidence_retained",
-{ raw("true");
-}),
+{ V::Bool(true) }),
 (Retention,
 "retention",
-{ raw("\"current_boot_ram_event_log\"");
-}),
+{ V::Str("current_boot_ram_event_log") }),
 (AcceptsLoaderDescriptor,
 "accepts_loader_descriptor",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsArtifactBytes,
 "accepts_artifact_bytes",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsArtifact,
 "loads_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesServiceInventoryRecords,
 "creates_service_inventory_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesLoad,
 "authorizes_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedModuleEvidencePresent,
 "retained_module_evidence_present",
-{ raw_bool(binding.retained_module_evidence_present);
-}),
+{ V::Bool(binding.retained_module_evidence_present) }),
 (ServiceSlotAllocatorReadinessPresent,
 "service_slot_allocator_readiness_present",
-{ raw_bool(binding.service_slot_allocator_readiness_present);
-}),
+{ V::Bool(binding.service_slot_allocator_readiness_present) }),
 (ServiceSlotAllocatorReady,
 "service_slot_allocator_ready",
-{ raw_bool(binding.service_slot_allocator_ready);
-}),
+{ V::Bool(binding.service_slot_allocator_ready) }),
 (AuditRollbackWriteBoundaryPresent,
 "audit_rollback_write_boundary_present",
-{ raw_bool(binding.audit_rollback_write_boundary_present);
-}),
+{ V::Bool(binding.audit_rollback_write_boundary_present) }),
 (BindsRetainedModuleEvidence,
 "binds_retained_module_evidence",
-{ raw_bool(binding.binds_retained_module_evidence);
-}),
+{ V::Bool(binding.binds_retained_module_evidence) }),
 (BindsServiceSlotAllocator,
 "binds_service_slot_allocator",
-{ raw_bool(binding.binds_service_slot_allocator);
-}),
+{ V::Bool(binding.binds_service_slot_allocator) }),
 (BindsAuditRollbackWriteBoundary,
 "binds_audit_rollback_write_boundary",
-{ raw_bool(binding.binds_audit_rollback_write_boundary);
-}),
+{ V::Bool(binding.binds_audit_rollback_write_boundary) }),
 (BindsDependency,
 "binds_dependency",
-{ raw_bool(binding.binds_dependency);
-}),
+{ V::Bool(binding.binds_dependency) }),
 }
 
-fn emit_module_loader_fact_source_evidence_binding(
+fn module_loader_fact_source_evidence_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleLoaderFactSourceEvidence,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleLoaderFactSourceEvidence,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_LOADER_FACT_SOURCE_EVIDENCE_BINDING_FIELDS,
         emit_module_loader_fact_source_evidence_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ModuleLoaderRuntimeExecutionCommitGateSourceEvidenceBindingField,
+define_direct_binding_value_fields! { ModuleLoaderRuntimeExecutionCommitGateSourceEvidenceBindingField,
 MODULE_LOADER_RUNTIME_EXECUTION_COMMIT_GATE_SOURCE_EVIDENCE_BINDING_FIELDS,
 emit_module_loader_runtime_execution_commit_gate_source_evidence_binding_value,
 event_log::ModuleLoaderRuntimeExecutionCommitGateSourceEvidence,
@@ -6215,235 +5299,169 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ json_str(binding.schema);
-}),
+{ V::Str(binding.schema) }),
 (GateSchema,
 "gate_schema",
-{ json_str(binding.gate_schema);
-}),
+{ V::Str(binding.gate_schema) }),
 (GateId,
 "gate_id",
-{ json_str(binding.gate_id);
-}),
+{ V::Str(binding.gate_id) }),
 (Status,
 "status",
-{ json_str(binding.readiness_status);
-}),
+{ V::Str(binding.readiness_status) }),
 (Reason,
 "reason",
-{ json_str(binding.readiness_reason);
-}),
+{ V::Str(binding.readiness_reason) }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ json_str(binding.requested_capability);
-}),
+{ V::Str(binding.requested_capability) }),
 (LoadMode,
 "load_mode",
-{ json_str(binding.load_mode);
-}),
+{ V::Str(binding.load_mode) }),
 (Target,
 "target",
-{ json_str(binding.target);
-}),
+{ V::Str(binding.target) }),
 (SourceMethod,
 "source_method",
-{ json_str(binding.source_method);
-}),
+{ V::Str(binding.source_method) }),
 (SourceFactLocator,
 "source_fact_locator",
-{ json_str(binding.source_fact_locator);
-}),
+{ V::Str(binding.source_fact_locator) }),
 (GateStatus,
 "gate_status",
-{ json_str(binding.gate_status);
-}),
+{ V::Str(binding.gate_status) }),
 (GateReason,
 "gate_reason",
-{ json_str(binding.gate_reason);
-}),
+{ V::Str(binding.gate_reason) }),
 (GatePresent,
 "gate_present",
-{ raw_bool(binding.gate_present);
-}),
+{ V::Bool(binding.gate_present) }),
 (GateScope,
 "gate_scope",
-{ json_str(binding.gate_scope);
-}),
+{ V::Str(binding.gate_scope) }),
 (GateSchemaOk,
 "gate_schema_ok",
-{ raw_bool(binding.gate_schema_ok);
-}),
+{ V::Bool(binding.gate_schema_ok) }),
 (GateProvenanceOk,
 "gate_provenance_ok",
-{ raw_bool(binding.gate_provenance_ok);
-}),
+{ V::Bool(binding.gate_provenance_ok) }),
 (GateClassification,
 "gate_classification",
-{ json_str(binding.gate_classification);
-}),
+{ V::Str(binding.gate_classification) }),
 (AuthorityDecisionPresent,
 "authority_decision_present",
-{ raw_bool(binding.authority_decision_present);
-}),
+{ V::Bool(binding.authority_decision_present) }),
 (LoaderRuntimeContractPresent,
 "loader_runtime_contract_present",
-{ raw_bool(binding.loader_runtime_contract_present);
-}),
+{ V::Bool(binding.loader_runtime_contract_present) }),
 (LoaderRuntimeSourceEvidenceComplete,
 "loader_runtime_source_evidence_complete",
-{ raw_bool(binding.loader_runtime_source_evidence_complete);
-}),
+{ V::Bool(binding.loader_runtime_source_evidence_complete) }),
 (ServiceSlotBindingSourceEvidencePresent,
 "service_slot_binding_source_evidence_present",
-{ raw_bool(binding.service_slot_binding_source_evidence_present);
-}),
+{ V::Bool(binding.service_slot_binding_source_evidence_present) }),
 (ServiceSlotBindingFactPresent,
 "service_slot_binding_fact_present",
-{ raw_bool(binding.service_slot_binding_fact_present);
-}),
+{ V::Bool(binding.service_slot_binding_fact_present) }),
 (AuditRollbackWriteBoundarySourceEvidencePresent,
 "audit_rollback_write_boundary_source_evidence_present",
-{ raw_bool(binding.audit_rollback_write_boundary_source_evidence_present);
-}),
+{ V::Bool(binding.audit_rollback_write_boundary_source_evidence_present) }),
 (AuditRollbackWriteBoundaryFactPresent,
 "audit_rollback_write_boundary_fact_present",
-{ raw_bool(binding.audit_rollback_write_boundary_fact_present);
-}),
+{ V::Bool(binding.audit_rollback_write_boundary_fact_present) }),
 (RetainedServiceSlotReservationPresent,
 "retained_service_slot_reservation_present",
-{ raw_bool(binding.retained_service_slot_reservation_present);
-}),
+{ V::Bool(binding.retained_service_slot_reservation_present) }),
 (SourceChainComplete,
 "source_chain_complete",
-{ raw_bool(binding.source_chain_complete);
-}),
+{ V::Bool(binding.source_chain_complete) }),
 (AuthorityDecisionSourceEvidenceEventId,
 "authority_decision_source_evidence_event_id",
-{ json_event_id_option(binding.authority_decision_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.authority_decision_source_evidence_event_id) }),
 (LoaderRuntimeContractSourceEvidenceEventId,
 "loader_runtime_contract_source_evidence_event_id",
-{ json_event_id_option(binding.loader_runtime_contract_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.loader_runtime_contract_source_evidence_event_id) }),
 (LoaderRuntimeSourceEvidenceEventIds,
 "loader_runtime_source_evidence_event_ids",
-{ raw("[");
-let mut idx = 0usize;
-while idx < binding.loader_runtime_source_evidence_event_ids.len() { json_event_id_option(binding.loader_runtime_source_evidence_event_ids[idx]);
-if idx + 1 != binding.loader_runtime_source_evidence_event_ids.len() { raw(", ");
-} idx += 1;
-} raw("]");
-}),
+{ V::InlineArray(binding.loader_runtime_source_evidence_event_ids.iter().copied().map(opt_event_id_value).collect()) }),
 (LoaderRuntimeSourceEvidencePresent,
 "loader_runtime_source_evidence_present",
-{ raw("[");
-let mut idx = 0usize;
-while idx < binding.loader_runtime_source_evidence_present.len() { raw_bool(binding.loader_runtime_source_evidence_present[idx]);
-if idx + 1 != binding.loader_runtime_source_evidence_present.len() { raw(", ");
-} idx += 1;
-} raw("]");
-}),
+{ V::InlineArray(binding.loader_runtime_source_evidence_present.iter().copied().map(V::Bool).collect()) }),
 (LoaderRuntimeFactPresent,
 "loader_runtime_fact_present",
-{ raw("[");
-let mut idx = 0usize;
-while idx < binding.loader_runtime_fact_present.len() { raw_bool(binding.loader_runtime_fact_present[idx]);
-if idx + 1 != binding.loader_runtime_fact_present.len() { raw(", ");
-} idx += 1;
-} raw("]");
-}),
+{ V::InlineArray(binding.loader_runtime_fact_present.iter().copied().map(V::Bool).collect()) }),
 (ServiceSlotReservationEventId,
 "service_slot_reservation_event_id",
-{ json_event_id_option(binding.service_slot_reservation_event_id);
-}),
+{ opt_event_id_value(binding.service_slot_reservation_event_id) }),
 (RamOnlyServiceSlotId,
 "ram_only_service_slot_id",
-{ if let Some(id) = binding.ram_only_service_slot_id { json_str(id.as_str());
-} else { raw("null");
-} }),
+{ match binding.ram_only_service_slot_id { Some(ref id) => V::Str(id.as_str()), None => V::Null } }),
 (SourceEvidenceRetained,
 "source_evidence_retained",
-{ raw("true");
-}),
+{ V::Bool(true) }),
 (Retention,
 "retention",
-{ raw("\"current_boot_ram_event_log\"");
-}),
+{ V::Str("current_boot_ram_event_log") }),
 (AcceptsLoaderDescriptor,
 "accepts_loader_descriptor",
-{ raw_bool(binding.accepts_loader_descriptor);
-}),
+{ V::Bool(binding.accepts_loader_descriptor) }),
 (AcceptsArtifactBytes,
 "accepts_artifact_bytes",
-{ raw_bool(binding.accepts_artifact_bytes);
-}),
+{ V::Bool(binding.accepts_artifact_bytes) }),
 (AuthorizesExecution,
 "authorizes_execution",
-{ raw_bool(binding.authorizes_execution);
-}),
+{ V::Bool(binding.authorizes_execution) }),
 (MutatesServiceRegistry,
 "mutates_service_registry",
-{ raw_bool(binding.mutates_service_registry);
-}),
+{ V::Bool(binding.mutates_service_registry) }),
 (WritesDurableAuditState,
 "writes_durable_audit_state",
-{ raw_bool(binding.writes_durable_audit_state);
-}),
+{ V::Bool(binding.writes_durable_audit_state) }),
 (InstallsRollbackState,
 "installs_rollback_state",
-{ raw_bool(binding.installs_rollback_state);
-}),
+{ V::Bool(binding.installs_rollback_state) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw_bool(binding.allocates_service_slot);
-}),
+{ V::Bool(binding.allocates_service_slot) }),
 (CreatesServiceInventoryRecords,
 "creates_service_inventory_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsArtifact,
 "loads_artifact",
-{ raw_bool(binding.loads_artifact);
-}),
+{ V::Bool(binding.loads_artifact) }),
 (LoadAttempted,
 "load_attempted",
-{ raw_bool(binding.loads_artifact);
-}),
+{ V::Bool(binding.loads_artifact) }),
 (AuthorizesLoad,
 "authorizes_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 }
 
-fn emit_module_loader_runtime_execution_commit_gate_source_evidence_binding(
+fn module_loader_runtime_execution_commit_gate_source_evidence_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleLoaderRuntimeExecutionCommitGateSourceEvidence,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleLoaderRuntimeExecutionCommitGateSourceEvidence,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_LOADER_RUNTIME_EXECUTION_COMMIT_GATE_SOURCE_EVIDENCE_BINDING_FIELDS,
         emit_module_loader_runtime_execution_commit_gate_source_evidence_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ModuleLoaderDescriptorIntakeBoundarySourceEvidenceBindingField,
+define_direct_binding_value_fields! { ModuleLoaderDescriptorIntakeBoundarySourceEvidenceBindingField,
 MODULE_LOADER_DESCRIPTOR_INTAKE_BOUNDARY_SOURCE_EVIDENCE_BINDING_FIELDS,
 emit_module_loader_descriptor_intake_boundary_source_evidence_binding_value,
 event_log::ModuleLoaderDescriptorIntakeBoundarySourceEvidence,
@@ -6451,247 +5469,166 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ json_str(binding.schema);
-}),
+{ V::Str(binding.schema) }),
 (BoundarySchema,
 "boundary_schema",
-{ json_str(binding.boundary_schema);
-}),
+{ V::Str(binding.boundary_schema) }),
 (BoundaryId,
 "boundary_id",
-{ json_str(binding.boundary_id);
-}),
+{ V::Str(binding.boundary_id) }),
 (Status,
 "status",
-{ json_str(binding.readiness_status);
-}),
+{ V::Str(binding.readiness_status) }),
 (Reason,
 "reason",
-{ json_str(binding.readiness_reason);
-}),
+{ V::Str(binding.readiness_reason) }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ json_str(binding.requested_capability);
-}),
+{ V::Str(binding.requested_capability) }),
 (LoadMode,
 "load_mode",
-{ json_str(binding.load_mode);
-}),
+{ V::Str(binding.load_mode) }),
 (Target,
 "target",
-{ json_str(binding.target);
-}),
+{ V::Str(binding.target) }),
 (SourceMethod,
 "source_method",
-{ json_str(binding.source_method);
-}),
+{ V::Str(binding.source_method) }),
 (SourceFactLocator,
 "source_fact_locator",
-{ json_str(binding.source_fact_locator);
-}),
+{ V::Str(binding.source_fact_locator) }),
 (BoundaryStatus,
 "boundary_status",
-{ json_str(binding.boundary_status);
-}),
+{ V::Str(binding.boundary_status) }),
 (BoundaryReason,
 "boundary_reason",
-{ json_str(binding.boundary_reason);
-}),
+{ V::Str(binding.boundary_reason) }),
 (BoundaryPresent,
 "boundary_present",
-{ raw_bool(binding.boundary_present);
-}),
+{ V::Bool(binding.boundary_present) }),
 (BoundaryScope,
 "boundary_scope",
-{ json_str(binding.boundary_scope);
-}),
+{ V::Str(binding.boundary_scope) }),
 (BoundarySchemaOk,
 "boundary_schema_ok",
-{ raw_bool(binding.boundary_schema_ok);
-}),
+{ V::Bool(binding.boundary_schema_ok) }),
 (BoundaryProvenanceOk,
 "boundary_provenance_ok",
-{ raw_bool(binding.boundary_provenance_ok);
-}),
+{ V::Bool(binding.boundary_provenance_ok) }),
 (BoundaryClassification,
 "boundary_classification",
-{ json_str(binding.boundary_classification);
-}),
+{ V::Str(binding.boundary_classification) }),
 (RegistryWriteCommitGatePresent,
 "registry_write_commit_gate_present",
-{ raw_bool(binding.registry_write_commit_gate_present);
-}),
+{ V::Bool(binding.registry_write_commit_gate_present) }),
 (ExecutionCommitGatePresent,
 "execution_commit_gate_present",
-{ raw_bool(binding.execution_commit_gate_present);
-}),
+{ V::Bool(binding.execution_commit_gate_present) }),
 (LoaderRuntimeSourceEvidenceComplete,
 "loader_runtime_source_evidence_complete",
-{ raw_bool(binding.loader_runtime_source_evidence_complete);
-}),
+{ V::Bool(binding.loader_runtime_source_evidence_complete) }),
 (RetainedModuleEvidencePresent,
 "retained_module_evidence_present",
-{ raw_bool(binding.retained_module_evidence_present);
-}),
+{ V::Bool(binding.retained_module_evidence_present) }),
 (RetainedServiceSlotReservationPresent,
 "retained_service_slot_reservation_present",
-{ raw_bool(binding.retained_service_slot_reservation_present);
-}),
+{ V::Bool(binding.retained_service_slot_reservation_present) }),
 (SourceChainComplete,
 "source_chain_complete",
-{ raw_bool(binding.source_chain_complete);
-}),
+{ V::Bool(binding.source_chain_complete) }),
 (RegistryWriteCommitGateSourceEvidenceEventId,
 "registry_write_commit_gate_source_evidence_event_id",
-{ json_event_id_option(binding.registry_write_commit_gate_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.registry_write_commit_gate_source_evidence_event_id) }),
 (ExecutionCommitGateSourceEvidenceEventId,
 "execution_commit_gate_source_evidence_event_id",
-{ json_event_id_option(binding.execution_commit_gate_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.execution_commit_gate_source_evidence_event_id) }),
 (LoaderRuntimeSourceEvidenceEventIds,
 "loader_runtime_source_evidence_event_ids",
-{ raw("[");
-let mut idx = 0usize;
-while idx < binding.loader_runtime_source_evidence_event_ids.len() { json_event_id_option(binding.loader_runtime_source_evidence_event_ids[idx]);
-if idx + 1 != binding.loader_runtime_source_evidence_event_ids.len() { raw(", ");
-} idx += 1;
-} raw("]");
-}),
+{ V::InlineArray(binding.loader_runtime_source_evidence_event_ids.iter().copied().map(opt_event_id_value).collect()) }),
 (LoaderRuntimeSourceEvidencePresent,
 "loader_runtime_source_evidence_present",
-{ raw("[");
-let mut idx = 0usize;
-while idx < binding.loader_runtime_source_evidence_present.len() { raw_bool(binding.loader_runtime_source_evidence_present[idx]);
-if idx + 1 != binding.loader_runtime_source_evidence_present.len() { raw(", ");
-} idx += 1;
-} raw("]");
-}),
+{ V::InlineArray(binding.loader_runtime_source_evidence_present.iter().copied().map(V::Bool).collect()) }),
 (LoaderRuntimeFactPresent,
 "loader_runtime_fact_present",
-{ raw("[");
-let mut idx = 0usize;
-while idx < binding.loader_runtime_fact_present.len() { raw_bool(binding.loader_runtime_fact_present[idx]);
-if idx + 1 != binding.loader_runtime_fact_present.len() { raw(", ");
-} idx += 1;
-} raw("]");
-}),
+{ V::InlineArray(binding.loader_runtime_fact_present.iter().copied().map(V::Bool).collect()) }),
 (RetainedModuleEvidenceEventIds,
 "retained_module_evidence_event_ids",
-{ raw("{\"manifest_reference_event_id\": ");
-json_event_id_option(binding.manifest_reference_event_id);
-raw(", \"candidate_artifact_reference_event_id\": ");
-json_event_id_option(binding.artifact_reference_event_id);
-raw(", \"vm_test_report_reference_event_id\": ");
-json_event_id_option(binding.vm_test_report_reference_event_id);
-raw(", \"local_attestation_reference_event_id\": ");
-json_event_id_option(binding.local_attestation_reference_event_id);
-raw(", \"local_approval_reference_event_id\": ");
-json_event_id_option(binding.local_approval_reference_event_id);
-raw(", \"computed_grant_reference_event_id\": ");
-json_event_id_option(binding.computed_grant_reference_event_id);
-raw(", \"audit_rollback_reference_event_id\": ");
-json_event_id_option(binding.audit_rollback_reference_event_id);
-raw(", \"service_slot_reservation_event_id\": ");
-json_event_id_option(binding.service_slot_reservation_event_id);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("manifest_reference_event_id", opt_event_id_value(binding.manifest_reference_event_id)), Field::new("candidate_artifact_reference_event_id", opt_event_id_value(binding.artifact_reference_event_id)), Field::new("vm_test_report_reference_event_id", opt_event_id_value(binding.vm_test_report_reference_event_id)), Field::new("local_attestation_reference_event_id", opt_event_id_value(binding.local_attestation_reference_event_id)), Field::new("local_approval_reference_event_id", opt_event_id_value(binding.local_approval_reference_event_id)), Field::new("computed_grant_reference_event_id", opt_event_id_value(binding.computed_grant_reference_event_id)), Field::new("audit_rollback_reference_event_id", opt_event_id_value(binding.audit_rollback_reference_event_id)), Field::new("service_slot_reservation_event_id", opt_event_id_value(binding.service_slot_reservation_event_id))]) }),
 (RamOnlyServiceSlotId,
 "ram_only_service_slot_id",
-{ if let Some(id) = binding.ram_only_service_slot_id { json_str(id.as_str());
-} else { raw("null");
-} }),
+{ match binding.ram_only_service_slot_id { Some(ref id) => V::Str(id.as_str()), None => V::Null } }),
 (SourceEvidenceRetained,
 "source_evidence_retained",
-{ raw("true");
-}),
+{ V::Bool(true) }),
 (Retention,
 "retention",
-{ raw("\"current_boot_ram_event_log\"");
-}),
+{ V::Str("current_boot_ram_event_log") }),
 (AcceptsLoaderDescriptor,
 "accepts_loader_descriptor",
-{ raw_bool(binding.accepts_loader_descriptor);
-}),
+{ V::Bool(binding.accepts_loader_descriptor) }),
 (AcceptsDescriptorBytes,
 "accepts_descriptor_bytes",
-{ raw_bool(binding.accepts_descriptor_bytes);
-}),
+{ V::Bool(binding.accepts_descriptor_bytes) }),
 (AcceptsArtifactBytes,
 "accepts_artifact_bytes",
-{ raw_bool(binding.accepts_artifact_bytes);
-}),
+{ V::Bool(binding.accepts_artifact_bytes) }),
 (AuthorizesDescriptorIntake,
 "authorizes_descriptor_intake",
-{ raw_bool(binding.authorizes_descriptor_intake);
-}),
+{ V::Bool(binding.authorizes_descriptor_intake) }),
 (AuthorizesExecution,
 "authorizes_execution",
-{ raw_bool(binding.authorizes_execution);
-}),
+{ V::Bool(binding.authorizes_execution) }),
 (MutatesServiceRegistry,
 "mutates_service_registry",
-{ raw_bool(binding.mutates_service_registry);
-}),
+{ V::Bool(binding.mutates_service_registry) }),
 (WritesDurableAuditState,
 "writes_durable_audit_state",
-{ raw_bool(binding.writes_durable_audit_state);
-}),
+{ V::Bool(binding.writes_durable_audit_state) }),
 (InstallsRollbackState,
 "installs_rollback_state",
-{ raw_bool(binding.installs_rollback_state);
-}),
+{ V::Bool(binding.installs_rollback_state) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw_bool(binding.allocates_service_slot);
-}),
+{ V::Bool(binding.allocates_service_slot) }),
 (CreatesServiceInventoryRecords,
 "creates_service_inventory_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsArtifact,
 "loads_artifact",
-{ raw_bool(binding.loads_artifact);
-}),
+{ V::Bool(binding.loads_artifact) }),
 (LoadAttempted,
 "load_attempted",
-{ raw_bool(binding.loads_artifact);
-}),
+{ V::Bool(binding.loads_artifact) }),
 (AuthorizesLoad,
 "authorizes_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 }
 
-fn emit_module_loader_descriptor_intake_boundary_source_evidence_binding(
+fn module_loader_descriptor_intake_boundary_source_evidence_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleLoaderDescriptorIntakeBoundarySourceEvidence,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleLoaderDescriptorIntakeBoundarySourceEvidence,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_LOADER_DESCRIPTOR_INTAKE_BOUNDARY_SOURCE_EVIDENCE_BINDING_FIELDS,
         emit_module_loader_descriptor_intake_boundary_source_evidence_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ModuleLoaderArtifactByteIntakeBoundarySourceEvidenceBindingField,
+define_direct_binding_value_fields! { ModuleLoaderArtifactByteIntakeBoundarySourceEvidenceBindingField,
 MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_SOURCE_EVIDENCE_BINDING_FIELDS,
 emit_module_loader_artifact_byte_intake_boundary_source_evidence_binding_value,
 event_log::ModuleLoaderArtifactByteIntakeBoundarySourceEvidence,
@@ -6699,263 +5636,178 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ json_str(binding.schema);
-}),
+{ V::Str(binding.schema) }),
 (BoundarySchema,
 "boundary_schema",
-{ json_str(binding.boundary_schema);
-}),
+{ V::Str(binding.boundary_schema) }),
 (BoundaryId,
 "boundary_id",
-{ json_str(binding.boundary_id);
-}),
+{ V::Str(binding.boundary_id) }),
 (Status,
 "status",
-{ json_str(binding.readiness_status);
-}),
+{ V::Str(binding.readiness_status) }),
 (Reason,
 "reason",
-{ json_str(binding.readiness_reason);
-}),
+{ V::Str(binding.readiness_reason) }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ json_str(binding.requested_capability);
-}),
+{ V::Str(binding.requested_capability) }),
 (LoadMode,
 "load_mode",
-{ json_str(binding.load_mode);
-}),
+{ V::Str(binding.load_mode) }),
 (Target,
 "target",
-{ json_str(binding.target);
-}),
+{ V::Str(binding.target) }),
 (SourceMethod,
 "source_method",
-{ json_str(binding.source_method);
-}),
+{ V::Str(binding.source_method) }),
 (SourceFactLocator,
 "source_fact_locator",
-{ json_str(binding.source_fact_locator);
-}),
+{ V::Str(binding.source_fact_locator) }),
 (BoundaryStatus,
 "boundary_status",
-{ json_str(binding.boundary_status);
-}),
+{ V::Str(binding.boundary_status) }),
 (BoundaryReason,
 "boundary_reason",
-{ json_str(binding.boundary_reason);
-}),
+{ V::Str(binding.boundary_reason) }),
 (BoundaryPresent,
 "boundary_present",
-{ raw_bool(binding.boundary_present);
-}),
+{ V::Bool(binding.boundary_present) }),
 (BoundaryScope,
 "boundary_scope",
-{ json_str(binding.boundary_scope);
-}),
+{ V::Str(binding.boundary_scope) }),
 (BoundarySchemaOk,
 "boundary_schema_ok",
-{ raw_bool(binding.boundary_schema_ok);
-}),
+{ V::Bool(binding.boundary_schema_ok) }),
 (BoundaryProvenanceOk,
 "boundary_provenance_ok",
-{ raw_bool(binding.boundary_provenance_ok);
-}),
+{ V::Bool(binding.boundary_provenance_ok) }),
 (BoundaryClassification,
 "boundary_classification",
-{ json_str(binding.boundary_classification);
-}),
+{ V::Str(binding.boundary_classification) }),
 (DescriptorIntakeBoundaryPresent,
 "descriptor_intake_boundary_present",
-{ raw_bool(binding.descriptor_intake_boundary_present);
-}),
+{ V::Bool(binding.descriptor_intake_boundary_present) }),
 (DescriptorIntakeBoundarySourceChainComplete,
 "descriptor_intake_boundary_source_chain_complete",
-{ raw_bool(binding.descriptor_intake_boundary_source_chain_complete);
-}),
+{ V::Bool(binding.descriptor_intake_boundary_source_chain_complete) }),
 (ExecutionCommitGatePresent,
 "execution_commit_gate_present",
-{ raw_bool(binding.execution_commit_gate_present);
-}),
+{ V::Bool(binding.execution_commit_gate_present) }),
 (ArtifactHashBindingPresent,
 "artifact_hash_binding_present",
-{ raw_bool(binding.artifact_hash_binding_present);
-}),
+{ V::Bool(binding.artifact_hash_binding_present) }),
 (RetainedArtifactReferencePresent,
 "retained_artifact_reference_present",
-{ raw_bool(binding.retained_artifact_reference_present);
-}),
+{ V::Bool(binding.retained_artifact_reference_present) }),
 (RetainedModuleEvidencePresent,
 "retained_module_evidence_present",
-{ raw_bool(binding.retained_module_evidence_present);
-}),
+{ V::Bool(binding.retained_module_evidence_present) }),
 (RetainedServiceSlotReservationPresent,
 "retained_service_slot_reservation_present",
-{ raw_bool(binding.retained_service_slot_reservation_present);
-}),
+{ V::Bool(binding.retained_service_slot_reservation_present) }),
 (SourceChainComplete,
 "source_chain_complete",
-{ raw_bool(binding.source_chain_complete);
-}),
+{ V::Bool(binding.source_chain_complete) }),
 (DescriptorIntakeBoundarySourceEvidenceEventId,
 "descriptor_intake_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.descriptor_intake_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.descriptor_intake_boundary_source_evidence_event_id) }),
 (ExecutionCommitGateSourceEvidenceEventId,
 "execution_commit_gate_source_evidence_event_id",
-{ json_event_id_option(binding.execution_commit_gate_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.execution_commit_gate_source_evidence_event_id) }),
 (ArtifactHashBindingSourceEvidenceEventId,
 "artifact_hash_binding_source_evidence_event_id",
-{ json_event_id_option(binding.artifact_hash_binding_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.artifact_hash_binding_source_evidence_event_id) }),
 (LoaderRuntimeSourceEvidenceEventIds,
 "loader_runtime_source_evidence_event_ids",
-{ raw("[");
-let mut idx = 0usize;
-while idx < binding.loader_runtime_source_evidence_event_ids.len() { json_event_id_option(binding.loader_runtime_source_evidence_event_ids[idx]);
-if idx + 1 != binding.loader_runtime_source_evidence_event_ids.len() { raw(", ");
-} idx += 1;
-} raw("]");
-}),
+{ V::InlineArray(binding.loader_runtime_source_evidence_event_ids.iter().copied().map(opt_event_id_value).collect()) }),
 (LoaderRuntimeSourceEvidencePresent,
 "loader_runtime_source_evidence_present",
-{ raw("[");
-let mut idx = 0usize;
-while idx < binding.loader_runtime_source_evidence_present.len() { raw_bool(binding.loader_runtime_source_evidence_present[idx]);
-if idx + 1 != binding.loader_runtime_source_evidence_present.len() { raw(", ");
-} idx += 1;
-} raw("]");
-}),
+{ V::InlineArray(binding.loader_runtime_source_evidence_present.iter().copied().map(V::Bool).collect()) }),
 (LoaderRuntimeFactPresent,
 "loader_runtime_fact_present",
-{ raw("[");
-let mut idx = 0usize;
-while idx < binding.loader_runtime_fact_present.len() { raw_bool(binding.loader_runtime_fact_present[idx]);
-if idx + 1 != binding.loader_runtime_fact_present.len() { raw(", ");
-} idx += 1;
-} raw("]");
-}),
+{ V::InlineArray(binding.loader_runtime_fact_present.iter().copied().map(V::Bool).collect()) }),
 (RetainedModuleEvidenceEventIds,
 "retained_module_evidence_event_ids",
-{ raw("{\"manifest_reference_event_id\": ");
-json_event_id_option(binding.manifest_reference_event_id);
-raw(", \"candidate_artifact_reference_event_id\": ");
-json_event_id_option(binding.artifact_reference_event_id);
-raw(", \"vm_test_report_reference_event_id\": ");
-json_event_id_option(binding.vm_test_report_reference_event_id);
-raw(", \"local_attestation_reference_event_id\": ");
-json_event_id_option(binding.local_attestation_reference_event_id);
-raw(", \"local_approval_reference_event_id\": ");
-json_event_id_option(binding.local_approval_reference_event_id);
-raw(", \"computed_grant_reference_event_id\": ");
-json_event_id_option(binding.computed_grant_reference_event_id);
-raw(", \"audit_rollback_reference_event_id\": ");
-json_event_id_option(binding.audit_rollback_reference_event_id);
-raw(", \"service_slot_reservation_event_id\": ");
-json_event_id_option(binding.service_slot_reservation_event_id);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("manifest_reference_event_id", opt_event_id_value(binding.manifest_reference_event_id)), Field::new("candidate_artifact_reference_event_id", opt_event_id_value(binding.artifact_reference_event_id)), Field::new("vm_test_report_reference_event_id", opt_event_id_value(binding.vm_test_report_reference_event_id)), Field::new("local_attestation_reference_event_id", opt_event_id_value(binding.local_attestation_reference_event_id)), Field::new("local_approval_reference_event_id", opt_event_id_value(binding.local_approval_reference_event_id)), Field::new("computed_grant_reference_event_id", opt_event_id_value(binding.computed_grant_reference_event_id)), Field::new("audit_rollback_reference_event_id", opt_event_id_value(binding.audit_rollback_reference_event_id)), Field::new("service_slot_reservation_event_id", opt_event_id_value(binding.service_slot_reservation_event_id))]) }),
 (RamOnlyServiceSlotId,
 "ram_only_service_slot_id",
-{ if let Some(id) = binding.ram_only_service_slot_id { json_str(id.as_str());
-} else { raw("null");
-} }),
+{ match binding.ram_only_service_slot_id { Some(ref id) => V::Str(id.as_str()), None => V::Null } }),
 (SourceEvidenceRetained,
 "source_evidence_retained",
-{ raw("true");
-}),
+{ V::Bool(true) }),
 (Retention,
 "retention",
-{ raw("\"current_boot_ram_event_log\"");
-}),
+{ V::Str("current_boot_ram_event_log") }),
 (AcceptsLoaderDescriptor,
 "accepts_loader_descriptor",
-{ raw_bool(binding.accepts_loader_descriptor);
-}),
+{ V::Bool(binding.accepts_loader_descriptor) }),
 (AcceptsDescriptorBytes,
 "accepts_descriptor_bytes",
-{ raw_bool(binding.accepts_descriptor_bytes);
-}),
+{ V::Bool(binding.accepts_descriptor_bytes) }),
 (AcceptsArtifactBytes,
 "accepts_artifact_bytes",
-{ raw_bool(binding.accepts_artifact_bytes);
-}),
+{ V::Bool(binding.accepts_artifact_bytes) }),
 (AuthorizesDescriptorIntake,
 "authorizes_descriptor_intake",
-{ raw_bool(binding.authorizes_descriptor_intake);
-}),
+{ V::Bool(binding.authorizes_descriptor_intake) }),
 (AuthorizesArtifactByteIntake,
 "authorizes_artifact_byte_intake",
-{ raw_bool(binding.authorizes_artifact_byte_intake);
-}),
+{ V::Bool(binding.authorizes_artifact_byte_intake) }),
 (AuthorizesExecution,
 "authorizes_execution",
-{ raw_bool(binding.authorizes_execution);
-}),
+{ V::Bool(binding.authorizes_execution) }),
 (MutatesServiceRegistry,
 "mutates_service_registry",
-{ raw_bool(binding.mutates_service_registry);
-}),
+{ V::Bool(binding.mutates_service_registry) }),
 (WritesDurableAuditState,
 "writes_durable_audit_state",
-{ raw_bool(binding.writes_durable_audit_state);
-}),
+{ V::Bool(binding.writes_durable_audit_state) }),
 (InstallsRollbackState,
 "installs_rollback_state",
-{ raw_bool(binding.installs_rollback_state);
-}),
+{ V::Bool(binding.installs_rollback_state) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw_bool(binding.allocates_service_slot);
-}),
+{ V::Bool(binding.allocates_service_slot) }),
 (CreatesServiceInventoryRecords,
 "creates_service_inventory_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsArtifact,
 "loads_artifact",
-{ raw_bool(binding.loads_artifact);
-}),
+{ V::Bool(binding.loads_artifact) }),
 (LoadAttempted,
 "load_attempted",
-{ raw_bool(binding.loads_artifact);
-}),
+{ V::Bool(binding.loads_artifact) }),
 (AuthorizesLoad,
 "authorizes_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 }
 
-fn emit_module_loader_artifact_byte_intake_boundary_source_evidence_binding(
+fn module_loader_artifact_byte_intake_boundary_source_evidence_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleLoaderArtifactByteIntakeBoundarySourceEvidence,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleLoaderArtifactByteIntakeBoundarySourceEvidence,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_SOURCE_EVIDENCE_BINDING_FIELDS,
         emit_module_loader_artifact_byte_intake_boundary_source_evidence_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ModuleLoaderExecutionAuthorizationBoundarySourceEvidenceBindingField,
+define_direct_binding_value_fields! { ModuleLoaderExecutionAuthorizationBoundarySourceEvidenceBindingField,
 MODULE_LOADER_EXECUTION_AUTHORIZATION_BOUNDARY_SOURCE_EVIDENCE_BINDING_FIELDS,
 emit_module_loader_execution_authorization_boundary_source_evidence_binding_value,
 event_log::ModuleLoaderExecutionAuthorizationBoundarySourceEvidence,
@@ -6963,268 +5815,193 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ json_str(binding.schema);
-}),
+{ V::Str(binding.schema) }),
 (BoundarySchema,
 "boundary_schema",
-{ json_str(binding.boundary_schema);
-}),
+{ V::Str(binding.boundary_schema) }),
 (BoundaryId,
 "boundary_id",
-{ json_str(binding.boundary_id);
-}),
+{ V::Str(binding.boundary_id) }),
 (Status,
 "status",
-{ json_str(binding.readiness_status);
-}),
+{ V::Str(binding.readiness_status) }),
 (Reason,
 "reason",
-{ json_str(binding.readiness_reason);
-}),
+{ V::Str(binding.readiness_reason) }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ json_str(binding.requested_capability);
-}),
+{ V::Str(binding.requested_capability) }),
 (LoadMode,
 "load_mode",
-{ json_str(binding.load_mode);
-}),
+{ V::Str(binding.load_mode) }),
 (Target,
 "target",
-{ json_str(binding.target);
-}),
+{ V::Str(binding.target) }),
 (SourceMethod,
 "source_method",
-{ json_str(binding.source_method);
-}),
+{ V::Str(binding.source_method) }),
 (SourceFactLocator,
 "source_fact_locator",
-{ json_str(binding.source_fact_locator);
-}),
+{ V::Str(binding.source_fact_locator) }),
 (BoundaryStatus,
 "boundary_status",
-{ json_str(binding.boundary_status);
-}),
+{ V::Str(binding.boundary_status) }),
 (BoundaryReason,
 "boundary_reason",
-{ json_str(binding.boundary_reason);
-}),
+{ V::Str(binding.boundary_reason) }),
 (BoundaryPresent,
 "boundary_present",
-{ raw_bool(binding.boundary_present);
-}),
+{ V::Bool(binding.boundary_present) }),
 (BoundaryScope,
 "boundary_scope",
-{ json_str(binding.boundary_scope);
-}),
+{ V::Str(binding.boundary_scope) }),
 (BoundarySchemaOk,
 "boundary_schema_ok",
-{ raw_bool(binding.boundary_schema_ok);
-}),
+{ V::Bool(binding.boundary_schema_ok) }),
 (BoundaryProvenanceOk,
 "boundary_provenance_ok",
-{ raw_bool(binding.boundary_provenance_ok);
-}),
+{ V::Bool(binding.boundary_provenance_ok) }),
 (BoundaryClassification,
 "boundary_classification",
-{ json_str(binding.boundary_classification);
-}),
+{ V::Str(binding.boundary_classification) }),
 (SourceChainComplete,
 "source_chain_complete",
-{ raw_bool(binding.source_chain_complete);
-}),
+{ V::Bool(binding.source_chain_complete) }),
 (ArtifactByteIntakeBoundaryPresent,
 "artifact_byte_intake_boundary_present",
-{ raw_bool(binding.artifact_byte_intake_boundary_present);
-}),
+{ V::Bool(binding.artifact_byte_intake_boundary_present) }),
 (DescriptorIntakeBoundaryPresent,
 "descriptor_intake_boundary_present",
-{ raw_bool(binding.descriptor_intake_boundary_present);
-}),
+{ V::Bool(binding.descriptor_intake_boundary_present) }),
 (ExecutionCommitGatePresent,
 "execution_commit_gate_present",
-{ raw_bool(binding.execution_commit_gate_present);
-}),
+{ V::Bool(binding.execution_commit_gate_present) }),
 (EntrypointAbiSourceEvidencePresent,
 "entrypoint_abi_source_evidence_present",
-{ raw_bool(binding.entrypoint_abi_source_evidence_present);
-}),
+{ V::Bool(binding.entrypoint_abi_source_evidence_present) }),
 (AddressSpaceSourceEvidencePresent,
 "address_space_source_evidence_present",
-{ raw_bool(binding.address_space_source_evidence_present);
-}),
+{ V::Bool(binding.address_space_source_evidence_present) }),
 (MemoryMapSourceEvidencePresent,
 "memory_map_source_evidence_present",
-{ raw_bool(binding.memory_map_source_evidence_present);
-}),
+{ V::Bool(binding.memory_map_source_evidence_present) }),
 (AuditRollbackWriteBoundarySourceEvidencePresent,
 "audit_rollback_write_boundary_source_evidence_present",
-{ raw_bool(binding.audit_rollback_write_boundary_source_evidence_present);
-}),
+{ V::Bool(binding.audit_rollback_write_boundary_source_evidence_present) }),
 (RetainedModuleEvidencePresent,
 "retained_module_evidence_present",
-{ raw_bool(binding.retained_module_evidence_present);
-}),
+{ V::Bool(binding.retained_module_evidence_present) }),
 (RetainedServiceSlotReservationPresent,
 "retained_service_slot_reservation_present",
-{ raw_bool(binding.retained_service_slot_reservation_present);
-}),
+{ V::Bool(binding.retained_service_slot_reservation_present) }),
 (ArtifactByteIntakeBoundarySourceEvidenceEventId,
 "artifact_byte_intake_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.artifact_byte_intake_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.artifact_byte_intake_boundary_source_evidence_event_id) }),
 (DescriptorIntakeBoundarySourceEvidenceEventId,
 "descriptor_intake_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.descriptor_intake_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.descriptor_intake_boundary_source_evidence_event_id) }),
 (ExecutionCommitGateSourceEvidenceEventId,
 "execution_commit_gate_source_evidence_event_id",
-{ json_event_id_option(binding.execution_commit_gate_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.execution_commit_gate_source_evidence_event_id) }),
 (EntrypointAbiSourceEvidenceEventId,
 "entrypoint_abi_source_evidence_event_id",
-{ json_event_id_option(binding.entrypoint_abi_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.entrypoint_abi_source_evidence_event_id) }),
 (AddressSpaceSourceEvidenceEventId,
 "address_space_source_evidence_event_id",
-{ json_event_id_option(binding.address_space_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.address_space_source_evidence_event_id) }),
 (MemoryMapSourceEvidenceEventId,
 "memory_map_source_evidence_event_id",
-{ json_event_id_option(binding.memory_map_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.memory_map_source_evidence_event_id) }),
 (AuditRollbackWriteBoundarySourceEvidenceEventId,
 "audit_rollback_write_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.audit_rollback_write_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.audit_rollback_write_boundary_source_evidence_event_id) }),
 (RetainedModuleEvidenceEventIds,
 "retained_module_evidence_event_ids",
-{ raw("{\"manifest_reference_event_id\": ");
-json_event_id_option(binding.manifest_reference_event_id);
-raw(", \"candidate_artifact_reference_event_id\": ");
-json_event_id_option(binding.artifact_reference_event_id);
-raw(", \"vm_test_report_reference_event_id\": ");
-json_event_id_option(binding.vm_test_report_reference_event_id);
-raw(", \"local_attestation_reference_event_id\": ");
-json_event_id_option(binding.local_attestation_reference_event_id);
-raw(", \"local_approval_reference_event_id\": ");
-json_event_id_option(binding.local_approval_reference_event_id);
-raw(", \"computed_grant_reference_event_id\": ");
-json_event_id_option(binding.computed_grant_reference_event_id);
-raw(", \"audit_rollback_reference_event_id\": ");
-json_event_id_option(binding.audit_rollback_reference_event_id);
-raw(", \"service_slot_reservation_event_id\": ");
-json_event_id_option(binding.service_slot_reservation_event_id);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("manifest_reference_event_id", opt_event_id_value(binding.manifest_reference_event_id)), Field::new("candidate_artifact_reference_event_id", opt_event_id_value(binding.artifact_reference_event_id)), Field::new("vm_test_report_reference_event_id", opt_event_id_value(binding.vm_test_report_reference_event_id)), Field::new("local_attestation_reference_event_id", opt_event_id_value(binding.local_attestation_reference_event_id)), Field::new("local_approval_reference_event_id", opt_event_id_value(binding.local_approval_reference_event_id)), Field::new("computed_grant_reference_event_id", opt_event_id_value(binding.computed_grant_reference_event_id)), Field::new("audit_rollback_reference_event_id", opt_event_id_value(binding.audit_rollback_reference_event_id)), Field::new("service_slot_reservation_event_id", opt_event_id_value(binding.service_slot_reservation_event_id))]) }),
 (RamOnlyServiceSlotId,
 "ram_only_service_slot_id",
-{ if let Some(id) = binding.ram_only_service_slot_id { json_str(id.as_str());
-} else { raw("null");
-} }),
+{ match binding.ram_only_service_slot_id { Some(ref id) => V::Str(id.as_str()), None => V::Null } }),
 (SourceEvidenceRetained,
 "source_evidence_retained",
-{ raw("true");
-}),
+{ V::Bool(true) }),
 (Retention,
 "retention",
-{ raw("\"current_boot_ram_event_log\"");
-}),
+{ V::Str("current_boot_ram_event_log") }),
 (AcceptsLoaderDescriptor,
 "accepts_loader_descriptor",
-{ raw_bool(binding.accepts_loader_descriptor);
-}),
+{ V::Bool(binding.accepts_loader_descriptor) }),
 (AcceptsDescriptorBytes,
 "accepts_descriptor_bytes",
-{ raw_bool(binding.accepts_descriptor_bytes);
-}),
+{ V::Bool(binding.accepts_descriptor_bytes) }),
 (AcceptsArtifactBytes,
 "accepts_artifact_bytes",
-{ raw_bool(binding.accepts_artifact_bytes);
-}),
+{ V::Bool(binding.accepts_artifact_bytes) }),
 (AuthorizesDescriptorIntake,
 "authorizes_descriptor_intake",
-{ raw_bool(binding.authorizes_descriptor_intake);
-}),
+{ V::Bool(binding.authorizes_descriptor_intake) }),
 (AuthorizesArtifactByteIntake,
 "authorizes_artifact_byte_intake",
-{ raw_bool(binding.authorizes_artifact_byte_intake);
-}),
+{ V::Bool(binding.authorizes_artifact_byte_intake) }),
 (MapsExecutablePages,
 "maps_executable_pages",
-{ raw_bool(binding.maps_executable_pages);
-}),
+{ V::Bool(binding.maps_executable_pages) }),
 (JumpsToEntrypoint,
 "jumps_to_entrypoint",
-{ raw_bool(binding.jumps_to_entrypoint);
-}),
+{ V::Bool(binding.jumps_to_entrypoint) }),
 (AuthorizesExecution,
 "authorizes_execution",
-{ raw_bool(binding.authorizes_execution);
-}),
+{ V::Bool(binding.authorizes_execution) }),
 (MutatesServiceRegistry,
 "mutates_service_registry",
-{ raw_bool(binding.mutates_service_registry);
-}),
+{ V::Bool(binding.mutates_service_registry) }),
 (WritesDurableAuditState,
 "writes_durable_audit_state",
-{ raw_bool(binding.writes_durable_audit_state);
-}),
+{ V::Bool(binding.writes_durable_audit_state) }),
 (InstallsRollbackState,
 "installs_rollback_state",
-{ raw_bool(binding.installs_rollback_state);
-}),
+{ V::Bool(binding.installs_rollback_state) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw_bool(binding.allocates_service_slot);
-}),
+{ V::Bool(binding.allocates_service_slot) }),
 (CreatesServiceInventoryRecords,
 "creates_service_inventory_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsArtifact,
 "loads_artifact",
-{ raw_bool(binding.loads_artifact);
-}),
+{ V::Bool(binding.loads_artifact) }),
 (LoadAttempted,
 "load_attempted",
-{ raw_bool(binding.loads_artifact);
-}),
+{ V::Bool(binding.loads_artifact) }),
 (AuthorizesLoad,
 "authorizes_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 }
 
-fn emit_module_loader_execution_authorization_boundary_source_evidence_binding(
+fn module_loader_execution_authorization_boundary_source_evidence_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleLoaderExecutionAuthorizationBoundarySourceEvidence,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleLoaderExecutionAuthorizationBoundarySourceEvidence,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_LOADER_EXECUTION_AUTHORIZATION_BOUNDARY_SOURCE_EVIDENCE_BINDING_FIELDS,
         emit_module_loader_execution_authorization_boundary_source_evidence_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { ModuleLoaderServiceRegistryMutationBoundarySourceEvidenceBindingField,
+define_direct_binding_value_fields! { ModuleLoaderServiceRegistryMutationBoundarySourceEvidenceBindingField,
 MODULE_LOADER_SERVICE_REGISTRY_MUTATION_BOUNDARY_SOURCE_EVIDENCE_BINDING_FIELDS,
 emit_module_loader_service_registry_mutation_boundary_source_evidence_binding_value,
 event_log::ModuleLoaderServiceRegistryMutationBoundarySourceEvidence,
@@ -7232,240 +6009,172 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ json_str(binding.schema);
-}),
+{ V::Str(binding.schema) }),
 (BoundarySchema,
 "boundary_schema",
-{ json_str(binding.boundary_schema);
-}),
+{ V::Str(binding.boundary_schema) }),
 (BoundaryId,
 "boundary_id",
-{ json_str(binding.boundary_id);
-}),
+{ V::Str(binding.boundary_id) }),
 (Status,
 "status",
-{ json_str(binding.readiness_status);
-}),
+{ V::Str(binding.readiness_status) }),
 (Reason,
 "reason",
-{ json_str(binding.readiness_reason);
-}),
+{ V::Str(binding.readiness_reason) }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ json_str(binding.requested_capability);
-}),
+{ V::Str(binding.requested_capability) }),
 (LoadMode,
 "load_mode",
-{ json_str(binding.load_mode);
-}),
+{ V::Str(binding.load_mode) }),
 (Target,
 "target",
-{ json_str(binding.target);
-}),
+{ V::Str(binding.target) }),
 (SourceMethod,
 "source_method",
-{ json_str(binding.source_method);
-}),
+{ V::Str(binding.source_method) }),
 (SourceFactLocator,
 "source_fact_locator",
-{ json_str(binding.source_fact_locator);
-}),
+{ V::Str(binding.source_fact_locator) }),
 (BoundaryStatus,
 "boundary_status",
-{ json_str(binding.boundary_status);
-}),
+{ V::Str(binding.boundary_status) }),
 (BoundaryReason,
 "boundary_reason",
-{ json_str(binding.boundary_reason);
-}),
+{ V::Str(binding.boundary_reason) }),
 (BoundaryPresent,
 "boundary_present",
-{ raw_bool(binding.boundary_present);
-}),
+{ V::Bool(binding.boundary_present) }),
 (BoundaryScope,
 "boundary_scope",
-{ json_str(binding.boundary_scope);
-}),
+{ V::Str(binding.boundary_scope) }),
 (BoundarySchemaOk,
 "boundary_schema_ok",
-{ raw_bool(binding.boundary_schema_ok);
-}),
+{ V::Bool(binding.boundary_schema_ok) }),
 (BoundaryProvenanceOk,
 "boundary_provenance_ok",
-{ raw_bool(binding.boundary_provenance_ok);
-}),
+{ V::Bool(binding.boundary_provenance_ok) }),
 (BoundaryClassification,
 "boundary_classification",
-{ json_str(binding.boundary_classification);
-}),
+{ V::Str(binding.boundary_classification) }),
 (SourceChainComplete,
 "source_chain_complete",
-{ raw_bool(binding.source_chain_complete);
-}),
+{ V::Bool(binding.source_chain_complete) }),
 (ExecutionAuthorizationBoundaryPresent,
 "execution_authorization_boundary_present",
-{ raw_bool(binding.execution_authorization_boundary_present);
-}),
+{ V::Bool(binding.execution_authorization_boundary_present) }),
 (ExecutionAuthorizationBoundarySourceChainComplete,
 "execution_authorization_boundary_source_chain_complete",
-{ raw_bool(binding.execution_authorization_boundary_source_chain_complete);
-}),
+{ V::Bool(binding.execution_authorization_boundary_source_chain_complete) }),
 (RegistryWriteCommitGatePresent,
 "registry_write_commit_gate_present",
-{ raw_bool(binding.registry_write_commit_gate_present);
-}),
+{ V::Bool(binding.registry_write_commit_gate_present) }),
 (ServiceSlotBindingSourceEvidencePresent,
 "service_slot_binding_source_evidence_present",
-{ raw_bool(binding.service_slot_binding_source_evidence_present);
-}),
+{ V::Bool(binding.service_slot_binding_source_evidence_present) }),
 (RetainedModuleEvidencePresent,
 "retained_module_evidence_present",
-{ raw_bool(binding.retained_module_evidence_present);
-}),
+{ V::Bool(binding.retained_module_evidence_present) }),
 (RetainedServiceSlotReservationPresent,
 "retained_service_slot_reservation_present",
-{ raw_bool(binding.retained_service_slot_reservation_present);
-}),
+{ V::Bool(binding.retained_service_slot_reservation_present) }),
 (ExecutionAuthorizationBoundarySourceEvidenceEventId,
 "execution_authorization_boundary_source_evidence_event_id",
-{ json_event_id_option(binding.execution_authorization_boundary_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.execution_authorization_boundary_source_evidence_event_id) }),
 (RegistryWriteCommitGateSourceEvidenceEventId,
 "registry_write_commit_gate_source_evidence_event_id",
-{ json_event_id_option(binding.registry_write_commit_gate_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.registry_write_commit_gate_source_evidence_event_id) }),
 (ServiceSlotBindingSourceEvidenceEventId,
 "service_slot_binding_source_evidence_event_id",
-{ json_event_id_option(binding.service_slot_binding_source_evidence_event_id);
-}),
+{ opt_event_id_value(binding.service_slot_binding_source_evidence_event_id) }),
 (RetainedModuleEvidenceEventIds,
 "retained_module_evidence_event_ids",
-{ raw("{\"manifest_reference_event_id\": ");
-json_event_id_option(binding.manifest_reference_event_id);
-raw(", \"candidate_artifact_reference_event_id\": ");
-json_event_id_option(binding.artifact_reference_event_id);
-raw(", \"vm_test_report_reference_event_id\": ");
-json_event_id_option(binding.vm_test_report_reference_event_id);
-raw(", \"local_attestation_reference_event_id\": ");
-json_event_id_option(binding.local_attestation_reference_event_id);
-raw(", \"local_approval_reference_event_id\": ");
-json_event_id_option(binding.local_approval_reference_event_id);
-raw(", \"computed_grant_reference_event_id\": ");
-json_event_id_option(binding.computed_grant_reference_event_id);
-raw(", \"audit_rollback_reference_event_id\": ");
-json_event_id_option(binding.audit_rollback_reference_event_id);
-raw(", \"service_slot_reservation_event_id\": ");
-json_event_id_option(binding.service_slot_reservation_event_id);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("manifest_reference_event_id", opt_event_id_value(binding.manifest_reference_event_id)), Field::new("candidate_artifact_reference_event_id", opt_event_id_value(binding.artifact_reference_event_id)), Field::new("vm_test_report_reference_event_id", opt_event_id_value(binding.vm_test_report_reference_event_id)), Field::new("local_attestation_reference_event_id", opt_event_id_value(binding.local_attestation_reference_event_id)), Field::new("local_approval_reference_event_id", opt_event_id_value(binding.local_approval_reference_event_id)), Field::new("computed_grant_reference_event_id", opt_event_id_value(binding.computed_grant_reference_event_id)), Field::new("audit_rollback_reference_event_id", opt_event_id_value(binding.audit_rollback_reference_event_id)), Field::new("service_slot_reservation_event_id", opt_event_id_value(binding.service_slot_reservation_event_id))]) }),
 (RamOnlyServiceSlotId,
 "ram_only_service_slot_id",
-{ if let Some(id) = binding.ram_only_service_slot_id { json_str(id.as_str());
-} else { raw("null");
-} }),
+{ match binding.ram_only_service_slot_id { Some(ref id) => V::Str(id.as_str()), None => V::Null } }),
 (SourceEvidenceRetained,
 "source_evidence_retained",
-{ raw("true");
-}),
+{ V::Bool(true) }),
 (Retention,
 "retention",
-{ raw("\"current_boot_ram_event_log\"");
-}),
+{ V::Str("current_boot_ram_event_log") }),
 (AcceptsLoaderDescriptor,
 "accepts_loader_descriptor",
-{ raw_bool(binding.accepts_loader_descriptor);
-}),
+{ V::Bool(binding.accepts_loader_descriptor) }),
 (AcceptsDescriptorBytes,
 "accepts_descriptor_bytes",
-{ raw_bool(binding.accepts_descriptor_bytes);
-}),
+{ V::Bool(binding.accepts_descriptor_bytes) }),
 (AcceptsArtifactBytes,
 "accepts_artifact_bytes",
-{ raw_bool(binding.accepts_artifact_bytes);
-}),
+{ V::Bool(binding.accepts_artifact_bytes) }),
 (AuthorizesDescriptorIntake,
 "authorizes_descriptor_intake",
-{ raw_bool(binding.authorizes_descriptor_intake);
-}),
+{ V::Bool(binding.authorizes_descriptor_intake) }),
 (AuthorizesArtifactByteIntake,
 "authorizes_artifact_byte_intake",
-{ raw_bool(binding.authorizes_artifact_byte_intake);
-}),
+{ V::Bool(binding.authorizes_artifact_byte_intake) }),
 (MapsExecutablePages,
 "maps_executable_pages",
-{ raw_bool(binding.maps_executable_pages);
-}),
+{ V::Bool(binding.maps_executable_pages) }),
 (JumpsToEntrypoint,
 "jumps_to_entrypoint",
-{ raw_bool(binding.jumps_to_entrypoint);
-}),
+{ V::Bool(binding.jumps_to_entrypoint) }),
 (AuthorizesExecution,
 "authorizes_execution",
-{ raw_bool(binding.authorizes_execution);
-}),
+{ V::Bool(binding.authorizes_execution) }),
 (MutatesServiceRegistry,
 "mutates_service_registry",
-{ raw_bool(binding.mutates_service_registry);
-}),
+{ V::Bool(binding.mutates_service_registry) }),
 (WritesDurableAuditState,
 "writes_durable_audit_state",
-{ raw_bool(binding.writes_durable_audit_state);
-}),
+{ V::Bool(binding.writes_durable_audit_state) }),
 (InstallsRollbackState,
 "installs_rollback_state",
-{ raw_bool(binding.installs_rollback_state);
-}),
+{ V::Bool(binding.installs_rollback_state) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw_bool(binding.allocates_service_slot);
-}),
+{ V::Bool(binding.allocates_service_slot) }),
 (CreatesServiceInventoryRecords,
 "creates_service_inventory_records",
-{ raw_bool(binding.creates_service_inventory_records);
-}),
+{ V::Bool(binding.creates_service_inventory_records) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (CanLoadNow,
 "can_load_now",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsArtifact,
 "loads_artifact",
-{ raw_bool(binding.loads_artifact);
-}),
+{ V::Bool(binding.loads_artifact) }),
 (LoadAttempted,
 "load_attempted",
-{ raw_bool(binding.loads_artifact);
-}),
+{ V::Bool(binding.loads_artifact) }),
 (AuthorizesLoad,
 "authorizes_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 }
 
-fn emit_module_loader_service_registry_mutation_boundary_source_evidence_binding(
+fn module_loader_service_registry_mutation_boundary_source_evidence_binding_value<'a>(
     kind: &str,
-    binding: &event_log::ModuleLoaderServiceRegistryMutationBoundarySourceEvidence,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::ModuleLoaderServiceRegistryMutationBoundarySourceEvidence,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         MODULE_LOADER_SERVICE_REGISTRY_MUTATION_BOUNDARY_SOURCE_EVIDENCE_BINDING_FIELDS,
         emit_module_loader_service_registry_mutation_boundary_source_evidence_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { RecoveryArtifactIdentityReferenceBindingField,
+define_direct_binding_value_fields! { RecoveryArtifactIdentityReferenceBindingField,
 RECOVERY_ARTIFACT_IDENTITY_REFERENCE_BINDING_FIELDS,
 emit_recovery_artifact_identity_reference_binding_value,
 event_log::RecoveryArtifactIdentityReference,
@@ -7473,79 +6182,61 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.recovery_artifact_identity.v0\"");
-}),
+{ V::Str("raios.recovery_artifact_identity.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_load_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_load_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.load_artifact\"");
-}),
+{ V::Str("cap.recovery.load_artifact") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (AcceptsArtifactBytes,
 "accepts_artifact_bytes",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanMoveBeyondDenial,
 "can_move_beyond_denial",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsNormalModule,
 "loads_normal_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (Hashes,
 "hashes",
-{ raw("{\"identity_reference_hash\": ");
-json_sha256(binding.identity_reference_hash);
-raw(", \"artifact_hash\": ");
-json_sha256(binding.artifact_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("identity_reference_hash", V::Sha256(binding.identity_reference_hash)), Field::new("artifact_hash", V::Sha256(binding.artifact_hash))]) }),
 }
 
-fn emit_recovery_artifact_identity_reference_binding(
+fn recovery_artifact_identity_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::RecoveryArtifactIdentityReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::RecoveryArtifactIdentityReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         RECOVERY_ARTIFACT_IDENTITY_REFERENCE_BINDING_FIELDS,
         emit_recovery_artifact_identity_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { RecoveryArtifactTrustReferenceBindingField,
+define_direct_binding_value_fields! { RecoveryArtifactTrustReferenceBindingField,
 RECOVERY_ARTIFACT_TRUST_REFERENCE_BINDING_FIELDS,
 emit_recovery_artifact_trust_reference_binding_value,
 event_log::RecoveryArtifactTrustReference,
@@ -7553,87 +6244,64 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.recovery_artifact_trust.v0\"");
-}),
+{ V::Str("raios.recovery_artifact_trust.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_load_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_load_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.load_artifact\"");
-}),
+{ V::Str("cap.recovery.load_artifact") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (AcceptsArtifactBytes,
 "accepts_artifact_bytes",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanMoveBeyondDenial,
 "can_move_beyond_denial",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsNormalModule,
 "loads_normal_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedRecoveryArtifactIdentityEventId,
 "retained_recovery_artifact_identity_event_id",
-{ json_event_id(binding.retained_identity_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_identity_reference_event_id).sequence()) }),
 (Hashes,
 "hashes",
-{ raw("{\"trust_reference_hash\": ");
-json_sha256(binding.trust_reference_hash);
-raw(", \"identity_reference_hash\": ");
-json_sha256(binding.identity_reference_hash);
-raw(", \"artifact_hash\": ");
-json_sha256(binding.artifact_hash);
-raw(", \"trust_hash\": ");
-json_sha256(binding.trust_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("trust_reference_hash", V::Sha256(binding.trust_reference_hash)), Field::new("identity_reference_hash", V::Sha256(binding.identity_reference_hash)), Field::new("artifact_hash", V::Sha256(binding.artifact_hash)), Field::new("trust_hash", V::Sha256(binding.trust_hash))]) }),
 }
 
-fn emit_recovery_artifact_trust_reference_binding(
+fn recovery_artifact_trust_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::RecoveryArtifactTrustReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::RecoveryArtifactTrustReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         RECOVERY_ARTIFACT_TRUST_REFERENCE_BINDING_FIELDS,
         emit_recovery_artifact_trust_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { RecoveryArtifactVmTestReferenceBindingField,
+define_direct_binding_value_fields! { RecoveryArtifactVmTestReferenceBindingField,
 RECOVERY_ARTIFACT_VM_TEST_REFERENCE_BINDING_FIELDS,
 emit_recovery_artifact_vm_test_reference_binding_value,
 event_log::RecoveryArtifactVmTestReference,
@@ -7641,99 +6309,70 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.recovery_artifact_vm_test.v0\"");
-}),
+{ V::Str("raios.recovery_artifact_vm_test.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_load_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_load_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.load_artifact\"");
-}),
+{ V::Str("cap.recovery.load_artifact") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (AcceptsVmTestJson,
 "accepts_vm_test_json",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsArtifactBytes,
 "accepts_artifact_bytes",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanMoveBeyondDenial,
 "can_move_beyond_denial",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsNormalModule,
 "loads_normal_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedRecoveryArtifactIdentityEventId,
 "retained_recovery_artifact_identity_event_id",
-{ json_event_id(binding.retained_identity_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_identity_reference_event_id).sequence()) }),
 (RetainedRecoveryArtifactTrustEventId,
 "retained_recovery_artifact_trust_event_id",
-{ json_event_id(binding.retained_trust_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_trust_reference_event_id).sequence()) }),
 (Hashes,
 "hashes",
-{ raw("{\"vm_test_reference_hash\": ");
-json_sha256(binding.vm_test_reference_hash);
-raw(", \"identity_reference_hash\": ");
-json_sha256(binding.identity_reference_hash);
-raw(", \"trust_reference_hash\": ");
-json_sha256(binding.trust_reference_hash);
-raw(", \"artifact_hash\": ");
-json_sha256(binding.artifact_hash);
-raw(", \"trust_hash\": ");
-json_sha256(binding.trust_hash);
-raw(", \"vm_test_hash\": ");
-json_sha256(binding.vm_test_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("vm_test_reference_hash", V::Sha256(binding.vm_test_reference_hash)), Field::new("identity_reference_hash", V::Sha256(binding.identity_reference_hash)), Field::new("trust_reference_hash", V::Sha256(binding.trust_reference_hash)), Field::new("artifact_hash", V::Sha256(binding.artifact_hash)), Field::new("trust_hash", V::Sha256(binding.trust_hash)), Field::new("vm_test_hash", V::Sha256(binding.vm_test_hash))]) }),
 }
 
-fn emit_recovery_artifact_vm_test_reference_binding(
+fn recovery_artifact_vm_test_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::RecoveryArtifactVmTestReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::RecoveryArtifactVmTestReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         RECOVERY_ARTIFACT_VM_TEST_REFERENCE_BINDING_FIELDS,
         emit_recovery_artifact_vm_test_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { RecoveryArtifactLocalApprovalReferenceBindingField,
+define_direct_binding_value_fields! { RecoveryArtifactLocalApprovalReferenceBindingField,
 RECOVERY_ARTIFACT_LOCAL_APPROVAL_REFERENCE_BINDING_FIELDS,
 emit_recovery_artifact_local_approval_reference_binding_value,
 event_log::RecoveryArtifactLocalApprovalReference,
@@ -7741,107 +6380,73 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.recovery_artifact_local_approval.v0\"");
-}),
+{ V::Str("raios.recovery_artifact_local_approval.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_load_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_load_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.load_artifact\"");
-}),
+{ V::Str("cap.recovery.load_artifact") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (AcceptsLocalApprovalText,
 "accepts_local_approval_text",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsArtifactBytes,
 "accepts_artifact_bytes",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanMoveBeyondDenial,
 "can_move_beyond_denial",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsNormalModule,
 "loads_normal_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedRecoveryArtifactIdentityEventId,
 "retained_recovery_artifact_identity_event_id",
-{ json_event_id(binding.retained_identity_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_identity_reference_event_id).sequence()) }),
 (RetainedRecoveryArtifactTrustEventId,
 "retained_recovery_artifact_trust_event_id",
-{ json_event_id(binding.retained_trust_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_trust_reference_event_id).sequence()) }),
 (RetainedRecoveryArtifactVmTestEventId,
 "retained_recovery_artifact_vm_test_event_id",
-{ json_event_id(binding.retained_vm_test_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_vm_test_reference_event_id).sequence()) }),
 (Hashes,
 "hashes",
-{ raw("{\"local_approval_reference_hash\": ");
-json_sha256(binding.local_approval_reference_hash);
-raw(", \"identity_reference_hash\": ");
-json_sha256(binding.identity_reference_hash);
-raw(", \"trust_reference_hash\": ");
-json_sha256(binding.trust_reference_hash);
-raw(", \"vm_test_reference_hash\": ");
-json_sha256(binding.vm_test_reference_hash);
-raw(", \"artifact_hash\": ");
-json_sha256(binding.artifact_hash);
-raw(", \"trust_hash\": ");
-json_sha256(binding.trust_hash);
-raw(", \"vm_test_hash\": ");
-json_sha256(binding.vm_test_hash);
-raw(", \"local_approval_hash\": ");
-json_sha256(binding.local_approval_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("local_approval_reference_hash", V::Sha256(binding.local_approval_reference_hash)), Field::new("identity_reference_hash", V::Sha256(binding.identity_reference_hash)), Field::new("trust_reference_hash", V::Sha256(binding.trust_reference_hash)), Field::new("vm_test_reference_hash", V::Sha256(binding.vm_test_reference_hash)), Field::new("artifact_hash", V::Sha256(binding.artifact_hash)), Field::new("trust_hash", V::Sha256(binding.trust_hash)), Field::new("vm_test_hash", V::Sha256(binding.vm_test_hash)), Field::new("local_approval_hash", V::Sha256(binding.local_approval_hash))]) }),
 }
 
-fn emit_recovery_artifact_local_approval_reference_binding(
+fn recovery_artifact_local_approval_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::RecoveryArtifactLocalApprovalReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::RecoveryArtifactLocalApprovalReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         RECOVERY_ARTIFACT_LOCAL_APPROVAL_REFERENCE_BINDING_FIELDS,
         emit_recovery_artifact_local_approval_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { RecoveryArtifactLoaderReferenceBindingField,
+define_direct_binding_value_fields! { RecoveryArtifactLoaderReferenceBindingField,
 RECOVERY_ARTIFACT_LOADER_REFERENCE_BINDING_FIELDS,
 emit_recovery_artifact_loader_reference_binding_value,
 event_log::RecoveryArtifactLoaderReference,
@@ -7849,119 +6454,79 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.recovery_artifact_loader.v0\"");
-}),
+{ V::Str("raios.recovery_artifact_loader.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_load_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_load_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.load_artifact\"");
-}),
+{ V::Str("cap.recovery.load_artifact") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (AcceptsLoaderDescriptor,
 "accepts_loader_descriptor",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsArtifactBytes,
 "accepts_artifact_bytes",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryLoader,
 "loads_recovery_loader",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanMoveBeyondDenial,
 "can_move_beyond_denial",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsNormalModule,
 "loads_normal_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedRecoveryArtifactIdentityEventId,
 "retained_recovery_artifact_identity_event_id",
-{ json_event_id(binding.retained_identity_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_identity_reference_event_id).sequence()) }),
 (RetainedRecoveryArtifactTrustEventId,
 "retained_recovery_artifact_trust_event_id",
-{ json_event_id(binding.retained_trust_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_trust_reference_event_id).sequence()) }),
 (RetainedRecoveryArtifactVmTestEventId,
 "retained_recovery_artifact_vm_test_event_id",
-{ json_event_id(binding.retained_vm_test_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_vm_test_reference_event_id).sequence()) }),
 (RetainedRecoveryArtifactLocalApprovalEventId,
 "retained_recovery_artifact_local_approval_event_id",
-{ json_event_id(binding.retained_local_approval_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_local_approval_reference_event_id).sequence()) }),
 (Hashes,
 "hashes",
-{ raw("{\"loader_reference_hash\": ");
-json_sha256(binding.loader_reference_hash);
-raw(", \"identity_reference_hash\": ");
-json_sha256(binding.identity_reference_hash);
-raw(", \"trust_reference_hash\": ");
-json_sha256(binding.trust_reference_hash);
-raw(", \"vm_test_reference_hash\": ");
-json_sha256(binding.vm_test_reference_hash);
-raw(", \"local_approval_reference_hash\": ");
-json_sha256(binding.local_approval_reference_hash);
-raw(", \"artifact_hash\": ");
-json_sha256(binding.artifact_hash);
-raw(", \"trust_hash\": ");
-json_sha256(binding.trust_hash);
-raw(", \"vm_test_hash\": ");
-json_sha256(binding.vm_test_hash);
-raw(", \"local_approval_hash\": ");
-json_sha256(binding.local_approval_hash);
-raw(", \"loader_hash\": ");
-json_sha256(binding.loader_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("loader_reference_hash", V::Sha256(binding.loader_reference_hash)), Field::new("identity_reference_hash", V::Sha256(binding.identity_reference_hash)), Field::new("trust_reference_hash", V::Sha256(binding.trust_reference_hash)), Field::new("vm_test_reference_hash", V::Sha256(binding.vm_test_reference_hash)), Field::new("local_approval_reference_hash", V::Sha256(binding.local_approval_reference_hash)), Field::new("artifact_hash", V::Sha256(binding.artifact_hash)), Field::new("trust_hash", V::Sha256(binding.trust_hash)), Field::new("vm_test_hash", V::Sha256(binding.vm_test_hash)), Field::new("local_approval_hash", V::Sha256(binding.local_approval_hash)), Field::new("loader_hash", V::Sha256(binding.loader_hash))]) }),
 }
 
-fn emit_recovery_artifact_loader_reference_binding(
+fn recovery_artifact_loader_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::RecoveryArtifactLoaderReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::RecoveryArtifactLoaderReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         RECOVERY_ARTIFACT_LOADER_REFERENCE_BINDING_FIELDS,
         emit_recovery_artifact_loader_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { RecoveryArtifactRollbackEvidenceReferenceBindingField,
+define_direct_binding_value_fields! { RecoveryArtifactRollbackEvidenceReferenceBindingField,
 RECOVERY_ARTIFACT_ROLLBACK_EVIDENCE_REFERENCE_BINDING_FIELDS,
 emit_recovery_artifact_rollback_evidence_reference_binding_value,
 event_log::RecoveryArtifactRollbackEvidenceReference,
@@ -7969,131 +6534,85 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.recovery_artifact_rollback_evidence.v0\"");
-}),
+{ V::Str("raios.recovery_artifact_rollback_evidence.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_load_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_load_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.load_artifact\"");
-}),
+{ V::Str("cap.recovery.load_artifact") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (AcceptsRollbackEvidenceJson,
 "accepts_rollback_evidence_json",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsArtifactBytes,
 "accepts_artifact_bytes",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanMoveBeyondDenial,
 "can_move_beyond_denial",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsNormalModule,
 "loads_normal_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesDurableRecords,
 "creates_durable_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (InstallsRollbackPlan,
 "installs_rollback_plan",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedRecoveryArtifactIdentityEventId,
 "retained_recovery_artifact_identity_event_id",
-{ json_event_id(binding.retained_identity_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_identity_reference_event_id).sequence()) }),
 (RetainedRecoveryArtifactTrustEventId,
 "retained_recovery_artifact_trust_event_id",
-{ json_event_id(binding.retained_trust_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_trust_reference_event_id).sequence()) }),
 (RetainedRecoveryArtifactVmTestEventId,
 "retained_recovery_artifact_vm_test_event_id",
-{ json_event_id(binding.retained_vm_test_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_vm_test_reference_event_id).sequence()) }),
 (RetainedRecoveryArtifactLocalApprovalEventId,
 "retained_recovery_artifact_local_approval_event_id",
-{ json_event_id(binding.retained_local_approval_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_local_approval_reference_event_id).sequence()) }),
 (RetainedRecoveryArtifactLoaderEventId,
 "retained_recovery_artifact_loader_event_id",
-{ json_event_id(binding.retained_loader_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_loader_reference_event_id).sequence()) }),
 (Hashes,
 "hashes",
-{ raw("{\"rollback_evidence_reference_hash\": ");
-json_sha256(binding.rollback_evidence_reference_hash);
-raw(", \"identity_reference_hash\": ");
-json_sha256(binding.identity_reference_hash);
-raw(", \"trust_reference_hash\": ");
-json_sha256(binding.trust_reference_hash);
-raw(", \"vm_test_reference_hash\": ");
-json_sha256(binding.vm_test_reference_hash);
-raw(", \"local_approval_reference_hash\": ");
-json_sha256(binding.local_approval_reference_hash);
-raw(", \"loader_reference_hash\": ");
-json_sha256(binding.loader_reference_hash);
-raw(", \"artifact_hash\": ");
-json_sha256(binding.artifact_hash);
-raw(", \"trust_hash\": ");
-json_sha256(binding.trust_hash);
-raw(", \"vm_test_hash\": ");
-json_sha256(binding.vm_test_hash);
-raw(", \"local_approval_hash\": ");
-json_sha256(binding.local_approval_hash);
-raw(", \"loader_hash\": ");
-json_sha256(binding.loader_hash);
-raw(", \"rollback_evidence_hash\": ");
-json_sha256(binding.rollback_evidence_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("rollback_evidence_reference_hash", V::Sha256(binding.rollback_evidence_reference_hash)), Field::new("identity_reference_hash", V::Sha256(binding.identity_reference_hash)), Field::new("trust_reference_hash", V::Sha256(binding.trust_reference_hash)), Field::new("vm_test_reference_hash", V::Sha256(binding.vm_test_reference_hash)), Field::new("local_approval_reference_hash", V::Sha256(binding.local_approval_reference_hash)), Field::new("loader_reference_hash", V::Sha256(binding.loader_reference_hash)), Field::new("artifact_hash", V::Sha256(binding.artifact_hash)), Field::new("trust_hash", V::Sha256(binding.trust_hash)), Field::new("vm_test_hash", V::Sha256(binding.vm_test_hash)), Field::new("local_approval_hash", V::Sha256(binding.local_approval_hash)), Field::new("loader_hash", V::Sha256(binding.loader_hash)), Field::new("rollback_evidence_hash", V::Sha256(binding.rollback_evidence_hash))]) }),
 }
 
-fn emit_recovery_artifact_rollback_evidence_reference_binding(
+fn recovery_artifact_rollback_evidence_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::RecoveryArtifactRollbackEvidenceReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::RecoveryArtifactRollbackEvidenceReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         RECOVERY_ARTIFACT_ROLLBACK_EVIDENCE_REFERENCE_BINDING_FIELDS,
         emit_recovery_artifact_rollback_evidence_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { RecoveryLifelineRequestReferenceBindingField,
+define_direct_binding_value_fields! { RecoveryLifelineRequestReferenceBindingField,
 RECOVERY_LIFELINE_REQUEST_REFERENCE_BINDING_FIELDS,
 emit_recovery_lifeline_request_reference_binding_value,
 event_log::RecoveryLifelineRequestReference,
@@ -8101,149 +6620,97 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.recovery_lifeline_request.v0\"");
-}),
+{ V::Str("raios.recovery_lifeline_request.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_load_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_load_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.load_artifact\"");
-}),
+{ V::Str("cap.recovery.load_artifact") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (AcceptsLifelineRequestJson,
 "accepts_lifeline_request_json",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLoaderDescriptor,
 "accepts_loader_descriptor",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsArtifactBytes,
 "accepts_artifact_bytes",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryLoader,
 "loads_recovery_loader",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanMoveBeyondDenial,
 "can_move_beyond_denial",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsNormalModule,
 "loads_normal_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesDurableRecords,
 "creates_durable_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (InstallsRollbackPlan,
 "installs_rollback_plan",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedRecoveryArtifactIdentityEventId,
 "retained_recovery_artifact_identity_event_id",
-{ json_event_id(binding.retained_identity_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_identity_reference_event_id).sequence()) }),
 (RetainedRecoveryArtifactTrustEventId,
 "retained_recovery_artifact_trust_event_id",
-{ json_event_id(binding.retained_trust_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_trust_reference_event_id).sequence()) }),
 (RetainedRecoveryArtifactVmTestEventId,
 "retained_recovery_artifact_vm_test_event_id",
-{ json_event_id(binding.retained_vm_test_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_vm_test_reference_event_id).sequence()) }),
 (RetainedRecoveryArtifactLocalApprovalEventId,
 "retained_recovery_artifact_local_approval_event_id",
-{ json_event_id(binding.retained_local_approval_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_local_approval_reference_event_id).sequence()) }),
 (RetainedRecoveryArtifactLoaderEventId,
 "retained_recovery_artifact_loader_event_id",
-{ json_event_id(binding.retained_loader_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_loader_reference_event_id).sequence()) }),
 (RetainedRecoveryArtifactRollbackEvidenceEventId,
 "retained_recovery_artifact_rollback_evidence_event_id",
-{ json_event_id(binding.retained_rollback_evidence_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_rollback_evidence_reference_event_id).sequence()) }),
 (Hashes,
 "hashes",
-{ raw("{\"lifeline_request_reference_hash\": ");
-json_sha256(binding.lifeline_request_reference_hash);
-raw(", \"identity_reference_hash\": ");
-json_sha256(binding.identity_reference_hash);
-raw(", \"trust_reference_hash\": ");
-json_sha256(binding.trust_reference_hash);
-raw(", \"vm_test_reference_hash\": ");
-json_sha256(binding.vm_test_reference_hash);
-raw(", \"local_approval_reference_hash\": ");
-json_sha256(binding.local_approval_reference_hash);
-raw(", \"loader_reference_hash\": ");
-json_sha256(binding.loader_reference_hash);
-raw(", \"rollback_evidence_reference_hash\": ");
-json_sha256(binding.rollback_evidence_reference_hash);
-raw(", \"artifact_hash\": ");
-json_sha256(binding.artifact_hash);
-raw(", \"trust_hash\": ");
-json_sha256(binding.trust_hash);
-raw(", \"vm_test_hash\": ");
-json_sha256(binding.vm_test_hash);
-raw(", \"local_approval_hash\": ");
-json_sha256(binding.local_approval_hash);
-raw(", \"loader_hash\": ");
-json_sha256(binding.loader_hash);
-raw(", \"rollback_evidence_hash\": ");
-json_sha256(binding.rollback_evidence_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("lifeline_request_reference_hash", V::Sha256(binding.lifeline_request_reference_hash)), Field::new("identity_reference_hash", V::Sha256(binding.identity_reference_hash)), Field::new("trust_reference_hash", V::Sha256(binding.trust_reference_hash)), Field::new("vm_test_reference_hash", V::Sha256(binding.vm_test_reference_hash)), Field::new("local_approval_reference_hash", V::Sha256(binding.local_approval_reference_hash)), Field::new("loader_reference_hash", V::Sha256(binding.loader_reference_hash)), Field::new("rollback_evidence_reference_hash", V::Sha256(binding.rollback_evidence_reference_hash)), Field::new("artifact_hash", V::Sha256(binding.artifact_hash)), Field::new("trust_hash", V::Sha256(binding.trust_hash)), Field::new("vm_test_hash", V::Sha256(binding.vm_test_hash)), Field::new("local_approval_hash", V::Sha256(binding.local_approval_hash)), Field::new("loader_hash", V::Sha256(binding.loader_hash)), Field::new("rollback_evidence_hash", V::Sha256(binding.rollback_evidence_hash))]) }),
 }
 
-fn emit_recovery_lifeline_request_reference_binding(
+fn recovery_lifeline_request_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::RecoveryLifelineRequestReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::RecoveryLifelineRequestReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         RECOVERY_LIFELINE_REQUEST_REFERENCE_BINDING_FIELDS,
         emit_recovery_lifeline_request_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { RecoveryLifelineCommandEnvelopeReferenceBindingField,
+define_direct_binding_value_fields! { RecoveryLifelineCommandEnvelopeReferenceBindingField,
 RECOVERY_LIFELINE_COMMAND_ENVELOPE_REFERENCE_BINDING_FIELDS,
 emit_recovery_lifeline_command_envelope_reference_binding_value,
 event_log::RecoveryLifelineCommandEnvelopeReference,
@@ -8251,121 +6718,91 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.recovery_lifeline_command_envelope_reference.v0\"");
-}),
+{ V::Str("raios.recovery_lifeline_command_envelope_reference.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_command_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_command_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.command.read\"");
-}),
+{ V::Str("cap.recovery.command.read") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (AcceptsLifelineCommandEnvelope,
 "accepts_lifeline_command_envelope",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DispatchesLifelineCommand,
 "dispatches_lifeline_command",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CommandExecutionEnabled,
 "command_execution_enabled",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanMoveBeyondDenial,
 "can_move_beyond_denial",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesDurableRecords,
 "creates_durable_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (InstallsRollbackPlan,
 "installs_rollback_plan",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedRecoveryLifelineRequestEventId,
 "retained_recovery_lifeline_request_event_id",
-{ json_event_id(binding.retained_lifeline_request_event_id);
-}),
+{ V::EventSequence((binding.retained_lifeline_request_event_id).sequence()) }),
 (CommandId,
 "command_id",
-{ json_str(binding.command_id);
-}),
+{ V::Str(binding.command_id) }),
 (ArgumentSchema,
 "argument_schema",
-{ json_str(binding.argument_schema);
-}),
+{ V::Str(binding.argument_schema) }),
 (RequiredCapability,
 "required_capability",
-{ json_str(binding.required_capability);
-}),
+{ V::Str(binding.required_capability) }),
 (TargetLocator,
 "target_locator",
-{ json_str(binding.target_locator.as_str());
-}),
+{ V::Str(binding.target_locator.as_str()) }),
 (CommandAdmissionBoundaryId,
 "command_admission_boundary_id",
-{ json_str(binding.command_admission_boundary_id);
-}),
+{ V::Str(binding.command_admission_boundary_id) }),
 (Hashes,
 "hashes",
-{ raw("{\"command_envelope_reference_hash\": ");
-json_sha256(binding.command_envelope_reference_hash);
-raw(", \"argument_hash\": ");
-json_sha256(binding.argument_hash);
-raw(", \"lifeline_request_reference_hash\": ");
-json_sha256(binding.lifeline_request_reference_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("command_envelope_reference_hash", V::Sha256(binding.command_envelope_reference_hash)), Field::new("argument_hash", V::Sha256(binding.argument_hash)), Field::new("lifeline_request_reference_hash", V::Sha256(binding.lifeline_request_reference_hash))]) }),
 }
 
-fn emit_recovery_lifeline_command_envelope_reference_binding(
+fn recovery_lifeline_command_envelope_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::RecoveryLifelineCommandEnvelopeReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::RecoveryLifelineCommandEnvelopeReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         RECOVERY_LIFELINE_COMMAND_ENVELOPE_REFERENCE_BINDING_FIELDS,
         emit_recovery_lifeline_command_envelope_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { RecoveryLifelineCommandBodyCanonicalizationReferenceBindingField,
+define_direct_binding_value_fields! { RecoveryLifelineCommandBodyCanonicalizationReferenceBindingField,
 RECOVERY_LIFELINE_COMMAND_BODY_CANONICALIZATION_REFERENCE_BINDING_FIELDS,
 emit_recovery_lifeline_command_body_canonicalization_reference_binding_value,
 event_log::RecoveryLifelineCommandBodyCanonicalizationReference,
@@ -8373,125 +6810,94 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.recovery_lifeline_command_body_canonicalization.v0\"");
-}),
+{ V::Str("raios.recovery_lifeline_command_body_canonicalization.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_command_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_command_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.command.read\"");
-}),
+{ V::Str("cap.recovery.command.read") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (AcceptsRawCommandBody,
 "accepts_raw_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandBody,
 "accepts_lifeline_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandEnvelope,
 "accepts_lifeline_command_envelope",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DispatchesLifelineCommand,
 "dispatches_lifeline_command",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CommandExecutionEnabled,
 "command_execution_enabled",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanMoveBeyondDenial,
 "can_move_beyond_denial",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesDurableRecords,
 "creates_durable_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (InstallsRollbackPlan,
 "installs_rollback_plan",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedRecoveryLifelineCommandEnvelopeEventId,
 "retained_recovery_lifeline_command_envelope_event_id",
-{ json_event_id(binding.retained_command_envelope_reference_event_id);
-}),
+{ V::EventSequence((binding.retained_command_envelope_reference_event_id).sequence()) }),
 (CommandId,
 "command_id",
-{ json_str(binding.command_id);
-}),
+{ V::Str(binding.command_id) }),
 (ArgumentSchema,
 "argument_schema",
-{ json_str(binding.argument_schema);
-}),
+{ V::Str(binding.argument_schema) }),
 (TargetLocator,
 "target_locator",
-{ json_str(binding.target_locator.as_str());
-}),
+{ V::Str(binding.target_locator.as_str()) }),
 (CommandDispatchBoundaryId,
 "command_dispatch_boundary_id",
-{ json_str(binding.command_dispatch_boundary_id);
-}),
+{ V::Str(binding.command_dispatch_boundary_id) }),
 (Hashes,
 "hashes",
-{ raw("{\"command_body_canonicalization_hash\": ");
-json_sha256(binding.command_body_canonicalization_hash);
-raw(", \"argument_hash\": ");
-json_sha256(binding.argument_hash);
-raw(", \"command_envelope_reference_hash\": ");
-json_sha256(binding.command_envelope_reference_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("command_body_canonicalization_hash", V::Sha256(binding.command_body_canonicalization_hash)), Field::new("argument_hash", V::Sha256(binding.argument_hash)), Field::new("command_envelope_reference_hash", V::Sha256(binding.command_envelope_reference_hash))]) }),
 }
 
-fn emit_recovery_lifeline_command_body_canonicalization_reference_binding(
+fn recovery_lifeline_command_body_canonicalization_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::RecoveryLifelineCommandBodyCanonicalizationReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::RecoveryLifelineCommandBodyCanonicalizationReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         RECOVERY_LIFELINE_COMMAND_BODY_CANONICALIZATION_REFERENCE_BINDING_FIELDS,
         emit_recovery_lifeline_command_body_canonicalization_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { RecoveryLifelineCommandHandlerBindingReferenceBindingField,
+define_direct_binding_value_fields! { RecoveryLifelineCommandHandlerBindingReferenceBindingField,
 RECOVERY_LIFELINE_COMMAND_HANDLER_BINDING_REFERENCE_BINDING_FIELDS,
 emit_recovery_lifeline_command_handler_binding_reference_binding_value,
 event_log::RecoveryLifelineCommandHandlerBindingReference,
@@ -8499,133 +6905,97 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.recovery_lifeline_command_handler_binding.v0\"");
-}),
+{ V::Str("raios.recovery_lifeline_command_handler_binding.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_command_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_command_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.command.read\"");
-}),
+{ V::Str("cap.recovery.command.read") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (AcceptsRawCommandBody,
 "accepts_raw_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandBody,
 "accepts_lifeline_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandEnvelope,
 "accepts_lifeline_command_envelope",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DispatchesLifelineCommand,
 "dispatches_lifeline_command",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CommandExecutionEnabled,
 "command_execution_enabled",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanMoveBeyondDenial,
 "can_move_beyond_denial",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesDurableRecords,
 "creates_durable_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (InstallsRollbackPlan,
 "installs_rollback_plan",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedRecoveryLifelineCommandBodyCanonicalizationEventId,
 "retained_recovery_lifeline_command_body_canonicalization_event_id",
-{ json_event_id(binding.retained_command_body_canonicalization_event_id);
-}),
+{ V::EventSequence((binding.retained_command_body_canonicalization_event_id).sequence()) }),
 (CommandId,
 "command_id",
-{ json_str(binding.command_id);
-}),
+{ V::Str(binding.command_id) }),
 (ArgumentSchema,
 "argument_schema",
-{ json_str(binding.argument_schema);
-}),
+{ V::Str(binding.argument_schema) }),
 (TargetLocator,
 "target_locator",
-{ json_str(binding.target_locator.as_str());
-}),
+{ V::Str(binding.target_locator.as_str()) }),
 (CommandDispatchBoundaryId,
 "command_dispatch_boundary_id",
-{ json_str(binding.command_dispatch_boundary_id);
-}),
+{ V::Str(binding.command_dispatch_boundary_id) }),
 (HandlerId,
 "handler_id",
-{ json_str(binding.handler_id);
-}),
+{ V::Str(binding.handler_id) }),
 (Hashes,
 "hashes",
-{ raw("{\"handler_binding_hash\": ");
-json_sha256(binding.handler_binding_hash);
-raw(", \"argument_hash\": ");
-json_sha256(binding.argument_hash);
-raw(", \"command_envelope_reference_hash\": ");
-json_sha256(binding.command_envelope_reference_hash);
-raw(", \"command_body_canonicalization_hash\": ");
-json_sha256(binding.command_body_canonicalization_hash);
-raw(", \"handler_input_binding_hash\": ");
-json_sha256(binding.handler_input_binding_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("handler_binding_hash", V::Sha256(binding.handler_binding_hash)), Field::new("argument_hash", V::Sha256(binding.argument_hash)), Field::new("command_envelope_reference_hash", V::Sha256(binding.command_envelope_reference_hash)), Field::new("command_body_canonicalization_hash", V::Sha256(binding.command_body_canonicalization_hash)), Field::new("handler_input_binding_hash", V::Sha256(binding.handler_input_binding_hash))]) }),
 }
 
-fn emit_recovery_lifeline_command_handler_binding_reference_binding(
+fn recovery_lifeline_command_handler_binding_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::RecoveryLifelineCommandHandlerBindingReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::RecoveryLifelineCommandHandlerBindingReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         RECOVERY_LIFELINE_COMMAND_HANDLER_BINDING_REFERENCE_BINDING_FIELDS,
         emit_recovery_lifeline_command_handler_binding_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { RecoveryLifelineStatusReadHandlerReferenceBindingField,
+define_direct_binding_value_fields! { RecoveryLifelineStatusReadHandlerReferenceBindingField,
 RECOVERY_LIFELINE_STATUS_READ_HANDLER_REFERENCE_BINDING_FIELDS,
 emit_recovery_lifeline_status_read_handler_reference_binding_value,
 event_log::RecoveryLifelineStatusReadHandlerReference,
@@ -8633,139 +7003,100 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.recovery_lifeline_status_read_handler.v0\"");
-}),
+{ V::Str("raios.recovery_lifeline_status_read_handler.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_command_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_command_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.command.read\"");
-}),
+{ V::Str("cap.recovery.command.read") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (AcceptsRawCommandBody,
 "accepts_raw_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandBody,
 "accepts_lifeline_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandEnvelope,
 "accepts_lifeline_command_envelope",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DispatchesLifelineCommand,
 "dispatches_lifeline_command",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesLifelineStatus,
 "executes_lifeline_status",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CommandExecutionEnabled,
 "command_execution_enabled",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanMoveBeyondDenial,
 "can_move_beyond_denial",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesDurableRecords,
 "creates_durable_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (InstallsRollbackPlan,
 "installs_rollback_plan",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedRecoveryLifelineCommandHandlerBindingEventId,
 "retained_recovery_lifeline_command_handler_binding_event_id",
-{ json_event_id(binding.retained_command_handler_binding_event_id);
-}),
+{ V::EventSequence((binding.retained_command_handler_binding_event_id).sequence()) }),
 (CommandId,
 "command_id",
-{ json_str(binding.command_id);
-}),
+{ V::Str(binding.command_id) }),
 (ArgumentSchema,
 "argument_schema",
-{ json_str(binding.argument_schema);
-}),
+{ V::Str(binding.argument_schema) }),
 (TargetLocator,
 "target_locator",
-{ json_str(binding.target_locator.as_str());
-}),
+{ V::Str(binding.target_locator.as_str()) }),
 (CommandDispatchBoundaryId,
 "command_dispatch_boundary_id",
-{ json_str(binding.command_dispatch_boundary_id);
-}),
+{ V::Str(binding.command_dispatch_boundary_id) }),
 (StatusHandlerId,
 "status_handler_id",
-{ json_str(binding.status_handler_id);
-}),
+{ V::Str(binding.status_handler_id) }),
 (Hashes,
 "hashes",
-{ raw("{\"status_read_handler_hash\": ");
-json_sha256(binding.status_read_handler_hash);
-raw(", \"argument_hash\": ");
-json_sha256(binding.argument_hash);
-raw(", \"command_envelope_reference_hash\": ");
-json_sha256(binding.command_envelope_reference_hash);
-raw(", \"command_body_canonicalization_hash\": ");
-json_sha256(binding.command_body_canonicalization_hash);
-raw(", \"handler_binding_hash\": ");
-json_sha256(binding.handler_binding_hash);
-raw(", \"status_read_projection_hash\": ");
-json_sha256(binding.status_read_projection_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("status_read_handler_hash", V::Sha256(binding.status_read_handler_hash)), Field::new("argument_hash", V::Sha256(binding.argument_hash)), Field::new("command_envelope_reference_hash", V::Sha256(binding.command_envelope_reference_hash)), Field::new("command_body_canonicalization_hash", V::Sha256(binding.command_body_canonicalization_hash)), Field::new("handler_binding_hash", V::Sha256(binding.handler_binding_hash)), Field::new("status_read_projection_hash", V::Sha256(binding.status_read_projection_hash))]) }),
 }
 
-fn emit_recovery_lifeline_status_read_handler_reference_binding(
+fn recovery_lifeline_status_read_handler_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::RecoveryLifelineStatusReadHandlerReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::RecoveryLifelineStatusReadHandlerReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         RECOVERY_LIFELINE_STATUS_READ_HANDLER_REFERENCE_BINDING_FIELDS,
         emit_recovery_lifeline_status_read_handler_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { RecoveryRollbackPreviewAuthorizationReferenceBindingField,
+define_direct_binding_value_fields! { RecoveryRollbackPreviewAuthorizationReferenceBindingField,
 RECOVERY_ROLLBACK_PREVIEW_AUTHORIZATION_REFERENCE_BINDING_FIELDS,
 emit_recovery_rollback_preview_authorization_reference_binding_value,
 event_log::RecoveryRollbackPreviewAuthorizationReference,
@@ -8773,149 +7104,106 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.recovery_rollback_preview_authorization.v0\"");
-}),
+{ V::Str("raios.recovery_rollback_preview_authorization.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_command_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_command_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.command.read\"");
-}),
+{ V::Str("cap.recovery.command.read") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (AcceptsRawCommandBody,
 "accepts_raw_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandBody,
 "accepts_lifeline_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandEnvelope,
 "accepts_lifeline_command_envelope",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DispatchesLifelineCommand,
 "dispatches_lifeline_command",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesLifelineStatus,
 "executes_lifeline_status",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackPreview,
 "executes_rollback_preview",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackApply,
 "executes_rollback_apply",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CommandExecutionEnabled,
 "command_execution_enabled",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanMoveBeyondDenial,
 "can_move_beyond_denial",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesDurableRecords,
 "creates_durable_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (InstallsRollbackPlan,
 "installs_rollback_plan",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedRecoveryLifelineStatusReadHandlerEventId,
 "retained_recovery_lifeline_status_read_handler_event_id",
-{ json_event_id(binding.retained_status_read_handler_event_id);
-}),
+{ V::EventSequence((binding.retained_status_read_handler_event_id).sequence()) }),
 (CommandId,
 "command_id",
-{ json_str(binding.command_id);
-}),
+{ V::Str(binding.command_id) }),
 (ArgumentSchema,
 "argument_schema",
-{ json_str(binding.argument_schema);
-}),
+{ V::Str(binding.argument_schema) }),
 (TargetLocator,
 "target_locator",
-{ json_str(binding.target_locator.as_str());
-}),
+{ V::Str(binding.target_locator.as_str()) }),
 (CommandDispatchBoundaryId,
 "command_dispatch_boundary_id",
-{ json_str(binding.command_dispatch_boundary_id);
-}),
+{ V::Str(binding.command_dispatch_boundary_id) }),
 (RollbackPreviewAuthorizationId,
 "rollback_preview_authorization_id",
-{ json_str(binding.rollback_preview_authorization_id);
-}),
+{ V::Str(binding.rollback_preview_authorization_id) }),
 (Hashes,
 "hashes",
-{ raw("{\"rollback_preview_authorization_hash\": ");
-json_sha256(binding.rollback_preview_authorization_hash);
-raw(", \"argument_hash\": ");
-json_sha256(binding.argument_hash);
-raw(", \"command_envelope_reference_hash\": ");
-json_sha256(binding.command_envelope_reference_hash);
-raw(", \"command_body_canonicalization_hash\": ");
-json_sha256(binding.command_body_canonicalization_hash);
-raw(", \"handler_binding_hash\": ");
-json_sha256(binding.handler_binding_hash);
-raw(", \"status_read_handler_hash\": ");
-json_sha256(binding.status_read_handler_hash);
-raw(", \"rollback_preview_projection_hash\": ");
-json_sha256(binding.rollback_preview_projection_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("rollback_preview_authorization_hash", V::Sha256(binding.rollback_preview_authorization_hash)), Field::new("argument_hash", V::Sha256(binding.argument_hash)), Field::new("command_envelope_reference_hash", V::Sha256(binding.command_envelope_reference_hash)), Field::new("command_body_canonicalization_hash", V::Sha256(binding.command_body_canonicalization_hash)), Field::new("handler_binding_hash", V::Sha256(binding.handler_binding_hash)), Field::new("status_read_handler_hash", V::Sha256(binding.status_read_handler_hash)), Field::new("rollback_preview_projection_hash", V::Sha256(binding.rollback_preview_projection_hash))]) }),
 }
 
-fn emit_recovery_rollback_preview_authorization_reference_binding(
+fn recovery_rollback_preview_authorization_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::RecoveryRollbackPreviewAuthorizationReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::RecoveryRollbackPreviewAuthorizationReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         RECOVERY_ROLLBACK_PREVIEW_AUTHORIZATION_REFERENCE_BINDING_FIELDS,
         emit_recovery_rollback_preview_authorization_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { RecoveryRollbackApplyAuthorizationReferenceBindingField,
+define_direct_binding_value_fields! { RecoveryRollbackApplyAuthorizationReferenceBindingField,
 RECOVERY_ROLLBACK_APPLY_AUTHORIZATION_REFERENCE_BINDING_FIELDS,
 emit_recovery_rollback_apply_authorization_reference_binding_value,
 event_log::RecoveryRollbackApplyAuthorizationReference,
@@ -8923,157 +7211,106 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.recovery_rollback_apply_authorization.v0\"");
-}),
+{ V::Str("raios.recovery_rollback_apply_authorization.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_command_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_command_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.command.read\"");
-}),
+{ V::Str("cap.recovery.command.read") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (AcceptsRawCommandBody,
 "accepts_raw_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandBody,
 "accepts_lifeline_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandEnvelope,
 "accepts_lifeline_command_envelope",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DispatchesLifelineCommand,
 "dispatches_lifeline_command",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesLifelineStatus,
 "executes_lifeline_status",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackPreview,
 "executes_rollback_preview",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackApply,
 "executes_rollback_apply",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CommandExecutionEnabled,
 "command_execution_enabled",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanMoveBeyondDenial,
 "can_move_beyond_denial",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesDurableRecords,
 "creates_durable_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (InstallsRollbackPlan,
 "installs_rollback_plan",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedRecoveryRollbackPreviewAuthorizationEventId,
 "retained_recovery_rollback_preview_authorization_event_id",
-{ json_event_id(binding.retained_rollback_preview_authorization_event_id);
-}),
+{ V::EventSequence((binding.retained_rollback_preview_authorization_event_id).sequence()) }),
 (CommandId,
 "command_id",
-{ json_str(binding.command_id);
-}),
+{ V::Str(binding.command_id) }),
 (ArgumentSchema,
 "argument_schema",
-{ json_str(binding.argument_schema);
-}),
+{ V::Str(binding.argument_schema) }),
 (TargetLocator,
 "target_locator",
-{ json_str(binding.target_locator.as_str());
-}),
+{ V::Str(binding.target_locator.as_str()) }),
 (CommandDispatchBoundaryId,
 "command_dispatch_boundary_id",
-{ json_str(binding.command_dispatch_boundary_id);
-}),
+{ V::Str(binding.command_dispatch_boundary_id) }),
 (RollbackApplyAuthorizationId,
 "rollback_apply_authorization_id",
-{ json_str(binding.rollback_apply_authorization_id);
-}),
+{ V::Str(binding.rollback_apply_authorization_id) }),
 (Hashes,
 "hashes",
-{ raw("{\"rollback_apply_authorization_hash\": ");
-json_sha256(binding.rollback_apply_authorization_hash);
-raw(", \"argument_hash\": ");
-json_sha256(binding.argument_hash);
-raw(", \"command_envelope_reference_hash\": ");
-json_sha256(binding.command_envelope_reference_hash);
-raw(", \"command_body_canonicalization_hash\": ");
-json_sha256(binding.command_body_canonicalization_hash);
-raw(", \"handler_binding_hash\": ");
-json_sha256(binding.handler_binding_hash);
-raw(", \"status_read_handler_hash\": ");
-json_sha256(binding.status_read_handler_hash);
-raw(", \"rollback_preview_authorization_hash\": ");
-json_sha256(binding.rollback_preview_authorization_hash);
-raw(", \"rollback_apply_projection_hash\": ");
-json_sha256(binding.rollback_apply_projection_hash);
-raw(", \"source_rollback_apply_denial_hash\": ");
-json_sha256(binding.source_rollback_apply_denial_hash);
-raw(", \"source_durable_policy_write_authority_decision_hash\": ");
-json_sha256(binding.source_durable_policy_write_authority_decision_hash);
-raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
-json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("rollback_apply_authorization_hash", V::Sha256(binding.rollback_apply_authorization_hash)), Field::new("argument_hash", V::Sha256(binding.argument_hash)), Field::new("command_envelope_reference_hash", V::Sha256(binding.command_envelope_reference_hash)), Field::new("command_body_canonicalization_hash", V::Sha256(binding.command_body_canonicalization_hash)), Field::new("handler_binding_hash", V::Sha256(binding.handler_binding_hash)), Field::new("status_read_handler_hash", V::Sha256(binding.status_read_handler_hash)), Field::new("rollback_preview_authorization_hash", V::Sha256(binding.rollback_preview_authorization_hash)), Field::new("rollback_apply_projection_hash", V::Sha256(binding.rollback_apply_projection_hash)), Field::new("source_rollback_apply_denial_hash", V::Sha256(binding.source_rollback_apply_denial_hash)), Field::new("source_durable_policy_write_authority_decision_hash", V::Sha256(binding.source_durable_policy_write_authority_decision_hash)), Field::new("source_recovery_rollback_inspect_source_reference_hash", V::Sha256(binding.source_recovery_rollback_inspect_source_reference_hash))]) }),
 }
 
-fn emit_recovery_rollback_apply_authorization_reference_binding(
+fn recovery_rollback_apply_authorization_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::RecoveryRollbackApplyAuthorizationReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::RecoveryRollbackApplyAuthorizationReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         RECOVERY_ROLLBACK_APPLY_AUTHORIZATION_REFERENCE_BINDING_FIELDS,
         emit_recovery_rollback_apply_authorization_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { RecoveryDisableModuleTargetBindingReferenceBindingField,
+define_direct_binding_value_fields! { RecoveryDisableModuleTargetBindingReferenceBindingField,
 RECOVERY_DISABLE_MODULE_TARGET_BINDING_REFERENCE_BINDING_FIELDS,
 emit_recovery_disable_module_target_binding_reference_binding_value,
 event_log::RecoveryDisableModuleTargetBindingReference,
@@ -9081,167 +7318,112 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.recovery_disable_module_target_binding.v0\"");
-}),
+{ V::Str("raios.recovery_disable_module_target_binding.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_command_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_command_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.command.read\"");
-}),
+{ V::Str("cap.recovery.command.read") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (AcceptsRawCommandBody,
 "accepts_raw_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandBody,
 "accepts_lifeline_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandEnvelope,
 "accepts_lifeline_command_envelope",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DispatchesLifelineCommand,
 "dispatches_lifeline_command",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesLifelineStatus,
 "executes_lifeline_status",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackPreview,
 "executes_rollback_preview",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackApply,
 "executes_rollback_apply",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesDisableModule,
 "executes_disable_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DisablesModule,
 "disables_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CommandExecutionEnabled,
 "command_execution_enabled",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanMoveBeyondDenial,
 "can_move_beyond_denial",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesDurableRecords,
 "creates_durable_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (InstallsRollbackPlan,
 "installs_rollback_plan",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedRecoveryRollbackApplyAuthorizationEventId,
 "retained_recovery_rollback_apply_authorization_event_id",
-{ json_event_id(binding.retained_rollback_apply_authorization_event_id);
-}),
+{ V::EventSequence((binding.retained_rollback_apply_authorization_event_id).sequence()) }),
 (CommandId,
 "command_id",
-{ json_str(binding.command_id);
-}),
+{ V::Str(binding.command_id) }),
 (ArgumentSchema,
 "argument_schema",
-{ json_str(binding.argument_schema);
-}),
+{ V::Str(binding.argument_schema) }),
 (TargetLocator,
 "target_locator",
-{ json_str(binding.target_locator.as_str());
-}),
+{ V::Str(binding.target_locator.as_str()) }),
 (CommandDispatchBoundaryId,
 "command_dispatch_boundary_id",
-{ json_str(binding.command_dispatch_boundary_id);
-}),
+{ V::Str(binding.command_dispatch_boundary_id) }),
 (DisableModuleTargetId,
 "disable_module_target_id",
-{ json_str(binding.disable_module_target_id);
-}),
+{ V::Str(binding.disable_module_target_id) }),
 (Hashes,
 "hashes",
-{ raw("{\"disable_module_target_binding_hash\": ");
-json_sha256(binding.disable_module_target_binding_hash);
-raw(", \"argument_hash\": ");
-json_sha256(binding.argument_hash);
-raw(", \"command_envelope_reference_hash\": ");
-json_sha256(binding.command_envelope_reference_hash);
-raw(", \"command_body_canonicalization_hash\": ");
-json_sha256(binding.command_body_canonicalization_hash);
-raw(", \"handler_binding_hash\": ");
-json_sha256(binding.handler_binding_hash);
-raw(", \"status_read_handler_hash\": ");
-json_sha256(binding.status_read_handler_hash);
-raw(", \"rollback_preview_authorization_hash\": ");
-json_sha256(binding.rollback_preview_authorization_hash);
-raw(", \"rollback_apply_authorization_hash\": ");
-json_sha256(binding.rollback_apply_authorization_hash);
-raw(", \"source_rollback_apply_denial_hash\": ");
-json_sha256(binding.source_rollback_apply_denial_hash);
-raw(", \"source_durable_policy_write_authority_decision_hash\": ");
-json_sha256(binding.source_durable_policy_write_authority_decision_hash);
-raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
-json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash);
-raw(", \"disable_module_target_projection_hash\": ");
-json_sha256(binding.disable_module_target_projection_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("disable_module_target_binding_hash", V::Sha256(binding.disable_module_target_binding_hash)), Field::new("argument_hash", V::Sha256(binding.argument_hash)), Field::new("command_envelope_reference_hash", V::Sha256(binding.command_envelope_reference_hash)), Field::new("command_body_canonicalization_hash", V::Sha256(binding.command_body_canonicalization_hash)), Field::new("handler_binding_hash", V::Sha256(binding.handler_binding_hash)), Field::new("status_read_handler_hash", V::Sha256(binding.status_read_handler_hash)), Field::new("rollback_preview_authorization_hash", V::Sha256(binding.rollback_preview_authorization_hash)), Field::new("rollback_apply_authorization_hash", V::Sha256(binding.rollback_apply_authorization_hash)), Field::new("source_rollback_apply_denial_hash", V::Sha256(binding.source_rollback_apply_denial_hash)), Field::new("source_durable_policy_write_authority_decision_hash", V::Sha256(binding.source_durable_policy_write_authority_decision_hash)), Field::new("source_recovery_rollback_inspect_source_reference_hash", V::Sha256(binding.source_recovery_rollback_inspect_source_reference_hash)), Field::new("disable_module_target_projection_hash", V::Sha256(binding.disable_module_target_projection_hash))]) }),
 }
 
-fn emit_recovery_disable_module_target_binding_reference_binding(
+fn recovery_disable_module_target_binding_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::RecoveryDisableModuleTargetBindingReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::RecoveryDisableModuleTargetBindingReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         RECOVERY_DISABLE_MODULE_TARGET_BINDING_REFERENCE_BINDING_FIELDS,
         emit_recovery_disable_module_target_binding_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { RecoveryRestartLastGoodTargetBindingReferenceBindingField,
+define_direct_binding_value_fields! { RecoveryRestartLastGoodTargetBindingReferenceBindingField,
 RECOVERY_RESTART_LAST_GOOD_TARGET_BINDING_REFERENCE_BINDING_FIELDS,
 emit_recovery_restart_last_good_target_binding_reference_binding_value,
 event_log::RecoveryRestartLastGoodTargetBindingReference,
@@ -9249,177 +7431,118 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.recovery_restart_last_good_target_binding.v0\"");
-}),
+{ V::Str("raios.recovery_restart_last_good_target_binding.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_command_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_command_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.command.read\"");
-}),
+{ V::Str("cap.recovery.command.read") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (AcceptsRawCommandBody,
 "accepts_raw_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandBody,
 "accepts_lifeline_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandEnvelope,
 "accepts_lifeline_command_envelope",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DispatchesLifelineCommand,
 "dispatches_lifeline_command",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesLifelineStatus,
 "executes_lifeline_status",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackPreview,
 "executes_rollback_preview",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackApply,
 "executes_rollback_apply",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesDisableModule,
 "executes_disable_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRestartLastGood,
 "executes_restart_last_good",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DisablesModule,
 "disables_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RestartsLastGood,
 "restarts_last_good",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CommandExecutionEnabled,
 "command_execution_enabled",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanMoveBeyondDenial,
 "can_move_beyond_denial",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesDurableRecords,
 "creates_durable_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (InstallsRollbackPlan,
 "installs_rollback_plan",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedRecoveryDisableModuleTargetBindingEventId,
 "retained_recovery_disable_module_target_binding_event_id",
-{ json_event_id(binding.retained_disable_module_target_binding_event_id);
-}),
+{ V::EventSequence((binding.retained_disable_module_target_binding_event_id).sequence()) }),
 (CommandId,
 "command_id",
-{ json_str(binding.command_id);
-}),
+{ V::Str(binding.command_id) }),
 (ArgumentSchema,
 "argument_schema",
-{ json_str(binding.argument_schema);
-}),
+{ V::Str(binding.argument_schema) }),
 (TargetLocator,
 "target_locator",
-{ json_str(binding.target_locator.as_str());
-}),
+{ V::Str(binding.target_locator.as_str()) }),
 (CommandDispatchBoundaryId,
 "command_dispatch_boundary_id",
-{ json_str(binding.command_dispatch_boundary_id);
-}),
+{ V::Str(binding.command_dispatch_boundary_id) }),
 (RestartLastGoodTargetId,
 "restart_last_good_target_id",
-{ json_str(binding.restart_last_good_target_id);
-}),
+{ V::Str(binding.restart_last_good_target_id) }),
 (Hashes,
 "hashes",
-{ raw("{\"restart_last_good_target_binding_hash\": ");
-json_sha256(binding.restart_last_good_target_binding_hash);
-raw(", \"argument_hash\": ");
-json_sha256(binding.argument_hash);
-raw(", \"command_envelope_reference_hash\": ");
-json_sha256(binding.command_envelope_reference_hash);
-raw(", \"command_body_canonicalization_hash\": ");
-json_sha256(binding.command_body_canonicalization_hash);
-raw(", \"handler_binding_hash\": ");
-json_sha256(binding.handler_binding_hash);
-raw(", \"status_read_handler_hash\": ");
-json_sha256(binding.status_read_handler_hash);
-raw(", \"rollback_preview_authorization_hash\": ");
-json_sha256(binding.rollback_preview_authorization_hash);
-raw(", \"rollback_apply_authorization_hash\": ");
-json_sha256(binding.rollback_apply_authorization_hash);
-raw(", \"disable_module_target_binding_hash\": ");
-json_sha256(binding.disable_module_target_binding_hash);
-raw(", \"source_rollback_apply_denial_hash\": ");
-json_sha256(binding.source_rollback_apply_denial_hash);
-raw(", \"source_durable_policy_write_authority_decision_hash\": ");
-json_sha256(binding.source_durable_policy_write_authority_decision_hash);
-raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
-json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash);
-raw(", \"restart_last_good_target_projection_hash\": ");
-json_sha256(binding.restart_last_good_target_projection_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("restart_last_good_target_binding_hash", V::Sha256(binding.restart_last_good_target_binding_hash)), Field::new("argument_hash", V::Sha256(binding.argument_hash)), Field::new("command_envelope_reference_hash", V::Sha256(binding.command_envelope_reference_hash)), Field::new("command_body_canonicalization_hash", V::Sha256(binding.command_body_canonicalization_hash)), Field::new("handler_binding_hash", V::Sha256(binding.handler_binding_hash)), Field::new("status_read_handler_hash", V::Sha256(binding.status_read_handler_hash)), Field::new("rollback_preview_authorization_hash", V::Sha256(binding.rollback_preview_authorization_hash)), Field::new("rollback_apply_authorization_hash", V::Sha256(binding.rollback_apply_authorization_hash)), Field::new("disable_module_target_binding_hash", V::Sha256(binding.disable_module_target_binding_hash)), Field::new("source_rollback_apply_denial_hash", V::Sha256(binding.source_rollback_apply_denial_hash)), Field::new("source_durable_policy_write_authority_decision_hash", V::Sha256(binding.source_durable_policy_write_authority_decision_hash)), Field::new("source_recovery_rollback_inspect_source_reference_hash", V::Sha256(binding.source_recovery_rollback_inspect_source_reference_hash)), Field::new("restart_last_good_target_projection_hash", V::Sha256(binding.restart_last_good_target_projection_hash))]) }),
 }
 
-fn emit_recovery_restart_last_good_target_binding_reference_binding(
+fn recovery_restart_last_good_target_binding_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::RecoveryRestartLastGoodTargetBindingReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::RecoveryRestartLastGoodTargetBindingReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         RECOVERY_RESTART_LAST_GOOD_TARGET_BINDING_REFERENCE_BINDING_FIELDS,
         emit_recovery_restart_last_good_target_binding_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { RecoveryLoadArtifactByHashTargetBindingReferenceBindingField,
+define_direct_binding_value_fields! { RecoveryLoadArtifactByHashTargetBindingReferenceBindingField,
 RECOVERY_LOAD_ARTIFACT_BY_HASH_TARGET_BINDING_REFERENCE_BINDING_FIELDS,
 emit_recovery_load_artifact_by_hash_target_binding_reference_binding_value,
 event_log::RecoveryLoadArtifactByHashTargetBindingReference,
@@ -9427,185 +7550,121 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.recovery_load_artifact_by_hash_target_binding.v0\"");
-}),
+{ V::Str("raios.recovery_load_artifact_by_hash_target_binding.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_command_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_command_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.command.read\"");
-}),
+{ V::Str("cap.recovery.command.read") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (AcceptsRawCommandBody,
 "accepts_raw_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandBody,
 "accepts_lifeline_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandEnvelope,
 "accepts_lifeline_command_envelope",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DispatchesLifelineCommand,
 "dispatches_lifeline_command",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesLifelineStatus,
 "executes_lifeline_status",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackPreview,
 "executes_rollback_preview",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackApply,
 "executes_rollback_apply",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesDisableModule,
 "executes_disable_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRestartLastGood,
 "executes_restart_last_good",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesLoadRecoveryArtifactByHash,
 "executes_load_recovery_artifact_by_hash",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DisablesModule,
 "disables_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RestartsLastGood,
 "restarts_last_good",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CommandExecutionEnabled,
 "command_execution_enabled",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanMoveBeyondDenial,
 "can_move_beyond_denial",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesDurableRecords,
 "creates_durable_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (InstallsRollbackPlan,
 "installs_rollback_plan",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedRecoveryRestartLastGoodTargetBindingEventId,
 "retained_recovery_restart_last_good_target_binding_event_id",
-{ json_event_id(binding.retained_restart_last_good_target_binding_event_id);
-}),
+{ V::EventSequence((binding.retained_restart_last_good_target_binding_event_id).sequence()) }),
 (CommandId,
 "command_id",
-{ json_str(binding.command_id);
-}),
+{ V::Str(binding.command_id) }),
 (ArgumentSchema,
 "argument_schema",
-{ json_str(binding.argument_schema);
-}),
+{ V::Str(binding.argument_schema) }),
 (TargetLocator,
 "target_locator",
-{ json_str(binding.target_locator.as_str());
-}),
+{ V::Str(binding.target_locator.as_str()) }),
 (CommandDispatchBoundaryId,
 "command_dispatch_boundary_id",
-{ json_str(binding.command_dispatch_boundary_id);
-}),
+{ V::Str(binding.command_dispatch_boundary_id) }),
 (LoadArtifactByHashTargetId,
 "load_artifact_by_hash_target_id",
-{ json_str(binding.load_artifact_by_hash_target_id);
-}),
+{ V::Str(binding.load_artifact_by_hash_target_id) }),
 (Hashes,
 "hashes",
-{ raw("{\"load_artifact_by_hash_target_binding_hash\": ");
-json_sha256(binding.load_artifact_by_hash_target_binding_hash);
-raw(", \"argument_hash\": ");
-json_sha256(binding.argument_hash);
-raw(", \"command_envelope_reference_hash\": ");
-json_sha256(binding.command_envelope_reference_hash);
-raw(", \"command_body_canonicalization_hash\": ");
-json_sha256(binding.command_body_canonicalization_hash);
-raw(", \"handler_binding_hash\": ");
-json_sha256(binding.handler_binding_hash);
-raw(", \"status_read_handler_hash\": ");
-json_sha256(binding.status_read_handler_hash);
-raw(", \"rollback_preview_authorization_hash\": ");
-json_sha256(binding.rollback_preview_authorization_hash);
-raw(", \"rollback_apply_authorization_hash\": ");
-json_sha256(binding.rollback_apply_authorization_hash);
-raw(", \"disable_module_target_binding_hash\": ");
-json_sha256(binding.disable_module_target_binding_hash);
-raw(", \"restart_last_good_target_binding_hash\": ");
-json_sha256(binding.restart_last_good_target_binding_hash);
-raw(", \"source_rollback_apply_denial_hash\": ");
-json_sha256(binding.source_rollback_apply_denial_hash);
-raw(", \"source_durable_policy_write_authority_decision_hash\": ");
-json_sha256(binding.source_durable_policy_write_authority_decision_hash);
-raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
-json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash);
-raw(", \"load_artifact_by_hash_target_artifact_hash\": ");
-json_sha256(binding.load_artifact_by_hash_target_artifact_hash);
-raw(", \"load_artifact_by_hash_target_projection_hash\": ");
-json_sha256(binding.load_artifact_by_hash_target_projection_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("load_artifact_by_hash_target_binding_hash", V::Sha256(binding.load_artifact_by_hash_target_binding_hash)), Field::new("argument_hash", V::Sha256(binding.argument_hash)), Field::new("command_envelope_reference_hash", V::Sha256(binding.command_envelope_reference_hash)), Field::new("command_body_canonicalization_hash", V::Sha256(binding.command_body_canonicalization_hash)), Field::new("handler_binding_hash", V::Sha256(binding.handler_binding_hash)), Field::new("status_read_handler_hash", V::Sha256(binding.status_read_handler_hash)), Field::new("rollback_preview_authorization_hash", V::Sha256(binding.rollback_preview_authorization_hash)), Field::new("rollback_apply_authorization_hash", V::Sha256(binding.rollback_apply_authorization_hash)), Field::new("disable_module_target_binding_hash", V::Sha256(binding.disable_module_target_binding_hash)), Field::new("restart_last_good_target_binding_hash", V::Sha256(binding.restart_last_good_target_binding_hash)), Field::new("source_rollback_apply_denial_hash", V::Sha256(binding.source_rollback_apply_denial_hash)), Field::new("source_durable_policy_write_authority_decision_hash", V::Sha256(binding.source_durable_policy_write_authority_decision_hash)), Field::new("source_recovery_rollback_inspect_source_reference_hash", V::Sha256(binding.source_recovery_rollback_inspect_source_reference_hash)), Field::new("load_artifact_by_hash_target_artifact_hash", V::Sha256(binding.load_artifact_by_hash_target_artifact_hash)), Field::new("load_artifact_by_hash_target_projection_hash", V::Sha256(binding.load_artifact_by_hash_target_projection_hash))]) }),
 }
 
-fn emit_recovery_load_artifact_by_hash_target_binding_reference_binding(
+fn recovery_load_artifact_by_hash_target_binding_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::RecoveryLoadArtifactByHashTargetBindingReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::RecoveryLoadArtifactByHashTargetBindingReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         RECOVERY_LOAD_ARTIFACT_BY_HASH_TARGET_BINDING_REFERENCE_BINDING_FIELDS,
         emit_recovery_load_artifact_by_hash_target_binding_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { RecoveryMemoryWriteAuthorityReferenceBindingField,
+define_direct_binding_value_fields! { RecoveryMemoryWriteAuthorityReferenceBindingField,
 RECOVERY_MEMORY_WRITE_AUTHORITY_REFERENCE_BINDING_FIELDS,
 emit_recovery_memory_write_authority_reference_binding_value,
 event_log::RecoveryMemoryWriteAuthorityReference,
@@ -9613,189 +7672,124 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.recovery_memory_write_authority.v0\"");
-}),
+{ V::Str("raios.recovery_memory_write_authority.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_command_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_command_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.command.read\"");
-}),
+{ V::Str("cap.recovery.command.read") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (AcceptsRawCommandBody,
 "accepts_raw_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandBody,
 "accepts_lifeline_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandEnvelope,
 "accepts_lifeline_command_envelope",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DispatchesLifelineCommand,
 "dispatches_lifeline_command",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesLifelineStatus,
 "executes_lifeline_status",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackPreview,
 "executes_rollback_preview",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackApply,
 "executes_rollback_apply",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesDisableModule,
 "executes_disable_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRestartLastGood,
 "executes_restart_last_good",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesLoadRecoveryArtifactByHash,
 "executes_load_recovery_artifact_by_hash",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DisablesModule,
 "disables_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RestartsLastGood,
 "restarts_last_good",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CommandExecutionEnabled,
 "command_execution_enabled",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanMoveBeyondDenial,
 "can_move_beyond_denial",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (WritesRecoveryMemory,
 "writes_recovery_memory",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesDurableRecords,
 "creates_durable_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (InstallsRollbackPlan,
 "installs_rollback_plan",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedRecoveryLoadArtifactByHashTargetBindingEventId,
 "retained_recovery_load_artifact_by_hash_target_binding_event_id",
-{ json_event_id(binding.retained_load_artifact_by_hash_target_binding_event_id);
-}),
+{ V::EventSequence((binding.retained_load_artifact_by_hash_target_binding_event_id).sequence()) }),
 (CommandId,
 "command_id",
-{ json_str(binding.command_id);
-}),
+{ V::Str(binding.command_id) }),
 (ArgumentSchema,
 "argument_schema",
-{ json_str(binding.argument_schema);
-}),
+{ V::Str(binding.argument_schema) }),
 (TargetLocator,
 "target_locator",
-{ json_str(binding.target_locator.as_str());
-}),
+{ V::Str(binding.target_locator.as_str()) }),
 (CommandDispatchBoundaryId,
 "command_dispatch_boundary_id",
-{ json_str(binding.command_dispatch_boundary_id);
-}),
+{ V::Str(binding.command_dispatch_boundary_id) }),
 (RecoveryMemoryWriteAuthorityId,
 "recovery_memory_write_authority_id",
-{ json_str(binding.recovery_memory_write_authority_id);
-}),
+{ V::Str(binding.recovery_memory_write_authority_id) }),
 (Hashes,
 "hashes",
-{ raw("{\"recovery_memory_write_authority_hash\": ");
-json_sha256(binding.recovery_memory_write_authority_hash);
-raw(", \"argument_hash\": ");
-json_sha256(binding.argument_hash);
-raw(", \"command_envelope_reference_hash\": ");
-json_sha256(binding.command_envelope_reference_hash);
-raw(", \"command_body_canonicalization_hash\": ");
-json_sha256(binding.command_body_canonicalization_hash);
-raw(", \"handler_binding_hash\": ");
-json_sha256(binding.handler_binding_hash);
-raw(", \"status_read_handler_hash\": ");
-json_sha256(binding.status_read_handler_hash);
-raw(", \"rollback_preview_authorization_hash\": ");
-json_sha256(binding.rollback_preview_authorization_hash);
-raw(", \"rollback_apply_authorization_hash\": ");
-json_sha256(binding.rollback_apply_authorization_hash);
-raw(", \"disable_module_target_binding_hash\": ");
-json_sha256(binding.disable_module_target_binding_hash);
-raw(", \"restart_last_good_target_binding_hash\": ");
-json_sha256(binding.restart_last_good_target_binding_hash);
-raw(", \"load_artifact_by_hash_target_binding_hash\": ");
-json_sha256(binding.load_artifact_by_hash_target_binding_hash);
-raw(", \"source_rollback_apply_denial_hash\": ");
-json_sha256(binding.source_rollback_apply_denial_hash);
-raw(", \"source_durable_policy_write_authority_decision_hash\": ");
-json_sha256(binding.source_durable_policy_write_authority_decision_hash);
-raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
-json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash);
-raw(", \"recovery_memory_projection_hash\": ");
-json_sha256(binding.recovery_memory_projection_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("recovery_memory_write_authority_hash", V::Sha256(binding.recovery_memory_write_authority_hash)), Field::new("argument_hash", V::Sha256(binding.argument_hash)), Field::new("command_envelope_reference_hash", V::Sha256(binding.command_envelope_reference_hash)), Field::new("command_body_canonicalization_hash", V::Sha256(binding.command_body_canonicalization_hash)), Field::new("handler_binding_hash", V::Sha256(binding.handler_binding_hash)), Field::new("status_read_handler_hash", V::Sha256(binding.status_read_handler_hash)), Field::new("rollback_preview_authorization_hash", V::Sha256(binding.rollback_preview_authorization_hash)), Field::new("rollback_apply_authorization_hash", V::Sha256(binding.rollback_apply_authorization_hash)), Field::new("disable_module_target_binding_hash", V::Sha256(binding.disable_module_target_binding_hash)), Field::new("restart_last_good_target_binding_hash", V::Sha256(binding.restart_last_good_target_binding_hash)), Field::new("load_artifact_by_hash_target_binding_hash", V::Sha256(binding.load_artifact_by_hash_target_binding_hash)), Field::new("source_rollback_apply_denial_hash", V::Sha256(binding.source_rollback_apply_denial_hash)), Field::new("source_durable_policy_write_authority_decision_hash", V::Sha256(binding.source_durable_policy_write_authority_decision_hash)), Field::new("source_recovery_rollback_inspect_source_reference_hash", V::Sha256(binding.source_recovery_rollback_inspect_source_reference_hash)), Field::new("recovery_memory_projection_hash", V::Sha256(binding.recovery_memory_projection_hash))]) }),
 }
 
-fn emit_recovery_memory_write_authority_reference_binding(
+fn recovery_memory_write_authority_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::RecoveryMemoryWriteAuthorityReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::RecoveryMemoryWriteAuthorityReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         RECOVERY_MEMORY_WRITE_AUTHORITY_REFERENCE_BINDING_FIELDS,
         emit_recovery_memory_write_authority_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { DurableAuditRollbackWriteAuthorityReferenceBindingField,
+define_direct_binding_value_fields! { DurableAuditRollbackWriteAuthorityReferenceBindingField,
 DURABLE_AUDIT_ROLLBACK_WRITE_AUTHORITY_REFERENCE_BINDING_FIELDS,
 emit_durable_audit_rollback_write_authority_reference_binding_value,
 event_log::DurableAuditRollbackWriteAuthorityReference,
@@ -9803,199 +7797,130 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.durable_audit_rollback_write_authority.v0\"");
-}),
+{ V::Str("raios.durable_audit_rollback_write_authority.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_command_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_command_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.command.read\"");
-}),
+{ V::Str("cap.recovery.command.read") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (AcceptsRawCommandBody,
 "accepts_raw_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandBody,
 "accepts_lifeline_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandEnvelope,
 "accepts_lifeline_command_envelope",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DispatchesLifelineCommand,
 "dispatches_lifeline_command",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesLifelineStatus,
 "executes_lifeline_status",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackPreview,
 "executes_rollback_preview",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackApply,
 "executes_rollback_apply",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesDisableModule,
 "executes_disable_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRestartLastGood,
 "executes_restart_last_good",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesLoadRecoveryArtifactByHash,
 "executes_load_recovery_artifact_by_hash",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DisablesModule,
 "disables_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RestartsLastGood,
 "restarts_last_good",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CommandExecutionEnabled,
 "command_execution_enabled",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanMoveBeyondDenial,
 "can_move_beyond_denial",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (WritesRecoveryMemory,
 "writes_recovery_memory",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (WritesDurableAuditLog,
 "writes_durable_audit_log",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (WritesRollbackStore,
 "writes_rollback_store",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesDurableRecords,
 "creates_durable_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (InstallsRollbackPlan,
 "installs_rollback_plan",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedRecoveryMemoryWriteAuthorityEventId,
 "retained_recovery_memory_write_authority_event_id",
-{ json_event_id(binding.retained_recovery_memory_write_authority_event_id);
-}),
+{ V::EventSequence((binding.retained_recovery_memory_write_authority_event_id).sequence()) }),
 (CommandId,
 "command_id",
-{ json_str(binding.command_id);
-}),
+{ V::Str(binding.command_id) }),
 (ArgumentSchema,
 "argument_schema",
-{ json_str(binding.argument_schema);
-}),
+{ V::Str(binding.argument_schema) }),
 (TargetLocator,
 "target_locator",
-{ json_str(binding.target_locator.as_str());
-}),
+{ V::Str(binding.target_locator.as_str()) }),
 (CommandDispatchBoundaryId,
 "command_dispatch_boundary_id",
-{ json_str(binding.command_dispatch_boundary_id);
-}),
+{ V::Str(binding.command_dispatch_boundary_id) }),
 (DurableAuditRollbackWriteAuthorityId,
 "durable_audit_rollback_write_authority_id",
-{ json_str(binding.durable_audit_rollback_write_authority_id);
-}),
+{ V::Str(binding.durable_audit_rollback_write_authority_id) }),
 (Hashes,
 "hashes",
-{ raw("{\"durable_audit_rollback_write_authority_hash\": ");
-json_sha256(binding.durable_audit_rollback_write_authority_hash);
-raw(", \"argument_hash\": ");
-json_sha256(binding.argument_hash);
-raw(", \"command_envelope_reference_hash\": ");
-json_sha256(binding.command_envelope_reference_hash);
-raw(", \"command_body_canonicalization_hash\": ");
-json_sha256(binding.command_body_canonicalization_hash);
-raw(", \"handler_binding_hash\": ");
-json_sha256(binding.handler_binding_hash);
-raw(", \"status_read_handler_hash\": ");
-json_sha256(binding.status_read_handler_hash);
-raw(", \"rollback_preview_authorization_hash\": ");
-json_sha256(binding.rollback_preview_authorization_hash);
-raw(", \"rollback_apply_authorization_hash\": ");
-json_sha256(binding.rollback_apply_authorization_hash);
-raw(", \"disable_module_target_binding_hash\": ");
-json_sha256(binding.disable_module_target_binding_hash);
-raw(", \"restart_last_good_target_binding_hash\": ");
-json_sha256(binding.restart_last_good_target_binding_hash);
-raw(", \"load_artifact_by_hash_target_binding_hash\": ");
-json_sha256(binding.load_artifact_by_hash_target_binding_hash);
-raw(", \"recovery_memory_write_authority_hash\": ");
-json_sha256(binding.recovery_memory_write_authority_hash);
-raw(", \"source_rollback_apply_denial_hash\": ");
-json_sha256(binding.source_rollback_apply_denial_hash);
-raw(", \"source_durable_policy_write_authority_decision_hash\": ");
-json_sha256(binding.source_durable_policy_write_authority_decision_hash);
-raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
-json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash);
-raw(", \"durable_audit_rollback_projection_hash\": ");
-json_sha256(binding.durable_audit_rollback_projection_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("durable_audit_rollback_write_authority_hash", V::Sha256(binding.durable_audit_rollback_write_authority_hash)), Field::new("argument_hash", V::Sha256(binding.argument_hash)), Field::new("command_envelope_reference_hash", V::Sha256(binding.command_envelope_reference_hash)), Field::new("command_body_canonicalization_hash", V::Sha256(binding.command_body_canonicalization_hash)), Field::new("handler_binding_hash", V::Sha256(binding.handler_binding_hash)), Field::new("status_read_handler_hash", V::Sha256(binding.status_read_handler_hash)), Field::new("rollback_preview_authorization_hash", V::Sha256(binding.rollback_preview_authorization_hash)), Field::new("rollback_apply_authorization_hash", V::Sha256(binding.rollback_apply_authorization_hash)), Field::new("disable_module_target_binding_hash", V::Sha256(binding.disable_module_target_binding_hash)), Field::new("restart_last_good_target_binding_hash", V::Sha256(binding.restart_last_good_target_binding_hash)), Field::new("load_artifact_by_hash_target_binding_hash", V::Sha256(binding.load_artifact_by_hash_target_binding_hash)), Field::new("recovery_memory_write_authority_hash", V::Sha256(binding.recovery_memory_write_authority_hash)), Field::new("source_rollback_apply_denial_hash", V::Sha256(binding.source_rollback_apply_denial_hash)), Field::new("source_durable_policy_write_authority_decision_hash", V::Sha256(binding.source_durable_policy_write_authority_decision_hash)), Field::new("source_recovery_rollback_inspect_source_reference_hash", V::Sha256(binding.source_recovery_rollback_inspect_source_reference_hash)), Field::new("durable_audit_rollback_projection_hash", V::Sha256(binding.durable_audit_rollback_projection_hash))]) }),
 }
 
-fn emit_durable_audit_rollback_write_authority_reference_binding(
+fn durable_audit_rollback_write_authority_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::DurableAuditRollbackWriteAuthorityReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::DurableAuditRollbackWriteAuthorityReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         DURABLE_AUDIT_ROLLBACK_WRITE_AUTHORITY_REFERENCE_BINDING_FIELDS,
         emit_durable_audit_rollback_write_authority_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { RecoveryServiceInventorySideEffectBoundaryReferenceBindingField,
+define_direct_binding_value_fields! { RecoveryServiceInventorySideEffectBoundaryReferenceBindingField,
 RECOVERY_SERVICE_INVENTORY_SIDE_EFFECT_BOUNDARY_REFERENCE_BINDING_FIELDS,
 emit_recovery_service_inventory_side_effect_boundary_reference_binding_value,
 event_log::RecoveryServiceInventorySideEffectBoundaryReference,
@@ -10003,205 +7928,133 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.recovery_service_inventory_side_effect_boundary.v0\"");
-}),
+{ V::Str("raios.recovery_service_inventory_side_effect_boundary.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_command_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_command_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.command.read\"");
-}),
+{ V::Str("cap.recovery.command.read") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (AcceptsRawCommandBody,
 "accepts_raw_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandBody,
 "accepts_lifeline_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandEnvelope,
 "accepts_lifeline_command_envelope",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DispatchesLifelineCommand,
 "dispatches_lifeline_command",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesLifelineStatus,
 "executes_lifeline_status",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackPreview,
 "executes_rollback_preview",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackApply,
 "executes_rollback_apply",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesDisableModule,
 "executes_disable_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRestartLastGood,
 "executes_restart_last_good",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesLoadRecoveryArtifactByHash,
 "executes_load_recovery_artifact_by_hash",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DisablesModule,
 "disables_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RestartsLastGood,
 "restarts_last_good",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CommandExecutionEnabled,
 "command_execution_enabled",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanMoveBeyondDenial,
 "can_move_beyond_denial",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (WritesRecoveryMemory,
 "writes_recovery_memory",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (WritesDurableAuditLog,
 "writes_durable_audit_log",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (WritesRollbackStore,
 "writes_rollback_store",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesDurableRecords,
 "creates_durable_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (InstallsRollbackPlan,
 "installs_rollback_plan",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesServiceInventoryRecords,
 "creates_service_inventory_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedDurableAuditRollbackWriteAuthorityEventId,
 "retained_durable_audit_rollback_write_authority_event_id",
-{ json_event_id(binding.retained_durable_audit_rollback_write_authority_event_id);
-}),
+{ V::EventSequence((binding.retained_durable_audit_rollback_write_authority_event_id).sequence()) }),
 (CommandId,
 "command_id",
-{ json_str(binding.command_id);
-}),
+{ V::Str(binding.command_id) }),
 (ArgumentSchema,
 "argument_schema",
-{ json_str(binding.argument_schema);
-}),
+{ V::Str(binding.argument_schema) }),
 (TargetLocator,
 "target_locator",
-{ json_str(binding.target_locator.as_str());
-}),
+{ V::Str(binding.target_locator.as_str()) }),
 (CommandDispatchBoundaryId,
 "command_dispatch_boundary_id",
-{ json_str(binding.command_dispatch_boundary_id);
-}),
+{ V::Str(binding.command_dispatch_boundary_id) }),
 (ServiceInventorySideEffectBoundaryId,
 "service_inventory_side_effect_boundary_id",
-{ json_str(binding.service_inventory_side_effect_boundary_id);
-}),
+{ V::Str(binding.service_inventory_side_effect_boundary_id) }),
 (Hashes,
 "hashes",
-{ raw("{\"service_inventory_side_effect_boundary_hash\": ");
-json_sha256(binding.service_inventory_side_effect_boundary_hash);
-raw(", \"argument_hash\": ");
-json_sha256(binding.argument_hash);
-raw(", \"command_envelope_reference_hash\": ");
-json_sha256(binding.command_envelope_reference_hash);
-raw(", \"command_body_canonicalization_hash\": ");
-json_sha256(binding.command_body_canonicalization_hash);
-raw(", \"handler_binding_hash\": ");
-json_sha256(binding.handler_binding_hash);
-raw(", \"status_read_handler_hash\": ");
-json_sha256(binding.status_read_handler_hash);
-raw(", \"rollback_preview_authorization_hash\": ");
-json_sha256(binding.rollback_preview_authorization_hash);
-raw(", \"rollback_apply_authorization_hash\": ");
-json_sha256(binding.rollback_apply_authorization_hash);
-raw(", \"disable_module_target_binding_hash\": ");
-json_sha256(binding.disable_module_target_binding_hash);
-raw(", \"restart_last_good_target_binding_hash\": ");
-json_sha256(binding.restart_last_good_target_binding_hash);
-raw(", \"load_artifact_by_hash_target_binding_hash\": ");
-json_sha256(binding.load_artifact_by_hash_target_binding_hash);
-raw(", \"recovery_memory_write_authority_hash\": ");
-json_sha256(binding.recovery_memory_write_authority_hash);
-raw(", \"durable_audit_rollback_write_authority_hash\": ");
-json_sha256(binding.durable_audit_rollback_write_authority_hash);
-raw(", \"source_rollback_apply_denial_hash\": ");
-json_sha256(binding.source_rollback_apply_denial_hash);
-raw(", \"source_durable_policy_write_authority_decision_hash\": ");
-json_sha256(binding.source_durable_policy_write_authority_decision_hash);
-raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
-json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash);
-raw(", \"service_inventory_projection_hash\": ");
-json_sha256(binding.service_inventory_projection_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("service_inventory_side_effect_boundary_hash", V::Sha256(binding.service_inventory_side_effect_boundary_hash)), Field::new("argument_hash", V::Sha256(binding.argument_hash)), Field::new("command_envelope_reference_hash", V::Sha256(binding.command_envelope_reference_hash)), Field::new("command_body_canonicalization_hash", V::Sha256(binding.command_body_canonicalization_hash)), Field::new("handler_binding_hash", V::Sha256(binding.handler_binding_hash)), Field::new("status_read_handler_hash", V::Sha256(binding.status_read_handler_hash)), Field::new("rollback_preview_authorization_hash", V::Sha256(binding.rollback_preview_authorization_hash)), Field::new("rollback_apply_authorization_hash", V::Sha256(binding.rollback_apply_authorization_hash)), Field::new("disable_module_target_binding_hash", V::Sha256(binding.disable_module_target_binding_hash)), Field::new("restart_last_good_target_binding_hash", V::Sha256(binding.restart_last_good_target_binding_hash)), Field::new("load_artifact_by_hash_target_binding_hash", V::Sha256(binding.load_artifact_by_hash_target_binding_hash)), Field::new("recovery_memory_write_authority_hash", V::Sha256(binding.recovery_memory_write_authority_hash)), Field::new("durable_audit_rollback_write_authority_hash", V::Sha256(binding.durable_audit_rollback_write_authority_hash)), Field::new("source_rollback_apply_denial_hash", V::Sha256(binding.source_rollback_apply_denial_hash)), Field::new("source_durable_policy_write_authority_decision_hash", V::Sha256(binding.source_durable_policy_write_authority_decision_hash)), Field::new("source_recovery_rollback_inspect_source_reference_hash", V::Sha256(binding.source_recovery_rollback_inspect_source_reference_hash)), Field::new("service_inventory_projection_hash", V::Sha256(binding.service_inventory_projection_hash))]) }),
 }
 
-fn emit_recovery_service_inventory_side_effect_boundary_reference_binding(
+fn recovery_service_inventory_side_effect_boundary_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::RecoveryServiceInventorySideEffectBoundaryReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::RecoveryServiceInventorySideEffectBoundaryReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         RECOVERY_SERVICE_INVENTORY_SIDE_EFFECT_BOUNDARY_REFERENCE_BINDING_FIELDS,
         emit_recovery_service_inventory_side_effect_boundary_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { RecoveryLifelineCommandDispatchBehaviorReferenceBindingField,
+define_direct_binding_value_fields! { RecoveryLifelineCommandDispatchBehaviorReferenceBindingField,
 RECOVERY_LIFELINE_COMMAND_DISPATCH_BEHAVIOR_REFERENCE_BINDING_FIELDS,
 emit_recovery_lifeline_command_dispatch_behavior_reference_binding_value,
 event_log::RecoveryLifelineCommandDispatchBehaviorReference,
@@ -10209,207 +8062,133 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.recovery_lifeline_command_dispatch_behavior.v0\"");
-}),
+{ V::Str("raios.recovery_lifeline_command_dispatch_behavior.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_command_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_command_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.command.read\"");
-}),
+{ V::Str("cap.recovery.command.read") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (AcceptsRawCommandBody,
 "accepts_raw_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandBody,
 "accepts_lifeline_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandEnvelope,
 "accepts_lifeline_command_envelope",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DispatchesLifelineCommand,
 "dispatches_lifeline_command",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesLifelineStatus,
 "executes_lifeline_status",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackPreview,
 "executes_rollback_preview",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackApply,
 "executes_rollback_apply",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesDisableModule,
 "executes_disable_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRestartLastGood,
 "executes_restart_last_good",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesLoadRecoveryArtifactByHash,
 "executes_load_recovery_artifact_by_hash",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DisablesModule,
 "disables_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RestartsLastGood,
 "restarts_last_good",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CommandExecutionEnabled,
 "command_execution_enabled",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanMoveBeyondDenial,
 "can_move_beyond_denial",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (WritesRecoveryMemory,
 "writes_recovery_memory",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (WritesDurableAuditLog,
 "writes_durable_audit_log",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (WritesRollbackStore,
 "writes_rollback_store",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesDurableRecords,
 "creates_durable_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (InstallsRollbackPlan,
 "installs_rollback_plan",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesServiceInventoryRecords,
 "creates_service_inventory_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedServiceInventorySideEffectBoundaryEventId,
 "retained_service_inventory_side_effect_boundary_event_id",
-{ json_event_id(binding.retained_service_inventory_side_effect_boundary_event_id);
-}),
+{ V::EventSequence((binding.retained_service_inventory_side_effect_boundary_event_id).sequence()) }),
 (CommandId,
 "command_id",
-{ json_str(binding.command_id);
-}),
+{ V::Str(binding.command_id) }),
 (ArgumentSchema,
 "argument_schema",
-{ json_str(binding.argument_schema);
-}),
+{ V::Str(binding.argument_schema) }),
 (TargetLocator,
 "target_locator",
-{ json_str(binding.target_locator.as_str());
-}),
+{ V::Str(binding.target_locator.as_str()) }),
 (CommandDispatchBoundaryId,
 "command_dispatch_boundary_id",
-{ json_str(binding.command_dispatch_boundary_id);
-}),
+{ V::Str(binding.command_dispatch_boundary_id) }),
 (CommandDispatchBehaviorId,
 "command_dispatch_behavior_id",
-{ json_str(binding.command_dispatch_behavior_id);
-}),
+{ V::Str(binding.command_dispatch_behavior_id) }),
 (Hashes,
 "hashes",
-{ raw("{\"command_dispatch_behavior_hash\": ");
-json_sha256(binding.command_dispatch_behavior_hash);
-raw(", \"argument_hash\": ");
-json_sha256(binding.argument_hash);
-raw(", \"command_envelope_reference_hash\": ");
-json_sha256(binding.command_envelope_reference_hash);
-raw(", \"command_body_canonicalization_hash\": ");
-json_sha256(binding.command_body_canonicalization_hash);
-raw(", \"handler_binding_hash\": ");
-json_sha256(binding.handler_binding_hash);
-raw(", \"status_read_handler_hash\": ");
-json_sha256(binding.status_read_handler_hash);
-raw(", \"rollback_preview_authorization_hash\": ");
-json_sha256(binding.rollback_preview_authorization_hash);
-raw(", \"rollback_apply_authorization_hash\": ");
-json_sha256(binding.rollback_apply_authorization_hash);
-raw(", \"disable_module_target_binding_hash\": ");
-json_sha256(binding.disable_module_target_binding_hash);
-raw(", \"restart_last_good_target_binding_hash\": ");
-json_sha256(binding.restart_last_good_target_binding_hash);
-raw(", \"load_artifact_by_hash_target_binding_hash\": ");
-json_sha256(binding.load_artifact_by_hash_target_binding_hash);
-raw(", \"recovery_memory_write_authority_hash\": ");
-json_sha256(binding.recovery_memory_write_authority_hash);
-raw(", \"durable_audit_rollback_write_authority_hash\": ");
-json_sha256(binding.durable_audit_rollback_write_authority_hash);
-raw(", \"service_inventory_side_effect_boundary_hash\": ");
-json_sha256(binding.service_inventory_side_effect_boundary_hash);
-raw(", \"source_rollback_apply_denial_hash\": ");
-json_sha256(binding.source_rollback_apply_denial_hash);
-raw(", \"source_durable_policy_write_authority_decision_hash\": ");
-json_sha256(binding.source_durable_policy_write_authority_decision_hash);
-raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
-json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash);
-raw(", \"command_dispatch_behavior_projection_hash\": ");
-json_sha256(binding.command_dispatch_behavior_projection_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("command_dispatch_behavior_hash", V::Sha256(binding.command_dispatch_behavior_hash)), Field::new("argument_hash", V::Sha256(binding.argument_hash)), Field::new("command_envelope_reference_hash", V::Sha256(binding.command_envelope_reference_hash)), Field::new("command_body_canonicalization_hash", V::Sha256(binding.command_body_canonicalization_hash)), Field::new("handler_binding_hash", V::Sha256(binding.handler_binding_hash)), Field::new("status_read_handler_hash", V::Sha256(binding.status_read_handler_hash)), Field::new("rollback_preview_authorization_hash", V::Sha256(binding.rollback_preview_authorization_hash)), Field::new("rollback_apply_authorization_hash", V::Sha256(binding.rollback_apply_authorization_hash)), Field::new("disable_module_target_binding_hash", V::Sha256(binding.disable_module_target_binding_hash)), Field::new("restart_last_good_target_binding_hash", V::Sha256(binding.restart_last_good_target_binding_hash)), Field::new("load_artifact_by_hash_target_binding_hash", V::Sha256(binding.load_artifact_by_hash_target_binding_hash)), Field::new("recovery_memory_write_authority_hash", V::Sha256(binding.recovery_memory_write_authority_hash)), Field::new("durable_audit_rollback_write_authority_hash", V::Sha256(binding.durable_audit_rollback_write_authority_hash)), Field::new("service_inventory_side_effect_boundary_hash", V::Sha256(binding.service_inventory_side_effect_boundary_hash)), Field::new("source_rollback_apply_denial_hash", V::Sha256(binding.source_rollback_apply_denial_hash)), Field::new("source_durable_policy_write_authority_decision_hash", V::Sha256(binding.source_durable_policy_write_authority_decision_hash)), Field::new("source_recovery_rollback_inspect_source_reference_hash", V::Sha256(binding.source_recovery_rollback_inspect_source_reference_hash)), Field::new("command_dispatch_behavior_projection_hash", V::Sha256(binding.command_dispatch_behavior_projection_hash))]) }),
 }
 
-fn emit_recovery_lifeline_command_dispatch_behavior_reference_binding(
+fn recovery_lifeline_command_dispatch_behavior_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::RecoveryLifelineCommandDispatchBehaviorReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::RecoveryLifelineCommandDispatchBehaviorReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         RECOVERY_LIFELINE_COMMAND_DISPATCH_BEHAVIOR_REFERENCE_BINDING_FIELDS,
         emit_recovery_lifeline_command_dispatch_behavior_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { RecoveryLifelineCommandExecutorCapabilityTableReferenceBindingField,
+define_direct_binding_value_fields! { RecoveryLifelineCommandExecutorCapabilityTableReferenceBindingField,
 RECOVERY_LIFELINE_COMMAND_EXECUTOR_CAPABILITY_TABLE_REFERENCE_BINDING_FIELDS,
 emit_recovery_lifeline_command_executor_capability_table_reference_binding_value,
 event_log::RecoveryLifelineCommandExecutorCapabilityTableReference,
@@ -10417,209 +8196,133 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.recovery_lifeline_command_executor_capability_table.v0\"");
-}),
+{ V::Str("raios.recovery_lifeline_command_executor_capability_table.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_command_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_command_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.command.read\"");
-}),
+{ V::Str("cap.recovery.command.read") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (AcceptsRawCommandBody,
 "accepts_raw_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandBody,
 "accepts_lifeline_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandEnvelope,
 "accepts_lifeline_command_envelope",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DispatchesLifelineCommand,
 "dispatches_lifeline_command",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesLifelineStatus,
 "executes_lifeline_status",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackPreview,
 "executes_rollback_preview",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackApply,
 "executes_rollback_apply",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesDisableModule,
 "executes_disable_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRestartLastGood,
 "executes_restart_last_good",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesLoadRecoveryArtifactByHash,
 "executes_load_recovery_artifact_by_hash",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DisablesModule,
 "disables_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RestartsLastGood,
 "restarts_last_good",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CommandExecutionEnabled,
 "command_execution_enabled",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanMoveBeyondDenial,
 "can_move_beyond_denial",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (WritesRecoveryMemory,
 "writes_recovery_memory",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (WritesDurableAuditLog,
 "writes_durable_audit_log",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (WritesRollbackStore,
 "writes_rollback_store",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesDurableRecords,
 "creates_durable_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (InstallsRollbackPlan,
 "installs_rollback_plan",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesServiceInventoryRecords,
 "creates_service_inventory_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedCommandDispatchBehaviorEventId,
 "retained_command_dispatch_behavior_event_id",
-{ json_event_id(binding.retained_command_dispatch_behavior_event_id);
-}),
+{ V::EventSequence((binding.retained_command_dispatch_behavior_event_id).sequence()) }),
 (CommandId,
 "command_id",
-{ json_str(binding.command_id);
-}),
+{ V::Str(binding.command_id) }),
 (ArgumentSchema,
 "argument_schema",
-{ json_str(binding.argument_schema);
-}),
+{ V::Str(binding.argument_schema) }),
 (TargetLocator,
 "target_locator",
-{ json_str(binding.target_locator.as_str());
-}),
+{ V::Str(binding.target_locator.as_str()) }),
 (CommandDispatchBoundaryId,
 "command_dispatch_boundary_id",
-{ json_str(binding.command_dispatch_boundary_id);
-}),
+{ V::Str(binding.command_dispatch_boundary_id) }),
 (ExecutorCapabilityTableId,
 "executor_capability_table_id",
-{ json_str(binding.executor_capability_table_id);
-}),
+{ V::Str(binding.executor_capability_table_id) }),
 (Hashes,
 "hashes",
-{ raw("{\"executor_capability_table_hash\": ");
-json_sha256(binding.executor_capability_table_hash);
-raw(", \"argument_hash\": ");
-json_sha256(binding.argument_hash);
-raw(", \"command_envelope_reference_hash\": ");
-json_sha256(binding.command_envelope_reference_hash);
-raw(", \"command_body_canonicalization_hash\": ");
-json_sha256(binding.command_body_canonicalization_hash);
-raw(", \"handler_binding_hash\": ");
-json_sha256(binding.handler_binding_hash);
-raw(", \"status_read_handler_hash\": ");
-json_sha256(binding.status_read_handler_hash);
-raw(", \"rollback_preview_authorization_hash\": ");
-json_sha256(binding.rollback_preview_authorization_hash);
-raw(", \"rollback_apply_authorization_hash\": ");
-json_sha256(binding.rollback_apply_authorization_hash);
-raw(", \"disable_module_target_binding_hash\": ");
-json_sha256(binding.disable_module_target_binding_hash);
-raw(", \"restart_last_good_target_binding_hash\": ");
-json_sha256(binding.restart_last_good_target_binding_hash);
-raw(", \"load_artifact_by_hash_target_binding_hash\": ");
-json_sha256(binding.load_artifact_by_hash_target_binding_hash);
-raw(", \"recovery_memory_write_authority_hash\": ");
-json_sha256(binding.recovery_memory_write_authority_hash);
-raw(", \"durable_audit_rollback_write_authority_hash\": ");
-json_sha256(binding.durable_audit_rollback_write_authority_hash);
-raw(", \"service_inventory_side_effect_boundary_hash\": ");
-json_sha256(binding.service_inventory_side_effect_boundary_hash);
-raw(", \"command_dispatch_behavior_hash\": ");
-json_sha256(binding.command_dispatch_behavior_hash);
-raw(", \"source_rollback_apply_denial_hash\": ");
-json_sha256(binding.source_rollback_apply_denial_hash);
-raw(", \"source_durable_policy_write_authority_decision_hash\": ");
-json_sha256(binding.source_durable_policy_write_authority_decision_hash);
-raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
-json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash);
-raw(", \"executor_capability_projection_hash\": ");
-json_sha256(binding.executor_capability_projection_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("executor_capability_table_hash", V::Sha256(binding.executor_capability_table_hash)), Field::new("argument_hash", V::Sha256(binding.argument_hash)), Field::new("command_envelope_reference_hash", V::Sha256(binding.command_envelope_reference_hash)), Field::new("command_body_canonicalization_hash", V::Sha256(binding.command_body_canonicalization_hash)), Field::new("handler_binding_hash", V::Sha256(binding.handler_binding_hash)), Field::new("status_read_handler_hash", V::Sha256(binding.status_read_handler_hash)), Field::new("rollback_preview_authorization_hash", V::Sha256(binding.rollback_preview_authorization_hash)), Field::new("rollback_apply_authorization_hash", V::Sha256(binding.rollback_apply_authorization_hash)), Field::new("disable_module_target_binding_hash", V::Sha256(binding.disable_module_target_binding_hash)), Field::new("restart_last_good_target_binding_hash", V::Sha256(binding.restart_last_good_target_binding_hash)), Field::new("load_artifact_by_hash_target_binding_hash", V::Sha256(binding.load_artifact_by_hash_target_binding_hash)), Field::new("recovery_memory_write_authority_hash", V::Sha256(binding.recovery_memory_write_authority_hash)), Field::new("durable_audit_rollback_write_authority_hash", V::Sha256(binding.durable_audit_rollback_write_authority_hash)), Field::new("service_inventory_side_effect_boundary_hash", V::Sha256(binding.service_inventory_side_effect_boundary_hash)), Field::new("command_dispatch_behavior_hash", V::Sha256(binding.command_dispatch_behavior_hash)), Field::new("source_rollback_apply_denial_hash", V::Sha256(binding.source_rollback_apply_denial_hash)), Field::new("source_durable_policy_write_authority_decision_hash", V::Sha256(binding.source_durable_policy_write_authority_decision_hash)), Field::new("source_recovery_rollback_inspect_source_reference_hash", V::Sha256(binding.source_recovery_rollback_inspect_source_reference_hash)), Field::new("executor_capability_projection_hash", V::Sha256(binding.executor_capability_projection_hash))]) }),
 }
 
-fn emit_recovery_lifeline_command_executor_capability_table_reference_binding(
+fn recovery_lifeline_command_executor_capability_table_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::RecoveryLifelineCommandExecutorCapabilityTableReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::RecoveryLifelineCommandExecutorCapabilityTableReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         RECOVERY_LIFELINE_COMMAND_EXECUTOR_CAPABILITY_TABLE_REFERENCE_BINDING_FIELDS,
         emit_recovery_lifeline_command_executor_capability_table_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { RecoveryLifelineCommandSideEffectGateReferenceBindingField,
+define_direct_binding_value_fields! { RecoveryLifelineCommandSideEffectGateReferenceBindingField,
 RECOVERY_LIFELINE_COMMAND_SIDE_EFFECT_GATE_REFERENCE_BINDING_FIELDS,
 emit_recovery_lifeline_command_side_effect_gate_reference_binding_value,
 event_log::RecoveryLifelineCommandSideEffectGateReference,
@@ -10627,211 +8330,133 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.recovery_lifeline_command_side_effect_gate.v0\"");
-}),
+{ V::Str("raios.recovery_lifeline_command_side_effect_gate.v0") }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_command_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_command_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.command.read\"");
-}),
+{ V::Str("cap.recovery.command.read") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (AcceptsRawCommandBody,
 "accepts_raw_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandBody,
 "accepts_lifeline_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandEnvelope,
 "accepts_lifeline_command_envelope",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DispatchesLifelineCommand,
 "dispatches_lifeline_command",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesLifelineStatus,
 "executes_lifeline_status",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackPreview,
 "executes_rollback_preview",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackApply,
 "executes_rollback_apply",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesDisableModule,
 "executes_disable_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRestartLastGood,
 "executes_restart_last_good",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesLoadRecoveryArtifactByHash,
 "executes_load_recovery_artifact_by_hash",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DisablesModule,
 "disables_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RestartsLastGood,
 "restarts_last_good",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CommandExecutionEnabled,
 "command_execution_enabled",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanMoveBeyondDenial,
 "can_move_beyond_denial",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (WritesRecoveryMemory,
 "writes_recovery_memory",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (WritesDurableAuditLog,
 "writes_durable_audit_log",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (WritesRollbackStore,
 "writes_rollback_store",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesDurableRecords,
 "creates_durable_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (InstallsRollbackPlan,
 "installs_rollback_plan",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesServiceInventoryRecords,
 "creates_service_inventory_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedExecutorCapabilityTableEventId,
 "retained_executor_capability_table_event_id",
-{ json_event_id(binding.retained_executor_capability_table_event_id);
-}),
+{ V::EventSequence((binding.retained_executor_capability_table_event_id).sequence()) }),
 (CommandId,
 "command_id",
-{ json_str(binding.command_id);
-}),
+{ V::Str(binding.command_id) }),
 (ArgumentSchema,
 "argument_schema",
-{ json_str(binding.argument_schema);
-}),
+{ V::Str(binding.argument_schema) }),
 (TargetLocator,
 "target_locator",
-{ json_str(binding.target_locator.as_str());
-}),
+{ V::Str(binding.target_locator.as_str()) }),
 (CommandDispatchBoundaryId,
 "command_dispatch_boundary_id",
-{ json_str(binding.command_dispatch_boundary_id);
-}),
+{ V::Str(binding.command_dispatch_boundary_id) }),
 (SideEffectGateId,
 "side_effect_gate_id",
-{ json_str(binding.side_effect_gate_id);
-}),
+{ V::Str(binding.side_effect_gate_id) }),
 (Hashes,
 "hashes",
-{ raw("{\"side_effect_gate_hash\": ");
-json_sha256(binding.side_effect_gate_hash);
-raw(", \"argument_hash\": ");
-json_sha256(binding.argument_hash);
-raw(", \"command_envelope_reference_hash\": ");
-json_sha256(binding.command_envelope_reference_hash);
-raw(", \"command_body_canonicalization_hash\": ");
-json_sha256(binding.command_body_canonicalization_hash);
-raw(", \"handler_binding_hash\": ");
-json_sha256(binding.handler_binding_hash);
-raw(", \"status_read_handler_hash\": ");
-json_sha256(binding.status_read_handler_hash);
-raw(", \"rollback_preview_authorization_hash\": ");
-json_sha256(binding.rollback_preview_authorization_hash);
-raw(", \"rollback_apply_authorization_hash\": ");
-json_sha256(binding.rollback_apply_authorization_hash);
-raw(", \"disable_module_target_binding_hash\": ");
-json_sha256(binding.disable_module_target_binding_hash);
-raw(", \"restart_last_good_target_binding_hash\": ");
-json_sha256(binding.restart_last_good_target_binding_hash);
-raw(", \"load_artifact_by_hash_target_binding_hash\": ");
-json_sha256(binding.load_artifact_by_hash_target_binding_hash);
-raw(", \"recovery_memory_write_authority_hash\": ");
-json_sha256(binding.recovery_memory_write_authority_hash);
-raw(", \"durable_audit_rollback_write_authority_hash\": ");
-json_sha256(binding.durable_audit_rollback_write_authority_hash);
-raw(", \"service_inventory_side_effect_boundary_hash\": ");
-json_sha256(binding.service_inventory_side_effect_boundary_hash);
-raw(", \"command_dispatch_behavior_hash\": ");
-json_sha256(binding.command_dispatch_behavior_hash);
-raw(", \"executor_capability_table_hash\": ");
-json_sha256(binding.executor_capability_table_hash);
-raw(", \"source_rollback_apply_denial_hash\": ");
-json_sha256(binding.source_rollback_apply_denial_hash);
-raw(", \"source_durable_policy_write_authority_decision_hash\": ");
-json_sha256(binding.source_durable_policy_write_authority_decision_hash);
-raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
-json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash);
-raw(", \"side_effect_projection_hash\": ");
-json_sha256(binding.side_effect_projection_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("side_effect_gate_hash", V::Sha256(binding.side_effect_gate_hash)), Field::new("argument_hash", V::Sha256(binding.argument_hash)), Field::new("command_envelope_reference_hash", V::Sha256(binding.command_envelope_reference_hash)), Field::new("command_body_canonicalization_hash", V::Sha256(binding.command_body_canonicalization_hash)), Field::new("handler_binding_hash", V::Sha256(binding.handler_binding_hash)), Field::new("status_read_handler_hash", V::Sha256(binding.status_read_handler_hash)), Field::new("rollback_preview_authorization_hash", V::Sha256(binding.rollback_preview_authorization_hash)), Field::new("rollback_apply_authorization_hash", V::Sha256(binding.rollback_apply_authorization_hash)), Field::new("disable_module_target_binding_hash", V::Sha256(binding.disable_module_target_binding_hash)), Field::new("restart_last_good_target_binding_hash", V::Sha256(binding.restart_last_good_target_binding_hash)), Field::new("load_artifact_by_hash_target_binding_hash", V::Sha256(binding.load_artifact_by_hash_target_binding_hash)), Field::new("recovery_memory_write_authority_hash", V::Sha256(binding.recovery_memory_write_authority_hash)), Field::new("durable_audit_rollback_write_authority_hash", V::Sha256(binding.durable_audit_rollback_write_authority_hash)), Field::new("service_inventory_side_effect_boundary_hash", V::Sha256(binding.service_inventory_side_effect_boundary_hash)), Field::new("command_dispatch_behavior_hash", V::Sha256(binding.command_dispatch_behavior_hash)), Field::new("executor_capability_table_hash", V::Sha256(binding.executor_capability_table_hash)), Field::new("source_rollback_apply_denial_hash", V::Sha256(binding.source_rollback_apply_denial_hash)), Field::new("source_durable_policy_write_authority_decision_hash", V::Sha256(binding.source_durable_policy_write_authority_decision_hash)), Field::new("source_recovery_rollback_inspect_source_reference_hash", V::Sha256(binding.source_recovery_rollback_inspect_source_reference_hash)), Field::new("side_effect_projection_hash", V::Sha256(binding.side_effect_projection_hash))]) }),
 }
 
-fn emit_recovery_lifeline_command_side_effect_gate_reference_binding(
+fn recovery_lifeline_command_side_effect_gate_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::RecoveryLifelineCommandSideEffectGateReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::RecoveryLifelineCommandSideEffectGateReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         RECOVERY_LIFELINE_COMMAND_SIDE_EFFECT_GATE_REFERENCE_BINDING_FIELDS,
         emit_recovery_lifeline_command_side_effect_gate_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { RecoveryLifelineCommandExecutionStageReferenceBindingField,
+define_direct_binding_value_fields! { RecoveryLifelineCommandExecutionStageReferenceBindingField,
 RECOVERY_LIFELINE_COMMAND_EXECUTION_STAGE_REFERENCE_BINDING_FIELDS,
 emit_recovery_lifeline_command_execution_stage_reference_binding_value,
 event_log::RecoveryLifelineCommandExecutionStageReference,
@@ -10839,231 +8464,136 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ json_str(binding.schema);
-}),
+{ V::Str(binding.schema) }),
 (Status,
 "status",
-{ raw("\"retained_hash_reference_command_still_denied\"");
-}),
+{ V::Str("retained_hash_reference_command_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.command.read\"");
-}),
+{ V::Str("cap.recovery.command.read") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (StageName,
 "stage_name",
-{ json_str(binding.stage_name);
-}),
+{ V::Str(binding.stage_name) }),
 (AcceptsRawCommandBody,
 "accepts_raw_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandBody,
 "accepts_lifeline_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandEnvelope,
 "accepts_lifeline_command_envelope",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DispatchesLifelineCommand,
 "dispatches_lifeline_command",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesLifelineStatus,
 "executes_lifeline_status",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackPreview,
 "executes_rollback_preview",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRollbackApply,
 "executes_rollback_apply",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesDisableModule,
 "executes_disable_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesRestartLastGood,
 "executes_restart_last_good",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesLoadRecoveryArtifactByHash,
 "executes_load_recovery_artifact_by_hash",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DisablesModule,
 "disables_module",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RestartsLastGood,
 "restarts_last_good",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CommandExecutionEnabled,
 "command_execution_enabled",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CanMoveBeyondDenial,
 "can_move_beyond_denial",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (WritesRecoveryMemory,
 "writes_recovery_memory",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (WritesDurableAuditLog,
 "writes_durable_audit_log",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (WritesRollbackStore,
 "writes_rollback_store",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesDurableRecords,
 "creates_durable_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (InstallsRollbackPlan,
 "installs_rollback_plan",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesServiceInventoryRecords,
 "creates_service_inventory_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedPreviousStageEventId,
 "retained_previous_stage_event_id",
-{ json_event_id(binding.retained_previous_stage_event_id);
-}),
+{ V::EventSequence((binding.retained_previous_stage_event_id).sequence()) }),
 (CommandId,
 "command_id",
-{ json_str(binding.command_id);
-}),
+{ V::Str(binding.command_id) }),
 (ArgumentSchema,
 "argument_schema",
-{ json_str(binding.argument_schema);
-}),
+{ V::Str(binding.argument_schema) }),
 (TargetLocator,
 "target_locator",
-{ json_str(binding.target_locator.as_str());
-}),
+{ V::Str(binding.target_locator.as_str()) }),
 (CommandDispatchBoundaryId,
 "command_dispatch_boundary_id",
-{ json_str(binding.command_dispatch_boundary_id);
-}),
+{ V::Str(binding.command_dispatch_boundary_id) }),
 (ExecutionStageId,
 "execution_stage_id",
-{ json_str(binding.execution_stage_id);
-}),
+{ V::Str(binding.execution_stage_id) }),
 (Hashes,
 "hashes",
-{ raw("{\"execution_stage_hash\": ");
-json_sha256(binding.execution_stage_hash);
-raw(", \"argument_hash\": ");
-json_sha256(binding.argument_hash);
-raw(", \"command_envelope_reference_hash\": ");
-json_sha256(binding.command_envelope_reference_hash);
-raw(", \"command_body_canonicalization_hash\": ");
-json_sha256(binding.command_body_canonicalization_hash);
-raw(", \"handler_binding_hash\": ");
-json_sha256(binding.handler_binding_hash);
-raw(", \"status_read_handler_hash\": ");
-json_sha256(binding.status_read_handler_hash);
-raw(", \"rollback_preview_authorization_hash\": ");
-json_sha256(binding.rollback_preview_authorization_hash);
-raw(", \"rollback_apply_authorization_hash\": ");
-json_sha256(binding.rollback_apply_authorization_hash);
-raw(", \"disable_module_target_binding_hash\": ");
-json_sha256(binding.disable_module_target_binding_hash);
-raw(", \"restart_last_good_target_binding_hash\": ");
-json_sha256(binding.restart_last_good_target_binding_hash);
-raw(", \"load_artifact_by_hash_target_binding_hash\": ");
-json_sha256(binding.load_artifact_by_hash_target_binding_hash);
-raw(", \"recovery_memory_write_authority_hash\": ");
-json_sha256(binding.recovery_memory_write_authority_hash);
-raw(", \"durable_audit_rollback_write_authority_hash\": ");
-json_sha256(binding.durable_audit_rollback_write_authority_hash);
-raw(", \"service_inventory_side_effect_boundary_hash\": ");
-json_sha256(binding.service_inventory_side_effect_boundary_hash);
-raw(", \"command_dispatch_behavior_hash\": ");
-json_sha256(binding.command_dispatch_behavior_hash);
-raw(", \"executor_capability_table_hash\": ");
-json_sha256(binding.executor_capability_table_hash);
-raw(", \"side_effect_gate_hash\": ");
-json_sha256(binding.side_effect_gate_hash);
-raw(", \"source_rollback_apply_denial_hash\": ");
-json_sha256(binding.source_rollback_apply_denial_hash);
-raw(", \"source_durable_policy_write_authority_decision_hash\": ");
-json_sha256(binding.source_durable_policy_write_authority_decision_hash);
-raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
-json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash);
-raw(", \"execution_enablement_hash\": ");
-json_sha256_option(binding.execution_enablement_hash);
-raw(", \"execution_preflight_hash\": ");
-json_sha256_option(binding.execution_preflight_hash);
-raw(", \"execution_intent_hash\": ");
-json_sha256_option(binding.execution_intent_hash);
-raw(", \"execution_commit_gate_hash\": ");
-json_sha256_option(binding.execution_commit_gate_hash);
-raw(", \"execution_result_denial_hash\": ");
-json_sha256_option(binding.execution_result_denial_hash);
-raw(", \"execution_audit_denial_hash\": ");
-json_sha256_option(binding.execution_audit_denial_hash);
-raw(", \"execution_observation_denial_hash\": ");
-json_sha256_option(binding.execution_observation_denial_hash);
-raw(", \"execution_stage_projection_hash\": ");
-json_sha256(binding.execution_stage_projection_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("execution_stage_hash", V::Sha256(binding.execution_stage_hash)), Field::new("argument_hash", V::Sha256(binding.argument_hash)), Field::new("command_envelope_reference_hash", V::Sha256(binding.command_envelope_reference_hash)), Field::new("command_body_canonicalization_hash", V::Sha256(binding.command_body_canonicalization_hash)), Field::new("handler_binding_hash", V::Sha256(binding.handler_binding_hash)), Field::new("status_read_handler_hash", V::Sha256(binding.status_read_handler_hash)), Field::new("rollback_preview_authorization_hash", V::Sha256(binding.rollback_preview_authorization_hash)), Field::new("rollback_apply_authorization_hash", V::Sha256(binding.rollback_apply_authorization_hash)), Field::new("disable_module_target_binding_hash", V::Sha256(binding.disable_module_target_binding_hash)), Field::new("restart_last_good_target_binding_hash", V::Sha256(binding.restart_last_good_target_binding_hash)), Field::new("load_artifact_by_hash_target_binding_hash", V::Sha256(binding.load_artifact_by_hash_target_binding_hash)), Field::new("recovery_memory_write_authority_hash", V::Sha256(binding.recovery_memory_write_authority_hash)), Field::new("durable_audit_rollback_write_authority_hash", V::Sha256(binding.durable_audit_rollback_write_authority_hash)), Field::new("service_inventory_side_effect_boundary_hash", V::Sha256(binding.service_inventory_side_effect_boundary_hash)), Field::new("command_dispatch_behavior_hash", V::Sha256(binding.command_dispatch_behavior_hash)), Field::new("executor_capability_table_hash", V::Sha256(binding.executor_capability_table_hash)), Field::new("side_effect_gate_hash", V::Sha256(binding.side_effect_gate_hash)), Field::new("source_rollback_apply_denial_hash", V::Sha256(binding.source_rollback_apply_denial_hash)), Field::new("source_durable_policy_write_authority_decision_hash", V::Sha256(binding.source_durable_policy_write_authority_decision_hash)), Field::new("source_recovery_rollback_inspect_source_reference_hash", V::Sha256(binding.source_recovery_rollback_inspect_source_reference_hash)), Field::new("execution_enablement_hash", opt_sha256_value(binding.execution_enablement_hash)), Field::new("execution_preflight_hash", opt_sha256_value(binding.execution_preflight_hash)), Field::new("execution_intent_hash", opt_sha256_value(binding.execution_intent_hash)), Field::new("execution_commit_gate_hash", opt_sha256_value(binding.execution_commit_gate_hash)), Field::new("execution_result_denial_hash", opt_sha256_value(binding.execution_result_denial_hash)), Field::new("execution_audit_denial_hash", opt_sha256_value(binding.execution_audit_denial_hash)), Field::new("execution_observation_denial_hash", opt_sha256_value(binding.execution_observation_denial_hash)), Field::new("execution_stage_projection_hash", V::Sha256(binding.execution_stage_projection_hash))]) }),
 }
 
-fn emit_recovery_lifeline_command_execution_stage_reference_binding(
+fn recovery_lifeline_command_execution_stage_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::RecoveryLifelineCommandExecutionStageReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::RecoveryLifelineCommandExecutionStageReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         RECOVERY_LIFELINE_COMMAND_EXECUTION_STAGE_REFERENCE_BINDING_FIELDS,
         emit_recovery_lifeline_command_execution_stage_reference_binding_value,
-    );
+    )
 }
 
-define_direct_binding_fields! { RecoveryLifelineStatusExecutionResultReferenceBindingField,
+define_direct_binding_value_fields! { RecoveryLifelineStatusExecutionResultReferenceBindingField,
 RECOVERY_LIFELINE_STATUS_EXECUTION_RESULT_REFERENCE_BINDING_FIELDS,
 emit_recovery_lifeline_status_execution_result_reference_binding_value,
 event_log::RecoveryLifelineStatusExecutionResultReference,
@@ -11071,224 +8601,116 @@ binding,
 _kind;
 (Schema,
 "schema",
-{ raw("\"raios.recovery_lifeline_status_execution_result.v0\"");
-}),
+{ V::Str("raios.recovery_lifeline_status_execution_result.v0") }),
 (Status,
 "status",
-{ raw("\"retained_read_only_result_command_still_denied\"");
-}),
+{ V::Str("retained_read_only_result_command_still_denied") }),
 (Scope,
 "scope",
-{ raw("\"current_boot\"");
-}),
+{ V::Str("current_boot") }),
 (Classification,
 "classification",
-{ raw("\"local_only\"");
-}),
+{ V::Str("local_only") }),
 (RequestedCapability,
 "requested_capability",
-{ raw("\"cap.recovery.command.read\"");
-}),
+{ V::Str("cap.recovery.command.read") }),
 (LoadMode,
 "load_mode",
-{ raw("\"recovery_only\"");
-}),
+{ V::Str("recovery_only") }),
 (StatusExecutionReadiness,
 "status_execution_readiness",
-{ raw("\"available_read_only_non_authorizing\"");
-}),
+{ V::Str("available_read_only_non_authorizing") }),
 (ReadinessReason,
 "readiness_reason",
-{ raw("\"recovery_lifeline_status_read_ready_command_execution_disabled\"");
-}),
+{ V::Str("recovery_lifeline_status_read_ready_command_execution_disabled") }),
 (WouldExecuteLifelineStatusRead,
 "would_execute_lifeline_status_read",
-{ raw("true");
-}),
+{ V::Bool(true) }),
 (AcceptsRawCommandBody,
 "accepts_raw_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandBody,
 "accepts_lifeline_command_body",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AcceptsLifelineCommandEnvelope,
 "accepts_lifeline_command_envelope",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (DispatchesLifelineCommand,
 "dispatches_lifeline_command",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ExecutesLifelineStatus,
 "executes_lifeline_status",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CommandExecutionEnabled,
 "command_execution_enabled",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AuthorizesRecoveryLoad,
 "authorizes_recovery_load",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (LoadsRecoveryArtifact,
 "loads_recovery_artifact",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (WritesRecoveryMemory,
 "writes_recovery_memory",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (WritesDurableAuditLog,
 "writes_durable_audit_log",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (WritesRollbackStore,
 "writes_rollback_store",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesDurableRecords,
 "creates_durable_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (InstallsRollbackPlan,
 "installs_rollback_plan",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (AllocatesServiceSlot,
 "allocates_service_slot",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (CreatesServiceInventoryRecords,
 "creates_service_inventory_records",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (ServiceInventoryChange,
 "service_inventory_change",
-{ raw("\"none\"");
-}),
+{ V::Str("none") }),
 (LoadAttempted,
 "load_attempted",
-{ raw("false");
-}),
+{ V::Bool(false) }),
 (RetainedStatusReadHandlerEventId,
 "retained_status_read_handler_event_id",
-{ json_event_id(binding.retained_status_read_handler_event_id);
-}),
+{ V::EventSequence((binding.retained_status_read_handler_event_id).sequence()) }),
 (RetainedExecutionCompletionDenialEventId,
 "retained_execution_completion_denial_event_id",
-{ json_event_id(binding.retained_execution_completion_denial_event_id);
-}),
+{ V::EventSequence((binding.retained_execution_completion_denial_event_id).sequence()) }),
 (CommandId,
 "command_id",
-{ json_str(binding.command_id);
-}),
+{ V::Str(binding.command_id) }),
 (ArgumentSchema,
 "argument_schema",
-{ json_str(binding.argument_schema);
-}),
+{ V::Str(binding.argument_schema) }),
 (TargetLocator,
 "target_locator",
-{ json_str(binding.target_locator.as_str());
-}),
+{ V::Str(binding.target_locator.as_str()) }),
 (CommandDispatchBoundaryId,
 "command_dispatch_boundary_id",
-{ json_str(binding.command_dispatch_boundary_id);
-}),
+{ V::Str(binding.command_dispatch_boundary_id) }),
 (StatusExecutionResultId,
 "status_execution_result_id",
-{ json_str(binding.status_execution_result_id);
-}),
+{ V::Str(binding.status_execution_result_id) }),
 (Hashes,
 "hashes",
-{ raw("{\"status_execution_result_hash\": ");
-json_sha256(binding.status_execution_result_hash);
-raw(", \"argument_hash\": ");
-json_sha256(binding.argument_hash);
-raw(", \"command_envelope_reference_hash\": ");
-json_sha256(binding.command_envelope_reference_hash);
-raw(", \"command_body_canonicalization_hash\": ");
-json_sha256(binding.command_body_canonicalization_hash);
-raw(", \"handler_binding_hash\": ");
-json_sha256(binding.handler_binding_hash);
-raw(", \"status_read_handler_hash\": ");
-json_sha256(binding.status_read_handler_hash);
-raw(", \"status_read_projection_hash\": ");
-json_sha256(binding.status_read_projection_hash);
-raw(", \"command_dispatch_behavior_hash\": ");
-json_sha256(binding.command_dispatch_behavior_hash);
-raw(", \"executor_capability_table_hash\": ");
-json_sha256(binding.executor_capability_table_hash);
-raw(", \"side_effect_gate_hash\": ");
-json_sha256(binding.side_effect_gate_hash);
-raw(", \"execution_enablement_hash\": ");
-json_sha256(binding.execution_enablement_hash);
-raw(", \"execution_preflight_hash\": ");
-json_sha256(binding.execution_preflight_hash);
-raw(", \"execution_intent_hash\": ");
-json_sha256(binding.execution_intent_hash);
-raw(", \"execution_commit_gate_hash\": ");
-json_sha256(binding.execution_commit_gate_hash);
-raw(", \"execution_result_denial_hash\": ");
-json_sha256(binding.execution_result_denial_hash);
-raw(", \"execution_audit_denial_hash\": ");
-json_sha256(binding.execution_audit_denial_hash);
-raw(", \"execution_observation_denial_hash\": ");
-json_sha256(binding.execution_observation_denial_hash);
-raw(", \"execution_completion_denial_hash\": ");
-json_sha256(binding.execution_completion_denial_hash);
-raw("}");
-}),
+{ V::InlineObject(vec![Field::new("status_execution_result_hash", V::Sha256(binding.status_execution_result_hash)), Field::new("argument_hash", V::Sha256(binding.argument_hash)), Field::new("command_envelope_reference_hash", V::Sha256(binding.command_envelope_reference_hash)), Field::new("command_body_canonicalization_hash", V::Sha256(binding.command_body_canonicalization_hash)), Field::new("handler_binding_hash", V::Sha256(binding.handler_binding_hash)), Field::new("status_read_handler_hash", V::Sha256(binding.status_read_handler_hash)), Field::new("status_read_projection_hash", V::Sha256(binding.status_read_projection_hash)), Field::new("command_dispatch_behavior_hash", V::Sha256(binding.command_dispatch_behavior_hash)), Field::new("executor_capability_table_hash", V::Sha256(binding.executor_capability_table_hash)), Field::new("side_effect_gate_hash", V::Sha256(binding.side_effect_gate_hash)), Field::new("execution_enablement_hash", V::Sha256(binding.execution_enablement_hash)), Field::new("execution_preflight_hash", V::Sha256(binding.execution_preflight_hash)), Field::new("execution_intent_hash", V::Sha256(binding.execution_intent_hash)), Field::new("execution_commit_gate_hash", V::Sha256(binding.execution_commit_gate_hash)), Field::new("execution_result_denial_hash", V::Sha256(binding.execution_result_denial_hash)), Field::new("execution_audit_denial_hash", V::Sha256(binding.execution_audit_denial_hash)), Field::new("execution_observation_denial_hash", V::Sha256(binding.execution_observation_denial_hash)), Field::new("execution_completion_denial_hash", V::Sha256(binding.execution_completion_denial_hash))]) }),
 }
 
-fn emit_recovery_lifeline_status_execution_result_reference_binding(
+fn recovery_lifeline_status_execution_result_reference_binding_value<'a>(
     kind: &str,
-    binding: &event_log::RecoveryLifelineStatusExecutionResultReference,
-) {
-    emit_binding_object_direct(
+    binding: &'a event_log::RecoveryLifelineStatusExecutionResultReference,
+) -> V<'a> {
+    binding_object_value_direct(
         binding,
         kind,
         RECOVERY_LIFELINE_STATUS_EXECUTION_RESULT_REFERENCE_BINDING_FIELDS,
         emit_recovery_lifeline_status_execution_result_reference_binding_value,
-    );
-}
-
-fn emit_provider_trust_verifier_metadata(metadata: provider_trust::ProviderTrustVerifierMetadata) {
-    raw("{\"schema\": ");
-    json_str(metadata.schema);
-    raw(", \"id\": ");
-    json_str(metadata.id);
-    raw(", \"host\": ");
-    json_str(metadata.host);
-    raw(", \"port\": ");
-    json_str(metadata.port);
-    raw(", \"transport\": ");
-    json_str(metadata.transport);
-    raw(", \"hostname_policy\": ");
-    json_str(metadata.hostname_policy);
-    raw(", \"pin_policy\": ");
-    json_str(metadata.pin_policy);
-    raw(", \"chain_policy\": ");
-    json_str(metadata.chain_policy);
-    raw(", \"time_policy\": ");
-    json_str(metadata.time_policy);
-    raw(", \"certificate_verify_policy\": ");
-    json_str(metadata.certificate_verify_policy);
-    raw("}");
-}
-
-fn emit_provider_trust_verifier_decision(decision: provider_trust::ProviderTrustVerifierDecision) {
-    raw("{\"schema\": ");
-    json_str(decision.schema);
-    raw(", \"verifier_id\": ");
-    json_str(decision.verifier_id);
-    raw(", \"stage\": ");
-    json_str(decision.stage);
-    raw(", \"outcome\": ");
-    json_str(decision.outcome);
-    raw(", \"reason\": ");
-    json_str(decision.reason);
-    raw("}");
+    )
 }

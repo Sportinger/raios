@@ -1,4 +1,4 @@
-﻿use alloc::{vec, vec::Vec};
+use alloc::{vec, vec::Vec};
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{
@@ -4748,47 +4748,75 @@ pub(crate) fn emit_module_load_gate_event_binding(binding: event_log::ModuleLoad
     );
 }
 
-fn emit_module_load_gate_blocker(gate: &str, state: &str, reason: &str, comma: bool) {
-    raw("{\"gate\": ");
-    json_str(gate);
-    raw(", \"state\": ");
-    json_str(state);
-    raw(", \"reason\": ");
-    json_str(reason);
-    raw("}");
-    if comma {
-        raw(", ");
-    }
+#[rustfmt::skip]
+fn module_load_gate_blocker_value(
+    gate: &'static str,
+    state: &'static str,
+    reason: &'static str,
+) -> V<'static> {
+    V::InlineObject(vec![f("gate", s(gate)), f("state", s(state)), f("reason", s(reason))])
+}
+
+#[rustfmt::skip]
+fn module_load_gate_gate_state_value(binding: event_log::ModuleLoadGateBinding) -> V<'static> {
+    V::InlineObject(vec![
+        f("module_manifest", s(module_load_gate_manifest_state(binding))),
+        f("candidate_artifact", s(module_load_gate_candidate_artifact_state(binding))),
+        f("vm_test_report", s(module_load_gate_vm_test_report_state(binding))),
+        f("local_attestation", s(module_load_gate_local_attestation_state(binding))),
+        f("computed_capability_grant", s(module_load_gate_computed_grant_state(binding))),
+        f("local_approval", s(module_load_gate_local_approval_state(binding))),
+        f("rollback_plan", s(module_load_gate_rollback_state(binding))),
+        f("durable_audit_record", s(module_load_gate_durable_audit_state(binding))),
+        f("service_slot", s(module_load_gate_service_slot_state(binding))),
+        f("service_slot_allocator", s(module_load_gate_service_slot_allocator_state(binding))),
+        f("loader_runtime", s(module_load_gate_loader_runtime_state(binding))),
+        f("loader", s("unavailable")),
+        f("artifact_loaded", no()),
+        f("service_started", no()),
+        f("persistence", s("none")),
+        f("can_load", no()),
+    ])
+}
+
+#[rustfmt::skip]
+fn module_load_gate_blocked_by_value(binding: event_log::ModuleLoadGateBinding) -> V<'static> {
+    V::InlineArray(vec![
+        module_load_gate_blocker_value("module_manifest", module_load_gate_manifest_state(binding), module_load_gate_manifest_reason(binding)),
+        module_load_gate_blocker_value("candidate_artifact", module_load_gate_candidate_artifact_state(binding), module_load_gate_candidate_artifact_reason(binding)),
+        module_load_gate_blocker_value("vm_test_report", module_load_gate_vm_test_report_state(binding), module_load_gate_vm_test_report_reason(binding)),
+        module_load_gate_blocker_value("local_attestation", module_load_gate_local_attestation_state(binding), module_load_gate_local_attestation_reason(binding)),
+        module_load_gate_blocker_value("local_approval", module_load_gate_local_approval_state(binding), module_load_gate_local_approval_reason(binding)),
+        module_load_gate_blocker_value("computed_capability_grant", module_load_gate_computed_grant_state(binding), module_load_gate_computed_grant_reason(binding)),
+        module_load_gate_blocker_value("durable_audit_record", module_load_gate_durable_audit_state(binding), module_load_gate_durable_audit_reason(binding)),
+        module_load_gate_blocker_value("rollback_plan", module_load_gate_rollback_state(binding), module_load_gate_rollback_reason(binding)),
+        module_load_gate_blocker_value("service_slot", module_load_gate_service_slot_state(binding), module_load_gate_service_slot_reason(binding)),
+        module_load_gate_blocker_value("service_slot_allocator", module_load_gate_service_slot_allocator_state(binding), module_load_gate_service_slot_allocator_reason(binding)),
+        module_load_gate_blocker_value("loader_runtime", module_load_gate_loader_runtime_state(binding), module_load_gate_loader_runtime_reason(binding)),
+        module_load_gate_blocker_value("loader", "unavailable", "module_loader_unimplemented"),
+    ])
+}
+
+fn module_load_gate_required_value() -> V<'static> {
+    V::InlineArray(
+        MODULE_LOAD_GATE_REQUIRED
+            .iter()
+            .map(|item| {
+                s(if *item == "computed_capability_grant" {
+                    "raios.computed_capability_grant.v0"
+                } else {
+                    *item
+                })
+            })
+            .collect(),
+    )
 }
 
 define_direct_binding_fields! { ModuleLoadGateEventBindingField, MODULE_LOAD_GATE_EVENT_BINDING_FIELDS, emit_module_load_gate_event_binding_value, event_log::ModuleLoadGateBinding, binding, _kind;
-    (Schema, "schema", { raw("\"raios.module_load_gate.v0\""); }), (Status, "status", { raw("\"denied_missing_evidence\""); }), (LoadMode, "load_mode", { raw("\"ram_only\""); }),
-    (RequestedCapability, "requested_capability", { raw("\"cap.module.load_ephemeral\""); }), (Risk, "risk", { raw("\"modify_ram\""); }), (Target, "target", { raw("\"live_service_graph\""); }), (Subject, "subject", { raw("\"agent.session.serial\""); }),
+    (Schema, "schema", { emit_record_value_fragment(s("raios.module_load_gate.v0"), 0); }), (Status, "status", { emit_record_value_fragment(s("denied_missing_evidence"), 0); }), (LoadMode, "load_mode", { emit_record_value_fragment(s("ram_only"), 0); }),
+    (RequestedCapability, "requested_capability", { emit_record_value_fragment(s("cap.module.load_ephemeral"), 0); }), (Risk, "risk", { emit_record_value_fragment(s("modify_ram"), 0); }), (Target, "target", { emit_record_value_fragment(s("live_service_graph"), 0); }), (Subject, "subject", { emit_record_value_fragment(s("agent.session.serial"), 0); }),
     (GateState, "gate_state", {
-            let binding = *binding;
-            raw("{\"module_manifest\": ");
-            json_str(module_load_gate_manifest_state(binding));
-            raw(", \"candidate_artifact\": ");
-            json_str(module_load_gate_candidate_artifact_state(binding));
-            raw(", \"vm_test_report\": ");
-            json_str(module_load_gate_vm_test_report_state(binding));
-            raw(", \"local_attestation\": ");
-            json_str(module_load_gate_local_attestation_state(binding));
-            raw(", \"computed_capability_grant\": ");
-            json_str(module_load_gate_computed_grant_state(binding));
-            raw(", \"local_approval\": ");
-            json_str(module_load_gate_local_approval_state(binding));
-            raw(", \"rollback_plan\": ");
-            json_str(module_load_gate_rollback_state(binding));
-            raw(", \"durable_audit_record\": ");
-            json_str(module_load_gate_durable_audit_state(binding));
-            raw(", \"service_slot\": ");
-            json_str(module_load_gate_service_slot_state(binding));
-            raw(", \"service_slot_allocator\": ");
-            json_str(module_load_gate_service_slot_allocator_state(binding));
-            raw(", \"loader_runtime\": ");
-            json_str(module_load_gate_loader_runtime_state(binding));
-            raw(", \"loader\": \"unavailable\", \"artifact_loaded\": false, \"service_started\": false, \"persistence\": \"none\", \"can_load\": false}");
+            emit_record_value_fragment(module_load_gate_gate_state_value(*binding), 0);
         }),
     (RetainedModuleManifestReference, "retained_module_manifest_reference", { emit_module_load_gate_manifest_reference_compact(*binding); }), (RetainedCandidateArtifactReference, "retained_candidate_artifact_reference", { emit_module_load_gate_artifact_reference_compact(*binding); }),
     (RetainedVmTestReportReference, "retained_vm_test_report_reference", { emit_module_load_gate_vm_report_reference_compact(*binding); }), (RetainedLocalAttestationReference, "retained_local_attestation_reference", { emit_module_load_gate_local_attestation_reference_compact(*binding); }),
@@ -4798,45 +4826,10 @@ define_direct_binding_fields! { ModuleLoadGateEventBindingField, MODULE_LOAD_GAT
     (LoaderRuntimeReadiness, "loader_runtime_readiness", { emit_module_load_gate_loader_runtime_readiness_compact(*binding); }),
     (AuditRollbackRequirements, "audit_rollback_requirements", { emit_module_load_gate_audit_rollback_requirements_compact(*binding); }),
     (BlockedBy, "blocked_by", {
-            let binding = *binding;
-            raw("[");
-            emit_module_load_gate_blocker("module_manifest", module_load_gate_manifest_state(binding), module_load_gate_manifest_reason(binding), true);
-            emit_module_load_gate_blocker("candidate_artifact", module_load_gate_candidate_artifact_state(binding), module_load_gate_candidate_artifact_reason(binding), true);
-            emit_module_load_gate_blocker("vm_test_report", module_load_gate_vm_test_report_state(binding), module_load_gate_vm_test_report_reason(binding), true);
-            emit_module_load_gate_blocker("local_attestation", module_load_gate_local_attestation_state(binding), module_load_gate_local_attestation_reason(binding), true);
-            emit_module_load_gate_blocker("local_approval", module_load_gate_local_approval_state(binding), module_load_gate_local_approval_reason(binding), true);
-            emit_module_load_gate_blocker("computed_capability_grant", module_load_gate_computed_grant_state(binding), module_load_gate_computed_grant_reason(binding), true);
-            emit_module_load_gate_blocker("durable_audit_record", module_load_gate_durable_audit_state(binding), module_load_gate_durable_audit_reason(binding), true);
-            emit_module_load_gate_blocker("rollback_plan", module_load_gate_rollback_state(binding), module_load_gate_rollback_reason(binding), true);
-            emit_module_load_gate_blocker("service_slot", module_load_gate_service_slot_state(binding), module_load_gate_service_slot_reason(binding), true);
-            emit_module_load_gate_blocker("service_slot_allocator", module_load_gate_service_slot_allocator_state(binding), module_load_gate_service_slot_allocator_reason(binding), true);
-            emit_module_load_gate_blocker("loader_runtime", module_load_gate_loader_runtime_state(binding), module_load_gate_loader_runtime_reason(binding), true);
-            emit_module_load_gate_blocker("loader", "unavailable", "module_loader_unimplemented", false);
-            raw("]");
+            emit_record_value_fragment(module_load_gate_blocked_by_value(*binding), 0);
         }),
     (Required, "required", {
-        raw(concat!(
-            "[\"raios.module_manifest.v0\", \"candidate_artifact_sha256\", \"raios.vm_test_report.v0\", \"raios.local_attestation.v0\", \"raios.computed_capability_grant.v0\"",
-            ", \"local_approval\", \"raios.audit_record.v0\", \"rollback_plan\", \"ram_only_service_slot\", \"raios.module_service_slot_allocator_readiness.v0\"",
-            ", \"raios.module_service_slot_allocator_authority.v0\", \"raios.service_slot_allocation_intent.v0\", \"raios.service_slot_allocator_policy_decision.v0\"",
-            ", \"raios.service_slot_registry_write_authority.v0\", \"raios.module_loader_runtime_contract.v0\", \"raios.service_health_monitor_binding.v0\"",
-            ", \"raios.service_unload_cleanup_authority.v0\", \"raios.module_service_slot_allocator_authority_decision.v0\", \"raios.service_slot_registry_write_commit_gate.v0\"",
-            ", \"raios.module_loader_runtime_execution_commit_gate.v0\", \"raios.module_loader_descriptor_intake_boundary.v0\", \"raios.module_loader_artifact_byte_intake_boundary.v0\"",
-            ", \"raios.module_loader_execution_authorization_boundary.v0\", \"raios.module_loader_service_registry_mutation_boundary.v0\", \"raios.module_loader_load_attempt_boundary.v0\"",
-            ", \"raios.module_loader_artifact_load_boundary.v0\", \"raios.module_loader_executable_mapping_boundary.v0\", \"raios.module_loader_entrypoint_transfer_boundary.v0\"",
-            ", \"raios.module_loader_service_start_boundary.v0\", \"raios.module_loader_service_health_binding_boundary.v0\", \"raios.module_loader_service_running_state_boundary.v0\"",
-            ", \"raios.module_loader_service_start_audit_boundary.v0\", \"raios.module_loader_service_unload_cleanup_boundary.v0\", \"raios.module_loader_live_load_commit_boundary.v0\"",
-            ", \"raios.module_loader_commit_audit_boundary.v0\", \"raios.module_loader_commit_rollback_boundary.v0\", \"raios.module_loader_commit_result_boundary.v0\"",
-            ", \"raios.module_loader_descriptor_acceptance_authority_boundary.v0\", \"raios.module_loader_descriptor_parser_contract_boundary.v0\"",
-            ", \"raios.module_loader_descriptor_parser_result_boundary.v0\", \"raios.module_loader_descriptor_schema_validation_boundary.v0\"",
-            ", \"raios.module_loader_descriptor_capability_validation_boundary.v0\", \"raios.module_loader_descriptor_load_plan_boundary.v0\"",
-            ", \"raios.module_loader_executable_load_plan_authority_boundary.v0\", \"raios.module_loader_executable_load_plan_result_boundary.v0\"",
-            ", \"raios.module_loader_executable_image_layout_boundary.v0\", \"raios.module_loader_executable_page_mapping_plan_boundary.v0\"",
-            ", \"raios.module_loader_executable_page_mapping_boundary.v0\", \"raios.module_loader_descriptor_executable_page_binding_boundary.v0\"",
-            ", \"raios.module_loader_executable_entrypoint_binding_boundary.v0\", \"raios.module_loader_executable_entrypoint_transfer_authorization_boundary.v0\"",
-            ", \"raios.module_loader_executable_entrypoint_transfer_boundary.v0\", \"raios.module_loader_executable_entrypoint_handoff_boundary.v0\"",
-            ", \"raios.module_loader_executable_entrypoint_invocation_boundary.v0\", \"raios.module_loader_runtime_readiness.v0\"]",
-        ));
+        emit_record_value_fragment(module_load_gate_required_value(), 0);
     }),
     (Evidence, "evidence", {
             raw("{\"event_scope\": \"current_boot\", ");
