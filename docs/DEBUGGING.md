@@ -2002,6 +2002,34 @@ Important files:
 
 ## Known Failure Modes
 
+### A service silently stops loading after you re-signed a descriptor (the BOM trap)
+
+Symptom: the build is GREEN, but in the VM a built-in service no longer loads. `module.load_ephemeral
+svc.demo.hello` comes back as a generic `module.load_gate` DENIAL instead of a `hello.lifecycle`
+load. Nothing in the dispatch, the predicate, or the emitter changed. Hit 2026-07-13.
+
+Cause: the descriptor file grew a UTF-8 BOM (`EF BB BF`). PowerShell's
+`Set-Content -Encoding utf8` on Windows PowerShell 5.1 PREPENDS a BOM. If you rewrite a `.desc`
+with it while iterating attestation pins, you corrupt the descriptor's bytes.
+
+Why the build does not catch it: `build.rs` hashes WHATEVER BYTES IT FINDS, so a BOM is just three
+more bytes to hash — the pin asserts still pass and the signature still verifies (you re-signed the
+corrupted bytes). The kernel is stricter: `key_value_text_is_canonical()` rejects a BOM, so
+`validate_builtin_hello_artifact_identity()` returns false, `load_request()` returns `None`, and the
+dispatcher falls through to the generic denial. **A byte-attested file's build check cannot catch a
+change to the bytes it hashes.**
+
+Diagnosis: `head -c 8 <file> | xxd`. Canonical descriptors start with the first key, not `efbbbf`.
+Fix: strip the three bytes at byte level and re-sign. Never write a byte-attested file through
+PowerShell text encoding — use `[System.IO.File]::WriteAllBytes`, or
+`[System.IO.File]::WriteAllText` (UTF-8, no BOM).
+
+Related: editing attested hello sources legitimately moves the source-set pins (ADR 0013). Iterate
+them build-as-oracle (`left:` = the pin in the descriptor, `right:` = the value computed from the
+real sources), re-sign with `descriptor-resign` after each, and NEVER weaken `build.rs`. The tool
+mints a fresh dev key on every sign — that is by design; the (desc, pub, sig) triple stays
+self-consistent and the key is not a trust anchor.
+
 ### A harness script dies with "cannot call a method on a null-valued expression" pointing at a line that is demonstrably fine
 
 Symptom: a PowerShell harness script fails in `Write-Report` (shadow-vm-smoke-support.ps1)
