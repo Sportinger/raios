@@ -24,6 +24,31 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+P4-5 CLOSED — MEMORY FAMILY ON V1 (2026-07-13 ~18:00). memory.profile/context/
+query/trace + the mutation denial render the shared envelope from the committed
+core projection; the provider projection was extracted from its raw serial
+emitter into a typed value (de-duplication — the mapping lived only inside a
+byte-writer) with provider hashes byte-identical. FULL green
+shadow-20260713-180049-15572.json; 525 core tests; all gates clean.
+The first run KERNEL-PANICKED ("decision key is reserved: blocked_by") — the
+fail-closed check firing correctly on a real collision: the embedded provider
+value is still PRE-v1 and legitimately carries outcome/blocked_by/authorizes_*
+as descriptive fact keys, and the memory projection was recursing its check into
+values it does not own. Fixed by honoring the boundary (M1: embed unchanged;
+P4-8 owns the internals), with two tests replacing the one that encoded the
+premature rule.
+SCOPE: the durable memory-record APPEND is deliberately NOT in P4-5. See the
+open finding below — it is the third instance of the same untyped-authority gap.
+Exact next task: P4-6b2 (hello lifecycle kernel switch; the core projection
+P4-6b1 is committed with 11 tests and the observed-not-granted ruling), then
+P4-7 (rollback/write-boundary — carries the P4-7a SECURITY FINDING: the emitter
+assembles the apply proof and the LBA1 write happens BEFORE the evaluator
+verifies the chain), P4-8 (provider — which also removes the pre-v1 keys that
+caused the panic above), then P4-9 + phase close.
+
+FIVE OF NINE FAMILIES ARE ON EVIDENCE VOCABULARY V1: module references, load
+gate, loader/allocator, events, memory. Kernel 176,331 (baseline) -> 163,046.
+
 OPEN FINDING — THE HELLO LIFECYCLE MUTATES UNDER NO NAMED AUTHORITY (found
 2026-07-13 by P4-6). The lifecycle methods (load / start / restart / hot_swap /
 stop / drop) really do mutate the current-boot service slot, the service
