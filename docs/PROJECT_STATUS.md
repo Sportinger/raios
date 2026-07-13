@@ -24,6 +24,30 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+VM failure classification (2026-07-13, P4-1 resume, focused
+`module-audit-rollback`) — report
+`release/vm-reports/shadow-20260713-104951-24936.json`: failing predicate
+`protocol:module_grant_diag_fields_candidate_present` (needle
+`"candidate_bytes_present": true`). Verdict: harness-expectation defect in the
+P4-1 WIP needle rewrite, guest behavior CORRECT — the legacy field
+`computed_candidate_present` was `check.valid` (reference-check validity), but
+the rewrite pointed the predicate at v1 `facts.runtime.candidate_bytes_present`,
+which is a DIFFERENT source (retained candidate intake bytes,
+`module_candidate_intake::retained()`), honestly `false` in this profile. Not
+host-transport, not a guest bug; same-source mapping violation (host-test
+contract rule 2). Repair: P4-1e needle cross-verification packet re-derives
+every focused-fragment needle from the emitters plus the real serial
+transcript before the rerun.
+
+P4-1 RESUMED — THE PARK NOTE'S "DOES NOT COMPILE" WAS STALE (2026-07-13): the
+parked branch builds clean on the orchestrator machine (release build 0 errors,
+469 raios-core tests green); the ~30 reported errors were worker-sandbox
+rustc-denial artifacts, not real breakage. P4-1c fixed the predicate-needle
+collapse (28 bare `"effects": []` + 2 bare `"event_id": null` needles replaced
+by family-anchored first-failure denial needles, honest merges recorded in the
+manifest appendix). P4-1d replaced the tautological semantic-mapping test with
+a real carrier-needle test (proven by a failing negative probe).
+
 P4-1 PARKED ON A BRANCH — DOES NOT COMPILE, WORKER SANDBOX CANNOT BUILD THE
 KERNEL (2026-07-13). Exact next task: resume branch
 `refactor/p4-1-vocabulary-v1-wip` and close its build loop from the

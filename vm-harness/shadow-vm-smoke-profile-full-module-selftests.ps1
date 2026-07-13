@@ -13,11 +13,11 @@
     Assert-LogContains -Name "protocol:module_grant_selftest_shadowed_case" -Needle '"case": "signed_record_shadowed_by_unsigned_retain_no_grant"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_selftest_absent_case" -Needle '"case": "absent_reference"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_selftest_valid_case" -Needle '"case": "accepted_current_boot_reference_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_grant_selftest_valid_status" -Needle '"actual_status": "valid_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_grant_selftest_valid_status" -Needle '"actual": {"status": "valid_hash_reference_load_still_denied"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_selftest_stale_case" -Needle '"case": "stale_previous_boot_reference"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_grant_selftest_stale_status" -Needle '"actual_status": "stale_or_non_current_boot_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_grant_selftest_stale_status" -Needle '"actual": {"status": "stale_or_non_current_boot_reference"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_selftest_mismatch_case" -Needle '"case": "mismatched_manifest_hash_reference"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_grant_selftest_mismatch_status" -Needle '"actual_status": "mismatched_computed_grant_hash"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_grant_selftest_mismatch_status" -Needle '"actual": {"status": "mismatched_computed_grant_hash"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_selftest_wrong_policy_case" -Needle '"case": "grants_load_now_or_wrong_policy_hash"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_selftest_can_load_false" -Needle '"load_authorization_count": 0' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_selftest_load_attempted_false" -Needle '"load_attempt_count": 0' -TimeoutSeconds 1
@@ -34,7 +34,7 @@
     Assert-LogContains -Name "protocol:module_audit_rollback_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_selftest_absent_case" -Needle '"case": "absent_reference"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_selftest_valid_case" -Needle '"case": "accepted_current_boot_reference_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_valid_status" -Needle '"actual_status": "valid_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_valid_status" -Needle '"actual": {"status": "valid_hash_reference_load_still_denied"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_selftest_stale_case" -Needle '"case": "stale_previous_boot_reference"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_selftest_event_case" -Needle '"case": "previous_boot_denial_event_id"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_selftest_audit_schema_case" -Needle '"case": "audit_record_schema_mismatch"' -TimeoutSeconds 1
@@ -58,14 +58,14 @@
     Assert-LogContains -Name "protocol:module_service_slot_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_selftest_absent_case" -Needle '"case": "absent_reference"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_selftest_valid_case" -Needle '"case": "accepted_current_boot_reservation_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_selftest_valid_status" -Needle '"actual_status": "valid_hash_reference_load_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_selftest_valid_reason" -Needle '"actual_reason": "service_slot_reservation_valid_but_allocator_and_loader_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_selftest_valid_status" -Needle '"actual": {"status": "valid_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_selftest_valid_reason" -Needle '"actual": {"status": "valid_hash_reference_load_still_denied", "reason": "service_slot_reservation_valid_but_allocator_and_loader_missing"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_selftest_stale_case" -Needle '"case": "stale_previous_boot_reservation"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_selftest_stale_status" -Needle '"actual_status": "stale_or_non_current_boot_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_selftest_stale_status" -Needle '"actual": {"status": "stale_or_non_current_boot_reference"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_selftest_mismatch_case" -Needle '"case": "mismatched_reservation_hash"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_selftest_mismatch_reason" -Needle '"actual_reason": "service_slot_reservation_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_selftest_mismatch_reason" -Needle '"actual": {"status": "mismatched_reservation_hash", "reason": "service_slot_reservation_hash_mismatch"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_selftest_slot_case" -Needle '"case": "invalid_ram_only_service_slot"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_selftest_slot_reason" -Needle '"actual_reason": "ram_only_service_slot_id_invalid"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_selftest_slot_reason" -Needle '"actual": {"status": "rejected", "reason": "ram_only_service_slot_id_invalid"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_selftest_can_load_false" -Needle '"load_authorization_count": 0' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_selftest_load_attempted_false" -Needle '"load_attempt_count": 0' -TimeoutSeconds 1
 

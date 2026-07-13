@@ -672,40 +672,217 @@ mod tests {
 
     #[test]
     fn every_module_reference_family_maps_every_legacy_semantic_group() {
-        const GROUPS: &[&str] = &[
-            "schema",
-            "scope",
-            "classification",
-            "test_infrastructure",
-            "intake",
-            "reference_format",
-            "request",
-            "reference_state",
-            "validation_status",
-            "validation_reason",
-            "arity_valid",
-            "reference_hashes",
-            "retained_state",
-            "retained_provenance",
-            "retained_match",
-            "retained_hashes",
-            "gate_state",
-            "policy_result",
-            "blocked_by",
-            "authority_effects",
+        #[derive(Clone, Copy)]
+        #[allow(dead_code)] // The manifest currently retires leaf fields, not a whole semantic group.
+        enum Carrier {
+            V1Needle(&'static str),
+            ConstantInvariant(&'static str),
+            Retired(&'static str),
+        }
+
+        const MANIFEST_GROUP_COUNT: usize = 20;
+        const MAPPING: &[(&str, Carrier)] = &[
+            (
+                "schema",
+                Carrier::ConstantInvariant(
+                    "all module-reference responses use raios.evidence_response.v1",
+                ),
+            ),
+            (
+                "scope",
+                Carrier::V1Needle(
+                    "\"family\": \"module.manifest_reference\",\r\n  \"scope\": \"current_boot\"",
+                ),
+            ),
+            (
+                "classification",
+                Carrier::V1Needle(
+                    "\"scope\": \"current_boot\",\r\n  \"classification\": \"local_only\"",
+                ),
+            ),
+            (
+                "test_infrastructure",
+                Carrier::V1Needle("\"test_infrastructure\": false"),
+            ),
+            (
+                "intake",
+                Carrier::V1Needle("\"intake\": {\"accepts_manifest_json\": false"),
+            ),
+            (
+                "reference_format",
+                Carrier::V1Needle("\"reference_format\": \"module.manifest_diagnostic"),
+            ),
+            (
+                "request",
+                Carrier::V1Needle(
+                    "\"request\": {\"requested_capability\": \"cap.module.load_ephemeral\"",
+                ),
+            ),
+            (
+                "reference_state",
+                Carrier::V1Needle(
+                    "\"facts\": {\"state\": \"present\", \"status_detail\": \"hash_reference_valid_load_still_denied\"",
+                ),
+            ),
+            (
+                "validation_status",
+                Carrier::V1Needle(
+                    "\"status_detail\": \"hash_reference_valid_load_still_denied\"",
+                ),
+            ),
+            (
+                "validation_reason",
+                Carrier::V1Needle(
+                    "\"reason\": \"hash_reference_valid_load_still_denied\"",
+                ),
+            ),
+            ("arity_valid", Carrier::V1Needle("\"arity_valid\": true")),
+            (
+                "reference_hashes",
+                Carrier::V1Needle("\"expected_manifest_reference_hash\": \"sha256:5a5a"),
+            ),
+            (
+                "retained_state",
+                Carrier::V1Needle(
+                    "\"facts\": {\"state\": \"present\", \"retention\": \"current_boot_ram_event_log\"",
+                ),
+            ),
+            (
+                "retained_provenance",
+                Carrier::V1Needle(
+                    "\"source_event_id\": \"event.current_boot.00000003\"",
+                ),
+            ),
+            (
+                "retained_match",
+                Carrier::V1Needle("\"matches_current_reference\": false"),
+            ),
+            (
+                "retained_hashes",
+                Carrier::V1Needle("\"manifest_reference_hash\": \"sha256:6b6b"),
+            ),
+            (
+                "gate_state",
+                Carrier::V1Needle(
+                    "\"status\": \"verified\", \"reason\": \"hash_reference_valid_load_still_denied\"",
+                ),
+            ),
+            (
+                "policy_result",
+                Carrier::V1Needle(
+                    "\"guest_evidence_authority\": \"hash_reference_only_no_manifest_json_or_artifact_bytes\"",
+                ),
+            ),
+            ("blocked_by", Carrier::V1Needle("\"blocked_by\": [")),
+            (
+                "authority_effects",
+                Carrier::V1Needle(
+                    "\"outcome\": \"denied\", \"reason\": \"candidate_artifact_missing\", \"requested_capability\": \"cap.module.load_ephemeral\", \"grants\": [], \"effects\": []",
+                ),
+            ),
         ];
-        const FAMILIES: &[(&str, &[&str])] = &[
-            ("module.manifest_reference", GROUPS),
-            ("module.candidate_artifact_reference", GROUPS),
-            ("module.vm_test_report_reference", GROUPS),
-            ("module.local_attestation_reference", GROUPS),
-            ("module.local_approval_reference", GROUPS),
-            ("module.computed_grant", GROUPS),
-            ("module.audit_rollback_reference", GROUPS),
-            ("module.service_slot_reservation", GROUPS),
+
+        let facts = diagnostic_facts_value(DiagnosticFacts {
+            test_infrastructure: false,
+            reference_format:
+                "module.manifest_diagnostic <manifest_reference_hash> <manifest_hash> [current_boot]",
+            request: Value::InlineObject(vec![
+                Field::new(
+                    "requested_capability",
+                    Value::Str("cap.module.load_ephemeral"),
+                ),
+                Field::new("load_mode", Value::Str("ram_only")),
+                Field::new("subject", Value::Str("agent.session.serial")),
+                Field::new("resource", Value::Str("live_service_graph")),
+            ]),
+            intake: Value::InlineObject(vec![
+                Field::new("accepts_manifest_json", Value::Bool(false)),
+                Field::new("accepts_artifact_bytes", Value::Bool(false)),
+                Field::new("accepts_unsigned_service_code", Value::Bool(false)),
+            ]),
+            guest_evidence_authority: "hash_reference_only_no_manifest_json_or_artifact_bytes",
+            required_before_load: Value::InlineArray(vec![Value::Str("candidate_artifact_sha256")]),
+            trust_tier: Value::Null,
+            runtime: Value::InlineObject(vec![
+                Field::new("loader", Value::Str("unavailable")),
+                Field::new("service_slot", Value::Str("unallocated")),
+            ]),
+        });
+        let evidence = vec![
+            evidence_value(Evidence {
+                id: "module_manifest",
+                kind: "reference",
+                status: "verified",
+                reason: "hash_reference_valid_load_still_denied",
+                source_event_sequence: None,
+                classification: "local_only",
+                facts: Value::InlineObject(vec![
+                    Field::new("state", Value::Str("present")),
+                    Field::new(
+                        "status_detail",
+                        Value::Str("hash_reference_valid_load_still_denied"),
+                    ),
+                    Field::new("arity_valid", Value::Bool(true)),
+                    Field::new("scope", Value::Str("current_boot")),
+                    Field::new("manifest_schema", Value::Str("raios.module_manifest.v0")),
+                    Field::new("manifest_reference_hash", Value::Sha256([0x5a; 32])),
+                    Field::new(
+                        "expected_manifest_reference_hash",
+                        Value::Sha256([0x5a; 32]),
+                    ),
+                    Field::new("manifest_hash", Value::Sha256([0x5a; 32])),
+                ]),
+            }),
+            evidence_value(Evidence {
+                id: "module_manifest_retained",
+                kind: "retained_reference",
+                status: "verified",
+                reason: "retained_hash_reference_load_still_denied",
+                source_event_sequence: Some(3),
+                classification: "local_only",
+                facts: Value::InlineObject(vec![
+                    Field::new("state", Value::Str("present")),
+                    Field::new("retention", Value::Str("current_boot_ram_event_log")),
+                    Field::new("matches_current_reference", Value::Bool(false)),
+                    Field::new(
+                        "record_schema",
+                        Value::Str("raios.module_manifest_reference.v0"),
+                    ),
+                    Field::new(
+                        "status_detail",
+                        Value::Str("retained_hash_reference_load_still_denied"),
+                    ),
+                    Field::new("manifest_reference_hash", Value::Sha256([0x6b; 32])),
+                    Field::new("manifest_hash", Value::Sha256([0x6b; 32])),
+                ]),
+            }),
         ];
-        for (family, mapped) in FAMILIES {
-            assert_eq!(mapped, &GROUPS, "unmapped old semantic group in {family}");
+        let envelope = Envelope {
+            response_sequence: 7,
+            family: "module.manifest_reference",
+            scope: "current_boot",
+            classification: "local_only",
+            source_method: "module.manifest_diagnostic",
+            event_sequence: Some(3),
+            facts,
+            evidence,
+            decision: module_reference_denial(ModuleReferenceFamily::Manifest, None),
+        };
+        let value = response_value(&envelope);
+        let json = std::str::from_utf8(&render(&value)).unwrap().to_owned();
+
+        assert_eq!(MAPPING.len(), MANIFEST_GROUP_COUNT);
+        for &(group, carrier) in MAPPING {
+            match carrier {
+                Carrier::V1Needle(needle) => assert!(
+                    json.contains(needle),
+                    "legacy semantic group {group} missing v1 carrier {needle:?}"
+                ),
+                Carrier::ConstantInvariant(reason) | Carrier::Retired(reason) => assert!(
+                    !reason.is_empty(),
+                    "legacy semantic group {group} has no mapping reason"
+                ),
+            }
         }
     }
 

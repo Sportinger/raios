@@ -778,3 +778,63 @@ decision: {outcome:"observed", reason:"selftest_completed"}
 9. Audit/rollback expected hashes combine `module_evidence.rs` canonical hash functions with parsed fields and event IDs. Response migration must not alter those canonical grammars.
 
 10. Existing M6 harness code reads attestation `validation_status` at `body.result.validation_status`, although the emitter places it under `local_attestation_reference.validation_status`. That live-positive check is not reliable semantic evidence and must be corrected during golden regeneration.
+
+## Needle regeneration appendix
+
+The P4-1c harness repair removes the global-log `"effects": []` and bare
+`"event_id": null` needles. Retired constant fields are merged per response as
+follows; each replacement pins either the complete denied-decision invariant
+(`reason`, requested capability, empty grants, and empty effects) or a
+family-specific reference/status carrier:
+
+| Family/response | Retired predicate suffixes | Replacement suffix |
+| --- | --- | --- |
+| manifest absent | `can_load_false`, `inventory_none`, `load_attempted_false` | `decision_denied_no_authority` |
+| manifest valid | `still_no_load` | `valid_decision_denied_no_authority` |
+| grant absent | `no_capability`, `no_load_grant`, `no_guest_load`, `can_load_false`, `inventory_none`, `load_attempted_false` | `decision_denied_no_authority` |
+| grant valid | `valid_still_no_capability`, `valid_still_no_load` | `valid_reference_load_still_denied` |
+| artifact absent/valid | `load_attempted_false`; `still_no_load` | `decision_denied_no_authority`; `valid_decision_denied_no_authority` |
+| VM-report absent/valid | `load_attempted_false`; `still_no_load` | `decision_denied_no_authority`; `valid_decision_denied_no_authority` |
+| attestation absent/valid | `load_attempted_false`; `still_no_load` | `decision_denied_no_authority`; `valid_reference_load_still_denied` |
+| approval absent/valid | `load_attempted_false`; `still_no_load` | `decision_denied_no_authority`; `valid_reference_load_still_denied` |
+| audit/rollback absent | `no_audit_records`, `no_rollback_plans`, `no_slots`, `load_attempted_false` | `decision_denied_no_authority` |
+| audit/rollback valid | `can_load_false`, `inventory_none` | `valid_decision_denied_no_authority` |
+| service-slot absent | `no_allocation`, `no_inventory_records`, `load_attempted_false` | `decision_denied_no_authority` |
+| service-slot valid | `policy_can_load_false`, `policy_inventory_none` | `valid_decision_denied_no_authority` |
+
+`module_audit_rollback_diag_no_mutation` and
+`module_service_slot_diag_no_mutation` retain their names but now match the
+contiguous family/scope/classification/source-method/`event_id:null` envelope
+segment. The old load/inventory/allocation/write booleans remain retired
+redundancy: denied decisions have no grants or effects, while the three valid
+reference predicates above use the family-specific `status_detail` path because
+grant, attestation, and approval intentionally serialize the same valid denial
+decision. The profile therefore retains exactly 13 `effects` occurrences, one
+inside each distinct full denied-decision needle; no bare `"effects": []` needle
+remains.
+
+Manifest risk 10 is resolved in all three in-scope M6 readers and the persistence
+reader: `validation_status` is read as `facts.status_detail` from the
+`local_attestation` evidence record (with `signature_verified` from the same
+record), not from `body.result`.
+
+P4-1e corrects the same-source mappings used by the regenerated needles:
+
+- `computed_candidate_present` -> `E[computed_capability_grant].status="verified"`;
+  `facts.runtime.candidate_bytes_present` is candidate-intake state and is not
+  the legacy reference-check validity source.
+- Each legacy `*_reference_present = check.valid` predicate -> the matching
+  primary reference evidence record's `status="verified"`, not its
+  `facts.state="present"` (which is sourced from `check.has_reference`). The two
+  audit/rollback present predicates shared `check.valid` and are merged into
+  `audit_rollback_references_present`.
+- Each legacy missing-object predicate -> the matching primary reference
+  evidence header with `status="missing"`; an evidence `id` alone does not prove
+  absence.
+- Legacy retention-mutation / recorded-event duplicates -> the envelope
+  `event_id`; retained-reference event predicates remain on the retained
+  evidence `source_event_id`.
+- Audit/rollback `no_durable_write` and `not_installed`, plus service-slot
+  `policy_no_reserved_slot`, are merged into their response's existing complete
+  denied-decision predicate. Those legacy constants have no distinct v1 fact;
+  empty grants/effects are the honest no-authority carrier.
