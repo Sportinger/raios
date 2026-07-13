@@ -7,7 +7,7 @@ use crate::{
         current_problem_objects_value, current_service_ids_value, provider_context_block_reason,
         provider_minimal_projection_value,
     },
-    agent_protocol_support::{crlf, emit_record_value_fragment, method_eq, raw, raw_fmt, raw_line},
+    agent_protocol_support::{crlf, emit_record_value_fragment, method_eq, raw_fmt, raw_line},
     event_log, memory_store, provider, provider_trust,
     system_status::SystemSnapshot,
     ui,
@@ -32,8 +32,7 @@ use raios_core::{
 
 pub use raios_core::memory_context::{
     event_limit_arg, memory_context_estimated_tokens, memory_context_profile,
-    memory_context_target_tokens, memory_method_arg, memory_mutation_method, MemoryContextPlan,
-    MEMORY_MUTATION_METHODS,
+    memory_context_target_tokens, memory_method_arg, memory_mutation_method,
 };
 
 static NEXT_EVENT_RESPONSE_ID: AtomicU64 = AtomicU64::new(1);
@@ -645,58 +644,6 @@ pub(crate) fn binding_object_value_direct<'a, B, F: Copy>(
     )
 }
 
-pub(crate) fn emit_binding_object_direct<B, F: Copy>(
-    binding: &B,
-    kind: &str,
-    fields: &[BindingField<F>],
-    emit_value: fn(&B, &str, F),
-) {
-    raw(", \"bindings\": {");
-    let mut idx = 0usize;
-    while idx < fields.len() {
-        if idx != 0 {
-            raw(", ");
-        }
-        emit_record_value_fragment(V::Str(fields[idx].key), 0);
-        raw(": ");
-        emit_value(binding, kind, fields[idx].field);
-        idx += 1;
-    }
-    raw("}");
-}
-
-macro_rules! define_direct_binding_fields {
-    (
-        $field_enum:ident,
-        $fields_const:ident,
-        $emit_value:ident,
-        $binding_ty:ty,
-        $binding:ident,
-        $kind:ident;
-        $(($variant:ident, $key:literal, $body:block),)+
-    ) => {
-        #[derive(Clone, Copy)]
-        enum $field_enum {
-            $($variant),+
-        }
-
-        const $fields_const: &[BindingField<$field_enum>] = &[
-            $(BindingField {
-                key: $key,
-                field: $field_enum::$variant,
-            }),+
-        ];
-
-        fn $emit_value($binding: &$binding_ty, $kind: &str, field: $field_enum) {
-            match field {
-                $($field_enum::$variant => $body),+
-            }
-        }
-    };
-}
-
-pub(crate) use define_direct_binding_fields;
-
 macro_rules! define_direct_binding_value_fields {
     (
         $field_enum:ident,
@@ -726,6 +673,8 @@ macro_rules! define_direct_binding_value_fields {
         }
     };
 }
+
+pub(crate) use define_direct_binding_value_fields;
 
 fn binding_value_to_v(value: BindingValue) -> V<'static> {
     match value {

@@ -4,7 +4,7 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use crate::{
     agent_protocol,
     agent_protocol_memory::{
-        define_direct_binding_fields, emit_binding_object_direct, BindingField,
+        binding_object_value_direct, define_direct_binding_value_fields, BindingField,
     },
     agent_protocol_module_service_slot_allocator_projection::{
         latest_module_service_slot_allocator_readiness_projection,
@@ -12,11 +12,10 @@ use crate::{
     },
     agent_protocol_module_types::*,
     agent_protocol_support::{
-        crlf, emit_inline_record_object_fragment, emit_record_fields_trailing_comma,
-        emit_record_property_at, emit_record_property_line_at, emit_record_value_fragment,
-        json_event_id, json_event_id_option, json_sha256, json_str, method_eq, raw, raw_bool,
-        raw_fmt, raw_line, record_bool as b, record_event_or_null, record_false as no,
-        record_field as f, record_sha_or_null, record_str as s, record_str_or_null,
+        crlf, emit_record_fields_trailing_comma, emit_record_property_at,
+        emit_record_property_line_at, emit_record_value_fragment, method_eq, raw_fmt,
+        record_bool as b, record_event_or_null, record_false as no, record_field as f,
+        record_sha_or_null, record_str as s, record_str_or_null,
     },
     event_log, serial,
 };
@@ -4738,14 +4737,16 @@ pub(crate) fn emit_module_load_ephemeral_denied(
 ) {
     emit_load_gate_v1(method, Some(event_id), binding, true);
 }
-// Event-binding rendering stays on the pre-v1 compact vocabulary: memory.recent_events event records are EVENT-family output and convert in P4-4, not P4-2.
-pub(crate) fn emit_module_load_gate_event_binding(binding: event_log::ModuleLoadGateBinding) {
-    emit_binding_object_direct(
-        &binding,
+// Event-binding rendering stays on the pre-v1 compact vocabulary.
+pub(crate) fn emit_module_load_gate_event_binding(
+    binding: &event_log::ModuleLoadGateBinding,
+) -> V<'_> {
+    binding_object_value_direct(
+        binding,
         "",
         MODULE_LOAD_GATE_EVENT_BINDING_FIELDS,
-        emit_module_load_gate_event_binding_value,
-    );
+        module_load_gate_event_binding_field_value,
+    )
 }
 
 #[rustfmt::skip]
@@ -4812,1240 +4813,1226 @@ fn module_load_gate_required_value() -> V<'static> {
     )
 }
 
-define_direct_binding_fields! { ModuleLoadGateEventBindingField, MODULE_LOAD_GATE_EVENT_BINDING_FIELDS, emit_module_load_gate_event_binding_value, event_log::ModuleLoadGateBinding, binding, _kind;
-    (Schema, "schema", { emit_record_value_fragment(s("raios.module_load_gate.v0"), 0); }), (Status, "status", { emit_record_value_fragment(s("denied_missing_evidence"), 0); }), (LoadMode, "load_mode", { emit_record_value_fragment(s("ram_only"), 0); }),
-    (RequestedCapability, "requested_capability", { emit_record_value_fragment(s("cap.module.load_ephemeral"), 0); }), (Risk, "risk", { emit_record_value_fragment(s("modify_ram"), 0); }), (Target, "target", { emit_record_value_fragment(s("live_service_graph"), 0); }), (Subject, "subject", { emit_record_value_fragment(s("agent.session.serial"), 0); }),
-    (GateState, "gate_state", {
-            emit_record_value_fragment(module_load_gate_gate_state_value(*binding), 0);
-        }),
-    (RetainedModuleManifestReference, "retained_module_manifest_reference", { emit_module_load_gate_manifest_reference_compact(*binding); }), (RetainedCandidateArtifactReference, "retained_candidate_artifact_reference", { emit_module_load_gate_artifact_reference_compact(*binding); }),
-    (RetainedVmTestReportReference, "retained_vm_test_report_reference", { emit_module_load_gate_vm_report_reference_compact(*binding); }), (RetainedLocalAttestationReference, "retained_local_attestation_reference", { emit_module_load_gate_local_attestation_reference_compact(*binding); }),
-    (RetainedLocalApprovalReference, "retained_local_approval_reference", { emit_module_load_gate_local_approval_reference_compact(*binding); }), (RetainedComputedGrantReference, "retained_computed_grant_reference", { emit_module_load_gate_retained_reference_compact(*binding); }),
-    (RetainedAuditRollbackReference, "retained_audit_rollback_reference", { emit_module_load_gate_audit_rollback_reference_compact(*binding); }), (RetainedServiceSlotReservation, "retained_service_slot_reservation", { emit_module_load_gate_service_slot_reservation_compact(*binding); }),
-    (ServiceSlotAllocatorReadiness, "service_slot_allocator_readiness", { emit_module_load_gate_service_slot_allocator_readiness_compact(*binding); }),
-    (LoaderRuntimeReadiness, "loader_runtime_readiness", { emit_module_load_gate_loader_runtime_readiness_compact(*binding); }),
-    (AuditRollbackRequirements, "audit_rollback_requirements", { emit_module_load_gate_audit_rollback_requirements_compact(*binding); }),
-    (BlockedBy, "blocked_by", {
-            emit_record_value_fragment(module_load_gate_blocked_by_value(*binding), 0);
-        }),
-    (Required, "required", {
-        emit_record_value_fragment(module_load_gate_required_value(), 0);
-    }),
+define_direct_binding_value_fields! { ModuleLoadGateEventBindingField, MODULE_LOAD_GATE_EVENT_BINDING_FIELDS, module_load_gate_event_binding_field_value, event_log::ModuleLoadGateBinding, binding, _kind;
+    (Schema, "schema", { s("raios.module_load_gate.v0") }), (Status, "status", { s("denied_missing_evidence") }), (LoadMode, "load_mode", { s("ram_only") }),
+    (RequestedCapability, "requested_capability", { s("cap.module.load_ephemeral") }), (Risk, "risk", { s("modify_ram") }), (Target, "target", { s("live_service_graph") }), (Subject, "subject", { s("agent.session.serial") }),
+    (GateState, "gate_state", { module_load_gate_gate_state_value(*binding) }),
+    (RetainedModuleManifestReference, "retained_module_manifest_reference", { module_load_gate_manifest_reference_value(binding) }), (RetainedCandidateArtifactReference, "retained_candidate_artifact_reference", { module_load_gate_artifact_reference_value(binding) }),
+    (RetainedVmTestReportReference, "retained_vm_test_report_reference", { module_load_gate_vm_report_reference_value(binding) }), (RetainedLocalAttestationReference, "retained_local_attestation_reference", { module_load_gate_local_attestation_reference_value(binding) }),
+    (RetainedLocalApprovalReference, "retained_local_approval_reference", { module_load_gate_local_approval_reference_value(binding) }), (RetainedComputedGrantReference, "retained_computed_grant_reference", { module_load_gate_retained_reference_value(binding) }),
+    (RetainedAuditRollbackReference, "retained_audit_rollback_reference", { module_load_gate_audit_rollback_reference_value(binding) }), (RetainedServiceSlotReservation, "retained_service_slot_reservation", { module_load_gate_service_slot_reservation_value(binding) }),
+    (ServiceSlotAllocatorReadiness, "service_slot_allocator_readiness", { module_load_gate_service_slot_allocator_readiness_value(*binding) }),
+    (LoaderRuntimeReadiness, "loader_runtime_readiness", { module_load_gate_loader_runtime_readiness_value(*binding) }),
+    (AuditRollbackRequirements, "audit_rollback_requirements", { V::InlineObject(module_load_gate_audit_rollback_requirement_fields(binding, true)) }),
+    (BlockedBy, "blocked_by", { module_load_gate_blocked_by_value(*binding) }),
+    (Required, "required", { module_load_gate_required_value() }),
     (Evidence, "evidence", {
-            raw("{\"event_scope\": \"current_boot\", ");
-            emit_module_load_gate_evidence_hashes_compact(*binding);
-            raw(", \"service_inventory_change\": \"none\", \"load_attempted\": false}");
-        }),
+        let mut fields = vec![f("event_scope", s("current_boot"))];
+        fields.extend(module_load_gate_hash_fields(binding));
+        fields.extend([f("service_inventory_change", s("none")), f("load_attempted", no())]);
+        V::InlineObject(fields)
+    }),
 }
 
-fn emit_module_load_gate_manifest_reference_compact(binding: event_log::ModuleLoadGateBinding) {
-    if let Some(reference) = binding.manifest_reference {
-        if module_load_gate_manifest_reference_rejected(binding) {
-            raw("{\"state\": \"rejected\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": ");
-            json_event_id_option(binding.manifest_reference_event_id);
-            raw(", \"schema\": \"raios.module_manifest_reference.v0\", \"status\": ");
-            json_str(binding.manifest_reference_status);
-            raw(", \"reason\": ");
-            json_str(binding.manifest_reference_reason);
-            raw(", \"classification\": \"local_only\", \"authorizes_guest_load\": false, \"can_load_now\": false, \"load_attempted\": false}");
-            return;
-        }
+fn rejected_reference_value(
+    event_id: Option<event_log::EventId>,
+    schema: &'static str,
+    status: &'static str,
+    reason: &'static str,
+    mut tail: Vec<Field<'static>>,
+) -> V<'static> {
+    let mut fields = vec![
+        f("state", s("rejected")),
+        f("retention", s("current_boot_ram_event_log")),
+        f("event_id", record_event_or_null(event_id)),
+        f("schema", s(schema)),
+        f("status", s(status)),
+        f("reason", s(reason)),
+        f("classification", s("local_only")),
+    ];
+    fields.append(&mut tail);
+    fields.extend([f("can_load_now", no()), f("load_attempted", no())]);
+    V::InlineObject(fields)
+}
 
-        raw("{\"state\": \"present\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": ");
-        json_event_id_option(binding.manifest_reference_event_id);
-        raw(concat!(
-            ", \"schema\": \"raios.module_manifest_reference.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"classification\": \"local_only\"",
-            ", \"accepts_manifest_json\": false, \"accepts_artifact_bytes\": false, \"accepts_unsigned_service_code\": false, \"authorizes_guest_load\": false, \"can_load_now\": false",
-            ", \"service_inventory_change\": \"none\", \"load_attempted\": false, \"hashes\": {\"manifest_reference_hash\": ",
-        ));
-        json_sha256(reference.manifest_reference_hash);
-        raw(", \"manifest_hash\": ");
-        json_sha256(reference.manifest_hash);
-        raw("}}");
-    } else {
-        raw("{\"state\": \"missing\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": null, \"schema\": \"raios.module_manifest_reference.v0\", \"status\": ");
-        json_str(binding.manifest_reference_status);
-        raw(", \"reason\": ");
-        json_str(binding.manifest_reference_reason);
-        raw(", \"can_load_now\": false, \"load_attempted\": false}");
+fn missing_reference_value(
+    schema: &'static str,
+    status: &'static str,
+    reason: &'static str,
+) -> V<'static> {
+    V::InlineObject(vec![
+        f("state", s("missing")),
+        f("retention", s("current_boot_ram_event_log")),
+        f("event_id", V::Null),
+        f("schema", s(schema)),
+        f("status", s(status)),
+        f("reason", s(reason)),
+        f("can_load_now", no()),
+        f("load_attempted", no()),
+    ])
+}
+
+fn module_load_gate_manifest_reference_value(
+    binding: &event_log::ModuleLoadGateBinding,
+) -> V<'static> {
+    let Some(reference) = binding.manifest_reference.as_ref() else {
+        return missing_reference_value(
+            "raios.module_manifest_reference.v0",
+            binding.manifest_reference_status,
+            binding.manifest_reference_reason,
+        );
+    };
+    if module_load_gate_manifest_reference_rejected(*binding) {
+        return rejected_reference_value(
+            binding.manifest_reference_event_id,
+            "raios.module_manifest_reference.v0",
+            binding.manifest_reference_status,
+            binding.manifest_reference_reason,
+            vec![f("authorizes_guest_load", no())],
+        );
     }
-}
-
-fn emit_module_load_gate_artifact_reference_compact(binding: event_log::ModuleLoadGateBinding) {
-    if let Some(reference) = binding.artifact_reference {
-        if module_load_gate_candidate_artifact_reference_rejected(binding) {
-            raw("{\"state\": \"rejected\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": ");
-            json_event_id_option(binding.artifact_reference_event_id);
-            raw(", \"schema\": \"raios.module_candidate_artifact_reference.v0\", \"status\": ");
-            json_str(binding.artifact_reference_status);
-            raw(", \"reason\": ");
-            json_str(binding.artifact_reference_reason);
-            raw(", \"classification\": \"local_only\", \"authorizes_guest_load\": false, \"can_load_now\": false, \"load_attempted\": false}");
-            return;
-        }
-
-        raw("{\"state\": \"present\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": ");
-        json_event_id_option(binding.artifact_reference_event_id);
-        raw(concat!(
-            ", \"schema\": \"raios.module_candidate_artifact_reference.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"classification\": \"local_only\"",
-            ", \"accepts_manifest_json\": false, \"accepts_artifact_bytes\": false, \"accepts_unsigned_service_code\": false, \"authorizes_guest_load\": false, \"can_load_now\": false",
-            ", \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_manifest_reference_event_id\": ",
-        ));
-        json_event_id(reference.retained_manifest_reference_event_id);
-        raw(", \"retained_computed_grant_reference_event_id\": ");
-        json_event_id(reference.retained_reference_event_id);
-        raw(", \"hashes\": {\"artifact_reference_hash\": ");
-        json_sha256(reference.artifact_reference_hash);
-        raw(", \"manifest_reference_hash\": ");
-        json_sha256(reference.manifest_reference_hash);
-        raw(", \"manifest_hash\": ");
-        json_sha256(reference.manifest_hash);
-        raw(", \"computed_capability_grant_hash\": ");
-        json_sha256(reference.computed_grant_hash);
-        raw(", \"artifact_hash\": ");
-        json_sha256(reference.artifact_hash);
-        raw(", \"vm_test_report_hash\": ");
-        json_sha256(reference.vm_report_hash);
-        raw(", \"local_attestation_hash\": ");
-        json_sha256(reference.local_attestation_hash);
-        raw("}}");
-    } else {
-        raw("{\"state\": \"missing\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": null, \"schema\": \"raios.module_candidate_artifact_reference.v0\", \"status\": ");
-        json_str(binding.artifact_reference_status);
-        raw(", \"reason\": ");
-        json_str(binding.artifact_reference_reason);
-        raw(", \"can_load_now\": false, \"load_attempted\": false}");
-    }
-}
-
-fn emit_module_load_gate_vm_report_reference_compact(binding: event_log::ModuleLoadGateBinding) {
-    if let Some(reference) = binding.vm_report_reference {
-        if module_load_gate_vm_test_report_reference_rejected(binding) {
-            raw("{\"state\": \"rejected\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": ");
-            json_event_id_option(binding.vm_report_reference_event_id);
-            raw(", \"schema\": \"raios.module_vm_test_report_reference.v0\", \"status\": ");
-            json_str(binding.vm_report_reference_status);
-            raw(", \"reason\": ");
-            json_str(binding.vm_report_reference_reason);
-            raw(", \"classification\": \"local_only\", \"authorizes_guest_load\": false, \"can_load_now\": false, \"load_attempted\": false}");
-            return;
-        }
-
-        raw("{\"state\": \"present\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": ");
-        json_event_id_option(binding.vm_report_reference_event_id);
-        raw(concat!(
-            ", \"schema\": \"raios.module_vm_test_report_reference.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"classification\": \"local_only\"",
-            ", \"accepts_manifest_json\": false, \"accepts_artifact_bytes\": false, \"accepts_vm_report_json\": false, \"accepts_unsigned_service_code\": false, \"authorizes_guest_load\": false",
-            ", \"can_load_now\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_manifest_reference_event_id\": ",
-        ));
-        json_event_id(reference.retained_manifest_reference_event_id);
-        raw(", \"retained_candidate_artifact_reference_event_id\": ");
-        json_event_id(reference.retained_artifact_reference_event_id);
-        raw(", \"retained_computed_grant_reference_event_id\": ");
-        json_event_id(reference.retained_reference_event_id);
-        raw(", \"hashes\": {\"vm_test_report_reference_hash\": ");
-        json_sha256(reference.report_reference_hash);
-        raw(", \"manifest_reference_hash\": ");
-        json_sha256(reference.manifest_reference_hash);
-        raw(", \"artifact_reference_hash\": ");
-        json_sha256(reference.artifact_reference_hash);
-        raw(", \"manifest_hash\": ");
-        json_sha256(reference.manifest_hash);
-        raw(", \"artifact_hash\": ");
-        json_sha256(reference.artifact_hash);
-        raw(", \"computed_capability_grant_hash\": ");
-        json_sha256(reference.computed_grant_hash);
-        raw(", \"vm_test_report_hash\": ");
-        json_sha256(reference.vm_report_hash);
-        raw(", \"local_attestation_hash\": ");
-        json_sha256(reference.local_attestation_hash);
-        raw("}}");
-    } else {
-        raw("{\"state\": \"missing\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": null, \"schema\": \"raios.module_vm_test_report_reference.v0\", \"status\": ");
-        json_str(binding.vm_report_reference_status);
-        raw(", \"reason\": ");
-        json_str(binding.vm_report_reference_reason);
-        raw(", \"can_load_now\": false, \"load_attempted\": false}");
-    }
-}
-
-fn emit_module_load_gate_local_attestation_reference_compact(
-    binding: event_log::ModuleLoadGateBinding,
-) {
-    if let Some(reference) = binding.attestation_reference {
-        if module_load_gate_local_attestation_reference_rejected(binding) {
-            raw("{\"state\": \"rejected\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": ");
-            json_event_id_option(binding.attestation_reference_event_id);
-            raw(", \"schema\": \"raios.module_local_attestation_reference.v0\", \"status\": ");
-            json_str(binding.attestation_reference_status);
-            raw(", \"reason\": ");
-            json_str(binding.attestation_reference_reason);
-            raw(", \"classification\": \"local_only\", \"authorizes_guest_load\": false, \"can_load_now\": false, \"load_attempted\": false}");
-            return;
-        }
-
-        raw("{\"state\": \"present\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": ");
-        json_event_id_option(binding.attestation_reference_event_id);
-        raw(concat!(
-            ", \"schema\": \"raios.module_local_attestation_reference.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"classification\": \"local_only\"",
-            ", \"accepts_local_attestation_json\": false, \"accepts_artifact_bytes\": false, \"accepts_unsigned_service_code\": false, \"authorizes_guest_load\": false, \"can_load_now\": false",
-            ", \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_manifest_reference_event_id\": ",
-        ));
-        json_event_id(reference.retained_manifest_reference_event_id);
-        raw(", \"retained_candidate_artifact_reference_event_id\": ");
-        json_event_id(reference.retained_artifact_reference_event_id);
-        raw(", \"retained_vm_test_report_reference_event_id\": ");
-        json_event_id(reference.retained_vm_report_reference_event_id);
-        raw(", \"retained_computed_grant_reference_event_id\": ");
-        json_event_id(reference.retained_reference_event_id);
-        raw(", \"hashes\": {\"local_attestation_reference_hash\": ");
-        json_sha256(reference.attestation_reference_hash);
-        raw(", \"manifest_reference_hash\": ");
-        json_sha256(reference.manifest_reference_hash);
-        raw(", \"artifact_reference_hash\": ");
-        json_sha256(reference.artifact_reference_hash);
-        raw(", \"vm_test_report_reference_hash\": ");
-        json_sha256(reference.vm_report_reference_hash);
-        raw(", \"manifest_hash\": ");
-        json_sha256(reference.manifest_hash);
-        raw(", \"artifact_hash\": ");
-        json_sha256(reference.artifact_hash);
-        raw(", \"computed_capability_grant_hash\": ");
-        json_sha256(reference.computed_grant_hash);
-        raw(", \"vm_test_report_hash\": ");
-        json_sha256(reference.vm_report_hash);
-        raw(", \"local_attestation_hash\": ");
-        json_sha256(reference.local_attestation_hash);
-        raw("}}");
-    } else {
-        raw("{\"state\": \"missing\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": null, \"schema\": \"raios.module_local_attestation_reference.v0\", \"status\": ");
-        json_str(binding.attestation_reference_status);
-        raw(", \"reason\": ");
-        json_str(binding.attestation_reference_reason);
-        raw(", \"can_load_now\": false, \"load_attempted\": false}");
-    }
-}
-
-fn emit_module_load_gate_local_approval_reference_compact(
-    binding: event_log::ModuleLoadGateBinding,
-) {
-    if let Some(reference) = binding.approval_reference {
-        if module_load_gate_local_approval_reference_rejected(binding) {
-            raw("{\"state\": \"rejected\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": ");
-            json_event_id_option(binding.approval_reference_event_id);
-            raw(", \"schema\": \"raios.module_local_approval_reference.v0\", \"status\": ");
-            json_str(binding.approval_reference_status);
-            raw(", \"reason\": ");
-            json_str(binding.approval_reference_reason);
-            raw(", \"classification\": \"local_only\", \"authorizes_guest_load\": false, \"can_load_now\": false, \"load_attempted\": false}");
-            return;
-        }
-
-        raw("{\"state\": \"present\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": ");
-        json_event_id_option(binding.approval_reference_event_id);
-        raw(concat!(
-            ", \"schema\": \"raios.module_local_approval_reference.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"classification\": \"local_only\"",
-            ", \"accepts_local_approval_text\": false, \"accepts_artifact_bytes\": false, \"accepts_unsigned_service_code\": false, \"authorizes_guest_load\": false, \"can_load_now\": false",
-            ", \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_manifest_reference_event_id\": ",
-        ));
-        json_event_id(reference.retained_manifest_reference_event_id);
-        raw(", \"retained_candidate_artifact_reference_event_id\": ");
-        json_event_id(reference.retained_artifact_reference_event_id);
-        raw(", \"retained_vm_test_report_reference_event_id\": ");
-        json_event_id(reference.retained_vm_report_reference_event_id);
-        raw(", \"retained_local_attestation_reference_event_id\": ");
-        json_event_id(reference.retained_local_attestation_reference_event_id);
-        raw(", \"retained_computed_grant_reference_event_id\": ");
-        json_event_id(reference.retained_reference_event_id);
-        raw(", \"hashes\": {\"local_approval_reference_hash\": ");
-        json_sha256(reference.approval_reference_hash);
-        raw(", \"manifest_reference_hash\": ");
-        json_sha256(reference.manifest_reference_hash);
-        raw(", \"artifact_reference_hash\": ");
-        json_sha256(reference.artifact_reference_hash);
-        raw(", \"vm_test_report_reference_hash\": ");
-        json_sha256(reference.vm_report_reference_hash);
-        raw(", \"local_attestation_reference_hash\": ");
-        json_sha256(reference.local_attestation_reference_hash);
-        raw(", \"manifest_hash\": ");
-        json_sha256(reference.manifest_hash);
-        raw(", \"artifact_hash\": ");
-        json_sha256(reference.artifact_hash);
-        raw(", \"computed_capability_grant_hash\": ");
-        json_sha256(reference.computed_grant_hash);
-        raw(", \"vm_test_report_hash\": ");
-        json_sha256(reference.vm_report_hash);
-        raw(", \"local_attestation_hash\": ");
-        json_sha256(reference.local_attestation_hash);
-        raw(", \"local_approval_hash\": ");
-        json_sha256(reference.local_approval_hash);
-        raw("}}");
-    } else {
-        raw("{\"state\": \"missing\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": null, \"schema\": \"raios.module_local_approval_reference.v0\", \"status\": ");
-        json_str(binding.approval_reference_status);
-        raw(", \"reason\": ");
-        json_str(binding.approval_reference_reason);
-        raw(", \"can_load_now\": false, \"load_attempted\": false}");
-    }
-}
-
-fn emit_module_load_gate_retained_reference_compact(binding: event_log::ModuleLoadGateBinding) {
-    if let Some(reference) = binding.retained_reference {
-        raw("{\"state\": \"present\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": ");
-        json_event_id_option(binding.retained_reference_event_id);
-        raw(", \"schema\": \"raios.module_computed_grant_reference.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"classification\": \"local_only\", \"grants_capability\": false, \"grants_load_now\": false, \"authorizes_guest_load\": false, \"can_load_now\": false, \"load_attempted\": false, \"hashes\": {\"computed_capability_grant_hash\": ");
-        json_sha256(reference.computed_grant_hash);
-        raw(", \"manifest_hash\": ");
-        json_sha256(reference.manifest_hash);
-        raw(", \"artifact_hash\": ");
-        json_sha256(reference.artifact_hash);
-        raw(", \"vm_test_report_hash\": ");
-        json_sha256(reference.vm_report_hash);
-        raw(", \"local_attestation_hash\": ");
-        json_sha256(reference.local_attestation_hash);
-        raw("}}");
-    } else {
-        raw("{\"state\": \"missing\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": null, \"schema\": \"raios.module_computed_grant_reference.v0\", \"status\": \"missing\", \"reason\": \"no_valid_computed_grant_reference_retained\", \"can_load_now\": false, \"load_attempted\": false}");
-    }
-}
-
-fn emit_module_load_gate_audit_rollback_reference_compact(
-    binding: event_log::ModuleLoadGateBinding,
-) {
-    if let Some(reference) = binding.audit_rollback_reference {
-        if module_load_gate_audit_rollback_reference_rejected(binding) {
-            raw("{\"state\": \"rejected\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": ");
-            json_event_id_option(binding.audit_rollback_reference_event_id);
-            raw(", \"schema\": \"raios.module_audit_rollback_reference.v0\", \"status\": ");
-            json_str(binding.audit_rollback_reference_status);
-            raw(", \"reason\": ");
-            json_str(binding.audit_rollback_reference_reason);
-            raw(", \"classification\": \"local_only\", \"durable_audit_written\": false, \"rollback_plan_installed\": false, \"can_load_now\": false, \"load_attempted\": false}");
-            return;
-        }
-
-        raw("{\"state\": \"present\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": ");
-        json_event_id_option(binding.audit_rollback_reference_event_id);
-        raw(concat!(
-            ", \"schema\": \"raios.module_audit_rollback_reference.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"classification\": \"local_only\"",
-            ", \"durable_audit_written\": false, \"rollback_plan_installed\": false, \"grants_capability\": false, \"grants_load_now\": false, \"authorizes_guest_load\": false",
-            ", \"can_load_now\": false, \"load_attempted\": false, \"denial_event_id\": ",
-        ));
-        json_event_id(reference.denial_event_id);
-        raw(", \"retained_computed_grant_reference_event_id\": ");
-        json_event_id(reference.retained_reference_event_id);
-        raw(", \"ram_only_service_slot_id\": ");
-        json_str(reference.ram_only_service_slot_id.as_str());
-        raw(", \"hashes\": {\"audit_record_hash\": ");
-        json_sha256(reference.audit_record_hash);
-        raw(", \"rollback_plan_hash\": ");
-        json_sha256(reference.rollback_plan_hash);
-        raw(", \"computed_capability_grant_hash\": ");
-        json_sha256(reference.computed_grant_hash);
-        raw(", \"manifest_hash\": ");
-        json_sha256(reference.manifest_hash);
-        raw(", \"artifact_hash\": ");
-        json_sha256(reference.artifact_hash);
-        raw(", \"vm_test_report_hash\": ");
-        json_sha256(reference.vm_report_hash);
-        raw(", \"local_attestation_hash\": ");
-        json_sha256(reference.local_attestation_hash);
-        raw(", \"local_approval_hash\": ");
-        json_sha256(reference.local_approval_hash);
-        raw(", \"pre_load_service_inventory_hash\": ");
-        json_sha256(reference.pre_load_service_inventory_hash);
-        raw(", \"cleanup_actions_hash\": ");
-        json_sha256(reference.cleanup_actions_hash);
-        raw("}}");
-    } else {
-        raw("{\"state\": \"missing\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": null, \"schema\": \"raios.module_audit_rollback_reference.v0\", \"status\": ");
-        json_str(binding.audit_rollback_reference_status);
-        raw(", \"reason\": ");
-        json_str(binding.audit_rollback_reference_reason);
-        raw(", \"can_load_now\": false, \"load_attempted\": false}");
-    }
-}
-
-fn emit_module_load_gate_service_slot_reservation_compact(
-    binding: event_log::ModuleLoadGateBinding,
-) {
-    if let Some(reservation) = binding.service_slot_reservation {
-        if module_load_gate_service_slot_reservation_rejected(binding) {
-            raw("{\"state\": \"rejected\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": ");
-            json_event_id_option(binding.service_slot_reservation_event_id);
-            raw(", \"schema\": \"raios.module_service_slot_reservation.v0\", \"status\": ");
-            json_str(binding.service_slot_reservation_status);
-            raw(", \"reason\": ");
-            json_str(binding.service_slot_reservation_reason);
-            raw(", \"classification\": \"local_only\", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"can_load_now\": false, \"load_attempted\": false}");
-            return;
-        }
-
-        raw("{\"state\": \"present\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": ");
-        json_event_id_option(binding.service_slot_reservation_event_id);
-        raw(concat!(
-            ", \"schema\": \"raios.module_service_slot_reservation.v0\", \"status\": \"retained_hash_reference_only_not_allocated\", \"classification\": \"local_only\"",
-            ", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"grants_capability\": false, \"grants_load_now\": false, \"authorizes_guest_load\": false",
-            ", \"can_load_now\": false, \"load_attempted\": false, \"retained_computed_grant_reference_event_id\": ",
-        ));
-        json_event_id(reservation.retained_reference_event_id);
-        raw(", \"retained_audit_rollback_reference_event_id\": ");
-        json_event_id(reservation.retained_audit_rollback_reference_event_id);
-        raw(", \"ram_only_service_slot_id\": ");
-        json_str(reservation.ram_only_service_slot_id.as_str());
-        raw(", \"hashes\": {\"reservation_hash\": ");
-        json_sha256(reservation.reservation_hash);
-        raw(", \"computed_capability_grant_hash\": ");
-        json_sha256(reservation.computed_grant_hash);
-        raw(", \"audit_record_hash\": ");
-        json_sha256(reservation.audit_record_hash);
-        raw(", \"rollback_plan_hash\": ");
-        json_sha256(reservation.rollback_plan_hash);
-        raw(", \"pre_load_service_inventory_hash\": ");
-        json_sha256(reservation.pre_load_service_inventory_hash);
-        raw("}}");
-    } else {
-        raw("{\"state\": \"missing\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": null, \"schema\": \"raios.module_service_slot_reservation.v0\", \"status\": ");
-        json_str(binding.service_slot_reservation_status);
-        raw(", \"reason\": ");
-        json_str(binding.service_slot_reservation_reason);
-        raw(", \"can_load_now\": false, \"load_attempted\": false}");
-    }
-}
-
-fn emit_module_load_gate_service_slot_allocator_readiness_compact(
-    binding: event_log::ModuleLoadGateBinding,
-) {
-    let projection = module_load_gate_service_slot_allocator_projection(binding);
-    raw("{\"schema\": \"raios.module_service_slot_allocator_readiness.v0\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"source_method\": \"module.service_slot_allocator\", \"state\": ");
-    json_str(projection.state);
-    raw(", \"readiness_status\": ");
-    json_str(projection.status);
-    raw(", \"readiness_reason\": ");
-    json_str(projection.reason);
-    raw(", \"allocator_authority_boundary\": {\"schema\": ");
-    json_str(MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_SCHEMA);
-    raw(", \"source_evidence_event_id\": ");
-    json_event_id_option(projection.authority_source_evidence_event_id);
-    raw(", \"status\": ");
-    json_str(projection.authority_status);
-    raw(", \"reason\": ");
-    json_str(projection.authority_reason);
-    raw(", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false}");
-    raw(", \"allocation_intent_boundary\": {\"schema\": ");
-    json_str(MODULE_SERVICE_SLOT_ALLOCATION_INTENT_SCHEMA);
-    raw(", \"id\": ");
-    json_str(MODULE_SERVICE_SLOT_ALLOCATION_INTENT_ID);
-    raw(", \"source_evidence_event_id\": ");
-    json_event_id_option(projection.allocation_intent_source_evidence_event_id);
-    raw(", \"status\": ");
-    json_str(projection.allocation_intent_status);
-    raw(", \"reason\": ");
-    json_str(projection.allocation_intent_reason);
-    raw(", \"present\": ");
-    raw_bool(projection.allocation_intent_present);
-    raw(", \"requested_capability\": \"cap.module.load_ephemeral\", \"load_mode\": \"ram_only\", \"target\": \"live_service_graph\", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false}");
-    raw(", \"authority_input_boundaries\": ");
-    emit_module_load_gate_authority_input_boundaries_compact(projection.authority_inputs);
-    raw(", \"authority_decision\": ");
-    emit_module_load_gate_authority_decision_compact(projection);
-    raw(", \"registry_write_commit_gate\": ");
-    emit_module_load_gate_registry_write_commit_gate_compact(projection);
-    raw(", \"retained_service_slot_reservation_status\": ");
-    json_str(module_load_gate_service_slot_state(binding));
-    raw(", \"service_slot_allocator_ready\": ");
-    raw_bool(module_load_gate_service_slot_allocator_ready(binding));
-    raw(", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false}");
-}
-
-fn emit_module_load_gate_loader_runtime_readiness_compact(
-    binding: event_log::ModuleLoadGateBinding,
-) {
-    raw("{\"schema\": \"raios.module_loader_runtime_readiness.v0\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"state\": ");
-    json_str(module_load_gate_loader_runtime_state(binding));
-    raw(", \"readiness_status\": ");
-    json_str(module_load_gate_loader_runtime_status(binding));
-    raw(", \"readiness_reason\": ");
-    json_str(module_load_gate_loader_runtime_reason(binding));
-    raw(", \"retained_module_evidence_state\": ");
-    json_str(module_load_gate_retained_module_evidence_state(binding));
-    raw(", \"retained_module_evidence_reason\": ");
-    json_str(module_load_gate_retained_module_evidence_reason(binding));
-    raw(", \"service_slot_allocator_ready\": ");
-    raw_bool(module_load_gate_service_slot_allocator_ready(binding));
-    raw(", \"m6_m7_reverify_input_check\": ");
-    emit_inline_record_object_fragment(
-        module_load_gate_m6_m7_reverify_input_check_fields(
-            agent_protocol::receiver_identity_load_preflight_projection(),
+    V::InlineObject(vec![
+        f("state", s("present")),
+        f("retention", s("current_boot_ram_event_log")),
+        f(
+            "event_id",
+            record_event_or_null(binding.manifest_reference_event_id),
         ),
-        0,
-    );
-    raw(", \"execution_commit_gate\": ");
-    emit_module_load_gate_loader_runtime_execution_commit_gate_compact();
-    raw(", \"descriptor_intake_boundary\": ");
-    emit_module_load_gate_loader_descriptor_intake_boundary_compact();
-    raw(", \"artifact_byte_intake_boundary\": ");
-    emit_module_load_gate_loader_artifact_byte_intake_boundary_compact();
-    raw(", \"execution_authorization_boundary\": ");
-    emit_module_load_gate_loader_execution_authorization_boundary_compact();
-    raw(", \"service_registry_mutation_boundary\": ");
-    emit_module_load_gate_loader_service_registry_mutation_boundary_compact();
-    raw(", \"load_attempt_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_LOAD_ATTEMPT_BOUNDARY_SCHEMA,
-        MODULE_LOADER_LOAD_ATTEMPT_BOUNDARY_ID,
-        module_load_gate_loader_load_attempt_boundary_projection(),
-    );
-    raw(", \"artifact_load_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_SCHEMA,
-        MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_ID,
-        module_load_gate_loader_artifact_load_boundary_projection(),
-    );
-    raw(", \"executable_mapping_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_EXECUTABLE_MAPPING_BOUNDARY_SCHEMA,
-        MODULE_LOADER_EXECUTABLE_MAPPING_BOUNDARY_ID,
-        module_load_gate_loader_executable_mapping_boundary_projection(),
-    );
-    raw(", \"entrypoint_transfer_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_ENTRYPOINT_TRANSFER_BOUNDARY_SCHEMA,
-        MODULE_LOADER_ENTRYPOINT_TRANSFER_BOUNDARY_ID,
-        module_load_gate_loader_entrypoint_transfer_boundary_projection(),
-    );
-    raw(", \"service_start_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_SERVICE_START_BOUNDARY_SCHEMA,
-        MODULE_LOADER_SERVICE_START_BOUNDARY_ID,
-        module_load_gate_loader_service_start_boundary_projection(),
-    );
-    raw(", \"service_health_binding_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_SERVICE_HEALTH_BINDING_BOUNDARY_SCHEMA,
-        MODULE_LOADER_SERVICE_HEALTH_BINDING_BOUNDARY_ID,
-        module_load_gate_loader_service_health_binding_boundary_projection(),
-    );
-    raw(", \"service_running_state_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_SERVICE_RUNNING_STATE_BOUNDARY_SCHEMA,
-        MODULE_LOADER_SERVICE_RUNNING_STATE_BOUNDARY_ID,
-        module_load_gate_loader_service_running_state_boundary_projection(),
-    );
-    raw(", \"service_start_audit_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_SERVICE_START_AUDIT_BOUNDARY_SCHEMA,
-        MODULE_LOADER_SERVICE_START_AUDIT_BOUNDARY_ID,
-        module_load_gate_loader_service_start_audit_boundary_projection(),
-    );
-    raw(", \"service_unload_cleanup_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_SERVICE_UNLOAD_CLEANUP_BOUNDARY_SCHEMA,
-        MODULE_LOADER_SERVICE_UNLOAD_CLEANUP_BOUNDARY_ID,
-        module_load_gate_loader_service_unload_cleanup_boundary_projection(),
-    );
-    raw(", \"live_load_commit_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_LIVE_LOAD_COMMIT_BOUNDARY_SCHEMA,
-        MODULE_LOADER_LIVE_LOAD_COMMIT_BOUNDARY_ID,
-        module_load_gate_loader_live_load_commit_boundary_projection(),
-    );
-    raw(", \"commit_audit_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_COMMIT_AUDIT_BOUNDARY_SCHEMA,
-        MODULE_LOADER_COMMIT_AUDIT_BOUNDARY_ID,
-        module_load_gate_loader_commit_audit_boundary_projection(),
-    );
-    raw(", \"commit_rollback_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_COMMIT_ROLLBACK_BOUNDARY_SCHEMA,
-        MODULE_LOADER_COMMIT_ROLLBACK_BOUNDARY_ID,
-        module_load_gate_loader_commit_rollback_boundary_projection(),
-    );
-    raw(", \"commit_result_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_COMMIT_RESULT_BOUNDARY_SCHEMA,
-        MODULE_LOADER_COMMIT_RESULT_BOUNDARY_ID,
-        module_load_gate_loader_commit_result_boundary_projection(),
-    );
-    raw(", \"descriptor_acceptance_authority_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_DESCRIPTOR_ACCEPTANCE_AUTHORITY_BOUNDARY_SCHEMA,
-        MODULE_LOADER_DESCRIPTOR_ACCEPTANCE_AUTHORITY_BOUNDARY_ID,
-        module_load_gate_loader_descriptor_acceptance_authority_boundary_projection(),
-    );
-    raw(", \"descriptor_parser_contract_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_DESCRIPTOR_PARSER_CONTRACT_BOUNDARY_SCHEMA,
-        MODULE_LOADER_DESCRIPTOR_PARSER_CONTRACT_BOUNDARY_ID,
-        module_load_gate_loader_descriptor_parser_contract_boundary_projection(),
-    );
-    raw(", \"descriptor_parser_result_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_DESCRIPTOR_PARSER_RESULT_BOUNDARY_SCHEMA,
-        MODULE_LOADER_DESCRIPTOR_PARSER_RESULT_BOUNDARY_ID,
-        module_load_gate_loader_descriptor_parser_result_boundary_projection(),
-    );
-    raw(", \"descriptor_schema_validation_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_DESCRIPTOR_SCHEMA_VALIDATION_BOUNDARY_SCHEMA,
-        MODULE_LOADER_DESCRIPTOR_SCHEMA_VALIDATION_BOUNDARY_ID,
-        module_load_gate_loader_descriptor_schema_validation_boundary_projection(),
-    );
-    raw(", \"descriptor_capability_validation_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_DESCRIPTOR_CAPABILITY_VALIDATION_BOUNDARY_SCHEMA,
-        MODULE_LOADER_DESCRIPTOR_CAPABILITY_VALIDATION_BOUNDARY_ID,
-        module_load_gate_loader_descriptor_capability_validation_boundary_projection(),
-    );
-    raw(", \"descriptor_load_plan_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_DESCRIPTOR_LOAD_PLAN_BOUNDARY_SCHEMA,
-        MODULE_LOADER_DESCRIPTOR_LOAD_PLAN_BOUNDARY_ID,
-        module_load_gate_loader_descriptor_load_plan_boundary_projection(),
-    );
-    raw(", \"executable_load_plan_authority_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_EXECUTABLE_LOAD_PLAN_AUTHORITY_BOUNDARY_SCHEMA,
-        MODULE_LOADER_EXECUTABLE_LOAD_PLAN_AUTHORITY_BOUNDARY_ID,
-        module_load_gate_loader_executable_load_plan_authority_boundary_projection(),
-    );
-    raw(", \"executable_load_plan_result_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_EXECUTABLE_LOAD_PLAN_RESULT_BOUNDARY_SCHEMA,
-        MODULE_LOADER_EXECUTABLE_LOAD_PLAN_RESULT_BOUNDARY_ID,
-        module_load_gate_loader_executable_load_plan_result_boundary_projection(),
-    );
-    raw(", \"executable_image_layout_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_EXECUTABLE_IMAGE_LAYOUT_BOUNDARY_SCHEMA,
-        MODULE_LOADER_EXECUTABLE_IMAGE_LAYOUT_BOUNDARY_ID,
-        module_load_gate_loader_executable_image_layout_boundary_projection(),
-    );
-    raw(", \"executable_page_mapping_plan_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_PLAN_BOUNDARY_SCHEMA,
-        MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_PLAN_BOUNDARY_ID,
-        module_load_gate_loader_executable_page_mapping_plan_boundary_projection(),
-    );
-    raw(", \"executable_page_mapping_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_BOUNDARY_SCHEMA,
-        MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_BOUNDARY_ID,
-        module_load_gate_loader_executable_page_mapping_boundary_projection(),
-    );
-    raw(", \"descriptor_executable_page_binding_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_SCHEMA,
-        MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_ID,
-        module_load_gate_loader_descriptor_executable_page_binding_boundary_projection(),
-    );
-    raw(", \"executable_entrypoint_binding_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_SCHEMA,
-        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_ID,
-        module_load_gate_loader_executable_entrypoint_binding_boundary_projection(),
-    );
-    raw(", \"executable_entrypoint_transfer_authorization_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_TRANSFER_AUTHORIZATION_BOUNDARY_SCHEMA,
-        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_TRANSFER_AUTHORIZATION_BOUNDARY_ID,
-        module_load_gate_loader_executable_entrypoint_transfer_authorization_boundary_projection(),
-    );
-    raw(", \"executable_entrypoint_transfer_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_TRANSFER_BOUNDARY_SCHEMA,
-        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_TRANSFER_BOUNDARY_ID,
-        module_load_gate_loader_executable_entrypoint_transfer_boundary_projection(),
-    );
-    raw(", \"executable_entrypoint_handoff_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_HANDOFF_BOUNDARY_SCHEMA,
-        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_HANDOFF_BOUNDARY_ID,
-        module_load_gate_loader_executable_entrypoint_handoff_boundary_projection(),
-    );
-    raw(", \"executable_entrypoint_invocation_boundary\": ");
-    emit_module_load_gate_loader_live_load_boundary_compact(
-        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_INVOCATION_BOUNDARY_SCHEMA,
-        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_INVOCATION_BOUNDARY_ID,
-        module_load_gate_loader_executable_entrypoint_invocation_boundary_projection(),
-    );
-    raw(concat!(
-        ", \"accepts_descriptor_bytes\": false, \"produces_parsed_descriptor\": false, \"validates_descriptor_schema\": false, \"produces_validated_descriptor\": false",
-        ", \"validates_descriptor_capabilities\": false, \"produces_capability_validated_descriptor\": false, \"authorizes_executable_load_plan\": false",
-        ", \"produces_executable_load_plan\": false, \"produces_executable_image_layout\": false, \"produces_executable_page_mapping_plan\": false",
-        ", \"binds_capability_validated_descriptor_to_executable_pages\": false, \"parses_descriptor_bytes\": false, \"loads_artifact\": false, \"allocates_service_slot\": false",
-        ", \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"starts_service\": false, \"marks_service_running\": false",
-        ", \"creates_service_health_records\": false, \"writes_service_start_audit_record\": false, \"unloads_service\": false, \"cleans_up_service_slot\": false",
-        ", \"commits_live_load\": false, \"writes_load_commit_audit_record\": false, \"installs_commit_rollback_record\": false, \"records_load_result\": false, \"can_load_now\": false",
-        ", \"load_attempted\": false, \"missing_facts\": [\"raios.module_loader_identity.v0\", \"raios.module_loader_artifact_hash_binding.v0\", \"raios.module_loader_entrypoint_abi.v0\"",
-        ", \"raios.module_loader_address_space_boundary.v0\", \"raios.module_loader_memory_map_constraints.v0\", \"raios.module_loader_capability_import_table.v0\"",
-        ", \"raios.module_loader_service_slot_binding.v0\", \"raios.module_loader_health_state_hooks.v0\", \"raios.module_loader_rollback_hooks.v0\"",
-        ", \"raios.module_loader_audit_rollback_write_boundary_binding.v0\"]",
-        ));
-    raw(", \"source_fact_count\": ");
-    raw_fmt(format_args!(
-        "{}",
-        module_load_gate_loader_runtime_source_fact_count()
-    ));
-    raw(", \"source_fact_map_complete\": ");
-    raw_bool(module_load_gate_loader_runtime_source_fact_map_complete());
-    raw(", \"source_fact_map\": [");
-    emit_module_load_gate_loader_runtime_source_fact_map_compact();
-    raw("]}");
+        f("schema", s("raios.module_manifest_reference.v0")),
+        f("status", s("retained_hash_reference_load_still_denied")),
+        f("classification", s("local_only")),
+        f("accepts_manifest_json", no()),
+        f("accepts_artifact_bytes", no()),
+        f("accepts_unsigned_service_code", no()),
+        f("authorizes_guest_load", no()),
+        f("can_load_now", no()),
+        f("service_inventory_change", s("none")),
+        f("load_attempted", no()),
+        f(
+            "hashes",
+            V::InlineObject(vec![
+                f(
+                    "manifest_reference_hash",
+                    V::Sha256(reference.manifest_reference_hash),
+                ),
+                f("manifest_hash", V::Sha256(reference.manifest_hash)),
+            ]),
+        ),
+    ])
 }
 
-fn emit_module_load_gate_authority_input_boundaries_compact(
-    inputs: [ModuleServiceSlotAuthorityInputProjection; MODULE_SERVICE_SLOT_AUTHORITY_INPUT_COUNT],
-) {
-    raw("{");
-    let mut idx = 0usize;
-    while idx < MODULE_SERVICE_SLOT_AUTHORITY_INPUT_COUNT {
-        let input = inputs[idx];
-        json_str(input.name);
-        raw(": {\"schema\": ");
-        json_str(input.schema);
-        raw(", \"source_evidence_event_id\": ");
-        json_event_id_option(input.source_evidence_event_id);
-        raw(", \"status\": ");
-        json_str(input.status);
-        raw(", \"reason\": ");
-        json_str(input.reason);
-        raw(", \"present\": ");
-        raw_bool(input.present);
-        raw(", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false}");
-        if idx + 1 != MODULE_SERVICE_SLOT_AUTHORITY_INPUT_COUNT {
-            raw(", ");
-        }
-        idx += 1;
+fn module_load_gate_artifact_reference_value(
+    binding: &event_log::ModuleLoadGateBinding,
+) -> V<'static> {
+    let Some(reference) = binding.artifact_reference.as_ref() else {
+        return missing_reference_value(
+            "raios.module_candidate_artifact_reference.v0",
+            binding.artifact_reference_status,
+            binding.artifact_reference_reason,
+        );
+    };
+    if module_load_gate_candidate_artifact_reference_rejected(*binding) {
+        return rejected_reference_value(
+            binding.artifact_reference_event_id,
+            "raios.module_candidate_artifact_reference.v0",
+            binding.artifact_reference_status,
+            binding.artifact_reference_reason,
+            vec![f("authorizes_guest_load", no())],
+        );
     }
-    raw("}");
+    V::InlineObject(vec![
+        f("state", s("present")),
+        f("retention", s("current_boot_ram_event_log")),
+        f(
+            "event_id",
+            record_event_or_null(binding.artifact_reference_event_id),
+        ),
+        f("schema", s("raios.module_candidate_artifact_reference.v0")),
+        f("status", s("retained_hash_reference_load_still_denied")),
+        f("classification", s("local_only")),
+        f("accepts_manifest_json", no()),
+        f("accepts_artifact_bytes", no()),
+        f("accepts_unsigned_service_code", no()),
+        f("authorizes_guest_load", no()),
+        f("can_load_now", no()),
+        f("service_inventory_change", s("none")),
+        f("load_attempted", no()),
+        f(
+            "retained_manifest_reference_event_id",
+            V::EventSequence(reference.retained_manifest_reference_event_id.sequence()),
+        ),
+        f(
+            "retained_computed_grant_reference_event_id",
+            V::EventSequence(reference.retained_reference_event_id.sequence()),
+        ),
+        f(
+            "hashes",
+            V::InlineObject(vec![
+                f(
+                    "artifact_reference_hash",
+                    V::Sha256(reference.artifact_reference_hash),
+                ),
+                f(
+                    "manifest_reference_hash",
+                    V::Sha256(reference.manifest_reference_hash),
+                ),
+                f("manifest_hash", V::Sha256(reference.manifest_hash)),
+                f(
+                    "computed_capability_grant_hash",
+                    V::Sha256(reference.computed_grant_hash),
+                ),
+                f("artifact_hash", V::Sha256(reference.artifact_hash)),
+                f("vm_test_report_hash", V::Sha256(reference.vm_report_hash)),
+                f(
+                    "local_attestation_hash",
+                    V::Sha256(reference.local_attestation_hash),
+                ),
+            ]),
+        ),
+    ])
 }
 
-fn emit_module_load_gate_authority_decision_compact(
+fn module_load_gate_vm_report_reference_value(
+    binding: &event_log::ModuleLoadGateBinding,
+) -> V<'static> {
+    let Some(reference) = binding.vm_report_reference.as_ref() else {
+        return missing_reference_value(
+            "raios.module_vm_test_report_reference.v0",
+            binding.vm_report_reference_status,
+            binding.vm_report_reference_reason,
+        );
+    };
+    if module_load_gate_vm_test_report_reference_rejected(*binding) {
+        return rejected_reference_value(
+            binding.vm_report_reference_event_id,
+            "raios.module_vm_test_report_reference.v0",
+            binding.vm_report_reference_status,
+            binding.vm_report_reference_reason,
+            vec![f("authorizes_guest_load", no())],
+        );
+    }
+    V::InlineObject(vec![
+        f("state", s("present")),
+        f("retention", s("current_boot_ram_event_log")),
+        f(
+            "event_id",
+            record_event_or_null(binding.vm_report_reference_event_id),
+        ),
+        f("schema", s("raios.module_vm_test_report_reference.v0")),
+        f("status", s("retained_hash_reference_load_still_denied")),
+        f("classification", s("local_only")),
+        f("accepts_manifest_json", no()),
+        f("accepts_artifact_bytes", no()),
+        f("accepts_vm_report_json", no()),
+        f("accepts_unsigned_service_code", no()),
+        f("authorizes_guest_load", no()),
+        f("can_load_now", no()),
+        f("service_inventory_change", s("none")),
+        f("load_attempted", no()),
+        f(
+            "retained_manifest_reference_event_id",
+            V::EventSequence(reference.retained_manifest_reference_event_id.sequence()),
+        ),
+        f(
+            "retained_candidate_artifact_reference_event_id",
+            V::EventSequence(reference.retained_artifact_reference_event_id.sequence()),
+        ),
+        f(
+            "retained_computed_grant_reference_event_id",
+            V::EventSequence(reference.retained_reference_event_id.sequence()),
+        ),
+        f(
+            "hashes",
+            V::InlineObject(vec![
+                f(
+                    "vm_test_report_reference_hash",
+                    V::Sha256(reference.report_reference_hash),
+                ),
+                f(
+                    "manifest_reference_hash",
+                    V::Sha256(reference.manifest_reference_hash),
+                ),
+                f(
+                    "artifact_reference_hash",
+                    V::Sha256(reference.artifact_reference_hash),
+                ),
+                f("manifest_hash", V::Sha256(reference.manifest_hash)),
+                f("artifact_hash", V::Sha256(reference.artifact_hash)),
+                f(
+                    "computed_capability_grant_hash",
+                    V::Sha256(reference.computed_grant_hash),
+                ),
+                f("vm_test_report_hash", V::Sha256(reference.vm_report_hash)),
+                f(
+                    "local_attestation_hash",
+                    V::Sha256(reference.local_attestation_hash),
+                ),
+            ]),
+        ),
+    ])
+}
+
+fn module_load_gate_local_attestation_reference_value(
+    binding: &event_log::ModuleLoadGateBinding,
+) -> V<'static> {
+    let Some(reference) = binding.attestation_reference.as_ref() else {
+        return missing_reference_value(
+            "raios.module_local_attestation_reference.v0",
+            binding.attestation_reference_status,
+            binding.attestation_reference_reason,
+        );
+    };
+    if module_load_gate_local_attestation_reference_rejected(*binding) {
+        return rejected_reference_value(
+            binding.attestation_reference_event_id,
+            "raios.module_local_attestation_reference.v0",
+            binding.attestation_reference_status,
+            binding.attestation_reference_reason,
+            vec![f("authorizes_guest_load", no())],
+        );
+    }
+    V::InlineObject(vec![
+        f("state", s("present")),
+        f("retention", s("current_boot_ram_event_log")),
+        f(
+            "event_id",
+            record_event_or_null(binding.attestation_reference_event_id),
+        ),
+        f("schema", s("raios.module_local_attestation_reference.v0")),
+        f("status", s("retained_hash_reference_load_still_denied")),
+        f("classification", s("local_only")),
+        f("accepts_local_attestation_json", no()),
+        f("accepts_artifact_bytes", no()),
+        f("accepts_unsigned_service_code", no()),
+        f("authorizes_guest_load", no()),
+        f("can_load_now", no()),
+        f("service_inventory_change", s("none")),
+        f("load_attempted", no()),
+        f(
+            "retained_manifest_reference_event_id",
+            V::EventSequence(reference.retained_manifest_reference_event_id.sequence()),
+        ),
+        f(
+            "retained_candidate_artifact_reference_event_id",
+            V::EventSequence(reference.retained_artifact_reference_event_id.sequence()),
+        ),
+        f(
+            "retained_vm_test_report_reference_event_id",
+            V::EventSequence(reference.retained_vm_report_reference_event_id.sequence()),
+        ),
+        f(
+            "retained_computed_grant_reference_event_id",
+            V::EventSequence(reference.retained_reference_event_id.sequence()),
+        ),
+        f(
+            "hashes",
+            V::InlineObject(vec![
+                f(
+                    "local_attestation_reference_hash",
+                    V::Sha256(reference.attestation_reference_hash),
+                ),
+                f(
+                    "manifest_reference_hash",
+                    V::Sha256(reference.manifest_reference_hash),
+                ),
+                f(
+                    "artifact_reference_hash",
+                    V::Sha256(reference.artifact_reference_hash),
+                ),
+                f(
+                    "vm_test_report_reference_hash",
+                    V::Sha256(reference.vm_report_reference_hash),
+                ),
+                f("manifest_hash", V::Sha256(reference.manifest_hash)),
+                f("artifact_hash", V::Sha256(reference.artifact_hash)),
+                f(
+                    "computed_capability_grant_hash",
+                    V::Sha256(reference.computed_grant_hash),
+                ),
+                f("vm_test_report_hash", V::Sha256(reference.vm_report_hash)),
+                f(
+                    "local_attestation_hash",
+                    V::Sha256(reference.local_attestation_hash),
+                ),
+            ]),
+        ),
+    ])
+}
+
+fn module_load_gate_local_approval_reference_value(
+    binding: &event_log::ModuleLoadGateBinding,
+) -> V<'static> {
+    let Some(reference) = binding.approval_reference.as_ref() else {
+        return missing_reference_value(
+            "raios.module_local_approval_reference.v0",
+            binding.approval_reference_status,
+            binding.approval_reference_reason,
+        );
+    };
+    if module_load_gate_local_approval_reference_rejected(*binding) {
+        return rejected_reference_value(
+            binding.approval_reference_event_id,
+            "raios.module_local_approval_reference.v0",
+            binding.approval_reference_status,
+            binding.approval_reference_reason,
+            vec![f("authorizes_guest_load", no())],
+        );
+    }
+    V::InlineObject(vec![
+        f("state", s("present")),
+        f("retention", s("current_boot_ram_event_log")),
+        f(
+            "event_id",
+            record_event_or_null(binding.approval_reference_event_id),
+        ),
+        f("schema", s("raios.module_local_approval_reference.v0")),
+        f("status", s("retained_hash_reference_load_still_denied")),
+        f("classification", s("local_only")),
+        f("accepts_local_approval_text", no()),
+        f("accepts_artifact_bytes", no()),
+        f("accepts_unsigned_service_code", no()),
+        f("authorizes_guest_load", no()),
+        f("can_load_now", no()),
+        f("service_inventory_change", s("none")),
+        f("load_attempted", no()),
+        f(
+            "retained_manifest_reference_event_id",
+            V::EventSequence(reference.retained_manifest_reference_event_id.sequence()),
+        ),
+        f(
+            "retained_candidate_artifact_reference_event_id",
+            V::EventSequence(reference.retained_artifact_reference_event_id.sequence()),
+        ),
+        f(
+            "retained_vm_test_report_reference_event_id",
+            V::EventSequence(reference.retained_vm_report_reference_event_id.sequence()),
+        ),
+        f(
+            "retained_local_attestation_reference_event_id",
+            V::EventSequence(
+                reference
+                    .retained_local_attestation_reference_event_id
+                    .sequence(),
+            ),
+        ),
+        f(
+            "retained_computed_grant_reference_event_id",
+            V::EventSequence(reference.retained_reference_event_id.sequence()),
+        ),
+        f(
+            "hashes",
+            V::InlineObject(vec![
+                f(
+                    "local_approval_reference_hash",
+                    V::Sha256(reference.approval_reference_hash),
+                ),
+                f(
+                    "manifest_reference_hash",
+                    V::Sha256(reference.manifest_reference_hash),
+                ),
+                f(
+                    "artifact_reference_hash",
+                    V::Sha256(reference.artifact_reference_hash),
+                ),
+                f(
+                    "vm_test_report_reference_hash",
+                    V::Sha256(reference.vm_report_reference_hash),
+                ),
+                f(
+                    "local_attestation_reference_hash",
+                    V::Sha256(reference.local_attestation_reference_hash),
+                ),
+                f("manifest_hash", V::Sha256(reference.manifest_hash)),
+                f("artifact_hash", V::Sha256(reference.artifact_hash)),
+                f(
+                    "computed_capability_grant_hash",
+                    V::Sha256(reference.computed_grant_hash),
+                ),
+                f("vm_test_report_hash", V::Sha256(reference.vm_report_hash)),
+                f(
+                    "local_attestation_hash",
+                    V::Sha256(reference.local_attestation_hash),
+                ),
+                f(
+                    "local_approval_hash",
+                    V::Sha256(reference.local_approval_hash),
+                ),
+            ]),
+        ),
+    ])
+}
+
+fn module_load_gate_retained_reference_value(
+    binding: &event_log::ModuleLoadGateBinding,
+) -> V<'static> {
+    let Some(reference) = binding.retained_reference.as_ref() else {
+        return missing_reference_value(
+            "raios.module_computed_grant_reference.v0",
+            "missing",
+            "no_valid_computed_grant_reference_retained",
+        );
+    };
+    V::InlineObject(vec![
+        f("state", s("present")),
+        f("retention", s("current_boot_ram_event_log")),
+        f(
+            "event_id",
+            record_event_or_null(binding.retained_reference_event_id),
+        ),
+        f("schema", s("raios.module_computed_grant_reference.v0")),
+        f("status", s("retained_hash_reference_load_still_denied")),
+        f("classification", s("local_only")),
+        f("grants_capability", no()),
+        f("grants_load_now", no()),
+        f("authorizes_guest_load", no()),
+        f("can_load_now", no()),
+        f("load_attempted", no()),
+        f(
+            "hashes",
+            V::InlineObject(vec![
+                f(
+                    "computed_capability_grant_hash",
+                    V::Sha256(reference.computed_grant_hash),
+                ),
+                f("manifest_hash", V::Sha256(reference.manifest_hash)),
+                f("artifact_hash", V::Sha256(reference.artifact_hash)),
+                f("vm_test_report_hash", V::Sha256(reference.vm_report_hash)),
+                f(
+                    "local_attestation_hash",
+                    V::Sha256(reference.local_attestation_hash),
+                ),
+            ]),
+        ),
+    ])
+}
+
+fn module_load_gate_audit_rollback_reference_value<'a>(
+    binding: &'a event_log::ModuleLoadGateBinding,
+) -> V<'a> {
+    let Some(reference) = binding.audit_rollback_reference.as_ref() else {
+        return missing_reference_value(
+            "raios.module_audit_rollback_reference.v0",
+            binding.audit_rollback_reference_status,
+            binding.audit_rollback_reference_reason,
+        );
+    };
+    if module_load_gate_audit_rollback_reference_rejected(*binding) {
+        return rejected_reference_value(
+            binding.audit_rollback_reference_event_id,
+            "raios.module_audit_rollback_reference.v0",
+            binding.audit_rollback_reference_status,
+            binding.audit_rollback_reference_reason,
+            vec![
+                f("durable_audit_written", no()),
+                f("rollback_plan_installed", no()),
+            ],
+        );
+    }
+    V::InlineObject(vec![
+        f("state", s("present")),
+        f("retention", s("current_boot_ram_event_log")),
+        f(
+            "event_id",
+            record_event_or_null(binding.audit_rollback_reference_event_id),
+        ),
+        f("schema", s("raios.module_audit_rollback_reference.v0")),
+        f("status", s("retained_hash_reference_load_still_denied")),
+        f("classification", s("local_only")),
+        f("durable_audit_written", no()),
+        f("rollback_plan_installed", no()),
+        f("grants_capability", no()),
+        f("grants_load_now", no()),
+        f("authorizes_guest_load", no()),
+        f("can_load_now", no()),
+        f("load_attempted", no()),
+        f(
+            "denial_event_id",
+            V::EventSequence(reference.denial_event_id.sequence()),
+        ),
+        f(
+            "retained_computed_grant_reference_event_id",
+            V::EventSequence(reference.retained_reference_event_id.sequence()),
+        ),
+        f(
+            "ram_only_service_slot_id",
+            V::Str(reference.ram_only_service_slot_id.as_str()),
+        ),
+        f(
+            "hashes",
+            V::InlineObject(vec![
+                f("audit_record_hash", V::Sha256(reference.audit_record_hash)),
+                f(
+                    "rollback_plan_hash",
+                    V::Sha256(reference.rollback_plan_hash),
+                ),
+                f(
+                    "computed_capability_grant_hash",
+                    V::Sha256(reference.computed_grant_hash),
+                ),
+                f("manifest_hash", V::Sha256(reference.manifest_hash)),
+                f("artifact_hash", V::Sha256(reference.artifact_hash)),
+                f("vm_test_report_hash", V::Sha256(reference.vm_report_hash)),
+                f(
+                    "local_attestation_hash",
+                    V::Sha256(reference.local_attestation_hash),
+                ),
+                f(
+                    "local_approval_hash",
+                    V::Sha256(reference.local_approval_hash),
+                ),
+                f(
+                    "pre_load_service_inventory_hash",
+                    V::Sha256(reference.pre_load_service_inventory_hash),
+                ),
+                f(
+                    "cleanup_actions_hash",
+                    V::Sha256(reference.cleanup_actions_hash),
+                ),
+            ]),
+        ),
+    ])
+}
+
+fn module_load_gate_service_slot_reservation_value<'a>(
+    binding: &'a event_log::ModuleLoadGateBinding,
+) -> V<'a> {
+    let Some(reservation) = binding.service_slot_reservation.as_ref() else {
+        return missing_reference_value(
+            "raios.module_service_slot_reservation.v0",
+            binding.service_slot_reservation_status,
+            binding.service_slot_reservation_reason,
+        );
+    };
+    if module_load_gate_service_slot_reservation_rejected(*binding) {
+        return rejected_reference_value(
+            binding.service_slot_reservation_event_id,
+            "raios.module_service_slot_reservation.v0",
+            binding.service_slot_reservation_status,
+            binding.service_slot_reservation_reason,
+            vec![
+                f("allocates_service_slot", no()),
+                f("creates_service_inventory_records", no()),
+            ],
+        );
+    }
+    V::InlineObject(vec![
+        f("state", s("present")),
+        f("retention", s("current_boot_ram_event_log")),
+        f(
+            "event_id",
+            record_event_or_null(binding.service_slot_reservation_event_id),
+        ),
+        f("schema", s("raios.module_service_slot_reservation.v0")),
+        f("status", s("retained_hash_reference_only_not_allocated")),
+        f("classification", s("local_only")),
+        f("allocates_service_slot", no()),
+        f("creates_service_inventory_records", no()),
+        f("grants_capability", no()),
+        f("grants_load_now", no()),
+        f("authorizes_guest_load", no()),
+        f("can_load_now", no()),
+        f("load_attempted", no()),
+        f(
+            "retained_computed_grant_reference_event_id",
+            V::EventSequence(reservation.retained_reference_event_id.sequence()),
+        ),
+        f(
+            "retained_audit_rollback_reference_event_id",
+            V::EventSequence(
+                reservation
+                    .retained_audit_rollback_reference_event_id
+                    .sequence(),
+            ),
+        ),
+        f(
+            "ram_only_service_slot_id",
+            V::Str(reservation.ram_only_service_slot_id.as_str()),
+        ),
+        f(
+            "hashes",
+            V::InlineObject(vec![
+                f("reservation_hash", V::Sha256(reservation.reservation_hash)),
+                f(
+                    "computed_capability_grant_hash",
+                    V::Sha256(reservation.computed_grant_hash),
+                ),
+                f(
+                    "audit_record_hash",
+                    V::Sha256(reservation.audit_record_hash),
+                ),
+                f(
+                    "rollback_plan_hash",
+                    V::Sha256(reservation.rollback_plan_hash),
+                ),
+                f(
+                    "pre_load_service_inventory_hash",
+                    V::Sha256(reservation.pre_load_service_inventory_hash),
+                ),
+            ]),
+        ),
+    ])
+}
+
+fn module_load_gate_service_slot_allocator_readiness_value(
+    binding: event_log::ModuleLoadGateBinding,
+) -> V<'static> {
+    let projection = module_load_gate_service_slot_allocator_projection(binding);
+    V::InlineObject(vec![
+        f(
+            "schema",
+            s("raios.module_service_slot_allocator_readiness.v0"),
+        ),
+        f("scope", s("current_boot")),
+        f("classification", s("local_only")),
+        f("source_method", s("module.service_slot_allocator")),
+        f("state", s(projection.state)),
+        f("readiness_status", s(projection.status)),
+        f("readiness_reason", s(projection.reason)),
+        f(
+            "allocator_authority_boundary",
+            V::InlineObject(vec![
+                f("schema", s(MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_SCHEMA)),
+                f(
+                    "source_evidence_event_id",
+                    record_event_or_null(projection.authority_source_evidence_event_id),
+                ),
+                f("status", s(projection.authority_status)),
+                f("reason", s(projection.authority_reason)),
+                f("allocates_service_slot", no()),
+                f("creates_service_inventory_records", no()),
+                f("service_inventory_change", s("none")),
+                f("load_attempted", no()),
+            ]),
+        ),
+        f(
+            "allocation_intent_boundary",
+            V::InlineObject(vec![
+                f("schema", s(MODULE_SERVICE_SLOT_ALLOCATION_INTENT_SCHEMA)),
+                f("id", s(MODULE_SERVICE_SLOT_ALLOCATION_INTENT_ID)),
+                f(
+                    "source_evidence_event_id",
+                    record_event_or_null(projection.allocation_intent_source_evidence_event_id),
+                ),
+                f("status", s(projection.allocation_intent_status)),
+                f("reason", s(projection.allocation_intent_reason)),
+                f("present", b(projection.allocation_intent_present)),
+                f("requested_capability", s("cap.module.load_ephemeral")),
+                f("load_mode", s("ram_only")),
+                f("target", s("live_service_graph")),
+                f("allocates_service_slot", no()),
+                f("creates_service_inventory_records", no()),
+                f("service_inventory_change", s("none")),
+                f("load_attempted", no()),
+            ]),
+        ),
+        f(
+            "authority_input_boundaries",
+            module_load_gate_authority_input_boundaries_value(projection.authority_inputs),
+        ),
+        f(
+            "authority_decision",
+            module_load_gate_authority_decision_value(projection),
+        ),
+        f(
+            "registry_write_commit_gate",
+            module_load_gate_registry_write_commit_gate_value(projection),
+        ),
+        f(
+            "retained_service_slot_reservation_status",
+            s(module_load_gate_service_slot_state(binding)),
+        ),
+        f(
+            "service_slot_allocator_ready",
+            b(module_load_gate_service_slot_allocator_ready(binding)),
+        ),
+        f("allocates_service_slot", no()),
+        f("creates_service_inventory_records", no()),
+        f("service_inventory_change", s("none")),
+        f("can_load_now", no()),
+        f("load_attempted", no()),
+    ])
+}
+
+#[rustfmt::skip]
+fn module_load_gate_loader_runtime_readiness_value(
+    binding: event_log::ModuleLoadGateBinding,
+) -> V<'static> {
+    let receiver = agent_protocol::receiver_identity_load_preflight_projection();
+    let mut fields = vec![
+        f("schema", s("raios.module_loader_runtime_readiness.v0")), f("scope", s("current_boot")), f("classification", s("local_only")),
+        f("state", s(module_load_gate_loader_runtime_state(binding))), f("readiness_status", s(module_load_gate_loader_runtime_status(binding))),
+        f("readiness_reason", s(module_load_gate_loader_runtime_reason(binding))), f("retained_module_evidence_state", s(module_load_gate_retained_module_evidence_state(binding))),
+        f("retained_module_evidence_reason", s(module_load_gate_retained_module_evidence_reason(binding))), f("service_slot_allocator_ready", b(module_load_gate_service_slot_allocator_ready(binding))),
+        f("m6_m7_reverify_input_check", V::InlineObject(module_load_gate_m6_m7_reverify_input_check_fields(receiver))),
+        f("execution_commit_gate", module_load_gate_loader_runtime_execution_commit_gate_value()), f("descriptor_intake_boundary", module_load_gate_loader_descriptor_intake_boundary_value()),
+        f("artifact_byte_intake_boundary", module_load_gate_loader_artifact_byte_intake_boundary_value()), f("execution_authorization_boundary", module_load_gate_loader_execution_authorization_boundary_value()),
+        f("service_registry_mutation_boundary", module_load_gate_loader_service_registry_mutation_boundary_value()),
+    ];
+    macro_rules! boundary {
+        ($name:literal, $schema:expr, $id:expr, $projection:expr) => {
+            fields.push(f($name, module_load_gate_loader_live_load_boundary_value($schema, $id, $projection)));
+        };
+    }
+    boundary!("load_attempt_boundary", MODULE_LOADER_LOAD_ATTEMPT_BOUNDARY_SCHEMA, MODULE_LOADER_LOAD_ATTEMPT_BOUNDARY_ID, module_load_gate_loader_load_attempt_boundary_projection());
+    boundary!("artifact_load_boundary", MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_SCHEMA, MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_ID, module_load_gate_loader_artifact_load_boundary_projection());
+    boundary!("executable_mapping_boundary", MODULE_LOADER_EXECUTABLE_MAPPING_BOUNDARY_SCHEMA, MODULE_LOADER_EXECUTABLE_MAPPING_BOUNDARY_ID, module_load_gate_loader_executable_mapping_boundary_projection());
+    boundary!("entrypoint_transfer_boundary", MODULE_LOADER_ENTRYPOINT_TRANSFER_BOUNDARY_SCHEMA, MODULE_LOADER_ENTRYPOINT_TRANSFER_BOUNDARY_ID, module_load_gate_loader_entrypoint_transfer_boundary_projection());
+    boundary!("service_start_boundary", MODULE_LOADER_SERVICE_START_BOUNDARY_SCHEMA, MODULE_LOADER_SERVICE_START_BOUNDARY_ID, module_load_gate_loader_service_start_boundary_projection());
+    boundary!("service_health_binding_boundary", MODULE_LOADER_SERVICE_HEALTH_BINDING_BOUNDARY_SCHEMA, MODULE_LOADER_SERVICE_HEALTH_BINDING_BOUNDARY_ID, module_load_gate_loader_service_health_binding_boundary_projection());
+    boundary!("service_running_state_boundary", MODULE_LOADER_SERVICE_RUNNING_STATE_BOUNDARY_SCHEMA, MODULE_LOADER_SERVICE_RUNNING_STATE_BOUNDARY_ID, module_load_gate_loader_service_running_state_boundary_projection());
+    boundary!("service_start_audit_boundary", MODULE_LOADER_SERVICE_START_AUDIT_BOUNDARY_SCHEMA, MODULE_LOADER_SERVICE_START_AUDIT_BOUNDARY_ID, module_load_gate_loader_service_start_audit_boundary_projection());
+    boundary!("service_unload_cleanup_boundary", MODULE_LOADER_SERVICE_UNLOAD_CLEANUP_BOUNDARY_SCHEMA, MODULE_LOADER_SERVICE_UNLOAD_CLEANUP_BOUNDARY_ID, module_load_gate_loader_service_unload_cleanup_boundary_projection());
+    boundary!("live_load_commit_boundary", MODULE_LOADER_LIVE_LOAD_COMMIT_BOUNDARY_SCHEMA, MODULE_LOADER_LIVE_LOAD_COMMIT_BOUNDARY_ID, module_load_gate_loader_live_load_commit_boundary_projection());
+    boundary!("commit_audit_boundary", MODULE_LOADER_COMMIT_AUDIT_BOUNDARY_SCHEMA, MODULE_LOADER_COMMIT_AUDIT_BOUNDARY_ID, module_load_gate_loader_commit_audit_boundary_projection());
+    boundary!("commit_rollback_boundary", MODULE_LOADER_COMMIT_ROLLBACK_BOUNDARY_SCHEMA, MODULE_LOADER_COMMIT_ROLLBACK_BOUNDARY_ID, module_load_gate_loader_commit_rollback_boundary_projection());
+    boundary!("commit_result_boundary", MODULE_LOADER_COMMIT_RESULT_BOUNDARY_SCHEMA, MODULE_LOADER_COMMIT_RESULT_BOUNDARY_ID, module_load_gate_loader_commit_result_boundary_projection());
+    boundary!("descriptor_acceptance_authority_boundary", MODULE_LOADER_DESCRIPTOR_ACCEPTANCE_AUTHORITY_BOUNDARY_SCHEMA, MODULE_LOADER_DESCRIPTOR_ACCEPTANCE_AUTHORITY_BOUNDARY_ID, module_load_gate_loader_descriptor_acceptance_authority_boundary_projection());
+    boundary!("descriptor_parser_contract_boundary", MODULE_LOADER_DESCRIPTOR_PARSER_CONTRACT_BOUNDARY_SCHEMA, MODULE_LOADER_DESCRIPTOR_PARSER_CONTRACT_BOUNDARY_ID, module_load_gate_loader_descriptor_parser_contract_boundary_projection());
+    boundary!("descriptor_parser_result_boundary", MODULE_LOADER_DESCRIPTOR_PARSER_RESULT_BOUNDARY_SCHEMA, MODULE_LOADER_DESCRIPTOR_PARSER_RESULT_BOUNDARY_ID, module_load_gate_loader_descriptor_parser_result_boundary_projection());
+    boundary!("descriptor_schema_validation_boundary", MODULE_LOADER_DESCRIPTOR_SCHEMA_VALIDATION_BOUNDARY_SCHEMA, MODULE_LOADER_DESCRIPTOR_SCHEMA_VALIDATION_BOUNDARY_ID, module_load_gate_loader_descriptor_schema_validation_boundary_projection());
+    boundary!("descriptor_capability_validation_boundary", MODULE_LOADER_DESCRIPTOR_CAPABILITY_VALIDATION_BOUNDARY_SCHEMA, MODULE_LOADER_DESCRIPTOR_CAPABILITY_VALIDATION_BOUNDARY_ID, module_load_gate_loader_descriptor_capability_validation_boundary_projection());
+    boundary!("descriptor_load_plan_boundary", MODULE_LOADER_DESCRIPTOR_LOAD_PLAN_BOUNDARY_SCHEMA, MODULE_LOADER_DESCRIPTOR_LOAD_PLAN_BOUNDARY_ID, module_load_gate_loader_descriptor_load_plan_boundary_projection());
+    boundary!("executable_load_plan_authority_boundary", MODULE_LOADER_EXECUTABLE_LOAD_PLAN_AUTHORITY_BOUNDARY_SCHEMA, MODULE_LOADER_EXECUTABLE_LOAD_PLAN_AUTHORITY_BOUNDARY_ID, module_load_gate_loader_executable_load_plan_authority_boundary_projection());
+    boundary!("executable_load_plan_result_boundary", MODULE_LOADER_EXECUTABLE_LOAD_PLAN_RESULT_BOUNDARY_SCHEMA, MODULE_LOADER_EXECUTABLE_LOAD_PLAN_RESULT_BOUNDARY_ID, module_load_gate_loader_executable_load_plan_result_boundary_projection());
+    boundary!("executable_image_layout_boundary", MODULE_LOADER_EXECUTABLE_IMAGE_LAYOUT_BOUNDARY_SCHEMA, MODULE_LOADER_EXECUTABLE_IMAGE_LAYOUT_BOUNDARY_ID, module_load_gate_loader_executable_image_layout_boundary_projection());
+    boundary!("executable_page_mapping_plan_boundary", MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_PLAN_BOUNDARY_SCHEMA, MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_PLAN_BOUNDARY_ID, module_load_gate_loader_executable_page_mapping_plan_boundary_projection());
+    boundary!("executable_page_mapping_boundary", MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_BOUNDARY_SCHEMA, MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_BOUNDARY_ID, module_load_gate_loader_executable_page_mapping_boundary_projection());
+    boundary!("descriptor_executable_page_binding_boundary", MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_SCHEMA, MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_ID, module_load_gate_loader_descriptor_executable_page_binding_boundary_projection());
+    boundary!("executable_entrypoint_binding_boundary", MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_SCHEMA, MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_ID, module_load_gate_loader_executable_entrypoint_binding_boundary_projection());
+    boundary!("executable_entrypoint_transfer_authorization_boundary", MODULE_LOADER_EXECUTABLE_ENTRYPOINT_TRANSFER_AUTHORIZATION_BOUNDARY_SCHEMA, MODULE_LOADER_EXECUTABLE_ENTRYPOINT_TRANSFER_AUTHORIZATION_BOUNDARY_ID, module_load_gate_loader_executable_entrypoint_transfer_authorization_boundary_projection());
+    boundary!("executable_entrypoint_transfer_boundary", MODULE_LOADER_EXECUTABLE_ENTRYPOINT_TRANSFER_BOUNDARY_SCHEMA, MODULE_LOADER_EXECUTABLE_ENTRYPOINT_TRANSFER_BOUNDARY_ID, module_load_gate_loader_executable_entrypoint_transfer_boundary_projection());
+    boundary!("executable_entrypoint_handoff_boundary", MODULE_LOADER_EXECUTABLE_ENTRYPOINT_HANDOFF_BOUNDARY_SCHEMA, MODULE_LOADER_EXECUTABLE_ENTRYPOINT_HANDOFF_BOUNDARY_ID, module_load_gate_loader_executable_entrypoint_handoff_boundary_projection());
+    boundary!("executable_entrypoint_invocation_boundary", MODULE_LOADER_EXECUTABLE_ENTRYPOINT_INVOCATION_BOUNDARY_SCHEMA, MODULE_LOADER_EXECUTABLE_ENTRYPOINT_INVOCATION_BOUNDARY_ID, module_load_gate_loader_executable_entrypoint_invocation_boundary_projection());
+    fields.extend([
+        f("accepts_descriptor_bytes", no()),
+        f("produces_parsed_descriptor", no()),
+        f("validates_descriptor_schema", no()),
+        f("produces_validated_descriptor", no()),
+        f("validates_descriptor_capabilities", no()),
+        f("produces_capability_validated_descriptor", no()),
+        f("authorizes_executable_load_plan", no()),
+        f("produces_executable_load_plan", no()),
+        f("produces_executable_image_layout", no()),
+        f("produces_executable_page_mapping_plan", no()),
+        f("binds_capability_validated_descriptor_to_executable_pages", no()),
+        f("parses_descriptor_bytes", no()),
+        f("loads_artifact", no()),
+        f("allocates_service_slot", no()),
+        f("creates_service_inventory_records", no()),
+        f("service_inventory_change", s("none")),
+        f("starts_service", no()),
+        f("marks_service_running", no()),
+        f("creates_service_health_records", no()),
+        f("writes_service_start_audit_record", no()),
+        f("unloads_service", no()),
+        f("cleans_up_service_slot", no()),
+        f("commits_live_load", no()),
+        f("writes_load_commit_audit_record", no()),
+        f("installs_commit_rollback_record", no()),
+        f("records_load_result", no()),
+        f("can_load_now", no()),
+        f("load_attempted", no()),
+        f("missing_facts", V::InlineArray(MODULE_LOADER_RUNTIME_FACT_SOURCES.into_iter().map(|source| s(source.schema)).collect())),
+        f("source_fact_count", V::U64(module_load_gate_loader_runtime_source_fact_count() as u64)),
+        f("source_fact_map_complete", b(module_load_gate_loader_runtime_source_fact_map_complete())),
+        f("source_fact_map", module_load_gate_loader_runtime_source_fact_map_value(receiver)),
+    ]);
+    V::InlineObject(fields)
+}
+
+fn module_load_gate_authority_input_boundaries_value(
+    inputs: [ModuleServiceSlotAuthorityInputProjection; MODULE_SERVICE_SLOT_AUTHORITY_INPUT_COUNT],
+) -> V<'static> {
+    V::InlineObject(
+        inputs
+            .into_iter()
+            .map(|input| {
+                f(
+                    input.name,
+                    V::InlineObject(vec![
+                        f("schema", s(input.schema)),
+                        f(
+                            "source_evidence_event_id",
+                            record_event_or_null(input.source_evidence_event_id),
+                        ),
+                        f("status", s(input.status)),
+                        f("reason", s(input.reason)),
+                        f("present", b(input.present)),
+                        f("allocates_service_slot", no()),
+                        f("creates_service_inventory_records", no()),
+                        f("service_inventory_change", s("none")),
+                        f("load_attempted", no()),
+                    ]),
+                )
+            })
+            .collect(),
+    )
+}
+
+fn module_load_gate_authority_decision_value(
     projection: ModuleLoadGateServiceSlotAllocatorProjection,
-) {
-    raw("{\"schema\": ");
-    json_str(MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_SCHEMA);
-    raw(", \"id\": ");
-    json_str(MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_ID);
-    raw(", \"source_evidence_event_id\": ");
-    json_event_id_option(projection.authority_decision_source_evidence_event_id);
-    raw(", \"status\": ");
-    json_str(projection.authority_decision_status);
-    raw(", \"reason\": ");
-    json_str(projection.authority_decision_reason);
-    raw(", \"present\": ");
-    raw_bool(projection.authority_decision_present);
-    raw(", \"requested_capability\": \"cap.module.load_ephemeral\", \"load_mode\": \"ram_only\", \"target\": \"live_service_graph\", \"authorizes_allocation\": false, \"authorizes_load\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false}");
+) -> V<'static> {
+    V::InlineObject(vec![
+        f(
+            "schema",
+            s(MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_SCHEMA),
+        ),
+        f("id", s(MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_ID)),
+        f(
+            "source_evidence_event_id",
+            record_event_or_null(projection.authority_decision_source_evidence_event_id),
+        ),
+        f("status", s(projection.authority_decision_status)),
+        f("reason", s(projection.authority_decision_reason)),
+        f("present", b(projection.authority_decision_present)),
+        f("requested_capability", s("cap.module.load_ephemeral")),
+        f("load_mode", s("ram_only")),
+        f("target", s("live_service_graph")),
+        f("authorizes_allocation", no()),
+        f("authorizes_load", no()),
+        f("allocates_service_slot", no()),
+        f("creates_service_inventory_records", no()),
+        f("service_inventory_change", s("none")),
+        f("load_attempted", no()),
+    ])
 }
 
-fn emit_module_load_gate_registry_write_commit_gate_compact(
+fn module_load_gate_registry_write_commit_gate_value(
     projection: ModuleLoadGateServiceSlotAllocatorProjection,
-) {
-    raw("{\"schema\": ");
-    json_str(MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_SCHEMA);
-    raw(", \"id\": ");
-    json_str(MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_ID);
-    raw(", \"source_evidence_event_id\": ");
-    json_event_id_option(projection.registry_write_commit_gate_source_evidence_event_id);
-    raw(", \"status\": ");
-    json_str(projection.registry_write_commit_gate_status);
-    raw(", \"reason\": ");
-    json_str(projection.registry_write_commit_gate_reason);
-    raw(", \"present\": ");
-    raw_bool(projection.registry_write_commit_gate_present);
-    raw(concat!(
-        ", \"requested_capability\": \"cap.module.load_ephemeral\", \"load_mode\": \"ram_only\", \"target\": \"live_service_graph\", \"authorizes_registry_write\": false",
-        ", \"mutates_service_registry\": false, \"writes_durable_audit_state\": false, \"installs_rollback_state\": false, \"authorizes_allocation\": false, \"authorizes_load\": false",
-        ", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"loads_artifact\": false, \"load_attempted\": false}",
-        ));
+) -> V<'static> {
+    V::InlineObject(vec![
+        f(
+            "schema",
+            s(MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_SCHEMA),
+        ),
+        f("id", s(MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_ID)),
+        f(
+            "source_evidence_event_id",
+            record_event_or_null(projection.registry_write_commit_gate_source_evidence_event_id),
+        ),
+        f("status", s(projection.registry_write_commit_gate_status)),
+        f("reason", s(projection.registry_write_commit_gate_reason)),
+        f("present", b(projection.registry_write_commit_gate_present)),
+        f("requested_capability", s("cap.module.load_ephemeral")),
+        f("load_mode", s("ram_only")),
+        f("target", s("live_service_graph")),
+        f("authorizes_registry_write", no()),
+        f("mutates_service_registry", no()),
+        f("writes_durable_audit_state", no()),
+        f("installs_rollback_state", no()),
+        f("authorizes_allocation", no()),
+        f("authorizes_load", no()),
+        f("allocates_service_slot", no()),
+        f("creates_service_inventory_records", no()),
+        f("service_inventory_change", s("none")),
+        f("loads_artifact", no()),
+        f("load_attempted", no()),
+    ])
 }
 
-fn emit_module_load_gate_loader_runtime_execution_commit_gate_compact() {
+fn legacy_projection_fields(value: V<'static>) -> Vec<Field<'static>> {
+    let V::InlineObject(mut fields) = value else {
+        unreachable!("projection fact helper must return an inline object")
+    };
+    fields[0].key = "schema";
+    fields[1].key = "id";
+    fields[2].key = "source_evidence_event_id";
+    fields[3].key = "status";
+    fields
+}
+
+fn module_load_gate_loader_runtime_execution_commit_gate_value() -> V<'static> {
     let projection = module_load_gate_loader_runtime_execution_commit_gate_projection();
-    raw("{\"schema\": ");
-    json_str(MODULE_LOADER_RUNTIME_EXECUTION_COMMIT_GATE_SCHEMA);
-    raw(", \"id\": ");
-    json_str(MODULE_LOADER_RUNTIME_EXECUTION_COMMIT_GATE_ID);
-    raw(", \"source_evidence_event_id\": ");
-    json_event_id_option(projection.source_evidence_event_id);
-    raw(", \"status\": ");
-    json_str(projection.status);
-    raw(", \"reason\": ");
-    json_str(projection.reason);
-    raw(", \"present\": ");
-    raw_bool(projection.present);
-    raw(", \"source_chain_complete\": ");
-    raw_bool(projection.source_chain_complete);
-    raw(", \"authority_decision_present\": ");
-    raw_bool(projection.authority_decision_present);
-    raw(", \"loader_runtime_contract_present\": ");
-    raw_bool(projection.loader_runtime_contract_present);
-    raw(", \"loader_runtime_source_evidence_complete\": ");
-    raw_bool(projection.loader_runtime_source_evidence_complete);
-    raw(", \"service_slot_binding_source_evidence_present\": ");
-    raw_bool(projection.service_slot_binding_source_evidence_present);
-    raw(", \"service_slot_binding_fact_present\": ");
-    raw_bool(projection.service_slot_binding_fact_present);
-    raw(", \"audit_rollback_write_boundary_source_evidence_present\": ");
-    raw_bool(projection.audit_rollback_write_boundary_source_evidence_present);
-    raw(", \"audit_rollback_write_boundary_fact_present\": ");
-    raw_bool(projection.audit_rollback_write_boundary_fact_present);
-    raw(", \"retained_service_slot_reservation_present\": ");
-    raw_bool(projection.retained_service_slot_reservation_present);
-    raw(concat!(
-        ", \"requested_capability\": \"cap.module.load_ephemeral\", \"load_mode\": \"ram_only\", \"target\": \"live_service_graph\", \"accepts_loader_descriptor\": false",
-        ", \"accepts_artifact_bytes\": false, \"authorizes_execution\": false, \"mutates_service_registry\": false, \"writes_durable_audit_state\": false, \"installs_rollback_state\": false",
-        ", \"authorizes_load\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"loads_artifact\": false",
-        ", \"load_attempted\": false}",
-        ));
+    let mut fields = legacy_projection_fields(execution_commit_gate_facts(projection));
+    fields.extend([
+        f("requested_capability", s("cap.module.load_ephemeral")),
+        f("load_mode", s("ram_only")),
+        f("target", s("live_service_graph")),
+        f("accepts_loader_descriptor", no()),
+        f("accepts_artifact_bytes", no()),
+        f("authorizes_execution", no()),
+        f("mutates_service_registry", no()),
+        f("writes_durable_audit_state", no()),
+        f("installs_rollback_state", no()),
+        f("authorizes_load", no()),
+        f("allocates_service_slot", no()),
+        f("creates_service_inventory_records", no()),
+        f("service_inventory_change", s("none")),
+        f("loads_artifact", no()),
+        f("load_attempted", no()),
+    ]);
+    V::InlineObject(fields)
 }
 
-fn emit_module_load_gate_loader_descriptor_intake_boundary_compact() {
+fn module_load_gate_loader_descriptor_intake_boundary_value() -> V<'static> {
     let projection = module_load_gate_loader_descriptor_intake_boundary_projection();
-    raw("{\"schema\": ");
-    json_str(MODULE_LOADER_DESCRIPTOR_INTAKE_BOUNDARY_SCHEMA);
-    raw(", \"id\": ");
-    json_str(MODULE_LOADER_DESCRIPTOR_INTAKE_BOUNDARY_ID);
-    raw(", \"source_evidence_event_id\": ");
-    json_event_id_option(projection.source_evidence_event_id);
-    raw(", \"status\": ");
-    json_str(projection.status);
-    raw(", \"reason\": ");
-    json_str(projection.reason);
-    raw(", \"present\": ");
-    raw_bool(projection.present);
-    raw(", \"source_chain_complete\": ");
-    raw_bool(projection.source_chain_complete);
-    raw(", \"registry_write_commit_gate_present\": ");
-    raw_bool(projection.registry_write_commit_gate_present);
-    raw(", \"execution_commit_gate_present\": ");
-    raw_bool(projection.execution_commit_gate_present);
-    raw(", \"loader_runtime_source_evidence_complete\": ");
-    raw_bool(projection.loader_runtime_source_evidence_complete);
-    raw(", \"retained_module_evidence_present\": ");
-    raw_bool(projection.retained_module_evidence_present);
-    raw(", \"retained_service_slot_reservation_present\": ");
-    raw_bool(projection.retained_service_slot_reservation_present);
-    raw(concat!(
-        ", \"requested_capability\": \"cap.module.load_ephemeral\", \"load_mode\": \"ram_only\", \"target\": \"live_service_graph\", \"accepts_loader_descriptor\": false",
-        ", \"accepts_descriptor_bytes\": false, \"produces_parsed_descriptor\": false, \"parses_descriptor_bytes\": false, \"accepts_artifact_bytes\": false",
-        ", \"authorizes_descriptor_intake\": false, \"authorizes_execution\": false, \"mutates_service_registry\": false, \"writes_durable_audit_state\": false",
-        ", \"installs_rollback_state\": false, \"authorizes_load\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false",
-        ", \"service_inventory_change\": \"none\", \"loads_artifact\": false, \"load_attempted\": false}",
-        ));
+    let mut fields = legacy_projection_fields(descriptor_intake_facts(projection));
+    fields.extend([
+        f("requested_capability", s("cap.module.load_ephemeral")),
+        f("load_mode", s("ram_only")),
+        f("target", s("live_service_graph")),
+        f("accepts_loader_descriptor", no()),
+        f("accepts_descriptor_bytes", no()),
+        f("produces_parsed_descriptor", no()),
+        f("parses_descriptor_bytes", no()),
+        f("accepts_artifact_bytes", no()),
+        f("authorizes_descriptor_intake", no()),
+        f("authorizes_execution", no()),
+        f("mutates_service_registry", no()),
+        f("writes_durable_audit_state", no()),
+        f("installs_rollback_state", no()),
+        f("authorizes_load", no()),
+        f("allocates_service_slot", no()),
+        f("creates_service_inventory_records", no()),
+        f("service_inventory_change", s("none")),
+        f("loads_artifact", no()),
+        f("load_attempted", no()),
+    ]);
+    V::InlineObject(fields)
 }
 
-fn emit_module_load_gate_loader_artifact_byte_intake_boundary_compact() {
+fn module_load_gate_loader_artifact_byte_intake_boundary_value() -> V<'static> {
     let projection = module_load_gate_loader_artifact_byte_intake_boundary_projection();
-    raw("{\"schema\": ");
-    json_str(MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_SCHEMA);
-    raw(", \"id\": ");
-    json_str(MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_ID);
-    raw(", \"source_evidence_event_id\": ");
-    json_event_id_option(projection.source_evidence_event_id);
-    raw(", \"status\": ");
-    json_str(projection.status);
-    raw(", \"reason\": ");
-    json_str(projection.reason);
-    raw(", \"present\": ");
-    raw_bool(projection.present);
-    raw(", \"source_chain_complete\": ");
-    raw_bool(projection.source_chain_complete);
-    raw(", \"descriptor_intake_boundary_present\": ");
-    raw_bool(projection.descriptor_intake_boundary_present);
-    raw(", \"descriptor_intake_boundary_source_chain_complete\": ");
-    raw_bool(projection.descriptor_intake_boundary_source_chain_complete);
-    raw(", \"execution_commit_gate_present\": ");
-    raw_bool(projection.execution_commit_gate_present);
-    raw(", \"artifact_hash_binding_present\": ");
-    raw_bool(projection.artifact_hash_binding_present);
-    raw(", \"retained_artifact_reference_present\": ");
-    raw_bool(projection.retained_artifact_reference_present);
-    raw(", \"retained_module_evidence_present\": ");
-    raw_bool(projection.retained_module_evidence_present);
-    raw(", \"retained_service_slot_reservation_present\": ");
-    raw_bool(projection.retained_service_slot_reservation_present);
-    raw(concat!(
-        ", \"requested_capability\": \"cap.module.load_ephemeral\", \"load_mode\": \"ram_only\", \"target\": \"live_service_graph\", \"accepts_loader_descriptor\": false",
-        ", \"accepts_descriptor_bytes\": false, \"produces_parsed_descriptor\": false, \"parses_descriptor_bytes\": false, \"accepts_artifact_bytes\": false",
-        ", \"authorizes_descriptor_intake\": false, \"authorizes_artifact_byte_intake\": false, \"authorizes_execution\": false, \"mutates_service_registry\": false",
-        ", \"writes_durable_audit_state\": false, \"installs_rollback_state\": false, \"authorizes_load\": false, \"allocates_service_slot\": false",
-        ", \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"loads_artifact\": false, \"load_attempted\": false}",
-        ));
+    let mut fields = legacy_projection_fields(artifact_intake_facts(projection));
+    fields.extend([
+        f("requested_capability", s("cap.module.load_ephemeral")),
+        f("load_mode", s("ram_only")),
+        f("target", s("live_service_graph")),
+        f("accepts_loader_descriptor", no()),
+        f("accepts_descriptor_bytes", no()),
+        f("produces_parsed_descriptor", no()),
+        f("parses_descriptor_bytes", no()),
+        f("accepts_artifact_bytes", no()),
+        f("authorizes_descriptor_intake", no()),
+        f("authorizes_artifact_byte_intake", no()),
+        f("authorizes_execution", no()),
+        f("mutates_service_registry", no()),
+        f("writes_durable_audit_state", no()),
+        f("installs_rollback_state", no()),
+        f("authorizes_load", no()),
+        f("allocates_service_slot", no()),
+        f("creates_service_inventory_records", no()),
+        f("service_inventory_change", s("none")),
+        f("loads_artifact", no()),
+        f("load_attempted", no()),
+    ]);
+    V::InlineObject(fields)
 }
 
-fn emit_module_load_gate_loader_execution_authorization_boundary_compact() {
+fn module_load_gate_loader_execution_authorization_boundary_value() -> V<'static> {
     let projection = module_load_gate_loader_execution_authorization_boundary_projection();
-    raw("{\"schema\": ");
-    json_str(MODULE_LOADER_EXECUTION_AUTHORIZATION_BOUNDARY_SCHEMA);
-    raw(", \"id\": ");
-    json_str(MODULE_LOADER_EXECUTION_AUTHORIZATION_BOUNDARY_ID);
-    raw(", \"source_evidence_event_id\": ");
-    json_event_id_option(projection.source_evidence_event_id);
-    raw(", \"status\": ");
-    json_str(projection.status);
-    raw(", \"reason\": ");
-    json_str(projection.reason);
-    raw(", \"present\": ");
-    raw_bool(projection.present);
-    raw(", \"source_chain_complete\": ");
-    raw_bool(projection.source_chain_complete);
-    raw(", \"artifact_byte_intake_boundary_present\": ");
-    raw_bool(projection.artifact_byte_intake_boundary_present);
-    raw(", \"artifact_byte_intake_boundary_source_chain_complete\": ");
-    raw_bool(projection.artifact_byte_intake_boundary_source_chain_complete);
-    raw(", \"descriptor_intake_boundary_present\": ");
-    raw_bool(projection.descriptor_intake_boundary_present);
-    raw(", \"descriptor_intake_boundary_source_chain_complete\": ");
-    raw_bool(projection.descriptor_intake_boundary_source_chain_complete);
-    raw(", \"execution_commit_gate_present\": ");
-    raw_bool(projection.execution_commit_gate_present);
-    raw(", \"entrypoint_abi_source_evidence_present\": ");
-    raw_bool(projection.entrypoint_abi_source_evidence_present);
-    raw(", \"address_space_source_evidence_present\": ");
-    raw_bool(projection.address_space_source_evidence_present);
-    raw(", \"memory_map_source_evidence_present\": ");
-    raw_bool(projection.memory_map_source_evidence_present);
-    raw(", \"audit_rollback_write_boundary_source_evidence_present\": ");
-    raw_bool(projection.audit_rollback_write_boundary_source_evidence_present);
-    raw(", \"retained_module_evidence_present\": ");
-    raw_bool(projection.retained_module_evidence_present);
-    raw(", \"retained_service_slot_reservation_present\": ");
-    raw_bool(projection.retained_service_slot_reservation_present);
-    raw(concat!(
-        ", \"requested_capability\": \"cap.module.load_ephemeral\", \"load_mode\": \"ram_only\", \"target\": \"live_service_graph\", \"accepts_loader_descriptor\": false",
-        ", \"accepts_descriptor_bytes\": false, \"produces_parsed_descriptor\": false, \"parses_descriptor_bytes\": false, \"accepts_artifact_bytes\": false",
-        ", \"authorizes_descriptor_intake\": false, \"authorizes_artifact_byte_intake\": false, \"maps_executable_pages\": false, \"jumps_to_entrypoint\": false",
-        ", \"authorizes_execution\": false, \"mutates_service_registry\": false, \"writes_durable_audit_state\": false, \"installs_rollback_state\": false, \"authorizes_load\": false",
-        ", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"loads_artifact\": false, \"load_attempted\": false}",
-        ));
+    let mut fields = legacy_projection_fields(execution_authorization_facts(projection));
+    fields.extend([
+        f("requested_capability", s("cap.module.load_ephemeral")),
+        f("load_mode", s("ram_only")),
+        f("target", s("live_service_graph")),
+        f("accepts_loader_descriptor", no()),
+        f("accepts_descriptor_bytes", no()),
+        f("produces_parsed_descriptor", no()),
+        f("parses_descriptor_bytes", no()),
+        f("accepts_artifact_bytes", no()),
+        f("authorizes_descriptor_intake", no()),
+        f("authorizes_artifact_byte_intake", no()),
+        f("maps_executable_pages", no()),
+        f("jumps_to_entrypoint", no()),
+        f("authorizes_execution", no()),
+        f("mutates_service_registry", no()),
+        f("writes_durable_audit_state", no()),
+        f("installs_rollback_state", no()),
+        f("authorizes_load", no()),
+        f("allocates_service_slot", no()),
+        f("creates_service_inventory_records", no()),
+        f("service_inventory_change", s("none")),
+        f("loads_artifact", no()),
+        f("load_attempted", no()),
+    ]);
+    V::InlineObject(fields)
 }
 
-fn emit_module_load_gate_loader_service_registry_mutation_boundary_compact() {
+fn module_load_gate_loader_service_registry_mutation_boundary_value() -> V<'static> {
     let projection = module_load_gate_loader_service_registry_mutation_boundary_projection();
-    raw("{\"schema\": ");
-    json_str(MODULE_LOADER_SERVICE_REGISTRY_MUTATION_BOUNDARY_SCHEMA);
-    raw(", \"id\": ");
-    json_str(MODULE_LOADER_SERVICE_REGISTRY_MUTATION_BOUNDARY_ID);
-    raw(", \"source_evidence_event_id\": ");
-    json_event_id_option(projection.source_evidence_event_id);
-    raw(", \"status\": ");
-    json_str(projection.status);
-    raw(", \"reason\": ");
-    json_str(projection.reason);
-    raw(", \"present\": ");
-    raw_bool(projection.present);
-    raw(", \"source_chain_complete\": ");
-    raw_bool(projection.source_chain_complete);
-    raw(", \"execution_authorization_boundary_present\": ");
-    raw_bool(projection.execution_authorization_boundary_present);
-    raw(", \"execution_authorization_boundary_source_chain_complete\": ");
-    raw_bool(projection.execution_authorization_boundary_source_chain_complete);
-    raw(", \"registry_write_commit_gate_present\": ");
-    raw_bool(projection.registry_write_commit_gate_present);
-    raw(", \"service_slot_binding_source_evidence_present\": ");
-    raw_bool(projection.service_slot_binding_source_evidence_present);
-    raw(", \"retained_module_evidence_present\": ");
-    raw_bool(projection.retained_module_evidence_present);
-    raw(", \"retained_service_slot_reservation_present\": ");
-    raw_bool(projection.retained_service_slot_reservation_present);
-    raw(concat!(
-        ", \"requested_capability\": \"cap.module.load_ephemeral\", \"load_mode\": \"ram_only\", \"target\": \"live_service_graph\", \"accepts_loader_descriptor\": false",
-        ", \"accepts_descriptor_bytes\": false, \"produces_parsed_descriptor\": false, \"parses_descriptor_bytes\": false, \"accepts_artifact_bytes\": false",
-        ", \"authorizes_descriptor_intake\": false, \"authorizes_artifact_byte_intake\": false, \"maps_executable_pages\": false, \"jumps_to_entrypoint\": false",
-        ", \"authorizes_execution\": false, \"mutates_service_registry\": false, \"writes_durable_audit_state\": false, \"installs_rollback_state\": false, \"authorizes_load\": false",
-        ", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"loads_artifact\": false, \"load_attempted\": false}",
-        ));
+    let mut fields = legacy_projection_fields(registry_mutation_facts(projection));
+    fields.extend([
+        f("requested_capability", s("cap.module.load_ephemeral")),
+        f("load_mode", s("ram_only")),
+        f("target", s("live_service_graph")),
+        f("accepts_loader_descriptor", no()),
+        f("accepts_descriptor_bytes", no()),
+        f("produces_parsed_descriptor", no()),
+        f("parses_descriptor_bytes", no()),
+        f("accepts_artifact_bytes", no()),
+        f("authorizes_descriptor_intake", no()),
+        f("authorizes_artifact_byte_intake", no()),
+        f("maps_executable_pages", no()),
+        f("jumps_to_entrypoint", no()),
+        f("authorizes_execution", no()),
+        f("mutates_service_registry", no()),
+        f("writes_durable_audit_state", no()),
+        f("installs_rollback_state", no()),
+        f("authorizes_load", no()),
+        f("allocates_service_slot", no()),
+        f("creates_service_inventory_records", no()),
+        f("service_inventory_change", s("none")),
+        f("loads_artifact", no()),
+        f("load_attempted", no()),
+    ]);
+    V::InlineObject(fields)
 }
 
-fn emit_module_load_gate_loader_live_load_boundary_compact(
+fn module_load_gate_loader_live_load_boundary_value(
     boundary_schema: &'static str,
     boundary_id: &'static str,
     projection: ModuleLoadGateLoaderLiveLoadBoundaryProjection,
-) {
-    raw("{\"schema\": ");
-    json_str(boundary_schema);
-    raw(", \"id\": ");
-    json_str(boundary_id);
-    raw(", \"source_evidence_event_id\": ");
-    json_event_id_option(projection.source_evidence_event_id);
-    raw(", \"status\": ");
-    json_str(projection.status);
-    raw(", \"reason\": ");
-    json_str(projection.reason);
-    raw(", \"present\": ");
-    raw_bool(projection.present);
-    raw(", \"source_chain_complete\": ");
-    raw_bool(projection.source_chain_complete);
-    raw(", \"load_attempt_boundary_present\": ");
-    raw_bool(projection.load_attempt_boundary_present);
-    raw(", \"artifact_load_boundary_present\": ");
-    raw_bool(projection.artifact_load_boundary_present);
-    raw(", \"executable_mapping_boundary_present\": ");
-    raw_bool(projection.executable_mapping_boundary_present);
-    raw(", \"entrypoint_transfer_boundary_present\": ");
-    raw_bool(projection.entrypoint_transfer_boundary_present);
-    raw(", \"service_start_boundary_present\": ");
-    raw_bool(projection.service_start_boundary_present);
-    raw(", \"service_health_binding_boundary_present\": ");
-    raw_bool(projection.service_health_binding_boundary_present);
-    raw(", \"service_running_state_boundary_present\": ");
-    raw_bool(projection.service_running_state_boundary_present);
-    raw(", \"service_start_audit_boundary_present\": ");
-    raw_bool(projection.service_start_audit_boundary_present);
-    raw(", \"service_start_audit_boundary_source_chain_complete\": ");
-    raw_bool(projection.service_start_audit_boundary_source_chain_complete);
-    raw(", \"service_unload_cleanup_boundary_present\": ");
-    raw_bool(projection.service_unload_cleanup_boundary_present);
-    raw(", \"service_unload_cleanup_boundary_source_chain_complete\": ");
-    raw_bool(projection.service_unload_cleanup_boundary_source_chain_complete);
-    raw(", \"live_load_commit_boundary_present\": ");
-    raw_bool(projection.live_load_commit_boundary_present);
-    raw(", \"live_load_commit_boundary_source_chain_complete\": ");
-    raw_bool(projection.live_load_commit_boundary_source_chain_complete);
-    raw(", \"commit_audit_boundary_present\": ");
-    raw_bool(projection.commit_audit_boundary_present);
-    raw(", \"commit_audit_boundary_source_chain_complete\": ");
-    raw_bool(projection.commit_audit_boundary_source_chain_complete);
-    raw(", \"commit_rollback_boundary_present\": ");
-    raw_bool(projection.commit_rollback_boundary_present);
-    raw(", \"commit_rollback_boundary_source_chain_complete\": ");
-    raw_bool(projection.commit_rollback_boundary_source_chain_complete);
-    raw(", \"commit_result_boundary_present\": ");
-    raw_bool(projection.commit_result_boundary_present);
-    raw(", \"commit_result_boundary_source_chain_complete\": ");
-    raw_bool(projection.commit_result_boundary_source_chain_complete);
-    raw(", \"descriptor_acceptance_authority_boundary_present\": ");
-    raw_bool(projection.descriptor_acceptance_authority_boundary_present);
-    raw(", \"descriptor_acceptance_authority_boundary_source_chain_complete\": ");
-    raw_bool(projection.descriptor_acceptance_authority_boundary_source_chain_complete);
-    raw(", \"descriptor_parser_contract_boundary_present\": ");
-    raw_bool(projection.descriptor_parser_contract_boundary_present);
-    raw(", \"descriptor_parser_contract_boundary_source_chain_complete\": ");
-    raw_bool(projection.descriptor_parser_contract_boundary_source_chain_complete);
-    raw(", \"descriptor_parser_result_boundary_present\": ");
-    raw_bool(projection.descriptor_parser_result_boundary_present);
-    raw(", \"descriptor_parser_result_boundary_source_chain_complete\": ");
-    raw_bool(projection.descriptor_parser_result_boundary_source_chain_complete);
-    raw(", \"descriptor_schema_validation_boundary_present\": ");
-    raw_bool(projection.descriptor_schema_validation_boundary_present);
-    raw(", \"descriptor_schema_validation_boundary_source_chain_complete\": ");
-    raw_bool(projection.descriptor_schema_validation_boundary_source_chain_complete);
-    raw(", \"artifact_byte_intake_boundary_present\": ");
-    raw_bool(projection.artifact_byte_intake_boundary_present);
-    raw(", \"artifact_byte_intake_boundary_source_chain_complete\": ");
-    raw_bool(projection.artifact_byte_intake_boundary_source_chain_complete);
-    raw(", \"execution_authorization_boundary_present\": ");
-    raw_bool(projection.execution_authorization_boundary_present);
-    raw(", \"execution_authorization_boundary_source_chain_complete\": ");
-    raw_bool(projection.execution_authorization_boundary_source_chain_complete);
-    raw(", \"service_registry_mutation_boundary_present\": ");
-    raw_bool(projection.service_registry_mutation_boundary_present);
-    raw(", \"service_registry_mutation_boundary_source_chain_complete\": ");
-    raw_bool(projection.service_registry_mutation_boundary_source_chain_complete);
-    raw(", \"descriptor_capability_validation_boundary_present\": ");
-    raw_bool(projection.descriptor_capability_validation_boundary_present);
-    raw(", \"descriptor_capability_validation_boundary_source_chain_complete\": ");
-    raw_bool(projection.descriptor_capability_validation_boundary_source_chain_complete);
-    raw(", \"descriptor_load_plan_boundary_present\": ");
-    raw_bool(projection.descriptor_load_plan_boundary_present);
-    raw(", \"descriptor_load_plan_boundary_source_chain_complete\": ");
-    raw_bool(projection.descriptor_load_plan_boundary_source_chain_complete);
-    raw(", \"executable_load_plan_authority_boundary_present\": ");
-    raw_bool(projection.executable_load_plan_authority_boundary_present);
-    raw(", \"executable_load_plan_authority_boundary_source_chain_complete\": ");
-    raw_bool(projection.executable_load_plan_authority_boundary_source_chain_complete);
-    raw(", \"executable_load_plan_result_boundary_present\": ");
-    raw_bool(projection.executable_load_plan_result_boundary_present);
-    raw(", \"executable_load_plan_result_boundary_source_chain_complete\": ");
-    raw_bool(projection.executable_load_plan_result_boundary_source_chain_complete);
-    raw(", \"executable_image_layout_boundary_present\": ");
-    raw_bool(projection.executable_image_layout_boundary_present);
-    raw(", \"executable_image_layout_boundary_source_chain_complete\": ");
-    raw_bool(projection.executable_image_layout_boundary_source_chain_complete);
-    raw(", \"executable_page_mapping_plan_boundary_present\": ");
-    raw_bool(projection.executable_page_mapping_plan_boundary_present);
-    raw(", \"executable_page_mapping_plan_boundary_source_chain_complete\": ");
-    raw_bool(projection.executable_page_mapping_plan_boundary_source_chain_complete);
-    raw(", \"executable_page_mapping_boundary_present\": ");
-    raw_bool(projection.executable_page_mapping_boundary_present);
-    raw(", \"executable_page_mapping_boundary_source_chain_complete\": ");
-    raw_bool(projection.executable_page_mapping_boundary_source_chain_complete);
-    raw(", \"descriptor_executable_page_binding_boundary_present\": ");
-    raw_bool(projection.descriptor_executable_page_binding_boundary_present);
-    raw(", \"descriptor_executable_page_binding_boundary_source_chain_complete\": ");
-    raw_bool(projection.descriptor_executable_page_binding_boundary_source_chain_complete);
-    raw(", \"executable_entrypoint_binding_boundary_present\": ");
-    raw_bool(projection.executable_entrypoint_binding_boundary_present);
-    raw(", \"executable_entrypoint_binding_boundary_source_chain_complete\": ");
-    raw_bool(projection.executable_entrypoint_binding_boundary_source_chain_complete);
-    raw(", \"executable_entrypoint_transfer_authorization_boundary_present\": ");
-    raw_bool(projection.executable_entrypoint_transfer_authorization_boundary_present);
-    raw(", \"executable_entrypoint_transfer_authorization_boundary_source_chain_complete\": ");
-    raw_bool(
-        projection.executable_entrypoint_transfer_authorization_boundary_source_chain_complete,
-    );
-    raw(", \"executable_entrypoint_transfer_boundary_present\": ");
-    raw_bool(projection.executable_entrypoint_transfer_boundary_present);
-    raw(", \"executable_entrypoint_transfer_boundary_source_chain_complete\": ");
-    raw_bool(projection.executable_entrypoint_transfer_boundary_source_chain_complete);
-    raw(", \"executable_entrypoint_handoff_boundary_present\": ");
-    raw_bool(projection.executable_entrypoint_handoff_boundary_present);
-    raw(", \"executable_entrypoint_handoff_boundary_source_chain_complete\": ");
-    raw_bool(projection.executable_entrypoint_handoff_boundary_source_chain_complete);
-    raw(", \"service_slot_binding_source_evidence_present\": ");
-    raw_bool(projection.service_slot_binding_source_evidence_present);
-    raw(", \"health_state_hooks_source_evidence_present\": ");
-    raw_bool(projection.health_state_hooks_source_evidence_present);
-    raw(", \"artifact_hash_binding_present\": ");
-    raw_bool(projection.artifact_hash_binding_present);
-    raw(", \"entrypoint_abi_source_evidence_present\": ");
-    raw_bool(projection.entrypoint_abi_source_evidence_present);
-    raw(", \"address_space_source_evidence_present\": ");
-    raw_bool(projection.address_space_source_evidence_present);
-    raw(", \"memory_map_source_evidence_present\": ");
-    raw_bool(projection.memory_map_source_evidence_present);
-    raw(", \"capability_import_table_source_evidence_present\": ");
-    raw_bool(projection.capability_import_table_source_evidence_present);
-    raw(", \"audit_rollback_write_boundary_source_evidence_present\": ");
-    raw_bool(projection.audit_rollback_write_boundary_source_evidence_present);
-    raw(", \"retained_module_evidence_present\": ");
-    raw_bool(projection.retained_module_evidence_present);
-    raw(", \"retained_artifact_reference_present\": ");
-    raw_bool(projection.retained_artifact_reference_present);
-    raw(", \"retained_service_slot_reservation_present\": ");
-    raw_bool(projection.retained_service_slot_reservation_present);
-    raw(concat!(
-        ", \"requested_capability\": \"cap.module.load_ephemeral\", \"load_mode\": \"ram_only\", \"target\": \"live_service_graph\", \"accepts_loader_descriptor\": false",
-        ", \"accepts_descriptor_bytes\": false, \"produces_parsed_descriptor\": false, \"validates_descriptor_schema\": false, \"produces_validated_descriptor\": false",
-        ", \"validates_descriptor_capabilities\": false, \"produces_capability_validated_descriptor\": false, \"authorizes_executable_load_plan\": false",
-        ", \"produces_executable_load_plan\": false, \"produces_executable_image_layout\": false, \"produces_executable_page_mapping_plan\": false",
-        ", \"binds_capability_validated_descriptor_to_executable_pages\": false, \"parses_descriptor_bytes\": false, \"accepts_artifact_bytes\": false",
-        ", \"authorizes_descriptor_intake\": false, \"authorizes_artifact_byte_intake\": false, \"maps_executable_pages\": false, \"jumps_to_entrypoint\": false",
-        ", \"authorizes_execution\": false, \"mutates_service_registry\": false, \"writes_durable_audit_state\": false, \"installs_rollback_state\": false, \"authorizes_load\": false",
-        ", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"loads_artifact\": false, \"starts_service\": false",
-        ", \"marks_service_running\": false, \"creates_service_health_records\": false, \"writes_service_start_audit_record\": false, \"unloads_service\": false",
-        ", \"cleans_up_service_slot\": false, \"commits_live_load\": false, \"writes_load_commit_audit_record\": false, \"installs_commit_rollback_record\": false",
-        ", \"records_load_result\": false, \"load_attempted\": false}",
-        ));
-}
-fn emit_module_load_gate_loader_runtime_source_fact_map_compact() {
-    let mut idx = 0usize;
-    while idx < MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
-        emit_inline_record_object_fragment(
-            module_load_gate_loader_runtime_source_fact_fields(
-                MODULE_LOADER_RUNTIME_FACT_SOURCES[idx],
-            ),
-            0,
-        );
-        raw(", ");
-        idx += 1;
-    }
-    emit_inline_record_object_fragment(
-        module_load_gate_receiver_identity_load_preflight_source_fact_fields(
-            agent_protocol::receiver_identity_load_preflight_projection(),
+) -> V<'static> {
+    let source = legacy_projection_fields(live_boundary_facts(
+        boundary_schema,
+        boundary_id,
+        projection,
+    ));
+    let order = [
+        "schema",
+        "id",
+        "source_evidence_event_id",
+        "status",
+        "reason",
+        "present",
+        "source_chain_complete",
+        "load_attempt_boundary_present",
+        "artifact_load_boundary_present",
+        "executable_mapping_boundary_present",
+        "entrypoint_transfer_boundary_present",
+        "service_start_boundary_present",
+        "service_health_binding_boundary_present",
+        "service_running_state_boundary_present",
+        "service_start_audit_boundary_present",
+        "service_start_audit_boundary_source_chain_complete",
+        "service_unload_cleanup_boundary_present",
+        "service_unload_cleanup_boundary_source_chain_complete",
+        "live_load_commit_boundary_present",
+        "live_load_commit_boundary_source_chain_complete",
+        "commit_audit_boundary_present",
+        "commit_audit_boundary_source_chain_complete",
+        "commit_rollback_boundary_present",
+        "commit_rollback_boundary_source_chain_complete",
+        "commit_result_boundary_present",
+        "commit_result_boundary_source_chain_complete",
+        "descriptor_acceptance_authority_boundary_present",
+        "descriptor_acceptance_authority_boundary_source_chain_complete",
+        "descriptor_parser_contract_boundary_present",
+        "descriptor_parser_contract_boundary_source_chain_complete",
+        "descriptor_parser_result_boundary_present",
+        "descriptor_parser_result_boundary_source_chain_complete",
+        "descriptor_schema_validation_boundary_present",
+        "descriptor_schema_validation_boundary_source_chain_complete",
+        "artifact_byte_intake_boundary_present",
+        "artifact_byte_intake_boundary_source_chain_complete",
+        "execution_authorization_boundary_present",
+        "execution_authorization_boundary_source_chain_complete",
+        "service_registry_mutation_boundary_present",
+        "service_registry_mutation_boundary_source_chain_complete",
+        "descriptor_capability_validation_boundary_present",
+        "descriptor_capability_validation_boundary_source_chain_complete",
+        "descriptor_load_plan_boundary_present",
+        "descriptor_load_plan_boundary_source_chain_complete",
+        "executable_load_plan_authority_boundary_present",
+        "executable_load_plan_authority_boundary_source_chain_complete",
+        "executable_load_plan_result_boundary_present",
+        "executable_load_plan_result_boundary_source_chain_complete",
+        "executable_image_layout_boundary_present",
+        "executable_image_layout_boundary_source_chain_complete",
+        "executable_page_mapping_plan_boundary_present",
+        "executable_page_mapping_plan_boundary_source_chain_complete",
+        "executable_page_mapping_boundary_present",
+        "executable_page_mapping_boundary_source_chain_complete",
+        "descriptor_executable_page_binding_boundary_present",
+        "descriptor_executable_page_binding_boundary_source_chain_complete",
+        "executable_entrypoint_binding_boundary_present",
+        "executable_entrypoint_binding_boundary_source_chain_complete",
+        "executable_entrypoint_transfer_authorization_boundary_present",
+        "executable_entrypoint_transfer_authorization_boundary_source_chain_complete",
+        "executable_entrypoint_transfer_boundary_present",
+        "executable_entrypoint_transfer_boundary_source_chain_complete",
+        "executable_entrypoint_handoff_boundary_present",
+        "executable_entrypoint_handoff_boundary_source_chain_complete",
+        "service_slot_binding_source_evidence_present",
+        "health_state_hooks_source_evidence_present",
+        "artifact_hash_binding_present",
+        "entrypoint_abi_source_evidence_present",
+        "address_space_source_evidence_present",
+        "memory_map_source_evidence_present",
+        "capability_import_table_source_evidence_present",
+        "audit_rollback_write_boundary_source_evidence_present",
+        "retained_module_evidence_present",
+        "retained_artifact_reference_present",
+        "retained_service_slot_reservation_present",
+    ];
+    let mut fields = order
+        .into_iter()
+        .map(|key| {
+            source
+                .iter()
+                .find(|field| field.key == key)
+                .cloned()
+                .unwrap_or_else(|| unreachable!("legacy live-boundary field missing"))
+        })
+        .collect::<Vec<_>>();
+    fields.extend([
+        f("requested_capability", s("cap.module.load_ephemeral")),
+        f("load_mode", s("ram_only")),
+        f("target", s("live_service_graph")),
+        f("accepts_loader_descriptor", no()),
+        f("accepts_descriptor_bytes", no()),
+        f("produces_parsed_descriptor", no()),
+        f("validates_descriptor_schema", no()),
+        f("produces_validated_descriptor", no()),
+        f("validates_descriptor_capabilities", no()),
+        f("produces_capability_validated_descriptor", no()),
+        f("authorizes_executable_load_plan", no()),
+        f("produces_executable_load_plan", no()),
+        f("produces_executable_image_layout", no()),
+        f("produces_executable_page_mapping_plan", no()),
+        f(
+            "binds_capability_validated_descriptor_to_executable_pages",
+            no(),
         ),
-        0,
-    );
+        f("parses_descriptor_bytes", no()),
+        f("accepts_artifact_bytes", no()),
+        f("authorizes_descriptor_intake", no()),
+        f("authorizes_artifact_byte_intake", no()),
+        f("maps_executable_pages", no()),
+        f("jumps_to_entrypoint", no()),
+        f("authorizes_execution", no()),
+        f("mutates_service_registry", no()),
+        f("writes_durable_audit_state", no()),
+        f("installs_rollback_state", no()),
+        f("authorizes_load", no()),
+        f("allocates_service_slot", no()),
+        f("creates_service_inventory_records", no()),
+        f("service_inventory_change", s("none")),
+        f("loads_artifact", no()),
+        f("starts_service", no()),
+        f("marks_service_running", no()),
+        f("creates_service_health_records", no()),
+        f("writes_service_start_audit_record", no()),
+        f("unloads_service", no()),
+        f("cleans_up_service_slot", no()),
+        f("commits_live_load", no()),
+        f("writes_load_commit_audit_record", no()),
+        f("installs_commit_rollback_record", no()),
+        f("records_load_result", no()),
+        f("load_attempted", no()),
+    ]);
+    V::InlineObject(fields)
 }
-
-fn emit_module_load_gate_evidence_hashes_compact(binding: event_log::ModuleLoadGateBinding) {
-    if let Some(reference) = binding.retained_reference {
-        raw("\"computed_capability_grant_hash\": ");
-        json_sha256(reference.computed_grant_hash);
-    } else {
-        raw("\"computed_capability_grant_hash\": null");
-    }
-    if let Some(reference) = binding
-        .attestation_reference
-        .filter(|_| module_load_gate_local_attestation_reference_valid(binding))
-    {
-        raw(", \"local_attestation_reference_hash\": ");
-        json_sha256(reference.attestation_reference_hash);
-        raw(", \"local_attestation_hash\": ");
-        json_sha256(reference.local_attestation_hash);
-    } else {
-        raw(", \"local_attestation_reference_hash\": null, \"local_attestation_hash\": null");
-    }
-    if let Some(reference) = binding
-        .approval_reference
-        .filter(|_| module_load_gate_local_approval_reference_valid(binding))
-    {
-        raw(", \"local_approval_reference_hash\": ");
-        json_sha256(reference.approval_reference_hash);
-        raw(", \"local_approval_hash\": ");
-        json_sha256(reference.local_approval_hash);
-    } else {
-        raw(", \"local_approval_reference_hash\": null, \"local_approval_hash\": null");
-    }
-    if let Some(reference) = binding
-        .vm_report_reference
-        .filter(|_| module_load_gate_vm_test_report_reference_valid(binding))
-    {
-        raw(", \"vm_test_report_reference_hash\": ");
-        json_sha256(reference.report_reference_hash);
-        raw(", \"vm_test_report_hash\": ");
-        json_sha256(reference.vm_report_hash);
-    } else {
-        raw(", \"vm_test_report_reference_hash\": null, \"vm_test_report_hash\": null");
-    }
-    if let Some(reference) = binding
-        .artifact_reference
-        .filter(|_| module_load_gate_candidate_artifact_reference_valid(binding))
-    {
-        raw(", \"artifact_reference_hash\": ");
-        json_sha256(reference.artifact_reference_hash);
-        raw(", \"artifact_hash\": ");
-        json_sha256(reference.artifact_hash);
-    } else {
-        raw(", \"artifact_reference_hash\": null, \"artifact_hash\": null");
-    }
-    if let Some(reference) = binding
-        .manifest_reference
-        .filter(|_| module_load_gate_manifest_reference_valid(binding))
-    {
-        raw(", \"manifest_reference_hash\": ");
-        json_sha256(reference.manifest_reference_hash);
-        raw(", \"manifest_hash\": ");
-        json_sha256(reference.manifest_hash);
-    } else {
-        raw(", \"manifest_reference_hash\": null, \"manifest_hash\": null");
-    }
-    if let Some(reference) = binding
-        .audit_rollback_reference
-        .filter(|_| module_load_gate_audit_rollback_reference_valid(binding))
-    {
-        raw(", \"audit_record_hash\": ");
-        json_sha256(reference.audit_record_hash);
-        raw(", \"rollback_plan_hash\": ");
-        json_sha256(reference.rollback_plan_hash);
-        raw(", \"pre_load_service_inventory_hash\": ");
-        json_sha256(reference.pre_load_service_inventory_hash);
-        raw(", \"cleanup_actions_hash\": ");
-        json_sha256(reference.cleanup_actions_hash);
-        raw(", \"ram_only_service_slot_id\": ");
-        json_str(reference.ram_only_service_slot_id.as_str());
-    } else {
-        raw(", \"audit_record_hash\": null, \"rollback_plan_hash\": null, \"pre_load_service_inventory_hash\": null, \"cleanup_actions_hash\": null, \"ram_only_service_slot_id\": null");
-    }
-    if let Some(reservation) = binding
-        .service_slot_reservation
-        .filter(|_| module_load_gate_service_slot_reservation_valid(binding))
-    {
-        raw(", \"service_slot_reservation_hash\": ");
-        json_sha256(reservation.reservation_hash);
-    } else {
-        raw(", \"service_slot_reservation_hash\": null");
-    }
-}
-
-fn emit_module_load_gate_audit_rollback_requirements_compact(
-    binding: event_log::ModuleLoadGateBinding,
-) {
-    emit_inline_record_object_fragment(
-        module_load_gate_audit_rollback_requirement_fields(&binding, true),
-        0,
-    );
+fn module_load_gate_loader_runtime_source_fact_map_value(
+    receiver: agent_protocol::DistributionReceiverIdentityLoadPreflightProjection,
+) -> V<'static> {
+    let mut values = MODULE_LOADER_RUNTIME_FACT_SOURCES
+        .into_iter()
+        .map(|source| V::InlineObject(module_load_gate_loader_runtime_source_fact_fields(source)))
+        .collect::<Vec<_>>();
+    values.push(V::InlineObject(
+        module_load_gate_receiver_identity_load_preflight_source_fact_fields(receiver),
+    ));
+    V::InlineArray(values)
 }
