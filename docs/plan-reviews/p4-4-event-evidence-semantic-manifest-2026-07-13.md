@@ -730,3 +730,92 @@ lines 102, 103, and 143 were broken and regenerated to v1 schema/family/schema.
 Module-evidence lines 635-636 were broken and now select
 `evidence[].facts.binding`. No listed donor exposure remains merely reported
 outside the write set.
+
+## P4-4b2a-fix notes
+
+The full-audit load-gate checks now select the last
+`binding.record_schema == raios.module_load_gate.v0` serial line and search
+only that line. This prevents a response decision or another event from
+donating a whole-log match. The binding has no decision; its twelve ordered
+evidence records are the authority for prerequisite status and reason.
+
+### Exact 63-predicate bucket table
+
+| Old predicate | Bucket | v1 carrier / replacement |
+| --- | --- | --- |
+| `protocol:module_load_audit_binding_status` | RETIRED | No binding-wide status exists; replaced by per-record `evidence[].status` and `reason`. Coverage carrier: `module_manifest` id + status + reason. |
+| `protocol:module_load_audit_requirements_schema` | RETIRED | The requirements object is gone; replaced by the twelve ordered evidence records. Coverage carrier: `candidate_artifact` id + status + reason. |
+| `protocol:module_load_audit_requirements_no_load` | RETIRED | No requirements-wide status exists; blockers are individual evidence statuses/reasons. Coverage carrier: `local_approval` id + status + reason. |
+| `protocol:module_load_audit_retained_grant_state` | HONEST MERGE | Merged with `protocol:module_load_audit_retained_grant_binding` into `protocol:module_load_audit_computed_grant_evidence` -> `evidence[id=computed_capability_grant]` id + status + reason. |
+| `protocol:module_load_audit_retained_grant_binding` | HONEST MERGE | Same carrier as the preceding row; no second predicate retained. |
+| `protocol:module_load_audit_retained_vm_report_state` | HONEST MERGE | Merged with `protocol:module_load_audit_retained_vm_report_binding` into `protocol:module_load_audit_vm_test_report_evidence` -> `evidence[id=vm_test_report]` id + status + reason. |
+| `protocol:module_load_audit_retained_vm_report_binding` | HONEST MERGE | Same carrier as the preceding row; no second predicate retained. |
+| `protocol:module_load_audit_retained_attestation_state` | HONEST MERGE | Merged with `protocol:module_load_audit_retained_attestation_binding` into `protocol:module_load_audit_local_attestation_evidence` -> `evidence[id=local_attestation]` id + status + reason. |
+| `protocol:module_load_audit_retained_attestation_binding` | HONEST MERGE | Same carrier as the preceding row; no second predicate retained. |
+| `protocol:module_load_audit_retained_audit_rollback_binding` | RETIRED | The combined reference is gone; replaced by separate `durable_audit_record` and `rollback_plan` evidence carriers. |
+| `protocol:module_load_audit_retained_audit_state` | REGENERATED | `protocol:module_load_audit_durable_audit_record_evidence` -> `evidence[id=durable_audit_record]` id + status + reason. |
+| `protocol:module_load_audit_retained_rollback_state` | REGENERATED | `protocol:module_load_audit_rollback_plan_evidence` -> `evidence[id=rollback_plan]` id + status + reason. |
+| `protocol:module_load_audit_retained_service_slot_state` | HONEST MERGE | Merged with `protocol:module_load_audit_retained_service_slot_binding` into `protocol:module_load_audit_service_slot_evidence` -> `evidence[id=service_slot]` id + status + reason. |
+| `protocol:module_load_audit_retained_service_slot_binding` | HONEST MERGE | Same carrier as the preceding row; no second predicate retained. |
+| `protocol:module_load_audit_service_slot_allocator_state` | REGENERATED | `protocol:module_load_audit_service_slot_allocator_evidence` -> `evidence[id=service_slot_allocator]` id + status + reason. |
+| `protocol:module_load_audit_service_slot_allocator_schema` | REGENERATED | `evidence[id=service_slot_allocator].facts.record_schema`. |
+| `protocol:module_load_audit_service_slot_allocator_authority_schema` | REGENERATED | `evidence[id=service_slot_allocator].facts.allocator_authority_boundary.record_schema`. |
+| `protocol:module_load_audit_service_slot_allocation_intent_schema` | REGENERATED | `evidence[id=service_slot_allocator].facts.allocation_intent_boundary.record_schema`. |
+| `protocol:module_load_audit_policy_decision_schema` | REGENERATED | `evidence[id=service_slot_allocator].facts.authority_input_boundaries.policy_decision.record_schema`. |
+| `protocol:module_load_audit_registry_write_schema` | REGENERATED | `evidence[id=service_slot_allocator].facts.authority_input_boundaries.registry_write_authority.record_schema`. |
+| `protocol:module_load_audit_loader_contract_schema` | REGENERATED | `evidence[id=service_slot_allocator].facts.authority_input_boundaries.loader_runtime_contract.record_schema`. |
+| `protocol:module_load_audit_health_monitor_schema` | REGENERATED | `evidence[id=service_slot_allocator].facts.authority_input_boundaries.health_monitor_binding.record_schema`. |
+| `protocol:module_load_audit_cleanup_authority_schema` | REGENERATED | `evidence[id=service_slot_allocator].facts.authority_input_boundaries.unload_cleanup_authority.record_schema`. |
+| `protocol:module_load_audit_authority_decision_schema` | REGENERATED | `evidence[id=service_slot_allocator].facts.authority_decision.record_schema`. |
+| `protocol:module_load_audit_registry_commit_gate_schema` | REGENERATED | `evidence[id=service_slot_allocator].facts.registry_write_commit_gate.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_state` | REGENERATED | `protocol:module_load_audit_loader_runtime_evidence` -> `evidence[id=loader_runtime]` id + status + reason. |
+| `protocol:module_load_audit_loader_runtime_schema` | REGENERATED | `evidence[id=loader_runtime].facts.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_execution_commit_gate` | REGENERATED | `evidence[id=loader_runtime].facts.execution_commit_gate.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_descriptor_intake_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.descriptor_intake_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_artifact_byte_intake_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.artifact_byte_intake_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_execution_authorization_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.execution_authorization_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_service_registry_mutation_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.service_registry_mutation_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_load_attempt_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.load_attempt_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_artifact_load_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.artifact_load_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_executable_mapping_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.executable_mapping_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_entrypoint_transfer_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.entrypoint_transfer_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_service_start_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.service_start_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_service_health_binding_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.service_health_binding_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_service_running_state_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.service_running_state_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_service_start_audit_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.service_start_audit_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_service_unload_cleanup_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.service_unload_cleanup_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_live_load_commit_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.live_load_commit_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_commit_audit_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.commit_audit_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_commit_rollback_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.commit_rollback_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_commit_result_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.commit_result_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_descriptor_acceptance_authority_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.descriptor_acceptance_authority_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_descriptor_parser_contract_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.descriptor_parser_contract_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_descriptor_parser_result_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.descriptor_parser_result_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_descriptor_schema_validation_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.descriptor_schema_validation_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_descriptor_capability_validation_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.descriptor_capability_validation_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_descriptor_load_plan_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.descriptor_load_plan_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_executable_load_plan_authority_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.executable_load_plan_authority_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_executable_load_plan_result_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.executable_load_plan_result_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_executable_image_layout_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.executable_image_layout_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_executable_page_mapping_plan_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.executable_page_mapping_plan_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_executable_page_mapping_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.executable_page_mapping_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_descriptor_executable_page_binding_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.descriptor_executable_page_binding_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_executable_entrypoint_binding_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.executable_entrypoint_binding_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_executable_entrypoint_transfer_authorization_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.executable_entrypoint_transfer_authorization_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_executable_entrypoint_transfer_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.executable_entrypoint_transfer_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_executable_entrypoint_handoff_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.executable_entrypoint_handoff_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_executable_entrypoint_invocation_boundary` | REGENERATED | `evidence[id=loader_runtime].facts.executable_entrypoint_invocation_boundary.record_schema`. |
+| `protocol:module_load_audit_loader_runtime_no_load` | RETIRED | The old `loader_runtime_readiness` wrapper is gone; replaced by `protocol:module_load_audit_loader_evidence` -> `evidence[id=loader]` id + status + reason. |
+
+Coverage after merges is explicit for all twelve prerequisites: `module_manifest`,
+`candidate_artifact`, `vm_test_report`, `local_attestation`, `local_approval`,
+`computed_capability_grant`, `durable_audit_record`, `rollback_plan`,
+`service_slot`, `service_slot_allocator`, `loader_runtime`, and `loader` each
+have a binding-scoped id + status + reason predicate.
+
+No one of the 63 failing predicates pinned a hash. The existing byte-identical
+hash needles were deliberately left untouched: computed grant, local
+attestation reference, VM report reference/report, audit record, rollback plan,
+reservation, and service-slot reservation hashes. Every other non-listed
+full-audit needle was also left untouched because the orchestrator's live-log
+failure set was exact and its carrier bytes did not move.
