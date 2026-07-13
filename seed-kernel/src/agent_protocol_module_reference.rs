@@ -1,6 +1,9 @@
 use alloc::vec;
 
 use crate::{
+    agent_protocol_module_load_gate::{
+        computed_module_grant_hash, computed_module_manifest_reference_hash,
+    },
     agent_protocol_module_types::*,
     agent_protocol_support::{
         begin_response, crlf, current_boot_event_id_str, emit_export_gate,
@@ -2270,10 +2273,6 @@ fn module_vm_report_diagnostic_arg(method: &str) -> &str {
     };
     method[head_len..].trim()
 }
-fn computed_module_manifest_reference_hash(manifest_hash: [u8; 32]) -> [u8; 32] {
-    module_evidence::computed_module_manifest_reference_hash(manifest_hash)
-}
-
 fn computed_module_candidate_artifact_reference_hash(
     retained_manifest_reference_event_id: &str,
     retained_reference_event_id: &str,
@@ -2323,19 +2322,5 @@ fn computed_module_vm_test_report_reference_hash(
             vm_report_hash,
             local_attestation_hash,
         },
-    )
-}
-
-fn computed_module_grant_hash(
-    manifest_hash: [u8; 32],
-    artifact_hash: [u8; 32],
-    vm_report_hash: [u8; 32],
-    local_attestation_hash: [u8; 32],
-) -> [u8; 32] {
-    module_evidence::computed_module_grant_hash(
-        manifest_hash,
-        artifact_hash,
-        vm_report_hash,
-        local_attestation_hash,
     )
 }
