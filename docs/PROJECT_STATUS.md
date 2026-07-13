@@ -24,8 +24,31 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+P4-2b2a LANDED — LOAD-GATE DENIED RESPONSE FAMILY ON V1 (2026-07-13 midday).
+module.load_ephemeral (+ service.load_ephemeral alias) emits the v1 envelope
+from the raios-core projection; render file 6,878 -> ~5,922 lines and under
+both size-gate hard limits (exemption removed). Full verification ladder
+green: quick 196/196 (shadow-20260713-131346-5544.json), FULL
+(shadow-20260713-133308-22828.json), m6c (shadow-20260713-133732-964.json),
+m6d (shadow-20260713-133835-18768.json), m12
+(shadow-20260713-133939-18836.json). Side repairs landed on the way: the P3
+deletion had dropped the recovery.load_artifact console route (restored;
+quick needles aligned) and the first b2a attempt spliced a full v1 envelope
+into the recent_events stream via the shared event-binding renderer — the
+26-function compact binding cluster was restored verbatim (event vocabulary
+stays pre-v1 until P4-4; one shared-helper key rename schema->record_schema
+inside the binding's requirements sub-object was absorbed and recorded).
+Exact next task: P4-2b2b (selftest family + the substituted_local_approval
+fixture correction) is DISPATCHED and in flight; orchestrator builds + runs
+full-module-selftests via full profile after it lands, then P4-2 closes and
+P4-3b2 (loader/allocator kernel switch consuming the committed P4-3b1
+projection + both rulings) begins. Manifests are committed for ALL of
+P4-2a..P4-7a (855/1,370/511/224/326/929 predicates inventoried); P4-7a
+carries a SECURITY FINDING for P4-7b (emitter-assembled apply proof; LBA1
+write before evaluator verification).
+
 P4-1 CLOSED — MODULE-REFERENCE FAMILY ON EVIDENCE VOCABULARY V1 (2026-07-13).
-Exact next task: dispatch P4-2b2a (packet ready in the session scratchpad) —
+(Superseded cursor; history follows.) Original next task was: dispatch P4-2b2a —
 switch the load-gate DENIED response family in
 `agent_protocol_module_load_gate_render.rs` to v1 by consuming the committed
 raios-core projection `module_load_gate_projection.rs` (P4-2b1, 475 core tests
