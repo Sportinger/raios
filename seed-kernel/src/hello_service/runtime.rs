@@ -1,5 +1,15 @@
+use alloc::{vec, vec::Vec};
+
 use super::*;
+use crate::agent_protocol_support::emit_record_fields;
 use crate::current_boot_service::ServiceState;
+use raios_core::record::{Field, Value as V};
+
+macro_rules! j {
+    ($key:literal => $value:expr) => {
+        Field::new($key, $value)
+    };
+}
 
 pub(crate) fn artifact_identity_signature_verified(descriptor: LoadDescriptor) -> bool {
     let identity = descriptor.artifact_identity;
@@ -323,88 +333,67 @@ pub(crate) fn emit_recovery_rollback_inspect_source_reference_selftest() -> &'st
         idx += 1;
     }
 
-    begin_response(method);
-    raw("      \"schema\": ");
-    json_str(HELLO_RECOVERY_ROLLBACK_INSPECT_SOURCE_REFERENCE_SELFTEST_SCHEMA);
-    raw_line(",");
-    raw("      \"id\": ");
-    json_str(HELLO_RECOVERY_ROLLBACK_INSPECT_SOURCE_REFERENCE_SELFTEST_ID);
-    raw_line(",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"persistence\": \"none\",");
-    raw_line("      \"test_infrastructure\": true,");
-    raw_line("      \"read_only\": true,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"creates_source_reference_events\": false,");
-    raw("      \"diagnostic_hash\": ");
-    json_sha256(recovery_rollback_inspect_source_reference_selftest_hash());
-    raw_line(",");
-    raw("      \"service_id\": ");
-    json_str(SERVICE_ID);
-    raw_line(",");
-    raw_line("      \"validated_binding_schema\": \"raios.recovery_rollback_inspect_source_reference_binding.v0\",");
-    raw("      \"case_count\": ");
-    raw_fmt(format_args!("{}", cases.len()));
-    raw_line(",");
-    raw("      \"passed_count\": ");
-    raw_fmt(format_args!("{}", passed_count));
-    raw_line(",");
-    raw("      \"all_passed\": ");
-    raw_bool(passed_count == cases.len());
-    raw_line(",");
-    raw_line("      \"covered_rejections\": [");
-    raw_line("        \"missing_or_unretained_source_event_id\",");
-    raw_line("        \"wrong_source_read_binding\",");
-    raw_line("        \"missing_or_unretained_audit_event_id\",");
-    raw_line("        \"wrong_audit_event_variant\",");
-    raw_line("        \"substituted_hashes_denied\",");
-    raw_line("        \"authorizing_source_reference_denied\"");
-    raw_line("      ],");
-    raw_line("      \"cases\": [");
+    let mut case_values = Vec::new();
     idx = 0;
     while idx < cases.len() {
         let case = cases[idx];
-        raw("        {\"name\": ");
-        json_str(case.name);
-        raw(", \"expected_status\": ");
-        json_str(case.expected_status);
-        raw(", \"expected_reason\": ");
-        json_str(case.expected_reason);
-        raw(", \"actual_status\": ");
-        json_str(case.actual_status);
-        raw(", \"actual_reason\": ");
-        json_str(case.actual_reason);
-        raw(", \"source_event_retained\": ");
-        raw_bool(case.source_event_retained);
-        raw(", \"audit_event_retained\": ");
-        raw_bool(case.audit_event_retained);
-        raw(", \"validated\": ");
-        raw_bool(case.validated);
-        raw(", \"passed\": ");
-        raw_bool(case.passed);
-        raw("}");
-        if idx + 1 != cases.len() {
-            raw(",");
-        }
-        raw_line("");
+        case_values.push(V::InlineObject(vec![
+            j!("name" => V::Str(case.name)),
+            j!("expected_status" => V::Str(case.expected_status)),
+            j!("expected_reason" => V::Str(case.expected_reason)),
+            j!("actual_status" => V::Str(case.actual_status)),
+            j!("actual_reason" => V::Str(case.actual_reason)),
+            j!("source_event_retained" => V::Bool(case.source_event_retained)),
+            j!("audit_event_retained" => V::Bool(case.audit_event_retained)),
+            j!("validated" => V::Bool(case.validated)),
+            j!("passed" => V::Bool(case.passed)),
+        ]));
         idx += 1;
     }
-    raw_line("      ],");
-    raw_line("      \"denied_surfaces\": {");
-    raw_line("        \"rollback_apply\": \"denied\",");
-    raw_line("        \"durable_media_write\": \"denied\",");
-    raw_line("        \"durable_audit\": \"denied\",");
-    raw_line("        \"rollback_store_write\": \"denied\",");
-    raw_line("        \"transaction_append\": \"denied\",");
-    raw_line("        \"persistence\": \"denied\",");
-    raw_line("        \"external_artifact_bytes\": \"denied\",");
-    raw_line("        \"candidate_execution\": \"denied\",");
-    raw_line("        \"executable_mapping\": \"denied\",");
-    raw_line("        \"provider_auto_load\": \"denied\",");
-    raw_line("        \"broad_mutation\": \"denied\",");
-    raw_line("        \"installed_rollback_state\": \"denied\"");
-    raw_line("      }");
+    begin_response(method);
+    emit_record_fields(
+        vec![
+            j!("schema" => V::Str(HELLO_RECOVERY_ROLLBACK_INSPECT_SOURCE_REFERENCE_SELFTEST_SCHEMA)),
+            j!("id" => V::Str(HELLO_RECOVERY_ROLLBACK_INSPECT_SOURCE_REFERENCE_SELFTEST_ID)),
+            j!("scope" => V::Str("current_boot")),
+            j!("classification" => V::Str("local_only")),
+            j!("persistence" => V::Str("none")),
+            j!("test_infrastructure" => V::Bool(true)),
+            j!("read_only" => V::Bool(true)),
+            j!("mutates_global_event_log" => V::Bool(false)),
+            j!("creates_source_reference_events" => V::Bool(false)),
+            j!("diagnostic_hash" => V::Sha256(recovery_rollback_inspect_source_reference_selftest_hash())),
+            j!("service_id" => V::Str(SERVICE_ID)),
+            j!("validated_binding_schema" => V::Str("raios.recovery_rollback_inspect_source_reference_binding.v0")),
+            j!("case_count" => V::U64(cases.len() as u64)),
+            j!("passed_count" => V::U64(passed_count as u64)),
+            j!("all_passed" => V::Bool(passed_count == cases.len())),
+            j!("covered_rejections" => V::Array(vec![
+                V::Str("missing_or_unretained_source_event_id"),
+                V::Str("wrong_source_read_binding"),
+                V::Str("missing_or_unretained_audit_event_id"),
+                V::Str("wrong_audit_event_variant"),
+                V::Str("substituted_hashes_denied"),
+                V::Str("authorizing_source_reference_denied"),
+            ])),
+            j!("cases" => V::Array(case_values)),
+            j!("denied_surfaces" => V::Object(vec![
+                j!("rollback_apply" => V::Str("denied")),
+                j!("durable_media_write" => V::Str("denied")),
+                j!("durable_audit" => V::Str("denied")),
+                j!("rollback_store_write" => V::Str("denied")),
+                j!("transaction_append" => V::Str("denied")),
+                j!("persistence" => V::Str("denied")),
+                j!("external_artifact_bytes" => V::Str("denied")),
+                j!("candidate_execution" => V::Str("denied")),
+                j!("executable_mapping" => V::Str("denied")),
+                j!("provider_auto_load" => V::Str("denied")),
+                j!("broad_mutation" => V::Str("denied")),
+                j!("installed_rollback_state" => V::Str("denied")),
+            ])),
+        ],
+        6,
+    );
     end_response(method);
     method
 }
@@ -420,69 +409,48 @@ pub(crate) fn emit_descriptor_source_trust_selftest() -> &'static str {
         }
         idx += 1;
     }
-    begin_response(method);
-    raw_line("      \"schema\": \"raios.descriptor_source_trust_selftest.v0\",");
-    raw("      \"id\": ");
-    json_str(descriptor_sources::HELLO_DESCRIPTOR_SOURCE_TRUST_SELFTEST_ID);
-    raw_line(",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"persistence\": \"none\",");
-    raw_line("      \"read_only\": true,");
-    raw("      \"diagnostic_hash\": ");
-    json_sha256(descriptor_sources::hello_descriptor_source_trust_selftest_hash());
-    raw_line(",");
-    raw("      \"service_id\": ");
-    json_str(SERVICE_ID);
-    raw_line(",");
-    raw("      \"descriptor_source_locator\": ");
-    json_str(LOAD_DESCRIPTOR_SOURCE_LOCATOR);
-    raw_line(",");
-    raw("      \"descriptor_source_kind\": ");
-    json_str(LOAD_DESCRIPTOR_SOURCE_KIND);
-    raw_line(",");
-    raw("      \"signature_envelope\": ");
-    emit_descriptor_source_signature_envelope(LOAD_DESCRIPTOR);
-    raw_line(",");
-    raw("      \"case_count\": ");
-    raw_fmt(format_args!("{}", cases.len()));
-    raw_line(",");
-    raw("      \"passed_count\": ");
-    raw_fmt(format_args!("{}", passed_count));
-    raw_line(",");
-    raw("      \"all_passed\": ");
-    raw_bool(passed_count == cases.len());
-    raw_line(",");
-    raw_line("      \"cases\": [");
+    let mut case_values = Vec::new();
     idx = 0;
     while idx < cases.len() {
         let case = cases[idx];
-        raw("        {\"name\": ");
-        json_str(case.name);
-        raw(", \"expected_accept\": ");
-        raw_bool(case.expected_accept);
-        raw(", \"actual_accept\": ");
-        raw_bool(case.actual_accept);
-        raw(", \"passed\": ");
-        raw_bool(case.passed);
-        raw(", \"reason\": ");
-        json_str(case.reason);
-        raw("}");
-        if idx + 1 != cases.len() {
-            raw(",");
-        }
-        raw_line("");
+        case_values.push(V::InlineObject(vec![
+            j!("name" => V::Str(case.name)),
+            j!("expected_accept" => V::Bool(case.expected_accept)),
+            j!("actual_accept" => V::Bool(case.actual_accept)),
+            j!("passed" => V::Bool(case.passed)),
+            j!("reason" => V::Str(case.reason)),
+        ]));
         idx += 1;
     }
-    raw_line("      ],");
-    raw_line("      \"denied_surfaces\": {");
-    raw_line("        \"descriptor_bytes_intake\": \"denied\",");
-    raw_line("        \"external_artifact_load\": \"denied\",");
-    raw_line("        \"persistent_install\": \"denied\",");
-    raw_line("        \"durable_audit\": \"denied\",");
-    raw_line("        \"rollback_install\": \"denied\",");
-    raw_line("        \"broad_mutation\": \"denied\"");
-    raw_line("      }");
+    begin_response(method);
+    emit_record_fields(
+        vec![
+            j!("schema" => V::Str("raios.descriptor_source_trust_selftest.v0")),
+            j!("id" => V::Str(descriptor_sources::HELLO_DESCRIPTOR_SOURCE_TRUST_SELFTEST_ID)),
+            j!("scope" => V::Str("current_boot")),
+            j!("classification" => V::Str("local_only")),
+            j!("persistence" => V::Str("none")),
+            j!("read_only" => V::Bool(true)),
+            j!("diagnostic_hash" => V::Sha256(descriptor_sources::hello_descriptor_source_trust_selftest_hash())),
+            j!("service_id" => V::Str(SERVICE_ID)),
+            j!("descriptor_source_locator" => V::Str(LOAD_DESCRIPTOR_SOURCE_LOCATOR)),
+            j!("descriptor_source_kind" => V::Str(LOAD_DESCRIPTOR_SOURCE_KIND)),
+            j!("signature_envelope" => descriptor_source_signature_envelope_value(LOAD_DESCRIPTOR)),
+            j!("case_count" => V::U64(cases.len() as u64)),
+            j!("passed_count" => V::U64(passed_count as u64)),
+            j!("all_passed" => V::Bool(passed_count == cases.len())),
+            j!("cases" => V::Array(case_values)),
+            j!("denied_surfaces" => V::Object(vec![
+                j!("descriptor_bytes_intake" => V::Str("denied")),
+                j!("external_artifact_load" => V::Str("denied")),
+                j!("persistent_install" => V::Str("denied")),
+                j!("durable_audit" => V::Str("denied")),
+                j!("rollback_install" => V::Str("denied")),
+                j!("broad_mutation" => V::Str("denied")),
+            ])),
+        ],
+        6,
+    );
     end_response(method);
     method
 }
@@ -498,71 +466,50 @@ pub(crate) fn emit_artifact_reference_trust_selftest() -> &'static str {
         }
         idx += 1;
     }
-    begin_response(method);
-    raw_line("      \"schema\": \"raios.builtin_artifact_reference_trust_selftest.v0\",");
-    raw("      \"id\": ");
-    json_str(descriptor_sources::HELLO_ARTIFACT_REFERENCE_TRUST_SELFTEST_ID);
-    raw_line(",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"persistence\": \"none\",");
-    raw_line("      \"read_only\": true,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw("      \"diagnostic_hash\": ");
-    json_sha256(descriptor_sources::hello_artifact_reference_trust_selftest_hash());
-    raw_line(",");
-    raw("      \"service_id\": ");
-    json_str(SERVICE_ID);
-    raw_line(",");
-    raw("      \"artifact_id\": ");
-    json_str(ARTIFACT_ID);
-    raw_line(",");
-    raw("      \"artifact_reference\": ");
-    emit_artifact_reference(LOAD_DESCRIPTOR);
-    raw_line(",");
-    raw("      \"identity_signature_envelope\": ");
-    emit_artifact_identity_signature_envelope(LOAD_DESCRIPTOR);
-    raw_line(",");
-    raw("      \"case_count\": ");
-    raw_fmt(format_args!("{}", cases.len()));
-    raw_line(",");
-    raw("      \"passed_count\": ");
-    raw_fmt(format_args!("{}", passed_count));
-    raw_line(",");
-    raw("      \"all_passed\": ");
-    raw_bool(passed_count == cases.len());
-    raw_line(",");
-    raw_line("      \"cases\": [");
+    let mut case_values = Vec::new();
     idx = 0;
     while idx < cases.len() {
         let case = cases[idx];
-        raw("        {\"name\": ");
-        json_str(case.name);
-        raw(", \"expected_accept\": ");
-        raw_bool(case.expected_accept);
-        raw(", \"actual_accept\": ");
-        raw_bool(case.actual_accept);
-        raw(", \"passed\": ");
-        raw_bool(case.passed);
-        raw(", \"reason\": ");
-        json_str(case.reason);
-        raw("}");
-        if idx + 1 != cases.len() {
-            raw(",");
-        }
-        raw_line("");
+        case_values.push(V::InlineObject(vec![
+            j!("name" => V::Str(case.name)),
+            j!("expected_accept" => V::Bool(case.expected_accept)),
+            j!("actual_accept" => V::Bool(case.actual_accept)),
+            j!("passed" => V::Bool(case.passed)),
+            j!("reason" => V::Str(case.reason)),
+        ]));
         idx += 1;
     }
-    raw_line("      ],");
-    raw_line("      \"denied_surfaces\": {");
-    raw_line("        \"artifact_bytes_intake\": \"denied\",");
-    raw_line("        \"artifact_load\": \"denied\",");
-    raw_line("        \"executable_mapping\": \"denied\",");
-    raw_line("        \"persistent_install\": \"denied\",");
-    raw_line("        \"durable_audit\": \"denied\",");
-    raw_line("        \"rollback_install\": \"denied\",");
-    raw_line("        \"broad_mutation\": \"denied\"");
-    raw_line("      }");
+    begin_response(method);
+    emit_record_fields(
+        vec![
+            j!("schema" => V::Str("raios.builtin_artifact_reference_trust_selftest.v0")),
+            j!("id" => V::Str(descriptor_sources::HELLO_ARTIFACT_REFERENCE_TRUST_SELFTEST_ID)),
+            j!("scope" => V::Str("current_boot")),
+            j!("classification" => V::Str("local_only")),
+            j!("persistence" => V::Str("none")),
+            j!("read_only" => V::Bool(true)),
+            j!("mutates_global_event_log" => V::Bool(false)),
+            j!("diagnostic_hash" => V::Sha256(descriptor_sources::hello_artifact_reference_trust_selftest_hash())),
+            j!("service_id" => V::Str(SERVICE_ID)),
+            j!("artifact_id" => V::Str(ARTIFACT_ID)),
+            j!("artifact_reference" => artifact_reference_value(LOAD_DESCRIPTOR)),
+            j!("identity_signature_envelope" => artifact_identity_signature_envelope_value(LOAD_DESCRIPTOR)),
+            j!("case_count" => V::U64(cases.len() as u64)),
+            j!("passed_count" => V::U64(passed_count as u64)),
+            j!("all_passed" => V::Bool(passed_count == cases.len())),
+            j!("cases" => V::Array(case_values)),
+            j!("denied_surfaces" => V::Object(vec![
+                j!("artifact_bytes_intake" => V::Str("denied")),
+                j!("artifact_load" => V::Str("denied")),
+                j!("executable_mapping" => V::Str("denied")),
+                j!("persistent_install" => V::Str("denied")),
+                j!("durable_audit" => V::Str("denied")),
+                j!("rollback_install" => V::Str("denied")),
+                j!("broad_mutation" => V::Str("denied")),
+            ])),
+        ],
+        6,
+    );
     end_response(method);
     method
 }
@@ -578,77 +525,52 @@ pub(crate) fn emit_artifact_load_plan_preflight_selftest() -> &'static str {
         }
         idx += 1;
     }
-    begin_response(method);
-    raw("      \"schema\": ");
-    json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_SELFTEST_SCHEMA);
-    raw_line(",");
-    raw("      \"id\": ");
-    json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_SELFTEST_ID);
-    raw_line(",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"persistence\": \"none\",");
-    raw_line("      \"read_only\": true,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw("      \"diagnostic_hash\": ");
-    json_sha256(artifact_load_plan_preflight_selftest_hash());
-    raw_line(",");
-    raw("      \"service_id\": ");
-    json_str(SERVICE_ID);
-    raw_line(",");
-    raw("      \"artifact_id\": ");
-    json_str(ARTIFACT_ID);
-    raw_line(",");
-    raw("      \"service_slot_intent_id\": ");
-    json_str(SERVICE_SLOT_INTENT_ID);
-    raw_line(",");
-    raw("      \"ram_only_service_slot_id\": ");
-    json_str(RAM_ONLY_SERVICE_SLOT_ID);
-    raw_line(",");
-    raw("      \"artifact_load_plan_preflight\": ");
-    emit_artifact_load_plan_preflight(LOAD_DESCRIPTOR);
-    raw_line(",");
-    raw("      \"case_count\": ");
-    raw_fmt(format_args!("{}", cases.len()));
-    raw_line(",");
-    raw("      \"passed_count\": ");
-    raw_fmt(format_args!("{}", passed_count));
-    raw_line(",");
-    raw("      \"all_passed\": ");
-    raw_bool(passed_count == cases.len());
-    raw_line(",");
-    raw_line("      \"cases\": [");
+    let mut case_values = Vec::new();
     idx = 0;
     while idx < cases.len() {
         let case = cases[idx];
-        raw("        {\"name\": ");
-        json_str(case.name);
-        raw(", \"expected_accept\": ");
-        raw_bool(case.expected_accept);
-        raw(", \"actual_accept\": ");
-        raw_bool(case.actual_accept);
-        raw(", \"passed\": ");
-        raw_bool(case.passed);
-        raw(", \"reason\": ");
-        json_str(case.reason);
-        raw("}");
-        if idx + 1 != cases.len() {
-            raw(",");
-        }
-        raw_line("");
+        case_values.push(V::InlineObject(vec![
+            j!("name" => V::Str(case.name)),
+            j!("expected_accept" => V::Bool(case.expected_accept)),
+            j!("actual_accept" => V::Bool(case.actual_accept)),
+            j!("passed" => V::Bool(case.passed)),
+            j!("reason" => V::Str(case.reason)),
+        ]));
         idx += 1;
     }
-    raw_line("      ],");
-    raw_line("      \"denied_surfaces\": {");
-    raw_line("        \"external_artifact_bytes\": \"denied\",");
-    raw_line("        \"candidate_artifact_execution\": \"denied\",");
-    raw_line("        \"artifact_load\": \"denied\",");
-    raw_line("        \"executable_mapping\": \"denied\",");
-    raw_line("        \"persistent_install\": \"denied\",");
-    raw_line("        \"durable_audit\": \"denied\",");
-    raw_line("        \"rollback_install\": \"denied\",");
-    raw_line("        \"broad_mutation\": \"denied\"");
-    raw_line("      }");
+    begin_response(method);
+    emit_record_fields(
+        vec![
+            j!("schema" => V::Str(ARTIFACT_LOAD_PLAN_PREFLIGHT_SELFTEST_SCHEMA)),
+            j!("id" => V::Str(ARTIFACT_LOAD_PLAN_PREFLIGHT_SELFTEST_ID)),
+            j!("scope" => V::Str("current_boot")),
+            j!("classification" => V::Str("local_only")),
+            j!("persistence" => V::Str("none")),
+            j!("read_only" => V::Bool(true)),
+            j!("mutates_global_event_log" => V::Bool(false)),
+            j!("diagnostic_hash" => V::Sha256(artifact_load_plan_preflight_selftest_hash())),
+            j!("service_id" => V::Str(SERVICE_ID)),
+            j!("artifact_id" => V::Str(ARTIFACT_ID)),
+            j!("service_slot_intent_id" => V::Str(SERVICE_SLOT_INTENT_ID)),
+            j!("ram_only_service_slot_id" => V::Str(RAM_ONLY_SERVICE_SLOT_ID)),
+            j!("artifact_load_plan_preflight" => artifact_load_plan_preflight_value(LOAD_DESCRIPTOR)),
+            j!("case_count" => V::U64(cases.len() as u64)),
+            j!("passed_count" => V::U64(passed_count as u64)),
+            j!("all_passed" => V::Bool(passed_count == cases.len())),
+            j!("cases" => V::Array(case_values)),
+            j!("denied_surfaces" => V::Object(vec![
+                j!("external_artifact_bytes" => V::Str("denied")),
+                j!("candidate_artifact_execution" => V::Str("denied")),
+                j!("artifact_load" => V::Str("denied")),
+                j!("executable_mapping" => V::Str("denied")),
+                j!("persistent_install" => V::Str("denied")),
+                j!("durable_audit" => V::Str("denied")),
+                j!("rollback_install" => V::Str("denied")),
+                j!("broad_mutation" => V::Str("denied")),
+            ])),
+        ],
+        6,
+    );
     end_response(method);
     method
 }

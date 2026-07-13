@@ -501,10 +501,11 @@ fn audit_rollback_target_region_discovery_value(
     ])
 }
 
-pub(crate) fn emit_rollback_transaction_writer_storage_authority_gate(
+#[rustfmt::skip]
+fn rollback_transaction_writer_storage_authority_gate_value(
     snapshot: Snapshot,
     probation: Option<HelloHotSwapProbationRecord>,
-) {
+) -> V<'static> {
     if let Some(probation) = probation {
         let foundation = rollback_writer_storage_foundation();
         let append_record = hello_rollback_append_record_dry_run(snapshot, probation, foundation);
@@ -516,9 +517,9 @@ pub(crate) fn emit_rollback_transaction_writer_storage_authority_gate(
             hello_target_region_media_write_policy_preflight(foundation);
         let target_region_write =
             hello_rollback_target_region_write_readback_dry_run_from_materializer(
-                sector_plan,
-                foundation,
-                target_region_media_write_policy_preflight,
+            sector_plan,
+            foundation,
+            target_region_media_write_policy_preflight,
             );
         let durable_append_preflight = hello_rollback_durable_append_authority_preflight(
             foundation,
@@ -528,2278 +529,1372 @@ pub(crate) fn emit_rollback_transaction_writer_storage_authority_gate(
             target_region_media_write_policy_preflight,
             target_region_write,
             hello_rollback_durable_writer_policy_preflight(
-                foundation,
-                append_record,
-                sector_plan,
-                target_region_write,
+            foundation,
+            append_record,
+            sector_plan,
+            target_region_write,
             ),
         );
-        raw("{\"schema\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_AUTHORITY_GATE_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_AUTHORITY_GATE_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_AUTHORITY_GATE_STATUS);
-        raw(", \"service_id\": ");
-        json_str(SERVICE_ID);
-        raw(", \"requested_capability\": ");
-        json_str(HELLO_ROLLBACK_APPLY_CAPABILITY);
-        raw(", \"gate_hash\": ");
-        json_sha256(rollback_transaction_writer_storage_authority_gate_hash(
-            snapshot, probation,
-        ));
-        raw(", \"rollback_payload_envelope_gate_hash\": ");
-        json_sha256(rollback_payload_envelope_gate_hash(snapshot, probation));
-        raw(", \"payload_hash\": ");
-        json_sha256(hello_rollback_transaction_payload_hash(snapshot, probation));
-        raw(", \"provenance_hash\": ");
-        json_sha256(hello_rollback_transaction_payload_provenance_hash(
-            snapshot, probation,
-        ));
-        raw(", \"rollback_append_intent_gate_hash\": ");
-        json_sha256(rollback_append_intent_gate_hash(snapshot, probation));
-        raw(", \"rollback_write_authority_gate_hash\": ");
-        json_sha256(rollback_write_authority_gate_hash(snapshot, probation));
-        raw(", \"rollback_transaction_preflight_hash\": ");
-        json_sha256(hello_rollback_transaction_preflight_hash(
-            snapshot, probation,
-        ));
-        raw(", \"rollback_apply_hash\": ");
-        json_sha256(hello_rollback_apply_denial_hash(snapshot, probation));
-        raw(", \"rollback_preview_hash\": ");
-        json_sha256(hello_rollback_preview_hash(snapshot, probation));
-        raw(", \"source_probation_hash\": ");
-        json_sha256(probation.probation_hash);
-        raw(", \"current_state_hash\": ");
-        json_sha256(hello_state_hash(snapshot.state_counter));
-        raw(", \"current_state_counter\": ");
-        raw_fmt(format_args!("{}", snapshot.state_counter));
-        raw(", \"rollback_target_descriptor_source_hash\": ");
-        json_sha256(probation.previous_descriptor_source_hash);
-        raw(", \"rollback_target_artifact_identity_hash\": ");
-        json_sha256(probation.previous_artifact_identity_hash);
-        raw(", \"current_candidate_descriptor_source_hash\": ");
-        json_sha256(probation.new_descriptor_source_hash);
-        raw(", \"current_candidate_artifact_identity_hash\": ");
-        json_sha256(probation.new_artifact_identity_hash);
-        raw(", \"state_migration_hash\": ");
-        json_sha256(probation.state_migration_hash);
-        raw(", \"required_schemas\": {\"audit_record\": \"raios.audit_record.v0\", \"rollback_transaction\": \"raios.rollback_transaction.v0\"}");
-        raw(", \"writer_storage_foundation\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_FOUNDATION_SCHEMA);
-        raw(", \"owner_method\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_FOUNDATION_OWNER);
-        raw(", \"recovery_visible_method\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_FOUNDATION_OWNER);
-        raw(", \"storage_authority\": {\"schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_STORAGE_AUTHORITY_SCHEMA);
-        raw(", \"id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_STORAGE_AUTHORITY_ID);
-        raw(", \"owner_method\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_STORAGE_AUTHORITY_OWNER);
-        raw(", \"source_method\": ");
-        json_str(rollback_storage_layout::MODULE_AUDIT_ROLLBACK_STORAGE_LAYOUT_METHOD);
-        raw(", \"status\": ");
-        json_str(foundation.storage_layout_status);
-        raw(", \"reason\": ");
-        json_str(foundation.storage_layout_reason);
-        raw(", \"available\": ");
-        raw_bool(foundation.storage_layout_available);
-        raw(", \"authorizes_append\": false}");
-        raw(", \"append_targets\": {\"audit_ledger\": {\"id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
-        raw(", \"schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
-        raw(", \"available\": ");
-        raw_bool(foundation.durable_audit_store_available);
-        raw("}, \"rollback_store\": {\"id\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_TARGET_ID);
-        raw(", \"schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
-        raw(", \"available\": ");
-        raw_bool(foundation.rollback_store_available);
-        raw(", \"append_available\": ");
-        raw_bool(foundation.rollback_transaction_append_available);
-        raw("}}");
-        raw(", \"target_region_discovery\": ");
-        emit_audit_rollback_target_region_discovery_inline(foundation.target_region_discovery);
-        raw(", \"append_target_owner\": {\"schema\": ");
-        json_str(rollback_append_contract::AUDIT_ROLLBACK_APPEND_TARGET_OWNER_SCHEMA);
-        raw(", \"id\": ");
-        json_str(rollback_append_contract::AUDIT_ROLLBACK_APPEND_TARGET_OWNER_ID);
-        raw(", \"owner_method\": ");
-        json_str(rollback_append_contract::MODULE_AUDIT_ROLLBACK_APPEND_CONTRACT_METHOD);
-        raw(", \"storage_authority_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_STORAGE_AUTHORITY_ID);
-        raw(", \"status\": ");
-        json_str(foundation.append_target_owner_status);
-        raw(", \"reason\": ");
-        json_str(foundation.append_target_owner_reason);
-        raw(", \"available\": ");
-        raw_bool(foundation.append_target_owner_available);
-        raw(", \"block_write_path_available\": ");
-        raw_bool(foundation.block_write_path_available);
-        raw(", \"block_write_path_reason\": ");
-        json_str(foundation.block_write_path_reason);
-        raw(", \"authorizes_append\": false}");
-        raw(", \"transaction_writer_readiness\": {\"schema\": ");
-        json_str(rollback_append_contract::AUDIT_ROLLBACK_TRANSACTION_WRITER_READINESS_SCHEMA);
-        raw(", \"id\": ");
-        json_str(rollback_append_contract::AUDIT_ROLLBACK_TRANSACTION_WRITER_READINESS_ID);
-        raw(", \"owner_method\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_TRANSACTION_WRITER_OWNER);
-        raw(", \"append_target_owner_id\": ");
-        json_str(rollback_append_contract::AUDIT_ROLLBACK_APPEND_TARGET_OWNER_ID);
-        raw(", \"status\": ");
-        json_str(foundation.transaction_writer_status);
-        raw(", \"reason\": ");
-        json_str(foundation.transaction_writer_reason);
-        raw(", \"ready\": ");
-        raw_bool(foundation.transaction_writer_ready);
-        raw(", \"block_write_path_available\": ");
-        raw_bool(foundation.block_write_path_available);
-        raw(", \"block_write_path_reason\": ");
-        json_str(foundation.block_write_path_reason);
-        raw(", \"scratch_only_writer_dry_run\": {\"schema\": ");
-        json_str(
-            rollback_append_contract::AUDIT_ROLLBACK_TRANSACTION_WRITER_SCRATCH_DRY_RUN_SCHEMA,
-        );
-        raw(", \"id\": ");
-        json_str(rollback_append_contract::AUDIT_ROLLBACK_TRANSACTION_WRITER_SCRATCH_DRY_RUN_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"status\": ");
-        json_str(foundation.scratch_writer_dry_run_status);
-        raw(", \"reason\": ");
-        json_str(foundation.scratch_writer_dry_run_reason);
-        raw(", \"source_authority_id\": ");
-        json_str(foundation.scratch_block_write_authority_id);
-        raw(", \"source_region_id\": ");
-        json_str(foundation.scratch_region_id);
-        raw(", \"target_region_start_lba\": ");
-        raw_fmt(format_args!("{}", foundation.scratch_region_start_lba));
-        raw(", \"target_region_lba_count\": ");
-        raw_fmt(format_args!("{}", foundation.scratch_region_lba_count));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!("{}", foundation.scratch_region_byte_count));
-        raw(", \"target_range_scratch_owned\": ");
-        raw_bool(foundation.scratch_block_write_authority_available);
-        raw(", \"target_range_within_device_bounds\": ");
-        raw_bool(foundation.scratch_region_within_device_bounds);
-        raw(", \"target_range_no_boot_or_partition_metadata_overlap\": ");
-        raw_bool(foundation.scratch_region_no_boot_or_partition_metadata_overlap);
-        raw(", \"target_range_ready\": ");
-        raw_bool(foundation.scratch_writer_dry_run_ready);
-        raw(", \"audit_ledger_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
-        raw(", \"audit_record_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
-        raw(", \"rollback_store_target_id\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_TARGET_ID);
-        raw(", \"rollback_transaction_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
-        raw(", \"append_record_dry_run\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_APPEND_RECORD_DRY_RUN_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_APPEND_RECORD_DRY_RUN_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"canonicalization\": ");
-        json_str(HELLO_ROLLBACK_APPEND_RECORD_CANONICALIZATION);
-        raw(", \"status\": ");
-        json_str(HELLO_ROLLBACK_APPEND_RECORD_DRY_RUN_STATUS);
-        raw(", \"reason\": ");
-        json_str(HELLO_ROLLBACK_APPEND_RECORD_DRY_RUN_REASON);
-        raw(", \"dry_run_hash\": ");
-        json_sha256(append_record.dry_run_hash);
-        raw(", \"audit_ledger_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
-        raw(", \"audit_record_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
-        raw(", \"audit_record_image_hash\": ");
-        json_sha256(append_record.audit_record_image_hash);
-        raw(", \"audit_record_byte_length\": ");
-        raw_fmt(format_args!("{}", append_record.audit_record_byte_length));
-        raw(", \"rollback_store_target_id\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_TARGET_ID);
-        raw(", \"rollback_transaction_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
-        raw(", \"rollback_transaction_image_hash\": ");
-        json_sha256(append_record.rollback_transaction_image_hash);
-        raw(", \"rollback_transaction_byte_length\": ");
-        raw_fmt(format_args!(
-            "{}",
-            append_record.rollback_transaction_byte_length
-        ));
-        raw(", \"total_record_byte_length\": ");
-        raw_fmt(format_args!("{}", append_record.total_record_byte_length));
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!("{}", append_record.target_start_lba));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!("{}", append_record.target_lba_count));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!("{}", append_record.target_byte_count));
-        raw(", \"target_range_ready\": ");
-        raw_bool(append_record.target_range_ready);
-        raw(", \"source_payload_hash\": ");
-        json_sha256(hello_rollback_transaction_payload_hash(snapshot, probation));
-        raw(", \"source_provenance_hash\": ");
-        json_sha256(hello_rollback_transaction_payload_provenance_hash(
-            snapshot, probation,
-        ));
-        raw(", \"sector_plan_dry_run\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_APPEND_SECTOR_PLAN_DRY_RUN_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_APPEND_SECTOR_PLAN_DRY_RUN_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"canonicalization\": ");
-        json_str(HELLO_ROLLBACK_APPEND_SECTOR_PLAN_CANONICALIZATION);
-        raw(", \"status\": ");
-        json_str(HELLO_ROLLBACK_APPEND_SECTOR_PLAN_DRY_RUN_STATUS);
-        raw(", \"reason\": ");
-        json_str(HELLO_ROLLBACK_APPEND_SECTOR_PLAN_DRY_RUN_REASON);
-        raw(", \"plan_hash\": ");
-        json_sha256(sector_plan.plan_hash);
-        raw(", \"sector_image_hash\": ");
-        json_sha256(sector_plan.sector_image_hash);
-        raw(", \"sector_size_bytes\": ");
-        raw_fmt(format_args!("{}", sector_plan.sector_size_bytes));
-        raw(", \"audit_record_offset\": ");
-        raw_fmt(format_args!("{}", sector_plan.audit_record_offset));
-        raw(", \"audit_record_byte_length\": ");
-        raw_fmt(format_args!("{}", sector_plan.audit_record_byte_length));
-        raw(", \"rollback_transaction_offset\": ");
-        raw_fmt(format_args!("{}", sector_plan.rollback_transaction_offset));
-        raw(", \"rollback_transaction_byte_length\": ");
-        raw_fmt(format_args!(
-            "{}",
-            sector_plan.rollback_transaction_byte_length
-        ));
-        raw(", \"padding_policy\": ");
-        json_str(HELLO_ROLLBACK_APPEND_SECTOR_PADDING_POLICY);
-        raw(", \"padding_offset\": ");
-        raw_fmt(format_args!("{}", sector_plan.padding_offset));
-        raw(", \"padding_byte_length\": ");
-        raw_fmt(format_args!("{}", sector_plan.padding_byte_length));
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!("{}", sector_plan.target_start_lba));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!("{}", sector_plan.target_lba_count));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!("{}", sector_plan.target_byte_count));
-        raw(", \"target_range_ready\": ");
-        raw_bool(sector_plan.target_range_ready);
-        raw(", \"source_append_record_hash\": ");
-        json_sha256(append_record.dry_run_hash);
-        raw(", \"scratch_sector_write_readback_dry_run\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_APPEND_SECTOR_WRITE_READBACK_DRY_RUN_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_APPEND_SECTOR_WRITE_READBACK_DRY_RUN_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(sector_write.status);
-        raw(", \"reason\": ");
-        json_str(sector_write.reason);
-        raw(", \"dry_run_hash\": ");
-        json_sha256(sector_write.dry_run_hash);
-        raw(", \"source_plan_hash\": ");
-        json_sha256(sector_write.source_plan_hash);
-        raw(", \"planned_sector_image_hash\": ");
-        json_sha256(sector_write.planned_sector_image_hash);
-        raw(", \"readback_sector_image_hash\": ");
-        json_sha256(sector_write.readback_sector_image_hash);
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!("{}", sector_write.target_start_lba));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!("{}", sector_write.target_lba_count));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!("{}", sector_write.target_byte_count));
-        raw(", \"label_found\": ");
-        raw_bool(sector_write.label_found);
-        raw(", \"target_range_ready\": ");
-        raw_bool(sector_write.target_range_ready);
-        raw(", \"write_attempted\": ");
-        raw_bool(sector_write.write_attempted);
-        raw(", \"write_completed\": ");
-        raw_bool(sector_write.write_completed);
-        raw(", \"readback_completed\": ");
-        raw_bool(sector_write.readback_completed);
-        raw(", \"readback_matches_planned_image\": ");
-        raw_bool(sector_write.readback_matches_planned_image);
-        raw(", \"durable_append_authority_preflight\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_PREFLIGHT_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_PREFLIGHT_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_PREFLIGHT_STATUS);
-        raw(", \"reason\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_PREFLIGHT_REASON);
-        raw(", \"preflight_hash\": ");
-        json_sha256(durable_append_preflight.preflight_hash);
-        raw(", \"source_write_readback_hash\": ");
-        json_sha256(durable_append_preflight.source_write_readback_hash);
-        raw(", \"source_target_region_write_readback_hash\": ");
-        json_sha256(durable_append_preflight.source_target_region_write_readback_hash);
-        raw(", \"test_infrastructure_media_write_authority_available\": ");
-        raw_bool(durable_append_preflight.test_infrastructure_media_write_authority_available);
-        raw(", \"remaining_denial_reason\": ");
-        json_str(durable_append_preflight.remaining_denial_reason);
         let durable_writer_policy_preflight =
             durable_append_preflight.durable_writer_policy_preflight;
-        raw(", \"durable_writer_policy_preflight\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_WRITER_POLICY_PREFLIGHT_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_WRITER_POLICY_PREFLIGHT_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_WRITER_POLICY_PREFLIGHT_STATUS);
-        raw(", \"reason\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_WRITER_POLICY_PREFLIGHT_REASON);
-        raw(", \"preflight_hash\": ");
-        json_sha256(durable_writer_policy_preflight.preflight_hash);
-        raw(", \"source_append_record_hash\": ");
-        json_sha256(durable_writer_policy_preflight.source_append_record_hash);
-        raw(", \"source_sector_plan_hash\": ");
-        json_sha256(durable_writer_policy_preflight.source_sector_plan_hash);
-        raw(", \"source_target_region_write_readback_hash\": ");
-        json_sha256(durable_writer_policy_preflight.source_target_region_write_readback_hash);
-        raw(", \"audit_ledger_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
-        raw(", \"audit_record_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
-        raw(", \"rollback_store_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
-        raw(", \"rollback_transaction_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_writer_policy_preflight.target_start_lba
-        ));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_writer_policy_preflight.target_lba_count
-        ));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_writer_policy_preflight.target_byte_count
-        ));
-        raw(", \"target_range_ready\": ");
-        raw_bool(durable_writer_policy_preflight.target_range_ready);
-        raw(", \"test_infrastructure_media_write_authority_available\": ");
-        raw_bool(
-            durable_writer_policy_preflight.test_infrastructure_media_write_authority_available,
-        );
-        raw(", \"durable_audit_writer_available\": ");
-        raw_bool(durable_writer_policy_preflight.durable_audit_writer_available);
-        raw(", \"rollback_store_writer_available\": ");
-        raw_bool(durable_writer_policy_preflight.rollback_store_writer_available);
-        raw(", \"transaction_append_writer_available\": ");
-        raw_bool(durable_writer_policy_preflight.transaction_append_writer_available);
-        raw(", \"authorizes_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"write_attempted\": false}");
         let durable_append_transaction_authorization_gate =
             hello_rollback_durable_append_transaction_authorization_gate(
-                durable_writer_policy_preflight,
-                append_record,
-                sector_plan,
-                target_region_write,
+            durable_writer_policy_preflight,
+            append_record,
+            sector_plan,
+            target_region_write,
             );
-        raw(", \"durable_append_transaction_authorization_gate\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_APPEND_TRANSACTION_AUTHORIZATION_GATE_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_APPEND_TRANSACTION_AUTHORIZATION_GATE_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_APPEND_TRANSACTION_AUTHORIZATION_GATE_STATUS);
-        raw(", \"reason\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_APPEND_TRANSACTION_AUTHORIZATION_GATE_REASON);
-        raw(", \"gate_hash\": ");
-        json_sha256(durable_append_transaction_authorization_gate.gate_hash);
-        raw(", \"source_writer_policy_preflight_hash\": ");
-        json_sha256(
-            durable_append_transaction_authorization_gate.source_writer_policy_preflight_hash,
-        );
-        raw(", \"source_append_record_hash\": ");
-        json_sha256(durable_append_transaction_authorization_gate.source_append_record_hash);
-        raw(", \"source_sector_plan_hash\": ");
-        json_sha256(durable_append_transaction_authorization_gate.source_sector_plan_hash);
-        raw(", \"source_target_region_write_readback_hash\": ");
-        json_sha256(
-            durable_append_transaction_authorization_gate.source_target_region_write_readback_hash,
-        );
-        raw(", \"audit_ledger_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
-        raw(", \"audit_record_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
-        raw(", \"rollback_store_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
-        raw(", \"rollback_transaction_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_append_transaction_authorization_gate.target_start_lba
-        ));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_append_transaction_authorization_gate.target_lba_count
-        ));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_append_transaction_authorization_gate.target_byte_count
-        ));
-        raw(", \"target_range_ready\": ");
-        raw_bool(durable_append_transaction_authorization_gate.target_range_ready);
-        raw(", \"test_infrastructure_media_write_authority_available\": ");
-        raw_bool(
-            durable_append_transaction_authorization_gate
-                .test_infrastructure_media_write_authority_available,
-        );
-        raw(", \"append_engine_available\": ");
-        raw_bool(durable_append_transaction_authorization_gate.append_engine_available);
-        raw(", \"durable_audit_writer_available\": ");
-        raw_bool(durable_append_transaction_authorization_gate.durable_audit_writer_available);
-        raw(", \"rollback_store_writer_available\": ");
-        raw_bool(durable_append_transaction_authorization_gate.rollback_store_writer_available);
-        raw(", \"transaction_append_writer_available\": ");
-        raw_bool(durable_append_transaction_authorization_gate.transaction_append_writer_available);
-        raw(", \"authorizes_append\": false, \"authorizes_transaction_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"write_attempted\": false}");
         let append_engine_readiness_decision = hello_rollback_append_engine_readiness_decision(
             durable_append_transaction_authorization_gate,
         );
-        raw(", \"append_engine_readiness_decision\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_APPEND_ENGINE_READINESS_DECISION_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_APPEND_ENGINE_READINESS_DECISION_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(append_engine_readiness_decision.status);
-        raw(", \"reason\": ");
-        json_str(append_engine_readiness_decision.reason);
-        raw(", \"decision_hash\": ");
-        json_sha256(append_engine_readiness_decision.decision_hash);
-        raw(", \"source_authorization_gate_hash\": ");
-        json_sha256(append_engine_readiness_decision.source_authorization_gate_hash);
-        raw(", \"source_writer_policy_preflight_hash\": ");
-        json_sha256(append_engine_readiness_decision.source_writer_policy_preflight_hash);
-        raw(", \"source_append_record_hash\": ");
-        json_sha256(append_engine_readiness_decision.source_append_record_hash);
-        raw(", \"source_sector_plan_hash\": ");
-        json_sha256(append_engine_readiness_decision.source_sector_plan_hash);
-        raw(", \"source_target_region_write_readback_hash\": ");
-        json_sha256(append_engine_readiness_decision.source_target_region_write_readback_hash);
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!(
-            "{}",
-            append_engine_readiness_decision.target_start_lba
-        ));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            append_engine_readiness_decision.target_lba_count
-        ));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            append_engine_readiness_decision.target_byte_count
-        ));
-        raw(", \"target_range_ready\": ");
-        raw_bool(append_engine_readiness_decision.target_range_ready);
-        raw(", \"test_infrastructure_media_write_authority_available\": ");
-        raw_bool(
-            append_engine_readiness_decision.test_infrastructure_media_write_authority_available,
-        );
-        raw(", \"append_engine_available\": ");
-        raw_bool(append_engine_readiness_decision.append_engine_available);
-        raw(", \"durable_audit_writer_available\": ");
-        raw_bool(append_engine_readiness_decision.durable_audit_writer_available);
-        raw(", \"rollback_store_writer_available\": ");
-        raw_bool(append_engine_readiness_decision.rollback_store_writer_available);
-        raw(", \"transaction_append_writer_available\": ");
-        raw_bool(append_engine_readiness_decision.transaction_append_writer_available);
-        raw(", \"ready\": ");
-        raw_bool(append_engine_readiness_decision.ready);
-        raw(", \"authorizes_append\": false, \"authorizes_transaction_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"write_attempted\": false}");
-        raw(", \"target_region_discovery\": ");
-        emit_audit_rollback_target_region_discovery_inline(
-            durable_append_preflight.target_region_discovery,
-        );
-        let target_region_media_write_policy_preflight =
+        let durable_target_region_media_write_policy_preflight =
             durable_append_preflight.target_region_media_write_policy_preflight;
-        raw(", \"target_region_media_write_policy_preflight\": {\"schema\": ");
-        json_str(
-            rollback_append_contract::AUDIT_ROLLBACK_TARGET_REGION_MEDIA_WRITE_POLICY_PREFLIGHT_SCHEMA,
-        );
-        raw(", \"id\": ");
-        json_str(
-            rollback_append_contract::AUDIT_ROLLBACK_TARGET_REGION_MEDIA_WRITE_POLICY_PREFLIGHT_ID,
-        );
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(foundation.target_region_media_write_policy_preflight_status);
-        raw(", \"reason\": ");
-        json_str(foundation.target_region_media_write_policy_preflight_reason);
-        raw(", \"preflight_hash\": ");
-        json_sha256(target_region_media_write_policy_preflight.preflight_hash);
-        raw(", \"source_contract_schema\": ");
-        json_str(rollback_append_contract::AUDIT_ROLLBACK_TARGET_REGION_WRITER_CONTRACT_SCHEMA);
-        raw(", \"source_contract_id\": ");
-        json_str(rollback_append_contract::AUDIT_ROLLBACK_TARGET_REGION_WRITER_CONTRACT_ID);
-        raw(", \"source_contract_status\": ");
-        json_str(target_region_media_write_policy_preflight.source_contract_status);
-        raw(", \"source_contract_reason\": ");
-        json_str(target_region_media_write_policy_preflight.source_contract_reason);
-        raw(", \"owner_method\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_TRANSACTION_WRITER_OWNER);
-        raw(", \"append_target_owner_id\": ");
-        json_str(rollback_append_contract::AUDIT_ROLLBACK_APPEND_TARGET_OWNER_ID);
-        raw(", \"storage_authority_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_STORAGE_AUTHORITY_ID);
-        raw(", \"audit_ledger_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
-        raw(", \"audit_record_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
-        raw(", \"rollback_store_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
-        raw(", \"rollback_transaction_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
-        raw(", \"target_region_start_lba\": ");
-        raw_fmt(format_args!(
-            "{}",
-            target_region_media_write_policy_preflight.target_region_start_lba
-        ));
-        raw(", \"target_region_lba_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            target_region_media_write_policy_preflight.target_region_lba_count
-        ));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            target_region_media_write_policy_preflight.target_byte_count
-        ));
-        raw(", \"source_contract_target_range_ready\": ");
-        raw_bool(target_region_media_write_policy_preflight.source_contract_target_range_ready);
-        raw(", \"owner_ids_verified\": ");
-        raw_bool(target_region_media_write_policy_preflight.owner_ids_verified);
-        raw(", \"target_ids_verified\": ");
-        raw_bool(target_region_media_write_policy_preflight.target_ids_verified);
-        raw(", \"target_span_verified\": ");
-        raw_bool(target_region_media_write_policy_preflight.target_span_verified);
-        raw(", \"schema_ids_verified\": ");
-        raw_bool(target_region_media_write_policy_preflight.schema_ids_verified);
-        raw(", \"media_write_authority_required\": true, \"media_write_authority_available\": ");
-        raw_bool(target_region_media_write_policy_preflight.media_write_authority_available);
-        raw(", \"media_write_authority_reason\": ");
-        json_str(HELLO_ROLLBACK_MEDIA_WRITE_AUTHORITY_MISSING_REASON);
-        raw(", \"durable_audit_policy_required\": true, \"durable_audit_policy_available\": ");
-        raw_bool(target_region_media_write_policy_preflight.durable_audit_policy_available);
-        raw(", \"durable_audit_policy_reason\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_MISSING_REASON);
-        raw(", \"authorizes_media_write\": false, \"authorizes_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"write_attempted\": false}");
         let media_write_authority_gate = hello_rollback_media_write_authority_gate(
             durable_append_preflight,
             target_region_write,
         );
-        raw(", \"media_write_authority_gate\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_MEDIA_WRITE_AUTHORITY_GATE_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_MEDIA_WRITE_AUTHORITY_GATE_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_MEDIA_WRITE_AUTHORITY_GATE_STATUS);
-        raw(", \"reason\": ");
-        json_str(HELLO_ROLLBACK_MEDIA_WRITE_AUTHORITY_GATE_REASON);
-        raw(", \"gate_hash\": ");
-        json_sha256(media_write_authority_gate.gate_hash);
-        raw(", \"source_durable_append_authority_preflight_schema\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_PREFLIGHT_SCHEMA);
-        raw(", \"source_durable_append_authority_preflight_id\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_PREFLIGHT_ID);
-        raw(", \"source_durable_append_authority_preflight_hash\": ");
-        json_sha256(media_write_authority_gate.source_durable_append_authority_preflight_hash);
-        raw(", \"source_policy_preflight_schema\": ");
-        json_str(
-            rollback_append_contract::AUDIT_ROLLBACK_TARGET_REGION_MEDIA_WRITE_POLICY_PREFLIGHT_SCHEMA,
-        );
-        raw(", \"source_policy_preflight_id\": ");
-        json_str(
-            rollback_append_contract::AUDIT_ROLLBACK_TARGET_REGION_MEDIA_WRITE_POLICY_PREFLIGHT_ID,
-        );
-        raw(", \"source_policy_preflight_hash\": ");
-        json_sha256(media_write_authority_gate.source_policy_preflight_hash);
-        raw(", \"source_target_region_write_readback_schema\": ");
-        json_str(HELLO_ROLLBACK_TARGET_REGION_WRITE_READBACK_DRY_RUN_SCHEMA);
-        raw(", \"source_target_region_write_readback_id\": ");
-        json_str(HELLO_ROLLBACK_TARGET_REGION_WRITE_READBACK_DRY_RUN_ID);
-        raw(", \"source_target_region_write_readback_hash\": ");
-        json_sha256(media_write_authority_gate.source_target_region_write_readback_hash);
-        raw(", \"source_contract_schema\": ");
-        json_str(rollback_append_contract::AUDIT_ROLLBACK_TARGET_REGION_WRITER_CONTRACT_SCHEMA);
-        raw(", \"source_contract_id\": ");
-        json_str(rollback_append_contract::AUDIT_ROLLBACK_TARGET_REGION_WRITER_CONTRACT_ID);
-        raw(", \"source_contract_status\": ");
-        json_str(media_write_authority_gate.source_contract_status);
-        raw(", \"source_contract_reason\": ");
-        json_str(media_write_authority_gate.source_contract_reason);
-        raw(", \"target_region_start_lba\": ");
-        raw_fmt(format_args!(
-            "{}",
-            media_write_authority_gate.target_region_start_lba
-        ));
-        raw(", \"target_region_lba_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            media_write_authority_gate.target_region_lba_count
-        ));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            media_write_authority_gate.target_byte_count
-        ));
-        raw(", \"source_contract_target_range_ready\": ");
-        raw_bool(media_write_authority_gate.source_contract_target_range_ready);
-        raw(", \"owner_ids_verified\": ");
-        raw_bool(media_write_authority_gate.owner_ids_verified);
-        raw(", \"target_ids_verified\": ");
-        raw_bool(media_write_authority_gate.target_ids_verified);
-        raw(", \"target_span_verified\": ");
-        raw_bool(media_write_authority_gate.target_span_verified);
-        raw(", \"schema_ids_verified\": ");
-        raw_bool(media_write_authority_gate.schema_ids_verified);
-        raw(", \"media_write_authority_required\": true, \"media_write_authority_available\": ");
-        raw_bool(media_write_authority_gate.media_write_authority_available);
-        raw(", \"media_write_authority_reason\": ");
-        json_str(HELLO_ROLLBACK_TEST_MEDIA_WRITE_AUTHORITY_REASON);
-        raw(", \"test_infrastructure_media_write_authority_available\": ");
-        raw_bool(media_write_authority_gate.test_infrastructure_media_write_authority_available);
-        raw(", \"durable_audit_policy_required\": true, \"durable_audit_policy_available\": ");
-        raw_bool(media_write_authority_gate.durable_audit_policy_available);
-        raw(", \"durable_audit_policy_reason\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_MISSING_REASON);
-        raw(", \"authorizes_media_write\": false, \"authorizes_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"target_region_write_attempted\": ");
-        raw_bool(media_write_authority_gate.target_region_write_attempted);
-        raw(", \"write_attempted\": false}");
         let durable_append_authority_decision = hello_rollback_durable_append_authority_decision(
             durable_append_preflight,
             media_write_authority_gate,
             append_engine_readiness_decision,
         );
-        raw(", \"durable_append_authority_decision\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_DECISION_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_DECISION_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_DECISION_STATUS);
-        raw(", \"reason\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_DECISION_REASON);
-        raw(", \"decision_hash\": ");
-        json_sha256(durable_append_authority_decision.decision_hash);
-        raw(", \"source_durable_append_authority_preflight_hash\": ");
-        json_sha256(
-            durable_append_authority_decision.source_durable_append_authority_preflight_hash,
-        );
-        raw(", \"source_writer_policy_preflight_hash\": ");
-        json_sha256(durable_append_authority_decision.source_writer_policy_preflight_hash);
-        raw(", \"source_append_engine_readiness_decision_hash\": ");
-        json_sha256(durable_append_authority_decision.source_append_engine_readiness_decision_hash);
-        raw(", \"source_media_write_authority_gate_hash\": ");
-        json_sha256(durable_append_authority_decision.source_media_write_authority_gate_hash);
-        raw(", \"source_policy_preflight_hash\": ");
-        json_sha256(durable_append_authority_decision.source_policy_preflight_hash);
-        raw(", \"source_target_region_write_readback_hash\": ");
-        json_sha256(durable_append_authority_decision.source_target_region_write_readback_hash);
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_append_authority_decision.target_start_lba
-        ));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_append_authority_decision.target_lba_count
-        ));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_append_authority_decision.target_byte_count
-        ));
-        raw(", \"writer_policy_ready\": ");
-        raw_bool(durable_append_authority_decision.writer_policy_ready);
-        raw(", \"append_engine_ready\": ");
-        raw_bool(durable_append_authority_decision.append_engine_ready);
-        raw(", \"media_write_gate_ready\": ");
-        raw_bool(durable_append_authority_decision.media_write_gate_ready);
-        raw(", \"test_infrastructure_media_write_authority_available\": ");
-        raw_bool(
-            durable_append_authority_decision.test_infrastructure_media_write_authority_available,
-        );
-        raw(", \"durable_audit_policy_available\": ");
-        raw_bool(durable_append_authority_decision.durable_audit_policy_available);
-        raw(", \"durable_append_authority_available\": ");
-        raw_bool(durable_append_authority_decision.durable_append_authority_available);
-        raw(", \"authorizes_append\": false, \"authorizes_transaction_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"write_attempted\": false}");
         let durable_audit_policy_decision =
             hello_rollback_durable_audit_policy_decision(durable_append_authority_decision);
-        raw(", \"durable_audit_policy_decision\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_DECISION_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_DECISION_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_DECISION_STATUS);
-        raw(", \"reason\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_DECISION_REASON);
-        raw(", \"decision_hash\": ");
-        json_sha256(durable_audit_policy_decision.decision_hash);
-        raw(", \"source_durable_append_authority_decision_hash\": ");
-        json_sha256(durable_audit_policy_decision.source_durable_append_authority_decision_hash);
-        raw(", \"source_policy_preflight_hash\": ");
-        json_sha256(durable_audit_policy_decision.source_policy_preflight_hash);
-        raw(", \"source_media_write_authority_gate_hash\": ");
-        json_sha256(durable_audit_policy_decision.source_media_write_authority_gate_hash);
-        raw(", \"source_target_region_write_readback_hash\": ");
-        json_sha256(durable_audit_policy_decision.source_target_region_write_readback_hash);
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_decision.target_start_lba
-        ));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_decision.target_lba_count
-        ));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_decision.target_byte_count
-        ));
-        raw(", \"append_engine_ready\": ");
-        raw_bool(durable_audit_policy_decision.append_engine_ready);
-        raw(", \"media_write_policy_verified\": ");
-        raw_bool(durable_audit_policy_decision.media_write_policy_verified);
-        raw(", \"test_infrastructure_media_write_authority_available\": ");
-        raw_bool(durable_audit_policy_decision.test_infrastructure_media_write_authority_available);
-        raw(", \"durable_append_authority_available\": ");
-        raw_bool(durable_audit_policy_decision.durable_append_authority_available);
-        raw(", \"durable_audit_policy_available\": ");
-        raw_bool(durable_audit_policy_decision.durable_audit_policy_available);
-        raw(", \"authorizes_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"write_attempted\": false}");
         let durable_audit_policy_candidate = hello_rollback_durable_audit_policy_candidate(
             durable_audit_policy_decision,
             append_record,
         );
-        raw(", \"durable_audit_policy_candidate\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_CANDIDATE_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_CANDIDATE_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_CANDIDATE_STATUS);
-        raw(", \"reason\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_CANDIDATE_REASON);
-        raw(", \"candidate_hash\": ");
-        json_sha256(durable_audit_policy_candidate.candidate_hash);
-        raw(", \"source_durable_audit_policy_decision_hash\": ");
-        json_sha256(durable_audit_policy_candidate.source_durable_audit_policy_decision_hash);
-        raw(", \"source_audit_record_image_hash\": ");
-        json_sha256(durable_audit_policy_candidate.source_audit_record_image_hash);
-        raw(", \"source_policy_preflight_hash\": ");
-        json_sha256(durable_audit_policy_candidate.source_policy_preflight_hash);
-        raw(", \"source_target_region_write_readback_hash\": ");
-        json_sha256(durable_audit_policy_candidate.source_target_region_write_readback_hash);
-        raw(", \"audit_record_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_candidate.target_start_lba
-        ));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_candidate.target_lba_count
-        ));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_candidate.target_byte_count
-        ));
-        raw(", \"media_write_policy_verified\": ");
-        raw_bool(durable_audit_policy_candidate.media_write_policy_verified);
-        raw(", \"durable_audit_policy_candidate_available\": ");
-        raw_bool(durable_audit_policy_candidate.durable_audit_policy_candidate_available);
-        raw(", \"durable_audit_policy_available\": ");
-        raw_bool(durable_audit_policy_candidate.durable_audit_policy_available);
-        raw(", \"durable_append_authority_available\": ");
-        raw_bool(durable_audit_policy_candidate.durable_append_authority_available);
-        raw(", \"authorizes_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"write_attempted\": false}");
         let durable_audit_policy_acceptance_gate =
             hello_rollback_durable_audit_policy_acceptance_gate(durable_audit_policy_candidate);
-        raw(", \"durable_audit_policy_acceptance_gate\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_ACCEPTANCE_GATE_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_ACCEPTANCE_GATE_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_ACCEPTANCE_GATE_STATUS);
-        raw(", \"reason\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_ACCEPTANCE_GATE_REASON);
-        raw(", \"gate_hash\": ");
-        json_sha256(durable_audit_policy_acceptance_gate.gate_hash);
-        raw(", \"source_durable_audit_policy_candidate_hash\": ");
-        json_sha256(
-            durable_audit_policy_acceptance_gate.source_durable_audit_policy_candidate_hash,
-        );
-        raw(", \"source_durable_audit_policy_decision_hash\": ");
-        json_sha256(durable_audit_policy_acceptance_gate.source_durable_audit_policy_decision_hash);
-        raw(", \"source_audit_record_image_hash\": ");
-        json_sha256(durable_audit_policy_acceptance_gate.source_audit_record_image_hash);
-        raw(", \"source_policy_preflight_hash\": ");
-        json_sha256(durable_audit_policy_acceptance_gate.source_policy_preflight_hash);
-        raw(", \"source_target_region_write_readback_hash\": ");
-        json_sha256(durable_audit_policy_acceptance_gate.source_target_region_write_readback_hash);
-        raw(", \"audit_record_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_acceptance_gate.target_start_lba
-        ));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_acceptance_gate.target_lba_count
-        ));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_acceptance_gate.target_byte_count
-        ));
-        raw(", \"candidate_available\": ");
-        raw_bool(durable_audit_policy_acceptance_gate.candidate_available);
-        raw(", \"media_write_policy_verified\": ");
-        raw_bool(durable_audit_policy_acceptance_gate.media_write_policy_verified);
-        raw(", \"durable_policy_ledger_available\": ");
-        raw_bool(durable_audit_policy_acceptance_gate.durable_policy_ledger_available);
-        raw(", \"write_authority_available\": ");
-        raw_bool(durable_audit_policy_acceptance_gate.write_authority_available);
-        raw(", \"durable_audit_policy_available\": ");
-        raw_bool(durable_audit_policy_acceptance_gate.durable_audit_policy_available);
-        raw(", \"durable_append_authority_available\": ");
-        raw_bool(durable_audit_policy_acceptance_gate.durable_append_authority_available);
-        raw(", \"authorizes_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"write_attempted\": false}");
         let durable_audit_policy_ledger_candidate =
             hello_rollback_durable_audit_policy_ledger_candidate(
-                durable_audit_policy_acceptance_gate,
+            durable_audit_policy_acceptance_gate,
             );
-        raw(", \"durable_audit_policy_ledger_candidate\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_CANDIDATE_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_CANDIDATE_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"access\": \"read_only\", \"status\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_CANDIDATE_STATUS);
-        raw(", \"reason\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_CANDIDATE_REASON);
-        raw(", \"ledger_candidate_hash\": ");
-        json_sha256(durable_audit_policy_ledger_candidate.ledger_candidate_hash);
-        raw(", \"source_acceptance_gate_hash\": ");
-        json_sha256(durable_audit_policy_ledger_candidate.source_acceptance_gate_hash);
-        raw(", \"source_durable_audit_policy_candidate_hash\": ");
-        json_sha256(
-            durable_audit_policy_ledger_candidate.source_durable_audit_policy_candidate_hash,
-        );
-        raw(", \"source_durable_audit_policy_decision_hash\": ");
-        json_sha256(
-            durable_audit_policy_ledger_candidate.source_durable_audit_policy_decision_hash,
-        );
-        raw(", \"source_audit_record_image_hash\": ");
-        json_sha256(durable_audit_policy_ledger_candidate.source_audit_record_image_hash);
-        raw(", \"source_policy_preflight_hash\": ");
-        json_sha256(durable_audit_policy_ledger_candidate.source_policy_preflight_hash);
-        raw(", \"source_target_region_write_readback_hash\": ");
-        json_sha256(durable_audit_policy_ledger_candidate.source_target_region_write_readback_hash);
-        raw(", \"audit_record_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_ledger_candidate.target_start_lba
-        ));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_ledger_candidate.target_lba_count
-        ));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_ledger_candidate.target_byte_count
-        ));
-        raw(", \"read_only_ledger_candidate_available\": ");
-        raw_bool(durable_audit_policy_ledger_candidate.read_only_ledger_candidate_available);
-        raw(", \"candidate_available\": ");
-        raw_bool(durable_audit_policy_ledger_candidate.candidate_available);
-        raw(", \"media_write_policy_verified\": ");
-        raw_bool(durable_audit_policy_ledger_candidate.media_write_policy_verified);
-        raw(", \"durable_policy_ledger_available\": ");
-        raw_bool(durable_audit_policy_ledger_candidate.durable_policy_ledger_available);
-        raw(", \"write_authority_available\": ");
-        raw_bool(durable_audit_policy_ledger_candidate.write_authority_available);
-        raw(", \"durable_audit_policy_available\": ");
-        raw_bool(durable_audit_policy_ledger_candidate.durable_audit_policy_available);
-        raw(", \"durable_append_authority_available\": ");
-        raw_bool(durable_audit_policy_ledger_candidate.durable_append_authority_available);
-        raw(", \"authorizes_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"write_attempted\": false}");
         let durable_audit_policy_ledger_aware_acceptance_result =
             hello_rollback_durable_audit_policy_ledger_aware_acceptance_result(
-                durable_audit_policy_ledger_candidate,
+            durable_audit_policy_ledger_candidate,
             );
-        raw(", \"durable_audit_policy_ledger_aware_acceptance_result\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_AWARE_ACCEPTANCE_RESULT_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_AWARE_ACCEPTANCE_RESULT_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_AWARE_ACCEPTANCE_RESULT_STATUS);
-        raw(", \"reason\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_AWARE_ACCEPTANCE_RESULT_REASON);
-        raw(", \"result_hash\": ");
-        json_sha256(durable_audit_policy_ledger_aware_acceptance_result.result_hash);
-        raw(", \"source_ledger_candidate_hash\": ");
-        json_sha256(
-            durable_audit_policy_ledger_aware_acceptance_result.source_ledger_candidate_hash,
-        );
-        raw(", \"source_acceptance_gate_hash\": ");
-        json_sha256(
-            durable_audit_policy_ledger_aware_acceptance_result.source_acceptance_gate_hash,
-        );
-        raw(", \"source_durable_audit_policy_candidate_hash\": ");
-        json_sha256(
-            durable_audit_policy_ledger_aware_acceptance_result
-                .source_durable_audit_policy_candidate_hash,
-        );
-        raw(", \"source_durable_audit_policy_decision_hash\": ");
-        json_sha256(
-            durable_audit_policy_ledger_aware_acceptance_result
-                .source_durable_audit_policy_decision_hash,
-        );
-        raw(", \"source_audit_record_image_hash\": ");
-        json_sha256(
-            durable_audit_policy_ledger_aware_acceptance_result.source_audit_record_image_hash,
-        );
-        raw(", \"source_policy_preflight_hash\": ");
-        json_sha256(
-            durable_audit_policy_ledger_aware_acceptance_result.source_policy_preflight_hash,
-        );
-        raw(", \"source_target_region_write_readback_hash\": ");
-        json_sha256(
-            durable_audit_policy_ledger_aware_acceptance_result
-                .source_target_region_write_readback_hash,
-        );
-        raw(", \"audit_record_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_ledger_aware_acceptance_result.target_start_lba
-        ));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_ledger_aware_acceptance_result.target_lba_count
-        ));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_ledger_aware_acceptance_result.target_byte_count
-        ));
-        raw(", \"read_only_ledger_candidate_available\": ");
-        raw_bool(
-            durable_audit_policy_ledger_aware_acceptance_result
-                .read_only_ledger_candidate_available,
-        );
-        raw(", \"ledger_evidence_verified\": ");
-        raw_bool(durable_audit_policy_ledger_aware_acceptance_result.ledger_evidence_verified);
-        raw(", \"write_authority_available\": ");
-        raw_bool(durable_audit_policy_ledger_aware_acceptance_result.write_authority_available);
-        raw(", \"durable_policy_ledger_available\": ");
-        raw_bool(
-            durable_audit_policy_ledger_aware_acceptance_result.durable_policy_ledger_available,
-        );
-        raw(", \"durable_audit_policy_available\": ");
-        raw_bool(
-            durable_audit_policy_ledger_aware_acceptance_result.durable_audit_policy_available,
-        );
-        raw(", \"durable_append_authority_available\": ");
-        raw_bool(
-            durable_audit_policy_ledger_aware_acceptance_result.durable_append_authority_available,
-        );
-        raw(", \"authorizes_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"write_attempted\": false}");
         let durable_audit_policy_write_authority_availability =
             hello_rollback_durable_audit_policy_write_authority_availability(
-                durable_audit_policy_ledger_aware_acceptance_result,
-                durable_audit_policy_ledger_candidate,
-                target_region_media_write_policy_preflight,
-                target_region_write,
+            durable_audit_policy_ledger_aware_acceptance_result,
+            durable_audit_policy_ledger_candidate,
+            durable_target_region_media_write_policy_preflight,
+            target_region_write,
             );
-        raw(", \"durable_audit_policy_write_authority_availability\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_WRITE_AUTHORITY_AVAILABILITY_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_WRITE_AUTHORITY_AVAILABILITY_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_WRITE_AUTHORITY_AVAILABILITY_STATUS);
-        raw(", \"reason\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_WRITE_AUTHORITY_AVAILABILITY_REASON);
-        raw(", \"availability_hash\": ");
-        json_sha256(durable_audit_policy_write_authority_availability.availability_hash);
-        raw(", \"source_ledger_aware_acceptance_result_hash\": ");
-        json_sha256(
-            durable_audit_policy_write_authority_availability
-                .source_ledger_aware_acceptance_result_hash,
-        );
-        raw(", \"source_ledger_candidate_hash\": ");
-        json_sha256(durable_audit_policy_write_authority_availability.source_ledger_candidate_hash);
-        raw(", \"source_policy_preflight_hash\": ");
-        json_sha256(durable_audit_policy_write_authority_availability.source_policy_preflight_hash);
-        raw(", \"source_target_region_write_readback_hash\": ");
-        json_sha256(
-            durable_audit_policy_write_authority_availability
-                .source_target_region_write_readback_hash,
-        );
-        raw(", \"audit_ledger_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
-        raw(", \"audit_record_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
-        raw(", \"rollback_store_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
-        raw(", \"rollback_transaction_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_write_authority_availability.target_start_lba
-        ));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_write_authority_availability.target_lba_count
-        ));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_write_authority_availability.target_byte_count
-        ));
-        raw(", \"ledger_evidence_verified\": ");
-        raw_bool(durable_audit_policy_write_authority_availability.ledger_evidence_verified);
-        raw(", \"media_write_policy_verified\": ");
-        raw_bool(durable_audit_policy_write_authority_availability.media_write_policy_verified);
-        raw(", \"target_region_write_readback_verified\": ");
-        raw_bool(
-            durable_audit_policy_write_authority_availability.target_region_write_readback_verified,
-        );
-        raw(", \"target_span_verified\": ");
-        raw_bool(durable_audit_policy_write_authority_availability.target_span_verified);
-        raw(", \"audit_rollback_target_ids_verified\": ");
-        raw_bool(
-            durable_audit_policy_write_authority_availability.audit_rollback_target_ids_verified,
-        );
-        raw(", \"test_infrastructure_media_write_authority_available\": ");
-        raw_bool(
-            durable_audit_policy_write_authority_availability
-                .test_infrastructure_media_write_authority_available,
-        );
-        raw(", \"write_authority_available\": ");
-        raw_bool(durable_audit_policy_write_authority_availability.write_authority_available);
-        raw(", \"durable_policy_ledger_available\": ");
-        raw_bool(durable_audit_policy_write_authority_availability.durable_policy_ledger_available);
-        raw(", \"durable_audit_policy_available\": ");
-        raw_bool(durable_audit_policy_write_authority_availability.durable_audit_policy_available);
-        raw(", \"durable_append_authority_available\": ");
-        raw_bool(
-            durable_audit_policy_write_authority_availability.durable_append_authority_available,
-        );
-        raw(", \"authorizes_media_write\": false, \"authorizes_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"write_attempted\": false}");
         let durable_policy_ledger_availability = hello_rollback_durable_policy_ledger_availability(
             durable_audit_policy_write_authority_availability,
         );
-        raw(", \"durable_policy_ledger_availability\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_STATUS);
-        raw(", \"reason\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_REASON);
-        raw(", \"availability_hash\": ");
-        json_sha256(durable_policy_ledger_availability.availability_hash);
-        raw(", \"source_write_authority_availability_hash\": ");
-        json_sha256(durable_policy_ledger_availability.source_write_authority_availability_hash);
-        raw(", \"source_ledger_aware_acceptance_result_hash\": ");
-        json_sha256(durable_policy_ledger_availability.source_ledger_aware_acceptance_result_hash);
-        raw(", \"source_ledger_candidate_hash\": ");
-        json_sha256(durable_policy_ledger_availability.source_ledger_candidate_hash);
-        raw(", \"source_policy_preflight_hash\": ");
-        json_sha256(durable_policy_ledger_availability.source_policy_preflight_hash);
-        raw(", \"source_target_region_write_readback_hash\": ");
-        json_sha256(durable_policy_ledger_availability.source_target_region_write_readback_hash);
-        raw(", \"audit_ledger_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
-        raw(", \"audit_record_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
-        raw(", \"rollback_store_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
-        raw(", \"rollback_transaction_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_policy_ledger_availability.target_start_lba
-        ));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_policy_ledger_availability.target_lba_count
-        ));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_policy_ledger_availability.target_byte_count
-        ));
-        raw(", \"write_authority_evidence_verified\": ");
-        raw_bool(durable_policy_ledger_availability.write_authority_evidence_verified);
-        raw(", \"ledger_evidence_verified\": ");
-        raw_bool(durable_policy_ledger_availability.ledger_evidence_verified);
-        raw(", \"media_write_policy_verified\": ");
-        raw_bool(durable_policy_ledger_availability.media_write_policy_verified);
-        raw(", \"target_region_write_readback_verified\": ");
-        raw_bool(durable_policy_ledger_availability.target_region_write_readback_verified);
-        raw(", \"target_span_verified\": ");
-        raw_bool(durable_policy_ledger_availability.target_span_verified);
-        raw(", \"audit_rollback_target_ids_verified\": ");
-        raw_bool(durable_policy_ledger_availability.audit_rollback_target_ids_verified);
-        raw(", \"test_infrastructure_media_write_authority_available\": ");
-        raw_bool(
-            durable_policy_ledger_availability.test_infrastructure_media_write_authority_available,
-        );
-        raw(", \"write_authority_available\": ");
-        raw_bool(durable_policy_ledger_availability.write_authority_available);
-        raw(", \"durable_policy_ledger_available\": ");
-        raw_bool(durable_policy_ledger_availability.durable_policy_ledger_available);
-        raw(", \"durable_audit_policy_available\": ");
-        raw_bool(durable_policy_ledger_availability.durable_audit_policy_available);
-        raw(", \"durable_append_authority_available\": ");
-        raw_bool(durable_policy_ledger_availability.durable_append_authority_available);
-        raw(", \"authorizes_media_write\": false, \"authorizes_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"write_attempted\": false}");
         let durable_audit_policy_availability =
             hello_rollback_durable_audit_policy_availability(durable_policy_ledger_availability);
-        raw(", \"durable_audit_policy_availability\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_STATUS);
-        raw(", \"reason\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_REASON);
-        raw(", \"availability_hash\": ");
-        json_sha256(durable_audit_policy_availability.availability_hash);
-        raw(", \"source_policy_ledger_availability_hash\": ");
-        json_sha256(durable_audit_policy_availability.source_policy_ledger_availability_hash);
-        raw(", \"source_write_authority_availability_hash\": ");
-        json_sha256(durable_audit_policy_availability.source_write_authority_availability_hash);
-        raw(", \"source_ledger_aware_acceptance_result_hash\": ");
-        json_sha256(durable_audit_policy_availability.source_ledger_aware_acceptance_result_hash);
-        raw(", \"source_ledger_candidate_hash\": ");
-        json_sha256(durable_audit_policy_availability.source_ledger_candidate_hash);
-        raw(", \"source_policy_preflight_hash\": ");
-        json_sha256(durable_audit_policy_availability.source_policy_preflight_hash);
-        raw(", \"source_target_region_write_readback_hash\": ");
-        json_sha256(durable_audit_policy_availability.source_target_region_write_readback_hash);
-        raw(", \"audit_ledger_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
-        raw(", \"audit_record_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
-        raw(", \"rollback_store_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
-        raw(", \"rollback_transaction_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_availability.target_start_lba
-        ));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_availability.target_lba_count
-        ));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_availability.target_byte_count
-        ));
-        raw(", \"policy_ledger_availability_evidence_verified\": ");
-        raw_bool(durable_audit_policy_availability.policy_ledger_availability_evidence_verified);
-        raw(", \"write_authority_evidence_verified\": ");
-        raw_bool(durable_audit_policy_availability.write_authority_evidence_verified);
-        raw(", \"ledger_evidence_verified\": ");
-        raw_bool(durable_audit_policy_availability.ledger_evidence_verified);
-        raw(", \"media_write_policy_verified\": ");
-        raw_bool(durable_audit_policy_availability.media_write_policy_verified);
-        raw(", \"target_region_write_readback_verified\": ");
-        raw_bool(durable_audit_policy_availability.target_region_write_readback_verified);
-        raw(", \"target_span_verified\": ");
-        raw_bool(durable_audit_policy_availability.target_span_verified);
-        raw(", \"audit_rollback_target_ids_verified\": ");
-        raw_bool(durable_audit_policy_availability.audit_rollback_target_ids_verified);
-        raw(", \"test_infrastructure_media_write_authority_available\": ");
-        raw_bool(
-            durable_audit_policy_availability.test_infrastructure_media_write_authority_available,
-        );
-        raw(", \"write_authority_available\": ");
-        raw_bool(durable_audit_policy_availability.write_authority_available);
-        raw(", \"durable_policy_ledger_available\": ");
-        raw_bool(durable_audit_policy_availability.durable_policy_ledger_available);
-        raw(", \"durable_audit_policy_available\": ");
-        raw_bool(durable_audit_policy_availability.durable_audit_policy_available);
-        raw(", \"durable_append_authority_available\": ");
-        raw_bool(durable_audit_policy_availability.durable_append_authority_available);
-        raw(", \"authorizes_media_write\": false, \"authorizes_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"write_attempted\": false}");
         let durable_append_authority_availability =
             hello_rollback_durable_append_authority_availability(durable_audit_policy_availability);
-        raw(", \"durable_append_authority_availability\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_STATUS);
-        raw(", \"reason\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_REASON);
-        raw(", \"availability_hash\": ");
-        json_sha256(durable_append_authority_availability.availability_hash);
-        raw(", \"source_audit_policy_availability_hash\": ");
-        json_sha256(durable_append_authority_availability.source_audit_policy_availability_hash);
-        raw(", \"source_policy_ledger_availability_hash\": ");
-        json_sha256(durable_append_authority_availability.source_policy_ledger_availability_hash);
-        raw(", \"source_write_authority_availability_hash\": ");
-        json_sha256(durable_append_authority_availability.source_write_authority_availability_hash);
-        raw(", \"source_ledger_aware_acceptance_result_hash\": ");
-        json_sha256(
-            durable_append_authority_availability.source_ledger_aware_acceptance_result_hash,
-        );
-        raw(", \"source_ledger_candidate_hash\": ");
-        json_sha256(durable_append_authority_availability.source_ledger_candidate_hash);
-        raw(", \"source_policy_preflight_hash\": ");
-        json_sha256(durable_append_authority_availability.source_policy_preflight_hash);
-        raw(", \"source_target_region_write_readback_hash\": ");
-        json_sha256(durable_append_authority_availability.source_target_region_write_readback_hash);
-        raw(", \"audit_ledger_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
-        raw(", \"audit_record_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
-        raw(", \"rollback_store_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
-        raw(", \"rollback_transaction_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_append_authority_availability.target_start_lba
-        ));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_append_authority_availability.target_lba_count
-        ));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_append_authority_availability.target_byte_count
-        ));
-        raw(", \"audit_policy_availability_evidence_verified\": ");
-        raw_bool(durable_append_authority_availability.audit_policy_availability_evidence_verified);
-        raw(", \"policy_ledger_availability_evidence_verified\": ");
-        raw_bool(
-            durable_append_authority_availability.policy_ledger_availability_evidence_verified,
-        );
-        raw(", \"write_authority_evidence_verified\": ");
-        raw_bool(durable_append_authority_availability.write_authority_evidence_verified);
-        raw(", \"ledger_evidence_verified\": ");
-        raw_bool(durable_append_authority_availability.ledger_evidence_verified);
-        raw(", \"media_write_policy_verified\": ");
-        raw_bool(durable_append_authority_availability.media_write_policy_verified);
-        raw(", \"target_region_write_readback_verified\": ");
-        raw_bool(durable_append_authority_availability.target_region_write_readback_verified);
-        raw(", \"target_span_verified\": ");
-        raw_bool(durable_append_authority_availability.target_span_verified);
-        raw(", \"audit_rollback_target_ids_verified\": ");
-        raw_bool(durable_append_authority_availability.audit_rollback_target_ids_verified);
-        raw(", \"test_infrastructure_media_write_authority_available\": ");
-        raw_bool(
-            durable_append_authority_availability
-                .test_infrastructure_media_write_authority_available,
-        );
-        raw(", \"write_authority_available\": ");
-        raw_bool(durable_append_authority_availability.write_authority_available);
-        raw(", \"durable_policy_ledger_available\": ");
-        raw_bool(durable_append_authority_availability.durable_policy_ledger_available);
-        raw(", \"durable_audit_policy_available\": ");
-        raw_bool(durable_append_authority_availability.durable_audit_policy_available);
-        raw(", \"durable_append_authority_available\": ");
-        raw_bool(durable_append_authority_availability.durable_append_authority_available);
-        raw(", \"authorizes_media_write\": false, \"authorizes_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"write_attempted\": false}");
         let transaction_append_availability_decision =
             hello_rollback_transaction_append_availability_decision(
-                durable_append_authority_availability,
-                append_engine_readiness_decision,
-                durable_writer_policy_preflight,
+            durable_append_authority_availability,
+            append_engine_readiness_decision,
+            durable_writer_policy_preflight,
             );
-        raw(", \"transaction_append_availability_decision\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_APPEND_AVAILABILITY_DECISION_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_APPEND_AVAILABILITY_DECISION_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_APPEND_AVAILABILITY_DECISION_STATUS);
-        raw(", \"reason\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_APPEND_AVAILABILITY_DECISION_REASON);
-        raw(", \"decision_hash\": ");
-        json_sha256(transaction_append_availability_decision.decision_hash);
-        raw(", \"source_durable_append_authority_availability_hash\": ");
-        json_sha256(
-            transaction_append_availability_decision
-                .source_durable_append_authority_availability_hash,
-        );
-        raw(", \"source_audit_policy_availability_hash\": ");
-        json_sha256(transaction_append_availability_decision.source_audit_policy_availability_hash);
-        raw(", \"source_append_engine_readiness_decision_hash\": ");
-        json_sha256(
-            transaction_append_availability_decision.source_append_engine_readiness_decision_hash,
-        );
-        raw(", \"source_writer_policy_preflight_hash\": ");
-        json_sha256(transaction_append_availability_decision.source_writer_policy_preflight_hash);
-        raw(", \"source_policy_preflight_hash\": ");
-        json_sha256(transaction_append_availability_decision.source_policy_preflight_hash);
-        raw(", \"source_target_region_write_readback_hash\": ");
-        json_sha256(
-            transaction_append_availability_decision.source_target_region_write_readback_hash,
-        );
-        raw(", \"audit_ledger_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
-        raw(", \"audit_record_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
-        raw(", \"rollback_store_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
-        raw(", \"rollback_transaction_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!(
-            "{}",
-            transaction_append_availability_decision.target_start_lba
-        ));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            transaction_append_availability_decision.target_lba_count
-        ));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            transaction_append_availability_decision.target_byte_count
-        ));
-        raw(", \"durable_append_authority_availability_evidence_verified\": ");
-        raw_bool(
-            transaction_append_availability_decision
-                .durable_append_authority_availability_evidence_verified,
-        );
-        raw(", \"audit_policy_availability_evidence_verified\": ");
-        raw_bool(
-            transaction_append_availability_decision.audit_policy_availability_evidence_verified,
-        );
-        raw(", \"append_engine_ready\": ");
-        raw_bool(transaction_append_availability_decision.append_engine_ready);
-        raw(", \"writer_policy_ready\": ");
-        raw_bool(transaction_append_availability_decision.writer_policy_ready);
-        raw(", \"media_write_policy_verified\": ");
-        raw_bool(transaction_append_availability_decision.media_write_policy_verified);
-        raw(", \"target_region_write_readback_verified\": ");
-        raw_bool(transaction_append_availability_decision.target_region_write_readback_verified);
-        raw(", \"target_span_verified\": ");
-        raw_bool(transaction_append_availability_decision.target_span_verified);
-        raw(", \"audit_rollback_target_ids_verified\": ");
-        raw_bool(transaction_append_availability_decision.audit_rollback_target_ids_verified);
-        raw(", \"test_infrastructure_media_write_authority_available\": ");
-        raw_bool(
-            transaction_append_availability_decision
-                .test_infrastructure_media_write_authority_available,
-        );
-        raw(", \"durable_append_authority_available\": ");
-        raw_bool(transaction_append_availability_decision.durable_append_authority_available);
-        raw(", \"durable_audit_policy_available\": ");
-        raw_bool(transaction_append_availability_decision.durable_audit_policy_available);
-        raw(", \"transaction_append_available\": ");
-        raw_bool(transaction_append_availability_decision.transaction_append_available);
-        raw(", \"authorizes_media_write\": false, \"authorizes_append\": false, \"authorizes_transaction_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"write_attempted\": false}");
         let transaction_append_authority_denial_gate =
             hello_rollback_transaction_append_authority_denial_gate(
-                transaction_append_availability_decision,
+            transaction_append_availability_decision,
             );
-        raw(", \"transaction_append_authority_denial_gate\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_APPEND_AUTHORITY_DENIAL_GATE_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_APPEND_AUTHORITY_DENIAL_GATE_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_APPEND_AUTHORITY_DENIAL_GATE_STATUS);
-        raw(", \"reason\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_APPEND_AUTHORITY_DENIAL_GATE_REASON);
-        raw(", \"gate_hash\": ");
-        json_sha256(transaction_append_authority_denial_gate.gate_hash);
-        raw(", \"source_transaction_append_availability_decision_hash\": ");
-        json_sha256(
-            transaction_append_authority_denial_gate
-                .source_transaction_append_availability_decision_hash,
-        );
-        raw(", \"source_durable_append_authority_availability_hash\": ");
-        json_sha256(
-            transaction_append_authority_denial_gate
-                .source_durable_append_authority_availability_hash,
-        );
-        raw(", \"source_audit_policy_availability_hash\": ");
-        json_sha256(transaction_append_authority_denial_gate.source_audit_policy_availability_hash);
-        raw(", \"source_append_engine_readiness_decision_hash\": ");
-        json_sha256(
-            transaction_append_authority_denial_gate.source_append_engine_readiness_decision_hash,
-        );
-        raw(", \"source_writer_policy_preflight_hash\": ");
-        json_sha256(transaction_append_authority_denial_gate.source_writer_policy_preflight_hash);
-        raw(", \"source_policy_preflight_hash\": ");
-        json_sha256(transaction_append_authority_denial_gate.source_policy_preflight_hash);
-        raw(", \"source_target_region_write_readback_hash\": ");
-        json_sha256(
-            transaction_append_authority_denial_gate.source_target_region_write_readback_hash,
-        );
-        raw(", \"audit_ledger_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
-        raw(", \"audit_record_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
-        raw(", \"rollback_store_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
-        raw(", \"rollback_transaction_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!(
-            "{}",
-            transaction_append_authority_denial_gate.target_start_lba
-        ));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            transaction_append_authority_denial_gate.target_lba_count
-        ));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            transaction_append_authority_denial_gate.target_byte_count
-        ));
-        raw(", \"availability_decision_evidence_verified\": ");
-        raw_bool(transaction_append_authority_denial_gate.availability_decision_evidence_verified);
-        raw(", \"append_engine_ready\": ");
-        raw_bool(transaction_append_authority_denial_gate.append_engine_ready);
-        raw(", \"writer_policy_ready\": ");
-        raw_bool(transaction_append_authority_denial_gate.writer_policy_ready);
-        raw(", \"media_write_policy_verified\": ");
-        raw_bool(transaction_append_authority_denial_gate.media_write_policy_verified);
-        raw(", \"target_region_write_readback_verified\": ");
-        raw_bool(transaction_append_authority_denial_gate.target_region_write_readback_verified);
-        raw(", \"target_span_verified\": ");
-        raw_bool(transaction_append_authority_denial_gate.target_span_verified);
-        raw(", \"audit_rollback_target_ids_verified\": ");
-        raw_bool(transaction_append_authority_denial_gate.audit_rollback_target_ids_verified);
-        raw(", \"test_infrastructure_media_write_authority_available\": ");
-        raw_bool(
-            transaction_append_authority_denial_gate
-                .test_infrastructure_media_write_authority_available,
-        );
-        raw(", \"durable_append_authority_available\": ");
-        raw_bool(transaction_append_authority_denial_gate.durable_append_authority_available);
-        raw(", \"durable_audit_policy_available\": ");
-        raw_bool(transaction_append_authority_denial_gate.durable_audit_policy_available);
-        raw(", \"transaction_append_available\": ");
-        raw_bool(transaction_append_authority_denial_gate.transaction_append_available);
-        raw(", \"missing_transaction_append_authority\": ");
-        raw_bool(transaction_append_authority_denial_gate.missing_transaction_append_authority);
-        raw(", \"authorizes_media_write\": false, \"authorizes_append\": false, \"authorizes_transaction_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"write_attempted\": false}");
         let durable_policy_ledger_availability_dry_run =
             hello_rollback_durable_policy_ledger_availability_dry_run(
-                durable_policy_ledger_availability,
-                durable_audit_policy_write_authority_availability,
-                transaction_append_authority_denial_gate,
-                target_region_write,
+            durable_policy_ledger_availability,
+            durable_audit_policy_write_authority_availability,
+            transaction_append_authority_denial_gate,
+            target_region_write,
             );
-        raw(", \"durable_policy_ledger_availability_dry_run\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_DRY_RUN_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_DRY_RUN_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_DRY_RUN_STATUS);
-        raw(", \"reason\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_DRY_RUN_REASON);
-        raw(", \"dry_run_hash\": ");
-        json_sha256(durable_policy_ledger_availability_dry_run.dry_run_hash);
-        raw(", \"source_policy_ledger_availability_hash\": ");
-        json_sha256(
-            durable_policy_ledger_availability_dry_run.source_policy_ledger_availability_hash,
-        );
-        raw(", \"source_write_authority_availability_hash\": ");
-        json_sha256(
-            durable_policy_ledger_availability_dry_run.source_write_authority_availability_hash,
-        );
-        raw(", \"source_ledger_aware_acceptance_result_hash\": ");
-        json_sha256(
-            durable_policy_ledger_availability_dry_run.source_ledger_aware_acceptance_result_hash,
-        );
-        raw(", \"source_ledger_candidate_hash\": ");
-        json_sha256(durable_policy_ledger_availability_dry_run.source_ledger_candidate_hash);
-        raw(", \"source_policy_preflight_hash\": ");
-        json_sha256(durable_policy_ledger_availability_dry_run.source_policy_preflight_hash);
-        raw(", \"source_target_region_write_readback_hash\": ");
-        json_sha256(
-            durable_policy_ledger_availability_dry_run.source_target_region_write_readback_hash,
-        );
-        raw(", \"source_authority_denial_gate_hash\": ");
-        json_sha256(durable_policy_ledger_availability_dry_run.source_authority_denial_gate_hash);
-        raw(", \"source_transaction_append_availability_decision_hash\": ");
-        json_sha256(
-            durable_policy_ledger_availability_dry_run
-                .source_transaction_append_availability_decision_hash,
-        );
-        raw(", \"audit_ledger_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
-        raw(", \"audit_record_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
-        raw(", \"rollback_store_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
-        raw(", \"rollback_transaction_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_policy_ledger_availability_dry_run.target_start_lba
-        ));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_policy_ledger_availability_dry_run.target_lba_count
-        ));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_policy_ledger_availability_dry_run.target_byte_count
-        ));
-        raw(", \"policy_ledger_availability_evidence_verified\": ");
-        raw_bool(
-            durable_policy_ledger_availability_dry_run.policy_ledger_availability_evidence_verified,
-        );
-        raw(", \"write_authority_evidence_verified\": ");
-        raw_bool(durable_policy_ledger_availability_dry_run.write_authority_evidence_verified);
-        raw(", \"ledger_evidence_verified\": ");
-        raw_bool(durable_policy_ledger_availability_dry_run.ledger_evidence_verified);
-        raw(", \"media_write_policy_verified\": ");
-        raw_bool(durable_policy_ledger_availability_dry_run.media_write_policy_verified);
-        raw(", \"target_region_write_readback_verified\": ");
-        raw_bool(durable_policy_ledger_availability_dry_run.target_region_write_readback_verified);
-        raw(", \"transaction_append_denial_gate_verified\": ");
-        raw_bool(
-            durable_policy_ledger_availability_dry_run.transaction_append_denial_gate_verified,
-        );
-        raw(", \"target_span_verified\": ");
-        raw_bool(durable_policy_ledger_availability_dry_run.target_span_verified);
-        raw(", \"audit_rollback_target_ids_verified\": ");
-        raw_bool(durable_policy_ledger_availability_dry_run.audit_rollback_target_ids_verified);
-        raw(", \"test_infrastructure_media_write_authority_available\": ");
-        raw_bool(
-            durable_policy_ledger_availability_dry_run
-                .test_infrastructure_media_write_authority_available,
-        );
-        raw(", \"write_authority_available\": ");
-        raw_bool(durable_policy_ledger_availability_dry_run.write_authority_available);
-        raw(", \"durable_policy_ledger_available\": ");
-        raw_bool(durable_policy_ledger_availability_dry_run.durable_policy_ledger_available);
-        raw(", \"durable_audit_policy_available\": ");
-        raw_bool(durable_policy_ledger_availability_dry_run.durable_audit_policy_available);
-        raw(", \"durable_append_authority_available\": ");
-        raw_bool(durable_policy_ledger_availability_dry_run.durable_append_authority_available);
-        raw(", \"transaction_append_available\": ");
-        raw_bool(durable_policy_ledger_availability_dry_run.transaction_append_available);
-        raw(", \"authorizes_media_write\": false, \"authorizes_append\": false, \"authorizes_transaction_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"write_attempted\": false, \"applies_rollback\": false, \"installs_rollback_state\": false}");
         let durable_audit_policy_availability_dry_run =
             hello_rollback_durable_audit_policy_availability_dry_run(
-                durable_audit_policy_availability,
-                durable_policy_ledger_availability_dry_run,
-                transaction_append_authority_denial_gate,
-                target_region_write,
+            durable_audit_policy_availability,
+            durable_policy_ledger_availability_dry_run,
+            transaction_append_authority_denial_gate,
+            target_region_write,
             );
-        raw(", \"durable_audit_policy_availability_dry_run\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_DRY_RUN_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_DRY_RUN_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_DRY_RUN_STATUS);
-        raw(", \"reason\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_DRY_RUN_REASON);
-        raw(", \"dry_run_hash\": ");
-        json_sha256(durable_audit_policy_availability_dry_run.dry_run_hash);
-        raw(", \"source_audit_policy_availability_hash\": ");
-        json_sha256(
-            durable_audit_policy_availability_dry_run.source_audit_policy_availability_hash,
-        );
-        raw(", \"source_policy_ledger_availability_dry_run_hash\": ");
-        json_sha256(
-            durable_audit_policy_availability_dry_run
-                .source_policy_ledger_availability_dry_run_hash,
-        );
-        raw(", \"source_policy_ledger_availability_hash\": ");
-        json_sha256(
-            durable_audit_policy_availability_dry_run.source_policy_ledger_availability_hash,
-        );
-        raw(", \"source_write_authority_availability_hash\": ");
-        json_sha256(
-            durable_audit_policy_availability_dry_run.source_write_authority_availability_hash,
-        );
-        raw(", \"source_ledger_aware_acceptance_result_hash\": ");
-        json_sha256(
-            durable_audit_policy_availability_dry_run.source_ledger_aware_acceptance_result_hash,
-        );
-        raw(", \"source_ledger_candidate_hash\": ");
-        json_sha256(durable_audit_policy_availability_dry_run.source_ledger_candidate_hash);
-        raw(", \"source_policy_preflight_hash\": ");
-        json_sha256(durable_audit_policy_availability_dry_run.source_policy_preflight_hash);
-        raw(", \"source_target_region_write_readback_hash\": ");
-        json_sha256(
-            durable_audit_policy_availability_dry_run.source_target_region_write_readback_hash,
-        );
-        raw(", \"source_authority_denial_gate_hash\": ");
-        json_sha256(durable_audit_policy_availability_dry_run.source_authority_denial_gate_hash);
-        raw(", \"source_transaction_append_availability_decision_hash\": ");
-        json_sha256(
-            durable_audit_policy_availability_dry_run
-                .source_transaction_append_availability_decision_hash,
-        );
-        raw(", \"audit_ledger_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
-        raw(", \"audit_record_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
-        raw(", \"rollback_store_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
-        raw(", \"rollback_transaction_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_availability_dry_run.target_start_lba
-        ));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_availability_dry_run.target_lba_count
-        ));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_audit_policy_availability_dry_run.target_byte_count
-        ));
-        raw(", \"audit_policy_availability_evidence_verified\": ");
-        raw_bool(
-            durable_audit_policy_availability_dry_run.audit_policy_availability_evidence_verified,
-        );
-        raw(", \"policy_ledger_dry_run_evidence_verified\": ");
-        raw_bool(durable_audit_policy_availability_dry_run.policy_ledger_dry_run_evidence_verified);
-        raw(", \"policy_ledger_availability_evidence_verified\": ");
-        raw_bool(
-            durable_audit_policy_availability_dry_run.policy_ledger_availability_evidence_verified,
-        );
-        raw(", \"write_authority_evidence_verified\": ");
-        raw_bool(durable_audit_policy_availability_dry_run.write_authority_evidence_verified);
-        raw(", \"ledger_evidence_verified\": ");
-        raw_bool(durable_audit_policy_availability_dry_run.ledger_evidence_verified);
-        raw(", \"media_write_policy_verified\": ");
-        raw_bool(durable_audit_policy_availability_dry_run.media_write_policy_verified);
-        raw(", \"target_region_write_readback_verified\": ");
-        raw_bool(durable_audit_policy_availability_dry_run.target_region_write_readback_verified);
-        raw(", \"transaction_append_denial_gate_verified\": ");
-        raw_bool(durable_audit_policy_availability_dry_run.transaction_append_denial_gate_verified);
-        raw(", \"target_span_verified\": ");
-        raw_bool(durable_audit_policy_availability_dry_run.target_span_verified);
-        raw(", \"audit_rollback_target_ids_verified\": ");
-        raw_bool(durable_audit_policy_availability_dry_run.audit_rollback_target_ids_verified);
-        raw(", \"test_infrastructure_media_write_authority_available\": ");
-        raw_bool(
-            durable_audit_policy_availability_dry_run
-                .test_infrastructure_media_write_authority_available,
-        );
-        raw(", \"write_authority_available\": ");
-        raw_bool(durable_audit_policy_availability_dry_run.write_authority_available);
-        raw(", \"durable_policy_ledger_available\": ");
-        raw_bool(durable_audit_policy_availability_dry_run.durable_policy_ledger_available);
-        raw(", \"durable_audit_policy_available\": ");
-        raw_bool(durable_audit_policy_availability_dry_run.durable_audit_policy_available);
-        raw(", \"durable_append_authority_available\": ");
-        raw_bool(durable_audit_policy_availability_dry_run.durable_append_authority_available);
-        raw(", \"transaction_append_available\": ");
-        raw_bool(durable_audit_policy_availability_dry_run.transaction_append_available);
-        raw(", \"authorizes_media_write\": false, \"authorizes_append\": false, \"authorizes_transaction_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"write_attempted\": false, \"applies_rollback\": false, \"installs_rollback_state\": false}");
         let durable_append_authority_availability_dry_run =
             hello_rollback_durable_append_authority_availability_dry_run(
-                durable_append_authority_availability,
-                durable_audit_policy_availability_dry_run,
-                transaction_append_authority_denial_gate,
-                target_region_write,
+            durable_append_authority_availability,
+            durable_audit_policy_availability_dry_run,
+            transaction_append_authority_denial_gate,
+            target_region_write,
             );
-        raw(", \"durable_append_authority_availability_dry_run\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_DRY_RUN_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_DRY_RUN_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_DRY_RUN_STATUS);
-        raw(", \"reason\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_DRY_RUN_REASON);
-        raw(", \"dry_run_hash\": ");
-        json_sha256(durable_append_authority_availability_dry_run.dry_run_hash);
-        raw(", \"source_append_authority_availability_hash\": ");
-        json_sha256(
-            durable_append_authority_availability_dry_run.source_append_authority_availability_hash,
-        );
-        raw(", \"source_audit_policy_availability_dry_run_hash\": ");
-        json_sha256(
-            durable_append_authority_availability_dry_run
-                .source_audit_policy_availability_dry_run_hash,
-        );
-        raw(", \"source_audit_policy_availability_hash\": ");
-        json_sha256(
-            durable_append_authority_availability_dry_run.source_audit_policy_availability_hash,
-        );
-        raw(", \"source_policy_ledger_availability_dry_run_hash\": ");
-        json_sha256(
-            durable_append_authority_availability_dry_run
-                .source_policy_ledger_availability_dry_run_hash,
-        );
-        raw(", \"source_policy_ledger_availability_hash\": ");
-        json_sha256(
-            durable_append_authority_availability_dry_run.source_policy_ledger_availability_hash,
-        );
-        raw(", \"source_write_authority_availability_hash\": ");
-        json_sha256(
-            durable_append_authority_availability_dry_run.source_write_authority_availability_hash,
-        );
-        raw(", \"source_ledger_aware_acceptance_result_hash\": ");
-        json_sha256(
-            durable_append_authority_availability_dry_run
-                .source_ledger_aware_acceptance_result_hash,
-        );
-        raw(", \"source_ledger_candidate_hash\": ");
-        json_sha256(durable_append_authority_availability_dry_run.source_ledger_candidate_hash);
-        raw(", \"source_policy_preflight_hash\": ");
-        json_sha256(durable_append_authority_availability_dry_run.source_policy_preflight_hash);
-        raw(", \"source_target_region_write_readback_hash\": ");
-        json_sha256(
-            durable_append_authority_availability_dry_run.source_target_region_write_readback_hash,
-        );
-        raw(", \"source_authority_denial_gate_hash\": ");
-        json_sha256(
-            durable_append_authority_availability_dry_run.source_authority_denial_gate_hash,
-        );
-        raw(", \"source_transaction_append_availability_decision_hash\": ");
-        json_sha256(
-            durable_append_authority_availability_dry_run
-                .source_transaction_append_availability_decision_hash,
-        );
-        raw(", \"audit_ledger_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
-        raw(", \"audit_record_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
-        raw(", \"rollback_store_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
-        raw(", \"rollback_transaction_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_append_authority_availability_dry_run.target_start_lba
-        ));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_append_authority_availability_dry_run.target_lba_count
-        ));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_append_authority_availability_dry_run.target_byte_count
-        ));
-        raw(", \"append_authority_availability_evidence_verified\": ");
-        raw_bool(
-            durable_append_authority_availability_dry_run
-                .append_authority_availability_evidence_verified,
-        );
-        raw(", \"audit_policy_dry_run_evidence_verified\": ");
-        raw_bool(
-            durable_append_authority_availability_dry_run.audit_policy_dry_run_evidence_verified,
-        );
-        raw(", \"audit_policy_availability_evidence_verified\": ");
-        raw_bool(
-            durable_append_authority_availability_dry_run
-                .audit_policy_availability_evidence_verified,
-        );
-        raw(", \"policy_ledger_dry_run_evidence_verified\": ");
-        raw_bool(
-            durable_append_authority_availability_dry_run.policy_ledger_dry_run_evidence_verified,
-        );
-        raw(", \"policy_ledger_availability_evidence_verified\": ");
-        raw_bool(
-            durable_append_authority_availability_dry_run
-                .policy_ledger_availability_evidence_verified,
-        );
-        raw(", \"write_authority_evidence_verified\": ");
-        raw_bool(durable_append_authority_availability_dry_run.write_authority_evidence_verified);
-        raw(", \"ledger_evidence_verified\": ");
-        raw_bool(durable_append_authority_availability_dry_run.ledger_evidence_verified);
-        raw(", \"media_write_policy_verified\": ");
-        raw_bool(durable_append_authority_availability_dry_run.media_write_policy_verified);
-        raw(", \"target_region_write_readback_verified\": ");
-        raw_bool(
-            durable_append_authority_availability_dry_run.target_region_write_readback_verified,
-        );
-        raw(", \"transaction_append_denial_gate_verified\": ");
-        raw_bool(
-            durable_append_authority_availability_dry_run.transaction_append_denial_gate_verified,
-        );
-        raw(", \"target_span_verified\": ");
-        raw_bool(durable_append_authority_availability_dry_run.target_span_verified);
-        raw(", \"audit_rollback_target_ids_verified\": ");
-        raw_bool(durable_append_authority_availability_dry_run.audit_rollback_target_ids_verified);
-        raw(", \"test_infrastructure_media_write_authority_available\": ");
-        raw_bool(
-            durable_append_authority_availability_dry_run
-                .test_infrastructure_media_write_authority_available,
-        );
-        raw(", \"write_authority_available\": ");
-        raw_bool(durable_append_authority_availability_dry_run.write_authority_available);
-        raw(", \"durable_policy_ledger_available\": ");
-        raw_bool(durable_append_authority_availability_dry_run.durable_policy_ledger_available);
-        raw(", \"durable_audit_policy_available\": ");
-        raw_bool(durable_append_authority_availability_dry_run.durable_audit_policy_available);
-        raw(", \"durable_append_authority_available\": ");
-        raw_bool(durable_append_authority_availability_dry_run.durable_append_authority_available);
-        raw(", \"transaction_append_available\": ");
-        raw_bool(durable_append_authority_availability_dry_run.transaction_append_available);
-        raw(", \"authorizes_media_write\": false, \"authorizes_append\": false, \"authorizes_transaction_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"write_attempted\": false, \"applies_rollback\": false, \"installs_rollback_state\": false}");
         let transaction_append_dry_run = hello_rollback_transaction_append_dry_run(
             transaction_append_authority_denial_gate,
             append_record,
             sector_plan,
             target_region_write,
         );
-        raw(", \"transaction_append_dry_run\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_APPEND_DRY_RUN_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_APPEND_DRY_RUN_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_APPEND_DRY_RUN_STATUS);
-        raw(", \"reason\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_APPEND_DRY_RUN_REASON);
-        raw(", \"dry_run_hash\": ");
-        json_sha256(transaction_append_dry_run.dry_run_hash);
-        raw(", \"source_authority_denial_gate_hash\": ");
-        json_sha256(transaction_append_dry_run.source_authority_denial_gate_hash);
-        raw(", \"source_transaction_append_availability_decision_hash\": ");
-        json_sha256(
-            transaction_append_dry_run.source_transaction_append_availability_decision_hash,
-        );
-        raw(", \"source_append_record_hash\": ");
-        json_sha256(transaction_append_dry_run.source_append_record_hash);
-        raw(", \"source_sector_plan_hash\": ");
-        json_sha256(transaction_append_dry_run.source_sector_plan_hash);
-        raw(", \"source_target_region_write_readback_hash\": ");
-        json_sha256(transaction_append_dry_run.source_target_region_write_readback_hash);
-        raw(", \"planned_sector_image_hash\": ");
-        json_sha256(transaction_append_dry_run.planned_sector_image_hash);
-        raw(", \"readback_sector_image_hash\": ");
-        json_sha256(transaction_append_dry_run.readback_sector_image_hash);
-        raw(", \"audit_ledger_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
-        raw(", \"audit_record_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
-        raw(", \"rollback_store_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
-        raw(", \"rollback_transaction_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!(
-            "{}",
-            transaction_append_dry_run.target_start_lba
-        ));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            transaction_append_dry_run.target_lba_count
-        ));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            transaction_append_dry_run.target_byte_count
-        ));
-        raw(", \"authority_denial_gate_verified\": ");
-        raw_bool(transaction_append_dry_run.authority_denial_gate_verified);
-        raw(", \"target_span_verified\": ");
-        raw_bool(transaction_append_dry_run.target_span_verified);
-        raw(", \"target_region_write_readback_verified\": ");
-        raw_bool(transaction_append_dry_run.target_region_write_readback_verified);
-        raw(", \"append_image_ready\": ");
-        raw_bool(transaction_append_dry_run.append_image_ready);
-        raw(", \"blocked_by_authority_denial_gate\": ");
-        raw_bool(transaction_append_dry_run.blocked_by_authority_denial_gate);
-        raw(", \"test_infrastructure_media_write_authority_available\": ");
-        raw_bool(transaction_append_dry_run.test_infrastructure_media_write_authority_available);
-        raw(", \"transaction_append_available\": ");
-        raw_bool(transaction_append_dry_run.transaction_append_available);
-        raw(", \"authorizes_media_write\": false, \"authorizes_append\": false, \"authorizes_transaction_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"transaction_append_attempted\": false}");
         let target_region_sector_inspection =
             hello_rollback_target_region_sector_inspection_from_retained_inspect(
-                append_record,
-                sector_plan,
-                target_region_write,
+            append_record,
+            sector_plan,
+            target_region_write,
             );
-        raw(", \"target_region_sector_inspection\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_TARGET_REGION_SECTOR_INSPECTION_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_TARGET_REGION_SECTOR_INSPECTION_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(target_region_sector_inspection.status);
-        raw(", \"reason\": ");
-        json_str(target_region_sector_inspection.reason);
-        raw(", \"inspection_hash\": ");
-        json_sha256(target_region_sector_inspection.inspection_hash);
-        raw(", \"source_sector_plan_hash\": ");
-        json_sha256(target_region_sector_inspection.source_sector_plan_hash);
-        raw(", \"source_target_region_write_readback_hash\": ");
-        json_sha256(target_region_sector_inspection.source_target_region_write_readback_hash);
-        raw(", \"expected_sector_image_hash\": ");
-        json_sha256(target_region_sector_inspection.expected_sector_image_hash);
-        raw(", \"sector_image_hash\": ");
-        json_sha256(target_region_sector_inspection.sector_image_hash);
-        raw(", \"audit_record_image_hash\": ");
-        json_sha256(target_region_sector_inspection.audit_record_image_hash);
-        raw(", \"rollback_transaction_image_hash\": ");
-        json_sha256(target_region_sector_inspection.rollback_transaction_image_hash);
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!(
-            "{}",
-            target_region_sector_inspection.target_start_lba
-        ));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            target_region_sector_inspection.target_lba_count
-        ));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            target_region_sector_inspection.target_byte_count
-        ));
-        raw(", \"audit_record_offset\": ");
-        raw_fmt(format_args!(
-            "{}",
-            target_region_sector_inspection.audit_record_offset
-        ));
-        raw(", \"audit_record_byte_length\": ");
-        raw_fmt(format_args!(
-            "{}",
-            target_region_sector_inspection.audit_record_byte_length
-        ));
-        raw(", \"rollback_transaction_offset\": ");
-        raw_fmt(format_args!(
-            "{}",
-            target_region_sector_inspection.rollback_transaction_offset
-        ));
-        raw(", \"rollback_transaction_byte_length\": ");
-        raw_fmt(format_args!(
-            "{}",
-            target_region_sector_inspection.rollback_transaction_byte_length
-        ));
-        raw(", \"padding_offset\": ");
-        raw_fmt(format_args!(
-            "{}",
-            target_region_sector_inspection.padding_offset
-        ));
-        raw(", \"padding_byte_length\": ");
-        raw_fmt(format_args!(
-            "{}",
-            target_region_sector_inspection.padding_byte_length
-        ));
-        raw(", \"label_found\": ");
-        raw_bool(target_region_sector_inspection.label_found);
-        raw(", \"read_attempted\": ");
-        raw_bool(target_region_sector_inspection.read_attempted);
-        raw(", \"read_completed\": ");
-        raw_bool(target_region_sector_inspection.read_completed);
-        raw(", \"sector_hash_verified\": ");
-        raw_bool(target_region_sector_inspection.sector_hash_verified);
-        raw(", \"audit_record_hash_verified\": ");
-        raw_bool(target_region_sector_inspection.audit_record_hash_verified);
-        raw(", \"rollback_transaction_hash_verified\": ");
-        raw_bool(target_region_sector_inspection.rollback_transaction_hash_verified);
-        raw(", \"offsets_verified\": ");
-        raw_bool(target_region_sector_inspection.offsets_verified);
-        raw(", \"padding_zeroed\": ");
-        raw_bool(target_region_sector_inspection.padding_zeroed);
-        raw(", \"target_span_verified\": ");
-        raw_bool(target_region_sector_inspection.target_span_verified);
-        raw(", \"target_region_write_readback_verified\": ");
-        raw_bool(target_region_sector_inspection.target_region_write_readback_verified);
-        raw(", \"inspection_verified\": ");
-        raw_bool(target_region_sector_inspection.inspection_verified);
-        raw(", \"authorizes_media_write\": false, \"authorizes_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"installs_rollback_state\": false}");
-        raw(", \"retained_recovery_rollback_inspect_source\": ");
-        emit_recovery_rollback_inspect_source_reference_inline(target_region_sector_inspection);
         let durable_policy_write_authority_decision =
             hello_rollback_durable_policy_write_authority_decision(
-                durable_append_authority_availability_dry_run,
-                durable_audit_policy_write_authority_availability,
-                durable_audit_policy_availability,
-                durable_append_authority_availability,
-                transaction_append_dry_run,
-                target_region_sector_inspection,
+            durable_append_authority_availability_dry_run,
+            durable_audit_policy_write_authority_availability,
+            durable_audit_policy_availability,
+            durable_append_authority_availability,
+            transaction_append_dry_run,
+            target_region_sector_inspection,
             );
-        raw(", \"durable_policy_write_authority_decision\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_POLICY_WRITE_AUTHORITY_DECISION_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_POLICY_WRITE_AUTHORITY_DECISION_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_POLICY_WRITE_AUTHORITY_DECISION_STATUS);
-        raw(", \"reason\": ");
-        json_str(HELLO_ROLLBACK_DURABLE_POLICY_WRITE_AUTHORITY_DECISION_REASON);
-        raw(", \"decision_hash\": ");
-        json_sha256(durable_policy_write_authority_decision.decision_hash);
-        raw(", \"source_durable_append_authority_availability_dry_run_hash\": ");
-        json_sha256(
-            durable_policy_write_authority_decision
-                .source_durable_append_authority_availability_dry_run_hash,
-        );
-        raw(", \"source_transaction_append_dry_run_hash\": ");
-        json_sha256(durable_policy_write_authority_decision.source_transaction_append_dry_run_hash);
-        raw(", \"source_target_region_sector_inspection_hash\": ");
-        json_sha256(
-            durable_policy_write_authority_decision.source_target_region_sector_inspection_hash,
-        );
-        raw(", \"source_write_authority_availability_hash\": ");
-        json_sha256(
-            durable_policy_write_authority_decision.source_write_authority_availability_hash,
-        );
-        raw(", \"source_audit_policy_availability_hash\": ");
-        json_sha256(durable_policy_write_authority_decision.source_audit_policy_availability_hash);
-        raw(", \"source_durable_append_authority_availability_hash\": ");
-        json_sha256(
-            durable_policy_write_authority_decision
-                .source_durable_append_authority_availability_hash,
-        );
-        raw(", \"source_authority_denial_gate_hash\": ");
-        json_sha256(durable_policy_write_authority_decision.source_authority_denial_gate_hash);
-        raw(", \"source_transaction_append_availability_decision_hash\": ");
-        json_sha256(
-            durable_policy_write_authority_decision
-                .source_transaction_append_availability_decision_hash,
-        );
-        raw(", \"audit_ledger_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
-        raw(", \"audit_record_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
-        raw(", \"rollback_store_target_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
-        raw(", \"rollback_transaction_schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_policy_write_authority_decision.target_start_lba
-        ));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_policy_write_authority_decision.target_lba_count
-        ));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!(
-            "{}",
-            durable_policy_write_authority_decision.target_byte_count
-        ));
-        raw(", \"transaction_append_dry_run_verified\": ");
-        raw_bool(durable_policy_write_authority_decision.transaction_append_dry_run_verified);
-        raw(", \"target_region_sector_inspection_verified\": ");
-        raw_bool(durable_policy_write_authority_decision.target_region_sector_inspection_verified);
-        raw(", \"write_authority_evidence_verified\": ");
-        raw_bool(durable_policy_write_authority_decision.write_authority_evidence_verified);
-        raw(", \"audit_policy_availability_evidence_verified\": ");
-        raw_bool(
-            durable_policy_write_authority_decision.audit_policy_availability_evidence_verified,
-        );
-        raw(", \"durable_append_authority_availability_evidence_verified\": ");
-        raw_bool(
-            durable_policy_write_authority_decision
-                .durable_append_authority_availability_evidence_verified,
-        );
-        raw(", \"target_span_verified\": ");
-        raw_bool(durable_policy_write_authority_decision.target_span_verified);
-        raw(", \"test_infrastructure_media_write_authority_available\": ");
-        raw_bool(
-            durable_policy_write_authority_decision
-                .test_infrastructure_media_write_authority_available,
-        );
-        raw(", \"write_authority_available\": ");
-        raw_bool(durable_policy_write_authority_decision.write_authority_available);
-        raw(", \"durable_policy_ledger_available\": ");
-        raw_bool(durable_policy_write_authority_decision.durable_policy_ledger_available);
-        raw(", \"durable_audit_policy_available\": ");
-        raw_bool(durable_policy_write_authority_decision.durable_audit_policy_available);
-        raw(", \"durable_append_authority_available\": ");
-        raw_bool(durable_policy_write_authority_decision.durable_append_authority_available);
-        raw(", \"transaction_append_available\": ");
-        raw_bool(durable_policy_write_authority_decision.transaction_append_available);
-        raw(", \"authorizes_media_write\": false, \"authorizes_append\": false, \"authorizes_transaction_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"write_attempted\": false, \"applies_rollback\": false}");
-        raw(", \"target_region_write_readback_dry_run\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_TARGET_REGION_WRITE_READBACK_DRY_RUN_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_TARGET_REGION_WRITE_READBACK_DRY_RUN_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(target_region_write.status);
-        raw(", \"reason\": ");
-        json_str(target_region_write.reason);
-        raw(", \"dry_run_hash\": ");
-        json_sha256(target_region_write.dry_run_hash);
-        raw(", \"source_sector_plan_hash\": ");
-        json_sha256(target_region_write.source_sector_plan_hash);
-        raw(", \"source_policy_preflight_hash\": ");
-        json_sha256(target_region_write.source_policy_preflight_hash);
-        raw(", \"planned_sector_image_hash\": ");
-        json_sha256(target_region_write.planned_sector_image_hash);
-        raw(", \"readback_sector_image_hash\": ");
-        json_sha256(target_region_write.readback_sector_image_hash);
-        raw(", \"target_region_id\": ");
-        json_str(ahci::AUDIT_ROLLBACK_TARGET_REGION_ID);
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!("{}", target_region_write.target_start_lba));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!("{}", target_region_write.target_lba_count));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!("{}", target_region_write.target_byte_count));
-        raw(", \"label_found\": ");
-        raw_bool(target_region_write.label_found);
-        raw(", \"target_range_ready\": ");
-        raw_bool(target_region_write.target_range_ready);
-        raw(", \"test_infrastructure_media_write_authority_available\": ");
-        raw_bool(target_region_write.test_infrastructure_media_write_authority_available);
-        raw(", \"write_attempted\": ");
-        raw_bool(target_region_write.write_attempted);
-        raw(", \"write_completed\": ");
-        raw_bool(target_region_write.write_completed);
-        raw(", \"readback_completed\": ");
-        raw_bool(target_region_write.readback_completed);
-        raw(", \"readback_matches_planned_image\": ");
-        raw_bool(target_region_write.readback_matches_planned_image);
-        raw(", \"authorizes_media_write\": false, \"authorizes_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"installs_rollback_state\": false}");
-        raw(", \"storage_authority_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_STORAGE_AUTHORITY_ID);
-        raw(", \"append_target_owner_id\": ");
-        json_str(rollback_append_contract::AUDIT_ROLLBACK_APPEND_TARGET_OWNER_ID);
-        raw(", \"transaction_writer_readiness_id\": ");
-        json_str(rollback_append_contract::AUDIT_ROLLBACK_TRANSACTION_WRITER_READINESS_ID);
-        raw(", \"audit_ledger_writer_fact_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
-        raw(", \"rollback_store_writer_fact_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
-        raw(", \"scratch_write_readback_verified\": ");
-        raw_bool(durable_append_preflight.scratch_write_readback_verified);
-        raw(", \"scratch_used_as_durable_authority\": false, \"durable_audit_writer_available\": ");
-        raw_bool(durable_append_preflight.durable_audit_writer_available);
-        raw(", \"rollback_store_writer_available\": ");
-        raw_bool(durable_append_preflight.rollback_store_writer_available);
-        raw(", \"transaction_append_writer_available\": ");
-        raw_bool(durable_append_preflight.transaction_append_writer_available);
-        raw(", \"authorizes_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false}");
-        raw(", \"authorizes_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false}");
-        raw(", \"authorizes_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"write_attempted\": false}");
-        raw(", \"authorizes_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"write_attempted\": false}");
-        raw(", \"dry_run_evaluated\": true, \"authorizes_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"write_attempted\": false}");
-        raw(", \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false}");
-        raw(", \"block_write_path_authority_gate\": {\"schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_BLOCK_WRITE_PATH_AUTHORITY_GATE_SCHEMA);
-        raw(", \"id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_BLOCK_WRITE_PATH_AUTHORITY_GATE_ID);
-        raw(", \"storage_authority_id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_STORAGE_AUTHORITY_ID);
-        raw(", \"status\": ");
-        json_str(foundation.block_write_path_gate_status);
-        raw(", \"reason\": ");
-        json_str(foundation.block_write_path_reason);
-        raw(", \"available\": ");
-        raw_bool(foundation.block_write_path_available);
-        raw(", \"read_only_block_driver_id\": ");
-        json_str(foundation.read_only_block_driver_id);
-        raw(", \"read_only_block_driver_available\": ");
-        raw_bool(foundation.read_only_block_driver_available);
-        raw(", \"partition_inventory_available\": ");
-        raw_bool(foundation.partition_inventory_available);
-        raw(", \"partition_inventory_scheme\": ");
-        json_str(foundation.partition_inventory_scheme);
-        raw(", \"scratch_block_write_authority_available\": ");
-        raw_bool(foundation.scratch_block_write_authority_available);
-        raw(", \"scratch_block_write_authority_id\": ");
-        json_str(foundation.scratch_block_write_authority_id);
-        raw(", \"scratch_region_within_device_bounds\": ");
-        raw_bool(foundation.scratch_region_within_device_bounds);
-        raw(", \"scratch_region_no_boot_or_partition_metadata_overlap\": ");
-        raw_bool(foundation.scratch_region_no_boot_or_partition_metadata_overlap);
-        raw(", \"authorizes_media_write\": false, \"authorizes_append\": false, \"writes_enabled\": false, \"write_attempted\": false}");
-        raw(", \"append_target\": {\"id\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_TARGET_ID);
-        raw(", \"schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
-        raw(", \"available\": ");
-        raw_bool(foundation.rollback_transaction_append_available);
-        raw("}, \"storage_layout\": {\"schema\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_STORAGE_LAYOUT_SCHEMA);
-        raw(", \"id\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_STORAGE_LAYOUT_ID);
-        raw(", \"status\": ");
-        json_str(foundation.storage_layout_status);
-        raw(", \"reason\": ");
-        json_str(foundation.storage_layout_reason);
-        raw(", \"available\": ");
-        raw_bool(foundation.storage_layout_available);
-        raw("}, \"append_engine\": {\"schema\": \"raios.rollback_store_transaction_engine.v0\", \"id\": \"append_engine.rollback_store.current_boot\", \"status\": ");
-        json_str(foundation.append_engine_status);
-        raw(", \"reason\": ");
-        json_str(foundation.append_engine_reason);
-        raw(", \"available\": ");
-        raw_bool(foundation.append_engine_available);
-        raw("}, \"append_contract\": {\"schema\": \"raios.rollback_store_transaction_envelope.v0\", \"id\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_TARGET_ID);
-        raw(", \"status\": ");
-        json_str(foundation.rollback_transaction_envelope_status);
-        raw(", \"reason\": ");
-        json_str(foundation.rollback_transaction_envelope_reason);
-        raw(", \"available\": ");
-        raw_bool(foundation.rollback_transaction_envelope_available);
-        raw("}, \"transaction_writer\": {\"owner\": ");
-        json_str(rollback_storage_layout::AUDIT_ROLLBACK_TRANSACTION_WRITER_OWNER);
-        raw(", \"status\": ");
-        json_str(foundation.append_contract_status);
-        raw(", \"reason\": ");
-        json_str(foundation.append_contract_reason);
-        raw(", \"available\": ");
-        raw_bool(foundation.transaction_writer_available);
-        raw("}}");
-        raw(", \"unavailable_authorities\": {\"transaction_writer\": ");
-        raw_bool(!foundation.transaction_writer_available);
-        raw(", \"durable_audit_store\": ");
-        raw_bool(!foundation.durable_audit_store_available);
-        raw(", \"rollback_store\": ");
-        raw_bool(!foundation.rollback_store_available);
-        raw(", \"rollback_transaction_append\": ");
-        raw_bool(!foundation.rollback_transaction_append_available);
-        raw("}");
-        raw(", \"side_effects\": {\"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"installs_rollback_plan\": false, \"applies_rollback\": false}");
-        raw("}");
+        inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_AUTHORITY_GATE_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_AUTHORITY_GATE_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_AUTHORITY_GATE_STATUS)),
+            j!("service_id" => s(SERVICE_ID)),
+            j!("requested_capability" => s(HELLO_ROLLBACK_APPLY_CAPABILITY)),
+            j!("gate_hash" => sha(rollback_transaction_writer_storage_authority_gate_hash(
+            snapshot, probation,
+            ))),
+            j!("rollback_payload_envelope_gate_hash" => sha(rollback_payload_envelope_gate_hash(snapshot, probation))),
+            j!("payload_hash" => sha(hello_rollback_transaction_payload_hash(snapshot, probation))),
+            j!("provenance_hash" => sha(hello_rollback_transaction_payload_provenance_hash(
+            snapshot, probation,
+            ))),
+            j!("rollback_append_intent_gate_hash" => sha(rollback_append_intent_gate_hash(snapshot, probation))),
+            j!("rollback_write_authority_gate_hash" => sha(rollback_write_authority_gate_hash(snapshot, probation))),
+            j!("rollback_transaction_preflight_hash" => sha(hello_rollback_transaction_preflight_hash(
+            snapshot, probation,
+            ))),
+            j!("rollback_apply_hash" => sha(hello_rollback_apply_denial_hash(snapshot, probation))),
+            j!("rollback_preview_hash" => sha(hello_rollback_preview_hash(snapshot, probation))),
+            j!("source_probation_hash" => sha(probation.probation_hash)),
+            j!("current_state_hash" => sha(hello_state_hash(snapshot.state_counter))),
+            j!("current_state_counter" => u(snapshot.state_counter)),
+            j!("rollback_target_descriptor_source_hash" => sha(probation.previous_descriptor_source_hash)),
+            j!("rollback_target_artifact_identity_hash" => sha(probation.previous_artifact_identity_hash)),
+            j!("current_candidate_descriptor_source_hash" => sha(probation.new_descriptor_source_hash)),
+            j!("current_candidate_artifact_identity_hash" => sha(probation.new_artifact_identity_hash)),
+            j!("state_migration_hash" => sha(probation.state_migration_hash)),
+            j!("required_schemas" => inline(vec![
+            j!("audit_record" => s("raios.audit_record.v0")),
+            j!("rollback_transaction" => s("raios.rollback_transaction.v0")),
+            ])),
+            j!("writer_storage_foundation" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_FOUNDATION_SCHEMA)),
+            j!("owner_method" => s(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_FOUNDATION_OWNER)),
+            j!("recovery_visible_method" => s(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_FOUNDATION_OWNER)),
+            j!("storage_authority" => inline(vec![
+            j!("schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_STORAGE_AUTHORITY_SCHEMA)),
+            j!("id" => s(rollback_storage_layout::AUDIT_ROLLBACK_STORAGE_AUTHORITY_ID)),
+            j!("owner_method" => s(rollback_storage_layout::AUDIT_ROLLBACK_STORAGE_AUTHORITY_OWNER)),
+            j!("source_method" => s(rollback_storage_layout::MODULE_AUDIT_ROLLBACK_STORAGE_LAYOUT_METHOD)),
+            j!("status" => s(foundation.storage_layout_status)),
+            j!("reason" => s(foundation.storage_layout_reason)),
+            j!("available" => b(foundation.storage_layout_available)),
+            j!("authorizes_append" => b(false)),
+            ])),
+            j!("append_targets" => inline(vec![
+            j!("audit_ledger" => inline(vec![
+            j!("id" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID)),
+            j!("schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA)),
+            j!("available" => b(foundation.durable_audit_store_available)),
+            ])),
+            j!("rollback_store" => inline(vec![
+            j!("id" => s(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_TARGET_ID)),
+            j!("schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA)),
+            j!("available" => b(foundation.rollback_store_available)),
+            j!("append_available" => b(foundation.rollback_transaction_append_available)),
+            ])),
+            ])),
+            j!("target_region_discovery" => audit_rollback_target_region_discovery_value(foundation.target_region_discovery)),
+            j!("append_target_owner" => inline(vec![
+            j!("schema" => s(rollback_append_contract::AUDIT_ROLLBACK_APPEND_TARGET_OWNER_SCHEMA)),
+            j!("id" => s(rollback_append_contract::AUDIT_ROLLBACK_APPEND_TARGET_OWNER_ID)),
+            j!("owner_method" => s(rollback_append_contract::MODULE_AUDIT_ROLLBACK_APPEND_CONTRACT_METHOD)),
+            j!("storage_authority_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_STORAGE_AUTHORITY_ID)),
+            j!("status" => s(foundation.append_target_owner_status)),
+            j!("reason" => s(foundation.append_target_owner_reason)),
+            j!("available" => b(foundation.append_target_owner_available)),
+            j!("block_write_path_available" => b(foundation.block_write_path_available)),
+            j!("block_write_path_reason" => s(foundation.block_write_path_reason)),
+            j!("authorizes_append" => b(false)),
+            ])),
+            j!("transaction_writer_readiness" => inline(vec![
+            j!("schema" => s(rollback_append_contract::AUDIT_ROLLBACK_TRANSACTION_WRITER_READINESS_SCHEMA)),
+            j!("id" => s(rollback_append_contract::AUDIT_ROLLBACK_TRANSACTION_WRITER_READINESS_ID)),
+            j!("owner_method" => s(rollback_storage_layout::AUDIT_ROLLBACK_TRANSACTION_WRITER_OWNER)),
+            j!("append_target_owner_id" => s(rollback_append_contract::AUDIT_ROLLBACK_APPEND_TARGET_OWNER_ID)),
+            j!("status" => s(foundation.transaction_writer_status)),
+            j!("reason" => s(foundation.transaction_writer_reason)),
+            j!("ready" => b(foundation.transaction_writer_ready)),
+            j!("block_write_path_available" => b(foundation.block_write_path_available)),
+            j!("block_write_path_reason" => s(foundation.block_write_path_reason)),
+            j!("scratch_only_writer_dry_run" => inline(vec![
+            j!("schema" => s(rollback_append_contract::AUDIT_ROLLBACK_TRANSACTION_WRITER_SCRATCH_DRY_RUN_SCHEMA,)),
+            j!("id" => s(rollback_append_contract::AUDIT_ROLLBACK_TRANSACTION_WRITER_SCRATCH_DRY_RUN_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("status" => s(foundation.scratch_writer_dry_run_status)),
+            j!("reason" => s(foundation.scratch_writer_dry_run_reason)),
+            j!("source_authority_id" => s(foundation.scratch_block_write_authority_id)),
+            j!("source_region_id" => s(foundation.scratch_region_id)),
+            j!("target_region_start_lba" => u(foundation.scratch_region_start_lba)),
+            j!("target_region_lba_count" => u(foundation.scratch_region_lba_count)),
+            j!("target_byte_count" => u(foundation.scratch_region_byte_count.into())),
+            j!("target_range_scratch_owned" => b(foundation.scratch_block_write_authority_available)),
+            j!("target_range_within_device_bounds" => b(foundation.scratch_region_within_device_bounds)),
+            j!("target_range_no_boot_or_partition_metadata_overlap" => b(foundation.scratch_region_no_boot_or_partition_metadata_overlap)),
+            j!("target_range_ready" => b(foundation.scratch_writer_dry_run_ready)),
+            j!("audit_ledger_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID)),
+            j!("audit_record_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA)),
+            j!("rollback_store_target_id" => s(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_TARGET_ID)),
+            j!("rollback_transaction_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA)),
+            j!("append_record_dry_run" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_APPEND_RECORD_DRY_RUN_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_APPEND_RECORD_DRY_RUN_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("canonicalization" => s(HELLO_ROLLBACK_APPEND_RECORD_CANONICALIZATION)),
+            j!("status" => s(HELLO_ROLLBACK_APPEND_RECORD_DRY_RUN_STATUS)),
+            j!("reason" => s(HELLO_ROLLBACK_APPEND_RECORD_DRY_RUN_REASON)),
+            j!("dry_run_hash" => sha(append_record.dry_run_hash)),
+            j!("audit_ledger_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID)),
+            j!("audit_record_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA)),
+            j!("audit_record_image_hash" => sha(append_record.audit_record_image_hash)),
+            j!("audit_record_byte_length" => u(append_record.audit_record_byte_length)),
+            j!("rollback_store_target_id" => s(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_TARGET_ID)),
+            j!("rollback_transaction_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA)),
+            j!("rollback_transaction_image_hash" => sha(append_record.rollback_transaction_image_hash)),
+            j!("rollback_transaction_byte_length" => u(append_record.rollback_transaction_byte_length)),
+            j!("total_record_byte_length" => u(append_record.total_record_byte_length)),
+            j!("target_start_lba" => u(append_record.target_start_lba)),
+            j!("target_lba_count" => u(append_record.target_lba_count)),
+            j!("target_byte_count" => u(append_record.target_byte_count)),
+            j!("target_range_ready" => b(append_record.target_range_ready)),
+            j!("source_payload_hash" => sha(hello_rollback_transaction_payload_hash(snapshot, probation))),
+            j!("source_provenance_hash" => sha(hello_rollback_transaction_payload_provenance_hash(
+            snapshot, probation,
+            ))),
+            j!("sector_plan_dry_run" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_APPEND_SECTOR_PLAN_DRY_RUN_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_APPEND_SECTOR_PLAN_DRY_RUN_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("canonicalization" => s(HELLO_ROLLBACK_APPEND_SECTOR_PLAN_CANONICALIZATION)),
+            j!("status" => s(HELLO_ROLLBACK_APPEND_SECTOR_PLAN_DRY_RUN_STATUS)),
+            j!("reason" => s(HELLO_ROLLBACK_APPEND_SECTOR_PLAN_DRY_RUN_REASON)),
+            j!("plan_hash" => sha(sector_plan.plan_hash)),
+            j!("sector_image_hash" => sha(sector_plan.sector_image_hash)),
+            j!("sector_size_bytes" => u(sector_plan.sector_size_bytes)),
+            j!("audit_record_offset" => u(sector_plan.audit_record_offset)),
+            j!("audit_record_byte_length" => u(sector_plan.audit_record_byte_length)),
+            j!("rollback_transaction_offset" => u(sector_plan.rollback_transaction_offset)),
+            j!("rollback_transaction_byte_length" => u(sector_plan.rollback_transaction_byte_length)),
+            j!("padding_policy" => s(HELLO_ROLLBACK_APPEND_SECTOR_PADDING_POLICY)),
+            j!("padding_offset" => u(sector_plan.padding_offset)),
+            j!("padding_byte_length" => u(sector_plan.padding_byte_length)),
+            j!("target_start_lba" => u(sector_plan.target_start_lba)),
+            j!("target_lba_count" => u(sector_plan.target_lba_count)),
+            j!("target_byte_count" => u(sector_plan.target_byte_count)),
+            j!("target_range_ready" => b(sector_plan.target_range_ready)),
+            j!("source_append_record_hash" => sha(append_record.dry_run_hash)),
+            j!("scratch_sector_write_readback_dry_run" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_APPEND_SECTOR_WRITE_READBACK_DRY_RUN_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_APPEND_SECTOR_WRITE_READBACK_DRY_RUN_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(sector_write.status)),
+            j!("reason" => s(sector_write.reason)),
+            j!("dry_run_hash" => sha(sector_write.dry_run_hash)),
+            j!("source_plan_hash" => sha(sector_write.source_plan_hash)),
+            j!("planned_sector_image_hash" => sha(sector_write.planned_sector_image_hash)),
+            j!("readback_sector_image_hash" => sha(sector_write.readback_sector_image_hash)),
+            j!("target_start_lba" => u(sector_write.target_start_lba)),
+            j!("target_lba_count" => u(sector_write.target_lba_count)),
+            j!("target_byte_count" => u(sector_write.target_byte_count)),
+            j!("label_found" => b(sector_write.label_found)),
+            j!("target_range_ready" => b(sector_write.target_range_ready)),
+            j!("write_attempted" => b(sector_write.write_attempted)),
+            j!("write_completed" => b(sector_write.write_completed)),
+            j!("readback_completed" => b(sector_write.readback_completed)),
+            j!("readback_matches_planned_image" => b(sector_write.readback_matches_planned_image)),
+            j!("durable_append_authority_preflight" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_PREFLIGHT_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_PREFLIGHT_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_PREFLIGHT_STATUS)),
+            j!("reason" => s(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_PREFLIGHT_REASON)),
+            j!("preflight_hash" => sha(durable_append_preflight.preflight_hash)),
+            j!("source_write_readback_hash" => sha(durable_append_preflight.source_write_readback_hash)),
+            j!("source_target_region_write_readback_hash" => sha(durable_append_preflight.source_target_region_write_readback_hash)),
+            j!("test_infrastructure_media_write_authority_available" => b(durable_append_preflight.test_infrastructure_media_write_authority_available)),
+            j!("remaining_denial_reason" => s(durable_append_preflight.remaining_denial_reason)),
+            j!("durable_writer_policy_preflight" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_DURABLE_WRITER_POLICY_PREFLIGHT_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_DURABLE_WRITER_POLICY_PREFLIGHT_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(HELLO_ROLLBACK_DURABLE_WRITER_POLICY_PREFLIGHT_STATUS)),
+            j!("reason" => s(HELLO_ROLLBACK_DURABLE_WRITER_POLICY_PREFLIGHT_REASON)),
+            j!("preflight_hash" => sha(durable_writer_policy_preflight.preflight_hash)),
+            j!("source_append_record_hash" => sha(durable_writer_policy_preflight.source_append_record_hash)),
+            j!("source_sector_plan_hash" => sha(durable_writer_policy_preflight.source_sector_plan_hash)),
+            j!("source_target_region_write_readback_hash" => sha(durable_writer_policy_preflight.source_target_region_write_readback_hash)),
+            j!("audit_ledger_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID)),
+            j!("audit_record_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA)),
+            j!("rollback_store_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID)),
+            j!("rollback_transaction_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA)),
+            j!("target_start_lba" => u(durable_writer_policy_preflight.target_start_lba)),
+            j!("target_lba_count" => u(durable_writer_policy_preflight.target_lba_count)),
+            j!("target_byte_count" => u(durable_writer_policy_preflight.target_byte_count)),
+            j!("target_range_ready" => b(durable_writer_policy_preflight.target_range_ready)),
+            j!("test_infrastructure_media_write_authority_available" => b(durable_writer_policy_preflight.test_infrastructure_media_write_authority_available,)),
+            j!("durable_audit_writer_available" => b(durable_writer_policy_preflight.durable_audit_writer_available)),
+            j!("rollback_store_writer_available" => b(durable_writer_policy_preflight.rollback_store_writer_available)),
+            j!("transaction_append_writer_available" => b(durable_writer_policy_preflight.transaction_append_writer_available)),
+            j!("authorizes_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("write_attempted" => b(false)),
+            ])),
+            j!("durable_append_transaction_authorization_gate" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_DURABLE_APPEND_TRANSACTION_AUTHORIZATION_GATE_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_DURABLE_APPEND_TRANSACTION_AUTHORIZATION_GATE_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(HELLO_ROLLBACK_DURABLE_APPEND_TRANSACTION_AUTHORIZATION_GATE_STATUS)),
+            j!("reason" => s(HELLO_ROLLBACK_DURABLE_APPEND_TRANSACTION_AUTHORIZATION_GATE_REASON)),
+            j!("gate_hash" => sha(durable_append_transaction_authorization_gate.gate_hash)),
+            j!("source_writer_policy_preflight_hash" => sha(durable_append_transaction_authorization_gate.source_writer_policy_preflight_hash,)),
+            j!("source_append_record_hash" => sha(durable_append_transaction_authorization_gate.source_append_record_hash)),
+            j!("source_sector_plan_hash" => sha(durable_append_transaction_authorization_gate.source_sector_plan_hash)),
+            j!("source_target_region_write_readback_hash" => sha(durable_append_transaction_authorization_gate.source_target_region_write_readback_hash,)),
+            j!("audit_ledger_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID)),
+            j!("audit_record_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA)),
+            j!("rollback_store_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID)),
+            j!("rollback_transaction_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA)),
+            j!("target_start_lba" => u(durable_append_transaction_authorization_gate.target_start_lba)),
+            j!("target_lba_count" => u(durable_append_transaction_authorization_gate.target_lba_count)),
+            j!("target_byte_count" => u(durable_append_transaction_authorization_gate.target_byte_count)),
+            j!("target_range_ready" => b(durable_append_transaction_authorization_gate.target_range_ready)),
+            j!("test_infrastructure_media_write_authority_available" => b(durable_append_transaction_authorization_gate
+            .test_infrastructure_media_write_authority_available,)),
+            j!("append_engine_available" => b(durable_append_transaction_authorization_gate.append_engine_available)),
+            j!("durable_audit_writer_available" => b(durable_append_transaction_authorization_gate.durable_audit_writer_available)),
+            j!("rollback_store_writer_available" => b(durable_append_transaction_authorization_gate.rollback_store_writer_available)),
+            j!("transaction_append_writer_available" => b(durable_append_transaction_authorization_gate.transaction_append_writer_available)),
+            j!("authorizes_append" => b(false)),
+            j!("authorizes_transaction_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("write_attempted" => b(false)),
+            ])),
+            j!("append_engine_readiness_decision" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_APPEND_ENGINE_READINESS_DECISION_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_APPEND_ENGINE_READINESS_DECISION_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(append_engine_readiness_decision.status)),
+            j!("reason" => s(append_engine_readiness_decision.reason)),
+            j!("decision_hash" => sha(append_engine_readiness_decision.decision_hash)),
+            j!("source_authorization_gate_hash" => sha(append_engine_readiness_decision.source_authorization_gate_hash)),
+            j!("source_writer_policy_preflight_hash" => sha(append_engine_readiness_decision.source_writer_policy_preflight_hash)),
+            j!("source_append_record_hash" => sha(append_engine_readiness_decision.source_append_record_hash)),
+            j!("source_sector_plan_hash" => sha(append_engine_readiness_decision.source_sector_plan_hash)),
+            j!("source_target_region_write_readback_hash" => sha(append_engine_readiness_decision.source_target_region_write_readback_hash)),
+            j!("target_start_lba" => u(append_engine_readiness_decision.target_start_lba)),
+            j!("target_lba_count" => u(append_engine_readiness_decision.target_lba_count)),
+            j!("target_byte_count" => u(append_engine_readiness_decision.target_byte_count)),
+            j!("target_range_ready" => b(append_engine_readiness_decision.target_range_ready)),
+            j!("test_infrastructure_media_write_authority_available" => b(append_engine_readiness_decision.test_infrastructure_media_write_authority_available,)),
+            j!("append_engine_available" => b(append_engine_readiness_decision.append_engine_available)),
+            j!("durable_audit_writer_available" => b(append_engine_readiness_decision.durable_audit_writer_available)),
+            j!("rollback_store_writer_available" => b(append_engine_readiness_decision.rollback_store_writer_available)),
+            j!("transaction_append_writer_available" => b(append_engine_readiness_decision.transaction_append_writer_available)),
+            j!("ready" => b(append_engine_readiness_decision.ready)),
+            j!("authorizes_append" => b(false)),
+            j!("authorizes_transaction_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("write_attempted" => b(false)),
+            ])),
+            j!("target_region_discovery" => audit_rollback_target_region_discovery_value(durable_append_preflight.target_region_discovery,)),
+            j!("target_region_media_write_policy_preflight" => inline(vec![
+            j!("schema" => s(rollback_append_contract::AUDIT_ROLLBACK_TARGET_REGION_MEDIA_WRITE_POLICY_PREFLIGHT_SCHEMA,)),
+            j!("id" => s(rollback_append_contract::AUDIT_ROLLBACK_TARGET_REGION_MEDIA_WRITE_POLICY_PREFLIGHT_ID,)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(foundation.target_region_media_write_policy_preflight_status)),
+            j!("reason" => s(foundation.target_region_media_write_policy_preflight_reason)),
+            j!("preflight_hash" => sha(durable_target_region_media_write_policy_preflight.preflight_hash)),
+            j!("source_contract_schema" => s(rollback_append_contract::AUDIT_ROLLBACK_TARGET_REGION_WRITER_CONTRACT_SCHEMA)),
+            j!("source_contract_id" => s(rollback_append_contract::AUDIT_ROLLBACK_TARGET_REGION_WRITER_CONTRACT_ID)),
+            j!("source_contract_status" => s(durable_target_region_media_write_policy_preflight.source_contract_status)),
+            j!("source_contract_reason" => s(durable_target_region_media_write_policy_preflight.source_contract_reason)),
+            j!("owner_method" => s(rollback_storage_layout::AUDIT_ROLLBACK_TRANSACTION_WRITER_OWNER)),
+            j!("append_target_owner_id" => s(rollback_append_contract::AUDIT_ROLLBACK_APPEND_TARGET_OWNER_ID)),
+            j!("storage_authority_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_STORAGE_AUTHORITY_ID)),
+            j!("audit_ledger_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID)),
+            j!("audit_record_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA)),
+            j!("rollback_store_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID)),
+            j!("rollback_transaction_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA)),
+            j!("target_region_start_lba" => u(durable_target_region_media_write_policy_preflight.target_region_start_lba)),
+            j!("target_region_lba_count" => u(durable_target_region_media_write_policy_preflight.target_region_lba_count)),
+            j!("target_byte_count" => u(durable_target_region_media_write_policy_preflight.target_byte_count)),
+            j!("source_contract_target_range_ready" => b(durable_target_region_media_write_policy_preflight.source_contract_target_range_ready)),
+            j!("owner_ids_verified" => b(durable_target_region_media_write_policy_preflight.owner_ids_verified)),
+            j!("target_ids_verified" => b(durable_target_region_media_write_policy_preflight.target_ids_verified)),
+            j!("target_span_verified" => b(durable_target_region_media_write_policy_preflight.target_span_verified)),
+            j!("schema_ids_verified" => b(durable_target_region_media_write_policy_preflight.schema_ids_verified)),
+            j!("media_write_authority_required" => b(true)),
+            j!("media_write_authority_available" => b(durable_target_region_media_write_policy_preflight.media_write_authority_available)),
+            j!("media_write_authority_reason" => s(HELLO_ROLLBACK_MEDIA_WRITE_AUTHORITY_MISSING_REASON)),
+            j!("durable_audit_policy_required" => b(true)),
+            j!("durable_audit_policy_available" => b(durable_target_region_media_write_policy_preflight.durable_audit_policy_available)),
+            j!("durable_audit_policy_reason" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_MISSING_REASON)),
+            j!("authorizes_media_write" => b(false)),
+            j!("authorizes_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("write_attempted" => b(false)),
+            ])),
+            j!("media_write_authority_gate" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_MEDIA_WRITE_AUTHORITY_GATE_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_MEDIA_WRITE_AUTHORITY_GATE_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(HELLO_ROLLBACK_MEDIA_WRITE_AUTHORITY_GATE_STATUS)),
+            j!("reason" => s(HELLO_ROLLBACK_MEDIA_WRITE_AUTHORITY_GATE_REASON)),
+            j!("gate_hash" => sha(media_write_authority_gate.gate_hash)),
+            j!("source_durable_append_authority_preflight_schema" => s(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_PREFLIGHT_SCHEMA)),
+            j!("source_durable_append_authority_preflight_id" => s(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_PREFLIGHT_ID)),
+            j!("source_durable_append_authority_preflight_hash" => sha(media_write_authority_gate.source_durable_append_authority_preflight_hash)),
+            j!("source_policy_preflight_schema" => s(rollback_append_contract::AUDIT_ROLLBACK_TARGET_REGION_MEDIA_WRITE_POLICY_PREFLIGHT_SCHEMA,)),
+            j!("source_policy_preflight_id" => s(rollback_append_contract::AUDIT_ROLLBACK_TARGET_REGION_MEDIA_WRITE_POLICY_PREFLIGHT_ID,)),
+            j!("source_policy_preflight_hash" => sha(media_write_authority_gate.source_policy_preflight_hash)),
+            j!("source_target_region_write_readback_schema" => s(HELLO_ROLLBACK_TARGET_REGION_WRITE_READBACK_DRY_RUN_SCHEMA)),
+            j!("source_target_region_write_readback_id" => s(HELLO_ROLLBACK_TARGET_REGION_WRITE_READBACK_DRY_RUN_ID)),
+            j!("source_target_region_write_readback_hash" => sha(media_write_authority_gate.source_target_region_write_readback_hash)),
+            j!("source_contract_schema" => s(rollback_append_contract::AUDIT_ROLLBACK_TARGET_REGION_WRITER_CONTRACT_SCHEMA)),
+            j!("source_contract_id" => s(rollback_append_contract::AUDIT_ROLLBACK_TARGET_REGION_WRITER_CONTRACT_ID)),
+            j!("source_contract_status" => s(media_write_authority_gate.source_contract_status)),
+            j!("source_contract_reason" => s(media_write_authority_gate.source_contract_reason)),
+            j!("target_region_start_lba" => u(media_write_authority_gate.target_region_start_lba)),
+            j!("target_region_lba_count" => u(media_write_authority_gate.target_region_lba_count)),
+            j!("target_byte_count" => u(media_write_authority_gate.target_byte_count)),
+            j!("source_contract_target_range_ready" => b(media_write_authority_gate.source_contract_target_range_ready)),
+            j!("owner_ids_verified" => b(media_write_authority_gate.owner_ids_verified)),
+            j!("target_ids_verified" => b(media_write_authority_gate.target_ids_verified)),
+            j!("target_span_verified" => b(media_write_authority_gate.target_span_verified)),
+            j!("schema_ids_verified" => b(media_write_authority_gate.schema_ids_verified)),
+            j!("media_write_authority_required" => b(true)),
+            j!("media_write_authority_available" => b(media_write_authority_gate.media_write_authority_available)),
+            j!("media_write_authority_reason" => s(HELLO_ROLLBACK_TEST_MEDIA_WRITE_AUTHORITY_REASON)),
+            j!("test_infrastructure_media_write_authority_available" => b(media_write_authority_gate.test_infrastructure_media_write_authority_available)),
+            j!("durable_audit_policy_required" => b(true)),
+            j!("durable_audit_policy_available" => b(media_write_authority_gate.durable_audit_policy_available)),
+            j!("durable_audit_policy_reason" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_MISSING_REASON)),
+            j!("authorizes_media_write" => b(false)),
+            j!("authorizes_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("target_region_write_attempted" => b(media_write_authority_gate.target_region_write_attempted)),
+            j!("write_attempted" => b(false)),
+            ])),
+            j!("durable_append_authority_decision" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_DECISION_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_DECISION_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_DECISION_STATUS)),
+            j!("reason" => s(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_DECISION_REASON)),
+            j!("decision_hash" => sha(durable_append_authority_decision.decision_hash)),
+            j!("source_durable_append_authority_preflight_hash" => sha(durable_append_authority_decision.source_durable_append_authority_preflight_hash,)),
+            j!("source_writer_policy_preflight_hash" => sha(durable_append_authority_decision.source_writer_policy_preflight_hash)),
+            j!("source_append_engine_readiness_decision_hash" => sha(durable_append_authority_decision.source_append_engine_readiness_decision_hash)),
+            j!("source_media_write_authority_gate_hash" => sha(durable_append_authority_decision.source_media_write_authority_gate_hash)),
+            j!("source_policy_preflight_hash" => sha(durable_append_authority_decision.source_policy_preflight_hash)),
+            j!("source_target_region_write_readback_hash" => sha(durable_append_authority_decision.source_target_region_write_readback_hash)),
+            j!("target_start_lba" => u(durable_append_authority_decision.target_start_lba)),
+            j!("target_lba_count" => u(durable_append_authority_decision.target_lba_count)),
+            j!("target_byte_count" => u(durable_append_authority_decision.target_byte_count)),
+            j!("writer_policy_ready" => b(durable_append_authority_decision.writer_policy_ready)),
+            j!("append_engine_ready" => b(durable_append_authority_decision.append_engine_ready)),
+            j!("media_write_gate_ready" => b(durable_append_authority_decision.media_write_gate_ready)),
+            j!("test_infrastructure_media_write_authority_available" => b(durable_append_authority_decision.test_infrastructure_media_write_authority_available,)),
+            j!("durable_audit_policy_available" => b(durable_append_authority_decision.durable_audit_policy_available)),
+            j!("durable_append_authority_available" => b(durable_append_authority_decision.durable_append_authority_available)),
+            j!("authorizes_append" => b(false)),
+            j!("authorizes_transaction_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("write_attempted" => b(false)),
+            ])),
+            j!("durable_audit_policy_decision" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_DECISION_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_DECISION_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_DECISION_STATUS)),
+            j!("reason" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_DECISION_REASON)),
+            j!("decision_hash" => sha(durable_audit_policy_decision.decision_hash)),
+            j!("source_durable_append_authority_decision_hash" => sha(durable_audit_policy_decision.source_durable_append_authority_decision_hash)),
+            j!("source_policy_preflight_hash" => sha(durable_audit_policy_decision.source_policy_preflight_hash)),
+            j!("source_media_write_authority_gate_hash" => sha(durable_audit_policy_decision.source_media_write_authority_gate_hash)),
+            j!("source_target_region_write_readback_hash" => sha(durable_audit_policy_decision.source_target_region_write_readback_hash)),
+            j!("target_start_lba" => u(durable_audit_policy_decision.target_start_lba)),
+            j!("target_lba_count" => u(durable_audit_policy_decision.target_lba_count)),
+            j!("target_byte_count" => u(durable_audit_policy_decision.target_byte_count)),
+            j!("append_engine_ready" => b(durable_audit_policy_decision.append_engine_ready)),
+            j!("media_write_policy_verified" => b(durable_audit_policy_decision.media_write_policy_verified)),
+            j!("test_infrastructure_media_write_authority_available" => b(durable_audit_policy_decision.test_infrastructure_media_write_authority_available)),
+            j!("durable_append_authority_available" => b(durable_audit_policy_decision.durable_append_authority_available)),
+            j!("durable_audit_policy_available" => b(durable_audit_policy_decision.durable_audit_policy_available)),
+            j!("authorizes_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("write_attempted" => b(false)),
+            ])),
+            j!("durable_audit_policy_candidate" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_CANDIDATE_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_CANDIDATE_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_CANDIDATE_STATUS)),
+            j!("reason" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_CANDIDATE_REASON)),
+            j!("candidate_hash" => sha(durable_audit_policy_candidate.candidate_hash)),
+            j!("source_durable_audit_policy_decision_hash" => sha(durable_audit_policy_candidate.source_durable_audit_policy_decision_hash)),
+            j!("source_audit_record_image_hash" => sha(durable_audit_policy_candidate.source_audit_record_image_hash)),
+            j!("source_policy_preflight_hash" => sha(durable_audit_policy_candidate.source_policy_preflight_hash)),
+            j!("source_target_region_write_readback_hash" => sha(durable_audit_policy_candidate.source_target_region_write_readback_hash)),
+            j!("audit_record_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA)),
+            j!("target_start_lba" => u(durable_audit_policy_candidate.target_start_lba)),
+            j!("target_lba_count" => u(durable_audit_policy_candidate.target_lba_count)),
+            j!("target_byte_count" => u(durable_audit_policy_candidate.target_byte_count)),
+            j!("media_write_policy_verified" => b(durable_audit_policy_candidate.media_write_policy_verified)),
+            j!("durable_audit_policy_candidate_available" => b(durable_audit_policy_candidate.durable_audit_policy_candidate_available)),
+            j!("durable_audit_policy_available" => b(durable_audit_policy_candidate.durable_audit_policy_available)),
+            j!("durable_append_authority_available" => b(durable_audit_policy_candidate.durable_append_authority_available)),
+            j!("authorizes_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("write_attempted" => b(false)),
+            ])),
+            j!("durable_audit_policy_acceptance_gate" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_ACCEPTANCE_GATE_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_ACCEPTANCE_GATE_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_ACCEPTANCE_GATE_STATUS)),
+            j!("reason" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_ACCEPTANCE_GATE_REASON)),
+            j!("gate_hash" => sha(durable_audit_policy_acceptance_gate.gate_hash)),
+            j!("source_durable_audit_policy_candidate_hash" => sha(durable_audit_policy_acceptance_gate.source_durable_audit_policy_candidate_hash,)),
+            j!("source_durable_audit_policy_decision_hash" => sha(durable_audit_policy_acceptance_gate.source_durable_audit_policy_decision_hash)),
+            j!("source_audit_record_image_hash" => sha(durable_audit_policy_acceptance_gate.source_audit_record_image_hash)),
+            j!("source_policy_preflight_hash" => sha(durable_audit_policy_acceptance_gate.source_policy_preflight_hash)),
+            j!("source_target_region_write_readback_hash" => sha(durable_audit_policy_acceptance_gate.source_target_region_write_readback_hash)),
+            j!("audit_record_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA)),
+            j!("target_start_lba" => u(durable_audit_policy_acceptance_gate.target_start_lba)),
+            j!("target_lba_count" => u(durable_audit_policy_acceptance_gate.target_lba_count)),
+            j!("target_byte_count" => u(durable_audit_policy_acceptance_gate.target_byte_count)),
+            j!("candidate_available" => b(durable_audit_policy_acceptance_gate.candidate_available)),
+            j!("media_write_policy_verified" => b(durable_audit_policy_acceptance_gate.media_write_policy_verified)),
+            j!("durable_policy_ledger_available" => b(durable_audit_policy_acceptance_gate.durable_policy_ledger_available)),
+            j!("write_authority_available" => b(durable_audit_policy_acceptance_gate.write_authority_available)),
+            j!("durable_audit_policy_available" => b(durable_audit_policy_acceptance_gate.durable_audit_policy_available)),
+            j!("durable_append_authority_available" => b(durable_audit_policy_acceptance_gate.durable_append_authority_available)),
+            j!("authorizes_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("write_attempted" => b(false)),
+            ])),
+            j!("durable_audit_policy_ledger_candidate" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_CANDIDATE_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_CANDIDATE_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("access" => s("read_only")),
+            j!("status" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_CANDIDATE_STATUS)),
+            j!("reason" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_CANDIDATE_REASON)),
+            j!("ledger_candidate_hash" => sha(durable_audit_policy_ledger_candidate.ledger_candidate_hash)),
+            j!("source_acceptance_gate_hash" => sha(durable_audit_policy_ledger_candidate.source_acceptance_gate_hash)),
+            j!("source_durable_audit_policy_candidate_hash" => sha(durable_audit_policy_ledger_candidate.source_durable_audit_policy_candidate_hash,)),
+            j!("source_durable_audit_policy_decision_hash" => sha(durable_audit_policy_ledger_candidate.source_durable_audit_policy_decision_hash,)),
+            j!("source_audit_record_image_hash" => sha(durable_audit_policy_ledger_candidate.source_audit_record_image_hash)),
+            j!("source_policy_preflight_hash" => sha(durable_audit_policy_ledger_candidate.source_policy_preflight_hash)),
+            j!("source_target_region_write_readback_hash" => sha(durable_audit_policy_ledger_candidate.source_target_region_write_readback_hash)),
+            j!("audit_record_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA)),
+            j!("target_start_lba" => u(durable_audit_policy_ledger_candidate.target_start_lba)),
+            j!("target_lba_count" => u(durable_audit_policy_ledger_candidate.target_lba_count)),
+            j!("target_byte_count" => u(durable_audit_policy_ledger_candidate.target_byte_count)),
+            j!("read_only_ledger_candidate_available" => b(durable_audit_policy_ledger_candidate.read_only_ledger_candidate_available)),
+            j!("candidate_available" => b(durable_audit_policy_ledger_candidate.candidate_available)),
+            j!("media_write_policy_verified" => b(durable_audit_policy_ledger_candidate.media_write_policy_verified)),
+            j!("durable_policy_ledger_available" => b(durable_audit_policy_ledger_candidate.durable_policy_ledger_available)),
+            j!("write_authority_available" => b(durable_audit_policy_ledger_candidate.write_authority_available)),
+            j!("durable_audit_policy_available" => b(durable_audit_policy_ledger_candidate.durable_audit_policy_available)),
+            j!("durable_append_authority_available" => b(durable_audit_policy_ledger_candidate.durable_append_authority_available)),
+            j!("authorizes_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("write_attempted" => b(false)),
+            ])),
+            j!("durable_audit_policy_ledger_aware_acceptance_result" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_AWARE_ACCEPTANCE_RESULT_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_AWARE_ACCEPTANCE_RESULT_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_AWARE_ACCEPTANCE_RESULT_STATUS)),
+            j!("reason" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_AWARE_ACCEPTANCE_RESULT_REASON)),
+            j!("result_hash" => sha(durable_audit_policy_ledger_aware_acceptance_result.result_hash)),
+            j!("source_ledger_candidate_hash" => sha(durable_audit_policy_ledger_aware_acceptance_result.source_ledger_candidate_hash,)),
+            j!("source_acceptance_gate_hash" => sha(durable_audit_policy_ledger_aware_acceptance_result.source_acceptance_gate_hash,)),
+            j!("source_durable_audit_policy_candidate_hash" => sha(durable_audit_policy_ledger_aware_acceptance_result
+            .source_durable_audit_policy_candidate_hash,)),
+            j!("source_durable_audit_policy_decision_hash" => sha(durable_audit_policy_ledger_aware_acceptance_result
+            .source_durable_audit_policy_decision_hash,)),
+            j!("source_audit_record_image_hash" => sha(durable_audit_policy_ledger_aware_acceptance_result.source_audit_record_image_hash,)),
+            j!("source_policy_preflight_hash" => sha(durable_audit_policy_ledger_aware_acceptance_result.source_policy_preflight_hash,)),
+            j!("source_target_region_write_readback_hash" => sha(durable_audit_policy_ledger_aware_acceptance_result
+            .source_target_region_write_readback_hash,)),
+            j!("audit_record_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA)),
+            j!("target_start_lba" => u(durable_audit_policy_ledger_aware_acceptance_result.target_start_lba)),
+            j!("target_lba_count" => u(durable_audit_policy_ledger_aware_acceptance_result.target_lba_count)),
+            j!("target_byte_count" => u(durable_audit_policy_ledger_aware_acceptance_result.target_byte_count)),
+            j!("read_only_ledger_candidate_available" => b(durable_audit_policy_ledger_aware_acceptance_result
+            .read_only_ledger_candidate_available,)),
+            j!("ledger_evidence_verified" => b(durable_audit_policy_ledger_aware_acceptance_result.ledger_evidence_verified)),
+            j!("write_authority_available" => b(durable_audit_policy_ledger_aware_acceptance_result.write_authority_available)),
+            j!("durable_policy_ledger_available" => b(durable_audit_policy_ledger_aware_acceptance_result.durable_policy_ledger_available,)),
+            j!("durable_audit_policy_available" => b(durable_audit_policy_ledger_aware_acceptance_result.durable_audit_policy_available,)),
+            j!("durable_append_authority_available" => b(durable_audit_policy_ledger_aware_acceptance_result.durable_append_authority_available,)),
+            j!("authorizes_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("write_attempted" => b(false)),
+            ])),
+            j!("durable_audit_policy_write_authority_availability" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_WRITE_AUTHORITY_AVAILABILITY_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_WRITE_AUTHORITY_AVAILABILITY_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_WRITE_AUTHORITY_AVAILABILITY_STATUS)),
+            j!("reason" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_WRITE_AUTHORITY_AVAILABILITY_REASON)),
+            j!("availability_hash" => sha(durable_audit_policy_write_authority_availability.availability_hash)),
+            j!("source_ledger_aware_acceptance_result_hash" => sha(durable_audit_policy_write_authority_availability
+            .source_ledger_aware_acceptance_result_hash,)),
+            j!("source_ledger_candidate_hash" => sha(durable_audit_policy_write_authority_availability.source_ledger_candidate_hash)),
+            j!("source_policy_preflight_hash" => sha(durable_audit_policy_write_authority_availability.source_policy_preflight_hash)),
+            j!("source_target_region_write_readback_hash" => sha(durable_audit_policy_write_authority_availability
+            .source_target_region_write_readback_hash,)),
+            j!("audit_ledger_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID)),
+            j!("audit_record_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA)),
+            j!("rollback_store_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID)),
+            j!("rollback_transaction_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA)),
+            j!("target_start_lba" => u(durable_audit_policy_write_authority_availability.target_start_lba)),
+            j!("target_lba_count" => u(durable_audit_policy_write_authority_availability.target_lba_count)),
+            j!("target_byte_count" => u(durable_audit_policy_write_authority_availability.target_byte_count)),
+            j!("ledger_evidence_verified" => b(durable_audit_policy_write_authority_availability.ledger_evidence_verified)),
+            j!("media_write_policy_verified" => b(durable_audit_policy_write_authority_availability.media_write_policy_verified)),
+            j!("target_region_write_readback_verified" => b(durable_audit_policy_write_authority_availability.target_region_write_readback_verified,)),
+            j!("target_span_verified" => b(durable_audit_policy_write_authority_availability.target_span_verified)),
+            j!("audit_rollback_target_ids_verified" => b(durable_audit_policy_write_authority_availability.audit_rollback_target_ids_verified,)),
+            j!("test_infrastructure_media_write_authority_available" => b(durable_audit_policy_write_authority_availability
+            .test_infrastructure_media_write_authority_available,)),
+            j!("write_authority_available" => b(durable_audit_policy_write_authority_availability.write_authority_available)),
+            j!("durable_policy_ledger_available" => b(durable_audit_policy_write_authority_availability.durable_policy_ledger_available)),
+            j!("durable_audit_policy_available" => b(durable_audit_policy_write_authority_availability.durable_audit_policy_available)),
+            j!("durable_append_authority_available" => b(durable_audit_policy_write_authority_availability.durable_append_authority_available,)),
+            j!("authorizes_media_write" => b(false)),
+            j!("authorizes_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("write_attempted" => b(false)),
+            ])),
+            j!("durable_policy_ledger_availability" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_STATUS)),
+            j!("reason" => s(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_REASON)),
+            j!("availability_hash" => sha(durable_policy_ledger_availability.availability_hash)),
+            j!("source_write_authority_availability_hash" => sha(durable_policy_ledger_availability.source_write_authority_availability_hash)),
+            j!("source_ledger_aware_acceptance_result_hash" => sha(durable_policy_ledger_availability.source_ledger_aware_acceptance_result_hash)),
+            j!("source_ledger_candidate_hash" => sha(durable_policy_ledger_availability.source_ledger_candidate_hash)),
+            j!("source_policy_preflight_hash" => sha(durable_policy_ledger_availability.source_policy_preflight_hash)),
+            j!("source_target_region_write_readback_hash" => sha(durable_policy_ledger_availability.source_target_region_write_readback_hash)),
+            j!("audit_ledger_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID)),
+            j!("audit_record_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA)),
+            j!("rollback_store_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID)),
+            j!("rollback_transaction_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA)),
+            j!("target_start_lba" => u(durable_policy_ledger_availability.target_start_lba)),
+            j!("target_lba_count" => u(durable_policy_ledger_availability.target_lba_count)),
+            j!("target_byte_count" => u(durable_policy_ledger_availability.target_byte_count)),
+            j!("write_authority_evidence_verified" => b(durable_policy_ledger_availability.write_authority_evidence_verified)),
+            j!("ledger_evidence_verified" => b(durable_policy_ledger_availability.ledger_evidence_verified)),
+            j!("media_write_policy_verified" => b(durable_policy_ledger_availability.media_write_policy_verified)),
+            j!("target_region_write_readback_verified" => b(durable_policy_ledger_availability.target_region_write_readback_verified)),
+            j!("target_span_verified" => b(durable_policy_ledger_availability.target_span_verified)),
+            j!("audit_rollback_target_ids_verified" => b(durable_policy_ledger_availability.audit_rollback_target_ids_verified)),
+            j!("test_infrastructure_media_write_authority_available" => b(durable_policy_ledger_availability.test_infrastructure_media_write_authority_available,)),
+            j!("write_authority_available" => b(durable_policy_ledger_availability.write_authority_available)),
+            j!("durable_policy_ledger_available" => b(durable_policy_ledger_availability.durable_policy_ledger_available)),
+            j!("durable_audit_policy_available" => b(durable_policy_ledger_availability.durable_audit_policy_available)),
+            j!("durable_append_authority_available" => b(durable_policy_ledger_availability.durable_append_authority_available)),
+            j!("authorizes_media_write" => b(false)),
+            j!("authorizes_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("write_attempted" => b(false)),
+            ])),
+            j!("durable_audit_policy_availability" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_STATUS)),
+            j!("reason" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_REASON)),
+            j!("availability_hash" => sha(durable_audit_policy_availability.availability_hash)),
+            j!("source_policy_ledger_availability_hash" => sha(durable_audit_policy_availability.source_policy_ledger_availability_hash)),
+            j!("source_write_authority_availability_hash" => sha(durable_audit_policy_availability.source_write_authority_availability_hash)),
+            j!("source_ledger_aware_acceptance_result_hash" => sha(durable_audit_policy_availability.source_ledger_aware_acceptance_result_hash)),
+            j!("source_ledger_candidate_hash" => sha(durable_audit_policy_availability.source_ledger_candidate_hash)),
+            j!("source_policy_preflight_hash" => sha(durable_audit_policy_availability.source_policy_preflight_hash)),
+            j!("source_target_region_write_readback_hash" => sha(durable_audit_policy_availability.source_target_region_write_readback_hash)),
+            j!("audit_ledger_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID)),
+            j!("audit_record_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA)),
+            j!("rollback_store_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID)),
+            j!("rollback_transaction_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA)),
+            j!("target_start_lba" => u(durable_audit_policy_availability.target_start_lba)),
+            j!("target_lba_count" => u(durable_audit_policy_availability.target_lba_count)),
+            j!("target_byte_count" => u(durable_audit_policy_availability.target_byte_count)),
+            j!("policy_ledger_availability_evidence_verified" => b(durable_audit_policy_availability.policy_ledger_availability_evidence_verified)),
+            j!("write_authority_evidence_verified" => b(durable_audit_policy_availability.write_authority_evidence_verified)),
+            j!("ledger_evidence_verified" => b(durable_audit_policy_availability.ledger_evidence_verified)),
+            j!("media_write_policy_verified" => b(durable_audit_policy_availability.media_write_policy_verified)),
+            j!("target_region_write_readback_verified" => b(durable_audit_policy_availability.target_region_write_readback_verified)),
+            j!("target_span_verified" => b(durable_audit_policy_availability.target_span_verified)),
+            j!("audit_rollback_target_ids_verified" => b(durable_audit_policy_availability.audit_rollback_target_ids_verified)),
+            j!("test_infrastructure_media_write_authority_available" => b(durable_audit_policy_availability.test_infrastructure_media_write_authority_available,)),
+            j!("write_authority_available" => b(durable_audit_policy_availability.write_authority_available)),
+            j!("durable_policy_ledger_available" => b(durable_audit_policy_availability.durable_policy_ledger_available)),
+            j!("durable_audit_policy_available" => b(durable_audit_policy_availability.durable_audit_policy_available)),
+            j!("durable_append_authority_available" => b(durable_audit_policy_availability.durable_append_authority_available)),
+            j!("authorizes_media_write" => b(false)),
+            j!("authorizes_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("write_attempted" => b(false)),
+            ])),
+            j!("durable_append_authority_availability" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_STATUS)),
+            j!("reason" => s(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_REASON)),
+            j!("availability_hash" => sha(durable_append_authority_availability.availability_hash)),
+            j!("source_audit_policy_availability_hash" => sha(durable_append_authority_availability.source_audit_policy_availability_hash)),
+            j!("source_policy_ledger_availability_hash" => sha(durable_append_authority_availability.source_policy_ledger_availability_hash)),
+            j!("source_write_authority_availability_hash" => sha(durable_append_authority_availability.source_write_authority_availability_hash)),
+            j!("source_ledger_aware_acceptance_result_hash" => sha(durable_append_authority_availability.source_ledger_aware_acceptance_result_hash,)),
+            j!("source_ledger_candidate_hash" => sha(durable_append_authority_availability.source_ledger_candidate_hash)),
+            j!("source_policy_preflight_hash" => sha(durable_append_authority_availability.source_policy_preflight_hash)),
+            j!("source_target_region_write_readback_hash" => sha(durable_append_authority_availability.source_target_region_write_readback_hash)),
+            j!("audit_ledger_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID)),
+            j!("audit_record_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA)),
+            j!("rollback_store_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID)),
+            j!("rollback_transaction_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA)),
+            j!("target_start_lba" => u(durable_append_authority_availability.target_start_lba)),
+            j!("target_lba_count" => u(durable_append_authority_availability.target_lba_count)),
+            j!("target_byte_count" => u(durable_append_authority_availability.target_byte_count)),
+            j!("audit_policy_availability_evidence_verified" => b(durable_append_authority_availability.audit_policy_availability_evidence_verified)),
+            j!("policy_ledger_availability_evidence_verified" => b(durable_append_authority_availability.policy_ledger_availability_evidence_verified,)),
+            j!("write_authority_evidence_verified" => b(durable_append_authority_availability.write_authority_evidence_verified)),
+            j!("ledger_evidence_verified" => b(durable_append_authority_availability.ledger_evidence_verified)),
+            j!("media_write_policy_verified" => b(durable_append_authority_availability.media_write_policy_verified)),
+            j!("target_region_write_readback_verified" => b(durable_append_authority_availability.target_region_write_readback_verified)),
+            j!("target_span_verified" => b(durable_append_authority_availability.target_span_verified)),
+            j!("audit_rollback_target_ids_verified" => b(durable_append_authority_availability.audit_rollback_target_ids_verified)),
+            j!("test_infrastructure_media_write_authority_available" => b(durable_append_authority_availability
+            .test_infrastructure_media_write_authority_available,)),
+            j!("write_authority_available" => b(durable_append_authority_availability.write_authority_available)),
+            j!("durable_policy_ledger_available" => b(durable_append_authority_availability.durable_policy_ledger_available)),
+            j!("durable_audit_policy_available" => b(durable_append_authority_availability.durable_audit_policy_available)),
+            j!("durable_append_authority_available" => b(durable_append_authority_availability.durable_append_authority_available)),
+            j!("authorizes_media_write" => b(false)),
+            j!("authorizes_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("write_attempted" => b(false)),
+            ])),
+            j!("transaction_append_availability_decision" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_TRANSACTION_APPEND_AVAILABILITY_DECISION_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_TRANSACTION_APPEND_AVAILABILITY_DECISION_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(HELLO_ROLLBACK_TRANSACTION_APPEND_AVAILABILITY_DECISION_STATUS)),
+            j!("reason" => s(HELLO_ROLLBACK_TRANSACTION_APPEND_AVAILABILITY_DECISION_REASON)),
+            j!("decision_hash" => sha(transaction_append_availability_decision.decision_hash)),
+            j!("source_durable_append_authority_availability_hash" => sha(transaction_append_availability_decision
+            .source_durable_append_authority_availability_hash,)),
+            j!("source_audit_policy_availability_hash" => sha(transaction_append_availability_decision.source_audit_policy_availability_hash)),
+            j!("source_append_engine_readiness_decision_hash" => sha(transaction_append_availability_decision.source_append_engine_readiness_decision_hash,)),
+            j!("source_writer_policy_preflight_hash" => sha(transaction_append_availability_decision.source_writer_policy_preflight_hash)),
+            j!("source_policy_preflight_hash" => sha(transaction_append_availability_decision.source_policy_preflight_hash)),
+            j!("source_target_region_write_readback_hash" => sha(transaction_append_availability_decision.source_target_region_write_readback_hash,)),
+            j!("audit_ledger_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID)),
+            j!("audit_record_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA)),
+            j!("rollback_store_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID)),
+            j!("rollback_transaction_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA)),
+            j!("target_start_lba" => u(transaction_append_availability_decision.target_start_lba)),
+            j!("target_lba_count" => u(transaction_append_availability_decision.target_lba_count)),
+            j!("target_byte_count" => u(transaction_append_availability_decision.target_byte_count)),
+            j!("durable_append_authority_availability_evidence_verified" => b(transaction_append_availability_decision
+            .durable_append_authority_availability_evidence_verified,)),
+            j!("audit_policy_availability_evidence_verified" => b(transaction_append_availability_decision.audit_policy_availability_evidence_verified,)),
+            j!("append_engine_ready" => b(transaction_append_availability_decision.append_engine_ready)),
+            j!("writer_policy_ready" => b(transaction_append_availability_decision.writer_policy_ready)),
+            j!("media_write_policy_verified" => b(transaction_append_availability_decision.media_write_policy_verified)),
+            j!("target_region_write_readback_verified" => b(transaction_append_availability_decision.target_region_write_readback_verified)),
+            j!("target_span_verified" => b(transaction_append_availability_decision.target_span_verified)),
+            j!("audit_rollback_target_ids_verified" => b(transaction_append_availability_decision.audit_rollback_target_ids_verified)),
+            j!("test_infrastructure_media_write_authority_available" => b(transaction_append_availability_decision
+            .test_infrastructure_media_write_authority_available,)),
+            j!("durable_append_authority_available" => b(transaction_append_availability_decision.durable_append_authority_available)),
+            j!("durable_audit_policy_available" => b(transaction_append_availability_decision.durable_audit_policy_available)),
+            j!("transaction_append_available" => b(transaction_append_availability_decision.transaction_append_available)),
+            j!("authorizes_media_write" => b(false)),
+            j!("authorizes_append" => b(false)),
+            j!("authorizes_transaction_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("write_attempted" => b(false)),
+            ])),
+            j!("transaction_append_authority_denial_gate" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_TRANSACTION_APPEND_AUTHORITY_DENIAL_GATE_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_TRANSACTION_APPEND_AUTHORITY_DENIAL_GATE_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(HELLO_ROLLBACK_TRANSACTION_APPEND_AUTHORITY_DENIAL_GATE_STATUS)),
+            j!("reason" => s(HELLO_ROLLBACK_TRANSACTION_APPEND_AUTHORITY_DENIAL_GATE_REASON)),
+            j!("gate_hash" => sha(transaction_append_authority_denial_gate.gate_hash)),
+            j!("source_transaction_append_availability_decision_hash" => sha(transaction_append_authority_denial_gate
+            .source_transaction_append_availability_decision_hash,)),
+            j!("source_durable_append_authority_availability_hash" => sha(transaction_append_authority_denial_gate
+            .source_durable_append_authority_availability_hash,)),
+            j!("source_audit_policy_availability_hash" => sha(transaction_append_authority_denial_gate.source_audit_policy_availability_hash)),
+            j!("source_append_engine_readiness_decision_hash" => sha(transaction_append_authority_denial_gate.source_append_engine_readiness_decision_hash,)),
+            j!("source_writer_policy_preflight_hash" => sha(transaction_append_authority_denial_gate.source_writer_policy_preflight_hash)),
+            j!("source_policy_preflight_hash" => sha(transaction_append_authority_denial_gate.source_policy_preflight_hash)),
+            j!("source_target_region_write_readback_hash" => sha(transaction_append_authority_denial_gate.source_target_region_write_readback_hash,)),
+            j!("audit_ledger_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID)),
+            j!("audit_record_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA)),
+            j!("rollback_store_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID)),
+            j!("rollback_transaction_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA)),
+            j!("target_start_lba" => u(transaction_append_authority_denial_gate.target_start_lba)),
+            j!("target_lba_count" => u(transaction_append_authority_denial_gate.target_lba_count)),
+            j!("target_byte_count" => u(transaction_append_authority_denial_gate.target_byte_count)),
+            j!("availability_decision_evidence_verified" => b(transaction_append_authority_denial_gate.availability_decision_evidence_verified)),
+            j!("append_engine_ready" => b(transaction_append_authority_denial_gate.append_engine_ready)),
+            j!("writer_policy_ready" => b(transaction_append_authority_denial_gate.writer_policy_ready)),
+            j!("media_write_policy_verified" => b(transaction_append_authority_denial_gate.media_write_policy_verified)),
+            j!("target_region_write_readback_verified" => b(transaction_append_authority_denial_gate.target_region_write_readback_verified)),
+            j!("target_span_verified" => b(transaction_append_authority_denial_gate.target_span_verified)),
+            j!("audit_rollback_target_ids_verified" => b(transaction_append_authority_denial_gate.audit_rollback_target_ids_verified)),
+            j!("test_infrastructure_media_write_authority_available" => b(transaction_append_authority_denial_gate
+            .test_infrastructure_media_write_authority_available,)),
+            j!("durable_append_authority_available" => b(transaction_append_authority_denial_gate.durable_append_authority_available)),
+            j!("durable_audit_policy_available" => b(transaction_append_authority_denial_gate.durable_audit_policy_available)),
+            j!("transaction_append_available" => b(transaction_append_authority_denial_gate.transaction_append_available)),
+            j!("missing_transaction_append_authority" => b(transaction_append_authority_denial_gate.missing_transaction_append_authority)),
+            j!("authorizes_media_write" => b(false)),
+            j!("authorizes_append" => b(false)),
+            j!("authorizes_transaction_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("write_attempted" => b(false)),
+            ])),
+            j!("durable_policy_ledger_availability_dry_run" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_DRY_RUN_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_DRY_RUN_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_DRY_RUN_STATUS)),
+            j!("reason" => s(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_DRY_RUN_REASON)),
+            j!("dry_run_hash" => sha(durable_policy_ledger_availability_dry_run.dry_run_hash)),
+            j!("source_policy_ledger_availability_hash" => sha(durable_policy_ledger_availability_dry_run.source_policy_ledger_availability_hash,)),
+            j!("source_write_authority_availability_hash" => sha(durable_policy_ledger_availability_dry_run.source_write_authority_availability_hash,)),
+            j!("source_ledger_aware_acceptance_result_hash" => sha(durable_policy_ledger_availability_dry_run.source_ledger_aware_acceptance_result_hash,)),
+            j!("source_ledger_candidate_hash" => sha(durable_policy_ledger_availability_dry_run.source_ledger_candidate_hash)),
+            j!("source_policy_preflight_hash" => sha(durable_policy_ledger_availability_dry_run.source_policy_preflight_hash)),
+            j!("source_target_region_write_readback_hash" => sha(durable_policy_ledger_availability_dry_run.source_target_region_write_readback_hash,)),
+            j!("source_authority_denial_gate_hash" => sha(durable_policy_ledger_availability_dry_run.source_authority_denial_gate_hash)),
+            j!("source_transaction_append_availability_decision_hash" => sha(durable_policy_ledger_availability_dry_run
+            .source_transaction_append_availability_decision_hash,)),
+            j!("audit_ledger_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID)),
+            j!("audit_record_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA)),
+            j!("rollback_store_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID)),
+            j!("rollback_transaction_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA)),
+            j!("target_start_lba" => u(durable_policy_ledger_availability_dry_run.target_start_lba)),
+            j!("target_lba_count" => u(durable_policy_ledger_availability_dry_run.target_lba_count)),
+            j!("target_byte_count" => u(durable_policy_ledger_availability_dry_run.target_byte_count)),
+            j!("policy_ledger_availability_evidence_verified" => b(durable_policy_ledger_availability_dry_run.policy_ledger_availability_evidence_verified,)),
+            j!("write_authority_evidence_verified" => b(durable_policy_ledger_availability_dry_run.write_authority_evidence_verified)),
+            j!("ledger_evidence_verified" => b(durable_policy_ledger_availability_dry_run.ledger_evidence_verified)),
+            j!("media_write_policy_verified" => b(durable_policy_ledger_availability_dry_run.media_write_policy_verified)),
+            j!("target_region_write_readback_verified" => b(durable_policy_ledger_availability_dry_run.target_region_write_readback_verified)),
+            j!("transaction_append_denial_gate_verified" => b(durable_policy_ledger_availability_dry_run.transaction_append_denial_gate_verified,)),
+            j!("target_span_verified" => b(durable_policy_ledger_availability_dry_run.target_span_verified)),
+            j!("audit_rollback_target_ids_verified" => b(durable_policy_ledger_availability_dry_run.audit_rollback_target_ids_verified)),
+            j!("test_infrastructure_media_write_authority_available" => b(durable_policy_ledger_availability_dry_run
+            .test_infrastructure_media_write_authority_available,)),
+            j!("write_authority_available" => b(durable_policy_ledger_availability_dry_run.write_authority_available)),
+            j!("durable_policy_ledger_available" => b(durable_policy_ledger_availability_dry_run.durable_policy_ledger_available)),
+            j!("durable_audit_policy_available" => b(durable_policy_ledger_availability_dry_run.durable_audit_policy_available)),
+            j!("durable_append_authority_available" => b(durable_policy_ledger_availability_dry_run.durable_append_authority_available)),
+            j!("transaction_append_available" => b(durable_policy_ledger_availability_dry_run.transaction_append_available)),
+            j!("authorizes_media_write" => b(false)),
+            j!("authorizes_append" => b(false)),
+            j!("authorizes_transaction_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("write_attempted" => b(false)),
+            j!("applies_rollback" => b(false)),
+            j!("installs_rollback_state" => b(false)),
+            ])),
+            j!("durable_audit_policy_availability_dry_run" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_DRY_RUN_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_DRY_RUN_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_DRY_RUN_STATUS)),
+            j!("reason" => s(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_DRY_RUN_REASON)),
+            j!("dry_run_hash" => sha(durable_audit_policy_availability_dry_run.dry_run_hash)),
+            j!("source_audit_policy_availability_hash" => sha(durable_audit_policy_availability_dry_run.source_audit_policy_availability_hash,)),
+            j!("source_policy_ledger_availability_dry_run_hash" => sha(durable_audit_policy_availability_dry_run
+            .source_policy_ledger_availability_dry_run_hash,)),
+            j!("source_policy_ledger_availability_hash" => sha(durable_audit_policy_availability_dry_run.source_policy_ledger_availability_hash,)),
+            j!("source_write_authority_availability_hash" => sha(durable_audit_policy_availability_dry_run.source_write_authority_availability_hash,)),
+            j!("source_ledger_aware_acceptance_result_hash" => sha(durable_audit_policy_availability_dry_run.source_ledger_aware_acceptance_result_hash,)),
+            j!("source_ledger_candidate_hash" => sha(durable_audit_policy_availability_dry_run.source_ledger_candidate_hash)),
+            j!("source_policy_preflight_hash" => sha(durable_audit_policy_availability_dry_run.source_policy_preflight_hash)),
+            j!("source_target_region_write_readback_hash" => sha(durable_audit_policy_availability_dry_run.source_target_region_write_readback_hash,)),
+            j!("source_authority_denial_gate_hash" => sha(durable_audit_policy_availability_dry_run.source_authority_denial_gate_hash)),
+            j!("source_transaction_append_availability_decision_hash" => sha(durable_audit_policy_availability_dry_run
+            .source_transaction_append_availability_decision_hash,)),
+            j!("audit_ledger_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID)),
+            j!("audit_record_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA)),
+            j!("rollback_store_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID)),
+            j!("rollback_transaction_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA)),
+            j!("target_start_lba" => u(durable_audit_policy_availability_dry_run.target_start_lba)),
+            j!("target_lba_count" => u(durable_audit_policy_availability_dry_run.target_lba_count)),
+            j!("target_byte_count" => u(durable_audit_policy_availability_dry_run.target_byte_count)),
+            j!("audit_policy_availability_evidence_verified" => b(durable_audit_policy_availability_dry_run.audit_policy_availability_evidence_verified,)),
+            j!("policy_ledger_dry_run_evidence_verified" => b(durable_audit_policy_availability_dry_run.policy_ledger_dry_run_evidence_verified)),
+            j!("policy_ledger_availability_evidence_verified" => b(durable_audit_policy_availability_dry_run.policy_ledger_availability_evidence_verified,)),
+            j!("write_authority_evidence_verified" => b(durable_audit_policy_availability_dry_run.write_authority_evidence_verified)),
+            j!("ledger_evidence_verified" => b(durable_audit_policy_availability_dry_run.ledger_evidence_verified)),
+            j!("media_write_policy_verified" => b(durable_audit_policy_availability_dry_run.media_write_policy_verified)),
+            j!("target_region_write_readback_verified" => b(durable_audit_policy_availability_dry_run.target_region_write_readback_verified)),
+            j!("transaction_append_denial_gate_verified" => b(durable_audit_policy_availability_dry_run.transaction_append_denial_gate_verified)),
+            j!("target_span_verified" => b(durable_audit_policy_availability_dry_run.target_span_verified)),
+            j!("audit_rollback_target_ids_verified" => b(durable_audit_policy_availability_dry_run.audit_rollback_target_ids_verified)),
+            j!("test_infrastructure_media_write_authority_available" => b(durable_audit_policy_availability_dry_run
+            .test_infrastructure_media_write_authority_available,)),
+            j!("write_authority_available" => b(durable_audit_policy_availability_dry_run.write_authority_available)),
+            j!("durable_policy_ledger_available" => b(durable_audit_policy_availability_dry_run.durable_policy_ledger_available)),
+            j!("durable_audit_policy_available" => b(durable_audit_policy_availability_dry_run.durable_audit_policy_available)),
+            j!("durable_append_authority_available" => b(durable_audit_policy_availability_dry_run.durable_append_authority_available)),
+            j!("transaction_append_available" => b(durable_audit_policy_availability_dry_run.transaction_append_available)),
+            j!("authorizes_media_write" => b(false)),
+            j!("authorizes_append" => b(false)),
+            j!("authorizes_transaction_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("write_attempted" => b(false)),
+            j!("applies_rollback" => b(false)),
+            j!("installs_rollback_state" => b(false)),
+            ])),
+            j!("durable_append_authority_availability_dry_run" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_DRY_RUN_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_DRY_RUN_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_DRY_RUN_STATUS)),
+            j!("reason" => s(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_DRY_RUN_REASON)),
+            j!("dry_run_hash" => sha(durable_append_authority_availability_dry_run.dry_run_hash)),
+            j!("source_append_authority_availability_hash" => sha(durable_append_authority_availability_dry_run.source_append_authority_availability_hash,)),
+            j!("source_audit_policy_availability_dry_run_hash" => sha(durable_append_authority_availability_dry_run
+            .source_audit_policy_availability_dry_run_hash,)),
+            j!("source_audit_policy_availability_hash" => sha(durable_append_authority_availability_dry_run.source_audit_policy_availability_hash,)),
+            j!("source_policy_ledger_availability_dry_run_hash" => sha(durable_append_authority_availability_dry_run
+            .source_policy_ledger_availability_dry_run_hash,)),
+            j!("source_policy_ledger_availability_hash" => sha(durable_append_authority_availability_dry_run.source_policy_ledger_availability_hash,)),
+            j!("source_write_authority_availability_hash" => sha(durable_append_authority_availability_dry_run.source_write_authority_availability_hash,)),
+            j!("source_ledger_aware_acceptance_result_hash" => sha(durable_append_authority_availability_dry_run
+            .source_ledger_aware_acceptance_result_hash,)),
+            j!("source_ledger_candidate_hash" => sha(durable_append_authority_availability_dry_run.source_ledger_candidate_hash)),
+            j!("source_policy_preflight_hash" => sha(durable_append_authority_availability_dry_run.source_policy_preflight_hash)),
+            j!("source_target_region_write_readback_hash" => sha(durable_append_authority_availability_dry_run.source_target_region_write_readback_hash,)),
+            j!("source_authority_denial_gate_hash" => sha(durable_append_authority_availability_dry_run.source_authority_denial_gate_hash,)),
+            j!("source_transaction_append_availability_decision_hash" => sha(durable_append_authority_availability_dry_run
+            .source_transaction_append_availability_decision_hash,)),
+            j!("audit_ledger_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID)),
+            j!("audit_record_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA)),
+            j!("rollback_store_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID)),
+            j!("rollback_transaction_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA)),
+            j!("target_start_lba" => u(durable_append_authority_availability_dry_run.target_start_lba)),
+            j!("target_lba_count" => u(durable_append_authority_availability_dry_run.target_lba_count)),
+            j!("target_byte_count" => u(durable_append_authority_availability_dry_run.target_byte_count)),
+            j!("append_authority_availability_evidence_verified" => b(durable_append_authority_availability_dry_run
+            .append_authority_availability_evidence_verified,)),
+            j!("audit_policy_dry_run_evidence_verified" => b(durable_append_authority_availability_dry_run.audit_policy_dry_run_evidence_verified,)),
+            j!("audit_policy_availability_evidence_verified" => b(durable_append_authority_availability_dry_run
+            .audit_policy_availability_evidence_verified,)),
+            j!("policy_ledger_dry_run_evidence_verified" => b(durable_append_authority_availability_dry_run.policy_ledger_dry_run_evidence_verified,)),
+            j!("policy_ledger_availability_evidence_verified" => b(durable_append_authority_availability_dry_run
+            .policy_ledger_availability_evidence_verified,)),
+            j!("write_authority_evidence_verified" => b(durable_append_authority_availability_dry_run.write_authority_evidence_verified)),
+            j!("ledger_evidence_verified" => b(durable_append_authority_availability_dry_run.ledger_evidence_verified)),
+            j!("media_write_policy_verified" => b(durable_append_authority_availability_dry_run.media_write_policy_verified)),
+            j!("target_region_write_readback_verified" => b(durable_append_authority_availability_dry_run.target_region_write_readback_verified,)),
+            j!("transaction_append_denial_gate_verified" => b(durable_append_authority_availability_dry_run.transaction_append_denial_gate_verified,)),
+            j!("target_span_verified" => b(durable_append_authority_availability_dry_run.target_span_verified)),
+            j!("audit_rollback_target_ids_verified" => b(durable_append_authority_availability_dry_run.audit_rollback_target_ids_verified)),
+            j!("test_infrastructure_media_write_authority_available" => b(durable_append_authority_availability_dry_run
+            .test_infrastructure_media_write_authority_available,)),
+            j!("write_authority_available" => b(durable_append_authority_availability_dry_run.write_authority_available)),
+            j!("durable_policy_ledger_available" => b(durable_append_authority_availability_dry_run.durable_policy_ledger_available)),
+            j!("durable_audit_policy_available" => b(durable_append_authority_availability_dry_run.durable_audit_policy_available)),
+            j!("durable_append_authority_available" => b(durable_append_authority_availability_dry_run.durable_append_authority_available)),
+            j!("transaction_append_available" => b(durable_append_authority_availability_dry_run.transaction_append_available)),
+            j!("authorizes_media_write" => b(false)),
+            j!("authorizes_append" => b(false)),
+            j!("authorizes_transaction_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("write_attempted" => b(false)),
+            j!("applies_rollback" => b(false)),
+            j!("installs_rollback_state" => b(false)),
+            ])),
+            j!("transaction_append_dry_run" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_TRANSACTION_APPEND_DRY_RUN_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_TRANSACTION_APPEND_DRY_RUN_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(HELLO_ROLLBACK_TRANSACTION_APPEND_DRY_RUN_STATUS)),
+            j!("reason" => s(HELLO_ROLLBACK_TRANSACTION_APPEND_DRY_RUN_REASON)),
+            j!("dry_run_hash" => sha(transaction_append_dry_run.dry_run_hash)),
+            j!("source_authority_denial_gate_hash" => sha(transaction_append_dry_run.source_authority_denial_gate_hash)),
+            j!("source_transaction_append_availability_decision_hash" => sha(transaction_append_dry_run.source_transaction_append_availability_decision_hash,)),
+            j!("source_append_record_hash" => sha(transaction_append_dry_run.source_append_record_hash)),
+            j!("source_sector_plan_hash" => sha(transaction_append_dry_run.source_sector_plan_hash)),
+            j!("source_target_region_write_readback_hash" => sha(transaction_append_dry_run.source_target_region_write_readback_hash)),
+            j!("planned_sector_image_hash" => sha(transaction_append_dry_run.planned_sector_image_hash)),
+            j!("readback_sector_image_hash" => sha(transaction_append_dry_run.readback_sector_image_hash)),
+            j!("audit_ledger_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID)),
+            j!("audit_record_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA)),
+            j!("rollback_store_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID)),
+            j!("rollback_transaction_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA)),
+            j!("target_start_lba" => u(transaction_append_dry_run.target_start_lba)),
+            j!("target_lba_count" => u(transaction_append_dry_run.target_lba_count)),
+            j!("target_byte_count" => u(transaction_append_dry_run.target_byte_count)),
+            j!("authority_denial_gate_verified" => b(transaction_append_dry_run.authority_denial_gate_verified)),
+            j!("target_span_verified" => b(transaction_append_dry_run.target_span_verified)),
+            j!("target_region_write_readback_verified" => b(transaction_append_dry_run.target_region_write_readback_verified)),
+            j!("append_image_ready" => b(transaction_append_dry_run.append_image_ready)),
+            j!("blocked_by_authority_denial_gate" => b(transaction_append_dry_run.blocked_by_authority_denial_gate)),
+            j!("test_infrastructure_media_write_authority_available" => b(transaction_append_dry_run.test_infrastructure_media_write_authority_available)),
+            j!("transaction_append_available" => b(transaction_append_dry_run.transaction_append_available)),
+            j!("authorizes_media_write" => b(false)),
+            j!("authorizes_append" => b(false)),
+            j!("authorizes_transaction_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("transaction_append_attempted" => b(false)),
+            ])),
+            j!("target_region_sector_inspection" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_TARGET_REGION_SECTOR_INSPECTION_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_TARGET_REGION_SECTOR_INSPECTION_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(target_region_sector_inspection.status)),
+            j!("reason" => s(target_region_sector_inspection.reason)),
+            j!("inspection_hash" => sha(target_region_sector_inspection.inspection_hash)),
+            j!("source_sector_plan_hash" => sha(target_region_sector_inspection.source_sector_plan_hash)),
+            j!("source_target_region_write_readback_hash" => sha(target_region_sector_inspection.source_target_region_write_readback_hash)),
+            j!("expected_sector_image_hash" => sha(target_region_sector_inspection.expected_sector_image_hash)),
+            j!("sector_image_hash" => sha(target_region_sector_inspection.sector_image_hash)),
+            j!("audit_record_image_hash" => sha(target_region_sector_inspection.audit_record_image_hash)),
+            j!("rollback_transaction_image_hash" => sha(target_region_sector_inspection.rollback_transaction_image_hash)),
+            j!("target_start_lba" => u(target_region_sector_inspection.target_start_lba)),
+            j!("target_lba_count" => u(target_region_sector_inspection.target_lba_count)),
+            j!("target_byte_count" => u(target_region_sector_inspection.target_byte_count)),
+            j!("audit_record_offset" => u(target_region_sector_inspection.audit_record_offset)),
+            j!("audit_record_byte_length" => u(target_region_sector_inspection.audit_record_byte_length)),
+            j!("rollback_transaction_offset" => u(target_region_sector_inspection.rollback_transaction_offset)),
+            j!("rollback_transaction_byte_length" => u(target_region_sector_inspection.rollback_transaction_byte_length)),
+            j!("padding_offset" => u(target_region_sector_inspection.padding_offset)),
+            j!("padding_byte_length" => u(target_region_sector_inspection.padding_byte_length)),
+            j!("label_found" => b(target_region_sector_inspection.label_found)),
+            j!("read_attempted" => b(target_region_sector_inspection.read_attempted)),
+            j!("read_completed" => b(target_region_sector_inspection.read_completed)),
+            j!("sector_hash_verified" => b(target_region_sector_inspection.sector_hash_verified)),
+            j!("audit_record_hash_verified" => b(target_region_sector_inspection.audit_record_hash_verified)),
+            j!("rollback_transaction_hash_verified" => b(target_region_sector_inspection.rollback_transaction_hash_verified)),
+            j!("offsets_verified" => b(target_region_sector_inspection.offsets_verified)),
+            j!("padding_zeroed" => b(target_region_sector_inspection.padding_zeroed)),
+            j!("target_span_verified" => b(target_region_sector_inspection.target_span_verified)),
+            j!("target_region_write_readback_verified" => b(target_region_sector_inspection.target_region_write_readback_verified)),
+            j!("inspection_verified" => b(target_region_sector_inspection.inspection_verified)),
+            j!("authorizes_media_write" => b(false)),
+            j!("authorizes_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("installs_rollback_state" => b(false)),
+            ])),
+            j!("retained_recovery_rollback_inspect_source" => recovery_rollback_inspect_source_reference_value(target_region_sector_inspection)),
+            j!("durable_policy_write_authority_decision" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_DURABLE_POLICY_WRITE_AUTHORITY_DECISION_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_DURABLE_POLICY_WRITE_AUTHORITY_DECISION_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(HELLO_ROLLBACK_DURABLE_POLICY_WRITE_AUTHORITY_DECISION_STATUS)),
+            j!("reason" => s(HELLO_ROLLBACK_DURABLE_POLICY_WRITE_AUTHORITY_DECISION_REASON)),
+            j!("decision_hash" => sha(durable_policy_write_authority_decision.decision_hash)),
+            j!("source_durable_append_authority_availability_dry_run_hash" => sha(durable_policy_write_authority_decision
+            .source_durable_append_authority_availability_dry_run_hash,)),
+            j!("source_transaction_append_dry_run_hash" => sha(durable_policy_write_authority_decision.source_transaction_append_dry_run_hash)),
+            j!("source_target_region_sector_inspection_hash" => sha(durable_policy_write_authority_decision.source_target_region_sector_inspection_hash,)),
+            j!("source_write_authority_availability_hash" => sha(durable_policy_write_authority_decision.source_write_authority_availability_hash,)),
+            j!("source_audit_policy_availability_hash" => sha(durable_policy_write_authority_decision.source_audit_policy_availability_hash)),
+            j!("source_durable_append_authority_availability_hash" => sha(durable_policy_write_authority_decision
+            .source_durable_append_authority_availability_hash,)),
+            j!("source_authority_denial_gate_hash" => sha(durable_policy_write_authority_decision.source_authority_denial_gate_hash)),
+            j!("source_transaction_append_availability_decision_hash" => sha(durable_policy_write_authority_decision
+            .source_transaction_append_availability_decision_hash,)),
+            j!("audit_ledger_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID)),
+            j!("audit_record_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA)),
+            j!("rollback_store_target_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID)),
+            j!("rollback_transaction_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA)),
+            j!("target_start_lba" => u(durable_policy_write_authority_decision.target_start_lba)),
+            j!("target_lba_count" => u(durable_policy_write_authority_decision.target_lba_count)),
+            j!("target_byte_count" => u(durable_policy_write_authority_decision.target_byte_count)),
+            j!("transaction_append_dry_run_verified" => b(durable_policy_write_authority_decision.transaction_append_dry_run_verified)),
+            j!("target_region_sector_inspection_verified" => b(durable_policy_write_authority_decision.target_region_sector_inspection_verified)),
+            j!("write_authority_evidence_verified" => b(durable_policy_write_authority_decision.write_authority_evidence_verified)),
+            j!("audit_policy_availability_evidence_verified" => b(durable_policy_write_authority_decision.audit_policy_availability_evidence_verified,)),
+            j!("durable_append_authority_availability_evidence_verified" => b(durable_policy_write_authority_decision
+            .durable_append_authority_availability_evidence_verified,)),
+            j!("target_span_verified" => b(durable_policy_write_authority_decision.target_span_verified)),
+            j!("test_infrastructure_media_write_authority_available" => b(durable_policy_write_authority_decision
+            .test_infrastructure_media_write_authority_available,)),
+            j!("write_authority_available" => b(durable_policy_write_authority_decision.write_authority_available)),
+            j!("durable_policy_ledger_available" => b(durable_policy_write_authority_decision.durable_policy_ledger_available)),
+            j!("durable_audit_policy_available" => b(durable_policy_write_authority_decision.durable_audit_policy_available)),
+            j!("durable_append_authority_available" => b(durable_policy_write_authority_decision.durable_append_authority_available)),
+            j!("transaction_append_available" => b(durable_policy_write_authority_decision.transaction_append_available)),
+            j!("authorizes_media_write" => b(false)),
+            j!("authorizes_append" => b(false)),
+            j!("authorizes_transaction_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("write_attempted" => b(false)),
+            j!("applies_rollback" => b(false)),
+            ])),
+            j!("target_region_write_readback_dry_run" => inline(vec![
+            j!("schema" => s(HELLO_ROLLBACK_TARGET_REGION_WRITE_READBACK_DRY_RUN_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_TARGET_REGION_WRITE_READBACK_DRY_RUN_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(target_region_write.status)),
+            j!("reason" => s(target_region_write.reason)),
+            j!("dry_run_hash" => sha(target_region_write.dry_run_hash)),
+            j!("source_sector_plan_hash" => sha(target_region_write.source_sector_plan_hash)),
+            j!("source_policy_preflight_hash" => sha(target_region_write.source_policy_preflight_hash)),
+            j!("planned_sector_image_hash" => sha(target_region_write.planned_sector_image_hash)),
+            j!("readback_sector_image_hash" => sha(target_region_write.readback_sector_image_hash)),
+            j!("target_region_id" => s(ahci::AUDIT_ROLLBACK_TARGET_REGION_ID)),
+            j!("target_start_lba" => u(target_region_write.target_start_lba)),
+            j!("target_lba_count" => u(target_region_write.target_lba_count)),
+            j!("target_byte_count" => u(target_region_write.target_byte_count)),
+            j!("label_found" => b(target_region_write.label_found)),
+            j!("target_range_ready" => b(target_region_write.target_range_ready)),
+            j!("test_infrastructure_media_write_authority_available" => b(target_region_write.test_infrastructure_media_write_authority_available)),
+            j!("write_attempted" => b(target_region_write.write_attempted)),
+            j!("write_completed" => b(target_region_write.write_completed)),
+            j!("readback_completed" => b(target_region_write.readback_completed)),
+            j!("readback_matches_planned_image" => b(target_region_write.readback_matches_planned_image)),
+            j!("authorizes_media_write" => b(false)),
+            j!("authorizes_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("installs_rollback_state" => b(false)),
+            ])),
+            j!("storage_authority_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_STORAGE_AUTHORITY_ID)),
+            j!("append_target_owner_id" => s(rollback_append_contract::AUDIT_ROLLBACK_APPEND_TARGET_OWNER_ID)),
+            j!("transaction_writer_readiness_id" => s(rollback_append_contract::AUDIT_ROLLBACK_TRANSACTION_WRITER_READINESS_ID)),
+            j!("audit_ledger_writer_fact_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID)),
+            j!("rollback_store_writer_fact_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID)),
+            j!("scratch_write_readback_verified" => b(durable_append_preflight.scratch_write_readback_verified)),
+            j!("scratch_used_as_durable_authority" => b(false)),
+            j!("durable_audit_writer_available" => b(durable_append_preflight.durable_audit_writer_available)),
+            j!("rollback_store_writer_available" => b(durable_append_preflight.rollback_store_writer_available)),
+            j!("transaction_append_writer_available" => b(durable_append_preflight.transaction_append_writer_available)),
+            j!("authorizes_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            ])),
+            j!("authorizes_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            ])),
+            j!("authorizes_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("write_attempted" => b(false)),
+            ])),
+            j!("authorizes_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("write_attempted" => b(false)),
+            ])),
+            j!("dry_run_evaluated" => b(true)),
+            j!("authorizes_append" => b(false)),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("write_attempted" => b(false)),
+            ])),
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            ])),
+            j!("block_write_path_authority_gate" => inline(vec![
+            j!("schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_BLOCK_WRITE_PATH_AUTHORITY_GATE_SCHEMA)),
+            j!("id" => s(rollback_storage_layout::AUDIT_ROLLBACK_BLOCK_WRITE_PATH_AUTHORITY_GATE_ID)),
+            j!("storage_authority_id" => s(rollback_storage_layout::AUDIT_ROLLBACK_STORAGE_AUTHORITY_ID)),
+            j!("status" => s(foundation.block_write_path_gate_status)),
+            j!("reason" => s(foundation.block_write_path_reason)),
+            j!("available" => b(foundation.block_write_path_available)),
+            j!("read_only_block_driver_id" => s(foundation.read_only_block_driver_id)),
+            j!("read_only_block_driver_available" => b(foundation.read_only_block_driver_available)),
+            j!("partition_inventory_available" => b(foundation.partition_inventory_available)),
+            j!("partition_inventory_scheme" => s(foundation.partition_inventory_scheme)),
+            j!("scratch_block_write_authority_available" => b(foundation.scratch_block_write_authority_available)),
+            j!("scratch_block_write_authority_id" => s(foundation.scratch_block_write_authority_id)),
+            j!("scratch_region_within_device_bounds" => b(foundation.scratch_region_within_device_bounds)),
+            j!("scratch_region_no_boot_or_partition_metadata_overlap" => b(foundation.scratch_region_no_boot_or_partition_metadata_overlap)),
+            j!("authorizes_media_write" => b(false)),
+            j!("authorizes_append" => b(false)),
+            j!("writes_enabled" => b(false)),
+            j!("write_attempted" => b(false)),
+            ])),
+            j!("append_target" => inline(vec![
+            j!("id" => s(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_TARGET_ID)),
+            j!("schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA)),
+            j!("available" => b(foundation.rollback_transaction_append_available)),
+            ])),
+            j!("storage_layout" => inline(vec![
+            j!("schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_STORAGE_LAYOUT_SCHEMA)),
+            j!("id" => s(rollback_storage_layout::AUDIT_ROLLBACK_STORAGE_LAYOUT_ID)),
+            j!("status" => s(foundation.storage_layout_status)),
+            j!("reason" => s(foundation.storage_layout_reason)),
+            j!("available" => b(foundation.storage_layout_available)),
+            ])),
+            j!("append_engine" => inline(vec![
+            j!("schema" => s("raios.rollback_store_transaction_engine.v0")),
+            j!("id" => s("append_engine.rollback_store.current_boot")),
+            j!("status" => s(foundation.append_engine_status)),
+            j!("reason" => s(foundation.append_engine_reason)),
+            j!("available" => b(foundation.append_engine_available)),
+            ])),
+            j!("append_contract" => inline(vec![
+            j!("schema" => s("raios.rollback_store_transaction_envelope.v0")),
+            j!("id" => s(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_TARGET_ID)),
+            j!("status" => s(foundation.rollback_transaction_envelope_status)),
+            j!("reason" => s(foundation.rollback_transaction_envelope_reason)),
+            j!("available" => b(foundation.rollback_transaction_envelope_available)),
+            ])),
+            j!("transaction_writer" => inline(vec![
+            j!("owner" => s(rollback_storage_layout::AUDIT_ROLLBACK_TRANSACTION_WRITER_OWNER)),
+            j!("status" => s(foundation.append_contract_status)),
+            j!("reason" => s(foundation.append_contract_reason)),
+            j!("available" => b(foundation.transaction_writer_available)),
+            ])),
+            ])),
+            j!("unavailable_authorities" => inline(vec![
+            j!("transaction_writer" => b(!foundation.transaction_writer_available)),
+            j!("durable_audit_store" => b(!foundation.durable_audit_store_available)),
+            j!("rollback_store" => b(!foundation.rollback_store_available)),
+            j!("rollback_transaction_append" => b(!foundation.rollback_transaction_append_available)),
+            ])),
+            j!("side_effects" => inline(vec![
+            j!("writes_durable_audit_log" => b(false)),
+            j!("writes_rollback_store" => b(false)),
+            j!("appends_rollback_transaction" => b(false)),
+            j!("installs_rollback_plan" => b(false)),
+            j!("applies_rollback" => b(false)),
+            ])),
+        ])
     } else {
-        raw("null");
+        V::Null
     }
 }
 
@@ -3521,9 +2616,12 @@ pub(crate) fn emit_rollback_apply_denied(
         ],
         4,
     );
-    raw("    \"rollback_transaction_writer_storage_authority_gate\": ");
-    emit_rollback_transaction_writer_storage_authority_gate(snapshot, probation);
-    raw_line(",");
+    emit_record_fields_trailing_comma(
+        vec![j!("rollback_transaction_writer_storage_authority_gate" =>
+            rollback_transaction_writer_storage_authority_gate_value(snapshot, probation)
+        )],
+        4,
+    );
     emit_record_fields(
         vec![
             j!("rollback_target" => probation_target_value(probation)),
@@ -4670,7 +3768,7 @@ pub(crate) fn emit_artifact_load_plan_preflight(descriptor: LoadDescriptor) {
     emit_inline_value(artifact_load_plan_preflight_value(descriptor));
 }
 
-fn artifact_load_plan_preflight_value(descriptor: LoadDescriptor) -> V<'static> {
+pub(crate) fn artifact_load_plan_preflight_value(descriptor: LoadDescriptor) -> V<'static> {
     let record = artifact_load_plan_preflight_record(descriptor);
     inline(vec![
         j!("schema" => s(record.schema)),
@@ -4860,7 +3958,7 @@ pub(crate) fn emit_descriptor_source_signature_envelope(descriptor: LoadDescript
     emit_inline_value(descriptor_source_signature_envelope_value(descriptor));
 }
 
-fn descriptor_source_signature_envelope_value(descriptor: LoadDescriptor) -> V<'static> {
+pub(crate) fn descriptor_source_signature_envelope_value(descriptor: LoadDescriptor) -> V<'static> {
     let Some(envelope) = descriptor.source_envelope else {
         return V::Null;
     };
@@ -4954,7 +4052,7 @@ pub(crate) fn emit_artifact_reference(descriptor: LoadDescriptor) {
     emit_inline_value(artifact_reference_value(descriptor));
 }
 
-fn artifact_reference_value(descriptor: LoadDescriptor) -> V<'static> {
+pub(crate) fn artifact_reference_value(descriptor: LoadDescriptor) -> V<'static> {
     let identity = descriptor.artifact_identity;
     inline(vec![
         j!("schema" => s(identity.artifact_reference_schema)),
@@ -4990,7 +4088,7 @@ pub(crate) fn emit_artifact_identity_signature_envelope(descriptor: LoadDescript
     emit_inline_value(artifact_identity_signature_envelope_value(descriptor));
 }
 
-fn artifact_identity_signature_envelope_value(descriptor: LoadDescriptor) -> V<'static> {
+pub(crate) fn artifact_identity_signature_envelope_value(descriptor: LoadDescriptor) -> V<'static> {
     let envelope = descriptor.artifact_identity.signed_envelope;
     inline(vec![
         j!("schema" => s(envelope.schema)),

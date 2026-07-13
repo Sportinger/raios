@@ -1,13 +1,11 @@
 use crate::{
     agent_protocol_support::{
-        begin_response, crlf, emit_export_gate, emit_record_fields, emit_record_value_fragment,
-        end_response, indent, json_current_boot_id, json_event_id, json_event_id_option,
-        json_opt_str, json_sha256, json_sha256_option, json_str, method_eq, raw, raw_bool, raw_fmt,
-        raw_line, record_bool as b, record_field as f, record_sha as sha, record_str as s,
+        begin_response, crlf, emit_record_fields, emit_record_value_fragment, end_response,
+        method_eq, raw_fmt, record_bool as b, record_field as f, record_str as s,
     },
     agent_protocol_system::CAPABILITIES,
     event_log, hello_service, memory_store, personal_shell_service, provider, provider_trust,
-    serial, service_inventory, system_problem_facts, system_status,
+    service_inventory, system_problem_facts, system_status,
     system_status::{RowState, SystemSnapshot},
     ui, wifi,
 };
@@ -749,123 +747,6 @@ fn emit_provider_context_injection_gate_v1(runtime: ui::RuntimeStatus, request: 
 
 pub(crate) fn emit_provider_context_gate(runtime: ui::RuntimeStatus, request: &str) {
     emit_provider_context_gate_v1(runtime, request);
-    return;
-    #[allow(unreachable_code)]
-    {
-        let status = SystemSnapshot::collect(None, runtime);
-        let provider = provider::snapshot();
-        let profile = provider_context_export_profile(request);
-        let profile_supported = method_eq(profile, "provider_minimal");
-        let trust_positive = provider_trust_positive(provider.trust_state);
-        let evidence = provider_context_evidence(&status, &provider);
-        let event_hashes = evidence.event_hashes();
-        let check = event_log::check_provider_context_binding_gate(event_hashes);
-
-        begin_response("provider.context_gate");
-        raw_line("      \"schema\": \"raios.provider_context_export_gate_state.v0\",");
-        raw_line("      \"scope\": \"current_boot\",");
-        raw_line("      \"classification\": \"local_only\",");
-        raw_line("      \"provider_export\": \"disabled\",");
-        raw_line("      \"automatic_context_injection\": \"disabled\",");
-        raw_line("      \"context_attached_to_provider_body\": false,");
-        raw_line("      \"provider_write\": \"not_attempted\",");
-        raw("      \"profile\": ");
-        json_str(profile);
-        raw_line(",");
-        raw("      \"profile_supported\": ");
-        raw_bool(profile_supported);
-        raw_line(",");
-        raw_line("      \"gate_state\": {");
-        raw("        \"provider_trust_state\": ");
-        json_str(provider.trust_state);
-        raw_line(",");
-        raw("        \"provider_trust_positive\": ");
-        raw_bool(trust_positive);
-        raw_line(",");
-        raw("        \"provider_request_binding\": ");
-        json_str(provider_binding_gate_state(&check, "request"));
-        raw_line(",");
-        raw("        \"provider_export_audit_binding\": ");
-        json_str(provider_binding_gate_state(&check, "export"));
-        raw_line(",");
-        raw("        \"binding_validation_status\": ");
-        json_str(check.status);
-        raw_line(",");
-        raw("        \"binding_validation_reason\": ");
-        json_str(check.reason);
-        raw_line(",");
-        raw("        \"binding_retained\": ");
-        raw_bool(check.retained);
-        raw_line(",");
-        raw("        \"binding_consumed\": ");
-        raw_bool(check.consumed);
-        raw_line(",");
-        raw_line("        \"satisfies_current_boot_export_gate\": false,");
-        raw_line("        \"can_export\": false");
-        raw_line("      },");
-        raw_line("      \"candidate\": {");
-        emit_provider_binding_candidate(&check, 8);
-        raw_line("      },");
-        raw_line("      \"evidence\": {");
-        raw_line(
-            "        \"packet_canonicalization\": \"raios.provider_minimal.packet.canonical.v0\",",
-        );
-        raw("        \"projected_packet_hash\": ");
-        json_sha256(evidence.projected_packet_hash);
-        raw_line(",");
-        raw("        \"exported_field_list_hash\": ");
-        json_sha256(evidence.exported_field_list_hash);
-        raw_line(",");
-        raw("        \"omitted_field_list_hash\": ");
-        json_sha256(evidence.omitted_field_list_hash);
-        raw_line(",");
-        raw("        \"redaction_policy_hash\": ");
-        json_sha256(evidence.redaction_policy_hash);
-        raw_line(",");
-        raw("        \"field_classification_hash\": ");
-        json_sha256(evidence.field_classification_hash);
-        raw_line(",");
-        raw("        \"token_budget_hash\": ");
-        json_sha256(evidence.token_budget_hash);
-        raw_line(",");
-        raw_line("        \"provider_write_path\": \"disabled\"");
-        raw_line("      },");
-        raw_line("      \"blocked_by\": [");
-        let mut wrote = false;
-        if !profile_supported {
-            emit_export_gate(
-                &mut wrote,
-                "profile",
-                "unsupported",
-                "provider_minimal_is_the_only_v0_export_profile",
-            );
-        }
-        if !trust_positive {
-            emit_export_gate(
-                &mut wrote,
-                "provider_trust",
-                provider.trust_state,
-                "provider_trust_not_positive",
-            );
-        }
-        if check.status != "valid" {
-            emit_export_gate(
-                &mut wrote,
-                "provider_binding_consumption",
-                check.status,
-                check.reason,
-            );
-        }
-        emit_export_gate(
-            &mut wrote,
-            "provider_write_path",
-            "disabled",
-            "automatic_context_injection_disabled",
-        );
-        crlf();
-        raw_line("      ]");
-        end_response("provider.context_gate");
-    }
 }
 
 pub(crate) fn emit_provider_context_gate_selftest(runtime: ui::RuntimeStatus, request: &str) {
@@ -882,282 +763,81 @@ pub(crate) fn emit_provider_context_gate_selftest(runtime: ui::RuntimeStatus, re
         idx += 1;
     }
 
+    let case_count = cases.len() as u64;
+    let case_values = cases
+        .iter()
+        .map(provider_context_gate_selftest_case_value)
+        .collect();
     begin_response("provider.context_gate_selftest");
-    raw_line("      \"schema\": \"raios.provider_context_gate_negative_selftest.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": true,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"creates_provider_request_envelope\": false,");
-    raw_line("      \"creates_positive_binding_records\": false,");
-    raw_line("      \"provider_export\": \"disabled\",");
-    raw_line("      \"automatic_context_injection\": \"disabled\",");
-    raw_line("      \"context_attached_to_provider_body\": false,");
-    raw_line("      \"provider_write\": \"not_attempted\",");
-    raw("      \"profile\": ");
-    json_str(profile);
-    raw_line(",");
-    raw("      \"profile_supported\": ");
-    raw_bool(profile_supported);
-    raw_line(",");
-    raw("      \"case_count\": ");
-    raw_fmt(format_args!("{}", cases.len()));
-    raw_line(",");
-    raw("      \"passed\": ");
-    raw_bool(passed);
-    raw_line(",");
-    raw_line("      \"covered_rejections\": [");
-    raw_line("        \"missing_export_audit_binding\",");
-    raw_line("        \"stale_dropped_request_binding_event_id\",");
-    raw_line("        \"stale_dropped_envelope_event_id\",");
-    raw_line("        \"previous_boot_or_unretained_event_id\",");
-    raw_line("        \"denial_schema_substitution\",");
-    raw_line("        \"positive_record_substitution\",");
-    raw_line("        \"request_envelope_wrong_variant\",");
-    raw_line("        \"request_envelope_event_id_mismatch\",");
-    raw_line("        \"request_id_mismatch\",");
-    raw_line("        \"request_body_hash_mismatch\",");
-    raw_line("        \"request_envelope_hash_mismatch\",");
-    raw_line("        \"request_binding_hash_mismatch\",");
-    raw_line("        \"provider_minimal_packet_hash_mismatch\",");
-    raw_line("        \"exported_field_list_hash_mismatch\",");
-    raw_line("        \"omitted_field_list_hash_mismatch\",");
-    raw_line("        \"redaction_policy_hash_mismatch\",");
-    raw_line("        \"field_classification_hash_mismatch\",");
-    raw_line("        \"token_budget_hash_mismatch\",");
-    raw_line("        \"provider_trust_evidence_hash_mismatch\",");
-    raw_line("        \"trust_bypass_record\"");
-    raw_line("      ],");
-    raw_line("      \"cases\": [");
-    let mut case_idx = 0usize;
-    while case_idx < cases.len() {
-        emit_provider_context_gate_selftest_case(&cases[case_idx], case_idx + 1 != cases.len());
-        case_idx += 1;
-    }
-    raw_line("      ],");
-    raw_line("      \"satisfies_current_boot_export_gate\": false,");
-    raw_line("      \"can_export\": false");
+    emit_record_fields(
+        vec![
+            f(
+                "schema",
+                s("raios.provider_context_gate_negative_selftest.v0"),
+            ),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", b(true)),
+            f("mutates_global_event_log", b(false)),
+            f("creates_provider_request_envelope", b(false)),
+            f("creates_positive_binding_records", b(false)),
+            f("provider_export", s("disabled")),
+            f("automatic_context_injection", s("disabled")),
+            f("context_attached_to_provider_body", b(false)),
+            f("provider_write", s("not_attempted")),
+            f("profile", s(profile)),
+            f("profile_supported", b(profile_supported)),
+            f("case_count", V::U64(case_count)),
+            f("passed", b(passed)),
+            f(
+                "covered_rejections",
+                V::Array(vec![
+                    s("missing_export_audit_binding"),
+                    s("stale_dropped_request_binding_event_id"),
+                    s("stale_dropped_envelope_event_id"),
+                    s("previous_boot_or_unretained_event_id"),
+                    s("denial_schema_substitution"),
+                    s("positive_record_substitution"),
+                    s("request_envelope_wrong_variant"),
+                    s("request_envelope_event_id_mismatch"),
+                    s("request_id_mismatch"),
+                    s("request_body_hash_mismatch"),
+                    s("request_envelope_hash_mismatch"),
+                    s("request_binding_hash_mismatch"),
+                    s("provider_minimal_packet_hash_mismatch"),
+                    s("exported_field_list_hash_mismatch"),
+                    s("omitted_field_list_hash_mismatch"),
+                    s("redaction_policy_hash_mismatch"),
+                    s("field_classification_hash_mismatch"),
+                    s("token_budget_hash_mismatch"),
+                    s("provider_trust_evidence_hash_mismatch"),
+                    s("trust_bypass_record"),
+                ]),
+            ),
+            f("cases", V::Array(case_values)),
+            f("satisfies_current_boot_export_gate", b(false)),
+            f("can_export", b(false)),
+        ],
+        6,
+    );
     end_response("provider.context_gate_selftest");
 }
 
-fn emit_provider_context_gate_selftest_case(
+fn provider_context_gate_selftest_case_value(
     case: &event_log::ProviderBindingGateSelfTestCase,
-    comma: bool,
-) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw("}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+) -> V<'static> {
+    V::InlineObject(vec![
+        f("case", s(case.name)),
+        f("expected_status", s(case.expected_status)),
+        f("expected_reason", s(case.expected_reason)),
+        f("actual_status", s(case.actual_status)),
+        f("actual_reason", s(case.actual_reason)),
+        f("passed", b(case.passed)),
+    ])
 }
 
 pub(crate) fn emit_provider_context_injection_gate(runtime: ui::RuntimeStatus, request: &str) {
     emit_provider_context_injection_gate_v1(runtime, request);
-    return;
-    #[allow(unreachable_code)]
-    {
-        let status = SystemSnapshot::collect(None, runtime);
-        let provider = provider::snapshot();
-        let profile = provider_context_export_profile(request);
-        let profile_supported = method_eq(profile, "provider_minimal");
-        let trust_positive = provider_trust_positive(provider.trust_state);
-        let projection_present = profile_supported;
-        let evidence = provider_context_evidence(&status, &provider);
-        let check = event_log::check_provider_context_binding_gate(evidence.event_hashes());
-        let injection_check = event_log::check_provider_context_injection_gate(
-            evidence.event_hashes(),
-            provider.trust_state,
-        );
-
-        begin_response("provider.context_injection_gate");
-        raw_line("      \"schema\": \"raios.provider_context_injection_gate.v0\",");
-        raw_line("      \"scope\": \"current_boot\",");
-        raw_line("      \"classification\": \"local_only\",");
-        raw_line("      \"provider_export\": \"disabled\",");
-        raw_line("      \"automatic_context_injection\": \"disabled\",");
-        raw_line("      \"context_attached_to_provider_body\": false,");
-        raw_line("      \"provider_write\": \"not_attempted\",");
-        raw("      \"profile\": ");
-        json_str(profile);
-        raw_line(",");
-        raw("      \"profile_supported\": ");
-        raw_bool(profile_supported);
-        raw_line(",");
-        raw_line("      \"gate_state\": {");
-        raw("        \"provider_trust_state\": ");
-        json_str(provider.trust_state);
-        raw_line(",");
-        raw("        \"provider_trust_positive\": ");
-        raw_bool(trust_positive);
-        raw_line(",");
-        raw("        \"redaction_projection\": ");
-        json_str(if projection_present {
-            "present"
-        } else {
-            "missing"
-        });
-        raw_line(",");
-        raw_line("        \"packet_evidence_binding\": \"present\",");
-        raw_line("        \"exported_field_list_binding\": \"present\",");
-        raw_line("        \"omitted_field_list_binding\": \"present\",");
-        raw("        \"provider_request_binding\": ");
-        json_str(provider_binding_gate_state(&check, "request"));
-        raw_line(",");
-        raw("        \"provider_export_audit_binding\": ");
-        json_str(provider_binding_gate_state(&check, "export"));
-        raw_line(",");
-        raw("        \"binding_validation_status\": ");
-        json_str(check.status);
-        raw_line(",");
-        raw("        \"binding_validation_reason\": ");
-        json_str(check.reason);
-        raw_line(",");
-        raw("        \"binding_retained\": ");
-        raw_bool(check.retained);
-        raw_line(",");
-        raw("        \"binding_consumed\": ");
-        raw_bool(check.consumed);
-        raw_line(",");
-        raw_line(
-        "        \"final_authorization_schema\": \"raios.provider_context_injection_authorization.v0\",",
-    );
-        raw("        \"final_authorization\": ");
-        json_str(provider_injection_authorization_state(&injection_check));
-        raw_line(",");
-        raw("        \"final_authorization_validation_status\": ");
-        json_str(injection_check.status);
-        raw_line(",");
-        raw("        \"final_authorization_validation_reason\": ");
-        json_str(injection_check.reason);
-        raw_line(",");
-        raw("        \"final_authorization_event_id\": ");
-        json_event_id_option(injection_check.authorization_event_id);
-        raw_line(",");
-        raw("        \"binding_consumption_event_id\": ");
-        json_event_id_option(injection_check.binding_consumption_event_id);
-        raw_line(",");
-        raw("        \"final_authorization_retained\": ");
-        raw_bool(injection_check.retained);
-        raw_line(",");
-        raw("        \"final_prewrite_body_check\": ");
-        json_str(provider_injection_body_check_state(&injection_check));
-        raw_line(",");
-        raw("        \"satisfies_current_boot_export_gate\": ");
-        raw_bool(injection_check.satisfies_current_boot_export_gate);
-        raw_line(",");
-        raw("        \"can_attach_context\": ");
-        raw_bool(injection_check.can_attach_context);
-        crlf();
-        raw_line("      },");
-        raw_line("      \"candidate\": {");
-        emit_provider_binding_candidate(&check, 8);
-        raw_line("      },");
-        raw_line("      \"evidence\": {");
-        raw_line(
-            "        \"packet_canonicalization\": \"raios.provider_minimal.packet.canonical.v0\",",
-        );
-        raw("        \"projected_packet_hash\": ");
-        json_sha256(evidence.projected_packet_hash);
-        raw_line(",");
-        raw("        \"exported_field_list_hash\": ");
-        json_sha256(evidence.exported_field_list_hash);
-        raw_line(",");
-        raw("        \"omitted_field_list_hash\": ");
-        json_sha256(evidence.omitted_field_list_hash);
-        raw_line(",");
-        raw("        \"redaction_policy_hash\": ");
-        json_sha256(evidence.redaction_policy_hash);
-        raw_line(",");
-        raw("        \"field_classification_hash\": ");
-        json_sha256(evidence.field_classification_hash);
-        raw_line(",");
-        raw("        \"token_budget_hash\": ");
-        json_sha256(evidence.token_budget_hash);
-        raw_line(",");
-        raw_line(
-            "        \"provider_request_body_attachment\": \"blocked_until_final_authorization\"",
-        );
-        raw_line("      },");
-        raw_line("      \"blocked_by\": [");
-        let mut wrote = false;
-        if !profile_supported {
-            emit_export_gate(
-                &mut wrote,
-                "profile",
-                "unsupported",
-                "provider_minimal_is_the_only_v0_export_profile",
-            );
-        }
-        if !trust_positive {
-            emit_export_gate(
-                &mut wrote,
-                "provider_trust",
-                provider.trust_state,
-                "provider_trust_not_positive",
-            );
-        }
-        if !projection_present {
-            emit_export_gate(
-                &mut wrote,
-                "redaction_projection",
-                "missing",
-                "provider_minimal_projection_missing",
-            );
-        }
-        if check.status != "valid" {
-            emit_export_gate(
-                &mut wrote,
-                "provider_binding_consumption",
-                check.status,
-                check.reason,
-            );
-        }
-        if injection_check.status != "blocked" {
-            emit_export_gate(
-                &mut wrote,
-                "provider_context_injection_authorization",
-                injection_check.status,
-                injection_check.reason,
-            );
-        }
-        emit_export_gate(
-            &mut wrote,
-            "provider_write_path",
-            "disabled",
-            "automatic_context_injection_disabled",
-        );
-        crlf();
-        raw_line("      ],");
-        raw_line("      \"required\": [");
-        raw_line("        \"positive_provider_trust\",");
-        raw_line("        \"provider_trust_evidence_hash\",");
-        raw_line("        \"provider_trust_verifier_metadata\",");
-        raw_line("        \"raios.provider_context_projection.v0\",");
-        raw_line("        \"raios.provider_request_binding.v0\",");
-        raw_line("        \"raios.provider_context_export_audit_binding.v0\",");
-        raw_line("        \"redaction_policy_hash\",");
-        raw_line("        \"field_classification_hash\",");
-        raw_line("        \"token_budget_hash\",");
-        raw_line("        \"raios.provider_context_binding_consumption.v0\",");
-        raw_line("        \"raios.provider_context_injection_authorization.v0\",");
-        raw_line("        \"final_prewrite_body_hash_check\"");
-        raw_line("      ],");
-        raw_line("      \"satisfies_current_boot_export_gate\": false,");
-        raw_line("      \"can_export\": false");
-        end_response("provider.context_injection_gate");
-    }
 }
 
 pub(crate) fn emit_provider_context_injection_gate_selftest(
@@ -1177,78 +857,67 @@ pub(crate) fn emit_provider_context_injection_gate_selftest(
         idx += 1;
     }
 
+    let case_count = cases.len() as u64;
+    let case_values = cases
+        .iter()
+        .map(provider_context_injection_gate_selftest_case_value)
+        .collect();
     begin_response("provider.context_injection_gate_selftest");
-    raw_line("      \"schema\": \"raios.provider_context_injection_gate_negative_selftest.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": true,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"creates_provider_request_envelope\": false,");
-    raw_line("      \"creates_positive_binding_records\": false,");
-    raw_line("      \"creates_final_authorization_records\": false,");
-    raw_line("      \"provider_export\": \"disabled\",");
-    raw_line("      \"automatic_context_injection\": \"disabled\",");
-    raw_line("      \"context_attached_to_provider_body\": false,");
-    raw_line("      \"provider_write\": \"not_attempted\",");
-    raw_line("      \"can_attach_context\": false,");
-    raw("      \"profile\": ");
-    json_str(profile);
-    raw_line(",");
-    raw("      \"profile_supported\": ");
-    raw_bool(profile_supported);
-    raw_line(",");
-    raw("      \"case_count\": ");
-    raw_fmt(format_args!("{}", cases.len()));
-    raw_line(",");
-    raw("      \"passed\": ");
-    raw_bool(passed);
-    raw_line(",");
-    raw_line("      \"covered_rejections\": [");
-    raw_line("        \"missing_final_authorization\",");
-    raw_line("        \"stale_dropped_final_authorization_event_id\",");
-    raw_line("        \"final_authorization_schema_substitution\",");
-    raw_line("        \"substituted_positive_final_authorization_record\",");
-    raw_line("        \"final_authorization_omitted_field_list_hash_mismatch\",");
-    raw_line("        \"final_authorization_body_hash_mismatch\",");
-    raw_line("        \"final_authorization_trust_downgrade\",");
-    raw_line("        \"body_attachment_without_final_authorization\"");
-    raw_line("      ],");
-    raw_line("      \"cases\": [");
-    let mut case_idx = 0usize;
-    while case_idx < cases.len() {
-        emit_provider_context_injection_gate_selftest_case(
-            &cases[case_idx],
-            case_idx + 1 != cases.len(),
-        );
-        case_idx += 1;
-    }
-    raw_line("      ],");
-    raw_line("      \"satisfies_current_boot_export_gate\": false,");
-    raw_line("      \"can_export\": false");
+    emit_record_fields(
+        vec![
+            f(
+                "schema",
+                s("raios.provider_context_injection_gate_negative_selftest.v0"),
+            ),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", b(true)),
+            f("mutates_global_event_log", b(false)),
+            f("creates_provider_request_envelope", b(false)),
+            f("creates_positive_binding_records", b(false)),
+            f("creates_final_authorization_records", b(false)),
+            f("provider_export", s("disabled")),
+            f("automatic_context_injection", s("disabled")),
+            f("context_attached_to_provider_body", b(false)),
+            f("provider_write", s("not_attempted")),
+            f("can_attach_context", b(false)),
+            f("profile", s(profile)),
+            f("profile_supported", b(profile_supported)),
+            f("case_count", V::U64(case_count)),
+            f("passed", b(passed)),
+            f(
+                "covered_rejections",
+                V::Array(vec![
+                    s("missing_final_authorization"),
+                    s("stale_dropped_final_authorization_event_id"),
+                    s("final_authorization_schema_substitution"),
+                    s("substituted_positive_final_authorization_record"),
+                    s("final_authorization_omitted_field_list_hash_mismatch"),
+                    s("final_authorization_body_hash_mismatch"),
+                    s("final_authorization_trust_downgrade"),
+                    s("body_attachment_without_final_authorization"),
+                ]),
+            ),
+            f("cases", V::Array(case_values)),
+            f("satisfies_current_boot_export_gate", b(false)),
+            f("can_export", b(false)),
+        ],
+        6,
+    );
     end_response("provider.context_injection_gate_selftest");
 }
 
-fn emit_provider_context_injection_gate_selftest_case(
+fn provider_context_injection_gate_selftest_case_value(
     case: &event_log::ProviderContextInjectionGateSelfTestCase,
-    comma: bool,
-) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw("}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+) -> V<'static> {
+    V::InlineObject(vec![
+        f("case", s(case.name)),
+        f("expected_status", s(case.expected_status)),
+        f("expected_reason", s(case.expected_reason)),
+        f("actual_status", s(case.actual_status)),
+        f("actual_reason", s(case.actual_reason)),
+        f("passed", b(case.passed)),
+    ])
 }
 
 struct ProviderExportPublicPacket<'a> {
@@ -1734,358 +1403,246 @@ pub(crate) fn emit_provider_context_export_denied(
         ))
     };
 
-    serial::write_raw_fmt(format_args!(
-        "RAIOS_AGENT_BEGIN provider.context_export\r\n"
-    ));
-    raw_line("{");
-    raw_line("  \"v\": \"raios.agent.v0\",");
-    raw_line("  \"t\": \"error\",");
-    raw_line("  \"id\": \"serial\",");
-    raw_line("  \"body\": {");
-    raw_line("    \"method\": \"provider.context_export\",");
-    raw("    \"event_id\": ");
-    json_event_id(denial_event_id);
-    raw_line(",");
-    raw("    \"audit_event_id\": ");
-    json_event_id(export_denial_audit_event_id);
-    raw_line(",");
-    raw_line("    \"code\": \"capability_denied\",");
-    raw_line("    \"schema\": \"raios.provider_context_export.v0\",");
-    raw("    \"message\": ");
-    json_str("provider context export is denied until positive provider trust, a provider_minimal projection, packet/redaction/classification/budget evidence, provider request binding, and a provider export audit binding exist");
-    raw_line(",");
-    raw_line("    \"request\": {");
-    raw("      \"provider\": ");
-    json_str(provider.provider_name);
-    raw_line(",");
-    raw("      \"route\": ");
-    json_str(provider.route.as_str());
-    raw_line(",");
-    raw("      \"profile\": ");
-    json_str(profile);
-    raw_line(",");
-    raw("      \"profile_supported\": ");
-    raw_bool(profile_supported);
-    raw_line(",");
-    raw_line("      \"context_schema\": \"raios.agent_context.v0\",");
-    raw_line("      \"projection_schema\": \"raios.provider_context_projection.v0\",");
-    raw_line("      \"export_schema\": \"raios.provider_context_export.v0\",");
-    raw_line("      \"requested_capability\": \"cap.provider.context_export\",");
-    raw_line("      \"export_scope\": \"single_provider_request\"");
-    raw_line("    },");
-    raw_line("    \"gate_state\": {");
-    raw("      \"provider_trust_state\": ");
-    json_str(provider.trust_state);
-    raw_line(",");
-    raw("      \"provider_trust_positive\": ");
-    raw_bool(trust_positive);
-    raw_line(",");
-    raw("      \"redaction_projection\": ");
-    json_str(if projection_present {
-        "present"
-    } else {
-        "missing"
+    let request_binding_denial_id = request_binding_denial_event_id.map(|event_id| {
+        alloc::format!(
+            "provider_request_binding_denial.current_boot.{:08}",
+            event_id.sequence()
+        )
     });
-    raw_line(",");
-    raw("      \"field_classification\": ");
-    json_str(if projection_present {
-        "present"
-    } else {
-        "missing"
+    let provider_request_attempt_id = request_binding_denial_event_id.map(|event_id| {
+        alloc::format!(
+            "provider_request_attempt.current_boot.{:08}",
+            event_id.sequence()
+        )
     });
-    raw_line(",");
-    raw_line("      \"packet_evidence_binding\": \"present\",");
-    raw_line("      \"exported_field_list_binding\": \"present\",");
-    raw_line("      \"omitted_field_list_binding\": \"present\",");
-    raw("      \"provider_request_binding\": ");
-    json_str(provider_binding_gate_state(&binding_check, "request"));
-    raw_line(",");
-    raw("      \"provider_request_binding_denial\": ");
-    json_str(if binding_consumed {
-        "not_created_positive_binding_consumed"
-    } else {
-        "present_denied_not_bound"
-    });
-    raw_line(",");
-    raw("      \"provider_export_audit_binding\": ");
-    json_str(provider_binding_gate_state(&binding_check, "export"));
-    raw_line(",");
-    raw("      \"provider_binding_consumption\": ");
-    json_str(if binding_consumed {
-        "consumed_for_gate_evaluation"
-    } else {
-        "not_consumed"
-    });
-    raw_line(",");
-    raw("      \"binding_validation_status\": ");
-    json_str(binding_check.status);
-    raw_line(",");
-    raw("      \"binding_validation_reason\": ");
-    json_str(binding_check.reason);
-    raw_line(",");
-    raw_line("      \"provider_export_denial_audit\": \"present_denied_no_provider_write\",");
-    raw_line("      \"provider_write\": \"not_attempted\",");
-    raw_line("      \"can_export\": false");
-    raw_line("    },");
-    if let Some(request_binding_denial_event_id) = request_binding_denial_event_id {
-        raw_line("    \"provider_request_binding_denial\": {");
-        raw_line("      \"schema\": \"raios.provider_request_binding_denial.v0\",");
-        raw("      \"id\": ");
-        json_current_boot_id(
-            "provider_request_binding_denial.current_boot",
-            request_binding_denial_event_id,
-        );
-        raw_line(",");
-        raw("      \"attempted_request_id\": ");
-        json_current_boot_id(
-            "provider_request_attempt.current_boot",
-            request_binding_denial_event_id,
-        );
-        raw_line(",");
-        raw("      \"event_id\": ");
-        json_event_id(request_binding_denial_event_id);
-        raw_line(",");
-        raw_line("      \"status\": \"denied_not_bound\",");
-        raw_line("      \"satisfies_export_gate\": false,");
-        raw("      \"provider\": ");
-        json_str(provider.provider_name);
-        raw_line(",");
-        raw("      \"route\": ");
-        json_str(provider.route.as_str());
-        raw_line(",");
-        raw("      \"profile\": ");
-        json_str(profile);
-        raw_line(",");
-        raw_line("      \"classification\": \"public\",");
-        raw_line("      \"context_schema\": \"raios.agent_context.v0\",");
-        raw_line(
-            "      \"packet_canonicalization\": \"raios.provider_minimal.packet.canonical.v0\",",
-        );
-        raw("      \"projected_packet_hash\": ");
-        json_sha256(evidence.projected_packet_hash);
-        raw_line(",");
-        raw("      \"exported_field_list_hash\": ");
-        json_sha256(evidence.exported_field_list_hash);
-        raw_line(",");
-        raw("      \"omitted_field_list_hash\": ");
-        json_sha256(evidence.omitted_field_list_hash);
-        raw_line(",");
-        raw("      \"redaction_policy_hash\": ");
-        json_sha256(evidence.redaction_policy_hash);
-        raw_line(",");
-        raw("      \"field_classification_hash\": ");
-        json_sha256(evidence.field_classification_hash);
-        raw_line(",");
-        raw("      \"token_budget_hash\": ");
-        json_sha256(evidence.token_budget_hash);
-        raw_line(",");
-        raw_line("      \"provider_write\": \"not_attempted\"");
-        raw_line("    },");
-    } else {
-        raw_line("    \"provider_request_binding_denial\": null,");
-    }
-    raw_line("    \"provider_binding_consumption\": {");
-    raw_line("      \"schema\": \"raios.provider_context_binding_consumption.v0\",");
-    raw("      \"event_id\": ");
-    json_event_id_option(binding_consumption_event_id);
-    raw_line(",");
-    raw("      \"status\": ");
-    json_str(if binding_consumed {
-        "consumed_for_gate_evaluation"
-    } else {
-        "not_consumed"
-    });
-    raw_line(",");
-    raw_line("      \"satisfies_current_boot_export_gate\": false,");
-    raw_line("      \"automatic_context_injection\": \"disabled\",");
-    raw_line("      \"context_attached_to_provider_body\": false,");
-    raw_line("      \"provider_write\": \"not_attempted\",");
-    raw("      \"reason\": ");
-    json_str(if binding_consumed {
-        "provider_binding_consumed_without_body_attachment"
-    } else {
-        binding_check.reason
-    });
-    crlf();
-    raw_line("    },");
-    raw_line("    \"export_denial_audit\": {");
-    raw_line("      \"schema\": \"raios.provider_context_export_denial_audit.v0\",");
-    raw("      \"id\": ");
-    json_current_boot_id(
-        "provider_context_export_denial_audit.current_boot",
-        export_denial_audit_event_id,
+    let export_denial_audit_id = alloc::format!(
+        "provider_context_export_denial_audit.current_boot.{:08}",
+        export_denial_audit_event_id.sequence()
     );
-    raw_line(",");
-    raw("      \"event_id\": ");
-    json_event_id(export_denial_audit_event_id);
-    raw_line(",");
-    raw_line("      \"status\": \"denied_no_provider_write\",");
-    raw_line("      \"satisfies_export_gate\": false,");
-    raw_line("      \"classification\": \"public\",");
-    raw_line("      \"persistence\": \"none\",");
-    raw_line("      \"positive_export_authorization\": false,");
-    raw("      \"denial_event_id\": ");
-    json_event_id(denial_event_id);
-    raw_line(",");
-    raw_line("      \"provider_write\": \"not_attempted\"");
-    raw_line("    },");
-    emit_provider_export_durable_denial_audit(&gate_decision, durable_denial_audit.as_ref());
-    raw_line("    \"blocked_by\": [");
-    let mut wrote = false;
+    let provider_request_binding_denial = match request_binding_denial_event_id {
+        Some(event_id) => V::Object(vec![
+            f("schema", s("raios.provider_request_binding_denial.v0")),
+            f(
+                "id",
+                s(request_binding_denial_id.as_ref().unwrap().as_str()),
+            ),
+            f(
+                "attempted_request_id",
+                s(provider_request_attempt_id.as_ref().unwrap().as_str()),
+            ),
+            f("event_id", V::EventSequence(event_id.sequence())),
+            f("status", s("denied_not_bound")),
+            f("satisfies_export_gate", b(false)),
+            f("provider", s(provider.provider_name)),
+            f("route", s(provider.route.as_str())),
+            f("profile", s(profile)),
+            f("classification", s("public")),
+            f("context_schema", s("raios.agent_context.v0")),
+            f(
+                "packet_canonicalization",
+                s("raios.provider_minimal.packet.canonical.v0"),
+            ),
+            f(
+                "projected_packet_hash",
+                V::Sha256(evidence.projected_packet_hash),
+            ),
+            f(
+                "exported_field_list_hash",
+                V::Sha256(evidence.exported_field_list_hash),
+            ),
+            f(
+                "omitted_field_list_hash",
+                V::Sha256(evidence.omitted_field_list_hash),
+            ),
+            f(
+                "redaction_policy_hash",
+                V::Sha256(evidence.redaction_policy_hash),
+            ),
+            f(
+                "field_classification_hash",
+                V::Sha256(evidence.field_classification_hash),
+            ),
+            f("token_budget_hash", V::Sha256(evidence.token_budget_hash)),
+            f("provider_write", s("not_attempted")),
+        ]),
+        None => V::Null,
+    };
+
+    let mut blocked_by = Vec::new();
     if !profile_supported {
-        emit_export_gate(
-            &mut wrote,
+        blocked_by.push(provider_gate_value(
             "profile",
             "unsupported",
             "provider_minimal_is_the_only_v0_export_profile",
-        );
+        ));
     }
     if !trust_positive {
-        emit_export_gate(
-            &mut wrote,
+        blocked_by.push(provider_gate_value(
             "provider_trust",
             provider.trust_state,
             "provider_trust_not_positive",
-        );
+        ));
     }
     if !projection_present {
-        emit_export_gate(
-            &mut wrote,
+        blocked_by.push(provider_gate_value(
             "redaction_projection",
             "missing",
             "provider_minimal_projection_missing",
-        );
+        ));
     }
     if !binding_consumed && binding_check.status == "missing" {
-        emit_export_gate(
-            &mut wrote,
+        blocked_by.push(provider_gate_value(
             "provider_request_binding",
             "missing",
             "provider_request_binding_missing",
-        );
-        emit_export_gate(
-            &mut wrote,
+        ));
+        blocked_by.push(provider_gate_value(
             "provider_context_export_audit_binding",
             "missing",
             "provider_context_export_audit_binding_missing",
-        );
+        ));
     } else if !binding_consumed {
-        emit_export_gate(
-            &mut wrote,
+        blocked_by.push(provider_gate_value(
             "provider_binding_consumption",
             binding_check.status,
             binding_check.reason,
-        );
+        ));
     }
-    emit_export_gate(
-        &mut wrote,
+    blocked_by.push(provider_gate_value(
         "provider_write_path",
         "disabled",
         "automatic_context_injection_disabled",
-    );
+    ));
+
+    let value = V::Object(vec![
+        f("v", s("raios.agent.v0")),
+        f("t", s("error")),
+        f("id", s("serial")),
+        f("body", V::Object(vec![
+            f("method", s("provider.context_export")),
+            f("event_id", V::EventSequence(denial_event_id.sequence())),
+            f("audit_event_id", V::EventSequence(export_denial_audit_event_id.sequence())),
+            f("code", s("capability_denied")),
+            f("schema", s("raios.provider_context_export.v0")),
+            f("message", s("provider context export is denied until positive provider trust, a provider_minimal projection, packet/redaction/classification/budget evidence, provider request binding, and a provider export audit binding exist")),
+            f("request", V::Object(vec![
+                f("provider", s(provider.provider_name)),
+                f("route", s(provider.route.as_str())),
+                f("profile", s(profile)),
+                f("profile_supported", b(profile_supported)),
+                f("context_schema", s("raios.agent_context.v0")),
+                f("projection_schema", s("raios.provider_context_projection.v0")),
+                f("export_schema", s("raios.provider_context_export.v0")),
+                f("requested_capability", s("cap.provider.context_export")),
+                f("export_scope", s("single_provider_request")),
+            ])),
+            f("gate_state", V::Object(vec![
+                f("provider_trust_state", s(provider.trust_state)),
+                f("provider_trust_positive", b(trust_positive)),
+                f("redaction_projection", s(if projection_present { "present" } else { "missing" })),
+                f("field_classification", s(if projection_present { "present" } else { "missing" })),
+                f("packet_evidence_binding", s("present")),
+                f("exported_field_list_binding", s("present")),
+                f("omitted_field_list_binding", s("present")),
+                f("provider_request_binding", s(provider_binding_gate_state(&binding_check, "request"))),
+                f("provider_request_binding_denial", s(if binding_consumed { "not_created_positive_binding_consumed" } else { "present_denied_not_bound" })),
+                f("provider_export_audit_binding", s(provider_binding_gate_state(&binding_check, "export"))),
+                f("provider_binding_consumption", s(if binding_consumed { "consumed_for_gate_evaluation" } else { "not_consumed" })),
+                f("binding_validation_status", s(binding_check.status)),
+                f("binding_validation_reason", s(binding_check.reason)),
+                f("provider_export_denial_audit", s("present_denied_no_provider_write")),
+                f("provider_write", s("not_attempted")),
+                f("can_export", b(false)),
+            ])),
+            f("provider_request_binding_denial", provider_request_binding_denial),
+            f("provider_binding_consumption", V::Object(vec![
+                f("schema", s("raios.provider_context_binding_consumption.v0")),
+                f("event_id", binding_consumption_event_id.map(|id| V::EventSequence(id.sequence())).unwrap_or(V::Null)),
+                f("status", s(if binding_consumed { "consumed_for_gate_evaluation" } else { "not_consumed" })),
+                f("satisfies_current_boot_export_gate", b(false)),
+                f("automatic_context_injection", s("disabled")),
+                f("context_attached_to_provider_body", b(false)),
+                f("provider_write", s("not_attempted")),
+                f("reason", s(if binding_consumed { "provider_binding_consumed_without_body_attachment" } else { binding_check.reason })),
+            ])),
+            f("export_denial_audit", V::Object(vec![
+                f("schema", s("raios.provider_context_export_denial_audit.v0")),
+                f("id", s(export_denial_audit_id.as_str())),
+                f("event_id", V::EventSequence(export_denial_audit_event_id.sequence())),
+                f("status", s("denied_no_provider_write")),
+                f("satisfies_export_gate", b(false)),
+                f("classification", s("public")),
+                f("persistence", s("none")),
+                f("positive_export_authorization", b(false)),
+                f("denial_event_id", V::EventSequence(denial_event_id.sequence())),
+                f("provider_write", s("not_attempted")),
+            ])),
+            f("durable_denial_audit", provider_export_durable_denial_audit_value(&gate_decision, durable_denial_audit.as_ref())),
+            f("blocked_by", V::Array(blocked_by)),
+            f("required", V::Array(vec![
+                s("positive_provider_trust"),
+                s("provider_trust_evidence_hash"),
+                s("provider_trust_verifier_metadata"),
+                s("raios.provider_context_projection.v0"),
+                s("raios.provider_context_export.v0"),
+                s("projected_packet_hash"),
+                s("exported_field_list_hash"),
+                s("omitted_field_list_hash"),
+                s("redaction_policy_hash"),
+                s("field_classification_hash"),
+                s("token_budget_hash"),
+                s("provider_request_binding"),
+                s("provider_context_export_audit_binding"),
+                s("checked_current_boot_binding_consumption"),
+                s("audit.event.v0"),
+            ])),
+            f("evidence", V::Object(vec![
+                f("local_projection_method", s("memory.context provider_minimal")),
+                f("local_projection_locator", s("snapshot.current.provider_minimal")),
+                f("packet_canonicalization", s("raios.provider_minimal.packet.canonical.v0")),
+                f("projected_packet_hash", V::Sha256(evidence.projected_packet_hash)),
+                f("exported_field_list_hash", V::Sha256(evidence.exported_field_list_hash)),
+                f("omitted_field_list_hash", V::Sha256(evidence.omitted_field_list_hash)),
+                f("redaction_policy_hash", V::Sha256(evidence.redaction_policy_hash)),
+                f("field_classification_hash", V::Sha256(evidence.field_classification_hash)),
+                f("token_budget_hash", V::Sha256(evidence.token_budget_hash)),
+                f("provider_request_binding_status", s(provider_binding_gate_state(&binding_check, "request"))),
+                f("provider_request_binding_event_id", binding_check.request_binding_event_id.map(|id| V::EventSequence(id.sequence())).unwrap_or(V::Null)),
+                f("provider_request_binding_denial_id", request_binding_denial_id.as_ref().map(|id| s(id.as_str())).unwrap_or(V::Null)),
+                f("provider_request_binding_denial_event_id", request_binding_denial_event_id.map(|id| V::EventSequence(id.sequence())).unwrap_or(V::Null)),
+                f("provider_request_attempt_id", provider_request_attempt_id.as_ref().map(|id| s(id.as_str())).unwrap_or(V::Null)),
+                f("export_audit_binding_status", s(provider_binding_gate_state(&binding_check, "export"))),
+                f("export_audit_binding_event_id", binding_check.export_audit_binding_event_id.map(|id| V::EventSequence(id.sequence())).unwrap_or(V::Null)),
+                f("binding_consumption_event_id", binding_consumption_event_id.map(|id| V::EventSequence(id.sequence())).unwrap_or(V::Null)),
+                f("export_denial_audit_id", s(export_denial_audit_id.as_str())),
+                f("export_denial_audit_event_id", V::EventSequence(export_denial_audit_event_id.sequence())),
+                f("export_denial_audit_satisfies_export_gate", b(false)),
+                f("denial_event_is_export_binding", b(false)),
+                f("denial_event_id", V::EventSequence(denial_event_id.sequence())),
+            ])),
+        ])),
+    ]);
+
+    raw_fmt(format_args!(
+        "RAIOS_AGENT_BEGIN provider.context_export\r\n"
+    ));
+    emit_record_value_fragment(value, 0);
     crlf();
-    raw_line("    ],");
-    raw_line("    \"required\": [");
-    raw_line("      \"positive_provider_trust\",");
-    raw_line("      \"provider_trust_evidence_hash\",");
-    raw_line("      \"provider_trust_verifier_metadata\",");
-    raw_line("      \"raios.provider_context_projection.v0\",");
-    raw_line("      \"raios.provider_context_export.v0\",");
-    raw_line("      \"projected_packet_hash\",");
-    raw_line("      \"exported_field_list_hash\",");
-    raw_line("      \"omitted_field_list_hash\",");
-    raw_line("      \"redaction_policy_hash\",");
-    raw_line("      \"field_classification_hash\",");
-    raw_line("      \"token_budget_hash\",");
-    raw_line("      \"provider_request_binding\",");
-    raw_line("      \"provider_context_export_audit_binding\",");
-    raw_line("      \"checked_current_boot_binding_consumption\",");
-    raw_line("      \"audit.event.v0\"");
-    raw_line("    ],");
-    raw_line("    \"evidence\": {");
-    raw_line("      \"local_projection_method\": \"memory.context provider_minimal\",");
-    raw_line("      \"local_projection_locator\": \"snapshot.current.provider_minimal\",");
-    raw_line("      \"packet_canonicalization\": \"raios.provider_minimal.packet.canonical.v0\",");
-    raw("      \"projected_packet_hash\": ");
-    json_sha256(evidence.projected_packet_hash);
-    raw_line(",");
-    raw("      \"exported_field_list_hash\": ");
-    json_sha256(evidence.exported_field_list_hash);
-    raw_line(",");
-    raw("      \"omitted_field_list_hash\": ");
-    json_sha256(evidence.omitted_field_list_hash);
-    raw_line(",");
-    raw("      \"redaction_policy_hash\": ");
-    json_sha256(evidence.redaction_policy_hash);
-    raw_line(",");
-    raw("      \"field_classification_hash\": ");
-    json_sha256(evidence.field_classification_hash);
-    raw_line(",");
-    raw("      \"token_budget_hash\": ");
-    json_sha256(evidence.token_budget_hash);
-    raw_line(",");
-    raw("      \"provider_request_binding_status\": ");
-    json_str(provider_binding_gate_state(&binding_check, "request"));
-    raw_line(",");
-    raw("      \"provider_request_binding_event_id\": ");
-    json_event_id_option(binding_check.request_binding_event_id);
-    raw_line(",");
-    raw("      \"provider_request_binding_denial_id\": ");
-    if let Some(request_binding_denial_event_id) = request_binding_denial_event_id {
-        json_current_boot_id(
-            "provider_request_binding_denial.current_boot",
-            request_binding_denial_event_id,
-        );
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw("      \"provider_request_binding_denial_event_id\": ");
-    json_event_id_option(request_binding_denial_event_id);
-    raw_line(",");
-    raw("      \"provider_request_attempt_id\": ");
-    if let Some(request_binding_denial_event_id) = request_binding_denial_event_id {
-        json_current_boot_id(
-            "provider_request_attempt.current_boot",
-            request_binding_denial_event_id,
-        );
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw("      \"export_audit_binding_status\": ");
-    json_str(provider_binding_gate_state(&binding_check, "export"));
-    raw_line(",");
-    raw("      \"export_audit_binding_event_id\": ");
-    json_event_id_option(binding_check.export_audit_binding_event_id);
-    raw_line(",");
-    raw("      \"binding_consumption_event_id\": ");
-    json_event_id_option(binding_consumption_event_id);
-    raw_line(",");
-    raw("      \"export_denial_audit_id\": ");
-    json_current_boot_id(
-        "provider_context_export_denial_audit.current_boot",
-        export_denial_audit_event_id,
-    );
-    raw_line(",");
-    raw("      \"export_denial_audit_event_id\": ");
-    json_event_id(export_denial_audit_event_id);
-    raw_line(",");
-    raw_line("      \"export_denial_audit_satisfies_export_gate\": false,");
-    raw_line("      \"denial_event_is_export_binding\": false,");
-    raw("      \"denial_event_id\": ");
-    json_event_id(denial_event_id);
-    crlf();
-    raw_line("    }");
-    raw_line("  }");
-    raw_line("}");
-    serial::write_raw_fmt(format_args!("RAIOS_AGENT_END provider.context_export\r\n"));
+    raw_fmt(format_args!("RAIOS_AGENT_END provider.context_export\r\n"));
 }
 
-fn emit_provider_export_durable_denial_audit(
-    gate_decision: &raios_core::scoped_provider_export::ProviderExportGateDecision,
-    audit: Option<&memory_store::ProviderExportDenialAuditOutcome>,
-) {
+fn provider_gate_value<'a>(gate: &'a str, state: &'a str, reason: &'a str) -> V<'a> {
+    V::InlineObject(vec![
+        f("gate", s(gate)),
+        f("state", s(state)),
+        f("reason", s(reason)),
+    ])
+}
+
+fn provider_export_durable_denial_audit_value<'a>(
+    gate_decision: &'a raios_core::scoped_provider_export::ProviderExportGateDecision,
+    audit: Option<&'a memory_store::ProviderExportDenialAuditOutcome>,
+) -> V<'a> {
     let evidence = audit.and_then(|audit| audit.evidence.as_ref());
     let duplicate = audit
         .map(|audit| audit.dedupe == "duplicate_ram_only")
@@ -2119,102 +1676,100 @@ fn emit_provider_export_durable_denial_audit(
         None => audit.and_then(|audit| audit.cited_seq),
     };
 
-    raw_line("    \"durable_denial_audit\": {");
-    raw_line("      \"schema\": \"raios.provider_export_denial_durable_audit.v0\",");
-    raw("      \"gate\": ");
-    json_str(raios_core::scoped_provider_export::SCOPED_PROVIDER_EXPORT_DECISION_ID);
-    raw_line(",");
-    raw("      \"gate_schema\": ");
-    json_str(raios_core::scoped_provider_export::SCOPED_PROVIDER_EXPORT_DECISION_SCHEMA);
-    raw_line(",");
-    raw("      \"gate_status\": ");
-    json_str(gate_status);
-    raw_line(",");
-    raw("      \"gate_reason\": ");
-    json_str(gate_decision.reason);
-    raw_line(",");
-    raw("      \"dedupe\": ");
-    json_str(dedupe);
-    raw_line(",");
-    raw("      \"record_id\": ");
-    json_str(record_id);
-    raw_line(",");
-    raw_line("      \"record_schema\": \"raios.memory_record.v0\",");
-    raw_line("      \"kind\": \"capability_denial\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"record_authority\": \"core_ledger\",");
-    raw_line("      \"supersedes\": [],");
-    raw("      \"durable_append\": ");
-    json_str(durable_append);
-    raw_line(",");
-    raw("      \"performed\": ");
-    raw_bool(performed);
-    raw_line(",");
-    raw("      \"append_reason\": ");
-    json_str(append_reason);
-    raw_line(",");
-    raw("      \"payload_sha256\": ");
-    json_sha256_option(payload_sha256);
-    raw_line(",");
-    raw("      \"frame_sha256\": ");
-    json_sha256_option(evidence.and_then(|evidence| evidence.frame_sha256));
-    raw_line(",");
-    raw("      \"readback_sha256\": ");
-    json_sha256_option(evidence.and_then(|evidence| evidence.readback_sha256));
-    raw_line(",");
-    raw("      \"reparse_valid\": ");
-    raw_bool(
-        evidence
-            .map(|evidence| evidence.reparse_valid)
-            .unwrap_or(false),
-    );
-    raw_line(",");
-    raw("      \"seq\": ");
-    emit_optional_u64(seq);
-    raw_line(",");
-    raw("      \"tail_seq_before\": ");
-    emit_optional_u64(evidence.and_then(|evidence| evidence.tail_seq_before));
-    raw_line(",");
-    raw("      \"count_before\": ");
-    emit_optional_u64(evidence.and_then(|evidence| evidence.count_before));
-    raw_line(",");
-    raw("      \"tail_seq_after\": ");
-    emit_optional_u64(evidence.and_then(|evidence| evidence.tail_seq_after));
-    raw_line(",");
-    raw("      \"count_after\": ");
-    emit_optional_u64(evidence.and_then(|evidence| evidence.count_after));
-    raw_line(",");
-    raw_line("      \"owner_sealed\": false,");
-    raw_line("      \"persistence_claimed\": false,");
-    raw_line("      \"trust_tier\": \"dev_key_not_owner_sealed\",");
-    raw_line("      \"export_performed\": false,");
-    raw_line("      \"provider_write\": \"not_attempted\",");
-    raw_line("      \"satisfies_export_gate\": false");
-    raw_line("    },");
-}
-
-fn emit_optional_u64(value: Option<u64>) {
-    if let Some(value) = value {
-        raw_fmt(format_args!("{}", value));
-    } else {
-        raw("null");
-    }
+    V::Object(vec![
+        f("schema", s("raios.provider_export_denial_durable_audit.v0")),
+        f(
+            "gate",
+            s(raios_core::scoped_provider_export::SCOPED_PROVIDER_EXPORT_DECISION_ID),
+        ),
+        f(
+            "gate_schema",
+            s(raios_core::scoped_provider_export::SCOPED_PROVIDER_EXPORT_DECISION_SCHEMA),
+        ),
+        f("gate_status", s(gate_status)),
+        f("gate_reason", s(gate_decision.reason)),
+        f("dedupe", s(dedupe)),
+        f("record_id", s(record_id)),
+        f("record_schema", s("raios.memory_record.v0")),
+        f("kind", s("capability_denial")),
+        f("classification", s("local_only")),
+        f("record_authority", s("core_ledger")),
+        f("supersedes", V::Array(vec![])),
+        f("durable_append", s(durable_append)),
+        f("performed", b(performed)),
+        f("append_reason", s(append_reason)),
+        f("payload_sha256", optional_sha256_value(payload_sha256)),
+        f(
+            "frame_sha256",
+            optional_sha256_value(evidence.and_then(|evidence| evidence.frame_sha256)),
+        ),
+        f(
+            "readback_sha256",
+            optional_sha256_value(evidence.and_then(|evidence| evidence.readback_sha256)),
+        ),
+        f(
+            "reparse_valid",
+            b(evidence
+                .map(|evidence| evidence.reparse_valid)
+                .unwrap_or(false)),
+        ),
+        f("seq", optional_u64_value(seq)),
+        f(
+            "tail_seq_before",
+            optional_u64_value(evidence.and_then(|evidence| evidence.tail_seq_before)),
+        ),
+        f(
+            "count_before",
+            optional_u64_value(evidence.and_then(|evidence| evidence.count_before)),
+        ),
+        f(
+            "tail_seq_after",
+            optional_u64_value(evidence.and_then(|evidence| evidence.tail_seq_after)),
+        ),
+        f(
+            "count_after",
+            optional_u64_value(evidence.and_then(|evidence| evidence.count_after)),
+        ),
+        f("owner_sealed", b(false)),
+        f("persistence_claimed", b(false)),
+        f("trust_tier", s("dev_key_not_owner_sealed")),
+        f("export_performed", b(false)),
+        f("provider_write", s("not_attempted")),
+        f("satisfies_export_gate", b(false)),
+    ])
 }
 
 pub(crate) fn emit_provider_context_hashes(hashes: event_log::ProviderContextHashes) {
-    raw("{\"packet_canonicalization\": \"raios.provider_minimal.packet.canonical.v0\", \"projected_packet_hash\": ");
-    json_sha256(hashes.projected_packet_hash);
-    raw(", \"exported_field_list_hash\": ");
-    json_sha256(hashes.exported_field_list_hash);
-    raw(", \"omitted_field_list_hash\": ");
-    json_sha256(hashes.omitted_field_list_hash);
-    raw(", \"redaction_policy_hash\": ");
-    json_sha256(hashes.redaction_policy_hash);
-    raw(", \"field_classification_hash\": ");
-    json_sha256(hashes.field_classification_hash);
-    raw(", \"token_budget_hash\": ");
-    json_sha256(hashes.token_budget_hash);
-    raw("}");
+    emit_record_value_fragment(
+        V::InlineObject(vec![
+            f(
+                "packet_canonicalization",
+                s("raios.provider_minimal.packet.canonical.v0"),
+            ),
+            f(
+                "projected_packet_hash",
+                V::Sha256(hashes.projected_packet_hash),
+            ),
+            f(
+                "exported_field_list_hash",
+                V::Sha256(hashes.exported_field_list_hash),
+            ),
+            f(
+                "omitted_field_list_hash",
+                V::Sha256(hashes.omitted_field_list_hash),
+            ),
+            f(
+                "redaction_policy_hash",
+                V::Sha256(hashes.redaction_policy_hash),
+            ),
+            f(
+                "field_classification_hash",
+                V::Sha256(hashes.field_classification_hash),
+            ),
+            f("token_budget_hash", V::Sha256(hashes.token_budget_hash)),
+        ]),
+        0,
+    );
 }
 
 fn provider_binding_gate_state(
@@ -2230,131 +1785,6 @@ fn provider_binding_gate_state(
     } else {
         "missing"
     }
-}
-
-fn provider_injection_authorization_state(
-    check: &event_log::ProviderContextInjectionGateCheck,
-) -> &'static str {
-    if check.authorization_event_id.is_none() {
-        "missing"
-    } else if check.status == "blocked" {
-        "present_blocked"
-    } else {
-        "present_rejected"
-    }
-}
-
-fn provider_injection_body_check_state(
-    check: &event_log::ProviderContextInjectionGateCheck,
-) -> &'static str {
-    if check.reason == "final_prewrite_body_hash_mismatch" {
-        "mismatch"
-    } else if check.authorization_event_id.is_none() || check.status != "blocked" {
-        "not_attempted"
-    } else {
-        "matched"
-    }
-}
-
-fn emit_provider_binding_candidate(check: &event_log::ProviderBindingGateCheck, spaces: usize) {
-    indent(spaces);
-    raw("\"request_binding_event_id\": ");
-    json_event_id_option(check.request_binding_event_id);
-    raw_line(",");
-    indent(spaces);
-    raw("\"export_audit_binding_event_id\": ");
-    json_event_id_option(check.export_audit_binding_event_id);
-    raw_line(",");
-    indent(spaces);
-    raw("\"request_envelope_event_id\": ");
-    json_event_id_option(check.request_envelope_event_id);
-    raw_line(",");
-    indent(spaces);
-    raw("\"request_id\": ");
-    if let Some(binding) = check.export_audit_binding {
-        raw_fmt(format_args!("{}", binding.request_id));
-    } else if let Some(binding) = check.request_binding {
-        raw_fmt(format_args!("{}", binding.request_id));
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    indent(spaces);
-    raw("\"request_binding_hash\": ");
-    if let Some(binding) = check.request_binding {
-        json_sha256(binding.request_binding_hash);
-    } else if let Some(binding) = check.export_audit_binding {
-        json_sha256(binding.request_binding_hash);
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    indent(spaces);
-    raw("\"export_audit_binding_hash\": ");
-    if let Some(binding) = check.export_audit_binding {
-        json_sha256(binding.export_audit_binding_hash);
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    indent(spaces);
-    raw("\"provider_trust_evidence_hash\": ");
-    if let Some(binding) = check.export_audit_binding {
-        json_sha256(binding.provider_trust_evidence_hash);
-    } else if let Some(binding) = check.request_binding {
-        json_sha256(binding.provider_trust_evidence_hash);
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    indent(spaces);
-    raw("\"provider_trust_verifier_id\": ");
-    if let Some(binding) = check.export_audit_binding {
-        json_str(binding.provider_trust_verifier.id);
-    } else if let Some(binding) = check.request_binding {
-        json_str(binding.provider_trust_verifier.id);
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    indent(spaces);
-    raw("\"provider_trust_hostname_policy\": ");
-    if let Some(binding) = check.export_audit_binding {
-        json_str(binding.provider_trust_verifier.hostname_policy);
-    } else if let Some(binding) = check.request_binding {
-        json_str(binding.provider_trust_verifier.hostname_policy);
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    indent(spaces);
-    raw("\"provider_trust_chain_policy\": ");
-    if let Some(binding) = check.export_audit_binding {
-        json_str(binding.provider_trust_verifier.chain_policy);
-    } else if let Some(binding) = check.request_binding {
-        json_str(binding.provider_trust_verifier.chain_policy);
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    indent(spaces);
-    raw("\"provider_trust_time_policy\": ");
-    if let Some(binding) = check.export_audit_binding {
-        json_str(binding.provider_trust_verifier.time_policy);
-    } else if let Some(binding) = check.request_binding {
-        json_str(binding.provider_trust_verifier.time_policy);
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    indent(spaces);
-    raw("\"retained\": ");
-    raw_bool(check.retained);
-    raw_line(",");
-    indent(spaces);
-    raw("\"consumed\": ");
-    raw_bool(check.consumed);
-    crlf();
 }
 
 fn provider_context_evidence(
