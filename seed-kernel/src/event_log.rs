@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use spin::Mutex;
 
 use crate::current_boot_service::ServiceDescriptor;
@@ -6509,6 +6510,18 @@ pub fn recent_events(limit: usize) -> RecentEventWindow {
 
 pub fn recent_event(window: RecentEventWindow, idx: usize) -> Option<Event> {
     LOG.lock().recent_event(window, idx)
+}
+
+pub fn recent_events_snapshot(limit: usize) -> (RecentEventWindow, Vec<Event>) {
+    let log = LOG.lock();
+    let window = log.recent_events(limit);
+    let events = (0..window.len)
+        .map(|idx| {
+            log.recent_event(window, idx)
+                .expect("captured event window must contain every selected slot")
+        })
+        .collect();
+    (window, events)
 }
 
 pub fn latest_module_manifest_reference() -> Option<(EventId, ModuleManifestReference)> {

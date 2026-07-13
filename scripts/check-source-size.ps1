@@ -17,10 +17,12 @@ try {
 
     $exemptions = @{
         'seed-kernel/src/agent_protocol_memory.rs' = @(11494, 612809)
-        # P4-2b2a shrank the v1 response paths, but the restored pre-v1 compact event-binding
-        # cluster (P4-4-owned, deleted when the event family converts) keeps the file above the
-        # hard limit. No-growth baseline re-ratcheted 6878 -> 6040 on 2026-07-13.
-        'seed-kernel/src/agent_protocol_module_load_gate_render.rs' = @(6040, 280511)
+        # P4-2b2a shrank the v1 response paths, but the pre-v1 compact event-binding cluster
+        # (deleted by P4-4b2b) keeps the file above the hard limit. Re-ratcheted 6878 -> 6040
+        # (P4-2b2a), then 6040 -> 6058 (P4-4b2a): extracting module_load_gate_projection_input so
+        # the EVENT binding reuses the SAME core projection as the response costs +18 lines here
+        # and pays for itself when b2b deletes the cluster.
+        'seed-kernel/src/agent_protocol_module_load_gate_render.rs' = @(6058, 287165)
         'seed-kernel/src/event_log.rs' = @(7141, 282628)
         'seed-kernel/src/event_log_types.rs' = @(3918, 216113)
         'seed-kernel/src/hello_service/emitters.rs' = @(5086, 265421)
