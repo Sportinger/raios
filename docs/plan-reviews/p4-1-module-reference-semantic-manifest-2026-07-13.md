@@ -838,3 +838,14 @@ P4-1e corrects the same-source mappings used by the regenerated needles:
   `policy_no_reserved_slot`, are merged into their response's existing complete
   denied-decision predicate. Those legacy constants have no distinct v1 fact;
   empty grants/effects are the honest no-authority carrier.
+
+P4-1 donor-removal exposure (full-profile regeneration): two predicates in
+NON-P4-1 fragments had always passed vacuously through bytes emitted by the
+OLD module-reference emitters (Assert-LogContains greps the whole serial log):
+`policy:module_artifact_not_loaded` (`"artifact_loaded": false`; its own
+load-gate response never emitted that key — the loads_artifact boundary
+predicates and the denied decision carry the semantic) and
+`protocol:module_load_gate_audit_rollback_selftest_no_retained_records`
+(`"creates_retained_audit_rollback_reference_records": false`; the load-gate
+audit-rollback selftest never emitted that key). Both retired; no honest v1
+carrier exists in their own responses beyond assertions already present.
