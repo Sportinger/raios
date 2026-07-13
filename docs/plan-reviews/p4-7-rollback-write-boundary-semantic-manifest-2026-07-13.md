@@ -758,6 +758,49 @@ or that the transaction survives a power cut. The evidence records must state th
 truth, not the flattering one. (This is the same discipline as "retention is provenance,
 not an effect".)
 
+## P4-7b2 worker note (2026-07-13, append-only)
+
+R2-CORRECTED is implemented at the two non-circular side-effect boundaries:
+
+- `hello_rollback_target_region_authorized_append_write_readback` now requires
+  `&raios_core::scoped_rollback_apply::ScopedRollbackApplyProof` before its existing
+  arguments. Its only caller is `scoped_rollback_authorized_append_input` in
+  `hello_service/emitters.rs`. The former `if !scope_decision.authorized` guard is
+  unreachable as an authority boundary and was replaced by extraction of the evaluator-owned
+  proof; without the proof the call cannot be expressed.
+- `rollback_apply_verified` now requires
+  `&raios_core::scoped_rollback_apply::ScopedRollbackVerifiedApplyProof` before its existing
+  arguments. Its only caller is `rollback_apply` in `hello_service/state_machine.rs`; the
+  `STATE` mutation remains unchanged and is reached only after extracting the verified-apply
+  proof.
+- The constructible kernel carrier was renamed from `ScopedRollbackApplyProof` to
+  `ScopedRollbackApplyEvidence`. It carries the scope, authorized-append, and verified-apply
+  core proofs alongside the unchanged rendering/hash inputs; it is not itself authority.
+
+The two prerequisite writes remain findings, not changes:
+
+1. `hello_rollback_append_sector_write_readback_dry_run` calls
+   `ahci::write_readback_scratch_sector_image` from five acquisition/projection call sites.
+   No typed evaluator proof or caller-side authority guard precedes the call. The AHCI path
+   fail-closes on controller/MMIO/device discovery and the labeled scratch-region bounds and
+   overlap checks, but those device-safety checks are not capability authority.
+2. `recovery_rollback_materialization_evidence` is the sole caller of
+   `hello_rollback_target_region_write_readback_dry_run`, which calls
+   `ahci::write_readback_audit_rollback_target_sector_image`. It passes a
+   `TargetRegionMediaWritePolicyPreflight`, but the acquisition adapter invokes AHCI before
+   that preflight is consumed by the returned evidence projection. The AHCI path fail-closes
+   on controller/MMIO/device discovery, the labeled target region, bounds, boot/partition
+   metadata exclusion, and scratch overlap; again, those checks are not an unforgeable
+   capability proof.
+
+STOP: the v1 materialization response cannot truthfully render a positive grant from an
+evaluator-owned proof because writes 1 and 2 have no such proof producer. Rendering it as
+`observed` would hide real media effects, while rendering it as `granted` would synthesize
+authority in the kernel. Per R2-CORRECTED no evaluator was invented in this packet, and the
+remaining rollback-family v1 response/predicate conversion is not attempted past this STOP.
+The frozen scoped-decision and authorized-append hash-only `Value` projections were not
+changed.
+
 ### R2 CORRECTED — the proof ladder, and why a downstream proof cannot gate an upstream write
 
 The P4-7b2 worker stopped and found something I had missed. My R2 said "make the write
@@ -791,3 +834,40 @@ than assumed. If their gate turns out to be a bare boolean any caller can satisf
 NEW finding of the same family as the one this slice is closing — it gets recorded with its
 function names and call sites, and it does NOT get an evaluator invented for it under a
 rendering deadline. That rule has held for the whole phase and it holds here.
+
+### NEW FINDING (P4-7b2) — the materialization write checks its policy AFTER it has written
+
+While gating the writes, the worker traced every real media write in the family. Two of the
+four are now gated by the compiler. The trace turned up something that was not on anyone's
+list:
+
+**`recovery_rollback_materialization_evidence` performs the initial LBA1 media write via
+`ahci::write_readback_audit_rollback_target_sector_image`, and its policy preflight is
+CONSUMED AFTER the AHCI call.** It is not a pre-write gate at all. The write happens; then the
+policy is consulted about whether it should have. Write-then-check.
+
+That is a different bug from the one this slice set out to fix (an emitter-assembled "proof"),
+and it is a worse one, because no amount of type discipline downstream can un-write a sector.
+It is recorded here rather than fixed under a rendering deadline, per the rule that has held
+all phase: inventing an evaluator to satisfy a slice is how a fail-closed system grows a back
+door.
+
+**Also unauthorized by any typed gate: the scratch-sector write**
+(`hello_rollback_append_sector_write_readback_dry_run`, five call sites). AHCI's label, bounds
+and overlap checks give it DEVICE safety — they do not give it CAPABILITY authority. A caller
+with no business writing anything can still call it and the sector will be written.
+
+**Consequence for P4-7's response conversion (PART 2 is deliberately NOT done):** the
+materialization response cannot be rendered honestly today. `observed` would hide a real media
+write; `granted` would forge an authority no evaluator issued. Both are the failures this whole
+vocabulary exists to prevent. So the materialization/scratch response paths are CARVED OUT of
+P4-7 and named, exactly as P4-9's D1 carved out project/install/distribution for the same
+reason. What P4-7 DOES land is the part that can be true: the compiler now refuses to emit the
+authorized-append write or the STATE mutation without a proof that cannot be forged.
+
+Follow-up work, in priority order:
+1. Move the materialization policy preflight BEFORE the AHCI call and give it a typed proof;
+   make the write require it. (This is a correctness bug, not a vocabulary one.)
+2. Give the scratch write a typed pre-write gate, or prove that it can never reach media a
+   caller is not entitled to.
+3. Then, and only then, convert the materialization/scratch responses to v1.
