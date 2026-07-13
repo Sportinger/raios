@@ -547,6 +547,39 @@ function Test-BrokerRecordOmitsValue {
     return ($Record -and -not ($Record.PSObject.Properties.Name -contains "value"))
 }
 
+function Get-MemoryContextDurableRecords {
+    param($Context)
+    return @($Context.evidence | Where-Object { $_.id -like "durable_record.*" } | ForEach-Object {
+        [pscustomobject]@{
+            id = $_.facts.record_id
+            kind = $_.kind
+            entity = $_.facts.entity
+            predicate = $_.facts.predicate
+            classification = $_.classification
+            authority = $_.facts.authority
+            scope = $_.facts.scope
+            exportable = $_.facts.exportable
+            status = $_.status
+            reason = $_.reason
+        }
+    })
+}
+
+function Get-MemoryContextOmissions {
+    param($Context)
+    return @($Context.evidence | Where-Object { $_.id -like "omission.*" } | ForEach-Object {
+        [pscustomobject]@{
+            id = $_.id
+            kind = $_.kind
+            status = $_.status
+            reason = $_.reason
+            ids = @($_.facts.ids)
+            links = @($_.facts.links)
+            count = $_.facts.count
+        }
+    })
+}
+
 $brokerExtraCommands = @(
     [pscustomobject]@{ Command = "memory.decision_problem_log_append"; Method = "memory.decision_problem_log_append" },
     [pscustomobject]@{ Command = "memory.observation_log_append $agentObservationBlob"; Method = "memory.observation_log_append" },
@@ -555,11 +588,11 @@ $brokerExtraCommands = @(
     [pscustomobject]@{ Command = "memory.broker_resolve_selftest"; Method = "memory.broker_resolve_selftest" }
 )
 $brokerProbe = Invoke-MemoryRecordAppendFixtureProbe -FixtureSpec "valid:2" -Label "broker" -AppendMethod "memory.record_log_append" -ExtraAgentCommands $brokerExtraCommands
-$brokerContext = $brokerProbe.extra["memory.context"].body.result
+$brokerContext = $brokerProbe.extra["memory.context"]
 $brokerProviderExport = $brokerProbe.extra["provider.context_export"]
 $brokerSelftest = $brokerProbe.extra["memory.broker_resolve_selftest"].body.result
-$brokerRecords = @($brokerContext.durable_records)
-$brokerOmitted = @($brokerContext.omitted)
+$brokerRecords = Get-MemoryContextDurableRecords -Context $brokerContext
+$brokerOmitted = Get-MemoryContextOmissions -Context $brokerContext
 
 $brokerCapDenialId = "mem.capability_denial.module_load_ephemeral_durable.current_boot.v0"
 $brokerDecisionAId = "mem.decision.module_sharing_confirmed_vision.current_boot.v0"
@@ -636,15 +669,15 @@ Add-Predicate `
     -Passed $brokerClassificationOk `
     -Actual $(if ($brokerClassificationOk) { "matched" } else { "record=$($brokerObservationVisible | ConvertTo-Json -Compress -Depth 8) omitted=$($brokerOmitted | ConvertTo-Json -Compress -Depth 12)" })
 
-$brokerProjectionJson = $brokerContext.provider_projection | ConvertTo-Json -Depth 20 -Compress
+$brokerProjectionJson = $brokerContext.facts.provider_projection | ConvertTo-Json -Depth 20 -Compress
 $brokerProjectionClean = (
-    $brokerContext.provider_projection -and
+    $brokerContext.facts.provider_projection -and
     -not ($brokerProjectionJson -match [regex]::Escape($brokerDecisionBId)) -and
     -not ($brokerProjectionJson -match [regex]::Escape($brokerObservationId)) -and
     -not ($brokerProjectionJson -match '"durable_records"')
 )
 $brokerExportStillClosed = (
-    $brokerContext.provider_export -eq "disabled" -and
+    $brokerContext.facts.provider_export -eq "disabled" -and
     $brokerProviderExport.body.code -eq "capability_denied" -and
     $brokerProviderExport.body.method -eq "provider.context_export" -and
     $brokerProjectionClean
@@ -699,7 +732,7 @@ $export1 = $exportDenialProbe.extra["export1"]
 $export2 = $exportDenialProbe.extra["export2"]
 $export3 = $exportDenialProbe.extra["export3"]
 $exportScan2 = $exportDenialProbe.extra["scan2"].body.result
-$exportContext = $exportDenialProbe.extra["context"].body.result
+$exportContext = $exportDenialProbe.extra["context"]
 $export1Audit = $export1.body.durable_denial_audit
 $export2Audit = $export2.body.durable_denial_audit
 $export3Audit = $export3.body.durable_denial_audit
@@ -795,10 +828,10 @@ Add-Predicate `
     -Passed $exportDedupeCount `
     -Actual $(if ($exportDedupeCount) { "matched" } else { "baseline=$($exportDenialProbe.scan | ConvertTo-Json -Compress -Depth 8) scan2=$($exportScan2 | ConvertTo-Json -Compress -Depth 8)" })
 
-$exportContextRecords = @($exportContext.durable_records)
+$exportContextRecords = Get-MemoryContextDurableRecords -Context $exportContext
 $exportContextRecord = Get-BrokerDurableRecordById -Records $exportContextRecords -Id $export1RecordId
 $exportStillDisabled = (
-    $exportContext.provider_export -eq "disabled" -and
+    $exportContext.facts.provider_export -eq "disabled" -and
     $exportContextRecord -and
     $exportContextRecord.kind -eq "capability_denial" -and
     $exportContextRecord.classification -eq "local_only" -and
@@ -831,7 +864,7 @@ $wasmEchoLoad = $wasmImportGrantProbe.extra["echoLoad"].body.result
 $wasmStart1 = $wasmImportGrantProbe.extra["start1"].body.result
 $wasmStart2 = $wasmImportGrantProbe.extra["start2"].body.result
 $wasmScanAfter = $wasmImportGrantProbe.extra["scanAfter"].body.result
-$wasmContext = $wasmImportGrantProbe.extra["context"].body.result
+$wasmContext = $wasmImportGrantProbe.extra["context"]
 $wasmAudit1 = $wasmStart1.durable_import_grant_audit
 $wasmAudit2 = $wasmStart2.durable_import_grant_audit
 $wasmGrantMarkers = @(Get-ProfileMarkerJsonList -Path $wasmImportGrantProbe.log -Prefix "WASM_IMPORT_GRANT ")
@@ -885,7 +918,7 @@ Add-Predicate `
     -Passed $wasmGrantChainAdvance `
     -Actual $(if ($wasmGrantChainAdvance) { "matched" } else { "baseline=$($wasmImportGrantProbe.scan | ConvertTo-Json -Compress -Depth 8) scanAfter=$($wasmScanAfter | ConvertTo-Json -Compress -Depth 8)" })
 
-$wasmContextRecords = @($wasmContext.durable_records)
+$wasmContextRecords = Get-MemoryContextDurableRecords -Context $wasmContext
 $wasmContextRecord = Get-BrokerDurableRecordById -Records $wasmContextRecords -Id $wasmImportGrantRecordId
 $wasmContextLocalOnly = (
     $wasmContextRecord -and
@@ -1027,7 +1060,7 @@ $exportAuthorized2Audit = $exportAuthorized2.durable_export_audit
 $exportSmuggle = $exportAuthorizedProbe.extra["smuggle"].body.result
 $exportAuthorizedScanAfter = $exportAuthorizedProbe.extra["scanAfter"].body.result
 $exportRealDenied = $exportAuthorizedProbe.extra["realDenied"]
-$exportAuthorizedContext = $exportAuthorizedProbe.extra["context"].body.result
+$exportAuthorizedContext = $exportAuthorizedProbe.extra["context"]
 
 $exportAuthorizedGateOk = (
     [bool]$exportAuthorized.authorized -and
@@ -1129,7 +1162,7 @@ Add-Predicate `
     -Passed $exportRealStillDenied `
     -Actual $(if ($exportRealStillDenied) { "matched" } else { ($exportRealDenied | ConvertTo-Json -Compress -Depth 14) })
 
-$exportAuthorizedContextRecords = @($exportAuthorizedContext.durable_records)
+$exportAuthorizedContextRecords = Get-MemoryContextDurableRecords -Context $exportAuthorizedContext
 $exportAuthorizedContextRecord = Get-BrokerDurableRecordById -Records $exportAuthorizedContextRecords -Id $exportAuthorizedAuditId
 $exportAuthorizedContextShowsAudit = (
     $exportAuthorizedContextRecord -and
@@ -1143,7 +1176,7 @@ Add-Predicate `
     -Passed $exportAuthorizedContextShowsAudit `
     -Actual $(if ($exportAuthorizedContextShowsAudit) { "matched" } else { ($exportAuthorizedContext | ConvertTo-Json -Compress -Depth 16) })
 
-$exportAuthorizedProviderExportDisabled = ($exportAuthorizedContext.provider_export -eq "disabled")
+$exportAuthorizedProviderExportDisabled = ($exportAuthorizedContext.facts.provider_export -eq "disabled")
 Add-Predicate `
     -Name "export-authorized-selftest:provider-export-status-still-disabled" `
     -Expected "memory.context provider_export remains disabled" `
@@ -1397,7 +1430,7 @@ if (-not ($auditKindSupersedeDenied -and $supersedesListTooLongDenied -and $self
 # the RAIOS_AGENT_BEGIN/END <method> window) and asserts the denial code WITHIN that
 # response -- not a whole-log substring, which an earlier unrelated denial could satisfy.
 
-# A denied mutation renders as { "t":"error", "body": { "method":<m>, "code":"capability_denied", ... } }.
+# Memory mutations use evidence-v1; provider.context_export remains on its owning legacy family.
 function Assert-MemoryDurableMutationDenied {
     param(
         [string]$Command,
@@ -1406,7 +1439,15 @@ function Assert-MemoryDurableMutationDenied {
     )
     Send-AgentCommand -Command $Command -ExpectedMarker "RAIOS_AGENT_END $Method" -Name "memory-durable-guard:$Suffix"
     $resp = Get-LastAgentResponseJson -Method $Method
-    $denied = ($resp.body.code -eq "capability_denied" -and $resp.body.method -eq $Method)
+    $denied = if ($Method -like "memory.*") {
+        $resp.source_method -eq $Method -and
+        $resp.decision.outcome -eq "denied" -and
+        $resp.decision.requested_capability -eq "cap.memory.mutate" -and
+        @($resp.decision.grants).Count -eq 0 -and
+        @($resp.decision.effects).Count -eq 0
+    } else {
+        $resp.body.code -eq "capability_denied" -and $resp.body.method -eq $Method
+    }
     Add-Predicate `
         -Name "memory-durable-guard:${Suffix}_denied" `
         -Expected "$Method response is capability_denied (parsed from that response, not a whole-log match)" `
@@ -1428,8 +1469,9 @@ $redactDenied = Assert-MemoryDurableMutationDenied -Command "agent memory.redact
 $exportDenied = Assert-MemoryDurableMutationDenied -Command "agent provider.context_export provider_minimal" -Method "provider.context_export" -Suffix "provider_context_export"
 
 Send-AgentCommand -Command "agent memory.context provider_minimal" -ExpectedMarker "RAIOS_AGENT_END memory.context" -Name "memory-durable-guard:memory_context"
-$contextJson = (Get-LastAgentResponseJson -Method "memory.context") | ConvertTo-Json -Depth 12 -Compress
-$contextExportDisabled = ($contextJson -match '"provider_export":\s*"disabled"')
+$contextResponse = Get-LastAgentResponseJson -Method "memory.context"
+$contextJson = $contextResponse | ConvertTo-Json -Depth 12 -Compress
+$contextExportDisabled = ($contextResponse.facts.provider_export -eq "disabled")
 Add-Predicate `
     -Name "memory-durable-guard:memory_context_provider_export_disabled" `
     -Expected "memory.context reports provider_export disabled (parsed from that response only)" `

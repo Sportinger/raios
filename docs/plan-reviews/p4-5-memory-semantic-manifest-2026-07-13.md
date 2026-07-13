@@ -828,3 +828,126 @@ capability (excluded here). That is not three coincidences; it is one systemic g
 raiOS's authority is real but untyped — and the shared vocabulary is what made it
 visible. Typing it is substrate work and belongs with the P4-9 D2 carve-out, done
 deliberately, with its own evidence. Not under a rendering deadline.
+
+## P4-5b2 notes (2026-07-13)
+
+Capability: memory profile, context, query, trace, and generic mutation-denial
+responses now render one evidence-v1 envelope from the committed core projection;
+query and trace results are locators, and denied mutations expose the evaluator's
+ordered first failure with empty grants/effects.
+
+- Scope follows M3 FINAL: no durable memory-record append response, memory store,
+  hello emitter, rollback/write-boundary field, or recent-events path changed.
+- M1: `provider_minimal_projection_value` is now the one typed provider mapping;
+  memory embeds that exact `Value`. The legacy wrapper serializes the same value.
+  The independent provider hash computation (`provider_projection_hashes` and its
+  canonical `sha256_of_json` tree) is unchanged. The seven reviewed hash carriers
+  remain `projected_packet_hash`, `exported_field_list_hash`,
+  `omitted_field_list_hash`, `redaction_policy_hash`,
+  `field_classification_hash`, `token_budget_hash`, and
+  `provider_trust_evidence_hash`; no hash needle or hash computation moved.
+- Provider whitespace audit: all affected provider-profile needles are content-only
+  (`verifier_decision`, `packet_evidence`, canonicalization, the six packet hashes,
+  included/omitted field names, packet purpose, and projection record id). No literal
+  contains leading indentation or spans a line boundary; the separate
+  `shadow-vm-smoke-profile-provider-memory.ps1` needles are outside the projection
+  presentation and remain unchanged.
+- M4: static and durable classifications enter the core projection per record; the
+  envelope uses the projection maximum. Any unexpected durable classification maps
+  to explicit `unknown`, never public. Canonical durable parsing still prevents
+  secret/unknown records from entering the acquired durable context.
+- M5: query candidates and found trace hits assert `status:located`; neither path
+  constructs verified evidence or an authorizing decision.
+- M6: `emit_recent_events`, event bindings, and their harness assertions were not
+  edited.
+
+### P4-5b2 predicate accounting
+
+Every predicate whose carrier changed is listed below. Completion/framing waits and
+unchanged provider-content leaves survive and are not counted as dropped predicates.
+
+| Bucket | Predicate | v1 carrier |
+|---|---|---|
+| REGENERATED | `protocol:memory_profile_schema` | parsed envelope `schema` |
+| REGENERATED | `protocol:memory_profile_scope` | parsed envelope `scope` |
+| REGENERATED | `protocol:memory_profile_provider_minimal` | `facts.profiles[id=provider_minimal]` |
+| REGENERATED | `protocol:memory_profile_provider_local_projection` | provider-minimal `local_projection:present` |
+| REGENERATED | `protocol:memory_profile_diagnostic` | `facts.profiles[id=diagnostic]` |
+| REGENERATED | `protocol:memory_profile_planning` | `facts.profiles[id=planning]` |
+| REGENERATED | `protocol:memory_context_schema` | parsed envelope `schema` |
+| REGENERATED | `protocol:memory_context_profile` | `facts.profile` |
+| REGENERATED | `protocol:memory_context_scope` | parsed envelope `scope` |
+| REGENERATED | `protocol:memory_context_event_id` | parsed envelope `event_id` |
+| HONEST MERGE | `protocol:memory_context_audit_event_id` | same envelope `event_id`; duplicate legacy audit id retired |
+| REGENERATED | `protocol:memory_context_provider_profile` | `facts.profile` |
+| REGENERATED | `protocol:memory_context_provider_export_disabled` | `facts.provider_export` |
+| REGENERATED | `protocol:memory_query_schema` | parsed envelope `schema` |
+| REGENERATED | `protocol:memory_query_snapshot_record` | `query_locator.snapshot.current`, `located` |
+| REGENERATED | `protocol:memory_query_projection_record` | provider-minimal query locator, `located` |
+| REGENERATED | `protocol:memory_trace_schema` | parsed envelope `schema` |
+| REGENERATED | `protocol:memory_trace_snapshot_source` | `trace.snapshot.current`, `located`, source method |
+| REGENERATED | `policy:memory_record_observation_method` | envelope `source_method` |
+| REGENERATED | `policy:memory_record_observation_denied` | denied decision with empty grants/effects |
+| REGENERATED | `policy:memory_record_observation_event_id` | envelope `event_id` |
+| HONEST MERGE | `policy:memory_record_observation_audit_event_id` | same envelope `event_id`; duplicate legacy audit id retired |
+| REGENERATED | `policy:memory_propose_policy_method` | source method plus denied decision |
+| REGENERATED | `policy:memory_supersede_fact_method` | source method plus denied decision |
+| REGENERATED | `policy:memory_redact_method` | source method plus denied decision |
+| REGENERATED | `policy:memory_compact_method` | source method plus denied decision |
+| REGENERATED | `policy:memory_audit_required` | missing audit prerequisite evidence |
+| REGENERATED | `policy:memory_persistence_required` | missing persistence prerequisite evidence |
+| REGENERATED | `broker-durable-included:decision-and-observation` | ordered `durable_record.*` evidence metadata |
+| REGENERATED | `broker-durable-supersede:A-hidden` | `durable_superseded` omission evidence |
+| REGENERATED | `broker-ordering:frame-seq-order` | ordered durable-record evidence |
+| REGENERATED | `broker-classification:local-only-not-exportable` | evidence classification plus `facts.exportable` |
+| REGENERATED | `broker-export-still-closed:provider-projection-clean` | context facts and embedded provider projection |
+| REGENERATED | `export-denial-durable:export-still-disabled` | durable-record evidence plus context facts |
+| REGENERATED | `wasm-import-grant-durable:context-local-only-nonexportable` | durable-record evidence metadata |
+| REGENERATED | `export-authorized-selftest:memory-context-shows-export-audit-local-only` | durable-record evidence metadata |
+| REGENERATED | `export-authorized-selftest:provider-export-status-still-disabled` | `facts.provider_export` |
+| REGENERATED | `memory-durable-guard:memory_record_observation_denied` | response-scoped v1 denied decision |
+| REGENERATED | `memory-durable-guard:memory_record_observation_after_agent_observation_method_exists_denied` | response-scoped v1 denied decision |
+| REGENERATED | `memory-durable-guard:memory_redact_denied` | response-scoped v1 denied decision |
+| REGENERATED | `memory-durable-guard:memory_context_provider_export_disabled` | parsed `facts.provider_export` |
+| REGENERATED | `boot2:mem-broker-visible-set` | ordered durable-record evidence |
+| REGENERATED | `boot2:mem-broker-A-hidden-by-B` | superseded omission evidence |
+| REGENERATED | `boot2:mem-broker-audit-Z-visible` | durable-record evidence kind |
+| REGENERATED | `boot2:mem-broker-frameseq-ranked` | ordered durable-record evidence |
+| REGENERATED | `boot2:mem-broker-classification` | evidence classification plus `facts.exportable` |
+| REGENERATED | `boot2:mem-broker-export-closed` | `facts.provider_export` |
+| REGENERATED | `memory-torn:vm-still-answers` | legacy scan response plus v1 context schema/family |
+| RETIRED | _none_ | every dropped legacy carrier retained a scoped semantic assertion |
+
+Additional coverage predicates assert the floor directly:
+`protocol:memory_query_record_kind_coverage` covers all eight distinct static
+record kinds, `protocol:memory_trace_missing_reason` covers the trace evaluator's
+missing status/reason alongside the located trace predicate, and
+`policy:memory_mutation_prerequisite_order` asserts all six distinct mutation
+reasons/statuses in order and the first-failure decision reason.
+
+### Donor-removal scan
+
+- No harness file retains `memory.profile.v0`, `memory.query.v0`,
+  `memory.trace.v0`, the literal `"local_projection": true`, or parsed
+  `body.result.provider_projection`, `body.result.durable_records`, or
+  `body.result.omitted` memory paths.
+- `context_event_id` remains only inside the regenerated predicate name in
+  `shadow-vm-smoke-profile-common.ps1`, not as a wire-key needle.
+- `audit_event_id` hits outside this write set are rollback/command-envelope
+  source fields in `shadow-vm-smoke-profile-quick.ps1` and
+  `shadow-vm-smoke-profile-hello-rollback-dry-run.ps1`; they are different
+  family contracts and were not donors for the deleted memory fields.
+
+UNCERTAIN:
+
+- The packet expected the unchanged core test count to remain 513, but current
+  main runs 524/524 before any core edit in this slice. No core file changed.
+- The original -2k..-4k design-row estimate included durable append/record
+  surfaces that M3 FINAL explicitly removed from P4-5b2. This narrowed kernel
+  switch is not expected to realize that full-family deletion estimate.
+- The kernel build/VM transcript is intentionally left to the orchestrator by
+  packet rule; provider runtime hashes therefore have static code/needle proof
+  here, not a new boot transcript.
+- The supplied full report `shadow-20260713-162211-27764.json` says `passed`, but
+  its file time (16:27 local) predates current HEAD `0ad95b6` (17:01 local). The
+  orchestrator must close the repository's newer-than-HEAD full-report gate.

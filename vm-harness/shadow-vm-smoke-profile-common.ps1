@@ -361,27 +361,30 @@
     Assert-LogContains -Name "protocol:problem_list_schema" -Needle '"schema": "problem.list.v0"' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent memory.profile" -ExpectedMarker "RAIOS_AGENT_END memory.profile"
-    Assert-LogContains -Name "protocol:memory_profile_schema" -Needle '"schema": "memory.profile.v0"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:memory_profile_scope" -Needle '"scope": "current_boot"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:memory_profile_provider_minimal" -Needle '"provider_minimal"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:memory_profile_provider_local_projection" -Needle '"local_projection": true' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:memory_profile_diagnostic" -Needle '"diagnostic"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:memory_profile_planning" -Needle '"planning"' -TimeoutSeconds 1
+    $memoryProfile = Get-LastAgentResponseJson -Method "memory.profile"
+    Add-Predicate -Name "protocol:memory_profile_schema" -Expected "memory.profile uses evidence_response.v1" -Passed ($memoryProfile.schema -eq "raios.evidence_response.v1") -Actual $memoryProfile.schema
+    Add-Predicate -Name "protocol:memory_profile_scope" -Expected "memory.profile is current_boot scoped" -Passed ($memoryProfile.scope -eq "current_boot") -Actual $memoryProfile.scope
+    Add-Predicate -Name "protocol:memory_profile_provider_minimal" -Expected "provider_minimal profile is present" -Passed (@($memoryProfile.facts.profiles | Where-Object { $_.id -eq "provider_minimal" }).Count -eq 1) -Actual ($memoryProfile.facts.profiles | ConvertTo-Json -Compress -Depth 6)
+    Add-Predicate -Name "protocol:memory_profile_provider_local_projection" -Expected "provider_minimal advertises its local projection" -Passed (@($memoryProfile.facts.profiles | Where-Object { $_.id -eq "provider_minimal" -and $_.local_projection -eq "present" }).Count -eq 1) -Actual ($memoryProfile.facts.profiles | ConvertTo-Json -Compress -Depth 6)
+    Add-Predicate -Name "protocol:memory_profile_diagnostic" -Expected "diagnostic profile is present" -Passed (@($memoryProfile.facts.profiles | Where-Object { $_.id -eq "diagnostic" }).Count -eq 1) -Actual ($memoryProfile.facts.profiles | ConvertTo-Json -Compress -Depth 6)
+    Add-Predicate -Name "protocol:memory_profile_planning" -Expected "planning profile is present" -Passed (@($memoryProfile.facts.profiles | Where-Object { $_.id -eq "planning" }).Count -eq 1) -Actual ($memoryProfile.facts.profiles | ConvertTo-Json -Compress -Depth 6)
 
     Send-AgentCommand -Command "agent memory.context diagnostic" -ExpectedMarker "RAIOS_AGENT_END memory.context"
-    Assert-LogContains -Name "protocol:memory_context_schema" -Needle '"schema": "raios.agent_context.v0"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:memory_context_profile" -Needle '"profile": "diagnostic"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:memory_context_scope" -Needle '"scope": "current_boot"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:memory_context_event_id" -Needle '"context_event_id": "event.current_boot.' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:memory_context_audit_event_id" -Needle '"audit_event_id": "event.current_boot.' -TimeoutSeconds 1
+    $diagnosticMemoryContext = Get-LastAgentResponseJson -Method "memory.context"
+    Add-Predicate -Name "protocol:memory_context_schema" -Expected "memory.context uses evidence_response.v1" -Passed ($diagnosticMemoryContext.schema -eq "raios.evidence_response.v1") -Actual $diagnosticMemoryContext.schema
+    Add-Predicate -Name "protocol:memory_context_profile" -Expected "diagnostic profile selected" -Passed ($diagnosticMemoryContext.facts.profile -eq "diagnostic") -Actual $diagnosticMemoryContext.facts.profile
+    Add-Predicate -Name "protocol:memory_context_scope" -Expected "memory.context is current_boot scoped" -Passed ($diagnosticMemoryContext.scope -eq "current_boot") -Actual $diagnosticMemoryContext.scope
+    Add-Predicate -Name "protocol:memory_context_event_id" -Expected "one response event id is present" -Passed ([string]$diagnosticMemoryContext.event_id -like "event.current_boot.*") -Actual $diagnosticMemoryContext.event_id
+    Add-Predicate -Name "protocol:memory_context_audit_event_id" -Expected "legacy duplicate audit_event_id retired into the envelope event_id" -Passed ([string]$diagnosticMemoryContext.event_id -like "event.current_boot.*") -Actual $diagnosticMemoryContext.event_id
     Assert-LogContains -Name "protocol:memory_context_snapshot_source" -Needle "system.snapshot.v0" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_service_source" -Needle "service.inventory.v0" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_problem_source" -Needle "problem.list.v0" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_trust_problem" -Needle "provider.tls_pin_config_missing" -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent memory.context provider_minimal" -ExpectedMarker "RAIOS_AGENT_END memory.context"
-    Assert-LogContains -Name "protocol:memory_context_provider_profile" -Needle '"profile": "provider_minimal"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:memory_context_provider_export_disabled" -Needle '"provider_export": "disabled"' -TimeoutSeconds 1
+    $providerMinimalContext = Get-LastAgentResponseJson -Method "memory.context"
+    Add-Predicate -Name "protocol:memory_context_provider_profile" -Expected "provider_minimal profile selected" -Passed ($providerMinimalContext.facts.profile -eq "provider_minimal") -Actual $providerMinimalContext.facts.profile
+    Add-Predicate -Name "protocol:memory_context_provider_export_disabled" -Expected "provider export remains disabled" -Passed ($providerMinimalContext.facts.provider_export -eq "disabled") -Actual $providerMinimalContext.facts.provider_export
     Assert-LogContains -Name "protocol:memory_context_provider_projection_schema" -Needle '"schema": "raios.provider_context_projection.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_verifier_decision" -Needle '"verifier_decision": {' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_projection_mode" -Needle '"mode": "local_read_only"' -TimeoutSeconds 1
@@ -407,8 +410,7 @@
     Assert-LogContains -Name "protocol:memory_context_provider_omits_secret_prompt" -Needle '"field": "provider.direct_last_prompt"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_packet_purpose" -Needle '"purpose": "current_boot_provider_context"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_snapshot_projection_record" -Needle "snapshot.current.provider_minimal" -TimeoutSeconds 1
-    $providerMinimalContext = Get-LastAgentResponseJson -Method "memory.context"
-    $providerMinimalProjection = $providerMinimalContext.body.result.provider_projection
+    $providerMinimalProjection = $providerMinimalContext.facts.provider_projection
     $providerMinimalOmittedFields = @($providerMinimalProjection.omitted_fields | ForEach-Object { $_.field })
     $providerMinimalPacketIncludedCurrent = @($providerMinimalProjection.packet.included.current)
     $providerMinimalPacketOmittedFields = @($providerMinimalProjection.packet.omitted | ForEach-Object { $_.field })

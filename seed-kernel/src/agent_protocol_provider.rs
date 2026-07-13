@@ -1,15 +1,13 @@
 use crate::{
     agent_protocol_support::{
-        begin_response, crlf, emit_export_gate, emit_record_fields, end_response, indent,
-        json_current_boot_id, json_event_id, json_event_id_option, json_opt_str, json_sha256,
-        json_sha256_option, json_str, method_eq, raw, raw_bool, raw_fmt, raw_line,
-        record_bool as b, record_field as f, record_sha as sha, record_str as s,
+        begin_response, crlf, emit_export_gate, emit_record_fields, emit_record_value_fragment,
+        end_response, indent, json_current_boot_id, json_event_id, json_event_id_option,
+        json_opt_str, json_sha256, json_sha256_option, json_str, method_eq, raw, raw_bool, raw_fmt,
+        raw_line, record_bool as b, record_field as f, record_sha as sha, record_str as s,
     },
-    agent_protocol_system::{
-        emit_capability_ids, emit_problem_objects, emit_service_ids, emit_status_state_at,
-        CAPABILITIES,
-    },
-    event_log, memory_store, provider, provider_trust, serial, service_inventory, system_status,
+    agent_protocol_system::CAPABILITIES,
+    event_log, hello_service, memory_store, personal_shell_service, provider, provider_trust,
+    serial, service_inventory, system_problem_facts, system_status,
     system_status::{RowState, SystemSnapshot},
     ui, wifi,
 };
@@ -159,247 +157,383 @@ pub(crate) fn emit_provider_minimal_projection(
     provider: &provider::Snapshot,
     event_id: event_log::EventId,
 ) {
-    let trust_positive = provider_trust_positive(provider.trust_state);
-    let evidence = provider_context_evidence(status, provider);
-
-    raw_line("        \"schema\": \"raios.provider_context_projection.v0\",");
-    raw_line("        \"mode\": \"local_read_only\",");
-    raw_line("        \"profile\": \"provider_minimal\",");
-    raw_line("        \"provider_export\": \"disabled\",");
-    raw_line("        \"redaction_projection\": \"present\",");
-    raw_line("        \"classification_default\": \"local_only\",");
-    raw_line("        \"unclassified_field_policy\": \"omit\",");
-    raw_line("        \"packet_evidence\": {");
-    raw_line("          \"canonicalization\": \"raios.provider_minimal.packet.canonical.v0\",");
-    raw("          \"projected_packet_hash\": ");
-    json_sha256(evidence.projected_packet_hash);
-    raw_line(",");
-    raw("          \"exported_field_list_hash\": ");
-    json_sha256(evidence.exported_field_list_hash);
-    raw_line(",");
-    raw("          \"omitted_field_list_hash\": ");
-    json_sha256(evidence.omitted_field_list_hash);
-    raw_line(",");
-    raw("          \"redaction_policy_hash\": ");
-    json_sha256(evidence.redaction_policy_hash);
-    raw_line(",");
-    raw("          \"field_classification_hash\": ");
-    json_sha256(evidence.field_classification_hash);
-    raw_line(",");
-    raw("          \"token_budget_hash\": ");
-    json_sha256(evidence.token_budget_hash);
-    raw_line("");
-    raw_line("        },");
-    raw("        \"local_projection_event_id\": ");
-    json_event_id(event_id);
-    raw_line(",");
-    raw("        \"audit_event_id\": ");
-    json_event_id(event_id);
-    raw_line(",");
-    raw("        \"provider_trust_state\": ");
-    json_str(provider.trust_state);
-    raw_line(",");
-    raw("        \"provider_trust_positive\": ");
-    raw_bool(trust_positive);
-    raw_line(",");
-    raw_line("        \"can_export\": false,");
-    raw_line("        \"blocked_by\": [");
-    if !trust_positive {
-        raw("          {\"gate\": \"provider_trust\", \"state\": ");
-        json_str(provider.trust_state);
-        raw_line(", \"reason\": \"provider_trust_not_positive\"},");
-    }
-    raw_line("          {\"gate\": \"provider_context_export_audit_binding\", \"state\": \"missing\", \"reason\": \"provider_context_export_audit_binding_missing\"}");
-    raw_line("        ],");
-    raw_line("        \"included_fields\": [");
-    emit_projection_field_specs(PROVIDER_MINIMAL_INCLUDED_FIELDS, 10);
-    raw_line("        ],");
-    raw_line("        \"omitted_fields\": [");
-    emit_projection_field_specs(PROVIDER_MINIMAL_OMITTED_FIELDS, 10);
-    raw_line("        ],");
-    raw_line("        \"packet\": {");
-    emit_provider_minimal_packet(status, provider);
-    raw_line("        }");
+    let services = current_service_ids_value();
+    let problems = current_problem_objects_value(status, provider);
+    emit_record_value_fragment(
+        provider_minimal_projection_value(status, provider, event_id, services, problems),
+        8,
+    );
 }
 
-fn emit_provider_minimal_packet(status: &SystemSnapshot, provider: &provider::Snapshot) {
-    raw_line("          \"schema\": \"raios.agent_context.v0\",");
-    raw_line("          \"purpose\": \"current_boot_provider_context\",");
-    raw_line("          \"profile\": \"provider_minimal\",");
-    raw_line("          \"scope\": \"current_boot\",");
-    raw_line("          \"budget\": {\"target_tokens\": 2000, \"estimated_tokens\": 900},");
-    raw_line("          \"authority_order\": [");
-    raw_line("            \"current_snapshot\",");
-    raw_line("            \"decision\",");
-    raw_line("            \"service_state\",");
-    raw_line("            \"summary\"");
-    raw_line("          ],");
-    raw_line("          \"included\": {");
-    raw_line("            \"identity\": [\"mem.fact.identity.stage0\"],");
-    raw_line("            \"policy\": [\"adr.0001\", \"adr.0004\"],");
-    raw_line("            \"current\": [\"snapshot.current.provider_minimal\", \"capabilities.current_boot\", \"service.inventory.current\", \"problem.list.current\"]");
-    raw_line("          },");
-    raw_line("          \"current\": {");
-    raw_line("            \"os\": {\"name\": \"raiOS\", \"product\": \"raiOS\", \"stage\": \"stage-0\"},");
-    raw_line("            \"status\": {");
-    emit_status_state_at("framebuffer", status.framebuffer.state, true, 14);
-    emit_status_state_at("entropy", status.entropy.state, true, 14);
-    emit_status_state_at("usb_xhci", status.usb_xhci.state, true, 14);
-    emit_status_state_at("wifi", status.wifi.state, true, 14);
-    emit_status_state_at("network", status.network.state, true, 14);
-    emit_status_state_at("input", status.input.state, false, 14);
-    raw_line("            },");
-    raw_line("            \"provider\": {");
-    raw("              \"selected\": ");
-    json_str(provider.provider_name);
-    raw_line(",");
-    raw("              \"route\": ");
-    json_str(provider.route.as_str());
-    raw_line(",");
-    raw("              \"api_key_state\": ");
-    json_str(if provider.api_key_set {
-        "set"
-    } else {
-        "missing"
-    });
-    raw_line(",");
-    raw("              \"direct_phase\": ");
-    json_str(provider.direct_phase);
-    raw_line(",");
-    raw("              \"direct_endpoint\": ");
-    json_str(provider.direct_endpoint);
-    raw_line(",");
-    raw("              \"direct_model\": ");
-    json_str(provider.direct_model);
-    raw_line(",");
-    raw("              \"trust_state\": ");
-    json_str(provider.trust_state);
-    raw_line(",");
-    raw("              \"pin_kind\": ");
-    json_opt_str(provider.trust_pin_kind);
-    raw_line(",");
-    raw("              \"pin_id\": ");
-    json_opt_str(provider.trust_pin_id);
-    raw_line(",");
-    raw("              \"pin_slot\": ");
-    json_opt_str(provider.trust_pin_slot);
-    raw_line(",");
-    raw("              \"pin_rotation_policy\": ");
-    json_str(provider.trust_pin_rotation_policy);
-    raw_line(",");
-    raw("              \"pin_rotation_id\": ");
-    json_opt_str(provider.trust_pin_rotation_id);
-    raw_line(",");
-    raw("              \"development_bypass\": ");
-    raw_bool(provider.trust_development_bypass);
-    raw_line(",");
-    raw_line("              \"verifier_decision\": {");
-    raw("                \"schema\": ");
-    json_str(provider.trust_verifier_decision.schema);
-    raw_line(",");
-    raw("                \"verifier_id\": ");
-    json_str(provider.trust_verifier_decision.verifier_id);
-    raw_line(",");
-    raw("                \"stage\": ");
-    json_str(provider.trust_verifier_decision.stage);
-    raw_line(",");
-    raw("                \"outcome\": ");
-    json_str(provider.trust_verifier_decision.outcome);
-    raw_line(",");
-    raw("                \"reason\": ");
-    json_str(provider.trust_verifier_decision.reason);
-    crlf();
-    raw("              }");
-    crlf();
-    raw_line("            },");
-    raw_line("            \"services\": [");
-    emit_service_ids(14);
-    raw_line("            ],");
-    raw_line("            \"capabilities\": [");
-    emit_capability_ids(14);
-    raw_line("            ],");
-    raw_line("            \"problems\": [");
-    emit_problem_objects(status, provider, 14);
-    raw_line("            ]");
-    raw_line("          },");
-    raw_line("          \"records\": [");
-    emit_projection_record(
-        "mem.fact.identity.stage0",
-        "fact",
-        "current_snapshot",
-        "public",
-        "raiOS Stage-0 identity",
-        true,
-    );
-    emit_projection_record(
-        "snapshot.current.provider_minimal",
-        "redacted_projection",
-        "current_snapshot",
-        "public",
-        "provider_minimal projection of current status and provider trust",
-        true,
-    );
-    emit_projection_record(
-        "capabilities.current_boot",
-        "capability_index",
-        "current_snapshot",
-        "public",
-        "observe-only capability posture and denied mutation vocabulary",
-        true,
-    );
-    emit_projection_record(
-        "service.inventory.current",
-        "service_state",
-        "service_state",
-        "public",
-        "stable current-boot service ids",
-        true,
-    );
-    emit_projection_record(
-        "problem.list.current",
-        "problem_index",
-        "current_snapshot",
-        "public",
-        "current stable problem ids and severities",
-        true,
-    );
-    emit_projection_record(
-        "adr.0001",
-        "decision",
-        "decision",
-        "public",
-        "build a raiOS-native agent protocol instead of porting the Codex CLI",
-        true,
-    );
-    emit_projection_record(
-        "adr.0004",
-        "decision",
-        "decision",
-        "public",
-        "memory uses typed local facts and budgeted task-scoped projections",
-        false,
-    );
-    raw_line("          ],");
-    raw_line("          \"omitted\": [");
-    emit_projection_omission(
-        "system.snapshot.raw",
-        "local_only",
-        "only the provider_minimal projection of selected snapshot fields is included",
-        true,
-    );
-    emit_projection_omission(
-        "system.boot_log.raw",
-        "local_only",
-        "raw boot log is not included",
-        true,
-    );
-    emit_projection_omission(
-        "unclassified.memory_context",
-        "local_only",
-        "unclassified context fields are omitted by default",
-        false,
-    );
-    raw_line("          ]");
+pub(crate) fn current_service_ids_value() -> V<'static> {
+    let hello = hello_service::loaded_snapshot();
+    let personal = personal_shell_service::lifecycle_snapshot();
+    let mut services = service_inventory::SERVICES
+        .iter()
+        .map(|service| s(service.id))
+        .collect::<Vec<_>>();
+    if personal.running {
+        services.push(s("svc.user.shell"));
+    }
+    if hello.is_some() {
+        services.push(s(hello_service::SERVICE_ID));
+    }
+    V::Array(services)
+}
+
+pub(crate) fn current_problem_objects_value(
+    status: &SystemSnapshot,
+    provider: &provider::Snapshot,
+) -> V<'static> {
+    let mut problems = system_problem_facts::collect(status, provider, wifi::snapshot())
+        .map(|problem| {
+            V::InlineObject(vec![
+                f("id", s(problem.id)),
+                f("severity", s(problem.severity.as_protocol())),
+                f("summary", s(problem.summary)),
+            ])
+        })
+        .collect::<Vec<_>>();
+    if problems.is_empty() {
+        problems.push(V::InlineObject(vec![
+            f("id", s("none")),
+            f("severity", s("info")),
+            f("summary", s("no known protocol problems reported")),
+        ]));
+    }
+    V::Array(problems)
+}
+
+pub(crate) fn provider_minimal_projection_value(
+    status: &SystemSnapshot,
+    provider: &provider::Snapshot,
+    event_id: event_log::EventId,
+    services: V<'static>,
+    problems: V<'static>,
+) -> V<'static> {
+    let trust_positive = provider_trust_positive(provider.trust_state);
+    let evidence = provider_context_evidence(status, provider);
+    let mut blocked_by = Vec::new();
+    if !trust_positive {
+        blocked_by.push(V::InlineObject(vec![
+            f("gate", s("provider_trust")),
+            f("state", s(provider.trust_state)),
+            f("reason", s("provider_trust_not_positive")),
+        ]));
+    }
+    blocked_by.push(V::InlineObject(vec![
+        f("gate", s("provider_context_export_audit_binding")),
+        f("state", s("missing")),
+        f("reason", s("provider_context_export_audit_binding_missing")),
+    ]));
+
+    V::Object(vec![
+        f("schema", s("raios.provider_context_projection.v0")),
+        f("mode", s("local_read_only")),
+        f("profile", s("provider_minimal")),
+        f("provider_export", s("disabled")),
+        f("redaction_projection", s("present")),
+        f("classification_default", s("local_only")),
+        f("unclassified_field_policy", s("omit")),
+        f(
+            "packet_evidence",
+            V::Object(vec![
+                f(
+                    "canonicalization",
+                    s("raios.provider_minimal.packet.canonical.v0"),
+                ),
+                f(
+                    "projected_packet_hash",
+                    V::Sha256(evidence.projected_packet_hash),
+                ),
+                f(
+                    "exported_field_list_hash",
+                    V::Sha256(evidence.exported_field_list_hash),
+                ),
+                f(
+                    "omitted_field_list_hash",
+                    V::Sha256(evidence.omitted_field_list_hash),
+                ),
+                f(
+                    "redaction_policy_hash",
+                    V::Sha256(evidence.redaction_policy_hash),
+                ),
+                f(
+                    "field_classification_hash",
+                    V::Sha256(evidence.field_classification_hash),
+                ),
+                f("token_budget_hash", V::Sha256(evidence.token_budget_hash)),
+            ]),
+        ),
+        f(
+            "local_projection_event_id",
+            V::EventSequence(event_id.sequence()),
+        ),
+        f("audit_event_id", V::EventSequence(event_id.sequence())),
+        f("provider_trust_state", s(provider.trust_state)),
+        f("provider_trust_positive", b(trust_positive)),
+        f("can_export", b(false)),
+        f("blocked_by", V::Array(blocked_by)),
+        f(
+            "included_fields",
+            projection_field_specs_value(PROVIDER_MINIMAL_INCLUDED_FIELDS),
+        ),
+        f(
+            "omitted_fields",
+            projection_field_specs_value(PROVIDER_MINIMAL_OMITTED_FIELDS),
+        ),
+        f(
+            "packet",
+            provider_minimal_packet_value(status, provider, services, problems),
+        ),
+    ])
+}
+
+fn provider_minimal_packet_value(
+    status: &SystemSnapshot,
+    provider: &provider::Snapshot,
+    services: V<'static>,
+    problems: V<'static>,
+) -> V<'static> {
+    let mut capabilities = CAPABILITIES
+        .iter()
+        .filter(|capability| capability.granted)
+        .map(|capability| s(capability.id))
+        .collect::<Vec<_>>();
+    capabilities.push(s("capability_denied.for_all_mutating_methods"));
+
+    V::Object(vec![
+        f("schema", s("raios.agent_context.v0")),
+        f("purpose", s("current_boot_provider_context")),
+        f("profile", s("provider_minimal")),
+        f("scope", s("current_boot")),
+        f(
+            "budget",
+            V::InlineObject(vec![
+                f("target_tokens", V::U64(2000)),
+                f("estimated_tokens", V::U64(900)),
+            ]),
+        ),
+        f(
+            "authority_order",
+            V::Array(vec![
+                s("current_snapshot"),
+                s("decision"),
+                s("service_state"),
+                s("summary"),
+            ]),
+        ),
+        f(
+            "included",
+            V::Object(vec![
+                f(
+                    "identity",
+                    V::InlineArray(vec![s("mem.fact.identity.stage0")]),
+                ),
+                f("policy", V::InlineArray(vec![s("adr.0001"), s("adr.0004")])),
+                f(
+                    "current",
+                    V::InlineArray(vec![
+                        s("snapshot.current.provider_minimal"),
+                        s("capabilities.current_boot"),
+                        s("service.inventory.current"),
+                        s("problem.list.current"),
+                    ]),
+                ),
+            ]),
+        ),
+        f(
+            "current",
+            V::Object(vec![
+                f(
+                    "os",
+                    V::InlineObject(vec![
+                        f("name", s("raiOS")),
+                        f("product", s("raiOS")),
+                        f("stage", s("stage-0")),
+                    ]),
+                ),
+                f(
+                    "status",
+                    V::Object(vec![
+                        f("framebuffer", s(status.framebuffer.state.as_protocol())),
+                        f("entropy", s(status.entropy.state.as_protocol())),
+                        f("usb_xhci", s(status.usb_xhci.state.as_protocol())),
+                        f("wifi", s(status.wifi.state.as_protocol())),
+                        f("network", s(status.network.state.as_protocol())),
+                        f("input", s(status.input.state.as_protocol())),
+                    ]),
+                ),
+                f(
+                    "provider",
+                    V::Object(vec![
+                        f("selected", s(provider.provider_name)),
+                        f("route", s(provider.route.as_str())),
+                        f(
+                            "api_key_state",
+                            s(if provider.api_key_set {
+                                "set"
+                            } else {
+                                "missing"
+                            }),
+                        ),
+                        f("direct_phase", s(provider.direct_phase)),
+                        f("direct_endpoint", s(provider.direct_endpoint)),
+                        f("direct_model", s(provider.direct_model)),
+                        f("trust_state", s(provider.trust_state)),
+                        f("pin_kind", optional_str(provider.trust_pin_kind)),
+                        f("pin_id", optional_str(provider.trust_pin_id)),
+                        f("pin_slot", optional_str(provider.trust_pin_slot)),
+                        f("pin_rotation_policy", s(provider.trust_pin_rotation_policy)),
+                        f(
+                            "pin_rotation_id",
+                            optional_str(provider.trust_pin_rotation_id),
+                        ),
+                        f("development_bypass", b(provider.trust_development_bypass)),
+                        f(
+                            "verifier_decision",
+                            V::Object(vec![
+                                f("schema", s(provider.trust_verifier_decision.schema)),
+                                f(
+                                    "verifier_id",
+                                    s(provider.trust_verifier_decision.verifier_id),
+                                ),
+                                f("stage", s(provider.trust_verifier_decision.stage)),
+                                f("outcome", s(provider.trust_verifier_decision.outcome)),
+                                f("reason", s(provider.trust_verifier_decision.reason)),
+                            ]),
+                        ),
+                    ]),
+                ),
+                f("services", services),
+                f("capabilities", V::Array(capabilities)),
+                f("problems", problems),
+            ]),
+        ),
+        f(
+            "records",
+            V::Array(vec![
+                projection_record(
+                    "mem.fact.identity.stage0",
+                    "fact",
+                    "current_snapshot",
+                    "public",
+                    "raiOS Stage-0 identity",
+                ),
+                projection_record(
+                    "snapshot.current.provider_minimal",
+                    "redacted_projection",
+                    "current_snapshot",
+                    "public",
+                    "provider_minimal projection of current status and provider trust",
+                ),
+                projection_record(
+                    "capabilities.current_boot",
+                    "capability_index",
+                    "current_snapshot",
+                    "public",
+                    "observe-only capability posture and denied mutation vocabulary",
+                ),
+                projection_record(
+                    "service.inventory.current",
+                    "service_state",
+                    "service_state",
+                    "public",
+                    "stable current-boot service ids",
+                ),
+                projection_record(
+                    "problem.list.current",
+                    "problem_index",
+                    "current_snapshot",
+                    "public",
+                    "current stable problem ids and severities",
+                ),
+                projection_record(
+                    "adr.0001",
+                    "decision",
+                    "decision",
+                    "public",
+                    "build a raiOS-native agent protocol instead of porting the Codex CLI",
+                ),
+                projection_record(
+                    "adr.0004",
+                    "decision",
+                    "decision",
+                    "public",
+                    "memory uses typed local facts and budgeted task-scoped projections",
+                ),
+            ]),
+        ),
+        f(
+            "omitted",
+            V::Array(vec![
+                projection_omission(
+                    "system.snapshot.raw",
+                    "local_only",
+                    "only the provider_minimal projection of selected snapshot fields is included",
+                ),
+                projection_omission(
+                    "system.boot_log.raw",
+                    "local_only",
+                    "raw boot log is not included",
+                ),
+                projection_omission(
+                    "unclassified.memory_context",
+                    "local_only",
+                    "unclassified context fields are omitted by default",
+                ),
+            ]),
+        ),
+    ])
+}
+
+fn optional_str(value: Option<&'static str>) -> V<'static> {
+    value.map(s).unwrap_or(V::Null)
+}
+
+fn projection_field_specs_value(fields: &[ProjectionFieldSpec]) -> V<'static> {
+    V::Array(
+        fields
+            .iter()
+            .map(|spec| {
+                V::InlineObject(vec![
+                    f("field", s(spec.field)),
+                    f("classification", s(spec.classification)),
+                    f("action", s(spec.action)),
+                    f("reason", s(spec.reason)),
+                ])
+            })
+            .collect(),
+    )
+}
+
+fn projection_record(
+    id: &'static str,
+    kind: &'static str,
+    authority: &'static str,
+    classification: &'static str,
+    summary: &'static str,
+) -> V<'static> {
+    V::InlineObject(vec![
+        f("id", s(id)),
+        f("kind", s(kind)),
+        f("authority", s(authority)),
+        f("classification", s(classification)),
+        f("summary", s(summary)),
+    ])
+}
+
+fn projection_omission(
+    field: &'static str,
+    classification: &'static str,
+    reason: &'static str,
+) -> V<'static> {
+    V::InlineObject(vec![
+        f("field", s(field)),
+        f("classification", s(classification)),
+        f("action", s("omit")),
+        f("reason", s(reason)),
+    ])
 }
 
 pub(crate) fn emit_provider_context_gate(runtime: ui::RuntimeStatus, request: &str) {
@@ -1858,77 +1992,6 @@ pub(crate) fn emit_provider_context_hashes(hashes: event_log::ProviderContextHas
     raw(", \"token_budget_hash\": ");
     json_sha256(hashes.token_budget_hash);
     raw("}");
-}
-
-fn emit_projection_record(
-    id: &'static str,
-    kind: &'static str,
-    authority: &'static str,
-    classification: &'static str,
-    summary: &'static str,
-    comma: bool,
-) {
-    indent(12);
-    raw("{\"id\": ");
-    json_str(id);
-    raw(", \"kind\": ");
-    json_str(kind);
-    raw(", \"authority\": ");
-    json_str(authority);
-    raw(", \"classification\": ");
-    json_str(classification);
-    raw(", \"summary\": ");
-    json_str(summary);
-    raw("}");
-    if comma {
-        raw(",");
-    }
-    crlf();
-}
-
-fn emit_projection_omission(
-    field: &'static str,
-    classification: &'static str,
-    reason: &'static str,
-    comma: bool,
-) {
-    indent(10);
-    raw("{\"field\": ");
-    json_str(field);
-    raw(", \"classification\": ");
-    json_str(classification);
-    raw(", \"action\": \"omit\", \"reason\": ");
-    json_str(reason);
-    raw("}");
-    if comma {
-        raw(",");
-    }
-    crlf();
-}
-
-fn emit_projection_field_specs(fields: &[ProjectionFieldSpec], spaces: usize) {
-    let mut idx = 0usize;
-    while idx < fields.len() {
-        emit_projection_field_spec(&fields[idx], idx + 1 != fields.len(), spaces);
-        idx += 1;
-    }
-}
-
-fn emit_projection_field_spec(spec: &ProjectionFieldSpec, comma: bool, spaces: usize) {
-    indent(spaces);
-    raw("{\"field\": ");
-    json_str(spec.field);
-    raw(", \"classification\": ");
-    json_str(spec.classification);
-    raw(", \"action\": ");
-    json_str(spec.action);
-    raw(", \"reason\": ");
-    json_str(spec.reason);
-    raw("}");
-    if comma {
-        raw(",");
-    }
-    crlf();
 }
 
 fn provider_binding_gate_state(

@@ -16,7 +16,9 @@ try {
     }
 
     $exemptions = @{
-        'seed-kernel/src/agent_protocol_memory.rs' = @(11494, 612809)
+        # P4-5b2 re-ratchet: -200 lines, +11 bytes (longer identifiers in the converted paths).
+        # Both are pinned to the actual, so the next slice may not exceed EITHER.
+        'seed-kernel/src/agent_protocol_memory.rs' = @(11294, 612820)
         # P4-2b2a shrank the v1 response paths, but the pre-v1 compact event-binding cluster
         # (deleted by P4-4b2b) keeps the file above the hard limit. Re-ratcheted 6878 -> 6040
         # (P4-2b2a), then 6040 -> 6058 (P4-4b2a): extracting module_load_gate_projection_input so

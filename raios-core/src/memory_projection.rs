@@ -381,12 +381,22 @@ pub fn project_memory_context<'a>(input: MemoryContextInput<'a>) -> MemoryProjec
             ]),
         ),
     ];
+    // Check OUR fields, then attach the provider projection verbatim. Its internals are
+    // P4-8's (M1: embed unchanged, never re-derive), and one of its FACT keys is legitimately
+    // named `blocked_by` — a description of what blocks the export, not a decision. Recursing
+    // the reserved-key check into it made memory police provider's field names, and panicked
+    // the kernel over a name memory does not own. The reserved-key rule guards THIS response's
+    // decision keys; it is not a global namespace claim over every value we carry.
+    let mut facts = match checked_facts(facts) {
+        Value::InlineObject(fields) => fields,
+        _ => unreachable!("checked_facts returns an InlineObject"),
+    };
     if let Some(provider_projection) = input.provider_projection {
         classification = classification.max(provider_projection.classification);
         facts.push(Field::new("provider_projection", provider_projection.value));
     }
     MemoryProjection {
-        facts: checked_facts(facts),
+        facts: Value::InlineObject(facts),
         evidence,
         decision: observed("memory_context_returned"),
         classification,
@@ -1273,18 +1283,47 @@ mod tests {
         }
         assert!(json.contains("\"supersedes\": [\"old.2\", \"old.1\"]"));
     }
+    /// The reserved-key check guards THIS response's own facts. It does NOT reach into the
+    /// embedded provider projection, and that is deliberate: the provider value is still on the
+    /// PRE-v1 vocabulary (P4-8 converts it), so it legitimately still carries `outcome`,
+    /// `blocked_by` and `authorizes_provider_*` as descriptive keys. An earlier version of this
+    /// module recursed into it and PANICKED THE KERNEL over field names memory does not own —
+    /// caught live at shadow-20260713-174237-10020. M1 is the rule: embed unchanged, never
+    /// re-derive, never police. When P4-8 converts the provider internals those keys disappear
+    /// on their own, because its facts stop claiming authority — which is the actual fix.
     #[test]
-    #[should_panic(expected = "decision key is reserved")]
-    fn reserved_decision_keys_are_rejected_from_embedded_values() {
-        project_memory_context(context(
+    fn embedded_provider_value_is_carried_verbatim_and_not_policed() {
+        let pre_v1_provider = Value::InlineObject(vec![
+            Field::new("outcome", Value::Str("denied")),
+            Field::new("blocked_by", Value::InlineArray(vec![Value::Str("trust")])),
+            Field::new("authorizes_provider_export", Value::Bool(false)),
+        ]);
+        let projection = project_memory_context(context(
             vec![],
             Some(EmbeddedProviderProjection {
                 classification: MemoryClassification::Public,
-                value: Value::InlineObject(vec![Field::new(
-                    "authorizes_export",
-                    Value::Bool(true),
-                )]),
+                value: pre_v1_provider.clone(),
             }),
         ));
+        let Value::InlineObject(fields) = projection.facts else {
+            panic!("facts must be an inline object")
+        };
+        let embedded = fields.last().expect("provider projection is the last fact");
+        assert_eq!(embedded.key, "provider_projection");
+        assert_eq!(embedded.value, pre_v1_provider);
+    }
+
+    /// ...but memory's OWN facts are still policed. A reserved key we author is a bug.
+    #[test]
+    #[should_panic(expected = "decision key is reserved")]
+    fn reserved_decision_keys_are_rejected_from_our_own_facts() {
+        evaluate_memory_mutation(MemoryMutationInput {
+            audit_record: MutationPrerequisite {
+                status: MutationPrerequisiteStatus::Missing,
+                reason: "missing",
+            },
+            ..mutation(0)
+        });
+        checked_facts(vec![Field::new("authorizes_export", Value::Bool(true))]);
     }
 }

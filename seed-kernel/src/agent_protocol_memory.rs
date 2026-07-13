@@ -1,19 +1,18 @@
+use alloc::{format, string::String, vec, vec::Vec};
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use crate::{
     agent_protocol_module_load_gate::emit_module_load_gate_event_binding,
     agent_protocol_module_load_gate_render::project_module_load_gate_event_binding,
     agent_protocol_provider::{
-        emit_provider_context_hashes, emit_provider_minimal_projection,
-        provider_context_block_reason,
+        current_problem_objects_value, current_service_ids_value, emit_provider_context_hashes,
+        provider_context_block_reason, provider_minimal_projection_value,
     },
     agent_protocol_support::{
-        begin_response, crlf, emit_record_value_fragment, end_response, indent, json_event_id,
-        json_event_id_option, json_opt_str, json_sha256, json_sha256_option, json_str, method_eq,
-        raw, raw_bool, raw_fmt, raw_line,
+        crlf, emit_record_value_fragment, json_event_id, json_event_id_option, json_opt_str,
+        json_sha256, json_sha256_option, json_str, method_eq, raw, raw_bool, raw_fmt, raw_line,
     },
-    agent_protocol_system::{emit_problem_objects, emit_service_ids, emit_status_state},
-    event_log, memory_store, provider, provider_trust, serial,
+    event_log, memory_store, provider, provider_trust,
     system_status::SystemSnapshot,
     ui,
 };
@@ -22,7 +21,16 @@ use raios_core::{
         project_recent_events, CapturedEvent, EventClassification, EventEvidenceProjection,
         EventKind, EventProjectionClass, EventSnapshotInput, HistoricalEventOutcome,
     },
-    evidence_response::{Evidence, SCHEMA as EVIDENCE_RESPONSE_SCHEMA},
+    evidence_response::{self as ev, Envelope, Evidence, SCHEMA as EVIDENCE_RESPONSE_SCHEMA},
+    memory_projection::{
+        evaluate_memory_mutation, CurrentMemorySnapshot, CurrentStatus, DurableRecordView,
+        EmbeddedProviderProjection, IncludedSelection, MemoryClassification, MemoryContextInput,
+        MemoryMutationInput, MemoryOmission, MemoryProfile, MemoryProfileEntry,
+        MemoryProfileProjectionInput, MemoryProjection, MemoryQueryInput, MemoryRecordKind,
+        MemoryTraceInput, MutationPrerequisite, MutationPrerequisiteStatus, QueryCandidate,
+        SelectedRecord, SupersedeLink, TraceHit,
+    },
+    memory_record::MemoryKind,
     record::Value as V,
 };
 
@@ -33,26 +41,24 @@ pub use raios_core::memory_context::{
 };
 
 static NEXT_EVENT_RESPONSE_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_MEMORY_ID: AtomicU64 = AtomicU64::new(1);
 static EMIT_BINDING_FACTS_OBJECT: AtomicBool = AtomicBool::new(false);
 
+#[rustfmt::skip]
 pub(crate) fn emit_memory_profile() {
-    begin_response("memory.profile");
-    raw_line("      \"schema\": \"memory.profile.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"profiles\": [");
-    raw_line("        {\"id\": \"diagnostic\", \"available\": true, \"target_tokens\": 4000, \"provider_export\": false, \"summary\": \"local current-boot facts for one diagnostic task\"},");
-    raw_line("        {\"id\": \"planning\", \"available\": true, \"target_tokens\": 8000, \"provider_export\": false, \"summary\": \"local architecture and status handoff context\"},");
-    raw_line("        {\"id\": \"provider_minimal\", \"available\": true, \"local_projection\": true, \"target_tokens\": 2000, \"provider_export\": false, \"blocked_by\": \"provider export requires positive provider trust plus current-boot export audit binding\", \"summary\": \"local read-only redaction projection for future provider context\"}");
-    raw_line("      ],");
-    raw_line("      \"read_methods\": [");
-    raw_line("        \"memory.context\",");
-    raw_line("        \"memory.query\",");
-    raw_line("        \"memory.trace\",");
-    raw_line("        \"memory.recent_events\",");
-    raw_line("        \"audit.events\"");
-    raw_line("      ],");
-    raw_line("      \"mutation_policy\": \"denied_until_event_log_audit_policy_persistence_and_rollback_exist\"");
-    end_response("memory.profile");
+    let projection = raios_core::memory_projection::project_memory_profile(
+        MemoryProfileProjectionInput {
+            profiles: vec![
+                MemoryProfileEntry { profile: MemoryProfile::Diagnostic, available: true, local_projection: None, target_tokens: 4000, provider_export: "disabled", summary: "local current-boot facts for one diagnostic task" },
+                MemoryProfileEntry { profile: MemoryProfile::Planning, available: true, local_projection: None, target_tokens: 8000, provider_export: "disabled", summary: "local architecture and status handoff context" },
+                MemoryProfileEntry { profile: MemoryProfile::ProviderMinimal, available: true, local_projection: Some("present"), target_tokens: 2000, provider_export: "disabled", summary: "local read-only redaction projection for future provider context" },
+            ],
+            read_methods: &["memory.context", "memory.query", "memory.trace", "memory.recent_events", "audit.events"],
+            mutation_policy: "denied_until_event_log_audit_policy_persistence_and_rollback_exist",
+            provider_export_omission: Some("provider export requires positive provider trust plus current-boot export audit binding"),
+        },
+    );
+    emit_memory_v1_response("memory.profile", "memory.profile", None, projection);
 }
 
 pub(crate) fn emit_memory_context(
@@ -63,316 +69,335 @@ pub(crate) fn emit_memory_context(
     let status = SystemSnapshot::collect(None, runtime);
     let provider = provider::snapshot();
     let profile = memory_context_profile(method);
-
-    begin_response("memory.context");
-    raw_line("      \"schema\": \"raios.agent_context.v0\",");
-    raw_line("      \"purpose\": \"current_boot_system_context\",");
-    raw("      \"profile\": ");
-    json_str(profile);
-    raw_line(",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"provider_export\": \"disabled\",");
-    raw("      \"context_event_id\": ");
-    json_event_id(event_id);
-    raw_line(",");
-    raw("      \"audit_event_id\": ");
-    json_event_id(event_id);
-    raw_line(",");
-    raw_line("      \"source_schemas\": [");
-    raw_line("        \"system.snapshot.v0\",");
-    raw_line("        \"system.capabilities.v0\",");
-    raw_line("        \"service.inventory.v0\",");
-    raw_line("        \"problem.list.v0\",");
-    raw_line("        \"system.boot_log.v0\"");
-    raw_line("      ],");
-    raw("      \"budget\": {\"target_tokens\": ");
-    raw_fmt(format_args!("{}", memory_context_target_tokens(profile)));
-    raw(", \"estimated_tokens\": ");
-    raw_fmt(format_args!("{}", memory_context_estimated_tokens(profile)));
-    raw_line("},");
-    raw_line("      \"authority_order\": [");
-    raw_line("        \"current_snapshot\",");
-    raw_line("        \"evidence\",");
-    raw_line("        \"decision\",");
-    raw_line("        \"service_state\",");
-    raw_line("        \"summary\"");
-    raw_line("      ],");
-    raw_line("      \"included\": {");
-    raw_line("        \"identity\": [\"mem.fact.identity.stage0\"],");
-    raw_line("        \"policy\": [\"adr.0001\", \"adr.0004\"],");
-    raw_line("        \"current\": [\"snapshot.current\", \"capabilities.current_boot\", \"service.inventory.current\", \"problem.list.current\"],");
-    raw_line("        \"summaries\": [\"boot_log.summary.current\"]");
-    raw_line("      },");
-    raw_line("      \"current\": {");
-    raw_line("        \"snapshot_id\": \"snapshot.current\",");
-    raw_line("        \"status\": {");
-    emit_status_state("framebuffer", status.framebuffer.state, true);
-    emit_status_state("entropy", status.entropy.state, true);
-    emit_status_state("usb_xhci", status.usb_xhci.state, true);
-    emit_status_state("wifi", status.wifi.state, true);
-    emit_status_state("network", status.network.state, true);
-    emit_status_state("input", status.input.state, false);
-    raw_line("        },");
-    raw("        \"provider_trust_state\": ");
-    json_str(provider.trust_state);
-    raw_line(",");
-    raw("        \"provider_api_key_state\": ");
-    json_str(if provider.api_key_set {
-        "set"
-    } else {
-        "missing"
-    });
-    raw_line(",");
-    raw_line("        \"capability_posture\": \"observe_only_mutations_denied\",");
-    raw_line("        \"services\": [");
-    emit_service_ids(10);
-    raw_line("        ],");
-    raw_line("        \"problems\": [");
-    emit_problem_objects(&status, &provider, 10);
-    raw_line("        ]");
-    raw_line("      },");
-    if method_eq(profile, "provider_minimal") {
-        raw_line("      \"provider_projection\": {");
-        emit_provider_minimal_projection(&status, &provider, event_id);
-        raw_line("      },");
-    }
-    raw_line("      \"records\": [");
-    emit_memory_record(
-        "mem.fact.identity.stage0",
-        "fact",
-        "current_snapshot",
-        "public",
-        "raiOS Stage-0 booted kernel identity",
-        "system.describe",
-        true,
-    );
-    emit_memory_record(
-        "snapshot.current",
-        "current_snapshot",
-        "current_snapshot",
-        "local_only",
-        "current framebuffer, entropy, USB, Wi-Fi, network, input, provider, capabilities, and problems",
-        "system.snapshot",
-        true,
-    );
-    emit_memory_record(
-        "capabilities.current_boot",
-        "capability_index",
-        "current_snapshot",
-        "public",
-        "observe-only capability posture and denied mutation vocabulary",
-        "system.capabilities",
-        true,
-    );
-    emit_memory_record(
-        "service.inventory.current",
-        "service_state",
-        "service_state",
-        "public",
-        "static current-boot service inventory for the monolithic Stage-0 kernel",
-        "service.inventory",
-        true,
-    );
-    emit_memory_record(
-        "problem.list.current",
-        "problem_index",
-        "current_snapshot",
-        "public",
-        "current known local problems and explicit gaps",
-        "problem.list",
-        true,
-    );
-    emit_memory_record(
-        "boot_log.summary.current",
-        "summary",
-        "summary",
-        "local_only",
-        "serial boot log summary locator; raw lines remain local",
-        "system.boot_log",
-        true,
-    );
-    emit_memory_record(
-        "adr.0001",
-        "decision",
-        "decision",
-        "public",
-        "build a raiOS-native agent protocol instead of porting the Codex CLI into Stage-0",
-        "docs/architecture-decisions/0001-raios-agent-protocol.md",
-        true,
-    );
-    emit_memory_record(
-        "adr.0004",
-        "decision",
-        "decision",
-        "public",
-        "memory is typed local facts with bounded task-scoped agent_context packets, not prompt stuffing",
-        "docs/architecture-decisions/0004-system-memory-and-agent-context.md",
-        false,
-    );
+    let typed_profile = typed_memory_profile(profile);
+    let services = current_service_ids_value();
+    let problems = current_problem_objects_value(&status, &provider);
     let durable_context = memory_store::durable_memory_context();
-    let durable_omitted = memory_store::durable_omitted_folds(&durable_context);
-    raw_line("      ],");
-    raw("      \"durable_records\": ");
-    emit_record_value_fragment(memory_store::durable_records_array(&durable_context), 6);
-    raw_line(",");
-    raw_line("      \"omitted\": [");
-    raw_line("        {\"kind\": \"raw_boot_log\", \"reason\": \"memory.context includes only a summary locator; use system.boot_log or memory.trace locally for raw lines\"},");
-    raw_line("        {\"kind\": \"local_only_details\", \"reason\": \"details strings may contain IPs, PCI data, topology, request ids, or hashes\"},");
-    raw_line("        {\"kind\": \"secret_values\", \"reason\": \"API keys, Wi-Fi passphrases, and raw secret values are never included\"},");
-    raw_line("        {\"kind\": \"provider_export\", \"reason\": \"disabled until positive provider trust and current-boot provider export audit binding exist\"},");
-    raw("        {\"kind\": \"provider_minimal\", \"reason\": ");
-    json_str(provider_context_block_reason(provider.trust_state));
-    raw("}");
-    if durable_omitted.is_empty() {
-        raw_line("");
-    } else {
-        raw_line(",");
-        let mut omitted_idx = 0usize;
-        while omitted_idx < durable_omitted.len() {
-            raw("        ");
-            emit_record_value_fragment(durable_omitted[omitted_idx].clone(), 8);
-            if omitted_idx + 1 == durable_omitted.len() {
-                raw_line("");
-            } else {
-                raw_line(",");
+    let durable_evidence_ids = durable_context
+        .records
+        .iter()
+        .map(|record| format!("durable_record.{}", record.id))
+        .collect::<Vec<_>>();
+    let durable_records = durable_context
+        .records
+        .iter()
+        .zip(&durable_evidence_ids)
+        .map(|(record, evidence_id)| DurableRecordView {
+            evidence_id,
+            record_id: record.id.as_str(),
+            kind: MemoryRecordKind::Durable(
+                MemoryKind::parse(record.kind)
+                    .unwrap_or_else(|_| unreachable!("durable context kind was already parsed")),
+            ),
+            entity: record.entity.as_str(),
+            predicate: record.predicate.as_str(),
+            classification: memory_classification(record.classification),
+            authority: record.authority.as_str(),
+            scope: "durable",
+            exportable: record.exportable,
+            source_event_sequence: None,
+        })
+        .collect();
+    let omission_ids = (0..12)
+        .map(|idx| format!("omission.{idx:08}"))
+        .collect::<Vec<_>>();
+    let superseded_ids = durable_context
+        .superseded_hidden
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let ignored_links = durable_context
+        .r1_ignored_supersedes
+        .iter()
+        .map(|link| SupersedeLink {
+            source_id: link.superseder.as_str(),
+            target_id: link.target.as_str(),
+        })
+        .collect::<Vec<_>>();
+    let dangling_ids = durable_context
+        .dangling_supersedes
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let reused_ids = durable_context
+        .audit_id_reused
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let mut omissions = STATIC_OMISSIONS
+        .iter()
+        .enumerate()
+        .map(|(idx, (kind, reason))| MemoryOmission::Static {
+            evidence_id: &omission_ids[idx],
+            kind,
+            reason,
+        })
+        .collect::<Vec<_>>();
+    omissions.push(MemoryOmission::Static {
+        evidence_id: &omission_ids[4],
+        kind: "provider_minimal",
+        reason: provider_context_block_reason(provider.trust_state),
+    });
+    let mut omission_idx = 5;
+    macro_rules! omission {
+        ($when:expr, $variant:ident, $reason:literal $(, $field:ident: $value:expr)*) => {
+            if $when {
+                omissions.push(MemoryOmission::$variant {
+                    evidence_id: &omission_ids[omission_idx], reason: $reason,
+                    $($field: $value),*
+                });
+                omission_idx += 1;
             }
-            omitted_idx += 1;
-        }
+        };
     }
-    raw_line("      ]");
-    end_response("memory.context");
+    omission!(!superseded_ids.is_empty(), Superseded, "superseded_by_visible_record", ids: &superseded_ids);
+    omission!(!ignored_links.is_empty(), IgnoredSupersede, "supersede_target_is_audit_kind", links: &ignored_links);
+    omission!(!dangling_ids.is_empty(), DanglingSupersede, "supersede_target_missing", ids: &dangling_ids);
+    omission!(!reused_ids.is_empty(), AuditIdReused, "audit_record_id_reuse_rejected", ids: &reused_ids);
+    omission!(
+        durable_context.over_budget,
+        OverBudget,
+        "durable_record_budget_exceeded"
+    );
+    omission!(durable_context.frame_dropped_count > 0, FrameDropped, "durable_frame_reparse_rejected", count: durable_context.frame_dropped_count);
+    if durable_context.local_only_visible {
+        omissions.push(MemoryOmission::LocalOnlyValue {
+            evidence_id: &omission_ids[omission_idx],
+            reason: "provider_export_excludes_local_only_values",
+        });
+    }
+
+    let provider_projection =
+        (typed_profile == MemoryProfile::ProviderMinimal).then(|| EmbeddedProviderProjection {
+            classification: MemoryClassification::Public,
+            value: provider_minimal_projection_value(
+                &status,
+                &provider,
+                event_id,
+                services.clone(),
+                problems.clone(),
+            ),
+        });
+    let projection = raios_core::memory_projection::project_memory_context(MemoryContextInput {
+        purpose: "current_boot_system_context",
+        profile: typed_profile,
+        provider_export: "disabled",
+        source_schemas: &[
+            "system.snapshot.v0",
+            "system.capabilities.v0",
+            "service.inventory.v0",
+            "problem.list.v0",
+            "system.boot_log.v0",
+        ],
+        target_tokens: memory_context_target_tokens(profile) as u64,
+        estimated_tokens: memory_context_estimated_tokens(profile) as u64,
+        authority_order: &[
+            "current_snapshot",
+            "evidence",
+            "decision",
+            "service_state",
+            "summary",
+        ],
+        included: IncludedSelection {
+            identity: "mem.fact.identity.stage0",
+            policy: "adr.0001,adr.0004",
+            current: "snapshot.current,capabilities.current_boot,service.inventory.current,problem.list.current",
+            summaries: &["boot_log.summary.current"],
+        },
+        current: CurrentMemorySnapshot {
+            snapshot_id: "snapshot.current",
+            status: CurrentStatus {
+                framebuffer: status.framebuffer.state.as_protocol(),
+                entropy: status.entropy.state.as_protocol(),
+                usb_xhci: status.usb_xhci.state.as_protocol(),
+                wifi: status.wifi.state.as_protocol(),
+                network: status.network.state.as_protocol(),
+                input: status.input.state.as_protocol(),
+            },
+            provider_trust_state: provider.trust_state,
+            provider_api_key_state: if provider.api_key_set { "set" } else { "missing" },
+            capability_posture: V::Str("observe_only_mutations_denied"),
+            services,
+            problems,
+        },
+        provider_projection,
+        records: selected_memory_records(),
+        durable_records,
+        omissions,
+    });
+    emit_memory_v1_response(
+        "memory.context",
+        "memory.context",
+        Some(event_id),
+        projection,
+    );
 }
 
 pub(crate) fn emit_memory_query() {
-    begin_response("memory.query");
-    raw_line("      \"schema\": \"memory.query.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"query\": \"static_current_boot_index\",");
-    raw_line("      \"records\": [");
-    emit_memory_candidate(
-        "mem.fact.identity.stage0",
-        "fact",
-        "public",
-        "raiOS Stage-0 identity",
-        true,
+    let mut candidates = selected_memory_records()
+        .into_iter()
+        .map(|record| QueryCandidate {
+            evidence_id: query_evidence_id(record.record_id),
+            record_id: record.record_id,
+            kind: record.kind,
+            classification: record.classification,
+            summary: record.summary,
+        })
+        .collect::<Vec<_>>();
+    candidates.insert(
+        2,
+        QueryCandidate {
+            evidence_id: "query_locator.snapshot.current.provider_minimal",
+            record_id: "snapshot.current.provider_minimal",
+            kind: MemoryRecordKind::ProviderProjection,
+            classification: MemoryClassification::Public,
+            summary: "provider-minimal current status and trust projection",
+        },
     );
-    emit_memory_candidate(
-        "snapshot.current",
-        "current_snapshot",
-        "local_only",
-        "current typed system snapshot",
-        true,
-    );
-    emit_memory_candidate(
-        "snapshot.current.provider_minimal",
-        "redacted_projection",
-        "public",
-        "provider_minimal projection of current status and provider trust",
-        true,
-    );
-    emit_memory_candidate(
-        "capabilities.current_boot",
-        "capability_index",
-        "public",
-        "observe-only capability posture",
-        true,
-    );
-    emit_memory_candidate(
-        "service.inventory.current",
-        "service_state",
-        "public",
-        "static service inventory",
-        true,
-    );
-    emit_memory_candidate(
-        "problem.list.current",
-        "problem_index",
-        "public",
-        "current problem ids and severities",
-        true,
-    );
-    emit_memory_candidate(
-        "boot_log.summary.current",
-        "summary",
-        "local_only",
-        "serial boot log summary locator",
-        true,
-    );
-    emit_memory_candidate(
-        "adr.0001",
-        "decision",
-        "public",
-        "raiOS Agent Protocol instead of Codex CLI",
-        true,
-    );
-    emit_memory_candidate(
-        "adr.0004",
-        "decision",
-        "public",
-        "System memory and agent context selection",
-        false,
-    );
-    raw_line("      ],");
-    raw_line("      \"semantic_index\": \"not_implemented_locator_only\"");
-    end_response("memory.query");
+    let projection = raios_core::memory_projection::project_memory_query(MemoryQueryInput {
+        query: "static_current_boot_index",
+        candidates,
+        semantic_index: "not_implemented_locator_only",
+    });
+    emit_memory_v1_response("memory.query", "memory.query", None, projection);
 }
 
 pub(crate) fn emit_memory_trace(method: &str) {
     let id = memory_method_arg(method, "memory.trace");
-
-    begin_response("memory.trace");
-    raw_line("      \"schema\": \"memory.trace.v0\",");
-    raw("      \"requested_id\": ");
-    if id.is_empty() {
-        raw("null");
-    } else {
-        json_str(id);
-    }
-    raw_line(",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"records\": [");
-    if id.is_empty() {
-        emit_trace_record(
+    let record_ids = if id.is_empty() {
+        vec![
             "snapshot.current",
-            "system.snapshot",
-            "seed-kernel/src/agent_protocol.rs",
-            true,
-        );
-        emit_trace_record(
             "snapshot.current.provider_minimal",
-            "memory.context provider_minimal",
-            "seed-kernel/src/agent_protocol.rs",
-            true,
-        );
-        emit_trace_record(
             "service.inventory.current",
-            "service.inventory",
-            "seed-kernel/src/service_inventory.rs",
-            true,
-        );
-        emit_trace_record(
             "problem.list.current",
-            "problem.list",
-            "seed-kernel/src/agent_protocol.rs",
-            true,
-        );
-        emit_trace_record(
             "adr.0001",
-            "decision",
-            "docs/architecture-decisions/0001-raios-agent-protocol.md",
-            true,
-        );
-        emit_trace_record(
             "adr.0004",
-            "decision",
-            "docs/architecture-decisions/0004-system-memory-and-agent-context.md",
-            false,
-        );
+        ]
     } else {
-        emit_single_trace_record(id);
+        vec![id]
+    };
+    let evidence_ids = record_ids
+        .iter()
+        .map(|record_id| format!("trace.{record_id}"))
+        .collect::<Vec<_>>();
+    let hits = record_ids
+        .into_iter()
+        .zip(&evidence_ids)
+        .map(|(record_id, evidence_id)| trace_hit(record_id, evidence_id))
+        .collect();
+    let projection = raios_core::memory_projection::project_memory_trace(MemoryTraceInput {
+        requested_id: (!id.is_empty()).then_some(id),
+        hits,
+    });
+    emit_memory_v1_response("memory.trace", "memory.trace", None, projection);
+}
+
+#[rustfmt::skip]
+fn emit_memory_v1_response(method: &'static str, family: &'static str,
+    event_id: Option<event_log::EventId>, projection: MemoryProjection<'_>) {
+    let envelope = Envelope {
+        response_sequence: NEXT_MEMORY_ID.fetch_add(1, Ordering::Relaxed), family,
+        scope: "current_boot", classification: projection.classification.as_str(),
+        source_method: method, event_sequence: event_id.map(event_log::EventId::sequence),
+        facts: projection.facts, evidence: projection.evidence.into_iter().map(ev::evidence_value).collect(),
+        decision: projection.decision,
+    };
+    raw_fmt(format_args!("RAIOS_AGENT_BEGIN {method}\r\n"));
+    emit_record_value_fragment(ev::response_value(&envelope), 0);
+    crlf();
+    raw_fmt(format_args!("RAIOS_AGENT_END {method}\r\n"));
+}
+
+#[rustfmt::skip]
+fn typed_memory_profile(profile: &str) -> MemoryProfile {
+    if method_eq(profile, "planning") { MemoryProfile::Planning }
+    else if method_eq(profile, "provider_minimal") { MemoryProfile::ProviderMinimal }
+    else { MemoryProfile::Diagnostic }
+}
+
+#[rustfmt::skip]
+fn memory_classification(classification: &str) -> MemoryClassification {
+    match classification {
+        "public" => MemoryClassification::Public, "local_only" => MemoryClassification::LocalOnly,
+        "secret" => MemoryClassification::Secret, _ => MemoryClassification::Unknown,
     }
-    raw_line("      ]");
-    end_response("memory.trace");
+}
+
+fn selected_memory_records() -> Vec<SelectedRecord<'static>> {
+    vec![
+        selected_record("record.mem.fact.identity.stage0", "mem.fact.identity.stage0", MemoryRecordKind::Identity, "current_snapshot", MemoryClassification::Public, "raiOS Stage-0 booted kernel identity", "system.describe"),
+        selected_record("record.snapshot.current", "snapshot.current", MemoryRecordKind::SystemSnapshot, "current_snapshot", MemoryClassification::LocalOnly, "current framebuffer, entropy, USB, Wi-Fi, network, input, provider, capabilities, and problems", "system.snapshot"),
+        selected_record("record.capabilities.current_boot", "capabilities.current_boot", MemoryRecordKind::CapabilityInventory, "current_snapshot", MemoryClassification::Public, "observe-only capability posture and denied mutation vocabulary", "system.capabilities"),
+        selected_record("record.service.inventory.current", "service.inventory.current", MemoryRecordKind::ServiceInventory, "service_state", MemoryClassification::Public, "static current-boot service inventory for the monolithic Stage-0 kernel", "service.inventory"),
+        selected_record("record.problem.list.current", "problem.list.current", MemoryRecordKind::ProblemList, "current_snapshot", MemoryClassification::Public, "current known local problems and explicit gaps", "problem.list"),
+        selected_record("record.boot_log.summary.current", "boot_log.summary.current", MemoryRecordKind::Summary, "summary", MemoryClassification::LocalOnly, "serial boot log summary locator; raw lines remain local", "system.boot_log"),
+        selected_record("record.adr.0001", "adr.0001", MemoryRecordKind::ArchitectureDecision, "decision", MemoryClassification::Public, "build a raiOS-native agent protocol instead of porting the Codex CLI into Stage-0", "docs/architecture-decisions/0001-raios-agent-protocol.md"),
+        selected_record("record.adr.0004", "adr.0004", MemoryRecordKind::ArchitectureDecision, "decision", MemoryClassification::Public, "memory is typed local facts with bounded task-scoped agent_context packets, not prompt stuffing", "docs/architecture-decisions/0004-system-memory-and-agent-context.md"),
+    ]
+}
+
+#[rustfmt::skip]
+fn selected_record(evidence_id: &'static str, record_id: &'static str, kind: MemoryRecordKind,
+    authority: &'static str, classification: MemoryClassification, summary: &'static str,
+    source_locator: &'static str) -> SelectedRecord<'static> {
+    SelectedRecord {
+        evidence_id, record_id, kind, authority, classification, summary, source_locator,
+        source_event_sequence: None,
+    }
+}
+
+fn query_evidence_id(record_id: &str) -> &'static str {
+    match record_id {
+        "mem.fact.identity.stage0" => "query_locator.mem.fact.identity.stage0",
+        "snapshot.current" => "query_locator.snapshot.current",
+        "capabilities.current_boot" => "query_locator.capabilities.current_boot",
+        "service.inventory.current" => "query_locator.service.inventory.current",
+        "problem.list.current" => "query_locator.problem.list.current",
+        "boot_log.summary.current" => "query_locator.boot_log.summary.current",
+        "adr.0001" => "query_locator.adr.0001",
+        "adr.0004" => "query_locator.adr.0004",
+        _ => unreachable!("query index"),
+    }
+}
+
+const STATIC_OMISSIONS: &[(&str, &str)] = &[
+    ("raw_boot_log", "memory.context includes only a summary locator; use system.boot_log or memory.trace locally for raw lines"),
+    ("local_only_details", "details strings may contain IPs, PCI data, topology, request ids, or hashes"),
+    ("secret_values", "API keys, Wi-Fi passphrases, and raw secret values are never included"),
+    ("provider_export", "disabled until positive provider trust and current-boot provider export audit binding exist"),
+];
+
+#[rustfmt::skip]
+const TRACE_RECORDS: &[(&str, MemoryClassification, &str, &str)] = &[
+    ("mem.fact.identity.stage0", MemoryClassification::Public, "system.describe", "seed-kernel/src/agent_protocol.rs"),
+    ("snapshot.current", MemoryClassification::LocalOnly, "system.snapshot", "seed-kernel/src/agent_protocol.rs"),
+    ("snapshot.current.provider_minimal", MemoryClassification::Public, "memory.context provider_minimal", "seed-kernel/src/agent_protocol.rs"),
+    ("capabilities.current_boot", MemoryClassification::Public, "system.capabilities", "seed-kernel/src/agent_protocol.rs"),
+    ("service.inventory.current", MemoryClassification::Public, "service.inventory", "seed-kernel/src/service_inventory.rs"),
+    ("problem.list.current", MemoryClassification::Public, "problem.list", "seed-kernel/src/agent_protocol.rs"),
+    ("boot_log.summary.current", MemoryClassification::LocalOnly, "system.boot_log", "seed-kernel/src/serial.rs"),
+    ("adr.0001", MemoryClassification::Public, "decision", "docs/architecture-decisions/0001-raios-agent-protocol.md"),
+    ("adr.0004", MemoryClassification::Public, "decision", "docs/architecture-decisions/0004-system-memory-and-agent-context.md"),
+];
+
+#[rustfmt::skip]
+fn trace_hit<'a>(record_id: &'a str, evidence_id: &'a str) -> TraceHit<'a> {
+    if let Some((_, classification, source_method, source_locator)) =
+        TRACE_RECORDS.iter().find(|record| record.0 == record_id)
+    {
+        return TraceHit {
+            evidence_id, record_id, found: true,
+            classification: *classification,
+            source_method: Some(source_method), source_locator: Some(source_locator),
+            reason: "trace_locator_found",
+        };
+    }
+    TraceHit {
+        evidence_id, record_id, found: false,
+        classification: MemoryClassification::LocalOnly,
+        source_method: None, source_locator: None,
+        reason: "record_not_in_current_boot_memory_index",
+    }
 }
 
 pub(crate) fn emit_recent_events(method: &str) {
@@ -576,36 +601,32 @@ fn emit_event_evidence(evidence: Evidence<'_>, event: &event_log::Event, comma: 
 }
 
 pub(crate) fn emit_memory_capability_denied(method: &'static str, event_id: event_log::EventId) {
-    serial::write_raw_fmt(format_args!("RAIOS_AGENT_BEGIN {}\r\n", method));
-    raw_line("{");
-    raw_line("  \"v\": \"raios.agent.v0\",");
-    raw_line("  \"t\": \"error\",");
-    raw_line("  \"id\": \"serial\",");
-    raw_line("  \"body\": {");
-    raw("    \"method\": ");
-    json_str(method);
-    raw_line(",");
-    raw("    \"event_id\": ");
-    json_event_id(event_id);
-    raw_line(",");
-    raw("    \"audit_event_id\": ");
-    json_event_id(event_id);
-    raw_line(",");
-    raw_line("    \"code\": \"capability_denied\",");
-    raw("    \"message\": ");
-    json_str("memory mutation is denied until durable audit, policy, source retention, persistence, and rollback evidence exist");
-    raw_line(",");
-    raw_line("    \"required\": [");
-    raw_line("      \"raios.audit_record.v0\",");
-    raw_line("      \"policy_ledger\",");
-    raw_line("      \"source_retention\",");
-    raw_line("      \"redaction_transaction\",");
-    raw_line("      \"raios.memory_persistence.v0\",");
-    raw_line("      \"rollback_plan\"");
-    raw_line("    ]");
-    raw_line("  }");
-    raw_line("}");
-    serial::write_raw_fmt(format_args!("RAIOS_AGENT_END {}\r\n", method));
+    let missing = |reason| MutationPrerequisite {
+        status: MutationPrerequisiteStatus::Missing,
+        reason,
+    };
+    let denial = evaluate_memory_mutation(MemoryMutationInput {
+        audit_record: missing("audit_record_missing"),
+        policy_ledger: missing("policy_ledger_missing"),
+        source_retention: missing("source_retention_missing"),
+        redaction_transaction: missing("redaction_transaction_missing"),
+        memory_persistence: missing("memory_persistence_missing"),
+        rollback_plan: missing("rollback_plan_missing"),
+    });
+    emit_memory_v1_response(
+        method,
+        "memory.mutation",
+        Some(event_id),
+        MemoryProjection {
+            facts: V::InlineObject(vec![raios_core::record::Field::new(
+                "message",
+                V::Str("memory mutation is denied until durable audit, policy, source retention, persistence, and rollback evidence exist"),
+            )]),
+            evidence: denial.evidence,
+            decision: denial.decision,
+            classification: MemoryClassification::LocalOnly,
+        },
+    );
 }
 
 #[derive(Clone, Copy)]
@@ -11270,149 +11291,4 @@ fn emit_provider_trust_verifier_decision(decision: provider_trust::ProviderTrust
     raw(", \"reason\": ");
     json_str(decision.reason);
     raw("}");
-}
-
-fn emit_memory_record(
-    id: &'static str,
-    kind: &'static str,
-    authority: &'static str,
-    classification: &'static str,
-    summary: &'static str,
-    source: &'static str,
-    comma: bool,
-) {
-    indent(8);
-    raw("{\"id\": ");
-    json_str(id);
-    raw(", \"kind\": ");
-    json_str(kind);
-    raw(", \"authority\": ");
-    json_str(authority);
-    raw(", \"classification\": ");
-    json_str(classification);
-    raw(", \"summary\": ");
-    json_str(summary);
-    raw(", \"source\": ");
-    json_str(source);
-    raw("}");
-    if comma {
-        raw(",");
-    }
-    crlf();
-}
-
-fn emit_memory_candidate(
-    id: &'static str,
-    kind: &'static str,
-    classification: &'static str,
-    summary: &'static str,
-    comma: bool,
-) {
-    indent(8);
-    raw("{\"id\": ");
-    json_str(id);
-    raw(", \"kind\": ");
-    json_str(kind);
-    raw(", \"classification\": ");
-    json_str(classification);
-    raw(", \"summary\": ");
-    json_str(summary);
-    raw("}");
-    if comma {
-        raw(",");
-    }
-    crlf();
-}
-
-fn emit_trace_record(
-    id: &'static str,
-    source_method: &'static str,
-    source: &'static str,
-    comma: bool,
-) {
-    indent(8);
-    raw("{\"id\": ");
-    json_str(id);
-    raw(", \"found\": true, \"source_method\": ");
-    json_str(source_method);
-    raw(", \"source\": ");
-    json_str(source);
-    raw("}");
-    if comma {
-        raw(",");
-    }
-    crlf();
-}
-
-fn emit_single_trace_record(id: &str) {
-    if method_eq(id, "mem.fact.identity.stage0") {
-        emit_trace_record(
-            "mem.fact.identity.stage0",
-            "system.describe",
-            "seed-kernel/src/agent_protocol.rs",
-            false,
-        );
-    } else if method_eq(id, "snapshot.current") {
-        emit_trace_record(
-            "snapshot.current",
-            "system.snapshot",
-            "seed-kernel/src/agent_protocol.rs",
-            false,
-        );
-    } else if method_eq(id, "snapshot.current.provider_minimal") {
-        emit_trace_record(
-            "snapshot.current.provider_minimal",
-            "memory.context provider_minimal",
-            "seed-kernel/src/agent_protocol.rs",
-            false,
-        );
-    } else if method_eq(id, "capabilities.current_boot") {
-        emit_trace_record(
-            "capabilities.current_boot",
-            "system.capabilities",
-            "seed-kernel/src/agent_protocol.rs",
-            false,
-        );
-    } else if method_eq(id, "service.inventory.current") {
-        emit_trace_record(
-            "service.inventory.current",
-            "service.inventory",
-            "seed-kernel/src/service_inventory.rs",
-            false,
-        );
-    } else if method_eq(id, "problem.list.current") {
-        emit_trace_record(
-            "problem.list.current",
-            "problem.list",
-            "seed-kernel/src/agent_protocol.rs",
-            false,
-        );
-    } else if method_eq(id, "boot_log.summary.current") {
-        emit_trace_record(
-            "boot_log.summary.current",
-            "system.boot_log",
-            "seed-kernel/src/serial.rs",
-            false,
-        );
-    } else if method_eq(id, "adr.0001") {
-        emit_trace_record(
-            "adr.0001",
-            "decision",
-            "docs/architecture-decisions/0001-raios-agent-protocol.md",
-            false,
-        );
-    } else if method_eq(id, "adr.0004") {
-        emit_trace_record(
-            "adr.0004",
-            "decision",
-            "docs/architecture-decisions/0004-system-memory-and-agent-context.md",
-            false,
-        );
-    } else {
-        indent(8);
-        raw("{\"id\": ");
-        json_str(id);
-        raw(", \"found\": false, \"reason\": \"record id is not in the current_boot memory index\"}");
-        crlf();
-    }
 }

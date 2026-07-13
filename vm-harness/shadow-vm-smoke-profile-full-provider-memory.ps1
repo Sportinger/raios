@@ -90,13 +90,22 @@ function Invoke-ProviderContextInjectionGateSelftestProfile {
 }
 
     Send-AgentCommand -Command "agent memory.query" -ExpectedMarker "RAIOS_AGENT_END memory.query"
-    Assert-LogContains -Name "protocol:memory_query_schema" -Needle '"schema": "memory.query.v0"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:memory_query_snapshot_record" -Needle "snapshot.current" -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:memory_query_projection_record" -Needle "snapshot.current.provider_minimal" -TimeoutSeconds 1
+    $memoryQuery = Get-LastAgentResponseJson -Method "memory.query"
+    Add-Predicate -Name "protocol:memory_query_schema" -Expected "memory.query uses evidence_response.v1" -Passed ($memoryQuery.schema -eq "raios.evidence_response.v1") -Actual $memoryQuery.schema
+    Add-Predicate -Name "protocol:memory_query_snapshot_record" -Expected "snapshot.current is a located locator" -Passed (@($memoryQuery.evidence | Where-Object { $_.id -eq "query_locator.snapshot.current" -and $_.status -eq "located" }).Count -eq 1) -Actual ($memoryQuery.evidence | ConvertTo-Json -Compress -Depth 6)
+    Add-Predicate -Name "protocol:memory_query_projection_record" -Expected "provider-minimal projection is a located locator" -Passed (@($memoryQuery.evidence | Where-Object { $_.id -eq "query_locator.snapshot.current.provider_minimal" -and $_.status -eq "located" }).Count -eq 1) -Actual ($memoryQuery.evidence | ConvertTo-Json -Compress -Depth 6)
+    $memoryQueryKinds = @($memoryQuery.evidence | ForEach-Object { $_.facts.kind } | Sort-Object -Unique)
+    $memoryQueryExpectedKinds = @("architecture_decision", "capability_inventory", "identity", "problem_list", "provider_projection", "service_inventory", "summary", "system_snapshot")
+    Add-Predicate -Name "protocol:memory_query_record_kind_coverage" -Expected "every static memory record kind is represented by a located query candidate" -Passed (($memoryQueryKinds -join ",") -eq ($memoryQueryExpectedKinds -join ",") -and @($memoryQuery.evidence | Where-Object { $_.status -ne "located" }).Count -eq 0) -Actual (($memoryQueryKinds -join ",") + " statuses=" + (@($memoryQuery.evidence.status | Sort-Object -Unique) -join ","))
 
     Send-AgentCommand -Command "agent memory.trace snapshot.current" -ExpectedMarker "RAIOS_AGENT_END memory.trace"
-    Assert-LogContains -Name "protocol:memory_trace_schema" -Needle '"schema": "memory.trace.v0"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:memory_trace_snapshot_source" -Needle '"source_method": "system.snapshot"' -TimeoutSeconds 1
+    $memoryTrace = Get-LastAgentResponseJson -Method "memory.trace"
+    Add-Predicate -Name "protocol:memory_trace_schema" -Expected "memory.trace uses evidence_response.v1" -Passed ($memoryTrace.schema -eq "raios.evidence_response.v1") -Actual $memoryTrace.schema
+    Add-Predicate -Name "protocol:memory_trace_snapshot_source" -Expected "snapshot trace is located at system.snapshot" -Passed (@($memoryTrace.evidence | Where-Object { $_.id -eq "trace.snapshot.current" -and $_.status -eq "located" -and $_.facts.source_method -eq "system.snapshot" }).Count -eq 1) -Actual ($memoryTrace.evidence | ConvertTo-Json -Compress -Depth 6)
+
+    Send-AgentCommand -Command "agent memory.trace missing.record" -ExpectedMarker "RAIOS_AGENT_END memory.trace"
+    $missingMemoryTrace = Get-LastAgentResponseJson -Method "memory.trace"
+    Add-Predicate -Name "protocol:memory_trace_missing_reason" -Expected "an absent locator is explicitly missing with the evaluator-owned reason" -Passed (@($missingMemoryTrace.evidence | Where-Object { $_.id -eq "trace.missing.record" -and $_.status -eq "missing" -and $_.reason -eq "record_not_in_current_boot_memory_index" }).Count -eq 1) -Actual ($missingMemoryTrace.evidence | ConvertTo-Json -Compress -Depth 6)
 
     Send-AgentCommand -Command "agent memory.recent_events" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
     Assert-LogContains -Name "protocol:memory_recent_events_schema" -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
@@ -134,10 +143,14 @@ function Invoke-ProviderContextInjectionGateSelftestProfile {
     Assert-LogContains -Name "protocol:memory_recent_events_ram_only" -Needle '"persistence": "none"' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent memory.record_observation" -ExpectedMarker "RAIOS_AGENT_END memory.record_observation"
-    Assert-LogContains -Name "policy:memory_record_observation_method" -Needle '"method": "memory.record_observation"' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:memory_record_observation_denied" -Needle '"code": "capability_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:memory_record_observation_event_id" -Needle '"event_id": "event.current_boot.' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:memory_record_observation_audit_event_id" -Needle '"audit_event_id": "event.current_boot.' -TimeoutSeconds 1
+    $memoryObservationDenial = Get-LastAgentResponseJson -Method "memory.record_observation"
+    Add-Predicate -Name "policy:memory_record_observation_method" -Expected "denial source method is memory.record_observation" -Passed ($memoryObservationDenial.source_method -eq "memory.record_observation") -Actual $memoryObservationDenial.source_method
+    Add-Predicate -Name "policy:memory_record_observation_denied" -Expected "memory mutation is denied with no grants/effects" -Passed ($memoryObservationDenial.decision.outcome -eq "denied" -and @($memoryObservationDenial.decision.grants).Count -eq 0 -and @($memoryObservationDenial.decision.effects).Count -eq 0) -Actual ($memoryObservationDenial.decision | ConvertTo-Json -Compress -Depth 8)
+    Add-Predicate -Name "policy:memory_record_observation_event_id" -Expected "denial has one envelope event id" -Passed ([string]$memoryObservationDenial.event_id -like "event.current_boot.*") -Actual $memoryObservationDenial.event_id
+    Add-Predicate -Name "policy:memory_record_observation_audit_event_id" -Expected "legacy audit_event_id retired into the same envelope event id" -Passed ([string]$memoryObservationDenial.event_id -like "event.current_boot.*") -Actual $memoryObservationDenial.event_id
+    $memoryMutationExpectedReasons = @("audit_record_missing", "policy_ledger_missing", "source_retention_missing", "redaction_transaction_missing", "memory_persistence_missing", "rollback_plan_missing")
+    $memoryMutationActualReasons = @($memoryObservationDenial.evidence | ForEach-Object { "$($_.status):$($_.reason)" })
+    Add-Predicate -Name "policy:memory_mutation_prerequisite_order" -Expected "all six evaluator-owned prerequisites are missing in first-failure order" -Passed (($memoryMutationActualReasons -join ",") -eq (@($memoryMutationExpectedReasons | ForEach-Object { "missing:$_" }) -join ",") -and $memoryObservationDenial.decision.reason -eq "audit_record_missing") -Actual (($memoryMutationActualReasons -join ",") + " first=" + $memoryObservationDenial.decision.reason)
 
     Send-AgentCommand -Command "agent audit.events 8" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
     Assert-LogContains -Name "protocol:audit_events_alias_schema" -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
@@ -148,15 +161,19 @@ function Invoke-ProviderContextInjectionGateSelftestProfile {
     Assert-LogContains -Name "protocol:audit_events_denied_capability" -Needle '"requested_capability": "cap.memory.mutate"' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent memory.propose_policy" -ExpectedMarker "RAIOS_AGENT_END memory.propose_policy"
-    Assert-LogContains -Name "policy:memory_propose_policy_method" -Needle '"method": "memory.propose_policy"' -TimeoutSeconds 1
+    $memoryProposePolicyDenial = Get-LastAgentResponseJson -Method "memory.propose_policy"
+    Add-Predicate -Name "policy:memory_propose_policy_method" -Expected "denial source method is memory.propose_policy" -Passed ($memoryProposePolicyDenial.source_method -eq "memory.propose_policy" -and $memoryProposePolicyDenial.decision.outcome -eq "denied") -Actual ($memoryProposePolicyDenial | ConvertTo-Json -Compress -Depth 8)
 
     Send-AgentCommand -Command "agent memory.supersede_fact" -ExpectedMarker "RAIOS_AGENT_END memory.supersede_fact"
-    Assert-LogContains -Name "policy:memory_supersede_fact_method" -Needle '"method": "memory.supersede_fact"' -TimeoutSeconds 1
+    $memorySupersedeDenial = Get-LastAgentResponseJson -Method "memory.supersede_fact"
+    Add-Predicate -Name "policy:memory_supersede_fact_method" -Expected "denial source method is memory.supersede_fact" -Passed ($memorySupersedeDenial.source_method -eq "memory.supersede_fact" -and $memorySupersedeDenial.decision.outcome -eq "denied") -Actual ($memorySupersedeDenial | ConvertTo-Json -Compress -Depth 8)
 
     Send-AgentCommand -Command "agent memory.redact" -ExpectedMarker "RAIOS_AGENT_END memory.redact"
-    Assert-LogContains -Name "policy:memory_redact_method" -Needle '"method": "memory.redact"' -TimeoutSeconds 1
+    $memoryRedactDenial = Get-LastAgentResponseJson -Method "memory.redact"
+    Add-Predicate -Name "policy:memory_redact_method" -Expected "denial source method is memory.redact" -Passed ($memoryRedactDenial.source_method -eq "memory.redact" -and $memoryRedactDenial.decision.outcome -eq "denied") -Actual ($memoryRedactDenial | ConvertTo-Json -Compress -Depth 8)
 
     Send-AgentCommand -Command "agent memory.compact" -ExpectedMarker "RAIOS_AGENT_END memory.compact"
-    Assert-LogContains -Name "policy:memory_compact_method" -Needle '"method": "memory.compact"' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:memory_audit_required" -Needle "raios.audit_record.v0" -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:memory_persistence_required" -Needle "raios.memory_persistence.v0" -TimeoutSeconds 1
+    $memoryCompactDenial = Get-LastAgentResponseJson -Method "memory.compact"
+    Add-Predicate -Name "policy:memory_compact_method" -Expected "denial source method is memory.compact" -Passed ($memoryCompactDenial.source_method -eq "memory.compact" -and $memoryCompactDenial.decision.outcome -eq "denied") -Actual ($memoryCompactDenial | ConvertTo-Json -Compress -Depth 8)
+    Add-Predicate -Name "policy:memory_audit_required" -Expected "audit record prerequisite is explicitly missing" -Passed (@($memoryCompactDenial.evidence | Where-Object { $_.facts.required -eq "raios.audit_record.v0" -and $_.status -eq "missing" }).Count -eq 1) -Actual ($memoryCompactDenial.evidence | ConvertTo-Json -Compress -Depth 8)
+    Add-Predicate -Name "policy:memory_persistence_required" -Expected "memory persistence prerequisite is explicitly missing" -Passed (@($memoryCompactDenial.evidence | Where-Object { $_.facts.required -eq "raios.memory_persistence.v0" -and $_.status -eq "missing" }).Count -eq 1) -Actual ($memoryCompactDenial.evidence | ConvertTo-Json -Compress -Depth 8)

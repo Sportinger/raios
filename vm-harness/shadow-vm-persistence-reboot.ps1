@@ -282,6 +282,37 @@ function Get-DurableRecordIndex {
     return -1
 }
 
+function Get-MemoryContextDurableRecords {
+    param($Context)
+    return @($Context.evidence | Where-Object { $_.id -like "durable_record.*" } | ForEach-Object {
+        [pscustomobject]@{
+            id = $_.facts.record_id
+            kind = $_.kind
+            entity = $_.facts.entity
+            predicate = $_.facts.predicate
+            classification = $_.classification
+            authority = $_.facts.authority
+            scope = $_.facts.scope
+            exportable = $_.facts.exportable
+            status = $_.status
+            reason = $_.reason
+        }
+    })
+}
+
+function Get-MemoryContextOmissions {
+    param($Context)
+    return @($Context.evidence | Where-Object { $_.id -like "omission.*" } | ForEach-Object {
+        [pscustomobject]@{
+            id = $_.id
+            kind = $_.kind
+            status = $_.status
+            reason = $_.reason
+            ids = @($_.facts.ids)
+        }
+    })
+}
+
 function Assert-Boot2MemorySurvives {
     param(
         [string]$Prefix,
@@ -311,9 +342,9 @@ function Assert-Boot2MemorySurvives {
 
     Send-AgentCommandTagged -Prefix $Prefix -Command "agent memory.context" -ExpectedMarker "RAIOS_AGENT_END memory.context" -Name "mem-broker-context"
     $contextResponse = Get-LastAgentResponseJson -Method "memory.context"
-    $context = $contextResponse.body.result
-    $records = @($context.durable_records)
-    $omitted = @($context.omitted)
+    $context = $contextResponse
+    $records = Get-MemoryContextDurableRecords -Context $context
+    $omitted = Get-MemoryContextOmissions -Context $context
 
     $zId = "mem.capability_denial.module_load_ephemeral_durable.current_boot.v0"
     $aId = "mem.decision.module_sharing_confirmed_vision.current_boot.v0"
@@ -356,7 +387,7 @@ function Assert-Boot2MemorySurvives {
     }
     Assert-ReportPredicate -Prefix $Prefix -Name "mem-broker-classification" -Expected "every durable record is local_only and exportable == false" -Passed $classificationOk -Actual $(if ($classificationOk) { "matched" } else { Convert-CompactJson $records 12 }) -FailureMessage "Boot 2 broker durable record classification/export flags were wrong"
 
-    $exportClosed = ($context.provider_export -eq "disabled")
+    $exportClosed = ($context.facts.provider_export -eq "disabled")
     Assert-ReportPredicate -Prefix $Prefix -Name "mem-broker-export-closed" -Expected 'memory.context contains provider_export == "disabled"' -Passed $exportClosed -Actual $(if ($exportClosed) { "provider_export=disabled" } else { Convert-CompactJson $context 12 }) -FailureMessage "Boot 2 broker provider export was not closed"
 }
 
@@ -1094,13 +1125,14 @@ function Assert-MemoryTornReclogChild {
 
         Send-AgentCommandTagged -Prefix $prefix -Command "agent memory.context" -ExpectedMarker "RAIOS_AGENT_END memory.context" -Name "memory-context"
         $contextResponse = Get-LastAgentResponseJson -Method "memory.context"
-        $context = $contextResponse.body.result
+        $context = $contextResponse
         $vmStillAnswers = (
             $scanResponse.t -eq "response" -and
-            $contextResponse.t -eq "response" -and
+            $contextResponse.schema -eq "raios.evidence_response.v1" -and
+            $contextResponse.family -eq "memory.context" -and
             $null -ne $context
         )
-        Assert-ReportPredicate -Prefix $prefix -Name "vm-still-answers" -Expected "child answers both durable.record_log_scan and memory.context after RECLOG tail corruption" -Passed $vmStillAnswers -Actual $(if ($vmStillAnswers) { "answered" } else { "scan=$($scanResponse.t) context=$($contextResponse.t)" }) -FailureMessage "Torn memory child stopped answering after scan/context"
+        Assert-ReportPredicate -Prefix $prefix -Name "vm-still-answers" -Expected "child answers both durable.record_log_scan and memory.context after RECLOG tail corruption" -Passed $vmStillAnswers -Actual $(if ($vmStillAnswers) { "answered" } else { "scan=$($scanResponse.t) context=$($contextResponse.schema)/$($contextResponse.family)" }) -FailureMessage "Torn memory child stopped answering after scan/context"
 
         $serial = Get-SerialLogContent -Path $SerialLog
         $contextEnded = $serial.LastIndexOf("RAIOS_AGENT_END memory.context", [System.StringComparison]::Ordinal) -ge 0
