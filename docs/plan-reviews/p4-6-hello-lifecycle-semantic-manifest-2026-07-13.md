@@ -784,3 +784,31 @@ update and its own evidence.
 **H3 — rollback/write fields in lifecycle_binding.rs are P4-7's.** Confirmed as the
 manifest states: P4-6 does not touch their content, order, or hashes. A deletion or
 relocation that reaches them is a STOP.
+
+## P4-6b1 notes
+
+The core projection is `raios-core/src/hello_lifecycle_projection.rs`. Its input
+is one `HelloLifecycleSnapshot` containing the captured descriptor, artifact,
+service-slot, inventory, pre/post service state, optional migration, optional
+health record, and their single lifecycle event sequence. The projection can
+only return `observed("<action>_performed")`; it accepts no authority proof or
+capability name and exposes no positive decision constructor.
+
+Observed changes are ordered evidence records: descriptor, artifact,
+service-slot state, inventory change, pre/post state transition, optional state
+migration, and optional health. Every record carries its own status, reason,
+classification, and the snapshot's `source_event_id`. Hashes remain raw SHA-256
+bytes until the shared `Value::Sha256` serializer renders them.
+
+Authority-gap finding: load, start, restart, hot-swap, stop, and drop currently
+mutate the current-boot service slot, inventory, and/or service state under
+implicit command-dispatcher authority. No named capability, evaluator, or proof
+authorizes those mutations. P4-6b1 neither manufactures that authority nor
+hides the mutations in decision facts; it reports each mutation as observed
+evidence. Closing the dispatcher-authority gap remains follow-up substrate work.
+Health records an event under the same implicit dispatcher path, but that event
+is provenance for an observation and is not an authorized effect.
+
+H2 remains intact: no Hello kernel source was relocated and its attested source
+set was not changed. H3 remains intact: no rollback or write-boundary field was
+modeled, projected, relocated, or modified.
