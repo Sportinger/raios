@@ -25,6 +25,10 @@ $Result = "failed"
 $Failures = New-Object System.Collections.Generic.List[object]
 $Predicates = New-Object System.Collections.Generic.List[object]
 $ExecutedCommands = New-Object System.Collections.Generic.List[object]
+# Write-Report does @($script:VisualEvidence.ToArray()); a null list is a method
+# call on null, and PowerShell misreports it against a nearby line in the report
+# hashtable. shadow-vm-smoke.ps1 has always initialized this; this script never did.
+$script:VisualEvidence = New-Object System.Collections.Generic.List[object]
 $StartedAt = [DateTime]::UtcNow
 $script:SerialTcpClient = $null
 $script:SerialTcpDrainStream = $null
@@ -1234,6 +1238,9 @@ try {
 }
 catch {
     $Failures.Add($_.Exception.Message) | Out-Null
+    # Print it here: the rethrow surfaces only after the finally block, where a
+    # second failure can replace it. The first failure is the one worth reading.
+    Write-Host "PRIMARY FAILURE: $($_.Exception.Message)"
     throw
 }
 finally {
@@ -1242,14 +1249,24 @@ finally {
     Stop-RaiosVmForce -Vm $boot2Vm
     Merge-SerialLogs
 
-    Write-Report `
-        -FinalResult $Result `
-        -ResolvedImage $ResolvedImage `
-        -ResolvedArtifact $ResolvedArtifact `
-        -ResolvedManifest $ResolvedManifest `
-        -QemuArgList $QemuArgList `
-        -HardwareProfile $HardwareProfile `
-        -StartedAt $StartedAt
+    # A throw in here would REPLACE the exception that is already unwinding and
+    # the real failure would never be printed. shadow-vm-smoke.ps1 has guarded
+    # this since forever; this script had not, so every failure arrived disguised
+    # as a report-write error.
+    try {
+        Write-Report `
+            -FinalResult $Result `
+            -ResolvedImage $ResolvedImage `
+            -ResolvedArtifact $ResolvedArtifact `
+            -ResolvedManifest $ResolvedManifest `
+            -QemuArgList $QemuArgList `
+            -HardwareProfile $HardwareProfile `
+            -StartedAt $StartedAt
+    }
+    catch {
+        $Result = "failed"
+        Write-Host "report write FAILED: $($_.Exception.Message)"
+    }
 
     if ($Result -eq "passed" -and -not $KeepRunDir) {
         Remove-Item -LiteralPath $RunDir -Recurse -Force -ErrorAction SilentlyContinue
