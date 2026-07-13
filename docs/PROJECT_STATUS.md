@@ -24,6 +24,28 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+P4-1 PARKED ON A BRANCH — DOES NOT COMPILE, WORKER SANDBOX CANNOT BUILD THE
+KERNEL (2026-07-13). Exact next task: resume branch
+`refactor/p4-1-vocabulary-v1-wip` and close its build loop from the
+ORCHESTRATOR side (the Codex worker sandbox cannot execute rustc for the
+seed-kernel target — "Zugriff verweigert (os error 5)" — so it cannot verify
+its own kernel changes; this is a durable constraint, not a one-off). The
+branch carries: -1,085 kernel lines across the six module-* files,
+raios-core/src/evidence_response.rs (typed envelope/facts/evidence/decision
+builders on the P4-0 substrate), Value::ResponseSequence, 469 core tests green,
+and 168 harness predicates rewritten to the v1 paths. It fails with ~30 compile
+errors (missing record_sha_or_null-class imports after the emitter deletions).
+Two things must be fixed before it lands: (a) the build, (b) a predicate-needle
+collapse — several DISTINCT safety assertions (*_no_load, *_no_mutation,
+*_can_load_false, *_no_audit_records, *_no_rollback_plans, *_no_slots,
+*_inventory_none) were rewritten onto the IDENTICAL needle
+`"outcome": "observed"`; type-implied is not the same as asserted, so each
+needs a distinguishing needle or an honest rename. Then: module-audit-rollback
+focused + full, with a READ of the serial transcript (do not bulk-accept).
+PROCESS LESSON for every future P4 slice: kernel-touching packets must be
+split so the worker never needs to build — worker writes, orchestrator builds
+and iterates the compile loop.
+
 P4 OPENED — OWNER CHOSE VOCABULARY V1 (2026-07-13). After the W2a
 calibration proved the byte-identical P2 lever largely exhausted (the
 remaining kernel "duplicates" are distinct raw-diagnostic layers, commit
