@@ -693,3 +693,67 @@ authority markers. P4-7b must cut by the exact functions above. The module
 diagnostic half is denial-only; the Hello half contains real LBA1 write/readback
 and positive current-boot apply. Treating them as one undifferentiated renderer
 would erase the trust boundary this manifest exists to protect.
+
+## Orchestrator rulings (2026-07-13, binding for P4-7b)
+
+**R1 — THE SECURITY FINDING IS CONFIRMED, and the fix is already proven.**
+`ScopedRollbackApplyProof` (seed-kernel/src/hello_service/emitters.rs) is not a proof.
+It is a struct the RENDERER assembles out of evaluator booleans and hashes. Any kernel
+code could construct one with `authorized: true` and nothing would stop it. The name
+promises unforgeability the type does not deliver.
+
+The fix is the pattern P4-5b1 already landed and proved on the append evaluator:
+- The proof type lives in raios-core, next to the evaluator that decides it.
+- Its fields are PRIVATE. It is constructible ONLY inside that module, ONLY after the
+  whole chain verifies.
+- The requested capability and effects are passed IN by the caller and merely CERTIFIED
+  by core — core never mints a capability.
+- A passing chain with NO caller-declared capability yields NO proof. (P4-5b1's
+  `passed_gate_without_caller_authority_labels_has_no_proof` is the regression guard.)
+Apply it to `evaluate_scoped_rollback_apply` (the scope decision — this is the one that
+gates the WRITE, so it is load-bearing) and to `evaluate_scoped_rollback_verified_apply`.
+The kernel's ScopedRollbackApplyProof then stops being a bag of booleans and becomes a
+carrier of core proofs. Not one guard, hash, or reason string may change.
+
+**R2 — the write ordering is DEFENSIBLE, but its enforcement is not. Fix the enforcement.**
+I checked the code before ruling. The manifest says materialization "performs the real
+LBA1 write BEFORE the scoped apply evaluator verifies the chain". That is literally true
+and is NOT the vulnerability: you cannot verify a readback before you have written. The
+order is scope-evaluator authorizes -> write -> append-evaluator verifies the readback
+and inspection. That is correct.
+
+The REAL weakness is how the write is gated. `hello_rollback_target_region_authorized_append_write_readback`
+(rollback_authority_gates.rs:3675) has exactly ONE caller (emitters.rs:4083), and that
+caller does check `if !scope_decision.authorized { return input; }` first (emitters.rs:4071).
+So today it is gated — by a CONVENTION in one call site. A second caller added tomorrow
+could write to the media without ever consulting the evaluator, and nothing in the type
+system would object.
+
+RULING: make the write function REQUIRE the scope proof as an argument
+(`&ScopedRollbackApplyProof` from R1, the core one). Then verify-then-write is enforced by
+the COMPILER, not by an if-statement someone must remember to copy. That is the whole
+point of a fail-closed substrate: the unsafe program should not compile.
+
+**R3 — hash grammars are frozen; only the RESPONSE moves.** The legacy `Value` grammars
+for the scoped decision and the authorized append are HASH INPUTS. Preserve them as
+explicit hash-only canonical projections, byte-identical. The response vocabulary moves;
+the hash input grammar does not. Golden regeneration is NOT permitted — if a golden
+changes, the durable format broke and that is a STOP.
+
+**R4 — capability and effects come from the code, not from imagination.** The capability
+is HELLO_ROLLBACK_APPLY_CAPABILITY (it already exists and is already declared as
+`requested_capability` at emitters.rs:248/328/387/453). The append effect is
+`durable_transaction_append` (established in P4-5b1). For materialization and current-boot
+state apply, DERIVE the effect names from what the code already does and name them
+exactly. Do NOT reuse `module_grant_decision`. Do NOT invent broad capability strings. If
+an effect name cannot be derived from existing behavior, STOP and report — do not guess.
+
+**R5 — I/O ownership confirmed.** Only pure evaluation and projection move to raios-core.
+PCI/MMIO, AHCI cache, the write/readback/inspection calls, `STATE` mutation, event
+retention, and apply stay in the kernel. A relocation that moves any of them is a STOP.
+
+**R6 — say exactly what a readback proves.** A successful readback proves the CURRENT LBA1
+sector image. It does NOT prove reboot durability, append history, rollback installation,
+or that the transaction survives a power cut. The evidence records must state the narrow
+truth, not the flattering one. (This is the same discipline as "retention is provenance,
+not an effect".)
