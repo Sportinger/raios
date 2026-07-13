@@ -552,10 +552,23 @@ creates_rollback_plans / rollback_plan_installed
 service_inventory_change:"none"
     -> D.effects excludes every inventory mutation
 mutates_global_event_log=true
-    -> D.effects includes "current_boot_reference_retained"
+    -> event_id (non-null) + E[family retained].source_event_id
 mutates_global_event_log=false
-    -> that effect is absent
+    -> event_id = null
 ```
+
+ORCHESTRATOR RESOLUTION (2026-07-13, risk 1 of section 5, applied): the first
+draft mapped reference RETENTION into `decision.effects`, which contradicts
+the fail-closed contract (P4 design section 4: a denied decision always
+renders `effects: []`) — and a valid reference IS recorded while the load
+stays denied. Resolution: retention is PROVENANCE, never an authorized
+effect. It is carried by the response `event_id` and the retained evidence
+record's `source_event_id`; `decision.effects` lists only effects the
+capability decision authorized. This keeps `denied => grants:[] && effects:[]`
+absolute, needs no change to the P4-0 substrate, and makes
+`global_event_log_mutation` a clean retired redundancy (`event_id != null`
+is the same fact). The recording RESULT (not the `check.valid` prediction)
+remains the source, per risk 1.
 
 Explicit retirements:
 
