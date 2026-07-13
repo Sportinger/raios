@@ -632,8 +632,8 @@ Assert-LogContains -Name "protocol:module_service_slot_allocator_schema" -Needle
     Assert-LogContains -Name "protocol:module_loader_runtime_denied" -Needle '"outcome": "denied", "reason": "service_slot_allocator_authority_boundary_non_authorizing", "requested_capability": "cap.module.load_ephemeral", "grants": [], "effects": []' -TimeoutSeconds 1
     Send-AgentCommand -Command "agent audit.events 64" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events" -Name "command:agent.audit.events.module_loader_runtime_source_evidence"
     $moduleLoaderRuntimeAuditEventsResponse = Get-LastAgentResponseJson -Method "memory.recent_events"
-    $moduleLoaderRuntimeInvocationEvents = @($moduleLoaderRuntimeAuditEventsResponse.body.result.events | Where-Object { $_.bindings.schema -eq "raios.module_loader_executable_entrypoint_invocation_boundary_source_evidence.v0" })
-    $moduleLoaderRuntimeInvocationBoundary = if ($moduleLoaderRuntimeInvocationEvents.Count -gt 0) { $moduleLoaderRuntimeInvocationEvents[0].bindings } else { $null }
+    $moduleLoaderRuntimeInvocationEvents = @($moduleLoaderRuntimeAuditEventsResponse.evidence | Where-Object { $_.facts.binding.schema -eq "raios.module_loader_executable_entrypoint_invocation_boundary_source_evidence.v0" })
+    $moduleLoaderRuntimeInvocationBoundary = if ($moduleLoaderRuntimeInvocationEvents.Count -gt 0) { $moduleLoaderRuntimeInvocationEvents[0].facts.binding } else { $null }
     $moduleLoaderRuntimeAuditInvocationChecks = @(
         @{ Suffix = "no_entrypoint_scoped"; Expected = $false; Actual = $(if ($null -ne $moduleLoaderRuntimeInvocationBoundary) { [bool]$moduleLoaderRuntimeInvocationBoundary.jumps_to_entrypoint } else { $null }) },
         @{ Suffix = "no_binding_scoped"; Expected = $false; Actual = $(if ($null -ne $moduleLoaderRuntimeInvocationBoundary) { [bool]$moduleLoaderRuntimeInvocationBoundary.binds_capability_validated_descriptor_to_executable_pages } else { $null }) },

@@ -1,18 +1,29 @@
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
 use crate::{
     agent_protocol_module_load_gate::emit_module_load_gate_event_binding,
+    agent_protocol_module_load_gate_render::project_module_load_gate_event_binding,
     agent_protocol_provider::{
         emit_provider_context_hashes, emit_provider_minimal_projection,
         provider_context_block_reason,
     },
     agent_protocol_support::{
-        begin_response, crlf, emit_inline_string_array, emit_record_value_fragment, end_response,
-        indent, json_event_id, json_event_id_option, json_event_sequence, json_opt_str,
-        json_sha256, json_sha256_option, json_str, method_eq, raw, raw_bool, raw_fmt, raw_line,
+        begin_response, crlf, emit_record_value_fragment, end_response, indent, json_event_id,
+        json_event_id_option, json_opt_str, json_sha256, json_sha256_option, json_str, method_eq,
+        raw, raw_bool, raw_fmt, raw_line,
     },
     agent_protocol_system::{emit_problem_objects, emit_service_ids, emit_status_state},
     event_log, memory_store, provider, provider_trust, serial,
     system_status::SystemSnapshot,
     ui,
+};
+use raios_core::{
+    event_evidence_projection::{
+        project_recent_events, CapturedEvent, EventClassification, EventEvidenceProjection,
+        EventKind, EventProjectionClass, EventSnapshotInput, HistoricalEventOutcome,
+    },
+    evidence_response::{Evidence, SCHEMA as EVIDENCE_RESPONSE_SCHEMA},
+    record::Value as V,
 };
 
 pub use raios_core::memory_context::{
@@ -20,6 +31,9 @@ pub use raios_core::memory_context::{
     memory_context_target_tokens, memory_method_arg, memory_mutation_method, MemoryContextPlan,
     MEMORY_MUTATION_METHODS,
 };
+
+static NEXT_EVENT_RESPONSE_ID: AtomicU64 = AtomicU64::new(1);
+static EMIT_BINDING_FACTS_OBJECT: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn emit_memory_profile() {
     begin_response("memory.profile");
@@ -363,43 +377,202 @@ pub(crate) fn emit_memory_trace(method: &str) {
 
 pub(crate) fn emit_recent_events(method: &str) {
     let limit = event_limit_arg(method);
-    let events = event_log::recent_events(limit);
+    let (window, events) = event_log::recent_events_snapshot(limit);
+    let projection = project_recent_events(EventSnapshotInput {
+        retention: "ram_ring",
+        persistence: "none",
+        provider_export: "disabled",
+        bounded: true,
+        limit: window.limit as u64,
+        capacity: window.capacity as u64,
+        total_count: window.total_count,
+        dropped_before_sequence: window.dropped_before_sequence,
+        events: events.iter().map(captured_event).collect(),
+    });
 
-    begin_response("memory.recent_events");
-    raw_line("      \"schema\": \"event.log.v0\",");
-    raw_line("      \"record_schema\": \"audit.event.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"retention\": \"ram_ring\",");
-    raw_line("      \"persistence\": \"none\",");
-    raw_line("      \"provider_export\": \"disabled\",");
-    raw_line("      \"bounded\": true,");
-    raw("      \"limit\": ");
-    raw_fmt(format_args!("{}", events.limit));
-    raw_line(",");
-    raw("      \"capacity\": ");
-    raw_fmt(format_args!("{}", events.capacity));
-    raw_line(",");
-    raw("      \"event_count\": ");
-    raw_fmt(format_args!("{}", events.total_count));
-    raw_line(",");
-    raw("      \"returned\": ");
-    raw_fmt(format_args!("{}", events.len));
-    raw_line(",");
-    raw("      \"dropped_before_sequence\": ");
-    raw_fmt(format_args!("{}", events.dropped_before_sequence));
-    raw_line(",");
-    raw_line("      \"events\": [");
+    emit_recent_events_v1(projection, &events);
+}
 
-    let mut idx = 0usize;
-    while idx < events.len {
-        if let Some(event) = event_log::recent_event(events, idx) {
-            emit_event(&event, idx + 1 != events.len);
-        }
-        idx += 1;
+fn captured_event(event: &event_log::Event) -> CapturedEvent<'_> {
+    let missing_binding_renderer = matches!(
+        event.bindings,
+        event_log::EventBindings::ModulePromotionSignatureReference(_)
+    );
+    CapturedEvent {
+        sequence: event.sequence,
+        kind: if event.kind.is_empty() || missing_binding_renderer {
+            EventKind::Unknown { name: event.kind }
+        } else {
+            EventKind::Known {
+                class: event_projection_class(event),
+                name: event.kind,
+            }
+        },
+        source_method: event.source_method,
+        source_transport: event.source_transport,
+        classification: event_classification(event.classification),
+        outcome: historical_event_outcome(event),
+        requested_capability: event.requested_capability,
+        risk: event.risk,
+        subject: event.subject,
+        resource: event.resource,
+        reason: event.reason,
+        source_labels: event.evidence,
+        binding: match &event.bindings {
+            event_log::EventBindings::ModuleLoadGate(binding) => {
+                Some(project_module_load_gate_event_binding(binding))
+            }
+            _ => None,
+        },
     }
+}
 
-    raw_line("      ]");
-    end_response("memory.recent_events");
+fn event_classification(value: &str) -> EventClassification {
+    match value {
+        "public" => EventClassification::Public,
+        "secret" => EventClassification::Secret,
+        _ => EventClassification::LocalOnly,
+    }
+}
+
+fn historical_event_outcome(event: &event_log::Event) -> HistoricalEventOutcome<'_> {
+    let denied_command = matches!(
+        event.bindings,
+        event_log::EventBindings::AgentCommandEnvelopeDecision(binding) if !binding.accepted
+    );
+    if event.outcome.is_empty() {
+        HistoricalEventOutcome::Unknown(event.outcome)
+    } else if denied_command
+        || event.outcome.contains("denied")
+        || event.outcome.contains("rejected")
+    {
+        HistoricalEventOutcome::Denied(event.outcome)
+    } else {
+        HistoricalEventOutcome::Observed(event.outcome)
+    }
+}
+
+fn event_projection_class(event: &event_log::Event) -> EventProjectionClass {
+    use event_log::EventBindings as B;
+    match event.bindings {
+        B::None => EventProjectionClass::Unbound,
+        B::HelloServiceLifecycle(_) => EventProjectionClass::HelloLifecycle,
+        B::HelloRecoveryRollbackInspectSourceReference(_) => {
+            EventProjectionClass::HelloInspectSource
+        }
+        B::AgentCommandEnvelopeDecision(_) => EventProjectionClass::CommandEnvelope,
+        B::ProviderRequestEnvelope(_)
+        | B::ProviderRequestBound(_)
+        | B::ProviderExportAuditBound(_)
+        | B::ProviderBindingConsumption(_)
+        | B::ProviderContextInjectionAuthorization(_)
+        | B::ProviderRequestBindingDenied(_)
+        | B::ProviderExportDenialAudit(_) => EventProjectionClass::Provider,
+        B::ModulePromotionSignatureReference(_) => {
+            EventProjectionClass::PromotionSignatureReference
+        }
+        B::ModuleLoadGate(_) => EventProjectionClass::ModuleLoadGate,
+        _ if event.kind.starts_with("module.service_slot") => {
+            EventProjectionClass::AllocatorSourceEvidence
+        }
+        _ if event.kind.starts_with("module.loader") && event.kind.contains("boundary") => {
+            EventProjectionClass::LoaderLiveBoundary
+        }
+        _ if event.kind.starts_with("module.loader") => EventProjectionClass::LoaderSourceEvidence,
+        _ if event.kind.starts_with("module.") => EventProjectionClass::ModuleRetainedReference,
+        _ => EventProjectionClass::RecoveryArtifactLifeline,
+    }
+}
+
+fn emit_recent_events_v1(projection: EventEvidenceProjection<'_>, events: &[event_log::Event]) {
+    raw_fmt(format_args!(
+        "RAIOS_AGENT_BEGIN memory.recent_events\r\n{{\r\n"
+    ));
+    emit_v1_property("schema", V::Str(EVIDENCE_RESPONSE_SCHEMA), true, 2);
+    emit_v1_property(
+        "id",
+        V::ResponseSequence(NEXT_EVENT_RESPONSE_ID.fetch_add(1, Ordering::Relaxed)),
+        true,
+        2,
+    );
+    emit_v1_property("family", V::Str("event"), true, 2);
+    emit_v1_property("scope", V::Str("current_boot"), true, 2);
+    emit_v1_property("classification", V::Str("local_only"), true, 2);
+    emit_v1_property("source_method", V::Str("memory.recent_events"), true, 2);
+    emit_v1_property("event_id", V::Null, true, 2);
+    emit_v1_property("facts", projection.facts, true, 2);
+    raw_fmt(format_args!("  "));
+    emit_record_value_fragment(V::Str("evidence"), 0);
+    raw_fmt(format_args!(": [\r\n"));
+    for (idx, (evidence, event)) in projection.evidence.into_iter().zip(events).enumerate() {
+        emit_event_evidence(evidence, event, idx + 1 != events.len());
+    }
+    raw_fmt(format_args!("  ],\r\n"));
+    emit_v1_property("decision", projection.decision, false, 2);
+    raw_fmt(format_args!(
+        "}}\r\nRAIOS_AGENT_END memory.recent_events\r\n"
+    ));
+}
+
+fn emit_v1_property(key: &str, value: V<'_>, comma: bool, spaces: usize) {
+    raw_fmt(format_args!("{:width$}", "", width = spaces));
+    emit_record_value_fragment(V::Str(key), 0);
+    raw_fmt(format_args!(": "));
+    emit_record_value_fragment(value, spaces);
+    raw_fmt(format_args!("{}\r\n", if comma { "," } else { "" }));
+}
+
+fn emit_event_evidence(evidence: Evidence<'_>, event: &event_log::Event, comma: bool) {
+    raw_fmt(format_args!("    {{\r\n"));
+    emit_v1_property("id", V::Str(evidence.id), true, 6);
+    emit_v1_property("kind", V::Str(evidence.kind), true, 6);
+    emit_v1_property("status", V::Str(evidence.status), true, 6);
+    emit_v1_property("reason", V::Str(evidence.reason), true, 6);
+    emit_v1_property(
+        "source_event_id",
+        evidence
+            .source_event_sequence
+            .map(V::EventSequence)
+            .unwrap_or(V::Null),
+        true,
+        6,
+    );
+    emit_v1_property("classification", V::Str(evidence.classification), true, 6);
+    raw_fmt(format_args!("      "));
+    emit_record_value_fragment(V::Str("facts"), 0);
+    raw_fmt(format_args!(": {{\r\n"));
+    let fields = match evidence.facts {
+        V::InlineObject(fields) => fields,
+        _ => unreachable!("event projection facts are always an inline object"),
+    };
+    let compact_binding = !matches!(
+        event.bindings,
+        event_log::EventBindings::None
+            | event_log::EventBindings::ModuleLoadGate(_)
+            | event_log::EventBindings::ModulePromotionSignatureReference(_)
+    );
+    let field_count = fields.len();
+    for (idx, field) in fields.into_iter().enumerate() {
+        emit_v1_property(
+            field.key,
+            field.value,
+            idx + 1 != field_count || compact_binding,
+            8,
+        );
+    }
+    if compact_binding {
+        raw_fmt(format_args!("        "));
+        emit_record_value_fragment(V::Str("binding"), 0);
+        raw_fmt(format_args!(": "));
+        EMIT_BINDING_FACTS_OBJECT.store(true, Ordering::Relaxed);
+        emit_event_bindings(event.kind, &event.bindings);
+        EMIT_BINDING_FACTS_OBJECT.store(false, Ordering::Relaxed);
+        crlf();
+    }
+    raw_fmt(format_args!(
+        "      }}\r\n    }}{}\r\n",
+        if comma { "," } else { "" }
+    ));
 }
 
 pub(crate) fn emit_memory_capability_denied(method: &'static str, event_id: event_log::EventId) {
@@ -435,43 +608,6 @@ pub(crate) fn emit_memory_capability_denied(method: &'static str, event_id: even
     serial::write_raw_fmt(format_args!("RAIOS_AGENT_END {}\r\n", method));
 }
 
-fn emit_event(event: &event_log::Event, comma: bool) {
-    indent(8);
-    raw("{\"schema\": \"audit.event.v0\", \"id\": ");
-    json_event_sequence(event.sequence);
-    raw(", \"scope\": \"current_boot\", \"sequence\": ");
-    raw_fmt(format_args!("{}", event.sequence));
-    raw(", \"kind\": ");
-    json_str(event.kind);
-    raw(", \"source_method\": ");
-    json_str(event.source_method);
-    raw(", \"source_transport\": ");
-    json_str(event.source_transport);
-    raw(", \"classification\": ");
-    json_str(event.classification);
-    raw(", \"outcome\": ");
-    json_str(event.outcome);
-    raw(", \"requested_capability\": ");
-    json_str(event.requested_capability);
-    raw(", \"risk\": ");
-    json_str(event.risk);
-    raw(", \"subject\": ");
-    json_str(event.subject);
-    raw(", \"resource\": ");
-    json_str(event.resource);
-    raw(", \"reason\": ");
-    json_str(event.reason);
-    raw(", \"evidence\": [");
-    emit_inline_string_array(event.evidence);
-    raw("], \"created_at\": {\"clock\": \"sequence_only\", \"millis\": null}");
-    emit_event_bindings(event.kind, &event.bindings);
-    raw(", \"persistence\": \"none\"}");
-    if comma {
-        raw(",");
-    }
-    crlf();
-}
-
 #[derive(Clone, Copy)]
 enum BindingValue {
     Str(&'static str),
@@ -496,7 +632,13 @@ fn emit_binding_object<B, F: Copy>(
     fields: &[BindingField<F>],
     value: fn(&B, &str, F) -> BindingValue,
 ) {
-    raw(", \"bindings\": {");
+    // ponytail: serial command emission is single-threaded; P4-4b2b typed fields
+    // remove this compact-renderer mode flag before concurrent response emission.
+    raw(if EMIT_BINDING_FACTS_OBJECT.load(Ordering::Relaxed) {
+        "{"
+    } else {
+        ", \"bindings\": {"
+    });
     let mut idx = 0usize;
     while idx < fields.len() {
         if idx != 0 {
@@ -516,7 +658,11 @@ pub(crate) fn emit_binding_object_direct<B, F: Copy>(
     fields: &[BindingField<F>],
     emit_value: fn(&B, &str, F),
 ) {
-    raw(", \"bindings\": {");
+    raw(if EMIT_BINDING_FACTS_OBJECT.load(Ordering::Relaxed) {
+        "{"
+    } else {
+        ", \"bindings\": {"
+    });
     let mut idx = 0usize;
     while idx < fields.len() {
         if idx != 0 {

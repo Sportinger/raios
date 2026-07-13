@@ -1,57 +1,57 @@
     Assert-LogContains -Name "protocol:module_manifest_audit_source" -Needle '"source_method": "module.manifest_diagnostic"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_manifest_audit_kind" -Needle '"kind": "module.manifest_reference.retained"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_manifest_audit_outcome" -Needle '"outcome": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_manifest_audit_binding_schema" -Needle '"bindings": {"schema": "raios.module_manifest_reference.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_audit_outcome" -Needle '"status_detail": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_audit_binding_schema" -Needle '"binding": {"schema": "raios.module_manifest_reference.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_manifest_audit_ref_hash" -Needle "`"manifest_reference_hash`": `"sha256:$moduleManifestReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_manifest_audit_hash" -Needle "`"manifest_hash`": `"sha256:$moduleGrantManifestHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_manifest_audit_no_load" -Needle '"load_attempted": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_artifact_audit_source" -Needle '"source_method": "module.artifact_diagnostic"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_artifact_audit_kind" -Needle '"kind": "module.artifact_reference.retained"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_artifact_audit_outcome" -Needle '"outcome": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_artifact_audit_binding_schema" -Needle '"bindings": {"schema": "raios.module_candidate_artifact_reference.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_artifact_audit_outcome" -Needle '"status_detail": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_artifact_audit_binding_schema" -Needle '"binding": {"schema": "raios.module_candidate_artifact_reference.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_artifact_audit_ref_hash" -Needle "`"artifact_reference_hash`": `"sha256:$moduleArtifactReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_artifact_audit_hash" -Needle "`"artifact_hash`": `"sha256:$moduleGrantArtifactHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_artifact_audit_no_load" -Needle '"load_attempted": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_vm_report_audit_source" -Needle '"source_method": "module.vm_report_diagnostic"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_vm_report_audit_kind" -Needle '"kind": "module.vm_test_report_reference.retained"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_vm_report_audit_outcome" -Needle '"outcome": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_vm_report_audit_binding_schema" -Needle '"bindings": {"schema": "raios.module_vm_test_report_reference.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_vm_report_audit_outcome" -Needle '"status_detail": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_vm_report_audit_binding_schema" -Needle '"binding": {"schema": "raios.module_vm_test_report_reference.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_vm_report_audit_ref_hash" -Needle "`"vm_test_report_reference_hash`": `"sha256:$moduleVmReportReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_vm_report_audit_hash" -Needle "`"vm_test_report_hash`": `"sha256:$moduleGrantReportHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_vm_report_audit_no_load" -Needle '"load_attempted": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_attestation_audit_source" -Needle '"source_method": "module.attestation_diagnostic"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_attestation_audit_kind" -Needle '"kind": "module.local_attestation_reference.retained"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_attestation_audit_outcome" -Needle '"outcome": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_attestation_audit_binding_schema" -Needle '"bindings": {"schema": "raios.module_local_attestation_reference.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_audit_outcome" -Needle '"status_detail": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_audit_binding_schema" -Needle '"binding": {"schema": "raios.module_local_attestation_reference.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_attestation_audit_ref_hash" -Needle "`"local_attestation_reference_hash`": `"sha256:$moduleAttestationReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_attestation_audit_hash" -Needle "`"local_attestation_hash`": `"sha256:$moduleGrantAttestationHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_attestation_audit_no_load" -Needle '"load_attempted": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_approval_audit_source" -Needle '"source_method": "module.approval_diagnostic"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_approval_audit_kind" -Needle '"kind": "module.local_approval_reference.retained"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_approval_audit_outcome" -Needle '"outcome": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_approval_audit_binding_schema" -Needle '"bindings": {"schema": "raios.module_local_approval_reference.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_audit_outcome" -Needle '"status_detail": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_audit_binding_schema" -Needle '"binding": {"schema": "raios.module_local_approval_reference.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_approval_audit_ref_hash" -Needle "`"local_approval_reference_hash`": `"sha256:$moduleApprovalReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_approval_audit_hash" -Needle "`"local_approval_hash`": `"sha256:$moduleAuditLocalApprovalHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_approval_audit_no_load" -Needle '"load_attempted": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_audit_source" -Needle '"source_method": "module.grant_diagnostic"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_audit_kind" -Needle '"kind": "module.computed_grant_reference.retained"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_grant_audit_outcome" -Needle '"outcome": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_grant_audit_outcome" -Needle '"status_detail": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_audit_capability" -Needle '"requested_capability": "cap.module.grant_diagnostic.read"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_grant_audit_binding_schema" -Needle '"bindings": {"schema": "raios.module_computed_grant_reference.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_grant_audit_binding_schema" -Needle '"binding": {"schema": "raios.module_computed_grant_reference.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_audit_binding_status" -Needle '"status": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_audit_no_capability" -Needle '"grants_capability": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_audit_no_load" -Needle '"load_attempted": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_audit_hash" -Needle "`"computed_capability_grant_hash`": `"sha256:$moduleGrantHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_audit_source" -Needle '"source_method": "module.audit_rollback_diagnostic"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_audit_kind" -Needle '"kind": "module.audit_rollback_reference.retained"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_audit_outcome" -Needle '"outcome": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_audit_binding_schema" -Needle '"bindings": {"schema": "raios.module_audit_rollback_reference.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_audit_outcome" -Needle '"status_detail": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_audit_binding_schema" -Needle '"binding": {"schema": "raios.module_audit_rollback_reference.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_audit_hash" -Needle "`"audit_record_hash`": `"sha256:$moduleAuditHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_audit_no_load" -Needle '"load_attempted": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_audit_source" -Needle '"source_method": "module.service_slot_diagnostic"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_audit_kind" -Needle '"kind": "module.service_slot_reservation.retained"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_audit_outcome" -Needle '"outcome": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_audit_binding_schema" -Needle '"bindings": {"schema": "raios.module_service_slot_reservation.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_audit_outcome" -Needle '"status_detail": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_audit_binding_schema" -Needle '"binding": {"schema": "raios.module_service_slot_reservation.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_audit_reservation_hash" -Needle "`"reservation_hash`": `"sha256:$moduleServiceSlotReservationHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_audit_no_allocation" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_audit_no_inventory" -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
@@ -69,7 +69,7 @@
     Assert-LogContains -Name "protocol:module_load_audit_evidence_rollback_bindings" -Needle '"rollback_bindings_required"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_evidence_inventory" -Needle '"service_inventory_unchanged"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_evidence_no_load" -Needle '"load_not_attempted"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_audit_binding_schema" -Needle '"bindings": {"schema": "raios.module_load_gate.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_binding_schema" -Needle '"binding": {"record_schema": "raios.module_load_gate.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_binding_status" -Needle '"status": "denied_missing_evidence"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_requirements_schema" -Needle '"audit_rollback_requirements": {"record_schema": "raios.module_load_gate_audit_rollback_requirements.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_requirements_no_load" -Needle '"audit_rollback_requirements": {"record_schema": "raios.module_load_gate_audit_rollback_requirements.v0", "classification": "public", "status": "required_missing"' -TimeoutSeconds 1

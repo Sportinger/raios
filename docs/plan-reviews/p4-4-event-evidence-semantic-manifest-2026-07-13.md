@@ -689,3 +689,44 @@ retire it EXPLICITLY with a named manifest note and a reason — never by omissi
   response leaf. P4-4b1 therefore carries the named drop boundary and does not
   invent a truncation field; kernel integration should resolve that only if a
   distinct evaluator-owned fact exists.
+
+## P4-4b2a notes
+
+- Capability: an agent can now read the current-boot event ring as one
+  `raios.evidence_response.v1` envelope whose ordered historical events are
+  evidence records and whose only decision is
+  `observed("recent_events_read")`; historical denials no longer decide the
+  read.
+- `event_log::recent_events_snapshot()` captures the window metadata and every
+  selected event under one `LOG` lock. This closes the latent TOCTOU race in
+  which `recent_events()` and repeated `recent_event()` calls could observe
+  different ring states; capacity, eviction, and oldest-to-newest order are
+  unchanged.
+- The envelope has `event_id: null`. Every event record carries its own
+  `status`, `reason`, `source_event_id`, and `classification`. Compact binding
+  bodies remain byte-for-byte on their existing emitters under `facts.binding`;
+  P4-4b2b owns their typed field-table conversion. The load-gate binding alone
+  uses `project_load_gate_event_binding()` and intentionally drops its direct
+  response decision. `ModulePromotionSignatureReference`, which has no compact
+  emitter, is an explicit rejected `unknown_event` record rather than a silent
+  skip.
+- Stash reuse was limited to the atomic snapshot, `project_recent_events()`
+  routing, and the load-gate projection-input adapter. The incomplete generic
+  binding projection (including event-kind-as-`record_schema`) was deliberately
+  not restored.
+
+### Harness predicate accounting
+
+| Bucket | Exact predicates/carriers |
+| --- | --- |
+| Regenerated | `protocol:memory_recent_events_schema`, `protocol:memory_recent_events_family` (replaces `protocol:memory_recent_events_record_schema`), `protocol:memory_recent_events_read_outcome`, `protocol:memory_recent_events_provider_request_binding_denied_outcome`, `protocol:memory_recent_events_provider_export_audit_outcome`, `protocol:memory_recent_events_request_denial_bindings`, `protocol:memory_recent_events_export_denial_bindings`, `protocol:audit_events_alias_schema`, `protocol:audit_events_denied_outcome`, `protocol:module_manifest_audit_outcome`, `protocol:module_manifest_audit_binding_schema`, `protocol:module_artifact_audit_outcome`, `protocol:module_artifact_audit_binding_schema`, `protocol:module_vm_report_audit_outcome`, `protocol:module_vm_report_audit_binding_schema`, `protocol:module_attestation_audit_outcome`, `protocol:module_attestation_audit_binding_schema`, `protocol:module_approval_audit_outcome`, `protocol:module_approval_audit_binding_schema`, `protocol:module_grant_audit_outcome`, `protocol:module_grant_audit_binding_schema`, `protocol:module_audit_rollback_audit_outcome`, `protocol:module_audit_rollback_audit_binding_schema`, `protocol:module_service_slot_audit_outcome`, `protocol:module_service_slot_audit_binding_schema`, `protocol:module_load_audit_binding_schema`, `quick:audit_events_schema`; `full-module-evidence` invocation carrier now reads `evidence[].facts.binding`. |
+| Honest merge | Quick-profile event-path checks share one explicit v1-to-check-record adapter after directly asserting schema/family/null-event-id/observed-read decision. Merged names: `envelopeAuditEvents`, `acceptedEnvelopeEvent`, `systemSnapshotEnvelopeEvent`, `bootLogEnvelopeEvent`, `deviceGraphEnvelopeEvent`, `serviceInventoryEnvelopeEvent`, `systemCapabilitiesEnvelopeEvent`, `problemListEnvelopeEvent`, `badEnvelopeEvent`, `overCapEnvelopeEvent`, `mismatchEnvelopeEvent`, `helloEvents`, `helloStateEvents`, `helloResetDeniedEvents`, `helloRestartEvents`, `helloHotSwapEvents`, `helloHotSwapV2Events`, `helloHotSwapV2MigrationEvents`, `helloHotSwapV2ProbationEvents`, `helloRollbackPreviewEvents`, `helloRollbackApplyEvents`, `helloRollbackApplyWriterStorageFoundationEvents`, `helloRollbackApplyWriterReadinessEvents`, `helloRollbackApplyWriterWritePathGateEvents`, `helloDescriptorEvents`, `helloDescriptorHashEvents`, `helloDescriptorSourceEvents`, `helloDescriptorEnvelopeEvents`, `helloArtifactIdentityEvents`, `helloArtifactContentEvents`, `helloArtifactReferenceEvents`, `helloLoadPlanPreflightEvents`, `helloServiceSlotActivationEvents`, `helloServiceSlotActivationStatuses`, `hostDescriptorHashEvents`, `hostDescriptorSourceEvents`, `hostLoadPlanPreflightEvents`, `hostServiceSlotActivationEvents`, `hostServiceSlotActivationStatuses`, `helloHealthEvents`, `helloHealthStateEvents`, `helloHealthEnvelopeEvents`, `helloHealthArtifactIdentityEvents`, `helloHealthArtifactContentEvents`, `helloHealthArtifactReferenceEvents`, `helloHealthLoadPlanPreflightEvents`, `helloHealthServiceSlotActivationEvents`, `helloHealthServiceSlotActivationStatuses`, `hostHealthEvents`, `hostHealthLoadPlanPreflightEvents`, `hostHealthServiceSlotActivationEvents`. |
+| Retired | None. |
+
+Donor exposure verdict: quick-profile legacy event paths in the former
+2687-2914 block were broken by the envelope and are carried by the named honest
+merge above; compact binding leaf checks remain unchanged. Provider-memory
+lines 102, 103, and 143 were broken and regenerated to v1 schema/family/schema.
+Module-evidence lines 635-636 were broken and now select
+`evidence[].facts.binding`. No listed donor exposure remains merely reported
+outside the write set.

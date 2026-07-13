@@ -1,4 +1,4 @@
-use alloc::{vec, vec::Vec};
+﻿use alloc::{vec, vec::Vec};
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{
@@ -4543,65 +4543,66 @@ fn loader_runtime_facts(
     out
 }
 
-fn emit_load_gate_v1(
-    method: &'static str,
-    event_id: Option<event_log::EventId>,
-    binding: event_log::ModuleLoadGateBinding,
-    framed: bool,
-) {
-    // Capture every non-binding accessor once before constructing the typed projection.
+fn module_load_gate_projection_input(
+    binding: &event_log::ModuleLoadGateBinding,
+) -> LoadGateProjectionInput<'_> {
+    // `binding` (the reference) is what the fact builders borrow from, so their
+    // Vec<Field<'a>> outlives this function. `copy` is the by-value form the
+    // Copy-taking state/validity accessors want. Shadowing the reference with the
+    // copy would make the returned facts borrow a local: E0515.
+    let copy = *binding;
     let receiver = agent_protocol::receiver_identity_load_preflight_projection();
-    let allocator = module_load_gate_service_slot_allocator_projection(binding);
-    let manifest_valid = module_load_gate_manifest_reference_valid(binding);
-    let manifest_rejected = module_load_gate_manifest_reference_rejected(binding);
-    let artifact_valid = module_load_gate_candidate_artifact_reference_valid(binding);
-    let artifact_rejected = module_load_gate_candidate_artifact_reference_rejected(binding);
-    let report_valid = module_load_gate_vm_test_report_reference_valid(binding);
-    let report_rejected = module_load_gate_vm_test_report_reference_rejected(binding);
-    let attestation_valid = module_load_gate_local_attestation_reference_valid(binding);
-    let attestation_rejected = module_load_gate_local_attestation_reference_rejected(binding);
-    let approval_valid = module_load_gate_local_approval_reference_valid(binding);
-    let approval_rejected = module_load_gate_local_approval_reference_rejected(binding);
-    let audit_valid = module_load_gate_audit_rollback_reference_valid(binding);
-    let audit_rejected = module_load_gate_audit_rollback_reference_rejected(binding);
-    let slot_valid = module_load_gate_service_slot_reservation_valid(binding);
-    let slot_rejected = module_load_gate_service_slot_reservation_rejected(binding);
+    let allocator = module_load_gate_service_slot_allocator_projection(copy);
+    let manifest_valid = module_load_gate_manifest_reference_valid(copy);
+    let manifest_rejected = module_load_gate_manifest_reference_rejected(copy);
+    let artifact_valid = module_load_gate_candidate_artifact_reference_valid(copy);
+    let artifact_rejected = module_load_gate_candidate_artifact_reference_rejected(copy);
+    let report_valid = module_load_gate_vm_test_report_reference_valid(copy);
+    let report_rejected = module_load_gate_vm_test_report_reference_rejected(copy);
+    let attestation_valid = module_load_gate_local_attestation_reference_valid(copy);
+    let attestation_rejected = module_load_gate_local_attestation_reference_rejected(copy);
+    let approval_valid = module_load_gate_local_approval_reference_valid(copy);
+    let approval_rejected = module_load_gate_local_approval_reference_rejected(copy);
+    let audit_valid = module_load_gate_audit_rollback_reference_valid(copy);
+    let audit_rejected = module_load_gate_audit_rollback_reference_rejected(copy);
+    let slot_valid = module_load_gate_service_slot_reservation_valid(copy);
+    let slot_rejected = module_load_gate_service_slot_reservation_rejected(copy);
 
-    let projection = project_load_gate_denial(LoadGateProjectionInput {
+    LoadGateProjectionInput {
         module_manifest: prerequisite(
             retained_status(manifest_valid, manifest_rejected),
-            module_load_gate_manifest_state(binding),
-            module_load_gate_manifest_reason(binding),
+            module_load_gate_manifest_state(copy),
+            module_load_gate_manifest_reason(copy),
             binding.manifest_reference_event_id,
-            module_manifest_facts(binding),
+            module_manifest_facts(copy),
         ),
         candidate_artifact: prerequisite(
             retained_status(artifact_valid, artifact_rejected),
-            module_load_gate_candidate_artifact_state(binding),
-            module_load_gate_candidate_artifact_reason(binding),
+            module_load_gate_candidate_artifact_state(copy),
+            module_load_gate_candidate_artifact_reason(copy),
             binding.artifact_reference_event_id,
-            candidate_artifact_facts(binding),
+            candidate_artifact_facts(copy),
         ),
         vm_test_report: prerequisite(
             retained_status(report_valid, report_rejected),
-            module_load_gate_vm_test_report_state(binding),
-            module_load_gate_vm_test_report_reason(binding),
+            module_load_gate_vm_test_report_state(copy),
+            module_load_gate_vm_test_report_reason(copy),
             binding.vm_report_reference_event_id,
-            vm_report_facts(binding),
+            vm_report_facts(copy),
         ),
         local_attestation: prerequisite(
             retained_status(attestation_valid, attestation_rejected),
-            module_load_gate_local_attestation_state(binding),
-            module_load_gate_local_attestation_reason(binding),
+            module_load_gate_local_attestation_state(copy),
+            module_load_gate_local_attestation_reason(copy),
             binding.attestation_reference_event_id,
-            local_attestation_facts(binding),
+            local_attestation_facts(copy),
         ),
         local_approval: prerequisite(
             retained_status(approval_valid, approval_rejected),
-            module_load_gate_local_approval_state(binding),
-            module_load_gate_local_approval_reason(binding),
+            module_load_gate_local_approval_state(copy),
+            module_load_gate_local_approval_reason(copy),
             binding.approval_reference_event_id,
-            local_approval_facts(binding),
+            local_approval_facts(copy),
         ),
         computed_capability_grant: prerequisite(
             if binding.retained_reference.is_some() {
@@ -4609,45 +4610,45 @@ fn emit_load_gate_v1(
             } else {
                 LoadGateEvidenceStatus::Missing
             },
-            module_load_gate_computed_grant_state(binding),
-            module_load_gate_computed_grant_reason(binding),
+            module_load_gate_computed_grant_state(copy),
+            module_load_gate_computed_grant_reason(copy),
             binding.retained_reference_event_id,
-            computed_grant_facts(binding),
+            computed_grant_facts(copy),
         ),
         durable_audit_record: prerequisite(
             retained_status(audit_valid, audit_rejected),
-            module_load_gate_durable_audit_state(binding),
-            module_load_gate_durable_audit_reason(binding),
+            module_load_gate_durable_audit_state(copy),
+            module_load_gate_durable_audit_reason(copy),
             binding.audit_rollback_reference_event_id,
-            audit_rollback_facts(&binding, false),
+            audit_rollback_facts(binding, false),
         ),
         rollback_plan: prerequisite(
             retained_status(audit_valid, audit_rejected),
-            module_load_gate_rollback_state(binding),
-            module_load_gate_rollback_reason(binding),
+            module_load_gate_rollback_state(copy),
+            module_load_gate_rollback_reason(copy),
             binding.audit_rollback_reference_event_id,
-            audit_rollback_facts(&binding, true),
+            audit_rollback_facts(binding, true),
         ),
         service_slot: prerequisite(
             retained_status(slot_valid, slot_rejected),
-            module_load_gate_service_slot_state(binding),
-            module_load_gate_service_slot_reason(binding),
+            module_load_gate_service_slot_state(copy),
+            module_load_gate_service_slot_reason(copy),
             binding.service_slot_reservation_event_id,
-            service_slot_facts(&binding),
+            service_slot_facts(binding),
         ),
         service_slot_allocator: prerequisite(
             LoadGateEvidenceStatus::Present,
             allocator.state,
             allocator.reason,
             allocator.authority_source_evidence_event_id,
-            allocator_facts(binding, allocator),
+            allocator_facts(copy, allocator),
         ),
         loader_runtime: prerequisite(
             LoadGateEvidenceStatus::Present,
-            module_load_gate_loader_runtime_state(binding),
-            module_load_gate_loader_runtime_reason(binding),
+            module_load_gate_loader_runtime_state(copy),
+            module_load_gate_loader_runtime_reason(copy),
             None,
-            loader_runtime_facts(binding, receiver),
+            loader_runtime_facts(copy, receiver),
         ),
         loader: prerequisite(
             LoadGateEvidenceStatus::Unavailable,
@@ -4656,7 +4657,24 @@ fn emit_load_gate_v1(
             None,
             vec![],
         ),
-    });
+    }
+}
+
+pub(crate) fn project_module_load_gate_event_binding(
+    binding: &event_log::ModuleLoadGateBinding,
+) -> raios_core::event_evidence_projection::ClassifiedEventFacts<'_> {
+    raios_core::event_evidence_projection::project_load_gate_event_binding(
+        module_load_gate_projection_input(binding),
+    )
+}
+
+fn emit_load_gate_v1(
+    method: &'static str,
+    event_id: Option<event_log::EventId>,
+    binding: event_log::ModuleLoadGateBinding,
+    framed: bool,
+) {
+    let projection = project_load_gate_denial(module_load_gate_projection_input(&binding));
 
     let facts = V::InlineObject(vec![
         f(

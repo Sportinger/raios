@@ -2684,7 +2684,28 @@
 
         Send-AgentCommand -Command "agent audit.events 72" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
         $recentEvents = Get-LastAgentResponseJson -Method "memory.recent_events"
-        $envelopeAuditEvents = @($recentEvents.body.result.events | Where-Object { $_.kind -eq "raios.agent_command_envelope.decision" })
+        if ($recentEvents.schema -ne "raios.evidence_response.v1" -or $recentEvents.family -ne "event" -or $null -ne $recentEvents.event_id -or $recentEvents.decision.outcome -ne "observed" -or $recentEvents.decision.reason -ne "recent_events_read") {
+            throw "Expected memory.recent_events evidence-v1 read envelope"
+        }
+        $recentEventRecords = @($recentEvents.evidence | ForEach-Object {
+            [pscustomobject]@{
+                id = $_.source_event_id
+                kind = $_.facts.kind
+                source_method = $_.facts.source_method
+                source_transport = $_.facts.source_transport
+                classification = $_.classification
+                outcome = $_.facts.status_detail
+                requested_capability = $_.facts.requested_capability
+                risk = $_.facts.risk
+                subject = $_.facts.subject
+                resource = $_.facts.resource
+                reason = $_.facts.status_reason
+                evidence = @($_.facts.labels)
+                bindings = $_.facts.binding
+            }
+        })
+        $recentEvents | Add-Member -NotePropertyName body -NotePropertyValue ([pscustomobject]@{ result = [pscustomobject]@{ events = $recentEventRecords } })
+        $envelopeAuditEvents = @($recentEventRecords | Where-Object { $_.kind -eq "raios.agent_command_envelope.decision" })
         if ($envelopeAuditEvents.Count -ne 10) {
             throw "Expected ten agent command envelope audit events"
         }
@@ -2744,7 +2765,7 @@
         if (-not $overCapEnvelopeEvent -or $overCapEnvelopeEvent.outcome -ne "capability_denied" -or $overCapEnvelopeEvent.bindings.reason -ne "target_method_not_allowed" -or $overCapEnvelopeEvent.bindings.target_method -ne "module.load_ephemeral" -or $overCapEnvelopeEvent.bindings.dispatches_existing_agent_method) {
             throw "Expected over-capable agent command envelope audit event to be denied before dispatch"
         }
-        $helloEvents = @($recentEvents.body.result.events | Where-Object { $_.kind -eq "raios.ram_only_hello_service.lifecycle" -and $_.resource -eq "svc.demo.hello" })
+        $helloEvents = @($recentEventRecords | Where-Object { $_.kind -eq "raios.ram_only_hello_service.lifecycle" -and $_.resource -eq "svc.demo.hello" })
         if ($helloEvents.Count -lt 6) {
             throw "Expected hello load/stop/drop lifecycle events in RAM audit log"
         }
@@ -2911,7 +2932,7 @@
         if ($hostHealthServiceSlotActivationEvents.Count -lt 1) {
             throw "Expected host-bound health event to cite the host-bound service-slot activation"
         }
-        Assert-LogContains -Name "quick:audit_events_schema" -Needle '"schema": "event.log.v0"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_schema" -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_limit" -Needle '"limit": 72' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_provider_export_source" -Needle '"source_method": "provider.context_export"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_module_load_source" -Needle '"source_method": "module.load_ephemeral"' -TimeoutSeconds 1
