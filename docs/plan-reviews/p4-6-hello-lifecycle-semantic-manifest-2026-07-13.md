@@ -812,3 +812,29 @@ is provenance for an observation and is not an authorized effect.
 H2 remains intact: no Hello kernel source was relocated and its attested source
 set was not changed. H3 remains intact: no rollback or write-boundary field was
 modeled, projected, relocated, or modified.
+
+## P4-6b2 notes
+
+The Hello lifecycle could not report its own state transition because the
+pre-state was never captured; P4-6b2 captures it under the mutation's own
+`STATE` lock. Each lifecycle operation now returns one coherent capture with
+the pre-action and post-action snapshots taken during the mutation's existing
+single lock acquisition. Health uses the same captured snapshot as both ends
+of a non-mutating observation. An initial load reports the absent pre-state as
+explicit `missing` state-transition evidence rather than inventing state.
+
+The load, start, restart, hot-swap, stop, drop, and health response paths now
+consume `project_hello_lifecycle` and render `raios.evidence_response.v1`.
+Their decisions remain `observed("<action>_performed")`; descriptor, artifact,
+service-slot, inventory, pre/post state, optional migration, and optional
+health remain ordered, classified evidence carrying the one recorded event.
+No capability, grant proof, decision effect, hash grammar, rollback field, or
+write-boundary field was added or changed.
+
+The focused harness now asserts the v1 envelope and ordered evidence once per
+action family, including every lifecycle action, running/stopped/missing health,
+v1/v2 migration, host-bound descriptor binding, all pre/post state transitions,
+and the legacy pinned hashes. Preflight, slot-activation, descriptor-envelope,
+and probation hashes that are not fields of the committed b1 projection remain
+asserted through their existing inventory, rollback-preview, and retained-event
+carriers rather than being duplicated into lifecycle facts.

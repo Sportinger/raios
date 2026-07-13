@@ -37,7 +37,8 @@
 
     Send-AgentCommand -Command "module.load_ephemeral svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral"
     $helloDryRunLoad = Get-LastAgentResponseJson -Method "module.load_ephemeral"
-    if ($helloDryRunLoad.body.result.schema -ne "raios.ram_only_hello_service.v0" -or -not $helloDryRunLoad.body.result.service.loaded -or -not $helloDryRunLoad.body.result.service.running) {
+    $helloDryRunLoadState = @($helloDryRunLoad.evidence | Where-Object { $_.id -eq "state_transition" })[0]
+    if ($helloDryRunLoad.schema -ne "raios.evidence_response.v1" -or $helloDryRunLoad.family -ne "hello.lifecycle" -or $helloDryRunLoad.decision.reason -ne "load_performed" -or -not $helloDryRunLoadState.facts.after.loaded -or -not $helloDryRunLoadState.facts.after.running) {
         throw "Expected Hello rollback dry-run profile to load the built-in RAM-only service"
     }
 
@@ -48,7 +49,8 @@
         throw "Expected agent command envelope to accept and dispatch service.health without durable rollback authority"
     }
     $helloHealthEnvelopeResponse = Get-LastAgentResponseJson -Method "service.health"
-    if ($helloHealthEnvelopeResponse.body.result.schema -ne "raios.ram_only_hello_service.health.v0" -or $helloHealthEnvelopeResponse.body.result.service.version -ne "v1" -or -not $helloHealthEnvelopeResponse.body.result.service.loaded -or -not $helloHealthEnvelopeResponse.body.result.service.running) {
+    $helloHealthEnvelopeState = @($helloHealthEnvelopeResponse.evidence | Where-Object { $_.id -eq "state_transition" })[0]
+    if ($helloHealthEnvelopeResponse.schema -ne "raios.evidence_response.v1" -or $helloHealthEnvelopeResponse.family -ne "hello.health" -or $helloHealthEnvelopeResponse.decision.reason -ne "health_performed" -or $helloHealthEnvelopeState.facts.after.version -ne "v1" -or -not $helloHealthEnvelopeState.facts.after.loaded -or -not $helloHealthEnvelopeState.facts.after.running) {
         throw "Expected enveloped service.health to return the loaded v1 Hello service health"
     }
 
@@ -67,8 +69,10 @@
 
     Send-AgentCommand -Command "service.hot_swap svc.demo.hello.v2" -ExpectedMarker "RAIOS_AGENT_END service.hot_swap"
     $helloDryRunHotSwap = Get-LastAgentResponseJson -Method "service.hot_swap"
-    if ($helloDryRunHotSwap.body.result.service.version -ne "v2" -or -not $helloDryRunHotSwap.body.result.hot_swap_probation.probation_hash.StartsWith("sha256:")) {
-        throw "Expected Hello rollback dry-run profile to create v2 hot-swap probation evidence"
+    $helloDryRunHotSwapState = @($helloDryRunHotSwap.evidence | Where-Object { $_.id -eq "state_transition" })[0]
+    $helloDryRunHotSwapMigration = @($helloDryRunHotSwap.evidence | Where-Object { $_.id -eq "state_migration" })[0]
+    if ($helloDryRunHotSwap.family -ne "hello.lifecycle" -or $helloDryRunHotSwapState.facts.after.version -ne "v2" -or $helloDryRunHotSwapMigration.facts.to_version -ne "v2" -or -not $helloDryRunHotSwapMigration.facts.migration_hash.StartsWith("sha256:")) {
+        throw "Expected Hello rollback dry-run profile to expose v2 migration evidence"
     }
 
     $helloRollbackPreviewEnvelopeCommand = "agent command_envelope schema=raios.agent_command_envelope.v0 target_method=service.rollback_preview requested_capability=cap.service.rollback_preview.read classification=local_only"
@@ -298,13 +302,15 @@
 
     Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
     $helloDryRunHealth = Get-LastAgentResponseJson -Method "service.health"
-    if ($helloDryRunHealth.body.result.service.version -ne "v1" -or -not $helloDryRunHealth.body.result.service.running) {
+    $helloDryRunHealthState = @($helloDryRunHealth.evidence | Where-Object { $_.id -eq "state_transition" })[0]
+    if ($helloDryRunHealth.family -ne "hello.health" -or $helloDryRunHealthState.facts.after.version -ne "v1" -or -not $helloDryRunHealthState.facts.after.running) {
         throw "Expected applied rollback to restore the active v1 Hello service"
     }
 
     Send-AgentCommand -Command "service.drop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.drop"
     $helloDryRunDrop = Get-LastAgentResponseJson -Method "service.drop"
-    if ($helloDryRunDrop.body.result.service.loaded -or $helloDryRunDrop.body.result.service.running) {
+    $helloDryRunDropState = @($helloDryRunDrop.evidence | Where-Object { $_.id -eq "state_transition" })[0]
+    if ($helloDryRunDrop.family -ne "hello.lifecycle" -or $helloDryRunDrop.decision.reason -ne "drop_performed" -or $helloDryRunDropState.facts.after.loaded -or $helloDryRunDropState.facts.after.running) {
         throw "Expected Hello rollback dry-run profile to drop the service after verification"
     }
 

@@ -13,8 +13,12 @@ pub(crate) enum RollbackApplyResult {
     },
 }
 
-pub(crate) fn load_start(source_method: &'static str, descriptor: LoadDescriptor) -> Snapshot {
+pub(crate) fn load_start(
+    source_method: &'static str,
+    descriptor: LoadDescriptor,
+) -> LifecycleCapture {
     let mut state = STATE.lock();
+    let before = state.snapshot();
     let reason = if state.loaded && state.running {
         "already_running"
     } else if state.loaded {
@@ -59,11 +63,15 @@ pub(crate) fn load_start(source_method: &'static str, descriptor: LoadDescriptor
     state.last_reason = reason;
     state.last_inventory_change = inventory_change;
     state.last_event_id = Some(event_id);
-    state.snapshot()
+    LifecycleCapture {
+        before,
+        after: state.snapshot(),
+    }
 }
 
-pub(crate) fn start(source_method: &'static str) -> Snapshot {
+pub(crate) fn start(source_method: &'static str) -> LifecycleCapture {
     let mut state = STATE.lock();
+    let before = state.snapshot();
     let descriptor = state.load_descriptor;
     let reason = if state.loaded && state.running {
         "already_running"
@@ -114,11 +122,15 @@ pub(crate) fn start(source_method: &'static str) -> Snapshot {
     state.last_reason = reason;
     state.last_inventory_change = inventory_change;
     state.last_event_id = Some(event_id);
-    state.snapshot()
+    LifecycleCapture {
+        before,
+        after: state.snapshot(),
+    }
 }
 
-pub(crate) fn restart(source_method: &'static str) -> Snapshot {
+pub(crate) fn restart(source_method: &'static str) -> LifecycleCapture {
     let mut state = STATE.lock();
+    let before = state.snapshot();
     let descriptor = state.load_descriptor;
     let reason = if state.loaded {
         "restarted_loaded_service"
@@ -167,11 +179,18 @@ pub(crate) fn restart(source_method: &'static str) -> Snapshot {
     state.last_reason = reason;
     state.last_inventory_change = inventory_change;
     state.last_event_id = Some(event_id);
-    state.snapshot()
+    LifecycleCapture {
+        before,
+        after: state.snapshot(),
+    }
 }
 
-pub(crate) fn hot_swap(source_method: &'static str, descriptor: LoadDescriptor) -> Snapshot {
+pub(crate) fn hot_swap(
+    source_method: &'static str,
+    descriptor: LoadDescriptor,
+) -> LifecycleCapture {
     let mut state = STATE.lock();
+    let before = state.snapshot();
     let reason = if state.loaded {
         "hot_swapped_builtin_service"
     } else {
@@ -241,7 +260,10 @@ pub(crate) fn hot_swap(source_method: &'static str, descriptor: LoadDescriptor) 
     state.last_reason = reason;
     state.last_inventory_change = inventory_change;
     state.last_event_id = Some(event_id);
-    state.snapshot()
+    LifecycleCapture {
+        before,
+        after: state.snapshot(),
+    }
 }
 
 pub(crate) fn denied_reset_state_hot_swap(
@@ -271,8 +293,9 @@ pub(crate) fn denied_reset_state_hot_swap(
     (snapshot, event_id, migration)
 }
 
-pub(crate) fn stop(source_method: &'static str) -> Snapshot {
+pub(crate) fn stop(source_method: &'static str) -> LifecycleCapture {
     let mut state = STATE.lock();
+    let before = state.snapshot();
     let descriptor = state.load_descriptor;
     let reason = if state.loaded && state.running {
         "stopped"
@@ -318,11 +341,15 @@ pub(crate) fn stop(source_method: &'static str) -> Snapshot {
     state.last_reason = reason;
     state.last_inventory_change = inventory_change;
     state.last_event_id = Some(event_id);
-    state.snapshot()
+    LifecycleCapture {
+        before,
+        after: state.snapshot(),
+    }
 }
 
-pub(crate) fn drop_service(source_method: &'static str) -> Snapshot {
+pub(crate) fn drop_service(source_method: &'static str) -> LifecycleCapture {
     let mut state = STATE.lock();
+    let before = state.snapshot();
     let descriptor = state.load_descriptor;
     let reason = if state.loaded {
         "dropped"
@@ -366,12 +393,12 @@ pub(crate) fn drop_service(source_method: &'static str) -> Snapshot {
     state.last_reason = reason;
     state.last_inventory_change = inventory_change;
     state.last_event_id = Some(event_id);
-    let snapshot = state.snapshot();
+    let after = state.snapshot();
     state.load_descriptor = LOAD_DESCRIPTOR;
-    snapshot
+    LifecycleCapture { before, after }
 }
 
-pub(crate) fn health_probe(source_method: &'static str) -> (Snapshot, event_log::EventId) {
+pub(crate) fn health_probe(source_method: &'static str) -> (LifecycleCapture, event_log::EventId) {
     let state = STATE.lock();
     let snapshot = state.snapshot();
     let health = health_state(snapshot);
@@ -396,7 +423,13 @@ pub(crate) fn health_probe(source_method: &'static str) -> (Snapshot, event_log:
             snapshot.hot_swap_probation,
         ),
     );
-    (snapshot, event_id)
+    (
+        LifecycleCapture {
+            before: snapshot,
+            after: snapshot,
+        },
+        event_id,
+    )
 }
 
 pub(crate) fn rollback_preview(source_method: &'static str) -> (Snapshot, event_log::EventId) {

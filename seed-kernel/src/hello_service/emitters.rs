@@ -6,6 +6,13 @@ use crate::agent_protocol_support::{
     end_error,
 };
 use raios_core::{
+    evidence_response::evidence_value,
+    hello_lifecycle_projection::{
+        project_hello_lifecycle, ArtifactSnapshot, DescriptorSnapshot, EvidenceClassification,
+        EvidenceMeta, EvidenceStatus, HealthSnapshot, HelloLifecycleSnapshot, InventorySnapshot,
+        LifecycleAction, ServiceSlotSnapshot, ServiceStateSnapshot, StateMigrationSnapshot,
+        StateTransitionSnapshot,
+    },
     record::{sha256_of_json, Field, Value as V},
     scoped_rollback_apply as scoped_apply,
 };
@@ -87,102 +94,17 @@ fn emit_inline_value(value: V<'static>) {
 
 pub(crate) fn emit_health_response(
     method: &'static str,
-    snapshot: Snapshot,
+    capture: LifecycleCapture,
     event_id: event_log::EventId,
 ) {
-    let descriptor = snapshot.load_descriptor;
-    let activation_status = service_slot_activation_status(snapshot);
-    let activation_active = service_slot_activation_active(snapshot);
-    begin_response(method);
-    emit_record_fields(
-        vec![
-            j!("schema" => s("raios.ram_only_hello_service.health.v0")),
-            j!("scope" => s("current_boot")),
-            j!("classification" => s("local_only")),
-            j!("persistence" => s("none")),
-            j!("action" => s("health_probe")),
-            j!("event_id" => event_opt(Some(event_id))),
-            j!("audit_event_id" => event_opt(Some(event_id))),
-            j!("service_slot_activation" => service_slot_activation_value(descriptor, activation_status, activation_active),
-            ),
-            j!("state" => hello_state_value(snapshot)),
-            j!("state_migration" => hello_state_migration_value(snapshot.state_migration),
-            ),
-            j!("hot_swap_probation" => hello_hot_swap_probation_value(snapshot.hot_swap_probation),
-            ),
-            j!("service" => health_service_value(snapshot, descriptor, activation_status, activation_active),
-            ),
-            j!("load_descriptor" => health_load_descriptor_value(descriptor, activation_status, activation_active),
-            ),
-            j!("denied_surfaces" => hello_basic_denied_surfaces_value()),
-        ],
-        6,
+    emit_hello_lifecycle_v1(
+        method,
+        "hello.health",
+        LifecycleAction::Health,
+        capture,
+        capture.after.load_descriptor,
+        event_id,
     );
-    end_response(method);
-}
-
-fn health_service_value(
-    snapshot: Snapshot,
-    descriptor: LoadDescriptor,
-    activation_status: &'static str,
-    activation_active: bool,
-) -> V<'static> {
-    object(vec![
-        j!("id" => s(SERVICE_ID)),
-        j!("kind" => s("service")),
-        j!("version" => s(service_version(descriptor))),
-        j!("loaded" => b(snapshot.loaded)),
-        j!("running" => b(snapshot.running)),
-        j!("health" => s(health_state(snapshot))),
-        j!("generation" => u(snapshot.generation)),
-        j!("state" => hello_state_value(snapshot)),
-        j!("last_action" => s(snapshot.last_action)),
-        j!("last_reason" => s(snapshot.last_reason)),
-        j!("service_slot_activation_id" => s(SERVICE_SLOT_ACTIVATION_ID)),
-        j!("service_slot_activation_hash" => sha(service_slot_activation_hash(descriptor))),
-        j!("service_slot_activation_status" => s(activation_status)),
-        j!("service_slot_activation_active" => b(activation_active)),
-        j!("capabilities" => inline_str_array(CAPABILITIES)),
-    ])
-}
-
-fn health_load_descriptor_value(
-    descriptor: LoadDescriptor,
-    activation_status: &'static str,
-    activation_active: bool,
-) -> V<'static> {
-    object(vec![
-        j!("schema" => s(descriptor.schema)),
-        j!("id" => s(descriptor.id)),
-        j!("source" => object(vec![
-                j!("locator" => s(descriptor.source_locator)),
-                j!("kind" => s(descriptor.source_kind)),
-                j!("validated" => b(true)),
-                j!("sha256" => sha(descriptor_source_hash(descriptor))),
-                j!("binds_source_locator" => s_opt(descriptor.binds_source_locator),
-                ),
-                j!("binds_source_kind" => s_opt(descriptor.binds_source_kind)),
-                j!("binds_source_hash" => sha_opt(descriptor.binds_source_hash)),
-                j!("signature_envelope" => descriptor_source_signature_envelope_value(descriptor),
-                ),
-            ]),
-        ),
-        j!("artifact_identity" => artifact_identity_value(descriptor)),
-        j!("artifact_load_plan_preflight" => artifact_load_plan_preflight_value(descriptor),
-        ),
-        j!("service_slot_activation" => service_slot_activation_value(descriptor, activation_status, activation_active),
-        ),
-    ])
-}
-
-fn hello_basic_denied_surfaces_value() -> V<'static> {
-    object(vec![
-        j!("external_artifact_load" => s("denied")),
-        j!("persistent_install" => s("denied")),
-        j!("durable_audit" => s("denied")),
-        j!("rollback_install" => s("denied")),
-        j!("broad_mutation" => s("denied")),
-    ])
 }
 
 pub(crate) fn emit_hot_swap_state_migration_denied(
@@ -3744,8 +3666,16 @@ pub(crate) fn perform_scoped_rollback_apply_proof(
         append_decision,
         None,
     )));
-    let apply_decision =
-        scoped_apply::evaluate_scoped_rollback_verified_apply(&append_input, Some(append_hash));
+    // P4-7b1: the apply evaluator no longer accepts a caller that has not said what it is
+    // asking for. The capability is the one this family already declares (see the
+    // requested_capability fields above); the effects are what the apply actually does.
+    // Pass nothing and you get no proof — which is the whole point.
+    let apply_decision = scoped_apply::evaluate_scoped_rollback_verified_apply(
+        &append_input,
+        Some(append_hash),
+        HELLO_ROLLBACK_APPLY_CAPABILITY,
+        &["applies_rollback", "mutates_service_state"],
+    );
     ScopedRollbackApplyProof {
         scope_input,
         scope_decision,
@@ -4428,48 +4358,227 @@ pub(crate) fn emit_rollback_preview_response(
 
 pub(crate) fn emit_response(
     method: &'static str,
-    action: &'static str,
-    snapshot: Snapshot,
+    action: LifecycleAction,
+    capture: LifecycleCapture,
     descriptor: LoadDescriptor,
 ) {
-    let activation_status = service_slot_activation_status(snapshot);
-    let activation_active = service_slot_activation_active(snapshot);
-    begin_response(method);
-    emit_record_fields(
-        vec![
-            j!("schema" => s("raios.ram_only_hello_service.v0")),
-            j!("scope" => s("current_boot")),
-            j!("classification" => s("local_only")),
-            j!("persistence" => s("none")),
-            j!("action" => s(action)),
-            j!("event_id" => event_opt(snapshot.last_event_id)),
-            j!("audit_event_id" => event_opt(snapshot.last_event_id)),
-            j!("load_request" => load_request_value(descriptor)),
-            j!("load_descriptor" => load_descriptor_value(descriptor)),
-            j!("artifact_load_plan_preflight" => artifact_load_plan_preflight_value(descriptor),
-            ),
-            j!("service_slot_activation" => service_slot_activation_value(descriptor, activation_status, activation_active),
-            ),
-            j!("state" => hello_state_value(snapshot)),
-            j!("state_migration" => hello_state_migration_value(snapshot.state_migration),
-            ),
-            j!("hot_swap_probation" => hello_hot_swap_probation_value(snapshot.hot_swap_probation),
-            ),
-            j!("service" => hello_response_service_value(
-                    snapshot,
-                    descriptor,
-                    activation_status,
-                    activation_active,
-                ),
-            ),
-            j!("lifecycle" => hello_response_lifecycle_value(snapshot)),
-            j!("loader" => hello_response_loader_value(descriptor, activation_status, activation_active),
-            ),
-            j!("denied_surfaces" => hello_response_denied_surfaces_value()),
-        ],
-        6,
+    let event_id = capture
+        .after
+        .last_event_id
+        .expect("lifecycle mutation records one event");
+    emit_hello_lifecycle_v1(
+        method,
+        "hello.lifecycle",
+        action,
+        capture,
+        descriptor,
+        event_id,
     );
-    end_response(method);
+}
+
+fn emit_hello_lifecycle_v1(
+    method: &'static str,
+    family: &'static str,
+    action: LifecycleAction,
+    capture: LifecycleCapture,
+    descriptor: LoadDescriptor,
+    event_id: event_log::EventId,
+) {
+    let projection = project_hello_lifecycle(hello_lifecycle_snapshot(
+        action, capture, descriptor, event_id,
+    ));
+    // decision() borrows the projection, so take it before the evidence is moved out.
+    let decision = projection.decision();
+    crate::agent_protocol_module_reference::emit_evidence_v1_response(
+        method,
+        family,
+        Some(event_id),
+        projection.facts,
+        projection
+            .evidence
+            .into_iter()
+            .map(evidence_value)
+            .collect(),
+        decision,
+    );
+}
+
+fn hello_lifecycle_snapshot(
+    action: LifecycleAction,
+    capture: LifecycleCapture,
+    descriptor: LoadDescriptor,
+    event_id: event_log::EventId,
+) -> HelloLifecycleSnapshot<'static> {
+    let after = capture.after;
+    let descriptor_hash = descriptor_source_hash(descriptor);
+    let descriptor_verified = descriptor_source_signature_verified(descriptor);
+    let artifact_verified = artifact_identity_signature_verified(descriptor)
+        && descriptor_sources::validate_builtin_hello_artifact_identity(
+            descriptor.artifact_identity,
+        )
+        && validate_artifact_load_plan_preflight_record(
+            artifact_load_plan_preflight_record(descriptor),
+            descriptor,
+        );
+    let classification = hello_evidence_classification(descriptor.classification);
+    let descriptor_meta = hello_evidence_meta(
+        descriptor_verified,
+        "descriptor_signature_verified",
+        "descriptor_signature_rejected",
+        classification,
+    );
+    let artifact_meta = hello_evidence_meta(
+        artifact_verified,
+        "artifact_identity_and_preflight_verified",
+        "artifact_identity_or_preflight_rejected",
+        classification,
+    );
+    let transition_meta = if !capture.before.loaded && action == LifecycleAction::Load {
+        EvidenceMeta {
+            status: EvidenceStatus::Missing,
+            reason: "pre_state_not_available_service_not_loaded",
+            classification,
+        }
+    } else if action == LifecycleAction::Health {
+        EvidenceMeta {
+            status: EvidenceStatus::NotApplicable,
+            reason: "health_observation",
+            classification,
+        }
+    } else {
+        EvidenceMeta {
+            status: EvidenceStatus::Verified,
+            reason: after.last_reason,
+            classification,
+        }
+    };
+    HelloLifecycleSnapshot {
+        action,
+        source_event_sequence: event_id.sequence(),
+        service_id: SERVICE_ID,
+        descriptor: DescriptorSnapshot {
+            meta: descriptor_meta,
+            descriptor_id: descriptor.id,
+            source_locator: descriptor.source_locator,
+            source_kind: descriptor.source_kind,
+            descriptor_hash,
+            bound_source_hash: descriptor.binds_source_hash.unwrap_or(descriptor_hash),
+            signature_hash: descriptor
+                .source_envelope
+                .map(|envelope| envelope.signature_hash)
+                .unwrap_or([0; 32]),
+            attestation_hash: descriptor.artifact_identity.artifact_content_source_hash,
+        },
+        artifact: ArtifactSnapshot {
+            meta: artifact_meta,
+            artifact_id: descriptor.artifact_identity.id,
+            artifact_hash: artifact_identity_hash(descriptor),
+            content_binding_hash: artifact_content_binding_hash(descriptor),
+            reference_hash: artifact_reference_hash(descriptor),
+            bytes_hash: artifact_reference_bytes_hash(descriptor),
+            signature_hash: descriptor.artifact_identity.signed_envelope.signature_hash,
+            preflight_status: ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS,
+        },
+        service_slot: ServiceSlotSnapshot {
+            meta: EvidenceMeta {
+                status: EvidenceStatus::Verified,
+                reason: after.last_reason,
+                classification,
+            },
+            slot_id: RAM_ONLY_SERVICE_SLOT_ID,
+            before_status: service_slot_activation_status(capture.before),
+            after_status: service_slot_activation_status(after),
+            active: service_slot_activation_active(after),
+        },
+        inventory: InventorySnapshot {
+            meta: EvidenceMeta {
+                status: EvidenceStatus::Verified,
+                reason: after.last_reason,
+                classification,
+            },
+            change: if action == LifecycleAction::Health {
+                "none"
+            } else {
+                after.last_inventory_change
+            },
+            present_before: capture.before.loaded,
+            present_after: after.loaded,
+        },
+        state_transition: StateTransitionSnapshot {
+            meta: transition_meta,
+            before: hello_service_state_snapshot(capture.before),
+            after: hello_service_state_snapshot(after),
+        },
+        state_migration: after
+            .state_migration
+            .map(|migration| StateMigrationSnapshot {
+                meta: hello_evidence_meta(
+                    migration.accepted,
+                    "state_migration_verified",
+                    "state_migration_rejected",
+                    classification,
+                ),
+                from_version: migration.from_version,
+                to_version: migration.to_version,
+                state_preserved: migration.state_preserved,
+                migration_hash: migration.migration_hash,
+            }),
+        health: (action == LifecycleAction::Health).then_some(HealthSnapshot {
+            meta: EvidenceMeta {
+                status: EvidenceStatus::NotApplicable,
+                reason: "health_observation",
+                classification,
+            },
+            status_detail: health_state(after),
+            loaded: after.loaded,
+            running: after.running,
+        }),
+    }
+}
+
+fn hello_service_state_snapshot(snapshot: Snapshot) -> ServiceStateSnapshot<'static> {
+    ServiceStateSnapshot {
+        version: if snapshot.loaded {
+            service_version(snapshot.load_descriptor)
+        } else {
+            "missing"
+        },
+        generation: snapshot.generation,
+        loaded: snapshot.loaded,
+        running: snapshot.running,
+        state_counter: snapshot.state_counter,
+        state_hash: hello_state_hash(snapshot.state_counter),
+    }
+}
+
+fn hello_evidence_meta(
+    verified: bool,
+    verified_reason: &'static str,
+    rejected_reason: &'static str,
+    classification: EvidenceClassification,
+) -> EvidenceMeta<'static> {
+    EvidenceMeta {
+        status: if verified {
+            EvidenceStatus::Verified
+        } else {
+            EvidenceStatus::Rejected
+        },
+        reason: if verified {
+            verified_reason
+        } else {
+            rejected_reason
+        },
+        classification,
+    }
+}
+
+fn hello_evidence_classification(value: &str) -> EvidenceClassification {
+    match value {
+        "public" => EvidenceClassification::Public,
+        "local_only" => EvidenceClassification::LocalOnly,
+        "secret" => EvidenceClassification::Secret,
+        _ => EvidenceClassification::Unknown,
+    }
 }
 
 fn hello_response_service_value(
@@ -4544,197 +4653,6 @@ fn hello_response_service_value(
             }),
         ),
         j!("capabilities" => inline_str_array(CAPABILITIES)),
-    ])
-}
-
-fn hello_response_lifecycle_value(snapshot: Snapshot) -> V<'static> {
-    object(vec![
-        j!("last_action" => s(snapshot.last_action)),
-        j!("reason" => s(snapshot.last_reason)),
-        j!("service_inventory_change" => s(snapshot.last_inventory_change),
-        ),
-        j!("load_event_id" => event_opt(snapshot.load_event_id)),
-        j!("start_event_id" => event_opt(snapshot.start_event_id)),
-        j!("hot_swap_event_id" => event_opt(snapshot.hot_swap_event_id)),
-        j!("stop_event_id" => event_opt(snapshot.stop_event_id)),
-        j!("drop_event_id" => event_opt(snapshot.drop_event_id)),
-    ])
-}
-
-fn hello_response_loader_value(
-    descriptor: LoadDescriptor,
-    activation_status: &'static str,
-    activation_active: bool,
-) -> V<'static> {
-    object(vec![
-        j!("kind" => s(descriptor.artifact_kind)),
-        j!("descriptor_id" => s(descriptor.id)),
-        j!("descriptor_source_locator" => s(descriptor.source_locator)),
-        j!("descriptor_source_kind" => s(descriptor.source_kind)),
-        j!("descriptor_source_validated" => b(true)),
-        j!("descriptor_source_hash" => sha(descriptor_source_hash(descriptor)),
-        ),
-        j!("descriptor_source_signature_envelope" => descriptor_source_signature_envelope_value(descriptor),
-        ),
-        j!("artifact_identity_id" => s(descriptor.artifact_identity.id)),
-        j!("artifact_identity_hash" => sha(artifact_identity_hash(descriptor)),
-        ),
-        j!("artifact_identity_signature_envelope" => artifact_identity_signature_envelope_value(descriptor),
-        ),
-        j!("artifact_content_binding_id" => s(descriptor.artifact_identity.artifact_content_binding_id),
-        ),
-        j!("artifact_content_binding_hash" => sha(artifact_content_binding_hash(descriptor)),
-        ),
-        j!("artifact_content_source_hash" => sha(descriptor.artifact_identity.artifact_content_source_hash),
-        ),
-        j!("artifact_content_trust_envelope_id" => s(descriptor.artifact_identity.signed_envelope.id),
-        ),
-        j!("artifact_content_trust_envelope_hash" => sha(descriptor.artifact_identity.signed_envelope.envelope_hash),
-        ),
-        j!("artifact_reference_id" => s(descriptor.artifact_identity.artifact_reference_id),
-        ),
-        j!("artifact_reference_hash" => sha(artifact_reference_hash(descriptor)),
-        ),
-        j!("artifact_bytes_sha256" => sha(artifact_reference_bytes_hash(descriptor)),
-        ),
-        j!("artifact_reference_content_binding_hash" => sha(descriptor
-                .artifact_identity
-                .artifact_reference_content_binding_hash),
-        ),
-        j!("artifact_reference_trust_envelope_id" => s(descriptor.artifact_identity.signed_envelope.id),
-        ),
-        j!("artifact_reference_trust_envelope_hash" => sha(descriptor.artifact_identity.signed_envelope.envelope_hash),
-        ),
-        j!("artifact_load_plan_preflight_id" => s(ARTIFACT_LOAD_PLAN_PREFLIGHT_ID),
-        ),
-        j!("artifact_load_plan_preflight_hash" => sha(artifact_load_plan_preflight_hash(descriptor)),
-        ),
-        j!("artifact_load_plan_preflight_status" => s(ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS),
-        ),
-        j!("service_slot_activation_id" => s(SERVICE_SLOT_ACTIVATION_ID)),
-        j!("service_slot_activation_hash" => sha(service_slot_activation_hash(descriptor)),
-        ),
-        j!("service_slot_activation_status" => s(activation_status)),
-        j!("service_slot_activation_active" => b(activation_active)),
-        j!("service_slot_intent_id" => s(SERVICE_SLOT_INTENT_ID)),
-        j!("ram_only_service_slot_id" => s(RAM_ONLY_SERVICE_SLOT_ID)),
-        j!("binds_source_locator" => s_opt(descriptor.binds_source_locator),
-        ),
-        j!("binds_source_kind" => s_opt(descriptor.binds_source_kind)),
-        j!("binds_source_hash" => sha_opt(descriptor.binds_source_hash)),
-        j!("accepts_external_artifact_bytes" => b(false)),
-        j!("loads_external_artifact" => b(false)),
-        j!("maps_executable_pages" => b(false)),
-        j!("writes_persistent_state" => b(false)),
-        j!("writes_durable_audit_log" => b(false)),
-        j!("installs_rollback_plan" => b(false)),
-        j!("grants_broad_mutation" => b(false)),
-    ])
-}
-
-fn hello_response_denied_surfaces_value() -> V<'static> {
-    object(vec![
-        j!("general_module_load" => s("unchanged_denied")),
-        j!("external_artifact_load" => s("denied")),
-        j!("persistent_install" => s("denied")),
-        j!("durable_audit" => s("denied")),
-        j!("rollback_install" => s("denied")),
-        j!("broad_mutation" => s("denied")),
-    ])
-}
-
-fn load_request_value(descriptor: LoadDescriptor) -> V<'static> {
-    object(vec![
-        j!("schema" => s("raios.current_boot_load_request.v0")),
-        j!("scope" => s("current_boot")),
-        j!("classification" => s("local_only")),
-        j!("descriptor_schema" => s(descriptor.schema)),
-        j!("descriptor_id" => s(descriptor.id)),
-        j!("descriptor_source_locator" => s(descriptor.source_locator)),
-        j!("descriptor_source_kind" => s(descriptor.source_kind)),
-        j!("descriptor_source_validated" => b(true)),
-        j!("descriptor_source_hash" => sha(descriptor_source_hash(descriptor)),
-        ),
-        j!("descriptor_source_signature_envelope" => descriptor_source_signature_envelope_value(descriptor),
-        ),
-        j!("artifact_identity_id" => s(descriptor.artifact_identity.id)),
-        j!("artifact_identity_hash" => sha(artifact_identity_hash(descriptor)),
-        ),
-        j!("artifact_identity_signature_envelope" => artifact_identity_signature_envelope_value(descriptor),
-        ),
-        j!("artifact_content_binding_id" => s(descriptor.artifact_identity.artifact_content_binding_id),
-        ),
-        j!("artifact_content_binding_hash" => sha(artifact_content_binding_hash(descriptor)),
-        ),
-        j!("artifact_content_source_hash" => sha(descriptor.artifact_identity.artifact_content_source_hash),
-        ),
-        j!("artifact_content_trust_envelope_id" => s(descriptor.artifact_identity.signed_envelope.id),
-        ),
-        j!("artifact_content_trust_envelope_hash" => sha(descriptor.artifact_identity.signed_envelope.envelope_hash),
-        ),
-        j!("artifact_reference_id" => s(descriptor.artifact_identity.artifact_reference_id),
-        ),
-        j!("artifact_reference_hash" => sha(artifact_reference_hash(descriptor)),
-        ),
-        j!("artifact_bytes_sha256" => sha(artifact_reference_bytes_hash(descriptor)),
-        ),
-        j!("artifact_reference_content_binding_hash" => sha(descriptor
-                .artifact_identity
-                .artifact_reference_content_binding_hash),
-        ),
-        j!("artifact_reference_trust_envelope_id" => s(descriptor.artifact_identity.signed_envelope.id),
-        ),
-        j!("artifact_reference_trust_envelope_hash" => sha(descriptor.artifact_identity.signed_envelope.envelope_hash),
-        ),
-        j!("artifact_load_plan_preflight_id" => s(ARTIFACT_LOAD_PLAN_PREFLIGHT_ID),
-        ),
-        j!("artifact_load_plan_preflight_hash" => sha(artifact_load_plan_preflight_hash(descriptor)),
-        ),
-        j!("artifact_load_plan_preflight_status" => s(ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS),
-        ),
-        j!("service_slot_intent_id" => s(SERVICE_SLOT_INTENT_ID)),
-        j!("ram_only_service_slot_id" => s(RAM_ONLY_SERVICE_SLOT_ID)),
-        j!("binds_source_locator" => s_opt(descriptor.binds_source_locator),
-        ),
-        j!("binds_source_kind" => s_opt(descriptor.binds_source_kind)),
-        j!("binds_source_hash" => sha_opt(descriptor.binds_source_hash)),
-        j!("service_id" => s(descriptor.service_id)),
-        j!("accepted" => b(true)),
-    ])
-}
-
-fn load_descriptor_value(descriptor: LoadDescriptor) -> V<'static> {
-    object(vec![
-        j!("schema" => s(descriptor.schema)),
-        j!("id" => s(descriptor.id)),
-        j!("source" => object(vec![
-                j!("canonicalization" => s(descriptor.canonicalization)),
-                j!("locator" => s(descriptor.source_locator)),
-                j!("kind" => s(descriptor.source_kind)),
-                j!("validated" => b(true)),
-                j!("sha256" => sha(descriptor_source_hash(descriptor))),
-                j!("binds_source_locator" => s_opt(descriptor.binds_source_locator),
-                ),
-                j!("binds_source_kind" => s_opt(descriptor.binds_source_kind)),
-                j!("binds_source_hash" => sha_opt(descriptor.binds_source_hash)),
-                j!("signature_envelope" => descriptor_source_signature_envelope_value(descriptor),
-                ),
-                j!("text" => s(descriptor.source_text)),
-            ]),
-        ),
-        j!("service_id" => s(descriptor.service_id)),
-        j!("artifact_id" => s(descriptor.artifact_id)),
-        j!("artifact_kind" => s(descriptor.artifact_kind)),
-        j!("artifact_identity" => artifact_identity_value(descriptor)),
-        j!("artifact_load_plan_preflight" => artifact_load_plan_preflight_value(descriptor),
-        ),
-        j!("scope" => s(descriptor.scope)),
-        j!("classification" => s(descriptor.classification)),
-        j!("persistence" => s(descriptor.persistence)),
-        j!("accepts_external_artifact_bytes" => b(false)),
-        j!("loads_external_artifact" => b(false)),
-        j!("maps_executable_pages" => b(false)),
-        j!("writes_persistent_state" => b(false)),
     ])
 }
 

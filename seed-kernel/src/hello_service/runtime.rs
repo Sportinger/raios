@@ -33,6 +33,12 @@ pub(crate) struct Snapshot {
 }
 
 #[derive(Clone, Copy)]
+pub(crate) struct LifecycleCapture {
+    pub before: Snapshot,
+    pub after: Snapshot,
+}
+
+#[derive(Clone, Copy)]
 pub(crate) struct State {
     pub(crate) service: ServiceState,
     pub(crate) state_migration: Option<HelloStateMigrationRecord>,
@@ -171,46 +177,56 @@ pub(crate) fn emit_load_start(method: &str) -> &'static str {
     let Some(request) = load_request(method) else {
         return "module.load_ephemeral";
     };
-    let snapshot = load_start(request.source_method, request.descriptor);
+    let capture = load_start(request.source_method, request.descriptor);
     emit_response(
         request.source_method,
-        "load_start",
-        snapshot,
+        raios_core::hello_lifecycle_projection::LifecycleAction::Load,
+        capture,
         request.descriptor,
     );
     request.source_method
 }
 
 pub(crate) fn emit_stop(_method: &str) -> &'static str {
-    let snapshot = stop("service.stop");
-    emit_response("service.stop", "stop", snapshot, snapshot.load_descriptor);
+    let capture = stop("service.stop");
+    emit_response(
+        "service.stop",
+        raios_core::hello_lifecycle_projection::LifecycleAction::Stop,
+        capture,
+        capture.after.load_descriptor,
+    );
     "service.stop"
 }
 
 pub(crate) fn emit_start(_method: &str) -> &'static str {
-    let snapshot = start("service.start");
-    emit_response("service.start", "start", snapshot, snapshot.load_descriptor);
+    let capture = start("service.start");
+    emit_response(
+        "service.start",
+        raios_core::hello_lifecycle_projection::LifecycleAction::Start,
+        capture,
+        capture.after.load_descriptor,
+    );
     "service.start"
 }
 
 pub(crate) fn emit_restart(_method: &str) -> &'static str {
-    let snapshot = restart("service.restart");
+    let capture = restart("service.restart");
     emit_response(
         "service.restart",
-        "restart",
-        snapshot,
-        snapshot.load_descriptor,
+        raios_core::hello_lifecycle_projection::LifecycleAction::Restart,
+        capture,
+        capture.after.load_descriptor,
     );
     "service.restart"
 }
 
 pub(crate) fn emit_hot_swap(method: &str) -> &'static str {
     if let Some(request) = hot_swap_request(method) {
-        let snapshot = hot_swap(request.source_method, request.descriptor);
+        let capture = hot_swap(request.source_method, request.descriptor);
         emit_response(
             request.source_method,
-            "hot_swap",
-            snapshot,
+            raios_core::hello_lifecycle_projection::LifecycleAction::HotSwap,
+            capture,
             request.descriptor,
         );
         request.source_method
@@ -224,14 +240,19 @@ pub(crate) fn emit_hot_swap(method: &str) -> &'static str {
 }
 
 pub(crate) fn emit_drop(_method: &str) -> &'static str {
-    let snapshot = drop_service("service.drop");
-    emit_response("service.drop", "drop", snapshot, snapshot.load_descriptor);
+    let capture = drop_service("service.drop");
+    emit_response(
+        "service.drop",
+        raios_core::hello_lifecycle_projection::LifecycleAction::Drop,
+        capture,
+        capture.after.load_descriptor,
+    );
     "service.drop"
 }
 
 pub(crate) fn emit_health(_method: &str) -> &'static str {
-    let (snapshot, event_id) = health_probe("service.health");
-    emit_health_response("service.health", snapshot, event_id);
+    let (capture, event_id) = health_probe("service.health");
+    emit_health_response("service.health", capture, event_id);
     "service.health"
 }
 
