@@ -24,6 +24,17 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+P4-2 CLOSED — LOAD-GATE FAMILY FULLY ON V1 (2026-07-13 ~14:00). b2b landed
+the nine selftests on the v1 envelope AND corrected the two known
+non-functional fixtures (substituted_local_approval_reference_record and
+retained_audit_rollback_service_slot_mismatch genuinely fire their evaluator
+paths now; host mirrors updated, 486 core tests green). FULL green 3,786
+predicates (shadow-20260713-135447-24872.json); secret/fmt/size checks clean.
+Exact next task: P4-3b2 — loader/allocator kernel switch consuming the
+committed module_loader_allocator_projection (P4-3b1, 11 tests) and the two
+committed rulings; then the module/load BLOCK CLOSE (full + recovery
+byte-identical + line-count reforecast) per the P4 plan.
+
 P4-2b2a LANDED — LOAD-GATE DENIED RESPONSE FAMILY ON V1 (2026-07-13 midday).
 module.load_ephemeral (+ service.load_ephemeral alias) emits the v1 envelope
 from the raios-core projection; render file 6,878 -> ~5,922 lines and under
