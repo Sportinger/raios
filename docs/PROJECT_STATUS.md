@@ -24,6 +24,24 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+REFACTOR PROGRAM CURSOR (2026-07-13, after the recovery retirement). Exact
+next task: produce a FRESH P2 wave design against the CURRENT 176,346-line
+tree before dispatching further relocation waves. Two W2 dispatch attempts
+stopped safely with the finding that the 2026-07-13 wave estimates are
+partially stale: P2 wave 1 already relocated substantial module reference
+evaluation into raios-core (seed-kernel's load-gate selftest_eval already
+converts into and calls raios_core::module_load_gate), and the six
+module-reference kernel files interleave pure evaluators with
+parsing/event-log/emitter code, so blind extraction risks re-running the
+P2-FIX3..7 hash-grammar divergence class. The fresh design must diff each
+family against what raios-core already hosts. Remaining reduction levers:
+waves over module reference/allocation/loader-runtime/event_log/memory/
+provider/hello-model surfaces (recount per family), then P4 vocabulary
+compaction (ADR 0006 Batch 6; owner ambition choice reserved). All P3
+deletion value that was safely reachable has been landed (-45.8k this
+session); write-boundary and hello-rollback are live authority per the
+routing correction below.
+
 P0 ROUTING CORRECTION — WRITE-BOUNDARY + HELLO-ROLLBACK ARE NOT RETIRE
 (2026-07-13). The P3-HELLO-WB slice stopped on its authority-dependency
 check and proved the P0 inventory mis-routed this surface: the REAL

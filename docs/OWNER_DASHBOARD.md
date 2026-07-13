@@ -22,8 +22,20 @@ gate's built-in test cases now also run as normal PC tests in a tenth of a
 second — so this whole class of mistake can never again hide until a
 20-minute VM run. The full test suite is green on the landed result
 (shadow-20260713-013105-20952.json). One pre-existing cosmetic test-fixture
-gap was found and documented; it changes nothing in behavior. Deletion of the
-superseded diagnostic surfaces (~58,700 lines) is designed, approved, and next.
+gap was found and documented; it changes nothing in behavior.
+
+The big deletion then landed the same night: the entire superseded recovery
+diagnostic layer — 47 files, about 45,800 lines — is gone in one verified
+cut, with the REAL recovery lifeline (snapshot, restart, rollback, disable)
+untouched and re-proven. The kernel shrank from 206,481 to 176,346 lines.
+Full test suite green after the cut (shadow-20260713-023159-3012.json).
+One important honest finding: two surfaces the inventory had marked as
+deletable (the module write-boundary checks and hello's rollback-writer
+gates) turned out to feed the REAL rollback-apply safety decision — the
+deletion attempt stopped itself exactly as designed, and those surfaces are
+now re-routed to be slimmed by relocation/compaction instead of deleted.
+Next: a fresh relocation-wave design against the shrunken tree, then the
+final vocabulary compaction to reach the 120k goal.
 
 Current capability: a user can type `/build <request>` in Genesis. raiOS sends
 the request through its existing pinned-trust direct provider path, accepts only
