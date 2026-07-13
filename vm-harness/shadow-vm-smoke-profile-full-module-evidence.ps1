@@ -1,3 +1,4 @@
+
     Send-AgentCommand -Command "agent module.manifest_diagnostic" -ExpectedMarker "RAIOS_AGENT_END module.manifest_diagnostic"
     Assert-LogContains -Name "protocol:module_manifest_diag_schema" -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_manifest_diag_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
@@ -69,6 +70,7 @@
     Assert-LogContains -Name "protocol:module_grant_diag_loader_unavailable" -Needle '"evidence_id": "loader", "status": "unavailable"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_diag_slot_unallocated" -Needle '"evidence_id": "service_slot", "status": "unallocated"' -TimeoutSeconds 1
 
+
     # M6A-2b: bind the REAL delivered-candidate artifact identity (the echo
     # wasm actually delivered over the serial channel in M6A-2a) instead of a
     # synthetic 2222... placeholder, so the module-evidence cross-check
@@ -138,6 +140,7 @@
 
     $moduleArtifactReferenceCanonical = @(
         "canonicalization=raios.module_candidate_artifact_reference.canonical.v0",
+
         "schema=raios.module_candidate_artifact_reference.v0",
         "requested_capability=cap.module.load_ephemeral",
         "load_mode=ram_only",
@@ -208,6 +211,7 @@
         "schema=raios.module_vm_test_report_reference.v0",
         "requested_capability=cap.module.load_ephemeral",
         "load_mode=ram_only",
+
         "subject=agent.session.serial",
         "resource=live_service_graph",
         "scope=current_boot",
@@ -278,6 +282,7 @@
     $moduleAttestationReferenceCanonical = @(
         "canonicalization=raios.module_local_attestation_reference.canonical.v0",
         "schema=raios.module_local_attestation_reference.v0",
+
         "requested_capability=cap.module.load_ephemeral",
         "load_mode=ram_only",
         "subject=agent.session.serial",
@@ -348,6 +353,7 @@
     Assert-LogContains -Name "protocol:module_approval_diag_absent" -Needle '"status_detail": "missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_approval_diag_absent_reason" -Needle '"reason": "local_approval_reference_absent"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_approval_diag_approval_missing" -Needle '"id": "local_approval", "kind": "reference", "status": "missing"' -TimeoutSeconds 1
+
     Assert-LogContains -Name "protocol:module_approval_diag_decision_denied_no_authority" -Needle '"outcome": "denied", "reason": "local_approval_reference_absent", "requested_capability": "cap.module.load_ephemeral", "grants": [], "effects": []' -TimeoutSeconds 1
 
     $moduleAuditLocalApprovalHash = "6666666666666666666666666666666666666666666666666666666666666666"
@@ -418,6 +424,7 @@
 
     Send-AgentCommand -Command "module.load_ephemeral" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "command:module.load_ephemeral.pre_audit"
     $modulePreAuditLoadResponse = Get-LastAgentResponseJson -Method "module.load_ephemeral"
+
     $moduleAuditDenialEventId = [string]$modulePreAuditLoadResponse.event_id
     Assert-CurrentBootEventId -Name "protocol:module_audit_denial_event_id_captured" -Value $moduleAuditDenialEventId
     Assert-LogContains -Name "policy:module_pre_audit_load_denied" -Needle '"outcome": "denied", "reason": "durable_audit_write_missing", "requested_capability": "cap.module.load_ephemeral", "grants": [], "effects": []' -TimeoutSeconds 1
@@ -488,6 +495,7 @@
     Assert-LogContains -Name "policy:module_rejected_audit_reference_state" -Needle '"state": "rejected"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_rejected_audit_reference_status" -Needle '"status": "rejected"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_rejected_audit_reference_reason" -Needle '"reason": "retained_audit_rollback_reference_wrong_schema_or_variant"' -TimeoutSeconds 1
+
     Assert-LogContains -Name "policy:module_rejected_audit_state" -Needle '"id": "durable_audit_record", "kind": "retained_reference", "status": "rejected"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_rejected_rollback_state" -Needle '"id": "rollback_plan", "kind": "retained_reference", "status": "rejected"' -TimeoutSeconds 1
 
@@ -547,46 +555,10 @@
     Assert-LogContains -Name "protocol:module_service_slot_diag_absent_reason" -Needle '"reason": "service_slot_reservation_reference_absent"' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent module.service_slot_allocator" -ExpectedMarker "RAIOS_AGENT_END module.service_slot_allocator"
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_schema" -Needle '"schema": "raios.module_service_slot_allocator_readiness.v0"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_source_evidence_mutation" -Needle '"mutates_global_event_log": true' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_source_evidence_scope" -Needle '"global_event_log_mutation": "retained_current_boot_source_evidence_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_no_records" -Needle '"creates_service_slot_reservation_records": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_no_slots" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_no_inventory_records" -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
-    Assert-LogContainsFields -NamePrefix "protocol:module_service_slot_allocator_source_evidence_" -TimeoutSeconds 1 -Fields @(
-        @{ Suffix = "runtime_schema"; Needle = '"schema": "raios.service_slot_allocator_runtime_source_evidence.v0"' },
-        @{ Suffix = "runtime_locator"; Needle = '"source_fact_locator": "module.service_slot_allocator.service_slot_allocator_runtime"' },
-        @{ Suffix = "registry_schema"; Needle = '"schema": "raios.service_slot_registry_binding_source_evidence.v0"' },
-        @{ Suffix = "registry_locator"; Needle = '"source_fact_locator": "module.service_slot_allocator.service_slot_registry_binding"' },
-        @{ Suffix = "health_schema"; Needle = '"schema": "raios.service_health_state_model_source_evidence.v0"' },
-        @{ Suffix = "health_locator"; Needle = '"source_fact_locator": "module.service_slot_allocator.service_health_state_model"' },
-        @{ Suffix = "cleanup_schema"; Needle = '"schema": "raios.service_unload_cleanup_plan_source_evidence.v0"' },
-        @{ Suffix = "cleanup_locator"; Needle = '"source_fact_locator": "module.service_slot_allocator.service_unload_cleanup_plan"' },
-        @{ Suffix = "durable_schema"; Needle = '"schema": "raios.service_slot_allocator_durable_audit_write_source_evidence.v0"' },
-        @{ Suffix = "durable_locator"; Needle = '"source_fact_locator": "module.service_slot_allocator.durable_audit_write"' },
-        @{ Suffix = "rollback_schema"; Needle = '"schema": "raios.service_slot_allocator_rollback_install_source_evidence.v0"' },
-        @{ Suffix = "rollback_locator"; Needle = '"source_fact_locator": "module.service_slot_allocator.rollback_plan_install"' },
-        @{ Suffix = "loader_schema"; Needle = '"schema": "raios.service_slot_allocator_module_loader_source_evidence.v0"' },
-        @{ Suffix = "loader_locator"; Needle = '"source_fact_locator": "module.service_slot_allocator.module_loader"' },
-        @{ Suffix = "retained"; Needle = '"status": "retained_current_boot_source_evidence"' },
-        @{ Suffix = "event"; Needle = '"event_id": "event.current_boot.' }
-    )
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_absent_state" -Needle '"retained_service_slot_reservation": {' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_absent_reason" -Needle '"reason": "retained_service_slot_reservation_missing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_absent_status" -Needle '"readiness_status": "missing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_fact_schema" -Needle '"schema": "raios.ram_only_service_slot_allocator.v0"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_fact_source_observed" -Needle '"source_evidence_state": "observed_current_boot_missing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_fact_source_event" -Needle '"source_evidence_event_id": "event.current_boot.' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_prereq_gates" -Needle '"allocator_prerequisite_gates": {' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_durable_prereq" -Needle '"durable_audit_write": {' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_rollback_prereq" -Needle '"rollback_plan_install": {' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_loader_prereq" -Needle '"module_loader": {' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_runtime_missing" -Needle '"reason": "service_slot_allocator_runtime_missing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_can_allocate_false" -Needle '"can_allocate": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
-
+Assert-LogContains -Name "protocol:module_service_slot_allocator_schema" -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_envelope" -Needle "`"family`": `"module.service_slot_allocator`",`r`r`n  `"scope`": `"current_boot`",`r`r`n  `"classification`": `"local_only`",`r`r`n  `"source_method`": `"module.service_slot_allocator`",`r`r`n  `"event_id`": null" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_reservation_missing" -Needle '"id": "service_slot_reservation", "kind": "retained_reference", "status": "missing", "reason": "retained_service_slot_reservation_missing", "source_event_id": null' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_no_authority" -Needle '"outcome": "denied", "reason": "retained_service_slot_reservation_missing", "requested_capability": "cap.module.load_ephemeral", "grants": [], "effects": []' -TimeoutSeconds 1
     $moduleServiceSlotCanonical = @(
         "canonicalization=raios.module_service_slot_reservation.canonical.v0",
         "schema=raios.module_service_slot_reservation.v0",
@@ -625,576 +597,39 @@
     Send-AgentCommand -Command "agent audit.events 24" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events" -Name "command:agent.audit.events.module_service_slot_reference"
 
     Send-AgentCommand -Command "agent module.service_slot_allocator" -ExpectedMarker "RAIOS_AGENT_END module.service_slot_allocator"
-    Assert-LogContainsFields -NamePrefix "protocol:module_service_slot_allocator_after_reservation_" -TimeoutSeconds 1 -Fields @(
-        @{ Suffix = "reservation_present"; Needle = '"retained_service_slot_reservation_present": true' },
-        @{ Suffix = "reservation_state"; Needle = '"status": "retained_hash_reference_only_not_allocated"' },
-        @{ Suffix = "reservation_not_allocator"; Needle = '"reason": "service_slot_reservation_is_evidence_not_allocator_state"' },
-        @{ Suffix = "reservation_hash_echo"; Needle = "`"reservation_hash`": `"sha256:$moduleServiceSlotReservationHash`"" },
-        @{ Suffix = "slot_echo"; Needle = "`"ram_only_service_slot_id`": `"$moduleAuditRamOnlyServiceSlotId`"" },
-        @{ Suffix = "readiness_status"; Needle = '"readiness_status": "denied_allocator_authority_not_granted"' },
-        @{ Suffix = "readiness_reason"; Needle = '"readiness_reason": "service_slot_allocator_authority_boundary_non_authorizing"' },
-        @{ Suffix = "authority_schema"; Needle = '"allocator_authority_boundary": {' },
-        @{ Suffix = "authority_boundary_schema"; Needle = '"schema": "raios.module_service_slot_allocator_authority.v0"' },
-        @{ Suffix = "allocation_intent_boundary"; Needle = '"allocation_intent_boundary": {' },
-        @{ Suffix = "allocation_intent_schema"; Needle = '"schema": "raios.service_slot_allocation_intent.v0"' },
-        @{ Suffix = "allocation_intent_status"; Needle = '"allocation_intent_status": "defined_non_authorizing"' },
-        @{ Suffix = "allocation_intent_reason"; Needle = '"allocation_intent_reason": "service_slot_allocation_intent_defined_non_authorizing"' },
-        @{ Suffix = "allocation_intent_source"; Needle = '"source_fact_locator": "module.service_slot_allocator.allocation_intent"' },
-        @{ Suffix = "authority_inputs"; Needle = '"authority_input_boundaries": {' },
-        @{ Suffix = "policy_decision_schema"; Needle = '"schema": "raios.service_slot_allocator_policy_decision.v0"' },
-        @{ Suffix = "policy_decision_reason"; Needle = '"service_slot_allocator_policy_decision_defined_non_authorizing"' },
-        @{ Suffix = "registry_write_schema"; Needle = '"schema": "raios.service_slot_registry_write_authority.v0"' },
-        @{ Suffix = "registry_write_reason"; Needle = '"service_slot_registry_write_authority_defined_non_authorizing"' },
-        @{ Suffix = "loader_contract_schema"; Needle = '"schema": "raios.module_loader_runtime_contract.v0"' },
-        @{ Suffix = "loader_contract_reason"; Needle = '"module_loader_runtime_contract_defined_non_authorizing"' },
-        @{ Suffix = "health_monitor_schema"; Needle = '"schema": "raios.service_health_monitor_binding.v0"' },
-        @{ Suffix = "health_monitor_reason"; Needle = '"service_health_monitor_binding_defined_non_authorizing"' },
-        @{ Suffix = "cleanup_authority_schema"; Needle = '"schema": "raios.service_unload_cleanup_authority.v0"' },
-        @{ Suffix = "cleanup_authority_reason"; Needle = '"service_unload_cleanup_authority_defined_non_authorizing"' },
-        @{ Suffix = "authority_decision"; Needle = '"authority_decision": {' },
-        @{ Suffix = "authority_decision_schema"; Needle = '"schema": "raios.module_service_slot_allocator_authority_decision.v0"' },
-        @{ Suffix = "authority_decision_source"; Needle = '"source_fact_locator": "module.service_slot_allocator.authority_decision"' },
-        @{ Suffix = "authority_decision_reason"; Needle = '"service_slot_allocator_authority_decision_non_authorizing"' },
-        @{ Suffix = "authority_decision_inputs_complete"; Needle = '"authority_inputs_complete": true' },
-        @{ Suffix = "registry_commit_gate"; Needle = '"registry_write_commit_gate": {' },
-        @{ Suffix = "registry_commit_gate_schema"; Needle = '"schema": "raios.service_slot_registry_write_commit_gate.v0"' },
-        @{ Suffix = "registry_commit_gate_source"; Needle = '"source_fact_locator": "module.service_slot_allocator.registry_write_commit_gate"' },
-        @{ Suffix = "registry_commit_gate_reason"; Needle = '"service_slot_registry_write_commit_gate_non_authorizing"' },
-        @{ Suffix = "registry_commit_gate_no_write"; Needle = '"authorizes_registry_write": false' },
-        @{ Suffix = "registry_commit_gate_no_mutation"; Needle = '"mutates_service_registry": false' },
-        @{ Suffix = "runtime_source_available"; Needle = '"source_evidence_state": "observed_current_boot_available"' },
-        @{ Suffix = "runtime_source_status"; Needle = '"source_evidence_status": "available"' },
-        @{ Suffix = "runtime_source_reason"; Needle = '"source_evidence_reason": "service_slot_allocator_runtime_available"' },
-        @{ Suffix = "registry_source_reason"; Needle = '"source_evidence_reason": "service_slot_registry_binding_available"' },
-        @{ Suffix = "health_source_reason"; Needle = '"source_evidence_reason": "service_health_state_model_available"' },
-        @{ Suffix = "cleanup_source_reason"; Needle = '"source_evidence_reason": "service_unload_cleanup_plan_available"' },
-        @{ Suffix = "durable_source_reason"; Needle = '"source_evidence_reason": "durable_audit_write_available"' },
-        @{ Suffix = "rollback_source_reason"; Needle = '"source_evidence_reason": "rollback_plan_install_available"' },
-        @{ Suffix = "module_loader_source_reason"; Needle = '"source_evidence_reason": "module_loader_boundary_available_non_authorizing"' },
-        @{ Suffix = "runtime_available_true"; Needle = '"allocator_runtime_available": true' },
-        @{ Suffix = "registry_available_true"; Needle = '"registry_binding_available": true' },
-        @{ Suffix = "health_available_true"; Needle = '"health_state_available": true' },
-        @{ Suffix = "cleanup_available_true"; Needle = '"unload_cleanup_available": true' },
-        @{ Suffix = "durable_true"; Needle = '"durable_audit_written": true' },
-        @{ Suffix = "rollback_true"; Needle = '"rollback_plan_installed": true' },
-        @{ Suffix = "module_loader_true"; Needle = '"module_loader_available": true' },
-        @{ Suffix = "can_allocate_false"; Needle = '"can_allocate": false' },
-        @{ Suffix = "can_load_false"; Needle = '"can_load_now": false' },
-        @{ Suffix = "inventory_none"; Needle = '"service_inventory_change": "none"' }
-    )
-
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_after_reservation_schema" -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_after_reservation_runtime" -Needle '"id": "service_slot_allocator_runtime", "kind": "readiness", "status": "verified", "reason": "service_slot_allocator_runtime_available", "source_event_id": "event.current_boot.' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_after_reservation_denied" -Needle '"outcome": "denied", "reason": "service_slot_allocator_authority_boundary_non_authorizing", "requested_capability": "cap.module.load_ephemeral", "grants": [], "effects": []' -TimeoutSeconds 1
     Send-AgentCommand -Command "agent module.loader_identity" -ExpectedMarker "RAIOS_AGENT_END module.loader_identity"
-    Assert-LogContainsFields -NamePrefix "protocol:module_loader_identity_source_evidence_" -TimeoutSeconds 1 -Fields @(
-        @{ Suffix = "schema"; Needle = '"schema": "raios.module_loader_identity.v0"' },
-        @{ Suffix = "mutates_source_evidence_only"; Needle = '"mutates_global_event_log": true' },
-        @{ Suffix = "mutation_scope"; Needle = '"global_event_log_mutation": "retained_current_boot_source_evidence_only"' },
-        @{ Suffix = "source_schema"; Needle = '"schema": "raios.module_loader_identity_source_evidence.v0"' },
-        @{ Suffix = "source_retained"; Needle = '"status": "retained_current_boot_source_evidence"' },
-        @{ Suffix = "source_event_id"; Needle = '"event_id": "event.current_boot.' },
-        @{ Suffix = "source_method"; Needle = '"source_method": "module.loader_identity"' },
-        @{ Suffix = "source_locator"; Needle = '"source_fact_locator": "module.loader_identity.loader_identity"' },
-        @{ Suffix = "retained_evidence_present"; Needle = '"retained_module_evidence_present": true' },
-        @{ Suffix = "readiness_status"; Needle = '"readiness_status": "denied_allocator_authority_not_granted"' },
-        @{ Suffix = "readiness_reason"; Needle = '"readiness_reason": "service_slot_allocator_authority_boundary_non_authorizing"' },
-        @{ Suffix = "identity_missing"; Needle = '"identity_reason": "module_loader_identity_missing"' },
-        @{ Suffix = "fact_source_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
-        @{ Suffix = "source_state"; Needle = '"source_evidence_state": "retained_current_boot"' },
-        @{ Suffix = "no_descriptor"; Needle = '"accepts_loader_descriptor": false' },
-        @{ Suffix = "no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-        @{ Suffix = "no_load"; Needle = '"loads_artifact": false' },
-        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
-    )
-
+    Assert-LogContains -Name "protocol:module_loader_identity_schema" -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_identity_fact" -Needle '"id": "loader_identity", "kind": "loader_fact", "status": "missing", "reason": "module_loader_identity_missing", "source_event_id": "event.current_boot.' -TimeoutSeconds 1
     Send-AgentCommand -Command "agent module.loader_artifact_hash_binding" -ExpectedMarker "RAIOS_AGENT_END module.loader_artifact_hash_binding"
-    Assert-LogContainsFields -NamePrefix "protocol:module_loader_artifact_hash_binding_source_evidence_" -TimeoutSeconds 1 -Fields @(
-        @{ Suffix = "schema"; Needle = '"schema": "raios.module_loader_artifact_hash_binding.v0"' },
-        @{ Suffix = "mutates_source_evidence_only"; Needle = '"mutates_global_event_log": true' },
-        @{ Suffix = "mutation_scope"; Needle = '"global_event_log_mutation": "retained_current_boot_source_evidence_only"' },
-        @{ Suffix = "source_schema"; Needle = '"schema": "raios.module_loader_artifact_hash_binding_source_evidence.v0"' },
-        @{ Suffix = "source_retained"; Needle = '"status": "retained_current_boot_source_evidence"' },
-        @{ Suffix = "source_event_id"; Needle = '"event_id": "event.current_boot.' },
-        @{ Suffix = "source_method"; Needle = '"source_method": "module.loader_artifact_hash_binding"' },
-        @{ Suffix = "source_locator"; Needle = '"source_fact_locator": "module.loader_artifact_hash_binding.artifact_hash_binding"' },
-        @{ Suffix = "retained_evidence_present"; Needle = '"retained_module_evidence_present": true' },
-        @{ Suffix = "readiness_status"; Needle = '"readiness_status": "denied_allocator_authority_not_granted"' },
-        @{ Suffix = "readiness_reason"; Needle = '"readiness_reason": "service_slot_allocator_authority_boundary_non_authorizing"' },
-        @{ Suffix = "artifact_missing"; Needle = '"artifact_hash_binding_reason": "module_loader_artifact_hash_binding_missing"' },
-        @{ Suffix = "identity_source_present"; Needle = '"loader_identity_source_evidence_present": true' },
-        @{ Suffix = "identity_source_event"; Needle = '"loader_identity_source_evidence_event_id": "event.current_boot.' },
-        @{ Suffix = "fact_source_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
-        @{ Suffix = "source_state"; Needle = '"source_evidence_state": "retained_current_boot"' },
-        @{ Suffix = "no_descriptor"; Needle = '"accepts_loader_descriptor": false' },
-        @{ Suffix = "no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-        @{ Suffix = "no_load"; Needle = '"loads_artifact": false' },
-        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_schema" -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_fact" -Needle '"id": "artifact_hash_binding", "kind": "loader_fact", "status": "missing", "reason": "module_loader_artifact_hash_binding_missing", "source_event_id": "event.current_boot.' -TimeoutSeconds 1
+    $loaderFacts = @(
+        @{ Method = "module.loader_entrypoint_abi"; Id = "entrypoint_abi"; Dependency = "artifact_hash_binding"; Reason = "module_loader_entrypoint_abi_missing" },
+        @{ Method = "module.loader_address_space_boundary"; Id = "address_space_boundary"; Dependency = "entrypoint_abi"; Reason = "module_loader_address_space_boundary_missing" },
+        @{ Method = "module.loader_memory_map_constraints"; Id = "memory_map_constraints"; Dependency = "address_space_boundary"; Reason = "module_loader_memory_map_constraints_missing" },
+        @{ Method = "module.loader_capability_import_table"; Id = "capability_import_table"; Dependency = "memory_map_constraints"; Reason = "module_loader_capability_import_table_missing" },
+        @{ Method = "module.loader_service_slot_binding"; Id = "service_slot_binding"; Dependency = "capability_import_table"; Reason = "module_loader_service_slot_binding_missing" },
+        @{ Method = "module.loader_health_state_hooks"; Id = "health_state_hooks"; Dependency = "service_slot_binding"; Reason = "module_loader_health_state_hooks_missing" },
+        @{ Method = "module.loader_rollback_hooks"; Id = "rollback_hooks"; Dependency = "health_state_hooks"; Reason = "module_loader_rollback_hooks_missing" },
+        @{ Method = "module.loader_audit_rollback_write_boundary_binding"; Id = "audit_rollback_write_boundary_binding"; Dependency = "rollback_hooks"; Reason = "module_loader_audit_rollback_write_boundary_binding_missing" }
     )
-
-    Send-AgentCommand -Command "agent module.loader_entrypoint_abi" -ExpectedMarker "RAIOS_AGENT_END module.loader_entrypoint_abi"
-    Assert-LogContainsFields -NamePrefix "protocol:module_loader_entrypoint_abi_source_evidence_" -TimeoutSeconds 1 -Fields @(
-        @{ Suffix = "schema"; Needle = '"schema": "raios.module_loader_entrypoint_abi.v0"' },
-        @{ Suffix = "mutates_source_evidence_only"; Needle = '"mutates_global_event_log": true' },
-        @{ Suffix = "mutation_scope"; Needle = '"global_event_log_mutation": "retained_current_boot_source_evidence_only"' },
-        @{ Suffix = "source_schema"; Needle = '"schema": "raios.module_loader_entrypoint_abi_source_evidence.v0"' },
-        @{ Suffix = "source_retained"; Needle = '"status": "retained_current_boot_source_evidence"' },
-        @{ Suffix = "source_event_id"; Needle = '"event_id": "event.current_boot.' },
-        @{ Suffix = "source_method"; Needle = '"source_method": "module.loader_entrypoint_abi"' },
-        @{ Suffix = "source_locator"; Needle = '"source_fact_locator": "module.loader_entrypoint_abi.entrypoint_abi"' },
-        @{ Suffix = "retained_evidence_present"; Needle = '"retained_module_evidence_present": true' },
-        @{ Suffix = "readiness_status"; Needle = '"readiness_status": "denied_allocator_authority_not_granted"' },
-        @{ Suffix = "readiness_reason"; Needle = '"readiness_reason": "service_slot_allocator_authority_boundary_non_authorizing"' },
-        @{ Suffix = "entrypoint_missing"; Needle = '"fact_reason": "module_loader_entrypoint_abi_missing"' },
-        @{ Suffix = "dependency_source_event"; Needle = '"dependency_source_evidence_event_id": "event.current_boot.' },
-        @{ Suffix = "fact_source_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
-        @{ Suffix = "source_state"; Needle = '"source_evidence_state": "retained_current_boot"' },
-        @{ Suffix = "no_descriptor"; Needle = '"accepts_loader_descriptor": false' },
-        @{ Suffix = "no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-        @{ Suffix = "no_load"; Needle = '"loads_artifact": false' },
-        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
-    )
-
-    $loaderFactSourceEvidenceDiagnostics = @(
-        @{ Prefix = "module_loader_address_space_boundary"; Method = "module.loader_address_space_boundary"; Schema = "raios.module_loader_address_space_boundary.v0"; SourceSchema = "raios.module_loader_address_space_boundary_source_evidence.v0"; Locator = "module.loader_address_space_boundary.address_space_boundary"; MissingReason = "module_loader_address_space_boundary_missing" },
-        @{ Prefix = "module_loader_memory_map_constraints"; Method = "module.loader_memory_map_constraints"; Schema = "raios.module_loader_memory_map_constraints.v0"; SourceSchema = "raios.module_loader_memory_map_constraints_source_evidence.v0"; Locator = "module.loader_memory_map_constraints.memory_map_constraints"; MissingReason = "module_loader_memory_map_constraints_missing" },
-        @{ Prefix = "module_loader_capability_import_table"; Method = "module.loader_capability_import_table"; Schema = "raios.module_loader_capability_import_table.v0"; SourceSchema = "raios.module_loader_capability_import_table_source_evidence.v0"; Locator = "module.loader_capability_import_table.capability_import_table"; MissingReason = "module_loader_capability_import_table_missing" },
-        @{ Prefix = "module_loader_service_slot_binding"; Method = "module.loader_service_slot_binding"; Schema = "raios.module_loader_service_slot_binding.v0"; SourceSchema = "raios.module_loader_service_slot_binding_source_evidence.v0"; Locator = "module.loader_service_slot_binding.service_slot_binding"; MissingReason = "module_loader_service_slot_binding_missing" },
-        @{ Prefix = "module_loader_health_state_hooks"; Method = "module.loader_health_state_hooks"; Schema = "raios.module_loader_health_state_hooks.v0"; SourceSchema = "raios.module_loader_health_state_hooks_source_evidence.v0"; Locator = "module.loader_health_state_hooks.health_state_hooks"; MissingReason = "module_loader_health_state_hooks_missing" },
-        @{ Prefix = "module_loader_rollback_hooks"; Method = "module.loader_rollback_hooks"; Schema = "raios.module_loader_rollback_hooks.v0"; SourceSchema = "raios.module_loader_rollback_hooks_source_evidence.v0"; Locator = "module.loader_rollback_hooks.rollback_hooks"; MissingReason = "module_loader_rollback_hooks_missing" },
-        @{ Prefix = "module_loader_audit_rollback_write_boundary_binding"; Method = "module.loader_audit_rollback_write_boundary_binding"; Schema = "raios.module_loader_audit_rollback_write_boundary_binding.v0"; SourceSchema = "raios.module_loader_audit_rollback_write_boundary_binding_source_evidence.v0"; Locator = "module.loader_audit_rollback_write_boundary_binding.audit_rollback_write_boundary_binding"; MissingReason = "module_loader_audit_rollback_write_boundary_binding_missing" }
-    )
-    foreach ($fact in $loaderFactSourceEvidenceDiagnostics) {
+    foreach ($fact in $loaderFacts) {
         Send-AgentCommand -Command ("agent " + $fact.Method) -ExpectedMarker ("RAIOS_AGENT_END " + $fact.Method)
-        Assert-LogContainsFields -NamePrefix ("protocol:" + $fact.Prefix + "_source_evidence_") -TimeoutSeconds 1 -Fields @(
-            @{ Suffix = "schema"; Needle = ('"schema": "' + $fact.Schema + '"') },
-            @{ Suffix = "mutates_source_evidence_only"; Needle = '"mutates_global_event_log": true' },
-            @{ Suffix = "mutation_scope"; Needle = '"global_event_log_mutation": "retained_current_boot_source_evidence_only"' },
-            @{ Suffix = "source_schema"; Needle = ('"schema": "' + $fact.SourceSchema + '"') },
-            @{ Suffix = "source_retained"; Needle = '"status": "retained_current_boot_source_evidence"' },
-            @{ Suffix = "source_event_id"; Needle = '"event_id": "event.current_boot.' },
-            @{ Suffix = "source_method"; Needle = ('"source_method": "' + $fact.Method + '"') },
-            @{ Suffix = "source_locator"; Needle = ('"source_fact_locator": "' + $fact.Locator + '"') },
-            @{ Suffix = "retained_evidence_present"; Needle = '"retained_module_evidence_present": true' },
-            @{ Suffix = "readiness_status"; Needle = '"readiness_status": "denied_allocator_authority_not_granted"' },
-            @{ Suffix = "readiness_reason"; Needle = '"readiness_reason": "service_slot_allocator_authority_boundary_non_authorizing"' },
-            @{ Suffix = "fact_missing"; Needle = ('"fact_reason": "' + $fact.MissingReason + '"') },
-            @{ Suffix = "dependency_source_event"; Needle = '"dependency_source_evidence_event_id": "event.current_boot.' },
-            @{ Suffix = "fact_source_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
-            @{ Suffix = "source_state"; Needle = '"source_evidence_state": "retained_current_boot"' },
-            @{ Suffix = "no_descriptor"; Needle = '"accepts_loader_descriptor": false' },
-            @{ Suffix = "no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-            @{ Suffix = "no_load"; Needle = '"loads_artifact": false' },
-            @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
-        )
+        Assert-LogContains -Name ("protocol:" + $fact.Id + "_schema") -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $fact.Id + "_dependency") -Needle ('"id": "' + $fact.Dependency + '", "kind": "loader_fact"') -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $fact.Id + "_fact") -Needle ('"id": "' + $fact.Id + '", "kind": "loader_fact", "status": "missing", "reason": "' + $fact.Reason + '", "source_event_id": "event.current_boot.') -TimeoutSeconds 1
     }
-
     Send-AgentCommand -Command "agent module.loader_runtime" -ExpectedMarker "RAIOS_AGENT_END module.loader_runtime"
-    Assert-LogContainsFields -NamePrefix "protocol:module_loader_runtime_" -TimeoutSeconds 1 -Fields @(
-        @{ Suffix = "schema"; Needle = '"schema": "raios.module_loader_runtime_readiness.v0"' },
-        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
-        @{ Suffix = "source_evidence_mutation"; Needle = '"global_event_log_mutation": "retained_current_boot_source_evidence_only"' },
-        @{ Suffix = "no_descriptor"; Needle = '"accepts_loader_descriptor": false' },
-        @{ Suffix = "no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-        @{ Suffix = "no_load"; Needle = '"loads_artifact": false' },
-        @{ Suffix = "no_slots"; Needle = '"allocates_service_slot": false' },
-        @{ Suffix = "no_inventory_records"; Needle = '"creates_service_inventory_records": false' },
-        @{ Suffix = "inventory_none"; Needle = '"service_inventory_change": "none"' },
-        @{ Suffix = "manifest_present"; Needle = '"retained_module_manifest_reference_available"' },
-        @{ Suffix = "artifact_present"; Needle = '"retained_module_candidate_artifact_reference_available"' },
-        @{ Suffix = "service_slot_present"; Needle = '"retained_module_service_slot_reservation_available"' },
-        @{ Suffix = "allocator_schema"; Needle = '"schema": "raios.module_service_slot_allocator_readiness.v0"' },
-        @{ Suffix = "allocator_source"; Needle = '"source_method": "module.service_slot_allocator"' },
-        @{ Suffix = "allocator_not_ready"; Needle = '"service_slot_allocator_ready": false' },
-        @{ Suffix = "readiness_status"; Needle = '"readiness_status": "denied_allocator_authority_not_granted"' },
-        @{ Suffix = "readiness_reason"; Needle = '"readiness_reason": "service_slot_allocator_authority_boundary_non_authorizing"' },
-        @{ Suffix = "authority_schema"; Needle = '"allocator_authority_boundary": {' },
-        @{ Suffix = "allocation_intent_boundary"; Needle = '"allocation_intent_boundary": {' },
-        @{ Suffix = "allocation_intent_schema"; Needle = '"schema": "raios.service_slot_allocation_intent.v0"' },
-        @{ Suffix = "allocation_intent_reason"; Needle = '"reason": "service_slot_allocation_intent_defined_non_authorizing"' },
-        @{ Suffix = "authority_inputs"; Needle = '"authority_input_boundaries": {' },
-        @{ Suffix = "policy_decision_schema"; Needle = '"schema": "raios.service_slot_allocator_policy_decision.v0"' },
-        @{ Suffix = "cleanup_authority_reason"; Needle = '"reason": "service_unload_cleanup_authority_defined_non_authorizing"' },
-        @{ Suffix = "authority_decision"; Needle = '"authority_decision": {' },
-        @{ Suffix = "authority_decision_schema"; Needle = '"schema": "raios.module_service_slot_allocator_authority_decision.v0"' },
-        @{ Suffix = "authority_decision_reason"; Needle = '"reason": "service_slot_allocator_authority_decision_non_authorizing"' },
-        @{ Suffix = "registry_commit_gate"; Needle = '"registry_write_commit_gate": {' },
-        @{ Suffix = "registry_commit_gate_schema"; Needle = '"schema": "raios.service_slot_registry_write_commit_gate.v0"' },
-        @{ Suffix = "registry_commit_gate_reason"; Needle = '"reason": "service_slot_registry_write_commit_gate_non_authorizing"' },
-        @{ Suffix = "registry_commit_gate_no_write"; Needle = '"authorizes_registry_write": false' },
-        @{ Suffix = "execution_commit_gate"; Needle = '"execution_commit_gate": {' },
-        @{ Suffix = "execution_commit_gate_schema"; Needle = '"schema": "raios.module_loader_runtime_execution_commit_gate.v0"' },
-        @{ Suffix = "execution_commit_gate_reason"; Needle = '"reason": "module_loader_runtime_execution_commit_gate_non_authorizing"' },
-        @{ Suffix = "execution_commit_gate_source_complete"; Needle = '"loader_runtime_source_evidence_complete": true' },
-        @{ Suffix = "execution_commit_gate_no_descriptor"; Needle = '"accepts_loader_descriptor": false' },
-        @{ Suffix = "execution_commit_gate_no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-        @{ Suffix = "execution_commit_gate_no_execution"; Needle = '"authorizes_execution": false' },
-        @{ Suffix = "descriptor_intake_boundary"; Needle = '"descriptor_intake_boundary": {' },
-        @{ Suffix = "descriptor_intake_boundary_schema"; Needle = '"schema": "raios.module_loader_descriptor_intake_boundary.v0"' },
-        @{ Suffix = "descriptor_intake_boundary_reason"; Needle = '"reason": "module_loader_descriptor_intake_boundary_non_authorizing"' },
-        @{ Suffix = "descriptor_intake_boundary_no_descriptor"; Needle = '"accepts_loader_descriptor": false' },
-        @{ Suffix = "descriptor_intake_boundary_no_descriptor_bytes"; Needle = '"accepts_descriptor_bytes": false' },
-        @{ Suffix = "descriptor_intake_boundary_no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-        @{ Suffix = "descriptor_intake_boundary_no_intake"; Needle = '"authorizes_descriptor_intake": false' },
-        @{ Suffix = "artifact_byte_intake_boundary"; Needle = '"artifact_byte_intake_boundary": {' },
-        @{ Suffix = "artifact_byte_intake_boundary_schema"; Needle = '"schema": "raios.module_loader_artifact_byte_intake_boundary.v0"' },
-        @{ Suffix = "artifact_byte_intake_boundary_reason"; Needle = '"reason": "module_loader_artifact_byte_intake_boundary_non_authorizing"' },
-        @{ Suffix = "artifact_byte_intake_boundary_no_descriptor_bytes"; Needle = '"accepts_descriptor_bytes": false' },
-        @{ Suffix = "artifact_byte_intake_boundary_no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-        @{ Suffix = "artifact_byte_intake_boundary_no_artifact_intake"; Needle = '"authorizes_artifact_byte_intake": false' },
-        @{ Suffix = "execution_authorization_boundary"; Needle = '"execution_authorization_boundary": {' },
-        @{ Suffix = "execution_authorization_boundary_schema"; Needle = '"schema": "raios.module_loader_execution_authorization_boundary.v0"' },
-        @{ Suffix = "execution_authorization_boundary_reason"; Needle = '"reason": "module_loader_execution_authorization_boundary_non_authorizing"' },
-        @{ Suffix = "execution_authorization_boundary_no_exec_pages"; Needle = '"maps_executable_pages": false' },
-        @{ Suffix = "execution_authorization_boundary_no_entrypoint"; Needle = '"jumps_to_entrypoint": false' },
-        @{ Suffix = "execution_authorization_boundary_no_execution"; Needle = '"authorizes_execution": false' },
-        @{ Suffix = "service_registry_mutation_boundary"; Needle = '"service_registry_mutation_boundary": {' },
-        @{ Suffix = "service_registry_mutation_boundary_schema"; Needle = '"schema": "raios.module_loader_service_registry_mutation_boundary.v0"' },
-        @{ Suffix = "service_registry_mutation_boundary_reason"; Needle = '"reason": "module_loader_service_registry_mutation_boundary_non_authorizing"' },
-        @{ Suffix = "service_registry_mutation_boundary_no_mutation"; Needle = '"mutates_service_registry": false' },
-        @{ Suffix = "service_registry_mutation_boundary_no_records"; Needle = '"creates_service_inventory_records": false' },
-        @{ Suffix = "load_attempt_boundary"; Needle = '"load_attempt_boundary": {' },
-        @{ Suffix = "load_attempt_boundary_schema"; Needle = '"schema": "raios.module_loader_load_attempt_boundary.v0"' },
-        @{ Suffix = "load_attempt_boundary_reason"; Needle = '"reason": "module_loader_load_attempt_boundary_non_authorizing"' },
-        @{ Suffix = "load_attempt_boundary_no_attempt"; Needle = '"load_attempted": false' },
-        @{ Suffix = "artifact_load_boundary"; Needle = '"artifact_load_boundary": {' },
-        @{ Suffix = "artifact_load_boundary_schema"; Needle = '"schema": "raios.module_loader_artifact_load_boundary.v0"' },
-        @{ Suffix = "artifact_load_boundary_reason"; Needle = '"reason": "module_loader_artifact_load_boundary_non_authorizing"' },
-        @{ Suffix = "artifact_load_boundary_no_load"; Needle = '"loads_artifact": false' },
-        @{ Suffix = "executable_mapping_boundary"; Needle = '"executable_mapping_boundary": {' },
-        @{ Suffix = "executable_mapping_boundary_schema"; Needle = '"schema": "raios.module_loader_executable_mapping_boundary.v0"' },
-        @{ Suffix = "executable_mapping_boundary_reason"; Needle = '"reason": "module_loader_executable_mapping_boundary_non_authorizing"' },
-        @{ Suffix = "executable_mapping_boundary_no_exec_pages"; Needle = '"maps_executable_pages": false' },
-        @{ Suffix = "entrypoint_transfer_boundary"; Needle = '"entrypoint_transfer_boundary": {' },
-        @{ Suffix = "entrypoint_transfer_boundary_schema"; Needle = '"schema": "raios.module_loader_entrypoint_transfer_boundary.v0"' },
-        @{ Suffix = "entrypoint_transfer_boundary_reason"; Needle = '"reason": "module_loader_entrypoint_transfer_boundary_non_authorizing"' },
-        @{ Suffix = "entrypoint_transfer_boundary_no_entrypoint"; Needle = '"jumps_to_entrypoint": false' },
-        @{ Suffix = "service_start_boundary"; Needle = '"service_start_boundary": {' },
-        @{ Suffix = "service_start_boundary_schema"; Needle = '"schema": "raios.module_loader_service_start_boundary.v0"' },
-        @{ Suffix = "service_start_boundary_reason"; Needle = '"reason": "module_loader_service_start_boundary_non_authorizing"' },
-        @{ Suffix = "service_start_boundary_no_start"; Needle = '"starts_service": false' },
-        @{ Suffix = "service_start_boundary_no_running"; Needle = '"marks_service_running": false' },
-        @{ Suffix = "service_health_binding_boundary"; Needle = '"service_health_binding_boundary": {' },
-        @{ Suffix = "service_health_binding_boundary_schema"; Needle = '"schema": "raios.module_loader_service_health_binding_boundary.v0"' },
-        @{ Suffix = "service_health_binding_boundary_reason"; Needle = '"reason": "module_loader_service_health_binding_boundary_non_authorizing"' },
-        @{ Suffix = "service_health_binding_boundary_no_health_records"; Needle = '"creates_service_health_records": false' },
-        @{ Suffix = "service_running_state_boundary"; Needle = '"service_running_state_boundary": {' },
-        @{ Suffix = "service_running_state_boundary_schema"; Needle = '"schema": "raios.module_loader_service_running_state_boundary.v0"' },
-        @{ Suffix = "service_running_state_boundary_reason"; Needle = '"reason": "module_loader_service_running_state_boundary_non_authorizing"' },
-        @{ Suffix = "service_running_state_boundary_no_running"; Needle = '"marks_service_running": false' },
-        @{ Suffix = "service_start_audit_boundary"; Needle = '"service_start_audit_boundary": {' },
-        @{ Suffix = "service_start_audit_boundary_schema"; Needle = '"schema": "raios.module_loader_service_start_audit_boundary.v0"' },
-        @{ Suffix = "service_start_audit_boundary_reason"; Needle = '"reason": "module_loader_service_start_audit_boundary_non_authorizing"' },
-        @{ Suffix = "service_start_audit_boundary_no_record"; Needle = '"writes_service_start_audit_record": false' },
-        @{ Suffix = "service_unload_cleanup_boundary"; Needle = '"service_unload_cleanup_boundary": {' },
-        @{ Suffix = "service_unload_cleanup_boundary_schema"; Needle = '"schema": "raios.module_loader_service_unload_cleanup_boundary.v0"' },
-        @{ Suffix = "service_unload_cleanup_boundary_reason"; Needle = '"reason": "module_loader_service_unload_cleanup_boundary_non_authorizing"' },
-        @{ Suffix = "service_unload_cleanup_boundary_no_unload"; Needle = '"unloads_service": false' },
-        @{ Suffix = "service_unload_cleanup_boundary_no_cleanup"; Needle = '"cleans_up_service_slot": false' },
-        @{ Suffix = "live_load_commit_boundary"; Needle = '"live_load_commit_boundary": {' },
-        @{ Suffix = "live_load_commit_boundary_schema"; Needle = '"schema": "raios.module_loader_live_load_commit_boundary.v0"' },
-        @{ Suffix = "live_load_commit_boundary_reason"; Needle = '"reason": "module_loader_live_load_commit_boundary_non_authorizing"' },
-        @{ Suffix = "live_load_commit_boundary_no_commit"; Needle = '"commits_live_load": false' },
-        @{ Suffix = "commit_audit_boundary"; Needle = '"commit_audit_boundary": {' },
-        @{ Suffix = "commit_audit_boundary_schema"; Needle = '"schema": "raios.module_loader_commit_audit_boundary.v0"' },
-        @{ Suffix = "commit_audit_boundary_reason"; Needle = '"reason": "module_loader_commit_audit_boundary_non_authorizing"' },
-        @{ Suffix = "commit_audit_boundary_no_record"; Needle = '"writes_load_commit_audit_record": false' },
-        @{ Suffix = "commit_rollback_boundary"; Needle = '"commit_rollback_boundary": {' },
-        @{ Suffix = "commit_rollback_boundary_schema"; Needle = '"schema": "raios.module_loader_commit_rollback_boundary.v0"' },
-        @{ Suffix = "commit_rollback_boundary_reason"; Needle = '"reason": "module_loader_commit_rollback_boundary_non_authorizing"' },
-        @{ Suffix = "commit_rollback_boundary_no_install"; Needle = '"installs_commit_rollback_record": false' },
-        @{ Suffix = "commit_result_boundary"; Needle = '"commit_result_boundary": {' },
-        @{ Suffix = "commit_result_boundary_schema"; Needle = '"schema": "raios.module_loader_commit_result_boundary.v0"' },
-        @{ Suffix = "commit_result_boundary_reason"; Needle = '"reason": "module_loader_commit_result_boundary_non_authorizing"' },
-        @{ Suffix = "commit_result_boundary_no_result"; Needle = '"records_load_result": false' },
-        @{ Suffix = "descriptor_acceptance_authority_boundary"; Needle = '"descriptor_acceptance_authority_boundary": {' },
-        @{ Suffix = "descriptor_acceptance_authority_boundary_schema"; Needle = '"schema": "raios.module_loader_descriptor_acceptance_authority_boundary.v0"' },
-        @{ Suffix = "descriptor_acceptance_authority_boundary_reason"; Needle = '"reason": "module_loader_descriptor_acceptance_authority_boundary_non_authorizing"' },
-        @{ Suffix = "descriptor_acceptance_authority_boundary_no_descriptor"; Needle = '"accepts_loader_descriptor": false' },
-        @{ Suffix = "descriptor_acceptance_authority_boundary_no_descriptor_bytes"; Needle = '"accepts_descriptor_bytes": false' },
-        @{ Suffix = "descriptor_acceptance_authority_boundary_no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-        @{ Suffix = "descriptor_parser_contract_boundary"; Needle = '"descriptor_parser_contract_boundary": {' },
-        @{ Suffix = "descriptor_parser_contract_boundary_schema"; Needle = '"schema": "raios.module_loader_descriptor_parser_contract_boundary.v0"' },
-        @{ Suffix = "descriptor_parser_contract_boundary_reason"; Needle = '"reason": "module_loader_descriptor_parser_contract_boundary_non_authorizing"' },
-        @{ Suffix = "descriptor_parser_contract_boundary_no_parse"; Needle = '"parses_descriptor_bytes": false' },
-        @{ Suffix = "descriptor_parser_contract_boundary_no_descriptor"; Needle = '"accepts_loader_descriptor": false' },
-        @{ Suffix = "descriptor_parser_contract_boundary_no_descriptor_bytes"; Needle = '"accepts_descriptor_bytes": false' },
-        @{ Suffix = "descriptor_parser_contract_boundary_no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-        @{ Suffix = "descriptor_parser_result_boundary"; Needle = '"descriptor_parser_result_boundary": {' },
-        @{ Suffix = "descriptor_parser_result_boundary_schema"; Needle = '"schema": "raios.module_loader_descriptor_parser_result_boundary.v0"' },
-        @{ Suffix = "descriptor_parser_result_boundary_reason"; Needle = '"reason": "module_loader_descriptor_parser_result_boundary_non_authorizing"' },
-        @{ Suffix = "descriptor_parser_result_boundary_no_result"; Needle = '"produces_parsed_descriptor": false' },
-        @{ Suffix = "descriptor_parser_result_boundary_no_parse"; Needle = '"parses_descriptor_bytes": false' },
-        @{ Suffix = "descriptor_parser_result_boundary_no_descriptor"; Needle = '"accepts_loader_descriptor": false' },
-        @{ Suffix = "descriptor_parser_result_boundary_no_descriptor_bytes"; Needle = '"accepts_descriptor_bytes": false' },
-        @{ Suffix = "descriptor_parser_result_boundary_no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-        @{ Suffix = "descriptor_schema_validation_boundary"; Needle = '"descriptor_schema_validation_boundary": {' },
-        @{ Suffix = "descriptor_schema_validation_boundary_schema"; Needle = '"schema": "raios.module_loader_descriptor_schema_validation_boundary.v0"' },
-        @{ Suffix = "descriptor_schema_validation_boundary_reason"; Needle = '"reason": "module_loader_descriptor_schema_validation_boundary_non_authorizing"' },
-        @{ Suffix = "descriptor_schema_validation_boundary_no_schema_validation"; Needle = '"validates_descriptor_schema": false' },
-        @{ Suffix = "descriptor_schema_validation_boundary_no_validated_descriptor"; Needle = '"produces_validated_descriptor": false' },
-        @{ Suffix = "descriptor_schema_validation_boundary_no_parsed_result"; Needle = '"produces_parsed_descriptor": false' },
-        @{ Suffix = "descriptor_schema_validation_boundary_no_parse"; Needle = '"parses_descriptor_bytes": false' },
-        @{ Suffix = "descriptor_schema_validation_boundary_no_descriptor"; Needle = '"accepts_loader_descriptor": false' },
-        @{ Suffix = "descriptor_schema_validation_boundary_no_descriptor_bytes"; Needle = '"accepts_descriptor_bytes": false' },
-        @{ Suffix = "descriptor_schema_validation_boundary_no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-        @{ Suffix = "descriptor_capability_validation_boundary"; Needle = '"descriptor_capability_validation_boundary": {' },
-        @{ Suffix = "descriptor_capability_validation_boundary_schema"; Needle = '"schema": "raios.module_loader_descriptor_capability_validation_boundary.v0"' },
-        @{ Suffix = "descriptor_capability_validation_boundary_reason"; Needle = '"reason": "module_loader_descriptor_capability_validation_boundary_non_authorizing"' },
-        @{ Suffix = "descriptor_capability_validation_boundary_no_capability_validation"; Needle = '"validates_descriptor_capabilities": false' },
-        @{ Suffix = "descriptor_capability_validation_boundary_no_capability_validated_descriptor"; Needle = '"produces_capability_validated_descriptor": false' },
-        @{ Suffix = "descriptor_capability_validation_boundary_no_schema_validation"; Needle = '"validates_descriptor_schema": false' },
-        @{ Suffix = "descriptor_capability_validation_boundary_no_validated_descriptor"; Needle = '"produces_validated_descriptor": false' },
-        @{ Suffix = "descriptor_capability_validation_boundary_no_parsed_result"; Needle = '"produces_parsed_descriptor": false' },
-        @{ Suffix = "descriptor_capability_validation_boundary_no_parse"; Needle = '"parses_descriptor_bytes": false' },
-        @{ Suffix = "descriptor_capability_validation_boundary_no_descriptor"; Needle = '"accepts_loader_descriptor": false' },
-        @{ Suffix = "descriptor_capability_validation_boundary_no_descriptor_bytes"; Needle = '"accepts_descriptor_bytes": false' },
-        @{ Suffix = "descriptor_capability_validation_boundary_no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-        @{ Suffix = "descriptor_load_plan_boundary"; Needle = '"descriptor_load_plan_boundary": {' },
-        @{ Suffix = "descriptor_load_plan_boundary_schema"; Needle = '"schema": "raios.module_loader_descriptor_load_plan_boundary.v0"' },
-        @{ Suffix = "descriptor_load_plan_boundary_reason"; Needle = '"reason": "module_loader_descriptor_load_plan_boundary_non_authorizing"' },
-        @{ Suffix = "descriptor_load_plan_boundary_no_load_plan"; Needle = '"produces_executable_load_plan": false' },
-        @{ Suffix = "descriptor_load_plan_boundary_no_executable_binding"; Needle = '"binds_capability_validated_descriptor_to_executable_pages": false' },
-        @{ Suffix = "descriptor_load_plan_boundary_no_capability_validation"; Needle = '"validates_descriptor_capabilities": false' },
-        @{ Suffix = "descriptor_load_plan_boundary_no_capability_validated_descriptor"; Needle = '"produces_capability_validated_descriptor": false' },
-        @{ Suffix = "descriptor_load_plan_boundary_no_schema_validation"; Needle = '"validates_descriptor_schema": false' },
-        @{ Suffix = "descriptor_load_plan_boundary_no_validated_descriptor"; Needle = '"produces_validated_descriptor": false' },
-        @{ Suffix = "descriptor_load_plan_boundary_no_parsed_result"; Needle = '"produces_parsed_descriptor": false' },
-        @{ Suffix = "descriptor_load_plan_boundary_no_parse"; Needle = '"parses_descriptor_bytes": false' },
-        @{ Suffix = "descriptor_load_plan_boundary_no_descriptor"; Needle = '"accepts_loader_descriptor": false' },
-        @{ Suffix = "descriptor_load_plan_boundary_no_descriptor_bytes"; Needle = '"accepts_descriptor_bytes": false' },
-        @{ Suffix = "descriptor_load_plan_boundary_no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-        @{ Suffix = "executable_load_plan_authority_boundary"; Needle = '"executable_load_plan_authority_boundary": {' },
-        @{ Suffix = "executable_load_plan_authority_boundary_schema"; Needle = '"schema": "raios.module_loader_executable_load_plan_authority_boundary.v0"' },
-        @{ Suffix = "executable_load_plan_authority_boundary_reason"; Needle = '"reason": "module_loader_executable_load_plan_authority_boundary_non_authorizing"' },
-        @{ Suffix = "executable_load_plan_authority_boundary_no_authority"; Needle = '"authorizes_executable_load_plan": false' },
-        @{ Suffix = "executable_load_plan_authority_boundary_no_load_plan"; Needle = '"produces_executable_load_plan": false' },
-        @{ Suffix = "executable_load_plan_authority_boundary_no_executable_binding"; Needle = '"binds_capability_validated_descriptor_to_executable_pages": false' },
-        @{ Suffix = "executable_load_plan_authority_boundary_no_capability_validation"; Needle = '"validates_descriptor_capabilities": false' },
-        @{ Suffix = "executable_load_plan_authority_boundary_no_capability_validated_descriptor"; Needle = '"produces_capability_validated_descriptor": false' },
-        @{ Suffix = "executable_load_plan_authority_boundary_no_schema_validation"; Needle = '"validates_descriptor_schema": false' },
-        @{ Suffix = "executable_load_plan_authority_boundary_no_validated_descriptor"; Needle = '"produces_validated_descriptor": false' },
-        @{ Suffix = "executable_load_plan_authority_boundary_no_parsed_result"; Needle = '"produces_parsed_descriptor": false' },
-        @{ Suffix = "executable_load_plan_authority_boundary_no_parse"; Needle = '"parses_descriptor_bytes": false' },
-        @{ Suffix = "executable_load_plan_authority_boundary_no_descriptor"; Needle = '"accepts_loader_descriptor": false' },
-        @{ Suffix = "executable_load_plan_authority_boundary_no_descriptor_bytes"; Needle = '"accepts_descriptor_bytes": false' },
-        @{ Suffix = "executable_load_plan_authority_boundary_no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-        @{ Suffix = "executable_load_plan_result_boundary"; Needle = '"executable_load_plan_result_boundary": {' },
-        @{ Suffix = "executable_load_plan_result_boundary_schema"; Needle = '"schema": "raios.module_loader_executable_load_plan_result_boundary.v0"' },
-        @{ Suffix = "executable_load_plan_result_boundary_reason"; Needle = '"reason": "module_loader_executable_load_plan_result_boundary_non_authorizing"' },
-        @{ Suffix = "executable_load_plan_result_boundary_no_authority"; Needle = '"authorizes_executable_load_plan": false' },
-        @{ Suffix = "executable_load_plan_result_boundary_no_load_plan"; Needle = '"produces_executable_load_plan": false' },
-        @{ Suffix = "executable_load_plan_result_boundary_no_executable_binding"; Needle = '"binds_capability_validated_descriptor_to_executable_pages": false' },
-        @{ Suffix = "executable_load_plan_result_boundary_no_capability_validation"; Needle = '"validates_descriptor_capabilities": false' },
-        @{ Suffix = "executable_load_plan_result_boundary_no_capability_validated_descriptor"; Needle = '"produces_capability_validated_descriptor": false' },
-        @{ Suffix = "executable_load_plan_result_boundary_no_schema_validation"; Needle = '"validates_descriptor_schema": false' },
-        @{ Suffix = "executable_load_plan_result_boundary_no_validated_descriptor"; Needle = '"produces_validated_descriptor": false' },
-        @{ Suffix = "executable_load_plan_result_boundary_no_parsed_result"; Needle = '"produces_parsed_descriptor": false' },
-        @{ Suffix = "executable_load_plan_result_boundary_no_parse"; Needle = '"parses_descriptor_bytes": false' },
-        @{ Suffix = "executable_load_plan_result_boundary_no_descriptor"; Needle = '"accepts_loader_descriptor": false' },
-        @{ Suffix = "executable_load_plan_result_boundary_no_descriptor_bytes"; Needle = '"accepts_descriptor_bytes": false' },
-        @{ Suffix = "executable_load_plan_result_boundary_no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-        @{ Suffix = "executable_image_layout_boundary"; Needle = '"executable_image_layout_boundary": {' },
-        @{ Suffix = "executable_image_layout_boundary_schema"; Needle = '"schema": "raios.module_loader_executable_image_layout_boundary.v0"' },
-        @{ Suffix = "executable_image_layout_boundary_reason"; Needle = '"reason": "module_loader_executable_image_layout_boundary_non_authorizing"' },
-        @{ Suffix = "executable_image_layout_boundary_no_image_layout"; Needle = '"produces_executable_image_layout": false' },
-        @{ Suffix = "executable_image_layout_boundary_no_authority"; Needle = '"authorizes_executable_load_plan": false' },
-        @{ Suffix = "executable_image_layout_boundary_no_load_plan"; Needle = '"produces_executable_load_plan": false' },
-        @{ Suffix = "executable_image_layout_boundary_no_executable_binding"; Needle = '"binds_capability_validated_descriptor_to_executable_pages": false' },
-        @{ Suffix = "executable_image_layout_boundary_no_capability_validation"; Needle = '"validates_descriptor_capabilities": false' },
-        @{ Suffix = "executable_image_layout_boundary_no_capability_validated_descriptor"; Needle = '"produces_capability_validated_descriptor": false' },
-        @{ Suffix = "executable_image_layout_boundary_no_schema_validation"; Needle = '"validates_descriptor_schema": false' },
-        @{ Suffix = "executable_image_layout_boundary_no_validated_descriptor"; Needle = '"produces_validated_descriptor": false' },
-        @{ Suffix = "executable_image_layout_boundary_no_parsed_result"; Needle = '"produces_parsed_descriptor": false' },
-        @{ Suffix = "executable_image_layout_boundary_no_parse"; Needle = '"parses_descriptor_bytes": false' },
-        @{ Suffix = "executable_image_layout_boundary_no_descriptor"; Needle = '"accepts_loader_descriptor": false' },
-        @{ Suffix = "executable_image_layout_boundary_no_descriptor_bytes"; Needle = '"accepts_descriptor_bytes": false' },
-        @{ Suffix = "executable_image_layout_boundary_no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-        @{ Suffix = "executable_page_mapping_plan_boundary"; Needle = '"executable_page_mapping_plan_boundary": {' },
-        @{ Suffix = "executable_page_mapping_plan_boundary_schema"; Needle = '"schema": "raios.module_loader_executable_page_mapping_plan_boundary.v0"' },
-        @{ Suffix = "executable_page_mapping_plan_boundary_reason"; Needle = '"reason": "module_loader_executable_page_mapping_plan_boundary_non_authorizing"' },
-        @{ Suffix = "executable_page_mapping_plan_boundary_no_page_mapping_plan"; Needle = '"produces_executable_page_mapping_plan": false' },
-        @{ Suffix = "executable_page_mapping_plan_boundary_no_image_layout"; Needle = '"produces_executable_image_layout": false' },
-        @{ Suffix = "executable_page_mapping_plan_boundary_no_authority"; Needle = '"authorizes_executable_load_plan": false' },
-        @{ Suffix = "executable_page_mapping_plan_boundary_no_load_plan"; Needle = '"produces_executable_load_plan": false' },
-        @{ Suffix = "executable_page_mapping_plan_boundary_no_executable_binding"; Needle = '"binds_capability_validated_descriptor_to_executable_pages": false' },
-        @{ Suffix = "executable_page_mapping_plan_boundary_no_capability_validation"; Needle = '"validates_descriptor_capabilities": false' },
-        @{ Suffix = "executable_page_mapping_plan_boundary_no_capability_validated_descriptor"; Needle = '"produces_capability_validated_descriptor": false' },
-        @{ Suffix = "executable_page_mapping_plan_boundary_no_schema_validation"; Needle = '"validates_descriptor_schema": false' },
-        @{ Suffix = "executable_page_mapping_plan_boundary_no_validated_descriptor"; Needle = '"produces_validated_descriptor": false' },
-        @{ Suffix = "executable_page_mapping_plan_boundary_no_parsed_result"; Needle = '"produces_parsed_descriptor": false' },
-        @{ Suffix = "executable_page_mapping_plan_boundary_no_parse"; Needle = '"parses_descriptor_bytes": false' },
-        @{ Suffix = "executable_page_mapping_plan_boundary_no_descriptor"; Needle = '"accepts_loader_descriptor": false' },
-        @{ Suffix = "executable_page_mapping_plan_boundary_no_descriptor_bytes"; Needle = '"accepts_descriptor_bytes": false' },
-        @{ Suffix = "executable_page_mapping_plan_boundary_no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-        @{ Suffix = "executable_page_mapping_boundary"; Needle = '"executable_page_mapping_boundary": {' },
-        @{ Suffix = "executable_page_mapping_boundary_schema"; Needle = '"schema": "raios.module_loader_executable_page_mapping_boundary.v0"' },
-        @{ Suffix = "executable_page_mapping_boundary_reason"; Needle = '"reason": "module_loader_executable_page_mapping_boundary_non_authorizing"' },
-        @{ Suffix = "executable_page_mapping_boundary_no_maps"; Needle = '"maps_executable_pages": false' },
-        @{ Suffix = "executable_page_mapping_boundary_no_page_mapping_plan"; Needle = '"produces_executable_page_mapping_plan": false' },
-        @{ Suffix = "executable_page_mapping_boundary_no_image_layout"; Needle = '"produces_executable_image_layout": false' },
-        @{ Suffix = "executable_page_mapping_boundary_no_authority"; Needle = '"authorizes_executable_load_plan": false' },
-        @{ Suffix = "executable_page_mapping_boundary_no_load_plan"; Needle = '"produces_executable_load_plan": false' },
-        @{ Suffix = "executable_page_mapping_boundary_no_executable_binding"; Needle = '"binds_capability_validated_descriptor_to_executable_pages": false' },
-        @{ Suffix = "executable_page_mapping_boundary_no_capability_validation"; Needle = '"validates_descriptor_capabilities": false' },
-        @{ Suffix = "executable_page_mapping_boundary_no_capability_validated_descriptor"; Needle = '"produces_capability_validated_descriptor": false' },
-        @{ Suffix = "executable_page_mapping_boundary_no_schema_validation"; Needle = '"validates_descriptor_schema": false' },
-        @{ Suffix = "executable_page_mapping_boundary_no_validated_descriptor"; Needle = '"produces_validated_descriptor": false' },
-        @{ Suffix = "executable_page_mapping_boundary_no_parsed_result"; Needle = '"produces_parsed_descriptor": false' },
-        @{ Suffix = "executable_page_mapping_boundary_no_parse"; Needle = '"parses_descriptor_bytes": false' },
-        @{ Suffix = "executable_page_mapping_boundary_no_descriptor"; Needle = '"accepts_loader_descriptor": false' },
-        @{ Suffix = "executable_page_mapping_boundary_no_descriptor_bytes"; Needle = '"accepts_descriptor_bytes": false' },
-        @{ Suffix = "executable_page_mapping_boundary_no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-        @{ Suffix = "descriptor_executable_page_binding_boundary"; Needle = '"descriptor_executable_page_binding_boundary": {' },
-        @{ Suffix = "descriptor_executable_page_binding_boundary_schema"; Needle = '"schema": "raios.module_loader_descriptor_executable_page_binding_boundary.v0"' },
-        @{ Suffix = "descriptor_executable_page_binding_boundary_reason"; Needle = '"reason": "module_loader_descriptor_executable_page_binding_boundary_non_authorizing"' },
-        @{ Suffix = "descriptor_executable_page_binding_boundary_no_binding"; Needle = '"binds_capability_validated_descriptor_to_executable_pages": false' },
-        @{ Suffix = "descriptor_executable_page_binding_boundary_no_maps"; Needle = '"maps_executable_pages": false' },
-        @{ Suffix = "descriptor_executable_page_binding_boundary_no_page_mapping_plan"; Needle = '"produces_executable_page_mapping_plan": false' },
-        @{ Suffix = "descriptor_executable_page_binding_boundary_no_image_layout"; Needle = '"produces_executable_image_layout": false' },
-        @{ Suffix = "descriptor_executable_page_binding_boundary_no_authority"; Needle = '"authorizes_executable_load_plan": false' },
-        @{ Suffix = "descriptor_executable_page_binding_boundary_no_load_plan"; Needle = '"produces_executable_load_plan": false' },
-        @{ Suffix = "descriptor_executable_page_binding_boundary_no_capability_validation"; Needle = '"validates_descriptor_capabilities": false' },
-        @{ Suffix = "descriptor_executable_page_binding_boundary_no_capability_validated_descriptor"; Needle = '"produces_capability_validated_descriptor": false' },
-        @{ Suffix = "descriptor_executable_page_binding_boundary_no_schema_validation"; Needle = '"validates_descriptor_schema": false' },
-        @{ Suffix = "descriptor_executable_page_binding_boundary_no_validated_descriptor"; Needle = '"produces_validated_descriptor": false' },
-        @{ Suffix = "descriptor_executable_page_binding_boundary_no_parsed_result"; Needle = '"produces_parsed_descriptor": false' },
-        @{ Suffix = "descriptor_executable_page_binding_boundary_no_parse"; Needle = '"parses_descriptor_bytes": false' },
-        @{ Suffix = "descriptor_executable_page_binding_boundary_no_descriptor"; Needle = '"accepts_loader_descriptor": false' },
-        @{ Suffix = "descriptor_executable_page_binding_boundary_no_descriptor_bytes"; Needle = '"accepts_descriptor_bytes": false' },
-        @{ Suffix = "descriptor_executable_page_binding_boundary_no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-        @{ Suffix = "executable_entrypoint_binding_boundary"; Needle = '"executable_entrypoint_binding_boundary": {' },
-        @{ Suffix = "executable_entrypoint_binding_boundary_schema"; Needle = '"schema": "raios.module_loader_executable_entrypoint_binding_boundary.v0"' },
-        @{ Suffix = "executable_entrypoint_binding_boundary_reason"; Needle = '"reason": "module_loader_executable_entrypoint_binding_boundary_non_authorizing"' },
-        @{ Suffix = "executable_entrypoint_binding_boundary_no_entrypoint"; Needle = '"jumps_to_entrypoint": false' },
-        @{ Suffix = "executable_entrypoint_binding_boundary_no_binding"; Needle = '"binds_capability_validated_descriptor_to_executable_pages": false' },
-        @{ Suffix = "executable_entrypoint_binding_boundary_no_maps"; Needle = '"maps_executable_pages": false' },
-        @{ Suffix = "executable_entrypoint_binding_boundary_no_page_mapping_plan"; Needle = '"produces_executable_page_mapping_plan": false' },
-        @{ Suffix = "executable_entrypoint_binding_boundary_no_image_layout"; Needle = '"produces_executable_image_layout": false' },
-        @{ Suffix = "executable_entrypoint_binding_boundary_no_load_plan"; Needle = '"produces_executable_load_plan": false' },
-        @{ Suffix = "executable_entrypoint_binding_boundary_no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-        @{ Suffix = "executable_entrypoint_transfer_authorization_boundary"; Needle = '"executable_entrypoint_transfer_authorization_boundary": {' },
-        @{ Suffix = "executable_entrypoint_transfer_authorization_boundary_schema"; Needle = '"schema": "raios.module_loader_executable_entrypoint_transfer_authorization_boundary.v0"' },
-        @{ Suffix = "executable_entrypoint_transfer_authorization_boundary_reason"; Needle = '"reason": "module_loader_executable_entrypoint_transfer_authorization_boundary_non_authorizing"' },
-        @{ Suffix = "executable_entrypoint_transfer_authorization_boundary_no_entrypoint"; Needle = '"jumps_to_entrypoint": false' },
-        @{ Suffix = "executable_entrypoint_transfer_authorization_boundary_no_binding"; Needle = '"binds_capability_validated_descriptor_to_executable_pages": false' },
-        @{ Suffix = "executable_entrypoint_transfer_authorization_boundary_no_maps"; Needle = '"maps_executable_pages": false' },
-        @{ Suffix = "executable_entrypoint_transfer_authorization_boundary_no_page_mapping_plan"; Needle = '"produces_executable_page_mapping_plan": false' },
-        @{ Suffix = "executable_entrypoint_transfer_authorization_boundary_no_image_layout"; Needle = '"produces_executable_image_layout": false' },
-        @{ Suffix = "executable_entrypoint_transfer_authorization_boundary_no_load_plan"; Needle = '"produces_executable_load_plan": false' },
-        @{ Suffix = "executable_entrypoint_transfer_authorization_boundary_no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-        @{ Suffix = "executable_entrypoint_transfer_boundary"; Needle = '"executable_entrypoint_transfer_boundary": {' },
-        @{ Suffix = "executable_entrypoint_transfer_boundary_schema"; Needle = '"schema": "raios.module_loader_executable_entrypoint_transfer_boundary.v0"' },
-        @{ Suffix = "executable_entrypoint_transfer_boundary_reason"; Needle = '"reason": "module_loader_executable_entrypoint_transfer_boundary_non_authorizing"' },
-        @{ Suffix = "executable_entrypoint_transfer_boundary_no_entrypoint"; Needle = '"jumps_to_entrypoint": false' },
-        @{ Suffix = "executable_entrypoint_transfer_boundary_no_binding"; Needle = '"binds_capability_validated_descriptor_to_executable_pages": false' },
-        @{ Suffix = "executable_entrypoint_transfer_boundary_no_maps"; Needle = '"maps_executable_pages": false' },
-        @{ Suffix = "executable_entrypoint_transfer_boundary_no_page_mapping_plan"; Needle = '"produces_executable_page_mapping_plan": false' },
-        @{ Suffix = "executable_entrypoint_transfer_boundary_no_image_layout"; Needle = '"produces_executable_image_layout": false' },
-        @{ Suffix = "executable_entrypoint_transfer_boundary_no_load_plan"; Needle = '"produces_executable_load_plan": false' },
-        @{ Suffix = "executable_entrypoint_transfer_boundary_no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-        @{ Suffix = "executable_entrypoint_handoff_boundary"; Needle = '"executable_entrypoint_handoff_boundary": {' },
-        @{ Suffix = "executable_entrypoint_handoff_boundary_schema"; Needle = '"schema": "raios.module_loader_executable_entrypoint_handoff_boundary.v0"' },
-        @{ Suffix = "executable_entrypoint_handoff_boundary_reason"; Needle = '"reason": "module_loader_executable_entrypoint_handoff_boundary_non_authorizing"' },
-        @{ Suffix = "executable_entrypoint_handoff_boundary_no_entrypoint"; Needle = '"jumps_to_entrypoint": false' },
-        @{ Suffix = "executable_entrypoint_handoff_boundary_no_binding"; Needle = '"binds_capability_validated_descriptor_to_executable_pages": false' },
-        @{ Suffix = "executable_entrypoint_handoff_boundary_no_maps"; Needle = '"maps_executable_pages": false' },
-        @{ Suffix = "executable_entrypoint_handoff_boundary_no_page_mapping_plan"; Needle = '"produces_executable_page_mapping_plan": false' },
-        @{ Suffix = "executable_entrypoint_handoff_boundary_no_image_layout"; Needle = '"produces_executable_image_layout": false' },
-        @{ Suffix = "executable_entrypoint_handoff_boundary_no_load_plan"; Needle = '"produces_executable_load_plan": false' },
-        @{ Suffix = "executable_entrypoint_handoff_boundary_no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
-        @{ Suffix = "executable_entrypoint_invocation_boundary"; Needle = '"executable_entrypoint_invocation_boundary": {' },
-        @{ Suffix = "executable_entrypoint_invocation_boundary_schema"; Needle = '"schema": "raios.module_loader_executable_entrypoint_invocation_boundary.v0"' },
-        @{ Suffix = "executable_entrypoint_invocation_boundary_reason"; Needle = '"reason": "module_loader_executable_entrypoint_invocation_boundary_non_authorizing"' },
-        @{ Suffix = "loader_fact_schema"; Needle = '"schema": "raios.module_loader_identity.v0"' },
-        @{ Suffix = "loader_fact_missing"; Needle = '"reason": "module_loader_identity_missing"' },
-        @{ Suffix = "loader_identity_source"; Needle = '"source_method": "module.loader_identity"' },
-        @{ Suffix = "loader_identity_locator"; Needle = '"source_fact_locator": "module.loader_identity.loader_identity"' },
-        @{ Suffix = "loader_identity_source_evidence_schema"; Needle = '"source_evidence_schema": "raios.module_loader_identity_source_evidence.v0"' },
-        @{ Suffix = "loader_identity_source_evidence_observed"; Needle = '"source_evidence_state": "observed_current_boot_missing"' },
-        @{ Suffix = "loader_identity_source_evidence_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
-        @{ Suffix = "loader_identity_source_evidence_status"; Needle = '"source_evidence_status": "missing"' },
-        @{ Suffix = "loader_identity_source_evidence_reason"; Needle = '"source_evidence_reason": "module_loader_identity_missing"' },
-        @{ Suffix = "artifact_hash_source"; Needle = '"source_method": "module.loader_artifact_hash_binding"' },
-        @{ Suffix = "artifact_hash_locator"; Needle = '"source_fact_locator": "module.loader_artifact_hash_binding.artifact_hash_binding"' },
-        @{ Suffix = "artifact_hash_source_evidence_schema"; Needle = '"source_evidence_schema": "raios.module_loader_artifact_hash_binding_source_evidence.v0"' },
-        @{ Suffix = "artifact_hash_source_evidence_observed"; Needle = '"source_evidence_state": "observed_current_boot_missing"' },
-        @{ Suffix = "artifact_hash_source_evidence_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
-        @{ Suffix = "artifact_hash_source_evidence_status"; Needle = '"source_evidence_status": "missing"' },
-        @{ Suffix = "artifact_hash_source_evidence_reason"; Needle = '"source_evidence_reason": "module_loader_artifact_hash_binding_missing"' },
-        @{ Suffix = "entrypoint_source"; Needle = '"source_method": "module.loader_entrypoint_abi"' },
-        @{ Suffix = "entrypoint_locator"; Needle = '"source_fact_locator": "module.loader_entrypoint_abi.entrypoint_abi"' },
-        @{ Suffix = "entrypoint_source_evidence_schema"; Needle = '"source_evidence_schema": "raios.module_loader_entrypoint_abi_source_evidence.v0"' },
-        @{ Suffix = "entrypoint_source_evidence_observed"; Needle = '"source_evidence_state": "observed_current_boot_missing"' },
-        @{ Suffix = "entrypoint_source_evidence_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
-        @{ Suffix = "entrypoint_source_evidence_status"; Needle = '"source_evidence_status": "missing"' },
-        @{ Suffix = "entrypoint_source_evidence_reason"; Needle = '"source_evidence_reason": "module_loader_entrypoint_abi_missing"' },
-        @{ Suffix = "address_space_source"; Needle = '"source_method": "module.loader_address_space_boundary"' },
-        @{ Suffix = "address_space_locator"; Needle = '"source_fact_locator": "module.loader_address_space_boundary.address_space_boundary"' },
-        @{ Suffix = "address_space_source_evidence_schema"; Needle = '"source_evidence_schema": "raios.module_loader_address_space_boundary_source_evidence.v0"' },
-        @{ Suffix = "address_space_source_evidence_observed"; Needle = '"source_evidence_state": "observed_current_boot_missing"' },
-        @{ Suffix = "address_space_source_evidence_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
-        @{ Suffix = "address_space_source_evidence_status"; Needle = '"source_evidence_status": "missing"' },
-        @{ Suffix = "address_space_source_evidence_reason"; Needle = '"source_evidence_reason": "module_loader_address_space_boundary_missing"' },
-        @{ Suffix = "memory_map_source"; Needle = '"source_method": "module.loader_memory_map_constraints"' },
-        @{ Suffix = "memory_map_locator"; Needle = '"source_fact_locator": "module.loader_memory_map_constraints.memory_map_constraints"' },
-        @{ Suffix = "memory_map_source_evidence_schema"; Needle = '"source_evidence_schema": "raios.module_loader_memory_map_constraints_source_evidence.v0"' },
-        @{ Suffix = "memory_map_source_evidence_observed"; Needle = '"source_evidence_state": "observed_current_boot_missing"' },
-        @{ Suffix = "memory_map_source_evidence_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
-        @{ Suffix = "memory_map_source_evidence_status"; Needle = '"source_evidence_status": "missing"' },
-        @{ Suffix = "memory_map_source_evidence_reason"; Needle = '"source_evidence_reason": "module_loader_memory_map_constraints_missing"' },
-        @{ Suffix = "capability_table_source"; Needle = '"source_method": "module.loader_capability_import_table"' },
-        @{ Suffix = "capability_table_locator"; Needle = '"source_fact_locator": "module.loader_capability_import_table.capability_import_table"' },
-        @{ Suffix = "capability_table_source_evidence_schema"; Needle = '"source_evidence_schema": "raios.module_loader_capability_import_table_source_evidence.v0"' },
-        @{ Suffix = "capability_table_source_evidence_observed"; Needle = '"source_evidence_state": "observed_current_boot_missing"' },
-        @{ Suffix = "capability_table_source_evidence_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
-        @{ Suffix = "capability_table_source_evidence_status"; Needle = '"source_evidence_status": "missing"' },
-        @{ Suffix = "capability_table_source_evidence_reason"; Needle = '"source_evidence_reason": "module_loader_capability_import_table_missing"' },
-        @{ Suffix = "service_slot_source"; Needle = '"source_method": "module.loader_service_slot_binding"' },
-        @{ Suffix = "service_slot_locator"; Needle = '"source_fact_locator": "module.loader_service_slot_binding.service_slot_binding"' },
-        @{ Suffix = "service_slot_source_evidence_schema"; Needle = '"source_evidence_schema": "raios.module_loader_service_slot_binding_source_evidence.v0"' },
-        @{ Suffix = "service_slot_source_evidence_observed"; Needle = '"source_evidence_state": "observed_current_boot_missing"' },
-        @{ Suffix = "service_slot_source_evidence_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
-        @{ Suffix = "service_slot_source_evidence_status"; Needle = '"source_evidence_status": "missing"' },
-        @{ Suffix = "service_slot_source_evidence_reason"; Needle = '"source_evidence_reason": "module_loader_service_slot_binding_missing"' },
-        @{ Suffix = "health_source"; Needle = '"source_method": "module.loader_health_state_hooks"' },
-        @{ Suffix = "health_locator"; Needle = '"source_fact_locator": "module.loader_health_state_hooks.health_state_hooks"' },
-        @{ Suffix = "health_source_evidence_schema"; Needle = '"source_evidence_schema": "raios.module_loader_health_state_hooks_source_evidence.v0"' },
-        @{ Suffix = "health_source_evidence_observed"; Needle = '"source_evidence_state": "observed_current_boot_missing"' },
-        @{ Suffix = "health_source_evidence_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
-        @{ Suffix = "health_source_evidence_status"; Needle = '"source_evidence_status": "missing"' },
-        @{ Suffix = "health_source_evidence_reason"; Needle = '"source_evidence_reason": "module_loader_health_state_hooks_missing"' },
-        @{ Suffix = "rollback_source"; Needle = '"source_method": "module.loader_rollback_hooks"' },
-        @{ Suffix = "rollback_locator"; Needle = '"source_fact_locator": "module.loader_rollback_hooks.rollback_hooks"' },
-        @{ Suffix = "rollback_source_evidence_schema"; Needle = '"source_evidence_schema": "raios.module_loader_rollback_hooks_source_evidence.v0"' },
-        @{ Suffix = "rollback_source_evidence_observed"; Needle = '"source_evidence_state": "observed_current_boot_missing"' },
-        @{ Suffix = "rollback_source_evidence_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
-        @{ Suffix = "rollback_source_evidence_status"; Needle = '"source_evidence_status": "missing"' },
-        @{ Suffix = "rollback_source_evidence_reason"; Needle = '"source_evidence_reason": "module_loader_rollback_hooks_missing"' },
-        @{ Suffix = "write_boundary_source"; Needle = '"source_method": "module.loader_audit_rollback_write_boundary_binding"' },
-        @{ Suffix = "write_boundary_locator"; Needle = '"source_fact_locator": "module.loader_audit_rollback_write_boundary_binding.audit_rollback_write_boundary_binding"' },
-        @{ Suffix = "write_boundary_source_evidence_schema"; Needle = '"source_evidence_schema": "raios.module_loader_audit_rollback_write_boundary_binding_source_evidence.v0"' },
-        @{ Suffix = "write_boundary_source_evidence_observed"; Needle = '"source_evidence_state": "observed_current_boot_missing"' },
-        @{ Suffix = "write_boundary_source_evidence_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
-        @{ Suffix = "write_boundary_source_evidence_status"; Needle = '"source_evidence_status": "missing"' },
-        @{ Suffix = "write_boundary_source_evidence_reason"; Needle = '"source_evidence_reason": "module_loader_audit_rollback_write_boundary_binding_missing"' },
-        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
-    )
-    $moduleLoaderRuntimeResponse = Get-LastAgentResponseJson -Method "module.loader_runtime"
-    $moduleLoaderInvocationBoundary = $moduleLoaderRuntimeResponse.body.result.executable_entrypoint_invocation_boundary
-    $moduleLoaderInvocationBoundaryChecks = @(
-        @{ Suffix = "executable_entrypoint_invocation_boundary_no_entrypoint_scoped"; Expected = $false; Actual = [bool]$moduleLoaderInvocationBoundary.jumps_to_entrypoint },
-        @{ Suffix = "executable_entrypoint_invocation_boundary_no_binding_scoped"; Expected = $false; Actual = [bool]$moduleLoaderInvocationBoundary.binds_capability_validated_descriptor_to_executable_pages },
-        @{ Suffix = "executable_entrypoint_invocation_boundary_no_maps_scoped"; Expected = $false; Actual = [bool]$moduleLoaderInvocationBoundary.maps_executable_pages },
-        @{ Suffix = "executable_entrypoint_invocation_boundary_no_page_mapping_plan_scoped"; Expected = $false; Actual = [bool]$moduleLoaderInvocationBoundary.produces_executable_page_mapping_plan },
-        @{ Suffix = "executable_entrypoint_invocation_boundary_no_image_layout_scoped"; Expected = $false; Actual = [bool]$moduleLoaderInvocationBoundary.produces_executable_image_layout },
-        @{ Suffix = "executable_entrypoint_invocation_boundary_no_load_plan_scoped"; Expected = $false; Actual = [bool]$moduleLoaderInvocationBoundary.produces_executable_load_plan },
-        @{ Suffix = "executable_entrypoint_invocation_boundary_no_artifact_bytes_scoped"; Expected = $false; Actual = [bool]$moduleLoaderInvocationBoundary.accepts_artifact_bytes }
-    )
-    foreach ($check in $moduleLoaderInvocationBoundaryChecks) {
-        $passed = ($null -ne $moduleLoaderInvocationBoundary) -and $check.Actual -eq $check.Expected
-        Add-Predicate -Name ("protocol:module_loader_runtime_" + $check.Suffix) -Expected ([string]$check.Expected) -Passed $passed -Actual ([string]$check.Actual)
-        if (-not $passed) {
-            throw ("Expected module.loader_runtime " + $check.Suffix + " to be " + [string]$check.Expected + ", got " + [string]$check.Actual)
-        }
-    }
+    Assert-LogContains -Name "protocol:module_loader_runtime_schema" -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
+
+    Assert-LogContains -Name "protocol:module_loader_runtime_envelope" -Needle "`"family`": `"module.loader_runtime`",`r`r`n  `"scope`": `"current_boot`",`r`r`n  `"classification`": `"local_only`",`r`r`n  `"source_method`": `"module.loader_runtime`",`r`r`n  `"event_id`": null" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_first" -Needle '"id": "manifest_reference", "kind": "retained_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_attempt" -Needle '"id": "load_attempt_boundary", "kind": "execution_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_last" -Needle '"id": "executable_entrypoint_invocation_boundary", "kind": "execution_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_denied" -Needle '"outcome": "denied", "reason": "service_slot_allocator_authority_boundary_non_authorizing", "requested_capability": "cap.module.load_ephemeral", "grants": [], "effects": []' -TimeoutSeconds 1
     Send-AgentCommand -Command "agent audit.events 64" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events" -Name "command:agent.audit.events.module_loader_runtime_source_evidence"
     $moduleLoaderRuntimeAuditEventsResponse = Get-LastAgentResponseJson -Method "memory.recent_events"
     $moduleLoaderRuntimeInvocationEvents = @($moduleLoaderRuntimeAuditEventsResponse.body.result.events | Where-Object { $_.bindings.schema -eq "raios.module_loader_executable_entrypoint_invocation_boundary_source_evidence.v0" })

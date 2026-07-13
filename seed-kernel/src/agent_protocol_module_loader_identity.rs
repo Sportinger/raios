@@ -1,6 +1,7 @@
-use alloc::vec;
+use alloc::{vec, vec::Vec};
 
 use crate::{
+    agent_protocol_module_reference::emit_evidence_v1_response,
     agent_protocol_module_service_slot_allocator_projection::latest_module_service_slot_allocator_readiness_projection,
     agent_protocol_module_types::*,
     agent_protocol_support::{
@@ -11,7 +12,39 @@ use crate::{
     },
     event_log,
 };
-use raios_core::record::Value as V;
+use raios_core::{
+    evidence_response::{self as ev, SelftestFacts},
+    module_loader_allocator_projection::{
+        project_loader_identity_denial, LoaderAllocatorDisposition, LoaderAllocatorEvidenceInput,
+        LoaderAllocatorEvidenceStatus, LoaderIdentityProjectionInput,
+    },
+    record::Value as V,
+};
+
+fn evidence_input<'a>(
+    status: &'static str,
+    reason: &'a str,
+    source_event_id: Option<event_log::EventId>,
+    facts: Vec<raios_core::record::Field<'a>>,
+) -> LoaderAllocatorEvidenceInput<'a> {
+    LoaderAllocatorEvidenceInput {
+        status: match status {
+            "available" => LoaderAllocatorEvidenceStatus::Verified,
+            "missing" => LoaderAllocatorEvidenceStatus::Missing,
+            "rejected" => LoaderAllocatorEvidenceStatus::Rejected,
+            _ => LoaderAllocatorEvidenceStatus::Unavailable,
+        },
+        status_detail: status,
+        reason,
+        source_event_sequence: source_event_id.map(event_log::EventId::sequence),
+        facts,
+        disposition: if method_eq(status, "available") {
+            LoaderAllocatorDisposition::Satisfied
+        } else {
+            LoaderAllocatorDisposition::Blocked
+        },
+    }
+}
 
 pub(crate) fn emit_module_loader_identity() {
     let manifest = event_log::latest_module_manifest_reference();
@@ -58,84 +91,115 @@ pub(crate) fn emit_module_loader_identity() {
     let source_evidence_event_id =
         event_log::record_module_loader_identity_source_evidence(source_evidence);
 
-    begin_response("module.loader_identity");
-    emit_record_fields_trailing_comma(
-        vec![
-            f("schema", s("raios.module_loader_identity.v0")),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("test_infrastructure", no()),
-            f("mutates_global_event_log", b(true)),
-            f(
-                "global_event_log_mutation",
-                s("retained_current_boot_source_evidence_only"),
-            ),
-            f("accepts_loader_descriptor", no()),
-            f("accepts_artifact_bytes", no()),
-            f("loads_artifact", no()),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("service_inventory_change", s("none")),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-        ],
-        6,
+    let projection = project_loader_identity_denial(LoaderIdentityProjectionInput {
+        retained_module_evidence: evidence_input(
+            evaluation.retained_module_evidence_status,
+            evaluation.retained_module_evidence_reason,
+            None,
+            vec![
+                f(
+                    "manifest_reference_event_id",
+                    record_event_or_null(manifest.map(|v| v.0)),
+                ),
+                f(
+                    "candidate_artifact_reference_event_id",
+                    record_event_or_null(artifact.map(|v| v.0)),
+                ),
+                f(
+                    "vm_test_report_reference_event_id",
+                    record_event_or_null(vm_report.map(|v| v.0)),
+                ),
+                f(
+                    "local_attestation_reference_event_id",
+                    record_event_or_null(local_attestation.map(|v| v.0)),
+                ),
+                f(
+                    "local_approval_reference_event_id",
+                    record_event_or_null(local_approval.map(|v| v.0)),
+                ),
+                f(
+                    "computed_grant_reference_event_id",
+                    record_event_or_null(computed_grant.map(|v| v.0)),
+                ),
+                f(
+                    "audit_rollback_reference_event_id",
+                    record_event_or_null(audit_rollback.map(|v| v.0)),
+                ),
+                f(
+                    "service_slot_reservation_event_id",
+                    record_event_or_null(service_slot.map(|v| v.0)),
+                ),
+            ],
+        ),
+        service_slot_allocator_readiness: evidence_input(
+            evaluation.service_slot_allocator_readiness_status,
+            evaluation.service_slot_allocator_readiness_reason,
+            service_slot_allocator.authority_source_evidence_event_id,
+            vec![
+                f(
+                    "present",
+                    b(candidate.service_slot_allocator_readiness_present),
+                ),
+                f("ready", b(candidate.service_slot_allocator_ready)),
+            ],
+        ),
+        service_slot_allocator_runtime: evidence_input(
+            evaluation.service_slot_allocator_runtime_status,
+            evaluation.service_slot_allocator_runtime_reason,
+            service_slot_allocator.authority_source_evidence_event_id,
+            vec![f("ready", b(candidate.service_slot_allocator_ready))],
+        ),
+        audit_rollback_write_boundary: evidence_input(
+            evaluation.audit_rollback_write_boundary_status,
+            evaluation.audit_rollback_write_boundary_reason,
+            None,
+            vec![f(
+                "present",
+                b(candidate.audit_rollback_write_boundary_present),
+            )],
+        ),
+        loader_identity: evidence_input(
+            evaluation.identity_status,
+            evaluation.identity_reason,
+            Some(source_evidence_event_id),
+            vec![
+                f("record_schema", s(source_evidence.fact_schema)),
+                f("record_id", s(source_evidence.fact_id)),
+                f("source_method", s(source_evidence.source_method)),
+                f(
+                    "source_fact_locator",
+                    s(source_evidence.source_fact_locator),
+                ),
+                f("present", b(candidate.identity.present)),
+                f("schema_valid", b(candidate.identity.schema_ok)),
+                f("provenance_valid", b(candidate.identity.provenance_ok)),
+                f(
+                    "binds_retained_module_evidence",
+                    b(candidate.identity.binds_retained_module_evidence),
+                ),
+                f(
+                    "binds_service_slot_allocator",
+                    b(candidate.identity.binds_service_slot_allocator),
+                ),
+                f(
+                    "binds_audit_rollback_write_boundary",
+                    b(candidate.identity.binds_audit_rollback_write_boundary),
+                ),
+            ],
+        ),
+    });
+    emit_evidence_v1_response(
+        "module.loader_identity",
+        "module.loader_identity",
+        None,
+        V::InlineObject(vec![f("test_infrastructure", no())]),
+        projection
+            .evidence
+            .into_iter()
+            .map(ev::evidence_value)
+            .collect(),
+        projection.decision,
     );
-    emit_module_loader_identity_retained_module_evidence(
-        retained_module_evidence_present,
-        manifest.as_ref().map(|(event_id, _)| *event_id),
-        artifact.as_ref().map(|(event_id, _)| *event_id),
-        vm_report.as_ref().map(|(event_id, _)| *event_id),
-        local_attestation.as_ref().map(|(event_id, _)| *event_id),
-        local_approval.as_ref().map(|(event_id, _)| *event_id),
-        computed_grant.as_ref().map(|(event_id, _)| *event_id),
-        audit_rollback.as_ref().map(|(event_id, _)| *event_id),
-        service_slot.as_ref().map(|(event_id, _)| *event_id),
-    );
-    raw_line(",");
-    emit_module_loader_identity_source_evidence(source_evidence_event_id, source_evidence);
-    raw_line(",");
-    emit_module_loader_identity_required_bindings(candidate, evaluation);
-    raw_line(",");
-    emit_module_loader_identity_fact(candidate.identity, evaluation, source_evidence_event_id);
-    raw_line(",");
-    emit_module_loader_identity_policy_result(candidate, evaluation);
-    raw_line(",");
-    raw_line("      \"blocked_by\": [");
-    let mut wrote = false;
-    emit_module_loader_identity_gate(
-        &mut wrote,
-        "retained_module_evidence",
-        evaluation.retained_module_evidence_status,
-        evaluation.retained_module_evidence_reason,
-    );
-    emit_module_loader_identity_gate(
-        &mut wrote,
-        "service_slot_allocator_readiness",
-        evaluation.service_slot_allocator_readiness_status,
-        evaluation.service_slot_allocator_readiness_reason,
-    );
-    emit_module_loader_identity_gate(
-        &mut wrote,
-        "service_slot_allocator_runtime",
-        evaluation.service_slot_allocator_runtime_status,
-        evaluation.service_slot_allocator_runtime_reason,
-    );
-    emit_module_loader_identity_gate(
-        &mut wrote,
-        "audit_rollback_write_boundary",
-        evaluation.audit_rollback_write_boundary_status,
-        evaluation.audit_rollback_write_boundary_reason,
-    );
-    emit_module_loader_identity_gate(
-        &mut wrote,
-        "loader_identity",
-        evaluation.identity_status,
-        evaluation.identity_reason,
-    );
-    crlf();
-    raw_line("      ]");
-    end_response("module.loader_identity");
 }
 
 pub(crate) fn emit_module_loader_identity_selftest() {
@@ -147,312 +211,32 @@ pub(crate) fn emit_module_loader_identity_selftest() {
         idx += 1;
     }
 
-    begin_response("module.loader_identity_selftest");
-    emit_record_fields_trailing_comma(
-        vec![
-            f("schema", s("raios.module_loader_identity_selftest.v0")),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("test_infrastructure", b(true)),
-            f("mutates_global_event_log", no()),
-            f("accepts_loader_descriptor", no()),
-            f("accepts_artifact_bytes", no()),
-            f("loads_artifact", no()),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("service_inventory_change", s("none")),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-            f("case_count", V::U64(cases.len() as u64)),
-            f("passed", b(passed)),
-        ],
-        6,
+    let values = cases
+        .iter()
+        .map(|case| {
+            ev::selftest_case(
+                case.name,
+                case.expected_status,
+                case.expected_reason,
+                case.actual_status,
+                case.actual_reason,
+                case.passed,
+            )
+        })
+        .collect();
+    emit_evidence_v1_response(
+        "module.loader_identity_selftest",
+        "module.loader_identity_selftest",
+        None,
+        ev::selftest_facts_value(SelftestFacts {
+            case_count: cases.len() as u64,
+            passed,
+            safety: ev::selftest_safety_value(),
+            cases: V::Array(values),
+        }),
+        vec![],
+        ev::observed("selftest_completed"),
     );
-    raw_line("      \"cases\": [");
-    idx = 0;
-    while idx < cases.len() {
-        emit_module_loader_identity_selftest_case(&cases[idx], idx + 1 != cases.len());
-        idx += 1;
-    }
-    raw_line("      ],");
-    raw_line("      \"can_load\": false");
-    end_response("module.loader_identity_selftest");
-}
-
-fn emit_module_loader_identity_retained_module_evidence(
-    retained_module_evidence_present: bool,
-    manifest_event_id: Option<event_log::EventId>,
-    artifact_event_id: Option<event_log::EventId>,
-    vm_report_event_id: Option<event_log::EventId>,
-    local_attestation_event_id: Option<event_log::EventId>,
-    local_approval_event_id: Option<event_log::EventId>,
-    computed_grant_event_id: Option<event_log::EventId>,
-    audit_rollback_event_id: Option<event_log::EventId>,
-    service_slot_event_id: Option<event_log::EventId>,
-) {
-    let state = if retained_module_evidence_present {
-        "available"
-    } else {
-        "missing"
-    };
-    emit_record_property_line(
-        "retained_module_evidence",
-        vec![
-            f("state", s(state)),
-            f("status", s(state)),
-            f(
-                "reason",
-                s(if retained_module_evidence_present {
-                    "retained_module_evidence_available"
-                } else {
-                    "retained_module_evidence_missing"
-                }),
-            ),
-            f("classification", s("local_only")),
-            f("authority", s("current_boot_hash_references")),
-            f(
-                "manifest_reference_event_id",
-                record_event_or_null(manifest_event_id),
-            ),
-            f(
-                "candidate_artifact_reference_event_id",
-                record_event_or_null(artifact_event_id),
-            ),
-            f(
-                "vm_test_report_reference_event_id",
-                record_event_or_null(vm_report_event_id),
-            ),
-            f(
-                "local_attestation_reference_event_id",
-                record_event_or_null(local_attestation_event_id),
-            ),
-            f(
-                "local_approval_reference_event_id",
-                record_event_or_null(local_approval_event_id),
-            ),
-            f(
-                "computed_grant_reference_event_id",
-                record_event_or_null(computed_grant_event_id),
-            ),
-            f(
-                "audit_rollback_reference_event_id",
-                record_event_or_null(audit_rollback_event_id),
-            ),
-            f(
-                "service_slot_reservation_event_id",
-                record_event_or_null(service_slot_event_id),
-            ),
-        ],
-        false,
-    );
-}
-
-fn emit_module_loader_identity_source_evidence(
-    event_id: event_log::EventId,
-    evidence: event_log::ModuleLoaderIdentitySourceEvidence,
-) {
-    emit_record_property_line(
-        "source_evidence",
-        vec![
-            f("schema", s(evidence.schema)),
-            f("state", s("retained")),
-            f("status", s("retained_current_boot_source_evidence")),
-            f(
-                "reason",
-                s("module_loader_identity_source_evidence_recorded"),
-            ),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("retention", s("current_boot_ram_event_log")),
-            f("event_id", record_event_or_null(Some(event_id))),
-            f("fact_schema", s(evidence.fact_schema)),
-            f("fact_id", s(evidence.fact_id)),
-            f("source_method", s(evidence.source_method)),
-            f("source_fact_locator", s(evidence.source_fact_locator)),
-            f("readiness_status", s(evidence.readiness_status)),
-            f("readiness_reason", s(evidence.readiness_reason)),
-            f("identity_status", s(evidence.identity_status)),
-            f("identity_reason", s(evidence.identity_reason)),
-            f("identity_present", b(evidence.identity_present)),
-            f(
-                "retained_module_evidence_present",
-                b(evidence.retained_module_evidence_present),
-            ),
-            f(
-                "service_slot_allocator_readiness_present",
-                b(evidence.service_slot_allocator_readiness_present),
-            ),
-            f(
-                "service_slot_allocator_ready",
-                b(evidence.service_slot_allocator_ready),
-            ),
-            f(
-                "audit_rollback_write_boundary_present",
-                b(evidence.audit_rollback_write_boundary_present),
-            ),
-            f("accepts_loader_descriptor", no()),
-            f("accepts_artifact_bytes", no()),
-            f("loads_artifact", no()),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("service_inventory_change", s("none")),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-            f("authorizes_load", no()),
-        ],
-        false,
-    );
-}
-
-fn emit_module_loader_identity_required_bindings(
-    candidate: ModuleLoaderIdentityCandidate,
-    evaluation: ModuleLoaderIdentityEvaluation,
-) {
-    emit_record_property_line(
-        "required_bindings",
-        vec![
-            f(
-                "retained_module_evidence",
-                s(evaluation.retained_module_evidence_status),
-            ),
-            f(
-                "service_slot_allocator_readiness",
-                s(evaluation.service_slot_allocator_readiness_status),
-            ),
-            f(
-                "service_slot_allocator_runtime",
-                s(evaluation.service_slot_allocator_runtime_status),
-            ),
-            f(
-                "audit_rollback_write_boundary",
-                s(evaluation.audit_rollback_write_boundary_status),
-            ),
-            f(
-                "loader_identity_fact_present",
-                b(candidate.identity.present),
-            ),
-        ],
-        false,
-    );
-}
-
-fn emit_module_loader_identity_fact(
-    fact: ModuleLoaderRuntimeFact,
-    evaluation: ModuleLoaderIdentityEvaluation,
-    source_evidence_event_id: event_log::EventId,
-) {
-    emit_record_property_line(
-        "loader_identity",
-        vec![
-            f("schema", s("raios.module_loader_identity.v0")),
-            f("state", s(if fact.present { "present" } else { "missing" })),
-            f("status", s(evaluation.identity_status)),
-            f("reason", s(evaluation.identity_reason)),
-            f("scope", s("current_boot")),
-            f("fact_scope", s(fact.scope)),
-            f("schema_valid", b(fact.schema_ok)),
-            f("classification", s(fact.classification)),
-            f("provenance_valid", b(fact.provenance_ok)),
-            f(
-                "binds_retained_module_evidence",
-                b(fact.binds_retained_module_evidence),
-            ),
-            f(
-                "binds_service_slot_allocator",
-                b(fact.binds_service_slot_allocator),
-            ),
-            f(
-                "binds_audit_rollback_write_boundary",
-                b(fact.binds_audit_rollback_write_boundary),
-            ),
-            f("fact_id", s("module.loader_runtime.identity.current_boot")),
-            f("source_method", s("module.loader_identity")),
-            f(
-                "source_fact_locator",
-                s("module.loader_identity.loader_identity"),
-            ),
-            f(
-                "source_evidence_event_id",
-                record_event_or_null(Some(source_evidence_event_id)),
-            ),
-            f(
-                "source_evidence_schema",
-                s("raios.module_loader_identity_source_evidence.v0"),
-            ),
-            f("source_evidence_state", s("retained_current_boot")),
-            f("persistence", s("none")),
-            f("durable", no()),
-            f("loads_artifact", no()),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("service_inventory_change", s("none")),
-            f("authorizes_load", no()),
-        ],
-        false,
-    );
-}
-
-fn emit_module_loader_identity_policy_result(
-    candidate: ModuleLoaderIdentityCandidate,
-    evaluation: ModuleLoaderIdentityEvaluation,
-) {
-    emit_record_property_line(
-        "policy_result",
-        vec![
-            f("readiness_status", s(evaluation.status)),
-            f("readiness_reason", s(evaluation.reason)),
-            f(
-                "retained_module_evidence_present",
-                b(candidate.retained_module_evidence_present),
-            ),
-            f(
-                "service_slot_allocator_readiness_present",
-                b(candidate.service_slot_allocator_readiness_present),
-            ),
-            f(
-                "service_slot_allocator_ready",
-                b(candidate.service_slot_allocator_ready),
-            ),
-            f(
-                "audit_rollback_write_boundary_present",
-                b(candidate.audit_rollback_write_boundary_present),
-            ),
-            f(
-                "identity_available",
-                b(method_eq(evaluation.identity_status, "available")),
-            ),
-            f("loads_artifact", no()),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("service_inventory_change", s("none")),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-        ],
-        false,
-    );
-}
-
-#[rustfmt::skip]
-fn emit_module_loader_identity_gate(
-    wrote: &mut bool,
-    gate: &'static str,
-    state: &'static str,
-    reason: &'static str,
-) {
-    if method_eq(state, "available") {
-        return;
-    }
-    if *wrote {
-        raw_line(",");
-    } else {
-        *wrote = true;
-    }
-    emit_inline_record_object_fragment(vec![f("gate", s(gate)), f("state", s(state)), f("reason", s(reason))], 8);
-}
-
-#[rustfmt::skip]
-fn emit_module_loader_identity_selftest_case(case: &ModuleLoaderIdentitySelfTestCase, comma: bool) {
-    emit_inline_record_object(vec![f("case", s(case.name)), f("expected_status", s(case.expected_status)), f("expected_reason", s(case.expected_reason)), f("actual_status", s(case.actual_status)), f("actual_reason", s(case.actual_reason)), f("actual_identity_status", s(case.actual_identity_status)), f("actual_identity_reason", s(case.actual_identity_reason)), f("passed", b(case.passed)), f("loads_artifact", no()), f("allocates_service_slot", no()), f("creates_service_inventory_records", no()), f("can_load", no()), f("load_attempted", no())], comma);
 }
 
 fn module_loader_identity_source_evidence(

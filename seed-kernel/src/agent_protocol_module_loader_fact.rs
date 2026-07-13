@@ -1,6 +1,7 @@
-use alloc::vec;
+use alloc::{vec, vec::Vec};
 
 use crate::{
+    agent_protocol_module_reference::emit_evidence_v1_response,
     agent_protocol_module_service_slot_allocator_projection::latest_module_service_slot_allocator_readiness_projection,
     agent_protocol_support::{
         begin_response, crlf, emit_inline_record_object, emit_inline_record_object_fragment,
@@ -10,7 +11,52 @@ use crate::{
     },
     event_log,
 };
-use raios_core::record::Value as V;
+use raios_core::{
+    evidence_response::{self as ev, SelftestFacts},
+    module_loader_allocator_projection::{
+        project_loader_fact_denial, LoaderAllocatorDisposition, LoaderAllocatorEvidenceInput,
+        LoaderAllocatorEvidenceStatus, LoaderFactFamily, LoaderFactProjectionInput,
+    },
+    record::Value as V,
+};
+
+fn evidence_input<'a>(
+    status: &'static str,
+    reason: &'a str,
+    source_event_id: Option<event_log::EventId>,
+    facts: Vec<raios_core::record::Field<'a>>,
+) -> LoaderAllocatorEvidenceInput<'a> {
+    LoaderAllocatorEvidenceInput {
+        status: match status {
+            "available" => LoaderAllocatorEvidenceStatus::Verified,
+            "missing" => LoaderAllocatorEvidenceStatus::Missing,
+            "rejected" => LoaderAllocatorEvidenceStatus::Rejected,
+            _ => LoaderAllocatorEvidenceStatus::Unavailable,
+        },
+        status_detail: status,
+        reason,
+        source_event_sequence: source_event_id.map(event_log::EventId::sequence),
+        facts,
+        disposition: if method_eq(status, "available") {
+            LoaderAllocatorDisposition::Satisfied
+        } else {
+            LoaderAllocatorDisposition::Blocked
+        },
+    }
+}
+
+fn loader_fact_family(spec: ModuleLoaderFactSpec) -> LoaderFactFamily {
+    match spec.field {
+        "entrypoint_abi" => LoaderFactFamily::EntrypointAbi,
+        "address_space_boundary" => LoaderFactFamily::AddressSpaceBoundary,
+        "memory_map_constraints" => LoaderFactFamily::MemoryMapConstraints,
+        "capability_import_table" => LoaderFactFamily::CapabilityImportTable,
+        "service_slot_binding" => LoaderFactFamily::ServiceSlotBinding,
+        "health_state_hooks" => LoaderFactFamily::HealthStateHooks,
+        "rollback_hooks" => LoaderFactFamily::RollbackHooks,
+        _ => LoaderFactFamily::AuditRollbackWriteBoundaryBinding,
+    }
+}
 
 const MODULE_LOADER_FACT_SELFTEST_CASES: usize = 14;
 
@@ -363,53 +409,94 @@ pub(crate) fn emit_module_loader_fact(method: &str) {
         None
     };
 
-    begin_response(spec.method);
-    emit_record_fields_trailing_comma(
-        vec![
-            f("schema", s(spec.schema)),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("test_infrastructure", no()),
-            f("mutates_global_event_log", b(source_evidence.is_some())),
-            f(
-                "global_event_log_mutation",
-                s(if source_evidence.is_some() {
-                    "retained_current_boot_source_evidence_only"
-                } else {
-                    "none"
-                }),
+    let common = |status, reason, facts| evidence_input(status, reason, None, facts);
+    let projection = project_loader_fact_denial(
+        loader_fact_family(spec),
+        LoaderFactProjectionInput {
+            retained_module_evidence: common(
+                evaluation.retained_module_evidence_status,
+                evaluation.retained_module_evidence_reason,
+                vec![f("present", b(candidate.retained_module_evidence_present))],
             ),
-            f("accepts_loader_descriptor", no()),
-            f("accepts_artifact_bytes", no()),
-            f("loads_artifact", no()),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("service_inventory_change", s("none")),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-        ],
-        6,
+            service_slot_allocator_readiness: evidence_input(
+                evaluation.service_slot_allocator_readiness_status,
+                evaluation.service_slot_allocator_readiness_reason,
+                service_slot_allocator.authority_source_evidence_event_id,
+                vec![
+                    f(
+                        "present",
+                        b(candidate.service_slot_allocator_readiness_present),
+                    ),
+                    f("ready", b(candidate.service_slot_allocator_ready)),
+                ],
+            ),
+            service_slot_allocator_runtime: common(
+                evaluation.service_slot_allocator_runtime_status,
+                evaluation.service_slot_allocator_runtime_reason,
+                vec![f("ready", b(candidate.service_slot_allocator_ready))],
+            ),
+            audit_rollback_write_boundary: common(
+                evaluation.audit_rollback_write_boundary_status,
+                evaluation.audit_rollback_write_boundary_reason,
+                vec![f(
+                    "present",
+                    b(candidate.audit_rollback_write_boundary_present),
+                )],
+            ),
+            dependency: evidence_input(
+                evaluation.dependency_status,
+                evaluation.dependency_reason,
+                dependency_source_evidence_event_id,
+                vec![
+                    f("present", b(candidate.dependency_present)),
+                    f("record_schema", s(spec.dependency_schema)),
+                    f("source_method", s(spec.dependency_method)),
+                ],
+            ),
+            fact: evidence_input(
+                evaluation.fact_status,
+                evaluation.fact_reason,
+                source_evidence.map(|value| value.0),
+                vec![
+                    f("record_schema", s(spec.schema)),
+                    f("record_id", s(spec.fact_id)),
+                    f("source_method", s(spec.method)),
+                    f("source_fact_locator", s(spec.source_fact_locator)),
+                    f("present", b(candidate.fact.present)),
+                    f("schema_valid", b(candidate.fact.schema_ok)),
+                    f("provenance_valid", b(candidate.fact.provenance_ok)),
+                    f(
+                        "binds_retained_module_evidence",
+                        b(candidate.fact.binds_retained_module_evidence),
+                    ),
+                    f(
+                        "binds_service_slot_allocator",
+                        b(candidate.fact.binds_service_slot_allocator),
+                    ),
+                    f(
+                        "binds_audit_rollback_write_boundary",
+                        b(candidate.fact.binds_audit_rollback_write_boundary),
+                    ),
+                    f(
+                        module_loader_fact_dependency_bind_field(spec),
+                        b(candidate.fact.binds_dependency),
+                    ),
+                ],
+            ),
+        },
     );
-    if let Some((event_id, evidence)) = source_evidence {
-        emit_module_loader_fact_source_evidence(event_id, evidence);
-        raw_line(",");
-    }
-    emit_module_loader_fact_required_bindings(spec, candidate, evaluation);
-    raw_line(",");
-    emit_module_loader_fact_object(
-        spec,
-        candidate.fact,
-        evaluation,
-        source_evidence.map(|(event_id, _)| event_id),
+    emit_evidence_v1_response(
+        spec.method,
+        spec.method,
+        None,
+        V::InlineObject(vec![f("test_infrastructure", no())]),
+        projection
+            .evidence
+            .into_iter()
+            .map(ev::evidence_value)
+            .collect(),
+        projection.decision,
     );
-    raw_line(",");
-    emit_module_loader_fact_policy_result(candidate, evaluation);
-    raw_line(",");
-    raw_line("      \"blocked_by\": [");
-    emit_module_loader_fact_blocked_by(spec, evaluation);
-    crlf();
-    raw_line("      ]");
-    end_response(spec.method);
 }
 
 pub(crate) fn emit_module_loader_fact_selftest(method: &str) {
@@ -424,36 +511,32 @@ pub(crate) fn emit_module_loader_fact_selftest(method: &str) {
         idx += 1;
     }
 
-    begin_response(spec.selftest_method);
-    emit_record_fields_trailing_comma(
-        vec![
-            f("schema", s(spec.selftest_schema)),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("test_infrastructure", b(true)),
-            f("mutates_global_event_log", no()),
-            f("accepts_loader_descriptor", no()),
-            f("accepts_artifact_bytes", no()),
-            f("loads_artifact", no()),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("service_inventory_change", s("none")),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-            f("case_count", V::U64(cases.len() as u64)),
-            f("passed", b(passed)),
-        ],
-        6,
+    let values = cases
+        .iter()
+        .map(|case| {
+            ev::selftest_case(
+                case.name,
+                case.expected_status,
+                case.expected_reason,
+                case.actual_status,
+                case.actual_reason,
+                case.passed,
+            )
+        })
+        .collect();
+    emit_evidence_v1_response(
+        spec.selftest_method,
+        spec.selftest_method,
+        None,
+        ev::selftest_facts_value(SelftestFacts {
+            case_count: cases.len() as u64,
+            passed,
+            safety: ev::selftest_safety_value(),
+            cases: V::Array(values),
+        }),
+        vec![],
+        ev::observed("selftest_completed"),
     );
-    raw_line("      \"cases\": [");
-    idx = 0;
-    while idx < cases.len() {
-        emit_module_loader_fact_selftest_case(&cases[idx], idx + 1 != cases.len());
-        idx += 1;
-    }
-    raw_line("      ],");
-    raw_line("      \"can_load\": false");
-    end_response(spec.selftest_method);
 }
 
 fn module_loader_fact_spec(method: &str) -> Option<ModuleLoaderFactSpec> {
@@ -552,268 +635,6 @@ fn module_loader_fact_dependency_present(spec: ModuleLoaderFactSpec) -> bool {
             })
             .unwrap_or(false)
     }
-}
-
-fn emit_module_loader_fact_required_bindings(
-    spec: ModuleLoaderFactSpec,
-    candidate: ModuleLoaderFactCandidate,
-    evaluation: ModuleLoaderFactEvaluation,
-) {
-    emit_record_property_line(
-        "required_bindings",
-        vec![
-            f(
-                "retained_module_evidence",
-                s(evaluation.retained_module_evidence_status),
-            ),
-            f(
-                "service_slot_allocator_readiness",
-                s(evaluation.service_slot_allocator_readiness_status),
-            ),
-            f(
-                "service_slot_allocator_runtime",
-                s(evaluation.service_slot_allocator_runtime_status),
-            ),
-            f(
-                "audit_rollback_write_boundary",
-                s(evaluation.audit_rollback_write_boundary_status),
-            ),
-            f(spec.dependency_gate, s(evaluation.dependency_status)),
-            f("fact_present", b(candidate.fact.present)),
-            f("dependency_schema", s(spec.dependency_schema)),
-            f("dependency_method", s(spec.dependency_method)),
-        ],
-        false,
-    );
-}
-
-fn emit_module_loader_fact_source_evidence(
-    event_id: event_log::EventId,
-    evidence: event_log::ModuleLoaderFactSourceEvidence,
-) {
-    emit_record_property_line(
-        "source_evidence",
-        vec![
-            f("schema", s(evidence.schema)),
-            f("state", s("retained")),
-            f("status", s("retained_current_boot_source_evidence")),
-            f("reason", s("module_loader_fact_source_evidence_recorded")),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("retention", s("current_boot_ram_event_log")),
-            f("event_id", record_event_or_null(Some(event_id))),
-            f("fact_schema", s(evidence.fact_schema)),
-            f("fact_id", s(evidence.fact_id)),
-            f("source_method", s(evidence.source_method)),
-            f("source_fact_locator", s(evidence.source_fact_locator)),
-            f("readiness_status", s(evidence.readiness_status)),
-            f("readiness_reason", s(evidence.readiness_reason)),
-            f("fact_status", s(evidence.fact_status)),
-            f("fact_reason", s(evidence.fact_reason)),
-            f("fact_present", b(evidence.fact_present)),
-            f("dependency_gate", s(evidence.dependency_gate)),
-            f("dependency_schema", s(evidence.dependency_schema)),
-            f("dependency_method", s(evidence.dependency_method)),
-            f("dependency_present", b(evidence.dependency_present)),
-            f(
-                "dependency_source_evidence_event_id",
-                record_event_or_null(evidence.dependency_source_evidence_event_id),
-            ),
-            f("accepts_loader_descriptor", no()),
-            f("accepts_artifact_bytes", no()),
-            f("loads_artifact", no()),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("service_inventory_change", s("none")),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-            f("authorizes_load", no()),
-        ],
-        false,
-    );
-}
-
-fn emit_module_loader_fact_object(
-    spec: ModuleLoaderFactSpec,
-    fact: ModuleLoaderFact,
-    evaluation: ModuleLoaderFactEvaluation,
-    source_evidence_event_id: Option<event_log::EventId>,
-) {
-    let mut fields = vec![
-        f("schema", s(spec.schema)),
-        f("state", s(if fact.present { "present" } else { "missing" })),
-        f("status", s(evaluation.fact_status)),
-        f("reason", s(evaluation.fact_reason)),
-        f("scope", s("current_boot")),
-        f("fact_scope", s(fact.scope)),
-        f("schema_valid", b(fact.schema_ok)),
-        f("classification", s(fact.classification)),
-        f("provenance_valid", b(fact.provenance_ok)),
-        f(
-            "binds_retained_module_evidence",
-            b(fact.binds_retained_module_evidence),
-        ),
-        f(
-            "binds_service_slot_allocator",
-            b(fact.binds_service_slot_allocator),
-        ),
-        f(
-            "binds_audit_rollback_write_boundary",
-            b(fact.binds_audit_rollback_write_boundary),
-        ),
-        f(
-            module_loader_fact_dependency_bind_field(spec),
-            b(fact.binds_dependency),
-        ),
-        f("fact_id", s(spec.fact_id)),
-        f("source_method", s(spec.method)),
-        f("source_fact_locator", s(spec.source_fact_locator)),
-    ];
-    if source_evidence_event_id.is_some() {
-        fields.push(f(
-            "source_evidence_event_id",
-            record_event_or_null(source_evidence_event_id),
-        ));
-        fields.push(f("source_evidence_schema", s(spec.source_evidence_schema)));
-        fields.push(f("source_evidence_state", s("retained_current_boot")));
-    }
-    fields.push(f("persistence", s("none")));
-    fields.push(f("durable", no()));
-    fields.push(f("loads_artifact", no()));
-    fields.push(f("allocates_service_slot", no()));
-    fields.push(f("creates_service_inventory_records", no()));
-    fields.push(f("service_inventory_change", s("none")));
-    fields.push(f("authorizes_load", no()));
-    emit_record_property_line(spec.field, fields, false);
-}
-
-fn emit_module_loader_fact_policy_result(
-    candidate: ModuleLoaderFactCandidate,
-    evaluation: ModuleLoaderFactEvaluation,
-) {
-    emit_record_property_line(
-        "policy_result",
-        vec![
-            f("readiness_status", s(evaluation.status)),
-            f("readiness_reason", s(evaluation.reason)),
-            f(
-                "retained_module_evidence_present",
-                b(candidate.retained_module_evidence_present),
-            ),
-            f(
-                "service_slot_allocator_readiness_present",
-                b(candidate.service_slot_allocator_readiness_present),
-            ),
-            f(
-                "service_slot_allocator_ready",
-                b(candidate.service_slot_allocator_ready),
-            ),
-            f(
-                "audit_rollback_write_boundary_present",
-                b(candidate.audit_rollback_write_boundary_present),
-            ),
-            f("dependency_present", b(candidate.dependency_present)),
-            f(
-                "fact_available",
-                b(method_eq(evaluation.fact_status, "available")),
-            ),
-            f("loads_artifact", no()),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("service_inventory_change", s("none")),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-        ],
-        false,
-    );
-}
-
-fn emit_module_loader_fact_blocked_by(
-    spec: ModuleLoaderFactSpec,
-    evaluation: ModuleLoaderFactEvaluation,
-) {
-    let mut wrote = false;
-    emit_module_loader_fact_gate(
-        &mut wrote,
-        "retained_module_evidence",
-        evaluation.retained_module_evidence_status,
-        evaluation.retained_module_evidence_reason,
-    );
-    emit_module_loader_fact_gate(
-        &mut wrote,
-        "service_slot_allocator_readiness",
-        evaluation.service_slot_allocator_readiness_status,
-        evaluation.service_slot_allocator_readiness_reason,
-    );
-    emit_module_loader_fact_gate(
-        &mut wrote,
-        "service_slot_allocator_runtime",
-        evaluation.service_slot_allocator_runtime_status,
-        evaluation.service_slot_allocator_runtime_reason,
-    );
-    emit_module_loader_fact_gate(
-        &mut wrote,
-        "audit_rollback_write_boundary",
-        evaluation.audit_rollback_write_boundary_status,
-        evaluation.audit_rollback_write_boundary_reason,
-    );
-    emit_module_loader_fact_gate(
-        &mut wrote,
-        spec.dependency_gate,
-        evaluation.dependency_status,
-        evaluation.dependency_reason,
-    );
-    emit_module_loader_fact_gate(
-        &mut wrote,
-        spec.field,
-        evaluation.fact_status,
-        evaluation.fact_reason,
-    );
-}
-
-fn emit_module_loader_fact_gate(
-    wrote: &mut bool,
-    gate: &'static str,
-    state: &'static str,
-    reason: &'static str,
-) {
-    if method_eq(state, "available") {
-        return;
-    }
-    if *wrote {
-        raw_line(",");
-    } else {
-        *wrote = true;
-    }
-    emit_inline_record_object_fragment(
-        vec![
-            f("gate", s(gate)),
-            f("state", s(state)),
-            f("reason", s(reason)),
-        ],
-        8,
-    );
-}
-
-fn emit_module_loader_fact_selftest_case(case: &ModuleLoaderFactSelfTestCase, comma: bool) {
-    emit_inline_record_object(
-        vec![
-            f("case", s(case.name)),
-            f("expected_status", s(case.expected_status)),
-            f("expected_reason", s(case.expected_reason)),
-            f("actual_status", s(case.actual_status)),
-            f("actual_reason", s(case.actual_reason)),
-            f("actual_fact_status", s(case.actual_fact_status)),
-            f("actual_fact_reason", s(case.actual_fact_reason)),
-            f("passed", b(case.passed)),
-            f("loads_artifact", no()),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("can_load", no()),
-            f("load_attempted", no()),
-        ],
-        comma,
-    );
 }
 
 fn evaluate_module_loader_fact_candidate(

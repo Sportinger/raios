@@ -1096,3 +1096,398 @@ family command completions, not source literals.
 - `live_granted_load_projection` moves out of the denied loader family to its
   owning granted-candidate observational family. P4-3 loader-family core
   evidence does not include it.
+
+## P4-3b2 notes
+
+Capability sentence: agents can now inspect direct allocator, loader-identity,
+artifact-binding, loader-fact, and loader-runtime readiness through the typed
+`raios.evidence_response.v1` envelope and evaluator-ordered evidence chain.
+
+- Direct family envelopes bind `event_id:null`; only evidence items carry
+  `source_event_id` provenance.
+- `live_granted_load_projection` is not rendered by `module.loader_runtime`.
+  The granted-candidate owner retains its pre-conversion response vocabulary.
+- The kernel captures each response candidate/evaluation once, passes named
+  typed inputs to `module_loader_allocator_projection`, and renders the core
+  projection with the shared evidence-v1 response emitter.
+- Direct legacy emitters were removed. `module_loader_runtime/render.rs` is
+  intentionally reduced to a boundary note; P4-4-owned `memory.recent_events`
+  renderers were not changed.
+
+### Harness predicate disposition — completed STOP-10 accounting
+
+The 942-assertion HEAD contract fell to 621 after P4-3b2. This repair adds
+119 distinct carriers (115 unique case tuples plus four direct fact/evidence
+needles), producing 735 runtime-expanded assertions. All 300 dropped literal
+predicate names are assigned exactly once:
+
+| Bucket | Count |
+|---|---:|
+| regenerate | 119 |
+| honest merge | 130 |
+| explicit retire | 51 |
+| **accounted** | **300** |
+
+#### Regenerated predicates (name -> byte-exact v1 needle)
+
+- protocol:module_service_slot_allocator_selftest_missing_reservation_case -> "case": "missing_retained_service_slot_reservation", "expected": {"status": "missing", "reason": "retained_service_slot_reservation_missing"}, "actual": {"status": "missing", "reason": "retained_service_slot_reservation_missing"}, "passed": true
+- protocol:module_service_slot_allocator_selftest_allocator_missing_case -> "case": "service_slot_allocator_runtime_missing", "expected": {"status": "missing", "reason": "service_slot_allocator_runtime_missing"}, "actual": {"status": "missing", "reason": "service_slot_allocator_runtime_missing"}, "passed": true
+- protocol:module_service_slot_allocator_selftest_allocator_observed_case -> "case": "service_slot_allocator_runtime_observed_source_evidence_missing", "expected": {"status": "missing", "reason": "service_slot_allocator_runtime_missing"}, "actual": {"status": "missing", "reason": "service_slot_allocator_runtime_missing"}, "passed": true
+- protocol:module_service_slot_allocator_selftest_allocator_observed_available_case -> "case": "service_slot_allocator_runtime_observed_source_evidence_available_registry_missing", "expected": {"status": "missing", "reason": "service_slot_registry_binding_missing"}, "actual": {"status": "missing", "reason": "service_slot_registry_binding_missing"}, "passed": true
+- protocol:module_service_slot_allocator_selftest_registry_missing_case -> "case": "service_slot_registry_binding_missing", "expected": {"status": "missing", "reason": "service_slot_registry_binding_missing"}, "actual": {"status": "missing", "reason": "service_slot_registry_binding_missing"}, "passed": true
+- protocol:module_service_slot_allocator_selftest_registry_observed_case -> "case": "service_slot_registry_binding_observed_source_evidence_missing", "expected": {"status": "missing", "reason": "service_slot_registry_binding_missing"}, "actual": {"status": "missing", "reason": "service_slot_registry_binding_missing"}, "passed": true
+- protocol:module_service_slot_allocator_selftest_registry_observed_available_case -> "case": "service_slot_registry_binding_observed_source_evidence_available_health_missing", "expected": {"status": "missing", "reason": "service_health_state_model_missing"}, "actual": {"status": "missing", "reason": "service_health_state_model_missing"}, "passed": true
+- protocol:module_service_slot_allocator_selftest_health_case -> "case": "service_health_state_model_missing", "expected": {"status": "missing", "reason": "service_health_state_model_missing"}, "actual": {"status": "missing", "reason": "service_health_state_model_missing"}, "passed": true
+- protocol:module_service_slot_allocator_selftest_health_observed_case -> "case": "service_health_state_model_observed_source_evidence_missing", "expected": {"status": "missing", "reason": "service_health_state_model_missing"}, "actual": {"status": "missing", "reason": "service_health_state_model_missing"}, "passed": true
+- protocol:module_service_slot_allocator_selftest_health_observed_available_case -> "case": "service_health_state_model_observed_source_evidence_available_unload_missing", "expected": {"status": "missing", "reason": "service_unload_cleanup_plan_missing"}, "actual": {"status": "missing", "reason": "service_unload_cleanup_plan_missing"}, "passed": true
+- protocol:module_service_slot_allocator_selftest_cleanup_case -> "case": "service_unload_cleanup_plan_missing", "expected": {"status": "missing", "reason": "service_unload_cleanup_plan_missing"}, "actual": {"status": "missing", "reason": "service_unload_cleanup_plan_missing"}, "passed": true
+- protocol:module_service_slot_allocator_selftest_cleanup_observed_case -> "case": "service_unload_cleanup_plan_observed_source_evidence_missing", "expected": {"status": "missing", "reason": "service_unload_cleanup_plan_missing"}, "actual": {"status": "missing", "reason": "service_unload_cleanup_plan_missing"}, "passed": true
+- protocol:module_service_slot_allocator_selftest_cleanup_observed_available_case -> "case": "service_unload_cleanup_plan_observed_source_evidence_available_durable_missing", "expected": {"status": "denied_missing_durable_audit_write", "reason": "durable_audit_write_missing"}, "actual": {"status": "denied_missing_durable_audit_write", "reason": "durable_audit_write_missing"}, "passed": true
+- protocol:module_service_slot_allocator_selftest_durable_case -> "case": "durable_audit_write_missing", "expected": {"status": "denied_missing_durable_audit_write", "reason": "durable_audit_write_missing"}, "actual": {"status": "denied_missing_durable_audit_write", "reason": "durable_audit_write_missing"}, "passed": true
+- protocol:module_service_slot_allocator_selftest_durable_observed_case -> "case": "durable_audit_write_observed_source_evidence_missing", "expected": {"status": "denied_missing_durable_audit_write", "reason": "durable_audit_write_missing"}, "actual": {"status": "denied_missing_durable_audit_write", "reason": "durable_audit_write_missing"}, "passed": true
+- protocol:module_service_slot_allocator_selftest_durable_observed_available_case -> "case": "durable_audit_write_observed_source_evidence_available_rollback_missing", "expected": {"status": "denied_missing_rollback_install", "reason": "rollback_install_missing"}, "actual": {"status": "denied_missing_rollback_install", "reason": "rollback_install_missing"}, "passed": true
+- protocol:module_service_slot_allocator_selftest_rollback_case -> "case": "rollback_install_missing", "expected": {"status": "denied_missing_rollback_install", "reason": "rollback_install_missing"}, "actual": {"status": "denied_missing_rollback_install", "reason": "rollback_install_missing"}, "passed": true
+- protocol:module_service_slot_allocator_selftest_rollback_observed_case -> "case": "rollback_install_observed_source_evidence_missing", "expected": {"status": "denied_missing_rollback_install", "reason": "rollback_install_missing"}, "actual": {"status": "denied_missing_rollback_install", "reason": "rollback_install_missing"}, "passed": true
+- protocol:module_service_slot_allocator_selftest_rollback_observed_available_case -> "case": "rollback_install_observed_source_evidence_available_module_loader_unimplemented", "expected": {"status": "denied_loader_unimplemented", "reason": "module_loader_unimplemented"}, "actual": {"status": "denied_loader_unimplemented", "reason": "module_loader_unimplemented"}, "passed": true
+- protocol:module_service_slot_allocator_selftest_loader_case -> "case": "module_loader_missing", "expected": {"status": "denied_loader_unimplemented", "reason": "module_loader_unimplemented"}, "actual": {"status": "denied_loader_unimplemented", "reason": "module_loader_unimplemented"}, "passed": true
+- protocol:module_service_slot_allocator_selftest_loader_observed_case -> "case": "module_loader_observed_source_evidence_missing", "expected": {"status": "denied_loader_unimplemented", "reason": "module_loader_unimplemented"}, "actual": {"status": "denied_loader_unimplemented", "reason": "module_loader_unimplemented"}, "passed": true
+- protocol:module_service_slot_allocator_selftest_loader_observed_available_case -> "case": "module_loader_observed_source_evidence_available_allocator_authority_boundary", "expected": {"status": "denied_allocator_authority_not_granted", "reason": "service_slot_allocator_authority_boundary_non_authorizing"}, "actual": {"status": "denied_allocator_authority_not_granted", "reason": "service_slot_allocator_authority_boundary_non_authorizing"}, "passed": true
+- protocol:module_service_slot_allocator_selftest_registry_commit_gate_case -> "case": "registry_write_commit_gate_missing", "expected": {"status": "missing", "reason": "service_slot_registry_write_commit_gate_source_chain_incomplete"}, "actual": {"status": "missing", "reason": "service_slot_registry_write_commit_gate_source_chain_incomplete"}, "passed": true
+- protocol:module_service_slot_allocator_selftest_ready_case -> "case": "all_inputs_ready_still_non_authorizing", "expected": {"status": "denied_allocator_authority_not_granted", "reason": "service_slot_allocator_authority_boundary_non_authorizing"}, "actual": {"status": "denied_allocator_authority_not_granted", "reason": "service_slot_allocator_authority_boundary_non_authorizing"}, "passed": true
+- protocol:module_loader_runtime_selftest_missing_manifest_case -> "case": "missing_manifest_reference", "expected": {"status": "denied_missing_retained_module_evidence", "reason": "retained_module_manifest_reference_missing"}, "actual": {"status": "denied_missing_retained_module_evidence", "reason": "retained_module_manifest_reference_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_allocator_readiness_case -> "case": "missing_service_slot_allocator_readiness", "expected": {"status": "denied_missing_service_slot_allocator_readiness", "reason": "service_slot_allocator_readiness_missing"}, "actual": {"status": "denied_missing_service_slot_allocator_readiness", "reason": "service_slot_allocator_readiness_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_allocator_runtime_case -> "case": "service_slot_allocator_runtime_missing", "expected": {"status": "denied_missing_service_slot_allocator_runtime", "reason": "service_slot_allocator_runtime_missing"}, "actual": {"status": "denied_missing_service_slot_allocator_runtime", "reason": "service_slot_allocator_runtime_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_scope_case -> "case": "loader_identity_previous_boot", "expected": {"status": "rejected", "reason": "module_loader_identity_scope_must_be_current_boot"}, "actual": {"status": "rejected", "reason": "module_loader_identity_scope_must_be_current_boot"}, "passed": true
+- protocol:module_loader_runtime_selftest_schema_case -> "case": "loader_identity_wrong_schema", "expected": {"status": "rejected", "reason": "module_loader_identity_schema_mismatch"}, "actual": {"status": "rejected", "reason": "module_loader_identity_schema_mismatch"}, "passed": true
+- protocol:module_loader_runtime_selftest_provenance_case -> "case": "loader_identity_provenance_missing", "expected": {"status": "rejected", "reason": "module_loader_identity_provenance_missing"}, "actual": {"status": "rejected", "reason": "module_loader_identity_provenance_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_retained_binding_case -> "case": "loader_identity_retained_evidence_binding_missing", "expected": {"status": "rejected", "reason": "module_loader_identity_retained_evidence_binding_missing"}, "actual": {"status": "rejected", "reason": "module_loader_identity_retained_evidence_binding_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_allocator_binding_case -> "case": "loader_identity_service_slot_allocator_binding_missing", "expected": {"status": "rejected", "reason": "module_loader_identity_service_slot_allocator_binding_missing"}, "actual": {"status": "rejected", "reason": "module_loader_identity_service_slot_allocator_binding_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_audit_binding_case -> "case": "loader_identity_audit_write_boundary_binding_missing", "expected": {"status": "rejected", "reason": "module_loader_identity_audit_write_boundary_binding_missing"}, "actual": {"status": "rejected", "reason": "module_loader_identity_audit_write_boundary_binding_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_identity_source_evidence_case -> "case": "loader_identity_observed_source_evidence_missing", "expected": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_identity_missing"}, "actual": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_identity_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_artifact_hash_case -> "case": "artifact_hash_binding_missing", "expected": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_artifact_hash_binding_missing"}, "actual": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_artifact_hash_binding_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_artifact_hash_source_evidence_case -> "case": "artifact_hash_binding_observed_source_evidence_missing", "expected": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_artifact_hash_binding_missing"}, "actual": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_artifact_hash_binding_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_entrypoint_case -> "case": "entrypoint_abi_missing", "expected": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_entrypoint_abi_missing"}, "actual": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_entrypoint_abi_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_entrypoint_source_evidence_case -> "case": "entrypoint_abi_observed_source_evidence_missing", "expected": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_entrypoint_abi_missing"}, "actual": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_entrypoint_abi_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_address_space_case -> "case": "address_space_boundary_missing", "expected": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_address_space_boundary_missing"}, "actual": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_address_space_boundary_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_address_space_source_evidence_case -> "case": "address_space_boundary_observed_source_evidence_missing", "expected": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_address_space_boundary_missing"}, "actual": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_address_space_boundary_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_memory_map_case -> "case": "memory_map_constraints_missing", "expected": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_memory_map_constraints_missing"}, "actual": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_memory_map_constraints_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_memory_map_source_evidence_case -> "case": "memory_map_constraints_observed_source_evidence_missing", "expected": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_memory_map_constraints_missing"}, "actual": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_memory_map_constraints_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_capability_table_case -> "case": "capability_import_table_missing", "expected": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_capability_import_table_missing"}, "actual": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_capability_import_table_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_capability_table_source_evidence_case -> "case": "capability_import_table_observed_source_evidence_missing", "expected": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_capability_import_table_missing"}, "actual": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_capability_import_table_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_service_slot_case -> "case": "service_slot_binding_missing", "expected": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_service_slot_binding_missing"}, "actual": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_service_slot_binding_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_service_slot_source_evidence_case -> "case": "service_slot_binding_observed_source_evidence_missing", "expected": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_service_slot_binding_missing"}, "actual": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_service_slot_binding_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_health_case -> "case": "health_state_hooks_missing", "expected": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_health_state_hooks_missing"}, "actual": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_health_state_hooks_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_health_source_evidence_case -> "case": "health_state_hooks_observed_source_evidence_missing", "expected": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_health_state_hooks_missing"}, "actual": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_health_state_hooks_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_rollback_case -> "case": "rollback_hooks_missing", "expected": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_rollback_hooks_missing"}, "actual": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_rollback_hooks_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_rollback_source_evidence_case -> "case": "rollback_hooks_observed_source_evidence_missing", "expected": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_rollback_hooks_missing"}, "actual": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_rollback_hooks_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_write_boundary_case -> "case": "audit_rollback_write_boundary_binding_missing", "expected": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_audit_rollback_write_boundary_binding_missing"}, "actual": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_audit_rollback_write_boundary_binding_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_write_boundary_source_evidence_case -> "case": "audit_rollback_write_boundary_binding_observed_source_evidence_missing", "expected": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_audit_rollback_write_boundary_binding_missing"}, "actual": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_audit_rollback_write_boundary_binding_missing"}, "passed": true
+- protocol:module_loader_runtime_selftest_execution_commit_gate_case -> "case": "execution_commit_gate_missing", "expected": {"status": "denied_missing_module_loader_runtime_execution_commit_gate", "reason": "module_loader_runtime_execution_commit_gate_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_runtime_execution_commit_gate", "reason": "module_loader_runtime_execution_commit_gate_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_descriptor_intake_boundary_case -> "case": "descriptor_intake_boundary_missing", "expected": {"status": "denied_missing_module_loader_descriptor_intake_boundary", "reason": "module_loader_descriptor_intake_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_descriptor_intake_boundary", "reason": "module_loader_descriptor_intake_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_artifact_byte_intake_boundary_case -> "case": "artifact_byte_intake_boundary_missing", "expected": {"status": "denied_missing_module_loader_artifact_byte_intake_boundary", "reason": "module_loader_artifact_byte_intake_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_artifact_byte_intake_boundary", "reason": "module_loader_artifact_byte_intake_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_execution_authorization_boundary_case -> "case": "execution_authorization_boundary_missing", "expected": {"status": "denied_missing_module_loader_execution_authorization_boundary", "reason": "module_loader_execution_authorization_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_execution_authorization_boundary", "reason": "module_loader_execution_authorization_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_service_registry_mutation_boundary_case -> "case": "service_registry_mutation_boundary_missing", "expected": {"status": "denied_missing_module_loader_service_registry_mutation_boundary", "reason": "module_loader_service_registry_mutation_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_service_registry_mutation_boundary", "reason": "module_loader_service_registry_mutation_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_load_attempt_boundary_case -> "case": "load_attempt_boundary_missing", "expected": {"status": "denied_missing_module_loader_load_attempt_boundary", "reason": "module_loader_load_attempt_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_load_attempt_boundary", "reason": "module_loader_load_attempt_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_artifact_load_boundary_case -> "case": "artifact_load_boundary_missing", "expected": {"status": "denied_missing_module_loader_artifact_load_boundary", "reason": "module_loader_artifact_load_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_artifact_load_boundary", "reason": "module_loader_artifact_load_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_executable_mapping_boundary_case -> "case": "executable_mapping_boundary_missing", "expected": {"status": "denied_missing_module_loader_executable_mapping_boundary", "reason": "module_loader_executable_mapping_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_executable_mapping_boundary", "reason": "module_loader_executable_mapping_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_entrypoint_transfer_boundary_case -> "case": "entrypoint_transfer_boundary_missing", "expected": {"status": "denied_missing_module_loader_entrypoint_transfer_boundary", "reason": "module_loader_entrypoint_transfer_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_entrypoint_transfer_boundary", "reason": "module_loader_entrypoint_transfer_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_service_start_boundary_case -> "case": "service_start_boundary_missing", "expected": {"status": "denied_missing_module_loader_service_start_boundary", "reason": "module_loader_service_start_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_service_start_boundary", "reason": "module_loader_service_start_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_service_health_binding_boundary_case -> "case": "service_health_binding_boundary_missing", "expected": {"status": "denied_missing_module_loader_service_health_binding_boundary", "reason": "module_loader_service_health_binding_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_service_health_binding_boundary", "reason": "module_loader_service_health_binding_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_service_running_state_boundary_case -> "case": "service_running_state_boundary_missing", "expected": {"status": "denied_missing_module_loader_service_running_state_boundary", "reason": "module_loader_service_running_state_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_service_running_state_boundary", "reason": "module_loader_service_running_state_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_service_start_audit_boundary_case -> "case": "service_start_audit_boundary_missing", "expected": {"status": "denied_missing_module_loader_service_start_audit_boundary", "reason": "module_loader_service_start_audit_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_service_start_audit_boundary", "reason": "module_loader_service_start_audit_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_service_unload_cleanup_boundary_case -> "case": "service_unload_cleanup_boundary_missing", "expected": {"status": "denied_missing_module_loader_service_unload_cleanup_boundary", "reason": "module_loader_service_unload_cleanup_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_service_unload_cleanup_boundary", "reason": "module_loader_service_unload_cleanup_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_live_load_commit_boundary_case -> "case": "live_load_commit_boundary_missing", "expected": {"status": "denied_missing_module_loader_live_load_commit_boundary", "reason": "module_loader_live_load_commit_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_live_load_commit_boundary", "reason": "module_loader_live_load_commit_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_commit_audit_boundary_case -> "case": "commit_audit_boundary_missing", "expected": {"status": "denied_missing_module_loader_commit_audit_boundary", "reason": "module_loader_commit_audit_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_commit_audit_boundary", "reason": "module_loader_commit_audit_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_commit_rollback_boundary_case -> "case": "commit_rollback_boundary_missing", "expected": {"status": "denied_missing_module_loader_commit_rollback_boundary", "reason": "module_loader_commit_rollback_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_commit_rollback_boundary", "reason": "module_loader_commit_rollback_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_commit_result_boundary_case -> "case": "commit_result_boundary_missing", "expected": {"status": "denied_missing_module_loader_commit_result_boundary", "reason": "module_loader_commit_result_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_commit_result_boundary", "reason": "module_loader_commit_result_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_descriptor_acceptance_authority_boundary_case -> "case": "descriptor_acceptance_authority_boundary_missing", "expected": {"status": "denied_missing_module_loader_descriptor_acceptance_authority_boundary", "reason": "module_loader_descriptor_acceptance_authority_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_descriptor_acceptance_authority_boundary", "reason": "module_loader_descriptor_acceptance_authority_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_descriptor_parser_contract_boundary_case -> "case": "descriptor_parser_contract_boundary_missing", "expected": {"status": "denied_missing_module_loader_descriptor_parser_contract_boundary", "reason": "module_loader_descriptor_parser_contract_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_descriptor_parser_contract_boundary", "reason": "module_loader_descriptor_parser_contract_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_descriptor_parser_result_boundary_case -> "case": "descriptor_parser_result_boundary_missing", "expected": {"status": "denied_missing_module_loader_descriptor_parser_result_boundary", "reason": "module_loader_descriptor_parser_result_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_descriptor_parser_result_boundary", "reason": "module_loader_descriptor_parser_result_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_descriptor_schema_validation_boundary_case -> "case": "descriptor_schema_validation_boundary_missing", "expected": {"status": "denied_missing_module_loader_descriptor_schema_validation_boundary", "reason": "module_loader_descriptor_schema_validation_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_descriptor_schema_validation_boundary", "reason": "module_loader_descriptor_schema_validation_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_descriptor_capability_validation_boundary_case -> "case": "descriptor_capability_validation_boundary_missing", "expected": {"status": "denied_missing_module_loader_descriptor_capability_validation_boundary", "reason": "module_loader_descriptor_capability_validation_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_descriptor_capability_validation_boundary", "reason": "module_loader_descriptor_capability_validation_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_descriptor_load_plan_boundary_case -> "case": "descriptor_load_plan_boundary_missing", "expected": {"status": "denied_missing_module_loader_descriptor_load_plan_boundary", "reason": "module_loader_descriptor_load_plan_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_descriptor_load_plan_boundary", "reason": "module_loader_descriptor_load_plan_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_executable_load_plan_authority_boundary_case -> "case": "executable_load_plan_authority_boundary_missing", "expected": {"status": "denied_missing_module_loader_executable_load_plan_authority_boundary", "reason": "module_loader_executable_load_plan_authority_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_executable_load_plan_authority_boundary", "reason": "module_loader_executable_load_plan_authority_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_executable_load_plan_result_boundary_case -> "case": "executable_load_plan_result_boundary_missing", "expected": {"status": "denied_missing_module_loader_executable_load_plan_result_boundary", "reason": "module_loader_executable_load_plan_result_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_executable_load_plan_result_boundary", "reason": "module_loader_executable_load_plan_result_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_executable_image_layout_boundary_case -> "case": "executable_image_layout_boundary_missing", "expected": {"status": "denied_missing_module_loader_executable_image_layout_boundary", "reason": "module_loader_executable_image_layout_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_executable_image_layout_boundary", "reason": "module_loader_executable_image_layout_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_executable_page_mapping_plan_boundary_case -> "case": "executable_page_mapping_plan_boundary_missing", "expected": {"status": "denied_missing_module_loader_executable_page_mapping_plan_boundary", "reason": "module_loader_executable_page_mapping_plan_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_executable_page_mapping_plan_boundary", "reason": "module_loader_executable_page_mapping_plan_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_executable_page_mapping_boundary_case -> "case": "executable_page_mapping_boundary_missing", "expected": {"status": "denied_missing_module_loader_executable_page_mapping_boundary", "reason": "module_loader_executable_page_mapping_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_executable_page_mapping_boundary", "reason": "module_loader_executable_page_mapping_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_descriptor_executable_page_binding_boundary_case -> "case": "descriptor_executable_page_binding_boundary_missing", "expected": {"status": "denied_missing_module_loader_descriptor_executable_page_binding_boundary", "reason": "module_loader_descriptor_executable_page_binding_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_descriptor_executable_page_binding_boundary", "reason": "module_loader_descriptor_executable_page_binding_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_executable_entrypoint_binding_boundary_case -> "case": "executable_entrypoint_binding_boundary_missing", "expected": {"status": "denied_missing_module_loader_executable_entrypoint_binding_boundary", "reason": "module_loader_executable_entrypoint_binding_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_executable_entrypoint_binding_boundary", "reason": "module_loader_executable_entrypoint_binding_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_executable_entrypoint_transfer_authorization_boundary_case -> "case": "executable_entrypoint_transfer_authorization_boundary_missing", "expected": {"status": "denied_missing_module_loader_executable_entrypoint_transfer_authorization_boundary", "reason": "module_loader_executable_entrypoint_transfer_authorization_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_executable_entrypoint_transfer_authorization_boundary", "reason": "module_loader_executable_entrypoint_transfer_authorization_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_executable_entrypoint_transfer_boundary_case -> "case": "executable_entrypoint_transfer_boundary_missing", "expected": {"status": "denied_missing_module_loader_executable_entrypoint_transfer_boundary", "reason": "module_loader_executable_entrypoint_transfer_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_executable_entrypoint_transfer_boundary", "reason": "module_loader_executable_entrypoint_transfer_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_executable_entrypoint_handoff_boundary_case -> "case": "executable_entrypoint_handoff_boundary_missing", "expected": {"status": "denied_missing_module_loader_executable_entrypoint_handoff_boundary", "reason": "module_loader_executable_entrypoint_handoff_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_executable_entrypoint_handoff_boundary", "reason": "module_loader_executable_entrypoint_handoff_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_executable_entrypoint_invocation_boundary_case -> "case": "executable_entrypoint_invocation_boundary_missing", "expected": {"status": "denied_missing_module_loader_executable_entrypoint_invocation_boundary", "reason": "module_loader_executable_entrypoint_invocation_boundary_source_chain_incomplete"}, "actual": {"status": "denied_missing_module_loader_executable_entrypoint_invocation_boundary", "reason": "module_loader_executable_entrypoint_invocation_boundary_source_chain_incomplete"}, "passed": true
+- protocol:module_loader_runtime_selftest_ready_case -> "case": "all_inputs_ready_defined_non_executable", "expected": {"status": "defined_non_executable", "reason": "module_loader_runtime_behavior_not_implemented"}, "actual": {"status": "defined_non_executable", "reason": "module_loader_runtime_behavior_not_implemented"}, "passed": true
+- protocol:module_loader_identity_identity_missing -> "id": "loader_identity", "kind": "loader_fact", "status": "missing", "reason": "module_loader_identity_missing", "source_event_id": "event.current_boot.
+- protocol:module_loader_identity_fact_id -> "record_schema": "raios.module_loader_identity.v0", "record_id": "module.loader_runtime.identity.current_boot", "source_method": "module.loader_identity", "source_fact_locator": "module.loader_identity.loader_identity"
+- protocol:module_loader_identity_selftest_missing_evidence_case -> "case": "missing_retained_module_evidence", "expected": {"status": "denied_missing_retained_module_evidence", "reason": "retained_module_evidence_missing"}, "actual": {"status": "denied_missing_retained_module_evidence", "reason": "retained_module_evidence_missing"}, "passed": true
+- protocol:module_loader_identity_selftest_allocator_readiness_case -> "case": "missing_service_slot_allocator_readiness", "expected": {"status": "denied_missing_service_slot_allocator_readiness", "reason": "service_slot_allocator_readiness_missing"}, "actual": {"status": "denied_missing_service_slot_allocator_readiness", "reason": "service_slot_allocator_readiness_missing"}, "passed": true
+- protocol:module_loader_identity_selftest_allocator_runtime_case -> "case": "service_slot_allocator_runtime_missing", "expected": {"status": "denied_missing_service_slot_allocator_runtime", "reason": "service_slot_allocator_runtime_missing"}, "actual": {"status": "denied_missing_service_slot_allocator_runtime", "reason": "service_slot_allocator_runtime_missing"}, "passed": true
+- protocol:module_loader_identity_selftest_audit_boundary_case -> "case": "audit_write_boundary_missing", "expected": {"status": "denied_missing_audit_rollback_write_boundary", "reason": "module_audit_rollback_write_boundary_binding_missing"}, "actual": {"status": "denied_missing_audit_rollback_write_boundary", "reason": "module_audit_rollback_write_boundary_binding_missing"}, "passed": true
+- protocol:module_loader_identity_selftest_scope_case -> "case": "loader_identity_previous_boot", "expected": {"status": "rejected", "reason": "module_loader_identity_scope_must_be_current_boot"}, "actual": {"status": "rejected", "reason": "module_loader_identity_scope_must_be_current_boot"}, "passed": true
+- protocol:module_loader_identity_selftest_schema_case -> "case": "loader_identity_schema_mismatch", "expected": {"status": "rejected", "reason": "module_loader_identity_schema_mismatch"}, "actual": {"status": "rejected", "reason": "module_loader_identity_schema_mismatch"}, "passed": true
+- protocol:module_loader_identity_selftest_provenance_case -> "case": "loader_identity_provenance_missing", "expected": {"status": "rejected", "reason": "module_loader_identity_provenance_missing"}, "actual": {"status": "rejected", "reason": "module_loader_identity_provenance_missing"}, "passed": true
+- protocol:module_loader_identity_selftest_retained_binding_case -> "case": "loader_identity_retained_evidence_binding_missing", "expected": {"status": "rejected", "reason": "module_loader_identity_retained_evidence_binding_missing"}, "actual": {"status": "rejected", "reason": "module_loader_identity_retained_evidence_binding_missing"}, "passed": true
+- protocol:module_loader_identity_selftest_allocator_binding_case -> "case": "loader_identity_service_slot_allocator_binding_missing", "expected": {"status": "rejected", "reason": "module_loader_identity_service_slot_allocator_binding_missing"}, "actual": {"status": "rejected", "reason": "module_loader_identity_service_slot_allocator_binding_missing"}, "passed": true
+- protocol:module_loader_identity_selftest_audit_binding_case -> "case": "loader_identity_audit_write_boundary_binding_missing", "expected": {"status": "rejected", "reason": "module_loader_identity_audit_write_boundary_binding_missing"}, "actual": {"status": "rejected", "reason": "module_loader_identity_audit_write_boundary_binding_missing"}, "passed": true
+- protocol:module_loader_identity_selftest_missing_identity_case -> "case": "loader_identity_missing", "expected": {"status": "denied_missing_loader_identity", "reason": "module_loader_identity_missing"}, "actual": {"status": "denied_missing_loader_identity", "reason": "module_loader_identity_missing"}, "passed": true
+- protocol:module_loader_identity_selftest_ready_case -> "case": "all_inputs_present_identity_non_authorizing", "expected": {"status": "available_non_authorizing", "reason": "module_loader_identity_not_load_authority"}, "actual": {"status": "available_non_authorizing", "reason": "module_loader_identity_not_load_authority"}, "passed": true
+- protocol:module_loader_artifact_hash_binding_missing -> "id": "artifact_hash_binding", "kind": "loader_fact", "status": "missing", "reason": "module_loader_artifact_hash_binding_missing", "source_event_id": "event.current_boot.
+- protocol:module_loader_artifact_hash_binding_fact_id -> "record_schema": "raios.module_loader_artifact_hash_binding.v0", "record_id": "module.loader_runtime.artifact_hash_binding.current_boot", "source_method": "module.loader_artifact_hash_binding", "source_fact_locator": "module.loader_artifact_hash_binding.artifact_hash_binding"
+- protocol:module_loader_artifact_hash_binding_fact_source_event -> "id": "artifact_hash_binding", "kind": "loader_fact", "status": "missing", "reason": "module_loader_artifact_hash_binding_missing", "source_event_id": "event.current_boot.
+- protocol:module_loader_artifact_hash_binding_fact_source_state -> "id": "artifact_hash_binding", "kind": "loader_fact", "status": "missing", "reason": "module_loader_artifact_hash_binding_missing", "source_event_id": "event.current_boot.
+- protocol:module_loader_artifact_hash_binding_selftest_missing_evidence_case -> "case": "missing_retained_module_evidence", "expected": {"status": "denied_missing_retained_module_evidence", "reason": "retained_module_evidence_missing"}, "actual": {"status": "denied_missing_retained_module_evidence", "reason": "retained_module_evidence_missing"}, "passed": true
+- protocol:module_loader_artifact_hash_binding_selftest_allocator_readiness_case -> "case": "missing_service_slot_allocator_readiness", "expected": {"status": "denied_missing_service_slot_allocator_readiness", "reason": "service_slot_allocator_readiness_missing"}, "actual": {"status": "denied_missing_service_slot_allocator_readiness", "reason": "service_slot_allocator_readiness_missing"}, "passed": true
+- protocol:module_loader_artifact_hash_binding_selftest_allocator_runtime_case -> "case": "service_slot_allocator_runtime_missing", "expected": {"status": "denied_missing_service_slot_allocator_runtime", "reason": "service_slot_allocator_runtime_missing"}, "actual": {"status": "denied_missing_service_slot_allocator_runtime", "reason": "service_slot_allocator_runtime_missing"}, "passed": true
+- protocol:module_loader_artifact_hash_binding_selftest_loader_identity_case -> "case": "loader_identity_missing", "expected": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_identity_missing"}, "actual": {"status": "denied_missing_loader_runtime_fact", "reason": "module_loader_identity_missing"}, "passed": true
+- protocol:module_loader_artifact_hash_binding_selftest_scope_case -> "case": "artifact_hash_binding_previous_boot", "expected": {"status": "rejected", "reason": "module_loader_artifact_hash_binding_scope_must_be_current_boot"}, "actual": {"status": "rejected", "reason": "module_loader_artifact_hash_binding_scope_must_be_current_boot"}, "passed": true
+- protocol:module_loader_artifact_hash_binding_selftest_schema_case -> "case": "artifact_hash_binding_schema_mismatch", "expected": {"status": "rejected", "reason": "module_loader_artifact_hash_binding_schema_mismatch"}, "actual": {"status": "rejected", "reason": "module_loader_artifact_hash_binding_schema_mismatch"}, "passed": true
+- protocol:module_loader_artifact_hash_binding_selftest_provenance_case -> "case": "artifact_hash_binding_provenance_missing", "expected": {"status": "rejected", "reason": "module_loader_artifact_hash_binding_provenance_missing"}, "actual": {"status": "rejected", "reason": "module_loader_artifact_hash_binding_provenance_missing"}, "passed": true
+- protocol:module_loader_artifact_hash_binding_selftest_retained_binding_case -> "case": "artifact_hash_binding_retained_evidence_binding_missing", "expected": {"status": "rejected", "reason": "module_loader_artifact_hash_binding_retained_evidence_binding_missing"}, "actual": {"status": "rejected", "reason": "module_loader_artifact_hash_binding_retained_evidence_binding_missing"}, "passed": true
+- protocol:module_loader_artifact_hash_binding_selftest_allocator_binding_case -> "case": "artifact_hash_binding_service_slot_allocator_binding_missing", "expected": {"status": "rejected", "reason": "module_loader_artifact_hash_binding_service_slot_allocator_binding_missing"}, "actual": {"status": "rejected", "reason": "module_loader_artifact_hash_binding_service_slot_allocator_binding_missing"}, "passed": true
+- protocol:module_loader_artifact_hash_binding_selftest_audit_binding_case -> "case": "artifact_hash_binding_audit_write_boundary_binding_missing", "expected": {"status": "rejected", "reason": "module_loader_artifact_hash_binding_audit_write_boundary_binding_missing"}, "actual": {"status": "rejected", "reason": "module_loader_artifact_hash_binding_audit_write_boundary_binding_missing"}, "passed": true
+- protocol:module_loader_artifact_hash_binding_selftest_identity_binding_case -> "case": "artifact_hash_binding_loader_identity_binding_missing", "expected": {"status": "rejected", "reason": "module_loader_artifact_hash_binding_loader_identity_binding_missing"}, "actual": {"status": "rejected", "reason": "module_loader_artifact_hash_binding_loader_identity_binding_missing"}, "passed": true
+- protocol:module_loader_artifact_hash_binding_selftest_missing_case -> "case": "artifact_hash_binding_missing", "expected": {"status": "denied_missing_loader_artifact_hash_binding", "reason": "module_loader_artifact_hash_binding_missing"}, "actual": {"status": "denied_missing_loader_artifact_hash_binding", "reason": "module_loader_artifact_hash_binding_missing"}, "passed": true
+- protocol:module_loader_artifact_hash_binding_selftest_ready_case -> "case": "all_inputs_present_artifact_hash_binding_non_authorizing", "expected": {"status": "available_non_authorizing", "reason": "module_loader_artifact_hash_binding_not_load_authority"}, "actual": {"status": "available_non_authorizing", "reason": "module_loader_artifact_hash_binding_not_load_authority"}, "passed": true
+#### Honestly merged predicates (full table)
+
+| Legacy predicate | Surviving carrier |
+|---|---|
+| protocol:module_service_slot_allocator_selftest_local_only | family v1 classification:local_only merged with surviving framing |
+| protocol:module_service_slot_allocator_selftest_missing_reservation_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_service_slot_allocator_selftest_allocator_missing_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_service_slot_allocator_selftest_allocator_source_present | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_service_slot_allocator_selftest_allocator_source_observed | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_service_slot_allocator_selftest_allocator_source_available | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_service_slot_allocator_selftest_allocator_available_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_service_slot_allocator_selftest_registry_available_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_service_slot_allocator_selftest_registry_source_present | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_service_slot_allocator_selftest_registry_binding_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_service_slot_allocator_selftest_health_available_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_service_slot_allocator_selftest_health_source_present | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_service_slot_allocator_selftest_cleanup_available_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_service_slot_allocator_selftest_cleanup_source_present | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_service_slot_allocator_selftest_durable_available_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_service_slot_allocator_selftest_durable_source_present | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_service_slot_allocator_selftest_rollback_available_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_service_slot_allocator_selftest_rollback_source_present | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_service_slot_allocator_selftest_loader_available_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_service_slot_allocator_selftest_loader_source_present | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_service_slot_allocator_selftest_registry_commit_gate_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_service_slot_allocator_selftest_ready_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_local_only | family v1 classification:local_only merged with surviving framing |
+| protocol:module_loader_runtime_selftest_source_map_complete | surviving source_fact_map_complete:true |
+| protocol:module_loader_runtime_selftest_missing_manifest_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_allocator_runtime_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_identity_source_evidence_present | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_identity_source_evidence_observed | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_artifact_hash_source_evidence_present | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_artifact_hash_source_evidence_observed | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_entrypoint_source_evidence_present | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_entrypoint_source_evidence_observed | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_address_space_source_evidence_present | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_address_space_source_evidence_observed | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_memory_map_source_evidence_present | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_memory_map_source_evidence_observed | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_capability_table_source_evidence_present | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_capability_table_source_evidence_observed | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_service_slot_source_evidence_present | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_service_slot_source_evidence_observed | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_health_source_evidence_present | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_health_source_evidence_observed | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_rollback_source_evidence_present | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_rollback_source_evidence_observed | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_write_boundary_source_evidence_present | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_write_boundary_source_evidence_observed | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_execution_commit_gate_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_execution_commit_gate_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_descriptor_intake_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_descriptor_intake_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_artifact_byte_intake_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_artifact_byte_intake_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_execution_authorization_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_execution_authorization_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_service_registry_mutation_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_service_registry_mutation_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_load_attempt_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_load_attempt_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_artifact_load_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_artifact_load_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_executable_mapping_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_executable_mapping_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_entrypoint_transfer_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_entrypoint_transfer_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_service_start_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_service_start_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_service_health_binding_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_service_health_binding_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_service_running_state_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_service_running_state_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_service_start_audit_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_service_start_audit_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_service_unload_cleanup_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_service_unload_cleanup_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_live_load_commit_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_live_load_commit_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_commit_audit_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_commit_audit_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_commit_rollback_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_commit_rollback_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_commit_result_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_commit_result_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_descriptor_acceptance_authority_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_descriptor_acceptance_authority_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_descriptor_parser_contract_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_descriptor_parser_contract_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_descriptor_parser_result_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_descriptor_parser_result_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_descriptor_schema_validation_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_descriptor_schema_validation_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_descriptor_capability_validation_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_descriptor_capability_validation_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_descriptor_load_plan_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_descriptor_load_plan_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_executable_load_plan_authority_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_executable_load_plan_authority_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_executable_load_plan_result_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_executable_load_plan_result_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_executable_image_layout_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_executable_image_layout_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_executable_page_mapping_plan_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_executable_page_mapping_plan_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_executable_page_mapping_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_executable_page_mapping_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_descriptor_executable_page_binding_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_descriptor_executable_page_binding_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_executable_entrypoint_binding_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_executable_entrypoint_binding_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_executable_entrypoint_transfer_authorization_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_executable_entrypoint_transfer_authorization_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_executable_entrypoint_transfer_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_executable_entrypoint_transfer_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_executable_entrypoint_handoff_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_executable_entrypoint_handoff_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_executable_entrypoint_invocation_boundary_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_executable_entrypoint_invocation_boundary_reason | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_runtime_selftest_ready_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_identity_local_only | family v1 classification:local_only merged with surviving framing |
+| protocol:module_loader_identity_selftest_local_only | family v1 classification:local_only merged with surviving framing |
+| protocol:module_loader_identity_selftest_passed | surviving passed:true |
+| protocol:module_loader_identity_selftest_missing_identity_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_identity_selftest_ready_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_artifact_hash_binding_local_only | family v1 classification:local_only merged with surviving framing |
+| protocol:module_loader_artifact_hash_binding_source_evidence_schema | owned artifact_hash_binding evidence item |
+| protocol:module_loader_artifact_hash_binding_source_evidence_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_artifact_hash_binding_source_evidence_event | owned artifact_hash_binding evidence item |
+| protocol:module_loader_artifact_hash_binding_selftest_local_only | family v1 classification:local_only merged with surviving framing |
+| protocol:module_loader_artifact_hash_binding_selftest_passed | surviving passed:true |
+| protocol:module_loader_artifact_hash_binding_selftest_missing_status | corresponding regenerated tuple (expected, nested actual, passed) |
+| protocol:module_loader_artifact_hash_binding_selftest_ready_status | corresponding regenerated tuple (expected, nested actual, passed) |
+
+#### Explicitly retired predicates (full table)
+
+| Legacy predicate | Replacement carrier |
+|---|---|
+| protocol:module_service_slot_allocator_selftest_no_mutation | safety.event_log_write_count:0 |
+| protocol:module_service_slot_allocator_selftest_no_records | safety.retained_record_create_count:0 |
+| protocol:module_service_slot_allocator_selftest_no_slots | safety.service_slot_allocation_count:0 |
+| protocol:module_service_slot_allocator_selftest_no_inventory_records | safety.service_inventory_change:none |
+| protocol:module_service_slot_allocator_selftest_no_load | safety.artifact_load_count:0 |
+| protocol:module_service_slot_allocator_selftest_inventory_none | safety.service_inventory_change:none |
+| protocol:module_service_slot_allocator_selftest_can_allocate_false | safety.service_slot_allocation_count:0 |
+| protocol:module_service_slot_allocator_selftest_can_load_false | decision.outcome:observed + safety.load_authorization_count:0 |
+| protocol:module_service_slot_allocator_selftest_load_attempted_false | safety.load_attempt_count:0 |
+| protocol:module_loader_runtime_selftest_no_mutation | safety.event_log_write_count:0 |
+| protocol:module_loader_runtime_selftest_no_descriptor | safety.external_artifact_intake_count:0 |
+| protocol:module_loader_runtime_selftest_no_artifact_bytes | safety.external_artifact_intake_count:0 |
+| protocol:module_loader_runtime_selftest_no_load | safety.artifact_load_count:0 |
+| protocol:module_loader_runtime_selftest_no_slots | safety.service_slot_allocation_count:0 |
+| protocol:module_loader_runtime_selftest_no_inventory_records | safety.service_inventory_change:none |
+| protocol:module_loader_runtime_selftest_inventory_none | safety.service_inventory_change:none |
+| protocol:module_loader_runtime_selftest_can_load_false | decision.outcome:observed + safety.load_authorization_count:0 |
+| protocol:module_loader_runtime_selftest_load_attempted_false | safety.load_attempt_count:0 |
+| protocol:module_loader_identity_no_mutation | safety.event_log_write_count:0 |
+| protocol:module_loader_identity_no_descriptor | safety.external_artifact_intake_count:0 |
+| protocol:module_loader_identity_no_artifact_bytes | safety.external_artifact_intake_count:0 |
+| protocol:module_loader_identity_no_load | safety.artifact_load_count:0 |
+| protocol:module_loader_identity_no_slots | safety.service_slot_allocation_count:0 |
+| protocol:module_loader_identity_no_inventory_records | safety.service_inventory_change:none |
+| protocol:module_loader_identity_can_load_false | decision.outcome:observed + safety.load_authorization_count:0 |
+| protocol:module_loader_identity_load_attempted_false | safety.load_attempt_count:0 |
+| protocol:module_loader_identity_selftest_no_mutation | safety.event_log_write_count:0 |
+| protocol:module_loader_identity_selftest_no_descriptor | safety.external_artifact_intake_count:0 |
+| protocol:module_loader_identity_selftest_no_artifact_bytes | safety.external_artifact_intake_count:0 |
+| protocol:module_loader_identity_selftest_no_load | safety.artifact_load_count:0 |
+| protocol:module_loader_identity_selftest_no_slots | safety.service_slot_allocation_count:0 |
+| protocol:module_loader_identity_selftest_no_inventory_records | safety.service_inventory_change:none |
+| protocol:module_loader_identity_selftest_can_load_false | decision.outcome:observed + safety.load_authorization_count:0 |
+| protocol:module_loader_identity_selftest_load_attempted_false | safety.load_attempt_count:0 |
+| protocol:module_loader_artifact_hash_binding_source_evidence_mutation | source_event_id provenance |
+| protocol:module_loader_artifact_hash_binding_source_evidence_mutation_scope | source_event_id provenance |
+| protocol:module_loader_artifact_hash_binding_no_descriptor | safety.external_artifact_intake_count:0 |
+| protocol:module_loader_artifact_hash_binding_no_artifact_bytes | safety.external_artifact_intake_count:0 |
+| protocol:module_loader_artifact_hash_binding_no_load | safety.artifact_load_count:0 |
+| protocol:module_loader_artifact_hash_binding_no_slots | safety.service_slot_allocation_count:0 |
+| protocol:module_loader_artifact_hash_binding_no_inventory_records | safety.service_inventory_change:none |
+| protocol:module_loader_artifact_hash_binding_can_load_false | decision.outcome:observed + safety.load_authorization_count:0 |
+| protocol:module_loader_artifact_hash_binding_load_attempted_false | safety.load_attempt_count:0 |
+| protocol:module_loader_artifact_hash_binding_selftest_no_mutation | safety.event_log_write_count:0 |
+| protocol:module_loader_artifact_hash_binding_selftest_no_descriptor | safety.external_artifact_intake_count:0 |
+| protocol:module_loader_artifact_hash_binding_selftest_no_artifact_bytes | safety.external_artifact_intake_count:0 |
+| protocol:module_loader_artifact_hash_binding_selftest_no_load | safety.artifact_load_count:0 |
+| protocol:module_loader_artifact_hash_binding_selftest_no_slots | safety.service_slot_allocation_count:0 |
+| protocol:module_loader_artifact_hash_binding_selftest_no_inventory_records | safety.service_inventory_change:none |
+| protocol:module_loader_artifact_hash_binding_selftest_can_load_false | decision.outcome:observed + safety.load_authorization_count:0 |
+| protocol:module_loader_artifact_hash_binding_selftest_load_attempted_false | safety.load_attempt_count:0 |
+
+#### Coverage floor and certainty
+
+- Emitter tables contain 127 case occurrences (allocator 29, runtime 72,
+  identity 12, artifact binding 14), representing 112 distinct names. The
+  harness covers every name through 115 distinct full tuple needles; 12
+  byte-identical cross-family occurrences are honest merges. Each tuple covers
+  case, expected status/reason, nested actual status/reason, and passed=true.
+- UNCERTAIN: all 119 regenerated carriers. The supplied run stopped before
+  these four commands; the emitter-derived needles require the focused rerun.
+- Live allocator bytes give first failure
+  service_slot_allocator_authority_boundary_non_authorizing, not
+  service_slot_allocator_runtime_missing.
+- DECISION NEEDED: the bad needle is in forbidden
+  vm-harness/shadow-vm-smoke-profile-full-module-evidence.ps1; its owning
+  packet must replace it before rerun.
+
+### P4-3b2 donor-removal note (orchestrator, verified against live transcripts)
+
+Deleting the old loader/allocator selftest emitters exposed one vacuous
+predicate in the ALREADY-CONVERTED P4-2 load-gate section:
+`protocol:module_load_gate_service_slot_selftest_no_records` asserted
+`"creates_service_slot_reservation_records": false`, a key its own v1 emitter
+no longer renders — it had been matching the deleted P4-3 allocator selftest's
+bytes (Assert-LogContains greps the whole serial log, so any response could
+satisfy it). Re-pointed at the honest same-response carrier
+`"retained_record_create_count": 0` (a service-slot reservation record IS a
+retained record; the typed v1 safety counter is the successor of the legacy
+boolean). This is the third confirmed instance of the donor-removal class and
+the reason the batch needle-vs-live-log check runs after every family.
+
+### P4-3 close: full-report predicate accounting (orchestrator, mechanical)
+
+Comparing the two green full reports across the P4-3 switch
+(shadow-20260713-135447-24872.json -> shadow-20260713-150007-25964.json):
+3,786 -> 2,710 runtime predicates (1,325 gone, 249 added). The loss is
+concentrated exactly where the design predicted: the eight loader-fact
+methods, the allocator, and the loader runtime each used to emit ~59 repeated
+non-effect booleans PER RESPONSE (no_records, no_slots,
+no_inventory_records, source_evidence_mutation/scope, local_only, ...), which
+the harness asserted one-by-one. v1 replaces that whole class with six typed
+safety counters plus one decision, so the assertions collapse with them.
+
+Coverage floor VERIFIED mechanically on the green report, not assumed: every
+one of the eight loader-fact families retains 11 passing assertions (v1
+envelope schema, its own evidence record with status+reason, its selftest
+case_count, its three distinct evaluator reasons — binding / missing / ready —
+and a safety counter); loader_identity 26, artifact_hash_binding 20,
+loader_runtime 536, service_slot_allocator 63. 0 failed predicates in the run.
+Assertion NAMES in the loader-fact block lost their `module_loader_` prefix
+(they are keyed off the fact Id now) — a rename, not a deletion; noted here so
+the next report diff does not read it as a coverage loss.

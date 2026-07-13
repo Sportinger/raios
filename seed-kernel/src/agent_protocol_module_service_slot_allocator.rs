@@ -7,8 +7,43 @@ use crate::agent_protocol_support::{
     record_inline as inline, record_null as null, record_object as object, record_sha as sha,
     record_str as s, record_str_or_null,
 };
-use crate::{agent_protocol_module_types::*, agent_protocol_support::*, event_log};
-use raios_core::record::{Field, Value as V};
+use crate::{
+    agent_protocol_module_reference::emit_evidence_v1_response, agent_protocol_module_types::*,
+    agent_protocol_support::*, event_log,
+};
+use raios_core::{
+    evidence_response::{self as ev, SelftestFacts},
+    module_loader_allocator_projection::{
+        project_allocator_denial, AllocatorProjectionInput, LoaderAllocatorDisposition,
+        LoaderAllocatorEvidenceInput, LoaderAllocatorEvidenceStatus,
+    },
+    record::{Field, Value as V},
+};
+
+fn allocator_evidence<'a>(
+    status: &'static str,
+    reason: &'a str,
+    source_event_id: Option<event_log::EventId>,
+    facts: Vec<Field<'a>>,
+) -> LoaderAllocatorEvidenceInput<'a> {
+    LoaderAllocatorEvidenceInput {
+        status: match status {
+            "available" => LoaderAllocatorEvidenceStatus::Verified,
+            "missing" => LoaderAllocatorEvidenceStatus::Missing,
+            "rejected" => LoaderAllocatorEvidenceStatus::Rejected,
+            _ => LoaderAllocatorEvidenceStatus::Unavailable,
+        },
+        status_detail: status,
+        reason,
+        source_event_sequence: source_event_id.map(event_log::EventId::sequence),
+        facts,
+        disposition: if method_eq(status, "available") {
+            LoaderAllocatorDisposition::Satisfied
+        } else {
+            LoaderAllocatorDisposition::Blocked
+        },
+    }
+}
 
 pub(crate) fn emit_module_service_slot_allocator() {
     let retained = event_log::latest_module_service_slot_reservation();
@@ -353,244 +388,199 @@ pub(crate) fn emit_module_service_slot_allocator() {
     );
     let evaluation = evaluate_module_service_slot_allocator_candidate(candidate);
 
-    begin_response("module.service_slot_allocator");
-    emit_record_fields_trailing_comma(
+    let item =
+        |status, reason, event_id, facts| allocator_evidence(status, reason, event_id, facts);
+    let source = |index: usize, present: bool| {
         vec![
             f(
-                "schema",
-                s("raios.module_service_slot_allocator_readiness.v0"),
+                "record_schema",
+                s(MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[index].schema),
             ),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("test_infrastructure", no()),
-            f("mutates_global_event_log", b(true)),
             f(
-                "global_event_log_mutation",
-                s("retained_current_boot_source_evidence_only"),
+                "record_id",
+                s(MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[index].id),
             ),
-            f("creates_service_slot_reservation_records", no()),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("loads_artifact", no()),
-            f("service_inventory_change", s("none")),
-            f("can_allocate", no()),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-        ],
-        6,
-    );
-    emit_module_service_slot_allocator_source_evidence(
-        allocator_runtime_source_evidence_event_id,
-        allocator_runtime_source_evidence,
-        registry_binding_source_evidence_event_id,
-        registry_binding_source_evidence,
-        health_state_source_evidence_event_id,
-        health_state_source_evidence,
-        unload_cleanup_source_evidence_event_id,
-        unload_cleanup_source_evidence,
-        durable_audit_source_evidence_event_id,
-        durable_audit_source_evidence,
-        rollback_install_source_evidence_event_id,
-        rollback_install_source_evidence,
-        module_loader_source_evidence_event_id,
-        module_loader_source_evidence,
-        allocator_authority_source_evidence_event_id,
-        allocator_authority_source_evidence,
-        allocation_intent_source_evidence_event_id,
-        allocation_intent_source_evidence,
-        authority_input_source_evidence,
-        authority_decision_source_evidence_event_id,
-        authority_decision_source_evidence,
-        registry_write_commit_gate_source_evidence_event_id,
-        registry_write_commit_gate_source_evidence,
-    );
-    raw_line(",");
-    emit_module_service_slot_allocator_retained_reservation(retained);
-    raw_line(",");
-    emit_module_service_slot_allocator_facts(candidate, evaluation);
-    raw_line(",");
-    emit_module_service_slot_allocator_prerequisites(candidate, evaluation);
-    raw_line(",");
-    emit_module_service_slot_allocator_authority(candidate, evaluation);
-    raw_line(",");
-    emit_module_service_slot_allocation_intent(candidate, evaluation);
-    raw_line(",");
-    emit_module_service_slot_authority_inputs(candidate, evaluation);
-    raw_line(",");
-    emit_module_service_slot_allocator_authority_decision(candidate, evaluation);
-    raw_line(",");
-    emit_module_service_slot_registry_write_commit_gate(candidate, evaluation);
-    raw_line(",");
-    emit_record_property_line(
-        "policy_result",
+            f(
+                "source_method",
+                s(MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[index].source_method),
+            ),
+            f(
+                "source_fact_locator",
+                s(MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[index].source_fact_locator),
+            ),
+            f("present", b(present)),
+        ]
+    };
+    let retained_reservation = retained.map(|(_, reference)| reference);
+    let retained_facts = if let Some(reference) = retained_reservation.as_ref() {
         vec![
-            f("readiness_status", s(evaluation.status)),
-            f("readiness_reason", s(evaluation.reason)),
             f(
-                "retained_service_slot_reservation_present",
-                b(candidate.retained_reservation_present),
-            ),
-            f("retained_hash_reference_allocates_slot", no()),
-            f(
-                "allocator_runtime_available",
-                b(method_eq(evaluation.allocator_runtime_status, "available")),
+                "record_schema",
+                s("raios.module_service_slot_reservation.v0"),
             ),
             f(
-                "registry_binding_available",
-                b(method_eq(evaluation.registry_binding_status, "available")),
+                "ram_only_service_slot_id",
+                s(reference.ram_only_service_slot_id.as_str()),
             ),
+            f("reservation_hash", sha(reference.reservation_hash)),
             f(
-                "health_state_available",
-                b(method_eq(evaluation.health_state_status, "available")),
+                "computed_capability_grant_hash",
+                sha(reference.computed_grant_hash),
             ),
+            f("audit_record_hash", sha(reference.audit_record_hash)),
+            f("rollback_plan_hash", sha(reference.rollback_plan_hash)),
             f(
-                "unload_cleanup_available",
-                b(method_eq(evaluation.unload_cleanup_status, "available")),
+                "pre_load_service_inventory_hash",
+                sha(reference.pre_load_service_inventory_hash),
             ),
-            f(
-                "durable_audit_written",
-                b(candidate.durable_audit_write.available),
-            ),
-            f(
-                "rollback_plan_installed",
-                b(candidate.rollback_plan_install.available),
-            ),
-            f(
-                "module_loader_available",
-                b(candidate.module_loader.available),
-            ),
-            f("allocator_authority_status", s(evaluation.authority_status)),
-            f("allocator_authority_reason", s(evaluation.authority_reason)),
-            f(
-                "allocation_intent_status",
-                s(evaluation.allocation_intent_status),
-            ),
-            f(
-                "allocation_intent_reason",
-                s(evaluation.allocation_intent_reason),
-            ),
-            f(
-                "authority_input_statuses",
-                object(module_service_slot_authority_input_status_fields(
-                    &evaluation,
-                )),
-            ),
-            f(
-                "authority_decision_status",
-                s(evaluation.authority_decision_status),
-            ),
-            f(
-                "authority_decision_reason",
-                s(evaluation.authority_decision_reason),
-            ),
-            f(
-                "registry_write_commit_gate_status",
-                s(evaluation.registry_write_commit_gate_status),
-            ),
-            f(
-                "registry_write_commit_gate_reason",
-                s(evaluation.registry_write_commit_gate_reason),
-            ),
-            f("service_slot_reserved", no()),
-            f("registry_write_committed", no()),
-            f("mutates_service_registry", no()),
-            f("writes_durable_audit_state", no()),
-            f("installs_rollback_state", no()),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("can_allocate", no()),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-        ],
-        true,
+        ]
+    } else {
+        vec![f(
+            "record_schema",
+            s("raios.module_service_slot_reservation.v0"),
+        )]
+    };
+    let authority_input = |index: usize| {
+        item(
+            evaluation.authority_input_statuses[index],
+            evaluation.authority_input_reasons[index],
+            Some(authority_input_source_evidence[index].0),
+            vec![
+                f(
+                    "record_schema",
+                    s(MODULE_SERVICE_SLOT_AUTHORITY_INPUT_SOURCES[index].schema),
+                ),
+                f(
+                    "source_method",
+                    s(MODULE_SERVICE_SLOT_AUTHORITY_INPUT_SOURCES[index].source_method),
+                ),
+                f(
+                    "source_fact_locator",
+                    s(MODULE_SERVICE_SLOT_AUTHORITY_INPUT_SOURCES[index].source_fact_locator),
+                ),
+                f("present", b(candidate.authority_inputs[index].present)),
+                f(
+                    "source_chain_complete",
+                    b(candidate.authority_inputs[index].source_chain_complete),
+                ),
+            ],
+        )
+    };
+    let projection = project_allocator_denial(AllocatorProjectionInput {
+        service_slot_reservation: item(
+            evaluation.retained_reservation_status,
+            evaluation.retained_reservation_reason,
+            retained_event_id,
+            retained_facts,
+        ),
+        service_slot_allocator_runtime: item(
+            evaluation.allocator_runtime_status,
+            evaluation.allocator_runtime_reason,
+            Some(allocator_runtime_source_evidence_event_id),
+            source(0, candidate.allocator_runtime.present),
+        ),
+        service_slot_registry_binding: item(
+            evaluation.registry_binding_status,
+            evaluation.registry_binding_reason,
+            Some(registry_binding_source_evidence_event_id),
+            source(1, candidate.registry_binding.present),
+        ),
+        service_health_state_model: item(
+            evaluation.health_state_status,
+            evaluation.health_state_reason,
+            Some(health_state_source_evidence_event_id),
+            source(2, candidate.health_state.present),
+        ),
+        service_unload_cleanup_plan: item(
+            evaluation.unload_cleanup_status,
+            evaluation.unload_cleanup_reason,
+            Some(unload_cleanup_source_evidence_event_id),
+            source(3, candidate.unload_cleanup.present),
+        ),
+        durable_audit_write: item(
+            evaluation.durable_audit_status,
+            evaluation.durable_audit_reason,
+            Some(durable_audit_source_evidence_event_id),
+            vec![f("available", b(candidate.durable_audit_write.available))],
+        ),
+        rollback_plan_install: item(
+            evaluation.rollback_status,
+            evaluation.rollback_reason,
+            Some(rollback_install_source_evidence_event_id),
+            vec![f("available", b(candidate.rollback_plan_install.available))],
+        ),
+        module_loader: item(
+            evaluation.module_loader_status,
+            evaluation.module_loader_reason,
+            Some(module_loader_source_evidence_event_id),
+            vec![f("available", b(candidate.module_loader.available))],
+        ),
+        service_slot_allocator_authority: item(
+            evaluation.authority_status,
+            evaluation.authority_reason,
+            Some(allocator_authority_source_evidence_event_id),
+            vec![
+                f("present", b(candidate.allocator_authority.present)),
+                f(
+                    "source_chain_complete",
+                    b(candidate.allocator_authority.source_chain_complete),
+                ),
+            ],
+        ),
+        service_slot_allocation_intent: item(
+            evaluation.allocation_intent_status,
+            evaluation.allocation_intent_reason,
+            Some(allocation_intent_source_evidence_event_id),
+            vec![
+                f("present", b(candidate.allocation_intent.present)),
+                f(
+                    "source_chain_complete",
+                    b(candidate.allocation_intent.source_chain_complete),
+                ),
+            ],
+        ),
+        policy_decision: authority_input(0),
+        registry_write_authority: authority_input(1),
+        loader_runtime_contract: authority_input(2),
+        health_monitor_binding: authority_input(3),
+        unload_cleanup_authority: authority_input(4),
+        service_slot_allocator_authority_decision: item(
+            evaluation.authority_decision_status,
+            evaluation.authority_decision_reason,
+            Some(authority_decision_source_evidence_event_id),
+            vec![
+                f("present", b(candidate.authority_decision.present)),
+                f(
+                    "source_chain_complete",
+                    b(candidate.authority_decision.source_chain_complete),
+                ),
+            ],
+        ),
+        service_slot_registry_write_commit_gate: item(
+            evaluation.registry_write_commit_gate_status,
+            evaluation.registry_write_commit_gate_reason,
+            Some(registry_write_commit_gate_source_evidence_event_id),
+            vec![
+                f("present", b(candidate.registry_write_commit_gate.present)),
+                f(
+                    "source_chain_complete",
+                    b(candidate.registry_write_commit_gate.source_chain_complete),
+                ),
+            ],
+        ),
+    });
+    emit_evidence_v1_response(
+        "module.service_slot_allocator",
+        "module.service_slot_allocator",
+        None,
+        V::InlineObject(vec![f("test_infrastructure", no())]),
+        projection
+            .evidence
+            .into_iter()
+            .map(ev::evidence_value)
+            .collect(),
+        projection.decision,
     );
-    raw_line("      \"blocked_by\": [");
-    let mut wrote = false;
-    emit_module_service_slot_allocator_gate(
-        &mut wrote,
-        "retained_service_slot_reservation",
-        evaluation.retained_reservation_status,
-        evaluation.retained_reservation_reason,
-    );
-    emit_module_service_slot_allocator_gate(
-        &mut wrote,
-        "service_slot_allocator_runtime",
-        evaluation.allocator_runtime_status,
-        evaluation.allocator_runtime_reason,
-    );
-    emit_module_service_slot_allocator_gate(
-        &mut wrote,
-        "service_slot_registry_binding",
-        evaluation.registry_binding_status,
-        evaluation.registry_binding_reason,
-    );
-    emit_module_service_slot_allocator_gate(
-        &mut wrote,
-        "service_health_state_model",
-        evaluation.health_state_status,
-        evaluation.health_state_reason,
-    );
-    emit_module_service_slot_allocator_gate(
-        &mut wrote,
-        "service_unload_cleanup_plan",
-        evaluation.unload_cleanup_status,
-        evaluation.unload_cleanup_reason,
-    );
-    emit_module_service_slot_allocator_gate(
-        &mut wrote,
-        "durable_audit_write",
-        evaluation.durable_audit_status,
-        evaluation.durable_audit_reason,
-    );
-    emit_module_service_slot_allocator_gate(
-        &mut wrote,
-        "rollback_plan_install",
-        evaluation.rollback_status,
-        evaluation.rollback_reason,
-    );
-    emit_module_service_slot_allocator_gate(
-        &mut wrote,
-        "module_loader",
-        evaluation.module_loader_status,
-        evaluation.module_loader_reason,
-    );
-    emit_module_service_slot_allocator_gate(
-        &mut wrote,
-        "service_slot_allocator_authority",
-        evaluation.authority_status,
-        evaluation.authority_reason,
-    );
-    emit_module_service_slot_allocator_gate(
-        &mut wrote,
-        "service_slot_allocation_intent",
-        evaluation.allocation_intent_status,
-        evaluation.allocation_intent_reason,
-    );
-    let mut input_idx = 0usize;
-    while input_idx < MODULE_SERVICE_SLOT_AUTHORITY_INPUT_COUNT {
-        emit_module_service_slot_allocator_gate(
-            &mut wrote,
-            MODULE_SERVICE_SLOT_AUTHORITY_INPUT_SOURCES[input_idx].name,
-            evaluation.authority_input_statuses[input_idx],
-            evaluation.authority_input_reasons[input_idx],
-        );
-        input_idx += 1;
-    }
-    emit_module_service_slot_allocator_gate(
-        &mut wrote,
-        "service_slot_allocator_authority_decision",
-        evaluation.authority_decision_status,
-        evaluation.authority_decision_reason,
-    );
-    emit_module_service_slot_allocator_gate(
-        &mut wrote,
-        "service_slot_registry_write_commit_gate",
-        evaluation.registry_write_commit_gate_status,
-        evaluation.registry_write_commit_gate_reason,
-    );
-    crlf();
-    raw_line("      ]");
-    end_response("module.service_slot_allocator");
 }
 
 pub(crate) fn emit_module_service_slot_allocator_selftest() {
@@ -602,1502 +592,31 @@ pub(crate) fn emit_module_service_slot_allocator_selftest() {
         idx += 1;
     }
 
-    begin_response("module.service_slot_allocator_selftest");
-    emit_record_fields_trailing_comma(
-        vec![
-            f(
-                "schema",
-                s("raios.module_service_slot_allocator_readiness_selftest.v0"),
-            ),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("test_infrastructure", b(true)),
-            f("mutates_global_event_log", no()),
-            f("creates_service_slot_reservation_records", no()),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("loads_artifact", no()),
-            f("service_inventory_change", s("none")),
-            f("can_allocate", no()),
-            f("load_attempted", no()),
-            f("case_count", V::U64(cases.len() as u64)),
-            f("passed", b(passed)),
-        ],
-        6,
-    );
-    raw_line("      \"cases\": [");
-    idx = 0;
-    while idx < cases.len() {
-        emit_module_service_slot_allocator_selftest_case(&cases[idx], idx + 1 != cases.len());
-        idx += 1;
-    }
-    raw_line("      ],");
-    raw_line("      \"can_load\": false");
-    end_response("module.service_slot_allocator_selftest");
-}
-
-fn module_service_slot_authority_input_status_fields(
-    evaluation: &ModuleServiceSlotAllocatorEvaluation,
-) -> Vec<Field<'static>> {
-    let mut fields = Vec::new();
-    let mut input_idx = 0usize;
-    while input_idx < MODULE_SERVICE_SLOT_AUTHORITY_INPUT_COUNT {
-        fields.push(f(
-            MODULE_SERVICE_SLOT_AUTHORITY_INPUT_SOURCES[input_idx].name,
-            inline(vec![
-                f(
-                    "schema",
-                    s(MODULE_SERVICE_SLOT_AUTHORITY_INPUT_SOURCES[input_idx].schema),
-                ),
-                f("status", s(evaluation.authority_input_statuses[input_idx])),
-                f("reason", s(evaluation.authority_input_reasons[input_idx])),
-            ]),
-        ));
-        input_idx += 1;
-    }
-    fields
-}
-
-fn inline_event_id_options(values: &[Option<event_log::EventId>]) -> V<'static> {
-    let mut out = Vec::new();
-    let mut idx = 0usize;
-    while idx < values.len() {
-        out.push(record_event_or_null(values[idx]));
-        idx += 1;
-    }
-    V::InlineArray(out)
-}
-
-fn inline_bools(values: &[bool]) -> V<'static> {
-    let mut out = Vec::new();
-    let mut idx = 0usize;
-    while idx < values.len() {
-        out.push(b(values[idx]));
-        idx += 1;
-    }
-    V::InlineArray(out)
-}
-
-fn emit_module_service_slot_allocator_source_evidence(
-    allocator_runtime_event_id: event_log::EventId,
-    allocator_runtime: event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
-    registry_binding_event_id: event_log::EventId,
-    registry_binding: event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
-    health_state_event_id: event_log::EventId,
-    health_state: event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
-    unload_cleanup_event_id: event_log::EventId,
-    unload_cleanup: event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
-    durable_audit_event_id: event_log::EventId,
-    durable_audit: event_log::ModuleServiceSlotAllocatorPrerequisiteSourceEvidence,
-    rollback_install_event_id: event_log::EventId,
-    rollback_install: event_log::ModuleServiceSlotAllocatorPrerequisiteSourceEvidence,
-    module_loader_event_id: event_log::EventId,
-    module_loader: event_log::ModuleServiceSlotAllocatorPrerequisiteSourceEvidence,
-    allocator_authority_event_id: event_log::EventId,
-    allocator_authority: event_log::ModuleServiceSlotAllocatorAuthoritySourceEvidence,
-    allocation_intent_event_id: event_log::EventId,
-    allocation_intent: event_log::ModuleServiceSlotAllocationIntentSourceEvidence,
-    authority_inputs: [(
-        event_log::EventId,
-        event_log::ModuleServiceSlotAuthorityInputSourceEvidence,
-    ); MODULE_SERVICE_SLOT_AUTHORITY_INPUT_COUNT],
-    authority_decision_event_id: event_log::EventId,
-    authority_decision: event_log::ModuleServiceSlotAllocatorAuthorityDecisionSourceEvidence,
-    registry_write_commit_gate_event_id: event_log::EventId,
-    registry_write_commit_gate: event_log::ModuleServiceSlotRegistryWriteCommitGateSourceEvidence,
-) {
-    raw_line("      \"source_evidence\": [");
-    emit_module_service_slot_allocator_source_evidence_item(
-        allocator_runtime_event_id,
-        allocator_runtime,
-        true,
-    );
-    emit_module_service_slot_allocator_source_evidence_item(
-        registry_binding_event_id,
-        registry_binding,
-        true,
-    );
-    emit_module_service_slot_allocator_source_evidence_item(
-        health_state_event_id,
-        health_state,
-        true,
-    );
-    emit_module_service_slot_allocator_source_evidence_item(
-        unload_cleanup_event_id,
-        unload_cleanup,
-        true,
-    );
-    emit_module_service_slot_allocator_prerequisite_source_evidence_item(
-        durable_audit_event_id,
-        durable_audit,
-        true,
-    );
-    emit_module_service_slot_allocator_prerequisite_source_evidence_item(
-        rollback_install_event_id,
-        rollback_install,
-        true,
-    );
-    emit_module_service_slot_allocator_prerequisite_source_evidence_item(
-        module_loader_event_id,
-        module_loader,
-        true,
-    );
-    emit_module_service_slot_allocator_authority_source_evidence_item(
-        allocator_authority_event_id,
-        allocator_authority,
-        true,
-    );
-    emit_module_service_slot_allocation_intent_source_evidence_item(
-        allocation_intent_event_id,
-        allocation_intent,
-        true,
-    );
-    let mut idx = 0usize;
-    while idx < MODULE_SERVICE_SLOT_AUTHORITY_INPUT_COUNT {
-        let (event_id, evidence) = authority_inputs[idx];
-        emit_module_service_slot_authority_input_source_evidence_item(event_id, evidence, true);
-        idx += 1;
-    }
-    emit_module_service_slot_allocator_authority_decision_source_evidence_item(
-        authority_decision_event_id,
-        authority_decision,
-        true,
-    );
-    emit_module_service_slot_registry_write_commit_gate_source_evidence_item(
-        registry_write_commit_gate_event_id,
-        registry_write_commit_gate,
-        false,
-    );
-    raw_line("      ]");
-}
-
-fn emit_module_service_slot_allocator_source_evidence_item(
-    event_id: event_log::EventId,
-    evidence: event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
-    comma: bool,
-) {
-    emit_record_object(
-        vec![
-            f("kind", s("allocator_fact")),
-            f("event_id", record_event_or_null(Some(event_id))),
-            f("schema", s(evidence.schema)),
-            f("status", s("retained_current_boot_source_evidence")),
-            f(
-                "reason",
-                s("module_service_slot_allocator_fact_source_evidence_recorded"),
-            ),
-            f("fact_schema", s(evidence.fact_schema)),
-            f("fact_id", s(evidence.fact_id)),
-            f("source_method", s(evidence.source_method)),
-            f("source_fact_locator", s(evidence.source_fact_locator)),
-            f("fact_status", s(evidence.fact_status)),
-            f("fact_reason", s(evidence.fact_reason)),
-            f("fact_present", b(evidence.fact_present)),
-            f(
-                "retained_service_slot_reservation_event_id",
-                record_event_or_null(evidence.retained_service_slot_reservation_event_id),
-            ),
-            f(
-                "allocator_runtime_source_evidence_event_id",
-                record_event_or_null(evidence.allocator_runtime_source_evidence_event_id),
-            ),
-            f("source_evidence_retained", b(true)),
-            f("retention", s("current_boot_ram_event_log")),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("service_inventory_change", s("none")),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-        ],
-        8,
-        comma,
-    );
-}
-
-fn emit_module_service_slot_allocator_prerequisite_source_evidence_item(
-    event_id: event_log::EventId,
-    evidence: event_log::ModuleServiceSlotAllocatorPrerequisiteSourceEvidence,
-    comma: bool,
-) {
-    emit_record_object(
-        vec![
-            f("kind", s("allocator_prerequisite")),
-            f("event_id", record_event_or_null(Some(event_id))),
-            f("schema", s(evidence.schema)),
-            f("status", s("retained_current_boot_source_evidence")),
-            f(
-                "reason",
-                s("module_service_slot_allocator_prerequisite_source_evidence_recorded"),
-            ),
-            f("prerequisite_schema", s(evidence.prerequisite_schema)),
-            f("prerequisite_id", s(evidence.prerequisite_id)),
-            f("source_method", s(evidence.source_method)),
-            f("source_fact_locator", s(evidence.source_fact_locator)),
-            f("prerequisite_status", s(evidence.prerequisite_status)),
-            f("prerequisite_reason", s(evidence.prerequisite_reason)),
-            f("prerequisite_available", b(evidence.prerequisite_available)),
-            f(
-                "allocator_runtime_source_evidence_event_id",
-                record_event_or_null(evidence.allocator_runtime_source_evidence_event_id),
-            ),
-            f(
-                "registry_binding_source_evidence_event_id",
-                record_event_or_null(evidence.registry_binding_source_evidence_event_id),
-            ),
-            f(
-                "health_state_source_evidence_event_id",
-                record_event_or_null(evidence.health_state_source_evidence_event_id),
-            ),
-            f(
-                "unload_cleanup_source_evidence_event_id",
-                record_event_or_null(evidence.unload_cleanup_source_evidence_event_id),
-            ),
-            f("source_evidence_retained", b(true)),
-            f("retention", s("current_boot_ram_event_log")),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("service_inventory_change", s("none")),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-        ],
-        8,
-        comma,
-    );
-}
-
-fn emit_module_service_slot_allocator_authority_source_evidence_item(
-    event_id: event_log::EventId,
-    evidence: event_log::ModuleServiceSlotAllocatorAuthoritySourceEvidence,
-    comma: bool,
-) {
-    emit_record_object(
-        vec![
-            f("kind", s("allocator_authority")),
-            f("event_id", record_event_or_null(Some(event_id))),
-            f("schema", s(evidence.schema)),
-            f("status", s("retained_current_boot_source_evidence")),
-            f(
-                "reason",
-                s("module_service_slot_allocator_authority_source_evidence_recorded"),
-            ),
-            f("authority_schema", s(evidence.authority_schema)),
-            f("authority_id", s(evidence.authority_id)),
-            f("source_method", s(evidence.source_method)),
-            f("source_fact_locator", s(evidence.source_fact_locator)),
-            f("authority_status", s(evidence.authority_status)),
-            f("authority_reason", s(evidence.authority_reason)),
-            f("authority_scope", s(evidence.authority_scope)),
-            f(
-                "authority_classification",
-                s(evidence.authority_classification),
-            ),
-            f("authority_present", b(evidence.authority_present)),
-            f(
-                "retained_service_slot_reservation_present",
-                b(evidence.retained_service_slot_reservation_present),
-            ),
-            f(
-                "allocator_runtime_available",
-                b(evidence.allocator_runtime_available),
-            ),
-            f(
-                "registry_binding_available",
-                b(evidence.registry_binding_available),
-            ),
-            f("health_state_available", b(evidence.health_state_available)),
-            f(
-                "unload_cleanup_available",
-                b(evidence.unload_cleanup_available),
-            ),
-            f(
-                "durable_audit_write_available",
-                b(evidence.durable_audit_write_available),
-            ),
-            f(
-                "rollback_plan_install_available",
-                b(evidence.rollback_plan_install_available),
-            ),
-            f(
-                "module_loader_available",
-                b(evidence.module_loader_available),
-            ),
-            f("source_chain_complete", b(evidence.source_chain_complete)),
-            f(
-                "allocator_runtime_source_evidence_event_id",
-                record_event_or_null(evidence.allocator_runtime_source_evidence_event_id),
-            ),
-            f(
-                "registry_binding_source_evidence_event_id",
-                record_event_or_null(evidence.registry_binding_source_evidence_event_id),
-            ),
-            f(
-                "health_state_source_evidence_event_id",
-                record_event_or_null(evidence.health_state_source_evidence_event_id),
-            ),
-            f(
-                "unload_cleanup_source_evidence_event_id",
-                record_event_or_null(evidence.unload_cleanup_source_evidence_event_id),
-            ),
-            f(
-                "durable_audit_source_evidence_event_id",
-                record_event_or_null(evidence.durable_audit_source_evidence_event_id),
-            ),
-            f(
-                "rollback_install_source_evidence_event_id",
-                record_event_or_null(evidence.rollback_install_source_evidence_event_id),
-            ),
-            f(
-                "module_loader_source_evidence_event_id",
-                record_event_or_null(evidence.module_loader_source_evidence_event_id),
-            ),
-            f("source_evidence_retained", b(true)),
-            f("retention", s("current_boot_ram_event_log")),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("service_inventory_change", s("none")),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-        ],
-        8,
-        comma,
-    );
-}
-
-fn emit_module_service_slot_allocation_intent_source_evidence_item(
-    event_id: event_log::EventId,
-    evidence: event_log::ModuleServiceSlotAllocationIntentSourceEvidence,
-    comma: bool,
-) {
-    emit_record_object(
-        vec![
-            f("kind", s("allocation_intent")),
-            f("event_id", record_event_or_null(Some(event_id))),
-            f("schema", s(evidence.schema)),
-            f("status", s("retained_current_boot_source_evidence")),
-            f(
-                "reason",
-                s("module_service_slot_allocation_intent_source_evidence_recorded"),
-            ),
-            f("intent_schema", s(evidence.intent_schema)),
-            f("intent_id", s(evidence.intent_id)),
-            f("source_method", s(evidence.source_method)),
-            f("source_fact_locator", s(evidence.source_fact_locator)),
-            f("intent_status", s(evidence.intent_status)),
-            f("intent_reason", s(evidence.intent_reason)),
-            f("intent_present", b(evidence.intent_present)),
-            f("intent_scope", s(evidence.intent_scope)),
-            f("requested_capability", s(evidence.requested_capability)),
-            f("load_mode", s(evidence.load_mode)),
-            f("target", s(evidence.target)),
-            f(
-                "retained_module_evidence_present",
-                b(evidence.retained_module_evidence_present),
-            ),
-            f(
-                "retained_service_slot_reservation_present",
-                b(evidence.retained_service_slot_reservation_present),
-            ),
-            f(
-                "allocator_authority_present",
-                b(evidence.allocator_authority_present),
-            ),
-            f("source_chain_complete", b(evidence.source_chain_complete)),
-            f(
-                "manifest_reference_event_id",
-                record_event_or_null(evidence.manifest_reference_event_id),
-            ),
-            f(
-                "candidate_artifact_reference_event_id",
-                record_event_or_null(evidence.artifact_reference_event_id),
-            ),
-            f(
-                "vm_test_report_reference_event_id",
-                record_event_or_null(evidence.vm_report_reference_event_id),
-            ),
-            f(
-                "local_attestation_reference_event_id",
-                record_event_or_null(evidence.local_attestation_reference_event_id),
-            ),
-            f(
-                "local_approval_reference_event_id",
-                record_event_or_null(evidence.local_approval_reference_event_id),
-            ),
-            f(
-                "computed_grant_reference_event_id",
-                record_event_or_null(evidence.computed_grant_reference_event_id),
-            ),
-            f(
-                "audit_rollback_reference_event_id",
-                record_event_or_null(evidence.audit_rollback_reference_event_id),
-            ),
-            f(
-                "service_slot_reservation_event_id",
-                record_event_or_null(evidence.service_slot_reservation_event_id),
-            ),
-            f(
-                "allocator_authority_source_evidence_event_id",
-                record_event_or_null(evidence.allocator_authority_source_evidence_event_id),
-            ),
-            f(
-                "ram_only_service_slot_id",
-                record_str_or_null(
-                    evidence
-                        .ram_only_service_slot_id
-                        .as_ref()
-                        .map(|id| id.as_str()),
-                ),
-            ),
-            f("source_evidence_retained", b(true)),
-            f("retention", s("current_boot_ram_event_log")),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("service_inventory_change", s("none")),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-        ],
-        8,
-        comma,
-    );
-}
-
-fn emit_module_service_slot_authority_input_source_evidence_item(
-    event_id: event_log::EventId,
-    evidence: event_log::ModuleServiceSlotAuthorityInputSourceEvidence,
-    comma: bool,
-) {
-    emit_record_object(
-        vec![
-            f("kind", s("authority_input")),
-            f("event_id", record_event_or_null(Some(event_id))),
-            f("schema", s(evidence.schema)),
-            f("status", s("retained_current_boot_source_evidence")),
-            f(
-                "reason",
-                s("module_service_slot_authority_input_source_evidence_recorded"),
-            ),
-            f("input_schema", s(evidence.input_schema)),
-            f("input_id", s(evidence.input_id)),
-            f("input_name", s(evidence.input_name)),
-            f("source_method", s(evidence.source_method)),
-            f("source_fact_locator", s(evidence.source_fact_locator)),
-            f("input_status", s(evidence.input_status)),
-            f("input_reason", s(evidence.input_reason)),
-            f("input_present", b(evidence.input_present)),
-            f("input_scope", s(evidence.input_scope)),
-            f("dependency_schema", s(evidence.dependency_schema)),
-            f(
-                "dependency_source_evidence_event_id",
-                record_event_or_null(evidence.dependency_source_evidence_event_id),
-            ),
-            f("dependency_present", b(evidence.dependency_present)),
-            f("requested_capability", s(evidence.requested_capability)),
-            f("load_mode", s(evidence.load_mode)),
-            f("target", s(evidence.target)),
-            f(
-                "retained_module_evidence_present",
-                b(evidence.retained_module_evidence_present),
-            ),
-            f(
-                "retained_service_slot_reservation_present",
-                b(evidence.retained_service_slot_reservation_present),
-            ),
-            f(
-                "allocator_authority_present",
-                b(evidence.allocator_authority_present),
-            ),
-            f(
-                "allocation_intent_source_evidence_event_id",
-                record_event_or_null(evidence.allocation_intent_source_evidence_event_id),
-            ),
-            f("source_chain_complete", b(evidence.source_chain_complete)),
-            f(
-                "service_slot_reservation_event_id",
-                record_event_or_null(evidence.service_slot_reservation_event_id),
-            ),
-            f(
-                "allocator_authority_source_evidence_event_id",
-                record_event_or_null(evidence.allocator_authority_source_evidence_event_id),
-            ),
-            f(
-                "ram_only_service_slot_id",
-                record_str_or_null(
-                    evidence
-                        .ram_only_service_slot_id
-                        .as_ref()
-                        .map(|id| id.as_str()),
-                ),
-            ),
-            f("source_evidence_retained", b(true)),
-            f("retention", s("current_boot_ram_event_log")),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("service_inventory_change", s("none")),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-        ],
-        8,
-        comma,
-    );
-}
-
-fn emit_module_service_slot_allocator_authority_decision_source_evidence_item(
-    event_id: event_log::EventId,
-    evidence: event_log::ModuleServiceSlotAllocatorAuthorityDecisionSourceEvidence,
-    comma: bool,
-) {
-    emit_record_object(
-        vec![
-            f("kind", s("authority_decision")),
-            f("event_id", record_event_or_null(Some(event_id))),
-            f("schema", s(evidence.schema)),
-            f("status", s("retained_current_boot_source_evidence")),
-            f(
-                "reason",
-                s("module_service_slot_allocator_authority_decision_source_evidence_recorded"),
-            ),
-            f("decision_schema", s(evidence.decision_schema)),
-            f("decision_id", s(evidence.decision_id)),
-            f("source_method", s(evidence.source_method)),
-            f("source_fact_locator", s(evidence.source_fact_locator)),
-            f("decision_status", s(evidence.decision_status)),
-            f("decision_reason", s(evidence.decision_reason)),
-            f("decision_present", b(evidence.decision_present)),
-            f("decision_scope", s(evidence.decision_scope)),
-            f("requested_capability", s(evidence.requested_capability)),
-            f("load_mode", s(evidence.load_mode)),
-            f("target", s(evidence.target)),
-            f(
-                "allocator_authority_present",
-                b(evidence.allocator_authority_present),
-            ),
-            f(
-                "allocation_intent_present",
-                b(evidence.allocation_intent_present),
-            ),
-            f(
-                "authority_inputs_complete",
-                b(evidence.authority_inputs_complete),
-            ),
-            f("source_chain_complete", b(evidence.source_chain_complete)),
-            f(
-                "allocator_authority_source_evidence_event_id",
-                record_event_or_null(evidence.allocator_authority_source_evidence_event_id),
-            ),
-            f(
-                "allocation_intent_source_evidence_event_id",
-                record_event_or_null(evidence.allocation_intent_source_evidence_event_id),
-            ),
-            f(
-                "authority_input_source_evidence_event_ids",
-                inline_event_id_options(&evidence.authority_input_source_evidence_event_ids),
-            ),
-            f(
-                "authority_input_present",
-                inline_bools(&evidence.authority_input_present),
-            ),
-            f(
-                "retained_module_evidence_present",
-                b(evidence.retained_module_evidence_present),
-            ),
-            f(
-                "retained_service_slot_reservation_present",
-                b(evidence.retained_service_slot_reservation_present),
-            ),
-            f(
-                "service_slot_reservation_event_id",
-                record_event_or_null(evidence.service_slot_reservation_event_id),
-            ),
-            f(
-                "ram_only_service_slot_id",
-                record_str_or_null(
-                    evidence
-                        .ram_only_service_slot_id
-                        .as_ref()
-                        .map(|id| id.as_str()),
-                ),
-            ),
-            f("source_evidence_retained", b(true)),
-            f("retention", s("current_boot_ram_event_log")),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("service_inventory_change", s("none")),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-        ],
-        8,
-        comma,
-    );
-}
-
-fn emit_module_service_slot_registry_write_commit_gate_source_evidence_item(
-    event_id: event_log::EventId,
-    evidence: event_log::ModuleServiceSlotRegistryWriteCommitGateSourceEvidence,
-    comma: bool,
-) {
-    emit_record_object(
-        vec![
-            f("kind", s("registry_write_commit_gate")),
-            f("event_id", record_event_or_null(Some(event_id))),
-            f("schema", s(evidence.schema)),
-            f("status", s("retained_current_boot_source_evidence")),
-            f(
-                "reason",
-                s("module_service_slot_registry_write_commit_gate_source_evidence_recorded"),
-            ),
-            f("gate_schema", s(evidence.gate_schema)),
-            f("gate_id", s(evidence.gate_id)),
-            f("source_method", s(evidence.source_method)),
-            f("source_fact_locator", s(evidence.source_fact_locator)),
-            f("gate_status", s(evidence.gate_status)),
-            f("gate_reason", s(evidence.gate_reason)),
-            f("gate_present", b(evidence.gate_present)),
-            f("gate_scope", s(evidence.gate_scope)),
-            f("requested_capability", s(evidence.requested_capability)),
-            f("load_mode", s(evidence.load_mode)),
-            f("target", s(evidence.target)),
-            f(
-                "authority_decision_present",
-                b(evidence.authority_decision_present),
-            ),
-            f(
-                "registry_write_authority_present",
-                b(evidence.registry_write_authority_present),
-            ),
-            f(
-                "registry_binding_available",
-                b(evidence.registry_binding_available),
-            ),
-            f(
-                "durable_audit_write_available",
-                b(evidence.durable_audit_write_available),
-            ),
-            f(
-                "rollback_plan_install_available",
-                b(evidence.rollback_plan_install_available),
-            ),
-            f(
-                "retained_service_slot_reservation_present",
-                b(evidence.retained_service_slot_reservation_present),
-            ),
-            f("source_chain_complete", b(evidence.source_chain_complete)),
-            f(
-                "authority_decision_source_evidence_event_id",
-                record_event_or_null(evidence.authority_decision_source_evidence_event_id),
-            ),
-            f(
-                "registry_write_authority_source_evidence_event_id",
-                record_event_or_null(evidence.registry_write_authority_source_evidence_event_id),
-            ),
-            f(
-                "registry_binding_source_evidence_event_id",
-                record_event_or_null(evidence.registry_binding_source_evidence_event_id),
-            ),
-            f(
-                "durable_audit_source_evidence_event_id",
-                record_event_or_null(evidence.durable_audit_source_evidence_event_id),
-            ),
-            f(
-                "rollback_install_source_evidence_event_id",
-                record_event_or_null(evidence.rollback_install_source_evidence_event_id),
-            ),
-            f(
-                "service_slot_reservation_event_id",
-                record_event_or_null(evidence.service_slot_reservation_event_id),
-            ),
-            f(
-                "ram_only_service_slot_id",
-                record_str_or_null(
-                    evidence
-                        .ram_only_service_slot_id
-                        .as_ref()
-                        .map(|id| id.as_str()),
-                ),
-            ),
-            f("source_evidence_retained", b(true)),
-            f("retention", s("current_boot_ram_event_log")),
-            f(
-                "authorizes_registry_write",
-                b(evidence.authorizes_registry_write),
-            ),
-            f(
-                "mutates_service_registry",
-                b(evidence.mutates_service_registry),
-            ),
-            f(
-                "writes_durable_audit_state",
-                b(evidence.writes_durable_audit_state),
-            ),
-            f(
-                "installs_rollback_state",
-                b(evidence.installs_rollback_state),
-            ),
-            f("allocates_service_slot", b(evidence.allocates_service_slot)),
-            f("creates_service_inventory_records", no()),
-            f("service_inventory_change", s("none")),
-            f("can_load_now", no()),
-            f("loads_artifact", b(evidence.loads_artifact)),
-            f("load_attempted", b(evidence.loads_artifact)),
-        ],
-        8,
-        comma,
-    );
-}
-
-fn emit_module_service_slot_allocator_retained_reservation(
-    retained: Option<(event_log::EventId, event_log::ModuleServiceSlotReservation)>,
-) {
-    if let Some((event_id, reference)) = retained {
-        emit_record_property_line(
-            "retained_service_slot_reservation",
-            vec![
-                f("state", s("present")),
-                f("schema", s("raios.module_service_slot_reservation.v0")),
-                f("event_id", record_event_or_null(Some(event_id))),
-                f("status", s("retained_hash_reference_only_not_allocated")),
-                f(
-                    "reason",
-                    s("service_slot_reservation_is_evidence_not_allocator_state"),
-                ),
-                f("classification", s("local_only")),
-                f("allocates_service_slot", no()),
-                f("creates_service_inventory_records", no()),
-                f("service_inventory_change", s("none")),
-                f("can_allocate", no()),
-                f("can_load_now", no()),
-                f("load_attempted", no()),
-                f(
-                    "retained_computed_grant_reference_event_id",
-                    record_event_or_null(Some(reference.retained_reference_event_id)),
-                ),
-                f(
-                    "retained_audit_rollback_reference_event_id",
-                    record_event_or_null(Some(
-                        reference.retained_audit_rollback_reference_event_id,
-                    )),
-                ),
-                f(
-                    "ram_only_service_slot_id",
-                    s(reference.ram_only_service_slot_id.as_str()),
-                ),
-                f(
-                    "hashes",
-                    object(vec![
-                        f("reservation_hash", sha(reference.reservation_hash)),
-                        f(
-                            "computed_capability_grant_hash",
-                            sha(reference.computed_grant_hash),
-                        ),
-                        f("audit_record_hash", sha(reference.audit_record_hash)),
-                        f("rollback_plan_hash", sha(reference.rollback_plan_hash)),
-                        f(
-                            "pre_load_service_inventory_hash",
-                            sha(reference.pre_load_service_inventory_hash),
-                        ),
-                    ]),
-                ),
-            ],
-            false,
-        );
-    } else {
-        emit_record_property_line(
-            "retained_service_slot_reservation",
-            vec![
-                f("state", s("missing")),
-                f("schema", s("raios.module_service_slot_reservation.v0")),
-                f("event_id", null()),
-                f("status", s("missing")),
-                f("reason", s("retained_service_slot_reservation_missing")),
-                f("classification", s("local_only")),
-                f("allocates_service_slot", no()),
-                f("creates_service_inventory_records", no()),
-                f("can_allocate", no()),
-                f("can_load_now", no()),
-                f("load_attempted", no()),
-            ],
-            false,
-        );
-    }
-}
-
-fn emit_module_service_slot_allocator_facts(
-    candidate: ModuleServiceSlotAllocatorCandidate,
-    evaluation: ModuleServiceSlotAllocatorEvaluation,
-) {
-    raw_line("      \"allocator_readiness_facts\": {");
-    emit_module_service_slot_allocator_fact(
-        MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[0],
-        candidate.allocator_runtime,
-        evaluation.allocator_runtime_status,
-        evaluation.allocator_runtime_reason,
-        true,
-    );
-    emit_module_service_slot_allocator_fact(
-        MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[1],
-        candidate.registry_binding,
-        evaluation.registry_binding_status,
-        evaluation.registry_binding_reason,
-        true,
-    );
-    emit_module_service_slot_allocator_fact(
-        MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[2],
-        candidate.health_state,
-        evaluation.health_state_status,
-        evaluation.health_state_reason,
-        true,
-    );
-    emit_module_service_slot_allocator_fact(
-        MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[3],
-        candidate.unload_cleanup,
-        evaluation.unload_cleanup_status,
-        evaluation.unload_cleanup_reason,
-        false,
-    );
-    raw_line("      }");
-}
-
-fn emit_module_service_slot_allocator_fact(
-    source: ModuleServiceSlotAllocatorFactSource,
-    fact: ModuleServiceSlotAllocatorFact,
-    status: &'static str,
-    reason: &'static str,
-    comma: bool,
-) {
-    emit_record_property_line_at(
-        source.name,
-        vec![
-            f("schema", s(source.schema)),
-            f("id", s(source.id)),
-            f("source_method", s(source.source_method)),
-            f("source_fact_locator", s(source.source_fact_locator)),
-            f(
-                "source_evidence_event_id",
-                record_event_or_null(fact.source_evidence_event_id),
-            ),
-            f("source_evidence_schema", s(fact.source_evidence_schema)),
-            f("source_evidence_state", s(fact.source_evidence_state)),
-            f("source_evidence_status", s(fact.source_evidence_status)),
-            f("source_evidence_reason", s(fact.source_evidence_reason)),
-            f("source_evidence_method", s(fact.source_evidence_method)),
-            f(
-                "source_evidence_fact_locator",
-                s(fact.source_evidence_fact_locator),
-            ),
-            f("scope", s(fact.scope)),
-            f("classification", s(fact.classification)),
-            f("status", s(status)),
-            f("reason", s(reason)),
-            f("present", b(fact.present)),
-            f("schema_valid", b(fact.schema_ok)),
-            f("provenance_valid", b(fact.provenance_ok)),
-            f(
-                "binds_retained_service_slot_reservation",
-                b(fact.binds_retained_reservation),
-            ),
-            f("binds_allocator_runtime", b(fact.binds_allocator_runtime)),
-            f("authority", s("current_snapshot")),
-            f("persistence", s("none")),
-            f("durable", no()),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("service_inventory_change", s("none")),
-            f("authorizes_load", no()),
-            f(
-                "required_bindings",
-                object(vec![
-                    f(
-                        "service_slot_reservation",
-                        s("raios.module_service_slot_reservation.v0"),
-                    ),
-                    f(
-                        "audit_write_boundary",
-                        s("raios.module_audit_rollback_write_boundary.v0"),
-                    ),
-                    f("durable_audit_record", s("raios.audit_record.v0")),
-                    f("rollback_plan", s("raios.rollback_plan.v0")),
-                    f("module_loader", s("raios.module_loader.v0")),
-                ]),
-            ),
-            f(
-                "provenance",
-                object(vec![
-                    f("source_method", s(source.source_method)),
-                    f("source_fact_locator", s(source.source_fact_locator)),
-                    f("source_transport", s("serial-console")),
-                    f("event_scope", s("current_boot")),
-                    f("record_id", null()),
-                ]),
-            ),
-        ],
-        8,
-        comma,
-    );
-}
-
-fn emit_module_service_slot_allocator_prerequisites(
-    candidate: ModuleServiceSlotAllocatorCandidate,
-    evaluation: ModuleServiceSlotAllocatorEvaluation,
-) {
-    raw_line("      \"allocator_prerequisite_gates\": {");
-    emit_module_service_slot_allocator_prerequisite(
-        MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCES[0],
-        candidate.durable_audit_write,
-        evaluation.durable_audit_status,
-        evaluation.durable_audit_reason,
-        true,
-    );
-    emit_module_service_slot_allocator_prerequisite(
-        MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCES[1],
-        candidate.rollback_plan_install,
-        evaluation.rollback_status,
-        evaluation.rollback_reason,
-        true,
-    );
-    emit_module_service_slot_allocator_prerequisite(
-        MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCES[2],
-        candidate.module_loader,
-        evaluation.module_loader_status,
-        evaluation.module_loader_reason,
-        false,
-    );
-    raw_line("      }");
-}
-
-fn emit_module_service_slot_allocator_prerequisite(
-    source: ModuleServiceSlotAllocatorPrerequisiteSource,
-    prerequisite: ModuleServiceSlotAllocatorPrerequisite,
-    status: &'static str,
-    reason: &'static str,
-    comma: bool,
-) {
-    emit_record_property_line_at(
-        source.name,
-        vec![
-            f("schema", s(source.schema)),
-            f("id", s(source.id)),
-            f("source_method", s(source.source_method)),
-            f("source_fact_locator", s(source.source_fact_locator)),
-            f(
-                "source_evidence_event_id",
-                record_event_or_null(prerequisite.source_evidence_event_id),
-            ),
-            f(
-                "source_evidence_schema",
-                s(prerequisite.source_evidence_schema),
-            ),
-            f(
-                "source_evidence_state",
-                s(prerequisite.source_evidence_state),
-            ),
-            f(
-                "source_evidence_status",
-                s(prerequisite.source_evidence_status),
-            ),
-            f(
-                "source_evidence_reason",
-                s(prerequisite.source_evidence_reason),
-            ),
-            f(
-                "source_evidence_method",
-                s(prerequisite.source_evidence_method),
-            ),
-            f(
-                "source_evidence_fact_locator",
-                s(prerequisite.source_evidence_fact_locator),
-            ),
-            f("status", s(status)),
-            f("reason", s(reason)),
-            f("available", b(prerequisite.available)),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("authority", s("current_snapshot")),
-            f("persistence", s("none")),
-            f("durable", no()),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("service_inventory_change", s("none")),
-            f("authorizes_load", no()),
-            f(
-                "provenance",
-                object(vec![
-                    f("source_method", s(source.source_method)),
-                    f("source_fact_locator", s(source.source_fact_locator)),
-                    f("source_transport", s("serial-console")),
-                    f("event_scope", s("current_boot")),
-                    f("record_id", null()),
-                ]),
-            ),
-        ],
-        8,
-        comma,
-    );
-}
-
-fn emit_module_service_slot_allocator_authority(
-    candidate: ModuleServiceSlotAllocatorCandidate,
-    evaluation: ModuleServiceSlotAllocatorEvaluation,
-) {
-    let authority = candidate.allocator_authority;
-    emit_record_property_line(
-        "allocator_authority_boundary",
-        vec![
-            f("schema", s(MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_SCHEMA)),
-            f("id", s(MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_ID)),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("source_method", s(authority.source_evidence_method)),
-            f(
-                "source_fact_locator",
-                s(authority.source_evidence_fact_locator),
-            ),
-            f(
-                "source_evidence_event_id",
-                record_event_or_null(authority.source_evidence_event_id),
-            ),
-            f(
-                "source_evidence_schema",
-                s(authority.source_evidence_schema),
-            ),
-            f("source_evidence_state", s(authority.source_evidence_state)),
-            f(
-                "source_evidence_status",
-                s(authority.source_evidence_status),
-            ),
-            f(
-                "source_evidence_reason",
-                s(authority.source_evidence_reason),
-            ),
-            f("status", s(evaluation.authority_status)),
-            f("reason", s(evaluation.authority_reason)),
-            f("present", b(authority.present)),
-            f("source_chain_complete", b(authority.source_chain_complete)),
-            f(
-                "future_authority_inputs",
-                module_service_slot_allocator_authority_required_inputs(&evaluation),
-            ),
-            f("accepts_loader_descriptor", no()),
-            f("accepts_artifact_bytes", no()),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("service_inventory_change", s("none")),
-            f("can_allocate", no()),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-        ],
-        false,
-    );
-}
-
-fn module_service_slot_allocator_authority_required_inputs(
-    evaluation: &ModuleServiceSlotAllocatorEvaluation,
-) -> V<'static> {
-    let mut values = vec![module_service_slot_allocator_authority_required_input(
-        "raios.service_slot_allocation_intent.v0",
-        evaluation.allocation_intent_status,
-        evaluation.allocation_intent_reason,
-    )];
-    let mut idx = 0usize;
-    while idx < MODULE_SERVICE_SLOT_AUTHORITY_INPUT_COUNT {
-        values.push(module_service_slot_allocator_authority_required_input(
-            MODULE_SERVICE_SLOT_AUTHORITY_INPUT_SOURCES[idx].schema,
-            evaluation.authority_input_statuses[idx],
-            evaluation.authority_input_reasons[idx],
-        ));
-        idx += 1;
-    }
-    V::Array(values)
-}
-
-fn module_service_slot_allocator_authority_required_input(
-    schema: &'static str,
-    state: &'static str,
-    reason: &'static str,
-) -> V<'static> {
-    inline(vec![
-        f("schema", s(schema)),
-        f("state", s(state)),
-        f("reason", s(reason)),
-        f("required_before_allocation", b(true)),
-        f("classification", s("local_only")),
-    ])
-}
-
-fn emit_module_service_slot_allocation_intent(
-    candidate: ModuleServiceSlotAllocatorCandidate,
-    evaluation: ModuleServiceSlotAllocatorEvaluation,
-) {
-    let intent = candidate.allocation_intent;
-    emit_record_property_line(
-        "allocation_intent_boundary",
-        vec![
-            f("schema", s(MODULE_SERVICE_SLOT_ALLOCATION_INTENT_SCHEMA)),
-            f("id", s(MODULE_SERVICE_SLOT_ALLOCATION_INTENT_ID)),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("source_method", s(intent.source_evidence_method)),
-            f(
-                "source_fact_locator",
-                s(intent.source_evidence_fact_locator),
-            ),
-            f(
-                "source_evidence_event_id",
-                record_event_or_null(intent.source_evidence_event_id),
-            ),
-            f("source_evidence_schema", s(intent.source_evidence_schema)),
-            f("source_evidence_state", s(intent.source_evidence_state)),
-            f("source_evidence_status", s(intent.source_evidence_status)),
-            f("source_evidence_reason", s(intent.source_evidence_reason)),
-            f("status", s(evaluation.allocation_intent_status)),
-            f("reason", s(evaluation.allocation_intent_reason)),
-            f("present", b(intent.present)),
-            f("source_chain_complete", b(intent.source_chain_complete)),
-            f("requested_capability", s("cap.module.load_ephemeral")),
-            f("load_mode", s("ram_only")),
-            f("target", s("live_service_graph")),
-            f("accepts_loader_descriptor", no()),
-            f("accepts_artifact_bytes", no()),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("service_inventory_change", s("none")),
-            f("can_allocate", no()),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-        ],
-        false,
-    );
-}
-
-fn emit_module_service_slot_authority_inputs(
-    candidate: ModuleServiceSlotAllocatorCandidate,
-    evaluation: ModuleServiceSlotAllocatorEvaluation,
-) {
-    raw_line("      \"authority_input_boundaries\": {");
-    let mut idx = 0usize;
-    while idx < MODULE_SERVICE_SLOT_AUTHORITY_INPUT_COUNT {
-        let input = candidate.authority_inputs[idx];
-        emit_record_property_line_at(
-            input.spec.name,
-            vec![
-                f("schema", s(input.spec.schema)),
-                f("id", s(input.spec.id)),
-                f("scope", s("current_boot")),
-                f("classification", s("local_only")),
-                f("source_method", s(input.source_evidence_method)),
-                f("source_fact_locator", s(input.source_evidence_fact_locator)),
-                f(
-                    "source_evidence_event_id",
-                    record_event_or_null(input.source_evidence_event_id),
-                ),
-                f("source_evidence_schema", s(input.source_evidence_schema)),
-                f("source_evidence_state", s(input.source_evidence_state)),
-                f("source_evidence_status", s(input.source_evidence_status)),
-                f("source_evidence_reason", s(input.source_evidence_reason)),
-                f(
-                    "dependency_source_evidence_event_id",
-                    record_event_or_null(input.dependency_source_evidence_event_id),
-                ),
-                f("status", s(evaluation.authority_input_statuses[idx])),
-                f("reason", s(evaluation.authority_input_reasons[idx])),
-                f("present", b(input.present)),
-                f("source_chain_complete", b(input.source_chain_complete)),
-                f("requested_capability", s("cap.module.load_ephemeral")),
-                f("load_mode", s("ram_only")),
-                f("target", s("live_service_graph")),
-                f("accepts_loader_descriptor", no()),
-                f("accepts_artifact_bytes", no()),
-                f("allocates_service_slot", no()),
-                f("creates_service_inventory_records", no()),
-                f("service_inventory_change", s("none")),
-                f("can_allocate", no()),
-                f("can_load_now", no()),
-                f("load_attempted", no()),
-            ],
-            8,
-            idx + 1 != MODULE_SERVICE_SLOT_AUTHORITY_INPUT_COUNT,
-        );
-        idx += 1;
-    }
-    raw_line("      }");
-}
-
-fn emit_module_service_slot_allocator_authority_decision(
-    candidate: ModuleServiceSlotAllocatorCandidate,
-    evaluation: ModuleServiceSlotAllocatorEvaluation,
-) {
-    let decision = candidate.authority_decision;
-    emit_record_property_line(
-        "authority_decision",
-        vec![
-            f(
-                "schema",
-                s(MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_SCHEMA),
-            ),
-            f("id", s(MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_ID)),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("source_method", s(decision.source_evidence_method)),
-            f(
-                "source_fact_locator",
-                s(decision.source_evidence_fact_locator),
-            ),
-            f(
-                "source_evidence_event_id",
-                record_event_or_null(decision.source_evidence_event_id),
-            ),
-            f("source_evidence_schema", s(decision.source_evidence_schema)),
-            f("source_evidence_state", s(decision.source_evidence_state)),
-            f("source_evidence_status", s(decision.source_evidence_status)),
-            f("source_evidence_reason", s(decision.source_evidence_reason)),
-            f("status", s(evaluation.authority_decision_status)),
-            f("reason", s(evaluation.authority_decision_reason)),
-            f("present", b(decision.present)),
-            f("input_chain_complete", b(decision.input_chain_complete)),
-            f("source_chain_complete", b(decision.source_chain_complete)),
-            f("requested_capability", s("cap.module.load_ephemeral")),
-            f("load_mode", s("ram_only")),
-            f("target", s("live_service_graph")),
-            f("authorizes_allocation", no()),
-            f("authorizes_load", no()),
-            f("accepts_loader_descriptor", no()),
-            f("accepts_artifact_bytes", no()),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("service_inventory_change", s("none")),
-            f("can_allocate", no()),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-        ],
-        false,
-    );
-}
-
-fn emit_module_service_slot_registry_write_commit_gate(
-    candidate: ModuleServiceSlotAllocatorCandidate,
-    evaluation: ModuleServiceSlotAllocatorEvaluation,
-) {
-    let gate = candidate.registry_write_commit_gate;
-    emit_record_property_line(
-        "registry_write_commit_gate",
-        vec![
-            f(
-                "schema",
-                s(MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_SCHEMA),
-            ),
-            f("id", s(MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_ID)),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("source_method", s(gate.source_evidence_method)),
-            f("source_fact_locator", s(gate.source_evidence_fact_locator)),
-            f(
-                "source_evidence_event_id",
-                record_event_or_null(gate.source_evidence_event_id),
-            ),
-            f("source_evidence_schema", s(gate.source_evidence_schema)),
-            f("source_evidence_state", s(gate.source_evidence_state)),
-            f("source_evidence_status", s(gate.source_evidence_status)),
-            f("source_evidence_reason", s(gate.source_evidence_reason)),
-            f("status", s(evaluation.registry_write_commit_gate_status)),
-            f("reason", s(evaluation.registry_write_commit_gate_reason)),
-            f("present", b(gate.present)),
-            f("source_chain_complete", b(gate.source_chain_complete)),
-            f(
-                "authority_decision_present",
-                b(gate.authority_decision_present),
-            ),
-            f(
-                "registry_write_authority_present",
-                b(gate.registry_write_authority_present),
-            ),
-            f(
-                "registry_binding_available",
-                b(gate.registry_binding_available),
-            ),
-            f(
-                "durable_audit_write_available",
-                b(gate.durable_audit_write_available),
-            ),
-            f(
-                "rollback_plan_install_available",
-                b(gate.rollback_plan_install_available),
-            ),
-            f(
-                "retained_service_slot_reservation_present",
-                b(gate.retained_service_slot_reservation_present),
-            ),
-            f("requested_capability", s("cap.module.load_ephemeral")),
-            f("load_mode", s("ram_only")),
-            f("target", s("live_service_graph")),
-            f("authorizes_registry_write", no()),
-            f("authorizes_allocation", no()),
-            f("authorizes_load", no()),
-            f("mutates_service_registry", no()),
-            f("writes_durable_audit_state", no()),
-            f("installs_rollback_state", no()),
-            f("accepts_loader_descriptor", no()),
-            f("accepts_artifact_bytes", no()),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("service_inventory_change", s("none")),
-            f("can_allocate", no()),
-            f("can_load_now", no()),
-            f("loads_artifact", no()),
-            f("load_attempted", no()),
-        ],
-        false,
-    );
-}
-
-fn emit_module_service_slot_allocator_gate(
-    wrote: &mut bool,
-    gate: &'static str,
-    state: &'static str,
-    reason: &'static str,
-) {
-    if *wrote {
-        raw_line(",");
-    } else {
-        *wrote = true;
-    }
-    emit_inline_record_object_fragment(
-        vec![
-            f("gate", s(gate)),
-            f("state", s(state)),
-            f("reason", s(reason)),
-        ],
-        8,
-    );
-}
-
-fn emit_module_service_slot_allocator_selftest_case(
-    case: &ModuleServiceSlotAllocatorSelfTestCase,
-    comma: bool,
-) {
-    emit_inline_record_object(
-        vec![
-            f("case", s(case.name)),
-            f("expected_status", s(case.expected_status)),
-            f("expected_reason", s(case.expected_reason)),
-            f("actual_status", s(case.actual_status)),
-            f("actual_reason", s(case.actual_reason)),
-            f(
-                "actual_allocator_runtime_source_evidence_present",
-                b(case.actual_allocator_runtime_source_evidence_present),
-            ),
-            f(
-                "actual_allocator_runtime_source_evidence_state",
-                s(case.actual_allocator_runtime_source_evidence_state),
-            ),
-            f(
-                "actual_allocator_runtime_source_evidence_status",
-                s(case.actual_allocator_runtime_source_evidence_status),
-            ),
-            f(
-                "actual_allocator_runtime_source_evidence_reason",
-                s(case.actual_allocator_runtime_source_evidence_reason),
-            ),
-            f(
-                "actual_registry_binding_source_evidence_present",
-                b(case.actual_registry_binding_source_evidence_present),
-            ),
-            f(
-                "actual_registry_binding_source_evidence_state",
-                s(case.actual_registry_binding_source_evidence_state),
-            ),
-            f(
-                "actual_registry_binding_source_evidence_status",
-                s(case.actual_registry_binding_source_evidence_status),
-            ),
-            f(
-                "actual_registry_binding_source_evidence_reason",
-                s(case.actual_registry_binding_source_evidence_reason),
-            ),
-            f(
-                "actual_health_state_source_evidence_present",
-                b(case.actual_health_state_source_evidence_present),
-            ),
-            f(
-                "actual_health_state_source_evidence_state",
-                s(case.actual_health_state_source_evidence_state),
-            ),
-            f(
-                "actual_health_state_source_evidence_status",
-                s(case.actual_health_state_source_evidence_status),
-            ),
-            f(
-                "actual_health_state_source_evidence_reason",
-                s(case.actual_health_state_source_evidence_reason),
-            ),
-            f(
-                "actual_unload_cleanup_source_evidence_present",
-                b(case.actual_unload_cleanup_source_evidence_present),
-            ),
-            f(
-                "actual_unload_cleanup_source_evidence_state",
-                s(case.actual_unload_cleanup_source_evidence_state),
-            ),
-            f(
-                "actual_unload_cleanup_source_evidence_status",
-                s(case.actual_unload_cleanup_source_evidence_status),
-            ),
-            f(
-                "actual_unload_cleanup_source_evidence_reason",
-                s(case.actual_unload_cleanup_source_evidence_reason),
-            ),
-            f(
-                "actual_durable_audit_source_evidence_present",
-                b(case.actual_durable_audit_source_evidence_present),
-            ),
-            f(
-                "actual_durable_audit_source_evidence_state",
-                s(case.actual_durable_audit_source_evidence_state),
-            ),
-            f(
-                "actual_durable_audit_source_evidence_status",
-                s(case.actual_durable_audit_source_evidence_status),
-            ),
-            f(
-                "actual_durable_audit_source_evidence_reason",
-                s(case.actual_durable_audit_source_evidence_reason),
-            ),
-            f(
-                "actual_rollback_install_source_evidence_present",
-                b(case.actual_rollback_install_source_evidence_present),
-            ),
-            f(
-                "actual_rollback_install_source_evidence_state",
-                s(case.actual_rollback_install_source_evidence_state),
-            ),
-            f(
-                "actual_rollback_install_source_evidence_status",
-                s(case.actual_rollback_install_source_evidence_status),
-            ),
-            f(
-                "actual_rollback_install_source_evidence_reason",
-                s(case.actual_rollback_install_source_evidence_reason),
-            ),
-            f(
-                "actual_module_loader_source_evidence_present",
-                b(case.actual_module_loader_source_evidence_present),
-            ),
-            f(
-                "actual_module_loader_source_evidence_state",
-                s(case.actual_module_loader_source_evidence_state),
-            ),
-            f(
-                "actual_module_loader_source_evidence_status",
-                s(case.actual_module_loader_source_evidence_status),
-            ),
-            f(
-                "actual_module_loader_source_evidence_reason",
-                s(case.actual_module_loader_source_evidence_reason),
-            ),
-            f("passed", b(case.passed)),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("can_allocate", no()),
-            f("can_load", no()),
-            f("load_attempted", no()),
-        ],
-        comma,
+    let values = cases
+        .iter()
+        .map(|case| {
+            ev::selftest_case(
+                case.name,
+                case.expected_status,
+                case.expected_reason,
+                case.actual_status,
+                case.actual_reason,
+                case.passed,
+            )
+        })
+        .collect();
+    emit_evidence_v1_response(
+        "module.service_slot_allocator_selftest",
+        "module.service_slot_allocator_selftest",
+        None,
+        ev::selftest_facts_value(SelftestFacts {
+            case_count: cases.len() as u64,
+            passed,
+            safety: ev::selftest_safety_value(),
+            cases: V::Array(values),
+        }),
+        vec![],
+        ev::observed("selftest_completed"),
     );
 }
 

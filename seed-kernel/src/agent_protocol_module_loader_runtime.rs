@@ -8,7 +8,7 @@ use self::evidence_core::{
     module_loader_execution_authorization_boundary_source_evidence,
     module_loader_load_attempt_boundary_source_evidence,
     module_loader_runtime_execution_commit_gate_source_evidence,
-    module_loader_runtime_selftest_case_value, module_loader_runtime_source_fact_map,
+    module_loader_runtime_source_fact_map,
     module_loader_service_registry_mutation_boundary_source_evidence,
 };
 use self::evidence_live_load::{
@@ -39,20 +39,11 @@ use self::evidence_live_load::{
     module_loader_service_start_boundary_source_evidence,
     module_loader_service_unload_cleanup_boundary_source_evidence,
 };
-use self::render::{
-    emit_module_loader_artifact_byte_intake_boundary,
-    emit_module_loader_descriptor_intake_boundary,
-    emit_module_loader_execution_authorization_boundary, emit_module_loader_live_load_boundary,
-    emit_module_loader_runtime_execution_commit_gate, emit_module_loader_runtime_facts,
-    emit_module_loader_runtime_retained_evidence,
-    emit_module_loader_runtime_service_slot_allocator_readiness,
-    emit_module_loader_service_registry_mutation_boundary, module_loader_runtime_blocked_by,
-    module_loader_runtime_header_fields, module_loader_runtime_policy_result_fields,
-};
 use self::selftest::module_loader_runtime_selftest_cases;
 use self::snapshot::module_loader_runtime_snapshot;
 use crate::agent_protocol_module_types::{
-    module_loader_runtime_source_fact_map_complete, MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_ID,
+    module_loader_runtime_source_fact_map_complete, ModuleLoaderLiveLoadBoundary,
+    ModuleLoaderRuntimeFact, MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_ID,
     MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_SCHEMA, MODULE_LOADER_COMMIT_AUDIT_BOUNDARY_ID,
     MODULE_LOADER_COMMIT_AUDIT_BOUNDARY_SCHEMA, MODULE_LOADER_COMMIT_RESULT_BOUNDARY_ID,
     MODULE_LOADER_COMMIT_RESULT_BOUNDARY_SCHEMA, MODULE_LOADER_COMMIT_ROLLBACK_BOUNDARY_ID,
@@ -96,7 +87,8 @@ use crate::agent_protocol_module_types::{
     MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_PLAN_BOUNDARY_SCHEMA,
     MODULE_LOADER_LIVE_LOAD_COMMIT_BOUNDARY_ID, MODULE_LOADER_LIVE_LOAD_COMMIT_BOUNDARY_SCHEMA,
     MODULE_LOADER_LOAD_ATTEMPT_BOUNDARY_ID, MODULE_LOADER_LOAD_ATTEMPT_BOUNDARY_SCHEMA,
-    MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT, MODULE_LOADER_SERVICE_HEALTH_BINDING_BOUNDARY_ID,
+    MODULE_LOADER_RUNTIME_FACT_SOURCES, MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT,
+    MODULE_LOADER_SERVICE_HEALTH_BINDING_BOUNDARY_ID,
     MODULE_LOADER_SERVICE_HEALTH_BINDING_BOUNDARY_SCHEMA,
     MODULE_LOADER_SERVICE_RUNNING_STATE_BOUNDARY_ID,
     MODULE_LOADER_SERVICE_RUNNING_STATE_BOUNDARY_SCHEMA,
@@ -111,16 +103,135 @@ use crate::agent_protocol_support::{
     emit_record_property_line, emit_record_value_property_line, end_response, raw_line,
     record_bool as b, record_false as no, record_field as f, record_str as s,
 };
-use crate::{event_log, granted_candidate_service};
+use crate::{agent_protocol_module_reference::emit_evidence_v1_response, event_log};
 use alloc::{vec, vec::Vec};
-use raios_core::record::Value as V;
+use raios_core::{
+    evidence_response::{self as ev, SelftestFacts},
+    module_loader_allocator_projection::{
+        project_loader_runtime_denial, LoaderAllocatorDisposition, LoaderAllocatorEvidenceInput,
+        LoaderAllocatorEvidenceStatus, LoaderRuntimeProjectionInput,
+    },
+    record::{Field, Value as V},
+};
 
 mod eval;
 mod evidence_core;
 mod evidence_live_load;
-mod render;
 mod selftest;
 mod snapshot;
+
+fn runtime_evidence<'a>(
+    status: &'static str,
+    reason: &'a str,
+    source_event_id: Option<event_log::EventId>,
+    facts: Vec<Field<'a>>,
+) -> LoaderAllocatorEvidenceInput<'a> {
+    LoaderAllocatorEvidenceInput {
+        status: match status {
+            "available" => LoaderAllocatorEvidenceStatus::Verified,
+            "missing" => LoaderAllocatorEvidenceStatus::Missing,
+            "rejected" => LoaderAllocatorEvidenceStatus::Rejected,
+            _ => LoaderAllocatorEvidenceStatus::Unavailable,
+        },
+        status_detail: status,
+        reason,
+        source_event_sequence: source_event_id.map(event_log::EventId::sequence),
+        facts,
+        disposition: if status == "available" {
+            LoaderAllocatorDisposition::Satisfied
+        } else {
+            LoaderAllocatorDisposition::Blocked
+        },
+    }
+}
+
+fn runtime_fact<'a>(
+    index: usize,
+    fact: ModuleLoaderRuntimeFact,
+    status: &'static str,
+    reason: &'a str,
+) -> LoaderAllocatorEvidenceInput<'a> {
+    let source = MODULE_LOADER_RUNTIME_FACT_SOURCES[index];
+    runtime_evidence(
+        status,
+        reason,
+        fact.source_evidence_event_id,
+        vec![
+            f("record_schema", s(source.schema)),
+            f("record_id", s(source.id)),
+            f("source_method", s(source.source_method)),
+            f("source_fact_locator", s(source.source_fact_locator)),
+            f("source_record_schema", s(fact.source_evidence_schema)),
+            f("source_state", s(fact.source_evidence_state)),
+            f("source_status_detail", s(fact.source_evidence_status)),
+            f("source_reason", s(fact.source_evidence_reason)),
+            f("present", b(fact.present)),
+            f("schema_valid", b(fact.schema_ok)),
+            f("provenance_valid", b(fact.provenance_ok)),
+            f(
+                "binds_retained_module_evidence",
+                b(fact.binds_retained_module_evidence),
+            ),
+            f(
+                "binds_service_slot_allocator",
+                b(fact.binds_service_slot_allocator),
+            ),
+            f(
+                "binds_audit_rollback_write_boundary",
+                b(fact.binds_audit_rollback_write_boundary),
+            ),
+        ],
+    )
+}
+
+fn live_boundary<'a>(
+    boundary: ModuleLoaderLiveLoadBoundary,
+    status: &'static str,
+    reason: &'a str,
+) -> LoaderAllocatorEvidenceInput<'a> {
+    runtime_evidence(
+        status,
+        reason,
+        boundary.source_evidence_event_id,
+        vec![
+            f("source_record_schema", s(boundary.source_evidence_schema)),
+            f("source_state", s(boundary.source_evidence_state)),
+            f("source_status_detail", s(boundary.source_evidence_status)),
+            f("source_reason", s(boundary.source_evidence_reason)),
+            f("source_method", s(boundary.source_evidence_method)),
+            f(
+                "source_fact_locator",
+                s(boundary.source_evidence_fact_locator),
+            ),
+            f("present", b(boundary.present)),
+            f("source_chain_complete", b(boundary.source_chain_complete)),
+        ],
+    )
+}
+
+macro_rules! runtime_boundary {
+    ($boundary:expr, $status:expr, $reason:expr) => {{
+        let boundary = $boundary;
+        runtime_evidence(
+            $status,
+            $reason,
+            boundary.source_evidence_event_id,
+            vec![
+                f("source_record_schema", s(boundary.source_evidence_schema)),
+                f("source_state", s(boundary.source_evidence_state)),
+                f("source_status_detail", s(boundary.source_evidence_status)),
+                f("source_reason", s(boundary.source_evidence_reason)),
+                f("source_method", s(boundary.source_evidence_method)),
+                f(
+                    "source_fact_locator",
+                    s(boundary.source_evidence_fact_locator),
+                ),
+                f("present", b(boundary.present)),
+                f("source_chain_complete", b(boundary.source_chain_complete)),
+            ],
+        )
+    }};
+}
 
 pub(crate) fn emit_module_loader_runtime() {
     let manifest = event_log::latest_module_manifest_reference();
@@ -854,376 +965,362 @@ pub(crate) fn emit_module_loader_runtime() {
     );
     let evaluation = evaluate_module_loader_runtime_candidate(candidate);
 
-    begin_response("module.loader_runtime");
-    emit_record_fields_trailing_comma(module_loader_runtime_header_fields(), 6);
-    emit_module_loader_runtime_retained_evidence(
-        manifest.as_ref().map(|(event_id, _)| *event_id),
-        artifact.as_ref().map(|(event_id, _)| *event_id),
-        vm_report.as_ref().map(|(event_id, _)| *event_id),
-        local_attestation.as_ref().map(|(event_id, _)| *event_id),
-        local_approval.as_ref().map(|(event_id, _)| *event_id),
-        computed_grant.as_ref().map(|(event_id, _)| *event_id),
-        audit_rollback.as_ref().map(|(event_id, _)| *event_id),
-        service_slot.as_ref().map(|(event_id, _)| *event_id),
-    );
-    raw_line(",");
-    emit_module_loader_runtime_service_slot_allocator_readiness(candidate, evaluation);
-    raw_line(",");
-    emit_module_loader_runtime_execution_commit_gate(candidate, evaluation);
-    raw_line(",");
-    emit_module_loader_descriptor_intake_boundary(candidate, evaluation);
-    raw_line(",");
-    emit_module_loader_artifact_byte_intake_boundary(candidate, evaluation);
-    raw_line(",");
-    emit_module_loader_execution_authorization_boundary(candidate, evaluation);
-    raw_line(",");
-    emit_module_loader_service_registry_mutation_boundary(candidate, evaluation);
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "load_attempt_boundary",
-        MODULE_LOADER_LOAD_ATTEMPT_BOUNDARY_SCHEMA,
-        MODULE_LOADER_LOAD_ATTEMPT_BOUNDARY_ID,
-        candidate.load_attempt_boundary,
-        evaluation.load_attempt_boundary_status,
-        evaluation.load_attempt_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "artifact_load_boundary",
-        MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_SCHEMA,
-        MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_ID,
-        candidate.artifact_load_boundary,
-        evaluation.artifact_load_boundary_status,
-        evaluation.artifact_load_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "executable_mapping_boundary",
-        MODULE_LOADER_EXECUTABLE_MAPPING_BOUNDARY_SCHEMA,
-        MODULE_LOADER_EXECUTABLE_MAPPING_BOUNDARY_ID,
-        candidate.executable_mapping_boundary,
-        evaluation.executable_mapping_boundary_status,
-        evaluation.executable_mapping_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "entrypoint_transfer_boundary",
-        MODULE_LOADER_ENTRYPOINT_TRANSFER_BOUNDARY_SCHEMA,
-        MODULE_LOADER_ENTRYPOINT_TRANSFER_BOUNDARY_ID,
-        candidate.entrypoint_transfer_boundary,
-        evaluation.entrypoint_transfer_boundary_status,
-        evaluation.entrypoint_transfer_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "service_start_boundary",
-        MODULE_LOADER_SERVICE_START_BOUNDARY_SCHEMA,
-        MODULE_LOADER_SERVICE_START_BOUNDARY_ID,
-        candidate.service_start_boundary,
-        evaluation.service_start_boundary_status,
-        evaluation.service_start_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "service_health_binding_boundary",
-        MODULE_LOADER_SERVICE_HEALTH_BINDING_BOUNDARY_SCHEMA,
-        MODULE_LOADER_SERVICE_HEALTH_BINDING_BOUNDARY_ID,
-        candidate.service_health_binding_boundary,
-        evaluation.service_health_binding_boundary_status,
-        evaluation.service_health_binding_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "service_running_state_boundary",
-        MODULE_LOADER_SERVICE_RUNNING_STATE_BOUNDARY_SCHEMA,
-        MODULE_LOADER_SERVICE_RUNNING_STATE_BOUNDARY_ID,
-        candidate.service_running_state_boundary,
-        evaluation.service_running_state_boundary_status,
-        evaluation.service_running_state_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "service_start_audit_boundary",
-        MODULE_LOADER_SERVICE_START_AUDIT_BOUNDARY_SCHEMA,
-        MODULE_LOADER_SERVICE_START_AUDIT_BOUNDARY_ID,
-        candidate.service_start_audit_boundary,
-        evaluation.service_start_audit_boundary_status,
-        evaluation.service_start_audit_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "service_unload_cleanup_boundary",
-        MODULE_LOADER_SERVICE_UNLOAD_CLEANUP_BOUNDARY_SCHEMA,
-        MODULE_LOADER_SERVICE_UNLOAD_CLEANUP_BOUNDARY_ID,
-        candidate.service_unload_cleanup_boundary,
-        evaluation.service_unload_cleanup_boundary_status,
-        evaluation.service_unload_cleanup_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "live_load_commit_boundary",
-        MODULE_LOADER_LIVE_LOAD_COMMIT_BOUNDARY_SCHEMA,
-        MODULE_LOADER_LIVE_LOAD_COMMIT_BOUNDARY_ID,
-        candidate.live_load_commit_boundary,
-        evaluation.live_load_commit_boundary_status,
-        evaluation.live_load_commit_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "commit_audit_boundary",
-        MODULE_LOADER_COMMIT_AUDIT_BOUNDARY_SCHEMA,
-        MODULE_LOADER_COMMIT_AUDIT_BOUNDARY_ID,
-        candidate.commit_audit_boundary,
-        evaluation.commit_audit_boundary_status,
-        evaluation.commit_audit_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "commit_rollback_boundary",
-        MODULE_LOADER_COMMIT_ROLLBACK_BOUNDARY_SCHEMA,
-        MODULE_LOADER_COMMIT_ROLLBACK_BOUNDARY_ID,
-        candidate.commit_rollback_boundary,
-        evaluation.commit_rollback_boundary_status,
-        evaluation.commit_rollback_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "commit_result_boundary",
-        MODULE_LOADER_COMMIT_RESULT_BOUNDARY_SCHEMA,
-        MODULE_LOADER_COMMIT_RESULT_BOUNDARY_ID,
-        candidate.commit_result_boundary,
-        evaluation.commit_result_boundary_status,
-        evaluation.commit_result_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "descriptor_acceptance_authority_boundary",
-        MODULE_LOADER_DESCRIPTOR_ACCEPTANCE_AUTHORITY_BOUNDARY_SCHEMA,
-        MODULE_LOADER_DESCRIPTOR_ACCEPTANCE_AUTHORITY_BOUNDARY_ID,
-        candidate.descriptor_acceptance_authority_boundary,
-        evaluation.descriptor_acceptance_authority_boundary_status,
-        evaluation.descriptor_acceptance_authority_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "descriptor_parser_contract_boundary",
-        MODULE_LOADER_DESCRIPTOR_PARSER_CONTRACT_BOUNDARY_SCHEMA,
-        MODULE_LOADER_DESCRIPTOR_PARSER_CONTRACT_BOUNDARY_ID,
-        candidate.descriptor_parser_contract_boundary,
-        evaluation.descriptor_parser_contract_boundary_status,
-        evaluation.descriptor_parser_contract_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "descriptor_parser_result_boundary",
-        MODULE_LOADER_DESCRIPTOR_PARSER_RESULT_BOUNDARY_SCHEMA,
-        MODULE_LOADER_DESCRIPTOR_PARSER_RESULT_BOUNDARY_ID,
-        candidate.descriptor_parser_result_boundary,
-        evaluation.descriptor_parser_result_boundary_status,
-        evaluation.descriptor_parser_result_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "descriptor_schema_validation_boundary",
-        MODULE_LOADER_DESCRIPTOR_SCHEMA_VALIDATION_BOUNDARY_SCHEMA,
-        MODULE_LOADER_DESCRIPTOR_SCHEMA_VALIDATION_BOUNDARY_ID,
-        candidate.descriptor_schema_validation_boundary,
-        evaluation.descriptor_schema_validation_boundary_status,
-        evaluation.descriptor_schema_validation_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "descriptor_capability_validation_boundary",
-        MODULE_LOADER_DESCRIPTOR_CAPABILITY_VALIDATION_BOUNDARY_SCHEMA,
-        MODULE_LOADER_DESCRIPTOR_CAPABILITY_VALIDATION_BOUNDARY_ID,
-        candidate.descriptor_capability_validation_boundary,
-        evaluation.descriptor_capability_validation_boundary_status,
-        evaluation.descriptor_capability_validation_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "descriptor_load_plan_boundary",
-        MODULE_LOADER_DESCRIPTOR_LOAD_PLAN_BOUNDARY_SCHEMA,
-        MODULE_LOADER_DESCRIPTOR_LOAD_PLAN_BOUNDARY_ID,
-        candidate.descriptor_load_plan_boundary,
-        evaluation.descriptor_load_plan_boundary_status,
-        evaluation.descriptor_load_plan_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "executable_load_plan_authority_boundary",
-        MODULE_LOADER_EXECUTABLE_LOAD_PLAN_AUTHORITY_BOUNDARY_SCHEMA,
-        MODULE_LOADER_EXECUTABLE_LOAD_PLAN_AUTHORITY_BOUNDARY_ID,
-        candidate.executable_load_plan_authority_boundary,
-        evaluation.executable_load_plan_authority_boundary_status,
-        evaluation.executable_load_plan_authority_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "executable_load_plan_result_boundary",
-        MODULE_LOADER_EXECUTABLE_LOAD_PLAN_RESULT_BOUNDARY_SCHEMA,
-        MODULE_LOADER_EXECUTABLE_LOAD_PLAN_RESULT_BOUNDARY_ID,
-        candidate.executable_load_plan_result_boundary,
-        evaluation.executable_load_plan_result_boundary_status,
-        evaluation.executable_load_plan_result_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "executable_image_layout_boundary",
-        MODULE_LOADER_EXECUTABLE_IMAGE_LAYOUT_BOUNDARY_SCHEMA,
-        MODULE_LOADER_EXECUTABLE_IMAGE_LAYOUT_BOUNDARY_ID,
-        candidate.executable_image_layout_boundary,
-        evaluation.executable_image_layout_boundary_status,
-        evaluation.executable_image_layout_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "executable_page_mapping_plan_boundary",
-        MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_PLAN_BOUNDARY_SCHEMA,
-        MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_PLAN_BOUNDARY_ID,
-        candidate.executable_page_mapping_plan_boundary,
-        evaluation.executable_page_mapping_plan_boundary_status,
-        evaluation.executable_page_mapping_plan_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "executable_page_mapping_boundary",
-        MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_BOUNDARY_SCHEMA,
-        MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_BOUNDARY_ID,
-        candidate.executable_page_mapping_boundary,
-        evaluation.executable_page_mapping_boundary_status,
-        evaluation.executable_page_mapping_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "descriptor_executable_page_binding_boundary",
-        MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_SCHEMA,
-        MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_ID,
-        candidate.descriptor_executable_page_binding_boundary,
-        evaluation.descriptor_executable_page_binding_boundary_status,
-        evaluation.descriptor_executable_page_binding_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "executable_entrypoint_binding_boundary",
-        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_SCHEMA,
-        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_ID,
-        candidate.executable_entrypoint_binding_boundary,
-        evaluation.executable_entrypoint_binding_boundary_status,
-        evaluation.executable_entrypoint_binding_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "executable_entrypoint_transfer_authorization_boundary",
-        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_TRANSFER_AUTHORIZATION_BOUNDARY_SCHEMA,
-        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_TRANSFER_AUTHORIZATION_BOUNDARY_ID,
-        candidate.executable_entrypoint_transfer_authorization_boundary,
-        evaluation.executable_entrypoint_transfer_authorization_boundary_status,
-        evaluation.executable_entrypoint_transfer_authorization_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "executable_entrypoint_transfer_boundary",
-        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_TRANSFER_BOUNDARY_SCHEMA,
-        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_TRANSFER_BOUNDARY_ID,
-        candidate.executable_entrypoint_transfer_boundary,
-        evaluation.executable_entrypoint_transfer_boundary_status,
-        evaluation.executable_entrypoint_transfer_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "executable_entrypoint_handoff_boundary",
-        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_HANDOFF_BOUNDARY_SCHEMA,
-        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_HANDOFF_BOUNDARY_ID,
-        candidate.executable_entrypoint_handoff_boundary,
-        evaluation.executable_entrypoint_handoff_boundary_status,
-        evaluation.executable_entrypoint_handoff_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_live_load_boundary(
-        "executable_entrypoint_invocation_boundary",
-        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_INVOCATION_BOUNDARY_SCHEMA,
-        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_INVOCATION_BOUNDARY_ID,
-        candidate.executable_entrypoint_invocation_boundary,
-        evaluation.executable_entrypoint_invocation_boundary_status,
-        evaluation.executable_entrypoint_invocation_boundary_reason,
-    );
-    raw_line(",");
-    emit_module_loader_runtime_facts(candidate, evaluation);
-    raw_line(",");
-    emit_live_granted_load_projection();
-    raw_line(",");
-    emit_record_property_line(
-        "policy_result",
-        module_loader_runtime_policy_result_fields(candidate, evaluation),
-        true,
-    );
-    emit_record_value_property_line(
-        "blocked_by",
-        module_loader_runtime_blocked_by(evaluation),
-        false,
-    );
-    end_response("module.loader_runtime");
-}
-
-fn emit_live_granted_load_projection() {
-    let projection = granted_candidate_service::live_load_projection();
-    emit_record_value_property_line(
-        "live_granted_load_projection",
-        granted_candidate_service::record_live_load_projection(projection),
-        false,
+    let projection = project_loader_runtime_denial(LoaderRuntimeProjectionInput {
+        manifest_reference: runtime_evidence(
+            evaluation.manifest_reference_status,
+            evaluation.manifest_reference_reason,
+            manifest.as_ref().map(|v| v.0),
+            vec![f("present", b(candidate.manifest_reference_present))],
+        ),
+        artifact_reference: runtime_evidence(
+            evaluation.artifact_reference_status,
+            evaluation.artifact_reference_reason,
+            artifact.as_ref().map(|v| v.0),
+            vec![f("present", b(candidate.artifact_reference_present))],
+        ),
+        vm_report_reference: runtime_evidence(
+            evaluation.vm_report_reference_status,
+            evaluation.vm_report_reference_reason,
+            vm_report.as_ref().map(|v| v.0),
+            vec![f("present", b(candidate.vm_report_reference_present))],
+        ),
+        local_attestation_reference: runtime_evidence(
+            evaluation.local_attestation_reference_status,
+            evaluation.local_attestation_reference_reason,
+            local_attestation.as_ref().map(|v| v.0),
+            vec![f(
+                "present",
+                b(candidate.local_attestation_reference_present),
+            )],
+        ),
+        local_approval_reference: runtime_evidence(
+            evaluation.local_approval_reference_status,
+            evaluation.local_approval_reference_reason,
+            local_approval.as_ref().map(|v| v.0),
+            vec![f("present", b(candidate.local_approval_reference_present))],
+        ),
+        computed_grant_reference: runtime_evidence(
+            evaluation.computed_grant_reference_status,
+            evaluation.computed_grant_reference_reason,
+            computed_grant.as_ref().map(|v| v.0),
+            vec![f("present", b(candidate.computed_grant_reference_present))],
+        ),
+        audit_rollback_reference: runtime_evidence(
+            evaluation.audit_rollback_reference_status,
+            evaluation.audit_rollback_reference_reason,
+            audit_rollback.as_ref().map(|v| v.0),
+            vec![f("present", b(candidate.audit_rollback_reference_present))],
+        ),
+        service_slot_reservation: runtime_evidence(
+            evaluation.service_slot_reservation_status,
+            evaluation.service_slot_reservation_reason,
+            service_slot.as_ref().map(|v| v.0),
+            vec![f("present", b(candidate.service_slot_reservation_present))],
+        ),
+        service_slot_allocator_readiness: runtime_evidence(
+            evaluation.service_slot_allocator_readiness_status,
+            evaluation.service_slot_allocator_readiness_reason,
+            None,
+            vec![
+                f(
+                    "present",
+                    b(candidate.service_slot_allocator_readiness_present),
+                ),
+                f("ready", b(candidate.service_slot_allocator_ready)),
+            ],
+        ),
+        loader_identity: runtime_fact(
+            0,
+            candidate.loader_identity,
+            evaluation.loader_identity_status,
+            evaluation.loader_identity_reason,
+        ),
+        artifact_hash_binding: runtime_fact(
+            1,
+            candidate.artifact_hash_binding,
+            evaluation.artifact_hash_binding_status,
+            evaluation.artifact_hash_binding_reason,
+        ),
+        entrypoint_abi: runtime_fact(
+            2,
+            candidate.entrypoint_abi,
+            evaluation.entrypoint_abi_status,
+            evaluation.entrypoint_abi_reason,
+        ),
+        address_space_boundary: runtime_fact(
+            3,
+            candidate.address_space_boundary,
+            evaluation.address_space_boundary_status,
+            evaluation.address_space_boundary_reason,
+        ),
+        memory_map_constraints: runtime_fact(
+            4,
+            candidate.memory_map_constraints,
+            evaluation.memory_map_constraints_status,
+            evaluation.memory_map_constraints_reason,
+        ),
+        capability_import_table: runtime_fact(
+            5,
+            candidate.capability_import_table,
+            evaluation.capability_import_table_status,
+            evaluation.capability_import_table_reason,
+        ),
+        service_slot_binding: runtime_fact(
+            6,
+            candidate.service_slot_binding,
+            evaluation.service_slot_binding_status,
+            evaluation.service_slot_binding_reason,
+        ),
+        health_state_hooks: runtime_fact(
+            7,
+            candidate.health_state_hooks,
+            evaluation.health_state_hooks_status,
+            evaluation.health_state_hooks_reason,
+        ),
+        rollback_hooks: runtime_fact(
+            8,
+            candidate.rollback_hooks,
+            evaluation.rollback_hooks_status,
+            evaluation.rollback_hooks_reason,
+        ),
+        audit_rollback_write_boundary_binding: runtime_fact(
+            9,
+            candidate.audit_rollback_write_boundary_binding,
+            evaluation.audit_rollback_write_boundary_binding_status,
+            evaluation.audit_rollback_write_boundary_binding_reason,
+        ),
+        execution_commit_gate: runtime_boundary!(
+            candidate.execution_commit_gate,
+            evaluation.execution_commit_gate_status,
+            evaluation.execution_commit_gate_reason
+        ),
+        descriptor_intake_boundary: runtime_boundary!(
+            candidate.descriptor_intake_boundary,
+            evaluation.descriptor_intake_boundary_status,
+            evaluation.descriptor_intake_boundary_reason
+        ),
+        artifact_byte_intake_boundary: runtime_boundary!(
+            candidate.artifact_byte_intake_boundary,
+            evaluation.artifact_byte_intake_boundary_status,
+            evaluation.artifact_byte_intake_boundary_reason
+        ),
+        execution_authorization_boundary: runtime_boundary!(
+            candidate.execution_authorization_boundary,
+            evaluation.execution_authorization_boundary_status,
+            evaluation.execution_authorization_boundary_reason
+        ),
+        service_registry_mutation_boundary: runtime_boundary!(
+            candidate.service_registry_mutation_boundary,
+            evaluation.service_registry_mutation_boundary_status,
+            evaluation.service_registry_mutation_boundary_reason
+        ),
+        load_attempt_boundary: live_boundary(
+            candidate.load_attempt_boundary,
+            evaluation.load_attempt_boundary_status,
+            evaluation.load_attempt_boundary_reason,
+        ),
+        artifact_load_boundary: live_boundary(
+            candidate.artifact_load_boundary,
+            evaluation.artifact_load_boundary_status,
+            evaluation.artifact_load_boundary_reason,
+        ),
+        executable_mapping_boundary: live_boundary(
+            candidate.executable_mapping_boundary,
+            evaluation.executable_mapping_boundary_status,
+            evaluation.executable_mapping_boundary_reason,
+        ),
+        entrypoint_transfer_boundary: live_boundary(
+            candidate.entrypoint_transfer_boundary,
+            evaluation.entrypoint_transfer_boundary_status,
+            evaluation.entrypoint_transfer_boundary_reason,
+        ),
+        service_start_boundary: live_boundary(
+            candidate.service_start_boundary,
+            evaluation.service_start_boundary_status,
+            evaluation.service_start_boundary_reason,
+        ),
+        service_health_binding_boundary: live_boundary(
+            candidate.service_health_binding_boundary,
+            evaluation.service_health_binding_boundary_status,
+            evaluation.service_health_binding_boundary_reason,
+        ),
+        service_running_state_boundary: live_boundary(
+            candidate.service_running_state_boundary,
+            evaluation.service_running_state_boundary_status,
+            evaluation.service_running_state_boundary_reason,
+        ),
+        service_start_audit_boundary: live_boundary(
+            candidate.service_start_audit_boundary,
+            evaluation.service_start_audit_boundary_status,
+            evaluation.service_start_audit_boundary_reason,
+        ),
+        service_unload_cleanup_boundary: live_boundary(
+            candidate.service_unload_cleanup_boundary,
+            evaluation.service_unload_cleanup_boundary_status,
+            evaluation.service_unload_cleanup_boundary_reason,
+        ),
+        live_load_commit_boundary: live_boundary(
+            candidate.live_load_commit_boundary,
+            evaluation.live_load_commit_boundary_status,
+            evaluation.live_load_commit_boundary_reason,
+        ),
+        commit_audit_boundary: live_boundary(
+            candidate.commit_audit_boundary,
+            evaluation.commit_audit_boundary_status,
+            evaluation.commit_audit_boundary_reason,
+        ),
+        commit_rollback_boundary: live_boundary(
+            candidate.commit_rollback_boundary,
+            evaluation.commit_rollback_boundary_status,
+            evaluation.commit_rollback_boundary_reason,
+        ),
+        commit_result_boundary: live_boundary(
+            candidate.commit_result_boundary,
+            evaluation.commit_result_boundary_status,
+            evaluation.commit_result_boundary_reason,
+        ),
+        descriptor_acceptance_authority_boundary: live_boundary(
+            candidate.descriptor_acceptance_authority_boundary,
+            evaluation.descriptor_acceptance_authority_boundary_status,
+            evaluation.descriptor_acceptance_authority_boundary_reason,
+        ),
+        descriptor_parser_contract_boundary: live_boundary(
+            candidate.descriptor_parser_contract_boundary,
+            evaluation.descriptor_parser_contract_boundary_status,
+            evaluation.descriptor_parser_contract_boundary_reason,
+        ),
+        descriptor_parser_result_boundary: live_boundary(
+            candidate.descriptor_parser_result_boundary,
+            evaluation.descriptor_parser_result_boundary_status,
+            evaluation.descriptor_parser_result_boundary_reason,
+        ),
+        descriptor_schema_validation_boundary: live_boundary(
+            candidate.descriptor_schema_validation_boundary,
+            evaluation.descriptor_schema_validation_boundary_status,
+            evaluation.descriptor_schema_validation_boundary_reason,
+        ),
+        descriptor_capability_validation_boundary: live_boundary(
+            candidate.descriptor_capability_validation_boundary,
+            evaluation.descriptor_capability_validation_boundary_status,
+            evaluation.descriptor_capability_validation_boundary_reason,
+        ),
+        descriptor_load_plan_boundary: live_boundary(
+            candidate.descriptor_load_plan_boundary,
+            evaluation.descriptor_load_plan_boundary_status,
+            evaluation.descriptor_load_plan_boundary_reason,
+        ),
+        executable_load_plan_authority_boundary: live_boundary(
+            candidate.executable_load_plan_authority_boundary,
+            evaluation.executable_load_plan_authority_boundary_status,
+            evaluation.executable_load_plan_authority_boundary_reason,
+        ),
+        executable_load_plan_result_boundary: live_boundary(
+            candidate.executable_load_plan_result_boundary,
+            evaluation.executable_load_plan_result_boundary_status,
+            evaluation.executable_load_plan_result_boundary_reason,
+        ),
+        executable_image_layout_boundary: live_boundary(
+            candidate.executable_image_layout_boundary,
+            evaluation.executable_image_layout_boundary_status,
+            evaluation.executable_image_layout_boundary_reason,
+        ),
+        executable_page_mapping_plan_boundary: live_boundary(
+            candidate.executable_page_mapping_plan_boundary,
+            evaluation.executable_page_mapping_plan_boundary_status,
+            evaluation.executable_page_mapping_plan_boundary_reason,
+        ),
+        executable_page_mapping_boundary: live_boundary(
+            candidate.executable_page_mapping_boundary,
+            evaluation.executable_page_mapping_boundary_status,
+            evaluation.executable_page_mapping_boundary_reason,
+        ),
+        descriptor_executable_page_binding_boundary: live_boundary(
+            candidate.descriptor_executable_page_binding_boundary,
+            evaluation.descriptor_executable_page_binding_boundary_status,
+            evaluation.descriptor_executable_page_binding_boundary_reason,
+        ),
+        executable_entrypoint_binding_boundary: live_boundary(
+            candidate.executable_entrypoint_binding_boundary,
+            evaluation.executable_entrypoint_binding_boundary_status,
+            evaluation.executable_entrypoint_binding_boundary_reason,
+        ),
+        executable_entrypoint_transfer_authorization_boundary: live_boundary(
+            candidate.executable_entrypoint_transfer_authorization_boundary,
+            evaluation.executable_entrypoint_transfer_authorization_boundary_status,
+            evaluation.executable_entrypoint_transfer_authorization_boundary_reason,
+        ),
+        executable_entrypoint_transfer_boundary: live_boundary(
+            candidate.executable_entrypoint_transfer_boundary,
+            evaluation.executable_entrypoint_transfer_boundary_status,
+            evaluation.executable_entrypoint_transfer_boundary_reason,
+        ),
+        executable_entrypoint_handoff_boundary: live_boundary(
+            candidate.executable_entrypoint_handoff_boundary,
+            evaluation.executable_entrypoint_handoff_boundary_status,
+            evaluation.executable_entrypoint_handoff_boundary_reason,
+        ),
+        executable_entrypoint_invocation_boundary: live_boundary(
+            candidate.executable_entrypoint_invocation_boundary,
+            evaluation.executable_entrypoint_invocation_boundary_status,
+            evaluation.executable_entrypoint_invocation_boundary_reason,
+        ),
+    });
+    emit_evidence_v1_response(
+        "module.loader_runtime",
+        "module.loader_runtime",
+        None,
+        V::InlineObject(vec![f("test_infrastructure", no())]),
+        projection
+            .evidence
+            .into_iter()
+            .map(ev::evidence_value)
+            .collect(),
+        projection.decision,
     );
 }
 
 pub(crate) fn emit_module_loader_runtime_selftest() {
     let cases = module_loader_runtime_selftest_cases();
     let source_fact_map_complete = module_loader_runtime_source_fact_map_complete();
-    let mut passed = true;
-    let mut idx = 0usize;
-    while idx < cases.len() {
-        passed = passed && cases[idx].passed;
-        idx += 1;
-    }
-    passed = passed && source_fact_map_complete;
-
-    let mut case_values = Vec::new();
-    idx = 0;
-    while idx < cases.len() {
-        case_values.push(module_loader_runtime_selftest_case_value(&cases[idx]));
-        idx += 1;
-    }
-
-    begin_response("module.loader_runtime_selftest");
-    emit_record_fields(
-        vec![
-            f(
-                "schema",
-                s("raios.module_loader_runtime_readiness_selftest.v0"),
-            ),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("test_infrastructure", b(true)),
-            f("mutates_global_event_log", no()),
-            f("accepts_loader_descriptor", no()),
-            f("accepts_artifact_bytes", no()),
-            f("loads_artifact", no()),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("service_inventory_change", s("none")),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-            f("case_count", V::U64(cases.len() as u64)),
-            f("passed", b(passed)),
-            f(
-                "source_fact_count",
-                V::U64(MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT as u64),
-            ),
-            f("source_fact_map_complete", b(source_fact_map_complete)),
-            f("source_fact_map", module_loader_runtime_source_fact_map()),
-            f("cases", V::Array(case_values)),
-            f("can_load", no()),
-        ],
-        6,
+    let passed = cases.iter().all(|case| case.passed) && source_fact_map_complete;
+    let values = cases
+        .iter()
+        .map(|case| {
+            ev::selftest_case(
+                case.name,
+                case.expected_status,
+                case.expected_reason,
+                case.actual_status,
+                case.actual_reason,
+                case.passed,
+            )
+        })
+        .collect();
+    let facts = ev::selftest_facts_value(SelftestFacts {
+        case_count: cases.len() as u64,
+        passed,
+        safety: ev::selftest_safety_value(),
+        cases: V::Array(values),
+    });
+    let mut fields = match facts {
+        V::InlineObject(fields) => fields,
+        _ => unreachable!(),
+    };
+    fields.push(f(
+        "source_fact_count",
+        V::U64(MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT as u64),
+    ));
+    fields.push(f("source_fact_map_complete", b(source_fact_map_complete)));
+    fields.push(f(
+        "source_fact_map",
+        module_loader_runtime_source_fact_map(),
+    ));
+    emit_evidence_v1_response(
+        "module.loader_runtime_selftest",
+        "module.loader_runtime_selftest",
+        None,
+        V::InlineObject(fields),
+        vec![],
+        ev::observed("selftest_completed"),
     );
-    end_response("module.loader_runtime_selftest");
 }
