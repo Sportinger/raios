@@ -56,6 +56,26 @@ now re-routed to be slimmed by relocation/compaction instead of deleted.
 Next: a fresh relocation-wave design against the shrunken tree, then the
 final vocabulary compaction to reach the 120k goal.
 
+That vocabulary compaction is now running (2026-07-13). The idea in one
+sentence: every answer raiOS gives about a module — "here is what I know, here
+is what I checked, here is what I decided" — used to be written out by hand in
+a different shape for each kind of answer, and it is being rewritten to use ONE
+shared shape. Three of the nine answer families are converted and proven
+(module references, the load gate, the loader/allocator), the kernel is down
+another 13,384 lines to 162,947, and both the full and the recovery test suites
+are green on the result.
+
+Two honest findings from the conversion, because they say something about how
+the machine is being checked. First: the conversion exposed two self-tests that
+had only *appeared* to test something — the fixture they used never actually
+reached the check it claimed to prove. Both were corrected so they really fire
+now, rather than being quietly deleted. Second: because the test harness
+searches the whole console transcript rather than one answer at a time, a few
+checks had been passing by accidentally matching text from a *different*
+answer; when the old text was deleted those checks were exposed, and each was
+re-pointed at the real value in its own answer. Nothing regressed — but the
+system is measurably more honestly tested than it was this morning.
+
 Current capability: a user can type `/build <request>` in Genesis. raiOS sends
 the request through its existing pinned-trust direct provider path, accepts only
 the bounded typed `RAIOS_UI_SPEC_V1` data language, compiles it locally to
