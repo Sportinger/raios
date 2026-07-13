@@ -42,6 +42,7 @@ pub mod project_runtime;
 pub mod project_workspace;
 pub mod promotion_attestation;
 pub mod provider_context;
+pub mod provider_projection;
 pub mod provider_trust_descriptor;
 pub mod record;
 pub mod record_table;

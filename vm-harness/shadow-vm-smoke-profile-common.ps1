@@ -11,53 +11,44 @@
     Assert-LogContains -Name "protocol:provider_trust_problem" -Needle "provider.tls_pin_config_missing" -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent provider.trust_honesty" -ExpectedMarker "RAIOS_AGENT_END provider.trust_honesty"
-    Assert-LogContains -Name "protocol:provider_trust_honesty_schema" -Needle '"schema": "raios.provider_trust_honesty.v0"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:provider_trust_honesty_decision_id" -Needle '"decision_id": "scoped_provider_trust_honesty.current_boot.v0"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:provider_trust_honesty_reason" -Needle '"reason": "trust_state_not_pin_verified"' -TimeoutSeconds 1
     $providerTrustHonesty = Get-LastAgentResponseJson -Method "provider.trust_honesty"
-    $trustHonesty = $providerTrustHonesty.body.result
+    $trustDescriptor = $providerTrustHonesty.evidence | Where-Object { $_.id -eq "provider_trust_descriptor" } | Select-Object -First 1
+    $trustHonesty = $providerTrustHonesty.evidence | Where-Object { $_.id -eq "provider_trust_honesty" } | Select-Object -First 1
     $providerTrustHonestyUnpinnedDenial = (
-        $trustHonesty.schema -eq "raios.provider_trust_honesty.v0" -and
-        $trustHonesty.decision_schema -eq "raios.scoped_provider_trust_honesty_decision.v0" -and
-        $trustHonesty.decision_id -eq "scoped_provider_trust_honesty.current_boot.v0" -and
-        $trustHonesty.provider_id -eq "openai" -and
-        $trustHonesty.trust_state -eq "pin_config_missing" -and
-        $trustHonesty.chain_policy -eq "pin_only_no_webpki_chain_validation" -and
-        $trustHonesty.time_policy -eq "not_validated_stage0" -and
-        $trustHonesty.development_bypass -eq $false -and
-        $trustHonesty.performed -eq $false -and
+        $providerTrustHonesty.schema -eq "raios.evidence_response.v1" -and
+        $providerTrustHonesty.classification -eq "local_only" -and
+        $providerTrustHonesty.facts.provider_id -eq "openai" -and
+        $trustDescriptor.facts.trust_state -eq "pin_config_missing" -and
         $trustHonesty.status -eq "denied" -and
         $trustHonesty.reason -eq "trust_state_not_pin_verified" -and
-        $trustHonesty.honest -eq $false -and
-        $trustHonesty.chain_validated -eq $false -and
-        $trustHonesty.time_validated -eq $false
+        $trustHonesty.facts.honest -eq $false -and
+        $trustHonesty.facts.chain_validated -eq $false -and
+        $trustHonesty.facts.time_validated -eq $false
     )
     Add-Predicate -Name "protocol:provider_trust_honesty_unpinned_denial" -Expected "live unpinned boot is honestly denied by M10A-1 trust_state_not_pin_verified" -Passed $providerTrustHonestyUnpinnedDenial -Actual $(if ($providerTrustHonestyUnpinnedDenial) { "pin_config_missing denied" } else { ($trustHonesty | ConvertTo-Json -Compress -Depth 5) })
     if (-not $providerTrustHonestyUnpinnedDenial) {
         throw "Expected provider.trust_honesty to report the live unpinned boot as an honest M10A-1 denial"
     }
     $providerTrustHonestyDescriptorDriven = (
-        $trustHonesty.provider_id -eq "openai" -and
-        $trustHonesty.descriptor_id -eq "openai.pinned_tls13_p256_sha256.v0" -and
-        $trustHonesty.host -eq "api.openai.com" -and
-        $trustHonesty.chain_policy -eq "pin_only_no_webpki_chain_validation" -and
-        $trustHonesty.time_policy -eq "not_validated_stage0" -and
-        $trustHonesty.descriptor_sha256 -is [string] -and
-        $trustHonesty.descriptor_sha256 -cmatch '^sha256:[0-9a-f]{64}$'
+        $trustDescriptor.facts.descriptor_id -eq "openai.pinned_tls13_p256_sha256.v0" -and
+        $trustDescriptor.facts.host -eq "api.openai.com" -and
+        $trustDescriptor.facts.chain_policy -eq "pin_only_no_webpki_chain_validation" -and
+        $trustDescriptor.facts.time_policy -eq "not_validated_stage0" -and
+        $trustDescriptor.facts.descriptor_sha256 -cmatch '^sha256:[0-9a-f]{64}$'
     )
     Add-Predicate -Name "protocol:provider_trust_honesty_descriptor_driven" -Expected "provider.trust_honesty reports OpenAI descriptor identity and descriptor sha256" -Passed $providerTrustHonestyDescriptorDriven -Actual $(if ($providerTrustHonestyDescriptorDriven) { "descriptor_driven" } else { ($trustHonesty | ConvertTo-Json -Compress -Depth 5) })
     if (-not $providerTrustHonestyDescriptorDriven) {
         throw "Expected provider.trust_honesty to report descriptor-driven OpenAI trust metadata"
     }
+    # v1: an OBSERVED decision carries no grants/effects keys AT ALL — only a denial renders
+    # them (as empty arrays). The old check asked for empty arrays, which an observed decision
+    # never has, so it was asserting the wrong shape. Absence is the stronger claim: a response
+    # that authorized nothing does not get to mention grants.
     $providerTrustHonestyGrantsNothing = (
-        $trustHonesty.authorizes_provider_request -eq $false -and
-        $trustHonesty.authorizes_provider_export -eq $false -and
-        $trustHonesty.owner_sealed -eq $false -and
-        $trustHonesty.trust_tier -eq "dev_key_not_owner_sealed" -and
-        $trustHonesty.durable_write -eq $false -and
-        $trustHonesty.capability_granted -eq $false -and
-        $trustHonesty.provider_write -eq "not_attempted" -and
-        $trustHonesty.transmission -eq $false
+        $providerTrustHonesty.decision.outcome -eq "observed" -and
+        $null -eq $providerTrustHonesty.decision.grants -and
+        $null -eq $providerTrustHonesty.decision.effects -and
+        -not (($providerTrustHonesty | ConvertTo-Json -Compress -Depth 12) -match 'authorizes_provider_')
     )
     Add-Predicate -Name "protocol:provider_trust_honesty_grants_nothing" -Expected "provider.trust_honesty authorizes no request/export/write/transmission" -Passed $providerTrustHonestyGrantsNothing -Actual $(if ($providerTrustHonestyGrantsNothing) { "grants_nothing" } else { ($trustHonesty | ConvertTo-Json -Compress -Depth 5) })
     if (-not $providerTrustHonestyGrantsNothing) {
@@ -256,17 +247,21 @@
     if (-not $honestyReportGrantsNothing) {
         throw "Expected system.honesty_report to grant nothing"
     }
+    # P4-8 moved provider.trust_honesty to the v1 envelope: the descriptor labels now live on
+    # the provider_trust_descriptor evidence record and the honesty verdict on the
+    # provider_trust_honesty one. system.honesty_report is still legacy (P4-9 owns it), so the
+    # SAME-SOURCE intent of this check is unchanged — the report must ECHO the live labels, not
+    # invent its own — only the right-hand accessors move to where the values actually are.
+    # $trustDescriptor and $trustHonesty are already the v1 EVIDENCE RECORDS (bound at the top
+    # of this profile), not the envelope — so read their .facts/.status directly.
     $honestyProviderTimeMatch = (
-        $honestyReport.provider_trust.decision_schema -eq $trustHonesty.decision_schema -and
-        $honestyReport.provider_trust.decision_id -eq $trustHonesty.decision_id -and
-        $honestyReport.provider_trust.provider_id -eq $trustHonesty.provider_id -and
-        $honestyReport.provider_trust.trust_state -eq $trustHonesty.trust_state -and
-        $honestyReport.provider_trust.chain_policy -eq $trustHonesty.chain_policy -and
-        $honestyReport.provider_trust.time_policy -eq $trustHonesty.time_policy -and
-        $honestyReport.provider_trust.performed -eq $trustHonesty.performed -and
+        $honestyReport.provider_trust.provider_id -eq $providerTrustHonesty.facts.provider_id -and
+        $honestyReport.provider_trust.trust_state -eq $trustDescriptor.facts.trust_state -and
+        $honestyReport.provider_trust.chain_policy -eq $trustDescriptor.facts.chain_policy -and
+        $honestyReport.provider_trust.time_policy -eq $trustDescriptor.facts.time_policy -and
         $honestyReport.provider_trust.status -eq $trustHonesty.status -and
         $honestyReport.provider_trust.reason -eq $trustHonesty.reason -and
-        $honestyReport.provider_trust.honest -eq $trustHonesty.honest -and
+        $honestyReport.provider_trust.honest -eq $trustHonesty.facts.honest -and
         $honestyReport.provider_trust.chain_validated -eq $false -and
         $honestyReport.provider_trust.time_validated -eq $false -and
         $honestyReport.provider_trust.authorizes_provider_request -eq $false -and
@@ -385,16 +380,13 @@
     $providerMinimalContext = Get-LastAgentResponseJson -Method "memory.context"
     Add-Predicate -Name "protocol:memory_context_provider_profile" -Expected "provider_minimal profile selected" -Passed ($providerMinimalContext.facts.profile -eq "provider_minimal") -Actual $providerMinimalContext.facts.profile
     Add-Predicate -Name "protocol:memory_context_provider_export_disabled" -Expected "provider export remains disabled" -Passed ($providerMinimalContext.facts.provider_export -eq "disabled") -Actual $providerMinimalContext.facts.provider_export
-    Assert-LogContains -Name "protocol:memory_context_provider_projection_schema" -Needle '"schema": "raios.provider_context_projection.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_verifier_decision" -Needle '"verifier_decision": {' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_projection_mode" -Needle '"mode": "local_read_only"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_projection_present" -Needle '"redaction_projection": "present"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_classification_default" -Needle '"classification_default": "local_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:memory_context_provider_projection_event" -Needle '"local_projection_event_id": "event.current_boot.' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:memory_context_provider_can_export" -Needle '"can_export": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_trust_gate" -Needle '"reason": "provider_trust_not_positive"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_audit_gate" -Needle '"reason": "provider_context_export_audit_binding_missing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:memory_context_provider_packet_evidence" -Needle '"packet_evidence":' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:memory_context_provider_packet_evidence" -Needle '"id": "provider_projection_binding"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_packet_canonicalization" -Needle '"canonicalization": "raios.provider_minimal.packet.canonical.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_packet_hash" -Needle '"projected_packet_hash": "sha256:' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_exported_fields_hash" -Needle '"exported_field_list_hash": "sha256:' -TimeoutSeconds 1
@@ -411,9 +403,9 @@
     Assert-LogContains -Name "protocol:memory_context_provider_packet_purpose" -Needle '"purpose": "current_boot_provider_context"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_snapshot_projection_record" -Needle "snapshot.current.provider_minimal" -TimeoutSeconds 1
     $providerMinimalProjection = $providerMinimalContext.facts.provider_projection
-    $providerMinimalOmittedFields = @($providerMinimalProjection.omitted_fields | ForEach-Object { $_.field })
-    $providerMinimalPacketIncludedCurrent = @($providerMinimalProjection.packet.included.current)
-    $providerMinimalPacketOmittedFields = @($providerMinimalProjection.packet.omitted | ForEach-Object { $_.field })
+    $providerMinimalOmittedFields = @($providerMinimalProjection.facts.omitted_fields | ForEach-Object { $_.field })
+    $providerMinimalPacketIncludedCurrent = @($providerMinimalProjection.facts.packet.included.current)
+    $providerMinimalPacketOmittedFields = @($providerMinimalProjection.facts.packet.omitted | ForEach-Object { $_.field })
 
     Send-AgentCommand -Command "agent provider.context_export provider_minimal" -ExpectedMarker "RAIOS_AGENT_END provider.context_export"
     Assert-LogContains -Name "protocol:provider_context_export_schema" -Needle '"schema": "raios.provider_context_export.v0"' -TimeoutSeconds 1
@@ -463,14 +455,17 @@
     Assert-LogDoesNotContain -Name "protocol:provider_context_export_did_not_fake_request_envelope" -Needle "raios.provider_request_envelope.v0"
 
     Send-AgentCommand -Command "agent provider.context_gate provider_minimal" -ExpectedMarker "RAIOS_AGENT_END provider.context_gate"
-    Assert-LogContains -Name "protocol:provider_context_gate_schema" -Needle '"schema": "raios.provider_context_export_gate_state.v0"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:provider_context_gate_export_disabled" -Needle '"provider_export": "disabled"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:provider_context_gate_injection_disabled" -Needle '"automatic_context_injection": "disabled"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:provider_context_gate_no_body_attachment" -Needle '"context_attached_to_provider_body": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:provider_context_gate_no_write" -Needle '"provider_write": "not_attempted"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:provider_context_gate_binding_missing" -Needle '"binding_validation_reason": "provider_context_export_audit_binding_missing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:provider_context_gate_request_binding_missing" -Needle '"provider_request_binding": "missing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:provider_context_gate_audit_binding_missing" -Needle '"provider_export_audit_binding": "missing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:provider_context_gate_current_boot_gate_false" -Needle '"satisfies_current_boot_export_gate": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:provider_context_gate_can_export_false" -Needle '"can_export": false' -TimeoutSeconds 1
     $providerContextGate = Get-LastAgentResponseJson -Method "provider.context_gate"
+    $providerContextGateBinding = $providerContextGate.evidence | Where-Object { $_.id -eq "provider_binding_consumption" } | Select-Object -First 1
+    $providerContextGateOk = (
+        $providerContextGate.schema -eq "raios.evidence_response.v1" -and
+        $providerContextGate.family -eq "provider.context_gate" -and
+        $providerContextGate.classification -eq "local_only" -and
+        $providerContextGateBinding.status -eq "missing" -and
+        $providerContextGateBinding.reason -eq "provider_context_export_audit_binding_missing" -and
+        $providerContextGate.decision.outcome -eq "denied" -and
+        $providerContextGate.decision.reason -eq "provider_trust_not_positive" -and
+        @($providerContextGate.decision.grants).Count -eq 0 -and
+        @($providerContextGate.decision.effects).Count -eq 0
+    )
+    Add-Predicate -Name "protocol:provider_context_gate_v1_denial" -Expected "v1 local-only denial preserves the first failure and grants/effects remain empty" -Passed $providerContextGateOk -Actual ($providerContextGate | ConvertTo-Json -Compress -Depth 12)

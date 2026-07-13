@@ -3673,6 +3673,7 @@ pub(crate) fn hello_rollback_target_region_write_readback_dry_run(
 }
 
 pub(crate) fn hello_rollback_target_region_authorized_append_write_readback(
+    _proof: &raios_core::scoped_rollback_apply::ScopedRollbackApplyProof,
     snapshot: Snapshot,
     probation: HelloHotSwapProbationRecord,
     sector_plan: RollbackAppendSectorPlanDryRun,

@@ -9,7 +9,7 @@ pub(crate) enum RollbackApplyResult {
         pre_apply_snapshot: Snapshot,
         snapshot: Snapshot,
         event_id: event_log::EventId,
-        proof: ScopedRollbackApplyProof,
+        proof: ScopedRollbackApplyEvidence,
     },
 }
 
@@ -471,9 +471,15 @@ pub(crate) fn rollback_apply(source_method: &'static str) -> RollbackApplyResult
         state.snapshot()
     };
     let proof = perform_scoped_rollback_apply_proof(source_method, pre_apply_snapshot);
-    if proof.apply_decision.applied {
+    if let Some(verified_apply_proof) = proof.verified_apply_proof {
         if let Some(probation) = pre_apply_snapshot.hot_swap_probation {
-            return rollback_apply_verified(source_method, pre_apply_snapshot, probation, proof);
+            return rollback_apply_verified(
+                &verified_apply_proof,
+                source_method,
+                pre_apply_snapshot,
+                probation,
+                proof,
+            );
         }
     }
     let (snapshot, event_id) = rollback_apply_denied(source_method);
@@ -511,10 +517,11 @@ fn rollback_apply_denied(source_method: &'static str) -> (Snapshot, event_log::E
 }
 
 fn rollback_apply_verified(
+    _proof: &raios_core::scoped_rollback_apply::ScopedRollbackVerifiedApplyProof,
     source_method: &'static str,
     pre_apply_snapshot: Snapshot,
     probation: HelloHotSwapProbationRecord,
-    proof: ScopedRollbackApplyProof,
+    proof: ScopedRollbackApplyEvidence,
 ) -> RollbackApplyResult {
     let Some((target_region_write_readback, target_region_sector_inspection)) =
         recovery_rollback_inspection_evidence(pre_apply_snapshot)
@@ -578,7 +585,7 @@ fn rollback_apply_verified(
 
 fn applied_rollback_record(
     event_id: event_log::EventId,
-    proof: ScopedRollbackApplyProof,
+    proof: ScopedRollbackApplyEvidence,
     target_region_write_readback: RollbackTargetRegionWriteReadbackDryRun,
     target_region_sector_inspection: RollbackTargetRegionSectorInspection,
 ) -> Option<AppliedRollbackRecord> {

@@ -506,3 +506,20 @@ a status string. First-failure reason from the evaluator, `grants: []`, `effects
 authority) has a twin: a locator must not leak what it points at. A summary or trace hit
 that names a secret record may not carry its value, and its classification is the record's,
 not the summary's.
+
+## P4-8b notes (2026-07-13)
+
+- `raios-core::provider_projection` now owns the fail-closed provider facts/evidence/decision
+  projection. Its public constructors produce only observed or denied decisions; provider facts
+  recursively reject `outcome`, `grants`, `effects`, `blocked_by`, and `authorizes_*` keys.
+- The embedded `provider_minimal` value now carries `facts`, ordered `evidence`, and a denied
+  `decision`. API-key presence is public evidence, key bytes have no projection input, unknown
+  key classification is rejected, and the enclosing projection remains `local_only`.
+- Trust honesty is observational evidence and renders an observed decision. The export and final
+  injection gates render evaluator-ordered denials with first-failure reasons and empty grants and
+  effects.
+- The response move does not touch `provider_minimal_packet_hash`, the export packet builder, or
+  any provider hash grammar. The core regression pins the export packet hash, all six projection /
+  policy hashes, and the provider trust descriptor hash byte-for-byte.
+- Harness needles for trust honesty, embedded provider projection, export gate, and injection gate
+  now bind the v1 response family/evidence ID/decision instead of legacy authority booleans.

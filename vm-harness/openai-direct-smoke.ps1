@@ -218,18 +218,11 @@ function Invoke-PositiveBindingGateChecks {
 
     Send-SerialText -Port $Port -TimeoutSeconds $TimeoutSeconds -Text "agent provider.context_gate provider_minimal`r"
     Wait-ForLogText -Path $SerialLog -Needle "RAIOS_AGENT_END provider.context_gate" -TimeoutSeconds $TimeoutSeconds
-    Wait-ForLogText -Path $SerialLog -Needle '"schema": "raios.provider_context_export_gate_state.v0"' -TimeoutSeconds $TimeoutSeconds
-    Wait-ForLogText -Path $SerialLog -Needle '"binding_validation_status": "valid"' -TimeoutSeconds $TimeoutSeconds
-    Wait-ForLogText -Path $SerialLog -Needle '"binding_validation_reason": "binding_pair_valid_for_gate_evaluation"' -TimeoutSeconds $TimeoutSeconds
-    Wait-ForLogText -Path $SerialLog -Needle '"provider_request_binding": "present_validated"' -TimeoutSeconds $TimeoutSeconds
-    Wait-ForLogText -Path $SerialLog -Needle '"provider_export_audit_binding": "present_validated"' -TimeoutSeconds $TimeoutSeconds
-    Wait-ForLogText -Path $SerialLog -Needle '"redaction_policy_hash": "sha256:' -TimeoutSeconds $TimeoutSeconds
-    Wait-ForLogText -Path $SerialLog -Needle '"field_classification_hash": "sha256:' -TimeoutSeconds $TimeoutSeconds
-    Wait-ForLogText -Path $SerialLog -Needle '"token_budget_hash": "sha256:' -TimeoutSeconds $TimeoutSeconds
-    Wait-ForLogText -Path $SerialLog -Needle '"provider_trust_evidence_hash": "sha256:' -TimeoutSeconds $TimeoutSeconds
-    Wait-ForLogText -Path $SerialLog -Needle '"provider_trust_verifier_id": "openai.pinned_tls13_p256_sha256.v0"' -TimeoutSeconds $TimeoutSeconds
-    Wait-ForLogText -Path $SerialLog -Needle '"provider_trust_chain_policy": "pin_only_no_webpki_chain_validation"' -TimeoutSeconds $TimeoutSeconds
-    Wait-ForLogText -Path $SerialLog -Needle '"satisfies_current_boot_export_gate": false' -TimeoutSeconds $TimeoutSeconds
+    Wait-ForLogText -Path $SerialLog -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds $TimeoutSeconds
+    Wait-ForLogText -Path $SerialLog -Needle '"id": "provider_binding_consumption", "kind": "provider_binding_consumption", "status": "valid", "reason": "binding_pair_valid_for_gate_evaluation"' -TimeoutSeconds $TimeoutSeconds
+    Wait-ForLogText -Path $SerialLog -Needle '"id": "provider_trust_binding", "kind": "provider_trust_binding", "status": "verified", "reason": "provider_trust_evidence_bound"' -TimeoutSeconds $TimeoutSeconds
+    Wait-ForLogText -Path $SerialLog -Needle '"verifier_id": "openai.pinned_tls13_p256_sha256.v0", "chain_policy": "pin_only_no_webpki_chain_validation"' -TimeoutSeconds $TimeoutSeconds
+    Wait-ForLogText -Path $SerialLog -Needle '"decision": {"outcome": "denied", "reason": "automatic_context_injection_disabled", "requested_capability": "cap.provider.context_export", "grants": [], "effects": []' -TimeoutSeconds $TimeoutSeconds
 
     Send-SerialText -Port $Port -TimeoutSeconds $TimeoutSeconds -Text "agent provider.context_export provider_minimal`r"
     Wait-ForLogText -Path $SerialLog -Needle '"provider_binding_consumption": "consumed_for_gate_evaluation"' -TimeoutSeconds $TimeoutSeconds

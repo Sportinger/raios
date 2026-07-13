@@ -3554,7 +3554,7 @@ pub(crate) fn emit_rollback_apply_applied(
     pre_apply_snapshot: Snapshot,
     snapshot: Snapshot,
     event_id: event_log::EventId,
-    proof: ScopedRollbackApplyProof,
+    proof: ScopedRollbackApplyEvidence,
 ) {
     begin_response(method);
     emit_record_fields(
@@ -3648,7 +3648,7 @@ fn emit_scoped_rollback_authorized_append_marker(method: &'static str, snapshot:
 pub(crate) fn perform_scoped_rollback_apply_proof(
     method: &'static str,
     snapshot: Snapshot,
-) -> ScopedRollbackApplyProof {
+) -> ScopedRollbackApplyEvidence {
     let (scope_input, scope_decision, scope_decision_hash) =
         scoped_rollback_apply_decision_parts(method, snapshot);
     let append_input = scoped_rollback_authorized_append_input(
@@ -3676,7 +3676,10 @@ pub(crate) fn perform_scoped_rollback_apply_proof(
         HELLO_ROLLBACK_APPLY_CAPABILITY,
         &["applies_rollback", "mutates_service_state"],
     );
-    ScopedRollbackApplyProof {
+    ScopedRollbackApplyEvidence {
+        scope_proof: scope_decision.proof(),
+        append_proof: append_decision.proof(),
+        verified_apply_proof: apply_decision.proof(),
         scope_input,
         scope_decision,
         scope_decision_hash,
@@ -3687,7 +3690,7 @@ pub(crate) fn perform_scoped_rollback_apply_proof(
     }
 }
 
-pub(crate) fn emit_scoped_rollback_apply_markers_from_proof(proof: ScopedRollbackApplyProof) {
+pub(crate) fn emit_scoped_rollback_apply_markers_from_proof(proof: ScopedRollbackApplyEvidence) {
     raw(scoped_apply::SCOPED_ROLLBACK_APPLY_DECISION_MARKER);
     raw(" ");
     emit_record_value_fragment(scoped_rollback_apply_decision_value_from_proof(proof), 0);
@@ -3723,7 +3726,9 @@ fn scoped_rollback_apply_decision_parts(
     (input, decision, decision_hash)
 }
 
-fn scoped_rollback_apply_decision_value_from_proof(proof: ScopedRollbackApplyProof) -> V<'static> {
+fn scoped_rollback_apply_decision_value_from_proof(
+    proof: ScopedRollbackApplyEvidence,
+) -> V<'static> {
     inline(scoped_rollback_apply_decision_fields(
         proof.scope_input,
         proof.scope_decision,
@@ -3862,7 +3867,7 @@ fn scoped_rollback_authorized_append_value(method: &'static str, snapshot: Snaps
 }
 
 fn scoped_rollback_authorized_append_value_from_proof(
-    proof: ScopedRollbackApplyProof,
+    proof: ScopedRollbackApplyEvidence,
 ) -> V<'static> {
     inline(scoped_rollback_authorized_append_fields(
         proof.scope_input,
@@ -3992,15 +3997,17 @@ fn scoped_rollback_authorized_append_input(
     scope_decision_hash: [u8; 32],
 ) -> scoped_apply::ScopedRollbackAuthorizedAppendInput {
     let mut input = scoped_apply::ScopedRollbackAuthorizedAppendInput::empty();
+    input.requested_capability = HELLO_ROLLBACK_APPLY_CAPABILITY;
+    input.effects = &["durable_transaction_append"];
     input.scope_decision_authorized = scope_decision.authorized;
     input.scope_decision_hash = Some(scope_decision_hash);
     input.target_start_lba = scope_input.target_start_lba;
     input.target_lba_count = scope_input.target_lba_count;
     input.target_byte_count = scope_input.target_byte_count;
 
-    if !scope_decision.authorized {
+    let Some(scope_proof) = scope_decision.proof() else {
         return input;
-    }
+    };
 
     let Some(probation) = snapshot.hot_swap_probation else {
         return input;
@@ -4011,6 +4018,7 @@ fn scoped_rollback_authorized_append_input(
     let target_region_media_write_policy_preflight =
         hello_target_region_media_write_policy_preflight(foundation);
     let target_region_write = hello_rollback_target_region_authorized_append_write_readback(
+        &scope_proof,
         snapshot,
         probation,
         sector_plan,
@@ -4070,6 +4078,8 @@ fn scoped_rollback_apply_input(
     snapshot: Snapshot,
 ) -> scoped_apply::ScopedRollbackApplyInput<'static> {
     let mut input = scoped_apply::ScopedRollbackApplyInput::empty();
+    input.requested_capability = HELLO_ROLLBACK_APPLY_CAPABILITY;
+    input.effects = &["durable_transaction_append"];
     input.method = Some(method);
     input.service_id = Some(SERVICE_ID);
     input.target_region_id =

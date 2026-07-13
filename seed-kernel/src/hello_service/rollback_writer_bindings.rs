@@ -45,7 +45,7 @@ pub(crate) fn bind_rollback_apply_denial(
 
 pub(crate) fn bind_rollback_apply_applied(
     binding: &mut event_log::HelloServiceLifecycleBinding,
-    proof: ScopedRollbackApplyProof,
+    proof: ScopedRollbackApplyEvidence,
 ) {
     set_lifecycle_binding_fields!(binding;
         rollback_apply_schema = Some(HELLO_ROLLBACK_APPLY_SCHEMA),

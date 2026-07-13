@@ -585,7 +585,12 @@ pub(crate) struct RollbackTransactionAppendDryRun {
 }
 
 #[derive(Clone, Copy)]
-pub(crate) struct ScopedRollbackApplyProof {
+pub(crate) struct ScopedRollbackApplyEvidence {
+    pub(crate) scope_proof: Option<raios_core::scoped_rollback_apply::ScopedRollbackApplyProof>,
+    pub(crate) append_proof:
+        Option<raios_core::scoped_rollback_apply::ScopedRollbackAuthorizedAppendProof>,
+    pub(crate) verified_apply_proof:
+        Option<raios_core::scoped_rollback_apply::ScopedRollbackVerifiedApplyProof>,
     pub(crate) scope_input: raios_core::scoped_rollback_apply::ScopedRollbackApplyInput<'static>,
     pub(crate) scope_decision: raios_core::scoped_rollback_apply::ScopedRollbackApplyDecision,
     pub(crate) scope_decision_hash: [u8; 32],
