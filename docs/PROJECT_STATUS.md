@@ -45,6 +45,57 @@ ROOT CLASS = SUPPORT DRIFT: support.ps1 is dot-sourced and reads caller-owned
 script-scope state. When it grows a new one, EVERY dot-sourcing script must initialize
 it. Grep for the dot-sourcers before adding state.
 
+P4 EVIDENCE-VOCABULARY-V1: **NOW GENUINELY CLOSED** (2026-07-13 ~23:15). Both halves
+of the design are satisfied, and the retraction below is resolved.
+
+CLOSE EVIDENCE: FULL green shadow-20260713-230752-3548.json (2,685 predicates, 0 failed)
++ RECOVERY green shadow-20260713-231312-25044.json (152, 0) + PERSISTENCE green
+shadow-20260713-231408-29132.json (45, 0). 548 core tests. fmt, size gate, secret scan clean.
+
+HALF ONE — the envelope: all nine families answer in one `raios.evidence_response.v1`.
+An OBSERVED decision carries no grants/effects keys at all; only a DENIAL renders them.
+(Details in the block below.)
+
+HALF TWO — the emission driver (design section 1), which I had NOT checked when I first
+declared victory: "No family may call raw(), json_str(), or raw_bool() inside a JSON
+object after conversion." NOW TRUE. ~4,400 hand-written JSON emission sites became typed
+record::Value trees:
+    hello_service/emitters.rs                 1,413 -> 12
+    hello_service/runtime.rs                    112 -> 0
+    agent_protocol_provider.rs                  255 -> 4
+    agent_protocol_memory.rs                  2,019 -> 4
+    agent_protocol_module_load_gate_render.rs   625 -> 2
+Every survivor is transport framing OUTSIDE the record tree — RAIOS_AGENT_BEGIN/END and
+the scoped-rollback decision markers — which is exactly what the design's "What stays
+hand-written" permits. Not one raw() call remains inside a JSON object.
+
+THE SPLICE FLAG IS DEAD. `EMIT_BINDING_FACTS_OBJECT` was a global AtomicBool that made a
+binding emit either `{` or `, "bindings": {` — the second branch writing INTO a parent
+object a DIFFERENT function had left half-open. Correct JSON depended on a global flag
+being set at the right instant by the right caller. The binding is now a real Field in its
+parent's tree: the structure is a property of the data, not of the timing.
+
+HOW IT WAS PROVEN SAFE — this is the part worth reusing. The conversion was a MECHANISM
+swap with one invariant: THE EMITTED BYTES MUST NOT CHANGE. raios-core's
+`write_inline_object` already emits precisely what the hand-written code emitted (`{`,
+then per field `", "` if not first + `write_json_str(key)` + `": "` + value, then `}`), so
+a Value tree is byte-identical to the punctuation it replaces. Therefore: ZERO needle edits
+and ZERO hash regeneration were allowed, and a green FULL profile over an UNTOUCHED
+vm-harness/ IS the equivalence proof. Five conversions, five green runs, 2,685 predicates
+every time, vm-harness never touched. A needle that had to move would have meant the
+conversion was wrong.
+
+LINE COUNT, FINAL AND HONEST: 176,331 -> 166,094 (-10,237, 5.8%). The plan's P4-9-close
+planning center was 139,281; we are 26,813 above it. So even with BOTH halves of the design
+delivered, the line goal was missed. The reduction is real but far smaller than the design
+projected, and the reasons stand: the typed projections add 46,940 lines in raios-core that
+a seed-kernel-only metric cannot see; the carve-outs (never part of this plan) keep their
+own emitters; and W2a's warning proved right — much of the apparent duplication was
+distinct emission vocabulary, so there was less to delete than hoped. The next reduction
+must come from measured ownership moves, NOT another vocabulary layer.
+
+--- the retraction that this block resolves, kept for the record ---
+
 CORRECTION (2026-07-13 ~20:55) — I CALLED P4 CLOSED AND IT IS NOT. Retracting that,
 below, in the same file where I claimed it. The nine families ARE on the v1 ENVELOPE
 (everything in the next block is true and verified). But the design's section 1

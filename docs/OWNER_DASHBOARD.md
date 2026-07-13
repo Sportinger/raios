@@ -2,15 +2,28 @@
 
 Updated: 2026-07-13 (evening).
 
-KORREKTUR (Abend): Ich hatte gemeldet, die Vokabel-Arbeit sei FERTIG. Das war zu
-früh, und ich nehme es zurück. Fertig ist die **Form** der Antworten (alles im
-nächsten Absatz stimmt und ist geprüft). Nicht fertig ist der **Motor dahinter**:
-Der Plan verlangt, dass keine Familie das JSON mehr von Hand zusammenschreibt —
-und ~4.400 Zeilen tun das noch immer. Genau daran hängt auch das verfehlte
-Größenziel: Diese Dateien sind so groß, WEIL das JSON von Hand geschrieben wird.
-Das läuft gerade (P4-9c) und ist ein reiner Motorwechsel: Die ausgegebenen Daten
-bleiben Byte für Byte identisch — kein einziger Test muss angefasst werden, und
-genau das ist der Beweis, dass nichts kaputtgeht.
+JETZT WIRKLICH FERTIG (Abend, 23:15). Ich hatte die Vokabel-Arbeit vorschnell als
+fertig gemeldet, das zurückgenommen — und jetzt stimmt es tatsächlich, beide
+Hälften:
+1. Die **Form** jeder Antwort (siehe unten).
+2. Der **Motor dahinter**: raiOS schreibt sein JSON nirgends mehr von Hand
+   zusammen. ~4.400 Stellen, an denen Klammern und Kommas einzeln auf die
+   Leitung geschrieben wurden, sind weg; die Antwort wird jetzt als EIN
+   typisierter Datenbaum gebaut und von EINEM Renderer ausgegeben. Damit ist
+   auch ein globaler Schalter verschwunden, von dem vorher abhing, ob das JSON
+   überhaupt korrekt zusammengesetzt wurde — die Struktur ist jetzt eine
+   Eigenschaft der Daten, nicht des richtigen Timings.
+
+Der Beweis, dass dabei nichts kaputtging, ist der schönste Teil: Es war ein
+reiner Motorwechsel, die ausgegebenen Daten mussten Byte für Byte identisch
+bleiben. Also durfte KEIN einziger Test angefasst werden. Fünf Umbauten, fünf
+grüne Testläufe, jedes Mal dieselben 2.685 Prüfungen — und die Testdateien
+blieben unberührt. Hätte ein Test angepasst werden müssen, wäre der Umbau falsch
+gewesen.
+
+Größe: 176.331 → 166.094 Zeilen (gut 10.000 weniger). Das Ziel von 139.000 ist
+damit weiterhin verfehlt — ehrlich bleibt: Der Umbau hat weniger gebracht, als
+der Plan hoffte.
 
 ONE LANGUAGE, ALL NINE FAMILIES — the answer FORM is finished. Every answer
 raiOS gives — about a module, about loading, about its memory, its events, its

@@ -17,16 +17,20 @@ vocabulary).
 
 Last updated: 2026-07-13.
 
-**P4 IS NOT CLOSED — I said it was, and I was wrong (corrected 2026-07-13 ~20:55).**
-The ENVELOPE half is done and verified (below). The design's OTHER half — section 1,
-"Emission driver": *"No family may call raw(), json_str(), or raw_bool() inside a JSON
-object after conversion"* — is NOT met. ~4,400 lines still hand-write JSON punctuation
-inside the v1 envelope (memory 1,998; hello emitters 1,413; load-gate render 658;
-provider 255; hello runtime 112), and P4-9's slice row explicitly demands "remove last
-JSON raw() sites". That is the same fact as the line miss: those files are huge BECAUSE
-the emission is hand-written. In flight as P4-9c — a BYTE-IDENTICAL mechanism swap
-(Value tree + the one generic renderer), so zero needle edits and zero hash regeneration;
-a green full profile with an untouched vm-harness/ is the equivalence proof.
+**P4 EVIDENCE-VOCABULARY-V1 IS CLOSED — BOTH HALVES (2026-07-13 ~23:15).** I once called
+it closed after only the envelope; that was wrong and is now actually true.
+1. THE ENVELOPE: nine families, one `raios.evidence_response.v1` (below).
+2. THE EMISSION DRIVER (design section 1): *"No family may call raw(), json_str(), or
+   raw_bool() inside a JSON object after conversion."* ~4,400 hand-written JSON sites are
+   now typed `record::Value` trees (memory 2,019→4; hello emitters 1,413→12; load-gate
+   render 625→2; provider 255→4; hello runtime 112→0). Every survivor is transport framing
+   OUTSIDE the record tree. The `EMIT_BINDING_FACTS_OBJECT` splice flag is deleted.
+EVIDENCE: FULL shadow-20260713-230752-3548.json (2,685/0) + RECOVERY
+shadow-20260713-231312-25044.json + PERSISTENCE shadow-20260713-231408-29132.json; 548 core
+tests. Proven byte-identical: five conversions, five green runs, vm-harness NEVER touched.
+LINE COUNT: 176,331 -> 166,094 (-10,237). The plan's center was 139,281 — still missed, and
+the P4 block in `docs/PROJECT_STATUS.md` says exactly why. The next reduction must come from
+measured ownership moves, NOT another vocabulary layer.
 
 **P4 ENVELOPE (done).** All nine families answer in
 one `raios.evidence_response.v1` envelope; an OBSERVED decision has no
