@@ -24,7 +24,40 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-SECURITY FIX LANDED — THE ROLLBACK "PROOF" WAS NOT A PROOF (2026-07-13 ~18:30).
+SECURITY FIX COMPLETE — THE MEDIA WRITE NOW REQUIRES A PROOF TO COMPILE
+(2026-07-13 ~19:11). P4-7b2 landed: the real LBA1 write and the real STATE
+mutation take an unforgeable core proof as an ARGUMENT. The old
+`if !scope_decision.authorized` guard is GONE — grep returns zero — because the
+type makes it unreachable. You cannot call the write without a proof, and you
+cannot get a proof without a fully verified chain AND a declared capability. The
+emitter-assembled "ScopedRollbackApplyProof" is renamed ScopedRollbackApplyEvidence
+and demoted to what it always was: a carrier of rendering inputs.
+BLOCK-CLOSE EVIDENCE: FULL green shadow-20260713-190556-11888.json + RECOVERY
+green shadow-20260713-191133-24960.json. 543 core tests. All gates clean.
+P4-8 landed in the same run: the provider's facts stop claiming authority
+(outcome/blocked_by moved into the decision; authorizes_provider_* DELETED — the
+absence of a grant IS the denial). That is the actual fix for the kernel panic
+P4-5 hit, and every provider hash is byte-identical.
+
+TWO NEW FINDINGS from tracing the writes, both recorded, NEITHER fixed under a
+rendering deadline:
+1. A PROOF CANNOT GUARD THE WRITE THAT PRODUCES THE EVIDENCE IT IS MADE OF. The
+   writes and evaluators form a ladder; the scratch write and the initial
+   materialization CREATE the evidence the scope proof is made of. My first ruling
+   demanded the proof there and would have produced a circular, permanently denied
+   path. Corrected: gate each write with the proof of the evaluator that authorizes
+   IT, never a downstream one.
+2. THE MATERIALIZATION WRITE CONSULTS ITS POLICY AFTER IT HAS WRITTEN. Its preflight
+   is consumed AFTER the AHCI call. It is not a pre-write gate. The write happens,
+   then the policy is asked whether it should have — and no downstream type
+   discipline can un-write a sector. The scratch write likewise has no typed
+   authority (AHCI's label/bounds/overlap checks are DEVICE safety, not CAPABILITY
+   authority). Consequence: P4-7's materialization/scratch RESPONSE conversion is
+   CARVED OUT and named — those responses cannot be rendered truthfully today.
+   Follow-up, in order: move the preflight before the AHCI call and give it a typed
+   proof; give the scratch write a pre-write gate; only then convert the responses.
+
+SECURITY FINDING (now fixed) — THE ROLLBACK "PROOF" WAS NOT A PROOF (2026-07-13 ~18:30).
 P4-7a raised it; the code confirmed it. `ScopedRollbackApplyProof` in
 seed-kernel/src/hello_service/emitters.rs was a struct the RENDERER assembled out
 of evaluator booleans and hashes. Any kernel code could have constructed one with
