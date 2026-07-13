@@ -668,3 +668,24 @@ It is a signature reference; silently omitting a signature from the evidence
 stream is precisely the appearance-only gap that P4-2b2b had to correct in the
 substituted-approval fixture. If the evaluator genuinely has no consumer for it,
 retire it EXPLICITLY with a named manifest note and a reason — never by omission.
+
+## P4-4b1 notes
+
+- `raios-core::event_evidence_projection` now accepts one immutable typed ring
+  snapshot and projects its captured events in input order; it never sorts,
+  deduplicates, reacquires kernel state, or constructs a granted decision.
+- Each historical event is one evidence record with its own status, reason,
+  source event ID, classification, base facts, ordered source labels, and
+  optional classified binding facts. The response decision is only
+  `observed("recent_events_read")`; top-level `event_id` remains the envelope's
+  ruled `null`.
+- Unknown or empty event kinds and public records carrying secret binding facts
+  become explicit rejected evidence. The promotion-signature projection class
+  is named and host-tested so R5 cannot regress to silent omission.
+- The load-gate event adapter reuses `project_load_gate_denial()`'s twelve
+  ordered evidence units but intentionally discards its direct-response
+  decision: historical blockers remain event evidence, not a second decision.
+- The manifest names `dropped_before_sequence` but no separate `truncated`
+  response leaf. P4-4b1 therefore carries the named drop boundary and does not
+  invent a truncation field; kernel integration should resolve that only if a
+  distinct evaluator-owned fact exists.

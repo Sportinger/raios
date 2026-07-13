@@ -15,6 +15,7 @@ pub mod distribution_registry;
 pub mod dot11_scan;
 pub mod driver_capability;
 pub mod durable_record_frame;
+pub mod event_evidence_projection;
 pub mod evidence_response;
 pub mod genesis_layout;
 pub mod gpt_layout;
