@@ -418,16 +418,16 @@
 
     Send-AgentCommand -Command "module.load_ephemeral" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "command:module.load_ephemeral.pre_audit"
     $modulePreAuditLoadResponse = Get-LastAgentResponseJson -Method "module.load_ephemeral"
-    $moduleAuditDenialEventId = [string]$modulePreAuditLoadResponse.body.event_id
+    $moduleAuditDenialEventId = [string]$modulePreAuditLoadResponse.event_id
     Assert-CurrentBootEventId -Name "protocol:module_audit_denial_event_id_captured" -Value $moduleAuditDenialEventId
-    Assert-LogContains -Name "policy:module_pre_audit_load_denied" -Needle '"code": "capability_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:module_pre_audit_artifact_retained" -Needle '"candidate_artifact": "retained_hash_reference_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:module_pre_audit_vm_report_retained" -Needle '"vm_test_report": "retained_hash_reference_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:module_pre_audit_attestation_retained" -Needle '"local_attestation": "retained_hash_reference_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:module_pre_audit_grant_retained" -Needle '"computed_capability_grant": "retained_hash_reference_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:module_pre_audit_approval_retained" -Needle '"local_approval": "retained_hash_reference_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:module_pre_audit_audit_missing" -Needle '"durable_audit_record": "missing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:module_pre_audit_rollback_missing" -Needle '"rollback_plan": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_pre_audit_load_denied" -Needle '"outcome": "denied", "reason": "durable_audit_write_missing", "requested_capability": "cap.module.load_ephemeral", "grants": [], "effects": []' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_pre_audit_artifact_retained" -Needle '"id": "candidate_artifact", "kind": "retained_reference", "status": "verified", "reason": "retained_candidate_artifact_reference_not_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_pre_audit_vm_report_retained" -Needle '"id": "vm_test_report", "kind": "retained_reference", "status": "verified", "reason": "retained_vm_test_report_reference_not_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_pre_audit_attestation_retained" -Needle '"id": "local_attestation", "kind": "retained_reference", "status": "verified", "reason": "retained_local_attestation_reference_not_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_pre_audit_grant_retained" -Needle '"id": "computed_capability_grant", "kind": "retained_reference", "status": "verified", "reason": "retained_computed_grant_reference_not_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_pre_audit_approval_retained" -Needle '"id": "local_approval", "kind": "retained_reference", "status": "verified", "reason": "retained_local_approval_reference_not_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_pre_audit_audit_missing" -Needle '"id": "durable_audit_record", "kind": "retained_reference", "status": "missing", "reason": "durable_audit_write_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_pre_audit_rollback_missing" -Needle '"id": "rollback_plan", "kind": "retained_reference", "status": "missing", "reason": "rollback_install_missing"' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent module.audit_rollback_diagnostic" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_diagnostic"
     Assert-LogContains -Name "protocol:module_audit_rollback_diag_schema" -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
@@ -488,8 +488,8 @@
     Assert-LogContains -Name "policy:module_rejected_audit_reference_state" -Needle '"state": "rejected"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_rejected_audit_reference_status" -Needle '"status": "rejected"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_rejected_audit_reference_reason" -Needle '"reason": "retained_audit_rollback_reference_wrong_schema_or_variant"' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:module_rejected_audit_state" -Needle '"durable_audit_record": "rejected_retained_reference"' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:module_rejected_rollback_state" -Needle '"rollback_plan": "rejected_retained_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_rejected_audit_state" -Needle '"id": "durable_audit_record", "kind": "retained_reference", "status": "rejected"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_rejected_rollback_state" -Needle '"id": "rollback_plan", "kind": "retained_reference", "status": "rejected"' -TimeoutSeconds 1
 
     $moduleAuditCanonical = @(
         "canonicalization=raios.audit_record.canonical.v0",

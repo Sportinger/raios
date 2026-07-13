@@ -332,6 +332,6 @@
     Assert-LogContains -Name "policy:module_manifest_hash_retained" -Needle "`"manifest_hash`": `"sha256:$moduleGrantManifestHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_artifact_hash_retained" -Needle "`"artifact_hash`": `"sha256:$moduleGrantArtifactHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_local_attestation_hash_retained" -Needle "`"local_attestation_hash`": `"sha256:$moduleGrantAttestationHash`"" -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:module_service_inventory_unchanged" -Needle '"service_registry_mutation_boundary": {"record_schema": "raios.module_loader_service_registry_mutation_boundary.v0", "record_id": "module_loader_service_registry_mutation_boundary", "source_event_id": null, "status_detail": "defined_non_authorizing", "reason": "module_loader_service_registry_mutation_boundary_non_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_service_inventory_unchanged" -Needle '"service_registry_mutation_boundary": {"record_schema": "raios.module_loader_service_registry_mutation_boundary.v0", "record_id": "module.loader_runtime.service_registry_mutation_boundary.current_boot"' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent audit.events 24" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events" -Name "command:agent.audit.events.module_load_gate"

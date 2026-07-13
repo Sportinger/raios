@@ -1203,3 +1203,11 @@ UNCERTAIN: none. All restored needles come from the current typed renderer/evalu
 The accounting above completes the focused-harness STOP-10 repair for orchestration.
 
 Correction (P4-2b2a-fix2): the `memory.recent_events` load-gate event binding was not converted to evidence-v1; it remains on the pre-v1 compact vocabulary because event-record output belongs to the EVENT family and converts in P4-4, not P4-2. All P4-2b2a v1 response paths remain converted.
+
+P4-2b2a follow-up (event micro-rename, absorbed): the restored compact event
+binding calls the shared audit-rollback-requirements field builder, whose key
+"schema" became "record_schema" in the b2a response conversion. The binding
+therefore emits record_schema too — a single leaf-key rename inside the event
+binding's requirements sub-object, and "writes_enabled" no longer renders
+adjacent to status there. full-audit needles 74-75 updated accordingly; P4-4
+inherits this as an already-landed event rename.
