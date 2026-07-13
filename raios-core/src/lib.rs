@@ -38,6 +38,7 @@ pub mod promotion_attestation;
 pub mod provider_context;
 pub mod provider_trust_descriptor;
 pub mod record;
+pub mod record_table;
 pub mod recovery_lifeline_table;
 pub mod recovery_load_record;
 pub mod repromotion_reverify;
