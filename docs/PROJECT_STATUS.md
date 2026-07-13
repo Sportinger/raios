@@ -24,6 +24,31 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+OPEN FINDING — THE HELLO LIFECYCLE MUTATES UNDER NO NAMED AUTHORITY (found
+2026-07-13 by P4-6). The lifecycle methods (load / start / restart / hot_swap /
+stop / drop) really do mutate the current-boot service slot, the service
+inventory and service state — but NO capability names those mutations, NO
+evaluator gates them, and NO proof authorizes them. They run on implicit
+command-dispatcher authority. This was invisible while every response wrote its
+own vocabulary; the shared vocabulary made it impossible to render the response
+honestly without noticing, because the only two available lies were "grant it
+from a proof that does not exist" and "call it observed while shipping
+effects: []".
+raiOS does neither. P4-6 renders `observed("<action>_performed")` with every
+state change as an ordered EVIDENCE record (slot before/after, inventory
+present_before/present_after, state transition) — visible, enumerable, and
+honest that this response authorized none of it. The gap is now written down
+instead of papered over.
+Closing it is SUBSTRATE work, not rendering work: it belongs with the P4-9 D2
+carve-out (project/install/distribution also perform real effects with no
+evaluator). Inventing evaluators under vocabulary pressure is how a fail-closed
+system grows a back door, so P4 explicitly does not do it.
+CONTRAST, for the record: the scoped-rollback append DOES have a real gate
+(a chain of six hashes plus three conditions), so P4-5 gives that gate a typed
+proof and renders it GRANTED. The difference between the two is exactly the
+difference between authority that exists and authority that does not — and the
+vocabulary now makes that difference impossible to blur.
+
 P4-4 IN FLIGHT — EVENT ENVELOPE PARKED ON refactor/p4-4-event-envelope-wip
 (2026-07-13 ~16:10). Committed on main: the five orchestrator rulings (R1-R5;
 R2 is load-bearing — each historical event keeps its OWN status/reason as an
