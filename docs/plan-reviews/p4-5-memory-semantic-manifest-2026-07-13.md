@@ -795,3 +795,36 @@ UNCERTAIN: the manifest does not assign a wire classification string for an
 unknown source classification. This slice uses explicit `classification:
 "unknown"`, `status:"rejected"`, and treats `Unknown` as the conservative maximum.
 Kernel acquisition/emission integration remains outside P4-5b1 by packet scope.
+
+### M3 FINAL — I conflated two evaluators. There are TWO appends, and P4-5 owns neither positive path.
+
+The worker stopped a third time and found the real structure. There are TWO append
+evaluators, and my M3 (twice) pointed at the wrong one:
+
+1. `evaluate_scoped_rollback_authorized_append` (scoped_rollback_apply.rs) — the LBA1
+   ROLLBACK TRANSACTION append. Its caller is the hello rollback path and already
+   declares HELLO_ROLLBACK_APPLY_CAPABILITY. P4-5b1 gave it a typed proof. But its
+   response belongs to the ROLLBACK/WRITE-BOUNDARY family — that is **P4-7**, not P4-5.
+   The proof stays; P4-7 consumes it.
+2. `evaluate_scoped_memory_record_append` (scoped_memory_record_append.rs) — the
+   RECLOG MEMORY-RECORD append, which is what memory_store.rs actually uses. It has the
+   SAME shape (`{performed, status, reason}`), the SAME real validation gauntlet, and
+   the SAME untyped authority. Its caller's capability is NOT verified to exist.
+
+**Ruling: P4-5b2 is NARROWED.** It converts memory.profile / memory.context /
+memory.query / memory.trace and the mutation DENIAL — all of which need no positive
+path at all. The durable memory-record APPEND response is EXCLUDED from P4-5 and gets
+its own slice, because doing it honestly requires (a) the same proof-typing treatment
+the rollback evaluator just received, and (b) a caller-declared capability that I have
+NOT confirmed exists. I will not invent one to meet a rendering deadline — that is the
+back door, and it is the third time this migration has been offered it.
+
+**The pattern is now the finding.** Three independent times, the vocabulary has walked
+into the same wall: a REAL fail-closed gate exists, it genuinely decides authority, and
+it cannot SAY what it decided because nothing carries a capability or an effect. Hello
+lifecycle has no gate at all (P4-6). The rollback append has a gate and a caller-declared
+capability (typed, P4-5b1). The memory-record append has a gate and an UNVERIFIED
+capability (excluded here). That is not three coincidences; it is one systemic gap —
+raiOS's authority is real but untyped — and the shared vocabulary is what made it
+visible. Typing it is substrate work and belongs with the P4-9 D2 carve-out, done
+deliberately, with its own evidence. Not under a rendering deadline.
