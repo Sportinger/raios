@@ -737,3 +737,50 @@ state files” is not a clean file boundary. `records.rs`, `runtime.rs`,
 `state_machine.rs`, `lifecycle_binding.rs`, and especially `emitters.rs` are
 mixed with live P4-7 authority. P4-6b must cut by the functions and record types
 listed here, not by whole-file ownership.
+
+## Orchestrator rulings (2026-07-13, binding for P4-6b)
+
+**H1 — NEITHER offered option, because both are dishonest. Take option (c).**
+
+The manifest offers (a) a real core evaluator returning GrantProof with an exact
+capability/effect set per action, or (b) an `observed` decision with the
+inventory/state changes "remaining facts". Both are refused:
+
+- (a) requires INVENTING a capability and an evaluator that do not exist, under
+  vocabulary pressure. That is precisely how a fail-closed system grows a back
+  door (see the P4-9 D2 ruling). The substrate makes GrantProof constructible only
+  from a proof for exactly this reason; manufacturing the proof to satisfy a
+  rendering deadline defeats the mechanism.
+- (b) buries real state changes in `facts` while the decision renders
+  `effects: []`. A consumer reading that decision concludes nothing happened. That
+  is HIDING AN EFFECT — the single failure mode this whole vocabulary exists to
+  prevent, and the same trap the P4-9 carve-out refused.
+
+**Ruling (c):** the decision is `observed("<action>_performed")` — an honest
+statement that this response OBSERVED the mutation; it does not claim to have
+authorized it, because it did not. The state changes are rendered as ORDERED
+EVIDENCE RECORDS (service-slot state, inventory change, health record), each with
+its own status/reason/source_event_id — visible, enumerable, and impossible to
+mistake for "nothing happened". They are NOT stuffed into `decision.effects`,
+which is reserved for effects a decision actually authorized.
+
+**And the gap gets NAMED, not papered over.** The honest finding this slice
+surfaces: the Hello lifecycle methods mutate current-boot state under implicit
+dispatcher authority — no named capability, no evaluator, no proof. That is a real
+authority gap in the system as it stands today. P4-6 does not invent one and does
+not hide one; it reports the mutation as observed evidence and records the gap
+here and in PROJECT_STATUS as follow-up work (the same substrate work P4-9 D2
+carved out). Health is unambiguously `observed`; its event recording is
+provenance, not an effect.
+
+**H2 — the Hello attestation may not silently shrink; therefore DO NOT relocate.**
+P4-6 is a vocabulary slice, not a relocation slice. Moving non-rollback W9 logic
+into raios-core would change what the Hello artifact's attested source set covers,
+and a source set that quietly stops covering code it used to cover is worse than a
+larger file. Keep the attested source set intact: no non-rollback relocation in
+P4-6. If relocation is worth doing, it is its own slice with its own attestation
+update and its own evidence.
+
+**H3 — rollback/write fields in lifecycle_binding.rs are P4-7's.** Confirmed as the
+manifest states: P4-6 does not touch their content, order, or hashes. A deletion or
+relocation that reaches them is a STOP.
