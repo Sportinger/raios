@@ -725,3 +725,41 @@ evaluator verified it, not that a search found it.)
 **M6 — P4-4 boundary confirmed.** `emit_recent_events`, the event ring, event
 records and event bindings are P4-4's (now landed on main). P4-5 may advertise or
 locate that method; it may not regenerate or delete its content.
+
+### M3 CORRECTED (orchestrator, after the P4-5b1 worker's STOP)
+
+The worker STOPPED and was right to: my M3 assumed
+`evaluate_scoped_rollback_authorized_append` produced a proof carrying a capability
+and effects. It does not. It returns `{performed: bool, status, reason}`. Nothing in
+the allowed write set could have read a capability from it, and inventing one would
+have been the back door. Good stop.
+
+But the conclusion survives, sharpened. Two facts settle it:
+
+1. The evaluator IS a real, fail-closed gate. Its body verifies a chain — scope
+   decision authorized, scope-decision hash, append-record hash, sector-plan hash,
+   write-readback hash, inspection hash, padding zeroed, target span verified,
+   inspection verified — and returns `performed: true` ONLY when the whole chain
+   holds. It already decides authority; it simply never had to SAY so.
+2. The capability is NOT missing. `HELLO_ROLLBACK_APPLY_CAPABILITY` already exists
+   and the emitters already declare it as `requested_capability`
+   (seed-kernel/src/hello_service/emitters.rs:248, :328, :387, :453).
+
+So the correct move is neither of the two things I forbade. Draw the line precisely:
+
+- **Inventing authority** = creating a new gate, or fabricating a proof for an
+  action nothing gates. FORBIDDEN, always.
+- **Typing authority that already exists** = giving a real, already-passing gate a
+  machine-readable proof that names the capability its caller already declares.
+  REQUIRED — because without it the vocabulary literally cannot express a true
+  positive without lying, and the only alternatives are to hide a durable effect
+  (`observed` + `effects: []`) or to synthesize a grant from booleans.
+
+**M3-corrected:** the write set is widened to `raios-core/src/scoped_rollback_apply.rs`
+for ONE change: the evaluator gains a proof output. The GATE LOGIC DOES NOT CHANGE —
+not one condition, not one hash, not one reason string. The requested capability and
+the effect names are passed IN (they belong to the caller, which already has them);
+core never mints a capability, it CERTIFIES one: "this chain verifies, therefore the
+capability you asked for is proven, with these effects" — or it denies with the
+existing reason. Fail-closed is preserved because the proof remains unconstructible
+without a passing chain.
