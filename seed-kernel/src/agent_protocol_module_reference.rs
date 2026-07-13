@@ -1,4 +1,5 @@
-use alloc::vec;
+use alloc::{vec, vec::Vec};
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{
     agent_protocol_module_load_gate::{
@@ -6,18 +7,124 @@ use crate::{
     },
     agent_protocol_module_types::*,
     agent_protocol_support::{
-        begin_response, crlf, current_boot_event_id_str, emit_export_gate,
-        emit_record_fields_trailing_comma, emit_record_property_line,
-        emit_record_value_property_line, end_response, method_eq, method_head_eq,
-        parse_current_boot_event_id, parse_sha256_ref, raw_line, record_bool as b, record_event,
-        record_false as no, record_field as f, record_missing_retained_reference_fields,
-        record_present_absent, record_retained_reference_present_fields, record_selftest_case,
-        record_sha_fields, record_sha_or_null, record_static_str_array, record_str as s,
-        record_str_or_null,
+        crlf, current_boot_event_id_str, emit_record_value_fragment, method_eq, method_head_eq,
+        parse_current_boot_event_id, parse_sha256_ref, raw_fmt, raw_line, record_bool as b,
+        record_event, record_false as no, record_field as f,
+        record_missing_retained_reference_fields, record_present_absent,
+        record_retained_reference_present_fields, record_selftest_case, record_sha_fields,
+        record_sha_or_null, record_static_str_array, record_str as s, record_str_or_null,
     },
     event_log, module_evidence,
 };
-use raios_core::record::Value as V;
+use raios_core::{
+    evidence_response::{self as ev, Blocked, Envelope, Evidence},
+    record::Value as V,
+};
+
+static NEXT_EVIDENCE_RESPONSE_ID: AtomicU64 = AtomicU64::new(1);
+
+pub(crate) fn emit_evidence_v1_response(
+    method: &'static str,
+    family: &'static str,
+    event_id: Option<event_log::EventId>,
+    facts: V<'_>,
+    evidence: Vec<V<'_>>,
+    decision: V<'_>,
+) {
+    let envelope = Envelope {
+        response_sequence: NEXT_EVIDENCE_RESPONSE_ID.fetch_add(1, Ordering::Relaxed),
+        family,
+        scope: "current_boot",
+        classification: "local_only",
+        source_method: method,
+        event_sequence: event_id.map(event_log::EventId::sequence),
+        facts,
+        evidence,
+        decision,
+    };
+    let response = ev::response_value(&envelope);
+    raw_fmt(format_args!("RAIOS_AGENT_BEGIN {}\r\n", method));
+    emit_record_value_fragment(response, 0);
+    crlf();
+    raw_fmt(format_args!("RAIOS_AGENT_END {}\r\n", method));
+}
+
+pub(crate) fn diagnostic_facts<'a>(
+    reference_format: &'a str,
+    request: V<'a>,
+    guest_evidence_authority: &'a str,
+    required_before_load: V<'a>,
+    trust_tier: V<'a>,
+    runtime: V<'a>,
+) -> V<'a> {
+    ev::diagnostic_facts_value(ev::DiagnosticFacts {
+        test_infrastructure: false,
+        reference_format,
+        request,
+        intake: V::InlineObject(vec![
+            f("accepts_manifest_json", no()),
+            f("accepts_artifact_bytes", no()),
+            f("accepts_vm_report_json", no()),
+            f("accepts_local_attestation_json", no()),
+            f("accepts_local_approval_text", no()),
+            f("accepts_unsigned_service_code", no()),
+        ]),
+        guest_evidence_authority,
+        required_before_load,
+        trust_tier,
+        runtime,
+    })
+}
+
+pub(crate) fn evidence_record<'a>(
+    id: &'a str,
+    kind: &'a str,
+    status: &'a str,
+    reason: &'a str,
+    source_event_id: Option<event_log::EventId>,
+    facts: V<'a>,
+) -> V<'a> {
+    ev::evidence_value(Evidence {
+        id,
+        kind,
+        status,
+        reason,
+        source_event_sequence: source_event_id.map(event_log::EventId::sequence),
+        classification: "local_only",
+        facts,
+    })
+}
+
+pub(crate) fn common_evidence_status(valid: bool, has_reference: bool) -> &'static str {
+    ev::reference_status(valid, has_reference)
+}
+
+pub(crate) fn selftest_facts(cases: V<'static>, case_count: usize, passed: bool) -> V<'static> {
+    ev::selftest_facts_value(ev::SelftestFacts {
+        case_count: case_count as u64,
+        passed,
+        safety: ev::selftest_safety_value(),
+        cases,
+    })
+}
+
+pub(crate) fn selftest_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    passed: bool,
+) -> V<'static> {
+    ev::selftest_case(
+        name,
+        expected_status,
+        expected_reason,
+        actual_status,
+        actual_reason,
+        passed,
+    )
+}
 pub(crate) fn emit_module_manifest_diagnostic(method: &str) {
     let arg = module_manifest_diagnostic_arg(method);
     let check = parse_module_manifest_reference(arg);
@@ -27,39 +134,9 @@ pub(crate) fn emit_module_manifest_diagnostic(method: &str) {
         None
     };
     let retained = event_log::latest_module_manifest_reference();
-
-    begin_response("module.manifest_diagnostic");
-    emit_record_fields_trailing_comma(
-        vec![
-            f("schema", s("raios.module_manifest_reference_diagnostic.v0")),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("test_infrastructure", no()),
-            f("mutates_global_event_log", b(check.valid)),
-            f(
-                "global_event_log_mutation",
-                s(if check.valid {
-                    "valid_hash_reference_retention_only"
-                } else {
-                    "none"
-                }),
-            ),
-            f("accepts_manifest_json", no()),
-            f("accepts_artifact_bytes", no()),
-            f("accepts_unsigned_service_code", no()),
-            f("loads_artifact", no()),
-            f("service_inventory_change", s("none")),
-            f("load_attempted", no()),
-            f(
-                "reference_format",
-                s("module.manifest_diagnostic <manifest_reference_hash> <manifest_hash> [current_boot]"),
-            ),
-        ],
-        6,
-    );
-    emit_record_property_line(
-        "request",
-        vec![
+    let facts = diagnostic_facts(
+        "module.manifest_diagnostic <manifest_reference_hash> <manifest_hash> [current_boot]",
+        V::InlineObject(vec![
             f("requested_capability", s("cap.module.load_ephemeral")),
             f("load_mode", s("ram_only")),
             f("subject", s("agent.session.serial")),
@@ -73,72 +150,33 @@ pub(crate) fn emit_module_manifest_diagnostic(method: &str) {
                 "manifest_reference_canonicalization",
                 s("raios.module_manifest_reference.canonical.v0"),
             ),
-        ],
-        true,
+        ]),
+        "hash_reference_only_no_manifest_json_or_artifact_bytes",
+        record_static_str_array(&[
+            "candidate_artifact_sha256",
+            "raios.vm_test_report.v0",
+            "raios.local_attestation.v0",
+            "raios.computed_capability_grant.v0",
+            "raios.audit_record.v0",
+            "rollback_plan",
+            "module_loader",
+            "ram_only_service_slot",
+        ]),
+        V::Null,
+        V::InlineObject(vec![
+            f("loader", s("unavailable")),
+            f("service_slot", s("unallocated")),
+        ]),
     );
-    emit_module_manifest_reference_object(&check, true);
-    emit_module_manifest_retained_reference(&check, recorded_event_id, retained, true);
-    emit_module_manifest_gate_state(&check, true);
-    emit_module_manifest_policy_result(&check, true);
-    raw_line("      \"blocked_by\": [");
-    let mut wrote = false;
-    if !check.valid {
-        emit_export_gate(&mut wrote, "module_manifest", check.status, check.reason);
-    }
-    emit_export_gate(
-        &mut wrote,
-        "candidate_artifact",
-        "missing",
-        "candidate_artifact_missing",
-    );
-    emit_export_gate(
-        &mut wrote,
-        "vm_test_report",
-        "missing",
-        "vm_test_report_missing",
-    );
-    emit_export_gate(
-        &mut wrote,
-        "local_attestation",
-        "missing",
-        "local_attestation_missing",
-    );
-    emit_export_gate(
-        &mut wrote,
-        "computed_capability_grant",
-        "missing",
-        "computed_capability_grant_missing",
-    );
-    emit_export_gate(
-        &mut wrote,
-        "durable_audit_record",
-        "missing",
-        "durable_audit_write_missing",
-    );
-    emit_export_gate(
-        &mut wrote,
-        "rollback_plan",
-        "missing",
-        "rollback_install_missing",
-    );
-    emit_export_gate(
-        &mut wrote,
-        "loader",
-        "unavailable",
-        "module_loader_unimplemented",
-    );
-    crlf();
-    raw_line("      ]");
-    end_response("module.manifest_diagnostic");
-}
-
-fn emit_module_manifest_reference_object(check: &ModuleManifestReferenceCheck<'_>, comma: bool) {
-    emit_record_property_line(
-        "module_manifest_reference",
-        vec![
+    let mut evidence = vec![evidence_record(
+        "module_manifest",
+        "reference",
+        common_evidence_status(check.valid, check.has_reference),
+        check.reason,
+        None,
+        V::InlineObject(vec![
             f("state", record_present_absent(check.has_reference)),
-            f("validation_status", s(check.status)),
-            f("validation_reason", s(check.reason)),
+            f("status_detail", s(check.status)),
             f("arity_valid", b(check.arity_valid)),
             f("scope", s(check.scope)),
             f("manifest_schema", s("raios.module_manifest.v0")),
@@ -151,108 +189,62 @@ fn emit_module_manifest_reference_object(check: &ModuleManifestReferenceCheck<'_
                 record_sha_or_null(check.expected_manifest_reference_hash),
             ),
             f("manifest_hash", record_sha_or_null(check.manifest_hash)),
-        ],
-        comma,
-    );
-}
-
-fn emit_module_manifest_retained_reference(
-    check: &ModuleManifestReferenceCheck<'_>,
-    recorded_event_id: Option<event_log::EventId>,
-    retained: Option<(event_log::EventId, event_log::ModuleManifestReference)>,
-    comma: bool,
-) {
-    let fields = if let Some((event_id, reference)) = retained {
-        let mut fields = record_retained_reference_present_fields(
-            event_id,
-            recorded_event_id,
-            module_manifest_reference_matches(check, reference),
-            "raios.module_manifest_reference.v0",
-        );
-        fields.extend(vec![
-            f("accepts_manifest_json", no()),
-            f("accepts_artifact_bytes", no()),
-            f("accepts_unsigned_service_code", no()),
-            f("authorizes_guest_load", no()),
-            f("can_load_now", no()),
-            f("service_inventory_change", s("none")),
-            f("load_attempted", no()),
-            f(
-                "hashes",
-                V::Object(record_sha_fields(&[
-                    ("manifest_reference_hash", reference.manifest_reference_hash),
-                    ("manifest_hash", reference.manifest_hash),
-                ])),
-            ),
-        ]);
-        fields
+        ]),
+    )];
+    if let Some((event_id, reference)) = retained {
+        evidence.push(evidence_record(
+            "module_manifest_retained",
+            "retained_reference",
+            "verified",
+            "retained_hash_reference_load_still_denied",
+            Some(event_id),
+            V::InlineObject(vec![
+                f("state", s("present")),
+                f("retention", s("current_boot_ram_event_log")),
+                f(
+                    "matches_current_reference",
+                    b(module_manifest_reference_matches(&check, reference)),
+                ),
+                f("record_schema", s("raios.module_manifest_reference.v0")),
+                f(
+                    "status_detail",
+                    s("retained_hash_reference_load_still_denied"),
+                ),
+                f(
+                    "manifest_reference_hash",
+                    V::Sha256(reference.manifest_reference_hash),
+                ),
+                f("manifest_hash", V::Sha256(reference.manifest_hash)),
+            ]),
+        ));
     } else {
-        record_missing_retained_reference_fields(
-            "raios.module_manifest_reference.v0",
+        evidence.push(evidence_record(
+            "module_manifest_retained",
+            "retained_reference",
+            "missing",
             "no_valid_module_manifest_reference_retained",
-        )
-    };
-    emit_record_property_line("retained_manifest_reference", fields, comma);
-}
-
-fn emit_module_manifest_gate_state(check: &ModuleManifestReferenceCheck<'_>, comma: bool) {
-    let state = if check.valid {
-        "hash_reference_valid"
-    } else if check.has_reference {
-        "hash_reference_invalid"
-    } else {
-        "missing"
-    };
-    emit_record_property_line(
-        "gate_state",
-        vec![
-            f("module_manifest", s(state)),
-            f("candidate_artifact", s("missing")),
-            f("vm_test_report", s("missing")),
-            f("local_attestation", s("missing")),
-            f("computed_capability_grant", s("missing")),
-            f("local_approval", s("missing")),
-            f("rollback_plan", s("missing")),
-            f("durable_audit_record", s("missing")),
-            f("loader", s("unavailable")),
-            f("service_slot", s("unallocated")),
-            f("artifact_loaded", no()),
-            f("service_started", no()),
-            f("persistence", s("none")),
-            f("can_load", no()),
-        ],
-        comma,
-    );
-}
-
-fn emit_module_manifest_policy_result(check: &ModuleManifestReferenceCheck<'_>, comma: bool) {
-    emit_record_property_line(
-        "policy_result",
-        vec![
-            f("manifest_reference_present", b(check.valid)),
-            f("authorizes_guest_load", no()),
-            f("can_load_now", no()),
-            f("service_inventory_change", s("none")),
-            f("load_attempted", no()),
-            f(
-                "guest_evidence_authority",
-                s("hash_reference_only_no_manifest_json_or_artifact_bytes"),
-            ),
-            f(
-                "required_before_load",
-                record_static_str_array(&[
-                    "candidate_artifact_sha256",
-                    "raios.vm_test_report.v0",
-                    "raios.local_attestation.v0",
-                    "raios.computed_capability_grant.v0",
-                    "raios.audit_record.v0",
-                    "rollback_plan",
-                    "module_loader",
-                    "ram_only_service_slot",
-                ]),
-            ),
-        ],
-        comma,
+            None,
+            V::InlineObject(vec![
+                f("state", s("missing")),
+                f("retention", s("current_boot_ram_event_log")),
+                f("matches_current_reference", no()),
+                f("record_schema", s("raios.module_manifest_reference.v0")),
+                f("status_detail", s("missing")),
+            ]),
+        ));
+    }
+    let primary = (!check.valid).then_some(Blocked {
+        evidence_id: "module_manifest",
+        status: common_evidence_status(false, check.has_reference),
+        reason: check.reason,
+    });
+    emit_evidence_v1_response(
+        "module.manifest_diagnostic",
+        "module.manifest_reference",
+        recorded_event_id,
+        facts,
+        evidence,
+        ev::module_reference_denial(ev::ModuleReferenceFamily::Manifest, primary),
     );
 }
 
@@ -260,41 +252,22 @@ pub(crate) fn emit_module_manifest_diagnostic_selftest() {
     let cases = module_manifest_selftest_cases();
     let passed = cases.iter().all(|case| case.passed);
 
-    begin_response("module.manifest_diagnostic_selftest");
     let case_records = cases
         .iter()
         .map(module_manifest_selftest_case_record)
         .collect();
-    emit_record_fields_trailing_comma(
-        vec![
-            f(
-                "schema",
-                s("raios.module_manifest_reference_diagnostic_selftest.v0"),
-            ),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("test_infrastructure", b(true)),
-            f("mutates_global_event_log", no()),
-            f("creates_retained_manifest_reference_records", no()),
-            f("accepts_manifest_json", no()),
-            f("accepts_artifact_bytes", no()),
-            f("accepts_unsigned_service_code", no()),
-            f("loads_artifact", no()),
-            f("service_inventory_change", s("none")),
-            f("load_attempted", no()),
-            f("loader", s("unavailable")),
-            f("case_count", V::U64(cases.len() as u64)),
-            f("passed", b(passed)),
-            f("cases", V::Array(case_records)),
-        ],
-        6,
+    emit_evidence_v1_response(
+        "module.manifest_diagnostic_selftest",
+        "module.manifest_reference.selftest",
+        None,
+        selftest_facts(V::Array(case_records), cases.len(), passed),
+        vec![],
+        ev::observed("selftest_completed"),
     );
-    emit_record_value_property_line("can_load", no(), false);
-    end_response("module.manifest_diagnostic_selftest");
 }
 
 fn module_manifest_selftest_case_record(case: &ModuleManifestSelfTestCase) -> V<'static> {
-    record_selftest_case(
+    selftest_case(
         case.name,
         case.expected_status,
         case.expected_reason,
@@ -315,110 +288,22 @@ pub(crate) fn emit_module_artifact_diagnostic(method: &str) {
     };
     let retained = event_log::latest_module_candidate_artifact_reference();
 
-    begin_response("module.artifact_diagnostic");
-    emit_record_fields_trailing_comma(
-        vec![
-            f(
-                "schema",
-                s("raios.module_candidate_artifact_reference_diagnostic.v0"),
-            ),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("test_infrastructure", no()),
-            f("mutates_global_event_log", b(check.valid)),
-            f(
-                "global_event_log_mutation",
-                s(if check.valid {
-                    "valid_hash_reference_retention_only"
-                } else {
-                    "none"
-                }),
-            ),
-            f("accepts_manifest_json", no()),
-            f("accepts_artifact_bytes", no()),
-            f("accepts_unsigned_service_code", no()),
-            f("allocates_service_slot", no()),
-            f("loads_artifact", no()),
-            f("artifact_loaded", no()),
-            f("service_started", no()),
-            f("service_inventory_change", s("none")),
-            f("load_attempted", no()),
-            f(
-                "reference_format",
-                s("module.artifact_diagnostic <artifact_reference_hash> <retained_manifest_reference_event_id> <retained_reference_event_id> <manifest_reference_hash> <manifest_hash> <computed_grant_hash> <artifact_hash> <vm_report_hash> <local_attestation_hash> [current_boot]"),
-            ),
-        ],
-        6,
+    let facts = diagnostic_facts(
+        "module.artifact_diagnostic <artifact_reference_hash> <retained_manifest_reference_event_id> <retained_reference_event_id> <manifest_reference_hash> <manifest_hash> <computed_grant_hash> <artifact_hash> <vm_report_hash> <local_attestation_hash> [current_boot]",
+        V::InlineObject(vec![f("requested_capability", s("cap.module.load_ephemeral")), f("load_mode", s("ram_only")), f("subject", s("agent.session.serial")), f("resource", s("live_service_graph")), f("artifact_reference_schema", s("raios.module_candidate_artifact_reference.v0")), f("artifact_reference_canonicalization", s("raios.module_candidate_artifact_reference.canonical.v0"))]),
+        "hash_reference_only_no_artifact_bytes",
+        record_static_str_array(&["raios.vm_test_report.v0", "raios.local_attestation.v0", "raios.audit_record.v0", "rollback_plan", "module_loader", "ram_only_service_slot"]), V::Null,
+        V::InlineObject(vec![f("loader", s("unavailable")), f("service_slot", s("unallocated"))]),
     );
-    emit_record_property_line(
-        "request",
-        vec![
-            f("requested_capability", s("cap.module.load_ephemeral")),
-            f("load_mode", s("ram_only")),
-            f("subject", s("agent.session.serial")),
-            f("resource", s("live_service_graph")),
-            f(
-                "artifact_reference_schema",
-                s("raios.module_candidate_artifact_reference.v0"),
-            ),
-            f(
-                "artifact_reference_canonicalization",
-                s("raios.module_candidate_artifact_reference.canonical.v0"),
-            ),
-        ],
-        true,
-    );
-    emit_module_artifact_reference_object(&check, true);
-    emit_module_artifact_retained_reference(&check, recorded_event_id, retained, true);
-    emit_module_artifact_gate_state(&check, true);
-    emit_module_artifact_policy_result(&check, true);
-    raw_line("      \"blocked_by\": [");
-    let mut wrote = false;
-    if !check.valid {
-        emit_export_gate(&mut wrote, "candidate_artifact", check.status, check.reason);
-    }
-    emit_export_gate(
-        &mut wrote,
-        "vm_test_report",
-        "missing",
-        "vm_test_report_missing",
-    );
-    emit_export_gate(
-        &mut wrote,
-        "local_attestation",
-        "missing",
-        "local_attestation_missing",
-    );
-    emit_export_gate(
-        &mut wrote,
-        "durable_audit_record",
-        "missing",
-        "durable_audit_write_missing",
-    );
-    emit_export_gate(
-        &mut wrote,
-        "rollback_plan",
-        "missing",
-        "rollback_install_missing",
-    );
-    emit_export_gate(
-        &mut wrote,
-        "loader",
-        "unavailable",
-        "module_loader_unimplemented",
-    );
-    crlf();
-    raw_line("      ]");
-    end_response("module.artifact_diagnostic");
-}
-
-fn emit_module_artifact_reference_object(check: &ModuleArtifactReferenceCheck<'_>, comma: bool) {
-    emit_record_property_line(
-        "candidate_artifact_reference",
-        vec![
+    let mut evidence = vec![evidence_record(
+        "candidate_artifact",
+        "reference",
+        common_evidence_status(check.valid, check.has_reference),
+        check.reason,
+        None,
+        V::InlineObject(vec![
             f("state", record_present_absent(check.has_reference)),
-            f("validation_status", s(check.status)),
-            f("validation_reason", s(check.reason)),
+            f("status_detail", s(check.status)),
             f("arity_valid", b(check.arity_valid)),
             f("scope", s(check.scope)),
             f(
@@ -430,204 +315,135 @@ fn emit_module_artifact_reference_object(check: &ModuleArtifactReferenceCheck<'_
                 record_str_or_null(check.retained_reference_event_id),
             ),
             f(
-                "hashes",
-                V::Object(vec![
-                    f(
-                        "artifact_reference_hash",
-                        record_sha_or_null(check.artifact_reference_hash),
-                    ),
-                    f(
-                        "expected_artifact_reference_hash",
-                        record_sha_or_null(check.expected_artifact_reference_hash),
-                    ),
-                    f(
-                        "manifest_reference_hash",
-                        record_sha_or_null(check.manifest_reference_hash),
-                    ),
-                    f("manifest_hash", record_sha_or_null(check.manifest_hash)),
-                    f(
-                        "computed_capability_grant_hash",
-                        record_sha_or_null(check.computed_grant_hash),
-                    ),
-                    f(
-                        "expected_computed_capability_grant_hash",
-                        record_sha_or_null(check.expected_computed_grant_hash),
-                    ),
-                    f("artifact_hash", record_sha_or_null(check.artifact_hash)),
-                    f(
-                        "vm_test_report_hash",
-                        record_sha_or_null(check.vm_report_hash),
-                    ),
-                    f(
-                        "local_attestation_hash",
-                        record_sha_or_null(check.local_attestation_hash),
-                    ),
-                ]),
-            ),
-        ],
-        comma,
-    );
-}
-
-fn emit_module_artifact_retained_reference(
-    check: &ModuleArtifactReferenceCheck<'_>,
-    recorded_event_id: Option<event_log::EventId>,
-    retained: Option<(
-        event_log::EventId,
-        event_log::ModuleCandidateArtifactReference,
-    )>,
-    comma: bool,
-) {
-    let fields = if let Some((event_id, reference)) = retained {
-        let mut fields = record_retained_reference_present_fields(
-            event_id,
-            recorded_event_id,
-            module_artifact_reference_matches(check, reference),
-            "raios.module_candidate_artifact_reference.v0",
-        );
-        fields.extend(vec![
-            f("accepts_manifest_json", no()),
-            f("accepts_artifact_bytes", no()),
-            f("accepts_unsigned_service_code", no()),
-            f("authorizes_guest_load", no()),
-            f("can_load_now", no()),
-            f("service_inventory_change", s("none")),
-            f("load_attempted", no()),
-            f(
-                "retained_manifest_reference_event_id",
-                record_event(reference.retained_manifest_reference_event_id),
+                "artifact_reference_hash",
+                record_sha_or_null(check.artifact_reference_hash),
             ),
             f(
-                "retained_computed_grant_reference_event_id",
-                record_event(reference.retained_reference_event_id),
+                "expected_artifact_reference_hash",
+                record_sha_or_null(check.expected_artifact_reference_hash),
             ),
             f(
-                "hashes",
-                V::Object(record_sha_fields(&[
-                    ("artifact_reference_hash", reference.artifact_reference_hash),
-                    ("manifest_reference_hash", reference.manifest_reference_hash),
-                    ("manifest_hash", reference.manifest_hash),
-                    (
-                        "computed_capability_grant_hash",
-                        reference.computed_grant_hash,
-                    ),
-                    ("artifact_hash", reference.artifact_hash),
-                    ("vm_test_report_hash", reference.vm_report_hash),
-                    ("local_attestation_hash", reference.local_attestation_hash),
-                ])),
+                "manifest_reference_hash",
+                record_sha_or_null(check.manifest_reference_hash),
             ),
-        ]);
-        fields
+            f("manifest_hash", record_sha_or_null(check.manifest_hash)),
+            f(
+                "computed_capability_grant_hash",
+                record_sha_or_null(check.computed_grant_hash),
+            ),
+            f(
+                "expected_computed_capability_grant_hash",
+                record_sha_or_null(check.expected_computed_grant_hash),
+            ),
+            f("artifact_hash", record_sha_or_null(check.artifact_hash)),
+            f(
+                "vm_test_report_hash",
+                record_sha_or_null(check.vm_report_hash),
+            ),
+            f(
+                "local_attestation_hash",
+                record_sha_or_null(check.local_attestation_hash),
+            ),
+        ]),
+    )];
+    if let Some((event_id, reference)) = retained {
+        evidence.push(evidence_record(
+            "candidate_artifact_retained",
+            "retained_reference",
+            "verified",
+            "retained_hash_reference_load_still_denied",
+            Some(event_id),
+            V::InlineObject(vec![
+                f("state", s("present")),
+                f("retention", s("current_boot_ram_event_log")),
+                f(
+                    "matches_current_reference",
+                    b(module_artifact_reference_matches(&check, reference)),
+                ),
+                f(
+                    "record_schema",
+                    s("raios.module_candidate_artifact_reference.v0"),
+                ),
+                f(
+                    "status_detail",
+                    s("retained_hash_reference_load_still_denied"),
+                ),
+                f(
+                    "artifact_reference_hash",
+                    V::Sha256(reference.artifact_reference_hash),
+                ),
+                f(
+                    "manifest_reference_hash",
+                    V::Sha256(reference.manifest_reference_hash),
+                ),
+                f("manifest_hash", V::Sha256(reference.manifest_hash)),
+                f(
+                    "computed_capability_grant_hash",
+                    V::Sha256(reference.computed_grant_hash),
+                ),
+                f("artifact_hash", V::Sha256(reference.artifact_hash)),
+                f("vm_test_report_hash", V::Sha256(reference.vm_report_hash)),
+                f(
+                    "local_attestation_hash",
+                    V::Sha256(reference.local_attestation_hash),
+                ),
+            ]),
+        ));
     } else {
-        record_missing_retained_reference_fields(
-            "raios.module_candidate_artifact_reference.v0",
+        evidence.push(evidence_record(
+            "candidate_artifact_retained",
+            "retained_reference",
+            "missing",
             "no_valid_candidate_artifact_reference_retained",
-        )
-    };
-    emit_record_property_line("retained_candidate_artifact_reference", fields, comma);
-}
-
-fn emit_module_artifact_gate_state(check: &ModuleArtifactReferenceCheck<'_>, comma: bool) {
-    let state = if check.valid {
-        "hash_reference_valid"
-    } else if check.has_reference {
-        "hash_reference_invalid"
-    } else {
-        "missing"
-    };
-    emit_record_property_line(
-        "gate_state",
-        vec![
-            f("module_manifest", s("hash_reference_only")),
-            f("candidate_artifact", s(state)),
-            f("vm_test_report", s("missing")),
-            f("local_attestation", s("missing")),
-            f("computed_capability_grant", s("hash_reference_only")),
-            f("local_approval", s("missing")),
-            f("rollback_plan", s("missing")),
-            f("durable_audit_record", s("missing")),
-            f("loader", s("unavailable")),
-            f("service_slot", s("unallocated")),
-            f("artifact_loaded", no()),
-            f("service_started", no()),
-            f("persistence", s("none")),
-            f("can_load", no()),
-        ],
-        comma,
+            None,
+            V::InlineObject(vec![
+                f("state", s("missing")),
+                f("retention", s("current_boot_ram_event_log")),
+                f("matches_current_reference", no()),
+                f(
+                    "record_schema",
+                    s("raios.module_candidate_artifact_reference.v0"),
+                ),
+                f("status_detail", s("missing")),
+            ]),
+        ));
+    }
+    let primary = (!check.valid).then_some(Blocked {
+        evidence_id: "candidate_artifact",
+        status: common_evidence_status(false, check.has_reference),
+        reason: check.reason,
+    });
+    emit_evidence_v1_response(
+        "module.artifact_diagnostic",
+        "module.candidate_artifact_reference",
+        recorded_event_id,
+        facts,
+        evidence,
+        ev::module_reference_denial(ev::ModuleReferenceFamily::Artifact, primary),
     );
-}
-
-fn emit_module_artifact_policy_result(check: &ModuleArtifactReferenceCheck<'_>, comma: bool) {
-    emit_record_property_line(
-        "policy_result",
-        vec![
-            f("candidate_artifact_reference_present", b(check.valid)),
-            f("authorizes_guest_load", no()),
-            f("can_load_now", no()),
-            f("service_inventory_change", s("none")),
-            f("load_attempted", no()),
-            f(
-                "guest_evidence_authority",
-                s("hash_reference_only_no_artifact_bytes"),
-            ),
-            f(
-                "required_before_load",
-                record_static_str_array(&[
-                    "raios.vm_test_report.v0",
-                    "raios.local_attestation.v0",
-                    "raios.audit_record.v0",
-                    "rollback_plan",
-                    "module_loader",
-                    "ram_only_service_slot",
-                ]),
-            ),
-        ],
-        comma,
-    );
+    return;
 }
 
 pub(crate) fn emit_module_artifact_diagnostic_selftest() {
     let cases = module_artifact_selftest_cases();
     let passed = cases.iter().all(|case| case.passed);
 
-    begin_response("module.artifact_diagnostic_selftest");
     let case_records = cases
         .iter()
         .map(module_artifact_selftest_case_record)
         .collect();
-    emit_record_fields_trailing_comma(
-        vec![
-            f(
-                "schema",
-                s("raios.module_candidate_artifact_reference_diagnostic_selftest.v0"),
-            ),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("test_infrastructure", b(true)),
-            f("mutates_global_event_log", no()),
-            f(
-                "creates_retained_candidate_artifact_reference_records",
-                no(),
-            ),
-            f("accepts_manifest_json", no()),
-            f("accepts_artifact_bytes", no()),
-            f("accepts_unsigned_service_code", no()),
-            f("loads_artifact", no()),
-            f("service_inventory_change", s("none")),
-            f("load_attempted", no()),
-            f("loader", s("unavailable")),
-            f("case_count", V::U64(cases.len() as u64)),
-            f("passed", b(passed)),
-            f("cases", V::Array(case_records)),
-        ],
-        6,
+    emit_evidence_v1_response(
+        "module.artifact_diagnostic_selftest",
+        "module.candidate_artifact_reference.selftest",
+        None,
+        selftest_facts(V::Array(case_records), cases.len(), passed),
+        vec![],
+        ev::observed("selftest_completed"),
     );
-    emit_record_value_property_line("can_load", no(), false);
-    end_response("module.artifact_diagnostic_selftest");
 }
 
 fn module_artifact_selftest_case_record(case: &ModuleArtifactSelfTestCase) -> V<'static> {
-    record_selftest_case(
+    selftest_case(
         case.name,
         case.expected_status,
         case.expected_reason,
@@ -1347,106 +1163,18 @@ pub(crate) fn emit_module_vm_report_diagnostic(method: &str) {
     };
     let retained = event_log::latest_module_vm_test_report_reference();
 
-    begin_response("module.vm_report_diagnostic");
-    emit_record_fields_trailing_comma(
-        vec![
-            f(
-                "schema",
-                s("raios.module_vm_test_report_reference_diagnostic.v0"),
-            ),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("test_infrastructure", no()),
-            f("mutates_global_event_log", b(check.valid)),
-            f(
-                "global_event_log_mutation",
-                s(if check.valid {
-                    "valid_hash_reference_retention_only"
-                } else {
-                    "none"
-                }),
-            ),
-            f("accepts_manifest_json", no()),
-            f("accepts_artifact_bytes", no()),
-            f("accepts_vm_report_json", no()),
-            f("accepts_unsigned_service_code", no()),
-            f("allocates_service_slot", no()),
-            f("loads_artifact", no()),
-            f("artifact_loaded", no()),
-            f("service_started", no()),
-            f("service_inventory_change", s("none")),
-            f("load_attempted", no()),
-            f(
-                "reference_format",
-                s("module.vm_report_diagnostic <report_reference_hash> <retained_manifest_reference_event_id> <retained_artifact_reference_event_id> <retained_reference_event_id> <manifest_reference_hash> <artifact_reference_hash> <manifest_hash> <artifact_hash> <computed_grant_hash> <vm_report_hash> <local_attestation_hash> [current_boot]"),
-            ),
-        ],
-        6,
-    );
-    emit_record_property_line(
-        "request",
-        vec![
-            f("requested_capability", s("cap.module.load_ephemeral")),
-            f("load_mode", s("ram_only")),
-            f("subject", s("agent.session.serial")),
-            f("resource", s("live_service_graph")),
-            f("vm_test_report_schema", s("raios.vm_test_report.v0")),
-            f(
-                "vm_test_report_reference_schema",
-                s("raios.module_vm_test_report_reference.v0"),
-            ),
-            f(
-                "vm_test_report_reference_canonicalization",
-                s("raios.module_vm_test_report_reference.canonical.v0"),
-            ),
-        ],
-        true,
-    );
-    emit_module_vm_report_reference_object(&check, true);
-    emit_module_vm_report_retained_reference(&check, recorded_event_id, retained, true);
-    emit_module_vm_report_gate_state(&check, true);
-    emit_module_vm_report_policy_result(&check, true);
-    raw_line("      \"blocked_by\": [");
-    let mut wrote = false;
-    if !check.valid {
-        emit_export_gate(&mut wrote, "vm_test_report", check.status, check.reason);
-    }
-    emit_export_gate(
-        &mut wrote,
-        "local_attestation",
-        "missing",
-        "local_attestation_missing",
-    );
-    emit_export_gate(
-        &mut wrote,
-        "durable_audit_record",
-        "missing",
-        "durable_audit_write_missing",
-    );
-    emit_export_gate(
-        &mut wrote,
-        "rollback_plan",
-        "missing",
-        "rollback_install_missing",
-    );
-    emit_export_gate(
-        &mut wrote,
-        "loader",
-        "unavailable",
-        "module_loader_unimplemented",
-    );
-    crlf();
-    raw_line("      ]");
-    end_response("module.vm_report_diagnostic");
-}
-
-fn emit_module_vm_report_reference_object(check: &ModuleVmReportReferenceCheck<'_>, comma: bool) {
-    emit_record_property_line(
-        "vm_test_report_reference",
-        vec![
+    let facts = diagnostic_facts("module.vm_report_diagnostic <report_reference_hash> <retained_manifest_reference_event_id> <retained_artifact_reference_event_id> <retained_reference_event_id> <manifest_reference_hash> <artifact_reference_hash> <manifest_hash> <artifact_hash> <computed_grant_hash> <vm_report_hash> <local_attestation_hash> [current_boot]",
+        V::InlineObject(vec![f("requested_capability", s("cap.module.load_ephemeral")), f("load_mode", s("ram_only")), f("subject", s("agent.session.serial")), f("resource", s("live_service_graph")), f("vm_test_report_reference_schema", s("raios.module_vm_test_report_reference.v0")), f("vm_test_report_reference_canonicalization", s("raios.module_vm_test_report_reference.canonical.v0"))]),
+        "hash_reference_only_no_vm_report_json_or_artifact_bytes", record_static_str_array(&["raios.local_attestation.v0", "raios.audit_record.v0", "rollback_plan", "module_loader", "ram_only_service_slot"]), V::Null, V::InlineObject(vec![f("loader", s("unavailable")), f("service_slot", s("unallocated"))]));
+    let mut evidence = vec![evidence_record(
+        "vm_test_report",
+        "reference",
+        common_evidence_status(check.valid, check.has_reference),
+        check.reason,
+        None,
+        V::InlineObject(vec![
             f("state", record_present_absent(check.has_reference)),
-            f("validation_status", s(check.status)),
-            f("validation_reason", s(check.reason)),
+            f("status_detail", s(check.status)),
             f("arity_valid", b(check.arity_valid)),
             f("scope", s(check.scope)),
             f(
@@ -1454,14 +1182,13 @@ fn emit_module_vm_report_reference_object(check: &ModuleVmReportReferenceCheck<'
                 record_str_or_null(check.retained_manifest_reference_event_id),
             ),
             f(
-                "retained_candidate_artifact_reference_event_id",
+                "retained_artifact_reference_event_id",
                 record_str_or_null(check.retained_artifact_reference_event_id),
             ),
             f(
                 "retained_computed_grant_reference_event_id",
                 record_str_or_null(check.retained_reference_event_id),
             ),
-            f("vm_test_report_schema", s("raios.vm_test_report.v0")),
             f(
                 "vm_test_report_reference_hash",
                 record_sha_or_null(check.report_reference_hash),
@@ -1469,10 +1196,6 @@ fn emit_module_vm_report_reference_object(check: &ModuleVmReportReferenceCheck<'
             f(
                 "expected_vm_test_report_reference_hash",
                 record_sha_or_null(check.expected_report_reference_hash),
-            ),
-            f(
-                "expected_computed_capability_grant_hash",
-                record_sha_or_null(check.expected_computed_grant_hash),
             ),
             f(
                 "manifest_reference_hash",
@@ -1489,6 +1212,10 @@ fn emit_module_vm_report_reference_object(check: &ModuleVmReportReferenceCheck<'
                 record_sha_or_null(check.computed_grant_hash),
             ),
             f(
+                "expected_computed_capability_grant_hash",
+                record_sha_or_null(check.expected_computed_grant_hash),
+            ),
+            f(
                 "vm_test_report_hash",
                 record_sha_or_null(check.vm_report_hash),
             ),
@@ -1496,177 +1223,109 @@ fn emit_module_vm_report_reference_object(check: &ModuleVmReportReferenceCheck<'
                 "local_attestation_hash",
                 record_sha_or_null(check.local_attestation_hash),
             ),
-        ],
-        comma,
-    );
-}
-
-fn emit_module_vm_report_retained_reference(
-    check: &ModuleVmReportReferenceCheck<'_>,
-    recorded_event_id: Option<event_log::EventId>,
-    retained: Option<(event_log::EventId, event_log::ModuleVmTestReportReference)>,
-    comma: bool,
-) {
-    let fields = if let Some((event_id, reference)) = retained {
-        let mut fields = record_retained_reference_present_fields(
-            event_id,
-            recorded_event_id,
-            module_vm_report_reference_matches(check, reference),
-            "raios.module_vm_test_report_reference.v0",
-        );
-        fields.extend(vec![
-            f("accepts_manifest_json", no()),
-            f("accepts_artifact_bytes", no()),
-            f("accepts_vm_report_json", no()),
-            f("accepts_unsigned_service_code", no()),
-            f("authorizes_guest_load", no()),
-            f("can_load_now", no()),
-            f("service_inventory_change", s("none")),
-            f("load_attempted", no()),
-            f(
-                "retained_manifest_reference_event_id",
-                record_event(reference.retained_manifest_reference_event_id),
-            ),
-            f(
-                "retained_candidate_artifact_reference_event_id",
-                record_event(reference.retained_artifact_reference_event_id),
-            ),
-            f(
-                "retained_computed_grant_reference_event_id",
-                record_event(reference.retained_reference_event_id),
-            ),
-            f(
-                "hashes",
-                V::Object(record_sha_fields(&[
-                    (
-                        "vm_test_report_reference_hash",
-                        reference.report_reference_hash,
-                    ),
-                    ("manifest_reference_hash", reference.manifest_reference_hash),
-                    ("artifact_reference_hash", reference.artifact_reference_hash),
-                    ("manifest_hash", reference.manifest_hash),
-                    ("artifact_hash", reference.artifact_hash),
-                    (
-                        "computed_capability_grant_hash",
-                        reference.computed_grant_hash,
-                    ),
-                    ("vm_test_report_hash", reference.vm_report_hash),
-                    ("local_attestation_hash", reference.local_attestation_hash),
-                ])),
-            ),
-        ]);
-        fields
+        ]),
+    )];
+    if let Some((event_id, reference)) = retained {
+        evidence.push(evidence_record(
+            "vm_test_report_retained",
+            "retained_reference",
+            "verified",
+            "retained_hash_reference_load_still_denied",
+            Some(event_id),
+            V::InlineObject(vec![
+                f("state", s("present")),
+                f("retention", s("current_boot_ram_event_log")),
+                f(
+                    "matches_current_reference",
+                    b(module_vm_report_reference_matches(&check, reference)),
+                ),
+                f(
+                    "record_schema",
+                    s("raios.module_vm_test_report_reference.v0"),
+                ),
+                f(
+                    "status_detail",
+                    s("retained_hash_reference_load_still_denied"),
+                ),
+                f(
+                    "vm_test_report_reference_hash",
+                    V::Sha256(reference.report_reference_hash),
+                ),
+                f(
+                    "manifest_reference_hash",
+                    V::Sha256(reference.manifest_reference_hash),
+                ),
+                f(
+                    "artifact_reference_hash",
+                    V::Sha256(reference.artifact_reference_hash),
+                ),
+                f("manifest_hash", V::Sha256(reference.manifest_hash)),
+                f("artifact_hash", V::Sha256(reference.artifact_hash)),
+                f(
+                    "computed_capability_grant_hash",
+                    V::Sha256(reference.computed_grant_hash),
+                ),
+                f("vm_test_report_hash", V::Sha256(reference.vm_report_hash)),
+                f(
+                    "local_attestation_hash",
+                    V::Sha256(reference.local_attestation_hash),
+                ),
+            ]),
+        ));
     } else {
-        record_missing_retained_reference_fields(
-            "raios.module_vm_test_report_reference.v0",
+        evidence.push(evidence_record(
+            "vm_test_report_retained",
+            "retained_reference",
+            "missing",
             "no_valid_vm_test_report_reference_retained",
-        )
-    };
-    emit_record_property_line("retained_vm_test_report_reference", fields, comma);
-}
-
-fn emit_module_vm_report_gate_state(check: &ModuleVmReportReferenceCheck<'_>, comma: bool) {
-    let state = if check.valid {
-        "hash_reference_valid"
-    } else if check.has_reference {
-        "hash_reference_invalid"
-    } else {
-        "missing"
-    };
-    emit_record_property_line(
-        "gate_state",
-        vec![
-            f("module_manifest", s("retained_hash_reference_only")),
-            f("candidate_artifact", s("retained_hash_reference_only")),
-            f("vm_test_report", s(state)),
-            f("local_attestation", s("missing")),
-            f(
-                "computed_capability_grant",
-                s("retained_hash_reference_only"),
-            ),
-            f("local_approval", s("missing")),
-            f("rollback_plan", s("missing")),
-            f("durable_audit_record", s("missing")),
-            f("loader", s("unavailable")),
-            f("service_slot", s("unallocated")),
-            f("artifact_loaded", no()),
-            f("service_started", no()),
-            f("persistence", s("none")),
-            f("can_load", no()),
-        ],
-        comma,
+            None,
+            V::InlineObject(vec![
+                f("state", s("missing")),
+                f("retention", s("current_boot_ram_event_log")),
+                f("matches_current_reference", no()),
+                f(
+                    "record_schema",
+                    s("raios.module_vm_test_report_reference.v0"),
+                ),
+                f("status_detail", s("missing")),
+            ]),
+        ));
+    }
+    let primary = (!check.valid).then_some(Blocked {
+        evidence_id: "vm_test_report",
+        status: common_evidence_status(false, check.has_reference),
+        reason: check.reason,
+    });
+    emit_evidence_v1_response(
+        "module.vm_report_diagnostic",
+        "module.vm_test_report_reference",
+        recorded_event_id,
+        facts,
+        evidence,
+        ev::module_reference_denial(ev::ModuleReferenceFamily::VmReport, primary),
     );
+    return;
 }
-
-fn emit_module_vm_report_policy_result(check: &ModuleVmReportReferenceCheck<'_>, comma: bool) {
-    emit_record_property_line(
-        "policy_result",
-        vec![
-            f("vm_test_report_reference_present", b(check.valid)),
-            f("authorizes_guest_load", no()),
-            f("can_load_now", no()),
-            f("service_inventory_change", s("none")),
-            f("load_attempted", no()),
-            f(
-                "guest_evidence_authority",
-                s("hash_reference_only_no_vm_report_json_or_artifact_bytes"),
-            ),
-            f(
-                "required_before_load",
-                record_static_str_array(&[
-                    "raios.local_attestation.v0",
-                    "local_approval",
-                    "raios.audit_record.v0",
-                    "rollback_plan",
-                    "module_loader",
-                    "ram_only_service_slot",
-                ]),
-            ),
-        ],
-        comma,
-    );
-}
-
 pub(crate) fn emit_module_vm_report_diagnostic_selftest() {
     let cases = module_vm_report_selftest_cases();
     let passed = cases.iter().all(|case| case.passed);
 
-    begin_response("module.vm_report_diagnostic_selftest");
     let case_records = cases
         .iter()
         .map(module_vm_report_selftest_case_record)
         .collect();
-    emit_record_fields_trailing_comma(
-        vec![
-            f(
-                "schema",
-                s("raios.module_vm_test_report_reference_diagnostic_selftest.v0"),
-            ),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("test_infrastructure", b(true)),
-            f("mutates_global_event_log", no()),
-            f("creates_retained_vm_test_report_reference_records", no()),
-            f("accepts_manifest_json", no()),
-            f("accepts_artifact_bytes", no()),
-            f("accepts_vm_report_json", no()),
-            f("accepts_unsigned_service_code", no()),
-            f("loads_artifact", no()),
-            f("service_inventory_change", s("none")),
-            f("load_attempted", no()),
-            f("loader", s("unavailable")),
-            f("case_count", V::U64(cases.len() as u64)),
-            f("passed", b(passed)),
-            f("cases", V::Array(case_records)),
-        ],
-        6,
+    emit_evidence_v1_response(
+        "module.vm_report_diagnostic_selftest",
+        "module.vm_test_report_reference.selftest",
+        None,
+        selftest_facts(V::Array(case_records), cases.len(), passed),
+        vec![],
+        ev::observed("selftest_completed"),
     );
-    emit_record_value_property_line("can_load", no(), false);
-    end_response("module.vm_report_diagnostic_selftest");
 }
 
 fn module_vm_report_selftest_case_record(case: &ModuleVmReportSelfTestCase) -> V<'static> {
-    record_selftest_case(
+    selftest_case(
         case.name,
         case.expected_status,
         case.expected_reason,

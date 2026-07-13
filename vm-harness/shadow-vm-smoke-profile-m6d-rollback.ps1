@@ -166,7 +166,7 @@ $moduleManifestReferenceCanonical = @(
 $moduleManifestReferenceHash = Get-TextSha256 -Text $moduleManifestReferenceCanonical
 Send-AgentCommand -Command "agent module.manifest_diagnostic $moduleManifestReferenceHash $moduleGrantManifestHash" -ExpectedMarker "RAIOS_AGENT_END module.manifest_diagnostic" -Name "m6c:manifest_reference"
 $moduleManifestResponse = Get-LastAgentResponseJson -Method "module.manifest_diagnostic"
-$moduleManifestRetainedReferenceEventId = [string]$moduleManifestResponse.body.result.retained_manifest_reference.event_id
+$moduleManifestRetainedReferenceEventId = [string]($moduleManifestResponse.evidence | Where-Object id -eq "module_manifest_retained").source_event_id
 
 $moduleGrantCanonical = @(
     "canonicalization=raios.computed_capability_grant.canonical.v0",
@@ -189,7 +189,7 @@ $moduleGrantHash = Get-TextSha256 -Text $moduleGrantCanonical
 $moduleGrantCommand = "agent module.grant_diagnostic $moduleGrantHash $moduleGrantManifestHash $moduleGrantArtifactHash $moduleGrantReportHash $moduleGrantAttestationHash"
 Send-AgentCommand -Command $moduleGrantCommand -ExpectedMarker "RAIOS_AGENT_END module.grant_diagnostic" -Name "m6c:initial_grant_reference"
 $moduleGrantResponse = Get-LastAgentResponseJson -Method "module.grant_diagnostic"
-$moduleAuditRetainedReferenceEventId = [string]$moduleGrantResponse.body.result.retained_reference.event_id
+$moduleAuditRetainedReferenceEventId = [string]($moduleGrantResponse.evidence | Where-Object id -eq "computed_capability_grant_retained").source_event_id
 
 $moduleArtifactReferenceCanonical = @(
     "canonicalization=raios.module_candidate_artifact_reference.canonical.v0",
@@ -217,7 +217,7 @@ $moduleArtifactReferenceHash = Get-TextSha256 -Text $moduleArtifactReferenceCano
 $moduleArtifactCommand = "agent module.artifact_diagnostic $moduleArtifactReferenceHash $moduleManifestRetainedReferenceEventId $moduleAuditRetainedReferenceEventId $moduleManifestReferenceHash $moduleGrantManifestHash $moduleGrantHash $moduleGrantArtifactHash $moduleGrantReportHash $moduleGrantAttestationHash"
 Send-AgentCommand -Command $moduleArtifactCommand -ExpectedMarker "RAIOS_AGENT_END module.artifact_diagnostic" -Name "m6c:artifact_reference"
 $moduleArtifactResponse = Get-LastAgentResponseJson -Method "module.artifact_diagnostic"
-$moduleArtifactRetainedReferenceEventId = [string]$moduleArtifactResponse.body.result.retained_candidate_artifact_reference.event_id
+$moduleArtifactRetainedReferenceEventId = [string]($moduleArtifactResponse.evidence | Where-Object id -eq "candidate_artifact_retained").source_event_id
 
 $moduleVmReportReferenceCanonical = @(
     "canonicalization=raios.module_vm_test_report_reference.canonical.v0",
@@ -248,7 +248,7 @@ $moduleVmReportReferenceHash = Get-TextSha256 -Text $moduleVmReportReferenceCano
 $moduleVmReportCommand = "agent module.vm_report_diagnostic $moduleVmReportReferenceHash $moduleManifestRetainedReferenceEventId $moduleArtifactRetainedReferenceEventId $moduleAuditRetainedReferenceEventId $moduleManifestReferenceHash $moduleArtifactReferenceHash $moduleGrantManifestHash $moduleGrantArtifactHash $moduleGrantHash $moduleGrantReportHash $moduleGrantAttestationHash"
 Send-AgentCommand -Command $moduleVmReportCommand -ExpectedMarker "RAIOS_AGENT_END module.vm_report_diagnostic" -Name "m6c:vm_report_reference"
 $moduleVmReportResponse = Get-LastAgentResponseJson -Method "module.vm_report_diagnostic"
-$moduleVmReportRetainedReferenceEventId = [string]$moduleVmReportResponse.body.result.retained_vm_test_report_reference.event_id
+$moduleVmReportRetainedReferenceEventId = [string]($moduleVmReportResponse.evidence | Where-Object id -eq "vm_test_report_retained").source_event_id
 
 $moduleAttestationReferenceCanonical = @(
     "canonicalization=raios.module_local_attestation_reference.canonical.v0",
@@ -285,10 +285,10 @@ if ($signatureHex) {
     $moduleAttestationCommand = "agent module.attestation_diagnostic $moduleAttestationReferenceHash $moduleManifestRetainedReferenceEventId $moduleArtifactRetainedReferenceEventId $moduleVmReportRetainedReferenceEventId $moduleAuditRetainedReferenceEventId $moduleManifestReferenceHash $moduleArtifactReferenceHash $moduleVmReportReferenceHash $moduleGrantManifestHash $moduleGrantArtifactHash $moduleGrantHash $moduleGrantReportHash $moduleGrantAttestationHash $signatureHex"
     Send-AgentCommand -Command $moduleAttestationCommand -ExpectedMarker "RAIOS_AGENT_END module.attestation_diagnostic" -Name "m6c:signed_attestation_reference"
     $moduleAttestationResponse = Get-LastAgentResponseJson -Method "module.attestation_diagnostic"
-    $attestationResult = $moduleAttestationResponse.body.result
+    $attestationResult = $moduleAttestationResponse
     $liveSignatureVerified = (
-        $attestationResult.validation_status -eq "local_attestation_signature_verified_load_still_denied" -and
-        $attestationResult.local_attestation_reference.signature_verified -eq $true
+        ($attestationResult.evidence | Where-Object id -eq "local_attestation").facts.status_detail -eq "local_attestation_signature_verified_load_still_denied" -and
+        ($attestationResult.evidence | Where-Object id -eq "local_attestation").facts.signature_verified -eq $true
     )
     # INFORMATIONAL: the live end-to-end dev-key signature is a harness-tooling
     # attempt only. Windows PowerShell 5.1 / .NET Framework P-256 signing with the
@@ -394,11 +394,11 @@ if (-not $rollbackOneShotOk) {
 if ($liveSignatureVerified) {
     Send-AgentCommand -Command $moduleGrantCommand -ExpectedMarker "RAIOS_AGENT_END module.grant_diagnostic" -Name "m6d:grant_can_load_now"
     $grantReady = Get-LastAgentResponseJson -Method "module.grant_diagnostic"
-    $grantReadyResult = $grantReady.body.result
+    $grantReadyResult = $grantReady
     $grantReadyOk = (
-        $grantReadyResult.policy_result.grants_capability -eq $true -and
-        $grantReadyResult.policy_result.trust_tier -eq "dev_key_not_owner_sealed" -and
-        $grantReadyResult.policy_result.can_load_now -eq $true
+        $grantReadyResult.decision.outcome -eq "granted" -and
+        @($grantReadyResult.decision.grants) -contains "cap.module.load_ephemeral" -and
+        $grantReadyResult.facts.trust_tier -eq "dev_key_not_owner_sealed"
     )
     Add-Predicate -Name "m6d:grant_reports_dev_tier_can_load_now" -Expected "grants_capability=true trust_tier=dev_key_not_owner_sealed can_load_now=true" -Passed $grantReadyOk -Actual $(if ($grantReadyOk) { "matched" } else { ($grantReadyResult | ConvertTo-Json -Compress -Depth 6) })
     if (-not $grantReadyOk) {
@@ -500,7 +500,7 @@ if ($liveSignatureVerified) {
 
     Send-AgentCommand -Command "agent module.service_slot_diagnostic" -ExpectedMarker "RAIOS_AGENT_END module.service_slot_diagnostic" -Name "m6d:live_service_slot_projection"
     $slotDiagnostic = Get-LastAgentResponseJson -Method "module.service_slot_diagnostic"
-    $liveSlot = $slotDiagnostic.body.result.live_granted_service_slot
+    $liveSlot = @($slotDiagnostic.evidence | Where-Object id -eq "live_granted_service_slot")[0].facts
     $liveSlotOk = (
         $liveSlot.service_id -eq "svc.dev.granted_candidate" -and
         $liveSlot.ram_only_service_slot_id -eq "ram_only:svc.dev.granted_candidate" -and
@@ -511,10 +511,9 @@ if ($liveSignatureVerified) {
         $liveSlot.maps_executable_pages -eq $false -and
         $liveSlot.durable -eq $false -and
         $liveSlot.owner_sealed -eq $false -and
-        $liveSlot.authorizes_native_guest_load -eq $false -and
-        $slotDiagnostic.body.result.policy_result.allocates_service_slot -eq $false
+        $slotDiagnostic.decision.outcome -eq "denied"
     )
-    Add-Predicate -Name "m6d:live_service_slot_diagnostic_reports_allocated_granted_slot" -Expected "live_granted_service_slot shows allocated RAM slot while reservation policy remains non-authorizing" -Passed $liveSlotOk -Actual $(if ($liveSlotOk) { "matched" } else { ($slotDiagnostic.body.result | ConvertTo-Json -Compress -Depth 6) })
+    Add-Predicate -Name "m6d:live_service_slot_diagnostic_reports_allocated_granted_slot" -Expected "live_granted_service_slot evidence shows allocated RAM slot while decision remains denied" -Passed $liveSlotOk -Actual $(if ($liveSlotOk) { "matched" } else { ($slotDiagnostic | ConvertTo-Json -Compress -Depth 6) })
 
     Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "m6d:live_service_inventory_projection"
     $inventory = Get-LastAgentResponseJson -Method "service.inventory"

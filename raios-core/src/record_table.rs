@@ -11,6 +11,7 @@ pub enum Cell<'a> {
     Str(&'a str),
     Sha256([u8; 32]),
     EventSequence(u64),
+    ResponseSequence(u64),
     Value(Value<'a>),
 }
 
@@ -19,7 +20,25 @@ pub struct FieldSpec<T> {
     pub get: for<'a> fn(&'a T) -> Cell<'a>,
 }
 
+pub struct OwnedFieldSpec<'a, T> {
+    pub key: &'static str,
+    pub get: fn(&T) -> Cell<'a>,
+}
+
 pub fn object_from<'a, T>(table: &[FieldSpec<T>], source: &'a T) -> Value<'a> {
+    let mut fields = Vec::with_capacity(table.len());
+    for spec in table {
+        debug_assert!(
+            !is_reserved_decision_key(spec.key),
+            "decision key is reserved: {}",
+            spec.key
+        );
+        fields.push(Field::new(spec.key, cell_value((spec.get)(source))));
+    }
+    Value::InlineObject(fields)
+}
+
+pub fn object_from_owned<'a, T>(table: &[OwnedFieldSpec<'a, T>], source: &T) -> Value<'a> {
     let mut fields = Vec::with_capacity(table.len());
     for spec in table {
         debug_assert!(
@@ -40,6 +59,7 @@ fn cell_value(cell: Cell<'_>) -> Value<'_> {
         Cell::Str(value) => Value::Str(value),
         Cell::Sha256(value) => Value::Sha256(value),
         Cell::EventSequence(value) => Value::EventSequence(value),
+        Cell::ResponseSequence(value) => Value::ResponseSequence(value),
         Cell::Value(value) => value,
     }
 }
@@ -89,6 +109,12 @@ macro_rules! field {
             get: |source| $crate::record_table::Cell::EventSequence($accessor(source)),
         }
     };
+    ($key:literal, response_sequence <- $accessor:path) => {
+        $crate::record_table::FieldSpec {
+            key: $key,
+            get: |source| $crate::record_table::Cell::ResponseSequence($accessor(source)),
+        }
+    };
     ($key:literal, value <- $accessor:path) => {
         $crate::record_table::FieldSpec {
             key: $key,
@@ -128,15 +154,15 @@ impl<'a> DeniedBy<'a> {
 pub struct DenialDecision<'a> {
     reason: &'a str,
     requested_capability: &'a str,
-    blocked_by: &'a [DeniedBy<'a>],
+    blocked_by: Vec<DeniedBy<'a>>,
 }
 
 impl<'a> DenialDecision<'a> {
     #[allow(dead_code)] // P4-0 substrate; evaluator consumers land in later slices.
-    pub(crate) const fn new(
+    pub(crate) fn new(
         reason: &'a str,
         requested_capability: &'a str,
-        blocked_by: &'a [DeniedBy<'a>],
+        blocked_by: Vec<DeniedBy<'a>>,
     ) -> Self {
         Self {
             reason,
@@ -186,9 +212,9 @@ impl<'a> GrantDecision<'a> {
 }
 
 pub enum EvaluatedDecision<'a> {
-    Observed(&'a Observation<'a>),
-    Denied(&'a DenialDecision<'a>),
-    Granted(&'a GrantDecision<'a>),
+    Observed(Observation<'a>),
+    Denied(DenialDecision<'a>),
+    Granted(GrantDecision<'a>),
 }
 
 pub fn decision_value<'a>(decision: &EvaluatedDecision<'a>) -> Value<'a> {
@@ -368,10 +394,10 @@ mod tests {
             DeniedBy::new("first", "missing", "first_missing"),
             DeniedBy::new("second", "rejected", "second_rejected"),
         ];
-        let denial = DenialDecision::new("first_missing", "cap.example", &blocked_by);
+        let denial = DenialDecision::new("first_missing", "cap.example", blocked_by.into());
 
         assert_eq!(
-            decision_value(&EvaluatedDecision::Denied(&denial)),
+            decision_value(&EvaluatedDecision::Denied(denial)),
             Value::InlineObject(vec![
                 Field::new("outcome", Value::Str("denied")),
                 Field::new("reason", Value::Str("first_missing")),
@@ -419,7 +445,7 @@ mod tests {
 
         assert_eq!(core::mem::size_of::<GrantProof>(), 0);
         assert!(matches!(
-            decision_value(&EvaluatedDecision::Granted(&grant)),
+            decision_value(&EvaluatedDecision::Granted(grant)),
             Value::InlineObject(_)
         ));
     }
@@ -428,7 +454,7 @@ mod tests {
     fn observation_carries_no_grants() {
         let observation = Observation::new("snapshot_returned");
         assert_eq!(
-            decision_value(&EvaluatedDecision::Observed(&observation)),
+            decision_value(&EvaluatedDecision::Observed(observation)),
             Value::InlineObject(vec![
                 Field::new("outcome", Value::Str("observed")),
                 Field::new("reason", Value::Str("snapshot_returned")),

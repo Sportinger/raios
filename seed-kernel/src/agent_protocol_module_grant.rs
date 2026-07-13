@@ -1,16 +1,20 @@
 use alloc::{vec, vec::Vec};
 
 use crate::{
+    agent_protocol_module_reference::{
+        common_evidence_status, diagnostic_facts, emit_evidence_v1_response, evidence_record,
+        selftest_case, selftest_facts,
+    },
     agent_protocol_module_types::*,
     agent_protocol_support::{
-        begin_response, crlf, emit_export_gate, emit_record_fields_trailing_comma,
-        emit_record_property_line, emit_record_value_property_line, end_response, method_eq,
-        method_head_eq, parse_sha256_ref, raw_line, record_bool as b, record_event_or_null,
+        method_eq, method_head_eq, parse_sha256_ref, record_bool as b, record_event_or_null,
         record_false as no, record_field as f, record_sha_or_null, record_static_str_array,
         record_str as s, run_selftest_cases_with, CaseSpec,
     },
     event_log, granted_candidate_service, module_candidate_intake, module_evidence, wasm_runtime,
 };
+use raios_core::evidence_response as ev;
+use raios_core::evidence_response::Blocked;
 use raios_core::record::Value as V;
 
 #[derive(Clone, Copy)]
@@ -107,7 +111,6 @@ const GRANT_CASES: [CaseSpec<GrantSelftestMutation>; MODULE_GRANT_AUTHORITY_SELF
     ),
 ];
 
-#[rustfmt::skip]
 pub(crate) fn emit_module_grant_diagnostic(method: &str) {
     let arg = module_grant_diagnostic_arg(method);
     let check = parse_module_grant_reference(arg);
@@ -120,91 +123,126 @@ pub(crate) fn emit_module_grant_diagnostic(method: &str) {
     let retained = event_log::latest_module_computed_grant_reference();
     let retained_attestation =
         event_log::latest_module_local_attestation_reference().map(|(_, reference)| reference);
-    let authority = module_grant_authority_from_attestation(
-        &check,
-        retained_attestation,
-        module_grant_live_runtime_readiness(),
+    let readiness = module_grant_live_runtime_readiness();
+    let authority =
+        module_grant_authority_from_attestation(&check, retained_attestation, readiness);
+    let facts = diagnostic_facts(
+        "module.grant_diagnostic <computed_grant_hash> <manifest_hash> <artifact_hash> <vm_report_hash> <local_attestation_hash> [current_boot]",
+        V::InlineObject(vec![f("requested_capability", s("cap.module.load_ephemeral")), f("load_mode", s("ram_only")), f("risk", s("modify_ram")), f("subject", s("agent.session.serial")), f("resource", s("live_service_graph"))]),
+        if authority.can_load_now { "dev_key_attestation_plus_retained_artifact_bytes" } else { "hash_reference_only_no_artifact_bytes" },
+        record_static_str_array(&["in_guest_evidence_retention", "raios.audit_record.v0", "rollback_plan", "module_loader", "ram_only_service_slot"]),
+        s(authority.trust_tier),
+        V::InlineObject(vec![f("candidate_bytes_present", b(readiness.retained_candidate_bytes_present)), f("slot_allocatable", b(readiness.slot_allocatable)), f("loader_available", b(readiness.loader_available))]),
     );
-
-    begin_response("module.grant_diagnostic");
-    emit_record_fields_trailing_comma(
-        vec![
-            f("schema", s("raios.module_computed_grant_diagnostic.v0")),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("test_infrastructure", no()),
-            f("accepts_artifact_bytes", no()),
-            f("artifact_loaded", no()),
-            f("service_started", no()),
-            f("service_inventory_change", s("none")),
-            f("load_attempted", no()),
-            f(
-                "reference_format",
-                s("module.grant_diagnostic <computed_grant_hash> <manifest_hash> <artifact_hash> <vm_report_hash> <local_attestation_hash> [current_boot]"),
-            ),
-            f(
-                "request",
-                V::Object(vec![
-                    f("requested_capability", s("cap.module.load_ephemeral")),
-                    f("load_mode", s("ram_only")),
-                    f("risk", s("modify_ram")),
-                    f("subject", s("agent.session.serial")),
-                    f("resource", s("live_service_graph")),
-                ]),
-            ),
-        ],
-        6,
-    );
-    emit_record_property_line("computed_grant_reference", module_grant_reference_fields(&check), true);
-    emit_module_grant_retained_reference(&check, recorded_event_id, retained, true);
-    emit_module_grant_gate_state(&check, authority.can_load_now, true);
-    emit_module_grant_policy_result(
-        &check,
-        authority.grants_capability,
-        authority.trust_tier,
-        authority.can_load_now,
-        true,
-    );
-    raw_line("      \"blocked_by\": [");
-    let mut wrote = false;
-    if !check.valid {
-        emit_export_gate(
-            &mut wrote,
-            "computed_capability_grant",
-            check.status,
-            check.reason,
-        );
+    let mut evidence = vec![evidence_record(
+        "computed_capability_grant",
+        "reference",
+        common_evidence_status(check.valid, check.has_reference),
+        check.reason,
+        None,
+        V::InlineObject(
+            module_grant_reference_fields(&check)
+                .into_iter()
+                .map(|mut field| {
+                    if field.key == "validation_status" {
+                        field.key = "status_detail";
+                    }
+                    field
+                })
+                .filter(|field| field.key != "validation_reason")
+                .collect(),
+        ),
+    )];
+    if let Some((event_id, reference)) = retained {
+        evidence.push(evidence_record(
+            "computed_capability_grant_retained",
+            "retained_reference",
+            "verified",
+            "retained_hash_reference_load_still_denied",
+            Some(event_id),
+            V::InlineObject(vec![
+                f("state", s("present")),
+                f("retention", s("current_boot_ram_event_log")),
+                f(
+                    "matches_current_reference",
+                    b(module_grant_reference_matches(&check, reference)),
+                ),
+                f(
+                    "record_schema",
+                    s("raios.module_computed_grant_reference.v0"),
+                ),
+                f(
+                    "status_detail",
+                    s("retained_hash_reference_load_still_denied"),
+                ),
+                f(
+                    "computed_capability_grant_hash",
+                    V::Sha256(reference.computed_grant_hash),
+                ),
+                f("manifest_hash", V::Sha256(reference.manifest_hash)),
+                f("artifact_hash", V::Sha256(reference.artifact_hash)),
+                f("vm_test_report_hash", V::Sha256(reference.vm_report_hash)),
+                f(
+                    "local_attestation_hash",
+                    V::Sha256(reference.local_attestation_hash),
+                ),
+            ]),
+        ));
+    } else {
+        evidence.push(evidence_record(
+            "computed_capability_grant_retained",
+            "retained_reference",
+            "missing",
+            "no_valid_computed_grant_reference_retained",
+            None,
+            V::InlineObject(vec![
+                f("state", s("missing")),
+                f("retention", s("current_boot_ram_event_log")),
+                f("matches_current_reference", no()),
+                f(
+                    "record_schema",
+                    s("raios.module_computed_grant_reference.v0"),
+                ),
+                f("status_detail", s("missing")),
+            ]),
+        ));
     }
-    emit_export_gate(
-        &mut wrote,
-        "durable_audit_record",
-        "missing",
-        "durable_audit_write_missing",
+    let primary = (!check.valid).then_some(Blocked {
+        evidence_id: "computed_capability_grant",
+        status: common_evidence_status(false, check.has_reference),
+        reason: check.reason,
+    });
+    let denial = ev::module_reference_denial(ev::ModuleReferenceFamily::Grant, primary);
+    let attestation_hashes_match = retained_attestation
+        .map(|attestation| {
+            Some(attestation.computed_grant_hash) == check.grant_hash
+                && Some(attestation.manifest_hash) == check.manifest_hash
+                && Some(attestation.artifact_hash) == check.artifact_hash
+                && Some(attestation.vm_report_hash) == check.vm_report_hash
+                && Some(attestation.local_attestation_hash) == check.local_attestation_hash
+        })
+        .unwrap_or(false);
+    let decision = ev::module_grant_decision(
+        check.valid,
+        retained_attestation
+            .map(|value| value.signature_verified)
+            .unwrap_or(false),
+        attestation_hashes_match,
+        readiness.retained_candidate_bytes_present,
+        readiness.slot_allocatable,
+        readiness.loader_available,
+        denial,
     );
-    emit_export_gate(
-        &mut wrote,
-        "rollback_plan",
-        "missing",
-        "rollback_install_missing",
+    emit_evidence_v1_response(
+        "module.grant_diagnostic",
+        "module.computed_grant",
+        recorded_event_id,
+        facts,
+        evidence,
+        decision,
     );
-    emit_export_gate(
-        &mut wrote,
-        "loader",
-        "unavailable",
-        "module_loader_unimplemented",
-    );
-    emit_export_gate(
-        &mut wrote,
-        "service_slot",
-        "unallocated",
-        "ram_only_service_slot_unallocated",
-    );
-    crlf();
-    raw_line("      ]");
-    end_response("module.grant_diagnostic");
 }
 
-#[rustfmt::skip]
 pub(crate) fn emit_module_grant_diagnostic_selftest() {
     let cases = module_grant_selftest_cases();
     let mut passed = true;
@@ -213,37 +251,26 @@ pub(crate) fn emit_module_grant_diagnostic_selftest() {
         passed = passed && cases[idx].passed;
         idx += 1;
     }
-    let case_records = cases.iter().map(module_grant_selftest_case_record).collect();
+    let case_records = cases
+        .iter()
+        .map(module_grant_selftest_case_record)
+        .collect();
+    let mut facts = selftest_facts(V::Array(case_records), cases.len(), passed);
+    if let V::InlineObject(fields) = &mut facts {
+        fields.push(f(
+            "co_emission_invariant",
+            s("can_load_now_true_implies_trust_tier_dev_key_not_owner_sealed_and_grants_capability"),
+        ));
+    }
 
-    begin_response("module.grant_diagnostic_selftest");
-    emit_record_fields_trailing_comma(
-        vec![
-            f(
-                "schema",
-                s("raios.module_computed_grant_diagnostic_selftest.v0"),
-            ),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("test_infrastructure", b(true)),
-            f("mutates_global_event_log", no()),
-            f("accepts_artifact_bytes", no()),
-            f("loads_artifact", no()),
-            f("service_inventory_change", s("none")),
-            f("load_attempted", no()),
-            f("loader", s("unavailable")),
-            f("service_slot", s("unallocated")),
-            f("case_count", V::U64(cases.len() as u64)),
-            f(
-                "co_emission_invariant",
-                s("can_load_now_true_implies_trust_tier_dev_key_not_owner_sealed_and_grants_capability"),
-            ),
-            f("passed", b(passed)),
-            f("cases", V::Array(case_records)),
-        ],
-        6,
+    emit_evidence_v1_response(
+        "module.grant_diagnostic_selftest",
+        "module.computed_grant.selftest",
+        None,
+        facts,
+        vec![],
+        ev::observed("selftest_completed"),
     );
-    emit_record_value_property_line("can_load", no(), false);
-    end_response("module.grant_diagnostic_selftest");
 }
 
 #[rustfmt::skip]
@@ -276,146 +303,10 @@ fn module_grant_reference_fields<'a>(
 
 #[rustfmt::skip]
 fn module_grant_selftest_case_record(case: &ModuleGrantSelfTestCase) -> V<'static> {
-    let can_load_now = module_grant_selftest_case_can_load_now(case.name);
-    V::InlineObject(vec![f("case", s(case.name)), f("expected_status", s(case.expected_status)), f("expected_reason", s(case.expected_reason)), f("actual_status", s(case.actual_status)), f("actual_reason", s(case.actual_reason)), f("passed", b(case.passed)), f("can_load_now", b(can_load_now)), f("load_attempted", no())])
-}
-
-fn module_grant_selftest_case_can_load_now(name: &str) -> bool {
-    method_eq(name, "signed_fully_bound_attestation_grants_capability")
-}
-
-fn emit_module_grant_gate_state(
-    check: &ModuleGrantReferenceCheck<'_>,
-    can_load_now: bool,
-    comma: bool,
-) {
-    let computed_grant = if check.valid {
-        "hash_reference_valid"
-    } else if check.has_reference {
-        "hash_reference_invalid"
-    } else {
-        "missing"
-    };
-    emit_record_property_line(
-        "gate_state",
-        vec![
-            f("module_manifest", s("hash_reference_only")),
-            f("candidate_artifact", s("hash_reference_only")),
-            f("vm_test_report", s("hash_reference_only")),
-            f("local_attestation", s("hash_reference_only")),
-            f("computed_capability_grant", s(computed_grant)),
-            f("local_approval", s("not_received_by_guest")),
-            f("rollback_plan", s("missing")),
-            f("durable_audit_record", s("missing")),
-            f("loader", s("unavailable")),
-            f("service_slot", s("unallocated")),
-            f("artifact_loaded", no()),
-            f("service_started", no()),
-            f("persistence", s("none")),
-            f("can_load", b(can_load_now)),
-        ],
-        comma,
-    );
+    selftest_case(case.name, case.expected_status, case.expected_reason, case.actual_status, case.actual_reason, case.passed)
 }
 
 #[rustfmt::skip]
-fn emit_module_grant_retained_reference(
-    check: &ModuleGrantReferenceCheck<'_>,
-    recorded_event_id: Option<event_log::EventId>,
-    retained: Option<(event_log::EventId, event_log::ModuleComputedGrantReference)>,
-    comma: bool,
-) {
-    let fields = if let Some((event_id, reference)) = retained {
-        vec![
-            f("state", s("present")),
-            f("retention", s("current_boot_ram_event_log")),
-            f("event_id", record_event_or_null(Some(event_id))),
-            f("recorded_event_id", record_event_or_null(recorded_event_id)),
-            f(
-                "matches_current_reference",
-                b(module_grant_reference_matches(check, reference)),
-            ),
-            f("schema", s("raios.module_computed_grant_reference.v0")),
-            f("status", s("retained_hash_reference_load_still_denied")),
-            f("grants_capability", no()),
-            f("grants_load_now", no()),
-            f("authorizes_guest_load", no()),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-            f(
-                "hashes",
-                V::Object(vec![
-                    f(
-                        "computed_capability_grant_hash",
-                        record_sha_or_null(Some(reference.computed_grant_hash)),
-                    ),
-                    f("manifest_hash", record_sha_or_null(Some(reference.manifest_hash))),
-                    f("artifact_hash", record_sha_or_null(Some(reference.artifact_hash))),
-                    f(
-                        "vm_test_report_hash",
-                        record_sha_or_null(Some(reference.vm_report_hash)),
-                    ),
-                    f(
-                        "local_attestation_hash",
-                        record_sha_or_null(Some(reference.local_attestation_hash)),
-                    ),
-                ]),
-            ),
-        ]
-    } else {
-        vec![
-            f("state", s("missing")),
-            f("retention", s("current_boot_ram_event_log")),
-            f("event_id", record_event_or_null(None)),
-            f("recorded_event_id", record_event_or_null(None)),
-            f("matches_current_reference", no()),
-            f("schema", s("raios.module_computed_grant_reference.v0")),
-            f("status", s("missing")),
-            f("reason", s("no_valid_computed_grant_reference_retained")),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-        ]
-    };
-    emit_record_property_line("retained_reference", fields, comma);
-}
-
-#[rustfmt::skip]
-fn emit_module_grant_policy_result(
-    check: &ModuleGrantReferenceCheck<'_>,
-    grants_capability: bool,
-    trust_tier: &str,
-    can_load_now: bool,
-    comma: bool,
-) {
-    emit_record_property_line(
-        "policy_result",
-        vec![
-            f("computed_candidate_present", b(check.valid)),
-            f("grants_capability", b(grants_capability)),
-            f("trust_tier", s(trust_tier)),
-            f("grants_load_now", no()),
-            f("authorizes_guest_load", no()),
-            f("can_load_now", b(can_load_now)),
-            f("dev_tier_can_load_now", b(can_load_now)),
-            f("service_inventory_change", s("none")),
-            f("load_attempted", no()),
-            f(
-                "guest_evidence_authority",
-                s(if can_load_now {
-                    "dev_key_attestation_plus_retained_artifact_bytes"
-                } else {
-                    "hash_reference_only_no_artifact_bytes"
-                }),
-            ),
-            f(
-                "required_before_load",
-                record_static_str_array(&["in_guest_evidence_retention", "raios.audit_record.v0", "rollback_plan", "module_loader", "ram_only_service_slot"]),
-            ),
-        ],
-        comma,
-    );
-}
-
 #[derive(Clone, Copy)]
 struct ModuleGrantAuthorityResult {
     grants_capability: bool,

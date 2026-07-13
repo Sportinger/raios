@@ -579,7 +579,7 @@ function Invoke-RealDevKeyPromotion {
     $moduleManifestReferenceHash = Get-TextSha256 -Text $moduleManifestReferenceCanonical
     Send-AgentCommandTagged -Prefix $Prefix -Command "agent module.manifest_diagnostic $moduleManifestReferenceHash $moduleGrantManifestHash" -ExpectedMarker "RAIOS_AGENT_END module.manifest_diagnostic" -Name "manifest-reference"
     $moduleManifestResponse = Get-LastAgentResponseJson -Method "module.manifest_diagnostic"
-    $moduleManifestRetainedReferenceEventId = [string]$moduleManifestResponse.body.result.retained_manifest_reference.event_id
+    $moduleManifestRetainedReferenceEventId = [string]($moduleManifestResponse.evidence | Where-Object id -eq "module_manifest_retained").source_event_id
     Assert-CurrentBootEventId -Name "${Prefix}:manifest-reference-event-id" -Value $moduleManifestRetainedReferenceEventId
 
     $moduleGrantCanonical = @(
@@ -603,7 +603,7 @@ function Invoke-RealDevKeyPromotion {
     $moduleGrantCommand = "agent module.grant_diagnostic $moduleGrantHash $moduleGrantManifestHash $moduleGrantArtifactHash $moduleGrantReportHash $moduleGrantAttestationHash"
     Send-AgentCommandTagged -Prefix $Prefix -Command $moduleGrantCommand -ExpectedMarker "RAIOS_AGENT_END module.grant_diagnostic" -Name "initial-grant-reference"
     $moduleGrantResponse = Get-LastAgentResponseJson -Method "module.grant_diagnostic"
-    $moduleGrantRetainedReferenceEventId = [string]$moduleGrantResponse.body.result.retained_reference.event_id
+    $moduleGrantRetainedReferenceEventId = [string]($moduleGrantResponse.evidence | Where-Object id -eq "computed_capability_grant_retained").source_event_id
     Assert-CurrentBootEventId -Name "${Prefix}:grant-reference-event-id" -Value $moduleGrantRetainedReferenceEventId
 
     $moduleArtifactReferenceCanonical = @(
@@ -632,7 +632,7 @@ function Invoke-RealDevKeyPromotion {
     $moduleArtifactCommand = "agent module.artifact_diagnostic $moduleArtifactReferenceHash $moduleManifestRetainedReferenceEventId $moduleGrantRetainedReferenceEventId $moduleManifestReferenceHash $moduleGrantManifestHash $moduleGrantHash $moduleGrantArtifactHash $moduleGrantReportHash $moduleGrantAttestationHash"
     Send-AgentCommandTagged -Prefix $Prefix -Command $moduleArtifactCommand -ExpectedMarker "RAIOS_AGENT_END module.artifact_diagnostic" -Name "artifact-reference"
     $moduleArtifactResponse = Get-LastAgentResponseJson -Method "module.artifact_diagnostic"
-    $moduleArtifactRetainedReferenceEventId = [string]$moduleArtifactResponse.body.result.retained_candidate_artifact_reference.event_id
+    $moduleArtifactRetainedReferenceEventId = [string]($moduleArtifactResponse.evidence | Where-Object id -eq "candidate_artifact_retained").source_event_id
     Assert-CurrentBootEventId -Name "${Prefix}:artifact-reference-event-id" -Value $moduleArtifactRetainedReferenceEventId
 
     $moduleVmReportReferenceCanonical = @(
@@ -664,7 +664,7 @@ function Invoke-RealDevKeyPromotion {
     $moduleVmReportCommand = "agent module.vm_report_diagnostic $moduleVmReportReferenceHash $moduleManifestRetainedReferenceEventId $moduleArtifactRetainedReferenceEventId $moduleGrantRetainedReferenceEventId $moduleManifestReferenceHash $moduleArtifactReferenceHash $moduleGrantManifestHash $moduleGrantArtifactHash $moduleGrantHash $moduleGrantReportHash $moduleGrantAttestationHash"
     Send-AgentCommandTagged -Prefix $Prefix -Command $moduleVmReportCommand -ExpectedMarker "RAIOS_AGENT_END module.vm_report_diagnostic" -Name "vm-report-reference"
     $moduleVmReportResponse = Get-LastAgentResponseJson -Method "module.vm_report_diagnostic"
-    $moduleVmReportRetainedReferenceEventId = [string]$moduleVmReportResponse.body.result.retained_vm_test_report_reference.event_id
+    $moduleVmReportRetainedReferenceEventId = [string]($moduleVmReportResponse.evidence | Where-Object id -eq "vm_test_report_retained").source_event_id
     Assert-CurrentBootEventId -Name "${Prefix}:vm-report-reference-event-id" -Value $moduleVmReportRetainedReferenceEventId
 
     $moduleAttestationReferenceCanonical = @(
@@ -701,20 +701,20 @@ function Invoke-RealDevKeyPromotion {
     $moduleAttestationCommand = "agent module.attestation_diagnostic $moduleAttestationReferenceHash $moduleManifestRetainedReferenceEventId $moduleArtifactRetainedReferenceEventId $moduleVmReportRetainedReferenceEventId $moduleGrantRetainedReferenceEventId $moduleManifestReferenceHash $moduleArtifactReferenceHash $moduleVmReportReferenceHash $moduleGrantManifestHash $moduleGrantArtifactHash $moduleGrantHash $moduleGrantReportHash $moduleGrantAttestationHash $signatureHex"
     Send-AgentCommandTagged -Prefix $Prefix -Command $moduleAttestationCommand -ExpectedMarker "RAIOS_AGENT_END module.attestation_diagnostic" -Name "signed-attestation-reference"
     $moduleAttestationResponse = Get-LastAgentResponseJson -Method "module.attestation_diagnostic"
-    $attestationResult = $moduleAttestationResponse.body.result
+    $attestationResult = $moduleAttestationResponse
     $signatureVerifiedOk = (
-        $attestationResult.local_attestation_reference.validation_status -eq "local_attestation_signature_verified_load_still_denied" -and
-        $attestationResult.local_attestation_reference.signature_verified -eq $true
+        ($attestationResult.evidence | Where-Object id -eq "local_attestation").facts.status_detail -eq "local_attestation_signature_verified_load_still_denied" -and
+        ($attestationResult.evidence | Where-Object id -eq "local_attestation").facts.signature_verified -eq $true
     )
     Assert-ReportPredicate -Prefix $Prefix -Name "signature-verified-true" -Expected "module.attestation_diagnostic reports signature_verified true" -Passed $signatureVerifiedOk -Actual $(if ($signatureVerifiedOk) { "matched" } else { Convert-CompactJson $attestationResult 10 }) -FailureMessage "Expected real dev-key signature to verify"
 
     Send-AgentCommandTagged -Prefix $Prefix -Command $moduleGrantCommand -ExpectedMarker "RAIOS_AGENT_END module.grant_diagnostic" -Name "grant-can-load-now"
     $grantReady = Get-LastAgentResponseJson -Method "module.grant_diagnostic"
-    $grantReadyResult = $grantReady.body.result
+    $grantReadyResult = $grantReady
     $grantReadyOk = (
-        $grantReadyResult.policy_result.grants_capability -eq $true -and
-        $grantReadyResult.policy_result.trust_tier -eq "dev_key_not_owner_sealed" -and
-        $grantReadyResult.policy_result.can_load_now -eq $true
+        $grantReadyResult.decision.outcome -eq "granted" -and
+        @($grantReadyResult.decision.grants) -contains "cap.module.load_ephemeral" -and
+        $grantReadyResult.facts.trust_tier -eq "dev_key_not_owner_sealed"
     )
     Assert-ReportPredicate -Prefix $Prefix -Name "grant-reports-dev-tier-can-load-now" -Expected "grants_capability=true trust_tier=dev_key_not_owner_sealed can_load_now=true" -Passed $grantReadyOk -Actual $(if ($grantReadyOk) { "matched" } else { Convert-CompactJson $grantReadyResult 8 }) -FailureMessage "Expected signed grant with retained bytes to report can_load_now"
 

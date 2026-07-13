@@ -19,6 +19,7 @@ pub enum Value<'a> {
     TrimmedAsciiBytes(&'a [u8]),
     Sha256([u8; 32]),
     EventSequence(u64),
+    ResponseSequence(u64),
     InlineArray(Vec<Value<'a>>),
     Array(Vec<Value<'a>>),
     InlineObject(Vec<Field<'a>>),
@@ -47,6 +48,7 @@ pub fn write_json<S: ByteSink>(value: &Value<'_>, sink: &mut S, indent: usize) {
         Value::TrimmedAsciiBytes(value) => write_trimmed_ascii_bytes(value, sink),
         Value::Sha256(value) => write_sha256(*value, sink),
         Value::EventSequence(value) => write_event_sequence(*value, sink),
+        Value::ResponseSequence(value) => write_response_sequence(*value, sink),
         Value::InlineArray(values) => write_inline_array(values, sink, indent),
         Value::Array(values) => write_array(values, sink, indent),
         Value::InlineObject(fields) => write_inline_object(fields, sink, indent),
@@ -260,6 +262,12 @@ fn write_event_sequence<S: ByteSink>(value: u64, sink: &mut S) {
     sink.write_bytes(b"\"");
 }
 
+fn write_response_sequence<S: ByteSink>(value: u64, sink: &mut S) {
+    sink.write_bytes(b"\"response.current_boot.");
+    write_u64_padded(value, 8, sink);
+    sink.write_bytes(b"\"");
+}
+
 fn write_u64<S: ByteSink>(value: u64, sink: &mut S) {
     write_u64_padded(value, 0, sink);
 }
@@ -419,6 +427,10 @@ mod tests {
         assert_eq!(
             render(&Value::EventSequence(42)),
             b"\"event.current_boot.00000042\""
+        );
+        assert_eq!(
+            render(&Value::ResponseSequence(42)),
+            b"\"response.current_boot.00000042\""
         );
     }
 

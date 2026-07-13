@@ -2,20 +2,24 @@ use alloc::vec;
 
 use crate::{
     agent_protocol_module_audit::module_audit_rollback_valid_input,
+    agent_protocol_module_reference::{
+        common_evidence_status, diagnostic_facts, emit_evidence_v1_response, evidence_record,
+        selftest_case, selftest_facts,
+    },
     agent_protocol_module_types::*,
     agent_protocol_support::{
-        begin_response, current_boot_event_id_str, emit_record_fields_trailing_comma,
-        emit_record_property_line, emit_record_value_property_line, end_response, method_eq,
-        method_head_eq, parse_current_boot_event_id, parse_sha256_ref, record_bool as b,
-        record_event_or_null, record_false as no, record_field as f, record_gate,
-        record_sha_fields, record_sha_or_null, record_str as s, record_str_or_null,
-        run_selftest_cases_with, CaseSpec,
+        current_boot_event_id_str, method_eq, method_head_eq, parse_current_boot_event_id,
+        parse_sha256_ref, record_bool as b, record_event_or_null, record_false as no,
+        record_field as f, record_gate, record_present_absent, record_sha_fields,
+        record_sha_or_null, record_str as s, record_str_or_null, run_selftest_cases_with, CaseSpec,
     },
     event_log, granted_candidate_service,
     module_evidence::{
         self, ram_only_service_slot_id_valid, ModuleServiceSlotReservationHashInput,
     },
 };
+use raios_core::evidence_response as ev;
+use raios_core::evidence_response::Blocked;
 use raios_core::record::Value as V;
 
 #[derive(Clone, Copy)]
@@ -86,7 +90,6 @@ fn module_service_slot_diagnostic_arg(method: &str) -> &str {
     method[head_len..].trim()
 }
 
-#[rustfmt::skip]
 pub(crate) fn emit_module_service_slot_diagnostic(method: &str) {
     let arg = module_service_slot_diagnostic_arg(method);
     let check = parse_module_service_slot_reservation(arg, true);
@@ -97,128 +100,28 @@ pub(crate) fn emit_module_service_slot_diagnostic(method: &str) {
         None
     };
     let retained = event_log::latest_module_service_slot_reservation();
+    let retained_slot_id = retained.map(|(_, reference)| reference.ram_only_service_slot_id);
 
-    begin_response("module.service_slot_diagnostic");
-    emit_record_fields_trailing_comma(
-        vec![
-            f(
-                "schema",
-                s("raios.module_service_slot_reservation_diagnostic.v0"),
-            ),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("test_infrastructure", no()),
-            f("mutates_global_event_log", b(check.valid)),
-            f(
-                "global_event_log_mutation",
-                s(if check.valid {
-                    "valid_hash_reference_retention_only"
-                } else {
-                    "none"
-                }),
-            ),
-            f("accepts_artifact_bytes", no()),
-            f("allocates_service_slot", no()),
-            f("creates_service_inventory_records", no()),
-            f("loads_artifact", no()),
-            f(
-                "reference_format",
-                s("module.service_slot_diagnostic <reservation_hash> <retained_reference_event_id> <retained_audit_rollback_reference_event_id> <computed_grant_hash> <audit_record_hash> <rollback_plan_hash> <pre_load_service_inventory_hash> <ram_only_service_slot_id> [current_boot]"),
-            ),
-        ],
-        6,
-    );
-    emit_module_service_slot_reference_object(&check, true);
-    emit_module_service_slot_retained_reference(&check, recorded_event_id, retained, true);
-    emit_module_service_slot_policy_result(&check, true);
-    if let Some(snapshot) = granted_candidate_service::loaded_snapshot() {
-        emit_live_granted_service_slot(snapshot, true);
-    }
-    emit_record_value_property_line(
-        "blocked_by",
-        V::Array(vec![
-            record_gate("service_slot_allocator", "unavailable",
-                "ram_only_service_slot_allocator_unimplemented"),
-            record_gate("module_loader", "unavailable", "module_loader_unimplemented"),
-        ]),
-        false,
-    );
-    end_response("module.service_slot_diagnostic");
-}
-
-fn emit_live_granted_service_slot(snapshot: granted_candidate_service::Snapshot, comma: bool) {
-    let projection = granted_candidate_service::live_load_projection();
-    emit_record_property_line(
-        "live_granted_service_slot",
-        vec![
-            f("state", s("allocated")),
-            f(
-                "service_id",
-                s(granted_candidate_service::GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.service_id),
-            ),
-            f(
-                "ram_only_service_slot_id",
-                s(granted_candidate_service::ram_only_service_slot_id()),
-            ),
-            f(
-                "service_slot_allocated",
-                b(projection.service_slot_allocated),
-            ),
-            f("running", b(projection.running)),
-            f(
-                "health",
-                s(granted_candidate_service::health_state(snapshot)),
-            ),
-            f(
-                "service_slot_activation_id",
-                s(granted_candidate_service::service_slot_activation_id()),
-            ),
-            f(
-                "service_slot_activation_hash",
-                record_sha_or_null(Some(
-                    granted_candidate_service::service_slot_activation_hash(),
-                )),
-            ),
-            f(
-                "service_slot_activation_status",
-                s(granted_candidate_service::service_slot_activation_status(
-                    snapshot,
-                )),
-            ),
-            f(
-                "service_slot_activation_active",
-                b(granted_candidate_service::service_slot_activation_active(
-                    snapshot,
-                )),
-            ),
-            f("trust_tier", s(projection.trust_tier)),
-            f("load_mechanism", s(projection.load_mechanism)),
-            f("maps_executable_pages", no()),
-            f("durable", no()),
-            f("owner_sealed", no()),
-            f("authorizes_native_guest_load", no()),
-        ],
-        comma,
-    );
-}
-
-#[rustfmt::skip]
-fn emit_module_service_slot_reference_object(
-    check: &ModuleServiceSlotReservationCheck<'_>,
-    comma: bool,
-) {
-    emit_record_property_line(
-        "service_slot_reservation_reference",
-        vec![
-            f(
-                "state",
-                s(if check.has_reference { "present" } else { "absent" }),
-            ),
-            f("validation_status", s(check.status)),
-            f("validation_reason", s(check.reason)),
+    let live_snapshot = granted_candidate_service::loaded_snapshot();
+    let facts = diagnostic_facts("module.service_slot_diagnostic <reservation_hash> <retained_reference_event_id> <retained_audit_rollback_reference_event_id> <computed_grant_hash> <audit_record_hash> <rollback_plan_hash> <pre_load_service_inventory_hash> <ram_only_service_slot_id> [current_boot]",
+        V::InlineObject(vec![f("requested_capability", s("cap.module.load_ephemeral")), f("load_mode", s("ram_only")), f("subject", s("agent.session.serial")), f("resource", s("live_service_graph"))]),
+        "hash_reference_only_no_slot_allocation", V::InlineArray(vec![s("service_slot_allocator"), s("module_loader")]), V::Null,
+        V::InlineObject(vec![f("live_granted_service_slot_present", b(live_snapshot.is_some())), f("service_slot_allocator", s("unavailable")), f("loader", s("unavailable"))]));
+    let mut evidence = vec![evidence_record(
+        "service_slot_reservation",
+        "reference",
+        common_evidence_status(check.valid, check.has_reference),
+        check.reason,
+        None,
+        V::InlineObject(vec![
+            f("state", record_present_absent(check.has_reference)),
+            f("status_detail", s(check.status)),
             f("arity_valid", b(check.arity_valid)),
             f("scope", s(check.scope)),
-            f("reservation_hash", record_sha_or_null(check.reservation_hash)),
+            f(
+                "reservation_hash",
+                record_sha_or_null(check.reservation_hash),
+            ),
             f(
                 "expected_reservation_hash",
                 record_sha_or_null(check.expected_reservation_hash),
@@ -235,8 +138,14 @@ fn emit_module_service_slot_reference_object(
                 "computed_capability_grant_hash",
                 record_sha_or_null(check.computed_grant_hash),
             ),
-            f("audit_record_hash", record_sha_or_null(check.audit_record_hash)),
-            f("rollback_plan_hash", record_sha_or_null(check.rollback_plan_hash)),
+            f(
+                "audit_record_hash",
+                record_sha_or_null(check.audit_record_hash),
+            ),
+            f(
+                "rollback_plan_hash",
+                record_sha_or_null(check.rollback_plan_hash),
+            ),
             f(
                 "pre_load_service_inventory_hash",
                 record_sha_or_null(check.pre_load_service_inventory_hash),
@@ -245,90 +154,136 @@ fn emit_module_service_slot_reference_object(
                 "ram_only_service_slot_id",
                 record_str_or_null(check.ram_only_service_slot_id),
             ),
-        ],
-        comma,
-    );
-}
-
-#[rustfmt::skip]
-fn emit_module_service_slot_retained_reference(
-    check: &ModuleServiceSlotReservationCheck<'_>,
-    recorded_event_id: Option<event_log::EventId>,
-    retained: Option<(event_log::EventId, event_log::ModuleServiceSlotReservation)>,
-    comma: bool,
-) {
-    let fields = if let Some((event_id, ref reference)) = retained {
-        vec![
-            f("state", s("present")),
-            f("retention", s("current_boot_ram_event_log")),
-            f("event_id", record_event_or_null(Some(event_id))),
-            f("recorded_event_id", record_event_or_null(recorded_event_id)),
-            f(
-                "matches_current_reference",
-                b(module_service_slot_reference_matches(check, *reference)),
-            ),
-            f("schema", s("raios.module_service_slot_reservation.v0")),
-            f("status", s("retained_hash_reference_load_still_denied")),
-            f("classification", s("local_only")),
-            f("allocates_service_slot", no()),
-            f("service_inventory_change", s("none")),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-            f(
-                "retained_computed_grant_reference_event_id",
-                record_event_or_null(Some(reference.retained_reference_event_id)),
-            ),
-            f(
-                "retained_audit_rollback_reference_event_id",
-                record_event_or_null(Some(reference.retained_audit_rollback_reference_event_id)),
-            ),
-            f("ram_only_service_slot_id", s(reference.ram_only_service_slot_id.as_str())),
-            f(
-                "hashes",
-                V::Object(record_sha_fields(&[
-                    ("reservation_hash", reference.reservation_hash),
-                    ("computed_capability_grant_hash", reference.computed_grant_hash),
-                    ("audit_record_hash", reference.audit_record_hash),
-                    ("rollback_plan_hash", reference.rollback_plan_hash),
-                    ("pre_load_service_inventory_hash", reference.pre_load_service_inventory_hash),
-                ])),
-            ),
-        ]
+        ]),
+    )];
+    if let Some((event_id, reference)) = retained {
+        evidence.push(evidence_record(
+            "service_slot_reservation_retained",
+            "retained_reference",
+            "verified",
+            "retained_hash_reference_load_still_denied",
+            Some(event_id),
+            V::InlineObject(vec![
+                f("state", s("present")),
+                f("retention", s("current_boot_ram_event_log")),
+                f(
+                    "matches_current_reference",
+                    b(module_service_slot_reference_matches(&check, reference)),
+                ),
+                f(
+                    "record_schema",
+                    s("raios.module_service_slot_reservation.v0"),
+                ),
+                f(
+                    "status_detail",
+                    s("retained_hash_reference_load_still_denied"),
+                ),
+                f("reservation_hash", V::Sha256(reference.reservation_hash)),
+                f(
+                    "computed_capability_grant_hash",
+                    V::Sha256(reference.computed_grant_hash),
+                ),
+                f("audit_record_hash", V::Sha256(reference.audit_record_hash)),
+                f(
+                    "rollback_plan_hash",
+                    V::Sha256(reference.rollback_plan_hash),
+                ),
+                f(
+                    "pre_load_service_inventory_hash",
+                    V::Sha256(reference.pre_load_service_inventory_hash),
+                ),
+                f(
+                    "ram_only_service_slot_id",
+                    s(retained_slot_id.as_ref().unwrap().as_str()),
+                ),
+            ]),
+        ));
     } else {
-        vec![
-            f("state", s("missing")),
-            f("retention", s("current_boot_ram_event_log")),
-            f("event_id", record_event_or_null(None)),
-            f("recorded_event_id", record_event_or_null(None)),
-            f("matches_current_reference", no()),
-            f("schema", s("raios.module_service_slot_reservation.v0")),
-            f("status", s("missing")),
-            f("reason", s("no_valid_service_slot_reservation_retained")),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-        ]
-    };
-    emit_record_property_line("retained_service_slot_reservation", fields, comma);
-}
-
-#[rustfmt::skip]
-fn emit_module_service_slot_policy_result(check: &ModuleServiceSlotReservationCheck<'_>, comma: bool) {
-    emit_record_property_line(
-        "policy_result",
-        vec![
-            f("reservation_reference_present", b(check.valid)),
-            f("service_slot_reserved", no()),
-            f("allocates_service_slot", no()),
-            f("loader", s("unavailable")),
-            f("service_inventory_change", s("none")),
-            f("can_load_now", no()),
-            f("load_attempted", no()),
-        ],
-        comma,
+        evidence.push(evidence_record(
+            "service_slot_reservation_retained",
+            "retained_reference",
+            "missing",
+            "no_valid_service_slot_reservation_retained",
+            None,
+            V::InlineObject(vec![
+                f("state", s("missing")),
+                f("retention", s("current_boot_ram_event_log")),
+                f("matches_current_reference", no()),
+                f(
+                    "record_schema",
+                    s("raios.module_service_slot_reservation.v0"),
+                ),
+                f("status_detail", s("missing")),
+            ]),
+        ));
+    }
+    if let Some(snapshot) = live_snapshot {
+        evidence.push(evidence_record(
+            "live_granted_service_slot",
+            "runtime_snapshot",
+            "present",
+            "live_service_slot_snapshot",
+            None,
+            V::InlineObject(vec![
+                f("state", s("allocated")),
+                f(
+                    "service_id",
+                    s(granted_candidate_service::GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.service_id),
+                ),
+                f(
+                    "ram_only_service_slot_id",
+                    s(granted_candidate_service::ram_only_service_slot_id()),
+                ),
+                f("service_slot_allocated", b(snapshot.loaded)),
+                f("running", b(snapshot.running)),
+                f(
+                    "health",
+                    s(granted_candidate_service::health_state(snapshot)),
+                ),
+                f(
+                    "service_slot_activation_id",
+                    s(granted_candidate_service::service_slot_activation_id()),
+                ),
+                f(
+                    "service_slot_activation_hash",
+                    V::Sha256(granted_candidate_service::service_slot_activation_hash()),
+                ),
+                f(
+                    "service_slot_activation_status",
+                    s(granted_candidate_service::service_slot_activation_status(
+                        snapshot,
+                    )),
+                ),
+                f(
+                    "service_slot_activation_active",
+                    b(granted_candidate_service::service_slot_activation_active(
+                        snapshot,
+                    )),
+                ),
+                f("trust_tier", s(snapshot.trust_tier)),
+                f("load_mechanism", s("wasmi_interpreter_ram_only")),
+                f("maps_executable_pages", no()),
+                f("durable", no()),
+                f("owner_sealed", no()),
+            ]),
+        ));
+    }
+    let primary = (!check.valid).then_some(Blocked {
+        evidence_id: "service_slot_reservation",
+        status: common_evidence_status(false, check.has_reference),
+        reason: check.reason,
+    });
+    emit_evidence_v1_response(
+        "module.service_slot_diagnostic",
+        "module.service_slot_reservation",
+        recorded_event_id,
+        facts,
+        evidence,
+        ev::module_reference_denial(ev::ModuleReferenceFamily::ServiceSlot, primary),
     );
+    return;
 }
 
-#[rustfmt::skip]
 pub(crate) fn emit_module_service_slot_diagnostic_selftest() {
     let cases = module_service_slot_selftest_cases();
     let mut passed = true;
@@ -337,37 +292,24 @@ pub(crate) fn emit_module_service_slot_diagnostic_selftest() {
         passed = passed && cases[idx].passed;
         idx += 1;
     }
-    let case_records = cases.iter().map(module_service_slot_selftest_case_record).collect();
+    let case_records = cases
+        .iter()
+        .map(module_service_slot_selftest_case_record)
+        .collect();
 
-    begin_response("module.service_slot_diagnostic_selftest");
-    emit_record_fields_trailing_comma(
-        vec![
-            f(
-                "schema",
-                s("raios.module_service_slot_reservation_diagnostic_selftest.v0"),
-            ),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
-            f("test_infrastructure", b(true)),
-            f("mutates_global_event_log", no()),
-            f("creates_service_slot_reservation_records", no()),
-            f("allocates_service_slot", no()),
-            f("loads_artifact", no()),
-            f("service_inventory_change", s("none")),
-            f("load_attempted", no()),
-            f("case_count", V::U64(cases.len() as u64)),
-            f("passed", b(passed)),
-            f("cases", V::Array(case_records)),
-        ],
-        6,
+    emit_evidence_v1_response(
+        "module.service_slot_diagnostic_selftest",
+        "module.service_slot_reservation.selftest",
+        None,
+        selftest_facts(V::Array(case_records), cases.len(), passed),
+        vec![],
+        ev::observed("selftest_completed"),
     );
-    emit_record_value_property_line("can_load", no(), false);
-    end_response("module.service_slot_diagnostic_selftest");
 }
 
 #[rustfmt::skip]
 fn module_service_slot_selftest_case_record(case: &ModuleServiceSlotSelfTestCase) -> V<'static> {
-    V::InlineObject(vec![f("case", s(case.name)), f("expected_status", s(case.expected_status)), f("expected_reason", s(case.expected_reason)), f("actual_status", s(case.actual_status)), f("actual_reason", s(case.actual_reason)), f("passed", b(case.passed)), f("can_load", no()), f("load_attempted", no())])
+    selftest_case(case.name, case.expected_status, case.expected_reason, case.actual_status, case.actual_reason, case.passed)
 }
 
 fn parse_module_service_slot_reservation(
@@ -595,8 +537,8 @@ fn module_service_slot_live_reference_mismatch(
         parse_current_boot_event_id(input.retained_reference_event_id?)?;
     let retained_audit_rollback_reference_event_id =
         parse_current_boot_event_id(input.retained_audit_rollback_reference_event_id?)?;
-    let (_, retained_reference) = event_log::latest_module_computed_grant_reference()?;
-    let (latest_retained_event_id, _) = event_log::latest_module_computed_grant_reference()?;
+    let (latest_retained_event_id, retained_reference) =
+        event_log::latest_module_computed_grant_reference()?;
     if latest_retained_event_id != retained_reference_event_id {
         return Some("service_slot_retained_computed_grant_reference_mismatch");
     }

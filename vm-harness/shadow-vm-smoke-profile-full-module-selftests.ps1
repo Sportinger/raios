@@ -1,8 +1,8 @@
     Send-AgentCommand -Command "agent module.grant_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END module.grant_diagnostic_selftest"
-    Assert-LogContains -Name "protocol:module_grant_selftest_schema" -Needle '"schema": "raios.module_computed_grant_diagnostic_selftest.v0"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_grant_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_grant_selftest_no_artifacts" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_grant_selftest_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_grant_selftest_schema" -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_grant_selftest_no_mutation" -Needle '"event_log_write_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_grant_selftest_no_artifacts" -Needle '"external_artifact_intake_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_grant_selftest_no_load" -Needle '"artifact_load_count": 0' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_selftest_case_count" -Needle '"case_count": 10' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_selftest_co_emission_invariant" -Needle '"co_emission_invariant": "can_load_now_true_implies_trust_tier_dev_key_not_owner_sealed_and_grants_capability"' -TimeoutSeconds 1
@@ -19,17 +19,17 @@
     Assert-LogContains -Name "protocol:module_grant_selftest_mismatch_case" -Needle '"case": "mismatched_manifest_hash_reference"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_selftest_mismatch_status" -Needle '"actual_status": "mismatched_computed_grant_hash"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_selftest_wrong_policy_case" -Needle '"case": "grants_load_now_or_wrong_policy_hash"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_grant_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_grant_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_grant_selftest_can_load_false" -Needle '"load_authorization_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_grant_selftest_load_attempted_false" -Needle '"load_attempt_count": 0' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent module.audit_rollback_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_diagnostic_selftest"
-    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_schema" -Needle '"schema": "raios.module_audit_rollback_reference_diagnostic_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_schema" -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_no_artifacts" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_no_audit_records" -Needle '"creates_durable_audit_records": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_no_rollback_plans" -Needle '"creates_rollback_plans": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_no_slots" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_no_mutation" -Needle '"event_log_write_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_no_artifacts" -Needle '"external_artifact_intake_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_no_audit_records" -Needle '"durable_audit_record_create_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_no_rollback_plans" -Needle '"rollback_plan_create_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_no_slots" -Needle '"service_slot_allocation_count": 0' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_selftest_count" -Needle '"case_count": 10' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_selftest_absent_case" -Needle '"case": "absent_reference"' -TimeoutSeconds 1
@@ -43,16 +43,16 @@
     Assert-LogContains -Name "protocol:module_audit_rollback_selftest_rollback_hash_case" -Needle '"case": "mismatched_rollback_plan_hash"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_selftest_grant_hash_case" -Needle '"case": "mismatched_computed_grant_hash"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_selftest_slot_case" -Needle '"case": "invalid_ram_only_service_slot"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_can_load_false" -Needle '"load_authorization_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_load_attempted_false" -Needle '"load_attempt_count": 0' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent module.service_slot_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END module.service_slot_diagnostic_selftest"
-    Assert-LogContains -Name "protocol:module_service_slot_selftest_schema" -Needle '"schema": "raios.module_service_slot_reservation_diagnostic_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_selftest_schema" -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_selftest_no_records" -Needle '"creates_service_slot_reservation_records": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_selftest_no_slots" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_selftest_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_selftest_no_mutation" -Needle '"event_log_write_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_selftest_no_records" -Needle '"retained_record_create_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_selftest_no_slots" -Needle '"service_slot_allocation_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_selftest_no_load" -Needle '"artifact_load_count": 0' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_selftest_count" -Needle '"case_count": 5' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
@@ -66,8 +66,8 @@
     Assert-LogContains -Name "protocol:module_service_slot_selftest_mismatch_reason" -Needle '"actual_reason": "service_slot_reservation_hash_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_selftest_slot_case" -Needle '"case": "invalid_ram_only_service_slot"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_selftest_slot_reason" -Needle '"actual_reason": "ram_only_service_slot_id_invalid"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_selftest_can_load_false" -Needle '"load_authorization_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_selftest_load_attempted_false" -Needle '"load_attempt_count": 0' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent module.service_slot_allocator_selftest" -ExpectedMarker "RAIOS_AGENT_END module.service_slot_allocator_selftest"
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_schema" -Needle '"schema": "raios.module_service_slot_allocator_readiness_selftest.v0"' -TimeoutSeconds 1
