@@ -755,230 +755,202 @@
     Assert-LogContains -Name "protocol:module_write_boundary_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent module.load_gate_manifest_selftest" -ExpectedMarker "RAIOS_AGENT_END module.load_gate_manifest_selftest"
-    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_schema" -Needle '"schema": "raios.module_load_gate_manifest_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_schema" -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_no_records" -Needle '"creates_retained_manifest_reference_records": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_no_manifest_json" -Needle '"accepts_manifest_json": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_no_unsigned_code" -Needle '"accepts_unsigned_service_code": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_no_mutation" -Needle '"event_log_write_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_no_records" -Needle '"retained_record_create_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_no_manifest_json" -Needle '"external_artifact_intake_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_no_load" -Needle '"artifact_load_count": 0' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_count" -Needle '"case_count": 7' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_missing_case" -Needle '"case": "missing_retained_manifest_reference"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_missing_reason" -Needle '"actual_reason": "retained_module_manifest_reference_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_missing_reason" -Needle '"actual": {"status": "missing", "reason": "retained_module_manifest_reference_missing"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_valid_case" -Needle '"case": "accepted_current_boot_manifest_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_valid_status" -Needle '"actual_status": "retained_hash_reference_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_valid_state" -Needle '"actual_module_manifest_state": "retained_hash_reference_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_valid_hash_exposed" -Needle '"accepted_manifest_hash": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_valid_status" -Needle '"actual": {"status": "retained_hash_reference_only"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_stale_case" -Needle '"case": "stale_dropped_manifest_reference_event_id"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_stale_reason" -Needle '"actual_reason": "retained_module_manifest_reference_stale_or_dropped_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_stale_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_module_manifest_reference_stale_or_dropped_event_id"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_previous_case" -Needle '"case": "previous_boot_or_unretained_manifest_reference"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_previous_reason" -Needle '"actual_reason": "retained_module_manifest_reference_previous_boot_or_unretained"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_previous_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_module_manifest_reference_previous_boot_or_unretained"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_wrong_schema_case" -Needle '"case": "wrong_schema_or_variant"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_wrong_schema_reason" -Needle '"actual_reason": "retained_module_manifest_reference_wrong_schema_or_variant"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_wrong_schema_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_module_manifest_reference_wrong_schema_or_variant"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_substituted_case" -Needle '"case": "substituted_manifest_reference_record"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_substituted_reason" -Needle '"actual_reason": "retained_module_manifest_reference_substituted_record"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_substituted_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_module_manifest_reference_substituted_record"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_hash_case" -Needle '"case": "manifest_reference_hash_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_hash_reason" -Needle '"actual_reason": "retained_module_manifest_reference_hash_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_rejected_state" -Needle '"actual_module_manifest_state": "rejected_retained_reference"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_rejected_hash_not_exposed" -Needle '"accepted_manifest_hash": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_hash_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_module_manifest_reference_hash_mismatch"}' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_can_load_false" -Needle '"load_authorization_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_load_attempted_false" -Needle '"load_attempt_count": 0' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent module.load_gate_artifact_selftest" -ExpectedMarker "RAIOS_AGENT_END module.load_gate_artifact_selftest"
-    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_schema" -Needle '"schema": "raios.module_load_gate_artifact_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_schema" -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_no_records" -Needle '"creates_retained_candidate_artifact_reference_records": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_no_manifest_json" -Needle '"accepts_manifest_json": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_no_unsigned_code" -Needle '"accepts_unsigned_service_code": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_no_mutation" -Needle '"event_log_write_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_no_records" -Needle '"retained_record_create_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_no_manifest_json" -Needle '"external_artifact_intake_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_no_load" -Needle '"artifact_load_count": 0' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_count" -Needle '"case_count": 9' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_missing_case" -Needle '"case": "missing_retained_candidate_artifact_reference"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_missing_reason" -Needle '"actual_reason": "retained_candidate_artifact_reference_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_missing_reason" -Needle '"actual": {"status": "missing", "reason": "retained_candidate_artifact_reference_missing"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_valid_case" -Needle '"case": "accepted_current_boot_artifact_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_valid_status" -Needle '"actual_status": "retained_hash_reference_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_valid_state" -Needle '"actual_candidate_artifact_state": "retained_hash_reference_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_valid_hash_exposed" -Needle '"accepted_artifact_hash": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_valid_status" -Needle '"actual": {"status": "retained_hash_reference_only"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_stale_case" -Needle '"case": "stale_dropped_retained_artifact_reference_event_id"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_wrong_schema_case" -Needle '"case": "wrong_schema_or_variant"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_substituted_case" -Needle '"case": "substituted_artifact_reference_record"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_hash_case" -Needle '"case": "artifact_reference_hash_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_manifest_case" -Needle '"case": "manifest_reference_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_grant_case" -Needle '"case": "computed_grant_reference_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_rejected_state" -Needle '"actual_candidate_artifact_state": "rejected_retained_reference"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_rejected_hash_not_exposed" -Needle '"accepted_artifact_hash": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_can_load_false" -Needle '"load_authorization_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_artifact_selftest_load_attempted_false" -Needle '"load_attempt_count": 0' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent module.load_gate_vm_report_selftest" -ExpectedMarker "RAIOS_AGENT_END module.load_gate_vm_report_selftest"
-    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_schema" -Needle '"schema": "raios.module_load_gate_vm_report_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_schema" -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_no_records" -Needle '"creates_retained_vm_test_report_reference_records": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_no_manifest_json" -Needle '"accepts_manifest_json": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_no_vm_report_json" -Needle '"accepts_vm_report_json": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_no_unsigned_code" -Needle '"accepts_unsigned_service_code": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_no_mutation" -Needle '"event_log_write_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_no_records" -Needle '"retained_record_create_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_no_manifest_json" -Needle '"external_artifact_intake_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_no_load" -Needle '"artifact_load_count": 0' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_count" -Needle '"case_count": 11' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_missing_case" -Needle '"case": "missing_retained_vm_test_report_reference"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_missing_reason" -Needle '"actual_reason": "retained_vm_test_report_reference_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_missing_reason" -Needle '"actual": {"status": "missing", "reason": "retained_vm_test_report_reference_missing"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_valid_case" -Needle '"case": "accepted_current_boot_report_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_valid_status" -Needle '"actual_status": "retained_hash_reference_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_valid_reason" -Needle '"actual_reason": "retained_vm_test_report_reference_not_authorizing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_valid_state" -Needle '"actual_vm_test_report_state": "retained_hash_reference_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_valid_hash_exposed" -Needle '"accepted_vm_test_report_hash": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_valid_status" -Needle '"actual": {"status": "retained_hash_reference_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_valid_reason" -Needle '"actual": {"status": "retained_hash_reference_only", "reason": "retained_vm_test_report_reference_not_authorizing"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_stale_case" -Needle '"case": "stale_dropped_retained_vm_test_report_reference_event_id"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_wrong_schema_case" -Needle '"case": "wrong_schema_or_variant"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_substituted_case" -Needle '"case": "substituted_vm_test_report_reference_record"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_hash_case" -Needle '"case": "vm_test_report_reference_hash_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_hash_reason" -Needle '"actual_reason": "retained_vm_test_report_reference_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_hash_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_vm_test_report_reference_hash_mismatch"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_manifest_case" -Needle '"case": "manifest_reference_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_artifact_case" -Needle '"case": "artifact_reference_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_grant_case" -Needle '"case": "computed_grant_reference_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_report_hash_case" -Needle '"case": "vm_test_report_hash_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_report_hash_reason" -Needle '"actual_reason": "retained_vm_test_report_hash_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_rejected_state" -Needle '"actual_vm_test_report_state": "rejected_retained_reference"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_rejected_hash_not_exposed" -Needle '"accepted_vm_test_report_hash": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_report_hash_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_vm_test_report_hash_mismatch"}' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_can_load_false" -Needle '"load_authorization_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_load_attempted_false" -Needle '"load_attempt_count": 0' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent module.load_gate_attestation_selftest" -ExpectedMarker "RAIOS_AGENT_END module.load_gate_attestation_selftest"
-    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_schema" -Needle '"schema": "raios.module_load_gate_local_attestation_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_schema" -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_no_records" -Needle '"creates_retained_local_attestation_reference_records": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_no_attestation_json" -Needle '"accepts_local_attestation_json": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_no_mutation" -Needle '"event_log_write_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_no_records" -Needle '"retained_record_create_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_no_attestation_json" -Needle '"external_artifact_intake_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_no_load" -Needle '"artifact_load_count": 0' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_count" -Needle '"case_count": 11' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_missing_case" -Needle '"case": "missing_retained_local_attestation_reference"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_missing_reason" -Needle '"actual_reason": "retained_local_attestation_reference_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_missing_reason" -Needle '"actual": {"status": "missing", "reason": "retained_local_attestation_reference_missing"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_valid_case" -Needle '"case": "accepted_current_boot_attestation_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_valid_status" -Needle '"actual_status": "retained_hash_reference_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_valid_reason" -Needle '"actual_reason": "retained_local_attestation_reference_not_authorizing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_valid_state" -Needle '"actual_local_attestation_state": "retained_hash_reference_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_valid_hash_exposed" -Needle '"accepted_local_attestation_hash": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_valid_status" -Needle '"actual": {"status": "retained_hash_reference_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_valid_reason" -Needle '"actual": {"status": "retained_hash_reference_only", "reason": "retained_local_attestation_reference_not_authorizing"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_stale_case" -Needle '"case": "stale_dropped_retained_local_attestation_reference_event_id"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_wrong_schema_case" -Needle '"case": "wrong_schema_or_variant"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_substituted_case" -Needle '"case": "substituted_local_attestation_reference_record"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_hash_case" -Needle '"case": "local_attestation_reference_hash_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_hash_reason" -Needle '"actual_reason": "retained_local_attestation_reference_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_hash_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_local_attestation_reference_hash_mismatch"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_manifest_case" -Needle '"case": "manifest_reference_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_artifact_case" -Needle '"case": "artifact_reference_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_vm_report_case" -Needle '"case": "vm_report_reference_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_grant_case" -Needle '"case": "computed_grant_reference_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_rejected_state" -Needle '"actual_local_attestation_state": "rejected_retained_reference"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_rejected_hash_not_exposed" -Needle '"accepted_local_attestation_hash": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_can_load_false" -Needle '"load_authorization_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_load_attempted_false" -Needle '"load_attempt_count": 0' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent module.load_gate_approval_selftest" -ExpectedMarker "RAIOS_AGENT_END module.load_gate_approval_selftest"
-    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_schema" -Needle '"schema": "raios.module_load_gate_local_approval_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_schema" -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_no_records" -Needle '"creates_retained_local_approval_reference_records": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_no_approval_text" -Needle '"accepts_local_approval_text": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_no_mutation" -Needle '"event_log_write_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_no_records" -Needle '"retained_record_create_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_no_approval_text" -Needle '"external_artifact_intake_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_no_load" -Needle '"artifact_load_count": 0' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_count" -Needle '"case_count": 12' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_missing_case" -Needle '"case": "missing_retained_local_approval_reference"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_missing_reason" -Needle '"actual_reason": "retained_local_approval_reference_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_missing_reason" -Needle '"actual": {"status": "missing", "reason": "retained_local_approval_reference_missing"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_valid_case" -Needle '"case": "accepted_current_boot_approval_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_valid_status" -Needle '"actual_status": "retained_hash_reference_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_valid_reason" -Needle '"actual_reason": "retained_local_approval_reference_not_authorizing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_valid_state" -Needle '"actual_local_approval_state": "retained_hash_reference_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_valid_hash_exposed" -Needle '"accepted_local_approval_hash": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_valid_status" -Needle '"actual": {"status": "retained_hash_reference_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_valid_reason" -Needle '"actual": {"status": "retained_hash_reference_only", "reason": "retained_local_approval_reference_not_authorizing"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_stale_case" -Needle '"case": "stale_dropped_retained_local_approval_reference_event_id"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_wrong_schema_case" -Needle '"case": "wrong_schema_or_variant"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_substituted_case" -Needle '"case": "substituted_local_approval_reference_record"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_substituted_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_local_approval_reference_substituted_record"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_hash_case" -Needle '"case": "local_approval_reference_hash_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_hash_reason" -Needle '"actual_reason": "retained_local_approval_reference_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_hash_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_local_approval_reference_hash_mismatch"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_attestation_case" -Needle '"case": "local_attestation_reference_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_grant_case" -Needle '"case": "computed_grant_reference_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_rejected_state" -Needle '"actual_local_approval_state": "rejected_retained_reference"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_rejected_hash_not_exposed" -Needle '"accepted_local_approval_hash": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_can_load_false" -Needle '"load_authorization_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_load_attempted_false" -Needle '"load_attempt_count": 0' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent module.load_gate_retained_selftest" -ExpectedMarker "RAIOS_AGENT_END module.load_gate_retained_selftest"
-    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_schema" -Needle '"schema": "raios.module_load_gate_retained_reference_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_schema" -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_no_records" -Needle '"creates_retained_reference_records": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_no_mutation" -Needle '"event_log_write_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_no_records" -Needle '"retained_record_create_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_no_load" -Needle '"artifact_load_count": 0' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_count" -Needle '"case_count": 7' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_missing_case" -Needle '"case": "missing_retained_reference"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_valid_case" -Needle '"case": "accepted_current_boot_reference_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_valid_status" -Needle '"actual_status": "retained_hash_reference_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_valid_reason" -Needle '"actual_reason": "retained_computed_grant_reference_not_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_valid_status" -Needle '"actual": {"status": "retained_hash_reference_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_valid_reason" -Needle '"actual": {"status": "retained_hash_reference_only", "reason": "retained_computed_grant_reference_not_authorizing"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_stale_case" -Needle '"case": "stale_dropped_retained_reference_event_id"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_stale_reason" -Needle '"actual_reason": "retained_reference_stale_or_dropped_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_stale_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_reference_stale_or_dropped_event_id"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_previous_boot_case" -Needle '"case": "previous_boot_or_unretained_reference"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_previous_boot_reason" -Needle '"actual_reason": "retained_reference_previous_boot_or_unretained"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_previous_boot_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_reference_previous_boot_or_unretained"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_wrong_schema_case" -Needle '"case": "wrong_schema_or_variant_substitution"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_wrong_schema_reason" -Needle '"actual_reason": "retained_reference_wrong_schema_or_variant"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_wrong_schema_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_reference_wrong_schema_or_variant"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_substituted_case" -Needle '"case": "substituted_retained_reference_record"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_substituted_reason" -Needle '"actual_reason": "retained_reference_substituted_record"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_substituted_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_reference_substituted_record"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_hash_case" -Needle '"case": "mismatched_computed_grant_hash"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_hash_reason" -Needle '"actual_reason": "retained_reference_hash_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_hash_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_reference_hash_mismatch"}' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_can_load_false" -Needle '"load_authorization_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_load_attempted_false" -Needle '"load_attempt_count": 0' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent module.load_gate_audit_rollback_selftest" -ExpectedMarker "RAIOS_AGENT_END module.load_gate_audit_rollback_selftest"
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_schema" -Needle '"schema": "raios.module_load_gate_audit_rollback_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_schema" -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_no_audit_records" -Needle '"creates_durable_audit_records": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_no_rollback_plans" -Needle '"creates_rollback_plans": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_no_slots" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_no_mutation" -Needle '"event_log_write_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_no_audit_records" -Needle '"durable_audit_record_create_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_no_rollback_plans" -Needle '"rollback_plan_create_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_no_slots" -Needle '"service_slot_allocation_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_no_load" -Needle '"artifact_load_count": 0' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_count" -Needle '"case_count": 23' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_missing_retained_audit_ref" -Needle '"case": "missing_retained_audit_rollback_reference"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_missing_retained_audit_ref_reason" -Needle '"actual_reason": "retained_audit_rollback_reference_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_missing_retained_audit_ref_reason" -Needle '"actual": {"status": "missing", "reason": "retained_audit_rollback_reference_missing"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_stale_retained_audit_ref" -Needle '"case": "stale_dropped_retained_audit_rollback_reference_event_id"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_stale_retained_audit_ref_reason" -Needle '"actual_reason": "retained_audit_rollback_reference_stale_or_dropped_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_stale_retained_audit_ref_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_audit_rollback_reference_stale_or_dropped_event_id"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_previous_retained_audit_ref" -Needle '"case": "previous_boot_or_unretained_audit_rollback_reference"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_previous_retained_audit_ref_reason" -Needle '"actual_reason": "retained_audit_rollback_reference_previous_boot_or_unretained"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_previous_retained_audit_ref_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_audit_rollback_reference_previous_boot_or_unretained"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_wrong_schema_retained_audit_ref" -Needle '"case": "retained_audit_rollback_wrong_schema_or_variant"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_wrong_schema_retained_audit_ref_reason" -Needle '"actual_reason": "retained_audit_rollback_reference_wrong_schema_or_variant"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_wrong_schema_retained_audit_ref_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_audit_rollback_reference_wrong_schema_or_variant"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_substituted_retained_audit_ref" -Needle '"case": "substituted_retained_audit_rollback_reference"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_substituted_retained_audit_ref_reason" -Needle '"actual_reason": "retained_audit_rollback_reference_substituted_record"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_substituted_retained_audit_ref_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_audit_rollback_reference_substituted_record"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_retained_grant_hash_mismatch" -Needle '"case": "retained_audit_rollback_computed_grant_hash_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_retained_grant_hash_mismatch_reason" -Needle '"actual_reason": "retained_audit_rollback_computed_grant_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_retained_grant_hash_mismatch_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_audit_rollback_computed_grant_hash_mismatch"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_retained_audit_hash_mismatch" -Needle '"case": "retained_audit_record_hash_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_retained_audit_hash_mismatch_reason" -Needle '"actual_reason": "retained_audit_record_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_retained_audit_hash_mismatch_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_audit_record_hash_mismatch"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_retained_rollback_hash_mismatch" -Needle '"case": "retained_rollback_plan_hash_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_retained_rollback_hash_mismatch_reason" -Needle '"actual_reason": "retained_rollback_plan_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_retained_rollback_hash_mismatch_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_rollback_plan_hash_mismatch"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_retained_slot_mismatch" -Needle '"case": "retained_audit_rollback_service_slot_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_retained_slot_mismatch_reason" -Needle '"actual_reason": "retained_audit_rollback_service_slot_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_retained_slot_mismatch_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_audit_rollback_service_slot_mismatch"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_missing_audit" -Needle '"case": "missing_durable_audit_record"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_missing_audit_reason" -Needle '"actual_reason": "durable_audit_write_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_missing_audit_reason" -Needle '"actual": {"status": "missing", "reason": "durable_audit_write_missing"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_missing_rollback" -Needle '"case": "missing_rollback_plan"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_missing_rollback_reason" -Needle '"actual_reason": "rollback_install_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_missing_rollback_reason" -Needle '"actual": {"status": "missing", "reason": "rollback_install_missing"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_audit_schema_mismatch" -Needle '"case": "durable_audit_record_schema_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_audit_schema_reason" -Needle '"actual_reason": "durable_audit_record_schema_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_audit_schema_reason" -Needle '"actual": {"status": "rejected", "reason": "durable_audit_record_schema_mismatch"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_rollback_schema_mismatch" -Needle '"case": "rollback_plan_schema_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_rollback_schema_reason" -Needle '"actual_reason": "rollback_plan_schema_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_rollback_schema_reason" -Needle '"actual": {"status": "rejected", "reason": "rollback_plan_schema_mismatch"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_valid_case" -Needle '"case": "valid_audit_and_rollback_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_valid_status" -Needle '"actual_status": "validated_non_authorizing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_valid_reason" -Needle '"actual_reason": "loader_and_service_slot_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_valid_status" -Needle '"actual": {"status": "validated_non_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_valid_reason" -Needle '"actual": {"status": "validated_non_authorizing", "reason": "loader_and_service_slot_missing"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_grant_mismatch" -Needle '"case": "audit_retained_grant_hash_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_manifest_mismatch" -Needle '"case": "audit_manifest_hash_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_artifact_mismatch" -Needle '"case": "audit_artifact_hash_mismatch"' -TimeoutSeconds 1
@@ -988,80 +960,72 @@
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_rollback_hash_mismatch" -Needle '"case": "audit_rollback_plan_hash_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_rollback_artifact_mismatch" -Needle '"case": "rollback_artifact_hash_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_rollback_slot_mismatch" -Needle '"case": "rollback_service_slot_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_rollback_slot_reason" -Needle '"actual_reason": "rollback_service_slot_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_rollback_slot_reason" -Needle '"actual": {"status": "rejected", "reason": "rollback_service_slot_mismatch"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_bindings" -Needle '"required_bindings":' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_can_load_false" -Needle '"load_authorization_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_load_attempted_false" -Needle '"load_attempt_count": 0' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent module.load_gate_service_slot_selftest" -ExpectedMarker "RAIOS_AGENT_END module.load_gate_service_slot_selftest"
-    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_schema" -Needle '"schema": "raios.module_load_gate_service_slot_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_schema" -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_no_mutation" -Needle '"event_log_write_count": 0' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_no_records" -Needle '"creates_service_slot_reservation_records": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_no_slots" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_no_inventory_records" -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_no_slots" -Needle '"service_slot_allocation_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_no_load" -Needle '"artifact_load_count": 0' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_count" -Needle '"case_count": 13' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_missing_case" -Needle '"case": "missing_retained_service_slot_reservation"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_missing_reason" -Needle '"actual_reason": "retained_service_slot_reservation_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_missing_reason" -Needle '"actual": {"status": "missing", "reason": "retained_service_slot_reservation_missing"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_valid_case" -Needle '"case": "accepted_current_boot_reservation_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_valid_status" -Needle '"actual_status": "retained_hash_reference_only_not_allocated"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_valid_state" -Needle '"actual_service_slot_state": "retained_hash_reference_only_not_allocated"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_valid_hash_exposed" -Needle '"accepted_service_slot_reservation_hash": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_valid_status" -Needle '"actual": {"status": "retained_hash_reference_only_not_allocated"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_stale_case" -Needle '"case": "stale_dropped_retained_service_slot_reservation_event_id"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_stale_reason" -Needle '"actual_reason": "retained_service_slot_reservation_stale_or_dropped_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_stale_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_service_slot_reservation_stale_or_dropped_event_id"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_wrong_schema_case" -Needle '"case": "retained_service_slot_wrong_schema_or_variant"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_wrong_schema_reason" -Needle '"actual_reason": "retained_service_slot_reservation_wrong_schema_or_variant"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_wrong_schema_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_service_slot_reservation_wrong_schema_or_variant"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_substituted_case" -Needle '"case": "substituted_retained_service_slot_reservation"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_substituted_reason" -Needle '"actual_reason": "retained_service_slot_reservation_substituted_record"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_substituted_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_service_slot_reservation_substituted_record"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_grant_schema_case" -Needle '"case": "retained_service_slot_grant_wrong_schema_or_variant"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_audit_schema_case" -Needle '"case": "retained_service_slot_audit_rollback_wrong_schema_or_variant"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_grant_hash_mismatch" -Needle '"case": "retained_service_slot_computed_grant_hash_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_grant_hash_reason" -Needle '"actual_reason": "retained_service_slot_reservation_computed_grant_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_grant_hash_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_service_slot_reservation_computed_grant_hash_mismatch"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_audit_hash_mismatch" -Needle '"case": "retained_service_slot_audit_record_hash_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_audit_hash_reason" -Needle '"actual_reason": "retained_service_slot_reservation_audit_record_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_audit_hash_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_service_slot_reservation_audit_record_hash_mismatch"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_rollback_hash_mismatch" -Needle '"case": "retained_service_slot_rollback_plan_hash_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_rollback_hash_reason" -Needle '"actual_reason": "retained_service_slot_reservation_rollback_plan_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_rollback_hash_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_service_slot_reservation_rollback_plan_hash_mismatch"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_inventory_mismatch" -Needle '"case": "retained_service_slot_inventory_hash_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_inventory_reason" -Needle '"actual_reason": "retained_service_slot_reservation_pre_load_inventory_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_inventory_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_service_slot_reservation_pre_load_inventory_hash_mismatch"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_slot_mismatch" -Needle '"case": "retained_service_slot_service_slot_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_slot_reason" -Needle '"actual_reason": "retained_service_slot_reservation_service_slot_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_slot_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_service_slot_reservation_service_slot_mismatch"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_hash_mismatch" -Needle '"case": "retained_service_slot_reservation_hash_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_hash_reason" -Needle '"actual_reason": "retained_service_slot_reservation_hash_mismatch"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_rejected_state" -Needle '"actual_service_slot_state": "rejected_retained_reference"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_rejected_hash_not_exposed" -Needle '"accepted_service_slot_reservation_hash": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_hash_reason" -Needle '"actual": {"status": "rejected", "reason": "retained_service_slot_reservation_hash_mismatch"}' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_can_load_false" -Needle '"load_authorization_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_load_attempted_false" -Needle '"load_attempt_count": 0' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent module.load_gate_loader_runtime_selftest" -ExpectedMarker "RAIOS_AGENT_END module.load_gate_loader_runtime_selftest"
     $moduleLoadGateRuntimeSelftestResponse = Get-LastAgentResponseJson -Method "module.load_gate_loader_runtime_selftest"
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_schema" -Needle '"schema": "raios.module_load_gate_loader_runtime_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_schema" -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_no_descriptor" -Needle '"accepts_loader_descriptor": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_no_slots" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_no_inventory_records" -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_no_mutation" -Needle '"event_log_write_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_no_descriptor" -Needle '"external_artifact_intake_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_no_load" -Needle '"artifact_load_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_no_slots" -Needle '"service_slot_allocation_count": 0' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_allocator_not_ready" -Needle '"service_slot_allocator_ready": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_count" -Needle '"case_count": 5' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
-    $moduleLoadGateRuntimeSelftestSourceCount = [int]$moduleLoadGateRuntimeSelftestResponse.body.result.source_fact_count
+    $moduleLoadGateRuntimeSelftestSourceCount = [int]$moduleLoadGateRuntimeSelftestResponse.facts.source_fact_count
     $moduleLoadGateRuntimeSelftestSourceCountMatches = $moduleLoadGateRuntimeSelftestSourceCount -eq 10
     Add-Predicate -Name "protocol:module_load_gate_loader_runtime_selftest_source_count" -Expected 10 -Passed $moduleLoadGateRuntimeSelftestSourceCountMatches -Actual $moduleLoadGateRuntimeSelftestSourceCount
     if (-not $moduleLoadGateRuntimeSelftestSourceCountMatches) {
         throw "Expected 10 module.load_gate_loader_runtime_selftest source facts, got $moduleLoadGateRuntimeSelftestSourceCount"
     }
-    $moduleLoadGateRuntimeSelftestSourceMapComplete = [bool]$moduleLoadGateRuntimeSelftestResponse.body.result.source_fact_map_complete
+    $moduleLoadGateRuntimeSelftestSourceMapComplete = [bool]$moduleLoadGateRuntimeSelftestResponse.facts.source_fact_map_complete
     Add-Predicate -Name "protocol:module_load_gate_loader_runtime_selftest_source_map_complete" -Expected $true -Passed $moduleLoadGateRuntimeSelftestSourceMapComplete -Actual $moduleLoadGateRuntimeSelftestSourceMapComplete
     if (-not $moduleLoadGateRuntimeSelftestSourceMapComplete) {
         throw "Expected module.load_gate_loader_runtime_selftest source fact map to be complete"
     }
     foreach ($source in $loaderRuntimeAggregateSources) {
-        $matchingSource = @($moduleLoadGateRuntimeSelftestResponse.body.result.source_fact_map | Where-Object { $_.source_method -eq $source.Method -and $_.source_fact_locator -eq $source.Locator })
+        $matchingSource = @($moduleLoadGateRuntimeSelftestResponse.facts.source_fact_map | Where-Object { $_.source_method -eq $source.Method -and $_.source_fact_locator -eq $source.Locator })
         $sourcePresent = $matchingSource.Count -eq 1
         Add-Predicate -Name ("protocol:module_load_gate_loader_runtime_selftest_" + $source.Suffix + "_source_binding") -Expected ($source.Method + " -> " + $source.Locator) -Passed $sourcePresent -Actual ($matchingSource | ConvertTo-Json -Compress -Depth 6)
         if (-not $sourcePresent) {
@@ -1069,18 +1033,14 @@
         }
     }
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_missing_manifest_case" -Needle '"case": "missing_manifest_reference"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_missing_manifest_reason" -Needle '"actual_reason": "retained_module_manifest_reference_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_missing_manifest_reason" -Needle '"actual": {"status": "denied_missing_retained_module_evidence", "reason": "retained_module_manifest_reference_missing"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_rejected_artifact_case" -Needle '"case": "rejected_artifact_reference"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_rejected_artifact_reason" -Needle '"actual_reason": "retained_candidate_artifact_reference_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_rejected_artifact_reason" -Needle '"actual": {"status": "denied_missing_retained_module_evidence", "reason": "retained_candidate_artifact_reference_hash_mismatch"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_missing_slot_case" -Needle '"case": "missing_service_slot_reservation"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_missing_slot_reason" -Needle '"actual_reason": "ram_only_service_slot_unallocated"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_missing_slot_reason" -Needle '"actual": {"status": "denied_missing_retained_module_evidence", "reason": "ram_only_service_slot_unallocated"}' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_rejected_slot_case" -Needle '"case": "rejected_service_slot_reservation"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_rejected_slot_allocator_state" -Needle '"actual_service_slot_allocator_state": "blocked_by_rejected_service_slot_reservation"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_allocator_authority_case" -Needle '"case": "all_retained_evidence_ready_allocator_authority_boundary_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_allocator_authority_status" -Needle '"actual_status": "denied_allocator_authority_not_granted"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_retained_available_state" -Needle '"actual_retained_module_evidence_state": "available"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_allocator_authority_state" -Needle '"actual_service_slot_allocator_state": "defined_non_authorizing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_loader_runtime_blocked_state" -Needle '"actual_loader_runtime_state": "blocked_by_service_slot_allocator_authority"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_allocator_authority_status" -Needle '"actual": {"status": "denied_allocator_authority_not_granted"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_required_allocation_intent" -Needle '"raios.service_slot_allocation_intent.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_required_policy_decision" -Needle '"raios.service_slot_allocator_policy_decision.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_required_registry_write" -Needle '"raios.service_slot_registry_write_authority.v0"' -TimeoutSeconds 1
@@ -1093,5 +1053,5 @@
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_required_descriptor_intake_boundary" -Needle '"raios.module_loader_descriptor_intake_boundary.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_required_artifact_byte_intake_boundary" -Needle '"raios.module_loader_artifact_byte_intake_boundary.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_required_loader_identity" -Needle '"raios.module_loader_identity.v0"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_can_load_false" -Needle '"load_authorization_count": 0' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_load_attempted_false" -Needle '"load_attempt_count": 0' -TimeoutSeconds 1

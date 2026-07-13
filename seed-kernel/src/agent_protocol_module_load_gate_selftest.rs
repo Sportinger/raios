@@ -417,7 +417,7 @@ fn apply_audit_rollback_case(
         }
         LoadGateSelftestMutation::AuditServiceSlotMismatch => {
             let reference =
-                module_load_gate_test_audit_rollback_reference("ram_only:svc.test.other");
+                module_load_gate_test_audit_rollback_reference("ram_only:svc.test.0002");
             candidate.retained_audit_rollback_reference.event_reference = reference;
             candidate
                 .retained_audit_rollback_reference

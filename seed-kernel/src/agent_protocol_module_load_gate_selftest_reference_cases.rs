@@ -1110,8 +1110,7 @@ fn apply_approval_reference_case(
                 chain.artifact_reference,
                 chain.vm_report_reference,
                 event_log::ModuleLocalAttestationReference {
-                    local_attestation_hash: [0xbc; 32],
-                    signature_verified: false,
+                    attestation_reference_hash: [0xbc; 32],
                     ..chain.attestation_reference
                 },
                 chain.retained_reference,

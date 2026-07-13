@@ -1211,3 +1211,55 @@ therefore emits record_schema too — a single leaf-key rename inside the event
 binding's requirements sub-object, and "writes_enabled" no longer renders
 adjacent to status there. full-audit needles 74-75 updated accordingly; P4-4
 inherits this as an already-landed event rename.
+
+### P4-2b2b notes
+
+All nine direct load-gate selftests now use `raios.evidence_response.v1`,
+`event_id: null`, `evidence: []`, and the observational
+`selftest_completed` decision. Cases are emitted through `ev::selftest_case`;
+the common facts and typed zero-effect counters come from the shared module
+selftest helpers. Required-binding and loader source-map facts remain typed
+facts; the nine legacy hand-written selftest emitters are deleted.
+
+Both non-functional fixtures were corrected, not retired:
+
+- `substituted_local_approval_reference_record`: before, the fixture changed
+  `local_attestation_hash`, which the approval-reference builder does not
+  consume, so the rebuilt approval stayed byte-identical and the evaluator
+  returned `retained_hash_reference_only` /
+  `retained_local_approval_reference_not_authorizing`. After, it changes the
+  consumed `attestation_reference_hash`; the candidate approval differs from
+  the retained event and returns `rejected` /
+  `retained_local_approval_reference_substituted_record`. The host mirror now
+  asserts that corrected table truth directly.
+- `retained_audit_rollback_service_slot_mismatch`: before, the fixture used
+  the ad-hoc alternate `ram_only:svc.test.other`. After, it uses the canonical
+  bounded slot grammar `ram_only:svc.test.0002`, guaranteeing construction of
+  a real alternate slot record and reaching the existing exact-slot evaluator
+  check, which returns `rejected` /
+  `retained_audit_rollback_service_slot_mismatch`. The host mirror uses the
+  same corrected value.
+
+Focused selftest inventory: 88 response-shape predicates were regenerated as
+planned in section 3; one corrected-fixture reason predicate was added. Twelve
+duplicate legacy predicates were merged into their family safety carrier:
+`manifest_no_artifact_bytes`, `manifest_no_unsigned_code`,
+`artifact_no_artifact_bytes`, `artifact_no_unsigned_code`,
+`vm_report_no_artifact_bytes`, `vm_report_no_vm_report_json`,
+`vm_report_no_unsigned_code`, `attestation_no_artifact_bytes`,
+`approval_no_artifact_bytes`, `service_slot_no_inventory_records`,
+`loader_runtime_no_artifact_bytes`, and
+`loader_runtime_no_inventory_records` (all names retain the
+`protocol:module_load_gate_*_selftest_` prefix).
+
+Twenty-nine appearance-only legacy case leaves were retired: each of manifest,
+artifact, VM report, attestation, approval, and service slot retired
+`valid_state`, `valid_hash_exposed`, `rejected_state`, and
+`rejected_hash_not_exposed`; loader runtime retired `allocator_not_ready`,
+`rejected_slot_allocator_state`, `retained_available_state`,
+`allocator_authority_state`, and `loader_runtime_blocked_state`. Their actual
+evaluator status/reason cases remain under the nested v1 `expected` / `actual`
+objects, and their authority/effect claims remain covered by the typed safety
+counters. No case was retired.
+
+UNCERTAIN: none.

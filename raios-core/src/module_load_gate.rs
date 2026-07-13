@@ -2766,10 +2766,10 @@ mod tests {
                 3 => candidate.scope = "previous_boot",
                 4 => candidate.schema_ok = false,
                 5 => {
-                    // The guest mutates attestation fields that its approval builder does not
-                    // consume, so the rebuilt approval is byte-identical. This pre-existing
-                    // fixture defect was historically masked by appearance-only predicates.
-                    candidate.candidate_reference = Some(chain.approval)
+                    candidate.candidate_reference = Some(ModuleLocalApprovalReference {
+                        local_attestation_reference_hash: [0xbc; 32],
+                        ..chain.approval
+                    })
                 }
                 6 => {
                     let r = ModuleLocalApprovalReference {
@@ -2787,15 +2787,7 @@ mod tests {
                 _ => unreachable!(),
             }
             let actual = evaluate_local_approval_reference(candidate);
-            let expected = if index == 5 {
-                (
-                    "retained_hash_reference_only",
-                    "retained_local_approval_reference_not_authorizing",
-                )
-            } else {
-                (status, reason)
-            };
-            assert_eq!((actual.status, actual.reason), expected, "{name}");
+            assert_eq!((actual.status, actual.reason), (status, reason), "{name}");
         }
     }
 
@@ -2987,7 +2979,7 @@ mod tests {
                     Some([0xbb; 32]),
                     None,
                 )),
-                8 => Some(audit_reference("ram_only:svc.test.other", None, None, None)),
+                8 => Some(audit_reference("ram_only:svc.test.0002", None, None, None)),
                 _ => None,
             };
             match index {
