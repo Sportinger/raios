@@ -1087,3 +1087,12 @@ paths, and all scattered authority/effect action fields as regeneration. Exact
 classification, reason, case, count, source locator, fact ID, and hash leaves
 were classified as surviving. Framing counts are the runtime-expanded direct
 family command completions, not source literals.
+
+## P4-3b1 rulings
+
+- Allocator and runtime observational responses use top-level `event_id:null`;
+  provenance lives only on each evidence item's `source_event_id`. No response-
+  summary event is recorded and no boundary event is aliased to the response.
+- `live_granted_load_projection` moves out of the denied loader family to its
+  owning granted-candidate observational family. P4-3 loader-family core
+  evidence does not include it.

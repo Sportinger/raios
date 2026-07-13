@@ -27,6 +27,7 @@ pub mod memory_record;
 pub mod memory_record_resolve;
 pub mod module_load_gate;
 pub mod module_load_gate_projection;
+pub mod module_loader_allocator_projection;
 pub mod module_types;
 pub mod owner_key_tpm2;
 pub mod personal_shell_abi;
