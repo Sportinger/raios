@@ -457,3 +457,52 @@ Scope-creep observations:
   does not migrate the direct request protocol into the evidence response.
 - capability/service/problem inventory emitters remain P4-9/system ownership;
   P4-8 consumes only their already-public stable projection.
+
+## Orchestrator rulings (2026-07-13, binding for P4-8b)
+
+**P1 — the export packet hash is the hard boundary.** `sha256_of_json` hashes an
+INDEPENDENTLY BUILT canonical Value at indent 0; it never sees the serial pretty-print
+(verified: agent_protocol_provider.rs:1080 -> raios-core/src/record.rs:111). So the
+RESPONSE vocabulary may move freely, but the packet-hash INPUT GRAMMAR may not. Every
+provider hash — projected_packet_hash, exported_field_list_hash, omitted_field_list_hash,
+redaction_policy_hash, field_classification_hash, token_budget_hash,
+provider_trust_evidence_hash — must be byte-identical before and after. If one moves, the
+export contract broke and that is a STOP, not a golden regeneration.
+
+**P2 — classification: presence is public, bytes are secret, and nothing drifts upward.**
+API-key PRESENCE is public. Key BYTES are secret and unreachable — there must be no path,
+not even a debug one, by which they reach a fact. Trust honesty is OBSERVATIONAL and grants
+nothing. An unknown or missing classification is an explicit REJECTED record; it NEVER
+defaults to public (the memory family's M4, applied here). The enclosing response stays
+`local_only`; a public child requires an explicit export gate, not a side effect of the
+vocabulary move.
+
+**P3 — P4-5's memory.context embeds your typed value verbatim, and that is now load-bearing.**
+P4-5b2 extracted `provider_minimal_projection_value` out of the raw serial emitter precisely
+so memory could embed it without copying the mapping. Memory does NOT police its contents.
+Today that value still carries `outcome`, `blocked_by` and `authorizes_provider_*` as
+descriptive FACT keys — pre-v1 vocabulary that PANICKED THE KERNEL when the memory
+projection recursed its reserved-key check into it (caught live at
+shadow-20260713-174237-10020).
+
+Converting those keys is P4-8's job and it is the ACTUAL fix: in v1, a fact does not get to
+say `authorizes_provider_export`. That is a decision's word. Move them:
+  outcome / blocked_by            -> the response's DECISION (denied, with the ordered
+                                     blocked_by and the first-failure reason)
+  authorizes_provider_export      -> NOT a fact. The absence of a grant IS the denial.
+  authorizes_provider_request     -> same.
+When P4-8 lands, memory's embedded value stops carrying reserved keys on its own — because
+its facts stop claiming authority. Do not "rename around" the check; remove the claims.
+
+**P4 — trust honesty grants nothing, and says so.** `scoped_provider_trust_honesty` already
+proves this in core ("success_never_authorizes_request_or_export"). The v1 response must
+render trust as OBSERVED evidence with no grants and no effects. A pinned certificate is a
+fact about a certificate, not a permission.
+
+**P5 — the export gate is a DENIAL with an ordered blocked_by.** It is not a boolean and not
+a status string. First-failure reason from the evaluator, `grants: []`, `effects: []`.
+
+**P6 — nothing secret becomes a locator either.** ADR 0004's rule (locators are not
+authority) has a twin: a locator must not leak what it points at. A summary or trace hit
+that names a secret record may not carry its value, and its classification is the record's,
+not the summary's.
