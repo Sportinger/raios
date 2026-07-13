@@ -1,6 +1,43 @@
 # Owner Dashboard
 
-Updated: 2026-07-13 (midday).
+Updated: 2026-07-13 (evening).
+
+ONE LANGUAGE, ALL NINE FAMILIES — the vocabulary work is finished. Every answer
+raiOS gives — about a module, about loading, about its memory, its events, its
+own health, its clock, the AI provider, and its own list of capabilities — now
+comes back in the SAME shape: here are the facts, here is the evidence in the
+exact order the checker used it, and here is ONE decision that says granted or
+denied and always says WHY. The important part is what an answer can no longer
+do. An answer that merely LOOKS at something now has nowhere to put a "grant" —
+the words are not in the sentence at all. Only a denial is allowed to list what
+was missing. So a question can no longer quietly hand out permission just by
+being asked. That was not a theoretical worry: raiOS's own capability list says
+"granted: true" next to some rows, and READING that list now grants nothing — it
+reports a status, it does not create one.
+
+The test VM earned its keep again: it crashed the kernel on purpose because one
+answer (the clock self-test) still had a fact claiming it could authorize the AI
+provider. A fact is not allowed to claim authority — that is a decision's job.
+Fixed at the source, and the check that catches this class now runs in two
+seconds instead of costing a twelve-minute VM run.
+
+HONEST SCORECARD — the size goal was NOT met, and I am correcting a number I
+reported earlier. The kernel went from 176,331 to 170,293 lines: about 6,000
+lines removed, not the ~37,000 the plan hoped for, and nowhere near the 120,000
+goal. (An earlier report of mine said "163,260" — that was measured wrong and I
+retract it.) Three reasons, and I would repeat two of them:
+  1. I deliberately did NOT convert the parts that actually DO things — installing
+     software, writing to the disk, the app/project surfaces. They perform real
+     actions but hold no proof of permission, so converting them would have forced
+     a lie: either hide the action behind "just looking", or invent an authority
+     nobody granted. I left them honest-and-old rather than make them lie. That
+     removed a big share of what the size math had assumed.
+  2. The new shared language lives in the safe, PC-testable core, so a lot of code
+     MOVED across a boundary instead of disappearing.
+  3. There was simply less copy-paste to delete than the plan believed.
+The plan itself warned that 120,000 "is not a credible promise". It was right.
+The next real shrink has to come from moving ownership of code, not from another
+layer of vocabulary — and I will not promise a number in advance again.
 
 Vocabulary v1, first family live: every "show me the module evidence" question
 an agent can ask raiOS (manifest, artifact, test report, attestation, approval,

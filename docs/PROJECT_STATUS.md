@@ -24,6 +24,80 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+P4 EVIDENCE-VOCABULARY-V1: PHASE CLOSED (2026-07-13 ~20:25). All nine families
+(module refs, load gate, loader/allocator, events, memory, hello lifecycle,
+rollback/write boundary, provider, system/status) now answer in ONE shared
+envelope `raios.evidence_response.v1`: schema/id/family/scope/classification/
+source_method/event_id + facts + ordered evidence + one decision. An OBSERVED
+decision carries no grants/effects keys AT ALL; only a DENIAL renders
+`grants: []` / `effects: []` with the first blocked_by reason. A fact may not
+claim authority — that is a decision's word.
+CLOSE EVIDENCE: FULL green shadow-20260713-200540-17832.json (2,685 predicates,
+0 failed — up from 2,678 on the previous green, so no coverage collapse) +
+RECOVERY green shadow-20260713-201215-19892.json + PERSISTENCE green
+shadow-20260713-201342-22980.json (P4-9 D4: persist.layout sits on the storage
+trust boundary and must verify on its focused profile, not only in `full`).
+548 core tests. fmt, size gate, secret scan clean.
+
+THE LINE COUNT — A RETRACTION AND THE TRUTH. I reported "kernel 163,260" on the
+P4-7/P4-8 commit. That number was MIS-MEASURED and is retracted. Measured the
+way the plan measures (all .rs under seed-kernel/src, RECURSIVELY — the design
+commit reproduces at 176,329 against the plan's stated 176,331 baseline, so this
+is the comparable metric):
+
+    baseline 176,331  ->  P4 close 170,293   =  -6,036 lines (3.4%)
+
+The plan's P4-9-close planning center was 139,281. We closed 31,012 lines ABOVE
+it, and above even the plan's own conservative band (149,681-155,181). P4 met its
+CAPABILITY goals and MISSED its line goal. Three structural reasons, two of which
+are decisions worth repeating:
+1. The carve-outs removed a large share of the surface the line math assumed
+   (see below) — and refusing to convert them was correct, not a shortfall.
+2. The typed projections add real code in raios-core (now 46,940 lines) that a
+   seed-kernel-only metric cannot see. The vocabulary moved code across a crate
+   boundary as much as it deleted it.
+3. W2a's warning proved right: much apparent duplication was DISTINCT emission
+   vocabulary. There was less to delete than hoped. The plan said the lower band
+   "must not be claimed in advance" and that <=120,000 "is not a credible P4
+   promise". It was right on both counts. The next reduction must come from
+   measured ownership moves, NOT another vocabulary layer.
+
+WHAT IS **NOT** ON v1 (named carve-outs — do not assume P4 covered everything):
+- project (workspace/build/install/app), distribution/registry, Wasm/program,
+  genesis-ui: 36 post-design framing functions that perform REAL EFFECTS
+  (installs, structured-store commits, dependency-chunk persistence) and own NO
+  evaluator GrantProof. Converting them would force one of two lies: render a
+  real effect as `observed` (hiding it) or synthesize `granted` from emitter
+  booleans (forging authority). They keep their `authorizes_*` facts LEGALLY —
+  they never route through a v1 projection, so its reserved-key assert never
+  sees them. They get their own named manifests. (P4-9 D1, Option B.)
+- P4-7 materialization/scratch responses; P4-5 memory-record append; P4-8
+  leftovers (context_gate_selftest, injection selftests, real context_export).
+
+P4-9b (the last conversion slice): 12 system/status responses + new
+raios-core/src/system_status_projection.rs, from which NO positive decision is
+constructible. D5 ruling enforced: system.capabilities rows saying
+`granted: true` render as evidence STATUS and the response decision is
+`observed` — READING A CATALOG GRANTS NOTHING, or capabilities could be minted by
+asking a question. The generic capability denial retires a lie of omission: its
+prose named a fixed six-item ceremony that no longer matched the evaluator; it
+now renders the evaluator's ACTUAL blockers as ordered evidence.
+
+THE THIRD RESERVED-KEY KERNEL PANIC — AND THE PRE-FLIGHT THAT ENDS THE CLASS.
+P4-9b's first full run panicked the kernel at system_status_projection.rs:103
+("decision key is reserved: authorizes_provider_request"): cert_time_check_case
+still emitted `authorizes_provider_*` as FACT keys inside the NESTED per-case
+objects, though the top-level facts of the same file had been renamed correctly —
+and the harness needle was ALREADY asserting the new names. Workers rename the
+top-level facts and miss the sub-objects. This class costs a ~12-minute VM run to
+discover and two seconds to find, so a reserved-key grep over every converted
+file is now MANDATORY before the build:
+    grep -nE '"(outcome|grants|effects|blocked_by)"|"authorizes_[a-z_]*"' <files>
+Hits in the emitter's OWN facts -> rename to a STATUS
+(`authorizes_x: bool` -> `x_authority_status: "authorized"|"denied"`). Hits in an
+EMBEDDED FOREIGN value -> do NOT police it (M1 boundary); fix it in the family
+that owns it.
+
 SECURITY FIX COMPLETE — THE MEDIA WRITE NOW REQUIRES A PROOF TO COMPILE
 (2026-07-13 ~19:11). P4-7b2 landed: the real LBA1 write and the real STATE
 mutation take an unforgeable core proof as an ARGUMENT. The old

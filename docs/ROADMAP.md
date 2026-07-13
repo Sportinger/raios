@@ -15,7 +15,21 @@ vocabulary).
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-12.
+Last updated: 2026-07-13.
+
+**P4 EVIDENCE-VOCABULARY-V1 IS CLOSED (2026-07-13).** All nine families answer in
+one `raios.evidence_response.v1` envelope; an OBSERVED decision has no
+grants/effects keys at all, only a DENIAL renders them. Evidence: FULL
+shadow-20260713-200540-17832.json (2,685 predicates, 0 failed) + RECOVERY
+shadow-20260713-201215-19892.json + PERSISTENCE shadow-20260713-201342-22980.json;
+548 core tests. Read the P4 block in `docs/PROJECT_STATUS.md` BEFORE planning the
+next reduction — it records (a) the retraction of a mis-measured line count and the
+real one (176,331 -> 170,293, i.e. -6,036, NOT the planned -37,050), (b) the NAMED
+CARVE-OUTS deliberately still on the old vocabulary (project, distribution/registry,
+Wasm/program, genesis-ui, plus materialization/scratch and memory-record append)
+because converting them would have forced a lie about authority, and (c) the
+mandatory reserved-key pre-flight grep. The next reduction must come from measured
+ownership moves, NOT another vocabulary layer.
 
 Current milestone: **M10 + M11 IN PROGRESS** — both have their grants-nothing
 mechanism foundations committed; the substantive remainder of each is
