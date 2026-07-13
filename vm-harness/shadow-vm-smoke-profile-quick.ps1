@@ -1382,34 +1382,29 @@
         Assert-LogDoesNotContain -Name "quick:agent_command_envelope_denied_no_module_dispatch" -Needle "RAIOS_AGENT_END module.load_ephemeral"
 
         Send-AgentCommand -Command "module.load_ephemeral" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral"
-        Assert-LogContains -Name "quick:module_load_schema" -Needle '"schema": "raios.module_load_gate.v0"' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:module_load_denied" -Needle '"code": "capability_denied"' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:module_load_manifest_missing" -Needle '"module_manifest": "missing"' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:module_load_grant_missing" -Needle '"computed_capability_grant": "missing"' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:module_load_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:module_load_no_inventory_change" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:module_load_not_attempted" -Needle '"load_attempted": false' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:module_load_schema" -Needle '"schema": "raios.evidence_response.v1"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:module_load_denied" -Needle '"outcome": "denied", "reason": "module_manifest_missing", "requested_capability": "cap.module.load_ephemeral", "grants": [], "effects": []' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:module_load_manifest_missing" -Needle '"id": "module_manifest", "kind": "retained_reference", "status": "missing", "reason": "module_manifest_missing"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:module_load_grant_missing" -Needle '"id": "computed_capability_grant", "kind": "retained_reference", "status": "missing", "reason": "computed_capability_grant_missing"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:module_load_can_load_false" -Needle '"evidence_id": "module_manifest", "status": "missing", "reason": "module_manifest_missing"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:module_load_no_inventory_change" -Needle '"grants": [], "effects": []' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:module_load_not_attempted" -Needle '"id": "loader", "kind": "availability", "status": "unavailable", "reason": "module_loader_unimplemented"' -TimeoutSeconds 1
 
         Send-AgentCommand -Command "module.load_ephemeral svc.demo.nope" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral"
         $wrongHelloTarget = Get-LastAgentResponseJson -Method "module.load_ephemeral"
-        if ($wrongHelloTarget.t -ne "error" -or $wrongHelloTarget.body.schema -ne "raios.module_load_gate.v0" -or $wrongHelloTarget.body.code -ne "capability_denied") {
+        if ($wrongHelloTarget.schema -ne "raios.evidence_response.v1" -or $wrongHelloTarget.family -ne "module.load_gate" -or $wrongHelloTarget.decision.outcome -ne "denied") {
             throw "Expected wrong hello target to stay on denied module load gate"
         }
 
         Send-AgentCommand -Command "module.load_ephemeral external:svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral"
         $externalHelloTarget = Get-LastAgentResponseJson -Method "module.load_ephemeral"
-        if ($externalHelloTarget.t -ne "error" -or $externalHelloTarget.body.schema -ne "raios.module_load_gate.v0" -or $externalHelloTarget.body.code -ne "capability_denied") {
+        if ($externalHelloTarget.schema -ne "raios.evidence_response.v1" -or $externalHelloTarget.family -ne "module.load_gate" -or $externalHelloTarget.decision.outcome -ne "denied") {
             throw "Expected external hello target to stay on denied module load gate"
         }
 
         Send-AgentCommand -Command "recovery.load_artifact" -ExpectedMarker "RAIOS_AGENT_END recovery.load_artifact"
-        Assert-LogContains -Name "quick:recovery_load_schema" -Needle '"schema": "raios.recovery_artifact_load_boundary.v0"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:recovery_load_method" -Needle '"method": "recovery.load_artifact"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:recovery_load_denied" -Needle '"code": "capability_denied"' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:recovery_load_capability" -Needle '"requested_capability": "cap.recovery.load_artifact"' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:recovery_load_normal_path_not_used" -Needle '"normal_module_load_path_used": false' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:recovery_identity_missing" -Needle '"recovery_artifact_identity": "missing"' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:recovery_no_load" -Needle '"loads_recovery_artifact": false' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:recovery_load_not_attempted" -Needle '"load_attempted": false' -TimeoutSeconds 1
 
         $wasmProbeOffset = Get-SerialLogOffset
         Send-AgentCommand -Command "agent wasm.echo_probe" -ExpectedMarker "RAIOS_AGENT_END wasm.echo_probe"

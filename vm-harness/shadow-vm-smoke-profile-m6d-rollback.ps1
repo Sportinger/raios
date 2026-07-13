@@ -113,9 +113,11 @@ Send-AgentCommand -Command "module.load_ephemeral svc.dev.granted_candidate" -Ex
 $negativeLoad = Get-LastAgentResponseJson -Method "module.load_ephemeral"
 $negativeAfter = (Get-SerialLogContent -Path $SerialLog).Substring([int]$negativeOffset)
 $negativeOk = (
-    $negativeLoad.t -eq "error" -and
-    $negativeLoad.body.code -eq "capability_denied" -and
-    $negativeLoad.body.schema -eq "raios.module_load_gate.v0" -and
+    $negativeLoad.schema -eq "raios.evidence_response.v1" -and
+    $negativeLoad.family -eq "module.load_gate" -and
+    $negativeLoad.decision.outcome -eq "denied" -and
+    @($negativeLoad.decision.grants).Count -eq 0 -and
+    @($negativeLoad.decision.effects).Count -eq 0 -and
     -not $negativeAfter.Contains("WASM_GUEST_LOG") -and
     -not $negativeAfter.Contains('"instantiation_ok": true')
 )
@@ -598,15 +600,17 @@ else {
 
 Send-AgentCommand -Command "module.load_ephemeral" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "m6c:generic_durable_gate_preserved"
 $generic = Get-LastAgentResponseJson -Method "module.load_ephemeral"
+$genericAudit = $generic.evidence | Where-Object { $_.id -eq "durable_audit_record" }
+$genericRollback = $generic.evidence | Where-Object { $_.id -eq "rollback_plan" }
 $genericOk = (
-    $generic.body.code -eq "capability_denied" -and
-    $generic.body.schema -eq "raios.module_load_gate.v0" -and
-    $generic.body.gate_state.rollback_plan -eq "missing" -and
-    $generic.body.gate_state.durable_audit_record -eq "missing" -and
-    $generic.body.gate_state.artifact_loaded -eq $false -and
-    $generic.body.gate_state.service_started -eq $false
+    $generic.schema -eq "raios.evidence_response.v1" -and
+    $generic.decision.outcome -eq "denied" -and
+    $genericAudit.facts.status_detail -eq "missing" -and
+    $genericRollback.facts.status_detail -eq "missing" -and
+    @($generic.decision.grants).Count -eq 0 -and
+    @($generic.decision.effects).Count -eq 0
 )
-Add-Predicate -Name "m6c:generic_durable_load_gate_stays_denied" -Expected "durable/owner-sealed load gate remains capability_denied with no artifact/load/start/persistence" -Passed $genericOk -Actual $(if ($genericOk) { "matched" } else { ($generic.body | ConvertTo-Json -Compress -Depth 8) })
+Add-Predicate -Name "m6c:generic_durable_load_gate_stays_denied" -Expected "durable/owner-sealed load gate remains denied with no grants or effects" -Passed $genericOk -Actual $(if ($genericOk) { "matched" } else { ($generic | ConvertTo-Json -Compress -Depth 8) })
 if (-not $genericOk) {
     throw "Expected generic durable module.load_ephemeral gate to remain denied"
 }

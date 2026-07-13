@@ -17,8 +17,7 @@ try {
 
     $exemptions = @{
         'seed-kernel/src/agent_protocol_memory.rs' = @(11494, 612809)
-        # post-P1-C measurement: the concat! literal splits add fragment lines.
-        'seed-kernel/src/agent_protocol_module_load_gate_render.rs' = @(6878, 323844)
+        # load_gate_render exemption removed 2026-07-13: P4-2b2a shrank it under both hard limits.
         'seed-kernel/src/event_log.rs' = @(7141, 282628)
         'seed-kernel/src/event_log_types.rs' = @(3918, 216113)
         'seed-kernel/src/hello_service/emitters.rs' = @(5086, 265421)

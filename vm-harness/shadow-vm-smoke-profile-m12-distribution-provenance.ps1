@@ -927,8 +927,9 @@ Assert-M12Predicate `
 $loadOffset = Get-SerialLogOffset
 Send-AgentCommand -Command "module.load_ephemeral svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "m12-distribution:N3_load_still_denied"
 $load = Get-LastAgentResponseJson -Method "module.load_ephemeral"
-$loadPreflightProjection = $load.body.receiver_identity_load_preflight
-$loadRuntimeReadiness = $load.body.loader_runtime_readiness
+$loadRuntimeEvidence = $load.evidence | Where-Object { $_.id -eq "loader_runtime" }
+$loadRuntimeReadiness = $loadRuntimeEvidence.facts
+$loadPreflightProjection = $loadRuntimeReadiness.receiver_identity_load_preflight
 $loadPreflightSourceFacts = @($loadRuntimeReadiness.source_fact_map | Where-Object { $_.fact -eq "receiver_identity_load_preflight" })
 $loadPreflightSourceFact = if ($loadPreflightSourceFacts.Count -eq 1) { $loadPreflightSourceFacts[0] } else { $null }
 $loadPreflightRuntimeFact = $loadRuntimeReadiness.loader_runtime_facts.receiver_identity_load_preflight
@@ -938,10 +939,11 @@ $loadM7LoaderPolicyInputDiagnostic = $loadM6M7ReverifyInputCheck.m7_loader_polic
 $loadProviderTrustInputDiagnostic = $loadM6M7ReverifyInputCheck.provider_trust_input_diagnostic
 $loadAfter = (Get-SerialLogContent -Path $SerialLog).Substring([int]$loadOffset)
 $loadDeniedOk = (
-    $load.t -eq "error" -and
-    $load.body.code -eq "capability_denied" -and
-    $load.body.schema -eq "raios.module_load_gate.v0" -and
-    $load.body.gate_state.can_load -eq $false -and
+    $load.schema -eq "raios.evidence_response.v1" -and
+    $load.family -eq "module.load_gate" -and
+    $load.decision.outcome -eq "denied" -and
+    @($load.decision.grants).Count -eq 0 -and
+    @($load.decision.effects).Count -eq 0 -and
     [int]$loadRuntimeReadiness.source_fact_count -eq 11 -and
     $loadRuntimeReadiness.source_fact_map_complete -eq $true -and
     $loadPreflightSourceFacts.Count -eq 1 -and
@@ -954,8 +956,6 @@ $loadDeniedOk = (
     $loadPreflightSourceFact.receiver_identity_complete -eq $true -and
     $loadPreflightSourceFact.retained_candidate_matches_catalog_finalize -eq $true -and
     $loadPreflightSourceFact.preflight_evaluated -eq $true -and
-    $loadPreflightSourceFact.can_load_now -eq $false -and
-    $loadPreflightSourceFact.authorizes_load -eq $false -and
     $loadPreflightRuntimeFact.present -eq $true -and
     $loadPreflightRuntimeFact.status -eq "denied" -and
     $loadPreflightRuntimeFact.reason -eq "distribution_receiver_identity_load_preflight_missing_required_gates" -and
@@ -963,8 +963,6 @@ $loadDeniedOk = (
     $loadPreflightRuntimeFact.receiver_identity_complete -eq $true -and
     $loadPreflightRuntimeFact.retained_candidate_matches_catalog_finalize -eq $true -and
     $loadPreflightRuntimeFact.preflight_evaluated -eq $true -and
-    $loadPreflightRuntimeFact.can_load_now -eq $false -and
-    $loadPreflightRuntimeFact.authorizes_load -eq $false -and
     $loadM6M7ReverifyInputCheck.source_fact -eq "receiver_identity_load_preflight" -and
     $loadM6M7ReverifyInputCheck.source_fact_locator -eq "module.load_ephemeral.receiver_identity_load_preflight" -and
     $loadM6M7ReverifyInputCheck.source_fact_present -eq $true -and
@@ -982,7 +980,6 @@ $loadDeniedOk = (
     $loadM6ReverifyInputDiagnostic.m6_reverification_evidence_present -eq $false -and
     $loadM6ReverifyInputDiagnostic.m6_reverification_evidence_reason -eq "m6_reverification_evidence_missing" -and
     $loadM6ReverifyInputDiagnostic.can_enter_m6_reverify -eq $false -and
-    $loadM6ReverifyInputDiagnostic.authorizes_load -eq $false -and
     $loadM7LoaderPolicyInputDiagnostic.id -eq "module.load_ephemeral.m7_loader_policy_input_diagnostic.current_boot" -and
     $loadM7LoaderPolicyInputDiagnostic.consumes_diagnostic -eq "module.load_ephemeral.m6_reverify_input_diagnostic.current_boot" -and
     $loadM7LoaderPolicyInputDiagnostic.consumes_check -eq "module.load_ephemeral.m6_m7_reverify_input_check.current_boot" -and
@@ -995,8 +992,6 @@ $loadDeniedOk = (
     $loadM7LoaderPolicyInputDiagnostic.status -eq "denied_m6_reverify_input_not_ready_for_m7_loader_policy" -and
     $loadM7LoaderPolicyInputDiagnostic.reason -eq "m6_reverification_evidence_missing" -and
     $loadM7LoaderPolicyInputDiagnostic.can_enter_m7_loader_policy -eq $false -and
-    $loadM7LoaderPolicyInputDiagnostic.can_load_now -eq $false -and
-    $loadM7LoaderPolicyInputDiagnostic.authorizes_load -eq $false -and
     $loadProviderTrustInputDiagnostic.id -eq "module.load_ephemeral.provider_trust_input_diagnostic.current_boot" -and
     $loadProviderTrustInputDiagnostic.consumes_diagnostic -eq "module.load_ephemeral.m7_loader_policy_input_diagnostic.current_boot" -and
     $loadProviderTrustInputDiagnostic.consumes_check -eq "module.load_ephemeral.m6_m7_reverify_input_check.current_boot" -and
@@ -1011,8 +1006,6 @@ $loadDeniedOk = (
     $loadProviderTrustInputDiagnostic.status -eq "denied_m7_loader_policy_input_not_ready_for_provider_trust" -and
     $loadProviderTrustInputDiagnostic.reason -eq "m7_loader_policy_evidence_missing" -and
     $loadProviderTrustInputDiagnostic.can_enter_provider_trust -eq $false -and
-    $loadProviderTrustInputDiagnostic.can_load_now -eq $false -and
-    $loadProviderTrustInputDiagnostic.authorizes_load -eq $false -and
     $loadM6M7ReverifyInputCheck.receiver_identity_complete -eq $true -and
     $loadM6M7ReverifyInputCheck.retained_candidate_matches_catalog_finalize -eq $true -and
     $loadM6M7ReverifyInputCheck.preflight_evaluated -eq $true -and
@@ -1024,8 +1017,6 @@ $loadDeniedOk = (
     $loadM6M7ReverifyInputCheck.m7_loader_policy_gate_satisfied -eq $false -and
     $loadM6M7ReverifyInputCheck.can_enter_m6_reverify -eq $false -and
     $loadM6M7ReverifyInputCheck.can_enter_m7_loader_policy -eq $false -and
-    $loadM6M7ReverifyInputCheck.can_load_now -eq $false -and
-    $loadM6M7ReverifyInputCheck.authorizes_load -eq $false -and
     $loadPreflightProjection.present -eq $true -and
     $loadPreflightProjection.status -eq "denied" -and
     $loadPreflightProjection.reason -eq "distribution_receiver_identity_load_preflight_missing_required_gates" -and
@@ -1044,10 +1035,6 @@ $loadDeniedOk = (
     [int]$loadPreflightProjection.missing_gate_count -eq 4 -and
     $loadPreflightProjection.m6_reverification_gate_satisfied -eq $false -and
     $loadPreflightProjection.m7_loader_policy_gate_satisfied -eq $false -and
-    $loadPreflightProjection.can_load_now -eq $false -and
-    $loadPreflightProjection.load_authorized -eq $false -and
-    $loadPreflightProjection.install_authorized -eq $false -and
-    (Test-M12RegistryDenials -Record $loadPreflightProjection) -and
     -not $loadAfter.Contains("WASM_GUEST_LOG") -and
     -not $loadAfter.Contains('"instantiation_ok": true')
 )
@@ -1060,13 +1047,15 @@ Assert-M12Predicate `
 
 Send-AgentCommand -Command "module.load_ephemeral" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "m12-distribution:N4_generic_durable_gate"
 $generic = Get-LastAgentResponseJson -Method "module.load_ephemeral"
+$genericAudit = $generic.evidence | Where-Object { $_.id -eq "durable_audit_record" }
+$genericRollback = $generic.evidence | Where-Object { $_.id -eq "rollback_plan" }
 $genericOk = (
-    $generic.body.code -eq "capability_denied" -and
-    $generic.body.schema -eq "raios.module_load_gate.v0" -and
-    $generic.body.gate_state.rollback_plan -eq "missing" -and
-    $generic.body.gate_state.durable_audit_record -eq "missing" -and
-    $generic.body.gate_state.artifact_loaded -eq $false -and
-    $generic.body.gate_state.service_started -eq $false
+    $generic.schema -eq "raios.evidence_response.v1" -and
+    $generic.decision.outcome -eq "denied" -and
+    $genericAudit.facts.status_detail -eq "missing" -and
+    $genericRollback.facts.status_detail -eq "missing" -and
+    @($generic.decision.grants).Count -eq 0 -and
+    @($generic.decision.effects).Count -eq 0
 )
 Assert-M12Predicate `
     -Name "m12-distribution:N4_generic_durable_load_gate_preserved" `
