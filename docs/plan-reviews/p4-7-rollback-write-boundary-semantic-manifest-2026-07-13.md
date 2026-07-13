@@ -757,3 +757,37 @@ sector image. It does NOT prove reboot durability, append history, rollback inst
 or that the transaction survives a power cut. The evidence records must state the narrow
 truth, not the flattering one. (This is the same discipline as "retention is provenance,
 not an effect".)
+
+### R2 CORRECTED — the proof ladder, and why a downstream proof cannot gate an upstream write
+
+The P4-7b2 worker stopped and found something I had missed. My R2 said "make the write
+functions require the scope proof". That is right for ONE of them and IMPOSSIBLE for two,
+because the writes and the evaluators form a LADDER in which each write PRODUCES the evidence
+the next evaluator checks:
+
+  1. scratch-sector write            -> produces write_readback evidence
+  2. initial LBA1 materialization    -> produces target_region_write_readback evidence
+  3. SCOPE evaluator verifies 1 + 2  -> ScopedRollbackApplyProof
+  4. authorized-append LBA1 write
+  5. APPEND evaluator verifies 4     -> ScopedRollbackAuthorizedAppendProof
+  6. VERIFIED-APPLY evaluator        -> ScopedRollbackVerifiedApplyProof
+  7. the real STATE mutation
+
+`ScopedRollbackApplyProof` requires `scratch_readiness_verified` and
+`target_region_write_readback_verified` — evidence that writes 1 and 2 CREATE. Demanding that
+proof at writes 1 and 2 would be circular and permanently denied. The general rule the ladder
+teaches:
+
+**Gate each write with the proof of the evaluator that authorizes IT — never with a
+downstream one.** A proof cannot guard the write that produces the evidence it is made of.
+
+So R2 becomes:
+- write 4 REQUIRES &ScopedRollbackApplyProof   (non-circular; the proof precedes it)
+- step 7 REQUIRES &ScopedRollbackVerifiedApplyProof (non-circular)
+- writes 1 and 2 are NOT gated by a downstream proof, and P4-7b2 does not force it.
+
+What authorizes writes 1 and 2 is a separate question and is being answered explicitly rather
+than assumed. If their gate turns out to be a bare boolean any caller can satisfy, that is a
+NEW finding of the same family as the one this slice is closing — it gets recorded with its
+function names and call sites, and it does NOT get an evaluator invented for it under a
+rendering deadline. That rule has held for the whole phase and it holds here.
