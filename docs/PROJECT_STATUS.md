@@ -24,6 +24,28 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+P4-4 IN FLIGHT — EVENT ENVELOPE PARKED ON refactor/p4-4-event-envelope-wip
+(2026-07-13 ~16:10). Committed on main: the five orchestrator rulings (R1-R5;
+R2 is load-bearing — each historical event keeps its OWN status/reason as an
+evidence record and the envelope's single decision is
+observed("recent_events_read"), so a past denial can neither contaminate the
+read nor be erased by it) and the core projection
+raios-core/src/event_evidence_projection.rs (642 lines, 13 tests, 499 core
+tests green). Parked on the branch (builds, quick GREEN
+shadow-20260713-160021-2660.json, full RED on 63 needles): the v1 envelope for
+memory.recent_events plus a REAL BUG FIX — event_log.rs now snapshots the ring
+under ONE lock; the old path locked once for the window metadata and again per
+event, so the ring could mutate in between and the response could mix a stale
+window with fresh events or silently drop overwritten entries.
+Exact next task to land P4-4: the load-gate EVENT BINDING moved to the core
+projection (right end state — it reuses the committed P4-2 projection instead
+of duplicating it) but that changed its bytes, and full-audit still has 63
+needles describing the old compact binding object. Regenerate them from the
+live transcript raios-shadow-20260713-160407-22432/serial.log with the same
+per-predicate accounting every other slice got, rerun full, merge the branch.
+THEN P4-4b2b (the 40-odd individual binding renderers -> typed field tables;
+that is where the design's -3k..-6k lines are), then P4-5..P4-9.
+
 MODULE BLOCK CLOSED — P4-1, P4-2 AND P4-3 ALL ON EVIDENCE VOCABULARY V1
 (2026-07-13 ~15:10). P4-3 switched the eight loader-fact methods, loader
 identity, artifact-hash binding, loader runtime and the service-slot allocator
