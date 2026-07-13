@@ -1,6 +1,25 @@
 # Owner Dashboard
 
-Updated: 2026-07-13.
+Updated: 2026-07-13 (midday).
+
+Vocabulary v1, first family live: every "show me the module evidence" question
+an agent can ask raiOS (manifest, artifact, test report, attestation, approval,
+computed grant, audit/rollback reference, service-slot reservation — plus all
+their self-tests) now answers in the new single evidence language: one shared
+envelope, the proof records in the evaluator's order, and one honest decision
+block that always says exactly WHY something is denied and grants nothing as a
+side effect. The night shift had parked this work believing it didn't compile —
+that turned out to be a limitation of the worker's sandbox, not the code. What
+WAS genuinely broken were the test expectations: the rewrite had collapsed 30
+distinct safety checks onto one identical byte pattern (so 29 of them proved
+nothing), and several checks quietly pointed at the wrong source of truth. All
+of that is fixed and honestly recorded; two old checks that had only ever
+passed by accident (matching bytes from a different answer entirely) were
+retired by name. Proof: the family's focused suite passes 1,623/1,623, the
+promotion and rollback flows pass, and the FULL suite passes 4,042/4,042
+(shadow-20260713-114040-1776.json). The load-gate family is next: its
+inventory (855 checks), its typed core decision engine, and the two follow-up
+family inventories are already built and committed.
 
 Refactor program: the feared "layout-sensitive kernel bug" is solved — and the
 kernel was innocent. The real defect sat in our own test tooling: the helper

@@ -24,6 +24,36 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+P4-1 CLOSED — MODULE-REFERENCE FAMILY ON EVIDENCE VOCABULARY V1 (2026-07-13).
+Exact next task: dispatch P4-2b2a (packet ready in the session scratchpad) —
+switch the load-gate DENIED response family in
+`agent_protocol_module_load_gate_render.rs` to v1 by consuming the committed
+raios-core projection `module_load_gate_projection.rs` (P4-2b1, 475 core tests
+green), regenerate `full-module-load-gate`/`quick`/m6c/m6d/m12 needles, then
+orchestrator build loop + focused `module-audit-rollback` + the load-gate
+fragment; after that P4-2b2b (selftest emit/eval/reference_cases, including the
+known non-functional `substituted_local_approval_reference_record` fixture
+which must be corrected or explicitly retired). Semantic manifests are already
+committed for P4-2a (855 predicates inventoried), P4-3a (1,370), and P4-4a is
+authored and awaiting review/commit. P4-1 evidence: focused
+`module-audit-rollback` 1,623/1,623 (`shadow-20260713-112036-23420.json`),
+`m6c-promotion` (`shadow-20260713-112455-18500.json`), `m6d-rollback`
+(`shadow-20260713-112642-26488.json`), and FULL 4,042/4,042 green
+(`shadow-20260713-114040-1776.json`; main baseline was 4,070 — the delta of 28
+is exactly the honest merges/renames/retirements recorded in the P4-1a manifest
+appendix). Landed lessons, all encoded in the manifest appendix and the P4-2b2a
+packet: same-source rule violations are the dominant regeneration defect class
+(validity vs presence sources, envelope event_id vs evidence source_event_id,
+key renames); top-level envelope fields arrive over the QEMU serial pipeline as
+CR CR LF lines, so multi-line needles need explicit `` `r`r`n ``; and removing
+an old emitter can expose OTHER fragments' needles that had only ever passed
+vacuously through its bytes (two such retired; a key-existence sweep found no
+more). Known deferred item: `shadow-vm-persistence-reboot.ps1` is broken by
+pre-existing drift against the evolved smoke-support report writer
+(`$Predicates` null; last green run 2026-07-08, i.e. before P1/P2) — its
+P4-1 property-path rewrites are statically verified only; repair is its own
+small slice and blocks nothing in P4.
+
 VM failure classification (2026-07-13, P4-1 resume, focused
 `module-audit-rollback`) — report
 `release/vm-reports/shadow-20260713-104951-24936.json`: failing predicate
@@ -48,7 +78,9 @@ by family-anchored first-failure denial needles, honest merges recorded in the
 manifest appendix). P4-1d replaced the tautological semantic-mapping test with
 a real carrier-needle test (proven by a failing negative probe).
 
-P4-1 PARKED ON A BRANCH — DOES NOT COMPILE, WORKER SANDBOX CANNOT BUILD THE
+(SUPERSEDED by P4-1 CLOSED above; kept as history — the "does not compile"
+claim proved to be a worker-sandbox artifact.) P4-1 PARKED ON A BRANCH — DOES
+NOT COMPILE, WORKER SANDBOX CANNOT BUILD THE
 KERNEL (2026-07-13). Exact next task: resume branch
 `refactor/p4-1-vocabulary-v1-wip` and close its build loop from the
 ORCHESTRATOR side (the Codex worker sandbox cannot execute rustc for the
