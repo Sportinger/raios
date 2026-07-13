@@ -24,6 +24,49 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+P3 RECOVERY FAMILY RETIRED — PHASE-CLOSE FULL GREEN (2026-07-13). The entire
+legacy `agent_protocol_recovery*` family (47 files, 39,193 lines) is deleted
+in one atomic slice (combined P3-2..P3-6 per the routing map), plus the three
+authorized cross-family edges: the memory.context recovery-lifeline-status
+fact projection (it validated retained records only the retired diagnostics
+ever created), the provider recovery-status omission evidence (objectless
+without the fact), and the policy method-name mapping (fail-closed
+DeniedGeneric handling unchanged — `recovery.load_artifact` and
+`module.load_recovery_artifact` keep their explicit denial entries). The real
+M8 lifeline is untouched: recovery.lifeline_table, recovery.snapshot,
+recovery.restart_last_good, recovery.rollback, recovery.disable_module,
+recovery.load_artifact_by_hash, recovery.rollback_inspect and their selftests
+stay, as do the m8-lifeline/recovery/quick profiles. Retired predicates are
+named in the deletion commit: seven whole legacy profiles
+(recovery-artifact-evidence 51, recovery-lifeline-foundation 26,
+recovery-command-frontdoor 12, recovery-command-authority 58,
+recovery-command-effects 20, recovery-execution-binding 154,
+recovery-audit 16), 298 recovery predicates in full-audit, and named
+partial retirements in common/provider-memory/full-provider-memory. Two
+repair increments during the close: the dead RecoveryArtifactLoadDenied
+event chain (E0004) and the command-envelope allowlist consistency fix
+(trailing-comma failure classified above). Evidence: memory-durable
+`shadow-20260713-022032-18212.json`, provider-memory
+`shadow-20260713-022417-20560.json`, full `shadow-20260713-023159-3012.json`
+all GREEN. seed-kernel/src is now 176,346 lines / 158 files (from 206,481 /
+162 at program start; the P3-1 write-boundary and P3-7 hello slices remain,
+both gated behind the hello attestation surgery — hello files are
+byte-attested by build.rs, and hello consumes the write-boundary evaluators).
+
+VM failure classification (2026-07-13, P3-recovery phase-close full, first
+attempt) - report `release/vm-reports/shadow-20260713-022540-6644.json`
+failed with a harness JSON parse error: `agent.command_envelope` emits
+`"allowed_target_methods": [..., "problem.list", ]` (trailing comma) while
+its `target_allowlist` string still ends with
+`_recovery_lifeline_status_read_only`. Verdict: `guest-behavior`, incomplete
+edge of the recovery deletion — `recovery.lifeline.status` was removed from
+the envelope allowlist array (breaking the last-entry comma logic) but not
+from the allowlist string. memory-durable
+(`shadow-20260713-022032-18212.json`) and provider-memory
+(`shadow-20260713-022417-20560.json`) passed on the same tree. Repair
+P3-RECOVERY-ALL-F: make the envelope table consistent and update/retire the
+asserting predicates by name.
+
 P2 WAVE 1 LANDED — FAMILY-CLOSE FULL GREEN (2026-07-13). Full profile passed
 on the landed tree: `release/vm-reports/shadow-20260713-013105-20952.json`,
 after P1-A (5e75c1a) and the wave cherry-picks (4af5624, c0f9fa6, bfd24ed)

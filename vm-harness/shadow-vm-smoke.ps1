@@ -387,15 +387,7 @@ try {
             . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-full-module-load-gate.ps1")
         }
 
-        . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-recovery-artifact-evidence.ps1")
-        . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-recovery-lifeline-foundation.ps1")
-        . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-recovery-command-frontdoor.ps1")
-        . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-recovery-command-authority.ps1")
-        . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-recovery-command-effects.ps1")
-        . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-recovery-execution-binding.ps1")
-
         if ($Profile -eq "recovery") {
-            . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-recovery-audit.ps1")
             break SmokeProfileValidation
         }
 

@@ -1,7 +1,6 @@
 use crate::{
     agent_protocol_memory::memory_mutation_method,
     agent_protocol_provider::provider_context_export_method,
-    agent_protocol_recovery_methods::recovery_artifact_load_method,
     agent_protocol_support::{json_event_id, json_str, method_eq, method_head_eq, raw, raw_line},
     event_log, serial,
 };
@@ -236,8 +235,6 @@ fn requested_capability_for_denial(method: &str) -> &'static str {
         "cap.service.hello_demo.current_boot"
     } else if method_head_eq(method, "service.rollback_apply") {
         "cap.service.rollback_apply.current_boot"
-    } else if recovery_artifact_load_method(method) {
-        "cap.recovery.load_artifact"
     } else if method_eq(method, "module.persist") {
         "cap.module.persist"
     } else if method_eq(method, "module.rollback") {
@@ -256,8 +253,6 @@ fn requested_capability_for_denial(method: &str) -> &'static str {
 fn risk_for_denial(method: &str) -> &'static str {
     if provider_context_export_method(method) {
         "export"
-    } else if recovery_artifact_load_method(method) {
-        "recovery_modify_ram"
     } else if method_eq(method, "module.persist")
         || method_eq(method, "module.rollback")
         || method_eq(method, "config.apply")

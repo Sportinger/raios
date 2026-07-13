@@ -4,8 +4,6 @@ use crate::{
         emit_provider_context_hashes, emit_provider_minimal_projection,
         provider_context_block_reason,
     },
-    agent_protocol_recovery::emit_recovery_artifact_load_denial_event_binding,
-    agent_protocol_recovery_execution::recovery_lifeline_status_result_read_state,
     agent_protocol_support::{
         begin_response, crlf, emit_inline_string_array, emit_record_value_fragment, end_response,
         indent, json_event_id, json_event_id_option, json_event_sequence, json_opt_str,
@@ -71,9 +69,7 @@ pub(crate) fn emit_memory_context(
     raw_line("        \"system.capabilities.v0\",");
     raw_line("        \"service.inventory.v0\",");
     raw_line("        \"problem.list.v0\",");
-    raw_line("        \"system.boot_log.v0\",");
-    raw_line("        \"raios.recovery_lifeline_status_result_read.v0\",");
-    raw_line("        \"raios.recovery_lifeline_status_projection.v0\"");
+    raw_line("        \"system.boot_log.v0\"");
     raw_line("      ],");
     raw("      \"budget\": {\"target_tokens\": ");
     raw_fmt(format_args!("{}", memory_context_target_tokens(profile)));
@@ -90,7 +86,7 @@ pub(crate) fn emit_memory_context(
     raw_line("      \"included\": {");
     raw_line("        \"identity\": [\"mem.fact.identity.stage0\"],");
     raw_line("        \"policy\": [\"adr.0001\", \"adr.0004\"],");
-    raw_line("        \"current\": [\"snapshot.current\", \"capabilities.current_boot\", \"service.inventory.current\", \"problem.list.current\", \"recovery.lifeline.status.current_boot\"],");
+    raw_line("        \"current\": [\"snapshot.current\", \"capabilities.current_boot\", \"service.inventory.current\", \"problem.list.current\"],");
     raw_line("        \"summaries\": [\"boot_log.summary.current\"]");
     raw_line("      },");
     raw_line("      \"current\": {");
@@ -119,10 +115,7 @@ pub(crate) fn emit_memory_context(
     raw_line("        ],");
     raw_line("        \"problems\": [");
     emit_problem_objects(&status, &provider, 10);
-    raw_line("        ],");
-    raw_line("        \"recovery_lifeline_status\": {");
-    emit_recovery_lifeline_status_context_fact();
-    raw_line("        }");
+    raw_line("        ]");
     raw_line("      },");
     if method_eq(profile, "provider_minimal") {
         raw_line("      \"provider_projection\": {");
@@ -173,15 +166,6 @@ pub(crate) fn emit_memory_context(
         "public",
         "current known local problems and explicit gaps",
         "problem.list",
-        true,
-    );
-    emit_memory_record(
-        "recovery.lifeline.status.current_boot",
-        "recovery_lifeline_status",
-        "evidence",
-        "local_only",
-        "bounded recovery lifeline status fact sourced from retained status-result evidence",
-        "recovery.lifeline.status",
         true,
     );
     emit_memory_record(
@@ -294,13 +278,6 @@ pub(crate) fn emit_memory_query() {
         true,
     );
     emit_memory_candidate(
-        "recovery.lifeline.status.current_boot",
-        "recovery_lifeline_status",
-        "local_only",
-        "bounded recovery lifeline status fact",
-        true,
-    );
-    emit_memory_candidate(
         "boot_log.summary.current",
         "summary",
         "local_only",
@@ -363,12 +340,6 @@ pub(crate) fn emit_memory_trace(method: &str) {
             "problem.list.current",
             "problem.list",
             "seed-kernel/src/agent_protocol.rs",
-            true,
-        );
-        emit_trace_record(
-            "recovery.lifeline.status.current_boot",
-            "recovery.lifeline.status",
-            "seed-kernel/src/agent_protocol_recovery_execution.rs",
             true,
         );
         emit_trace_record(
@@ -2219,9 +2190,6 @@ fn emit_event_bindings(kind: &str, bindings: &event_log::EventBindings) {
         }
         event_log::EventBindings::ModuleLoadGate(binding) => {
             emit_module_load_gate_event_binding(*binding);
-        }
-        event_log::EventBindings::RecoveryArtifactLoadDenied(binding) => {
-            emit_recovery_artifact_load_denial_event_binding(*binding);
         }
         event_log::EventBindings::RecoveryArtifactIdentityReference(binding) => {
             emit_recovery_artifact_identity_reference_binding(kind, binding);
@@ -11158,90 +11126,6 @@ fn emit_provider_trust_verifier_decision(decision: provider_trust::ProviderTrust
     raw("}");
 }
 
-fn emit_recovery_lifeline_status_context_fact() {
-    let state = recovery_lifeline_status_result_read_state();
-
-    raw_line("          \"schema\": \"raios.agent_context.recovery_lifeline_status_fact.v0\",");
-    raw_line("          \"id\": \"recovery.lifeline.status.current_boot\",");
-    raw_line("          \"scope\": \"current_boot\",");
-    raw_line("          \"classification\": \"local_only\",");
-    raw_line("          \"source_method\": \"recovery.lifeline.status\",");
-    raw_line("          \"source_schema\": \"raios.recovery_lifeline_status_result_read.v0\",");
-    raw_line("          \"projection_schema\": \"raios.recovery_lifeline_status_projection.v0\",");
-    raw("          \"status\": ");
-    json_str(state.context_status());
-    raw_line(",");
-    raw("          \"reason\": ");
-    json_str(state.reason);
-    raw_line(",");
-    raw("          \"source_retained_result_status\": ");
-    json_str(state.source_status());
-    raw_line(",");
-    raw("          \"source_retained_result_verified\": ");
-    raw_bool(state.accepted);
-    raw_line(",");
-    raw("          \"retained_status_execution_result_event_id\": ");
-    if let Some((event_id, _)) = state.retained_result {
-        json_event_id(event_id);
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw("          \"status_execution_result_hash\": ");
-    if let Some((_, result)) = state.retained_result {
-        json_sha256(result.status_execution_result_hash);
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw("          \"retained_status_read_handler_event_id\": ");
-    if let Some((_, result)) = state.retained_result {
-        json_event_id(result.retained_status_read_handler_event_id);
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw("          \"retained_execution_completion_denial_event_id\": ");
-    if let Some((_, result)) = state.retained_result {
-        json_event_id(result.retained_execution_completion_denial_event_id);
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw_line("          \"projection\": {");
-    raw("            \"status\": ");
-    json_str(state.context_status());
-    raw_line(",");
-    raw_line("            \"command_id\": \"recovery.lifeline.status\",");
-    raw("            \"bounded_current_boot_projection\": ");
-    raw_bool(state.accepted);
-    raw_line(",");
-    raw("            \"source_retained_result_verified\": ");
-    raw_bool(state.accepted);
-    raw_line(",");
-    raw_line("            \"recovery_core_alive\": true,");
-    raw_line("            \"provider_recovery_route_enabled\": false,");
-    raw_line("            \"dispatches_lifeline_command\": false,");
-    raw_line("            \"command_execution_enabled\": false,");
-    raw_line("            \"executes_lifeline_status\": false,");
-    raw_line("            \"module_disable_enabled\": false,");
-    raw_line("            \"restart_last_good_enabled\": false,");
-    raw_line("            \"recovery_artifact_load_enabled\": false,");
-    raw_line("            \"recovery_memory_writes_enabled\": false,");
-    raw_line("            \"durable_audit_writes_enabled\": false,");
-    raw_line("            \"rollback_store_writes_enabled\": false,");
-    raw_line("            \"service_inventory_mutation_enabled\": false,");
-    raw_line("            \"load_attempted\": false");
-    raw_line("          },");
-    raw_line("          \"side_effects\": {");
-    raw_line("            \"writes_memory\": false,");
-    raw_line("            \"provider_export\": false,");
-    raw_line("            \"fallback_executor\": false,");
-    raw_line("            \"recovery_command_dispatch\": false,");
-    raw_line("            \"mutates_service_inventory\": false");
-    raw_line("          }");
-}
-
 fn emit_memory_record(
     id: &'static str,
     kind: &'static str,
@@ -11355,13 +11239,6 @@ fn emit_single_trace_record(id: &str) {
             "problem.list.current",
             "problem.list",
             "seed-kernel/src/agent_protocol.rs",
-            false,
-        );
-    } else if method_eq(id, "recovery.lifeline.status.current_boot") {
-        emit_trace_record(
-            "recovery.lifeline.status.current_boot",
-            "recovery.lifeline.status",
-            "seed-kernel/src/agent_protocol_recovery_execution.rs",
             false,
         );
     } else if method_eq(id, "boot_log.summary.current") {

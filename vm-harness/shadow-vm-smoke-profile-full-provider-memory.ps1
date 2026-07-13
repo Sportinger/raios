@@ -56,21 +56,6 @@ function Invoke-ProviderContextGateSelftestProfile {
     Assert-LogContains -Name "protocol:provider_context_injection_gate_classification_hash" -Needle '"field_classification_hash": "sha256:' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_gate_budget_hash" -Needle '"token_budget_hash": "sha256:' -TimeoutSeconds 1
     $providerContextInjectionGate = Get-LastAgentResponseJson -Method "provider.context_injection_gate"
-    $providerContextInjectionOmission = $providerContextInjectionGate.body.result.evidence.recovery_status_omission
-    $providerContextInjectionOmissionOk = (
-        $providerContextInjectionOmission.schema -eq "raios.provider_minimal.local_only_omission.v0" -and
-        $providerContextInjectionOmission.status -eq "omitted_from_provider_context" -and
-        $providerContextInjectionOmission.fact_field -eq "current.recovery_lifeline_status" -and
-        $providerContextInjectionOmission.locator -eq "recovery.lifeline.status.current_boot" -and
-        $providerContextInjectionOmission.classification -eq "local_only" -and
-        $providerContextInjectionOmission.provider_export -eq $false -and
-        $providerContextInjectionOmission.context_attached_to_provider_body -eq $false -and
-        $providerContextInjectionOmission.provider_write -eq "not_attempted"
-    )
-    Add-Predicate -Name "protocol:provider_context_injection_gate_recovery_status_omission_evidence" -Expected "provider_context_injection_gate_recovery_status_omitted" -Passed $providerContextInjectionOmissionOk -Actual $(if ($providerContextInjectionOmissionOk) { "omitted" } else { "missing_or_exportable" })
-    if (-not $providerContextInjectionOmissionOk) {
-        throw "Expected provider.context_injection_gate to expose recovery status omission evidence without body attachment"
-    }
 
 function Invoke-ProviderContextInjectionGateSelftestProfile {
     Send-AgentCommand -Command "agent provider.context_injection_gate_selftest provider_minimal" -ExpectedMarker "RAIOS_AGENT_END provider.context_injection_gate_selftest"

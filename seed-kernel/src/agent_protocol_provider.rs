@@ -394,18 +394,6 @@ fn emit_provider_minimal_packet(status: &SystemSnapshot, provider: &provider::Sn
         true,
     );
     emit_projection_omission(
-        "current.recovery_lifeline_status",
-        "local_only",
-        "local recovery status fact is not included in provider context",
-        true,
-    );
-    emit_projection_omission(
-        "recovery.lifeline.status.current_boot",
-        "local_only",
-        "local recovery status locator is not included in provider context",
-        true,
-    );
-    emit_projection_omission(
         "unclassified.memory_context",
         "local_only",
         "unclassified context fields are omitted by default",
@@ -491,7 +479,6 @@ pub(crate) fn emit_provider_context_gate(runtime: ui::RuntimeStatus, request: &s
     raw("        \"token_budget_hash\": ");
     json_sha256(evidence.token_budget_hash);
     raw_line(",");
-    emit_provider_recovery_status_omission_evidence(8, true);
     raw_line("        \"provider_write_path\": \"disabled\"");
     raw_line("      },");
     raw_line("      \"blocked_by\": [");
@@ -745,7 +732,6 @@ pub(crate) fn emit_provider_context_injection_gate(runtime: ui::RuntimeStatus, r
     raw("        \"token_budget_hash\": ");
     json_sha256(evidence.token_budget_hash);
     raw_line(",");
-    emit_provider_recovery_status_omission_evidence(8, true);
     raw_line("        \"provider_request_body_attachment\": \"blocked_until_final_authorization\"");
     raw_line("      },");
     raw_line("      \"blocked_by\": [");
@@ -1681,7 +1667,6 @@ pub(crate) fn emit_provider_context_export_denied(
     raw("      \"token_budget_hash\": ");
     json_sha256(evidence.token_budget_hash);
     raw_line(",");
-    emit_provider_recovery_status_omission_evidence(6, true);
     raw("      \"provider_request_binding_status\": ");
     json_str(provider_binding_gate_state(&binding_check, "request"));
     raw_line(",");
@@ -1873,33 +1858,6 @@ pub(crate) fn emit_provider_context_hashes(hashes: event_log::ProviderContextHas
     raw(", \"token_budget_hash\": ");
     json_sha256(hashes.token_budget_hash);
     raw("}");
-}
-
-fn emit_provider_recovery_status_omission_evidence(spaces: usize, comma: bool) {
-    indent(spaces);
-    raw_line("\"recovery_status_omission\": {");
-    indent(spaces + 2);
-    raw_line("\"schema\": \"raios.provider_minimal.local_only_omission.v0\",");
-    indent(spaces + 2);
-    raw_line("\"status\": \"omitted_from_provider_context\",");
-    indent(spaces + 2);
-    raw_line("\"fact_field\": \"current.recovery_lifeline_status\",");
-    indent(spaces + 2);
-    raw_line("\"locator\": \"recovery.lifeline.status.current_boot\",");
-    indent(spaces + 2);
-    raw_line("\"classification\": \"local_only\",");
-    indent(spaces + 2);
-    raw_line("\"provider_export\": false,");
-    indent(spaces + 2);
-    raw_line("\"context_attached_to_provider_body\": false,");
-    indent(spaces + 2);
-    raw_line("\"provider_write\": \"not_attempted\"");
-    indent(spaces);
-    raw("}");
-    if comma {
-        raw(",");
-    }
-    crlf();
 }
 
 fn emit_projection_record(

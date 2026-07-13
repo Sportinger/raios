@@ -3048,43 +3048,6 @@ pub struct ModuleLoadGateBinding {
     pub service_slot_reservation_reason: &'static str,
 }
 
-#[derive(Clone, Copy)]
-pub struct RecoveryArtifactLoadDenialBinding {
-    pub recovery_artifact_identity_missing: bool,
-    pub recovery_artifact_trust_missing: bool,
-    pub recovery_vm_test_missing: bool,
-    pub recovery_local_approval_missing: bool,
-    pub recovery_loader_missing: bool,
-    pub recovery_rollback_evidence_missing: bool,
-    pub recovery_load_binding_status: &'static str,
-    pub recovery_load_binding_reason: &'static str,
-    pub retained_recovery_artifact_identity_event_id: Option<EventId>,
-    pub identity_reference_hash: Option<[u8; 32]>,
-    pub retained_recovery_artifact_trust_event_id: Option<EventId>,
-    pub trust_reference_hash: Option<[u8; 32]>,
-    pub retained_recovery_vm_test_event_id: Option<EventId>,
-    pub vm_test_reference_hash: Option<[u8; 32]>,
-    pub retained_recovery_local_approval_event_id: Option<EventId>,
-    pub local_approval_reference_hash: Option<[u8; 32]>,
-    pub retained_recovery_loader_event_id: Option<EventId>,
-    pub loader_reference_hash: Option<[u8; 32]>,
-    pub retained_recovery_rollback_evidence_event_id: Option<EventId>,
-    pub rollback_evidence_reference_hash: Option<[u8; 32]>,
-    pub retained_execution_completion_denial_event_id: Option<EventId>,
-    pub execution_completion_denial_hash: Option<[u8; 32]>,
-    pub side_effect_gate_hash: Option<[u8; 32]>,
-    pub source_rollback_apply_denial_hash: Option<[u8; 32]>,
-    pub source_durable_policy_write_authority_decision_hash: Option<[u8; 32]>,
-    pub source_recovery_rollback_inspect_source_reference_hash: Option<[u8; 32]>,
-    pub execution_enablement_hash: Option<[u8; 32]>,
-    pub execution_preflight_hash: Option<[u8; 32]>,
-    pub execution_intent_hash: Option<[u8; 32]>,
-    pub execution_commit_gate_hash: Option<[u8; 32]>,
-    pub execution_result_denial_hash: Option<[u8; 32]>,
-    pub execution_audit_denial_hash: Option<[u8; 32]>,
-    pub execution_observation_denial_hash: Option<[u8; 32]>,
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct RecoveryArtifactIdentityReference {
     pub identity_reference_hash: [u8; 32],
@@ -3863,7 +3826,6 @@ pub enum EventBindings {
         ModuleLoaderLiveLoadBoundarySourceEvidence,
     ),
     ModuleLoadGate(ModuleLoadGateBinding),
-    RecoveryArtifactLoadDenied(RecoveryArtifactLoadDenialBinding),
     RecoveryArtifactIdentityReference(RecoveryArtifactIdentityReference),
     RecoveryArtifactTrustReference(RecoveryArtifactTrustReference),
     RecoveryArtifactVmTestReference(RecoveryArtifactVmTestReference),

@@ -1324,13 +1324,10 @@ fn command_help() {
         "AGENT RAW: service.health service.rollback_preview service.rollback_apply recovery.rollback_inspect recovery.rollback_inspect_source_reference_selftest recovery.rollback_materialize_dry_run service.descriptor_source_trust_selftest service.artifact_reference_trust_selftest service.artifact_load_plan_preflight_selftest memory.context provider.context_export provider.context_gate provider.context_gate_selftest provider.context_injection_gate provider.context_injection_gate_selftest memory.query memory.trace memory.recent_events"
     ));
     write_output(format_args!(
-        "AGENT ENVELOPE: agent command_envelope schema=raios.agent_command_envelope.v0 target_method=system.describe|system.snapshot|system.boot_log|system.capabilities|device.graph|service.inventory|service.health|service.rollback_preview|recovery.rollback_inspect|module.audit_rollback_availability|module.audit_rollback_write_policy|module.audit_rollback_storage_layout|module.audit_rollback_append_engine|module.audit_rollback_append_contract|module.audit_rollback_append_payload_hash|module.audit_rollback_append_intent|module.audit_rollback_write_boundary|problem.list|recovery.lifeline.status requested_capability=cap.<target>.read classification=local_only"
+        "AGENT ENVELOPE: agent command_envelope schema=raios.agent_command_envelope.v0 target_method=system.describe|system.snapshot|system.boot_log|system.capabilities|device.graph|service.inventory|service.health|service.rollback_preview|recovery.rollback_inspect|module.audit_rollback_availability|module.audit_rollback_write_policy|module.audit_rollback_storage_layout|module.audit_rollback_append_engine|module.audit_rollback_append_contract|module.audit_rollback_append_payload_hash|module.audit_rollback_append_intent|module.audit_rollback_write_boundary|problem.list requested_capability=cap.<target>.read classification=local_only"
     ));
     write_output(format_args!(
         "RECOVERY: recovery.load_artifact module.load_recovery_artifact recovery.lifeline_command_admission recovery.lifeline_command_envelope_diagnostic recovery.lifeline_command_dispatch_diagnostic recovery.lifeline_command_body_canonicalization_diagnostic recovery.lifeline_command_handler_binding_diagnostic recovery.lifeline_status_read_handler_diagnostic recovery.rollback_preview_authorization_diagnostic recovery.rollback_apply_authorization_diagnostic recovery.disable_module_target_binding_diagnostic recovery.restart_last_good_target_binding_diagnostic recovery.load_artifact_by_hash_target_binding_diagnostic recovery.memory_write_authority_diagnostic recovery.durable_audit_rollback_write_authority_diagnostic recovery.service_inventory_side_effect_boundary_diagnostic recovery.lifeline_command_dispatch_behavior_diagnostic recovery.lifeline_command_executor_capability_table_diagnostic recovery.lifeline_command_side_effect_gate_diagnostic recovery.lifeline_command_execution_enablement_diagnostic recovery.lifeline_command_execution_preflight_diagnostic recovery.lifeline_command_execution_intent_diagnostic recovery.lifeline_command_execution_commit_gate_diagnostic recovery.lifeline_command_execution_result_denial_diagnostic"
-    ));
-    write_output(format_args!(
-        "RECOVERY EXEC: recovery.lifeline_command_execution_audit_denial_diagnostic recovery.lifeline_command_execution_observation_denial_diagnostic recovery.lifeline_command_execution_completion_denial_diagnostic recovery.lifeline_status_execution_result_diagnostic recovery.lifeline_status_result_read recovery.lifeline.status"
     ));
 }
 
@@ -1670,12 +1667,14 @@ fn emit_agent_command_envelope(
     raw_line(",");
     raw("      \"allowed_target_methods\": [");
     let mut allowed_index = 0usize;
+    let mut wrote_allowed_target = false;
     while allowed_index < agent_protocol::command_envelope_target_count() {
-        if allowed_index > 0 {
-            raw(", ");
-        }
         if let Some(target) = agent_protocol::command_envelope_target_at(allowed_index) {
+            if wrote_allowed_target {
+                raw(", ");
+            }
             json_str(target.method);
+            wrote_allowed_target = true;
         }
         allowed_index += 1;
     }
@@ -1684,7 +1683,7 @@ fn emit_agent_command_envelope(
     json_str(agent_command_envelope_expected_capability(envelope));
     raw_line(",");
     raw_line(
-        "      \"target_allowlist\": \"system_describe_system_snapshot_system_boot_log_system_capabilities_device_graph_service_inventory_service_health_service_rollback_preview_recovery_rollback_inspect_module_audit_rollback_availability_module_audit_rollback_write_policy_module_audit_rollback_storage_layout_module_audit_rollback_append_engine_module_audit_rollback_append_contract_module_audit_rollback_append_payload_hash_module_audit_rollback_append_intent_module_audit_rollback_write_boundary_problem_list_recovery_lifeline_status_read_only\",",
+        "      \"target_allowlist\": \"system_describe_system_snapshot_system_boot_log_system_capabilities_device_graph_service_inventory_service_health_service_rollback_preview_recovery_rollback_inspect_module_audit_rollback_availability_module_audit_rollback_write_policy_module_audit_rollback_storage_layout_module_audit_rollback_append_engine_module_audit_rollback_append_contract_module_audit_rollback_append_payload_hash_module_audit_rollback_append_intent_module_audit_rollback_write_boundary_problem_list\",",
     );
     raw("      \"dispatches_existing_agent_method\": ");
     raw_bool(accepted);

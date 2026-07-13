@@ -59,7 +59,7 @@ use crate::event_log_evidence::{
     PROVIDER_EXPORT_DENIAL_AUDIT_EVIDENCE, PROVIDER_REQUEST_BINDING_DENIAL_EVIDENCE,
     PROVIDER_REQUEST_BINDING_EVIDENCE, PROVIDER_REQUEST_ENVELOPE_EVIDENCE, READ_EVIDENCE,
     RECOVERY_ARTIFACT_IDENTITY_REFERENCE_EVIDENCE, RECOVERY_ARTIFACT_LOADER_REFERENCE_EVIDENCE,
-    RECOVERY_ARTIFACT_LOAD_DENIAL_EVIDENCE, RECOVERY_ARTIFACT_LOCAL_APPROVAL_REFERENCE_EVIDENCE,
+    RECOVERY_ARTIFACT_LOCAL_APPROVAL_REFERENCE_EVIDENCE,
     RECOVERY_ARTIFACT_ROLLBACK_EVIDENCE_REFERENCE_EVIDENCE,
     RECOVERY_ARTIFACT_TRUST_REFERENCE_EVIDENCE, RECOVERY_ARTIFACT_VM_TEST_REFERENCE_EVIDENCE,
     RECOVERY_DISABLE_MODULE_TARGET_BINDING_EVIDENCE,
@@ -114,10 +114,9 @@ pub use crate::event_log_types::{
     ProviderBindingGateSelfTestCase, ProviderContextHashes, ProviderContextInjectionAuthorization,
     ProviderContextInjectionGateCheck, ProviderContextInjectionGateSelfTestCase,
     ProviderExportAuditBinding, ProviderRequestBinding, ProviderRequestEnvelopeBinding,
-    RecoveryArtifactIdentityReference, RecoveryArtifactLoadDenialBinding,
-    RecoveryArtifactLoaderReference, RecoveryArtifactLocalApprovalReference,
-    RecoveryArtifactRollbackEvidenceReference, RecoveryArtifactTrustReference,
-    RecoveryArtifactVmTestReference, RecoveryCommandTargetLocator,
+    RecoveryArtifactIdentityReference, RecoveryArtifactLoaderReference,
+    RecoveryArtifactLocalApprovalReference, RecoveryArtifactRollbackEvidenceReference,
+    RecoveryArtifactTrustReference, RecoveryArtifactVmTestReference, RecoveryCommandTargetLocator,
     RecoveryDisableModuleTargetBindingReference,
     RecoveryLifelineCommandBodyCanonicalizationReference,
     RecoveryLifelineCommandDispatchBehaviorReference, RecoveryLifelineCommandEnvelopeReference,
@@ -955,31 +954,6 @@ impl EventLog {
             };
             if let Some(event) = self.events[source] {
                 if let EventBindings::RecoveryArtifactIdentityReference(binding) = event.bindings {
-                    return Some((
-                        EventId {
-                            sequence: event.sequence,
-                        },
-                        binding,
-                    ));
-                }
-            }
-            idx += 1;
-        }
-        None
-    }
-
-    fn latest_recovery_artifact_load_denied_binding(
-        &self,
-    ) -> Option<(EventId, RecoveryArtifactLoadDenialBinding)> {
-        let mut idx = 0usize;
-        while idx < self.len {
-            let source = if self.next_slot > idx {
-                self.next_slot - idx - 1
-            } else {
-                EVENT_CAPACITY + self.next_slot - idx - 1
-            };
-            if let Some(event) = self.events[source] {
-                if let EventBindings::RecoveryArtifactLoadDenied(binding) = event.bindings {
                     return Some((
                         EventId {
                             sequence: event.sequence,
@@ -4739,123 +4713,6 @@ pub fn record_module_load_ephemeral_denied(
     (event_id, binding)
 }
 
-pub fn record_recovery_artifact_load_denied(source_method: &'static str) -> EventId {
-    let mut log = LOG.lock();
-    let retained_identity = log.latest_recovery_artifact_identity_reference();
-    let retained_trust = log.latest_recovery_artifact_trust_reference();
-    let retained_vm_test = log.latest_recovery_artifact_vm_test_reference();
-    let retained_local_approval = log.latest_recovery_artifact_local_approval_reference();
-    let retained_loader = log.latest_recovery_artifact_loader_reference();
-    let retained_rollback_evidence = log.latest_recovery_artifact_rollback_evidence_reference();
-    let retained_execution_completion_denial = log
-        .latest_recovery_lifeline_command_execution_stage_reference(
-            "raios.recovery_lifeline_command_execution_completion_denial.v0",
-        );
-    let (status, reason) = if retained_identity.is_none() {
-        ("missing", "recovery_artifact_identity_event_id_missing")
-    } else if retained_trust.is_none() {
-        ("missing", "recovery_artifact_trust_event_id_missing")
-    } else if retained_vm_test.is_none() {
-        ("missing", "recovery_vm_test_event_id_missing")
-    } else if retained_local_approval.is_none() {
-        ("missing", "recovery_local_approval_event_id_missing")
-    } else if retained_loader.is_none() {
-        ("missing", "recovery_loader_event_id_missing")
-    } else if retained_rollback_evidence.is_none() {
-        ("missing", "recovery_rollback_evidence_event_id_missing")
-    } else if retained_execution_completion_denial.is_none() {
-        (
-            "missing",
-            "recovery_lifeline_command_execution_completion_denial_event_id_missing",
-        )
-    } else {
-        (
-            "available_non_authorizing",
-            "recovery_lifeline_protocol_missing",
-        )
-    };
-    let event_reason = if status == "available_non_authorizing" {
-        "recovery_load_binding_not_authorizing"
-    } else {
-        "missing_recovery_artifact_evidence"
-    };
-
-    let binding = RecoveryArtifactLoadDenialBinding {
-        recovery_artifact_identity_missing: retained_identity.is_none(),
-        recovery_artifact_trust_missing: retained_trust.is_none(),
-        recovery_vm_test_missing: retained_vm_test.is_none(),
-        recovery_local_approval_missing: retained_local_approval.is_none(),
-        recovery_loader_missing: retained_loader.is_none(),
-        recovery_rollback_evidence_missing: retained_rollback_evidence.is_none(),
-        recovery_load_binding_status: status,
-        recovery_load_binding_reason: reason,
-        retained_recovery_artifact_identity_event_id: retained_identity
-            .map(|(event_id, _)| event_id),
-        identity_reference_hash: retained_identity
-            .map(|(_, reference)| reference.identity_reference_hash),
-        retained_recovery_artifact_trust_event_id: retained_trust.map(|(event_id, _)| event_id),
-        trust_reference_hash: retained_trust.map(|(_, reference)| reference.trust_reference_hash),
-        retained_recovery_vm_test_event_id: retained_vm_test.map(|(event_id, _)| event_id),
-        vm_test_reference_hash: retained_vm_test
-            .map(|(_, reference)| reference.vm_test_reference_hash),
-        retained_recovery_local_approval_event_id: retained_local_approval
-            .map(|(event_id, _)| event_id),
-        local_approval_reference_hash: retained_local_approval
-            .map(|(_, reference)| reference.local_approval_reference_hash),
-        retained_recovery_loader_event_id: retained_loader.map(|(event_id, _)| event_id),
-        loader_reference_hash: retained_loader
-            .map(|(_, reference)| reference.loader_reference_hash),
-        retained_recovery_rollback_evidence_event_id: retained_rollback_evidence
-            .map(|(event_id, _)| event_id),
-        rollback_evidence_reference_hash: retained_rollback_evidence
-            .map(|(_, reference)| reference.rollback_evidence_reference_hash),
-        retained_execution_completion_denial_event_id: retained_execution_completion_denial
-            .map(|(event_id, _)| event_id),
-        execution_completion_denial_hash: retained_execution_completion_denial
-            .map(|(_, reference)| reference.execution_stage_hash),
-        side_effect_gate_hash: retained_execution_completion_denial
-            .map(|(_, reference)| reference.side_effect_gate_hash),
-        source_rollback_apply_denial_hash: retained_execution_completion_denial
-            .map(|(_, reference)| reference.source_rollback_apply_denial_hash),
-        source_durable_policy_write_authority_decision_hash: retained_execution_completion_denial
-            .map(|(_, reference)| reference.source_durable_policy_write_authority_decision_hash),
-        source_recovery_rollback_inspect_source_reference_hash:
-            retained_execution_completion_denial.map(|(_, reference)| {
-                reference.source_recovery_rollback_inspect_source_reference_hash
-            }),
-        execution_enablement_hash: retained_execution_completion_denial
-            .and_then(|(_, reference)| reference.execution_enablement_hash),
-        execution_preflight_hash: retained_execution_completion_denial
-            .and_then(|(_, reference)| reference.execution_preflight_hash),
-        execution_intent_hash: retained_execution_completion_denial
-            .and_then(|(_, reference)| reference.execution_intent_hash),
-        execution_commit_gate_hash: retained_execution_completion_denial
-            .and_then(|(_, reference)| reference.execution_commit_gate_hash),
-        execution_result_denial_hash: retained_execution_completion_denial
-            .and_then(|(_, reference)| reference.execution_result_denial_hash),
-        execution_audit_denial_hash: retained_execution_completion_denial
-            .and_then(|(_, reference)| reference.execution_audit_denial_hash),
-        execution_observation_denial_hash: retained_execution_completion_denial
-            .and_then(|(_, reference)| reference.execution_observation_denial_hash),
-    };
-
-    log.record(Event {
-        sequence: 0,
-        kind: "agent_protocol.capability_denied",
-        source_method,
-        source_transport: "serial-console",
-        classification: "local_only",
-        outcome: "capability_denied",
-        requested_capability: "cap.recovery.load_artifact",
-        risk: "recovery_modify_ram",
-        subject: "agent.session.serial",
-        resource: "recovery_lifeline",
-        reason: event_reason,
-        evidence: RECOVERY_ARTIFACT_LOAD_DENIAL_EVIDENCE,
-        bindings: EventBindings::RecoveryArtifactLoadDenied(binding),
-    })
-}
-
 pub fn module_load_gate_binding_snapshot() -> ModuleLoadGateBinding {
     LOG.lock().module_load_gate_binding()
 }
@@ -6661,11 +6518,6 @@ pub fn latest_module_manifest_reference() -> Option<(EventId, ModuleManifestRefe
 pub fn latest_recovery_artifact_identity_reference(
 ) -> Option<(EventId, RecoveryArtifactIdentityReference)> {
     LOG.lock().latest_recovery_artifact_identity_reference()
-}
-
-pub fn latest_recovery_artifact_load_denied_binding(
-) -> Option<(EventId, RecoveryArtifactLoadDenialBinding)> {
-    LOG.lock().latest_recovery_artifact_load_denied_binding()
 }
 
 pub fn latest_recovery_artifact_trust_reference(
