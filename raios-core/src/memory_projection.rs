@@ -330,7 +330,7 @@ pub fn project_memory_context<'a>(input: MemoryContextInput<'a>) -> MemoryProjec
 
     let current = input.current;
     let status = current.status;
-    let mut facts = vec![
+    let facts = vec![
         Field::new("purpose", Value::Str(input.purpose)),
         Field::new("profile", Value::Str(input.profile.as_str())),
         Field::new("provider_export", Value::Str(input.provider_export)),

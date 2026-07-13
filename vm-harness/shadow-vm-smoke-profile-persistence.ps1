@@ -75,7 +75,7 @@ function Invoke-NoPersistDiskLayoutProbe {
         if (-not (Wait-ForLogText -Path $noPersistLog -Needle "RAIOS_AGENT_END persist.layout" -TimeoutSeconds $childTimeout)) {
             throw "No-persist child VM did not answer persist.layout: $(Get-SerialLogTail -Path $noPersistLog)"
         }
-        return (Get-ProfileAgentResponseJson -Path $noPersistLog -Method "persist.layout").body.result
+        return (Get-ProfileAgentResponseJson -Path $noPersistLog -Method "persist.layout").facts
     }
     finally {
         if ($child -and -not $child.HasExited) {
@@ -283,7 +283,9 @@ if (-not ($gptHeaderValid -and $gptCrcChecked -and $seedDataFound -and $superblo
 
 Send-AgentCommand -Command "agent persist.layout" -ExpectedMarker "RAIOS_AGENT_END persist.layout" -Name "persistence:persist_layout_query"
 $layoutResponse = Get-LastAgentResponseJson -Method "persist.layout"
-$layout = $layoutResponse.body.result
+$layout = $layoutResponse.facts
+$layoutEnvelopeOk = $layoutResponse.schema -eq "raios.evidence_response.v1" -and $layoutResponse.family -eq "persist.layout" -and $layoutResponse.scope -eq "current_boot" -and $layoutResponse.classification -eq "local_only" -and $layoutResponse.event_id -eq $null -and $layoutResponse.decision.outcome -eq "observed" -and $null -eq $layoutResponse.decision.grants -and $null -eq $layoutResponse.decision.effects
+Add-Predicate -Name "persistence:persist_layout_v1_observed" -Expected "persist.layout is a local-only observational evidence_response.v1 with no grant/effect keys" -Passed $layoutEnvelopeOk -Actual ($layoutResponse | ConvertTo-Json -Compress -Depth 5)
 $gpt = $layout.gpt_layout
 $data = $layout.data_layout
 $kernelGptHeaderValid = [bool]$gpt.gpt_header_valid
@@ -709,6 +711,6 @@ Add-Predicate `
     -Passed $absentPassed `
     -Actual $absentActual
 
-if (-not ($kernelGptHeaderValid -and $kernelGptCrcChecked -and $kernelSeedDataFound -and $kernelSuperblockValid -and $readOnly -and $emptyLogValid -and $appendDenied -and $bootControlRead -and $safePostureBothSlotsInvalid -and $pendingNotConsumedInSafe -and $bootSuccessMarked -and $bootControlWritePingpong -and $lastGoodAdvance -and $failureCountKeepsLastGood -and $markDeniedInSafe -and $appendAuthorized -and $appendReadbackHash -and $appendChainHead -and $promotionSelftestOk -and $artifactSelftestOk -and $artifactPositive -and $artifactFullDenied -and $artifactSafeDenied -and $artifactPromotionDenied -and $artifactWrongSchemaDenied -and $artifactWrongTargetDenied -and $blobWithoutRecordGarbage -and $fullDenied -and $persistDeniedInSafe -and $chainHeadOk -and $chainCountOk -and $tornOk -and $absentPassed)) {
+if (-not ($layoutEnvelopeOk -and $kernelGptHeaderValid -and $kernelGptCrcChecked -and $kernelSeedDataFound -and $kernelSuperblockValid -and $readOnly -and $emptyLogValid -and $appendDenied -and $bootControlRead -and $safePostureBothSlotsInvalid -and $pendingNotConsumedInSafe -and $bootSuccessMarked -and $bootControlWritePingpong -and $lastGoodAdvance -and $failureCountKeepsLastGood -and $markDeniedInSafe -and $appendAuthorized -and $appendReadbackHash -and $appendChainHead -and $promotionSelftestOk -and $artifactSelftestOk -and $artifactPositive -and $artifactFullDenied -and $artifactSafeDenied -and $artifactPromotionDenied -and $artifactWrongSchemaDenied -and $artifactWrongTargetDenied -and $blobWithoutRecordGarbage -and $fullDenied -and $persistDeniedInSafe -and $chainHeadOk -and $chainCountOk -and $tornOk -and $absentPassed)) {
     throw "Persistence kernel layout validation failed"
 }

@@ -519,7 +519,7 @@ if ($liveSignatureVerified) {
 
     Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "m6d:live_service_inventory_projection"
     $inventory = Get-LastAgentResponseJson -Method "service.inventory"
-    $grantedInventory = @($inventory.body.result.services | Where-Object { $_.id -eq "svc.dev.granted_candidate" })[0]
+    $grantedInventory = @($inventory.facts.services | Where-Object { $_.id -eq "svc.dev.granted_candidate" })[0]
     $inventoryOk = (
         $grantedInventory.kind -eq "service" -and
         $grantedInventory.health -eq "healthy" -and
@@ -532,7 +532,7 @@ if ($liveSignatureVerified) {
         $grantedInventory.running -eq $true -and
         $grantedInventory.last_run_outcome -eq "success"
     )
-    Add-Predicate -Name "m6d:live_service_inventory_lists_granted_candidate" -Expected "service.inventory lists running dev-tier granted candidate" -Passed $inventoryOk -Actual $(if ($inventoryOk) { "matched" } else { ($inventory.body.result | ConvertTo-Json -Compress -Depth 5) })
+    Add-Predicate -Name "m6d:live_service_inventory_lists_granted_candidate" -Expected "service.inventory lists running dev-tier granted candidate" -Passed $inventoryOk -Actual $(if ($inventoryOk) { "matched" } else { ($inventory.facts | ConvertTo-Json -Compress -Depth 5) })
 
     Send-AgentCommand -Command "service.rollback_apply svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.rollback_apply" -Name "m6d:granted_candidate_rollback_apply"
     $rollback = Get-LastAgentResponseJson -Method "service.rollback_apply"
@@ -570,7 +570,7 @@ if ($liveSignatureVerified) {
 
     Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "m6d:post_rollback_service_inventory_projection"
     $postRollbackInventory = Get-LastAgentResponseJson -Method "service.inventory"
-    $postRollbackGranted = @($postRollbackInventory.body.result.services | Where-Object { $_.id -eq "svc.dev.granted_candidate" })
+    $postRollbackGranted = @($postRollbackInventory.facts.services | Where-Object { $_.id -eq "svc.dev.granted_candidate" })
     $postRollbackInventoryOk = ($postRollbackGranted.Count -eq 0)
     Add-Predicate -Name "m6d:post_rollback_service_inventory_removes_granted_candidate" -Expected "service.inventory no longer lists svc.dev.granted_candidate after rollback_apply" -Passed $postRollbackInventoryOk -Actual $(if ($postRollbackInventoryOk) { "not_listed" } else { ($postRollbackGranted | ConvertTo-Json -Compress -Depth 5) })
     if (-not $postRollbackInventoryOk) {

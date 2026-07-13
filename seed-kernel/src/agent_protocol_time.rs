@@ -1,9 +1,10 @@
 use alloc::vec;
 
 use crate::{
+    agent_protocol_module_reference::emit_evidence_v1_response,
     agent_protocol_support::{
-        begin_response, emit_record_fields, end_response, record_bool as b, record_field as f,
-        record_null as n, record_sha as sha, record_str as s, record_str_or_null as opt_s,
+        record_bool as b, record_field as f, record_null as n, record_sha as sha, record_str as s,
+        record_str_or_null as opt_s,
     },
     time::{read_cmos_rtc_wall_clock, CmosRtcError, CmosRtcWallClock},
 };
@@ -12,6 +13,7 @@ use raios_core::{
         evaluate_cert_validity_window_unverified_basis, parse_x509_cert_validity_window,
         CertValidityDateTime,
     },
+    evidence_response,
     record::Value as V,
     scoped_time_authority_honesty::{
         evaluate_time_authority_honesty, TimeAuthorityHonestyDecision, TimeAuthorityHonestyInput,
@@ -20,7 +22,33 @@ use raios_core::{
         SCOPED_TIME_AUTHORITY_HONESTY_DECISION_SCHEMA,
     },
     sha256_bytes,
+    system_status_projection::{observed_projection, Projection},
 };
+
+fn emit_time_observation(
+    method: &'static str,
+    family: &'static str,
+    facts: V<'_>,
+    reason: &'static str,
+) {
+    let Projection {
+        facts,
+        evidence,
+        decision,
+        ..
+    } = observed_projection(facts, vec![], reason);
+    emit_evidence_v1_response(
+        method,
+        family,
+        None,
+        facts,
+        evidence
+            .into_iter()
+            .map(evidence_response::evidence_value)
+            .collect(),
+        decision,
+    );
+}
 
 // Fixed DER fixture decoded from
 // vendor/embedded-tls-0.17.0/tests/data/server-cert.pem.
@@ -99,10 +127,10 @@ pub(crate) fn emit_system_time_authority(_request: &str) {
     let clock = honesty.clock;
     let decision = honesty.decision;
 
-    begin_response("system.time_authority");
-    emit_record_fields(
-        vec![
-            f("schema", s("raios.time_authority_status.v0")),
+    emit_time_observation(
+        "system.time_authority",
+        "system.time_authority",
+        V::InlineObject(vec![
             f(
                 "decision_schema",
                 s(SCOPED_TIME_AUTHORITY_HONESTY_DECISION_SCHEMA),
@@ -113,8 +141,6 @@ pub(crate) fn emit_system_time_authority(_request: &str) {
                 s(SCOPED_TIME_AUTHORITY_HONESTY_DECISION_MARKER),
             ),
             f("source", s(EXPECTED_TIME_SOURCE)),
-            f("classification", s("local_only")),
-            f("scope", s("current_boot")),
             f("read_status", s(honesty.read_status)),
             f("year", clock_u16(clock, |clock| clock.year)),
             f("month", clock_u8(clock, |clock| clock.month)),
@@ -134,12 +160,20 @@ pub(crate) fn emit_system_time_authority(_request: &str) {
             f("timezone_validated", b(decision.timezone_validated)),
             f("validates_cert_time", b(decision.validates_cert_time)),
             f(
-                "authorizes_provider_request",
-                b(decision.authorizes_provider_request),
+                "provider_request_authority_status",
+                s(if decision.authorizes_provider_request {
+                    "authorized"
+                } else {
+                    "denied"
+                }),
             ),
             f(
-                "authorizes_provider_export",
-                b(decision.authorizes_provider_export),
+                "provider_export_authority_status",
+                s(if decision.authorizes_provider_export {
+                    "authorized"
+                } else {
+                    "denied"
+                }),
             ),
             f("durable_write", b(decision.durable_write)),
             f("capability_granted", b(decision.capability_granted)),
@@ -149,10 +183,9 @@ pub(crate) fn emit_system_time_authority(_request: &str) {
             f("status", s(decision.status)),
             f("reason", s(decision.reason)),
             f("honest", b(decision.honest)),
-        ],
-        6,
+        ]),
+        "time_authority_observed",
     );
-    end_response("system.time_authority");
 }
 
 pub(crate) fn emit_system_cert_time_check_selftest(_request: &str) {
@@ -162,10 +195,10 @@ pub(crate) fn emit_system_cert_time_check_selftest(_request: &str) {
     };
     let now = clock.map(clock_to_cert_datetime);
 
-    begin_response("system.cert_time_check_selftest");
-    emit_record_fields(
-        vec![
-            f("schema", s("raios.cert_time_check_selftest.v0")),
+    emit_time_observation(
+        "system.cert_time_check_selftest",
+        "system.cert_time_check_selftest",
+        V::InlineObject(vec![
             f("test_infrastructure", b(true)),
             f(
                 "fixture_kind",
@@ -182,18 +215,17 @@ pub(crate) fn emit_system_cert_time_check_selftest(_request: &str) {
             f("trusted", b(false)),
             f("source_verified", b(false)),
             f("validates_cert_time", b(false)),
-            f("authorizes_provider_request", b(false)),
-            f("authorizes_provider_export", b(false)),
+            f("provider_request_authority_status", s("denied")),
+            f("provider_export_authority_status", s("denied")),
             f("durable_write", b(false)),
             f("capability_granted", b(false)),
             f("provider_write", s("not_attempted")),
             f("transmission", b(false)),
             f("real_cert_probe", real_cert_probe(read_status, now)),
             f("cases", cert_time_check_cases(now)),
-        ],
-        6,
+        ]),
+        "cert_time_check_selftest_observed",
     );
-    end_response("system.cert_time_check_selftest");
 }
 
 fn real_cert_probe(read_status: &'static str, now: Option<CertValidityDateTime>) -> V<'static> {
@@ -236,8 +268,8 @@ fn real_cert_probe(read_status: &'static str, now: Option<CertValidityDateTime>)
                 f("trusted", b(false)),
                 f("source_verified", b(false)),
                 f("validates_cert_time", b(false)),
-                f("authorizes_provider_request", b(false)),
-                f("authorizes_provider_export", b(false)),
+                f("provider_request_authority_status", s("denied")),
+                f("provider_export_authority_status", s("denied")),
                 f("durable_write", b(false)),
                 f("capability_granted", b(false)),
                 f("provider_write", s("not_attempted")),
@@ -265,8 +297,8 @@ fn real_cert_probe(read_status: &'static str, now: Option<CertValidityDateTime>)
             f("trusted", b(false)),
             f("source_verified", b(false)),
             f("validates_cert_time", b(false)),
-            f("authorizes_provider_request", b(false)),
-            f("authorizes_provider_export", b(false)),
+            f("provider_request_authority_status", s("denied")),
+            f("provider_export_authority_status", s("denied")),
             f("durable_write", b(false)),
             f("capability_granted", b(false)),
             f("provider_write", s("not_attempted")),
@@ -373,12 +405,20 @@ fn cert_time_check_case(
         f("source_verified", b(decision.source_verified)),
         f("validates_cert_time", b(decision.validates_cert_time)),
         f(
-            "authorizes_provider_request",
-            b(decision.authorizes_provider_request),
+            "provider_request_authority_status",
+            s(if decision.authorizes_provider_request {
+                "authorized"
+            } else {
+                "denied"
+            }),
         ),
         f(
-            "authorizes_provider_export",
-            b(decision.authorizes_provider_export),
+            "provider_export_authority_status",
+            s(if decision.authorizes_provider_export {
+                "authorized"
+            } else {
+                "denied"
+            }),
         ),
         f("durable_write", b(decision.durable_write)),
         f("capability_granted", b(decision.capability_granted)),

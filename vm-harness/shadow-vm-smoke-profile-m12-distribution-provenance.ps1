@@ -1065,7 +1065,8 @@ Assert-M12Predicate `
     -FailureMessage "Expected generic durable module.load_ephemeral gate to remain denied"
 
 Send-AgentCommand -Command "agent system.honesty_report" -ExpectedMarker "RAIOS_AGENT_END system.honesty_report" -Name "m12-distribution:N5_honesty_report"
-$honesty = (Get-LastAgentResponseJson -Method "system.honesty_report").body.result
+$honestyResponse = Get-LastAgentResponseJson -Method "system.honesty_report"
+$honesty = $honestyResponse.facts
 $honestyOk = (
     $honesty.no_dishonest_overclaim -eq $true -and
     $honesty.external_no_overclaim -eq $true -and
@@ -1115,9 +1116,9 @@ $honestyOk = (
     $honesty.owner_key_provisioning.owner_key_material_exported -eq $false -and
     $honesty.owner_key_provisioning.status -eq "ram_ephemeral_candidate_generated_persistent_hardware_binding_missing" -and
     $honesty.owner_key_provisioning.reason -eq "hardware_bound_owner_key_evidence_missing" -and
-    $honesty.owner_key_provisioning.authorizes_owner_seal -eq $false -and
-    $honesty.owner_key_provisioning.authorizes_persistent_install -eq $false -and
-    $honesty.owner_key_provisioning.authorizes_load -eq $false -and
+    $honesty.owner_key_provisioning.owner_seal_authority_status -eq "denied" -and
+    $honesty.owner_key_provisioning.persistent_install_authority_status -eq "denied" -and
+    $honesty.owner_key_provisioning.load_authority_status -eq "denied" -and
     $honesty.owner_key_provisioning.durable_write -eq $false -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.id -eq "owner_key.evidence_input.current_boot" -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.consumes_entropy_source -eq "core.entropy" -and
@@ -1162,13 +1163,17 @@ $honestyOk = (
     $honesty.owner_key_provisioning.owner_key_evidence_input.ram_candidate_id -eq "owner_key.ram_candidate.current_boot" -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.ram_candidate_handle -eq "owner_key.handle.current_boot.ram0" -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.ram_candidate_fingerprint -eq $honesty.owner_key_provisioning.ram_boot_ephemeral_key_fingerprint -and
-    $honesty.owner_key_provisioning.owner_key_evidence_input.authorizes_key_generation -eq $false -and
-    $honesty.owner_key_provisioning.owner_key_evidence_input.authorizes_owner_seal -eq $false -and
-    $honesty.owner_key_provisioning.owner_key_evidence_input.authorizes_persistent_install -eq $false -and
-    $honesty.owner_key_provisioning.owner_key_evidence_input.authorizes_load -eq $false -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.key_generation_authority_status -eq "denied" -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.owner_seal_authority_status -eq "denied" -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.persistent_install_authority_status -eq "denied" -and
+    $honesty.owner_key_provisioning.owner_key_evidence_input.load_authority_status -eq "denied" -and
     $honesty.owner_key_provisioning.owner_key_evidence_input.durable_write -eq $false -and
     $honesty.owner_sealed -eq $false -and
-    $honesty.trust_tier -eq "dev_key_not_owner_sealed"
+    $honesty.trust_tier -eq "dev_key_not_owner_sealed" -and
+    $honestyResponse.schema -eq "raios.evidence_response.v1" -and
+    $honestyResponse.decision.outcome -eq "observed" -and
+    $null -eq $honestyResponse.decision.grants -and
+    $null -eq $honestyResponse.decision.effects
 )
 Assert-M12Predicate `
     -Name "m12-distribution:N5_owner_key_provisioning_posture" `

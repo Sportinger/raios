@@ -386,7 +386,7 @@ Assert-LogContains -Name 'project-install:boot4_no_autoload' `
     -Needle 'PROJECT_APP_AUTOLOAD result=accepted phase=not_installed reason=project_app_uninstall_tombstone_resolved' `
     -TimeoutSeconds $TimeoutSeconds
 Send-AgentCommand -Command 'services' -ExpectedMarker 'RAIOS_AGENT_END service.inventory' -Name 'project-install:boot4_inventory'
-$boot4Inventory = (Get-LastAgentResponseJson -Method 'service.inventory').body.result
+$boot4Inventory = (Get-LastAgentResponseJson -Method 'service.inventory').facts
 $boot4Workspace = @($boot4Inventory.services | Where-Object { $_.id -eq 'svc.workspace.current_boot' })
 Add-InstallPredicate 'boot4:no_workspace_autoload' 'uninstall tombstone suppresses durable workspace inventory and autoload' (
     $boot4Workspace.Count -eq 0

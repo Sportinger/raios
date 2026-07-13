@@ -1,14 +1,18 @@
     Send-AgentCommand -Command "describe" -ExpectedMarker "RAIOS_AGENT_END system.describe"
-    Assert-LogContains -Name "protocol:describe_schema" -Needle '"schema": "system.describe.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:describe_schema" -Needle '"family": "system.describe"' -TimeoutSeconds 1
+    $describeResponse = Get-LastAgentResponseJson -Method "system.describe"
+    Add-Predicate -Name "protocol:describe_v1_observed" -Expected "system.describe is local-only observed v1 with null event and no grant/effect keys" -Passed ($describeResponse.schema -eq "raios.evidence_response.v1" -and $describeResponse.event_id -eq $null -and $describeResponse.decision.outcome -eq "observed" -and $null -eq $describeResponse.decision.grants -and $null -eq $describeResponse.decision.effects) -Actual ($describeResponse | ConvertTo-Json -Compress -Depth 5)
 
     Send-AgentCommand -Command "snapshot" -ExpectedMarker "RAIOS_AGENT_END system.snapshot"
-    Assert-LogContains -Name "protocol:snapshot_schema" -Needle '"schema": "system.snapshot.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:snapshot_schema" -Needle '"family": "system.snapshot"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:snapshot_provider_verifier_decision_schema" -Needle '"schema": "raios.provider_trust_verifier_decision.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:snapshot_provider_verifier_decision_stage" -Needle '"stage": "pin_config"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:snapshot_provider_verifier_decision_outcome" -Needle '"outcome": "rejected"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:snapshot_provider_verifier_decision_status" -Needle '"status": "rejected"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:snapshot_provider_verifier_decision_reason" -Needle '"reason": "pin_config_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:snapshot_provider_pin_rotation_policy_missing" -Needle '"pin_rotation_policy": "missing_active_pin"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_trust_problem" -Needle "provider.tls_pin_config_missing" -TimeoutSeconds 1
+    $snapshotResponse = Get-LastAgentResponseJson -Method "system.snapshot"
+    Add-Predicate -Name "protocol:snapshot_v1_observed" -Expected "system.snapshot is one local-only observed v1 snapshot with null event and no grant/effect keys" -Passed ($snapshotResponse.schema -eq "raios.evidence_response.v1" -and $snapshotResponse.event_id -eq $null -and $snapshotResponse.decision.outcome -eq "observed" -and $null -eq $snapshotResponse.decision.grants -and $null -eq $snapshotResponse.decision.effects) -Actual ($snapshotResponse | ConvertTo-Json -Compress -Depth 6)
 
     Send-AgentCommand -Command "agent provider.trust_honesty" -ExpectedMarker "RAIOS_AGENT_END provider.trust_honesty"
     $providerTrustHonesty = Get-LastAgentResponseJson -Method "provider.trust_honesty"
@@ -56,16 +60,16 @@
     }
 
     Send-AgentCommand -Command "agent system.time_authority" -ExpectedMarker "RAIOS_AGENT_END system.time_authority"
-    Assert-LogContains -Name "protocol:time_authority_schema" -Needle '"schema": "raios.time_authority_status.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:time_authority_schema" -Needle '"family": "system.time_authority"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:time_authority_source" -Needle '"source": "cmos_rtc_unverified"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:time_authority_honesty_reason" -Needle '"reason": "honest_cmos_rtc_unverified_grants_nothing"' -TimeoutSeconds 1
     $timeAuthorityResponse = Get-LastAgentResponseJson -Method "system.time_authority"
-    $timeAuthority = $timeAuthorityResponse.body.result
+    $timeAuthority = $timeAuthorityResponse.facts
     $timeAuthorityStructuralRanges = (
-        $timeAuthority.schema -eq "raios.time_authority_status.v0" -and
+        $timeAuthorityResponse.schema -eq "raios.evidence_response.v1" -and
         $timeAuthority.source -eq "cmos_rtc_unverified" -and
-        $timeAuthority.classification -eq "local_only" -and
-        $timeAuthority.scope -eq "current_boot" -and
+        $timeAuthorityResponse.classification -eq "local_only" -and
+        $timeAuthorityResponse.scope -eq "current_boot" -and
         $timeAuthority.read_status -eq "ok" -and
         $timeAuthority.year -ge 2020 -and
         $timeAuthority.month -ge 1 -and $timeAuthority.month -le 12 -and
@@ -87,8 +91,11 @@
         $timeAuthority.host_settable -eq $true -and
         $timeAuthority.timezone_validated -eq $false -and
         $timeAuthority.validates_cert_time -eq $false -and
-        $timeAuthority.authorizes_provider_request -eq $false -and
-        $timeAuthority.authorizes_provider_export -eq $false -and
+        $timeAuthority.provider_request_authority_status -eq "denied" -and
+        $timeAuthority.provider_export_authority_status -eq "denied" -and
+        $timeAuthorityResponse.decision.outcome -eq "observed" -and
+        $null -eq $timeAuthorityResponse.decision.grants -and
+        $null -eq $timeAuthorityResponse.decision.effects -and
         $timeAuthority.durable_write -eq $false -and
         $timeAuthority.capability_granted -eq $false -and
         $timeAuthority.provider_write -eq "not_attempted" -and
@@ -102,13 +109,13 @@
     }
 
     Send-AgentCommand -Command "agent system.cert_time_check_selftest" -ExpectedMarker "RAIOS_AGENT_END system.cert_time_check_selftest"
-    Assert-LogContains -Name "protocol:cert_time_check_selftest_schema" -Needle '"schema": "raios.cert_time_check_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:cert_time_check_selftest_schema" -Needle '"family": "system.cert_time_check_selftest"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:cert_time_check_selftest_fixture_kind" -Needle '"fixture_kind": "fixed_synthetic_certificate_validity_window_not_der_not_live"' -TimeoutSeconds 1
     $certTimeCheckResponse = Get-LastAgentResponseJson -Method "system.cert_time_check_selftest"
-    $certTimeCheck = $certTimeCheckResponse.body.result
+    $certTimeCheck = $certTimeCheckResponse.facts
     $certTimeCheckCases = @($certTimeCheck.cases)
     $certTimeCheckSchemaFixture = (
-        $certTimeCheck.schema -eq "raios.cert_time_check_selftest.v0" -and
+        $certTimeCheckResponse.schema -eq "raios.evidence_response.v1" -and
         $certTimeCheck.test_infrastructure -eq $true -and
         $certTimeCheck.fixture_kind -eq "fixed_synthetic_certificate_validity_window_not_der_not_live" -and
         $certTimeCheck.basis_source -eq "cmos_rtc_unverified" -and
@@ -173,8 +180,8 @@
     $realCertGrantsNothing = (
         $realCertProbe.validates_cert_time -eq $false -and
         $realCertProbe.trusted -eq $false -and
-        $realCertProbe.authorizes_provider_request -eq $false -and
-        $realCertProbe.authorizes_provider_export -eq $false -and
+        $realCertProbe.provider_request_authority_status -eq "denied" -and
+        $realCertProbe.provider_export_authority_status -eq "denied" -and
         $realCertProbe.durable_write -eq $false -and
         $realCertProbe.capability_granted -eq $false -and
         $realCertProbe.provider_write -eq "not_attempted" -and
@@ -192,8 +199,8 @@
             $case.trusted -eq $false -and
             $case.source_verified -eq $false -and
             $case.validates_cert_time -eq $false -and
-            $case.authorizes_provider_request -eq $false -and
-            $case.authorizes_provider_export -eq $false -and
+            $case.provider_request_authority_status -eq "denied" -and
+            $case.provider_export_authority_status -eq "denied" -and
             $case.durable_write -eq $false -and
             $case.capability_granted -eq $false -and
             $case.provider_write -eq "not_attempted" -and
@@ -208,8 +215,11 @@
         $certTimeCheck.trusted -eq $false -and
         $certTimeCheck.source_verified -eq $false -and
         $certTimeCheck.validates_cert_time -eq $false -and
-        $certTimeCheck.authorizes_provider_request -eq $false -and
-        $certTimeCheck.authorizes_provider_export -eq $false -and
+        $certTimeCheck.provider_request_authority_status -eq "denied" -and
+        $certTimeCheck.provider_export_authority_status -eq "denied" -and
+        $certTimeCheckResponse.decision.outcome -eq "observed" -and
+        $null -eq $certTimeCheckResponse.decision.grants -and
+        $null -eq $certTimeCheckResponse.decision.effects -and
         $certTimeCheck.durable_write -eq $false -and
         $certTimeCheck.capability_granted -eq $false -and
         $certTimeCheck.provider_write -eq "not_attempted" -and
@@ -221,15 +231,15 @@
     }
 
     Send-AgentCommand -Command "agent system.honesty_report" -ExpectedMarker "RAIOS_AGENT_END system.honesty_report"
-    Assert-LogContains -Name "protocol:system_honesty_report_schema" -Needle '"schema": "raios.system_honesty_report.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:system_honesty_report_schema" -Needle '"family": "system.honesty_report"' -TimeoutSeconds 1
     $honestyReportResponse = Get-LastAgentResponseJson -Method "system.honesty_report"
-    $honestyReport = $honestyReportResponse.body.result
+    $honestyReport = $honestyReportResponse.facts
     $honestyReportOwnerSeal = (
-        $honestyReport.schema -eq "raios.system_honesty_report.v0" -and
+        $honestyReportResponse.schema -eq "raios.evidence_response.v1" -and
         $honestyReport.owner_sealed -eq $false -and
         $honestyReport.trust_tier -eq "dev_key_not_owner_sealed" -and
-        $honestyReport.scope -eq "current_boot" -and
-        $honestyReport.classification -eq "local_only"
+        $honestyReportResponse.scope -eq "current_boot" -and
+        $honestyReportResponse.classification -eq "local_only"
     )
     Add-Predicate -Name "protocol:system_honesty_report_owner_seal_dev_tier" -Expected "system.honesty_report reports current boot dev-tier, not owner-sealed" -Passed $honestyReportOwnerSeal -Actual $(if ($honestyReportOwnerSeal) { "dev_key_not_owner_sealed" } else { ($honestyReport | ConvertTo-Json -Compress -Depth 10) })
     if (-not $honestyReportOwnerSeal) {
@@ -241,7 +251,10 @@
         $honestyReport.provider_write -eq "not_attempted" -and
         $honestyReport.transmission -eq $false -and
         $honestyReport.state_change -eq $false -and
-        $honestyReport.capability_granted -eq $false
+        $honestyReport.capability_granted -eq $false -and
+        $honestyReportResponse.decision.outcome -eq "observed" -and
+        $null -eq $honestyReportResponse.decision.grants -and
+        $null -eq $honestyReportResponse.decision.effects
     )
     Add-Predicate -Name "protocol:system_honesty_report_grants_nothing" -Expected "system.honesty_report is read-only and grants no write/transmission/state change/capability" -Passed $honestyReportGrantsNothing -Actual $(if ($honestyReportGrantsNothing) { "grants_nothing" } else { ($honestyReport | ConvertTo-Json -Compress -Depth 10) })
     if (-not $honestyReportGrantsNothing) {
@@ -264,16 +277,16 @@
         $honestyReport.provider_trust.honest -eq $trustHonesty.facts.honest -and
         $honestyReport.provider_trust.chain_validated -eq $false -and
         $honestyReport.provider_trust.time_validated -eq $false -and
-        $honestyReport.provider_trust.authorizes_provider_request -eq $false -and
-        $honestyReport.provider_trust.authorizes_provider_export -eq $false -and
+        $honestyReport.provider_trust.provider_request_authority_status -eq "denied" -and
+        $honestyReport.provider_trust.provider_export_authority_status -eq "denied" -and
         $honestyReport.time_authority.decision_schema -eq $timeAuthority.decision_schema -and
         $honestyReport.time_authority.decision_id -eq $timeAuthority.decision_id -and
         $honestyReport.time_authority.source -eq $timeAuthority.source -and
         $honestyReport.time_authority.read_status -eq $timeAuthority.read_status -and
         $honestyReport.time_authority.trusted -eq $false -and
         $honestyReport.time_authority.validates_cert_time -eq $false -and
-        $honestyReport.time_authority.authorizes_provider_request -eq $false -and
-        $honestyReport.time_authority.authorizes_provider_export -eq $false -and
+        $honestyReport.time_authority.provider_request_authority_status -eq "denied" -and
+        $honestyReport.time_authority.provider_export_authority_status -eq "denied" -and
         $honestyReport.time_authority.status -eq $timeAuthority.status -and
         $honestyReport.time_authority.reason -eq $timeAuthority.reason
     )
@@ -308,15 +321,15 @@
         $honestyKnownImports.Count -eq $expectedHonestyKnownImports.Count -and
         (($honestyKnownImports -join "|") -eq ($expectedHonestyKnownImports -join "|")) -and
         $honestyReport.wasm_import_surface.known_host_import_count -eq $expectedHonestyKnownImports.Count -and
-        $honestyReport.wasm_import_surface.authorizes_new_imports -eq $false -and
-        $honestyReport.wasm_import_surface.authorizes_beyond_env -eq $false -and
+        $honestyReport.wasm_import_surface.new_import_authority_status -eq "denied" -and
+        $honestyReport.wasm_import_surface.beyond_env_authority_status -eq "denied" -and
         $honestyReport.wasm_import_surface.report_grants_authority -eq $false -and
         $honestyReport.external_acquisition.acquisition_active -eq $false -and
         $honestyReport.external_acquisition.external_distribution_active -eq $false -and
         $honestyReport.external_acquisition.would_be_candidate_intake_only -eq $true -and
-        $honestyReport.external_acquisition.authorizes_acquisition -eq $false -and
-        $honestyReport.external_acquisition.authorizes_install -eq $false -and
-        $honestyReport.external_acquisition.authorizes_load -eq $false
+        $honestyReport.external_acquisition.acquisition_authority_status -eq "denied" -and
+        $honestyReport.external_acquisition.install_authority_status -eq "denied" -and
+        $honestyReport.external_acquisition.load_authority_status -eq "denied"
     )
     Add-Predicate -Name "protocol:system_honesty_report_standing_posture" -Expected "system.honesty_report reports cert/export/wasm/external-acquisition posture without authority" -Passed $honestyStandingPosture -Actual $(if ($honestyStandingPosture) { "standing_posture_ok" } else { ($honestyReport | ConvertTo-Json -Compress -Depth 10) })
     if (-not $honestyStandingPosture) {
@@ -337,7 +350,7 @@
     }
 
     Send-AgentCommand -Command "caps" -ExpectedMarker "RAIOS_AGENT_END system.capabilities"
-    Assert-LogContains -Name "protocol:capabilities_schema" -Needle '"schema": "system.capabilities.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:capabilities_schema" -Needle '"family": "system.capabilities"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_recent_events_capability" -Needle '"id": "cap.memory.recent_events.read"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:audit_events_capability" -Needle '"id": "cap.audit.events.read"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:time_authority_read_capability" -Needle '"id": "cap.system.time_authority.read"' -TimeoutSeconds 1
@@ -347,13 +360,38 @@
     Assert-LogContains -Name "protocol:provider_context_injection_read_capability" -Needle '"id": "cap.provider.context_injection.read"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_read_capability" -Needle '"id": "cap.recovery.load_artifact.read"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_export_capability_listed" -Needle '"id": "cap.provider.context_export"' -TimeoutSeconds 1
+    $capabilitiesResponse = Get-LastAgentResponseJson -Method "system.capabilities"
+    $grantedCatalogRows = @($capabilitiesResponse.evidence | Where-Object { $_.status -eq "granted" })
+    Add-Predicate -Name "protocol:capability_catalog_status_observed" -Expected "capability granted booleans became evidence status while the catalog read itself remains observed" -Passed ($grantedCatalogRows.Count -gt 0 -and $capabilitiesResponse.decision.outcome -eq "observed" -and $null -eq $capabilitiesResponse.decision.grants -and $null -eq $capabilitiesResponse.decision.effects) -Actual ($capabilitiesResponse | ConvertTo-Json -Compress -Depth 6)
 
     Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory"
-    Assert-LogContains -Name "protocol:service_inventory_schema" -Needle '"schema": "service.inventory.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:service_inventory_schema" -Needle '"family": "service.inventory"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:openai_service_listed" -Needle "svc.provider.openai_direct" -TimeoutSeconds 1
+    $serviceInventoryResponse = Get-LastAgentResponseJson -Method "service.inventory"
+    Add-Predicate -Name "protocol:service_inventory_v1_observed" -Expected "service.inventory is local-only observed v1 with null event and no grant/effect keys" -Passed ($serviceInventoryResponse.schema -eq "raios.evidence_response.v1" -and $serviceInventoryResponse.event_id -eq $null -and $serviceInventoryResponse.decision.outcome -eq "observed" -and $null -eq $serviceInventoryResponse.decision.grants -and $null -eq $serviceInventoryResponse.decision.effects) -Actual ($serviceInventoryResponse | ConvertTo-Json -Compress -Depth 5)
 
     Send-AgentCommand -Command "problems" -ExpectedMarker "RAIOS_AGENT_END problem.list"
-    Assert-LogContains -Name "protocol:problem_list_schema" -Needle '"schema": "problem.list.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:problem_list_schema" -Needle '"family": "problem.list"' -TimeoutSeconds 1
+    $problemListResponse = Get-LastAgentResponseJson -Method "problem.list"
+    Add-Predicate -Name "protocol:problem_list_v1_observed" -Expected "problem.list is local-only observed v1 with null event and no grant/effect keys" -Passed ($problemListResponse.schema -eq "raios.evidence_response.v1" -and $problemListResponse.event_id -eq $null -and $problemListResponse.decision.outcome -eq "observed" -and $null -eq $problemListResponse.decision.grants -and $null -eq $problemListResponse.decision.effects) -Actual ($problemListResponse | ConvertTo-Json -Compress -Depth 5)
+
+    Send-AgentCommand -Command "agent config.apply" -ExpectedMarker "RAIOS_AGENT_END config.apply"
+    $genericDenial = Get-LastAgentResponseJson -Method "config.apply"
+    $genericBlockedIds = @($genericDenial.decision.blocked_by | ForEach-Object { $_.evidence_id })
+    $genericDenialOk = (
+        $genericDenial.schema -eq "raios.evidence_response.v1" -and
+        $genericDenial.family -eq "system.capability_denial" -and
+        $genericDenial.classification -eq "local_only" -and
+        $genericDenial.facts.code -eq "capability_denied" -and
+        $genericDenial.decision.outcome -eq "denied" -and
+        $genericDenial.decision.reason -eq "module_manifest_missing" -and
+        $genericDenial.decision.requested_capability -eq "cap.config.apply" -and
+        @($genericDenial.decision.grants).Count -eq 0 -and
+        @($genericDenial.decision.effects).Count -eq 0 -and
+        (($genericBlockedIds -join '|') -eq 'module_manifest|vm_test_report|local_attestation|computed_capability_grant|local_approval|rollback_plan')
+    )
+    Add-Predicate -Name "protocol:generic_capability_denial_v1_ordered" -Expected "generic denial keeps six evaluator blockers in order, first reason, and empty grants/effects" -Passed $genericDenialOk -Actual ($genericDenial | ConvertTo-Json -Compress -Depth 8)
+    if (-not $genericDenialOk) { throw "Expected ordered evidence-v1 generic capability denial" }
 
     Send-AgentCommand -Command "agent memory.profile" -ExpectedMarker "RAIOS_AGENT_END memory.profile"
     $memoryProfile = Get-LastAgentResponseJson -Method "memory.profile"

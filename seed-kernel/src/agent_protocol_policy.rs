@@ -1,8 +1,13 @@
 use crate::{
     agent_protocol_memory::memory_mutation_method,
+    agent_protocol_module_reference::emit_evidence_v1_response,
     agent_protocol_provider::provider_context_export_method,
-    agent_protocol_support::{json_event_id, json_str, method_eq, method_head_eq, raw, raw_line},
-    event_log, serial,
+    agent_protocol_support::{method_eq, method_head_eq, record_field as f, record_str as s},
+    event_log,
+};
+use alloc::vec;
+use raios_core::{
+    evidence_response::Blocked, record::Value as V, system_status_projection::generic_denial,
 };
 pub(crate) fn record_read(method: &'static str) -> event_log::EventId {
     event_log::record_agent_read(method, requested_capability_for_read(method))
@@ -17,36 +22,60 @@ pub(crate) fn record_denial(method: &'static str) -> event_log::EventId {
 }
 
 pub(crate) fn emit_capability_denied(method: &'static str, event_id: event_log::EventId) {
-    serial::write_raw_fmt(format_args!("RAIOS_AGENT_BEGIN {}\r\n", method));
-    raw_line("{");
-    raw_line("  \"v\": \"raios.agent.v0\",");
-    raw_line("  \"t\": \"error\",");
-    raw_line("  \"id\": \"serial\",");
-    raw_line("  \"body\": {");
-    raw("    \"method\": ");
-    json_str(method);
-    raw_line(",");
-    raw("    \"event_id\": ");
-    json_event_id(event_id);
-    raw_line(",");
-    raw("    \"audit_event_id\": ");
-    json_event_id(event_id);
-    raw_line(",");
-    raw_line("    \"code\": \"capability_denied\",");
-    raw("    \"message\": ");
-    json_str("mutating agent methods are denied until manifest, VM test report, local attestation, policy grant, approval, and rollback evidence exist");
-    raw_line(",");
-    raw_line("    \"required\": [");
-    raw_line("      \"raios.module_manifest.v0\",");
-    raw_line("      \"raios.vm_test_report.v0\",");
-    raw_line("      \"local_attestation.v0\",");
-    raw_line("      \"computed_capability_grant\",");
-    raw_line("      \"local_approval\",");
-    raw_line("      \"rollback_plan\"");
-    raw_line("    ]");
-    raw_line("  }");
-    raw_line("}");
-    serial::write_raw_fmt(format_args!("RAIOS_AGENT_END {}\r\n", method));
+    let requested_capability = requested_capability_for_denial(method);
+    let blocked = [
+        Blocked {
+            evidence_id: "module_manifest",
+            status: "missing",
+            reason: "module_manifest_missing",
+        },
+        Blocked {
+            evidence_id: "vm_test_report",
+            status: "missing",
+            reason: "vm_test_report_missing",
+        },
+        Blocked {
+            evidence_id: "local_attestation",
+            status: "missing",
+            reason: "local_attestation_missing",
+        },
+        Blocked {
+            evidence_id: "computed_capability_grant",
+            status: "missing",
+            reason: "computed_capability_grant_missing",
+        },
+        Blocked {
+            evidence_id: "local_approval",
+            status: "missing",
+            reason: "local_approval_missing",
+        },
+        Blocked {
+            evidence_id: "rollback_plan",
+            status: "missing",
+            reason: "rollback_plan_missing",
+        },
+    ];
+    let projection = generic_denial(
+        V::InlineObject(vec![
+            f("method", s(method)),
+            f("code", s("capability_denied")),
+            f("requested_capability", s(requested_capability)),
+        ]),
+        requested_capability,
+        &blocked,
+    );
+    emit_evidence_v1_response(
+        method,
+        "system.capability_denial",
+        Some(event_id),
+        projection.facts,
+        projection
+            .evidence
+            .into_iter()
+            .map(raios_core::evidence_response::evidence_value)
+            .collect(),
+        projection.decision,
+    );
 }
 
 fn requested_capability_for_read(method: &str) -> &'static str {

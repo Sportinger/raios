@@ -163,7 +163,7 @@ Add-BuildPredicate -Name 'app_health:exact' -Expected 'workspace health exposes 
 Assert-WorkspacePosture $health 'health'
 
 Send-AgentCommand -Command 'services' -ExpectedMarker 'RAIOS_AGENT_END service.inventory' -Name 'project-app:running_inventory'
-$inventory = (Get-LastAgentResponseJson -Method 'service.inventory').body.result
+$inventory = (Get-LastAgentResponseJson -Method 'service.inventory').facts
 $workspaceRows = @($inventory.services | Where-Object { $_.id -eq 'svc.workspace.current_boot' })
 Add-BuildPredicate -Name 'app_inventory:running' -Expected 'one current-boot zero-import workspace service row binds the exact candidate and receipt' -Passed (
     $workspaceRows.Count -eq 1 -and $workspaceRows[0].kind -eq 'wasm_service' -and
@@ -213,7 +213,7 @@ Add-BuildPredicate -Name 'app_f12:cleared' -Expected 'secure attention drops the
 Assert-WorkspacePosture $afterF12 'after_f12'
 
 Send-AgentCommand -Command 'services' -ExpectedMarker 'RAIOS_AGENT_END service.inventory' -Name 'project-app:after_f12_inventory'
-$afterF12Inventory = (Get-LastAgentResponseJson -Method 'service.inventory').body.result
+$afterF12Inventory = (Get-LastAgentResponseJson -Method 'service.inventory').facts
 $afterF12Workspace = @($afterF12Inventory.services | Where-Object { $_.id -eq 'svc.workspace.current_boot' })
 $afterF12Genesis = @($afterF12Inventory.services | Where-Object { $_.id -eq 'core.ui.genesis' })
 Add-BuildPredicate -Name 'app_f12:inventory_removed' -Expected 'workspace row is absent and immutable core Genesis remains after F12' -Passed (

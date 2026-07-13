@@ -459,7 +459,7 @@ if ($liveSignatureVerified) {
 
     Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "m6c:live_service_inventory_projection"
     $inventory = Get-LastAgentResponseJson -Method "service.inventory"
-    $grantedInventory = @($inventory.body.result.services | Where-Object { $_.id -eq "svc.dev.granted_candidate" })[0]
+    $grantedInventory = @($inventory.facts.services | Where-Object { $_.id -eq "svc.dev.granted_candidate" })[0]
     $inventoryOk = (
         $grantedInventory.kind -eq "service" -and
         $grantedInventory.health -eq "healthy" -and
@@ -472,7 +472,7 @@ if ($liveSignatureVerified) {
         $grantedInventory.running -eq $true -and
         $grantedInventory.last_run_outcome -eq "success"
     )
-    Add-Predicate -Name "m6c:live_service_inventory_lists_granted_candidate" -Expected "service.inventory lists running dev-tier granted candidate" -Passed $inventoryOk -Actual $(if ($inventoryOk) { "matched" } else { ($inventory.body.result | ConvertTo-Json -Compress -Depth 5) })
+    Add-Predicate -Name "m6c:live_service_inventory_lists_granted_candidate" -Expected "service.inventory lists running dev-tier granted candidate" -Passed $inventoryOk -Actual $(if ($inventoryOk) { "matched" } else { ($inventory.facts | ConvertTo-Json -Compress -Depth 5) })
 
     Send-AgentCommand -Command "service.drop svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.drop" -Name "m6c:granted_candidate_drop"
 }

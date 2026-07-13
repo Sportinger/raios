@@ -1,18 +1,18 @@
-use alloc::vec;
+use alloc::{vec, vec::Vec};
 
 use crate::{
-    agent_protocol_support::{
-        begin_response, crlf, emit_inline_string_array, emit_record_fields,
-        emit_static_string_array, end_response, indent, json_opt_str, json_sha256,
-        json_sha256_option, json_str, raw, raw_bool, raw_fmt, raw_line, record_bool as b,
-        record_field as f, record_str as s,
-    },
+    agent_protocol_module_reference::emit_evidence_v1_response,
+    agent_protocol_support::{record_bool as b, record_field as f, record_str as s},
     ahci, echo_service, granted_candidate_service, hello_service, pci, personal_shell_service,
-    project_app_autoload, provider, serial, service_inventory, system_problem_facts, system_status,
+    project_app_autoload, provider, serial, service_inventory, system_status,
     system_status::{RowState, SystemSnapshot},
-    ui, wifi, workspace_candidate_service,
+    ui, workspace_candidate_service,
 };
-use raios_core::record::Value as V;
+use raios_core::{
+    evidence_response,
+    record::Value as V,
+    system_status_projection::{observed_projection, Classification, EvidenceInput, Projection},
+};
 pub(crate) struct Capability {
     pub(crate) id: &'static str,
     pub(crate) risk: &'static str,
@@ -510,123 +510,319 @@ pub(crate) const DENIED_METHODS: &[&str] = &[
     "run_module_test",
 ];
 
+fn emit_system_observation<'a>(
+    method: &'static str,
+    family: &'static str,
+    facts: V<'a>,
+    evidence: Vec<EvidenceInput<'a>>,
+    reason: &'static str,
+) {
+    let Projection {
+        facts,
+        evidence,
+        decision,
+        ..
+    } = observed_projection(facts, evidence, reason);
+    emit_evidence_v1_response(
+        method,
+        family,
+        None,
+        facts,
+        evidence
+            .into_iter()
+            .map(evidence_response::evidence_value)
+            .collect(),
+        decision,
+    );
+}
+
+fn strings(values: &[&'static str]) -> V<'static> {
+    V::Array(values.iter().map(|value| s(value)).collect())
+}
+
+fn capability_ids() -> V<'static> {
+    V::Array(CAPABILITIES.iter().map(|cap| s(cap.id)).collect())
+}
+
+fn status_states(status: &SystemSnapshot) -> V<'_> {
+    V::InlineObject(vec![
+        f("framebuffer", s(status.framebuffer.state.as_protocol())),
+        f("entropy", s(status.entropy.state.as_protocol())),
+        f("usb_xhci", s(status.usb_xhci.state.as_protocol())),
+        f("wifi", s(status.wifi.state.as_protocol())),
+        f("network", s(status.network.state.as_protocol())),
+        f("input", s(status.input.state.as_protocol())),
+    ])
+}
+
+fn status_details(status: &SystemSnapshot) -> V<'_> {
+    fn detail(line: &system_status::StatusLine) -> V<'_> {
+        V::InlineObject(vec![
+            f("state", s(line.state.as_protocol())),
+            f("detail", s(line.detail.as_str())),
+        ])
+    }
+    V::InlineObject(vec![
+        f("framebuffer", detail(&status.framebuffer)),
+        f("entropy", detail(&status.entropy)),
+        f("usb_xhci", detail(&status.usb_xhci)),
+        f("wifi", detail(&status.wifi)),
+        f("network", detail(&status.network)),
+        f("input", detail(&status.input)),
+    ])
+}
+
+fn provider_value(provider: &provider::Snapshot) -> V<'_> {
+    V::InlineObject(vec![
+        f("selected", s(provider.provider_name)),
+        f("route", s(provider.route.as_str())),
+        f(
+            "api_key_state",
+            s(if provider.api_key_set {
+                "set"
+            } else {
+                "missing"
+            }),
+        ),
+        f("direct_phase", s(provider.direct_phase)),
+        f("direct_endpoint", s(provider.direct_endpoint)),
+        f("direct_model", s(provider.direct_model)),
+        f("trust_state", s(provider.trust_state)),
+        f(
+            "pin_kind",
+            provider.trust_pin_kind.map(s).unwrap_or(V::Null),
+        ),
+        f("pin_id", provider.trust_pin_id.map(s).unwrap_or(V::Null)),
+        f(
+            "pin_slot",
+            provider.trust_pin_slot.map(s).unwrap_or(V::Null),
+        ),
+        f("pin_rotation_policy", s(provider.trust_pin_rotation_policy)),
+        f(
+            "pin_rotation_id",
+            provider.trust_pin_rotation_id.map(s).unwrap_or(V::Null),
+        ),
+        f("development_bypass", b(provider.trust_development_bypass)),
+        f(
+            "verifier_decision",
+            V::InlineObject(vec![
+                f("schema", s(provider.trust_verifier_decision.schema)),
+                f(
+                    "verifier_id",
+                    s(provider.trust_verifier_decision.verifier_id),
+                ),
+                f("stage", s(provider.trust_verifier_decision.stage)),
+                f("status", s(provider.trust_verifier_decision.outcome)),
+                f("reason", s(provider.trust_verifier_decision.reason)),
+            ]),
+        ),
+    ])
+}
+
+fn problem_values(status: &SystemSnapshot, provider: &provider::Snapshot) -> Vec<V<'static>> {
+    // ponytail: duplicate stable labels until SystemSnapshot carries the captured Wi-Fi fact;
+    // calling system_problem_facts::collect here would re-read mutable Wi-Fi state.
+    fn problem(id: &'static str, severity: &'static str, summary: &'static str) -> V<'static> {
+        V::InlineObject(vec![
+            f("id", s(id)),
+            f("severity", s(severity)),
+            f("summary", s(summary)),
+        ])
+    }
+    let mut values = Vec::new();
+    let (trust_id, trust_summary) = match provider.trust_state {
+        "tls_certificate_verification_bypassed" => ("provider.tls_unverified", "OpenAI direct transport is using an explicit unverified TLS development override"),
+        "pin_config_missing" => ("provider.tls_pin_config_missing", "OpenAI direct transport is fail-closed until a provider pin is configured"),
+        "pin_config_invalid" => ("provider.tls_pin_config_invalid", "Configured OpenAI provider pin is invalid"),
+        "pin_verifier_unavailable" => ("provider.tls_pin_verifier_unavailable", "Configured OpenAI provider pin cannot be checked until TLS verifier input access exists"),
+        "pin_mismatch" => ("provider.tls_pin_mismatch", "OpenAI provider certificate did not match the configured pin"),
+        "pinned_cert_verified" | "pinned_spki_verified" | "webpki_verified" => ("", ""),
+        _ => ("provider.tls_unknown", "OpenAI provider trust has not been established"),
+    };
+    if !trust_id.is_empty() {
+        values.push(problem(trust_id, "high", trust_summary));
+    }
+    if !provider.api_key_set {
+        values.push(problem(
+            "provider.openai.api_key_missing",
+            "info",
+            "OpenAI direct requests need a RAM-only API key",
+        ));
+    }
+    for (line, id, severity, summary) in [
+        (
+            &status.framebuffer,
+            "framebuffer.unavailable",
+            "error",
+            "Limine framebuffer is unavailable",
+        ),
+        (
+            &status.entropy,
+            "entropy.not_ready",
+            "warning",
+            "Entropy is not ready yet",
+        ),
+        (
+            &status.usb_xhci,
+            "usb_xhci.unavailable",
+            "warning",
+            "xHCI USB path is missing or degraded",
+        ),
+        (
+            &status.network,
+            "network.unavailable",
+            "warning",
+            "e1000/IPv4 network path is not configured",
+        ),
+        (
+            &status.input,
+            "input.unavailable",
+            "warning",
+            "keyboard or pointer input is missing",
+        ),
+    ] {
+        if !matches!(
+            line.state,
+            RowState::Ready | RowState::Configured | RowState::Detected
+        ) {
+            values.push(problem(id, severity, summary));
+        }
+    }
+    match status.wifi.state {
+        RowState::Detected => values.push(problem(
+            "wifi.avastar.firmware_todo",
+            "info",
+            "Marvell AVASTAR target is detected, but firmware upload and WPA are not implemented",
+        )),
+        RowState::Missing => values.push(problem(
+            "wifi.avastar.target_absent",
+            "info",
+            "Surface Pro 4 Marvell AVASTAR Wi-Fi target is not present in this machine profile",
+        )),
+        _ => {}
+    }
+    if values.is_empty() {
+        vec![V::InlineObject(vec![
+            f("id", s("none")),
+            f("severity", s("info")),
+            f("summary", s("no known protocol problems reported")),
+        ])]
+    } else {
+        values
+    }
+}
+
 pub(crate) fn emit_describe() {
-    begin_response("system.describe");
-    raw_line("      \"schema\": \"system.describe.v0\",");
-    raw_line(
-        "      \"os\": {\"name\": \"raiOS\", \"product\": \"raiOS\", \"stage\": \"stage-0\"},",
+    emit_system_observation(
+        "system.describe",
+        "system.describe",
+        V::InlineObject(vec![
+            f(
+                "os",
+                V::InlineObject(vec![
+                    f("name", s("raiOS")),
+                    f("product", s("raiOS")),
+                    f("stage", s("stage-0")),
+                ]),
+            ),
+            f(
+                "protocol",
+                V::InlineObject(vec![
+                    f("version", s("raios.agent.v0")),
+                    f("transport", s("serial-console")),
+                    f(
+                        "provider_context_injection",
+                        s("disabled_until_final_injection_authorization"),
+                    ),
+                    f("mutation_policy", s("denied_by_default")),
+                ]),
+            ),
+            f("methods", strings(READ_METHODS)),
+            f("denied_methods", strings(DENIED_METHODS)),
+        ]),
+        vec![],
+        "system_description_observed",
     );
-    raw_line("      \"protocol\": {");
-    raw_line("        \"version\": \"raios.agent.v0\",");
-    raw_line("        \"transport\": \"serial-console\",");
-    raw_line(
-        "        \"provider_context_injection\": \"disabled_until_final_injection_authorization\",",
-    );
-    raw_line("        \"mutation_policy\": \"denied_by_default\"");
-    raw_line("      },");
-    raw_line("      \"methods\": [");
-    emit_static_string_array(READ_METHODS, 8);
-    raw_line("      ],");
-    raw_line("      \"denied_methods\": [");
-    emit_static_string_array(DENIED_METHODS, 8);
-    raw_line("      ]");
-    end_response("system.describe");
 }
 
 pub(crate) fn emit_snapshot(runtime: ui::RuntimeStatus) {
     let status = SystemSnapshot::collect(None, runtime);
     let provider = provider::snapshot();
 
-    begin_response("system.snapshot");
-    raw_line("      \"schema\": \"system.snapshot.v0\",");
-    raw_line(
-        "      \"os\": {\"name\": \"raiOS\", \"product\": \"raiOS\", \"stage\": \"stage-0\"},",
+    let problems = problem_values(&status, &provider);
+    emit_system_observation(
+        "system.snapshot",
+        "system.snapshot",
+        V::InlineObject(vec![
+            f(
+                "os",
+                V::InlineObject(vec![
+                    f("name", s("raiOS")),
+                    f("product", s("raiOS")),
+                    f("stage", s("stage-0")),
+                ]),
+            ),
+            f("status", status_states(&status)),
+            f("details", status_details(&status)),
+            f("provider", provider_value(&provider)),
+            f("capabilities", capability_ids()),
+            f("problems", V::Array(problems)),
+        ]),
+        vec![],
+        "system_snapshot_observed",
     );
-    raw_line("      \"status\": {");
-    emit_status_state("framebuffer", status.framebuffer.state, true);
-    emit_status_state("entropy", status.entropy.state, true);
-    emit_status_state("usb_xhci", status.usb_xhci.state, true);
-    emit_status_state("wifi", status.wifi.state, true);
-    emit_status_state("network", status.network.state, true);
-    emit_status_state("input", status.input.state, false);
-    raw_line("      },");
-    raw_line("      \"details\": {");
-    emit_status_detail("framebuffer", &status.framebuffer, true);
-    emit_status_detail("entropy", &status.entropy, true);
-    emit_status_detail("usb_xhci", &status.usb_xhci, true);
-    emit_status_detail("wifi", &status.wifi, true);
-    emit_status_detail("network", &status.network, true);
-    emit_status_detail("input", &status.input, false);
-    raw_line("      },");
-    emit_provider_object(&provider, true);
-    raw_line("      \"capabilities\": [");
-    emit_capability_ids(8);
-    raw_line("      ],");
-    raw_line("      \"problems\": [");
-    emit_problem_objects(&status, &provider, 8);
-    raw_line("      ]");
-    end_response("system.snapshot");
 }
 
 pub(crate) fn emit_capabilities() {
-    begin_response("system.capabilities");
-    raw_line("      \"schema\": \"system.capabilities.v0\",");
-    raw_line("      \"capabilities\": [");
-    let mut idx = 0usize;
-    while idx < CAPABILITIES.len() {
-        let cap = &CAPABILITIES[idx];
-        indent(8);
-        raw("{");
-        raw("\"id\": ");
-        json_str(cap.id);
-        raw(", \"risk\": ");
-        json_str(cap.risk);
-        raw(", \"granted\": ");
-        raw_bool(cap.granted);
-        raw(", \"scope\": ");
-        json_str(cap.scope);
-        raw(", \"summary\": ");
-        json_str(cap.summary);
-        raw("}");
-        if idx + 1 != CAPABILITIES.len() {
-            raw(",");
-        }
-        crlf();
-        idx += 1;
-    }
-    raw_line("      ]");
-    end_response("system.capabilities");
+    let evidence = CAPABILITIES
+        .iter()
+        .map(|cap| EvidenceInput {
+            id: cap.id,
+            kind: "capability_catalog_entry",
+            status: if cap.granted { "granted" } else { "denied" },
+            reason: "capability_status_observed",
+            source_event_sequence: None,
+            classification: Classification::LocalOnly,
+            facts: V::InlineObject(vec![
+                f("risk", s(cap.risk)),
+                f("scope", s(cap.scope)),
+                f("summary", s(cap.summary)),
+            ]),
+        })
+        .collect();
+    emit_system_observation(
+        "system.capabilities",
+        "system.capabilities",
+        V::InlineObject(vec![f("capability_ids", capability_ids())]),
+        evidence,
+        "capability_catalog_observed",
+    );
 }
 
 pub(crate) fn emit_boot_log() {
     let log = serial::log_snapshot();
-    begin_response("system.boot_log");
-    raw_line("      \"schema\": \"system.boot_log.v0\",");
-    raw_line("      \"source\": \"serial_ring\",");
-    raw_line("      \"lines\": [");
-    let mut wrote = false;
-    let mut idx = 0usize;
-    while idx < log.lines.len() {
-        let line = log.lines[idx].as_str();
-        if !line.is_empty() {
-            if wrote {
-                raw_line(",");
-            }
-            indent(8);
-            raw("{\"index\": ");
-            raw_fmt(format_args!("{}", idx));
-            raw(", \"text\": ");
-            json_str(line);
-            raw("}");
-            wrote = true;
-        }
-        idx += 1;
-    }
-    if wrote {
-        crlf();
-    }
-    raw_line("      ]");
-    end_response("system.boot_log");
+    let lines = log
+        .lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| !line.as_str().is_empty())
+        .map(|(index, line)| {
+            V::InlineObject(vec![
+                f("index", V::U64(index as u64)),
+                f("text", s(line.as_str())),
+            ])
+        })
+        .collect();
+    emit_system_observation(
+        "system.boot_log",
+        "system.boot_log",
+        V::InlineObject(vec![
+            f("source", s("serial_ring")),
+            f("lines", V::Array(lines)),
+        ]),
+        vec![],
+        "boot_log_observed",
+    );
 }
 
 pub(crate) fn emit_persist_layout() {
@@ -640,12 +836,10 @@ pub(crate) fn emit_persist_layout() {
         V::U64(evidence.port_index as u64)
     };
 
-    begin_response("persist.layout");
-    emit_record_fields(
-        vec![
-            f("schema", s("persist.layout.v0")),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
+    emit_system_observation(
+        "persist.layout",
+        "persist.layout",
+        V::InlineObject(vec![
             f("status", s(evidence.status())),
             f("reason", s(evidence.reason)),
             f("source", s(evidence.source)),
@@ -666,46 +860,56 @@ pub(crate) fn emit_persist_layout() {
                 "data_layout",
                 raios_core::seed_data_layout::data_layout_record(&evidence.data),
             ),
-        ],
-        6,
+        ]),
+        vec![],
+        "persist_layout_observed",
     );
-    end_response("persist.layout");
 }
 
 pub(crate) fn emit_device_graph(runtime: ui::RuntimeStatus) {
     let status = SystemSnapshot::collect(None, runtime);
-    begin_response("device.graph");
-    raw_line("      \"schema\": \"device.graph.v0\",");
-    raw_line("      \"devices\": [");
-    emit_device(
-        "framebuffer.limine",
-        "framebuffer",
-        &status.framebuffer,
-        true,
+    fn device<'a>(
+        id: &'static str,
+        kind: &'static str,
+        line: &'a system_status::StatusLine,
+    ) -> V<'a> {
+        V::InlineObject(vec![
+            f("id", s(id)),
+            f("kind", s(kind)),
+            f("state", s(line.state.as_protocol())),
+            f("detail", s(line.detail.as_str())),
+        ])
+    }
+    emit_system_observation(
+        "device.graph",
+        "device.graph",
+        V::InlineObject(vec![f(
+            "devices",
+            V::Array(vec![
+                device("framebuffer.limine", "framebuffer", &status.framebuffer),
+                device("entropy.rdrand", "entropy_source", &status.entropy),
+                device("usb.xhci", "bus_controller", &status.usb_xhci),
+                device("wifi.avastar_88w8897", "pci_wifi_target", &status.wifi),
+                device("net.e1000", "pci_nic", &status.network),
+                device("input.console", "input", &status.input),
+            ]),
+        )]),
+        vec![],
+        "device_graph_observed",
     );
-    emit_device("entropy.rdrand", "entropy_source", &status.entropy, true);
-    emit_device("usb.xhci", "bus_controller", &status.usb_xhci, true);
-    emit_device(
-        "wifi.avastar_88w8897",
-        "pci_wifi_target",
-        &status.wifi,
-        true,
-    );
-    emit_device("net.e1000", "pci_nic", &status.network, true);
-    emit_device("input.console", "input", &status.input, false);
-    raw_line("      ]");
-    end_response("device.graph");
 }
 
 pub(crate) fn emit_problem_list(runtime: ui::RuntimeStatus) {
     let status = SystemSnapshot::collect(None, runtime);
     let provider = provider::snapshot();
-    begin_response("problem.list");
-    raw_line("      \"schema\": \"problem.list.v0\",");
-    raw_line("      \"problems\": [");
-    emit_problem_objects(&status, &provider, 8);
-    raw_line("      ]");
-    end_response("problem.list");
+    let problems = problem_values(&status, &provider);
+    emit_system_observation(
+        "problem.list",
+        "problem.list",
+        V::InlineObject(vec![f("problems", V::Array(problems))]),
+        vec![],
+        "problem_list_observed",
+    );
 }
 
 pub(crate) fn emit_service_inventory(runtime: ui::RuntimeStatus) {
@@ -718,741 +922,206 @@ pub(crate) fn emit_service_inventory(runtime: ui::RuntimeStatus) {
     let autoload = project_app_autoload::snapshot();
     let workspace = (workspace_candidate_service::visible_in_inventory() || autoload.installed)
         .then(workspace_candidate_service::snapshot);
-    begin_response("service.inventory");
-    raw_line("      \"schema\": \"service.inventory.v0\",");
-    raw_line("      \"services\": [");
-    let mut idx = 0usize;
-    while idx < service_inventory::SERVICES.len() {
-        let service = &service_inventory::SERVICES[idx];
+    let mut services = Vec::new();
+    for service in service_inventory::SERVICES {
         let health = service_inventory::service_health(service, &status, &provider);
-        indent(8);
-        raw("{");
-        raw("\"id\": ");
-        json_str(service.id);
-        raw(", \"kind\": ");
-        json_str(service.kind);
-        raw(", \"health\": ");
-        json_str(health.state);
-        raw(", \"replaceable\": ");
-        raw_bool(service.replaceable);
-        raw(", \"core_owned\": ");
-        raw_bool(service.core_owned);
-        raw(", \"last_error\": ");
-        match health.last_error {
-            Some(error) => json_str(error),
-            None => raw("null"),
-        }
-        raw(", \"capabilities\": [");
-        emit_inline_string_array(service.capabilities);
-        raw("]}");
-        if idx + 1 != service_inventory::SERVICES.len()
-            || hello.is_some()
-            || echo.is_some()
-            || granted.is_some()
-            || workspace.is_some()
-            || personal.running
-        {
-            raw(",");
-        }
-        crlf();
-        idx += 1;
+        services.push(V::InlineObject(vec![
+            f("id", s(service.id)),
+            f("kind", s(service.kind)),
+            f("health", s(health.state)),
+            f("replaceable", b(service.replaceable)),
+            f("core_owned", b(service.core_owned)),
+            f("last_error", health.last_error.map(s).unwrap_or(V::Null)),
+            f("capabilities", strings(service.capabilities)),
+        ]));
     }
     if personal.running {
-        emit_personal_shell_service_inventory(
-            personal,
-            echo.is_some() || granted.is_some() || workspace.is_some() || hello.is_some(),
-        );
+        services.push(V::InlineObject(vec![
+            f("id", s("svc.user.shell")),
+            f("kind", s("service")),
+            f("health", s("healthy")),
+            f("replaceable", b(true)),
+            f("core_owned", b(false)),
+            f("last_error", V::Null),
+            f("scope", s("current_boot")),
+            f("persistence", s("none")),
+            f("capability_envelope", s("wasmi_linker_import_surface")),
+            f("host_import_count", V::U64(6)),
+            f("running", b(true)),
+            f("last_lifecycle_reason", s(personal.last_reason)),
+            f("capabilities", V::InlineArray(vec![])),
+        ]));
     }
     if let Some(echo) = echo {
-        emit_echo_service_inventory(
-            echo,
-            hello.is_some() || granted.is_some() || workspace.is_some(),
-        );
+        let descriptor = echo_service::ECHO_SERVICE_DESCRIPTOR;
+        services.push(V::InlineObject(vec![
+            f("id", s(descriptor.service_id)),
+            f("kind", s(descriptor.inventory_kind)),
+            f("health", s(echo_service::health_state(echo))),
+            f("replaceable", b(descriptor.inventory_replaceable)),
+            f("core_owned", b(descriptor.inventory_core_owned)),
+            f("last_error", V::Null),
+            f("scope", s(descriptor.scope)),
+            f("persistence", s(descriptor.persistence)),
+            f("artifact_id", s(descriptor.artifact_id)),
+            f("capability_envelope", s("wasmi_linker_import_surface")),
+            f("host_import_count", V::U64(2)),
+            f("running", b(echo.running)),
+            f("generation", V::U64(echo.generation)),
+            f("run_count", V::U64(echo.run_count)),
+            f("last_action", s(echo.last_action)),
+            f("capabilities", strings(echo_service::CAPABILITIES)),
+        ]));
     }
     if let Some(granted) = granted {
-        emit_granted_candidate_service_inventory(granted, workspace.is_some() || hello.is_some());
+        let descriptor = granted_candidate_service::GRANTED_CANDIDATE_SERVICE_DESCRIPTOR;
+        services.push(V::InlineObject(vec![
+            f("id", s(descriptor.service_id)),
+            f("kind", s(descriptor.inventory_kind)),
+            f(
+                "health",
+                s(granted_candidate_service::health_state(granted)),
+            ),
+            f("replaceable", b(descriptor.inventory_replaceable)),
+            f("core_owned", b(descriptor.inventory_core_owned)),
+            f("last_error", V::Null),
+            f("scope", s(descriptor.scope)),
+            f("persistence", s(descriptor.persistence)),
+            f("classification", s(descriptor.classification)),
+            f("trust_tier", s(granted.trust_tier)),
+            f(
+                "ram_only_service_slot_id",
+                s(granted_candidate_service::ram_only_service_slot_id()),
+            ),
+            f(
+                "service_slot_activation_active",
+                b(granted_candidate_service::service_slot_activation_active(
+                    granted,
+                )),
+            ),
+            f("running", b(granted.running)),
+            f("generation", V::U64(granted.generation)),
+            f("last_run_outcome", s(granted.last_run_outcome)),
+            f("last_action", s(granted.last_action)),
+            f(
+                "capabilities",
+                strings(granted_candidate_service::CAPABILITIES),
+            ),
+        ]));
     }
     if let Some(workspace) = workspace {
-        emit_workspace_candidate_inventory(workspace, autoload, hello.is_some());
+        let binding = workspace.binding;
+        services.push(V::InlineObject(vec![
+            f("id", s(workspace_candidate_service::service_id())),
+            f("kind", s("wasm_service")),
+            f(
+                "health",
+                s(workspace_candidate_service::health_state(workspace)),
+            ),
+            f("replaceable", b(true)),
+            f("core_owned", b(false)),
+            f(
+                "last_error",
+                if workspace.phase == "crashed" {
+                    s(workspace.last_reason)
+                } else {
+                    V::Null
+                },
+            ),
+            f("scope", s("current_boot")),
+            f(
+                "persistence",
+                s(if autoload.installed {
+                    "durable_install"
+                } else {
+                    "none"
+                }),
+            ),
+            f("running", b(workspace.phase == "running")),
+            f("generation", V::U64(workspace.generation)),
+            f("phase", s(workspace.phase)),
+            f("granted_host_imports", V::InlineArray(vec![])),
+            f("host_import_count", V::U64(0)),
+            f(
+                "candidate_sha256",
+                binding
+                    .map(|item| V::Sha256(item.candidate_sha256))
+                    .unwrap_or(V::Null),
+            ),
+            f(
+                "receipt_sha256",
+                binding
+                    .map(|item| V::Sha256(item.receipt_sha256))
+                    .unwrap_or(V::Null),
+            ),
+            f("run_count", V::U64(workspace.run_count)),
+            f(
+                "last_return_value_i32",
+                workspace
+                    .last_return_value
+                    .filter(|value| *value >= 0)
+                    .map(|value| V::U64(value as u64))
+                    .unwrap_or(V::Null),
+            ),
+            f("last_action", s(workspace.last_run_outcome)),
+            f("capabilities", V::InlineArray(vec![])),
+        ]));
     }
     if let Some(hello) = hello {
-        emit_hello_service_inventory(hello);
+        let descriptor = hello_service::HELLO_SERVICE_DESCRIPTOR;
+        services.push(V::InlineObject(vec![
+            f("id", s(descriptor.service_id)),
+            f("kind", s(descriptor.inventory_kind)),
+            f(
+                "health",
+                s(if hello.running {
+                    descriptor.inventory_health_running
+                } else {
+                    descriptor.inventory_health_stopped
+                }),
+            ),
+            f("replaceable", b(descriptor.inventory_replaceable)),
+            f("core_owned", b(descriptor.inventory_core_owned)),
+            f("last_error", V::Null),
+            f("scope", s(descriptor.scope)),
+            f("persistence", s(descriptor.persistence)),
+            f(
+                "load_descriptor_source_hash",
+                V::Sha256(hello_service::descriptor_source_hash(hello.load_descriptor)),
+            ),
+            f(
+                "load_descriptor_source_signature_envelope",
+                hello
+                    .load_descriptor
+                    .source_envelope
+                    .map(|envelope| {
+                        V::InlineObject(vec![f("envelope_hash", V::Sha256(envelope.envelope_hash))])
+                    })
+                    .unwrap_or(V::Null),
+            ),
+            f(
+                "artifact_load_plan_preflight_hash",
+                V::Sha256(hello_service::artifact_load_plan_preflight_hash(
+                    hello.load_descriptor,
+                )),
+            ),
+            f(
+                "service_slot_activation_hash",
+                V::Sha256(hello_service::service_slot_activation_hash(
+                    hello.load_descriptor,
+                )),
+            ),
+            f("running", b(hello.running)),
+            f("generation", V::U64(hello.generation)),
+            f("last_action", s(hello.last_action)),
+            f("capabilities", strings(hello_service::CAPABILITIES)),
+        ]));
     }
-    raw_line("      ]");
-    end_response("service.inventory");
-}
-
-fn emit_workspace_candidate_inventory(
-    workspace: workspace_candidate_service::Snapshot,
-    autoload: project_app_autoload::Snapshot,
-    comma: bool,
-) {
-    let binding = workspace.binding;
-    indent(8);
-    raw("{\"id\": ");
-    json_str(workspace_candidate_service::service_id());
-    raw(", \"kind\": \"wasm_service\"");
-    raw(", \"health\": ");
-    json_str(workspace_candidate_service::health_state(workspace));
-    raw(", \"replaceable\": true, \"core_owned\": false, \"last_error\": ");
-    if workspace.phase == "crashed" {
-        json_str(workspace.last_reason);
-    } else {
-        raw("null");
-    }
-    raw(", \"scope\": \"current_boot\", \"persistence\": ");
-    json_str(if autoload.installed {
-        "durable_install"
-    } else {
-        "none"
-    });
-    raw(", \"classification\": \"local_only\", \"trust_tier\": ");
-    json_str(workspace_candidate_service::trust_tier());
-    raw(", \"durable_install_trust_tier\": ");
-    if autoload.installed {
-        json_str(raios_core::project_install::PROJECT_INSTALL_TRUST_TIER);
-    } else {
-        raw("null");
-    }
-    raw(", \"activation_authority\": ");
-    json_str(workspace.activation_authority);
-    raw(", \"install_checked\": ");
-    raw_bool(autoload.checked);
-    raw(", \"install_phase\": ");
-    json_str(autoload.phase);
-    raw(", \"install_reason\": ");
-    json_str(autoload.reason);
-    raw(", \"install_boot_posture\": ");
-    json_str(autoload.boot_posture);
-    raw(", \"durable_installed\": ");
-    raw_bool(autoload.installed);
-    raw(", \"auto_start\": ");
-    raw_bool(autoload.auto_start);
-    raw(", \"install_generation\": ");
-    raw_fmt(format_args!("{}", autoload.generation));
-    raw(", \"install_head_commit_sha256\": ");
-    json_sha256_option(autoload.head_commit_sha256);
-    raw(", \"probation_install_commit_sha256\": ");
-    json_sha256_option(autoload.probation_install_commit_sha256);
-    raw(", \"active_install_commit_sha256\": ");
-    json_sha256_option(autoload.active_install_commit_sha256);
-    raw(", \"last_good_install_commit_sha256\": ");
-    json_sha256_option(autoload.last_good_install_commit_sha256);
-    raw(", \"install_candidate_sha256\": ");
-    json_sha256_option(autoload.candidate_sha256);
-    raw(", \"install_receipt_sha256\": ");
-    json_sha256_option(autoload.receipt_sha256);
-    raw(", \"activation_attempt_persisted\": ");
-    raw_bool(autoload.activation_attempt_persisted);
-    raw(", \"activation_success_persisted\": ");
-    raw_bool(autoload.activation_success_persisted);
-    raw(", \"rollback_persisted\": ");
-    raw_bool(autoload.rollback_persisted);
-    raw(", \"fallback_running\": ");
-    raw_bool(autoload.fallback_running);
-    raw(", \"install_tombstone_written\": ");
-    raw_bool(autoload.install_tombstone_written);
-    raw(", \"entrypoint\": \"raios_service_main\", \"granted_host_imports\": []");
-    raw(", \"host_import_count\": 0, \"phase\": ");
-    json_str(workspace.phase);
-    raw(", \"running\": ");
-    raw_bool(workspace.phase == "running");
-    raw(", \"generation\": ");
-    raw_fmt(format_args!("{}", workspace.generation));
-    raw(", \"run_count\": ");
-    raw_fmt(format_args!("{}", workspace.run_count));
-    raw(", \"last_run_outcome\": ");
-    json_str(workspace.last_run_outcome);
-    raw(", \"last_return_value_i32\": ");
-    match workspace.last_return_value {
-        Some(value) => raw_fmt(format_args!("{}", value)),
-        None => raw("null"),
-    }
-    raw(", \"last_fuel_used\": ");
-    raw_fmt(format_args!("{}", workspace.last_fuel_used));
-    raw(", \"candidate_sha256\": ");
-    json_sha256_option(binding.map(|item| item.candidate_sha256));
-    raw(", \"receipt_sha256\": ");
-    json_sha256_option(binding.map(|item| item.receipt_sha256));
-    raw(", \"physical_approval_present\": ");
-    raw_bool(workspace.approval.is_some());
-    raw(", \"fuel_budget\": ");
-    raw_fmt(format_args!(
-        "{}",
-        binding.map(|item| item.fuel_budget).unwrap_or(0)
-    ));
-    raw(", \"memory_limit_bytes\": ");
-    raw_fmt(format_args!(
-        "{}",
-        binding.map(|item| item.memory_limit_bytes).unwrap_or(0)
-    ));
-    raw(", \"instance_limit\": ");
-    raw_fmt(format_args!(
-        "{}",
-        workspace_candidate_service::instance_limit()
-    ));
-    raw(", \"memory_count_limit\": ");
-    raw_fmt(format_args!(
-        "{}",
-        workspace_candidate_service::memory_count_limit()
-    ));
-    raw(", \"table_limit\": ");
-    raw_fmt(format_args!(
-        "{}",
-        workspace_candidate_service::table_limit()
-    ));
-    raw(", \"capabilities\": []}");
-    if comma {
-        raw(",");
-    }
-    crlf();
-}
-
-fn emit_personal_shell_service_inventory(
-    personal: personal_shell_service::PersonalShellLifecycleSnapshot,
-    comma: bool,
-) {
-    indent(8);
-    raw("{");
-    raw("\"id\": \"svc.user.shell\"");
-    raw(", \"kind\": \"service\"");
-    raw(", \"health\": \"healthy\"");
-    raw(", \"replaceable\": true");
-    raw(", \"core_owned\": false");
-    raw(", \"last_error\": null");
-    raw(", \"scope\": \"current_boot\"");
-    raw(", \"persistence\": \"none\"");
-    raw(", \"trust_tier\": \"dev_key_not_owner_sealed\"");
-    raw(", \"owner_sealed\": false");
-    raw(", \"artifact_id\": \"wasm:svc.user.shell\"");
-    raw(", \"entrypoint\": \"raios_service_main\"");
-    raw(", \"capability_envelope\": \"wasmi_linker_import_surface\"");
-    raw(", \"granted_host_imports\": [\"ui.viewport\", \"ui.context_len\", \"ui.context_read\", \"ui.input_len\", \"ui.input_read\", \"ui.frame_submit\"]");
-    raw(", \"host_import_count\": 6");
-    raw(", \"running\": true");
-    raw(", \"last_lifecycle_reason\": ");
-    json_str(personal.last_reason);
-    raw(", \"capabilities\": []}");
-    if comma {
-        raw(",");
-    }
-    crlf();
-}
-
-fn emit_hello_service_inventory(hello: hello_service::Snapshot) {
-    let descriptor = hello_service::HELLO_SERVICE_DESCRIPTOR;
-    indent(8);
-    raw("{");
-    raw("\"id\": ");
-    json_str(descriptor.service_id);
-    raw(", \"kind\": ");
-    json_str(descriptor.inventory_kind);
-    raw(", \"health\": ");
-    json_str(if hello.running {
-        descriptor.inventory_health_running
-    } else {
-        descriptor.inventory_health_stopped
-    });
-    raw(", \"replaceable\": ");
-    raw_bool(descriptor.inventory_replaceable);
-    raw(", \"core_owned\": ");
-    raw_bool(descriptor.inventory_core_owned);
-    raw(", \"last_error\": null");
-    raw(", \"scope\": ");
-    json_str(descriptor.scope);
-    raw(", \"persistence\": ");
-    json_str(descriptor.persistence);
-    raw(", \"artifact_id\": ");
-    json_str(descriptor.artifact_id);
-    raw(", \"version\": ");
-    json_str(hello_service::service_version(hello.load_descriptor));
-    raw(", \"artifact_identity_id\": ");
-    json_str(hello.load_descriptor.artifact_identity.id);
-    raw(", \"artifact_identity_hash\": ");
-    json_sha256(hello_service::artifact_identity_hash(hello.load_descriptor));
-    raw(", \"artifact_identity_signature_envelope\": ");
-    hello_service::emit_artifact_identity_signature_envelope(hello.load_descriptor);
-    raw(", \"artifact_content_binding_id\": ");
-    json_str(
-        hello
-            .load_descriptor
-            .artifact_identity
-            .artifact_content_binding_id,
+    emit_system_observation(
+        "service.inventory",
+        "service.inventory",
+        V::InlineObject(vec![f("services", V::Array(services))]),
+        vec![],
+        "service_inventory_observed",
     );
-    raw(", \"artifact_content_binding_hash\": ");
-    json_sha256(hello_service::artifact_content_binding_hash(
-        hello.load_descriptor,
-    ));
-    raw(", \"artifact_content_source_hash\": ");
-    json_sha256(
-        hello
-            .load_descriptor
-            .artifact_identity
-            .artifact_content_source_hash,
-    );
-    raw(", \"artifact_content_trust_envelope_id\": ");
-    json_str(hello.load_descriptor.artifact_identity.signed_envelope.id);
-    raw(", \"artifact_content_trust_envelope_hash\": ");
-    json_sha256(
-        hello
-            .load_descriptor
-            .artifact_identity
-            .signed_envelope
-            .envelope_hash,
-    );
-    raw(", \"artifact_reference_id\": ");
-    json_str(
-        hello
-            .load_descriptor
-            .artifact_identity
-            .artifact_reference_id,
-    );
-    raw(", \"artifact_reference_hash\": ");
-    json_sha256(hello_service::artifact_reference_hash(
-        hello.load_descriptor,
-    ));
-    raw(", \"artifact_bytes_sha256\": ");
-    json_sha256(hello_service::artifact_reference_bytes_hash(
-        hello.load_descriptor,
-    ));
-    raw(", \"artifact_reference_content_binding_hash\": ");
-    json_sha256(
-        hello
-            .load_descriptor
-            .artifact_identity
-            .artifact_reference_content_binding_hash,
-    );
-    raw(", \"artifact_reference_trust_envelope_id\": ");
-    json_str(hello.load_descriptor.artifact_identity.signed_envelope.id);
-    raw(", \"artifact_reference_trust_envelope_hash\": ");
-    json_sha256(
-        hello
-            .load_descriptor
-            .artifact_identity
-            .signed_envelope
-            .envelope_hash,
-    );
-    raw(", \"artifact_load_plan_preflight_id\": ");
-    json_str(hello_service::ARTIFACT_LOAD_PLAN_PREFLIGHT_ID);
-    raw(", \"artifact_load_plan_preflight_hash\": ");
-    json_sha256(hello_service::artifact_load_plan_preflight_hash(
-        hello.load_descriptor,
-    ));
-    raw(", \"artifact_load_plan_preflight_status\": ");
-    json_str(hello_service::ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS);
-    raw(", \"service_slot_activation_id\": ");
-    json_str(hello_service::SERVICE_SLOT_ACTIVATION_ID);
-    raw(", \"service_slot_activation_hash\": ");
-    json_sha256(hello_service::service_slot_activation_hash(
-        hello.load_descriptor,
-    ));
-    raw(", \"service_slot_activation_status\": ");
-    json_str(hello_service::service_slot_activation_status(hello));
-    raw(", \"service_slot_activation_active\": ");
-    raw_bool(hello_service::service_slot_activation_active(hello));
-    raw(", \"ram_only_service_slot_id\": ");
-    json_str(hello_service::RAM_ONLY_SERVICE_SLOT_ID);
-    raw(", \"load_descriptor_schema\": ");
-    json_str(hello.load_descriptor.schema);
-    raw(", \"load_descriptor_id\": ");
-    json_str(hello.load_descriptor.id);
-    raw(", \"load_descriptor_source_locator\": ");
-    json_str(hello.load_descriptor.source_locator);
-    raw(", \"load_descriptor_source_kind\": ");
-    json_str(hello.load_descriptor.source_kind);
-    raw(", \"load_descriptor_source_validated\": true");
-    raw(", \"load_descriptor_source_hash\": ");
-    json_sha256(hello_service::descriptor_source_hash(hello.load_descriptor));
-    raw(", \"load_descriptor_source_signature_envelope\": ");
-    hello_service::emit_descriptor_source_signature_envelope(hello.load_descriptor);
-    raw(", \"binds_source_locator\": ");
-    json_opt_str(hello.load_descriptor.binds_source_locator);
-    raw(", \"binds_source_kind\": ");
-    json_opt_str(hello.load_descriptor.binds_source_kind);
-    raw(", \"binds_source_hash\": ");
-    json_sha256_option(hello.load_descriptor.binds_source_hash);
-    raw(", \"running\": ");
-    raw_bool(hello.running);
-    raw(", \"generation\": ");
-    raw_fmt(format_args!("{}", hello.generation));
-    raw(", \"state\": ");
-    hello_service::emit_hello_state(hello);
-    raw(", \"hot_swap_probation\": ");
-    hello_service::emit_hello_hot_swap_probation_option(hello.hot_swap_probation);
-    raw(", \"last_action\": ");
-    json_str(hello.last_action);
-    raw(", \"capabilities\": [");
-    emit_inline_string_array(hello_service::CAPABILITIES);
-    raw("]}");
-    crlf();
-}
-
-fn emit_echo_service_inventory(echo: echo_service::Snapshot, comma: bool) {
-    let descriptor = echo_service::ECHO_SERVICE_DESCRIPTOR;
-    indent(8);
-    raw("{");
-    raw("\"id\": ");
-    json_str(descriptor.service_id);
-    raw(", \"kind\": ");
-    json_str(descriptor.inventory_kind);
-    raw(", \"health\": ");
-    json_str(echo_service::health_state(echo));
-    raw(", \"replaceable\": ");
-    raw_bool(descriptor.inventory_replaceable);
-    raw(", \"core_owned\": ");
-    raw_bool(descriptor.inventory_core_owned);
-    raw(", \"last_error\": null");
-    raw(", \"scope\": ");
-    json_str(descriptor.scope);
-    raw(", \"persistence\": ");
-    json_str(descriptor.persistence);
-    raw(", \"artifact_id\": ");
-    json_str(descriptor.artifact_id);
-    raw(", \"version\": \"v0\"");
-    raw(", \"artifact_identity_id\": ");
-    json_str("builtin_artifact_identity.svc.demo.echo.wasm.v0");
-    raw(", \"artifact_identity_hash\": ");
-    json_sha256(echo_service::ECHO_LOAD_DESCRIPTOR_ARTIFACT_IDENTITY_HASH);
-    raw(", \"artifact_bytes_sha256\": ");
-    json_sha256(echo_service::ECHO_LOAD_DESCRIPTOR_ARTIFACT_BYTES_HASH);
-    raw(", \"artifact_load_plan_preflight_id\": ");
-    json_str(descriptor.artifact_load_plan_preflight_id);
-    raw(", \"artifact_load_plan_preflight_hash\": ");
-    json_sha256(echo_service::ECHO_LOAD_DESCRIPTOR_HASH);
-    raw(", \"artifact_load_plan_preflight_status\": ");
-    json_str(descriptor.artifact_load_plan_preflight_status);
-    raw(", \"service_slot_activation_id\": ");
-    json_str(descriptor.service_slot_activation_id);
-    raw(", \"service_slot_activation_hash\": ");
-    json_sha256(echo_service::service_slot_activation_hash());
-    raw(", \"service_slot_activation_status\": ");
-    json_str(echo_service::service_slot_activation_status(echo));
-    raw(", \"service_slot_activation_active\": ");
-    raw_bool(echo_service::service_slot_activation_active(echo));
-    raw(", \"ram_only_service_slot_id\": ");
-    json_str(descriptor.ram_only_service_slot_id);
-    raw(", \"load_descriptor_schema\": \"raios.current_boot_load_descriptor.v0\"");
-    raw(", \"load_descriptor_id\": \"load_descriptor.current_boot.svc.demo.echo.v0\"");
-    raw(", \"load_descriptor_source_locator\": \"current_boot.service_load_descriptor.svc.demo.echo.v0\"");
-    raw(", \"load_descriptor_source_kind\": \"current_boot_wasm_service_load_descriptor_source\"");
-    raw(", \"load_descriptor_source_validated\": true");
-    raw(", \"load_descriptor_source_hash\": ");
-    json_sha256(echo_service::ECHO_LOAD_DESCRIPTOR_HASH);
-    raw(", \"load_descriptor_source_signature_envelope_hash\": ");
-    json_sha256(echo_service::ECHO_LOAD_DESCRIPTOR_SIGNATURE_ENVELOPE_HASH);
-    raw(", \"capability_envelope\": \"wasmi_linker_import_surface\"");
-    raw(", \"granted_host_imports\": [");
-    emit_inline_string_array(&["env.log", "env.counter_get"]);
-    raw("]");
-    raw(", \"host_import_count\": 2");
-    raw(", \"entrypoint\": \"raios_service_main\"");
-    raw(", \"running\": ");
-    raw_bool(echo.running);
-    raw(", \"generation\": ");
-    raw_fmt(format_args!("{}", echo.generation));
-    raw(", \"run_count\": ");
-    raw_fmt(format_args!("{}", echo.run_count));
-    raw(", \"last_run_outcome\": ");
-    json_str(echo.last_run_outcome);
-    raw(", \"last_return_value_i32\": ");
-    match echo.last_return_value {
-        Some(value) if value >= 0 => raw_fmt(format_args!("{}", value)),
-        _ => raw("null"),
-    }
-    raw(", \"last_fuel_used\": ");
-    raw_fmt(format_args!("{}", echo.last_fuel_used));
-    raw(", \"last_log_line_emitted\": ");
-    raw_bool(echo.last_log_line_emitted);
-    raw(", \"last_action\": ");
-    json_str(echo.last_action);
-    raw(", \"capabilities\": [");
-    emit_inline_string_array(echo_service::CAPABILITIES);
-    raw("]}");
-    if comma {
-        raw(",");
-    }
-    crlf();
-}
-
-fn emit_granted_candidate_service_inventory(
-    granted: granted_candidate_service::Snapshot,
-    comma: bool,
-) {
-    let descriptor = granted_candidate_service::GRANTED_CANDIDATE_SERVICE_DESCRIPTOR;
-    indent(8);
-    raw("{");
-    raw("\"id\": ");
-    json_str(descriptor.service_id);
-    raw(", \"kind\": ");
-    json_str(descriptor.inventory_kind);
-    raw(", \"health\": ");
-    json_str(granted_candidate_service::health_state(granted));
-    raw(", \"replaceable\": ");
-    raw_bool(descriptor.inventory_replaceable);
-    raw(", \"core_owned\": ");
-    raw_bool(descriptor.inventory_core_owned);
-    raw(", \"last_error\": null");
-    raw(", \"scope\": ");
-    json_str(descriptor.scope);
-    raw(", \"persistence\": ");
-    json_str(descriptor.persistence);
-    raw(", \"classification\": ");
-    json_str(descriptor.classification);
-    raw(", \"artifact_id\": ");
-    json_str(descriptor.artifact_id);
-    raw(", \"artifact_kind\": ");
-    json_str(descriptor.artifact_kind);
-    raw(", \"version\": \"v0\"");
-    raw(", \"trust_tier\": ");
-    json_str(granted.trust_tier);
-    raw(", \"service_slot_activation_id\": ");
-    json_str(granted_candidate_service::service_slot_activation_id());
-    raw(", \"service_slot_activation_hash\": ");
-    json_sha256(granted_candidate_service::service_slot_activation_hash());
-    raw(", \"service_slot_activation_status\": ");
-    json_str(granted_candidate_service::service_slot_activation_status(
-        granted,
-    ));
-    raw(", \"service_slot_activation_active\": ");
-    raw_bool(granted_candidate_service::service_slot_activation_active(
-        granted,
-    ));
-    raw(", \"ram_only_service_slot_id\": ");
-    json_str(granted_candidate_service::ram_only_service_slot_id());
-    raw(", \"capability_envelope\": \"wasmi_linker_import_surface\"");
-    raw(", \"granted_host_imports\": [");
-    emit_inline_string_array(&["env.log", "env.counter_get"]);
-    raw("]");
-    raw(", \"host_import_count\": 2");
-    raw(", \"entrypoint\": \"raios_service_main\"");
-    raw(", \"running\": ");
-    raw_bool(granted.running);
-    raw(", \"generation\": ");
-    raw_fmt(format_args!("{}", granted.generation));
-    raw(", \"run_count\": ");
-    raw_fmt(format_args!("{}", granted.run_count));
-    raw(", \"last_run_outcome\": ");
-    json_str(granted.last_run_outcome);
-    raw(", \"last_return_value_i32\": ");
-    match granted.last_return_value {
-        Some(value) if value >= 0 => raw_fmt(format_args!("{}", value)),
-        _ => raw("null"),
-    }
-    raw(", \"last_fuel_used\": ");
-    raw_fmt(format_args!("{}", granted.last_fuel_used));
-    raw(", \"last_log_line_emitted\": ");
-    raw_bool(granted.last_log_line_emitted);
-    raw(", \"last_action\": ");
-    json_str(granted.last_action);
-    raw(", \"capabilities\": [");
-    emit_inline_string_array(granted_candidate_service::CAPABILITIES);
-    raw("]}");
-    if comma {
-        raw(",");
-    }
-    crlf();
-}
-
-pub(crate) fn emit_provider_object(provider: &provider::Snapshot, comma: bool) {
-    raw_line("      \"provider\": {");
-    raw("        \"selected\": ");
-    json_str(provider.provider_name);
-    raw_line(",");
-    raw("        \"route\": ");
-    json_str(provider.route.as_str());
-    raw_line(",");
-    raw("        \"api_key_state\": ");
-    json_str(if provider.api_key_set {
-        "set"
-    } else {
-        "missing"
-    });
-    raw_line(",");
-    raw("        \"direct_phase\": ");
-    json_str(provider.direct_phase);
-    raw_line(",");
-    raw("        \"direct_endpoint\": ");
-    json_str(provider.direct_endpoint);
-    raw_line(",");
-    raw("        \"direct_model\": ");
-    json_str(provider.direct_model);
-    raw_line(",");
-    raw("        \"trust_state\": ");
-    json_str(provider.trust_state);
-    raw_line(",");
-    raw("        \"pin_kind\": ");
-    json_opt_str(provider.trust_pin_kind);
-    raw_line(",");
-    raw("        \"pin_id\": ");
-    json_opt_str(provider.trust_pin_id);
-    raw_line(",");
-    raw("        \"pin_slot\": ");
-    json_opt_str(provider.trust_pin_slot);
-    raw_line(",");
-    raw("        \"pin_rotation_policy\": ");
-    json_str(provider.trust_pin_rotation_policy);
-    raw_line(",");
-    raw("        \"pin_rotation_id\": ");
-    json_opt_str(provider.trust_pin_rotation_id);
-    raw_line(",");
-    raw("        \"development_bypass\": ");
-    raw_bool(provider.trust_development_bypass);
-    raw_line(",");
-    raw_line("        \"verifier_decision\": {");
-    raw("          \"schema\": ");
-    json_str(provider.trust_verifier_decision.schema);
-    raw_line(",");
-    raw("          \"verifier_id\": ");
-    json_str(provider.trust_verifier_decision.verifier_id);
-    raw_line(",");
-    raw("          \"stage\": ");
-    json_str(provider.trust_verifier_decision.stage);
-    raw_line(",");
-    raw("          \"outcome\": ");
-    json_str(provider.trust_verifier_decision.outcome);
-    raw_line(",");
-    raw("          \"reason\": ");
-    json_str(provider.trust_verifier_decision.reason);
-    crlf();
-    raw_line("        }");
-    raw("      }");
-    if comma {
-        raw(",");
-    }
-    crlf();
-}
-
-pub(crate) fn emit_status_state(name: &str, state: RowState, comma: bool) {
-    emit_status_state_at(name, state, comma, 8);
-}
-
-pub(crate) fn emit_status_state_at(name: &str, state: RowState, comma: bool, spaces: usize) {
-    indent(spaces);
-    json_str(name);
-    raw(": ");
-    json_str(state.as_protocol());
-    if comma {
-        raw(",");
-    }
-    crlf();
-}
-
-fn emit_status_detail(name: &str, line: &system_status::StatusLine, comma: bool) {
-    indent(8);
-    json_str(name);
-    raw(": {\"state\": ");
-    json_str(line.state.as_protocol());
-    raw(", \"detail\": ");
-    json_str(line.detail.as_str());
-    raw("}");
-    if comma {
-        raw(",");
-    }
-    crlf();
-}
-
-fn emit_device(id: &str, kind: &str, line: &system_status::StatusLine, comma: bool) {
-    indent(8);
-    raw("{\"id\": ");
-    json_str(id);
-    raw(", \"kind\": ");
-    json_str(kind);
-    raw(", \"state\": ");
-    json_str(line.state.as_protocol());
-    raw(", \"detail\": ");
-    json_str(line.detail.as_str());
-    raw("}");
-    if comma {
-        raw(",");
-    }
-    crlf();
-}
-
-pub(crate) fn emit_problem_objects(
-    status: &SystemSnapshot,
-    provider: &provider::Snapshot,
-    spaces: usize,
-) {
-    let mut wrote = false;
-    for fact in system_problem_facts::collect(status, provider, wifi::snapshot()) {
-        emit_problem(
-            &mut wrote,
-            spaces,
-            fact.id,
-            fact.severity.as_protocol(),
-            fact.summary,
-        );
-    }
-    if !wrote {
-        indent(spaces);
-        raw("{\"id\": \"none\", \"severity\": \"info\", \"summary\": \"no known protocol problems reported\"}");
-        crlf();
-    } else {
-        crlf();
-    }
-}
-
-fn emit_problem(
-    wrote: &mut bool,
-    spaces: usize,
-    id: &'static str,
-    severity: &'static str,
-    summary: &'static str,
-) {
-    if *wrote {
-        raw_line(",");
-    }
-    indent(spaces);
-    raw("{\"id\": ");
-    json_str(id);
-    raw(", \"severity\": ");
-    json_str(severity);
-    raw(", \"summary\": ");
-    json_str(summary);
-    raw("}");
-    *wrote = true;
-}
-
-pub(crate) fn emit_service_ids(spaces: usize) {
-    let hello = hello_service::loaded_snapshot();
-    let personal = personal_shell_service::lifecycle_snapshot();
-    let mut idx = 0usize;
-    while idx < service_inventory::SERVICES.len() {
-        indent(spaces);
-        json_str(service_inventory::SERVICES[idx].id);
-        if idx + 1 != service_inventory::SERVICES.len() || personal.running || hello.is_some() {
-            raw(",");
-        }
-        crlf();
-        idx += 1;
-    }
-    if personal.running {
-        indent(spaces);
-        json_str("svc.user.shell");
-        if hello.is_some() {
-            raw(",");
-        }
-        crlf();
-    }
-    if hello.is_some() {
-        indent(spaces);
-        json_str(hello_service::SERVICE_ID);
-        crlf();
-    }
-}
-
-pub(crate) fn emit_capability_ids(spaces: usize) {
-    let mut idx = 0usize;
-    while idx < CAPABILITIES.len() {
-        if CAPABILITIES[idx].granted {
-            indent(spaces);
-            json_str(CAPABILITIES[idx].id);
-            raw(",");
-            crlf();
-        }
-        idx += 1;
-    }
-    indent(spaces);
-    json_str("capability_denied.for_all_mutating_methods");
-    crlf();
 }

@@ -70,6 +70,7 @@ pub mod secret_vault;
 pub mod seed_data_layout;
 pub mod structured_store;
 pub mod structured_store_partition;
+pub mod system_status_projection;
 pub mod tpm2_commands;
 pub mod ui_frame;
 pub mod ui_program;

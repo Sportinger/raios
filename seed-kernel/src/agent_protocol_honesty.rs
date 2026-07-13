@@ -1,15 +1,17 @@
 use alloc::vec;
 
 use crate::{
+    agent_protocol_module_reference::emit_evidence_v1_response,
     agent_protocol_provider::{live_provider_trust_honesty, LiveProviderTrustHonesty},
     agent_protocol_support::{
-        begin_response, emit_record_fields, end_response, record_bool as b, record_field as f,
-        record_sha as sha, record_static_str_array, record_str as s,
+        record_bool as b, record_field as f, record_sha as sha, record_static_str_array,
+        record_str as s,
     },
     agent_protocol_time::{live_time_authority_honesty, LiveTimeAuthorityHonesty},
     entropy, owner_key,
 };
 use raios_core::{
+    evidence_response,
     record::Value as V,
     scoped_external_acquisition_honesty::{
         evaluate_external_acquisition_honesty, ExternalAcquisitionHonestyInput,
@@ -27,6 +29,7 @@ use raios_core::{
         SCOPED_TIME_AUTHORITY_HONESTY_DECISION_SCHEMA,
     },
     scoped_wasm_import_grant::KNOWN_HOST_IMPORTS,
+    system_status_projection::{observed_projection, Projection},
 };
 
 const TRUST_TIER: &str = "dev_key_not_owner_sealed";
@@ -103,12 +106,13 @@ pub(crate) fn emit_system_honesty_report(_request: &str) {
         && external_no_overclaim
         && owner_key_no_overclaim;
 
-    begin_response("system.honesty_report");
-    emit_record_fields(
-        vec![
-            f("schema", s("raios.system_honesty_report.v0")),
-            f("scope", s("current_boot")),
-            f("classification", s("local_only")),
+    let Projection {
+        facts,
+        evidence,
+        decision,
+        ..
+    } = observed_projection(
+        V::InlineObject(vec![
             f("method", s("system.honesty_report")),
             f("owner_sealed", b(OWNER_SEALED)),
             f("trust_tier", s(TRUST_TIER)),
@@ -139,10 +143,21 @@ pub(crate) fn emit_system_honesty_report(_request: &str) {
                 "owner_key_provisioning",
                 owner_key_provisioning_record(entropy_stats, owner_key_snapshot),
             ),
-        ],
-        6,
+        ]),
+        vec![],
+        "system_honesty_observed",
     );
-    end_response("system.honesty_report");
+    emit_evidence_v1_response(
+        "system.honesty_report",
+        "system.honesty_report",
+        None,
+        facts,
+        evidence
+            .into_iter()
+            .map(evidence_response::evidence_value)
+            .collect(),
+        decision,
+    );
 }
 
 fn provider_trust_record(honesty: &LiveProviderTrustHonesty) -> V<'static> {
@@ -178,12 +193,20 @@ fn provider_trust_record(honesty: &LiveProviderTrustHonesty) -> V<'static> {
         f("chain_validated", b(honesty.decision.chain_validated)),
         f("time_validated", b(honesty.decision.time_validated)),
         f(
-            "authorizes_provider_request",
-            b(honesty.decision.authorizes_provider_request),
+            "provider_request_authority_status",
+            s(if honesty.decision.authorizes_provider_request {
+                "authorized"
+            } else {
+                "denied"
+            }),
         ),
         f(
-            "authorizes_provider_export",
-            b(honesty.decision.authorizes_provider_export),
+            "provider_export_authority_status",
+            s(if honesty.decision.authorizes_provider_export {
+                "authorized"
+            } else {
+                "denied"
+            }),
         ),
         f("provider_write", s("not_attempted")),
         f("transmission", b(false)),
@@ -211,12 +234,20 @@ fn time_authority_record(honesty: &LiveTimeAuthorityHonesty) -> V<'static> {
         ),
         f("timezone_validated", b(honesty.decision.timezone_validated)),
         f(
-            "authorizes_provider_request",
-            b(honesty.decision.authorizes_provider_request),
+            "provider_request_authority_status",
+            s(if honesty.decision.authorizes_provider_request {
+                "authorized"
+            } else {
+                "denied"
+            }),
         ),
         f(
-            "authorizes_provider_export",
-            b(honesty.decision.authorizes_provider_export),
+            "provider_export_authority_status",
+            s(if honesty.decision.authorizes_provider_export {
+                "authorized"
+            } else {
+                "denied"
+            }),
         ),
         f("durable_write", b(honesty.decision.durable_write)),
         f("capability_granted", b(honesty.decision.capability_granted)),
@@ -275,8 +306,22 @@ fn wasm_import_surface_record() -> V<'static> {
             "known_host_import_count",
             V::U64(KNOWN_HOST_IMPORTS.len() as u64),
         ),
-        f("authorizes_new_imports", b(WASM_AUTHORIZES_NEW_IMPORTS)),
-        f("authorizes_beyond_env", b(WASM_AUTHORIZES_BEYOND_ENV)),
+        f(
+            "new_import_authority_status",
+            s(if WASM_AUTHORIZES_NEW_IMPORTS {
+                "authorized"
+            } else {
+                "denied"
+            }),
+        ),
+        f(
+            "beyond_env_authority_status",
+            s(if WASM_AUTHORIZES_BEYOND_ENV {
+                "authorized"
+            } else {
+                "denied"
+            }),
+        ),
         f("report_grants_authority", b(WASM_REPORT_GRANTS_AUTHORITY)),
     ])
 }
@@ -451,10 +496,10 @@ fn owner_key_evidence_input_record(
             "ram_candidate_fingerprint",
             optional_sha(snapshot.fingerprint),
         ),
-        f("authorizes_key_generation", b(false)),
-        f("authorizes_owner_seal", b(false)),
-        f("authorizes_persistent_install", b(false)),
-        f("authorizes_load", b(false)),
+        f("key_generation_authority_status", s("denied")),
+        f("owner_seal_authority_status", s("denied")),
+        f("persistent_install_authority_status", s("denied")),
+        f("load_authority_status", s("denied")),
         f("durable_write", b(false)),
     ])
 }
@@ -595,9 +640,9 @@ fn owner_key_provisioning_record(
         f("reason", s(OWNER_KEY_REASON)),
         f("owner_sealed", b(OWNER_SEALED)),
         f("trust_tier", s(TRUST_TIER)),
-        f("authorizes_owner_seal", b(false)),
-        f("authorizes_persistent_install", b(false)),
-        f("authorizes_load", b(false)),
+        f("owner_seal_authority_status", s("denied")),
+        f("persistent_install_authority_status", s("denied")),
+        f("load_authority_status", s("denied")),
         f("durable_write", b(false)),
         f(
             "owner_key_evidence_input",
@@ -647,9 +692,30 @@ fn external_acquisition_projection() -> ExternalAcquisitionProjection {
         f("status", s(decision.status)),
         f("reason", s(decision.reason)),
         f("honest", b(decision.honest)),
-        f("authorizes_acquisition", b(decision.authorizes_acquisition)),
-        f("authorizes_install", b(decision.authorizes_install)),
-        f("authorizes_load", b(decision.authorizes_load)),
+        f(
+            "acquisition_authority_status",
+            s(if decision.authorizes_acquisition {
+                "authorized"
+            } else {
+                "denied"
+            }),
+        ),
+        f(
+            "install_authority_status",
+            s(if decision.authorizes_install {
+                "authorized"
+            } else {
+                "denied"
+            }),
+        ),
+        f(
+            "load_authority_status",
+            s(if decision.authorizes_load {
+                "authorized"
+            } else {
+                "denied"
+            }),
+        ),
     ]);
 
     ExternalAcquisitionProjection { decision, record }

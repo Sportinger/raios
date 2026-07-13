@@ -316,7 +316,7 @@ Save-QemuScreendump -Name "calculator-active-after-physical-approval" | Out-Null
 
 Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "genesis-ui:calculator-current-boot-inventory"
 $calculatorInventoryResponse = Get-LastAgentResponseJson -Method "service.inventory"
-$calculatorInventory = @($calculatorInventoryResponse.body.result.services | Where-Object { $_.id -eq "svc.user.shell" })
+$calculatorInventory = @($calculatorInventoryResponse.facts.services | Where-Object { $_.id -eq "svc.user.shell" })
 $calculatorInventoryOk = (
     $calculatorInventory.Count -eq 1 -and
     $calculatorInventory[0].kind -eq "service" -and
@@ -348,10 +348,10 @@ Assert-LogContains -Name "genesis-ui:calculator-f12-exit" -Needle "PERSONAL SHEL
 Start-Sleep -Milliseconds 300
 Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "genesis-ui:calculator-f12-inventory"
 $calculatorAfterF12Inventory = Get-LastAgentResponseJson -Method "service.inventory"
-$calculatorAfterF12Personal = @($calculatorAfterF12Inventory.body.result.services | Where-Object { $_.id -eq "svc.user.shell" })
-$calculatorAfterF12Genesis = @($calculatorAfterF12Inventory.body.result.services | Where-Object { $_.id -eq "core.ui.genesis" })
+$calculatorAfterF12Personal = @($calculatorAfterF12Inventory.facts.services | Where-Object { $_.id -eq "svc.user.shell" })
+$calculatorAfterF12Genesis = @($calculatorAfterF12Inventory.facts.services | Where-Object { $_.id -eq "core.ui.genesis" })
 $calculatorAfterF12Ok = $calculatorAfterF12Personal.Count -eq 0 -and $calculatorAfterF12Genesis.Count -eq 1 -and $calculatorAfterF12Genesis[0].core_owned -eq $true -and $calculatorAfterF12Genesis[0].replaceable -eq $false
-Add-Predicate -Name "genesis-ui:calculator-f12-restores-core-genesis" -Expected "F12 exits the calculator, removes svc.user.shell and restores immutable core Genesis" -Passed $calculatorAfterF12Ok -Actual $(if ($calculatorAfterF12Ok) { "core.ui.genesis only" } else { ($calculatorAfterF12Inventory.body.result.services | ConvertTo-Json -Compress -Depth 5) })
+Add-Predicate -Name "genesis-ui:calculator-f12-restores-core-genesis" -Expected "F12 exits the calculator, removes svc.user.shell and restores immutable core Genesis" -Passed $calculatorAfterF12Ok -Actual $(if ($calculatorAfterF12Ok) { "core.ui.genesis only" } else { ($calculatorAfterF12Inventory.facts.services | ConvertTo-Json -Compress -Depth 5) })
 if (-not $calculatorAfterF12Ok) {
     throw "Expected F12 to restore Genesis after the current-boot calculator"
 }
@@ -433,7 +433,7 @@ Assert-LogContains -Name "genesis-ui:personal-shell-active" -Needle "PERSONAL SH
 Start-Sleep -Milliseconds 300
 Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "genesis-ui:personal-shell-inventory"
 $personalShellInventoryResponse = Get-LastAgentResponseJson -Method "service.inventory"
-$personalShellInventory = @($personalShellInventoryResponse.body.result.services | Where-Object { $_.id -eq "svc.user.shell" })
+$personalShellInventory = @($personalShellInventoryResponse.facts.services | Where-Object { $_.id -eq "svc.user.shell" })
 $personalShellInventoryOk = (
     $personalShellInventory.Count -eq 1 -and
     $personalShellInventory[0].kind -eq "service" -and
@@ -468,10 +468,10 @@ Assert-LogContains -Name "genesis-ui:personal-shell-f12-exit" -Needle "PERSONAL 
 Start-Sleep -Milliseconds 300
 Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "genesis-ui:personal-shell-f12-inventory"
 $afterF12Inventory = Get-LastAgentResponseJson -Method "service.inventory"
-$afterF12Personal = @($afterF12Inventory.body.result.services | Where-Object { $_.id -eq "svc.user.shell" })
-$afterF12Genesis = @($afterF12Inventory.body.result.services | Where-Object { $_.id -eq "core.ui.genesis" })
+$afterF12Personal = @($afterF12Inventory.facts.services | Where-Object { $_.id -eq "svc.user.shell" })
+$afterF12Genesis = @($afterF12Inventory.facts.services | Where-Object { $_.id -eq "core.ui.genesis" })
 $afterF12Ok = $afterF12Personal.Count -eq 0 -and $afterF12Genesis.Count -eq 1 -and $afterF12Genesis[0].core_owned -eq $true -and $afterF12Genesis[0].replaceable -eq $false
-Add-Predicate -Name "genesis-ui:personal-shell-f12-removes-dynamic-inventory" -Expected "F12 returns to core Genesis and removes the current-boot personal row" -Passed $afterF12Ok -Actual $(if ($afterF12Ok) { "core.ui.genesis only" } else { ($afterF12Inventory.body.result.services | ConvertTo-Json -Compress -Depth 5) })
+Add-Predicate -Name "genesis-ui:personal-shell-f12-removes-dynamic-inventory" -Expected "F12 returns to core Genesis and removes the current-boot personal row" -Passed $afterF12Ok -Actual $(if ($afterF12Ok) { "core.ui.genesis only" } else { ($afterF12Inventory.facts.services | ConvertTo-Json -Compress -Depth 5) })
 if (-not $afterF12Ok) {
     throw "Expected F12 to restore Genesis without a personal service inventory row"
 }
@@ -501,7 +501,7 @@ Assert-LogContains -Name "genesis-ui:personal-shell-fuel-fallback" -Needle "PERS
 Start-Sleep -Milliseconds 300
 Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "genesis-ui:personal-shell-fallback-inventory"
 $fallbackInventory = Get-LastAgentResponseJson -Method "service.inventory"
-$fallbackPersonal = @($fallbackInventory.body.result.services | Where-Object { $_.id -eq "svc.user.shell" })
+$fallbackPersonal = @($fallbackInventory.facts.services | Where-Object { $_.id -eq "svc.user.shell" })
 $fallbackInventoryOk = $fallbackPersonal.Count -eq 0
 Add-Predicate -Name "genesis-ui:personal-shell-fallback-removes-dynamic-inventory" -Expected "trap and fuel fallback leave no personal current-boot inventory row" -Passed $fallbackInventoryOk -Actual $(if ($fallbackInventoryOk) { "absent" } else { ($fallbackPersonal | ConvertTo-Json -Compress -Depth 5) })
 if (-not $fallbackInventoryOk) {

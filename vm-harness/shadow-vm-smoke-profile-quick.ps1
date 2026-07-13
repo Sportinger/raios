@@ -968,7 +968,7 @@
             throw "Expected agent command envelope to avoid parallel dispatch, provider writes, candidate bytes, persistence, durable audit writes, rollback install, and broad mutation"
         }
         $envelopedDescribe = Get-LastAgentResponseJson -Method "system.describe"
-        if ($envelopedDescribe.body.result.schema -ne "system.describe.v0") {
+        if ($envelopedDescribe.schema -ne "raios.evidence_response.v1" -or $envelopedDescribe.family -ne "system.describe") {
             throw "Expected accepted agent command envelope to route through system.describe"
         }
 
@@ -983,7 +983,7 @@
             throw "Expected agent command envelope to bind system.snapshot and its read capability"
         }
         $envelopedSystemSnapshot = Get-LastAgentResponseJson -Method "system.snapshot"
-        if ($envelopedSystemSnapshot.body.result.schema -ne "system.snapshot.v0") {
+        if ($envelopedSystemSnapshot.schema -ne "raios.evidence_response.v1" -or $envelopedSystemSnapshot.family -ne "system.snapshot") {
             throw "Expected accepted agent command envelope to route through system.snapshot"
         }
 
@@ -998,7 +998,7 @@
             throw "Expected agent command envelope to bind system.boot_log and its read capability"
         }
         $envelopedBootLog = Get-LastAgentResponseJson -Method "system.boot_log"
-        if ($envelopedBootLog.body.result.schema -ne "system.boot_log.v0") {
+        if ($envelopedBootLog.schema -ne "raios.evidence_response.v1" -or $envelopedBootLog.family -ne "system.boot_log" -or $null -ne $envelopedBootLog.event_id -or $envelopedBootLog.decision.outcome -ne "observed" -or $null -ne $envelopedBootLog.decision.grants -or $null -ne $envelopedBootLog.decision.effects) {
             throw "Expected accepted agent command envelope to route through system.boot_log"
         }
 
@@ -1013,7 +1013,7 @@
             throw "Expected agent command envelope to bind system.capabilities and its read capability"
         }
         $envelopedSystemCapabilities = Get-LastAgentResponseJson -Method "system.capabilities"
-        if ($envelopedSystemCapabilities.body.result.schema -ne "system.capabilities.v0") {
+        if ($envelopedSystemCapabilities.schema -ne "raios.evidence_response.v1" -or $envelopedSystemCapabilities.family -ne "system.capabilities") {
             throw "Expected accepted agent command envelope to route through system.capabilities"
         }
 
@@ -1028,7 +1028,7 @@
             throw "Expected agent command envelope to bind device.graph and its read capability"
         }
         $envelopedDeviceGraph = Get-LastAgentResponseJson -Method "device.graph"
-        if ($envelopedDeviceGraph.body.result.schema -ne "device.graph.v0") {
+        if ($envelopedDeviceGraph.schema -ne "raios.evidence_response.v1" -or $envelopedDeviceGraph.family -ne "device.graph" -or $null -ne $envelopedDeviceGraph.event_id -or $envelopedDeviceGraph.decision.outcome -ne "observed" -or $null -ne $envelopedDeviceGraph.decision.grants -or $null -ne $envelopedDeviceGraph.decision.effects) {
             throw "Expected accepted agent command envelope to route through device.graph"
         }
 
@@ -1043,7 +1043,7 @@
             throw "Expected agent command envelope to bind service.inventory and its read capability"
         }
         $envelopedServiceInventory = Get-LastAgentResponseJson -Method "service.inventory"
-        if ($envelopedServiceInventory.body.result.schema -ne "service.inventory.v0") {
+        if ($envelopedServiceInventory.schema -ne "raios.evidence_response.v1" -or $envelopedServiceInventory.family -ne "service.inventory") {
             throw "Expected accepted agent command envelope to route through service.inventory"
         }
 
@@ -1058,7 +1058,7 @@
             throw "Expected agent command envelope to bind problem.list and its read capability"
         }
         $envelopedProblemList = Get-LastAgentResponseJson -Method "problem.list"
-        if ($envelopedProblemList.body.result.schema -ne "problem.list.v0") {
+        if ($envelopedProblemList.schema -ne "raios.evidence_response.v1" -or $envelopedProblemList.family -ne "problem.list") {
             throw "Expected accepted agent command envelope to route through problem.list"
         }
 
@@ -1448,7 +1448,7 @@
 
         Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory"
         $servicesAfterLoad = Get-LastAgentResponseJson -Method "service.inventory"
-        $helloInventory = @($servicesAfterLoad.body.result.services | Where-Object { $_.id -eq "svc.demo.hello" })
+        $helloInventory = @($servicesAfterLoad.facts.services | Where-Object { $_.id -eq "svc.demo.hello" })
         if ($helloInventory.Count -ne 1 -or -not $helloInventory[0].running) { throw "Expected running svc.demo.hello after load" }
         $helloLoadPlanPreflightHash = $helloInventory[0].artifact_load_plan_preflight_hash
         $helloServiceSlotActivationHash = $helloInventory[0].service_slot_activation_hash
@@ -1640,9 +1640,8 @@
         if ($e.health.facts.status_detail -ne "missing") { throw "Expected missing Hello health after drop" }
 
         Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory"
-         $servicesAfterDrop = Get-LastAgentResponseJson -Method "service.inventory"
         $servicesAfterDrop = Get-LastAgentResponseJson -Method "service.inventory"
-        $helloAfterDrop = @($servicesAfterDrop.body.result.services | Where-Object { $_.id -eq "svc.demo.hello" })
+        $helloAfterDrop = @($servicesAfterDrop.facts.services | Where-Object { $_.id -eq "svc.demo.hello" })
         if ($helloAfterDrop.Count -ne 0) {
             throw "Expected svc.demo.hello to be removed from service.inventory after drop"
         }
@@ -1659,7 +1658,7 @@
 
         Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory"
         $servicesAfterHostLoad = Get-LastAgentResponseJson -Method "service.inventory"
-        $hostInventory = @($servicesAfterHostLoad.body.result.services | Where-Object { $_.id -eq "svc.demo.hello" })
+        $hostInventory = @($servicesAfterHostLoad.facts.services | Where-Object { $_.id -eq "svc.demo.hello" })
         if ($hostInventory.Count -ne 1 -or $hostInventory[0].load_descriptor_source_hash -ne $hostDescriptorHash) { throw "Expected host-bound Hello inventory carrier" }
         $hostLoadPlanPreflightHash = $hostInventory[0].artifact_load_plan_preflight_hash
         $hostServiceSlotActivationHash = $hostInventory[0].service_slot_activation_hash
@@ -2127,9 +2126,9 @@
 
         Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory"
         $echoInventory = Get-LastAgentResponseJson -Method "service.inventory"
-        $echoInventoryService = @($echoInventory.body.result.services | Where-Object { $_.id -eq "svc.demo.echo" })[0]
+        $echoInventoryService = @($echoInventory.facts.services | Where-Object { $_.id -eq "svc.demo.echo" })[0]
         $echoInventoryOk = $null -ne $echoInventoryService -and $echoInventoryService.health -eq "healthy" -and $echoInventoryService.running -and $echoInventoryService.artifact_id -eq "wasm:svc.demo.echo" -and $echoInventoryService.capability_envelope -eq "wasmi_linker_import_surface" -and [int]$echoInventoryService.host_import_count -eq 2 -and [int]$echoInventoryService.run_count -ge 1
-        Add-Predicate -Name "quick:echo_lifecycle_inventory_lists_echo" -Expected "service.inventory lists running svc.demo.echo" -Passed $echoInventoryOk -Actual $(if ($echoInventoryOk) { "matched" } else { ($echoInventory.body.result | ConvertTo-Json -Compress -Depth 5) })
+        Add-Predicate -Name "quick:echo_lifecycle_inventory_lists_echo" -Expected "service.inventory lists running svc.demo.echo" -Passed $echoInventoryOk -Actual $(if ($echoInventoryOk) { "matched" } else { ($echoInventory.facts | ConvertTo-Json -Compress -Depth 5) })
         if (-not $echoInventoryOk) {
             throw "Expected service.inventory to list svc.demo.echo after load/start"
         }
@@ -2154,8 +2153,8 @@
 
         Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory"
         $echoInventoryAfterDrop = Get-LastAgentResponseJson -Method "service.inventory"
-        $echoRemoved = $null -eq (@($echoInventoryAfterDrop.body.result.services | Where-Object { $_.id -eq "svc.demo.echo" })[0])
-        Add-Predicate -Name "quick:echo_lifecycle_inventory_removes_echo" -Expected "service.inventory no longer lists svc.demo.echo after drop" -Passed $echoRemoved -Actual $(if ($echoRemoved) { "removed" } else { ($echoInventoryAfterDrop.body.result | ConvertTo-Json -Compress -Depth 4) })
+        $echoRemoved = $null -eq (@($echoInventoryAfterDrop.facts.services | Where-Object { $_.id -eq "svc.demo.echo" })[0])
+        Add-Predicate -Name "quick:echo_lifecycle_inventory_removes_echo" -Expected "service.inventory no longer lists svc.demo.echo after drop" -Passed $echoRemoved -Actual $(if ($echoRemoved) { "removed" } else { ($echoInventoryAfterDrop.facts | ConvertTo-Json -Compress -Depth 4) })
         if (-not $echoRemoved) {
             throw "Expected service.inventory to remove svc.demo.echo after drop"
         }
