@@ -24,6 +24,7 @@ pub mod marvell_wifi_cmd;
 pub mod marvell_wifi_fw;
 pub mod marvell_wifi_supplicant;
 pub mod memory_context;
+pub mod memory_projection;
 pub mod memory_record;
 pub mod memory_record_resolve;
 pub mod module_load_gate;

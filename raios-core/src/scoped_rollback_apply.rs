@@ -155,6 +155,8 @@ pub struct ScopedRollbackApplyDecision {
 
 #[derive(Clone, Copy)]
 pub struct ScopedRollbackAuthorizedAppendInput {
+    pub requested_capability: &'static str,
+    pub effects: &'static [&'static str],
     pub scope_decision_authorized: bool,
     pub scope_decision_hash: Option<[u8; 32]>,
     pub target_start_lba: Option<u64>,
@@ -200,6 +202,8 @@ pub struct ScopedRollbackAuthorizedAppendInput {
 impl ScopedRollbackAuthorizedAppendInput {
     pub const fn empty() -> Self {
         Self {
+            requested_capability: "",
+            effects: &[],
             scope_decision_authorized: false,
             scope_decision_hash: None,
             target_start_lba: None,
@@ -245,10 +249,38 @@ impl ScopedRollbackAuthorizedAppendInput {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ScopedRollbackAuthorizedAppendProof {
+    requested_capability: &'static str,
+    grants: [&'static str; 1],
+    effects: &'static [&'static str],
+}
+
+impl ScopedRollbackAuthorizedAppendProof {
+    pub const fn requested_capability(self) -> &'static str {
+        self.requested_capability
+    }
+
+    pub const fn effects(self) -> &'static [&'static str] {
+        self.effects
+    }
+
+    pub const fn grants(&self) -> &[&'static str] {
+        &self.grants
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ScopedRollbackAuthorizedAppendDecision {
     pub performed: bool,
     pub status: &'static str,
     pub reason: &'static str,
+    proof: Option<ScopedRollbackAuthorizedAppendProof>,
+}
+
+impl ScopedRollbackAuthorizedAppendDecision {
+    pub const fn proof(self) -> Option<ScopedRollbackAuthorizedAppendProof> {
+        self.proof
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -747,6 +779,13 @@ pub fn evaluate_scoped_rollback_authorized_append(
         performed: true,
         status: "performed",
         reason: "authorized_lba1_transaction_append_readback_and_inspection_verified",
+        proof: (!input.requested_capability.is_empty() && !input.effects.is_empty()).then_some(
+            ScopedRollbackAuthorizedAppendProof {
+                requested_capability: input.requested_capability,
+                grants: [input.requested_capability],
+                effects: input.effects,
+            },
+        ),
     }
 }
 
@@ -835,6 +874,7 @@ fn append_denied(reason: &'static str) -> ScopedRollbackAuthorizedAppendDecision
         performed: false,
         status: "denied",
         reason,
+        proof: None,
     }
 }
 
@@ -915,6 +955,8 @@ mod tests {
 
     fn valid_append_input() -> ScopedRollbackAuthorizedAppendInput {
         ScopedRollbackAuthorizedAppendInput {
+            requested_capability: "cap.rollback.apply",
+            effects: &["durable_transaction_append"],
             scope_decision_authorized: true,
             scope_decision_hash: Some(h(40)),
             target_start_lba: Some(EXPECTED_TARGET_START_LBA),
@@ -1052,7 +1094,12 @@ mod tests {
             ScopedRollbackAuthorizedAppendDecision {
                 performed: true,
                 status: "performed",
-                reason: "authorized_lba1_transaction_append_readback_and_inspection_verified"
+                reason: "authorized_lba1_transaction_append_readback_and_inspection_verified",
+                proof: Some(ScopedRollbackAuthorizedAppendProof {
+                    requested_capability: "cap.rollback.apply",
+                    grants: ["cap.rollback.apply"],
+                    effects: &["durable_transaction_append"],
+                }),
             }
         );
     }

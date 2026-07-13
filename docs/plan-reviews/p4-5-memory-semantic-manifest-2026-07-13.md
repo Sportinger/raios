@@ -763,3 +763,35 @@ core never mints a capability, it CERTIFIES one: "this chain verifies, therefore
 capability you asked for is proven, with these effects" — or it denies with the
 existing reason. Fail-closed is preserved because the proof remains unconstructible
 without a passing chain.
+
+## P4-5b1 notes (2026-07-13)
+
+Capability: core callers can now project one typed memory snapshot into ordered
+evidence-v1 read responses, fail-closed mutation denials, and a real granted
+durable-append decision backed only by the existing rollback-append evaluator.
+
+- M1: `EmbeddedProviderProjection` places the provider-owned `Value` unchanged;
+  `provider_projection_value_is_embedded_unchanged` pins the behavior.
+- M2: `evaluate_memory_mutation` owns the six prerequisite positions, statuses,
+  blockers, and first failure; its result type has no positive variant.
+  `mutation_order_and_first_failure_are_evaluator_owned` and
+  `mutation_evaluator_cannot_authorize_even_when_all_are_present` guard this.
+- M3: `ScopedRollbackAuthorizedAppendProof` is private-field proof emitted only
+  on the existing evaluator's unchanged successful path. The caller supplies the
+  requested capability and effects. `project_authorized_append` requires the
+  proof and renders granted, never observed. The positive, negative, and
+  per-chain-element proof tests guard this boundary.
+- M4: record classifications remain per-record; response classification is the
+  maximum. Unknown classification and secret durable records are rejected.
+- M5: query candidates and trace hits use `located`, never `verified`; all read
+  decisions are observational.
+- M6: P4-4 event content is absent. The profile projection can advertise
+  `memory.recent_events` and `audit.events` without projecting their content.
+- Durable payload, frame, and readback digests are accepted as `[u8; 32]` and
+  passed directly to `Value::Sha256`; no durable record serializer or hash was
+  touched.
+
+UNCERTAIN: the manifest does not assign a wire classification string for an
+unknown source classification. This slice uses explicit `classification:
+"unknown"`, `status:"rejected"`, and treats `Unknown` as the conservative maximum.
+Kernel acquisition/emission integration remains outside P4-5b1 by packet scope.
