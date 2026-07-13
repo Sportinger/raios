@@ -680,3 +680,48 @@ Scope-creep observations:
 - `memory_context.rs` still parses `memory.recent_events` limits for shared
   command policy. That helper dependency does not transfer event response
   ownership back to P4-5.
+
+## Orchestrator rulings (2026-07-13, binding for P4-5b)
+
+**M1 — provider projection: EMBED the existing typed value; do not re-derive it.**
+P4-8 has not landed. P4-5 owns WHERE the provider projection sits inside the
+memory response; P4-8 owns WHAT is inside it. So P4-5 places the EXISTING typed
+provider `Value` unchanged (it is already a typed record — no mapping, no
+serializer, no re-derivation), and P4-8 later converts its internals in place.
+Duplicating its mapping or hashing it again is a STOP. This deliberately avoids a
+landing-order deadlock without either slice reaching into the other.
+
+**M2 — the mutation prerequisites get a SMALL TYPED CORE EVALUATOR.** The generic
+denial lists prerequisites but has no evaluator-owned per-item statuses, and the
+manifest is right that inventing ordered failures in the emitter is a STOP. The
+answer is not "pick a stable generic first reason" — that is the emitter guessing
+which gate failed. Authorize a small typed evaluator in raios-core that owns the
+ordered prerequisite statuses and the first failure, exactly as every landed
+family does (core owns order; the emitter only renders). It is fail-closed by
+construction: no positive/authorizing outcome may be constructible from it.
+
+**M3 — the positive durable append stays GRANTED, from the evaluator that already
+exists.** `raios-core/src/scoped_rollback_apply.rs:563`
+(`evaluate_scoped_rollback_authorized_append`, schema
+`raios.scoped_rollback_authorized_append.v0`) is a REAL evaluator with a real
+proof. The narrow positive append therefore renders a granted decision whose
+requested capability and effect names are READ FROM THAT EVALUATOR — never
+invented, never derived from emitter booleans (that is the fail-closed violation),
+and never downgraded to `observed` (that would HIDE a real durable effect, which
+is precisely the failure this vocabulary exists to prevent — same principle as the
+P4-9 D1 carve-out). An append that actually happened must say so.
+
+**M4 — classification.** A missing or unknown classification NEVER defaults to
+public; it is an explicit rejected/unknown record. Whole-response classification
+is the MAXIMUM of the selected records' classifications, never a flattening of
+them. `secret` may not enter durable memory or provider output.
+
+**M5 — locators are not authority.** Summaries, query candidates, trace hits and
+source paths LOCATE records. Relevance, presence, or prose may never appear as
+grant evidence. (ADR 0004's rule, restated because the vocabulary makes it easy
+to violate by accident: an evidence record with `status: verified` must mean an
+evaluator verified it, not that a search found it.)
+
+**M6 — P4-4 boundary confirmed.** `emit_recent_events`, the event ring, event
+records and event bindings are P4-4's (now landed on main). P4-5 may advertise or
+locate that method; it may not regenerate or delete its content.
