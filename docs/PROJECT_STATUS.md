@@ -24,6 +24,35 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+P0 ROUTING CORRECTION — WRITE-BOUNDARY + HELLO-ROLLBACK ARE NOT RETIRE
+(2026-07-13). The P3-HELLO-WB slice stopped on its authority-dependency
+check and proved the P0 inventory mis-routed this surface: the REAL
+`service.rollback_apply` capability consumes
+`rollback_writer_storage_foundation()` outputs as AUTHORITY inputs —
+`scoped_rollback_apply_input()`/`scoped_rollback_authorized_append_input()`
+(hello_service/emitters.rs:4057,4144) feed foundation-derived
+policy/preflight/append/sector/readback/inspection evidence into the real
+`raios_core::scoped_rollback_apply` evaluator whose decision gates
+`current_boot_rollback_applied` (state_machine.rs:435). The ten
+`agent_protocol_module_write_boundary*` files and the hello rollback-writer
+gates are therefore part of the live authority chain, not superseded
+diagnostics. REROUTED: P3-1 and the rollback-writer portion of P3-7 change
+from RETIRE to RELOCATE/P4-compaction (pure evaluators may move to raios-core
+per the wave pattern; vocabulary shrink happens in P4). This LIFTS the wave
+blockade: the "delete before relocating / never copy retired types" rule no
+longer applies to these families, so P2-W2..W4 may proceed. Only the small
+independently-retireable hello fragments remain P3 material
+(descriptor_identity legacy fragment ~3/78 lines, preflight legacy artifact
+part of ~410, four already-analyzed 2-line wrappers — all deferred as
+low-value until touched by adjacent waves). Attestation regeneration is
+proven possible and documented
+(docs/plan-reviews/hello-attestation-regeneration-2026-07-13.md); it becomes
+relevant when a wave actually shrinks the hello source set. Line-count
+consequence: the deletion program yields ~176.3k (achieved); reaching the
+<=120k target now leans on waves W2-W8 (~39k) plus P4 vocabulary compaction
+(ADR 0006 Batch 6, est. -30k+), for which the plan already reserves the
+owner's explicit ambition choice at P4 start.
+
 P3 RECOVERY FAMILY RETIRED — PHASE-CLOSE FULL GREEN (2026-07-13). The entire
 legacy `agent_protocol_recovery*` family (47 files, 39,193 lines) is deleted
 in one atomic slice (combined P3-2..P3-6 per the routing map), plus the three
