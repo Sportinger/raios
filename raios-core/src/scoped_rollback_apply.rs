@@ -29,6 +29,8 @@ pub const EXPECTED_ROLLBACK_PREVIEW_STATUS: &str = "preview_only_current_boot";
 
 #[derive(Clone, Copy)]
 pub struct ScopedRollbackApplyInput<'a> {
+    pub requested_capability: &'static str,
+    pub effects: &'static [&'static str],
     pub method: Option<&'a str>,
     pub service_id: Option<&'a str>,
     pub target_region_id: Option<&'a str>,
@@ -88,6 +90,8 @@ pub struct ScopedRollbackApplyInput<'a> {
 impl<'a> ScopedRollbackApplyInput<'a> {
     pub const fn empty() -> Self {
         Self {
+            requested_capability: "",
+            effects: &[],
             method: None,
             service_id: None,
             target_region_id: None,
@@ -147,10 +151,38 @@ impl<'a> ScopedRollbackApplyInput<'a> {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ScopedRollbackApplyProof {
+    requested_capability: &'static str,
+    grants: [&'static str; 1],
+    effects: &'static [&'static str],
+}
+
+impl ScopedRollbackApplyProof {
+    pub const fn requested_capability(self) -> &'static str {
+        self.requested_capability
+    }
+
+    pub const fn effects(self) -> &'static [&'static str] {
+        self.effects
+    }
+
+    pub const fn grants(&self) -> &[&'static str] {
+        &self.grants
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ScopedRollbackApplyDecision {
     pub authorized: bool,
     pub status: &'static str,
     pub reason: &'static str,
+    proof: Option<ScopedRollbackApplyProof>,
+}
+
+impl ScopedRollbackApplyDecision {
+    pub const fn proof(self) -> Option<ScopedRollbackApplyProof> {
+        self.proof
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -284,10 +316,38 @@ impl ScopedRollbackAuthorizedAppendDecision {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ScopedRollbackVerifiedApplyProof {
+    requested_capability: &'static str,
+    grants: [&'static str; 1],
+    effects: &'static [&'static str],
+}
+
+impl ScopedRollbackVerifiedApplyProof {
+    pub const fn requested_capability(self) -> &'static str {
+        self.requested_capability
+    }
+
+    pub const fn effects(self) -> &'static [&'static str] {
+        self.effects
+    }
+
+    pub const fn grants(&self) -> &[&'static str] {
+        &self.grants
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ScopedRollbackVerifiedApplyDecision {
     pub applied: bool,
     pub status: &'static str,
     pub reason: &'static str,
+    proof: Option<ScopedRollbackVerifiedApplyProof>,
+}
+
+impl ScopedRollbackVerifiedApplyDecision {
+    pub const fn proof(self) -> Option<ScopedRollbackVerifiedApplyProof> {
+        self.proof
+    }
 }
 
 pub fn evaluate_scoped_rollback_apply(
@@ -589,6 +649,13 @@ pub fn evaluate_scoped_rollback_apply(
         authorized: true,
         status: "authorized",
         reason: "authorized_exact_scoped_rollback_apply_evidence",
+        proof: (!input.requested_capability.is_empty() && !input.effects.is_empty()).then_some(
+            ScopedRollbackApplyProof {
+                requested_capability: input.requested_capability,
+                grants: [input.requested_capability],
+                effects: input.effects,
+            },
+        ),
     }
 }
 
@@ -792,6 +859,8 @@ pub fn evaluate_scoped_rollback_authorized_append(
 pub fn evaluate_scoped_rollback_verified_apply(
     append_input: &ScopedRollbackAuthorizedAppendInput,
     authorized_append_hash: Option<[u8; 32]>,
+    requested_capability: &'static str,
+    effects: &'static [&'static str],
 ) -> ScopedRollbackVerifiedApplyDecision {
     macro_rules! require_hash {
         ($field:ident, $reason:literal) => {
@@ -832,6 +901,13 @@ pub fn evaluate_scoped_rollback_verified_apply(
         applied: true,
         status: "current_boot_rollback_applied",
         reason: "verified_authorized_append_readback_and_inspection",
+        proof: (!requested_capability.is_empty() && !effects.is_empty()).then_some(
+            ScopedRollbackVerifiedApplyProof {
+                requested_capability,
+                grants: [requested_capability],
+                effects,
+            },
+        ),
     }
 }
 
@@ -866,6 +942,7 @@ fn denied(reason: &'static str) -> ScopedRollbackApplyDecision {
         authorized: false,
         status: "denied",
         reason,
+        proof: None,
     }
 }
 
@@ -883,6 +960,7 @@ fn apply_denied(reason: &'static str) -> ScopedRollbackVerifiedApplyDecision {
         applied: false,
         status: "denied",
         reason,
+        proof: None,
     }
 }
 
@@ -896,6 +974,8 @@ mod tests {
 
     fn valid_input() -> ScopedRollbackApplyInput<'static> {
         ScopedRollbackApplyInput {
+            requested_capability: "cap.rollback.apply",
+            effects: &["current_boot_target_region_lba1_write"],
             method: Some(EXPECTED_METHOD),
             service_id: Some(EXPECTED_SERVICE_ID),
             target_region_id: Some(EXPECTED_TARGET_REGION_ID),
@@ -1000,6 +1080,18 @@ mod tests {
         }
     }
 
+    fn evaluate_scoped_rollback_verified_apply(
+        input: &ScopedRollbackAuthorizedAppendInput,
+        authorized_append_hash: Option<[u8; 32]>,
+    ) -> ScopedRollbackVerifiedApplyDecision {
+        super::evaluate_scoped_rollback_verified_apply(
+            input,
+            authorized_append_hash,
+            "cap.rollback.apply",
+            &["applies_rollback", "mutates_service_state"],
+        )
+    }
+
     #[derive(Clone, Copy)]
     enum Mutation {
         MissingMethod,
@@ -1043,9 +1135,99 @@ mod tests {
             ScopedRollbackApplyDecision {
                 authorized: true,
                 status: "authorized",
-                reason: "authorized_exact_scoped_rollback_apply_evidence"
+                reason: "authorized_exact_scoped_rollback_apply_evidence",
+                proof: Some(ScopedRollbackApplyProof {
+                    requested_capability: "cap.rollback.apply",
+                    grants: ["cap.rollback.apply"],
+                    effects: &["current_boot_target_region_lba1_write"],
+                }),
             }
         );
+    }
+
+    #[test]
+    fn scoped_apply_proof_certifies_exact_caller_authority_labels() {
+        let proof = evaluate_scoped_rollback_apply(&valid_input())
+            .proof()
+            .unwrap();
+        assert_eq!(proof.requested_capability(), "cap.rollback.apply");
+        assert_eq!(proof.grants(), &["cap.rollback.apply"]);
+        assert_eq!(proof.effects(), &["current_boot_target_region_lba1_write"]);
+    }
+
+    #[test]
+    fn passed_scope_gate_without_caller_authority_labels_has_no_proof() {
+        let mut input = valid_input();
+        input.requested_capability = "";
+        input.effects = &[];
+        let decision = evaluate_scoped_rollback_apply(&input);
+        assert!(decision.authorized);
+        assert!(decision.proof().is_none());
+    }
+
+    #[test]
+    fn each_scope_chain_element_independently_prevents_proof() {
+        let mutations: &[fn(&mut ScopedRollbackApplyInput<'static>)] = &[
+            |i| i.method = None,
+            |i| i.service_id = None,
+            |i| i.target_region_id = None,
+            |i| i.target_region_marker = None,
+            |i| i.audit_ledger_target_id = None,
+            |i| i.audit_record_schema = None,
+            |i| i.rollback_store_target_id = None,
+            |i| i.rollback_transaction_schema = None,
+            |i| i.target_start_lba = None,
+            |i| i.target_lba_count = None,
+            |i| i.target_byte_count = None,
+            |i| i.probation_status = None,
+            |i| i.probation_hash = None,
+            |i| i.probation_accepted = false,
+            |i| i.rollback_preview_status = None,
+            |i| i.rollback_preview_hash = None,
+            |i| i.current_state_hash = None,
+            |i| i.current_state_counter = None,
+            |i| i.probation_new_state_hash = None,
+            |i| i.probation_new_state_counter = None,
+            |i| i.state_migration_hash = None,
+            |i| i.scratch_readiness_verified = false,
+            |i| i.append_record_ready = false,
+            |i| i.sector_plan_ready = false,
+            |i| i.target_region_write_readback_verified = false,
+            |i| i.transaction_append_dry_run_verified = false,
+            |i| i.target_region_sector_inspection_verified = false,
+            |i| i.durable_policy_write_authority_decision_verified = false,
+            |i| i.retained_inspect_source_reference_validated = false,
+            |i| i.append_record_hash = None,
+            |i| i.sector_plan_hash = None,
+            |i| i.target_region_write_readback_hash = None,
+            |i| i.transaction_append_dry_run_hash = None,
+            |i| i.transaction_append_source_sector_plan_hash = None,
+            |i| i.transaction_append_source_target_region_write_readback_hash = None,
+            |i| i.durable_policy_write_authority_decision_hash = None,
+            |i| i.policy_source_transaction_append_dry_run_hash = None,
+            |i| i.policy_source_target_region_sector_inspection_hash = None,
+            |i| i.target_region_sector_inspection_hash = None,
+            |i| i.inspection_source_sector_plan_hash = None,
+            |i| i.inspection_source_target_region_write_readback_hash = None,
+            |i| i.sector_plan_sector_image_hash = None,
+            |i| i.planned_sector_image_hash = None,
+            |i| i.readback_sector_image_hash = None,
+            |i| i.expected_sector_image_hash = None,
+            |i| i.inspected_sector_image_hash = None,
+            |i| i.append_record_audit_record_image_hash = None,
+            |i| i.inspected_audit_record_image_hash = None,
+            |i| i.append_record_rollback_transaction_image_hash = None,
+            |i| i.inspected_rollback_transaction_image_hash = None,
+            |i| i.retained_inspect_source_reference_hash = None,
+            |i| i.retained_inspection_hash = None,
+            |i| i.retained_source_sector_plan_hash = None,
+            |i| i.retained_source_target_region_write_readback_hash = None,
+        ];
+        for mutate in mutations {
+            let mut input = valid_input();
+            mutate(&mut input);
+            assert!(evaluate_scoped_rollback_apply(&input).proof().is_none());
+        }
     }
 
     #[test]
@@ -1182,8 +1364,114 @@ mod tests {
             ScopedRollbackVerifiedApplyDecision {
                 applied: true,
                 status: "current_boot_rollback_applied",
-                reason: "verified_authorized_append_readback_and_inspection"
+                reason: "verified_authorized_append_readback_and_inspection",
+                proof: Some(ScopedRollbackVerifiedApplyProof {
+                    requested_capability: "cap.rollback.apply",
+                    grants: ["cap.rollback.apply"],
+                    effects: &["applies_rollback", "mutates_service_state"],
+                }),
             }
+        );
+    }
+
+    #[test]
+    fn verified_apply_proof_certifies_exact_caller_authority_labels() {
+        let proof = super::evaluate_scoped_rollback_verified_apply(
+            &valid_append_input(),
+            Some(h(48)),
+            "cap.rollback.apply",
+            &["applies_rollback", "mutates_service_state"],
+        )
+        .proof()
+        .unwrap();
+        assert_eq!(proof.requested_capability(), "cap.rollback.apply");
+        assert_eq!(proof.grants(), &["cap.rollback.apply"]);
+        assert_eq!(
+            proof.effects(),
+            &["applies_rollback", "mutates_service_state"]
+        );
+    }
+
+    #[test]
+    fn passed_verified_apply_without_caller_authority_labels_has_no_proof() {
+        let decision = super::evaluate_scoped_rollback_verified_apply(
+            &valid_append_input(),
+            Some(h(48)),
+            "",
+            &[],
+        );
+        assert!(decision.applied);
+        assert!(decision.proof().is_none());
+    }
+
+    #[test]
+    fn each_verified_apply_chain_element_independently_prevents_proof() {
+        let mutations: &[fn(&mut ScopedRollbackAuthorizedAppendInput)] = &[
+            |i| i.scope_decision_authorized = false,
+            |i| i.scope_decision_hash = None,
+            |i| i.append_record_hash = None,
+            |i| i.sector_plan_hash = None,
+            |i| i.write_readback_hash = None,
+            |i| i.inspection_hash = None,
+            |i| i.target_start_lba = None,
+            |i| i.target_lba_count = None,
+            |i| i.target_byte_count = None,
+            |i| i.write_readback_source_sector_plan_hash = None,
+            |i| i.inspection_source_sector_plan_hash = None,
+            |i| i.inspection_source_write_readback_hash = None,
+            |i| i.sector_plan_sector_image_hash = None,
+            |i| i.planned_sector_image_hash = None,
+            |i| i.readback_sector_image_hash = None,
+            |i| i.expected_sector_image_hash = None,
+            |i| i.inspected_sector_image_hash = None,
+            |i| i.append_record_audit_record_image_hash = None,
+            |i| i.inspected_audit_record_image_hash = None,
+            |i| i.append_record_rollback_transaction_image_hash = None,
+            |i| i.inspected_rollback_transaction_image_hash = None,
+            |i| i.audit_record_offset = None,
+            |i| i.audit_record_byte_length = None,
+            |i| i.rollback_transaction_offset = None,
+            |i| i.rollback_transaction_byte_length = None,
+            |i| i.padding_offset = None,
+            |i| i.padding_byte_length = None,
+            |i| i.write_attempted = false,
+            |i| i.write_completed = false,
+            |i| i.readback_completed = false,
+            |i| i.readback_matches_planned_image = false,
+            |i| i.inspection_read_attempted = false,
+            |i| i.inspection_read_completed = false,
+            |i| i.sector_hash_verified = false,
+            |i| i.audit_record_hash_verified = false,
+            |i| i.rollback_transaction_hash_verified = false,
+            |i| i.offsets_verified = false,
+            |i| i.padding_zeroed = false,
+            |i| i.target_span_verified = false,
+            |i| i.inspection_verified = false,
+        ];
+        for mutate in mutations {
+            let mut input = valid_append_input();
+            mutate(&mut input);
+            assert!(evaluate_scoped_rollback_verified_apply(&input, Some(h(48)))
+                .proof()
+                .is_none());
+        }
+        assert!(super::evaluate_scoped_rollback_verified_apply(
+            &valid_append_input(),
+            None,
+            "cap.rollback.apply",
+            &["applies_rollback", "mutates_service_state"],
+        )
+        .proof()
+        .is_none());
+    }
+
+    #[test]
+    fn scope_and_verified_apply_proofs_are_distinct_types() {
+        use core::any::TypeId;
+
+        assert_ne!(
+            TypeId::of::<ScopedRollbackApplyProof>(),
+            TypeId::of::<ScopedRollbackVerifiedApplyProof>()
         );
     }
 
