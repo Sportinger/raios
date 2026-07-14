@@ -95,10 +95,14 @@ one of them. Two orchestrator corrections are recorded in PROJECT_STATUS: p256's
 feature was dragging der/spki/base64ct+PEM into the permanent core (replaced by
 raios-x509-spki::parse_p256_spki — our own no-dep parser; p256 is now math-only), and the
 eight shims had been DEAD CODE (linked nowhere, so the kernel glue would have first run at
-arming). NEXT, IN ORDER: (a) NET-6 acquire.* seam, (b) NET-7 signed acquisition service,
-(c) NET-8 the OWNER-GATED arming diff, (d) NET-9 the W7 denial matrix. The hardware cursor
-is unchanged and Surface-gated (G7 read-only stick preflight, WiFi
-association/PORT_RELEASE/RX-TX/DHCP proof, ownerkey TPM capture).
+arming). **NET-6 is DONE and verified**: m12-distribution-provenance shadow-20260714-161948-11204.json
+236/236 — serial delivery and the labeled acquire.* fixture finalize the SAME candidate
+sha256 and a BYTE-IDENTICAL receipt through ONE shared M12 seam (no second verifier, no
+guest path into the intake sink), every failure preserves the prior candidate, and acquire.*
+still denies before instantiation. NEXT, IN ORDER: (a) NET-7 signed acquisition service,
+(b) NET-8 the OWNER-GATED arming diff — THE OWNER STOPS HERE AND APPROVES, (c) NET-9 the W7
+denial matrix. The hardware cursor is unchanged and Surface-gated (G7 read-only stick
+preflight, WiFi association/PORT_RELEASE/RX-TX/DHCP proof, ownerkey TPM capture).
 
 **P4 EVIDENCE-VOCABULARY-V1 IS CLOSED — BOTH HALVES (2026-07-13 ~23:15).** I once called
 it closed after only the envelope; that was wrong and is now actually true.

@@ -460,6 +460,90 @@ Assert-M12Predicate `
     -Actual $(if ($distributionOk) { "matched" } else { ($distributionResult | ConvertTo-Json -Compress -Depth 10) }) `
     -FailureMessage "Expected serial distribution delivery to stage a valid inert candidate"
 
+Send-AgentCommand -Command "wasm.acquire_import_probe" -ExpectedMarker "RAIOS_AGENT_END wasm.acquire_import_probe" -Name "m12-distribution:T1b_acquire_fixture"
+$acquireProbe = Get-LastAgentResponseJson -Method "wasm.acquire_import_probe"
+$acquire = $acquireProbe.body.result
+$acquireConvergenceOk = (
+    $acquire.fixture_complete -eq $true -and
+    $acquire.service_candidate_sha256 -eq $expectedSha -and
+    $acquire.serial_candidate_sha256 -eq $expectedSha -and
+    $acquire.candidate_hash_converged -eq $true -and
+    $acquire.service_receipt_sha256 -match '^sha256:[0-9a-f]{64}$' -and
+    $acquire.service_receipt_sha256 -eq $acquire.serial_receipt_sha256 -and
+    $acquire.receipt_hash_converged -eq $true
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:T1b_serial_service_candidate_receipt_convergence" `
+    -Expected "serial and labeled acquire.* fixture finalize the same echo candidate sha256 and byte-identical receipt sha256 through one M12 seam" `
+    -Passed $acquireConvergenceOk `
+    -Actual $(if ($acquireConvergenceOk) { "matched" } else { ($acquire | ConvertTo-Json -Compress -Depth 10) }) `
+    -FailureMessage "Expected serial and acquire.* fixture candidate and receipt hashes to converge"
+
+$expectedAcquireDenials = [ordered]@{
+    wrong_index = "acquire_chunk_index_mismatch"
+    wrong_length = "acquire_chunk_length_mismatch"
+    hash_mismatch = "acquire_chunk_hash_mismatch"
+    out_of_order = "acquire_chunk_out_of_order"
+    duplicate = "acquire_duplicate_chunk"
+    extra_chunk = "acquire_extra_chunk"
+    finalize_missing_chunks = "acquire_finalize_missing_chunks"
+    finalize_short_body = "acquire_finalize_short_body"
+    finalize_long_body = "acquire_finalize_long_body"
+    source_tls_evidence = "acquire_source_tls_evidence_mismatch"
+    catalog_identity = "acquire_catalog_mismatch"
+    receiver_identity = "acquire_receiver_identity_mismatch"
+    posture = "acquire_posture_denied"
+    foreign_owner = "acquire_session_owner_mismatch"
+    stale_session = "acquire_session_not_current"
+    invalid_invocation_authority = "acquire_invocation_authority_invalid"
+    guest_memory_fault = "acquire_guest_memory_fault"
+    kill_generation = "acquire_kill_generation_changed"
+}
+$acquireCases = @($acquire.failure_cases)
+$acquireFailureMatrixOk = [int]$acquire.failure_count -eq $expectedAcquireDenials.Count
+foreach ($entry in $expectedAcquireDenials.GetEnumerator()) {
+    $case = @($acquireCases | Where-Object { $_.name -eq $entry.Key })[0]
+    $acquireFailureMatrixOk = $acquireFailureMatrixOk -and $null -ne $case -and $case.denied -eq $true -and $case.denial -eq $entry.Value
+}
+foreach ($terminal in @("kill_cleanup", "trap_cleanup", "fuel_cleanup")) {
+    $case = @($acquireCases | Where-Object { $_.name -eq $terminal })[0]
+    $acquireFailureMatrixOk = $acquireFailureMatrixOk -and $null -ne $case -and $case.denied -eq $true
+}
+$acquireFailureMatrixOk = (
+    $acquireFailureMatrixOk -and
+    $acquire.typed_denials_pairwise_distinct -eq $true -and
+    $acquire.all_prior_candidates_preserved -eq $true -and
+    $acquire.all_incomplete_acquisitions_dropped -eq $true -and
+    [int]$acquire.direct_candidate_intake_calls -eq 0 -and
+    $acquire.candidate_load_attempted -eq $false -and
+    $acquire.candidate_execution_attempted -eq $false -and
+    $acquire.candidate_install_attempted -eq $false -and
+    $acquire.durable_write_attempted -eq $false
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:T1c_acquire_failures_preserve_prior_candidate" `
+    -Expected "18 pairwise-distinct typed acquire denials plus kill/trap/fuel teardown drop only incomplete acquisition and preserve the prior candidate byte-identically" `
+    -Passed $acquireFailureMatrixOk `
+    -Actual $(if ($acquireFailureMatrixOk) { "matched" } else { ($acquire | ConvertTo-Json -Compress -Depth 12) }) `
+    -FailureMessage "Expected every acquire.* failure to deny distinctly, drop pending bytes, and preserve the prior candidate"
+
+$acquireGrantDeniedOk = (
+    $acquire.host_import_abi -eq "raios.host_imports.v1" -and
+    [int]$acquire.requested_acquire_import_count -eq 2 -and
+    $acquire.policy_denial_reason -eq "import_beyond_env_not_owner_authorized" -and
+    $acquire.denied_before_instantiation -eq $true -and
+    $acquire.policy_allows_beyond_env -eq $false -and
+    $acquire.production_linker_armed -eq $false -and
+    [int]$acquire.production_acquire_shim_call_count -eq 0 -and
+    $acquire.capability_granted -eq $false
+)
+Assert-M12Predicate `
+    -Name "m12-distribution:T1d_acquire_imports_ungranted_before_instantiation" `
+    -Expected "signed acquire.* requester is denied before instantiation while only the labeled fixture linker owns closures" `
+    -Passed $acquireGrantDeniedOk `
+    -Actual $(if ($acquireGrantDeniedOk) { "matched" } else { ($acquire | ConvertTo-Json -Compress -Depth 8) }) `
+    -FailureMessage "Expected acquire.* imports to remain ungranted before instantiation"
+
 Send-AgentCommand -Command $hostCasCommands[0] -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_catalog_entry" -Name "m12-distribution:T2_host_cas_catalog_entry"
 $catalogEntry = Get-LastAgentResponseJson -Method "module.submit_distribution_catalog_entry"
 $catalogEntryResult = $catalogEntry.body.result

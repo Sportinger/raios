@@ -3,8 +3,8 @@ use alloc::{vec, vec::Vec};
 use crate::{
     agent_protocol_support::{
         begin_response, emit_record_fields, emit_record_fields_trailing_comma, end_response,
-        raw_line, record_bool as b, record_field as f, record_sha, record_static_str_array,
-        record_str as s, record_str_or_null,
+        raw_line, record_bool as b, record_field as f, record_sha, record_sha_or_null,
+        record_static_str_array, record_str as s, record_str_or_null,
     },
     agent_protocol_time::REAL_TEST_CERT_DER,
     memory_store, module_candidate_channel, module_candidate_intake, net, wasm_runtime,
@@ -1181,6 +1181,105 @@ pub(crate) fn emit_wasm_crypto_import_probe() {
     end_response("wasm.crypto_import_probe");
 }
 
+pub(crate) fn emit_wasm_acquire_import_probe() {
+    let fixture = wasm_runtime::run_acquire_fixture_probe();
+    let grant = wasm_runtime::acquire_shim_grant_probe();
+
+    begin_response("wasm.acquire_import_probe");
+    emit_record_fields(
+        vec![
+            f("schema", s("raios.wasm_acquire_import_probe.v0")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("method", s("wasm.acquire_import_probe")),
+            f("test_infrastructure", b(true)),
+            f("service_id", s("test.fixture.acquire_shims.signed")),
+            f("fixture_linker_scope", s("labeled_acquire_fixture_only")),
+            f("fixture_complete", b(fixture.positive_complete)),
+            f(
+                "service_candidate_sha256",
+                record_sha_or_null(fixture.candidate_sha256),
+            ),
+            f(
+                "serial_candidate_sha256",
+                record_sha_or_null(fixture.serial_candidate_sha256),
+            ),
+            f(
+                "service_receipt_sha256",
+                record_sha_or_null(fixture.receipt_sha256),
+            ),
+            f(
+                "serial_receipt_sha256",
+                record_sha_or_null(fixture.serial_receipt_sha256),
+            ),
+            f(
+                "candidate_hash_converged",
+                b(fixture.candidate_hash_converged),
+            ),
+            f("receipt_hash_converged", b(fixture.receipt_hash_converged)),
+            f("failure_count", V::U64(fixture.failure_count as u64)),
+            f(
+                "failure_cases",
+                V::InlineArray(
+                    fixture
+                        .cases
+                        .iter()
+                        .map(record_acquire_fixture_case)
+                        .collect(),
+                ),
+            ),
+            f(
+                "typed_denials_pairwise_distinct",
+                b(fixture.typed_denials_pairwise_distinct),
+            ),
+            f(
+                "all_prior_candidates_preserved",
+                b(fixture.all_prior_candidates_preserved),
+            ),
+            f(
+                "all_incomplete_acquisitions_dropped",
+                b(fixture.all_incomplete_acquisitions_dropped),
+            ),
+            f(
+                "direct_candidate_intake_calls",
+                V::U64(fixture.direct_candidate_intake_calls),
+            ),
+            f("host_import_abi", s("raios.host_imports.v1")),
+            f(
+                "requested_acquire_import_count",
+                V::U64(grant.requested_import_count),
+            ),
+            f("denied_artifact_sha256", record_sha(grant.artifact_sha256)),
+            f(
+                "denied_import_list_sha256",
+                record_sha(grant.import_list_sha256),
+            ),
+            f("policy_denial_reason", s(grant.denial_reason)),
+            f(
+                "denied_before_instantiation",
+                b(grant.denied_before_instantiation),
+            ),
+            f("acquire_calls_suspend", b(false)),
+            f(
+                "expected_metadata_source",
+                s("core_preauthorized_request_catalog"),
+            ),
+            f("policy_allows_beyond_env", b(false)),
+            f("production_linker_armed", b(false)),
+            f("production_acquire_shim_call_count", V::U64(0)),
+            f("candidate_load_attempted", b(false)),
+            f("candidate_execution_attempted", b(false)),
+            f("candidate_install_attempted", b(false)),
+            f("durable_write_attempted", b(false)),
+            f("owner_sealed", b(false)),
+            f("capability_granted", b(false)),
+            f("evidence_complete", b(true)),
+        ],
+        6,
+    );
+    end_response("wasm.acquire_import_probe");
+}
+
 pub(crate) fn emit_transport_lease_probe(method: &str) {
     let action = method.split_ascii_whitespace().nth(1);
     if let Some(action) = action {
@@ -1369,6 +1468,19 @@ fn record_beyond_env_lifecycle_case(case: &wasm_runtime::BeyondEnvLifecycleCase)
         f("resume_count", V::U64(case.resume_count as u64)),
         f("teardown_count", V::U64(case.teardown_count as u64)),
         f("teardown_complete", b(case.teardown_complete)),
+    ])
+}
+
+fn record_acquire_fixture_case(case: &wasm_runtime::AcquireFixtureCase) -> V<'static> {
+    V::InlineObject(vec![
+        f("name", s(case.name)),
+        f("denial", s(case.denial)),
+        f("denied", b(case.denied)),
+        f(
+            "prior_candidate_unchanged",
+            b(case.prior_candidate_unchanged),
+        ),
+        f("pending_dropped", b(case.pending_dropped)),
     ])
 }
 

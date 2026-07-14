@@ -77,8 +77,9 @@ const MAX_RECEIVER_DESCRIPTOR_BYTES: usize = 4096;
 const MAX_RECEIVER_PUBLIC_KEY_BYTES: usize = 256;
 const MAX_RECEIVER_SIGNATURE_BYTES: usize = 256;
 
-static PENDING_SERIAL_DISTRIBUTION: Mutex<PendingSerialDistribution> =
-    Mutex::new(PendingSerialDistribution::new());
+static PENDING_SERIAL_DISTRIBUTION: Mutex<PendingDistributionAcquisition> =
+    Mutex::new(PendingDistributionAcquisition::new());
+static LAST_SERIAL_DISTRIBUTION_RECEIPT_SHA256: Mutex<Option<[u8; 32]>> = Mutex::new(None);
 static LOCAL_DISTRIBUTION_CATALOG: Mutex<LocalDistributionCatalog> =
     Mutex::new(LocalDistributionCatalog::new());
 
@@ -108,7 +109,7 @@ struct SelftestCase {
     authorizes_persist: bool,
 }
 
-struct PendingSerialDistribution {
+pub(crate) struct PendingDistributionAcquisition {
     active: bool,
     source_id: &'static str,
     entry_id: &'static str,
@@ -117,7 +118,13 @@ struct PendingSerialDistribution {
     chunk_count: usize,
     provenance_signature_der: Vec<u8>,
     receiver_identity: Option<LocalReceiverIdentity>,
-    chunks: Vec<PendingSerialDistributionChunk>,
+    chunks: Vec<PendingAcquisitionChunk>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum AcquisitionChunkAcceptance {
+    Accepted,
+    Duplicate,
 }
 
 struct LocalDistributionCatalog {
@@ -160,7 +167,7 @@ struct LocalReceiverIdentityEvidencePayloads {
     load_descriptor_signature: Option<Vec<u8>>,
 }
 
-struct PendingSerialDistributionChunk {
+struct PendingAcquisitionChunk {
     index: usize,
     bytes: Vec<u8>,
     claimed_chunk_sha256: [u8; 32],
@@ -346,7 +353,7 @@ struct DistributionTransportSelection {
 }
 
 #[derive(Clone, Copy)]
-struct DistributionFinalizeOutcome {
+pub(crate) struct DistributionFinalizeOutcome {
     source_id: &'static str,
     entry_id: &'static str,
     content_sha256: Option<[u8; 32]>,
@@ -355,14 +362,15 @@ struct DistributionFinalizeOutcome {
     accepted_chunk_count: usize,
     delivered_byte_len: usize,
     selection: Option<DistributionTransportSelection>,
-    staged_candidate: Option<module_candidate_intake::ExternalWasmCandidateOutcome>,
+    pub(crate) staged_candidate: Option<module_candidate_intake::ExternalWasmCandidateOutcome>,
     retained_provenance: Option<distribution_candidate::DistributionCandidateOutcome>,
     receiver_identity: Option<LocalReceiverIdentity>,
-    status: &'static str,
+    pub(crate) status: &'static str,
     reason: &'static str,
+    pub(crate) receipt_sha256: Option<[u8; 32]>,
 }
 
-impl PendingSerialDistribution {
+impl PendingDistributionAcquisition {
     const fn new() -> Self {
         Self {
             active: false,
@@ -387,6 +395,30 @@ impl PendingSerialDistribution {
         self.provenance_signature_der.clear();
         self.receiver_identity = None;
         self.chunks.clear();
+    }
+
+    pub(crate) fn preauthorized_fixture(
+        entry_id: &'static str,
+        content_sha256: [u8; 32],
+        total_length: usize,
+        chunk_count: usize,
+        provenance_signature_der: &[u8],
+    ) -> Self {
+        Self {
+            active: true,
+            source_id: "wasm.acquire.fixture",
+            entry_id,
+            content_sha256,
+            total_length,
+            chunk_count,
+            provenance_signature_der: Vec::from(provenance_signature_der),
+            receiver_identity: None,
+            chunks: Vec::new(),
+        }
+    }
+
+    pub(crate) fn total_length(&self) -> usize {
+        self.total_length
     }
 }
 
@@ -1535,79 +1567,32 @@ fn submit_distribution_chunk(arg: &str) -> DistributionChunkOutcome {
             DISTRIBUTION_DELIVERY_NOT_STARTED_REASON,
         );
     }
-    if index >= pending.chunk_count {
-        pending.clear();
-        return rejected_distribution_chunk(
-            None,
-            index,
-            Some(claimed_chunk_sha256),
-            decoded_byte_len,
-            0,
-            true,
-            ChunkedDeliveryError::ChunkIndexOutOfRange.as_str(),
-        );
-    }
-    if decoded_byte_len > pending.total_length {
-        pending.clear();
-        return rejected_distribution_chunk(
-            None,
-            index,
-            Some(claimed_chunk_sha256),
-            decoded_byte_len,
-            0,
-            true,
-            ChunkedDeliveryError::TotalLengthOverflow.as_str(),
-        );
-    }
-    if let Some(existing) = pending.chunks.iter().find(|chunk| chunk.index == index) {
-        if existing.bytes == decoded && existing.claimed_chunk_sha256 == claimed_chunk_sha256 {
-            return accepted_distribution_chunk(
-                pending.content_sha256,
-                index,
-                claimed_chunk_sha256,
-                decoded_byte_len,
-                pending.chunks.len(),
-                DISTRIBUTION_DUPLICATE_CHUNK_ACCEPTED_REASON,
-            );
-        }
-        pending.clear();
-        return rejected_distribution_chunk(
-            None,
-            index,
-            Some(claimed_chunk_sha256),
-            decoded_byte_len,
-            0,
-            true,
-            ChunkedDeliveryError::DuplicateChunkBytesMismatch.as_str(),
-        );
-    }
-    if pending.chunks.len() >= pending.chunk_count
-        || pending.chunks.len() >= DISTRIBUTION_CHUNKED_DELIVERY_MAX_CHUNKS
-    {
-        pending.clear();
-        return rejected_distribution_chunk(
-            None,
-            index,
-            Some(claimed_chunk_sha256),
-            decoded_byte_len,
-            0,
-            true,
-            ChunkedDeliveryError::ChunkCapacityExceeded.as_str(),
-        );
-    }
-
-    pending.chunks.push(PendingSerialDistributionChunk {
-        index,
-        bytes: decoded,
-        claimed_chunk_sha256,
-    });
+    let acceptance =
+        match accept_acquisition_chunk(&mut pending, index, decoded, claimed_chunk_sha256) {
+            Ok(acceptance) => acceptance,
+            Err(reason) => {
+                pending.clear();
+                return rejected_distribution_chunk(
+                    None,
+                    index,
+                    Some(claimed_chunk_sha256),
+                    decoded_byte_len,
+                    0,
+                    true,
+                    reason.as_str(),
+                );
+            }
+        };
     accepted_distribution_chunk(
         pending.content_sha256,
         index,
         claimed_chunk_sha256,
         decoded_byte_len,
         pending.chunks.len(),
-        DISTRIBUTION_CHUNK_ACCEPTED_REASON,
+        match acceptance {
+            AcquisitionChunkAcceptance::Accepted => DISTRIBUTION_CHUNK_ACCEPTED_REASON,
+            AcquisitionChunkAcceptance::Duplicate => DISTRIBUTION_DUPLICATE_CHUNK_ACCEPTED_REASON,
+        },
     )
 }
 
@@ -1628,6 +1613,7 @@ fn submit_distribution_finalize() -> DistributionFinalizeOutcome {
             receiver_identity: None,
             status: "denied",
             reason: DISTRIBUTION_DELIVERY_NOT_STARTED_REASON,
+            receipt_sha256: None,
         };
     }
 
@@ -1650,13 +1636,18 @@ fn submit_distribution_finalize() -> DistributionFinalizeOutcome {
         );
     }
 
-    let finalized = finalize_pending_distribution(&pending);
+    let finalized = finalize_acquisition(&pending);
+    if pending.source_id == SERIAL_DISTRIBUTION_SOURCE_ID {
+        if let Some(receipt_sha256) = finalized.receipt_sha256 {
+            *LAST_SERIAL_DISTRIBUTION_RECEIPT_SHA256.lock() = Some(receipt_sha256);
+        }
+    }
     pending.clear();
     finalized
 }
 
-fn finalize_pending_distribution(
-    pending: &PendingSerialDistribution,
+pub(crate) fn finalize_acquisition(
+    pending: &PendingDistributionAcquisition,
 ) -> DistributionFinalizeOutcome {
     let mut delivery = ChunkedDistributionDelivery::new(ChunkedDistributionTarget {
         entry_id: pending.entry_id,
@@ -1721,8 +1712,11 @@ fn finalize_pending_distribution(
             receiver_identity: pending.receiver_identity,
             status: "denied",
             reason: selection.reason.as_str(),
+            receipt_sha256: None,
         };
     }
+
+    let receipt_sha256 = distribution_finalize_receipt_sha256(&entry, &selection);
 
     let staged_candidate = module_candidate_intake::intake_and_retain_external_wasm_candidate(
         Vec::from(entry.artifact_bytes),
@@ -1754,7 +1748,28 @@ fn finalize_pending_distribution(
         receiver_identity: pending.receiver_identity,
         status: selection.status,
         reason: selection.reason.as_str(),
+        receipt_sha256: Some(receipt_sha256),
     }
+}
+
+pub(crate) fn last_serial_distribution_receipt_sha256() -> Option<[u8; 32]> {
+    *LAST_SERIAL_DISTRIBUTION_RECEIPT_SHA256.lock()
+}
+
+fn distribution_finalize_receipt_sha256(
+    entry: &DistributionRegistryEntry<'_>,
+    selection: &RegistrySelectionDecision<'_>,
+) -> [u8; 32] {
+    let mut receipt = Vec::with_capacity(160);
+    receipt.extend_from_slice(b"raios.acquisition_finalize_receipt.v0\0");
+    receipt.extend_from_slice(&entry.artifact_sha256);
+    receipt.extend_from_slice(&(entry.artifact_bytes.len() as u64).to_le_bytes());
+    receipt.extend_from_slice(&entry.publisher_key_sha256);
+    receipt.extend_from_slice(&sha256_bytes(entry.provenance_signature_der));
+    receipt.extend_from_slice(selection.status.as_bytes());
+    receipt.push(0);
+    receipt.extend_from_slice(selection.reason.as_str().as_bytes());
+    sha256_bytes(&receipt)
 }
 
 fn distribution_payload<'a>(arg: &'a str, method: &str) -> &'a str {
@@ -2177,6 +2192,52 @@ fn reject_distribution_chunk_with_clear(reason: &'static str) -> DistributionChu
     rejected_distribution_chunk(None, 0, None, 0, 0, true, reason)
 }
 
+pub(crate) fn accept_acquisition_chunk(
+    pending: &mut PendingDistributionAcquisition,
+    index: usize,
+    bytes: Vec<u8>,
+    claimed_chunk_sha256: [u8; 32],
+) -> Result<AcquisitionChunkAcceptance, ChunkedDeliveryError> {
+    if index >= pending.chunk_count {
+        return Err(ChunkedDeliveryError::ChunkIndexOutOfRange);
+    }
+    if bytes.len() > pending.total_length {
+        return Err(ChunkedDeliveryError::TotalLengthOverflow);
+    }
+
+    let mut delivery = ChunkedDistributionDelivery::new(ChunkedDistributionTarget {
+        entry_id: pending.entry_id,
+        content_sha256: pending.content_sha256,
+        total_length: pending.total_length,
+        chunk_count: pending.chunk_count,
+        provenance_signature_der: Some(&pending.provenance_signature_der),
+        publisher_key_sha256: PLACEHOLDER_DISTRIBUTION_PUBLISHER_PUBLIC_KEY_SHA256,
+        classification: "local_only",
+    });
+    for chunk in &pending.chunks {
+        delivery.accept_chunk(ChunkedDistributionChunkInput {
+            index: chunk.index,
+            bytes: &chunk.bytes,
+            claimed_chunk_sha256: chunk.claimed_chunk_sha256,
+        })?;
+    }
+    let before = delivery.len();
+    delivery.accept_chunk(ChunkedDistributionChunkInput {
+        index,
+        bytes: &bytes,
+        claimed_chunk_sha256,
+    })?;
+    if delivery.len() == before {
+        return Ok(AcquisitionChunkAcceptance::Duplicate);
+    }
+    pending.chunks.push(PendingAcquisitionChunk {
+        index,
+        bytes,
+        claimed_chunk_sha256,
+    });
+    Ok(AcquisitionChunkAcceptance::Accepted)
+}
+
 fn rejected_distribution_chunk(
     content_sha256: Option<[u8; 32]>,
     chunk_index: usize,
@@ -2243,6 +2304,7 @@ fn rejected_distribution_finalize(
         receiver_identity: None,
         status: "denied",
         reason,
+        receipt_sha256: None,
     }
 }
 

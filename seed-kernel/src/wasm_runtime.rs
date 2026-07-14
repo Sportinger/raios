@@ -44,6 +44,7 @@ use wasmi::{
 
 use crate::{net, serial};
 
+mod acquire_shims;
 mod artifacts;
 mod crypto_shims;
 mod envelope;
@@ -53,6 +54,10 @@ mod personal_shell;
 mod probes;
 mod suspension;
 
+pub(crate) use acquire_shims::{
+    acquire_shim_grant_probe, AcquireFixtureCase, AcquireFixtureProbeSnapshot,
+    AcquireShimGrantProbe,
+};
 pub(crate) use artifacts::*;
 pub(crate) use crypto_shims::{
     crypto_fixture_probe_snapshot, crypto_shim_grant_probe, crypto_shim_probe_snapshot,
@@ -72,10 +77,11 @@ pub(crate) use net_shims::{
 };
 pub(crate) use personal_shell::*;
 pub(crate) use probes::{
-    forbidden_import_link_failure_evidence, run_beyond_env_lifecycle_suite, run_bufecho_roundtrip,
-    run_bufecho_unauthorized_probe, run_certspki_roundtrip, run_certspki_unauthorized_probe,
-    run_certwindow_roundtrip, run_certwindow_unauthorized_probe, run_dnsparse_roundtrip,
-    run_dnsparse_unauthorized_probe, run_echo_fuel_starved, run_echo_probe, run_echo_service,
-    run_httphead_roundtrip, run_httphead_unauthorized_probe, BufechoRoundtripEvidence,
-    EchoFuelStarvedEvidence, EchoProbe, WasmHardeningCase,
+    forbidden_import_link_failure_evidence, run_acquire_fixture_probe,
+    run_beyond_env_lifecycle_suite, run_bufecho_roundtrip, run_bufecho_unauthorized_probe,
+    run_certspki_roundtrip, run_certspki_unauthorized_probe, run_certwindow_roundtrip,
+    run_certwindow_unauthorized_probe, run_dnsparse_roundtrip, run_dnsparse_unauthorized_probe,
+    run_echo_fuel_starved, run_echo_probe, run_echo_service, run_httphead_roundtrip,
+    run_httphead_unauthorized_probe, BufechoRoundtripEvidence, EchoFuelStarvedEvidence, EchoProbe,
+    WasmHardeningCase,
 };

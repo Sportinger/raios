@@ -24,6 +24,40 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+NET-6 TRANSPORT-NEUTRAL ACQUISITION SEAM + acquire.* VERIFIED (2026-07-14, grants nothing):
+m12-distribution-provenance shadow-20260714-161948-11204.json PASSED 236/236. THE POINT OF
+THE SLICE, and it is proven: `m12-distribution:T1b_serial_service_candidate_receipt_
+convergence` = "serial and the labeled acquire.* fixture finalize the same echo candidate
+sha256 AND a byte-identical receipt sha256 through ONE M12 seam" -> matched. A download can
+therefore never get a second, laxer verifier: both transports converge on
+`accept_acquisition_chunk` (which reconstructs and invokes the EXISTING
+ChunkedDistributionDelivery::accept_chunk) and on `finalize_acquisition` (the existing M12
+finalize/selection/provenance/intake body, renamed and SHARED, not cloned). The serial path
+was rewired onto the seam, not duplicated; its parsing, base64 decode, immediate hash
+verification, duplicate-chunk semantics, reason strings and response schema are unchanged —
+every pre-existing m12 predicate still passes. The receipt deliberately excludes transport
+identity, which is WHY the two paths can converge byte-for-byte.
+The two acquire.* shims live in wasm_runtime/acquire_shims.rs behind the same boundary
+checks as crypto/net (kill generation, invocation authority, owner, session currency,
+posture, lifecycle generation, source/TLS evidence — all BEFORE any effect) and are linked
+ONLY by `link_acquire_fixture`, whose only caller is the labeled fixture runner. Expected
+index/length/sha256 come from the CORE-held pre-authorized request; guest arguments supply
+only observed index/pointer/length. 20 pairwise-distinct typed denials. Proven: every
+failure (wrong index/length/hash, out-of-order, duplicate, extra chunk, finalize with
+missing chunks, short/long body) leaves the PRIOR retained candidate byte-identical, and a
+signed module requesting acquire.* still denies BEFORE instantiation.
+COVERAGE CHECK, because the count moved: the profile went 240 -> 236 predicates, and NET-6
+removed ZERO (git-verified: no Add-Predicate line deleted; 4 added). The delta is P4-era
+predicate consolidation from 7b63ff6 / 77a588d, which edited this profile AFTER its last run
+(2026-07-13 13:39). Unlike `quick`, P4 updated these needles correctly — the profile passed
+on its first run since. Same lesson, opposite outcome.
+ORCHESTRATOR FIXES: three compile errors (wrong module paths — the registry modules live
+under `agent_protocol`, not the crate root) and two module declarations widened to
+`pub(crate)` so wasm_runtime can call the shared seam. LAYERING DEBT, recorded in the code:
+the seam's impure staging half still lives in the protocol layer while the Wasm runtime calls
+into it. It is correct but inverted; if it grows, move it to a neutral kernel module (or
+raios-core) and have both transports call that.
+
 NET-5 + NET-5B OPAQUE TLS CRYPTO IMPORTS VERIFIED (2026-07-14, still ungrantable):
 m11-crypto-imports (-Network) shadow-20260714-154639-20396.json PASSED 187/187. The eight
 fixed crypto.* functions (TLS 1.3 / TLS_AES_128_GCM_SHA256 / P-256 ECDHE /

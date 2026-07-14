@@ -1,5 +1,5 @@
 use super::*;
-use super::{envelope::*, invocation::*, suspension::*};
+use super::{acquire_shims::*, envelope::*, invocation::*, suspension::*};
 
 const FORBIDDEN_WRITE_WASM_MODULE: &[u8] = &[
     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x04, 0x01, 0x60, 0x00, 0x00, 0x02, 0x17,
@@ -56,6 +56,468 @@ const FUEL_EXHAUSTION_BUDGET: u64 = 1;
 const GUEST_TRAP_FUEL_BUDGET: u64 = 100;
 
 static BEYOND_ENV_SUITE: Mutex<Option<BeyondEnvLifecycleSuite>> = Mutex::new(None);
+
+struct AcquireFixtureRuntime {
+    store: Store<BeyondEnvState>,
+    instance: Instance,
+    memory: Memory,
+}
+
+#[derive(Clone, Copy)]
+enum AcquireFixtureAction {
+    WrongIndex,
+    WrongLength,
+    HashMismatch,
+    OutOfOrder,
+    Duplicate,
+    Extra,
+    MissingFinalize,
+    CompleteThenFinalize,
+    FirstChunk,
+    GuestMemoryFault,
+}
+
+pub(crate) fn run_acquire_fixture_probe() -> AcquireFixtureProbeSnapshot {
+    let serial_candidate_sha256 =
+        crate::module_candidate_intake::retained().map(|item| item.sha256);
+    let serial_receipt_sha256 =
+        crate::agent_protocol::agent_protocol_registry::last_serial_distribution_receipt_sha256();
+    let (positive_complete, candidate_sha256, receipt_sha256) = run_acquire_positive();
+    let prior = crate::module_candidate_intake::retained();
+    let current_kill = crate::input::secure_attention_kill_generation();
+    let mut cases = [AcquireFixtureCase::failed("not_run"); ACQUIRE_FIXTURE_CASE_COUNT];
+    let definitions = [
+        (
+            "wrong_index",
+            AcquireFixtureMode::Normal,
+            AcquireFixtureAction::WrongIndex,
+            "test.fixture.acquire_shims.signed",
+            current_kill,
+        ),
+        (
+            "wrong_length",
+            AcquireFixtureMode::Normal,
+            AcquireFixtureAction::WrongLength,
+            "test.fixture.acquire_shims.signed",
+            current_kill,
+        ),
+        (
+            "hash_mismatch",
+            AcquireFixtureMode::Normal,
+            AcquireFixtureAction::HashMismatch,
+            "test.fixture.acquire_shims.signed",
+            current_kill,
+        ),
+        (
+            "out_of_order",
+            AcquireFixtureMode::Normal,
+            AcquireFixtureAction::OutOfOrder,
+            "test.fixture.acquire_shims.signed",
+            current_kill,
+        ),
+        (
+            "duplicate",
+            AcquireFixtureMode::Normal,
+            AcquireFixtureAction::Duplicate,
+            "test.fixture.acquire_shims.signed",
+            current_kill,
+        ),
+        (
+            "extra_chunk",
+            AcquireFixtureMode::Normal,
+            AcquireFixtureAction::Extra,
+            "test.fixture.acquire_shims.signed",
+            current_kill,
+        ),
+        (
+            "finalize_missing_chunks",
+            AcquireFixtureMode::Normal,
+            AcquireFixtureAction::MissingFinalize,
+            "test.fixture.acquire_shims.signed",
+            current_kill,
+        ),
+        (
+            "finalize_short_body",
+            AcquireFixtureMode::ShortBody,
+            AcquireFixtureAction::CompleteThenFinalize,
+            "test.fixture.acquire_shims.signed",
+            current_kill,
+        ),
+        (
+            "finalize_long_body",
+            AcquireFixtureMode::LongBody,
+            AcquireFixtureAction::CompleteThenFinalize,
+            "test.fixture.acquire_shims.signed",
+            current_kill,
+        ),
+        (
+            "source_tls_evidence",
+            AcquireFixtureMode::SourceEvidenceMismatch,
+            AcquireFixtureAction::FirstChunk,
+            "test.fixture.acquire_shims.signed",
+            current_kill,
+        ),
+        (
+            "catalog_identity",
+            AcquireFixtureMode::CatalogMismatch,
+            AcquireFixtureAction::CompleteThenFinalize,
+            "test.fixture.acquire_shims.signed",
+            current_kill,
+        ),
+        (
+            "receiver_identity",
+            AcquireFixtureMode::ReceiverMismatch,
+            AcquireFixtureAction::CompleteThenFinalize,
+            "test.fixture.acquire_shims.signed",
+            current_kill,
+        ),
+        (
+            "posture",
+            AcquireFixtureMode::PostureDenied,
+            AcquireFixtureAction::FirstChunk,
+            "test.fixture.acquire_shims.signed",
+            current_kill,
+        ),
+        (
+            "foreign_owner",
+            AcquireFixtureMode::ForeignOwner,
+            AcquireFixtureAction::FirstChunk,
+            "test.fixture.acquire_shims.signed",
+            current_kill,
+        ),
+        (
+            "stale_session",
+            AcquireFixtureMode::StaleSession,
+            AcquireFixtureAction::FirstChunk,
+            "test.fixture.acquire_shims.signed",
+            current_kill,
+        ),
+        (
+            "invalid_invocation_authority",
+            AcquireFixtureMode::Normal,
+            AcquireFixtureAction::FirstChunk,
+            "test.fixture.acquire_shims.invalid",
+            current_kill,
+        ),
+        (
+            "guest_memory_fault",
+            AcquireFixtureMode::Normal,
+            AcquireFixtureAction::GuestMemoryFault,
+            "test.fixture.acquire_shims.signed",
+            current_kill,
+        ),
+        (
+            "kill_generation",
+            AcquireFixtureMode::Normal,
+            AcquireFixtureAction::FirstChunk,
+            "test.fixture.acquire_shims.signed",
+            current_kill.wrapping_add(1),
+        ),
+    ];
+    let failure_count = definitions.len();
+    for (slot, (name, mode, action, service_id, kill_generation)) in
+        cases.iter_mut().zip(definitions)
+    {
+        *slot = run_acquire_denial_case(
+            name,
+            mode,
+            action,
+            service_id,
+            kill_generation,
+            prior.as_ref(),
+        );
+    }
+    cases[18] = run_acquire_terminal_case("kill_cleanup", TerminalOutcome::Killed, prior.as_ref());
+    cases[19] =
+        run_acquire_terminal_case("trap_cleanup", TerminalOutcome::GuestTrap, prior.as_ref());
+    cases[20] =
+        run_acquire_terminal_case("fuel_cleanup", TerminalOutcome::OutOfFuel, prior.as_ref());
+
+    let typed_denials_pairwise_distinct = (0..failure_count).all(|left| {
+        ((left + 1)..failure_count).all(|right| cases[left].denial != cases[right].denial)
+    });
+    AcquireFixtureProbeSnapshot {
+        positive_complete,
+        candidate_sha256,
+        receipt_sha256,
+        serial_candidate_sha256,
+        serial_receipt_sha256,
+        candidate_hash_converged: candidate_sha256.is_some()
+            && candidate_sha256 == serial_candidate_sha256,
+        receipt_hash_converged: receipt_sha256.is_some() && receipt_sha256 == serial_receipt_sha256,
+        failure_count,
+        typed_denials_pairwise_distinct,
+        all_prior_candidates_preserved: cases.iter().all(|case| case.prior_candidate_unchanged),
+        all_incomplete_acquisitions_dropped: cases.iter().all(|case| case.pending_dropped),
+        cases,
+        direct_candidate_intake_calls: 0,
+    }
+}
+
+fn run_acquire_positive() -> (bool, Option<[u8; 32]>, Option<[u8; 32]>) {
+    let Some(mut runtime) = acquire_fixture_runtime(
+        AcquireFixtureMode::Normal,
+        "test.fixture.acquire_shims.signed",
+        crate::input::secure_attention_kill_generation(),
+    ) else {
+        return (false, None, None);
+    };
+    let complete =
+        call_all_acquire_chunks(&mut runtime) && call_acquire_finalize(&mut runtime) == Some(0);
+    let candidate = runtime
+        .store
+        .data()
+        .acquire
+        .as_ref()
+        .and_then(|state| state.candidate_sha256());
+    let receipt = runtime
+        .store
+        .data()
+        .acquire
+        .as_ref()
+        .and_then(|state| state.receipt_sha256());
+    let _ = finish_acquire_resources(runtime.store.data_mut());
+    finish_store(&mut runtime.store, TerminalOutcome::Finished);
+    (complete, candidate, receipt)
+}
+
+fn run_acquire_denial_case(
+    name: &'static str,
+    mode: AcquireFixtureMode,
+    action: AcquireFixtureAction,
+    service_id: &'static str,
+    kill_generation: u64,
+    prior: Option<&crate::module_candidate_intake::RetainedExternalWasmCandidate>,
+) -> AcquireFixtureCase {
+    let Some(mut runtime) = acquire_fixture_runtime(mode, service_id, kill_generation) else {
+        return AcquireFixtureCase::failed(name);
+    };
+    let first_end = ECHO_WASM_ARTIFACT_BYTES.len() / 3;
+    match action {
+        AcquireFixtureAction::WrongIndex => {
+            let _ = call_acquire_chunk(&mut runtime, 3, 0, first_end as i32);
+        }
+        AcquireFixtureAction::WrongLength => {
+            let _ = call_acquire_chunk(&mut runtime, 0, 0, first_end as i32 - 1);
+        }
+        AcquireFixtureAction::HashMismatch => {
+            let _ = runtime.memory.write(&mut runtime.store, 0, &[0xff]);
+            let _ = call_acquire_chunk(&mut runtime, 0, 0, first_end as i32);
+        }
+        AcquireFixtureAction::OutOfOrder => {
+            let _ = call_acquire_chunk(&mut runtime, 1, first_end as i32, first_end as i32);
+        }
+        AcquireFixtureAction::Duplicate => {
+            let _ = call_acquire_chunk(&mut runtime, 0, 0, first_end as i32);
+            let _ = call_acquire_chunk(&mut runtime, 0, 0, first_end as i32);
+        }
+        AcquireFixtureAction::Extra => {
+            let _ = call_all_acquire_chunks(&mut runtime);
+            let _ = call_acquire_chunk(&mut runtime, 2, 0, 1);
+        }
+        AcquireFixtureAction::MissingFinalize => {
+            let _ = call_acquire_chunk(&mut runtime, 0, 0, first_end as i32);
+            let _ = call_acquire_finalize(&mut runtime);
+        }
+        AcquireFixtureAction::CompleteThenFinalize => {
+            let _ = call_all_acquire_chunks(&mut runtime);
+            let _ = call_acquire_finalize(&mut runtime);
+        }
+        AcquireFixtureAction::FirstChunk => {
+            let _ = call_acquire_chunk(&mut runtime, 0, 0, first_end as i32);
+        }
+        AcquireFixtureAction::GuestMemoryFault => {
+            let _ = call_acquire_chunk(&mut runtime, 0, 65_535, first_end as i32);
+        }
+    }
+    let denial = runtime
+        .store
+        .data()
+        .acquire
+        .as_ref()
+        .map_or("none", AcquisitionInvocationState::last_denial);
+    let pending_before = runtime
+        .store
+        .data()
+        .acquire
+        .as_ref()
+        .is_some_and(AcquisitionInvocationState::pending_present);
+    let dropped = finish_acquire_resources(runtime.store.data_mut());
+    finish_store(&mut runtime.store, TerminalOutcome::Finished);
+    AcquireFixtureCase {
+        name,
+        denial,
+        denied: denial != "none",
+        prior_candidate_unchanged: retained_candidate_matches(prior),
+        pending_dropped: pending_before && dropped,
+    }
+}
+
+fn run_acquire_terminal_case(
+    name: &'static str,
+    outcome: TerminalOutcome,
+    prior: Option<&crate::module_candidate_intake::RetainedExternalWasmCandidate>,
+) -> AcquireFixtureCase {
+    let Some(mut runtime) = acquire_fixture_runtime(
+        AcquireFixtureMode::Normal,
+        "test.fixture.acquire_shims.signed",
+        crate::input::secure_attention_kill_generation(),
+    ) else {
+        return AcquireFixtureCase::failed(name);
+    };
+    let first_end = ECHO_WASM_ARTIFACT_BYTES.len() / 3;
+    let _ = call_acquire_chunk(&mut runtime, 0, 0, first_end as i32);
+    let pending_before = runtime
+        .store
+        .data()
+        .acquire
+        .as_ref()
+        .is_some_and(AcquisitionInvocationState::pending_present);
+    if outcome == TerminalOutcome::GuestTrap {
+        let _ = call_acquire_export(&mut runtime, "trap", &[]);
+    } else if outcome == TerminalOutcome::OutOfFuel {
+        let _ = call_acquire_export(&mut runtime, "loop", &[]);
+    }
+    let dropped = finish_acquire_resources(runtime.store.data_mut());
+    finish_store(&mut runtime.store, outcome);
+    AcquireFixtureCase {
+        name,
+        denial: match outcome {
+            TerminalOutcome::Killed => "terminal_killed",
+            TerminalOutcome::GuestTrap => "terminal_guest_trap",
+            TerminalOutcome::OutOfFuel => "terminal_out_of_fuel",
+            _ => "terminal_other",
+        },
+        denied: true,
+        prior_candidate_unchanged: retained_candidate_matches(prior),
+        pending_dropped: pending_before && dropped,
+    }
+}
+
+fn acquire_fixture_runtime(
+    mode: AcquireFixtureMode,
+    service_id: &'static str,
+    captured_kill_generation: u64,
+) -> Option<AcquireFixtureRuntime> {
+    let engine = beyond_env_engine();
+    let module = Module::new(&engine, ACQUIRE_SHIM_WASM_MODULE).ok()?;
+    let invocation_id = NEXT_BEYOND_ENV_INVOCATION_ID.fetch_add(1, Ordering::Relaxed);
+    let authority = InvocationAuthority {
+        service_id,
+        invocation_id,
+        service_generation: 1,
+        instance_generation: 1,
+        captured_kill_generation,
+        policy_allows_beyond_env: false,
+    };
+    let now_ms = runtime_now_ms();
+    let mut store = Store::new(
+        &engine,
+        BeyondEnvState {
+            lifecycle: InvocationLifecycle::new(
+                authority,
+                now_ms,
+                BEYOND_ENV_WALL_BUDGET_MS,
+                BEYOND_ENV_PUMP_STEP_BUDGET,
+                invocation_id as u32,
+            ),
+            behavior: FixtureBehavior::Suspend,
+            net: None,
+            crypto: crypto_shims::CryptoInvocationState::new(None),
+            acquire: Some(AcquisitionInvocationState::fixture(invocation_id, mode)),
+            limits: beyond_env_limits(),
+        },
+    );
+    store.limiter(|state| &mut state.limits);
+    store.add_fuel(BEYOND_ENV_FIXTURE_FUEL_BUDGET).ok()?;
+    let mut linker = Linker::<BeyondEnvState>::new(&engine);
+    link_acquire_fixture(&mut linker).ok()?;
+    let instance = linker
+        .instantiate(&mut store, &module)
+        .ok()?
+        .start(&mut store)
+        .ok()?;
+    let memory = instance
+        .get_export(&store, "memory")
+        .and_then(Extern::into_memory)?;
+    memory.write(&mut store, 0, ECHO_WASM_ARTIFACT_BYTES).ok()?;
+    memory
+        .write(&mut store, ECHO_WASM_ARTIFACT_BYTES.len(), &[0])
+        .ok()?;
+    Some(AcquireFixtureRuntime {
+        store,
+        instance,
+        memory,
+    })
+}
+
+fn call_all_acquire_chunks(runtime: &mut AcquireFixtureRuntime) -> bool {
+    let len = ECHO_WASM_ARTIFACT_BYTES.len();
+    let first_end = len / 3;
+    let second_end = (len * 2) / 3;
+    let last_len = runtime
+        .store
+        .data()
+        .acquire
+        .as_ref()
+        .and_then(|state| state.expected_chunk_len(2))
+        .unwrap_or(len - second_end);
+    call_acquire_chunk(runtime, 0, 0, first_end as i32) == Some(0)
+        && call_acquire_chunk(
+            runtime,
+            1,
+            first_end as i32,
+            (second_end - first_end) as i32,
+        ) == Some(0)
+        && call_acquire_chunk(runtime, 2, second_end as i32, last_len as i32) == Some(0)
+}
+
+fn call_acquire_chunk(
+    runtime: &mut AcquireFixtureRuntime,
+    index: i32,
+    ptr: i32,
+    len: i32,
+) -> Option<i32> {
+    call_acquire_export(
+        runtime,
+        "chunk",
+        &[Value::I32(index), Value::I32(ptr), Value::I32(len)],
+    )
+}
+
+fn call_acquire_finalize(runtime: &mut AcquireFixtureRuntime) -> Option<i32> {
+    call_acquire_export(runtime, "finalize", &[])
+}
+
+fn call_acquire_export(
+    runtime: &mut AcquireFixtureRuntime,
+    name: &str,
+    inputs: &[Value],
+) -> Option<i32> {
+    let function = runtime
+        .instance
+        .get_export(&runtime.store, name)
+        .and_then(Extern::into_func)?;
+    let mut outputs = [Value::I32(0)];
+    function
+        .call(&mut runtime.store, inputs, &mut outputs)
+        .ok()?;
+    outputs[0].i32()
+}
+
+fn retained_candidate_matches(
+    prior: Option<&crate::module_candidate_intake::RetainedExternalWasmCandidate>,
+) -> bool {
+    match (prior, crate::module_candidate_intake::retained()) {
+        (Some(prior), Some(after)) => {
+            prior.sha256 == after.sha256
+                && prior.wasm_valid == after.wasm_valid
+                && prior.bytes == after.bytes
+        }
+        (None, None) => true,
+        _ => false,
+    }
+}
 
 pub(crate) fn run_beyond_env_lifecycle_suite() -> BeyondEnvLifecycleSuite {
     if let Some(suite) = *BEYOND_ENV_SUITE.lock() {
@@ -185,6 +647,7 @@ fn run_beyond_env_case(
             behavior,
             net: None,
             crypto: crypto_shims::CryptoInvocationState::new(None),
+            acquire: None,
             limits: beyond_env_limits(),
         },
     );

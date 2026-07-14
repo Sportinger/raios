@@ -1,6 +1,6 @@
 use super::*;
 use super::{
-    crypto_shims::*, envelope::BUFFER_SERVICE_MAX_MEMORY_BYTES, net_shims::*,
+    acquire_shims::*, crypto_shims::*, envelope::BUFFER_SERVICE_MAX_MEMORY_BYTES, net_shims::*,
     probes::SUSPEND_ONCE_WASM_MODULE, suspension::*,
 };
 
@@ -161,6 +161,7 @@ pub(super) struct BeyondEnvState {
     pub(super) behavior: FixtureBehavior,
     pub(super) net: Option<NetInvocationState>,
     pub(super) crypto: CryptoInvocationState,
+    pub(super) acquire: Option<AcquisitionInvocationState>,
     pub(super) limits: StoreLimits,
 }
 
@@ -334,6 +335,7 @@ fn try_start_beyond_env_fixture(
             behavior,
             net: net_state,
             crypto: crypto_state,
+            acquire: None,
             limits: beyond_env_limits(),
         },
     );
@@ -671,6 +673,7 @@ impl ActiveBeyondEnvInvocation {
             .as_mut()
             .expect("active beyond-env store missing");
         let behavior = store.data().behavior;
+        let _ = finish_acquire_resources(store.data_mut());
         let crypto_zeroized = finish_crypto_resources(store.data_mut());
         let net_terminal = finish_net_resources(store, now_ms);
         finish_store(store, outcome);
@@ -781,6 +784,7 @@ impl ActiveBeyondEnvInvocation {
 impl Drop for ActiveBeyondEnvInvocation {
     fn drop(&mut self) {
         if let Some(store) = self.store.as_mut() {
+            let _ = finish_acquire_resources(store.data_mut());
             let _ = finish_crypto_resources(store.data_mut());
             let _ = finish_net_resources(store, runtime_now_ms());
             if store
@@ -797,6 +801,12 @@ impl Drop for ActiveBeyondEnvInvocation {
 
 pub(super) fn finish_store(store: &mut Store<BeyondEnvState>, outcome: TerminalOutcome) {
     store.data_mut().lifecycle.teardown(outcome);
+}
+
+pub(super) fn link_acquire_fixture(linker: &mut Linker<BeyondEnvState>) -> Result<(), LinkerError> {
+    linker.func_wrap("acquire", "chunk_accept", host_acquire_chunk_accept)?;
+    linker.func_wrap("acquire", "finalize", host_acquire_finalize)?;
+    Ok(())
 }
 
 pub(super) fn check_crypto_call_boundary(
