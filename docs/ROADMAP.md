@@ -70,18 +70,22 @@ exactly-once teardown across eight exit paths, second-run-after-kill release pro
 shadow-20260714-130148-25792.json 162/162 first-run — generation-checked singleton TCP
 lease guards every entry point, native OpenAI claims/releases it centrally (the old
 unowned submit-time tcp_abort is gone), one-step non-blocking ops ready for the NET-4
-pump; tls_io's synchronous polling is retained as NAMED DEBT, not W7 proof. **NET-4 is DONE and verified**: m11-net-imports (-Network)
-shadow-20260714-133923-17376.json 183/183 first-run — the four net.* shims are real
-suspension points driven by the pump over the NET-3 lease, proven with REAL bytes
-(DNS-over-TCP to slirp 10.0.2.3:53, answer read by the guest after resume), silent-peer
-timeout, F12-kill-before-timeout, denial-before-instantiation for net.*-requesting
-signed modules, and the carried central wasm_execution_busy reentrancy gate over every
-execution entry. NET BLOCK CLOSE evidence is next (quick -Network, m8-lifeline, full,
-recovery), then the MANDATORY wasm_runtime.rs readability split (4,597 lines,
-approaching the 5,000 hard cap) BEFORE NET-5 crypto sessions. Slices remaining in the
-lane: 5 (opaque TLS crypto imports), 6 (acquire.* seam), 7 (signed acquisition
-service), 8 (OWNER-GATED arming diff), 9 (W7 denial matrix). The hardware cursor is
-unchanged and Surface-gated (G7 read-only stick preflight, WiFi
+pump; tls_io's synchronous polling is retained as NAMED DEBT, not W7 proof. **NET-4 is DONE**: m11-net-imports (-Network) shadow-20260714-133923-17376.json 183/183 —
+the four net.* shims are real suspension points driven by the pump over the NET-3 lease,
+proven with REAL bytes (DNS-over-TCP to slirp 10.0.2.3:53, answer read by the guest after
+resume), silent-peer timeout, F12-kill-before-timeout, denial-before-instantiation for
+net.*-requesting signed modules, plus the central wasm_execution_busy reentrancy gate.
+**THE NET FOUNDATION BLOCK (slices 1-4) IS VERIFIED-CLOSED**: quick -Network
+shadow-20260714-135736-9236.json + m8-lifeline shadow-20260714-135959-18000.json + FULL
+shadow-20260714-140106-6508.json (2,685/0) + RECOVERY shadow-20260714-140417-27588.json
+(152). The close also exposed and fixed THREE stale quick-profile expectations left by P4
+slices that rewrote the profile from its manifest and never ran it — kernel right, needles
+wrong, each fix made stricter; the resulting process rule is in PROJECT_STATUS and
+docs/DEBUGGING.md. NEXT, IN ORDER: (a) the MANDATORY wasm_runtime.rs readability split
+(4,597 lines, closing on the 5,000 hard cap) BEFORE more behavior lands there; then (b)
+NET-5 opaque TLS crypto imports, (c) NET-6 acquire.* seam, (d) NET-7 signed acquisition
+service, (e) NET-8 the OWNER-GATED arming diff, (f) NET-9 the W7 denial matrix. The
+hardware cursor is unchanged and Surface-gated (G7 read-only stick preflight, WiFi
 association/PORT_RELEASE/RX-TX/DHCP proof, ownerkey TPM capture).
 
 **P4 EVIDENCE-VOCABULARY-V1 IS CLOSED — BOTH HALVES (2026-07-13 ~23:15).** I once called

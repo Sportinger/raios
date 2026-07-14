@@ -24,6 +24,56 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+NET FOUNDATION BLOCK (slices 1-4) VERIFIED-CLOSED (2026-07-14). The whole resumable
+beyond-env substrate is built and grants NOTHING: NET-1 ABI + evidence-bound evaluator
+(ab48f50), NET-2R resumable invocations with a proven physical F12 kill (f0fa040), NET-3
+generation-checked singleton TCP lease (2c9fa81), NET-4 the four net.* shims as real
+suspension points (daa5cca). BLOCK-CLOSE EVIDENCE, all green: quick -Network
+shadow-20260714-135736-9236.json + m8-lifeline shadow-20260714-135959-18000.json + FULL
+shadow-20260714-140106-6508.json (2,685 predicates, 0 failed — unchanged from the P4/M11-9
+baseline, so no coverage collapse) + RECOVERY shadow-20260714-140417-27588.json (152), on
+top of each slice's own focused profile (m11-wasm-import-grant 
+shadow-20260714-114527-24812.json, m11-beyond-env-lifecycle shadow-20260714-123624-28556.json
+183/183, m11-net-imports shadow-20260714-133923-17376.json 183/183). 569 raios-core host
+tests. policy_allows_beyond_env is still false EVERYWHERE; no production service can link a
+net.* import; the arming diff is slice 8 and belongs to the owner. NEXT, IN ORDER: (a) the
+MANDATORY wasm_runtime.rs readability split (4,597 lines / 162,590 B — WARN tier, closing on
+the 5,000-line hard cap; the suspension/pump/shim surfaces are the natural cut), then (b)
+NET-5 opaque TLS crypto imports, (c) NET-6 acquire.* seam, (d) NET-7 signed acquisition
+service, (e) NET-8 OWNER-GATED arming, (f) NET-9 W7 denial matrix.
+
+PROCESS RULE ADDED (2026-07-14) — A SLICE THAT REWRITES A PROFILE'S EXPECTATIONS MUST RUN
+THAT PROFILE. The NET block close ran `quick -Network` for the first time since 2026-07-13
+16:00 and found THREE stale expectations, none of them caused by the NET work. All three
+were authored by P4 slices that rewrote quick's hello block from the SEMANTIC MANIFEST and
+then closed on full+recovery+persistence only — quick was never executed, so the new
+expectations were never confronted with real output. In every case the KERNEL was right and
+the needle was wrong; each fix was made STRICTER, never looser:
+1. `quick:hello_hot_swap_external_denied_event_id` (from P4-9b, 7b63ff6, 20:16): the GENERIC
+   capability_denial moved to `raios.evidence_response.v1` — event_id is top-level, code sits
+   under facts — while the profile still read the v0 `.body`. NOTE the subtlety: the SAME
+   method (`service.hot_swap`) answers in TWO shapes depending on which denial fires (the
+   hello-family reset denial still renders the v0 body envelope). Fix reads each in its own
+   shape and now ALSO asserts schema, family, decision.outcome, and that the denial grants
+   nothing (empty grants/effects).
+2. `quick:hello_health_after_rollback_preview` (from P4-6b2, 0554619, 18:41): health after a
+   hot-swap honestly carries `state_migration` evidence — state_machine.rs clears the
+   migration only on load/start/restart/stop/drop, never on a probe. The expectation said no
+   migration. FIXED to expect it. (My first attempt ALSO flipped the post-rollback-apply
+   health to expect a migration — that was WRONG and the VM caught me: after rollback_apply
+   the response reports `migration: null`, because the migration was UNDONE. Claiming one
+   would have been a lie. Reverted, with the reason taken from OBSERVED output rather than a
+   code reading.)
+3. `quick:hello_host_bound_load` + host-bound health/stop/drop (same P4-6b2): the host-bound
+   descriptor source is deliberately HASH-BOUND and UNSIGNED (signature hash is all zeroes),
+   so its evidence status is honestly `rejected` — but the generic v1 assertion helper demands
+   `verified` for every case. The helper now takes an explicit `ExpectDescriptorStatus`
+   (default `verified`, host-bound `rejected`), and the pre-P4 invariant is restored AND
+   sharpened: the profile now asserts the all-zero signature hash, i.e. that this path cannot
+   silently become a signed artifact-loader path.
+EVIDENCE: quick -Network shadow-20260714-135736-9236.json PASSED; m8-lifeline
+shadow-20260714-135959-18000.json PASSED.
+
 NET-4 NET.* SHIMS AS SUSPENSION POINTS VERIFIED (2026-07-14, still ungrantable):
 m11-net-imports (-Network) shadow-20260714-133923-17376.json PASSED 183/183 on the
 first run. The four pre-bound shims are real now: tcp_open/tcp_send/tcp_recv validate

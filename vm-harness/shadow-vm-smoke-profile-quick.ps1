@@ -1409,7 +1409,12 @@
                 [bool]$BeforeLoaded, [bool]$BeforeRunning, [uint64]$BeforeCounter,
                 [bool]$AfterLoaded, [bool]$AfterRunning, [uint64]$AfterCounter,
                 [string]$BeforeSlot, [string]$AfterSlot, [string]$InventoryChange,
-                [bool]$ExpectMigration = $false, [bool]$ExpectHealth = $false)
+                [bool]$ExpectMigration = $false, [bool]$ExpectHealth = $false,
+                # The repo-attested descriptor source is signature-verified; the HOST-BOUND
+                # source is deliberately hash-bound and UNSIGNED, so its evidence status is
+                # "rejected". That is the honest answer, not a defect — see the signature-hash
+                # assertion at the host-bound load below.
+                [string]$ExpectDescriptorStatus = "verified")
             Assert-CurrentBootEventId -Name "$Name event_id" -Value $Response.event_id
             if ($Response.schema -ne "raios.evidence_response.v1" -or $Response.family -ne $Family -or $Response.scope -ne "current_boot" -or $Response.classification -ne "local_only") { throw "Expected $Name evidence-v1 envelope" }
             if ($Response.facts.action -ne $Action -or $Response.facts.service_id -ne "svc.demo.hello") { throw "Expected $Name action/service facts" }
@@ -1426,7 +1431,7 @@
             $slot = Get-HelloLifecycleEvidence $Response "service_slot"
             $inventory = Get-HelloLifecycleEvidence $Response "inventory_change"
             $transition = Get-HelloLifecycleEvidence $Response "state_transition"
-            if ($descriptor.status -ne "verified" -or $artifact.status -ne "verified" -or -not $descriptor.facts.descriptor_hash.StartsWith("sha256:") -or -not $descriptor.facts.signature_hash.StartsWith("sha256:") -or -not $descriptor.facts.attestation_hash.StartsWith("sha256:")) { throw "Expected $Name verified descriptor hashes" }
+            if ($descriptor.status -ne $ExpectDescriptorStatus -or $artifact.status -ne "verified" -or -not $descriptor.facts.descriptor_hash.StartsWith("sha256:") -or -not $descriptor.facts.signature_hash.StartsWith("sha256:") -or -not $descriptor.facts.attestation_hash.StartsWith("sha256:")) { throw "Expected $Name descriptor status '$ExpectDescriptorStatus' with bound hashes" }
             if (-not $artifact.facts.artifact_hash.StartsWith("sha256:") -or -not $artifact.facts.content_binding_hash.StartsWith("sha256:") -or -not $artifact.facts.reference_hash.StartsWith("sha256:") -or -not $artifact.facts.bytes_hash.StartsWith("sha256:") -or -not $artifact.facts.signature_hash.StartsWith("sha256:")) { throw "Expected $Name verified artifact hashes" }
             if ($slot.facts.before_status -ne $BeforeSlot -or $slot.facts.after_status -ne $AfterSlot -or $slot.facts.active -ne $AfterLoaded) { throw "Expected $Name service-slot transition" }
             if ($inventory.facts.change -ne $InventoryChange -or $inventory.facts.present_before -ne $BeforeLoaded -or $inventory.facts.present_after -ne $AfterLoaded) { throw "Expected $Name inventory transition" }
@@ -1494,8 +1499,14 @@
 
         Send-AgentCommand -Command "service.hot_swap external:svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.hot_swap"
         $badHelloHotSwap = Get-LastAgentResponseJson -Method "service.hot_swap"
-        Assert-CurrentBootEventId -Name "quick:hello_hot_swap_external_denied_event_id" -Value $badHelloHotSwap.body.event_id
-        if ($badHelloHotSwap.body.code -ne "capability_denied") { throw "Expected external hot swap denial" }
+        # P4-9b (7b63ff6) moved the GENERIC capability_denial onto raios.evidence_response.v1:
+        # event_id is top-level, code lives under facts, the verdict under decision. The
+        # hello-FAMILY denial above (reset_state) still renders the v0 body envelope — same
+        # method, two shapes, chosen by which denial fires. Read each in its own shape.
+        Assert-CurrentBootEventId -Name "quick:hello_hot_swap_external_denied_event_id" -Value $badHelloHotSwap.event_id
+        if ($badHelloHotSwap.schema -ne "raios.evidence_response.v1" -or $badHelloHotSwap.family -ne "system.capability_denial") { throw "Expected the external hot swap denial on the v1 evidence envelope" }
+        if ($badHelloHotSwap.facts.code -ne "capability_denied" -or $badHelloHotSwap.decision.outcome -ne "denied") { throw "Expected external hot swap denial" }
+        if (@($badHelloHotSwap.decision.grants).Count -ne 0 -or @($badHelloHotSwap.decision.effects).Count -ne 0) { throw "A denial must grant nothing" }
 
         Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
         $helloHealthAfterBadHotSwap = Get-LastAgentResponseJson -Method "service.health"
@@ -1538,7 +1549,10 @@
 
         Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
         $helloHealthAfterRollbackPreview = Get-LastAgentResponseJson -Method "service.health"
-        $e = Assert-HelloLifecycleV1 "quick:hello_health_after_rollback_preview" $helloHealthAfterRollbackPreview "hello.health" "health" "health_performed" $true $true 3 $true $true 3 $HelloServiceSlotActivationActiveStatus $HelloServiceSlotActivationActiveStatus "none" $false $true
+        # ExpectMigration=$true: a hot-swap ran above, and state_machine.rs clears
+        # state_migration only on load/start/restart/stop/drop — a health probe does not.
+        # So health after the hot-swap honestly carries the migration evidence.
+        $e = Assert-HelloLifecycleV1 "quick:hello_health_after_rollback_preview" $helloHealthAfterRollbackPreview "hello.health" "health" "health_performed" $true $true 3 $true $true 3 $HelloServiceSlotActivationActiveStatus $HelloServiceSlotActivationActiveStatus "none" $true $true
         $helloHealthAfterRollbackPreviewStateHash = $e.transition.facts.after.state_hash
         if ($e.transition.facts.after.version -ne "v2" -or $e.transition.facts.after.generation -ne $helloHotSwapV2Generation) {
             throw "Expected rollback preview to leave the active v2 service unchanged"
@@ -1624,6 +1638,10 @@
 
         Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
         $helloHealthAfterRollbackApply = Get-LastAgentResponseJson -Method "service.health"
+        # ExpectMigration=$false, and this is observed, not assumed: after rollback_apply the
+        # health probe reports migration=null and emits no state_migration evidence — the
+        # migration was UNDONE, so claiming one would be a lie. (Contrast the preview above,
+        # where the hot-swap migration is still in effect.)
         $e = Assert-HelloLifecycleV1 "quick:hello_health_after_rollback_apply" $helloHealthAfterRollbackApply "hello.health" "health" "health_performed" $true $true 3 $true $true 3 $HelloServiceSlotActivationActiveStatus $HelloServiceSlotActivationActiveStatus "none" $false $true
         $helloHealthAfterRollbackApplyStateHash = $e.transition.facts.after.state_hash
         if ($e.transition.facts.after.version -ne "v1" -or $e.transition.facts.after.generation -ne $helloHotSwapGeneration -or $helloHealthAfterRollbackApplyStateHash -ne $helloHotSwapStateHash) { throw "Expected rollback apply to restore previous-good v1 and preserve state" }
@@ -1648,12 +1666,21 @@
 
         Send-AgentCommand -Command "module.load_ephemeral host_bound:svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral"
         $hostHelloLoad = Get-LastAgentResponseJson -Method "module.load_ephemeral"
-        $e = Assert-HelloLifecycleV1 "quick:hello_host_bound_load" $hostHelloLoad "hello.lifecycle" "load" "load_performed" $false $false 0 $true $true 1 $HelloServiceSlotActivationClearedStatus $HelloServiceSlotActivationActiveStatus "upserted_current_boot_service"
+        $e = Assert-HelloLifecycleV1 "quick:hello_host_bound_load" $hostHelloLoad "hello.lifecycle" "load" "load_performed" $false $false 0 $true $true 1 $HelloServiceSlotActivationClearedStatus $HelloServiceSlotActivationActiveStatus "upserted_current_boot_service" $false $false "rejected"
         $hostDescriptorHash = $e.descriptor.facts.descriptor_hash
         $hostDescriptorLocator = $e.descriptor.facts.source_locator
         $hostDescriptorKind = $e.descriptor.facts.source_kind
         if ($hostDescriptorHash -eq $helloDescriptorHash -or $e.descriptor.facts.bound_source_hash -ne $helloDescriptorHash -or $e.artifact.facts.artifact_hash -ne $helloArtifactIdentityHash) {
             throw "Expected host-bound descriptor with the same verified artifact"
+        }
+        # Pre-P4 invariant, preserved: the host-bound source must remain HASH-BOUND, never a
+        # signed artifact-loader path. An all-zero signature hash is what "unsigned" looks like
+        # in the v1 evidence, and it is exactly why the descriptor status reads "rejected".
+        if ($e.descriptor.facts.signature_hash -ne "sha256:$('0' * 64)") {
+            throw "Host-bound descriptor source must stay hash-bound (unsigned), not a signed loader path"
+        }
+        if ($e.descriptor.facts.source_locator -ne "host_build.descriptor_source.svc.demo.hello.v0" -or $e.descriptor.facts.source_kind -ne "host_bound_descriptor_source") {
+            throw "Expected the host-bound descriptor to cite its host-produced source locator and kind"
         }
 
         Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory"
@@ -1666,16 +1693,16 @@
 
         Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
         $hostHealthRunning = Get-LastAgentResponseJson -Method "service.health"
-        $e = Assert-HelloLifecycleV1 "quick:hello_host_bound_health" $hostHealthRunning "hello.health" "health" "health_performed" $true $true 1 $true $true 1 $HelloServiceSlotActivationActiveStatus $HelloServiceSlotActivationActiveStatus "none" $false $true
+        $e = Assert-HelloLifecycleV1 "quick:hello_host_bound_health" $hostHealthRunning "hello.health" "health" "health_performed" $true $true 1 $true $true 1 $HelloServiceSlotActivationActiveStatus $HelloServiceSlotActivationActiveStatus "none" $false $true "rejected"
         if ($e.descriptor.facts.descriptor_hash -ne $hostDescriptorHash -or $e.descriptor.facts.bound_source_hash -ne $helloDescriptorHash -or $e.health.facts.status_detail -ne "healthy") { throw "Expected healthy host-bound response evidence" }
 
         Send-AgentCommand -Command "service.stop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.stop"
         $hostStop = Get-LastAgentResponseJson -Method "service.stop"
-        $e = Assert-HelloLifecycleV1 "quick:hello_host_bound_stop" $hostStop "hello.lifecycle" "stop" "stop_performed" $true $true 1 $true $false 1 $HelloServiceSlotActivationActiveStatus $HelloServiceSlotActivationStoppedStatus "updated_current_boot_service"
+        $e = Assert-HelloLifecycleV1 "quick:hello_host_bound_stop" $hostStop "hello.lifecycle" "stop" "stop_performed" $true $true 1 $true $false 1 $HelloServiceSlotActivationActiveStatus $HelloServiceSlotActivationStoppedStatus "updated_current_boot_service" $false $false "rejected"
 
         Send-AgentCommand -Command "service.drop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.drop"
         $hostDrop = Get-LastAgentResponseJson -Method "service.drop"
-        $e = Assert-HelloLifecycleV1 "quick:hello_host_bound_drop" $hostDrop "hello.lifecycle" "drop" "drop_performed" $true $false 1 $false $false 0 $HelloServiceSlotActivationStoppedStatus $HelloServiceSlotActivationClearedStatus "removed_current_boot_service"
+        $e = Assert-HelloLifecycleV1 "quick:hello_host_bound_drop" $hostDrop "hello.lifecycle" "drop" "drop_performed" $true $false 1 $false $false 0 $HelloServiceSlotActivationStoppedStatus $HelloServiceSlotActivationClearedStatus "removed_current_boot_service" $false $false "rejected"
 
          Send-AgentCommand -Command "agent audit.events 72" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
         Send-AgentCommand -Command "agent audit.events 72" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"

@@ -2002,6 +2002,36 @@ Important files:
 
 ## Known Failure Modes
 
+### A profile you rewrote from the design manifest fails the first time it actually runs
+
+Symptom: a profile that has not been executed for a while fails on expectations that a
+recent slice wrote — and the KERNEL turns out to be right every time. Hit 2026-07-14 on
+`quick -Network`, which had not run since 2026-07-13 16:00 while two P4 slices rewrote its
+hello block from the semantic manifest and closed on `full`+`recovery`+`persistence` only.
+
+Cause: expectations were derived from the DESIGN, not from observed output. Three drifted
+at once: the generic `capability_denial` moved to the v1 envelope (event_id top-level, code
+under `facts`) while the profile still read `.body`; health after a hot-swap honestly gained
+`state_migration` evidence; and the host-bound descriptor's honest `rejected` status
+(unsigned, hash-bound by design) was asserted as `verified`.
+
+Rules that follow:
+1. **A slice that rewrites a profile's expectations must RUN that profile in the same
+   slice.** `full` green is not a substitute — profiles do not overlap as much as they look.
+2. When a needle fails, get the ACTUAL response out of the serial log before touching the
+   needle. A code reading is not evidence: on this same day, reasoning from
+   `rollback_apply_verified(pre_apply_snapshot.state_migration, …)` produced the wrong
+   conclusion (that the migration survives rollback); the live response said
+   `migration: null`, because the rollback UNDID it.
+3. Batch-check before you re-run. One `quick` run costs minutes; grep every same-class needle
+   against one captured serial log instead of discovering them one boot at a time.
+4. A needle fix must be at least as strict as what it replaces. Each of the three fixes added
+   assertions (v1 schema/family/empty-grants; the all-zero signature hash proving the
+   host-bound path cannot become a signed loader path).
+5. Watch for ONE method answering in TWO shapes: `service.hot_swap` renders the v0 `body`
+   envelope for its hello-family denial and the v1 envelope for the generic one. Read each
+   response in its own shape; do not "fix" the helper to accept both.
+
 ### A service silently stops loading after you re-signed a descriptor (the BOM trap)
 
 Symptom: the build is GREEN, but in the VM a built-in service no longer loads. `module.load_ephemeral
