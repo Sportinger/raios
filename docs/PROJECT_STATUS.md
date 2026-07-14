@@ -24,6 +24,50 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+NET-5 + NET-5B OPAQUE TLS CRYPTO IMPORTS VERIFIED (2026-07-14, still ungrantable):
+m11-crypto-imports (-Network) shadow-20260714-154639-20396.json PASSED 187/187. The eight
+fixed crypto.* functions (TLS 1.3 / TLS_AES_128_GCM_SHA256 / P-256 ECDHE /
+ecdsa_secp256r1_sha256) run over the ALREADY PINNED sha2/p256/hkdf/aes-gcm — no
+hand-written primitive, no new dependency (Cargo.lock byte-identical). Keys live ONLY in
+a core-owned OpaqueSession: the guest holds an i32 handle, and every write into guest
+memory goes through one helper carrying PUBLIC bytes only (client_random+public point,
+digest, Finished proof, ciphertext, authenticated plaintext). Grep-verified: no private
+key, shared secret, HKDF secret, traffic key, IV or nonce crosses the boundary.
+THE SELF-BLESS GUARD, the security core of the lane: crypto.tls13_application_keys
+refuses to derive application traffic keys unless SIX CORE-RECORDED facts hold — correct
+state, non-zero transcript, CertificateVerify observed, math_valid, pin_match, AND server
+Finished observed+valid. The guest can trigger the calls; it cannot set a single one of
+those facts. math_valid and pin_match stay SEPARATE evidence fields, so "the signature is
+mathematically fine" can never be mistaken for "this is the server we pinned".
+32 distinct typed crypto denials are proven IN-GUEST, incl. crypto_guest_trust_self_
+assertion_denied, crypto_foreign_session, crypto_stale_session (after tcp_close bumps the
+slot generation), crypto_guest_memory_fault (OOB pointer), crypto_hash_input_too_large,
+crypto_output_too_small, crypto_invalid_finished_mode, crypto_sequence_exhausted,
+crypto_source_pin_mismatch and crypto_tag_authentication_failed.
+
+TWO ORCHESTRATOR CORRECTIONS worth recording, because both were real:
+1. KERNEL BLOAT REJECTED. The worker parsed the SPKI with p256's `pkcs8` feature. That
+   drags der + spki + base64ct (and PEM machinery) into the PERMANENT CORE — and the
+   build broke outright, because base64ct 1.8.3 needs edition 2024 / Rust 1.85, which
+   this toolchain cannot even parse. Fixed by using raiOS's OWN no-dep parser: added
+   `parse_p256_spki` to raios-x509-spki (the M11-8 relocation crate — standalone-SPKI
+   sibling of extract_p256_spki, same algorithm/point checks so a caller cannot get a
+   laxer parse by handing over the SPKI directly), and reduced p256 to features
+   ["ecdh","ecdsa"] — pure math, zero parser surface. `alloc` turned out to be
+   unnecessary too. This is the M11 doctrine holding: one parser, ours, host-tested.
+2. THE CRYPTO SHIMS WERE DEAD CODE. NET-5 defined all eight host functions and linked
+   them NOWHERE — only the pure raios-core session was exercised, so the KERNEL glue
+   (guest-memory bounds, handle/ownership checks, denial mapping, the writes themselves)
+   would have executed for the first time AT ARMING. NET-5B fixes it the NET-4 way: a
+   hand-assembled labeled fixture (785 bytes, 12 imports) whose Linker — and ONLY whose
+   Linker — receives the real crypto closures, driving the full sequence in-guest
+   (open -> sha256 -> handshake_keys -> p256_verify -> EARLY application-keys denial ->
+   finished verify -> application_keys -> finished produce -> aead_seal -> aead_open) and
+   guest-checking that the opened plaintext equals what was sealed.
+Host: 576 raios-core tests (RFC 8448-style key-schedule + record/state/sequence vectors) +
+5 raios-x509-spki. fmt, size gate, secret scan clean. policy_allows_beyond_env stays false
+EVERYWHERE; a signed module requesting crypto.* still denies BEFORE instantiation.
+
 WASM_RUNTIME SPLIT DONE (2026-07-14, pure move, zero behavior change). seed-kernel/src/
 wasm_runtime.rs (4,597 lines / 162,590 B — WARN tier, closing on the 5,000-line hard cap
 that NET-5 would have breached) is now a 7-file module: mod entry 76, artifacts 170,

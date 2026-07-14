@@ -84,10 +84,20 @@ wrong, each fix made stricter; the resulting process rule is in PROJECT_STATUS a
 docs/DEBUGGING.md. **The mandatory wasm_runtime.rs split is DONE** (pure move: 4,597 lines -> a 7-file module,
 largest 981; no caller outside changed, 107/107 external refs, 79/79 pub(crate) surface;
 vm-harness untouched, so the green m11-buffer-channel / m11-9-dnsparse /
-m11-beyond-env-lifecycle / m11-net-imports runs ARE the equivalence proof). NEXT, IN ORDER:
-(a) NET-5 opaque TLS crypto imports, (b) NET-6 acquire.* seam, (c) NET-7 signed acquisition
-service, (d) NET-8 the OWNER-GATED arming diff, (e) NET-9 the W7 denial matrix. The
-hardware cursor is unchanged and Surface-gated (G7 read-only stick preflight, WiFi
+m11-beyond-env-lifecycle / m11-net-imports runs ARE the equivalence proof). **NET-5 + NET-5B are DONE and verified**: m11-crypto-imports (-Network)
+shadow-20260714-154639-20396.json 187/187 — the eight fixed crypto.* imports run over the
+pinned primitives with keys in a core-owned opaque session (only public bytes ever reach
+guest memory), driven end-to-end by a labeled fixture whose linker alone receives them,
+with 32 typed denials proven in-guest. The self-bless guard holds: application traffic
+keys require six CORE-recorded facts (state, transcript, CertificateVerify observed,
+math_valid, pin_match, server Finished valid) — a guest can trigger calls but cannot set
+one of them. Two orchestrator corrections are recorded in PROJECT_STATUS: p256's `pkcs8`
+feature was dragging der/spki/base64ct+PEM into the permanent core (replaced by
+raios-x509-spki::parse_p256_spki — our own no-dep parser; p256 is now math-only), and the
+eight shims had been DEAD CODE (linked nowhere, so the kernel glue would have first run at
+arming). NEXT, IN ORDER: (a) NET-6 acquire.* seam, (b) NET-7 signed acquisition service,
+(c) NET-8 the OWNER-GATED arming diff, (d) NET-9 the W7 denial matrix. The hardware cursor
+is unchanged and Surface-gated (G7 read-only stick preflight, WiFi
 association/PORT_RELEASE/RX-TX/DHCP proof, ownerkey TPM capture).
 
 **P4 EVIDENCE-VOCABULARY-V1 IS CLOSED — BOTH HALVES (2026-07-13 ~23:15).** I once called

@@ -94,6 +94,22 @@ pub fn extract_p256_spki(cert_der: &[u8]) -> Option<P256Spki<'_>> {
     tbs_reader.read_tlv(0x30)?;
 
     let spki = tbs_reader.read_tlv(0x30)?;
+    parse_spki_tlv(spki)
+}
+
+/// Parses a STANDALONE SubjectPublicKeyInfo DER (not a full certificate) and
+/// returns the uncompressed P-256 point. Same algorithm/point checks as the
+/// certificate path, so a caller cannot get a laxer parse by handing over the
+/// SPKI directly.
+///
+/// This exists so the permanent core never needs a second SPKI parser: the
+/// alternative, p256's `pkcs8` feature, drags `der`/`base64ct` (and its PEM
+/// machinery) into the kernel to do what this no-dep crate already does.
+pub fn parse_p256_spki(spki_der: &[u8]) -> Option<P256Spki<'_>> {
+    parse_spki_tlv(read_single_tlv(spki_der, 0x30)?)
+}
+
+fn parse_spki_tlv(spki: DerTlv<'_>) -> Option<P256Spki<'_>> {
     let mut spki_reader = DerReader::new(spki.value);
     let algorithm = spki_reader.read_tlv(0x30)?;
     if !algorithm_is_p256_ec(algorithm.value) {

@@ -153,8 +153,8 @@ use crate::{
     agent_protocol_wasm::{
         emit_submit_candidate_chunk, emit_submit_candidate_finalize, emit_transport_lease_probe,
         emit_wasm_beyond_env_lifecycle_probe, emit_wasm_bufecho_probe, emit_wasm_certspki_probe,
-        emit_wasm_certwindow_probe, emit_wasm_dnsparse_probe, emit_wasm_echo_probe,
-        emit_wasm_httphead_probe,
+        emit_wasm_certwindow_probe, emit_wasm_crypto_import_probe, emit_wasm_dnsparse_probe,
+        emit_wasm_echo_probe, emit_wasm_httphead_probe,
     },
     echo_service, event_log, granted_candidate_service, hello_service, memory_store, ui,
     workspace_candidate_service,
@@ -429,6 +429,7 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("wasm.certspki_probe", Exact, [], [route!("wasm.certspki_probe")], MethodAction::Read0(emit_wasm_certspki_probe)),
     method!("wasm.dnsparse_probe", Exact, [], [route!("wasm.dnsparse_probe")], MethodAction::Read0(emit_wasm_dnsparse_probe)),
     method!("wasm.beyond_env_lifecycle_probe", Head, [], [route!("wasm.beyond_env_lifecycle_probe")], MethodAction::ReadMethod(emit_wasm_beyond_env_lifecycle_probe)),
+    method!("wasm.crypto_import_probe", Exact, [], [route!("wasm.crypto_import_probe")], MethodAction::Read0(emit_wasm_crypto_import_probe)),
     method!("network.transport_lease_probe", Head, [], [route!("network.transport_lease_probe")], MethodAction::ReadMethod(emit_transport_lease_probe)),
     method!("ui.personal_shell_proof", Head, [], [route!("ui.personal_shell_proof")], MethodAction::ReadMethod(emit_personal_shell_proof)),
     method!("echo.invoke_fuel_starved", Exact, [], [route!("echo.invoke_fuel_starved")], MethodAction::Read0(echo_service::emit_invoke_fuel_starved)),

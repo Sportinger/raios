@@ -1025,6 +1025,162 @@ pub(crate) fn emit_wasm_beyond_env_lifecycle_probe(method: &str) {
     end_response("wasm.beyond_env_lifecycle_probe");
 }
 
+pub(crate) fn emit_wasm_crypto_import_probe() {
+    let started_ms = crate::time::rdtsc() / crate::time::tsc_per_ms().max(1);
+    let vectors = wasm_runtime::crypto_shim_probe_snapshot();
+    let host_vector_wall_ms =
+        (crate::time::rdtsc() / crate::time::tsc_per_ms().max(1)).saturating_sub(started_ms);
+    let grant = wasm_runtime::crypto_shim_grant_probe();
+    let denial_names = vectors.typed_denials.map(|denial| denial.as_str());
+    let before = wasm_runtime::crypto_fixture_probe_snapshot();
+    let fixture_request_status = if before.active || before.complete {
+        "status"
+    } else {
+        match before.next_request {
+            "positive_and_negatives" => wasm_runtime::request_beyond_env_fixture(
+                wasm_runtime::BeyondEnvFixtureRequest::CryptoPositiveAndNegatives,
+            ),
+            "guest_memory_fault" => wasm_runtime::request_beyond_env_fixture(
+                wasm_runtime::BeyondEnvFixtureRequest::CryptoGuestMemoryFault,
+            ),
+            "foreign_session" => wasm_runtime::request_beyond_env_fixture(
+                wasm_runtime::BeyondEnvFixtureRequest::CryptoForeignSession,
+            ),
+            _ => "status",
+        }
+    };
+    let fixture = wasm_runtime::crypto_fixture_probe_snapshot();
+
+    begin_response("wasm.crypto_import_probe");
+    emit_record_fields(
+        vec![
+            f("schema", s("raios.wasm_crypto_import_probe.v0")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("method", s("wasm.crypto_import_probe")),
+            f("test_infrastructure", b(true)),
+            f("service_id", s("test.fixture.crypto_shims.signed")),
+            f("fixture_linker_scope", s("labeled_crypto_fixture_only")),
+            f("fixture_request_status", s(fixture_request_status)),
+            f("fixture_task_status", s(fixture.request_status)),
+            f("fixture_active", b(fixture.active)),
+            f("fixture_scenario", s(fixture.scenario)),
+            f("fixture_complete", b(fixture.complete)),
+            f(
+                "in_guest_positive_sequence_complete",
+                b(fixture.positive_sequence_complete),
+            ),
+            f(
+                "sealed_opened_roundtrip",
+                b(fixture.sealed_opened_roundtrip),
+            ),
+            f("fixture_math_valid", b(fixture.math_valid)),
+            f("fixture_pin_match", b(fixture.pin_match)),
+            f(
+                "fixture_server_finished_valid",
+                b(fixture.server_finished_valid),
+            ),
+            f("fixture_session_zeroized", b(fixture.session_zeroized)),
+            f(
+                "in_guest_call_evidence",
+                V::InlineArray(
+                    fixture.events[..fixture.event_count]
+                        .iter()
+                        .map(record_crypto_shim_call)
+                        .collect(),
+                ),
+            ),
+            f("host_import_abi", s("raios.host_imports.v1")),
+            f(
+                "requested_crypto_import_count",
+                V::U64(grant.requested_import_count),
+            ),
+            f(
+                "per_call_outcomes",
+                record_static_str_array(&vectors.import_outcomes),
+            ),
+            f(
+                "all_eight_host_vectors_positive",
+                b(vectors.all_eight_positive),
+            ),
+            f(
+                "rfc8448_key_schedule_valid",
+                b(vectors.rfc8448_key_schedule_valid),
+            ),
+            f("record_framing_valid", b(vectors.record_framing_valid)),
+            f("state_machine_valid", b(vectors.state_machine_valid)),
+            f("sequence_rules_valid", b(vectors.sequence_rules_valid)),
+            f(
+                "foreign_stale_state_size_negatives",
+                b(vectors.foreign_stale_state_size_negatives),
+            ),
+            f(
+                "core_negative_vectors_positive",
+                b(vectors.core_negative_vectors_positive),
+            ),
+            f(
+                "tag_failure_preserved_receive_sequence",
+                b(vectors.tag_failure_preserved_sequence),
+            ),
+            f(
+                "public_output_sha256",
+                record_sha(vectors.public_output_sha256),
+            ),
+            f(
+                "hello_transcript_sha256",
+                record_sha(vectors.hello_transcript_sha256),
+            ),
+            f(
+                "application_transcript_sha256",
+                record_sha(vectors.application_transcript_sha256),
+            ),
+            f("spki_sha256", record_sha(vectors.spki_sha256)),
+            f("verify_message_sha256", record_sha(vectors.message_sha256)),
+            f("signature_sha256", record_sha(vectors.signature_sha256)),
+            f("math_valid", b(vectors.math_valid)),
+            f("pin_match", b(vectors.pin_match)),
+            f("server_finished_valid", b(vectors.server_finished_valid)),
+            f(
+                "trust_label_granted_by_guest",
+                b(vectors.trust_label_granted_by_guest),
+            ),
+            f("transition_count", V::U64(vectors.transition_count as u64)),
+            f("final_state", s(vectors.final_state)),
+            f("send_sequence", V::U64(vectors.send_sequence)),
+            f("receive_sequence", V::U64(vectors.receive_sequence)),
+            f("typed_denials", record_static_str_array(&denial_names)),
+            f("denied_artifact_sha256", record_sha(grant.artifact_sha256)),
+            f(
+                "denied_import_list_sha256",
+                record_sha(grant.import_list_sha256),
+            ),
+            f("policy_denial_reason", s(grant.denial_reason)),
+            f(
+                "denied_before_instantiation",
+                b(grant.denied_before_instantiation),
+            ),
+            f("crypto_calls_suspend", b(false)),
+            f("synchronous_wall_limit_ms", V::U64(25)),
+            f("host_vector_wall_ms", V::U64(host_vector_wall_ms)),
+            f(
+                "opaque_session_zeroized_after_vectors",
+                b(vectors.session_zeroized),
+            ),
+            f("private_material_guest_writes", V::U64(0)),
+            f("policy_allows_beyond_env", b(false)),
+            f("production_linker_armed", b(false)),
+            f("production_crypto_shim_call_count", V::U64(0)),
+            f("owner_sealed", b(false)),
+            f("authority_tier", s("dev_key_not_owner_sealed")),
+            f("capability_granted", b(false)),
+            f("durable_effect", b(false)),
+            f("evidence_complete", b(true)),
+        ],
+        6,
+    );
+    end_response("wasm.crypto_import_probe");
+}
+
 pub(crate) fn emit_transport_lease_probe(method: &str) {
     let action = method.split_ascii_whitespace().nth(1);
     if let Some(action) = action {
@@ -1258,6 +1414,14 @@ fn run_dnsparse_case(payload: &[u8]) -> DnsparseCase {
         guest_matches_core,
         output_bytes_match,
     }
+}
+
+fn record_crypto_shim_call(call: &wasm_runtime::CryptoShimCallEvidence) -> V<'static> {
+    V::InlineObject(vec![
+        f("import", s(call.import)),
+        f("outcome", s(call.outcome)),
+        f("denial", s(call.denial)),
+    ])
 }
 
 fn record_dnsparse_case(case: &DnsparseCase) -> V<'static> {

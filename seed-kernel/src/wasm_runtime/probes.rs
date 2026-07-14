@@ -184,6 +184,7 @@ fn run_beyond_env_case(
             ),
             behavior,
             net: None,
+            crypto: crypto_shims::CryptoInvocationState::new(None),
             limits: beyond_env_limits(),
         },
     );

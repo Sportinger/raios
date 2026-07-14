@@ -45,6 +45,7 @@ use wasmi::{
 use crate::{net, serial};
 
 mod artifacts;
+mod crypto_shims;
 mod envelope;
 mod invocation;
 mod net_shims;
@@ -53,6 +54,10 @@ mod probes;
 mod suspension;
 
 pub(crate) use artifacts::*;
+pub(crate) use crypto_shims::{
+    crypto_fixture_probe_snapshot, crypto_shim_grant_probe, crypto_shim_probe_snapshot,
+    CryptoFixtureProbeSnapshot, CryptoShimCallEvidence, CryptoShimGrantProbe,
+};
 pub(crate) use envelope::{
     execute_module_bytes, execute_workspace_no_import_candidate, inspect_workspace_imports,
     EchoRunEvidence, NegativeRun, WorkspaceImportInspection,
