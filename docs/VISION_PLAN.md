@@ -1,160 +1,136 @@
 # raiOS Vision-Plan (All-over-Plan)
 
-Stand: 2026-07-15. Owner-Dokument, deutsch. Der operative Tages-Cursor bleibt in
-`docs/ROADMAP.md`; dieses Dokument ist die Landkarte darüber: von heute bis zur
-Vision, in ehrlichen Stufen. Es verspricht keine Termine und keine Magie.
+Stand: 2026-07-15 (v2 — nach Owner-Korrektur; v1 hatte fälschlich fertige
+Features wie Desktop/GPU als Bauaufträge geführt). Owner-Dokument, deutsch.
+Der operative Tages-Cursor bleibt in `docs/ROADMAP.md`.
 
-## 1. Die Vision in einem Satz
+## 1. Die Vision in einem Satz (korrigiert)
 
-> Ich sage raiOS in der Genesis-Shell, was es werden soll — und raiOS baut es
-> selbst: Der Agent schreibt echten Code, das System prüft, baut, signiert und
-> installiert ihn, und jede Stufe bleibt beweispflichtig, eingesperrt und von
-> mir physisch freigegeben.
+> raiOS ist ein maximal leichtes, kleines System, das — einmal mit dem
+> Internet verbunden — **aus sich selbst heraus** Programme bauen kann,
+> bis hin zu einem Desktop mit GPU-Unterstützung. Wir bauen NICHT diese
+> Programme. Wir bauen die perfekte Basis: den geschlossenen
+> Selbstbau-Kreislauf. Alles Weitere (wirklich alles Weitere) entsteht danach
+> DURCH raiOS — auf Bare Metal oder simuliert in QEMU.
+
+Desktop, GPU, Editor-Komfort usw. sind in diesem Plan also keine
+Arbeitspakete mehr, sondern **Beispiele für spätere Früchte des Kreislaufs**.
 
 ## 2. Was NIE verhandelt wird (die Verfassung)
 
-Diese fünf Regeln gelten auf jeder Stufe dieses Plans, sonst ist es nicht raiOS:
-
 1. **Beweis vor Behauptung.** Nichts gilt als fertig ohne grünen Beweis-Lauf.
-2. **Sandbox als Normalfall.** Programme und Dienste laufen eingesperrt (Wasm,
-   begrenzte Imports); Ausnahmen (Treiber) sind eigene, einzeln freigegebene
-   Projekte.
-3. **Physische Freigabe.** Kein Programm läuft, keine Installation geschieht
-   ohne echten Klick/Tastendruck des Owners auf dem Gerät.
-4. **Nachrechnen statt Vertrauen.** Werkzeuge (auch der Compiler!) bekommen kein
-   Vertrauen — ihre ERGEBNISSE werden reproduzierbar nachgeprüft
+2. **Sandbox als Normalfall.** Gewachsenes läuft eingesperrt (Wasm, begrenzte
+   Imports); privilegierte Stufen sind einzeln freigegebene Ausnahmen mit
+   eigener Beweis- und Rückroll-Pflicht.
+3. **Physische Freigabe.** Nichts läuft, nichts installiert sich ohne echten
+   Klick/Tastendruck des Owners am Gerät.
+4. **Nachrechnen statt Vertrauen.** Werkzeuge (auch der Compiler) bekommen
+   kein Vertrauen — ERGEBNISSE werden reproduzierbar nachgeprüft
    (Doppel-Build, Byte-Identität, Fingerabdrücke, Rollback).
-5. **Ehrliche Lücken.** Was fehlt, steht mit Namen in den Docs — nie hinter
-   einem Fallback versteckt.
+5. **Ehrliche Lücken.** Was fehlt, steht mit Namen in den Docs.
 
-## 3. Wo wir heute stehen (die kurze ehrliche Karte)
+## 3. Owner-Entscheidungen vom 2026-07-15 (bindend für diesen Plan)
 
-Existiert und ist bewiesen (Details/Reports: `docs/PROJECT_STATUS.md`):
+1. **Kern-Selbstumbau: JA, als Endstufe.** Der Kreislauf wächst stufenweise
+   (Programme → Dienste → zuletzt der Kern selbst über A/B-Boot-Slots mit
+   automatischem Rollback bei Fehlstart). Erst diese Endstufe macht Beispiele
+   wie einen GPU-Treiber durch die Schleife baubar.
+2. **Bauplatz: NUR AUF DEM GERÄT ZÄHLT.** Eine extern gesteuerte Bau-Maschine
+   ist KEINE Erfüllungsstufe der Vision. „raiOS baut aus sich selbst" gilt
+   erst, wenn der Compiler auf dem Gerät läuft. (Der Owner-Rechner bleibt
+   während der ENTWICKLUNG unser Werkstatt-Gerüst, um raiOS selbst zu bauen —
+   er zählt nur nicht als Teil des fertigen Kreislaufs.)
+3. **„Basis fertig"-Kriterium: der geschlossene Kreislauf in QEMU.** Ein vom
+   Agenten geschriebenes Programm durchläuft schreiben → beschaffen →
+   **auf dem Gerät bauen** → nachrechnen → Owner-Freigabe → installieren →
+   Reboot überleben → Rollback beweisbar, ohne Handarbeit dazwischen.
+   Derselbe Beweis auf dem Surface ist der zweite Meilenstein danach.
 
-- **Genesis-Shell** (kernbesessen, unaustauschbar) mit Sicherheits-Streifen,
-  F12-Notausgang, Recovery-Leine, Setup-Flüssen, deutscher Tastatur (Basis).
-- **Programm-Schnellspur:** begrenzte Programm-Sprache (RUIP) → lokale
-  Kompilierung → inerter Entwurf → physischer Klick → Sandbox-Lauf. Zwei echte
-  Programme: Taschenrechner, Text-Editor (2026-07-14, EDITOR-1).
-- **Code-Spur (W1–W6):** echter Quellcode → unveränderlich abgelegt →
-  reproduzierbar zu Wasm gebaut (extern, vermessen) → signiert → Klick →
-  dauerhafte Installation mit Autoload und automatischem Rollback.
-- **Netz-Fundament (NET-1..8):** eng geführte net./crypto./acquire.-Fähigkeiten
-  für Wasm-Dienste, F12-abbrechbar; Quarantäne-Download W7 scharfgeschaltet,
-  Live-Beweis noch offen (ehrlich dokumentiert).
-- **Gedächtnis/Recovery:** dauerhafte typisierte Records (M9), Recovery-Leine
-  (M8), Promotion/Rollback (M6/M7).
-- **Hardware:** Surface-Boot mit Framebuffer/USB/RNG; WiFi-Chip erkannt,
-  Treiber-Seitenstrang begonnen; USB-Stick-Persistenz (G7) Surface-gated offen.
+## 4. Das Produkt: der Kreislauf (Stationen + ehrlicher Status)
 
-## 4. Die sechs Säulen bis zur Vision
+| # | Station | Status heute |
+|---|---------|--------------|
+| 1 | Owner fragt in Genesis („bau mir …") | Schnellspur (RUIP) existiert; Slow-Lane-Auftrag → Workspace FEHLT |
+| 2 | Agent schreibt Quellcode ins System (W1-Workspace, inert) | Workspace existiert (seriell/Owner-Pfad); KI-Anbindung FEHLT |
+| 3 | Beschaffung (Abhängigkeiten, Quarantäne) | W7 scharf, Live-Beweis OFFEN; Registry-Vertrauen (M12) später |
+| 4 | **Bauen AUF DEM GERÄT** | FEHLT — heute extern-versiegelt (W4, zählt als Gerüst, nicht als Erfüllung) |
+| 5 | Nachrechnen (Repro-Doppel-Build, Fingerabdrücke) | Existiert (extern bewiesen); On-Device-Variante folgt mit Station 4 |
+| 6 | Physische Freigabe | Existiert, bewiesen |
+| 7 | Installieren, Autoload, Reboot-Überleben | Existiert (W6) für Projekt-Apps; Anschluss der RUIP-Programme FEHLT |
+| 8 | Automatisches Rollback | Existiert, bewiesen |
+| 9 | ENDSTUFE: Stationen 2–8 für den KERN selbst (A/B-Slots) | Embryo vorhanden (Core-Policy-Slots A/B); Vollausbau FEHLT |
 
-Jede Säule wächst im bewährten Slice-Verfahren (Scope-Doc → Worker-Pakete →
-fokussierter Beweis-Lauf → Block-Close mit full+recovery). Reihenfolge in §5.
+## 5. Der Weg zur fertigen Basis (Blöcke in Reihenfolge)
 
-### Säule P1 — Programme & Oberfläche
-Vom Einzelprogramm zum Desktop (ohne GPU-Zwang):
-- P1.1 **Programm-Persistenz:** freigegebene Programm-Entwürfe an die
-  vorhandene W6-Install-Maschinerie anschließen (Editor überlebt Reboot).
-  *Kleinster nächster Schritt, vom Owner bereits erfragt.*
-- P1.2 **Editor-Komfort:** Cursor-Navigation (Pfeile), Umlaute/AltGr,
-  mehrere Textfelder.
-- P1.3 **Fenster-Desktop v1:** mehrere Programme gleichzeitig sichtbar,
-  Fenster-Verwalter im Kern (Genesis bleibt Hausherr; Programme bekommen
-  Flächen statt Vollbild), Task-Leiste, Programm-Wechsel per Taste.
-- P1.4 **Programm-zu-Programm-Daten** (bounded, typed, owner-sichtbar) —
-  erst wenn echte Programme es brauchen.
+**B1 — Beschaffung schließen (nah):**
+- B1.1 W7-Download live beweisen (Dispatch-Bug, echter Server; war schon
+  geplanter Block).
+- B1.2 Heruntergeladenen Kandidaten durch die EXISTIERENDE M6/W6-Maschinerie
+  führen (laufen + installieren; kein zweiter Weg).
+- B1.3 RUIP-Programme an W6 anschließen (Programm-Persistenz — kleine,
+  bereits erfragte Schleifen-Station 7).
 
-### Säule P2 — Selbstversorgung (Beschaffung)
-Das System besorgt sich Code-Kandidaten selbst — in Quarantäne:
-- P2.1 **W7 live beweisen:** der scharfgeschaltete Download lädt real
-  (Dispatch-Bug beheben, echter Server), Kandidat bleibt inert.
-- P2.2 **Download → Lauf/Install:** heruntergeladene Kandidaten durch die
-  EXISTIERENDE M6/W6-Maschinerie führen (kein zweiter Weg, keine Aufweichung).
-- P2.3 **Abhängigkeits-Quarantäne:** ganze Projekt-Abhängigkeiten (Crates)
-  geprüft beschaffen; Registry-/Herkunfts-Vertrauen (M12-Linie).
+**B2 — Der Agent im System (mittel):**
+- B2.1 KI-Antworten werden Quell-DATEIEN im Workspace (Kandidaten, nie
+  direkt ausführbar).
+- B2.2 Agent-Schleife mit Beweisen: Testresultate gehen an den Agenten
+  zurück, er iteriert; das System bleibt Prüfer.
+- B2.3 `/build`-Slow-Lane in Genesis: Auftrag → sichtbarer Workspace-Status →
+  Freigabe am Ende.
 
-### Säule P3 — Der Agent IM System
-Vom Chat-Spielzeug zum System-Baumeister (immer über die dicke Schleuse):
-- P3.1 **KI schreibt in den Workspace:** Provider-Antworten werden
-  Quell-DATEIEN im W1-Workspace (Kandidaten, niemals direkt ausführbar).
-- P3.2 **Agent-Schleife mit Beweisen:** Der Agent bekommt die Testresultate
-  seiner Kandidaten zurück und iteriert — das System bleibt der Prüfer.
-- P3.3 **`/build`-Slow-Lane in Genesis:** „bau mir X" erzeugt sichtbar
-  einen Workspace-Auftrag (statt nur RUIP), mit Status im UI und Freigabe
-  am Ende. Die Schnellspur (RUIP) bleibt für Kleines bestehen.
+**B3 — Bauen auf dem Gerät (der harte Kern der Vision):**
+- B3.0 **Forschungs-Spike zuerst, ehrlich:** rustc-als-Wasm (plausibelster
+  Weg: Cranelift-Backend, WASI-Subset) auf Machbarkeit/Größe/Laufzeit
+  prüfen; Ergebnis ist ein GO/NO-GO-Bericht mit Alternativen — KEIN
+  Blindstart. Benannte Risiken: Speicherbedarf (heutige Gäste: 2 MiB —
+  Compiler braucht Hunderte MiB → neue Gast-Klasse), Geschwindigkeit
+  (Interpreter!), Datei-Import-Oberfläche.
+- B3.1 Neue Gast-Klasse „Bauplatz" (großer Speicher, begrenzte, geprüfte
+  Datei-Imports, Fuel-Geduld) — grants-nothing, wie immer.
+- B3.2 Compiler als signierter Wasm-Gast; Ausgabe wird wie heute per
+  Doppel-Build + Fingerabdruck NACHGERECHNET (Verfassung §2.4 gilt auch hier).
+- B3.3 Zwischenstufe parallel: die eigene begrenzte Programm-Sprache (RUIP)
+  wächst kontrolliert weiter — kleine Programme entstehen schon heute
+  komplett im System (Editor 2026-07-14 war der Beweis der Wachstumsfähigkeit).
 
-### Säule P4 — Der Bauplatz (Compiler-Leiter)
-Owner-Frage 2026-07-15 („Compiler nachbauen unmöglich?") — Antwort: nachbauen
-unmöglich und unnötig; wir spannen den ECHTEN rustc gestuft ein:
-- P4.A **Versiegelter Extern-Bau (EXISTIERT):** vermessene, festgenagelte
-  Toolchain auf dem Owner-Rechner; Vertrauen durch reproduzierbaren
-  Doppel-Build + Fingerabdruck (W4-Beweis erbracht).
-- P4.B **raiOS-gesteuerter Bauplatz:** dedizierte Build-Maschine/VM, die NUR
-  baut; raiOS beauftragt, misst und verifiziert (gleiche Beweiskette,
-  mehr Autonomie).
-- P4.C **Compiler als Wasm-Gast IM System:** rustc (plausibelster Weg:
-  Cranelift-Backend) als signierter Sandbox-Gast — braucht eine neue
-  Gast-Klasse (großer Speicher, begrenzte Datei-Imports, Geduld bei der
-  Geschwindigkeit). Ehrlich: Forschungsanteil; ändert NICHTS am
-  Vertrauensmodell, denn auch dieser Compiler wird nur nachgerechnet.
-- P4.Z **Zwischenstufe Mini-Sprache:** die vorhandene RUIP-Sprache wächst
-  kontrolliert weiter (Editor war Schritt 1); kleine Programme entstehen so
-  komplett IM System, ohne auf P4.C zu warten.
+**B4 — Basis-Abnahme:**
+- Der Abnahme-Lauf nach §3.3: kompletter Kreislauf in QEMU, ohne Handarbeit.
+  Erst dieser grüne Lauf erklärt die Basis für fertig.
 
-### Säule P5 — Hardware
-- P5.1 **WiFi fertig:** Association, PORT_RELEASE, RX/TX, DHCP auf dem
-  Surface (Seitenstrang läuft; Firmware-Blob bleibt als unauditiert benannt).
-- P5.2 **Physische Persistenz:** G7-Stick (erst read-only Preflight), dann
-  dauerhafte Datenträger-Autorität mit Owner-Siegel.
-- P5.3 **GPU, bescheiden beginnen:** Modesetting + schnelles 2D zuerst
-  (Desktop-Nutzen!), 3D/Beschleunigung ausdrücklich SPÄTER; Treiber wie
-  WiFi als eigener, einzeln freigegebener Seitenstrang.
-- P5.4 **TPM/Owner-Siegel-Hardware** (Schlüssel-Custody am Gerät).
+**Dauerspuren, die die Basis „perfekt" machen (parallel, klein):**
+- **Kern klein halten:** das Schrumpf-/Umzugs-Programm (Relocations in
+  PC-testbare Crates) läuft weiter — „maximal leicht" ist Vision-Bestandteil.
+  (Offene Vorbedingung: der dokumentierte layout-sensitive Kernel-Bug muss
+  vor weiteren Struktur-Umbauten gefunden werden — Jagdplan existiert.)
+- **UI nur für den Kreislauf:** Genesis bekommt genau die Oberflächen, die
+  Aufträge/Prüfung/Freigabe brauchen — keinen Komfort auf Vorrat.
+- **Vertrauen härten:** Owner-Sealing statt Dev-Keys, volle TLS-Kette +
+  vertrauenswürdige Zeit, ADR-0004-Gedächtnis-Vollausbau.
 
-### Säule P6 — Vertrauen & Betrieb
-- P6.1 **Owner-Sealing statt Dev-Keys:** echte Schlüssel-Zeremonie; alles,
-  was heute `dev_key_not_owner_sealed` trägt, wird umgezogen.
-- P6.2 **Volle TLS-Wahrheit:** WebPKI-Kette + vertrauenswürdige Zeit
-  (heute: Pin/SPKI, ehrlich benannt).
-- P6.3 **ADR-0004-Vollausbau:** raiOS ist das Gedächtnis — typisierte Fakten
-  mit Herkunft, Kontext-Broker, Provider-Redaktion (Fundament existiert).
+## 6. Nach der Basis
 
-## 5. Reihenfolge (was zuerst, und warum)
+- **M-Surface:** derselbe Abnahme-Lauf auf dem Surface (WiFi-Seitenstrang
+  liefert die Netz-Vorbedingung; Owner-Entscheidung 2026-07-08 bleibt:
+  parallel weiterbauen, gated die QEMU-Basis nicht).
+- **M-Endstufe (Kern-Selbstumbau, §3.1):** der Kreislauf baut, prüft und
+  installiert einen neuen KERN in den B-Slot; Fehlstart rollt automatisch
+  auf A zurück. Ab hier sind Treiber (z. B. GPU) prinzipiell Schleifen-Früchte.
+- **Früchte (Beispiele, KEINE Bauaufträge an uns):** Fenster-Desktop,
+  GPU-Modesetting/2D→später 3D, Editor-Komfort, Medien-Apps — der Owner
+  beauftragt sie dann bei raiOS, nicht bei der Werkstatt.
 
-**Nah (die nächsten Blöcke):**
-1. P2.1 W7-Live-Beweis (war schon der geplante nächste Block) —
-   Selbstversorgung braucht diesen Anker.
-2. P1.1 Programm-Persistenz (Owner-Wunsch, klein, nutzt Bestehendes).
-3. P2.2 Download→Lauf/Install (schließt die Beschaffungs-Schleife).
-4. P1.2 Editor-Komfort (parallelisierbar als UI-Spur).
+## 7. Was dieser Plan bewusst NICHT verspricht
 
-**Mittel:**
-5. P3.1+P3.2 Agent→Workspace + Beweis-Schleife (die Vision wird sichtbar:
-   KI schreibt Code, System prüft).
-6. P1.3 Fenster-Desktop v1 (ohne GPU).
-7. P5.1 WiFi fertig; danach P5.2 Stick-Persistenz.
-8. P4.B raiOS-gesteuerter Bauplatz.
+- Keine Termine; jeder Block endet erst mit grünem Beweis.
+- Keine „KI schreibt fehlerfreien Code"-Magie — das System beweist
+  Begrenztheit, Reproduzierbarkeit, Rücknahmefähigkeit; Inhalt sichern
+  Tests + Sandbox + Freigabe + Rollback.
+- Desktop/GPU sind ausdrücklich KEINE Arbeitspakete dieses Plans.
+- B3 trägt benannten Forschungsanteil; der Spike darf mit NO-GO enden und
+  Alternativen vorschlagen (das wäre ein Ergebnis, kein Scheitern).
 
-**Weit (echte Großprojekte, einzeln zu entscheiden):**
-9. P4.C Compiler als Wasm-Gast.
-10. P5.3 GPU (Modesetting/2D zuerst).
-11. P6.1 Owner-Sealing-Vollumzug + P6.2 TLS-Vollausbau.
+## 8. Pflege
 
-Parallel-Regel bleibt: getrennte Schreibmengen, eine QEMU-Suite, Hardware-
-Schritte Surface-gated.
-
-## 6. Was dieser Plan bewusst NICHT verspricht
-
-- Keine Termine (jeder Block endet erst mit grünem Beweis).
-- Keine „KI schreibt fehlerfreien Code"-Magie: das System beweist
-  Begrenztheit, Reproduzierbarkeit und Rücknahmefähigkeit — inhaltliche
-  Korrektheit sichern Tests, Sandbox, Freigabe und Rollback.
-- Kein 3D/GPU-Sprint, kein stilles Aufweichen der Verfassung (§2) — auch
-  nicht, wenn es schneller ginge.
-
-## 7. Pflege dieses Dokuments
-
-Bei jedem Block-Close, der eine Säule bewegt, wird hier der Stufen-Status
-aktualisiert (eine Zeile, mit Report-Namen). Detailstand bleibt in
-`docs/PROJECT_STATUS.md`, Tages-Cursor in `docs/ROADMAP.md`.
+Bei jedem Block-Close, der eine Station aus §4 bewegt, wird die
+Status-Tabelle aktualisiert (eine Zeile, mit Report-Namen). Details:
+`docs/PROJECT_STATUS.md`; Tages-Cursor: `docs/ROADMAP.md`.

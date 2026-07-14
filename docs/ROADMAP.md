@@ -15,9 +15,11 @@ vocabulary).
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-15. The owner's all-over vision map now lives in
-`docs/VISION_PLAN.md` (six pillars, compiler ladder, sequencing); this cursor
-stays the operational day-to-day truth.
+Last updated: 2026-07-15. The owner's all-over vision map lives in
+`docs/VISION_PLAN.md` (v2: the PRODUCT is the minimal base + the closed
+self-build loop with ON-DEVICE compilation; features like desktop/GPU are
+later fruits OF the loop, not work packages; three binding owner decisions
+recorded there). This cursor stays the operational day-to-day truth.
 
 **EDITOR-1 VERIFIED-CLOSED (2026-07-14 night) — the SECOND personal-shell program: a
 bounded text editor, and the first RUIP contract extension.** RUIP stays ABI v1 and grows
