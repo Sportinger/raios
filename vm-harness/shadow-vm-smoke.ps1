@@ -10,7 +10,7 @@ param(
     [switch]$KeepImage,
     [int]$SerialWriteChunkSize = 256,
     [int]$SerialWriteDelayMilliseconds = 0,
-    [ValidateSet("full", "quick", "recovery", "genesis-ui", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m12-distribution-provenance", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable", "structured-store", "project-workspace", "project-build", "project-app", "project-install", "secret-vault", "core-policy", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow", "m11-7-httphead", "m11-8-certspki", "m11-9-dnsparse", "m11-beyond-env-lifecycle", "usb-hotplug")]
+    [ValidateSet("full", "quick", "recovery", "genesis-ui", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m12-distribution-provenance", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable", "structured-store", "project-workspace", "project-build", "project-app", "project-install", "secret-vault", "core-policy", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow", "m11-7-httphead", "m11-8-certspki", "m11-9-dnsparse", "m11-beyond-env-lifecycle", "m11-net-imports", "usb-hotplug")]
     [string]$Profile = "full"
 )
 
@@ -69,6 +69,9 @@ $ResolvedArtifact = Resolve-OptionalPath -Path $ArtifactPath
 $ResolvedManifest = Resolve-OptionalPath -Path $ManifestPath
 
 try {
+    if ($Profile -eq "m11-net-imports" -and -not $Network) {
+        throw "m11-net-imports requires -Network (e1000 + DHCP + real TCP step)"
+    }
     if ($ResolvedArtifact -and -not $ResolvedManifest) {
         throw "ArtifactPath requires ManifestPath; artifacts must not enter the evidence flow without a manifest"
     }
@@ -365,6 +368,11 @@ try {
 
         if ($Profile -eq "m11-beyond-env-lifecycle") {
             . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-m11-beyond-env-lifecycle.ps1")
+            break SmokeProfileValidation
+        }
+
+        if ($Profile -eq "m11-net-imports") {
+            . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-m11-net-imports.ps1")
             break SmokeProfileValidation
         }
 

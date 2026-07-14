@@ -13,6 +13,7 @@ pub enum TcpStreamError {
     TimedOut,
     NotConnected,
     Closed,
+    LeaseDenied,
 }
 
 impl fmt::Display for TcpStreamError {
@@ -29,19 +30,22 @@ impl Error for TcpStreamError {
             Self::TimedOut => ErrorKind::TimedOut,
             Self::NotConnected => ErrorKind::NotConnected,
             Self::Closed => ErrorKind::ConnectionAborted,
+            Self::LeaseDenied => ErrorKind::PermissionDenied,
         }
     }
 }
 
 #[derive(Clone, Copy)]
 pub struct KernelTcpStream {
+    lease: net::TransportLeaseToken,
     read_timeout_ms: u64,
     write_timeout_ms: u64,
 }
 
 impl KernelTcpStream {
-    pub const fn new() -> Self {
+    pub const fn new(lease: net::TransportLeaseToken) -> Self {
         Self {
+            lease,
             read_timeout_ms: DEFAULT_READ_TIMEOUT_MS,
             write_timeout_ms: DEFAULT_WRITE_TIMEOUT_MS,
         }
@@ -49,16 +53,23 @@ impl KernelTcpStream {
 
     fn wait_for<F>(&self, timeout_ms: u64, mut action: F) -> Result<usize, TcpStreamError>
     where
-        F: FnMut() -> net::TcpIoResult,
+        F: FnMut(
+            net::TransportLeaseToken,
+            u64,
+        ) -> Result<net::TcpIoResult, net::TransportLeaseError>,
     {
         let start = now_ms();
         loop {
             net::poll();
-            match action() {
-                net::TcpIoResult::Ready(count) => return Ok(count),
-                net::TcpIoResult::WouldBlock => {}
-                net::TcpIoResult::Closed => return Err(TcpStreamError::Closed),
-                net::TcpIoResult::Unavailable => return Err(TcpStreamError::NotConnected),
+            match action(self.lease, now_ms()) {
+                Ok(net::TcpIoResult::Ready(count)) => return Ok(count),
+                Ok(net::TcpIoResult::WouldBlock) => {}
+                Ok(net::TcpIoResult::Closed) => return Err(TcpStreamError::Closed),
+                Ok(net::TcpIoResult::Unavailable) => return Err(TcpStreamError::NotConnected),
+                Err(net::TransportLeaseError::LeaseTimedOut) => {
+                    return Err(TcpStreamError::TimedOut)
+                }
+                Err(_) => return Err(TcpStreamError::LeaseDenied),
             }
 
             if now_ms().saturating_sub(start) >= timeout_ms {
@@ -78,7 +89,9 @@ impl Read for KernelTcpStream {
         if buf.is_empty() {
             return Ok(0);
         }
-        self.wait_for(self.read_timeout_ms, || net::tcp_recv(buf))
+        self.wait_for(self.read_timeout_ms, |lease, now| {
+            net::tcp_recv_step(lease, buf, now)
+        })
     }
 }
 
@@ -87,12 +100,18 @@ impl Write for KernelTcpStream {
         if buf.is_empty() {
             return Ok(0);
         }
-        self.wait_for(self.write_timeout_ms, || net::tcp_send(buf))
+        self.wait_for(self.write_timeout_ms, |lease, now| {
+            net::tcp_send_step(lease, buf, now)
+        })
     }
 
     fn flush(&mut self) -> Result<(), Self::Error> {
+        // NET-3 debt: embedded-tls still requires this bounded blocking adapter;
+        // NET-4 must not use it as evidence of main-loop responsiveness.
         for _ in 0..8 {
             net::poll();
+            net::tcp_receive_inspect_step(self.lease, now_ms())
+                .map_err(|_| TcpStreamError::LeaseDenied)?;
             spin_loop();
         }
         Ok(())

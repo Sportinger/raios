@@ -7,7 +7,7 @@ use crate::{
         record_str as s, record_str_or_null,
     },
     agent_protocol_time::REAL_TEST_CERT_DER,
-    memory_store, module_candidate_channel, module_candidate_intake, wasm_runtime,
+    memory_store, module_candidate_channel, module_candidate_intake, net, wasm_runtime,
 };
 use raios_core::{
     cert_validity_window::{
@@ -1023,6 +1023,57 @@ pub(crate) fn emit_wasm_beyond_env_lifecycle_probe(method: &str) {
     );
     emit_record_fields(vec![f("evidence_complete", b(true))], 6);
     end_response("wasm.beyond_env_lifecycle_probe");
+}
+
+pub(crate) fn emit_transport_lease_probe() {
+    let probe = net::transport_lease_probe();
+    begin_response("network.transport_lease_probe");
+    emit_record_fields(
+        vec![
+            f("schema", s("raios.transport_lease_probe.v0")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("method", s("network.transport_lease_probe")),
+            f("test_infrastructure", b(true)),
+            f("network_configured", b(probe.network_configured)),
+            f("native_owner", s("svc.provider.openai_direct")),
+            f("native_tcp_action", s(probe.native_tcp_action)),
+            f(
+                "native_tcp_poll_steps",
+                V::U64(probe.native_tcp_poll_steps as u64),
+            ),
+            f("native_tcp_action_bounded_one_step", b(true)),
+            f(
+                "test_blocks_native_reason",
+                s(probe.test_blocks_native_reason),
+            ),
+            f(
+                "native_blocks_test_reason",
+                s(probe.native_blocks_test_reason),
+            ),
+            f("foreign_abort_reason", s(probe.foreign_abort_reason)),
+            f(
+                "active_owner_survived_foreign_abort",
+                b(probe.active_owner_survived_foreign_abort),
+            ),
+            f("owner_abort_released", b(probe.owner_abort_released)),
+            f("timeout_released", b(probe.timeout_released)),
+            f("retry_succeeded", b(probe.retry_succeeded)),
+            f("generation_advanced", b(probe.generation_advanced)),
+            f(
+                "idempotent_owner_teardown",
+                b(probe.idempotent_owner_teardown),
+            ),
+            f("policy_allows_beyond_env", b(false)),
+            f("wasm_net_import_linked", b(false)),
+            f("production_linker_armed", b(false)),
+            f("capability_granted", b(false)),
+            f("durable_effect", b(false)),
+            f("evidence_complete", b(true)),
+        ],
+        6,
+    );
+    end_response("network.transport_lease_probe");
 }
 
 fn record_beyond_env_lifecycle_case(case: &wasm_runtime::BeyondEnvLifecycleCase) -> V<'static> {

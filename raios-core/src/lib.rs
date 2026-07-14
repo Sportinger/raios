@@ -75,6 +75,7 @@ pub mod structured_store;
 pub mod structured_store_partition;
 pub mod system_status_projection;
 pub mod tpm2_commands;
+pub mod transport_lease;
 pub mod ui_frame;
 pub mod ui_program;
 pub mod ui_program_spec;

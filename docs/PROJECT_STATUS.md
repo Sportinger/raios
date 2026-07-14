@@ -24,6 +24,28 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+NET-3 SINGLETON TRANSPORT LEASE VERIFIED (2026-07-14): m11-net-imports (-Network)
+shadow-20260714-130148-25792.json PASSED 162/162 on the first run — exactly the
+predicted predicate count. One generation-checked lease now guards every TCP entry
+point in net.rs (pure state machine in raios-core/src/transport_lease.rs: Available /
+Leased / Ended-tombstone; six pairwise-distinct typed reasons incl.
+network_transport_busy, foreign-owner, stale-generation; busy claims consume no
+generation; owner teardown idempotent). One-step NON-BLOCKING operations
+(connect-progress / send-accepted / receive-inspection) exist for the NET-4 pump — no
+lease method sleeps or spins (rg-verified). Native OpenAI moved onto the lease: claims
+NATIVE_OPENAI_TRANSPORT_OWNER for 90 s at connect, threads the token through
+KernelTcpStream, and RELEASES CENTRALLY on every exit (complete_error aborts the stored
+token; unconditional abort after every TLS/HTTPS result). The previous UNOWNED
+tcp_abort() during submit is gone — a submit can no longer kill a foreign owner's
+connection. A busy lease yields OPENAI DIRECT NETWORK TRANSPORT BUSY without touching
+the active owner. NAMED DEBT (per the addendum, may NOT serve as W7 responsiveness
+proof): tls_io::wait_for, its bounded flush polling, and the OpenAI TLS/HTTP read path
+still poll synchronously. In-guest proof: native claim + real gateway TCP connect step
+(DHCP e1000), both-direction busy denial, foreign-abort denial with owner surviving,
+owner-only abort, timeout release, generation-advancing retry. Host: 569 raios-core
+tests (transport_lease truth table); fmt, size gate, secret scan clean. No Wasm import
+added; KNOWN_HOST_IMPORTS/ABI untouched; policy_allows_beyond_env false everywhere.
+
 NET-2R RESUMABLE LIFECYCLE VERIFIED (2026-07-14): m11-beyond-env-lifecycle
 shadow-20260714-123624-28556.json PASSED 183/183 on the first guest run, after ONE
 classified failure that was HARNESS-side, not guest: the QEMU-monitor enable list in

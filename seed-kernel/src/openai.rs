@@ -32,6 +32,7 @@ const LINE_CAPACITY: usize = 2048;
 const DNS_TIMEOUT_MS: u64 = 6_000;
 const TCP_TIMEOUT_MS: u64 = 8_000;
 const HTTPS_TIMEOUT_MS: u64 = 60_000;
+const TRANSPORT_LEASE_TIMEOUT_MS: u64 = 90_000;
 const TLS_RECORD_BUFFER_SIZE: usize = 16_640;
 const TLS_WRITE_BUFFER_SIZE: usize = 4_096;
 const HTTP_RESPONSE_LIMIT: usize = 128 * 1024;
@@ -120,6 +121,7 @@ struct PendingRequest {
     id: u32,
     phase: Phase,
     address: Option<smoltcp::wire::Ipv4Address>,
+    transport_lease: Option<net::TransportLeaseToken>,
     phase_started_ms: u64,
     envelope: ProviderRequestEnvelope,
     envelope_event_id: event_log::EventId,
@@ -242,6 +244,7 @@ pub fn submit_request(
         id,
         phase: Phase::Resolving,
         address: None,
+        transport_lease: None,
         phase_started_ms: now_ms(),
         envelope,
         envelope_event_id,
@@ -255,7 +258,6 @@ pub fn submit_request(
         .last_event
         .set_from_bytes(b"OPENAI DIRECT: RESOLVING api.openai.com");
     state.last_error.clear();
-    net::tcp_abort();
     emit_provider_request_envelope(envelope, runtime);
 
     serial::write_fmt(format_args!(
@@ -267,10 +269,15 @@ pub fn submit_request(
 
 pub fn poll() -> Option<Event> {
     let now = now_ms();
-    let (phase, phase_started_ms, address) = {
+    let (phase, phase_started_ms, address, transport_lease) = {
         let state = STATE.lock();
         let pending = state.pending.as_ref()?;
-        (pending.phase, pending.phase_started_ms, pending.address)
+        (
+            pending.phase,
+            pending.phase_started_ms,
+            pending.address,
+            pending.transport_lease,
+        )
     };
 
     match phase {
@@ -291,7 +298,33 @@ pub fn poll() -> Option<Event> {
                     "openai: {} resolved to {}; connecting tcp {}\r\n",
                     API_HOST, address, API_PORT
                 ));
-                match handle_tcp_result(&mut state, net::tcp_connect_ipv4(address, API_PORT)) {
+                let lease = match net::tcp_claim(
+                    net::NATIVE_OPENAI_TRANSPORT_OWNER,
+                    now,
+                    TRANSPORT_LEASE_TIMEOUT_MS,
+                ) {
+                    Ok(lease) => lease,
+                    Err(net::TransportLeaseError::NetworkTransportBusy) => {
+                        return complete_error(&mut state, b"OPENAI DIRECT NETWORK TRANSPORT BUSY")
+                    }
+                    Err(_) => {
+                        return complete_error(
+                            &mut state,
+                            b"OPENAI DIRECT NETWORK TRANSPORT LEASE DENIED",
+                        )
+                    }
+                };
+                pending.transport_lease = Some(lease);
+                let connect = match net::tcp_connect_step(lease, address, API_PORT, now) {
+                    Ok(result) => result,
+                    Err(_) => {
+                        return complete_error(
+                            &mut state,
+                            b"OPENAI DIRECT NETWORK TRANSPORT LEASE DENIED",
+                        )
+                    }
+                };
+                match handle_tcp_result(&mut state, connect) {
                     TcpAction::None | TcpAction::StartHttps { .. } => None,
                     TcpAction::Event(line) => Some(line),
                 }
@@ -306,11 +339,27 @@ pub fn poll() -> Option<Event> {
                 let mut state = STATE.lock();
                 return complete_error(&mut state, b"OPENAI DIRECT LOST DNS RESULT");
             };
+            let Some(lease) = transport_lease else {
+                let mut state = STATE.lock();
+                return complete_error(&mut state, b"OPENAI DIRECT TRANSPORT LEASE LOST");
+            };
             let mut state = STATE.lock();
             if now.saturating_sub(phase_started_ms) >= TCP_TIMEOUT_MS {
                 return complete_error(&mut state, b"OPENAI DIRECT TCP TIMEOUT");
             }
-            match handle_tcp_result(&mut state, net::tcp_connect_ipv4(address, API_PORT)) {
+            let connect = match net::tcp_connect_step(lease, address, API_PORT, now) {
+                Ok(result) => result,
+                Err(net::TransportLeaseError::LeaseTimedOut) => {
+                    return complete_error(&mut state, b"OPENAI DIRECT TCP TIMEOUT")
+                }
+                Err(_) => {
+                    return complete_error(
+                        &mut state,
+                        b"OPENAI DIRECT NETWORK TRANSPORT LEASE DENIED",
+                    )
+                }
+            };
+            match handle_tcp_result(&mut state, connect) {
                 TcpAction::None => None,
                 TcpAction::Event(line) => Some(line),
                 TcpAction::StartHttps {
@@ -320,6 +369,7 @@ pub fn poll() -> Option<Event> {
                     envelope,
                     envelope_event_id,
                     runtime,
+                    transport_lease,
                 } => {
                     if let Some(pending) = state.pending.as_mut() {
                         pending.phase = Phase::Requesting;
@@ -329,10 +379,18 @@ pub fn poll() -> Option<Event> {
                         .last_event
                         .set_from_bytes(b"OPENAI DIRECT: TLS HANDSHAKE STARTED");
                     drop(state);
-                    let result =
-                        perform_https_request(body.as_str(), envelope, envelope_event_id, runtime);
-                    net::tcp_abort();
+                    let result = perform_https_request(
+                        body.as_str(),
+                        envelope,
+                        envelope_event_id,
+                        runtime,
+                        transport_lease,
+                    );
+                    let _ = net::tcp_abort(transport_lease, now_ms());
                     let mut state = STATE.lock();
+                    if let Some(pending) = state.pending.as_mut() {
+                        pending.transport_lease = None;
+                    }
                     match result {
                         HttpsResult::Answer(answer) => {
                             state
@@ -365,7 +423,6 @@ pub fn poll() -> Option<Event> {
         Phase::Requesting => {
             let mut state = STATE.lock();
             if now.saturating_sub(phase_started_ms) >= HTTPS_TIMEOUT_MS {
-                net::tcp_abort();
                 complete_error(&mut state, b"OPENAI DIRECT HTTPS TIMEOUT")
             } else {
                 None
@@ -388,6 +445,7 @@ enum TcpAction {
         envelope: ProviderRequestEnvelope,
         envelope_event_id: event_log::EventId,
         runtime: ui::RuntimeStatus,
+        transport_lease: net::TransportLeaseToken,
     },
 }
 
@@ -397,6 +455,11 @@ fn handle_tcp_result(state: &mut OpenAiState, result: net::TcpConnectResult) -> 
             let Some(pending) = state.pending.as_ref() else {
                 return TcpAction::None;
             };
+            let Some(transport_lease) = pending.transport_lease else {
+                return complete_error(state, b"OPENAI DIRECT TRANSPORT LEASE LOST")
+                    .map(TcpAction::Event)
+                    .unwrap_or(TcpAction::None);
+            };
             TcpAction::StartHttps {
                 id: pending.id,
                 target: pending.target,
@@ -404,6 +467,7 @@ fn handle_tcp_result(state: &mut OpenAiState, result: net::TcpConnectResult) -> 
                 envelope: pending.envelope,
                 envelope_event_id: pending.envelope_event_id,
                 runtime: pending.runtime,
+                transport_lease,
             }
         }
         net::TcpConnectResult::Started => {
@@ -435,14 +499,16 @@ fn handle_tcp_result(state: &mut OpenAiState, result: net::TcpConnectResult) -> 
 }
 
 fn complete_error(state: &mut OpenAiState, message: &[u8]) -> Option<Event> {
-    let pending = state.pending.as_ref()?;
+    let pending = state.pending.take()?;
     let id = pending.id;
     let target = pending.target;
+    if let Some(lease) = pending.transport_lease {
+        let _ = net::tcp_abort(lease, now_ms());
+    }
     let mut line = FixedLine::empty();
     line.set_from_bytes(message);
     state.last_error = line;
     state.last_event = line;
-    state.pending = None;
     Some(Event {
         id,
         target,
@@ -1215,6 +1281,7 @@ fn perform_https_request(
     envelope: ProviderRequestEnvelope,
     envelope_event_id: event_log::EventId,
     runtime: ui::RuntimeStatus,
+    transport_lease: net::TransportLeaseToken,
 ) -> HttpsResult {
     let trust = provider_trust::snapshot();
     if !provider_credential_usable() {
@@ -1230,7 +1297,7 @@ fn perform_https_request(
 
     let mut read_record_buffer = vec![0u8; TLS_RECORD_BUFFER_SIZE];
     let mut write_record_buffer = vec![0u8; TLS_WRITE_BUFFER_SIZE];
-    let stream = KernelTcpStream::new();
+    let stream = KernelTcpStream::new(transport_lease);
     let config = TlsConfig::<Aes128GcmSha256>::new()
         .with_server_name(API_HOST)
         .enable_rsa_signatures();

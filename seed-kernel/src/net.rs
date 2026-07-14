@@ -10,6 +10,10 @@ use core::cmp;
 use spin::Mutex;
 
 use raios_core::dns_parse::build_dns_query;
+use raios_core::transport_lease::TransportLease;
+pub use raios_core::transport_lease::{
+    TransportLeaseError, TransportLeaseRelease, TransportLeaseToken, TransportOwner,
+};
 use smoltcp::iface::{Config as IfaceConfig, Interface, SocketHandle, SocketSet};
 use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
 use smoltcp::socket::{dhcpv4, tcp, udp};
@@ -34,6 +38,10 @@ const TCP_SOURCE_PORT_END: u16 = 65_535;
 const DNS_QUERY_TIMEOUT_MS: u64 = 4_000;
 const DNS_PORT: u16 = 53;
 static NET_STATE: Mutex<Option<NetState>> = Mutex::new(None);
+static TRANSPORT_LEASE: Mutex<TransportLease> = Mutex::new(TransportLease::new());
+
+pub const NATIVE_OPENAI_TRANSPORT_OWNER: TransportOwner = TransportOwner::new(1, 0);
+const TEST_TRANSPORT_OWNER: TransportOwner = TransportOwner::new(2, 1);
 
 pub fn init() {
     let mut state = NET_STATE.lock();
@@ -142,6 +150,7 @@ fn new_net_state<D: Device>(mac_bytes: [u8; 6], backend: NetBackend, phy: &mut D
 
 pub fn poll() {
     let now_ms = now_ms();
+    expire_transport(now_ms);
     let instant = Instant::from_millis(now_ms.min(i64::MAX as u64) as i64);
 
     let mut guard = NET_STATE.lock();
@@ -214,23 +223,38 @@ pub fn resolve_hostname(hostname: &str) -> Option<Ipv4Address> {
     None
 }
 
-pub fn tcp_connect_ipv4(address: Ipv4Address, port: u16) -> TcpConnectResult {
+pub fn tcp_claim(
+    owner: TransportOwner,
+    now_ms: u64,
+    timeout_ms: u64,
+) -> Result<TransportLeaseToken, TransportLeaseError> {
+    expire_transport(now_ms);
+    TRANSPORT_LEASE.lock().claim(owner, now_ms, timeout_ms)
+}
+
+pub fn tcp_connect_step(
+    token: TransportLeaseToken,
+    address: Ipv4Address,
+    port: u16,
+    now_ms: u64,
+) -> Result<TcpConnectResult, TransportLeaseError> {
+    validate_transport(token, now_ms)?;
     let mut guard = NET_STATE.lock();
     let Some(state) = guard.as_mut() else {
-        return TcpConnectResult::NetworkUnavailable;
+        return Ok(TcpConnectResult::NetworkUnavailable);
     };
 
     if state.config.ip.is_none() || state.config.gateway.is_none() {
-        return TcpConnectResult::NetworkUnconfigured;
+        return Ok(TcpConnectResult::NetworkUnconfigured);
     }
 
     let tcp_handle = state.tcp_handle;
     let socket = state.sockets.get_mut::<tcp::Socket>(tcp_handle);
     if socket.may_send() {
-        return TcpConnectResult::Connected;
+        return Ok(TcpConnectResult::Connected);
     }
     if socket.is_active() {
-        return TcpConnectResult::Connecting(tcp_state_name(socket.state()));
+        return Ok(TcpConnectResult::Connecting(tcp_state_name(socket.state())));
     }
     if socket.is_open() {
         socket.abort();
@@ -244,24 +268,31 @@ pub fn tcp_connect_ipv4(address: Ipv4Address, port: u16) -> TcpConnectResult {
     };
 
     let cx = state.iface.context();
-    match socket.connect(cx, (IpAddress::Ipv4(address), port), local_port) {
-        Ok(()) => TcpConnectResult::Started,
-        Err(_) => TcpConnectResult::ConnectError,
-    }
+    Ok(
+        match socket.connect(cx, (IpAddress::Ipv4(address), port), local_port) {
+            Ok(()) => TcpConnectResult::Started,
+            Err(_) => TcpConnectResult::ConnectError,
+        },
+    )
 }
 
-pub fn tcp_send(data: &[u8]) -> TcpIoResult {
+pub fn tcp_send_step(
+    token: TransportLeaseToken,
+    data: &[u8],
+    now_ms: u64,
+) -> Result<TcpIoResult, TransportLeaseError> {
+    validate_transport(token, now_ms)?;
     if data.is_empty() {
-        return TcpIoResult::Ready(0);
+        return Ok(TcpIoResult::Ready(0));
     }
 
     let mut guard = NET_STATE.lock();
     let Some(state) = guard.as_mut() else {
-        return TcpIoResult::Unavailable;
+        return Ok(TcpIoResult::Unavailable);
     };
 
     let socket = state.sockets.get_mut::<tcp::Socket>(state.tcp_handle);
-    if socket.can_send() {
+    Ok(if socket.can_send() {
         match socket.send_slice(data) {
             Ok(written) if written > 0 => TcpIoResult::Ready(written),
             Ok(_) => TcpIoResult::WouldBlock,
@@ -271,21 +302,45 @@ pub fn tcp_send(data: &[u8]) -> TcpIoResult {
         TcpIoResult::WouldBlock
     } else {
         TcpIoResult::Closed
-    }
+    })
 }
 
-pub fn tcp_recv(buffer: &mut [u8]) -> TcpIoResult {
+pub fn tcp_receive_inspect_step(
+    token: TransportLeaseToken,
+    now_ms: u64,
+) -> Result<TcpReceiveInspection, TransportLeaseError> {
+    validate_transport(token, now_ms)?;
+    let mut guard = NET_STATE.lock();
+    let Some(state) = guard.as_mut() else {
+        return Ok(TcpReceiveInspection::Unavailable);
+    };
+    let socket = state.sockets.get_mut::<tcp::Socket>(state.tcp_handle);
+    Ok(if socket.can_recv() {
+        TcpReceiveInspection::Available(socket.recv_queue())
+    } else if socket.may_recv() {
+        TcpReceiveInspection::WouldBlock
+    } else {
+        TcpReceiveInspection::Closed
+    })
+}
+
+pub fn tcp_recv_step(
+    token: TransportLeaseToken,
+    buffer: &mut [u8],
+    now_ms: u64,
+) -> Result<TcpIoResult, TransportLeaseError> {
+    validate_transport(token, now_ms)?;
     if buffer.is_empty() {
-        return TcpIoResult::Ready(0);
+        return Ok(TcpIoResult::Ready(0));
     }
 
     let mut guard = NET_STATE.lock();
     let Some(state) = guard.as_mut() else {
-        return TcpIoResult::Unavailable;
+        return Ok(TcpIoResult::Unavailable);
     };
 
     let socket = state.sockets.get_mut::<tcp::Socket>(state.tcp_handle);
-    if socket.can_recv() {
+    Ok(if socket.can_recv() {
         match socket.recv_slice(buffer) {
             Ok(read) if read > 0 => TcpIoResult::Ready(read),
             Ok(_) => TcpIoResult::WouldBlock,
@@ -295,10 +350,58 @@ pub fn tcp_recv(buffer: &mut [u8]) -> TcpIoResult {
         TcpIoResult::WouldBlock
     } else {
         TcpIoResult::Closed
-    }
+    })
 }
 
-pub fn tcp_abort() {
+pub fn tcp_close(
+    token: TransportLeaseToken,
+    now_ms: u64,
+) -> Result<TransportLeaseRelease, TransportLeaseError> {
+    let release = match TRANSPORT_LEASE.lock().release(token, now_ms) {
+        Ok(release) => release,
+        Err(error) => {
+            if error == TransportLeaseError::LeaseTimedOut {
+                abort_socket_unchecked();
+            }
+            return Err(error);
+        }
+    };
+    if release == TransportLeaseRelease::Released {
+        // The singleton cannot remain in FIN-WAIT after ownership is released;
+        // a later claimant must never inherit the prior owner's TCP state.
+        abort_socket_unchecked();
+    }
+    Ok(release)
+}
+
+pub fn tcp_abort(
+    token: TransportLeaseToken,
+    now_ms: u64,
+) -> Result<TransportLeaseRelease, TransportLeaseError> {
+    let release = match TRANSPORT_LEASE.lock().release(token, now_ms) {
+        Ok(release) => release,
+        Err(error) => {
+            if error == TransportLeaseError::LeaseTimedOut {
+                abort_socket_unchecked();
+            }
+            return Err(error);
+        }
+    };
+    if release == TransportLeaseRelease::Released {
+        abort_socket_unchecked();
+    }
+    Ok(release)
+}
+
+pub fn tcp_revoke() -> bool {
+    let revoked = TRANSPORT_LEASE.lock().revoke().is_some();
+    if revoked {
+        abort_socket_unchecked();
+    }
+    revoked
+}
+
+fn abort_socket_unchecked() {
     let mut guard = NET_STATE.lock();
     let Some(state) = guard.as_mut() else {
         return;
@@ -308,6 +411,21 @@ pub fn tcp_abort() {
     if socket.is_open() {
         socket.abort();
     }
+}
+
+fn expire_transport(now_ms: u64) {
+    let expired = TRANSPORT_LEASE.lock().expire(now_ms).is_some();
+    if expired {
+        abort_socket_unchecked();
+    }
+}
+
+fn validate_transport(token: TransportLeaseToken, now_ms: u64) -> Result<(), TransportLeaseError> {
+    let result = TRANSPORT_LEASE.lock().progress(token, now_ms);
+    if result == Err(TransportLeaseError::LeaseTimedOut) {
+        abort_socket_unchecked();
+    }
+    result
 }
 
 pub fn tcp_snapshot() -> Option<TcpSnapshot> {
@@ -339,11 +457,145 @@ pub enum TcpIoResult {
     Unavailable,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TcpReceiveInspection {
+    Available(usize),
+    WouldBlock,
+    Closed,
+    Unavailable,
+}
+
 #[derive(Clone, Copy)]
 pub struct TcpSnapshot {
     pub state: &'static str,
     pub may_send: bool,
     pub may_recv: bool,
+}
+
+#[derive(Clone, Copy)]
+pub struct TransportLeaseProbe {
+    pub network_configured: bool,
+    pub native_tcp_action: &'static str,
+    pub native_tcp_poll_steps: u8,
+    pub test_blocks_native_reason: &'static str,
+    pub native_blocks_test_reason: &'static str,
+    pub foreign_abort_reason: &'static str,
+    pub active_owner_survived_foreign_abort: bool,
+    pub owner_abort_released: bool,
+    pub timeout_released: bool,
+    pub retry_succeeded: bool,
+    pub generation_advanced: bool,
+    pub idempotent_owner_teardown: bool,
+}
+
+pub fn transport_lease_probe() -> TransportLeaseProbe {
+    let now = now_ms();
+    let network_configured = NET_STATE
+        .lock()
+        .as_ref()
+        .map(|state| state.config.ip.is_some() && state.config.gateway.is_some())
+        .unwrap_or(false);
+    let gateway = NET_STATE
+        .lock()
+        .as_ref()
+        .and_then(|state| state.config.gateway)
+        .unwrap_or(Ipv4Address::new(10, 0, 2, 2));
+
+    let Ok(test_token) = tcp_claim(TEST_TRANSPORT_OWNER, now, 1_000) else {
+        return failed_transport_lease_probe(network_configured, "initial_claim_failed");
+    };
+    let test_blocks_native_reason = match tcp_claim(NATIVE_OPENAI_TRANSPORT_OWNER, now, 1_000) {
+        Err(error) => error.as_str(),
+        Ok(unexpected) => {
+            let _ = tcp_abort(unexpected, now);
+            "unexpected_native_claim_success"
+        }
+    };
+    let _ = tcp_abort(test_token, now);
+
+    let Ok(native_token) = tcp_claim(NATIVE_OPENAI_TRANSPORT_OWNER, now, 1_000) else {
+        return failed_transport_lease_probe(network_configured, "native_claim_failed");
+    };
+    let native_blocks_test_reason = match tcp_claim(TEST_TRANSPORT_OWNER, now, 1_000) {
+        Err(error) => error.as_str(),
+        Ok(unexpected) => {
+            let _ = tcp_abort(unexpected, now);
+            "unexpected_test_claim_success"
+        }
+    };
+    let (native_tcp_action, native_tcp_poll_steps) =
+        match tcp_connect_step(native_token, gateway, 80, now) {
+            Ok(TcpConnectResult::Started) => {
+                poll();
+                ("started", 1)
+            }
+            Ok(TcpConnectResult::Connecting(_)) => ("connecting", 0),
+            Ok(TcpConnectResult::Connected) => ("connected", 0),
+            Ok(TcpConnectResult::NetworkUnavailable) => ("network_unavailable", 0),
+            Ok(TcpConnectResult::NetworkUnconfigured) => ("network_unconfigured", 0),
+            Ok(TcpConnectResult::ConnectError) => ("connect_error", 0),
+            Err(error) => (error.as_str(), 0),
+        };
+    let foreign_abort_reason = match tcp_abort(test_token, now) {
+        Err(error) => error.as_str(),
+        Ok(_) => "unexpected_foreign_abort_success",
+    };
+    let active_owner_survived_foreign_abort = tcp_receive_inspect_step(native_token, now).is_ok();
+    let owner_abort_released = tcp_abort(native_token, now) == Ok(TransportLeaseRelease::Released);
+
+    let Ok(timeout_token) = tcp_claim(TEST_TRANSPORT_OWNER, now, 1) else {
+        return failed_transport_lease_probe(network_configured, "timeout_claim_failed");
+    };
+    expire_transport(now.saturating_add(1));
+    let timeout_released = TRANSPORT_LEASE
+        .lock()
+        .progress(timeout_token, now.saturating_add(1))
+        == Err(TransportLeaseError::LeaseTimedOut);
+    let Ok(retry_token) = tcp_claim(NATIVE_OPENAI_TRANSPORT_OWNER, now.saturating_add(1), 1_000)
+    else {
+        return failed_transport_lease_probe(network_configured, "retry_claim_failed");
+    };
+    let generation_advanced = retry_token.generation() > native_token.generation()
+        && retry_token.generation() > timeout_token.generation();
+    let retry_succeeded = true;
+    let first_teardown = tcp_abort(retry_token, now.saturating_add(1));
+    let second_teardown = tcp_abort(retry_token, now.saturating_add(1));
+
+    TransportLeaseProbe {
+        network_configured,
+        native_tcp_action,
+        native_tcp_poll_steps,
+        test_blocks_native_reason,
+        native_blocks_test_reason,
+        foreign_abort_reason,
+        active_owner_survived_foreign_abort,
+        owner_abort_released,
+        timeout_released,
+        retry_succeeded,
+        generation_advanced,
+        idempotent_owner_teardown: first_teardown == Ok(TransportLeaseRelease::Released)
+            && second_teardown == Ok(TransportLeaseRelease::AlreadyReleased),
+    }
+}
+
+fn failed_transport_lease_probe(
+    network_configured: bool,
+    reason: &'static str,
+) -> TransportLeaseProbe {
+    TransportLeaseProbe {
+        network_configured,
+        native_tcp_action: reason,
+        native_tcp_poll_steps: 0,
+        test_blocks_native_reason: reason,
+        native_blocks_test_reason: reason,
+        foreign_abort_reason: reason,
+        active_owner_survived_foreign_abort: false,
+        owner_abort_released: false,
+        timeout_released: false,
+        retry_succeeded: false,
+        generation_advanced: false,
+        idempotent_owner_teardown: false,
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

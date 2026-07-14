@@ -66,11 +66,17 @@ slices 2-4). **NET-2R is DONE and verified**: m11-beyond-env-lifecycle
 shadow-20260714-123624-28556.json 183/183 — real wasmi suspension with
 recovery/serial responsive, physical F12 kill via QEMU monitor within the 250 ms bound,
 exactly-once teardown across eight exit paths, second-run-after-kill release proof.
-Next slice: NET-3 singleton transport ownership (one owner/generation lease around the
-existing TCP socket, native OpenAI moved onto it, owner-only close/abort, busy denial —
-no Wasm net import linkable). The hardware cursor is unchanged and Surface-gated (G7
-read-only stick preflight, WiFi association/PORT_RELEASE/RX-TX/DHCP proof, ownerkey
-TPM capture).
+**NET-3 is DONE and verified**: m11-net-imports (-Network)
+shadow-20260714-130148-25792.json 162/162 first-run — generation-checked singleton TCP
+lease guards every entry point, native OpenAI claims/releases it centrally (the old
+unowned submit-time tcp_abort is gone), one-step non-blocking ops ready for the NET-4
+pump; tls_io's synchronous polling is retained as NAMED DEBT, not W7 proof. Next
+slice: NET-4 — the four net.* shims as real suspension points (always-suspend
+open/send/recv, immediate idempotent close, kill/quota/lease checked before progress
+and resume), STILL ungrantable before instantiation, plus the carried NET-2R
+requirement: central denial of unrelated Wasm launches while an invocation is
+suspended. The hardware cursor is unchanged and Surface-gated (G7 read-only stick
+preflight, WiFi association/PORT_RELEASE/RX-TX/DHCP proof, ownerkey TPM capture).
 
 **P4 EVIDENCE-VOCABULARY-V1 IS CLOSED — BOTH HALVES (2026-07-13 ~23:15).** I once called
 it closed after only the envelope; that was wrong and is now actually true.
