@@ -81,10 +81,12 @@ shadow-20260714-140106-6508.json (2,685/0) + RECOVERY shadow-20260714-140417-275
 (152). The close also exposed and fixed THREE stale quick-profile expectations left by P4
 slices that rewrote the profile from its manifest and never ran it — kernel right, needles
 wrong, each fix made stricter; the resulting process rule is in PROJECT_STATUS and
-docs/DEBUGGING.md. NEXT, IN ORDER: (a) the MANDATORY wasm_runtime.rs readability split
-(4,597 lines, closing on the 5,000 hard cap) BEFORE more behavior lands there; then (b)
-NET-5 opaque TLS crypto imports, (c) NET-6 acquire.* seam, (d) NET-7 signed acquisition
-service, (e) NET-8 the OWNER-GATED arming diff, (f) NET-9 the W7 denial matrix. The
+docs/DEBUGGING.md. **The mandatory wasm_runtime.rs split is DONE** (pure move: 4,597 lines -> a 7-file module,
+largest 981; no caller outside changed, 107/107 external refs, 79/79 pub(crate) surface;
+vm-harness untouched, so the green m11-buffer-channel / m11-9-dnsparse /
+m11-beyond-env-lifecycle / m11-net-imports runs ARE the equivalence proof). NEXT, IN ORDER:
+(a) NET-5 opaque TLS crypto imports, (b) NET-6 acquire.* seam, (c) NET-7 signed acquisition
+service, (d) NET-8 the OWNER-GATED arming diff, (e) NET-9 the W7 denial matrix. The
 hardware cursor is unchanged and Surface-gated (G7 read-only stick preflight, WiFi
 association/PORT_RELEASE/RX-TX/DHCP proof, ownerkey TPM capture).
 

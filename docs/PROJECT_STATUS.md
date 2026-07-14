@@ -24,6 +24,21 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+WASM_RUNTIME SPLIT DONE (2026-07-14, pure move, zero behavior change). seed-kernel/src/
+wasm_runtime.rs (4,597 lines / 162,590 B — WARN tier, closing on the 5,000-line hard cap
+that NET-5 would have breached) is now a 7-file module: mod entry 76, artifacts 170,
+envelope 939, invocation 705, net_shims 875, personal_shell 849, probes 981, suspension 66.
+Every item kept its public path (`crate::wasm_runtime::X`), so NOT ONE caller outside the
+module changed — 107 external references before, 107 after; the pub(crate) surface is
+79/79. Visibility widenings are all `pub(super)` (listed in the worker report); no
+`#[allow(...)]` was added. The load-bearing ordering in the suspension classifier
+(TrapCode::OutOfFuel terminal BEFORE the HostSuspend downcast) is preserved verbatim.
+EQUIVALENCE PROOF, the P4-9c discipline: vm-harness/ was NOT touched, so green profiles ARE
+the proof — m11-buffer-channel, m11-9-dnsparse, m11-beyond-env-lifecycle and m11-net-imports
+(-Network) all PASSED after the split. Orchestrator fixed two visibility misses the worker
+left (NET_SHIM_PROBE + NetShimProbeSnapshot::empty) rather than paying a worker round trip.
+The lane is now clear for NET-5 (opaque TLS crypto imports).
+
 NET FOUNDATION BLOCK (slices 1-4) VERIFIED-CLOSED (2026-07-14). The whole resumable
 beyond-env substrate is built and grants NOTHING: NET-1 ABI + evidence-bound evaluator
 (ab48f50), NET-2R resumable invocations with a proven physical F12 kill (f0fa040), NET-3
