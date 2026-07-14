@@ -24,6 +24,28 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+NET-2 HALTED ON ITS STOP CONDITION — OWNER DECISION 5 RESOLVED BY EVIDENCE, LANE RECUT
+TO RESUMABLE EXECUTION (2026-07-14). The NET-2 worker changed ZERO files and reported
+the verified gap: F12 is decoded only by polled input (input.rs:283; PS/2 ps2.rs:44;
+USB usb.rs:461) driven from the main scheduler loop (main.rs:398), while a Wasm
+invocation blocks synchronously in func.call (wasm_runtime.rs:1621) — so no kill signal
+can be observed during a blocking host call, and Genesis SecureAttention runs only
+after the invocation returns. Per the parent scope's own recommendation for decision 5
+("otherwise stop and recut before net imports"), the lane is recut to wasmi RESUMABLE
+execution — verified available in vendored wasmi 0.31.2 (Func::call_resumable,
+ResumableInvocation). The addendum
+docs/plan-reviews/m11-net-imports-resumable-execution-addendum-2026-07-14.md replaces
+slices 2-4: main-loop-owned ActiveBeyondEnvInvocation (serial/input/Genesis/recovery
+stay responsive between resumes), suspension ONLY via a downcast-checked custom
+HostError marker (ordinary host errors and host-closure fuel errors are terminal even
+though call_resumable exposes them as resumable-by-origin; the tail-call edge is
+terminal by engine design and must stay rejected), cumulative fuel across resumes, an
+idempotent 9-step teardown with a Drop last-resort guard, and the honest limit stated:
+wasmi 0.31.2 has no epoch interrupts, so a guest busy-loop is bounded by the fuel
+ceiling (NET-2 must MEASURE the max-fuel wall time; no instruction-level-interrupt
+claim). F12 guarantee: kill observed at the next suspension boundary; harness bound
+250 ms from QEMU-monitor sendkey to the killed marker. No new owner decision arises.
+
 NET-1 BEYOND-ENV IMPORT ABI + EVIDENCE-BOUND EVALUATOR VERIFIED (2026-07-14, grants
 nothing — first slice of the owner-chosen net-imports lane). `raios.host_imports.v1`
 declares the pre-bound net.* (tcp_open/send/recv/close), opaque-session crypto.* (8
