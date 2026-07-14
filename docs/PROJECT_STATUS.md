@@ -24,6 +24,32 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+NET-2R RESUMABLE LIFECYCLE VERIFIED (2026-07-14): m11-beyond-env-lifecycle
+shadow-20260714-123624-28556.json PASSED 183/183 on the first guest run, after ONE
+classified failure that was HARNESS-side, not guest: the QEMU-monitor enable list in
+shadow-vm-smoke.ps1 (line ~208) did not include the new profile, so
+Send-QemuMonitorCommand threw "QEMU monitor is unavailable"
+(shadow-20260714-123348-18064.json; one-token list fix, zero kernel change). Proven in
+QEMU: a REAL wasmi ResumableCall::Resumable suspension (downcast-checked HostSuspend,
+id-matched) held while recovery.snapshot / recovery.lifeline_table / serial stayed
+responsive; PHYSICAL F12 via the QEMU monitor (sendkey f12, never serial) killed the
+invocation with zero post-kill resumes, exactly-once 9-step teardown (+ Drop guard),
+guest kill-to-teardown <= 16 ms boot-relative and host HMP-to-marker <= 250 ms; a
+second fixture run after the kill proves task/handle release; normal return, guest
+trap, unrelated host error, host-fuel error, Wasm OutOfFuel, marker mismatch, Drop
+abandonment and the tail-call terminal edge all share exactly-once cleanup; the
+max-fuel busy loop exits OutOfFuel within 250 ms — the honest no-epoch-interrupt bound,
+measured not claimed. The m8-lifeline trap/fuel/recovery assertions are copied into the
+profile (group 8). Host: 565 raios-core tests (5 new lifecycle), fmt clean, size gate
+OK (wasm_runtime.rs now 3,350 lines = WARN-tier; split candidate for a later
+readability slice), secret scan clean. The kill generation lives in input.rs at the
+existing F12 decode point (atomic, additive); main.rs pumps the single
+ActiveBeyondEnvInvocation at the 8 ms input boundary and defers provider polling while
+active. ACCEPTED EDGE, carried to NET-4 as a named requirement: central denial of
+UNRELATED service.start/Genesis Wasm launches while an invocation is suspended is not
+yet wired (a second lifecycle-fixture start IS denied); the NET-3 singleton lease
+serializes the resources that matter before any real net import exists.
+
 NET-2 HALTED ON ITS STOP CONDITION — OWNER DECISION 5 RESOLVED BY EVIDENCE, LANE RECUT
 TO RESUMABLE EXECUTION (2026-07-14). The NET-2 worker changed ZERO files and reported
 the verified gap: F12 is decoded only by polled input (input.rs:283; PS/2 ps2.rs:44;

@@ -935,6 +935,108 @@ pub(crate) fn emit_wasm_dnsparse_probe() {
     end_response("wasm.dnsparse_probe");
 }
 
+pub(crate) fn emit_wasm_beyond_env_lifecycle_probe(method: &str) {
+    let action = method.split_ascii_whitespace().nth(1).unwrap_or("status");
+    let request_status = match action {
+        "start_kill" => wasm_runtime::request_beyond_env_fixture(
+            wasm_runtime::BeyondEnvFixtureRequest::HoldForKill,
+        ),
+        "start_finish" => wasm_runtime::request_beyond_env_fixture(
+            wasm_runtime::BeyondEnvFixtureRequest::ResumeToFinish,
+        ),
+        "status" => "status",
+        _ => "invalid_fixture_action",
+    };
+    let snapshot = wasm_runtime::beyond_env_probe_snapshot();
+    let suite = wasm_runtime::run_beyond_env_lifecycle_suite();
+
+    begin_response("wasm.beyond_env_lifecycle_probe");
+    emit_record_fields_trailing_comma(
+        vec![
+            f("schema", s("raios.wasm_beyond_env_lifecycle_probe.v0")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("method", s("wasm.beyond_env_lifecycle_probe")),
+            f("test_infrastructure", b(true)),
+            f("fixture_import", s("test.suspend_once")),
+            f("service_id", s("test.fixture.beyond_env_lifecycle")),
+            f("fixture_linker_scope", s("labeled_fixture_runner_only")),
+            f("request_status", s(request_status)),
+            f("task_status", s(snapshot.request_status)),
+            f("active", b(snapshot.active)),
+            f("invocation_id", V::U64(snapshot.invocation_id)),
+            f("service_generation", V::U64(1)),
+            f("instance_generation", V::U64(1)),
+            f("run_count", V::U64(snapshot.run_count)),
+            f("suspended", b(snapshot.suspended)),
+            f("suspended_boot_ms", V::U64(snapshot.suspended_boot_ms)),
+            f("outcome", s(snapshot.outcome)),
+            f("terminal_boot_ms", V::U64(snapshot.terminal_boot_ms)),
+            f(
+                "kill_observed_boot_ms",
+                V::U64(snapshot.kill_observed_boot_ms),
+            ),
+            f("suspension_count", V::U64(snapshot.suspension_count as u64)),
+            f("resume_count", V::U64(snapshot.resume_count as u64)),
+            f("teardown_count", V::U64(snapshot.teardown_count as u64)),
+            f("fuel_used", V::U64(snapshot.fuel_used)),
+            f("no_resume_after_kill", b(snapshot.no_resume_after_kill)),
+            f("teardown_complete", b(snapshot.teardown_complete)),
+            f("handles_invalid", b(snapshot.handles_invalid)),
+            f("singleton_lease_held", b(snapshot.lease_held)),
+            f(
+                "pending_acquisition_present",
+                b(snapshot.pending_acquisition_present),
+            ),
+            f(
+                "prior_candidate_unchanged",
+                b(snapshot.prior_candidate_unchanged),
+            ),
+            f("killed_run_count", V::U64(snapshot.killed_run_count)),
+            f("finished_run_count", V::U64(snapshot.finished_run_count)),
+            f("fuel_budget", V::U64(suite.fuel_budget)),
+            f("wall_budget_ms", V::U64(suite.wall_budget_ms)),
+            f("pump_step_budget", V::U64(suite.pump_step_budget as u64)),
+            f("busy_loop_out_of_fuel", b(suite.busy_loop_out_of_fuel)),
+            f("busy_loop_wall_ms", V::U64(suite.busy_loop_wall_ms)),
+            f("tail_call_terminal", b(suite.tail_call_terminal)),
+            f(
+                "cases",
+                V::InlineArray(
+                    suite
+                        .cases
+                        .iter()
+                        .map(record_beyond_env_lifecycle_case)
+                        .collect(),
+                ),
+            ),
+            f("policy_allows_beyond_env", b(false)),
+            f("production_linker_armed", b(false)),
+            f("network_effect", b(false)),
+            f("crypto_effect", b(false)),
+            f("secret_effect", b(false)),
+            f("acquisition_effect", b(false)),
+            f("durable_effect", b(false)),
+            f("capability_granted", b(false)),
+        ],
+        6,
+    );
+    emit_record_fields(vec![f("evidence_complete", b(true))], 6);
+    end_response("wasm.beyond_env_lifecycle_probe");
+}
+
+fn record_beyond_env_lifecycle_case(case: &wasm_runtime::BeyondEnvLifecycleCase) -> V<'static> {
+    V::InlineObject(vec![
+        f("name", s(case.name)),
+        f("outcome", s(case.outcome)),
+        f("suspended", b(case.suspended)),
+        f("suspension_count", V::U64(case.suspension_count as u64)),
+        f("resume_count", V::U64(case.resume_count as u64)),
+        f("teardown_count", V::U64(case.teardown_count as u64)),
+        f("teardown_complete", b(case.teardown_complete)),
+    ])
+}
+
 struct DnsparseCase {
     run: wasm_runtime::EchoRunEvidence,
     input_len: u64,

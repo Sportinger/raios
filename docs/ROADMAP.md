@@ -56,12 +56,21 @@ false EVERYWHERE); slice 8 is the explicit owner-approved arming diff for exactl
 while the peer is silent, else recut to non-blocking imports — an unkillable kernel
 stall is a stop condition, not a ship. Owner detail decisions 1-4 proceed on the
 recorded recommendations (veto open), 5 after slice-2 evidence, 6 at arming, 7 deferred.
-**NET-1 is DONE and verified** (m11-wasm-import-grant shadow-20260714-114527-24812.json,
-560 host tests; it also caught and fixed a real honesty-report same-source divergence —
-see PROJECT_STATUS). Next slice: net-imports slice 2 (invocation identity, handle
-generations, teardown — grants nothing; its F12-kill evidence feeds owner decision 5).
-The hardware cursor is unchanged and Surface-gated (G7 read-only stick preflight, WiFi
-association/PORT_RELEASE/RX-TX/DHCP proof, ownerkey TPM capture).
+**NET-1 is DONE** (m11-wasm-import-grant shadow-20260714-114527-24812.json, 560 host
+tests; it also caught and fixed a real honesty-report same-source divergence — see
+PROJECT_STATUS). **Owner decision 5 RESOLVED BY EVIDENCE and the lane RECUT to wasmi
+resumable execution** (NET-2 halted on its stop condition: F12 is polled from the main
+loop, a blocking Wasm call blocks it — addendum
+`docs/plan-reviews/m11-net-imports-resumable-execution-addendum-2026-07-14.md` replaces
+slices 2-4). **NET-2R is DONE and verified**: m11-beyond-env-lifecycle
+shadow-20260714-123624-28556.json 183/183 — real wasmi suspension with
+recovery/serial responsive, physical F12 kill via QEMU monitor within the 250 ms bound,
+exactly-once teardown across eight exit paths, second-run-after-kill release proof.
+Next slice: NET-3 singleton transport ownership (one owner/generation lease around the
+existing TCP socket, native OpenAI moved onto it, owner-only close/abort, busy denial —
+no Wasm net import linkable). The hardware cursor is unchanged and Surface-gated (G7
+read-only stick preflight, WiFi association/PORT_RELEASE/RX-TX/DHCP proof, ownerkey
+TPM capture).
 
 **P4 EVIDENCE-VOCABULARY-V1 IS CLOSED — BOTH HALVES (2026-07-13 ~23:15).** I once called
 it closed after only the envelope; that was wrong and is now actually true.

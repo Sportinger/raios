@@ -341,6 +341,7 @@ struct PeriodicTasks {
     usb_rescan: scheduler::PeriodicTask,
     provider: scheduler::PeriodicTask,
     ui: scheduler::PeriodicTask,
+    active_beyond_env: Option<wasm_runtime::ActiveBeyondEnvInvocation>,
     entropy_ready: bool,
     net_started: bool,
 }
@@ -356,6 +357,7 @@ impl PeriodicTasks {
             usb_rescan: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(500, tsc_per_ms)),
             provider: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(50, tsc_per_ms)),
             ui: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(250, tsc_per_ms)),
+            active_beyond_env: None,
             entropy_ready,
             net_started: entropy_ready,
         }
@@ -395,7 +397,9 @@ impl PeriodicTasks {
                 status_ui.render_forced(uptime_ms(), *runtime_status);
             }
         });
+        let mut input_boundary = false;
         self.input.try_run(now_tsc, || {
+            input_boundary = true;
             let pointer_changed = input::poll();
             let ui_changed = status_ui.handle_pointer_interaction(*runtime_status);
             if ui_changed {
@@ -404,6 +408,34 @@ impl PeriodicTasks {
                 status_ui.render_pointer();
             }
         });
+        if input_boundary {
+            let already_active = self.active_beyond_env.is_some();
+            if !already_active {
+                if let Some(request) = wasm_runtime::take_beyond_env_fixture_request() {
+                    self.active_beyond_env = wasm_runtime::start_beyond_env_fixture(
+                        request,
+                        uptime_ms(),
+                        input::secure_attention_kill_generation(),
+                    );
+                }
+            }
+            if already_active {
+                let terminal = self
+                    .active_beyond_env
+                    .as_mut()
+                    .map(|active| {
+                        active.pump(
+                            uptime_ms(),
+                            input::secure_attention_kill_generation(),
+                            input::secure_attention_kill_boot_ms(),
+                        )
+                    })
+                    .unwrap_or(false);
+                if terminal {
+                    self.active_beyond_env = None;
+                }
+            }
+        }
         self.marvell_wifi_fw.try_run(now_tsc, || {
             if marvell_wifi_pcie::poll() {
                 status_ui.render_forced(uptime_ms(), *runtime_status);
@@ -428,30 +460,32 @@ impl PeriodicTasks {
                 self.net_started = true;
             }
             self.net.try_run(now_tsc, || net::poll());
-            self.provider.try_run(now_tsc, || {
-                if let Some(event) = provider::poll() {
-                    let _route = event.route;
-                    match event.kind {
-                        provider::EventKind::Answer(answer) => match event.target {
-                            provider::RequestTarget::Conversation => {
-                                console::write_provider_answer(answer.as_str());
+            if self.active_beyond_env.is_none() {
+                self.provider.try_run(now_tsc, || {
+                    if let Some(event) = provider::poll() {
+                        let _route = event.route;
+                        match event.kind {
+                            provider::EventKind::Answer(answer) => match event.target {
+                                provider::RequestTarget::Conversation => {
+                                    console::write_provider_answer(answer.as_str());
+                                }
+                                provider::RequestTarget::ProgramWorkspace => {
+                                    let outcome =
+                                        program_workspace::accept_provider_answer(event.id, answer);
+                                    console::write_program_outcome(event.id, outcome);
+                                }
+                            },
+                            provider::EventKind::Error(error) => {
+                                if event.target == provider::RequestTarget::ProgramWorkspace {
+                                    program_workspace::note_provider_error(event.id);
+                                }
+                                console::write_event(format_args!("{}", error));
                             }
-                            provider::RequestTarget::ProgramWorkspace => {
-                                let outcome =
-                                    program_workspace::accept_provider_answer(event.id, answer);
-                                console::write_program_outcome(event.id, outcome);
-                            }
-                        },
-                        provider::EventKind::Error(error) => {
-                            if event.target == provider::RequestTarget::ProgramWorkspace {
-                                program_workspace::note_provider_error(event.id);
-                            }
-                            console::write_event(format_args!("{}", error));
                         }
+                        status_ui.render_forced(uptime_ms(), *runtime_status);
                     }
-                    status_ui.render_forced(uptime_ms(), *runtime_status);
-                }
-            });
+                });
+            }
         }
         self.ui.try_run(now_tsc, || {
             status_ui.render(uptime_ms(), *runtime_status);

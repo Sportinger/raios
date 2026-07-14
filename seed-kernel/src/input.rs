@@ -1,6 +1,6 @@
 use core::cell::{Cell, UnsafeCell};
 use core::mem::MaybeUninit;
-use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 
 use spin::{Mutex, Once};
 
@@ -24,6 +24,8 @@ static INIT_ONCE: Once<()> = Once::new();
 static SHIFT_ACTIVE: AtomicBool = AtomicBool::new(false);
 static ALTGR_ACTIVE: AtomicBool = AtomicBool::new(false);
 static KEYBOARD_LAYOUT: AtomicU8 = AtomicU8::new(KeyboardLayout::Us as u8);
+static SECURE_ATTENTION_KILL_GENERATION: AtomicU64 = AtomicU64::new(0);
+static SECURE_ATTENTION_KILL_BOOT_MS: AtomicU64 = AtomicU64::new(0);
 
 pub fn init() {
     INIT_ONCE.call_once(|| {
@@ -52,6 +54,14 @@ pub fn poll() -> bool {
     pointer_changed |= poll_usb();
     poll_ps2();
     pointer_changed
+}
+
+pub(crate) fn secure_attention_kill_generation() -> u64 {
+    SECURE_ATTENTION_KILL_GENERATION.load(Ordering::Acquire)
+}
+
+pub(crate) fn secure_attention_kill_boot_ms() -> u64 {
+    SECURE_ATTENTION_KILL_BOOT_MS.load(Ordering::Acquire)
 }
 
 fn poll_ps2() {
@@ -283,6 +293,9 @@ fn update_mouse(kind: InputEventKind) -> bool {
 fn queue_key_event(code: u16, pressed: bool) {
     if code == KEYCODE_F12 {
         if pressed {
+            SECURE_ATTENTION_KILL_BOOT_MS
+                .store(time::rdtsc() / time::tsc_per_ms().max(1), Ordering::Release);
+            SECURE_ATTENTION_KILL_GENERATION.fetch_add(1, Ordering::AcqRel);
             RING.push(InputEvent {
                 kind: InputEventKind::SecureAttention,
             });

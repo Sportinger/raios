@@ -1,6 +1,12 @@
 use alloc::{boxed::Box, string::String, vec::Vec};
-use core::fmt::Write;
+use core::{
+    fmt::{self, Write},
+    sync::atomic::{AtomicU64, AtomicU8, Ordering},
+};
 use raios_core::{
+    beyond_env_invocation::{
+        BoundaryState, InvocationAuthority, InvocationLifecycle, TerminalOutcome,
+    },
     host_import_abi_v1::{HostImportSignature, BEYOND_ENV_HOST_IMPORTS_V1, HOST_IMPORT_ABI_V1},
     personal_shell_abi::{
         PersonalShellContext, PersonalShellInput, SanitizedInputEvent, SanitizedInputKind,
@@ -24,7 +30,8 @@ use spin::Mutex;
 use wasmi::{
     core::{Trap, TrapCode},
     errors::{InstantiationError, LinkerError, MemoryError, TableError},
-    Caller, Config, Engine, Extern, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, Value,
+    Caller, Config, Engine, Extern, Instance, Linker, Memory, Module, ResumableCall,
+    ResumableInvocation, Store, StoreLimits, StoreLimitsBuilder, Value,
 };
 
 use crate::serial;
@@ -61,6 +68,37 @@ const UNREACHABLE_WASM_MODULE: &[u8] = &[
     0x01, 0x00, 0x07, 0x07, 0x01, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x00, 0x0a, 0x05, 0x01, 0x03, 0x00,
     0x00, 0x0b,
 ];
+// Labeled NET-2 test infrastructure only. `test.suspend_once` never enters the
+// known-import table or the production per-instance linker.
+const SUSPEND_ONCE_WASM_MODULE: &[u8] = &[
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x02,
+    0x15, 0x01, 0x04, 0x74, 0x65, 0x73, 0x74, 0x0c, 0x73, 0x75, 0x73, 0x70, 0x65, 0x6e, 0x64, 0x5f,
+    0x6f, 0x6e, 0x63, 0x65, 0x00, 0x00, 0x03, 0x02, 0x01, 0x00, 0x05, 0x03, 0x01, 0x00, 0x01, 0x07,
+    0x10, 0x02, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x01, 0x06, 0x6d, 0x65, 0x6d, 0x6f, 0x72, 0x79, 0x02,
+    0x00, 0x0a, 0x06, 0x01, 0x04, 0x00, 0x10, 0x00, 0x0b,
+];
+const TAIL_SUSPEND_WASM_MODULE: &[u8] = &[
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x02,
+    0x15, 0x01, 0x04, 0x74, 0x65, 0x73, 0x74, 0x0c, 0x73, 0x75, 0x73, 0x70, 0x65, 0x6e, 0x64, 0x5f,
+    0x6f, 0x6e, 0x63, 0x65, 0x00, 0x00, 0x03, 0x02, 0x01, 0x00, 0x05, 0x03, 0x01, 0x00, 0x01, 0x07,
+    0x10, 0x02, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x01, 0x06, 0x6d, 0x65, 0x6d, 0x6f, 0x72, 0x79, 0x02,
+    0x00, 0x0a, 0x06, 0x01, 0x04, 0x00, 0x12, 0x00, 0x0b,
+];
+const NORMAL_RETURN_I32_WASM_MODULE: &[u8] = &[
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03,
+    0x02, 0x01, 0x00, 0x07, 0x07, 0x01, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x00, 0x0a, 0x06, 0x01, 0x04,
+    0x00, 0x41, 0x07, 0x0b,
+];
+const UNREACHABLE_I32_WASM_MODULE: &[u8] = &[
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03,
+    0x02, 0x01, 0x00, 0x07, 0x07, 0x01, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x00, 0x0a, 0x05, 0x01, 0x03,
+    0x00, 0x00, 0x0b,
+];
+const FUEL_LOOP_I32_WASM_MODULE: &[u8] = &[
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03,
+    0x02, 0x01, 0x00, 0x07, 0x07, 0x01, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x00, 0x0a, 0x0b, 0x01, 0x09,
+    0x00, 0x03, 0x40, 0x0c, 0x00, 0x0b, 0x41, 0x00, 0x0b,
+];
 const MAX_WASM_LOG_BYTES: usize = 256;
 // Keep in lockstep with the Phase-B guest buffer size.
 const MAX_WASM_INPUT_BYTES: usize = 4096;
@@ -74,6 +112,9 @@ pub(crate) const ECHO_WASM_FUEL_BUDGET: u64 = 10_000;
 pub(crate) const ECHO_WASM_FUEL_STARVED_BUDGET: u64 = 1;
 const FUEL_EXHAUSTION_BUDGET: u64 = 1;
 const GUEST_TRAP_FUEL_BUDGET: u64 = 100;
+const BEYOND_ENV_FIXTURE_FUEL_BUDGET: u64 = 1_000_000;
+const BEYOND_ENV_WALL_BUDGET_MS: u64 = 90_000;
+const BEYOND_ENV_PUMP_STEP_BUDGET: u32 = 11_250;
 pub(crate) const WASM_HARDENING_CASE_COUNT: usize = 4;
 pub(crate) const FORBIDDEN_IMPORT_MODULE: &str = "env";
 pub(crate) const FORBIDDEN_IMPORT_NAME: &str = "forbidden_write";
@@ -127,6 +168,776 @@ const PERSONAL_SHELL_TABLE_ELEMENTS: u32 = 2;
 const ZERO_SHA256: [u8; 32] = [0; 32];
 
 static CURRENT_BOOT_COUNTER: Mutex<u64> = Mutex::new(0);
+static BEYOND_ENV_REQUEST: AtomicU8 = AtomicU8::new(0);
+static NEXT_BEYOND_ENV_INVOCATION_ID: AtomicU64 = AtomicU64::new(1);
+static BEYOND_ENV_PROBE: Mutex<BeyondEnvProbeSnapshot> =
+    Mutex::new(BeyondEnvProbeSnapshot::empty());
+static BEYOND_ENV_SUITE: Mutex<Option<BeyondEnvLifecycleSuite>> = Mutex::new(None);
+static ACTIVE_DROP_TEARDOWN_COUNT: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone, Copy, Debug)]
+struct HostSuspend {
+    invocation_id: u64,
+    operation_id: u32,
+}
+
+impl fmt::Display for HostSuspend {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("raios host operation suspended")
+    }
+}
+
+impl wasmi::core::HostError for HostSuspend {}
+
+#[derive(Clone, Copy, Debug)]
+struct FixtureHostError;
+
+impl fmt::Display for FixtureHostError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("raios labeled fixture host error")
+    }
+}
+
+impl wasmi::core::HostError for FixtureHostError {}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FixtureBehavior {
+    Suspend,
+    UnrecognizedHostError,
+    HostFuelError,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BeyondEnvFixtureRequest {
+    HoldForKill,
+    ResumeToFinish,
+}
+
+impl BeyondEnvFixtureRequest {
+    const fn encode(self) -> u8 {
+        match self {
+            Self::HoldForKill => 1,
+            Self::ResumeToFinish => 2,
+        }
+    }
+
+    const fn decode(value: u8) -> Option<Self> {
+        match value {
+            1 => Some(Self::HoldForKill),
+            2 => Some(Self::ResumeToFinish),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct BeyondEnvProbeSnapshot {
+    pub(crate) request_status: &'static str,
+    pub(crate) active: bool,
+    pub(crate) invocation_id: u64,
+    pub(crate) run_count: u64,
+    pub(crate) suspended: bool,
+    pub(crate) suspended_boot_ms: u64,
+    pub(crate) outcome: &'static str,
+    pub(crate) terminal_boot_ms: u64,
+    pub(crate) kill_observed_boot_ms: u64,
+    pub(crate) suspension_count: u32,
+    pub(crate) resume_count: u32,
+    pub(crate) teardown_count: u32,
+    pub(crate) fuel_used: u64,
+    pub(crate) no_resume_after_kill: bool,
+    pub(crate) teardown_complete: bool,
+    pub(crate) handles_invalid: bool,
+    pub(crate) lease_held: bool,
+    pub(crate) pending_acquisition_present: bool,
+    pub(crate) prior_candidate_unchanged: bool,
+    pub(crate) killed_run_count: u64,
+    pub(crate) finished_run_count: u64,
+}
+
+impl BeyondEnvProbeSnapshot {
+    const fn empty() -> Self {
+        Self {
+            request_status: "idle",
+            active: false,
+            invocation_id: 0,
+            run_count: 0,
+            suspended: false,
+            suspended_boot_ms: 0,
+            outcome: "not_run",
+            terminal_boot_ms: 0,
+            kill_observed_boot_ms: 0,
+            suspension_count: 0,
+            resume_count: 0,
+            teardown_count: 0,
+            fuel_used: 0,
+            no_resume_after_kill: false,
+            teardown_complete: false,
+            handles_invalid: true,
+            lease_held: false,
+            pending_acquisition_present: false,
+            prior_candidate_unchanged: true,
+            killed_run_count: 0,
+            finished_run_count: 0,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct BeyondEnvLifecycleCase {
+    pub(crate) name: &'static str,
+    pub(crate) outcome: &'static str,
+    pub(crate) suspended: bool,
+    pub(crate) suspension_count: u32,
+    pub(crate) resume_count: u32,
+    pub(crate) teardown_count: u32,
+    pub(crate) teardown_complete: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct BeyondEnvLifecycleSuite {
+    pub(crate) cases: [BeyondEnvLifecycleCase; 7],
+    pub(crate) tail_call_terminal: bool,
+    pub(crate) busy_loop_out_of_fuel: bool,
+    pub(crate) busy_loop_wall_ms: u64,
+    pub(crate) fuel_budget: u64,
+    pub(crate) wall_budget_ms: u64,
+    pub(crate) pump_step_budget: u32,
+}
+
+struct BeyondEnvState {
+    lifecycle: InvocationLifecycle,
+    behavior: FixtureBehavior,
+    limits: StoreLimits,
+}
+
+pub(crate) struct ActiveBeyondEnvInvocation {
+    store: Option<Store<BeyondEnvState>>,
+    instance: Option<Instance>,
+    memory: Option<Memory>,
+    continuation: Option<ResumableInvocation>,
+    outputs: [Value; 1],
+    auto_resume: bool,
+    closed: bool,
+}
+
+pub(crate) fn request_beyond_env_fixture(request: BeyondEnvFixtureRequest) -> &'static str {
+    if BEYOND_ENV_PROBE.lock().active {
+        return "resource_busy_active_invocation";
+    }
+    match BEYOND_ENV_REQUEST.compare_exchange(
+        0,
+        request.encode(),
+        Ordering::AcqRel,
+        Ordering::Acquire,
+    ) {
+        Ok(_) => {
+            BEYOND_ENV_PROBE.lock().request_status = "accepted_pending";
+            "accepted_pending"
+        }
+        Err(_) => "resource_busy_active_invocation",
+    }
+}
+
+pub(crate) fn take_beyond_env_fixture_request() -> Option<BeyondEnvFixtureRequest> {
+    BeyondEnvFixtureRequest::decode(BEYOND_ENV_REQUEST.swap(0, Ordering::AcqRel))
+}
+
+pub(crate) fn beyond_env_probe_snapshot() -> BeyondEnvProbeSnapshot {
+    *BEYOND_ENV_PROBE.lock()
+}
+
+pub(crate) fn start_beyond_env_fixture(
+    request: BeyondEnvFixtureRequest,
+    now_ms: u64,
+    kill_generation: u64,
+) -> Option<ActiveBeyondEnvInvocation> {
+    let active = try_start_beyond_env_fixture(request, now_ms, kill_generation);
+    if active.is_none() {
+        let mut probe = BEYOND_ENV_PROBE.lock();
+        probe.request_status = "fixture_setup_failed";
+        probe.active = false;
+        probe.outcome = "fixture_setup_failed";
+        serial::write_fmt(format_args!(
+            "RAIOS_BEYOND_ENV_LIFECYCLE outcome=fixture_setup_failed teardown_complete=true boot_ms={}\r\n",
+            now_ms
+        ));
+    }
+    active
+}
+
+fn try_start_beyond_env_fixture(
+    request: BeyondEnvFixtureRequest,
+    now_ms: u64,
+    kill_generation: u64,
+) -> Option<ActiveBeyondEnvInvocation> {
+    let invocation_id = NEXT_BEYOND_ENV_INVOCATION_ID.fetch_add(1, Ordering::Relaxed);
+    let authority = InvocationAuthority {
+        service_id: "test.fixture.beyond_env_lifecycle",
+        invocation_id,
+        service_generation: 1,
+        instance_generation: 1,
+        captured_kill_generation: kill_generation,
+        policy_allows_beyond_env: false,
+    };
+    let engine = beyond_env_engine();
+    let module = Module::new(&engine, SUSPEND_ONCE_WASM_MODULE).ok()?;
+    let mut store = Store::new(
+        &engine,
+        BeyondEnvState {
+            lifecycle: InvocationLifecycle::new(
+                authority,
+                now_ms,
+                BEYOND_ENV_WALL_BUDGET_MS,
+                BEYOND_ENV_PUMP_STEP_BUDGET,
+                invocation_id as u32,
+            ),
+            behavior: FixtureBehavior::Suspend,
+            limits: beyond_env_limits(),
+        },
+    );
+    store.limiter(|state| &mut state.limits);
+    store.add_fuel(BEYOND_ENV_FIXTURE_FUEL_BUDGET).ok()?;
+    let mut linker = Linker::<BeyondEnvState>::new(&engine);
+    linker
+        .func_wrap("test", "suspend_once", host_test_suspend_once)
+        .ok()?;
+    let instance = linker
+        .instantiate(&mut store, &module)
+        .ok()?
+        .start(&mut store)
+        .ok()?;
+    let memory = instance
+        .get_export(&store, "memory")
+        .and_then(Extern::into_memory)?;
+    let function = instance.get_export(&store, "run")?.into_func()?;
+    let mut outputs = [Value::I32(0)];
+    let continuation = match function.call_resumable(&mut store, &[], &mut outputs) {
+        Ok(ResumableCall::Resumable(invocation))
+            if classify_resumable(&invocation, &store).is_ok() =>
+        {
+            invocation
+        }
+        Ok(ResumableCall::Resumable(_)) => {
+            finish_store(&mut store, TerminalOutcome::HostError);
+            return None;
+        }
+        Ok(ResumableCall::Finished) => {
+            finish_store(&mut store, TerminalOutcome::Finished);
+            return None;
+        }
+        Err(error) => {
+            finish_store(&mut store, terminal_from_error(&error));
+            return None;
+        }
+    };
+    let suspended_boot_ms = crate::time::rdtsc() / crate::time::tsc_per_ms().max(1);
+    {
+        let mut probe = BEYOND_ENV_PROBE.lock();
+        probe.request_status = "running";
+        probe.active = true;
+        probe.invocation_id = invocation_id;
+        probe.run_count = probe.run_count.saturating_add(1);
+        probe.suspended = true;
+        probe.suspended_boot_ms = suspended_boot_ms;
+        probe.outcome = "pending";
+        probe.terminal_boot_ms = 0;
+        probe.kill_observed_boot_ms = 0;
+        probe.suspension_count = store.data().lifecycle.suspension_count();
+        probe.resume_count = 0;
+        probe.teardown_count = 0;
+        probe.teardown_complete = false;
+        probe.no_resume_after_kill = false;
+    }
+    serial::write_fmt(format_args!(
+        "RAIOS_BEYOND_ENV_LIFECYCLE suspended=true invocation_id={} boot_ms={}\r\n",
+        invocation_id, suspended_boot_ms
+    ));
+    Some(ActiveBeyondEnvInvocation {
+        store: Some(store),
+        instance: Some(instance),
+        memory: Some(memory),
+        continuation: Some(continuation),
+        outputs,
+        auto_resume: request == BeyondEnvFixtureRequest::ResumeToFinish,
+        closed: false,
+    })
+}
+
+impl ActiveBeyondEnvInvocation {
+    pub(crate) fn pump(&mut self, now_ms: u64, kill_generation: u64, kill_boot_ms: u64) -> bool {
+        if self.closed {
+            return true;
+        }
+        let boundary = BoundaryState {
+            now_ms,
+            kill_generation,
+            service_generation: 1,
+            instance_generation: 1,
+            posture_allows_execution: true,
+        };
+        let boundary_result = self
+            .store
+            .as_mut()
+            .expect("active beyond-env store missing")
+            .data_mut()
+            .lifecycle
+            .check_boundary(boundary);
+        if let Err(outcome) = boundary_result {
+            self.finish(outcome, now_ms, kill_boot_ms);
+            return true;
+        }
+        if !self.auto_resume {
+            return false;
+        }
+
+        let store = self
+            .store
+            .as_mut()
+            .expect("active beyond-env store missing");
+        if store.data_mut().lifecycle.take_pending().is_none() {
+            self.finish(TerminalOutcome::HostError, now_ms, 0);
+            return true;
+        }
+        if let Err(outcome) = store.data_mut().lifecycle.check_boundary(boundary) {
+            self.finish(outcome, now_ms, kill_boot_ms);
+            return true;
+        }
+        store.data_mut().lifecycle.note_resume();
+        let continuation = self
+            .continuation
+            .take()
+            .expect("active beyond-env continuation missing");
+        match continuation.resume(&mut *store, &[Value::I32(7)], &mut self.outputs) {
+            Ok(ResumableCall::Finished) => self.finish(TerminalOutcome::Finished, now_ms, 0),
+            Ok(ResumableCall::Resumable(next)) => match classify_resumable(&next, store) {
+                Ok(()) => {
+                    self.continuation = Some(next);
+                    return false;
+                }
+                Err(outcome) => self.finish(outcome, now_ms, 0),
+            },
+            Err(error) => self.finish(terminal_from_error(&error), now_ms, 0),
+        }
+        true
+    }
+
+    fn finish(&mut self, outcome: TerminalOutcome, now_ms: u64, kill_boot_ms: u64) {
+        let store = self
+            .store
+            .as_mut()
+            .expect("active beyond-env store missing");
+        finish_store(store, outcome);
+        let lifecycle = &store.data().lifecycle;
+        let receipt = lifecycle.teardown_receipt();
+        let suspension_count = lifecycle.suspension_count();
+        let resume_count = lifecycle.resume_count();
+        let fuel_used = store.fuel_consumed().unwrap_or(0);
+
+        // Teardown step 9: no raiOS lock is held while wasmi state is dropped.
+        drop(self.continuation.take());
+        drop(self.memory.take());
+        drop(self.instance.take());
+        drop(self.store.take());
+        self.closed = true;
+
+        {
+            let mut probe = BEYOND_ENV_PROBE.lock();
+            probe.request_status = "complete";
+            probe.active = false;
+            probe.suspended = false;
+            probe.outcome = outcome.as_str();
+            probe.terminal_boot_ms = now_ms;
+            probe.kill_observed_boot_ms = kill_boot_ms;
+            probe.suspension_count = suspension_count;
+            probe.resume_count = resume_count;
+            probe.teardown_count = receipt.teardown_count;
+            probe.fuel_used = fuel_used;
+            if outcome == TerminalOutcome::Killed {
+                probe.no_resume_after_kill = resume_count == 0;
+            }
+            probe.teardown_complete = receipt.terminal_outcome_recorded;
+            probe.handles_invalid = receipt.handles_invalid;
+            probe.lease_held = false;
+            probe.pending_acquisition_present = false;
+            probe.prior_candidate_unchanged = receipt.prior_candidate_unchanged;
+            if outcome == TerminalOutcome::Killed {
+                probe.killed_run_count = probe.killed_run_count.saturating_add(1);
+            }
+            if outcome == TerminalOutcome::Finished {
+                probe.finished_run_count = probe.finished_run_count.saturating_add(1);
+            }
+        }
+        serial::write_fmt(format_args!(
+            "RAIOS_BEYOND_ENV_LIFECYCLE outcome={} teardown_complete=true handles_invalid=true resume_count={} boot_ms={}\r\n",
+            outcome.as_str(), resume_count, now_ms
+        ));
+    }
+}
+
+impl Drop for ActiveBeyondEnvInvocation {
+    fn drop(&mut self) {
+        if let Some(store) = self.store.as_mut() {
+            if store
+                .data_mut()
+                .lifecycle
+                .teardown(TerminalOutcome::Abandoned)
+            {
+                ACTIVE_DROP_TEARDOWN_COUNT.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+}
+
+fn finish_store(store: &mut Store<BeyondEnvState>, outcome: TerminalOutcome) {
+    store.data_mut().lifecycle.teardown(outcome);
+}
+
+fn host_test_suspend_once(mut caller: Caller<'_, BeyondEnvState>) -> Result<i32, Trap> {
+    match caller.data().behavior {
+        FixtureBehavior::Suspend => {
+            let authority = caller.data().lifecycle.authority();
+            let pending = caller
+                .data_mut()
+                .lifecycle
+                .record_pending(1)
+                .ok_or_else(|| Trap::new("test suspend pending operation already exists"))?;
+            Err(HostSuspend {
+                invocation_id: authority.invocation_id,
+                operation_id: pending.operation_id,
+            }
+            .into())
+        }
+        FixtureBehavior::UnrecognizedHostError => Err(FixtureHostError.into()),
+        FixtureBehavior::HostFuelError => {
+            caller
+                .consume_fuel(u64::MAX)
+                .map_err(|_| Trap::from(TrapCode::OutOfFuel))?;
+            Ok(0)
+        }
+    }
+}
+
+fn classify_resumable(
+    invocation: &ResumableInvocation,
+    store: &Store<BeyondEnvState>,
+) -> Result<(), TerminalOutcome> {
+    if matches!(
+        invocation.host_error().trap_code(),
+        Some(TrapCode::OutOfFuel)
+    ) {
+        return Err(TerminalOutcome::OutOfFuel);
+    }
+    let marker = invocation
+        .host_error()
+        .downcast_ref::<HostSuspend>()
+        .ok_or(TerminalOutcome::HostError)?;
+    if !store
+        .data()
+        .lifecycle
+        .suspend_marker_matches(marker.invocation_id, marker.operation_id)
+    {
+        return Err(TerminalOutcome::HostError);
+    }
+    Ok(())
+}
+
+fn terminal_from_error(error: &wasmi::Error) -> TerminalOutcome {
+    match error {
+        wasmi::Error::Trap(trap) if matches!(trap.trap_code(), Some(TrapCode::OutOfFuel)) => {
+            TerminalOutcome::OutOfFuel
+        }
+        wasmi::Error::Trap(trap)
+            if matches!(trap.trap_code(), Some(TrapCode::UnreachableCodeReached)) =>
+        {
+            TerminalOutcome::GuestTrap
+        }
+        wasmi::Error::Trap(_) => TerminalOutcome::HostError,
+        _ => TerminalOutcome::HostError,
+    }
+}
+
+fn beyond_env_engine() -> Engine {
+    let mut config = Config::default();
+    config.consume_fuel(true).wasm_tail_call(true);
+    Engine::new(&config)
+}
+
+fn beyond_env_limits() -> StoreLimits {
+    StoreLimitsBuilder::new()
+        .memory_size(BUFFER_SERVICE_MAX_MEMORY_BYTES)
+        .instances(1)
+        .memories(1)
+        .tables(1)
+        .table_elements(64)
+        .build()
+}
+
+pub(crate) fn run_beyond_env_lifecycle_suite() -> BeyondEnvLifecycleSuite {
+    if let Some(suite) = *BEYOND_ENV_SUITE.lock() {
+        return suite;
+    }
+    let normal = run_beyond_env_case(
+        "normal_return",
+        NORMAL_RETURN_I32_WASM_MODULE,
+        FixtureBehavior::Suspend,
+        100,
+        CaseAction::None,
+    );
+    let guest_trap = run_beyond_env_case(
+        "guest_trap",
+        UNREACHABLE_I32_WASM_MODULE,
+        FixtureBehavior::Suspend,
+        100,
+        CaseAction::None,
+    );
+    let unrecognized = run_beyond_env_case(
+        "unrecognized_host_error",
+        SUSPEND_ONCE_WASM_MODULE,
+        FixtureBehavior::UnrecognizedHostError,
+        100,
+        CaseAction::None,
+    );
+    let host_fuel = run_beyond_env_case(
+        "host_fuel_error",
+        SUSPEND_ONCE_WASM_MODULE,
+        FixtureBehavior::HostFuelError,
+        100,
+        CaseAction::None,
+    );
+    let busy_started = crate::time::rdtsc() / crate::time::tsc_per_ms().max(1);
+    let wasm_fuel = run_beyond_env_case(
+        "wasm_out_of_fuel",
+        FUEL_LOOP_I32_WASM_MODULE,
+        FixtureBehavior::Suspend,
+        BEYOND_ENV_FIXTURE_FUEL_BUDGET,
+        CaseAction::None,
+    );
+    let busy_loop_wall_ms =
+        (crate::time::rdtsc() / crate::time::tsc_per_ms().max(1)).saturating_sub(busy_started);
+    let marker_mismatch = run_beyond_env_case(
+        "suspend_marker_mismatch",
+        SUSPEND_ONCE_WASM_MODULE,
+        FixtureBehavior::Suspend,
+        100,
+        CaseAction::Mismatch,
+    );
+    let abandoned = run_beyond_env_case(
+        "abandoned_drop_guard",
+        SUSPEND_ONCE_WASM_MODULE,
+        FixtureBehavior::Suspend,
+        100,
+        CaseAction::Abandon,
+    );
+    let tail = run_beyond_env_case(
+        "tail_call_terminal",
+        TAIL_SUSPEND_WASM_MODULE,
+        FixtureBehavior::Suspend,
+        100,
+        CaseAction::None,
+    );
+    let suite = BeyondEnvLifecycleSuite {
+        cases: [
+            normal,
+            guest_trap,
+            unrecognized,
+            host_fuel,
+            wasm_fuel,
+            marker_mismatch,
+            abandoned,
+        ],
+        tail_call_terminal: tail.outcome == "host_error" && !tail.suspended,
+        busy_loop_out_of_fuel: wasm_fuel.outcome == "out_of_fuel",
+        busy_loop_wall_ms,
+        fuel_budget: BEYOND_ENV_FIXTURE_FUEL_BUDGET,
+        wall_budget_ms: BEYOND_ENV_WALL_BUDGET_MS,
+        pump_step_budget: BEYOND_ENV_PUMP_STEP_BUDGET,
+    };
+    *BEYOND_ENV_SUITE.lock() = Some(suite);
+    suite
+}
+
+#[derive(Clone, Copy)]
+enum CaseAction {
+    None,
+    Mismatch,
+    Abandon,
+}
+
+fn run_beyond_env_case(
+    name: &'static str,
+    bytes: &[u8],
+    behavior: FixtureBehavior,
+    fuel_budget: u64,
+    action: CaseAction,
+) -> BeyondEnvLifecycleCase {
+    let invocation_id = NEXT_BEYOND_ENV_INVOCATION_ID.fetch_add(1, Ordering::Relaxed);
+    let authority = InvocationAuthority {
+        service_id: "test.fixture.beyond_env_lifecycle",
+        invocation_id,
+        service_generation: 1,
+        instance_generation: 1,
+        captured_kill_generation: 0,
+        policy_allows_beyond_env: false,
+    };
+    let engine = beyond_env_engine();
+    let module = match Module::new(&engine, bytes) {
+        Ok(module) => module,
+        Err(_) => return failed_beyond_env_case(name),
+    };
+    let mut store = Store::new(
+        &engine,
+        BeyondEnvState {
+            lifecycle: InvocationLifecycle::new(
+                authority,
+                0,
+                BEYOND_ENV_WALL_BUDGET_MS,
+                BEYOND_ENV_PUMP_STEP_BUDGET,
+                invocation_id as u32,
+            ),
+            behavior,
+            limits: beyond_env_limits(),
+        },
+    );
+    store.limiter(|state| &mut state.limits);
+    if store.add_fuel(fuel_budget).is_err() {
+        return failed_beyond_env_case(name);
+    }
+    let mut linker = Linker::<BeyondEnvState>::new(&engine);
+    if linker
+        .func_wrap("test", "suspend_once", host_test_suspend_once)
+        .is_err()
+    {
+        return failed_beyond_env_case(name);
+    }
+    let instance = match linker.instantiate(&mut store, &module) {
+        Ok(pre) => match pre.start(&mut store) {
+            Ok(instance) => instance,
+            Err(error) => {
+                let outcome = terminal_from_error(&error);
+                return teardown_case(name, &mut store, outcome, false);
+            }
+        },
+        Err(error) => {
+            let outcome = terminal_from_error(&error);
+            return teardown_case(name, &mut store, outcome, false);
+        }
+    };
+    let Some(function) = instance
+        .get_export(&store, "run")
+        .and_then(Extern::into_func)
+    else {
+        return teardown_case(name, &mut store, TerminalOutcome::HostError, false);
+    };
+    let mut outputs = [Value::I32(0)];
+    match function.call_resumable(&mut store, &[], &mut outputs) {
+        Ok(ResumableCall::Finished) => {
+            teardown_case(name, &mut store, TerminalOutcome::Finished, false)
+        }
+        Ok(ResumableCall::Resumable(invocation)) => {
+            if matches!(action, CaseAction::Mismatch) {
+                store.data_mut().lifecycle.take_pending();
+                store.data_mut().lifecycle.record_pending(2);
+            }
+            let classification = classify_resumable(&invocation, &store);
+            if matches!(action, CaseAction::Abandon) {
+                let suspension_count = store.data().lifecycle.suspension_count();
+                let memory = instance
+                    .get_export(&store, "memory")
+                    .and_then(Extern::into_memory);
+                let before = ACTIVE_DROP_TEARDOWN_COUNT.load(Ordering::Relaxed);
+                drop(ActiveBeyondEnvInvocation {
+                    store: Some(store),
+                    instance: Some(instance),
+                    memory,
+                    continuation: Some(invocation),
+                    outputs,
+                    auto_resume: false,
+                    closed: false,
+                });
+                let teardown_count = ACTIVE_DROP_TEARDOWN_COUNT
+                    .load(Ordering::Relaxed)
+                    .saturating_sub(before) as u32;
+                return BeyondEnvLifecycleCase {
+                    name,
+                    outcome: TerminalOutcome::Abandoned.as_str(),
+                    suspended: true,
+                    suspension_count,
+                    resume_count: 0,
+                    teardown_count,
+                    teardown_complete: teardown_count == 1,
+                };
+            }
+            if let Err(outcome) = classification {
+                return teardown_case(name, &mut store, outcome, false);
+            }
+            store.data_mut().lifecycle.take_pending();
+            store.data_mut().lifecycle.note_resume();
+            match invocation.resume(&mut store, &[Value::I32(7)], &mut outputs) {
+                Ok(ResumableCall::Finished) => {
+                    teardown_case(name, &mut store, TerminalOutcome::Finished, true)
+                }
+                Ok(ResumableCall::Resumable(next)) => {
+                    let outcome = classify_resumable(&next, &store)
+                        .err()
+                        .unwrap_or(TerminalOutcome::HostError);
+                    teardown_case(name, &mut store, outcome, true)
+                }
+                Err(error) => {
+                    let outcome = terminal_from_error(&error);
+                    teardown_case(name, &mut store, outcome, true)
+                }
+            }
+        }
+        Err(error) => {
+            let outcome = terminal_from_error(&error);
+            teardown_case(name, &mut store, outcome, false)
+        }
+    }
+}
+
+fn teardown_case(
+    name: &'static str,
+    store: &mut Store<BeyondEnvState>,
+    outcome: TerminalOutcome,
+    suspended: bool,
+) -> BeyondEnvLifecycleCase {
+    finish_store(store, outcome);
+    case_from_store(name, store, suspended)
+}
+
+fn case_from_store(
+    name: &'static str,
+    store: &Store<BeyondEnvState>,
+    suspended: bool,
+) -> BeyondEnvLifecycleCase {
+    let lifecycle = &store.data().lifecycle;
+    let receipt = lifecycle.teardown_receipt();
+    BeyondEnvLifecycleCase {
+        name,
+        outcome: lifecycle
+            .terminal()
+            .map(TerminalOutcome::as_str)
+            .unwrap_or("not_terminal"),
+        suspended,
+        suspension_count: lifecycle.suspension_count(),
+        resume_count: lifecycle.resume_count(),
+        teardown_count: receipt.teardown_count,
+        teardown_complete: receipt.terminal_outcome_recorded,
+    }
+}
+
+fn failed_beyond_env_case(name: &'static str) -> BeyondEnvLifecycleCase {
+    BeyondEnvLifecycleCase {
+        name,
+        outcome: "fixture_setup_failed",
+        suspended: false,
+        suspension_count: 0,
+        resume_count: 0,
+        teardown_count: 0,
+        teardown_complete: false,
+    }
+}
 
 #[used]
 static WASMI_COMPILE_PROOF: fn() -> bool = validate_empty_module_bytes;
