@@ -45,6 +45,7 @@ use wasmi::{
 use crate::{net, serial};
 
 mod acquire_shims;
+mod acquisition_service;
 mod artifacts;
 mod crypto_shims;
 mod envelope;
@@ -57,6 +58,10 @@ mod suspension;
 pub(crate) use acquire_shims::{
     acquire_shim_grant_probe, AcquireFixtureCase, AcquireFixtureProbeSnapshot,
     AcquireShimGrantProbe,
+};
+pub(crate) use acquisition_service::{
+    acquisition_service_probe, AcquisitionServiceProbe, NET_ACQUIRE_W7_AUTHORIZED_IMPORTS,
+    NET_ACQUIRE_W7_SERVICE_ID,
 };
 pub(crate) use artifacts::*;
 pub(crate) use crypto_shims::{

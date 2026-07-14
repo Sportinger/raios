@@ -1399,6 +1399,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "raios-w7-acquire-logic"
+version = "0.1.0"
+
+[[package]]
 name = "raios-x509-spki"
 version = "0.1.0"
 dependencies = [
@@ -1876,6 +1880,15 @@ name = "svc-demo-httphead"
 version = "0.1.0"
 dependencies = [
  "raios-http-parse",
+]
+
+[[package]]
+name = "svc-net-acquire-w7"
+version = "0.1.0"
+dependencies = [
+ "raios-http-parse",
+ "raios-w7-acquire-logic",
+ "raios-x509-spki",
 ]
 
 [[package]]

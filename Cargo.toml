@@ -9,6 +9,7 @@ members = [
     "raios-x509-time",
     "raios-x509-spki",
     "raios-http-parse",
+    "raios-w7-acquire-logic",
     "tools/descriptor-resign",
     "tools/core-policy-sign",
     "seed-kernel",
@@ -18,6 +19,7 @@ members = [
     "wasm-guests/svc-demo-httphead",
     "wasm-guests/svc-demo-certspki",
     "wasm-guests/svc-demo-dnsparse",
+    "wasm-guests/svc-net-acquire-w7",
     "wasm-guests/svc-personal-shell-proof"
 ]
 resolver = "2"

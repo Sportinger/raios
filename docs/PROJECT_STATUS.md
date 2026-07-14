@@ -24,6 +24,37 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+NET-7 SIGNED svc.net.acquire.w7 SERVICE VERIFIED (2026-07-14, grant STILL DENIED):
+m11-acquisition-service shadow-20260714-170818-14076.json PASSED 161/161. This is the
+FIRST real guest that USES beyond-env imports — a merged Wasm program (artifact
+32a018b0c730a4f85210ca820483ca68f8a4d0715021a1dda97951fe305e9e54, dev-key-signed) that
+drives the full W7 protocol through the exact 16-import v1 surface (env.*/net.*/crypto.*/
+acquire.*): TLS 1.3 ClientHello -> record/handshake framing -> ServerHello key-share ->
+Certificate/CertVerify/Finished -> application keys -> fixed GET -> aead seal/open ->
+strict HTTP-shape enforcement -> canonical 64-KiB chunking -> acquire.chunk_accept/finalize.
+It never sees a key/pin — only public bytes and handles. THE GRANT DENIES BEFORE
+INSTANTIATION: reason=import_beyond_env_not_owner_authorized, denied=True,
+instantiated=False, grants_nothing=True. The build-time gate verifies both signatures and
+the exact declared import list/count; the kernel independently re-parses the Wasm with
+Module::new and re-confirms the import SET. Pure decision logic (HTTP-shape enforcement,
+chunk geometry, the record/handshake sequencing) lives in the no-dep crate
+raios-w7-acquire-logic and is host-tested against a MOCK ABI + fixture vectors incl. 7
+malformed TLS and 10 malformed HTTP cases (redirect, missing/dup/non-decimal
+Content-Length, chunked, gzip, wrong type, mismatched length, folded header, oversize),
+each proven to fail closed. No new external dependency (Cargo.lock adds only the two local
+crates). The guest reuses raios-x509-spki + raios-http-parse.
+ORCHESTRATOR CORRECTNESS FIX, found BEFORE arming and load-bearing for NET-8: the probe's
+independent "does the artifact import exactly the authorized set" check compared
+module.imports() POSITIONALLY against the descriptor's ABI order. The compiler emits the
+import section in first-use order (acquire.chunk_accept first), so the identical 16-import
+SET failed the positional check. Wasm import-section order is codegen with no security
+meaning, and the real enforcement (subset check + per-instance linker) is already
+order-independent — so the check is now SET equality: same count, every observed import
+authorized, no duplicates, all authorized seen. It still rejects any extra/missing/
+duplicated import. (The evidence-bound EVALUATOR was already correct — it is fed the
+canonical list and denied only on policy=false — so NET-8 arming would have worked at the
+evaluator level; this was the kernel's independent cross-check.)
+
 NET-6 TRANSPORT-NEUTRAL ACQUISITION SEAM + acquire.* VERIFIED (2026-07-14, grants nothing):
 m12-distribution-provenance shadow-20260714-161948-11204.json PASSED 236/236. THE POINT OF
 THE SLICE, and it is proven: `m12-distribution:T1b_serial_service_candidate_receipt_

@@ -99,10 +99,20 @@ arming). **NET-6 is DONE and verified**: m12-distribution-provenance shadow-2026
 236/236 — serial delivery and the labeled acquire.* fixture finalize the SAME candidate
 sha256 and a BYTE-IDENTICAL receipt through ONE shared M12 seam (no second verifier, no
 guest path into the intake sink), every failure preserves the prior candidate, and acquire.*
-still denies before instantiation. NEXT, IN ORDER: (a) NET-7 signed acquisition service,
-(b) NET-8 the OWNER-GATED arming diff — THE OWNER STOPS HERE AND APPROVES, (c) NET-9 the W7
-denial matrix. The hardware cursor is unchanged and Surface-gated (G7 read-only stick
-preflight, WiFi association/PORT_RELEASE/RX-TX/DHCP proof, ownerkey TPM capture).
+still denies before instantiation. **NET-7 is DONE and verified**: m11-acquisition-service shadow-20260714-170818-14076.json
+161/161 — the signed svc.net.acquire.w7 guest (the first real beyond-env-using program:
+TLS+SPKI+HTTP+chunk driver over the 16-import surface) exists, is independently re-parsed
+and import-set-checked by the kernel, and its grant DENIES before instantiation
+(import_beyond_env_not_owner_authorized). Pure logic is host-tested against a mock ABI with
+7 malformed-TLS + 10 malformed-HTTP fail-closed vectors. A correctness fix landed before
+arming: the kernel's independent import-set check was positional and the compiler emits
+imports in first-use order — now SET equality (still rejects extra/missing/duplicate).
+NEXT: **NET-8 — the OWNER-GATED arming diff. THE OWNER STOPS HERE AND APPROVES the exact
+diff (artifact hash + generation + ABI list hash + 16-import list + local.qemu.w7 policy;
+policy_allows_beyond_env:true ONLY for that evaluated path) before it is committed.** Then
+NET-9 the W7 denial matrix + the live positive fetch. The hardware cursor is unchanged and
+Surface-gated (G7 read-only stick preflight, WiFi association/PORT_RELEASE/RX-TX/DHCP proof,
+ownerkey TPM capture).
 
 **P4 EVIDENCE-VOCABULARY-V1 IS CLOSED — BOTH HALVES (2026-07-13 ~23:15).** I once called
 it closed after only the envelope; that was wrong and is now actually true.

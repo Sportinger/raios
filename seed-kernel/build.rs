@@ -134,6 +134,19 @@ fn main() {
     println!(
         "cargo:rerun-if-changed=descriptors/svc.demo.dnsparse.current_boot_load.p256.sig.der.hex"
     );
+    println!("cargo:rerun-if-changed=artifacts/svc.net.acquire.w7.wasm");
+    println!("cargo:rerun-if-changed=descriptors/svc.net.acquire.w7.wasm_artifact_identity.desc");
+    println!(
+        "cargo:rerun-if-changed=descriptors/svc.net.acquire.w7.wasm_artifact_identity.p256.pub.hex"
+    );
+    println!("cargo:rerun-if-changed=descriptors/svc.net.acquire.w7.wasm_artifact_identity.p256.sig.der.hex");
+    println!("cargo:rerun-if-changed=descriptors/svc.net.acquire.w7.current_boot_load.desc");
+    println!(
+        "cargo:rerun-if-changed=descriptors/svc.net.acquire.w7.current_boot_load.p256.pub.hex"
+    );
+    println!(
+        "cargo:rerun-if-changed=descriptors/svc.net.acquire.w7.current_boot_load.p256.sig.der.hex"
+    );
     println!("cargo:rerun-if-changed=build/personal_shell_attestation.rs");
     println!("cargo:rerun-if-changed=artifacts/svc.user.shell.wasm");
     println!("cargo:rerun-if-changed=descriptors/svc.user.shell.wasm_artifact_identity.desc");
@@ -491,6 +504,7 @@ pub(crate) const HELLO_HOST_BOUND_DESCRIPTOR_SOURCE: &str = {};\n",
     attest_httphead_wasm_artifact(&manifest_dir, &out_dir);
     attest_certspki_wasm_artifact(&manifest_dir, &out_dir);
     attest_dnsparse_wasm_artifact(&manifest_dir, &out_dir);
+    attest_net_acquire_w7_wasm_artifact(&manifest_dir, &out_dir);
     personal_shell_attestation::attest(&manifest_dir, &out_dir);
 }
 
@@ -2046,6 +2060,255 @@ pub(crate) const DNSPARSE_LOAD_DESCRIPTOR_AUTHORIZES_ROLLBACK_INSTALL: bool = fa
         ),
     )
     .unwrap();
+}
+
+fn attest_net_acquire_w7_wasm_artifact(manifest_dir: &std::path::Path, out_dir: &std::path::Path) {
+    const IMPORTS: &str = "env.input_len,env.input_read,net.tcp_open,net.tcp_send,net.tcp_recv,net.tcp_close,crypto.tls13_session_open,crypto.sha256,crypto.p256_verify,crypto.tls13_handshake_keys,crypto.tls13_application_keys,crypto.tls13_finished,crypto.tls13_aead_seal,crypto.tls13_aead_open,acquire.chunk_accept,acquire.finalize";
+    let artifact_path = manifest_dir.join("artifacts/svc.net.acquire.w7.wasm");
+    let identity_path =
+        manifest_dir.join("descriptors/svc.net.acquire.w7.wasm_artifact_identity.desc");
+    let identity_public_path =
+        manifest_dir.join("descriptors/svc.net.acquire.w7.wasm_artifact_identity.p256.pub.hex");
+    let identity_signature_path =
+        manifest_dir.join("descriptors/svc.net.acquire.w7.wasm_artifact_identity.p256.sig.der.hex");
+    let load_path = manifest_dir.join("descriptors/svc.net.acquire.w7.current_boot_load.desc");
+    let load_public_path =
+        manifest_dir.join("descriptors/svc.net.acquire.w7.current_boot_load.p256.pub.hex");
+    let load_signature_path =
+        manifest_dir.join("descriptors/svc.net.acquire.w7.current_boot_load.p256.sig.der.hex");
+
+    let artifact_bytes = fs::read(artifact_path).unwrap();
+    let identity_source = fs::read_to_string(identity_path).unwrap();
+    let identity_public = read_hex_file(identity_public_path);
+    let identity_signature = read_hex_file(identity_signature_path);
+    let load_source = fs::read_to_string(load_path).unwrap();
+    let load_public = read_hex_file(load_public_path);
+    let load_signature = read_hex_file(load_signature_path);
+    verify_p256_signature(
+        &identity_public,
+        &identity_signature,
+        identity_source.as_bytes(),
+    );
+    verify_p256_signature(&load_public, &load_signature, load_source.as_bytes());
+
+    let artifact_hash = Sha256::digest(&artifact_bytes);
+    let artifact_hash_hex = sha256_hex(&artifact_hash);
+    let expected_artifact_hash = format!("sha256:{artifact_hash_hex}");
+    let identity_fields = [
+        (
+            "canonicalization",
+            "raios.builtin_artifact_identity.canonical.v0",
+        ),
+        ("schema", "raios.builtin_artifact_identity.v0"),
+        ("id", "builtin_artifact_identity.svc.net.acquire.w7.wasm.v0"),
+        ("service_id", "svc.net.acquire.w7"),
+        ("artifact_id", "wasm:svc.net.acquire.w7"),
+        ("artifact_kind", "wasm32_unknown_unknown_service_module"),
+        (
+            "artifact_reference_schema",
+            "raios.builtin_artifact_reference.v0",
+        ),
+        (
+            "artifact_reference_id",
+            "builtin_artifact_reference.svc.net.acquire.w7.wasm.v0",
+        ),
+        (
+            "artifact_reference_kind",
+            "repo_wasm_artifact_bytes_snapshot",
+        ),
+        (
+            "artifact_reference_locator",
+            "seed-kernel/artifacts/svc.net.acquire.w7.wasm",
+        ),
+        (
+            "artifact_reference_bytes_sha256",
+            expected_artifact_hash.as_str(),
+        ),
+        (
+            "artifact_reference_accepts_external_artifact_bytes",
+            "false",
+        ),
+        ("artifact_reference_validates_with_wasmi_module_new", "true"),
+        ("artifact_reference_executes_artifact", "false"),
+        ("artifact_reference_links_imports", "false"),
+        ("artifact_reference_maps_executable_pages", "false"),
+        ("scope", "current_boot"),
+        ("classification", "local_only"),
+        ("persistence", "none"),
+        ("trust_tier", "dev_key_not_owner_sealed"),
+        ("accepts_external_artifact_bytes", "false"),
+        ("validates_artifact_with_wasmi_module_new", "true"),
+        ("executes_artifact", "false"),
+        ("links_imports", "false"),
+        ("maps_executable_pages", "false"),
+        ("writes_persistent_state", "false"),
+        ("authorizes_external_artifact_load", "false"),
+        ("authorizes_persistent_install", "false"),
+        ("authorizes_rollback_install", "false"),
+    ];
+    assert_eq!(
+        identity_source.lines().count(),
+        identity_fields.len(),
+        "W7 artifact identity field count mismatch"
+    );
+    for (key, expected) in identity_fields {
+        assert_eq!(
+            text_field(&identity_source, key),
+            Some(expected),
+            "W7 artifact identity field mismatch: {key}"
+        );
+    }
+
+    let identity_hash = Sha256::digest(identity_source.as_bytes());
+    let identity_hash_hex = sha256_hex(&identity_hash);
+    let expected_identity_hash = format!("sha256:{identity_hash_hex}");
+    let load_fields = [
+        (
+            "canonicalization",
+            "raios.current_boot_load_descriptor.canonical.v0",
+        ),
+        ("schema", "raios.current_boot_load_descriptor.v0"),
+        ("id", "load_descriptor.current_boot.svc.net.acquire.w7.v0"),
+        (
+            "source_kind",
+            "current_boot_wasm_service_load_descriptor_source",
+        ),
+        (
+            "source_locator",
+            "current_boot.service_load_descriptor.svc.net.acquire.w7.v0",
+        ),
+        ("service_id", "svc.net.acquire.w7"),
+        ("artifact_id", "wasm:svc.net.acquire.w7"),
+        ("artifact_kind", "wasm32_unknown_unknown_service_module"),
+        (
+            "artifact_identity_schema",
+            "raios.builtin_artifact_identity.v0",
+        ),
+        (
+            "artifact_identity_id",
+            "builtin_artifact_identity.svc.net.acquire.w7.wasm.v0",
+        ),
+        ("artifact_identity_sha256", expected_identity_hash.as_str()),
+        (
+            "artifact_reference_locator",
+            "seed-kernel/artifacts/svc.net.acquire.w7.wasm",
+        ),
+        (
+            "artifact_reference_bytes_sha256",
+            expected_artifact_hash.as_str(),
+        ),
+        ("scope", "current_boot"),
+        ("classification", "local_only"),
+        ("persistence", "none"),
+        ("trust_tier", "dev_key_not_owner_sealed"),
+        ("service_slot_id", "ram_only:svc.net.acquire.w7"),
+        (
+            "service_capability",
+            "cap.service.net_acquire_w7.current_boot",
+        ),
+        ("execution_model", "wasmi_interpreter_current_boot"),
+        ("capability_envelope", "wasmi_linker_import_surface"),
+        ("host_import_abi", "raios.host_imports.v1"),
+        ("authorized_host_imports", IMPORTS),
+        ("authorized_host_import_count", "16"),
+        ("entrypoint", "raios_service_main"),
+        ("authorizes_current_boot_wasm_execution", "true"),
+        ("accepts_external_artifact_bytes", "false"),
+        ("validates_artifact_with_wasmi_module_new", "true"),
+        ("loads_external_artifact", "false"),
+        ("maps_executable_pages", "false"),
+        ("writes_persistent_state", "false"),
+        ("authorizes_persistent_install", "false"),
+        ("authorizes_rollback_install", "false"),
+    ];
+    assert_eq!(
+        load_source.lines().count(),
+        load_fields.len(),
+        "W7 load descriptor field count mismatch"
+    );
+    for (key, expected) in load_fields {
+        assert_eq!(
+            text_field(&load_source, key),
+            Some(expected),
+            "W7 load descriptor field mismatch: {key}"
+        );
+    }
+
+    let identity_public_hash = Sha256::digest(&identity_public);
+    let identity_signature_hash = Sha256::digest(&identity_signature);
+    let identity_envelope = format!(
+        "schema=raios.builtin_artifact_identity_signature_envelope.v0\n\
+id=artifact_identity_signature.wasm.svc.net.acquire.w7.v0\n\
+algorithm=ecdsa_p256_sha256_asn1_der\n\
+payload_identity_id=builtin_artifact_identity.svc.net.acquire.w7.wasm.v0\n\
+payload_artifact_id=wasm:svc.net.acquire.w7\n\
+payload_sha256=sha256:{}\n\
+public_key_sha256=sha256:{}\n\
+signature_sha256=sha256:{}\n\
+verification_phase=runtime_before_wasm_artifact_validation\n\
+trust_scope=current_boot_wasm_artifact_identity_candidate\n\
+classification=local_only\n\
+trust_tier=dev_key_not_owner_sealed\n\
+authorizes_external_artifact_load=false\n\
+authorizes_persistent_install=false\n\
+authorizes_rollback_install=false",
+        identity_hash_hex,
+        sha256_hex(&identity_public_hash),
+        sha256_hex(&identity_signature_hash),
+    );
+    let identity_envelope_hash = Sha256::digest(identity_envelope.as_bytes());
+    let load_hash = Sha256::digest(load_source.as_bytes());
+    let load_public_hash = Sha256::digest(&load_public);
+    let load_signature_hash = Sha256::digest(&load_signature);
+    let load_envelope = format!(
+        "schema=raios.descriptor_source_signature_envelope.v0\n\
+id=descriptor_source_signature.current_boot_load.svc.net.acquire.w7.v0\n\
+algorithm=ecdsa_p256_sha256_asn1_der\n\
+payload_source_locator=current_boot.service_load_descriptor.svc.net.acquire.w7.v0\n\
+payload_source_kind=current_boot_wasm_service_load_descriptor_source\n\
+payload_sha256=sha256:{}\n\
+public_key_sha256=sha256:{}\n\
+signature_sha256=sha256:{}\n\
+verification_phase=build_time_before_current_boot_wasm_service_descriptor_selection\n\
+trust_scope=current_boot_wasm_service_load_descriptor_candidate\n\
+classification=local_only\n\
+trust_tier=dev_key_not_owner_sealed\n\
+authorizes_external_artifact_load=false\n\
+authorizes_persistent_install=false",
+        sha256_hex(&load_hash),
+        sha256_hex(&load_public_hash),
+        sha256_hex(&load_signature_hash),
+    );
+    let load_envelope_hash = Sha256::digest(load_envelope.as_bytes());
+
+    fs::write(
+        out_dir.join("net_acquire_w7_wasm_artifact.rs"),
+        format!(
+            "pub(crate) const NET_ACQUIRE_W7_WASM_ARTIFACT_BYTES: &[u8] = include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/artifacts/svc.net.acquire.w7.wasm\"));\n\
+pub(crate) const NET_ACQUIRE_W7_WASM_ARTIFACT_BYTES_HASH: [u8; 32] = {};\n\
+pub(crate) const NET_ACQUIRE_W7_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_SOURCE: &str = {};\n\
+pub(crate) const NET_ACQUIRE_W7_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_HASH: [u8; 32] = {};\n\
+pub(crate) const NET_ACQUIRE_W7_WASM_ARTIFACT_SIGNATURE_ENVELOPE_TEXT: &str = {};\n\
+pub(crate) const NET_ACQUIRE_W7_WASM_ARTIFACT_SIGNATURE_ENVELOPE_HASH: [u8; 32] = {};\n",
+            rust_byte_array(&artifact_hash), rust_string(&identity_source),
+            rust_byte_array(&identity_hash), rust_string(&identity_envelope),
+            rust_byte_array(&identity_envelope_hash),
+        ),
+    ).unwrap();
+    fs::write(
+        out_dir.join("net_acquire_w7_current_boot_load_descriptor.rs"),
+        format!(
+            "pub(crate) const NET_ACQUIRE_W7_LOAD_DESCRIPTOR_SOURCE: &str = {};\n\
+pub(crate) const NET_ACQUIRE_W7_LOAD_DESCRIPTOR_HASH: [u8; 32] = {};\n\
+pub(crate) const NET_ACQUIRE_W7_LOAD_DESCRIPTOR_SIGNATURE_ENVELOPE_TEXT: &str = {};\n\
+pub(crate) const NET_ACQUIRE_W7_LOAD_DESCRIPTOR_SIGNATURE_ENVELOPE_HASH: [u8; 32] = {};\n\
+pub(crate) const NET_ACQUIRE_W7_LOAD_DESCRIPTOR_HOST_IMPORT_ABI: &str = \"raios.host_imports.v1\";\n\
+pub(crate) const NET_ACQUIRE_W7_LOAD_DESCRIPTOR_AUTHORIZED_HOST_IMPORTS: &str = {};\n\
+pub(crate) const NET_ACQUIRE_W7_LOAD_DESCRIPTOR_AUTHORIZED_HOST_IMPORT_COUNT: u64 = 16;\n",
+            rust_string(&load_source), rust_byte_array(&load_hash), rust_string(&load_envelope),
+            rust_byte_array(&load_envelope_hash), rust_string(IMPORTS),
+        ),
+    ).unwrap();
 }
 
 fn read_ordered_source_set(repo_root: &std::path::Path, source_set: &[&str]) -> Vec<u8> {

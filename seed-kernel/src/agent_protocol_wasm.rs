@@ -1280,6 +1280,80 @@ pub(crate) fn emit_wasm_acquire_import_probe() {
     end_response("wasm.acquire_import_probe");
 }
 
+pub(crate) fn emit_wasm_acquisition_service_probe() {
+    let probe = wasm_runtime::acquisition_service_probe();
+    let vectors = probe.vector_report;
+    begin_response("wasm.acquisition_service_probe");
+    emit_record_fields(
+        vec![
+            f("schema", s("raios.wasm_acquisition_service_probe.v0")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("method", s("wasm.acquisition_service_probe")),
+            f("service_id", s(wasm_runtime::NET_ACQUIRE_W7_SERVICE_ID)),
+            f("source_policy_id", s("local.qemu.w7")),
+            f("host_import_abi", s("raios.host_imports.v1")),
+            f("requested_import_count", V::U64(16)),
+            f("observed_import_count", V::U64(probe.observed_import_count)),
+            f("observed_imports_exact", b(probe.observed_imports_exact)),
+            f("artifact_sha256", record_sha(probe.artifact_sha256)),
+            f("descriptor_sha256", record_sha(probe.descriptor_sha256)),
+            f(
+                "load_descriptor_sha256",
+                record_sha(probe.load_descriptor_sha256),
+            ),
+            f("import_list_sha256", record_sha(probe.import_list_sha256)),
+            f("artifact_valid", b(probe.artifact_valid)),
+            f(
+                "signatures_build_verified",
+                b(probe.signatures_build_verified),
+            ),
+            f(
+                "client_hello_vector_positive",
+                b(vectors.client_hello_positive),
+            ),
+            f("tls_sequence_vector_positive", b(vectors.tls_positive)),
+            f(
+                "malformed_tls_negative_count",
+                V::U64(vectors.malformed_tls_negative_count as u64),
+            ),
+            f("http_shape_vector_positive", b(vectors.http_positive)),
+            f(
+                "malformed_http_negative_count",
+                V::U64(vectors.malformed_http_negative_count as u64),
+            ),
+            f(
+                "chunk_geometry_vector_positive",
+                b(vectors.chunk_geometry_positive),
+            ),
+            f("all_fixture_vectors_positive", b(vectors.all_positive)),
+            f("guest_trap_cleanup", b(probe.guest_trap_cleanup)),
+            f("out_of_fuel_cleanup", b(probe.out_of_fuel_cleanup)),
+            f("policy_denial_reason", s(probe.denial_reason)),
+            f(
+                "denied_before_instantiation",
+                b(probe.denied_before_instantiation),
+            ),
+            f("instantiation_attempted", b(false)),
+            f("policy_allows_beyond_env", b(false)),
+            f("production_linker_armed", b(false)),
+            f("network_effect", b(false)),
+            f("crypto_effect", b(false)),
+            f("acquisition_effect", b(false)),
+            f("candidate_load_attempted", b(false)),
+            f("candidate_execution_attempted", b(false)),
+            f("candidate_install_attempted", b(false)),
+            f("durable_write_attempted", b(false)),
+            f("owner_sealed", b(false)),
+            f("trust_tier", s("dev_key_not_owner_sealed")),
+            f("capability_granted", b(false)),
+            f("evidence_complete", b(true)),
+        ],
+        6,
+    );
+    end_response("wasm.acquisition_service_probe");
+}
+
 pub(crate) fn emit_transport_lease_probe(method: &str) {
     let action = method.split_ascii_whitespace().nth(1);
     if let Some(action) = action {
