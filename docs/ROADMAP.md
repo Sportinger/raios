@@ -15,7 +15,37 @@ vocabulary).
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-14.
+Last updated: 2026-07-14 (night).
+
+**EDITOR-1 VERIFIED-CLOSED (2026-07-14 night) — the SECOND personal-shell program: a
+bounded text editor, and the first RUIP contract extension.** RUIP stays ABI v1 and grows
+exactly one engine-owned text capability: header byte 16 = text_slot_count (0|1; programs
+with 0 encode byte-identically — calculator pin 5372/7ca0aa21… unchanged, asserted), a
+4-byte capacity slot table (cap 1..=2048), widget kind 4 = EditBox (max 1/program), action
+opcode 8 = TextClear, `DispatchOutcome::Edited` with end-cursor editing in
+`Program::dispatch` (backspace 8 / enter 13 / printable 32..=126; bindings resolve FIRST,
+full buffer ignores atomically). ProgramState carries the 2-KiB text buffer; the RAPP
+packet gained a text-state section (u16 @22 = text_state_len, section between numeric
+state and program bytes; MAX_PROGRAM_CONTEXT_LEN 18594 on BOTH core and guest). The signed
+`svc.user.shell` guest renders EditBox with bottom-follow wrap (<=52 cols) and a cursor
+(rebuilt artifact b99ee359…, identity desc 45e2b9ee…, both descriptors dev-key re-signed).
+Kernel glue: personal_surface maps backspace 14->8 and accepts Edited. The checked-in
+second program is `editor_program()` (176 bytes, sha256 34f726d1…) with title, EditBox and
+a CLEAR button; the spec grammar gained `textstate`/`editbox`/`textclear`. STALE-NEEDLE
+REPAIR (recorded class "kernel right, needles wrong"): genesis-ui had not run since P4
+converted the system-status family — its system.snapshot and problem.list readers moved to
+the raios.evidence_response.v1 envelope STRICTER (envelope schema/family/scope/
+classification + decision.outcome=observed + NO grants/effects keys); service.inventory is
+path-compatible (.facts.services in both shapes); recovery.*/program.*/ui.personal_shell_
+proof are named carve-outs still on the old shape (probed live). EVIDENCE: genesis-ui
+shadow-20260714-234002-22840.json (261/261 predicates incl. editor delivery/exact-hash/physical
+approval/HID typing+backspace+CLEAR/malformed-atomicity/F12), block close FULL shadow-20260714-234313-21680.json (2.685/0)
++ RECOVERY shadow-20260714-234651-22992.json (152); 581 raios-core + 7 guest host tests orchestrator-verified.
+Live owner demo: calculator delivered/approved/computed 42/F12 in a visible QEMU session.
+Editor gaps stay honest: end-cursor only, ASCII only, no persistence (files stay denied).
+Natural next slice (the owner asked about persistence tonight): connect approved RUIP
+program drafts to the EXISTING W6 durable-install/autoload/rollback machinery so an
+approved editor survives reboot — reuse proven machinery, add no new persistence layer.
 
 **M11-9 DNSPARSE VERIFIED-CLOSED (2026-07-14) — the FOURTH real relocation, plus the
 first hard memory bound for buffer guests.** The DNS query/A-response parser lives in

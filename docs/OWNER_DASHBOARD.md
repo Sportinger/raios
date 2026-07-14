@@ -1,6 +1,44 @@
 # Owner Dashboard
 
-Updated: 2026-07-14 (Mittag).
+Updated: 2026-07-14 (Nacht).
+
+ZWEITES ECHTES PROGRAMM: EIN TEXT-EDITOR — LIVE VOR DEINEN AUGEN (2026-07-14
+Abend). Du hast heute zugesehen, wie raiOS im QEMU-Fenster den kompletten
+Programm-Weg gefahren ist: Der Taschenrechner wurde als Datenpaket über die
+serielle Leitung angeliefert, blieb nachweislich inert (er kann nichts, bevor
+du zustimmst), wurde per physischem Klick auf „Approve + run program"
+freigegeben, rechnete 12+30=42 über echte Tastatur-Events im
+Wasm-Sandkasten, und F12 holte sofort Genesis zurück.
+
+Neu gebaut und mit demselben Weg bewiesen: ein einfacher TEXT-EDITOR als
+zweites privates Shell-Programm — KEIN Genesis-Anbau, sondern ein eigenes,
+angeliefertes, von dir freizugebendes Programm. Die Programm-Sprache konnte
+bisher nur Zahlen; sie hat jetzt genau EINE eng begrenzte Text-Fähigkeit
+dazubekommen: einen Puffer mit hartem 2-KiB-Limit und ein Eingabefeld. Tippen,
+Zeilenumbruch, Rückschritt-Löschen und ein CLEAR-Knopf funktionieren; die
+Bearbeitungsregeln wohnen im geprüften Kern (das Programm liefert nur Daten,
+niemals Code), der signierte Anzeige-Dienst malt nur. Ein Programm ohne
+Textfeld ist Byte für Byte unverändert geblieben — der Taschenrechner hat
+exakt denselben Fingerabdruck wie vorher, das ist der Beweis, dass die
+Erweiterung nichts Bestehendes anfasst.
+
+Ehrlich benannt, was der Editor NICHT kann: Der Schreib-Cursor sitzt immer am
+Ende (keine Pfeiltasten-Navigation), nur ASCII (Umlaute bleiben eine bekannte
+Lücke), und es gibt kein Speichern — Dateizugriff ist weiterhin verweigert,
+der Text lebt nur im laufenden Programm. Genau so war es geplant: erst die
+sichere Mechanik, dann mehr Komfort.
+
+Nebenfund mit Reparatur: Das fokussierte Programm-Testprofil war seit dem
+großen Vokabel-Umbau nie wieder gelaufen und prüfte zwei Antworten noch in
+der alten Form — der Kern war richtig, die Test-Erwartung veraltet (bekannte
+Klasse, dokumentierte Regel). Beide Erwartungen sind jetzt auf die neue,
+strengere Form gezogen: Sie beweisen zusätzlich, dass diese Antworten reine
+Beobachtungen sind und nichts gewähren können.
+Beweise: genesis-ui shadow-20260714-234002-22840.json (261/261 Prüfungen, darunter
+Anlieferung, exakte Fingerabdrücke, physische Freigabe, Tippen/Löschen/CLEAR
+über echte Eingabe-Events, Absturz-Schutzfälle), voller Lauf shadow-20260714-234313-21680.json (2.685/0),
+Recovery shadow-20260714-234651-22992.json (152); 581 Kern-Tests + 7 Anzeige-Tests unabhängig
+nachgeprüft.
 
 DNS-UMZUG KOMPLETT + ERSTES SPEICHERLIMIT (2026-07-14). Der vierte
 Baustein-Umzug ist fertig und bewiesen: Der Code, der DNS-Antworten liest —

@@ -24,6 +24,63 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+EDITOR-1 VERIFIED-CLOSED (2026-07-14 night): a bounded TEXT EDITOR is the second
+personal-shell program, delivered/approved/run through the UNCHANGED calculator
+machinery, and the first deliberate RUIP contract extension.
+- Contract (raios-core, worker packet EDIT-A): RUIP ABI stays v1. Header byte 16 =
+  text_slot_count (0 or 1; MAX_TEXT_SLOTS=1); 4-byte slot table after initial state
+  (u16 capacity 1..=2048 = MAX_TEXT_SLOT_CAPACITY, u16 reserved=0); widget kind 4 =
+  EditBox (text_len 0, target = slot, at most ONE per program); action opcode 8 =
+  TextClear{slot}; DispatchOutcome::Edited; engine-owned END-CURSOR editing inside
+  Program::dispatch — bindings/pointer resolve FIRST exactly as before, then (editbox
+  present, modifiers 0) backspace 8 deletes last byte, enter 13 appends 0x0A,
+  printable 32..=126 appends, full buffer -> Ignored atomically. ProgramState stays
+  Copy and carries text[2048]+text_len with StateMismatch consistency checks.
+  BYTE-COMPAT PROOF: text_slot_count=0 programs encode byte-identically — the
+  calculator pin (5372 bytes, sha256 7ca0aa21…) is asserted in tests and unchanged.
+- Packet (personal_shell_abi): RAPP u16 @22 = text_state_len (0 iff no text slot),
+  section = u16 text_len + raw bytes between numeric state and program bytes;
+  MAX_PROGRAM_CONTEXT_LEN = 18594 on core AND guest; encode/decode round-trip +
+  fail-closed negatives (text>capacity, wrong section length, oversized context).
+- Renderer (svc-personal-shell-proof, worker packet EDIT-B): guest parses the slot
+  table + text section fail-closed (None on any inconsistency) and renders EditBox as
+  panel+border, lines split on 0x0A, hard wrap at <=52 cols, bottom-follow trailing
+  rows, 8x16 cursor after the last char; zero-text path renders byte-identically
+  (existing regression untouched). Rebuilt artifact svc.user.shell.wasm =
+  b99ee3597c64…, identity desc sha 45e2b9ee4f3c…, identity+load descriptors dev-key
+  re-signed via descriptor-resign (verify green).
+- Kernel glue (orchestrator): personal_surface maps backspace scancode 14->8 and
+  accepts DispatchOutcome::Edited; no other kernel surface changed.
+- Second program: editor_program() — 176 canonical bytes, sha256 34f726d13818…;
+  title text, EditBox (8,40,608,384) slot 0, CLEAR button -> rule 1 textclear 0. The
+  spec grammar gained `textstate <cap>`, `editbox x y w h slot`, `textclear <slot>`
+  (editor spec parses to byte-identical canonical RUIP in tests).
+- STALE-NEEDLE REPAIR (the recorded "kernel right, needles wrong" class): genesis-ui
+  had NOT run since P4 converted the system-status family. Its system.snapshot and
+  problem.list readers still expected `body.result` + `*.v0` schemas; the live
+  responses are raios.evidence_response.v1 envelopes. Both readers were moved to the
+  envelope and made STRICTER (schema/family/scope/classification pinned +
+  decision.outcome=observed + decision has NO grants/effects keys). Probed live on a
+  HEAD VM: service.inventory is path-compatible (.facts.services in old and new
+  shape), recovery.snapshot / recovery.lifeline_table / program.* /
+  ui.personal_shell_proof still answer the OLD shape (named P4 carve-outs). Also the
+  editor CLEAR click inverts the REAL pointer localization chain (program =
+  physical/LOGICAL_SCALE - personal_surface origin at logical (0,38), then QMP
+  normalization over the live snapshot framebuffer size) instead of assuming a
+  resolution; the first hardcoded attempt landed inside the EditBox and was correctly
+  Ignored — the kernel routing was right, the test coordinates were wrong.
+- EVIDENCE: genesis-ui shadow-20260714-234002-22840.json (261/261 predicates: editor exact
+  fixture/delivery/replace-revision, malformed-reserved-byte atomicity, physical
+  pointer approval, svc.user.shell ui_only inventory, HID typing h/i/ret/r +
+  backspace + CLEAR click each proving a fresh validated frame, F12 restore;
+  calculator flow untouched). Block close: FULL shadow-20260714-234313-21680.json (2.685/0) + RECOVERY
+  shadow-20260714-234651-22992.json (152). Host: 581 raios-core + 7 guest tests, orchestrator-rerun. Live
+  owner demo (visible QEMU): calculator delivered by serial, physically approved,
+  12+30=42 via real HID keys, F12 back to Genesis — screenshots in the session log.
+- Honest gaps: end-cursor editing only (no arrow-key navigation), ASCII only
+  (umlauts/AltGr remain the known input gap), no persistence or file access (still
+  denied), one text slot / one EditBox per program by design.
+
 NET-8 ARMED AND COMMITTED; LIVE DOWNLOAD NOT YET DEMONSTRATED (2026-07-14, owner decision).
 Per the new Dev-Phase rule (AGENTS.md): arming is a PERMISSION the owner grants; "proven"
 is a separate statement. svc.net.acquire.w7 is now owner-ARMED, honestly labeled — the live
