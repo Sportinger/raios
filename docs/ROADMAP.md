@@ -70,13 +70,19 @@ exactly-once teardown across eight exit paths, second-run-after-kill release pro
 shadow-20260714-130148-25792.json 162/162 first-run — generation-checked singleton TCP
 lease guards every entry point, native OpenAI claims/releases it centrally (the old
 unowned submit-time tcp_abort is gone), one-step non-blocking ops ready for the NET-4
-pump; tls_io's synchronous polling is retained as NAMED DEBT, not W7 proof. Next
-slice: NET-4 — the four net.* shims as real suspension points (always-suspend
-open/send/recv, immediate idempotent close, kill/quota/lease checked before progress
-and resume), STILL ungrantable before instantiation, plus the carried NET-2R
-requirement: central denial of unrelated Wasm launches while an invocation is
-suspended. The hardware cursor is unchanged and Surface-gated (G7 read-only stick
-preflight, WiFi association/PORT_RELEASE/RX-TX/DHCP proof, ownerkey TPM capture).
+pump; tls_io's synchronous polling is retained as NAMED DEBT, not W7 proof. **NET-4 is DONE and verified**: m11-net-imports (-Network)
+shadow-20260714-133923-17376.json 183/183 first-run — the four net.* shims are real
+suspension points driven by the pump over the NET-3 lease, proven with REAL bytes
+(DNS-over-TCP to slirp 10.0.2.3:53, answer read by the guest after resume), silent-peer
+timeout, F12-kill-before-timeout, denial-before-instantiation for net.*-requesting
+signed modules, and the carried central wasm_execution_busy reentrancy gate over every
+execution entry. NET BLOCK CLOSE evidence is next (quick -Network, m8-lifeline, full,
+recovery), then the MANDATORY wasm_runtime.rs readability split (4,597 lines,
+approaching the 5,000 hard cap) BEFORE NET-5 crypto sessions. Slices remaining in the
+lane: 5 (opaque TLS crypto imports), 6 (acquire.* seam), 7 (signed acquisition
+service), 8 (OWNER-GATED arming diff), 9 (W7 denial matrix). The hardware cursor is
+unchanged and Surface-gated (G7 read-only stick preflight, WiFi
+association/PORT_RELEASE/RX-TX/DHCP proof, ownerkey TPM capture).
 
 **P4 EVIDENCE-VOCABULARY-V1 IS CLOSED — BOTH HALVES (2026-07-13 ~23:15).** I once called
 it closed after only the envelope; that was wrong and is now actually true.

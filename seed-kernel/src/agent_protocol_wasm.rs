@@ -1025,7 +1025,12 @@ pub(crate) fn emit_wasm_beyond_env_lifecycle_probe(method: &str) {
     end_response("wasm.beyond_env_lifecycle_probe");
 }
 
-pub(crate) fn emit_transport_lease_probe() {
+pub(crate) fn emit_transport_lease_probe(method: &str) {
+    let action = method.split_ascii_whitespace().nth(1);
+    if let Some(action) = action {
+        emit_net_shim_probe(action);
+        return;
+    }
     let probe = net::transport_lease_probe();
     begin_response("network.transport_lease_probe");
     emit_record_fields(
@@ -1067,6 +1072,129 @@ pub(crate) fn emit_transport_lease_probe() {
             f("policy_allows_beyond_env", b(false)),
             f("wasm_net_import_linked", b(false)),
             f("production_linker_armed", b(false)),
+            f("capability_granted", b(false)),
+            f("durable_effect", b(false)),
+            f("evidence_complete", b(true)),
+        ],
+        6,
+    );
+    end_response("network.transport_lease_probe");
+}
+
+fn emit_net_shim_probe(action: &str) {
+    let request_status = match action {
+        "start_responsive" => wasm_runtime::request_beyond_env_fixture(
+            wasm_runtime::BeyondEnvFixtureRequest::NetResponsive,
+        ),
+        "start_timeout" => wasm_runtime::request_beyond_env_fixture(
+            wasm_runtime::BeyondEnvFixtureRequest::NetSilentTimeout,
+        ),
+        "start_kill" => wasm_runtime::request_beyond_env_fixture(
+            wasm_runtime::BeyondEnvFixtureRequest::NetSilentKill,
+        ),
+        "status" => "status",
+        _ => "invalid_fixture_action",
+    };
+    let snapshot = wasm_runtime::net_shim_probe_snapshot();
+    let grant = wasm_runtime::net_shim_grant_probe();
+    let representative = wasm_runtime::run_echo_service();
+
+    begin_response("network.transport_lease_probe");
+    emit_record_fields(
+        vec![
+            f("schema", s("raios.transport_lease_probe.v0")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("method", s("network.transport_lease_probe")),
+            f("test_infrastructure", b(true)),
+            f("fixture_linker_scope", s("labeled_net_fixture_only")),
+            f("request_status", s(request_status)),
+            f("task_status", s(snapshot.request_status)),
+            f("active", b(snapshot.active)),
+            f("scenario", s(snapshot.scenario)),
+            f("invocation_id", V::U64(snapshot.invocation_id)),
+            f("suspended", b(snapshot.suspended)),
+            f("outcome", s(snapshot.outcome)),
+            f("suspension_count", V::U64(snapshot.suspension_count as u64)),
+            f("resume_count", V::U64(snapshot.resume_count as u64)),
+            f("teardown_count", V::U64(snapshot.teardown_count as u64)),
+            f("teardown_complete", b(snapshot.teardown_complete)),
+            f("no_resume_after_kill", b(snapshot.no_resume_after_kill)),
+            f("singleton_lease_held", b(snapshot.lease_held)),
+            f(
+                "open_operation_id",
+                V::U64(snapshot.open_operation_id as u64),
+            ),
+            f(
+                "send_operation_id",
+                V::U64(snapshot.send_operation_id as u64),
+            ),
+            f(
+                "recv_operation_id",
+                V::U64(snapshot.recv_operation_id as u64),
+            ),
+            f(
+                "first_close_operation_id",
+                V::U64(snapshot.first_close_operation_id as u64),
+            ),
+            f(
+                "second_close_operation_id",
+                V::U64(snapshot.second_close_operation_id as u64),
+            ),
+            f("close_call_count", V::U64(snapshot.close_call_count as u64)),
+            f("tx_bytes", V::U64(snapshot.tx_bytes)),
+            f("rx_bytes", V::U64(snapshot.rx_bytes)),
+            f("rx_sha256", record_sha(snapshot.rx_sha256)),
+            f("received_prefix_le", V::U64(snapshot.received_prefix_le)),
+            f("guest_return_value", V::U64(snapshot.guest_return_value)),
+            f(
+                "dns_tcp_length_prefix_present",
+                b(snapshot.dns_tcp_length_prefix_present),
+            ),
+            f(
+                "would_block_guest_visible",
+                b(snapshot.would_block_guest_visible),
+            ),
+            f("fixed_pending_buffer_capacity", V::U64(4096)),
+            f("responsive_peer", s("10.0.2.3:53")),
+            f("silent_peer", s("10.0.2.254:53")),
+            f(
+                "responsive_run_count",
+                V::U64(snapshot.responsive_run_count),
+            ),
+            f("timeout_run_count", V::U64(snapshot.timeout_run_count)),
+            f("killed_run_count", V::U64(snapshot.killed_run_count)),
+            f("terminal_boot_ms", V::U64(snapshot.terminal_boot_ms)),
+            f(
+                "kill_observed_boot_ms",
+                V::U64(snapshot.kill_observed_boot_ms),
+            ),
+            f("representative_run_outcome", s(representative.run_outcome)),
+            f("denied_service_id", s("test.fixture.net_shims.signed")),
+            f("host_import_abi", s("raios.host_imports.v1")),
+            f("denied_artifact_sha256", record_sha(grant.artifact_sha256)),
+            f(
+                "denied_import_list_sha256",
+                record_sha(grant.import_list_sha256),
+            ),
+            f(
+                "requested_net_import_count",
+                V::U64(grant.requested_import_count),
+            ),
+            f("net_policy_denial_reason", s(grant.policy_denial_reason)),
+            f(
+                "net_exact_list_drift_reason",
+                s(grant.exact_list_drift_reason),
+            ),
+            f("net_linker_drift_reason", s(grant.linker_drift_reason)),
+            f(
+                "net_denied_before_instantiation",
+                b(grant.denied_before_instantiation),
+            ),
+            f("policy_allows_beyond_env", b(false)),
+            f("fixture_net_imports_linked", b(true)),
+            f("production_linker_armed", b(false)),
+            f("production_net_shim_call_count", V::U64(0)),
             f("capability_granted", b(false)),
             f("durable_effect", b(false)),
             f("evidence_complete", b(true)),

@@ -24,6 +24,33 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+NET-4 NET.* SHIMS AS SUSPENSION POINTS VERIFIED (2026-07-14, still ungrantable):
+m11-net-imports (-Network) shadow-20260714-133923-17376.json PASSED 183/183 on the
+first run. The four pre-bound shims are real now: tcp_open/tcp_send/tcp_recv validate
+fixture authority + record exactly ONE owner/id-bound PendingHostOperation + return the
+typed HostSuspend BEFORE any TCP effect (send copies <=4096 B into a fixed kernel
+buffer; recv retains a checked destination); the NET-2R main-loop pump drives them via
+the NET-3 one-step lease operations, writes received bytes into retained guest memory
+BEFORE resume, and resumes with exactly one i32; kill/service/posture/wall/step/
+deadline/quota/lease-generation are checked before progress AND before resume (new
+no-I/O tcp_validate); tcp_close is immediate and owner-idempotent; would_block never
+reaches a guest (rg-verified). Proven in-guest with REAL BYTES: a 31-byte
+length-prefixed DNS TCP query to slirp 10.0.2.3:53 whose answer's length prefix the
+guest reads AFTER resume — the retained-memory write ordering is observed, not assumed;
+silent peer 10.0.2.254:53 times out; F12 kills before the timeout with full teardown +
+lease release; retry succeeds. The evaluator still denies a signed module requesting
+each net.* import BEFORE instantiation (NET-1 exact-list + linker-drift negatives now
+live in this profile). CARRIED NET-2R REQUIREMENT LANDED: a central
+wasm_execution_busy gate in wasm_runtime refuses EVERY new Store/instance while an
+ActiveBeyondEnvInvocation exists (echo/hello/granted-candidate/bufecho/certwindow/
+httphead/certspki/dnsparse incl. unauthorized probes, personal-shell,
+workspace-candidate, fuel-starvation/hardening/forbidden-import paths, lifecycle
+suite) — proven busy while suspended, working again after teardown. No main.rs change
+was needed. Host: 569 raios-core tests; fmt, secret scan clean. SIZE PRESSURE:
+wasm_runtime.rs is now 4,597 lines / 162,590 B — WARN tier but approaching the 5,000
+hard cap; the next lane slice MUST be the readability split (suspension/pump/shim
+surfaces out) BEFORE NET-5 adds crypto sessions.
+
 NET-3 SINGLETON TRANSPORT LEASE VERIFIED (2026-07-14): m11-net-imports (-Network)
 shadow-20260714-130148-25792.json PASSED 162/162 on the first run — exactly the
 predicted predicate count. One generation-checked lease now guards every TCP entry

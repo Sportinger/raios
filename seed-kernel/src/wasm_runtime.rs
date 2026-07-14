@@ -5,9 +5,16 @@ use core::{
 };
 use raios_core::{
     beyond_env_invocation::{
-        BoundaryState, InvocationAuthority, InvocationLifecycle, TerminalOutcome,
+        BoundaryState, InvocationAuthority, InvocationLifecycle, PendingHostOperation,
+        TerminalOutcome,
     },
-    host_import_abi_v1::{HostImportSignature, BEYOND_ENV_HOST_IMPORTS_V1, HOST_IMPORT_ABI_V1},
+    host_import_abi_v1::{
+        host_import_abi_ordered_list_sha256, HostImportSignature, BEYOND_ENV_HOST_IMPORTS_V1,
+        HOST_IMPORT_ABI_V1, HOST_IMPORT_ERROR_CLOSED, HOST_IMPORT_ERROR_INVALID_ARGUMENT,
+        HOST_IMPORT_ERROR_INVALID_STATE, HOST_IMPORT_ERROR_LIMIT_EXCEEDED,
+        HOST_IMPORT_ERROR_RESOURCE_BUSY, HOST_IMPORT_ERROR_TIMED_OUT, HOST_IMPORT_ERROR_TRANSPORT,
+        NET_HOST_IMPORTS_V1,
+    },
     personal_shell_abi::{
         PersonalShellContext, PersonalShellInput, SanitizedInputEvent, SanitizedInputKind,
         MAX_PROGRAM_CONTEXT_LEN,
@@ -17,8 +24,9 @@ use raios_core::{
         WORKSPACE_SERVICE_ID,
     },
     scoped_wasm_import_grant::{
-        authorized_import_list_sha256, evaluate_observed_wasm_import_grant,
-        evaluate_personal_shell_import_grant, evaluate_wasm_import_grant,
+        authorized_import_list_sha256, evaluate_evidence_bound_wasm_import_grant,
+        evaluate_observed_wasm_import_grant, evaluate_personal_shell_import_grant,
+        evaluate_wasm_import_grant, EvidenceBoundWasmImportGrantInput, ObservedWasmImports,
         PersonalShellImportGrantDecision, PersonalShellImportGrantInput, VerifiedImportEvidence,
         WasmImportGrantDecision, WasmImportGrantInput, PERSONAL_SHELL_SERVICE_ID,
         PERSONAL_SHELL_UI_IMPORTS,
@@ -34,7 +42,7 @@ use wasmi::{
     ResumableInvocation, Store, StoreLimits, StoreLimitsBuilder, Value,
 };
 
-use crate::serial;
+use crate::{net, serial};
 
 include!(concat!(env!("OUT_DIR"), "/echo_wasm_artifact.rs"));
 include!(concat!(env!("OUT_DIR"), "/bufecho_wasm_artifact.rs"));
@@ -77,6 +85,25 @@ const SUSPEND_ONCE_WASM_MODULE: &[u8] = &[
     0x10, 0x02, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x01, 0x06, 0x6d, 0x65, 0x6d, 0x6f, 0x72, 0x79, 0x02,
     0x00, 0x0a, 0x06, 0x01, 0x04, 0x00, 0x10, 0x00, 0x0b,
 ];
+// Labeled NET-4 test infrastructure only. The four closures are the real v1
+// implementations, but this fixture is their sole linker until owner arming.
+// It opens QEMU slirp DNS, sends one TCP DNS query, receives answer bytes, and
+// closes twice to prove immediate owner-idempotent cleanup.
+const NET_SHIM_WASM_MODULE: &[u8] = &[
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x11, 0x03, 0x60, 0x00, 0x01, 0x7f, 0x60,
+    0x03, 0x7f, 0x7f, 0x7f, 0x01, 0x7f, 0x60, 0x01, 0x7f, 0x01, 0x7f, 0x02, 0x3e, 0x04, 0x03, 0x6e,
+    0x65, 0x74, 0x08, 0x74, 0x63, 0x70, 0x5f, 0x6f, 0x70, 0x65, 0x6e, 0x00, 0x00, 0x03, 0x6e, 0x65,
+    0x74, 0x08, 0x74, 0x63, 0x70, 0x5f, 0x73, 0x65, 0x6e, 0x64, 0x00, 0x01, 0x03, 0x6e, 0x65, 0x74,
+    0x08, 0x74, 0x63, 0x70, 0x5f, 0x72, 0x65, 0x63, 0x76, 0x00, 0x01, 0x03, 0x6e, 0x65, 0x74, 0x09,
+    0x74, 0x63, 0x70, 0x5f, 0x63, 0x6c, 0x6f, 0x73, 0x65, 0x00, 0x02, 0x03, 0x02, 0x01, 0x00, 0x05,
+    0x03, 0x01, 0x00, 0x01, 0x07, 0x10, 0x02, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x04, 0x06, 0x6d, 0x65,
+    0x6d, 0x6f, 0x72, 0x79, 0x02, 0x00, 0x0a, 0x2c, 0x01, 0x2a, 0x01, 0x01, 0x7f, 0x10, 0x00, 0x22,
+    0x00, 0x41, 0x20, 0x41, 0x1f, 0x10, 0x01, 0x1a, 0x20, 0x00, 0x41, 0x80, 0x01, 0x41, 0x80, 0x04,
+    0x10, 0x02, 0x1a, 0x20, 0x00, 0x10, 0x03, 0x1a, 0x20, 0x00, 0x10, 0x03, 0x1a, 0x41, 0x80, 0x01,
+    0x2f, 0x01, 0x00, 0x0b, 0x0b, 0x25, 0x01, 0x00, 0x41, 0x20, 0x0b, 0x1f, 0x00, 0x1d, 0x12, 0x34,
+    0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70,
+    0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00, 0x00, 0x01, 0x00, 0x01,
+];
 const TAIL_SUSPEND_WASM_MODULE: &[u8] = &[
     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x02,
     0x15, 0x01, 0x04, 0x74, 0x65, 0x73, 0x74, 0x0c, 0x73, 0x75, 0x73, 0x70, 0x65, 0x6e, 0x64, 0x5f,
@@ -115,6 +142,17 @@ const GUEST_TRAP_FUEL_BUDGET: u64 = 100;
 const BEYOND_ENV_FIXTURE_FUEL_BUDGET: u64 = 1_000_000;
 const BEYOND_ENV_WALL_BUDGET_MS: u64 = 90_000;
 const BEYOND_ENV_PUMP_STEP_BUDGET: u32 = 11_250;
+const NET_CALL_MAX_BYTES: usize = 4096;
+const NET_TX_QUOTA_BYTES: u64 = 32 * 1024;
+const NET_RX_QUOTA_BYTES: u64 = 320 * 1024;
+const NET_CONNECT_TIMEOUT_MS: u64 = 5_000;
+const NET_IDLE_TIMEOUT_MS: u64 = 15_000;
+const NET_TOTAL_TIMEOUT_MS: u64 = 90_000;
+const NET_RESPONSIVE_ADDRESS: smoltcp::wire::Ipv4Address =
+    smoltcp::wire::Ipv4Address::new(10, 0, 2, 3);
+const NET_SILENT_ADDRESS: smoltcp::wire::Ipv4Address =
+    smoltcp::wire::Ipv4Address::new(10, 0, 2, 254);
+const NET_DNS_PORT: u16 = 53;
 pub(crate) const WASM_HARDENING_CASE_COUNT: usize = 4;
 pub(crate) const FORBIDDEN_IMPORT_MODULE: &str = "env";
 pub(crate) const FORBIDDEN_IMPORT_NAME: &str = "forbidden_write";
@@ -174,6 +212,8 @@ static BEYOND_ENV_PROBE: Mutex<BeyondEnvProbeSnapshot> =
     Mutex::new(BeyondEnvProbeSnapshot::empty());
 static BEYOND_ENV_SUITE: Mutex<Option<BeyondEnvLifecycleSuite>> = Mutex::new(None);
 static ACTIVE_DROP_TEARDOWN_COUNT: AtomicU64 = AtomicU64::new(0);
+static ACTIVE_BEYOND_ENV_INVOCATION: AtomicU8 = AtomicU8::new(0);
+static NET_SHIM_PROBE: Mutex<NetShimProbeSnapshot> = Mutex::new(NetShimProbeSnapshot::empty());
 
 #[derive(Clone, Copy, Debug)]
 struct HostSuspend {
@@ -205,12 +245,102 @@ enum FixtureBehavior {
     Suspend,
     UnrecognizedHostError,
     HostFuelError,
+    Net(NetFixtureScenario),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NetFixtureScenario {
+    Responsive,
+    SilentTimeout,
+    SilentKill,
+}
+
+impl NetFixtureScenario {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Responsive => "responsive",
+            Self::SilentTimeout => "silent_timeout",
+            Self::SilentKill => "silent_kill",
+        }
+    }
+
+    const fn address(self) -> smoltcp::wire::Ipv4Address {
+        match self {
+            Self::Responsive => NET_RESPONSIVE_ADDRESS,
+            Self::SilentTimeout | Self::SilentKill => NET_SILENT_ADDRESS,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum PendingNetworkKind {
+    Open,
+    Send { len: usize },
+    Recv { ptr: usize, cap: usize },
+}
+
+struct PendingNetworkOperation {
+    owner_invocation_id: u64,
+    operation: PendingHostOperation,
+    deadline_ms: u64,
+    kind: PendingNetworkKind,
+    buffer: [u8; NET_CALL_MAX_BYTES],
+}
+
+struct NetCompletion {
+    result: i32,
+    deadline_ms: u64,
+    kind: PendingNetworkKind,
+    recv_ptr: Option<usize>,
+    recv_len: usize,
+    buffer: [u8; NET_CALL_MAX_BYTES],
+}
+
+struct NetInvocationState {
+    scenario: NetFixtureScenario,
+    owner: net::TransportOwner,
+    lease: Option<net::TransportLeaseToken>,
+    pending: Option<PendingNetworkOperation>,
+    next_operation_id: u32,
+    tx_bytes: u64,
+    rx_bytes: u64,
+    first_negative_result: Option<i32>,
+    connection_opened: bool,
+    close_call_count: u32,
+    would_block_guest_visible: bool,
+}
+
+impl NetInvocationState {
+    fn new(scenario: NetFixtureScenario, invocation_id: u64) -> Self {
+        Self {
+            scenario,
+            owner: net::TransportOwner::new(3, invocation_id),
+            lease: None,
+            pending: None,
+            next_operation_id: 1,
+            tx_bytes: 0,
+            rx_bytes: 0,
+            first_negative_result: None,
+            connection_opened: false,
+            close_call_count: 0,
+            would_block_guest_visible: false,
+        }
+    }
+
+    fn next_operation(&mut self) -> u32 {
+        let operation_id = self.next_operation_id;
+        self.next_operation_id = self.next_operation_id.saturating_add(1);
+        operation_id
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BeyondEnvFixtureRequest {
     HoldForKill,
     ResumeToFinish,
+    NetResponsive,
+    NetSilentTimeout,
+    NetSilentKill,
 }
 
 impl BeyondEnvFixtureRequest {
@@ -218,6 +348,9 @@ impl BeyondEnvFixtureRequest {
         match self {
             Self::HoldForKill => 1,
             Self::ResumeToFinish => 2,
+            Self::NetResponsive => 3,
+            Self::NetSilentTimeout => 4,
+            Self::NetSilentKill => 5,
         }
     }
 
@@ -225,9 +358,94 @@ impl BeyondEnvFixtureRequest {
         match value {
             1 => Some(Self::HoldForKill),
             2 => Some(Self::ResumeToFinish),
+            3 => Some(Self::NetResponsive),
+            4 => Some(Self::NetSilentTimeout),
+            5 => Some(Self::NetSilentKill),
             _ => None,
         }
     }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct NetShimProbeSnapshot {
+    pub(crate) request_status: &'static str,
+    pub(crate) active: bool,
+    pub(crate) scenario: &'static str,
+    pub(crate) invocation_id: u64,
+    pub(crate) suspended: bool,
+    pub(crate) outcome: &'static str,
+    pub(crate) suspension_count: u32,
+    pub(crate) resume_count: u32,
+    pub(crate) teardown_count: u32,
+    pub(crate) teardown_complete: bool,
+    pub(crate) no_resume_after_kill: bool,
+    pub(crate) lease_held: bool,
+    pub(crate) open_operation_id: u32,
+    pub(crate) send_operation_id: u32,
+    pub(crate) recv_operation_id: u32,
+    pub(crate) first_close_operation_id: u32,
+    pub(crate) second_close_operation_id: u32,
+    pub(crate) close_call_count: u32,
+    pub(crate) tx_bytes: u64,
+    pub(crate) rx_bytes: u64,
+    pub(crate) rx_sha256: [u8; 32],
+    pub(crate) received_prefix_le: u64,
+    pub(crate) guest_return_value: u64,
+    pub(crate) dns_tcp_length_prefix_present: bool,
+    pub(crate) would_block_guest_visible: bool,
+    pub(crate) responsive_run_count: u64,
+    pub(crate) timeout_run_count: u64,
+    pub(crate) killed_run_count: u64,
+    pub(crate) terminal_boot_ms: u64,
+    pub(crate) kill_observed_boot_ms: u64,
+}
+
+impl NetShimProbeSnapshot {
+    const fn empty() -> Self {
+        Self {
+            request_status: "idle",
+            active: false,
+            scenario: "not_run",
+            invocation_id: 0,
+            suspended: false,
+            outcome: "not_run",
+            suspension_count: 0,
+            resume_count: 0,
+            teardown_count: 0,
+            teardown_complete: false,
+            no_resume_after_kill: false,
+            lease_held: false,
+            open_operation_id: 0,
+            send_operation_id: 0,
+            recv_operation_id: 0,
+            first_close_operation_id: 0,
+            second_close_operation_id: 0,
+            close_call_count: 0,
+            tx_bytes: 0,
+            rx_bytes: 0,
+            rx_sha256: ZERO_SHA256,
+            received_prefix_le: 0,
+            guest_return_value: 0,
+            dns_tcp_length_prefix_present: false,
+            would_block_guest_visible: false,
+            responsive_run_count: 0,
+            timeout_run_count: 0,
+            killed_run_count: 0,
+            terminal_boot_ms: 0,
+            kill_observed_boot_ms: 0,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct NetShimGrantProbe {
+    pub(crate) artifact_sha256: [u8; 32],
+    pub(crate) import_list_sha256: [u8; 32],
+    pub(crate) policy_denial_reason: &'static str,
+    pub(crate) exact_list_drift_reason: &'static str,
+    pub(crate) linker_drift_reason: &'static str,
+    pub(crate) requested_import_count: u64,
+    pub(crate) denied_before_instantiation: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -308,6 +526,7 @@ pub(crate) struct BeyondEnvLifecycleSuite {
 struct BeyondEnvState {
     lifecycle: InvocationLifecycle,
     behavior: FixtureBehavior,
+    net: Option<NetInvocationState>,
     limits: StoreLimits,
 }
 
@@ -322,7 +541,7 @@ pub(crate) struct ActiveBeyondEnvInvocation {
 }
 
 pub(crate) fn request_beyond_env_fixture(request: BeyondEnvFixtureRequest) -> &'static str {
-    if BEYOND_ENV_PROBE.lock().active {
+    if wasm_execution_busy() {
         return "resource_busy_active_invocation";
     }
     match BEYOND_ENV_REQUEST.compare_exchange(
@@ -332,11 +551,101 @@ pub(crate) fn request_beyond_env_fixture(request: BeyondEnvFixtureRequest) -> &'
         Ordering::Acquire,
     ) {
         Ok(_) => {
-            BEYOND_ENV_PROBE.lock().request_status = "accepted_pending";
+            if matches!(
+                request,
+                BeyondEnvFixtureRequest::NetResponsive
+                    | BeyondEnvFixtureRequest::NetSilentTimeout
+                    | BeyondEnvFixtureRequest::NetSilentKill
+            ) {
+                NET_SHIM_PROBE.lock().request_status = "accepted_pending";
+            } else {
+                BEYOND_ENV_PROBE.lock().request_status = "accepted_pending";
+            }
             "accepted_pending"
         }
         Err(_) => "resource_busy_active_invocation",
     }
+}
+
+pub(crate) fn net_shim_probe_snapshot() -> NetShimProbeSnapshot {
+    *NET_SHIM_PROBE.lock()
+}
+
+pub(crate) fn net_shim_grant_probe() -> NetShimGrantProbe {
+    const SERVICE_ID: &str = "test.fixture.net_shims.signed";
+    const DESCRIPTOR_EVIDENCE_SHA256: [u8; 32] = [0x45; 32];
+    const ARTIFACT_EVIDENCE_SHA256: [u8; 32] = [0x46; 32];
+    const GRANT_EVIDENCE_SHA256: [u8; 32] = [0x47; 32];
+    const NET_IMPORTS: &[(&str, &str)] = &[
+        ("net", "tcp_open"),
+        ("net", "tcp_send"),
+        ("net", "tcp_recv"),
+        ("net", "tcp_close"),
+    ];
+    const NET_IMPORTS_DRIFTED: &[(&str, &str)] = &[
+        ("net", "tcp_open"),
+        ("net", "tcp_send"),
+        ("net", "tcp_close"),
+    ];
+
+    let artifact_sha256 = sha256_bytes(NET_SHIM_WASM_MODULE);
+    let import_list_sha256 = host_import_abi_ordered_list_sha256(HOST_IMPORT_ABI_V1, NET_IMPORTS);
+    let evidence = |evidence_sha256| VerifiedImportEvidence {
+        evidence_sha256,
+        artifact_sha256,
+        import_list_sha256,
+    };
+    let observed = ObservedWasmImports {
+        artifact_sha256,
+        import_list_sha256,
+        imports: NET_IMPORTS,
+    };
+    let input = |observed_imports: ObservedWasmImports<'static>,
+                 linker_implementations: &'static [(&'static str, &'static str)],
+                 policy_allows_beyond_env|
+     -> EvidenceBoundWasmImportGrantInput<'static> {
+        EvidenceBoundWasmImportGrantInput {
+            service_id: Some(SERVICE_ID),
+            artifact_sha256: Some(artifact_sha256),
+            host_import_abi: Some(HOST_IMPORT_ABI_V1),
+            declared_import_list_sha256: Some(import_list_sha256),
+            requested_imports: NET_IMPORTS,
+            descriptor_source_signature_evidence: Some(evidence(DESCRIPTOR_EVIDENCE_SHA256)),
+            artifact_signature_attestation_evidence: Some(evidence(ARTIFACT_EVIDENCE_SHA256)),
+            computed_grant_evidence: Some(evidence(GRANT_EVIDENCE_SHA256)),
+            observed_imports: Some(observed_imports),
+            linker_implementations,
+            policy_allows_beyond_env,
+        }
+    };
+    let policy = evaluate_evidence_bound_wasm_import_grant(&input(observed, NET_IMPORTS, false));
+    let exact_list = evaluate_evidence_bound_wasm_import_grant(&input(
+        ObservedWasmImports {
+            imports: NET_IMPORTS_DRIFTED,
+            ..observed
+        },
+        NET_IMPORTS,
+        false,
+    ));
+    // Test-only evaluator reachability for the NET-1 linker-drift negative.
+    // No Store, instance, linker, or production policy input is created here.
+    let linker =
+        evaluate_evidence_bound_wasm_import_grant(&input(observed, NET_IMPORTS_DRIFTED, true));
+    NetShimGrantProbe {
+        artifact_sha256,
+        import_list_sha256,
+        policy_denial_reason: policy.reason,
+        exact_list_drift_reason: exact_list.reason,
+        linker_drift_reason: linker.reason,
+        requested_import_count: NET_HOST_IMPORTS_V1.len() as u64,
+        denied_before_instantiation: !policy.performed
+            && !exact_list.performed
+            && !linker.performed,
+    }
+}
+
+fn wasm_execution_busy() -> bool {
+    ACTIVE_BEYOND_ENV_INVOCATION.load(Ordering::Acquire) != 0
 }
 
 pub(crate) fn take_beyond_env_fixture_request() -> Option<BeyondEnvFixtureRequest> {
@@ -354,14 +663,30 @@ pub(crate) fn start_beyond_env_fixture(
 ) -> Option<ActiveBeyondEnvInvocation> {
     let active = try_start_beyond_env_fixture(request, now_ms, kill_generation);
     if active.is_none() {
-        let mut probe = BEYOND_ENV_PROBE.lock();
-        probe.request_status = "fixture_setup_failed";
-        probe.active = false;
-        probe.outcome = "fixture_setup_failed";
-        serial::write_fmt(format_args!(
-            "RAIOS_BEYOND_ENV_LIFECYCLE outcome=fixture_setup_failed teardown_complete=true boot_ms={}\r\n",
-            now_ms
-        ));
+        if matches!(
+            request,
+            BeyondEnvFixtureRequest::NetResponsive
+                | BeyondEnvFixtureRequest::NetSilentTimeout
+                | BeyondEnvFixtureRequest::NetSilentKill
+        ) {
+            let mut probe = NET_SHIM_PROBE.lock();
+            probe.request_status = "fixture_setup_failed";
+            probe.active = false;
+            probe.outcome = "fixture_setup_failed";
+            serial::write_fmt(format_args!(
+                "RAIOS_NET_SHIM outcome=fixture_setup_failed teardown_complete=true boot_ms={}\r\n",
+                now_ms
+            ));
+        } else {
+            let mut probe = BEYOND_ENV_PROBE.lock();
+            probe.request_status = "fixture_setup_failed";
+            probe.active = false;
+            probe.outcome = "fixture_setup_failed";
+            serial::write_fmt(format_args!(
+                "RAIOS_BEYOND_ENV_LIFECYCLE outcome=fixture_setup_failed teardown_complete=true boot_ms={}\r\n",
+                now_ms
+            ));
+        }
     }
     active
 }
@@ -372,8 +697,30 @@ fn try_start_beyond_env_fixture(
     kill_generation: u64,
 ) -> Option<ActiveBeyondEnvInvocation> {
     let invocation_id = NEXT_BEYOND_ENV_INVOCATION_ID.fetch_add(1, Ordering::Relaxed);
+    let (service_id, behavior, module_bytes) = match request {
+        BeyondEnvFixtureRequest::HoldForKill | BeyondEnvFixtureRequest::ResumeToFinish => (
+            "test.fixture.beyond_env_lifecycle",
+            FixtureBehavior::Suspend,
+            SUSPEND_ONCE_WASM_MODULE,
+        ),
+        BeyondEnvFixtureRequest::NetResponsive => (
+            "test.fixture.net_shims",
+            FixtureBehavior::Net(NetFixtureScenario::Responsive),
+            NET_SHIM_WASM_MODULE,
+        ),
+        BeyondEnvFixtureRequest::NetSilentTimeout => (
+            "test.fixture.net_shims",
+            FixtureBehavior::Net(NetFixtureScenario::SilentTimeout),
+            NET_SHIM_WASM_MODULE,
+        ),
+        BeyondEnvFixtureRequest::NetSilentKill => (
+            "test.fixture.net_shims",
+            FixtureBehavior::Net(NetFixtureScenario::SilentKill),
+            NET_SHIM_WASM_MODULE,
+        ),
+    };
     let authority = InvocationAuthority {
-        service_id: "test.fixture.beyond_env_lifecycle",
+        service_id,
         invocation_id,
         service_generation: 1,
         instance_generation: 1,
@@ -381,7 +728,11 @@ fn try_start_beyond_env_fixture(
         policy_allows_beyond_env: false,
     };
     let engine = beyond_env_engine();
-    let module = Module::new(&engine, SUSPEND_ONCE_WASM_MODULE).ok()?;
+    let module = Module::new(&engine, module_bytes).ok()?;
+    let net_state = match behavior {
+        FixtureBehavior::Net(scenario) => Some(NetInvocationState::new(scenario, invocation_id)),
+        _ => None,
+    };
     let mut store = Store::new(
         &engine,
         BeyondEnvState {
@@ -392,16 +743,35 @@ fn try_start_beyond_env_fixture(
                 BEYOND_ENV_PUMP_STEP_BUDGET,
                 invocation_id as u32,
             ),
-            behavior: FixtureBehavior::Suspend,
+            behavior,
+            net: net_state,
             limits: beyond_env_limits(),
         },
     );
     store.limiter(|state| &mut state.limits);
     store.add_fuel(BEYOND_ENV_FIXTURE_FUEL_BUDGET).ok()?;
     let mut linker = Linker::<BeyondEnvState>::new(&engine);
-    linker
-        .func_wrap("test", "suspend_once", host_test_suspend_once)
-        .ok()?;
+    match behavior {
+        FixtureBehavior::Net(_) => {
+            linker
+                .func_wrap("net", "tcp_open", host_net_tcp_open)
+                .ok()?;
+            linker
+                .func_wrap("net", "tcp_send", host_net_tcp_send)
+                .ok()?;
+            linker
+                .func_wrap("net", "tcp_recv", host_net_tcp_recv)
+                .ok()?;
+            linker
+                .func_wrap("net", "tcp_close", host_net_tcp_close)
+                .ok()?;
+        }
+        _ => {
+            linker
+                .func_wrap("test", "suspend_once", host_test_suspend_once)
+                .ok()?;
+        }
+    }
     let instance = linker
         .instantiate(&mut store, &module)
         .ok()?
@@ -432,7 +802,39 @@ fn try_start_beyond_env_fixture(
         }
     };
     let suspended_boot_ms = crate::time::rdtsc() / crate::time::tsc_per_ms().max(1);
-    {
+    if let FixtureBehavior::Net(scenario) = behavior {
+        let mut probe = NET_SHIM_PROBE.lock();
+        let counts = (
+            probe.responsive_run_count,
+            probe.timeout_run_count,
+            probe.killed_run_count,
+        );
+        *probe = NetShimProbeSnapshot::empty();
+        probe.responsive_run_count = counts.0;
+        probe.timeout_run_count = counts.1;
+        probe.killed_run_count = counts.2;
+        probe.request_status = "running";
+        probe.active = true;
+        probe.scenario = scenario.as_str();
+        probe.invocation_id = invocation_id;
+        probe.suspended = true;
+        probe.outcome = "pending";
+        probe.suspension_count = store.data().lifecycle.suspension_count();
+        probe.open_operation_id = store
+            .data()
+            .lifecycle
+            .pending()
+            .map_or(0, |pending| pending.operation_id);
+        probe.lease_held = store
+            .data()
+            .net
+            .as_ref()
+            .is_some_and(|net| net.lease.is_some());
+        serial::write_fmt(format_args!(
+            "RAIOS_NET_SHIM suspended=true scenario={} operation=tcp_open invocation_id={} boot_ms={}\r\n",
+            scenario.as_str(), invocation_id, suspended_boot_ms
+        ));
+    } else {
         let mut probe = BEYOND_ENV_PROBE.lock();
         probe.request_status = "running";
         probe.active = true;
@@ -448,11 +850,12 @@ fn try_start_beyond_env_fixture(
         probe.teardown_count = 0;
         probe.teardown_complete = false;
         probe.no_resume_after_kill = false;
+        serial::write_fmt(format_args!(
+            "RAIOS_BEYOND_ENV_LIFECYCLE suspended=true invocation_id={} boot_ms={}\r\n",
+            invocation_id, suspended_boot_ms
+        ));
     }
-    serial::write_fmt(format_args!(
-        "RAIOS_BEYOND_ENV_LIFECYCLE suspended=true invocation_id={} boot_ms={}\r\n",
-        invocation_id, suspended_boot_ms
-    ));
+    ACTIVE_BEYOND_ENV_INVOCATION.store(1, Ordering::Release);
     Some(ActiveBeyondEnvInvocation {
         store: Some(store),
         instance: Some(instance),
@@ -486,6 +889,16 @@ impl ActiveBeyondEnvInvocation {
         if let Err(outcome) = boundary_result {
             self.finish(outcome, now_ms, kill_boot_ms);
             return true;
+        }
+        if matches!(
+            self.store
+                .as_ref()
+                .expect("active beyond-env store missing")
+                .data()
+                .behavior,
+            FixtureBehavior::Net(_)
+        ) {
+            return self.pump_net(now_ms, kill_boot_ms, boundary);
         }
         if !self.auto_resume {
             return false;
@@ -522,17 +935,96 @@ impl ActiveBeyondEnvInvocation {
         true
     }
 
+    fn pump_net(&mut self, now_ms: u64, kill_boot_ms: u64, boundary: BoundaryState) -> bool {
+        let completion = {
+            let store = self
+                .store
+                .as_mut()
+                .expect("active beyond-env store missing");
+            match progress_net_operation(store, now_ms) {
+                Ok(Some(completion)) => completion,
+                Ok(None) => return false,
+                Err(outcome) => {
+                    self.finish(outcome, now_ms, kill_boot_ms);
+                    return true;
+                }
+            }
+        };
+        let store = self
+            .store
+            .as_mut()
+            .expect("active beyond-env store missing");
+        if let Err(outcome) = check_net_resume_boundary(store, &completion, now_ms) {
+            self.finish(outcome, now_ms, kill_boot_ms);
+            return true;
+        }
+        let Some(pending) = store.data_mut().lifecycle.take_pending() else {
+            self.finish(TerminalOutcome::HostError, now_ms, 0);
+            return true;
+        };
+        if pending.invocation_id != store.data().lifecycle.authority().invocation_id {
+            self.finish(TerminalOutcome::HostError, now_ms, 0);
+            return true;
+        }
+        if let Err(outcome) = store.data_mut().lifecycle.check_boundary(boundary) {
+            self.finish(outcome, now_ms, kill_boot_ms);
+            return true;
+        }
+        if let Some(ptr) = completion.recv_ptr {
+            let memory = self.memory.expect("active beyond-env memory missing");
+            if memory
+                .write(&mut *store, ptr, &completion.buffer[..completion.recv_len])
+                .is_err()
+            {
+                self.finish(TerminalOutcome::HostError, now_ms, 0);
+                return true;
+            }
+        }
+        store.data_mut().lifecycle.note_resume();
+        let continuation = self
+            .continuation
+            .take()
+            .expect("active beyond-env continuation missing");
+        match continuation.resume(
+            &mut *store,
+            &[Value::I32(completion.result)],
+            &mut self.outputs,
+        ) {
+            Ok(ResumableCall::Finished) => self.finish(TerminalOutcome::Finished, now_ms, 0),
+            Ok(ResumableCall::Resumable(next)) => match classify_resumable(&next, store) {
+                Ok(()) => {
+                    self.continuation = Some(next);
+                    let mut probe = NET_SHIM_PROBE.lock();
+                    probe.suspended = true;
+                    probe.suspension_count = store.data().lifecycle.suspension_count();
+                    probe.resume_count = store.data().lifecycle.resume_count();
+                    probe.lease_held = store
+                        .data()
+                        .net
+                        .as_ref()
+                        .is_some_and(|net| net.lease.is_some());
+                    return false;
+                }
+                Err(outcome) => self.finish(outcome, now_ms, 0),
+            },
+            Err(error) => self.finish(terminal_from_error(&error), now_ms, 0),
+        }
+        true
+    }
+
     fn finish(&mut self, outcome: TerminalOutcome, now_ms: u64, kill_boot_ms: u64) {
         let store = self
             .store
             .as_mut()
             .expect("active beyond-env store missing");
+        let net_terminal = finish_net_resources(store, now_ms);
         finish_store(store, outcome);
         let lifecycle = &store.data().lifecycle;
         let receipt = lifecycle.teardown_receipt();
         let suspension_count = lifecycle.suspension_count();
         let resume_count = lifecycle.resume_count();
         let fuel_used = store.fuel_consumed().unwrap_or(0);
+        let guest_return_value = self.outputs[0].i32().unwrap_or(0).max(0) as u64;
 
         // Teardown step 9: no raiOS lock is held while wasmi state is dropped.
         drop(self.continuation.take());
@@ -541,7 +1033,46 @@ impl ActiveBeyondEnvInvocation {
         drop(self.store.take());
         self.closed = true;
 
-        {
+        if let Some(net_terminal) = net_terminal {
+            let mut probe = NET_SHIM_PROBE.lock();
+            probe.request_status = "complete";
+            probe.active = false;
+            probe.suspended = false;
+            probe.outcome = if outcome == TerminalOutcome::Killed {
+                "killed"
+            } else {
+                match net_terminal.first_negative_result {
+                    Some(HOST_IMPORT_ERROR_TIMED_OUT) => "timed_out",
+                    Some(_) => "transport_error",
+                    None => "finished",
+                }
+            };
+            probe.terminal_boot_ms = now_ms;
+            probe.kill_observed_boot_ms = kill_boot_ms;
+            probe.suspension_count = suspension_count;
+            probe.resume_count = resume_count;
+            probe.teardown_count = receipt.teardown_count;
+            probe.teardown_complete = receipt.terminal_outcome_recorded;
+            probe.no_resume_after_kill = outcome == TerminalOutcome::Killed && resume_count == 0;
+            probe.lease_held = false;
+            probe.close_call_count = net_terminal.close_call_count;
+            probe.tx_bytes = net_terminal.tx_bytes;
+            probe.rx_bytes = net_terminal.rx_bytes;
+            probe.guest_return_value = guest_return_value;
+            probe.would_block_guest_visible = net_terminal.would_block_guest_visible;
+            match probe.outcome {
+                "finished" => {
+                    probe.responsive_run_count = probe.responsive_run_count.saturating_add(1)
+                }
+                "timed_out" => probe.timeout_run_count = probe.timeout_run_count.saturating_add(1),
+                "killed" => probe.killed_run_count = probe.killed_run_count.saturating_add(1),
+                _ => {}
+            }
+            serial::write_fmt(format_args!(
+                "RAIOS_NET_SHIM outcome={} scenario={} teardown_complete=true resume_count={} boot_ms={}\r\n",
+                probe.outcome, probe.scenario, resume_count, now_ms
+            ));
+        } else {
             let mut probe = BEYOND_ENV_PROBE.lock();
             probe.request_status = "complete";
             probe.active = false;
@@ -567,17 +1098,384 @@ impl ActiveBeyondEnvInvocation {
             if outcome == TerminalOutcome::Finished {
                 probe.finished_run_count = probe.finished_run_count.saturating_add(1);
             }
+            serial::write_fmt(format_args!(
+                "RAIOS_BEYOND_ENV_LIFECYCLE outcome={} teardown_complete=true handles_invalid=true resume_count={} boot_ms={}\r\n",
+                outcome.as_str(), resume_count, now_ms
+            ));
         }
-        serial::write_fmt(format_args!(
-            "RAIOS_BEYOND_ENV_LIFECYCLE outcome={} teardown_complete=true handles_invalid=true resume_count={} boot_ms={}\r\n",
-            outcome.as_str(), resume_count, now_ms
-        ));
+        ACTIVE_BEYOND_ENV_INVOCATION.store(0, Ordering::Release);
     }
+}
+
+struct NetTerminalState {
+    tx_bytes: u64,
+    rx_bytes: u64,
+    first_negative_result: Option<i32>,
+    close_call_count: u32,
+    would_block_guest_visible: bool,
+}
+
+fn progress_net_operation(
+    store: &mut Store<BeyondEnvState>,
+    now_ms: u64,
+) -> Result<Option<NetCompletion>, TerminalOutcome> {
+    let mut pending = store
+        .data_mut()
+        .net
+        .as_mut()
+        .and_then(|net| net.pending.take())
+        .ok_or(TerminalOutcome::HostError)?;
+    if pending.owner_invocation_id != store.data().lifecycle.authority().invocation_id
+        || store.data().lifecycle.pending() != Some(pending.operation)
+    {
+        return Err(TerminalOutcome::HostError);
+    }
+    if now_ms >= pending.deadline_ms {
+        let token = store.data_mut().net.as_mut().and_then(|net| {
+            net.connection_opened = false;
+            net.lease.take()
+        });
+        if let Some(token) = token {
+            let _ = net::tcp_abort(token, now_ms);
+        }
+        return Ok(Some(complete_net_operation(
+            store,
+            pending,
+            HOST_IMPORT_ERROR_TIMED_OUT,
+            None,
+            0,
+        )));
+    }
+
+    match pending.kind {
+        PendingNetworkKind::Open => {
+            let (scenario, owner, token) = {
+                let net_state = store
+                    .data()
+                    .net
+                    .as_ref()
+                    .ok_or(TerminalOutcome::HostError)?;
+                (net_state.scenario, net_state.owner, net_state.lease)
+            };
+            let token = match token {
+                Some(token) => token,
+                None => match net::tcp_claim(owner, now_ms, NET_TOTAL_TIMEOUT_MS) {
+                    Ok(token) => {
+                        store
+                            .data_mut()
+                            .net
+                            .as_mut()
+                            .expect("net state missing")
+                            .lease = Some(token);
+                        NET_SHIM_PROBE.lock().lease_held = true;
+                        token
+                    }
+                    Err(error) => {
+                        return Ok(Some(complete_net_operation(
+                            store,
+                            pending,
+                            transport_error_result(error),
+                            None,
+                            0,
+                        )))
+                    }
+                },
+            };
+            match net::tcp_connect_step(token, scenario.address(), NET_DNS_PORT, now_ms) {
+                Ok(net::TcpConnectResult::Started | net::TcpConnectResult::Connecting(_)) => {
+                    store
+                        .data_mut()
+                        .net
+                        .as_mut()
+                        .expect("net state missing")
+                        .pending = Some(pending);
+                    Ok(None)
+                }
+                Ok(net::TcpConnectResult::Connected) => {
+                    store
+                        .data_mut()
+                        .net
+                        .as_mut()
+                        .expect("net state missing")
+                        .connection_opened = true;
+                    let handle = store.data().lifecycle.handle();
+                    Ok(Some(complete_net_operation(
+                        store, pending, handle, None, 0,
+                    )))
+                }
+                Ok(
+                    net::TcpConnectResult::NetworkUnavailable
+                    | net::TcpConnectResult::NetworkUnconfigured
+                    | net::TcpConnectResult::ConnectError,
+                ) => Ok(Some(complete_net_operation(
+                    store,
+                    pending,
+                    HOST_IMPORT_ERROR_TRANSPORT,
+                    None,
+                    0,
+                ))),
+                Err(_) => Err(TerminalOutcome::GenerationInvalidated),
+            }
+        }
+        PendingNetworkKind::Send { len } => {
+            if store
+                .data()
+                .net
+                .as_ref()
+                .is_none_or(|net| net.tx_bytes.saturating_add(len as u64) > NET_TX_QUOTA_BYTES)
+            {
+                return Ok(Some(complete_net_operation(
+                    store,
+                    pending,
+                    HOST_IMPORT_ERROR_LIMIT_EXCEEDED,
+                    None,
+                    0,
+                )));
+            }
+            let token = store
+                .data()
+                .net
+                .as_ref()
+                .and_then(|net| net.lease)
+                .ok_or(TerminalOutcome::GenerationInvalidated)?;
+            match net::tcp_send_step(token, &pending.buffer[..len], now_ms) {
+                Ok(net::TcpIoResult::WouldBlock) => {
+                    store
+                        .data_mut()
+                        .net
+                        .as_mut()
+                        .expect("net state missing")
+                        .pending = Some(pending);
+                    Ok(None)
+                }
+                Ok(net::TcpIoResult::Ready(written)) => Ok(Some(complete_net_operation(
+                    store,
+                    pending,
+                    written as i32,
+                    None,
+                    0,
+                ))),
+                Ok(net::TcpIoResult::Closed) => Ok(Some(complete_net_operation(
+                    store,
+                    pending,
+                    HOST_IMPORT_ERROR_CLOSED,
+                    None,
+                    0,
+                ))),
+                Ok(net::TcpIoResult::Unavailable) => Ok(Some(complete_net_operation(
+                    store,
+                    pending,
+                    HOST_IMPORT_ERROR_TRANSPORT,
+                    None,
+                    0,
+                ))),
+                Err(_) => Err(TerminalOutcome::GenerationInvalidated),
+            }
+        }
+        PendingNetworkKind::Recv { ptr, cap } => {
+            if store
+                .data()
+                .net
+                .as_ref()
+                .is_none_or(|net| net.rx_bytes.saturating_add(cap as u64) > NET_RX_QUOTA_BYTES)
+            {
+                return Ok(Some(complete_net_operation(
+                    store,
+                    pending,
+                    HOST_IMPORT_ERROR_LIMIT_EXCEEDED,
+                    None,
+                    0,
+                )));
+            }
+            let token = store
+                .data()
+                .net
+                .as_ref()
+                .and_then(|net| net.lease)
+                .ok_or(TerminalOutcome::GenerationInvalidated)?;
+            match net::tcp_receive_inspect_step(token, now_ms) {
+                Ok(net::TcpReceiveInspection::WouldBlock) => {
+                    store
+                        .data_mut()
+                        .net
+                        .as_mut()
+                        .expect("net state missing")
+                        .pending = Some(pending);
+                    Ok(None)
+                }
+                Ok(net::TcpReceiveInspection::Available(available)) if available < 2 => {
+                    store
+                        .data_mut()
+                        .net
+                        .as_mut()
+                        .expect("net state missing")
+                        .pending = Some(pending);
+                    Ok(None)
+                }
+                Ok(net::TcpReceiveInspection::Available(_)) => {
+                    match net::tcp_recv_step(token, &mut pending.buffer[..cap], now_ms) {
+                        Ok(net::TcpIoResult::Ready(read)) => Ok(Some(complete_net_operation(
+                            store,
+                            pending,
+                            read as i32,
+                            Some(ptr),
+                            read,
+                        ))),
+                        Ok(net::TcpIoResult::WouldBlock) => {
+                            store
+                                .data_mut()
+                                .net
+                                .as_mut()
+                                .expect("net state missing")
+                                .pending = Some(pending);
+                            Ok(None)
+                        }
+                        Ok(net::TcpIoResult::Closed) => Ok(Some(complete_net_operation(
+                            store,
+                            pending,
+                            0,
+                            Some(ptr),
+                            0,
+                        ))),
+                        Ok(net::TcpIoResult::Unavailable) => Ok(Some(complete_net_operation(
+                            store,
+                            pending,
+                            HOST_IMPORT_ERROR_TRANSPORT,
+                            None,
+                            0,
+                        ))),
+                        Err(_) => Err(TerminalOutcome::GenerationInvalidated),
+                    }
+                }
+                Ok(net::TcpReceiveInspection::Closed) => Ok(Some(complete_net_operation(
+                    store,
+                    pending,
+                    0,
+                    Some(ptr),
+                    0,
+                ))),
+                Ok(net::TcpReceiveInspection::Unavailable) => Ok(Some(complete_net_operation(
+                    store,
+                    pending,
+                    HOST_IMPORT_ERROR_TRANSPORT,
+                    None,
+                    0,
+                ))),
+                Err(_) => Err(TerminalOutcome::GenerationInvalidated),
+            }
+        }
+    }
+}
+
+fn complete_net_operation(
+    store: &mut Store<BeyondEnvState>,
+    pending: PendingNetworkOperation,
+    result: i32,
+    recv_ptr: Option<usize>,
+    recv_len: usize,
+) -> NetCompletion {
+    let operation_id = pending.operation.operation_id;
+    let resume_count = store.data().lifecycle.resume_count().saturating_add(1);
+    let (tx_bytes, rx_bytes) = {
+        let net_state = store.data_mut().net.as_mut().expect("net state missing");
+        match pending.kind {
+            PendingNetworkKind::Send { .. } if result > 0 => {
+                net_state.tx_bytes = net_state.tx_bytes.saturating_add(result as u64)
+            }
+            PendingNetworkKind::Recv { .. } if result > 0 => {
+                net_state.rx_bytes = net_state.rx_bytes.saturating_add(result as u64)
+            }
+            _ => {}
+        }
+        if result < 0 && net_state.first_negative_result.is_none() {
+            net_state.first_negative_result = Some(result);
+        }
+        (net_state.tx_bytes, net_state.rx_bytes)
+    };
+    let mut probe = NET_SHIM_PROBE.lock();
+    probe.resume_count = resume_count;
+    probe.tx_bytes = tx_bytes;
+    probe.rx_bytes = rx_bytes;
+    if recv_len > 0 {
+        probe.rx_sha256 = sha256_bytes(&pending.buffer[..recv_len]);
+    }
+    if recv_len >= 2 {
+        probe.received_prefix_le =
+            u16::from_le_bytes([pending.buffer[0], pending.buffer[1]]) as u64;
+        probe.dns_tcp_length_prefix_present =
+            u16::from_be_bytes([pending.buffer[0], pending.buffer[1]]) > 0;
+    }
+    serial::write_fmt(format_args!(
+        "RAIOS_NET_SHIM operation_complete operation_id={} result={}\r\n",
+        operation_id, result
+    ));
+    NetCompletion {
+        result,
+        deadline_ms: pending.deadline_ms,
+        kind: pending.kind,
+        recv_ptr,
+        recv_len,
+        buffer: pending.buffer,
+    }
+}
+
+fn check_net_resume_boundary(
+    store: &mut Store<BeyondEnvState>,
+    completion: &NetCompletion,
+    now_ms: u64,
+) -> Result<(), TerminalOutcome> {
+    if now_ms >= completion.deadline_ms && completion.result != HOST_IMPORT_ERROR_TIMED_OUT {
+        return Err(TerminalOutcome::WallBudgetExceeded);
+    }
+    let net_state = store
+        .data()
+        .net
+        .as_ref()
+        .ok_or(TerminalOutcome::HostError)?;
+    if net_state.tx_bytes > NET_TX_QUOTA_BYTES || net_state.rx_bytes > NET_RX_QUOTA_BYTES {
+        return Err(TerminalOutcome::HostError);
+    }
+    let lease_required = completion.result >= 0
+        && matches!(
+            completion.kind,
+            PendingNetworkKind::Open
+                | PendingNetworkKind::Send { .. }
+                | PendingNetworkKind::Recv { .. }
+        );
+    match net_state.lease {
+        Some(token) => {
+            net::tcp_validate(token, now_ms).map_err(|_| TerminalOutcome::GenerationInvalidated)
+        }
+        None if lease_required => Err(TerminalOutcome::GenerationInvalidated),
+        None => Ok(()),
+    }
+}
+
+fn finish_net_resources(
+    store: &mut Store<BeyondEnvState>,
+    now_ms: u64,
+) -> Option<NetTerminalState> {
+    let net_state = store.data_mut().net.as_mut()?;
+    let token = net_state.lease.take();
+    net_state.pending = None;
+    net_state.connection_opened = false;
+    let terminal = NetTerminalState {
+        tx_bytes: net_state.tx_bytes,
+        rx_bytes: net_state.rx_bytes,
+        first_negative_result: net_state.first_negative_result,
+        close_call_count: net_state.close_call_count,
+        would_block_guest_visible: net_state.would_block_guest_visible,
+    };
+    if let Some(token) = token {
+        let _ = net::tcp_abort(token, now_ms);
+    }
+    Some(terminal)
 }
 
 impl Drop for ActiveBeyondEnvInvocation {
     fn drop(&mut self) {
         if let Some(store) = self.store.as_mut() {
+            let _ = finish_net_resources(store, runtime_now_ms());
             if store
                 .data_mut()
                 .lifecycle
@@ -586,6 +1484,7 @@ impl Drop for ActiveBeyondEnvInvocation {
                 ACTIVE_DROP_TEARDOWN_COUNT.fetch_add(1, Ordering::Relaxed);
             }
         }
+        ACTIVE_BEYOND_ENV_INVOCATION.store(0, Ordering::Release);
     }
 }
 
@@ -615,7 +1514,238 @@ fn host_test_suspend_once(mut caller: Caller<'_, BeyondEnvState>) -> Result<i32,
                 .map_err(|_| Trap::from(TrapCode::OutOfFuel))?;
             Ok(0)
         }
+        FixtureBehavior::Net(_) => Err(Trap::new("test.suspend_once unavailable to net fixture")),
     }
+}
+
+fn host_net_tcp_open(mut caller: Caller<'_, BeyondEnvState>) -> Result<i32, Trap> {
+    caller
+        .consume_fuel(25)
+        .map_err(|_| Trap::from(TrapCode::OutOfFuel))?;
+    if caller
+        .data()
+        .net
+        .as_ref()
+        .is_none_or(|net| net.pending.is_some() || net.lease.is_some() || net.connection_opened)
+    {
+        return Ok(HOST_IMPORT_ERROR_INVALID_STATE);
+    }
+    record_net_pending(
+        &mut caller,
+        PendingNetworkKind::Open,
+        [0; NET_CALL_MAX_BYTES],
+        NET_CONNECT_TIMEOUT_MS,
+    )
+}
+
+fn host_net_tcp_send(
+    mut caller: Caller<'_, BeyondEnvState>,
+    handle: i32,
+    ptr: i32,
+    len: i32,
+) -> Result<i32, Trap> {
+    let Some((ptr, len)) = checked_net_memory_range(ptr, len) else {
+        return Ok(HOST_IMPORT_ERROR_INVALID_ARGUMENT);
+    };
+    if len > NET_CALL_MAX_BYTES {
+        return Ok(HOST_IMPORT_ERROR_LIMIT_EXCEEDED);
+    }
+    let valid = caller.data().lifecycle.accepts_handle(handle)
+        && caller.data().net.as_ref().is_some_and(|net| {
+            net.connection_opened
+                && net.pending.is_none()
+                && net.tx_bytes.saturating_add(len as u64) <= NET_TX_QUOTA_BYTES
+        });
+    if !valid {
+        return Ok(HOST_IMPORT_ERROR_INVALID_STATE);
+    }
+    caller
+        .consume_fuel(25 + len as u64)
+        .map_err(|_| Trap::from(TrapCode::OutOfFuel))?;
+    let memory = caller
+        .get_export("memory")
+        .and_then(Extern::into_memory)
+        .ok_or_else(|| Trap::new("net.tcp_send memory export missing"))?;
+    let mut buffer = [0u8; NET_CALL_MAX_BYTES];
+    memory
+        .read(&caller, ptr, &mut buffer[..len])
+        .map_err(|_| Trap::from(TrapCode::MemoryOutOfBounds))?;
+    record_net_pending(
+        &mut caller,
+        PendingNetworkKind::Send { len },
+        buffer,
+        NET_IDLE_TIMEOUT_MS,
+    )
+}
+
+fn host_net_tcp_recv(
+    mut caller: Caller<'_, BeyondEnvState>,
+    handle: i32,
+    ptr: i32,
+    cap: i32,
+) -> Result<i32, Trap> {
+    let Some((ptr, cap)) = checked_net_memory_range(ptr, cap) else {
+        return Ok(HOST_IMPORT_ERROR_INVALID_ARGUMENT);
+    };
+    if cap > NET_CALL_MAX_BYTES {
+        return Ok(HOST_IMPORT_ERROR_LIMIT_EXCEEDED);
+    }
+    let valid = caller.data().lifecycle.accepts_handle(handle)
+        && caller.data().net.as_ref().is_some_and(|net| {
+            net.connection_opened
+                && net.pending.is_none()
+                && net.rx_bytes.saturating_add(cap as u64) <= NET_RX_QUOTA_BYTES
+        });
+    if !valid {
+        return Ok(HOST_IMPORT_ERROR_INVALID_STATE);
+    }
+    caller
+        .consume_fuel(25 + cap as u64)
+        .map_err(|_| Trap::from(TrapCode::OutOfFuel))?;
+    let memory = caller
+        .get_export("memory")
+        .and_then(Extern::into_memory)
+        .ok_or_else(|| Trap::new("net.tcp_recv memory export missing"))?;
+    memory
+        .read(&caller, ptr, &mut [])
+        .map_err(|_| Trap::from(TrapCode::MemoryOutOfBounds))?;
+    if ptr
+        .checked_add(cap)
+        .is_none_or(|end| end > memory.data(&caller).len())
+    {
+        return Err(Trap::from(TrapCode::MemoryOutOfBounds));
+    }
+    record_net_pending(
+        &mut caller,
+        PendingNetworkKind::Recv { ptr, cap },
+        [0; NET_CALL_MAX_BYTES],
+        NET_IDLE_TIMEOUT_MS,
+    )
+}
+
+fn host_net_tcp_close(mut caller: Caller<'_, BeyondEnvState>, handle: i32) -> Result<i32, Trap> {
+    caller
+        .consume_fuel(25)
+        .map_err(|_| Trap::from(TrapCode::OutOfFuel))?;
+    if !caller.data().lifecycle.accepts_handle(handle) {
+        return Ok(HOST_IMPORT_ERROR_INVALID_STATE);
+    }
+    let now_ms = runtime_now_ms();
+    let (token, operation_id, close_call_count) = {
+        let net = caller
+            .data_mut()
+            .net
+            .as_mut()
+            .ok_or_else(|| Trap::new("net.tcp_close outside net fixture"))?;
+        if net.pending.is_some() || !net.connection_opened {
+            return Ok(HOST_IMPORT_ERROR_INVALID_STATE);
+        }
+        let operation_id = net.next_operation();
+        net.close_call_count = net.close_call_count.saturating_add(1);
+        (net.lease.take(), operation_id, net.close_call_count)
+    };
+    let result = match token {
+        Some(token) => match net::tcp_close(token, now_ms) {
+            Ok(_) => 0,
+            Err(error) => transport_error_result(error),
+        },
+        None => 0,
+    };
+    let mut probe = NET_SHIM_PROBE.lock();
+    probe.close_call_count = close_call_count;
+    if close_call_count == 1 {
+        probe.first_close_operation_id = operation_id;
+    } else if close_call_count == 2 {
+        probe.second_close_operation_id = operation_id;
+    }
+    probe.lease_held = false;
+    Ok(result)
+}
+
+fn record_net_pending(
+    caller: &mut Caller<'_, BeyondEnvState>,
+    kind: PendingNetworkKind,
+    buffer: [u8; NET_CALL_MAX_BYTES],
+    timeout_ms: u64,
+) -> Result<i32, Trap> {
+    let operation_id = caller
+        .data_mut()
+        .net
+        .as_mut()
+        .ok_or_else(|| Trap::new("net host import outside net fixture"))?
+        .next_operation();
+    let pending = caller
+        .data_mut()
+        .lifecycle
+        .record_pending(operation_id)
+        .ok_or_else(|| Trap::new("net pending operation already exists"))?;
+    let operation_name = match kind {
+        PendingNetworkKind::Open => "tcp_open",
+        PendingNetworkKind::Send { .. } => "tcp_send",
+        PendingNetworkKind::Recv { .. } => "tcp_recv",
+    };
+    let scenario = caller
+        .data()
+        .net
+        .as_ref()
+        .map_or("invalid", |net| net.scenario.as_str());
+    caller
+        .data_mut()
+        .net
+        .as_mut()
+        .expect("net state disappeared")
+        .pending = Some(PendingNetworkOperation {
+        owner_invocation_id: pending.invocation_id,
+        operation: pending,
+        deadline_ms: runtime_now_ms().saturating_add(timeout_ms),
+        kind,
+        buffer,
+    });
+    {
+        let mut probe = NET_SHIM_PROBE.lock();
+        probe.suspended = true;
+        probe.suspension_count = caller.data().lifecycle.suspension_count();
+        match operation_name {
+            "tcp_open" => probe.open_operation_id = operation_id,
+            "tcp_send" => probe.send_operation_id = operation_id,
+            "tcp_recv" => probe.recv_operation_id = operation_id,
+            _ => {}
+        }
+    }
+    serial::write_fmt(format_args!(
+        "RAIOS_NET_SHIM suspended=true scenario={} operation={} operation_id={}\r\n",
+        scenario, operation_name, operation_id
+    ));
+    Err(HostSuspend {
+        invocation_id: pending.invocation_id,
+        operation_id,
+    }
+    .into())
+}
+
+fn checked_net_memory_range(ptr: i32, len: i32) -> Option<(usize, usize)> {
+    if ptr < 0 || len < 0 {
+        return None;
+    }
+    let ptr = ptr as usize;
+    let len = len as usize;
+    ptr.checked_add(len)?;
+    Some((ptr, len))
+}
+
+fn transport_error_result(error: net::TransportLeaseError) -> i32 {
+    match error {
+        net::TransportLeaseError::NetworkTransportBusy => HOST_IMPORT_ERROR_RESOURCE_BUSY,
+        net::TransportLeaseError::LeaseTimedOut => HOST_IMPORT_ERROR_TIMED_OUT,
+        net::TransportLeaseError::ForeignOwner
+        | net::TransportLeaseError::StaleGeneration
+        | net::TransportLeaseError::LeaseRevoked
+        | net::TransportLeaseError::GenerationExhausted => HOST_IMPORT_ERROR_TRANSPORT,
+    }
+}
+
+fn runtime_now_ms() -> u64 {
+    crate::time::rdtsc() / crate::time::tsc_per_ms().max(1)
 }
 
 fn classify_resumable(
@@ -676,6 +1806,9 @@ fn beyond_env_limits() -> StoreLimits {
 pub(crate) fn run_beyond_env_lifecycle_suite() -> BeyondEnvLifecycleSuite {
     if let Some(suite) = *BEYOND_ENV_SUITE.lock() {
         return suite;
+    }
+    if wasm_execution_busy() {
+        return busy_beyond_env_lifecycle_suite();
     }
     let normal = run_beyond_env_case(
         "normal_return",
@@ -796,6 +1929,7 @@ fn run_beyond_env_case(
                 invocation_id as u32,
             ),
             behavior,
+            net: None,
             limits: beyond_env_limits(),
         },
     );
@@ -936,6 +2070,27 @@ fn failed_beyond_env_case(name: &'static str) -> BeyondEnvLifecycleCase {
         resume_count: 0,
         teardown_count: 0,
         teardown_complete: false,
+    }
+}
+
+fn busy_beyond_env_lifecycle_suite() -> BeyondEnvLifecycleSuite {
+    let case = BeyondEnvLifecycleCase {
+        name: "wasm_execution_busy",
+        outcome: "wasm_execution_busy",
+        suspended: false,
+        suspension_count: 0,
+        resume_count: 0,
+        teardown_count: 0,
+        teardown_complete: false,
+    };
+    BeyondEnvLifecycleSuite {
+        cases: [case; 7],
+        tail_call_terminal: false,
+        busy_loop_out_of_fuel: false,
+        busy_loop_wall_ms: 0,
+        fuel_budget: BEYOND_ENV_FIXTURE_FUEL_BUDGET,
+        wall_budget_ms: BEYOND_ENV_WALL_BUDGET_MS,
+        pump_step_budget: BEYOND_ENV_PUMP_STEP_BUDGET,
     }
 }
 
@@ -1275,6 +2430,18 @@ pub(crate) fn run_personal_shell_proof(
     input: &[u8],
     viewport: Viewport,
 ) -> PersonalShellRuntimeResult {
+    if wasm_execution_busy() {
+        return personal_shell_result(
+            false,
+            None,
+            0,
+            false,
+            "wasm_execution_busy",
+            None,
+            0,
+            PersonalShellFrameResult::Rejected,
+        );
+    }
     let validation_ok = validate_personal_shell_proof_artifact();
     if context.len() < PERSONAL_SHELL_CONTEXT_BYTES
         || context.len() > MAX_PROGRAM_CONTEXT_LEN
@@ -1683,7 +2850,40 @@ pub(crate) struct WasmHardeningCase {
     pub(crate) passed: bool,
 }
 
+fn busy_echo_probe() -> EchoProbe {
+    let positive = wasm_busy_run(ECHO_SERVICE_ID, ECHO_WASM_FUEL_BUDGET);
+    let busy_case = WasmHardeningCase {
+        name: "wasm_execution_busy",
+        mechanism: "central_wasm_execution_gate",
+        expected_outcome: "wasm_execution_busy",
+        actual_outcome: "wasm_execution_busy",
+        passed: true,
+    };
+    EchoProbe {
+        artifact_hash: ECHO_WASM_ARTIFACT_BYTES_HASH,
+        descriptor_hash: ECHO_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_HASH,
+        signature_envelope_hash: ECHO_WASM_ARTIFACT_SIGNATURE_ENVELOPE_HASH,
+        validation_ok: false,
+        instantiation_ok: false,
+        run_outcome: positive.run_outcome,
+        return_value: None,
+        fuel_budget: positive.fuel_budget,
+        fuel_used: 0,
+        log_line: None,
+        forbidden_validation_ok: false,
+        forbidden_instantiation_ok: false,
+        forbidden_link_error_kind: "wasm_execution_busy",
+        forbidden_missing_import_module: None,
+        forbidden_missing_import_name: None,
+        forbidden_boundary_held: true,
+        hardening_cases: [busy_case; WASM_HARDENING_CASE_COUNT],
+    }
+}
+
 pub(crate) fn run_echo_probe() -> EchoProbe {
+    if wasm_execution_busy() {
+        return busy_echo_probe();
+    }
     let positive = run_echo_service();
     let negative = instantiate_forbidden_import_module();
     let hardening_cases = run_hardening_cases();
@@ -1862,6 +3062,9 @@ pub(crate) fn run_dnsparse_unauthorized_probe(input_record: &[u8]) -> EchoRunEvi
 /// Reuses `metered_engine`/`default_state`/`define_granted_imports` exactly
 /// like the healthy path so the ONLY difference is the fuel budget.
 pub(crate) fn run_echo_fuel_starved() -> EchoFuelStarvedEvidence {
+    if wasm_execution_busy() {
+        return fuel_starved_evidence(false, false, "wasm_execution_busy", false, 0, None);
+    }
     if !validate_echo_wasm_artifact() {
         return fuel_starved_evidence(false, false, "validation_failed", false, 0, None);
     }
@@ -2115,6 +3318,9 @@ pub(crate) fn inspect_workspace_imports(bytes: &[u8]) -> WorkspaceImportInspecti
 }
 
 pub(crate) fn execute_workspace_no_import_candidate(bytes: &[u8]) -> EchoRunEvidence {
+    if wasm_execution_busy() {
+        return wasm_busy_run(WORKSPACE_SERVICE_ID, WORKSPACE_FUEL_BUDGET);
+    }
     let inspection = inspect_workspace_imports(bytes);
     let grant = evaluate_observed_wasm_import_grant(
         &WasmImportGrantInput {
@@ -2284,6 +3490,9 @@ fn execute_validated_module_bytes(
     staged_input: &[u8],
     fuel_budget: u64,
 ) -> EchoRunEvidence {
+    if wasm_execution_busy() {
+        return wasm_busy_run(service_id, fuel_budget);
+    }
     let authorized =
         match authorize_wasm_imports(service_id, artifact_sha256_present, requested_imports) {
             Ok(authorized) => authorized,
@@ -2568,6 +3777,9 @@ fn instantiate_forbidden_import_module() -> NegativeRun {
 }
 
 pub(crate) fn forbidden_import_link_failure_evidence() -> NegativeRun {
+    if wasm_execution_busy() {
+        return busy_negative_run();
+    }
     instantiate_forbidden_import_module()
 }
 
@@ -2764,6 +3976,41 @@ fn positive_run(
     );
     emit_import_grant_marker(service_id, &evidence);
     evidence
+}
+
+fn wasm_busy_run(service_id: &str, fuel_budget: u64) -> EchoRunEvidence {
+    positive_run(
+        service_id,
+        fuel_budget,
+        false,
+        false,
+        "wasm_execution_busy",
+        None,
+        0,
+        None,
+        ImportGrantEvidence {
+            performed: false,
+            status: "import_grant_not_evaluated",
+            reason: "wasm_execution_busy",
+            authorized_import_count: 0,
+            authorized_import_list_sha256: ZERO_SHA256,
+            linked_host_import_count: 0,
+            module_imports_within_authorized_list: false,
+            missing_import_module: None,
+            missing_import_name: None,
+        },
+    )
+}
+
+fn busy_negative_run() -> NegativeRun {
+    NegativeRun {
+        validation_ok: false,
+        instantiation_ok: false,
+        link_error_kind: "wasm_execution_busy",
+        missing_import_module: None,
+        missing_import_name: None,
+        boundary_held: true,
+    }
 }
 
 fn metered_engine() -> Box<Engine> {

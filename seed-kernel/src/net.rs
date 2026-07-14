@@ -324,6 +324,12 @@ pub fn tcp_receive_inspect_step(
     })
 }
 
+/// Owner/generation/deadline validation for a resumable host operation's
+/// pre-resume boundary. It performs no socket I/O.
+pub fn tcp_validate(token: TransportLeaseToken, now_ms: u64) -> Result<(), TransportLeaseError> {
+    validate_transport(token, now_ms)
+}
+
 pub fn tcp_recv_step(
     token: TransportLeaseToken,
     buffer: &mut [u8],
