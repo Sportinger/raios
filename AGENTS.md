@@ -31,6 +31,21 @@ The core idea is not to port the full Codex CLI into stage-0. The OS should grow
 native, capability-gated agent protocol and UI. CLI tools such as Codex can be a
 reference/workstation tool, not the hard dependency inside the kernel.
 
+## The Standing Mission (owner decision, 2026-07-15)
+
+The all-over mission map is `docs/VISION_PLAN.md` and it is binding: the
+PRODUCT is the minimal base plus the CLOSED SELF-BUILD LOOP — once online,
+raiOS grows everything else (desktop, GPU support, comfort) OUT OF ITSELF.
+Those features are fruits of the loop, never work packages for us. Three
+binding owner decisions are recorded in its §3: kernel self-rebuild is the
+END STAGE of the loop (A/B boot slots + auto-rollback); only ON-DEVICE
+compilation fulfils the vision (external build machines, including the owner
+workstation, are development scaffolding, never fulfilment); the base is DONE
+when an agent-written program passes the complete loop in QEMU without a
+manual step (the Surface run is the milestone after). Every slice must
+advance a loop station from the plan's §4 table or a base-hardening track
+from §5 — a slice that advances neither is comfort and is dropped.
+
 ## Development Phase vs Operating Phase (owner decision, 2026-07-14)
 
 raiOS's strict authority ceremony was written for the FINISHED, RUNNING system — the
@@ -437,6 +452,8 @@ Debugging and failure modes are documented in `docs/DEBUGGING.md`.
 
 Do not maintain the exact next task here. Read:
 
+- `docs/VISION_PLAN.md` for the standing mission, the loop-station status
+  table, and the block order (B1-B4).
 - `docs/ROADMAP.md` for the compact active cursor and parallel work lanes.
 - `docs/PROJECT_STATUS.md` for the detailed exact next task and latest
   verification evidence.

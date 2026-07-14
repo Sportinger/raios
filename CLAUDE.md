@@ -10,13 +10,14 @@ Read at minimum:
 
 1. `README.md`
 2. `AGENTS.md`
-3. `docs/PROJECT_STATUS.md`
-4. `docs/ROADMAP.md`
-5. `docs/DEBUGGING.md`
-6. `docs/architecture-decisions/0001-raios-agent-protocol.md`
-7. `docs/architecture-decisions/0004-system-memory-and-agent-context.md`
-8. `docs/architecture-decisions/0005-bare-metal-substrate-and-wasm-isolation.md`
-9. `docs/OWNER_DASHBOARD.md`
+3. `docs/VISION_PLAN.md`
+4. `docs/PROJECT_STATUS.md`
+5. `docs/ROADMAP.md`
+6. `docs/DEBUGGING.md`
+7. `docs/architecture-decisions/0001-raios-agent-protocol.md`
+8. `docs/architecture-decisions/0004-system-memory-and-agent-context.md`
+9. `docs/architecture-decisions/0005-bare-metal-substrate-and-wasm-isolation.md`
+10. `docs/OWNER_DASHBOARD.md`
 
 Then run:
 
