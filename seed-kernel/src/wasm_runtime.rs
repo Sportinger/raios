@@ -1,6 +1,7 @@
 use alloc::{boxed::Box, string::String, vec::Vec};
 use core::fmt::Write;
 use raios_core::{
+    host_import_abi_v1::{HostImportSignature, BEYOND_ENV_HOST_IMPORTS_V1, HOST_IMPORT_ABI_V1},
     personal_shell_abi::{
         PersonalShellContext, PersonalShellInput, SanitizedInputEvent, SanitizedInputKind,
         MAX_PROGRAM_CONTEXT_LEN,
@@ -77,6 +78,10 @@ pub(crate) const WASM_HARDENING_CASE_COUNT: usize = 4;
 pub(crate) const FORBIDDEN_IMPORT_MODULE: &str = "env";
 pub(crate) const FORBIDDEN_IMPORT_NAME: &str = "forbidden_write";
 pub(crate) const ECHO_SERVICE_ID: &str = "svc.demo.echo";
+/// Declared/known only in NET-1. No corresponding linker arm exists.
+pub(crate) const WASM_HOST_IMPORT_ABI_V1: &str = HOST_IMPORT_ABI_V1;
+pub(crate) const KNOWN_BEYOND_ENV_HOST_IMPORTS_V1: &[HostImportSignature] =
+    BEYOND_ENV_HOST_IMPORTS_V1;
 pub(crate) const ECHO_AUTHORIZED_IMPORTS: &[(&str, &str)] =
     &[("env", "log"), ("env", "counter_get")];
 pub(crate) const BUFECHO_SERVICE_ID: &str = "svc.demo.bufecho";

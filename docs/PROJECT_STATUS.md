@@ -24,6 +24,38 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+NET-1 BEYOND-ENV IMPORT ABI + EVIDENCE-BOUND EVALUATOR VERIFIED (2026-07-14, grants
+nothing — first slice of the owner-chosen net-imports lane). `raios.host_imports.v1`
+declares the pre-bound net.* (tcp_open/send/recv/close), opaque-session crypto.* (8
+fixed TLS 1.3 primitives), time.monotonic_ms, acquire.* (chunk_accept/finalize), and
+the declared-but-ungrantable secret_lease.openai_authorization_send; a pure
+ordered-list hash binds the ABI id to the exact import pairs. The new evidence-bound
+evaluator denies with 28 pairwise-distinct reasons and checks EVERY evidence binding
+(descriptor-signature / artifact-attestation / computed-grant / observed-imports, each
+bound to BOTH the artifact sha256 and the import-list hash, observed list compared
+exactly) BEFORE the policy gate — a future true flag can never authorize without
+complete evidence. The legacy exact-list path can NEVER grant beyond-env: policy true
+there denies `evidence_bound_import_grant_required`. policy_allows_beyond_env stays
+false everywhere (test-asserted; grep found zero true-constructing sites). The kernel
+knows the new names only as constants — no linker arm exists. Host: 560 raios-core
+tests (13 new truth-table + pinning tests). Commit: this slice.
+
+CLASSIFIED VM FAILURE (guest-behavior) AND ITS FIX, recorded per the failure rule: the
+first m11-wasm-import-grant run FAILED predicate
+protocol:system_honesty_report_standing_posture (shadow-20260714-113742-26644.json).
+Root cause: `known_host_import_count` read the grown KNOWN_HOST_IMPORTS (27) while
+`known_host_imports` still rendered an 11-entry hand-written list in
+agent_protocol_honesty.rs — a same-source violation that was accidentally consistent
+before NET-1 grew the set, exposed in ONE response (count 27 beside list 11). Fix: one
+new `KNOWN_HOST_IMPORTS_DOTTED` table in raios-core renders BOTH the list and the
+count, and the host test `known_host_imports_dotted_matches_pairs` pins it
+index-for-index to the pair table so the two can never drift again; the harness
+expectation moved to the 27 honest entries while still asserting
+new_import_authority_status and beyond_env_authority_status are "denied" and
+report_grants_authority is false. Green rerun: m11-wasm-import-grant
+shadow-20260714-114527-24812.json. (Orchestrator also const-hoisted two temporary-
+lifetime compile errors in the worker's tests.)
+
 M11-9 DNSPARSE VERIFIED-CLOSED (2026-07-14) — the FOURTH real kernel-code relocation
 (after M11-6 certwindow, M11-7 httphead, M11-8 certspki), plus the FIRST hard memory
 bound for buffer guests. Three commits:

@@ -28,7 +28,7 @@ use raios_core::{
         SCOPED_TIME_AUTHORITY_HONESTY_DECISION_MARKER,
         SCOPED_TIME_AUTHORITY_HONESTY_DECISION_SCHEMA,
     },
-    scoped_wasm_import_grant::KNOWN_HOST_IMPORTS,
+    scoped_wasm_import_grant::KNOWN_HOST_IMPORTS_DOTTED,
     system_status_projection::{observed_projection, Projection},
 };
 
@@ -286,25 +286,17 @@ fn wasm_import_surface_record() -> V<'static> {
     V::Object(vec![
         f("capability_envelope", s("wasmi_linker_import_surface")),
         f("per_instance_linker_enforced", b(true)),
+        // List and count render from the ONE dotted table; a raios-core host
+        // test pins it index-for-index to KNOWN_HOST_IMPORTS, so they cannot
+        // diverge again (NET-1 briefly shipped count=27 beside a stale 11-entry
+        // hand list — the harness caught it).
         f(
             "known_host_imports",
-            record_static_str_array(&[
-                "env.log",
-                "env.counter_get",
-                "env.input_len",
-                "env.input_read",
-                "env.output_write",
-                "ui.viewport",
-                "ui.context_len",
-                "ui.context_read",
-                "ui.input_len",
-                "ui.input_read",
-                "ui.frame_submit",
-            ]),
+            record_static_str_array(KNOWN_HOST_IMPORTS_DOTTED),
         ),
         f(
             "known_host_import_count",
-            V::U64(KNOWN_HOST_IMPORTS.len() as u64),
+            V::U64(KNOWN_HOST_IMPORTS_DOTTED.len() as u64),
         ),
         f(
             "new_import_authority_status",

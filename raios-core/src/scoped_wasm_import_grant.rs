@@ -6,7 +6,16 @@
 
 use alloc::vec;
 
-use crate::record::{sha256_of_json, Field, Value};
+use crate::{
+    host_import_abi_v1::{
+        host_import_abi_ordered_list_sha256, ACQUIRE_CHUNK_ACCEPT, ACQUIRE_FINALIZE,
+        CRYPTO_P256_VERIFY, CRYPTO_SHA256, CRYPTO_TLS13_AEAD_OPEN, CRYPTO_TLS13_AEAD_SEAL,
+        CRYPTO_TLS13_APPLICATION_KEYS, CRYPTO_TLS13_FINISHED, CRYPTO_TLS13_HANDSHAKE_KEYS,
+        CRYPTO_TLS13_SESSION_OPEN, HOST_IMPORT_ABI_V1, NET_TCP_CLOSE, NET_TCP_OPEN, NET_TCP_RECV,
+        NET_TCP_SEND, SECRET_LEASE_OPENAI_AUTHORIZATION_SEND, TIME_MONOTONIC_MS,
+    },
+    record::{sha256_of_json, Field, Value},
+};
 
 pub const SCOPED_WASM_IMPORT_GRANT_DECISION_SCHEMA: &str =
     "raios.scoped_wasm_import_grant_authorization_decision.v0";
@@ -30,12 +39,62 @@ pub const KNOWN_HOST_IMPORTS: &[(&str, &str)] = &[
     ("env", "input_len"),
     ("env", "input_read"),
     ("env", "output_write"),
+    NET_TCP_OPEN.pair(),
+    NET_TCP_SEND.pair(),
+    NET_TCP_RECV.pair(),
+    NET_TCP_CLOSE.pair(),
+    CRYPTO_TLS13_SESSION_OPEN.pair(),
+    CRYPTO_SHA256.pair(),
+    CRYPTO_P256_VERIFY.pair(),
+    CRYPTO_TLS13_HANDSHAKE_KEYS.pair(),
+    CRYPTO_TLS13_APPLICATION_KEYS.pair(),
+    CRYPTO_TLS13_FINISHED.pair(),
+    CRYPTO_TLS13_AEAD_SEAL.pair(),
+    CRYPTO_TLS13_AEAD_OPEN.pair(),
+    TIME_MONOTONIC_MS.pair(),
+    SECRET_LEASE_OPENAI_AUTHORIZATION_SEND.pair(),
+    ACQUIRE_CHUNK_ACCEPT.pair(),
+    ACQUIRE_FINALIZE.pair(),
     ("ui", "viewport"),
     ("ui", "context_len"),
     ("ui", "context_read"),
     ("ui", "input_len"),
     ("ui", "input_read"),
     ("ui", "frame_submit"),
+];
+
+/// `KNOWN_HOST_IMPORTS` as pre-joined `module.name` strings, index-for-index.
+/// The kernel honesty report renders its known-import list AND count from this
+/// one table; `known_host_imports_dotted_matches_pairs` pins the derivation so
+/// the two constants cannot drift apart.
+pub const KNOWN_HOST_IMPORTS_DOTTED: &[&str] = &[
+    "env.log",
+    "env.counter_get",
+    "env.input_len",
+    "env.input_read",
+    "env.output_write",
+    "net.tcp_open",
+    "net.tcp_send",
+    "net.tcp_recv",
+    "net.tcp_close",
+    "crypto.tls13_session_open",
+    "crypto.sha256",
+    "crypto.p256_verify",
+    "crypto.tls13_handshake_keys",
+    "crypto.tls13_application_keys",
+    "crypto.tls13_finished",
+    "crypto.tls13_aead_seal",
+    "crypto.tls13_aead_open",
+    "time.monotonic_ms",
+    "secret_lease.openai_authorization_send",
+    "acquire.chunk_accept",
+    "acquire.finalize",
+    "ui.viewport",
+    "ui.context_len",
+    "ui.context_read",
+    "ui.input_len",
+    "ui.input_read",
+    "ui.frame_submit",
 ];
 pub const MAX_GRANTED_IMPORTS: usize = 16;
 
@@ -75,6 +134,62 @@ pub struct VerifiedImportEvidence {
     pub evidence_sha256: [u8; 32],
     pub artifact_sha256: [u8; 32],
     pub import_list_sha256: [u8; 32],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ObservedWasmImports<'a> {
+    pub artifact_sha256: [u8; 32],
+    pub import_list_sha256: [u8; 32],
+    pub imports: &'a [(&'a str, &'a str)],
+}
+
+#[derive(Clone, Copy)]
+pub struct EvidenceBoundWasmImportGrantInput<'a> {
+    pub service_id: Option<&'a str>,
+    pub artifact_sha256: Option<[u8; 32]>,
+    pub host_import_abi: Option<&'a str>,
+    pub declared_import_list_sha256: Option<[u8; 32]>,
+    pub requested_imports: &'a [(&'a str, &'a str)],
+    pub descriptor_source_signature_evidence: Option<VerifiedImportEvidence>,
+    pub artifact_signature_attestation_evidence: Option<VerifiedImportEvidence>,
+    pub computed_grant_evidence: Option<VerifiedImportEvidence>,
+    pub observed_imports: Option<ObservedWasmImports<'a>>,
+    pub linker_implementations: &'a [(&'a str, &'a str)],
+    pub policy_allows_beyond_env: bool,
+}
+
+impl<'a> EvidenceBoundWasmImportGrantInput<'a> {
+    pub const fn empty() -> Self {
+        Self {
+            service_id: None,
+            artifact_sha256: None,
+            host_import_abi: None,
+            declared_import_list_sha256: None,
+            requested_imports: &[],
+            descriptor_source_signature_evidence: None,
+            artifact_signature_attestation_evidence: None,
+            computed_grant_evidence: None,
+            observed_imports: None,
+            linker_implementations: &[],
+            policy_allows_beyond_env: false,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EvidenceBoundWasmImportGrantDecision<'a> {
+    pub performed: bool,
+    pub status: &'static str,
+    pub reason: &'static str,
+    pub authorized_import_count: usize,
+    pub authorized_imports: &'a [(&'a str, &'a str)],
+    pub authorized_service_id: Option<&'a str>,
+    pub artifact_sha256: Option<[u8; 32]>,
+    pub host_import_abi: Option<&'a str>,
+    pub authorized_import_list_sha256: Option<[u8; 32]>,
+    pub descriptor_source_signature_evidence_sha256: Option<[u8; 32]>,
+    pub artifact_signature_attestation_evidence_sha256: Option<[u8; 32]>,
+    pub computed_grant_evidence_sha256: Option<[u8; 32]>,
 }
 
 #[derive(Clone, Copy)]
@@ -191,6 +306,135 @@ fn evaluate_wasm_import_grant_inner(
         status: "import_grant_authorized",
         reason: "authorized_exact_declared_import_surface",
         authorized_import_count: input.requested_imports.len(),
+    }
+}
+
+/// Evaluates a descriptor, its evidence, the observed module imports and the
+/// exact linker surface as one ABI-bound grant.
+///
+/// This path is not wired into production in NET-1. Every production caller
+/// continues to use `policy_allows_beyond_env: false` and no v1 live import is
+/// implemented by the kernel linker.
+pub fn evaluate_evidence_bound_wasm_import_grant<'a>(
+    input: &EvidenceBoundWasmImportGrantInput<'a>,
+) -> EvidenceBoundWasmImportGrantDecision<'a> {
+    let service_id = match input.service_id {
+        Some(service_id) if !service_id.is_empty() => service_id,
+        _ => return evidence_bound_denied("missing_service_id"),
+    };
+    let Some(artifact_sha256) = input.artifact_sha256 else {
+        return evidence_bound_denied("missing_artifact_sha256");
+    };
+    let abi_id = match input.host_import_abi {
+        None | Some("") => return evidence_bound_denied("missing_host_import_abi"),
+        Some(abi_id) if abi_id == HOST_IMPORT_ABI_V1 => abi_id,
+        Some(_) => return evidence_bound_denied("unknown_host_import_abi"),
+    };
+
+    if input.requested_imports.is_empty() {
+        return evidence_bound_denied("missing_import_list");
+    }
+    if input.requested_imports.len() > MAX_GRANTED_IMPORTS {
+        return evidence_bound_denied("import_list_exceeds_max");
+    }
+    if has_duplicate(input.requested_imports) {
+        return evidence_bound_denied("duplicate_host_import");
+    }
+    if input
+        .requested_imports
+        .iter()
+        .any(|import| !KNOWN_HOST_IMPORTS.contains(import))
+    {
+        return evidence_bound_denied("unknown_host_import");
+    }
+
+    let import_list_sha256 = host_import_abi_ordered_list_sha256(abi_id, input.requested_imports);
+    match input.declared_import_list_sha256 {
+        None => return evidence_bound_denied("missing_declared_import_list_sha256"),
+        Some(declared) if declared != import_list_sha256 => {
+            return evidence_bound_denied("declared_import_list_sha256_mismatch")
+        }
+        Some(_) => {}
+    }
+
+    let Some(descriptor_evidence) = input.descriptor_source_signature_evidence else {
+        return evidence_bound_denied("missing_descriptor_source_signature_evidence");
+    };
+    if descriptor_evidence.artifact_sha256 != artifact_sha256 {
+        return evidence_bound_denied("descriptor_evidence_artifact_mismatch");
+    }
+    if descriptor_evidence.import_list_sha256 != import_list_sha256 {
+        return evidence_bound_denied("descriptor_evidence_import_list_mismatch");
+    }
+
+    let Some(artifact_evidence) = input.artifact_signature_attestation_evidence else {
+        return evidence_bound_denied("missing_artifact_signature_attestation_evidence");
+    };
+    if artifact_evidence.artifact_sha256 != artifact_sha256 {
+        return evidence_bound_denied("artifact_evidence_artifact_mismatch");
+    }
+    if artifact_evidence.import_list_sha256 != import_list_sha256 {
+        return evidence_bound_denied("artifact_evidence_import_list_mismatch");
+    }
+
+    let Some(computed_evidence) = input.computed_grant_evidence else {
+        return evidence_bound_denied("missing_computed_grant_evidence");
+    };
+    if computed_evidence.artifact_sha256 != artifact_sha256 {
+        return evidence_bound_denied("computed_grant_evidence_artifact_mismatch");
+    }
+    if computed_evidence.import_list_sha256 != import_list_sha256 {
+        return evidence_bound_denied("computed_grant_evidence_import_list_mismatch");
+    }
+
+    let Some(observed) = input.observed_imports else {
+        return evidence_bound_denied("missing_observed_import_list_evidence");
+    };
+    if observed.artifact_sha256 != artifact_sha256 {
+        return evidence_bound_denied("observed_import_evidence_artifact_mismatch");
+    }
+    if observed.import_list_sha256 != import_list_sha256 {
+        return evidence_bound_denied("observed_import_evidence_hash_mismatch");
+    }
+    if observed.imports != input.requested_imports {
+        return evidence_bound_denied("observed_import_list_mismatch");
+    }
+
+    if input
+        .requested_imports
+        .iter()
+        .any(|(module, _)| *module != "env")
+        && !input.policy_allows_beyond_env
+    {
+        return evidence_bound_denied("import_beyond_env_not_owner_authorized");
+    }
+
+    if input.linker_implementations.is_empty() {
+        return evidence_bound_denied("missing_linker_implementations");
+    }
+    if input.linker_implementations.len() > MAX_GRANTED_IMPORTS {
+        return evidence_bound_denied("linker_implementation_list_exceeds_max");
+    }
+    if has_duplicate(input.linker_implementations) {
+        return evidence_bound_denied("duplicate_linker_implementation");
+    }
+    if input.linker_implementations != input.requested_imports {
+        return evidence_bound_denied("linker_implementation_list_mismatch");
+    }
+
+    EvidenceBoundWasmImportGrantDecision {
+        performed: true,
+        status: "import_grant_authorized",
+        reason: "authorized_evidence_bound_host_import_surface",
+        authorized_import_count: input.requested_imports.len(),
+        authorized_imports: input.requested_imports,
+        authorized_service_id: Some(service_id),
+        artifact_sha256: Some(artifact_sha256),
+        host_import_abi: Some(abi_id),
+        authorized_import_list_sha256: Some(import_list_sha256),
+        descriptor_source_signature_evidence_sha256: Some(descriptor_evidence.evidence_sha256),
+        artifact_signature_attestation_evidence_sha256: Some(artifact_evidence.evidence_sha256),
+        computed_grant_evidence_sha256: Some(computed_evidence.evidence_sha256),
     }
 }
 
@@ -360,6 +604,23 @@ fn personal_shell_denied(reason: &'static str) -> PersonalShellImportGrantDecisi
     }
 }
 
+fn evidence_bound_denied<'a>(reason: &'static str) -> EvidenceBoundWasmImportGrantDecision<'a> {
+    EvidenceBoundWasmImportGrantDecision {
+        performed: false,
+        status: "denied",
+        reason,
+        authorized_import_count: 0,
+        authorized_imports: &[],
+        authorized_service_id: None,
+        artifact_sha256: None,
+        host_import_abi: None,
+        authorized_import_list_sha256: None,
+        descriptor_source_signature_evidence_sha256: None,
+        artifact_signature_attestation_evidence_sha256: None,
+        computed_grant_evidence_sha256: None,
+    }
+}
+
 fn denied(reason: &'static str) -> WasmImportGrantDecision {
     WasmImportGrantDecision {
         performed: false,
@@ -395,6 +656,7 @@ pub fn authorized_import_list_sha256(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::host_import_abi_v1::BEYOND_ENV_HOST_IMPORTS_V1;
 
     fn valid_input() -> WasmImportGrantInput<'static> {
         WasmImportGrantInput {
@@ -454,7 +716,7 @@ mod tests {
                     ("env", "log"),
                 ];
             }
-            Mutation::UnknownHostImport => input.requested_imports = &[("net", "tcp_open")],
+            Mutation::UnknownHostImport => input.requested_imports = &[("net", "x")],
             Mutation::DuplicateHostImport => {
                 input.requested_imports = &[("env", "log"), ("env", "log")];
             }
@@ -528,27 +790,36 @@ mod tests {
     }
 
     #[test]
-    fn known_host_imports_are_existing_env_plus_exact_personal_ui_surface() {
+    fn known_host_imports_are_legacy_surfaces_plus_declared_v1_beyond_env_surface() {
         assert_eq!(
-            KNOWN_HOST_IMPORTS,
+            &KNOWN_HOST_IMPORTS[..5],
             &[
                 ("env", "log"),
                 ("env", "counter_get"),
                 ("env", "input_len"),
                 ("env", "input_read"),
                 ("env", "output_write"),
-                ("ui", "viewport"),
-                ("ui", "context_len"),
-                ("ui", "context_read"),
-                ("ui", "input_len"),
-                ("ui", "input_read"),
-                ("ui", "frame_submit"),
             ]
         );
+        for (index, import) in BEYOND_ENV_HOST_IMPORTS_V1.iter().enumerate() {
+            assert_eq!(KNOWN_HOST_IMPORTS[5 + index], import.pair());
+        }
         assert_eq!(
             PERSONAL_SHELL_UI_IMPORTS,
             &KNOWN_HOST_IMPORTS[KNOWN_HOST_IMPORTS.len() - 6..]
         );
+    }
+
+    #[test]
+    fn known_host_imports_dotted_matches_pairs() {
+        assert_eq!(KNOWN_HOST_IMPORTS_DOTTED.len(), KNOWN_HOST_IMPORTS.len());
+        for (index, (module, name)) in KNOWN_HOST_IMPORTS.iter().enumerate() {
+            assert_eq!(
+                KNOWN_HOST_IMPORTS_DOTTED[index],
+                format!("{module}.{name}"),
+                "dotted table drifted from the pair table at index {index}"
+            );
+        }
     }
 
     #[test]
@@ -609,6 +880,14 @@ mod tests {
                     ("env", "output_write"),
                 ][..],
             ),
+            (
+                "svc.demo.dnsparse",
+                &[
+                    ("env", "input_len"),
+                    ("env", "input_read"),
+                    ("env", "output_write"),
+                ][..],
+            ),
         ];
 
         for (service_id, requested_imports) in cases {
@@ -618,8 +897,16 @@ mod tests {
                 requested_imports,
                 policy_allows_beyond_env: false,
             });
-            assert!(decision.performed, "{}", service_id);
-            assert_eq!(decision.authorized_import_count, requested_imports.len());
+            assert_eq!(
+                decision,
+                WasmImportGrantDecision {
+                    performed: true,
+                    status: "import_grant_authorized",
+                    reason: "authorized_exact_declared_import_surface",
+                    authorized_import_count: requested_imports.len(),
+                },
+                "{service_id}"
+            );
         }
     }
 
@@ -649,7 +936,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_boolean_never_authorizes_the_personal_ui_surface() {
+    fn legacy_false_policy_never_authorizes_the_personal_ui_surface() {
         let mut input = valid_input();
         input.service_id = Some(PERSONAL_SHELL_SERVICE_ID);
         input.requested_imports = PERSONAL_SHELL_UI_IMPORTS;
@@ -658,11 +945,6 @@ mod tests {
         assert_eq!(
             evaluate_wasm_import_grant(&input).reason,
             "import_beyond_env_not_owner_authorized"
-        );
-        input.policy_allows_beyond_env = true;
-        assert_eq!(
-            evaluate_wasm_import_grant(&input).reason,
-            "evidence_bound_import_grant_required"
         );
     }
 
@@ -739,6 +1021,295 @@ mod tests {
             *b"b314db1d2b23903140a060975c281d5a78c43b0f695019c6730fe679f80bcb66"
         );
         assert_ne!(echo, bufecho);
+    }
+
+    const EVIDENCE_BOUND_ARTIFACT_SHA256: [u8; 32] = [0x51; 32];
+    const NET_ONLY_IMPORTS: &[(&str, &str)] = &[
+        NET_TCP_OPEN.pair(),
+        NET_TCP_SEND.pair(),
+        NET_TCP_RECV.pair(),
+        NET_TCP_CLOSE.pair(),
+    ];
+    const CRYPTO_ONLY_IMPORTS: &[(&str, &str)] = &[
+        CRYPTO_TLS13_SESSION_OPEN.pair(),
+        CRYPTO_SHA256.pair(),
+        CRYPTO_P256_VERIFY.pair(),
+        CRYPTO_TLS13_HANDSHAKE_KEYS.pair(),
+        CRYPTO_TLS13_APPLICATION_KEYS.pair(),
+        CRYPTO_TLS13_FINISHED.pair(),
+        CRYPTO_TLS13_AEAD_SEAL.pair(),
+        CRYPTO_TLS13_AEAD_OPEN.pair(),
+    ];
+    const TIME_ONLY_IMPORTS: &[(&str, &str)] = &[TIME_MONOTONIC_MS.pair()];
+    const ACQUIRE_ONLY_IMPORTS: &[(&str, &str)] =
+        &[ACQUIRE_CHUNK_ACCEPT.pair(), ACQUIRE_FINALIZE.pair()];
+    const SECRET_ONLY_IMPORTS: &[(&str, &str)] = &[SECRET_LEASE_OPENAI_AUTHORIZATION_SEND.pair()];
+    const ENV_ONLY_IMPORTS: &[(&str, &str)] = &[("env", "input_len")];
+    const MIXED_IMPORTS: &[(&str, &str)] = &[("env", "input_len"), NET_TCP_OPEN.pair()];
+    const DUPLICATE_NET_IMPORTS: &[(&str, &str)] = &[NET_TCP_OPEN.pair(), NET_TCP_OPEN.pair()];
+    const REORDERED_MIXED_IMPORTS: &[(&str, &str)] = &[NET_TCP_OPEN.pair(), ("env", "input_len")];
+
+    fn evidence_bound_input(
+        requested_imports: &'static [(&'static str, &'static str)],
+    ) -> EvidenceBoundWasmImportGrantInput<'static> {
+        let import_list_sha256 =
+            host_import_abi_ordered_list_sha256(HOST_IMPORT_ABI_V1, requested_imports);
+        let input = EvidenceBoundWasmImportGrantInput {
+            service_id: Some("svc.net.acquire.w7"),
+            artifact_sha256: Some(EVIDENCE_BOUND_ARTIFACT_SHA256),
+            host_import_abi: Some(HOST_IMPORT_ABI_V1),
+            declared_import_list_sha256: Some(import_list_sha256),
+            requested_imports,
+            descriptor_source_signature_evidence: Some(VerifiedImportEvidence {
+                evidence_sha256: [0x52; 32],
+                artifact_sha256: EVIDENCE_BOUND_ARTIFACT_SHA256,
+                import_list_sha256,
+            }),
+            artifact_signature_attestation_evidence: Some(VerifiedImportEvidence {
+                evidence_sha256: [0x53; 32],
+                artifact_sha256: EVIDENCE_BOUND_ARTIFACT_SHA256,
+                import_list_sha256,
+            }),
+            computed_grant_evidence: Some(VerifiedImportEvidence {
+                evidence_sha256: [0x54; 32],
+                artifact_sha256: EVIDENCE_BOUND_ARTIFACT_SHA256,
+                import_list_sha256,
+            }),
+            observed_imports: Some(ObservedWasmImports {
+                artifact_sha256: EVIDENCE_BOUND_ARTIFACT_SHA256,
+                import_list_sha256,
+                imports: requested_imports,
+            }),
+            linker_implementations: &[],
+            policy_allows_beyond_env: false,
+        };
+        assert!(!input.policy_allows_beyond_env);
+        input
+    }
+
+    #[test]
+    fn each_declared_beyond_env_family_is_policy_denied_alone() {
+        let cases = [
+            ("net", NET_ONLY_IMPORTS),
+            ("crypto", CRYPTO_ONLY_IMPORTS),
+            ("time", TIME_ONLY_IMPORTS),
+            ("acquire", ACQUIRE_ONLY_IMPORTS),
+        ];
+
+        for (family, imports) in cases {
+            let input = evidence_bound_input(imports);
+            let decision = evaluate_evidence_bound_wasm_import_grant(&input);
+            assert!(!decision.performed, "{family}");
+            assert_eq!(
+                decision.reason, "import_beyond_env_not_owner_authorized",
+                "{family}"
+            );
+            assert!(decision.authorized_imports.is_empty(), "{family}");
+        }
+    }
+
+    #[test]
+    fn declared_future_secret_lease_is_ungrantable_to_w7() {
+        let input = evidence_bound_input(SECRET_ONLY_IMPORTS);
+        assert_eq!(
+            evaluate_evidence_bound_wasm_import_grant(&input).reason,
+            "import_beyond_env_not_owner_authorized"
+        );
+    }
+
+    #[test]
+    fn mixed_env_and_beyond_env_surface_is_policy_denied() {
+        let input = evidence_bound_input(MIXED_IMPORTS);
+        assert_eq!(
+            evaluate_evidence_bound_wasm_import_grant(&input).reason,
+            "import_beyond_env_not_owner_authorized"
+        );
+    }
+
+    #[test]
+    fn evidence_bound_duplicate_import_is_denied_before_policy() {
+        let input = evidence_bound_input(DUPLICATE_NET_IMPORTS);
+        assert_eq!(
+            evaluate_evidence_bound_wasm_import_grant(&input).reason,
+            "duplicate_host_import"
+        );
+    }
+
+    #[test]
+    fn evidence_bound_unknown_abi_and_import_are_distinct_denials() {
+        let mut unknown_abi = evidence_bound_input(NET_ONLY_IMPORTS);
+        unknown_abi.host_import_abi = Some("raios.host_imports.v2");
+        let unknown_import = evidence_bound_input(&[("net", "resolve")]);
+
+        assert_eq!(
+            evaluate_evidence_bound_wasm_import_grant(&unknown_abi).reason,
+            "unknown_host_import_abi"
+        );
+        assert_eq!(
+            evaluate_evidence_bound_wasm_import_grant(&unknown_import).reason,
+            "unknown_host_import"
+        );
+    }
+
+    #[test]
+    fn declared_hash_observed_hash_and_observed_list_drift_are_distinct_denials() {
+        let mut declared_hash = evidence_bound_input(MIXED_IMPORTS);
+        declared_hash.declared_import_list_sha256 = Some([0xa1; 32]);
+
+        let mut observed_hash = evidence_bound_input(MIXED_IMPORTS);
+        observed_hash
+            .observed_imports
+            .as_mut()
+            .unwrap()
+            .import_list_sha256 = [0xa2; 32];
+
+        let mut observed_list = evidence_bound_input(MIXED_IMPORTS);
+        observed_list.observed_imports.as_mut().unwrap().imports = REORDERED_MIXED_IMPORTS;
+
+        let reasons = [
+            evaluate_evidence_bound_wasm_import_grant(&declared_hash).reason,
+            evaluate_evidence_bound_wasm_import_grant(&observed_hash).reason,
+            evaluate_evidence_bound_wasm_import_grant(&observed_list).reason,
+        ];
+        assert_eq!(
+            reasons,
+            [
+                "declared_import_list_sha256_mismatch",
+                "observed_import_evidence_hash_mismatch",
+                "observed_import_list_mismatch",
+            ]
+        );
+        assert_ne!(reasons[0], reasons[1]);
+        assert_ne!(reasons[0], reasons[2]);
+        assert_ne!(reasons[1], reasons[2]);
+    }
+
+    #[test]
+    fn missing_evidence_reasons_are_reachable_and_pairwise_distinct() {
+        let mut service = evidence_bound_input(NET_ONLY_IMPORTS);
+        service.service_id = None;
+        let mut artifact_subject = evidence_bound_input(NET_ONLY_IMPORTS);
+        artifact_subject.artifact_sha256 = None;
+        let mut abi = evidence_bound_input(NET_ONLY_IMPORTS);
+        abi.host_import_abi = None;
+        let mut declared_hash = evidence_bound_input(NET_ONLY_IMPORTS);
+        declared_hash.declared_import_list_sha256 = None;
+        let mut descriptor = evidence_bound_input(NET_ONLY_IMPORTS);
+        descriptor.descriptor_source_signature_evidence = None;
+        let mut artifact = evidence_bound_input(NET_ONLY_IMPORTS);
+        artifact.artifact_signature_attestation_evidence = None;
+        let mut computed = evidence_bound_input(NET_ONLY_IMPORTS);
+        computed.computed_grant_evidence = None;
+        let mut observed = evidence_bound_input(NET_ONLY_IMPORTS);
+        observed.observed_imports = None;
+
+        let reasons = [
+            evaluate_evidence_bound_wasm_import_grant(&service).reason,
+            evaluate_evidence_bound_wasm_import_grant(&artifact_subject).reason,
+            evaluate_evidence_bound_wasm_import_grant(&abi).reason,
+            evaluate_evidence_bound_wasm_import_grant(&declared_hash).reason,
+            evaluate_evidence_bound_wasm_import_grant(&descriptor).reason,
+            evaluate_evidence_bound_wasm_import_grant(&artifact).reason,
+            evaluate_evidence_bound_wasm_import_grant(&computed).reason,
+            evaluate_evidence_bound_wasm_import_grant(&observed).reason,
+        ];
+        assert_eq!(
+            reasons,
+            [
+                "missing_service_id",
+                "missing_artifact_sha256",
+                "missing_host_import_abi",
+                "missing_declared_import_list_sha256",
+                "missing_descriptor_source_signature_evidence",
+                "missing_artifact_signature_attestation_evidence",
+                "missing_computed_grant_evidence",
+                "missing_observed_import_list_evidence",
+            ]
+        );
+        for (index, reason) in reasons.iter().enumerate() {
+            assert!(!reasons[..index].contains(reason));
+        }
+    }
+
+    #[test]
+    fn evidence_subject_drift_reasons_are_reachable_and_pairwise_distinct() {
+        let mut descriptor_artifact = evidence_bound_input(NET_ONLY_IMPORTS);
+        descriptor_artifact
+            .descriptor_source_signature_evidence
+            .as_mut()
+            .unwrap()
+            .artifact_sha256 = [0xb1; 32];
+        let mut descriptor_list = evidence_bound_input(NET_ONLY_IMPORTS);
+        descriptor_list
+            .descriptor_source_signature_evidence
+            .as_mut()
+            .unwrap()
+            .import_list_sha256 = [0xb2; 32];
+        let mut artifact_artifact = evidence_bound_input(NET_ONLY_IMPORTS);
+        artifact_artifact
+            .artifact_signature_attestation_evidence
+            .as_mut()
+            .unwrap()
+            .artifact_sha256 = [0xb3; 32];
+        let mut artifact_list = evidence_bound_input(NET_ONLY_IMPORTS);
+        artifact_list
+            .artifact_signature_attestation_evidence
+            .as_mut()
+            .unwrap()
+            .import_list_sha256 = [0xb4; 32];
+        let mut computed_artifact = evidence_bound_input(NET_ONLY_IMPORTS);
+        computed_artifact
+            .computed_grant_evidence
+            .as_mut()
+            .unwrap()
+            .artifact_sha256 = [0xb5; 32];
+        let mut computed_list = evidence_bound_input(NET_ONLY_IMPORTS);
+        computed_list
+            .computed_grant_evidence
+            .as_mut()
+            .unwrap()
+            .import_list_sha256 = [0xb6; 32];
+        let mut observed_artifact = evidence_bound_input(NET_ONLY_IMPORTS);
+        observed_artifact
+            .observed_imports
+            .as_mut()
+            .unwrap()
+            .artifact_sha256 = [0xb7; 32];
+
+        let reasons = [
+            evaluate_evidence_bound_wasm_import_grant(&descriptor_artifact).reason,
+            evaluate_evidence_bound_wasm_import_grant(&descriptor_list).reason,
+            evaluate_evidence_bound_wasm_import_grant(&artifact_artifact).reason,
+            evaluate_evidence_bound_wasm_import_grant(&artifact_list).reason,
+            evaluate_evidence_bound_wasm_import_grant(&computed_artifact).reason,
+            evaluate_evidence_bound_wasm_import_grant(&computed_list).reason,
+            evaluate_evidence_bound_wasm_import_grant(&observed_artifact).reason,
+        ];
+        assert_eq!(
+            reasons,
+            [
+                "descriptor_evidence_artifact_mismatch",
+                "descriptor_evidence_import_list_mismatch",
+                "artifact_evidence_artifact_mismatch",
+                "artifact_evidence_import_list_mismatch",
+                "computed_grant_evidence_artifact_mismatch",
+                "computed_grant_evidence_import_list_mismatch",
+                "observed_import_evidence_artifact_mismatch",
+            ]
+        );
+        for (index, reason) in reasons.iter().enumerate() {
+            assert!(!reasons[..index].contains(reason));
+        }
+    }
+
+    #[test]
+    fn evidence_bound_missing_linker_surface_is_denied_without_authority_flip() {
+        let input = evidence_bound_input(ENV_ONLY_IMPORTS);
+        assert!(!input.policy_allows_beyond_env);
+        assert_eq!(
+            evaluate_evidence_bound_wasm_import_grant(&input).reason,
+            "missing_linker_implementations"
+        );
     }
 
     const PERSONAL_ARTIFACT_SHA256: [u8; 32] = [0x11; 32];

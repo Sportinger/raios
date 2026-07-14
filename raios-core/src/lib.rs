@@ -21,6 +21,7 @@ pub mod evidence_response;
 pub mod genesis_layout;
 pub mod gpt_layout;
 pub mod hello_lifecycle_projection;
+pub mod host_import_abi_v1;
 pub mod kernel_surface;
 pub mod marvell_wifi_cmd;
 pub mod marvell_wifi_fw;

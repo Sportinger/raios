@@ -295,12 +295,30 @@
         throw "Expected system.honesty_report provider/time subrecords to match existing live honesty labels"
     }
     $honestyKnownImports = @($honestyReport.wasm_import_surface.known_host_imports)
+    # NET-1: the known set grew by the declared-but-ungrantable beyond-env v1
+    # families; new_import/beyond_env authority status must still read "denied".
     $expectedHonestyKnownImports = @(
         "env.log",
         "env.counter_get",
         "env.input_len",
         "env.input_read",
         "env.output_write",
+        "net.tcp_open",
+        "net.tcp_send",
+        "net.tcp_recv",
+        "net.tcp_close",
+        "crypto.tls13_session_open",
+        "crypto.sha256",
+        "crypto.p256_verify",
+        "crypto.tls13_handshake_keys",
+        "crypto.tls13_application_keys",
+        "crypto.tls13_finished",
+        "crypto.tls13_aead_seal",
+        "crypto.tls13_aead_open",
+        "time.monotonic_ms",
+        "secret_lease.openai_authorization_send",
+        "acquire.chunk_accept",
+        "acquire.finalize",
         "ui.viewport",
         "ui.context_len",
         "ui.context_read",
