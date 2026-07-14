@@ -1861,6 +1861,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "svc-demo-dnsparse"
+version = "0.1.0"
+dependencies = [
+ "raios-dns-parse",
+]
+
+[[package]]
 name = "svc-demo-echo"
 version = "0.1.0"
 

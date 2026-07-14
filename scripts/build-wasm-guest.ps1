@@ -2,7 +2,7 @@
 param(
     [ValidateSet("release")]
     [string]$Profile = "release",
-    [ValidateSet("svc-demo-echo", "svc-demo-bufecho", "svc-demo-certwindow", "svc-demo-httphead", "svc-demo-certspki", "svc-personal-shell-proof")]
+    [ValidateSet("svc-demo-echo", "svc-demo-bufecho", "svc-demo-certwindow", "svc-demo-httphead", "svc-demo-certspki", "svc-demo-dnsparse", "svc-personal-shell-proof")]
     [string]$Guest = "svc-demo-echo"
 )
 
@@ -34,6 +34,11 @@ $guestConfig = @{
         Manifest = "wasm-guests\svc-demo-certspki\Cargo.toml"
         Built = "svc_demo_certspki.wasm"
         Artifact = "svc.demo.certspki.wasm"
+    }
+    "svc-demo-dnsparse" = @{
+        Manifest = "wasm-guests\svc-demo-dnsparse\Cargo.toml"
+        Built = "svc_demo_dnsparse.wasm"
+        Artifact = "svc.demo.dnsparse.wasm"
     }
     "svc-personal-shell-proof" = @{
         Manifest = "wasm-guests\svc-personal-shell-proof\Cargo.toml"

@@ -33,6 +33,7 @@ include!(concat!(env!("OUT_DIR"), "/bufecho_wasm_artifact.rs"));
 include!(concat!(env!("OUT_DIR"), "/certwindow_wasm_artifact.rs"));
 include!(concat!(env!("OUT_DIR"), "/httphead_wasm_artifact.rs"));
 include!(concat!(env!("OUT_DIR"), "/certspki_wasm_artifact.rs"));
+include!(concat!(env!("OUT_DIR"), "/dnsparse_wasm_artifact.rs"));
 include!(concat!(env!("OUT_DIR"), "/personal_shell_wasm_artifact.rs"));
 include!(concat!(
     env!("OUT_DIR"),
@@ -63,6 +64,7 @@ const MAX_WASM_LOG_BYTES: usize = 256;
 // Keep in lockstep with the Phase-B guest buffer size.
 const MAX_WASM_INPUT_BYTES: usize = 4096;
 const MAX_WASM_OUTPUT_BYTES: usize = 4096;
+const BUFFER_SERVICE_MAX_MEMORY_BYTES: usize = 2 * 1024 * 1024;
 const WASM_MEMORY_PAGE_BYTES: usize = 64 * 1024;
 pub(crate) const ECHO_WASM_FUEL_BUDGET: u64 = 10_000;
 /// Deliberately-tiny fuel budget for the labeled fuel-starvation fault injection
@@ -104,6 +106,13 @@ pub(crate) const CERTSPKI_AUTHORIZED_IMPORTS: &[(&str, &str)] = &[
     ("env", "output_write"),
 ];
 pub(crate) const CERTSPKI_WASM_FUEL_BUDGET: u64 = 1_000_000;
+pub(crate) const DNSPARSE_SERVICE_ID: &str = "svc.demo.dnsparse";
+pub(crate) const DNSPARSE_AUTHORIZED_IMPORTS: &[(&str, &str)] = &[
+    ("env", "input_len"),
+    ("env", "input_read"),
+    ("env", "output_write"),
+];
+pub(crate) const DNSPARSE_WASM_FUEL_BUDGET: u64 = 1_000_000;
 pub(crate) const PERSONAL_SHELL_WASM_FUEL_BUDGET: u64 = 250_000;
 const PERSONAL_SHELL_CONTEXT_BYTES: usize = 32;
 const PERSONAL_SHELL_MAX_INPUT_BYTES: usize = 1_040;
@@ -126,6 +135,8 @@ static CERTWINDOW_WASM_ARTIFACT_PROOF: fn() -> bool = validate_certwindow_wasm_a
 static HTTPHEAD_WASM_ARTIFACT_PROOF: fn() -> bool = validate_httphead_wasm_artifact;
 #[used]
 static CERTSPKI_WASM_ARTIFACT_PROOF: fn() -> bool = validate_certspki_wasm_artifact;
+#[used]
+static DNSPARSE_WASM_ARTIFACT_PROOF: fn() -> bool = validate_dnsparse_wasm_artifact;
 
 pub(crate) fn validate_empty_module_bytes() -> bool {
     let wasm = Vec::from(EMPTY_WASM_MODULE).into_boxed_slice();
@@ -191,6 +202,18 @@ pub(crate) fn validate_certspki_wasm_artifact() -> bool {
             == CERTSPKI_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_HASH
         && sha256_bytes(CERTSPKI_WASM_ARTIFACT_SIGNATURE_ENVELOPE_TEXT.as_bytes())
             == CERTSPKI_WASM_ARTIFACT_SIGNATURE_ENVELOPE_HASH
+        && validate_module_bytes(bytes)
+}
+
+pub(crate) fn validate_dnsparse_wasm_artifact() -> bool {
+    let wasm = Vec::from(DNSPARSE_WASM_ARTIFACT_BYTES).into_boxed_slice();
+    let bytes: &[u8] = &wasm;
+
+    sha256_bytes(bytes) == DNSPARSE_WASM_ARTIFACT_BYTES_HASH
+        && sha256_bytes(DNSPARSE_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_SOURCE.as_bytes())
+            == DNSPARSE_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_HASH
+        && sha256_bytes(DNSPARSE_WASM_ARTIFACT_SIGNATURE_ENVELOPE_TEXT.as_bytes())
+            == DNSPARSE_WASM_ARTIFACT_SIGNATURE_ENVELOPE_HASH
         && validate_module_bytes(bytes)
 }
 
@@ -987,6 +1010,34 @@ pub(crate) fn run_certspki_unauthorized_probe() -> EchoRunEvidence {
     )
 }
 
+pub(crate) fn run_dnsparse_roundtrip(input_record: &[u8]) -> EchoRunEvidence {
+    let capped = &input_record[..input_record.len().min(MAX_WASM_INPUT_BYTES)];
+    execute_validated_module_bytes(
+        DNSPARSE_WASM_ARTIFACT_BYTES,
+        "raios_service_main",
+        DNSPARSE_SERVICE_ID,
+        true,
+        DNSPARSE_AUTHORIZED_IMPORTS,
+        validate_dnsparse_wasm_artifact(),
+        capped,
+        DNSPARSE_WASM_FUEL_BUDGET,
+    )
+}
+
+pub(crate) fn run_dnsparse_unauthorized_probe(input_record: &[u8]) -> EchoRunEvidence {
+    let capped = &input_record[..input_record.len().min(MAX_WASM_INPUT_BYTES)];
+    execute_validated_module_bytes(
+        DNSPARSE_WASM_ARTIFACT_BYTES,
+        "raios_service_main",
+        DNSPARSE_SERVICE_ID,
+        true,
+        &[("env", "input_len")],
+        validate_dnsparse_wasm_artifact(),
+        capped,
+        DNSPARSE_WASM_FUEL_BUDGET,
+    )
+}
+
 /// Labeled fault injection: run the REAL echo artifact (`raios_service_main`)
 /// through a metered store carrying only `ECHO_WASM_FUEL_STARVED_BUDGET` fuel, so
 /// the invoke genuinely traps with wasmi `OutOfFuel` (never simulated). The trap
@@ -1467,6 +1518,7 @@ fn execute_validated_module_bytes(
         }
     };
     let mut store = Box::new(Store::new(&engine, buffer_state(staged_input)));
+    store.limiter(|state| &mut state.limits);
     if store.add_fuel(fuel_budget).is_err() {
         return positive_run(
             service_id,
@@ -1932,7 +1984,17 @@ fn buffer_state(staged_input: &[u8]) -> EnvelopeState {
         log_line: None,
         staged_input: staged_input.to_vec(),
         captured_output: Vec::new(),
-        limits: StoreLimitsBuilder::new().build(),
+        limits: StoreLimitsBuilder::new()
+            .memory_size(BUFFER_SERVICE_MAX_MEMORY_BYTES)
+            .instances(1)
+            .memories(1)
+            // Measured 2026-07-14: httphead/certspki instantiate one funcref
+            // table (3 and 2 elements), bufecho/certwindow none — `.tables(0)`
+            // would deny those signed guests before instantiation. Bound is the
+            // measured shape plus an element cap against table.grow exhaustion.
+            .tables(1)
+            .table_elements(64)
+            .build(),
     }
 }
 

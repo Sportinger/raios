@@ -17,6 +17,7 @@ members = [
     "wasm-guests/svc-demo-certwindow",
     "wasm-guests/svc-demo-httphead",
     "wasm-guests/svc-demo-certspki",
+    "wasm-guests/svc-demo-dnsparse",
     "wasm-guests/svc-personal-shell-proof"
 ]
 resolver = "2"

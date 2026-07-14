@@ -2,9 +2,9 @@ use alloc::{vec, vec::Vec};
 
 use crate::{
     agent_protocol_support::{
-        begin_response, emit_record_fields_trailing_comma, end_response, raw_line,
-        record_bool as b, record_field as f, record_sha, record_static_str_array, record_str as s,
-        record_str_or_null,
+        begin_response, emit_record_fields, emit_record_fields_trailing_comma, end_response,
+        raw_line, record_bool as b, record_field as f, record_sha, record_static_str_array,
+        record_str as s, record_str_or_null,
     },
     agent_protocol_time::REAL_TEST_CERT_DER,
     memory_store, module_candidate_channel, module_candidate_intake, wasm_runtime,
@@ -13,6 +13,10 @@ use raios_core::{
     cert_validity_window::{
         decode_certwindow_record, encode_certwindow_record, parse_x509_cert_validity_window,
         CertValidityDateTime, X509ValidityError, CERTWINDOW_RECORD_LEN,
+    },
+    dns_parse::{
+        decode_dns_response_record, encode_dns_query_record, encode_dns_response_record,
+        parse_dns_response, DecodedDnsResponseRecord, DnsARecord, DNS_RESPONSE_RECORD_LEN,
     },
     http_response_parse::{
         decode_httphead_record, encode_httphead_record, parse_http_head, HTTPHEAD_RECORD_LEN,
@@ -34,6 +38,15 @@ pub(crate) const REAL_TEST_HTTP_RESPONSE: &[u8] =
 // content-length: len 101, sha256 9d467b71e028580c15a68e9bd3aa9dba44dc0055ff11eb71123b05dfc648fa9c
 pub(crate) const REAL_TEST_HTTP_CONTENT_LENGTH_RESPONSE: &[u8] =
     b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}";
+
+const DNSPARSE_HOSTNAME: &str = "api.openai.com";
+const DNSPARSE_TRANSACTION_ID: u16 = 0x1234;
+// Pinned synthetic response, byte-identical to the raios-dns-parse host fixture.
+const DNSPARSE_COMPRESSED_RESPONSE: [u8; 48] = [
+    0x12, 0x34, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x03, 0x61, 0x70, 0x69,
+    0x06, 0x6f, 0x70, 0x65, 0x6e, 0x61, 0x69, 0x03, 0x63, 0x6f, 0x6d, 0x00, 0x00, 0x01, 0x00, 0x01,
+    0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x04, 0x68, 0x12, 0x21, 0x2d,
+];
 
 pub(crate) fn emit_submit_candidate_chunk(arg: &str) {
     let outcome = module_candidate_channel::submit_candidate_chunk(arg);
@@ -782,6 +795,249 @@ pub(crate) fn emit_wasm_certspki_probe() {
     );
     raw_line("      \"evidence_complete\": true");
     end_response("wasm.certspki_probe");
+}
+
+pub(crate) fn emit_wasm_dnsparse_probe() {
+    let happy = run_dnsparse_case(&DNSPARSE_COMPRESSED_RESPONSE);
+    let truncated = run_dnsparse_case(&DNSPARSE_COMPRESSED_RESPONSE[..46]);
+    let mut pointer_loop_payload = DNSPARSE_COMPRESSED_RESPONSE;
+    pointer_loop_payload[32] = 0xc0;
+    pointer_loop_payload[33] = 32;
+    let pointer_loop = run_dnsparse_case(&pointer_loop_payload);
+
+    let mut denied_input = [0u8; 4096];
+    let denied_input_len = encode_dns_query_record(
+        &mut denied_input,
+        DNSPARSE_TRANSACTION_ID,
+        DNSPARSE_HOSTNAME,
+        &DNSPARSE_COMPRESSED_RESPONSE,
+    )
+    .unwrap_or(0);
+    let denied_input = &denied_input[..denied_input_len];
+    let denied_input_sha256 = sha256_bytes(denied_input);
+    let negative = wasm_runtime::run_dnsparse_unauthorized_probe(denied_input);
+    let denied_before_instantiation = !negative.instantiation_ok
+        && negative.captured_output_len == 0
+        && negative.run_outcome == "module_import_not_authorized";
+
+    begin_response("wasm.dnsparse_probe");
+    emit_record_fields_trailing_comma(
+        vec![
+            f("schema", s("raios.wasm_dnsparse_probe.v0")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("method", s("wasm.dnsparse_probe")),
+            f("service_id", s(wasm_runtime::DNSPARSE_SERVICE_ID)),
+            f("test_infrastructure", b(true)),
+            f("case_count", V::U64(4)),
+            f("hostname", s(DNSPARSE_HOSTNAME)),
+            f(
+                "expected_transaction_id",
+                V::U64(DNSPARSE_TRANSACTION_ID as u64),
+            ),
+            f("compression_pointer_jump_cap", V::U64(16)),
+            f(
+                "authorized_host_imports",
+                V::InlineArray(vec![
+                    s("env.input_len"),
+                    s("env.input_read"),
+                    s("env.output_write"),
+                ]),
+            ),
+            f("input_len", V::U64(happy.input_len)),
+            f("input_sha256", record_sha(happy.input_sha256)),
+            f("payload_sha256", record_sha(happy.payload_sha256)),
+            f("run_outcome", s(happy.run.run_outcome)),
+            f(
+                "authorized_import_count",
+                V::U64(happy.run.authorized_import_count),
+            ),
+            f(
+                "linked_host_import_count",
+                V::U64(happy.run.linked_host_import_count),
+            ),
+            f(
+                "module_imports_within_authorized_list",
+                b(happy.run.module_imports_within_authorized_list),
+            ),
+            f("fuel_budget", V::U64(happy.run.fuel_budget)),
+            f("fuel_used", V::U64(happy.run.fuel_used)),
+            f(
+                "fuel_bounded",
+                b(happy.run.fuel_used > 0 && happy.run.fuel_used < happy.run.fuel_budget),
+            ),
+            f("captured_output_len", V::U64(happy.run.captured_output_len)),
+            f(
+                "captured_output_sha256",
+                record_sha(happy.run.captured_output_sha256),
+            ),
+            f("core_output_sha256", record_sha(happy.core_output_sha256)),
+            f("guest_record_valid", b(happy.guest.record_valid)),
+            f("guest_answer", record_dns_answer(happy.guest.answer)),
+            f("core_answer", record_dns_answer(happy.core)),
+            f("guest_matches_core", b(happy.guest_matches_core)),
+            f("output_bytes_match", b(happy.output_bytes_match)),
+            f(
+                "crosscheck_passed",
+                b(happy.guest_matches_core && happy.output_bytes_match),
+            ),
+            f("guest_output_is_evidence_only", b(true)),
+            f("core_is_authority", b(true)),
+            f("policy_allows_beyond_env", b(false)),
+            f("owner_sealed", b(false)),
+            f("trust_tier", s("dev_key_not_owner_sealed")),
+            f("authorizes_provider_request", b(false)),
+            f("authorizes_provider_export", b(false)),
+            f("authorizes_dns_cache_update", b(false)),
+            f("durable_write", b(false)),
+            f("capability_granted", b(false)),
+            f("truncated_case", record_dnsparse_case(&truncated)),
+            f("pointer_loop_case", record_dnsparse_case(&pointer_loop)),
+            f(
+                "negative",
+                V::InlineObject(vec![
+                    f("input_len", V::U64(denied_input_len as u64)),
+                    f("input_sha256", record_sha(denied_input_sha256)),
+                    f(
+                        "authorized_import_count",
+                        V::U64(negative.authorized_import_count),
+                    ),
+                    f(
+                        "linked_host_import_count",
+                        V::U64(negative.linked_host_import_count),
+                    ),
+                    f(
+                        "module_imports_within_authorized_list",
+                        b(negative.module_imports_within_authorized_list),
+                    ),
+                    f("run_outcome", s(negative.run_outcome)),
+                    f(
+                        "missing_import_module",
+                        record_str_or_null(negative.missing_import_module.as_deref()),
+                    ),
+                    f(
+                        "missing_import_name",
+                        record_str_or_null(negative.missing_import_name.as_deref()),
+                    ),
+                    f("instantiation_ok", b(negative.instantiation_ok)),
+                    f("captured_output_len", V::U64(negative.captured_output_len)),
+                    f(
+                        "denied_before_instantiation",
+                        b(denied_before_instantiation),
+                    ),
+                    f("capability_granted", b(false)),
+                ]),
+            ),
+        ],
+        6,
+    );
+    emit_record_fields(vec![f("evidence_complete", b(true))], 6);
+    end_response("wasm.dnsparse_probe");
+}
+
+struct DnsparseCase {
+    run: wasm_runtime::EchoRunEvidence,
+    input_len: u64,
+    input_sha256: [u8; 32],
+    payload_sha256: [u8; 32],
+    guest: DecodedDnsResponseRecord,
+    core: Option<DnsARecord>,
+    core_output_sha256: [u8; 32],
+    guest_matches_core: bool,
+    output_bytes_match: bool,
+}
+
+fn run_dnsparse_case(payload: &[u8]) -> DnsparseCase {
+    let mut input = [0u8; 4096];
+    let input_len = encode_dns_query_record(
+        &mut input,
+        DNSPARSE_TRANSACTION_ID,
+        DNSPARSE_HOSTNAME,
+        payload,
+    )
+    .unwrap_or(0);
+    let input = &input[..input_len];
+    let run = wasm_runtime::run_dnsparse_roundtrip(input);
+    let guest = decode_dns_response_record(&run.raw_captured_output);
+    let core = parse_dns_response(payload, DNSPARSE_TRANSACTION_ID, DNSPARSE_HOSTNAME);
+    let core_encoded = encode_dns_response_record(core);
+    let core_output_sha256 = sha256_bytes(&core_encoded);
+    let guest_matches_core = guest.record_valid && guest.answer == core;
+    let output_bytes_match = run.captured_output_len == DNS_RESPONSE_RECORD_LEN as u64
+        && run.captured_output_sha256 == core_output_sha256;
+
+    DnsparseCase {
+        input_len: input_len as u64,
+        input_sha256: sha256_bytes(input),
+        payload_sha256: sha256_bytes(payload),
+        run,
+        guest,
+        core,
+        core_output_sha256,
+        guest_matches_core,
+        output_bytes_match,
+    }
+}
+
+fn record_dnsparse_case(case: &DnsparseCase) -> V<'static> {
+    let canonical_no_answer_sha256 = sha256_bytes(&encode_dns_response_record(None));
+    V::InlineObject(vec![
+        f("input_len", V::U64(case.input_len)),
+        f("input_sha256", record_sha(case.input_sha256)),
+        f("payload_sha256", record_sha(case.payload_sha256)),
+        f("run_outcome", s(case.run.run_outcome)),
+        f("fuel_budget", V::U64(case.run.fuel_budget)),
+        f("fuel_used", V::U64(case.run.fuel_used)),
+        f(
+            "fuel_bounded",
+            b(case.run.fuel_used > 0 && case.run.fuel_used < case.run.fuel_budget),
+        ),
+        f("captured_output_len", V::U64(case.run.captured_output_len)),
+        f(
+            "captured_output_sha256",
+            record_sha(case.run.captured_output_sha256),
+        ),
+        f("core_output_sha256", record_sha(case.core_output_sha256)),
+        f("guest_record_valid", b(case.guest.record_valid)),
+        f("guest_answer", record_dns_answer(case.guest.answer)),
+        f("core_answer", record_dns_answer(case.core)),
+        f("guest_matches_core", b(case.guest_matches_core)),
+        f("output_bytes_match", b(case.output_bytes_match)),
+        f(
+            "canonical_no_answer",
+            b(case.guest.record_valid
+                && case.guest.answer.is_none()
+                && case.core.is_none()
+                && case.core_output_sha256 == canonical_no_answer_sha256
+                && case.output_bytes_match),
+        ),
+        f(
+            "crosscheck_passed",
+            b(case.guest_matches_core && case.output_bytes_match),
+        ),
+        f("capability_granted", b(false)),
+    ])
+}
+
+fn record_dns_answer(answer: Option<DnsARecord>) -> V<'static> {
+    let answer = answer.unwrap_or(DnsARecord {
+        address: [0; 4],
+        ttl: 0,
+    });
+    V::InlineObject(vec![
+        f("present", b(answer.ttl != 0)),
+        f(
+            "address",
+            V::InlineArray(
+                answer
+                    .address
+                    .iter()
+                    .map(|octet| V::U64(*octet as u64))
+                    .collect(),
+            ),
+        ),
+        f("ttl", V::U64(answer.ttl as u64)),
+    ])
 }
 
 fn datetime_or_null(value: Option<CertValidityDateTime>) -> V<'static> {
