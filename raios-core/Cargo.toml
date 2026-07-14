@@ -9,6 +9,7 @@ aes-gcm = { version = "=0.10.3", default-features = false, features = ["aes"] }
 embedded-io = { version = "=0.6.1", default-features = false }
 hkdf = { version = "=0.12.4", default-features = false }
 p256 = { version = "0.13.2", default-features = false, features = ["ecdsa"] }
+raios-dns-parse = { path = "../raios-dns-parse" }
 raios-http-parse = { path = "../raios-http-parse" }
 raios-x509-spki = { path = "../raios-x509-spki" }
 raios-x509-time = { path = "../raios-x509-time" }

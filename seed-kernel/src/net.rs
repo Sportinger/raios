@@ -7,10 +7,9 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use core::cmp;
-use core::str;
-
 use spin::Mutex;
 
+use raios_core::dns_parse::build_dns_query;
 use smoltcp::iface::{Config as IfaceConfig, Interface, SocketHandle, SocketSet};
 use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
 use smoltcp::socket::{dhcpv4, tcp, udp};
@@ -33,7 +32,6 @@ const UDP_DNS_SOURCE_PORT: u16 = 49_152;
 const TCP_SOURCE_PORT_START: u16 = 49_200;
 const TCP_SOURCE_PORT_END: u16 = 65_535;
 const DNS_QUERY_TIMEOUT_MS: u64 = 4_000;
-const DNS_DEFAULT_TTL_SECS: u32 = 300;
 const DNS_PORT: u16 = 53;
 static NET_STATE: Mutex<Option<NetState>> = Mutex::new(None);
 
@@ -693,162 +691,12 @@ struct DnsParseResult {
     ttl: u32,
 }
 
-fn build_dns_query(buffer: &mut [u8], tx_id: u16, hostname: &str) -> Option<usize> {
-    if buffer.len() < 12 {
-        return None;
-    }
-
-    buffer[0] = (tx_id >> 8) as u8;
-    buffer[1] = tx_id as u8;
-    buffer[2] = 0x01;
-    buffer[3] = 0x00;
-    buffer[4] = 0x00;
-    buffer[5] = 0x01;
-    buffer[6..12].fill(0);
-
-    let mut offset = 12;
-    for label in hostname.split('.') {
-        if label.is_empty() || label.len() > 63 {
-            return None;
-        }
-        if offset + 1 + label.len() > buffer.len() {
-            return None;
-        }
-        buffer[offset] = label.len() as u8;
-        offset += 1;
-        buffer[offset..offset + label.len()].copy_from_slice(label.as_bytes());
-        offset += label.len();
-    }
-
-    if offset >= buffer.len() {
-        return None;
-    }
-    buffer[offset] = 0;
-    offset += 1;
-
-    if offset + 4 > buffer.len() {
-        return None;
-    }
-    buffer[offset] = 0;
-    buffer[offset + 1] = 1; // A record
-    buffer[offset + 2] = 0;
-    buffer[offset + 3] = 1; // IN class
-    Some(offset + 4)
-}
-
-fn parse_dns_response<'a>(
-    payload: &'a [u8],
-    expected_id: u16,
-    hostname: &str,
-) -> Option<DnsParseResult> {
-    if payload.len() < 12 {
-        return None;
-    }
-    let id = u16::from_be_bytes([payload[0], payload[1]]);
-    if id != expected_id {
-        return None;
-    }
-    let flags = u16::from_be_bytes([payload[2], payload[3]]);
-    if flags & 0x8000 == 0 || flags & 0x000f != 0 {
-        return None;
-    }
-    let qdcount = u16::from_be_bytes([payload[4], payload[5]]) as usize;
-    let ancount = u16::from_be_bytes([payload[6], payload[7]]) as usize;
-
-    let mut offset = 12;
-    for _ in 0..qdcount {
-        let (name, next) = read_dns_name(payload, offset)?;
-        offset = next + 4; // skip type + class
-        if name != hostname {
-            return None;
-        }
-    }
-
-    for _ in 0..ancount {
-        let (name, next) = read_dns_name(payload, offset)?;
-        if next + 10 > payload.len() {
-            return None;
-        }
-        let rtype = u16::from_be_bytes([payload[next], payload[next + 1]]);
-        let class = u16::from_be_bytes([payload[next + 2], payload[next + 3]]);
-        let ttl = u32::from_be_bytes([
-            payload[next + 4],
-            payload[next + 5],
-            payload[next + 6],
-            payload[next + 7],
-        ]);
-        let rdlength = u16::from_be_bytes([payload[next + 8], payload[next + 9]]) as usize;
-        let data_offset = next + 10;
-        if data_offset + rdlength > payload.len() {
-            return None;
-        }
-        if rtype == 1 && class == 1 && rdlength == 4 && name == hostname {
-            let addr = Ipv4Address::from_bytes(&payload[data_offset..data_offset + 4]);
-            let ttl_effective = if ttl == 0 { DNS_DEFAULT_TTL_SECS } else { ttl };
-            return Some(DnsParseResult {
-                address: addr,
-                ttl: ttl_effective,
-            });
-        }
-        offset = data_offset + rdlength;
-    }
-
-    None
-}
-
-fn read_dns_name(payload: &[u8], start: usize) -> Option<(String, usize)> {
-    let mut labels = Vec::new();
-    let mut offset = start;
-    let mut jumped = false;
-    let mut jump_return = 0;
-    let mut steps = 0;
-
-    loop {
-        if offset >= payload.len() {
-            return None;
-        }
-        let len = payload[offset];
-        if len & 0xC0 == 0xC0 {
-            if offset + 1 >= payload.len() {
-                return None;
-            }
-            let ptr = (((len & 0x3F) as usize) << 8) | payload[offset + 1] as usize;
-            if !jumped {
-                jump_return = offset + 2;
-                jumped = true;
-            }
-            offset = ptr;
-            steps += 1;
-            if steps > 16 {
-                return None;
-            }
-            continue;
-        } else if len == 0 {
-            offset += 1;
-            break;
-        } else {
-            offset += 1;
-            let end = offset + len as usize;
-            if end > payload.len() {
-                return None;
-            }
-            let label_bytes = &payload[offset..end];
-            let label = str::from_utf8(label_bytes).ok()?;
-            labels.push(label);
-            offset = end;
-        }
-    }
-
-    let mut name = String::new();
-    for (i, part) in labels.iter().enumerate() {
-        if i > 0 {
-            name.push('.');
-        }
-        name.push_str(part);
-    }
-
-    let next_offset = if jumped { jump_return } else { offset };
-    Some((name, next_offset))
+fn parse_dns_response(payload: &[u8], expected_id: u16, hostname: &str) -> Option<DnsParseResult> {
+    let result = raios_core::dns_parse::parse_dns_response(payload, expected_id, hostname)?;
+    Some(DnsParseResult {
+        address: Ipv4Address::from_bytes(&result.address),
+        ttl: result.ttl,
+    })
 }
 
 fn now_ms() -> u64 {

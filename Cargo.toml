@@ -5,6 +5,7 @@ members = [
     "registry/core",
     "fake-cloud/server",
     "raios-core",
+    "raios-dns-parse",
     "raios-x509-time",
     "raios-x509-spki",
     "raios-http-parse",
