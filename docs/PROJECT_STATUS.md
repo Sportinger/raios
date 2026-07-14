@@ -24,6 +24,55 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+NET-8 ARMED AND COMMITTED; LIVE DOWNLOAD NOT YET DEMONSTRATED (2026-07-14, owner decision).
+Per the new Dev-Phase rule (AGENTS.md): arming is a PERMISSION the owner grants; "proven"
+is a separate statement. svc.net.acquire.w7 is now owner-ARMED, honestly labeled — the live
+end-to-end fetch is NOT yet demonstrated and this file does not claim it is.
+
+THE ARMING, and its two crown-jewel invariants (orchestrator-verified in source AND proven
+by m11-acquisition-service): (1) THE FLIP IS ONE GATED SITE — net_8_w7_policy_allows() is the
+only true-producing function, a pure conjunction of two SEPARATE literal approval constants
+(NET_8_APPROVED_W7_ARTIFACT_SHA256 = 32a018b0…, NET_8_APPROVED_W7_IMPORT_LIST_SHA256 =
+eb390ec5…) AND source_policy_id == "local.qemu.w7"; every caller routes through it, mismatch
+paths use !net_8_w7_policy_allows(...). Literal constants → they FAIL on artifact/import
+drift. (2) TLS EVIDENCE IS UNFORGEABLE — source_tls_evidence_valid is a private crypto-state
+field set at exactly one site (crypto_shims.rs) only after the real OpaqueSession reaches
+ApplicationKeysDerived with certificate_verify_observed + math_valid + pin_match +
+server_finished_observed + server_finished_valid + !trust_label_granted_by_guest; the W7
+path reads only that core-derived value; the guest cannot write it. m11-acquisition-service
+now asserts the ARMED reality: armed_for_exact_w7 (policy true, linker armed), mismatch_
+still_denies (wrong artifact/list/source each deny), grants_nothing_durable (no load/execute/
+install/durable/owner-seal even when armed). ARMED VERIFICATION: m11-acquisition-service
+shadow-20260714-214858-26644.json passed. Shared-file regressions after the NET-8 changes:
+m11-net-imports shadow-20260714-215607-11332 + m11-crypto-imports + m11-beyond-env-lifecycle
+shadow-20260714-215327-24136 all passed.
+
+THE LIVE DOWNLOAD IS NOT WORKING YET — honest classification of what remains:
+- BLOCKER 1 (host-transport, FIXED): QEMU 11 on Windows rejects guestfwd to the slirp
+  gateway 10.0.2.2 and the -cmd relay form. Resolved: the W7 source address moved to
+  10.0.2.100 (in-subnet, not the gateway) and run-stage0-qemu.ps1 gained -GuestFwd
+  (`guestfwd=tcp:10.0.2.100:8443-tcp:127.0.0.1:8443`), verified to open.
+- BLOCKER 2 (guest byte-framing, FIXED): encode_w7_request wrote the 18-byte path prefix into
+  a 22-byte slot and ran the hex loop to index 274 in a 271-byte array — offsets corrected to
+  prefix[189..207] + hex[207+i*2].
+- BLOCKER 3 (dispatch, REMAINING): even after 1+2 the W7 invocation never reaches tcp_open —
+  the serial log has ZERO `RAIOS_W7_ACQUISITION suspended=true` markers and request_status
+  stays "idle"/"accepted_pending", so start_beyond_env_fixture's guest run either is never
+  dispatched from the main loop or the guest returns synchronously before suspending. The
+  start_w7 command DOES route to request_w7_acquisition (agent_protocol_wasm), so the trigger
+  path exists. This is the next thing to instrument (serial prints at start_beyond_env_fixture
+  entry + each W7 early-return), not more blind build/run.
+LESSON (owner + orchestrator, reinforced today): the NET-8 live code was worker-written
+blind (workers cannot build/run the kernel), so it accumulated stacked integration bugs that
+only surface at runtime. Chasing them one-per-run is the rabbit hole. The live download +
+the M6-run/W6-install loop is the NEXT DELIBERATE BLOCK: fix dispatch (instrumented) →
+prove the download (ideally against a real internet server, sidestepping Windows-QEMU) →
+wire the inert candidate into the EXISTING M6 run + W6 durable-install machinery (reuse, do
+not weaken). Nothing is durably installed by a network download until that loop is built and
+proven; the strict Dev-Phase rule #4 (no durable/hardware authority without evidence) holds.
+
+NET-7 SIGNED svc.net.acquire.w7 SERVICE VERIFIED (2026-07-14, grant STILL DENIED):
+
 NET-7 SIGNED svc.net.acquire.w7 SERVICE VERIFIED (2026-07-14, grant STILL DENIED):
 m11-acquisition-service shadow-20260714-170818-14076.json PASSED 161/161. This is the
 FIRST real guest that USES beyond-env imports — a merged Wasm program (artifact

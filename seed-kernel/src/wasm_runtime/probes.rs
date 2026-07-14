@@ -706,6 +706,7 @@ fn run_beyond_env_case(
                     outputs,
                     auto_resume: false,
                     closed: false,
+                    prior_w7_candidate: None,
                 });
                 let teardown_count = ACTIVE_DROP_TEARDOWN_COUNT
                     .load(Ordering::Relaxed)

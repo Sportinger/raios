@@ -9,6 +9,8 @@ param(
     [string]$OpenAiSpkiPinEnvVar = "OPENAI_SPKI_SHA256",
     [switch]$EmbedOpenAiSpkiRotationPinFromEnv,
     [string]$OpenAiSpkiRotationPinEnvVar = "OPENAI_SPKI_SHA256_NEXT",
+    [switch]$EmbedNet8W7SpkiPinFromEnv,
+    [string]$Net8W7SpkiPinEnvVar = "NET_8_W7_SPKI_SHA256",
     [switch]$AllowUnverifiedOpenAiTls
 )
 
@@ -28,6 +30,7 @@ $oldDefaultOpenAiApiKey = $env:RAIOS_DEFAULT_OPENAI_API_KEY
 $oldOpenAiCertSha256 = $env:RAIOS_OPENAI_CERT_SHA256
 $oldOpenAiSpkiSha256 = $env:RAIOS_OPENAI_SPKI_SHA256
 $oldOpenAiSpkiSha256Next = $env:RAIOS_OPENAI_SPKI_SHA256_NEXT
+$oldNet8W7SpkiSha256 = $env:RAIOS_NET_8_W7_SPKI_SHA256
 $oldAllowUnverifiedOpenAiTls = $env:RAIOS_ALLOW_UNVERIFIED_OPENAI_TLS
 $kernelRustFlags = @(
     "-C", "link-arg=-T$LinkerScript",
@@ -82,6 +85,17 @@ try {
         Remove-Item Env:\RAIOS_OPENAI_SPKI_SHA256_NEXT -ErrorAction SilentlyContinue
     }
 
+    if ($EmbedNet8W7SpkiPinFromEnv) {
+        $net8Pin = [Environment]::GetEnvironmentVariable($Net8W7SpkiPinEnvVar, "Process")
+        if ($net8Pin -notmatch '^[0-9a-fA-F]{64}$') {
+            throw "Environment variable '$Net8W7SpkiPinEnvVar' must contain exactly 64 hexadecimal characters."
+        }
+        $env:RAIOS_NET_8_W7_SPKI_SHA256 = $net8Pin.ToLowerInvariant()
+    }
+    else {
+        Remove-Item Env:\RAIOS_NET_8_W7_SPKI_SHA256 -ErrorAction SilentlyContinue
+    }
+
     if ($AllowUnverifiedOpenAiTls) {
         $env:RAIOS_ALLOW_UNVERIFIED_OPENAI_TLS = "1"
     }
@@ -131,6 +145,12 @@ finally {
     }
     else {
         $env:RAIOS_OPENAI_SPKI_SHA256_NEXT = $oldOpenAiSpkiSha256Next
+    }
+    if ($null -eq $oldNet8W7SpkiSha256) {
+        Remove-Item Env:\RAIOS_NET_8_W7_SPKI_SHA256 -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:RAIOS_NET_8_W7_SPKI_SHA256 = $oldNet8W7SpkiSha256
     }
     if ($null -eq $oldAllowUnverifiedOpenAiTls) {
         Remove-Item Env:\RAIOS_ALLOW_UNVERIFIED_OPENAI_TLS -ErrorAction SilentlyContinue

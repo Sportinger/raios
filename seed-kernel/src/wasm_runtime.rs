@@ -60,7 +60,8 @@ pub(crate) use acquire_shims::{
     AcquireShimGrantProbe,
 };
 pub(crate) use acquisition_service::{
-    acquisition_service_probe, AcquisitionServiceProbe, NET_ACQUIRE_W7_AUTHORIZED_IMPORTS,
+    acquisition_service_probe, observe_w7_blocks_provider, w7_acquisition_snapshot,
+    AcquisitionServiceProbe, W7AcquisitionSnapshot, NET_ACQUIRE_W7_AUTHORIZED_IMPORTS,
     NET_ACQUIRE_W7_SERVICE_ID,
 };
 pub(crate) use artifacts::*;
@@ -73,9 +74,10 @@ pub(crate) use envelope::{
     EchoRunEvidence, NegativeRun, WorkspaceImportInspection,
 };
 pub(crate) use invocation::{
-    beyond_env_probe_snapshot, request_beyond_env_fixture, start_beyond_env_fixture,
-    take_beyond_env_fixture_request, ActiveBeyondEnvInvocation, BeyondEnvFixtureRequest,
-    BeyondEnvLifecycleCase, BeyondEnvLifecycleSuite, BeyondEnvProbeSnapshot,
+    beyond_env_probe_snapshot, request_beyond_env_fixture, request_w7_acquisition,
+    request_w7_provider_busy_probe, start_beyond_env_fixture, take_beyond_env_fixture_request,
+    ActiveBeyondEnvInvocation, BeyondEnvFixtureRequest, BeyondEnvLifecycleCase,
+    BeyondEnvLifecycleSuite, BeyondEnvProbeSnapshot,
 };
 pub(crate) use net_shims::{
     net_shim_grant_probe, net_shim_probe_snapshot, NetShimGrantProbe, NetShimProbeSnapshot,

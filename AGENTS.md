@@ -31,6 +31,41 @@ The core idea is not to port the full Codex CLI into stage-0. The OS should grow
 native, capability-gated agent protocol and UI. CLI tools such as Codex can be a
 reference/workstation tool, not the hard dependency inside the kernel.
 
+## Development Phase vs Operating Phase (owner decision, 2026-07-14)
+
+raiOS's strict authority ceremony was written for the FINISHED, RUNNING system — the
+world where an AI changes a live machine holding the owner's real data. Applying it
+unchanged to DEVELOPMENT creates friction with no safety gain, and it did: the NET-8
+arming was blocked on "never flip a switch before an end-to-end proof" even though the
+switch is bound to one test artifact, one test source, inside a VM, granting no install
+and no durable write.
+
+The distinction that actually matters, and it is not the same thing:
+- **"Armed"** = the owner has permitted this exact code to run. That is TRUE the moment
+  the owner says so. It is a permission, not a claim about behaviour.
+- **"Proven"** = we have watched it work. That is a separate, evidence-backed statement.
+Keeping those two apart in the status docs is the whole honesty requirement. Arming
+something and then testing it is normal engineering, not an overclaim — as long as the
+docs say "armed; live path not yet demonstrated" and never imply the live path passed.
+
+Four rules stay STRICT even in the dev phase, because each has already caught a real
+defect today and none costs friction it does not repay:
+
+1. **Never fake or over-claim evidence.** A test must actually exercise the thing; a
+   report must reflect observed reality; "done" means observed, not assumed.
+2. **Never commit secrets** (provider keys, key-bearing images). Secret scan before
+   every commit/push.
+3. **A change that rewrites a check must run that check.** `full` green is not a
+   substitute for the specific profile whose expectations you edited.
+4. **No DURABLE or DESTRUCTIVE authority without evidence:** anything that writes to
+   disk, touches real secret custody, or writes to real hardware keeps the full
+   operating-tier discipline even now.
+
+A slice that only arms a bounded, RAM-only, non-installing capability inside a VM falls
+under none of the four and may be armed-then-demonstrated, honestly labeled. Invoke the
+strict operating ceremony the moment durability, secret custody, or hardware writes are
+in play — not before.
+
 ## Full-Vision Engineering Rule
 
 Do not deliberately build throwaway MVPs, mocks, fake services, fake security, or

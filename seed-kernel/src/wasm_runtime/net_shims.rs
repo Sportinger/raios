@@ -32,6 +32,8 @@ const NET_RESPONSIVE_ADDRESS: smoltcp::wire::Ipv4Address =
 const NET_SILENT_ADDRESS: smoltcp::wire::Ipv4Address =
     smoltcp::wire::Ipv4Address::new(10, 0, 2, 254);
 const NET_DNS_PORT: u16 = 53;
+const NET_W7_ADDRESS: smoltcp::wire::Ipv4Address = smoltcp::wire::Ipv4Address::new(10, 0, 2, 100);
+const NET_W7_PORT: u16 = 8443;
 
 pub(super) static NET_SHIM_PROBE: Mutex<NetShimProbeSnapshot> =
     Mutex::new(NetShimProbeSnapshot::empty());
@@ -41,6 +43,7 @@ pub(super) enum NetFixtureScenario {
     Responsive,
     SilentTimeout,
     SilentKill,
+    W7Live,
 }
 
 impl NetFixtureScenario {
@@ -49,6 +52,7 @@ impl NetFixtureScenario {
             Self::Responsive => "responsive",
             Self::SilentTimeout => "silent_timeout",
             Self::SilentKill => "silent_kill",
+            Self::W7Live => "w7_live",
         }
     }
 
@@ -56,6 +60,14 @@ impl NetFixtureScenario {
         match self {
             Self::Responsive => NET_RESPONSIVE_ADDRESS,
             Self::SilentTimeout | Self::SilentKill => NET_SILENT_ADDRESS,
+            Self::W7Live => NET_W7_ADDRESS,
+        }
+    }
+
+    const fn port(self) -> u16 {
+        match self {
+            Self::W7Live => NET_W7_PORT,
+            _ => NET_DNS_PORT,
         }
     }
 }
@@ -86,6 +98,8 @@ pub(super) struct NetCompletion {
 
 pub(super) struct NetInvocationState {
     scenario: NetFixtureScenario,
+    address: smoltcp::wire::Ipv4Address,
+    port: u16,
     owner: net::TransportOwner,
     pub(super) lease: Option<net::TransportLeaseToken>,
     pending: Option<PendingNetworkOperation>,
@@ -96,12 +110,15 @@ pub(super) struct NetInvocationState {
     connection_opened: bool,
     close_call_count: u32,
     would_block_guest_visible: bool,
+    preheld_native_lease: Option<net::TransportLeaseToken>,
 }
 
 impl NetInvocationState {
     pub(super) fn new(scenario: NetFixtureScenario, invocation_id: u64) -> Self {
         Self {
             scenario,
+            address: scenario.address(),
+            port: scenario.port(),
             owner: net::TransportOwner::new(3, invocation_id),
             lease: None,
             pending: None,
@@ -112,7 +129,45 @@ impl NetInvocationState {
             connection_opened: false,
             close_call_count: 0,
             would_block_guest_visible: false,
+            preheld_native_lease: None,
         }
+    }
+
+    pub(super) fn new_w7(
+        source: super::acquisition_service::W7SourcePolicy,
+        invocation_id: u64,
+    ) -> Option<Self> {
+        if source.id != super::acquisition_service::NET_8_W7_SOURCE_POLICY_ID
+            || source.address != [10, 0, 2, 100]
+            || source.port != NET_W7_PORT
+            || source.sni != super::acquisition_service::NET_8_W7_SNI
+        {
+            return None;
+        }
+        let mut state = Self::new(NetFixtureScenario::W7Live, invocation_id);
+        state.address = smoltcp::wire::Ipv4Address::new(
+            source.address[0],
+            source.address[1],
+            source.address[2],
+            source.address[3],
+        );
+        state.port = source.port;
+        Some(state)
+    }
+
+    pub(super) fn new_w7_provider_busy(
+        source: super::acquisition_service::W7SourcePolicy,
+        invocation_id: u64,
+        now_ms: u64,
+    ) -> Option<Self> {
+        let mut state = Self::new_w7(source, invocation_id)?;
+        state.preheld_native_lease = net::tcp_claim(
+            net::NATIVE_OPENAI_TRANSPORT_OWNER,
+            now_ms,
+            NET_TOTAL_TIMEOUT_MS,
+        )
+        .ok();
+        state.preheld_native_lease.map(|_| state)
     }
 
     fn next_operation(&mut self) -> u32 {
@@ -323,13 +378,19 @@ pub(super) fn progress_net_operation(
 
     match pending.kind {
         PendingNetworkKind::Open => {
-            let (scenario, owner, token) = {
+            let (scenario, address, port, owner, token) = {
                 let net_state = store
                     .data()
                     .net
                     .as_ref()
                     .ok_or(TerminalOutcome::HostError)?;
-                (net_state.scenario, net_state.owner, net_state.lease)
+                (
+                    net_state.scenario,
+                    net_state.address,
+                    net_state.port,
+                    net_state.owner,
+                    net_state.lease,
+                )
             };
             let token = match token {
                 Some(token) => token,
@@ -342,6 +403,9 @@ pub(super) fn progress_net_operation(
                             .expect("net state missing")
                             .lease = Some(token);
                         NET_SHIM_PROBE.lock().lease_held = true;
+                        if scenario == NetFixtureScenario::W7Live {
+                            super::acquisition_service::note_w7_lease_held();
+                        }
                         token
                     }
                     Err(error) => {
@@ -355,7 +419,7 @@ pub(super) fn progress_net_operation(
                     }
                 },
             };
-            match net::tcp_connect_step(token, scenario.address(), NET_DNS_PORT, now_ms) {
+            match net::tcp_connect_step(token, address, port, now_ms) {
                 Ok(net::TcpConnectResult::Started | net::TcpConnectResult::Connecting(_)) => {
                     store
                         .data_mut()
@@ -469,15 +533,6 @@ pub(super) fn progress_net_operation(
                 .ok_or(TerminalOutcome::GenerationInvalidated)?;
             match net::tcp_receive_inspect_step(token, now_ms) {
                 Ok(net::TcpReceiveInspection::WouldBlock) => {
-                    store
-                        .data_mut()
-                        .net
-                        .as_mut()
-                        .expect("net state missing")
-                        .pending = Some(pending);
-                    Ok(None)
-                }
-                Ok(net::TcpReceiveInspection::Available(available)) if available < 2 => {
                     store
                         .data_mut()
                         .net
@@ -631,6 +686,7 @@ pub(super) fn finish_net_resources(
 ) -> Option<NetTerminalState> {
     let net_state = store.data_mut().net.as_mut()?;
     let token = net_state.lease.take();
+    let preheld_native_lease = net_state.preheld_native_lease.take();
     net_state.pending = None;
     net_state.connection_opened = false;
     let terminal = NetTerminalState {
@@ -643,7 +699,21 @@ pub(super) fn finish_net_resources(
     if let Some(token) = token {
         let _ = net::tcp_abort(token, now_ms);
     }
+    if let Some(token) = preheld_native_lease {
+        let _ = net::tcp_abort(token, now_ms);
+    }
     Some(terminal)
+}
+
+pub(crate) fn probe_w7_blocks_provider() -> &'static str {
+    let now_ms = runtime_now_ms();
+    match net::tcp_claim(net::NATIVE_OPENAI_TRANSPORT_OWNER, now_ms, 1_000) {
+        Err(error) => error.as_str(),
+        Ok(unexpected) => {
+            let _ = net::tcp_abort(unexpected, now_ms);
+            "unexpected_native_claim_success"
+        }
+    }
 }
 
 pub(super) fn host_net_tcp_open(mut caller: Caller<'_, BeyondEnvState>) -> Result<i32, Trap> {

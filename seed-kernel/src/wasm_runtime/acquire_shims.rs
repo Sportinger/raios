@@ -156,11 +156,12 @@ pub(super) struct AcquisitionInvocationState {
     owner_invocation_id: u64,
     session_current: bool,
     posture_allows_execution: bool,
-    source_tls_evidence_valid: bool,
+    fixture_source_tls_evidence_valid: Option<bool>,
     catalog_valid: bool,
     receiver_identity_valid: bool,
     pending: Option<crate::agent_protocol::agent_protocol_registry::PendingDistributionAcquisition>,
-    expected: [ChunkExpectation; 3],
+    expected: [ChunkExpectation; 4],
+    expected_count: usize,
     next_index: usize,
     accepted_bytes: usize,
     chunk_failure_observed: bool,
@@ -174,7 +175,7 @@ impl AcquisitionInvocationState {
         let bytes = ECHO_WASM_ARTIFACT_BYTES;
         let first_end = bytes.len() / 3;
         let second_end = (bytes.len() * 2) / 3;
-        let mut expected = [
+        let fixture_expected = [
             ChunkExpectation {
                 len: first_end,
                 sha256: sha256_bytes(&bytes[..first_end]),
@@ -186,6 +187,15 @@ impl AcquisitionInvocationState {
             ChunkExpectation {
                 len: bytes.len() - second_end,
                 sha256: sha256_bytes(&bytes[second_end..]),
+            },
+        ];
+        let mut expected = [
+            fixture_expected[0],
+            fixture_expected[1],
+            fixture_expected[2],
+            ChunkExpectation {
+                len: 0,
+                sha256: [0; 32],
             },
         ];
         if mode == AcquireFixtureMode::ShortBody {
@@ -205,7 +215,9 @@ impl AcquisitionInvocationState {
             },
             session_current: mode != AcquireFixtureMode::StaleSession,
             posture_allows_execution: mode != AcquireFixtureMode::PostureDenied,
-            source_tls_evidence_valid: mode != AcquireFixtureMode::SourceEvidenceMismatch,
+            fixture_source_tls_evidence_valid: Some(
+                mode != AcquireFixtureMode::SourceEvidenceMismatch,
+            ),
             catalog_valid: mode != AcquireFixtureMode::CatalogMismatch,
             receiver_identity_valid: mode != AcquireFixtureMode::ReceiverMismatch,
             pending: Some(
@@ -213,11 +225,51 @@ impl AcquisitionInvocationState {
                     crate::agent_protocol::distribution_registry::BUILTIN_ECHO_REGISTRY_ENTRY_ID,
                     ECHO_WASM_ARTIFACT_BYTES_HASH,
                     bytes.len(),
-                    expected.len(),
+                    3,
                     crate::agent_protocol::distribution_registry::BUILTIN_ECHO_PROVENANCE_SIGNATURE_DER,
                 ),
             ),
             expected,
+            expected_count: 3,
+            next_index: 0,
+            accepted_bytes: 0,
+            chunk_failure_observed: false,
+            finalized_candidate_sha256: None,
+            receipt_sha256: None,
+            last_denial: None,
+        }
+    }
+
+    pub(super) fn live(
+        owner_invocation_id: u64,
+        request: super::acquisition_service::StagedW7Request,
+    ) -> Self {
+        Self {
+            owner_invocation_id,
+            session_current: true,
+            posture_allows_execution: true,
+            fixture_source_tls_evidence_valid: None,
+            catalog_valid: true,
+            receiver_identity_valid: true,
+            pending: Some(
+                crate::agent_protocol::agent_protocol_registry::PendingDistributionAcquisition::preauthorized_fixture(
+                    crate::agent_protocol::distribution_registry::BUILTIN_ECHO_REGISTRY_ENTRY_ID,
+                    request.whole_sha256,
+                    request.total_len,
+                    request.chunk_count,
+                    crate::agent_protocol::distribution_registry::BUILTIN_ECHO_PROVENANCE_SIGNATURE_DER,
+                ),
+            ),
+            expected: [
+                ChunkExpectation {
+                    len: request.total_len,
+                    sha256: request.chunk_sha256[0],
+                },
+                ChunkExpectation { len: 0, sha256: request.chunk_sha256[1] },
+                ChunkExpectation { len: 0, sha256: request.chunk_sha256[2] },
+                ChunkExpectation { len: 0, sha256: request.chunk_sha256[3] },
+            ],
+            expected_count: request.chunk_count,
             next_index: 0,
             accepted_bytes: 0,
             chunk_failure_observed: false,
@@ -250,7 +302,9 @@ impl AcquisitionInvocationState {
     }
 
     pub(super) fn expected_chunk_len(&self, index: usize) -> Option<usize> {
-        self.expected.get(index).map(|chunk| chunk.len)
+        self.expected[..self.expected_count]
+            .get(index)
+            .map(|chunk| chunk.len)
     }
 }
 
@@ -334,14 +388,14 @@ pub(super) fn host_acquire_chunk_accept(
             .acquire
             .as_ref()
             .expect("acquire fixture missing");
-        if state.next_index >= state.expected.len() {
+        if state.next_index >= state.expected_count {
             return Ok(record_denial(
                 caller.data_mut(),
                 "acquire.chunk_accept",
                 AcquireDenial::ExtraChunk,
             ));
         }
-        if index >= state.expected.len() {
+        if index >= state.expected_count {
             return Ok(record_denial(
                 caller.data_mut(),
                 "acquire.chunk_accept",
@@ -448,7 +502,7 @@ pub(super) fn host_acquire_finalize(mut caller: Caller<'_, BeyondEnvState>) -> R
             Some(AcquireDenial::CatalogMismatch)
         } else if !state.receiver_identity_valid {
             Some(AcquireDenial::ReceiverIdentityMismatch)
-        } else if state.next_index != state.expected.len() {
+        } else if state.next_index != state.expected_count {
             Some(AcquireDenial::FinalizeMissingChunks)
         } else {
             let total_length = state
@@ -519,8 +573,7 @@ fn check_acquire_call_boundary(state: &mut BeyondEnvState) -> Result<(), Acquire
     if crate::input::secure_attention_kill_generation() != authority.captured_kill_generation {
         return Err(AcquireDenial::KillGenerationChanged);
     }
-    if authority.service_id != ACQUIRE_SERVICE_ID
-        || authority.invocation_id == 0
+    if authority.invocation_id == 0
         || authority.service_generation == 0
         || authority.instance_generation == 0
     {
@@ -530,6 +583,14 @@ fn check_acquire_call_boundary(state: &mut BeyondEnvState) -> Result<(), Acquire
         .acquire
         .as_ref()
         .ok_or(AcquireDenial::SessionNotCurrent)?;
+    let expected_service_id = if acquisition.fixture_source_tls_evidence_valid.is_some() {
+        ACQUIRE_SERVICE_ID
+    } else {
+        super::acquisition_service::NET_ACQUIRE_W7_SERVICE_ID
+    };
+    if authority.service_id != expected_service_id {
+        return Err(AcquireDenial::InvocationAuthorityInvalid);
+    }
     if acquisition.owner_invocation_id != authority.invocation_id {
         return Err(AcquireDenial::SessionOwnerMismatch);
     }
@@ -549,11 +610,12 @@ fn check_acquire_call_boundary(state: &mut BeyondEnvState) -> Result<(), Acquire
             posture_allows_execution: true,
         })
         .map_err(|_| AcquireDenial::InvocationAuthorityInvalid)?;
-    if !state
+    let source_tls_evidence = state
         .acquire
         .as_ref()
-        .is_some_and(|acquire| acquire.source_tls_evidence_valid)
-    {
+        .and_then(|acquire| acquire.fixture_source_tls_evidence_valid)
+        .unwrap_or_else(|| state.crypto.source_tls_evidence_valid());
+    if !source_tls_evidence {
         return Err(AcquireDenial::SourceTlsEvidenceMismatch);
     }
     Ok(())

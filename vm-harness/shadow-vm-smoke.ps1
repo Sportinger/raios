@@ -10,7 +10,7 @@ param(
     [switch]$KeepImage,
     [int]$SerialWriteChunkSize = 256,
     [int]$SerialWriteDelayMilliseconds = 0,
-    [ValidateSet("full", "quick", "recovery", "genesis-ui", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m12-distribution-provenance", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable", "structured-store", "project-workspace", "project-build", "project-app", "project-install", "secret-vault", "core-policy", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow", "m11-7-httphead", "m11-8-certspki", "m11-9-dnsparse", "m11-beyond-env-lifecycle", "m11-net-imports", "m11-crypto-imports", "m11-acquisition-service", "usb-hotplug")]
+    [ValidateSet("full", "quick", "recovery", "genesis-ui", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m12-distribution-provenance", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable", "structured-store", "project-workspace", "project-build", "project-app", "project-install", "secret-vault", "core-policy", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow", "m11-7-httphead", "m11-8-certspki", "m11-9-dnsparse", "m11-beyond-env-lifecycle", "m11-net-imports", "m11-crypto-imports", "m11-acquisition-service", "network-acquisition", "usb-hotplug")]
     [string]$Profile = "full"
 )
 
@@ -69,8 +69,8 @@ $ResolvedArtifact = Resolve-OptionalPath -Path $ArtifactPath
 $ResolvedManifest = Resolve-OptionalPath -Path $ManifestPath
 
 try {
-    if ($Profile -eq "m11-net-imports" -and -not $Network) {
-        throw "m11-net-imports requires -Network (e1000 + DHCP + real TCP step)"
+    if ($Profile -in @("m11-net-imports", "network-acquisition") -and -not $Network) {
+        throw "$Profile requires -Network (e1000 + DHCP + real TCP step)"
     }
     if ($ResolvedArtifact -and -not $ResolvedManifest) {
         throw "ArtifactPath requires ManifestPath; artifacts must not enter the evidence flow without a manifest"
@@ -90,12 +90,47 @@ try {
     }
 
     if ($Image) {
+        if ($Profile -eq "network-acquisition") {
+            throw "network-acquisition requires a per-run temporary pin-bearing image; do not pass -Image"
+        }
         $ResolvedImage = (Resolve-Path -LiteralPath $Image).Path
     }
     else {
         $ResolvedImage = Join-Path $RunDir "raios-stage0-shadow.img"
         $TempImage = $true
-        & $PackageScript -Profile release -Image $ResolvedImage -UseTempEsp
+        $packageParams = @{ Profile = "release"; Image = $ResolvedImage; UseTempEsp = $true }
+        if ($Profile -eq "network-acquisition") {
+            $fixtureWrapper = Join-Path $PSScriptRoot "net8-w7-tls-fixture.ps1"
+            $fixtureReady = Join-Path $RunDir "w7-fixture-ready.json"
+            $fixtureResult = Join-Path $RunDir "w7-fixture-result.json"
+            $fixtureMode = Join-Path $RunDir "w7-fixture-mode.txt"
+            $fixtureArtifact = Join-Path $RepoRoot "seed-kernel\artifacts\svc.demo.echo.wasm"
+            $null = & $fixtureWrapper -Action Start -ArtifactPath $fixtureArtifact -ReadyPath $fixtureReady -ResultPath $fixtureResult -ModePath $fixtureMode
+            $fixtureDeadline = [DateTime]::UtcNow.AddSeconds(60)
+            while (-not (Test-Path -LiteralPath $fixtureReady -PathType Leaf) -and [DateTime]::UtcNow -lt $fixtureDeadline) {
+                Start-Sleep -Milliseconds 50
+            }
+            if (-not (Test-Path -LiteralPath $fixtureReady -PathType Leaf)) {
+                throw "NET-8 TLS fixture did not publish its atomic ready file"
+            }
+            $ready = Get-Content -LiteralPath $fixtureReady -Raw | ConvertFrom-Json
+            if ($ready.schema -ne "raios.net8_w7_tls_fixture_ready.v0" -or
+                $ready.sni -ne "w7.test.raios" -or [int]$ready.host_port -ne 8443 -or
+                [int]$ready.artifact_length -ne 4205 -or
+                $ready.artifact_sha256 -ne "f81f9442de3729f58f9d5c43b186a4223e3f0ed0bdde20e94722da8d5733abd2" -or
+                $ready.path -ne "/raios/cas/sha256/f81f9442de3729f58f9d5c43b186a4223e3f0ed0bdde20e94722da8d5733abd2" -or
+                $ready.spki_sha256 -notmatch '^[0-9a-f]{64}$') {
+                throw "NET-8 TLS fixture ready file failed validation"
+            }
+            $pinEnvName = "RAIOS_NET8_W7_PIN_$PID"
+            [Environment]::SetEnvironmentVariable($pinEnvName, [string]$ready.spki_sha256, "Process")
+            $packageParams.EmbedNet8W7SpkiPinFromEnv = $true
+            $packageParams.Net8W7SpkiPinEnvVar = $pinEnvName
+        }
+        & $PackageScript @packageParams
+        if ($Profile -eq "network-acquisition") {
+            [Environment]::SetEnvironmentVariable("RAIOS_NET8_W7_PIN_$PID", $null, "Process")
+        }
         if ($LASTEXITCODE -ne 0) {
             throw "Image packaging failed with exit code $LASTEXITCODE"
         }
@@ -196,6 +231,14 @@ try {
         Cpu = "max"
         Nic = $Nic
     }
+    if ($Profile -eq "network-acquisition") {
+        # Bridge guest 10.0.2.100:8443 to the host loopback TLS fixture. The guest's
+        # W7 source policy targets 10.0.2.100 (not the slirp gateway 10.0.2.2, which
+        # QEMU refuses to guestfwd). The fixture is already listening on 127.0.0.1:8443.
+        $w7Fwd = "tcp:10.0.2.100:8443-tcp:127.0.0.1:8443"
+        $QemuArgList += @("-GuestFwd", $w7Fwd)
+        $runParams.GuestFwd = $w7Fwd
+    }
     if ($PersistDiskImage) {
         $QemuArgList += @(
             "-PersistDiskPath", $PersistDiskImage
@@ -208,7 +251,7 @@ try {
         )
         $runParams.StructuredStoreDiskPath = $StructuredStoreDiskImage
     }
-    if ($Profile -in @("usb-hotplug", "genesis-ui", "project-app", "project-install", "secret-vault", "m11-beyond-env-lifecycle", "m11-net-imports")) {
+    if ($Profile -in @("usb-hotplug", "genesis-ui", "project-app", "project-install", "secret-vault", "m11-beyond-env-lifecycle", "m11-net-imports", "network-acquisition")) {
         $MonitorTcpPort = $SerialTcpPort + 1000
         $QemuArgList += @(
             "-MonitorTcpPort", "$MonitorTcpPort"
@@ -386,6 +429,11 @@ try {
             break SmokeProfileValidation
         }
 
+        if ($Profile -eq "network-acquisition") {
+            . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-network-acquisition.ps1")
+            break SmokeProfileValidation
+        }
+
         if ($Profile -eq "m6d-rollback") {
             . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-m6d-rollback.ps1")
             break SmokeProfileValidation
@@ -435,6 +483,17 @@ catch {
 }
 finally {
     Close-SerialTcpConnection
+
+    $fixtureReadyForCleanup = Join-Path $RunDir "w7-fixture-ready.json"
+    if (Test-Path -LiteralPath $fixtureReadyForCleanup -PathType Leaf) {
+        try {
+            $fixturePid = [int](Get-Content -LiteralPath $fixtureReadyForCleanup -Raw | ConvertFrom-Json).process_id
+            & (Join-Path $PSScriptRoot "net8-w7-tls-fixture.ps1") -Action Stop -ProcessId $fixturePid
+        }
+        catch {
+        }
+    }
+    [Environment]::SetEnvironmentVariable("RAIOS_NET8_W7_PIN_$PID", $null, "Process")
 
     $script:QemuProcessBeforeTeardown = Get-QemuProcessSnapshot -Observation "before_teardown"
     if ($QemuPid) {

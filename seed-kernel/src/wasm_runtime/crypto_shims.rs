@@ -9,10 +9,10 @@ use raios_core::{
     },
     tls13_session::{
         run_tls13_host_vectors, OpaqueSessionSlot, Tls13Denial, Tls13FinishedOutput,
-        Tls13HostVectorReport, TLS13_HASH_LEN, TLS13_MAX_CIPHERTEXT_LEN, TLS13_MAX_HASH_INPUT_LEN,
-        TLS13_MAX_PLAINTEXT_LEN, TLS13_MAX_SIGNATURE_LEN, TLS13_MAX_SPKI_LEN,
-        TLS13_MAX_VERIFY_MESSAGE_LEN, TLS13_PUBLIC_OUTPUT_LEN, TLS13_RECORD_HEADER_LEN,
-        TLS13_TAG_LEN,
+        Tls13HostVectorReport, Tls13SessionState, TLS13_HASH_LEN, TLS13_MAX_CIPHERTEXT_LEN,
+        TLS13_MAX_HASH_INPUT_LEN, TLS13_MAX_PLAINTEXT_LEN, TLS13_MAX_SIGNATURE_LEN,
+        TLS13_MAX_SPKI_LEN, TLS13_MAX_VERIFY_MESSAGE_LEN, TLS13_PUBLIC_OUTPUT_LEN,
+        TLS13_RECORD_HEADER_LEN, TLS13_TAG_LEN,
     },
 };
 
@@ -130,6 +130,8 @@ pub(super) struct CryptoInvocationState {
     math_valid: bool,
     pin_match: bool,
     server_finished_valid: bool,
+    source_tls_evidence_valid: bool,
+    staged_input: Option<Vec<u8>>,
 }
 
 impl CryptoInvocationState {
@@ -145,6 +147,8 @@ impl CryptoInvocationState {
             math_valid: false,
             pin_match: false,
             server_finished_valid: false,
+            source_tls_evidence_valid: false,
+            staged_input: None,
         }
     }
 
@@ -154,7 +158,18 @@ impl CryptoInvocationState {
         entropy[32..].fill(0);
         entropy[63] = 1;
         state.fixture = Some(CryptoFixtureInvocation { scenario, entropy });
+        state.staged_input = Some(Vec::from(CRYPTO_FIXTURE_INPUT));
         state
+    }
+
+    pub(super) fn live(expected_spki_pin: [u8; 32], staged_input: &[u8]) -> Self {
+        let mut state = Self::new(Some(expected_spki_pin));
+        state.staged_input = Some(Vec::from(staged_input));
+        state
+    }
+
+    pub(super) const fn source_tls_evidence_valid(&self) -> bool {
+        self.source_tls_evidence_valid
     }
 
     fn record(&mut self, call: usize, outcome: &'static str, denial: &'static str) {
@@ -337,16 +352,17 @@ pub(super) fn finish_crypto_fixture_run(
     }
 }
 
-pub(super) fn host_crypto_fixture_input_len(
-    caller: Caller<'_, BeyondEnvState>,
-) -> Result<i32, Trap> {
-    if caller.data().crypto.fixture.is_none() {
-        return Err(Trap::new("env.input_len outside crypto fixture"));
-    }
-    Ok(CRYPTO_FIXTURE_INPUT_LEN as i32)
+pub(super) fn host_crypto_input_len(caller: Caller<'_, BeyondEnvState>) -> Result<i32, Trap> {
+    caller
+        .data()
+        .crypto
+        .staged_input
+        .as_ref()
+        .map(|input| input.len() as i32)
+        .ok_or_else(|| Trap::new("env.input_len without core-staged input"))
 }
 
-pub(super) fn host_crypto_fixture_input_read(
+pub(super) fn host_crypto_input_read(
     mut caller: Caller<'_, BeyondEnvState>,
     ptr: i32,
     len: i32,
@@ -355,12 +371,16 @@ pub(super) fn host_crypto_fixture_input_read(
         return Err(Trap::from(TrapCode::MemoryOutOfBounds));
     };
     let len = len as usize;
-    if caller.data().crypto.fixture.is_none() || len > CRYPTO_FIXTURE_INPUT.len() {
+    let Some(input) = caller.data().crypto.staged_input.as_ref() else {
+        return Err(Trap::new("env.input_read without core-staged input"));
+    };
+    if len > input.len() {
         return Err(Trap::new("env.input_read staged range out of bounds"));
     }
+    let bytes = Vec::from(&input[..len]);
     let memory = guest_memory(&caller, 0)?;
     memory
-        .write(&mut caller, ptr, &CRYPTO_FIXTURE_INPUT[..len])
+        .write(&mut caller, ptr, &bytes)
         .map_err(|_| Trap::from(TrapCode::MemoryOutOfBounds))?;
     Ok(len as i32)
 }
@@ -673,6 +693,24 @@ pub(super) fn host_crypto_tls13_application_keys(
         )
     {
         result = Err(Tls13Denial::GuestTrustSelfAssertion);
+    }
+    if result.is_ok() {
+        let evidence = caller
+            .data_mut()
+            .crypto
+            .slot
+            .get_mut(owner, session)
+            .map(|session| (session.state(), session.evidence()));
+        if let Ok((state, evidence)) = evidence {
+            caller.data_mut().crypto.source_tls_evidence_valid = state
+                == Tls13SessionState::ApplicationKeysDerived
+                && evidence.certificate_verify_observed
+                && evidence.math_valid
+                && evidence.pin_match
+                && evidence.server_finished_observed
+                && evidence.server_finished_valid
+                && !evidence.trust_label_granted_by_guest;
+        }
     }
     finish_command(&mut caller, 4, result)
 }

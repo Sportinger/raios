@@ -23,6 +23,7 @@ pub(super) enum FixtureBehavior {
     HostFuelError,
     Net(NetFixtureScenario),
     Crypto(CryptoFixtureScenario),
+    W7Live,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,6 +36,8 @@ pub(crate) enum BeyondEnvFixtureRequest {
     CryptoPositiveAndNegatives,
     CryptoGuestMemoryFault,
     CryptoForeignSession,
+    W7Live,
+    W7ProviderBusy,
 }
 
 impl BeyondEnvFixtureRequest {
@@ -48,6 +51,8 @@ impl BeyondEnvFixtureRequest {
             Self::CryptoPositiveAndNegatives => 6,
             Self::CryptoGuestMemoryFault => 7,
             Self::CryptoForeignSession => 8,
+            Self::W7Live => 9,
+            Self::W7ProviderBusy => 10,
         }
     }
 
@@ -61,6 +66,8 @@ impl BeyondEnvFixtureRequest {
             6 => Some(Self::CryptoPositiveAndNegatives),
             7 => Some(Self::CryptoGuestMemoryFault),
             8 => Some(Self::CryptoForeignSession),
+            9 => Some(Self::W7Live),
+            10 => Some(Self::W7ProviderBusy),
             _ => None,
         }
     }
@@ -171,6 +178,8 @@ pub(crate) struct ActiveBeyondEnvInvocation {
     pub(super) memory: Option<Memory>,
     pub(super) continuation: Option<ResumableInvocation>,
     pub(super) outputs: [Value; 1],
+    pub(super) prior_w7_candidate:
+        Option<crate::module_candidate_intake::RetainedExternalWasmCandidate>,
     pub(super) auto_resume: bool,
     pub(super) closed: bool,
 }
@@ -193,6 +202,11 @@ pub(crate) fn request_beyond_env_fixture(request: BeyondEnvFixtureRequest) -> &'
                     | BeyondEnvFixtureRequest::NetSilentKill
             ) {
                 NET_SHIM_PROBE.lock().request_status = "accepted_pending";
+            } else if matches!(
+                request,
+                BeyondEnvFixtureRequest::W7Live | BeyondEnvFixtureRequest::W7ProviderBusy
+            ) {
+                acquisition_service::note_w7_request("accepted_pending");
             } else if let Some(scenario) = crypto_scenario(request) {
                 note_crypto_fixture_request("accepted_pending", scenario);
             } else {
@@ -202,6 +216,14 @@ pub(crate) fn request_beyond_env_fixture(request: BeyondEnvFixtureRequest) -> &'
         }
         Err(_) => "resource_busy_active_invocation",
     }
+}
+
+pub(crate) fn request_w7_acquisition() -> &'static str {
+    request_beyond_env_fixture(BeyondEnvFixtureRequest::W7Live)
+}
+
+pub(crate) fn request_w7_provider_busy_probe() -> &'static str {
+    request_beyond_env_fixture(BeyondEnvFixtureRequest::W7ProviderBusy)
 }
 
 pub(super) fn wasm_execution_busy() -> bool {
@@ -224,6 +246,15 @@ pub(crate) fn start_beyond_env_fixture(
     let active = try_start_beyond_env_fixture(request, now_ms, kill_generation);
     if active.is_none() {
         if matches!(
+            request,
+            BeyondEnvFixtureRequest::W7Live | BeyondEnvFixtureRequest::W7ProviderBusy
+        ) {
+            acquisition_service::note_w7_request("setup_failed");
+            serial::write_fmt(format_args!(
+                "RAIOS_W7_ACQUISITION outcome=setup_failed teardown_complete=true boot_ms={}\r\n",
+                now_ms
+            ));
+        } else if matches!(
             request,
             BeyondEnvFixtureRequest::NetResponsive
                 | BeyondEnvFixtureRequest::NetSilentTimeout
@@ -263,6 +294,22 @@ fn try_start_beyond_env_fixture(
     kill_generation: u64,
 ) -> Option<ActiveBeyondEnvInvocation> {
     let invocation_id = NEXT_BEYOND_ENV_INVOCATION_ID.fetch_add(1, Ordering::Relaxed);
+    let prepared_w7 = if matches!(
+        request,
+        BeyondEnvFixtureRequest::W7Live | BeyondEnvFixtureRequest::W7ProviderBusy
+    ) {
+        acquisition_service::prepare_w7_invocation()
+    } else {
+        None
+    };
+    if matches!(
+        request,
+        BeyondEnvFixtureRequest::W7Live | BeyondEnvFixtureRequest::W7ProviderBusy
+    ) && prepared_w7.is_none()
+    {
+        acquisition_service::note_w7_request("pin_or_identity_not_configured");
+        return None;
+    }
     let (service_id, behavior, module_bytes) = match request {
         BeyondEnvFixtureRequest::HoldForKill | BeyondEnvFixtureRequest::ResumeToFinish => (
             "test.fixture.beyond_env_lifecycle",
@@ -299,8 +346,13 @@ fn try_start_beyond_env_fixture(
             FixtureBehavior::Crypto(CryptoFixtureScenario::ForeignSession),
             CRYPTO_SHIM_WASM_MODULE,
         ),
+        BeyondEnvFixtureRequest::W7Live | BeyondEnvFixtureRequest::W7ProviderBusy => (
+            NET_ACQUIRE_W7_SERVICE_ID,
+            FixtureBehavior::W7Live,
+            acquisition_service::NET_ACQUIRE_W7_WASM_ARTIFACT_BYTES,
+        ),
     };
-    let authority = InvocationAuthority {
+    let fixture_authority = InvocationAuthority {
         service_id,
         invocation_id,
         service_generation: 1,
@@ -308,6 +360,10 @@ fn try_start_beyond_env_fixture(
         captured_kill_generation: kill_generation,
         policy_allows_beyond_env: false,
     };
+    let authority = prepared_w7.map_or(fixture_authority, |prepared| InvocationAuthority {
+        policy_allows_beyond_env: prepared.policy_allows_beyond_env,
+        ..fixture_authority
+    });
     let engine = beyond_env_engine();
     let module = Module::new(&engine, module_bytes).ok()?;
     let net_state = match behavior {
@@ -316,10 +372,19 @@ fn try_start_beyond_env_fixture(
             NetFixtureScenario::Responsive,
             invocation_id,
         )),
+        FixtureBehavior::W7Live => Some(if request == BeyondEnvFixtureRequest::W7ProviderBusy {
+            NetInvocationState::new_w7_provider_busy(prepared_w7?.source, invocation_id, now_ms)?
+        } else {
+            NetInvocationState::new_w7(prepared_w7?.source, invocation_id)?
+        }),
         _ => None,
     };
     let crypto_state = match behavior {
         FixtureBehavior::Crypto(scenario) => CryptoInvocationState::fixture(scenario),
+        FixtureBehavior::W7Live => {
+            let prepared = prepared_w7?;
+            CryptoInvocationState::live(prepared.source.spki_pin_sha256, &prepared.request.bytes)
+        }
         _ => CryptoInvocationState::new(None),
     };
     let mut store = Store::new(
@@ -335,7 +400,14 @@ fn try_start_beyond_env_fixture(
             behavior,
             net: net_state,
             crypto: crypto_state,
-            acquire: None,
+            acquire: if behavior == FixtureBehavior::W7Live {
+                Some(AcquisitionInvocationState::live(
+                    invocation_id,
+                    prepared_w7?.request,
+                ))
+            } else {
+                None
+            },
             limits: beyond_env_limits(),
         },
     );
@@ -359,10 +431,10 @@ fn try_start_beyond_env_fixture(
         }
         FixtureBehavior::Crypto(_) => {
             linker
-                .func_wrap("env", "input_len", host_crypto_fixture_input_len)
+                .func_wrap("env", "input_len", host_crypto_input_len)
                 .ok()?;
             linker
-                .func_wrap("env", "input_read", host_crypto_fixture_input_read)
+                .func_wrap("env", "input_read", host_crypto_input_read)
                 .ok()?;
             linker
                 .func_wrap("net", "tcp_open", host_net_tcp_open)
@@ -407,6 +479,63 @@ fn try_start_beyond_env_fixture(
                 .func_wrap("crypto", "tls13_aead_open", host_crypto_tls13_aead_open)
                 .ok()?;
         }
+        FixtureBehavior::W7Live => {
+            linker
+                .func_wrap("env", "input_len", host_crypto_input_len)
+                .ok()?;
+            linker
+                .func_wrap("env", "input_read", host_crypto_input_read)
+                .ok()?;
+            linker
+                .func_wrap("net", "tcp_open", host_net_tcp_open)
+                .ok()?;
+            linker
+                .func_wrap("net", "tcp_send", host_net_tcp_send)
+                .ok()?;
+            linker
+                .func_wrap("net", "tcp_recv", host_net_tcp_recv)
+                .ok()?;
+            linker
+                .func_wrap("net", "tcp_close", host_net_tcp_close_and_crypto)
+                .ok()?;
+            linker
+                .func_wrap(
+                    "crypto",
+                    "tls13_session_open",
+                    host_crypto_tls13_session_open,
+                )
+                .ok()?;
+            linker
+                .func_wrap("crypto", "sha256", host_crypto_sha256)
+                .ok()?;
+            linker
+                .func_wrap("crypto", "p256_verify", host_crypto_p256_verify)
+                .ok()?;
+            linker
+                .func_wrap(
+                    "crypto",
+                    "tls13_handshake_keys",
+                    host_crypto_tls13_handshake_keys,
+                )
+                .ok()?;
+            linker
+                .func_wrap(
+                    "crypto",
+                    "tls13_application_keys",
+                    host_crypto_tls13_application_keys,
+                )
+                .ok()?;
+            linker
+                .func_wrap("crypto", "tls13_finished", host_crypto_tls13_finished)
+                .ok()?;
+            linker
+                .func_wrap("crypto", "tls13_aead_seal", host_crypto_tls13_aead_seal)
+                .ok()?;
+            linker
+                .func_wrap("crypto", "tls13_aead_open", host_crypto_tls13_aead_open)
+                .ok()?;
+            link_acquire_fixture(&mut linker).ok()?;
+        }
         _ => {
             linker
                 .func_wrap("test", "suspend_once", host_test_suspend_once)
@@ -423,9 +552,15 @@ fn try_start_beyond_env_fixture(
         .and_then(Extern::into_memory)?;
     let export_name = match behavior {
         FixtureBehavior::Crypto(scenario) => scenario.export_name(),
+        FixtureBehavior::W7Live => "raios_service_main",
         _ => "run",
     };
     let function = instance.get_export(&store, export_name)?.into_func()?;
+    let prior_w7_candidate = if behavior == FixtureBehavior::W7Live {
+        crate::module_candidate_intake::retained()
+    } else {
+        None
+    };
     let mut outputs = [Value::I32(0)];
     let continuation = match function.call_resumable(&mut store, &[], &mut outputs) {
         Ok(ResumableCall::Resumable(invocation))
@@ -488,6 +623,13 @@ fn try_start_beyond_env_fixture(
                 scenario.as_str(), invocation_id, suspended_boot_ms
             ));
         }
+        FixtureBehavior::W7Live => {
+            acquisition_service::note_w7_started(invocation_id);
+            serial::write_fmt(format_args!(
+                "RAIOS_W7_ACQUISITION suspended=true operation=tcp_open invocation_id={} endpoint=10.0.2.100:8443\r\n",
+                invocation_id
+            ));
+        }
         _ => {
             let mut probe = BEYOND_ENV_PROBE.lock();
             probe.request_status = "running";
@@ -517,6 +659,7 @@ fn try_start_beyond_env_fixture(
         memory: Some(memory),
         continuation: Some(continuation),
         outputs,
+        prior_w7_candidate,
         auto_resume: request == BeyondEnvFixtureRequest::ResumeToFinish,
         closed: false,
     })
@@ -551,7 +694,7 @@ impl ActiveBeyondEnvInvocation {
                 .expect("active beyond-env store missing")
                 .data()
                 .behavior,
-            FixtureBehavior::Net(_) | FixtureBehavior::Crypto(_)
+            FixtureBehavior::Net(_) | FixtureBehavior::Crypto(_) | FixtureBehavior::W7Live
         ) {
             return self.pump_net(now_ms, kill_boot_ms, boundary);
         }
@@ -692,6 +835,30 @@ impl ActiveBeyondEnvInvocation {
                 crypto_zeroized,
             );
         }
+        let w7_terminal = if behavior == FixtureBehavior::W7Live {
+            let acquisition = store.data().acquire.as_ref();
+            let candidate_sha256 =
+                acquisition.and_then(AcquisitionInvocationState::candidate_sha256);
+            Some((
+                store.data().crypto.source_tls_evidence_valid(),
+                candidate_sha256,
+                acquisition.and_then(AcquisitionInvocationState::receipt_sha256),
+                net_terminal
+                    .as_ref()
+                    .map(|terminal| {
+                        (
+                            terminal.tx_bytes,
+                            terminal.rx_bytes,
+                            terminal.first_negative_result,
+                        )
+                    })
+                    .expect("W7 live invocation missing net terminal"),
+                candidate_sha256.is_some()
+                    || retained_candidate_matches(self.prior_w7_candidate.as_ref()),
+            ))
+        } else {
+            None
+        };
 
         // Teardown step 9: no raiOS lock is held while wasmi state is dropped.
         drop(self.continuation.take());
@@ -700,7 +867,41 @@ impl ActiveBeyondEnvInvocation {
         drop(self.store.take());
         self.closed = true;
 
-        if let FixtureBehavior::Crypto(scenario) = behavior {
+        if behavior == FixtureBehavior::W7Live {
+            let (
+                source_tls_evidence,
+                candidate_sha256,
+                receipt_sha256,
+                (tx_bytes, rx_bytes, first_negative_result),
+                prior_candidate_preserved,
+            ) = w7_terminal.expect("W7 terminal evidence missing");
+            let w7_outcome = match first_negative_result {
+                Some(HOST_IMPORT_ERROR_RESOURCE_BUSY) => "resource_busy",
+                Some(HOST_IMPORT_ERROR_TIMED_OUT) => "timed_out",
+                Some(_) => "transport_error",
+                None if outcome == TerminalOutcome::Finished && candidate_sha256.is_none() => {
+                    "guest_denied"
+                }
+                None => outcome.as_str(),
+            };
+            acquisition_service::note_w7_finished(acquisition_service::W7FinishEvidence {
+                outcome: w7_outcome,
+                suspension_count,
+                resume_count,
+                teardown_count: receipt.teardown_count,
+                source_tls_evidence,
+                crypto_session_zeroized: crypto_zeroized,
+                tx_bytes,
+                rx_bytes,
+                candidate_sha256,
+                receipt_sha256,
+                prior_candidate_preserved,
+            });
+            serial::write_fmt(format_args!(
+                "RAIOS_W7_ACQUISITION outcome={} source_tls_evidence={} candidate_retained={} teardown_complete=true boot_ms={}\r\n",
+                w7_outcome, source_tls_evidence, candidate_sha256.is_some(), now_ms
+            ));
+        } else if let FixtureBehavior::Crypto(scenario) = behavior {
             serial::write_fmt(format_args!(
                 "RAIOS_CRYPTO_SHIM outcome={} scenario={} teardown_complete=true boot_ms={}\r\n",
                 outcome.as_str(),
@@ -778,6 +979,20 @@ impl ActiveBeyondEnvInvocation {
             ));
         }
         ACTIVE_BEYOND_ENV_INVOCATION.store(0, Ordering::Release);
+    }
+}
+
+fn retained_candidate_matches(
+    prior: Option<&crate::module_candidate_intake::RetainedExternalWasmCandidate>,
+) -> bool {
+    match (prior, crate::module_candidate_intake::retained()) {
+        (Some(prior), Some(after)) => {
+            prior.sha256 == after.sha256
+                && prior.wasm_valid == after.wasm_valid
+                && prior.bytes == after.bytes
+        }
+        (None, None) => true,
+        _ => false,
     }
 }
 
@@ -875,7 +1090,7 @@ pub(super) fn host_test_suspend_once(mut caller: Caller<'_, BeyondEnvState>) -> 
                 .map_err(|_| Trap::from(TrapCode::OutOfFuel))?;
             Ok(0)
         }
-        FixtureBehavior::Net(_) | FixtureBehavior::Crypto(_) => {
+        FixtureBehavior::Net(_) | FixtureBehavior::Crypto(_) | FixtureBehavior::W7Live => {
             Err(Trap::new("test.suspend_once unavailable to net fixture"))
         }
     }

@@ -22,3 +22,7 @@ release/esp/NvVars
 
 # Proprietary Marvell WiFi firmware blob (redistributable, local-only, NOT committed)
 seed-kernel/firmware/*.bin
+
+# NET-8 W7 TLS fixture build output (.NET)
+vm-harness/net8-w7-tls-fixture/bin/
+vm-harness/net8-w7-tls-fixture/obj/

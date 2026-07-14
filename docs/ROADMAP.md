@@ -107,12 +107,25 @@ and import-set-checked by the kernel, and its grant DENIES before instantiation
 7 malformed-TLS + 10 malformed-HTTP fail-closed vectors. A correctness fix landed before
 arming: the kernel's independent import-set check was positional and the compiler emits
 imports in first-use order — now SET equality (still rejects extra/missing/duplicate).
-NEXT: **NET-8 — the OWNER-GATED arming diff. THE OWNER STOPS HERE AND APPROVES the exact
-diff (artifact hash + generation + ABI list hash + 16-import list + local.qemu.w7 policy;
-policy_allows_beyond_env:true ONLY for that evaluated path) before it is committed.** Then
-NET-9 the W7 denial matrix + the live positive fetch. The hardware cursor is unchanged and
-Surface-gated (G7 read-only stick preflight, WiFi association/PORT_RELEASE/RX-TX/DHCP proof,
-ownerkey TPM capture).
+**NET-8 IS ARMED AND COMMITTED (owner decision 2026-07-14), live download NOT yet
+demonstrated.** svc.net.acquire.w7 is owner-armed via one gated site (two literal approval
+constants + local.qemu.w7); m11-acquisition-service proves the armed reality (armed / mismatch
+still denies / grants nothing durable), and the shared-file regressions (m11-net-imports /
+crypto-imports / beyond-env-lifecycle) pass on the NET-8 kernel. The live end-to-end fetch is
+NOT proven: two blockers fixed (QEMU guestfwd-to-10.0.2.100 bridge; the encode_w7_request
+byte-framing bug) and one remaining (the W7 invocation never reaches tcp_open — a dispatch
+bug to instrument). Also new: **AGENTS.md now separates Dev-Phase from Operating rules** —
+arming a bounded RAM-only VM capability before its live demo is allowed if honestly labeled;
+four rules stay strict (no faked evidence, no secrets, run rewritten checks, no
+durable/hardware authority without evidence).
+**NEXT DELIBERATE BLOCK — finish the loop (owner-requested):** (1) fix the W7 dispatch bug
+(instrumented) so the download actually runs; (2) prove the live download, ideally against a
+REAL internet server (raiOS already reaches the real internet in QEMU — this sidesteps the
+Windows-QEMU host-loopback friction); (3) wire the inert downloaded candidate into the
+EXISTING M6 run + W6 durable-install/rollback machinery so a downloaded program can run and
+install — reusing proven machinery, not weakening the quarantine. Then NET-9 the full W7
+denial matrix. The hardware cursor is unchanged and Surface-gated (G7 read-only stick
+preflight, WiFi association/PORT_RELEASE/RX-TX/DHCP proof, ownerkey TPM capture).
 
 **P4 EVIDENCE-VOCABULARY-V1 IS CLOSED — BOTH HALVES (2026-07-13 ~23:15).** I once called
 it closed after only the envelope; that was wrong and is now actually true.

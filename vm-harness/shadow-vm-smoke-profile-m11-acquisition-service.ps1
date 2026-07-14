@@ -36,18 +36,31 @@ $cleanupOk = $probe.guest_trap_cleanup -eq $true -and $probe.out_of_fuel_cleanup
 Add-Predicate -Name "m11-acquisition-service:fuel_trap_cleanup" -Expected "the reused NET-2R lifecycle tears down exactly once after guest trap and Wasm OutOfFuel" -Passed $cleanupOk -Actual "trap=$($probe.guest_trap_cleanup) fuel=$($probe.out_of_fuel_cleanup)"
 if (-not $cleanupOk) { throw "Expected trap and fuel cleanup through NET-2R" }
 
-$denialOk = $probe.policy_denial_reason -eq "import_beyond_env_not_owner_authorized" -and
-    $probe.denied_before_instantiation -eq $true -and $probe.instantiation_attempted -eq $false -and
-    $probe.policy_allows_beyond_env -eq $false
-Add-Predicate -Name "m11-acquisition-service:denied_before_instantiation" -Expected "the exact signed artifact denies before instantiation with import_beyond_env_not_owner_authorized" -Passed $denialOk -Actual "reason=$($probe.policy_denial_reason) denied=$($probe.denied_before_instantiation) instantiated=$($probe.instantiation_attempted)"
-if (-not $denialOk) { throw "Expected the explicit beyond-env owner-authorization denial before instantiation" }
+# NET-8 arming (owner decision 2026-07-14): the exact signed W7 artifact is now
+# owner-authorized, so this probe reports the ARMED reality instead of the pre-arming
+# denial. policy_allows_beyond_env is true ONLY for this exact artifact+import-list+source
+# conjunction (net_8_w7_policy_allows); the mismatch cases below still deny.
+$armedOk = $probe.policy_allows_beyond_env -eq $true -and
+    $probe.production_linker_armed -eq $true -and
+    $probe.artifact_valid -eq $true -and $probe.signatures_build_verified -eq $true
+Add-Predicate -Name "m11-acquisition-service:armed_for_exact_w7" -Expected "the exact signed W7 artifact is owner-armed (policy_allows_beyond_env true, production linker armed) after the NET-8 flip" -Passed $armedOk -Actual "policy=$($probe.policy_allows_beyond_env) armed=$($probe.production_linker_armed) valid=$($probe.artifact_valid)"
+if (-not $armedOk) { throw "Expected the exact signed W7 artifact to be owner-armed after NET-8" }
 
-$grantsNothing = $probe.production_linker_armed -eq $false -and $probe.network_effect -eq $false -and
-    $probe.crypto_effect -eq $false -and $probe.acquisition_effect -eq $false -and
-    $probe.candidate_load_attempted -eq $false -and $probe.candidate_execution_attempted -eq $false -and
+# The mismatch guards must still keep the flip false: a wrong artifact hash, a wrong
+# import-list hash, or a wrong source policy each deny even after arming.
+$mismatchOk = $probe.artifact_hash_mismatch_denied -eq $true -and
+    $probe.import_list_hash_mismatch_denied -eq $true -and
+    $probe.source_policy_mismatch_denied -eq $true
+Add-Predicate -Name "m11-acquisition-service:mismatch_still_denies" -Expected "artifact/import-list/source-policy mismatches independently keep the W7 flip false after arming" -Passed $mismatchOk -Actual "artifact=$($probe.artifact_hash_mismatch_denied) list=$($probe.import_list_hash_mismatch_denied) source=$($probe.source_policy_mismatch_denied)"
+if (-not $mismatchOk) { throw "Expected artifact/import/source mismatches to keep W7 denied" }
+
+# Armed to RUN, but still grants nothing DURABLE: no load, execute, install, durable
+# write, or owner seal. Arming opened the linker; it did not open persistence.
+$grantsNothingDurable = $probe.candidate_load_attempted -eq $false -and
+    $probe.candidate_execution_attempted -eq $false -and
     $probe.candidate_install_attempted -eq $false -and $probe.durable_write_attempted -eq $false -and
     $probe.owner_sealed -eq $false -and $probe.trust_tier -eq "dev_key_not_owner_sealed" -and
-    $probe.capability_granted -eq $false -and $probe.evidence_complete -eq $true -and
+    $probe.evidence_complete -eq $true -and
     $probe.all_fixture_vectors_positive -eq $true
-Add-Predicate -Name "m11-acquisition-service:grants_nothing" -Expected "NET-7 opens no linker, network, crypto, acquisition, load, execution, install, durable, owner-seal, or capability effect" -Passed $grantsNothing -Actual $(if ($grantsNothing) { "grants nothing" } else { $probe | ConvertTo-Json -Compress -Depth 8 })
-if (-not $grantsNothing) { throw "Expected NET-7 to grant and effect nothing" }
+Add-Predicate -Name "m11-acquisition-service:grants_nothing_durable" -Expected "even armed, W7 opens no load, execution, install, durable-write, or owner-seal authority" -Passed $grantsNothingDurable -Actual $(if ($grantsNothingDurable) { "grants nothing durable" } else { $probe | ConvertTo-Json -Compress -Depth 8 })
+if (-not $grantsNothingDurable) { throw "Expected armed W7 to grant nothing durable (no load/execute/install/durable/owner-seal)" }

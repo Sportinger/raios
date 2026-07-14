@@ -1282,6 +1282,12 @@ pub(crate) fn emit_wasm_acquire_import_probe() {
 
 pub(crate) fn emit_wasm_acquisition_service_probe() {
     let probe = wasm_runtime::acquisition_service_probe();
+    let live = wasm_runtime::w7_acquisition_snapshot();
+    let w7_blocks_provider_reason = if live.active && live.transport_lease_held {
+        wasm_runtime::observe_w7_blocks_provider()
+    } else {
+        live.w7_blocks_provider_reason
+    };
     let vectors = probe.vector_report;
     begin_response("wasm.acquisition_service_probe");
     emit_record_fields(
@@ -1334,16 +1340,135 @@ pub(crate) fn emit_wasm_acquisition_service_probe() {
                 "denied_before_instantiation",
                 b(probe.denied_before_instantiation),
             ),
-            f("instantiation_attempted", b(false)),
-            f("policy_allows_beyond_env", b(false)),
-            f("production_linker_armed", b(false)),
-            f("network_effect", b(false)),
-            f("crypto_effect", b(false)),
-            f("acquisition_effect", b(false)),
+            f(
+                "policy_allows_beyond_env",
+                b(probe.policy_allows_beyond_env),
+            ),
+            f("production_linker_armed", b(probe.production_linker_armed)),
+            f("live_pin_configured", b(probe.live_pin_configured)),
+            f(
+                "artifact_hash_mismatch_denied",
+                b(probe.artifact_mismatch_denied),
+            ),
+            f(
+                "import_list_hash_mismatch_denied",
+                b(probe.import_list_mismatch_denied),
+            ),
+            f(
+                "source_policy_mismatch_denied",
+                b(probe.source_policy_mismatch_denied),
+            ),
+            f(
+                "different_service_denied_before_instantiation",
+                b(probe.different_service_denied_before_instantiation),
+            ),
+            f("instantiation_attempted", b(live.run_count != 0)),
+            f(
+                "network_effect",
+                b(live.tx_bytes != 0 || live.rx_bytes != 0),
+            ),
+            f("crypto_effect", b(live.source_tls_evidence)),
+            f("acquisition_effect", b(live.candidate_sha256.is_some())),
+            f("request_status", s(live.request_status)),
+            f("active", b(live.active)),
+            f("outcome", s(live.outcome)),
+            f("invocation_id", V::U64(live.invocation_id)),
+            f("run_count", V::U64(live.run_count)),
+            f("success_count", V::U64(live.success_count)),
+            f("killed_count", V::U64(live.killed_count)),
+            f("suspension_count", V::U64(live.suspension_count as u64)),
+            f("resume_count", V::U64(live.resume_count as u64)),
+            f("teardown_count", V::U64(live.teardown_count as u64)),
+            f("teardown_complete", b(live.teardown_complete)),
+            f("no_resume_after_kill", b(live.no_resume_after_kill)),
+            f("crypto_session_zeroized", b(live.crypto_session_zeroized)),
+            f("transport_lease_held", b(live.transport_lease_held)),
+            f("w7_blocks_provider_reason", s(w7_blocks_provider_reason)),
+            f(
+                "pending_acquisition_present",
+                b(live.pending_acquisition_present),
+            ),
+            f(
+                "prior_candidate_preserved",
+                b(live.prior_candidate_preserved),
+            ),
+            f("source_tls_evidence", b(live.source_tls_evidence)),
+            f(
+                "tls_protocol",
+                s(if live.source_tls_evidence {
+                    "TLS1.3"
+                } else {
+                    "not_observed"
+                }),
+            ),
+            f(
+                "tls_cipher_suite",
+                s(if live.source_tls_evidence {
+                    "0x1301"
+                } else {
+                    "not_observed"
+                }),
+            ),
+            f(
+                "tls_key_exchange_group",
+                s(if live.source_tls_evidence {
+                    "P-256"
+                } else {
+                    "not_observed"
+                }),
+            ),
+            f("tls_trust_label", s("pin_only_no_webpki_chain_validation")),
+            f("webpki_chain_validated", b(false)),
+            f("certificate_time_validated", b(false)),
+            f("certificate_verify_math", b(live.source_tls_evidence)),
+            f("ephemeral_spki_pin_match", b(live.source_tls_evidence)),
+            f("server_finished_valid", b(live.source_tls_evidence)),
+            f(
+                "http_status",
+                V::U64(if live.candidate_sha256.is_some() {
+                    200
+                } else {
+                    0
+                }),
+            ),
+            f(
+                "http_content_type",
+                s(if live.candidate_sha256.is_some() {
+                    "application/octet-stream"
+                } else {
+                    "not_observed"
+                }),
+            ),
+            f(
+                "http_content_length",
+                V::U64(if live.candidate_sha256.is_some() {
+                    4205
+                } else {
+                    0
+                }),
+            ),
+            f("every_chunk_hash_valid", b(live.candidate_sha256.is_some())),
+            f("whole_hash_valid", b(live.candidate_sha256.is_some())),
+            f("tx_bytes", V::U64(live.tx_bytes)),
+            f("rx_bytes", V::U64(live.rx_bytes)),
+            f(
+                "candidate_sha256",
+                record_sha_or_null(live.candidate_sha256),
+            ),
+            f("receipt_sha256", record_sha_or_null(live.receipt_sha256)),
+            f("candidate_scope", s("current_boot")),
+            f("candidate_inert", b(live.candidate_sha256.is_some())),
+            f(
+                "same_shared_acquire_finalizer",
+                b(live.candidate_sha256.is_some()),
+            ),
+            f("w7_private_success_store", b(false)),
             f("candidate_load_attempted", b(false)),
             f("candidate_execution_attempted", b(false)),
             f("candidate_install_attempted", b(false)),
             f("durable_write_attempted", b(false)),
+            f("rollback_mutation_attempted", b(false)),
+            f("provider_auto_load_attempted", b(false)),
             f("owner_sealed", b(false)),
             f("trust_tier", s("dev_key_not_owner_sealed")),
             f("capability_granted", b(false)),
@@ -1421,6 +1546,8 @@ fn emit_net_shim_probe(action: &str) {
         "start_kill" => wasm_runtime::request_beyond_env_fixture(
             wasm_runtime::BeyondEnvFixtureRequest::NetSilentKill,
         ),
+        "start_w7" => wasm_runtime::request_w7_acquisition(),
+        "start_w7_provider_busy" => wasm_runtime::request_w7_provider_busy_probe(),
         "status" => "status",
         _ => "invalid_fixture_action",
     };

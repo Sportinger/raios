@@ -16,6 +16,10 @@ param(
     [string]$Cpu = "",
     [ValidateSet("", "none", "e1000")]
     [string]$Nic = "",
+    # NET-8 live W7 fetch: bridge a guest TCP address to a host loopback fixture, e.g.
+    # "tcp:10.0.2.100:8443-tcp:127.0.0.1:8443". Must NOT target the slirp gateway 10.0.2.2
+    # (QEMU rejects guestfwd to the gateway). Empty = no bridge.
+    [string]$GuestFwd = "",
     [switch]$BareMetalVm,
     [switch]$Headless,
     [switch]$MouseGrab,
@@ -111,8 +115,12 @@ if ($Cpu) {
 }
 
 if ($Nic -eq "e1000") {
+    $netdev = "user,id=net0"
+    if ($GuestFwd) {
+        $netdev += ",guestfwd=$GuestFwd"
+    }
     $qemuArgs += @(
-        "-netdev", "user,id=net0",
+        "-netdev", $netdev,
         "-device", "e1000,netdev=net0,mac=52:54:00:12:34:56"
     )
 }
