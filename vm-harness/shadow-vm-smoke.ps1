@@ -10,7 +10,7 @@ param(
     [switch]$KeepImage,
     [int]$SerialWriteChunkSize = 256,
     [int]$SerialWriteDelayMilliseconds = 0,
-    [ValidateSet("full", "quick", "recovery", "genesis-ui", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m12-distribution-provenance", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable", "structured-store", "project-workspace", "project-build", "project-app", "project-install", "secret-vault", "core-policy", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow", "m11-7-httphead", "m11-8-certspki", "usb-hotplug")]
+    [ValidateSet("full", "quick", "recovery", "genesis-ui", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m12-distribution-provenance", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable", "structured-store", "project-workspace", "project-build", "project-app", "project-install", "secret-vault", "core-policy", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow", "m11-7-httphead", "m11-8-certspki", "m11-9-dnsparse", "usb-hotplug")]
     [string]$Profile = "full"
 )
 
@@ -355,6 +355,11 @@ try {
 
         if ($Profile -eq "m11-8-certspki") {
             . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-m11-8-certspki.ps1")
+            break SmokeProfileValidation
+        }
+
+        if ($Profile -eq "m11-9-dnsparse") {
+            . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-m11-9-dnsparse.ps1")
             break SmokeProfileValidation
         }
 
