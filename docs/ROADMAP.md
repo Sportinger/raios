@@ -15,7 +15,50 @@ vocabulary).
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-13.
+Last updated: 2026-07-14.
+
+**M11-9 DNSPARSE VERIFIED-CLOSED (2026-07-14) — the FOURTH real relocation, plus the
+first hard memory bound for buffer guests.** The DNS query/A-response parser lives in
+the no-dep crate `raios-dns-parse` (re-exported as `raios_core::dns_parse`; net.rs
+873→721, live path behaviorally identical, 12 pinned-fixture host tests) AND runs as
+the signed guest `svc.demo.dnsparse` (exactly 3 env imports) whose result the core
+independently re-parses and cross-checks — decoded values AND exact output-record
+sha256 — on happy/truncated/pointer-loop paths, with pre-instantiation import denial
+(`wasm.dnsparse_probe`, typed record model). HARDENING: buffer-guest stores had
+DEFAULT StoreLimits (wasmi default = UNLIMITED memory; only fuel was bounded) — now
+2 MiB / 1 instance / 1 memory / 1 table / 64 elements with the limiter attached. The
+spec said tables(0); the worker HALTED on its stop condition (httphead/certspki each
+instantiate one funcref table), and the bound follows measurement — narrowed, never
+widened. Commits 2c1967e / 1ee84af / 47265c7. EVIDENCE: m11-9-dnsparse
+shadow-20260714-110049-6012.json; mandatory shared-runner regressions
+m11-buffer-channel shadow-20260714-110257-27064.json, m11-6-certwindow
+shadow-20260714-110359-23996.json, m11-7-httphead shadow-20260714-110517-26780.json,
+m11-8-certspki shadow-20260714-110617-15500.json; block close FULL
+shadow-20260714-110906-26004.json (2,685/0, same count as the P4 baseline) + RECOVERY
+shadow-20260714-111420-25148.json (152). BOOKKEEPING: M11-8 = certspki (fdb1ce2 +
+802ee6f, 2026-07-08, m11-8-certspki shadow-20260708-223318-28048.json) was never
+recorded here — recorded now; that collision is why this slice is M11-9 while its
+scope doc is `docs/plan-reviews/m11-8-next-parser-relocation-scope-2026-07-14.md`.
+Next parser candidate per that scope: HTTP chunked-body + provider JSON extraction
+(openai.rs, ~125 LOC, as ONE provider-body crate); TLS belongs to the beyond-env lane.
+
+**OWNER DECISION (2026-07-14): W7 waits for Wasm net-imports — no native Stage-0
+adapter.** The full W7 design (fixed-source pinned-HTTPS fetch, M12+ convergence,
+RAM-only quarantine, denial matrix) is recorded in
+`docs/plan-reviews/w7-quarantined-network-acquisition-scope-2026-07-14.md` (e696a62)
+for the lane reopen. The active non-hardware lane is the ADR-0008 beyond-env import
+architecture, scoped in `docs/plan-reviews/m11-beyond-env-net-imports-scope-2026-07-14.md`
+(c176f60): pre-bound `net.*` (core owns endpoint/pin/lease), opaque-session `crypto.*`
+(keys never in guest memory), M12-convergent `acquire.*`; TLS/HTTP state machines in
+Wasm as evidence only. Slices 1-7 are grants-nothing (`policy_allows_beyond_env` stays
+false EVERYWHERE); slice 8 is the explicit owner-approved arming diff for exactly
+`svc.net.acquire.w7`. Critical proof obligation: F12 kill + singleton-TCP-lease release
+while the peer is silent, else recut to non-blocking imports — an unkillable kernel
+stall is a stop condition, not a ship. Owner detail decisions 1-4 proceed on the
+recorded recommendations (veto open), 5 after slice-2 evidence, 6 at arming, 7 deferred.
+Next slice: net-imports slice 1 (ABI + evidence-bound evaluator, grants nothing). The
+hardware cursor is unchanged and Surface-gated (G7 read-only stick preflight, WiFi
+association/PORT_RELEASE/RX-TX/DHCP proof, ownerkey TPM capture).
 
 **P4 EVIDENCE-VOCABULARY-V1 IS CLOSED — BOTH HALVES (2026-07-13 ~23:15).** I once called
 it closed after only the envelope; that was wrong and is now actually true.

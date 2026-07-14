@@ -24,6 +24,81 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+M11-9 DNSPARSE VERIFIED-CLOSED (2026-07-14) — the FOURTH real kernel-code relocation
+(after M11-6 certwindow, M11-7 httphead, M11-8 certspki), plus the FIRST hard memory
+bound for buffer guests. Three commits:
+- 2c1967e (M11-9a): pure DNS codec extracted to the no-dep crate raios-dns-parse
+  (re-export `raios_core::dns_parse`; net.rs 873 -> 721). The allocation-free streaming
+  name comparator preserves the exact accept/reject set: skip-not-reject for foreign
+  answer names, exact-case match, per-label UTF-8 rejection, 16-jump pointer cap,
+  0-TTL -> 300s default. 12 pinned-fixture host tests incl. truncation at every
+  boundary. Also ships the DNSQ/DNSR v1 guest record codecs used by 9b.
+- 1ee84af (M11-9b): signed guest svc.demo.dnsparse (exactly env.input_len/input_read/
+  output_write; artifact 367db5a67a8b56f4b1c299413644f68f3cd7782db84fcb006bf0cbbe1862f299;
+  dev_key_not_owner_sealed; build.rs hard-gates both P-256 signatures, exact field
+  counts/values, and the recomputed artifact + identity-descriptor hashes) plus
+  wasm.dnsparse_probe rendering raios.wasm_dnsparse_probe.v0 through the typed record
+  model: the core independently re-parses the same bytes and cross-checks decoded
+  values AND exact output-record sha256 on happy/truncated/pointer-loop; a fourth case
+  proves import denial BEFORE instantiation. Live poll_dns untouched (guest = evidence,
+  core = authority; no fallback). HARDENING: buffer-guest stores previously built
+  DEFAULT StoreLimits and never attached store.limiter — wasmi's default is UNLIMITED
+  linear memory, so only fuel bounded a hostile guest. Now: 2 MiB / 1 instance /
+  1 memory / 1 table / 64 table elements, limiter attached in execute_validated_
+  module_bytes. PROCESS NOTE worth repeating: the spec demanded tables(0); the worker
+  HALTED on its stop condition instead of improvising, because measurement showed
+  httphead/certspki each instantiate one funcref table (3/2 elements; all four guests
+  use 1,114,112 B initial memory). The orchestrator set the bound from measurement —
+  narrowed, never widened. That is the stop-condition mechanism doing its job.
+- 47265c7 (M11-9c): focused profile m11-9-dnsparse; registration mirrors certspki;
+  no new shared harness script-scope state (2026-07-13 support-drift lesson applied).
+CLOSE EVIDENCE: m11-9-dnsparse shadow-20260714-110049-6012.json; mandatory shared-
+runner regressions m11-buffer-channel shadow-20260714-110257-27064.json,
+m11-6-certwindow shadow-20260714-110359-23996.json, m11-7-httphead
+shadow-20260714-110517-26780.json, m11-8-certspki shadow-20260714-110617-15500.json;
+block close FULL shadow-20260714-110906-26004.json (2,685 predicates, 0 failed — same
+count as the P4-close baseline, no coverage collapse) + RECOVERY
+shadow-20260714-111420-25148.json (152). Host: 548 raios-core + 12 raios-dns-parse;
+fmt, size gate, secret scan clean. No VM failures this block, nothing to classify.
+
+BOOKKEEPING CORRECTION (2026-07-14): M11-8 = certspki, never recorded. Commits fdb1ce2
+(raios-x509-spki no-dep crate out of the live TLS verifier) and 802ee6f (signed
+svc.demo.certspki guest + independent core cross-check) landed 2026-07-08 with a green
+m11-8-certspki report (shadow-20260708-223318-28048.json) and profile file, but neither
+ROADMAP nor this file ever recorded the slice. Recorded now. The numbering collision is
+why the DNS slice is M11-9 while its scope doc is named
+docs/plan-reviews/m11-8-next-parser-relocation-scope-2026-07-14.md. That scope doc also
+holds the remaining pure internet-facing parser inventory; the recommended next
+relocation is HTTP chunked-body + provider JSON extraction (openai.rs:1466-1590,
+~125 LOC) as ONE provider-body crate; TLS record/handshake parsing deliberately belongs
+to the beyond-env lane below, not to a byte-buffer slice.
+
+OWNER DECISION (2026-07-14): W7 WAITS FOR WASM NET-IMPORTS — the native Stage-0 HTTPS
+adapter is rejected. The complete W7 design (fixed-source pinned-HTTPS fetch converging
+on the existing M12+ chunk/finalize/preflight machinery, RAM-only quarantine, exhaustive
+denial matrix, focused network-acquisition profile with an ephemeral-key host fixture)
+is recorded in docs/plan-reviews/w7-quarantined-network-acquisition-scope-2026-07-14.md
+(e696a62) for when the lane reopens. The active non-hardware lane is the ADR-0008
+beyond-env import architecture, scoped in
+docs/plan-reviews/m11-beyond-env-net-imports-scope-2026-07-14.md (c176f60): pre-bound
+net.* (the core owns endpoint/SNI/pin/singleton-lease/quotas), opaque-session crypto.*
+(ECDHE/traffic keys never enter guest memory; host captures primitive evidence),
+M12-convergent acquire.* (chunk acceptance and finalize are the existing shared
+functions), TLS/HTTP state machines in Wasm as evidence the scoped core evaluator
+checks. Slices 1-7 are grants-nothing (policy_allows_beyond_env stays false EVERYWHERE;
+every new family must be proven DENIED before instantiation); slice 8 is the explicit
+owner-approved arming diff naming exactly svc.net.acquire.w7 + artifact hash + list
+hash + source policy; slice 9 is the W7 denial matrix. Critical proof obligation: F12
+kill + singleton-TCP-lease release while the peer is SILENT (not merely after a
+timeout), else recut the ABI to short non-blocking polls — an unkillable kernel stall
+is a stop condition. Owner detail decisions: 1-4 proceed on the recorded
+recommendations (veto open), 5 (blocking vs resumable execution shape) after slice-2
+evidence, 6 (arming) at slice 8, 7 (ADR 0012 provider-service reconciliation) deferred
+and does not block W7. Next slice: net-imports slice 1 — ABI + evidence-bound evaluator,
+grants nothing. Hardware cursor unchanged and Surface-gated: G7 read-only stick
+preflight, WiFi association/PORT_RELEASE/RX-TX/DHCP proof, ownerkey TPM capture, USB
+hub-mouse stall — all parked until a Surface session.
+
 HARNESS: THE PERSISTENCE-REBOOT SUITE IS BACK (2026-07-13 ~20:37). 119 predicates,
 all passing, previously invisible: shadow-persistence-reboot-20260713-203726-18504.json.
 The suite was never failing — it could not WRITE ITS REPORT. `Write-Report` renders

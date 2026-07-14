@@ -1,6 +1,41 @@
 # Owner Dashboard
 
-Updated: 2026-07-13 (evening).
+Updated: 2026-07-14 (Mittag).
+
+DNS-UMZUG KOMPLETT + ERSTES SPEICHERLIMIT (2026-07-14). Der vierte
+Baustein-Umzug ist fertig und bewiesen: Der Code, der DNS-Antworten liest —
+rohe, unauthentifizierte Bytes aus dem Netz („welche IP-Adresse hat
+api.openai.com?") — ist aus dem Kernel in eine eigene kleine, in Sekunden
+testbare Bibliothek gezogen UND läuft zusätzlich als signierter,
+eingesperrter Wasm-Dienst mit genau drei erlaubten Zugriffen. Der Kern
+rechnet jedes Dienst-Ergebnis selbst nach (Wert UND Byte-Abdruck müssen
+stimmen); geprüft auch mit abgeschnittenen Daten und einer absichtlichen
+Endlos-Schleifen-Falle, und ohne Import-Erlaubnis startet der Dienst gar
+nicht erst. Der lebende DNS-Weg blieb unangetastet — der Dienst liefert
+Beweise, niemals Entscheidungen.
+
+Ehrlicher Nebenfund mit Sofort-Fix: Die Wasm-Gäste hatten zwar ein
+Rechenzeit-Limit, aber KEIN Speicherlimit — ein bösartiger Gast hätte
+unbegrenzt RAM ziehen können. Jetzt gilt ein hartes 2-MiB-Limit für alle
+Puffer-Gäste. Der Bau-Agent stoppte dabei korrekt an einer Schutzregel (das
+geplante „null Tabellen" hätte zwei bestehende Gäste gebrochen) und meldete,
+statt zu improvisieren; die Grenze wurde nach Messung gesetzt — enger als
+vorher, nie weiter. Dazu eine Buchhaltungs-Korrektur: Ein kompletter
+früherer Umzug (der Zertifikat-Schlüssel-Parser vom 8. Juli) war nie in
+Roadmap/Status verbucht und ist jetzt nachgetragen. Beweise heute: neues
+fokussiertes Profil grün, alle vier Gast-Regressionen grün, voller Lauf
+grün (2.685 Prüfungen — exakt wie vor dem Umbau, nichts an Abdeckung
+verloren), Recovery grün.
+
+DEINE ENTSCHEIDUNG UMGESETZT: Kein Schnell-Adapter im Kernel für den
+Quarantäne-Download (W7). Stattdessen liegt der committete Bauplan für den
+sauberen Weg vor: Wasm-Dienste bekommen eng geführte Netzwerk-Fähigkeiten —
+der Kern behält Ziel-Adresse, Schlüssel, Limits und das letzte Wort; der
+Dienst liefert nur Beweise. Sieben Bau-Schritte schalten NICHTS frei; der
+achte, die eigentliche Freischaltung, kommt als kleiner konkreter Diff zu
+dir zur expliziten Freigabe. Härtester Prüfpunkt, ehrlich benannt: Ein
+hängender Netzzugriff muss per F12 sofort abbrechbar sein — sonst wird
+umgebaut statt geliefert.
 
 JETZT WIRKLICH FERTIG (Abend, 23:15). Ich hatte die Vokabel-Arbeit vorschnell als
 fertig gemeldet, das zurückgenommen — und jetzt stimmt es tatsächlich, beide
@@ -257,10 +292,11 @@ Stick: the owner reports it has been found, but this session did not enumerate
 or touch it. The next G7 action is read-only identity/layout/fingerprint
 preflight; never assume the former Disk 2 number or recreate a missing fingerprint.
 
-Next product slice: W7 admits one explicitly approved, bounded HTTPS source
-request into quarantine as inert content-addressed source/tree evidence. It may
-not build, execute or install automatically. Next hardware slice:
-the explicit read-only G7 stick preflight. Neither grants physical-write authority.
+Next product slice (owner decision 2026-07-14): net-imports slice 1 — the
+Wasm import-ABI and its fail-closed evaluator, grants nothing. W7's
+quarantined download rides on that lane later; the native kernel fetch was
+rejected. Next hardware slice: the explicit read-only G7 stick preflight
+(Surface-gated). Neither grants physical-write authority.
 
 Refactor program (owner-ordered 2026-07-12, cost accepted): P0 and two of
 three P1 packets are DONE. The P0 inventory routed all 121 evidence files:
