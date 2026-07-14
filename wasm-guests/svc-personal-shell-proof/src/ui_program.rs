@@ -196,7 +196,10 @@ fn render_edit_box(
     push_rect(out, frame_cursor, 3, rect, 0x3e434cff)?;
     *command_count += 2;
 
-    let columns = ((rect[2].saturating_sub(24) / 8).clamp(1, 52)) as usize;
+    // The host text renderer advances FONT_WIDTH + 1 = 9 logical pixels per
+    // glyph (seed-kernel text.rs); wrap and cursor math must use the same
+    // advance or the cursor drifts into the rendered text.
+    let columns = ((rect[2].saturating_sub(24) / 9).clamp(1, 52)) as usize;
     let rows = (rect[3].saturating_sub(24) / 20).max(1) as usize;
     let mut line_count = 1usize;
     let mut column = 0usize;
@@ -266,7 +269,7 @@ fn render_edit_box(
     }
 
     let cursor_x = origin_x
-        .saturating_add((last_line_len * 8) as u16)
+        .saturating_add((last_line_len * 9) as u16)
         .min(rect[0].saturating_add(rect[2].saturating_sub(8)));
     let cursor_y = origin_y
         .saturating_add((last_line_row * 20) as u16)
@@ -547,7 +550,8 @@ mod tests {
     fn edit_box_hard_wraps_at_columns() {
         let (mut context, input, context_len, program_start) = edit_context(b"ABCD", 16, 1);
         let widget = program_start + 44;
-        context[widget + 8..widget + 10].copy_from_slice(&48u16.to_le_bytes());
+        // width 54 -> (54-24)/9 = 3 columns at the host's 9-px glyph advance
+        context[widget + 8..widget + 10].copy_from_slice(&54u16.to_le_bytes());
         context[widget + 10..widget + 12].copy_from_slice(&64u16.to_le_bytes());
         let mut frame = [0u8; 16 * 1024];
         let len = build_frame(&context[..context_len], &input, 320, 240, &mut frame).unwrap();
