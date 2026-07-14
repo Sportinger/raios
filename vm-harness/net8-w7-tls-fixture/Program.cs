@@ -27,8 +27,12 @@ certificateRequest.CertificateExtensions.Add(san.Build());
 certificateRequest.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, true));
 certificateRequest.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
     new OidCollection { new("1.3.6.1.5.5.7.3.1") }, true));
-using var certificate = certificateRequest.CreateSelfSigned(
+using var generatedCertificate = certificateRequest.CreateSelfSigned(
     DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddHours(1));
+var certificatePfx = generatedCertificate.Export(X509ContentType.Pfx);
+using var certificate = new X509Certificate2(
+    certificatePfx, (string?)null, X509KeyStorageFlags.UserKeySet);
+CryptographicOperations.ZeroMemory(certificatePfx);
 var pin = Convert.ToHexString(SHA256.HashData(key.ExportSubjectPublicKeyInfo())).ToLowerInvariant();
 
 var listener = new TcpListener(IPAddress.Loopback, 8443);
@@ -46,25 +50,100 @@ AtomicJson(readyPath, new {
     run_id = Guid.NewGuid().ToString("N")
 });
 
-var connection = 0;
+bool TryReadMode(out string mode)
+{
+    mode = "";
+    try
+    {
+        if (!File.Exists(modePath)) return false;
+        mode = File.ReadAllText(modePath).Trim();
+        return mode.Length != 0;
+    }
+    catch (IOException)
+    {
+        return false;
+    }
+}
+
+static bool IsTransient(SocketException exception) =>
+    exception.SocketErrorCode is SocketError.WouldBlock or SocketError.IOPending or
+        SocketError.Interrupted or SocketError.TimedOut;
+
+static async Task WaitForRawReadabilityAsync(Socket socket)
+{
+    while (true)
+    {
+        try
+        {
+            if (socket.Poll(0, SelectMode.SelectRead)) return;
+        }
+        catch (SocketException exception) when (IsTransient(exception))
+        {
+        }
+        await Task.Delay(20);
+    }
+}
+
+using var client = await listener.AcceptTcpClientAsync();
+using var raw = client.GetStream();
+const int HostConnection = 1;
+const int MaxTlsSessions = 8;
+var session = 0;
+// Retain bounded wrappers until process exit: disposing sends close_notify into the next virtual session on this persistent chardev.
+var tlsSessions = new List<SslStream>(MaxTlsSessions);
+
 while (true)
 {
-    using var client = await listener.AcceptTcpClientAsync();
-    connection++;
-    var mode = File.Exists(modePath) ? File.ReadAllText(modePath).Trim() : "serve";
+    await WaitForRawReadabilityAsync(client.Client);
+    string mode;
+    while (!TryReadMode(out mode)) await Task.Delay(20);
+    if (mode != "serve" && mode != "malformed" && mode != "silent")
+        throw new InvalidDataException($"unknown fixture mode '{mode}'");
+    session++;
+
     if (mode == "silent")
     {
-        using var stream = client.GetStream();
         var drain = new byte[4096];
-        while (await stream.ReadAsync(drain) != 0) { }
-        AtomicJson(resultPath, new {
-            schema = "raios.net8_w7_tls_fixture_result.v0",
-            connection, mode, phase = "after_tcp_accept_before_tls", client_closed = true
-        });
+        var drainedBytes = 0;
+        while (true)
+        {
+            try
+            {
+                if (client.Client.Poll(0, SelectMode.SelectRead))
+                {
+                    var read = client.Client.Receive(drain, SocketFlags.None);
+                    if (read == 0) throw new EndOfStreamException("persistent guestfwd backend closed");
+                    drainedBytes += read;
+                    continue;
+                }
+            }
+            catch (SocketException exception) when (IsTransient(exception))
+            {
+                await Task.Delay(20);
+                continue;
+            }
+
+            if (TryReadMode(out var observedMode) && observedMode != "silent")
+            {
+                if (observedMode != "serve" && observedMode != "malformed")
+                    throw new InvalidDataException($"unknown fixture mode '{observedMode}'");
+                AtomicJson(resultPath, new {
+                    schema = "raios.net8_w7_tls_fixture_result.v0",
+                    host_connection = HostConnection, session, mode,
+                    phase = "after_raw_relay_before_tls", relay_session_advanced = true,
+                    reason = "mode_transition", drained_bytes = drainedBytes
+                });
+                break;
+            }
+            await Task.Delay(20);
+        }
         continue;
     }
 
-    using var ssl = new SslStream(client.GetStream(), false);
+    if (tlsSessions.Count == MaxTlsSessions)
+        throw new InvalidOperationException($"fixture TLS session limit {MaxTlsSessions} exceeded");
+    var ssl = new SslStream(raw, leaveInnerStreamOpen: true);
+    tlsSessions.Add(ssl);
     await ssl.AuthenticateAsServerAsync(new SslServerAuthenticationOptions {
         ServerCertificate = certificate,
         ClientCertificateRequired = false,
@@ -103,7 +182,8 @@ while (true)
     await ssl.FlushAsync();
     AtomicJson(resultPath, new {
         schema = "raios.net8_w7_tls_fixture_result.v0",
-        connection, mode, tls_protocol = ssl.SslProtocol.ToString(),
+        host_connection = HostConnection, session, mode,
+        tls_protocol = ssl.SslProtocol.ToString(),
         cipher_suite = ssl.NegotiatedCipherSuite.ToString(), request_exact = exact,
         request_path = requestPath, response_status = 200,
         response_content_type = mode == "malformed" ? "text/plain" : "application/octet-stream",

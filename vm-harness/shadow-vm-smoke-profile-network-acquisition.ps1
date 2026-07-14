@@ -40,6 +40,7 @@ $fixturePositive = Get-Content -LiteralPath $fixtureResultPath -Raw | ConvertFro
 Send-AgentCommand -Command $method -ExpectedMarker "RAIOS_AGENT_END $method" -Name "network-acquisition:positive-status"
 $positive = (Get-LastAgentResponseJson -Method $method).body.result
 $positiveOk = $positiveFinished -and $positiveStart.request_status -eq "accepted_pending" -and
+    [int]$fixturePositive.host_connection -eq 1 -and [int]$fixturePositive.session -eq 1 -and
     $fixturePositive.mode -eq "serve" -and $fixturePositive.request_exact -eq $true -and
     $fixturePositive.tls_protocol -eq "Tls13" -and
     $fixturePositive.cipher_suite -eq "TLS_AES_128_GCM_SHA256" -and
@@ -51,7 +52,7 @@ $positiveOk = $positiveFinished -and $positiveStart.request_status -eq "accepted
     [int]$positive.http_status -eq 200 -and $positive.http_content_type -eq "application/octet-stream" -and
     [int]$positive.http_content_length -eq 4205 -and $positive.every_chunk_hash_valid -eq $true -and
     $positive.whole_hash_valid -eq $true -and $positive.candidate_sha256 -eq $expectedPayload
-Add-Predicate -Name "network-acquisition:1_positive_live_fetch" -Expected "real e1000/DHCP/10.0.2.2:8443/TLS1.3-0x1301-P256 pinned-SPKI/server-Finished/exact-HTTP fetch verifies every chunk and whole hash" -Passed $positiveOk -Actual $(if ($positiveOk) { "live fetch verified" } else { @{ fixture = $fixturePositive; guest = $positive } | ConvertTo-Json -Compress -Depth 10 })
+Add-Predicate -Name "network-acquisition:1_positive_live_fetch" -Expected "persistent host connection 1/session 1 performs the real e1000/DHCP/10.0.2.100:8443/TLS1.3-0x1301-P256 pinned-SPKI/server-Finished/exact-HTTP fetch and verifies every chunk and whole hash" -Passed $positiveOk -Actual $(if ($positiveOk) { "live fetch verified on persistent relay session 1" } else { @{ fixture = $fixturePositive; guest = $positive } | ConvertTo-Json -Compress -Depth 10 })
 if (-not $positiveOk) { throw "NET-8 positive live fetch failed" }
 
 Send-AgentCommand -Command "module.load_ephemeral svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "network-acquisition:retained-preflight"
@@ -61,25 +62,33 @@ $preflight = $loadRuntime.receiver_identity_load_preflight
 $preflightOk = $load.schema -eq "raios.evidence_response.v1" -and $load.decision.outcome -eq "denied" -and
     @($load.decision.grants).Count -eq 0 -and @($load.decision.effects).Count -eq 0 -and
     $preflight.status -eq "denied" -and
-    $preflight.reason -eq "distribution_receiver_identity_load_preflight_missing_required_gates" -and
-    [int]$preflight.missing_gate_count -eq 4 -and
+    $preflight.reason -eq "receiver_identity_catalog_entry_not_found" -and
+    $preflight.present -eq $false -and
+    $preflight.receiver_identity_retained -eq $false -and
+    $preflight.receiver_identity_complete -eq $false -and
+    $preflight.retained_candidate_present -eq $false -and
+    $preflight.retained_candidate_matches_catalog_finalize -eq $false -and
+    $preflight.preflight_evaluated -eq $false -and
+    [int]$preflight.missing_gate_count -eq 0 -and
+    $preflight.requires_m6_m7_reverify_for_load -eq $true -and
     $positive.candidate_load_attempted -eq $false -and
     $positive.candidate_install_attempted -eq $false -and
     $positive.candidate_execution_attempted -eq $false -and
     $positive.durable_write_attempted -eq $false -and
     $positive.rollback_mutation_attempted -eq $false -and
     $positive.provider_auto_load_attempted -eq $false
-Add-Predicate -Name "network-acquisition:3_retained_candidate_preflight_denial" -Expected "the retained current_boot candidate still lacks activation evidence and cannot load, install, execute, persist, mutate rollback, or auto-load for a provider" -Passed $preflightOk -Actual $(if ($preflightOk) { "load denied; four gates missing" } else { $load | ConvertTo-Json -Compress -Depth 10 })
-if (-not $preflightOk) { throw "NET-8 retained-candidate preflight did not remain denied" }
+Add-Predicate -Name "network-acquisition:3_retained_candidate_preflight_denial" -Expected "the retained current_boot candidate has no distinct catalog receiver identity or evaluated load preflight, requires M6/M7 reverify, and cannot load, install, execute, persist, mutate rollback, or auto-load for a provider" -Passed $preflightOk -Actual $(if ($preflightOk) { "receiver identity and load preflight missing; M6/M7 reverify required" } else { $load | ConvertTo-Json -Compress -Depth 10 })
+if (-not $preflightOk) { throw "NET-8 retained candidate did not remain inert without a receiver identity load preflight" }
 
 Send-AgentCommand -Command "wasm.acquire_import_probe" -ExpectedMarker "RAIOS_AGENT_END wasm.acquire_import_probe" -Name "network-acquisition:shared-finalizer"
 $shared = (Get-LastAgentResponseJson -Method "wasm.acquire_import_probe").body.result
 $sharedOk = $shared.fixture_complete -eq $true -and $shared.candidate_hash_converged -eq $true -and
-    $shared.receipt_hash_converged -eq $true -and $positive.candidate_sha256 -eq $shared.service_candidate_sha256 -and
+    $shared.receipt_hash_converged -eq $false -and $null -eq $shared.serial_receipt_sha256 -and
+    $positive.candidate_sha256 -eq $shared.service_candidate_sha256 -and
     $positive.receipt_sha256 -eq $shared.service_receipt_sha256 -and
     $positive.candidate_scope -eq "current_boot" -and $positive.candidate_inert -eq $true -and
     $positive.same_shared_acquire_finalizer -eq $true -and $positive.w7_private_success_store -eq $false
-Add-Predicate -Name "network-acquisition:2_shared_finalize_convergence" -Expected "live bytes and the native acquisition route converge on the same inert candidate and byte-identical receipt through one shared finalizer, with no W7-private store" -Passed $sharedOk -Actual $(if ($sharedOk) { "candidate and receipt converged" } else { @{ live = $positive; shared = $shared } | ConvertTo-Json -Compress -Depth 10 })
+Add-Predicate -Name "network-acquisition:2_shared_finalize_convergence" -Expected "live W7 and the acquire service converge on the same inert candidate and byte-identical receipt through one shared finalizer, with no W7-private store and no unrelated serial receipt" -Passed $sharedOk -Actual $(if ($sharedOk) { "live W7 and acquire service hashes converged; serial receipt honestly absent" } else { @{ live = $positive; shared = $shared } | ConvertTo-Json -Compress -Depth 10 })
 if (-not $sharedOk) { throw "NET-8 did not converge on the shared finalizer" }
 
 $busyOffset = Get-SerialLogOffset
@@ -110,10 +119,33 @@ $killOk = $killed -and $killMs -le 250 -and $killStatus.outcome -eq "killed" -an
     $killStatus.no_resume_after_kill -eq $true -and [int]$killStatus.teardown_count -eq 1 -and
     $killStatus.crypto_session_zeroized -eq $true -and $killStatus.transport_lease_held -eq $false -and
     $killStatus.pending_acquisition_present -eq $false -and $killStatus.prior_candidate_preserved -eq $true
-Add-Predicate -Name "network-acquisition:4_f12_silent_peer_cleanup" -Expected "monitor F12 cancels a silent peer within 250 ms, never resumes, zeroizes crypto, closes TCP, releases lease, drops incomplete bytes, and preserves the prior candidate" -Passed $killOk -Actual $(if ($killOk) { "killed in ${killMs}ms; cleaned once" } else { $killStatus | ConvertTo-Json -Compress -Depth 8 })
+Add-Predicate -Name "network-acquisition:4_f12_silent_peer_cleanup" -Expected "monitor F12 cancels a silent peer within 250 ms, never resumes, zeroizes crypto, completes guest/local socket and lease cleanup, drops incomplete bytes, and preserves the prior candidate" -Passed $killOk -Actual $(if ($killOk) { "killed in ${killMs}ms; cleaned once" } else { $killStatus | ConvertTo-Json -Compress -Depth 8 })
 if (-not $killOk) { throw "NET-8 silent-peer F12 cleanup failed" }
 
 & $fixtureWrapper -Action SetMode -ModePath $fixtureModePath -Mode malformed
+$transitionDeadline = [DateTime]::UtcNow.AddSeconds(2)
+$fixtureTransition = $null
+while ([DateTime]::UtcNow -lt $transitionDeadline)
+{
+    if (Test-Path -LiteralPath $fixtureResultPath -PathType Leaf)
+    {
+        try { $fixtureTransition = Get-Content -LiteralPath $fixtureResultPath -Raw | ConvertFrom-Json }
+        catch { $fixtureTransition = $null }
+        if ($fixtureTransition.mode -eq "silent" -and [int]$fixtureTransition.host_connection -eq 1 -and
+            [int]$fixtureTransition.session -eq 2 -and $fixtureTransition.relay_session_advanced -eq $true -and
+            $fixtureTransition.reason -eq "mode_transition" -and
+            $fixtureTransition.phase -eq "after_raw_relay_before_tls" -and
+            [int]$fixtureTransition.drained_bytes -gt 0) { break }
+    }
+    Start-Sleep -Milliseconds 20
+}
+$transitionOk = $fixtureTransition.mode -eq "silent" -and [int]$fixtureTransition.host_connection -eq 1 -and
+    [int]$fixtureTransition.session -eq 2 -and $fixtureTransition.relay_session_advanced -eq $true -and
+    $fixtureTransition.reason -eq "mode_transition" -and
+    $fixtureTransition.phase -eq "after_raw_relay_before_tls" -and
+    [int]$fixtureTransition.drained_bytes -gt 0
+Add-Predicate -Name "network-acquisition:4b_silent_relay_session_advance" -Expected "persistent host connection 1 drains silent relay session 2 and advances it on the observed mode transition before malformed acquisition starts" -Passed $transitionOk -Actual $(if ($transitionOk) { "silent relay session 2 drained and advanced" } elseif ($null -eq $fixtureTransition) { "transition result absent" } else { $fixtureTransition | ConvertTo-Json -Compress -Depth 6 })
+if (-not $transitionOk) { throw "NET-8 silent relay session did not advance before malformed acquisition" }
 Remove-Item -LiteralPath $fixtureResultPath -Force -ErrorAction SilentlyContinue
 $malformedOffset = Get-SerialLogOffset
 Send-AgentCommand -Command "$startMethod start_w7" -ExpectedMarker "RAIOS_AGENT_END $startMethod" -Name "network-acquisition:malformed-response"

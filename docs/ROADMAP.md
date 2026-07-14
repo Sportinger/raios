@@ -47,9 +47,9 @@ approval/HID typing+backspace+CLEAR/malformed-atomicity/F12), block close FULL s
 + RECOVERY shadow-20260714-234651-22992.json (152); 581 raios-core + 7 guest host tests orchestrator-verified.
 Live owner demo: calculator delivered/approved/computed 42/F12 in a visible QEMU session.
 Editor gaps stay honest: end-cursor only, ASCII only, no persistence (files stay denied).
-Natural next slice (the owner asked about persistence tonight): connect approved RUIP
-program drafts to the EXISTING W6 durable-install/autoload/rollback machinery so an
-approved editor survives reboot — reuse proven machinery, add no new persistence layer.
+The active vision order overrides the older editor-persistence cursor below: B1.1 is now
+closed; next is B1.2, routing the downloaded inert candidate through the EXISTING M6 run
+and W6 install/autoload/rollback machinery. RUIP persistence follows as B1.3.
 
 **M11-9 DNSPARSE VERIFIED-CLOSED (2026-07-14) — the FOURTH real relocation, plus the
 first hard memory bound for buffer guests.** The DNS query/A-response parser lives in
@@ -141,25 +141,23 @@ and import-set-checked by the kernel, and its grant DENIES before instantiation
 7 malformed-TLS + 10 malformed-HTTP fail-closed vectors. A correctness fix landed before
 arming: the kernel's independent import-set check was positional and the compiler emits
 imports in first-use order — now SET equality (still rejects extra/missing/duplicate).
-**NET-8 IS ARMED AND COMMITTED (owner decision 2026-07-14), live download NOT yet
-demonstrated.** svc.net.acquire.w7 is owner-armed via one gated site (two literal approval
-constants + local.qemu.w7); m11-acquisition-service proves the armed reality (armed / mismatch
-still denies / grants nothing durable), and the shared-file regressions (m11-net-imports /
-crypto-imports / beyond-env-lifecycle) pass on the NET-8 kernel. The live end-to-end fetch is
-NOT proven: two blockers fixed (QEMU guestfwd-to-10.0.2.100 bridge; the encode_w7_request
-byte-framing bug) and one remaining (the W7 invocation never reaches tcp_open — a dispatch
-bug to instrument). Also new: **AGENTS.md now separates Dev-Phase from Operating rules** —
-arming a bounded RAM-only VM capability before its live demo is allowed if honestly labeled;
-four rules stay strict (no faked evidence, no secrets, run rewritten checks, no
-durable/hardware authority without evidence).
-**NEXT DELIBERATE BLOCK — finish the loop (owner-requested):** (1) fix the W7 dispatch bug
-(instrumented) so the download actually runs; (2) prove the live download, ideally against a
-REAL internet server (raiOS already reaches the real internet in QEMU — this sidesteps the
-Windows-QEMU host-loopback friction); (3) wire the inert downloaded candidate into the
-EXISTING M6 run + W6 durable-install/rollback machinery so a downloaded program can run and
-install — reusing proven machinery, not weakening the quarantine. Then NET-9 the full W7
-denial matrix. The hardware cursor is unchanged and Surface-gated (G7 read-only stick
-preflight, WiFi association/PORT_RELEASE/RX-TX/DHCP proof, ownerkey TPM capture).
+**B1.1 / NET-8 LIVE ACQUISITION VERIFIED-CLOSED (2026-07-15).**
+`network-acquisition` `shadow-20260715-013325-25964.json` passed 176/176 predicates
+across 29 commands. In one QEMU boot the signed W7 guest fetched the exact 4,205-byte
+artifact through real e1000/DHCP, a persistent Windows-QEMU guestfwd stream, pinned
+TLS 1.3/P-256/server-Finished, and exact HTTP; every chunk and the whole hash verified.
+The candidate converged on the shared acquisition finalizer and stayed current-boot/inert:
+no load, execute, install, durable write, rollback mutation, provider auto-load, or owner
+seal. Both transport-owner directions deny busy; F12 killed a silent peer in 178 ms with
+exactly-once cleanup; malformed input denied; a valid same-boot retry then succeeded.
+The host fixture now models QEMU's documented one-chardev-lifetime `guestfwd -tcp`
+topology as bounded sequential TLS sessions instead of inventing host reconnects.
+**NEXT DELIBERATE SLICE — B1.2:** connect this downloaded inert candidate to the
+EXISTING M6 run + W6 durable-install/autoload/rollback path, with M6/M7 reverification
+and physical approval unchanged. Do not create a second loader or persistence path.
+Full+recovery wait for B1 block close per the aggressive cadence. The hardware cursor is
+unchanged and Surface-gated (G7 read-only stick preflight, WiFi association/
+PORT_RELEASE/RX-TX/DHCP proof, ownerkey TPM capture).
 
 **P4 EVIDENCE-VOCABULARY-V1 IS CLOSED — BOTH HALVES (2026-07-13 ~23:15).** I once called
 it closed after only the envelope; that was wrong and is now actually true.

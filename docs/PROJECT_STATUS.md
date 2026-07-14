@@ -24,6 +24,41 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+B1.1 / NET-8 LIVE ACQUISITION VERIFIED-CLOSED (2026-07-15): raiOS can now fetch
+the exact approved W7 artifact through the real QEMU network path and retain it as an
+inert current-boot candidate. `network-acquisition`
+`shadow-20260715-013325-25964.json` passed 176/176 predicates across 29 commands in
+104,890 ms; report SHA-256
+`cf46388eecb32f689610a1cb2bbcfe6e4f8c65328290d9bb603be70aa523fb26`.
+- LIVE POSITIVE: real e1000 + DHCP + QEMU guestfwd, TLS 1.3/
+  TLS_AES_128_GCM_SHA256/P-256, pinned ephemeral SPKI, certificate-verify math,
+  server Finished, exact HTTP request/content type/content length, every chunk hash and
+  whole-artifact hash. Exact payload: 4,205 bytes,
+  `sha256:f81f9442de3729f58f9d5c43b186a4223e3f0ed0bdde20e94722da8d5733abd2`.
+- CONVERGENCE + INERTNESS: live W7 candidate and receipt are byte-identical to the
+  shared `acquire.*` finalizer output; there is no W7-private success store. The separate
+  M6/W6 receiver identity does not yet exist, M6/M7 reverification remains required,
+  decision grants/effects are empty, and no load/execute/install/durable-write/rollback-
+  mutation/provider-auto-load/owner-seal occurred.
+- LIFECYCLE: native provider and W7 deny each other with the same busy class; physical
+  F12 killed a silent peer in 178 ms with exactly-once guest/local teardown and prior
+  candidate preservation; malformed response denied; guest trap and OutOfFuel cleanup
+  remain proven; a valid request then succeeded in the same boot.
+- HOST HARNESS ROOT CAUSE: Windows Schannel required a non-ephemeral current-user PFX
+  key load (PFX bytes immediately zeroed; no persisted key). QEMU's direct
+  `guestfwd=...-tcp:` is one lifetime character-device stream, not one host connection per
+  guest TCP session. The fixture now models that documented topology honestly with one
+  host connection, bounded sequential TLS sessions, and an explicit drained silent-session
+  boundary. The failed reports and classifications below preserve the diagnosis trail.
+- CHECK CADENCE: this closes B1.1, not all of B1, so only its focused profile ran. The
+  unchanged kernel/guest baseline remains FULL `shadow-20260714-234313-21680.json`
+  (2,685/0) + RECOVERY `shadow-20260714-234651-22992.json` (152); B1 full+recovery are
+  due at B1 block close.
+- NEXT EXACT SLICE: B1.2 routes this inert downloaded candidate through the EXISTING M6
+  run and W6 install/autoload/rollback machinery. Reuse the existing receiver identity,
+  M6/M7 reverification, physical approval, and rollback gates; do not add a second loader
+  or persistence path.
+
 EDITOR-1 VERIFIED-CLOSED (2026-07-14 night): a bounded TEXT EDITOR is the second
 personal-shell program, delivered/approved/run through the UNCHANGED calculator
 machinery, and the first deliberate RUIP contract extension.
@@ -81,10 +116,136 @@ machinery, and the first deliberate RUIP contract extension.
   (umlauts/AltGr remain the known input gap), no persistence or file access (still
   denied), one text slot / one EditBox per program by design.
 
-NET-8 ARMED AND COMMITTED; LIVE DOWNLOAD NOT YET DEMONSTRATED (2026-07-14, owner decision).
+HISTORICAL PRE-B1.1 STATE — NET-8 ARMED BUT LIVE DOWNLOAD NOT YET DEMONSTRATED
+(2026-07-14, owner decision; superseded by the verified-close block above).
 Per the new Dev-Phase rule (AGENTS.md): arming is a PERMISSION the owner grants; "proven"
 is a separate statement. svc.net.acquire.w7 is now owner-ARMED, honestly labeled — the live
 end-to-end fetch is NOT yet demonstrated and this file does not claim it is.
+
+B1.1 FAILURE CLASSIFICATION (2026-07-15, before retry): `network-acquisition`
+`shadow-20260715-003528-5268.json` failed with `positive TLS fixture result missing`.
+Verdict: **host-transport**, not guest behavior. On current HEAD the guest disproved the
+stale dispatch diagnosis: it emitted the W7 `tcp_open`, `tcp_send`, and `tcp_recv`
+suspension/completion markers, then timed out cleanly. The host fixture accepted the TCP
+connection but crashed in `SslStream.AuthenticateAsServerAsync` because Windows Schannel
+cannot use the ephemeral private key returned by `CertificateRequest.CreateSelfSigned`
+(`AuthenticationException: platform does not support ephemeral keys`). No candidate was
+retained and no durable effect occurred. Next retry is permitted only after the fixture
+loads that one-hour test certificate through a Schannel-compatible current-user key set;
+do not use `PersistKeySet`.
+
+B1.1 RETRY CLASSIFICATION (2026-07-15, before next retry): `network-acquisition`
+`shadow-20260715-004159-19412.json` proved the live fetch (`TLS1.3`, exact request,
+exact 4,205-byte artifact, pinned SPKI, valid server Finished, whole hash valid,
+`candidate_retained=true`) and then failed only
+`network-acquisition:3_retained_candidate_preflight_denial`. Verdict:
+**harness-expectation**, kernel behavior correct. The profile had never reached this line
+and incorrectly expected the W7 transport-only retained candidate to have the separate
+M12 catalog/receiver-identity preflight (`denied` + four later gates). The observed load
+response is stricter: receiver identity is `missing`, preflight was not evaluated,
+missing-gate count is zero, the decision is denied with empty grants/effects, and no
+load/install/execute/durable/rollback/provider-auto-load effect occurred. The retry must
+assert that exact missing receiver-identity boundary; creating it belongs to the later
+B1.2 M6/W6 connection, not B1.1.
+
+B1.1 SECOND-RETRY CLASSIFICATION (2026-07-15, before next retry):
+`network-acquisition` `shadow-20260715-004624-15528.json` again proved the live
+fetch and failed only the same inert-preflight harness predicate. Verdict:
+**harness-expectation**, no guest regression. The first correction read the nested
+loader source-fact fallback (`status=missing`) instead of the direct receiver-identity
+projection used by the predicate. The direct observed projection is `present=false`,
+`status=denied`, `reason=receiver_identity_catalog_entry_not_found`, with no retained
+identity/candidate binding, no evaluated preflight, zero later missing gates, and M6/M7
+reverification still required. The next retry pins those observed fail-closed values;
+kernel and guest remain unchanged.
+
+B1.1 THIRD-RETRY CLASSIFICATION (2026-07-15, before next retry):
+`network-acquisition` `shadow-20260715-004952-15848.json` passed the live fetch and
+the corrected inert-load boundary, then failed only
+`network-acquisition:2_shared_finalize_convergence`. Verdict:
+**harness-expectation**, no guest regression. Live W7 and the shared `acquire.*` fixture
+produced the exact same candidate SHA-256 and receipt SHA-256, and W7 reported
+`same_shared_acquire_finalizer=true` with no private success store. The failed boolean
+`shared.receipt_hash_converged` compares the acquire fixture with the separate serial
+distribution receipt; that serial delivery does not run in this profile, so its receipt
+is honestly null. The retry must compare the live hashes directly with the acquire
+service hashes and assert the absent serial receipt instead of treating it as a live-W7
+failure.
+
+B1.1 FOURTH-RETRY CLASSIFICATION (2026-07-15, before next retry):
+`network-acquisition` `shadow-20260715-005431-26200.json` passed the live fetch,
+inert-load boundary, shared finalizer, two-way transport exclusion, F12 cancellation,
+and malformed-response teardown, then failed only the same-boot valid retry. Verdict:
+**host-fixture lifecycle**, not a guest authority failure. The retry opened far enough
+to transmit the 172-byte TLS ClientHello but received zero bytes and timed out; the
+fixture had not crashed and logged no exception. The sequential fixture handler was still
+awaiting host EOF in the earlier silent-peer drain even though F12 had completed the
+guest-side abort; later ClientHellos could queue but no server handler read them. No
+candidate replacement or durable effect occurred. The next retry is permitted only after
+the fixture accepts each connection independently of a prior silent drain; the guest
+cleanup assertions stay unchanged.
+
+B1.1 FIFTH-RETRY CLASSIFICATION (2026-07-15, before next retry):
+`network-acquisition` `shadow-20260715-010520-32520.json` again passed every
+predicate through F12 cancellation, but the following malformed run sent its 172-byte
+TLS ClientHello, received zero bytes, and timed out; the supposed valid retry never
+started because that invocation was still active. Verdict: **host-fixture/QEMU relay
+lifecycle**. Backgrounding the silent drain removed fixture accept-loop blocking but
+left its host `TcpClient` open; QEMU guestfwd did not advance the backend stream while
+that deliberately silent connection remained alive. The fixture logged no fault and no
+guest authority or durable state changed. Before retry, the silent handler must remain
+silent while its mode is `silent`, then close its host socket when the already verified
+F12 case advances the profile mode. Guest teardown and retry predicates remain strict.
+
+B1.1 SIXTH-RETRY CLASSIFICATION (2026-07-15, before next retry):
+`network-acquisition` `shadow-20260715-011159-11980.json` retained the same
+green boundary through F12, but the malformed run again timed out after sending only its
+ClientHello. Verdict: **harness ordering/race**. The profile writes `malformed`, deletes
+the transition result, and starts the next guest immediately, while the fixture observes
+mode changes on a 20 ms poll and only then closes the old guestfwd backend. Therefore the
+next ClientHello can race ahead of the proved relay release; the later result deletion
+also discards the host-side transition evidence. No guest or authority change occurred.
+Before retry, the profile must wait for and assert the fixture's explicit
+`fixture_initiated=true`, `reason=mode_transition` result, then clear that result and start
+the malformed connection. No fixed sleep and no weaker cleanup expectation are allowed.
+
+B1.1 SEVENTH-RETRY CLASSIFICATION (2026-07-15, before next retry):
+`network-acquisition` `shadow-20260715-011627-26848.json` stopped at the new
+relay-release predicate after the live fetch and F12 guest cleanup passed. Verdict:
+**host-fixture TLS disposal**, now directly localized. The fixture result remained the
+first positive connection (`connection=1`, `mode=serve`); it never accepted the later
+silent connection. After that positive result is atomically written, the only remaining
+sequential handler work is `SslStream`/`TcpClient` disposal, and no exception was logged.
+Thus graceful TLS disposal is blocking the fixture before its next accept, while QEMU can
+queue a later ClientHello. No guest behavior or authority changed. Before retry, the
+fixture must explicitly close the already flushed positive/malformed host `TcpClient`
+before leaving the TLS handler, so `SslStream` disposal cannot hold the accept loop. The
+new transition predicate remains mandatory.
+
+B1.1 EIGHTH-RETRY CLASSIFICATION (2026-07-15, before next retry):
+`network-acquisition` `shadow-20260715-012049-9988.json` produced the same
+single positive fixture result and failed the relay-release predicate. Verdict:
+**host-fixture TLS disposal**, narrowed one step further. The response was flushed, the
+underlying `TcpClient.Close()` returned, and the synchronized result was published, yet
+the accept loop still never reached connection 2; the next statement on scope exit is
+`SslStream.Dispose()`, again with no exception. Before retry, only that post-close TLS
+object disposal may move to an observed background cleanup so it cannot hold the fixture
+accept loop. Its faults must remain visible and terminate the fixture; the socket is
+already closed and all guest/TLS/result checks stay unchanged.
+
+B1.1 NINTH-RETRY CLASSIFICATION (2026-07-15, before next retry):
+`network-acquisition` `shadow-20260715-012433-31904.json` again stopped at
+the relay-release predicate with fixture `connection=1`. Verdict: **QEMU guestfwd
+topology**, disproving the repeated-disposal diagnosis. QEMU's documented direct
+`guestfwd=...-tcp:host:port` form uses one character-device connection throughout the
+QEMU lifetime; only the `-cmd` form creates a process per guest TCP connection, and that
+form is already recorded as rejected on this Windows QEMU path. Therefore connection 1
+is expected: later virtual guest connections are byte sessions on one persistent host
+stream, not new host accepts. The next retry requires the fixture to model that topology:
+one accepted backend, mode captured when new bytes arrive, bounded sequential TLS
+sessions over the retained raw stream, and a silent-session advance record after its
+ClientHello is drained. It must not claim a host TCP reconnect or weaken any guest
+cleanup/retry assertion.
 
 THE ARMING, and its two crown-jewel invariants (orchestrator-verified in source AND proven
 by m11-acquisition-service): (1) THE FLIP IS ONE GATED SITE — net_8_w7_policy_allows() is the
@@ -104,7 +265,8 @@ shadow-20260714-214858-26644.json passed. Shared-file regressions after the NET-
 m11-net-imports shadow-20260714-215607-11332 + m11-crypto-imports + m11-beyond-env-lifecycle
 shadow-20260714-215327-24136 all passed.
 
-THE LIVE DOWNLOAD IS NOT WORKING YET — honest classification of what remains:
+HISTORICAL PRE-B1.1 FAILURE MAP (superseded by
+`shadow-20260715-013325-25964.json`) — at that point the live download was not working:
 - BLOCKER 1 (host-transport, FIXED): QEMU 11 on Windows rejects guestfwd to the slirp
   gateway 10.0.2.2 and the -cmd relay form. Resolved: the W7 source address moved to
   10.0.2.100 (in-subnet, not the gateway) and run-stage0-qemu.ps1 gained -GuestFwd

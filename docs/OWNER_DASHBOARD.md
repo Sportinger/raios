@@ -1,6 +1,23 @@
 # Owner Dashboard
 
-Updated: 2026-07-14 (Nacht).
+Updated: 2026-07-15.
+
+BESCHAFFUNG IST JETZT LIVE BEWIESEN — B1.1 GESCHLOSSEN. raiOS kann im echten
+QEMU-Netzpfad selbst den exakt freigegebenen 4.205-Byte-Baustein holen: e1000,
+DHCP, TLS 1.3 mit fest gepinntem Schlüssel und geprüftem Server-Abschluss,
+exakte HTTP-Anfrage, jeder Block und der Gesamt-Fingerabdruck stimmen. Der
+Baustein bleibt danach absichtlich nur im aktuellen Boot und vollständig inert:
+kein Laden, Ausführen, Installieren, Speichern, Rollback-Umschreiben, Autoload
+oder Owner-Seal ohne die späteren Freigaben. Auch die Gegenproben sind real:
+beide Netz-Besitzer blockieren einander sauber, F12 beendet einen stummen Server
+in 178 ms, eine kaputte Antwort wird verworfen, und direkt danach gelingt im
+selben Boot ein zweiter gültiger Download. Beweis:
+`shadow-20260715-013325-25964.json`, 176/176 Prüfungen in 29 Kommandos.
+
+NÄCHSTER KLEINSTER SCHRITT: B1.2 führt genau diesen heruntergeladenen, inerten
+Kandidaten durch den schon vorhandenen M6-Lauf- und W6-Installations-/Autoload-/
+Rollback-Weg. Es entsteht kein zweiter Loader und kein zweiter Speicherweg;
+Nachprüfung und physische Freigabe bleiben Pflicht.
 
 ZWEITES ECHTES PROGRAMM: EIN TEXT-EDITOR — LIVE VOR DEINEN AUGEN (2026-07-14
 Abend). Du hast heute zugesehen, wie raiOS im QEMU-Fenster den kompletten
@@ -330,11 +347,10 @@ Stick: the owner reports it has been found, but this session did not enumerate
 or touch it. The next G7 action is read-only identity/layout/fingerprint
 preflight; never assume the former Disk 2 number or recreate a missing fingerprint.
 
-Next product slice (owner decision 2026-07-14): net-imports slice 1 — the
-Wasm import-ABI and its fail-closed evaluator, grants nothing. W7's
-quarantined download rides on that lane later; the native kernel fetch was
-rejected. Next hardware slice: the explicit read-only G7 stick preflight
-(Surface-gated). Neither grants physical-write authority.
+Next product slice (vision order 2026-07-15): B1.2 — route the now live-proven,
+inert W7 candidate through the existing M6 run and W6 durable install/autoload/
+rollback machinery. Next hardware slice: the explicit read-only G7 stick
+preflight (Surface-gated). Neither grants physical-write authority by itself.
 
 Refactor program (owner-ordered 2026-07-12, cost accepted): P0 and two of
 three P1 packets are DONE. The P0 inventory routed all 121 evidence files:

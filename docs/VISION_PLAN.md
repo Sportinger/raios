@@ -52,7 +52,7 @@ Arbeitspakete mehr, sondern **Beispiele für spätere Früchte des Kreislaufs**.
 |---|---------|--------------|
 | 1 | Owner fragt in Genesis („bau mir …") | Schnellspur (RUIP) existiert; Slow-Lane-Auftrag → Workspace FEHLT |
 | 2 | Agent schreibt Quellcode ins System (W1-Workspace, inert) | Workspace existiert (seriell/Owner-Pfad); KI-Anbindung FEHLT |
-| 3 | Beschaffung (Abhängigkeiten, Quarantäne) | W7 scharf, Live-Beweis OFFEN; Registry-Vertrauen (M12) später |
+| 3 | Beschaffung (Abhängigkeiten, Quarantäne) | W7 live bewiesen (`shadow-20260715-013325-25964.json`), Kandidat bleibt inert; Anschluss an M6/W6 (B1.2) FEHLT; Registry-Vertrauen (M12) später |
 | 4 | **Bauen AUF DEM GERÄT** | FEHLT — heute extern-versiegelt (W4, zählt als Gerüst, nicht als Erfüllung) |
 | 5 | Nachrechnen (Repro-Doppel-Build, Fingerabdrücke) | Existiert (extern bewiesen); On-Device-Variante folgt mit Station 4 |
 | 6 | Physische Freigabe | Existiert, bewiesen |
@@ -63,8 +63,9 @@ Arbeitspakete mehr, sondern **Beispiele für spätere Früchte des Kreislaufs**.
 ## 5. Der Weg zur fertigen Basis (Blöcke in Reihenfolge)
 
 **B1 — Beschaffung schließen (nah):**
-- B1.1 W7-Download live beweisen (Dispatch-Bug, echter Server; war schon
-  geplanter Block).
+- B1.1 **ABGESCHLOSSEN:** W7-Download live über echte QEMU-e1000/TLS/HTTP-
+  Ausführung bewiesen; Same-Boot-Retry und Negativfälle grün
+  (`shadow-20260715-013325-25964.json`).
 - B1.2 Heruntergeladenen Kandidaten durch die EXISTIERENDE M6/W6-Maschinerie
   führen (laufen + installieren; kein zweiter Weg).
 - B1.3 RUIP-Programme an W6 anschließen (Programm-Persistenz — kleine,
