@@ -8,7 +8,8 @@
 # What this proves today: the typed current-boot facts that Genesis renders and
 # its read-only recovery source are live, coherent and remain outside Wasm and
 # provider authority. Trusted setup and Recovery are driven through physical
-# QEMU HID input and require non-secret guest acknowledgements before capture.
+# QEMU HID input and require non-secret guest acknowledgements before capture. It also
+# proves the bounded text-editor program through the same serial, approval and HID paths.
 
 function Send-GenesisUiKey {
     param([string]$KeyName)
@@ -65,11 +66,21 @@ $genesisCalculatorHash = "sha256:$genesisCalculatorSha256"
 
 Send-AgentCommand -Command "snapshot" -ExpectedMarker "RAIOS_AGENT_END system.snapshot" -Name "genesis-ui:context-snapshot"
 $genesisSnapshot = Get-LastAgentResponseJson -Method "system.snapshot"
-$genesisSystem = $genesisSnapshot.body.result
+# P4 evidence vocabulary: system.snapshot answers in the raios.evidence_response.v1
+# envelope; the snapshot facts live under .facts and the decision must be a pure
+# observation that grants nothing (no grants/effects keys at all).
+$genesisSystem = $genesisSnapshot.facts
 $genesisStatus = $genesisSystem.status
 $genesisProblems = @($genesisSystem.problems)
 $genesisSnapshotOk = (
-    $genesisSystem.schema -eq "system.snapshot.v0" -and
+    $genesisSnapshot.schema -eq "raios.evidence_response.v1" -and
+    $genesisSnapshot.family -eq "system.snapshot" -and
+    $genesisSnapshot.source_method -eq "system.snapshot" -and
+    $genesisSnapshot.scope -eq "current_boot" -and
+    $genesisSnapshot.classification -eq "local_only" -and
+    $genesisSnapshot.decision.outcome -eq "observed" -and
+    $null -eq $genesisSnapshot.decision.grants -and
+    $null -eq $genesisSnapshot.decision.effects -and
     $genesisSystem.os.name -eq "raiOS" -and
     $genesisSystem.os.stage -eq "stage-0" -and
     $null -ne $genesisStatus -and
@@ -86,10 +97,18 @@ if (-not $genesisSnapshotOk) {
 
 Send-AgentCommand -Command "problems" -ExpectedMarker "RAIOS_AGENT_END problem.list" -Name "genesis-ui:problem-facts"
 $genesisProblemList = Get-LastAgentResponseJson -Method "problem.list"
-$genesisProblemResult = $genesisProblemList.body.result
+# P4 evidence vocabulary: problem.list answers in the raios.evidence_response.v1
+# envelope with the typed entries under .facts.problems and a pure observation
+# decision that grants nothing.
+$genesisProblemResult = $genesisProblemList.facts
 $genesisProblemEntries = @($genesisProblemResult.problems)
 $genesisProblemFactsOk = (
-    $genesisProblemResult.schema -eq "problem.list.v0" -and
+    $genesisProblemList.schema -eq "raios.evidence_response.v1" -and
+    $genesisProblemList.family -eq "problem.list" -and
+    $genesisProblemList.scope -eq "current_boot" -and
+    $genesisProblemList.classification -eq "local_only" -and
+    $genesisProblemList.decision.outcome -eq "observed" -and
+    $null -eq $genesisProblemList.decision.grants -and
     ($genesisProblemEntries | Where-Object {
         [string]::IsNullOrWhiteSpace([string]$_.id) -or
         [string]::IsNullOrWhiteSpace([string]$_.severity) -or
@@ -357,6 +376,209 @@ if (-not $calculatorAfterF12Ok) {
 }
 Save-QemuScreendump -Name "genesis-after-calculator-f12" | Out-Null
 
+$genesisEditorBase64 = @'
+UlVJUAEAIACwAAAAAQMAAQEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAABABQACAAIAPAAGAAAAAAAcmFpT1MgRURJVCAgRjEyPUVYSVQEAAAACAAoAGACgAEAAAAAAwAFAAgAtAFgACQAAQAAAENMRUFSAAAAAQAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+'@ -replace '\s', ''
+$genesisEditorBytes = [Convert]::FromBase64String($genesisEditorBase64)
+$genesisEditorSha256 = "34f726d13818d174e23ef0614ca183a2967b9449c8cf4447151aef13d277d815"
+$genesisEditorHash = "sha256:$genesisEditorSha256"
+$sha = [System.Security.Cryptography.SHA256]::Create()
+try {
+    $editorActualSha256 = ([BitConverter]::ToString($sha.ComputeHash($genesisEditorBytes)) -replace "-", "").ToLowerInvariant()
+}
+finally {
+    $sha.Dispose()
+}
+$editorFixtureOk = $genesisEditorBytes.Length -eq 176 -and $editorActualSha256 -eq $genesisEditorSha256
+Add-Predicate -Name "genesis-ui:editor-ruip-exact-fixture" -Expected "raios-core editor canonical RUIP is exactly 176 bytes with the pinned SHA-256" -Passed $editorFixtureOk -Actual "bytes=$($genesisEditorBytes.Length) sha256=$editorActualSha256"
+if (-not $editorFixtureOk) {
+    throw "Canonical editor RUIP fixture does not match its pinned identity"
+}
+
+$editorChunkCount = Send-GenesisUiProgramBytes -Bytes $genesisEditorBytes -NamePrefix "genesis-ui:editor-delivery"
+Send-AgentCommand -Command "program.submit_finalize" -ExpectedMarker "RAIOS_AGENT_END program.submit_finalize" -Name "genesis-ui:editor-finalize"
+$editorFinalize = (Get-LastAgentResponseJson -Method "program.submit_finalize").body.result
+$editorFinalizeOk = (
+    $editorFinalize.method -eq "program.submit_finalize" -and
+    $editorFinalize.status -eq "ready" -and
+    $editorFinalize.scope -eq "current_boot" -and
+    $editorFinalize.classification -eq "local_only" -and
+    $editorFinalize.retention -eq "current_boot_ram_only" -and
+    $editorFinalize.accepted -eq $true -and
+    $editorFinalize.rejected -eq $false -and
+    $editorFinalize.reason -eq "retained_current_boot_inert_ui_program" -and
+    [int]$editorFinalize.attempted_byte_len -eq 176 -and
+    $editorFinalize.present -eq $true -and
+    [int]$editorFinalize.revision -gt [int]$calculatorFinalize.revision -and
+    [int]$editorFinalize.byte_len -eq 176 -and
+    $editorFinalize.program_sha256 -eq $genesisEditorHash -and
+    $editorFinalize.program_sha256 -ne $calculatorFinalize.program_sha256 -and
+    $editorFinalize.source -eq "serial" -and
+    $null -eq $editorFinalize.provider_request_id -and
+    [int]$editorFinalize.serial_chunk_count -eq $editorChunkCount -and
+    [int]$editorFinalize.pending_byte_len -eq 0 -and
+    [int]$editorFinalize.pending_chunk_count -eq 0 -and
+    $editorFinalize.signing_attempted -eq $false -and
+    $editorFinalize.load_attempted -eq $false -and
+    $editorFinalize.execution_attempted -eq $false -and
+    $editorFinalize.authorizes_load -eq $false -and
+    $editorFinalize.authorizes_execution -eq $false -and
+    $editorFinalize.writes_persistent_state -eq $false
+)
+Add-Predicate -Name "genesis-ui:editor-retained-exact-current-boot-inert" -Expected "canonical editor RUIP replaces the calculator under its exact hash but cannot sign, load, execute or persist" -Passed $editorFinalizeOk -Actual $(if ($editorFinalizeOk) { "$genesisEditorHash revision=$($editorFinalize.revision) chunks=$editorChunkCount" } else { ($editorFinalize | ConvertTo-Json -Compress -Depth 5) })
+if (-not $editorFinalizeOk) {
+    throw "Expected exact canonical editor RUIP to replace the calculator inertly"
+}
+
+[byte[]]$malformedEditor = $genesisEditorBytes.Clone()
+$malformedEditor[17] = 1
+$malformedEditorChunkCount = Send-GenesisUiProgramBytes -Bytes $malformedEditor -NamePrefix "genesis-ui:editor-malformed-delivery"
+Send-AgentCommand -Command "program.submit_finalize" -ExpectedMarker "RAIOS_AGENT_END program.submit_finalize" -Name "genesis-ui:editor-malformed-finalize"
+$editorMalformedFinalize = (Get-LastAgentResponseJson -Method "program.submit_finalize").body.result
+$editorMalformedFinalizeOk = (
+    $editorMalformedFinalize.accepted -eq $false -and
+    $editorMalformedFinalize.rejected -eq $true -and
+    $editorMalformedFinalize.reason -eq "program_malformed" -and
+    [int]$editorMalformedFinalize.attempted_byte_len -eq 176 -and
+    $editorMalformedFinalize.status -eq "ready" -and
+    $editorMalformedFinalize.present -eq $true -and
+    [int]$editorMalformedFinalize.revision -eq [int]$editorFinalize.revision -and
+    [int]$editorMalformedFinalize.byte_len -eq 176 -and
+    $editorMalformedFinalize.program_sha256 -eq $genesisEditorHash -and
+    [int]$editorMalformedFinalize.pending_byte_len -eq 0 -and
+    [int]$editorMalformedFinalize.pending_chunk_count -eq 0 -and
+    $editorMalformedFinalize.signing_attempted -eq $false -and
+    $editorMalformedFinalize.load_attempted -eq $false -and
+    $editorMalformedFinalize.execution_attempted -eq $false -and
+    $editorMalformedFinalize.authorizes_load -eq $false -and
+    $editorMalformedFinalize.authorizes_execution -eq $false -and
+    $editorMalformedFinalize.writes_persistent_state -eq $false
+)
+Add-Predicate -Name "genesis-ui:editor-malformed-rejected-with-retained-editor-inert" -Expected "nonzero reserved RUIP byte rejects atomically and leaves the exact editor inert" -Passed $editorMalformedFinalizeOk -Actual $(if ($editorMalformedFinalizeOk) { "rejected chunks=$malformedEditorChunkCount retained=$genesisEditorHash revision=$($editorFinalize.revision)" } else { ($editorMalformedFinalize | ConvertTo-Json -Compress -Depth 5) })
+if (-not $editorMalformedFinalizeOk) {
+    throw "Expected malformed RUIP to reject without replacing or activating the editor"
+}
+
+Send-AgentCommand -Command "program.workspace" -ExpectedMarker "RAIOS_AGENT_END program.workspace" -Name "genesis-ui:editor-workspace-after-malformed"
+$editorWorkspaceAfterMalformed = (Get-LastAgentResponseJson -Method "program.workspace").body.result
+$editorWorkspaceAfterMalformedOk = (
+    $editorWorkspaceAfterMalformed.status -eq "ready" -and
+    $editorWorkspaceAfterMalformed.present -eq $true -and
+    [int]$editorWorkspaceAfterMalformed.revision -eq [int]$editorFinalize.revision -and
+    [int]$editorWorkspaceAfterMalformed.byte_len -eq 176 -and
+    $editorWorkspaceAfterMalformed.program_sha256 -eq $genesisEditorHash -and
+    [int]$editorWorkspaceAfterMalformed.pending_byte_len -eq 0 -and
+    [int]$editorWorkspaceAfterMalformed.pending_chunk_count -eq 0 -and
+    $editorWorkspaceAfterMalformed.load_attempted -eq $false -and
+    $editorWorkspaceAfterMalformed.execution_attempted -eq $false -and
+    $editorWorkspaceAfterMalformed.authorizes_load -eq $false -and
+    $editorWorkspaceAfterMalformed.authorizes_execution -eq $false -and
+    $editorWorkspaceAfterMalformed.writes_persistent_state -eq $false
+)
+Add-Predicate -Name "genesis-ui:editor-workspace-unchanged-after-malformed" -Expected "malformed delivery cannot change the retained editor hash, revision, pending state or authority" -Passed $editorWorkspaceAfterMalformedOk -Actual $(if ($editorWorkspaceAfterMalformedOk) { "$genesisEditorHash revision=$($editorFinalize.revision) unchanged" } else { ($editorWorkspaceAfterMalformed | ConvertTo-Json -Compress -Depth 5) })
+if (-not $editorWorkspaceAfterMalformedOk) {
+    throw "Expected malformed RUIP delivery to leave the editor workspace unchanged"
+}
+
+Save-QemuScreendump -Name "editor-awaiting-physical-approval" | Out-Null
+Send-QemuAbsolutePointerClick -X 27017 -Y 6559
+$editorActivationMarker = "PROGRAM_CURRENT_BOOT_ACTIVATION physical_approval=pointer program_sha256=$genesisEditorHash engine=svc.user.shell capability_surface=ui_only wasm=true result=accepted"
+Assert-LogContains -Name "genesis-ui:editor-physical-approval-wasm-accepted" -Needle $editorActivationMarker -TimeoutSeconds $TimeoutSeconds
+Start-Sleep -Milliseconds 300
+Save-QemuScreendump -Name "editor-active-after-physical-approval" | Out-Null
+
+Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "genesis-ui:editor-current-boot-inventory"
+$editorInventoryResponse = Get-LastAgentResponseJson -Method "service.inventory"
+$editorInventory = @($editorInventoryResponse.facts.services | Where-Object { $_.id -eq "svc.user.shell" })
+$editorInventoryOk = (
+    $editorInventory.Count -eq 1 -and
+    $editorInventory[0].kind -eq "service" -and
+    $editorInventory[0].scope -eq "current_boot" -and
+    $editorInventory[0].persistence -eq "none" -and
+    $editorInventory[0].capability_envelope -eq "wasmi_linker_import_surface" -and
+    $editorInventory[0].host_import_count -eq 6 -and
+    $editorInventory[0].running -eq $true
+)
+Add-Predicate -Name "genesis-ui:editor-runs-only-as-ui-current-boot-service" -Expected "physical approval starts svc.user.shell only as a current-boot Wasmi UI service" -Passed $editorInventoryOk -Actual $(if ($editorInventoryOk) { "svc.user.shell current_boot ui_only running" } else { ($editorInventory | ConvertTo-Json -Compress -Depth 5) })
+if (-not $editorInventoryOk) {
+    throw "Expected editor to run only through the current-boot UI Wasm service"
+}
+
+foreach ($key in @("h", "i")) {
+    $inputOffset = Get-SerialLogOffset
+    Send-GenesisUiKey -KeyName $key
+    $updated = Wait-ForLogTextAfterOffset -Path $SerialLog -Needle "PERSONAL SHELL FRAME UPDATED sanitized_input" -Offset $inputOffset -TimeoutSeconds $TimeoutSeconds
+    Add-Predicate -Name "genesis-ui:editor-input-$key" -Expected "physical editor key '$key' updates the Wasm-rendered program frame" -Passed $updated -Actual $(if ($updated) { "frame updated" } else { Get-SerialLogTail -Path $SerialLog })
+    if (-not $updated) {
+        throw "Expected editor input '$key' to update the personal frame"
+    }
+}
+Start-Sleep -Milliseconds 300
+Save-QemuScreendump -Name "editor-content-hi" | Out-Null
+
+foreach ($key in @("ret", "r")) {
+    $inputOffset = Get-SerialLogOffset
+    Send-GenesisUiKey -KeyName $key
+    $updated = Wait-ForLogTextAfterOffset -Path $SerialLog -Needle "PERSONAL SHELL FRAME UPDATED sanitized_input" -Offset $inputOffset -TimeoutSeconds $TimeoutSeconds
+    Add-Predicate -Name "genesis-ui:editor-input-$key" -Expected "physical editor key '$key' updates the Wasm-rendered program frame" -Passed $updated -Actual $(if ($updated) { "frame updated" } else { Get-SerialLogTail -Path $SerialLog })
+    if (-not $updated) {
+        throw "Expected editor input '$key' to update the personal frame"
+    }
+}
+Start-Sleep -Milliseconds 300
+Save-QemuScreendump -Name "editor-content-second-line" | Out-Null
+
+$inputOffset = Get-SerialLogOffset
+Send-GenesisUiKey -KeyName "backspace"
+$updated = Wait-ForLogTextAfterOffset -Path $SerialLog -Needle "PERSONAL SHELL FRAME UPDATED sanitized_input" -Offset $inputOffset -TimeoutSeconds $TimeoutSeconds
+Add-Predicate -Name "genesis-ui:editor-input-backspace" -Expected "physical editor key 'backspace' updates the Wasm-rendered program frame" -Passed $updated -Actual $(if ($updated) { "frame updated" } else { Get-SerialLogTail -Path $SerialLog })
+if (-not $updated) {
+    throw "Expected editor input 'backspace' to update the personal frame"
+}
+Start-Sleep -Milliseconds 300
+Save-QemuScreendump -Name "editor-after-backspace" | Out-Null
+
+$clearOffset = Get-SerialLogOffset
+# The CLEAR button rect is fixed program data (8,436)-(104,472) in PROGRAM
+# coordinates. The kernel localizes pointer input for personal programs as
+# program = physical/LOGICAL_SCALE - personal_surface origin, with
+# personal_surface at logical (0, SECURE_STRIP_HEIGHT) (raios-core
+# genesis_layout.rs: LOGICAL_SCALE=2, SECURE_STRIP_HEIGHT=38). QMP absolute
+# events are normalized 0..32767 over the LIVE framebuffer size from the
+# snapshot, so invert the whole chain instead of assuming a resolution.
+$editorFramebufferDetail = [string]$genesisSystem.details.framebuffer.detail
+if ($editorFramebufferDetail -notmatch '^(\d+)x(\d+)\b') {
+    throw "Cannot derive framebuffer size for the editor CLEAR click from snapshot detail '$editorFramebufferDetail'"
+}
+$editorFbWidth = [int]$Matches[1]
+$editorFbHeight = [int]$Matches[2]
+$editorClearPhysicalX = 2 * 56
+$editorClearPhysicalY = 2 * (454 + 38)
+$editorClearX = [int][Math]::Round($editorClearPhysicalX * 32767 / $editorFbWidth)
+$editorClearY = [int][Math]::Round($editorClearPhysicalY * 32767 / $editorFbHeight)
+Send-QemuAbsolutePointerClick -X $editorClearX -Y $editorClearY
+$clearUpdated = Wait-ForLogTextAfterOffset -Path $SerialLog -Needle "PERSONAL SHELL FRAME UPDATED sanitized_input" -Offset $clearOffset -TimeoutSeconds $TimeoutSeconds
+Add-Predicate -Name "genesis-ui:editor-clear-click-updates-frame" -Expected "physical CLEAR click is a sanitized pointer input that updates the Wasm-rendered program frame" -Passed $clearUpdated -Actual $(if ($clearUpdated) { "frame updated" } else { Get-SerialLogTail -Path $SerialLog })
+if (-not $clearUpdated) {
+    throw "Expected editor CLEAR click to update the personal frame"
+}
+Start-Sleep -Milliseconds 300
+Save-QemuScreendump -Name "editor-after-clear" | Out-Null
+
+Send-GenesisUiKey -KeyName "f12"
+Assert-LogContains -Name "genesis-ui:editor-f12-exit" -Needle "PERSONAL SHELL EXIT F12 genesis" -TimeoutSeconds $TimeoutSeconds
+Start-Sleep -Milliseconds 300
+Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "genesis-ui:editor-f12-inventory"
+$editorAfterF12Inventory = Get-LastAgentResponseJson -Method "service.inventory"
+$editorAfterF12Personal = @($editorAfterF12Inventory.facts.services | Where-Object { $_.id -eq "svc.user.shell" })
+$editorAfterF12Genesis = @($editorAfterF12Inventory.facts.services | Where-Object { $_.id -eq "core.ui.genesis" })
+$editorAfterF12Ok = $editorAfterF12Personal.Count -eq 0 -and $editorAfterF12Genesis.Count -eq 1 -and $editorAfterF12Genesis[0].core_owned -eq $true -and $editorAfterF12Genesis[0].replaceable -eq $false
+Add-Predicate -Name "genesis-ui:editor-f12-restores-core-genesis" -Expected "F12 exits the editor, removes svc.user.shell and restores immutable core Genesis" -Passed $editorAfterF12Ok -Actual $(if ($editorAfterF12Ok) { "core.ui.genesis only" } else { ($editorAfterF12Inventory.facts.services | ConvertTo-Json -Compress -Depth 5) })
+if (-not $editorAfterF12Ok) {
+    throw "Expected F12 to restore Genesis after the current-boot editor"
+}
+Save-QemuScreendump -Name "genesis-after-editor-f12" | Out-Null
+
 $genesisBeforePersonalProof = Save-QemuScreendump -Name "genesis-context-diagnostics"
 Send-AgentCommand -Command "ui.personal_shell_proof" -ExpectedMarker "RAIOS_AGENT_END ui.personal_shell_proof" -Name "genesis-ui:personal-shell-proof"
 $personalShellResponse = Get-LastAgentResponseJson -Method "ui.personal_shell_proof"
@@ -439,8 +661,13 @@ $personalShellInventoryOk = (
     $personalShellInventory[0].kind -eq "service" -and
     $personalShellInventory[0].scope -eq "current_boot" -and
     $personalShellInventory[0].persistence -eq "none" -and
-    $personalShellInventory[0].trust_tier -eq "dev_key_not_owner_sealed" -and
-    $personalShellInventory[0].owner_sealed -eq $false -and
+    # P4-9b moved trust-tier facts out of the inventory rows (a catalog read must
+    # not carry authority claims); the dev-key tier is pinned by the
+    # ui.personal_shell_proof response above. The row proves the runtime posture:
+    $personalShellInventory[0].core_owned -eq $false -and
+    $personalShellInventory[0].replaceable -eq $true -and
+    $personalShellInventory[0].capability_envelope -eq "wasmi_linker_import_surface" -and
+    $personalShellInventory[0].last_lifecycle_reason -eq "running" -and
     $personalShellInventory[0].host_import_count -eq 6 -and
     $personalShellInventory[0].running -eq $true
 )

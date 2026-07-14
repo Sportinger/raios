@@ -1,8 +1,7 @@
 //! Fixed V1 packets staged for one `svc.user.shell` invocation.
 //!
-//! These packets deliberately contain only bounded numeric UI state and
-//! sanitized input. They carry no strings, pointers, provider output, or
-//! secret-bearing values.
+//! These packets deliberately contain only bounded UI state and sanitized
+//! input. They carry no pointers, provider output, or secret-bearing values.
 
 extern crate alloc;
 
@@ -10,7 +9,9 @@ use alloc::vec::Vec;
 
 use crate::{
     ui_frame::Viewport,
-    ui_program::{Program, ProgramState, MAX_PROGRAM_BYTES, MAX_STATE_SLOTS},
+    ui_program::{
+        Program, ProgramState, MAX_PROGRAM_BYTES, MAX_STATE_SLOTS, MAX_TEXT_SLOT_CAPACITY,
+    },
 };
 
 pub const PERSONAL_SHELL_ABI_VERSION: u16 = 1;
@@ -20,8 +21,10 @@ pub const INPUT_EVENT_LEN: usize = 16;
 pub const MAX_INPUT_EVENTS: usize = 64;
 pub const MAX_INPUT_LEN: usize = INPUT_HEADER_LEN + MAX_INPUT_EVENTS * INPUT_EVENT_LEN;
 pub const PROGRAM_CONTEXT_HEADER_LEN: usize = 32;
-pub const MAX_PROGRAM_CONTEXT_LEN: usize =
-    PROGRAM_CONTEXT_HEADER_LEN + MAX_STATE_SLOTS * 8 + MAX_PROGRAM_BYTES;
+pub const MAX_PROGRAM_CONTEXT_LEN: usize = PROGRAM_CONTEXT_HEADER_LEN
+    + MAX_STATE_SLOTS * 8
+    + (2 + MAX_TEXT_SLOT_CAPACITY)
+    + MAX_PROGRAM_BYTES;
 
 const CONTEXT_MAGIC: &[u8; 4] = b"RCTX";
 const INPUT_MAGIC: &[u8; 4] = b"RINP";
@@ -60,6 +63,10 @@ impl PersonalShellProgramContext {
         if viewport.width == 0
             || viewport.height == 0
             || state.values().len() != program.initial_state().values().len()
+            || match program.text_slot_capacity() {
+                Some(capacity) => state.text().len() > capacity as usize,
+                None => !state.text().is_empty(),
+            }
         {
             return Err(PersonalShellAbiError::Malformed);
         }
@@ -90,7 +97,14 @@ impl PersonalShellProgramContext {
     pub fn encode(&self) -> Vec<u8> {
         let program = self.program.canonical_bytes();
         let state = self.state.values();
-        let total_len = PROGRAM_CONTEXT_HEADER_LEN + state.len() * 8 + program.len();
+        let text = self.state.text();
+        let text_state_len = if self.program.text_slot_capacity().is_some() {
+            2 + text.len()
+        } else {
+            0
+        };
+        let total_len =
+            PROGRAM_CONTEXT_HEADER_LEN + state.len() * 8 + text_state_len + program.len();
         let mut bytes = alloc::vec![0; total_len];
         bytes[..4].copy_from_slice(PROGRAM_CONTEXT_MAGIC);
         write_u16(&mut bytes, 4, PERSONAL_SHELL_ABI_VERSION);
@@ -100,11 +114,18 @@ impl PersonalShellProgramContext {
         write_u16(&mut bytes, 16, self.viewport.width);
         write_u16(&mut bytes, 18, self.viewport.height);
         write_u16(&mut bytes, 20, state.len() as u16);
+        write_u16(&mut bytes, 22, text_state_len as u16);
         write_u32(&mut bytes, 24, program.len() as u32);
         let mut cursor = PROGRAM_CONTEXT_HEADER_LEN;
         for value in state {
             bytes[cursor..cursor + 8].copy_from_slice(&value.to_le_bytes());
             cursor += 8;
+        }
+        if text_state_len != 0 {
+            write_u16(&mut bytes, cursor, text.len() as u16);
+            cursor += 2;
+            bytes[cursor..cursor + text.len()].copy_from_slice(text);
+            cursor += text.len();
         }
         bytes[cursor..].copy_from_slice(&program);
         bytes
@@ -123,7 +144,6 @@ impl PersonalShellProgramContext {
         }
         if read_u16(bytes, 6) != Some(PROGRAM_CONTEXT_HEADER_LEN as u16)
             || read_u32(bytes, 8) != Some(bytes.len() as u32)
-            || read_u16(bytes, 22) != Some(0)
             || read_u32(bytes, 28) != Some(0)
         {
             return Err(PersonalShellAbiError::Malformed);
@@ -136,8 +156,12 @@ impl PersonalShellProgramContext {
         if program_len > MAX_PROGRAM_BYTES {
             return Err(PersonalShellAbiError::LimitExceeded);
         }
-        let program_start = PROGRAM_CONTEXT_HEADER_LEN
+        let text_state_len = read_u16(bytes, 22).ok_or(PersonalShellAbiError::Malformed)? as usize;
+        let text_state_start = PROGRAM_CONTEXT_HEADER_LEN
             .checked_add(state_len * 8)
+            .ok_or(PersonalShellAbiError::Malformed)?;
+        let program_start = text_state_start
+            .checked_add(text_state_len)
             .ok_or(PersonalShellAbiError::Malformed)?;
         let end = program_start
             .checked_add(program_len)
@@ -156,7 +180,23 @@ impl PersonalShellProgramContext {
         }
         let program = Program::parse(&bytes[program_start..])
             .map_err(|_| PersonalShellAbiError::Malformed)?;
-        let state = ProgramState::from_values(&values[..state_len])
+        let text = match program.text_slot_capacity() {
+            Some(capacity) => {
+                if text_state_len < 2 {
+                    return Err(PersonalShellAbiError::Malformed);
+                }
+                let text_len = read_u16(bytes, text_state_start)
+                    .ok_or(PersonalShellAbiError::Malformed)?
+                    as usize;
+                if text_state_len != 2 + text_len || text_len > capacity as usize {
+                    return Err(PersonalShellAbiError::Malformed);
+                }
+                &bytes[text_state_start + 2..program_start]
+            }
+            None if text_state_len == 0 => &[][..],
+            None => return Err(PersonalShellAbiError::Malformed),
+        };
+        let state = ProgramState::from_values_and_text(&values[..state_len], text)
             .map_err(|_| PersonalShellAbiError::Malformed)?;
         Self::new(
             read_u32(bytes, 12).ok_or(PersonalShellAbiError::Malformed)?,
@@ -527,7 +567,7 @@ fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui_program::{calculator_program, UiInput};
+    use crate::ui_program::{calculator_program, editor_program, Program, Rect, UiInput, Widget};
 
     fn context() -> PersonalShellContext {
         PersonalShellContext::new(0x4433_2211, 800, 600, 3, 4, 5, true, true, 0x8877_6655)
@@ -715,6 +755,124 @@ mod tests {
         assert_eq!(
             validate_program_invocation_pair(&decoded, &PersonalShellInput::new(18)),
             Err(PersonalShellAbiError::InvocationIdMismatch)
+        );
+    }
+
+    #[test]
+    fn program_context_text_state_is_bounded_and_zero_text_packets_stay_exact() {
+        assert_eq!(MAX_PROGRAM_CONTEXT_LEN, 18_594);
+
+        let empty_program = Program::new(vec![0], vec![], vec![], vec![]).unwrap();
+        let empty_state = empty_program.initial_state();
+        let empty = PersonalShellProgramContext::new(
+            0x4433_2211,
+            crate::ui_frame::Viewport {
+                width: 2,
+                height: 3,
+            },
+            empty_program,
+            empty_state,
+        )
+        .unwrap();
+        assert_eq!(
+            empty.encode(),
+            [
+                b'R', b'A', b'P', b'P', 1, 0, 32, 0, 80, 0, 0, 0, 0x11, 0x22, 0x33, 0x44, 2, 0, 3,
+                0, 1, 0, 0, 0, 40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, b'R', b'U', b'I',
+                b'P', 1, 0, 32, 0, 40, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            ]
+        );
+        assert_eq!(
+            PersonalShellProgramContext::decode(&empty.encode()),
+            Ok(empty)
+        );
+
+        let program = editor_program();
+        let mut state = program.initial_state();
+        program
+            .dispatch(
+                &mut state,
+                UiInput::Key {
+                    code: b'a' as u16,
+                    modifiers: 0,
+                },
+            )
+            .unwrap();
+        let context = PersonalShellProgramContext::new(
+            2,
+            crate::ui_frame::Viewport {
+                width: 640,
+                height: 480,
+            },
+            program,
+            state,
+        )
+        .unwrap();
+        let bytes = context.encode();
+        assert_eq!(&bytes[22..24], &[3, 0]);
+        assert_eq!(
+            PersonalShellProgramContext::decode(&bytes),
+            Ok(context.clone())
+        );
+
+        let one_byte = Program::new_with_text_slots(
+            vec![0],
+            vec![1],
+            vec![Widget::EditBox {
+                rect: Rect {
+                    x: 0,
+                    y: 0,
+                    width: 1,
+                    height: 1,
+                },
+                text_slot: 0,
+            }],
+            vec![],
+            vec![],
+        )
+        .unwrap();
+        let mut one_byte_state = one_byte.initial_state();
+        one_byte
+            .dispatch(
+                &mut one_byte_state,
+                UiInput::Key {
+                    code: b'a' as u16,
+                    modifiers: 0,
+                },
+            )
+            .unwrap();
+        let one_byte_context = PersonalShellProgramContext::new(
+            3,
+            crate::ui_frame::Viewport {
+                width: 1,
+                height: 1,
+            },
+            one_byte,
+            one_byte_state,
+        )
+        .unwrap();
+        let mut over_capacity = one_byte_context.encode();
+        let program_start = PROGRAM_CONTEXT_HEADER_LEN + 8 + 3;
+        over_capacity.insert(program_start, b'b');
+        write_u16(&mut over_capacity, 22, 4);
+        write_u16(&mut over_capacity, PROGRAM_CONTEXT_HEADER_LEN + 8, 2);
+        let over_capacity_len = over_capacity.len() as u32;
+        write_u32(&mut over_capacity, 8, over_capacity_len);
+        assert_eq!(
+            PersonalShellProgramContext::decode(&over_capacity),
+            Err(PersonalShellAbiError::Malformed)
+        );
+
+        let mut text_state_len_mismatch = context.encode();
+        write_u16(&mut text_state_len_mismatch, 22, 4);
+        assert_eq!(
+            PersonalShellProgramContext::decode(&text_state_len_mismatch),
+            Err(PersonalShellAbiError::Malformed)
+        );
+        assert_eq!(
+            PersonalShellProgramContext::decode(&alloc::vec![0; MAX_PROGRAM_CONTEXT_LEN + 1]),
+            Err(PersonalShellAbiError::LimitExceeded)
         );
     }
 

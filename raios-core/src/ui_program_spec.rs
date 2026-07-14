@@ -38,12 +38,14 @@ pub fn parse(input: &[u8]) -> Result<Program, SpecError> {
     }
     let input = str::from_utf8(input).map_err(|_| SpecError::InvalidUtf8)?;
     let mut state = Vec::new();
+    let mut text_slot_capacities = Vec::new();
     let mut widgets = Vec::new();
     let mut bindings = Vec::new();
     let mut rules = Vec::new();
     let mut active_rule: Option<Rule> = None;
     let mut header_seen = false;
     let mut end_seen = false;
+    let mut textstate_seen = false;
 
     for line in input.lines() {
         if line.trim().is_empty() {
@@ -114,6 +116,12 @@ pub fn parse(input: &[u8]) -> Result<Program, SpecError> {
                         addend: number(&tokens[4])?,
                     });
                 }
+                "textclear" => {
+                    exact(&tokens, 2)?;
+                    rule.actions.push(Action::TextClear {
+                        slot: number(&tokens[1])?,
+                    });
+                }
                 "endrule" => {
                     exact(&tokens, 1)?;
                     rules.push(active_rule.take().expect("active rule exists"));
@@ -127,6 +135,14 @@ pub fn parse(input: &[u8]) -> Result<Program, SpecError> {
             "state" => {
                 exact(&tokens, 2)?;
                 state.push(number(&tokens[1])?);
+            }
+            "textstate" => {
+                exact(&tokens, 2)?;
+                if textstate_seen {
+                    return Err(SpecError::Malformed);
+                }
+                textstate_seen = true;
+                text_slot_capacities.push(number(&tokens[1])?);
             }
             "text" => {
                 exact(&tokens, 6)?;
@@ -148,6 +164,13 @@ pub fn parse(input: &[u8]) -> Result<Program, SpecError> {
                     rect: rect(&tokens[1..5])?,
                     event_id: number(&tokens[5])?,
                     text: label(&tokens[6])?,
+                });
+            }
+            "editbox" => {
+                exact(&tokens, 6)?;
+                widgets.push(Widget::EditBox {
+                    rect: rect(&tokens[1..5])?,
+                    text_slot: number(&tokens[5])?,
                 });
             }
             "key" => {
@@ -177,7 +200,8 @@ pub fn parse(input: &[u8]) -> Result<Program, SpecError> {
     if !header_seen || !end_seen || active_rule.is_some() {
         return Err(SpecError::Malformed);
     }
-    Program::new(state, widgets, bindings, rules).map_err(Into::into)
+    Program::new_with_text_slots(state, text_slot_capacities, widgets, bindings, rules)
+        .map_err(Into::into)
 }
 
 #[derive(Debug)]
@@ -284,7 +308,7 @@ fn rect(tokens: &[Token]) -> Result<Rect, SpecError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui_program::{DispatchOutcome, UiInput, MAX_STATE_SLOTS};
+    use crate::ui_program::{editor_program, DispatchOutcome, UiInput, MAX_STATE_SLOTS};
 
     const COUNTER: &str = r#"RAIOS_UI_SPEC_V1
 state 0
@@ -296,6 +320,18 @@ key 43 0 1
 rule 1
 when 0 ne -1
 add 0 0 1
+endrule
+end
+"#;
+
+    const EDITOR: &str = r#"RAIOS_UI_SPEC_V1
+state 0
+textstate 2048
+text 8 8 240 24 "raiOS EDIT  F12=EXIT"
+editbox 8 40 608 384 0
+button 8 436 96 36 1 "CLEAR"
+rule 1
+textclear 0
 endrule
 end
 "#;
@@ -328,6 +364,14 @@ end
     }
 
     #[test]
+    fn editor_spec_is_byte_identical_to_checked_in_program() {
+        assert_eq!(
+            parse(EDITOR.as_bytes()).unwrap().canonical_bytes(),
+            editor_program().canonical_bytes()
+        );
+    }
+
+    #[test]
     fn quoted_utf8_labels_support_only_two_escapes() {
         let source =
             "RAIOS_UI_SPEC_V1\nstate 0\ntext 0 0 10 10 \"Grüße \\\"raiOS\\\" \\\\ core\"\nend\n";
@@ -351,6 +395,7 @@ end
             "RAIOS_UI_SPEC_V1\nstate 0\nend\nstate 1",
             "RAIOS_UI_SPEC_V1\nstate 0\nrule 1\nend",
             "RAIOS_UI_SPEC_V1\nstate 0\ntext 0 0 1 1 unquoted\nend",
+            "RAIOS_UI_SPEC_V1\nstate 0\ntextstate 1\ntextstate 1\nend",
         ] {
             assert!(parse(source.as_bytes()).is_err(), "accepted: {source}");
         }

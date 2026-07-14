@@ -7,7 +7,7 @@ mod ui_program;
 use core::panic::PanicInfo;
 
 const CONTEXT_LEN: usize = 32;
-const MAX_PROGRAM_CONTEXT_LEN: usize = 32 + 16 * 8 + 16 * 1024;
+const MAX_PROGRAM_CONTEXT_LEN: usize = 32 + 16 * 8 + (2 + 2048) + 16 * 1024;
 const INPUT_HEADER_LEN: usize = 16;
 const INPUT_EVENT_LEN: usize = 16;
 const MAX_INPUT_LEN: usize = INPUT_HEADER_LEN + 64 * INPUT_EVENT_LEN;

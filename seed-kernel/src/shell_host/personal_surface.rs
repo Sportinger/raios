@@ -195,7 +195,7 @@ impl PersonalSurface {
                 return self.fallback("program_missing", 0);
             };
             match program.dispatch(&mut candidate_state, event) {
-                Ok(DispatchOutcome::Handled { .. }) => {}
+                Ok(DispatchOutcome::Handled { .. }) | Ok(DispatchOutcome::Edited) => {}
                 Ok(DispatchOutcome::Ignored) => return PersonalSurfaceRoute::Ignored,
                 Err(error) => return self.fallback(program_error_reason(error), 0),
             }
@@ -249,6 +249,7 @@ impl PersonalSurface {
             }
             SanitizedInputKind::Key if event.pressed => {
                 let code = match event.code {
+                    14 => 8,
                     28 => 13,
                     57 => u16::from(b' '),
                     code => u16::from(crate::input::keycode_to_ascii(code, self.shift_active)?),
