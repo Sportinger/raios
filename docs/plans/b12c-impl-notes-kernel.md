@@ -43,3 +43,19 @@
 - UNFINISHED: rollback must retain the restored authorization through the
   recovery load path and the payload parser needs compile-loop confirmation for
   all new fields. No Cargo/build/test was run, per worker scope.
+
+## resolver packet
+
+- Added one RECLOG-order resolver shared by provider autoload and manual
+  repromotion. A newer complete unpromote tombstones the install; a newer
+  incomplete/malformed promote or unmatched artifact-persist record resolves to
+  no active install and never falls back to an older pair.
+- Provider autoload now requires a success-marked Normal boot, restores the
+  persisted W6 authorization, drives the existing reverify/load/start chain,
+  and emits the Contract-11 marker for every outcome with the resolved promote,
+  artifact-persist, or unpromote frame identity.
+- Recovery load now carries the restored fixed-size W6 authorization into its
+  promote append and leaves it in state for a later rollback/unpromote. Fixed
+  the persisted install-signature parser delimiter needed by that path.
+- Remainder: no Cargo, build, format, or test command was run, per resolver
+  scope; compile-loop and focused VM evidence remain for the orchestrator.

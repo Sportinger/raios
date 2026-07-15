@@ -1133,6 +1133,11 @@ fn load(source_method: &'static str, durable_effects: bool) -> ActionResult {
     };
     let durable_promotion_transaction = promotion_for_append
         .map(|promotion| {
+            let install_authorization = if durable_effects {
+                STATE.lock().signed_install_authorization
+            } else {
+                None
+            };
             append_promotion_transaction(
                 durable_store::PromotionTransactionKind::Promote,
                 promotion,
@@ -1140,7 +1145,7 @@ fn load(source_method: &'static str, durable_effects: bool) -> ActionResult {
                 false,
                 None,
                 false,
-                None,
+                install_authorization,
             )
         })
         .unwrap_or_else(|| {

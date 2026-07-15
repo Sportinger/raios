@@ -42,6 +42,7 @@ const DECISION_ID: &str = "repromotion.current_boot.svc.dev.granted_candidate.v0
 const SCOPE: &str = "current_boot";
 const CLASSIFICATION: &str = "local_only";
 const TRUST_TIER: &str = "dev_key_not_owner_sealed";
+const GRANTED_CANDIDATE_SERVICE_ID: &str = "svc.dev.granted_candidate";
 const MAX_PROMOTION_SIGNATURE_DER_LEN: usize = 80;
 
 struct VecSink(Vec<u8>);
@@ -106,6 +107,32 @@ pub(crate) struct PromotionTransactionReadback {
     physical_install_approval_consumed: bool,
     install_authorization: Option<granted_candidate_service::SignedInstallAuthorization>,
     frame_sha256: [u8; 32],
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum GrantedCandidateInstallResolution {
+    None,
+    Active {
+        transaction: PromotionTransactionReadback,
+        artifact: artifact_store::ArtifactPersistRecord,
+        artifact_persist_frame_sha256: [u8; 32],
+    },
+    RolledBack {
+        transaction: PromotionTransactionReadback,
+    },
+}
+
+#[derive(Clone, Copy)]
+enum GrantedCandidateInstallFold {
+    None,
+    Incomplete,
+    Promote {
+        transaction: PromotionTransactionReadback,
+        artifact: Option<(artifact_store::ArtifactPersistRecord, [u8; 32])>,
+    },
+    Unpromote {
+        transaction: PromotionTransactionReadback,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -210,26 +237,150 @@ pub(crate) fn emit_repromotion_run(_runtime: ui::RuntimeStatus) {
         return;
     };
     let scan = artifact_store::current_boot_reclog_scan(controller);
-    let records = scan
-        .bytes
-        .as_deref()
-        .map(artifact_store::artifact_persist_records_from_reclog)
-        .unwrap_or_default();
-    if records.is_empty() {
-        emit_no_record("artifact_persist_records_empty", "no_artifacts", true);
+    let Some(bytes) = scan.bytes.as_deref() else {
+        emit_no_record(scan.reason, "capability_denied", false);
         return;
+    };
+    let artifact = match resolve_granted_candidate_install(bytes) {
+        GrantedCandidateInstallResolution::None => {
+            emit_no_record("no_w6_authorized_install", "no_artifacts", true);
+            return;
+        }
+        GrantedCandidateInstallResolution::RolledBack { .. } => {
+            emit_no_record("granted_candidate_install_rolled_back", "no_artifacts", true);
+            return;
+        }
+        GrantedCandidateInstallResolution::Active { artifact, .. } => artifact,
+    };
+
+    let mut evidence = reverify_record(controller, &artifact);
+    let audit = append_repromotion_audit(controller, &evidence);
+    evidence.audit = Some(audit);
+    let mut decisions = Vec::new();
+    decisions.push(evidence);
+    emit_run_record("completed", "repromotion_scan_completed", true, decisions);
+}
+
+pub(crate) fn resolve_granted_candidate_install(
+    bytes: &[u8],
+) -> GrantedCandidateInstallResolution {
+    let scan = scan_reclog(bytes);
+    if !scan.valid_prefix_chain || !scan.full_region_valid {
+        return GrantedCandidateInstallResolution::None;
+    }
+    let artifacts = artifact_store::artifact_persist_records_from_reclog(bytes);
+    let mut fold = GrantedCandidateInstallFold::None;
+    let mut offset = 0usize;
+    let mut seq = 1u64;
+    let mut prev = [0u8; 32];
+    let mut count = 0u64;
+    while count < scan.count && offset < bytes.len() {
+        let Ok(frame) = parse_reclog_frame(bytes, offset, seq, prev) else {
+            return GrantedCandidateInstallResolution::None;
+        };
+        let payload_start = offset + RECLOG_FRAME_HEADER_LEN;
+        let payload_end = payload_start + frame.payload_len as usize;
+        let Ok(payload) = str::from_utf8(&bytes[payload_start..payload_end]) else {
+            return GrantedCandidateInstallResolution::None;
+        };
+        let target_service = extract_str(payload, b"\"service_id\": \"")
+            == Some(GRANTED_CANDIDATE_SERVICE_ID);
+        let target_record = target_service
+            || contains_bytes(payload.as_bytes(), GRANTED_CANDIDATE_SERVICE_ID.as_bytes());
+
+        if target_record
+            && contains_bytes(
+                payload.as_bytes(),
+                b"\"schema\": \"raios.promotion_transaction.v0\"",
+            )
+        {
+            fold = match parse_promotion_transaction_payload(payload) {
+                Ok(mut transaction) if complete_install_authorization(&transaction) => {
+                    transaction.frame_sha256 = frame.frame_sha256;
+                    if transaction.transaction_kind == "promote" {
+                        GrantedCandidateInstallFold::Promote {
+                            transaction,
+                            artifact: None,
+                        }
+                    } else {
+                        GrantedCandidateInstallFold::Unpromote { transaction }
+                    }
+                }
+                _ => GrantedCandidateInstallFold::Incomplete,
+            };
+        } else if target_record
+            && contains_bytes(
+                payload.as_bytes(),
+                b"\"schema\": \"raios.artifact_persist.v0\"",
+            )
+        {
+            let artifact = artifacts.iter().find(|record| record.seq == frame.seq).copied();
+            fold = match (fold, artifact) {
+                (
+                    GrantedCandidateInstallFold::Promote {
+                        transaction,
+                        artifact: None,
+                    },
+                    Some(artifact),
+                ) if exact_artifact_link(&transaction, &artifact) => {
+                    GrantedCandidateInstallFold::Promote {
+                        transaction,
+                        artifact: Some((artifact, frame.frame_sha256)),
+                    }
+                }
+                _ => GrantedCandidateInstallFold::Incomplete,
+            };
+        }
+
+        offset += frame.frame_len as usize;
+        seq = seq.saturating_add(1);
+        prev = frame.frame_sha256;
+        count += 1;
     }
 
-    let mut decisions = Vec::new();
-    let mut idx = 0usize;
-    while idx < records.len() {
-        let mut evidence = reverify_record(controller, &records[idx]);
-        let audit = append_repromotion_audit(controller, &evidence);
-        evidence.audit = Some(audit);
-        decisions.push(evidence);
-        idx += 1;
+    match fold {
+        GrantedCandidateInstallFold::Promote {
+            transaction,
+            artifact: Some((artifact, artifact_persist_frame_sha256)),
+        } => GrantedCandidateInstallResolution::Active {
+            transaction,
+            artifact,
+            artifact_persist_frame_sha256,
+        },
+        GrantedCandidateInstallFold::Unpromote { transaction } => {
+            GrantedCandidateInstallResolution::RolledBack { transaction }
+        }
+        GrantedCandidateInstallFold::None
+        | GrantedCandidateInstallFold::Incomplete
+        | GrantedCandidateInstallFold::Promote { artifact: None, .. } => {
+            GrantedCandidateInstallResolution::None
+        }
     }
-    emit_run_record("completed", "repromotion_scan_completed", true, decisions);
+}
+
+fn complete_install_authorization(transaction: &PromotionTransactionReadback) -> bool {
+    transaction.install_authorization_present
+        && transaction.install_envelope_binds_activation
+        && transaction.install_action_signature_verified
+        && transaction.physical_install_approval_consumed
+        && transaction.install_authorization.is_some_and(|authorization| {
+            authorization.candidate_sha256 == transaction.artifact_hash
+                && authorization.computed_grant_sha256 == transaction.computed_grant_hash
+                && authorization.attestation_reference_sha256
+                    == transaction.attestation_reference_hash
+        })
+}
+
+fn exact_artifact_link(
+    transaction: &PromotionTransactionReadback,
+    artifact: &artifact_store::ArtifactPersistRecord,
+) -> bool {
+    artifact.promotion_transaction_sha256 == transaction.frame_sha256
+        && artifact.artifact_sha256 == transaction.artifact_hash
+        && artifact.manifest_hash == transaction.manifest_hash
+        && artifact.vm_report_hash == transaction.vm_report_hash
+        && artifact.grant_hash == transaction.computed_grant_hash
+        && !artifact.authorizes_load
 }
 
 /// Reverify-only outcome shared by the full re-promotion path and the recovery lifeline
@@ -834,18 +985,18 @@ fn parse_promotion_transaction_payload(
 
 fn parse_install_authorization(payload: &str) -> Result<Option<granted_candidate_service::SignedInstallAuthorization>, &'static str> {
     if artifact_store::extract_bool(payload, b"\"install_authorization_present\": ").unwrap_or(false) == false { return Ok(None); }
-    let (signature_der, signature_len) = extract_install_hex_bytes(payload, b"\"install_signature_der\": ").ok_or("install_action_signature_not_verified")?;
+    let (signature_der, signature_len) = extract_install_hex_bytes(payload, b"\"install_signature_der\": \"").ok_or("install_action_signature_not_verified")?;
     if artifact_store::extract_u64(payload, b"\"install_signature_len\": ").map(|v| v as usize) != Some(signature_len) { return Err("install_action_signature_not_verified"); }
     let sha = |key| artifact_store::extract_sha256(payload, key).ok_or("install_authorization_missing");
     Ok(Some(granted_candidate_service::SignedInstallAuthorization {
-        activation_approval_sha256: sha(b"\"activation_approval_sha256\": ")?, computed_grant_sha256: sha(b"\"computed_grant_hash\": ")?,
-        attestation_reference_sha256: sha(b"\"attestation_reference_hash\": ")?, w7_invocation_sha256: sha(b"\"w7_invocation_sha256\": ")?,
-        w7_receipt_sha256: sha(b"\"w7_receipt_sha256\": ")?, receiver_content_sha256: sha(b"\"receiver_content_sha256\": ")?,
-        receiver_candidate_sha256: sha(b"\"receiver_candidate_sha256\": ")?, catalog_candidate_sha256: sha(b"\"catalog_candidate_sha256\": ")?,
-        install_envelope_sha256: sha(b"\"install_envelope_sha256\": ")?, install_action_sha256: sha(b"\"install_action_sha256\": ")?,
-        install_action_message_sha256: sha(b"\"install_action_signature_message_sha256\": ")?, authority_evidence_sha256: sha(b"\"authority_evidence_sha256\": ")?,
-        physical_approval_sha256: sha(b"\"physical_approval_sha256\": ")?, authority_key_sha256: sha(b"\"install_authority_key_sha256\": ")?,
-        candidate_sha256: sha(b"\"install_candidate_sha256\": ")?, candidate_byte_len: artifact_store::extract_u64(payload, b"\"install_candidate_byte_len\": ").ok_or("install_authorization_missing")?,
+        activation_approval_sha256: sha(b"\"activation_approval_sha256\": \"")?, computed_grant_sha256: sha(b"\"computed_grant_hash\": \"")?,
+        attestation_reference_sha256: sha(b"\"attestation_reference_hash\": \"")?, w7_invocation_sha256: sha(b"\"w7_invocation_sha256\": \"")?,
+        w7_receipt_sha256: sha(b"\"w7_receipt_sha256\": \"")?, receiver_content_sha256: sha(b"\"receiver_content_sha256\": \"")?,
+        receiver_candidate_sha256: sha(b"\"receiver_candidate_sha256\": \"")?, catalog_candidate_sha256: sha(b"\"catalog_candidate_sha256\": \"")?,
+        install_envelope_sha256: sha(b"\"install_envelope_sha256\": \"")?, install_action_sha256: sha(b"\"install_action_sha256\": \"")?,
+        install_action_message_sha256: sha(b"\"install_action_signature_message_sha256\": \"")?, authority_evidence_sha256: sha(b"\"authority_evidence_sha256\": \"")?,
+        physical_approval_sha256: sha(b"\"physical_approval_sha256\": \"")?, authority_key_sha256: sha(b"\"install_authority_key_sha256\": \"")?,
+        candidate_sha256: sha(b"\"install_candidate_sha256\": \"")?, candidate_byte_len: artifact_store::extract_u64(payload, b"\"install_candidate_byte_len\": ").ok_or("install_authorization_missing")?,
         generation: artifact_store::extract_u64(payload, b"\"install_generation\": ").ok_or("install_authorization_missing")?, log_sequence: artifact_store::extract_u64(payload, b"\"install_log_sequence\": ").ok_or("install_authorization_missing")?,
         signature_len, signature_der,
     }))
@@ -1012,19 +1163,232 @@ fn emit_skipped(reason: &'static str) {
     end_response(METHOD);
 }
 
-/// Boot-time provider hook. Records without the W6 pins intentionally remain
-/// diagnostic-only until the resolver has selected a complete install.
 pub(crate) fn run_provider_autoload() {
-    let posture = boot_control::current_boot_posture();
-    let (phase, reason) = match posture {
-        BootPosture::Normal => ("not_installed", "no_w6_authorized_install"),
-        BootPosture::Probation => ("denied", "provider_autoload_posture_not_normal"),
-        BootPosture::Safe => ("denied", "provider_autoload_posture_not_normal"),
-        BootPosture::PersistenceUnavailable => ("denied", "provider_autoload_posture_not_normal"),
+    let (posture, _, authoritative) = boot_control::current_boot_last_good_view();
+    if posture != BootPosture::Normal {
+        emit_provider_autoload_marker(
+            "denied",
+            "denied",
+            "provider_autoload_posture_not_normal",
+            posture,
+            None,
+            None,
+            None,
+            false,
+            false,
+            false,
+            false,
+            0,
+            false,
+        );
+        return;
+    }
+    if !authoritative.is_some_and(|record| record.boot_attempt.success_marked) {
+        emit_provider_autoload_marker(
+            "denied",
+            "denied",
+            "provider_autoload_requires_boot_success_mark",
+            posture,
+            None,
+            None,
+            None,
+            false,
+            false,
+            false,
+            false,
+            0,
+            false,
+        );
+        return;
+    }
+    let Some(controller) = pci::find_mass_storage_controller() else {
+        emit_provider_autoload_marker(
+            "denied",
+            "denied",
+            "ahci_controller_not_observed",
+            posture,
+            None,
+            None,
+            None,
+            false,
+            false,
+            false,
+            false,
+            0,
+            false,
+        );
+        return;
     };
+    let scan = artifact_store::current_boot_reclog_scan(controller);
+    let Some(bytes) = scan.bytes.as_deref() else {
+        emit_provider_autoload_marker(
+            "denied",
+            "denied",
+            scan.reason,
+            posture,
+            None,
+            None,
+            None,
+            false,
+            false,
+            false,
+            false,
+            0,
+            false,
+        );
+        return;
+    };
+
+    let (transaction, artifact, artifact_persist_frame_sha256) =
+        match resolve_granted_candidate_install(bytes) {
+            GrantedCandidateInstallResolution::None => {
+                emit_provider_autoload_marker(
+                    "accepted",
+                    "not_installed",
+                    "no_w6_authorized_install",
+                    posture,
+                    None,
+                    None,
+                    None,
+                    false,
+                    false,
+                    false,
+                    false,
+                    0,
+                    false,
+                );
+                return;
+            }
+            GrantedCandidateInstallResolution::RolledBack { transaction } => {
+                emit_provider_autoload_marker(
+                    "accepted",
+                    "rolled_back",
+                    "granted_candidate_install_rolled_back",
+                    posture,
+                    Some(transaction.artifact_hash),
+                    Some(transaction.frame_sha256),
+                    None,
+                    false,
+                    false,
+                    false,
+                    false,
+                    0,
+                    false,
+                );
+                return;
+            }
+            GrantedCandidateInstallResolution::Active {
+                transaction,
+                artifact,
+                artifact_persist_frame_sha256,
+            } => (transaction, artifact, artifact_persist_frame_sha256),
+        };
+
+    let Some(authorization) = transaction.install_authorization else {
+        emit_provider_autoload_marker(
+            "denied",
+            "denied",
+            "install_authorization_missing",
+            posture,
+            Some(transaction.artifact_hash),
+            Some(transaction.frame_sha256),
+            Some(artifact_persist_frame_sha256),
+            false,
+            false,
+            false,
+            false,
+            0,
+            false,
+        );
+        return;
+    };
+    granted_candidate_service::restore_reverified_install_authorization(authorization);
+    let evidence = reverify_record(controller, &artifact);
+    let signatures_reverified = evidence.reconstructed_wasm_valid.is_some();
+    let snapshot = granted_candidate_service::loaded_snapshot();
+    let loaded = snapshot.is_some_and(|snapshot| snapshot.loaded);
+    let running = snapshot.is_some_and(|snapshot| snapshot.running);
+    let run_count = snapshot.map(|snapshot| snapshot.run_count).unwrap_or(0);
+    let autoloaded = evidence.status == "repromoted"
+        && signatures_reverified
+        && loaded
+        && running
+        && run_count == 1
+        && evidence.cross_reboot_proven;
+    emit_provider_autoload_marker(
+        if autoloaded { "accepted" } else { "denied" },
+        if autoloaded { "autoloaded" } else { "denied" },
+        if evidence.status == "repromoted" && !autoloaded {
+            "provider_autoload_completion_invariant_failed"
+        } else {
+            evidence.reason
+        },
+        posture,
+        Some(transaction.artifact_hash),
+        Some(transaction.frame_sha256),
+        Some(artifact_persist_frame_sha256),
+        signatures_reverified,
+        signatures_reverified,
+        loaded,
+        running,
+        run_count,
+        autoloaded,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn emit_provider_autoload_marker(
+    result: &'static str,
+    phase: &'static str,
+    reason: &'static str,
+    posture: BootPosture,
+    candidate_sha256: Option<[u8; 32]>,
+    promotion_transaction_sha256: Option<[u8; 32]>,
+    artifact_persist_frame_sha256: Option<[u8; 32]>,
+    m6_reverified: bool,
+    w6_signature_verified: bool,
+    loaded: bool,
+    running: bool,
+    run_count: u64,
+    cross_reboot_proven: bool,
+) {
+    serial::write_raw_str("GRANTED_CANDIDATE_PROVIDER_AUTOLOAD result=");
+    serial::write_raw_str(result);
+    serial::write_raw_str(" phase=");
+    serial::write_raw_str(phase);
+    serial::write_raw_str(" reason=");
+    serial::write_raw_str(reason);
+    serial::write_raw_str(" posture=");
+    serial::write_raw_str(provider_autoload_posture(posture));
+    serial::write_raw_str(" candidate_sha256=");
+    write_optional_hash(candidate_sha256);
+    serial::write_raw_str(" promotion_transaction_sha256=");
+    write_optional_hash(promotion_transaction_sha256);
+    serial::write_raw_str(" artifact_persist_frame_sha256=");
+    write_optional_hash(artifact_persist_frame_sha256);
     serial::write_raw_fmt(format_args!(
-        "GRANTED_CANDIDATE_PROVIDER_AUTOLOAD result=denied phase={phase} reason={reason} posture={posture:?} candidate_sha256=none promotion_transaction_sha256=none artifact_persist_frame_sha256=none m6_reverified=false w6_signature_verified=false loaded=false running=false run_count=0 cross_reboot_proven=false\r\n"
+        " m6_reverified={m6_reverified} w6_signature_verified={w6_signature_verified} loaded={loaded} running={running} run_count={run_count} cross_reboot_proven={cross_reboot_proven}\r\n"
     ));
+}
+
+fn provider_autoload_posture(posture: BootPosture) -> &'static str {
+    match posture {
+        BootPosture::Normal => "Normal",
+        BootPosture::Probation => "Probation",
+        BootPosture::Safe => "Safe",
+        BootPosture::PersistenceUnavailable => "PersistenceUnavailable",
+    }
+}
+
+fn write_optional_hash(hash: Option<[u8; 32]>) {
+    let Some(hash) = hash else {
+        serial::write_raw_str("none");
+        return;
+    };
+    serial::write_raw_str("sha256:");
+    for byte in hash {
+        serial::write_raw_fmt(format_args!("{byte:02x}"));
+    }
 }
 
 fn emit_no_record(reason: &'static str, status: &'static str, performed: bool) {
