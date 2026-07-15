@@ -44,6 +44,10 @@ pub struct ScopedPromotionTransactionAppendInput<'a> {
     pub trust_tier: Option<&'a str>,
     pub owner_sealed: bool,
     pub promotion_authority_is_placeholder: bool,
+    pub install_authorization_present: bool,
+    pub install_envelope_binds_activation: bool,
+    pub install_action_signature_verified: bool,
+    pub physical_install_approval_consumed: bool,
     pub persistence_claimed: bool,
 }
 
@@ -80,6 +84,10 @@ impl<'a> ScopedPromotionTransactionAppendInput<'a> {
             trust_tier: None,
             owner_sealed: false,
             promotion_authority_is_placeholder: false,
+            install_authorization_present: false,
+            install_envelope_binds_activation: false,
+            install_action_signature_verified: false,
+            physical_install_approval_consumed: false,
             persistence_claimed: false,
         }
     }
@@ -253,6 +261,18 @@ pub fn evaluate_scoped_promotion_transaction_append(
     if !input.promotion_authority_is_placeholder {
         return denied("promotion_authority_not_placeholder");
     }
+    if !input.install_authorization_present {
+        return denied("install_authorization_missing");
+    }
+    if !input.install_envelope_binds_activation {
+        return denied("install_envelope_binding_mismatch");
+    }
+    if !input.install_action_signature_verified {
+        return denied("install_action_signature_not_verified");
+    }
+    if !input.physical_install_approval_consumed {
+        return denied("physical_install_approval_missing");
+    }
     if input.persistence_claimed {
         return denied("persistence_claimed_not_allowed");
     }
@@ -352,6 +372,10 @@ mod tests {
             trust_tier: Some(EXPECTED_TRUST_TIER),
             owner_sealed: false,
             promotion_authority_is_placeholder: true,
+            install_authorization_present: true,
+            install_envelope_binds_activation: true,
+            install_action_signature_verified: true,
+            physical_install_approval_consumed: true,
             persistence_claimed: false,
         }
     }
@@ -422,6 +446,10 @@ mod tests {
         WrongTrustTier,
         OwnerSealed,
         PromotionAuthorityNotPlaceholder,
+        InstallAuthorizationMissing,
+        InstallEnvelopeBindingMismatch,
+        InstallActionSignatureNotVerified,
+        PhysicalInstallApprovalMissing,
         PersistenceClaimed,
     }
 
@@ -466,6 +494,16 @@ mod tests {
             Mutation::OwnerSealed => input.owner_sealed = true,
             Mutation::PromotionAuthorityNotPlaceholder => {
                 input.promotion_authority_is_placeholder = false
+            }
+            Mutation::InstallAuthorizationMissing => input.install_authorization_present = false,
+            Mutation::InstallEnvelopeBindingMismatch => {
+                input.install_envelope_binds_activation = false
+            }
+            Mutation::InstallActionSignatureNotVerified => {
+                input.install_action_signature_verified = false
+            }
+            Mutation::PhysicalInstallApprovalMissing => {
+                input.physical_install_approval_consumed = false
             }
             Mutation::PersistenceClaimed => input.persistence_claimed = true,
         }
@@ -520,6 +558,19 @@ mod tests {
             (
                 Mutation::PromotionAuthorityNotPlaceholder,
                 "promotion_authority_not_placeholder",
+            ),
+            (Mutation::InstallAuthorizationMissing, "install_authorization_missing"),
+            (
+                Mutation::InstallEnvelopeBindingMismatch,
+                "install_envelope_binding_mismatch",
+            ),
+            (
+                Mutation::InstallActionSignatureNotVerified,
+                "install_action_signature_not_verified",
+            ),
+            (
+                Mutation::PhysicalInstallApprovalMissing,
+                "physical_install_approval_missing",
             ),
             (
                 Mutation::PersistenceClaimed,

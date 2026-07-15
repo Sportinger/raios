@@ -18,6 +18,13 @@ pub struct RepromotionTransactionFields<'a> {
     pub promotion_authority_key_sha256: [u8; 32],
     pub signature_verified: bool,
     pub grant_binds_capability: bool,
+    pub install_authorization_present: bool,
+    pub install_envelope_binds_activation: bool,
+    pub install_action_signature_message_sha256: [u8; 32],
+    pub install_action_signature_der: &'a [u8],
+    pub install_authority_key_sha256: [u8; 32],
+    pub install_action_signature_verified: bool,
+    pub physical_install_approval_consumed: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -101,6 +108,33 @@ pub fn reverify_persisted_artifact(input: &RepromotionReverifyInput<'_>) -> Repr
             Some(parsed.payload_sha256),
         );
     }
+    if !transaction.install_authorization_present {
+        return denied("install_authorization_missing", Some(parsed.payload_sha256));
+    }
+    if !transaction.install_envelope_binds_activation {
+        return denied(
+            "install_envelope_binding_mismatch",
+            Some(parsed.payload_sha256),
+        );
+    }
+    if !verify_promotion_authority_signature(
+        transaction.install_action_signature_der,
+        &transaction.install_action_signature_message_sha256,
+    ) || transaction.install_authority_key_sha256
+        != PLACEHOLDER_PROMOTION_AUTHORITY_PUBLIC_KEY_SHA256
+        || !transaction.install_action_signature_verified
+    {
+        return denied(
+            "install_action_signature_not_verified",
+            Some(parsed.payload_sha256),
+        );
+    }
+    if !transaction.physical_install_approval_consumed {
+        return denied(
+            "physical_install_approval_missing",
+            Some(parsed.payload_sha256),
+        );
+    }
 
     RepromotionDecision {
         reverified: true,
@@ -179,6 +213,13 @@ mod tests {
             promotion_authority_key_sha256: PLACEHOLDER_PROMOTION_AUTHORITY_PUBLIC_KEY_SHA256,
             signature_verified: false,
             grant_binds_capability: true,
+            install_authorization_present: true,
+            install_envelope_binds_activation: true,
+            install_action_signature_message_sha256: fixture.attestation_reference_hash,
+            install_action_signature_der: &fixture.signature_der,
+            install_authority_key_sha256: PLACEHOLDER_PROMOTION_AUTHORITY_PUBLIC_KEY_SHA256,
+            install_action_signature_verified: true,
+            physical_install_approval_consumed: true,
         });
         RepromotionReverifyInput {
             artstor_blob_bytes: &fixture.blob,
@@ -268,5 +309,47 @@ mod tests {
             reverify_persisted_artifact(&input).reason,
             "attestation_reference_hash_mismatch"
         );
+    }
+
+    #[test]
+    fn missing_w6_pins_name_their_denials() {
+        let fixture = fixture();
+        let base = valid_input(&fixture, None).transaction.unwrap();
+        let cases = [
+            (
+                RepromotionTransactionFields {
+                    install_authorization_present: false,
+                    ..base
+                },
+                "install_authorization_missing",
+            ),
+            (
+                RepromotionTransactionFields {
+                    install_envelope_binds_activation: false,
+                    ..base
+                },
+                "install_envelope_binding_mismatch",
+            ),
+            (
+                RepromotionTransactionFields {
+                    install_action_signature_verified: false,
+                    ..base
+                },
+                "install_action_signature_not_verified",
+            ),
+            (
+                RepromotionTransactionFields {
+                    physical_install_approval_consumed: false,
+                    ..base
+                },
+                "physical_install_approval_missing",
+            ),
+        ];
+        for (transaction, reason) in cases {
+            assert_eq!(
+                reverify_persisted_artifact(&valid_input(&fixture, Some(transaction))).reason,
+                reason
+            );
+        }
     }
 }

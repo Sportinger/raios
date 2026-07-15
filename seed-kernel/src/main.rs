@@ -278,6 +278,7 @@ fn early_main() -> ! {
     );
     structured_store_c1::run_disposable_qemu_boot_probe();
     project_app_autoload::run_boot_autoload();
+    agent_protocol::run_provider_autoload();
 
     input::init();
     runtime_status.input_probe_complete = true;

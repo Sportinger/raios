@@ -8,7 +8,7 @@ use crate::{
     },
     ahci, event_log, granted_candidate_service, module_candidate_intake,
     module_evidence::{self, ModuleLocalAttestationReferenceHashInput},
-    pci, ui, wasm_runtime,
+    pci, serial, ui, wasm_runtime,
 };
 use raios_core::{
     boot_control::BootPosture,
@@ -99,6 +99,10 @@ pub(crate) struct PromotionTransactionReadback {
     promotion_authority_key_sha256: [u8; 32],
     signature_verified: bool,
     grant_binds_capability: bool,
+    install_authorization_present: bool,
+    install_envelope_binds_activation: bool,
+    install_action_signature_verified: bool,
+    physical_install_approval_consumed: bool,
     frame_sha256: [u8; 32],
 }
 
@@ -322,6 +326,13 @@ pub(crate) fn reverify_record_only(
             promotion_authority_key_sha256: transaction.promotion_authority_key_sha256,
             signature_verified: transaction.signature_verified,
             grant_binds_capability: transaction.grant_binds_capability,
+            install_authorization_present: transaction.install_authorization_present,
+            install_envelope_binds_activation: transaction.install_envelope_binds_activation,
+            install_action_signature_message_sha256: transaction.attestation_reference_hash,
+            install_action_signature_der: signature,
+            install_authority_key_sha256: transaction.promotion_authority_key_sha256,
+            install_action_signature_verified: transaction.install_action_signature_verified,
+            physical_install_approval_consumed: transaction.physical_install_approval_consumed,
         }),
         recomputed_attestation_reference_hash,
         promotion_authority_is_placeholder: PROMOTION_AUTHORITY_IS_PLACEHOLDER,
@@ -702,7 +713,7 @@ fn parse_promotion_transaction_payload(
     }
     let transaction_kind = extract_str(payload, b"\"transaction_kind\": \"")
         .ok_or("promotion_transaction_field_missing")?;
-    if transaction_kind != "promote" {
+    if transaction_kind != "promote" && transaction_kind != "unpromote" {
         return Err("promotion_transaction_kind_mismatch");
     }
     let (promotion_signature_der, promotion_signature_len) =
@@ -785,6 +796,26 @@ fn parse_promotion_transaction_payload(
             b"\"grant_binds_capability\": ",
         )
         .ok_or("promotion_transaction_field_missing")?,
+        install_authorization_present: artifact_store::extract_bool(
+            payload,
+            b"\"install_authorization_present\": ",
+        )
+        .unwrap_or(false),
+        install_envelope_binds_activation: artifact_store::extract_bool(
+            payload,
+            b"\"install_envelope_binds_activation\": ",
+        )
+        .unwrap_or(false),
+        install_action_signature_verified: artifact_store::extract_bool(
+            payload,
+            b"\"install_action_signature_verified\": ",
+        )
+        .unwrap_or(false),
+        physical_install_approval_consumed: artifact_store::extract_bool(
+            payload,
+            b"\"physical_install_approval_consumed\": ",
+        )
+        .unwrap_or(false),
         frame_sha256: [0u8; 32],
     })
 }
@@ -941,6 +972,21 @@ fn emit_skipped(reason: &'static str) {
         6,
     );
     end_response(METHOD);
+}
+
+/// Boot-time provider hook. Records without the W6 pins intentionally remain
+/// diagnostic-only until the resolver has selected a complete install.
+pub(crate) fn run_provider_autoload() {
+    let posture = boot_control::current_boot_posture();
+    let (phase, reason) = match posture {
+        BootPosture::Normal => ("not_installed", "no_w6_authorized_install"),
+        BootPosture::Probation => ("denied", "provider_autoload_posture_not_normal"),
+        BootPosture::Safe => ("denied", "provider_autoload_posture_not_normal"),
+        BootPosture::PersistenceUnavailable => ("denied", "provider_autoload_posture_not_normal"),
+    };
+    serial::write_raw_fmt(format_args!(
+        "GRANTED_CANDIDATE_PROVIDER_AUTOLOAD result=denied phase={phase} reason={reason} posture={posture:?} candidate_sha256=none promotion_transaction_sha256=none artifact_persist_frame_sha256=none m6_reverified=false w6_signature_verified=false loaded=false running=false run_count=0 cross_reboot_proven=false\r\n"
+    ));
 }
 
 fn emit_no_record(reason: &'static str, status: &'static str, performed: bool) {

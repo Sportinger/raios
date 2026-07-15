@@ -4,6 +4,8 @@ use crate::sha256_bytes;
 
 const STATE_SCHEMA_DOMAIN: &[u8] = b"raios.project_app_state_schema.v1";
 const INSTALL_ENVELOPE_DOMAIN: &[u8] = b"raios.project_install_envelope.v1";
+const GRANTED_CANDIDATE_INSTALL_ENVELOPE_DOMAIN: &[u8] =
+    b"raios.granted_candidate_install_envelope.v1";
 const ACTION_SIGNATURE_DOMAIN: &[u8] = b"raios.project_install_action_signature.v1";
 const ACTION_DOMAIN: &[u8] = b"raios.project_install_action.v1";
 const INTENT_DOMAIN: &[u8] = b"raios.project_install_intent.v1";
@@ -67,6 +69,27 @@ pub struct ProjectInstallEnvelope {
     pub state_schema: ProjectAppStateSchema,
     pub previous_install_commit_sha256: Option<[u8; 32]>,
     pub previous_artifact_sha256: Option<[u8; 32]>,
+    pub generation: u64,
+    pub auto_start: bool,
+    pub trust_tier: String,
+    pub envelope_sha256: [u8; 32],
+}
+
+/// W7/M6 provenance carried into the existing W6 install-action ceremony.
+/// This deliberately has no workspace or project-build fields.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GrantedCandidateInstallEnvelope {
+    pub service_id: String,
+    pub candidate_sha256: [u8; 32],
+    pub candidate_byte_len: u64,
+    pub activation_approval_sha256: [u8; 32],
+    pub computed_grant_sha256: [u8; 32],
+    pub attestation_reference_sha256: [u8; 32],
+    pub w7_invocation_sha256: [u8; 32],
+    pub w7_receipt_sha256: [u8; 32],
+    pub receiver_content_sha256: [u8; 32],
+    pub receiver_candidate_sha256: [u8; 32],
+    pub catalog_candidate_sha256: [u8; 32],
     pub generation: u64,
     pub auto_start: bool,
     pub trust_tier: String,
@@ -216,6 +239,22 @@ pub fn seal_install_envelope(
     Ok(envelope)
 }
 
+pub fn seal_granted_candidate_install_envelope(
+    mut envelope: GrantedCandidateInstallEnvelope,
+) -> Result<GrantedCandidateInstallEnvelope, ProjectInstallError> {
+    validate_granted_candidate_install_envelope_fields(&envelope)?;
+    envelope.envelope_sha256 = granted_candidate_install_envelope_hash(&envelope)?;
+    Ok(envelope)
+}
+
+pub fn granted_candidate_install_envelope_hash(
+    envelope: &GrantedCandidateInstallEnvelope,
+) -> Result<[u8; 32], ProjectInstallError> {
+    let mut bytes = Vec::from(GRANTED_CANDIDATE_INSTALL_ENVELOPE_DOMAIN);
+    encode_granted_candidate_install_envelope_fields(&mut bytes, envelope)?;
+    Ok(sha256_bytes(&bytes))
+}
+
 pub fn seal_install_action(
     mut action: ProjectInstallAction,
 ) -> Result<ProjectInstallAction, ProjectInstallError> {
@@ -320,6 +359,16 @@ pub fn validate_install_envelope(
     validate_envelope_fields(envelope)?;
     validate_state_schema(&envelope.state_schema)?;
     if envelope.envelope_sha256 != install_envelope_hash(envelope)? {
+        return Err(ProjectInstallError::InvalidHash);
+    }
+    Ok(())
+}
+
+pub fn validate_granted_candidate_install_envelope(
+    envelope: &GrantedCandidateInstallEnvelope,
+) -> Result<(), ProjectInstallError> {
+    validate_granted_candidate_install_envelope_fields(envelope)?;
+    if envelope.envelope_sha256 != granted_candidate_install_envelope_hash(envelope)? {
         return Err(ProjectInstallError::InvalidHash);
     }
     Ok(())
@@ -676,6 +725,37 @@ fn validate_envelope_fields(envelope: &ProjectInstallEnvelope) -> Result<(), Pro
     Ok(())
 }
 
+fn validate_granted_candidate_install_envelope_fields(
+    envelope: &GrantedCandidateInstallEnvelope,
+) -> Result<(), ProjectInstallError> {
+    validate_text(&envelope.service_id)?;
+    validate_text(&envelope.trust_tier)?;
+    if envelope.service_id != "svc.dev.granted_candidate"
+        || envelope.candidate_byte_len == 0
+        || envelope.candidate_byte_len > MAX_CANDIDATE_BYTES
+        || envelope.generation == 0
+        || !envelope.auto_start
+        || envelope.trust_tier != PROJECT_INSTALL_TRUST_TIER
+        || any_zero(&[
+            envelope.candidate_sha256,
+            envelope.activation_approval_sha256,
+            envelope.computed_grant_sha256,
+            envelope.attestation_reference_sha256,
+            envelope.w7_invocation_sha256,
+            envelope.w7_receipt_sha256,
+            envelope.receiver_content_sha256,
+            envelope.receiver_candidate_sha256,
+            envelope.catalog_candidate_sha256,
+        ])
+        || envelope.candidate_sha256 != envelope.receiver_content_sha256
+        || envelope.candidate_sha256 != envelope.receiver_candidate_sha256
+        || envelope.candidate_sha256 != envelope.catalog_candidate_sha256
+    {
+        return Err(ProjectInstallError::InvalidField);
+    }
+    Ok(())
+}
+
 fn validate_action_fields(action: &ProjectInstallAction) -> Result<(), ProjectInstallError> {
     validate_action_semantics(action, true)
 }
@@ -923,6 +1003,26 @@ fn encode_action_semantics(
     put_optional_hash(out, action.physical_approval_sha256);
     put_optional_hash(out, action.authority_key_sha256);
     Ok(())
+}
+
+fn encode_granted_candidate_install_envelope_fields(
+    out: &mut Vec<u8>,
+    envelope: &GrantedCandidateInstallEnvelope,
+) -> Result<(), ProjectInstallError> {
+    put_string(out, &envelope.service_id)?;
+    put_hash(out, envelope.candidate_sha256);
+    put_u64(out, envelope.candidate_byte_len);
+    put_hash(out, envelope.activation_approval_sha256);
+    put_hash(out, envelope.computed_grant_sha256);
+    put_hash(out, envelope.attestation_reference_sha256);
+    put_hash(out, envelope.w7_invocation_sha256);
+    put_hash(out, envelope.w7_receipt_sha256);
+    put_hash(out, envelope.receiver_content_sha256);
+    put_hash(out, envelope.receiver_candidate_sha256);
+    put_hash(out, envelope.catalog_candidate_sha256);
+    put_u64(out, envelope.generation);
+    put_bool(out, envelope.auto_start);
+    put_string(out, &envelope.trust_tier)
 }
 
 fn encode_action(
