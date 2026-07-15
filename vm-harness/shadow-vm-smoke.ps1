@@ -177,9 +177,11 @@ try {
         }
         $StructuredStoreDiskImage = Join-Path $RunDir "raios-structured-store-c1.img"
         $structuredStoreBuilder = Join-Path $RepoRoot "scripts\make-structured-store-image.py"
-        $fixtureJson = & python $structuredStoreBuilder create $StructuredStoreDiskImage --size-mib 16 --json 2>&1
+        $structuredStoreError = Join-Path $RunDir "structured-store-builder.err.txt"
+        $fixtureJson = & python $structuredStoreBuilder create $StructuredStoreDiskImage --size-mib 16 --json 2> $structuredStoreError
         if ($LASTEXITCODE -ne 0) {
-            throw "Structured-store fixture build failed: $($fixtureJson -join [Environment]::NewLine)"
+            $fixtureError = Get-Content -Raw -LiteralPath $structuredStoreError -ErrorAction SilentlyContinue
+            throw "Structured-store fixture build failed: $fixtureError"
         }
         $StructuredStoreFixture = ($fixtureJson -join [Environment]::NewLine) | ConvertFrom-Json
         if (-not $StructuredStoreFixture.valid -or -not $StructuredStoreFixture.disposable_qemu_only -or
@@ -191,11 +193,18 @@ try {
         # BOOTCTL remains on its own SEED_DATA disk. The C1 Vault store keeps
         # its distinct controller-port/GPT identity and is never a fallback.
         $structuredStorePersist = Assert-PersistDiskPathSafe -Path (Join-Path $RunDir "raios-persist-structured-store.img")
-        $null = & python (Join-Path $RepoRoot "scripts\make-gpt-persist-image.py") --self-check --seed-bootctl valid-a $structuredStorePersist 2>&1
+        $structuredStorePersistError = Join-Path $RunDir "structured-store-persist-builder.err.txt"
+        $null = & python (Join-Path $RepoRoot "scripts\make-gpt-persist-image.py") --self-check --seed-bootctl valid-a $structuredStorePersist 2> $structuredStorePersistError
         if ($LASTEXITCODE -ne 0) {
             throw "structured-store BOOTCTL fixture build failed with exit code $LASTEXITCODE"
         }
         $PersistDiskImage = (Resolve-Path -LiteralPath $structuredStorePersist).Path
+    }
+    elseif ($Profile -eq "network-acquisition") {
+        if ($PersistDiskPath) {
+            throw "network-acquisition creates its own exact valid-a disposable persist disk"
+        }
+        $PersistDiskImage = Resolve-PersistDiskImage -PersistDiskPath "" -RunDir $RunDir -SeedBootControl "valid-a"
     }
     elseif ($Profile -eq "persistence" -or $Profile -eq "memory-durable" -or $PersistDiskPath) {
         $PersistDiskImage = Resolve-PersistDiskImage -PersistDiskPath $PersistDiskPath -RunDir $RunDir
@@ -205,7 +214,8 @@ try {
         # the empty RECLOG for its bounded durable recovery-action append.
         $persistFixtureName = if ($Profile -eq "core-policy") { "raios-persist-core-policy.img" } else { "raios-persist-m8-lifeline.img" }
         $m8PersistDisk = Assert-PersistDiskPathSafe -Path (Join-Path $RunDir $persistFixtureName)
-        $null = & python (Join-Path $RepoRoot "scripts\make-gpt-persist-image.py") --self-check --seed-bootctl valid-a $m8PersistDisk 2>&1
+        $m8PersistError = Join-Path $RunDir "$Profile-persist-builder.err.txt"
+        $null = & python (Join-Path $RepoRoot "scripts\make-gpt-persist-image.py") --self-check --seed-bootctl valid-a $m8PersistDisk 2> $m8PersistError
         if ($LASTEXITCODE -ne 0) {
             throw "$Profile persist disk build failed with exit code $LASTEXITCODE"
         }
