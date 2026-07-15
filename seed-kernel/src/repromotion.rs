@@ -81,6 +81,7 @@ impl EventIdText {
 
 #[derive(Clone, Copy)]
 pub(crate) struct PromotionTransactionReadback {
+    transaction_kind: &'static str,
     computed_grant_hash: [u8; 32],
     manifest_hash: [u8; 32],
     artifact_hash: [u8; 32],
@@ -103,6 +104,7 @@ pub(crate) struct PromotionTransactionReadback {
     install_envelope_binds_activation: bool,
     install_action_signature_verified: bool,
     physical_install_approval_consumed: bool,
+    install_authorization: Option<granted_candidate_service::SignedInstallAuthorization>,
     frame_sha256: [u8; 32],
 }
 
@@ -308,6 +310,11 @@ pub(crate) fn reverify_record_only(
             },
         );
     let signature = &transaction.promotion_signature_der[..transaction.promotion_signature_len];
+    let install_signature = transaction
+        .install_authorization
+        .as_ref()
+        .map(|authorization| &authorization.signature_der[..authorization.signature_len])
+        .unwrap_or(&[]);
     let decision = reverify_persisted_artifact(&RepromotionReverifyInput {
         artstor_blob_bytes: &verified_payload.blob_bytes,
         record_artstor_blob_frame_sha256: record.artstor_blob_frame_sha256,
@@ -328,9 +335,9 @@ pub(crate) fn reverify_record_only(
             grant_binds_capability: transaction.grant_binds_capability,
             install_authorization_present: transaction.install_authorization_present,
             install_envelope_binds_activation: transaction.install_envelope_binds_activation,
-            install_action_signature_message_sha256: transaction.attestation_reference_hash,
-            install_action_signature_der: signature,
-            install_authority_key_sha256: transaction.promotion_authority_key_sha256,
+            install_action_signature_message_sha256: transaction.install_authorization.map(|a| a.install_action_message_sha256).unwrap_or([0; 32]),
+            install_action_signature_der: install_signature,
+            install_authority_key_sha256: transaction.install_authorization.map(|a| a.authority_key_sha256).unwrap_or([0; 32]),
             install_action_signature_verified: transaction.install_action_signature_verified,
             physical_install_approval_consumed: transaction.physical_install_approval_consumed,
         }),
@@ -433,6 +440,9 @@ fn reverify_record(
         return evidence;
     }
     evidence.references_repopulated = true;
+
+    let Some(authorization) = transaction.install_authorization else { evidence.deny("install_authorization_missing"); return evidence; };
+    granted_candidate_service::restore_reverified_install_authorization(authorization);
 
     granted_candidate_service::emit_repromotion_load();
     evidence.load_attempted = true;
@@ -730,6 +740,7 @@ fn parse_promotion_transaction_payload(
     }
 
     Ok(PromotionTransactionReadback {
+        transaction_kind: if transaction_kind == "promote" { "promote" } else { "unpromote" },
         computed_grant_hash: artifact_store::extract_sha256(
             payload,
             b"\"computed_grant_hash\": \"",
@@ -816,8 +827,35 @@ fn parse_promotion_transaction_payload(
             b"\"physical_install_approval_consumed\": ",
         )
         .unwrap_or(false),
+        install_authorization: parse_install_authorization(payload)?,
         frame_sha256: [0u8; 32],
     })
+}
+
+fn parse_install_authorization(payload: &str) -> Result<Option<granted_candidate_service::SignedInstallAuthorization>, &'static str> {
+    if artifact_store::extract_bool(payload, b"\"install_authorization_present\": ").unwrap_or(false) == false { return Ok(None); }
+    let (signature_der, signature_len) = extract_install_hex_bytes(payload, b"\"install_signature_der\": ").ok_or("install_action_signature_not_verified")?;
+    if artifact_store::extract_u64(payload, b"\"install_signature_len\": ").map(|v| v as usize) != Some(signature_len) { return Err("install_action_signature_not_verified"); }
+    let sha = |key| artifact_store::extract_sha256(payload, key).ok_or("install_authorization_missing");
+    Ok(Some(granted_candidate_service::SignedInstallAuthorization {
+        activation_approval_sha256: sha(b"\"activation_approval_sha256\": ")?, computed_grant_sha256: sha(b"\"computed_grant_hash\": ")?,
+        attestation_reference_sha256: sha(b"\"attestation_reference_hash\": ")?, w7_invocation_sha256: sha(b"\"w7_invocation_sha256\": ")?,
+        w7_receipt_sha256: sha(b"\"w7_receipt_sha256\": ")?, receiver_content_sha256: sha(b"\"receiver_content_sha256\": ")?,
+        receiver_candidate_sha256: sha(b"\"receiver_candidate_sha256\": ")?, catalog_candidate_sha256: sha(b"\"catalog_candidate_sha256\": ")?,
+        install_envelope_sha256: sha(b"\"install_envelope_sha256\": ")?, install_action_sha256: sha(b"\"install_action_sha256\": ")?,
+        install_action_message_sha256: sha(b"\"install_action_signature_message_sha256\": ")?, authority_evidence_sha256: sha(b"\"authority_evidence_sha256\": ")?,
+        physical_approval_sha256: sha(b"\"physical_approval_sha256\": ")?, authority_key_sha256: sha(b"\"install_authority_key_sha256\": ")?,
+        candidate_sha256: sha(b"\"install_candidate_sha256\": ")?, candidate_byte_len: artifact_store::extract_u64(payload, b"\"install_candidate_byte_len\": ").ok_or("install_authorization_missing")?,
+        generation: artifact_store::extract_u64(payload, b"\"install_generation\": ").ok_or("install_authorization_missing")?, log_sequence: artifact_store::extract_u64(payload, b"\"install_log_sequence\": ").ok_or("install_authorization_missing")?,
+        signature_len, signature_der,
+    }))
+}
+
+fn extract_install_hex_bytes(payload: &str, key: &[u8]) -> Option<([u8; 256], usize)> {
+    let value = extract_str(payload, key)?; if value.is_empty() || value.len() % 2 != 0 || value.len() / 2 > 256 { return None; }
+    let mut out = [0u8; 256]; let mut pos = 0usize;
+    while pos < value.len() / 2 { out[pos] = (hex_nibble(value.as_bytes()[pos * 2])? << 4) | hex_nibble(value.as_bytes()[pos * 2 + 1])?; pos += 1; }
+    Some((out, pos))
 }
 
 fn extract_event_id(payload: &str, needle: &[u8]) -> Result<EventIdText, &'static str> {

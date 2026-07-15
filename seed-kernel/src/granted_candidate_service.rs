@@ -2,8 +2,9 @@ use alloc::{string::String, vec, vec::Vec};
 
 use raios_core::record::{sha256_of_json, Value as V};
 use raios_core::project_install::{
-    seal_granted_candidate_install_envelope, validate_granted_candidate_install_envelope,
-    GrantedCandidateInstallEnvelope, ProjectInstallAction,
+    install_action_signature_payload_sha256, seal_granted_candidate_install_envelope,
+    validate_granted_candidate_install_envelope, GrantedCandidateInstallEnvelope,
+    ProjectInstallAction,
 };
 use spin::Mutex;
 
@@ -191,12 +192,27 @@ struct ApprovedActivation {
 
 /// Fixed-size current-boot W6 proof retained only after both durable readbacks.
 #[derive(Clone, Copy)]
-struct SignedInstallAuthorization {
-    install_envelope_sha256: [u8; 32],
-    install_action_sha256: [u8; 32],
-    physical_approval_sha256: [u8; 32],
-    signature_len: usize,
-    signature_der: [u8; 256],
+pub(crate) struct SignedInstallAuthorization {
+    pub(crate) activation_approval_sha256: [u8; 32],
+    pub(crate) computed_grant_sha256: [u8; 32],
+    pub(crate) attestation_reference_sha256: [u8; 32],
+    pub(crate) w7_invocation_sha256: [u8; 32],
+    pub(crate) w7_receipt_sha256: [u8; 32],
+    pub(crate) receiver_content_sha256: [u8; 32],
+    pub(crate) receiver_candidate_sha256: [u8; 32],
+    pub(crate) catalog_candidate_sha256: [u8; 32],
+    pub(crate) install_envelope_sha256: [u8; 32],
+    pub(crate) install_action_sha256: [u8; 32],
+    pub(crate) install_action_message_sha256: [u8; 32],
+    pub(crate) authority_evidence_sha256: [u8; 32],
+    pub(crate) physical_approval_sha256: [u8; 32],
+    pub(crate) authority_key_sha256: [u8; 32],
+    pub(crate) candidate_sha256: [u8; 32],
+    pub(crate) candidate_byte_len: u64,
+    pub(crate) generation: u64,
+    pub(crate) log_sequence: u64,
+    pub(crate) signature_len: usize,
+    pub(crate) signature_der: [u8; 256],
 }
 
 #[derive(Clone, Copy)]
@@ -956,8 +972,9 @@ pub(crate) fn install_approved_from_pointer(
     if !snapshot.running || snapshot.run_count != 1 || action.action_sha256 == [0; 32] {
         return Err("granted_candidate_install_not_ready");
     }
+    let authorization = signed_install_authorization(&approved, envelope, action)?;
     let durable_promotion_transaction = append_promotion_transaction(
-        durable_store::PromotionTransactionKind::Promote, approved.promotion, None, false, None, false, true,
+        durable_store::PromotionTransactionKind::Promote, approved.promotion, None, false, None, false, Some(authorization),
     );
     if !durable_promotion_transaction.performed {
         return Err(durable_promotion_transaction.reason);
@@ -974,22 +991,36 @@ pub(crate) fn install_approved_from_pointer(
     if !persisted.performed {
         return Err(persisted.reason);
     }
-    let mut signature_der = [0u8; 256];
-    let signature_len = action.authority_signature.len();
-    if signature_len > signature_der.len() { return Err("project_install_signature_invalid"); }
-    signature_der[..signature_len].copy_from_slice(&action.authority_signature);
     let mut state = STATE.lock();
     state.promotion = Some(approved.promotion);
-    state.signed_install_authorization = Some(SignedInstallAuthorization {
-        install_envelope_sha256: envelope.envelope_sha256,
-        install_action_sha256: action.action_sha256,
-        physical_approval_sha256: action.physical_approval_sha256.unwrap_or([0; 32]),
-        signature_len,
-        signature_der,
-    });
+    state.signed_install_authorization = Some(authorization);
     drop(state);
     emit_install_commit_marker(envelope, action, &durable_promotion_transaction, &persisted, true, "granted_candidate_installed");
     Ok(())
+}
+
+fn signed_install_authorization(approved: &ApprovedActivation, envelope: &GrantedCandidateInstallEnvelope, action: &ProjectInstallAction) -> Result<SignedInstallAuthorization, &'static str> {
+    let w7 = approved.binding.w7.ok_or("granted_candidate_w7_binding_missing")?;
+    let signature_len = action.authority_signature.len();
+    if signature_len == 0 || signature_len > 256 { return Err("project_install_signature_invalid"); }
+    let mut signature_der = [0u8; 256];
+    signature_der[..signature_len].copy_from_slice(&action.authority_signature);
+    Ok(SignedInstallAuthorization {
+        activation_approval_sha256: envelope.activation_approval_sha256, computed_grant_sha256: envelope.computed_grant_sha256,
+        attestation_reference_sha256: envelope.attestation_reference_sha256, w7_invocation_sha256: raios_core::sha256_bytes(&w7.invocation_id.to_le_bytes()),
+        w7_receipt_sha256: envelope.w7_receipt_sha256, receiver_content_sha256: envelope.receiver_content_sha256,
+        receiver_candidate_sha256: envelope.receiver_candidate_sha256, catalog_candidate_sha256: envelope.catalog_candidate_sha256,
+        install_envelope_sha256: envelope.envelope_sha256, install_action_sha256: action.action_sha256,
+        install_action_message_sha256: install_action_signature_payload_sha256(action).map_err(|e| e.reason())?,
+        authority_evidence_sha256: action.authority_evidence_sha256, physical_approval_sha256: action.physical_approval_sha256.ok_or("physical_install_approval_missing")?,
+        authority_key_sha256: action.authority_key_sha256.ok_or("install_action_signature_not_verified")?, candidate_sha256: envelope.candidate_sha256,
+        candidate_byte_len: envelope.candidate_byte_len, generation: action.generation, log_sequence: action.log_sequence, signature_len, signature_der,
+    })
+}
+
+pub(crate) fn restore_reverified_install_authorization(authorization: SignedInstallAuthorization) {
+    let mut state = STATE.lock();
+    state.signed_install_authorization = Some(authorization);
 }
 
 fn emit_install_commit_marker(
@@ -1109,7 +1140,7 @@ fn load(source_method: &'static str, durable_effects: bool) -> ActionResult {
                 false,
                 None,
                 false,
-                false,
+                None,
             )
         })
         .unwrap_or_else(|| {
@@ -1421,13 +1452,13 @@ fn rollback_preview(source_method: &'static str) -> RollbackResult {
 }
 
 fn rollback_apply(source_method: &'static str) -> RollbackResult {
-    let promotion = {
+    let (promotion, install_authorization) = {
         let state = STATE.lock();
-        if state.promotion.is_none() {
+        if state.promotion.is_none() || state.signed_install_authorization.is_none() {
             drop(state);
             return rollback_apply_denied_no_promotion(source_method);
         }
-        state.promotion.unwrap()
+        (state.promotion.unwrap(), state.signed_install_authorization.unwrap())
     };
 
     {
@@ -1473,7 +1504,7 @@ fn rollback_apply(source_method: &'static str) -> RollbackResult {
             true,
             Some(reprojected_inventory_hash),
             true,
-            false,
+            Some(install_authorization),
         )
     } else {
         durable_store::promotion_transaction_append_denied(
@@ -1676,7 +1707,7 @@ fn append_promotion_transaction(
     restore_hash_verified: bool,
     reprojected_inventory_hash: Option<[u8; 32]>,
     cleanup_performed: bool,
-    install_authorized: bool,
+    install_authorization: Option<SignedInstallAuthorization>,
 ) -> durable_store::PromotionTransactionAppendEvidence {
     let Some((_, signature)) = event_log::latest_module_promotion_signature_reference() else {
         return durable_store::promotion_transaction_append_denied(
@@ -1725,10 +1756,11 @@ fn append_promotion_transaction(
         signature_attestation_reference_hash: signature.attestation_reference_hash,
         promotion_authority_key_sha256: signature.promotion_authority_key_sha256,
         grant_binds_capability,
-        install_authorization_present: install_authorized,
-        install_envelope_binds_activation: install_authorized,
-        install_action_signature_verified: install_authorized,
-        physical_install_approval_consumed: install_authorized,
+        install_authorization_present: install_authorization.is_some(),
+        install_envelope_binds_activation: install_authorization.is_some(),
+        install_action_signature_verified: install_authorization.is_some(),
+        physical_install_approval_consumed: install_authorization.is_some(),
+        install_authorization,
         rollback_plan_hash: promotion.plan_hash,
         pre_load_inventory_hash: promotion.pre_load_inventory_hash,
         ram_only_service_slot_id: promotion.ram_only_service_slot_id,

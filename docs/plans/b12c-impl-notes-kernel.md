@@ -28,3 +28,18 @@
   existing response/denial paths without a marker. Harness predicates must pin
   denial RESPONSES (not a denied marker) or this gets reconciled in the reboot
   packet.
+
+## reboot packet
+
+- Extended the promotion payload with the W7/W6 authorization material and
+  added append-time reconstruction/sealing plus W6 signature verification.
+  Old records still parse with no W6 authorization.
+- Reverify now passes the persisted W6 digest/signature/key into the core
+  evaluator and restores the authorization before recovery load/start wrappers.
+- UNFINISHED: `resolve_granted_candidate_install` and the Contract-11 exact
+  provider-autoload marker are not wired. The current hook remains the
+  foundation stub; it must fold promote/unpromote frames and link ARTSTOR
+  before calling `reverify_record`.
+- UNFINISHED: rollback must retain the restored authorization through the
+  recovery load path and the payload parser needs compile-loop confirmation for
+  all new fields. No Cargo/build/test was run, per worker scope.
