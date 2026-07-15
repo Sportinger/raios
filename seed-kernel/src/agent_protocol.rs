@@ -88,8 +88,9 @@ use crate::{
     },
     agent_protocol_policy::{emit_capability_denied, record_denial, record_read},
     agent_protocol_program::{
-        emit_finalize as emit_program_finalize, emit_submit_chunk as emit_program_submit_chunk,
-        emit_workspace as emit_program_workspace,
+        emit_finalize as emit_program_finalize, emit_rollback_apply as emit_program_rollback_apply,
+        emit_rollback_preview as emit_program_rollback_preview,
+        emit_submit_chunk as emit_program_submit_chunk, emit_workspace as emit_program_workspace,
     },
     agent_protocol_project::{
         emit_import_begin as emit_project_import_begin,
@@ -447,6 +448,8 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("program.submit_chunk", Head, [], [route!("program.submit_chunk")], MethodAction::ReadMethod(emit_program_submit_chunk)),
     method!("program.submit_finalize", Exact, [], [route!("program.submit_finalize")], MethodAction::Read0(emit_program_finalize)),
     method!("program.workspace", Exact, [], [route!("program.workspace")], MethodAction::Read0(emit_program_workspace)),
+    method!("program.rollback_preview", Head, [], [route!("program.rollback_preview")], MethodAction::ReadMethod(emit_program_rollback_preview)),
+    method!("program.rollback_apply", Head, [], [route!("program.rollback_apply")], MethodAction::ReadRuntimeMethodEvent(emit_program_rollback_apply)),
     method!("project.import_begin", Head, [], [route!("project.import_begin")], MethodAction::ReadMethod(emit_project_import_begin)),
     method!("project.import_file_begin", Head, [], [route!("project.import_file_begin")], MethodAction::ReadMethod(emit_project_import_file_begin)),
     method!("project.import_chunk", Head, [], [route!("project.import_chunk")], MethodAction::ReadMethod(emit_project_import_chunk)),

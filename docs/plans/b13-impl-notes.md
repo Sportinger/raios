@@ -70,3 +70,36 @@
   autoload acceptance markers, linked unpromote/one-shot rollback, program
   protocol rollback routes, and all VM-harness proof.
 - No Cargo, rustc, build, formatter, or test command was run per worker scope.
+
+## reboot packet
+
+- `resolve_installed_program` now folds UI-program authorization, promote,
+  persist, and unpromote records in RECLOG order. A newer incomplete UI-program
+  chain resolves as not installed and never falls back to an older complete
+  install; an unpromote resolves only from the exact active promote/persist and
+  original authorization link.
+- The foundation did not include UI-program authorization or promotion payload
+  parsers. They now live beside their durable record models in
+  `durable_store.rs`, revalidate the reconstructed W6 authorization/signature
+  and all fixed UI-program promotion fields, and do not change granted-candidate
+  parsing or serialization.
+- The UI-program append gate previously required the linked authorization to be
+  the current RECLOG tail for both transaction kinds. That remains exact for
+  `Promote`; `Unpromote` instead accepts the separately revalidated original
+  authorization link, because the completed promote and artifact-persist frames
+  necessarily follow that authorization before rollback.
+- Boot autoload mirrors the B1.2c Normal plus success-marked posture gate, emits
+  the exact `PROGRAM_AUTOLOAD` field order for every outcome, reads ARTSTOR only
+  for an active complete link, and restores canonical RUIP as inert
+  `Source::Durable` without starting the shell.
+- Program rollback preview/apply routes use the existing `raios.agent.v0`
+  `body.result` response shape. Apply consumes the dispatch event id, requires
+  the exact active hash and a stopped personal shell, appends/readback-verifies
+  one linked unpromote, then removes only a matching durable workspace entry;
+  replay is denied and emits no second commit marker.
+- `main.rs` calls program autoload after provider autoload and before input
+  initialization. No re-export was needed because `program_persistence` is a
+  direct kernel module.
+- Remaining B1.3 work is VM-harness wiring and the three-boot positive,
+  tamper-denial, rollback, and byte-compatibility proof packet.
+- No Cargo, rustc, build, formatter, or test command was run per worker scope.

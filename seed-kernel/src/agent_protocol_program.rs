@@ -5,9 +5,9 @@ use raios_core::record::Value as V;
 use crate::{
     agent_protocol_support::{
         begin_response, emit_record_fields, end_response, record_bool as b, record_field as f,
-        record_sha_or_null, record_str as s, record_str_or_null,
+        parse_sha256_ref, record_sha_or_null, record_str as s, record_str_or_null,
     },
-    program_workspace,
+    event_log, program_persistence, program_workspace, ui,
 };
 
 pub(crate) fn emit_submit_chunk(input: &str) {
@@ -52,6 +52,76 @@ pub(crate) fn emit_workspace() {
     begin_response("program.workspace");
     emit_snapshot(program_workspace::snapshot(), "program.workspace", None);
     end_response("program.workspace");
+}
+
+pub(crate) fn emit_rollback_preview(input: &str) {
+    let program_sha256 = parse_program_hash(input, "program.rollback_preview");
+    let result = program_sha256
+        .ok_or("ui_program_sha256_required")
+        .and_then(program_persistence::rollback_preview);
+    emit_rollback_result(
+        "program.rollback_preview",
+        program_sha256,
+        result,
+        "program_rollback_ready",
+        false,
+    );
+}
+
+pub(crate) fn emit_rollback_apply(
+    _runtime: ui::RuntimeStatus,
+    input: &str,
+    event_id: event_log::EventId,
+) {
+    let program_sha256 = parse_program_hash(input, "program.rollback_apply");
+    let result = program_sha256
+        .ok_or("ui_program_sha256_required")
+        .and_then(|hash| program_persistence::rollback_apply(hash, event_id));
+    let writes_persistent_state = result.is_ok();
+    emit_rollback_result(
+        "program.rollback_apply",
+        program_sha256,
+        result,
+        "program_unpromoted",
+        writes_persistent_state,
+    );
+}
+
+fn parse_program_hash(input: &str, method: &str) -> Option<[u8; 32]> {
+    let mut parts = input.split_ascii_whitespace();
+    if parts.next() != Some(method) {
+        return None;
+    }
+    let hash = parts.next().and_then(parse_sha256_ref)?;
+    parts.next().is_none().then_some(hash)
+}
+
+fn emit_rollback_result(
+    method: &'static str,
+    program_sha256: Option<[u8; 32]>,
+    result: Result<(), &'static str>,
+    accepted_reason: &'static str,
+    writes_persistent_state: bool,
+) {
+    let accepted = result.is_ok();
+    begin_response(method);
+    emit_record_fields(
+        vec![
+            f("method", s(method)),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("accepted", b(accepted)),
+            f("rejected", b(!accepted)),
+            f("reason", s(result.err().unwrap_or(accepted_reason))),
+            f("program_sha256", record_sha_or_null(program_sha256)),
+            f("install_attempted", b(false)),
+            f("shell_start_attempted", b(false)),
+            f("execution_attempted", b(false)),
+            f("writes_persistent_state", b(writes_persistent_state)),
+        ],
+        6,
+    );
+    end_response(method);
 }
 
 fn emit_intake(outcome: program_workspace::IntakeOutcome, method: &'static str) {

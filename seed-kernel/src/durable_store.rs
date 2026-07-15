@@ -4,6 +4,7 @@ use core::str;
 use spin::Mutex;
 
 use crate::{
+    agent_protocol::artifact_store,
     agent_protocol_support::{
         begin_response, emit_record_fields, end_response, record_bool as b, record_field as f,
         record_sha_or_null, record_str as s,
@@ -717,6 +718,226 @@ pub(crate) fn validate_ui_program_install_authorization(
     Ok(())
 }
 
+pub(crate) fn parse_ui_program_install_authorization_payload(
+    payload: &str,
+) -> Result<UiProgramInstallAuthorization, &'static str> {
+    if payload_str(payload, b"\"schema\": \"") != Some(INSTALL_AUTHORIZATION_SCHEMA)
+        || payload_str(payload, b"\"id\": \"") != Some(UI_PROGRAM_INSTALL_AUTHORIZATION_ID)
+        || payload_str(payload, b"\"scope\": \"") != Some(PROMOTION_TRANSACTION_RECORD_SCOPE)
+        || payload_str(payload, b"\"classification\": \"") != Some("local_only")
+        || payload_str(payload, b"\"record_kind\": \"") != Some(INSTALL_AUTHORIZATION_RECORD_KIND)
+        || payload_str(payload, b"\"subject_kind\": \"") != Some(UI_PROGRAM_INSTALL_SUBJECT_KIND)
+        || payload_str(payload, b"\"engine_service_id\": \"") != Some(PERSONAL_SHELL_SERVICE_ID)
+        || payload_str(payload, b"\"trust_tier\": \"") != Some(PROJECT_INSTALL_TRUST_TIER)
+        || artifact_store::extract_bool(payload, b"\"auto_load\": ") != Some(true)
+    {
+        return Err("ui_program_install_authorization_invalid");
+    }
+    let (signature_der, signature_len) = parse_payload_hex_bytes(
+        payload,
+        b"\"install_signature_der\": \"",
+    )
+    .ok_or("install_action_signature_not_verified")?;
+    if artifact_store::extract_u64(payload, b"\"install_signature_len\": ")
+        != Some(signature_len as u64)
+    {
+        return Err("install_action_signature_not_verified");
+    }
+    let sha = |key| {
+        artifact_store::extract_sha256(payload, key)
+            .ok_or("ui_program_install_authorization_invalid")
+    };
+    let previous_commit_sha256 = if payload_contains(
+        payload.as_bytes(),
+        b"\"install_previous_commit_sha256\": null",
+    ) {
+        None
+    } else {
+        Some(sha(b"\"install_previous_commit_sha256\": \"")?)
+    };
+    let program_abi_version = artifact_store::extract_u64(payload, b"\"program_abi_version\": ")
+        .ok_or("ui_program_install_authorization_invalid")?;
+    if program_abi_version != PROGRAM_ABI_VERSION as u64 {
+        return Err("ui_program_install_authorization_invalid");
+    }
+    let authorization = UiProgramInstallAuthorization {
+        subject: PromotionSubject::UiProgram,
+        engine_service_id: PERSONAL_SHELL_SERVICE_ID,
+        program_abi_version: PROGRAM_ABI_VERSION,
+        canonical_program_sha256: sha(b"\"canonical_program_sha256\": \"")?,
+        canonical_program_byte_len: artifact_store::extract_u64(
+            payload,
+            b"\"canonical_program_byte_len\": ",
+        )
+        .ok_or("ui_program_install_authorization_invalid")?,
+        activation_approval_sha256: sha(b"\"activation_approval_sha256\": \"")?,
+        install_envelope_sha256: sha(b"\"install_envelope_sha256\": \"")?,
+        install_action_sha256: sha(b"\"install_action_sha256\": \"")?,
+        install_action_message_sha256: sha(
+            b"\"install_action_signature_message_sha256\": \"",
+        )?,
+        authority_evidence_sha256: sha(b"\"authority_evidence_sha256\": \"")?,
+        physical_approval_sha256: sha(b"\"physical_approval_sha256\": \"")?,
+        authority_key_sha256: sha(b"\"install_authority_key_sha256\": \"")?,
+        signature_der,
+        signature_len,
+        generation: artifact_store::extract_u64(payload, b"\"install_generation\": ")
+            .ok_or("ui_program_install_authorization_invalid")?,
+        log_sequence: artifact_store::extract_u64(payload, b"\"install_log_sequence\": ")
+            .ok_or("ui_program_install_authorization_invalid")?,
+        previous_commit_sha256,
+        trust_tier: PROJECT_INSTALL_TRUST_TIER,
+    };
+    validate_ui_program_install_authorization(&authorization)?;
+    Ok(authorization)
+}
+
+pub(crate) fn parse_ui_program_promotion_transaction_payload(
+    payload: &str,
+) -> Result<UiProgramPromotionTransactionRecord, &'static str> {
+    let transaction_kind = match payload_str(payload, b"\"transaction_kind\": \"") {
+        Some("promote") => PromotionTransactionKind::Promote,
+        Some("unpromote") => PromotionTransactionKind::Unpromote,
+        _ => return Err("ui_program_promotion_decision_invalid"),
+    };
+    let expected_id = match transaction_kind {
+        PromotionTransactionKind::Promote => {
+            "promotion_transaction.origin_boot.promote.ui_program.v0"
+        }
+        PromotionTransactionKind::Unpromote => {
+            "promotion_transaction.origin_boot.unpromote.ui_program.v0"
+        }
+    };
+    if payload_str(payload, b"\"schema\": \"") != Some(PROMOTION_EXPECTED_RECORD_SCHEMA)
+        || payload_str(payload, b"\"id\": \"") != Some(expected_id)
+        || payload_str(payload, b"\"scope\": \"") != Some(PROMOTION_TRANSACTION_RECORD_SCOPE)
+        || payload_str(payload, b"\"classification\": \"") != Some("local_only")
+        || payload_str(payload, b"\"record_kind\": \"") != Some(PROMOTION_TRANSACTION_RECORD_KIND)
+        || payload_str(payload, b"\"subject_kind\": \"") != Some(UI_PROGRAM_INSTALL_SUBJECT_KIND)
+        || payload_str(payload, b"\"engine_service_id\": \"") != Some(PERSONAL_SHELL_SERVICE_ID)
+        || payload_str(payload, b"\"trust_tier\": \"") != Some(PROJECT_INSTALL_TRUST_TIER)
+        || artifact_store::extract_bool(payload, b"\"owner_sealed\": ") != Some(false)
+        || artifact_store::extract_bool(payload, b"\"cross_reboot_proven\": ") != Some(false)
+        || artifact_store::extract_bool(payload, b"\"persistence_claimed\": ") != Some(false)
+    {
+        return Err("ui_program_promotion_fields_invalid");
+    }
+    let rollback_apply_event_id = if payload_contains(
+        payload.as_bytes(),
+        b"\"rollback_apply_event_id\": null",
+    ) {
+        None
+    } else {
+        let value = payload_str(payload, b"\"rollback_apply_event_id\": \"")
+            .ok_or("ui_program_promotion_decision_invalid")?;
+        Some(
+            event_log::EventId::from_sequence(
+                raios_core::parse_current_boot_event_sequence(value)
+                    .ok_or("ui_program_promotion_decision_invalid")?,
+            )
+            .ok_or("ui_program_promotion_decision_invalid")?,
+        )
+    };
+    let sha = |key| {
+        artifact_store::extract_sha256(payload, key)
+            .ok_or("ui_program_promotion_fields_invalid")
+    };
+    let program_abi_version = artifact_store::extract_u64(payload, b"\"program_abi_version\": ")
+        .ok_or("ui_program_promotion_fields_invalid")?;
+    if program_abi_version != PROGRAM_ABI_VERSION as u64 {
+        return Err("ui_program_promotion_fields_invalid");
+    }
+    let record = UiProgramPromotionTransactionRecord {
+        subject: PromotionSubject::UiProgram,
+        transaction_kind,
+        engine_service_id: PERSONAL_SHELL_SERVICE_ID,
+        program_abi_version: PROGRAM_ABI_VERSION,
+        canonical_program_sha256: sha(b"\"canonical_program_sha256\": \"")?,
+        canonical_program_byte_len: artifact_store::extract_u64(
+            payload,
+            b"\"canonical_program_byte_len\": ",
+        )
+        .ok_or("ui_program_promotion_fields_invalid")?,
+        activation_approval_sha256: sha(b"\"activation_approval_sha256\": \"")?,
+        install_authorization_present: artifact_store::extract_bool(
+            payload,
+            b"\"install_authorization_present\": ",
+        )
+        .ok_or("ui_program_promotion_fields_invalid")?,
+        install_envelope_binds_activation: artifact_store::extract_bool(
+            payload,
+            b"\"install_envelope_binds_activation\": ",
+        )
+        .ok_or("ui_program_promotion_fields_invalid")?,
+        install_action_signature_verified: artifact_store::extract_bool(
+            payload,
+            b"\"install_action_signature_verified\": ",
+        )
+        .ok_or("ui_program_promotion_fields_invalid")?,
+        physical_install_approval_consumed: artifact_store::extract_bool(
+            payload,
+            b"\"physical_install_approval_consumed\": ",
+        )
+        .ok_or("ui_program_promotion_fields_invalid")?,
+        install_authorization_frame_sha256: sha(
+            b"\"install_authorization_frame_sha256\": \"",
+        )?,
+        canonical_verified: artifact_store::extract_bool(
+            payload,
+            b"\"canonical_verified\": ",
+        )
+        .ok_or("ui_program_promotion_fields_invalid")?,
+        activation_approval_consumed: artifact_store::extract_bool(
+            payload,
+            b"\"activation_approval_consumed\": ",
+        )
+        .ok_or("ui_program_promotion_fields_invalid")?,
+        generation: artifact_store::extract_u64(payload, b"\"generation\": ")
+            .ok_or("ui_program_promotion_fields_invalid")?,
+        rollback_apply_event_id,
+    };
+    validate_ui_program_promotion_transaction(&record)?;
+    Ok(record)
+}
+
+fn payload_str<'a>(payload: &'a str, needle: &[u8]) -> Option<&'a str> {
+    let bytes = payload.as_bytes();
+    let start = payload_find(bytes, needle)? + needle.len();
+    let end = bytes[start..].iter().position(|byte| *byte == b'"')? + start;
+    str::from_utf8(&bytes[start..end]).ok()
+}
+
+fn parse_payload_hex_bytes(payload: &str, key: &[u8]) -> Option<([u8; 256], usize)> {
+    let value = payload_str(payload, key)?;
+    if value.is_empty() || value.len() % 2 != 0 || value.len() / 2 > 256 {
+        return None;
+    }
+    let mut out = [0u8; 256];
+    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+        out[index] = (payload_hex_nibble(pair[0])? << 4) | payload_hex_nibble(pair[1])?;
+    }
+    Some((out, value.len() / 2))
+}
+
+fn payload_contains(haystack: &[u8], needle: &[u8]) -> bool {
+    payload_find(haystack, needle).is_some()
+}
+
+fn payload_find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    (!needle.is_empty() && needle.len() <= haystack.len())
+        .then(|| haystack.windows(needle.len()).position(|window| window == needle))
+        .flatten()
+}
+
+fn payload_hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
 impl PromotionTransactionRecord {
     fn signature_bytes(&self) -> &[u8] {
         &self.signature_der[..self
@@ -1136,7 +1357,11 @@ pub(crate) fn append_promotion_transaction(
     }
 
     let evidence = current_boot_reclog_scan();
-    if record.subject() == PromotionSubject::UiProgram
+    if matches!(
+        &record,
+        PromotionTransactionRef::UiProgram(program)
+            if program.transaction_kind == PromotionTransactionKind::Promote
+    )
         && evidence.scan.full_region_valid
         && evidence.scan.tail_frame_sha256
             != Some(record.install_authorization_frame_sha256())
@@ -1234,8 +1459,9 @@ pub(crate) fn append_promotion_transaction(
             install_authorization_link_exact: record.install_authorization_frame_sha256()
                 != [0; 32]
                 && install_authorization_validated
-                && evidence.scan.tail_frame_sha256
-                    == Some(record.install_authorization_frame_sha256()),
+                && (record.transaction_kind() == PromotionTransactionKind::Unpromote
+                    || evidence.scan.tail_frame_sha256
+                        == Some(record.install_authorization_frame_sha256())),
             persistence_claimed: false,
         });
 
