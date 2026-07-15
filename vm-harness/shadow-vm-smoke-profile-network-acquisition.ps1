@@ -245,15 +245,31 @@ if (-not $bothBusyOk) { throw "NET-8 shared lease did not deny both directions" 
 
 $killSentAt = [DateTime]::UtcNow
 Send-QemuMonitorCommand -Command "sendkey f12 60" -ReplyWaitMilliseconds 0 | Out-Null
-$killed = Wait-ForLogTextAfterOffset -Path $SerialLog -Needle "RAIOS_W7_ACQUISITION outcome=killed" -Offset $silentOffset -TimeoutSeconds 1
+# The shared wait helper samples on a 200 ms grid and cannot resolve a fast
+# cancel; poll this one marker at 15 ms. $killMs is the HOST-OBSERVED bound
+# (HMP + QEMU input + guest kill + UART + TCP drain), not a guest-internal
+# latency; the security truths are the fact pins below, which do not depend
+# on wall clock.
+$killDeadline = [DateTime]::UtcNow.AddSeconds(2)
+$killed = $false
+do {
+    Drain-SerialTcpOutput -Stream $script:SerialTcpDrainStream
+    $killContent = Get-SerialLogContent -Path $SerialLog
+    if ($null -ne $killContent -and [int64]$killContent.Length -gt [int64]$silentOffset -and
+        $killContent.Substring([int]$silentOffset).Contains("RAIOS_W7_ACQUISITION outcome=killed")) {
+        $killed = $true
+        break
+    }
+    Start-Sleep -Milliseconds 15
+} while ([DateTime]::UtcNow -lt $killDeadline)
 $killMs = [int][Math]::Round(([DateTime]::UtcNow - $killSentAt).TotalMilliseconds)
 Send-AgentCommand -Command $method -ExpectedMarker "RAIOS_AGENT_END $method" -Name "network-acquisition:killed-status"
 $killStatus = (Get-LastAgentResponseJson -Method $method).body.result
-$killOk = $killed -and $killMs -le 250 -and $killStatus.outcome -eq "killed" -and
+$killOk = $killed -and $killMs -le 750 -and $killStatus.outcome -eq "killed" -and
     $killStatus.no_resume_after_kill -eq $true -and [int]$killStatus.teardown_count -eq 1 -and
     $killStatus.crypto_session_zeroized -eq $true -and $killStatus.transport_lease_held -eq $false -and
     $killStatus.pending_acquisition_present -eq $false -and $killStatus.prior_candidate_preserved -eq $true
-Add-Predicate -Name "network-acquisition:4_f12_silent_peer_cleanup" -Expected "monitor F12 cancels a silent peer within 250 ms, never resumes, zeroizes crypto, completes guest/local socket and lease cleanup, drops incomplete bytes, and preserves the prior candidate" -Passed $killOk -Actual $(if ($killOk) { "killed in ${killMs}ms; cleaned once" } else { $killStatus | ConvertTo-Json -Compress -Depth 8 })
+Add-Predicate -Name "network-acquisition:4_f12_silent_peer_cleanup" -Expected "monitor F12 cancels a silent peer within 750 ms host-observed (15 ms sampling), never resumes, zeroizes crypto, completes guest/local socket and lease cleanup, drops incomplete bytes, and preserves the prior candidate" -Passed $killOk -Actual $(if ($killOk) { "killed in ${killMs}ms; cleaned once" } else { $killStatus | ConvertTo-Json -Compress -Depth 8 })
 if (-not $killOk) { throw "NET-8 silent-peer F12 cleanup failed" }
 
 & $fixtureWrapper -Action SetMode -ModePath $fixtureModePath -Mode malformed
@@ -302,3 +318,440 @@ $cleanupRetryOk = $malformedFinished -and $malformedStatus.outcome -eq "guest_de
     $armed.guest_trap_cleanup -eq $true -and $armed.out_of_fuel_cleanup -eq $true
 Add-Predicate -Name "network-acquisition:6_cleanup_and_retry" -Expected "silence, malformed response, guest trap, OutOfFuel, and cancellation share exactly-once teardown, then a valid request succeeds in the same boot" -Passed $cleanupRetryOk -Actual $(if ($cleanupRetryOk) { "all cleanup classes; same-boot retry succeeded" } else { $retry | ConvertTo-Json -Compress -Depth 8 })
 if (-not $cleanupRetryOk) { throw "NET-8 cleanup-and-retry proof failed" }
+
+# F12 opened the recovery view while cancelling the silent W7 request. Close it
+# before the one physical approval below so the pointer reaches Genesis.
+$recoveryCloseOffset = Get-SerialLogOffset
+Send-QemuMonitorCommand -Command "sendkey f12 60" -ReplyWaitMilliseconds 0 | Out-Null
+$recoveryClosed = Wait-ForLogTextAfterOffset -Path $SerialLog -Needle "GENESIS_RECOVERY_VIEW_CLOSED current_boot=true" -Offset $recoveryCloseOffset -TimeoutSeconds 2
+Add-Predicate -Name "network-acquisition:13_recovery_view_closed" -Expected "F12 closes the prior recovery view before Genesis approval" -Passed $recoveryClosed -Actual $(if ($recoveryClosed) { "closed" } else { Get-SerialLogTail -Path $SerialLog })
+if (-not $recoveryClosed) { throw "B1.2b could not close the Genesis recovery view" }
+
+$moduleGrantManifestHash = "1111111111111111111111111111111111111111111111111111111111111111"
+$moduleGrantArtifactHash = $expectedPayload.Substring(7)
+$moduleGrantReportHash = "3333333333333333333333333333333333333333333333333333333333333333"
+$moduleGrantAttestationHash = "4444444444444444444444444444444444444444444444444444444444444444"
+$wrongModuleGrantArtifactHash = "2222222222222222222222222222222222222222222222222222222222222222"
+$wrongModuleGrantCanonical = @(
+    "canonicalization=raios.computed_capability_grant.canonical.v0",
+    "schema=raios.computed_capability_grant.v0",
+    "requested_capability=cap.module.load_ephemeral",
+    "load_mode=ram_only",
+    "subject=agent.session.serial",
+    "resource=live_service_graph",
+    "scope=current_boot",
+    "manifest_sha256=$moduleGrantManifestHash",
+    "candidate_artifact_sha256=$wrongModuleGrantArtifactHash",
+    "vm_test_report_sha256=$moduleGrantReportHash",
+    "local_attestation_sha256=$moduleGrantAttestationHash",
+    "grants_load_now=false",
+    "authorizes_guest_load=false",
+    "service_inventory_change=none",
+    "load_attempted=false"
+) -join "`n"
+$wrongModuleGrantHash = Get-TextSha256 -Text $wrongModuleGrantCanonical
+$wrongM6Offset = Get-SerialLogOffset
+Send-AgentCommand -Command "agent module.grant_diagnostic $wrongModuleGrantHash $moduleGrantManifestHash $wrongModuleGrantArtifactHash $moduleGrantReportHash $moduleGrantAttestationHash" -ExpectedMarker "RAIOS_AGENT_END module.grant_diagnostic" -Name "network-acquisition:wrong-m6-artifact-grant"
+$wrongM6GrantResponse = Get-LastAgentResponseJson -Method "module.grant_diagnostic"
+$wrongM6GrantEvidence = @($wrongM6GrantResponse.evidence | Where-Object id -eq "computed_capability_grant_retained")[0]
+Send-AgentCommand -Command "module.load_ephemeral svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "network-acquisition:wrong-m6-load-denied"
+$wrongM6Load = Get-LastAgentResponseJson -Method "module.load_ephemeral"
+Send-AgentCommand -Command "agent module.service_slot_diagnostic" -ExpectedMarker "RAIOS_AGENT_END module.service_slot_diagnostic" -Name "network-acquisition:wrong-m6-slot-absent"
+$wrongM6Slot = Get-LastAgentResponseJson -Method "module.service_slot_diagnostic"
+$wrongM6Log = (Get-SerialLogContent -Path $SerialLog).Substring([int]$wrongM6Offset)
+$wrongM6Ok = $wrongM6GrantEvidence.facts.matches_current_reference -eq $true -and
+    $wrongM6GrantEvidence.facts.computed_capability_grant_hash -eq "sha256:$wrongModuleGrantHash" -and
+    $wrongM6GrantEvidence.facts.artifact_hash -eq "sha256:$wrongModuleGrantArtifactHash" -and
+    $wrongM6Load.schema -eq "raios.evidence_response.v1" -and
+    $wrongM6Load.decision.outcome -eq "denied" -and
+    @($wrongM6Load.decision.grants).Count -eq 0 -and @($wrongM6Load.decision.effects).Count -eq 0 -and
+    $wrongM6Load.PSObject.Properties.Name -notcontains "physical_approval_pending" -and
+    $wrongM6Slot.facts.runtime.live_granted_service_slot_present -eq $false -and
+    -not $wrongM6Log.Contains("GRANTED_CANDIDATE_CURRENT_BOOT_ACTIVATION") -and
+    -not $wrongM6Log.Contains("WASM_GUEST_LOG echo counter=")
+Add-Predicate -Name "network-acquisition:14_wrong_m6_hash_denied" -Expected "a correctly hashed and retained M6 grant for the wrong artifact remains a generic denial with no pending preview, grants, effects, slot, marker, or run" -Passed $wrongM6Ok -Actual $(if ($wrongM6Ok) { "grant=sha256:$wrongModuleGrantHash wrong_artifact=sha256:$wrongModuleGrantArtifactHash denied inert" } else { @{ grant = $wrongM6GrantResponse; load = $wrongM6Load; slot = $wrongM6Slot.facts } | ConvertTo-Json -Compress -Depth 9 })
+if (-not $wrongM6Ok) { throw "B1.2b wrong-artifact M6 grant did not fail closed" }
+
+$moduleManifestReferenceCanonical = @(
+    "canonicalization=raios.module_manifest_reference.canonical.v0",
+    "schema=raios.module_manifest_reference.v0",
+    "requested_capability=cap.module.load_ephemeral",
+    "load_mode=ram_only",
+    "subject=agent.session.serial",
+    "resource=live_service_graph",
+    "scope=current_boot",
+    "manifest_schema=raios.module_manifest.v0",
+    "manifest_sha256=$moduleGrantManifestHash",
+    "authorizes_guest_load=false",
+    "service_inventory_change=none",
+    "load_attempted=false"
+) -join "`n"
+$moduleManifestReferenceHash = Get-TextSha256 -Text $moduleManifestReferenceCanonical
+Send-AgentCommand -Command "agent module.manifest_diagnostic $moduleManifestReferenceHash $moduleGrantManifestHash" -ExpectedMarker "RAIOS_AGENT_END module.manifest_diagnostic" -Name "network-acquisition:m6-manifest-reference"
+$moduleManifestResponse = Get-LastAgentResponseJson -Method "module.manifest_diagnostic"
+$moduleManifestEventId = [string]($moduleManifestResponse.evidence | Where-Object id -eq "module_manifest_retained").source_event_id
+
+$moduleGrantCanonical = @(
+    "canonicalization=raios.computed_capability_grant.canonical.v0",
+    "schema=raios.computed_capability_grant.v0",
+    "requested_capability=cap.module.load_ephemeral",
+    "load_mode=ram_only",
+    "subject=agent.session.serial",
+    "resource=live_service_graph",
+    "scope=current_boot",
+    "manifest_sha256=$moduleGrantManifestHash",
+    "candidate_artifact_sha256=$moduleGrantArtifactHash",
+    "vm_test_report_sha256=$moduleGrantReportHash",
+    "local_attestation_sha256=$moduleGrantAttestationHash",
+    "grants_load_now=false",
+    "authorizes_guest_load=false",
+    "service_inventory_change=none",
+    "load_attempted=false"
+) -join "`n"
+$moduleGrantHash = Get-TextSha256 -Text $moduleGrantCanonical
+$moduleGrantCommand = "agent module.grant_diagnostic $moduleGrantHash $moduleGrantManifestHash $moduleGrantArtifactHash $moduleGrantReportHash $moduleGrantAttestationHash"
+Send-AgentCommand -Command $moduleGrantCommand -ExpectedMarker "RAIOS_AGENT_END module.grant_diagnostic" -Name "network-acquisition:m6-initial-grant-reference"
+$moduleGrantResponse = Get-LastAgentResponseJson -Method "module.grant_diagnostic"
+$moduleInitialGrantEventId = [string]($moduleGrantResponse.evidence | Where-Object id -eq "computed_capability_grant_retained").source_event_id
+
+$moduleArtifactReferenceCanonical = @(
+    "canonicalization=raios.module_candidate_artifact_reference.canonical.v0",
+    "schema=raios.module_candidate_artifact_reference.v0",
+    "requested_capability=cap.module.load_ephemeral",
+    "load_mode=ram_only",
+    "subject=agent.session.serial",
+    "resource=live_service_graph",
+    "scope=current_boot",
+    "retained_manifest_reference_event_id=$moduleManifestEventId",
+    "retained_reference_event_id=$moduleInitialGrantEventId",
+    "manifest_reference_sha256=$moduleManifestReferenceHash",
+    "manifest_sha256=$moduleGrantManifestHash",
+    "computed_capability_grant_sha256=$moduleGrantHash",
+    "candidate_artifact_sha256=$moduleGrantArtifactHash",
+    "vm_test_report_sha256=$moduleGrantReportHash",
+    "local_attestation_sha256=$moduleGrantAttestationHash",
+    "accepts_artifact_bytes=false",
+    "loads_artifact=false",
+    "authorizes_guest_load=false",
+    "service_inventory_change=none",
+    "load_attempted=false"
+) -join "`n"
+$moduleArtifactReferenceHash = Get-TextSha256 -Text $moduleArtifactReferenceCanonical
+$moduleArtifactCommand = "agent module.artifact_diagnostic $moduleArtifactReferenceHash $moduleManifestEventId $moduleInitialGrantEventId $moduleManifestReferenceHash $moduleGrantManifestHash $moduleGrantHash $moduleGrantArtifactHash $moduleGrantReportHash $moduleGrantAttestationHash"
+Send-AgentCommand -Command $moduleArtifactCommand -ExpectedMarker "RAIOS_AGENT_END module.artifact_diagnostic" -Name "network-acquisition:m6-artifact-reference"
+$moduleArtifactResponse = Get-LastAgentResponseJson -Method "module.artifact_diagnostic"
+$moduleArtifactEventId = [string]($moduleArtifactResponse.evidence | Where-Object id -eq "candidate_artifact_retained").source_event_id
+
+$moduleVmReportReferenceCanonical = @(
+    "canonicalization=raios.module_vm_test_report_reference.canonical.v0",
+    "schema=raios.module_vm_test_report_reference.v0",
+    "requested_capability=cap.module.load_ephemeral",
+    "load_mode=ram_only",
+    "subject=agent.session.serial",
+    "resource=live_service_graph",
+    "scope=current_boot",
+    "retained_manifest_reference_event_id=$moduleManifestEventId",
+    "retained_artifact_reference_event_id=$moduleArtifactEventId",
+    "retained_reference_event_id=$moduleInitialGrantEventId",
+    "manifest_reference_sha256=$moduleManifestReferenceHash",
+    "artifact_reference_sha256=$moduleArtifactReferenceHash",
+    "manifest_sha256=$moduleGrantManifestHash",
+    "candidate_artifact_sha256=$moduleGrantArtifactHash",
+    "computed_capability_grant_sha256=$moduleGrantHash",
+    "vm_test_report_sha256=$moduleGrantReportHash",
+    "local_attestation_sha256=$moduleGrantAttestationHash",
+    "accepts_vm_report_json=false",
+    "accepts_artifact_bytes=false",
+    "loads_artifact=false",
+    "authorizes_guest_load=false",
+    "service_inventory_change=none",
+    "load_attempted=false"
+) -join "`n"
+$moduleVmReportReferenceHash = Get-TextSha256 -Text $moduleVmReportReferenceCanonical
+$moduleVmReportCommand = "agent module.vm_report_diagnostic $moduleVmReportReferenceHash $moduleManifestEventId $moduleArtifactEventId $moduleInitialGrantEventId $moduleManifestReferenceHash $moduleArtifactReferenceHash $moduleGrantManifestHash $moduleGrantArtifactHash $moduleGrantHash $moduleGrantReportHash $moduleGrantAttestationHash"
+Send-AgentCommand -Command $moduleVmReportCommand -ExpectedMarker "RAIOS_AGENT_END module.vm_report_diagnostic" -Name "network-acquisition:m6-vm-report-reference"
+$moduleVmReportResponse = Get-LastAgentResponseJson -Method "module.vm_report_diagnostic"
+$moduleVmReportEventId = [string]($moduleVmReportResponse.evidence | Where-Object id -eq "vm_test_report_retained").source_event_id
+
+$moduleAttestationReferenceCanonical = @(
+    "canonicalization=raios.module_local_attestation_reference.canonical.v0",
+    "schema=raios.module_local_attestation_reference.v0",
+    "requested_capability=cap.module.load_ephemeral",
+    "load_mode=ram_only",
+    "subject=agent.session.serial",
+    "resource=live_service_graph",
+    "scope=current_boot",
+    "retained_manifest_reference_event_id=$moduleManifestEventId",
+    "retained_artifact_reference_event_id=$moduleArtifactEventId",
+    "retained_vm_report_reference_event_id=$moduleVmReportEventId",
+    "retained_reference_event_id=$moduleInitialGrantEventId",
+    "manifest_reference_sha256=$moduleManifestReferenceHash",
+    "artifact_reference_sha256=$moduleArtifactReferenceHash",
+    "vm_test_report_reference_sha256=$moduleVmReportReferenceHash",
+    "manifest_sha256=$moduleGrantManifestHash",
+    "candidate_artifact_sha256=$moduleGrantArtifactHash",
+    "computed_capability_grant_sha256=$moduleGrantHash",
+    "vm_test_report_sha256=$moduleGrantReportHash",
+    "local_attestation_sha256=$moduleGrantAttestationHash",
+    "accepts_local_attestation_json=false",
+    "accepts_artifact_bytes=false",
+    "loads_artifact=false",
+    "authorizes_guest_load=false",
+    "service_inventory_change=none",
+    "load_attempted=false"
+) -join "`n"
+$moduleAttestationReferenceHash = Get-TextSha256 -Text $moduleAttestationReferenceCanonical
+$moduleSignatureHex = New-ReliableDevPromotionSignatureHex -AttestationReferenceHash $moduleAttestationReferenceHash
+$moduleAttestationCommand = "agent module.attestation_diagnostic $moduleAttestationReferenceHash $moduleManifestEventId $moduleArtifactEventId $moduleVmReportEventId $moduleInitialGrantEventId $moduleManifestReferenceHash $moduleArtifactReferenceHash $moduleVmReportReferenceHash $moduleGrantManifestHash $moduleGrantArtifactHash $moduleGrantHash $moduleGrantReportHash $moduleGrantAttestationHash $moduleSignatureHex"
+Send-AgentCommand -Command $moduleAttestationCommand -ExpectedMarker "RAIOS_AGENT_END module.attestation_diagnostic" -Name "network-acquisition:m6-signed-attestation-reference"
+$moduleAttestationResponse = Get-LastAgentResponseJson -Method "module.attestation_diagnostic"
+$moduleAttestationEvidence = @($moduleAttestationResponse.evidence | Where-Object id -eq "local_attestation")[0]
+$moduleAttestationOk = $moduleAttestationEvidence.facts.signature_verified -eq $true -and
+    $moduleAttestationEvidence.facts.status_detail -eq "local_attestation_signature_verified_load_still_denied" -and
+    $null -eq $moduleAttestationEvidence.source_event_id
+Add-Predicate -Name "network-acquisition:15_exact_m6_attestation" -Expected "the reliable Rust signer closes the exact manifest/artifact/report/attestation chain for the W7 candidate; the diagnostic remains non-authorizing and leaves its retained event id null" -Passed $moduleAttestationOk -Actual $(if ($moduleAttestationOk) { "reference=sha256:$moduleAttestationReferenceHash diagnostic_source_event=null" } else { $moduleAttestationResponse | ConvertTo-Json -Compress -Depth 8 })
+if (-not $moduleAttestationOk) { throw "B1.2b exact M6 attestation did not verify" }
+
+Send-AgentCommand -Command $moduleGrantCommand -ExpectedMarker "RAIOS_AGENT_END module.grant_diagnostic" -Name "network-acquisition:m6-current-grant"
+$moduleCurrentGrantResponse = Get-LastAgentResponseJson -Method "module.grant_diagnostic"
+$moduleCurrentGrantEvidence = @($moduleCurrentGrantResponse.evidence | Where-Object id -eq "computed_capability_grant_retained")[0]
+$moduleCurrentGrantEventId = [string]$moduleCurrentGrantEvidence.source_event_id
+$moduleGrantReady = $moduleCurrentGrantResponse.decision.outcome -eq "granted" -and
+    @($moduleCurrentGrantResponse.decision.grants) -contains "cap.module.load_ephemeral"
+Add-Predicate -Name "network-acquisition:16_exact_m6_grant" -Expected "the latest current-boot M6 grant binds the exact W7 artifact and signed attestation" -Passed $moduleGrantReady -Actual $(if ($moduleGrantReady) { "event=$moduleCurrentGrantEventId grant=sha256:$moduleGrantHash" } else { $moduleCurrentGrantResponse | ConvertTo-Json -Compress -Depth 8 })
+if (-not $moduleGrantReady) { throw "B1.2b exact M6 grant did not become ready" }
+
+$activationOffset = Get-SerialLogOffset
+Send-AgentCommand -Command "module.load_ephemeral svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "network-acquisition:w7-m6-physical-preview"
+$activationPrepare = (Get-LastAgentResponseJson -Method "module.load_ephemeral").body.result
+$sourceBinding = $activationPrepare.source_binding
+$receiverBinding = $sourceBinding.receiver_identity
+$grantBinding = $sourceBinding.computed_grant
+$attestationBinding = $sourceBinding.local_attestation
+$boundAttestationEventId = [string]$attestationBinding.event_id
+$pendingBindingOk = $activationPrepare.action -eq "load_prepare" -and $activationPrepare.code -eq "ok" -and
+    $activationPrepare.reason -eq "physical_approval_pending" -and
+    $activationPrepare.activation_authority -eq "genesis_pointer_required" -and
+    $activationPrepare.physical_approval_pending -eq $true -and
+    $activationPrepare.physical_approval_consumed -eq $false -and
+    $activationPrepare.approval_challenge_sha256 -match '^sha256:[0-9a-f]{64}$' -and
+    $activationPrepare.loaded -eq $false -and $activationPrepare.running -eq $false -and
+    [int]$activationPrepare.run_count -eq 0 -and
+    $activationPrepare.grant_authority.evidence_authorized -eq $true -and
+    $activationPrepare.grant_authority.physical_authority_satisfied -eq $false -and
+    $activationPrepare.grant_authority.can_load_now -eq $false -and
+    $sourceBinding.present -eq $true -and $sourceBinding.source_kind -eq "w7" -and
+    $sourceBinding.candidate_sha256 -eq $expectedPayload -and
+    $sourceBinding.receipt_sha256 -eq $retry.receipt_sha256 -and
+    $sourceBinding.w7.present -eq $true -and
+    [int64]$sourceBinding.w7.invocation_id -eq [int64]$retry.invocation_id -and
+    $sourceBinding.w7.candidate_sha256 -eq $expectedPayload -and
+    $sourceBinding.w7.receipt_sha256 -eq $retry.receipt_sha256 -and
+    $receiverBinding.present -eq $true -and $receiverBinding.content_sha256 -eq $expectedPayload -and
+    $receiverBinding.retained_candidate_sha256 -eq $expectedPayload -and
+    $receiverBinding.catalog_finalize_candidate_sha256 -eq $expectedPayload -and
+    $receiverBinding.receiver_identity_complete -eq $true -and
+    $receiverBinding.guest_signature_verification_performed -eq $true -and
+    $receiverBinding.exact_candidate_catalog_binding -eq $true -and
+    $grantBinding.present -eq $true -and $grantBinding.event_id -eq $moduleCurrentGrantEventId -and
+    $grantBinding.computed_grant_hash -eq "sha256:$moduleGrantHash" -and
+    $grantBinding.manifest_hash -eq "sha256:$moduleGrantManifestHash" -and
+    $grantBinding.artifact_hash -eq $expectedPayload -and
+    $grantBinding.vm_test_report_hash -eq "sha256:$moduleGrantReportHash" -and
+    $grantBinding.local_attestation_hash -eq "sha256:$moduleGrantAttestationHash" -and
+    $attestationBinding.present -eq $true -and $boundAttestationEventId -match '^event\.current_boot\.[0-9]{8}$' -and
+    $attestationBinding.attestation_reference_hash -eq "sha256:$moduleAttestationReferenceHash" -and
+    $attestationBinding.retained_manifest_reference_event_id -eq $moduleManifestEventId -and
+    $attestationBinding.retained_artifact_reference_event_id -eq $moduleArtifactEventId -and
+    $attestationBinding.retained_vm_report_reference_event_id -eq $moduleVmReportEventId -and
+    $attestationBinding.retained_grant_reference_event_id -eq $moduleInitialGrantEventId -and
+    $attestationBinding.manifest_reference_hash -eq "sha256:$moduleManifestReferenceHash" -and
+    $attestationBinding.artifact_reference_hash -eq "sha256:$moduleArtifactReferenceHash" -and
+    $attestationBinding.vm_report_reference_hash -eq "sha256:$moduleVmReportReferenceHash" -and
+    $attestationBinding.manifest_hash -eq "sha256:$moduleGrantManifestHash" -and
+    $attestationBinding.artifact_hash -eq $expectedPayload -and
+    $attestationBinding.computed_grant_hash -eq "sha256:$moduleGrantHash" -and
+    $attestationBinding.vm_test_report_hash -eq "sha256:$moduleGrantReportHash" -and
+    $attestationBinding.local_attestation_hash -eq "sha256:$moduleGrantAttestationHash" -and
+    $attestationBinding.signature_verified -eq $true
+Add-Predicate -Name "network-acquisition:17_w7_receiver_m6_exact_pending_binding" -Expected "the inert Genesis preview freezes exact W7 invocation/receipt, guest-complete receiver/catalog identity, and every current M6 event/hash" -Passed $pendingBindingOk -Actual $(if ($pendingBindingOk) { "challenge=$($activationPrepare.approval_challenge_sha256)" } else { $activationPrepare | ConvertTo-Json -Compress -Depth 12 })
+if (-not $pendingBindingOk) { throw "B1.2b physical preview did not bind exact W7, receiver, and M6 evidence" }
+
+Send-AgentCommand -Command "agent module.service_slot_diagnostic" -ExpectedMarker "RAIOS_AGENT_END module.service_slot_diagnostic" -Name "network-acquisition:pre-click-slot-absent"
+$preClickSlot = Get-LastAgentResponseJson -Method "module.service_slot_diagnostic"
+Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "network-acquisition:pre-click-inventory-absent"
+$preClickInventory = Get-LastAgentResponseJson -Method "service.inventory"
+$preClickLog = (Get-SerialLogContent -Path $SerialLog).Substring([int]$activationOffset)
+$preClickInertOk = $preClickSlot.facts.runtime.live_granted_service_slot_present -eq $false -and
+    @($preClickInventory.facts.services | Where-Object { $_.id -eq "svc.dev.granted_candidate" }).Count -eq 0 -and
+    $activationPrepare.service_slot_activation.active -eq $false -and
+    $activationPrepare.run_evidence.present -eq $false -and
+    $activationPrepare.loads_external_artifact -eq $false -and
+    $activationPrepare.writes_persistent_state -eq $false -and
+    $activationPrepare.durable_writes_enabled -eq $false -and
+    $activationPrepare.durable_promotion_transaction.performed -eq $false -and
+    $activationPrepare.durable_artifact_persist.performed -eq $false -and
+    -not $preClickLog.Contains("WASM_GUEST_LOG echo counter=") -and
+    -not $preClickLog.Contains("GRANTED_CANDIDATE_CURRENT_BOOT_ACTIVATION") -and
+    -not $preClickLog.Contains("PROJECT_INSTALL_COMMIT") -and
+    -not $preClickLog.Contains("PROJECT_APP_AUTOLOAD result=accepted")
+Add-Predicate -Name "network-acquisition:18_pending_preview_zero_effect" -Expected "before the click there is no slot, inventory row, run/log/activation, durable persist, rollback, install, or autoload effect" -Passed $preClickInertOk -Actual $(if ($preClickInertOk) { "inert" } else { @{ prepare = $activationPrepare; slot = $preClickSlot.facts; inventory = $preClickInventory.facts } | ConvertTo-Json -Compress -Depth 9 })
+if (-not $preClickInertOk) { throw "B1.2b pending preview was not inert" }
+
+Send-AgentCommand -Command "service.start svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.start" -Name "network-acquisition:serial-start-cannot-approve"
+$serialStart = (Get-LastAgentResponseJson -Method "service.start").body.result
+$serialStartOk = $serialStart.code -eq "capability_denied" -and
+    $serialStart.reason -eq "physical_approval_genesis_pointer_required" -and
+    $serialStart.physical_approval_pending -eq $true -and
+    $serialStart.physical_approval_consumed -eq $false -and
+    $serialStart.loaded -eq $false -and $serialStart.running -eq $false -and
+    [int]$serialStart.run_count -eq 0 -and $serialStart.run_evidence.present -eq $false -and
+    $serialStart.source_binding.source_kind -eq "w7" -and
+    $serialStart.source_binding.candidate_sha256 -eq $expectedPayload -and
+    $serialStart.source_binding.receipt_sha256 -eq $retry.receipt_sha256
+Add-Predicate -Name "network-acquisition:19_serial_start_denied" -Expected "serial service.start cannot substitute for physical approval and preserves the exact W7 binding" -Passed $serialStartOk -Actual $(if ($serialStartOk) { "denied; pending binding unchanged" } else { $serialStart | ConvertTo-Json -Compress -Depth 10 })
+if (-not $serialStartOk) { throw "B1.2b serial service.start crossed the physical boundary" }
+
+$stalePreviewChallenge = [string]$activationPrepare.approval_challenge_sha256
+Send-AgentCommand -Command $moduleGrantCommand -ExpectedMarker "RAIOS_AGENT_END module.grant_diagnostic" -Name "network-acquisition:advance-m6-grant-event"
+$advancedGrantResponse = Get-LastAgentResponseJson -Method "module.grant_diagnostic"
+$advancedGrantEventId = [string]($advancedGrantResponse.evidence | Where-Object id -eq "computed_capability_grant_retained").source_event_id
+$advancedGrantOk = $advancedGrantResponse.decision.outcome -eq "granted" -and
+    $advancedGrantEventId -ne $moduleCurrentGrantEventId
+if (-not $advancedGrantOk) { throw "B1.2b could not advance the exact M6 grant event for stale-preview proof" }
+
+$staleMarker = "GRANTED_CANDIDATE_CURRENT_BOOT_ACTIVATION result=denied physical_approval=genesis_pointer source_kind=w7 candidate_sha256=$expectedPayload receipt_sha256=$($retry.receipt_sha256) run_count=0 outcome=not_run durable_writes=false reason=activation_binding_stale"
+Send-QemuAbsolutePointerClick -X 27017 -Y 6559
+$staleDenied = Wait-ForLogTextAfterOffset -Path $SerialLog -Needle $staleMarker -Offset $activationOffset -TimeoutSeconds $TimeoutSeconds
+Send-AgentCommand -Command "agent module.service_slot_diagnostic" -ExpectedMarker "RAIOS_AGENT_END module.service_slot_diagnostic" -Name "network-acquisition:stale-click-slot-absent"
+$staleSlot = Get-LastAgentResponseJson -Method "module.service_slot_diagnostic"
+Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "network-acquisition:stale-click-inventory-absent"
+$staleInventory = Get-LastAgentResponseJson -Method "service.inventory"
+$afterStaleLog = (Get-SerialLogContent -Path $SerialLog).Substring([int]$activationOffset)
+$staleOk = $staleDenied -and
+    ([regex]::Matches($afterStaleLog, [regex]::Escape("GRANTED_CANDIDATE_CURRENT_BOOT_ACTIVATION result=denied"))).Count -eq 1 -and
+    -not $afterStaleLog.Contains("GRANTED_CANDIDATE_CURRENT_BOOT_ACTIVATION result=accepted") -and
+    -not $afterStaleLog.Contains("WASM_GUEST_LOG echo counter=") -and
+    $staleSlot.facts.runtime.live_granted_service_slot_present -eq $false -and
+    @($staleInventory.facts.services | Where-Object { $_.id -eq "svc.dev.granted_candidate" }).Count -eq 0
+Add-Predicate -Name "network-acquisition:20_stale_m6_binding_click_denied" -Expected "advancing the latest exact M6 grant event makes the frozen preview stale; its click emits one denied marker and no slot, inventory, run, log, or durable effect" -Passed $staleOk -Actual $(if ($staleOk) { "old_grant=$moduleCurrentGrantEventId new_grant=$advancedGrantEventId denied inert" } else { @{ log = $afterStaleLog; slot = $staleSlot.facts; inventory = $staleInventory.facts } | ConvertTo-Json -Compress -Depth 8 })
+if (-not $staleOk) { throw "B1.2b stale M6 preview did not fail closed" }
+
+Send-AgentCommand -Command "module.load_ephemeral svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "network-acquisition:fresh-preview-after-stale"
+$freshPrepare = (Get-LastAgentResponseJson -Method "module.load_ephemeral").body.result
+$freshPrepareOk = $freshPrepare.action -eq "load_prepare" -and $freshPrepare.code -eq "ok" -and
+    $freshPrepare.reason -eq "physical_approval_pending" -and
+    $freshPrepare.physical_approval_pending -eq $true -and $freshPrepare.physical_approval_consumed -eq $false -and
+    $freshPrepare.loaded -eq $false -and $freshPrepare.running -eq $false -and [int]$freshPrepare.run_count -eq 0 -and
+    $freshPrepare.approval_challenge_sha256 -match '^sha256:[0-9a-f]{64}$' -and
+    $freshPrepare.approval_challenge_sha256 -ne $stalePreviewChallenge -and
+    $freshPrepare.source_binding.source_kind -eq "w7" -and
+    $freshPrepare.source_binding.candidate_sha256 -eq $expectedPayload -and
+    $freshPrepare.source_binding.receipt_sha256 -eq $retry.receipt_sha256 -and
+    $freshPrepare.source_binding.computed_grant.event_id -eq $advancedGrantEventId -and
+    $freshPrepare.source_binding.computed_grant.computed_grant_hash -eq "sha256:$moduleGrantHash" -and
+    $freshPrepare.source_binding.local_attestation.event_id -eq $boundAttestationEventId -and
+    $freshPrepare.run_evidence.present -eq $false -and
+    $freshPrepare.durable_promotion_transaction.performed -eq $false -and
+    $freshPrepare.durable_artifact_persist.performed -eq $false
+Add-Predicate -Name "network-acquisition:21_fresh_preview_after_stale" -Expected "a fresh prepare binds the new latest M6 grant event, resets consumed=false, and remains inert" -Passed $freshPrepareOk -Actual $(if ($freshPrepareOk) { "challenge=$($freshPrepare.approval_challenge_sha256) grant=$advancedGrantEventId" } else { $freshPrepare | ConvertTo-Json -Compress -Depth 10 })
+if (-not $freshPrepareOk) { throw "B1.2b could not prepare a fresh exact preview after stale denial" }
+
+$activationNeedle = "GRANTED_CANDIDATE_CURRENT_BOOT_ACTIVATION result=accepted physical_approval=genesis_pointer source_kind=w7 candidate_sha256=$expectedPayload receipt_sha256=$($retry.receipt_sha256) run_count=1 outcome=success durable_writes=false reason=wasm_run_success"
+Send-QemuAbsolutePointerClick -X 27017 -Y 6559
+$activationAccepted = Wait-ForLogTextAfterOffset -Path $SerialLog -Needle $activationNeedle -Offset $activationOffset -TimeoutSeconds $TimeoutSeconds
+$afterClickLog = (Get-SerialLogContent -Path $SerialLog).Substring([int]$activationOffset)
+$activationCount = ([regex]::Matches($afterClickLog, [regex]::Escape("GRANTED_CANDIDATE_CURRENT_BOOT_ACTIVATION"))).Count
+$acceptedActivationCount = ([regex]::Matches($afterClickLog, [regex]::Escape("GRANTED_CANDIDATE_CURRENT_BOOT_ACTIVATION result=accepted"))).Count
+$guestLogCount = ([regex]::Matches($afterClickLog, [regex]::Escape("WASM_GUEST_LOG echo counter="))).Count
+$clickOk = $activationAccepted -and $activationCount -eq 2 -and $acceptedActivationCount -eq 1 -and $guestLogCount -eq 1
+Add-Predicate -Name "network-acquisition:22_one_fresh_physical_click_one_run" -Expected "after one stale denial, one fresh QMP Genesis click emits the sole accepted activation marker and sole guest log" -Passed $clickOk -Actual "accepted=$activationAccepted total_markers=$activationCount accepted_markers=$acceptedActivationCount guest_log_count=$guestLogCount"
+if (-not $clickOk) { throw "B1.2b physical click did not activate exactly once" }
+
+Send-AgentCommand -Command "service.start svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.start" -Name "network-acquisition:post-click-start-replay"
+$postClickStart = (Get-LastAgentResponseJson -Method "service.start").body.result
+Send-AgentCommand -Command "module.load_ephemeral svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "network-acquisition:post-click-load-replay"
+$postClickLoad = (Get-LastAgentResponseJson -Method "module.load_ephemeral").body.result
+Send-AgentCommand -Command "agent module.loader_runtime" -ExpectedMarker "RAIOS_AGENT_END module.loader_runtime" -Name "network-acquisition:post-click-loader-runtime"
+$postClickLoader = Get-LastAgentResponseJson -Method "module.loader_runtime"
+Send-AgentCommand -Command "agent module.service_slot_diagnostic" -ExpectedMarker "RAIOS_AGENT_END module.service_slot_diagnostic" -Name "network-acquisition:post-click-slot-live"
+$postClickSlotLive = @((Get-LastAgentResponseJson -Method "module.service_slot_diagnostic").evidence | Where-Object id -eq "live_granted_service_slot")[0].facts
+Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "network-acquisition:post-click-inventory"
+$postClickInventoryResponse = Get-LastAgentResponseJson -Method "service.inventory"
+$postClickInventory = @($postClickInventoryResponse.facts.services | Where-Object { $_.id -eq "svc.dev.granted_candidate" })
+$afterReplayLog = (Get-SerialLogContent -Path $SerialLog).Substring([int]$activationOffset)
+$runningOnceOk = $postClickStart.code -eq "capability_denied" -and
+    $postClickStart.reason -eq "physical_approval_already_consumed" -and
+    $postClickStart.physical_approval_pending -eq $false -and $postClickStart.physical_approval_consumed -eq $true -and
+    $postClickStart.running -eq $true -and [int]$postClickStart.run_count -eq 1 -and
+    $postClickStart.last_run_evidence.run_outcome -eq "success" -and
+    [int64]$postClickStart.last_run_evidence.fuel_used -gt 0 -and $postClickStart.last_run_evidence.log_line_emitted -eq $true -and
+    $postClickLoad.code -eq "capability_denied" -and $postClickLoad.reason -eq "service_already_loaded" -and
+    $postClickLoad.physical_approval_pending -eq $false -and $postClickLoad.physical_approval_consumed -eq $true -and
+    $postClickLoad.running -eq $true -and [int]$postClickLoad.run_count -eq 1 -and
+    $postClickSlotLive.service_id -eq "svc.dev.granted_candidate" -and
+    $postClickSlotLive.ram_only_service_slot_id -eq "ram_only:svc.dev.granted_candidate" -and
+    $postClickSlotLive.service_slot_allocated -eq $true -and $postClickSlotLive.running -eq $true -and
+    $postClickSlotLive.trust_tier -eq "dev_key_not_owner_sealed" -and
+    $postClickSlotLive.load_mechanism -eq "wasmi_interpreter_ram_only" -and
+    $postClickSlotLive.maps_executable_pages -eq $false -and
+    $postClickSlotLive.durable -eq $false -and $postClickSlotLive.owner_sealed -eq $false -and
+    $postClickInventory.Count -eq 1 -and $postClickInventory[0].scope -eq "current_boot" -and
+    $postClickInventory[0].persistence -eq "none" -and $postClickInventory[0].running -eq $true -and
+    $postClickInventory[0].health -eq "healthy" -and
+    $postClickInventory[0].trust_tier -eq "dev_key_not_owner_sealed" -and
+    $postClickInventory[0].ram_only_service_slot_id -eq "ram_only:svc.dev.granted_candidate" -and
+    $postClickInventory[0].service_slot_activation_active -eq $true -and
+    $postClickInventory[0].last_run_outcome -eq "success" -and
+    ([regex]::Matches($afterReplayLog, [regex]::Escape("GRANTED_CANDIDATE_CURRENT_BOOT_ACTIVATION"))).Count -eq 2 -and
+    ([regex]::Matches($afterReplayLog, [regex]::Escape("GRANTED_CANDIDATE_CURRENT_BOOT_ACTIVATION result=accepted"))).Count -eq 1 -and
+    ([regex]::Matches($afterReplayLog, [regex]::Escape("WASM_GUEST_LOG echo counter="))).Count -eq 1
+Add-Predicate -Name "network-acquisition:23_current_boot_run_and_replay_one_shot" -Expected "the current-boot W7 service is healthy at run_count=1 and serial load/start replays keep total markers=2, accepted=1, log=1" -Passed $runningOnceOk -Actual $(if ($runningOnceOk) { "running current_boot; total_markers=2 accepted=1 log=1" } else { @{ start = $postClickStart; load = $postClickLoad; slot = $postClickSlotLive; inventory = $postClickInventory } | ConvertTo-Json -Compress -Depth 9 })
+if (-not $runningOnceOk) { throw "B1.2b current-boot activation or one-shot replay proof failed" }
+
+# P4-3b2 ruling: the loader-runtime family renders a v1 denial envelope and the
+# live granted-candidate projection is intentionally absent (it lives in the
+# granted-candidate family, proven above). Native readiness must stay denied
+# with zero grants even while the physically approved W7 candidate is running.
+$loaderRuntimeEvidence = @($postClickLoader.evidence)
+$loaderRuntimeApproval = @($postClickLoader.evidence | Where-Object id -eq "local_approval_reference")[0]
+$loaderRuntimeDeniedOk = (
+    $postClickLoader.schema -eq "raios.evidence_response.v1" -and
+    $postClickLoader.family -eq "module.loader_runtime" -and
+    $postClickLoader.scope -eq "current_boot" -and
+    $postClickLoader.classification -eq "local_only" -and
+    $postClickLoader.source_method -eq "module.loader_runtime" -and
+    $null -eq $postClickLoader.event_id -and
+    $loaderRuntimeEvidence.Count -eq 54 -and
+    $loaderRuntimeEvidence[0].id -eq "manifest_reference" -and
+    $loaderRuntimeEvidence[53].id -eq "executable_entrypoint_invocation_boundary" -and
+    $postClickLoader.PSObject.Properties.Name -notcontains "live_granted_load_projection" -and
+    @($postClickLoader.evidence | Where-Object id -eq "live_granted_load_projection").Count -eq 0 -and
+    @($postClickLoader.evidence | Where-Object id -eq "manifest_reference")[0].facts.present -eq $true -and
+    @($postClickLoader.evidence | Where-Object id -eq "artifact_reference")[0].facts.present -eq $true -and
+    @($postClickLoader.evidence | Where-Object id -eq "vm_report_reference")[0].facts.present -eq $true -and
+    @($postClickLoader.evidence | Where-Object id -eq "local_attestation_reference")[0].facts.present -eq $true -and
+    $loaderRuntimeApproval.facts.present -eq $false -and
+    $loaderRuntimeApproval.facts.status_detail -eq "missing" -and
+    $postClickLoader.decision.outcome -eq "denied" -and
+    $postClickLoader.decision.reason -eq "retained_module_local_approval_reference_missing" -and
+    $postClickLoader.decision.requested_capability -eq "cap.module.load_ephemeral" -and
+    @($postClickLoader.decision.grants).Count -eq 0 -and
+    @($postClickLoader.decision.effects).Count -eq 0 -and
+    @($postClickLoader.decision.blocked_by)[0].evidence_id -eq "local_approval_reference"
+)
+Add-Predicate -Name "network-acquisition:23b_loader_runtime_native_stays_denied" -Expected "loader-runtime v1 envelope stays denied with zero grants and no live_granted_load_projection while the W7 candidate runs (P4-3b2)" -Passed $loaderRuntimeDeniedOk -Actual $(if ($loaderRuntimeDeniedOk) { "denied; projection absent; evidence=54" } else { ($postClickLoader | ConvertTo-Json -Compress -Depth 8) })
+if (-not $loaderRuntimeDeniedOk) { throw "B1.2b loader-runtime envelope did not deny native readiness during the granted run" }
+
+$secondByteCommands = @($ExecutedCommands | Where-Object { $_.command -match '^module\.submit_candidate_(chunk|finalize)(\s|$)' -or $_.command -match '^module\.submit_distribution_(begin|chunk|finalize)(\s|$)' })
+$postureOk = $secondByteCommands.Count -eq 0 -and
+    -not $afterReplayLog.Contains("PROJECT_INSTALL_COMMIT") -and
+    -not $afterReplayLog.Contains("PROJECT_APP_AUTOLOAD result=accepted") -and
+    $postClickStart.writes_persistent_state -eq $false -and
+    $postClickStart.durable_writes_enabled -eq $false -and
+    $postClickStart.authorizes_persistent_install -eq $false -and
+    $postClickStart.authorizes_rollback_install -eq $false -and
+    $postClickStart.durable_promotion_transaction.performed -eq $false -and
+    $postClickStart.durable_artifact_persist.performed -eq $false
+Add-Predicate -Name "network-acquisition:24_one_w7_byte_path_no_durable_side_effect" -Expected "W7 is the only candidate byte route and activation performs no RECLOG/ARTSTOR/project install/provider autoload/rollback mutation" -Passed $postureOk -Actual $(if ($postureOk) { "serial_byte_commands=0 durable/install/autoload=false" } else { @{ second_byte_commands = $secondByteCommands; start = $postClickStart } | ConvertTo-Json -Compress -Depth 8 })
+if (-not $postureOk) { throw "B1.2b introduced a second candidate path or durable/install effect" }

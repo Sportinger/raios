@@ -385,9 +385,9 @@ pub(crate) fn reverify_record_only(
 
 /// Full re-promotion of one persisted record: the shared reverify-only chain FIRST, then —
 /// ONLY if it re-verified — validate the reconstructed wasm, retain the candidate,
-/// repopulate references, and drive the UNCHANGED M6 load/start gate. Behaviour is
-/// identical to before the M8D-1 extraction; the reverify logic simply lives in
-/// `reverify_record_only` now so the recovery lifeline reuses exactly one implementation.
+/// repopulate references, and drive the shared M6 load/start core through its internal
+/// recovery-only wrappers. The serial protocol routes cannot reach these wrappers; this
+/// record already crossed physical install authority before it became recoverable.
 fn reverify_record(
     controller: pci::PciMassStorageController,
     record: &artifact_store::ArtifactPersistRecord,
@@ -423,7 +423,7 @@ fn reverify_record(
     }
     evidence.references_repopulated = true;
 
-    granted_candidate_service::emit_load("module.load_ephemeral");
+    granted_candidate_service::emit_repromotion_load();
     evidence.load_attempted = true;
     let load_snapshot = granted_candidate_service::loaded_snapshot();
     if let Some(snapshot) = load_snapshot {
@@ -446,7 +446,7 @@ fn reverify_record(
         return evidence;
     }
 
-    granted_candidate_service::emit_start("service.start");
+    granted_candidate_service::emit_repromotion_start();
     evidence.start_attempted = true;
     let start_snapshot = granted_candidate_service::loaded_snapshot();
     if let Some(snapshot) = start_snapshot {

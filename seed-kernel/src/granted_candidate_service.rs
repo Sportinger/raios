@@ -4,7 +4,7 @@ use raios_core::record::{sha256_of_json, Value as V};
 use spin::Mutex;
 
 use crate::{
-    agent_protocol::{artifact_store, durable_store},
+    agent_protocol::{self, artifact_store, durable_store},
     agent_protocol_module_grant,
     agent_protocol_module_types::ModuleGrantReferenceCheck,
     agent_protocol_support::{
@@ -12,10 +12,11 @@ use crate::{
         record_bool as b, record_event_or_null, record_field as f, record_sha_or_null,
         record_static_str_array, record_str as s, record_str_or_null,
     },
+    console,
     current_boot_service::{self, ServiceDescriptor, ServiceState},
     echo_service, event_log, hello_service, memory_store,
     module_candidate_intake::{self, RetainedExternalWasmCandidate},
-    module_evidence, service_inventory, wasm_runtime,
+    module_evidence, serial, service_inventory, wasm_runtime,
 };
 
 pub(crate) const GRANTED_CANDIDATE_SERVICE_DESCRIPTOR: ServiceDescriptor = ServiceDescriptor {
@@ -124,6 +125,63 @@ pub(crate) struct Snapshot {
     pub(crate) stop_event_id: Option<event_log::EventId>,
     pub(crate) drop_event_id: Option<event_log::EventId>,
     pub(crate) promotion: Option<PromotionRecord>,
+    pub(crate) physical_approval_pending: bool,
+    pub(crate) physical_approval_consumed: bool,
+    activation_binding: Option<ActivationBinding>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct GrantBinding {
+    event_id: event_log::EventId,
+    computed_grant_hash: [u8; 32],
+    manifest_hash: [u8; 32],
+    artifact_hash: [u8; 32],
+    vm_report_hash: [u8; 32],
+    local_attestation_hash: [u8; 32],
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct AttestationBinding {
+    event_id: event_log::EventId,
+    attestation_reference_hash: [u8; 32],
+    retained_manifest_reference_event_id: event_log::EventId,
+    retained_artifact_reference_event_id: event_log::EventId,
+    retained_vm_report_reference_event_id: event_log::EventId,
+    retained_reference_event_id: event_log::EventId,
+    manifest_reference_hash: [u8; 32],
+    artifact_reference_hash: [u8; 32],
+    vm_report_reference_hash: [u8; 32],
+    manifest_hash: [u8; 32],
+    artifact_hash: [u8; 32],
+    computed_grant_hash: [u8; 32],
+    vm_report_hash: [u8; 32],
+    local_attestation_hash: [u8; 32],
+    signature_verified: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct W7Binding {
+    invocation_id: u64,
+    receipt_sha256: [u8; 32],
+    receiver_content_sha256: [u8; 32],
+    receiver_candidate_sha256: [u8; 32],
+    catalog_candidate_sha256: [u8; 32],
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct ActivationBinding {
+    source_kind: &'static str,
+    candidate_sha256: [u8; 32],
+    grant: GrantBinding,
+    attestation: AttestationBinding,
+    w7: Option<W7Binding>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ActivationPreview {
+    pub(crate) source_kind: &'static str,
+    pub(crate) candidate_sha256: [u8; 32],
+    pub(crate) receipt_sha256: Option<[u8; 32]>,
 }
 
 #[derive(Clone, Copy)]
@@ -172,6 +230,8 @@ struct State {
     last_log_line_emitted: bool,
     trust_tier: &'static str,
     promotion: Option<PromotionRecord>,
+    pending_activation: Option<ActivationBinding>,
+    physical_approval_consumed: bool,
 }
 
 impl State {
@@ -184,6 +244,8 @@ impl State {
             last_log_line_emitted: false,
             trust_tier: TRUST_TIER_DENIED,
             promotion: None,
+            pending_activation: None,
+            physical_approval_consumed: false,
         }
     }
 
@@ -207,6 +269,9 @@ impl State {
             stop_event_id: service.stop_event_id,
             drop_event_id: service.drop_event_id,
             promotion: self.promotion,
+            physical_approval_pending: self.pending_activation.is_some(),
+            physical_approval_consumed: self.physical_approval_consumed,
+            activation_binding: self.pending_activation,
         }
     }
 }
@@ -269,6 +334,21 @@ pub(crate) fn loaded_snapshot() -> Option<Snapshot> {
     } else {
         None
     }
+}
+
+pub(crate) fn pending_approval() -> bool {
+    STATE.lock().pending_activation.is_some()
+}
+
+pub(crate) fn approval_preview() -> Option<ActivationPreview> {
+    STATE
+        .lock()
+        .pending_activation
+        .map(|binding| ActivationPreview {
+            source_kind: binding.source_kind,
+            candidate_sha256: binding.candidate_sha256,
+            receipt_sha256: binding.w7.map(|w7| w7.receipt_sha256),
+        })
 }
 
 pub(crate) fn live_load_projection() -> LiveLoadProjection {
@@ -354,26 +434,51 @@ pub(crate) fn is_selftest_method(method: &str) -> bool {
 
 pub(crate) fn emit_load(method: &str) -> &'static str {
     let source_method = load_source_method(method).unwrap_or("module.load_ephemeral");
-    let result = load(source_method);
-    emit_response(source_method, "load", result);
+    let result = prepare_activation(source_method);
+    emit_response(
+        source_method,
+        "load_prepare",
+        "genesis_pointer_required",
+        result,
+    );
     source_method
 }
 
 pub(crate) fn emit_start(_method: &str) -> &'static str {
-    let result = start("service.start");
-    emit_response("service.start", "start", result);
+    let result = serial_start_denied();
+    emit_response("service.start", "start", "genesis_pointer_required", result);
     "service.start"
+}
+
+pub(crate) fn emit_repromotion_load() {
+    let result = load("recovery.repromotion", true);
+    emit_response(
+        "module.load_ephemeral",
+        "load",
+        "recovery_previously_physical_installed",
+        result,
+    );
+}
+
+pub(crate) fn emit_repromotion_start() {
+    let result = start("recovery.repromotion", true);
+    emit_response(
+        "service.start",
+        "start",
+        "recovery_previously_physical_installed",
+        result,
+    );
 }
 
 pub(crate) fn emit_stop(_method: &str) -> &'static str {
     let result = stop("service.stop");
-    emit_response("service.stop", "stop", result);
+    emit_response("service.stop", "stop", "not_applicable", result);
     "service.stop"
 }
 
 pub(crate) fn emit_drop(_method: &str) -> &'static str {
     let result = drop_service("service.drop");
-    emit_response("service.drop", "drop", result);
+    emit_response("service.drop", "drop", "not_applicable", result);
     "service.drop"
 }
 
@@ -475,7 +580,295 @@ fn granted_candidate_ready() -> bool {
     authorization.can_execute
 }
 
-fn load(source_method: &'static str) -> ActionResult {
+fn derive_activation_binding() -> Result<(ActivationBinding, AuthorizationEvidence), &'static str> {
+    let retained = module_candidate_intake::retained().ok_or("retained_candidate_missing")?;
+    if !retained.wasm_valid {
+        return Err("retained_candidate_invalid");
+    }
+    let (grant_event_id, grant_reference) = event_log::latest_module_computed_grant_reference()
+        .ok_or("computed_grant_reference_missing")?;
+    let (attestation_event_id, attestation_reference) =
+        event_log::latest_module_local_attestation_reference()
+            .ok_or("local_attestation_reference_missing")?;
+    let grant_check =
+        agent_protocol_module_grant::module_grant_check_from_retained(Some(grant_reference));
+    let authorization =
+        evaluate_authorization(&grant_check, Some(attestation_reference), Some(&retained));
+    if !authorization.can_execute {
+        return Err(authorization.denial_reason);
+    }
+    if !attestation_reference.signature_verified
+        || attestation_reference.artifact_hash != retained.sha256
+        || attestation_reference.artifact_hash != grant_reference.artifact_hash
+        || attestation_reference.computed_grant_hash != grant_reference.computed_grant_hash
+        || attestation_reference.manifest_hash != grant_reference.manifest_hash
+        || attestation_reference.vm_report_hash != grant_reference.vm_report_hash
+        || attestation_reference.local_attestation_hash != grant_reference.local_attestation_hash
+    {
+        return Err("m6_evidence_binding_mismatch");
+    }
+
+    let w7_snapshot = wasm_runtime::w7_acquisition_snapshot();
+    let w7 = if w7_snapshot.candidate_sha256 == Some(retained.sha256) {
+        if w7_snapshot.request_status != "complete"
+            || w7_snapshot.active
+            || w7_snapshot.outcome != "finished"
+            || w7_snapshot.invocation_id == 0
+            || w7_snapshot.run_count == 0
+            || w7_snapshot.success_count == 0
+            || !w7_snapshot.teardown_complete
+            || w7_snapshot.teardown_count == 0
+            || !w7_snapshot.crypto_session_zeroized
+            || w7_snapshot.transport_lease_held
+            || w7_snapshot.pending_acquisition_present
+            || !w7_snapshot.source_tls_evidence
+            || w7_snapshot.tx_bytes == 0
+            || w7_snapshot.rx_bytes == 0
+        {
+            return Err("w7_acquisition_evidence_incomplete");
+        }
+        let receipt_sha256 = w7_snapshot
+            .receipt_sha256
+            .ok_or("w7_receipt_sha256_missing")?;
+        let receiver = agent_protocol::receiver_identity_load_preflight_projection();
+        if !receiver.present
+            || receiver.retained_part_count != 6
+            || !receiver.receiver_identity_retained
+            || !receiver.receiver_identity_complete
+            || !receiver.guest_signature_verification_performed
+            || receiver.retained_candidate_sha256 != Some(retained.sha256)
+            || !receiver.retained_candidate_wasm_valid
+            || receiver.catalog_finalize_candidate_sha256 != Some(retained.sha256)
+            || !receiver.retained_candidate_matches_catalog_finalize
+            || !receiver.preflight_evaluated
+            || !receiver.accepted
+            || receiver.rejected
+        {
+            return Err("w7_receiver_identity_binding_incomplete");
+        }
+        Some(W7Binding {
+            invocation_id: w7_snapshot.invocation_id,
+            receipt_sha256,
+            receiver_content_sha256: receiver
+                .content_sha256
+                .ok_or("w7_receiver_content_sha256_missing")?,
+            receiver_candidate_sha256: receiver
+                .retained_candidate_sha256
+                .ok_or("w7_receiver_candidate_sha256_missing")?,
+            catalog_candidate_sha256: receiver
+                .catalog_finalize_candidate_sha256
+                .ok_or("w7_catalog_candidate_sha256_missing")?,
+        })
+    } else {
+        None
+    };
+
+    Ok((
+        ActivationBinding {
+            source_kind: if w7.is_some() { "w7" } else { "serial" },
+            candidate_sha256: retained.sha256,
+            grant: GrantBinding {
+                event_id: grant_event_id,
+                computed_grant_hash: grant_reference.computed_grant_hash,
+                manifest_hash: grant_reference.manifest_hash,
+                artifact_hash: grant_reference.artifact_hash,
+                vm_report_hash: grant_reference.vm_report_hash,
+                local_attestation_hash: grant_reference.local_attestation_hash,
+            },
+            attestation: AttestationBinding {
+                event_id: attestation_event_id,
+                attestation_reference_hash: attestation_reference.attestation_reference_hash,
+                retained_manifest_reference_event_id: attestation_reference
+                    .retained_manifest_reference_event_id,
+                retained_artifact_reference_event_id: attestation_reference
+                    .retained_artifact_reference_event_id,
+                retained_vm_report_reference_event_id: attestation_reference
+                    .retained_vm_report_reference_event_id,
+                retained_reference_event_id: attestation_reference.retained_reference_event_id,
+                manifest_reference_hash: attestation_reference.manifest_reference_hash,
+                artifact_reference_hash: attestation_reference.artifact_reference_hash,
+                vm_report_reference_hash: attestation_reference.vm_report_reference_hash,
+                manifest_hash: attestation_reference.manifest_hash,
+                artifact_hash: attestation_reference.artifact_hash,
+                computed_grant_hash: attestation_reference.computed_grant_hash,
+                vm_report_hash: attestation_reference.vm_report_hash,
+                local_attestation_hash: attestation_reference.local_attestation_hash,
+                signature_verified: attestation_reference.signature_verified,
+            },
+            w7,
+        },
+        authorization,
+    ))
+}
+
+fn prepare_activation(source_method: &'static str) -> ActionResult {
+    let derived = derive_activation_binding();
+    let authorization = derived
+        .as_ref()
+        .map(|(_, authorization)| *authorization)
+        .unwrap_or_else(|_| current_authorization());
+    let mut state = STATE.lock();
+    let (accepted, reason) = match derived {
+        Err(reason) => (false, reason),
+        Ok((_, _)) if state.service.loaded => (false, "service_already_loaded"),
+        Ok((binding, _)) => match state.pending_activation {
+            Some(pending) if pending == binding => (true, "physical_approval_pending"),
+            Some(_) => (false, "physical_approval_pending_binding_mismatch"),
+            None => {
+                state.pending_activation = Some(binding);
+                state.physical_approval_consumed = false;
+                (true, "physical_approval_pending")
+            }
+        },
+    };
+    let event_id = event_log::record_service_lifecycle_unbound(
+        &GRANTED_CANDIDATE_SERVICE_DESCRIPTOR,
+        source_method,
+        if accepted {
+            "response"
+        } else {
+            "capability_denied"
+        },
+        reason,
+        LIFECYCLE_EVIDENCE,
+    );
+    state.service.last_action = "load_prepare";
+    state.service.last_reason = reason;
+    state.service.last_inventory_change = "none";
+    state.service.last_event_id = Some(event_id);
+    state.trust_tier = authorization.trust_tier;
+    let snapshot = state.snapshot();
+    drop(state);
+    if accepted {
+        console::write_event(format_args!(
+            "Approve + run downloaded app ({})",
+            snapshot
+                .activation_binding
+                .map(|binding| binding.source_kind)
+                .unwrap_or("serial")
+        ));
+    }
+    no_durable_action_result(snapshot, event_id, authorization, !accepted)
+}
+
+fn serial_start_denied() -> ActionResult {
+    let authorization = current_authorization();
+    let mut state = STATE.lock();
+    let reason = if state.pending_activation.is_some() {
+        "physical_approval_genesis_pointer_required"
+    } else if state.physical_approval_consumed {
+        "physical_approval_already_consumed"
+    } else {
+        "physical_approval_preview_missing"
+    };
+    let event_id = event_log::record_service_lifecycle_unbound(
+        &GRANTED_CANDIDATE_SERVICE_DESCRIPTOR,
+        "service.start",
+        "capability_denied",
+        reason,
+        LIFECYCLE_EVIDENCE,
+    );
+    state.service.last_action = "start";
+    state.service.last_reason = reason;
+    state.service.last_inventory_change = "none";
+    state.service.last_event_id = Some(event_id);
+    let snapshot = state.snapshot();
+    no_durable_action_result(snapshot, event_id, authorization, true)
+}
+
+fn no_durable_action_result(
+    snapshot: Snapshot,
+    event_id: event_log::EventId,
+    authorization: AuthorizationEvidence,
+    capability_denied: bool,
+) -> ActionResult {
+    ActionResult {
+        snapshot,
+        event_id,
+        run: None,
+        authorization,
+        durable_promotion_transaction: durable_store::promotion_transaction_append_denied(
+            durable_store::PromotionTransactionKind::Promote,
+            "promotion_transaction_not_attempted",
+        ),
+        durable_artifact_persist: artifact_store::artifact_persist_denied(
+            "artifact_persist_not_attempted",
+        ),
+        durable_import_grant_audit: None,
+        capability_denied,
+    }
+}
+
+pub(crate) fn approve_and_run_from_pointer() -> bool {
+    let binding = {
+        let mut state = STATE.lock();
+        let Some(binding) = state.pending_activation.take() else {
+            return false;
+        };
+        state.physical_approval_consumed = true;
+        binding
+    };
+    let live = derive_activation_binding();
+    let binding_current = live
+        .as_ref()
+        .map(|(current, _)| *current == binding)
+        .unwrap_or(false);
+    if !binding_current {
+        emit_activation_marker(binding, None, false, "activation_binding_stale");
+        console::write_event(format_args!(
+            "Downloaded app approval denied: stale evidence"
+        ));
+        return true;
+    }
+
+    let load_result = load("genesis.pointer", false);
+    if load_result.capability_denied || !load_result.snapshot.loaded {
+        emit_activation_marker(
+            binding,
+            Some(load_result.snapshot),
+            false,
+            load_result.snapshot.last_reason,
+        );
+        console::write_event(format_args!("Downloaded app approval denied: load failed"));
+        return true;
+    }
+    let start_result = start("genesis.pointer", false);
+    let accepted = !start_result.capability_denied
+        && start_result.snapshot.running
+        && start_result.snapshot.run_count == 1
+        && start_result.snapshot.last_run_outcome == "success";
+    emit_activation_marker(
+        binding,
+        Some(start_result.snapshot),
+        accepted,
+        start_result.snapshot.last_reason,
+    );
+    console::write_event(format_args!(
+        "Downloaded app current-boot activation {}",
+        if accepted { "accepted" } else { "denied" }
+    ));
+    true
+}
+
+pub(crate) fn secure_attention_drop() -> bool {
+    let had_state = {
+        let state = STATE.lock();
+        state.pending_activation.is_some() || state.service.loaded
+    };
+    if !had_state {
+        return false;
+    }
+    let _ = drop_service("secure_attention");
+    module_candidate_intake::clear();
+    let mut state = STATE.lock();
+    state.pending_activation = None;
+    state.physical_approval_consumed = false;
+    state.promotion = None;
+    console::write_event(format_args!("Downloaded app current-boot state cleared"));
+    true
+}
+
+fn load(source_method: &'static str, durable_effects: bool) -> ActionResult {
     let retained = module_candidate_intake::retained();
     let (grant_check, retained_attestation) = current_grant_inputs();
     let authorization =
@@ -507,15 +900,19 @@ fn load(source_method: &'static str) -> ActionResult {
 
         if can_load {
             let generation = state.service.generation.saturating_add(1);
-            if let Some(candidate) = retained.as_ref() {
-                let promotion = build_promotion_record(
-                    candidate.sha256,
-                    service_inventory_projection_hash(None),
-                    generation,
-                    event_id,
-                );
-                state.promotion = Some(promotion);
-                promotion_for_append = Some(promotion);
+            if durable_effects {
+                if let Some(candidate) = retained.as_ref() {
+                    let promotion = build_promotion_record(
+                        candidate.sha256,
+                        service_inventory_projection_hash(None),
+                        generation,
+                        event_id,
+                    );
+                    state.promotion = Some(promotion);
+                    promotion_for_append = Some(promotion);
+                }
+            } else {
+                state.promotion = None;
             }
             state.service.generation = generation;
             state.service.loaded = true;
@@ -598,7 +995,7 @@ fn load(source_method: &'static str) -> ActionResult {
     }
 }
 
-fn start(source_method: &'static str) -> ActionResult {
+fn start(source_method: &'static str, durable_audit: bool) -> ActionResult {
     let was_loaded = STATE.lock().service.loaded;
     let retained = module_candidate_intake::retained();
     let (grant_check, retained_attestation) = current_grant_inputs();
@@ -656,13 +1053,17 @@ fn start(source_method: &'static str) -> ActionResult {
         reason,
         LIFECYCLE_EVIDENCE,
     );
-    let durable_import_grant_audit = run.as_ref().map(|run| {
-        memory_store::record_wasm_import_grant_audit(
-            GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.service_id,
-            GRANTED_CANDIDATE_IMPORTS,
-            run,
-        )
-    });
+    let durable_import_grant_audit = if durable_audit {
+        run.as_ref().map(|run| {
+            memory_store::record_wasm_import_grant_audit(
+                GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.service_id,
+                GRANTED_CANDIDATE_IMPORTS,
+                run,
+            )
+        })
+    } else {
+        None
+    };
 
     let mut state = STATE.lock();
     if was_loaded {
@@ -761,11 +1162,19 @@ fn drop_service(source_method: &'static str) -> ActionResult {
     let authorization = current_authorization();
     let mut state = STATE.lock();
     let was_loaded = state.service.loaded;
-    let reason = if was_loaded { "dropped" } else { "not_loaded" };
+    let had_pending = state.pending_activation.is_some();
+    let had_state = was_loaded || had_pending;
+    let reason = if was_loaded {
+        "dropped"
+    } else if had_pending {
+        "pending_activation_dropped"
+    } else {
+        "not_loaded"
+    };
     let event_id = event_log::record_service_lifecycle_unbound(
         &GRANTED_CANDIDATE_SERVICE_DESCRIPTOR,
         source_method,
-        if was_loaded {
+        if had_state {
             "response"
         } else {
             "capability_denied"
@@ -774,9 +1183,11 @@ fn drop_service(source_method: &'static str) -> ActionResult {
         LIFECYCLE_EVIDENCE,
     );
 
-    if was_loaded {
+    if had_state {
         module_candidate_intake::clear();
         state.promotion = None;
+        state.pending_activation = None;
+        state.physical_approval_consumed = false;
     }
     state.service.loaded = false;
     state.service.running = false;
@@ -803,7 +1214,7 @@ fn drop_service(source_method: &'static str) -> ActionResult {
             "artifact_persist_not_attempted",
         ),
         durable_import_grant_audit: None,
-        capability_denied: !was_loaded,
+        capability_denied: !had_state,
     }
 }
 
@@ -1319,7 +1730,222 @@ fn run_succeeded(run: &wasm_runtime::EchoRunEvidence) -> bool {
         && run.return_value == Some(0)
 }
 
-fn emit_response(method: &'static str, action: &'static str, result: ActionResult) {
+fn record_activation_source_binding(binding: Option<ActivationBinding>) -> V<'static> {
+    let grant = binding.map(|binding| binding.grant);
+    let attestation = binding.map(|binding| binding.attestation);
+    let w7 = binding.and_then(|binding| binding.w7);
+    V::Object(vec![
+        f("present", b(binding.is_some())),
+        f(
+            "source_kind",
+            record_str_or_null(binding.map(|binding| binding.source_kind)),
+        ),
+        f(
+            "candidate_sha256",
+            record_sha_or_null(binding.map(|binding| binding.candidate_sha256)),
+        ),
+        f(
+            "receipt_sha256",
+            record_sha_or_null(w7.map(|binding| binding.receipt_sha256)),
+        ),
+        f(
+            "w7",
+            V::Object(vec![
+                f("present", b(w7.is_some())),
+                f(
+                    "invocation_id",
+                    w7.map(|binding| V::U64(binding.invocation_id))
+                        .unwrap_or(V::Null),
+                ),
+                f(
+                    "candidate_sha256",
+                    record_sha_or_null(
+                        binding.and_then(|binding| binding.w7.map(|_| binding.candidate_sha256)),
+                    ),
+                ),
+                f(
+                    "receipt_sha256",
+                    record_sha_or_null(w7.map(|binding| binding.receipt_sha256)),
+                ),
+            ]),
+        ),
+        f(
+            "receiver_identity",
+            V::Object(vec![
+                f("present", b(w7.is_some())),
+                f(
+                    "content_sha256",
+                    record_sha_or_null(w7.map(|binding| binding.receiver_content_sha256)),
+                ),
+                f(
+                    "retained_candidate_sha256",
+                    record_sha_or_null(w7.map(|binding| binding.receiver_candidate_sha256)),
+                ),
+                f(
+                    "catalog_finalize_candidate_sha256",
+                    record_sha_or_null(w7.map(|binding| binding.catalog_candidate_sha256)),
+                ),
+                f("receiver_identity_complete", b(w7.is_some())),
+                f("guest_signature_verification_performed", b(w7.is_some())),
+                f("exact_candidate_catalog_binding", b(w7.is_some())),
+            ]),
+        ),
+        f(
+            "computed_grant",
+            V::Object(vec![
+                f("present", b(grant.is_some())),
+                f(
+                    "event_id",
+                    record_event_or_null(grant.map(|binding| binding.event_id)),
+                ),
+                f(
+                    "computed_grant_hash",
+                    record_sha_or_null(grant.map(|binding| binding.computed_grant_hash)),
+                ),
+                f(
+                    "manifest_hash",
+                    record_sha_or_null(grant.map(|binding| binding.manifest_hash)),
+                ),
+                f(
+                    "artifact_hash",
+                    record_sha_or_null(grant.map(|binding| binding.artifact_hash)),
+                ),
+                f(
+                    "vm_test_report_hash",
+                    record_sha_or_null(grant.map(|binding| binding.vm_report_hash)),
+                ),
+                f(
+                    "local_attestation_hash",
+                    record_sha_or_null(grant.map(|binding| binding.local_attestation_hash)),
+                ),
+            ]),
+        ),
+        f(
+            "local_attestation",
+            V::Object(vec![
+                f("present", b(attestation.is_some())),
+                f(
+                    "event_id",
+                    record_event_or_null(attestation.map(|binding| binding.event_id)),
+                ),
+                f(
+                    "attestation_reference_hash",
+                    record_sha_or_null(
+                        attestation.map(|binding| binding.attestation_reference_hash),
+                    ),
+                ),
+                f(
+                    "retained_manifest_reference_event_id",
+                    record_event_or_null(
+                        attestation.map(|binding| binding.retained_manifest_reference_event_id),
+                    ),
+                ),
+                f(
+                    "retained_artifact_reference_event_id",
+                    record_event_or_null(
+                        attestation.map(|binding| binding.retained_artifact_reference_event_id),
+                    ),
+                ),
+                f(
+                    "retained_vm_report_reference_event_id",
+                    record_event_or_null(
+                        attestation.map(|binding| binding.retained_vm_report_reference_event_id),
+                    ),
+                ),
+                f(
+                    "retained_grant_reference_event_id",
+                    record_event_or_null(
+                        attestation.map(|binding| binding.retained_reference_event_id),
+                    ),
+                ),
+                f(
+                    "manifest_reference_hash",
+                    record_sha_or_null(attestation.map(|binding| binding.manifest_reference_hash)),
+                ),
+                f(
+                    "artifact_reference_hash",
+                    record_sha_or_null(attestation.map(|binding| binding.artifact_reference_hash)),
+                ),
+                f(
+                    "vm_report_reference_hash",
+                    record_sha_or_null(attestation.map(|binding| binding.vm_report_reference_hash)),
+                ),
+                f(
+                    "manifest_hash",
+                    record_sha_or_null(attestation.map(|binding| binding.manifest_hash)),
+                ),
+                f(
+                    "artifact_hash",
+                    record_sha_or_null(attestation.map(|binding| binding.artifact_hash)),
+                ),
+                f(
+                    "computed_grant_hash",
+                    record_sha_or_null(attestation.map(|binding| binding.computed_grant_hash)),
+                ),
+                f(
+                    "vm_test_report_hash",
+                    record_sha_or_null(attestation.map(|binding| binding.vm_report_hash)),
+                ),
+                f(
+                    "local_attestation_hash",
+                    record_sha_or_null(attestation.map(|binding| binding.local_attestation_hash)),
+                ),
+                f(
+                    "signature_verified",
+                    b(attestation
+                        .map(|binding| binding.signature_verified)
+                        .unwrap_or(false)),
+                ),
+            ]),
+        ),
+    ])
+}
+
+fn approval_challenge_sha256(binding: Option<ActivationBinding>) -> Option<[u8; 32]> {
+    binding.map(|binding| sha256_of_json(&record_activation_source_binding(Some(binding))))
+}
+
+fn emit_activation_marker(
+    binding: ActivationBinding,
+    snapshot: Option<Snapshot>,
+    accepted: bool,
+    reason: &'static str,
+) {
+    serial::write_raw_str("GRANTED_CANDIDATE_CURRENT_BOOT_ACTIVATION result=");
+    serial::write_raw_str(if accepted { "accepted" } else { "denied" });
+    serial::write_raw_str(" physical_approval=genesis_pointer source_kind=");
+    serial::write_raw_str(binding.source_kind);
+    serial::write_raw_str(" candidate_sha256=sha256:");
+    write_hash(binding.candidate_sha256);
+    serial::write_raw_str(" receipt_sha256=");
+    if let Some(w7) = binding.w7 {
+        serial::write_raw_str("sha256:");
+        write_hash(w7.receipt_sha256);
+    } else {
+        serial::write_raw_str("none");
+    }
+    serial::write_raw_fmt(format_args!(
+        " run_count={} outcome={} durable_writes=false reason={}\r\n",
+        snapshot.map(|snapshot| snapshot.run_count).unwrap_or(0),
+        snapshot
+            .map(|snapshot| snapshot.last_run_outcome)
+            .unwrap_or("not_run"),
+        reason,
+    ));
+}
+
+fn write_hash(hash: [u8; 32]) {
+    for byte in hash {
+        serial::write_raw_fmt(format_args!("{byte:02x}"));
+    }
+}
+
+fn emit_response(
+    method: &'static str,
+    action: &'static str,
+    activation_authority: &'static str,
+    result: ActionResult,
+) {
     let snapshot = result.snapshot;
     let run = result.run.as_ref();
     begin_response(method);
@@ -1338,6 +1964,23 @@ fn emit_response(method: &'static str, action: &'static str, result: ActionResul
         f("owner_sealed", b(false)),
         f("method", s(method)),
         f("action", s(action)),
+        f("activation_authority", s(activation_authority)),
+        f(
+            "physical_approval_pending",
+            b(snapshot.physical_approval_pending),
+        ),
+        f(
+            "physical_approval_consumed",
+            b(snapshot.physical_approval_consumed),
+        ),
+        f(
+            "approval_challenge_sha256",
+            record_sha_or_null(approval_challenge_sha256(snapshot.activation_binding)),
+        ),
+        f(
+            "source_binding",
+            record_activation_source_binding(snapshot.activation_binding),
+        ),
         f(
             "code",
             s(if result.capability_denied {
@@ -1402,7 +2045,10 @@ fn emit_response(method: &'static str, action: &'static str, result: ActionResul
         f("load_descriptor", record_load_descriptor()),
         f(
             "grant_authority",
-            record_authorization(result.authorization),
+            record_authorization(
+                result.authorization,
+                activation_authority == "recovery_previously_physical_installed",
+            ),
         ),
         f("capability_envelope", s("wasmi_linker_import_surface")),
         f(
@@ -1476,12 +2122,13 @@ fn emit_response(method: &'static str, action: &'static str, result: ActionResul
         ),
         f("capabilities", record_static_str_array(CAPABILITIES)),
         f("accepts_external_artifact_bytes", b(true)),
-        f("loads_external_artifact", b(true)),
+        f("loads_external_artifact", b(snapshot.loaded)),
         f("maps_executable_pages", b(false)),
         f("writes_persistent_state", b(false)),
         f("authorizes_persistent_install", b(false)),
         f("authorizes_rollback_install", b(false)),
         f("durable_writes_enabled", b(false)),
+        f("durable_writes", b(false)),
         f("rollback_apply_authorized", b(false)),
         f("broad_mutation_authorized", b(false)),
     ]);
@@ -1731,11 +2378,22 @@ fn record_load_descriptor() -> V<'static> {
     ])
 }
 
-fn record_authorization(authorization: AuthorizationEvidence) -> V<'static> {
+fn record_authorization(
+    authorization: AuthorizationEvidence,
+    physical_authority_satisfied: bool,
+) -> V<'static> {
     V::Object(vec![
         f("grants_capability", b(authorization.grants_capability)),
         f("trust_tier", s(authorization.trust_tier)),
-        f("can_load_now", b(authorization.can_execute)),
+        f("evidence_authorized", b(authorization.can_execute)),
+        f(
+            "physical_authority_satisfied",
+            b(physical_authority_satisfied),
+        ),
+        f(
+            "can_load_now",
+            b(authorization.can_execute && physical_authority_satisfied),
+        ),
         f(
             "retained_candidate_present",
             b(authorization.retained_present),
@@ -2105,6 +2763,9 @@ fn selftest_loaded_projection_snapshot() -> Snapshot {
         stop_event_id: None,
         drop_event_id: None,
         promotion: None,
+        physical_approval_pending: false,
+        physical_approval_consumed: false,
+        activation_binding: None,
     }
 }
 

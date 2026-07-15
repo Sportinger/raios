@@ -89,6 +89,15 @@ try {
         }
     }
 
+    if ($Profile -in @("m6c-promotion", "network-acquisition")) {
+        $env:CARGO_HOME = (Resolve-Path (Join-Path $RepoRoot ".cargo-home")).Path
+        $env:CARGO_TARGET_DIR = Join-Path $RepoRoot "target"
+        & cargo build --locked -p ota-tools --bin dev-promotion-signer
+        if ($LASTEXITCODE -ne 0) {
+            throw "dev-promotion-signer build failed with exit code $LASTEXITCODE"
+        }
+    }
+
     if ($Image) {
         if ($Profile -eq "network-acquisition") {
             throw "network-acquisition requires a per-run temporary pin-bearing image; do not pass -Image"
@@ -258,7 +267,7 @@ try {
         )
         $runParams.MonitorTcpPort = $MonitorTcpPort
     }
-    if ($Profile -in @("genesis-ui", "project-app", "project-install")) {
+    if ($Profile -in @("genesis-ui", "project-app", "project-install", "m6c-promotion", "network-acquisition")) {
         $QmpTcpPort = $SerialTcpPort + 2000
         $QemuArgList += @(
             "-QmpTcpPort", "$QmpTcpPort"

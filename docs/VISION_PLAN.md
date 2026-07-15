@@ -52,7 +52,7 @@ Arbeitspakete mehr, sondern **Beispiele für spätere Früchte des Kreislaufs**.
 |---|---------|--------------|
 | 1 | Owner fragt in Genesis („bau mir …") | Schnellspur (RUIP) existiert; Slow-Lane-Auftrag → Workspace FEHLT |
 | 2 | Agent schreibt Quellcode ins System (W1-Workspace, inert) | Workspace existiert (seriell/Owner-Pfad); KI-Anbindung FEHLT |
-| 3 | Beschaffung (Abhängigkeiten, Quarantäne) | W7 live bewiesen; B1.2a bindet Download und gastgeprüfte M12-Empfängeridentität exakt (`shadow-20260715-021710-30228.json`), Kandidat bleibt inert; physischer M6-Lauf + W6-Install (B1.2b/c) FEHLEN; Produktions-Registry-Vertrauen später |
+| 3 | Beschaffung (Abhängigkeiten, Quarantäne) | W7 live bewiesen; B1.2a bindet Download und gastgeprüfte M12-Empfängeridentität exakt (`shadow-20260715-021710-30228.json`); B1.2b: der Kandidat läuft GENAU EINMAL erst nach physischem Genesis-Klick, veraltete Vorschau wird beim Klick verweigert (`shadow-20260715-090227-11004.json` 188/188 seriell, `shadow-20260715-092637-10088.json` 227/227 W7); W6-Install (B1.2c) FEHLT; Produktions-Registry-Vertrauen später |
 | 4 | **Bauen AUF DEM GERÄT** | FEHLT — heute extern-versiegelt (W4, zählt als Gerüst, nicht als Erfüllung) |
 | 5 | Nachrechnen (Repro-Doppel-Build, Fingerabdrücke) | Existiert (extern bewiesen); On-Device-Variante folgt mit Station 4 |
 | 6 | Physische Freigabe | Existiert, bewiesen |
@@ -73,11 +73,19 @@ Arbeitspakete mehr, sondern **Beispiele für spätere Früchte des Kreislaufs**.
     ohne sie werden die TLS-Bytes verworfen, mit ihnen bindet der Preflight den
     exakten Kandidaten und hält alle vier Folge-Gates geschlossen
     (`shadow-20260715-021710-30228.json`).
-  - B1.2b als Nächstes: vollständige M6-Nachprüfung und einmaliger Lauf erst
-    nach physischem Genesis-Klick (§2.3); der alte klicklose Dev-Lauf genügt
-    diesem Plan nicht.
-  - B1.2c danach: denselben bewiesenen Kandidaten über W6-Signatur, zweiten
-    physischen Install-Klick, ARTSTOR/RECLOG, Autoload und Rollback führen.
+  - B1.2b **ABGESCHLOSSEN:** vollständige M6-Nachprüfung, dann der EINE
+    Current-Boot-Lauf erst nach physischem Genesis-Klick (§2.3): exakte
+    Beweiskette wird als inerte Vorschau unter einer Freigabe-Challenge
+    eingefroren, serielle Start-/Lade-Wiederholungen bleiben verweigert,
+    veraltete Vorschau wird beim Klick verweigert und erst nach frischer
+    Bindung läuft der Kandidat genau einmal; der alte klicklose Dev-Lauf ist
+    aus dem seriellen Protokoll entfernt
+    (`shadow-20260715-090227-11004.json` 188/188,
+    `shadow-20260715-092637-10088.json` 227/227).
+  - B1.2c als Nächstes: denselben bewiesenen Kandidaten über W6-Signatur,
+    zweiten physischen Install-Klick, ARTSTOR/RECLOG, Autoload,
+    Reboot-Überleben und Rollback führen (saniert dabei das veraltete
+    m6d-rollback-Profil).
 - B1.3 RUIP-Programme an W6 anschließen (Programm-Persistenz — kleine,
   bereits erfragte Schleifen-Station 7).
 

@@ -7,8 +7,9 @@ use crate::agent_protocol::recovery_lifeline;
 use crate::framebuffer::{Color, FramebufferInfo, FramebufferSurface};
 use crate::system_status::{RowState, SnapshotStates, StatusLine, SystemSnapshot};
 use crate::{
-    agent_protocol_project_install, console, input, personal_shell_service, program_workspace,
-    provider, secret_vault, serial, text, wifi, workspace_candidate_service,
+    agent_protocol_project_install, console, granted_candidate_service, input,
+    personal_shell_service, program_workspace, provider, secret_vault, serial, text, wifi,
+    workspace_candidate_service,
 };
 use raios_core::{
     genesis_layout::{GenesisLayout, Point, Size},
@@ -260,6 +261,9 @@ impl ShellHost {
             if agent_protocol_project_install::pending_physical_approval() {
                 return agent_protocol_project_install::approve_from_pointer();
             }
+            if granted_candidate_service::pending_approval() {
+                return granted_candidate_service::approve_and_run_from_pointer();
+            }
             if workspace_candidate_service::pending_approval() {
                 return workspace_candidate_service::approve_and_run_from_pointer();
             }
@@ -353,13 +357,14 @@ impl ShellHost {
             }
         }
         if matches!(event.kind, input::InputEventKind::SecureAttention) {
+            let granted_dropped = granted_candidate_service::secure_attention_drop();
             let workspace_dropped = workspace_candidate_service::secure_attention_drop();
             if self.personal.has_personal_focus() {
                 let route = self.personal.handle_secure_attention();
                 note_personal_route(route);
                 return true;
             }
-            return self.toggle_recovery(runtime) || workspace_dropped;
+            return self.toggle_recovery(runtime) || granted_dropped || workspace_dropped;
         }
         if !self.personal.has_personal_focus() {
             return false;
@@ -886,6 +891,8 @@ fn draw_context(
     };
     let install_preview = agent_protocol_project_install::snapshot();
     let install_pending = agent_protocol_project_install::pending_physical_approval();
+    let granted_preview = granted_candidate_service::approval_preview();
+    let granted_pending = granted_preview.is_some();
     let workspace_pending = workspace_candidate_service::pending_approval();
     let program_ready = program_workspace::snapshot().present;
     draw_button(
@@ -901,6 +908,8 @@ fn draw_context(
                 }
                 None => "Signed project action",
             }
+        } else if granted_pending {
+            "Approve + run downloaded app"
         } else if workspace_pending {
             "Approve + run workspace app"
         } else if program_ready {
@@ -908,7 +917,7 @@ fn draw_context(
         } else {
             "Run signed shell proof"
         },
-        install_pending || workspace_pending || program_ready,
+        install_pending || granted_pending || workspace_pending || program_ready,
     );
     let rows = [
         (
@@ -989,6 +998,34 @@ fn draw_context(
             APP_AMBER,
             None,
         );
+        y = y.saturating_add(20);
+    } else if let Some(preview) = granted_preview {
+        text::draw_text(
+            surface,
+            rect.x + 14,
+            y,
+            "Verified current-boot preview",
+            APP_AMBER,
+            None,
+        );
+        y = y.saturating_add(14);
+        let candidate = preview.candidate_sha256;
+        let candidate_line = format!(
+            "{} candidate {:02x}{:02x}{:02x}{:02x}...",
+            preview.source_kind, candidate[0], candidate[1], candidate[2], candidate[3]
+        );
+        text::draw_text(surface, rect.x + 14, y, &candidate_line, TEXT_MUTED, None);
+        y = y.saturating_add(14);
+        let receipt_line = preview
+            .receipt_sha256
+            .map(|receipt| {
+                format!(
+                    "receipt {:02x}{:02x}{:02x}{:02x}...",
+                    receipt[0], receipt[1], receipt[2], receipt[3]
+                )
+            })
+            .unwrap_or_else(|| format!("serial source / no receipt"));
+        text::draw_text(surface, rect.x + 14, y, &receipt_line, TEXT_MUTED, None);
         y = y.saturating_add(20);
     }
     for (label, value, color) in rows {

@@ -47,10 +47,13 @@ approval/HID typing+backspace+CLEAR/malformed-atomicity/F12), block close FULL s
 + RECOVERY shadow-20260714-234651-22992.json (152); 581 raios-core + 7 guest host tests orchestrator-verified.
 Live owner demo: calculator delivered/approved/computed 42/F12 in a visible QEMU session.
 Editor gaps stay honest: end-cursor only, ASCII only, no persistence (files stay denied).
-The active vision order overrides the older editor-persistence cursor below: B1.1 and
-B1.2a are now closed; next is B1.2b, adding the physical Genesis approval before the
-downloaded candidate enters the EXISTING M6 run. W6 install/autoload/rollback follows
-as B1.2c, then RUIP persistence as B1.3.
+The active vision order overrides the older editor-persistence cursor below: B1.1,
+B1.2a and B1.2b are now closed (the downloaded candidate's single current-boot run
+happens only after a physical Genesis click; m6c-promotion 188/188 +
+network-acquisition 227/227, 2026-07-15). Next is B1.2c: the SAME proven candidate
+through W6 signature, second physical install click, ARTSTOR/RECLOG, autoload,
+reboot survival and rollback (also rewrites the stale m6d-rollback profile), then
+RUIP persistence as B1.3.
 
 **M11-9 DNSPARSE VERIFIED-CLOSED (2026-07-14) — the FOURTH real relocation, plus the
 first hard memory bound for buffer guests.** The DNS query/A-response parser lives in
@@ -164,12 +167,25 @@ projects a fully evaluated receiver preflight with exactly four closed gates
 (M6, M7, provider trust, owner seal). The report contains zero serial candidate
 begin/chunk/finalize commands, so no second byte path was introduced, and no
 service start, install or durable effect occurred.
-**NEXT DELIBERATE SLICE — B1.2b:** feed that exact W7 receipt/receiver binding
-through the existing M6 evidence and loader path, but permit the one current-boot
-run only after a physical Genesis pointer approval as required by Vision §2.3.
-The old clickless M6 dev proof is not sufficient. B1.2c then reuses W6's signed
-second-click install/autoload/rollback path; do not forge a W4 project receipt or
-create a second loader/persistence path.
+**B1.2b PHYSICAL M6 ACTIVATION VERIFIED-CLOSED (2026-07-15).**
+`m6c-promotion` `shadow-20260715-090227-11004.json` (188/188) and
+`network-acquisition` `shadow-20260715-092637-10088.json` (227/227). The
+downloaded candidate runs its single current-boot execution only after a
+physical Genesis pointer click: exact M6 evidence produces an inert pending
+preview under an approval challenge hash; serial start/load cannot substitute
+and replays stay denied at run_count=1; advancing the grant makes the frozen
+preview stale (click denies, nothing runs) until a fresh prepare re-binds; the
+clickless dev route is gone from the serial protocol; loader-runtime stays a
+denial envelope without any granted-load projection while the run is live; no
+durable/install/autoload/rollback side effect. Five reds en route were all
+harness readers or host-measurement instruments — classified in
+PROJECT_STATUS; the guest never misbehaved.
+**NEXT DELIBERATE SLICE — B1.2c:** carry the SAME proven candidate through
+W6's signed install path: W6 signature, second physical install click,
+ARTSTOR/RECLOG, provider autoload, reboot survival, and rollback — reusing the
+existing machinery only (no forged W4 project receipt, no second
+loader/persistence path). This slice also rewrites `m6d-rollback`, which still
+drives the removed clickless flow and a stale loader needle.
 Full+recovery wait for B1 block close per the aggressive cadence. The hardware cursor is
 unchanged and Surface-gated (G7 read-only stick preflight, WiFi association/
 PORT_RELEASE/RX-TX/DHCP proof, ownerkey TPM capture).

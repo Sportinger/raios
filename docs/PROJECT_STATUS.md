@@ -24,6 +24,134 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+B1.2b PHYSICAL M6 ACTIVATION VERIFIED-CLOSED (2026-07-15): the downloaded
+candidate now gets its single current-boot run ONLY after a physical Genesis
+pointer click (Vision §2.3); the old clickless dev load/start route no longer
+exists on the serial protocol. Two focused green reports:
+- `m6c-promotion` `shadow-20260715-090227-11004.json` — 188/188 predicates, 35
+  commands, 102,674 ms, report SHA-256
+  `4d1521420c2670f472ce420dcf765bddce7e1d324f2a498ea16e7a8c2387f96f`. Serial
+  variant: exact M6 evidence yields an inert `load_prepare` Genesis preview
+  (loaded=false, run_count=0, frozen grant/attestation binding, approval
+  challenge hash) with zero slot/run/log/durable effect; serial `service.start`
+  cannot substitute for the pointer
+  (`physical_approval_genesis_pointer_required`); ONE QMP Genesis click emits
+  exactly one accepted activation marker and one guest log; serial start/load
+  replays stay denied (`physical_approval_already_consumed` /
+  `service_already_loaded`) with run_count pinned at 1; the Rust
+  `dev-promotion-signer` replaces the unreliable PS 5.1 P-256 signing and its
+  signature verifies end-to-end in the guest.
+- `network-acquisition` `shadow-20260715-092637-10088.json` — 227/227
+  predicates, 62 commands, 174,504 ms, report SHA-256
+  `b1d64a007fac583a9a136d0d9ba06c49b5704b398d35c74b194b46e57d0662ee`. W7
+  variant end-to-end in one boot: live pinned-TLS download with receiver
+  identity, wrong-artifact M6 grant fails closed with zero effect, the exact M6
+  chain freezes the complete W7 invocation/receipt/receiver/grant/attestation
+  binding into the pending preview (every event id and hash pinned), ADVANCING
+  the latest grant makes the frozen preview STALE — its click emits one denied
+  `activation_binding_stale` marker and runs nothing — a fresh prepare re-binds
+  the new grant event under a NEW approval challenge, one fresh click runs the
+  candidate exactly once (`reason=wasm_run_success`), replays stay denied, the
+  loader-runtime family remains a 54-evidence v1 denial with no
+  `live_granted_load_projection` (P4-3b2 ruling held in bytes while the granted
+  run is live), and W7 stays the only byte path with zero
+  RECLOG/ARTSTOR/install/autoload/rollback side effect. F12 silent-peer kill
+  measured 156 ms on the new 15 ms sampling instrument.
+Kernel shape: `granted_candidate_service` carries the physical-activation state
+machine (load_prepare → pending challenge → Genesis pointer approve-and-run →
+consumed; secure-attention drop; stale-binding recheck at click time),
+`shell_host/genesis.rs` routes the pointer/secure-attention and previews the
+pending candidate, and `repromotion.rs` drives the shared M6 core through
+recovery-only wrappers unreachable from serial. Five reds on the way, each
+classified from the live transcript before its retry (see the retained notes
+below): four stale/phantom harness readers and one host-measurement
+instrument; the guest behaved correctly in every red run. KNOWN HONEST GAPS:
+`m6d-rollback` still drives the removed clickless flow plus the stale loader
+needle and is rewritten in the rollback slice; the loader chain's own
+`local_approval_reference` stays intentionally missing (the granted-candidate
+physical approval is a different authority object; the loader family stays
+denied by design).
+
+B1.2b THIRD NETWORK-ACQUISITION ATTEMPT CLASSIFICATION (2026-07-15, before
+retry): `shadow-20260715-092053-4628.json` reached 225 predicates — the
+instrumented F12 cancel measured 144 ms (the fix reads true latency now), the
+wrong-artifact denial, exact W7/receiver/M6 preview binding, stale-click
+denial, and the accepted one-click/one-run proof are all green. Only
+`network-acquisition:23_current_boot_run_and_replay_one_shot` failed. Verdict:
+**harness-expectation** — the tail pinned `run_count` on the service.inventory
+row, a field inventory rows have never carried (they carry
+`generation`/`last_run_outcome`/`service_slot_activation_active`; the green m6c
+inventory reader pins exactly those). run_count=1 stays pinned via the
+start/load replay responses. Replaced the phantom field with the m6c-proven
+inventory posture set.
+
+B1.2b SECOND NETWORK-ACQUISITION ATTEMPT CLASSIFICATION (2026-07-15, before
+retry): `shadow-20260715-091419-16168.json` failed only the long-green
+`network-acquisition:4_f12_silent_peer_cleanup` — a HOST-MEASUREMENT flake, not
+guest behavior: every cleanup fact was true (outcome killed, no resume,
+teardown_count 1, crypto zeroized, lease released, prior candidate preserved;
+the status query 426 ms after the wait already saw the completed kill). The
+250 ms wall-clock bound was sampled by the shared 200 ms wait grid, which
+cannot resolve it (the historic 178 ms green was grid luck). Fix: this one
+marker is now polled at 15 ms with a 2 s observation window, and the
+host-observed budget is 750 ms with the measured value printed in the actual;
+all guest-side security pins are unchanged. The wall-clock number was never a
+guest-internal guarantee — it is channel latency (HMP + QEMU input + guest kill
++ UART + TCP drain).
+
+B1.2b FIRST NETWORK-ACQUISITION TAIL CLASSIFICATION (2026-07-15, before retry):
+`network-acquisition` `shadow-20260715-090604-16300.json` reached 197 predicates
+and failed only `network-acquisition:14_wrong_m6_hash_denied` (the first
+never-run B1.2b tail predicate that reads `module.service_slot_diagnostic`).
+Verdict: **harness-expectation**, guest behavior correct — the recorded actual
+shows the wrong-artifact load fully denied (every gate missing, zero
+grants/effects, no pending preview) and the retained wrong grant honestly
+echoed. The tail read `facts.live_granted_service_slot_present`, but that field
+lives under `facts.runtime.live_granted_service_slot_present` (the shared
+`diagnostic_facts` template puts the runtime block under `runtime`; the positive
+counterpart lives in the `live_granted_service_slot` evidence entry, which the
+green m6c reader uses). Fixed all three occurrences in one pass and
+source-verified every remaining reader/needle of the untested tail (activation
+marker format incl. `reason=` strings, W7/receiver/attestation binding field
+names against `record_activation_source_binding`, grant-ready decision via the
+green m6c run) before the rerun. An earlier same-day start without `-Network`
+(`shadow-20260715-090515-2564.json`, 0 predicates) was an invocation error, not
+a run.
+
+B1.2b SECOND M6C ATTEMPT CLASSIFICATION (2026-07-15, before retry):
+`m6c-promotion` `shadow-20260715-032903-9752.json` reached 188 predicates (the
+first-attempt fix held; physical click, exactly-once run, and replay denial all
+passed) and failed only `m6c:live_loader_runtime_projection_reflects_granted_run`.
+Verdict: **harness-expectation**, guest behavior correct. The predicate still
+read `body.result.live_granted_load_projection`, but P4-3b2 (`d636318`) moved
+`module.loader_runtime` to the v1 denial envelope and ruled the live
+granted-candidate projection OUT of loader responses (it belongs to the
+granted-candidate family, where the adjacent replay/slot/inventory predicates
+already prove the run). The stale reader predates B1.2b; the same stale needle
+sat untested in the new `network-acquisition` post-click block and in
+`m6d-rollback`. Fix applied to both active profiles in one pass: parse the
+envelope at the root and pin schema/family/scope/classification, 54 evidence
+entries, retained manifest/artifact/vm_report/attestation present,
+`local_approval_reference` missing as the first block,
+decision denied with `retained_module_local_approval_reference_missing`, zero
+grants/effects, and the explicit ABSENCE of `live_granted_load_projection`
+(P4-3b2 ruling held in bytes). KNOWN HONEST GAP: `m6d-rollback` still carries
+both the stale loader needle and the removed clickless load/start flow; it is
+rewritten in the rollback slice (B1.2c), not patched here.
+
+B1.2b FIRST M6C ATTEMPT CLASSIFICATION (2026-07-15, before retry):
+`m6c-promotion` `shadow-20260715-032404-3460.json` failed only
+`m6c:granted_candidate_prepares_physical_activation`. Verdict:
+**harness-expectation**, guest behavior correct. The live response was the exact
+intended inert `load_prepare`: M6 evidence authorized, physical authority still
+false, Genesis preview pending, no slot/run/durable effect, and complete frozen
+grant/attestation hashes. The harness incorrectly treated
+`module.attestation_diagnostic.evidence[local_attestation].source_event_id` as
+the retained event id even though that diagnostic intentionally reports it as
+null; the later frozen activation binding honestly exposed the real current-boot
+attestation event. The retry must validate that bound event id directly (plus
+the independently known attestation-reference hash), not compare it to null.
+
 B1.2a W7-TO-RECEIVER CONTINUITY VERIFIED-CLOSED (2026-07-15): the live W7
 request can now create pending candidate intake only from the exact active local
 catalog entry whose six receiver-identity descriptor/key/signature payloads were

@@ -1,88 +1,3 @@
-function Convert-HexToBytes {
-    param([string]$Hex)
-    if (($Hex.Length % 2) -ne 0) {
-        throw "hex length must be even"
-    }
-    $bytes = New-Object byte[] ($Hex.Length / 2)
-    for ($i = 0; $i -lt $bytes.Length; $i++) {
-        $bytes[$i] = [Convert]::ToByte($Hex.Substring($i * 2, 2), 16)
-    }
-    return $bytes
-}
-
-function Convert-BytesToHex {
-    param([byte[]]$Bytes)
-    return ([BitConverter]::ToString($Bytes) -replace "-", "").ToLowerInvariant()
-}
-
-function Convert-DerInteger {
-    param([byte[]]$Bytes)
-    $idx = 0
-    while ($idx -lt $Bytes.Length -and $Bytes[$idx] -eq 0) {
-        $idx += 1
-    }
-    [byte[]]$value = if ($idx -lt $Bytes.Length) { $Bytes[$idx..($Bytes.Length - 1)] } else { @([byte]0) }
-    if (($value[0] -band 0x80) -ne 0) {
-        [byte[]]$value = @([byte]0) + $value
-    }
-    return @([byte]0x02, [byte]$value.Length) + $value
-}
-
-function Convert-P1363SignatureToDer {
-    param([byte[]]$Signature)
-    if ($Signature.Length -ne 64) {
-        throw "expected P-1363 P-256 signature to be 64 bytes"
-    }
-    [byte[]]$r = $Signature[0..31]
-    [byte[]]$s = $Signature[32..63]
-    [byte[]]$body = (Convert-DerInteger -Bytes $r) + (Convert-DerInteger -Bytes $s)
-    if ($body.Length -gt 127) {
-        throw "unexpected long DER signature body"
-    }
-    return @([byte]0x30, [byte]$body.Length) + $body
-}
-
-function New-DevPromotionSignatureHex {
-    param([string]$PayloadSha256Hex)
-    try {
-        $payload = Convert-HexToBytes -Hex $PayloadSha256Hex
-        $d = New-Object byte[] 32
-        $d[31] = 1
-        $point = [System.Security.Cryptography.ECPoint]::new()
-        $point.X = Convert-HexToBytes -Hex "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"
-        $point.Y = Convert-HexToBytes -Hex "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5"
-        $parameters = [System.Security.Cryptography.ECParameters]::new()
-        $parameters.Curve = [System.Security.Cryptography.ECCurve]::CreateFromFriendlyName("nistP256")
-        $parameters.Q = $point
-        $parameters.D = $d
-        $ecdsa = [System.Security.Cryptography.ECDsa]::Create()
-        try {
-            $ecdsa.ImportParameters($parameters)
-            try {
-                $signature = $ecdsa.SignData(
-                    $payload,
-                    [System.Security.Cryptography.HashAlgorithmName]::SHA256,
-                    [System.Security.Cryptography.DSASignatureFormat]::Rfc3279DerSequence
-                )
-            }
-            catch {
-                $signature = $ecdsa.SignData($payload, [System.Security.Cryptography.HashAlgorithmName]::SHA256)
-                if ($signature.Length -eq 64) {
-                    $signature = Convert-P1363SignatureToDer -Signature $signature
-                }
-            }
-            return Convert-BytesToHex -Bytes $signature
-        }
-        finally {
-            $ecdsa.Dispose()
-        }
-    }
-    catch {
-        Add-Predicate -Name "m6c:dev_signature_host_generation_gap" -Expected "host can generate DER P-256 dev signature" -Passed $true -Actual $_.Exception.Message
-        return $null
-    }
-}
-
 $candidatePath = if ($ResolvedArtifact) {
     $ResolvedArtifact
 }
@@ -263,7 +178,7 @@ $moduleAttestationReferenceCanonical = @(
     "load_attempted=false"
 ) -join "`n"
 $moduleAttestationReferenceHash = Get-TextSha256 -Text $moduleAttestationReferenceCanonical
-$signatureHex = New-DevPromotionSignatureHex -PayloadSha256Hex $moduleAttestationReferenceHash
+$signatureHex = New-ReliableDevPromotionSignatureHex -AttestationReferenceHash $moduleAttestationReferenceHash
 $liveSignatureVerified = $false
 
 if ($signatureHex) {
@@ -275,13 +190,10 @@ if ($signatureHex) {
         ($attestationResult.evidence | Where-Object id -eq "local_attestation").facts.status_detail -eq "local_attestation_signature_verified_load_still_denied" -and
         ($attestationResult.evidence | Where-Object id -eq "local_attestation").facts.signature_verified -eq $true
     )
-    # INFORMATIONAL: the live end-to-end dev-key signature is a harness-tooling
-    # attempt only. Windows PowerShell 5.1 / .NET Framework P-256 signing with the
-    # scalar-1 dev key is unreliable, so a non-verifying result here is a TEST gap,
-    # not a kernel gap: the kernel's P-256 verify is proven by raios-core host tests
-    # (31/31) + the in-guest attestation selftest, and the granted-run mechanism by
-    # the in-guest granted_candidate selftest. Never fail the slice on this.
-    Add-Predicate -Name "m6c:dev_signature_live_check_outcome" -Expected "live dev-key signature end-to-end attempted (informational; authoritative positive proof is the in-guest selftest)" -Passed $true -Actual $(if ($liveSignatureVerified) { "live_signature_verified_end_to_end" } else { "live_signature_unavailable_ps51_tooling_gap_selftest_covers_positive" })
+    Add-Predicate -Name "m6c:dev_signature_live_check_outcome" -Expected "the Rust dev signer produces a guest-verified exact attestation" -Passed $liveSignatureVerified -Actual $(if ($liveSignatureVerified) { "live_signature_verified_end_to_end" } else { "guest_rejected_rust_signer_signature" })
+    if (-not $liveSignatureVerified) {
+        throw "Expected the Rust dev signer attestation to verify in the guest"
+    }
 }
 
 Send-AgentCommand -Command "agent module.granted_candidate_selftest" -ExpectedMarker "RAIOS_AGENT_END module.granted_candidate_selftest" -Name "m6c:granted_candidate_selftest"
@@ -355,24 +267,46 @@ if ($liveSignatureVerified) {
     Send-AgentCommand -Command "module.load_ephemeral svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "m6c:granted_candidate_load"
     $load = Get-LastAgentResponseJson -Method "module.load_ephemeral"
     $loadResult = $load.body.result
+    $loadBinding = $loadResult.source_binding
+    $grantReadyEventId = [string]($grantReady.evidence | Where-Object id -eq "computed_capability_grant_retained").source_event_id
     $loadOk = (
         $load.t -eq "response" -and
         $loadResult.schema -eq "raios.ram_only_granted_candidate_service.lifecycle_response.v0" -and
         $loadResult.service_id -eq "svc.dev.granted_candidate" -and
-        $loadResult.action -eq "load" -and
-        $loadResult.loaded -eq $true -and
+        $loadResult.action -eq "load_prepare" -and
+        $loadResult.code -eq "ok" -and
+        $loadResult.reason -eq "physical_approval_pending" -and
+        $loadResult.activation_authority -eq "genesis_pointer_required" -and
+        $loadResult.physical_approval_pending -eq $true -and
+        $loadResult.physical_approval_consumed -eq $false -and
+        $loadResult.approval_challenge_sha256 -match '^sha256:[0-9a-f]{64}$' -and
+        $loadResult.loaded -eq $false -and $loadResult.running -eq $false -and
+        [int]$loadResult.run_count -eq 0 -and
         $loadResult.scope -eq "current_boot" -and
         $loadResult.trust_tier -eq "dev_key_not_owner_sealed" -and
+        $loadBinding.present -eq $true -and $loadBinding.source_kind -eq "serial" -and
+        $loadBinding.candidate_sha256 -eq "sha256:$expectedSha" -and
+        $loadBinding.receipt_sha256 -eq $null -and $loadBinding.w7.present -eq $false -and
+        $loadBinding.receiver_identity.present -eq $false -and
+        $loadBinding.computed_grant.event_id -eq $grantReadyEventId -and
+        $loadBinding.computed_grant.computed_grant_hash -eq "sha256:$moduleGrantHash" -and
+        $loadBinding.computed_grant.artifact_hash -eq "sha256:$expectedSha" -and
+        $loadBinding.local_attestation.event_id -match '^event\.current_boot\.[0-9]{8}$' -and
+        $loadBinding.local_attestation.attestation_reference_hash -eq "sha256:$moduleAttestationReferenceHash" -and
+        $loadBinding.local_attestation.signature_verified -eq $true -and
+        $loadResult.grant_authority.evidence_authorized -eq $true -and
+        $loadResult.grant_authority.physical_authority_satisfied -eq $false -and
+        $loadResult.grant_authority.can_load_now -eq $false -and
         $loadResult.accepts_external_artifact_bytes -eq $true -and
-        $loadResult.loads_external_artifact -eq $true -and
+        $loadResult.loads_external_artifact -eq $false -and
         $loadResult.maps_executable_pages -eq $false -and
         $loadResult.writes_persistent_state -eq $false -and
         $loadResult.authorizes_persistent_install -eq $false -and
         $loadResult.authorizes_rollback_install -eq $false
     )
-    Add-Predicate -Name "m6c:granted_candidate_loads_ram_only_service" -Expected "granted external candidate loads as dev-tier current_boot RAM service" -Passed $loadOk -Actual $(if ($loadOk) { "matched" } else { ($loadResult | ConvertTo-Json -Compress -Depth 7) })
+    Add-Predicate -Name "m6c:granted_candidate_prepares_physical_activation" -Expected "exact M6 evidence creates one serial-source Genesis preview without load, slot, run, or durable effect" -Passed $loadOk -Actual $(if ($loadOk) { "challenge=$($loadResult.approval_challenge_sha256)" } else { ($loadResult | ConvertTo-Json -Compress -Depth 10) })
     if (-not $loadOk) {
-        throw "Expected granted candidate load response"
+        throw "Expected exact M6 evidence to prepare physical activation only"
     }
 
     $durablePromotion = $loadResult.durable_promotion_transaction
@@ -381,64 +315,92 @@ if ($liveSignatureVerified) {
         $durablePromotion.performed -eq $false -and
         $durablePromotion.transaction_kind -eq "promote" -and
         $durablePromotion.persistence_claimed -eq $false -and
-        $durablePromotion.owner_sealed -eq $false -and
-        $durablePromotion.cross_reboot_proven -eq $false -and
-        $durablePromotion.trust_tier -eq "dev_key_not_owner_sealed" -and
-        $durablePromotion.promotion_authority_is_placeholder -eq $true
+        $loadResult.durable_artifact_persist.performed -eq $false -and
+        $loadResult.service_slot_activation.active -eq $false -and
+        -not ((Get-SerialLogContent -Path $SerialLog).Substring([int]$loadOffset)).Contains("WASM_GUEST_LOG echo counter=") -and
+        -not ((Get-SerialLogContent -Path $SerialLog).Substring([int]$loadOffset)).Contains("GRANTED_CANDIDATE_CURRENT_BOOT_ACTIVATION")
     )
-    Add-Predicate -Name "m6c:durable_promotion_transaction_dev_tier_denied_without_persist_disk" -Expected "load response carries nested dev-tier promotion transaction evidence that denies without claiming persistence" -Passed $durablePromotionOk -Actual $(if ($durablePromotionOk) { "matched" } else { ($durablePromotion | ConvertTo-Json -Compress -Depth 8) })
+    Add-Predicate -Name "m6c:pending_preview_has_zero_effect" -Expected "pending preview performs no slot, run, guest log, activation, promotion transaction, or artifact persist" -Passed $durablePromotionOk -Actual $(if ($durablePromotionOk) { "inert" } else { ($loadResult | ConvertTo-Json -Compress -Depth 8) })
+    if (-not $durablePromotionOk) { throw "Expected the M6 physical preview to stay inert" }
 
-    Send-AgentCommand -Command "service.start svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.start" -Name "m6c:granted_candidate_start"
-    $start = Get-LastAgentResponseJson -Method "service.start"
-    $startResult = $start.body.result
-    $run = $startResult.run_evidence
-    $startOk = (
-        $start.t -eq "response" -and
-        $startResult.scope -eq "current_boot" -and
-        $startResult.trust_tier -eq "dev_key_not_owner_sealed" -and
-        $startResult.action -eq "start" -and
-        $startResult.running -eq $true -and
-        $run.present -eq $true -and
-        $run.validation_ok -eq $true -and
-        $run.instantiation_ok -eq $true -and
-        $run.run_outcome -eq "success" -and
-        [int64]$run.fuel_used -gt 0 -and
-        $run.log_line_emitted -eq $true
+    Send-AgentCommand -Command "service.start svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.start" -Name "m6c:serial_start_cannot_approve"
+    $serialStart = (Get-LastAgentResponseJson -Method "service.start").body.result
+    $serialStartOk = (
+        $serialStart.code -eq "capability_denied" -and
+        $serialStart.reason -eq "physical_approval_genesis_pointer_required" -and
+        $serialStart.activation_authority -eq "genesis_pointer_required" -and
+        $serialStart.physical_approval_pending -eq $true -and
+        $serialStart.physical_approval_consumed -eq $false -and
+        $serialStart.loaded -eq $false -and $serialStart.running -eq $false -and
+        [int]$serialStart.run_count -eq 0 -and $serialStart.run_evidence.present -eq $false
     )
-    Add-Predicate -Name "m6c:granted_candidate_starts_and_runs_wasm" -Expected "instantiation_ok=true run_outcome=success fuel_used>0 guest-log evidence" -Passed $startOk -Actual $(if ($startOk) { "fuel_used=$($run.fuel_used) log_line=$($run.log_line)" } else { ($startResult | ConvertTo-Json -Compress -Depth 7) })
-    if (-not $startOk) {
-        throw "Expected granted candidate start to instantiate and run wasm"
-    }
-    $afterLoad = (Get-SerialLogContent -Path $SerialLog).Substring([int]$loadOffset)
-    $guestLogOk = $afterLoad.Contains("WASM_GUEST_LOG echo counter=")
-    Add-Predicate -Name "m6c:granted_candidate_serial_guest_log" -Expected "WASM_GUEST_LOG serial line after granted start" -Passed $guestLogOk -Actual $(if ($guestLogOk) { "found_after_offset:$loadOffset" } else { Get-SerialLogTail -Path $SerialLog })
-    if (-not $guestLogOk) {
-        throw "Expected granted candidate run to emit WASM_GUEST_LOG"
-    }
+    Add-Predicate -Name "m6c:serial_start_cannot_substitute_for_pointer" -Expected "serial service.start leaves the same pending preview inert" -Passed $serialStartOk -Actual $(if ($serialStartOk) { "denied; pending" } else { $serialStart | ConvertTo-Json -Compress -Depth 8 })
+    if (-not $serialStartOk) { throw "Expected serial service.start to remain denied before pointer approval" }
 
+    $activationNeedle = "GRANTED_CANDIDATE_CURRENT_BOOT_ACTIVATION result=accepted physical_approval=genesis_pointer source_kind=serial candidate_sha256=sha256:$expectedSha receipt_sha256=none run_count=1 outcome=success durable_writes=false"
+    Send-QemuAbsolutePointerClick -X 27017 -Y 6559
+    $activated = Wait-ForLogTextAfterOffset -Path $SerialLog -Needle $activationNeedle -Offset $loadOffset -TimeoutSeconds $TimeoutSeconds
+    $afterActivation = (Get-SerialLogContent -Path $SerialLog).Substring([int]$loadOffset)
+    $activationCount = ([regex]::Matches($afterActivation, [regex]::Escape("GRANTED_CANDIDATE_CURRENT_BOOT_ACTIVATION"))).Count
+    $guestLogCount = ([regex]::Matches($afterActivation, [regex]::Escape("WASM_GUEST_LOG echo counter="))).Count
+    $physicalOk = $activated -and $activationCount -eq 1 -and $guestLogCount -eq 1
+    Add-Predicate -Name "m6c:one_physical_click_runs_exactly_once" -Expected "one QMP Genesis click emits one accepted marker and one guest log" -Passed $physicalOk -Actual "activated=$activated activation_count=$activationCount guest_log_count=$guestLogCount"
+    if (-not $physicalOk) { throw "Expected one Genesis pointer click to run the candidate exactly once" }
+
+    Send-AgentCommand -Command "service.start svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.start" -Name "m6c:serial_start_replay"
+    $startReplay = (Get-LastAgentResponseJson -Method "service.start").body.result
+    Send-AgentCommand -Command "module.load_ephemeral svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "m6c:serial_load_replay"
+    $loadReplay = (Get-LastAgentResponseJson -Method "module.load_ephemeral").body.result
+    $afterReplay = (Get-SerialLogContent -Path $SerialLog).Substring([int]$loadOffset)
+    $replayOk = $startReplay.code -eq "capability_denied" -and
+        $startReplay.reason -eq "physical_approval_already_consumed" -and
+        $startReplay.running -eq $true -and [int]$startReplay.run_count -eq 1 -and
+        $startReplay.physical_approval_pending -eq $false -and $startReplay.physical_approval_consumed -eq $true -and
+        $startReplay.last_run_evidence.run_outcome -eq "success" -and
+        [int64]$startReplay.last_run_evidence.fuel_used -gt 0 -and $startReplay.last_run_evidence.log_line_emitted -eq $true -and
+        $loadReplay.code -eq "capability_denied" -and $loadReplay.reason -eq "service_already_loaded" -and
+        $loadReplay.running -eq $true -and [int]$loadReplay.run_count -eq 1 -and
+        ([regex]::Matches($afterReplay, [regex]::Escape("GRANTED_CANDIDATE_CURRENT_BOOT_ACTIVATION"))).Count -eq 1 -and
+        ([regex]::Matches($afterReplay, [regex]::Escape("WASM_GUEST_LOG echo counter="))).Count -eq 1
+    Add-Predicate -Name "m6c:serial_replays_do_not_rerun" -Expected "serial start/load replays keep the physical approval consumed and run_count/marker/log at one" -Passed $replayOk -Actual $(if ($replayOk) { "run_count=1 marker=1 log=1" } else { @{ start = $startReplay; load = $loadReplay } | ConvertTo-Json -Compress -Depth 8 })
+    if (-not $replayOk) { throw "Expected serial replays to remain non-executing after physical activation" }
+
+    # P4-3b2 ruling: module.loader_runtime is a v1 denial envelope and the live
+    # granted-candidate projection is intentionally ABSENT from loader responses
+    # (it belongs to the granted-candidate family, verified by the replay/slot/
+    # inventory predicates around this block). Native readiness must stay denied
+    # with zero grants even while the physically approved candidate is running.
     Send-AgentCommand -Command "agent module.loader_runtime" -ExpectedMarker "RAIOS_AGENT_END module.loader_runtime" -Name "m6c:live_loader_runtime_projection"
     $loaderRuntime = Get-LastAgentResponseJson -Method "module.loader_runtime"
-    $loaderProjection = $loaderRuntime.body.result.live_granted_load_projection
+    $loaderEvidence = @($loaderRuntime.evidence)
+    $loaderApproval = @($loaderRuntime.evidence | Where-Object id -eq "local_approval_reference")[0]
     $loaderProjectionOk = (
-        $loaderProjection.present -eq $true -and
-        $loaderProjection.accepts_external_artifact_bytes -eq $true -and
-        $loaderProjection.loads_artifact -eq $true -and
-        $loaderProjection.can_load_now -eq $true -and
-        $loaderProjection.service_slot_allocated -eq $true -and
-        $loaderProjection.running -eq $true -and
-        $loaderProjection.run_outcome -eq "success" -and
-        $loaderProjection.trust_tier -eq "dev_key_not_owner_sealed" -and
-        $loaderProjection.load_mechanism -eq "wasmi_interpreter_ram_only" -and
-        $loaderProjection.maps_executable_pages -eq $false -and
-        $loaderProjection.durable -eq $false -and
-        $loaderProjection.owner_sealed -eq $false -and
-        $loaderProjection.authorizes_native_guest_load -eq $false -and
-        $loaderRuntime.body.result.loads_artifact -eq $false -and
-        $loaderRuntime.body.result.maps_executable_pages -eq $false -and
-        $loaderRuntime.body.result.can_load_now -eq $false -and
-        $loaderRuntime.body.result.authorizes_guest_load -eq $false
+        $loaderRuntime.schema -eq "raios.evidence_response.v1" -and
+        $loaderRuntime.family -eq "module.loader_runtime" -and
+        $loaderRuntime.scope -eq "current_boot" -and
+        $loaderRuntime.classification -eq "local_only" -and
+        $loaderRuntime.source_method -eq "module.loader_runtime" -and
+        $null -eq $loaderRuntime.event_id -and
+        $loaderEvidence.Count -eq 54 -and
+        $loaderEvidence[0].id -eq "manifest_reference" -and
+        $loaderEvidence[53].id -eq "executable_entrypoint_invocation_boundary" -and
+        $loaderRuntime.PSObject.Properties.Name -notcontains "live_granted_load_projection" -and
+        @($loaderRuntime.evidence | Where-Object id -eq "live_granted_load_projection").Count -eq 0 -and
+        @($loaderRuntime.evidence | Where-Object id -eq "manifest_reference")[0].facts.present -eq $true -and
+        @($loaderRuntime.evidence | Where-Object id -eq "artifact_reference")[0].facts.present -eq $true -and
+        @($loaderRuntime.evidence | Where-Object id -eq "vm_report_reference")[0].facts.present -eq $true -and
+        @($loaderRuntime.evidence | Where-Object id -eq "local_attestation_reference")[0].facts.present -eq $true -and
+        $loaderApproval.facts.present -eq $false -and
+        $loaderApproval.facts.status_detail -eq "missing" -and
+        $loaderRuntime.decision.outcome -eq "denied" -and
+        $loaderRuntime.decision.reason -eq "retained_module_local_approval_reference_missing" -and
+        $loaderRuntime.decision.requested_capability -eq "cap.module.load_ephemeral" -and
+        @($loaderRuntime.decision.grants).Count -eq 0 -and
+        @($loaderRuntime.decision.effects).Count -eq 0 -and
+        @($loaderRuntime.decision.blocked_by)[0].evidence_id -eq "local_approval_reference"
     )
-    Add-Predicate -Name "m6c:live_loader_runtime_projection_reflects_granted_run" -Expected "live_granted_load_projection true while native loader readiness stays false" -Passed $loaderProjectionOk -Actual $(if ($loaderProjectionOk) { "matched" } else { ($loaderRuntime.body.result | ConvertTo-Json -Compress -Depth 6) })
+    Add-Predicate -Name "m6c:live_loader_runtime_projection_reflects_granted_run" -Expected "loader-runtime v1 envelope stays denied with zero grants and no live_granted_load_projection while the granted run is visible only in its own family (P4-3b2)" -Passed $loaderProjectionOk -Actual $(if ($loaderProjectionOk) { "denied; projection absent; evidence=54" } else { ($loaderRuntime | ConvertTo-Json -Compress -Depth 8) })
+    if (-not $loaderProjectionOk) { throw "Expected the loader-runtime envelope to deny native readiness without a granted-load projection" }
 
     Send-AgentCommand -Command "agent module.service_slot_diagnostic" -ExpectedMarker "RAIOS_AGENT_END module.service_slot_diagnostic" -Name "m6c:live_service_slot_projection"
     $slotDiagnostic = Get-LastAgentResponseJson -Method "module.service_slot_diagnostic"
