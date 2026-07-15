@@ -59,3 +59,60 @@
   the persisted install-signature parser delimiter needed by that path.
 - Remainder: no Cargo, build, format, or test command was run, per resolver
   scope; compile-loop and focused VM evidence remain for the orchestrator.
+
+## harness cycle 1
+
+- Moved the network-acquisition command/reader/predicate 1-24 sequence
+  unchanged into Invoke-W7M6PhysicalActivation; its returned click count is 2
+  because the authoritative prefix contains the stale-binding denial click
+  followed by the fresh accepted activation click.
+- Derived the install needle and parser from the merged
+  emit_install_commit_marker: only the accepted path emits
+  GRANTED_CANDIDATE_INSTALL_COMMIT, with run_count=1 and
+  trust_tier=dev_key_not_owner_sealed literals; promotion and artifact frame
+  identities are parsed as sha256: values (the emitter can render none).
+- The serial project.install_approve proof pins the current response reason
+  project_install_physical_pointer_approval_required; it expects no denied
+  install marker and compares unchanged durable.record_log_scan and
+  artifact.store_scan evidence.
+- The current project-install response exposes the granted source through
+  install_source, receipt_kind, w4_project_receipt_present,
+  activation_approval_sha256, and install_envelope_sha256; its
+  promotion/artifact frame fields remain null before the physical click.
+- Code/plan difference: the shared response emitter still renders its inherited
+  service_id as svc.workspace.current_boot even for the granted-candidate
+  variant. Cycle-1 predicates therefore identify this branch with
+  install_source=granted_candidate and the exact candidate/W7/activation
+  fields; they do not mislabel the inherited service_id as granted provenance.
+- artifact.store_scan exposes the verified candidate-to-promote link but not
+  the artifact-persist RECLOG frame hash. Predicate 30 therefore uses the
+  existing RECLOG diagnostic's post-install head/tail hashes: promote is the
+  head and the accepted marker's artifact-persist frame is the tail.
+- Source-read the merged provider-autoload emitter for later cycles. Its exact
+  chain is result, phase, reason, posture, candidate, promotion,
+  artifact-persist, m6_reverified, w6_signature_verified, loaded, running,
+  run_count, cross_reboot_proven; cycle 1 adds no m6d/reboot wiring.
+
+## frame-split packet
+
+- Added `raios.install_authorization.v0` as a separate origin-boot RECLOG
+  record. Its append validates the signed W6 authorization before any write,
+  then uses the existing plan/write/readback/reparse/rescan path and returns
+  the authorization frame sequence, offset, and hash.
+- Promotion and unpromotion payloads now carry only
+  `install_authorization_frame_sha256` plus the existing four authorization
+  booleans; the embedded W6 fields were removed. The accepted
+  `GRANTED_CANDIDATE_INSTALL_COMMIT` marker was not changed.
+- Physical install now appends authorization, promotion, and artifact-persist
+  in that order. State retention and the accepted marker still happen only
+  after all three durable operations succeed; an orphan authorization or an
+  authorization+promotion pair grants nothing.
+- Resolver/autoload joins the exact authorization frame before accepting the
+  exact promotion-to-artifact pair, reconstructs the envelope inputs from the
+  linked promotion, and verifies the W6 signature before re-promotion. Missing,
+  old embedded-only, malformed, superseded, and incomplete sets stay denied
+  with no fallback.
+- No raios-core change was needed. No Cargo, build, or VM command was run per
+  packet scope; direct `rustfmt --check` parsed the three Rust files and
+  reported the pre-existing unformatted B1.2c regions, so formatting and live
+  evidence remain for the orchestrator.

@@ -33,7 +33,7 @@ use raios_core::{
     sha256_bytes, ByteSink,
 };
 
-use super::{artifact_store, boot_control};
+use super::{artifact_store, boot_control, durable_store};
 
 const METHOD: &str = "repromotion.run";
 const RESPONSE_SCHEMA: &str = "raios.repromotion.v0";
@@ -105,7 +105,14 @@ pub(crate) struct PromotionTransactionReadback {
     install_envelope_binds_activation: bool,
     install_action_signature_verified: bool,
     physical_install_approval_consumed: bool,
+    install_authorization_frame_sha256: [u8; 32],
     install_authorization: Option<granted_candidate_service::SignedInstallAuthorization>,
+    frame_sha256: [u8; 32],
+}
+
+#[derive(Clone, Copy)]
+struct InstallAuthorizationReadback {
+    authorization: granted_candidate_service::SignedInstallAuthorization,
     frame_sha256: [u8; 32],
 }
 
@@ -269,6 +276,7 @@ pub(crate) fn resolve_granted_candidate_install(
         return GrantedCandidateInstallResolution::None;
     }
     let artifacts = artifact_store::artifact_persist_records_from_reclog(bytes);
+    let mut install_authorizations = Vec::new();
     let mut fold = GrantedCandidateInstallFold::None;
     let mut offset = 0usize;
     let mut seq = 1u64;
@@ -291,19 +299,36 @@ pub(crate) fn resolve_granted_candidate_install(
         if target_record
             && contains_bytes(
                 payload.as_bytes(),
+                b"\"schema\": \"raios.install_authorization.v0\"",
+            )
+        {
+            fold = GrantedCandidateInstallFold::Incomplete;
+            if let Ok(mut authorization) = parse_install_authorization_payload(payload) {
+                authorization.frame_sha256 = frame.frame_sha256;
+                install_authorizations.push(authorization);
+            }
+        } else if target_record
+            && contains_bytes(
+                payload.as_bytes(),
                 b"\"schema\": \"raios.promotion_transaction.v0\"",
             )
         {
             fold = match parse_promotion_transaction_payload(payload) {
-                Ok(mut transaction) if complete_install_authorization(&transaction) => {
-                    transaction.frame_sha256 = frame.frame_sha256;
-                    if transaction.transaction_kind == "promote" {
-                        GrantedCandidateInstallFold::Promote {
-                            transaction,
-                            artifact: None,
+                Ok(mut transaction) => {
+                    if link_install_authorization(&mut transaction, &install_authorizations)
+                        && complete_install_authorization(&transaction)
+                    {
+                        transaction.frame_sha256 = frame.frame_sha256;
+                        if transaction.transaction_kind == "promote" {
+                            GrantedCandidateInstallFold::Promote {
+                                transaction,
+                                artifact: None,
+                            }
+                        } else {
+                            GrantedCandidateInstallFold::Unpromote { transaction }
                         }
                     } else {
-                        GrantedCandidateInstallFold::Unpromote { transaction }
+                        GrantedCandidateInstallFold::Incomplete
                     }
                 }
                 _ => GrantedCandidateInstallFold::Incomplete,
@@ -363,12 +388,40 @@ fn complete_install_authorization(transaction: &PromotionTransactionReadback) ->
         && transaction.install_envelope_binds_activation
         && transaction.install_action_signature_verified
         && transaction.physical_install_approval_consumed
+        && transaction.install_authorization_frame_sha256 != [0; 32]
         && transaction.install_authorization.is_some_and(|authorization| {
             authorization.candidate_sha256 == transaction.artifact_hash
                 && authorization.computed_grant_sha256 == transaction.computed_grant_hash
                 && authorization.attestation_reference_sha256
                     == transaction.attestation_reference_hash
         })
+}
+
+fn link_install_authorization(
+    transaction: &mut PromotionTransactionReadback,
+    records: &[InstallAuthorizationReadback],
+) -> bool {
+    let Some(readback) = records
+        .iter()
+        .find(|record| record.frame_sha256 == transaction.install_authorization_frame_sha256)
+        .copied()
+    else {
+        return false;
+    };
+    let mut record = durable_store::InstallAuthorizationRecord {
+        service_id: GRANTED_CANDIDATE_SERVICE_ID,
+        trust_tier: TRUST_TIER,
+        authorization: readback.authorization,
+    };
+    record.authorization.computed_grant_sha256 = transaction.computed_grant_hash;
+    record.authorization.attestation_reference_sha256 = transaction.attestation_reference_hash;
+    if record.authorization.candidate_sha256 != transaction.artifact_hash
+        || durable_store::validate_signed_install_authorization(&record).is_err()
+    {
+        return false;
+    }
+    transaction.install_authorization = Some(record.authorization);
+    true
 }
 
 fn exact_artifact_link(
@@ -593,7 +646,10 @@ fn reverify_record(
     evidence.references_repopulated = true;
 
     let Some(authorization) = transaction.install_authorization else { evidence.deny("install_authorization_missing"); return evidence; };
-    granted_candidate_service::restore_reverified_install_authorization(authorization);
+    granted_candidate_service::restore_reverified_install_authorization(
+        authorization,
+        transaction.install_authorization_frame_sha256,
+    );
 
     granted_candidate_service::emit_repromotion_load();
     evidence.load_attempted = true;
@@ -853,6 +909,15 @@ pub(crate) fn find_promotion_transaction(
                 .map_err(|_| "promotion_transaction_payload_invalid_utf8")?;
             let mut parsed = parse_promotion_transaction_payload(payload)?;
             parsed.frame_sha256 = frame.frame_sha256;
+            let authorization = find_install_authorization(
+                bytes,
+                parsed.install_authorization_frame_sha256,
+            )?;
+            if !link_install_authorization(&mut parsed, &[authorization])
+                || !complete_install_authorization(&parsed)
+            {
+                return Err("install_authorization_missing");
+            }
             return Ok(parsed);
         }
         offset += frame.frame_len as usize;
@@ -978,19 +1043,76 @@ fn parse_promotion_transaction_payload(
             b"\"physical_install_approval_consumed\": ",
         )
         .unwrap_or(false),
-        install_authorization: parse_install_authorization(payload)?,
+        install_authorization_frame_sha256: artifact_store::extract_sha256(
+            payload,
+            b"\"install_authorization_frame_sha256\": \"",
+        )
+        .unwrap_or([0; 32]),
+        install_authorization: None,
         frame_sha256: [0u8; 32],
     })
 }
 
-fn parse_install_authorization(payload: &str) -> Result<Option<granted_candidate_service::SignedInstallAuthorization>, &'static str> {
-    if artifact_store::extract_bool(payload, b"\"install_authorization_present\": ").unwrap_or(false) == false { return Ok(None); }
+fn find_install_authorization(
+    bytes: &[u8],
+    frame_sha256: [u8; 32],
+) -> Result<InstallAuthorizationReadback, &'static str> {
+    if frame_sha256 == [0; 32] {
+        return Err("install_authorization_missing");
+    }
+    let scan = scan_reclog(bytes);
+    let mut offset = 0usize;
+    let mut seq = 1u64;
+    let mut prev = [0u8; 32];
+    let mut count = 0u64;
+    while count < scan.count && offset < bytes.len() {
+        let frame = parse_reclog_frame(bytes, offset, seq, prev)
+            .map_err(|_| "install_authorization_not_found")?;
+        if frame.frame_sha256 == frame_sha256 {
+            let payload_start = offset + RECLOG_FRAME_HEADER_LEN;
+            let payload_end = payload_start + frame.payload_len as usize;
+            let payload = str::from_utf8(&bytes[payload_start..payload_end])
+                .map_err(|_| "install_authorization_payload_invalid_utf8")?;
+            let mut parsed = parse_install_authorization_payload(payload)?;
+            parsed.frame_sha256 = frame.frame_sha256;
+            return Ok(parsed);
+        }
+        offset += frame.frame_len as usize;
+        seq = seq.saturating_add(1);
+        prev = frame.frame_sha256;
+        count += 1;
+    }
+    Err("install_authorization_not_found")
+}
+
+fn parse_install_authorization_payload(
+    payload: &str,
+) -> Result<InstallAuthorizationReadback, &'static str> {
+    if !contains_bytes(
+        payload.as_bytes(),
+        b"\"schema\": \"raios.install_authorization.v0\"",
+    ) {
+        return Err("install_authorization_schema_mismatch");
+    }
+    if extract_str(payload, b"\"id\": \"")
+        != Some("install_authorization.origin_boot.svc.dev.granted_candidate.v0")
+        || extract_str(payload, b"\"scope\": \"") != Some("origin_boot")
+        || extract_str(payload, b"\"classification\": \"") != Some("local_only")
+        || extract_str(payload, b"\"record_kind\": \"") != Some("install_authorization")
+        || extract_str(payload, b"\"service_id\": \"") != Some(GRANTED_CANDIDATE_SERVICE_ID)
+        || extract_str(payload, b"\"trust_tier\": \"") != Some(TRUST_TIER)
+    {
+        return Err("install_authorization_scope_mismatch");
+    }
     let (signature_der, signature_len) = extract_install_hex_bytes(payload, b"\"install_signature_der\": \"").ok_or("install_action_signature_not_verified")?;
-    if artifact_store::extract_u64(payload, b"\"install_signature_len\": ").map(|v| v as usize) != Some(signature_len) { return Err("install_action_signature_not_verified"); }
+    if artifact_store::extract_u64(payload, b"\"install_signature_len\": ").map(|v| v as usize) != Some(signature_len) {
+        return Err("install_action_signature_not_verified");
+    }
     let sha = |key| artifact_store::extract_sha256(payload, key).ok_or("install_authorization_missing");
-    Ok(Some(granted_candidate_service::SignedInstallAuthorization {
-        activation_approval_sha256: sha(b"\"activation_approval_sha256\": \"")?, computed_grant_sha256: sha(b"\"computed_grant_hash\": \"")?,
-        attestation_reference_sha256: sha(b"\"attestation_reference_hash\": \"")?, w7_invocation_sha256: sha(b"\"w7_invocation_sha256\": \"")?,
+    Ok(InstallAuthorizationReadback {
+        authorization: granted_candidate_service::SignedInstallAuthorization {
+        activation_approval_sha256: sha(b"\"activation_approval_sha256\": \"")?, computed_grant_sha256: [0; 32],
+        attestation_reference_sha256: [0; 32], w7_invocation_sha256: sha(b"\"w7_invocation_sha256\": \"")?,
         w7_receipt_sha256: sha(b"\"w7_receipt_sha256\": \"")?, receiver_content_sha256: sha(b"\"receiver_content_sha256\": \"")?,
         receiver_candidate_sha256: sha(b"\"receiver_candidate_sha256\": \"")?, catalog_candidate_sha256: sha(b"\"catalog_candidate_sha256\": \"")?,
         install_envelope_sha256: sha(b"\"install_envelope_sha256\": \"")?, install_action_sha256: sha(b"\"install_action_sha256\": \"")?,
@@ -999,7 +1121,9 @@ fn parse_install_authorization(payload: &str) -> Result<Option<granted_candidate
         candidate_sha256: sha(b"\"install_candidate_sha256\": \"")?, candidate_byte_len: artifact_store::extract_u64(payload, b"\"install_candidate_byte_len\": ").ok_or("install_authorization_missing")?,
         generation: artifact_store::extract_u64(payload, b"\"install_generation\": ").ok_or("install_authorization_missing")?, log_sequence: artifact_store::extract_u64(payload, b"\"install_log_sequence\": ").ok_or("install_authorization_missing")?,
         signature_len, signature_der,
-    }))
+        },
+        frame_sha256: [0; 32],
+    })
 }
 
 fn extract_install_hex_bytes(payload: &str, key: &[u8]) -> Option<([u8; 256], usize)> {
@@ -1302,7 +1426,10 @@ pub(crate) fn run_provider_autoload() {
         );
         return;
     };
-    granted_candidate_service::restore_reverified_install_authorization(authorization);
+    granted_candidate_service::restore_reverified_install_authorization(
+        authorization,
+        transaction.install_authorization_frame_sha256,
+    );
     let evidence = reverify_record(controller, &artifact);
     let signatures_reverified = evidence.reconstructed_wasm_valid.is_some();
     let snapshot = granted_candidate_service::loaded_snapshot();

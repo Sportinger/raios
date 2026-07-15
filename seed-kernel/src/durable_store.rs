@@ -81,6 +81,15 @@ const PROMOTION_TRANSACTION_RECORD_KIND: &str = "promotion_transaction";
 const PROMOTION_TRANSACTION_RECORD_SCOPE: &str = "origin_boot";
 const PROMOTION_TRANSACTION_TRUST_TIER: &str = "dev_key_not_owner_sealed";
 const PROMOTION_TRANSACTION_MAX_PAYLOAD_LEN: usize = 4096 - RECLOG_FRAME_HEADER_LEN;
+pub(crate) const INSTALL_AUTHORIZATION_SCHEMA: &str = "raios.install_authorization.v0";
+const INSTALL_AUTHORIZATION_ID: &str =
+    "install_authorization.origin_boot.svc.dev.granted_candidate.v0";
+const INSTALL_AUTHORIZATION_RECORD_KIND: &str = "install_authorization";
+const INSTALL_AUTHORIZATION_MAX_PAYLOAD_LEN: usize = 4096 - RECLOG_FRAME_HEADER_LEN;
+// Frame-budget assertion (88-byte RECLOG header, 256-byte install DER, 80-byte
+// promotion DER, max-width u64s): authorization 2,434 + 88 = 2,522 -> 2,560
+// sector-rounded; linked unpromote (the larger promotion form) 3,317 + 88 =
+// 3,405 -> 3,584 sector-rounded. Both remain <= one 4,096-byte frame budget.
 const RECOVERY_ACTION_SELFTEST_METHOD: &str = "recovery.disable_module_selftest";
 const RECOVERY_ACTION_SELFTEST_SCHEMA: &str = "raios.recovery_action_append_selftest.v0";
 const RECOVERY_ACTION_RECORD_KIND: &str = "recovery_action";
@@ -381,7 +390,7 @@ pub(crate) struct PromotionTransactionRecord {
     pub(crate) install_envelope_binds_activation: bool,
     pub(crate) install_action_signature_verified: bool,
     pub(crate) physical_install_approval_consumed: bool,
-    pub(crate) install_authorization: Option<crate::granted_candidate_service::SignedInstallAuthorization>,
+    pub(crate) install_authorization_frame_sha256: [u8; 32],
     pub(crate) rollback_plan_hash: [u8; 32],
     pub(crate) pre_load_inventory_hash: [u8; 32],
     pub(crate) ram_only_service_slot_id: &'static str,
@@ -400,9 +409,25 @@ pub(crate) struct PromotionTransactionRecord {
     pub(crate) load_mode: &'static str,
 }
 
-pub(crate) fn validate_signed_install_authorization(record: &PromotionTransactionRecord) -> Result<(), &'static str> {
-    let Some(authorization) = record.install_authorization else { return Err("install_authorization_missing"); };
-    if !record.install_authorization_present || !record.install_envelope_binds_activation { return Err("install_envelope_binding_mismatch"); }
+#[derive(Clone, Copy)]
+pub(crate) struct InstallAuthorizationRecord {
+    pub(crate) service_id: &'static str,
+    pub(crate) trust_tier: &'static str,
+    pub(crate) authorization: crate::granted_candidate_service::SignedInstallAuthorization,
+}
+
+pub(crate) fn validate_signed_install_authorization(
+    record: &InstallAuthorizationRecord,
+) -> Result<(), &'static str> {
+    if record.trust_tier != PROMOTION_TRANSACTION_TRUST_TIER {
+        return Err("install_authorization_trust_tier_mismatch");
+    }
+    let authorization = record.authorization;
+    if authorization.signature_len == 0
+        || authorization.signature_len > authorization.signature_der.len()
+    {
+        return Err("install_action_signature_not_verified");
+    }
     let envelope = seal_granted_candidate_install_envelope(GrantedCandidateInstallEnvelope {
         service_id: String::from(record.service_id), candidate_sha256: authorization.candidate_sha256,
         candidate_byte_len: authorization.candidate_byte_len, activation_approval_sha256: authorization.activation_approval_sha256,
@@ -424,7 +449,7 @@ pub(crate) fn validate_signed_install_authorization(record: &PromotionTransactio
     if action.action_sha256 != authorization.install_action_sha256 || install_action_signature_payload_sha256(&action).map_err(|error| error.reason())? != authorization.install_action_message_sha256 {
         return Err("install_action_signature_not_verified");
     }
-    if !record.install_action_signature_verified || !record.physical_install_approval_consumed || !verify_promotion_authority_signature(&action.authority_signature, &authorization.install_action_message_sha256) || authorization.authority_key_sha256 != PLACEHOLDER_PROMOTION_AUTHORITY_PUBLIC_KEY_SHA256 {
+    if !verify_promotion_authority_signature(&action.authority_signature, &authorization.install_action_message_sha256) || authorization.authority_key_sha256 != PLACEHOLDER_PROMOTION_AUTHORITY_PUBLIC_KEY_SHA256 {
         return Err("install_action_signature_not_verified");
     }
     Ok(())
@@ -469,6 +494,27 @@ pub(crate) struct PromotionTransactionAppendEvidence {
     pub(crate) owner_sealed: bool,
     pub(crate) cross_reboot_proven: bool,
     pub(crate) persistence_claimed: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct InstallAuthorizationAppendEvidence {
+    pub(crate) performed: bool,
+    pub(crate) reason: &'static str,
+    pub(crate) seq: Option<u64>,
+    pub(crate) write_offset: Option<u64>,
+    pub(crate) frame_sha256: Option<[u8; 32]>,
+}
+
+impl InstallAuthorizationAppendEvidence {
+    fn denied(reason: &'static str) -> Self {
+        Self {
+            performed: false,
+            reason,
+            seq: None,
+            write_offset: None,
+            frame_sha256: None,
+        }
+    }
 }
 
 pub(crate) fn promotion_transaction_append_denied(
@@ -550,11 +596,175 @@ fn optional_u64(value: Option<u64>) -> V<'static> {
     }
 }
 
+pub(crate) fn append_install_authorization(
+    record: &InstallAuthorizationRecord,
+) -> InstallAuthorizationAppendEvidence {
+    if let Err(reason) = validate_signed_install_authorization(record) {
+        return InstallAuthorizationAppendEvidence::denied(reason);
+    }
+    if !matches!(
+        super::boot_control::current_boot_posture(),
+        BootPosture::Normal | BootPosture::Probation
+    ) {
+        return InstallAuthorizationAppendEvidence::denied("boot_control_safe_mode");
+    }
+
+    let evidence = current_boot_reclog_scan();
+    let payload = install_authorization_payload_bytes(record);
+    if payload.len() > INSTALL_AUTHORIZATION_MAX_PAYLOAD_LEN {
+        return InstallAuthorizationAppendEvidence::denied("payload_too_large_for_frame");
+    }
+    let planned = match plan_reclog_append(&evidence.scan, &payload, evidence.reclog_byte_count) {
+        Ok(planned) => planned,
+        Err(denied) => return InstallAuthorizationAppendEvidence::denied(denied.reason()),
+    };
+    let Some(controller) = evidence.controller else {
+        return InstallAuthorizationAppendEvidence::denied("ahci_controller_not_observed");
+    };
+
+    let write = unsafe {
+        ahci::write_readback_reclog_append(controller, planned.write_offset, &planned.frame)
+    };
+    let readback_sha256 = write.readback.as_deref().map(sha256_bytes);
+    let reparse_valid = write
+        .readback
+        .as_deref()
+        .map(|bytes| parse_reclog_frame(bytes, 0, planned.seq, planned.prev_frame_sha256).is_ok())
+        .unwrap_or(false);
+    if !write.write_attempted
+        || !write.write_completed
+        || !write.readback_completed
+        || !write.span_in_bounds
+    {
+        return InstallAuthorizationAppendEvidence::denied(write.reason);
+    }
+    if readback_sha256 != Some(planned.frame_sha256) {
+        return InstallAuthorizationAppendEvidence::denied("frame_sha256_mismatch");
+    }
+    if !reparse_valid {
+        return InstallAuthorizationAppendEvidence::denied("reparse_not_valid");
+    }
+
+    let after = current_boot_reclog_scan();
+    let rescan_ok = evidence
+        .scan
+        .count
+        .checked_add(1)
+        .map(|count| after.scan.count == count)
+        .unwrap_or(false)
+        && after.scan.tail_seq == planned.seq
+        && after.scan.tail_frame_sha256 == Some(planned.frame_sha256);
+    if !rescan_ok {
+        return InstallAuthorizationAppendEvidence::denied("post_append_rescan_mismatch");
+    }
+
+    InstallAuthorizationAppendEvidence {
+        performed: true,
+        reason: "authorized_install_authorization_append_readback_reparse_verified",
+        seq: Some(planned.seq),
+        write_offset: Some(planned.write_offset),
+        frame_sha256: Some(planned.frame_sha256),
+    }
+}
+
+fn install_authorization_payload_bytes(record: &InstallAuthorizationRecord) -> Vec<u8> {
+    let authorization = record.authorization;
+    let record = V::Object(vec![
+        f("schema", s(INSTALL_AUTHORIZATION_SCHEMA)),
+        f("id", s(INSTALL_AUTHORIZATION_ID)),
+        f("scope", s(PROMOTION_TRANSACTION_RECORD_SCOPE)),
+        f("classification", s("local_only")),
+        f("record_kind", s(INSTALL_AUTHORIZATION_RECORD_KIND)),
+        f("service_id", s(record.service_id)),
+        f(
+            "activation_approval_sha256",
+            V::Sha256(authorization.activation_approval_sha256),
+        ),
+        f(
+            "w7_invocation_sha256",
+            V::Sha256(authorization.w7_invocation_sha256),
+        ),
+        f(
+            "w7_receipt_sha256",
+            V::Sha256(authorization.w7_receipt_sha256),
+        ),
+        f(
+            "receiver_content_sha256",
+            V::Sha256(authorization.receiver_content_sha256),
+        ),
+        f(
+            "receiver_candidate_sha256",
+            V::Sha256(authorization.receiver_candidate_sha256),
+        ),
+        f(
+            "catalog_candidate_sha256",
+            V::Sha256(authorization.catalog_candidate_sha256),
+        ),
+        f(
+            "install_envelope_sha256",
+            V::Sha256(authorization.install_envelope_sha256),
+        ),
+        f(
+            "install_action_sha256",
+            V::Sha256(authorization.install_action_sha256),
+        ),
+        f(
+            "install_action_signature_message_sha256",
+            V::Sha256(authorization.install_action_message_sha256),
+        ),
+        f(
+            "authority_evidence_sha256",
+            V::Sha256(authorization.authority_evidence_sha256),
+        ),
+        f(
+            "physical_approval_sha256",
+            V::Sha256(authorization.physical_approval_sha256),
+        ),
+        f(
+            "install_authority_key_sha256",
+            V::Sha256(authorization.authority_key_sha256),
+        ),
+        f(
+            "install_signature_der",
+            V::HexBytes(&authorization.signature_der[..authorization.signature_len]),
+        ),
+        f(
+            "install_signature_len",
+            V::U64(authorization.signature_len as u64),
+        ),
+        f(
+            "install_candidate_sha256",
+            V::Sha256(authorization.candidate_sha256),
+        ),
+        f(
+            "install_candidate_byte_len",
+            V::U64(authorization.candidate_byte_len),
+        ),
+        f("install_generation", V::U64(authorization.generation)),
+        f("install_log_sequence", V::U64(authorization.log_sequence)),
+        f("trust_tier", s(record.trust_tier)),
+    ]);
+    let mut sink = VecSink(Vec::new());
+    write_json(&record, &mut sink, 0);
+    sink.0
+}
+
 pub(crate) fn append_promotion_transaction(
     record: &PromotionTransactionRecord,
+    install_authorization_validated: bool,
 ) -> PromotionTransactionAppendEvidence {
-    if let Err(reason) = validate_signed_install_authorization(record) {
-        return promotion_transaction_append_denied(record.transaction_kind, reason);
+    if record.install_authorization_present
+        && (record.install_authorization_frame_sha256 == [0; 32]
+            || !install_authorization_validated)
+    {
+        return promotion_transaction_append_denied(
+            record.transaction_kind,
+            if record.install_authorization_frame_sha256 == [0; 32] {
+                "install_authorization_missing"
+            } else {
+                "install_action_signature_not_verified"
+            },
+        );
     }
     if let Some(reason) = promotion_transaction_preflight_denial(
         super::boot_control::current_boot_posture(),
@@ -710,7 +920,7 @@ fn promotion_transaction_payload_bytes(record: &PromotionTransactionRecord) -> V
     let artifact_event = EventIdString::new(record.retained_artifact_reference_event_id);
     let vm_report_event = EventIdString::new(record.retained_vm_report_reference_event_id);
     let computed_grant_event = EventIdString::new(record.retained_reference_event_id);
-    let mut fields = vec![
+    let fields = vec![
         f("schema", s(PROMOTION_EXPECTED_RECORD_SCHEMA)),
         f(
             "id",
@@ -798,6 +1008,10 @@ fn promotion_transaction_payload_bytes(record: &PromotionTransactionRecord) -> V
             "physical_install_approval_consumed",
             b(record.physical_install_approval_consumed),
         ),
+        f(
+            "install_authorization_frame_sha256",
+            V::Sha256(record.install_authorization_frame_sha256),
+        ),
         f("trust_tier", s(PROMOTION_TRANSACTION_TRUST_TIER)),
         f(
             "promotion_authority_is_placeholder",
@@ -834,19 +1048,6 @@ fn promotion_transaction_payload_bytes(record: &PromotionTransactionRecord) -> V
         f("free_slot", b(record.free_slot)),
         f("remove_inventory", b(record.remove_inventory)),
     ];
-    if let Some(authorization) = record.install_authorization.as_ref() {
-        fields.extend_from_slice(&[
-            f("activation_approval_sha256", V::Sha256(authorization.activation_approval_sha256)), f("w7_invocation_sha256", V::Sha256(authorization.w7_invocation_sha256)),
-            f("w7_receipt_sha256", V::Sha256(authorization.w7_receipt_sha256)), f("receiver_content_sha256", V::Sha256(authorization.receiver_content_sha256)),
-            f("receiver_candidate_sha256", V::Sha256(authorization.receiver_candidate_sha256)), f("catalog_candidate_sha256", V::Sha256(authorization.catalog_candidate_sha256)),
-            f("install_envelope_sha256", V::Sha256(authorization.install_envelope_sha256)), f("install_action_sha256", V::Sha256(authorization.install_action_sha256)),
-            f("install_action_signature_message_sha256", V::Sha256(authorization.install_action_message_sha256)), f("authority_evidence_sha256", V::Sha256(authorization.authority_evidence_sha256)),
-            f("physical_approval_sha256", V::Sha256(authorization.physical_approval_sha256)), f("install_authority_key_sha256", V::Sha256(authorization.authority_key_sha256)),
-            f("install_signature_der", V::HexBytes(&authorization.signature_der[..authorization.signature_len])), f("install_signature_len", V::U64(authorization.signature_len as u64)),
-            f("install_candidate_sha256", V::Sha256(authorization.candidate_sha256)), f("install_candidate_byte_len", V::U64(authorization.candidate_byte_len)),
-            f("install_generation", V::U64(authorization.generation)), f("install_log_sequence", V::U64(authorization.log_sequence)),
-        ]);
-    }
     let record = V::Object(fields);
     let mut sink = VecSink(Vec::new());
     write_json(&record, &mut sink, 0);
@@ -1171,7 +1372,7 @@ fn promotion_transaction_selftest_record(
         install_envelope_binds_activation: false,
         install_action_signature_verified: false,
         physical_install_approval_consumed: false,
-        install_authorization: None,
+        install_authorization_frame_sha256: [0; 32],
         rollback_plan_hash: [0x31; 32],
         pre_load_inventory_hash: [0x32; 32],
         ram_only_service_slot_id: "ram_only:svc.dev.granted_candidate",

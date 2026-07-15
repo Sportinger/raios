@@ -190,7 +190,7 @@ struct ApprovedActivation {
     promotion: PromotionRecord,
 }
 
-/// Fixed-size current-boot W6 proof retained only after both durable readbacks.
+/// Fixed-size current-boot W6 proof retained only after the linked durable install completes.
 #[derive(Clone, Copy)]
 pub(crate) struct SignedInstallAuthorization {
     pub(crate) activation_approval_sha256: [u8; 32],
@@ -271,6 +271,7 @@ struct State {
     pending_activation: Option<ActivationBinding>,
     approved_activation: Option<ApprovedActivation>,
     signed_install_authorization: Option<SignedInstallAuthorization>,
+    install_authorization_frame_sha256: Option<[u8; 32]>,
     physical_approval_consumed: bool,
 }
 
@@ -287,6 +288,7 @@ impl State {
             pending_activation: None,
             approved_activation: None,
             signed_install_authorization: None,
+            install_authorization_frame_sha256: None,
             physical_approval_consumed: false,
         }
     }
@@ -920,6 +922,7 @@ pub(crate) fn secure_attention_drop() -> bool {
     state.pending_activation = None;
     state.approved_activation = None;
     state.signed_install_authorization = None;
+    state.install_authorization_frame_sha256 = None;
     state.physical_approval_consumed = false;
     state.promotion = None;
     console::write_event(format_args!("Downloaded app current-boot state cleared"));
@@ -973,8 +976,28 @@ pub(crate) fn install_approved_from_pointer(
         return Err("granted_candidate_install_not_ready");
     }
     let authorization = signed_install_authorization(&approved, envelope, action)?;
+    let authorization_record = durable_store::InstallAuthorizationRecord {
+        service_id: GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.service_id,
+        trust_tier: TRUST_TIER_GRANTED,
+        authorization,
+    };
+    let durable_install_authorization =
+        durable_store::append_install_authorization(&authorization_record);
+    if !durable_install_authorization.performed {
+        return Err(durable_install_authorization.reason);
+    }
+    let install_authorization_frame_sha256 = durable_install_authorization
+        .frame_sha256
+        .ok_or("install_authorization_readback_missing")?;
     let durable_promotion_transaction = append_promotion_transaction(
-        durable_store::PromotionTransactionKind::Promote, approved.promotion, None, false, None, false, Some(authorization),
+        durable_store::PromotionTransactionKind::Promote,
+        approved.promotion,
+        None,
+        false,
+        None,
+        false,
+        Some(install_authorization_frame_sha256),
+        true,
     );
     if !durable_promotion_transaction.performed {
         return Err(durable_promotion_transaction.reason);
@@ -994,6 +1017,7 @@ pub(crate) fn install_approved_from_pointer(
     let mut state = STATE.lock();
     state.promotion = Some(approved.promotion);
     state.signed_install_authorization = Some(authorization);
+    state.install_authorization_frame_sha256 = Some(install_authorization_frame_sha256);
     drop(state);
     emit_install_commit_marker(envelope, action, &durable_promotion_transaction, &persisted, true, "granted_candidate_installed");
     Ok(())
@@ -1018,9 +1042,13 @@ fn signed_install_authorization(approved: &ApprovedActivation, envelope: &Grante
     })
 }
 
-pub(crate) fn restore_reverified_install_authorization(authorization: SignedInstallAuthorization) {
+pub(crate) fn restore_reverified_install_authorization(
+    authorization: SignedInstallAuthorization,
+    frame_sha256: [u8; 32],
+) {
     let mut state = STATE.lock();
     state.signed_install_authorization = Some(authorization);
+    state.install_authorization_frame_sha256 = Some(frame_sha256);
 }
 
 fn emit_install_commit_marker(
@@ -1133,11 +1161,16 @@ fn load(source_method: &'static str, durable_effects: bool) -> ActionResult {
     };
     let durable_promotion_transaction = promotion_for_append
         .map(|promotion| {
-            let install_authorization = if durable_effects {
-                STATE.lock().signed_install_authorization
-            } else {
-                None
-            };
+            let (install_authorization_frame_sha256, install_authorization_validated) =
+                if durable_effects {
+                    let state = STATE.lock();
+                    (
+                        state.install_authorization_frame_sha256,
+                        state.signed_install_authorization.is_some(),
+                    )
+                } else {
+                    (None, false)
+                };
             append_promotion_transaction(
                 durable_store::PromotionTransactionKind::Promote,
                 promotion,
@@ -1145,7 +1178,8 @@ fn load(source_method: &'static str, durable_effects: bool) -> ActionResult {
                 false,
                 None,
                 false,
-                install_authorization,
+                install_authorization_frame_sha256,
+                install_authorization_validated,
             )
         })
         .unwrap_or_else(|| {
@@ -1457,13 +1491,19 @@ fn rollback_preview(source_method: &'static str) -> RollbackResult {
 }
 
 fn rollback_apply(source_method: &'static str) -> RollbackResult {
-    let (promotion, install_authorization) = {
+    let (promotion, install_authorization_frame_sha256) = {
         let state = STATE.lock();
-        if state.promotion.is_none() || state.signed_install_authorization.is_none() {
+        if state.promotion.is_none()
+            || state.signed_install_authorization.is_none()
+            || state.install_authorization_frame_sha256.is_none()
+        {
             drop(state);
             return rollback_apply_denied_no_promotion(source_method);
         }
-        (state.promotion.unwrap(), state.signed_install_authorization.unwrap())
+        (
+            state.promotion.unwrap(),
+            state.install_authorization_frame_sha256.unwrap(),
+        )
     };
 
     {
@@ -1509,7 +1549,8 @@ fn rollback_apply(source_method: &'static str) -> RollbackResult {
             true,
             Some(reprojected_inventory_hash),
             true,
-            Some(install_authorization),
+            Some(install_authorization_frame_sha256),
+            true,
         )
     } else {
         durable_store::promotion_transaction_append_denied(
@@ -1712,7 +1753,8 @@ fn append_promotion_transaction(
     restore_hash_verified: bool,
     reprojected_inventory_hash: Option<[u8; 32]>,
     cleanup_performed: bool,
-    install_authorization: Option<SignedInstallAuthorization>,
+    install_authorization_frame_sha256: Option<[u8; 32]>,
+    install_authorization_validated: bool,
 ) -> durable_store::PromotionTransactionAppendEvidence {
     let Some((_, signature)) = event_log::latest_module_promotion_signature_reference() else {
         return durable_store::promotion_transaction_append_denied(
@@ -1761,11 +1803,12 @@ fn append_promotion_transaction(
         signature_attestation_reference_hash: signature.attestation_reference_hash,
         promotion_authority_key_sha256: signature.promotion_authority_key_sha256,
         grant_binds_capability,
-        install_authorization_present: install_authorization.is_some(),
-        install_envelope_binds_activation: install_authorization.is_some(),
-        install_action_signature_verified: install_authorization.is_some(),
-        physical_install_approval_consumed: install_authorization.is_some(),
-        install_authorization,
+        install_authorization_present: install_authorization_frame_sha256.is_some(),
+        install_envelope_binds_activation: install_authorization_validated,
+        install_action_signature_verified: install_authorization_validated,
+        physical_install_approval_consumed: install_authorization_validated,
+        install_authorization_frame_sha256: install_authorization_frame_sha256
+            .unwrap_or([0; 32]),
         rollback_plan_hash: promotion.plan_hash,
         pre_load_inventory_hash: promotion.pre_load_inventory_hash,
         ram_only_service_slot_id: promotion.ram_only_service_slot_id,
@@ -1787,7 +1830,7 @@ fn append_promotion_transaction(
         },
         load_mode: "wasmi_interpreter_ram_only",
     };
-    durable_store::append_promotion_transaction(&record)
+    durable_store::append_promotion_transaction(&record, install_authorization_validated)
 }
 
 fn cleanup_actions_hash() -> [u8; 32] {

@@ -24,6 +24,24 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+B1.2c FIRST INSTALL ATTEMPT CLASSIFICATION (2026-07-15, before retry):
+`network-acquisition` `shadow-20260715-112604-22712.json` ran 234/234 executed
+predicates green — including the armed signed W6 preview, the separate-authority
+signature, and the serial-approval denial with zero durable effect — then the
+second physical click was denied in `append_promotion_transaction` with
+`payload_too_large_for_frame`. Verdict: **real kernel capacity finding**, and
+the fail-closed design worked exactly as built: no partial frame, no ARTSTOR
+write, no state retention, no accepted marker. Cause: embedding the full W7/W6
+authorization (17 hashes + DER signature hex) in the promote payload exceeds
+the one-frame budget (4096 − RECLOG_FRAME_HEADER_LEN, kernel gate = raios-core
+`MAX_APPEND_PAYLOAD_LEN`). Fix chosen over raising the frame budget (which
+would demand a format audit of every scanner/buffer and re-overflow when
+owner-sealing grows the payload): the authorization becomes its OWN typed
+RECLOG record (`raios.install_authorization.v0`) linked by hash from the
+promote frame, exactly mirroring the existing promote↔artifact-persist linking;
+the resolver honors a promote only with BOTH exact linked frames, and an
+orphan authorization frame authorizes nothing.
+
 B1.2b PHYSICAL M6 ACTIVATION VERIFIED-CLOSED (2026-07-15): the downloaded
 candidate now gets its single current-boot run ONLY after a physical Genesis
 pointer click (Vision §2.3); the old clickless dev load/start route no longer
