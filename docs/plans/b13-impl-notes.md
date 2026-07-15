@@ -103,3 +103,34 @@
 - Remaining B1.3 work is VM-harness wiring and the three-boot positive,
   tamper-denial, rollback, and byte-compatibility proof packet.
 - No Cargo, rustc, build, formatter, or test command was run per worker scope.
+
+## harness cycle 1
+
+- `genesis-ui` now reuses the proven W6 Rust signer, exact valid-a disposable
+  persist disk, monitor, and QMP setup without adding network.
+- NEW `Invoke-SignedUiProgramInstall` mirrors the granted-candidate ceremony:
+  exact approved-RUIP prepare, reliable dev signature, typed serial denial,
+  one Genesis click, the merged `PROGRAM_INSTALL_COMMIT` field order, tolerant
+  `TrimEnd()` marker parsing, and pre/denied/post RECLOG plus ARTSTOR scans.
+- The eight section-4 `genesis-ui` predicates are appended after every existing
+  Genesis predicate so the compatibility predicate can prove the unchanged
+  calculator/editor, malformed-input, HID, inventory, F12, trap, fuel, and
+  recovery checks all ran first.
+- Open kernel diagnostic gap: merged `artifact_store::emit_artifact_store_scan`
+  calls only `artifact_persist_records_from_reclog`, whose parser requires the
+  granted-candidate `artifact_sha256`/M6 fields. It does not call
+  `ui_program_persist_records_from_reclog`. Consequently a valid UI-program
+  blob is currently emitted as `garbage_blobs` and no UI-program record exposes
+  its canonical 176-byte hash, authorization link, or persist-frame link. The
+  requested `editor-second-click-persists-without-rerun` ARTSTOR-count pin and
+  `editor-artstor-canonical-readback` predicate intentionally fail with the full
+  parsed scan until that merged emitter is extended; the harness does not fake
+  or infer the missing positive record.
+- No Cargo, build, formatter, or VM command was run per worker scope.
+
+## artstor-scan ui_program fix
+
+- `artifact.store_scan` now folds UI-program persist records into a parallel diagnostic array.
+- Each UI record exposes canonical program, ARTSTOR verification, and install-chain links.
+- UI-program ARTSTOR offsets now suppress the same false garbage report as granted records.
+- The scan remains read-only and grants no load, execution, or durable-write authority.

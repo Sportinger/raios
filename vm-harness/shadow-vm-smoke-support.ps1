@@ -2303,3 +2303,149 @@ function Invoke-SignedGrantedCandidateInstall {
         ClickCount = 1
     }
 }
+
+function Invoke-SignedUiProgramInstall {
+    param(
+        [Parameter(Mandatory = $true)][string]$ProgramSha256,
+        [Parameter(Mandatory = $true)][string]$ActivationApprovalSha256,
+        [string]$NamePrefix = "genesis-ui"
+    )
+
+    if ($ProgramSha256 -notmatch '^sha256:[0-9a-f]{64}$' -or
+        $ActivationApprovalSha256 -notmatch '^sha256:[0-9a-f]{64}$') {
+        throw "UI-program install requires exact sha256: program and activation references"
+    }
+
+    $preInstallLog = Get-SerialLogContent -Path $SerialLog
+    $prepareOffset = Get-SerialLogOffset
+
+    Send-AgentCommand -Command "agent durable.record_log_scan" -ExpectedMarker "RAIOS_AGENT_END durable.record_log_scan" -Name "$($NamePrefix):w6-pre-reclog-scan"
+    $preReclogResponse = Get-LastAgentResponseJson -Method "durable.record_log_scan"
+    $preReclog = $preReclogResponse.body.result
+    Send-AgentCommand -Command "agent artifact.store_scan" -ExpectedMarker "RAIOS_AGENT_END artifact.store_scan" -Name "$($NamePrefix):w6-pre-artstor-scan"
+    $preArtifactResponse = Get-LastAgentResponseJson -Method "artifact.store_scan"
+    $preArtifact = $preArtifactResponse.body.result
+
+    Send-AgentCommand -Command "project.install_prepare $ActivationApprovalSha256" -ExpectedMarker "RAIOS_AGENT_END project.install_prepare" -Name "$($NamePrefix):w6-install-prepare"
+    $prepareResponse = Get-LastAgentResponseJson -Method "project.install_prepare"
+    $prepare = $prepareResponse.body.result
+    $actionDigest = [string]$prepare.action_signature_message_sha256
+    if ($actionDigest -notmatch '^sha256:[0-9a-f]{64}$') {
+        throw "UI-program W6 prepare returned an invalid action signature digest: $actionDigest"
+    }
+
+    $signatureHex = New-ReliableDevPromotionSignatureHex -AttestationReferenceHash $actionDigest.Substring(7)
+    Send-AgentCommand -Command "project.install_signature $signatureHex" -ExpectedMarker "RAIOS_AGENT_END project.install_signature" -Name "$($NamePrefix):w6-install-signature"
+    $signatureResponse = Get-LastAgentResponseJson -Method "project.install_signature"
+    $signature = $signatureResponse.body.result
+
+    Send-AgentCommand -Command "project.install_approve" -ExpectedMarker "RAIOS_AGENT_END project.install_approve" -Name "$($NamePrefix):w6-serial-install-approval-denied"
+    $denialResponse = Get-LastAgentResponseJson -Method "project.install_approve"
+    $denial = $denialResponse.body.result
+
+    Send-AgentCommand -Command "agent durable.record_log_scan" -ExpectedMarker "RAIOS_AGENT_END durable.record_log_scan" -Name "$($NamePrefix):w6-denied-reclog-scan"
+    $deniedReclogResponse = Get-LastAgentResponseJson -Method "durable.record_log_scan"
+    $deniedReclog = $deniedReclogResponse.body.result
+    Send-AgentCommand -Command "agent artifact.store_scan" -ExpectedMarker "RAIOS_AGENT_END artifact.store_scan" -Name "$($NamePrefix):w6-denied-artstor-scan"
+    $deniedArtifactResponse = Get-LastAgentResponseJson -Method "artifact.store_scan"
+    $deniedArtifact = $deniedArtifactResponse.body.result
+
+    $beforeClickLog = (Get-SerialLogContent -Path $SerialLog).Substring([int]$prepareOffset)
+    $previewLines = @($beforeClickLog -split '\r?\n' | Where-Object {
+        $_.StartsWith("PROJECT_INSTALL_PREVIEW ", [System.StringComparison]::Ordinal)
+    } | ForEach-Object { $_.TrimEnd() })
+    $unsignedPreviewMarker = if ($previewLines.Count -ge 2) { [string]$previewLines[$previewLines.Count - 2] } else { "" }
+    $signedPreviewMarker = if ($previewLines.Count -ge 1) { [string]$previewLines[$previewLines.Count - 1] } else { "" }
+
+    $installOffset = Get-SerialLogOffset
+    $activationNeedle = "PROGRAM_CURRENT_BOOT_ACTIVATION physical_approval=pointer program_sha256=$ProgramSha256 engine=svc.user.shell capability_surface=ui_only wasm=true result=accepted"
+    $beforeInstallClickLog = Get-SerialLogContent -Path $SerialLog
+    $activationCountBeforeClick = ([regex]::Matches($beforeInstallClickLog, [regex]::Escape($activationNeedle))).Count
+    $shellActiveCountBeforeClick = ([regex]::Matches($beforeInstallClickLog, [regex]::Escape("PERSONAL SHELL ACTIVE current_boot proof"))).Count
+    $installNeedle = "PROGRAM_INSTALL_COMMIT result=accepted physical_approval=genesis_pointer subject_kind=ui_program program_sha256=$ProgramSha256 activation_approval_sha256=$ActivationApprovalSha256 install_envelope_sha256=$($prepare.install_envelope_sha256) install_action_sha256=sha256:"
+    Send-QemuAbsolutePointerClick -X 27017 -Y 6559
+    if (-not (Wait-ForLogTextAfterOffset -Path $SerialLog -Needle $installNeedle -Offset $installOffset -TimeoutSeconds $TimeoutSeconds)) {
+        throw "Timed out waiting for the accepted UI-program install marker"
+    }
+
+    $afterClickLog = (Get-SerialLogContent -Path $SerialLog).Substring([int]$installOffset)
+    $markerLines = @($afterClickLog -split '\r?\n' | Where-Object {
+        $_.StartsWith("PROGRAM_INSTALL_COMMIT ", [System.StringComparison]::Ordinal)
+    } | ForEach-Object { $_.TrimEnd() })
+    $markerLine = if ($markerLines.Count -gt 0) { [string]$markerLines[-1] } else { "" }
+    $markerPattern = '^PROGRAM_INSTALL_COMMIT result=(accepted) physical_approval=(genesis_pointer) subject_kind=(ui_program) program_sha256=(sha256:[0-9a-f]{64}) activation_approval_sha256=(sha256:[0-9a-f]{64}) install_envelope_sha256=(sha256:[0-9a-f]{64}) install_action_sha256=(sha256:[0-9a-f]{64}) promotion_transaction_sha256=(sha256:[0-9a-f]{64}) program_persist_frame_sha256=(sha256:[0-9a-f]{64}) generation=([0-9]+) sequence=([0-9]+) engine=(svc\.user\.shell) guest_installed=(false) durable_writes=(true) reason=(program_installed)$'
+    $markerMatch = [regex]::Match($markerLine, $markerPattern)
+    if (-not $markerMatch.Success) {
+        throw "UI-program install marker did not match the merged emitter shape: $markerLine"
+    }
+
+    $afterInstallClickLog = Get-SerialLogContent -Path $SerialLog
+    $activationCountAfterClick = ([regex]::Matches($afterInstallClickLog, [regex]::Escape($activationNeedle))).Count
+    $shellActiveCountAfterClick = ([regex]::Matches($afterInstallClickLog, [regex]::Escape("PERSONAL SHELL ACTIVE current_boot proof"))).Count
+
+    Send-AgentCommand -Command "agent durable.record_log_scan" -ExpectedMarker "RAIOS_AGENT_END durable.record_log_scan" -Name "$($NamePrefix):w6-post-reclog-scan"
+    $postReclogResponse = Get-LastAgentResponseJson -Method "durable.record_log_scan"
+    $postReclog = $postReclogResponse.body.result
+    Send-AgentCommand -Command "agent artifact.store_scan" -ExpectedMarker "RAIOS_AGENT_END artifact.store_scan" -Name "$($NamePrefix):w6-post-artstor-scan"
+    $postArtifactResponse = Get-LastAgentResponseJson -Method "artifact.store_scan"
+    $postArtifact = $postArtifactResponse.body.result
+    $installedArtifactRecord = @($postArtifact.records | Where-Object {
+        $_.canonical_program_sha256 -eq $markerMatch.Groups[4].Value -and
+        $_.promotion_transaction_sha256 -eq $markerMatch.Groups[8].Value
+    })[0]
+
+    return [pscustomobject]@{
+        PrepareResponse = $prepareResponse
+        Preview = $prepare
+        SignatureResponse = $signatureResponse
+        SignedPreview = $signature
+        DenialResponse = $denialResponse
+        Denial = $denial
+        SignatureHex = $signatureHex
+        UnsignedPreviewMarker = $unsignedPreviewMarker
+        SignedPreviewMarker = $signedPreviewMarker
+        ActionSignatureMessageSha256 = $actionDigest
+        PhysicalApprovalSha256 = [string]$signature.physical_approval_sha256
+        ProgramSha256 = [string]$markerMatch.Groups[4].Value
+        ActivationApprovalSha256 = [string]$markerMatch.Groups[5].Value
+        InstallEnvelopeSha256 = [string]$markerMatch.Groups[6].Value
+        InstallActionSha256 = [string]$markerMatch.Groups[7].Value
+        PromotionTransactionSha256 = [string]$markerMatch.Groups[8].Value
+        ProgramPersistFrameSha256 = [string]$markerMatch.Groups[9].Value
+        InstallAuthorizationFrameSha256 = [string]$installedArtifactRecord.install_authorization_frame_sha256
+        ArtstorBlobFrameSha256 = [string]$installedArtifactRecord.artstor_blob_frame_sha256
+        ParsedPayloadSha256 = [string]$installedArtifactRecord.parsed_payload_sha256
+        CanonicalProgramByteLen = [int64]$installedArtifactRecord.canonical_program_byte_len
+        ReclogHeadFrameSha256 = [string]$postReclog.head_frame_sha256
+        ReclogTailFrameSha256 = [string]$postReclog.tail_frame_sha256
+        Generation = [int64]$markerMatch.Groups[10].Value
+        Sequence = [int64]$markerMatch.Groups[11].Value
+        Engine = [string]$markerMatch.Groups[12].Value
+        GuestInstalled = $false
+        DurableWrites = $true
+        MarkerLine = $markerLine
+        InstallOffset = [int64]$installOffset
+        PrepareOffset = [int64]$prepareOffset
+        PreInstallLog = $preInstallLog
+        BeforeClickLog = $beforeClickLog
+        AfterClickLog = $afterClickLog
+        ActivationCountBeforeClick = [int]$activationCountBeforeClick
+        ActivationCountAfterClick = [int]$activationCountAfterClick
+        ShellActiveCountBeforeClick = [int]$shellActiveCountBeforeClick
+        ShellActiveCountAfterClick = [int]$shellActiveCountAfterClick
+        PreReclogResponse = $preReclogResponse
+        PreReclogScan = $preReclog
+        PreArtifactResponse = $preArtifactResponse
+        PreArtifactScan = $preArtifact
+        DeniedReclogResponse = $deniedReclogResponse
+        DeniedReclogScan = $deniedReclog
+        DeniedArtifactResponse = $deniedArtifactResponse
+        DeniedArtifactScan = $deniedArtifact
+        PostReclogResponse = $postReclogResponse
+        PostReclogScan = $postReclog
+        PostArtifactResponse = $postArtifactResponse
+        PostArtifactScan = $postArtifact
+        InstalledArtifactRecord = $installedArtifactRecord
+        ClickCount = 1
+    }
+}

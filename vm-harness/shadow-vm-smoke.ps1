@@ -89,7 +89,7 @@ try {
         }
     }
 
-    if ($Profile -in @("m6c-promotion", "network-acquisition", "m6d-rollback")) {
+    if ($Profile -in @("genesis-ui", "m6c-promotion", "network-acquisition", "m6d-rollback")) {
         $env:CARGO_HOME = (Resolve-Path (Join-Path $RepoRoot ".cargo-home")).Path
         $env:CARGO_TARGET_DIR = Join-Path $RepoRoot "target"
         & cargo build --locked -p ota-tools --bin dev-promotion-signer
@@ -200,7 +200,7 @@ try {
         }
         $PersistDiskImage = (Resolve-Path -LiteralPath $structuredStorePersist).Path
     }
-    elseif ($Profile -in @("network-acquisition", "m6d-rollback")) {
+    elseif ($Profile -in @("genesis-ui", "network-acquisition", "m6d-rollback")) {
         if ($PersistDiskPath) {
             throw "$Profile creates its own exact valid-a disposable persist disk"
         }

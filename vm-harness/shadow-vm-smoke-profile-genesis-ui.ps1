@@ -742,3 +742,190 @@ if (-not $recoveryAfterFallbackOk) {
     throw "Expected Recovery to remain callable after the personal-shell fallback"
 }
 Save-QemuScreendump -Name "genesis-after-personal-fallback" | Out-Null
+
+$preB13Predicates = @($Predicates)
+$readyLog = Get-SerialLogContent -Path $SerialLog
+$editorReadyLines = @($readyLog -split '\r?\n' | Where-Object {
+    $_.StartsWith("PROGRAM_INSTALL_READY result=accepted physical_approval=genesis_pointer program_sha256=$genesisEditorHash ", [System.StringComparison]::Ordinal)
+} | ForEach-Object { $_.TrimEnd() })
+$editorReadyLine = if ($editorReadyLines.Count -eq 1) { [string]$editorReadyLines[0] } else { "" }
+$editorReadyPattern = '^PROGRAM_INSTALL_READY result=accepted physical_approval=genesis_pointer program_sha256=(sha256:[0-9a-f]{64}) activation_approval_sha256=(sha256:[0-9a-f]{64}) engine=(svc\.user\.shell) persistence_authority=(false) reason=(program_current_boot_approved)$'
+$editorReadyMatch = [regex]::Match($editorReadyLine, $editorReadyPattern)
+$editorActivationApprovalSha256 = if ($editorReadyMatch.Success) { [string]$editorReadyMatch.Groups[2].Value } else { "" }
+$editorActivationOffset = $readyLog.IndexOf($editorActivationMarker, [System.StringComparison]::Ordinal)
+$editorReadyOffset = $readyLog.IndexOf($editorReadyLine, [System.StringComparison]::Ordinal)
+
+$editorInstall = @(Invoke-SignedUiProgramInstall -ProgramSha256 $genesisEditorHash -ActivationApprovalSha256 $editorActivationApprovalSha256 -NamePrefix "genesis-ui:editor")[-1]
+$editorPreview = $editorInstall.Preview
+$editorSignedPreview = $editorInstall.SignedPreview
+$editorInstallDenial = $editorInstall.Denial
+$editorArtifactRecord = $editorInstall.InstalledArtifactRecord
+
+Send-AgentCommand -Command "agent module.loader_runtime" -ExpectedMarker "RAIOS_AGENT_END module.loader_runtime" -Name "genesis-ui:b13-loader-runtime"
+$b13LoaderResponse = Get-LastAgentResponseJson -Method "module.loader_runtime"
+$b13LoaderEvidence = @($b13LoaderResponse.evidence)
+$b13LoaderApproval = @($b13LoaderResponse.evidence | Where-Object id -eq "local_approval_reference")[0]
+Send-AgentCommand -Command "agent module.service_slot_diagnostic" -ExpectedMarker "RAIOS_AGENT_END module.service_slot_diagnostic" -Name "genesis-ui:b13-service-slot"
+$b13SlotResponse = Get-LastAgentResponseJson -Method "module.service_slot_diagnostic"
+Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "genesis-ui:b13-inventory"
+$b13InventoryResponse = Get-LastAgentResponseJson -Method "service.inventory"
+$b13InventoryRows = @($b13InventoryResponse.facts.services)
+Send-AgentCommand -Command "program.workspace" -ExpectedMarker "RAIOS_AGENT_END program.workspace" -Name "genesis-ui:b13-program-workspace"
+$b13ProgramWorkspaceResponse = Get-LastAgentResponseJson -Method "program.workspace"
+
+$editorReadyExpected = "PROGRAM_INSTALL_READY result=accepted physical_approval=genesis_pointer program_sha256=$genesisEditorHash activation_approval_sha256=$editorActivationApprovalSha256 engine=svc.user.shell persistence_authority=false reason=program_current_boot_approved"
+$editorReadyOk = $editorReadyMatch.Success -and
+    $editorReadyLine -eq $editorReadyExpected -and
+    $editorReadyMatch.Groups[1].Value -eq $genesisEditorHash -and
+    $editorReadyMatch.Groups[3].Value -eq "svc.user.shell" -and
+    $editorReadyMatch.Groups[4].Value -eq "false" -and
+    $editorActivationOffset -ge 0 -and $editorReadyOffset -gt $editorActivationOffset -and
+    [int64]$editorInstall.PreReclogScan.count -eq 0 -and
+    [int64]$editorInstall.PreArtifactScan.reclog_count -eq 0 -and
+    [int64]$editorInstall.PreArtifactScan.artifact_persist_record_count -eq 0 -and
+    [int64]$editorInstall.PreArtifactScan.garbage_blob_count -eq 0 -and
+    -not $editorInstall.PreInstallLog.Contains("PROGRAM_INSTALL_COMMIT")
+$editorReadyDump = [ordered]@{ activation_marker = $editorActivationMarker; activation_offset = $editorActivationOffset; ready_marker = $editorReadyLine; ready_offset = $editorReadyOffset; pre_reclog = $editorInstall.PreReclogResponse; pre_artstor = $editorInstall.PreArtifactResponse }
+Add-Predicate -Name "genesis-ui:editor-install-ready-exact-physical-binding" -Expected "the exact merged PROGRAM_INSTALL_READY line binds the physically run 176-byte editor to its activation and svc.user.shell without persistence authority or prior RECLOG/ARTSTOR mutation" -Passed $editorReadyOk -Actual $(if ($editorReadyOk) { $editorReadyLine } else { $editorReadyDump | ConvertTo-Json -Compress -Depth 16 })
+
+$unsignedPreviewExpected = "PROJECT_INSTALL_PREVIEW kind=install result=accepted signature_verified=false action_signature_message_sha256=$($editorPreview.action_signature_message_sha256) physical_approval_sha256=$($editorPreview.physical_approval_sha256) generation=$($editorPreview.generation) sequence=$($editorPreview.log_sequence) approval=owner_signature_required"
+$editorPrepareOk = $editorPreview.status -eq "accepted" -and
+    $editorPreview.reason -eq "project_install_signature_required" -and
+    $editorPreview.accepted -eq $true -and $editorPreview.rejected -eq $false -and
+    $editorPreview.service_id -eq "svc.user.shell" -and
+    $editorPreview.phase -eq "pending_owner_signature" -and
+    $editorPreview.action_kind -eq "install" -and $editorPreview.signature_verified -eq $false -and
+    $editorPreview.install_source -eq "ui_program" -and
+    $editorPreview.receipt_kind -eq "ruip_canonical" -and $editorPreview.w4_project_receipt_present -eq $false -and
+    $editorPreview.candidate_sha256 -eq $genesisEditorHash -and
+    $editorPreview.receipt_sha256 -eq $genesisEditorHash -and
+    $editorPreview.activation_approval_sha256 -eq $editorActivationApprovalSha256 -and
+    $editorPreview.install_envelope_sha256 -match '^sha256:[0-9a-f]{64}$' -and
+    $editorPreview.promotion_transaction_sha256 -eq $null -and
+    $editorPreview.artifact_persist_frame_sha256 -eq $null -and
+    $editorPreview.writes_persistent_state -eq $false -and
+    $editorInstall.UnsignedPreviewMarker -eq $unsignedPreviewExpected
+Add-Predicate -Name "genesis-ui:editor-w6-prepare-binds-approved-ruip" -Expected "ui_program/ruip_canonical W6 prepare binds svc.user.shell, the exact editor and activation, no W4 receipt, the unchanged unsigned PROJECT_INSTALL_PREVIEW shape, and no write" -Passed $editorPrepareOk -Actual $(if ($editorPrepareOk) { "editor RUIP activation bound; owner signature required" } else { $editorInstall.PrepareResponse | ConvertTo-Json -Compress -Depth 16 })
+
+$signedPreviewExpected = "PROJECT_INSTALL_PREVIEW kind=install result=accepted signature_verified=true action_signature_message_sha256=$($editorSignedPreview.action_signature_message_sha256) physical_approval_sha256=$($editorSignedPreview.physical_approval_sha256) generation=$($editorSignedPreview.generation) sequence=$($editorSignedPreview.log_sequence) approval=genesis_pointer_required"
+$editorSignatureOk = $editorSignedPreview.status -eq "accepted" -and
+    $editorSignedPreview.reason -eq "project_install_pending_physical_pointer_approval" -and
+    $editorSignedPreview.phase -eq "pending_physical_pointer_approval" -and
+    $editorSignedPreview.signature_verified -eq $true -and
+    $editorSignedPreview.action_signature_message_sha256 -eq $editorPreview.action_signature_message_sha256 -and
+    $editorSignedPreview.action_signature_message_sha256 -match '^sha256:[0-9a-f]{64}$' -and
+    $editorSignedPreview.action_signature_message_sha256 -ne $editorActivationApprovalSha256 -and
+    $editorSignedPreview.physical_approval_sha256 -match '^sha256:[0-9a-f]{64}$' -and
+    $editorSignedPreview.install_envelope_sha256 -eq $editorPreview.install_envelope_sha256 -and
+    $editorSignedPreview.writes_persistent_state -eq $false -and
+    $editorInstall.SignedPreviewMarker -eq $signedPreviewExpected
+$editorSignatureDump = [ordered]@{ activation = $editorActivationApprovalSha256; unsigned = $editorInstall.PrepareResponse; signed = $editorInstall.SignatureResponse; preview_markers = @($editorInstall.UnsignedPreviewMarker, $editorInstall.SignedPreviewMarker) }
+Add-Predicate -Name "genesis-ui:editor-w6-signature-separate-authority" -Expected "the Rust signer arms the unchanged signed PROJECT_INSTALL_PREVIEW; its W6 action digest differs from the RUIP activation and still requires Genesis" -Passed $editorSignatureOk -Actual $(if ($editorSignatureOk) { "activation=$editorActivationApprovalSha256 w6=$($editorSignedPreview.action_signature_message_sha256)" } else { $editorSignatureDump | ConvertTo-Json -Compress -Depth 16 })
+
+$editorSerialDenialOk = $editorInstallDenial.status -eq "denied" -and
+    $editorInstallDenial.reason -eq "project_install_physical_pointer_approval_required" -and
+    $editorInstallDenial.accepted -eq $false -and $editorInstallDenial.rejected -eq $true -and
+    $editorInstallDenial.phase -eq "pending_physical_pointer_approval" -and
+    $editorInstallDenial.signature_verified -eq $true -and
+    $editorInstallDenial.action_signature_message_sha256 -eq $editorSignedPreview.action_signature_message_sha256 -and
+    $editorInstallDenial.physical_approval_sha256 -eq $editorSignedPreview.physical_approval_sha256 -and
+    $editorInstallDenial.install_envelope_sha256 -eq $editorSignedPreview.install_envelope_sha256 -and
+    [int64]$editorInstall.DeniedReclogScan.count -eq [int64]$editorInstall.PreReclogScan.count -and
+    $editorInstall.DeniedReclogScan.head_frame_sha256 -eq $editorInstall.PreReclogScan.head_frame_sha256 -and
+    $editorInstall.DeniedReclogScan.tail_frame_sha256 -eq $editorInstall.PreReclogScan.tail_frame_sha256 -and
+    [int64]$editorInstall.DeniedArtifactScan.artifact_persist_record_count -eq [int64]$editorInstall.PreArtifactScan.artifact_persist_record_count -and
+    [int64]$editorInstall.DeniedArtifactScan.garbage_blob_count -eq [int64]$editorInstall.PreArtifactScan.garbage_blob_count -and
+    -not $editorInstall.BeforeClickLog.Contains("PROGRAM_INSTALL_COMMIT")
+$editorSerialDenialDump = [ordered]@{ denial = $editorInstall.DenialResponse; before_reclog = $editorInstall.PreReclogResponse; denied_reclog = $editorInstall.DeniedReclogResponse; before_artstor = $editorInstall.PreArtifactResponse; denied_artstor = $editorInstall.DeniedArtifactResponse; serial = $editorInstall.BeforeClickLog }
+Add-Predicate -Name "genesis-ui:editor-serial-install-approval-denied-zero-effect" -Expected "the typed response denies serial approval with physical-pointer-required, retains the signed preview, changes no RECLOG/ARTSTOR fact, and emits no denied marker" -Passed $editorSerialDenialOk -Actual $(if ($editorSerialDenialOk) { "denied response pinned; RECLOG/ARTSTOR unchanged" } else { $editorSerialDenialDump | ConvertTo-Json -Compress -Depth 16 })
+
+$editorSecondClickOk = $editorInstall.ClickCount -eq 1 -and
+    $editorInstall.ProgramSha256 -eq $genesisEditorHash -and
+    $editorInstall.ActivationApprovalSha256 -eq $editorActivationApprovalSha256 -and
+    $editorInstall.InstallEnvelopeSha256 -eq $editorSignedPreview.install_envelope_sha256 -and
+    $editorInstall.InstallActionSha256 -match '^sha256:[0-9a-f]{64}$' -and
+    $editorInstall.PromotionTransactionSha256 -match '^sha256:[0-9a-f]{64}$' -and
+    $editorInstall.ProgramPersistFrameSha256 -match '^sha256:[0-9a-f]{64}$' -and
+    $editorInstall.Generation -eq [int64]$editorSignedPreview.generation -and
+    $editorInstall.Sequence -eq [int64]$editorSignedPreview.log_sequence -and
+    $editorInstall.Engine -eq "svc.user.shell" -and
+    $editorInstall.GuestInstalled -eq $false -and $editorInstall.DurableWrites -eq $true -and
+    [int64]$editorInstall.PostReclogScan.count -eq ([int64]$editorInstall.PreReclogScan.count + 3) -and
+    $editorInstall.Sequence -eq ([int64]$editorInstall.PreReclogScan.tail_seq + 1) -and
+    [int64]$editorInstall.PostReclogScan.tail_seq -eq ($editorInstall.Sequence + 2) -and
+    $editorInstall.PostReclogScan.status -eq "valid" -and $editorInstall.PostReclogScan.valid_prefix_chain -eq $true -and
+    (([int64]$editorInstall.PreReclogScan.count -eq 0 -and $editorInstall.PostReclogScan.head_frame_sha256 -match '^sha256:[0-9a-f]{64}$') -or
+        ([int64]$editorInstall.PreReclogScan.count -gt 0 -and $editorInstall.PostReclogScan.head_frame_sha256 -eq $editorInstall.PreReclogScan.head_frame_sha256)) -and
+    $editorInstall.PostReclogScan.tail_frame_sha256 -eq $editorInstall.ProgramPersistFrameSha256 -and
+    [int64]$editorInstall.PostArtifactScan.artifact_persist_record_count -eq ([int64]$editorInstall.PreArtifactScan.artifact_persist_record_count + 1) -and
+    $editorInstall.ActivationCountAfterClick -eq $editorInstall.ActivationCountBeforeClick -and
+    $editorInstall.ShellActiveCountAfterClick -eq $editorInstall.ShellActiveCountBeforeClick
+$editorSecondClickDump = [ordered]@{ marker = $editorInstall.MarkerLine; before_reclog = $editorInstall.PreReclogResponse; after_reclog = $editorInstall.PostReclogResponse; before_artstor = $editorInstall.PreArtifactResponse; after_artstor = $editorInstall.PostArtifactResponse; activation_before = $editorInstall.ActivationCountBeforeClick; activation_after = $editorInstall.ActivationCountAfterClick; shell_before = $editorInstall.ShellActiveCountBeforeClick; shell_after = $editorInstall.ShellActiveCountAfterClick }
+Add-Predicate -Name "genesis-ui:editor-second-click-persists-without-rerun" -Expected "one additional Genesis click emits the exact merged PROGRAM_INSTALL_COMMIT chain, appends authorization/promote/program-persist plus one ARTSTOR record, reports guest_installed=false durable_writes=true, and does not reactivate or rerun the shell" -Passed $editorSecondClickOk -Actual $(if ($editorSecondClickOk) { $editorInstall.MarkerLine } else { $editorSecondClickDump | ConvertTo-Json -Compress -Depth 18 })
+
+$editorArtstorOk = $null -ne $editorArtifactRecord -and
+    $editorArtifactRecord.subject_kind -eq "ui_program" -and
+    $editorArtifactRecord.canonical_program_sha256 -eq $genesisEditorHash -and
+    [int64]$editorArtifactRecord.canonical_program_byte_len -eq 176 -and
+    $editorArtifactRecord.activation_approval_sha256 -eq $editorActivationApprovalSha256 -and
+    $editorArtifactRecord.install_envelope_sha256 -eq $editorInstall.InstallEnvelopeSha256 -and
+    $editorArtifactRecord.install_authorization_frame_sha256 -match '^sha256:[0-9a-f]{64}$' -and
+    $editorArtifactRecord.promotion_transaction_sha256 -eq $editorInstall.PromotionTransactionSha256 -and
+    $editorArtifactRecord.frame_sha256 -eq $editorInstall.ProgramPersistFrameSha256 -and
+    $editorArtifactRecord.present -eq $true -and $editorArtifactRecord.blob_hash_verified -eq $true -and
+    $editorArtifactRecord.parsed_payload_sha256 -eq $genesisEditorHash
+$editorArtstorDump = [ordered]@{ expected_program_sha256 = $genesisEditorHash; expected_byte_len = 176; marker = $editorInstall.MarkerLine; artifact_record = $editorArtifactRecord; artstor_scan = $editorInstall.PostArtifactResponse; reclog_scan = $editorInstall.PostReclogResponse }
+Add-Predicate -Name "genesis-ui:editor-artstor-canonical-readback" -Expected "artifact.store_scan exposes the linked ui_program record and readback-verifies the exact 176-byte editor payload, blob frame, authorization, promote, and persist hashes" -Passed $editorArtstorOk -Actual $(if ($editorArtstorOk) { "program=$genesisEditorHash bytes=176 blob=$($editorArtifactRecord.artstor_blob_frame_sha256)" } else { $editorArtstorDump | ConvertTo-Json -Compress -Depth 18 })
+
+$preB13Failures = @($preB13Predicates | Where-Object { -not $_.passed })
+$ruipCompatibilityOk = $preB13Failures.Count -eq 0 -and
+    $genesisCalculatorBytes.Length -eq 5372 -and $calculatorActualSha256 -eq $genesisCalculatorSha256 -and
+    $genesisEditorBytes.Length -eq 176 -and $editorActualSha256 -eq $genesisEditorSha256 -and
+    $calculatorFixtureOk -and $calculatorFinalizeOk -and $calculatorWorkspaceOk -and
+    $malformedFinalizeOk -and $workspaceAfterMalformedOk -and $calculatorInventoryOk -and $calculatorAfterF12Ok -and
+    $editorFixtureOk -and $editorFinalizeOk -and $editorMalformedFinalizeOk -and $editorWorkspaceAfterMalformedOk -and
+    $editorInventoryOk -and $clearUpdated -and $editorAfterF12Ok -and
+    $personalShellProofOk -and $personalShellInventoryOk -and $personalSecureStripOk -and $afterF12Ok -and
+    $personalTrapRequestOk -and $personalFuelRequestOk -and $fallbackInventoryOk -and $recoveryAfterFallbackOk
+$ruipCompatibilityDump = [ordered]@{ calculator = [ordered]@{ byte_len = $genesisCalculatorBytes.Length; sha256 = $calculatorActualSha256 }; editor = [ordered]@{ byte_len = $genesisEditorBytes.Length; sha256 = $editorActualSha256 }; prior_predicate_count = $preB13Predicates.Count; prior_failures = $preB13Failures }
+Add-Predicate -Name "genesis-ui:ruip-byte-compatibility-pins-unchanged" -Expected "calculator stays 5372 bytes at its pinned hash, editor stays 176 bytes at its pinned hash, and every pre-existing delivery, malformed-atomicity, HID, inventory, F12, trap, fuel, and recovery predicate passed unchanged" -Passed $ruipCompatibilityOk -Actual $(if ($ruipCompatibilityOk) { "calculator=$genesisCalculatorHash/5372 editor=$genesisEditorHash/176 prior_predicates=$($preB13Predicates.Count)" } else { $ruipCompatibilityDump | ConvertTo-Json -Compress -Depth 16 })
+
+$b13LoaderOk = $b13LoaderResponse.schema -eq "raios.evidence_response.v1" -and
+    $b13LoaderResponse.family -eq "module.loader_runtime" -and
+    $b13LoaderResponse.scope -eq "current_boot" -and
+    $b13LoaderResponse.classification -eq "local_only" -and
+    $b13LoaderResponse.source_method -eq "module.loader_runtime" -and
+    $null -eq $b13LoaderResponse.event_id -and
+    $b13LoaderEvidence.Count -eq 54 -and
+    $b13LoaderEvidence[0].id -eq "manifest_reference" -and
+    $b13LoaderEvidence[53].id -eq "executable_entrypoint_invocation_boundary" -and
+    $b13LoaderResponse.PSObject.Properties.Name -notcontains "body" -and
+    $b13LoaderResponse.PSObject.Properties.Name -notcontains "live_granted_load_projection" -and
+    @($b13LoaderResponse.evidence | Where-Object id -eq "live_granted_load_projection").Count -eq 0 -and
+    $b13LoaderApproval.facts.present -eq $false -and $b13LoaderApproval.facts.status_detail -eq "missing" -and
+    $b13LoaderResponse.decision.outcome -eq "denied" -and
+    $b13LoaderResponse.decision.reason -eq "retained_module_local_approval_reference_missing" -and
+    @($b13LoaderResponse.decision.grants).Count -eq 0 -and @($b13LoaderResponse.decision.effects).Count -eq 0
+$b13SlotOk = $b13SlotResponse.facts.runtime.live_granted_service_slot_present -eq $false -and
+    @($b13SlotResponse.evidence | Where-Object id -eq "live_granted_service_slot").Count -eq 0 -and
+    $b13SlotResponse.decision.outcome -eq "denied"
+$b13InventoryOk = $b13InventoryRows.Count -gt 0 -and
+    @($b13InventoryRows | Where-Object { $_.PSObject.Properties.Name -contains "run_count" }).Count -eq 0
+$b13CarveoutsOk = $editorInstall.PrepareResponse.schema -eq "raios.agent.v0" -and
+    $editorInstall.PrepareResponse.body.result -eq $editorPreview -and
+    $editorInstall.SignatureResponse.schema -eq "raios.agent.v0" -and
+    $editorInstall.SignatureResponse.body.result -eq $editorSignedPreview -and
+    $editorInstall.DenialResponse.schema -eq "raios.agent.v0" -and
+    $editorInstall.DenialResponse.body.result -eq $editorInstallDenial -and
+    $b13ProgramWorkspaceResponse.schema -eq "raios.agent.v0" -and
+    $null -ne $b13ProgramWorkspaceResponse.body.result -and
+    $personalShellResponse.schema -eq "raios.agent.v0" -and
+    $null -ne $personalShellResponse.body.result
+$b12cShapesOk = $b13LoaderOk -and $b13SlotOk -and $b13InventoryOk -and $b13CarveoutsOk
+$b12cShapesDump = [ordered]@{ loader_runtime = $b13LoaderResponse; service_slot = $b13SlotResponse; inventory = $b13InventoryResponse; install_prepare = $editorInstall.PrepareResponse; install_signature = $editorInstall.SignatureResponse; install_denial = $editorInstall.DenialResponse; program_workspace = $b13ProgramWorkspaceResponse; personal_shell_lifecycle = $personalShellResponse }
+Add-Predicate -Name "genesis-ui:b12c-response-shapes-unchanged" -Expected "loader_runtime remains the bare 54-evidence v1 denial, slot presence remains facts.runtime with no positive evidence, inventory rows have no run_count, and program/install/personal-shell lifecycle responses remain raios.agent.v0 body.result carve-outs" -Passed $b12cShapesOk -Actual $(if ($b12cShapesOk) { "loader=bare-v1/54 slot=facts.runtime/false inventory=no-run_count lifecycle=body.result" } else { $b12cShapesDump | ConvertTo-Json -Compress -Depth 18 })
+
+if (-not ($editorReadyOk -and $editorPrepareOk -and $editorSignatureOk -and $editorSerialDenialOk -and
+    $editorSecondClickOk -and $editorArtstorOk -and $ruipCompatibilityOk -and $b12cShapesOk)) {
+    throw "B1.3 genesis-ui install predicates did not all pass"
+}

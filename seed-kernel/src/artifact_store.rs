@@ -624,6 +624,7 @@ pub(crate) fn emit_artifact_store_scan() {
             RecordLogScan::not_scanned("ahci_controller_not_observed"),
             Vec::new(),
             Vec::new(),
+            Vec::new(),
         );
         return;
     };
@@ -633,14 +634,21 @@ pub(crate) fn emit_artifact_store_scan() {
         .as_deref()
         .map(artifact_persist_records_from_reclog)
         .unwrap_or_default();
+    let ui_program_records = reclog
+        .bytes
+        .as_deref()
+        .map(ui_program_persist_records_from_reclog)
+        .unwrap_or_default();
     let record_views = scan_record_views(controller, &records);
-    let garbage = scan_garbage_blobs(controller, &records);
+    let ui_program_record_views = scan_ui_program_record_views(controller, &ui_program_records);
+    let garbage = scan_garbage_blobs(controller, &records, &ui_program_records);
     emit_scan_record(
         reclog.reason,
         reclog.read_completed,
         reclog.scan,
         record_views,
         garbage,
+        ui_program_record_views,
     );
 }
 
@@ -1117,6 +1125,15 @@ struct ScanRecordView {
     computed_blob_frame_sha256: Option<[u8; 32]>,
 }
 
+struct UiProgramScanRecordView {
+    record: UiProgramPersistRecord,
+    read_reason: &'static str,
+    present: bool,
+    blob_hash_verified: bool,
+    parsed_payload_sha256: Option<[u8; 32]>,
+    computed_blob_frame_sha256: Option<[u8; 32]>,
+}
+
 struct GarbageBlobView {
     offset: u64,
     len: u64,
@@ -1155,12 +1172,48 @@ fn scan_record_views(
     out
 }
 
+fn scan_ui_program_record_views(
+    controller: pci::PciMassStorageController,
+    records: &[UiProgramPersistRecord],
+) -> Vec<UiProgramScanRecordView> {
+    let mut out = Vec::new();
+    let mut idx = 0usize;
+    while idx < records.len() {
+        let record = records[idx];
+        let read = ahci::read_persist_artstor_region(
+            controller,
+            record.artstor_blob_offset,
+            record.artstor_blob_len,
+        );
+        let parsed = read
+            .bytes
+            .as_deref()
+            .and_then(|bytes| parse_artifact_blob_frame(bytes, 0).ok());
+        let computed = read.bytes.as_deref().map(sha256_bytes);
+        out.push(UiProgramScanRecordView {
+            record,
+            read_reason: read.reason,
+            present: read.read_completed && parsed.is_some(),
+            blob_hash_verified: computed == Some(record.artstor_blob_frame_sha256),
+            parsed_payload_sha256: parsed.map(|frame| frame.payload_sha256),
+            computed_blob_frame_sha256: computed,
+        });
+        idx += 1;
+    }
+    out
+}
+
 fn scan_garbage_blobs(
     controller: pci::PciMassStorageController,
     records: &[ArtifactPersistRecord],
+    ui_program_records: &[UiProgramPersistRecord],
 ) -> Vec<GarbageBlobView> {
     let mut out = Vec::new();
-    if records.iter().any(|record| record.artstor_blob_offset == 0) {
+    if records.iter().any(|record| record.artstor_blob_offset == 0)
+        || ui_program_records
+            .iter()
+            .any(|record| record.artstor_blob_offset == 0)
+    {
         return out;
     }
     let read = ahci::read_persist_artstor_region(controller, 0, ARTSTOR_SCAN_WINDOW_BYTES);
@@ -1188,11 +1241,17 @@ fn emit_scan_record(
     scan: RecordLogScan,
     records: Vec<ScanRecordView>,
     garbage: Vec<GarbageBlobView>,
+    ui_program_records: Vec<UiProgramScanRecordView>,
 ) {
     let record_count = records.len() as u64;
     let garbage_count = garbage.len() as u64;
+    let ui_program_record_count = ui_program_records.len() as u64;
     let records_value = records.iter().map(record_scan_view).collect();
     let garbage_value = garbage.iter().map(record_garbage_view).collect();
+    let ui_program_records_value = ui_program_records
+        .iter()
+        .map(record_ui_program_scan_view)
+        .collect();
     begin_response(ARTIFACT_STORE_SCAN_METHOD);
     emit_record_fields(
         vec![
@@ -1216,6 +1275,14 @@ fn emit_scan_record(
             f("runtime_path_enabled", b(false)),
             f("persistence_claimed", b(false)),
             f("evidence_complete", b(true)),
+            f(
+                "ui_program_persist_record_count",
+                V::U64(ui_program_record_count),
+            ),
+            f(
+                "ui_program_persist_records",
+                V::Array(ui_program_records_value),
+            ),
         ],
         6,
     );
@@ -1253,6 +1320,58 @@ fn record_scan_view(view: &ScanRecordView) -> V<'static> {
         f("blob_hash_verified", b(view.blob_hash_verified)),
         f("authorizes_load", b(false)),
         f("record_authorizes_load", b(view.record.authorizes_load)),
+    ])
+}
+
+fn record_ui_program_scan_view(view: &UiProgramScanRecordView) -> V<'static> {
+    V::Object(vec![
+        f("seq", V::U64(view.record.seq)),
+        f("reclog_offset", V::U64(view.record.reclog_offset)),
+        f(
+            "artstor_blob_offset",
+            V::U64(view.record.artstor_blob_offset),
+        ),
+        f("artstor_blob_len", V::U64(view.record.artstor_blob_len)),
+        f(
+            "artstor_blob_frame_sha256",
+            V::Sha256(view.record.artstor_blob_frame_sha256),
+        ),
+        f(
+            "computed_blob_frame_sha256",
+            record_sha_or_null(view.computed_blob_frame_sha256),
+        ),
+        f(
+            "canonical_program_sha256",
+            V::Sha256(view.record.canonical_program_sha256),
+        ),
+        f(
+            "parsed_payload_sha256",
+            record_sha_or_null(view.parsed_payload_sha256),
+        ),
+        f(
+            "canonical_program_byte_len",
+            V::U64(view.record.canonical_program_byte_len),
+        ),
+        f(
+            "promotion_transaction_sha256",
+            V::Sha256(view.record.promotion_transaction_sha256),
+        ),
+        f(
+            "install_authorization_frame_sha256",
+            V::Sha256(view.record.install_authorization_frame_sha256),
+        ),
+        f(
+            "activation_approval_sha256",
+            V::Sha256(view.record.activation_approval_sha256),
+        ),
+        f(
+            "install_envelope_sha256",
+            V::Sha256(view.record.install_envelope_sha256),
+        ),
+        f("read_reason", s(view.read_reason)),
+        f("present", b(view.present)),
+        f("blob_hash_verified", b(view.blob_hash_verified)),
+        f("authorizes_load", b(false)),
     ])
 }
 
