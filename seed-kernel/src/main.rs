@@ -99,6 +99,7 @@ mod owner_key;
 mod pci;
 mod personal_shell_service;
 mod program_workspace;
+mod program_persistence;
 mod project_app_autoload;
 mod project_build;
 mod project_dependency;

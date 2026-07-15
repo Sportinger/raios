@@ -40,3 +40,33 @@
   remain for the later `program_persistence` packet; this packet only writes
   their typed foundation records and parses UI artifact-persist links.
 - No Cargo, rustc, build, formatter, or test command was run per worker scope.
+
+## install-flow packet
+
+- `program_workspace` keeps canonical RUIP bytes only in the existing draft
+  field. Activation approval stores fixed revision/length/hash metadata and a
+  `raios.ui_program_activation_approval.v1` domain hash; replacing the retained
+  revision invalidates it.
+- Durable workspace provenance is a typed `Source::Durable` value carrying the
+  canonical identity plus W6 authorization/promotion/persist links. Restore
+  reparses, requires canonical round-trip and exact persisted hash/length, and
+  rollback removal matches both durable source and program hash.
+- Same-boot install reuses the existing W6 cursor, pointer-approval hash,
+  signature verifier, UI-program authorization append, linked promote append,
+  and ARTSTOR writer. Installed state and `PROGRAM_INSTALL_COMMIT` appear only
+  after all three RECLOG frames and the blob read back successfully.
+- Existing project and granted-candidate response/marker branches are unchanged.
+  The UI-program variant reports `svc.user.shell`, `ui_program`,
+  `ruip_canonical`, the canonical program hash, and no W4 receipt; serial
+  approval remains denied and pointer failure emits no commit marker.
+- Genesis pointer priority is unchanged. An accepted RUIP run now records the
+  frozen approval and emits `PROGRAM_INSTALL_READY` immediately after the
+  unchanged `PROGRAM_CURRENT_BOOT_ACTIVATION` line; a signed program preview
+  renders `Approve + persist program`.
+- `run_boot_autoload`, `resolve_installed_program`, `rollback_preview`, and
+  `rollback_apply` are compiling fail-closed stubs for the later packet.
+  `main.rs` declares the module but deliberately does not call autoload.
+- Unfinished here by scope: RECLOG folding, cross-reboot ARTSTOR restore,
+  autoload acceptance markers, linked unpromote/one-shot rollback, program
+  protocol rollback routes, and all VM-harness proof.
+- No Cargo, rustc, build, formatter, or test command was run per worker scope.

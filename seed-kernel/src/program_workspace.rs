@@ -11,6 +11,7 @@ use crate::module_candidate_channel;
 
 const PROVIDER_PREFIX: &str = "RUIP_BASE64:";
 const SERIAL_CHUNK_METHOD: &str = "program.submit_chunk";
+const ACTIVATION_APPROVAL_DOMAIN: &[u8] = b"raios.ui_program_activation_approval.v1";
 const MAX_PROGRAM_BASE64_BYTES: usize = MAX_PROGRAM_BYTES.div_ceil(3) * 4;
 
 static WORKSPACE: Mutex<Workspace> = Mutex::new(Workspace::new());
@@ -19,6 +20,7 @@ static WORKSPACE: Mutex<Workspace> = Mutex::new(Workspace::new());
 pub(crate) enum Source {
     Provider { request_id: u32 },
     Serial { chunk_count: usize },
+    Durable(DurableSource),
 }
 
 impl Source {
@@ -26,13 +28,14 @@ impl Source {
         match self {
             Self::Provider { .. } => "provider",
             Self::Serial { .. } => "serial",
+            Self::Durable(_) => "durable",
         }
     }
 
     pub(crate) const fn request_id(self) -> Option<u32> {
         match self {
             Self::Provider { request_id } => Some(request_id),
-            Self::Serial { .. } => None,
+            Self::Serial { .. } | Self::Durable(_) => None,
         }
     }
 
@@ -40,8 +43,39 @@ impl Source {
         match self {
             Self::Provider { .. } => None,
             Self::Serial { chunk_count } => Some(chunk_count),
+            Self::Durable(_) => None,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct DurableSource {
+    pub(crate) generation: u64,
+    pub(crate) canonical_program_byte_len: u64,
+    pub(crate) canonical_program_sha256: [u8; 32],
+    pub(crate) activation_approval_sha256: [u8; 32],
+    pub(crate) install_envelope_sha256: [u8; 32],
+    pub(crate) install_action_sha256: [u8; 32],
+    pub(crate) install_authorization_frame_sha256: [u8; 32],
+    pub(crate) promotion_transaction_sha256: [u8; 32],
+    pub(crate) program_persist_frame_sha256: [u8; 32],
+}
+
+#[derive(Clone)]
+pub(crate) struct ApprovedProgramInstall {
+    pub(crate) revision: u64,
+    pub(crate) canonical_bytes: Vec<u8>,
+    pub(crate) canonical_program_byte_len: u64,
+    pub(crate) canonical_program_sha256: [u8; 32],
+    pub(crate) activation_approval_sha256: [u8; 32],
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ApprovedProgramApproval {
+    pub(crate) revision: u64,
+    pub(crate) canonical_program_byte_len: u64,
+    pub(crate) canonical_program_sha256: [u8; 32],
+    pub(crate) activation_approval_sha256: [u8; 32],
 }
 
 #[derive(Clone)]
@@ -82,6 +116,14 @@ pub(crate) struct Snapshot {
     pub(crate) byte_len: usize,
     pub(crate) sha256: Option<[u8; 32]>,
     pub(crate) source: Option<Source>,
+    pub(crate) retention: &'static str,
+    pub(crate) activation_approval_sha256: Option<[u8; 32]>,
+    pub(crate) install_envelope_sha256: Option<[u8; 32]>,
+    pub(crate) install_action_sha256: Option<[u8; 32]>,
+    pub(crate) install_authorization_frame_sha256: Option<[u8; 32]>,
+    pub(crate) promotion_transaction_sha256: Option<[u8; 32]>,
+    pub(crate) program_persist_frame_sha256: Option<[u8; 32]>,
+    pub(crate) install_generation: Option<u64>,
     pub(crate) pending_byte_len: usize,
     pub(crate) pending_chunk_count: usize,
     pub(crate) pending_provider_request_id: Option<u32>,
@@ -122,6 +164,7 @@ struct Workspace {
     pending_chunk_count: usize,
     next_revision: u64,
     retained: Option<Draft>,
+    approved: Option<ApprovedProgramApproval>,
     pending_provider: Option<PendingProviderRequest>,
     last_rejection_reason: Option<&'static str>,
     last_rejection_attempted_byte_len: usize,
@@ -134,6 +177,7 @@ impl Workspace {
             pending_chunk_count: 0,
             next_revision: 1,
             retained: None,
+            approved: None,
             pending_provider: None,
             last_rejection_reason: None,
             last_rejection_attempted_byte_len: 0,
@@ -175,12 +219,33 @@ impl Workspace {
                 false, 0, 0, None, None, false, 0, false, 0, None, None, None, 0,
             ),
         };
+        let durable = match source {
+            Some(Source::Durable(source)) => Some(source),
+            _ => None,
+        };
         Snapshot {
             present,
             revision,
             byte_len,
             sha256,
             source,
+            retention: if durable.is_some() {
+                "durable"
+            } else {
+                "current_boot_ram_only"
+            },
+            activation_approval_sha256: durable
+                .map(|source| source.activation_approval_sha256)
+                .or_else(|| self.approved.map(|approval| approval.activation_approval_sha256)),
+            install_envelope_sha256: durable.map(|source| source.install_envelope_sha256),
+            install_action_sha256: durable.map(|source| source.install_action_sha256),
+            install_authorization_frame_sha256: durable
+                .map(|source| source.install_authorization_frame_sha256),
+            promotion_transaction_sha256: durable
+                .map(|source| source.promotion_transaction_sha256),
+            program_persist_frame_sha256: durable
+                .map(|source| source.program_persist_frame_sha256),
+            install_generation: durable.map(|source| source.generation),
             pending_byte_len: self.pending_serial.len(),
             pending_chunk_count: self.pending_chunk_count,
             pending_provider_request_id: self
@@ -268,6 +333,7 @@ impl Workspace {
             root_sha256,
             lineage_depth,
         });
+        self.approved = None;
         self.last_rejection_reason = None;
         self.last_rejection_attempted_byte_len = 0;
         IntakeOutcome {
@@ -297,6 +363,131 @@ pub(crate) fn retained_program() -> Option<Program> {
         .retained
         .as_ref()
         .map(|draft| draft.program.clone())
+}
+
+pub(crate) fn approve_retained_program() -> Result<ApprovedProgramApproval, &'static str> {
+    let mut workspace = WORKSPACE.lock();
+    let draft = workspace
+        .retained
+        .as_ref()
+        .ok_or("program_activation_requires_retained_program")?;
+    let canonical_program_byte_len = draft._canonical_bytes.len() as u64;
+    let mut approval_bytes = [0u8; ACTIVATION_APPROVAL_DOMAIN.len() + 48];
+    let mut offset = ACTIVATION_APPROVAL_DOMAIN.len();
+    approval_bytes[..offset].copy_from_slice(ACTIVATION_APPROVAL_DOMAIN);
+    approval_bytes[offset..offset + 8].copy_from_slice(&draft.revision.to_le_bytes());
+    offset += 8;
+    approval_bytes[offset..offset + 8]
+        .copy_from_slice(&canonical_program_byte_len.to_le_bytes());
+    offset += 8;
+    approval_bytes[offset..].copy_from_slice(&draft.identity.sha256);
+    let approved = ApprovedProgramApproval {
+        revision: draft.revision,
+        canonical_program_byte_len,
+        canonical_program_sha256: draft.identity.sha256,
+        activation_approval_sha256: sha256_bytes(&approval_bytes),
+    };
+    workspace.approved = Some(approved);
+    Ok(approved)
+}
+
+pub(crate) fn approved_program_install() -> Result<ApprovedProgramInstall, &'static str> {
+    let workspace = WORKSPACE.lock();
+    let approved = workspace
+        .approved
+        .ok_or("program_activation_approval_missing")?;
+    let draft = workspace
+        .retained
+        .as_ref()
+        .ok_or("program_activation_requires_retained_program")?;
+    if draft.revision != approved.revision
+        || draft._canonical_bytes.len() as u64 != approved.canonical_program_byte_len
+        || draft.identity.sha256 != approved.canonical_program_sha256
+        || sha256_bytes(&draft._canonical_bytes) != approved.canonical_program_sha256
+    {
+        return Err("program_activation_approval_stale");
+    }
+    Ok(ApprovedProgramInstall {
+        revision: approved.revision,
+        canonical_bytes: draft._canonical_bytes.clone(),
+        canonical_program_byte_len: approved.canonical_program_byte_len,
+        canonical_program_sha256: approved.canonical_program_sha256,
+        activation_approval_sha256: approved.activation_approval_sha256,
+    })
+}
+
+pub(crate) fn restore_persisted_program(
+    canonical_bytes: Vec<u8>,
+    source: DurableSource,
+) -> Result<Snapshot, &'static str> {
+    if source.canonical_program_sha256 == [0; 32]
+        || source.canonical_program_byte_len == 0
+        || source.canonical_program_byte_len != canonical_bytes.len() as u64
+        || source.generation == 0
+        || source.activation_approval_sha256 == [0; 32]
+        || source.install_envelope_sha256 == [0; 32]
+        || source.install_action_sha256 == [0; 32]
+        || source.install_authorization_frame_sha256 == [0; 32]
+        || source.promotion_transaction_sha256 == [0; 32]
+        || source.program_persist_frame_sha256 == [0; 32]
+    {
+        return Err("program_persisted_source_invalid");
+    }
+    let mut workspace = WORKSPACE.lock();
+    let retained_matches = workspace.retained.as_ref().is_some_and(|draft| {
+        draft._canonical_bytes == canonical_bytes
+            && draft.identity.sha256 == source.canonical_program_sha256
+    });
+    if retained_matches {
+        if let Some(draft) = workspace.retained.as_mut() {
+            draft.source = Source::Durable(source);
+        }
+        workspace.approved = None;
+        workspace.last_rejection_reason = None;
+        workspace.last_rejection_attempted_byte_len = 0;
+        return Ok(workspace.snapshot());
+    }
+    drop(workspace);
+    let program = Program::parse(&canonical_bytes).map_err(program_error_reason)?;
+    if program.canonical_bytes() != canonical_bytes {
+        return Err("program_not_canonical");
+    }
+    let identity = program.identity();
+    if identity.sha256 != source.canonical_program_sha256 {
+        return Err("program_persisted_source_invalid");
+    }
+    let mut workspace = WORKSPACE.lock();
+    let revision = workspace.next_revision;
+    workspace.next_revision = workspace.next_revision.saturating_add(1);
+    workspace.retained = Some(Draft {
+        program,
+        _canonical_bytes: canonical_bytes,
+        identity,
+        source: Source::Durable(source),
+        revision,
+        original_request: None,
+        provider_source_spec: None,
+        provider_source_spec_sha256: None,
+        parent_sha256: None,
+        root_sha256: identity.sha256,
+        lineage_depth: 0,
+    });
+    workspace.approved = None;
+    workspace.last_rejection_reason = None;
+    workspace.last_rejection_attempted_byte_len = 0;
+    Ok(workspace.snapshot())
+}
+
+pub(crate) fn remove_restored_program(program_sha256: [u8; 32]) -> bool {
+    let mut workspace = WORKSPACE.lock();
+    let matches = workspace.retained.as_ref().is_some_and(|draft| {
+        matches!(draft.source, Source::Durable(_)) && draft.identity.sha256 == program_sha256
+    });
+    if matches {
+        workspace.retained = None;
+        workspace.approved = None;
+    }
+    matches
 }
 
 pub(crate) fn note_provider_build_request(request_id: u32, request: &str) {

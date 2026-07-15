@@ -8,8 +8,8 @@ use crate::framebuffer::{Color, FramebufferInfo, FramebufferSurface};
 use crate::system_status::{RowState, SnapshotStates, StatusLine, SystemSnapshot};
 use crate::{
     agent_protocol_project_install, console, granted_candidate_service, input,
-    personal_shell_service, program_workspace, provider, secret_vault, serial, text, wifi,
-    workspace_candidate_service,
+    personal_shell_service, program_persistence, program_workspace, provider, secret_vault,
+    serial, text, wifi, workspace_candidate_service,
 };
 use raios_core::{
     genesis_layout::{GenesisLayout, Point, Size},
@@ -276,7 +276,20 @@ impl ShellHost {
                     return true;
                 };
                 let route = self.personal.enter_program(context, program);
-                note_program_route(identity.sha256, route);
+                let approved = if route == PersonalSurfaceRoute::Entered {
+                    match program_workspace::approve_retained_program() {
+                        Ok(approved) => Some(approved),
+                        Err(reason) => {
+                            console::write_event(format_args!(
+                                "PROGRAM INSTALL READY DENIED: {reason}"
+                            ));
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+                note_program_route(identity.sha256, route, approved.as_ref());
                 return true;
             }
             return personal_shell_service::request_current_boot_proof_start(
@@ -899,14 +912,18 @@ fn draw_context(
         surface,
         context_personal_shell_rect(layout),
         if install_pending {
-            match install_preview.kind {
-                Some(agent_protocol_project_install::PreviewKind::Install) => {
-                    "Approve + install app"
+            if install_preview.install_source == Some("ui_program") {
+                "Approve + persist program"
+            } else {
+                match install_preview.kind {
+                    Some(agent_protocol_project_install::PreviewKind::Install) => {
+                        "Approve + install app"
+                    }
+                    Some(agent_protocol_project_install::PreviewKind::Uninstall) => {
+                        "Approve + uninstall app"
+                    }
+                    None => "Signed project action",
                 }
-                Some(agent_protocol_project_install::PreviewKind::Uninstall) => {
-                    "Approve + uninstall app"
-                }
-                None => "Signed project action",
             }
         } else if granted_pending {
             "Approve + run downloaded app"
@@ -940,7 +957,21 @@ fn draw_context(
     let mut y = rect.y + 78;
     if install_pending {
         let downloaded = install_preview.install_source == Some("granted_candidate");
-        text::draw_text(surface, rect.x + 14, y, if downloaded { "Downloaded W7 candidate" } else { "Signed physical-owner preview" }, APP_AMBER, None);
+        let program = install_preview.install_source == Some("ui_program");
+        text::draw_text(
+            surface,
+            rect.x + 14,
+            y,
+            if downloaded {
+                "Downloaded W7 candidate"
+            } else if program {
+                "Approved RUIP program"
+            } else {
+                "Signed physical-owner preview"
+            },
+            APP_AMBER,
+            None,
+        );
         y = y.saturating_add(14);
         let effect = if downloaded { format!("generation {} / durable", install_preview.generation) } else { format!("{} generation {} / durable", install_preview.kind.map(|kind| kind.label()).unwrap_or("project"), install_preview.generation) };
         draw_truncated_text(
@@ -963,8 +994,17 @@ fn draw_context(
         );
         text::draw_text(surface, rect.x + 14, y, &subject_line, TEXT_MUTED, None);
         y = y.saturating_add(14);
-        let binding = if downloaded { install_preview.activation_approval_sha256.unwrap_or([0; 32]) } else { install_preview.receipt_sha256.or(install_preview.previous_commit_sha256).unwrap_or([0; 32]) };
-        let binding_label = if downloaded {
+        let binding = if downloaded || program {
+            install_preview
+                .activation_approval_sha256
+                .unwrap_or([0; 32])
+        } else {
+            install_preview
+                .receipt_sha256
+                .or(install_preview.previous_commit_sha256)
+                .unwrap_or([0; 32])
+        };
+        let binding_label = if downloaded || program {
             "activation challenge"
         } else if install_preview.receipt_sha256.is_some() {
             "receipt"
@@ -1203,7 +1243,11 @@ fn note_personal_route(route: PersonalSurfaceRoute) {
     }
 }
 
-fn note_program_route(sha256: [u8; 32], route: PersonalSurfaceRoute) {
+fn note_program_route(
+    sha256: [u8; 32],
+    route: PersonalSurfaceRoute,
+    approved: Option<&program_workspace::ApprovedProgramApproval>,
+) {
     serial::write_raw_str(
         "PROGRAM_CURRENT_BOOT_ACTIVATION physical_approval=pointer program_sha256=sha256:",
     );
@@ -1222,6 +1266,9 @@ fn note_program_route(sha256: [u8; 32], route: PersonalSurfaceRoute) {
         _ => serial::write_raw_str(
             " engine=svc.user.shell capability_surface=ui_only wasm=true result=denied reason=unexpected_route\r\n",
         ),
+    }
+    if let Some(approved) = approved {
+        program_persistence::emit_install_ready_marker(approved);
     }
     note_personal_route(route);
 }
