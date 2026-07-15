@@ -116,3 +116,30 @@
   packet scope; direct `rustfmt --check` parsed the three Rust files and
   reported the pre-existing unformatted B1.2c regions, so formatting and live
   evidence remain for the orchestrator.
+
+## harness cycle 2
+
+- Added `m6d-rollback` to the network-acquisition launch path: mandatory
+  `-Network`, Rust signer build, QMP/monitor ports, e1000/W7 fixture and
+  temporary pin-bearing image, caller-image rejection, and its own exact
+  valid-a disposable persist disk in the hardware profile/report.
+- Rewrote the profile around `Invoke-W7M6PhysicalActivation` and
+  `Invoke-SignedGrantedCandidateInstall`; the activation helper deliberately
+  retains its authoritative `network-acquisition:*` predicate names and reports
+  two clicks (stale denial plus accepted activation), while W6 adds the third
+  QMP click and second consumable approval.
+- The merged rollback literals are `no_recorded_promotion_to_roll_back`,
+  `rollback_plan_recorded_ram_only`, and
+  `unpromoted_dev_key_granted_external_wasm_current_boot`; manual repromotion
+  after the tombstone reports `status=no_artifacts`,
+  `reason=granted_candidate_install_rolled_back`, and `performed=true`.
+- The shared install helper does not return the origin authorization-frame hash,
+  and no guest diagnostic exposes promotion payloads. The profile therefore
+  pins the observable frame split without inventing a hash: three consecutive
+  RECLOG frames, marker sequence as authorization sequence, linked promote hash,
+  artifact-persist tail/record, then the performed linked unpromote and the
+  resolver's rolled-back result. The resolver can reach that result only after
+  joining and validating the same `install_authorization_frame_sha256` carried
+  by the unpromote.
+- No Cargo build, kernel build, or VM run was performed in cycle 2. The worker
+  only performs the required PowerShell parser/encoding checks after editing.

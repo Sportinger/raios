@@ -69,7 +69,7 @@ $ResolvedArtifact = Resolve-OptionalPath -Path $ArtifactPath
 $ResolvedManifest = Resolve-OptionalPath -Path $ManifestPath
 
 try {
-    if ($Profile -in @("m11-net-imports", "network-acquisition") -and -not $Network) {
+    if ($Profile -in @("m11-net-imports", "network-acquisition", "m6d-rollback") -and -not $Network) {
         throw "$Profile requires -Network (e1000 + DHCP + real TCP step)"
     }
     if ($ResolvedArtifact -and -not $ResolvedManifest) {
@@ -89,7 +89,7 @@ try {
         }
     }
 
-    if ($Profile -in @("m6c-promotion", "network-acquisition")) {
+    if ($Profile -in @("m6c-promotion", "network-acquisition", "m6d-rollback")) {
         $env:CARGO_HOME = (Resolve-Path (Join-Path $RepoRoot ".cargo-home")).Path
         $env:CARGO_TARGET_DIR = Join-Path $RepoRoot "target"
         & cargo build --locked -p ota-tools --bin dev-promotion-signer
@@ -99,8 +99,8 @@ try {
     }
 
     if ($Image) {
-        if ($Profile -eq "network-acquisition") {
-            throw "network-acquisition requires a per-run temporary pin-bearing image; do not pass -Image"
+        if ($Profile -in @("network-acquisition", "m6d-rollback")) {
+            throw "$Profile requires a per-run temporary pin-bearing image; do not pass -Image"
         }
         $ResolvedImage = (Resolve-Path -LiteralPath $Image).Path
     }
@@ -108,7 +108,7 @@ try {
         $ResolvedImage = Join-Path $RunDir "raios-stage0-shadow.img"
         $TempImage = $true
         $packageParams = @{ Profile = "release"; Image = $ResolvedImage; UseTempEsp = $true }
-        if ($Profile -eq "network-acquisition") {
+        if ($Profile -in @("network-acquisition", "m6d-rollback")) {
             $fixtureWrapper = Join-Path $PSScriptRoot "net8-w7-tls-fixture.ps1"
             $fixtureReady = Join-Path $RunDir "w7-fixture-ready.json"
             $fixtureResult = Join-Path $RunDir "w7-fixture-result.json"
@@ -137,7 +137,7 @@ try {
             $packageParams.Net8W7SpkiPinEnvVar = $pinEnvName
         }
         & $PackageScript @packageParams
-        if ($Profile -eq "network-acquisition") {
+        if ($Profile -in @("network-acquisition", "m6d-rollback")) {
             [Environment]::SetEnvironmentVariable("RAIOS_NET8_W7_PIN_$PID", $null, "Process")
         }
         if ($LASTEXITCODE -ne 0) {
@@ -200,9 +200,9 @@ try {
         }
         $PersistDiskImage = (Resolve-Path -LiteralPath $structuredStorePersist).Path
     }
-    elseif ($Profile -eq "network-acquisition") {
+    elseif ($Profile -in @("network-acquisition", "m6d-rollback")) {
         if ($PersistDiskPath) {
-            throw "network-acquisition creates its own exact valid-a disposable persist disk"
+            throw "$Profile creates its own exact valid-a disposable persist disk"
         }
         $PersistDiskImage = Resolve-PersistDiskImage -PersistDiskPath "" -RunDir $RunDir -SeedBootControl "valid-a"
     }
@@ -250,7 +250,7 @@ try {
         Cpu = "max"
         Nic = $Nic
     }
-    if ($Profile -eq "network-acquisition") {
+    if ($Profile -in @("network-acquisition", "m6d-rollback")) {
         # Bridge guest 10.0.2.100:8443 to the host loopback TLS fixture. The guest's
         # W7 source policy targets 10.0.2.100 (not the slirp gateway 10.0.2.2, which
         # QEMU refuses to guestfwd). The fixture is already listening on 127.0.0.1:8443.
@@ -270,14 +270,14 @@ try {
         )
         $runParams.StructuredStoreDiskPath = $StructuredStoreDiskImage
     }
-    if ($Profile -in @("usb-hotplug", "genesis-ui", "project-app", "project-install", "secret-vault", "m11-beyond-env-lifecycle", "m11-net-imports", "network-acquisition")) {
+    if ($Profile -in @("usb-hotplug", "genesis-ui", "project-app", "project-install", "secret-vault", "m11-beyond-env-lifecycle", "m11-net-imports", "network-acquisition", "m6d-rollback")) {
         $MonitorTcpPort = $SerialTcpPort + 1000
         $QemuArgList += @(
             "-MonitorTcpPort", "$MonitorTcpPort"
         )
         $runParams.MonitorTcpPort = $MonitorTcpPort
     }
-    if ($Profile -in @("genesis-ui", "project-app", "project-install", "m6c-promotion", "network-acquisition")) {
+    if ($Profile -in @("genesis-ui", "project-app", "project-install", "m6c-promotion", "network-acquisition", "m6d-rollback")) {
         $QmpTcpPort = $SerialTcpPort + 2000
         $QemuArgList += @(
             "-QmpTcpPort", "$QmpTcpPort"
