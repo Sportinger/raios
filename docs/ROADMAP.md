@@ -48,12 +48,12 @@ approval/HID typing+backspace+CLEAR/malformed-atomicity/F12), block close FULL s
 Live owner demo: calculator delivered/approved/computed 42/F12 in a visible QEMU session.
 Editor gaps stay honest: end-cursor only, ASCII only, no persistence (files stay denied).
 The active vision order overrides the older editor-persistence cursor below: B1.1,
-B1.2a and B1.2b are now closed (the downloaded candidate's single current-boot run
-happens only after a physical Genesis click; m6c-promotion 188/188 +
-network-acquisition 227/227, 2026-07-15). Next is B1.2c: the SAME proven candidate
-through W6 signature, second physical install click, ARTSTOR/RECLOG, autoload,
-reboot survival and rollback (also rewrites the stale m6d-rollback profile), then
-RUIP persistence as B1.3.
+B1.2a, B1.2b and B1.2c are now closed (2026-07-15). The downloaded candidate runs
+once after a physical Genesis click (B1.2b), then installs durably through W6 on a
+second physical click, auto-reverifies both signatures across reboot, and rolls
+back provably (B1.2c: network-acquisition 244/244, m6d-rollback 271/271,
+persistence-reboot 198/198). Next is B1.3: connect approved RUIP programs to the
+same W6 install path (program persistence).
 
 **M11-9 DNSPARSE VERIFIED-CLOSED (2026-07-14) — the FOURTH real relocation, plus the
 first hard memory bound for buffer guests.** The DNS query/A-response parser lives in
@@ -167,6 +167,24 @@ projects a fully evaluated receiver preflight with exactly four closed gates
 (M6, M7, provider trust, owner seal). The report contains zero serial candidate
 begin/chunk/finalize commands, so no second byte path was introduced, and no
 service start, install or durable effect occurred.
+**B1.2c W6 INSTALL + REBOOT SURVIVAL + ROLLBACK VERIFIED-CLOSED (2026-07-15).**
+Loop stations 7 (install/autoload/reboot) and 8 (rollback) close for W7
+candidates. `network-acquisition` `shadow-20260715-115540-29456.json` (244/244,
+same-boot W6 install: separate W6 signature, serial-approve denied, one Genesis
+click writes three linked RECLOG frames without re-running), `m6d-rollback`
+`shadow-20260715-121316-27156.json` (271/271, two consumable approvals, exact
+inventory restore, linked unpromote, one-shot, resolver honors the tombstone),
+`persistence-reboot` `shadow-20260715-132111-27848.json` (198/198 over three
+boots: boot-2 auto re-verifies BOTH M6+W6 signatures and reloads before any
+command, boot-3 tombstone survives; corrupt-blob/tamper-record/safe fail
+closed). Frame-split fix: `raios.install_authorization.v0` is its own linked
+record (a real one-frame-budget overflow the fail-closed design caught). Eight
+harness reds en route, all stale/timing test expectations — never a kernel
+regression (PROJECT_STATUS has each).
+**NEXT DELIBERATE SLICE — B1.3:** connect approved RUIP programs to the W6
+install path (program persistence, loop station 7) — the small slice the owner
+asked about twice; reuse the proven W6 machinery, no second persistence path.
+
 **B1.2b PHYSICAL M6 ACTIVATION VERIFIED-CLOSED (2026-07-15).**
 `m6c-promotion` `shadow-20260715-090227-11004.json` (188/188) and
 `network-acquisition` `shadow-20260715-092637-10088.json` (227/227). The

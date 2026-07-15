@@ -56,8 +56,8 @@ Arbeitspakete mehr, sondern **Beispiele für spätere Früchte des Kreislaufs**.
 | 4 | **Bauen AUF DEM GERÄT** | FEHLT — heute extern-versiegelt (W4, zählt als Gerüst, nicht als Erfüllung) |
 | 5 | Nachrechnen (Repro-Doppel-Build, Fingerabdrücke) | Existiert (extern bewiesen); On-Device-Variante folgt mit Station 4 |
 | 6 | Physische Freigabe | Existiert, bewiesen |
-| 7 | Installieren, Autoload, Reboot-Überleben | Existiert (W6) für Projekt-Apps; Anschluss der RUIP-Programme FEHLT |
-| 8 | Automatisches Rollback | Existiert, bewiesen |
+| 7 | Installieren, Autoload, Reboot-Überleben | **Für W7-Kandidaten geschlossen (B1.2c):** zweiter physischer Klick installiert dauerhaft (drei verkettete RECLOG-Rahmen), Boot 2 lädt automatisch mit doppelter Signaturprüfung nach (`shadow-20260715-132111-27848.json`); Anschluss der RUIP-Programme (B1.3) FEHLT |
+| 8 | Automatisches Rollback | **Für W7-Kandidaten geschlossen (B1.2c):** exakte Inventar-Wiederherstellung + verketteter Unpromote, Zweit-Rollback verweigert, Tombstone überlebt Boot 3; alt-bewiesen für Projekt-Apps |
 | 9 | ENDSTUFE: Stationen 2–8 für den KERN selbst (A/B-Slots) | Embryo vorhanden (Core-Policy-Slots A/B); Vollausbau FEHLT |
 
 ## 5. Der Weg zur fertigen Basis (Blöcke in Reihenfolge)
@@ -82,12 +82,18 @@ Arbeitspakete mehr, sondern **Beispiele für spätere Früchte des Kreislaufs**.
     aus dem seriellen Protokoll entfernt
     (`shadow-20260715-090227-11004.json` 188/188,
     `shadow-20260715-092637-10088.json` 227/227).
-  - B1.2c als Nächstes: denselben bewiesenen Kandidaten über W6-Signatur,
-    zweiten physischen Install-Klick, ARTSTOR/RECLOG, Autoload,
-    Reboot-Überleben und Rollback führen (saniert dabei das veraltete
-    m6d-rollback-Profil).
-- B1.3 RUIP-Programme an W6 anschließen (Programm-Persistenz — kleine,
-  bereits erfragte Schleifen-Station 7).
+  - B1.2c **ABGESCHLOSSEN:** derselbe bewiesene Kandidat läuft über W6-Signatur,
+    zweiten physischen Install-Klick und drei verkettete RECLOG-Rahmen dauerhaft
+    installiert; Boot 2 prüft beim Neustart automatisch beide Signaturen nach,
+    lädt den Gast von der Persist-Disk und meldet `cross_reboot_proven=true`
+    VOR jedem seriellen Befehl; Rollback stellt das exakte Inventar wieder her
+    und der Tombstone überlebt Boot 3; Fehlerfälle (korrupter Blob, manipulierter
+    Record, Safe-Posture) scheitern geschlossen (`shadow-20260715-115540-29456`
+    244/244, `shadow-20260715-121316-27156` 271/271,
+    `shadow-20260715-132111-27848` 198/198). Das veraltete m6d-rollback-Profil
+    ist dabei saniert.
+- B1.3 als Nächstes: RUIP-Programme an W6 anschließen (Programm-Persistenz —
+  kleine, bereits erfragte Schleifen-Station 7).
 
 **B2 — Der Agent im System (mittel):**
 - B2.1 KI-Antworten werden Quell-DATEIEN im Workspace (Kandidaten, nie

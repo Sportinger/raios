@@ -24,6 +24,53 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+B1.2c W6 INSTALL + REBOOT SURVIVAL + ROLLBACK VERIFIED-CLOSED (2026-07-15): the
+same candidate B1.2b downloaded and physically activated now installs durably
+through the EXISTING W6 machinery, survives reboot by automatic re-verification,
+and rolls back provably — Vision §4 loop stations 7 (install/autoload/reboot)
+and 8 (rollback) close for W7 candidates. Three focused green reports:
+- `network-acquisition` `shadow-20260715-115540-29456.json` — 244/244. Same-boot
+  W6 path: after the B1.2b physical run, `project.install_prepare` binds the
+  exact W7 candidate/receipt/activation challenge (`receipt_kind=w7_acquisition`,
+  no forged W4 project receipt); the W6 action digest is a SEPARATE signed
+  authority from the M6 attestation; serial `project.install_approve` is denied
+  (`physical_approval_pointer_required`) with zero durable effect; ONE Genesis
+  install click commits the `GRANTED_CANDIDATE_INSTALL_COMMIT` marker and writes
+  three linked RECLOG frames (install-authorization → promote → artifact-persist)
+  without re-running the guest.
+- `m6d-rollback` `shadow-20260715-121316-27156.json` — 271/271. Two distinct
+  consumable physical approvals (M6 run click ≠ W6 install click); exact
+  three-frame durable provenance; rollback stops/drops/frees/removes and restores
+  the exact pre-load inventory hash, appends a readback-verified linked
+  unpromote; a second rollback is denied one-shot; `agent repromotion.run`
+  honors the newer unpromote and resurrects nothing.
+- `persistence-reboot` `shadow-20260715-132111-27848.json` — 198/198 across three
+  boots. Boot 1 installs (two clicks). Boot 2 runs `run_provider_autoload`
+  automatically BEFORE any serial command: it re-verifies BOTH the M6 and W6
+  signatures, reloads the guest from the persist disk, reports
+  `phase=autoloaded cross_reboot_proven=true run_count=1`, keeps the boot-1
+  RECLOG prefix immutable, then rolls back. Boot 3 resolves the durable
+  unpromote (`phase=rolled_back`) before any command and the service stays
+  absent. Fail-closed negatives all proven: corrupt ARTSTOR blob →
+  `blob_hash_mismatch`, tampered persist record → resolver rejects the non-exact
+  link, Safe posture → autoload skipped, tampered load-by-hash → full-reverify
+  denial. Report SHA-256s: network `381dd2692d2859c7d8aba566eb2cc652aa81ebd604218127ed28279ee042bc0c`,
+  m6d `7107ecfc4cf079f274b47bcb34b7bea476e78f5ff81595aa83873fa23bff8033`,
+  reboot `921218eaae9b3ed27c1a5dea09df66f047ab1cf0e5015794ad2588b4d47b6b1e`.
+Kernel shape: `raios.install_authorization.v0` is its own linked RECLOG record
+(the frame-split fix for a real one-frame-budget overflow found live); the
+resolver honors a promote only with BOTH its exact linked authorization and
+artifact-persist frames; recovery/autoload re-promotion links the existing
+authorization (no duplicate) and re-runs the guest, recording its wasm
+import-grant as a durable memory record. Eight harness reds across the three
+profiles, EVERY ONE classified from the live transcript as a stale/timing test
+expectation with the guest behaving correctly (never a kernel regression); the
+one real finding was the frame-budget overflow, which the fail-closed design
+caught (no partial write) and the frame-split resolved. KNOWN HONEST GAPS:
+recovery re-promotion appends a fresh triple on every autoload (bounded-storage
+GC is deferred, logged); W6 stays `dev_key_not_owner_sealed` (owner-sealing is a
+standing trust track).
+
 B1.2c REBOOT-PROOF RED CLASSIFICATIONS (2026-07-15, persistence-reboot, before
 retries): the three-boot proof surfaced a sequence of harness reds, EVERY ONE a
 stale/timing test expectation with the guest behaving correctly.
