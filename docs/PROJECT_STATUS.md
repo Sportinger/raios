@@ -24,6 +24,40 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+B1.2a W7-TO-RECEIVER CONTINUITY VERIFIED-CLOSED (2026-07-15): the live W7
+request can now create pending candidate intake only from the exact active local
+catalog entry whose six receiver-identity descriptor/key/signature payloads were
+hashed and whose two P-256 signatures were reverified by the guest. The focused
+`network-acquisition` report `shadow-20260715-021710-30228.json` passed 192/192
+predicates across 40 commands in 137,135 ms; report SHA-256 is
+`1300ed61557b6d58509f5537bcdece2657efc87b2dddecc32e4d9902397c6b6d`.
+- WITHOUT IDENTITY: the same real pinned-TLS fetch ends `guest_denied`; received
+  bytes produce no pending/finalized candidate, receipt, load, execute, install
+  or durable effect, and teardown completes exactly once.
+- WITH IDENTITY: the exact 4,205-byte
+  `sha256:f81f9442de3729f58f9d5c43b186a4223e3f0ed0bdde20e94722da8d5733abd2`
+  candidate is retained through the existing shared finalizer. Its load
+  projection binds the guest-complete receiver identity, retained candidate and
+  catalog-finalized hash, evaluates the preflight, and still names exactly four
+  unsatisfied gates: M6 reverification, M7 loader policy, provider trust and
+  owner seal. Decision grants/effects remain empty.
+- ONE PATH: the report executed zero serial
+  `module.submit_distribution_begin/chunk/finalize` commands and no
+  `service.start`; W7 supplied the bytes, while the existing local catalog/M12
+  path supplied only non-authorizing identity evidence. No second loader,
+  project receipt, install path or durable store was introduced.
+- CHECK CADENCE: this advances B1.2 but does not close B1; full+recovery remain
+  due at B1 block close. The latest unchanged baseline remains full
+  `shadow-20260714-234313-21680.json` (2,685/0) plus recovery
+  `shadow-20260714-234651-22992.json` (152). All failed attempts are classified
+  in the failure log below.
+- NEXT EXACT SLICE: B1.2b binds this exact W7 receipt/receiver identity to the
+  complete existing M6 evidence and loader path, with one current-boot run only
+  after a physical Genesis pointer approval. The old clickless M6 development
+  proof cannot satisfy binding Vision §2.3. B1.2c subsequently reuses W6's
+  signed second-pointer durable install/autoload/rollback path; it must not
+  forge the unrelated W4/W5 workspace receipt chain.
+
 B1.1 / NET-8 LIVE ACQUISITION VERIFIED-CLOSED (2026-07-15): raiOS can now fetch
 the exact approved W7 artifact through the real QEMU network path and retain it as an
 inert current-boot candidate. `network-acquisition`
@@ -36,10 +70,11 @@ inert current-boot candidate. `network-acquisition`
   whole-artifact hash. Exact payload: 4,205 bytes,
   `sha256:f81f9442de3729f58f9d5c43b186a4223e3f0ed0bdde20e94722da8d5733abd2`.
 - CONVERGENCE + INERTNESS: live W7 candidate and receipt are byte-identical to the
-  shared `acquire.*` finalizer output; there is no W7-private success store. The separate
-  M6/W6 receiver identity does not yet exist, M6/M7 reverification remains required,
-  decision grants/effects are empty, and no load/execute/install/durable-write/rollback-
-  mutation/provider-auto-load/owner-seal occurred.
+  shared `acquire.*` finalizer output; there is no W7-private success store. At B1.1
+  close the separate receiver identity did not yet exist (B1.2a above now supplies it);
+  M6/M7 reverification remained required, decision grants/effects were empty, and no
+  load/execute/install/durable-write/rollback-mutation/provider-auto-load/owner-seal
+  occurred.
 - LIFECYCLE: native provider and W7 deny each other with the same busy class; physical
   F12 killed a silent peer in 178 ms with exactly-once guest/local teardown and prior
   candidate preservation; malformed response denied; guest trap and OutOfFuel cleanup
@@ -54,10 +89,8 @@ inert current-boot candidate. `network-acquisition`
   unchanged kernel/guest baseline remains FULL `shadow-20260714-234313-21680.json`
   (2,685/0) + RECOVERY `shadow-20260714-234651-22992.json` (152); B1 full+recovery are
   due at B1 block close.
-- NEXT EXACT SLICE: B1.2 routes this inert downloaded candidate through the EXISTING M6
-  run and W6 install/autoload/rollback machinery. Reuse the existing receiver identity,
-  M6/M7 reverification, physical approval, and rollback gates; do not add a second loader
-  or persistence path.
+- SUPERSEDED CURSOR: B1.2a above now supplies the previously missing receiver
+  continuity. B1.2b physical M6 run approval is current.
 
 EDITOR-1 VERIFIED-CLOSED (2026-07-14 night): a bounded TEXT EDITOR is the second
 personal-shell program, delivered/approved/run through the UNCHANGED calculator
@@ -1764,12 +1797,14 @@ the owner's physical stick. A deliberately corrupted occupied ARTSTOR frame is
 left reserved and makes future allocation fail closed until a later authenticated
 GC/repair slice owns reclamation; W6 does not silently reuse it.
 
-Current exact next product task (W7 quarantined network acquisition): admit one
-owner-approved, bounded HTTPS source request only after provider trust/time and
-import gates are satisfied, and retain the result as inert content-addressed
-source/tree evidence for review. Network acquisition must not build, execute or
-install automatically, and must not weaken the W6 signature, physical approval,
-autoload, rollback or uninstall chain.
+Current exact next product task (B1.2b physical M6 run approval): consume the
+exact W7 acquisition receipt plus guest-complete receiver identity in the
+existing M6 reverification/evidence path, show the exact current-boot effect in
+Genesis, and allow the existing loader/start path only after one physical
+pointer approval. Missing/stale/wrong W7, receiver or M6 evidence and serial
+approval must deny before execution. This slice must not persist or install;
+B1.2c later reuses W6's separate signed second-pointer durable install/autoload/
+rollback path.
 The hardware cursor remains I5/G7 read-only stick
 identity/fingerprint preflight: the stick was not enumerated or touched here,
 its old Disk number must not be assumed, and no physical write, format,
@@ -4317,6 +4352,62 @@ real `provider.context_export` denial row/handler. Host-only verification:
 PowerShell parse of the edited common profile all passed.
 
 Failure classification log (rule: AGENTS.md "Failure Classification Rule"):
+
+- 2026-07-15 `shadow-20260715-021323-11168.json`
+  (`network-acquisition`, B1.2a working tree): the new no-receiver negative
+  passed, then the positive live fetch itself succeeded and retained the exact
+  candidate, but the predicate still expected fixture session 1 although the
+  deliberate negative had consumed it and the positive was session 2. A local
+  PowerShell `$result` variable also shadowed the harness report-status
+  variable, so the report's top-level result string contains the last evidence
+  object; the authoritative reached counts remain 174/175 with QEMU running
+  and no serial transport failure. Verdict: **harness bookkeeping and shifted
+  fixture-session expectation**, not guest behavior. Retry is permitted after
+  renaming that local variable and advancing only the explicit session-number
+  assertions; no product-code change is justified.
+
+- 2026-07-15 `shadow-20260715-021012-31336.json`
+  (`network-acquisition`, B1.2a working tree): again 158/159 reached
+  predicates passed with QEMU running and no serial transport failure. Every
+  parsed status field met the corrected no-receiver denial contract, but the
+  serial completion needle still contained the superseded
+  `source_tls_evidence=false` text while the intentional bounded transfer
+  reported `source_tls_evidence=true`. Verdict: **test string expectation**;
+  guest denial, zero candidate/receipt and zero later authority were all
+  observed. Retry is permitted after correcting only that serial needle.
+
+- 2026-07-15 `shadow-20260715-020657-24320.json`
+  (`network-acquisition`, B1.2a working tree): 158/159 reached predicates
+  passed; QEMU remained running and `serial_transport_failure` was null. The
+  new no-receiver negative correctly ended `guest_denied`, retained no
+  candidate or receipt, attempted no load/install/durable effect and completed
+  teardown once, but the harness incorrectly expected denial before the
+  already authorized bounded TLS fetch. Actual behavior downloaded and then
+  denied at the shared candidate-accept boundary (`network_effect:true`,
+  `acquisition_effect:false`). Verdict: **test expectation**, not a guest
+  security failure. Retry is permitted after narrowing the predicate to the
+  real authority boundary: no pending/finalized candidate or later effect may
+  exist without the complete receiver identity.
+
+- 2026-07-15 `shadow-20260715-020047-15540.json`
+  (`network-acquisition`, B1.2a working tree): after correcting the stale
+  target path, packaging again stopped before QEMU because inherited
+  `CARGO_HOME` separately pointed at the absent
+  `F:\scorefollower-build\cargo` package cache. The report again contains 0
+  predicates and no QEMU pid. Verdict: **host configuration (stale
+  cross-repository Cargo cache path)**, not guest behavior. Retry is permitted
+  with both Cargo paths process-scoped to existing local directories; no
+  product-code change is justified.
+
+- 2026-07-15 `shadow-20260715-015931-3424.json`
+  (`network-acquisition`, B1.2a working tree): packaging stopped before QEMU
+  because the inherited host `CARGO_TARGET_DIR` pointed at the absent drive
+  `F:\scorefollower-build\target`. The report contains 0 predicates, 0
+  commands, no QEMU pid and no serial log hash. Verdict: **host configuration
+  (stale cross-repository Cargo target path)**, not guest behavior and not
+  evidence against the W7-to-receiver-identity change. Retry is permitted with
+  `CARGO_TARGET_DIR` scoped to this repository's existing `target` directory;
+  no product-code change is justified by this failure.
 
 - 2026-07-09 `shadow-20260709-075623-19216.json`
   (`m12-distribution-provenance`, M12+ Slice 7 working tree): no failing

@@ -9,6 +9,42 @@ $fixtureModePath = Join-Path $RunDir "w7-fixture-mode.txt"
 $expectedArtifact = "sha256:32a018b0c730a4f85210ca820483ca68f8a4d0715021a1dda97951fe305e9e54"
 $expectedImports = "sha256:eb390ec5c2dfde5ac632b127515c5101c812ed6ca209191846bc762409bf4345"
 $expectedPayload = "sha256:f81f9442de3729f58f9d5c43b186a4223e3f0ed0bdde20e94722da8d5733abd2"
+$provenanceSignatureHex = "304402201fd9aa3e26579ab9852a1ea61a7fe23f79c39badd13e2c74dbdf9d957a25449b02204f783191894cfb609d35c5babc9fb3208e77d9c712d2645a633120db6dcdd89b"
+
+function Get-W7BytesSha256Hex {
+    param([byte[]]$Bytes)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try { return (($sha.ComputeHash($Bytes) | ForEach-Object { $_.ToString("x2") }) -join "") }
+    finally { $sha.Dispose() }
+}
+
+function Convert-W7HexToBytes {
+    param([string]$Hex)
+    $trimmed = $Hex.Trim()
+    if (($trimmed.Length % 2) -ne 0 -or $trimmed -notmatch '^[0-9a-fA-F]+$') {
+        throw "W7 receiver evidence is not bounded even-length hex"
+    }
+    $bytes = New-Object byte[] ($trimmed.Length / 2)
+    for ($index = 0; $index -lt $bytes.Length; $index++) {
+        $bytes[$index] = [Convert]::ToByte($trimmed.Substring($index * 2, 2), 16)
+    }
+    return $bytes
+}
+
+function Get-W7ReceiverEvidence {
+    param([string]$Kind, [string]$Path, [switch]$Hex)
+    $bytes = if ($Hex) {
+        Convert-W7HexToBytes -Hex ([System.IO.File]::ReadAllText($Path))
+    }
+    else {
+        [System.IO.File]::ReadAllBytes($Path)
+    }
+    return [pscustomobject]@{
+        kind = $Kind
+        bytes = $bytes
+        sha256 = Get-W7BytesSha256Hex -Bytes $bytes
+    }
+}
 
 Send-AgentCommand -Command $method -ExpectedMarker "RAIOS_AGENT_END $method" -Name "network-acquisition:arming-boundary"
 $armed = (Get-LastAgentResponseJson -Method $method).body.result
@@ -27,6 +63,96 @@ $boundaryOk = $armed.service_id -eq "svc.net.acquire.w7" -and
 Add-Predicate -Name "network-acquisition:7_exact_identity_only" -Expected "only the literal W7 artifact/import-list/local.qemu.w7 binding is armed; another service and each independent mismatch deny before instantiation with zero effects" -Passed $boundaryOk -Actual $(if ($boundaryOk) { "exact binding only" } else { $armed | ConvertTo-Json -Compress -Depth 8 })
 if (-not $boundaryOk) { throw "NET-8 exact-identity arming boundary failed" }
 
+$missingIdentityOffset = Get-SerialLogOffset
+Send-AgentCommand -Command "$startMethod start_w7" -ExpectedMarker "RAIOS_AGENT_END $startMethod" -Name "network-acquisition:missing-receiver-identity"
+$missingIdentityFinished = Wait-ForLogTextAfterOffset -Path $SerialLog -Needle "RAIOS_W7_ACQUISITION outcome=guest_denied source_tls_evidence=true candidate_retained=false" -Offset $missingIdentityOffset -TimeoutSeconds 5
+Send-AgentCommand -Command $method -ExpectedMarker "RAIOS_AGENT_END $method" -Name "network-acquisition:missing-receiver-identity-status"
+$missingIdentity = (Get-LastAgentResponseJson -Method $method).body.result
+$missingIdentityOk = $missingIdentityFinished -and $missingIdentity.outcome -eq "guest_denied" -and
+    $missingIdentity.request_status -eq "complete" -and [int]$missingIdentity.run_count -eq 1 -and
+    [int]$missingIdentity.success_count -eq 0 -and [int]$missingIdentity.tx_bytes -gt 0 -and
+    [int]$missingIdentity.rx_bytes -gt 0 -and $missingIdentity.network_effect -eq $true -and
+    $missingIdentity.crypto_effect -eq $true -and $missingIdentity.acquisition_effect -eq $false -and
+    $missingIdentity.source_tls_evidence -eq $true -and $null -eq $missingIdentity.candidate_sha256 -and
+    $null -eq $missingIdentity.receipt_sha256 -and $missingIdentity.pending_acquisition_present -eq $false -and
+    $missingIdentity.candidate_load_attempted -eq $false -and
+    $missingIdentity.candidate_install_attempted -eq $false -and
+    $missingIdentity.candidate_execution_attempted -eq $false -and
+    $missingIdentity.durable_write_attempted -eq $false -and
+    $missingIdentity.teardown_complete -eq $true -and [int]$missingIdentity.teardown_count -eq 1
+Add-Predicate -Name "network-acquisition:8_missing_receiver_identity_denies_candidate_accept" -Expected "without an exact guest-complete catalog receiver identity, the bounded authorized TLS fetch may finish but shared candidate acceptance denies with no candidate, receipt, load, install, execution, or durable effect" -Passed $missingIdentityOk -Actual $(if ($missingIdentityOk) { "TLS bytes discarded; candidate acceptance denied" } else { $missingIdentity | ConvertTo-Json -Compress -Depth 8 })
+if (-not $missingIdentityOk) { throw "B1.2a W7 did not fail closed without a complete receiver identity" }
+
+$descriptorRoot = Join-Path $RepoRoot "seed-kernel\descriptors"
+$receiverEvidence = @(
+    Get-W7ReceiverEvidence -Kind artifact_identity_descriptor -Path (Join-Path $descriptorRoot "svc.demo.echo.wasm_artifact_identity.desc")
+    Get-W7ReceiverEvidence -Kind artifact_identity_public_key -Path (Join-Path $descriptorRoot "svc.demo.echo.wasm_artifact_identity.p256.pub.hex") -Hex
+    Get-W7ReceiverEvidence -Kind artifact_identity_signature -Path (Join-Path $descriptorRoot "svc.demo.echo.wasm_artifact_identity.p256.sig.der.hex") -Hex
+    Get-W7ReceiverEvidence -Kind load_descriptor -Path (Join-Path $descriptorRoot "svc.demo.echo.current_boot_load.desc")
+    Get-W7ReceiverEvidence -Kind load_descriptor_public_key -Path (Join-Path $descriptorRoot "svc.demo.echo.current_boot_load.p256.pub.hex") -Hex
+    Get-W7ReceiverEvidence -Kind load_descriptor_signature -Path (Join-Path $descriptorRoot "svc.demo.echo.current_boot_load.p256.sig.der.hex") -Hex
+)
+$artifactIdentityDescriptorSha = $receiverEvidence[0].sha256
+$artifactIdentityPublicKeySha = $receiverEvidence[1].sha256
+$artifactIdentitySignatureSha = $receiverEvidence[2].sha256
+$loadDescriptorSha = $receiverEvidence[3].sha256
+$loadDescriptorPublicKeySha = $receiverEvidence[4].sha256
+$loadDescriptorSignatureSha = $receiverEvidence[5].sha256
+
+Send-AgentCommand -Command "module.submit_distribution_catalog_entry $expectedPayload 4205 1 sig:$provenanceSignatureHex" -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_catalog_entry" -Name "network-acquisition:catalog-entry"
+$catalogEntry = (Get-LastAgentResponseJson -Method "module.submit_distribution_catalog_entry").body.result
+$catalogEntryOk = $catalogEntry.accepted -eq $true -and $catalogEntry.rejected -eq $false -and
+    $catalogEntry.content_sha256 -eq $expectedPayload -and [int]$catalogEntry.total_length -eq 4205 -and
+    [int]$catalogEntry.chunk_count -eq 1 -and $catalogEntry.receiver_identity_retained -eq $false -and
+    $catalogEntry.authorizes_load -eq $false -and $catalogEntry.authorizes_install -eq $false -and
+    $catalogEntry.authorizes_execute -eq $false -and $catalogEntry.writes_persistent_state -eq $false
+Add-Predicate -Name "network-acquisition:9_exact_catalog_entry" -Expected "the exact W7 hash/length/one-chunk shape is retained in the existing local catalog without authority" -Passed $catalogEntryOk -Actual $(if ($catalogEntryOk) { "exact inert catalog entry retained" } else { $catalogEntry | ConvertTo-Json -Compress -Depth 8 })
+if (-not $catalogEntryOk) { throw "B1.2a exact W7 catalog entry failed" }
+
+$receiverIdentityCommand = "module.submit_distribution_receiver_identity $expectedPayload sha256:$artifactIdentityDescriptorSha sha256:$artifactIdentityPublicKeySha sha256:$artifactIdentitySignatureSha sha256:$loadDescriptorSha sha256:$loadDescriptorPublicKeySha sha256:$loadDescriptorSignatureSha classification:local_only artifact_identity_signature_verified:true load_descriptor_signature_verified:true artifact_hash_bound_by_identity:true artifact_hash_bound_by_load_descriptor:true load_descriptor_binds_artifact_identity:true load_descriptor_authorizes_current_boot_wasm_execution:true export_authorizes_load:false export_authorizes_install:false export_authorizes_execute:false export_writes_persistent_state:false requires_m6_m7_reverify_for_load:true"
+Send-AgentCommand -Command $receiverIdentityCommand -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_receiver_identity" -Name "network-acquisition:receiver-identity"
+$receiverIdentity = (Get-LastAgentResponseJson -Method "module.submit_distribution_receiver_identity").body.result
+$receiverIdentityOk = $receiverIdentity.accepted -eq $true -and $receiverIdentity.rejected -eq $false -and
+    $receiverIdentity.content_sha256 -eq $expectedPayload -and $receiverIdentity.retained_in_catalog -eq $true -and
+    $receiverIdentity.receiver_identity.receiver_identity_complete -eq $false -and
+    $receiverIdentity.guest_signature_verification_performed -eq $false -and
+    $receiverIdentity.requires_m6_m7_reverify_for_load -eq $true -and
+    $receiverIdentity.authorizes_load -eq $false -and $receiverIdentity.authorizes_install -eq $false -and
+    $receiverIdentity.authorizes_execute -eq $false -and $receiverIdentity.writes_persistent_state -eq $false
+Add-Predicate -Name "network-acquisition:10_receiver_identity_metadata" -Expected "the existing echo receiver identity metadata is catalog-bound but remains incomplete and non-authorizing before guest evidence verification" -Passed $receiverIdentityOk -Actual $(if ($receiverIdentityOk) { "receiver metadata retained inert" } else { $receiverIdentity | ConvertTo-Json -Compress -Depth 9 })
+if (-not $receiverIdentityOk) { throw "B1.2a receiver identity metadata failed" }
+
+$receiverEvidenceOk = $true
+foreach ($part in $receiverEvidence) {
+    $payload = [Convert]::ToBase64String($part.bytes)
+    $command = "module.submit_distribution_receiver_identity_evidence $expectedPayload $($part.kind) sha256:$($part.sha256) $payload"
+    Send-AgentCommand -Command $command -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_receiver_identity_evidence" -Name "network-acquisition:receiver-evidence-$($part.kind)"
+    $evidencePartResult = (Get-LastAgentResponseJson -Method "module.submit_distribution_receiver_identity_evidence").body.result
+    $receiverEvidenceOk = $receiverEvidenceOk -and $evidencePartResult.accepted -eq $true -and $evidencePartResult.rejected -eq $false -and
+        $evidencePartResult.content_sha256 -eq $expectedPayload -and $evidencePartResult.evidence_kind -eq $part.kind -and
+        [int]$evidencePartResult.decoded_byte_len -eq $part.bytes.Length -and $evidencePartResult.receiver_identity_complete -eq $false -and
+        $evidencePartResult.guest_signature_verification_performed -eq $false -and $evidencePartResult.authorizes_load -eq $false -and
+        $evidencePartResult.authorizes_install -eq $false -and $evidencePartResult.authorizes_execute -eq $false -and
+        $evidencePartResult.writes_persistent_state -eq $false
+}
+Add-Predicate -Name "network-acquisition:11_receiver_identity_evidence" -Expected "all six exact descriptor/key/signature payloads are retained in RAM without load, execute, install, or durable authority" -Passed $receiverEvidenceOk -Actual $(if ($receiverEvidenceOk) { "six inert evidence parts retained" } else { "receiver evidence rejected or authorized an effect" })
+if (-not $receiverEvidenceOk) { throw "B1.2a receiver identity evidence failed" }
+
+Send-AgentCommand -Command "module.submit_distribution_receiver_identity_finalize $expectedPayload" -ExpectedMarker "RAIOS_AGENT_END module.submit_distribution_receiver_identity_finalize" -Name "network-acquisition:receiver-identity-finalize"
+$receiverFinalize = (Get-LastAgentResponseJson -Method "module.submit_distribution_receiver_identity_finalize").body.result
+$receiverFinalizeIdentity = $receiverFinalize.receiver_identity
+$receiverFinalizeOk = $receiverFinalize.accepted -eq $true -and $receiverFinalize.rejected -eq $false -and
+    $receiverFinalize.content_sha256 -eq $expectedPayload -and [int]$receiverFinalize.retained_part_count -eq 6 -and
+    $receiverFinalize.receiver_identity_complete -eq $true -and
+    $receiverFinalize.guest_signature_verification_performed -eq $true -and
+    $receiverFinalizeIdentity.receiver_identity_complete -eq $true -and
+    $receiverFinalizeIdentity.artifact_identity_signature_verified_by_guest -eq $true -and
+    $receiverFinalizeIdentity.load_descriptor_signature_verified_by_guest -eq $true -and
+    $receiverFinalize.authorizes_load -eq $false -and $receiverFinalize.authorizes_install -eq $false -and
+    $receiverFinalize.authorizes_execute -eq $false -and $receiverFinalize.writes_persistent_state -eq $false
+Add-Predicate -Name "network-acquisition:12_receiver_identity_guest_verified" -Expected "the guest verifies all six receiver-identity payloads and marks the exact identity complete without granting effects" -Passed $receiverFinalizeOk -Actual $(if ($receiverFinalizeOk) { "guest-complete identity; authority still false" } else { $receiverFinalize | ConvertTo-Json -Compress -Depth 10 })
+if (-not $receiverFinalizeOk) { throw "B1.2a guest receiver identity verification failed" }
+
 & $fixtureWrapper -Action SetMode -ModePath $fixtureModePath -Mode serve
 Remove-Item -LiteralPath $fixtureResultPath -Force -ErrorAction SilentlyContinue
 $positiveOffset = Get-SerialLogOffset
@@ -40,7 +166,7 @@ $fixturePositive = Get-Content -LiteralPath $fixtureResultPath -Raw | ConvertFro
 Send-AgentCommand -Command $method -ExpectedMarker "RAIOS_AGENT_END $method" -Name "network-acquisition:positive-status"
 $positive = (Get-LastAgentResponseJson -Method $method).body.result
 $positiveOk = $positiveFinished -and $positiveStart.request_status -eq "accepted_pending" -and
-    [int]$fixturePositive.host_connection -eq 1 -and [int]$fixturePositive.session -eq 1 -and
+    [int]$fixturePositive.host_connection -eq 1 -and [int]$fixturePositive.session -eq 2 -and
     $fixturePositive.mode -eq "serve" -and $fixturePositive.request_exact -eq $true -and
     $fixturePositive.tls_protocol -eq "Tls13" -and
     $fixturePositive.cipher_suite -eq "TLS_AES_128_GCM_SHA256" -and
@@ -52,7 +178,7 @@ $positiveOk = $positiveFinished -and $positiveStart.request_status -eq "accepted
     [int]$positive.http_status -eq 200 -and $positive.http_content_type -eq "application/octet-stream" -and
     [int]$positive.http_content_length -eq 4205 -and $positive.every_chunk_hash_valid -eq $true -and
     $positive.whole_hash_valid -eq $true -and $positive.candidate_sha256 -eq $expectedPayload
-Add-Predicate -Name "network-acquisition:1_positive_live_fetch" -Expected "persistent host connection 1/session 1 performs the real e1000/DHCP/10.0.2.100:8443/TLS1.3-0x1301-P256 pinned-SPKI/server-Finished/exact-HTTP fetch and verifies every chunk and whole hash" -Passed $positiveOk -Actual $(if ($positiveOk) { "live fetch verified on persistent relay session 1" } else { @{ fixture = $fixturePositive; guest = $positive } | ConvertTo-Json -Compress -Depth 10 })
+Add-Predicate -Name "network-acquisition:1_positive_live_fetch" -Expected "persistent host connection 1/session 2 performs the real e1000/DHCP/10.0.2.100:8443/TLS1.3-0x1301-P256 pinned-SPKI/server-Finished/exact-HTTP fetch and verifies every chunk and whole hash" -Passed $positiveOk -Actual $(if ($positiveOk) { "live fetch verified on persistent relay session 2" } else { @{ fixture = $fixturePositive; guest = $positive } | ConvertTo-Json -Compress -Depth 10 })
 if (-not $positiveOk) { throw "NET-8 positive live fetch failed" }
 
 Send-AgentCommand -Command "module.load_ephemeral svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "network-acquisition:retained-preflight"
@@ -62,14 +188,22 @@ $preflight = $loadRuntime.receiver_identity_load_preflight
 $preflightOk = $load.schema -eq "raios.evidence_response.v1" -and $load.decision.outcome -eq "denied" -and
     @($load.decision.grants).Count -eq 0 -and @($load.decision.effects).Count -eq 0 -and
     $preflight.status -eq "denied" -and
-    $preflight.reason -eq "receiver_identity_catalog_entry_not_found" -and
-    $preflight.present -eq $false -and
-    $preflight.receiver_identity_retained -eq $false -and
-    $preflight.receiver_identity_complete -eq $false -and
-    $preflight.retained_candidate_present -eq $false -and
-    $preflight.retained_candidate_matches_catalog_finalize -eq $false -and
-    $preflight.preflight_evaluated -eq $false -and
-    [int]$preflight.missing_gate_count -eq 0 -and
+    $preflight.reason -eq "distribution_receiver_identity_load_preflight_missing_required_gates" -and
+    $preflight.present -eq $true -and
+    $preflight.receiver_identity_retained -eq $true -and
+    $preflight.receiver_identity_complete -eq $true -and
+    $preflight.guest_signature_verification_performed -eq $true -and
+    $preflight.retained_candidate_sha256 -eq $expectedPayload -and
+    $preflight.retained_candidate_present -eq $true -and
+    $preflight.retained_candidate_wasm_valid -eq $true -and
+    $preflight.catalog_finalize_candidate_sha256 -eq $expectedPayload -and
+    $preflight.retained_candidate_matches_catalog_finalize -eq $true -and
+    $preflight.preflight_evaluated -eq $true -and
+    [int]$preflight.missing_gate_count -eq 4 -and
+    $preflight.m6_reverification_gate_satisfied -eq $false -and
+    $preflight.m7_loader_policy_gate_satisfied -eq $false -and
+    $preflight.provider_trust_gate_satisfied -eq $false -and
+    $preflight.owner_seal_gate_satisfied -eq $false -and
     $preflight.requires_m6_m7_reverify_for_load -eq $true -and
     $positive.candidate_load_attempted -eq $false -and
     $positive.candidate_install_attempted -eq $false -and
@@ -77,8 +211,8 @@ $preflightOk = $load.schema -eq "raios.evidence_response.v1" -and $load.decision
     $positive.durable_write_attempted -eq $false -and
     $positive.rollback_mutation_attempted -eq $false -and
     $positive.provider_auto_load_attempted -eq $false
-Add-Predicate -Name "network-acquisition:3_retained_candidate_preflight_denial" -Expected "the retained current_boot candidate has no distinct catalog receiver identity or evaluated load preflight, requires M6/M7 reverify, and cannot load, install, execute, persist, mutate rollback, or auto-load for a provider" -Passed $preflightOk -Actual $(if ($preflightOk) { "receiver identity and load preflight missing; M6/M7 reverify required" } else { $load | ConvertTo-Json -Compress -Depth 10 })
-if (-not $preflightOk) { throw "NET-8 retained candidate did not remain inert without a receiver identity load preflight" }
+Add-Predicate -Name "network-acquisition:3_retained_candidate_preflight_denial" -Expected "the W7-finalized candidate exactly matches its guest-complete catalog receiver identity; preflight names all four still-missing M6/M7/provider/owner gates and grants no effect" -Passed $preflightOk -Actual $(if ($preflightOk) { "exact receiver/candidate binding; four gates remain closed" } else { $load | ConvertTo-Json -Compress -Depth 10 })
+if (-not $preflightOk) { throw "B1.2a retained candidate did not bind to the complete receiver identity while remaining inert" }
 
 Send-AgentCommand -Command "wasm.acquire_import_probe" -ExpectedMarker "RAIOS_AGENT_END wasm.acquire_import_probe" -Name "network-acquisition:shared-finalizer"
 $shared = (Get-LastAgentResponseJson -Method "wasm.acquire_import_probe").body.result
@@ -132,7 +266,7 @@ while ([DateTime]::UtcNow -lt $transitionDeadline)
         try { $fixtureTransition = Get-Content -LiteralPath $fixtureResultPath -Raw | ConvertFrom-Json }
         catch { $fixtureTransition = $null }
         if ($fixtureTransition.mode -eq "silent" -and [int]$fixtureTransition.host_connection -eq 1 -and
-            [int]$fixtureTransition.session -eq 2 -and $fixtureTransition.relay_session_advanced -eq $true -and
+            [int]$fixtureTransition.session -eq 3 -and $fixtureTransition.relay_session_advanced -eq $true -and
             $fixtureTransition.reason -eq "mode_transition" -and
             $fixtureTransition.phase -eq "after_raw_relay_before_tls" -and
             [int]$fixtureTransition.drained_bytes -gt 0) { break }
@@ -140,11 +274,11 @@ while ([DateTime]::UtcNow -lt $transitionDeadline)
     Start-Sleep -Milliseconds 20
 }
 $transitionOk = $fixtureTransition.mode -eq "silent" -and [int]$fixtureTransition.host_connection -eq 1 -and
-    [int]$fixtureTransition.session -eq 2 -and $fixtureTransition.relay_session_advanced -eq $true -and
+    [int]$fixtureTransition.session -eq 3 -and $fixtureTransition.relay_session_advanced -eq $true -and
     $fixtureTransition.reason -eq "mode_transition" -and
     $fixtureTransition.phase -eq "after_raw_relay_before_tls" -and
     [int]$fixtureTransition.drained_bytes -gt 0
-Add-Predicate -Name "network-acquisition:4b_silent_relay_session_advance" -Expected "persistent host connection 1 drains silent relay session 2 and advances it on the observed mode transition before malformed acquisition starts" -Passed $transitionOk -Actual $(if ($transitionOk) { "silent relay session 2 drained and advanced" } elseif ($null -eq $fixtureTransition) { "transition result absent" } else { $fixtureTransition | ConvertTo-Json -Compress -Depth 6 })
+Add-Predicate -Name "network-acquisition:4b_silent_relay_session_advance" -Expected "persistent host connection 1 drains silent relay session 3 and advances it on the observed mode transition before malformed acquisition starts" -Passed $transitionOk -Actual $(if ($transitionOk) { "silent relay session 3 drained and advanced" } elseif ($null -eq $fixtureTransition) { "transition result absent" } else { $fixtureTransition | ConvertTo-Json -Compress -Depth 6 })
 if (-not $transitionOk) { throw "NET-8 silent relay session did not advance before malformed acquisition" }
 Remove-Item -LiteralPath $fixtureResultPath -Force -ErrorAction SilentlyContinue
 $malformedOffset = Get-SerialLogOffset

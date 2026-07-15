@@ -417,6 +417,38 @@ impl PendingDistributionAcquisition {
         }
     }
 
+    pub(crate) fn from_active_local_catalog(
+        content_sha256: [u8; 32],
+        total_length: usize,
+        chunk_count: usize,
+    ) -> Option<Self> {
+        let catalog = LOCAL_DISTRIBUTION_CATALOG.lock();
+        let receiver_identity = catalog.receiver_identity?;
+        if !catalog.active
+            || catalog.content_sha256 != content_sha256
+            || catalog.total_length != total_length
+            || catalog.chunk_count != chunk_count
+            || !catalog.receiver_identity_evidence.is_complete()
+            || !receiver_identity.receiver_identity_complete
+            || !receiver_identity.guest_signature_verification_performed
+            || !receiver_identity.artifact_identity_signature_verified_by_guest
+            || !receiver_identity.load_descriptor_signature_verified_by_guest
+        {
+            return None;
+        }
+        Some(Self {
+            active: true,
+            source_id: LOCAL_DISTRIBUTION_CATALOG_SOURCE_ID,
+            entry_id: LOCAL_DISTRIBUTION_CATALOG_ENTRY_ID,
+            content_sha256: catalog.content_sha256,
+            total_length: catalog.total_length,
+            chunk_count: catalog.chunk_count,
+            provenance_signature_der: catalog.provenance_signature_der.clone(),
+            receiver_identity: Some(receiver_identity),
+            chunks: Vec::new(),
+        })
+    }
+
     pub(crate) fn total_length(&self) -> usize {
         self.total_length
     }

@@ -47,9 +47,10 @@ approval/HID typing+backspace+CLEAR/malformed-atomicity/F12), block close FULL s
 + RECOVERY shadow-20260714-234651-22992.json (152); 581 raios-core + 7 guest host tests orchestrator-verified.
 Live owner demo: calculator delivered/approved/computed 42/F12 in a visible QEMU session.
 Editor gaps stay honest: end-cursor only, ASCII only, no persistence (files stay denied).
-The active vision order overrides the older editor-persistence cursor below: B1.1 is now
-closed; next is B1.2, routing the downloaded inert candidate through the EXISTING M6 run
-and W6 install/autoload/rollback machinery. RUIP persistence follows as B1.3.
+The active vision order overrides the older editor-persistence cursor below: B1.1 and
+B1.2a are now closed; next is B1.2b, adding the physical Genesis approval before the
+downloaded candidate enters the EXISTING M6 run. W6 install/autoload/rollback follows
+as B1.2c, then RUIP persistence as B1.3.
 
 **M11-9 DNSPARSE VERIFIED-CLOSED (2026-07-14) — the FOURTH real relocation, plus the
 first hard memory bound for buffer guests.** The DNS query/A-response parser lives in
@@ -152,9 +153,23 @@ seal. Both transport-owner directions deny busy; F12 killed a silent peer in 178
 exactly-once cleanup; malformed input denied; a valid same-boot retry then succeeded.
 The host fixture now models QEMU's documented one-chardev-lifetime `guestfwd -tcp`
 topology as bounded sequential TLS sessions instead of inventing host reconnects.
-**NEXT DELIBERATE SLICE — B1.2:** connect this downloaded inert candidate to the
-EXISTING M6 run + W6 durable-install/autoload/rollback path, with M6/M7 reverification
-and physical approval unchanged. Do not create a second loader or persistence path.
+**B1.2a RECEIVER CONTINUITY VERIFIED-CLOSED (2026-07-15).**
+`network-acquisition` `shadow-20260715-021710-30228.json` passed 192/192
+predicates across 40 commands. Live W7 can now create its pending acquisition
+only from the exact active local catalog entry with all six receiver-identity
+payloads guest-hashed and both P-256 descriptor signatures guest-verified. A
+real fetch without that identity ends `guest_denied` after TLS with no candidate
+or receipt; the catalog-bound fetch retains the exact 4,205-byte candidate and
+projects a fully evaluated receiver preflight with exactly four closed gates
+(M6, M7, provider trust, owner seal). The report contains zero serial candidate
+begin/chunk/finalize commands, so no second byte path was introduced, and no
+service start, install or durable effect occurred.
+**NEXT DELIBERATE SLICE — B1.2b:** feed that exact W7 receipt/receiver binding
+through the existing M6 evidence and loader path, but permit the one current-boot
+run only after a physical Genesis pointer approval as required by Vision §2.3.
+The old clickless M6 dev proof is not sufficient. B1.2c then reuses W6's signed
+second-click install/autoload/rollback path; do not forge a W4 project receipt or
+create a second loader/persistence path.
 Full+recovery wait for B1 block close per the aggressive cadence. The hardware cursor is
 unchanged and Surface-gated (G7 read-only stick preflight, WiFi association/
 PORT_RELEASE/RX-TX/DHCP proof, ownerkey TPM capture).

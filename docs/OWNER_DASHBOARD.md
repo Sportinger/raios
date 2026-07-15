@@ -2,22 +2,24 @@
 
 Updated: 2026-07-15.
 
-BESCHAFFUNG IST JETZT LIVE BEWIESEN — B1.1 GESCHLOSSEN. raiOS kann im echten
-QEMU-Netzpfad selbst den exakt freigegebenen 4.205-Byte-Baustein holen: e1000,
-DHCP, TLS 1.3 mit fest gepinntem Schlüssel und geprüftem Server-Abschluss,
-exakte HTTP-Anfrage, jeder Block und der Gesamt-Fingerabdruck stimmen. Der
-Baustein bleibt danach absichtlich nur im aktuellen Boot und vollständig inert:
-kein Laden, Ausführen, Installieren, Speichern, Rollback-Umschreiben, Autoload
-oder Owner-Seal ohne die späteren Freigaben. Auch die Gegenproben sind real:
-beide Netz-Besitzer blockieren einander sauber, F12 beendet einen stummen Server
-in 178 ms, eine kaputte Antwort wird verworfen, und direkt danach gelingt im
-selben Boot ein zweiter gültiger Download. Beweis:
-`shadow-20260715-013325-25964.json`, 176/176 Prüfungen in 29 Kommandos.
+BESCHAFFUNG HAT JETZT EINE DURCHGÄNGIGE IDENTITÄT — B1.2a GESCHLOSSEN. raiOS
+holt im echten QEMU-Netzpfad weiterhin genau den freigegebenen 4.205-Byte-
+Baustein. Neu ist: Dieser Download darf erst Kandidat werden, wenn der lokale
+Katalog exakt zu Hash, Länge und Chunk-Form passt und raiOS selbst alle sechs
+Empfänger-Belege sowie beide Signaturen geprüft hat. Fehlen diese Belege, werden
+die bereits begrenzt geholten TLS-Bytes verworfen: kein Kandidat, kein Receipt,
+kein Laden, Installieren oder Speichern. Sind sie vollständig, bindet der
+Preflight exakt denselben Kandidaten und zeigt weiterhin vier geschlossene
+Türen: M6-Nachprüfung, M7-Loader-Regel, Provider-Vertrauen und Owner-Seal.
+Beweis: `shadow-20260715-021710-30228.json`, 192/192 Prüfungen in 40 Kommandos.
+Es gab keine zweite serielle Byte-Zustellung und keinen Programmstart.
 
-NÄCHSTER KLEINSTER SCHRITT: B1.2 führt genau diesen heruntergeladenen, inerten
-Kandidaten durch den schon vorhandenen M6-Lauf- und W6-Installations-/Autoload-/
-Rollback-Weg. Es entsteht kein zweiter Loader und kein zweiter Speicherweg;
-Nachprüfung und physische Freigabe bleiben Pflicht.
+NÄCHSTER KLEINSTER SCHRITT: B1.2b führt genau diesen gebundenen Kandidaten durch
+die vorhandene M6-Nachprüfung. Er darf aber erst nach einem echten Klick in
+Genesis einmal im aktuellen Boot laufen; der alte klicklose M6-Entwicklungsbeweis
+reicht nach der bindenden Verfassung nicht. B1.2c schließt danach über den schon
+vorhandenen signierten zweiten Install-Klick, Autoload und Rollback an W6 an —
+ohne zweiten Loader, erfundenes Projekt-Receipt oder zweiten Speicherweg.
 
 ZWEITES ECHTES PROGRAMM: EIN TEXT-EDITOR — LIVE VOR DEINEN AUGEN (2026-07-14
 Abend). Du hast heute zugesehen, wie raiOS im QEMU-Fenster den kompletten
@@ -347,10 +349,12 @@ Stick: the owner reports it has been found, but this session did not enumerate
 or touch it. The next G7 action is read-only identity/layout/fingerprint
 preflight; never assume the former Disk 2 number or recreate a missing fingerprint.
 
-Next product slice (vision order 2026-07-15): B1.2 — route the now live-proven,
-inert W7 candidate through the existing M6 run and W6 durable install/autoload/
-rollback machinery. Next hardware slice: the explicit read-only G7 stick
-preflight (Surface-gated). Neither grants physical-write authority by itself.
+Next product slice (vision order 2026-07-15): B1.2b — bind the now
+receiver-verified W7 candidate to complete M6 evidence and require a physical
+Genesis click before the one current-boot run. B1.2c then reuses W6 for durable
+install/autoload/rollback behind its separate signed second click. Next hardware
+slice: the explicit read-only G7 stick preflight (Surface-gated). None of these
+grant physical-stick write authority by themselves.
 
 Refactor program (owner-ordered 2026-07-12, cost accepted): P0 and two of
 three P1 packets are DONE. The P0 inventory routed all 121 evidence files:

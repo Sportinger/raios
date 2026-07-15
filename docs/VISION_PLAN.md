@@ -52,7 +52,7 @@ Arbeitspakete mehr, sondern **Beispiele für spätere Früchte des Kreislaufs**.
 |---|---------|--------------|
 | 1 | Owner fragt in Genesis („bau mir …") | Schnellspur (RUIP) existiert; Slow-Lane-Auftrag → Workspace FEHLT |
 | 2 | Agent schreibt Quellcode ins System (W1-Workspace, inert) | Workspace existiert (seriell/Owner-Pfad); KI-Anbindung FEHLT |
-| 3 | Beschaffung (Abhängigkeiten, Quarantäne) | W7 live bewiesen (`shadow-20260715-013325-25964.json`), Kandidat bleibt inert; Anschluss an M6/W6 (B1.2) FEHLT; Registry-Vertrauen (M12) später |
+| 3 | Beschaffung (Abhängigkeiten, Quarantäne) | W7 live bewiesen; B1.2a bindet Download und gastgeprüfte M12-Empfängeridentität exakt (`shadow-20260715-021710-30228.json`), Kandidat bleibt inert; physischer M6-Lauf + W6-Install (B1.2b/c) FEHLEN; Produktions-Registry-Vertrauen später |
 | 4 | **Bauen AUF DEM GERÄT** | FEHLT — heute extern-versiegelt (W4, zählt als Gerüst, nicht als Erfüllung) |
 | 5 | Nachrechnen (Repro-Doppel-Build, Fingerabdrücke) | Existiert (extern bewiesen); On-Device-Variante folgt mit Station 4 |
 | 6 | Physische Freigabe | Existiert, bewiesen |
@@ -67,7 +67,17 @@ Arbeitspakete mehr, sondern **Beispiele für spätere Früchte des Kreislaufs**.
   Ausführung bewiesen; Same-Boot-Retry und Negativfälle grün
   (`shadow-20260715-013325-25964.json`).
 - B1.2 Heruntergeladenen Kandidaten durch die EXISTIERENDE M6/W6-Maschinerie
-  führen (laufen + installieren; kein zweiter Weg).
+  führen (laufen + installieren; kein zweiter Weg) — **IN ARBEIT:**
+  - B1.2a **ABGESCHLOSSEN:** W7 akzeptiert den Kandidaten nur aus dem exakt
+    passenden lokalen Katalog mit sechs gastgeprüften M12-Empfängerbelegen;
+    ohne sie werden die TLS-Bytes verworfen, mit ihnen bindet der Preflight den
+    exakten Kandidaten und hält alle vier Folge-Gates geschlossen
+    (`shadow-20260715-021710-30228.json`).
+  - B1.2b als Nächstes: vollständige M6-Nachprüfung und einmaliger Lauf erst
+    nach physischem Genesis-Klick (§2.3); der alte klicklose Dev-Lauf genügt
+    diesem Plan nicht.
+  - B1.2c danach: denselben bewiesenen Kandidaten über W6-Signatur, zweiten
+    physischen Install-Klick, ARTSTOR/RECLOG, Autoload und Rollback führen.
 - B1.3 RUIP-Programme an W6 anschließen (Programm-Persistenz — kleine,
   bereits erfragte Schleifen-Station 7).
 

@@ -251,15 +251,12 @@ impl AcquisitionInvocationState {
             fixture_source_tls_evidence_valid: None,
             catalog_valid: true,
             receiver_identity_valid: true,
-            pending: Some(
-                crate::agent_protocol::agent_protocol_registry::PendingDistributionAcquisition::preauthorized_fixture(
-                    crate::agent_protocol::distribution_registry::BUILTIN_ECHO_REGISTRY_ENTRY_ID,
+            pending:
+                crate::agent_protocol::agent_protocol_registry::PendingDistributionAcquisition::from_active_local_catalog(
                     request.whole_sha256,
                     request.total_len,
                     request.chunk_count,
-                    crate::agent_protocol::distribution_registry::BUILTIN_ECHO_PROVENANCE_SIGNATURE_DER,
                 ),
-            ),
             expected: [
                 ChunkExpectation {
                     len: request.total_len,
@@ -599,6 +596,9 @@ fn check_acquire_call_boundary(state: &mut BeyondEnvState) -> Result<(), Acquire
     }
     if !acquisition.posture_allows_execution {
         return Err(AcquireDenial::PostureDenied);
+    }
+    if acquisition.pending.is_none() {
+        return Err(AcquireDenial::ReceiverIdentityMismatch);
     }
     state
         .lifecycle
