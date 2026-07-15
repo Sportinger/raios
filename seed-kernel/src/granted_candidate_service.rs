@@ -1,6 +1,10 @@
-use alloc::{vec, vec::Vec};
+use alloc::{string::String, vec, vec::Vec};
 
 use raios_core::record::{sha256_of_json, Value as V};
+use raios_core::project_install::{
+    seal_granted_candidate_install_envelope, validate_granted_candidate_install_envelope,
+    GrantedCandidateInstallEnvelope, ProjectInstallAction,
+};
 use spin::Mutex;
 
 use crate::{
@@ -177,6 +181,24 @@ struct ActivationBinding {
     w7: Option<W7Binding>,
 }
 
+/// The successful M6 click is the only source for a W6 install preview.
+#[derive(Clone, Copy)]
+struct ApprovedActivation {
+    binding: ActivationBinding,
+    activation_approval_sha256: [u8; 32],
+    promotion: PromotionRecord,
+}
+
+/// Fixed-size current-boot W6 proof retained only after both durable readbacks.
+#[derive(Clone, Copy)]
+struct SignedInstallAuthorization {
+    install_envelope_sha256: [u8; 32],
+    install_action_sha256: [u8; 32],
+    physical_approval_sha256: [u8; 32],
+    signature_len: usize,
+    signature_der: [u8; 256],
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct ActivationPreview {
     pub(crate) source_kind: &'static str,
@@ -231,6 +253,8 @@ struct State {
     trust_tier: &'static str,
     promotion: Option<PromotionRecord>,
     pending_activation: Option<ActivationBinding>,
+    approved_activation: Option<ApprovedActivation>,
+    signed_install_authorization: Option<SignedInstallAuthorization>,
     physical_approval_consumed: bool,
 }
 
@@ -245,6 +269,8 @@ impl State {
             trust_tier: TRUST_TIER_DENIED,
             promotion: None,
             pending_activation: None,
+            approved_activation: None,
+            signed_install_authorization: None,
             physical_approval_consumed: false,
         }
     }
@@ -837,6 +863,20 @@ pub(crate) fn approve_and_run_from_pointer() -> bool {
         && start_result.snapshot.running
         && start_result.snapshot.run_count == 1
         && start_result.snapshot.last_run_outcome == "success";
+    if accepted {
+        let promotion = build_promotion_record(
+            binding.candidate_sha256,
+            service_inventory_projection_hash(None),
+            load_result.snapshot.generation,
+            load_result.event_id,
+        );
+        let mut state = STATE.lock();
+        state.approved_activation = Some(ApprovedActivation {
+            activation_approval_sha256: approval_challenge_sha256(Some(binding)).unwrap_or([0; 32]),
+            binding,
+            promotion,
+        });
+    }
     emit_activation_marker(
         binding,
         Some(start_result.snapshot),
@@ -862,10 +902,136 @@ pub(crate) fn secure_attention_drop() -> bool {
     module_candidate_intake::clear();
     let mut state = STATE.lock();
     state.pending_activation = None;
+    state.approved_activation = None;
+    state.signed_install_authorization = None;
     state.physical_approval_consumed = false;
     state.promotion = None;
     console::write_event(format_args!("Downloaded app current-boot state cleared"));
     true
+}
+
+pub(crate) fn approved_install_envelope() -> Result<GrantedCandidateInstallEnvelope, &'static str> {
+    let approved = STATE.lock().approved_activation.ok_or("granted_candidate_activation_missing")?;
+    let candidate = module_candidate_intake::retained().ok_or("project_install_candidate_missing")?;
+    let w7 = approved.binding.w7.ok_or("granted_candidate_w7_binding_missing")?;
+    let envelope = GrantedCandidateInstallEnvelope {
+        service_id: String::from(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.service_id),
+        candidate_sha256: approved.binding.candidate_sha256,
+        candidate_byte_len: candidate.bytes.len() as u64,
+        activation_approval_sha256: approved.activation_approval_sha256,
+        computed_grant_sha256: approved.binding.grant.computed_grant_hash,
+        attestation_reference_sha256: approved.binding.attestation.attestation_reference_hash,
+        w7_invocation_sha256: raios_core::sha256_bytes(&w7.invocation_id.to_le_bytes()),
+        w7_receipt_sha256: w7.receipt_sha256,
+        receiver_content_sha256: w7.receiver_content_sha256,
+        receiver_candidate_sha256: w7.receiver_candidate_sha256,
+        catalog_candidate_sha256: w7.catalog_candidate_sha256,
+        generation: approved.promotion.generation,
+        auto_start: true,
+        trust_tier: String::from(TRUST_TIER_GRANTED),
+        envelope_sha256: [0; 32],
+    };
+    seal_granted_candidate_install_envelope(envelope).map_err(|error| error.reason())
+}
+
+pub(crate) fn validate_approved_install_envelope(
+    envelope: &GrantedCandidateInstallEnvelope,
+) -> Result<(), &'static str> {
+    validate_granted_candidate_install_envelope(envelope).map_err(|error| error.reason())?;
+    let approved = STATE.lock().approved_activation.ok_or("granted_candidate_activation_missing")?;
+    let expected = approved_install_envelope()?;
+    if expected != *envelope || approved.activation_approval_sha256 != envelope.activation_approval_sha256 {
+        return Err("granted_candidate_install_binding_stale");
+    }
+    Ok(())
+}
+
+pub(crate) fn install_approved_from_pointer(
+    envelope: &GrantedCandidateInstallEnvelope,
+    action: &ProjectInstallAction,
+) -> Result<(), &'static str> {
+    validate_approved_install_envelope(envelope)?;
+    let approved = STATE.lock().approved_activation.ok_or("granted_candidate_activation_missing")?;
+    let snapshot = STATE.lock().snapshot();
+    if !snapshot.running || snapshot.run_count != 1 || action.action_sha256 == [0; 32] {
+        return Err("granted_candidate_install_not_ready");
+    }
+    let durable_promotion_transaction = append_promotion_transaction(
+        durable_store::PromotionTransactionKind::Promote, approved.promotion, None, false, None, false, true,
+    );
+    if !durable_promotion_transaction.performed {
+        return Err(durable_promotion_transaction.reason);
+    }
+    let retained = module_candidate_intake::retained();
+    let Some((_, grant)) = event_log::latest_module_computed_grant_reference() else {
+        return Err("promotion_evidence_reference_missing");
+    };
+    let persisted = artifact_store::persist_promoted_artifact(
+        approved.promotion, &durable_promotion_transaction, retained.as_ref(), grant.manifest_hash,
+        grant.vm_report_hash, grant.computed_grant_hash, GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.service_id,
+        artifact_store::granted_candidate_import_set_hash(),
+    );
+    if !persisted.performed {
+        return Err(persisted.reason);
+    }
+    let mut signature_der = [0u8; 256];
+    let signature_len = action.authority_signature.len();
+    if signature_len > signature_der.len() { return Err("project_install_signature_invalid"); }
+    signature_der[..signature_len].copy_from_slice(&action.authority_signature);
+    let mut state = STATE.lock();
+    state.promotion = Some(approved.promotion);
+    state.signed_install_authorization = Some(SignedInstallAuthorization {
+        install_envelope_sha256: envelope.envelope_sha256,
+        install_action_sha256: action.action_sha256,
+        physical_approval_sha256: action.physical_approval_sha256.unwrap_or([0; 32]),
+        signature_len,
+        signature_der,
+    });
+    drop(state);
+    emit_install_commit_marker(envelope, action, &durable_promotion_transaction, &persisted, true, "granted_candidate_installed");
+    Ok(())
+}
+
+fn emit_install_commit_marker(
+    envelope: &GrantedCandidateInstallEnvelope,
+    action: &ProjectInstallAction,
+    promotion: &durable_store::PromotionTransactionAppendEvidence,
+    persisted: &artifact_store::ArtifactPersistEvidence,
+    accepted: bool,
+    reason: &'static str,
+) {
+    serial::write_raw_str("GRANTED_CANDIDATE_INSTALL_COMMIT result=");
+    serial::write_raw_str(if accepted { "accepted" } else { "denied" });
+    serial::write_raw_str(" physical_approval=genesis_pointer source_kind=w7 candidate_sha256=sha256:");
+    write_hash(envelope.candidate_sha256);
+    serial::write_raw_str(" w7_receipt_sha256=sha256:");
+    write_hash(envelope.w7_receipt_sha256);
+    serial::write_raw_str(" activation_approval_sha256=sha256:");
+    write_hash(envelope.activation_approval_sha256);
+    serial::write_raw_str(" install_envelope_sha256=sha256:");
+    write_hash(envelope.envelope_sha256);
+    serial::write_raw_str(" install_action_sha256=sha256:");
+    write_hash(action.action_sha256);
+    serial::write_raw_str(" promotion_transaction_sha256=");
+    match promotion.frame_sha256 {
+        Some(hash) => {
+            serial::write_raw_str("sha256:");
+            write_hash(hash);
+        }
+        None => serial::write_raw_str("none"),
+    }
+    serial::write_raw_str(" artifact_persist_frame_sha256=");
+    match persisted.artifact_persist_frame_sha256 {
+        Some(hash) => {
+            serial::write_raw_str("sha256:");
+            write_hash(hash);
+        }
+        None => serial::write_raw_str("none"),
+    }
+    serial::write_raw_fmt(format_args!(
+        " generation={} sequence={} run_count=1 trust_tier=dev_key_not_owner_sealed durable_writes={} reason={}\r\n",
+        envelope.generation, action.log_sequence, accepted, reason
+    ));
 }
 
 fn load(source_method: &'static str, durable_effects: bool) -> ActionResult {
@@ -942,6 +1108,7 @@ fn load(source_method: &'static str, durable_effects: bool) -> ActionResult {
                 None,
                 false,
                 None,
+                false,
                 false,
             )
         })
@@ -1306,6 +1473,7 @@ fn rollback_apply(source_method: &'static str) -> RollbackResult {
             true,
             Some(reprojected_inventory_hash),
             true,
+            false,
         )
     } else {
         durable_store::promotion_transaction_append_denied(
@@ -1508,6 +1676,7 @@ fn append_promotion_transaction(
     restore_hash_verified: bool,
     reprojected_inventory_hash: Option<[u8; 32]>,
     cleanup_performed: bool,
+    install_authorized: bool,
 ) -> durable_store::PromotionTransactionAppendEvidence {
     let Some((_, signature)) = event_log::latest_module_promotion_signature_reference() else {
         return durable_store::promotion_transaction_append_denied(
@@ -1556,10 +1725,10 @@ fn append_promotion_transaction(
         signature_attestation_reference_hash: signature.attestation_reference_hash,
         promotion_authority_key_sha256: signature.promotion_authority_key_sha256,
         grant_binds_capability,
-        install_authorization_present: false,
-        install_envelope_binds_activation: false,
-        install_action_signature_verified: false,
-        physical_install_approval_consumed: false,
+        install_authorization_present: install_authorized,
+        install_envelope_binds_activation: install_authorized,
+        install_action_signature_verified: install_authorized,
+        physical_install_approval_consumed: install_authorized,
         rollback_plan_hash: promotion.plan_hash,
         pre_load_inventory_hash: promotion.pre_load_inventory_hash,
         ram_only_service_slot_id: promotion.ram_only_service_slot_id,

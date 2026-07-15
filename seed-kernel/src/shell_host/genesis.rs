@@ -939,23 +939,10 @@ fn draw_context(
     ];
     let mut y = rect.y + 78;
     if install_pending {
-        text::draw_text(
-            surface,
-            rect.x + 14,
-            y,
-            "Signed physical-owner preview",
-            APP_AMBER,
-            None,
-        );
+        let downloaded = install_preview.install_source == Some("granted_candidate");
+        text::draw_text(surface, rect.x + 14, y, if downloaded { "Downloaded W7 candidate" } else { "Signed physical-owner preview" }, APP_AMBER, None);
         y = y.saturating_add(14);
-        let effect = format!(
-            "{} generation {} / durable",
-            install_preview
-                .kind
-                .map(|kind| kind.label())
-                .unwrap_or("project"),
-            install_preview.generation,
-        );
+        let effect = if downloaded { format!("generation {} / durable", install_preview.generation) } else { format!("{} generation {} / durable", install_preview.kind.map(|kind| kind.label()).unwrap_or("project"), install_preview.generation) };
         draw_truncated_text(
             surface,
             rect.x + 14,
@@ -970,16 +957,16 @@ fn draw_context(
             .or(install_preview.previous_commit_sha256)
             .unwrap_or([0; 32]);
         let subject_line = format!(
-            "subject sha256:{:02x}{:02x}{:02x}{:02x}...",
+            "{} sha256:{:02x}{:02x}{:02x}{:02x}...",
+            if downloaded { "candidate" } else { "subject" },
             subject[0], subject[1], subject[2], subject[3]
         );
         text::draw_text(surface, rect.x + 14, y, &subject_line, TEXT_MUTED, None);
         y = y.saturating_add(14);
-        let binding = install_preview
-            .receipt_sha256
-            .or(install_preview.previous_commit_sha256)
-            .unwrap_or([0; 32]);
-        let binding_label = if install_preview.receipt_sha256.is_some() {
+        let binding = if downloaded { install_preview.activation_approval_sha256.unwrap_or([0; 32]) } else { install_preview.receipt_sha256.or(install_preview.previous_commit_sha256).unwrap_or([0; 32]) };
+        let binding_label = if downloaded {
+            "activation challenge"
+        } else if install_preview.receipt_sha256.is_some() {
             "receipt"
         } else {
             "install head"

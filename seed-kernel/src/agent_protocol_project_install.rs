@@ -5,7 +5,7 @@ use raios_core::{
     project_install::{
         install_action_signature_payload_sha256, seal_install_action, seal_install_envelope,
         seal_install_intent, seal_state_schema, ProjectAppStateSchema, ProjectInstallAction,
-        ProjectInstallActionKind, ProjectInstallAuthority, ProjectInstallEnvelope,
+        GrantedCandidateInstallEnvelope, ProjectInstallActionKind, ProjectInstallAuthority, ProjectInstallEnvelope,
         ProjectInstallIntent, StateMigrationPolicy, PROJECT_INSTALL_TRUST_TIER,
     },
     project_runtime::{WORKSPACE_ENTRYPOINT, WORKSPACE_SERVICE_ID},
@@ -22,7 +22,7 @@ use crate::{
         begin_response, emit_record_fields, end_response, parse_sha256_ref, record_bool as b,
         record_field as f, record_sha_or_null, record_str as s,
     },
-    console, module_candidate_intake, pci, project_app_autoload, project_build,
+    console, granted_candidate_service, module_candidate_intake, pci, project_app_autoload, project_build,
     project_install_store, serial, workspace_candidate_service,
 };
 
@@ -54,6 +54,10 @@ enum PendingAction {
         encoded_receipt: Vec<u8>,
         binding: raios_core::project_runtime::WorkspaceRunBinding,
     },
+    GrantedCandidateInstall {
+        envelope: GrantedCandidateInstallEnvelope,
+        action: ProjectInstallAction,
+    },
     Uninstall {
         action: ProjectInstallAction,
     },
@@ -63,6 +67,7 @@ impl PendingAction {
     fn kind(&self) -> PreviewKind {
         match self {
             Self::Install { .. } => PreviewKind::Install,
+            Self::GrantedCandidateInstall { .. } => PreviewKind::Install,
             Self::Uninstall { .. } => PreviewKind::Uninstall,
         }
     }
@@ -70,6 +75,7 @@ impl PendingAction {
     fn action(&self) -> &ProjectInstallAction {
         match self {
             Self::Install { intent, .. } => &intent.action,
+            Self::GrantedCandidateInstall { action, .. } => action,
             Self::Uninstall { action } => action,
         }
     }
@@ -77,6 +83,7 @@ impl PendingAction {
     fn candidate_sha256(&self) -> Option<[u8; 32]> {
         match self {
             Self::Install { intent, .. } => Some(intent.envelope.candidate_sha256),
+            Self::GrantedCandidateInstall { envelope, .. } => Some(envelope.candidate_sha256),
             Self::Uninstall { .. } => None,
         }
     }
@@ -84,6 +91,7 @@ impl PendingAction {
     fn receipt_sha256(&self) -> Option<[u8; 32]> {
         match self {
             Self::Install { intent, .. } => Some(intent.envelope.build_receipt_sha256),
+            Self::GrantedCandidateInstall { envelope, .. } => Some(envelope.w7_receipt_sha256),
             Self::Uninstall { .. } => None,
         }
     }
@@ -135,6 +143,11 @@ impl State {
             last_commit_sha256: self.last_commit_sha256,
             candidate_blob_offset: self.candidate_blob_offset,
             candidate_blob_frame_len: self.candidate_blob_frame_len,
+            install_source: pending.and_then(|pending| match pending { PendingAction::GrantedCandidateInstall { .. } => Some("granted_candidate"), _ => None }),
+            receipt_kind: pending.and_then(|pending| match pending { PendingAction::GrantedCandidateInstall { .. } => Some("w7_acquisition"), _ => None }),
+            w4_project_receipt_present: false,
+            activation_approval_sha256: pending.and_then(|pending| match pending { PendingAction::GrantedCandidateInstall { envelope, .. } => Some(envelope.activation_approval_sha256), _ => None }),
+            install_envelope_sha256: action.and_then(|action| action.install_envelope_sha256),
         }
     }
 }
@@ -155,6 +168,11 @@ pub(crate) struct PreviewSnapshot {
     pub(crate) last_commit_sha256: Option<[u8; 32]>,
     pub(crate) candidate_blob_offset: Option<u64>,
     pub(crate) candidate_blob_frame_len: Option<u64>,
+    pub(crate) install_source: Option<&'static str>,
+    pub(crate) receipt_kind: Option<&'static str>,
+    pub(crate) w4_project_receipt_present: bool,
+    pub(crate) activation_approval_sha256: Option<[u8; 32]>,
+    pub(crate) install_envelope_sha256: Option<[u8; 32]>,
 }
 
 static STATE: Mutex<State> = Mutex::new(State::new());
@@ -249,6 +267,23 @@ pub(crate) fn approve_from_pointer() -> bool {
         finish_denied("ahci_controller_not_observed");
         return true;
     };
+    if let PendingAction::GrantedCandidateInstall { envelope, action } = &pending {
+        match validate_current_granted_install_preview(&envelope, &action)
+            .and_then(|_| granted_candidate_service::install_approved_from_pointer(&envelope, &action))
+        {
+            Ok(()) => {
+                let mut state = STATE.lock();
+                state.pending = None;
+                state.signature_verified = false;
+                state.last_reason = "granted_candidate_installed";
+                return true;
+            }
+            Err(reason) => {
+                finish_denied(reason);
+                return true;
+            }
+        }
+    }
 
     let result = match pending {
         PendingAction::Install {
@@ -271,6 +306,12 @@ pub(crate) fn approve_from_pointer() -> bool {
         PendingAction::Uninstall { action } => {
             project_install_store::append_physical_uninstall(controller, action)
                 .map(|commit| (PreviewKind::Uninstall, commit))
+        }
+        PendingAction::GrantedCandidateInstall { .. } => {
+            // Handled by the early granted-candidate branch above; reaching this
+            // arm means the dispatch order changed, so fail closed.
+            finish_denied("granted_candidate_install_dispatch_error");
+            return true;
         }
     };
 
@@ -316,6 +357,12 @@ fn prepare_install(input: &str) -> (bool, &'static str) {
         Ok(hash) => hash,
         Err(reason) => return (false, reason),
     };
+    if granted_candidate_service::approved_install_envelope()
+        .map(|envelope| envelope.activation_approval_sha256 == binding_hash)
+        .unwrap_or(false)
+    {
+        return prepare_granted_candidate_install(binding_hash);
+    }
     let runtime = workspace_candidate_service::snapshot();
     let Some(binding) = runtime.binding else {
         return (false, "project_install_workspace_binding_missing");
@@ -449,6 +496,61 @@ fn prepare_install(input: &str) -> (bool, &'static str) {
     (true, "project_install_signature_required")
 }
 
+fn prepare_granted_candidate_install(binding_hash: [u8; 32]) -> (bool, &'static str) {
+    let envelope = match granted_candidate_service::approved_install_envelope() {
+        Ok(envelope) if envelope.activation_approval_sha256 == binding_hash => envelope,
+        Ok(_) => return (false, "granted_candidate_install_binding_stale"),
+        Err(reason) => return (false, reason),
+    };
+    let Some(controller) = pci::find_mass_storage_controller() else { return (false, "ahci_controller_not_observed"); };
+    let cursor = match current_granted_install_cursor(controller) { Ok(cursor) => cursor, Err(reason) => return (false, reason) };
+    let physical_approval_sha256 = approval_hash(INSTALL_APPROVAL_DOMAIN, envelope.generation, cursor.next_install_commit_seq, envelope.envelope_sha256, cursor.head_commit_sha256);
+    let action = ProjectInstallAction {
+        kind: ProjectInstallActionKind::Install,
+        authority: ProjectInstallAuthority::PhysicalOwner,
+        service_id: String::from("svc.dev.granted_candidate"),
+        generation: envelope.generation,
+        log_sequence: cursor.next_install_commit_seq,
+        previous_commit_sha256: cursor.head_commit_sha256,
+        install_envelope_sha256: Some(envelope.envelope_sha256),
+        target_install_commit_sha256: None,
+        authority_evidence_sha256: authority_evidence_hash(PreviewKind::Install, binding_hash, envelope.envelope_sha256),
+        physical_approval_sha256: Some(physical_approval_sha256),
+        authority_key_sha256: Some(PLACEHOLDER_PROMOTION_AUTHORITY_PUBLIC_KEY_SHA256),
+        authority_signature: Vec::new(),
+        action_sha256: [0; 32],
+    };
+    if install_action_signature_payload_sha256(&action).is_err() { return (false, "project_install_action_shape_invalid"); }
+    let mut state = STATE.lock();
+    state.pending = Some(PendingAction::GrantedCandidateInstall { envelope, action });
+    state.signature_verified = false;
+    state.last_reason = "project_install_signature_required";
+    state.last_commit_sha256 = None;
+    state.candidate_blob_offset = None;
+    state.candidate_blob_frame_len = None;
+    drop(state);
+    emit_preview_marker(PreviewKind::Install, false);
+    (true, "project_install_signature_required")
+}
+
+fn current_granted_install_cursor(controller: pci::PciMassStorageController) -> Result<project_install_store::ProjectInstallCursor, &'static str> {
+    project_install_store::current_project_install_cursor(controller, WORKSPACE_SERVICE_ID)
+}
+
+fn validate_current_granted_install_preview(
+    envelope: &GrantedCandidateInstallEnvelope,
+    action: &ProjectInstallAction,
+) -> Result<(), &'static str> {
+    if !STATE.lock().signature_verified || action.authority_signature.is_empty() {
+        return Err("project_install_physical_signature_invalid");
+    }
+    if !verify_promotion_authority_signature(&action.authority_signature, &install_action_signature_payload_sha256(action).map_err(|error| error.reason())?) {
+        return Err("project_install_physical_signature_invalid");
+    }
+    granted_candidate_service::validate_approved_install_envelope(envelope)
+}
+
+
 fn validate_current_install_preview(
     binding: &raios_core::project_runtime::WorkspaceRunBinding,
     candidate: &[u8],
@@ -577,6 +679,14 @@ fn accept_signature(input: &str, method: &str, expected_kind: PreviewKind) -> (b
                 Err(error) => return (false, error.reason()),
             };
         }
+        PendingAction::GrantedCandidateInstall { action, .. } => {
+            action.authority_signature = signature;
+            action.action_sha256 = [0; 32];
+            *action = match seal_install_action(action.clone()) {
+                Ok(action) => action,
+                Err(error) => return (false, error.reason()),
+            };
+        }
         PendingAction::Uninstall { action } => {
             action.authority_signature = signature;
             action.action_sha256 = [0; 32];
@@ -677,6 +787,13 @@ fn fields<'a>(
                 .map(V::U64)
                 .unwrap_or(V::Null),
         ),
+        f("install_source", snapshot.install_source.map(s).unwrap_or(V::Null)),
+        f("receipt_kind", snapshot.receipt_kind.map(s).unwrap_or(V::Null)),
+        f("w4_project_receipt_present", b(snapshot.w4_project_receipt_present)),
+        f("activation_approval_sha256", record_sha_or_null(snapshot.activation_approval_sha256)),
+        f("install_envelope_sha256", record_sha_or_null(snapshot.install_envelope_sha256)),
+        f("promotion_transaction_sha256", V::Null),
+        f("artifact_persist_frame_sha256", V::Null),
         f("last_reason", s(snapshot.last_reason)),
         f("serial_approval_authorized", b(false)),
         f("physical_pointer_required", b(true)),
