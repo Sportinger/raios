@@ -134,3 +134,33 @@
 - Each UI record exposes canonical program, ARTSTOR verification, and install-chain links.
 - UI-program ARTSTOR offsets now suppress the same false garbage report as granted records.
 - The scan remains read-only and grants no load, execution, or durable-write authority.
+
+## harness cycle 2
+
+- `shadow-vm-persistence-reboot.ps1 -ProgramPersistence` now owns the key-free,
+  network-free three-boot RUIP proof while the default B1.2c provider path is
+  left behind an untouched no-switch flow.
+- Boot 1 copies the green `genesis-ui` editor delivery, first physical run,
+  F12, and `Invoke-SignedUiProgramInstall` ceremony; clean host inspection
+  independently pins the authorization/promote/program-persist frames and the
+  exact 176-byte ARTSTOR payload.
+- Boot 2 waits for the exact merged `PROGRAM_AUTOLOAD` marker before any tagged
+  command, checks the restored inert workspace, runs the editor through one
+  fresh pointer click and real input, then pins exact-hash preview/apply,
+  `PROGRAM_ROLLBACK_COMMIT`, workspace removal, second-apply denial, immutable
+  boot-1 prefix, and the actual variable-length newer tail.
+- Boot 3 waits for the exact rolled-back marker before commands and proves the
+  workspace and `svc.user.shell` stay absent. Blob-corrupt, rebuilt-link-tamper,
+  and Safe child VMs likewise wait for their program marker before inspection.
+- Marker needles, field order, response `v` carve-outs, reasons, and scan fields
+  come from the merged emitters. In particular, UI link tamper resolves as
+  `accepted/not_installed/no_w6_authorized_program_install`, and program
+  autoload itself appends no recovery re-promotion.
+- Open kernel diagnostic gap intentionally exposed by
+  `program-boot2:workspace-restored-exact`: `program_workspace::Snapshot`
+  computes durable retention and stores all W6 links, but merged
+  `agent_protocol_program::emit_snapshot` still hard-codes
+  `retention=current_boot_ram_only` and emits none of those link fields. The
+  harness requires truthful `retention=durable`, so this predicate remains the
+  fail-closed signal until the kernel emitter is corrected.
+- No Cargo, build, formatter, or VM command was run per worker scope.

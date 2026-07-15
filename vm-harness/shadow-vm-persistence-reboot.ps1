@@ -5,7 +5,8 @@ param(
     [int]$TimeoutSeconds = 180,
     [int]$SerialWriteChunkSize = 256,
     [int]$SerialWriteDelayMilliseconds = 0,
-    [switch]$KeepRunDir
+    [switch]$KeepRunDir,
+    [switch]$ProgramPersistence
 )
 
 $ErrorActionPreference = "Stop"
@@ -1195,6 +1196,550 @@ function Assert-MemoryTornReclogChild {
     }
 }
 
+function Get-ProgramEditorFixture {
+    $base64 = @'
+UlVJUAEAIACwAAAAAQMAAQEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAABABQACAAIAPAAGAAAAAAAcmFpT1MgRURJVCAgRjEyPUVYSVQEAAAACAAoAGACgAEAAAAAAwAFAAgAtAFgACQAAQAAAENMRUFSAAAAAQAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+'@ -replace '\s', ''
+    $bytes = [Convert]::FromBase64String($base64)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $actual = ([BitConverter]::ToString($sha.ComputeHash($bytes)) -replace "-", "").ToLowerInvariant()
+    }
+    finally {
+        $sha.Dispose()
+    }
+    if ($bytes.Length -ne 176 -or $actual -ne "34f726d13818d174e23ef0614ca183a2967b9449c8cf4447151aef13d277d815") {
+        throw "Canonical editor RUIP fixture drifted: bytes=$($bytes.Length) sha256=$actual"
+    }
+    return [pscustomobject]@{
+        Bytes = $bytes
+        Hash = "sha256:$actual"
+    }
+}
+
+function Get-ProgramInstallReadyMarker {
+    param([string]$ProgramSha256)
+
+    $null = Wait-ForLogText -Path $SerialLog -Needle "PROGRAM_INSTALL_READY " -TimeoutSeconds $TimeoutSeconds
+    $pattern = '^PROGRAM_INSTALL_READY result=(accepted) physical_approval=(genesis_pointer) program_sha256=(sha256:[0-9a-f]{64}) activation_approval_sha256=(sha256:[0-9a-f]{64}) engine=(svc\.user\.shell) persistence_authority=(false) reason=(program_current_boot_approved)$'
+    $lines = @((Get-SerialLogContent -Path $SerialLog) -split "`n" | ForEach-Object { $_.TrimEnd() } | Where-Object {
+        $_.StartsWith("PROGRAM_INSTALL_READY ", [System.StringComparison]::Ordinal)
+    })
+    if ($lines.Count -ne 1) {
+        throw "Expected exactly one PROGRAM_INSTALL_READY marker, found $($lines.Count): $(Get-SerialLogTail -Path $SerialLog)"
+    }
+    $match = [regex]::Match([string]$lines[0], $pattern)
+    if (-not $match.Success -or $match.Groups[3].Value -ne $ProgramSha256) {
+        throw "PROGRAM_INSTALL_READY did not match the merged emitter: $($lines[0])"
+    }
+    return [pscustomobject]@{
+        Line = [string]$lines[0]
+        ProgramSha256 = [string]$match.Groups[3].Value
+        ActivationApprovalSha256 = [string]$match.Groups[4].Value
+    }
+}
+
+function Get-ProgramAutoloadMarker {
+    param([int64]$BeforeOffset = -1)
+
+    $null = Wait-ForLogText -Path $SerialLog -Needle "PROGRAM_AUTOLOAD " -TimeoutSeconds $TimeoutSeconds
+    $log = Get-SerialLogContent -Path $SerialLog
+    $pattern = '^PROGRAM_AUTOLOAD result=(accepted|denied) phase=(autoloaded|not_installed|rolled_back|denied) reason=([a-z0-9_]+) posture=(Normal|Probation|Safe|PersistenceUnavailable) program_sha256=(sha256:[0-9a-f]{64}|none) promotion_transaction_sha256=(sha256:[0-9a-f]{64}|none) program_persist_frame_sha256=(sha256:[0-9a-f]{64}|none) w6_signature_verified=(true|false) canonical_verified=(true|false) workspace_reloaded=(true|false) shell_started=(false) cross_reboot_proven=(true|false)$'
+    $found = New-Object System.Collections.Generic.List[object]
+    $offset = 0
+    foreach ($rawLine in @($log -split "`n")) {
+        $line = $rawLine.TrimEnd()
+        if ($line.StartsWith("PROGRAM_AUTOLOAD ", [System.StringComparison]::Ordinal)) {
+            $match = [regex]::Match($line, $pattern)
+            if (-not $match.Success) {
+                throw "PROGRAM_AUTOLOAD did not match the merged emitter: $line"
+            }
+            $found.Add([pscustomobject]@{
+                Line = $line
+                Offset = [int64]$offset
+                Result = [string]$match.Groups[1].Value
+                Phase = [string]$match.Groups[2].Value
+                Reason = [string]$match.Groups[3].Value
+                Posture = [string]$match.Groups[4].Value
+                ProgramSha256 = [string]$match.Groups[5].Value
+                PromotionTransactionSha256 = [string]$match.Groups[6].Value
+                ProgramPersistFrameSha256 = [string]$match.Groups[7].Value
+                W6SignatureVerified = $match.Groups[8].Value -eq "true"
+                CanonicalVerified = $match.Groups[9].Value -eq "true"
+                WorkspaceReloaded = $match.Groups[10].Value -eq "true"
+                ShellStarted = $false
+                CrossRebootProven = $match.Groups[12].Value -eq "true"
+            }) | Out-Null
+        }
+        $offset += $rawLine.Length + 1
+    }
+    if ($found.Count -ne 1) {
+        throw "Expected exactly one PROGRAM_AUTOLOAD marker, found $($found.Count): $(Get-SerialLogTail -Path $SerialLog)"
+    }
+    $marker = $found[0]
+    if ($BeforeOffset -ge 0 -and $marker.Offset -ge $BeforeOffset) {
+        throw "PROGRAM_AUTOLOAD arrived after the first command boundary: $($marker.Line)"
+    }
+    return $marker
+}
+
+function Get-ProgramRollbackCommitMarker {
+    param([int64]$AfterOffset)
+
+    $log = (Get-SerialLogContent -Path $SerialLog).Substring([int]$AfterOffset)
+    $lines = @($log -split "`n" | ForEach-Object { $_.TrimEnd() } | Where-Object {
+        $_.StartsWith("PROGRAM_ROLLBACK_COMMIT ", [System.StringComparison]::Ordinal)
+    })
+    $pattern = '^PROGRAM_ROLLBACK_COMMIT result=(accepted) program_sha256=(sha256:[0-9a-f]{64}) promotion_transaction_sha256=(sha256:[0-9a-f]{64}) unpromote_transaction_sha256=(sha256:[0-9a-f]{64}) workspace_removed=(true|false) durable_writes=(true) reason=(program_unpromoted)$'
+    if ($lines.Count -ne 1) {
+        throw "Expected exactly one PROGRAM_ROLLBACK_COMMIT marker, found $($lines.Count): $log"
+    }
+    $match = [regex]::Match([string]$lines[0], $pattern)
+    if (-not $match.Success) {
+        throw "PROGRAM_ROLLBACK_COMMIT did not match the merged emitter: $($lines[0])"
+    }
+    return [pscustomobject]@{
+        Line = [string]$lines[0]
+        ProgramSha256 = [string]$match.Groups[2].Value
+        PromotionTransactionSha256 = [string]$match.Groups[3].Value
+        UnpromoteTransactionSha256 = [string]$match.Groups[4].Value
+        WorkspaceRemoved = $match.Groups[5].Value -eq "true"
+    }
+}
+
+function Get-UiProgramHostRecord {
+    param([object]$Inspection)
+    return @($Inspection.reclog_frames | Where-Object {
+        $_.payload_json.schema -eq "raios.artifact_persist.v0" -and
+        $_.payload_json.subject_kind -eq "ui_program"
+    } | Select-Object -Last 1)[0]
+}
+
+function Test-ReclogPrefix {
+    param([object[]]$PrefixFrames, [object[]]$Frames)
+    if ($Frames.Count -lt $PrefixFrames.Count) {
+        return $false
+    }
+    for ($i = 0; $i -lt $PrefixFrames.Count; $i += 1) {
+        if ([int64]$Frames[$i].seq -ne [int64]$PrefixFrames[$i].seq -or
+            $Frames[$i].frame_sha256 -ne $PrefixFrames[$i].frame_sha256 -or
+            $Frames[$i].payload_sha256 -ne $PrefixFrames[$i].payload_sha256) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Invoke-UiProgramPersistLinkTamper {
+    param([string]$Path)
+
+    $code = @'
+import json, runpy, sys
+m = runpy.run_path(sys.argv[1])
+image = m["Path"](sys.argv[2])
+m["assert_not_release_output"](image)
+info = m["validate_existing_gpt_image"](image)
+seed = m["seed_data_first_lba_from_info"](info)
+with image.open("r+b") as handle:
+    frames = m["parse_reclog_frames_for_inspection"](m["read_reclog_region"](handle, seed))
+    target = next((i for i, frame in enumerate(frames) if (m["payload_json"](frame["payload"]) or {}).get("subject_kind") == "ui_program" and (m["payload_json"](frame["payload"]) or {}).get("schema") == "raios.artifact_persist.v0"), None)
+    if target is None:
+        raise ValueError("no ui_program artifact_persist RECLOG record found")
+    record = m["payload_json"](frames[target]["payload"])
+    field = "promotion_transaction_sha256"
+    old = str(record[field])
+    new = m["flip_hash_byte"](old)
+    payload = m["replace_json_hash"](frames[target]["payload"], field, old, new)
+    m["rewrite_reclog_frames"](handle, seed, frames, target, payload)
+    handle.flush()
+    m["os"].fsync(handle.fileno())
+post = m["inspect_image"](image)
+if (post.get("reclog_scan") or {}).get("status") != "valid":
+    raise ValueError("tampered ui_program RECLOG no longer scans as valid")
+print(json.dumps({"operation": "tamper_ui_program_persist_link", "field": field, "old_value": old, "new_value": new, "seq": frames[target]["seq"]}))
+'@
+    $result = Invoke-NativeCommandForReport -FilePath "python" -Arguments @("-c", $code, $Builder, $Path)
+    if ($result.ExitCode -ne 0) {
+        throw "UI-program link tamper failed: $((@($result.Output) + @($result.Error)) -join [Environment]::NewLine)"
+    }
+    return ($result.Output -join [Environment]::NewLine) | ConvertFrom-Json
+}
+
+function Assert-ProgramWorkspaceEmpty {
+    param([string]$Prefix)
+
+    Send-AgentCommandTagged -Prefix $Prefix -Command "program.workspace" -ExpectedMarker "RAIOS_AGENT_END program.workspace" -Name "workspace"
+    $response = Get-LastAgentResponseJson -Method "program.workspace"
+    $workspace = $response.body.result
+    $ok = $response.v -eq "raios.agent.v0" -and
+        $workspace.method -eq "program.workspace" -and $workspace.status -eq "empty" -and
+        $workspace.present -eq $false -and [int64]$workspace.byte_len -eq 0 -and
+        $null -eq $workspace.program_sha256 -and $null -eq $workspace.source -and
+        [int64]$workspace.pending_byte_len -eq 0 -and [int64]$workspace.pending_chunk_count -eq 0 -and
+        $null -eq $workspace.pending_provider_request_id -and
+        $workspace.authorizes_load -eq $false -and $workspace.authorizes_execution -eq $false -and
+        $workspace.execution_attempted -eq $false -and $workspace.writes_persistent_state -eq $false
+    return [pscustomobject]@{ Ok = $ok; Response = $response; Workspace = $workspace }
+}
+
+function Invoke-ProgramPersistenceProof {
+    $script:Profile = "program-persistence-reboot"
+    $script:Network = $false
+    $fixture = Get-ProgramEditorFixture
+    $programHash = [string]$fixture.Hash
+    $activationNeedle = "PROGRAM_CURRENT_BOOT_ACTIVATION physical_approval=pointer program_sha256=$programHash engine=svc.user.shell capability_surface=ui_only wasm=true result=accepted"
+
+    $env:CARGO_HOME = (Resolve-Path (Join-Path $RepoRoot ".cargo-home")).Path
+    $env:CARGO_TARGET_DIR = Join-Path $RepoRoot "target"
+    & cargo build --locked -p ota-tools --bin dev-promotion-signer
+    if ($LASTEXITCODE -ne 0) {
+        throw "dev-promotion-signer build failed with exit code $LASTEXITCODE"
+    }
+
+    if ($Image) {
+        $script:ResolvedImage = (Resolve-Path -LiteralPath $Image).Path
+    }
+    else {
+        $script:ResolvedImage = Join-Path $RunDir "raios-stage0-program-persistence.img"
+        $script:TempImage = $true
+        & $PackageScript -Profile release -Image $ResolvedImage -UseTempEsp
+        if ($LASTEXITCODE -ne 0) {
+            throw "Key-free program-persistence image packaging failed with exit code $LASTEXITCODE"
+        }
+    }
+
+    $script:PersistDiskImage = Join-Path $RunDir "kept-program-persist.img"
+    $builderResult = Invoke-NativeCommandForReport -FilePath "python" -Arguments @($Builder, "--self-check", "--seed-bootctl", "valid-a", $PersistDiskImage)
+    if ($builderResult.ExitCode -ne 0) {
+        throw "Program-persistence disk build failed: $((@($builderResult.Output) + @($builderResult.Error)) -join [Environment]::NewLine)"
+    }
+    $script:PersistDiskImage = Assert-PersistDiskPathSafe -Path $PersistDiskImage
+    $initialInspection = Get-PersistInspection -Path $PersistDiskImage
+    if (-not ([bool]$initialInspection.gpt_header_valid -and [bool]$initialInspection.gpt_crc_checked -and
+        [bool]$initialInspection.data_superblock_valid -and $initialInspection.bootctl_read.decision.posture -eq "Normal" -and
+        [int64]$initialInspection.reclog_scan.count -eq 0)) {
+        throw "Initial program persist disk was not empty Normal: $(Convert-CompactJson $initialInspection 30)"
+    }
+    $script:HardwareProfile = New-HardwareProfile -Nic "none" -ScratchDrive $true -AuditRollbackTargetDrive $true -PersistDrive $true
+
+    $script:boot1Vm = Start-RaiosVm -Label "program-boot1" -PredicatePrefix "program-boot1" -Port $SerialTcpPort -MonitorPort ($SerialTcpPort + 100) -QmpPort ($SerialTcpPort + 200) -PersistPath $PersistDiskImage
+    $chunkCount = Send-GenesisUiProgramBytes -Bytes $fixture.Bytes -NamePrefix "program-boot1:editor-delivery"
+    Send-AgentCommandTagged -Prefix "program-boot1" -Command "program.submit_finalize" -ExpectedMarker "RAIOS_AGENT_END program.submit_finalize" -Name "editor-finalize"
+    $finalizeResponse = Get-LastAgentResponseJson -Method "program.submit_finalize"
+    $finalize = $finalizeResponse.body.result
+    $runOffset = Get-SerialLogOffset
+    Send-QemuAbsolutePointerClick -X 27017 -Y 6559
+    if (-not (Wait-ForLogTextAfterOffset -Path $SerialLog -Needle $activationNeedle -Offset $runOffset -TimeoutSeconds $TimeoutSeconds)) {
+        throw "Boot 1 editor run click did not activate the exact restored program"
+    }
+    $ready = Get-ProgramInstallReadyMarker -ProgramSha256 $programHash
+    foreach ($key in @("h", "i")) {
+        $inputOffset = Get-SerialLogOffset
+        Send-GenesisUiKey -KeyName $key
+        if (-not (Wait-ForLogTextAfterOffset -Path $SerialLog -Needle "PERSONAL SHELL FRAME UPDATED sanitized_input" -Offset $inputOffset -TimeoutSeconds $TimeoutSeconds)) {
+            throw "Boot 1 editor input '$key' did not update the rendered frame"
+        }
+    }
+    Send-AgentCommandTagged -Prefix "program-boot1" -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "editor-inventory"
+    $runInventory = Get-LastAgentResponseJson -Method "service.inventory"
+    Send-GenesisUiKey -KeyName "f12"
+    if (-not (Wait-ForLogTextAfterOffset -Path $SerialLog -Needle "PERSONAL SHELL EXIT F12 genesis" -Offset $runOffset -TimeoutSeconds $TimeoutSeconds)) {
+        throw "Boot 1 F12 did not return the editor to Genesis before install"
+    }
+    $script:install = @(Invoke-SignedUiProgramInstall -ProgramSha256 $programHash -ActivationApprovalSha256 $ready.ActivationApprovalSha256 -NamePrefix "program-boot1:editor")[-1]
+    $shellRows = @($runInventory.facts.services | Where-Object { $_.id -eq "svc.user.shell" })
+    $boot1Log = Get-SerialLogContent -Path $SerialLog
+    $activationOffset = $boot1Log.IndexOf($activationNeedle, [System.StringComparison]::Ordinal)
+    $readyOffset = $boot1Log.IndexOf($ready.Line, [System.StringComparison]::Ordinal)
+    $boot1Ok = $finalizeResponse.v -eq "raios.agent.v0" -and $finalize.accepted -eq $true -and
+        $finalize.program_sha256 -eq $programHash -and [int64]$finalize.byte_len -eq 176 -and
+        [int64]$finalize.serial_chunk_count -eq [int64]$chunkCount -and
+        $ready.ProgramSha256 -eq $programHash -and $ready.ActivationApprovalSha256 -match '^sha256:[0-9a-f]{64}$' -and
+        $activationOffset -ge 0 -and $readyOffset -gt $activationOffset -and
+        $shellRows.Count -eq 1 -and $shellRows[0].scope -eq "current_boot" -and $shellRows[0].running -eq $true -and
+        $install.PrepareResponse.v -eq "raios.agent.v0" -and $install.SignatureResponse.v -eq "raios.agent.v0" -and
+        $install.DenialResponse.v -eq "raios.agent.v0" -and
+        $install.Preview.install_source -eq "ui_program" -and $install.Preview.receipt_kind -eq "ruip_canonical" -and
+        $install.Preview.candidate_sha256 -eq $programHash -and
+        $install.Preview.activation_approval_sha256 -eq $ready.ActivationApprovalSha256 -and
+        $install.SignedPreview.signature_verified -eq $true -and
+        $install.SignedPreview.action_signature_message_sha256 -eq $install.ActionSignatureMessageSha256 -and
+        $install.SignedPreview.action_signature_message_sha256 -ne $ready.ActivationApprovalSha256 -and
+        $install.Denial.reason -eq "project_install_physical_pointer_approval_required" -and
+        (1 + $install.ClickCount) -eq 2 -and
+        $install.ProgramSha256 -eq $programHash -and $install.ActivationApprovalSha256 -eq $ready.ActivationApprovalSha256 -and
+        $install.InstallEnvelopeSha256 -eq $install.SignedPreview.install_envelope_sha256 -and
+        $install.InstallActionSha256 -match '^sha256:[0-9a-f]{64}$' -and
+        $install.PromotionTransactionSha256 -match '^sha256:[0-9a-f]{64}$' -and
+        $install.ProgramPersistFrameSha256 -match '^sha256:[0-9a-f]{64}$' -and
+        [int64]$install.CanonicalProgramByteLen -eq 176 -and $install.ParsedPayloadSha256 -eq $programHash -and
+        [int64]$install.PreReclogScan.count -eq 1 -and
+        [int64]$install.PostReclogScan.count -eq ([int64]$install.PreReclogScan.count + 3) -and
+        [int64]$install.Sequence -eq ([int64]$install.PreReclogScan.tail_seq + 2) -and
+        [int64]$install.PostReclogScan.tail_seq -eq ($install.Sequence + 1) -and
+        $install.PostReclogScan.tail_frame_sha256 -eq $install.ProgramPersistFrameSha256 -and
+        [int64]$install.PostArtifactScan.ui_program_persist_record_count -eq ([int64]$install.PreArtifactScan.ui_program_persist_record_count + 1) -and
+        $install.InstalledArtifactRecord.canonical_program_sha256 -eq $programHash -and
+        $install.InstalledArtifactRecord.parsed_payload_sha256 -eq $programHash -and
+        $install.ActivationCountAfterClick -eq $install.ActivationCountBeforeClick -and
+        $install.ShellActiveCountAfterClick -eq $install.ShellActiveCountBeforeClick -and
+        ([regex]::Matches($install.AfterClickLog, [regex]::Escape("PROGRAM_CURRENT_BOOT_ACTIVATION "))).Count -eq 0
+    $boot1Dump = [ordered]@{ finalize = $finalizeResponse; ready = $ready; inventory = $runInventory; install = $install }
+    Assert-ReportPredicate -Prefix "program-boot1" -Name "approved-editor-installed" -Expected "two distinct physical clicks run then W6-install the exact 176-byte editor; three linked frames and one UI ARTSTOR record land without install-time rerun" -Passed $boot1Ok -Actual $(if ($boot1Ok) { $install.MarkerLine } else { Convert-CompactJson $boot1Dump 30 }) -FailureMessage "Boot 1 did not physically run and durably install the exact editor"
+
+    Stop-RaiosVmCleanly -Vm $boot1Vm -Name "program-boot1"
+    $script:postBoot1Inspection = Get-PersistInspection -Path $PersistDiskImage
+    $boot1Frames = @($postBoot1Inspection.reclog_frames)
+    $authorization = @($boot1Frames | Where-Object { [int64]$_.seq -eq ([int64]$install.Sequence - 1) })[0]
+    $promotion = @($boot1Frames | Where-Object { "sha256:$($_.frame_sha256)" -eq $install.PromotionTransactionSha256 })[0]
+    $persist = Get-UiProgramHostRecord -Inspection $postBoot1Inspection
+    $blob = $postBoot1Inspection.first_artstor_blob
+    $hostBoot1Ok = $postBoot1Inspection.reclog_scan.status -eq "valid" -and
+        $authorization.payload_json.schema -eq "raios.install_authorization.v0" -and $authorization.payload_json.subject_kind -eq "ui_program" -and
+        $authorization.payload_json.canonical_program_sha256 -eq $programHash -and $authorization.payload_json.activation_approval_sha256 -eq $ready.ActivationApprovalSha256 -and
+        $promotion.payload_json.schema -eq "raios.promotion_transaction.v0" -and $promotion.payload_json.subject_kind -eq "ui_program" -and
+        $promotion.payload_json.transaction_kind -eq "promote" -and
+        $promotion.payload_json.install_authorization_frame_sha256 -eq "sha256:$($authorization.frame_sha256)" -and
+        [int64]$persist.seq -eq ([int64]$promotion.seq + 1) -and
+        "sha256:$($persist.frame_sha256)" -eq $install.ProgramPersistFrameSha256 -and
+        $persist.payload_json.canonical_program_sha256 -eq $programHash -and
+        [int64]$persist.payload_json.canonical_program_byte_len -eq 176 -and
+        $persist.payload_json.install_authorization_frame_sha256 -eq "sha256:$($authorization.frame_sha256)" -and
+        $persist.payload_json.promotion_transaction_sha256 -eq $install.PromotionTransactionSha256 -and
+        $blob.valid -eq $true -and [int64]$blob.payload_len -eq 176 -and
+        "sha256:$($blob.payload_sha256)" -eq $programHash -and
+        "sha256:$($blob.frame_sha256)" -eq $persist.payload_json.artstor_blob_frame_sha256
+    Assert-ReportPredicate -Prefix "program-boot1" -Name "persist-disk-has-w6-provenance" -Expected "clean-quit host inspection finds linked ui_program authorization/promote/persist frames and the exact 176-byte ARTSTOR blob" -Passed $hostBoot1Ok -Actual $(if ($hostBoot1Ok) { "authorization=sha256:$($authorization.frame_sha256) promote=$($install.PromotionTransactionSha256) persist=$($install.ProgramPersistFrameSha256)" } else { Convert-CompactJson $postBoot1Inspection 30 }) -FailureMessage "Boot 1 host inspection did not find exact UI-program W6 provenance"
+    Copy-Item -LiteralPath $PersistDiskImage -Destination $Boot1PersistSnapshot -Force
+
+    $script:boot2Vm = Start-RaiosVm -Label "program-boot2" -PredicatePrefix "program-boot2" -Port ($SerialTcpPort + 1) -MonitorPort ($SerialTcpPort + 101) -QmpPort ($SerialTcpPort + 201) -PersistPath $PersistDiskImage
+    $null = Wait-ForLogText -Path $SerialLog -Needle "PROGRAM_AUTOLOAD " -TimeoutSeconds $TimeoutSeconds
+    $boot2FirstCommandOffset = Get-SerialLogOffset
+    $boot2Marker = Get-ProgramAutoloadMarker -BeforeOffset $boot2FirstCommandOffset
+    $boot2Before = $boot2Marker.Result -eq "accepted" -and $boot2Marker.Phase -eq "autoloaded" -and
+        $boot2Marker.Reason -eq "program_autoloaded" -and $boot2Marker.Posture -eq "Normal" -and
+        $boot2Marker.ProgramSha256 -eq $programHash -and
+        $boot2Marker.PromotionTransactionSha256 -eq $install.PromotionTransactionSha256 -and
+        $boot2Marker.ProgramPersistFrameSha256 -eq $install.ProgramPersistFrameSha256 -and
+        $boot2Marker.W6SignatureVerified -and $boot2Marker.CanonicalVerified -and $boot2Marker.WorkspaceReloaded -and
+        -not $boot2Marker.ShellStarted -and $boot2Marker.CrossRebootProven -and
+        $boot2Marker.Offset -lt $boot2FirstCommandOffset
+    Assert-ReportPredicate -Prefix "program-boot2" -Name "autoload-before-command" -Expected "exact accepted autoload marker restores the 176-byte editor before the first command with W6/canonical/workspace true and shell false" -Passed $boot2Before -Actual $(if ($boot2Before) { $boot2Marker.Line } else { Convert-CompactJson $boot2Marker 20 }) -FailureMessage "Boot 2 program autoload did not precede the first command exactly"
+
+    Send-AgentCommandTagged -Prefix "program-boot2" -Command "program.workspace" -ExpectedMarker "RAIOS_AGENT_END program.workspace" -Name "workspace-restored"
+    $workspaceResponse = Get-LastAgentResponseJson -Method "program.workspace"
+    $workspace = $workspaceResponse.body.result
+    $workspaceOk = $workspaceResponse.v -eq "raios.agent.v0" -and $workspace.method -eq "program.workspace" -and
+        $workspace.status -eq "ready" -and $workspace.present -eq $true -and
+        $workspace.source -eq "durable" -and $workspace.retention -eq "durable" -and
+        [int64]$workspace.byte_len -eq 176 -and $workspace.program_sha256 -eq $programHash -and
+        [int64]$workspace.pending_byte_len -eq 0 -and [int64]$workspace.pending_chunk_count -eq 0 -and
+        $null -eq $workspace.pending_provider_request_id -and
+        $workspace.signing_attempted -eq $false -and $workspace.load_attempted -eq $false -and
+        $workspace.execution_attempted -eq $false -and $workspace.authorizes_load -eq $false -and
+        $workspace.authorizes_execution -eq $false -and $workspace.writes_persistent_state -eq $false
+    Assert-ReportPredicate -Prefix "program-boot2" -Name "workspace-restored-exact" -Expected "raios.agent.v0 program.workspace reports source/retention durable, exact 176-byte editor, no pending delivery, and no execution authority" -Passed $workspaceOk -Actual $(if ($workspaceOk) { "$programHash durable inert" } else { Convert-CompactJson $workspaceResponse 20 }) -FailureMessage "Boot 2 program.workspace did not truthfully expose the exact durable inert editor"
+
+    $boot2RunOffset = Get-SerialLogOffset
+    Send-QemuAbsolutePointerClick -X 27017 -Y 6559
+    if (-not (Wait-ForLogTextAfterOffset -Path $SerialLog -Needle $activationNeedle -Offset $boot2RunOffset -TimeoutSeconds $TimeoutSeconds)) {
+        throw "Boot 2 restored editor click did not activate the exact program"
+    }
+    $editorUpdates = $true
+    foreach ($key in @("h", "i", "ret", "r", "backspace")) {
+        $inputOffset = Get-SerialLogOffset
+        Send-GenesisUiKey -KeyName $key
+        if (-not (Wait-ForLogTextAfterOffset -Path $SerialLog -Needle "PERSONAL SHELL FRAME UPDATED sanitized_input" -Offset $inputOffset -TimeoutSeconds $TimeoutSeconds)) {
+            $editorUpdates = $false
+            break
+        }
+    }
+    Send-AgentCommandTagged -Prefix "program-boot2" -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "restored-editor-inventory"
+    $boot2Inventory = Get-LastAgentResponseJson -Method "service.inventory"
+    $boot2ShellRows = @($boot2Inventory.facts.services | Where-Object { $_.id -eq "svc.user.shell" })
+    $boot2RunLog = (Get-SerialLogContent -Path $SerialLog).Substring([int]$boot2RunOffset)
+    $boot2RunOk = $editorUpdates -and
+        ([regex]::Matches($boot2RunLog, [regex]::Escape($activationNeedle))).Count -eq 1 -and
+        $boot2ShellRows.Count -eq 1 -and $boot2ShellRows[0].scope -eq "current_boot" -and
+        $boot2ShellRows[0].persistence -eq "none" -and $boot2ShellRows[0].running -eq $true -and
+        [int64]$boot2ShellRows[0].host_import_count -eq 6
+    Assert-ReportPredicate -Prefix "program-boot2" -Name "physical-click-runs-restored-editor" -Expected "one fresh Genesis click activates the exact restored editor once; its bounded current-boot shell renders and updates through physical input" -Passed $boot2RunOk -Actual $(if ($boot2RunOk) { "$activationNeedle; editor frame updated" } else { Convert-CompactJson ([ordered]@{ inventory = $boot2Inventory; log = $boot2RunLog }) 24 }) -FailureMessage "Boot 2 physical click did not run the restored editor exactly once"
+
+    Send-GenesisUiKey -KeyName "f12"
+    if (-not (Wait-ForLogTextAfterOffset -Path $SerialLog -Needle "PERSONAL SHELL EXIT F12 genesis" -Offset $boot2RunOffset -TimeoutSeconds $TimeoutSeconds)) {
+        throw "Boot 2 F12 did not return the restored editor to Genesis"
+    }
+    Send-AgentCommandTagged -Prefix "program-boot2" -Command "program.rollback_preview $programHash" -ExpectedMarker "RAIOS_AGENT_END program.rollback_preview" -Name "rollback-preview"
+    $previewResponse = Get-LastAgentResponseJson -Method "program.rollback_preview"
+    $preview = $previewResponse.body.result
+    $rollbackOffset = Get-SerialLogOffset
+    Send-AgentCommandTagged -Prefix "program-boot2" -Command "program.rollback_apply $programHash" -ExpectedMarker "RAIOS_AGENT_END program.rollback_apply" -Name "rollback-apply"
+    $applyResponse = Get-LastAgentResponseJson -Method "program.rollback_apply"
+    $apply = $applyResponse.body.result
+    $rollbackMarker = Get-ProgramRollbackCommitMarker -AfterOffset $rollbackOffset
+    Send-AgentCommandTagged -Prefix "program-boot2" -Command "program.workspace" -ExpectedMarker "RAIOS_AGENT_END program.workspace" -Name "workspace-after-rollback"
+    $afterRollbackWorkspaceResponse = Get-LastAgentResponseJson -Method "program.workspace"
+    $afterRollbackWorkspace = $afterRollbackWorkspaceResponse.body.result
+    Send-AgentCommandTagged -Prefix "program-boot2" -Command "program.rollback_apply $programHash" -ExpectedMarker "RAIOS_AGENT_END program.rollback_apply" -Name "rollback-apply-second-denied"
+    $secondApplyResponse = Get-LastAgentResponseJson -Method "program.rollback_apply"
+    $secondApply = $secondApplyResponse.body.result
+    Send-AgentCommandTagged -Prefix "program-boot2" -Command "agent durable.record_log_scan" -ExpectedMarker "RAIOS_AGENT_END durable.record_log_scan" -Name "rollback-reclog"
+    $rollbackScanResponse = Get-LastAgentResponseJson -Method "durable.record_log_scan"
+    $rollbackScan = $rollbackScanResponse.body.result
+    $rollbackOk = $previewResponse.v -eq "raios.agent.v0" -and $preview.accepted -eq $true -and
+        $preview.reason -eq "program_rollback_ready" -and $preview.program_sha256 -eq $programHash -and
+        $preview.writes_persistent_state -eq $false -and
+        $applyResponse.v -eq "raios.agent.v0" -and $apply.accepted -eq $true -and
+        $apply.reason -eq "program_unpromoted" -and $apply.program_sha256 -eq $programHash -and
+        $apply.writes_persistent_state -eq $true -and
+        $rollbackMarker.ProgramSha256 -eq $programHash -and
+        $rollbackMarker.PromotionTransactionSha256 -eq $install.PromotionTransactionSha256 -and
+        $rollbackMarker.UnpromoteTransactionSha256 -match '^sha256:[0-9a-f]{64}$' -and $rollbackMarker.WorkspaceRemoved -and
+        $afterRollbackWorkspaceResponse.v -eq "raios.agent.v0" -and $afterRollbackWorkspace.status -eq "empty" -and
+        $afterRollbackWorkspace.present -eq $false -and $null -eq $afterRollbackWorkspace.program_sha256 -and
+        $secondApplyResponse.v -eq "raios.agent.v0" -and $secondApply.accepted -eq $false -and
+        $secondApply.reason -eq "ui_program_already_rolled_back" -and $secondApply.writes_persistent_state -eq $false -and
+        $rollbackScan.status -eq "valid" -and $rollbackScan.tail_frame_sha256 -eq $rollbackMarker.UnpromoteTransactionSha256
+    $rollbackDump = [ordered]@{ preview = $previewResponse; apply = $applyResponse; marker = $rollbackMarker; workspace = $afterRollbackWorkspaceResponse; second_apply = $secondApplyResponse; scan = $rollbackScanResponse }
+    Assert-ReportPredicate -Prefix "program-boot2" -Name "rollback-tombstone-readback" -Expected "F12-stopped exact-hash preview/apply appends one linked unpromote, removes only the durable workspace entry, and denies a second apply" -Passed $rollbackOk -Actual $(if ($rollbackOk) { $rollbackMarker.Line } else { Convert-CompactJson $rollbackDump 30 }) -FailureMessage "Boot 2 program rollback did not append and read back the one-shot tombstone"
+
+    Stop-RaiosVmCleanly -Vm $boot2Vm -Name "program-boot2"
+    $script:postBoot2Inspection = Get-PersistInspection -Path $PersistDiskImage
+    $boot2Frames = @($postBoot2Inspection.reclog_frames)
+    $prefixOk = Test-ReclogPrefix -PrefixFrames $boot1Frames -Frames $boot2Frames
+    $tailFrame = @($boot2Frames | Select-Object -Last 1)[0]
+    $boot2ChainOk = $prefixOk -and $boot2Frames.Count -gt $boot1Frames.Count -and
+        $postBoot2Inspection.reclog_scan.status -eq "valid" -and
+        $tailFrame.payload_json.schema -eq "raios.promotion_transaction.v0" -and
+        $tailFrame.payload_json.subject_kind -eq "ui_program" -and $tailFrame.payload_json.transaction_kind -eq "unpromote" -and
+        "sha256:$($tailFrame.frame_sha256)" -eq $rollbackMarker.UnpromoteTransactionSha256
+    Assert-ReportPredicate -Prefix "program-boot2" -Name "boot1-prefix-immutable" -Expected "every boot-1 frame is byte-identical; actual boot-2 additions continue a valid chain and end at the linked UI-program unpromote without assuming a count" -Passed $boot2ChainOk -Actual $(if ($boot2ChainOk) { "prefix=$($boot1Frames.Count) additions=$($boot2Frames.Count - $boot1Frames.Count) tail=sha256:$($tailFrame.frame_sha256)" } else { Convert-CompactJson $postBoot2Inspection 30 }) -FailureMessage "Boot 2 changed the boot-1 prefix or produced an invalid newer tail"
+
+    $script:boot3Vm = Start-RaiosVm -Label "program-boot3" -PredicatePrefix "program-boot3" -Port ($SerialTcpPort + 2) -MonitorPort ($SerialTcpPort + 102) -QmpPort 0 -PersistPath $PersistDiskImage
+    $null = Wait-ForLogText -Path $SerialLog -Needle "PROGRAM_AUTOLOAD " -TimeoutSeconds $TimeoutSeconds
+    $boot3FirstCommandOffset = Get-SerialLogOffset
+    $boot3Marker = Get-ProgramAutoloadMarker -BeforeOffset $boot3FirstCommandOffset
+    $boot3PreCommandLog = Get-SerialLogContent -Path $SerialLog
+    $boot3Resolved = $boot3Marker.Result -eq "accepted" -and $boot3Marker.Phase -eq "rolled_back" -and
+        $boot3Marker.Reason -eq "ui_program_install_rolled_back" -and $boot3Marker.Posture -eq "Normal" -and
+        $boot3Marker.ProgramSha256 -eq $programHash -and
+        $boot3Marker.PromotionTransactionSha256 -eq $rollbackMarker.UnpromoteTransactionSha256 -and
+        $boot3Marker.ProgramPersistFrameSha256 -eq "none" -and
+        -not $boot3Marker.W6SignatureVerified -and -not $boot3Marker.CanonicalVerified -and
+        -not $boot3Marker.WorkspaceReloaded -and -not $boot3Marker.ShellStarted -and
+        -not $boot3Marker.CrossRebootProven -and $boot3Marker.Offset -lt $boot3FirstCommandOffset
+    Assert-ReportPredicate -Prefix "program-boot3" -Name "rollback-resolved-before-command" -Expected "exact rolled_back marker names the newest unpromote before commands with canonical/workspace/shell flags false" -Passed $boot3Resolved -Actual $(if ($boot3Resolved) { $boot3Marker.Line } else { Convert-CompactJson $boot3Marker 20 }) -FailureMessage "Boot 3 did not resolve the durable UI-program rollback before commands"
+
+    $boot3Workspace = Assert-ProgramWorkspaceEmpty -Prefix "program-boot3"
+    Send-AgentCommandTagged -Prefix "program-boot3" -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "inventory"
+    $boot3Inventory = Get-LastAgentResponseJson -Method "service.inventory"
+    Send-AgentCommandTagged -Prefix "program-boot3" -Command "agent durable.record_log_scan" -ExpectedMarker "RAIOS_AGENT_END durable.record_log_scan" -Name "reclog"
+    $boot3ScanResponse = Get-LastAgentResponseJson -Method "durable.record_log_scan"
+    $boot3Scan = $boot3ScanResponse.body.result
+    $boot3Empty = $boot3Workspace.Ok -and
+        @($boot3Inventory.facts.services | Where-Object { $_.id -eq "svc.user.shell" }).Count -eq 0 -and
+        -not $boot3PreCommandLog.Contains("PROGRAM_CURRENT_BOOT_ACTIVATION ") -and
+        -not $boot3PreCommandLog.Contains("PERSONAL SHELL ACTIVE current_boot proof") -and
+        -not $boot3PreCommandLog.Contains("PERSONAL SHELL FRAME UPDATED")
+    Assert-ReportPredicate -Prefix "program-boot3" -Name "workspace-empty-no-shell" -Expected "program.workspace and inventory remain empty after rollback; no activation, shell-active, or frame marker occurs" -Passed $boot3Empty -Actual $(if ($boot3Empty) { "workspace and svc.user.shell absent" } else { Convert-CompactJson ([ordered]@{ workspace = $boot3Workspace.Response; inventory = $boot3Inventory; pre_command_log = $boot3PreCommandLog }) 24 }) -FailureMessage "Boot 3 resurrected a rolled-back program or shell"
+    Stop-RaiosVmCleanly -Vm $boot3Vm -Name "program-boot3"
+
+    foreach ($child in @(
+        [pscustomobject]@{ Label = "program-corrupt-blob"; Port = $SerialTcpPort + 10; Kind = "blob" },
+        [pscustomobject]@{ Label = "program-tamper-link"; Port = $SerialTcpPort + 11; Kind = "link" }
+    )) {
+        $childVm = $null
+        $childPersist = Join-Path $RunDir "$($child.Label).img"
+        Copy-Item -LiteralPath $Boot1PersistSnapshot -Destination $childPersist -Force
+        try {
+            if ($child.Kind -eq "blob") {
+                Invoke-PersistTool -Arguments @("--corrupt-artstor-blob", $childPersist) | Out-Null
+            }
+            else {
+                $null = Invoke-UiProgramPersistLinkTamper -Path $childPersist
+            }
+            $mutated = Get-PersistInspection -Path $childPersist
+            $childVm = Start-RaiosVm -Label $child.Label -PredicatePrefix $child.Label -Port $child.Port -MonitorPort 0 -QmpPort 0 -PersistPath $childPersist
+            $childMarker = Get-ProgramAutoloadMarker
+            $childWorkspace = Assert-ProgramWorkspaceEmpty -Prefix $child.Label
+            $childLog = Get-SerialLogContent -Path $SerialLog
+            if ($child.Kind -eq "blob") {
+                $childOk = $childMarker.Result -eq "denied" -and $childMarker.Phase -eq "denied" -and
+                    $childMarker.Reason -eq "blob_hash_mismatch" -and $childMarker.ProgramSha256 -eq $programHash -and
+                    $childMarker.PromotionTransactionSha256 -eq $install.PromotionTransactionSha256 -and
+                    $childMarker.ProgramPersistFrameSha256 -eq $install.ProgramPersistFrameSha256 -and
+                    $childMarker.W6SignatureVerified -and -not $childMarker.CanonicalVerified -and
+                    -not $childMarker.WorkspaceReloaded -and -not $childMarker.CrossRebootProven -and
+                    $childWorkspace.Ok -and -not $childLog.Contains("PROGRAM_CURRENT_BOOT_ACTIVATION ")
+                Assert-ReportPredicate -Prefix "program-corrupt-blob" -Name "autoload-denied-no-workspace" -Expected "mutated ARTSTOR frame yields exact blob_hash_mismatch after W6 link verification, with no workspace or activation" -Passed $childOk -Actual $(if ($childOk) { $childMarker.Line } else { Convert-CompactJson ([ordered]@{ marker = $childMarker; workspace = $childWorkspace.Response; inspection = $mutated; log = $childLog }) 30 }) -FailureMessage "Corrupt UI-program blob did not fail closed before workspace restore"
+            }
+            else {
+                $childOk = $mutated.reclog_scan.status -eq "valid" -and
+                    $childMarker.Result -eq "accepted" -and $childMarker.Phase -eq "not_installed" -and
+                    $childMarker.Reason -eq "no_w6_authorized_program_install" -and
+                    $childMarker.ProgramSha256 -eq "none" -and $childMarker.PromotionTransactionSha256 -eq "none" -and
+                    $childMarker.ProgramPersistFrameSha256 -eq "none" -and -not $childMarker.W6SignatureVerified -and
+                    -not $childMarker.CanonicalVerified -and -not $childMarker.WorkspaceReloaded -and
+                    -not $childMarker.CrossRebootProven -and $childWorkspace.Ok -and
+                    -not $childLog.Contains("PROGRAM_CURRENT_BOOT_ACTIVATION ")
+                Assert-ReportPredicate -Prefix "program-tamper-link" -Name "autoload-denied-no-fallback" -Expected "valid rebuilt RECLOG with changed program-persist promotion link resolves exact accepted/not_installed with no fallback, workspace, or activation" -Passed $childOk -Actual $(if ($childOk) { $childMarker.Line } else { Convert-CompactJson ([ordered]@{ marker = $childMarker; workspace = $childWorkspace.Response; inspection = $mutated; log = $childLog }) 30 }) -FailureMessage "Tampered UI-program persist link restored a workspace or fell back"
+            }
+        }
+        finally {
+            Stop-RaiosVmForce -Vm $childVm
+            Remove-RunImages -Vm $childVm
+            Remove-Item -LiteralPath $childPersist -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    $safeVm = $null
+    $safePersist = Join-Path $RunDir "program-safe.img"
+    Copy-Item -LiteralPath $Boot1PersistSnapshot -Destination $safePersist -Force
+    try {
+        Invoke-PersistTool -Arguments @("--image", $safePersist, "--seed-bootctl", "both-invalid") | Out-Null
+        $safeInspection = Get-PersistInspection -Path $safePersist
+        $safeVm = Start-RaiosVm -Label "program-safe" -PredicatePrefix "program-safe" -Port ($SerialTcpPort + 12) -MonitorPort 0 -QmpPort 0 -PersistPath $safePersist
+        $safeMarker = Get-ProgramAutoloadMarker
+        $safeWorkspace = Assert-ProgramWorkspaceEmpty -Prefix "program-safe"
+        $safeOk = $safeInspection.bootctl_read.decision.posture -eq "Safe" -and
+            $safeMarker.Result -eq "denied" -and $safeMarker.Phase -eq "denied" -and
+            $safeMarker.Reason -eq "program_autoload_posture_not_normal" -and $safeMarker.Posture -eq "Safe" -and
+            $safeMarker.ProgramSha256 -eq "none" -and $safeMarker.PromotionTransactionSha256 -eq "none" -and
+            $safeMarker.ProgramPersistFrameSha256 -eq "none" -and -not $safeMarker.W6SignatureVerified -and
+            -not $safeMarker.CanonicalVerified -and -not $safeMarker.WorkspaceReloaded -and
+            -not $safeMarker.CrossRebootProven -and $safeWorkspace.Ok
+        Assert-ReportPredicate -Prefix "program-safe" -Name "autoload-skipped-no-workspace" -Expected "Safe posture emits exact program_autoload_posture_not_normal before record/blob intake and leaves workspace empty" -Passed $safeOk -Actual $(if ($safeOk) { $safeMarker.Line } else { Convert-CompactJson ([ordered]@{ marker = $safeMarker; workspace = $safeWorkspace.Response; inspection = $safeInspection }) 30 }) -FailureMessage "Safe posture did not skip UI-program autoload before workspace restore"
+    }
+    finally {
+        Stop-RaiosVmForce -Vm $safeVm
+        Remove-RunImages -Vm $safeVm
+        Remove-Item -LiteralPath $safePersist -Force -ErrorAction SilentlyContinue
+    }
+
+    $finalInspection = Get-PersistInspection -Path $PersistDiskImage
+    $finalFrames = @($finalInspection.reclog_frames)
+    $finalAuthorization = @($finalFrames | Where-Object { $_.payload_json.schema -eq "raios.install_authorization.v0" -and $_.payload_json.subject_kind -eq "ui_program" })[0]
+    $finalPromote = @($finalFrames | Where-Object { $_.payload_json.schema -eq "raios.promotion_transaction.v0" -and $_.payload_json.subject_kind -eq "ui_program" -and $_.payload_json.transaction_kind -eq "promote" })[0]
+    $finalPersist = Get-UiProgramHostRecord -Inspection $finalInspection
+    $finalUnpromote = @($finalFrames | Where-Object { $_.payload_json.schema -eq "raios.promotion_transaction.v0" -and $_.payload_json.subject_kind -eq "ui_program" -and $_.payload_json.transaction_kind -eq "unpromote" } | Select-Object -Last 1)[0]
+    $finalChainOk = $finalInspection.reclog_scan.status -eq "valid" -and $boot3Scan.status -eq "valid" -and
+        [int64]$finalInspection.reclog_scan.count -eq [int64]$boot3Scan.count -and
+        "sha256:$($finalInspection.reclog_scan.head_frame_sha256)" -eq $boot3Scan.head_frame_sha256 -and
+        "sha256:$($finalInspection.reclog_scan.tail_frame_sha256)" -eq $boot3Scan.tail_frame_sha256 -and
+        [int64]$finalPromote.seq -eq ([int64]$finalAuthorization.seq + 1) -and
+        $finalPromote.payload_json.install_authorization_frame_sha256 -eq "sha256:$($finalAuthorization.frame_sha256)" -and
+        [int64]$finalPersist.seq -eq ([int64]$finalPromote.seq + 1) -and
+        $finalPersist.payload_json.promotion_transaction_sha256 -eq "sha256:$($finalPromote.frame_sha256)" -and
+        $finalPersist.payload_json.install_authorization_frame_sha256 -eq "sha256:$($finalAuthorization.frame_sha256)" -and
+        $finalUnpromote.payload_json.install_authorization_frame_sha256 -eq "sha256:$($finalAuthorization.frame_sha256)" -and
+        $finalUnpromote.payload_json.canonical_program_sha256 -eq $programHash -and
+        "sha256:$($finalUnpromote.frame_sha256)" -eq $rollbackMarker.UnpromoteTransactionSha256 -and
+        "sha256:$($finalInspection.reclog_scan.tail_frame_sha256)" -eq $rollbackMarker.UnpromoteTransactionSha256 -and
+        (Test-ReclogPrefix -PrefixFrames $boot1Frames -Frames $finalFrames)
+    $finalDump = [ordered]@{ host = $finalInspection; guest = $boot3ScanResponse; authorization = $finalAuthorization; promote = $finalPromote; persist = $finalPersist; unpromote = $finalUnpromote }
+    Assert-ReportPredicate -Prefix "program-reclog-chain" -Name "authorization-promote-persist-unpromote-valid" -Expected "host and guest agree on the valid immutable authorization/promote/persist/.../unpromote chain, exact links and newest tombstone" -Passed $finalChainOk -Actual $(if ($finalChainOk) { "count=$($finalInspection.reclog_scan.count) tail=$($rollbackMarker.UnpromoteTransactionSha256)" } else { Convert-CompactJson $finalDump 30 }) -FailureMessage "Final UI-program RECLOG chain did not retain exact linked provenance and newest tombstone"
+}
+
 function Merge-SerialLogs {
     $merged = Join-Path $RunDir "serial-merged.log"
     Remove-Item -LiteralPath $merged -Force -ErrorAction SilentlyContinue
@@ -1220,6 +1765,12 @@ $install = $null
 $rollback = $null
 
 try {
+    if ($ProgramPersistence) {
+        Invoke-ProgramPersistenceProof
+        $Result = "passed"
+        return
+    }
+
     $ResolvedArtifact = Join-Path $RepoRoot "seed-kernel\artifacts\svc.demo.echo.wasm"
     if (-not (Test-Path -LiteralPath $ResolvedArtifact)) {
         throw "Candidate artifact missing: $ResolvedArtifact"

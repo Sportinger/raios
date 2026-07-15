@@ -138,7 +138,7 @@ fn emit_snapshot(
         f("method", s(method)),
         f("scope", s("current_boot")),
         f("classification", s("local_only")),
-        f("retention", s("current_boot_ram_only")),
+        f("retention", s(snapshot.retention)),
         f(
             "status",
             s(if snapshot.present { "ready" } else { "empty" }),
