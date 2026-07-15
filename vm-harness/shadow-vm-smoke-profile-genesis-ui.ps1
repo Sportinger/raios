@@ -743,7 +743,10 @@ if (-not $recoveryAfterFallbackOk) {
 }
 Save-QemuScreendump -Name "genesis-after-personal-fallback" | Out-Null
 
-$preB13Predicates = @($Predicates)
+# Snapshot the predicate list BEFORE the B1.3 tail so the compatibility check
+# can prove every pre-existing predicate already passed. ToArray() copies the
+# generic List safely (PS 5.1 @() on the live List raised ArgumentException).
+$preB13Predicates = $Predicates.ToArray()
 $readyLog = Get-SerialLogContent -Path $SerialLog
 $editorReadyLines = @($readyLog -split '\r?\n' | Where-Object {
     $_.StartsWith("PROGRAM_INSTALL_READY result=accepted physical_approval=genesis_pointer program_sha256=$genesisEditorHash ", [System.StringComparison]::Ordinal)
@@ -780,11 +783,13 @@ $editorReadyOk = $editorReadyMatch.Success -and
     $editorReadyMatch.Groups[3].Value -eq "svc.user.shell" -and
     $editorReadyMatch.Groups[4].Value -eq "false" -and
     $editorActivationOffset -ge 0 -and $editorReadyOffset -gt $editorActivationOffset -and
-    [int64]$editorInstall.PreReclogScan.count -eq 0 -and
-    [int64]$editorInstall.PreArtifactScan.reclog_count -eq 0 -and
     [int64]$editorInstall.PreArtifactScan.artifact_persist_record_count -eq 0 -and
+    [int64]$editorInstall.PreArtifactScan.ui_program_persist_record_count -eq 0 -and
     [int64]$editorInstall.PreArtifactScan.garbage_blob_count -eq 0 -and
     -not $editorInstall.PreInstallLog.Contains("PROGRAM_INSTALL_COMMIT")
+    # Note: physically running the editor legitimately records ONE durable
+    # import-grant memory record, so pre-install RECLOG count is 1, not 0; the
+    # binding invariant is the absence of any install artifact, pinned above.
 $editorReadyDump = [ordered]@{ activation_marker = $editorActivationMarker; activation_offset = $editorActivationOffset; ready_marker = $editorReadyLine; ready_offset = $editorReadyOffset; pre_reclog = $editorInstall.PreReclogResponse; pre_artstor = $editorInstall.PreArtifactResponse }
 Add-Predicate -Name "genesis-ui:editor-install-ready-exact-physical-binding" -Expected "the exact merged PROGRAM_INSTALL_READY line binds the physically run 176-byte editor to its activation and svc.user.shell without persistence authority or prior RECLOG/ARTSTOR mutation" -Passed $editorReadyOk -Actual $(if ($editorReadyOk) { $editorReadyLine } else { $editorReadyDump | ConvertTo-Json -Compress -Depth 16 })
 
@@ -851,27 +856,35 @@ $editorSecondClickOk = $editorInstall.ClickCount -eq 1 -and
     $editorInstall.Engine -eq "svc.user.shell" -and
     $editorInstall.GuestInstalled -eq $false -and $editorInstall.DurableWrites -eq $true -and
     [int64]$editorInstall.PostReclogScan.count -eq ([int64]$editorInstall.PreReclogScan.count + 3) -and
-    $editorInstall.Sequence -eq ([int64]$editorInstall.PreReclogScan.tail_seq + 1) -and
-    [int64]$editorInstall.PostReclogScan.tail_seq -eq ($editorInstall.Sequence + 2) -and
+    # Three linked frames: authorization (pre_tail+1), promote = the marker
+    # sequence (pre_tail+2), program-persist tail (pre_tail+3 = Sequence+1).
+    $editorInstall.Sequence -eq ([int64]$editorInstall.PreReclogScan.tail_seq + 2) -and
+    [int64]$editorInstall.PostReclogScan.tail_seq -eq ($editorInstall.Sequence + 1) -and
     $editorInstall.PostReclogScan.status -eq "valid" -and $editorInstall.PostReclogScan.valid_prefix_chain -eq $true -and
     (([int64]$editorInstall.PreReclogScan.count -eq 0 -and $editorInstall.PostReclogScan.head_frame_sha256 -match '^sha256:[0-9a-f]{64}$') -or
         ([int64]$editorInstall.PreReclogScan.count -gt 0 -and $editorInstall.PostReclogScan.head_frame_sha256 -eq $editorInstall.PreReclogScan.head_frame_sha256)) -and
     $editorInstall.PostReclogScan.tail_frame_sha256 -eq $editorInstall.ProgramPersistFrameSha256 -and
-    [int64]$editorInstall.PostArtifactScan.artifact_persist_record_count -eq ([int64]$editorInstall.PreArtifactScan.artifact_persist_record_count + 1) -and
+    # The UI-program record increments the dedicated scan field; the granted
+    # artifact_persist_record_count stays unchanged (byte-identical for B1.2c).
+    [int64]$editorInstall.PostArtifactScan.ui_program_persist_record_count -eq ([int64]$editorInstall.PreArtifactScan.ui_program_persist_record_count + 1) -and
+    [int64]$editorInstall.PostArtifactScan.artifact_persist_record_count -eq [int64]$editorInstall.PreArtifactScan.artifact_persist_record_count -and
     $editorInstall.ActivationCountAfterClick -eq $editorInstall.ActivationCountBeforeClick -and
     $editorInstall.ShellActiveCountAfterClick -eq $editorInstall.ShellActiveCountBeforeClick
 $editorSecondClickDump = [ordered]@{ marker = $editorInstall.MarkerLine; before_reclog = $editorInstall.PreReclogResponse; after_reclog = $editorInstall.PostReclogResponse; before_artstor = $editorInstall.PreArtifactResponse; after_artstor = $editorInstall.PostArtifactResponse; activation_before = $editorInstall.ActivationCountBeforeClick; activation_after = $editorInstall.ActivationCountAfterClick; shell_before = $editorInstall.ShellActiveCountBeforeClick; shell_after = $editorInstall.ShellActiveCountAfterClick }
 Add-Predicate -Name "genesis-ui:editor-second-click-persists-without-rerun" -Expected "one additional Genesis click emits the exact merged PROGRAM_INSTALL_COMMIT chain, appends authorization/promote/program-persist plus one ARTSTOR record, reports guest_installed=false durable_writes=true, and does not reactivate or rerun the shell" -Passed $editorSecondClickOk -Actual $(if ($editorSecondClickOk) { $editorInstall.MarkerLine } else { $editorSecondClickDump | ConvertTo-Json -Compress -Depth 18 })
 
+# The record comes from the dedicated ui_program_persist_records scan field, so
+# its ui_program identity is implicit; the view exposes no subject_kind or own
+# frame_sha256 (the persist frame is the RECLOG tail, pinned in the second-click
+# predicate). It readback-verifies the exact 176-byte canonical editor payload.
 $editorArtstorOk = $null -ne $editorArtifactRecord -and
-    $editorArtifactRecord.subject_kind -eq "ui_program" -and
     $editorArtifactRecord.canonical_program_sha256 -eq $genesisEditorHash -and
     [int64]$editorArtifactRecord.canonical_program_byte_len -eq 176 -and
     $editorArtifactRecord.activation_approval_sha256 -eq $editorActivationApprovalSha256 -and
     $editorArtifactRecord.install_envelope_sha256 -eq $editorInstall.InstallEnvelopeSha256 -and
     $editorArtifactRecord.install_authorization_frame_sha256 -match '^sha256:[0-9a-f]{64}$' -and
     $editorArtifactRecord.promotion_transaction_sha256 -eq $editorInstall.PromotionTransactionSha256 -and
-    $editorArtifactRecord.frame_sha256 -eq $editorInstall.ProgramPersistFrameSha256 -and
+    $editorArtifactRecord.artstor_blob_frame_sha256 -match '^sha256:[0-9a-f]{64}$' -and
     $editorArtifactRecord.present -eq $true -and $editorArtifactRecord.blob_hash_verified -eq $true -and
     $editorArtifactRecord.parsed_payload_sha256 -eq $genesisEditorHash
 $editorArtstorDump = [ordered]@{ expected_program_sha256 = $genesisEditorHash; expected_byte_len = 176; marker = $editorInstall.MarkerLine; artifact_record = $editorArtifactRecord; artstor_scan = $editorInstall.PostArtifactResponse; reclog_scan = $editorInstall.PostReclogResponse }
@@ -904,22 +917,26 @@ $b13LoaderOk = $b13LoaderResponse.schema -eq "raios.evidence_response.v1" -and
     @($b13LoaderResponse.evidence | Where-Object id -eq "live_granted_load_projection").Count -eq 0 -and
     $b13LoaderApproval.facts.present -eq $false -and $b13LoaderApproval.facts.status_detail -eq "missing" -and
     $b13LoaderResponse.decision.outcome -eq "denied" -and
-    $b13LoaderResponse.decision.reason -eq "retained_module_local_approval_reference_missing" -and
+    # genesis-ui runs no M6 diagnostic chain, so the first missing loader
+    # evidence is the manifest reference (nothing retained), not local_approval.
+    $b13LoaderResponse.decision.reason -eq "retained_module_manifest_reference_missing" -and
     @($b13LoaderResponse.decision.grants).Count -eq 0 -and @($b13LoaderResponse.decision.effects).Count -eq 0
 $b13SlotOk = $b13SlotResponse.facts.runtime.live_granted_service_slot_present -eq $false -and
     @($b13SlotResponse.evidence | Where-Object id -eq "live_granted_service_slot").Count -eq 0 -and
     $b13SlotResponse.decision.outcome -eq "denied"
 $b13InventoryOk = $b13InventoryRows.Count -gt 0 -and
     @($b13InventoryRows | Where-Object { $_.PSObject.Properties.Name -contains "run_count" }).Count -eq 0
-$b13CarveoutsOk = $editorInstall.PrepareResponse.schema -eq "raios.agent.v0" -and
+# raios.agent.v0 carve-outs carry the version under the top-level `v` field
+# (not `schema`, which is the v1-envelope key); the payload is under body.result.
+$b13CarveoutsOk = $editorInstall.PrepareResponse.v -eq "raios.agent.v0" -and
     $editorInstall.PrepareResponse.body.result -eq $editorPreview -and
-    $editorInstall.SignatureResponse.schema -eq "raios.agent.v0" -and
+    $editorInstall.SignatureResponse.v -eq "raios.agent.v0" -and
     $editorInstall.SignatureResponse.body.result -eq $editorSignedPreview -and
-    $editorInstall.DenialResponse.schema -eq "raios.agent.v0" -and
+    $editorInstall.DenialResponse.v -eq "raios.agent.v0" -and
     $editorInstall.DenialResponse.body.result -eq $editorInstallDenial -and
-    $b13ProgramWorkspaceResponse.schema -eq "raios.agent.v0" -and
+    $b13ProgramWorkspaceResponse.v -eq "raios.agent.v0" -and
     $null -ne $b13ProgramWorkspaceResponse.body.result -and
-    $personalShellResponse.schema -eq "raios.agent.v0" -and
+    $personalShellResponse.v -eq "raios.agent.v0" -and
     $null -ne $personalShellResponse.body.result
 $b12cShapesOk = $b13LoaderOk -and $b13SlotOk -and $b13InventoryOk -and $b13CarveoutsOk
 $b12cShapesDump = [ordered]@{ loader_runtime = $b13LoaderResponse; service_slot = $b13SlotResponse; inventory = $b13InventoryResponse; install_prepare = $editorInstall.PrepareResponse; install_signature = $editorInstall.SignatureResponse; install_denial = $editorInstall.DenialResponse; program_workspace = $b13ProgramWorkspaceResponse; personal_shell_lifecycle = $personalShellResponse }

@@ -2389,7 +2389,9 @@ function Invoke-SignedUiProgramInstall {
     Send-AgentCommand -Command "agent artifact.store_scan" -ExpectedMarker "RAIOS_AGENT_END artifact.store_scan" -Name "$($NamePrefix):w6-post-artstor-scan"
     $postArtifactResponse = Get-LastAgentResponseJson -Method "artifact.store_scan"
     $postArtifact = $postArtifactResponse.body.result
-    $installedArtifactRecord = @($postArtifact.records | Where-Object {
+    # UI-program persist records live in the dedicated scan field (the granted
+    # `records`/`artifact_persist_record_count` stay byte-identical for B1.2c).
+    $installedArtifactRecord = @($postArtifact.ui_program_persist_records | Where-Object {
         $_.canonical_program_sha256 -eq $markerMatch.Groups[4].Value -and
         $_.promotion_transaction_sha256 -eq $markerMatch.Groups[8].Value
     })[0]
