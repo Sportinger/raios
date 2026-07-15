@@ -43,7 +43,12 @@ $PersistDiskImage = $null
 $ResolvedArtifact = $null
 $ResolvedManifest = $null
 $ManifestValidation = $null
-$Network = $false
+$Network = $true
+$MonitorTcpPort = 0
+$QmpTcpPort = 0
+$FixtureReadyPath = Join-Path $RunDir "w7-fixture-ready.json"
+$FixtureResultPath = Join-Path $RunDir "w7-fixture-result.json"
+$FixtureModePath = Join-Path $RunDir "w7-fixture-mode.txt"
 $script:SerialLogCachePath = $null
 $script:SerialLogCacheLength = [int64]-1
 $script:SerialLogCacheWriteTicks = [int64]-1
@@ -87,40 +92,19 @@ function Invoke-NativeCommandForReport {
         [string]$FilePath,
         [string[]]$Arguments
     )
-    $oldErrorActionPreference = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
+    $stderrPath = Join-Path $RunDir ("native-{0}.err" -f [guid]::NewGuid().ToString("N"))
     try {
-        $output = & $FilePath @Arguments 2>&1 | ForEach-Object { "$_" }
+        $output = @(& $FilePath @Arguments 2> $stderrPath | ForEach-Object { "$_" })
         $exitCode = $LASTEXITCODE
+        $errorOutput = @(Get-Content -LiteralPath $stderrPath -ErrorAction SilentlyContinue)
     }
     finally {
-        $ErrorActionPreference = $oldErrorActionPreference
+        Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue
     }
     return [pscustomobject]@{
         ExitCode = $exitCode
         Output = @($output)
-    }
-}
-
-function Prefix-NewReportEntries {
-    param(
-        [int]$PredicateStart,
-        [int]$CommandStart,
-        [string]$Prefix
-    )
-    for ($i = $PredicateStart; $i -lt $Predicates.Count; $i++) {
-        $entry = $Predicates[$i]
-        $name = [string]$entry["name"]
-        if (-not $name.StartsWith("${Prefix}:", [System.StringComparison]::Ordinal)) {
-            $entry["name"] = "${Prefix}:$name"
-        }
-    }
-    for ($i = $CommandStart; $i -lt $ExecutedCommands.Count; $i++) {
-        $entry = $ExecutedCommands[$i]
-        $name = [string]$entry["name"]
-        if (-not $name.StartsWith("${Prefix}:", [System.StringComparison]::Ordinal)) {
-            $entry["name"] = "${Prefix}:$name"
-        }
+        Error = @($errorOutput)
     }
 }
 
@@ -151,21 +135,6 @@ function Send-AgentCommandTaggedPaced {
     finally {
         $script:SerialWriteChunkSize = $oldChunkSize
         $script:SerialWriteDelayMilliseconds = $oldDelayMilliseconds
-    }
-}
-
-function Send-CandidateBytesTagged {
-    param(
-        [string]$Prefix,
-        [string]$Path
-    )
-    $predicateStart = $Predicates.Count
-    $commandStart = $ExecutedCommands.Count
-    try {
-        return Send-CandidateBytes -Path $Path
-    }
-    finally {
-        Prefix-NewReportEntries -PredicateStart $predicateStart -CommandStart $commandStart -Prefix $Prefix
     }
 }
 
@@ -201,7 +170,7 @@ function Invoke-PersistTool {
     $toolArguments = @($Builder) + $Arguments
     $result = Invoke-NativeCommandForReport -FilePath "python" -Arguments $toolArguments
     if ($result.ExitCode -ne 0) {
-        throw "Persist image tool failed ($($Arguments -join ' ')): $($result.Output -join [Environment]::NewLine)"
+        throw "Persist image tool failed ($($Arguments -join ' ')): $((@($result.Output) + @($result.Error)) -join [Environment]::NewLine)"
     }
     return ($result.Output -join [Environment]::NewLine) | ConvertFrom-Json
 }
@@ -326,23 +295,12 @@ function Assert-Boot2MemorySurvives {
     Send-AgentCommandTagged -Prefix $Prefix -Command "agent durable.record_log_scan" -ExpectedMarker "RAIOS_AGENT_END durable.record_log_scan" -Name "mem-reclog-scan"
     $scan = (Get-LastAgentResponseJson -Method "durable.record_log_scan").body.result
 
-    $countSurvives = ([int64]$scan.count -eq [int64]$Boot1MemoryScan.CountFinal)
-    Assert-ReportPredicate -Prefix $Prefix -Name "mem-reclog-count-survives" -Expected "boot-2 RECLOG count equals boot-1 final count" -Passed $countSurvives -Actual "boot2=$($scan.count) boot1=$($Boot1MemoryScan.CountFinal)" -FailureMessage "Boot 2 RECLOG count did not match boot 1"
-
-    $tailSeqContinues = (
-        [int64]$scan.tail_seq -eq [int64]$Boot1MemoryScan.TailSeqFinal -and
-        [int64]$scan.head_seq -eq 1
-    )
-    Assert-ReportPredicate -Prefix $Prefix -Name "mem-reclog-tailseq-continues" -Expected "tail_seq equals boot-1 final tail_seq and head_seq == 1" -Passed $tailSeqContinues -Actual "tail_seq=$($scan.tail_seq) head_seq=$($scan.head_seq)" -FailureMessage "Boot 2 RECLOG sequence endpoints did not match boot 1"
-
-    $chainValid = ($scan.status -eq "valid")
-    Assert-ReportPredicate -Prefix $Prefix -Name "mem-reclog-chain-valid" -Expected 'durable.record_log_scan status == "valid"' -Passed $chainValid -Actual $scan.status -FailureMessage "Boot 2 RECLOG chain was not valid"
-
-    $endpointsIdentical = (
-        [string]$scan.head_frame_sha256 -eq [string]$Boot1MemoryScan.HeadFrameSha256 -and
-        [string]$scan.tail_frame_sha256 -eq [string]$Boot1MemoryScan.TailFrameSha256
-    )
-    Assert-ReportPredicate -Prefix $Prefix -Name "mem-reclog-endpoints-byte-identical" -Expected "head/tail frame sha256 equal boot-1 final scan" -Passed $endpointsIdentical -Actual "head=$($scan.head_frame_sha256) tail=$($scan.tail_frame_sha256)" -FailureMessage "Boot 2 RECLOG endpoint frame hashes differed from boot 1"
+    $chainValid = $scan.status -eq "valid" -and
+        [int64]$scan.count -gt [int64]$Boot1MemoryScan.CountFinal -and
+        [int64]$scan.tail_seq -gt [int64]$Boot1MemoryScan.TailSeqFinal -and
+        [int64]$scan.head_seq -eq 1 -and
+        [string]$scan.head_frame_sha256 -eq [string]$Boot1MemoryScan.HeadFrameSha256
+    Assert-ReportPredicate -Prefix $Prefix -Name "mem-reclog-chain-valid-after-autoload" -Expected "valid boot-2 chain keeps the boot-1 head and has a newer automatic-autoload tail" -Passed $chainValid -Actual $(if ($chainValid) { "count=$($scan.count) tail_seq=$($scan.tail_seq)" } else { Convert-CompactJson $scan 10 }) -FailureMessage "Boot 2 RECLOG did not preserve the boot-1 head and continue after autoload"
 
     Send-AgentCommandTagged -Prefix $Prefix -Command "agent memory.context" -ExpectedMarker "RAIOS_AGENT_END memory.context" -Name "mem-broker-context"
     $contextResponse = Get-LastAgentResponseJson -Method "memory.context"
@@ -401,6 +359,8 @@ function Start-RaiosVm {
         [string]$PredicatePrefix,
         [int]$Port,
         [int]$MonitorPort,
+        [int]$QmpPort,
+        [switch]$NetworkBoot,
         [string]$PersistPath
     )
 
@@ -414,6 +374,8 @@ function Start-RaiosVm {
 
     $script:SerialLog = $log
     $script:SerialTcpPort = $Port
+    $script:QmpTcpPort = $QmpPort
+    $script:MonitorTcpPort = $MonitorPort
     $script:SerialLogCachePath = $null
     $script:SerialLogCacheLength = [int64]-1
     $script:SerialLogCacheWriteTicks = [int64]-1
@@ -431,7 +393,7 @@ function Start-RaiosVm {
         Headless = $true
         UsbXhciInput = $true
         Cpu = "max"
-        Nic = "none"
+        Nic = $(if ($NetworkBoot) { "e1000" } else { "none" })
     }
     $argList = @(
         "-Image", $stageImage,
@@ -445,11 +407,20 @@ function Start-RaiosVm {
         "-Headless",
         "-UsbXhciInput",
         "-Cpu", "max",
-        "-Nic", "none"
+        "-Nic", $(if ($NetworkBoot) { "e1000" } else { "none" })
     )
     if ($MonitorPort -gt 0) {
         $runParams.MonitorTcpPort = $MonitorPort
         $argList += @("-MonitorTcpPort", "$MonitorPort")
+    }
+    if ($QmpPort -gt 0) {
+        $runParams.QmpTcpPort = $QmpPort
+        $argList += @("-QmpTcpPort", "$QmpPort")
+    }
+    if ($NetworkBoot) {
+        $w7Fwd = "tcp:10.0.2.100:8443-tcp:127.0.0.1:8443"
+        $runParams.GuestFwd = $w7Fwd
+        $argList += @("-GuestFwd", $w7Fwd)
     }
     $script:QemuArgList += @("${Label}:") + $argList
 
@@ -475,6 +446,10 @@ function Start-RaiosVm {
     Assert-LogContains -Name "${PredicatePrefix}:$Label-serial-console-ready" -Needle "SERIAL CONSOLE READY" -TimeoutSeconds $TimeoutSeconds
     Assert-LogContains -Name "${PredicatePrefix}:$Label-framebuffer-ready" -Needle "status FRAMEBUFFER: READY" -TimeoutSeconds $TimeoutSeconds
     Assert-LogContains -Name "${PredicatePrefix}:$Label-usb-xhci-ready" -Needle "status USB-XHCI: READY" -TimeoutSeconds $TimeoutSeconds
+    if ($NetworkBoot) {
+        Assert-LogContains -Name "${PredicatePrefix}:$Label-e1000-ready" -Needle "e1000 network initialised; DHCP polling enabled" -TimeoutSeconds $TimeoutSeconds
+        Assert-LogContains -Name "${PredicatePrefix}:$Label-dhcp-ready" -Needle "DHCP lease acquired:" -TimeoutSeconds $TimeoutSeconds
+    }
 
     return [pscustomobject]@{
         Label = $Label
@@ -482,6 +457,7 @@ function Start-RaiosVm {
         SerialLog = $log
         SerialTcpPort = $Port
         MonitorPort = $MonitorPort
+        QmpPort = $QmpPort
         Pid = $qemuPid
         Process = $script:QemuProcess
         StageImage = $stageImage
@@ -571,293 +547,341 @@ function Remove-RunImages {
     }
 }
 
-function Invoke-RealDevKeyPromotion {
-    param([string]$Prefix)
+function Get-ProviderAutoloadMarker {
+    param([int64]$BeforeOffset = -1)
 
-    $expectedSha = "f81f9442de3729f58f9d5c43b186a4223e3f0ed0bdde20e94722da8d5733abd2"
-    $delivery = Send-CandidateBytesTagged -Prefix $Prefix -Path $ResolvedArtifact
-    $finalize = $delivery.finalize_response
-    $result = $finalize.body.result
-    $deliveryOk = (
-        $finalize.t -eq "response" -and
-        $finalize.body.method -eq "module.submit_candidate_finalize" -and
-        [int]$result.byte_len -eq 4205 -and
-        $result.artifact_sha256 -eq "sha256:$expectedSha" -and
-        $result.wasm_valid -eq $true -and
-        $result.retained_in_ram -eq $true -and
-        $result.rejected -eq $false
-    )
-    Assert-ReportPredicate -Prefix $Prefix -Name "serial-delivery-retains-valid-echo-wasm" -Expected "runtime-delivered echo wasm retained in RAM" -Passed $deliveryOk -Actual $(if ($deliveryOk) { "matched" } else { Convert-CompactJson $result }) -FailureMessage "Expected serial-delivered echo wasm to finalize as retained valid candidate"
-
-    $moduleGrantManifestHash = "1111111111111111111111111111111111111111111111111111111111111111"
-    $moduleGrantArtifactHash = Get-FileSha256OrNull -Path $ResolvedArtifact
-    $moduleGrantReportHash = "3333333333333333333333333333333333333333333333333333333333333333"
-    $moduleGrantAttestationHash = "4444444444444444444444444444444444444444444444444444444444444444"
-    if ($moduleGrantArtifactHash -ne $expectedSha) {
-        throw "Expected candidate artifact hash $expectedSha, got $moduleGrantArtifactHash"
+    # Boot readiness only guarantees hardware-init lines; the provider-autoload
+    # marker is emitted later in boot (after entropy seed, core policy,
+    # project-app autoload, and — for an active install — the reverify+reload of
+    # the guest from the persist disk). Wait for the line before reading, so a
+    # freshly started VM is not sampled before it has autoloaded.
+    $null = Wait-ForLogText -Path $SerialLog -Needle "GRANTED_CANDIDATE_PROVIDER_AUTOLOAD " -TimeoutSeconds $TimeoutSeconds
+    $log = Get-SerialLogContent -Path $SerialLog
+    $pattern = '^GRANTED_CANDIDATE_PROVIDER_AUTOLOAD result=(accepted|denied) phase=(autoloaded|not_installed|rolled_back|denied) reason=([a-z0-9_]+) posture=(Normal|Probation|Safe|PersistenceUnavailable) candidate_sha256=(sha256:[0-9a-f]{64}|none) promotion_transaction_sha256=(sha256:[0-9a-f]{64}|none) artifact_persist_frame_sha256=(sha256:[0-9a-f]{64}|none) m6_reverified=(true|false) w6_signature_verified=(true|false) loaded=(true|false) running=(true|false) run_count=([0-9]+) cross_reboot_proven=(true|false)$'
+    $found = New-Object System.Collections.Generic.List[object]
+    $offset = 0
+    foreach ($rawLine in @($log -split "`n")) {
+        $line = $rawLine.TrimEnd()
+        if ($line.StartsWith("GRANTED_CANDIDATE_PROVIDER_AUTOLOAD ", [System.StringComparison]::Ordinal)) {
+            $match = [regex]::Match($line, $pattern)
+            if (-not $match.Success) {
+                throw "Provider-autoload marker did not match the merged emitter: $line"
+            }
+            $found.Add([pscustomobject]@{
+                Line = $line
+                Offset = [int64]$offset
+                Result = $match.Groups[1].Value
+                Phase = $match.Groups[2].Value
+                Reason = $match.Groups[3].Value
+                Posture = $match.Groups[4].Value
+                CandidateSha256 = $match.Groups[5].Value
+                PromotionTransactionSha256 = $match.Groups[6].Value
+                ArtifactPersistFrameSha256 = $match.Groups[7].Value
+                M6Reverified = $match.Groups[8].Value -eq "true"
+                W6SignatureVerified = $match.Groups[9].Value -eq "true"
+                Loaded = $match.Groups[10].Value -eq "true"
+                Running = $match.Groups[11].Value -eq "true"
+                RunCount = [int]$match.Groups[12].Value
+                CrossRebootProven = $match.Groups[13].Value -eq "true"
+            }) | Out-Null
+        }
+        $offset += $rawLine.Length + 1
     }
-
-    $moduleManifestReferenceCanonical = @(
-        "canonicalization=raios.module_manifest_reference.canonical.v0",
-        "schema=raios.module_manifest_reference.v0",
-        "requested_capability=cap.module.load_ephemeral",
-        "load_mode=ram_only",
-        "subject=agent.session.serial",
-        "resource=live_service_graph",
-        "scope=current_boot",
-        "manifest_schema=raios.module_manifest.v0",
-        "manifest_sha256=$moduleGrantManifestHash",
-        "authorizes_guest_load=false",
-        "service_inventory_change=none",
-        "load_attempted=false"
-    ) -join "`n"
-    $moduleManifestReferenceHash = Get-TextSha256 -Text $moduleManifestReferenceCanonical
-    Send-AgentCommandTagged -Prefix $Prefix -Command "agent module.manifest_diagnostic $moduleManifestReferenceHash $moduleGrantManifestHash" -ExpectedMarker "RAIOS_AGENT_END module.manifest_diagnostic" -Name "manifest-reference"
-    $moduleManifestResponse = Get-LastAgentResponseJson -Method "module.manifest_diagnostic"
-    $moduleManifestRetainedReferenceEventId = [string]($moduleManifestResponse.evidence | Where-Object id -eq "module_manifest_retained").source_event_id
-    Assert-CurrentBootEventId -Name "${Prefix}:manifest-reference-event-id" -Value $moduleManifestRetainedReferenceEventId
-
-    $moduleGrantCanonical = @(
-        "canonicalization=raios.computed_capability_grant.canonical.v0",
-        "schema=raios.computed_capability_grant.v0",
-        "requested_capability=cap.module.load_ephemeral",
-        "load_mode=ram_only",
-        "subject=agent.session.serial",
-        "resource=live_service_graph",
-        "scope=current_boot",
-        "manifest_sha256=$moduleGrantManifestHash",
-        "candidate_artifact_sha256=$moduleGrantArtifactHash",
-        "vm_test_report_sha256=$moduleGrantReportHash",
-        "local_attestation_sha256=$moduleGrantAttestationHash",
-        "grants_load_now=false",
-        "authorizes_guest_load=false",
-        "service_inventory_change=none",
-        "load_attempted=false"
-    ) -join "`n"
-    $moduleGrantHash = Get-TextSha256 -Text $moduleGrantCanonical
-    $moduleGrantCommand = "agent module.grant_diagnostic $moduleGrantHash $moduleGrantManifestHash $moduleGrantArtifactHash $moduleGrantReportHash $moduleGrantAttestationHash"
-    Send-AgentCommandTagged -Prefix $Prefix -Command $moduleGrantCommand -ExpectedMarker "RAIOS_AGENT_END module.grant_diagnostic" -Name "initial-grant-reference"
-    $moduleGrantResponse = Get-LastAgentResponseJson -Method "module.grant_diagnostic"
-    $moduleGrantRetainedReferenceEventId = [string]($moduleGrantResponse.evidence | Where-Object id -eq "computed_capability_grant_retained").source_event_id
-    Assert-CurrentBootEventId -Name "${Prefix}:grant-reference-event-id" -Value $moduleGrantRetainedReferenceEventId
-
-    $moduleArtifactReferenceCanonical = @(
-        "canonicalization=raios.module_candidate_artifact_reference.canonical.v0",
-        "schema=raios.module_candidate_artifact_reference.v0",
-        "requested_capability=cap.module.load_ephemeral",
-        "load_mode=ram_only",
-        "subject=agent.session.serial",
-        "resource=live_service_graph",
-        "scope=current_boot",
-        "retained_manifest_reference_event_id=$moduleManifestRetainedReferenceEventId",
-        "retained_reference_event_id=$moduleGrantRetainedReferenceEventId",
-        "manifest_reference_sha256=$moduleManifestReferenceHash",
-        "manifest_sha256=$moduleGrantManifestHash",
-        "computed_capability_grant_sha256=$moduleGrantHash",
-        "candidate_artifact_sha256=$moduleGrantArtifactHash",
-        "vm_test_report_sha256=$moduleGrantReportHash",
-        "local_attestation_sha256=$moduleGrantAttestationHash",
-        "accepts_artifact_bytes=false",
-        "loads_artifact=false",
-        "authorizes_guest_load=false",
-        "service_inventory_change=none",
-        "load_attempted=false"
-    ) -join "`n"
-    $moduleArtifactReferenceHash = Get-TextSha256 -Text $moduleArtifactReferenceCanonical
-    $moduleArtifactCommand = "agent module.artifact_diagnostic $moduleArtifactReferenceHash $moduleManifestRetainedReferenceEventId $moduleGrantRetainedReferenceEventId $moduleManifestReferenceHash $moduleGrantManifestHash $moduleGrantHash $moduleGrantArtifactHash $moduleGrantReportHash $moduleGrantAttestationHash"
-    Send-AgentCommandTagged -Prefix $Prefix -Command $moduleArtifactCommand -ExpectedMarker "RAIOS_AGENT_END module.artifact_diagnostic" -Name "artifact-reference"
-    $moduleArtifactResponse = Get-LastAgentResponseJson -Method "module.artifact_diagnostic"
-    $moduleArtifactRetainedReferenceEventId = [string]($moduleArtifactResponse.evidence | Where-Object id -eq "candidate_artifact_retained").source_event_id
-    Assert-CurrentBootEventId -Name "${Prefix}:artifact-reference-event-id" -Value $moduleArtifactRetainedReferenceEventId
-
-    $moduleVmReportReferenceCanonical = @(
-        "canonicalization=raios.module_vm_test_report_reference.canonical.v0",
-        "schema=raios.module_vm_test_report_reference.v0",
-        "requested_capability=cap.module.load_ephemeral",
-        "load_mode=ram_only",
-        "subject=agent.session.serial",
-        "resource=live_service_graph",
-        "scope=current_boot",
-        "retained_manifest_reference_event_id=$moduleManifestRetainedReferenceEventId",
-        "retained_artifact_reference_event_id=$moduleArtifactRetainedReferenceEventId",
-        "retained_reference_event_id=$moduleGrantRetainedReferenceEventId",
-        "manifest_reference_sha256=$moduleManifestReferenceHash",
-        "artifact_reference_sha256=$moduleArtifactReferenceHash",
-        "manifest_sha256=$moduleGrantManifestHash",
-        "candidate_artifact_sha256=$moduleGrantArtifactHash",
-        "computed_capability_grant_sha256=$moduleGrantHash",
-        "vm_test_report_sha256=$moduleGrantReportHash",
-        "local_attestation_sha256=$moduleGrantAttestationHash",
-        "accepts_vm_report_json=false",
-        "accepts_artifact_bytes=false",
-        "loads_artifact=false",
-        "authorizes_guest_load=false",
-        "service_inventory_change=none",
-        "load_attempted=false"
-    ) -join "`n"
-    $moduleVmReportReferenceHash = Get-TextSha256 -Text $moduleVmReportReferenceCanonical
-    $moduleVmReportCommand = "agent module.vm_report_diagnostic $moduleVmReportReferenceHash $moduleManifestRetainedReferenceEventId $moduleArtifactRetainedReferenceEventId $moduleGrantRetainedReferenceEventId $moduleManifestReferenceHash $moduleArtifactReferenceHash $moduleGrantManifestHash $moduleGrantArtifactHash $moduleGrantHash $moduleGrantReportHash $moduleGrantAttestationHash"
-    Send-AgentCommandTagged -Prefix $Prefix -Command $moduleVmReportCommand -ExpectedMarker "RAIOS_AGENT_END module.vm_report_diagnostic" -Name "vm-report-reference"
-    $moduleVmReportResponse = Get-LastAgentResponseJson -Method "module.vm_report_diagnostic"
-    $moduleVmReportRetainedReferenceEventId = [string]($moduleVmReportResponse.evidence | Where-Object id -eq "vm_test_report_retained").source_event_id
-    Assert-CurrentBootEventId -Name "${Prefix}:vm-report-reference-event-id" -Value $moduleVmReportRetainedReferenceEventId
-
-    $moduleAttestationReferenceCanonical = @(
-        "canonicalization=raios.module_local_attestation_reference.canonical.v0",
-        "schema=raios.module_local_attestation_reference.v0",
-        "requested_capability=cap.module.load_ephemeral",
-        "load_mode=ram_only",
-        "subject=agent.session.serial",
-        "resource=live_service_graph",
-        "scope=current_boot",
-        "retained_manifest_reference_event_id=$moduleManifestRetainedReferenceEventId",
-        "retained_artifact_reference_event_id=$moduleArtifactRetainedReferenceEventId",
-        "retained_vm_report_reference_event_id=$moduleVmReportRetainedReferenceEventId",
-        "retained_reference_event_id=$moduleGrantRetainedReferenceEventId",
-        "manifest_reference_sha256=$moduleManifestReferenceHash",
-        "artifact_reference_sha256=$moduleArtifactReferenceHash",
-        "vm_test_report_reference_sha256=$moduleVmReportReferenceHash",
-        "manifest_sha256=$moduleGrantManifestHash",
-        "candidate_artifact_sha256=$moduleGrantArtifactHash",
-        "computed_capability_grant_sha256=$moduleGrantHash",
-        "vm_test_report_sha256=$moduleGrantReportHash",
-        "local_attestation_sha256=$moduleGrantAttestationHash",
-        "accepts_local_attestation_json=false",
-        "accepts_artifact_bytes=false",
-        "loads_artifact=false",
-        "authorizes_guest_load=false",
-        "service_inventory_change=none",
-        "load_attempted=false"
-    ) -join "`n"
-    $moduleAttestationReferenceHash = Get-TextSha256 -Text $moduleAttestationReferenceCanonical
-    $signatureHex = New-ReliableDevPromotionSignatureHex -AttestationReferenceHash $moduleAttestationReferenceHash
-    Assert-ReportPredicate -Prefix $Prefix -Name "rust-signer-produced-der" -Expected "dev-promotion-signer returns DER hex" -Passed ($signatureHex -match '^[0-9a-f]+$') -Actual "len=$($signatureHex.Length)" -FailureMessage "Rust dev signer did not produce DER hex"
-
-    $moduleAttestationCommand = "agent module.attestation_diagnostic $moduleAttestationReferenceHash $moduleManifestRetainedReferenceEventId $moduleArtifactRetainedReferenceEventId $moduleVmReportRetainedReferenceEventId $moduleGrantRetainedReferenceEventId $moduleManifestReferenceHash $moduleArtifactReferenceHash $moduleVmReportReferenceHash $moduleGrantManifestHash $moduleGrantArtifactHash $moduleGrantHash $moduleGrantReportHash $moduleGrantAttestationHash $signatureHex"
-    Send-AgentCommandTagged -Prefix $Prefix -Command $moduleAttestationCommand -ExpectedMarker "RAIOS_AGENT_END module.attestation_diagnostic" -Name "signed-attestation-reference"
-    $moduleAttestationResponse = Get-LastAgentResponseJson -Method "module.attestation_diagnostic"
-    $attestationResult = $moduleAttestationResponse
-    $signatureVerifiedOk = (
-        ($attestationResult.evidence | Where-Object id -eq "local_attestation").facts.status_detail -eq "local_attestation_signature_verified_load_still_denied" -and
-        ($attestationResult.evidence | Where-Object id -eq "local_attestation").facts.signature_verified -eq $true
-    )
-    Assert-ReportPredicate -Prefix $Prefix -Name "signature-verified-true" -Expected "module.attestation_diagnostic reports signature_verified true" -Passed $signatureVerifiedOk -Actual $(if ($signatureVerifiedOk) { "matched" } else { Convert-CompactJson $attestationResult 10 }) -FailureMessage "Expected real dev-key signature to verify"
-
-    Send-AgentCommandTagged -Prefix $Prefix -Command $moduleGrantCommand -ExpectedMarker "RAIOS_AGENT_END module.grant_diagnostic" -Name "grant-can-load-now"
-    $grantReady = Get-LastAgentResponseJson -Method "module.grant_diagnostic"
-    $grantReadyResult = $grantReady
-    $grantReadyOk = (
-        $grantReadyResult.decision.outcome -eq "granted" -and
-        @($grantReadyResult.decision.grants) -contains "cap.module.load_ephemeral" -and
-        $grantReadyResult.facts.trust_tier -eq "dev_key_not_owner_sealed"
-    )
-    Assert-ReportPredicate -Prefix $Prefix -Name "grant-reports-dev-tier-can-load-now" -Expected "grants_capability=true trust_tier=dev_key_not_owner_sealed can_load_now=true" -Passed $grantReadyOk -Actual $(if ($grantReadyOk) { "matched" } else { Convert-CompactJson $grantReadyResult 8 }) -FailureMessage "Expected signed grant with retained bytes to report can_load_now"
-
-    $loadOffset = Get-SerialLogOffset
-    Send-AgentCommandTagged -Prefix $Prefix -Command "module.load_ephemeral svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "granted-candidate-load"
-    $load = Get-LastAgentResponseJson -Method "module.load_ephemeral"
-    $loadResult = $load.body.result
-    $loadOk = (
-        $load.t -eq "response" -and
-        $loadResult.schema -eq "raios.ram_only_granted_candidate_service.lifecycle_response.v0" -and
-        $loadResult.service_id -eq "svc.dev.granted_candidate" -and
-        $loadResult.action -eq "load" -and
-        $loadResult.loaded -eq $true -and
-        $loadResult.scope -eq "current_boot" -and
-        $loadResult.trust_tier -eq "dev_key_not_owner_sealed"
-    )
-    Assert-ReportPredicate -Prefix $Prefix -Name "granted-candidate-loads-service" -Expected "granted external candidate loads as dev-tier current_boot service" -Passed $loadOk -Actual $(if ($loadOk) { "matched" } else { Convert-CompactJson $loadResult 8 }) -FailureMessage "Expected granted candidate load response"
-
-    $durablePromotion = $loadResult.durable_promotion_transaction
-    $durablePromotionOk = (
-        $durablePromotion.performed -eq $true -and
-        $durablePromotion.durable_append -eq "appended" -and
-        $durablePromotion.transaction_kind -eq "promote" -and
-        $durablePromotion.signature_verified -eq $true -and
-        $durablePromotion.grant_binds_capability -eq $true -and
-        $durablePromotion.trust_tier -eq "dev_key_not_owner_sealed" -and
-        $durablePromotion.owner_sealed -eq $false -and
-        $durablePromotion.persistence_claimed -eq $false
-    )
-    Assert-ReportPredicate -Prefix $Prefix -Name "durable-promotion-performed" -Expected "durable_promotion_transaction.performed true" -Passed $durablePromotionOk -Actual $(if ($durablePromotionOk) { "matched" } else { Convert-CompactJson $durablePromotion 10 }) -FailureMessage "Expected boot 1 to append durable promotion transaction"
-
-    $artifactPersist = $loadResult.durable_artifact_persist
-    $artifactPersistOk = (
-        $artifactPersist.performed -eq $true -and
-        $artifactPersist.status -eq "appended" -and
-        $artifactPersist.blob_written_to_disk -eq $true -and
-        $artifactPersist.artstor_blob_frame_sha256 -ne $null -and
-        $artifactPersist.artifact_persist_frame_sha256 -ne $null -and
-        $artifactPersist.authorizes_load -eq $false -and
-        $artifactPersist.owner_sealed -eq $false -and
-        $artifactPersist.cross_reboot_proven -eq $false -and
-        $artifactPersist.persistence_claimed -eq $false
-    )
-    Assert-ReportPredicate -Prefix $Prefix -Name "artifact-persisted" -Expected "durable_artifact_persist.performed true and blob_written_to_disk true" -Passed $artifactPersistOk -Actual $(if ($artifactPersistOk) { "matched" } else { Convert-CompactJson $artifactPersist 10 }) -FailureMessage "Expected boot 1 to persist artifact blob and artifact_persist record"
-
-    Send-AgentCommandTagged -Prefix $Prefix -Command "service.start svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.start" -Name "granted-candidate-start"
-    $start = Get-LastAgentResponseJson -Method "service.start"
-    $startResult = $start.body.result
-    $run = $startResult.run_evidence
-    $startOk = (
-        $start.t -eq "response" -and
-        $startResult.running -eq $true -and
-        $run.present -eq $true -and
-        $run.validation_ok -eq $true -and
-        $run.instantiation_ok -eq $true -and
-        $run.run_outcome -eq "success" -and
-        $run.log_line_emitted -eq $true
-    )
-    $afterLoad = (Get-SerialLogContent -Path $SerialLog).Substring([int]$loadOffset)
-    $guestLogOk = $afterLoad.Contains("WASM_GUEST_LOG echo counter=")
-    Assert-ReportPredicate -Prefix $Prefix -Name "service-answers-before-reboot" -Expected "service.start emits live WASM_GUEST_LOG" -Passed ($startOk -and $guestLogOk) -Actual $(if ($startOk -and $guestLogOk) { "matched" } else { Convert-CompactJson $startResult 8 }) -FailureMessage "Expected boot 1 granted candidate to answer live"
+    if ($found.Count -ne 1) {
+        throw "Expected exactly one provider-autoload marker, found $($found.Count): $(Get-SerialLogTail -Path $SerialLog)"
+    }
+    $marker = $found[0]
+    if ($BeforeOffset -ge 0 -and $marker.Offset -ge $BeforeOffset) {
+        throw "Provider-autoload marker arrived after the first command boundary: $($marker.Line)"
+    }
+    return $marker
 }
 
-function Assert-Boot2Repromotion {
-    param([string]$Prefix)
+function Assert-Boot1ActivationAndInstall {
+    param([object]$Activation, [object]$Install)
 
-    Send-AgentCommandTagged -Prefix $Prefix -Command "agent durable.record_log_scan" -ExpectedMarker "RAIOS_AGENT_END durable.record_log_scan" -Name "reclog-scan-before-repromotion"
-    $scan = Get-LastAgentResponseJson -Method "durable.record_log_scan"
-    $scanResult = $scan.body.result
-    $nonEmpty = [int]$scanResult.count -gt 0
-    Assert-ReportPredicate -Prefix $Prefix -Name "reclog-non-empty-before-repromotion" -Expected "boot 2 reads non-empty boot-1 RECLOG" -Passed $nonEmpty -Actual $(Convert-CompactJson $scanResult 8) -FailureMessage "Boot 2 saw an empty RECLOG; refusing to mask a durability loss"
+    $binding = $Activation.ActivationResponse.source_binding
+    $lifecycle = $Activation.LastLifecycleResponse
+    $runOnce = $binding.source_kind -eq "w7" -and
+        $binding.candidate_sha256 -eq $Activation.CandidateSha256 -and
+        $binding.receipt_sha256 -eq $Activation.W7ReceiptSha256 -and
+        $binding.receiver_identity.content_sha256 -eq $Activation.CandidateSha256 -and
+        $binding.receiver_identity.retained_candidate_sha256 -eq $Activation.CandidateSha256 -and
+        $binding.receiver_identity.catalog_finalize_candidate_sha256 -eq $Activation.CandidateSha256 -and
+        $binding.computed_grant.computed_grant_hash -eq $Activation.M6ComputedGrantSha256 -and
+        $binding.local_attestation.attestation_reference_hash -eq $Activation.M6AttestationReferenceSha256 -and
+        $binding.local_attestation.signature_verified -eq $true -and
+        $lifecycle.loaded -eq $true -and $lifecycle.running -eq $true -and
+        [int]$lifecycle.run_count -eq 1 -and $Activation.GuestLogCount -eq 1 -and
+        $lifecycle.durable_promotion_transaction.performed -eq $false -and
+        $lifecycle.durable_artifact_persist.performed -eq $false
+    Assert-ReportPredicate -Prefix "boot1" -Name "b12c-w7-run-once" -Expected "the exact W7/receiver/M6 binding runs once after its physical approval and has zero durable effect before W6" -Passed $runOnce -Actual $(if ($runOnce) { "candidate=$($Activation.CandidateSha256) run_count=1 durable=false" } else { Convert-CompactJson $Activation 24 }) -FailureMessage "Boot 1 did not establish the exact one-shot W7/M6 activation"
 
-    Send-AgentCommandTagged -Prefix $Prefix -Command "agent repromotion.run" -ExpectedMarker "RAIOS_AGENT_END repromotion.run" -Name "repromotion-run"
-    $repromotion = Get-LastAgentResponseJson -Method "repromotion.run"
-    $body = $repromotion.body.result
-    $decisions = @()
-    if ($null -ne $body.decisions) {
-        $decisions = @($body.decisions)
+    $installWindowLog = (Get-SerialLogContent -Path $SerialLog).Substring([int]$Install.InstallOffset)
+    $installed = $Install.CandidateSha256 -eq $Activation.CandidateSha256 -and
+        $Install.W7ReceiptSha256 -eq $Activation.W7ReceiptSha256 -and
+        $Install.ActivationApprovalSha256 -eq $Activation.ActivationChallengeSha256 -and
+        $Install.Preview.install_source -eq "granted_candidate" -and
+        $Install.Preview.receipt_kind -eq "w7_acquisition" -and
+        $Install.Preview.w4_project_receipt_present -eq $false -and
+        $Install.Preview.candidate_sha256 -eq $Activation.CandidateSha256 -and
+        $Install.Preview.receipt_sha256 -eq $Activation.W7ReceiptSha256 -and
+        $Install.Preview.activation_approval_sha256 -eq $Activation.ActivationChallengeSha256 -and
+        $Install.SignedPreview.signature_verified -eq $true -and
+        $Install.ActionSignatureMessageSha256 -ne $Activation.M6AttestationReferenceSha256 -and
+        $Install.InstallEnvelopeSha256 -eq $Install.Preview.install_envelope_sha256 -and
+        $Install.InstallActionSha256 -match '^sha256:[0-9a-f]{64}$' -and
+        $Install.PromotionTransactionSha256 -match '^sha256:[0-9a-f]{64}$' -and
+        $Install.ArtifactPersistFrameSha256 -match '^sha256:[0-9a-f]{64}$' -and
+        $Install.PhysicalApprovalSha256 -match '^sha256:[0-9a-f]{64}$' -and
+        $Install.PhysicalApprovalSha256 -ne $Activation.ActivationChallengeSha256 -and
+        $binding.computed_grant.computed_grant_hash -eq $Activation.M6ComputedGrantSha256 -and
+        $binding.local_attestation.manifest_reference_hash -eq $Activation.M6ManifestReferenceSha256 -and
+        $binding.local_attestation.artifact_reference_hash -eq $Activation.M6ArtifactReferenceSha256 -and
+        $binding.local_attestation.vm_report_reference_hash -eq $Activation.M6VmReportReferenceSha256 -and
+        $binding.local_attestation.attestation_reference_hash -eq $Activation.M6AttestationReferenceSha256 -and
+        [int64]$Install.PostReclogScan.count -eq ([int64]$Install.PreReclogScan.count + 3) -and
+        [int64]$Install.Sequence -eq ([int64]$Install.PreReclogScan.tail_seq + 2) -and
+        $Install.RunCount -eq 1 -and $Install.DurableWrites -eq $true -and
+        ($Activation.ClickCount + $Install.ClickCount) -eq 3 -and
+        # The candidate ran exactly once during physical activation; the W6
+        # install commits durably but must NOT re-run the guest. Count in the
+        # post-install window only (the whole boot also contains selftest and
+        # recovery-probe guest logs), matching the network/m6d no-rerun pins.
+        ([regex]::Matches($installWindowLog, [regex]::Escape("WASM_GUEST_LOG echo counter="))).Count -eq 0 -and
+        ([regex]::Matches($installWindowLog, [regex]::Escape("GRANTED_CANDIDATE_INSTALL_COMMIT result=accepted"))).Count -eq 1
+    Assert-ReportPredicate -Prefix "boot1" -Name "w6-second-click-installed" -Expected "a distinct W6 pointer approval appends authorization/promote/artifact frames for the exact running W7 candidate without a second run" -Passed $installed -Actual $(if ($installed) { $Install.MarkerLine } else { Convert-CompactJson $Install 24 }) -FailureMessage "Boot 1 W6 install did not commit the exact one-shot W7 candidate"
+}
+
+function Assert-Boot1HostProvenance {
+    param([object]$Inspection, [object]$Activation, [object]$Install)
+
+    $frames = @($Inspection.reclog_frames)
+    $authorization = @($frames | Where-Object { $_.payload_json.schema -eq "raios.install_authorization.v0" -and [int64]$_.seq -eq ([int64]$Install.Sequence - 1) })[0]
+    $promote = @($frames | Where-Object { "sha256:$($_.frame_sha256)" -eq $Install.PromotionTransactionSha256 })[0]
+    $persist = @($frames | Where-Object { "sha256:$($_.frame_sha256)" -eq $Install.ArtifactPersistFrameSha256 })[0]
+    $artifact = @($Inspection.artifact_persist_records | Where-Object { "sha256:$($_.reclog_frame_sha256)" -eq $Install.ArtifactPersistFrameSha256 })[0]
+    $authHash = if ($authorization) { "sha256:$($authorization.frame_sha256)" } else { "none" }
+    $ok = $Inspection.reclog_scan.status -eq "valid" -and
+        $authorization.payload_json.w7_receipt_sha256 -eq $Activation.W7ReceiptSha256 -and
+        $authorization.payload_json.activation_approval_sha256 -eq $Activation.ActivationChallengeSha256 -and
+        $authorization.payload_json.receiver_content_sha256 -eq $Activation.CandidateSha256 -and
+        $authorization.payload_json.receiver_candidate_sha256 -eq $Activation.CandidateSha256 -and
+        $authorization.payload_json.catalog_candidate_sha256 -eq $Activation.CandidateSha256 -and
+        $authorization.payload_json.install_envelope_sha256 -eq $Install.InstallEnvelopeSha256 -and
+        $authorization.payload_json.install_action_sha256 -eq $Install.InstallActionSha256 -and
+        $authorization.payload_json.install_action_signature_message_sha256 -eq $Install.ActionSignatureMessageSha256 -and
+        $authorization.payload_json.physical_approval_sha256 -eq $Install.PhysicalApprovalSha256 -and
+        $authorization.payload_json.install_signature_der -eq $Install.SignatureHex -and
+        [int64]$authorization.payload_json.install_signature_len -eq ([int64]$Install.SignatureHex.Length / 2) -and
+        [int64]$promote.seq -eq [int64]$Install.Sequence -and
+        $promote.payload_json.transaction_kind -eq "promote" -and
+        $promote.payload_json.install_authorization_frame_sha256 -eq $authHash -and
+        $promote.payload_json.manifest_reference_hash -eq $Activation.M6ManifestReferenceSha256 -and
+        $promote.payload_json.artifact_reference_hash -eq $Activation.M6ArtifactReferenceSha256 -and
+        $promote.payload_json.vm_report_reference_hash -eq $Activation.M6VmReportReferenceSha256 -and
+        $promote.payload_json.attestation_reference_hash -eq $Activation.M6AttestationReferenceSha256 -and
+        [int64]$persist.seq -eq ([int64]$Install.Sequence + 1) -and
+        $persist.payload_json.schema -eq "raios.artifact_persist.v0" -and
+        $persist.payload_json.promotion_transaction_sha256 -eq $Install.PromotionTransactionSha256 -and
+        $artifact.binding_ok -eq $true -and
+        $artifact.artifact_sha256 -eq $Activation.CandidateSha256 -and
+        $artifact.actual_artifact_sha256 -eq $Activation.CandidateSha256.Substring(7) -and
+        $artifact.promotion_transaction_sha256 -eq $Install.PromotionTransactionSha256 -and
+        $Inspection.first_artstor_blob.valid -eq $true -and
+        $Inspection.first_artstor_blob.payload_sha256 -eq $Activation.CandidateSha256.Substring(7) -and
+        [int64]$Inspection.first_artstor_blob.payload_len -eq 4205
+    $dump = [ordered]@{ inspection = $Inspection; activation = $Activation; install = $Install }
+    Assert-ReportPredicate -Prefix "boot1" -Name "persist-disk-has-w6-provenance" -Expected "clean-quit host inspection finds the linked authorization/promote/artifact frames and exact 4205-byte ARTSTOR payload" -Passed $ok -Actual $(if ($ok) { "authorization=$authHash promote=$($Install.PromotionTransactionSha256) artifact=$($Install.ArtifactPersistFrameSha256)" } else { Convert-CompactJson $dump 30 }) -FailureMessage "Boot 1 kept disk did not contain the exact linked W7/M6/W6 provenance"
+}
+
+function Assert-Boot2Autoload {
+    param([object]$Activation, [object]$Install, [object]$Boot1Inspection)
+
+    # Boot readiness only guarantees hardware-init lines; the provider-autoload
+    # marker is emitted later (after entropy seed, core policy, project-app
+    # autoload, and — for an active install — the reverify+reload of the guest
+    # from the persist disk). Wait for the marker line before reading it once.
+    $markerWaited = Wait-ForLogText -Path $SerialLog -Needle "GRANTED_CANDIDATE_PROVIDER_AUTOLOAD " -TimeoutSeconds $TimeoutSeconds
+    Assert-ReportPredicate -Prefix "boot2" -Name "provider-autoload-marker-emitted" -Expected "boot 2 emits a provider-autoload marker before the first serial command" -Passed $markerWaited -Actual $(if ($markerWaited) { "emitted" } else { Get-SerialLogTail -Path $SerialLog }) -FailureMessage "Boot 2 never emitted a provider-autoload marker"
+    $firstCommandOffset = Get-SerialLogOffset
+    $marker = Get-ProviderAutoloadMarker -BeforeOffset $firstCommandOffset
+    $log = Get-SerialLogContent -Path $SerialLog
+    $readyOffset = $log.IndexOf("SERIAL CONSOLE READY", [System.StringComparison]::Ordinal)
+    $before = $marker.Result -eq "accepted" -and $marker.Phase -eq "autoloaded" -and
+        $marker.Reason -eq "repromotion_reverified_m6_gate_loaded_and_started" -and
+        $marker.Posture -eq "Normal" -and $marker.M6Reverified -and $marker.W6SignatureVerified -and
+        $marker.Loaded -and $marker.Running -and $marker.RunCount -eq 1 -and $marker.CrossRebootProven -and
+        $readyOffset -ge 0 -and $marker.Offset -gt $readyOffset -and $marker.Offset -lt $firstCommandOffset
+    Assert-ReportPredicate -Prefix "boot2" -Name "provider-autoload-before-command" -Expected "the exact accepted Normal/autoloaded marker follows boot readiness and precedes the first tagged serial command" -Passed $before -Actual $(if ($before) { $marker.Line } else { Convert-CompactJson $marker 12 }) -FailureMessage "Boot 2 provider autoload was not complete before the first command"
+
+    $manual = @($ExecutedCommands | Where-Object { $_.command -eq "agent repromotion.run" }).Count -eq 0
+    Assert-ReportPredicate -Prefix "boot2" -Name "no-manual-repromotion-command" -Expected "no executed command is agent repromotion.run before the positive autoload assertion" -Passed $manual -Actual $(if ($manual) { "agent repromotion.run absent" } else { Convert-CompactJson @($ExecutedCommands) 8 }) -FailureMessage "Boot 2 positive path used manual repromotion"
+
+    $authFrame = @($Boot1Inspection.reclog_frames | Where-Object { $_.payload_json.schema -eq "raios.install_authorization.v0" -and [int64]$_.seq -eq ([int64]$Install.Sequence - 1) })[0]
+    $promoteFrame = @($Boot1Inspection.reclog_frames | Where-Object { "sha256:$($_.frame_sha256)" -eq $Install.PromotionTransactionSha256 })[0]
+    $chain = $marker.CandidateSha256 -eq $Activation.CandidateSha256 -and
+        $marker.PromotionTransactionSha256 -eq $Install.PromotionTransactionSha256 -and
+        $marker.ArtifactPersistFrameSha256 -eq $Install.ArtifactPersistFrameSha256 -and
+        $authFrame.payload_json.w7_receipt_sha256 -eq $Activation.W7ReceiptSha256 -and
+        $authFrame.payload_json.receiver_content_sha256 -eq $Activation.CandidateSha256 -and
+        $authFrame.payload_json.receiver_candidate_sha256 -eq $Activation.CandidateSha256 -and
+        $authFrame.payload_json.catalog_candidate_sha256 -eq $Activation.CandidateSha256 -and
+        $authFrame.payload_json.install_envelope_sha256 -eq $Install.InstallEnvelopeSha256 -and
+        $authFrame.payload_json.install_action_sha256 -eq $Install.InstallActionSha256 -and
+        $authFrame.payload_json.install_action_signature_message_sha256 -eq $Install.ActionSignatureMessageSha256 -and
+        $authFrame.payload_json.physical_approval_sha256 -eq $Install.PhysicalApprovalSha256 -and
+        $authFrame.payload_json.install_signature_der -eq $Install.SignatureHex -and
+        [int64]$authFrame.payload_json.install_signature_len -eq ([int64]$Install.SignatureHex.Length / 2) -and
+        $promoteFrame.payload_json.manifest_reference_hash -eq $Activation.M6ManifestReferenceSha256 -and
+        $promoteFrame.payload_json.artifact_reference_hash -eq $Activation.M6ArtifactReferenceSha256 -and
+        $promoteFrame.payload_json.vm_report_reference_hash -eq $Activation.M6VmReportReferenceSha256 -and
+        $promoteFrame.payload_json.attestation_reference_hash -eq $Activation.M6AttestationReferenceSha256
+    $chainDump = [ordered]@{ marker = $marker; authorization = $authFrame; promotion = $promoteFrame; activation = $Activation; install = $Install }
+    Assert-ReportPredicate -Prefix "boot2" -Name "autoload-chain-exact" -Expected "autoload selects the exact boot-1 candidate/promote/artifact plus W7 receiver, M6 references, and W6 envelope/action/signature provenance" -Passed $chain -Actual $(if ($chain) { $marker.Line } else { Convert-CompactJson $chainDump 30 }) -FailureMessage "Boot 2 autoload did not preserve the exact boot-1 authority chain"
+
+    Send-AgentCommandTagged -Prefix "boot2" -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "autoload-inventory"
+    $inventory = Get-LastAgentResponseJson -Method "service.inventory"
+    Send-AgentCommandTagged -Prefix "boot2" -Command "agent module.service_slot_diagnostic" -ExpectedMarker "RAIOS_AGENT_END module.service_slot_diagnostic" -Name "autoload-slot"
+    $slot = Get-LastAgentResponseJson -Method "module.service_slot_diagnostic"
+    $rows = @($inventory.facts.services | Where-Object { $_.id -eq "svc.dev.granted_candidate" })
+    $row = $rows[0]
+    $liveSlot = @($slot.evidence | Where-Object id -eq "live_granted_service_slot")[0].facts
+    $live = $rows.Count -eq 1 -and [int64]$row.generation -eq [int64]$Install.Generation -and
+        $row.last_run_outcome -eq "success" -and $row.service_slot_activation_active -eq $true -and
+        $row.trust_tier -eq "dev_key_not_owner_sealed" -and $row.PSObject.Properties.Name -notcontains "run_count" -and
+        $slot.facts.runtime.live_granted_service_slot_present -eq $true -and
+        $liveSlot.service_slot_allocated -eq $true -and $liveSlot.running -eq $true -and
+        $liveSlot.trust_tier -eq "dev_key_not_owner_sealed" -and
+        ([regex]::Matches((Get-SerialLogContent -Path $SerialLog), [regex]::Escape("WASM_GUEST_LOG echo counter="))).Count -eq 1
+    $liveDump = [ordered]@{ inventory = $inventory; slot = $slot; log = (Get-SerialLogContent -Path $SerialLog) }
+    Assert-ReportPredicate -Prefix "boot2" -Name "autoload-service-live" -Expected "autoload alone creates one healthy inventory row, one positive slot, and exactly one boot-local guest run" -Passed $live -Actual $(if ($live) { "inventory/slot live; guest_log=1" } else { Convert-CompactJson $liveDump 24 }) -FailureMessage "Boot 2 autoloaded service was not live exactly once"
+    return $marker
+}
+
+function Assert-Boot2Rollback {
+    param([object]$Activation, [object]$Install, [object]$Boot1MemoryScan)
+
+    Send-AgentCommandTagged -Prefix "boot2" -Command "service.rollback_preview svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.rollback_preview" -Name "rollback-preview"
+    $previewResponse = Get-LastAgentResponseJson -Method "service.rollback_preview"
+    $preview = $previewResponse.body.result
+    Send-AgentCommandTagged -Prefix "boot2" -Command "service.rollback_apply svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.rollback_apply" -Name "rollback-apply"
+    $applyResponse = Get-LastAgentResponseJson -Method "service.rollback_apply"
+    $apply = $applyResponse.body.result
+    $verification = $apply.rollback_verification
+    $unpromote = $verification.durable_unpromote_transaction
+    Send-AgentCommandTagged -Prefix "boot2" -Command "agent durable.record_log_scan" -ExpectedMarker "RAIOS_AGENT_END durable.record_log_scan" -Name "rollback-reclog"
+    $scanResponse = Get-LastAgentResponseJson -Method "durable.record_log_scan"
+    $scan = $scanResponse.body.result
+    $ok = $preview.code -eq "ok" -and $preview.reason -eq "rollback_plan_recorded_ram_only" -and
+        $preview.rollback_plan.artifact_hash -eq $Activation.CandidateSha256 -and
+        $apply.code -eq "ok" -and $apply.reason -eq "unpromoted_dev_key_granted_external_wasm_current_boot" -and
+        $apply.loaded -eq $false -and $apply.running -eq $false -and
+        $verification.stopped -eq $true -and $verification.drop_clear_bytes -eq $true -and
+        $verification.free_slot -eq $true -and $verification.remove_inventory -eq $true -and
+        $verification.restore_hash_verified -eq $true -and
+        $verification.reprojected_service_inventory_hash -eq $verification.pre_load_service_inventory_hash -and
+        $unpromote.transaction_kind -eq "unpromote" -and $unpromote.performed -eq $true -and
+        $unpromote.readback_sha256 -eq $unpromote.frame_sha256 -and $unpromote.reparse_valid -eq $true -and
+        $unpromote.signature_verified -eq $true -and $unpromote.grant_binds_capability -eq $true -and
+        $scan.status -eq "valid" -and $scan.tail_frame_sha256 -eq $unpromote.frame_sha256 -and
+        # Boot 2 appends four frames by this point: the autoload re-promotion
+        # links the existing authorization and appends promote + artifact, then
+        # re-running the guest records its wasm import-grant as a third durable
+        # memory record; rollback then appends the unpromote.
+        [int64]$scan.count -eq ([int64]$Boot1MemoryScan.CountFinal + 4)
+    $dump = [ordered]@{ preview = $previewResponse; apply = $applyResponse; scan = $scanResponse }
+    Assert-ReportPredicate -Prefix "boot2" -Name "rollback-restores-and-persists" -Expected "rollback restores the exact pre-load inventory and appends a readback-verified linked unpromote as the newest RECLOG frame" -Passed $ok -Actual $(if ($ok) { "restored=$($verification.reprojected_service_inventory_hash) unpromote=$($unpromote.frame_sha256)" } else { Convert-CompactJson $dump 28 }) -FailureMessage "Boot 2 rollback did not restore and persist the unpromote"
+    return [pscustomobject]@{ FrameSha256 = [string]$unpromote.frame_sha256; GuestScan = $scan; Response = $applyResponse }
+}
+
+function Assert-Boot2HostChain {
+    param([object]$Boot1Inspection, [object]$Boot2Inspection, [object]$Rollback)
+
+    $boot1Frames = @($Boot1Inspection.reclog_frames)
+    $boot2Frames = @($Boot2Inspection.reclog_frames)
+    $prefixOk = $boot2Frames.Count -gt $boot1Frames.Count
+    for ($i = 0; $prefixOk -and $i -lt $boot1Frames.Count; $i += 1) {
+        $prefixOk = [int64]$boot2Frames[$i].seq -eq [int64]$boot1Frames[$i].seq -and
+            $boot2Frames[$i].frame_sha256 -eq $boot1Frames[$i].frame_sha256 -and
+            $boot2Frames[$i].payload_sha256 -eq $boot1Frames[$i].payload_sha256
     }
-    $grant = @($decisions | Where-Object { $_.status -eq "repromoted" })[0]
-    $granted = (
-        $body.schema -eq "raios.repromotion.v0" -and
-        $body.status -eq "completed" -and
-        $body.performed -eq $true -and
-        [int]$body.artifact_count -ge 1 -and
-        $grant -ne $null -and
-        $grant.performed -eq $true -and
-        $grant.authorizes_load -eq $true -and
-        $grant.cross_reboot_proven -eq $true -and
-        $grant.trust_tier -eq "dev_key_not_owner_sealed" -and
-        $grant.owner_sealed -eq $false -and
-        $grant.persistence_claimed -eq $false -and
-        $grant.recorded_signature_verified -eq $true -and
-        $grant.grant_binds_capability -eq $true
-    )
-    Assert-ReportPredicate -Prefix $Prefix -Name "repromotion-granted" -Expected "repromotion.run re-verifies persisted chain and grants dev-tier load" -Passed $granted -Actual $(if ($granted) { Convert-CompactJson $grant 10 } else { Convert-CompactJson $body 12 }) -FailureMessage "Expected boot 2 repromotion to grant and load the persisted service"
+    Assert-ReportPredicate -Prefix "boot2" -Name "mem-reclog-boot1-prefix-survives" -Expected "every boot-1 RECLOG sequence/frame/payload hash remains an identical prefix and the head hash is unchanged" -Passed $prefixOk -Actual $(if ($prefixOk) { "prefix_frames=$($boot1Frames.Count) head=$($Boot2Inspection.reclog_scan.head_frame_sha256)" } else { Convert-CompactJson $Boot2Inspection.reclog_frames 20 }) -FailureMessage "Boot 2 changed the boot-1 RECLOG prefix"
 
-    $startOffset = Get-SerialLogOffset
-    Send-AgentCommandTagged -Prefix $Prefix -Command "service.start svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.start" -Name "service-start-after-repromotion"
-    $start = Get-LastAgentResponseJson -Method "service.start"
-    $startResult = $start.body.result
-    $afterStart = (Get-SerialLogContent -Path $SerialLog).Substring([int]$startOffset)
-    $answers = (
-        $start.t -eq "response" -and
-        $startResult.running -eq $true -and
-        $afterStart.Contains("WASM_GUEST_LOG echo counter=")
-    )
-    Assert-ReportPredicate -Prefix $Prefix -Name "service-answers-after-reboot" -Expected "re-promoted service answers live after reboot" -Passed $answers -Actual $(if ($answers) { "matched" } else { Convert-CompactJson $startResult 8 }) -FailureMessage "Expected re-promoted service to answer after reboot"
+    # The autoload re-promotion links the EXISTING boot-1 authorization frame
+    # (no duplicate), so the first two new frames are promote then artifact;
+    # re-running the guest then records its wasm import-grant as a third durable
+    # memory record, and boot-2 rollback appends the unpromote as the newest tail.
+    $firstNew = $boot2Frames[$boot1Frames.Count]
+    $secondNew = $boot2Frames[$boot1Frames.Count + 1]
+    $tailOk = $Boot2Inspection.reclog_scan.status -eq "valid" -and
+        [int64]$firstNew.seq -eq ([int64]$Boot1Inspection.reclog_scan.tail_seq + 1) -and
+        $firstNew.payload_json.schema -eq "raios.promotion_transaction.v0" -and
+        $firstNew.payload_json.transaction_kind -eq "promote" -and
+        [int64]$secondNew.seq -eq ([int64]$firstNew.seq + 1) -and
+        $secondNew.payload_json.schema -eq "raios.artifact_persist.v0" -and
+        [int64]$Boot2Inspection.reclog_scan.tail_seq -gt [int64]$Boot1Inspection.reclog_scan.tail_seq -and
+        "sha256:$($Boot2Inspection.reclog_scan.tail_frame_sha256)" -eq $Rollback.FrameSha256
+    $tailDump = [ordered]@{ boot1 = $Boot1Inspection.reclog_scan; boot2 = $Boot2Inspection.reclog_scan; first_new = $firstNew; second_new = $secondNew; rollback = $Rollback }
+    Assert-ReportPredicate -Prefix "boot2" -Name "mem-reclog-tail-continues-after-autoload" -Expected "the valid chain's first new frame follows the immutable boot-1 tail, autoload appends promote/artifact, and rollback leaves a newer unpromote tail" -Passed $tailOk -Actual $(if ($tailOk) { "first_new_seq=$($firstNew.seq) tail_seq=$($Boot2Inspection.reclog_scan.tail_seq)" } else { Convert-CompactJson $tailDump 24 }) -FailureMessage "Boot 2 RECLOG tail did not continue validly after autoload"
+}
+
+function Assert-Boot3RollbackState {
+    param([object]$Activation, [object]$Rollback)
+
+    # Same wait as boot 2: the rolled-back marker is emitted after the resolver
+    # runs during early boot; read it only once it has appeared.
+    $markerWaited = Wait-ForLogText -Path $SerialLog -Needle "GRANTED_CANDIDATE_PROVIDER_AUTOLOAD " -TimeoutSeconds $TimeoutSeconds
+    Assert-ReportPredicate -Prefix "boot3" -Name "provider-autoload-marker-emitted" -Expected "boot 3 emits a provider-autoload marker before the first serial command" -Passed $markerWaited -Actual $(if ($markerWaited) { "emitted" } else { Get-SerialLogTail -Path $SerialLog }) -FailureMessage "Boot 3 never emitted a provider-autoload marker"
+    $firstCommandOffset = Get-SerialLogOffset
+    $marker = Get-ProviderAutoloadMarker -BeforeOffset $firstCommandOffset
+    $preCommandLog = Get-SerialLogContent -Path $SerialLog
+    $preceded = $marker.Result -eq "accepted" -and $marker.Phase -eq "rolled_back" -and
+        $marker.Reason -eq "granted_candidate_install_rolled_back" -and $marker.Posture -eq "Normal" -and
+        $marker.CandidateSha256 -eq $Activation.CandidateSha256 -and
+        $marker.PromotionTransactionSha256 -eq $Rollback.FrameSha256 -and
+        $marker.ArtifactPersistFrameSha256 -eq "none" -and
+        -not $marker.M6Reverified -and -not $marker.W6SignatureVerified -and
+        -not $marker.Loaded -and -not $marker.Running -and $marker.RunCount -eq 0 -and
+        -not $marker.CrossRebootProven -and $marker.Offset -lt $firstCommandOffset
+    Assert-ReportPredicate -Prefix "boot3" -Name "rollback-resolution-precedes-command" -Expected "the exact accepted rolled_back marker names the newest unpromote and precedes the first command with no load/run" -Passed $preceded -Actual $(if ($preceded) { $marker.Line } else { Convert-CompactJson $marker 12 }) -FailureMessage "Boot 3 did not resolve the durable unpromote before commands"
+
+    $noAutoload = -not $preCommandLog.Contains("GRANTED_CANDIDATE_PROVIDER_AUTOLOAD result=accepted phase=autoloaded") -and
+        -not $preCommandLog.Contains("RAIOS_AGENT_BEGIN service.load_ephemeral") -and
+        -not $preCommandLog.Contains("RAIOS_AGENT_BEGIN service.start") -and
+        -not $preCommandLog.Contains("WASM_GUEST_LOG echo counter=")
+    Assert-ReportPredicate -Prefix "boot3" -Name "no-autoload-after-rollback" -Expected "rolled-back resolution emits no retain/load/start path and no guest log" -Passed $noAutoload -Actual $(if ($noAutoload) { "no load/start/guest log" } else { $preCommandLog }) -FailureMessage "Boot 3 autoloaded after the durable rollback"
+
+    Send-AgentCommandTagged -Prefix "boot3" -Command "agent durable.record_log_scan" -ExpectedMarker "RAIOS_AGENT_END durable.record_log_scan" -Name "reclog-scan"
+    $scanResponse = Get-LastAgentResponseJson -Method "durable.record_log_scan"
+    Send-AgentCommandTagged -Prefix "boot3" -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "inventory"
+    $inventory = Get-LastAgentResponseJson -Method "service.inventory"
+    Send-AgentCommandTagged -Prefix "boot3" -Command "agent module.service_slot_diagnostic" -ExpectedMarker "RAIOS_AGENT_END module.service_slot_diagnostic" -Name "slot"
+    $slot = Get-LastAgentResponseJson -Method "module.service_slot_diagnostic"
+    $absent = @($inventory.facts.services | Where-Object { $_.id -eq "svc.dev.granted_candidate" }).Count -eq 0 -and
+        $slot.facts.runtime.live_granted_service_slot_present -eq $false -and
+        @($slot.evidence | Where-Object id -eq "live_granted_service_slot").Count -eq 0
+    $dump = [ordered]@{ inventory = $inventory; slot = $slot }
+    Assert-ReportPredicate -Prefix "boot3" -Name "service-remains-absent" -Expected "inventory lacks the granted service and the runtime slot fact remains absent" -Passed $absent -Actual $(if ($absent) { "inventory/slot absent" } else { Convert-CompactJson $dump 22 }) -FailureMessage "Boot 3 resurrected the rolled-back service"
+    return [pscustomobject]@{ Marker = $marker; GuestScan = $scanResponse.body.result }
+}
+
+function Assert-Boot3HostChain {
+    param([object]$Inspection, [object]$Boot3State, [object]$Rollback)
+
+    $transactions = @($Inspection.promotion_transaction_records)
+    $newest = @($transactions | Sort-Object seq | Select-Object -Last 1)[0]
+    $scan = $Inspection.reclog_scan
+    $guest = $Boot3State.GuestScan
+    $ok = $scan.status -eq "valid" -and $guest.status -eq "valid" -and
+        [int64]$scan.count -eq [int64]$guest.count -and [int64]$scan.head_seq -eq [int64]$guest.head_seq -and
+        [int64]$scan.tail_seq -eq [int64]$guest.tail_seq -and
+        "sha256:$($scan.head_frame_sha256)" -eq [string]$guest.head_frame_sha256 -and
+        "sha256:$($scan.tail_frame_sha256)" -eq [string]$guest.tail_frame_sha256 -and
+        $newest.transaction_kind -eq "unpromote" -and "sha256:$($newest.reclog_frame_sha256)" -eq $Rollback.FrameSha256 -and
+        "sha256:$($scan.tail_frame_sha256)" -eq $Rollback.FrameSha256
+    $dump = [ordered]@{ host = $Inspection; guest = $guest; newest = $newest; rollback = $Rollback }
+    Assert-ReportPredicate -Prefix "boot3" -Name "reclog-chain-valid-after-unpromote" -Expected "host and guest agree on the valid RECLOG head/tail/count and the linked unpromote remains newest" -Passed $ok -Actual $(if ($ok) { "count=$($scan.count) tail=$($Rollback.FrameSha256)" } else { Convert-CompactJson $dump 28 }) -FailureMessage "Boot 3 host/guest RECLOG scans did not preserve the newest unpromote"
 }
 
 function Assert-RepromotionDeniedChild {
@@ -865,9 +889,10 @@ function Assert-RepromotionDeniedChild {
         [string]$Label,
         [string]$MutationFlag,
         [string]$ExpectedMismatch,
+        [string]$ExpectedReason,
         [int]$Port
     )
-    $prefix = "boot2-denyhash"
+    $prefix = $Label
     $childVm = $null
     $childPersist = Join-Path $RunDir "persist-$Label.img"
     Copy-Item -LiteralPath $Boot1PersistSnapshot -Destination $childPersist -Force
@@ -879,29 +904,29 @@ function Assert-RepromotionDeniedChild {
         $landed = $mismatches -contains $ExpectedMismatch
         Assert-ReportPredicate -Prefix $prefix -Name "$Label-tamper-landed" -Expected "$ExpectedMismatch mismatch visible in inspect-json" -Passed $landed -Actual $(Convert-CompactJson $records 10) -FailureMessage "$Label tamper did not land"
 
-        $childVm = Start-RaiosVm -Label "denyhash-$Label" -PredicatePrefix $prefix -Port $Port -MonitorPort 0 -PersistPath $childPersist
-        Send-AgentCommandTagged -Prefix $prefix -Command "agent repromotion.run" -ExpectedMarker "RAIOS_AGENT_END repromotion.run" -Name "$Label-repromotion-run"
-        $repromotion = Get-LastAgentResponseJson -Method "repromotion.run"
-        $body = $repromotion.body.result
-        $decisions = @()
-        if ($null -ne $body.decisions) {
-            $decisions = @($body.decisions)
-        }
-        $denied = @($decisions | Where-Object { $_.status -eq "repromotion_denied" -and $_.reason -match "hash_mismatch|sha_mismatch" })[0]
-        $deniedOk = (
-            $body.schema -eq "raios.repromotion.v0" -and
-            [int]$body.artifact_count -ge 1 -and
-            $denied -ne $null -and
-            $denied.authorizes_load -eq $false -and
-            $denied.cross_reboot_proven -eq $false
-        )
-        Assert-ReportPredicate -Prefix $prefix -Name "$Label-repromotion-denied-hash-mismatch" -Expected "repromotion_denied hash mismatch and no load authority" -Passed $deniedOk -Actual $(if ($deniedOk) { Convert-CompactJson $denied 10 } else { Convert-CompactJson $body 12 }) -FailureMessage "$Label did not produce repromotion_denied hash mismatch"
+        $childVm = Start-RaiosVm -Label "denyhash-$Label" -PredicatePrefix $prefix -Port $Port -MonitorPort 0 -QmpPort 0 -PersistPath $childPersist
+        # No command is sent before this read, so the marker precedes the first
+        # command by construction; Get-ProviderAutoloadMarker waits for it.
+        $marker = Get-ProviderAutoloadMarker
+        $expectedPhase = if ($ExpectedReason -eq "no_w6_authorized_install") { "not_installed" } else { "denied" }
+        $expectedResult = if ($ExpectedReason -eq "no_w6_authorized_install") { "accepted" } else { "denied" }
+        $deniedOk = $marker.Result -eq $expectedResult -and $marker.Phase -eq $expectedPhase -and
+            $marker.Reason -eq $ExpectedReason -and -not $marker.M6Reverified -and
+            -not $marker.W6SignatureVerified -and -not $marker.Loaded -and
+            -not $marker.Running -and $marker.RunCount -eq 0 -and -not $marker.CrossRebootProven
+        Assert-ReportPredicate -Prefix $prefix -Name "provider-autoload-denied-hash-mismatch" -Expected "automatic provider autoload rejects the mutated hash/link before authority, with both signature outcomes false and no fallback" -Passed $deniedOk -Actual $(if ($deniedOk) { $marker.Line } else { Convert-CompactJson $marker 12 }) -FailureMessage "$Label did not fail closed in automatic provider autoload"
 
-        $startOffset = Get-SerialLogOffset
-        Send-AgentCommandTagged -Prefix $prefix -Command "service.start svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.start" -Name "$Label-service-start-after-denial"
-        $afterStart = (Get-SerialLogContent -Path $SerialLog).Substring([int]$startOffset)
-        $noAnswer = -not $afterStart.Contains("WASM_GUEST_LOG echo counter=")
-        Assert-ReportPredicate -Prefix $prefix -Name "$Label-no-service-answer" -Expected "denied repromotion leaves service unable to answer" -Passed $noAnswer -Actual $(if ($noAnswer) { "no_guest_log_after_offset:$startOffset" } else { Get-SerialLogTail -Path $SerialLog }) -FailureMessage "$Label denial still allowed a service answer"
+        Send-AgentCommandTagged -Prefix $prefix -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "inventory-after-denial"
+        $inventory = Get-LastAgentResponseJson -Method "service.inventory"
+        Send-AgentCommandTagged -Prefix $prefix -Command "agent module.service_slot_diagnostic" -ExpectedMarker "RAIOS_AGENT_END module.service_slot_diagnostic" -Name "slot-after-denial"
+        $slot = Get-LastAgentResponseJson -Method "module.service_slot_diagnostic"
+        $childLog = Get-SerialLogContent -Path $SerialLog
+        $noAnswer = @($inventory.facts.services | Where-Object { $_.id -eq "svc.dev.granted_candidate" }).Count -eq 0 -and
+            $slot.facts.runtime.live_granted_service_slot_present -eq $false -and
+            @($slot.evidence | Where-Object id -eq "live_granted_service_slot").Count -eq 0 -and
+            -not $childLog.Contains("WASM_GUEST_LOG echo counter=")
+        $dump = [ordered]@{ marker = $marker; inventory = $inventory; slot = $slot; log = $childLog }
+        Assert-ReportPredicate -Prefix $prefix -Name "no-service-answer" -Expected "the denied automatic path leaves no guest log, inventory row, or active slot" -Passed $noAnswer -Actual $(if ($noAnswer) { "guest/inventory/slot absent" } else { Convert-CompactJson $dump 22 }) -FailureMessage "$Label denial still left a live service"
     }
     finally {
         Stop-RaiosVmForce -Vm $childVm
@@ -912,7 +937,7 @@ function Assert-RepromotionDeniedChild {
 
 function Assert-SafeChild {
     param([int]$Port)
-    $prefix = "boot2-safe"
+    $prefix = "safe"
     $safeVm = $null
     $safePersist = Join-Path $RunDir "persist-safe.img"
     Copy-Item -LiteralPath $Boot1PersistSnapshot -Destination $safePersist -Force
@@ -922,25 +947,26 @@ function Assert-SafeChild {
         $safePosture = $inspection.bootctl_read.decision.posture -eq "Safe"
         Assert-ReportPredicate -Prefix $prefix -Name "bootctl-safe-posture-landed" -Expected "both-invalid bootctl inspect-json posture Safe" -Passed $safePosture -Actual $(Convert-CompactJson $inspection.bootctl_read.decision 6) -FailureMessage "SAFE child bootctl patch did not land"
 
-        $safeVm = Start-RaiosVm -Label "safe" -PredicatePrefix $prefix -Port $Port -MonitorPort 0 -PersistPath $safePersist
-        Send-AgentCommandTagged -Prefix $prefix -Command "agent repromotion.run" -ExpectedMarker "RAIOS_AGENT_END repromotion.run" -Name "repromotion-run"
-        $repromotion = Get-LastAgentResponseJson -Method "repromotion.run"
-        $body = $repromotion.body.result
-        $skipped = (
-            $body.schema -eq "raios.repromotion.v0" -and
-            $body.status -eq "repromotion_denied" -and
-            $body.reason -eq "repromotion_skipped_in_safe" -and
-            $body.performed -eq $false -and
-            $body.authorizes_load -eq $false -and
-            $body.cross_reboot_proven -eq $false
-        )
-        Assert-ReportPredicate -Prefix $prefix -Name "repromotion-skipped-in-safe" -Expected "SAFE posture skips repromotion with no load authority" -Passed $skipped -Actual $(if ($skipped) { "matched" } else { Convert-CompactJson $body 10 }) -FailureMessage "SAFE child did not skip repromotion"
+        $safeVm = Start-RaiosVm -Label "safe" -PredicatePrefix $prefix -Port $Port -MonitorPort 0 -QmpPort 0 -PersistPath $safePersist
+        # No command is sent before this read, so the marker precedes the first
+        # command by construction; Get-ProviderAutoloadMarker waits for it.
+        $marker = Get-ProviderAutoloadMarker
+        $skipped = $marker.Result -eq "denied" -and $marker.Phase -eq "denied" -and
+            $marker.Reason -eq "provider_autoload_posture_not_normal" -and $marker.Posture -eq "Safe" -and
+            $marker.CandidateSha256 -eq "none" -and $marker.PromotionTransactionSha256 -eq "none" -and
+            -not $marker.M6Reverified -and -not $marker.W6SignatureVerified -and
+            -not $marker.Loaded -and -not $marker.Running -and $marker.RunCount -eq 0 -and -not $marker.CrossRebootProven
+        Assert-ReportPredicate -Prefix $prefix -Name "provider-autoload-skipped" -Expected "Safe posture denies provider autoload before record intake with no authority or service effect" -Passed $skipped -Actual $(if ($skipped) { $marker.Line } else { Convert-CompactJson $marker 12 }) -FailureMessage "Safe child did not skip provider autoload before record intake"
 
-        $startOffset = Get-SerialLogOffset
-        Send-AgentCommandTagged -Prefix $prefix -Command "service.start svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.start" -Name "service-start-after-safe-skip"
-        $afterStart = (Get-SerialLogContent -Path $SerialLog).Substring([int]$startOffset)
-        $noAnswer = -not $afterStart.Contains("WASM_GUEST_LOG echo counter=")
-        Assert-ReportPredicate -Prefix $prefix -Name "no-service-answer" -Expected "SAFE skipped repromotion leaves service unable to answer" -Passed $noAnswer -Actual $(if ($noAnswer) { "no_guest_log_after_offset:$startOffset" } else { Get-SerialLogTail -Path $SerialLog }) -FailureMessage "SAFE skipped repromotion still allowed a service answer"
+        Send-AgentCommandTagged -Prefix $prefix -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "inventory-after-skip"
+        $inventory = Get-LastAgentResponseJson -Method "service.inventory"
+        Send-AgentCommandTagged -Prefix $prefix -Command "agent module.service_slot_diagnostic" -ExpectedMarker "RAIOS_AGENT_END module.service_slot_diagnostic" -Name "slot-after-skip"
+        $slot = Get-LastAgentResponseJson -Method "module.service_slot_diagnostic"
+        $safeLog = Get-SerialLogContent -Path $SerialLog
+        $noAnswer = @($inventory.facts.services | Where-Object { $_.id -eq "svc.dev.granted_candidate" }).Count -eq 0 -and
+            $slot.facts.runtime.live_granted_service_slot_present -eq $false -and
+            -not $safeLog.Contains("WASM_GUEST_LOG echo counter=")
+        Assert-ReportPredicate -Prefix $prefix -Name "no-service-answer" -Expected "Safe provider-autoload skip leaves no guest log, inventory row, or active slot" -Passed $noAnswer -Actual $(if ($noAnswer) { "guest/inventory/slot absent" } else { Convert-CompactJson ([ordered]@{ inventory = $inventory; slot = $slot; log = $safeLog }) 22 }) -FailureMessage "Safe provider-autoload skip still left a live service"
     }
     finally {
         Stop-RaiosVmForce -Vm $safeVm
@@ -965,7 +991,11 @@ function Assert-Boot2LoadArtifactByHash {
     $loadPersist = Join-Path $RunDir "persist-loadhash.img"
     Copy-Item -LiteralPath $Boot1PersistSnapshot -Destination $loadPersist -Force
     try {
-        $loadVm = Start-RaiosVm -Label "loadhash" -PredicatePrefix $prefix -Port $Port -MonitorPort 0 -PersistPath $loadPersist
+        # Probation skips automatic provider autoload but intentionally remains a
+        # writable recovery posture, so the explicit load-by-hash proof stays real.
+        Invoke-PersistTool -Arguments @("--image", $loadPersist, "--seed-bootctl", "pending") | Out-Null
+        $loadVm = Start-RaiosVm -Label "loadhash" -PredicatePrefix $prefix -Port $Port -MonitorPort 0 -QmpPort 0 -PersistPath $loadPersist
+        $null = Get-ProviderAutoloadMarker
 
         # (1) WRONG-HASH negative FIRST (nothing loaded yet): a well-formed but unknown hash
         # denies artifact_not_in_local_store, reads no blob, and loads/starts nothing.
@@ -1030,18 +1060,32 @@ function Assert-Boot2LoadArtifactByHash {
         )
         Assert-ReportPredicate -Prefix $prefix -Name "correct-hash-reinstates-service" -Expected "recovery.load_artifact_by_hash <boot1 hash> re-verifies + M6-gate loads/starts the service (cross_reboot_proven=true) and appends the durable reinstatement audit; grants nothing new" -Passed $loadOk -Actual $(if ($loadOk) { "reinstated cross_reboot_proven=true durable_append=$($l.durable_append)" } else { Convert-CompactJson $l 12 }) -FailureMessage "Expected recovery.load_artifact_by_hash <boot1 hash> to re-instate the service via the full M6 gate"
 
-        # (3) the re-instated service answers live to an explicit service.start.
+        # (3) The recovery reinstatement itself ran the guest live (one
+        # WASM_GUEST_LOG in the load window; the load response already reported
+        # service_started/success). Post-B1.2b a subsequent SERIAL service.start
+        # cannot re-run the granted candidate — it is denied
+        # physical_approval_preview_missing while the recovery-reinstated service
+        # stays running at run_count=1 with no second guest run.
+        $afterLoad = (Get-SerialLogContent -Path $SerialLog).Substring([int]$loadOffset)
+        $ranLiveOnReinstate = ([regex]::Matches($afterLoad, [regex]::Escape("WASM_GUEST_LOG echo counter="))).Count -eq 1 -and
+            $l.service_started -eq $true -and $l.start_run_outcome -eq "success"
         $startOffset = Get-SerialLogOffset
         Send-AgentCommandTagged -Prefix $prefix -Command "service.start svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.start" -Name "reinstated-service-start"
         $start = Get-LastAgentResponseJson -Method "service.start"
         $startResult = $start.body.result
         $afterStart = (Get-SerialLogContent -Path $SerialLog).Substring([int]$startOffset)
         $answers = (
+            $ranLiveOnReinstate -and
             $start.t -eq "response" -and
-            $startResult.running -eq $true -and
-            $afterStart.Contains("WASM_GUEST_LOG echo counter=")
+            $startResult.loaded -eq $true -and $startResult.running -eq $true -and
+            [int]$startResult.run_count -eq 1 -and
+            $startResult.code -eq "capability_denied" -and
+            $startResult.reason -eq "physical_approval_preview_missing" -and
+            $startResult.last_run_evidence.run_outcome -eq "success" -and
+            $startResult.last_run_evidence.log_line_emitted -eq $true -and
+            -not $afterStart.Contains("WASM_GUEST_LOG echo counter=")
         )
-        Assert-ReportPredicate -Prefix $prefix -Name "reinstated-service-answers-live" -Expected "the hash-reinstated service answers live (WASM_GUEST_LOG) after service.start" -Passed $answers -Actual $(if ($answers) { "answered_live" } else { Convert-CompactJson $startResult 8 }) -FailureMessage "Expected the hash-reinstated service to answer live after reboot"
+        Assert-ReportPredicate -Prefix $prefix -Name "reinstated-service-answers-live" -Expected "recovery reinstatement runs the guest live once; a later serial service.start is denied physical_approval_preview_missing and does not re-run the still-running service" -Passed $answers -Actual $(if ($answers) { "reinstated live once; serial restart gated" } else { Convert-CompactJson $startResult 8 }) -FailureMessage "Expected the hash-reinstated service to answer live once and the serial restart to stay gated"
     }
     finally {
         Stop-RaiosVmForce -Vm $loadVm
@@ -1063,6 +1107,7 @@ function Assert-LoadByHashTamperDeniedChild {
     Copy-Item -LiteralPath $Boot1PersistSnapshot -Destination $tamperPersist -Force
     try {
         Invoke-PersistTool -Arguments @("--tamper-persist-record", $tamperPersist) | Out-Null
+        Invoke-PersistTool -Arguments @("--image", $tamperPersist, "--seed-bootctl", "pending") | Out-Null
         $inspection = Get-PersistInspection -Path $tamperPersist
         $records = @($inspection.artifact_persist_records)
         $tamperedSha = if ($records.Count -gt 0) { [string]$records[0].artifact_sha256 } else { "" }
@@ -1070,7 +1115,8 @@ function Assert-LoadByHashTamperDeniedChild {
         $landed = ($mismatches -contains "artifact_sha256") -and ($tamperedSha -ne "")
         Assert-ReportPredicate -Prefix $prefix -Name "tamper-landed" -Expected "artifact_sha256 mismatch visible in inspect-json with a selectable tampered hash" -Passed $landed -Actual $(Convert-CompactJson $records 10) -FailureMessage "load-by-hash tamper did not land"
 
-        $tamperVm = Start-RaiosVm -Label "loadhash-tamper" -PredicatePrefix $prefix -Port $Port -MonitorPort 0 -PersistPath $tamperPersist
+        $tamperVm = Start-RaiosVm -Label "loadhash-tamper" -PredicatePrefix $prefix -Port $Port -MonitorPort 0 -QmpPort 0 -PersistPath $tamperPersist
+        $null = Get-ProviderAutoloadMarker
         Send-AgentCommandTagged -Prefix $prefix -Command "agent recovery.load_artifact_by_hash $tamperedSha" -ExpectedMarker "RAIOS_AGENT_END recovery.load_artifact_by_hash" -Name "tamper-load"
         $load = Get-LastAgentResponseJson -Method "recovery.load_artifact_by_hash"
         $t = $load.body.result
@@ -1167,7 +1213,11 @@ New-Item -ItemType Directory -Force -Path $RunDir | Out-Null
 $Boot1PersistSnapshot = Join-Path $RunDir "persist-after-boot1.img"
 $boot1Vm = $null
 $boot2Vm = $null
+$boot3Vm = $null
 $boot1MemoryScan = $null
+$activation = $null
+$install = $null
+$rollback = $null
 
 try {
     $ResolvedArtifact = Join-Path $RepoRoot "seed-kernel\artifacts\svc.demo.echo.wasm"
@@ -1175,24 +1225,49 @@ try {
         throw "Candidate artifact missing: $ResolvedArtifact"
     }
 
-    $buildResult = Invoke-NativeCommandForReport -FilePath "cargo" -Arguments @("build", "-p", "ota-tools", "--bin", "dev-promotion-signer")
-    Assert-ReportPredicate -Prefix "boot1" -Name "rust-signer-built" -Expected "cargo build -p ota-tools --bin dev-promotion-signer exits 0" -Passed ($buildResult.ExitCode -eq 0) -Actual $(if ($buildResult.ExitCode -eq 0) { "built" } else { $buildResult.Output -join [Environment]::NewLine }) -FailureMessage "dev-promotion-signer build failed"
+    $env:CARGO_HOME = (Resolve-Path (Join-Path $RepoRoot ".cargo-home")).Path
+    $env:CARGO_TARGET_DIR = Join-Path $RepoRoot "target"
+    # cargo writes progress to stderr; the report helper's stderr redirect turns
+    # that into a terminating NativeCommandError under Stop preference. Run it
+    # plainly like shadow-vm-smoke.ps1 does and gate on the exit code only.
+    & cargo build --locked -p ota-tools --bin dev-promotion-signer
+    $signerBuildExit = $LASTEXITCODE
+    Assert-ReportPredicate -Prefix "boot1" -Name "rust-signer-built" -Expected "cargo build --locked -p ota-tools --bin dev-promotion-signer exits 0" -Passed ($signerBuildExit -eq 0) -Actual $(if ($signerBuildExit -eq 0) { "built" } else { "exit=$signerBuildExit" }) -FailureMessage "dev-promotion-signer build failed"
 
     if ($Image) {
-        $ResolvedImage = (Resolve-Path -LiteralPath $Image).Path
+        throw "persistence-reboot requires a per-run temporary pin-bearing image; do not pass -Image"
     }
-    else {
-        $ResolvedImage = Join-Path $RunDir "raios-stage0-persistence-reboot-base.img"
-        $TempImage = $true
-        & $PackageScript -Profile release -Image $ResolvedImage -UseTempEsp
-        if ($LASTEXITCODE -ne 0) {
-            throw "Image packaging failed with exit code $LASTEXITCODE"
-        }
+    $fixtureWrapper = Join-Path $PSScriptRoot "net8-w7-tls-fixture.ps1"
+    $null = & $fixtureWrapper -Action Start -ArtifactPath $ResolvedArtifact -ReadyPath $FixtureReadyPath -ResultPath $FixtureResultPath -ModePath $FixtureModePath
+    $fixtureDeadline = [DateTime]::UtcNow.AddSeconds(60)
+    while (-not (Test-Path -LiteralPath $FixtureReadyPath -PathType Leaf) -and [DateTime]::UtcNow -lt $fixtureDeadline) {
+        Start-Sleep -Milliseconds 50
+    }
+    if (-not (Test-Path -LiteralPath $FixtureReadyPath -PathType Leaf)) {
+        throw "NET-8 TLS fixture did not publish its atomic ready file"
+    }
+    $ready = Get-Content -LiteralPath $FixtureReadyPath -Raw | ConvertFrom-Json
+    if ($ready.schema -ne "raios.net8_w7_tls_fixture_ready.v0" -or
+        $ready.sni -ne "w7.test.raios" -or [int]$ready.host_port -ne 8443 -or
+        [int]$ready.artifact_length -ne 4205 -or
+        $ready.artifact_sha256 -ne "f81f9442de3729f58f9d5c43b186a4223e3f0ed0bdde20e94722da8d5733abd2" -or
+        $ready.path -ne "/raios/cas/sha256/f81f9442de3729f58f9d5c43b186a4223e3f0ed0bdde20e94722da8d5733abd2" -or
+        $ready.spki_sha256 -notmatch '^[0-9a-f]{64}$') {
+        throw "NET-8 TLS fixture ready file failed validation: $(Convert-CompactJson $ready 10)"
+    }
+    $pinEnvName = "RAIOS_NET8_W7_PIN_$PID"
+    [Environment]::SetEnvironmentVariable($pinEnvName, [string]$ready.spki_sha256, "Process")
+    $ResolvedImage = Join-Path $RunDir "raios-stage0-persistence-reboot-pin.img"
+    $TempImage = $true
+    & $PackageScript -Profile release -Image $ResolvedImage -UseTempEsp -EmbedNet8W7SpkiPinFromEnv -Net8W7SpkiPinEnvVar $pinEnvName
+    [Environment]::SetEnvironmentVariable($pinEnvName, $null, "Process")
+    if ($LASTEXITCODE -ne 0) {
+        throw "Pin-bearing image packaging failed with exit code $LASTEXITCODE"
     }
 
     $PersistDiskImage = Join-Path $RunDir "kept-persist.img"
     $builderResult = Invoke-NativeCommandForReport -FilePath "python" -Arguments @($Builder, "--self-check", "--seed-bootctl", "valid-a", $PersistDiskImage)
-    Assert-ReportPredicate -Prefix "boot1" -Name "kept-persist-disk-built" -Expected "self-check GPT persist disk with valid-a bootctl" -Passed ($builderResult.ExitCode -eq 0) -Actual $(if ($builderResult.ExitCode -eq 0) { "built" } else { $builderResult.Output -join [Environment]::NewLine }) -FailureMessage "Persist disk build failed"
+    Assert-ReportPredicate -Prefix "boot1" -Name "kept-persist-disk-built" -Expected "self-check GPT persist disk with valid-a bootctl" -Passed ($builderResult.ExitCode -eq 0) -Actual $(if ($builderResult.ExitCode -eq 0) { "built" } else { (@($builderResult.Output) + @($builderResult.Error)) -join [Environment]::NewLine }) -FailureMessage "Persist disk build failed"
     $PersistDiskImage = Assert-PersistDiskPathSafe -Path $PersistDiskImage
     $initialInspection = Get-PersistInspection -Path $PersistDiskImage
     $initialOk = (
@@ -1204,26 +1279,37 @@ try {
     )
     Assert-ReportPredicate -Prefix "boot1" -Name "kept-persist-disk-empty-normal" -Expected "valid GPT, Normal bootctl, empty RECLOG" -Passed $initialOk -Actual $(Convert-CompactJson $initialInspection 8) -FailureMessage "Initial kept persist disk was not empty Normal posture"
 
-    $HardwareProfile = New-HardwareProfile -Nic "none" -ScratchDrive $true -AuditRollbackTargetDrive $true -PersistDrive $true
+    $HardwareProfile = New-HardwareProfile -Nic "e1000" -ScratchDrive $true -AuditRollbackTargetDrive $true -PersistDrive $true
 
-    $boot1Vm = Start-RaiosVm -Label "boot1" -PredicatePrefix "boot1" -Port $SerialTcpPort -MonitorPort ($SerialTcpPort + 100) -PersistPath $PersistDiskImage
-    Invoke-RealDevKeyPromotion -Prefix "boot1"
+    $boot1Vm = Start-RaiosVm -Label "boot1" -PredicatePrefix "boot1" -Port $SerialTcpPort -MonitorPort ($SerialTcpPort + 100) -QmpPort ($SerialTcpPort + 200) -NetworkBoot -PersistPath $PersistDiskImage
+    $activation = @(Invoke-W7M6PhysicalActivation)[-1]
+    $install = @(Invoke-SignedGrantedCandidateInstall -Activation $activation -NamePrefix "boot1")[-1]
+    Assert-Boot1ActivationAndInstall -Activation $activation -Install $install
     $boot1MemoryScan = Invoke-Boot1DurableMemoryWrites -Prefix "boot1"
     Stop-RaiosVmCleanly -Vm $boot1Vm -Name "boot1"
 
     $postBoot1Inspection = Get-PersistInspection -Path $PersistDiskImage
     $postBoot1Records = @($postBoot1Inspection.artifact_persist_records)
-    $postBoot1Ok = [int]$postBoot1Inspection.reclog_scan.count -gt 0 -and $postBoot1Records.Count -ge 1
-    Assert-ReportPredicate -Prefix "boot1" -Name "persist-disk-has-records-after-clean-quit" -Expected "host inspect sees non-empty RECLOG and artifact_persist after boot 1 quit" -Passed $postBoot1Ok -Actual $(Convert-CompactJson $postBoot1Inspection 10) -FailureMessage "Boot 1 did not leave a non-empty persisted store"
+    Assert-Boot1HostProvenance -Inspection $postBoot1Inspection -Activation $activation -Install $install
     Copy-Item -LiteralPath $PersistDiskImage -Destination $Boot1PersistSnapshot -Force
 
-    $boot2Vm = Start-RaiosVm -Label "boot2" -PredicatePrefix "boot2" -Port ($SerialTcpPort + 1) -MonitorPort ($SerialTcpPort + 101) -PersistPath $PersistDiskImage
+    $boot2Vm = Start-RaiosVm -Label "boot2" -PredicatePrefix "boot2" -Port ($SerialTcpPort + 1) -MonitorPort ($SerialTcpPort + 101) -QmpPort 0 -PersistPath $PersistDiskImage
+    $null = Assert-Boot2Autoload -Activation $activation -Install $install -Boot1Inspection $postBoot1Inspection
     Assert-Boot2MemorySurvives -Prefix "boot2" -Boot1MemoryScan $boot1MemoryScan
-    Assert-Boot2Repromotion -Prefix "boot2"
+    $rollback = Assert-Boot2Rollback -Activation $activation -Install $install -Boot1MemoryScan $boot1MemoryScan
     Stop-RaiosVmCleanly -Vm $boot2Vm -Name "boot2"
+    $postBoot2Inspection = Get-PersistInspection -Path $PersistDiskImage
+    Assert-Boot2HostChain -Boot1Inspection $postBoot1Inspection -Boot2Inspection $postBoot2Inspection -Rollback $rollback
 
-    Assert-RepromotionDeniedChild -Label "corrupt-artstor-blob" -MutationFlag "--corrupt-artstor-blob" -ExpectedMismatch "artstor_blob_frame_sha256" -Port ($SerialTcpPort + 10)
-    Assert-RepromotionDeniedChild -Label "tamper-persist-record" -MutationFlag "--tamper-persist-record" -ExpectedMismatch "artifact_sha256" -Port ($SerialTcpPort + 11)
+    $boot3Vm = Start-RaiosVm -Label "boot3" -PredicatePrefix "boot3" -Port ($SerialTcpPort + 2) -MonitorPort ($SerialTcpPort + 102) -QmpPort 0 -PersistPath $PersistDiskImage
+    $boot3State = Assert-Boot3RollbackState -Activation $activation -Rollback $rollback
+    Stop-RaiosVmCleanly -Vm $boot3Vm -Name "boot3"
+    Assert-Boot3HostChain -Inspection (Get-PersistInspection -Path $PersistDiskImage) -Boot3State $boot3State -Rollback $rollback
+
+    Assert-RepromotionDeniedChild -Label "corrupt-artstor-blob" -MutationFlag "--corrupt-artstor-blob" -ExpectedMismatch "artstor_blob_frame_sha256" -ExpectedReason "blob_hash_mismatch" -Port ($SerialTcpPort + 10)
+    # The merged resolver rejects a tampered artifact-persist link before reverify,
+    # so its exact marker is not_installed/no_w6_authorized_install (plan gap).
+    Assert-RepromotionDeniedChild -Label "tamper-persist-record" -MutationFlag "--tamper-persist-record" -ExpectedMismatch "artifact_sha256" -ExpectedReason "no_w6_authorized_install" -Port ($SerialTcpPort + 11)
     Assert-SafeChild -Port ($SerialTcpPort + 12)
 
     # M8D-2 recovery.load_artifact_by_hash authority flip: a fresh boot off the boot-1
@@ -1247,6 +1333,16 @@ finally {
     Close-SerialTcpConnection
     Stop-RaiosVmForce -Vm $boot1Vm
     Stop-RaiosVmForce -Vm $boot2Vm
+    Stop-RaiosVmForce -Vm $boot3Vm
+    if (Test-Path -LiteralPath $FixtureReadyPath -PathType Leaf) {
+        try {
+            $fixturePid = [int](Get-Content -LiteralPath $FixtureReadyPath -Raw | ConvertFrom-Json).process_id
+            & (Join-Path $PSScriptRoot "net8-w7-tls-fixture.ps1") -Action Stop -ProcessId $fixturePid
+        }
+        catch {
+        }
+    }
+    [Environment]::SetEnvironmentVariable("RAIOS_NET8_W7_PIN_$PID", $null, "Process")
     Merge-SerialLogs
 
     # A throw in here would REPLACE the exception that is already unwinding and

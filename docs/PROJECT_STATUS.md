@@ -24,6 +24,47 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+B1.2c REBOOT-PROOF RED CLASSIFICATIONS (2026-07-15, persistence-reboot, before
+retries): the three-boot proof surfaced a sequence of harness reds, EVERY ONE a
+stale/timing test expectation with the guest behaving correctly.
+- Frame-count reds (`rollback-restores-and-persists`,
+  `mem-reclog-tail-continues-after-autoload`): the profile assumed the boot-2
+  autoload appends two frames, but it links the existing boot-1 authorization
+  and appends promote + artifact, then re-running the guest records its wasm
+  import-grant as a third durable memory record; rollback then appends the
+  unpromote (CountFinal+4). Pins corrected to the observed frame accounting.
+- Provider-autoload-marker reds (boot 2, boot 3, and every negative child):
+  the marker was read with a single non-waiting log sample right after VM
+  start, before the marker is emitted; centralized a wait in
+  `Get-ProviderAutoloadMarker`. The negative children then proved the correct
+  fail-closed markers: corrupt ARTSTOR blob → `blob_hash_mismatch`, tampered
+  persist record → resolver rejects the non-exact link (`not_installed` /
+  `no_w6_authorized_install`), Safe posture → `provider_autoload_posture_not_normal`.
+- `reinstated-service-answers-live`: the recovery-load-by-hash test expected a
+  post-reinstate SERIAL `service.start` to re-run the guest, but B1.2b gates
+  serial start behind physical approval. Live proof: recovery reinstatement
+  runs the guest once (one guest log, `last_run_evidence` success, run_count=1)
+  and the later serial `service.start` is correctly denied
+  `physical_approval_preview_missing` without a second run. Rewrote the
+  predicate to that stronger, B1.2b-consistent shape.
+
+Earlier two-red summary retained below for detail.
+- `boot1:w6-second-click-installed` read `WASM_GUEST_LOG` over the WHOLE boot-1
+  log (7 hits: selftests + recovery probes also run the guest) instead of the
+  post-install window. Live proof: post-`InstallOffset` guest logs = 0 with one
+  accepted install marker — the install commits durably and does NOT re-run.
+  Fixed to count in the install window, matching the green network/m6d no-rerun
+  pins.
+- `boot2:provider-autoload-before-command` (and the boot-3 twin) read the
+  autoload marker with a SINGLE non-waiting log read; VM start only waits for
+  hardware-init lines, but the marker is emitted later (after entropy seed,
+  core policy, project-app autoload, and — for an active install — the
+  reverify+reload of the guest from the persist disk). Boot 2's log ended at
+  "Entropy seeded via RDRAND" because the harness read once and killed QEMU
+  before autoload completed. Fixed by waiting on the marker line first (new
+  `boot{2,3}:provider-autoload-marker-emitted` predicates); this rerun is the
+  first live exercise of the reboot autoload path.
+
 B1.2c FIRST INSTALL ATTEMPT CLASSIFICATION (2026-07-15, before retry):
 `network-acquisition` `shadow-20260715-112604-22712.json` ran 234/234 executed
 predicates green — including the armed signed W6 preview, the separate-authority
