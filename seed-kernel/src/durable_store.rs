@@ -32,7 +32,8 @@ use raios_core::{
         EXPECTED_TRUST_TIER as MEMORY_EXPECTED_TRUST_TIER,
     },
     scoped_promotion_transaction_append::{
-        evaluate_scoped_promotion_transaction_append, ScopedPromotionTransactionAppendInput,
+        evaluate_scoped_promotion_transaction_append, ScopedPromotionSubject,
+        ScopedPromotionTransactionAppendInput,
         EXPECTED_METHOD as PROMOTION_EXPECTED_METHOD,
         EXPECTED_RECORD_SCHEMA as PROMOTION_EXPECTED_RECORD_SCHEMA,
         EXPECTED_REGION_MARKER as PROMOTION_EXPECTED_REGION_MARKER,
@@ -62,9 +63,16 @@ use raios_core::{
         evaluate_scoped_seed_data_append, ScopedSeedDataAppendInput, EXPECTED_METHOD,
         EXPECTED_RECORD_SCHEMA, EXPECTED_REGION_MARKER, EXPECTED_TARGET_ID,
     },
-    project_install::{install_action_signature_payload_sha256, seal_granted_candidate_install_envelope, seal_install_action, GrantedCandidateInstallEnvelope, ProjectInstallAction, ProjectInstallActionKind, ProjectInstallAuthority},
+    project_install::{
+        install_action_signature_payload_sha256, seal_granted_candidate_install_envelope,
+        seal_install_action, seal_ui_program_install_envelope, GrantedCandidateInstallEnvelope,
+        ProjectInstallAction, ProjectInstallActionKind, ProjectInstallAuthority,
+        UiProgramInstallEnvelope, PROJECT_INSTALL_TRUST_TIER, UI_PROGRAM_INSTALL_SUBJECT_KIND,
+    },
     promotion_attestation::verify_promotion_authority_signature,
+    scoped_wasm_import_grant::PERSONAL_SHELL_SERVICE_ID,
     sha256_bytes, ByteSink,
+    ui_program::{MAX_PROGRAM_BYTES, PROGRAM_ABI_VERSION},
 };
 
 const METHOD: &str = "durable.record_log_scan";
@@ -84,6 +92,8 @@ const PROMOTION_TRANSACTION_MAX_PAYLOAD_LEN: usize = 4096 - RECLOG_FRAME_HEADER_
 pub(crate) const INSTALL_AUTHORIZATION_SCHEMA: &str = "raios.install_authorization.v0";
 const INSTALL_AUTHORIZATION_ID: &str =
     "install_authorization.origin_boot.svc.dev.granted_candidate.v0";
+const UI_PROGRAM_INSTALL_AUTHORIZATION_ID: &str =
+    "install_authorization.origin_boot.ui_program.v0";
 const INSTALL_AUTHORIZATION_RECORD_KIND: &str = "install_authorization";
 const INSTALL_AUTHORIZATION_MAX_PAYLOAD_LEN: usize = 4096 - RECLOG_FRAME_HEADER_LEN;
 // Frame-budget assertion (88-byte RECLOG header, 256-byte install DER, 80-byte
@@ -355,6 +365,21 @@ pub(crate) enum PromotionTransactionKind {
     Unpromote,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PromotionSubject {
+    GrantedCandidate,
+    UiProgram,
+}
+
+impl PromotionSubject {
+    const fn scoped(self) -> ScopedPromotionSubject {
+        match self {
+            Self::GrantedCandidate => ScopedPromotionSubject::GrantedCandidate,
+            Self::UiProgram => ScopedPromotionSubject::UiProgram,
+        }
+    }
+}
+
 impl PromotionTransactionKind {
     pub(crate) const fn as_str(self) -> &'static str {
         match self {
@@ -410,13 +435,187 @@ pub(crate) struct PromotionTransactionRecord {
 }
 
 #[derive(Clone, Copy)]
+pub(crate) struct UiProgramPromotionTransactionRecord {
+    pub(crate) subject: PromotionSubject,
+    pub(crate) transaction_kind: PromotionTransactionKind,
+    pub(crate) engine_service_id: &'static str,
+    pub(crate) program_abi_version: u16,
+    pub(crate) canonical_program_sha256: [u8; 32],
+    pub(crate) canonical_program_byte_len: u64,
+    pub(crate) activation_approval_sha256: [u8; 32],
+    pub(crate) install_authorization_present: bool,
+    pub(crate) install_envelope_binds_activation: bool,
+    pub(crate) install_action_signature_verified: bool,
+    pub(crate) physical_install_approval_consumed: bool,
+    pub(crate) install_authorization_frame_sha256: [u8; 32],
+    pub(crate) canonical_verified: bool,
+    pub(crate) activation_approval_consumed: bool,
+    pub(crate) generation: u64,
+    pub(crate) rollback_apply_event_id: Option<event_log::EventId>,
+}
+
+pub(crate) enum PromotionTransactionRef<'a> {
+    GrantedCandidate(&'a PromotionTransactionRecord),
+    UiProgram(&'a UiProgramPromotionTransactionRecord),
+}
+
+pub(crate) trait PromotionTransactionRecordView {
+    fn promotion_transaction_ref(&self) -> PromotionTransactionRef<'_>;
+}
+
+impl PromotionTransactionRecordView for PromotionTransactionRecord {
+    fn promotion_transaction_ref(&self) -> PromotionTransactionRef<'_> {
+        PromotionTransactionRef::GrantedCandidate(self)
+    }
+}
+
+impl PromotionTransactionRecordView for UiProgramPromotionTransactionRecord {
+    fn promotion_transaction_ref(&self) -> PromotionTransactionRef<'_> {
+        PromotionTransactionRef::UiProgram(self)
+    }
+}
+
+impl PromotionTransactionRef<'_> {
+    fn subject(&self) -> PromotionSubject {
+        match self {
+            Self::GrantedCandidate(_) => PromotionSubject::GrantedCandidate,
+            Self::UiProgram(record) => record.subject,
+        }
+    }
+
+    fn transaction_kind(&self) -> PromotionTransactionKind {
+        match self {
+            Self::GrantedCandidate(record) => record.transaction_kind,
+            Self::UiProgram(record) => record.transaction_kind,
+        }
+    }
+
+    fn install_authorization_present(&self) -> bool {
+        match self {
+            Self::GrantedCandidate(record) => record.install_authorization_present,
+            Self::UiProgram(record) => record.install_authorization_present,
+        }
+    }
+
+    fn install_authorization_frame_sha256(&self) -> [u8; 32] {
+        match self {
+            Self::GrantedCandidate(record) => record.install_authorization_frame_sha256,
+            Self::UiProgram(record) => record.install_authorization_frame_sha256,
+        }
+    }
+
+    fn install_envelope_binds_activation(&self) -> bool {
+        match self {
+            Self::GrantedCandidate(record) => record.install_envelope_binds_activation,
+            Self::UiProgram(record) => record.install_envelope_binds_activation,
+        }
+    }
+
+    fn install_action_signature_verified(&self) -> bool {
+        match self {
+            Self::GrantedCandidate(record) => record.install_action_signature_verified,
+            Self::UiProgram(record) => record.install_action_signature_verified,
+        }
+    }
+
+    fn physical_install_approval_consumed(&self) -> bool {
+        match self {
+            Self::GrantedCandidate(record) => record.physical_install_approval_consumed,
+            Self::UiProgram(record) => record.physical_install_approval_consumed,
+        }
+    }
+
+    fn scoped_signature_verified(&self) -> bool {
+        match self {
+            Self::GrantedCandidate(record) => record.scoped_signature_verified(),
+            Self::UiProgram(record) => record.install_action_signature_verified,
+        }
+    }
+
+    fn grant_binds_capability(&self) -> bool {
+        match self {
+            Self::GrantedCandidate(record) => record.grant_binds_capability,
+            Self::UiProgram(record) => {
+                record.canonical_verified && record.activation_approval_consumed
+            }
+        }
+    }
+
+    fn canonical_verified(&self) -> bool {
+        matches!(self, Self::GrantedCandidate(_))
+            || matches!(self, Self::UiProgram(record) if record.canonical_verified)
+    }
+
+    fn activation_approval_consumed(&self) -> bool {
+        matches!(self, Self::GrantedCandidate(_))
+            || matches!(self, Self::UiProgram(record) if record.activation_approval_consumed)
+    }
+}
+
+#[derive(Clone, Copy)]
 pub(crate) struct InstallAuthorizationRecord {
     pub(crate) service_id: &'static str,
     pub(crate) trust_tier: &'static str,
     pub(crate) authorization: crate::granted_candidate_service::SignedInstallAuthorization,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct UiProgramInstallAuthorization {
+    pub(crate) subject: PromotionSubject,
+    pub(crate) engine_service_id: &'static str,
+    pub(crate) program_abi_version: u16,
+    pub(crate) canonical_program_sha256: [u8; 32],
+    pub(crate) canonical_program_byte_len: u64,
+    pub(crate) activation_approval_sha256: [u8; 32],
+    pub(crate) install_envelope_sha256: [u8; 32],
+    pub(crate) install_action_sha256: [u8; 32],
+    pub(crate) install_action_message_sha256: [u8; 32],
+    pub(crate) authority_evidence_sha256: [u8; 32],
+    pub(crate) physical_approval_sha256: [u8; 32],
+    pub(crate) authority_key_sha256: [u8; 32],
+    pub(crate) signature_der: [u8; 256],
+    pub(crate) signature_len: usize,
+    pub(crate) generation: u64,
+    pub(crate) log_sequence: u64,
+    pub(crate) previous_commit_sha256: Option<[u8; 32]>,
+    pub(crate) trust_tier: &'static str,
+}
+
+pub(crate) enum InstallAuthorizationRef<'a> {
+    GrantedCandidate(&'a InstallAuthorizationRecord),
+    UiProgram(&'a UiProgramInstallAuthorization),
+}
+
+pub(crate) trait InstallAuthorizationRecordView {
+    fn install_authorization_ref(&self) -> InstallAuthorizationRef<'_>;
+}
+
+impl InstallAuthorizationRecordView for InstallAuthorizationRecord {
+    fn install_authorization_ref(&self) -> InstallAuthorizationRef<'_> {
+        InstallAuthorizationRef::GrantedCandidate(self)
+    }
+}
+
+impl InstallAuthorizationRecordView for UiProgramInstallAuthorization {
+    fn install_authorization_ref(&self) -> InstallAuthorizationRef<'_> {
+        InstallAuthorizationRef::UiProgram(self)
+    }
+}
+
 pub(crate) fn validate_signed_install_authorization(
+    record: &impl InstallAuthorizationRecordView,
+) -> Result<(), &'static str> {
+    match record.install_authorization_ref() {
+        InstallAuthorizationRef::GrantedCandidate(record) => {
+            validate_granted_candidate_install_authorization(record)
+        }
+        InstallAuthorizationRef::UiProgram(record) => {
+            validate_ui_program_install_authorization(record)
+        }
+    }
+}
+
+fn validate_granted_candidate_install_authorization(
     record: &InstallAuthorizationRecord,
 ) -> Result<(), &'static str> {
     if record.trust_tier != PROMOTION_TRANSACTION_TRUST_TIER {
@@ -450,6 +649,69 @@ pub(crate) fn validate_signed_install_authorization(
         return Err("install_action_signature_not_verified");
     }
     if !verify_promotion_authority_signature(&action.authority_signature, &authorization.install_action_message_sha256) || authorization.authority_key_sha256 != PLACEHOLDER_PROMOTION_AUTHORITY_PUBLIC_KEY_SHA256 {
+        return Err("install_action_signature_not_verified");
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_ui_program_install_authorization(
+    authorization: &UiProgramInstallAuthorization,
+) -> Result<(), &'static str> {
+    if authorization.trust_tier != PROJECT_INSTALL_TRUST_TIER
+        || authorization.subject != PromotionSubject::UiProgram
+        || authorization.engine_service_id != PERSONAL_SHELL_SERVICE_ID
+        || authorization.program_abi_version != PROGRAM_ABI_VERSION
+        || authorization.canonical_program_sha256 == [0; 32]
+        || authorization.canonical_program_byte_len == 0
+        || authorization.canonical_program_byte_len > MAX_PROGRAM_BYTES as u64
+        || authorization.activation_approval_sha256 == [0; 32]
+        || authorization.signature_len == 0
+        || authorization.signature_len > authorization.signature_der.len()
+    {
+        return Err("ui_program_install_authorization_invalid");
+    }
+    let envelope = seal_ui_program_install_envelope(UiProgramInstallEnvelope {
+        subject_kind: String::from(UI_PROGRAM_INSTALL_SUBJECT_KIND),
+        engine_service_id: String::from(authorization.engine_service_id),
+        program_abi_version: authorization.program_abi_version,
+        canonical_program_sha256: authorization.canonical_program_sha256,
+        canonical_program_byte_len: authorization.canonical_program_byte_len,
+        activation_approval_sha256: authorization.activation_approval_sha256,
+        generation: authorization.generation,
+        auto_load: true,
+        trust_tier: String::from(authorization.trust_tier),
+        envelope_sha256: [0; 32],
+    })
+    .map_err(|error| error.reason())?;
+    if envelope.envelope_sha256 != authorization.install_envelope_sha256 {
+        return Err("install_envelope_binding_mismatch");
+    }
+    let action = seal_install_action(ProjectInstallAction {
+        kind: ProjectInstallActionKind::Install,
+        authority: ProjectInstallAuthority::PhysicalOwner,
+        service_id: String::from(authorization.engine_service_id),
+        generation: authorization.generation,
+        log_sequence: authorization.log_sequence,
+        previous_commit_sha256: authorization.previous_commit_sha256,
+        install_envelope_sha256: Some(authorization.install_envelope_sha256),
+        target_install_commit_sha256: None,
+        authority_evidence_sha256: authorization.authority_evidence_sha256,
+        physical_approval_sha256: Some(authorization.physical_approval_sha256),
+        authority_key_sha256: Some(authorization.authority_key_sha256),
+        authority_signature: authorization.signature_der[..authorization.signature_len].to_vec(),
+        action_sha256: [0; 32],
+    })
+    .map_err(|error| error.reason())?;
+    if action.action_sha256 != authorization.install_action_sha256
+        || install_action_signature_payload_sha256(&action).map_err(|error| error.reason())?
+            != authorization.install_action_message_sha256
+        || !verify_promotion_authority_signature(
+            &action.authority_signature,
+            &authorization.install_action_message_sha256,
+        )
+        || authorization.authority_key_sha256
+            != PLACEHOLDER_PROMOTION_AUTHORITY_PUBLIC_KEY_SHA256
+    {
         return Err("install_action_signature_not_verified");
     }
     Ok(())
@@ -597,7 +859,7 @@ fn optional_u64(value: Option<u64>) -> V<'static> {
 }
 
 pub(crate) fn append_install_authorization(
-    record: &InstallAuthorizationRecord,
+    record: &impl InstallAuthorizationRecordView,
 ) -> InstallAuthorizationAppendEvidence {
     if let Err(reason) = validate_signed_install_authorization(record) {
         return InstallAuthorizationAppendEvidence::denied(reason);
@@ -667,7 +929,20 @@ pub(crate) fn append_install_authorization(
     }
 }
 
-fn install_authorization_payload_bytes(record: &InstallAuthorizationRecord) -> Vec<u8> {
+fn install_authorization_payload_bytes(record: &impl InstallAuthorizationRecordView) -> Vec<u8> {
+    match record.install_authorization_ref() {
+        InstallAuthorizationRef::GrantedCandidate(record) => {
+            granted_candidate_install_authorization_payload_bytes(record)
+        }
+        InstallAuthorizationRef::UiProgram(record) => {
+            ui_program_install_authorization_payload_bytes(record)
+        }
+    }
+}
+
+fn granted_candidate_install_authorization_payload_bytes(
+    record: &InstallAuthorizationRecord,
+) -> Vec<u8> {
     let authorization = record.authorization;
     let record = V::Object(vec![
         f("schema", s(INSTALL_AUTHORIZATION_SCHEMA)),
@@ -749,37 +1024,134 @@ fn install_authorization_payload_bytes(record: &InstallAuthorizationRecord) -> V
     sink.0
 }
 
+fn ui_program_install_authorization_payload_bytes(
+    authorization: &UiProgramInstallAuthorization,
+) -> Vec<u8> {
+    let record = V::Object(vec![
+        f("schema", s(INSTALL_AUTHORIZATION_SCHEMA)),
+        f("id", s(UI_PROGRAM_INSTALL_AUTHORIZATION_ID)),
+        f("scope", s(PROMOTION_TRANSACTION_RECORD_SCOPE)),
+        f("classification", s("local_only")),
+        f("record_kind", s(INSTALL_AUTHORIZATION_RECORD_KIND)),
+        f("subject_kind", s(UI_PROGRAM_INSTALL_SUBJECT_KIND)),
+        f("engine_service_id", s(authorization.engine_service_id)),
+        f(
+            "program_abi_version",
+            V::U64(authorization.program_abi_version as u64),
+        ),
+        f(
+            "canonical_program_sha256",
+            V::Sha256(authorization.canonical_program_sha256),
+        ),
+        f(
+            "canonical_program_byte_len",
+            V::U64(authorization.canonical_program_byte_len),
+        ),
+        f(
+            "activation_approval_sha256",
+            V::Sha256(authorization.activation_approval_sha256),
+        ),
+        f(
+            "install_envelope_sha256",
+            V::Sha256(authorization.install_envelope_sha256),
+        ),
+        f(
+            "install_action_sha256",
+            V::Sha256(authorization.install_action_sha256),
+        ),
+        f(
+            "install_action_signature_message_sha256",
+            V::Sha256(authorization.install_action_message_sha256),
+        ),
+        f(
+            "authority_evidence_sha256",
+            V::Sha256(authorization.authority_evidence_sha256),
+        ),
+        f(
+            "physical_approval_sha256",
+            V::Sha256(authorization.physical_approval_sha256),
+        ),
+        f(
+            "install_authority_key_sha256",
+            V::Sha256(authorization.authority_key_sha256),
+        ),
+        f(
+            "install_signature_der",
+            V::HexBytes(&authorization.signature_der[..authorization.signature_len]),
+        ),
+        f(
+            "install_signature_len",
+            V::U64(authorization.signature_len as u64),
+        ),
+        f("install_generation", V::U64(authorization.generation)),
+        f("install_log_sequence", V::U64(authorization.log_sequence)),
+        f(
+            "install_previous_commit_sha256",
+            record_sha_or_null(authorization.previous_commit_sha256),
+        ),
+        f("auto_load", b(true)),
+        f("trust_tier", s(authorization.trust_tier)),
+    ]);
+    let mut sink = VecSink(Vec::new());
+    write_json(&record, &mut sink, 0);
+    sink.0
+}
+
 pub(crate) fn append_promotion_transaction(
-    record: &PromotionTransactionRecord,
+    record: &impl PromotionTransactionRecordView,
     install_authorization_validated: bool,
 ) -> PromotionTransactionAppendEvidence {
-    if record.install_authorization_present
-        && (record.install_authorization_frame_sha256 == [0; 32]
+    let record = record.promotion_transaction_ref();
+    if let PromotionTransactionRef::UiProgram(program) = &record {
+        if let Err(reason) = validate_ui_program_promotion_transaction(program) {
+            return promotion_transaction_append_denied(program.transaction_kind, reason);
+        }
+    }
+    if record.install_authorization_present()
+        && (record.install_authorization_frame_sha256() == [0; 32]
             || !install_authorization_validated)
     {
         return promotion_transaction_append_denied(
-            record.transaction_kind,
-            if record.install_authorization_frame_sha256 == [0; 32] {
+            record.transaction_kind(),
+            if record.install_authorization_frame_sha256() == [0; 32] {
                 "install_authorization_missing"
             } else {
                 "install_action_signature_not_verified"
             },
         );
     }
-    if let Some(reason) = promotion_transaction_preflight_denial(
-        super::boot_control::current_boot_posture(),
-        record.signature_len,
-    ) {
-        return promotion_transaction_append_denied(record.transaction_kind, reason);
+    let posture = super::boot_control::current_boot_posture();
+    let preflight_denial = match &record {
+        PromotionTransactionRef::GrantedCandidate(record) => {
+            promotion_transaction_preflight_denial(posture, record.signature_len)
+        }
+        PromotionTransactionRef::UiProgram(_) if !matches!(
+            posture,
+            BootPosture::Normal | BootPosture::Probation
+        ) => Some("boot_control_safe_mode"),
+        PromotionTransactionRef::UiProgram(_) => None,
+    };
+    if let Some(reason) = preflight_denial {
+        return promotion_transaction_append_denied(record.transaction_kind(), reason);
     }
 
     let evidence = current_boot_reclog_scan();
-    let payload = promotion_transaction_payload_bytes(record);
+    if record.subject() == PromotionSubject::UiProgram
+        && evidence.scan.full_region_valid
+        && evidence.scan.tail_frame_sha256
+            != Some(record.install_authorization_frame_sha256())
+    {
+        return promotion_transaction_append_denied(
+            record.transaction_kind(),
+            "install_authorization_link_mismatch",
+        );
+    }
+    let payload = promotion_transaction_payload_bytes_ref(&record);
     let planned = match plan_reclog_append(&evidence.scan, &payload, evidence.reclog_byte_count) {
         Ok(planned) => planned,
         Err(denied) => {
             return promotion_transaction_append_evidence(
-                record.transaction_kind.as_str(),
+                record.transaction_kind().as_str(),
                 "capability_denied",
                 denied.reason(),
                 "evidence_only",
@@ -789,14 +1161,14 @@ pub(crate) fn append_promotion_transaction(
                 false,
                 None,
                 record.scoped_signature_verified(),
-                record.grant_binds_capability,
+                record.grant_binds_capability(),
             )
         }
     };
 
     let Some(controller) = evidence.controller else {
         return promotion_transaction_append_evidence(
-            record.transaction_kind.as_str(),
+            record.transaction_kind().as_str(),
             "capability_denied",
             "ahci_controller_not_observed",
             "evidence_only",
@@ -806,7 +1178,7 @@ pub(crate) fn append_promotion_transaction(
             false,
             None,
             record.scoped_signature_verified(),
-            record.grant_binds_capability,
+            record.grant_binds_capability(),
         );
     };
 
@@ -846,22 +1218,30 @@ pub(crate) fn append_promotion_transaction(
             readback_matches_planned: readback_sha256 == Some(planned.frame_sha256),
             reparse_valid,
             span_in_bounds: write.span_in_bounds,
-            transaction_kind: Some(record.transaction_kind.as_str()),
+            subject: record.subject().scoped(),
+            transaction_kind: Some(record.transaction_kind().as_str()),
             signature_verified: scoped_signature_verified,
-            grant_binds_capability: record.grant_binds_capability,
+            grant_binds_capability: record.grant_binds_capability(),
             trust_tier: Some(PROMOTION_EXPECTED_TRUST_TIER),
             owner_sealed: false,
             promotion_authority_is_placeholder: PROMOTION_AUTHORITY_IS_PLACEHOLDER,
-            install_authorization_present: record.install_authorization_present,
-            install_envelope_binds_activation: record.install_envelope_binds_activation,
-            install_action_signature_verified: record.install_action_signature_verified,
-            physical_install_approval_consumed: record.physical_install_approval_consumed,
+            install_authorization_present: record.install_authorization_present(),
+            install_envelope_binds_activation: record.install_envelope_binds_activation(),
+            install_action_signature_verified: record.install_action_signature_verified(),
+            physical_install_approval_consumed: record.physical_install_approval_consumed(),
+            canonical_payload_verified: record.canonical_verified(),
+            activation_approval_consumed: record.activation_approval_consumed(),
+            install_authorization_link_exact: record.install_authorization_frame_sha256()
+                != [0; 32]
+                && install_authorization_validated
+                && evidence.scan.tail_frame_sha256
+                    == Some(record.install_authorization_frame_sha256()),
             persistence_claimed: false,
         });
 
     if !decision.performed {
         return promotion_transaction_append_evidence(
-            record.transaction_kind.as_str(),
+            record.transaction_kind().as_str(),
             "capability_denied",
             decision.reason,
             "evidence_only",
@@ -871,7 +1251,7 @@ pub(crate) fn append_promotion_transaction(
             reparse_valid,
             None,
             scoped_signature_verified,
-            record.grant_binds_capability,
+            record.grant_binds_capability(),
         );
     }
 
@@ -886,7 +1266,7 @@ pub(crate) fn append_promotion_transaction(
         && after.scan.tail_frame_sha256 == Some(planned.frame_sha256);
     if !rescan_ok {
         return promotion_transaction_append_evidence(
-            record.transaction_kind.as_str(),
+            record.transaction_kind().as_str(),
             "capability_denied",
             "post_append_rescan_mismatch",
             "evidence_only",
@@ -896,12 +1276,12 @@ pub(crate) fn append_promotion_transaction(
             reparse_valid,
             Some(&after),
             scoped_signature_verified,
-            record.grant_binds_capability,
+            record.grant_binds_capability(),
         );
     }
 
     promotion_transaction_append_evidence(
-        record.transaction_kind.as_str(),
+        record.transaction_kind().as_str(),
         "appended",
         decision.reason,
         "scoped_promotion_transaction_append_authorized",
@@ -911,11 +1291,79 @@ pub(crate) fn append_promotion_transaction(
         true,
         Some(&after),
         scoped_signature_verified,
-        record.grant_binds_capability,
+        record.grant_binds_capability(),
     )
 }
 
-fn promotion_transaction_payload_bytes(record: &PromotionTransactionRecord) -> Vec<u8> {
+fn validate_ui_program_promotion_transaction(
+    record: &UiProgramPromotionTransactionRecord,
+) -> Result<(), &'static str> {
+    if record.engine_service_id != PERSONAL_SHELL_SERVICE_ID
+        || record.subject != PromotionSubject::UiProgram
+        || record.program_abi_version != PROGRAM_ABI_VERSION
+        || record.canonical_program_sha256 == [0; 32]
+        || record.canonical_program_byte_len == 0
+        || record.canonical_program_byte_len > MAX_PROGRAM_BYTES as u64
+        || record.activation_approval_sha256 == [0; 32]
+        || record.generation == 0
+    {
+        return Err("ui_program_promotion_fields_invalid");
+    }
+    if !record.install_authorization_present {
+        return Err("install_authorization_missing");
+    }
+    if record.install_authorization_frame_sha256 == [0; 32] {
+        return Err("install_authorization_link_mismatch");
+    }
+    if !record.install_envelope_binds_activation {
+        return Err("install_envelope_binding_mismatch");
+    }
+    if !record.install_action_signature_verified {
+        return Err("install_action_signature_not_verified");
+    }
+    if !record.canonical_verified {
+        return Err("ui_program_canonical_verification_missing");
+    }
+    if !record.activation_approval_consumed {
+        return Err("ui_program_activation_approval_missing");
+    }
+    if !record.physical_install_approval_consumed {
+        return Err("physical_install_approval_missing");
+    }
+    match record.transaction_kind {
+        PromotionTransactionKind::Promote if record.rollback_apply_event_id.is_some() => {
+            Err("ui_program_promotion_decision_invalid")
+        }
+        PromotionTransactionKind::Unpromote if record.rollback_apply_event_id.is_none() => {
+            Err("ui_program_promotion_decision_invalid")
+        }
+        _ => Ok(()),
+    }
+}
+
+fn promotion_transaction_payload_bytes(
+    record: &impl PromotionTransactionRecordView,
+) -> Vec<u8> {
+    promotion_transaction_payload_bytes_ref(&record.promotion_transaction_ref())
+}
+
+fn promotion_transaction_payload_bytes_ref(record: &PromotionTransactionRef<'_>) -> Vec<u8> {
+    match record {
+        PromotionTransactionRef::GrantedCandidate(record) => {
+            granted_candidate_promotion_transaction_payload_bytes(record)
+        }
+        PromotionTransactionRef::UiProgram(record) => {
+            let record = V::Object(ui_program_promotion_transaction_fields(record));
+            let mut sink = VecSink(Vec::new());
+            write_json(&record, &mut sink, 0);
+            sink.0
+        }
+    }
+}
+
+fn granted_candidate_promotion_transaction_payload_bytes(
+    record: &PromotionTransactionRecord,
+) -> Vec<u8> {
     let manifest_event = EventIdString::new(record.retained_manifest_reference_event_id);
     let artifact_event = EventIdString::new(record.retained_artifact_reference_event_id);
     let vm_report_event = EventIdString::new(record.retained_vm_report_reference_event_id);
@@ -1052,6 +1500,83 @@ fn promotion_transaction_payload_bytes(record: &PromotionTransactionRecord) -> V
     let mut sink = VecSink(Vec::new());
     write_json(&record, &mut sink, 0);
     sink.0
+}
+
+fn ui_program_promotion_transaction_fields(
+    record: &UiProgramPromotionTransactionRecord,
+) -> Vec<Field<'static>> {
+    // RECLOG has 4,096 - 88 = 4,008 payload bytes; MAX_PROGRAM_BYTES is
+    // 16,384, so canonical RUIP bytes are necessarily ARTSTOR-only.
+    vec![
+        f("schema", s(PROMOTION_EXPECTED_RECORD_SCHEMA)),
+        f(
+            "id",
+            s(match record.transaction_kind {
+                PromotionTransactionKind::Promote => {
+                    "promotion_transaction.origin_boot.promote.ui_program.v0"
+                }
+                PromotionTransactionKind::Unpromote => {
+                    "promotion_transaction.origin_boot.unpromote.ui_program.v0"
+                }
+            }),
+        ),
+        f("scope", s(PROMOTION_TRANSACTION_RECORD_SCOPE)),
+        f("classification", s("local_only")),
+        f("record_kind", s(PROMOTION_TRANSACTION_RECORD_KIND)),
+        f("subject_kind", s(UI_PROGRAM_INSTALL_SUBJECT_KIND)),
+        f("transaction_kind", s(record.transaction_kind.as_str())),
+        f("engine_service_id", s(record.engine_service_id)),
+        f(
+            "program_abi_version",
+            V::U64(record.program_abi_version as u64),
+        ),
+        f(
+            "canonical_program_sha256",
+            V::Sha256(record.canonical_program_sha256),
+        ),
+        f(
+            "canonical_program_byte_len",
+            V::U64(record.canonical_program_byte_len),
+        ),
+        f(
+            "activation_approval_sha256",
+            V::Sha256(record.activation_approval_sha256),
+        ),
+        f(
+            "install_authorization_present",
+            b(record.install_authorization_present),
+        ),
+        f(
+            "install_envelope_binds_activation",
+            b(record.install_envelope_binds_activation),
+        ),
+        f(
+            "install_action_signature_verified",
+            b(record.install_action_signature_verified),
+        ),
+        f(
+            "physical_install_approval_consumed",
+            b(record.physical_install_approval_consumed),
+        ),
+        f(
+            "install_authorization_frame_sha256",
+            V::Sha256(record.install_authorization_frame_sha256),
+        ),
+        f("canonical_verified", b(record.canonical_verified)),
+        f(
+            "activation_approval_consumed",
+            b(record.activation_approval_consumed),
+        ),
+        f("trust_tier", s(PROMOTION_TRANSACTION_TRUST_TIER)),
+        f("owner_sealed", b(false)),
+        f("cross_reboot_proven", b(false)),
+        f("persistence_claimed", b(false)),
+        f("generation", V::U64(record.generation)),
+        f(
+            "rollback_apply_event_id",
+            optional_event_sequence(record.rollback_apply_event_id),
+        ),
+    ]
 }
 
 fn optional_event_sequence(value: Option<event_log::EventId>) -> V<'static> {
@@ -1293,6 +1818,7 @@ fn synthetic_promotion_append_decision(
     let reparsed =
         parse_reclog_frame(&planned.frame, 0, planned.seq, planned.prev_frame_sha256).is_ok();
     let mut input = ScopedPromotionTransactionAppendInput {
+        subject: ScopedPromotionSubject::GrantedCandidate,
         method: Some(PROMOTION_EXPECTED_METHOD),
         target_id: Some(PROMOTION_EXPECTED_TARGET_ID),
         record_schema: Some(PROMOTION_EXPECTED_RECORD_SCHEMA),
@@ -1324,6 +1850,9 @@ fn synthetic_promotion_append_decision(
         install_envelope_binds_activation: true,
         install_action_signature_verified: true,
         physical_install_approval_consumed: true,
+        canonical_payload_verified: false,
+        activation_approval_consumed: false,
+        install_authorization_link_exact: false,
         trust_tier: Some(PROMOTION_EXPECTED_TRUST_TIER),
         owner_sealed: false,
         promotion_authority_is_placeholder: PROMOTION_AUTHORITY_IS_PLACEHOLDER,

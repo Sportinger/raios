@@ -12,8 +12,15 @@ pub const EXPECTED_REGION_MARKER: &str = "RAIOS_DATA_RECLOG";
 pub const EXPECTED_TRUST_TIER: &str = "dev_key_not_owner_sealed";
 const SECTOR_SIZE: u64 = 512;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ScopedPromotionSubject {
+    GrantedCandidate,
+    UiProgram,
+}
+
 #[derive(Clone, Copy)]
 pub struct ScopedPromotionTransactionAppendInput<'a> {
+    pub subject: ScopedPromotionSubject,
     pub method: Option<&'a str>,
     pub target_id: Option<&'a str>,
     pub record_schema: Option<&'a str>,
@@ -48,12 +55,16 @@ pub struct ScopedPromotionTransactionAppendInput<'a> {
     pub install_envelope_binds_activation: bool,
     pub install_action_signature_verified: bool,
     pub physical_install_approval_consumed: bool,
+    pub canonical_payload_verified: bool,
+    pub activation_approval_consumed: bool,
+    pub install_authorization_link_exact: bool,
     pub persistence_claimed: bool,
 }
 
 impl<'a> ScopedPromotionTransactionAppendInput<'a> {
     pub const fn empty() -> Self {
         Self {
+            subject: ScopedPromotionSubject::GrantedCandidate,
             method: None,
             target_id: None,
             record_schema: None,
@@ -88,6 +99,9 @@ impl<'a> ScopedPromotionTransactionAppendInput<'a> {
             install_envelope_binds_activation: false,
             install_action_signature_verified: false,
             physical_install_approval_consumed: false,
+            canonical_payload_verified: false,
+            activation_approval_consumed: false,
+            install_authorization_link_exact: false,
             persistence_claimed: false,
         }
     }
@@ -246,32 +260,65 @@ pub fn evaluate_scoped_promotion_transaction_append(
         Some("promote" | "unpromote") => {}
         _ => return denied("transaction_kind_out_of_scope"),
     }
-    if !input.signature_verified {
-        return denied("signature_not_verified");
-    }
-    if !input.grant_binds_capability {
-        return denied("grant_does_not_bind_capability");
-    }
-    if input.trust_tier != Some(EXPECTED_TRUST_TIER) {
-        return denied("trust_tier_not_dev_key_not_owner_sealed");
-    }
-    if input.owner_sealed {
-        return denied("owner_sealed_not_allowed");
-    }
-    if !input.promotion_authority_is_placeholder {
-        return denied("promotion_authority_not_placeholder");
-    }
-    if !input.install_authorization_present {
-        return denied("install_authorization_missing");
-    }
-    if !input.install_envelope_binds_activation {
-        return denied("install_envelope_binding_mismatch");
-    }
-    if !input.install_action_signature_verified {
-        return denied("install_action_signature_not_verified");
-    }
-    if !input.physical_install_approval_consumed {
-        return denied("physical_install_approval_missing");
+    match input.subject {
+        ScopedPromotionSubject::GrantedCandidate => {
+            if !input.signature_verified {
+                return denied("signature_not_verified");
+            }
+            if !input.grant_binds_capability {
+                return denied("grant_does_not_bind_capability");
+            }
+            if input.trust_tier != Some(EXPECTED_TRUST_TIER) {
+                return denied("trust_tier_not_dev_key_not_owner_sealed");
+            }
+            if input.owner_sealed {
+                return denied("owner_sealed_not_allowed");
+            }
+            if !input.promotion_authority_is_placeholder {
+                return denied("promotion_authority_not_placeholder");
+            }
+            if !input.install_authorization_present {
+                return denied("install_authorization_missing");
+            }
+            if !input.install_envelope_binds_activation {
+                return denied("install_envelope_binding_mismatch");
+            }
+            if !input.install_action_signature_verified {
+                return denied("install_action_signature_not_verified");
+            }
+            if !input.physical_install_approval_consumed {
+                return denied("physical_install_approval_missing");
+            }
+        }
+        ScopedPromotionSubject::UiProgram => {
+            if input.trust_tier != Some(EXPECTED_TRUST_TIER) {
+                return denied("trust_tier_not_dev_key_not_owner_sealed");
+            }
+            if input.owner_sealed {
+                return denied("owner_sealed_not_allowed");
+            }
+            if !input.install_authorization_present {
+                return denied("install_authorization_missing");
+            }
+            if !input.install_authorization_link_exact {
+                return denied("install_authorization_link_mismatch");
+            }
+            if !input.install_envelope_binds_activation {
+                return denied("install_envelope_binding_mismatch");
+            }
+            if !input.install_action_signature_verified {
+                return denied("install_action_signature_not_verified");
+            }
+            if !input.canonical_payload_verified {
+                return denied("ui_program_canonical_verification_missing");
+            }
+            if !input.activation_approval_consumed {
+                return denied("ui_program_activation_approval_missing");
+            }
+            if !input.physical_install_approval_consumed {
+                return denied("physical_install_approval_missing");
+            }
+        }
     }
     if input.persistence_claimed {
         return denied("persistence_claimed_not_allowed");
@@ -342,6 +389,7 @@ mod tests {
 
     fn valid_input(kind: &'static str) -> ScopedPromotionTransactionAppendInput<'static> {
         ScopedPromotionTransactionAppendInput {
+            subject: ScopedPromotionSubject::GrantedCandidate,
             method: Some(EXPECTED_METHOD),
             target_id: Some(EXPECTED_TARGET_ID),
             record_schema: Some(EXPECTED_RECORD_SCHEMA),
@@ -376,6 +424,9 @@ mod tests {
             install_envelope_binds_activation: true,
             install_action_signature_verified: true,
             physical_install_approval_consumed: true,
+            canonical_payload_verified: false,
+            activation_approval_consumed: false,
+            install_authorization_link_exact: false,
             persistence_claimed: false,
         }
     }
@@ -404,6 +455,38 @@ mod tests {
         input.prev_frame_sha256 = Some([0u8; 32]);
 
         assert!(evaluate_scoped_promotion_transaction_append(&input).performed);
+    }
+
+    fn valid_ui_program_input() -> ScopedPromotionTransactionAppendInput<'static> {
+        let mut input = valid_input("promote");
+        input.subject = ScopedPromotionSubject::UiProgram;
+        input.signature_verified = false;
+        input.grant_binds_capability = false;
+        input.promotion_authority_is_placeholder = false;
+        input.canonical_payload_verified = true;
+        input.activation_approval_consumed = true;
+        input.install_authorization_link_exact = true;
+        input
+    }
+
+    #[test]
+    fn ui_program_requires_each_program_authority_pin_without_an_m6_grant() {
+        assert!(evaluate_scoped_promotion_transaction_append(&valid_ui_program_input()).performed);
+
+        let cases: &[(fn(&mut ScopedPromotionTransactionAppendInput<'static>), &str)] = &[
+            (|input| input.install_authorization_present = false, "install_authorization_missing"),
+            (|input| input.install_authorization_link_exact = false, "install_authorization_link_mismatch"),
+            (|input| input.install_envelope_binds_activation = false, "install_envelope_binding_mismatch"),
+            (|input| input.install_action_signature_verified = false, "install_action_signature_not_verified"),
+            (|input| input.canonical_payload_verified = false, "ui_program_canonical_verification_missing"),
+            (|input| input.activation_approval_consumed = false, "ui_program_activation_approval_missing"),
+            (|input| input.physical_install_approval_consumed = false, "physical_install_approval_missing"),
+        ];
+        for (mutate, reason) in cases {
+            let mut input = valid_ui_program_input();
+            mutate(&mut input);
+            assert_eq!(evaluate_scoped_promotion_transaction_append(&input).reason, *reason);
+        }
     }
 
     #[derive(Clone, Copy)]

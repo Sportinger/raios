@@ -48,6 +48,7 @@ const ARTIFACT_PERSIST_RESPONSE_ID: &str =
     "artifact_persist_append.seed_data.origin_boot.svc.dev.granted_candidate.v0";
 const ARTIFACT_PERSIST_RECORD_ID: &str =
     "artifact_persist.origin_boot.svc.dev.granted_candidate.v0";
+const UI_PROGRAM_PERSIST_RECORD_ID: &str = "artifact_persist.origin_boot.ui_program.v0";
 const ARTIFACT_STORE_SCAN_METHOD: &str = "artifact.store_scan";
 const ARTIFACT_STORE_SCAN_SCHEMA: &str = "raios.artifact_store_scan.v0";
 const ARTIFACT_STORE_SCAN_ID: &str = "artifact_store_scan.seed_data.current_boot.v0";
@@ -56,6 +57,13 @@ const ARTIFACT_STORE_SELFTEST_SCHEMA: &str = "raios.artifact_store_selftest.v0";
 const ARTIFACT_RECORD_SCOPE: &str = "origin_boot";
 const GRANTED_CANDIDATE_IMPORT_SET_CANONICAL: &[u8] = b"env.log\nenv.counter_get\n";
 const ARTSTOR_SCAN_WINDOW_BYTES: u64 = 512;
+const MAX_UI_PROGRAM_ARTSTOR_FRAME_LEN: u64 =
+    (raios_core::ui_program::MAX_PROGRAM_BYTES as u64
+        + ARTIFACT_BLOB_FRAME_HEADER_LEN as u64
+        + ARTSTOR_SCAN_WINDOW_BYTES
+        - 1)
+        / ARTSTOR_SCAN_WINDOW_BYTES
+        * ARTSTOR_SCAN_WINDOW_BYTES;
 
 #[derive(Clone, Copy)]
 pub(crate) struct ArtifactPersistEvidence {
@@ -115,6 +123,71 @@ pub(crate) struct ArtifactPersistRecord {
     pub(crate) grant_hash: [u8; 32],
     pub(crate) promotion_transaction_sha256: [u8; 32],
     pub(crate) authorizes_load: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct UiProgramPersistRecord {
+    pub(crate) seq: u64,
+    pub(crate) reclog_offset: u64,
+    pub(crate) frame_sha256: [u8; 32],
+    pub(crate) artstor_blob_offset: u64,
+    pub(crate) artstor_blob_len: u64,
+    pub(crate) artstor_blob_frame_sha256: [u8; 32],
+    pub(crate) canonical_program_sha256: [u8; 32],
+    pub(crate) canonical_program_byte_len: u64,
+    pub(crate) activation_approval_sha256: [u8; 32],
+    pub(crate) install_envelope_sha256: [u8; 32],
+    pub(crate) install_authorization_frame_sha256: [u8; 32],
+    pub(crate) promotion_transaction_sha256: [u8; 32],
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ArtstorPayloadRef {
+    pub(crate) blob_offset: u64,
+    pub(crate) blob_len: u64,
+    pub(crate) blob_frame_sha256: [u8; 32],
+    pub(crate) payload_sha256: [u8; 32],
+}
+
+pub(crate) trait ArtstorPayloadReference {
+    fn artstor_payload_ref(&self) -> ArtstorPayloadRef;
+}
+
+impl ArtstorPayloadReference for ArtifactPersistRecord {
+    fn artstor_payload_ref(&self) -> ArtstorPayloadRef {
+        ArtstorPayloadRef {
+            blob_offset: self.artstor_blob_offset,
+            blob_len: self.artstor_blob_len,
+            blob_frame_sha256: self.artstor_blob_frame_sha256,
+            payload_sha256: self.artifact_sha256,
+        }
+    }
+}
+
+impl ArtstorPayloadReference for UiProgramPersistRecord {
+    fn artstor_payload_ref(&self) -> ArtstorPayloadRef {
+        ArtstorPayloadRef {
+            blob_offset: self.artstor_blob_offset,
+            blob_len: self.artstor_blob_len,
+            blob_frame_sha256: self.artstor_blob_frame_sha256,
+            payload_sha256: self.canonical_program_sha256,
+        }
+    }
+}
+
+enum PersistRecordFields {
+    GrantedCandidate {
+        manifest_hash: [u8; 32],
+        vm_report_hash: [u8; 32],
+        computed_grant_hash: [u8; 32],
+        service_id: &'static str,
+        import_set_hash: [u8; 32],
+    },
+    UiProgram {
+        activation_approval_sha256: [u8; 32],
+        install_envelope_sha256: [u8; 32],
+        install_authorization_frame_sha256: [u8; 32],
+    },
 }
 
 pub(crate) struct ReclogScanEvidence {
@@ -238,11 +311,80 @@ pub(crate) fn persist_promoted_artifact(
         return ArtifactPersistEvidence::denied("retained_artifact_hash_mismatch");
     }
 
-    let frame = build_artifact_blob_frame(&retained.bytes);
+    persist_authorized_payload(
+        durable_promotion_transaction,
+        &retained.bytes,
+        retained.sha256,
+        promotion_transaction_sha256,
+        PersistRecordFields::GrantedCandidate {
+            manifest_hash,
+            vm_report_hash,
+            computed_grant_hash,
+            service_id,
+            import_set_hash,
+        },
+    )
+}
+
+pub(crate) fn persist_ui_program(
+    durable_promotion_transaction: &durable_store::PromotionTransactionAppendEvidence,
+    canonical_program_bytes: &[u8],
+    canonical_program_sha256: [u8; 32],
+    activation_approval_sha256: [u8; 32],
+    install_envelope_sha256: [u8; 32],
+    install_authorization_frame_sha256: [u8; 32],
+) -> ArtifactPersistEvidence {
+    if !matches!(
+        super::boot_control::current_boot_posture(),
+        BootPosture::Normal | BootPosture::Probation
+    ) {
+        return ArtifactPersistEvidence::denied("boot_control_safe_mode");
+    }
+    if !durable_promotion_transaction.performed
+        || durable_promotion_transaction.transaction_kind != "promote"
+    {
+        return ArtifactPersistEvidence::denied("promotion_transaction_not_verified_this_boot");
+    }
+    let Some(promotion_transaction_sha256) = durable_promotion_transaction.frame_sha256 else {
+        return ArtifactPersistEvidence::denied("promotion_transaction_not_verified_this_boot");
+    };
+    if canonical_program_bytes.is_empty()
+        || canonical_program_bytes.len() > raios_core::ui_program::MAX_PROGRAM_BYTES
+        || sha256_bytes(canonical_program_bytes) != canonical_program_sha256
+    {
+        return ArtifactPersistEvidence::denied("ui_program_canonical_verification_missing");
+    }
+    if activation_approval_sha256 == [0; 32]
+        || install_envelope_sha256 == [0; 32]
+        || install_authorization_frame_sha256 == [0; 32]
+    {
+        return ArtifactPersistEvidence::denied("ui_program_persist_link_missing");
+    }
+    persist_authorized_payload(
+        durable_promotion_transaction,
+        canonical_program_bytes,
+        canonical_program_sha256,
+        promotion_transaction_sha256,
+        PersistRecordFields::UiProgram {
+            activation_approval_sha256,
+            install_envelope_sha256,
+            install_authorization_frame_sha256,
+        },
+    )
+}
+
+fn persist_authorized_payload(
+    durable_promotion_transaction: &durable_store::PromotionTransactionAppendEvidence,
+    authorized_payload: &[u8],
+    authorized_payload_sha256: [u8; 32],
+    promotion_transaction_sha256: [u8; 32],
+    record_fields: PersistRecordFields,
+) -> ArtifactPersistEvidence {
+    let frame = build_artifact_blob_frame(authorized_payload);
     let Ok(parsed_frame) = parse_artifact_blob_frame(&frame, 0) else {
         return ArtifactPersistEvidence::denied("artifact_blob_frame_invalid");
     };
-    if parsed_frame.payload_sha256 != retained.sha256 {
+    if parsed_frame.payload_sha256 != authorized_payload_sha256 {
         return ArtifactPersistEvidence::denied("artifact_blob_payload_hash_mismatch");
     }
 
@@ -267,7 +409,7 @@ pub(crate) fn persist_promoted_artifact(
         Err(reason) => return ArtifactPersistEvidence::denied(reason),
     };
     let planned_blob =
-        match plan_artifact_blob_write(next_free, &retained.bytes, artstor_probe.byte_count) {
+        match plan_artifact_blob_write(next_free, authorized_payload, artstor_probe.byte_count) {
             Ok(planned) => planned,
             Err(denied) => return ArtifactPersistEvidence::denied(denied.reason()),
         };
@@ -327,20 +469,43 @@ pub(crate) fn persist_promoted_artifact(
         );
     }
 
-    let payload = artifact_persist_payload_bytes(
-        planned_blob.write_offset,
-        planned_blob.frame_len,
-        planned_blob.frame_sha256,
-        planned_blob.payload_sha256,
-        manifest_hash,
-        vm_report_hash,
-        computed_grant_hash,
-        service_id,
-        import_set_hash,
-        promotion_transaction_sha256,
-    );
-    let planned_append = match plan_reclog_append(&before.scan, &payload, before.reclog_byte_count)
-    {
+    let record_payload = match record_fields {
+        PersistRecordFields::GrantedCandidate {
+            manifest_hash,
+            vm_report_hash,
+            computed_grant_hash,
+            service_id,
+            import_set_hash,
+        } => artifact_persist_payload_bytes(
+            planned_blob.write_offset,
+            planned_blob.frame_len,
+            planned_blob.frame_sha256,
+            planned_blob.payload_sha256,
+            manifest_hash,
+            vm_report_hash,
+            computed_grant_hash,
+            service_id,
+            import_set_hash,
+            promotion_transaction_sha256,
+        ),
+        PersistRecordFields::UiProgram {
+            activation_approval_sha256,
+            install_envelope_sha256,
+            install_authorization_frame_sha256,
+        } => ui_program_persist_payload_bytes(
+            planned_blob.write_offset,
+            planned_blob.frame_len,
+            planned_blob.frame_sha256,
+            planned_blob.payload_sha256,
+            authorized_payload.len() as u64,
+            activation_approval_sha256,
+            install_envelope_sha256,
+            install_authorization_frame_sha256,
+            promotion_transaction_sha256,
+        ),
+    };
+    let planned_append =
+        match plan_reclog_append(&before.scan, &record_payload, before.reclog_byte_count) {
         Ok(planned) => planned,
         Err(denied) => {
             return blob_denied_evidence(denied.reason(), &planned_blob, readback_blob_sha256, true)
@@ -568,6 +733,72 @@ fn artifact_persist_payload_bytes(
     sink.0
 }
 
+fn ui_program_persist_payload_bytes(
+    artstor_blob_offset: u64,
+    artstor_blob_len: u64,
+    artstor_blob_frame_sha256: [u8; 32],
+    canonical_program_sha256: [u8; 32],
+    canonical_program_byte_len: u64,
+    activation_approval_sha256: [u8; 32],
+    install_envelope_sha256: [u8; 32],
+    install_authorization_frame_sha256: [u8; 32],
+    promotion_transaction_sha256: [u8; 32],
+) -> Vec<u8> {
+    // ARTSTOR uses a 48-byte header and 512-byte sectors, so the largest RUIP
+    // frame is round_up(16,384 + 48, 512) = 16,896 bytes.
+    let record = V::Object(vec![
+        f("schema", s(ARTIFACT_PERSIST_EXPECTED_RECORD_SCHEMA)),
+        f("id", s(UI_PROGRAM_PERSIST_RECORD_ID)),
+        f("scope", s(ARTIFACT_RECORD_SCOPE)),
+        f("classification", s("local_only")),
+        f("record_kind", s("artifact_persist")),
+        f("subject_kind", s("ui_program")),
+        f("engine_service_id", s("svc.user.shell")),
+        f(
+            "program_abi_version",
+            V::U64(raios_core::ui_program::PROGRAM_ABI_VERSION as u64),
+        ),
+        f("artstor_blob_offset", V::U64(artstor_blob_offset)),
+        f("artstor_blob_len", V::U64(artstor_blob_len)),
+        f(
+            "artstor_blob_frame_sha256",
+            V::Sha256(artstor_blob_frame_sha256),
+        ),
+        f(
+            "canonical_program_sha256",
+            V::Sha256(canonical_program_sha256),
+        ),
+        f(
+            "canonical_program_byte_len",
+            V::U64(canonical_program_byte_len),
+        ),
+        f(
+            "activation_approval_sha256",
+            V::Sha256(activation_approval_sha256),
+        ),
+        f(
+            "install_envelope_sha256",
+            V::Sha256(install_envelope_sha256),
+        ),
+        f(
+            "install_authorization_frame_sha256",
+            V::Sha256(install_authorization_frame_sha256),
+        ),
+        f(
+            "promotion_transaction_sha256",
+            V::Sha256(promotion_transaction_sha256),
+        ),
+        f("blob_written_to_disk", b(true)),
+        f("authorizes_load", b(false)),
+        f("owner_sealed", b(false)),
+        f("cross_reboot_proven", b(false)),
+        f("persistence_claimed", b(false)),
+    ]);
+    let mut sink = VecSink(Vec::new());
+    write_json(&record, &mut sink, 0);
+    sink.0
+}
+
 fn blob_denied_evidence(
     reason: &'static str,
     planned_blob: &raios_core::artifact_blob_frame::PlannedArtifactBlobWrite,
@@ -732,23 +963,136 @@ fn parse_artifact_persist_payload(
     })
 }
 
+pub(crate) fn ui_program_persist_records_from_reclog(
+    bytes: &[u8],
+) -> Vec<UiProgramPersistRecord> {
+    let scan = scan_reclog(bytes);
+    let mut records = Vec::new();
+    let mut offset = 0usize;
+    let mut seq = 1u64;
+    let mut prev = [0u8; 32];
+    let mut count = 0u64;
+    while count < scan.count && offset < bytes.len() {
+        let Ok(frame) = parse_reclog_frame(bytes, offset, seq, prev) else {
+            break;
+        };
+        let payload_start = offset + RECLOG_FRAME_HEADER_LEN;
+        let payload_end = payload_start + frame.payload_len as usize;
+        if let Ok(payload) = str::from_utf8(&bytes[payload_start..payload_end]) {
+            if let Some(record) = parse_ui_program_persist_payload(
+                payload,
+                frame.seq,
+                frame.offset,
+                frame.frame_sha256,
+            ) {
+                records.push(record);
+            }
+        }
+        offset += frame.frame_len as usize;
+        seq = seq.saturating_add(1);
+        prev = frame.frame_sha256;
+        count += 1;
+    }
+    records
+}
+
+fn parse_ui_program_persist_payload(
+    payload: &str,
+    seq: u64,
+    reclog_offset: u64,
+    frame_sha256: [u8; 32],
+) -> Option<UiProgramPersistRecord> {
+    if !contains_bytes(
+        payload.as_bytes(),
+        b"\"schema\": \"raios.artifact_persist.v0\"",
+    ) || !contains_bytes(payload.as_bytes(), b"\"subject_kind\": \"ui_program\"")
+    {
+        return None;
+    }
+    let canonical_program_byte_len = extract_u64(payload, b"\"canonical_program_byte_len\": ")?;
+    let artstor_blob_offset = extract_u64(payload, b"\"artstor_blob_offset\": ")?;
+    let artstor_blob_len = extract_u64(payload, b"\"artstor_blob_len\": ")?;
+    let artstor_blob_frame_sha256 = extract_sha256(
+        payload,
+        b"\"artstor_blob_frame_sha256\": \"",
+    )?;
+    let canonical_program_sha256 = extract_sha256(
+        payload,
+        b"\"canonical_program_sha256\": \"",
+    )?;
+    let activation_approval_sha256 = extract_sha256(
+        payload,
+        b"\"activation_approval_sha256\": \"",
+    )?;
+    let install_envelope_sha256 = extract_sha256(
+        payload,
+        b"\"install_envelope_sha256\": \"",
+    )?;
+    let install_authorization_frame_sha256 = extract_sha256(
+        payload,
+        b"\"install_authorization_frame_sha256\": \"",
+    )?;
+    let promotion_transaction_sha256 = extract_sha256(
+        payload,
+        b"\"promotion_transaction_sha256\": \"",
+    )?;
+    if extract_u64(payload, b"\"program_abi_version\": ")?
+        != raios_core::ui_program::PROGRAM_ABI_VERSION as u64
+        || canonical_program_byte_len == 0
+        || canonical_program_byte_len > raios_core::ui_program::MAX_PROGRAM_BYTES as u64
+        || artstor_blob_offset % ARTSTOR_SCAN_WINDOW_BYTES != 0
+        || artstor_blob_len == 0
+        || artstor_blob_len > MAX_UI_PROGRAM_ARTSTOR_FRAME_LEN
+        || artstor_blob_len % ARTSTOR_SCAN_WINDOW_BYTES != 0
+        || artstor_blob_frame_sha256 == [0; 32]
+        || canonical_program_sha256 == [0; 32]
+        || activation_approval_sha256 == [0; 32]
+        || install_envelope_sha256 == [0; 32]
+        || install_authorization_frame_sha256 == [0; 32]
+        || promotion_transaction_sha256 == [0; 32]
+        || !contains_bytes(payload.as_bytes(), b"\"engine_service_id\": \"svc.user.shell\"")
+        || !extract_bool(payload, b"\"blob_written_to_disk\": ")?
+        || extract_bool(payload, b"\"authorizes_load\": ")?
+        || extract_bool(payload, b"\"owner_sealed\": ")?
+        || extract_bool(payload, b"\"cross_reboot_proven\": ")?
+        || extract_bool(payload, b"\"persistence_claimed\": ")?
+    {
+        return None;
+    }
+    Some(UiProgramPersistRecord {
+        seq,
+        reclog_offset,
+        frame_sha256,
+        artstor_blob_offset,
+        artstor_blob_len,
+        artstor_blob_frame_sha256,
+        canonical_program_sha256,
+        canonical_program_byte_len,
+        activation_approval_sha256,
+        install_envelope_sha256,
+        install_authorization_frame_sha256,
+        promotion_transaction_sha256,
+    })
+}
+
 pub(crate) fn read_verified_artstor_payload(
     controller: pci::PciMassStorageController,
-    record: &ArtifactPersistRecord,
+    record: &impl ArtstorPayloadReference,
 ) -> Result<VerifiedArtifactPayload, &'static str> {
+    let record = record.artstor_payload_ref();
     let read = ahci::read_persist_artstor_region(
         controller,
-        record.artstor_blob_offset,
-        record.artstor_blob_len,
+        record.blob_offset,
+        record.blob_len,
     );
     let Some(bytes) = read.bytes else {
         return Err(read.reason);
     };
-    if sha256_bytes(&bytes) != record.artstor_blob_frame_sha256 {
+    if sha256_bytes(&bytes) != record.blob_frame_sha256 {
         return Err("blob_hash_mismatch");
     }
     let parsed = parse_artifact_blob_frame(&bytes, 0).map_err(|_| "artifact_blob_parse_failed")?;
-    if parsed.payload_sha256 != record.artifact_sha256 {
+    if parsed.payload_sha256 != record.payload_sha256 {
         return Err("artifact_sha_mismatch");
     }
     let payload_start = ARTIFACT_BLOB_FRAME_HEADER_LEN;

@@ -1,11 +1,16 @@
 use alloc::{string::String, vec::Vec};
 
 use crate::sha256_bytes;
+use crate::{
+    scoped_wasm_import_grant::PERSONAL_SHELL_SERVICE_ID,
+    ui_program::{MAX_PROGRAM_BYTES, PROGRAM_ABI_VERSION},
+};
 
 const STATE_SCHEMA_DOMAIN: &[u8] = b"raios.project_app_state_schema.v1";
 const INSTALL_ENVELOPE_DOMAIN: &[u8] = b"raios.project_install_envelope.v1";
 const GRANTED_CANDIDATE_INSTALL_ENVELOPE_DOMAIN: &[u8] =
     b"raios.granted_candidate_install_envelope.v1";
+const UI_PROGRAM_INSTALL_ENVELOPE_DOMAIN: &[u8] = b"raios.ui_program_install_envelope.v1";
 const ACTION_SIGNATURE_DOMAIN: &[u8] = b"raios.project_install_action_signature.v1";
 const ACTION_DOMAIN: &[u8] = b"raios.project_install_action.v1";
 const INTENT_DOMAIN: &[u8] = b"raios.project_install_intent.v1";
@@ -23,6 +28,7 @@ const MAX_IMPORTS: u32 = 16;
 /// are not yet sealed to an owner hardware identity. This is intentionally
 /// distinct from the W5 current-boot workstation-build trust tier.
 pub const PROJECT_INSTALL_TRUST_TIER: &str = "dev_key_not_owner_sealed";
+pub const UI_PROGRAM_INSTALL_SUBJECT_KIND: &str = "ui_program";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StateMigrationPolicy {
@@ -92,6 +98,22 @@ pub struct GrantedCandidateInstallEnvelope {
     pub catalog_candidate_sha256: [u8; 32],
     pub generation: u64,
     pub auto_start: bool,
+    pub trust_tier: String,
+    pub envelope_sha256: [u8; 32],
+}
+
+/// Canonical RUIP data carried into the existing W6 install-action ceremony.
+/// The signed shell remains the executable; this envelope installs no guest.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UiProgramInstallEnvelope {
+    pub subject_kind: String,
+    pub engine_service_id: String,
+    pub program_abi_version: u16,
+    pub canonical_program_sha256: [u8; 32],
+    pub canonical_program_byte_len: u64,
+    pub activation_approval_sha256: [u8; 32],
+    pub generation: u64,
+    pub auto_load: bool,
     pub trust_tier: String,
     pub envelope_sha256: [u8; 32],
 }
@@ -255,6 +277,22 @@ pub fn granted_candidate_install_envelope_hash(
     Ok(sha256_bytes(&bytes))
 }
 
+pub fn seal_ui_program_install_envelope(
+    mut envelope: UiProgramInstallEnvelope,
+) -> Result<UiProgramInstallEnvelope, ProjectInstallError> {
+    validate_ui_program_install_envelope_fields(&envelope)?;
+    envelope.envelope_sha256 = ui_program_install_envelope_hash(&envelope)?;
+    Ok(envelope)
+}
+
+pub fn ui_program_install_envelope_hash(
+    envelope: &UiProgramInstallEnvelope,
+) -> Result<[u8; 32], ProjectInstallError> {
+    let mut bytes = Vec::from(UI_PROGRAM_INSTALL_ENVELOPE_DOMAIN);
+    encode_ui_program_install_envelope_fields(&mut bytes, envelope)?;
+    Ok(sha256_bytes(&bytes))
+}
+
 pub fn seal_install_action(
     mut action: ProjectInstallAction,
 ) -> Result<ProjectInstallAction, ProjectInstallError> {
@@ -369,6 +407,16 @@ pub fn validate_granted_candidate_install_envelope(
 ) -> Result<(), ProjectInstallError> {
     validate_granted_candidate_install_envelope_fields(envelope)?;
     if envelope.envelope_sha256 != granted_candidate_install_envelope_hash(envelope)? {
+        return Err(ProjectInstallError::InvalidHash);
+    }
+    Ok(())
+}
+
+pub fn validate_ui_program_install_envelope(
+    envelope: &UiProgramInstallEnvelope,
+) -> Result<(), ProjectInstallError> {
+    validate_ui_program_install_envelope_fields(envelope)?;
+    if envelope.envelope_sha256 != ui_program_install_envelope_hash(envelope)? {
         return Err(ProjectInstallError::InvalidHash);
     }
     Ok(())
@@ -756,6 +804,28 @@ fn validate_granted_candidate_install_envelope_fields(
     Ok(())
 }
 
+fn validate_ui_program_install_envelope_fields(
+    envelope: &UiProgramInstallEnvelope,
+) -> Result<(), ProjectInstallError> {
+    validate_text(&envelope.subject_kind)?;
+    validate_text(&envelope.engine_service_id)?;
+    validate_text(&envelope.trust_tier)?;
+    if envelope.subject_kind != UI_PROGRAM_INSTALL_SUBJECT_KIND
+        || envelope.engine_service_id != PERSONAL_SHELL_SERVICE_ID
+        || envelope.program_abi_version != PROGRAM_ABI_VERSION
+        || envelope.canonical_program_sha256 == [0; 32]
+        || envelope.canonical_program_byte_len == 0
+        || envelope.canonical_program_byte_len > MAX_PROGRAM_BYTES as u64
+        || envelope.activation_approval_sha256 == [0; 32]
+        || envelope.generation == 0
+        || !envelope.auto_load
+        || envelope.trust_tier != PROJECT_INSTALL_TRUST_TIER
+    {
+        return Err(ProjectInstallError::InvalidField);
+    }
+    Ok(())
+}
+
 fn validate_action_fields(action: &ProjectInstallAction) -> Result<(), ProjectInstallError> {
     validate_action_semantics(action, true)
 }
@@ -1025,6 +1095,21 @@ fn encode_granted_candidate_install_envelope_fields(
     put_string(out, &envelope.trust_tier)
 }
 
+fn encode_ui_program_install_envelope_fields(
+    out: &mut Vec<u8>,
+    envelope: &UiProgramInstallEnvelope,
+) -> Result<(), ProjectInstallError> {
+    put_string(out, &envelope.subject_kind)?;
+    put_string(out, &envelope.engine_service_id)?;
+    put_u16(out, envelope.program_abi_version);
+    put_hash(out, envelope.canonical_program_sha256);
+    put_u64(out, envelope.canonical_program_byte_len);
+    put_hash(out, envelope.activation_approval_sha256);
+    put_u64(out, envelope.generation);
+    put_bool(out, envelope.auto_load);
+    put_string(out, &envelope.trust_tier)
+}
+
 fn encode_action(
     out: &mut Vec<u8>,
     action: &ProjectInstallAction,
@@ -1226,6 +1311,10 @@ fn migration_from_tag(value: u8) -> Result<StateMigrationPolicy, ProjectInstallE
 
 fn put_u8(out: &mut Vec<u8>, value: u8) {
     out.push(value);
+}
+
+fn put_u16(out: &mut Vec<u8>, value: u16) {
+    out.extend_from_slice(&value.to_le_bytes());
 }
 
 fn put_u32(out: &mut Vec<u8>, value: u32) {
@@ -1542,6 +1631,118 @@ mod tests {
             commit_sha256: [0; 32],
         })
         .unwrap()
+    }
+
+    fn ui_program_envelope() -> UiProgramInstallEnvelope {
+        seal_ui_program_install_envelope(UiProgramInstallEnvelope {
+            subject_kind: String::from(UI_PROGRAM_INSTALL_SUBJECT_KIND),
+            engine_service_id: String::from(PERSONAL_SHELL_SERVICE_ID),
+            program_abi_version: PROGRAM_ABI_VERSION,
+            canonical_program_sha256: hash(70),
+            canonical_program_byte_len: 176,
+            activation_approval_sha256: hash(71),
+            generation: 3,
+            auto_load: true,
+            trust_tier: String::from(PROJECT_INSTALL_TRUST_TIER),
+            envelope_sha256: [0; 32],
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn ui_program_envelope_sealing_is_stable_and_tamper_evident() {
+        let envelope = ui_program_envelope();
+        assert_eq!(
+            seal_ui_program_install_envelope(UiProgramInstallEnvelope {
+                envelope_sha256: [0; 32],
+                ..envelope.clone()
+            })
+            .unwrap(),
+            envelope
+        );
+        assert_eq!(
+            ui_program_install_envelope_hash(&envelope).unwrap(),
+            envelope.envelope_sha256
+        );
+
+        let mut tampered = envelope;
+        tampered.generation += 1;
+        assert_eq!(
+            validate_ui_program_install_envelope(&tampered),
+            Err(ProjectInstallError::InvalidHash)
+        );
+    }
+
+    #[test]
+    fn ui_program_envelope_rejects_wrong_engine_abi_hash_length_and_activation() {
+        let valid = ui_program_envelope();
+        let cases = [
+            UiProgramInstallEnvelope {
+                engine_service_id: String::from("svc.user.other"),
+                envelope_sha256: [0; 32],
+                ..valid.clone()
+            },
+            UiProgramInstallEnvelope {
+                program_abi_version: PROGRAM_ABI_VERSION + 1,
+                envelope_sha256: [0; 32],
+                ..valid.clone()
+            },
+            UiProgramInstallEnvelope {
+                canonical_program_sha256: [0; 32],
+                envelope_sha256: [0; 32],
+                ..valid.clone()
+            },
+            UiProgramInstallEnvelope {
+                canonical_program_byte_len: MAX_PROGRAM_BYTES as u64 + 1,
+                envelope_sha256: [0; 32],
+                ..valid.clone()
+            },
+            UiProgramInstallEnvelope {
+                activation_approval_sha256: [0; 32],
+                envelope_sha256: [0; 32],
+                ..valid
+            },
+        ];
+        for envelope in cases {
+            assert_eq!(
+                seal_ui_program_install_envelope(envelope),
+                Err(ProjectInstallError::InvalidField)
+            );
+        }
+    }
+
+    #[test]
+    fn ui_program_envelope_binds_the_existing_install_action_signature_payload() {
+        let envelope = ui_program_envelope();
+        let action = seal_install_action(ProjectInstallAction {
+            kind: ProjectInstallActionKind::Install,
+            authority: ProjectInstallAuthority::PhysicalOwner,
+            service_id: String::from(PERSONAL_SHELL_SERVICE_ID),
+            generation: envelope.generation,
+            log_sequence: 9,
+            previous_commit_sha256: Some(hash(72)),
+            install_envelope_sha256: Some(envelope.envelope_sha256),
+            target_install_commit_sha256: None,
+            authority_evidence_sha256: hash(73),
+            physical_approval_sha256: Some(hash(74)),
+            authority_key_sha256: Some(hash(75)),
+            authority_signature: alloc::vec![1, 2, 3],
+            action_sha256: [0; 32],
+        })
+        .unwrap();
+        validate_install_action(&action).unwrap();
+        assert_eq!(
+            action.install_envelope_sha256,
+            Some(envelope.envelope_sha256)
+        );
+
+        let digest = install_action_signature_payload_sha256(&action).unwrap();
+        let mut changed = action;
+        changed.install_envelope_sha256 = Some(hash(76));
+        assert_ne!(
+            install_action_signature_payload_sha256(&changed).unwrap(),
+            digest
+        );
     }
 
     #[test]
