@@ -143,3 +143,38 @@
   by the unpromote.
 - No Cargo build, kernel build, or VM run was performed in cycle 2. The worker
   only performs the required PowerShell parser/encoding checks after editing.
+
+## harness cycle 3
+
+- Replaced the persistence profile's serial-ingress/clickless promotion flow
+  with the proven boot-1 `Invoke-W7M6PhysicalActivation` and
+  `Invoke-SignedGrantedCandidateInstall` helpers. Boot 1 now packages the same
+  temporary W7-pin image, runs the TLS fixture over e1000/guestfwd, exposes QMP
+  for the existing pointer coordinates, and builds the shared Rust signer.
+- Derived the frame geometry from the merged writer plus both green cycle
+  reports: install authorization is `pre_tail+1`, the accepted marker sequence
+  and promote frame are `pre_tail+2`, and artifact-persist is `pre_tail+3`.
+  Clean-quit host inspection pins all three records and the exact ARTSTOR blob.
+- Boot 2 parses the exact provider-autoload marker field order with `TrimEnd()`
+  for CR-CR-LF logs before any tagged command, proves the boot-1 RECLOG frames
+  remain an identical prefix, accepts the legitimate fresh promote/artifact
+  pair as a newer valid tail, and appends the linked unpromote only at the end.
+  Boot 3 pins the exact `rolled_back` marker before commands and proves the
+  service and slot stay absent with host/guest RECLOG agreement.
+- Kept the memory-content, Safe-posture, recovery-load-by-hash, hash-tamper,
+  torn-tail, clean-QEMU, and kept-disk proofs. Recovery-load-by-hash children
+  use real `Probation` BOOTCTL state: automatic provider autoload is denied,
+  while the existing recovery executor explicitly allows Normal/Probation.
+- Plan/code gap: `--tamper-persist-record` changes the artifact-persist hash and
+  rebuilds the later RECLOG chain. The merged newest-install resolver rejects
+  that non-exact promote/artifact link before `reverify_record`, so its exact
+  automatic marker is `result=accepted phase=not_installed
+  reason=no_w6_authorized_install`, not `artifact_sha_mismatch`. The predicate
+  keeps the plan name but pins this stronger early fail-closed behavior and no
+  fallback; changing the emitter/resolver is outside the one-harness-file scope.
+- Minimal-change reading: existing boot-1 durable-memory writes remain after
+  installation, so the immutable boot-1 prefix includes those unrelated frames;
+  the boot-2 continuation proof starts at that complete clean-quit prefix.
+- No Cargo command, build, package, signer invocation, or VM was run in cycle 3.
+  Verification was limited to PowerShell parsing, predicate/static inspection,
+  diff review, and LF/no-BOM checks.
