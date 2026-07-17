@@ -7,19 +7,20 @@ param(
     [switch]$ExpectPinnedTrust,
     [switch]$ExpectSpkiPinnedTrust,
     [switch]$ExpectPinMismatch,
-    [switch]$ExpectProjectWorkspaceAnswer
+    [switch]$ExpectProjectWorkspaceAnswer,
+    [switch]$ExpectScopedFeedbackExport
 )
 
 $ErrorActionPreference = "Stop"
 
 $modeCount = 0
-foreach ($mode in @($ExpectProviderResponse, $ExpectPinnedTrust, $ExpectSpkiPinnedTrust, $ExpectProjectWorkspaceAnswer, $ExpectPinMismatch)) {
+foreach ($mode in @($ExpectProviderResponse, $ExpectPinnedTrust, $ExpectSpkiPinnedTrust, $ExpectProjectWorkspaceAnswer, $ExpectScopedFeedbackExport, $ExpectPinMismatch)) {
     if ($mode) {
         $modeCount += 1
     }
 }
 if ($modeCount -gt 1) {
-    throw "Use only one of -ExpectProviderResponse, -ExpectPinnedTrust, -ExpectSpkiPinnedTrust, -ExpectProjectWorkspaceAnswer, or -ExpectPinMismatch."
+    throw "Use only one of -ExpectProviderResponse, -ExpectPinnedTrust, -ExpectSpkiPinnedTrust, -ExpectProjectWorkspaceAnswer, -ExpectScopedFeedbackExport, or -ExpectPinMismatch."
 }
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
@@ -142,6 +143,102 @@ function Get-AgentResponseJson {
         throw "Incomplete agent response for method '$Method' found in serial log"
     }
     return $Serial.Substring($jsonStart, $endIndex - $jsonStart).Trim() | ConvertFrom-Json
+}
+
+function Invoke-AgentCommandJson {
+    param(
+        [int]$Port,
+        [string]$SerialLog,
+        [string]$Command,
+        [string]$Method,
+        [int]$TimeoutSeconds
+    )
+
+    $end = "RAIOS_AGENT_END $Method"
+    $before = if (Test-Path -LiteralPath $SerialLog) { Get-Content -Raw -LiteralPath $SerialLog } else { "" }
+    $beforeCount = [regex]::Matches($before, [regex]::Escape($end)).Count
+    Send-SerialText -Port $Port -TimeoutSeconds $TimeoutSeconds -Text "agent $Command`r"
+
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        if (Test-Path -LiteralPath $SerialLog) {
+            $serial = Get-Content -Raw -LiteralPath $SerialLog -ErrorAction SilentlyContinue
+            if ([regex]::Matches($serial, [regex]::Escape($end)).Count -gt $beforeCount) {
+                return Get-AgentResponseJson -Serial $serial -Method $Method
+            }
+        }
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $deadline)
+
+    throw "Timed out waiting for a new agent response for method '$Method' in $SerialLog"
+}
+
+function ConvertFrom-ProjectOutcomeLine {
+    param(
+        [string]$Line,
+        [string]$ExpectedRequestId,
+        [string]$RetainedRevisionSha256 = "none",
+        [int]$RetainedFileCount = 0
+    )
+
+    $trimmed = $Line.TrimEnd()
+    if ($trimmed -match '^PROJECT SOURCE READY request=([0-9]+) project=([0-9a-fA-F]+) revision=(sha256:[0-9a-fA-F]{64}) files=([0-9]+) inert$') {
+        $outcome = [ordered]@{
+            outcome = "CONFORMING"
+            accepted = $true
+            request_id = $Matches[1]
+            project_id = $Matches[2]
+            revision_sha256 = $Matches[3]
+            file_count = [int]$Matches[4]
+            reason = $null
+            line = $trimmed
+        }
+        if ($outcome.request_id -ne $ExpectedRequestId -or $outcome.file_count -lt 1) {
+            throw "Conforming project outcome carried inconsistent request or file count: $trimmed"
+        }
+        return [pscustomobject]@{
+            Outcome = $outcome
+            Summary = "CONFORMING-committed-inert revision=$($outcome.revision_sha256) files=$($outcome.file_count)"
+        }
+    }
+    if ($trimmed -match '^PROJECT SOURCE REJECTED request=([0-9]+) project=([0-9a-fA-F]+|none) revision=(sha256:[0-9a-fA-F]{64}|none) files=([0-9]+) reason=(.+)$') {
+        $outcome = [ordered]@{
+            outcome = "NONCONFORMING"
+            accepted = $false
+            request_id = $Matches[1]
+            project_id = $Matches[2]
+            revision_sha256 = $Matches[3]
+            file_count = [int]$Matches[4]
+            reason = $Matches[5]
+            line = $trimmed
+        }
+        if ($outcome.request_id -ne $ExpectedRequestId -or
+            $outcome.revision_sha256 -cne $RetainedRevisionSha256 -or
+            $outcome.file_count -ne $RetainedFileCount) {
+            if ($RetainedRevisionSha256 -eq "none" -and $RetainedFileCount -eq 0) {
+                throw "Rejected project outcome carried a revision or files: $trimmed"
+            }
+            throw "Rejected project outcome carried inconsistent retained revision facts: $trimmed"
+        }
+        return [pscustomobject]@{
+            Outcome = $outcome
+            Summary = "NONCONFORMING-rejected reason=$($outcome.reason)"
+        }
+    }
+    throw "Malformed project source outcome: $trimmed"
+}
+
+function Get-TextSha256 {
+    param([string]$Text)
+
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hash = $sha256.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Text))
+        return "sha256:" + (($hash | ForEach-Object { $_.ToString("x2") }) -join "")
+    }
+    finally {
+        $sha256.Dispose()
+    }
 }
 
 function Get-RedactedSerialLogTail {
@@ -305,13 +402,16 @@ function Invoke-PositiveBindingGateChecks {
     Wait-ForLogText -Path $SerialLog -Needle '"binding_validation_reason": "binding_already_consumed"' -TimeoutSeconds $TimeoutSeconds
 }
 
-if ($ExpectProjectWorkspaceAnswer) {
+$projectDiskMode = $ExpectProjectWorkspaceAnswer -or $ExpectScopedFeedbackExport
+$projectFailureLabel = if ($ExpectScopedFeedbackExport) { "B2.2 live harness" } else { "B2.1b live harness" }
+
+if ($projectDiskMode) {
     $projectDiagnostics = [ordered]@{ image = $Image }
 }
 
 if (-not (Test-Path -LiteralPath $Image)) {
-    if ($ExpectProjectWorkspaceAnswer) {
-        Write-Host "B2.1b live harness failure: missing direct OpenAI image"
+    if ($projectDiskMode) {
+        Write-Host "$projectFailureLabel failure: missing direct OpenAI image"
         Write-Host ($projectDiagnostics | ConvertTo-Json -Depth 12)
         Write-Host "serial log tail:"
         Write-Host (Get-RedactedSerialLogTail -Path $SerialLog)
@@ -326,7 +426,7 @@ try {
     Get-Process qemu-system-x86_64 -ErrorAction SilentlyContinue | Stop-Process -Force
     Remove-Item -LiteralPath $SerialLog -Force -ErrorAction SilentlyContinue
 
-    if ($ExpectProjectWorkspaceAnswer) {
+    if ($projectDiskMode) {
         # ProjectWorkspace commits land in the disposable QEMU-only C1 structured
         # store (an AHCI disk at 00:1f.2); Normal boot posture needs a valid-a
         # BOOTCTL SEED_DATA disk. Without both, the guest boots
@@ -372,7 +472,7 @@ try {
         BareMetalVm   = $true
         SerialLog     = $SerialLog
     }
-    if ($ExpectProjectWorkspaceAnswer) {
+    if ($projectDiskMode) {
         $runArgs.StructuredStoreDiskPath = $projectStructuredStoreDisk
         $runArgs.PersistDiskPath = $projectPersistDisk
     }
@@ -382,17 +482,437 @@ try {
     Wait-ForLogText -Path $SerialLog -Needle "status NETWORK: CONFIGURED" -TimeoutSeconds $TimeoutSeconds
 
     $safePrompt = $Prompt -replace '"', "'"
-    if ($ExpectProjectWorkspaceAnswer) {
+    if ($projectDiskMode) {
         $projectDescription = "a minimal Rust hello world crate with a Cargo.toml and a src/main.rs that prints Hello raiOS"
         $safePrompt = $projectDescription -replace '"', "'"
-        Write-Host "openai-direct:b2-live-provider-ready passed: image present, provider loaded, network configured"
+        if ($ExpectScopedFeedbackExport) {
+            Write-Host "openai-direct:b2-2-live-ready passed: image present, provider loaded, network configured"
+        }
+        else {
+            Write-Host "openai-direct:b2-live-provider-ready passed: image present, provider loaded, network configured"
+        }
         Send-SerialText -Port $SerialTcpPort -TimeoutSeconds $TimeoutSeconds -Text "project.ask $safePrompt`r"
     }
     else {
         Send-SerialText -Port $SerialTcpPort -TimeoutSeconds $TimeoutSeconds -Text "provider`rask $safePrompt`r"
     }
 
-    if ($ExpectProjectWorkspaceAnswer) {
+    if ($ExpectScopedFeedbackExport) {
+        $liveOutcomeTimeoutSeconds = [Math]::Max($TimeoutSeconds, 300)
+        $projectStarted = Wait-ForLogLineMatch `
+            -Path $SerialLog `
+            -Pattern '^PROJECT SOURCE REQUEST (?<request>[0-9]+) STARTED$' `
+            -FailurePattern '^PROJECT SOURCE REQUEST [0-9]+ TRACKING DENIED: .+$' `
+            -TimeoutSeconds $TimeoutSeconds
+        $projectRequestId = $projectStarted.Match.Groups['request'].Value
+        $projectDiagnostics.request_started = $projectStarted.Line
+
+        Wait-ForLogText -Path $SerialLog -Needle "OPENAI_DIRECT_REQ $projectRequestId api.openai.com /v1/responses" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle 'OPENAI_PROVIDER_REQUEST_ENVELOPE {"schema":"raios.provider_request_envelope.v0"' -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle "openai: TLS 1.3 established" -TimeoutSeconds $TimeoutSeconds
+        $initialTrust = Wait-ForLogLineMatch `
+            -Path $SerialLog `
+            -Pattern '^openai: TLS provider trust verified: (?<kind>pinned_cert|pinned_spki)(?:\s|$)' `
+            -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle 'OPENAI_PROVIDER_REQUEST_BINDING {"schema":"raios.provider_request_binding.v0"' -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle 'OPENAI_PROVIDER_EXPORT_AUDIT_BINDING {"schema":"raios.provider_context_export_audit_binding.v0"' -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle 'OPENAI_PROVIDER_CONTEXT_INJECTION_GATE {"schema":"raios.provider_context_injection_gate.v0"' -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle "openai: HTTPS request sent" -TimeoutSeconds $TimeoutSeconds
+
+        $initialTransportSerial = Get-Content -Raw -LiteralPath $SerialLog
+        if ($initialTransportSerial -like "*tls_certificate_verification_bypassed*") {
+            throw "B2.2 live smoke saw unverified TLS bypass output during revision 1"
+        }
+        Assert-PositiveBindingMarkers -Serial $initialTransportSerial
+        $projectDiagnostics.initial_transport = [ordered]@{
+            trust = $initialTrust.Line
+            envelope = Get-MarkerJson -Serial $initialTransportSerial -Prefix "OPENAI_PROVIDER_REQUEST_ENVELOPE"
+            request_binding = Get-MarkerJson -Serial $initialTransportSerial -Prefix "OPENAI_PROVIDER_REQUEST_BINDING"
+            export_binding = Get-MarkerJson -Serial $initialTransportSerial -Prefix "OPENAI_PROVIDER_EXPORT_AUDIT_BINDING"
+            injection_gate = Get-MarkerJson -Serial $initialTransportSerial -Prefix "OPENAI_PROVIDER_CONTEXT_INJECTION_GATE"
+        }
+
+        $revisionOneOutcomeLine = Wait-ForLogLineMatch `
+            -Path $SerialLog `
+            -Pattern "^PROJECT SOURCE (READY|REJECTED) request=$projectRequestId(?:\s|$)" `
+            -TimeoutSeconds $liveOutcomeTimeoutSeconds
+        $parsedRevisionOneOutcome = ConvertFrom-ProjectOutcomeLine -Line $revisionOneOutcomeLine.Line -ExpectedRequestId $projectRequestId
+        $revisionOneOutcome = $parsedRevisionOneOutcome.Outcome
+        $projectDiagnostics.revision_one_outcome = $revisionOneOutcome
+        if (-not $revisionOneOutcome.accepted -or $revisionOneOutcome.file_count -ne 2) {
+            throw "B2.2 requires revision 1 to be the exact two-file live source revision: $($revisionOneOutcome.line)"
+        }
+        $revisionOneSha256 = $revisionOneOutcome.revision_sha256
+        $projectId = $revisionOneOutcome.project_id
+        if ($projectId -notmatch '^[0-9a-f]{32}$') {
+            throw "Revision 1 project id was not the merged 16-byte hex shape."
+        }
+
+        $revisionOneWorkspaceResponse = Invoke-AgentCommandJson `
+            -Port $SerialTcpPort `
+            -SerialLog $SerialLog `
+            -Command "project.workspace" `
+            -Method "project.workspace" `
+            -TimeoutSeconds $TimeoutSeconds
+        $revisionOneWorkspace = $revisionOneWorkspaceResponse.body.result
+        $projectDiagnostics.revision_one_workspace = $revisionOneWorkspaceResponse
+        Assert-Equal -Name "revision 1 workspace version" -Actual $revisionOneWorkspaceResponse.v -Expected "raios.agent.v0"
+        Assert-Equal -Name "revision 1 workspace method" -Actual $revisionOneWorkspace.method -Expected "project.workspace"
+        Assert-Equal -Name "revision 1 workspace classification" -Actual $revisionOneWorkspace.classification -Expected "local_only"
+        Assert-Equal -Name "revision 1 workspace latest revision" -Actual $revisionOneWorkspace.latest_revision_present -Expected $true
+        Assert-Equal -Name "revision 1 workspace revision action" -Actual $revisionOneWorkspace.revision_action -Expected "agent_answer"
+        Assert-Equal -Name "revision 1 workspace answer origin" -Actual $revisionOneWorkspace.answer_origin -Expected "live"
+        Assert-Equal -Name "revision 1 workspace provider trust" -Actual $revisionOneWorkspace.provider_trust_positive -Expected $true
+        Assert-Equal -Name "revision 1 workspace source authority" -Actual $revisionOneWorkspace.source_authority -Expected "untrusted_agent_candidate"
+        Assert-Equal -Name "revision 1 workspace project id" -Actual $revisionOneWorkspace.project_id -Expected $projectId
+        Assert-Equal -Name "revision 1 workspace revision" -Actual $revisionOneWorkspace.revision_sha256 -Expected $revisionOneSha256
+        Assert-Equal -Name "revision 1 workspace file count" -Actual ([int]$revisionOneWorkspace.file_count) -Expected 2
+        $revisionOnePaths = @($revisionOneWorkspace.files | ForEach-Object { $_.path })
+        if ($revisionOnePaths.Count -ne 2 -or $revisionOnePaths[0] -cne "Cargo.toml" -or $revisionOnePaths[1] -cne "src/main.rs") {
+            throw "Revision 1 did not contain exactly Cargo.toml and src/main.rs."
+        }
+
+        $verifyResponse = Invoke-AgentCommandJson `
+            -Port $SerialTcpPort `
+            -SerialLog $SerialLog `
+            -Command "project.verify_revision" `
+            -Method "project.verify_revision" `
+            -TimeoutSeconds $TimeoutSeconds
+        $verify = $verifyResponse.body.result
+        $projectDiagnostics.verify_revision = $verifyResponse
+        Assert-Equal -Name "revision verifier version" -Actual $verifyResponse.v -Expected "raios.agent.v0"
+        Assert-Equal -Name "revision verifier method" -Actual $verify.method -Expected "project.verify_revision"
+        Assert-Equal -Name "revision verifier status" -Actual $verify.status -Expected "recorded"
+        Assert-Equal -Name "revision verifier accepted" -Actual $verify.accepted -Expected $true
+        Assert-Equal -Name "revision verifier check" -Actual $verify.check_id -Expected "project.source_preflight.v1"
+        Assert-Equal -Name "revision verifier outcome" -Actual $verify.outcome -Expected "failed"
+        Assert-Equal -Name "revision verifier passed" -Actual ($verify.outcome -eq "passed") -Expected $false
+        Assert-Equal -Name "revision verifier reason" -Actual $verify.reason -Expected "build_cargo_lock_missing"
+        Assert-Equal -Name "revision verifier revision" -Actual $verify.revision_sha256 -Expected $revisionOneSha256
+        Assert-Equal -Name "revision verifier tree" -Actual $verify.tree_sha256 -Expected $revisionOneWorkspace.tree_sha256
+        Assert-Equal -Name "revision verifier system computed" -Actual $verify.system_computed -Expected $true
+        Assert-Equal -Name "revision verifier provider supplied" -Actual $verify.provider_supplied -Expected $false
+        if ($null -ne $verify.PSObject.Properties['passed']) {
+            throw "Merged project.verify_revision unexpectedly emitted a provider-shaped passed field."
+        }
+        Write-Host "openai-direct:b2-2-revision1-preflight-failed passed: build_cargo_lock_missing"
+
+        $feedbackResponse = Invoke-AgentCommandJson `
+            -Port $SerialTcpPort `
+            -SerialLog $SerialLog `
+            -Command "project.feedback_packet" `
+            -Method "project.feedback_packet" `
+            -TimeoutSeconds $TimeoutSeconds
+        $feedback = $feedbackResponse.body.result
+        $packet = $feedback.feedback_packet
+        $projectDiagnostics.feedback_packet = $feedbackResponse
+        Assert-Equal -Name "feedback packet version" -Actual $feedbackResponse.v -Expected "raios.agent.v0"
+        Assert-Equal -Name "feedback packet method" -Actual $feedback.method -Expected "project.feedback_packet"
+        Assert-Equal -Name "feedback packet classification" -Actual $feedback.classification -Expected "local_only"
+        Assert-Equal -Name "feedback packet status" -Actual $feedback.status -Expected "ready"
+        Assert-Equal -Name "feedback packet accepted" -Actual $feedback.accepted -Expected $true
+        Assert-Equal -Name "feedback packet field count" -Actual ([int]$feedback.packet_field_count) -Expected 4
+        Assert-Equal -Name "feedback packet property count" -Actual (@($packet.PSObject.Properties).Count) -Expected 4
+        Assert-Equal -Name "feedback packet check" -Actual $packet.check_id -Expected "project.source_preflight.v1"
+        Assert-Equal -Name "feedback packet revision" -Actual $packet.revision_sha256 -Expected $revisionOneSha256
+        Assert-Equal -Name "feedback packet tree" -Actual $packet.tree_sha256 -Expected $verify.tree_sha256
+        Assert-Equal -Name "feedback packet reason" -Actual $packet.reason -Expected "build_cargo_lock_missing"
+        Assert-Equal -Name "feedback packet system computed" -Actual $feedback.system_computed -Expected $true
+        Assert-Equal -Name "feedback packet provider supplied" -Actual $feedback.provider_supplied -Expected $false
+        foreach ($field in @("source_bytes_included", "secret_bytes_included", "log_bytes_included", "unclassified_text_included")) {
+            Assert-Equal -Name "feedback packet $field" -Actual $feedback.$field -Expected $false
+        }
+        Write-Host "openai-direct:b2-2-feedback-packet-4-public-fields passed: local_only at rest, exact four-field packet"
+
+        $transportBeforeSubmit = Get-Content -Raw -LiteralPath $SerialLog
+        $tlsEstablishedCountBeforeSubmit = [regex]::Matches($transportBeforeSubmit, '(?m)^openai: TLS 1\.3 established\r*$').Count
+        $positiveTrustCountBeforeSubmit = [regex]::Matches($transportBeforeSubmit, '(?m)^openai: TLS provider trust verified: (?:pinned_cert|pinned_spki)(?:\s|$)').Count
+        $submitResponse = Invoke-AgentCommandJson `
+            -Port $SerialTcpPort `
+            -SerialLog $SerialLog `
+            -Command "project.feedback_submit" `
+            -Method "project.feedback_submit" `
+            -TimeoutSeconds $TimeoutSeconds
+        $submit = $submitResponse.body.result
+        $projectDiagnostics.feedback_submit = $submitResponse
+        Assert-Equal -Name "feedback submit version" -Actual $submitResponse.v -Expected "raios.agent.v0"
+        Assert-Equal -Name "feedback submit method" -Actual $submit.method -Expected "project.feedback_submit"
+        Assert-Equal -Name "feedback submit status" -Actual $submit.status -Expected "started"
+        Assert-Equal -Name "feedback submit accepted" -Actual $submit.accepted -Expected $true
+        Assert-Equal -Name "feedback submit reason" -Actual $submit.reason -Expected "provider_feedback_request_started"
+        Assert-Equal -Name "feedback submit export method" -Actual $submit.export_method -Expected "provider.context_export"
+        Assert-Equal -Name "feedback submit profile" -Actual $submit.profile -Expected "provider_minimal"
+        Assert-Equal -Name "feedback submit field count" -Actual ([int]$submit.packet_field_count) -Expected 4
+        Assert-Equal -Name "feedback submit context attachment" -Actual $submit.context_attached_to_provider_body -Expected $false
+        Assert-Equal -Name "feedback submit provider write" -Actual $submit.provider_write -Expected "not_attempted"
+        $feedbackRequestId = [string]$submit.request_id
+        if (-not $feedbackRequestId -or $feedbackRequestId -eq $projectRequestId) {
+            throw "Feedback submit did not allocate a new request id."
+        }
+        Write-Host "openai-direct:b2-2-feedback-submit-started passed: request=$feedbackRequestId"
+
+        Wait-ForLogText -Path $SerialLog -Needle "OPENAI_DIRECT_REQ $feedbackRequestId api.openai.com /v1/responses" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText `
+            -Path $SerialLog `
+            -Needle "OPENAI_SCOPED_PROJECT_FEEDBACK_EXPORT {`"status`":`"authorized`",`"reason`":`"authorized_provider_export_public_only_audited`",`"request_id`":$feedbackRequestId" `
+            -TimeoutSeconds $liveOutcomeTimeoutSeconds
+        Wait-ForLogText `
+            -Path $SerialLog `
+            -Needle "OPENAI_SCOPED_PROJECT_FEEDBACK_SENT {`"request_id`":$feedbackRequestId" `
+            -TimeoutSeconds $liveOutcomeTimeoutSeconds
+
+        $scopedTransportSerial = Get-Content -Raw -LiteralPath $SerialLog
+        $scopedTrust = Wait-ForLogLineMatch `
+            -Path $SerialLog `
+            -Pattern '^openai: TLS provider trust verified: (?<kind>pinned_cert|pinned_spki)(?:\s|$)' `
+            -TimeoutSeconds $TimeoutSeconds
+        $scopedEnvelope = Get-MarkerJson -Serial $scopedTransportSerial -Prefix "OPENAI_PROVIDER_REQUEST_ENVELOPE"
+        $scopedRequestBinding = Get-MarkerJson -Serial $scopedTransportSerial -Prefix "OPENAI_PROVIDER_REQUEST_BINDING"
+        $scopedExportBinding = Get-MarkerJson -Serial $scopedTransportSerial -Prefix "OPENAI_PROVIDER_EXPORT_AUDIT_BINDING"
+        $scopedAuthorization = Get-MarkerJson -Serial $scopedTransportSerial -Prefix "OPENAI_SCOPED_PROJECT_FEEDBACK_EXPORT"
+        $scopedSent = Get-MarkerJson -Serial $scopedTransportSerial -Prefix "OPENAI_SCOPED_PROJECT_FEEDBACK_SENT"
+        $projectDiagnostics.scoped_transport = [ordered]@{
+            trust = $scopedTrust.Line
+            envelope = $scopedEnvelope
+            request_binding = $scopedRequestBinding
+            export_binding = $scopedExportBinding
+            authorization = $scopedAuthorization
+            sent = $scopedSent
+        }
+
+        $expectedEnvelopeId = "provider_request_envelope.current_boot.{0:D8}" -f [int]$feedbackRequestId
+        Assert-Equal -Name "scoped envelope id" -Actual $scopedEnvelope.id -Expected $expectedEnvelopeId
+        Assert-Equal -Name "scoped envelope source method" -Actual $scopedEnvelope.source.method -Expected "project.feedback_export"
+        Assert-Equal -Name "scoped envelope provider write" -Actual $scopedEnvelope.provider_write -Expected "not_attempted"
+        Assert-Equal -Name "scoped envelope instruction marker" -Actual $scopedEnvelope.request_body.instructions -Expected "fixed_scoped_project_feedback"
+        Assert-Equal -Name "scoped envelope input marker" -Actual $scopedEnvelope.request_body.input -Expected "provider_minimal_packet_redacted"
+        Assert-Equal -Name "scoped envelope body attachment" -Actual $scopedEnvelope.request_body.context_attached_to_provider_body -Expected $true
+        Assert-Equal -Name "scoped envelope max output" -Actual ([int]$scopedEnvelope.request_body.max_output_tokens) -Expected 8192
+        Assert-Equal -Name "scoped envelope store" -Actual $scopedEnvelope.request_body.store -Expected $false
+        Assert-Equal -Name "scoped envelope context attachment" -Actual $scopedEnvelope.provider_minimal_context.attached -Expected $true
+        Assert-Equal -Name "scoped envelope binding status" -Actual $scopedEnvelope.provider_minimal_context.binding_status -Expected "bound"
+        Assert-Equal -Name "scoped envelope provider trust" -Actual $scopedEnvelope.trust_snapshot.provider_trust_positive -Expected $true
+        Assert-Equal -Name "scoped envelope development bypass" -Actual $scopedEnvelope.trust_snapshot.development_tls_bypass -Expected $false
+        Assert-Equal -Name "scoped envelope authorization redaction" -Actual $scopedEnvelope.secret_state.authorization_header -Expected "redacted"
+
+        Assert-Equal -Name "scoped request binding request" -Actual ([string]$scopedRequestBinding.request_id) -Expected $feedbackRequestId
+        Assert-Equal -Name "scoped request binding export gate" -Actual $scopedRequestBinding.satisfies_current_boot_export_gate -Expected $true
+        Assert-Equal -Name "scoped request binding attachment" -Actual $scopedRequestBinding.context_attached_to_provider_body -Expected $true
+        Assert-Equal -Name "scoped request binding bypass" -Actual $scopedRequestBinding.trust_snapshot.development_tls_bypass -Expected $false
+        Assert-PositiveTrustDecision -Name "scoped request trust verifier decision" -Decision $scopedRequestBinding.trust_snapshot.provider_trust_verifier_decision
+        Assert-Equal -Name "scoped export binding request" -Actual ([string]$scopedExportBinding.request_id) -Expected $feedbackRequestId
+        Assert-Equal -Name "scoped export binding status" -Actual $scopedExportBinding.status -Expected "authorized_for_single_provider_request"
+        Assert-Equal -Name "scoped export binding positive authorization" -Actual $scopedExportBinding.positive_export_authorization -Expected $true
+        Assert-Equal -Name "scoped export binding export gate" -Actual $scopedExportBinding.satisfies_current_boot_export_gate -Expected $true
+        Assert-Equal -Name "scoped export binding injection mode" -Actual $scopedExportBinding.automatic_context_injection -Expected "deliberate_scoped_feedback_only"
+        Assert-Equal -Name "scoped export binding attachment" -Actual $scopedExportBinding.context_attached_to_provider_body -Expected $true
+        Assert-Equal -Name "scoped export binding bypass" -Actual $scopedExportBinding.trust_snapshot.development_tls_bypass -Expected $false
+        Assert-Equal -Name "scoped packet canonicalization" -Actual $scopedExportBinding.hashes.packet_canonicalization -Expected "raios.scoped_project_feedback.packet.canonical_json.v1"
+
+        Assert-Equal -Name "scoped authorization status" -Actual $scopedAuthorization.status -Expected "authorized"
+        Assert-Equal -Name "scoped gate reason" -Actual $scopedAuthorization.reason -Expected "authorized_provider_export_public_only_audited"
+        Assert-Equal -Name "scoped authorization request" -Actual ([string]$scopedAuthorization.request_id) -Expected $feedbackRequestId
+        Assert-Equal -Name "scoped packet record count" -Actual ([int]$scopedAuthorization.packet_record_count) -Expected 4
+        Assert-Equal -Name "scoped packet public posture" -Actual $scopedAuthorization.packet_all_records_public -Expected $true
+        Assert-Equal -Name "scoped budget" -Actual ([int]$scopedAuthorization.budget_tokens) -Expected 1000
+        if ([int]$scopedAuthorization.packet_estimated_tokens -lt 1 -or
+            [int]$scopedAuthorization.packet_estimated_tokens -gt [int]$scopedAuthorization.budget_tokens) {
+            throw "Scoped packet token estimate exceeded its provider_minimal budget."
+        }
+        Assert-Equal -Name "scoped durable audit reason" -Actual $scopedAuthorization.durable_audit_reason -Expected "authorized_memory_record_append_readback_reparse_verified"
+        if ($scopedAuthorization.durable_audit_payload_sha256 -notmatch '^sha256:[0-9a-f]{64}$' -or $null -eq $scopedAuthorization.durable_audit_seq) {
+            throw "Scoped export omitted durable raios.memory_record.v0 export_audit append evidence."
+        }
+        Assert-Equal -Name "scoped authorization attachment" -Actual $scopedAuthorization.context_attached_to_provider_body -Expected $true
+        Assert-Equal -Name "scoped authorization prewrite" -Actual $scopedAuthorization.provider_write -Expected "not_attempted"
+        Assert-Equal -Name "scoped authorization consumed" -Actual $scopedAuthorization.authorization_consumed -Expected $true
+        Assert-Equal -Name "scoped sent request" -Actual ([string]$scopedSent.request_id) -Expected $feedbackRequestId
+        Assert-Equal -Name "scoped sent attachment" -Actual $scopedSent.context_attached_to_provider_body -Expected $true
+        Assert-Equal -Name "scoped sent provider write" -Actual $scopedSent.provider_write -Expected "performed"
+        Assert-Equal -Name "scoped sent authorization" -Actual $scopedSent.authorization_consumed -Expected $true
+
+        Assert-Equal -Name "scoped body hash binding" -Actual $scopedRequestBinding.request_body_hash -Expected $scopedEnvelope.request_body.body_sha256
+        Assert-Equal -Name "scoped export body hash binding" -Actual $scopedExportBinding.request_body_hash -Expected $scopedEnvelope.request_body.body_sha256
+        Assert-Equal -Name "scoped authorization body hash" -Actual $scopedAuthorization.request_body_hash -Expected $scopedEnvelope.request_body.body_sha256
+        Assert-Equal -Name "scoped sent body hash" -Actual $scopedSent.request_body_hash -Expected $scopedEnvelope.request_body.body_sha256
+        Assert-Equal -Name "scoped request envelope hash" -Actual $scopedRequestBinding.request_envelope_hash -Expected $scopedEnvelope.evidence.envelope_hash
+        Assert-Equal -Name "scoped export envelope hash" -Actual $scopedExportBinding.request_envelope_hash -Expected $scopedEnvelope.evidence.envelope_hash
+        Assert-Equal -Name "scoped authorization envelope hash" -Actual $scopedAuthorization.request_envelope_hash -Expected $scopedEnvelope.evidence.envelope_hash
+        Assert-Equal -Name "scoped sent envelope hash" -Actual $scopedSent.request_envelope_hash -Expected $scopedEnvelope.evidence.envelope_hash
+        Assert-Equal -Name "scoped authorization packet hash binding" -Actual $scopedAuthorization.packet_hash -Expected $scopedRequestBinding.hashes.projected_packet_hash
+        Assert-Equal -Name "scoped export packet hash binding" -Actual $scopedExportBinding.hashes.projected_packet_hash -Expected $scopedRequestBinding.hashes.projected_packet_hash
+
+        $packetJson = '{"profile":"provider_minimal","records":[{"field":"check_id","classification":"public","value":"' +
+            $packet.check_id + '"},{"field":"revision_sha256","classification":"public","value":"' +
+            $packet.revision_sha256 + '"},{"field":"tree_sha256","classification":"public","value":"' +
+            $packet.tree_sha256 + '"},{"field":"reason","classification":"public","value":"' +
+            $packet.reason + '"}]}'
+        $escapedPacketJson = $packetJson.Replace('\', '\\').Replace('"', '\"')
+        $expectedBody = '{"model":"gpt-5.4","instructions":"Return one complete corrected RAIOS_SOURCE_FILES_V1 revision using only the attached system feedback.","input":"' +
+            $escapedPacketJson + '","max_output_tokens":8192,"store":false}'
+        $expectedPacketHash = Get-TextSha256 -Text $packetJson
+        $expectedBodyHash = Get-TextSha256 -Text $expectedBody
+        Assert-Equal -Name "exact four-field packet hash" -Actual $scopedAuthorization.packet_hash -Expected $expectedPacketHash
+        Assert-Equal -Name "exact scoped provider body hash" -Actual $scopedEnvelope.request_body.body_sha256 -Expected $expectedBodyHash
+        $projectDiagnostics.scoped_transport.expected_packet_json = $packetJson
+        $projectDiagnostics.scoped_transport.expected_packet_hash = $expectedPacketHash
+        $projectDiagnostics.scoped_transport.expected_body_hash = $expectedBodyHash
+
+        $scopedMarkerLines = @($scopedTransportSerial -split '\r?\n' | Where-Object {
+            $_ -like 'OPENAI_PROVIDER_REQUEST_ENVELOPE *' -or
+            $_ -like 'OPENAI_PROVIDER_REQUEST_BINDING *' -or
+            $_ -like 'OPENAI_PROVIDER_EXPORT_AUDIT_BINDING *' -or
+            $_ -like 'OPENAI_SCOPED_PROJECT_FEEDBACK_EXPORT *' -or
+            $_ -like 'OPENAI_SCOPED_PROJECT_FEEDBACK_SENT *'
+        } | Select-Object -Last 5)
+        Assert-Equal -Name "scoped marker count" -Actual $scopedMarkerLines.Count -Expected 5
+        $scopedMarkerText = $scopedMarkerLines -join "`n"
+        foreach ($forbidden in @($safePrompt, "src/main.rs", "Cargo", "Content-Length", "Authorization: Bearer")) {
+            if ($scopedMarkerText.IndexOf($forbidden, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                throw "Scoped provider marker leaked forbidden text '$forbidden'."
+            }
+        }
+        if ($scopedTransportSerial -like "*tls_certificate_verification_bypassed*") {
+            throw "B2.2 live scoped export saw unverified TLS bypass output."
+        }
+        $tlsEstablishedCountAfterSubmit = [regex]::Matches($scopedTransportSerial, '(?m)^openai: TLS 1\.3 established\r*$').Count
+        $positiveTrustCountAfterSubmit = [regex]::Matches($scopedTransportSerial, '(?m)^openai: TLS provider trust verified: (?:pinned_cert|pinned_spki)(?:\s|$)').Count
+        Assert-Equal -Name "scoped TLS-established marker count" -Actual $tlsEstablishedCountAfterSubmit -Expected ($tlsEstablishedCountBeforeSubmit + 1)
+        Assert-Equal -Name "scoped positive-trust marker count" -Actual $positiveTrustCountAfterSubmit -Expected ($positiveTrustCountBeforeSubmit + 1)
+        $authorizedIndex = $scopedTransportSerial.LastIndexOf("OPENAI_SCOPED_PROJECT_FEEDBACK_EXPORT {`"status`":`"authorized`"", [StringComparison]::Ordinal)
+        $httpsWriteIndex = $scopedTransportSerial.LastIndexOf("openai: HTTPS request sent", [StringComparison]::Ordinal)
+        $sentIndex = $scopedTransportSerial.LastIndexOf("OPENAI_SCOPED_PROJECT_FEEDBACK_SENT {`"request_id`":$feedbackRequestId", [StringComparison]::Ordinal)
+        if ($authorizedIndex -lt 0 -or $httpsWriteIndex -le $authorizedIndex -or $sentIndex -le $httpsWriteIndex) {
+            throw "Scoped gate/audit authorization did not precede the r2 HTTPS write marker."
+        }
+        Write-Host "openai-direct:b2-2-live-scoped-export-authorized passed: gate + durable export_audit + attached body, no bypass"
+        Write-Host "openai-direct:b2-2-export-provider-minimal-no-leak passed: exact four-field packet and fixed instruction body hash"
+
+        $revisionTwoOutcomeLine = Wait-ForLogLineMatch `
+            -Path $SerialLog `
+            -Pattern "^PROJECT SOURCE (READY|REJECTED) request=$feedbackRequestId(?:\s|$)" `
+            -TimeoutSeconds $liveOutcomeTimeoutSeconds
+        $parsedRevisionTwoOutcome = ConvertFrom-ProjectOutcomeLine `
+            -Line $revisionTwoOutcomeLine.Line `
+            -ExpectedRequestId $feedbackRequestId `
+            -RetainedRevisionSha256 $revisionOneSha256 `
+            -RetainedFileCount 2
+        $revisionTwoOutcome = $parsedRevisionTwoOutcome.Outcome
+        $projectDiagnostics.revision_two_outcome = $revisionTwoOutcome
+        Assert-Equal -Name "revision 2 outcome project id" -Actual $revisionTwoOutcome.project_id -Expected $projectId
+
+        $finalWorkspaceResponse = Invoke-AgentCommandJson `
+            -Port $SerialTcpPort `
+            -SerialLog $SerialLog `
+            -Command "project.workspace" `
+            -Method "project.workspace" `
+            -TimeoutSeconds $TimeoutSeconds
+        $finalWorkspace = $finalWorkspaceResponse.body.result
+        $projectDiagnostics.final_workspace = $finalWorkspaceResponse
+        Assert-Equal -Name "final workspace version" -Actual $finalWorkspaceResponse.v -Expected "raios.agent.v0"
+        Assert-Equal -Name "final workspace method" -Actual $finalWorkspace.method -Expected "project.workspace"
+        Assert-Equal -Name "final workspace scope" -Actual $finalWorkspace.scope -Expected "current_boot"
+        Assert-Equal -Name "final workspace classification" -Actual $finalWorkspace.classification -Expected "local_only"
+        Assert-Equal -Name "final workspace project id" -Actual $finalWorkspace.project_id -Expected $projectId
+        Assert-Equal -Name "final workspace pending request" -Actual $finalWorkspace.pending_request_id -Expected $null
+        Assert-Equal -Name "final workspace latest revision" -Actual $finalWorkspace.latest_revision_present -Expected $true
+        Assert-Equal -Name "final workspace revision action" -Actual $finalWorkspace.revision_action -Expected "agent_answer"
+        Assert-Equal -Name "final workspace source authority" -Actual $finalWorkspace.source_authority -Expected "untrusted_agent_candidate"
+        Assert-Equal -Name "final workspace answer origin" -Actual $finalWorkspace.answer_origin -Expected "live"
+        Assert-Equal -Name "final workspace provider trust" -Actual $finalWorkspace.provider_trust_positive -Expected $true
+        Assert-Equal -Name "final workspace test infrastructure" -Actual $finalWorkspace.test_infrastructure -Expected $false
+        Assert-Equal -Name "final workspace retained feedback revision" -Actual $finalWorkspace.feedback_packet.revision_sha256 -Expected $revisionOneSha256
+        Assert-Equal -Name "final workspace retained feedback tree" -Actual $finalWorkspace.feedback_packet.tree_sha256 -Expected $verify.tree_sha256
+        Assert-Equal -Name "final workspace retained feedback reason" -Actual $finalWorkspace.feedback_packet.reason -Expected "build_cargo_lock_missing"
+        $finalLineage = @($finalWorkspace.revision_lineage)
+        if ($revisionTwoOutcome.accepted) {
+            Assert-Equal -Name "child workspace latest request" -Actual ([string]$finalWorkspace.latest_request_id) -Expected $feedbackRequestId
+            Assert-Equal -Name "child workspace phase" -Actual $finalWorkspace.phase -Expected "source_ready"
+            Assert-Equal -Name "child workspace latest revision" -Actual $finalWorkspace.latest_revision_present -Expected $true
+            Assert-Equal -Name "child workspace revision" -Actual $finalWorkspace.revision_sha256 -Expected $revisionTwoOutcome.revision_sha256
+            Assert-Equal -Name "child workspace file count" -Actual ([int]$finalWorkspace.file_count) -Expected $revisionTwoOutcome.file_count
+            Assert-Equal -Name "child workspace parent" -Actual $finalWorkspace.parent_revision_sha256 -Expected $revisionOneSha256
+            Assert-Equal -Name "child workspace parent readback" -Actual $finalWorkspace.parent_revision_readback_verified -Expected $true
+            Assert-Equal -Name "child lineage count" -Actual $finalLineage.Count -Expected 2
+            Assert-Equal -Name "child lineage revision 1" -Actual $finalLineage[0].revision_sha256 -Expected $revisionOneSha256
+            Assert-Equal -Name "child lineage revision 1 tree" -Actual $finalLineage[0].tree_sha256 -Expected $verify.tree_sha256
+            Assert-Equal -Name "child lineage revision 1 parent" -Actual $finalLineage[0].parent_revision_sha256 -Expected $null
+            Assert-Equal -Name "child lineage revision 2" -Actual $finalLineage[1].revision_sha256 -Expected $revisionTwoOutcome.revision_sha256
+            Assert-Equal -Name "child lineage revision 2 parent" -Actual $finalLineage[1].parent_revision_sha256 -Expected $revisionOneSha256
+            $revisedChildOutcomeSummary = "live child parent=$revisionOneSha256"
+            $mayProbeReplayWithoutExport = $true
+        }
+        else {
+            $grammarReasons = @(
+                "project_no_files",
+                "project_file_quota_exceeded",
+                "project_path_invalid",
+                "project_source_path_type_unsupported",
+                "project_source_utf8_invalid",
+                "project_path_collision",
+                "project_total_quota_exceeded"
+            )
+            if ($revisionTwoOutcome.reason -notlike "agent_answer_*" -and $grammarReasons -notcontains $revisionTwoOutcome.reason) {
+                throw "Revised provider answer failed outside the accepted grammar boundary: $($revisionTwoOutcome.reason)"
+            }
+            Assert-Equal -Name "rejected workspace phase" -Actual $finalWorkspace.phase -Expected "rejected"
+            Assert-Equal -Name "rejected workspace latest request" -Actual ([string]$finalWorkspace.latest_request_id) -Expected $projectRequestId
+            Assert-Equal -Name "rejected workspace revision" -Actual $finalWorkspace.revision_sha256 -Expected $revisionOneSha256
+            Assert-Equal -Name "rejected workspace tree" -Actual $finalWorkspace.tree_sha256 -Expected $verify.tree_sha256
+            Assert-Equal -Name "rejected workspace file count" -Actual ([int]$finalWorkspace.file_count) -Expected 2
+            Assert-Equal -Name "rejected lineage count" -Actual $finalLineage.Count -Expected 1
+            Assert-Equal -Name "rejected lineage revision 1" -Actual $finalLineage[0].revision_sha256 -Expected $revisionOneSha256
+            Assert-Equal -Name "rejected lineage revision 1 tree" -Actual $finalLineage[0].tree_sha256 -Expected $verify.tree_sha256
+            Assert-Equal -Name "rejected lineage parent" -Actual $finalLineage[0].parent_revision_sha256 -Expected $null
+            $finalPaths = @($finalWorkspace.files | ForEach-Object { $_.path })
+            if (($finalPaths -join "`n") -cne ($revisionOnePaths -join "`n")) {
+                throw "Grammar rejection did not retain revision 1's readable file list."
+            }
+            $revisedChildOutcomeSummary = "honest grammar rejection=$($revisionTwoOutcome.reason), revision 1 intact"
+            $mayProbeReplayWithoutExport = $false
+        }
+        Write-Host "openai-direct:b2-2-revised-child-outcome passed: $revisedChildOutcomeSummary"
+        if ($mayProbeReplayWithoutExport) {
+            # Success path: the committed child moved the latest revision, so a fresh
+            # project.feedback_submit is denied for packet mismatch and sends no body.
+            $directRequestCountBeforeReplay = [regex]::Matches((Get-Content -Raw -LiteralPath $SerialLog), '(?m)^OPENAI_DIRECT_REQ [0-9]+ api\.openai\.com /v1/responses\r*$').Count
+            $replayResponse = Invoke-AgentCommandJson `
+                -Port $SerialTcpPort `
+                -SerialLog $SerialLog `
+                -Command "project.feedback_submit" `
+                -Method "project.feedback_submit" `
+                -TimeoutSeconds $TimeoutSeconds
+            $replay = $replayResponse.body.result
+            $projectDiagnostics.feedback_submit_replay = $replayResponse
+            Assert-Equal -Name "feedback replay version" -Actual $replayResponse.v -Expected "raios.agent.v0"
+            Assert-Equal -Name "feedback replay status" -Actual $replay.status -Expected "denied"
+            Assert-Equal -Name "feedback replay accepted" -Actual $replay.accepted -Expected $false
+            Assert-Equal -Name "feedback replay reason" -Actual $replay.reason -Expected "agent_revision_feedback_packet_mismatch"
+            Assert-Equal -Name "feedback replay request id" -Actual $replay.request_id -Expected $null
+            Assert-Equal -Name "feedback replay context attachment" -Actual $replay.context_attached_to_provider_body -Expected $false
+            Assert-Equal -Name "feedback replay provider write" -Actual $replay.provider_write -Expected "not_attempted"
+            $directRequestCountAfterReplay = [regex]::Matches((Get-Content -Raw -LiteralPath $SerialLog), '(?m)^OPENAI_DIRECT_REQ [0-9]+ api\.openai\.com /v1/responses\r*$').Count
+            Assert-Equal -Name "feedback replay provider request count" -Actual $directRequestCountAfterReplay -Expected $directRequestCountBeforeReplay
+            Write-Host "openai-direct:b2-2-single-use-consumed passed: agent_revision_feedback_packet_mismatch, no second provider body"
+        }
+        else {
+            # Rejection path: revision 1 and its retained feedback packet remain for owner
+            # transparency. Single use is per authorization, not per packet: the one
+            # authorization produced exactly one durably audited scoped export, and a
+            # deliberate fresh project.feedback_submit would be a NEW gated+audited export
+            # by design, so the harness does not send one (that is not a single-use
+            # violation; each export is independently authorized and logged).
+            $scopedSentCount = [regex]::Matches($scopedTransportSerial, [regex]::Escape("OPENAI_SCOPED_PROJECT_FEEDBACK_SENT {`"request_id`":$feedbackRequestId")).Count
+            Assert-Equal -Name "scoped export sent exactly once for authorization" -Actual $scopedSentCount -Expected 1
+            if ($scopedAuthorization.durable_audit_payload_sha256 -notmatch '^sha256:[0-9a-f]{64}$' -or $null -eq $scopedAuthorization.durable_audit_seq) {
+                throw "Scoped export authorization lacked a unique durable audit binding."
+            }
+            $directRequestTotal = [regex]::Matches((Get-Content -Raw -LiteralPath $SerialLog), '(?m)^OPENAI_DIRECT_REQ [0-9]+ api\.openai\.com /v1/responses\r*$').Count
+            Assert-Equal -Name "exactly two provider requests total (initial + one export)" -Actual $directRequestTotal -Expected 2
+            Write-Host "openai-direct:b2-2-single-use-consumed passed: one durably-audited export per authorization; retained packet kept for transparency, no unintended second export"
+        }
+    }
+    elseif ($ExpectProjectWorkspaceAnswer) {
         $projectStarted = Wait-ForLogLineMatch `
             -Path $SerialLog `
             -Pattern '^PROJECT SOURCE REQUEST (?<request>[0-9]+) STARTED$' `
@@ -456,42 +976,9 @@ try {
             -Path $SerialLog `
             -Pattern "^PROJECT SOURCE (READY|REJECTED) request=$projectRequestId(?:\s|$)" `
             -TimeoutSeconds $projectOutcomeTimeoutSeconds
-        $trimmedOutcomeLine = $projectOutcomeLine.Line.TrimEnd()
-        if ($trimmedOutcomeLine -match '^PROJECT SOURCE READY request=([0-9]+) project=([0-9a-fA-F]+) revision=(sha256:[0-9a-fA-F]{64}) files=([0-9]+) inert$') {
-            $projectOutcome = [ordered]@{
-                outcome = "CONFORMING"
-                accepted = $true
-                request_id = $Matches[1]
-                project_id = $Matches[2]
-                revision_sha256 = $Matches[3]
-                file_count = [int]$Matches[4]
-                reason = $null
-                line = $trimmedOutcomeLine
-            }
-            if ($projectOutcome.request_id -ne $projectRequestId -or $projectOutcome.file_count -lt 1) {
-                throw "Conforming project outcome carried inconsistent request or file count: $trimmedOutcomeLine"
-            }
-            $projectOutcomeSummary = "CONFORMING-committed-inert revision=$($projectOutcome.revision_sha256) files=$($projectOutcome.file_count)"
-        }
-        elseif ($trimmedOutcomeLine -match '^PROJECT SOURCE REJECTED request=([0-9]+) project=([0-9a-fA-F]+|none) revision=(sha256:[0-9a-fA-F]{64}|none) files=([0-9]+) reason=(.+)$') {
-            $projectOutcome = [ordered]@{
-                outcome = "NONCONFORMING"
-                accepted = $false
-                request_id = $Matches[1]
-                project_id = $Matches[2]
-                revision_sha256 = $Matches[3]
-                file_count = [int]$Matches[4]
-                reason = $Matches[5]
-                line = $trimmedOutcomeLine
-            }
-            if ($projectOutcome.request_id -ne $projectRequestId -or $projectOutcome.revision_sha256 -ne "none" -or $projectOutcome.file_count -ne 0) {
-                throw "Rejected project outcome carried a revision or files: $trimmedOutcomeLine"
-            }
-            $projectOutcomeSummary = "NONCONFORMING-rejected reason=$($projectOutcome.reason)"
-        }
-        else {
-            throw "Malformed project source outcome: $trimmedOutcomeLine"
-        }
+        $parsedProjectOutcome = ConvertFrom-ProjectOutcomeLine -Line $projectOutcomeLine.Line -ExpectedRequestId $projectRequestId
+        $projectOutcome = $parsedProjectOutcome.Outcome
+        $projectOutcomeSummary = $parsedProjectOutcome.Summary
         $projectDiagnostics.outcome = $projectOutcome
         Write-Host "openai-direct:b2-answer-outcome passed: $projectOutcomeSummary"
 
@@ -590,7 +1077,7 @@ try {
     else {
         Wait-ForLogText -Path $SerialLog -Needle "PROVIDER: OPENAI    API KEY: SET" -TimeoutSeconds $TimeoutSeconds
     }
-    if ($ExpectProjectWorkspaceAnswer) {
+    if ($ExpectProjectWorkspaceAnswer -or $ExpectScopedFeedbackExport) {
         # The live source-lane assertions completed above.
     }
     elseif ($ExpectProviderResponse) {
@@ -642,10 +1129,10 @@ try {
     }
 
     $serial = Get-Content -Raw -LiteralPath $SerialLog
-    if ((-not $ExpectProviderResponse) -and (-not $ExpectPinnedTrust) -and (-not $ExpectSpkiPinnedTrust) -and (-not $ExpectProjectWorkspaceAnswer) -and (-not $ExpectPinMismatch) -and ($serial -like "*OPENAI_DIRECT_REQ*")) {
+    if ((-not $ExpectProviderResponse) -and (-not $ExpectPinnedTrust) -and (-not $ExpectSpkiPinnedTrust) -and (-not $ExpectProjectWorkspaceAnswer) -and (-not $ExpectScopedFeedbackExport) -and (-not $ExpectPinMismatch) -and ($serial -like "*OPENAI_DIRECT_REQ*")) {
         throw "Trust-gate smoke saw an OpenAI request start before provider trust was verified in $SerialLog"
     }
-    if ((-not $ExpectProviderResponse) -and (-not $ExpectPinnedTrust) -and (-not $ExpectSpkiPinnedTrust) -and (-not $ExpectProjectWorkspaceAnswer) -and (-not $ExpectPinMismatch) -and ($serial -like "*raios.provider_request_envelope.v0*")) {
+    if ((-not $ExpectProviderResponse) -and (-not $ExpectPinnedTrust) -and (-not $ExpectSpkiPinnedTrust) -and (-not $ExpectProjectWorkspaceAnswer) -and (-not $ExpectScopedFeedbackExport) -and (-not $ExpectPinMismatch) -and ($serial -like "*raios.provider_request_envelope.v0*")) {
         throw "Trust-gate smoke saw a provider request envelope before provider trust allowed a request in $SerialLog"
     }
     if (($ExpectProviderResponse -or $ExpectPinMismatch) -and ($serial -like "*raios.provider_request_binding.v0*")) {
@@ -667,7 +1154,7 @@ try {
         Assert-PositiveBindingMarkers -Serial $serial
         Assert-TextOrder -Name "injection gate before HTTPS write" -Serial $serial -Earlier "OPENAI_PROVIDER_CONTEXT_INJECTION_GATE" -Later "openai: HTTPS request sent"
     }
-    if (($serial -like '*"context_attached_to_provider_body":true*') -or ($serial -like '*"context_attached_to_provider_body": true*')) {
+    if ((-not $ExpectScopedFeedbackExport) -and (($serial -like '*"context_attached_to_provider_body":true*') -or ($serial -like '*"context_attached_to_provider_body": true*'))) {
         throw "Direct smoke saw provider context body attachment before final injection authorization in $SerialLog"
     }
     if (($ExpectProviderResponse -or $ExpectPinnedTrust -or $ExpectSpkiPinnedTrust -or $ExpectPinMismatch) -and ($serial -notlike "*`"provider_write`":`"not_attempted`"*")) {
@@ -703,6 +1190,9 @@ try {
     if ($ExpectProjectWorkspaceAnswer -and ($serial -like "*tls_certificate_verification_bypassed*")) {
         throw "Live project-workspace smoke saw unverified TLS bypass output in $SerialLog"
     }
+    if ($ExpectScopedFeedbackExport -and ($serial -like "*tls_certificate_verification_bypassed*")) {
+        throw "Live scoped-feedback smoke saw unverified TLS bypass output in $SerialLog"
+    }
     if ($ExpectPinMismatch -and ($serial -like "*openai: HTTPS request sent*")) {
         throw "Pin-mismatch smoke sent HTTPS request data in $SerialLog"
     }
@@ -722,7 +1212,10 @@ try {
         }
     }
 
-    if ($ExpectProjectWorkspaceAnswer) {
+    if ($ExpectScopedFeedbackExport) {
+        Write-Host "openai direct B2.2 scoped-feedback live smoke passed"
+    }
+    elseif ($ExpectProjectWorkspaceAnswer) {
         Write-Host "openai direct project-workspace live smoke passed"
     }
     elseif ($ExpectProviderResponse) {
@@ -743,8 +1236,8 @@ try {
     Write-Host "serial log: $SerialLog"
 }
 catch {
-    if ($ExpectProjectWorkspaceAnswer) {
-        Write-Host "B2.1b live harness failure: $($_.Exception.Message)"
+    if ($projectDiskMode) {
+        Write-Host "$projectFailureLabel failure: $($_.Exception.Message)"
         $projectDiagnosticJson = $projectDiagnostics | ConvertTo-Json -Depth 12
         $projectDiagnosticJson = [regex]::Replace($projectDiagnosticJson, '(?i)(Authorization:\s*Bearer\s+)[^"\r\n]*', '${1}<redacted>')
         Write-Host $projectDiagnosticJson
