@@ -49,15 +49,20 @@ Live owner demo: calculator delivered/approved/computed 42/F12 in a visible QEMU
 Editor gaps stay honest: end-cursor only, ASCII only, no persistence (files stay denied).
 The active vision order: B1.1, B1.2a, B1.2b, B1.2c AND B1.3 are all closed — the
 entire B1 acquisition→install→reboot→rollback block is done (2026-07-15..17), for
-both downloaded W7 candidates and owner-approved RUIP programs. B2.1a and the
-key-free B2.2a proof loop are now verified: an inert source revision can fail a
-system-owned preflight, receive a four-field classified feedback packet, become
-an exact child, and pass the same preflight with both revisions readable
-(`project-workspace` `shadow-20260717-142445-27836.json`, 654/654). Next is
-B2.1b: connect the real provider target and Genesis `/build` source status while
-keeping `/program` as the explicit RUIP fast lane; live closure still requires a
-usable key/network/pinned-trust response. The standing design/lightness lane
-continues.
+both downloaded W7 candidates and owner-approved RUIP programs. B2.1a, the
+key-free B2.2a proof loop, AND B2.1b live are now verified: an inert source
+revision can fail a system-owned preflight, receive a four-field classified
+feedback packet, become an exact child, and pass the same preflight with both
+revisions readable (`project-workspace` `shadow-20260717-142445-27836.json`,
+654/654). B2.1b live is DEMONSTRATED (2026-07-17): a real OpenAI answer over
+positive `pinned_cert` TLS (`development_tls_bypass=false`, live-computed leaf
+pin) became two inert source files (Cargo.toml + src/main.rs), committed
+`answer_origin=live`, `local_only`, `untrusted_agent_candidate`, zero executable
+effect — `openai-direct-smoke.ps1 -ExpectProjectWorkspaceAnswer`, all six
+predicates green, exit 0. The source lane is serial-reachable via `project.ask`;
+`/program` stays the explicit RUIP fast lane. Next is B2.2 live: the scoped
+project-feedback export back to the provider, plus the Genesis `/build`
+source-status surface. The standing design/lightness lane continues.
 
 **M11-9 DNSPARSE VERIFIED-CLOSED (2026-07-14) — the FOURTH real relocation, plus the
 first hard memory bound for buffer guests.** The DNS query/A-response parser lives in
@@ -185,15 +190,21 @@ design lane landed too: Genesis approval labels [INSTALL]/[PERSIST]/[RUN]/
 [RUN+PERSIST] + a program-persistence truth line (durable survives reboot vs
 current-boot), and present_rect partial-present (no full-FHD copy on editor
 keystrokes) — serial output + click geometry byte-identical.
-**B2 ACTIVE — B2.1a + B2.2a VERIFIED (2026-07-17):** a fixed key-free agent
-answer becomes inert source files, and one system-owned preflight failure now
-drives an exact immutable child that re-passes without build/run/install/export
-authority (`project-workspace` `shadow-20260717-142445-27836.json`, 654/654).
-**NEXT DELIBERATE SLICE — B2.1b:** real-provider `ProjectWorkspace` routing,
-Genesis `/build` source status, and explicit `/program` RUIP compatibility.
-Implementation may land key-free, but the live AI path is not proven closed
-without the existing key/network/pinned-trust preconditions. Scoped provider
-feedback export remains the next B2.2 boundary; B2.3 is the visible slow lane.
+**B2 ACTIVE — B2.1a + B2.2a + B2.1b LIVE VERIFIED (2026-07-17):** a fixed
+key-free agent answer becomes inert source files, one system-owned preflight
+failure drives an exact immutable child that re-passes without build/run/install/
+export authority (`project-workspace` `shadow-20260717-142445-27836.json`,
+654/654), AND a REAL OpenAI answer over positive `pinned_cert` TLS
+(`development_tls_bypass=false`) became two inert source files committed
+`answer_origin=live`/`local_only`/`untrusted_agent_candidate` with zero
+executable effect (`openai-direct-smoke.ps1 -ExpectProjectWorkspaceAnswer`, 6/6
+predicates, exit 0; headless via the new `project.ask` serial command). The live
+image needs the disposable C1 structured store + valid-a BOOTCTL persist disk to
+commit; the leaf cert pin is computed live and rotates.
+**NEXT DELIBERATE SLICE — B2.2 live:** the scoped project-feedback export back to
+the provider (`submit_scoped_project_feedback` / `build_request_body_with_context`
+/ the current-boot export gate), then the Genesis `/build` source-status surface.
+`/program` stays the explicit RUIP fast lane. B2.3 is the visible slow lane.
 
 **B1.2c W6 INSTALL + REBOOT SURVIVAL + ROLLBACK VERIFIED-CLOSED (2026-07-15).**
 Loop stations 7 (install/autoload/reboot) and 8 (rollback) close for W7
