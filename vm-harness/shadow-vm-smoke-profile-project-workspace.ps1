@@ -1603,6 +1603,363 @@ $b2ProgramOk = (
 $b2ProgramDump = [ordered]@{ before = $b2ProgramBeforeResponse; after = $b2ProgramAfterResponse }
 Add-ProjectPredicate -Name 'b2-program-workspace-unchanged' -Expected 'program.workspace remains the byte-identical raios.agent.v0 RUIP-only view with no source-project fields or execution authority' -Passed $b2ProgramOk -Actual $(if ($b2ProgramOk) { 'program.workspace unchanged and RUIP-only' } else { $b2ProgramDump | ConvertTo-Json -Compress -Depth 16 })
 
+# B2.2a carries the system-owned revision-1 preflight failure through a bounded
+# feedback packet into one immutable child, then reruns the same preflight.
+# It runs on a second empty disposable store so the committed B2.1a reboot
+# predicate below remains byte-identical and still reparses revision 1.
+Close-SerialTcpConnection
+if (-not $QemuPid) { throw 'project-workspace B2.2a cannot start without the third QEMU process' }
+$b22ParentQemuPid = $QemuPid
+Stop-Process -Id $b22ParentQemuPid -Force -ErrorAction Stop
+if ($script:QemuProcess) { try { $script:QemuProcess.WaitForExit(5000) | Out-Null } catch {} }
+if (Get-Process -Id $b22ParentQemuPid -ErrorAction SilentlyContinue) { throw 'project-workspace third QEMU process did not stop before B2.2a' }
+
+$b22StructuredStoreDiskImage = Join-Path $RunDir 'raios-structured-store-b22.img'
+$b22StructuredStoreError = Join-Path $RunDir 'structured-store-b22-builder.err.txt'
+$b22FixtureJson = & python $structuredStoreBuilder create $b22StructuredStoreDiskImage --size-mib 16 --json 2> $b22StructuredStoreError
+if ($LASTEXITCODE -ne 0) {
+    $b22FixtureError = Get-Content -Raw -LiteralPath $b22StructuredStoreError -ErrorAction SilentlyContinue
+    throw "B2.2a structured-store fixture build failed: $b22FixtureError"
+}
+$b22StructuredStoreFixture = ($b22FixtureJson -join [Environment]::NewLine) | ConvertFrom-Json
+if (
+    -not $b22StructuredStoreFixture.valid -or
+    -not $b22StructuredStoreFixture.disposable_qemu_only -or
+    $b22StructuredStoreFixture.store_state -ne 'empty_unformatted'
+) {
+    throw "B2.2a structured-store fixture invalid: $($b22StructuredStoreFixture | ConvertTo-Json -Compress -Depth 16)"
+}
+$b22StructuredStoreDiskImage = (Resolve-Path -LiteralPath $b22StructuredStoreDiskImage).Path
+
+$b22LoopLog = Join-Path $RunDir 'serial-project-workspace-b22-loop.log'
+$b22RunParams = $runParams.Clone()
+$b22RunParams.StopExisting = $false
+$b22RunParams.StructuredStoreDiskPath = $b22StructuredStoreDiskImage
+$b22RunParams.SerialLog = $b22LoopLog
+$b22RunOutput = & $RunScript @b22RunParams
+$SerialLog = $b22LoopLog
+$QemuPid = $null
+foreach ($line in $b22RunOutput) { if ($line -match '^qemu pid:\s*(\d+)') { $QemuPid = [int]$Matches[1] } }
+if (-not $QemuPid) { throw 'project-workspace B2.2a boot did not return a QEMU pid' }
+try { $script:QemuProcess = Get-Process -Id $QemuPid -ErrorAction Stop } catch { $script:QemuProcess = $null }
+if (-not (Wait-ForLogText -Path $SerialLog -Needle 'SERIAL CONSOLE READY' -TimeoutSeconds $TimeoutSeconds)) {
+    throw 'project-workspace B2.2a serial console did not become ready'
+}
+
+Send-AgentCommand -Command 'project.agent_answer_fixture' -ExpectedMarker 'RAIOS_AGENT_END project.agent_answer_fixture' -Name 'project-workspace:b22-revision1-setup'
+$b22Revision1SetupResponse = Get-LastAgentResponseJson -Method 'project.agent_answer_fixture'
+$b22Revision1Setup = $b22Revision1SetupResponse.body.result
+$b22Revision1SetupOk = (
+    $b22Revision1SetupResponse.v -eq 'raios.agent.v0' -and
+    $b22Revision1Setup.status -eq 'accepted' -and
+    $b22Revision1Setup.reason -eq 'agent_answer_revision_committed' -and
+    $b22Revision1Setup.project_id -eq $b2ProjectId -and
+    $b22Revision1Setup.tree_sha256 -eq "sha256:$b2TreeSha256" -and
+    $b22Revision1Setup.revision_sha256 -eq "sha256:$b2RevisionSha256" -and
+    $null -eq $b22Revision1Setup.parent_revision_sha256 -and
+    (Test-B2AgentFileFacts -ActualFiles @($b22Revision1Setup.files) -ExpectedFiles $b2Files)
+)
+if (-not $b22Revision1SetupOk) {
+    throw "B2.2a revision-1 setup failed: $($b22Revision1SetupResponse | ConvertTo-Json -Compress -Depth 16)"
+}
+
+function Test-B22InertFields {
+    param([object]$Result)
+    return (
+        $Result.signing_attempted -eq $false -and
+        $Result.build_session_opened -eq $false -and
+        $Result.builder_attempted -eq $false -and
+        $Result.compiler_attempted -eq $false -and
+        $Result.test_attempted -eq $false -and
+        $Result.run_attempted -eq $false -and
+        $Result.build_authorized -eq $false -and
+        $Result.candidate_intake_attempted -eq $false -and
+        $Result.load_attempted -eq $false -and $Result.load_authorized -eq $false -and
+        $Result.execution_attempted -eq $false -and $Result.execution_authorized -eq $false -and
+        $Result.install_attempted -eq $false -and $Result.install_authorized -eq $false -and
+        $Result.promotion_attempted -eq $false -and $Result.promotion_authorized -eq $false -and
+        $Result.wasm_instance_created -eq $false -and $Result.w6_preview_created -eq $false -and
+        $Result.reclog_executable_record_written -eq $false -and
+        $Result.artstor_executable_record_written -eq $false -and
+        $Result.service_inventory_mutation -eq 'none'
+    )
+}
+
+Send-AgentCommand -Command 'services' -ExpectedMarker 'RAIOS_AGENT_END service.inventory' -Name 'project-workspace:b22-services-before'
+$b22ServicesBeforeResponse = Get-LastAgentResponseJson -Method 'service.inventory'
+Send-AgentCommand -Command 'agent durable.record_log_scan' -ExpectedMarker 'RAIOS_AGENT_END durable.record_log_scan' -Name 'project-workspace:b22-reclog-before'
+$b22ReclogBeforeResponse = Get-LastAgentResponseJson -Method 'durable.record_log_scan'
+Send-AgentCommand -Command 'agent artifact.store_scan' -ExpectedMarker 'RAIOS_AGENT_END artifact.store_scan' -Name 'project-workspace:b22-artstor-before'
+$b22ArtstorBeforeResponse = Get-LastAgentResponseJson -Method 'artifact.store_scan'
+$b22ServicesBeforeJson = @($b22ServicesBeforeResponse.facts.services) | ConvertTo-Json -Compress -Depth 12
+$b22ReclogBeforeJson = $b22ReclogBeforeResponse.body.result | ConvertTo-Json -Compress -Depth 16
+$b22ArtstorBeforeJson = $b22ArtstorBeforeResponse.body.result | ConvertTo-Json -Compress -Depth 16
+
+Send-AgentCommand -Command 'project.verify_revision' -ExpectedMarker 'RAIOS_AGENT_END project.verify_revision' -Name 'project-workspace:b22-verify-parent'
+$b22ParentVerifyResponse = Get-LastAgentResponseJson -Method 'project.verify_revision'
+$b22ParentVerify = $b22ParentVerifyResponse.body.result
+$b22ParentVerifyOk = (
+    $b22ParentVerifyResponse.v -eq 'raios.agent.v0' -and
+    $b22ParentVerify.method -eq 'project.verify_revision' -and
+    $b22ParentVerify.scope -eq 'current_boot' -and $b22ParentVerify.classification -eq 'local_only' -and
+    $b22ParentVerify.check_kind -eq 'deterministic_local_source_preflight' -and
+    $b22ParentVerify.status -eq 'recorded' -and $b22ParentVerify.accepted -eq $true -and
+    $b22ParentVerify.check_id -eq 'project.source_preflight.v1' -and
+    $b22ParentVerify.outcome -eq 'failed' -and $b22ParentVerify.reason -eq 'build_cargo_lock_missing' -and
+    $null -eq $b22ParentVerify.PSObject.Properties['passed'] -and
+    $b22ParentVerify.revision_sha256 -eq "sha256:$b2RevisionSha256" -and
+    $b22ParentVerify.tree_sha256 -eq "sha256:$b2TreeSha256" -and
+    $b22ParentVerify.system_computed -eq $true -and $b22ParentVerify.provider_supplied -eq $false -and
+    $b22ParentVerify.answer_origin -eq 'test_fixture' -and
+    $b22ParentVerify.provider_trust_positive -eq $false -and $b22ParentVerify.test_infrastructure -eq $true -and
+    $b22ParentVerify.storage_write_attempted -eq $false -and $b22ParentVerify.writes_persistent_state -eq $false -and
+    $b22ParentVerify.provider_export_attempted -eq $false -and
+    $b22ParentVerify.provider_export_authorized -eq $false -and
+    (Test-B22InertFields -Result $b22ParentVerify)
+)
+
+Send-AgentCommand -Command 'project.feedback_packet' -ExpectedMarker 'RAIOS_AGENT_END project.feedback_packet' -Name 'project-workspace:b22-feedback'
+$b22FeedbackResponse = Get-LastAgentResponseJson -Method 'project.feedback_packet'
+$b22Feedback = $b22FeedbackResponse.body.result
+$b22FeedbackOk = (
+    $b22FeedbackResponse.v -eq 'raios.agent.v0' -and
+    $b22Feedback.method -eq 'project.feedback_packet' -and
+    $b22Feedback.scope -eq 'current_boot' -and $b22Feedback.classification -eq 'local_only' -and
+    $b22Feedback.status -eq 'ready' -and $b22Feedback.accepted -eq $true -and
+    $b22Feedback.reason -eq 'build_cargo_lock_missing' -and [int]$b22Feedback.packet_field_count -eq 4 -and
+    @($b22Feedback.feedback_packet.PSObject.Properties).Count -eq 4 -and
+    $b22Feedback.feedback_packet.check_id -eq 'project.source_preflight.v1' -and
+    $b22Feedback.feedback_packet.revision_sha256 -eq "sha256:$b2RevisionSha256" -and
+    $b22Feedback.feedback_packet.tree_sha256 -eq "sha256:$b2TreeSha256" -and
+    $b22Feedback.feedback_packet.reason -eq 'build_cargo_lock_missing' -and
+    $b22Feedback.system_computed -eq $true -and $b22Feedback.provider_supplied -eq $false -and
+    $b22Feedback.source_bytes_included -eq $false -and $b22Feedback.secret_bytes_included -eq $false -and
+    $b22Feedback.log_bytes_included -eq $false -and $b22Feedback.unclassified_text_included -eq $false -and
+    $b22Feedback.provider_export_attempted -eq $false -and $b22Feedback.provider_export_authorized -eq $false -and
+    $b22Feedback.storage_write_attempted -eq $false -and $b22Feedback.writes_persistent_state -eq $false -and
+    (Test-B22InertFields -Result $b22Feedback)
+)
+
+$b22LockFile = [pscustomobject]@{
+    path = 'Cargo.lock'; classification = 'local_only'; media_type = 'text/toml'
+    bytes = [Convert]::FromBase64String('IyBUaGlzIGZpbGUgaXMgYXV0b21hdGljYWxseSBAZ2VuZXJhdGVkIGJ5IENhcmdvLgp2ZXJzaW9uID0gMwo=')
+}
+$b22LockFile | Add-Member -NotePropertyName sha256 -NotePropertyValue (Get-ByteSha256Hex -Bytes $b22LockFile.bytes)
+$b22Files = @($b22LockFile) + @($b2Files)
+$b22Answer = @(
+    'RAIOS_SOURCE_FILES_V1'
+    'file Q2FyZ28ubG9jaw== IyBUaGlzIGZpbGUgaXMgYXV0b21hdGljYWxseSBAZ2VuZXJhdGVkIGJ5IENhcmdvLgp2ZXJzaW9uID0gMwo='
+    'file Q2FyZ28udG9tbA== W3BhY2thZ2VdCm5hbWUgPSAiYjIxYS1maXh0dXJlIgp2ZXJzaW9uID0gIjAuMS4wIgplZGl0aW9uID0gIjIwMjEiCg=='
+    'file c3JjL21haW4ucnM= Zm4gbWFpbigpIHsKICAgIGxldCBtZXNzYWdlID0gImhlbGxvIGZyb20gcmFpT1MiOwogICAgbGV0IF8gPSBtZXNzYWdlOwp9Cg=='
+    'end'
+) -join "`n"
+$b22AnswerBytes = [System.Text.Encoding]::UTF8.GetBytes($b22Answer)
+$b22AnswerSha256 = Get-ByteSha256Hex -Bytes $b22AnswerBytes
+$b22TreeSha256 = Get-ProjectTreeSha256 -Files $b22Files
+$b22RevisionSha256 = Get-ProjectRevisionSha256 -ProjectId $b2ProjectId -TreeSha256 $b22TreeSha256 -ParentRevisionSha256 $b2RevisionSha256 -Action 'agent_answer'
+$b22TotalByteLen = ($b22Files | ForEach-Object { $_.bytes.Length } | Measure-Object -Sum).Sum
+
+Send-AgentCommand -Command 'project.revision_answer_fixture' -ExpectedMarker 'RAIOS_AGENT_END project.revision_answer_fixture' -Name 'project-workspace:b22-child-answer'
+$b22ChildResponse = Get-LastAgentResponseJson -Method 'project.revision_answer_fixture'
+$b22Child = $b22ChildResponse.body.result
+$b22ChildFilesExact = Test-B2AgentFileFacts -ActualFiles @($b22Child.files) -ExpectedFiles $b22Files
+$b22Lineage = @($b22Child.revision_lineage)
+$b22ChildOk = (
+    $b22ChildResponse.v -eq 'raios.agent.v0' -and
+    $b22Child.method -eq 'project.revision_answer_fixture' -and
+    $b22Child.phase -eq 'source_ready' -and $b22Child.status -eq 'accepted' -and
+    $b22Child.reason -eq 'agent_answer_revision_committed' -and
+    $b22Child.accepted -eq $true -and $b22Child.rejected -eq $false -and
+    [int]$b22Child.latest_request_id -eq 729130 -and $null -eq $b22Child.pending_request_id -and
+    $b22Child.project_id -eq $b2ProjectId -and $b22Child.answer_sha256 -eq "sha256:$b22AnswerSha256" -and
+    [int]$b22Child.answer_byte_len -eq $b22AnswerBytes.Length -and
+    $b22Child.parent_revision_sha256 -eq "sha256:$b2RevisionSha256" -and
+    $b22Child.revision_action -eq 'agent_answer' -and
+    $b22Child.tree_sha256 -eq "sha256:$b22TreeSha256" -and
+    $b22Child.revision_sha256 -eq "sha256:$b22RevisionSha256" -and
+    [int]$b22Child.file_count -eq 3 -and [int]$b22Child.total_byte_len -eq $b22TotalByteLen -and
+    $b22ChildFilesExact -and $b22Child.parent_revision_readback_verified -eq $true -and
+    $b22Lineage.Count -eq 2 -and
+    $b22Lineage[0].revision_sha256 -eq "sha256:$b2RevisionSha256" -and
+    $b22Lineage[0].tree_sha256 -eq "sha256:$b2TreeSha256" -and $null -eq $b22Lineage[0].parent_revision_sha256 -and
+    $b22Lineage[1].revision_sha256 -eq "sha256:$b22RevisionSha256" -and
+    $b22Lineage[1].tree_sha256 -eq "sha256:$b22TreeSha256" -and
+    $b22Lineage[1].parent_revision_sha256 -eq "sha256:$b2RevisionSha256" -and
+    $b22Child.answer_origin -eq 'test_fixture' -and
+    $b22Child.provider_trust_positive -eq $false -and $b22Child.test_infrastructure -eq $true -and
+    $b22Child.source_authority -eq 'untrusted_agent_candidate' -and
+    $b22Child.persistence_posture -eq 'qemu_disposable_structured_store_only' -and
+    $b22Child.storage_write_attempted -eq $true -and $b22Child.writes_persistent_state -eq $true -and
+    (Test-B22InertFields -Result $b22Child)
+)
+$b22ChildDump = [ordered]@{ response = $b22ChildResponse; host = [ordered]@{ parent = $b2RevisionSha256; tree = $b22TreeSha256; revision = $b22RevisionSha256; answer = $b22AnswerSha256; files = $b22Files } }
+
+Send-AgentCommand -Command 'project.verify_revision' -ExpectedMarker 'RAIOS_AGENT_END project.verify_revision' -Name 'project-workspace:b22-verify-child'
+$b22ChildVerifyResponse = Get-LastAgentResponseJson -Method 'project.verify_revision'
+$b22ChildVerify = $b22ChildVerifyResponse.body.result
+Send-AgentCommand -Command 'project.workspace' -ExpectedMarker 'RAIOS_AGENT_END project.workspace' -Name 'project-workspace:b22-workspace'
+$b22WorkspaceResponse = Get-LastAgentResponseJson -Method 'project.workspace'
+$b22Workspace = $b22WorkspaceResponse.body.result
+Send-AgentCommand -Command "project.inspect $b2ProjectId" -ExpectedMarker 'RAIOS_AGENT_END project.inspect' -Name 'project-workspace:b22-inspect'
+$b22InspectResponse = Get-LastAgentResponseJson -Method 'project.inspect'
+$b22Inspect = $b22InspectResponse.body.result
+$b22InspectJson = $b22Inspect | ConvertTo-Json -Compress -Depth 16
+$b22ReadResponses = @()
+$b22Reads = @()
+foreach ($file in $b22Files) {
+    $pathBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($file.path))
+    Send-AgentCommand -Command "project.read $b2ProjectId $pathBase64 0 $($file.bytes.Length)" -ExpectedMarker 'RAIOS_AGENT_END project.read' -Name "project-workspace:b22-read-$($file.path)"
+    $readResponse = Get-LastAgentResponseJson -Method 'project.read'
+    $b22ReadResponses += $readResponse
+    $b22Reads += $readResponse.body.result
+}
+$b22ReadsExact = $b22Reads.Count -eq $b22Files.Count
+for ($index = 0; $b22ReadsExact -and $index -lt $b22Files.Count; $index++) {
+    $b22ReadsExact = (
+        $b22ReadResponses[$index].v -eq 'raios.agent.v0' -and
+        $b22Reads[$index].status -eq 'present' -and $b22Reads[$index].reason -eq 'project_read_verified' -and
+        $b22Reads[$index].revision_sha256 -eq "sha256:$b22RevisionSha256" -and
+        $b22Reads[$index].path -ceq $b22Files[$index].path -and
+        $b22Reads[$index].blob_sha256 -eq "sha256:$($b22Files[$index].sha256)" -and
+        $b22Reads[$index].bytes_hex -ceq (Convert-BytesToHex -Bytes $b22Files[$index].bytes) -and
+        $b22Reads[$index].eof -eq $true
+    )
+}
+$b22VerifiedOk = (
+    $b22ChildVerifyResponse.v -eq 'raios.agent.v0' -and
+    $b22ChildVerify.method -eq 'project.verify_revision' -and
+    $b22ChildVerify.scope -eq 'current_boot' -and $b22ChildVerify.classification -eq 'local_only' -and
+    $b22ChildVerify.check_kind -eq 'deterministic_local_source_preflight' -and
+    $b22ChildVerify.status -eq 'recorded' -and $b22ChildVerify.accepted -eq $true -and
+    $b22ChildVerify.check_id -eq 'project.source_preflight.v1' -and
+    $b22ChildVerify.outcome -eq 'passed' -and $b22ChildVerify.reason -eq 'source_preflight_ok' -and
+    $null -eq $b22ChildVerify.PSObject.Properties['passed'] -and
+    $b22ChildVerify.revision_sha256 -eq "sha256:$b22RevisionSha256" -and
+    $b22ChildVerify.tree_sha256 -eq "sha256:$b22TreeSha256" -and
+    $b22ChildVerify.system_computed -eq $true -and $b22ChildVerify.provider_supplied -eq $false -and
+    $b22ChildVerify.answer_origin -eq 'test_fixture' -and
+    $b22ChildVerify.provider_trust_positive -eq $false -and $b22ChildVerify.test_infrastructure -eq $true -and
+    $b22ChildVerify.storage_write_attempted -eq $false -and $b22ChildVerify.writes_persistent_state -eq $false -and
+    $b22ChildVerify.provider_export_attempted -eq $false -and
+    $b22ChildVerify.provider_export_authorized -eq $false -and
+    (Test-B22InertFields -Result $b22ChildVerify)
+)
+$b22VerifiedDump = [ordered]@{ verify = $b22ChildVerifyResponse; host = [ordered]@{ tree_sha256 = $b22TreeSha256; revision_sha256 = $b22RevisionSha256 } }
+
+$b22WorkspaceLineage = @($b22Workspace.revision_lineage)
+$b22Revision1ReadsExact = $b22Reads.Count -eq 3
+for ($index = 0; $b22Revision1ReadsExact -and $index -lt $b2Files.Count; $index++) {
+    $readIndex = $index + 1
+    $b22Revision1ReadsExact = (
+        $b22ReadResponses[$readIndex].v -eq 'raios.agent.v0' -and
+        $b22Reads[$readIndex].status -eq 'present' -and $b22Reads[$readIndex].reason -eq 'project_read_verified' -and
+        $b22Reads[$readIndex].project_id -eq $b2ProjectId -and
+        $b22Reads[$readIndex].revision_sha256 -eq "sha256:$b22RevisionSha256" -and
+        $b22Reads[$readIndex].path -ceq $b2Files[$index].path -and
+        $b22Reads[$readIndex].file_classification -eq $b2Files[$index].classification -and
+        $b22Reads[$readIndex].media_type -eq $b2Files[$index].media_type -and
+        $b22Reads[$readIndex].blob_sha256 -eq "sha256:$($b2Files[$index].sha256)" -and
+        [int]$b22Reads[$readIndex].file_byte_len -eq $b2Files[$index].bytes.Length -and
+        [int]$b22Reads[$readIndex].offset -eq 0 -and
+        [int]$b22Reads[$readIndex].requested_len -eq $b2Files[$index].bytes.Length -and
+        [int]$b22Reads[$readIndex].returned_len -eq $b2Files[$index].bytes.Length -and
+        $b22Reads[$readIndex].bytes_hex -ceq (Convert-BytesToHex -Bytes $b2Files[$index].bytes) -and
+        $b22Reads[$readIndex].eof -eq $true
+    )
+}
+$b22Revision1ReadableOk = (
+    $b22WorkspaceResponse.v -eq 'raios.agent.v0' -and
+    $b22Workspace.method -eq 'project.workspace' -and
+    $b22Workspace.phase -eq 'verified_source' -and $b22Workspace.status -eq 'verified_source' -and
+    $b22Workspace.reason -eq 'source_preflight_ok' -and
+    $b22Workspace.project_id -eq $b2ProjectId -and
+    $b22Workspace.parent_revision_sha256 -eq "sha256:$b2RevisionSha256" -and
+    $b22Workspace.revision_sha256 -eq "sha256:$b22RevisionSha256" -and
+    $b22Workspace.tree_sha256 -eq "sha256:$b22TreeSha256" -and
+    $b22Workspace.parent_revision_readback_verified -eq $true -and
+    $b22WorkspaceLineage.Count -eq 2 -and
+    $b22WorkspaceLineage[0].revision_sha256 -eq "sha256:$b2RevisionSha256" -and
+    $b22WorkspaceLineage[0].tree_sha256 -eq "sha256:$b2TreeSha256" -and
+    $null -eq $b22WorkspaceLineage[0].parent_revision_sha256 -and
+    $b22WorkspaceLineage[1].revision_sha256 -eq "sha256:$b22RevisionSha256" -and
+    $b22WorkspaceLineage[1].tree_sha256 -eq "sha256:$b22TreeSha256" -and
+    $b22WorkspaceLineage[1].parent_revision_sha256 -eq "sha256:$b2RevisionSha256" -and
+    $b22Workspace.verifier_check_id -eq 'project.source_preflight.v1' -and
+    $b22Workspace.verifier_outcome -eq 'passed' -and $b22Workspace.verifier_reason -eq 'source_preflight_ok' -and
+    $b22Workspace.verifier_revision_sha256 -eq "sha256:$b22RevisionSha256" -and
+    $b22Workspace.feedback_packet.check_id -eq 'project.source_preflight.v1' -and
+    $b22Workspace.feedback_packet.revision_sha256 -eq "sha256:$b2RevisionSha256" -and
+    $b22Workspace.feedback_packet.tree_sha256 -eq "sha256:$b2TreeSha256" -and
+    $b22Workspace.feedback_packet.reason -eq 'build_cargo_lock_missing' -and
+    $b22InspectResponse.v -eq 'raios.agent.v0' -and
+    $b22Inspect.revision_sha256 -eq "sha256:$b22RevisionSha256" -and
+    $b22Inspect.parent_revision_sha256 -eq "sha256:$b2RevisionSha256" -and
+    (Test-B2AgentFileFacts -ActualFiles @($b22Inspect.files) -ExpectedFiles $b22Files) -and
+    $b22ReadsExact -and $b22Revision1ReadsExact
+)
+$b22Revision1ReadableDump = [ordered]@{ workspace = $b22WorkspaceResponse; inspect = $b22InspectResponse; reads = $b22ReadResponses; revision1_host = [ordered]@{ tree_sha256 = $b2TreeSha256; revision_sha256 = $b2RevisionSha256; files = $b2Files } }
+
+Send-AgentCommand -Command 'project.revision_answer_fixture' -ExpectedMarker 'RAIOS_AGENT_END project.revision_answer_fixture' -Name 'project-workspace:b22-child-replay'
+$b22ReplayResponse = Get-LastAgentResponseJson -Method 'project.revision_answer_fixture'
+$b22Replay = $b22ReplayResponse.body.result
+Send-AgentCommand -Command 'project.workspace' -ExpectedMarker 'RAIOS_AGENT_END project.workspace' -Name 'project-workspace:b22-workspace-after-replay'
+$b22WorkspaceAfterReplayResponse = Get-LastAgentResponseJson -Method 'project.workspace'
+$b22WorkspaceAfterReplay = $b22WorkspaceAfterReplayResponse.body.result
+Send-AgentCommand -Command "project.inspect $b2ProjectId" -ExpectedMarker 'RAIOS_AGENT_END project.inspect' -Name 'project-workspace:b22-inspect-after-replay'
+$b22InspectAfterReplayResponse = Get-LastAgentResponseJson -Method 'project.inspect'
+$b22InspectAfterReplay = $b22InspectAfterReplayResponse.body.result
+$b22ReplayLineage = @($b22Replay.revision_lineage)
+$b22WorkspaceJson = $b22Workspace | ConvertTo-Json -Compress -Depth 16
+$b22WorkspaceAfterReplayJson = $b22WorkspaceAfterReplay | ConvertTo-Json -Compress -Depth 16
+$b22InspectAfterReplayJson = $b22InspectAfterReplay | ConvertTo-Json -Compress -Depth 16
+$b22ReplayOk = (
+    $b22ReplayResponse.v -eq 'raios.agent.v0' -and
+    $b22Replay.method -eq 'project.revision_answer_fixture' -and
+    $b22Replay.status -eq 'denied' -and $b22Replay.accepted -eq $false -and $b22Replay.rejected -eq $true -and
+    $b22Replay.reason -eq 'agent_revision_verifier_result_mismatch' -and
+    $b22Replay.phase -eq 'verified_source' -and $b22Replay.storage_write_attempted -eq $false -and
+    $b22Replay.writes_persistent_state -eq $false -and
+    $b22Replay.parent_revision_sha256 -eq "sha256:$b2RevisionSha256" -and
+    $b22Replay.revision_sha256 -eq "sha256:$b22RevisionSha256" -and
+    [int]$b22Replay.file_count -eq 3 -and
+    $b22ReplayLineage.Count -eq 2 -and
+    $b22ReplayLineage[0].revision_sha256 -eq "sha256:$b2RevisionSha256" -and
+    $b22ReplayLineage[0].tree_sha256 -eq "sha256:$b2TreeSha256" -and
+    $b22ReplayLineage[1].revision_sha256 -eq "sha256:$b22RevisionSha256" -and
+    $b22ReplayLineage[1].parent_revision_sha256 -eq "sha256:$b2RevisionSha256" -and
+    (Test-B22InertFields -Result $b22Replay) -and
+    $b22WorkspaceAfterReplayResponse.v -eq 'raios.agent.v0' -and
+    $b22WorkspaceAfterReplayJson -ceq $b22WorkspaceJson -and
+    $b22InspectAfterReplayResponse.v -eq 'raios.agent.v0' -and
+    $b22InspectAfterReplayJson -ceq $b22InspectJson
+)
+
+Send-AgentCommand -Command 'services' -ExpectedMarker 'RAIOS_AGENT_END service.inventory' -Name 'project-workspace:b22-services-after'
+$b22ServicesAfterResponse = Get-LastAgentResponseJson -Method 'service.inventory'
+Send-AgentCommand -Command 'agent durable.record_log_scan' -ExpectedMarker 'RAIOS_AGENT_END durable.record_log_scan' -Name 'project-workspace:b22-reclog-after'
+$b22ReclogAfterResponse = Get-LastAgentResponseJson -Method 'durable.record_log_scan'
+Send-AgentCommand -Command 'agent artifact.store_scan' -ExpectedMarker 'RAIOS_AGENT_END artifact.store_scan' -Name 'project-workspace:b22-artstor-after'
+$b22ArtstorAfterResponse = Get-LastAgentResponseJson -Method 'artifact.store_scan'
+$b22NoEffectOk = (
+    (@($b22ServicesAfterResponse.facts.services) | ConvertTo-Json -Compress -Depth 12) -ceq $b22ServicesBeforeJson -and
+    ($b22ReclogAfterResponse.body.result | ConvertTo-Json -Compress -Depth 16) -ceq $b22ReclogBeforeJson -and
+    ($b22ArtstorAfterResponse.body.result | ConvertTo-Json -Compress -Depth 16) -ceq $b22ArtstorBeforeJson -and
+    $b22Child.persistence_posture -eq 'qemu_disposable_structured_store_only' -and
+    $b22Workspace.persistence_posture -eq 'qemu_disposable_structured_store_only' -and
+    $b22ParentVerify.provider_export_attempted -eq $false -and $b22ParentVerify.provider_export_authorized -eq $false -and
+    $b22Feedback.provider_export_attempted -eq $false -and $b22Feedback.provider_export_authorized -eq $false -and
+    $b22ChildVerify.provider_export_attempted -eq $false -and $b22ChildVerify.provider_export_authorized -eq $false -and
+    (Test-B22InertFields -Result $b22ParentVerify) -and
+    (Test-B22InertFields -Result $b22Feedback) -and
+    (Test-B22InertFields -Result $b22Child) -and
+    (Test-B22InertFields -Result $b22ChildVerify) -and
+    (Test-B22InertFields -Result $b22Workspace) -and
+    (Test-B22InertFields -Result $b22Replay)
+)
+$b22NoEffectDump = [ordered]@{ verify_parent = $b22ParentVerifyResponse; feedback = $b22FeedbackResponse; child = $b22ChildResponse; verify_child = $b22ChildVerifyResponse; workspace = $b22WorkspaceResponse; services_before = $b22ServicesBeforeResponse; services_after = $b22ServicesAfterResponse; reclog_before = $b22ReclogBeforeResponse; reclog_after = $b22ReclogAfterResponse; artstor_before = $b22ArtstorBeforeResponse; artstor_after = $b22ArtstorAfterResponse }
+
+$b22ReplayDump = [ordered]@{ replay = $b22ReplayResponse; workspace_before = $b22WorkspaceResponse; workspace_after = $b22WorkspaceAfterReplayResponse; inspect_before = $b22InspectResponse; inspect_after = $b22InspectAfterReplayResponse }
+
 # A fourth boot reopens the same structured store. The job projection correctly
 # resets to idle, while inspect/read reparse the committed source revision.
 Close-SerialTcpConnection
@@ -1665,3 +2022,15 @@ $childRebootContent = Get-Content -LiteralPath $childRebootLog -Raw -ErrorAction
 $b2RebootContent = Get-Content -LiteralPath $b2RebootLog -Raw -ErrorAction Stop
 Set-Content -LiteralPath $combinedLog -Value ($firstBootContent + [Environment]::NewLine + $rebootContent + [Environment]::NewLine + $childRebootContent + [Environment]::NewLine + $b2RebootContent) -Encoding UTF8
 $SerialLog = $combinedLog
+
+# Record the B2.2a results only after every existing B2.1a predicate.
+Add-ProjectPredicate -Name 'b2-verify-revision1-fails-lock' -Expected 'revision 1 returns failed project.source_preflight.v1 with build_cargo_lock_missing, exact revision/tree binding, and system-owned provenance' -Passed $b22ParentVerifyOk -Actual $(if ($b22ParentVerifyOk) { "failed=build_cargo_lock_missing revision=sha256:$b2RevisionSha256" } else { $b22ParentVerifyResponse | ConvertTo-Json -Compress -Depth 16 })
+Add-ProjectPredicate -Name 'b2-feedback-packet-bounded-classified' -Expected 'exactly four local-only cited values with no source, secret, log, unclassified, or provider-submission bytes' -Passed $b22FeedbackOk -Actual $(if ($b22FeedbackOk) { '4 fields; no source/secret/log/unclassified/export bytes' } else { $b22FeedbackResponse | ConvertTo-Json -Compress -Depth 16 })
+Add-ProjectPredicate -Name 'b2-child-revision-fixes-and-parents-revision1' -Expected 'the exact inert three-file test fixture forms host-recomputed agent_answer revision 2 with parent exactly revision 1' -Passed $b22ChildOk -Actual $(if ($b22ChildOk) { "parent=sha256:$b2RevisionSha256 child=sha256:$b22RevisionSha256 files=3" } else { $b22ChildDump | ConvertTo-Json -Compress -Depth 16 })
+Add-ProjectPredicate -Name 'b2-verify-child-passes' -Expected 'revision 2 returns passed project.source_preflight.v1 with source_preflight_ok and exact system-owned revision/tree binding' -Passed $b22VerifiedOk -Actual $(if ($b22VerifiedOk) { "passed=source_preflight_ok child=sha256:$b22RevisionSha256" } else { $b22VerifiedDump | ConvertTo-Json -Compress -Depth 16 })
+Add-ProjectPredicate -Name 'b2-revision1-still-readable' -Expected 'after revision 2 commits, revision 1 was exact-readback verified, its two file bytes/blob hashes remain readable, and lineage retains both unchanged revisions' -Passed $b22Revision1ReadableOk -Actual $(if ($b22Revision1ReadableOk) { "revision1=sha256:$b2RevisionSha256 child=sha256:$b22RevisionSha256 lineage=2" } else { $b22Revision1ReadableDump | ConvertTo-Json -Compress -Depth 16 })
+Add-ProjectPredicate -Name 'b2-loop-inert-zero-effect' -Expected 'verify, feedback, child, and reverify keep every executable authority false; provider submission, service inventory, RECLOG executable records, and ARTSTOR executable records remain absent' -Passed $b22NoEffectOk -Actual $(if ($b22NoEffectOk) { 'inert child source only; provider/service/RECLOG/ARTSTOR effects absent' } else { $b22NoEffectDump | ConvertTo-Json -Compress -Depth 16 })
+Add-ProjectPredicate -Name 'b2-child-parent-mismatch-denied' -Expected 'the fixed-only child replay is denied as agent_revision_verifier_result_mismatch before storage and cannot form a third lineage entry' -Passed $b22ReplayOk -Actual $(if ($b22ReplayOk) { "agent_revision_verifier_result_mismatch; lineage=2 unchanged=sha256:$b22RevisionSha256" } else { $b22ReplayDump | ConvertTo-Json -Compress -Depth 16 })
+
+$b22LoopContent = Get-Content -LiteralPath $b22LoopLog -Raw -ErrorAction Stop
+Set-Content -LiteralPath $combinedLog -Value ($firstBootContent + [Environment]::NewLine + $rebootContent + [Environment]::NewLine + $childRebootContent + [Environment]::NewLine + $b22LoopContent + [Environment]::NewLine + $b2RebootContent) -Encoding UTF8

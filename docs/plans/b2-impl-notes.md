@@ -39,3 +39,14 @@
 - New `raios.agent.v0` body-result routes are `project.verify_revision`, `project.feedback_packet`, and `project.revision_answer_fixture`; `project.workspace` also exposes the current verifier result, retained feedback packet, and revision lineage. All build-session/compiler/test/run/load/install/W6/executable-record/service-mutation fields remain false.
 - B2.2 remains partial: scoped feedback export, live provider submission, W4 compilation, B3 on-device compilation, W5 execution, W6 installation, and Genesis UI are deliberately not wired.
 - No Cargo, rustc, build, test, or VM command was run; the orchestrator owns compilation and focused VM evidence for this worker packet.
+
+## B2.2a harness
+
+- Capability: the focused `project-workspace` profile can prove revision 1's system-owned missing-lock result drives one exact inert child revision whose local preflight passes while both revisions remain bound and readable.
+- Seven stable B2.2a predicates pin the merged-kernel `raios.agent.v0` `body.result` fields for verification, the four-field local-only feedback packet, the exact three-file child, re-verification, retained revision-1 bytes/lineage, zero executable effect, and replay denial.
+- The host reuses the profile's canonical blob/tree/revision SHA-256 helpers over the exact merged fixture bytes; the child is `agent_answer`, parents revision 1 exactly, and adds only root `Cargo.lock` as `text/toml`.
+- B2.2a uses a second empty disposable QEMU store/boot and replays the same fixed revision-1 setup there, so all committed B2.1a predicate bytes and its revision-1 reboot proof remain untouched; the seven B2.2a predicate records are appended after that complete existing set.
+- The fixed-only replay is denied as `agent_revision_verifier_result_mismatch`; unchanged `project.workspace`, `project.inspect`, and two-entry lineage prove that the route cannot form a third revision.
+- Fresh service-inventory, RECLOG, and ARTSTOR scans bracket the verify/feedback/child/reverify loop. Every emitted build-session, compiler, test, run, load, execution, install, promotion, Wasm, W6, executable-record, and service-mutation field stays inert, and provider export remains unattempted.
+- Failures dump the full relevant response set at JSON depth 16. The profile remains PowerShell 5.1 parser-clean, uses the existing marker reader, and adds no wall-clock assertion or stream merge.
+- No Cargo, build, test, or VM command was run; focused VM proof remains the orchestrator's responsibility.
