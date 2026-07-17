@@ -26,6 +26,9 @@ pub const MAX_MEMORY_PAGES: u32 = 4;
 pub const MAX_DATA_SEGMENTS: usize = 8;
 pub const MAX_DATA_BYTES: usize = 2000;
 
+pub const RETURN_42_IR: &[u8] =
+    b"RAIOS_WASM_IR_V1\nfunc raios_service_main -> i32\nconst.i32 42\nreturn\nend\n";
+
 pub const ERR_DUPLICATE_SECTION: &str = "duplicate_section";
 pub const ERR_INVALID_FUNCTION_NAME: &str = "invalid_function_name";
 pub const ERR_MISSING_TERMINATOR: &str = "missing_terminator";
@@ -432,9 +435,6 @@ mod tests {
     use std::{format, string::String};
     use wasmi::{Engine, Linker, Module, Store};
 
-    const RETURN_42: &[u8] =
-        b"RAIOS_WASM_IR_V1\nfunc raios_service_main -> i32\nconst.i32 42\nreturn\nend\n";
-
     #[test]
     fn golden_return_42_is_literal_canonical_wasm_and_runs_in_wasmi() {
         let expected = [
@@ -450,7 +450,7 @@ mod tests {
             // Code section: no locals; i32.const 42; return; end.
             0x0a, 0x07, 0x01, 0x05, 0x00, 0x41, 0x2a, 0x0f, 0x0b,
         ];
-        let bytes = assemble(RETURN_42).unwrap();
+        let bytes = assemble(RETURN_42_IR).unwrap();
         assert_eq!(bytes.as_slice(), expected);
 
         let engine = Engine::default();
@@ -512,7 +512,10 @@ mod tests {
 
     #[test]
     fn assembly_is_deterministic() {
-        assert_eq!(assemble(RETURN_42).unwrap(), assemble(RETURN_42).unwrap());
+        assert_eq!(
+            assemble(RETURN_42_IR).unwrap(),
+            assemble(RETURN_42_IR).unwrap()
+        );
     }
 
     #[test]
@@ -556,7 +559,7 @@ mod tests {
             assert_eq!(assemble(source), Err(*reason), "{reason}");
         }
 
-        let mut non_ascii = RETURN_42.to_vec();
+        let mut non_ascii = RETURN_42_IR.to_vec();
         non_ascii[20] = 0xff;
         assert_eq!(assemble(&non_ascii), Err(ERR_NON_ASCII_SOURCE));
 

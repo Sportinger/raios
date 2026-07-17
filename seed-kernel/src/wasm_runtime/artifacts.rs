@@ -6,6 +6,10 @@ include!(concat!(env!("OUT_DIR"), "/certwindow_wasm_artifact.rs"));
 include!(concat!(env!("OUT_DIR"), "/httphead_wasm_artifact.rs"));
 include!(concat!(env!("OUT_DIR"), "/certspki_wasm_artifact.rs"));
 include!(concat!(env!("OUT_DIR"), "/dnsparse_wasm_artifact.rs"));
+include!(concat!(
+    env!("OUT_DIR"),
+    "/build_assembler_wasm_artifact.rs"
+));
 include!(concat!(env!("OUT_DIR"), "/personal_shell_wasm_artifact.rs"));
 include!(concat!(
     env!("OUT_DIR"),
@@ -64,6 +68,12 @@ pub(crate) const DNSPARSE_AUTHORIZED_IMPORTS: &[(&str, &str)] = &[
     ("env", "output_write"),
 ];
 pub(crate) const DNSPARSE_WASM_FUEL_BUDGET: u64 = 1_000_000;
+pub(crate) const BUILD_ASSEMBLER_SERVICE_ID: &str = "svc.build.assembler";
+pub(crate) const BUILD_ASSEMBLER_AUTHORIZED_IMPORTS: &[(&str, &str)] = &[
+    ("env", "input_len"),
+    ("env", "input_read"),
+    ("env", "output_write"),
+];
 pub(crate) const PERSONAL_SHELL_WASM_FUEL_BUDGET: u64 = 250_000;
 
 #[used]
@@ -80,6 +90,8 @@ static HTTPHEAD_WASM_ARTIFACT_PROOF: fn() -> bool = validate_httphead_wasm_artif
 static CERTSPKI_WASM_ARTIFACT_PROOF: fn() -> bool = validate_certspki_wasm_artifact;
 #[used]
 static DNSPARSE_WASM_ARTIFACT_PROOF: fn() -> bool = validate_dnsparse_wasm_artifact;
+#[used]
+static BUILD_ASSEMBLER_WASM_ARTIFACT_PROOF: fn() -> bool = validate_build_assembler_wasm_artifact;
 
 pub(crate) fn validate_empty_module_bytes() -> bool {
     let wasm = Vec::from(EMPTY_WASM_MODULE).into_boxed_slice();
@@ -158,6 +170,31 @@ pub(crate) fn validate_dnsparse_wasm_artifact() -> bool {
         && sha256_bytes(DNSPARSE_WASM_ARTIFACT_SIGNATURE_ENVELOPE_TEXT.as_bytes())
             == DNSPARSE_WASM_ARTIFACT_SIGNATURE_ENVELOPE_HASH
         && validate_module_bytes(bytes)
+}
+
+pub(crate) fn validate_build_assembler_wasm_artifact() -> bool {
+    let wasm = Vec::from(BUILD_ASSEMBLER_WASM_ARTIFACT_BYTES).into_boxed_slice();
+    let bytes: &[u8] = &wasm;
+
+    sha256_bytes(bytes) == BUILD_ASSEMBLER_WASM_ARTIFACT_BYTES_HASH
+        && sha256_bytes(BUILD_ASSEMBLER_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_SOURCE.as_bytes())
+            == BUILD_ASSEMBLER_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_HASH
+        && sha256_bytes(BUILD_ASSEMBLER_WASM_ARTIFACT_SIGNATURE_ENVELOPE_TEXT.as_bytes())
+            == BUILD_ASSEMBLER_WASM_ARTIFACT_SIGNATURE_ENVELOPE_HASH
+        && validate_module_bytes(bytes)
+}
+
+pub(crate) fn run_build_assembler_roundtrip(input: &[u8], fuel_budget: u64) -> EchoRunEvidence {
+    super::envelope::execute_validated_module_bytes(
+        BUILD_ASSEMBLER_WASM_ARTIFACT_BYTES,
+        "raios_service_main",
+        BUILD_ASSEMBLER_SERVICE_ID,
+        true,
+        BUILD_ASSEMBLER_AUTHORIZED_IMPORTS,
+        validate_build_assembler_wasm_artifact(),
+        input,
+        fuel_budget,
+    )
 }
 
 pub(crate) fn loader_available() -> bool {

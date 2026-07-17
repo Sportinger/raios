@@ -19,6 +19,7 @@ use linked_list_allocator::LockedHeap;
 
 mod agent_build_loop;
 mod agent_protocol;
+mod agent_protocol_build_assemble;
 mod agent_protocol_distribution;
 mod agent_protocol_honesty;
 mod agent_protocol_memory;

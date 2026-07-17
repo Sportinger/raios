@@ -121,6 +121,19 @@ fn main() {
     println!(
         "cargo:rerun-if-changed=descriptors/svc.demo.certspki.current_boot_load.p256.sig.der.hex"
     );
+    println!("cargo:rerun-if-changed=artifacts/svc.build.assembler.wasm");
+    println!("cargo:rerun-if-changed=descriptors/svc.build.assembler.wasm_artifact_identity.desc");
+    println!(
+        "cargo:rerun-if-changed=descriptors/svc.build.assembler.wasm_artifact_identity.p256.pub.hex"
+    );
+    println!(
+        "cargo:rerun-if-changed=descriptors/svc.build.assembler.wasm_artifact_identity.p256.sig.der.hex"
+    );
+    println!("cargo:rerun-if-changed=descriptors/svc.build.assembler.current_boot_load.desc");
+    println!("cargo:rerun-if-changed=descriptors/svc.build.assembler.current_boot_load.p256.pub.hex");
+    println!(
+        "cargo:rerun-if-changed=descriptors/svc.build.assembler.current_boot_load.p256.sig.der.hex"
+    );
     println!("cargo:rerun-if-changed=artifacts/svc.demo.dnsparse.wasm");
     println!("cargo:rerun-if-changed=descriptors/svc.demo.dnsparse.wasm_artifact_identity.desc");
     println!(
@@ -504,6 +517,7 @@ pub(crate) const HELLO_HOST_BOUND_DESCRIPTOR_SOURCE: &str = {};\n",
     attest_httphead_wasm_artifact(&manifest_dir, &out_dir);
     attest_certspki_wasm_artifact(&manifest_dir, &out_dir);
     attest_dnsparse_wasm_artifact(&manifest_dir, &out_dir);
+    attest_build_assembler_wasm_artifact(&manifest_dir, &out_dir);
     attest_net_acquire_w7_wasm_artifact(&manifest_dir, &out_dir);
     personal_shell_attestation::attest(&manifest_dir, &out_dir);
 }
@@ -2408,4 +2422,222 @@ pub(crate) fn rust_byte_array(bytes: &[u8]) -> String {
 
 pub(crate) fn rust_string(value: &str) -> String {
     format!("{:?}", value)
+}
+
+fn attest_build_assembler_wasm_artifact(manifest_dir: &std::path::Path, out_dir: &std::path::Path) {
+    let artifact_path = manifest_dir.join("artifacts/svc.build.assembler.wasm");
+    let descriptor_path =
+        manifest_dir.join("descriptors/svc.build.assembler.wasm_artifact_identity.desc");
+    let public_key_path =
+        manifest_dir.join("descriptors/svc.build.assembler.wasm_artifact_identity.p256.pub.hex");
+    let signature_path =
+        manifest_dir.join("descriptors/svc.build.assembler.wasm_artifact_identity.p256.sig.der.hex");
+    let load_descriptor_path =
+        manifest_dir.join("descriptors/svc.build.assembler.current_boot_load.desc");
+    let load_descriptor_public_key_path =
+        manifest_dir.join("descriptors/svc.build.assembler.current_boot_load.p256.pub.hex");
+    let load_descriptor_signature_path =
+        manifest_dir.join("descriptors/svc.build.assembler.current_boot_load.p256.sig.der.hex");
+
+    let artifact_bytes = fs::read(artifact_path).unwrap();
+    let descriptor_source = fs::read_to_string(descriptor_path).unwrap();
+    let public_key = read_hex_file(public_key_path);
+    let signature_der = read_hex_file(signature_path);
+    let load_descriptor_source = fs::read_to_string(load_descriptor_path).unwrap();
+    let load_descriptor_public_key = read_hex_file(load_descriptor_public_key_path);
+    let load_descriptor_signature_der = read_hex_file(load_descriptor_signature_path);
+    verify_p256_signature(&public_key, &signature_der, descriptor_source.as_bytes());
+    verify_p256_signature(
+        &load_descriptor_public_key,
+        &load_descriptor_signature_der,
+        load_descriptor_source.as_bytes(),
+    );
+
+    let artifact_hash = Sha256::digest(&artifact_bytes);
+    let artifact_hash_hex = sha256_hex(&artifact_hash);
+    let expected_artifact_hash = format!("sha256:{}", artifact_hash_hex);
+    let expected_artifact_fields = [
+        (
+            "canonicalization",
+            "raios.builtin_artifact_identity.canonical.v0",
+        ),
+        ("schema", "raios.builtin_artifact_identity.v0"),
+        ("id", "builtin_artifact_identity.svc.build.assembler.wasm.v0"),
+        ("service_id", "svc.build.assembler"),
+        ("artifact_id", "wasm:svc.build.assembler"),
+        ("artifact_kind", "wasm32_unknown_unknown_service_module"),
+        (
+            "artifact_reference_schema",
+            "raios.builtin_artifact_reference.v0",
+        ),
+        (
+            "artifact_reference_id",
+            "builtin_artifact_reference.svc.build.assembler.wasm.v0",
+        ),
+        (
+            "artifact_reference_kind",
+            "repo_wasm_artifact_bytes_snapshot",
+        ),
+        (
+            "artifact_reference_locator",
+            "seed-kernel/artifacts/svc.build.assembler.wasm",
+        ),
+        (
+            "artifact_reference_bytes_sha256",
+            expected_artifact_hash.as_str(),
+        ),
+        (
+            "artifact_reference_accepts_external_artifact_bytes",
+            "false",
+        ),
+        ("artifact_reference_validates_with_wasmi_module_new", "true"),
+        ("artifact_reference_executes_artifact", "false"),
+        ("artifact_reference_links_imports", "false"),
+        ("artifact_reference_maps_executable_pages", "false"),
+        ("scope", "current_boot"),
+        ("classification", "local_only"),
+        ("persistence", "none"),
+        ("trust_tier", "dev_key_not_owner_sealed"),
+        ("accepts_external_artifact_bytes", "false"),
+        ("validates_artifact_with_wasmi_module_new", "true"),
+        ("executes_artifact", "false"),
+        ("links_imports", "false"),
+        ("maps_executable_pages", "false"),
+        ("writes_persistent_state", "false"),
+        ("authorizes_external_artifact_load", "false"),
+        ("authorizes_persistent_install", "false"),
+        ("authorizes_rollback_install", "false"),
+    ];
+    assert_eq!(
+        descriptor_source.lines().count(),
+        expected_artifact_fields.len(),
+        "build_assembler artifact identity descriptor field count mismatch"
+    );
+    for (key, expected) in expected_artifact_fields {
+        assert_eq!(
+            text_field(&descriptor_source, key),
+            Some(expected),
+            "build_assembler artifact identity descriptor field mismatch: {key}"
+        );
+    }
+
+    let descriptor_hash = Sha256::digest(descriptor_source.as_bytes());
+    let descriptor_hash_hex = sha256_hex(&descriptor_hash);
+    let public_key_hash = Sha256::digest(&public_key);
+    let public_key_hash_hex = sha256_hex(&public_key_hash);
+    let signature_hash = Sha256::digest(&signature_der);
+    let signature_hash_hex = sha256_hex(&signature_hash);
+    let envelope_text = format!(
+        "schema=raios.builtin_artifact_identity_signature_envelope.v0\n\
+id=artifact_identity_signature.wasm.svc.build.assembler.v0\n\
+algorithm=ecdsa_p256_sha256_asn1_der\n\
+payload_identity_id=builtin_artifact_identity.svc.build.assembler.wasm.v0\n\
+payload_artifact_id=wasm:svc.build.assembler\n\
+payload_sha256=sha256:{}\n\
+public_key_sha256=sha256:{}\n\
+signature_sha256=sha256:{}\n\
+verification_phase=runtime_before_wasm_artifact_validation\n\
+trust_scope=current_boot_wasm_artifact_identity_candidate\n\
+classification=local_only\n\
+trust_tier=dev_key_not_owner_sealed\n\
+authorizes_external_artifact_load=false\n\
+authorizes_persistent_install=false\n\
+authorizes_rollback_install=false",
+        descriptor_hash_hex, public_key_hash_hex, signature_hash_hex
+    );
+    let envelope_hash = Sha256::digest(envelope_text.as_bytes());
+    let load_descriptor_hash = Sha256::digest(load_descriptor_source.as_bytes());
+    let _load_descriptor_hash_hex = sha256_hex(&load_descriptor_hash);
+    let expected_identity_hash = format!("sha256:{}", descriptor_hash_hex);
+    let expected_load_descriptor_fields = [
+        (
+            "canonicalization",
+            "raios.current_boot_load_descriptor.canonical.v0",
+        ),
+        ("schema", "raios.current_boot_load_descriptor.v0"),
+        ("id", "load_descriptor.current_boot.svc.build.assembler.v0"),
+        (
+            "source_kind",
+            "current_boot_wasm_service_load_descriptor_source",
+        ),
+        (
+            "source_locator",
+            "current_boot.service_load_descriptor.svc.build.assembler.v0",
+        ),
+        ("service_id", "svc.build.assembler"),
+        ("artifact_id", "wasm:svc.build.assembler"),
+        ("artifact_kind", "wasm32_unknown_unknown_service_module"),
+        (
+            "artifact_identity_schema",
+            "raios.builtin_artifact_identity.v0",
+        ),
+        (
+            "artifact_identity_id",
+            "builtin_artifact_identity.svc.build.assembler.wasm.v0",
+        ),
+        ("artifact_identity_sha256", expected_identity_hash.as_str()),
+        (
+            "artifact_reference_locator",
+            "seed-kernel/artifacts/svc.build.assembler.wasm",
+        ),
+        (
+            "artifact_reference_bytes_sha256",
+            expected_artifact_hash.as_str(),
+        ),
+        ("scope", "current_boot"),
+        ("classification", "local_only"),
+        ("persistence", "none"),
+        ("trust_tier", "dev_key_not_owner_sealed"),
+        ("service_slot_id", "ram_only:svc.build.assembler"),
+        (
+            "service_capability",
+            "cap.service.build_assembler.current_boot",
+        ),
+        ("execution_model", "wasmi_interpreter_current_boot"),
+        ("capability_envelope", "wasmi_linker_import_surface"),
+        (
+            "authorized_host_imports",
+            "env.input_len,env.input_read,env.output_write",
+        ),
+        ("authorized_host_import_count", "3"),
+        ("entrypoint", "raios_service_main"),
+        ("authorizes_current_boot_wasm_execution", "true"),
+        ("accepts_external_artifact_bytes", "false"),
+        ("validates_artifact_with_wasmi_module_new", "true"),
+        ("loads_external_artifact", "false"),
+        ("maps_executable_pages", "false"),
+        ("writes_persistent_state", "false"),
+        ("authorizes_persistent_install", "false"),
+        ("authorizes_rollback_install", "false"),
+    ];
+    assert_eq!(
+        load_descriptor_source.lines().count(),
+        expected_load_descriptor_fields.len(),
+        "build_assembler current-boot load descriptor field count mismatch"
+    );
+    for (key, expected) in expected_load_descriptor_fields {
+        assert_eq!(
+            text_field(&load_descriptor_source, key),
+            Some(expected),
+            "build_assembler current-boot load descriptor field mismatch: {key}"
+        );
+    }
+
+    fs::write(
+        out_dir.join("build_assembler_wasm_artifact.rs"),
+        format!(
+            "pub(crate) const BUILD_ASSEMBLER_WASM_ARTIFACT_BYTES: &[u8] = include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/artifacts/svc.build.assembler.wasm\"));\n\
+pub(crate) const BUILD_ASSEMBLER_WASM_ARTIFACT_BYTES_HASH: [u8; 32] = {};\n\
+pub(crate) const BUILD_ASSEMBLER_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_SOURCE: &str = {};\n\
+pub(crate) const BUILD_ASSEMBLER_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_HASH: [u8; 32] = {};\n\
+pub(crate) const BUILD_ASSEMBLER_WASM_ARTIFACT_SIGNATURE_ENVELOPE_TEXT: &str = {};\n\
+pub(crate) const BUILD_ASSEMBLER_WASM_ARTIFACT_SIGNATURE_ENVELOPE_HASH: [u8; 32] = {};\n",
+            rust_byte_array(&artifact_hash),
+            rust_string(&descriptor_source),
+            rust_byte_array(&descriptor_hash),
+            rust_string(&envelope_text),
+            rust_byte_array(&envelope_hash)
+        ),
+    )
+    .unwrap();
 }

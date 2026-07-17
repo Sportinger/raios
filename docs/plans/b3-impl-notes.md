@@ -90,3 +90,54 @@ output was not needed: the existing relocation-crate style and 4 KiB ABI are
 served by one fixed-capacity buffer. The selected concrete small quotas are
 four memory pages, eight data segments, and 2000 decoded data bytes; there are
 no other deviations.
+
+## B3A-1b guest + probe
+
+`svc-build-assembler` uses the existing `env.input_len`, `env.input_read`, and
+`env.output_write` buffer ABI with 4096-byte input and output caps. It passes
+valid input to `raios_wasm_ir::assemble` and writes the canonical Wasm bytes;
+parse or emit failures are the short ASCII form `error:<reason>`, while an ABI
+read mismatch or negative length is `error:input_abi`; an oversized length is
+`error:oversize_source`.
+
+`build.assemble_probe` runs the signed guest over the shared `RETURN_42_IR`,
+then independently calls `raios_wasm_ir::assemble` in the kernel. Its
+`raios.agent.v0` `body.result` reports the probe outcome, input/guest/kernel
+SHA-256 values, byte identity, output length, and validation-only
+`wasmi::Module::new` result. The buffer guest envelope is capped at 2 MiB and
+1,000,000 fuel.
+
+The emitted module remains inert: the probe creates no executable candidate,
+does not execute the emitted module, and performs no candidate intake, W5/W6
+preview, service start, install, promotion, RECLOG/ARTSTOR write, network or
+secret access, rollback effect, durable write, or inventory mutation. The
+orchestrator still supplies the built/signed artifact constants through the
+existing identity-descriptor flow as `build_assembler_wasm_artifact.rs` in the
+kernel build `OUT_DIR` before compiling and packaging; no unsigned fallback or
+alternate install path was added. The merged kernel manifest lacked the direct
+`raios-wasm-ir` path dependency required for the independent recompute, so this
+packet adds that one manifest line. There are no other deviations.
+
+### B3A-1b RUNTIME PROOF (orchestrator VM run 2026-07-17)
+
+- `agent build.assemble_probe` on the release image: `probe_outcome=passed`.
+- Signed guest valid and executed in the sandbox (`signed_guest_valid=true`,
+  `assembler_guest_executed=true`, 3/3 authorized imports linked, fuel used
+  54,288 of 1,000,000, 2 MiB envelope).
+- The guest assembled the 72-byte `RETURN_42_IR` into a 52-byte Wasm module;
+  `guest_output_sha256 == kernel_recompute_sha256`
+  (`sha256:37b6dae3dbb05625f90dc108f74875b299c943a8ce6e11535ed6e14a9c4bfde2`),
+  `byte_identical=true` — the independent in-kernel recompute matched the guest
+  byte-for-byte. `wasmi_module_valid=true` for the produced bytes.
+- Output stayed inert: every load/execute/install/promotion/service/RECLOG/
+  ARTSTOR/network/secret field reported false; no W5/W6 preview was created.
+- Integration facts: guest artifact `svc.build.assembler.wasm` is 17,176 bytes
+  (`sha256:33dce8d2...`), signed via the dev-key descriptor-resign flow
+  (identity desc hashed first, then the current-boot load desc), attested at
+  kernel build time by the new `attest_build_assembler_wasm_artifact` in
+  build.rs (P256 signature + full field verification). The debug kernel exceeds
+  the 64 MiB image slot (76 MB with debuginfo), so packaged probes use the
+  release profile.
+- Next (packet 1c): the focused harness profile per b3-plan section 6 —
+  B2-revision-bound input, two fresh-store builds, W5 physical-approval run of
+  the produced module, negative table.

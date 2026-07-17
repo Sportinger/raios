@@ -1,0 +1,11 @@
+[package]
+name = "svc-build-assembler"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+raios-wasm-ir = { path = "../../raios-wasm-ir" }
