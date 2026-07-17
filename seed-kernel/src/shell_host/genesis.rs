@@ -7,7 +7,7 @@ use crate::agent_protocol::recovery_lifeline;
 use crate::framebuffer::{Color, FramebufferInfo, FramebufferSurface};
 use crate::system_status::{RowState, SnapshotStates, StatusLine, SystemSnapshot};
 use crate::{
-    agent_protocol_project_install, console, granted_candidate_service, input,
+    agent_build_loop, agent_protocol_project_install, console, granted_candidate_service, input,
     personal_shell_service, program_persistence, program_workspace, provider, secret_vault, serial,
     text, wifi, workspace_candidate_service,
 };
@@ -1115,7 +1115,12 @@ fn draw_context(
         y = y.saturating_add(14);
     }
     y = draw_program_retention(surface, rect, y, program_snapshot);
+    let source_y = context_setup_rect(layout).y.saturating_sub(76);
+    let source_visible = source_y >= y.saturating_add(4);
     for (label, value, color) in rows {
+        if source_visible && y.saturating_add(31) > source_y.saturating_sub(4) {
+            break;
+        }
         text::draw_text(surface, rect.x + 14, y, label, TEXT_MUTED, None);
         draw_truncated_text(
             surface,
@@ -1127,8 +1132,127 @@ fn draw_context(
         );
         y = y.saturating_add(31);
     }
+    if source_visible {
+        draw_source_status(surface, rect, source_y, &agent_build_loop::snapshot());
+    }
     draw_button(surface, context_setup_rect(layout), "AI setup", false);
     draw_button(surface, context_wifi_rect(layout), "WiFi setup", true);
+}
+
+fn draw_source_status(
+    surface: &mut FramebufferSurface,
+    rect: LogicalRect,
+    y: usize,
+    snapshot: &agent_build_loop::Snapshot,
+) {
+    let x = rect.x + 14;
+    draw_source_value(
+        surface,
+        rect,
+        y,
+        "SOURCE / ",
+        snapshot.phase.label(),
+        APP_BLUE,
+        TEXT_MAIN,
+    );
+    if let Some(revision) = snapshot.latest_revision.as_ref() {
+        let hash = revision.revision_sha256;
+        let line = format!(
+            "rev {:02x}{:02x}{:02x}{:02x}{:02x}{:02x} files={}",
+            hash[0],
+            hash[1],
+            hash[2],
+            hash[3],
+            hash[4],
+            hash[5],
+            revision.entries.len()
+        );
+        draw_truncated_text(
+            surface,
+            x,
+            y + 13,
+            &line,
+            rect.w.saturating_sub(28) / FONT_ADVANCE,
+            TEXT_MUTED,
+        );
+    } else {
+        text::draw_text(surface, x, y + 13, "rev none", TEXT_FAINT, None);
+    }
+    let verifier = snapshot.verifier_result;
+    let feedback = snapshot.feedback_packet;
+    let rows = [
+        (
+            "origin ",
+            snapshot.answer_origin.unwrap_or("none"),
+            if snapshot.answer_origin.is_some() {
+                TEXT_MUTED
+            } else {
+                TEXT_FAINT
+            },
+        ),
+        (
+            match verifier {
+                Some(result) if result.passed => "check PASS ",
+                Some(_) => "check FAIL ",
+                None => "check ",
+            },
+            verifier.map(|result| result.reason).unwrap_or("not verified"),
+            match verifier {
+                Some(result) if result.passed => APP_GREEN,
+                Some(_) => APP_RED,
+                None => TEXT_FAINT,
+            },
+        ),
+        (
+            if feedback.is_some() {
+                "feedback retained "
+            } else {
+                "feedback "
+            },
+            feedback.map(|packet| packet.reason).unwrap_or("none"),
+            if feedback.is_some() {
+                APP_AMBER
+            } else {
+                TEXT_FAINT
+            },
+        ),
+    ];
+    for (index, (label, value, color)) in rows.into_iter().enumerate() {
+        draw_source_value(
+            surface,
+            rect,
+            y + 25 + index * 12,
+            label,
+            value,
+            TEXT_MUTED,
+            color,
+        );
+    }
+}
+
+fn draw_source_value(
+    surface: &mut FramebufferSurface,
+    rect: LogicalRect,
+    y: usize,
+    label: &str,
+    value: &str,
+    label_color: Color,
+    color: Color,
+) {
+    let x = rect.x + 14;
+    let value_x = x + text_width(label);
+    text::draw_text(surface, x, y, label, label_color, None);
+    draw_truncated_text(
+        surface,
+        value_x,
+        y,
+        value,
+        rect.x
+            .saturating_add(rect.w)
+            .saturating_sub(value_x.saturating_add(14))
+            / FONT_ADVANCE,
+        color,
+    );
 }
 
 fn draw_program_retention(
