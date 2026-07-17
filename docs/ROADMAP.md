@@ -215,13 +215,25 @@ layer exposes it); serial output byte-identical by diff, and the focused
 `genesis-ui` profile is green on the current HEAD
 (`shadow-20260717-223146-26440.json`, 282/282 — approval click geometry and the
 full W6 program flow unregressed).
-**NEXT DELIBERATE SLICE:** B3.0 on-device-compiler GO/NO-GO spike (in progress:
-`docs/plans/b3-plan.md` — rustc-as-Wasm feasibility vs. staged alternatives per
-VISION_PLAN B3; NO-GO with alternatives is a valid outcome), then B2.3 slow-lane
-orchestration (`LoopPhase` projection). `/program` stays the explicit RUIP fast
-lane. Honest gap: the scoped feedback carries no source, so the provider rarely
-returns a conforming child — richer (still-classified) evidence and the B3
-on-device build/test producer are what close the iterate loop.
+**B3.0 SPIKE CLOSED + B3A-1 FIRST ON-DEVICE BUILD PROVEN (2026-07-17):** the
+GO/NO-GO report (`docs/plans/b3-plan.md`) parks rustc-as-Wasm with measurable
+reopen criteria (no Cranelift Wasm backend; 200-800 MiB artifact and 512 MiB-2
+GiB working set vs the 64 MiB kernel heap / 512 MiB VM; interpreter slowdown)
+and starts the staged ladder. Stage 1 is LIVE-PROVEN in-VM: `raios-wasm-ir`
+(no-dep crate, 8 host tests, hand-written golden bytes, runs under wasmi
+=0.31.2) assembles the bounded `RAIOS_WASM_IR_V1` into canonical Wasm, and the
+signed `svc.build.assembler` guest reproduced it inside the sandbox with the
+independent in-kernel recompute byte-identical (`build.assemble_probe`
+`probe_outcome=passed`, sha256:37b6dae3, wasmi-valid 52-byte module, fully
+inert, W5/W6 untouched).
+**NEXT DELIBERATE SLICE — B3A-1c:** the focused proof per b3-plan section 6 —
+B2-revision-bound input, two fresh-store builds byte-identical, W5
+physical-approval run of the produced module (produced function returns 42),
+full negative table; then B2.3 slow-lane orchestration. `/program` stays the
+explicit RUIP fast lane. Honest gap: the scoped feedback carries no source, so
+the provider rarely returns a conforming child — richer (still-classified)
+evidence and the B3 on-device build/test producer are what close the iterate
+loop.
 
 **B1.2c W6 INSTALL + REBOOT SURVIVAL + ROLLBACK VERIFIED-CLOSED (2026-07-15).**
 Loop stations 7 (install/autoload/reboot) and 8 (rollback) close for W7
