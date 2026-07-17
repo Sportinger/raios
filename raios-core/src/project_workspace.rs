@@ -9,6 +9,7 @@ pub const MAX_FILE_BYTES: usize = 32 * 1024;
 pub const MAX_TOTAL_SOURCE_BYTES: usize = 48 * 1024;
 pub const LOCAL_IMPORT_ACTION: &str = "owner_local_import";
 pub const AGENT_OVERLAY_ACTION: &str = "agent_overlay_commit";
+pub const AGENT_ANSWER_ACTION: &str = "agent_answer";
 pub const LOCAL_IMPORT_TIME_BASIS: &str = "none_deterministic";
 
 pub const WORKSPACE_BLOB_NAMESPACE: [u8; 16] = *b"project.blob.v1!";
@@ -30,6 +31,16 @@ impl ProjectId {
     pub const fn bytes(self) -> [u8; 16] {
         self.0
     }
+}
+
+pub const fn agent_project_id(system_derived_sha256: [u8; 32]) -> ProjectId {
+    let mut bytes = [0u8; 16];
+    let mut index = 0;
+    while index < bytes.len() {
+        bytes[index] = system_derived_sha256[index];
+        index += 1;
+    }
+    ProjectId::new(bytes)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -66,6 +77,7 @@ impl Classification {
 pub enum RevisionAction {
     OwnerLocalImport,
     AgentOverlayCommit,
+    AgentAnswer,
 }
 
 impl RevisionAction {
@@ -73,6 +85,7 @@ impl RevisionAction {
         match self {
             Self::OwnerLocalImport => LOCAL_IMPORT_ACTION,
             Self::AgentOverlayCommit => AGENT_OVERLAY_ACTION,
+            Self::AgentAnswer => AGENT_ANSWER_ACTION,
         }
     }
 
@@ -80,6 +93,7 @@ impl RevisionAction {
         match label {
             LOCAL_IMPORT_ACTION => Ok(Self::OwnerLocalImport),
             AGENT_OVERLAY_ACTION => Ok(Self::AgentOverlayCommit),
+            AGENT_ANSWER_ACTION => Ok(Self::AgentAnswer),
             _ => Err(WorkspaceError::Malformed),
         }
     }
@@ -136,6 +150,8 @@ pub enum WorkspaceError {
     NoFiles,
     TooManyFiles,
     InvalidPath,
+    UnsupportedPathType,
+    InvalidUtf8,
     DuplicatePath,
     InvalidMediaType,
     FileTooLarge,
@@ -151,6 +167,8 @@ impl WorkspaceError {
             Self::NoFiles => "project_no_files",
             Self::TooManyFiles => "project_file_quota_exceeded",
             Self::InvalidPath => "project_path_invalid",
+            Self::UnsupportedPathType => "project_source_path_type_unsupported",
+            Self::InvalidUtf8 => "project_source_utf8_invalid",
             Self::DuplicatePath => "project_path_collision",
             Self::InvalidMediaType => "project_media_type_invalid",
             Self::FileTooLarge => "project_file_quota_exceeded",
@@ -210,6 +228,30 @@ pub fn build_agent_edit(
     )
 }
 
+pub fn build_agent_answer(
+    project_id: ProjectId,
+    parent_revision_sha256: Option<[u8; 32]>,
+    files: &[SourceFile<'_>],
+) -> Result<BuiltRevision, WorkspaceError> {
+    build_revision(
+        project_id,
+        parent_revision_sha256,
+        RevisionAction::AgentAnswer,
+        files,
+    )
+}
+
+pub fn agent_source_media_type(path: &str) -> Result<&'static str, WorkspaceError> {
+    validate_path(path)?;
+    if path.ends_with(".rs") {
+        Ok("text/rust")
+    } else if path.ends_with(".toml") {
+        Ok("text/toml")
+    } else {
+        Err(WorkspaceError::UnsupportedPathType)
+    }
+}
+
 fn build_revision(
     project_id: ProjectId,
     parent_revision_sha256: Option<[u8; 32]>,
@@ -227,11 +269,20 @@ fn build_revision(
     let mut blobs = Vec::new();
     let mut total = 0usize;
     for file in files {
-        validate_path(file.path)?;
-        validate_media_type(file.media_type)?;
         if file.bytes.len() > MAX_FILE_BYTES {
             return Err(WorkspaceError::FileTooLarge);
         }
+        let (classification, media_type) = if action == RevisionAction::AgentAnswer {
+            core::str::from_utf8(file.bytes).map_err(|_| WorkspaceError::InvalidUtf8)?;
+            (
+                Classification::LocalOnly,
+                agent_source_media_type(file.path)?,
+            )
+        } else {
+            validate_path(file.path)?;
+            validate_media_type(file.media_type)?;
+            (file.classification, file.media_type)
+        };
         total = total
             .checked_add(file.bytes.len())
             .ok_or(WorkspaceError::TotalTooLarge)?;
@@ -241,8 +292,8 @@ fn build_revision(
         let blob_sha256 = sha256_bytes(file.bytes);
         entries.push(TreeEntry {
             path: String::from(file.path),
-            classification: file.classification,
-            media_type: String::from(file.media_type),
+            classification,
+            media_type: String::from(media_type),
             byte_len: file.bytes.len(),
             blob_sha256,
         });
@@ -680,6 +731,23 @@ mod tests {
         ]
     }
 
+    fn agent_files<'a>() -> [SourceFile<'a>; 2] {
+        [
+            SourceFile {
+                path: "src/main.rs",
+                classification: Classification::Public,
+                media_type: "provider/ignored",
+                bytes: b"fn main() {}\n",
+            },
+            SourceFile {
+                path: "Cargo.toml",
+                classification: Classification::Public,
+                media_type: "provider/ignored",
+                bytes: b"[package]\nname='agent-demo'\n",
+            },
+        ]
+    }
+
     #[test]
     fn local_import_is_sorted_deterministic_and_round_trips() {
         let built = build_local_import(PROJECT, None, &files()).unwrap();
@@ -699,6 +767,174 @@ mod tests {
             let decoded = decode_blob_record(&blob.payload).unwrap();
             assert_eq!(decoded.sha256, blob.sha256);
         }
+    }
+
+    #[test]
+    fn agent_answer_is_two_file_local_only_and_hash_stable() {
+        let mut system_hash = [0u8; 32];
+        for (index, byte) in system_hash.iter_mut().enumerate() {
+            *byte = index as u8;
+        }
+        let project_id = agent_project_id(system_hash);
+        let mut expected_project_id = [0u8; 16];
+        expected_project_id.copy_from_slice(&system_hash[..16]);
+        assert_eq!(project_id.bytes(), expected_project_id);
+
+        let sources = agent_files();
+        let built = build_agent_answer(project_id, None, &sources).unwrap();
+        assert_eq!(built.revision.action, RevisionAction::AgentAnswer);
+        assert_eq!(built.revision.entries[0].path, "Cargo.toml");
+        assert_eq!(built.revision.entries[0].media_type, "text/toml");
+        assert_eq!(built.revision.entries[1].path, "src/main.rs");
+        assert_eq!(built.revision.entries[1].media_type, "text/rust");
+        assert!(built
+            .revision
+            .entries
+            .iter()
+            .all(|entry| entry.classification == Classification::LocalOnly));
+        for entry in &built.revision.entries {
+            let source = sources.iter().find(|file| file.path == entry.path).unwrap();
+            assert_eq!(entry.byte_len, source.bytes.len());
+            assert_eq!(entry.blob_sha256, sha256_bytes(source.bytes));
+        }
+        assert_eq!(
+            tree_hash(&built.revision.entries).unwrap(),
+            built.revision.tree_sha256
+        );
+        assert_eq!(
+            revision_hash(
+                project_id,
+                None,
+                built.revision.tree_sha256,
+                RevisionAction::AgentAnswer,
+                LOCAL_IMPORT_TIME_BASIS,
+            )
+            .unwrap(),
+            built.revision.revision_sha256
+        );
+        assert_eq!(
+            decode_revision_manifest(&built.manifest_payload).unwrap(),
+            built.revision
+        );
+        for blob in &built.blobs {
+            let decoded = decode_blob_record(&blob.payload).unwrap();
+            assert_eq!(decoded.sha256, blob.sha256);
+            assert_eq!(decoded.sha256, sha256_bytes(&decoded.bytes));
+        }
+
+        let rebuilt = build_agent_answer(project_id, None, &sources).unwrap();
+        assert_eq!(rebuilt, built);
+    }
+
+    #[test]
+    fn agent_answer_rejects_paths_aliases_duplicates_utf8_and_quotas() {
+        let mut invalid_path = agent_files();
+        invalid_path[0].path = "../main.rs";
+        assert_eq!(
+            build_agent_answer(PROJECT, None, &invalid_path),
+            Err(WorkspaceError::InvalidPath)
+        );
+
+        let mut unknown_path_type = agent_files();
+        unknown_path_type[0].path = "README.md";
+        assert_eq!(
+            build_agent_answer(PROJECT, None, &unknown_path_type),
+            Err(WorkspaceError::UnsupportedPathType)
+        );
+
+        let invalid_utf8 = [SourceFile {
+            path: "src/main.rs",
+            classification: Classification::Public,
+            media_type: "provider/ignored",
+            bytes: &[0xff],
+        }];
+        assert_eq!(
+            build_agent_answer(PROJECT, None, &invalid_utf8),
+            Err(WorkspaceError::InvalidUtf8)
+        );
+
+        let aliases = [
+            SourceFile {
+                path: "src/Main.rs",
+                classification: Classification::Public,
+                media_type: "provider/ignored",
+                bytes: b"fn first() {}\n",
+            },
+            SourceFile {
+                path: "src/main.rs",
+                classification: Classification::Public,
+                media_type: "provider/ignored",
+                bytes: b"fn second() {}\n",
+            },
+        ];
+        assert_eq!(
+            build_agent_answer(PROJECT, None, &aliases),
+            Err(WorkspaceError::DuplicatePath)
+        );
+
+        let duplicates = [agent_files()[0], agent_files()[0]];
+        assert_eq!(
+            build_agent_answer(PROJECT, None, &duplicates),
+            Err(WorkspaceError::DuplicatePath)
+        );
+
+        let oversized = vec![b'a'; MAX_FILE_BYTES + 1];
+        let oversized_file = [SourceFile {
+            path: "src/main.rs",
+            classification: Classification::Public,
+            media_type: "provider/ignored",
+            bytes: &oversized,
+        }];
+        assert_eq!(
+            build_agent_answer(PROJECT, None, &oversized_file),
+            Err(WorkspaceError::FileTooLarge)
+        );
+
+        let half_plus_one = vec![b'a'; MAX_TOTAL_SOURCE_BYTES / 2 + 1];
+        let total_too_large = [
+            SourceFile {
+                path: "src/a.rs",
+                classification: Classification::Public,
+                media_type: "provider/ignored",
+                bytes: &half_plus_one,
+            },
+            SourceFile {
+                path: "src/b.rs",
+                classification: Classification::Public,
+                media_type: "provider/ignored",
+                bytes: &half_plus_one,
+            },
+        ];
+        assert_eq!(
+            build_agent_answer(PROJECT, None, &total_too_large),
+            Err(WorkspaceError::TotalTooLarge)
+        );
+
+        let too_many = vec![agent_files()[0]; MAX_FILES + 1];
+        assert_eq!(
+            build_agent_answer(PROJECT, None, &too_many),
+            Err(WorkspaceError::TooManyFiles)
+        );
+    }
+
+    #[test]
+    fn agent_answer_child_binds_current_parent() {
+        let first = build_agent_answer(PROJECT, None, &agent_files()).unwrap();
+        let child = build_agent_answer(
+            PROJECT,
+            Some(first.revision.revision_sha256),
+            &agent_files(),
+        )
+        .unwrap();
+        assert_eq!(
+            child.revision.parent_revision_sha256,
+            Some(first.revision.revision_sha256)
+        );
+        assert_eq!(child.revision.action, RevisionAction::AgentAnswer);
+        assert_ne!(
+            child.revision.revision_sha256,
+            first.revision.revision_sha256
+        );
     }
 
     #[test]

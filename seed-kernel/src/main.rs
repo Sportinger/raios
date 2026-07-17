@@ -17,6 +17,7 @@ use limine::request::{
 use limine::BaseRevision;
 use linked_list_allocator::LockedHeap;
 
+mod agent_build_loop;
 mod agent_protocol;
 mod agent_protocol_distribution;
 mod agent_protocol_honesty;

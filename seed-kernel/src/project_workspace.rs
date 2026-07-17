@@ -3,8 +3,9 @@ use alloc::{string::String, vec::Vec};
 use raios_core::{
     parse_sha256_ref,
     project_workspace::{
-        build_local_import, Classification, ProjectId, ProjectRevision, SourceFile, MAX_FILES,
-        MAX_FILE_BYTES, MAX_MEDIA_TYPE_BYTES, MAX_PATH_BYTES, MAX_TOTAL_SOURCE_BYTES,
+        build_agent_answer, build_local_import, Classification, ProjectId, ProjectRevision,
+        SourceFile, MAX_FILES, MAX_FILE_BYTES, MAX_MEDIA_TYPE_BYTES, MAX_PATH_BYTES,
+        MAX_TOTAL_SOURCE_BYTES,
     },
     sha256_bytes,
 };
@@ -289,6 +290,18 @@ pub(crate) fn import_commit() -> OperationResult {
             ..OperationResult::denied(reason)
         },
     }
+}
+
+pub(crate) fn commit_agent_answer(
+    project_id: ProjectId,
+    files: &[SourceFile<'_>],
+) -> Result<ProjectRevision, &'static str> {
+    let parent = project_store::inspect(project_id)
+        .map_err(|error| error.reason())?
+        .map(|revision| revision.revision_sha256);
+    let built = build_agent_answer(project_id, parent, files).map_err(|error| error.reason())?;
+    project_store::commit(&built).map_err(|error| error.reason())?;
+    Ok(built.revision)
 }
 
 pub(crate) fn inspect(input: &str) -> Result<Option<ProjectRevision>, &'static str> {

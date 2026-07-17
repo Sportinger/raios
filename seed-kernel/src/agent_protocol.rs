@@ -93,12 +93,13 @@ use crate::{
         emit_submit_chunk as emit_program_submit_chunk, emit_workspace as emit_program_workspace,
     },
     agent_protocol_project::{
+        emit_agent_answer_fixture as emit_project_agent_answer_fixture,
         emit_import_begin as emit_project_import_begin,
         emit_import_chunk as emit_project_import_chunk,
         emit_import_commit as emit_project_import_commit,
         emit_import_file_begin as emit_project_import_file_begin,
         emit_import_file_finalize as emit_project_import_file_finalize,
-        emit_inspect as emit_project_inspect,
+        emit_inspect as emit_project_inspect, emit_workspace as emit_project_workspace,
     },
     agent_protocol_project_build::{
         emit_begin as emit_project_build_begin, emit_commit as emit_project_build_commit,
@@ -450,6 +451,8 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("program.workspace", Exact, [], [route!("program.workspace")], MethodAction::Read0(emit_program_workspace)),
     method!("program.rollback_preview", Head, [], [route!("program.rollback_preview")], MethodAction::ReadMethod(emit_program_rollback_preview)),
     method!("program.rollback_apply", Head, [], [route!("program.rollback_apply")], MethodAction::ReadRuntimeMethodEvent(emit_program_rollback_apply)),
+    method!("project.agent_answer_fixture", Exact, [], [route!("project.agent_answer_fixture")], MethodAction::Read0(emit_project_agent_answer_fixture)),
+    method!("project.workspace", Exact, [], [route!("project.workspace")], MethodAction::Read0(emit_project_workspace)),
     method!("project.import_begin", Head, [], [route!("project.import_begin")], MethodAction::ReadMethod(emit_project_import_begin)),
     method!("project.import_file_begin", Head, [], [route!("project.import_file_begin")], MethodAction::ReadMethod(emit_project_import_file_begin)),
     method!("project.import_chunk", Head, [], [route!("project.import_chunk")], MethodAction::ReadMethod(emit_project_import_chunk)),

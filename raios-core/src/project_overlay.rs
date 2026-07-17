@@ -6,8 +6,8 @@ use alloc::{string::String, vec::Vec};
 
 use crate::{
     project_workspace::{
-        build_agent_edit, build_local_import, BuiltRevision, Classification, ProjectId,
-        ProjectRevision, RevisionAction, SourceFile, TreeEntry, WorkspaceError,
+        build_agent_answer, build_agent_edit, build_local_import, BuiltRevision, Classification,
+        ProjectId, ProjectRevision, RevisionAction, SourceFile, TreeEntry, WorkspaceError,
     },
     sha256_bytes,
 };
@@ -269,6 +269,9 @@ fn rebuild_base(
                 .ok_or(OverlayError::BaseFilesMismatch)?,
             files,
         )?,
+        RevisionAction::AgentAnswer => {
+            build_agent_answer(base.project_id, base.parent_revision_sha256, files)?
+        }
     })
 }
 
