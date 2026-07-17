@@ -208,12 +208,20 @@ lanes: `project.ask` (source) + `agent project.{verify_revision,feedback_packet,
 feedback_submit}`. Single use is per-authorization; the retained packet stays for
 owner transparency. The live image needs the disposable C1 structured store +
 valid-a BOOTCTL persist disk; the leaf cert pin is computed live and rotates.
-**NEXT DELIBERATE SLICE:** the Genesis `/build` + feedback source-status surface
-(visible pending/ready/rejected + export state), then B2.3 slow-lane orchestration
-(`LoopPhase` projection) toward B3 (on-device compiler GO/NO-GO). `/program` stays
-the explicit RUIP fast lane. Honest gap: the scoped feedback carries no source, so
-the provider rarely returns a conforming child — richer (still-classified)
-evidence and the B3 on-device build/test producer are what close the iterate loop.
+The Genesis SOURCE status panel is LANDED and proven: `draw_source_status` shows
+phase/revision/origin/verifier/feedback from `agent_build_loop::snapshot()`
+(read-only, honest fallbacks, export row deliberately omitted until the provider
+layer exposes it); serial output byte-identical by diff, and the focused
+`genesis-ui` profile is green on the current HEAD
+(`shadow-20260717-223146-26440.json`, 282/282 — approval click geometry and the
+full W6 program flow unregressed).
+**NEXT DELIBERATE SLICE:** B3.0 on-device-compiler GO/NO-GO spike (in progress:
+`docs/plans/b3-plan.md` — rustc-as-Wasm feasibility vs. staged alternatives per
+VISION_PLAN B3; NO-GO with alternatives is a valid outcome), then B2.3 slow-lane
+orchestration (`LoopPhase` projection). `/program` stays the explicit RUIP fast
+lane. Honest gap: the scoped feedback carries no source, so the provider rarely
+returns a conforming child — richer (still-classified) evidence and the B3
+on-device build/test producer are what close the iterate loop.
 
 **B1.2c W6 INSTALL + REBOOT SURVIVAL + ROLLBACK VERIFIED-CLOSED (2026-07-15).**
 Loop stations 7 (install/autoload/reboot) and 8 (rollback) close for W7
