@@ -2190,6 +2190,55 @@ if (-not $postureOk) { throw "B1.2b introduced a second candidate path or durabl
     }
 }
 
+function Send-GenesisUiKey {
+    # Shared with the genesis-ui profile (identical local copy there).
+    param([string]$KeyName)
+
+    Send-QemuMonitorCommand -Command "sendkey $KeyName 60" -ReplyWaitMilliseconds 250 | Out-Null
+}
+
+function Send-GenesisUiProgramBytes {
+    # Shared with the genesis-ui profile (which also defines an identical local
+    # copy). Delivers canonical RUIP bytes through paced program.submit_chunk
+    # calls, asserting each chunk is retained pending and inert.
+    param(
+        [byte[]]$Bytes,
+        [string]$NamePrefix
+    )
+
+    $base64 = [Convert]::ToBase64String($Bytes)
+    $chunkChars = 3000
+    $chunkIndex = 0
+    $pendingBytes = 0
+    for ($offset = 0; $offset -lt $base64.Length; $offset += $chunkChars) {
+        $count = [Math]::Min($chunkChars, $base64.Length - $offset)
+        $chunk = $base64.Substring($offset, $count)
+        $decodedBytes = [Convert]::FromBase64String($chunk).Length
+        $chunkIndex += 1
+        $pendingBytes += $decodedBytes
+        Send-AgentCommand -Command "program.submit_chunk $chunk" -ExpectedMarker "RAIOS_AGENT_END program.submit_chunk" -Name "$NamePrefix`:chunk_$chunkIndex"
+        $result = (Get-LastAgentResponseJson -Method "program.submit_chunk").body.result
+        $chunkOk = (
+            $result.accepted -eq $true -and
+            $result.rejected -eq $false -and
+            $result.reason -eq "accepted_program_chunk" -and
+            [int]$result.decoded_byte_len -eq $decodedBytes -and
+            [int]$result.pending_byte_len -eq $pendingBytes -and
+            [int]$result.pending_chunk_count -eq $chunkIndex -and
+            $result.discarded_pending_delivery -eq $false -and
+            $result.signing_attempted -eq $false -and
+            $result.load_attempted -eq $false -and
+            $result.execution_attempted -eq $false -and
+            $result.writes_persistent_state -eq $false
+        )
+        Add-Predicate -Name "$NamePrefix`:chunk_$chunkIndex-inert" -Expected "canonical RUIP chunk is retained pending without signing, loading, execution or persistence" -Passed $chunkOk -Actual $(if ($chunkOk) { "pending_bytes=$pendingBytes" } else { ($result | ConvertTo-Json -Compress -Depth 5) })
+        if (-not $chunkOk) {
+            throw "Expected RUIP chunk $chunkIndex to remain pending and inert"
+        }
+    }
+    return $chunkIndex
+}
+
 function Invoke-SignedGrantedCandidateInstall {
     param(
         [Parameter(Mandatory = $true)][object]$Activation,

@@ -70,7 +70,28 @@ function Convert-CompactJson {
     if ($null -eq $Value) {
         return "null"
     }
-    return ($Value | ConvertTo-Json -Compress -Depth $Depth)
+    # A failure dump must never abort the run: if the object holds a value
+    # ConvertTo-Json cannot render, fall back per key so the real predicate
+    # failure still surfaces with as much data as possible.
+    try {
+        return ($Value | ConvertTo-Json -Compress -Depth $Depth)
+    }
+    catch {
+        if ($Value -is [System.Collections.IDictionary]) {
+            $parts = New-Object System.Collections.Generic.List[string]
+            foreach ($key in $Value.Keys) {
+                $entry = $Value[$key]
+                try {
+                    $parts.Add('"' + $key + '":' + ($entry | ConvertTo-Json -Compress -Depth $Depth))
+                }
+                catch {
+                    $parts.Add('"' + $key + '":"UNSERIALIZABLE:' + $entry.GetType().FullName + '"')
+                }
+            }
+            return "{" + ($parts -join ",") + "}"
+        }
+        return "UNSERIALIZABLE_DUMP: $($_.Exception.Message) :: $($Value.GetType().FullName)"
+    }
 }
 
 function Assert-ReportPredicate {
@@ -1331,20 +1352,29 @@ function Test-ReclogPrefix {
 }
 
 function Invoke-UiProgramPersistLinkTamper {
-    param([string]$Path)
+    param([string]$Path, [Parameter(Mandatory = $true)][string]$ProgramHashHex)
 
+    # Match the target frame parse-free: substring-search the raw payload bytes
+    # for the ui_program artifact_persist schema AND the known canonical program
+    # hash. This is immune to NUL padding and to any seq-numbering difference
+    # between the inspect and raw-parse helpers.
     $code = @'
 import json, runpy, sys
 m = runpy.run_path(sys.argv[1])
 image = m["Path"](sys.argv[2])
+program_hash = sys.argv[3]
 m["assert_not_release_output"](image)
 info = m["validate_existing_gpt_image"](image)
 seed = m["seed_data_first_lba_from_info"](info)
+def as_text(payload):
+    if isinstance(payload, (bytes, bytearray)):
+        return payload.decode("latin-1")
+    return str(payload)
 with image.open("r+b") as handle:
     frames = m["parse_reclog_frames_for_inspection"](m["read_reclog_region"](handle, seed))
-    target = next((i for i, frame in enumerate(frames) if (m["payload_json"](frame["payload"]) or {}).get("subject_kind") == "ui_program" and (m["payload_json"](frame["payload"]) or {}).get("schema") == "raios.artifact_persist.v0"), None)
+    target = next((i for i, frame in enumerate(frames) if "artifact_persist.origin_boot.ui_program.v0" in as_text(frame["payload"]) and program_hash in as_text(frame["payload"])), None)
     if target is None:
-        raise ValueError("no ui_program artifact_persist RECLOG record found")
+        raise ValueError("no ui_program artifact_persist RECLOG record found for the program hash")
     record = m["payload_json"](frames[target]["payload"])
     field = "promotion_transaction_sha256"
     old = str(record[field])
@@ -1358,7 +1388,12 @@ if (post.get("reclog_scan") or {}).get("status") != "valid":
     raise ValueError("tampered ui_program RECLOG no longer scans as valid")
 print(json.dumps({"operation": "tamper_ui_program_persist_link", "field": field, "old_value": old, "new_value": new, "seq": frames[target]["seq"]}))
 '@
-    $result = Invoke-NativeCommandForReport -FilePath "python" -Arguments @("-c", $code, $Builder, $Path)
+    # Never pass this multi-line bracket-heavy script through `python -c` as a
+    # native arg: PowerShell mangles it (the sole -c call in this harness).
+    # Write it to a temp .py and run it by path, like every other python call.
+    $scriptPath = Join-Path $RunDir "tamper-ui-program-link.py"
+    [System.IO.File]::WriteAllText($scriptPath, $code, (New-Object System.Text.UTF8Encoding($false)))
+    $result = Invoke-NativeCommandForReport -FilePath "python" -Arguments @($scriptPath, $Builder, $Path, $ProgramHashHex)
     if ($result.ExitCode -ne 0) {
         throw "UI-program link tamper failed: $((@($result.Output) + @($result.Error)) -join [Environment]::NewLine)"
     }
@@ -1473,7 +1508,11 @@ function Invoke-ProgramPersistenceProof {
         $install.PromotionTransactionSha256 -match '^sha256:[0-9a-f]{64}$' -and
         $install.ProgramPersistFrameSha256 -match '^sha256:[0-9a-f]{64}$' -and
         [int64]$install.CanonicalProgramByteLen -eq 176 -and $install.ParsedPayloadSha256 -eq $programHash -and
-        [int64]$install.PreReclogScan.count -eq 1 -and
+        # A clean program-only boot writes NO pre-install durable record: the
+        # editor RUIP renders through the shell guest but neither echoes a guest
+        # log nor requests a wasm import grant (unlike the granted candidate), so
+        # RECLOG is empty (count 0) until the three install frames land.
+        [int64]$install.PreReclogScan.count -eq 0 -and
         [int64]$install.PostReclogScan.count -eq ([int64]$install.PreReclogScan.count + 3) -and
         [int64]$install.Sequence -eq ([int64]$install.PreReclogScan.tail_seq + 2) -and
         [int64]$install.PostReclogScan.tail_seq -eq ($install.Sequence + 1) -and
@@ -1656,7 +1695,7 @@ function Invoke-ProgramPersistenceProof {
                 Invoke-PersistTool -Arguments @("--corrupt-artstor-blob", $childPersist) | Out-Null
             }
             else {
-                $null = Invoke-UiProgramPersistLinkTamper -Path $childPersist
+                $null = Invoke-UiProgramPersistLinkTamper -Path $childPersist -ProgramHashHex ($programHash -replace '^sha256:', '')
             }
             $mutated = Get-PersistInspection -Path $childPersist
             $childVm = Start-RaiosVm -Label $child.Label -PredicatePrefix $child.Label -Port $child.Port -MonitorPort 0 -QmpPort 0 -PersistPath $childPersist
