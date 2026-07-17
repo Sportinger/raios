@@ -115,6 +115,7 @@ pub(crate) fn commit(built: &BuiltRevision) -> Result<(), ProjectStoreDenied> {
         identity,
         &mut snapshot,
         built.revision.project_id,
+        None,
     )?
     .ok_or(ProjectStoreDenied::RevisionInvalid)?;
     if loaded.revision != built.revision {
@@ -131,7 +132,21 @@ pub(crate) fn inspect(
 
 pub(crate) fn load(project_id: ProjectId) -> Result<Option<LoadedProject>, ProjectStoreDenied> {
     let (mut port, identity, mut snapshot) = open()?;
-    load_from_open(&mut port, identity, &mut snapshot, project_id)
+    load_from_open(&mut port, identity, &mut snapshot, project_id, None)
+}
+
+pub(crate) fn load_revision(
+    project_id: ProjectId,
+    revision_sha256: [u8; 32],
+) -> Result<Option<LoadedProject>, ProjectStoreDenied> {
+    let (mut port, identity, mut snapshot) = open()?;
+    load_from_open(
+        &mut port,
+        identity,
+        &mut snapshot,
+        project_id,
+        Some(revision_sha256),
+    )
 }
 
 fn load_from_open(
@@ -139,6 +154,7 @@ fn load_from_open(
     identity: crate::structured_store::ValidatedRegionIdentity,
     snapshot: &mut [u8],
     project_id: ProjectId,
+    revision_sha256: Option<[u8; 32]>,
 ) -> Result<Option<LoadedProject>, ProjectStoreDenied> {
     let replay = open_and_replay_with_history(port, identity, snapshot).map_err(map_port)?;
     let mut latest = None;
@@ -159,7 +175,11 @@ fn load_from_open(
         if revision_record_key(revision.revision_sha256) != record.key {
             return Err(ProjectStoreDenied::RevisionCollision);
         }
-        if revision.project_id == project_id {
+        if revision.project_id == project_id
+            && revision_sha256
+                .map(|expected| revision.revision_sha256 == expected)
+                .unwrap_or(true)
+        {
             latest = Some(revision);
             break;
         }

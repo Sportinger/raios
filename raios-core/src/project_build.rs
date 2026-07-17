@@ -156,6 +156,24 @@ pub fn pinned_toolchain_manifest_sha256() -> [u8; 32] {
     sha256_bytes(PINNED_TOOLCHAIN_MANIFEST.as_bytes())
 }
 
+pub fn source_preflight<'a>(
+    paths: impl IntoIterator<Item = &'a str>,
+) -> Result<(), ProjectBuildError> {
+    let mut cargo_toml = false;
+    let mut cargo_lock = false;
+    for path in paths {
+        cargo_toml |= path == "Cargo.toml";
+        cargo_lock |= path == "Cargo.lock";
+    }
+    if !cargo_lock {
+        return Err(ProjectBuildError::MissingCargoLock);
+    }
+    if !cargo_toml {
+        return Err(ProjectBuildError::MissingCargoToml);
+    }
+    Ok(())
+}
+
 pub fn build_snapshot(
     project_id: ProjectId,
     project_revision_sha256: [u8; 32],
@@ -770,6 +788,22 @@ mod tests {
             output_byte_len: 8,
             output_sha256: sha256_bytes(b"\0asmtest"),
         }
+    }
+
+    #[test]
+    fn source_preflight_reports_missing_cargo_lock() {
+        assert_eq!(
+            source_preflight(["Cargo.toml", "src/main.rs"]),
+            Err(ProjectBuildError::MissingCargoLock)
+        );
+    }
+
+    #[test]
+    fn source_preflight_accepts_cargo_manifest_and_lock() {
+        assert_eq!(
+            source_preflight(["Cargo.toml", "Cargo.lock", "src/main.rs"]),
+            Ok(())
+        );
     }
 
     #[test]

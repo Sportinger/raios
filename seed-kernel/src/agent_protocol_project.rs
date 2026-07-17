@@ -11,7 +11,7 @@ use crate::{
         begin_response, emit_record_fields, end_response, record_bool as b, record_field as f,
         record_sha_or_null, record_str as s, record_str_or_null,
     },
-    project_workspace,
+    project_build, project_workspace,
 };
 
 const EMPTY_PROJECT_ID: [u8; 16] = [0; 16];
@@ -60,6 +60,97 @@ pub(crate) fn emit_agent_answer_fixture() {
         6,
     );
     end_response("project.agent_answer_fixture");
+}
+
+pub(crate) fn emit_verify_revision() {
+    let snapshot = agent_build_loop::snapshot();
+    let result = snapshot
+        .latest_revision
+        .as_ref()
+        .ok_or("source_preflight_revision_not_tracked")
+        .and_then(|revision| {
+            agent_build_loop::record_verifier_result(
+                revision,
+                project_build::verify_source_revision(revision),
+            )
+        });
+    begin_response("project.verify_revision");
+    let mut fields = source_preflight_posture("project.verify_revision", &snapshot);
+    match result {
+        Ok(result) => fields.extend([
+            f("status", s("recorded")),
+            f("accepted", b(true)),
+            f("reason", s(result.reason)),
+            f("check_id", s(result.check_id)),
+            f("outcome", s(result.outcome())),
+            f("revision_sha256", V::Sha256(result.revision_sha256)),
+            f("tree_sha256", V::Sha256(result.tree_sha256)),
+            f("system_computed", b(true)),
+            f("provider_supplied", b(false)),
+        ]),
+        Err(reason) => fields.extend([
+            f("status", s("denied")),
+            f("accepted", b(false)),
+            f("reason", s(reason)),
+            f("check_id", V::Null),
+            f("outcome", V::Null),
+            f("revision_sha256", V::Null),
+            f("tree_sha256", V::Null),
+            f("system_computed", b(false)),
+            f("provider_supplied", b(false)),
+        ]),
+    }
+    fields.extend(source_preflight_non_authority_fields());
+    emit_record_fields(fields, 6);
+    end_response("project.verify_revision");
+}
+
+pub(crate) fn emit_feedback_packet() {
+    let result = agent_build_loop::build_feedback_packet();
+    let snapshot = agent_build_loop::snapshot();
+    begin_response("project.feedback_packet");
+    let mut fields = source_preflight_posture("project.feedback_packet", &snapshot);
+    match result {
+        Ok(packet) => fields.extend([
+            f("status", s("ready")),
+            f("accepted", b(true)),
+            f("reason", s(packet.reason)),
+            f("feedback_packet", feedback_packet_value(packet)),
+            f("packet_field_count", V::U64(4)),
+        ]),
+        Err(reason) => fields.extend([
+            f("status", s("denied")),
+            f("accepted", b(false)),
+            f("reason", s(reason)),
+            f("feedback_packet", V::Null),
+            f("packet_field_count", V::U64(0)),
+        ]),
+    }
+    fields.extend([
+        f("system_computed", b(result.is_ok())),
+        f("provider_supplied", b(false)),
+        f("source_bytes_included", b(false)),
+        f("secret_bytes_included", b(false)),
+        f("log_bytes_included", b(false)),
+        f("unclassified_text_included", b(false)),
+    ]);
+    fields.extend(source_preflight_non_authority_fields());
+    emit_record_fields(fields, 6);
+    end_response("project.feedback_packet");
+}
+
+pub(crate) fn emit_revision_answer_fixture() {
+    let outcome = agent_build_loop::accept_revision_answer_fixture();
+    begin_response("project.revision_answer_fixture");
+    emit_record_fields(
+        agent_workspace_fields(
+            "project.revision_answer_fixture",
+            &outcome.snapshot,
+            Some(&outcome),
+        ),
+        6,
+    );
+    end_response("project.revision_answer_fixture");
 }
 
 pub(crate) fn emit_workspace() {
@@ -237,6 +328,11 @@ fn agent_workspace_fields<'a>(
     let test_infrastructure = outcome
         .map(|outcome| outcome.test_infrastructure)
         .unwrap_or(snapshot.test_infrastructure);
+    let parent_revision_readback_verified = outcome
+        .filter(|outcome| outcome.accepted)
+        .map(|outcome| outcome.parent_revision_readback_verified)
+        .unwrap_or(snapshot.parent_revision_readback_verified);
+    let verifier_result = snapshot.verifier_result.as_ref();
     let mut fields = vec![
         f("method", s(method)),
         f("scope", s("current_boot")),
@@ -307,6 +403,11 @@ fn agent_workspace_fields<'a>(
                     .unwrap_or_default(),
             ),
         ),
+        f("revision_lineage", revision_lineage_value(snapshot)),
+        f(
+            "parent_revision_readback_verified",
+            b(parent_revision_readback_verified),
+        ),
         f("answer_origin", record_str_or_null(answer_origin)),
         f(
             "source_authority",
@@ -316,6 +417,35 @@ fn agent_workspace_fields<'a>(
         ),
         f("provider_trust_positive", b(provider_trust_positive)),
         f("test_infrastructure", b(test_infrastructure)),
+        f(
+            "verifier_check_id",
+            record_str_or_null(verifier_result.map(|result| result.check_id)),
+        ),
+        f(
+            "verifier_revision_sha256",
+            record_sha_or_null(verifier_result.map(|result| result.revision_sha256)),
+        ),
+        f(
+            "verifier_tree_sha256",
+            record_sha_or_null(verifier_result.map(|result| result.tree_sha256)),
+        ),
+        f(
+            "verifier_reason",
+            record_str_or_null(verifier_result.map(|result| result.reason)),
+        ),
+        f(
+            "verifier_outcome",
+            record_str_or_null(verifier_result.map(|result| result.outcome())),
+        ),
+        f("verifier_system_computed", b(verifier_result.is_some())),
+        f("verifier_provider_supplied", b(false)),
+        f(
+            "feedback_packet",
+            snapshot
+                .feedback_packet
+                .map(feedback_packet_value)
+                .unwrap_or(V::Null),
+        ),
         f("last_reason", record_str_or_null(snapshot.last_reason)),
         f("job_state_retention", s("current_boot_ram_only")),
         f(
@@ -362,7 +492,11 @@ fn agent_workspace_fields<'a>(
     }
     fields.extend([
         f("signing_attempted", b(false)),
+        f("build_session_opened", b(false)),
         f("builder_attempted", b(false)),
+        f("compiler_attempted", b(false)),
+        f("test_attempted", b(false)),
+        f("run_attempted", b(false)),
         f("build_authorized", b(false)),
         f("candidate_intake_attempted", b(false)),
         f("load_attempted", b(false)),
@@ -380,6 +514,85 @@ fn agent_workspace_fields<'a>(
         f("service_inventory_mutation", s("none")),
     ]);
     fields
+}
+
+fn source_preflight_posture<'a>(
+    method: &'static str,
+    snapshot: &'a agent_build_loop::Snapshot,
+) -> Vec<raios_core::record::Field<'a>> {
+    vec![
+        f("method", s(method)),
+        f("scope", s("current_boot")),
+        f("classification", s("local_only")),
+        f("check_kind", s("deterministic_local_source_preflight")),
+        f("answer_origin", record_str_or_null(snapshot.answer_origin)),
+        f(
+            "provider_trust_positive",
+            b(snapshot.provider_trust_positive),
+        ),
+        f("test_infrastructure", b(snapshot.test_infrastructure)),
+    ]
+}
+
+fn source_preflight_non_authority_fields() -> Vec<raios_core::record::Field<'static>> {
+    vec![
+        f("storage_write_attempted", b(false)),
+        f("writes_persistent_state", b(false)),
+        f("signing_attempted", b(false)),
+        f("build_session_opened", b(false)),
+        f("builder_attempted", b(false)),
+        f("compiler_attempted", b(false)),
+        f("test_attempted", b(false)),
+        f("run_attempted", b(false)),
+        f("build_authorized", b(false)),
+        f("candidate_intake_attempted", b(false)),
+        f("provider_export_attempted", b(false)),
+        f("provider_export_authorized", b(false)),
+        f("load_attempted", b(false)),
+        f("load_authorized", b(false)),
+        f("execution_attempted", b(false)),
+        f("execution_authorized", b(false)),
+        f("install_attempted", b(false)),
+        f("install_authorized", b(false)),
+        f("promotion_attempted", b(false)),
+        f("promotion_authorized", b(false)),
+        f("wasm_instance_created", b(false)),
+        f("w6_preview_created", b(false)),
+        f("reclog_executable_record_written", b(false)),
+        f("artstor_executable_record_written", b(false)),
+        f("service_inventory_mutation", s("none")),
+    ]
+}
+
+fn feedback_packet_value(packet: agent_build_loop::FeedbackPacket) -> V<'static> {
+    V::InlineObject(vec![
+        f("check_id", s(packet.check_id)),
+        f("revision_sha256", V::Sha256(packet.revision_sha256)),
+        f("tree_sha256", V::Sha256(packet.tree_sha256)),
+        f("reason", s(packet.reason)),
+    ])
+}
+
+fn revision_lineage_value(snapshot: &agent_build_loop::Snapshot) -> V<'_> {
+    let mut lineage = Vec::new();
+    if let Some(revision) = snapshot.parent_revision.as_ref() {
+        lineage.push(lineage_revision_value(revision));
+    }
+    if let Some(revision) = snapshot.latest_revision.as_ref() {
+        lineage.push(lineage_revision_value(revision));
+    }
+    V::Array(lineage)
+}
+
+fn lineage_revision_value(revision: &ProjectRevision) -> V<'_> {
+    V::InlineObject(vec![
+        f("revision_sha256", V::Sha256(revision.revision_sha256)),
+        f("tree_sha256", V::Sha256(revision.tree_sha256)),
+        f(
+            "parent_revision_sha256",
+            record_sha_or_null(revision.parent_revision_sha256),
+        ),
+    ])
 }
 
 fn posture_fields(method: &'static str) -> Vec<raios_core::record::Field<'static>> {

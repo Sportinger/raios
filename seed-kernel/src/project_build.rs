@@ -3,12 +3,12 @@ use alloc::{string::String, vec::Vec};
 use raios_core::{
     parse_sha256_ref,
     project_build::{
-        build_receipt, build_snapshot, pinned_toolchain_manifest_sha256, BuildDependencyBundle,
-        BuildDependencyChunk, BuildDependencyFile, BuildRun, BuildSourceFile, ProjectBuildReceipt,
-        ProjectBuildSnapshot,
+        build_receipt, build_snapshot, pinned_toolchain_manifest_sha256, source_preflight,
+        BuildDependencyBundle, BuildDependencyChunk, BuildDependencyFile, BuildRun,
+        BuildSourceFile, ProjectBuildReceipt, ProjectBuildSnapshot,
     },
     project_dependency::DependencyBundle,
-    project_workspace::{ProjectId, MAX_PATH_BYTES},
+    project_workspace::{ProjectId, ProjectRevision, MAX_PATH_BYTES},
 };
 use spin::Mutex;
 
@@ -19,9 +19,20 @@ use crate::{
 
 const MAX_BUILD_RECEIPTS: usize = 8;
 const MAX_READ_BYTES: usize = 512;
+const SOURCE_PREFLIGHT_CHECK_ID: &str = "project.source_preflight.v1";
 
 static SESSION: Mutex<Option<BuildSession>> = Mutex::new(None);
 static RECEIPTS: Mutex<Vec<ProjectBuildReceipt>> = Mutex::new(Vec::new());
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct SourceVerifierResult {
+    pub(crate) check_id: &'static str,
+    pub(crate) project_id: [u8; 16],
+    pub(crate) revision_sha256: [u8; 32],
+    pub(crate) tree_sha256: [u8; 32],
+    pub(crate) reason: &'static str,
+    pub(crate) passed: bool,
+}
 
 #[derive(Clone)]
 struct BuildSession {
@@ -107,6 +118,21 @@ impl ReadView {
             bytes: Vec::new(),
             eof: false,
         }
+    }
+}
+
+pub(crate) fn verify_source_revision(revision: &ProjectRevision) -> SourceVerifierResult {
+    let reason = match snapshot_exact(revision.project_id.bytes(), revision.revision_sha256, true) {
+        Ok(_) => "source_preflight_ok",
+        Err(reason) => reason,
+    };
+    SourceVerifierResult {
+        check_id: SOURCE_PREFLIGHT_CHECK_ID,
+        project_id: revision.project_id.bytes(),
+        revision_sha256: revision.revision_sha256,
+        tree_sha256: revision.tree_sha256,
+        reason,
+        passed: reason == "source_preflight_ok",
     }
 }
 
@@ -506,18 +532,13 @@ fn snapshot_exact(
     {
         return Err("build_source_build_script_denied");
     }
+    source_preflight(loaded.files.iter().map(|file| file.entry.path.as_str()))
+        .map_err(|error| error.reason())?;
     let cargo_lock = loaded
         .files
         .iter()
         .find(|file| file.entry.path == "Cargo.lock")
         .ok_or("build_cargo_lock_missing")?;
-    if !loaded
-        .files
-        .iter()
-        .any(|file| file.entry.path == "Cargo.toml")
-    {
-        return Err("build_cargo_toml_missing");
-    }
     let bundles =
         project_dependency_store::load_bundles(ProjectId::new(project_id), revision_sha256)
             .map_err(|error| error.reason())?;

@@ -294,14 +294,29 @@ pub(crate) fn import_commit() -> OperationResult {
 
 pub(crate) fn commit_agent_answer(
     project_id: ProjectId,
+    parent_revision_sha256: Option<[u8; 32]>,
     files: &[SourceFile<'_>],
 ) -> Result<ProjectRevision, &'static str> {
-    let parent = project_store::inspect(project_id)
+    let current_parent = project_store::inspect(project_id)
         .map_err(|error| error.reason())?
         .map(|revision| revision.revision_sha256);
-    let built = build_agent_answer(project_id, parent, files).map_err(|error| error.reason())?;
+    if current_parent != parent_revision_sha256 {
+        return Err("agent_answer_parent_revision_mismatch");
+    }
+    let built = build_agent_answer(project_id, parent_revision_sha256, files)
+        .map_err(|error| error.reason())?;
     project_store::commit(&built).map_err(|error| error.reason())?;
     Ok(built.revision)
+}
+
+pub(crate) fn revision_readback_exact(revision: &ProjectRevision) -> Result<(), &'static str> {
+    let loaded = project_store::load_revision(revision.project_id, revision.revision_sha256)
+        .map_err(|error| error.reason())?
+        .ok_or("agent_answer_parent_revision_not_readable")?;
+    if loaded.revision != *revision {
+        return Err("agent_answer_parent_revision_mismatch");
+    }
+    Ok(())
 }
 
 pub(crate) fn inspect(input: &str) -> Result<Option<ProjectRevision>, &'static str> {
