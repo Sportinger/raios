@@ -1363,3 +1363,305 @@ $rebootContent = Get-Content -LiteralPath $rebootLog -Raw -ErrorAction Stop
 $childRebootContent = Get-Content -LiteralPath $childRebootLog -Raw -ErrorAction Stop
 Set-Content -LiteralPath $combinedLog -Value ($firstBootContent + [Environment]::NewLine + $rebootContent + [Environment]::NewLine + $childRebootContent) -Encoding UTF8
 $SerialLog = $combinedLog
+
+# B2.1a appends to the existing profile after every W1-W3 predicate. The loop
+# state is current-boot RAM, while its source revision uses the same disposable
+# structured store and canonical host-hash machinery already proven above.
+function Test-B2AgentFileFacts {
+    param([object[]]$ActualFiles, [object[]]$ExpectedFiles)
+    if ($ActualFiles.Count -ne $ExpectedFiles.Count) { return $false }
+    for ($index = 0; $index -lt $ExpectedFiles.Count; $index++) {
+        if (
+            $ActualFiles[$index].path -cne $ExpectedFiles[$index].path -or
+            $ActualFiles[$index].classification -ne $ExpectedFiles[$index].classification -or
+            $ActualFiles[$index].media_type -ne $ExpectedFiles[$index].media_type -or
+            [int]$ActualFiles[$index].byte_len -ne $ExpectedFiles[$index].bytes.Length -or
+            $ActualFiles[$index].blob_sha256 -ne "sha256:$($ExpectedFiles[$index].sha256)"
+        ) { return $false }
+    }
+    return $true
+}
+
+$SerialLog = $childRebootLog
+$b2FixtureRequest = 'Build the fixed B2.1a Rust/TOML source fixture.'
+$b2FixtureAnswer = @(
+    'RAIOS_SOURCE_FILES_V1'
+    'file Q2FyZ28udG9tbA== W3BhY2thZ2VdCm5hbWUgPSAiYjIxYS1maXh0dXJlIgp2ZXJzaW9uID0gIjAuMS4wIgplZGl0aW9uID0gIjIwMjEiCg=='
+    'file c3JjL21haW4ucnM= Zm4gbWFpbigpIHsKICAgIGxldCBtZXNzYWdlID0gImhlbGxvIGZyb20gcmFpT1MiOwogICAgbGV0IF8gPSBtZXNzYWdlOwp9Cg=='
+    'end'
+) -join "`n"
+$b2Files = @(
+    [pscustomobject]@{
+        path = 'Cargo.toml'; classification = 'local_only'; media_type = 'text/toml'
+        bytes = [System.Text.Encoding]::UTF8.GetBytes("[package]`nname = `"b21a-fixture`"`nversion = `"0.1.0`"`nedition = `"2021`"`n")
+    },
+    [pscustomobject]@{
+        path = 'src/main.rs'; classification = 'local_only'; media_type = 'text/rust'
+        bytes = [System.Text.Encoding]::UTF8.GetBytes("fn main() {`n    let message = `"hello from raiOS`";`n    let _ = message;`n}`n")
+    }
+)
+foreach ($file in $b2Files) { $file | Add-Member -NotePropertyName sha256 -NotePropertyValue (Get-ByteSha256Hex -Bytes $file.bytes) }
+
+$b2RequestBytes = [System.Text.Encoding]::UTF8.GetBytes($b2FixtureRequest)
+$b2IdentityStream = [System.IO.MemoryStream]::new()
+$b2IdentityWriter = [System.IO.BinaryWriter]::new($b2IdentityStream, [System.Text.Encoding]::UTF8, $true)
+try {
+    $b2IdentityWriter.Write([System.Text.Encoding]::ASCII.GetBytes('raios.agent_project_id.v1'))
+    $b2IdentityWriter.Write([uint64]$b2RequestBytes.Length)
+    $b2IdentityWriter.Write($b2RequestBytes)
+    $b2IdentityWriter.Flush()
+    $b2ProjectId = (Get-ByteSha256Hex -Bytes $b2IdentityStream.ToArray()).Substring(0, 32)
+}
+finally { $b2IdentityWriter.Dispose(); $b2IdentityStream.Dispose() }
+$b2RequestSha256 = Get-ByteSha256Hex -Bytes $b2RequestBytes
+$b2AnswerBytes = [System.Text.Encoding]::UTF8.GetBytes($b2FixtureAnswer)
+$b2AnswerSha256 = Get-ByteSha256Hex -Bytes $b2AnswerBytes
+$b2TreeSha256 = Get-ProjectTreeSha256 -Files $b2Files
+$b2RevisionSha256 = Get-ProjectRevisionSha256 -ProjectId $b2ProjectId -TreeSha256 $b2TreeSha256 -Action 'agent_answer'
+$b2TotalByteLen = ($b2Files | ForEach-Object { $_.bytes.Length } | Measure-Object -Sum).Sum
+
+Send-AgentCommand -Command 'program.workspace' -ExpectedMarker 'RAIOS_AGENT_END program.workspace' -Name 'project-workspace:b2-program-before'
+$b2ProgramBeforeResponse = Get-LastAgentResponseJson -Method 'program.workspace'
+$b2ProgramBefore = $b2ProgramBeforeResponse.body.result
+Send-AgentCommand -Command 'services' -ExpectedMarker 'RAIOS_AGENT_END service.inventory' -Name 'project-workspace:b2-services-before'
+$b2ServicesBeforeResponse = Get-LastAgentResponseJson -Method 'service.inventory'
+Send-AgentCommand -Command 'agent durable.record_log_scan' -ExpectedMarker 'RAIOS_AGENT_END durable.record_log_scan' -Name 'project-workspace:b2-reclog-before'
+$b2ReclogBeforeResponse = Get-LastAgentResponseJson -Method 'durable.record_log_scan'
+Send-AgentCommand -Command 'agent artifact.store_scan' -ExpectedMarker 'RAIOS_AGENT_END artifact.store_scan' -Name 'project-workspace:b2-artstor-before'
+$b2ArtstorBeforeResponse = Get-LastAgentResponseJson -Method 'artifact.store_scan'
+
+Send-AgentCommand -Command 'project.agent_answer_fixture' -ExpectedMarker 'RAIOS_AGENT_END project.agent_answer_fixture' -Name 'project-workspace:b2-agent-answer-fixture'
+$b2FixtureResponse = Get-LastAgentResponseJson -Method 'project.agent_answer_fixture'
+$b2Fixture = $b2FixtureResponse.body.result
+$b2FixtureFilesExact = Test-B2AgentFileFacts -ActualFiles @($b2Fixture.files) -ExpectedFiles $b2Files
+$b2FixtureOk = (
+    $b2FixtureResponse.v -eq 'raios.agent.v0' -and
+    $b2Fixture.method -eq 'project.agent_answer_fixture' -and
+    $b2Fixture.phase -eq 'source_ready' -and $b2Fixture.status -eq 'accepted' -and
+    $b2Fixture.reason -eq 'agent_answer_revision_committed' -and
+    $b2Fixture.accepted -eq $true -and $b2Fixture.rejected -eq $false -and
+    $null -eq $b2Fixture.pending_request_id -and [int]$b2Fixture.latest_request_id -eq 729114 -and
+    $b2Fixture.latest_revision_present -eq $true -and $null -eq $b2Fixture.parent_revision_sha256 -and
+    $b2Fixture.revision_action -eq 'agent_answer' -and [int]$b2Fixture.file_count -eq 2 -and
+    $b2FixtureFilesExact -and $b2Fixture.answer_origin -eq 'test_fixture' -and
+    $b2Fixture.provider_trust_positive -eq $false -and $b2Fixture.test_infrastructure -eq $true -and
+    $b2Fixture.source_authority -eq 'untrusted_agent_candidate'
+)
+Add-ProjectPredicate -Name 'b2-agent-answer-fixture-commits-two-files' -Expected 'fixed fixture commits exact sorted Cargo.toml and src/main.rs as one local-only agent_answer revision with explicit test provenance' -Passed $b2FixtureOk -Actual $(if ($b2FixtureOk) { "project=$b2ProjectId revision=sha256:$b2RevisionSha256 files=2" } else { $b2FixtureResponse | ConvertTo-Json -Compress -Depth 16 })
+
+$b2HostHashOk = (
+    $b2Fixture.project_id -eq $b2ProjectId -and
+    $b2Fixture.request_sha256 -eq "sha256:$b2RequestSha256" -and
+    $b2Fixture.answer_sha256 -eq "sha256:$b2AnswerSha256" -and
+    [int]$b2Fixture.answer_byte_len -eq $b2AnswerBytes.Length -and
+    $b2Fixture.tree_sha256 -eq "sha256:$b2TreeSha256" -and
+    $b2Fixture.revision_sha256 -eq "sha256:$b2RevisionSha256" -and
+    [int]$b2Fixture.total_byte_len -eq $b2TotalByteLen -and $b2FixtureFilesExact
+)
+$b2HostHashDump = [ordered]@{
+    response = $b2FixtureResponse
+    host = [ordered]@{ project_id = $b2ProjectId; request_sha256 = $b2RequestSha256; answer_sha256 = $b2AnswerSha256; answer_byte_len = $b2AnswerBytes.Length; tree_sha256 = $b2TreeSha256; revision_sha256 = $b2RevisionSha256; files = $b2Files }
+}
+Add-ProjectPredicate -Name 'b2-host-recomputes-revision-hashes' -Expected 'host recomputes project id, answer identity, both blob hashes, sorted tree hash, and agent_answer revision hash from exact merged-kernel fixture bytes' -Passed $b2HostHashOk -Actual $(if ($b2HostHashOk) { "tree=sha256:$b2TreeSha256 revision=sha256:$b2RevisionSha256" } else { $b2HostHashDump | ConvertTo-Json -Compress -Depth 16 })
+
+Send-AgentCommand -Command 'project.workspace' -ExpectedMarker 'RAIOS_AGENT_END project.workspace' -Name 'project-workspace:b2-workspace'
+$b2WorkspaceResponse = Get-LastAgentResponseJson -Method 'project.workspace'
+$b2Workspace = $b2WorkspaceResponse.body.result
+Send-AgentCommand -Command "project.inspect $b2ProjectId" -ExpectedMarker 'RAIOS_AGENT_END project.inspect' -Name 'project-workspace:b2-inspect'
+$b2InspectResponse = Get-LastAgentResponseJson -Method 'project.inspect'
+$b2Inspect = $b2InspectResponse.body.result
+$b2InspectJson = $b2Inspect | ConvertTo-Json -Compress -Depth 12
+$b2ReadResponses = @()
+$b2Reads = @()
+foreach ($file in $b2Files) {
+    $pathBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($file.path))
+    Send-AgentCommand -Command "project.read $b2ProjectId $pathBase64 0 $($file.bytes.Length)" -ExpectedMarker 'RAIOS_AGENT_END project.read' -Name "project-workspace:b2-read-$($file.path)"
+    $readResponse = Get-LastAgentResponseJson -Method 'project.read'
+    $b2ReadResponses += $readResponse
+    $b2Reads += $readResponse.body.result
+}
+$b2ReadsExact = $b2Reads.Count -eq $b2Files.Count
+for ($index = 0; $b2ReadsExact -and $index -lt $b2Files.Count; $index++) {
+    $b2ReadsExact = (
+        $b2ReadResponses[$index].v -eq 'raios.agent.v0' -and
+        $b2Reads[$index].status -eq 'present' -and $b2Reads[$index].reason -eq 'project_read_verified' -and
+        $b2Reads[$index].project_id -eq $b2ProjectId -and
+        $b2Reads[$index].revision_sha256 -eq "sha256:$b2RevisionSha256" -and
+        $b2Reads[$index].path -ceq $b2Files[$index].path -and
+        $b2Reads[$index].file_classification -eq $b2Files[$index].classification -and
+        $b2Reads[$index].media_type -eq $b2Files[$index].media_type -and
+        $b2Reads[$index].blob_sha256 -eq "sha256:$($b2Files[$index].sha256)" -and
+        [int]$b2Reads[$index].file_byte_len -eq $b2Files[$index].bytes.Length -and
+        [int]$b2Reads[$index].offset -eq 0 -and
+        [int]$b2Reads[$index].requested_len -eq $b2Files[$index].bytes.Length -and
+        [int]$b2Reads[$index].returned_len -eq $b2Files[$index].bytes.Length -and
+        $b2Reads[$index].bytes_hex -ceq (Convert-BytesToHex -Bytes $b2Files[$index].bytes) -and
+        $b2Reads[$index].eof -eq $true
+    )
+}
+$b2WorkspaceFilesExact = Test-B2AgentFileFacts -ActualFiles @($b2Workspace.files) -ExpectedFiles $b2Files
+$b2InspectFilesExact = Test-B2AgentFileFacts -ActualFiles @($b2Inspect.files) -ExpectedFiles $b2Files
+$b2AgreementOk = (
+    $b2WorkspaceResponse.v -eq 'raios.agent.v0' -and $b2InspectResponse.v -eq 'raios.agent.v0' -and
+    $b2Workspace.method -eq 'project.workspace' -and $b2Workspace.phase -eq 'source_ready' -and
+    $b2Workspace.status -eq 'source_ready' -and $null -eq $b2Workspace.reason -and
+    $b2Workspace.project_id -eq $b2ProjectId -and $b2Workspace.revision_action -eq 'agent_answer' -and
+    $b2Workspace.tree_sha256 -eq "sha256:$b2TreeSha256" -and
+    $b2Workspace.revision_sha256 -eq "sha256:$b2RevisionSha256" -and
+    [int]$b2Workspace.file_count -eq 2 -and [int]$b2Workspace.total_byte_len -eq $b2TotalByteLen -and
+    $b2WorkspaceFilesExact -and
+    $b2Inspect.status -eq 'present' -and $b2Inspect.reason -eq 'project_revision_verified' -and
+    $b2Inspect.project_id -eq $b2ProjectId -and $b2Inspect.revision_action -eq 'agent_answer' -and
+    $b2Inspect.tree_sha256 -eq "sha256:$b2TreeSha256" -and
+    $b2Inspect.revision_sha256 -eq "sha256:$b2RevisionSha256" -and
+    [int]$b2Inspect.file_count -eq 2 -and [int]$b2Inspect.total_byte_len -eq $b2TotalByteLen -and
+    $b2InspectFilesExact -and $b2ReadsExact
+)
+$b2AgreementDump = [ordered]@{ workspace = $b2WorkspaceResponse; inspect = $b2InspectResponse; reads = $b2ReadResponses }
+Add-ProjectPredicate -Name 'b2-workspace-inspect-read-agree' -Expected 'raios.agent.v0 project.workspace, project.inspect, and both full project.read results agree on the exact revision, tree, file metadata, and bytes' -Passed $b2AgreementOk -Actual $(if ($b2AgreementOk) { "project/tree/revision/files/bytes agree for sha256:$b2RevisionSha256" } else { $b2AgreementDump | ConvertTo-Json -Compress -Depth 16 })
+
+Send-AgentCommand -Command 'services' -ExpectedMarker 'RAIOS_AGENT_END service.inventory' -Name 'project-workspace:b2-services-after'
+$b2ServicesAfterResponse = Get-LastAgentResponseJson -Method 'service.inventory'
+Send-AgentCommand -Command 'agent durable.record_log_scan' -ExpectedMarker 'RAIOS_AGENT_END durable.record_log_scan' -Name 'project-workspace:b2-reclog-after'
+$b2ReclogAfterResponse = Get-LastAgentResponseJson -Method 'durable.record_log_scan'
+Send-AgentCommand -Command 'agent artifact.store_scan' -ExpectedMarker 'RAIOS_AGENT_END artifact.store_scan' -Name 'project-workspace:b2-artstor-after'
+$b2ArtstorAfterResponse = Get-LastAgentResponseJson -Method 'artifact.store_scan'
+$b2ServicesBeforeJson = @($b2ServicesBeforeResponse.facts.services) | ConvertTo-Json -Compress -Depth 12
+$b2ServicesAfterJson = @($b2ServicesAfterResponse.facts.services) | ConvertTo-Json -Compress -Depth 12
+$b2ReclogBeforeJson = $b2ReclogBeforeResponse.body.result | ConvertTo-Json -Compress -Depth 16
+$b2ReclogAfterJson = $b2ReclogAfterResponse.body.result | ConvertTo-Json -Compress -Depth 16
+$b2ArtstorBeforeJson = $b2ArtstorBeforeResponse.body.result | ConvertTo-Json -Compress -Depth 16
+$b2ArtstorAfterJson = $b2ArtstorAfterResponse.body.result | ConvertTo-Json -Compress -Depth 16
+$b2InertOk = (
+    $b2Fixture.persistence_posture -eq 'qemu_disposable_structured_store_only' -and
+    $b2Fixture.storage_write_attempted -eq $true -and $b2Fixture.writes_persistent_state -eq $true -and
+    $b2Fixture.qemu_only -eq $true -and $b2Fixture.physical_media_supported -eq $false -and
+    $b2Fixture.physical_media_attempted -eq $false -and $b2Fixture.signing_attempted -eq $false -and
+    $b2Fixture.builder_attempted -eq $false -and $b2Fixture.build_authorized -eq $false -and
+    $b2Fixture.candidate_intake_attempted -eq $false -and
+    $b2Fixture.load_attempted -eq $false -and $b2Fixture.load_authorized -eq $false -and
+    $b2Fixture.execution_attempted -eq $false -and $b2Fixture.execution_authorized -eq $false -and
+    $b2Fixture.install_attempted -eq $false -and $b2Fixture.install_authorized -eq $false -and
+    $b2Fixture.promotion_attempted -eq $false -and $b2Fixture.promotion_authorized -eq $false -and
+    $b2Fixture.wasm_instance_created -eq $false -and $b2Fixture.w6_preview_created -eq $false -and
+    $b2Fixture.reclog_executable_record_written -eq $false -and
+    $b2Fixture.artstor_executable_record_written -eq $false -and
+    $b2Fixture.service_inventory_mutation -eq 'none' -and
+    $b2ServicesBeforeJson -ceq $b2ServicesAfterJson -and
+    $b2ReclogBeforeJson -ceq $b2ReclogAfterJson -and
+    $b2ArtstorBeforeJson -ceq $b2ArtstorAfterJson
+)
+$b2InertDump = [ordered]@{ fixture = $b2FixtureResponse; services_before = $b2ServicesBeforeResponse; services_after = $b2ServicesAfterResponse; reclog_before = $b2ReclogBeforeResponse; reclog_after = $b2ReclogAfterResponse; artstor_before = $b2ArtstorBeforeResponse; artstor_after = $b2ArtstorAfterResponse }
+Add-ProjectPredicate -Name 'b2-inert-zero-executable-effect' -Expected 'source-store commit is the only write; every executable/build/load/run/install/promotion field is false and service inventory, RECLOG, and ARTSTOR stay unchanged' -Passed $b2InertOk -Actual $(if ($b2InertOk) { 'inert source only; service inventory/RECLOG/ARTSTOR unchanged' } else { $b2InertDump | ConvertTo-Json -Compress -Depth 16 })
+
+Send-AgentCommand -Command 'project.agent_answer_fixture' -ExpectedMarker 'RAIOS_AGENT_END project.agent_answer_fixture' -Name 'project-workspace:b2-agent-answer-replay'
+$b2ReplayResponse = Get-LastAgentResponseJson -Method 'project.agent_answer_fixture'
+$b2Replay = $b2ReplayResponse.body.result
+Send-AgentCommand -Command 'project.workspace' -ExpectedMarker 'RAIOS_AGENT_END project.workspace' -Name 'project-workspace:b2-workspace-after-replay'
+$b2WorkspaceAfterReplayResponse = Get-LastAgentResponseJson -Method 'project.workspace'
+$b2WorkspaceAfterReplay = $b2WorkspaceAfterReplayResponse.body.result
+Send-AgentCommand -Command "project.inspect $b2ProjectId" -ExpectedMarker 'RAIOS_AGENT_END project.inspect' -Name 'project-workspace:b2-inspect-after-replay'
+$b2InspectAfterReplayResponse = Get-LastAgentResponseJson -Method 'project.inspect'
+$b2InspectAfterReplay = $b2InspectAfterReplayResponse.body.result
+$b2InspectAfterReplayJson = $b2InspectAfterReplay | ConvertTo-Json -Compress -Depth 12
+$b2ReplayOk = (
+    $b2ReplayResponse.v -eq 'raios.agent.v0' -and
+    $b2Replay.status -eq 'denied' -and $b2Replay.reason -eq 'agent_answer_request_not_tracked' -and
+    $b2Replay.accepted -eq $false -and $b2Replay.rejected -eq $true -and
+    $b2Replay.phase -eq 'source_ready' -and $b2Replay.last_reason -eq 'agent_answer_request_not_tracked' -and
+    $b2Replay.storage_write_attempted -eq $false -and $b2Replay.writes_persistent_state -eq $false -and
+    $b2Replay.revision_action -eq 'agent_answer' -and $null -eq $b2Replay.parent_revision_sha256 -and
+    $b2Replay.revision_sha256 -eq "sha256:$b2RevisionSha256" -and
+    [int]$b2Replay.file_count -eq 2 -and
+    $b2WorkspaceAfterReplayResponse.v -eq 'raios.agent.v0' -and
+    $b2WorkspaceAfterReplay.phase -eq 'source_ready' -and
+    $b2WorkspaceAfterReplay.reason -eq 'agent_answer_request_not_tracked' -and
+    $b2WorkspaceAfterReplay.revision_sha256 -eq "sha256:$b2RevisionSha256" -and
+    $null -eq $b2WorkspaceAfterReplay.parent_revision_sha256 -and
+    $b2InspectAfterReplayJson -ceq $b2InspectJson
+)
+$b2ReplayDump = [ordered]@{ replay = $b2ReplayResponse; workspace = $b2WorkspaceAfterReplayResponse; inspect_before = $b2InspectResponse; inspect_after = $b2InspectAfterReplayResponse }
+Add-ProjectPredicate -Name 'b2-malformed-answer-preserves-last-revision' -Expected 'fixed-only fixture replay is rejected as agent_answer_request_not_tracked and cannot form a child or change the last valid revision' -Passed $b2ReplayOk -Actual $(if ($b2ReplayOk) { "agent_answer_request_not_tracked; unchanged=sha256:$b2RevisionSha256" } else { $b2ReplayDump | ConvertTo-Json -Compress -Depth 16 })
+
+Send-AgentCommand -Command 'program.workspace' -ExpectedMarker 'RAIOS_AGENT_END program.workspace' -Name 'project-workspace:b2-program-after'
+$b2ProgramAfterResponse = Get-LastAgentResponseJson -Method 'program.workspace'
+$b2ProgramAfter = $b2ProgramAfterResponse.body.result
+$b2ProgramBeforeJson = $b2ProgramBefore | ConvertTo-Json -Compress -Depth 12
+$b2ProgramAfterJson = $b2ProgramAfter | ConvertTo-Json -Compress -Depth 12
+$b2ProgramOk = (
+    $b2ProgramBeforeResponse.v -eq 'raios.agent.v0' -and $b2ProgramAfterResponse.v -eq 'raios.agent.v0' -and
+    $b2ProgramAfter.method -eq 'program.workspace' -and $b2ProgramAfter.scope -eq 'current_boot' -and
+    $null -ne $b2ProgramAfter.PSObject.Properties['program_sha256'] -and
+    $null -ne $b2ProgramAfter.PSObject.Properties['authorizes_execution'] -and
+    $null -eq $b2ProgramAfter.PSObject.Properties['project_id'] -and
+    $null -eq $b2ProgramAfter.PSObject.Properties['tree_sha256'] -and
+    $null -eq $b2ProgramAfter.PSObject.Properties['files'] -and
+    $null -eq $b2ProgramAfter.PSObject.Properties['answer_origin'] -and
+    $b2ProgramAfter.authorizes_load -eq $false -and $b2ProgramAfter.authorizes_execution -eq $false -and
+    $b2ProgramBeforeJson -ceq $b2ProgramAfterJson
+)
+$b2ProgramDump = [ordered]@{ before = $b2ProgramBeforeResponse; after = $b2ProgramAfterResponse }
+Add-ProjectPredicate -Name 'b2-program-workspace-unchanged' -Expected 'program.workspace remains the byte-identical raios.agent.v0 RUIP-only view with no source-project fields or execution authority' -Passed $b2ProgramOk -Actual $(if ($b2ProgramOk) { 'program.workspace unchanged and RUIP-only' } else { $b2ProgramDump | ConvertTo-Json -Compress -Depth 16 })
+
+# A fourth boot reopens the same structured store. The job projection correctly
+# resets to idle, while inspect/read reparse the committed source revision.
+Close-SerialTcpConnection
+if (-not $QemuPid) { throw 'project-workspace B2.1a cannot reboot without the third QEMU process' }
+$b2FirstQemuPid = $QemuPid
+Stop-Process -Id $b2FirstQemuPid -Force -ErrorAction Stop
+if ($script:QemuProcess) { try { $script:QemuProcess.WaitForExit(5000) | Out-Null } catch {} }
+if (Get-Process -Id $b2FirstQemuPid -ErrorAction SilentlyContinue) { throw 'project-workspace third QEMU process did not stop before B2.1a reboot' }
+
+$b2RebootLog = Join-Path $RunDir 'serial-project-workspace-b2-agent-answer-reboot.log'
+$b2RebootParams = $runParams.Clone()
+$b2RebootParams.StopExisting = $false
+$b2RebootParams.SerialLog = $b2RebootLog
+$b2RebootOutput = & $RunScript @b2RebootParams
+$SerialLog = $b2RebootLog
+$QemuPid = $null
+foreach ($line in $b2RebootOutput) { if ($line -match '^qemu pid:\s*(\d+)') { $QemuPid = [int]$Matches[1] } }
+if (-not $QemuPid) { throw 'project-workspace B2.1a reboot did not return a QEMU pid' }
+try { $script:QemuProcess = Get-Process -Id $QemuPid -ErrorAction Stop } catch { $script:QemuProcess = $null }
+
+Assert-LogContains -Name 'project-workspace:b2-agent-answer-reboot-serial-console-ready' -Needle 'SERIAL CONSOLE READY' -TimeoutSeconds $TimeoutSeconds
+Send-AgentCommand -Command 'project.workspace' -ExpectedMarker 'RAIOS_AGENT_END project.workspace' -Name 'project-workspace:b2-reboot-workspace'
+$b2RebootWorkspaceResponse = Get-LastAgentResponseJson -Method 'project.workspace'
+$b2RebootWorkspace = $b2RebootWorkspaceResponse.body.result
+Send-AgentCommand -Command "project.inspect $b2ProjectId" -ExpectedMarker 'RAIOS_AGENT_END project.inspect' -Name 'project-workspace:b2-reboot-inspect'
+$b2RebootInspectResponse = Get-LastAgentResponseJson -Method 'project.inspect'
+$b2RebootInspect = $b2RebootInspectResponse.body.result
+$b2RebootReads = @()
+$b2RebootReadResponses = @()
+foreach ($file in $b2Files) {
+    $pathBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($file.path))
+    Send-AgentCommand -Command "project.read $b2ProjectId $pathBase64 0 $($file.bytes.Length)" -ExpectedMarker 'RAIOS_AGENT_END project.read' -Name "project-workspace:b2-reboot-read-$($file.path)"
+    $readResponse = Get-LastAgentResponseJson -Method 'project.read'
+    $b2RebootReadResponses += $readResponse
+    $b2RebootReads += $readResponse.body.result
+}
+$b2RebootReadsExact = $b2RebootReads.Count -eq $b2Reads.Count
+for ($index = 0; $b2RebootReadsExact -and $index -lt $b2Reads.Count; $index++) {
+    $b2RebootReadsExact = (
+        $b2RebootReadResponses[$index].v -eq 'raios.agent.v0' -and
+        (($b2RebootReads[$index] | ConvertTo-Json -Compress -Depth 12) -ceq ($b2Reads[$index] | ConvertTo-Json -Compress -Depth 12))
+    )
+}
+$b2RebootInspectJson = $b2RebootInspect | ConvertTo-Json -Compress -Depth 12
+$b2RebootOk = (
+    $b2RebootWorkspaceResponse.v -eq 'raios.agent.v0' -and
+    $b2RebootWorkspace.method -eq 'project.workspace' -and $b2RebootWorkspace.phase -eq 'idle' -and
+    $b2RebootWorkspace.status -eq 'idle' -and $b2RebootWorkspace.latest_revision_present -eq $false -and
+    $b2RebootWorkspace.job_state_retention -eq 'current_boot_ram_only' -and
+    $b2RebootWorkspace.persistence_posture -eq 'qemu_disposable_structured_store_only' -and
+    $b2RebootInspectResponse.v -eq 'raios.agent.v0' -and
+    $b2RebootInspectJson -ceq $b2InspectJson -and $b2RebootReadsExact
+)
+$b2RebootDump = [ordered]@{ workspace = $b2RebootWorkspaceResponse; inspect_before = $b2InspectResponse; inspect_after = $b2RebootInspectResponse; reads_before = $b2ReadResponses; reads_after = $b2RebootReadResponses }
+Add-ProjectPredicate -Name 'b2-reboot-reparses-source-revision' -Expected 'boot 4 resets only current-boot job state while project.inspect and both full project.read results reparse byte-identical source revision facts and bytes' -Passed $b2RebootOk -Actual $(if ($b2RebootOk) { "reparsed=sha256:$b2RevisionSha256 files=2" } else { $b2RebootDump | ConvertTo-Json -Compress -Depth 16 })
+
+$firstBootContent = Get-Content -LiteralPath $firstBootLog -Raw -ErrorAction Stop
+$rebootContent = Get-Content -LiteralPath $rebootLog -Raw -ErrorAction Stop
+$childRebootContent = Get-Content -LiteralPath $childRebootLog -Raw -ErrorAction Stop
+$b2RebootContent = Get-Content -LiteralPath $b2RebootLog -Raw -ErrorAction Stop
+Set-Content -LiteralPath $combinedLog -Value ($firstBootContent + [Environment]::NewLine + $rebootContent + [Environment]::NewLine + $childRebootContent + [Environment]::NewLine + $b2RebootContent) -Encoding UTF8
+$SerialLog = $combinedLog

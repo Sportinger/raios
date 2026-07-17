@@ -89,9 +89,12 @@ try {
         }
     }
 
+    # Pin cargo to the repo-local home/target for EVERY profile: the owner env
+    # can hijack CARGO_TARGET_DIR to a non-mounted drive (scorefollower F:\),
+    # which makes package-stage0's Join-Path die with a misleading drive error.
+    $env:CARGO_HOME = (Resolve-Path (Join-Path $RepoRoot ".cargo-home")).Path
+    $env:CARGO_TARGET_DIR = Join-Path $RepoRoot "target"
     if ($Profile -in @("genesis-ui", "m6c-promotion", "network-acquisition", "m6d-rollback")) {
-        $env:CARGO_HOME = (Resolve-Path (Join-Path $RepoRoot ".cargo-home")).Path
-        $env:CARGO_TARGET_DIR = Join-Path $RepoRoot "target"
         & cargo build --locked -p ota-tools --bin dev-promotion-signer
         if ($LASTEXITCODE -ne 0) {
             throw "dev-promotion-signer build failed with exit code $LASTEXITCODE"

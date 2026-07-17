@@ -15,3 +15,13 @@
 - `project_overlay.rs` gained the compile-required exhaustive `AgentAnswer` rebuild arm so later W2 edits can verify this base through the same core builder.
 - `note_provider_error` and the private shared `accept_answer` seam are present, but no live provider target, provenance, handler, console route, Genesis UI, build, runtime, approval, install, RECLOG, ARTSTOR executable, or service-inventory path is wired.
 - No Cargo, rustc, build, or test command was run; the orchestrator owns compilation and VM evidence for this worker packet.
+
+## B2.1a harness
+
+- Capability: the focused `project-workspace` profile can now prove the fixed key-free answer becomes one inert, inspectable, content-addressed two-file source revision and survives a structured-store reboot.
+- The seven B2.1a predicates are appended after every existing W1-W3 predicate; no existing predicate or shared helper changed.
+- Host expectations come from the merged fixture bytes and reuse the profile's existing blob/tree/revision SHA-256 helpers with action `agent_answer`; `project.workspace`, `project.inspect`, and full-file `project.read` results are pinned as `raios.agent.v0` `body.result` carve-outs.
+- The fixed-only route is replayed after success. Its exact `agent_answer_request_not_tracked` denial must preserve the parentless revision and cannot form a child; malformed/base64/path/case/quota injection is not exposed by this route and remains covered by core tests until a caller accepts variable answers.
+- Service inventory plus guest RECLOG and ARTSTOR scans are captured before and after the accepted fixture, while every emitted build/load/run/install/promotion field is pinned false and the source-store posture remains `qemu_disposable_structured_store_only`; replay separately pins no storage write.
+- A fourth boot proves `project.inspect` and both full-file reads reparse byte-identically; `project.workspace` correctly resets because job state is `current_boot_ram_only`.
+- The profile is PowerShell 5.1 parser-checked only in this worker packet. No Cargo, build, or VM command was run; focused VM proof remains the orchestrator's responsibility.
