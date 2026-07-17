@@ -1346,6 +1346,7 @@ fn execute(command_line: CommandLine, runtime: ui::RuntimeStatus) {
         "setup" => command_setup_enter(),
         "ask" => command_ask(command_line.arguments_after_command(), runtime),
         "program.ask" => command_program_ask(command_line.arguments_after_command(), runtime),
+        "project.ask" => command_project_ask(command_line.arguments_after_command(), runtime),
         _ => write_output(format_args!(
             "UNKNOWN COMMAND: {}",
             command_line.trimmed_str()
@@ -2147,6 +2148,10 @@ fn submit_chat(prompt: ConsoleLine, runtime: ui::RuntimeStatus) {
 
 fn command_program_ask(request: &str, runtime: ui::RuntimeStatus) {
     submit_program_prompt(request, runtime);
+}
+
+fn command_project_ask(request: &str, runtime: ui::RuntimeStatus) {
+    submit_project_prompt(request, runtime);
 }
 
 fn submit_prompt(prompt: &str, runtime: ui::RuntimeStatus) {
