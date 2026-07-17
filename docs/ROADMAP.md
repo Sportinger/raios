@@ -47,13 +47,12 @@ approval/HID typing+backspace+CLEAR/malformed-atomicity/F12), block close FULL s
 + RECOVERY shadow-20260714-234651-22992.json (152); 581 raios-core + 7 guest host tests orchestrator-verified.
 Live owner demo: calculator delivered/approved/computed 42/F12 in a visible QEMU session.
 Editor gaps stay honest: end-cursor only, ASCII only, no persistence (files stay denied).
-The active vision order overrides the older editor-persistence cursor below: B1.1,
-B1.2a, B1.2b and B1.2c are now closed (2026-07-15). The downloaded candidate runs
-once after a physical Genesis click (B1.2b), then installs durably through W6 on a
-second physical click, auto-reverifies both signatures across reboot, and rolls
-back provably (B1.2c: network-acquisition 244/244, m6d-rollback 271/271,
-persistence-reboot 198/198). Next is B1.3: connect approved RUIP programs to the
-same W6 install path (program persistence).
+The active vision order: B1.1, B1.2a, B1.2b, B1.2c AND B1.3 are all closed — the
+entire B1 acquisition→install→reboot→rollback block is done (2026-07-15..17), for
+both downloaded W7 candidates and owner-approved RUIP programs. Next is the B2
+block (the agent in the system): AI answers become inert workspace source files,
+a proof-carrying agent loop, and the /build slow-lane. The standing parallel
+design/lightness lane (Genesis loop surfaces + present_rect) continues.
 
 **M11-9 DNSPARSE VERIFIED-CLOSED (2026-07-14) — the FOURTH real relocation, plus the
 first hard memory bound for buffer guests.** The DNS query/A-response parser lives in
@@ -167,6 +166,26 @@ projects a fully evaluated receiver preflight with exactly four closed gates
 (M6, M7, provider trust, owner seal). The report contains zero serial candidate
 begin/chunk/finalize commands, so no second byte path was introduced, and no
 service start, install or durable effect occurred.
+**B1.3 RUIP PROGRAM PERSISTENCE VERIFIED-CLOSED — B1 BLOCK CLOSED (2026-07-17).**
+An owner-approved RUIP program (the editor) installs durably through the SAME W6
+machinery (ARTSTOR-backed) and survives reboot: boot-2 autoload re-verifies the
+W6 signature + canonical bytes and restores an INERT Source::Durable workspace
+entry before any command (shell not started; a fresh click then runs it),
+rollback tombstone survives boot 3, negatives fail closed; the signed guest is
+unchanged. `genesis-ui` shadow-20260715-145046-7640.json (282/282 same-boot),
+m6c-promotion 188/188 regression (granted bytes byte-identical), persistence-
+reboot -ProgramPersistence shadow-20260717-114259-19696.json (60/60, three
+boots). Honest scope: persists the program DEFINITION, not typed text. Parallel
+design lane landed too: Genesis approval labels [INSTALL]/[PERSIST]/[RUN]/
+[RUN+PERSIST] + a program-persistence truth line (durable survives reboot vs
+current-boot), and present_rect partial-present (no full-FHD copy on editor
+keystrokes) — serial output + click geometry byte-identical.
+**NEXT BLOCK — B2 (the agent in the system):** B2.1 AI answers become source
+FILES in the workspace (candidates, never directly executable); B2.2 the
+proof-carrying agent loop (test results return to the agent, system stays the
+verifier); B2.3 the /build slow-lane in Genesis (order → visible workspace
+status → approval at the end). Standing parallel design/lightness lane continues.
+
 **B1.2c W6 INSTALL + REBOOT SURVIVAL + ROLLBACK VERIFIED-CLOSED (2026-07-15).**
 Loop stations 7 (install/autoload/reboot) and 8 (rollback) close for W7
 candidates. `network-acquisition` `shadow-20260715-115540-29456.json` (244/244,

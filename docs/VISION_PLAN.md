@@ -56,7 +56,7 @@ Arbeitspakete mehr, sondern **Beispiele für spätere Früchte des Kreislaufs**.
 | 4 | **Bauen AUF DEM GERÄT** | FEHLT — heute extern-versiegelt (W4, zählt als Gerüst, nicht als Erfüllung) |
 | 5 | Nachrechnen (Repro-Doppel-Build, Fingerabdrücke) | Existiert (extern bewiesen); On-Device-Variante folgt mit Station 4 |
 | 6 | Physische Freigabe | Existiert, bewiesen |
-| 7 | Installieren, Autoload, Reboot-Überleben | **Für W7-Kandidaten geschlossen (B1.2c):** zweiter physischer Klick installiert dauerhaft (drei verkettete RECLOG-Rahmen), Boot 2 lädt automatisch mit doppelter Signaturprüfung nach (`shadow-20260715-132111-27848.json`); Anschluss der RUIP-Programme (B1.3) FEHLT |
+| 7 | Installieren, Autoload, Reboot-Überleben | **Geschlossen (B1.2c + B1.3):** W7-Kandidaten (`shadow-20260715-132111-27848.json`) UND RUIP-Programme (Editor durch dieselbe W6-Maschinerie, ARTSTOR-gestützt, Boot-2-Autoload stellt inertes `Source::Durable` vor jedem Befehl wieder her, `shadow-20260717-114259-19696.json` 60/60); nur durable Dokument-Text ist ein späterer Slice |
 | 8 | Automatisches Rollback | **Für W7-Kandidaten geschlossen (B1.2c):** exakte Inventar-Wiederherstellung + verketteter Unpromote, Zweit-Rollback verweigert, Tombstone überlebt Boot 3; alt-bewiesen für Projekt-Apps |
 | 9 | ENDSTUFE: Stationen 2–8 für den KERN selbst (A/B-Slots) | Embryo vorhanden (Core-Policy-Slots A/B); Vollausbau FEHLT |
 
@@ -92,10 +92,18 @@ Arbeitspakete mehr, sondern **Beispiele für spätere Früchte des Kreislaufs**.
     244/244, `shadow-20260715-121316-27156` 271/271,
     `shadow-20260715-132111-27848` 198/198). Das veraltete m6d-rollback-Profil
     ist dabei saniert.
-- B1.3 als Nächstes: RUIP-Programme an W6 anschließen (Programm-Persistenz —
-  kleine, bereits erfragte Schleifen-Station 7).
+- B1.3 **ABGESCHLOSSEN — B1-BLOCK GESCHLOSSEN:** ein freigegebenes
+  RUIP-Programm (der Editor) installiert dauerhaft über dieselbe W6-Maschinerie
+  (ARTSTOR-gestützt, da 176 Byte nicht in einen 4096-Byte-RECLOG-Rahmen passen),
+  Boot 2 prüft W6-Signatur + kanonische Bytes nach und stellt es als inertes
+  `Source::Durable` VOR jedem Befehl wieder her (Shell nicht gestartet; ein
+  frischer Klick rendert dann den Editor), Rollback-Tombstone überlebt Boot 3,
+  Fehlerfälle scheitern geschlossen; der signierte Gast bleibt unverändert
+  (`shadow-20260715-145046-7640` 282/282 same-boot, m6c-Regression 188/188,
+  `shadow-20260717-114259-19696` 60/60 drei Boots). EHRLICHER UMFANG: persistiert
+  die Programm-DEFINITION, nicht den getippten Text (späterer Dokument-Slice).
 
-**B2 — Der Agent im System (mittel):**
+**B2 — Der Agent im System (mittel) — NÄCHSTER BLOCK:**
 - B2.1 KI-Antworten werden Quell-DATEIEN im Workspace (Kandidaten, nie
   direkt ausführbar).
 - B2.2 Agent-Schleife mit Beweisen: Testresultate gehen an den Agenten

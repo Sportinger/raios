@@ -24,6 +24,57 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+B1.3 RUIP PROGRAM PERSISTENCE VERIFIED-CLOSED (2026-07-17) — B1 BLOCK CLOSED:
+an owner-approved RUIP program (the editor) now installs durably through the
+SAME W6 machinery and survives reboot — the persistence the owner asked about
+twice. Loop station 7 closes for programs too (station 8 rollback with it).
+IMPORTANT SCOPE (honest): this persists the program DEFINITION (the app), not
+the text typed into it — ProgramState stays current-boot by design; durable
+documents are a separate later data model. The signed svc.user.shell guest is
+UNCHANGED (RUIP is data); program bytes live in ARTSTOR (a 176-byte editor
+cannot fit one 4096-byte RECLOG frame). Three focused green reports:
+- `genesis-ui` `shadow-20260715-145046-7640.json` — 282/282. Same-boot: editor
+  delivered + physically run, W6 prepare binds ui_program/ruip_canonical +
+  svc.user.shell (no forged W4 receipt), the signed action digest is a separate
+  authority from the RUIP activation, serial install-approve denied, ONE second
+  Genesis click writes three linked RECLOG frames (install-authorization →
+  promote → program-persist) + one ARTSTOR record with the exact 176-byte editor
+  blob, guest_installed=false, no rerun; the calculator/editor byte-compat pins
+  and all B1.2c response shapes stay intact.
+- `m6c-promotion` `shadow-20260715-142131-26876.json` — 188/188 REGRESSION: the
+  PromotionSubject discriminator left the B1.2c granted-candidate durable bytes
+  byte-identical.
+- `persistence-reboot -ProgramPersistence` `shadow-20260717-114259-19696.json` —
+  60/60 across three boots. Boot 1 installs (two distinct physical clicks: the
+  editor run click + the W6 install click). Boot 2 runs program autoload BEFORE
+  any serial command: re-verifies the W6 signature and canonical bytes
+  (Program::parse + canonical round-trip + recomputed identity), restores the
+  editor as an INERT Source::Durable workspace entry (program.workspace reports
+  source/retention durable, 176 bytes, exact hash, no execution authority),
+  shell NOT started; a fresh physical click then runs the restored editor
+  (HID/CLEAR/F12 work); rollback appends a linked unpromote tombstone, removes
+  the durable entry, second apply denied. Boot 3 resolves phase=rolled_back
+  before commands, workspace empty, no shell. Fail-closed negatives: corrupt
+  ARTSTOR blob → blob_hash_mismatch after W6 link verify, tampered persist link
+  → not_installed no-fallback, Safe posture → autoload skipped. Report SHA-256:
+  `9fc542fb4337fc094c039612ff88c11f2e71fa08bfcae70d861190002b4bfed1`.
+Kernel shape: raios-core UiProgramInstallEnvelope + scoped ui_program append
+branch; durable_store PromotionSubject::UiProgram threaded via typed record
+views (granted bytes untouched); a NEW program_persistence module owns the
+install/resolver/autoload/rollback + four PROGRAM_* markers; artifact_store
+persist_ui_program (shared ARTSTOR writer) + a parallel ui_program_persist_records
+scan field (granted scan byte-identical); program.workspace now reports true
+retention (durable vs current_boot_ram_only, was hardcoded). Seven kernel reds
+were all compile-loop module-path/no_std/lifetime fixes (I compile; Codex can't
+build the kernel); ~ten harness reds were all stale/timing/reader expectations
+(frame geometry, the new ui_program scan field, .v vs .schema carve-out, the
+context-specific loader reason, pre-install count 0, and finally the PowerShell
+`-c` multi-line arg mangling of the tamper script) — NEVER a kernel regression;
+the guest behaved correctly in every red. KNOWN HONEST GAPS: recovery
+re-promotion appends a fresh triple per autoload (bounded-storage GC deferred);
+W6 stays dev_key_not_owner_sealed (owner-sealing is a standing trust track);
+durable editor TEXT is a future slice.
+
 B1.2c W6 INSTALL + REBOOT SURVIVAL + ROLLBACK VERIFIED-CLOSED (2026-07-15): the
 same candidate B1.2b downloaded and physically activated now installs durably
 through the EXISTING W6 machinery, survives reboot by automatic re-verification,
