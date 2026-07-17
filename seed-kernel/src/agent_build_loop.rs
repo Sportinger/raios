@@ -10,7 +10,7 @@ use raios_core::{
 use sha2::{Digest, Sha256};
 use spin::Mutex;
 
-use crate::{module_candidate_channel::decode_base64_chunk, project_workspace};
+use crate::{module_candidate_channel::decode_base64_chunk, project_workspace, provider};
 
 const PROJECT_ID_DOMAIN: &[u8] = b"raios.agent_project_id.v1";
 const FEEDBACK_REQUEST_DOMAIN: &[u8] = b"raios.fixture_feedback_request.v1";
@@ -204,12 +204,14 @@ struct AnswerProvenance {
     answer_origin: &'static str,
     provider_trust_positive: bool,
     test_infrastructure: bool,
+    development_tls_bypass: bool,
 }
 
 const TEST_FIXTURE_PROVENANCE: AnswerProvenance = AnswerProvenance {
     answer_origin: "test_fixture",
     provider_trust_positive: false,
     test_infrastructure: true,
+    development_tls_bypass: false,
 };
 
 pub(crate) struct AnswerFile {
@@ -374,6 +376,27 @@ pub(crate) fn parse_answer(answer: &str) -> Result<Vec<AnswerFile>, &'static str
 
 pub(crate) fn media_type_for_path(path: &str) -> Result<&'static str, &'static str> {
     agent_source_media_type(path).map_err(|error| error.reason())
+}
+
+pub(crate) fn accept_provider_answer(
+    request_id: u32,
+    answer: &str,
+    provenance: provider::AnswerProvenance,
+) -> AnswerOutcome {
+    let hashes_bound = provenance.request_body_sha256 != [0; 32]
+        && provenance.request_envelope_sha256 != [0; 32];
+    accept_answer(
+        request_id,
+        answer,
+        AnswerProvenance {
+            answer_origin: "live",
+            provider_trust_positive: hashes_bound
+                && provenance.is_positive_pinned_non_bypass(),
+            test_infrastructure: false,
+            development_tls_bypass: provenance.development_tls_bypass,
+        },
+        None,
+    )
 }
 
 pub(crate) fn accept_test_fixture() -> AnswerOutcome {
@@ -566,6 +589,27 @@ fn accept_answer(
             }
         }
     };
+
+    if provenance.answer_origin == "live" {
+        if provenance.development_tls_bypass {
+            return reject_consumed(
+                "agent_answer_provider_trust_bypassed",
+                false,
+                answer_sha256,
+                answer_byte_len,
+                provenance,
+            );
+        }
+        if !provenance.provider_trust_positive {
+            return reject_consumed(
+                "agent_answer_provider_trust_not_positive",
+                false,
+                answer_sha256,
+                answer_byte_len,
+                provenance,
+            );
+        }
+    }
 
     let files = match parse_answer(answer) {
         Ok(files) => files,

@@ -469,7 +469,7 @@ impl PeriodicTasks {
                     if let Some(event) = provider::poll() {
                         let _route = event.route;
                         match event.kind {
-                            provider::EventKind::Answer(answer) => match event.target {
+                            provider::EventKind::Answer(answer, provenance) => match event.target {
                                 provider::RequestTarget::Conversation => {
                                     console::write_provider_answer(answer.as_str());
                                 }
@@ -478,10 +478,24 @@ impl PeriodicTasks {
                                         program_workspace::accept_provider_answer(event.id, answer);
                                     console::write_program_outcome(event.id, outcome);
                                 }
+                                provider::RequestTarget::ProjectWorkspace => {
+                                    let outcome = agent_build_loop::accept_provider_answer(
+                                        event.id,
+                                        answer.as_str(),
+                                        provenance,
+                                    );
+                                    console::write_project_outcome(event.id, outcome);
+                                }
                             },
                             provider::EventKind::Error(error) => {
-                                if event.target == provider::RequestTarget::ProgramWorkspace {
-                                    program_workspace::note_provider_error(event.id);
+                                match event.target {
+                                    provider::RequestTarget::Conversation => {}
+                                    provider::RequestTarget::ProgramWorkspace => {
+                                        program_workspace::note_provider_error(event.id);
+                                    }
+                                    provider::RequestTarget::ProjectWorkspace => {
+                                        agent_build_loop::note_provider_error(event.id);
+                                    }
                                 }
                                 console::write_event(format_args!("{}", error));
                             }

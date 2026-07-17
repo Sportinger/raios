@@ -45,12 +45,50 @@ impl<'a> AgentRequest<'a> {
             target: RequestTarget::ProgramWorkspace,
         }
     }
+
+    pub(crate) fn project(prompt: &'a str) -> Self {
+        Self {
+            prompt,
+            model: None,
+            max_output: Some(openai::MAX_OUTPUT_TOKENS),
+            target: RequestTarget::ProjectWorkspace,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum RequestTarget {
     Conversation,
     ProgramWorkspace,
+    ProjectWorkspace,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct AnswerProvenance {
+    pub(crate) request_body_sha256: [u8; 32],
+    pub(crate) request_envelope_sha256: [u8; 32],
+    pub(crate) observed_verifier_id: &'static str,
+    pub(crate) observed_verifier_state: provider_trust::TrustState,
+    pub(crate) observed_verifier_outcome: &'static str,
+    pub(crate) chain_policy: &'static str,
+    pub(crate) time_policy: &'static str,
+    pub(crate) development_tls_bypass: bool,
+}
+
+impl AnswerProvenance {
+    pub(crate) fn is_positive_pinned_non_bypass(self) -> bool {
+        let expected = provider_trust::OPENAI_PINNED_TLS_VERIFIER_METADATA;
+        !self.development_tls_bypass
+            && matches!(
+                self.observed_verifier_state,
+                provider_trust::TrustState::PinnedCertVerified
+                    | provider_trust::TrustState::PinnedSpkiVerified
+            )
+            && self.observed_verifier_id == expected.id
+            && self.observed_verifier_outcome == "verified"
+            && self.chain_policy == expected.chain_policy
+            && self.time_policy == expected.time_policy
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -69,15 +107,15 @@ pub enum SubmitError {
     Busy { route: Route, id: u32 },
 }
 
-pub struct Event {
-    pub route: Route,
-    pub id: u32,
-    pub target: RequestTarget,
-    pub kind: EventKind,
+pub(crate) struct Event {
+    pub(crate) route: Route,
+    pub(crate) id: u32,
+    pub(crate) target: RequestTarget,
+    pub(crate) kind: EventKind,
 }
 
-pub enum EventKind {
-    Answer(String),
+pub(crate) enum EventKind {
+    Answer(String, AnswerProvenance),
     Error(String),
 }
 
@@ -197,10 +235,12 @@ pub fn submit(
     }
 }
 
-pub fn poll() -> Option<Event> {
+pub(crate) fn poll() -> Option<Event> {
     openai::poll().map(|event| {
         let kind = match event.kind {
-            openai::EventKind::Answer(answer) => EventKind::Answer(answer),
+            openai::EventKind::Answer(answer, provenance) => {
+                EventKind::Answer(answer, provenance)
+            }
             openai::EventKind::Error(error) => EventKind::Error(String::from(error.as_str())),
         };
         Event {

@@ -149,7 +149,7 @@ pub(crate) struct Event {
 }
 
 pub(crate) enum EventKind {
-    Answer(String),
+    Answer(String, provider::AnswerProvenance),
     Error(FixedLine),
 }
 
@@ -392,7 +392,7 @@ pub fn poll() -> Option<Event> {
                         pending.transport_lease = None;
                     }
                     match result {
-                        HttpsResult::Answer(answer) => {
+                        HttpsResult::Answer(answer, provenance) => {
                             state
                                 .last_event
                                 .set_from_bytes(b"OPENAI DIRECT: RESPONSE COMPLETED");
@@ -400,7 +400,7 @@ pub fn poll() -> Option<Event> {
                             Some(Event {
                                 id,
                                 target,
-                                kind: EventKind::Answer(answer),
+                                kind: EventKind::Answer(answer, provenance),
                             })
                         }
                         HttpsResult::Status(status, detail) => {
@@ -542,6 +542,7 @@ fn build_provider_request_envelope(
     let source_method = match target {
         provider::RequestTarget::Conversation => "ask",
         provider::RequestTarget::ProgramWorkspace => "program.ask",
+        provider::RequestTarget::ProjectWorkspace => "project.ask",
     };
     let envelope_hash = provider_request_envelope_hash(
         request_id,
@@ -1271,7 +1272,7 @@ fn write_raw_context_hashes(context: event_log::ProviderContextHashes) {
 }
 
 enum HttpsResult {
-    Answer(String),
+    Answer(String, provider::AnswerProvenance),
     Status(u16, FixedLine),
     Error(&'static [u8]),
 }
@@ -1441,7 +1442,26 @@ fn perform_https_request(
     let Some(answer) = extract_output_text(&body) else {
         return HttpsResult::Error(b"OPENAI DIRECT RESPONSE PARSE FAILED");
     };
-    HttpsResult::Answer(answer)
+    HttpsResult::Answer(
+        answer,
+        provider_answer_provenance(envelope, provider_trust::snapshot()),
+    )
+}
+
+fn provider_answer_provenance(
+    envelope: ProviderRequestEnvelope,
+    trust: provider_trust::Snapshot,
+) -> provider::AnswerProvenance {
+    provider::AnswerProvenance {
+        request_body_sha256: envelope.request_body_hash,
+        request_envelope_sha256: envelope.envelope_hash,
+        observed_verifier_id: trust.verifier.id,
+        observed_verifier_state: trust.state,
+        observed_verifier_outcome: trust.verifier_decision.outcome,
+        chain_policy: trust.verifier.chain_policy,
+        time_policy: trust.verifier.time_policy,
+        development_tls_bypass: trust.development_bypass,
+    }
 }
 
 fn build_http_preamble() -> String {

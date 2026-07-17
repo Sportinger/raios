@@ -5,7 +5,7 @@ use core::str;
 use spin::Mutex;
 
 use crate::{
-    agent_protocol,
+    agent_build_loop, agent_protocol,
     agent_protocol_support::{
         begin_response, end_response, json_event_id, json_opt_str, json_str, method_eq,
         method_head_eq, raw, raw_bool, raw_line,
@@ -1153,6 +1153,49 @@ pub fn write_program_outcome(request_id: u32, outcome: program_workspace::Intake
     state.push_chat(ChatSpeaker::System, line);
 }
 
+pub(crate) fn write_project_outcome(request_id: u32, outcome: agent_build_loop::AnswerOutcome) {
+    let snapshot = &outcome.snapshot;
+    let mut line = ConsoleLine::empty();
+    let _ = write!(
+        line,
+        "PROJECT SOURCE {} request={} project=",
+        if outcome.accepted { "READY" } else { "REJECTED" },
+        request_id
+    );
+    match snapshot.project_id {
+        Some(project_id) => {
+            for byte in project_id {
+                let _ = write!(line, "{:02x}", byte);
+            }
+        }
+        None => {
+            let _ = line.write_str("none");
+        }
+    }
+    let _ = line.write_str(" revision=");
+    match snapshot.latest_revision.as_ref() {
+        Some(revision) => {
+            let _ = line.write_str("sha256:");
+            for byte in revision.revision_sha256 {
+                let _ = write!(line, "{:02x}", byte);
+            }
+            let _ = write!(line, " files={}", revision.entries.len());
+        }
+        None => {
+            let _ = line.write_str("none files=0");
+        }
+    }
+    if outcome.accepted {
+        let _ = line.write_str(" inert");
+    } else {
+        let _ = write!(line, " reason={}", outcome.reason);
+    }
+    serial::write_line(line.as_str());
+    let mut state = CONSOLE.lock();
+    state.push_line(line);
+    state.push_chat(ChatSpeaker::System, line);
+}
+
 fn push_chat_chunks(state: &mut ConsoleState, speaker: ChatSpeaker, text: &str) {
     let mut line = ConsoleLine::empty();
     for ch in text.chars() {
@@ -2086,8 +2129,12 @@ fn command_ask(prompt: &str, runtime: ui::RuntimeStatus) {
 fn submit_chat(prompt: ConsoleLine, runtime: ui::RuntimeStatus) {
     let prompt = prompt.trimmed_str();
     if prompt == "/build" {
-        submit_program_prompt("", runtime);
+        submit_project_prompt("", runtime);
     } else if let Some(request) = prompt.strip_prefix("/build ") {
+        submit_project_prompt(request.trim(), runtime);
+    } else if prompt == "/program" {
+        submit_program_prompt("", runtime);
+    } else if let Some(request) = prompt.strip_prefix("/program ") {
         submit_program_prompt(request.trim(), runtime);
     } else if prompt == "/revise" {
         submit_program_revision("", runtime);
@@ -2179,6 +2226,51 @@ fn submit_program_prompt(request: &str, runtime: ui::RuntimeStatus) {
                 "PROGRAM DRAFT REQUEST {} STARTED",
                 submitted.id
             ));
+        }
+        Err(error) => write_program_submit_error(error),
+    }
+}
+
+fn submit_project_prompt(request: &str, runtime: ui::RuntimeStatus) {
+    let request = request.trim();
+    if request.is_empty() {
+        push_chat_args(
+            ChatSpeaker::System,
+            format_args!("BUILD REQUIRES A PROJECT DESCRIPTION"),
+        );
+        write_output(format_args!("BUILD REQUIRES A PROJECT DESCRIPTION"));
+        return;
+    }
+
+    let prompt = project_authoring_prompt(request);
+    match provider::submit(provider::AgentRequest::project(prompt.as_str()), runtime) {
+        Ok(submitted) => {
+            push_chat_str(ChatSpeaker::User, request);
+            match agent_build_loop::note_provider_build_request(submitted.id, request) {
+                Ok(()) => {
+                    push_chat_args(
+                        ChatSpeaker::System,
+                        format_args!("PROJECT SOURCE REQUEST {} STARTED", submitted.id),
+                    );
+                    write_output(format_args!(
+                        "PROJECT SOURCE REQUEST {} STARTED",
+                        submitted.id
+                    ));
+                }
+                Err(reason) => {
+                    push_chat_args(
+                        ChatSpeaker::System,
+                        format_args!(
+                            "PROJECT SOURCE REQUEST {} TRACKING DENIED: {}",
+                            submitted.id, reason
+                        ),
+                    );
+                    write_output(format_args!(
+                        "PROJECT SOURCE REQUEST {} TRACKING DENIED: {}",
+                        submitted.id, reason
+                    ));
+                }
+            }
         }
         Err(error) => write_program_submit_error(error),
     }
@@ -2289,6 +2381,24 @@ Prefer the smallest program that satisfies the request and whose canonical form 
 Use nonzero rectangles, nonoverlapping buttons, labels of at most 64 UTF-8 bytes, and simple coordinates within 0..900 by 0..440. \
 Quoted labels may escape only backslash and quote. The final line must be end. \
 This is deterministic UI data only: no source code, markdown, tools, network, files, persistence, or capabilities."
+    );
+    prompt
+}
+
+fn project_authoring_prompt(request: &str) -> String {
+    let mut prompt = String::new();
+    let _ = write!(
+        prompt,
+        "Create one complete, minimal Rust source project for this owner request: {request}\n\
+Return exactly one RAIOS_SOURCE_FILES_V1 response and nothing else:\n\
+RAIOS_SOURCE_FILES_V1\n\
+file <base64-utf8-path> <base64-utf8-content>\n\
+end\n\
+Repeat the file line for every source file. Use standard base64 with no spaces inside either value. \
+Use only validated relative paths ending in .rs or .toml, plus the exact root path Cargo.lock when needed. \
+Include at least one file, keep every decoded file UTF-8, and keep the complete decoded source set small. \
+Do not add markdown, comments outside encoded file content, classification, media types, byte lengths, hashes, project identity, capabilities, trust claims, test results, or pass/fail fields. \
+The final line must be exactly end with no trailing content."
     );
     prompt
 }
