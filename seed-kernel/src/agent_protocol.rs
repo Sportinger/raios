@@ -19,7 +19,9 @@ pub(crate) mod recovery_lifeline;
 mod repromotion;
 
 use crate::{
-    agent_protocol_build_assemble::emit_build_assemble_probe,
+    agent_protocol_build_assemble::{
+        emit_build_assemble_probe, emit_build_assemble_revision, emit_build_run_prepare,
+    },
     agent_protocol_distribution::{
         emit_distribution_provenance_diagnostic, emit_distribution_provenance_diagnostic_selftest,
     },
@@ -444,6 +446,8 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("wasm.certspki_probe", Exact, [], [route!("wasm.certspki_probe")], MethodAction::Read0(emit_wasm_certspki_probe)),
     method!("wasm.dnsparse_probe", Exact, [], [route!("wasm.dnsparse_probe")], MethodAction::Read0(emit_wasm_dnsparse_probe)),
     method!("build.assemble_probe", Exact, [], [route!("build.assemble_probe")], MethodAction::Read0(emit_build_assemble_probe)),
+    method!("build.assemble_revision", Exact, [], [route!("build.assemble_revision")], MethodAction::Read0(emit_build_assemble_revision)),
+    method!("build.run_prepare", Exact, [], [route!("build.run_prepare")], MethodAction::Read0(emit_build_run_prepare)),
     method!("wasm.beyond_env_lifecycle_probe", Head, [], [route!("wasm.beyond_env_lifecycle_probe")], MethodAction::ReadMethod(emit_wasm_beyond_env_lifecycle_probe)),
     method!("wasm.crypto_import_probe", Exact, [], [route!("wasm.crypto_import_probe")], MethodAction::Read0(emit_wasm_crypto_import_probe)),
     method!("wasm.acquire_import_probe", Exact, [], [route!("wasm.acquire_import_probe")], MethodAction::Read0(emit_wasm_acquire_import_probe)),

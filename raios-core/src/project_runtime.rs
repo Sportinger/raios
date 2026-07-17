@@ -79,11 +79,17 @@ pub fn workspace_import_list_sha256() -> [u8; 32] {
 pub fn build_workspace_pointer_approval(
     binding: &WorkspaceRunBinding,
 ) -> WorkspacePhysicalApproval {
+    build_workspace_pointer_approval_from_challenge(binding.approval_challenge_sha256)
+}
+
+pub fn build_workspace_pointer_approval_from_challenge(
+    approval_challenge_sha256: [u8; 32],
+) -> WorkspacePhysicalApproval {
     let mut bytes = alloc::vec::Vec::from(APPROVAL_DOMAIN);
-    bytes.extend_from_slice(&binding.approval_challenge_sha256);
+    bytes.extend_from_slice(&approval_challenge_sha256);
     bytes.extend_from_slice(WORKSPACE_PHYSICAL_APPROVAL_SOURCE.as_bytes());
     WorkspacePhysicalApproval {
-        challenge_sha256: binding.approval_challenge_sha256,
+        challenge_sha256: approval_challenge_sha256,
         source: WORKSPACE_PHYSICAL_APPROVAL_SOURCE,
         approval_sha256: sha256_bytes(&bytes),
     }

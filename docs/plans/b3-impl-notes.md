@@ -141,3 +141,63 @@ packet adds that one manifest line. There are no other deviations.
 - Next (packet 1c): the focused harness profile per b3-plan section 6 —
   B2-revision-bound input, two fresh-store builds, W5 physical-approval run of
   the produced module, negative table.
+
+## B3A-1c revision->W5 slice
+
+Capability: `build.assemble_revision` reads the current exact B2 revision's
+root `main.rwir`, runs the signed assembler twice in independent same-boot
+guest instances, independently reassembles and validates the bytes in the
+kernel, and retains the byte-identical zero-import output inert in current-boot
+RAM; `build.run_prepare` then places those exact bytes behind the existing W5
+Genesis pointer approval and the physical click runs them once in the existing
+workspace sandbox.
+
+The agent-source mapper admits exactly the root path `main.rwir` as
+`text/raios-wasm-ir`; agent answers still force `local_only`, and all existing
+B2 path, UTF-8, identity, file-count, file-size, and total-size rules are
+unchanged. The kernel-side mapper remains the existing
+`agent_build_loop::media_type_for_path` delegate to that shared core function,
+so a second hand-maintained path table was not added.
+
+`build.assemble_revision` takes no serial arguments. It requires the current
+agent-loop revision and the hash-checked `project_store` readback to agree, and
+requires that revision to contain exactly one `main.rwir`, with the exact media
+type and `local_only` classification; any other revision files remain covered
+by the bound tree hash but are not assembler input. Before assembly it binds
+`project_id`, `revision_sha256`, `tree_sha256`, `input_byte_len`, and
+`input_sha256`. Its `raios.agent.v0` `body.result` reports those bindings, the
+signed assembler artifact/descriptor/signature hashes, authorized import-list
+hash and linked counts, both guest-run hashes, the independent kernel hash,
+byte identity, wasmi validity, zero imports, the exact `() -> i32`
+`raios_service_main` export, and the complete inert-effect set from
+`build.assemble_probe`. Success replaces the RAM-only produced value; all
+denials preserve the prior value. Named denials include missing/stale or
+unreadable current revision, invalid `main.rwir` count/binding/hash, the exact
+assembler parse reason, signed-guest/run failure, guest/kernel mismatch,
+invalid/importing/wrong-entrypoint output, and second-build mismatch.
+
+`build.run_prepare` also takes no arguments. It freezes the produced output,
+revision/tree/input hashes, input/output lengths, empty-import-list hash,
+`raios_service_main`, and the existing workspace envelope (4 MiB, 250,000
+fuel, one instance, one memory, zero tables) into a new W5 challenge inside
+`workspace_candidate_service`. `project.run_approve` remains the serial denial
+route with the unchanged reason
+`workspace_physical_pointer_approval_required`; only the existing core-owned
+Genesis pointer path consumes the pending challenge. The click rechecks that
+the B2 revision is still current, revalidates the retained output/hash, import
+count, exact export, and challenge, then executes through
+`execute_workspace_no_import_candidate`. The activation marker and a later
+`build.run_prepare` status-denial report expose the run outcome, fuel, and i32
+return bits (42 for the acceptance IR). A consumed preview cannot run again;
+serial start before approval denies, and a stopped assembled run requires a
+fresh prepare rather than restarting.
+
+Honest double-build scope: the two builds use two independent engine/module/
+store/linker/instance constructions in one boot. They are fresh guest
+instantiations, not a cross-reboot durable fresh-store proof; that later slice
+remains explicitly false in the response. No W6 preview, install, promotion,
+RECLOG/ARTSTOR write, persistence, autoload, network, secret, rollback, provider,
+or alternate loader path was added. Minimal W5-only touches were the alternate
+assembled binding in `workspace_candidate_service` and a core helper that
+derives the existing pointer approval from an already-computed challenge; no
+Genesis input/draw code changed.

@@ -245,6 +245,8 @@ pub fn agent_source_media_type(path: &str) -> Result<&'static str, WorkspaceErro
     validate_path(path)?;
     if path.ends_with(".rs") {
         Ok("text/rust")
+    } else if path == "main.rwir" {
+        Ok("text/raios-wasm-ir")
     } else if path.ends_with(".toml") || path == "Cargo.lock" {
         Ok("text/toml")
     } else {
@@ -788,6 +790,14 @@ mod tests {
         assert_eq!(built.revision.entries[1].path, "src/main.rs");
         assert_eq!(built.revision.entries[1].media_type, "text/rust");
         assert_eq!(agent_source_media_type("Cargo.lock"), Ok("text/toml"));
+        assert_eq!(
+            agent_source_media_type("main.rwir"),
+            Ok("text/raios-wasm-ir")
+        );
+        assert_eq!(
+            agent_source_media_type("src/main.rwir"),
+            Err(WorkspaceError::UnsupportedPathType)
+        );
         assert!(built
             .revision
             .entries
