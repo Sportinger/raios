@@ -15,7 +15,7 @@ vocabulary).
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-15. The owner's all-over vision map lives in
+Last updated: 2026-07-17. The owner's all-over vision map lives in
 `docs/VISION_PLAN.md` (v2: the PRODUCT is the minimal base + the closed
 self-build loop with ON-DEVICE compilation; features like desktop/GPU are
 later fruits OF the loop, not work packages; three binding owner decisions
@@ -49,10 +49,15 @@ Live owner demo: calculator delivered/approved/computed 42/F12 in a visible QEMU
 Editor gaps stay honest: end-cursor only, ASCII only, no persistence (files stay denied).
 The active vision order: B1.1, B1.2a, B1.2b, B1.2c AND B1.3 are all closed — the
 entire B1 acquisition→install→reboot→rollback block is done (2026-07-15..17), for
-both downloaded W7 candidates and owner-approved RUIP programs. Next is the B2
-block (the agent in the system): AI answers become inert workspace source files,
-a proof-carrying agent loop, and the /build slow-lane. The standing parallel
-design/lightness lane (Genesis loop surfaces + present_rect) continues.
+both downloaded W7 candidates and owner-approved RUIP programs. B2.1a and the
+key-free B2.2a proof loop are now verified: an inert source revision can fail a
+system-owned preflight, receive a four-field classified feedback packet, become
+an exact child, and pass the same preflight with both revisions readable
+(`project-workspace` `shadow-20260717-142445-27836.json`, 654/654). Next is
+B2.1b: connect the real provider target and Genesis `/build` source status while
+keeping `/program` as the explicit RUIP fast lane; live closure still requires a
+usable key/network/pinned-trust response. The standing design/lightness lane
+continues.
 
 **M11-9 DNSPARSE VERIFIED-CLOSED (2026-07-14) — the FOURTH real relocation, plus the
 first hard memory bound for buffer guests.** The DNS query/A-response parser lives in
@@ -180,11 +185,15 @@ design lane landed too: Genesis approval labels [INSTALL]/[PERSIST]/[RUN]/
 [RUN+PERSIST] + a program-persistence truth line (durable survives reboot vs
 current-boot), and present_rect partial-present (no full-FHD copy on editor
 keystrokes) — serial output + click geometry byte-identical.
-**NEXT BLOCK — B2 (the agent in the system):** B2.1 AI answers become source
-FILES in the workspace (candidates, never directly executable); B2.2 the
-proof-carrying agent loop (test results return to the agent, system stays the
-verifier); B2.3 the /build slow-lane in Genesis (order → visible workspace
-status → approval at the end). Standing parallel design/lightness lane continues.
+**B2 ACTIVE — B2.1a + B2.2a VERIFIED (2026-07-17):** a fixed key-free agent
+answer becomes inert source files, and one system-owned preflight failure now
+drives an exact immutable child that re-passes without build/run/install/export
+authority (`project-workspace` `shadow-20260717-142445-27836.json`, 654/654).
+**NEXT DELIBERATE SLICE — B2.1b:** real-provider `ProjectWorkspace` routing,
+Genesis `/build` source status, and explicit `/program` RUIP compatibility.
+Implementation may land key-free, but the live AI path is not proven closed
+without the existing key/network/pinned-trust preconditions. Scoped provider
+feedback export remains the next B2.2 boundary; B2.3 is the visible slow lane.
 
 **B1.2c W6 INSTALL + REBOOT SURVIVAL + ROLLBACK VERIFIED-CLOSED (2026-07-15).**
 Loop stations 7 (install/autoload/reboot) and 8 (rollback) close for W7

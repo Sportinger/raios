@@ -1,48 +1,41 @@
 # Project Status
 
-B2.2a THIRD VM ATTEMPT CLASSIFICATION (2026-07-17, before any retry): focused
-`project-workspace` report `shadow-20260717-135820-21776.json` failed predicate
-`project-workspace:w3_file_hash_mismatch:chunk` after 471 green predicates.
-The UART proves the unchanged `project.dependency_chunk` command reached the
-guest, but no response marker followed. Verdict: **guest-behavior**, another
-suspected intermittent structured-store mutation stall in the same class as
-the preceding `project.import_commit` stall, now on the second boot and a
-different store operation. B2.2a routes had not run yet. Do not blind-retry;
-inspect the documented layout-sensitive/store stall class first.
+B2.2a VERIFIED (2026-07-17): focused `project-workspace` report
+`shadow-20260717-142445-27836.json` passed 654/654 predicates in 715 s; report
+SHA-256 `da93b159bdf356faef2bdb80e333538dce54c9bba9dc5b60e391cfa3751c12ea`.
+The first key-free proof-carrying iteration is real: system-owned source
+preflight rejects revision 1 (the B2.1a fixture without `Cargo.lock`) as
+`build_cargo_lock_missing`; a bounded `local_only` feedback packet contains
+only check id, revision hash, tree hash, and reason; an exact child of revision
+1 adds `Cargo.lock` and re-passes as `source_preflight_ok`. Revision 1 is fully
+reparsed and hash-checked before the child write; a replay/wrong-parent child
+is denied before storage, and the loop compiles, tests, runs, loads, installs,
+promotes, and exports nothing.
+This is a deterministic source-shape preflight, not a compiler or test runner;
+on-device compilation remains B3 and live scoped feedback export remains a
+B2.2 follow-up.
 
-B2.2a SECOND VM ATTEMPT CLASSIFICATION (2026-07-17, before retry): focused
-`project-workspace` report `shadow-20260717-135324-17428.json` failed predicate
-`project-workspace:w2b_stale_control:commit`. The UART proves the unchanged W2
-`project.import_commit` command reached the guest (`> project.import_commit`),
-but no response begin/end marker followed before the semantic wait expired.
-Verdict: **guest-behavior**, a suspected intermittent structured-store commit
-stall, not host transport and not a B2.2a response mismatch. The preceding 193
-predicates were green. Retry is permitted unchanged; if it passes, retain this
-as a suspected intermittent guest bug per the failure-classification rule.
+B2.2a FAILED-RUN ROOT CLASSIFICATION (2026-07-17, corrected after timeline
+correlation): all four failed attempts were **host-transport/orchestration**,
+not guest behavior. Reports `shadow-20260717-134940-30228.json`,
+`shadow-20260717-135324-17428.json`, `shadow-20260717-135530-29560.json`, and
+`shadow-20260717-135820-21776.json` formed one overlapping chain: each newer run
+started before the preceding report finished; every report records TCP port
+4565 plus `-StopExisting`. The newer harness therefore terminated/replaced the
+older QEMU on the same fixed port. The observed signatures follow directly:
+remote-host TCP close in the first run, then marker waits against replaced
+guests at `w2b_stale_control:commit`, `w3_no_lock_source:commit`, and
+`w3_file_hash_mismatch:chunk`. The next non-overlapping run passed all those
+unchanged paths and every B2.2a predicate. Root repair: the shadow harness now
+owns a named per-port mutex and rejects a concurrent same-port smoke before
+packaging/QEMU startup, so `-StopExisting` cannot kill another active smoke.
 
-B2.2a VERIFIED (2026-07-17): `project-workspace` `shadow-20260717-140650-13400.json`
-654/654 (718 s), report SHA-256
-`0d25b6618da3536bafb8d252f56b635ff98dd3af27d287d637ffde56ef661889`. Proves the
-first proof-carrying iteration key-free: system-owned source preflight fails
-revision 1 (the B2.1a fixture, no Cargo.lock) with `build_cargo_lock_missing`, a
-bounded classified feedback packet cites only check id/revision/tree/reason (no
-source/secret/log bytes), a fixture child revision (exact parent = revision 1)
-adds Cargo.lock and re-passes `source_preflight_ok`, revision 1 stays readable,
-a wrong-parent child is denied, and the whole loop builds/runs/installs nothing.
-NOT a compiler/test — a deterministic source-shape preflight (on-device compile
-is B3); live scoped feedback export stays deferred (B2.2 partial).
-TWO PRIOR ATTEMPTS CLASSIFIED, both non-guest: (1) an outer 120 s command-runner
-timeout killed a run mid-flight with no report; (2) `shadow-20260717-135530-29560`
-failed ONLY the pre-existing `w3_no_lock_source:commit` marker-wait — the
-expected `RAIOS_AGENT_END project.import_commit` WAS in the serial log (the
-denial path closes it cleanly), it just landed after the wait deadline under the
-now-large profile's load (628+ predicates, ~12-14 min). Verdict:
-**host-timing**, not a kernel regression — the B2.2a core changes are additive
-and the one store change is behaviour-preserving for the owner path; the
-identical rerun passed w3 and every B2.2a predicate. NOTE: the project-workspace
-profile is now big enough that a single-marker-wait timing flake is likely per
-run — a rerun (not a code change) is the correct response, per the transport-flake
-rule.
+END-OF-SESSION RED-GATE NOTE (2026-07-17): this session repaired the host
+orchestration failure above and closed B2.2a with its mandatory focused profile.
+Per the owner's aggressive-fast cadence, `full` was not repeated for this
+sub-slice; the latest block-close full report remains
+`shadow-20260714-234313-21680.json`, passed 2,685 predicates, while the changed
+workspace/parent-readback path is covered by the newer focused 654/654 report.
 
 Development memory for future agents: build normal changes in the repo with
 real code, tests, VM reports, and docs; do not fake the finished raiOS memory

@@ -582,6 +582,15 @@ fn accept_answer(
             bytes: &file.content,
         })
         .collect();
+    let parent_revision_readback_verified = match expected_parent {
+        Some(parent) => match project_workspace::revision_readback_exact(parent) {
+            Ok(()) => true,
+            Err(reason) => {
+                return reject_consumed(reason, false, answer_sha256, answer_byte_len, provenance)
+            }
+        },
+        None => false,
+    };
     let revision = match project_workspace::commit_agent_answer(
         request.project_id,
         expected_parent.map(|revision| revision.revision_sha256),
@@ -592,11 +601,6 @@ fn accept_answer(
             return reject_consumed(reason, true, answer_sha256, answer_byte_len, provenance)
         }
     };
-    let parent_revision_readback_verified = expected_parent
-        .map(project_workspace::revision_readback_exact)
-        .transpose()
-        .is_ok()
-        && expected_parent.is_some();
 
     let mut state = STATE.lock();
     state.latest = Some(AcceptedAnswer {

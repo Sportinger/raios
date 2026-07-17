@@ -1,6 +1,6 @@
 # raiOS Vision-Plan (All-over-Plan)
 
-Stand: 2026-07-15 (v2 — nach Owner-Korrektur; v1 hatte fälschlich fertige
+Stand: 2026-07-17 (v2 — nach Owner-Korrektur; v1 hatte fälschlich fertige
 Features wie Desktop/GPU als Bauaufträge geführt). Owner-Dokument, deutsch.
 Der operative Tages-Cursor bleibt in `docs/ROADMAP.md`.
 
@@ -50,9 +50,9 @@ Arbeitspakete mehr, sondern **Beispiele für spätere Früchte des Kreislaufs**.
 
 | # | Station | Status heute |
 |---|---------|--------------|
-| 1 | Owner fragt in Genesis („bau mir …") | Schnellspur (RUIP) existiert; Slow-Lane-Auftrag → Workspace FEHLT |
-| 2 | Agent schreibt Quellcode ins System (W1-Workspace, inert) | Workspace existiert (seriell/Owner-Pfad); KI-Anbindung FEHLT |
-| 3 | Beschaffung (Abhängigkeiten, Quarantäne) | W7 live bewiesen; B1.2a bindet Download und gastgeprüfte M12-Empfängeridentität exakt (`shadow-20260715-021710-30228.json`); B1.2b: der Kandidat läuft GENAU EINMAL erst nach physischem Genesis-Klick, veraltete Vorschau wird beim Klick verweigert (`shadow-20260715-090227-11004.json` 188/188 seriell, `shadow-20260715-092637-10088.json` 227/227 W7); W6-Install (B1.2c) FEHLT; Produktions-Registry-Vertrauen später |
+| 1 | Owner fragt in Genesis („bau mir …") | Schnellspur (RUIP) existiert; B2.1b Slow-Lane-Auftrag + sichtbarer Source-Status sind der nächste Slice |
+| 2 | Agent schreibt Quellcode ins System (W1-Workspace, inert) | **Key-free Grundlage bewiesen:** B2.1a legt die Antwort als inerte Source-Revision ab; B2.2a führt einen systemeigenen Preflight-Fehler über ein vierteiliges klassifiziertes Feedbackpaket in ein exaktes Kind, das danach besteht (`shadow-20260717-142445-27836.json` 654/654). Echte Provider-Anbindung und freigegebener Feedback-Export FEHLEN noch |
+| 3 | Beschaffung (Abhängigkeiten, Quarantäne) | **B1 geschlossen:** W7 live, M12-Empfängeridentität, physisch freigegebener Einmallauf, W6-Install/Reboot und Rollback sind bewiesen (`shadow-20260715-021710-30228.json`, `shadow-20260715-092637-10088.json`, `shadow-20260715-132111-27848.json`); Produktions-Registry-Vertrauen später |
 | 4 | **Bauen AUF DEM GERÄT** | FEHLT — heute extern-versiegelt (W4, zählt als Gerüst, nicht als Erfüllung) |
 | 5 | Nachrechnen (Repro-Doppel-Build, Fingerabdrücke) | Existiert (extern bewiesen); On-Device-Variante folgt mit Station 4 |
 | 6 | Physische Freigabe | Existiert, bewiesen |
@@ -103,13 +103,19 @@ Arbeitspakete mehr, sondern **Beispiele für spätere Früchte des Kreislaufs**.
   `shadow-20260717-114259-19696` 60/60 drei Boots). EHRLICHER UMFANG: persistiert
   die Programm-DEFINITION, nicht den getippten Text (späterer Dokument-Slice).
 
-**B2 — Der Agent im System (mittel) — NÄCHSTER BLOCK:**
-- B2.1 KI-Antworten werden Quell-DATEIEN im Workspace (Kandidaten, nie
-  direkt ausführbar).
-- B2.2 Agent-Schleife mit Beweisen: Testresultate gehen an den Agenten
-  zurück, er iteriert; das System bleibt Prüfer.
+**B2 — Der Agent im System (mittel) — AKTIVER BLOCK:**
+- B2.1a **ABGESCHLOSSEN:** Eine feste key-free Agentenantwort wird als inerte,
+  content-adressierte Source-Revision gespeichert und über Reboot wieder exakt
+  gelesen. B2.1b **NÄCHSTER SLICE:** echte `ProjectWorkspace`-Providerroute,
+  Genesis-`/build`-Status und explizite `/program`-Schnellspur; live geschlossen
+  erst mit Netz, lokalem Schlüssel und positivem Pin-Vertrauenspfad.
+- B2.2a **ABGESCHLOSSEN, B2.2 TEILWEISE:** Der erste Beweiskreis
+  Fehler → begrenztes Feedback → exaktes Kind → erneute Prüfung ist grün
+  (`shadow-20260717-142445-27836.json` 654/654). Der Beweis ist bewusst nur
+  Source-Preflight, kein Compiler/Test. Für den echten Agenten fehlen der
+  einmalig freigegebene, redigierte Provider-Export und seine Auditbindung.
 - B2.3 `/build`-Slow-Lane in Genesis: Auftrag → sichtbarer Workspace-Status →
-  Freigabe am Ende.
+  Freigabe am Ende; folgt auf die reale Provider-/Feedback-Grenze.
 
 **B3 — Bauen auf dem Gerät (der harte Kern der Vision):**
 - B3.0 **Forschungs-Spike zuerst, ehrlich:** rustc-als-Wasm (plausibelster
@@ -133,8 +139,8 @@ Arbeitspakete mehr, sondern **Beispiele für spätere Früchte des Kreislaufs**.
 **Dauerspuren, die die Basis „perfekt" machen (parallel, klein):**
 - **Kern klein halten:** das Schrumpf-/Umzugs-Programm (Relocations in
   PC-testbare Crates) läuft weiter — „maximal leicht" ist Vision-Bestandteil.
-  (Offene Vorbedingung: der dokumentierte layout-sensitive Kernel-Bug muss
-  vor weiteren Struktur-Umbauten gefunden werden — Jagdplan existiert.)
+  Der frühere layout-sensitive Verdacht war ein Host-Harness-Fehler, kein
+  Kerneldefekt; der neue per-Port-Mutex verhindert dieselbe Parallelstart-Klasse.
 - **UI nur für den Kreislauf:** Genesis bekommt genau die Oberflächen, die
   Aufträge/Prüfung/Freigabe brauchen — keinen Komfort auf Vorrat.
 - **Vertrauen härten:** Owner-Sealing statt Dev-Keys, volle TLS-Kette +

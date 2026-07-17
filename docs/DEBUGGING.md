@@ -304,7 +304,11 @@ If the report failure is only `Timed out connecting to QEMU serial TCP port
 4565`, first check for a stale `qemu-system-x86_64` process or an occupied
 serial port, stop stale QEMU processes, and rerun the smoke. The TCP serial path
 is single-client in practice, so concurrent harnesses or manual serial clients
-can make an otherwise valid build look stuck.
+can make an otherwise valid build look stuck. The shadow harness now takes a
+named per-port mutex before packaging or starting QEMU and rejects a concurrent
+smoke on the same port instead of letting `-StopExisting` terminate the older
+run. Manual QEMU/serial clients are outside that mutex; use a distinct port or
+stop them first.
 
 Tail the serial log:
 

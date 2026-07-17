@@ -1,25 +1,36 @@
 # Owner Dashboard
 
-Updated: 2026-07-15.
+Updated: 2026-07-17.
 
-BESCHAFFUNG HAT JETZT EINE DURCHGÄNGIGE IDENTITÄT — B1.2a GESCHLOSSEN. raiOS
-holt im echten QEMU-Netzpfad weiterhin genau den freigegebenen 4.205-Byte-
-Baustein. Neu ist: Dieser Download darf erst Kandidat werden, wenn der lokale
-Katalog exakt zu Hash, Länge und Chunk-Form passt und raiOS selbst alle sechs
-Empfänger-Belege sowie beide Signaturen geprüft hat. Fehlen diese Belege, werden
-die bereits begrenzt geholten TLS-Bytes verworfen: kein Kandidat, kein Receipt,
-kein Laden, Installieren oder Speichern. Sind sie vollständig, bindet der
-Preflight exakt denselben Kandidaten und zeigt weiterhin vier geschlossene
-Türen: M6-Nachprüfung, M7-Loader-Regel, Provider-Vertrauen und Owner-Seal.
-Beweis: `shadow-20260715-021710-30228.json`, 192/192 Prüfungen in 40 Kommandos.
-Es gab keine zweite serielle Byte-Zustellung und keinen Programmstart.
+DER ERSTE ECHTE AGENTEN-KORREKTURKREIS LÄUFT — B2.1a UND B2.2a SIND BEWIESEN.
+raiOS kann eine KI-Antwort jetzt als harmlose, unveränderliche Quelldateien in
+seinem Workspace ablegen. Neu ist die erste Schleife darüber: Das System prüft
+die erste Version selbst und stellt fest, dass `Cargo.lock` fehlt. An den
+Agenten geht nur ein enges, als `local_only` klassifiziertes Paket aus vier
+Belegen zurück: Name der Prüfung, Versions-Hash, Baum-Hash und Fehlergrund. Keine
+Quelldatei, kein Geheimnis und kein Logtext wird mitgeschickt. Die zweite Version
+ist nachweislich das direkte Kind der ersten, ergänzt genau die fehlende Datei
+und besteht dieselbe Prüfung. Die alte Version bleibt vollständig lesbar.
 
-NÄCHSTER KLEINSTER SCHRITT: B1.2b führt genau diesen gebundenen Kandidaten durch
-die vorhandene M6-Nachprüfung. Er darf aber erst nach einem echten Klick in
-Genesis einmal im aktuellen Boot laufen; der alte klicklose M6-Entwicklungsbeweis
-reicht nach der bindenden Verfassung nicht. B1.2c schließt danach über den schon
-vorhandenen signierten zweiten Install-Klick, Autoload und Rollback an W6 an —
-ohne zweiten Loader, erfundenes Projekt-Receipt oder zweiten Speicherweg.
+Wichtig: Das ist noch KEIN Compiler und keine Ausführung. Die Schleife baut,
+testet, startet, installiert oder exportiert nichts; sie beweist nur den sicheren
+Weg „Systemfehler → begrenztes Feedback → neue Quellversion → erneute
+Systemprüfung“. Beweis: `project-workspace`
+`shadow-20260717-142445-27836.json`, 654/654 Prüfungen.
+
+Nebenfund mit Reparatur: Mehrere scheinbare Festplatten-Hänger waren keine
+Kernel-Fehler. Zwei abgebrochene Sessions starteten gleichzeitig auf demselben
+seriellen TCP-Port; jeder neue Lauf beendete mit `-StopExisting` die VM des
+anderen. Der Harness sperrt den Port jetzt pro Lauf und lehnt einen zweiten
+gleichzeitigen Smoke ab. Der anschließende Einzel-Lauf passierte alle zuvor
+betroffenen Store-Pfade und wurde vollständig grün.
+
+NÄCHSTER KLEINSTER SCHRITT: B2.1b verbindet diesen bereits bewiesenen
+Source-Workspace mit dem echten Provider-Ziel und zeigt den `/build`-Status in
+Genesis; der bisherige kleine RUIP-Weg bleibt ausdrücklich unter `/program`.
+Implementieren können wir das ohne Schlüssel. Als live bewiesen gilt es erst mit
+Netz, nutzbarem lokalem API-Schlüssel und positivem Pin-Vertrauenspfad. Danach
+folgt die streng freigegebene echte Feedback-Übertragung für B2.2.
 
 ZWEITES ECHTES PROGRAMM: EIN TEXT-EDITOR — LIVE VOR DEINEN AUGEN (2026-07-14
 Abend). Du hast heute zugesehen, wie raiOS im QEMU-Fenster den kompletten

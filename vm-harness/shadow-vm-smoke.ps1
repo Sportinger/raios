@@ -60,6 +60,8 @@ $script:SerialTransportFailure = $null
 $script:VisualEvidence = New-Object System.Collections.Generic.List[object]
 $script:ReportForbiddenDynamicValues = New-Object System.Collections.Generic.List[object]
 $script:ReportSecurityTripwire = $null
+$script:RunMutex = $null
+$script:RunMutexAcquired = $false
 
 . (Join-Path $PSScriptRoot "shadow-vm-smoke-support.ps1")
 
@@ -69,6 +71,18 @@ $ResolvedArtifact = Resolve-OptionalPath -Path $ArtifactPath
 $ResolvedManifest = Resolve-OptionalPath -Path $ManifestPath
 
 try {
+    $runMutexName = "Local\raiOS-shadow-vm-smoke-port-$SerialTcpPort"
+    $script:RunMutex = [System.Threading.Mutex]::new($false, $runMutexName)
+    try {
+        $script:RunMutexAcquired = $script:RunMutex.WaitOne(0)
+    }
+    catch [System.Threading.AbandonedMutexException] {
+        $script:RunMutexAcquired = $true
+    }
+    if (-not $script:RunMutexAcquired) {
+        throw "Serial TCP port $SerialTcpPort is already owned by another shadow VM smoke; wait for it or choose -SerialTcpPort"
+    }
+
     if ($Profile -in @("m11-net-imports", "network-acquisition", "m6d-rollback") -and -not $Network) {
         throw "$Profile requires -Network (e1000 + DHCP + real TCP step)"
     }
@@ -535,6 +549,15 @@ finally {
         }
     }
     $script:QemuProcessAfterTeardown = Get-QemuProcessSnapshot -Observation "after_teardown"
+
+    if ($script:RunMutexAcquired) {
+        try { $script:RunMutex.ReleaseMutex() } catch {}
+        $script:RunMutexAcquired = $false
+    }
+    if ($null -ne $script:RunMutex) {
+        $script:RunMutex.Dispose()
+        $script:RunMutex = $null
+    }
 
     $reportWriteException = $null
     try {
