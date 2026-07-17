@@ -10,6 +10,7 @@ members = [
     "raios-x509-spki",
     "raios-http-parse",
     "raios-w7-acquire-logic",
+    "raios-wasm-ir",
     "tools/descriptor-resign",
     "tools/core-policy-sign",
     "seed-kernel",

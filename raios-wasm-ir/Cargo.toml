@@ -1,0 +1,10 @@
+[package]
+name = "raios-wasm-ir"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+
+[dev-dependencies]
+wasmi = { version = "=0.31.2" }
