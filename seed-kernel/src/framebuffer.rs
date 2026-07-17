@@ -153,7 +153,7 @@ impl FramebufferSurface {
         }
     }
 
-    pub fn restore_from_back_rect(&mut self, x: usize, y: usize, w: usize, h: usize) {
+    pub(crate) fn present_rect(&mut self, x: usize, y: usize, w: usize, h: usize) {
         let pitch = self.info.pitch as usize;
         let max_y = usize::min(y.saturating_add(h), self.info.height as usize);
         let max_x = usize::min(x.saturating_add(w), self.info.width as usize);
@@ -177,6 +177,10 @@ impl FramebufferSurface {
                 );
             }
         }
+    }
+
+    pub fn restore_from_back_rect(&mut self, x: usize, y: usize, w: usize, h: usize) {
+        self.present_rect(x, y, w, h);
     }
 
     pub fn set_front_pixel(&mut self, x: usize, y: usize, color: Color) {

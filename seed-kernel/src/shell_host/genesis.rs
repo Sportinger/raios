@@ -8,8 +8,8 @@ use crate::framebuffer::{Color, FramebufferInfo, FramebufferSurface};
 use crate::system_status::{RowState, SnapshotStates, StatusLine, SystemSnapshot};
 use crate::{
     agent_protocol_project_install, console, granted_candidate_service, input,
-    personal_shell_service, program_persistence, program_workspace, provider, secret_vault,
-    serial, text, wifi, workspace_candidate_service,
+    personal_shell_service, program_persistence, program_workspace, provider, secret_vault, serial,
+    text, wifi, workspace_candidate_service,
 };
 use raios_core::{
     genesis_layout::{GenesisLayout, Point, Size},
@@ -134,6 +134,21 @@ impl ShellHost {
                         // Genesis owns this strip. Draw it after every personal
                         // command so the guest cannot cover recovery/secure UI.
                         draw_secure_strip(surface, layout, uptime_ms, &snapshot, false);
+                        let scale = surface.draw_scale();
+                        let personal = rect_from_layout(layout.personal_surface);
+                        surface.present_rect(
+                            personal.x.saturating_mul(scale),
+                            personal.y.saturating_mul(scale),
+                            personal.w.saturating_mul(scale),
+                            personal.h.saturating_mul(scale),
+                        );
+                        let strip = rect_from_layout(layout.secure_strip);
+                        surface.present_rect(
+                            strip.x.saturating_mul(scale),
+                            strip.y.saturating_mul(scale),
+                            strip.w.saturating_mul(scale),
+                            strip.h.saturating_mul(scale),
+                        );
                     } else {
                         self.personal.exit();
                         console::write_event(format_args!(
@@ -149,6 +164,7 @@ impl ShellHost {
                             self.recovery_open,
                             &mut self.vault,
                         );
+                        surface.present();
                     }
                 } else {
                     draw_genesis(
@@ -161,8 +177,8 @@ impl ShellHost {
                         self.recovery_open,
                         &mut self.vault,
                     );
+                    surface.present();
                 }
-                surface.present();
                 self.vault.note_presented();
                 self.last_composer_cursor_rect = None;
                 self.last_cursor_rect = None;
@@ -906,8 +922,10 @@ fn draw_context(
     let install_pending = agent_protocol_project_install::pending_physical_approval();
     let granted_preview = granted_candidate_service::approval_preview();
     let granted_pending = granted_preview.is_some();
+    let workspace_preview = workspace_candidate_service::snapshot();
     let workspace_pending = workspace_candidate_service::pending_approval();
-    let program_ready = program_workspace::snapshot().present;
+    let program_snapshot = program_workspace::snapshot();
+    let program_ready = program_snapshot.present;
     draw_button(
         surface,
         context_personal_shell_rect(layout),
@@ -963,17 +981,28 @@ fn draw_context(
             rect.x + 14,
             y,
             if downloaded {
-                "Downloaded W7 candidate"
+                "[INSTALL] Granted candidate"
             } else if program {
-                "Approved RUIP program"
+                "[PERSIST] RUIP program"
             } else {
-                "Signed physical-owner preview"
+                "[INSTALL] Signed W6 install"
             },
             APP_AMBER,
             None,
         );
         y = y.saturating_add(14);
-        let effect = if downloaded { format!("generation {} / durable", install_preview.generation) } else { format!("{} generation {} / durable", install_preview.kind.map(|kind| kind.label()).unwrap_or("project"), install_preview.generation) };
+        let effect = if downloaded {
+            format!("generation {} / durable target", install_preview.generation)
+        } else {
+            format!(
+                "{} generation {} / durable target",
+                install_preview
+                    .kind
+                    .map(|kind| kind.label())
+                    .unwrap_or("project"),
+                install_preview.generation
+            )
+        };
         draw_truncated_text(
             surface,
             rect.x + 14,
@@ -987,12 +1016,20 @@ fn draw_context(
             .candidate_sha256
             .or(install_preview.previous_commit_sha256)
             .unwrap_or([0; 32]);
-        let subject_line = format!(
-            "{} sha256:{:02x}{:02x}{:02x}{:02x}...",
-            if downloaded { "candidate" } else { "subject" },
-            subject[0], subject[1], subject[2], subject[3]
+        draw_short_hash(
+            surface,
+            rect.x + 14,
+            y,
+            if downloaded {
+                "candidate"
+            } else if program {
+                "program"
+            } else {
+                "project"
+            },
+            subject,
+            TEXT_MUTED,
         );
-        text::draw_text(surface, rect.x + 14, y, &subject_line, TEXT_MUTED, None);
         y = y.saturating_add(14);
         let binding = if downloaded || program {
             install_preview
@@ -1005,17 +1042,13 @@ fn draw_context(
                 .unwrap_or([0; 32])
         };
         let binding_label = if downloaded || program {
-            "activation challenge"
+            "approval"
         } else if install_preview.receipt_sha256.is_some() {
             "receipt"
         } else {
             "install head"
         };
-        let binding_line = format!(
-            "{} sha256:{:02x}{:02x}{:02x}{:02x}...",
-            binding_label, binding[0], binding[1], binding[2], binding[3]
-        );
-        text::draw_text(surface, rect.x + 14, y, &binding_line, TEXT_MUTED, None);
+        draw_short_hash(surface, rect.x + 14, y, binding_label, binding, TEXT_MUTED);
         y = y.saturating_add(14);
         text::draw_text(
             surface,
@@ -1031,30 +1064,57 @@ fn draw_context(
             surface,
             rect.x + 14,
             y,
-            "Verified current-boot preview",
+            "[RUN] Granted candidate",
             APP_AMBER,
             None,
         );
         y = y.saturating_add(14);
         let candidate = preview.candidate_sha256;
-        let candidate_line = format!(
-            "{} candidate {:02x}{:02x}{:02x}{:02x}...",
-            preview.source_kind, candidate[0], candidate[1], candidate[2], candidate[3]
-        );
-        text::draw_text(surface, rect.x + 14, y, &candidate_line, TEXT_MUTED, None);
+        draw_short_hash(surface, rect.x + 14, y, "candidate", candidate, TEXT_MUTED);
         y = y.saturating_add(14);
-        let receipt_line = preview
-            .receipt_sha256
-            .map(|receipt| {
-                format!(
-                    "receipt {:02x}{:02x}{:02x}{:02x}...",
-                    receipt[0], receipt[1], receipt[2], receipt[3]
-                )
-            })
-            .unwrap_or_else(|| format!("serial source / no receipt"));
-        text::draw_text(surface, rect.x + 14, y, &receipt_line, TEXT_MUTED, None);
+        if let Some(receipt) = preview.receipt_sha256 {
+            draw_short_hash(surface, rect.x + 14, y, "receipt", receipt, TEXT_MUTED);
+        } else {
+            text::draw_text(
+                surface,
+                rect.x + 14,
+                y,
+                "serial source / no receipt",
+                TEXT_MUTED,
+                None,
+            );
+        }
         y = y.saturating_add(20);
+    } else if workspace_pending {
+        text::draw_text(
+            surface,
+            rect.x + 14,
+            y,
+            "[RUN] Workspace candidate",
+            APP_BLUE,
+            None,
+        );
+        y = y.saturating_add(14);
+        if let Some(binding) = workspace_preview.binding {
+            let candidate = binding.candidate_sha256;
+            draw_short_hash(surface, rect.x + 14, y, "candidate", candidate, TEXT_MUTED);
+            y = y.saturating_add(14);
+            let receipt = binding.receipt_sha256;
+            draw_short_hash(surface, rect.x + 14, y, "receipt", receipt, TEXT_MUTED);
+            y = y.saturating_add(20);
+        }
+    } else if program_ready {
+        text::draw_text(
+            surface,
+            rect.x + 14,
+            y,
+            "[RUN + PERSIST] RUIP program",
+            APP_GREEN,
+            None,
+        );
+        y = y.saturating_add(14);
     }
+    y = draw_program_retention(surface, rect, y, program_snapshot);
     for (label, value, color) in rows {
         text::draw_text(surface, rect.x + 14, y, label, TEXT_MUTED, None);
         draw_truncated_text(
@@ -1069,6 +1129,59 @@ fn draw_context(
     }
     draw_button(surface, context_setup_rect(layout), "AI setup", false);
     draw_button(surface, context_wifi_rect(layout), "WiFi setup", true);
+}
+
+fn draw_program_retention(
+    surface: &mut FramebufferSurface,
+    rect: LogicalRect,
+    mut y: usize,
+    snapshot: program_workspace::Snapshot,
+) -> usize {
+    let Some(hash) = snapshot.sha256 else {
+        return y;
+    };
+    let durable = snapshot.retention == "durable";
+    draw_short_hash(
+        surface,
+        rect.x + 14,
+        y,
+        if durable {
+            "Program installed:"
+        } else {
+            "Program:"
+        },
+        hash,
+        if durable { APP_GREEN } else { TEXT_MUTED },
+    );
+    y = y.saturating_add(14);
+    text::draw_text(
+        surface,
+        rect.x + 14,
+        y,
+        if durable {
+            "durable (survives reboot)"
+        } else {
+            "current boot only"
+        },
+        if durable { APP_GREEN } else { TEXT_MUTED },
+        None,
+    );
+    y.saturating_add(20)
+}
+
+fn draw_short_hash(
+    surface: &mut FramebufferSurface,
+    x: usize,
+    y: usize,
+    label: &str,
+    hash: [u8; 32],
+    color: Color,
+) {
+    let line = format!(
+        "{} {:02x}{:02x}{:02x}{:02x}...",
+        label, hash[0], hash[1], hash[2], hash[3]
+    );
+    text::draw_text(surface, x, y, &line, color, None);
 }
 
 /// Renders an already accepted display-list within the logical personal area.
