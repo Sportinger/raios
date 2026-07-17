@@ -38,7 +38,9 @@
 //!
 //! M9C-2b/M9C-2c-2 (bottom section) records durable provider-export audits
 //! through the SAME system-authored append gauntlet: denials are deduped per
-//! boot; the authorized audit is a fixed selftest-only record.
+//! boot. The original authorized-audit driver remains fixed selftest
+//! infrastructure; the live scoped-feedback path below appends a unique
+//! per-request `export_audit` before any provider write.
 
 use alloc::{format, vec, vec::Vec};
 
@@ -1909,6 +1911,123 @@ fn provider_export_authorized_audit_value(
         f("trust_tier", s("dev_key_not_owner_sealed")),
         f("test_infrastructure", b(true)),
     ])
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct LiveProviderExportAuditOutcome {
+    pub(crate) performed: bool,
+    pub(crate) reason: &'static str,
+    pub(crate) seq: Option<u64>,
+    pub(crate) payload_sha256: Option<[u8; 32]>,
+    pub(crate) frame_sha256: Option<[u8; 32]>,
+    pub(crate) readback_sha256: Option<[u8; 32]>,
+    pub(crate) reparse_valid: bool,
+}
+
+pub(crate) fn record_live_provider_export_audit(
+    request_id: u32,
+    packet_hash: [u8; 32],
+    packet_record_count: u64,
+    destination: &'static str,
+    trust_state: &'static str,
+    budget_tokens: u64,
+    packet_estimated_tokens: u64,
+    request_body_sha256: [u8; 32],
+    request_envelope_sha256: [u8; 32],
+    audit_binding_hash: [u8; 32],
+    provider_trust_evidence_hash: [u8; 32],
+) -> LiveProviderExportAuditOutcome {
+    let record_id = format!(
+        "mem.export_audit.provider_context_export.request.{request_id:08}.{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}.v0",
+        request_envelope_sha256[0],
+        request_envelope_sha256[1],
+        request_envelope_sha256[2],
+        request_envelope_sha256[3],
+        request_envelope_sha256[4],
+        request_envelope_sha256[5],
+        request_envelope_sha256[6],
+        request_envelope_sha256[7],
+    );
+    let record = match MemoryRecord::new(MemoryRecordInput {
+        id: record_id.as_str(),
+        kind: "export_audit",
+        entity: "cap.provider.context_export",
+        predicate: "provider_export_authorized_prewrite",
+        value: V::Object(vec![
+            f("gate", s(SCOPED_PROVIDER_EXPORT_DECISION_ID)),
+            f(
+                "gate_schema",
+                s(SCOPED_PROVIDER_EXPORT_DECISION_SCHEMA),
+            ),
+            f(
+                "gate_reason",
+                s("authorized_provider_export_public_only_audited"),
+            ),
+            f("method", s("provider.context_export")),
+            f("profile", s("provider_minimal")),
+            f("request_id", V::U64(u64::from(request_id))),
+            f("destination", s(destination)),
+            f("trust_state", s(trust_state)),
+            f("budget_tokens", V::U64(budget_tokens)),
+            f("packet_estimated_tokens", V::U64(packet_estimated_tokens)),
+            f("packet_hash", V::Sha256(packet_hash)),
+            f("packet_record_count", V::U64(packet_record_count)),
+            f("request_body_sha256", V::Sha256(request_body_sha256)),
+            f(
+                "request_envelope_sha256",
+                V::Sha256(request_envelope_sha256),
+            ),
+            f("audit_binding_hash", V::Sha256(audit_binding_hash)),
+            f(
+                "provider_trust_evidence_hash",
+                V::Sha256(provider_trust_evidence_hash),
+            ),
+            f("packet_all_records_public", b(true)),
+            f("context_attached_to_provider_body", b(true)),
+            f(
+                "authorization_consumption",
+                s("pending_until_durable_append_verified"),
+            ),
+            f("transmission_performed", b(false)),
+            f("provider_write", s("authorized_not_attempted")),
+            f("test_infrastructure", b(false)),
+        ]),
+        classification: "local_only",
+        authority: "core_ledger",
+        boot_id: "current_boot",
+        sequence: u64::from(request_id),
+        source: MemorySource::new(
+            "provider.context_export",
+            SCOPED_PROVIDER_EXPORT_DECISION_ID,
+        ),
+        evidence: vec![],
+        tags: vec!["provider_export", "export_audit", "live"],
+        supersedes: vec![],
+        created_at_ticks: 0,
+    }) {
+        Ok(record) => record,
+        Err(_) => {
+            return LiveProviderExportAuditOutcome {
+                performed: false,
+                reason: "live_export_audit_record_construction_denied",
+                seq: None,
+                payload_sha256: None,
+                frame_sha256: None,
+                readback_sha256: None,
+                reparse_valid: false,
+            }
+        }
+    };
+    let evidence = durable_store::append_memory_record(&record);
+    LiveProviderExportAuditOutcome {
+        performed: evidence.performed,
+        reason: evidence.reason,
+        seq: evidence.seq,
+        payload_sha256: evidence.payload_sha256,
+        frame_sha256: evidence.frame_sha256,
+        readback_sha256: evidence.readback_sha256,
+        reparse_valid: evidence.reparse_valid,
+    }
 }
 
 // --- M11-3a: durable per-service Wasm import-grant audits -----------------------

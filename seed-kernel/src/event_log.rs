@@ -6442,7 +6442,11 @@ pub fn record_provider_context_export_audit_binding_bound(
         risk: "export",
         subject: "agent.session.serial",
         resource: "svc.provider.openai_direct",
-        reason: "provider_minimal_context_export_audit_bound_without_body_attachment",
+        reason: if binding.context_attached_to_provider_body {
+            "scoped_project_feedback_export_audit_bound_to_attached_body"
+        } else {
+            "provider_minimal_context_export_audit_bound_without_body_attachment"
+        },
         evidence: PROVIDER_EXPORT_AUDIT_BINDING_EVIDENCE,
         bindings: EventBindings::ProviderExportAuditBound(binding),
     })

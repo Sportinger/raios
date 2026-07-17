@@ -82,6 +82,7 @@ struct BuildLoopState {
     phase: LoopPhase,
     current_request: Option<RequestIdentity>,
     pending_request: Option<RequestIdentity>,
+    pending_parent_revision: Option<ProjectRevision>,
     latest: Option<AcceptedAnswer>,
     verifier_result: Option<VerifierResult>,
     feedback_packet: Option<FeedbackPacket>,
@@ -94,6 +95,7 @@ impl BuildLoopState {
             phase: LoopPhase::Idle,
             current_request: None,
             pending_request: None,
+            pending_parent_revision: None,
             latest: None,
             verifier_result: None,
             feedback_packet: None,
@@ -199,6 +201,12 @@ pub(crate) struct AnswerOutcome {
     pub(crate) snapshot: Snapshot,
 }
 
+pub(crate) struct FeedbackSubmitOutcome {
+    pub(crate) started: bool,
+    pub(crate) reason: &'static str,
+    pub(crate) request_id: Option<u32>,
+}
+
 #[derive(Clone, Copy)]
 struct AnswerProvenance {
     answer_origin: &'static str,
@@ -249,6 +257,7 @@ pub(crate) fn note_provider_build_request(
     state.phase = LoopPhase::RequestingSource;
     state.current_request = Some(request);
     state.pending_request = Some(request);
+    state.pending_parent_revision = None;
     state.last_reason = None;
     Ok(())
 }
@@ -262,6 +271,7 @@ pub(crate) fn note_provider_error(request_id: u32) -> bool {
         return false;
     }
     state.pending_request = None;
+    state.pending_parent_revision = None;
     state.phase = LoopPhase::Rejected;
     state.last_reason = Some("provider_project_request_failed");
     true
@@ -329,6 +339,88 @@ pub(crate) fn build_feedback_packet() -> Result<FeedbackPacket, &'static str> {
     Ok(packet)
 }
 
+pub(crate) fn submit_feedback_request(runtime: crate::ui::RuntimeStatus) -> FeedbackSubmitOutcome {
+    let (packet, parent) = {
+        let state = STATE.lock();
+        let Some(parent) = state.latest.as_ref().map(|latest| latest.revision.clone()) else {
+            return feedback_submit_denied("agent_revision_parent_not_tracked");
+        };
+        let Some(result) = state.verifier_result else {
+            return feedback_submit_denied("agent_revision_verifier_result_missing");
+        };
+        let Some(packet) = state.feedback_packet else {
+            return feedback_submit_denied("agent_revision_feedback_packet_missing");
+        };
+        if state.pending_request.is_some()
+            || result.passed
+            || result.revision_sha256 != parent.revision_sha256
+            || result.tree_sha256 != parent.tree_sha256
+            || packet.check_id != result.check_id
+            || packet.revision_sha256 != result.revision_sha256
+            || packet.tree_sha256 != result.tree_sha256
+            || packet.reason != result.reason
+            || !feedback_packet_is_public(packet)
+        {
+            return feedback_submit_denied("agent_revision_feedback_packet_mismatch");
+        }
+        (packet, parent)
+    };
+
+    let submitted = match provider::submit_scoped_project_feedback(packet, runtime) {
+        Ok(submitted) => submitted,
+        Err(error) => return feedback_submit_denied(provider_submit_reason(error)),
+    };
+
+    let mut state = STATE.lock();
+    if state.pending_request.is_some()
+        || !state.latest.as_ref().is_some_and(|latest| latest.revision == parent)
+        || state.feedback_packet != Some(packet)
+    {
+        return feedback_submit_denied("agent_feedback_request_state_changed");
+    }
+    let request = RequestIdentity {
+        request_id: submitted.id,
+        project_id: parent.project_id,
+        request_sha256: feedback_request_sha256(packet),
+    };
+    state.current_request = Some(request);
+    state.pending_request = Some(request);
+    state.pending_parent_revision = Some(parent);
+    state.phase = LoopPhase::RequestingSource;
+    state.last_reason = None;
+    FeedbackSubmitOutcome {
+        started: true,
+        reason: "provider_feedback_request_started",
+        request_id: Some(submitted.id),
+    }
+}
+
+pub(crate) fn feedback_packet_is_public(packet: FeedbackPacket) -> bool {
+    packet.check_id == "project.source_preflight.v1"
+        && packet.reason == "build_cargo_lock_missing"
+        && packet.revision_sha256 != [0; 32]
+        && packet.tree_sha256 != [0; 32]
+}
+
+fn feedback_submit_denied(reason: &'static str) -> FeedbackSubmitOutcome {
+    FeedbackSubmitOutcome {
+        started: false,
+        reason,
+        request_id: None,
+    }
+}
+
+fn provider_submit_reason(error: provider::SubmitError) -> &'static str {
+    match error {
+        provider::SubmitError::Empty => "provider_feedback_request_empty",
+        provider::SubmitError::UnsupportedModel => "provider_feedback_model_unsupported",
+        provider::SubmitError::InvalidMaxOutput => "provider_feedback_max_output_invalid",
+        provider::SubmitError::MissingApiKey => "provider_feedback_api_key_missing",
+        provider::SubmitError::TrustDenied { state } => state,
+        provider::SubmitError::Busy { .. } => "provider_feedback_request_busy",
+    }
+}
+
 pub(crate) fn parse_answer(answer: &str) -> Result<Vec<AnswerFile>, &'static str> {
     if answer.len() > MAX_ANSWER_BYTES {
         return Err("agent_answer_too_large");
@@ -383,20 +475,44 @@ pub(crate) fn accept_provider_answer(
     answer: &str,
     provenance: provider::AnswerProvenance,
 ) -> AnswerOutcome {
-    let hashes_bound = provenance.request_body_sha256 != [0; 32]
-        && provenance.request_envelope_sha256 != [0; 32];
+    let provenance = live_answer_provenance(provenance);
     accept_answer(
         request_id,
         answer,
-        AnswerProvenance {
-            answer_origin: "live",
-            provider_trust_positive: hashes_bound
-                && provenance.is_positive_pinned_non_bypass(),
-            test_infrastructure: false,
-            development_tls_bypass: provenance.development_tls_bypass,
-        },
+        provenance,
         None,
     )
+}
+
+pub(crate) fn accept_provider_feedback_answer(
+    request_id: u32,
+    answer: &str,
+    provenance: provider::AnswerProvenance,
+) -> AnswerOutcome {
+    let provenance = live_answer_provenance(provenance);
+    let parent = STATE.lock().pending_parent_revision.clone();
+    let Some(parent) = parent else {
+        return denied(
+            "agent_revision_parent_not_tracked",
+            false,
+            sha256_bytes(answer.as_bytes()),
+            answer.len(),
+            provenance,
+            snapshot(),
+        );
+    };
+    accept_answer(request_id, answer, provenance, Some(&parent))
+}
+
+fn live_answer_provenance(provenance: provider::AnswerProvenance) -> AnswerProvenance {
+    let hashes_bound = provenance.request_body_sha256 != [0; 32]
+        && provenance.request_envelope_sha256 != [0; 32];
+    AnswerProvenance {
+        answer_origin: "live",
+        provider_trust_positive: hashes_bound && provenance.is_positive_pinned_non_bypass(),
+        test_infrastructure: false,
+        development_tls_bypass: provenance.development_tls_bypass,
+    }
 }
 
 pub(crate) fn accept_test_fixture() -> AnswerOutcome {
@@ -538,6 +654,7 @@ pub(crate) fn accept_revision_answer(
         };
         state.current_request = Some(request);
         state.pending_request = Some(request);
+        state.pending_parent_revision = Some(parent_revision.clone());
         state.phase = LoopPhase::RequestingSource;
         state.last_reason = None;
         request
@@ -563,6 +680,7 @@ fn accept_answer(
         match state.pending_request {
             Some(pending) if pending.request_id == request_id => {
                 state.pending_request = None;
+                state.pending_parent_revision = None;
                 pending
             }
             Some(_) => {

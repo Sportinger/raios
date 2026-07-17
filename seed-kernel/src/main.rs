@@ -486,6 +486,15 @@ impl PeriodicTasks {
                                     );
                                     console::write_project_outcome(event.id, outcome);
                                 }
+                                provider::RequestTarget::ProjectFeedbackWorkspace => {
+                                    let outcome =
+                                        agent_build_loop::accept_provider_feedback_answer(
+                                            event.id,
+                                            answer.as_str(),
+                                            provenance,
+                                        );
+                                    console::write_project_outcome(event.id, outcome);
+                                }
                             },
                             provider::EventKind::Error(error) => {
                                 match event.target {
@@ -494,6 +503,9 @@ impl PeriodicTasks {
                                         program_workspace::note_provider_error(event.id);
                                     }
                                     provider::RequestTarget::ProjectWorkspace => {
+                                        agent_build_loop::note_provider_error(event.id);
+                                    }
+                                    provider::RequestTarget::ProjectFeedbackWorkspace => {
                                         agent_build_loop::note_provider_error(event.id);
                                     }
                                 }

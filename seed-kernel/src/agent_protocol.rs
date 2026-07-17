@@ -95,6 +95,7 @@ use crate::{
     agent_protocol_project::{
         emit_agent_answer_fixture as emit_project_agent_answer_fixture,
         emit_feedback_packet as emit_project_feedback_packet,
+        emit_feedback_submit as emit_project_feedback_submit,
         emit_import_begin as emit_project_import_begin,
         emit_import_chunk as emit_project_import_chunk,
         emit_import_commit as emit_project_import_commit,
@@ -458,6 +459,7 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("project.agent_answer_fixture", Exact, [], [route!("project.agent_answer_fixture")], MethodAction::Read0(emit_project_agent_answer_fixture)),
     method!("project.verify_revision", Exact, [], [route!("project.verify_revision")], MethodAction::Read0(emit_project_verify_revision)),
     method!("project.feedback_packet", Exact, [], [route!("project.feedback_packet")], MethodAction::Read0(emit_project_feedback_packet)),
+    method!("project.feedback_submit", Exact, [], [route!("project.feedback_submit")], MethodAction::ReadRuntime(emit_project_feedback_submit)),
     method!("project.revision_answer_fixture", Exact, [], [route!("project.revision_answer_fixture")], MethodAction::Read0(emit_project_revision_answer_fixture)),
     method!("project.workspace", Exact, [], [route!("project.workspace")], MethodAction::Read0(emit_project_workspace)),
     method!("project.import_begin", Head, [], [route!("project.import_begin")], MethodAction::ReadMethod(emit_project_import_begin)),

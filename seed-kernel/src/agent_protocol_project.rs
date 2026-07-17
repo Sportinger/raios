@@ -11,7 +11,7 @@ use crate::{
         begin_response, emit_record_fields, end_response, record_bool as b, record_field as f,
         record_sha_or_null, record_str as s, record_str_or_null,
     },
-    project_build, project_workspace,
+    project_build, project_workspace, ui,
 };
 
 const EMPTY_PROJECT_ID: [u8; 16] = [0; 16];
@@ -137,6 +137,33 @@ pub(crate) fn emit_feedback_packet() {
     fields.extend(source_preflight_non_authority_fields());
     emit_record_fields(fields, 6);
     end_response("project.feedback_packet");
+}
+
+pub(crate) fn emit_feedback_submit(runtime: ui::RuntimeStatus) {
+    let outcome = agent_build_loop::submit_feedback_request(runtime);
+    let snapshot = agent_build_loop::snapshot();
+    begin_response("project.feedback_submit");
+    let mut fields = source_preflight_posture("project.feedback_submit", &snapshot);
+    fields.extend([
+        f("status", s(if outcome.started { "started" } else { "denied" })),
+        f("accepted", b(outcome.started)),
+        f("reason", s(outcome.reason)),
+        f(
+            "request_id",
+            outcome
+                .request_id
+                .map(|request_id| V::U64(u64::from(request_id)))
+                .unwrap_or(V::Null),
+        ),
+        f("export_method", s("provider.context_export")),
+        f("profile", s("provider_minimal")),
+        f("packet_field_count", V::U64(4)),
+        f("context_attached_to_provider_body", b(false)),
+        f("provider_write", s("not_attempted")),
+    ]);
+    fields.extend(source_preflight_non_authority_fields());
+    emit_record_fields(fields, 6);
+    end_response("project.feedback_submit");
 }
 
 pub(crate) fn emit_revision_answer_fixture() {

@@ -13,13 +13,17 @@ use raios_core::http_response_parse::{
     find_subslice, header_contains, http_response_complete, parse_hex_usize, parse_status,
     trim_ascii,
 };
+use raios_core::scoped_provider_export::{
+    evaluate_provider_export_gate, ProviderExportGateDecision, ProviderExportGateInput,
+};
 use rand_core::{CryptoRng, RngCore};
 use sha2::{Digest, Sha256};
 use spin::Mutex;
 
 use crate::{
-    agent_protocol, entropy, event_log, net, openai_trust::OpenAiPinnedCertVerifier, provider,
-    provider_config, provider_trust, secret_vault, serial, time, tls_io::KernelTcpStream, ui,
+    agent_build_loop::{self, FeedbackPacket}, agent_protocol, entropy, event_log, memory_store, net,
+    openai_trust::OpenAiPinnedCertVerifier, provider, provider_config, provider_trust, secret_vault,
+    serial, time, tls_io::KernelTcpStream, ui,
 };
 
 const API_HOST: &str = provider_trust::OPENAI_PINNED_TLS_VERIFIER_METADATA.host;
@@ -36,6 +40,12 @@ const TRANSPORT_LEASE_TIMEOUT_MS: u64 = 90_000;
 const TLS_RECORD_BUFFER_SIZE: usize = 16_640;
 const TLS_WRITE_BUFFER_SIZE: usize = 4_096;
 const HTTP_RESPONSE_LIMIT: usize = 128 * 1024;
+const SCOPED_FEEDBACK_DESTINATION: &str = "provider.openai.responses";
+const SCOPED_FEEDBACK_PROFILE: &str = "provider_minimal";
+const SCOPED_FEEDBACK_BUDGET_TOKENS: u64 = 1_000;
+const SCOPED_FEEDBACK_RECORD_COUNT: u64 = 4;
+const SCOPED_PROJECT_FEEDBACK_PROMPT: &str =
+    "Return one complete corrected RAIOS_SOURCE_FILES_V1 revision using only the attached system feedback.";
 
 static STATE: Mutex<OpenAiState> = Mutex::new(OpenAiState::new());
 
@@ -123,11 +133,23 @@ struct PendingRequest {
     address: Option<smoltcp::wire::Ipv4Address>,
     transport_lease: Option<net::TransportLeaseToken>,
     phase_started_ms: u64,
-    envelope: ProviderRequestEnvelope,
-    envelope_event_id: event_log::EventId,
+    envelope: Option<ProviderRequestEnvelope>,
+    envelope_event_id: Option<event_log::EventId>,
     body: String,
+    scoped_feedback: ScopedFeedbackState,
     target: provider::RequestTarget,
     runtime: ui::RuntimeStatus,
+}
+
+enum ScopedFeedbackState {
+    NotRequested,
+    Ready(ScopedFeedbackAuthorization),
+    Taken,
+}
+
+struct ScopedFeedbackAuthorization {
+    packet: FeedbackPacket,
+    consumed: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -140,6 +162,18 @@ struct ProviderRequestEnvelope {
     provider_trust_state: &'static str,
     provider_trust_positive: bool,
     development_tls_bypass: bool,
+    context_attached_to_provider_body: bool,
+}
+
+struct AuthorizedScopedRequest {
+    body: String,
+    envelope: ProviderRequestEnvelope,
+    context: event_log::ProviderContextHashes,
+    gate_decision: ProviderExportGateDecision,
+    audit_binding_hash: [u8; 32],
+    packet_hash: [u8; 32],
+    packet_estimated_tokens: u64,
+    audit: memory_store::LiveProviderExportAuditOutcome,
 }
 
 pub(crate) struct Event {
@@ -237,6 +271,7 @@ pub fn submit_request(
         target,
         hash_bytes(body.as_bytes()),
         provider_trust::snapshot(),
+        false,
     );
     let envelope_event_id =
         event_log::record_provider_request_envelope_created(envelope.event_binding());
@@ -246,9 +281,10 @@ pub fn submit_request(
         address: None,
         transport_lease: None,
         phase_started_ms: now_ms(),
-        envelope,
-        envelope_event_id,
+        envelope: Some(envelope),
+        envelope_event_id: Some(envelope_event_id),
         body,
+        scoped_feedback: ScopedFeedbackState::NotRequested,
         target,
         runtime,
     });
@@ -260,6 +296,48 @@ pub fn submit_request(
     state.last_error.clear();
     emit_provider_request_envelope(envelope, runtime);
 
+    serial::write_fmt(format_args!(
+        "OPENAI_DIRECT_REQ {} {} {}\r\n",
+        id, API_HOST, API_PATH
+    ));
+    Ok(id)
+}
+
+pub(crate) fn submit_scoped_project_feedback(
+    packet: FeedbackPacket,
+    runtime: ui::RuntimeStatus,
+) -> Result<u32, SubmitError> {
+    let mut state = STATE.lock();
+    if let Some(pending) = state.pending.as_ref() {
+        return Err(SubmitError::Busy(pending.id));
+    }
+
+    let id = state.next_id;
+    state.next_id = state.next_id.wrapping_add(1).max(1);
+    state.pending = Some(PendingRequest {
+        id,
+        phase: Phase::Resolving,
+        address: None,
+        transport_lease: None,
+        phase_started_ms: now_ms(),
+        envelope: None,
+        envelope_event_id: None,
+        body: build_request_body(SCOPED_PROJECT_FEEDBACK_PROMPT, MAX_OUTPUT_TOKENS),
+        scoped_feedback: ScopedFeedbackState::Ready(ScopedFeedbackAuthorization {
+            packet,
+            consumed: false,
+        }),
+        target: provider::RequestTarget::ProjectFeedbackWorkspace,
+        runtime,
+    });
+    state.last_request_id = Some(id);
+    state
+        .last_prompt
+        .set_from_str(SCOPED_PROJECT_FEEDBACK_PROMPT);
+    state
+        .last_event
+        .set_from_bytes(b"OPENAI DIRECT: RESOLVING api.openai.com");
+    state.last_error.clear();
     serial::write_fmt(format_args!(
         "OPENAI_DIRECT_REQ {} {} {}\r\n",
         id, API_HOST, API_PATH
@@ -325,7 +403,18 @@ pub fn poll() -> Option<Event> {
                     }
                 };
                 match handle_tcp_result(&mut state, connect) {
-                    TcpAction::None | TcpAction::StartHttps { .. } => None,
+                    TcpAction::None => None,
+                    TcpAction::StartHttps {
+                        scoped_feedback, ..
+                    } => {
+                        if let Some(pending) = state.pending.as_mut() {
+                            pending.scoped_feedback = match scoped_feedback {
+                                Some(authorization) => ScopedFeedbackState::Ready(authorization),
+                                None => ScopedFeedbackState::NotRequested,
+                            };
+                        }
+                        None
+                    }
                     TcpAction::Event(line) => Some(line),
                 }
             } else if now.saturating_sub(phase_started_ms) >= DNS_TIMEOUT_MS {
@@ -368,6 +457,7 @@ pub fn poll() -> Option<Event> {
                     body,
                     envelope,
                     envelope_event_id,
+                    scoped_feedback,
                     runtime,
                     transport_lease,
                 } => {
@@ -380,9 +470,12 @@ pub fn poll() -> Option<Event> {
                         .set_from_bytes(b"OPENAI DIRECT: TLS HANDSHAKE STARTED");
                     drop(state);
                     let result = perform_https_request(
+                        id,
+                        target,
                         body.as_str(),
                         envelope,
                         envelope_event_id,
+                        scoped_feedback,
                         runtime,
                         transport_lease,
                     );
@@ -442,8 +535,9 @@ enum TcpAction {
         id: u32,
         target: provider::RequestTarget,
         body: String,
-        envelope: ProviderRequestEnvelope,
-        envelope_event_id: event_log::EventId,
+        envelope: Option<ProviderRequestEnvelope>,
+        envelope_event_id: Option<event_log::EventId>,
+        scoped_feedback: Option<ScopedFeedbackAuthorization>,
         runtime: ui::RuntimeStatus,
         transport_lease: net::TransportLeaseToken,
     },
@@ -452,7 +546,7 @@ enum TcpAction {
 fn handle_tcp_result(state: &mut OpenAiState, result: net::TcpConnectResult) -> TcpAction {
     match result {
         net::TcpConnectResult::Connected => {
-            let Some(pending) = state.pending.as_ref() else {
+            let Some(pending) = state.pending.as_mut() else {
                 return TcpAction::None;
             };
             let Some(transport_lease) = pending.transport_lease else {
@@ -460,12 +554,28 @@ fn handle_tcp_result(state: &mut OpenAiState, result: net::TcpConnectResult) -> 
                     .map(TcpAction::Event)
                     .unwrap_or(TcpAction::None);
             };
+            let scoped_feedback = match core::mem::replace(
+                &mut pending.scoped_feedback,
+                ScopedFeedbackState::Taken,
+            ) {
+                ScopedFeedbackState::NotRequested => None,
+                ScopedFeedbackState::Ready(authorization) => Some(authorization),
+                ScopedFeedbackState::Taken => {
+                    return complete_error(
+                        state,
+                        b"OPENAI SCOPED FEEDBACK AUTHORIZATION ALREADY CONSUMED",
+                    )
+                    .map(TcpAction::Event)
+                    .unwrap_or(TcpAction::None)
+                }
+            };
             TcpAction::StartHttps {
                 id: pending.id,
                 target: pending.target,
                 body: pending.body.clone(),
                 envelope: pending.envelope,
                 envelope_event_id: pending.envelope_event_id,
+                scoped_feedback,
                 runtime: pending.runtime,
                 transport_lease,
             }
@@ -535,6 +645,7 @@ fn build_provider_request_envelope(
     target: provider::RequestTarget,
     request_body_hash: [u8; 32],
     trust: provider_trust::Snapshot,
+    context_attached_to_provider_body: bool,
 ) -> ProviderRequestEnvelope {
     let provider_trust_state = trust.state.as_protocol();
     let provider_trust_positive = provider_trust_positive(trust.state);
@@ -543,6 +654,7 @@ fn build_provider_request_envelope(
         provider::RequestTarget::Conversation => "ask",
         provider::RequestTarget::ProgramWorkspace => "program.ask",
         provider::RequestTarget::ProjectWorkspace => "project.ask",
+        provider::RequestTarget::ProjectFeedbackWorkspace => "project.feedback_export",
     };
     let envelope_hash = provider_request_envelope_hash(
         request_id,
@@ -552,6 +664,7 @@ fn build_provider_request_envelope(
         provider_trust_state,
         provider_trust_positive,
         development_tls_bypass,
+        context_attached_to_provider_body,
     );
 
     ProviderRequestEnvelope {
@@ -563,6 +676,7 @@ fn build_provider_request_envelope(
         provider_trust_state,
         provider_trust_positive,
         development_tls_bypass,
+        context_attached_to_provider_body,
     }
 }
 
@@ -583,6 +697,7 @@ fn provider_request_envelope_hash(
     provider_trust_state: &'static str,
     provider_trust_positive: bool,
     development_tls_bypass: bool,
+    context_attached_to_provider_body: bool,
 ) -> [u8; 32] {
     let mut hash = Sha256::new();
     hash_field(
@@ -613,7 +728,20 @@ fn provider_request_envelope_hash(
         "request_body.schema",
         "openai.responses.request.redacted.v0",
     );
-    hash_field(&mut hash, "request_body.user_prompt", "present_redacted");
+    if context_attached_to_provider_body {
+        hash_field(
+            &mut hash,
+            "request_body.instructions",
+            "fixed_scoped_project_feedback",
+        );
+        hash_field(
+            &mut hash,
+            "request_body.input",
+            "provider_minimal_packet_redacted",
+        );
+    } else {
+        hash_field(&mut hash, "request_body.user_prompt", "present_redacted");
+    }
     hash_field(
         &mut hash,
         "request_body.max_output_tokens",
@@ -623,7 +751,7 @@ fn provider_request_envelope_hash(
     hash_field(
         &mut hash,
         "request_body.context_attached_to_provider_body",
-        "false",
+        bool_str(context_attached_to_provider_body),
     );
     hash_hash_field(&mut hash, "request_body.body_sha256", request_body_hash);
     hash_field(
@@ -637,11 +765,19 @@ fn provider_request_envelope_hash(
     );
     hash_field(&mut hash, "secret_state.authorization_header", "redacted");
     hash_field(&mut hash, "secret_state.api_key_value", "not_recorded");
-    hash_field(&mut hash, "provider_minimal_context.attached", "false");
+    hash_field(
+        &mut hash,
+        "provider_minimal_context.attached",
+        bool_str(context_attached_to_provider_body),
+    );
     hash_field(
         &mut hash,
         "provider_minimal_context.binding_status",
-        "not_bound",
+        if context_attached_to_provider_body {
+            "bound"
+        } else {
+            "not_bound"
+        },
     );
     hash_field(
         &mut hash,
@@ -694,11 +830,17 @@ fn emit_provider_request_envelope(envelope: ProviderRequestEnvelope, _runtime: u
     serial::write_raw_str(API_PATH);
     serial::write_raw_str("\",\"model\":\"");
     serial::write_raw_str(MODEL);
-    serial::write_raw_str("\"},\"request_body\":{\"schema\":\"openai.responses.request.redacted.v0\",\"user_prompt\":\"present_redacted\",\"max_output_tokens\":");
+    serial::write_raw_str("\"},\"request_body\":{\"schema\":\"openai.responses.request.redacted.v0\",");
+    if envelope.context_attached_to_provider_body {
+        serial::write_raw_str("\"instructions\":\"fixed_scoped_project_feedback\",\"input\":\"provider_minimal_packet_redacted\",");
+    } else {
+        serial::write_raw_str("\"user_prompt\":\"present_redacted\",");
+    }
+    serial::write_raw_str("\"max_output_tokens\":");
     serial::write_raw_fmt(format_args!("{}", envelope.max_output_tokens));
-    serial::write_raw_str(
-        ",\"store\":false,\"context_attached_to_provider_body\":false,\"body_sha256\":",
-    );
+    serial::write_raw_str(",\"store\":false,\"context_attached_to_provider_body\":");
+    serial::write_raw_str(bool_str(envelope.context_attached_to_provider_body));
+    serial::write_raw_str(",\"body_sha256\":");
     write_raw_sha256(envelope.request_body_hash);
     serial::write_raw_str("},\"secret_state\":{\"api_key_state\":\"");
     serial::write_raw_str(if provider_credential_configured() {
@@ -706,7 +848,15 @@ fn emit_provider_request_envelope(envelope: ProviderRequestEnvelope, _runtime: u
     } else {
         "missing"
     });
-    serial::write_raw_str("\",\"authorization_header\":\"redacted\",\"api_key_value\":\"not_recorded\"},\"provider_minimal_context\":{\"attached\":false,\"binding_status\":\"not_bound\"},\"trust_snapshot\":{\"provider_trust_state\":\"");
+    serial::write_raw_str("\",\"authorization_header\":\"redacted\",\"api_key_value\":\"not_recorded\"},\"provider_minimal_context\":{\"attached\":");
+    serial::write_raw_str(bool_str(envelope.context_attached_to_provider_body));
+    serial::write_raw_str(",\"binding_status\":\"");
+    serial::write_raw_str(if envelope.context_attached_to_provider_body {
+        "bound"
+    } else {
+        "not_bound"
+    });
+    serial::write_raw_str("\"},\"trust_snapshot\":{\"provider_trust_state\":\"");
     serial::write_raw_str(envelope.provider_trust_state);
     serial::write_raw_str("\",\"provider_trust_positive\":");
     serial::write_raw_str(bool_str(envelope.provider_trust_positive));
@@ -740,13 +890,16 @@ fn record_positive_provider_context_bindings(
     envelope_event_id: event_log::EventId,
     runtime: ui::RuntimeStatus,
     trust: provider_trust::Snapshot,
+    scoped_context: Option<event_log::ProviderContextHashes>,
+    context_attached_to_provider_body: bool,
 ) {
     if trust.development_bypass || !provider_trust_positive(trust.state) {
         return;
     }
 
-    let context = agent_protocol::provider_minimal_context_evidence_for_runtime(runtime);
-    let context_hashes = context.event_hashes();
+    let context_hashes = scoped_context.unwrap_or_else(|| {
+        agent_protocol::provider_minimal_context_evidence_for_runtime(runtime).event_hashes()
+    });
     let provider_trust_state = trust.state.as_protocol();
     let trust_evidence_hash = provider_trust_evidence_hash(trust);
     let request_binding_hash = provider_request_binding_hash(
@@ -755,6 +908,7 @@ fn record_positive_provider_context_bindings(
         context_hashes,
         provider_trust_state,
         trust_evidence_hash,
+        context_attached_to_provider_body,
     );
     let request_binding = event_log::ProviderRequestBinding {
         request_id: envelope.request_id,
@@ -776,13 +930,18 @@ fn record_positive_provider_context_bindings(
     };
     let request_binding_event_id =
         event_log::record_provider_request_binding_bound(request_binding);
-    emit_provider_request_binding(request_binding, request_binding_event_id);
+    emit_provider_request_binding(
+        request_binding,
+        request_binding_event_id,
+        context_attached_to_provider_body,
+    );
 
     let export_audit_binding_hash = provider_export_audit_binding_hash(
         request_binding,
         request_binding_event_id,
         provider_trust_state,
         trust_evidence_hash,
+        context_attached_to_provider_body,
     );
     let export_binding = event_log::ProviderExportAuditBinding {
         request_id: envelope.request_id,
@@ -802,7 +961,7 @@ fn record_positive_provider_context_bindings(
         provider_trust_verifier: trust.verifier,
         provider_trust_verifier_decision: trust.verifier_decision,
         provider_trust_evidence_hash: trust_evidence_hash,
-        context_attached_to_provider_body: false,
+        context_attached_to_provider_body,
     };
     let export_audit_event_id =
         event_log::record_provider_context_export_audit_binding_bound(export_binding);
@@ -834,7 +993,7 @@ fn emit_provider_context_injection_gate_blocked(
     serial::write_raw_str(",\"provider_trust_verifier_decision\":");
     write_raw_provider_trust_verifier_decision(trust.verifier_decision);
     serial::write_raw_str(",\"final_authorization_schema\":\"raios.provider_context_injection_authorization.v0\",\"final_authorization\":\"missing\",\"satisfies_current_boot_export_gate\":false,\"automatic_context_injection\":\"disabled\",\"context_attached_to_provider_body\":false,\"provider_write\":\"not_attempted\",\"can_attach_context\":false,\"hashes\":");
-    write_raw_context_hashes(context.event_hashes());
+    write_raw_context_hashes(context.event_hashes(), false);
     serial::write_raw_str("}\r\n");
 }
 
@@ -947,6 +1106,7 @@ fn provider_request_binding_hash(
     context: event_log::ProviderContextHashes,
     provider_trust_state: &'static str,
     provider_trust_evidence_hash: [u8; 32],
+    context_attached_to_provider_body: bool,
 ) -> [u8; 32] {
     let mut hash = Sha256::new();
     hash_field(
@@ -1007,7 +1167,11 @@ fn provider_request_binding_hash(
     );
     hash_field(&mut hash, "development_tls_bypass", "false");
     hash_field(&mut hash, "provider_write_at_binding", "not_attempted");
-    hash_field(&mut hash, "context_attached_to_provider_body", "false");
+    hash_field(
+        &mut hash,
+        "context_attached_to_provider_body",
+        bool_str(context_attached_to_provider_body),
+    );
     hash.finalize().into()
 }
 
@@ -1016,6 +1180,7 @@ fn provider_export_audit_binding_hash(
     request_binding_event_id: event_log::EventId,
     provider_trust_state: &'static str,
     provider_trust_evidence_hash: [u8; 32],
+    context_attached_to_provider_body: bool,
 ) -> [u8; 32] {
     let mut hash = Sha256::new();
     hash_field(
@@ -1100,20 +1265,37 @@ fn provider_export_audit_binding_hash(
         provider_trust_evidence_hash,
     );
     hash_field(&mut hash, "positive_export_authorization", "true");
-    hash_field(&mut hash, "context_attached_to_provider_body", "false");
-    hash_field(&mut hash, "automatic_context_injection", "disabled");
+    hash_field(
+        &mut hash,
+        "context_attached_to_provider_body",
+        bool_str(context_attached_to_provider_body),
+    );
+    hash_field(
+        &mut hash,
+        "automatic_context_injection",
+        if context_attached_to_provider_body {
+            "deliberate_scoped_feedback_only"
+        } else {
+            "disabled"
+        },
+    );
     hash.finalize().into()
 }
 
 fn emit_provider_request_binding(
     binding: event_log::ProviderRequestBinding,
     event_id: event_log::EventId,
+    context_attached_to_provider_body: bool,
 ) {
     serial::write_raw_str("OPENAI_PROVIDER_REQUEST_BINDING {\"schema\":\"raios.provider_request_binding.v0\",\"id\":\"provider_request_binding.current_boot.");
     serial::write_raw_fmt(format_args!("{:08}", event_id.sequence()));
     serial::write_raw_str("\",\"event_id\":\"event.current_boot.");
     serial::write_raw_fmt(format_args!("{:08}", event_id.sequence()));
-    serial::write_raw_str("\",\"status\":\"bound\",\"satisfies_request_binding_gate\":true,\"satisfies_current_boot_export_gate\":false,\"provider_write_at_binding\":\"not_attempted\",\"context_attached_to_provider_body\":false,\"request_id\":");
+    serial::write_raw_str("\",\"status\":\"bound\",\"satisfies_request_binding_gate\":true,\"satisfies_current_boot_export_gate\":");
+    serial::write_raw_str(bool_str(context_attached_to_provider_body));
+    serial::write_raw_str(",\"provider_write_at_binding\":\"not_attempted\",\"context_attached_to_provider_body\":");
+    serial::write_raw_str(bool_str(context_attached_to_provider_body));
+    serial::write_raw_str(",\"request_id\":");
     serial::write_raw_fmt(format_args!("{}", binding.request_id));
     serial::write_raw_str(",\"request_envelope_event_id\":\"event.current_boot.");
     serial::write_raw_fmt(format_args!(
@@ -1147,7 +1329,7 @@ fn emit_provider_request_binding(
     serial::write_raw_str(",\"development_tls_bypass\":");
     serial::write_raw_str(bool_str(binding.development_tls_bypass));
     serial::write_raw_str("},\"hashes\":");
-    write_raw_context_hashes(binding.context);
+    write_raw_context_hashes(binding.context, context_attached_to_provider_body);
     serial::write_raw_str("}\r\n");
 }
 
@@ -1159,7 +1341,15 @@ fn emit_provider_export_audit_binding(
     serial::write_raw_fmt(format_args!("{:08}", event_id.sequence()));
     serial::write_raw_str("\",\"event_id\":\"event.current_boot.");
     serial::write_raw_fmt(format_args!("{:08}", event_id.sequence()));
-    serial::write_raw_str("\",\"status\":\"authorized_for_single_provider_request\",\"satisfies_export_audit_binding_gate\":true,\"satisfies_current_boot_export_gate\":false,\"positive_export_authorization\":true,\"automatic_context_injection\":\"disabled\",\"provider_write_at_binding\":\"not_attempted\",\"context_attached_to_provider_body\":");
+    serial::write_raw_str("\",\"status\":\"authorized_for_single_provider_request\",\"satisfies_export_audit_binding_gate\":true,\"satisfies_current_boot_export_gate\":");
+    serial::write_raw_str(bool_str(binding.context_attached_to_provider_body));
+    serial::write_raw_str(",\"positive_export_authorization\":true,\"automatic_context_injection\":\"");
+    serial::write_raw_str(if binding.context_attached_to_provider_body {
+        "deliberate_scoped_feedback_only"
+    } else {
+        "disabled"
+    });
+    serial::write_raw_str("\",\"provider_write_at_binding\":\"not_attempted\",\"context_attached_to_provider_body\":");
     serial::write_raw_str(bool_str(binding.context_attached_to_provider_body));
     serial::write_raw_str(",\"request_id\":");
     serial::write_raw_fmt(format_args!("{}", binding.request_id));
@@ -1200,7 +1390,10 @@ fn emit_provider_export_audit_binding(
     serial::write_raw_str(",\"provider_trust_evidence_hash\":");
     write_raw_sha256(binding.provider_trust_evidence_hash);
     serial::write_raw_str(",\"development_tls_bypass\":false},\"hashes\":");
-    write_raw_context_hashes(binding.context);
+    write_raw_context_hashes(
+        binding.context,
+        binding.context_attached_to_provider_body,
+    );
     serial::write_raw_str("}\r\n");
 }
 
@@ -1255,8 +1448,17 @@ fn write_raw_provider_trust_verifier_decision(
     serial::write_raw_str("\"}");
 }
 
-fn write_raw_context_hashes(context: event_log::ProviderContextHashes) {
-    serial::write_raw_str("{\"packet_canonicalization\":\"raios.provider_minimal.packet.canonical.v0\",\"projected_packet_hash\":");
+fn write_raw_context_hashes(
+    context: event_log::ProviderContextHashes,
+    scoped_feedback: bool,
+) {
+    serial::write_raw_str("{\"packet_canonicalization\":\"");
+    serial::write_raw_str(if scoped_feedback {
+        "raios.scoped_project_feedback.packet.canonical_json.v1"
+    } else {
+        "raios.provider_minimal.packet.canonical.v0"
+    });
+    serial::write_raw_str("\",\"projected_packet_hash\":");
     write_raw_sha256(context.projected_packet_hash);
     serial::write_raw_str(",\"exported_field_list_hash\":");
     write_raw_sha256(context.exported_field_list_hash);
@@ -1271,6 +1473,310 @@ fn write_raw_context_hashes(context: event_log::ProviderContextHashes) {
     serial::write_raw_str("}");
 }
 
+fn build_request_body_with_context(
+    request_id: u32,
+    max_output_tokens: u16,
+    target: provider::RequestTarget,
+    trust: provider_trust::Snapshot,
+    authorization: &mut ScopedFeedbackAuthorization,
+) -> Result<AuthorizedScopedRequest, &'static str> {
+    if authorization.consumed {
+        return Err("single_use_export_authorization_consumed");
+    }
+
+    let packet_json = build_feedback_packet_json(authorization.packet);
+    let packet_hash = hash_bytes(packet_json.as_bytes());
+    let packet_estimated_tokens = (packet_json.len() as u64).saturating_add(3) / 4;
+    let packet_all_records_public =
+        agent_build_loop::feedback_packet_is_public(authorization.packet);
+    let body = build_request_body_with_packet(
+        SCOPED_PROJECT_FEEDBACK_PROMPT,
+        max_output_tokens,
+        packet_json.as_str(),
+    );
+    let request_body_hash = hash_bytes(body.as_bytes());
+    let provider_trust_state = trust.state.as_protocol();
+    let (source_method, export_method) = match target {
+        provider::RequestTarget::ProjectFeedbackWorkspace => {
+            ("project.feedback_export", "provider.context_export")
+        }
+        _ => (
+            "provider.context_export.invalid_target",
+            "provider.context_export.invalid_target",
+        ),
+    };
+    let request_envelope_hash = provider_request_envelope_hash(
+        request_id,
+        max_output_tokens,
+        source_method,
+        request_body_hash,
+        provider_trust_state,
+        provider_trust_positive(trust.state),
+        trust.development_bypass,
+        true,
+    );
+    let audit_binding_hash = scoped_feedback_audit_binding_hash(
+        request_id,
+        packet_hash,
+        request_body_hash,
+        request_envelope_hash,
+        trust,
+    );
+    let gate_input = ProviderExportGateInput {
+        method: Some(export_method),
+        profile: Some(SCOPED_FEEDBACK_PROFILE),
+        trust_state: Some(provider_trust_state),
+        tls_certificate_verification_bypassed: trust.development_bypass,
+        packet_all_records_public,
+        packet_record_count: Some(SCOPED_FEEDBACK_RECORD_COUNT),
+        budget_tokens: Some(SCOPED_FEEDBACK_BUDGET_TOKENS),
+        packet_estimated_tokens: Some(packet_estimated_tokens),
+        audit_packet_hash: Some(packet_hash),
+        audit_destination: Some(SCOPED_FEEDBACK_DESTINATION),
+        audit_trust_snapshot_present: scoped_feedback_trust_snapshot_present(trust),
+        audit_binding_hash: Some(audit_binding_hash),
+    };
+    let gate_decision = evaluate_provider_export_gate(&gate_input);
+    if !gate_decision.performed {
+        let _ = memory_store::record_provider_export_denial_audit(
+            gate_decision.reason,
+            SCOPED_FEEDBACK_PROFILE,
+            provider_trust_state,
+        );
+        emit_scoped_feedback_export_denied(
+            request_id,
+            gate_decision.reason,
+            request_body_hash,
+            packet_hash,
+            false,
+        );
+        return Err(gate_decision.reason);
+    }
+
+    let audit = memory_store::record_live_provider_export_audit(
+        request_id,
+        packet_hash,
+        SCOPED_FEEDBACK_RECORD_COUNT,
+        SCOPED_FEEDBACK_DESTINATION,
+        provider_trust_state,
+        SCOPED_FEEDBACK_BUDGET_TOKENS,
+        packet_estimated_tokens,
+        request_body_hash,
+        request_envelope_hash,
+        audit_binding_hash,
+        provider_trust_evidence_hash(trust),
+    );
+    if !audit.performed
+        || !audit.reparse_valid
+        || audit.seq.is_none()
+        || audit.payload_sha256.is_none()
+        || audit.frame_sha256.is_none()
+        || audit.frame_sha256 != audit.readback_sha256
+    {
+        emit_scoped_feedback_export_denied(
+            request_id,
+            "durable_export_audit_append_failed",
+            request_body_hash,
+            packet_hash,
+            false,
+        );
+        return Err("durable_export_audit_append_failed");
+    }
+
+    authorization.consumed = true;
+    Ok(AuthorizedScopedRequest {
+        body,
+        envelope: ProviderRequestEnvelope {
+            request_id,
+            max_output_tokens,
+            source_method,
+            request_body_hash,
+            envelope_hash: request_envelope_hash,
+            provider_trust_state,
+            provider_trust_positive: true,
+            development_tls_bypass: false,
+            context_attached_to_provider_body: true,
+        },
+        context: scoped_feedback_context_hashes(packet_hash, packet_estimated_tokens),
+        gate_decision,
+        audit_binding_hash,
+        packet_hash,
+        packet_estimated_tokens,
+        audit,
+    })
+}
+
+fn build_feedback_packet_json(packet: FeedbackPacket) -> String {
+    let mut out = String::from("{\"profile\":\"provider_minimal\",\"records\":[{\"field\":\"check_id\",\"classification\":\"public\",\"value\":\"");
+    push_json_string(&mut out, packet.check_id);
+    out.push_str("\"},{\"field\":\"revision_sha256\",\"classification\":\"public\",\"value\":\"");
+    push_sha256_string(&mut out, packet.revision_sha256);
+    out.push_str("\"},{\"field\":\"tree_sha256\",\"classification\":\"public\",\"value\":\"");
+    push_sha256_string(&mut out, packet.tree_sha256);
+    out.push_str("\"},{\"field\":\"reason\",\"classification\":\"public\",\"value\":\"");
+    push_json_string(&mut out, packet.reason);
+    out.push_str("\"}]}");
+    out
+}
+
+fn build_request_body_with_packet(
+    instructions: &str,
+    max_output_tokens: u16,
+    packet_json: &str,
+) -> String {
+    let mut body = String::new();
+    body.push_str("{\"model\":\"");
+    body.push_str(MODEL);
+    body.push_str("\",\"instructions\":\"");
+    push_json_string(&mut body, instructions);
+    body.push_str("\",\"input\":\"");
+    push_json_string(&mut body, packet_json);
+    body.push_str("\",\"max_output_tokens\":");
+    body.push_str(format!("{}", max_output_tokens).as_str());
+    body.push_str(",\"store\":false}");
+    body
+}
+
+fn push_sha256_string(out: &mut String, value: [u8; 32]) {
+    out.push_str("sha256:");
+    let mut idx = 0usize;
+    while idx < value.len() {
+        let _ = write!(out, "{:02x}", value[idx]);
+        idx += 1;
+    }
+}
+
+fn scoped_feedback_trust_snapshot_present(trust: provider_trust::Snapshot) -> bool {
+    !trust.verifier.schema.is_empty()
+        && !trust.verifier.id.is_empty()
+        && trust.verifier.host == API_HOST
+        && trust.verifier.port == "443"
+        && !trust.verifier.transport.is_empty()
+        && !trust.verifier.hostname_policy.is_empty()
+        && !trust.verifier.pin_policy.is_empty()
+        && !trust.verifier.chain_policy.is_empty()
+        && !trust.verifier.time_policy.is_empty()
+        && !trust.verifier.certificate_verify_policy.is_empty()
+        && !trust.verifier_decision.schema.is_empty()
+        && trust.verifier_decision.verifier_id == trust.verifier.id
+        && !trust.verifier_decision.stage.is_empty()
+        && trust.verifier_decision.outcome == "verified"
+        && !trust.verifier_decision.reason.is_empty()
+}
+
+fn scoped_feedback_audit_binding_hash(
+    request_id: u32,
+    packet_hash: [u8; 32],
+    request_body_hash: [u8; 32],
+    request_envelope_hash: [u8; 32],
+    trust: provider_trust::Snapshot,
+) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_field(
+        &mut hash,
+        "domain",
+        "raios.scoped_project_feedback_export_audit.canonical.v0",
+    );
+    hash_field(&mut hash, "request.id", format!("{}", request_id).as_str());
+    hash_hash_field(&mut hash, "packet_hash", packet_hash);
+    hash_hash_field(&mut hash, "request_body_hash", request_body_hash);
+    hash_hash_field(&mut hash, "request_envelope_hash", request_envelope_hash);
+    hash_field(&mut hash, "destination", SCOPED_FEEDBACK_DESTINATION);
+    hash_field(&mut hash, "provider_trust_state", trust.state.as_protocol());
+    hash_hash_field(
+        &mut hash,
+        "provider_trust_evidence_hash",
+        provider_trust_evidence_hash(trust),
+    );
+    hash_field(
+        &mut hash,
+        "development_tls_bypass",
+        bool_str(trust.development_bypass),
+    );
+    hash.finalize().into()
+}
+
+fn scoped_feedback_context_hashes(
+    packet_hash: [u8; 32],
+    packet_estimated_tokens: u64,
+) -> event_log::ProviderContextHashes {
+    let mut budget = Sha256::new();
+    hash_field(
+        &mut budget,
+        "budget_tokens",
+        format!("{}", SCOPED_FEEDBACK_BUDGET_TOKENS).as_str(),
+    );
+    hash_field(
+        &mut budget,
+        "packet_estimated_tokens",
+        format!("{}", packet_estimated_tokens).as_str(),
+    );
+    event_log::ProviderContextHashes {
+        projected_packet_hash: packet_hash,
+        exported_field_list_hash: hash_bytes(
+            b"check_id\nrevision_sha256\ntree_sha256\nreason\n",
+        ),
+        omitted_field_list_hash: hash_bytes(
+            b"source_bytes\nfile_paths\nlogs\nstdout\nsecrets\nhardware_facts\nunclassified_text\n",
+        ),
+        redaction_policy_hash: hash_bytes(b"explicit_four_field_allowlist_public_only.v1"),
+        field_classification_hash: hash_bytes(
+            b"check_id=public\nrevision_sha256=public\ntree_sha256=public\nreason=public\n",
+        ),
+        token_budget_hash: budget.finalize().into(),
+    }
+}
+
+fn emit_scoped_feedback_export_denied(
+    request_id: u32,
+    reason: &'static str,
+    request_body_hash: [u8; 32],
+    packet_hash: [u8; 32],
+    authorization_consumed: bool,
+) {
+    serial::write_raw_str("OPENAI_SCOPED_PROJECT_FEEDBACK_EXPORT {\"status\":\"denied\",\"reason\":\"");
+    serial::write_raw_str(reason);
+    serial::write_raw_str("\",\"request_id\":");
+    serial::write_raw_fmt(format_args!("{}", request_id));
+    serial::write_raw_str(",\"request_body_hash\":");
+    write_raw_sha256(request_body_hash);
+    serial::write_raw_str(",\"packet_hash\":");
+    write_raw_sha256(packet_hash);
+    serial::write_raw_str(",\"context_attached_to_provider_body\":false,\"provider_write\":\"not_attempted\",\"authorization_consumed\":");
+    serial::write_raw_str(bool_str(authorization_consumed));
+    serial::write_raw_str("}\r\n");
+}
+
+fn emit_scoped_feedback_export_authorized(request: &AuthorizedScopedRequest) {
+    serial::write_raw_str("OPENAI_SCOPED_PROJECT_FEEDBACK_EXPORT {\"status\":\"authorized\",\"reason\":\"");
+    serial::write_raw_str(request.gate_decision.reason);
+    serial::write_raw_str("\",\"request_id\":");
+    serial::write_raw_fmt(format_args!("{}", request.envelope.request_id));
+    serial::write_raw_str(",\"packet_record_count\":4,\"packet_all_records_public\":true,\"budget_tokens\":1000,\"packet_estimated_tokens\":");
+    serial::write_raw_fmt(format_args!("{}", request.packet_estimated_tokens));
+    serial::write_raw_str(",\"packet_hash\":");
+    write_raw_sha256(request.packet_hash);
+    serial::write_raw_str(",\"request_body_hash\":");
+    write_raw_sha256(request.envelope.request_body_hash);
+    serial::write_raw_str(",\"request_envelope_hash\":");
+    write_raw_sha256(request.envelope.envelope_hash);
+    serial::write_raw_str(",\"audit_binding_hash\":");
+    write_raw_sha256(request.audit_binding_hash);
+    serial::write_raw_str(",\"durable_audit_payload_sha256\":");
+    match request.audit.payload_sha256 {
+        Some(hash) => write_raw_sha256(hash),
+        None => serial::write_raw_str("null"),
+    }
+    serial::write_raw_str(",\"durable_audit_seq\":");
+    match request.audit.seq {
+        Some(seq) => serial::write_raw_fmt(format_args!("{}", seq)),
+        None => serial::write_raw_str("null"),
+    }
+    serial::write_raw_str(",\"durable_audit_reason\":\"");
+    serial::write_raw_str(request.audit.reason);
+    serial::write_raw_str("\",\"context_attached_to_provider_body\":true,\"provider_write\":\"not_attempted\",\"authorization_consumed\":true}\r\n");
+}
+
 enum HttpsResult {
     Answer(String, provider::AnswerProvenance),
     Status(u16, FixedLine),
@@ -1278,9 +1784,12 @@ enum HttpsResult {
 }
 
 fn perform_https_request(
+    request_id: u32,
+    target: provider::RequestTarget,
     request_body: &str,
-    envelope: ProviderRequestEnvelope,
-    envelope_event_id: event_log::EventId,
+    envelope: Option<ProviderRequestEnvelope>,
+    envelope_event_id: Option<event_log::EventId>,
+    mut scoped_feedback: Option<ScopedFeedbackAuthorization>,
     runtime: ui::RuntimeStatus,
     transport_lease: net::TransportLeaseToken,
 ) -> HttpsResult {
@@ -1325,7 +1834,7 @@ fn perform_https_request(
     }
     serial::write_line("openai: TLS 1.3 established");
     let trust = provider_trust::snapshot();
-    if !trust.allows_provider_request() {
+    if scoped_feedback.is_none() && !trust.allows_provider_request() {
         serial::write_fmt(format_args!(
             "openai: TLS trust denied before API key copy: {}\r\n",
             trust.state.as_protocol()
@@ -1336,7 +1845,7 @@ fn perform_https_request(
         serial::write_line(
             "openai: TLS provider trust state: tls_certificate_verification_bypassed",
         );
-    } else {
+    } else if provider_trust_positive(trust.state) {
         let trust_label = match trust.state {
             provider_trust::TrustState::PinnedCertVerified => "pinned_cert",
             provider_trust::TrustState::PinnedSpkiVerified => "pinned_spki",
@@ -1354,13 +1863,88 @@ fn perform_https_request(
                 trust_label
             ));
         }
+    } else {
+        serial::write_fmt(format_args!(
+            "openai: TLS trust pending scoped export gate: {}\r\n",
+            trust.state.as_protocol()
+        ));
     }
 
+    let mut scoped_body = None;
+    let (envelope, _envelope_event_id) = match scoped_feedback.as_mut() {
+        Some(authorization) => {
+            let authorized = match build_request_body_with_context(
+                request_id,
+                MAX_OUTPUT_TOKENS,
+                target,
+                trust,
+                authorization,
+            ) {
+                Ok(authorized) => authorized,
+                Err(_) => {
+                    return HttpsResult::Error(b"OPENAI SCOPED FEEDBACK EXPORT DENIED")
+                }
+            };
+            let scoped_envelope = authorized.envelope;
+            let scoped_envelope_event_id = event_log::record_provider_request_envelope_created(
+                scoped_envelope.event_binding(),
+            );
+            emit_provider_request_envelope(scoped_envelope, runtime);
+            record_positive_provider_context_bindings(
+                scoped_envelope,
+                scoped_envelope_event_id,
+                runtime,
+                trust,
+                Some(authorized.context),
+                true,
+            );
+            emit_scoped_feedback_export_authorized(&authorized);
+            scoped_body = Some(authorized.body);
+            (scoped_envelope, scoped_envelope_event_id)
+        }
+        None => {
+            let (Some(envelope), Some(envelope_event_id)) = (envelope, envelope_event_id) else {
+                return HttpsResult::Error(b"OPENAI DIRECT REQUEST ENVELOPE MISSING");
+            };
+            if hash_bytes(request_body.as_bytes()) != envelope.request_body_hash {
+                return HttpsResult::Error(b"OPENAI DIRECT REQUEST ENVELOPE BODY HASH MISMATCH");
+            }
+            record_positive_provider_context_bindings(
+                envelope,
+                envelope_event_id,
+                runtime,
+                trust,
+                None,
+                false,
+            );
+            emit_provider_context_injection_gate_blocked(envelope, runtime, trust);
+            (envelope, envelope_event_id)
+        }
+    };
+    let request_body = scoped_body.as_deref().unwrap_or(request_body);
     if hash_bytes(request_body.as_bytes()) != envelope.request_body_hash {
-        return HttpsResult::Error(b"OPENAI DIRECT REQUEST ENVELOPE BODY HASH MISMATCH");
+        return HttpsResult::Error(b"OPENAI DIRECT FINAL BODY HASH MISMATCH");
     }
-    record_positive_provider_context_bindings(envelope, envelope_event_id, runtime, trust);
-    emit_provider_context_injection_gate_blocked(envelope, runtime, trust);
+    let final_trust = provider_trust::snapshot();
+    if envelope.context_attached_to_provider_body
+        && (final_trust.development_bypass
+            || !provider_trust_positive(final_trust.state)
+            || final_trust.state.as_protocol() != envelope.provider_trust_state)
+    {
+        emit_scoped_feedback_export_denied(
+            envelope.request_id,
+            "final_provider_trust_downgraded_before_write",
+            envelope.request_body_hash,
+            scoped_feedback
+                .as_ref()
+                .map(|authorization| {
+                    hash_bytes(build_feedback_packet_json(authorization.packet).as_bytes())
+                })
+                .unwrap_or([0; 32]),
+            true,
+        );
+        return HttpsResult::Error(b"OPENAI DIRECT FINAL PROVIDER TRUST DOWNGRADED");
+    }
 
     let vault_credential = matches!(
         secret_vault::provider_status(),
@@ -1412,6 +1996,15 @@ fn perform_https_request(
         return HttpsResult::Error(b"OPENAI DIRECT HTTPS WRITE FAILED");
     }
     serial::write_line("openai: HTTPS request sent");
+    if envelope.context_attached_to_provider_body {
+        serial::write_raw_str("OPENAI_SCOPED_PROJECT_FEEDBACK_SENT {\"request_id\":");
+        serial::write_raw_fmt(format_args!("{}", envelope.request_id));
+        serial::write_raw_str(",\"request_body_hash\":");
+        write_raw_sha256(envelope.request_body_hash);
+        serial::write_raw_str(",\"request_envelope_hash\":");
+        write_raw_sha256(envelope.envelope_hash);
+        serial::write_raw_str(",\"context_attached_to_provider_body\":true,\"provider_write\":\"performed\",\"authorization_consumed\":true}\r\n");
+    }
 
     let response = match read_http_response(&mut tls) {
         Ok(response) => response,

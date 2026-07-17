@@ -2,7 +2,10 @@ use alloc::string::String;
 use core::fmt::{self, Write};
 use core::str;
 
-use crate::{net, openai, provider_config, provider_trust, secret_vault, ui};
+use crate::{
+    agent_build_loop::FeedbackPacket, net, openai, provider_config, provider_trust, secret_vault,
+    ui,
+};
 
 const LINE_CAPACITY: usize = 104;
 
@@ -61,6 +64,7 @@ pub enum RequestTarget {
     Conversation,
     ProgramWorkspace,
     ProjectWorkspace,
+    ProjectFeedbackWorkspace,
 }
 
 #[derive(Clone, Copy)]
@@ -222,6 +226,35 @@ pub fn submit(
     }
 
     match openai::submit_request(prompt, max_output, request.target, runtime) {
+        Ok(id) => Ok(Submitted {
+            route: Route::OpenAiDirect,
+            id,
+        }),
+        Err(openai::SubmitError::Empty) => Err(SubmitError::Empty),
+        Err(openai::SubmitError::InvalidMaxOutput) => Err(SubmitError::InvalidMaxOutput),
+        Err(openai::SubmitError::Busy(id)) => Err(SubmitError::Busy {
+            route: Route::OpenAiDirect,
+            id,
+        }),
+    }
+}
+
+pub(crate) fn submit_scoped_project_feedback(
+    packet: FeedbackPacket,
+    runtime: ui::RuntimeStatus,
+) -> Result<Submitted, SubmitError> {
+    if !provider_credential_usable() {
+        return Err(SubmitError::MissingApiKey);
+    }
+
+    let trust = provider_trust::snapshot();
+    if !trust.allows_provider_request() && !provider_trust::can_attempt_openai_tls() {
+        return Err(SubmitError::TrustDenied {
+            state: trust.state.as_protocol(),
+        });
+    }
+
+    match openai::submit_scoped_project_feedback(packet, runtime) {
         Ok(id) => Ok(Submitted {
             route: Route::OpenAiDirect,
             id,
