@@ -190,21 +190,30 @@ design lane landed too: Genesis approval labels [INSTALL]/[PERSIST]/[RUN]/
 [RUN+PERSIST] + a program-persistence truth line (durable survives reboot vs
 current-boot), and present_rect partial-present (no full-FHD copy on editor
 keystrokes) — serial output + click geometry byte-identical.
-**B2 ACTIVE — B2.1a + B2.2a + B2.1b LIVE VERIFIED (2026-07-17):** a fixed
-key-free agent answer becomes inert source files, one system-owned preflight
+**B2 ACTIVE — B2.1a + B2.2a + B2.1b LIVE + B2.2 LIVE VERIFIED (2026-07-17):** a
+fixed key-free agent answer becomes inert source files, one system-owned preflight
 failure drives an exact immutable child that re-passes without build/run/install/
 export authority (`project-workspace` `shadow-20260717-142445-27836.json`,
-654/654), AND a REAL OpenAI answer over positive `pinned_cert` TLS
+654/654); a REAL OpenAI answer over positive `pinned_cert` TLS
 (`development_tls_bypass=false`) became two inert source files committed
 `answer_origin=live`/`local_only`/`untrusted_agent_candidate` with zero
-executable effect (`openai-direct-smoke.ps1 -ExpectProjectWorkspaceAnswer`, 6/6
-predicates, exit 0; headless via the new `project.ask` serial command). The live
-image needs the disposable C1 structured store + valid-a BOOTCTL persist disk to
-commit; the leaf cert pin is computed live and rotates.
-**NEXT DELIBERATE SLICE — B2.2 live:** the scoped project-feedback export back to
-the provider (`submit_scoped_project_feedback` / `build_request_body_with_context`
-/ the current-boot export gate), then the Genesis `/build` source-status surface.
-`/program` stays the explicit RUIP fast lane. B2.3 is the visible slow lane.
+executable effect (`openai-direct-smoke.ps1 -ExpectProjectWorkspaceAnswer`, 6/6,
+exit 0); AND the SCOPED FEEDBACK EXPORT is live-proven — a classified four-field
+packet (check id + revision/tree sha256 + `build_cargo_lock_missing`, all public)
+left to api.openai.com under a single-use positive gate + durable export audit,
+`context_attached_to_provider_body:true`, no bypass, host-verified body hash
+proving no source/secret leak; the provider's non-conforming answer was honestly
+rejected, revision 1 intact (`-ExpectScopedFeedbackExport`, 8/8, exit 0). Serial
+lanes: `project.ask` (source) + `agent project.{verify_revision,feedback_packet,
+feedback_submit}`. Single use is per-authorization; the retained packet stays for
+owner transparency. The live image needs the disposable C1 structured store +
+valid-a BOOTCTL persist disk; the leaf cert pin is computed live and rotates.
+**NEXT DELIBERATE SLICE:** the Genesis `/build` + feedback source-status surface
+(visible pending/ready/rejected + export state), then B2.3 slow-lane orchestration
+(`LoopPhase` projection) toward B3 (on-device compiler GO/NO-GO). `/program` stays
+the explicit RUIP fast lane. Honest gap: the scoped feedback carries no source, so
+the provider rarely returns a conforming child — richer (still-classified)
+evidence and the B3 on-device build/test producer are what close the iterate loop.
 
 **B1.2c W6 INSTALL + REBOOT SURVIVAL + ROLLBACK VERIFIED-CLOSED (2026-07-15).**
 Loop stations 7 (install/autoload/reboot) and 8 (rollback) close for W7
