@@ -1,6 +1,6 @@
 # WiFi-1b Design: Marvell 88W8897 PCIe Firmware-Download Hardware Layer
 
-Read-only scoping note: `git status --short` shows unrelated `?? release/raios-stage0-preview.img`; preserve it.
+Read-only scoping note: `git status --short` shows unrelated `?? docs/assets/screenshots/raios-stage0-preview.img`; preserve it.
 
 ## 1. MODULE SHAPE
 

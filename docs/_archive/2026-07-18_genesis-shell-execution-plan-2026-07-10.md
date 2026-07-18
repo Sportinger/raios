@@ -239,9 +239,9 @@ At plan authoring time:
   542/542;
 - the following untracked paths are foreign owner work and must not be deleted,
   staged, overwritten, or absorbed into a commit:
-  `.cargo-home/`, `release/enum-console-shot.png`,
-  `release/iommu-wifi-shot.png`, `release/raios-stage0-preview.img`,
-  `release/set-wifi-scan-shot.png`, `release/ui-pill-detail-shot.png`, and
+  `.cargo-home/`, `docs/assets/screenshots/enum-console-shot.png`,
+  `docs/assets/screenshots/iommu-wifi-shot.png`, `docs/assets/screenshots/raios-stage0-preview.img`,
+  `docs/assets/screenshots/set-wifi-scan-shot.png`, `docs/assets/screenshots/ui-pill-detail-shot.png`, and
   `release/usb-write-result.txt`.
 
 The former concurrent WiFi association/supplicant work is now frozen in `cf323a7`; the

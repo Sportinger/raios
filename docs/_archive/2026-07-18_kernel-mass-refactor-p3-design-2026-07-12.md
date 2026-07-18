@@ -253,12 +253,12 @@ secret scan. Do not invent a denial-only replacement profile.
 
 No build, QEMU, deletion, stage, or commit was run. Initial git status:
 
-    ?? release/enum-console-shot.png
-    ?? release/iommu-wifi-shot.png
-    ?? release/raios-genesis-live-preview.img
-    ?? release/raios-stage0-preview.img
-    ?? release/set-wifi-scan-shot.png
-    ?? release/ui-pill-detail-shot.png
+    ?? docs/assets/screenshots/enum-console-shot.png
+    ?? docs/assets/screenshots/iommu-wifi-shot.png
+    ?? docs/assets/screenshots/raios-genesis-live-preview.img
+    ?? docs/assets/screenshots/raios-stage0-preview.img
+    ?? docs/assets/screenshots/set-wifi-scan-shot.png
+    ?? docs/assets/screenshots/ui-pill-detail-shot.png
     ?? release/usb-write-result.txt
 
 Final status observed after writing this document:
@@ -267,11 +267,11 @@ Final status observed after writing this document:
     M seed-kernel/src/agent_protocol_module_loader_runtime.rs
     ?? docs/plan-reviews/kernel-mass-refactor-p2-design-2026-07-12.md
     ?? docs/plan-reviews/kernel-mass-refactor-p3-design-2026-07-12.md
-    ?? release/enum-console-shot.png
-    ?? release/raios-genesis-live-preview.img
-    ?? release/raios-stage0-preview.img
-    ?? release/set-wifi-scan-shot.png
-    ?? release/ui-pill-detail-shot.png
+    ?? docs/assets/screenshots/enum-console-shot.png
+    ?? docs/assets/screenshots/raios-genesis-live-preview.img
+    ?? docs/assets/screenshots/raios-stage0-preview.img
+    ?? docs/assets/screenshots/set-wifi-scan-shot.png
+    ?? docs/assets/screenshots/ui-pill-detail-shot.png
     ?? release/usb-write-result.txt
     ?? seed-kernel/src/agent_protocol_module_loader_runtime/
 
