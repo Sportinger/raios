@@ -7,13 +7,15 @@ This repository is the local raiOS workspace.
 Read these files before making changes:
 
 1. `README.md`
-2. `docs/PROJECT_STATUS.md`
-3. `docs/ROADMAP.md`
-4. `docs/DEBUGGING.md`
-5. `docs/architecture-decisions/0001-raios-agent-protocol.md`
-6. `docs/architecture-decisions/0004-system-memory-and-agent-context.md`
-7. `docs/architecture-decisions/0005-bare-metal-substrate-and-wasm-isolation.md`
-8. `docs/plan-reviews/review-4-deep-scope-code-and-process-2026-07.md`
+2. `docs/SCOPE.md`
+3. `docs/status/STATUS.md`
+4. `docs/plans/plan-personal-rust-playground.md`
+5. `docs/plans/plan-rust-kernel.md`
+6. `docs/agents/DEBUGGING.md`
+7. `docs/architecture/decisions/0001-raios-agent-protocol.md`
+8. `docs/architecture/decisions/0004-system-memory-and-agent-context.md`
+9. `docs/architecture/decisions/0005-bare-metal-substrate-and-wasm-isolation.md`
+10. `docs/_archive/2026-07-18_review-4-deep-scope-code-and-process-2026-07.md`
 
 Then run `git status --short` and preserve unrelated user changes.
 
@@ -33,18 +35,10 @@ reference/workstation tool, not the hard dependency inside the kernel.
 
 ## The Standing Mission (owner decision, 2026-07-15)
 
-The all-over mission map is `docs/VISION_PLAN.md` and it is binding: the
-PRODUCT is the minimal base plus the CLOSED SELF-BUILD LOOP — once online,
-raiOS grows everything else (desktop, GPU support, comfort) OUT OF ITSELF.
-Those features are fruits of the loop, never work packages for us. Three
-binding owner decisions are recorded in its §3: kernel self-rebuild is the
-END STAGE of the loop (A/B boot slots + auto-rollback); only ON-DEVICE
-compilation fulfils the vision (external build machines, including the owner
-workstation, are development scaffolding, never fulfilment); the base is DONE
-when an agent-written program passes the complete loop in QEMU without a
-manual step (the Surface run is the milestone after). Every slice must
-advance a loop station from the plan's §4 table or a base-hardening track
-from §5 — a slice that advances neither is comfort and is dropped.
+`docs/SCOPE.md` is the binding source for what raiOS is. The active on-device
+self-build work lives in `docs/plans/plan-personal-rust-playground.md`; the
+superseded all-over vision is preserved in the dated archive. Every slice must
+advance a checked scope category or an active plan — comfort work is dropped.
 
 ## Development Phase vs Operating Phase (owner decision, 2026-07-14)
 
@@ -126,13 +120,12 @@ not conflict, but every merged result must be a real, tested slice.
   verification. Do not chain schema-only loader boundaries while a runtime slice
   can be built instead.
 - Do not copy the active next slice into this file. The current engineering
-  cursor lives in `docs/ROADMAP.md` and the detailed exact task lives in
-  `docs/PROJECT_STATUS.md`; use this file for durable rules only.
-- Work is selected from the capability milestones M0-M7 in `docs/ROADMAP.md`
-  (the legacy Phase 0-10 structure is retired as the planning backbone; see
-  ADR 0005). Keep persistence, external unsigned artifact intake, durable
-  writes, rollback application, and broad mutation denied until the milestone
-  gates say the evidence chain is ready.
+  cursor lives in `docs/status/STATUS.md` and the active category plans live in
+  `docs/plans/`; use this file for durable rules only.
+- Work is selected from `docs/SCOPE.md` and the active plans. Keep persistence,
+  external unsigned artifact intake, durable writes, rollback application, and
+  broad mutation denied until the active plan gates say the evidence chain is
+  ready.
 - A built-in hello artifact is acceptable only as labeled test infrastructure
   for the real path. It must not fake success, bypass the service registry, or
   imply that arbitrary external modules are supported.
@@ -215,21 +208,21 @@ surfaces, then run the combined regression/profile when the joined behavior is r
 ## Capability Definition Of Done
 
 Adopted 2026-07-04 after
-`docs/plan-reviews/review-4-deep-scope-code-and-process-2026-07.md` and
+`docs/_archive/2026-07-18_review-4-deep-scope-code-and-process-2026-07.md` and
 ADR 0005. These rules override older slice habits:
 
 - Every slice must state, in one sentence in its commit message and status
   entry, what a user or agent can now DO that it could not do before. "A new
   denial schema exists" does not qualify as a capability.
 - No new `raios.*.v0` schema may be added as hand-rolled emit/hash code.
-  While milestones M0-M2 (`docs/ROADMAP.md`) are open, no new schemas at
+  While milestones M0-M2 (`docs/_archive/2026-07-18_ROADMAP.md`) are open, no new schemas at
   all; after M2, new schemas are typed record-model entries only.
 - At most one denial-gate or evidence-only slice per five capability slices.
 - During the M2 ceremony collapse, every slice that ports a gate must delete
   more lines than it adds; the smoke harness proves byte-identical serial
   output.
 - Progress reports to the owner lead with the capability sentence, never
-  predicate counts. Update `docs/OWNER_DASHBOARD.md` every session.
+  predicate counts. Update `docs/status/OWNER_DASHBOARD.md` every session.
 
 ## Red Gate Rule
 
@@ -249,7 +242,7 @@ an explicit Red Gate note naming the repair work done.
 
 ## Failure Classification Rule
 
-Every failed VM run must be classified in `docs/PROJECT_STATUS.md` with the
+Every failed VM run must be classified in `docs/status/STATUS.md` with the
 failing predicate name and a one-line `host-transport` vs `guest-behavior`
 verdict before any retry. A predicate that fails and then passes on retry
 without a code change is logged as a suspected intermittent guest bug, not
@@ -326,9 +319,8 @@ Still shape every durable slice so it can become raiOS memory later:
 
 This file intentionally keeps only durable startup facts. Do not mirror the
 active engineering cursor or per-slice implementation history here. Read
-`docs/PROJECT_STATUS.md` for the authoritative detailed current state, latest
-VM reports, known gaps, and exact next task; read `docs/ROADMAP.md` for the
-compact phase cursor and parallel work lanes.
+`docs/status/STATUS.md` for the authoritative current state, latest VM reports,
+known gaps, and exact next task; read `docs/plans/` for active work.
 
 Stable facts for new agents:
 
@@ -347,17 +339,17 @@ Stable facts for new agents:
   exercises signed descriptor/artifact evidence, lifecycle/inventory,
   hot-swap/state-migration, rollback preview/apply denial, test-media
   write/readback evidence, and recovery-lifeline bindings as recorded in
-  `docs/PROJECT_STATUS.md`.
+  `docs/status/STATUS.md`.
 - Persistence, external unsigned artifact intake, executable candidate-byte
   mapping, provider auto-load, broad mutation, durable audit writes, rollback
   store writes, real transaction append, rollback application, and installed
-  rollback state remain denied unless `docs/PROJECT_STATUS.md` and
-  `docs/ROADMAP.md` say otherwise.
+  rollback state remain denied unless `docs/status/STATUS.md` and the active
+  plans say otherwise.
 - Latest verification evidence should be read from
   `release/vm-reports/shadow-*.json`, not copied into this file.
 
-Routine slice progress updates should touch `docs/PROJECT_STATUS.md` and, when
-the cursor changes, `docs/ROADMAP.md`. Update `README.md` or `AGENTS.md` only
+Routine slice progress updates should touch `docs/status/STATUS.md` and the
+relevant file in `docs/plans/` when the cursor changes. Update `README.md` or `AGENTS.md` only
 when durable project reality, startup instructions, or standing rules change.
 
 ## Important Technical Notes
@@ -446,18 +438,17 @@ Run the direct OpenAI VM smoke after packaging a local key image:
 powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1
 ```
 
-Debugging and failure modes are documented in `docs/DEBUGGING.md`.
+Debugging and failure modes are documented in `docs/agents/DEBUGGING.md`.
 
 ## Engineering Cursor
 
 Do not maintain the exact next task here. Read:
 
-- `docs/VISION_PLAN.md` for the standing mission, the loop-station status
-  table, and the block order (B1-B4).
-- `docs/ROADMAP.md` for the compact active cursor and parallel work lanes.
-- `docs/PROJECT_STATUS.md` for the detailed exact next task and latest
+- `docs/SCOPE.md` for the standing mission and product boundary.
+- `docs/plans/` for active category plans.
+- `docs/status/STATUS.md` for the detailed exact next task and latest
   verification evidence.
-- `docs/DEBUGGING.md` for the cheapest relevant build, smoke, and diagnostic
+- `docs/agents/DEBUGGING.md` for the cheapest relevant build, smoke, and diagnostic
   command.
 
 Stable work lanes are runtime/recovery, provider trust, UI/input, VM harness,

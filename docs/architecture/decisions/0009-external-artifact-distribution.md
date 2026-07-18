@@ -19,19 +19,19 @@ accepted Option A on 2026-07-08.)
 
 M12+ explicitly names external artifact distribution as future direction, not a
 slice plan: "external artifact distribution (unparking `ota/`/`registry/`/
-`fake-cloud/` - requires a new ADR)" (`docs/ROADMAP.md:980-985`). The same
+`fake-cloud/` - requires a new ADR)" (`docs/_archive/2026-07-18_ROADMAP.md:980-985`). The same
 roadmap forbids work in those directories without that ADR
-(`docs/ROADMAP.md:1094-1095`).
+(`docs/_archive/2026-07-18_ROADMAP.md:1094-1095`).
 
 The M12+ direction document says what this item means today. Current artifacts
 are repo-local or delivered through the serial harness; the external
 distribution item would let one user's promoted, evidence-carrying module be
 published and another raiOS receive it as a candidate
-(`docs/plan-reviews/m12-plus-direction-2026-07-06.md:111-123`). The same
+(`docs/_archive/2026-07-18_m12-plus-direction-2026-07-06.md:111-123`). The same
 document sets the hard framing: "download = candidate intake, NEVER install";
 network bytes enter the M6 pipeline as inert bytes, and a distribution
 signature is provenance, not load-worthiness
-(`docs/plan-reviews/m12-plus-direction-2026-07-06.md:130-135`).
+(`docs/_archive/2026-07-18_m12-plus-direction-2026-07-06.md:130-135`).
 
 What exists at HEAD:
 
@@ -53,9 +53,9 @@ What exists at HEAD:
   into the registry (`fake-cloud/README.md:21-24`).
 - ADR 0005 already classified the lane as parked, not deleted: the host crates
   were frozen since 2026-05 and never connected to the kernel
-  (`docs/architecture-decisions/0005-bare-metal-substrate-and-wasm-isolation.md:86-91`).
+  (`docs/architecture/decisions/0005-bare-metal-substrate-and-wasm-isolation.md:86-91`).
   It also says there is no resumption of `ota/registry/fake-cloud` without a
-  new ADR (`docs/architecture-decisions/0005-bare-metal-substrate-and-wasm-isolation.md:118-124`).
+  new ADR (`docs/architecture/decisions/0005-bare-metal-substrate-and-wasm-isolation.md:118-124`).
 
 The device already has one real external-candidate intake surface, but it is
 not a network fetcher. `module_candidate_channel.rs` accepts base64 chunks,
@@ -69,7 +69,7 @@ all false (`seed-kernel/src/module_candidate_intake.rs:9-14`,
 `seed-kernel/src/module_candidate_intake.rs:52-67`,
 `seed-kernel/src/module_candidate_intake.rs:118-126`). Project status confirms
 that this serial path has no reachable load, grant, instantiate, execute, or
-persist sink (`docs/PROJECT_STATUS.md:2688-2706`).
+persist sink (`docs/_archive/2026-07-18_PROJECT_STATUS_history.md:2688-2706`).
 
 Any external distribution design must preserve the existing safety invariants:
 
@@ -79,7 +79,7 @@ Any external distribution design must preserve the existing safety invariants:
   match the grant reference (`seed-kernel/src/agent_protocol_module_grant.rs:433-471`).
   The trust tier is honestly `dev_key_not_owner_sealed`, not owner-sealed
   (`seed-kernel/src/agent_protocol_module_grant.rs:449-455`;
-  `docs/PROJECT_STATUS.md:2747-2756`).
+  `docs/_archive/2026-07-18_PROJECT_STATUS_history.md:2747-2756`).
 - **Signed artifact identity chain.** Current guest artifacts are build-bound
   through P-256 descriptor signatures: build.rs reads the artifact descriptor,
   public key, and DER signature, verifies the descriptor and load descriptor,
@@ -92,10 +92,10 @@ Any external distribution design must preserve the existing safety invariants:
 - **M7 persistence and boot-2 re-verification.** The persistent artifact store
   writes a `raios.artifact_persist.v0` record only after a verified promotion
   transaction, and the stored blob remains inert until re-verified
-  (`docs/ROADMAP.md:276-286`). The two-boot proof recomputes the blob hash,
+  (`docs/_archive/2026-07-18_ROADMAP.md:276-286`). The two-boot proof recomputes the blob hash,
   recomputes the attestation hash, re-runs signature verification, and reaches
   execution only through the same M6 load/start gate, never because a stored
-  boolean said "OK" (`docs/ROADMAP.md:287-295`). The code path also denies
+  boolean said "OK" (`docs/_archive/2026-07-18_ROADMAP.md:287-295`). The code path also denies
   missing retained bytes, invalid Wasm, hash mismatch, missing readback, and
   scoped append failures before reporting persistence
   (`seed-kernel/src/artifact_store.rs:207-246`,
@@ -103,38 +103,38 @@ Any external distribution design must preserve the existing safety invariants:
   `seed-kernel/src/artifact_store.rs:708-737`).
 - **M8 recovery restore-only behavior.** Recovery load by hash selects an
   artifact from the local M7D store, re-verifies the full M6 chain, and never
-  fetches or accepts new bytes or a URL (`docs/ROADMAP.md:140-153`;
-  `docs/PROJECT_STATUS.md:3441-3453`). External distribution must not turn
+  fetches or accepts new bytes or a URL (`docs/_archive/2026-07-18_ROADMAP.md:140-153`;
+  `docs/_archive/2026-07-18_PROJECT_STATUS_history.md:3441-3453`). External distribution must not turn
   recovery into a network intake path.
 - **M9 memory and provider export.** ADR 0004 says authoritative memory is
   typed, evidence-bound, and capability-gated
-  (`docs/architecture-decisions/0004-system-memory-and-agent-context.md:37-41`);
+  (`docs/architecture/decisions/0004-system-memory-and-agent-context.md:37-41`);
   public/local_only/secret classes gate provider context, and secrets never
   appear in provider context or durable plaintext
-  (`docs/architecture-decisions/0004-system-memory-and-agent-context.md:143-151`).
+  (`docs/architecture/decisions/0004-system-memory-and-agent-context.md:143-151`).
   Records that affect capabilities, provider export, persistence, rollback, or
   trust must be evidence-bound
-  (`docs/architecture-decisions/0004-system-memory-and-agent-context.md:288-300`).
+  (`docs/architecture/decisions/0004-system-memory-and-agent-context.md:288-300`).
   M9C-2's real provider export path is still disabled for ordinary dispatch:
   real `provider.context_export` remains `capability_denied`, provider writes
   are `not_attempted`, and the positive authority flip is selftest-only with
-  no transmission (`docs/PROJECT_STATUS.md:3755-3766`,
-  `docs/PROJECT_STATUS.md:3792-3813`; `docs/ROADMAP.md:54-63`).
+  no transmission (`docs/_archive/2026-07-18_PROJECT_STATUS_history.md:3755-3766`,
+  `docs/_archive/2026-07-18_PROJECT_STATUS_history.md:3792-3813`; `docs/_archive/2026-07-18_ROADMAP.md:54-63`).
 - **M11 import grants.** If any distribution client runs inside raiOS, it must
   run under the per-service Wasm import-grant boundary. ADR 0008 recommends an
   exact import list, authorized by a scoped evaluator and enforced by building
   each wasmi `Linker` from only that list
-  (`docs/architecture-decisions/0008-per-service-wasm-import-grants.md:179-190`).
+  (`docs/architecture/decisions/0008-per-service-wasm-import-grants.md:179-190`).
   Current M11 progress keeps non-`env` imports and per-service secret custody
-  owner-gated (`docs/ROADMAP.md:28-38`).
+  owner-gated (`docs/_archive/2026-07-18_ROADMAP.md:28-38`).
 
 This ADR is required because external distribution introduces an external trust
 surface and, for any real OTA fetch, a network fetch surface. The direction doc
 requires the ADR to decide transport, signing authority, candidate staging,
 revive-vs-rewrite of the parked lane, and fail-closed rules
-(`docs/plan-reviews/m12-plus-direction-2026-07-06.md:144-159`). It also names
+(`docs/_archive/2026-07-18_m12-plus-direction-2026-07-06.md:144-159`). It also names
 the conceptual risk: a shortcut that lets network bytes skip a gate
-(`docs/plan-reviews/m12-plus-direction-2026-07-06.md:161-165`).
+(`docs/_archive/2026-07-18_m12-plus-direction-2026-07-06.md:161-165`).
 
 ## Decision Drivers
 
@@ -146,11 +146,11 @@ the conceptual risk: a shortcut that lets network bytes skip a gate
   local chain grants something. Current positive local grants remain
   `dev_key_not_owner_sealed`, never `owner_sealed`
   (`seed-kernel/src/agent_protocol_module_grant.rs:449-455`;
-  `docs/ROADMAP.md:61-63`).
+  `docs/_archive/2026-07-18_ROADMAP.md:61-63`).
 - Re-verify from source evidence: never trust a registry index, distribution
   manifest, or stored "already verified" flag as load authority. M7 already
   requires re-running hashes and signature verification from disk on boot 2
-  (`docs/ROADMAP.md:287-295`).
+  (`docs/_archive/2026-07-18_ROADMAP.md:287-295`).
 - Preserve the signed identity chain: parked Ed25519/BLAKE3 metadata may be
   provenance, but the raiOS P-256 descriptor/artifact identity chain and M6
   local evidence chain remain the load boundary
@@ -158,20 +158,20 @@ the conceptual risk: a shortcut that lets network bytes skip a gate
 - Auditability: fetch, verify, publish, denial, and promotion events should
   become typed, evidence-bound memory facts using the M9 model, with
   public/local_only/secret classification and no secret-durable payloads
-  (`docs/architecture-decisions/0004-system-memory-and-agent-context.md:37-41`,
-  `docs/architecture-decisions/0004-system-memory-and-agent-context.md:143-151`).
+  (`docs/architecture/decisions/0004-system-memory-and-agent-context.md:37-41`,
+  `docs/architecture/decisions/0004-system-memory-and-agent-context.md:143-151`).
 - Minimal permanent-core growth: ADR 0005 says service capability is the Wasm
   host-function import surface, and drivers/performance paths stay native for
-  now (`docs/architecture-decisions/0005-bare-metal-substrate-and-wasm-isolation.md:44-60`).
+  now (`docs/architecture/decisions/0005-bare-metal-substrate-and-wasm-isolation.md:44-60`).
   A future network distribution client should be a scoped service, not another
   broad kernel parser, once M10/M11 prerequisites are owner-approved.
 - Provider/export firewall: if a design sends artifact bytes or metadata
   off-machine, it must go through the M9C provider/export gate. Current real
   export remains denied; the only positive export proof is test-only and does
-  not transmit (`docs/PROJECT_STATUS.md:3792-3813`).
+  not transmit (`docs/_archive/2026-07-18_PROJECT_STATUS_history.md:3792-3813`).
 - Owner-key sealing stays final: the roadmap carries real provider
   transmission and the owner-key sealing ceremony as production/final M12+
-  work (`docs/ROADMAP.md:61-63`).
+  work (`docs/_archive/2026-07-18_ROADMAP.md:61-63`).
 
 ## Considered Options
 
@@ -217,9 +217,9 @@ gets only the imports the owner grants under ADR 0008.
 What is buildable now: not as a positive network feature. The direction doc
 requires M10 closed for WebPKI/trusted time and prefers M11 so the download
 client is a Wasm service, not more kernel-resident internet parsing
-(`docs/plan-reviews/m12-plus-direction-2026-07-06.md:137-142`). The current
+(`docs/_archive/2026-07-18_m12-plus-direction-2026-07-06.md:137-142`). The current
 roadmap still carries M10 production trust and M11 beyond-`env` imports as
-owner/production-gated (`docs/ROADMAP.md:28-38`, `docs/ROADMAP.md:61-63`).
+owner/production-gated (`docs/_archive/2026-07-18_ROADMAP.md:28-38`, `docs/_archive/2026-07-18_ROADMAP.md:61-63`).
 
 Tradeoff: this is the real product shape for module sharing, but it is the
 largest attack-surface expansion and should not be the first implementation

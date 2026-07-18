@@ -19,16 +19,16 @@ accepted A + 2 on 2026-07-08.)
 
 M11 wants the kernel to stop parsing the internet: TLS/HTTP protocol logic
 should move into replaceable, capability-scoped Wasm services, and the kernel
-should measurably shrink (`docs/ROADMAP.md:959-962`,
+should measurably shrink (`docs/_archive/2026-07-18_ROADMAP.md:959-962`,
 `README.md:258-259`, `README.md:315`).
 
 ADR 0005 already decided the core isolation rule: the first real service
 boundary is the in-kernel Wasm interpreter, and "the capability envelope of a
-service becomes its host-function import surface" (`docs/architecture-decisions/0005-bare-metal-substrate-and-wasm-isolation.md:42-54`).
+service becomes its host-function import surface" (`docs/architecture/decisions/0005-bare-metal-substrate-and-wasm-isolation.md:42-54`).
 It also says drivers and performance-critical paths stay native for now
-(`docs/architecture-decisions/0005-bare-metal-substrate-and-wasm-isolation.md:58-60`)
+(`docs/architecture/decisions/0005-bare-metal-substrate-and-wasm-isolation.md:58-60`)
 and that the Wasm import surface is the concrete enforcement target
-(`docs/architecture-decisions/0005-bare-metal-substrate-and-wasm-isolation.md:103-106`).
+(`docs/architecture/decisions/0005-bare-metal-substrate-and-wasm-isolation.md:103-106`).
 
 HEAD does not yet express that rule per service:
 
@@ -59,12 +59,12 @@ it records the current service-candidate internet parsing surface, including
 not an import-grant mechanism.
 
 ADR 0001 requires a small raiOS-native protocol whose actions are explicit,
-capability-gated, logged, denied, and replayable (`docs/architecture-decisions/0001-raios-agent-protocol.md:14-27`).
+capability-gated, logged, denied, and replayable (`docs/architecture/decisions/0001-raios-agent-protocol.md:14-27`).
 ADR 0004 says authoritative system memory is typed, evidence-bound,
 capability-gated, and traceable, including capability grants/denials and test
-evidence (`docs/architecture-decisions/0004-system-memory-and-agent-context.md:11-25`,
-`docs/architecture-decisions/0004-system-memory-and-agent-context.md:37-40`,
-`docs/architecture-decisions/0004-system-memory-and-agent-context.md:82-96`).
+evidence (`docs/architecture/decisions/0004-system-memory-and-agent-context.md:11-25`,
+`docs/architecture/decisions/0004-system-memory-and-agent-context.md:37-40`,
+`docs/architecture/decisions/0004-system-memory-and-agent-context.md:82-96`).
 
 Therefore M11 substantive work is blocked until raiOS can authorize and enforce
 a specific import surface per running Wasm service. Without that, a TLS parser
@@ -226,7 +226,7 @@ Current reality:
 - M10 explicitly says trusted time, live certificate validity parsing, real
   certificate-chain validation, and a live second provider remain
   owner/production-gated; until then trust labels must stay
-  `unverified/not_validated` (`docs/ROADMAP.md:34-39`).
+  `unverified/not_validated` (`docs/_archive/2026-07-18_ROADMAP.md:34-39`).
 - The M10 honesty evaluator denies development bypass, chain/time overclaims,
   and WebPKI overclaims, and even its honest pin-only positive result grants no
   provider request/export authority by itself

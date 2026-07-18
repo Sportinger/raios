@@ -56,9 +56,9 @@ there is direct Stage-0 evidence:
 
 ## Exit Evidence
 
-- Choices sheet: `docs/invariant-choices.md`.
-- Current verified state: `docs/PROJECT_STATUS.md`.
-- Run/debug commands and expected serial output: `docs/DEBUGGING.md`.
+- Choices sheet: `docs/architecture/decisions/invariant-choices.md`.
+- Current verified state: `docs/status/STATUS.md`.
+- Run/debug commands and expected serial output: `docs/agents/DEBUGGING.md`.
 
 Any future section report should use the labels `implemented/verified`,
 `partially implemented`, `chosen/planned`, or `blocked/denied` rather than

@@ -399,7 +399,7 @@ reproduction per layout, and a narrowed suspect region (child-boot
 persist-region parsing). Finding this bug now, on the test bench, is far
 better than meeting it later on real hardware.
 
-Planning update: `docs/plan-reviews/secure-ai-workspace-and-media-app-plan-2026-07-12.md`
+Planning update: `docs/_archive/2026-07-18_secure-ai-workspace-and-media-app-plan-2026-07-12.md`
 defines the final-path secure source workspace, quarantined acquisition,
 reproducible Rust-to-Wasm build, and split Wasm/native media application shape.
 Its W1-W6 workspace/dependency/build/run/install/rollback path is now implemented

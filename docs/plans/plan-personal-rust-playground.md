@@ -24,7 +24,7 @@ Liefer-Weg (Werkstatt baut, raiOS prüft/installiert) ist Übergang.
 | B3A: Assembler-Gast baut lauffähiges Wasm im System (33/33) | bewiesen | **Der Beweis, dass die Bau-Rohrleitungen funktionieren** — Auftrag → im System bauen → prüfen → Klick → läuft |
 | rlang (Mini-Sprache + Compiler, host-bewiesen) | Crate fertig, pausiert | Ersatzrad + wiederverwendbarer Encoder (siehe §4) |
 | Messungen 2026-07-18 | erledigt | rustc-als-Wasm existiert (91 MB); Blocker = Threads (Bau-Schalter, kein Naturgesetz); Bau-Rezept öffentlich gefunden |
-| **wasmtime-Werkstatt-Probe 2026-07-18** | **GRÜN** | Unverändertes Threads-Artefakt baut+läuft: hello 1,6 s / medium -O 1,2 s, ~670 MB, Gast-Threads real (~26–32); **Linker eingebettet → Job-Kette = 1 Gast**; Details `docs/probe-rustc-wasm-wasmtime-2026-07-18.md` |
+| **wasmtime-Werkstatt-Probe 2026-07-18** | **GRÜN** | Unverändertes Threads-Artefakt baut+läuft: hello 1,6 s / medium -O 1,2 s, ~670 MB, Gast-Threads real (~26–32); **Linker eingebettet → Job-Kette = 1 Gast**; Details `docs/architecture/probe-rustc-wasm-wasmtime-2026-07-18.md` |
 
 Die Maschinenform bleibt Wasm (Käfig eingebaut, byte-genau nachrechenbar,
 Rust hat Wasm als offizielles Ziel) — genau das macht „Rust-Compiler im
@@ -36,7 +36,7 @@ System" überhaupt möglich.
    Das existierende öffentliche rustc-Wasm-**Threads**-Artefakt (91 MB,
    oligamiq-Rezept) **unverändert übernehmen** — kein Fork, kein Anpassen,
    kein eigener Compiler-Bau. Dafür spielt raiOS die Thread-Spielregeln im
-   Käfig nach (grüne Threads, Scoping: `docs/wasm-threads-runtime-scope.md`).
+   Käfig nach (grüne Threads, Scoping: `docs/plans/plan-rust-kernel.md`).
    Werkstatt-Probe unter wasmtime (beherrscht wasi-threads) statt wasmi:
    lädt es? Imports? Thread-Zahl? RAM? Tempo? Danach lebt das Werkzeug im
    System — die Werkstatt wird nie wieder gebraucht (Bootstrap-Prinzip:
@@ -93,11 +93,11 @@ Agenten-Fabrik je vertrauen kann.
    ~670 MB Spitze, Gast-Threads real ~26–32). Linker-Antwort: **rust-lld
    ist im Modul eingebettet** — die Rust-Spur braucht keine Job-Kette.
    Werkstatt-Referenz auf wasmtime 46.0.1 gepinnt (47 entfernt
-   wasi-threads). Voller Bericht: `docs/probe-rustc-wasm-wasmtime-2026-07-18.md`.
+   wasi-threads). Voller Bericht: `docs/architecture/probe-rustc-wasm-wasmtime-2026-07-18.md`.
 2. **Threads im Käfig** (T1: Atomics/Shared-Memory im vendorierten wasmi,
    host-testbar; T2: Round-Robin-Pump über Thread-Instanzen) + **Bauplatz/
    Heap** + **WASI-Subset** — Slices und Aufwände in
-   `docs/wasm-threads-runtime-scope.md` §7.
+   `docs/plans/plan-rust-kernel.md` §7.
 3. Bei grünen Proben: **Bauplatz-Scoping** mit den gemessenen Budgets (statt
    geratenen) + erster Hello-World-Rust-Bau im System als W5-Beweis.
 4. Bei Misserfolg: exakte Wand dokumentieren; Alternativen (eigener Beitrag

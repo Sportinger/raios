@@ -2,7 +2,7 @@
 
 This sheet separates long-lived design choices from the current Stage-0
 implementation state. A choice listed here is not evidence that the feature is
-implemented; implemented evidence must come from `docs/PROJECT_STATUS.md`, the VM
+implemented; implemented evidence must come from `docs/status/STATUS.md`, the VM
 runbook, serial logs, tests, or screenshots.
 
 ## Current Stage-0 Verified Baseline

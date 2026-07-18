@@ -28,8 +28,9 @@ exists.
 
 ## Operating Rules
 
-- Start every instance with `AGENTS.md`, `README.md`, `docs/PROJECT_STATUS.md`,
-  `docs/ROADMAP.md`, `docs/DEBUGGING.md`, ADR 0001, ADR 0004, and
+- Start every instance with `AGENTS.md`, `README.md`, `docs/SCOPE.md`,
+  `docs/status/STATUS.md`, the active files in `docs/plans/`,
+  `docs/agents/DEBUGGING.md`, ADR 0001, ADR 0004, and
   `git status --short`.
 - Preserve the bootable Stage-0 image and keep unrelated user changes.
 - Prefer the smallest real slice that advances the final OS shape.
@@ -37,7 +38,7 @@ exists.
   gaps.
 - Use quick VM smoke for focused runtime slices and full VM smoke when touching
   trust, loader, recovery, persistence, or shared protocol behavior.
-- Update `docs/PROJECT_STATUS.md` and `docs/ROADMAP.md` when the active cursor
+- Update `docs/status/STATUS.md` and the relevant file in `docs/plans/` when the active cursor
   or verified state changes.
 
 ## Parallel Track Queue

@@ -101,8 +101,8 @@ WiFi-1b should update those strings only as far as truth allows: `firmware uploa
 Software-verifiable:
 
 - `cargo test --locked -p raios-core`, preserving WiFi-1a tests at `raios-core/src/marvell_wifi_fw.rs:250-434`.
-- Kernel release build via documented command at `docs/DEBUGGING.md:8-12`.
-- `cargo fmt --all -- --check`, documented at `docs/DEBUGGING.md:2076`.
+- Kernel release build via documented command at `docs/agents/DEBUGGING.md:8-12`.
+- `cargo fmt --all -- --check`, documented at `docs/agents/DEBUGGING.md:2076`.
 - Pure action-to-register-write helper tests, only if the worker adds a tiny helper in `raios-core/src/marvell_wifi_fw.rs`. Test `WriteBlock`, `RingDoorbell`, and `WriteDrvReady`; do not fake MMIO.
 
 Hardware-only:

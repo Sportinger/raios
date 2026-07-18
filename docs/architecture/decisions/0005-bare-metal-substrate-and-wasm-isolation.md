@@ -3,7 +3,7 @@
 ## Status
 
 Accepted. Owner decision recorded 2026-07-04, following
-`docs/plan-reviews/review-4-deep-scope-code-and-process-2026-07.md`.
+`docs/_archive/2026-07-18_review-4-deep-scope-code-and-process-2026-07.md`.
 
 ## Context
 
@@ -14,7 +14,7 @@ existing 165k-line codebase implicitly depends on:
    promotion layer be proven first as a Linux userspace supervisor (two-track
    option), or does raiOS stay bare-metal only?
 2. **Isolation model.** The docs forked three ways:
-   `docs/invariant-choices.md` (line 62) commits to a single active Wasm
+   `docs/architecture/decisions/invariant-choices.md` (line 62) commits to a single active Wasm
    module; ADR 0002 (line 461) leaves isolation an open question; ADR 0003
    requires a native multi-service graph with versioned state migrators.
    Meanwhile no isolation mechanism exists in code at all — everything runs
@@ -70,7 +70,7 @@ not the first implementation.
 The sequencing error diagnosed in review 4 is inverted as a standing rule:
 
 - **No new `raios.*.v0` evidence schema may be added** until the milestone
-  gates in `docs/ROADMAP.md` say otherwise. Denial-gate and schema-only
+  gates in `docs/_archive/2026-07-18_ROADMAP.md` say otherwise. Denial-gate and schema-only
   slices no longer count as progress.
 - The near-term milestone order is: stabilize the red full profile →
   host-testable core library → ceremony collapse onto a typed record model
@@ -96,7 +96,7 @@ real; until then no work lands there.
 Until milestone M4 (Wasm isolation) lands, README claims of the form
 "impossible to exceed capabilities" must be downgraded to design-intent
 language ("designed so that…"), per the review-4 credibility finding. The
-4-label status rule from `docs/invariant-choices.md` applies to README
+4-label status rule from `docs/architecture/decisions/invariant-choices.md` applies to README
 marquee sections.
 
 ## Consequences

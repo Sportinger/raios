@@ -45,7 +45,7 @@ Status labels used below:
 - [ ] `chosen/planned` Safe mode, panic switch, remote lockdown, and recovery
   lifeline.
 
-Exit: `docs/invariant-choices.md` states both the planned invariants and the
+Exit: `docs/architecture/decisions/invariant-choices.md` states both the planned invariants and the
 current implemented/verified Stage-0 reality.
 
 ## 1) Keys, Registry, And Observability

@@ -3,7 +3,7 @@
 ## Status
 
 Accepted by the raiOS owner on 2026-07-10 through the autonomous goal that
-references `docs/plan-reviews/genesis-shell-execution-plan-2026-07-10.md`.
+references `docs/_archive/2026-07-18_genesis-shell-execution-plan-2026-07-10.md`.
 
 This decision authorizes implementation of the bounded store, cryptographic
 envelope, key wrappers, and two-consumer broker below. Acceptance is a design

@@ -1,10 +1,10 @@
 # raiOS Orchestrator Playbook (cheap-orchestrator edition)
 
-Authored 2026-07-06 ahead of M7+ execution. Intended home: `docs/ORCHESTRATOR_PLAYBOOK.md`.
+Authored 2026-07-06 ahead of M7+ execution. Home: `docs/agents/ORCHESTRATOR_PLAYBOOK.md`.
 Companion files: `AGENTS.md` (the rules), the active milestone map in
-`docs/plan-reviews/` (the design), this file (the procedure). These three
+`docs/plans/` (the design), this file (the procedure). These three
 files are the procedural spine of a session; the CLAUDE.md/AGENTS.md
-required-context list still applies, and `docs/DEBUGGING.md` is the command
+required-context list still applies, and `docs/agents/DEBUGGING.md` is the command
 reference.
 
 ## 1. Who this is for
@@ -26,13 +26,13 @@ yourself.
 
 ## 2. Session ritual (run this checklist in order, every session)
 
-1. Read `docs/OWNER_DASHBOARD.md` — what the owner believes is true.
-2. Read the Agent Handoff Cursor at the top of `docs/ROADMAP.md` — the
+1. Read `docs/status/OWNER_DASHBOARD.md` — what the owner believes is true.
+2. Read the current cursor in `docs/status/STATUS.md` — the
    active milestone and last verified state.
-3. Read the active milestone map in `docs/plan-reviews/` (the cursor names
+3. Read the active category plan in `docs/plans/` (the cursor names
    it). Find the first slice not marked done.
    Then read the map's execution-preconditions header block. If any named
-   milestone is not marked closed AND owner-confirmed in the ROADMAP cursor,
+   milestone is not marked closed AND owner-confirmed in the status cursor,
    STOP and report — do not run Slice 0, do not dispatch anything.
 4. Run `git status --short`. Expected: clean, or only files you know about
    from a previous interrupted session. **Unexpected dirty files or any
@@ -46,7 +46,7 @@ yourself.
    ```
 
    If the newest report of ANY profile is `failed` and has no classification
-   entry in `docs/PROJECT_STATUS.md`, your first task is classifying it
+   entry in `docs/status/STATUS.md`, your first task is classifying it
    (section 5). If the newest FULL-profile report says
    `"result": "failed"`, the Red Gate Rule applies (AGENTS.md, verbatim):
    *"While the full Shadow VM profile is red, the only permitted work is
@@ -185,11 +185,11 @@ slice ends with uncommitted source changes.
 
 ### 3.6 Record
 
-- `docs/ROADMAP.md`: update the Agent Handoff Cursor ("Done in M7 so far"
+- `docs/plans/`: update the active category plan ("Done so far"
   style — slice id, capability sentence, report file + counts, commit hash).
-- `docs/PROJECT_STATUS.md`: detailed entry (same facts, more detail); any
+- `docs/status/STATUS.md`: detailed entry (same facts, more detail); any
   failures classified (section 5).
-- `docs/OWNER_DASHBOARD.md`: every session. Plain language for a
+- `docs/status/OWNER_DASHBOARD.md`: every session. Plain language for a
   non-programmer German-speaking owner: short sentences, no jargon, no
   predicate counts in the lead — lead with what the system can now DO that
   it could not before. Keep the ~30-content-line cap.
@@ -227,7 +227,7 @@ Quick often, focused when the touched boundary is risky, full rarely
 (checkpoints). Batch 3-5 small same-boundary non-authorizing hops before the
 next focused run only while the prior smoke stays green.
 
-Exact commands (from `docs/DEBUGGING.md`; run from the repo root):
+Exact commands (from `docs/agents/DEBUGGING.md`; run from the repo root):
 
 ```powershell
 # quick (~5 min, ~486 needles as of M5)
@@ -278,7 +278,7 @@ false green). Follow the map; do not design profiles yourself.
 
 Classify EVERY red run BEFORE any retry (AGENTS.md Failure Classification
 Rule). Write into the failure classification log at the top of
-`docs/PROJECT_STATUS.md`: report filename, failing predicate name(s), and a
+`docs/status/STATUS.md`: report filename, failing predicate name(s), and a
 one-line `host-transport` vs `guest-behavior` verdict with evidence.
 
 Classification inputs, in order:
@@ -332,7 +332,7 @@ Then:
   `hello_service/` modules and other attested sources). Touching ANY file in
   that source set breaks the build until re-signed via the descriptor-resign
   tool under `target/descriptor-resign` (invocation documented in
-  `docs/plan-reviews/m2-de-hello-ify-plan-2026-07-05.md`; verify the exact
+  `docs/_archive/2026-07-18_m2-de-hello-ify-plan-2026-07-05.md`; verify the exact
   binary path at execution time). Map packets that touch attested sources
   include the re-sign step — do not skip it, and do not "fix" a signature
   failure by weakening build.rs. BEFORE dispatching any such packet, check
@@ -407,7 +407,7 @@ A milestone may be *proposed* closed only when ALL hold:
 4. The owner confirms. Until then the cursor says "Mx closure proposed,
    awaiting owner", and the next milestone is NOT started.
 
-## 9. Troubleshooting table (sourced from docs/DEBUGGING.md)
+## 9. Troubleshooting table (sourced from docs/agents/DEBUGGING.md)
 
 | If | Then |
 |---|---|

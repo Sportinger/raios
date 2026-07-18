@@ -3,7 +3,7 @@
 ## Status
 
 Accepted by the raiOS owner on 2026-07-10 through the autonomous goal that
-references `docs/plan-reviews/genesis-shell-execution-plan-2026-07-10.md`.
+references `docs/_archive/2026-07-18_genesis-shell-execution-plan-2026-07-10.md`.
 
 This decision authorizes only the trusted shell boundary and the exact six UI
 imports below, plus execution of the checked-in personal-shell proof as

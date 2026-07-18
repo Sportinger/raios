@@ -129,7 +129,7 @@ The token strategy follows from that rule:
 - **No fake persistence.** Memory is durable and auditable, or it is honestly
   labeled `current_boot`. Nothing pretends.
 
-See `docs/architecture-decisions/0004-system-memory-and-agent-context.md`.
+See `docs/architecture/decisions/0004-system-memory-and-agent-context.md`.
 
 ## How It Works
 
@@ -241,7 +241,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 
 Inside the running system, type `setup` to provision a provider. From there,
 ask the agent for what you need.
 
-For bare-metal installation onto the bonded machine, see `docs/BARE_METAL.md`.
+For bare-metal installation onto the bonded machine, see `docs/architecture/hardware/bare-metal.md`.
 The write script is destructive and requires explicit disk selection plus a
 confirmation string.
 
@@ -268,9 +268,9 @@ cursor.
 
 This README intentionally stays compact. It describes the product thesis and
 durable current shape, not the active engineering cursor or every verified
-predicate. Read `docs/PROJECT_STATUS.md` for the authoritative detailed state,
+predicate. Read `docs/status/STATUS.md` for the authoritative detailed state,
 exact next task, latest VM reports, known gaps, and implementation history;
-read `docs/ROADMAP.md` for the compact phase plan and parallel work lanes.
+read `docs/plans/` for the active category plans.
 
 Stable current shape:
 
@@ -294,7 +294,7 @@ Stable current shape:
   exercises signed descriptor/artifact evidence, lifecycle/inventory,
   hot-swap/state migration, rollback preview/apply denial, test-media
   write/readback evidence, and recovery-lifeline bindings. The exact current
-  slice and latest evidence live in `docs/PROJECT_STATUS.md`.
+  slice and latest evidence live in `docs/status/STATUS.md`.
 - Persistence, external unsigned artifact intake, executable candidate-byte
   mapping, provider auto-load, broad mutation, durable audit writes, rollback
   store writes, real transaction append, rollback application, and installed
@@ -324,12 +324,12 @@ Still intentionally missing:
 
 Document map:
 
-- `docs/PROJECT_STATUS.md`: detailed current state, exact next task, latest
-  reports, gaps, and unabridged implementation history
-- `docs/ROADMAP.md`: capability milestones (M0–M12+), direction, and the
-  compact active cursor
-- `docs/OWNER_DASHBOARD.md`: one page, plain language, current capability
+- `docs/SCOPE.md`: binding product scope
+- `docs/status/STATUS.md`: current state, exact next task, latest reports, and gaps
+- `docs/plans/`: active plans, one per scope category
+- `docs/status/OWNER_DASHBOARD.md`: one page, plain language, current capability
   and gate status
-- `docs/DEBUGGING.md`: build, run, smoke-test, protocol-probe, and failure-mode
+- `docs/agents/DEBUGGING.md`: build, run, smoke-test, protocol-probe, and failure-mode
   commands
-- `docs/architecture-decisions/`: durable protocol and memory decisions
+- `docs/architecture/decisions/`: durable protocol and memory decisions
+- `docs/_archive/`: dated, unchanged history

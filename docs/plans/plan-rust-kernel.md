@@ -115,7 +115,7 @@ dann nicht geändert werden.
 |---|---|---|
 | **Speicher**: 64-MiB-Heap < 91-MB-Modul; 4-MiB-Gast-Deckel vs. Hunderte MB Bedarf | `main.rs:180-213` | **Erste echte Mauer.** Bauplatz-Klasse = Heap auf Limine-Memmap umstellen + große Gast-Speicher; QEMU-RAM für Bauplatz-Profile erhöhen; Surface-RAM (4–16 GB je Modell) messen |
 | **WASI-Subset + Datei-Sicht**: rustc erwartet `wasi_snapshot_preview1` (fd/path/args/env/clock/random/exit) | kein WASI im Baum | Shim auf die geprüfte Bauplatz-Datei-Politik: Sysroot nur-lesen, Quelle rein, Artefakt raus, tmp im RAM. Größter Einzelposten der rustc-Spur |
-| ~~**Job-Kette** für den Linker~~ | **ENTFÄLLT (Probe 2026-07-18):** rust-lld ist **im Modul eingebettet**, kein zweiter Prozess — ein Bauplatz-Gast genügt | Beleg: `docs/probe-rustc-wasm-wasmtime-2026-07-18.md` |
+| ~~**Job-Kette** für den Linker~~ | **ENTFÄLLT (Probe 2026-07-18):** rust-lld ist **im Modul eingebettet**, kein zweiter Prozess — ein Bauplatz-Gast genügt | Beleg: `docs/architecture/probe-rustc-wasm-wasmtime-2026-07-18.md` |
 | **Sysroot**: vorkompilierte Standard-Bibliothek als Artefakte im Store | — | Teil des Cloud-Bootstrap-Outputs |
 | **Ehrliche Grenzen bleiben**: keine Internet-Pakete, keine Proc-Macros, einkernig-langsam | FACTORY_PLAN:46-47 | unverändert; Tempo kommt aus Stufe 4 (AOT), nicht aus Threads |
 
@@ -140,7 +140,7 @@ Reihenfolge:
    Voll-Bau hello 1,56 s / medium `-O` 1,19 s, ~670 MB Spitze, Gast-Threads
    real ~26–32, gebaute Programme laufen. Linker eingebettet, Sysroot-Lücke
    mit 4 wasi-sdk-Libs geschlossen. Bericht:
-   `docs/probe-rustc-wasm-wasmtime-2026-07-18.md`.
+   `docs/architecture/probe-rustc-wasm-wasmtime-2026-07-18.md`.
 2. **T1-Slice** (wasmi-Patch, host-Tests): ~3–5 Codex-Pakete, 1–2 Wochen.
    Parallel-tauglich zur UI-Spur, QEMU-frei.
 3. **T2-Slice** (Scheduler-Glue): ~2–3 Pakete, ~1 Woche.

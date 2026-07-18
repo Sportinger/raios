@@ -102,7 +102,7 @@ resolved for V0 as a raw region map (no FAT) — a `RAIOS_DATA_SB_V0` superblock
 SEED_DATA LBA0 (copy at LBA1) whose region table maps BOOTCTL / RECLOG / ARTSTOR;
 the kernel validates it read-only and never writes SEED_DATA LBA0/1. The full
 region/frame formats and the OVMF slot-selection findings are the M7-CLOSE
-addendum; see `docs/plan-reviews/m7-persistence-map-2026-07-06.md` sections 3.2-3.5.
+addendum; see `docs/_archive/2026-07-18_m7-persistence-map-2026-07-06.md` sections 3.2-3.5.
 
 `SEED_ESP_A` and `SEED_ESP_B` contain complete bootable slot payloads:
 
