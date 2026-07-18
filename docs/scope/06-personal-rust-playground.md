@@ -17,12 +17,44 @@
 > rustc artifact runs UNMODIFIED inside the caged interpreter (green threads,
 > T1/T2). A fast execution stage (AOT) is a later, deliberate ADR — the
 > top-level SCOPE.md still says "Cranelift backend"; flagged to owner.
-- [ ] Engine cage carries threads: shared memory + atomics + wasi thread-spawn
-      in the vendored wasmi, deterministic round-robin (host-testable, T1/T2)
-- [ ] Bauplatz guest class: hundreds-of-MB linear memory from a memmap-backed
-      kernel heap; patience budgets; QEMU + Surface profiles
-- [ ] WASI preview1 subset shim behind the import-grant gate (fd/path, args/env,
-      clock, random, proc_exit — deterministic, double-build stays byte-equal)
+- [x] T1 — engine threads instruction surface: shared memories, all 64 atomic
+      operators, wait/notify as typed suspensions, opt-in fuel-quantum yield in
+      the vendored wasmi. Negative boundary: default config rejects shared
+      memories and stays byte-identical; non-resumable calls hitting a
+      suspension end in `AtomicSuspendNotResumable`, never hang. Evidence:
+      32-test conformance suite (8a58f5f, 863ea4d, 323f974, fab0dab, 2c59257,
+      9137872).
+- [ ] T2 — deterministic green-thread scheduling end to end: policy is
+      host-proven with replay-equal traces (97d163c) and the kernel pump runs
+      a fixed-thread job in QEMU (`RAIOS_THREADS selftest=pass`, internal
+      double-run trace equality); still open: wasi thread-spawn import,
+      proc_exit job end, cap enforcement in the kernel. Negative boundary when
+      closed: futex deadlock → deterministic job error, never an endless pump.
+- [ ] Bauplatz guest memories: the 1-GiB shared-memory window (399/16384
+      pages) instantiable in the kernel with QEMU and Surface RAM profiles.
+      Negative boundary: a job exceeding its class limits is denied before
+      instantiation.
+- [x] Bauplatz substrate contracts: memmap-backed kernel heap (291 MiB in the
+      512M VM; negative: too-small memmap → proven static fallback with boot
+      continuing, b93a743) and the canonically hashed BuildGuestClassV1 limits
+      (negative: 11 typed validation rejections; cross-checked against
+      inventory, scheduler and shim constants, e51dc2a).
+- [x] WASI measured import contract: the 30-import surface is measured
+      (b3c2df4) and frozen behind `raios.wasi_build_imports.v1`. Negative
+      boundary: extra/missing/reordered import or signature drift → typed
+      denial, never a partial grant (2f29e96).
+- [x] WASI file world: chunk-CAS read-only `/sysroot`+`/src`, quota-atomic RAM
+      arenas, `/out` freeze, double-build egress gate. Negative boundary: ROFS
+      on read-only mounts, atomic quota rejections, unshadowable reserved
+      names, XDEV across arenas, one differing output byte → no egress plan
+      (2698a70, f8f5804).
+- [x] WASI process world: manifest-bound args/env, fuel-derived clock, seeded
+      pinned PRNG, typed proc_exit/yield. Negative boundary: post-exit calls
+      fail closed with the original code; PRNG errors are transactional; fd
+      poll subscriptions reject whole-call (83c8631).
+- [ ] WASI kernel glue: the shim linked behind the grant gate with validated
+      guest pointers and store adapters (slice 6). Negative boundary: a module
+      with any undeclared import never instantiates.
 - [ ] rustc-as-Wasm compiles a real program inside raiOS (W5-proven, slow is fine)
 - [ ] Compile diagnostics available as JSON (same feedback loop as the fabric)
 - [ ] Build artifacts land only in the domain's own granted storage range
