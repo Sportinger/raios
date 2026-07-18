@@ -24,6 +24,7 @@ Liefer-Weg (Werkstatt baut, raiOS prüft/installiert) ist Übergang.
 | B3A: Assembler-Gast baut lauffähiges Wasm im System (33/33) | bewiesen | **Der Beweis, dass die Bau-Rohrleitungen funktionieren** — Auftrag → im System bauen → prüfen → Klick → läuft |
 | rlang (Mini-Sprache + Compiler, host-bewiesen) | Crate fertig, pausiert | Ersatzrad + wiederverwendbarer Encoder (siehe §4) |
 | Messungen 2026-07-18 | erledigt | rustc-als-Wasm existiert (91 MB); Blocker = Threads (Bau-Schalter, kein Naturgesetz); Bau-Rezept öffentlich gefunden |
+| **wasmtime-Werkstatt-Probe 2026-07-18** | **GRÜN** | Unverändertes Threads-Artefakt baut+läuft: hello 1,6 s / medium -O 1,2 s, ~670 MB, Gast-Threads real (~26–32); **Linker eingebettet → Job-Kette = 1 Gast**; Details `docs/probe-rustc-wasm-wasmtime-2026-07-18.md` |
 
 Die Maschinenform bleibt Wasm (Käfig eingebaut, byte-genau nachrechenbar,
 Rust hat Wasm als offizielles Ziel) — genau das macht „Rust-Compiler im
@@ -31,13 +32,17 @@ System" überhaupt möglich.
 
 ## 2. Die Treppe zum Ziel (jede Stufe einzeln beweisbar)
 
-1. **Bootstrap-Werkzeug (JETZT, Hauptspur):** Einmalig außerhalb (Cloud-Bau,
-   kostenlos für öffentliche Projekte — der Rechner hat nur 4 GB frei) das
-   öffentliche rustc-Wasm-Rezept mit umgelegtem Threads-Schalter backen.
-   Ergebnis mit der wasmi-Probe messen: lädt es? RAM? Tempo?
-   Danach lebt das Werkzeug im System — die Werkstatt wird nie wieder
-   gebraucht (Bootstrap-Prinzip: auch das erste Linux wurde einmal von außen
-   kompiliert).
+1. **Bootstrap-Werkzeug (JETZT, Hauptspur — Owner-Präzisierung 2026-07-18):**
+   Das existierende öffentliche rustc-Wasm-**Threads**-Artefakt (91 MB,
+   oligamiq-Rezept) **unverändert übernehmen** — kein Fork, kein Anpassen,
+   kein eigener Compiler-Bau. Dafür spielt raiOS die Thread-Spielregeln im
+   Käfig nach (grüne Threads, Scoping: `docs/wasm-threads-runtime-scope.md`).
+   Werkstatt-Probe unter wasmtime (beherrscht wasi-threads) statt wasmi:
+   lädt es? Imports? Thread-Zahl? RAM? Tempo? Danach lebt das Werkzeug im
+   System — die Werkstatt wird nie wieder gebraucht (Bootstrap-Prinzip:
+   auch das erste Linux wurde einmal von außen kompiliert). Ein späteres
+   Cloud-Nachbacken desselben Stands dient nur noch der Herkunftsprüfung
+   (Fingerabdruck-Vergleich), nicht der Anpassung.
 2. **„Bauplatz"-Gast-Klasse:** große Speicher-Gäste (hunderte MB), begrenzte
    geprüfte Datei-Zugriffe (Quelle + Bibliotheken rein, Artefakt raus),
    Geduld-Budgets. Auf echter Hardware (Surface: mehr RAM als die 512-MB-VM).
@@ -48,9 +53,11 @@ System" überhaupt möglich.
 4. **Schnelle Ausführungsstufe:** geprüftes Wasm → schneller Maschinencode,
    auf dem Gerät, mit denselben Beweisen. Nötig für Bau-Tempo UND für große
    Programme zur Laufzeit (Spiele). Bewusste spätere ADR-Entscheidung.
-5. **Parallelität + GPU:** Mehrkern-Bauen und GPU-Treiber durch die Schleife —
-   die letzten Stufen zu Spiel-Maßstab. Threads sind nicht „undenkbar",
-   sondern teuer (Determinismus + Käfig); sie kommen, wenn Stufe 1-4 stehen.
+5. **Parallelität + GPU:** echtes Mehrkern (SMP) und GPU-Treiber durch die
+   Schleife — die letzten Stufen zu Spiel-Maßstab. Die Thread-**Spielregeln**
+   (geteilter Speicher, Atomics, spawn) kommen schon in Stufe 1-3 als
+   deterministisch nachgespielte grüne Threads; hier in Stufe 5 geht es nur
+   noch um echtes Gleichzeitig-Tempo auf mehreren Kernen.
 
 Job-Bild des Owners = genau diese Kette: Genesis-Auftrag („baue X") →
 Agenten liefern Quelle (B2) → Bauplatz baut (Stufe 2-3) → Tests im Käfig →
@@ -81,15 +88,22 @@ Agenten-Fabrik je vertrauen kann.
 
 ## 5. Nächste Schritte (Reihenfolge)
 
-1. **Cloud-Bootstrap-Bau** des threads-freien rustc-Wasm (Rezept gefunden:
-   `oligamiq/rust_wasm`-Workflows; Fork + Schalter + CI). Braucht das Go des
-   Owners (läuft über seinen GitHub-Account, öffentlich, kostenlos).
-2. **wasmi-Probe** auf das Ergebnis (lädt es? Import-Liste? Übersetzungszeit/
-   RAM) — Werkstatt-seitig, Stunden.
-3. Bei Erfolg: **Bauplatz-Scoping** mit den gemessenen Budgets (statt
+1. **ERLEDIGT — GRÜN (2026-07-18):** wasmtime-Probe auf das vorhandene
+   Threads-Artefakt: baut und läuft (hello 1,6 s / medium `-O` 1,2 s,
+   ~670 MB Spitze, Gast-Threads real ~26–32). Linker-Antwort: **rust-lld
+   ist im Modul eingebettet** — die Rust-Spur braucht keine Job-Kette.
+   Werkstatt-Referenz auf wasmtime 46.0.1 gepinnt (47 entfernt
+   wasi-threads). Voller Bericht: `docs/probe-rustc-wasm-wasmtime-2026-07-18.md`.
+2. **Threads im Käfig** (T1: Atomics/Shared-Memory im vendorierten wasmi,
+   host-testbar; T2: Round-Robin-Pump über Thread-Instanzen) + **Bauplatz/
+   Heap** + **WASI-Subset** — Slices und Aufwände in
+   `docs/wasm-threads-runtime-scope.md` §7.
+3. Bei grünen Proben: **Bauplatz-Scoping** mit den gemessenen Budgets (statt
    geratenen) + erster Hello-World-Rust-Bau im System als W5-Beweis.
 4. Bei Misserfolg: exakte Wand dokumentieren; Alternativen (eigener Beitrag
    zum Upstream-Rezept; rlang-Weiterbau als Zwischennutzen) neu bewerten.
+   Der frühere Plan „threads-freien Fork backen" ist **verworfen**
+   (Owner 2026-07-18: kein Fork, kein Anpassen des Compilers).
 5. Platz-Frage GELÖST (2026-07-18): Laufwerk E: hat ~400 GB frei — der
    VM-Scratch wird dorthin umgelenkt (C: bleibt entlastet). Kein OS-Wechsel:
    die Werkstatt bleibt Windows (alle Beweise/Skripte laufen hier); für einen

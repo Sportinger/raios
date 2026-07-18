@@ -264,6 +264,19 @@ The rubrc/rust_wasm route was measured per the section-7 experiments:
   PARK criteria. The staged ladder (assembler -> restricted compiler) remains
   the only live path.
 
+# 7.1b MEASURED FOLLOW-UP (orchestrator host experiment 2026-07-18, later same day)
+
+Owner decision superseded the threads-free lane: use the existing threaded
+artifact unmodified; raiOS gains green-thread wasi-threads semantics instead
+(`docs/wasm-threads-runtime-scope.md`). The wasmtime 46.0.1 probe turned the
+section-7.1 categorical blocker into a fully GREEN measurement: the unmodified
+artifact compiles and links `hello.rs` in 1.56 s (~670 MB peak, guest threads
+~26-32 observed) and the built program runs. rust-lld is embedded in the
+module (no subprocess), so the feared linker job-chain is unnecessary for the
+Rust lane. Upstream packaging gaps found (broken `llvm_raw` asset; sysroot
+missing `libwasi-emulated-*.a`, supplied from wasi-sdk-33). Full report:
+`docs/probe-rustc-wasm-wasmtime-2026-07-18.md`.
+
 # 7.2 OWNER GOAL SHARPENING (2026-07-18, binding)
 
 The owner declared the end goal explicitly: agents build AND test large
