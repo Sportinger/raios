@@ -69,6 +69,7 @@ pub mod scoped_rollback_apply;
 pub mod scoped_secret_use;
 pub mod scoped_seed_data_append;
 pub mod scoped_time_authority_honesty;
+pub mod scoped_wasi_artifact_egress;
 pub mod scoped_wasi_build_grant;
 pub mod scoped_wasm_import_grant;
 pub mod secret_vault;
@@ -82,6 +83,7 @@ pub mod transport_lease;
 pub mod ui_frame;
 pub mod ui_program;
 pub mod ui_program_spec;
+pub mod wasi_build_output;
 pub mod wasi_preview1_import_abi;
 
 /// Computes the SHA-256 digest for `bytes` and returns the raw 32-byte digest.

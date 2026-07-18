@@ -12,9 +12,12 @@ pub mod buildfs;
 pub mod dir;
 pub mod errno;
 pub mod fd_table;
+pub mod output_manifest;
 pub mod path;
+pub mod ramfs;
 pub mod readonly;
 pub mod types;
+pub mod writable;
 
 pub use buildfs::{BuildFs, BuildFsManifestView};
 pub use dir::Dirent;
