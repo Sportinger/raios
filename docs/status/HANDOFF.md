@@ -18,13 +18,15 @@ permanent quick-profile needles, 499/499. Sysroot BuildFS pinned
 
 ## Next step
 
-Collect B1G (compile loop + QEMU on 512M; then Surface-RAM profile — add
-a -MemoryMB param to run-stage0-qemu.ps1 and assert pages_max=16384).
-After that: sysroot import into ARTSTOR (BuildFS chunks via the W7-style
-route) and the first hello.rs double-build through the landed commit gate
-— that is the W5 factory proof. Owner questions open: SCOPE §6 Cranelift
-wording; ADR 0017 veto window. Known trap fixed: bare-cargo toolchain
-flip via cwd (0e34b49 + memory note).
+**Fuel suspension for dynamic bulk charges** (ADR pending, twin opinions
+in flight): wasmi's per-byte memory.grow/copy/fill charge is TERMINAL
+when it exceeds the residual quantum — host-proven root cause of the red
+memselftest (repro test 3248408; selftest landed honest-red 581279d,
+green needles follow the fix). Rustc itself will hit this. Then: Bauplatz
+box (512M + Surface-RAM via -GuestMemoryMB, c5533eb), sysroot import,
+hello.rs W5 proof. Owner questions open: SCOPE §6 Cranelift wording; ADR
+0017 veto window. Owner forward plans recorded (b2eb324): socket → GPU →
+installer, activation after the factory proof.
 
 ## Recently (exactly 3, newest first)
 
