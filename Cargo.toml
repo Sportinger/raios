@@ -9,6 +9,7 @@ members = [
     "raios-x509-time",
     "raios-x509-spki",
     "raios-http-parse",
+    "raios-lang",
     "raios-w7-acquire-logic",
     "raios-wasm-ir",
     "tools/descriptor-resign",
@@ -42,4 +43,3 @@ wasmi = { path = "vendor/wasmi-0.31.2" }
 wasmi_arena = { path = "vendor/wasmi_arena-0.4.1" }
 wasmi_core = { path = "vendor/wasmi_core-0.13.0" }
 wasmparser-nostd = { path = "vendor/wasmparser-nostd-0.100.1" }
-

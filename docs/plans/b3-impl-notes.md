@@ -235,3 +235,28 @@ The expected output hash is hardcoded as
 `sha256:37b6dae3dbb05625f90dc108f74875b299c943a8ce6e11535ed6e14a9c4bfde2`.
 Its provenance is the literal 52-byte `expected` WebAssembly array in
 `raios-wasm-ir/src/lib.rs`, not a profile invocation of the encoder.
+
+## B3A-2a rlang crate + emitter
+
+Capability: host and future signed-guest code can compile one bounded,
+inspectable `RAIOS_LANG_V1` function into deterministic canonical Wasm with
+locals, typed arithmetic/comparisons, and `if`/`else`, without allocation or
+runtime dependencies.
+
+`raios_lang::compile(&[u8]) -> Result<raios_wasm_ir::WasmModuleBytes,
+&'static str>` implements the plan's exact lexer, grammar, two-type checker,
+whole-program division-safety pass, and left-to-right emitter. Its fixed bounds
+are 4096 source bytes, 512 tokens, 256 expression nodes, depth 16, and 32
+immutable `let` bindings. `raios_wasm_ir::TypedFunctionEmitter::new(u32)`,
+`push(TypedInstruction)`, and `finish()` are the additive backend API; it is
+bounded at 512 instructions and control depth 16 and leaves
+`RAIOS_WASM_IR_V1`, `assemble`, its reasons, and its literal goldens unchanged.
+
+The pinned valid max-shape source uses all 32 locals and all 256 nodes; its
+canonical module is 1098 bytes, below the authoritative 4096-byte output cap.
+There are no plan deviations. Host tests contain three hand-written full-module
+goldens, emitter local/body LEB boundary literals, all reason/precedence vectors,
+exact-cap and one-over quota vectors, dead-branch division hazards,
+determinism, Wasm validation, and execution. The orchestrator supplies the
+observed build/test evidence; this worker ran no Cargo, build, test, or VM
+command.

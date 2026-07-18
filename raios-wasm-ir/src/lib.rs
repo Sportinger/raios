@@ -128,6 +128,147 @@ impl AsRef<[u8]> for WasmModuleBytes {
     }
 }
 
+pub const MAX_TYPED_FUNCTION_INSTRUCTIONS: usize = 512;
+pub const MAX_TYPED_CONTROL_DEPTH: usize = 16;
+pub const ERR_TYPED_EMITTER_REJECTED: &str = "typed_emitter_rejected";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TypedInstruction {
+    I32Const(i32),
+    LocalGet(u32),
+    LocalSet(u32),
+    I32Eq,
+    I32Ne,
+    I32LtS,
+    I32GtS,
+    I32LeS,
+    I32GeS,
+    I32Add,
+    I32Sub,
+    I32Mul,
+    I32DivS,
+    IfI32,
+    Else,
+    End,
+}
+
+/// Bounded canonical encoder for one `() -> i32` function exported as
+/// `raios_service_main`.
+pub struct TypedFunctionEmitter {
+    body: WasmModuleBytes,
+    local_count: u32,
+    instruction_count: usize,
+    control_depth: usize,
+    saw_else: [bool; MAX_TYPED_CONTROL_DEPTH],
+}
+
+impl TypedFunctionEmitter {
+    pub fn new(local_count: u32) -> Result<Self, &'static str> {
+        let mut body = WasmModuleBytes::new();
+        if local_count == 0 {
+            body.push(0x00)?;
+        } else {
+            body.push(0x01)?;
+            body.push_u32_leb(local_count)?;
+            body.push(0x7f)?;
+        }
+        Ok(Self {
+            body,
+            local_count,
+            instruction_count: 0,
+            control_depth: 0,
+            saw_else: [false; MAX_TYPED_CONTROL_DEPTH],
+        })
+    }
+
+    pub fn push(&mut self, instruction: TypedInstruction) -> Result<(), &'static str> {
+        if self.instruction_count == MAX_TYPED_FUNCTION_INSTRUCTIONS {
+            return Err(ERR_TYPED_EMITTER_REJECTED);
+        }
+        match instruction {
+            TypedInstruction::I32Const(value) => {
+                self.body.push(0x41)?;
+                self.body.push_i32_leb(value)?;
+            }
+            TypedInstruction::LocalGet(index) | TypedInstruction::LocalSet(index)
+                if index >= self.local_count =>
+            {
+                return Err(ERR_TYPED_EMITTER_REJECTED);
+            }
+            TypedInstruction::LocalGet(index) => {
+                self.body.push(0x20)?;
+                self.body.push_u32_leb(index)?;
+            }
+            TypedInstruction::LocalSet(index) => {
+                self.body.push(0x21)?;
+                self.body.push_u32_leb(index)?;
+            }
+            TypedInstruction::I32Eq => self.body.push(0x46)?,
+            TypedInstruction::I32Ne => self.body.push(0x47)?,
+            TypedInstruction::I32LtS => self.body.push(0x48)?,
+            TypedInstruction::I32GtS => self.body.push(0x4a)?,
+            TypedInstruction::I32LeS => self.body.push(0x4c)?,
+            TypedInstruction::I32GeS => self.body.push(0x4e)?,
+            TypedInstruction::I32Add => self.body.push(0x6a)?,
+            TypedInstruction::I32Sub => self.body.push(0x6b)?,
+            TypedInstruction::I32Mul => self.body.push(0x6c)?,
+            TypedInstruction::I32DivS => self.body.push(0x6d)?,
+            TypedInstruction::IfI32 => {
+                if self.control_depth == MAX_TYPED_CONTROL_DEPTH {
+                    return Err(ERR_TYPED_EMITTER_REJECTED);
+                }
+                self.body.extend(&[0x04, 0x7f])?;
+                self.saw_else[self.control_depth] = false;
+                self.control_depth += 1;
+            }
+            TypedInstruction::Else => {
+                if self.control_depth == 0 || self.saw_else[self.control_depth - 1] {
+                    return Err(ERR_TYPED_EMITTER_REJECTED);
+                }
+                self.body.push(0x05)?;
+                self.saw_else[self.control_depth - 1] = true;
+            }
+            TypedInstruction::End => {
+                if self.control_depth == 0 || !self.saw_else[self.control_depth - 1] {
+                    return Err(ERR_TYPED_EMITTER_REJECTED);
+                }
+                self.body.push(0x0b)?;
+                self.control_depth -= 1;
+            }
+        }
+        self.instruction_count += 1;
+        Ok(())
+    }
+
+    pub fn finish(mut self) -> Result<WasmModuleBytes, &'static str> {
+        if self.control_depth != 0 {
+            return Err(ERR_TYPED_EMITTER_REJECTED);
+        }
+        self.body.extend(&[0x0f, 0x0b])?;
+
+        let mut output = WasmModuleBytes::new();
+        output.extend(&[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00])?;
+        output.extend(&[0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f])?;
+        output.extend(&[0x03, 0x02, 0x01, 0x00])?;
+        output.extend(&[
+            0x07, 0x16, 0x01, 0x12, b'r', b'a', b'i', b'o', b's', b'_', b's', b'e', b'r', b'v',
+            b'i', b'c', b'e', b'_', b'm', b'a', b'i', b'n', 0x00, 0x00,
+        ])?;
+
+        let body_size = u32::try_from(self.body.len()).map_err(|_| ERR_OVERSIZE_OUTPUT)?;
+        let code_size = 1u32
+            .checked_add(u32_leb_len(body_size))
+            .and_then(|size| size.checked_add(body_size))
+            .ok_or(ERR_OVERSIZE_OUTPUT)?;
+        output.push(0x0a)?;
+        output.push_u32_leb(code_size)?;
+        output.push(0x01)?;
+        output.push_u32_leb(body_size)?;
+        output.extend(self.body.as_slice())?;
+        Ok(output)
+    }
+}
+
 #[derive(Clone, Copy)]
 struct DataSegment<'a> {
     offset: u32,
@@ -629,6 +770,101 @@ mod tests {
         assert_eq!(
             output.extend(&[0; MAX_WASM_OUTPUT_BYTES + 1]),
             Err(ERR_OVERSIZE_OUTPUT)
+        );
+    }
+
+    #[test]
+    fn typed_emitter_locals_and_arithmetic_match_literal_wasm() {
+        let expected = [
+            // Magic/version, type () -> i32, and function type index 0.
+            0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x01, 0x60, 0x00, 0x01,
+            0x7f, 0x03, 0x02, 0x01, 0x00, // Export function 0 as "raios_service_main".
+            0x07, 0x16, 0x01, 0x12, 0x72, 0x61, 0x69, 0x6f, 0x73, 0x5f, 0x73, 0x65, 0x72, 0x76,
+            0x69, 0x63, 0x65, 0x5f, 0x6d, 0x61, 0x69, 0x6e, 0x00, 0x00,
+            // One i32 local; set it to 6, read it, multiply by 7, return.
+            0x0a, 0x10, 0x01, 0x0e, 0x01, 0x01, 0x7f, 0x41, 0x06, 0x21, 0x00, 0x20, 0x00, 0x41,
+            0x07, 0x6c, 0x0f, 0x0b,
+        ];
+        let mut emitter = TypedFunctionEmitter::new(1).unwrap();
+        for instruction in [
+            TypedInstruction::I32Const(6),
+            TypedInstruction::LocalSet(0),
+            TypedInstruction::LocalGet(0),
+            TypedInstruction::I32Const(7),
+            TypedInstruction::I32Mul,
+        ] {
+            emitter.push(instruction).unwrap();
+        }
+        let bytes = emitter.finish().unwrap();
+        assert_eq!(bytes.as_slice(), expected);
+        assert!(Module::new(&Engine::default(), bytes.as_slice()).is_ok());
+    }
+
+    #[test]
+    fn typed_emitter_if_else_matches_literal_wasm() {
+        let expected = [
+            // Magic/version, type () -> i32, and function type index 0.
+            0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x01, 0x60, 0x00, 0x01,
+            0x7f, 0x03, 0x02, 0x01, 0x00, // Export function 0 as "raios_service_main".
+            0x07, 0x16, 0x01, 0x12, 0x72, 0x61, 0x69, 0x6f, 0x73, 0x5f, 0x73, 0x65, 0x72, 0x76,
+            0x69, 0x63, 0x65, 0x5f, 0x6d, 0x61, 0x69, 0x6e, 0x00, 0x00,
+            // No locals; if (result i32) selects 31415 or 0, then return/end.
+            0x0a, 0x11, 0x01, 0x0f, 0x00, 0x41, 0x01, 0x04, 0x7f, 0x41, 0xb7, 0xf5, 0x01, 0x05,
+            0x41, 0x00, 0x0b, 0x0f, 0x0b,
+        ];
+        let mut emitter = TypedFunctionEmitter::new(0).unwrap();
+        for instruction in [
+            TypedInstruction::I32Const(1),
+            TypedInstruction::IfI32,
+            TypedInstruction::I32Const(31_415),
+            TypedInstruction::Else,
+            TypedInstruction::I32Const(0),
+            TypedInstruction::End,
+        ] {
+            emitter.push(instruction).unwrap();
+        }
+        let bytes = emitter.finish().unwrap();
+        assert_eq!(bytes.as_slice(), expected);
+        assert!(Module::new(&Engine::default(), bytes.as_slice()).is_ok());
+    }
+
+    #[test]
+    fn typed_emitter_leb_boundaries_are_literal_and_shortest() {
+        let local_127 = [0x01, 0x7f, 0x7f];
+        let local_128 = [0x01, 0x80, 0x01, 0x7f];
+        let mut emitter = TypedFunctionEmitter::new(127).unwrap();
+        emitter.push(TypedInstruction::I32Const(0)).unwrap();
+        let bytes = emitter.finish().unwrap();
+        assert_eq!(&bytes.as_slice()[47..50], &local_127);
+        let mut emitter = TypedFunctionEmitter::new(128).unwrap();
+        emitter.push(TypedInstruction::I32Const(0)).unwrap();
+        let bytes = emitter.finish().unwrap();
+        assert_eq!(&bytes.as_slice()[47..51], &local_128);
+
+        let body_127 = [0x0a, 0x81, 0x01, 0x01, 0x7f];
+        let mut emitter = TypedFunctionEmitter::new(0).unwrap();
+        for _ in 0..62 {
+            emitter.push(TypedInstruction::I32Const(0)).unwrap();
+        }
+        let bytes = emitter.finish().unwrap();
+        assert_eq!(&bytes.as_slice()[43..48], &body_127);
+
+        let body_128 = [0x0a, 0x83, 0x01, 0x01, 0x80, 0x01];
+        let mut emitter = TypedFunctionEmitter::new(0).unwrap();
+        for _ in 0..61 {
+            emitter.push(TypedInstruction::I32Const(0)).unwrap();
+        }
+        emitter.push(TypedInstruction::I32Const(64)).unwrap();
+        let bytes = emitter.finish().unwrap();
+        assert_eq!(&bytes.as_slice()[43..49], &body_128);
+
+        let mut bounded = TypedFunctionEmitter::new(0).unwrap();
+        for _ in 0..MAX_TYPED_FUNCTION_INSTRUCTIONS {
+            bounded.push(TypedInstruction::I32Eq).unwrap();
+        }
+        assert_eq!(
+            bounded.push(TypedInstruction::I32Eq),
+            Err(ERR_TYPED_EMITTER_REJECTED)
         );
     }
 
