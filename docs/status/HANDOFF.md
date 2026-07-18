@@ -41,4 +41,3 @@ On-Device-Fabrik ist die Hauptstraße: Genesis-Job → Agenten liefern Quelle
 (B2) → Bauplatz baut → Test im Käfig → W5-Klick → Install/Rollback (B1). Kein
 Compiler-Fork; ein Cloud-Nachbacken dient später nur der Herkunftsprüfung.
 rlang nach grünem Slice 2a committet und pausiert (Ersatzrad + Encoder).
-

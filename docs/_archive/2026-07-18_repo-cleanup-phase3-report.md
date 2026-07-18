@@ -81,7 +81,8 @@ die Skilldatei wird zu einem kurzen Einstieg, der diese Quellen nicht dupliziert
 - Core-Gate: `cargo test --locked -p raios-core`, 591/591 grün.
 - QEMU `quick` grün: Reports `shadow-20260718-152303-11664.json`,
   `shadow-20260718-152851-22208.json` und
-  `shadow-20260718-153516-22908.json` samt SHA-256-Sidecars.
+  `shadow-20260718-153516-22908.json` sowie der finale Abschlussreport
+  `shadow-20260718-154443-21808.json`, jeweils samt SHA-256-Sidecar.
 - Negativpredicate: keine alte Root-Protokolldirektorie; jeder Treffer auf
   `device-protocol` zeigt auf `docs/architecture/device-protocol`.
 - Negativpredicate: keine Quarantäne-Pfadreferenz außerhalb des
