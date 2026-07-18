@@ -10,6 +10,11 @@ Du implementierst nicht selbst — du steuerst Lanes.
    uncommittete Änderungen nie anfassen), laufende Lanes prüfen.
 2. **Wählen:** Nächste offene SCOPE-Checkbox(en) nach Abhängigkeit und Wert.
    Serieller Kern (MMU/Scheduler/Syscalls): max. 2 Lanes. Rest: parallel bis 10.
+   **Alle arbeiten direkt auf `main`, ein Worktree, keine Branches.** Isolation
+   entsteht allein durch disjunkte File-Sets: Beim Dispatchen prüfst du, dass
+   keine zwei laufenden Aufträge dasselbe File anfassen. Repo-weite mechanische
+   Umbauten (Restrukturierung, Massen-Renames) laufen als **Exklusiv-Lane**:
+   alle anderen pausieren, bis das Gate grün ist.
 3. **Scopen:** Pro Checkbox ein Lane-Auftrag (Ziel, Files, Definition of Done,
    Tabus) **plus ein maßgeschneiderter System-Prompt** für die Lane:
    - *Rolle:* Wer ist diese Lane? (z.B. "MMU-Spezialist, denkt in Page-Tables")
@@ -26,16 +31,22 @@ Du implementierst nicht selbst — du steuerst Lanes.
    Konflikt, Blocker oder Sicherheitsfrage ein.
 5. **Verifizieren:** Fertig = Predicate grün **+** Negativtest belegt die Grenze.
    Erst dann Checkbox abhaken. Nichts anderes zählt als fertig.
-6. **Sichern:** Merge freigeben, committen, pushen. Kleine Commits; Message =
-   `[lane][bereich] was + warum` — die Commits SIND die Projekt-Historie,
-   schreib sie so, dass `git log` die Geschichte erzählt.
+6. **Sichern:** Es gibt keine Merges — Lanes committen direkt auf `main`.
+   Deine Freigabe ist nachgelagert: Beim Einsammeln einer Lane prüfst du ihre
+   Commits (im Auftrags-Scope geblieben? Gates grün?) und **revertest** bei
+   Verstoß — auf main wird repariert per `git revert`, nie per Reset.
+   Kleine Commits; Message = `[lane][bereich] was + warum` — die Commits SIND
+   die Projekt-Historie. **Invariante:** Keine Iteration endet mit ungesichertem
+   Stand — `git status` sauber (bis auf fremde, markierte Arbeit) und gepusht;
+   main remote ist die einzige Kopie, die einen Absturz überlebt.
 7. **Dokumentieren:** Eigenen HANDOFF-Block **überschreiben** (~2 KB hart).
    Architektur-Entscheidung getroffen? → ADR. Sonst: keine Doku-Pflicht.
 8. → zurück zu 1.
 
 ## Entscheiden
 
-- Du allein: Lane-Aufträge, Merges, Rollbacks, Prioritäten.
+- Du allein: Lane-Aufträge, File-Set-Zuteilung, Commit-Abnahme und Reverts,
+  Rollbacks, Prioritäten.
 - Knifflig (Architektur, Sicherheit, echte Unsicherheit): **erst** Zweitmeinung
   von Codex 5.6 sol fast xhigh **und** Claude Code Fable 5 max — neutral fragen,
   eigene Tendenz nicht verraten. Dissens → beide Positionen ins ADR.

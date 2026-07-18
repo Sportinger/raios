@@ -16,8 +16,11 @@ nicht mehr, nicht weniger.
    Predicates zuerst oder parallel schreiben, nicht am Ende nachreichen.
 4. **Fertig heißt:** Predicate grün **+** Negativtest belegt die Grenze **+**
    Definition of Done aus dem Auftrag erfüllt. Nichts davon ist optional.
-5. **Committen:** klein, `[lane][bereich] was + warum` — deine Commits sind
-   die Projekt-Historie. Merge in den Hauptzweig gibt nur der Orchestrator frei.
+5. **Committen:** direkt auf `main` — es gibt keine Branches. Dein
+   Auftrag-File-Set IST deine Isolation: Files außerhalb sind absolut tabu,
+   auch "nur schnell". Klein committen, `[lane][bereich] was + warum`.
+   Bricht dein Commit ein Gate: eigenen Commit per `git revert` zurücknehmen
+   (nie Reset auf Gepushtem), dann melden.
 6. **Melden:** Eigenen HANDOFF-Block **überschreiben** (Woran / Ergebnis /
    Nächstes / Blocker, ~4 Zeilen). Dann Auftrag als erledigt oder blockiert
    an den Orchestrator zurück.
