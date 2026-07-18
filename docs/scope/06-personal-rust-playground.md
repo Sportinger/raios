@@ -24,12 +24,14 @@
       suspension end in `AtomicSuspendNotResumable`, never hang. Evidence:
       32-test conformance suite (8a58f5f, 863ea4d, 323f974, fab0dab, 2c59257,
       9137872).
-- [ ] T2 — deterministic green-thread scheduling end to end: policy is
-      host-proven with replay-equal traces (97d163c) and the kernel pump runs
-      a fixed-thread job in QEMU (`RAIOS_THREADS selftest=pass`, internal
-      double-run trace equality); still open: wasi thread-spawn import,
-      proc_exit job end, cap enforcement in the kernel. Negative boundary when
-      closed: futex deadlock → deterministic job error, never an endless pump.
+- [x] T2 — deterministic green-thread scheduling end to end: policy
+      host-proven with replay-equal traces (97d163c); kernel pump runs a
+      fixed-thread job in QEMU with double-run trace equality; wasi
+      thread-spawn (deferred materialization), proc_exit whole-job end and
+      cap-48 denial live (8321953). Negative boundary: futex deadlock →
+      deterministic JobDeadlocked, digest-equal double run, bounded rounds —
+      never an endless pump (3f2a64a, QEMU quick 499/499
+      shadow-20260718-214754-2760).
 - [ ] Bauplatz guest memories: the 1-GiB shared-memory window (399/16384
       pages) instantiable in the kernel with QEMU and Surface RAM profiles.
       Negative boundary: a job exceeding its class limits is denied before
