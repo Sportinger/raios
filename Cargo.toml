@@ -11,6 +11,7 @@ members = [
     "crates/raios-http-parse",
     "crates/raios-lang",
     "crates/raios-w7-acquire-logic",
+    "crates/raios-wasi-preview1",
     "crates/raios-wasm-ir",
     "crates/raios-wasmi-conformance",
     "tools/descriptor-resign",

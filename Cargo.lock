@@ -1359,6 +1359,10 @@ name = "raios-w7-acquire-logic"
 version = "0.1.0"
 
 [[package]]
+name = "raios-wasi-preview1"
+version = "0.1.0"
+
+[[package]]
 name = "raios-wasm-ir"
 version = "0.1.0"
 dependencies = [
