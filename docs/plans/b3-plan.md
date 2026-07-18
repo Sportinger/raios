@@ -242,6 +242,28 @@ Focused predicates:
 | Wasm32's address ceiling is exceeded | Measure guest `memory.size`; if a hello requires near 4 GiB, declare this rustc route NO-GO rather than adding memory64 silently |
 | a larger QEMU profile weakens the base claim | Keep 512 MiB ordinary acceptance green; label larger evidence research-only until an explicit owner budget decision |
 
+# 7.1 MEASURED (orchestrator host experiment 2026-07-18)
+
+The rubrc/rust_wasm route was measured per the section-7 experiments:
+
+- `oligamiq/rust_wasm` v0.3.0-release: 78 assets, **1,928.5 MiB total**; the
+  compiler itself is `rustc_opt.wasm.tar.gz` **28.6 MiB compressed / 91.0 MiB
+  uncompressed** (sha256 c6dccf3e5f01631b942a0a008b9f2f5312987e7d8590f8c61024
+  cd00687a5791); per-target sysroots are ~33-36 MiB compressed each. The
+  artifact-size ESTIMATE row (200-800 MiB) is therefore corrected downward for
+  this LLVM-hosted build: ~91 MiB module + >=1 sysroot.
+- **Categorical blocker measured:** host `wasmi 0.31.2` `Module::new` rejects
+  the module immediately (0.00 s, 43 MiB peak) with
+  `threads must be enabled for shared memories (at offset 0x176b)` — the only
+  existing rustc-as-Wasm artifact is built against the Wasm threads/shared-
+  memory proposal (rubrc's browser_wasi_shim-threads environment). wasmi 0.31
+  does not support threads, and raiOS deliberately has no thread/shared-memory
+  substrate. No memory/fuel budget changes this: the artifact cannot load at
+  all. A threads-free rustc-as-Wasm build does not currently exist upstream;
+  producing one is upstream toolchain work, exactly matching the section-5.4
+  PARK criteria. The staged ladder (assembler -> restricted compiler) remains
+  the only live path.
+
 # 8. Exit criteria
 
 B3A-1 is GO only on observed focused evidence. rustc remains PARKED until its
