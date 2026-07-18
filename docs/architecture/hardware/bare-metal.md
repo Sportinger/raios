@@ -97,6 +97,17 @@ development smoke USB. The USB script refuses `-SkipBuild` with provider
 key/trust build flags so they cannot silently be omitted or copied from stale
 staging state.
 
+## Erprobte Prozedur, Quelle: Install-Logs 2026-05-10
+
+Die erfolgreiche Installation verwendete einen zuvor eindeutig identifizierten
+USB-Datenträger, eine GPT mit 512-MiB-Partition, den UEFI-ESP-Typ und FAT32.
+Nach Zuweisung eines Laufwerksbuchstabens wurde `release\esp` vollständig auf
+die Partition kopiert. Vor dem Auswerfen wurden `EFI\BOOT\BOOTX64.EFI`, beide
+Kernel-Dateien und die Limine-Konfiguration auf Vorhandensein geprüft; die
+Hashes auf dem Stick stimmten mit den lokalen Staging-Dateien überein. Für neue
+Sticks ist dafür weiterhin das oben genannte, bestätigungspflichtige Skript zu
+verwenden, nicht eine manuelle DiskPart-Folge.
+
 ## First Boot Checklist
 
 1. Boot via the machine's UEFI boot menu.
