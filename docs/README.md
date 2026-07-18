@@ -3,7 +3,8 @@
 raiOS is an agent-native operating system built around a small Rust kernel,
 capability-scoped domains, evidence before authority, and reversible change.
 The binding definition of the product is [SCOPE.md](SCOPE.md); other documents
-describe implementation, active work, or history and do not redefine it.
+describe implementation, active work, or history and do not redefine it. Any
+conflicts resolve in favor of SCOPE.md.
 
 ## Where to look
 

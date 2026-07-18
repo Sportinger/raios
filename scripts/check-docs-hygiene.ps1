@@ -54,7 +54,7 @@ function Invoke-DocsHygieneCheck {
         [string]$RootPath
     )
 
-    $checkCount = 6
+    $checkCount = 9
     $rootFullPath = [System.IO.Path]::GetFullPath($RootPath)
     $docsPath = Join-Path $rootFullPath "docs"
     $violations = New-Object "System.Collections.Generic.List[object]"
@@ -175,6 +175,81 @@ function Invoke-DocsHygieneCheck {
         }
     }
 
+    # Rule 7: README.md names SCOPE.md as the conflict-resolving source for what raiOS is.
+    $readmePath = Join-Path $docsPath "README.md"
+    $singleSourcePhrase = "conflicts resolve in favor of SCOPE.md"
+    if (-not (Test-Path -LiteralPath $readmePath -PathType Leaf)) {
+        Add-DocsHygieneViolation -Violations $violations -Code "single_source" -Path "docs/README.md" -Detail "required_file_missing"
+    }
+    else {
+        $readmeContent = Get-Content -LiteralPath $readmePath -Raw
+        if ($readmeContent.IndexOf($singleSourcePhrase, [System.StringComparison]::Ordinal) -lt 0) {
+            Add-DocsHygieneViolation -Violations $violations -Code "single_source" -Path "docs/README.md" -Detail "required_phrase_missing"
+        }
+    }
+
+    # Rule 8: root instructions may reference only existing, non-glob docs paths.
+    $instructionRelativePaths = @("CLAUDE.md", "AGENTS.md", ".claude\skills\raios\SKILL.md")
+    foreach ($instructionRelativePath in $instructionRelativePaths) {
+        $instructionPath = Join-Path $rootFullPath $instructionRelativePath
+        $instructionDisplayPath = $instructionRelativePath.Replace('\', '/')
+        if (-not (Test-Path -LiteralPath $instructionPath -PathType Leaf)) {
+            Add-DocsHygieneViolation -Violations $violations -Code "root_instruction_missing" -Path $instructionDisplayPath -Detail "required_file_missing"
+            continue
+        }
+
+        $instructionContent = Get-Content -LiteralPath $instructionPath -Raw
+        $docsReferences = [System.Text.RegularExpressions.Regex]::Matches($instructionContent, '(?<![A-Za-z0-9_./-])docs/[A-Za-z0-9_./*<>?-]+')
+        foreach ($docsReferenceMatch in $docsReferences) {
+            $docsReference = $docsReferenceMatch.Value.TrimEnd('.', ',', ':', ';')
+            if (($docsReference.IndexOf('*') -ge 0) -or ($docsReference.IndexOf('<') -ge 0) -or ($docsReference.IndexOf('?') -ge 0)) {
+                continue
+            }
+
+            $referencedPath = Join-Path $rootFullPath $docsReference.Replace('/', '\')
+            if (-not (Test-Path -LiteralPath $referencedPath)) {
+                Add-DocsHygieneViolation -Violations $violations -Code "root_instruction_path" -Path $instructionDisplayPath -Detail ("missing_reference=" + $docsReference)
+            }
+        }
+    }
+
+    # Rule 9: each plan maps by suffix to exactly one scope category, with no duplicates.
+    $scopeCategoryFiles = @()
+    if (Test-Path -LiteralPath $scopePath -PathType Container) {
+        $scopeCategoryFiles = @(Get-ChildItem -LiteralPath $scopePath -File | Where-Object { $_.Name -cmatch '^0[1-7]-.*\.md$' })
+    }
+
+    $planCategoryCounts = @{}
+    if (Test-Path -LiteralPath $plansPath -PathType Container) {
+        foreach ($entry in @(Get-ChildItem -LiteralPath $plansPath -File)) {
+            if ($entry.Name -cnotmatch '^plan-(.+)\.md$') {
+                continue
+            }
+
+            $planSlug = $Matches[1]
+            $scopeNamePattern = '^0[1-7]-' + [System.Text.RegularExpressions.Regex]::Escape($planSlug) + '\.md$'
+            $matchingScopeFiles = @($scopeCategoryFiles | Where-Object { $_.Name -cmatch $scopeNamePattern })
+            if ($matchingScopeFiles.Count -ne 1) {
+                $displayPath = Get-DocsHygieneDisplayPath -RootPath $rootFullPath -Path $entry.FullName
+                Add-DocsHygieneViolation -Violations $violations -Code "plan_category" -Path $displayPath -Detail ("scope_matches=" + $matchingScopeFiles.Count + " expected=1")
+                continue
+            }
+
+            $scopeCategoryName = $matchingScopeFiles[0].Name
+            if (-not $planCategoryCounts.ContainsKey($scopeCategoryName)) {
+                $planCategoryCounts[$scopeCategoryName] = 0
+            }
+            $planCategoryCounts[$scopeCategoryName] = $planCategoryCounts[$scopeCategoryName] + 1
+        }
+    }
+
+    foreach ($scopeCategoryName in $planCategoryCounts.Keys) {
+        $planCount = $planCategoryCounts[$scopeCategoryName]
+        if ($planCount -gt 1) {
+            Add-DocsHygieneViolation -Violations $violations -Code "plan_category_duplicate" -Path "docs/plans" -Detail ("scope_category=" + $scopeCategoryName + " expected_max=1 actual=" + $planCount)
+        }
+    }
+
     $result = "green"
     if ($violations.Count -gt 0) {
         $result = "red"
@@ -211,25 +286,34 @@ if ($SelfTest) {
         foreach ($directory in @("scope", "architecture\decisions", "agents", "plans", "status", "assets", "_archive")) {
             [void](New-Item -ItemType Directory -Path (Join-Path $fixtureDocsPath $directory) -Force)
         }
+        [void](New-Item -ItemType Directory -Path (Join-Path $fixtureRoot ".claude\skills\raios") -Force)
 
         Set-Content -LiteralPath (Join-Path $fixtureDocsPath "SCOPE.md") -Value "self-test" -Encoding utf8
-        Set-Content -LiteralPath (Join-Path $fixtureDocsPath "README.md") -Value "self-test" -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $fixtureDocsPath "README.md") -Value "conflicts resolve in favor of SCOPE.md" -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $fixtureRoot "CLAUDE.md") -Value "reference docs/SCOPE.md" -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $fixtureRoot "AGENTS.md") -Value "reference docs/SCOPE.md" -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $fixtureRoot ".claude\skills\raios\SKILL.md") -Value "reference docs/SCOPE.md" -Encoding utf8
         foreach ($number in 1..7) {
-            $scopeFileName = ('{0:D2}-self-test.md' -f $number)
+            $scopeFileName = ('{0:D2}-self-test-{0:D2}.md' -f $number)
             Set-Content -LiteralPath (Join-Path $fixtureDocsPath ("scope\" + $scopeFileName)) -Value "self-test" -Encoding utf8
         }
+        Set-Content -LiteralPath (Join-Path $fixtureDocsPath "plans\plan-self-test-01.md") -Value "self-test" -Encoding utf8
 
         Set-Content -LiteralPath (Join-Path $fixtureDocsPath "foreign.txt") -Value "planted violation" -Encoding utf8
         Set-Content -LiteralPath (Join-Path $fixtureDocsPath "status\HANDOFF.md") -Value ("x" * 5000) -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $fixtureDocsPath "status\STATUS.md") -Value ("x" * 31000) -Encoding utf8
         Set-Content -LiteralPath (Join-Path $fixtureDocsPath "plans\wrong-name.md") -Value "planted violation" -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $fixtureDocsPath "plans\plan-nonexistent-thing.md") -Value "planted violation" -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $fixtureDocsPath "README.md") -Value "planted statement without the required phrase" -Encoding utf8
+        Add-Content -LiteralPath (Join-Path $fixtureRoot "CLAUDE.md") -Value "reference docs/nonexistent-root-reference.md" -Encoding utf8
 
         $selfTestResult = Invoke-DocsHygieneCheck -RootPath $fixtureRoot
         $detectedCodes = @($selfTestResult.Violations | ForEach-Object { $_.Code })
-        $requiredCodes = @("docs_root_entry", "handoff_too_large", "plan_filename")
+        $requiredCodes = @("docs_root_entry", "handoff_too_large", "status_too_large", "plan_filename", "single_source", "root_instruction_path", "plan_category")
         $missingCodes = @($requiredCodes | Where-Object { $detectedCodes -cnotcontains $_ })
 
         if ($missingCodes.Count -eq 0) {
-            Write-Output "DOCS_HYGIENE selftest=green planted=3 detected=3"
+            Write-Output "DOCS_HYGIENE selftest=green planted=7 detected=7"
             Write-Output ("DOCS_HYGIENE result=green checks=" + $selfTestResult.CheckCount + " violations=0")
             exit 0
         }
