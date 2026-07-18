@@ -8,7 +8,6 @@ license = "MIT"
 crate-type = ["cdylib"]
 
 [dependencies]
-raios-http-parse = { path = "../../raios-http-parse" }
-raios-w7-acquire-logic = { path = "../../raios-w7-acquire-logic" }
-raios-x509-spki = { path = "../../raios-x509-spki" }
-
+raios-http-parse = { path = "../../crates/raios-http-parse" }
+raios-w7-acquire-logic = { path = "../../crates/raios-w7-acquire-logic" }
+raios-x509-spki = { path = "../../crates/raios-x509-spki" }
