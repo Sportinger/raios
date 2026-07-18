@@ -18,11 +18,18 @@ const ANSWER_HEADER: &str = "RAIOS_SOURCE_FILES_V1";
 const MAX_ANSWER_BYTES: usize = MAX_TOTAL_SOURCE_BYTES * 3;
 const FIXTURE_REQUEST_ID: u32 = 0xb2_01_a;
 const FIXTURE_REVISION_REQUEST_ID: u32 = 0xb2_02_a;
+const RWIR_FIXTURE_REQUEST_ID: u32 = 0xb3_01_c;
 const FIXTURE_REQUEST: &str = "Build the fixed B2.1a Rust/TOML source fixture.";
+const RWIR_FIXTURE_REQUEST: &str = "Build the fixed B3A-1c RAIOS_WASM_IR_V1 source fixture.";
 const FIXTURE_ANSWER: &str = concat!(
     "RAIOS_SOURCE_FILES_V1\n",
     "file Q2FyZ28udG9tbA== W3BhY2thZ2VdCm5hbWUgPSAiYjIxYS1maXh0dXJlIgp2ZXJzaW9uID0gIjAuMS4wIgplZGl0aW9uID0gIjIwMjEiCg==\n",
     "file c3JjL21haW4ucnM= Zm4gbWFpbigpIHsKICAgIGxldCBtZXNzYWdlID0gImhlbGxvIGZyb20gcmFpT1MiOwogICAgbGV0IF8gPSBtZXNzYWdlOwp9Cg==\n",
+    "end",
+);
+const RWIR_FIXTURE_ANSWER: &str = concat!(
+    "RAIOS_SOURCE_FILES_V1\n",
+    "file bWFpbi5yd2ly UkFJT1NfV0FTTV9JUl9WMQpmdW5jIHJhaW9zX3NlcnZpY2VfbWFpbiAtPiBpMzIKY29uc3QuaTMyIDQyCnJldHVybgplbmQK\n",
     "end",
 );
 const FIXTURE_REVISION_ANSWER: &str = concat!(
@@ -535,6 +542,33 @@ pub(crate) fn accept_test_fixture() -> AnswerOutcome {
     accept_answer(
         FIXTURE_REQUEST_ID,
         FIXTURE_ANSWER,
+        TEST_FIXTURE_PROVENANCE,
+        None,
+    )
+}
+
+pub(crate) fn accept_rwir_test_fixture() -> AnswerOutcome {
+    let should_start = {
+        let state = STATE.lock();
+        state.phase == LoopPhase::Idle && state.current_request.is_none()
+    };
+    if should_start {
+        if let Err(reason) =
+            note_provider_build_request(RWIR_FIXTURE_REQUEST_ID, RWIR_FIXTURE_REQUEST)
+        {
+            return denied(
+                reason,
+                false,
+                sha256_bytes(RWIR_FIXTURE_ANSWER.as_bytes()),
+                RWIR_FIXTURE_ANSWER.len(),
+                TEST_FIXTURE_PROVENANCE,
+                snapshot(),
+            );
+        }
+    }
+    accept_answer(
+        RWIR_FIXTURE_REQUEST_ID,
+        RWIR_FIXTURE_ANSWER,
         TEST_FIXTURE_PROVENANCE,
         None,
     )

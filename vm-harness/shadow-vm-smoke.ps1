@@ -10,7 +10,7 @@ param(
     [switch]$KeepImage,
     [int]$SerialWriteChunkSize = 256,
     [int]$SerialWriteDelayMilliseconds = 0,
-    [ValidateSet("full", "quick", "recovery", "genesis-ui", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m12-distribution-provenance", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable", "structured-store", "project-workspace", "project-build", "project-app", "project-install", "secret-vault", "core-policy", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow", "m11-7-httphead", "m11-8-certspki", "m11-9-dnsparse", "m11-beyond-env-lifecycle", "m11-net-imports", "m11-crypto-imports", "m11-acquisition-service", "network-acquisition", "usb-hotplug")]
+    [ValidateSet("full", "quick", "recovery", "genesis-ui", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m12-distribution-provenance", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable", "structured-store", "project-workspace", "project-build", "build-assemble", "project-app", "project-install", "secret-vault", "core-policy", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow", "m11-7-httphead", "m11-8-certspki", "m11-9-dnsparse", "m11-beyond-env-lifecycle", "m11-net-imports", "m11-crypto-imports", "m11-acquisition-service", "network-acquisition", "usb-hotplug")]
     [string]$Profile = "full"
 )
 
@@ -188,7 +188,7 @@ try {
         $auditRollbackTargetStream.Dispose()
     }
 
-    if ($Profile -in @("structured-store", "project-workspace", "project-build", "project-app", "project-install", "secret-vault")) {
+    if ($Profile -in @("structured-store", "project-workspace", "project-build", "build-assemble", "project-app", "project-install", "secret-vault")) {
         if ($PersistDiskPath) {
             throw "$Profile profile creates its own exact valid-a SEED_DATA fixture"
         }
@@ -287,14 +287,14 @@ try {
         )
         $runParams.StructuredStoreDiskPath = $StructuredStoreDiskImage
     }
-    if ($Profile -in @("usb-hotplug", "genesis-ui", "project-app", "project-install", "secret-vault", "m11-beyond-env-lifecycle", "m11-net-imports", "network-acquisition", "m6d-rollback")) {
+    if ($Profile -in @("usb-hotplug", "genesis-ui", "build-assemble", "project-app", "project-install", "secret-vault", "m11-beyond-env-lifecycle", "m11-net-imports", "network-acquisition", "m6d-rollback")) {
         $MonitorTcpPort = $SerialTcpPort + 1000
         $QemuArgList += @(
             "-MonitorTcpPort", "$MonitorTcpPort"
         )
         $runParams.MonitorTcpPort = $MonitorTcpPort
     }
-    if ($Profile -in @("genesis-ui", "project-app", "project-install", "m6c-promotion", "network-acquisition", "m6d-rollback")) {
+    if ($Profile -in @("genesis-ui", "build-assemble", "project-app", "project-install", "m6c-promotion", "network-acquisition", "m6d-rollback")) {
         $QmpTcpPort = $SerialTcpPort + 2000
         $QemuArgList += @(
             "-QmpTcpPort", "$QmpTcpPort"
@@ -349,6 +349,11 @@ try {
 
         if ($Profile -eq "project-build") {
             . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-project-build.ps1")
+            break SmokeProfileValidation
+        }
+
+        if ($Profile -eq "build-assemble") {
+            . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-build-assemble.ps1")
             break SmokeProfileValidation
         }
 

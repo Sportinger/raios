@@ -62,6 +62,20 @@ pub(crate) fn emit_agent_answer_fixture() {
     end_response("project.agent_answer_fixture");
 }
 
+pub(crate) fn emit_rwir_answer_fixture() {
+    let outcome = agent_build_loop::accept_rwir_test_fixture();
+    begin_response("project.rwir_answer_fixture");
+    emit_record_fields(
+        agent_workspace_fields(
+            "project.rwir_answer_fixture",
+            &outcome.snapshot,
+            Some(&outcome),
+        ),
+        6,
+    );
+    end_response("project.rwir_answer_fixture");
+}
+
 pub(crate) fn emit_verify_revision() {
     let snapshot = agent_build_loop::snapshot();
     let result = snapshot

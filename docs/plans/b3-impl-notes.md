@@ -201,3 +201,37 @@ or alternate loader path was added. Minimal W5-only touches were the alternate
 assembled binding in `workspace_candidate_service` and a core helper that
 derives the existing pointer approval from an already-computed challenge; no
 Genesis input/draw code changed.
+
+## B3A-1c harness
+
+`project.rwir_answer_fixture` mirrors the B2.1a test-fixture seam and commits one
+fixed root `main.rwir`. Its content is exactly the shared 72-byte
+`raios_wasm_ir::RETURN_42_IR`, carried in the existing
+`RAIOS_SOURCE_FILES_V1` base64 grammar. The route preserves the established
+fixture provenance (`test_infrastructure=true`, `answer_origin=test_fixture`,
+`provider_trust_positive=false`), uses only the disposable QEMU structured
+store, and rejects an untracked replay.
+
+The focused `build-assemble` profile uses the project-workspace C1 store plus
+separate valid-a BOOTCTL disk and the existing Genesis QMP click. It host-
+recomputes the one-file blob, tree, revision, request, and answer hashes; runs
+`build.assemble_revision`; pins both guest outputs and the kernel recompute;
+prepares the exact W5 envelope; proves serial approval/start denial; clicks the
+physical approval once; observes return value 42; then proves a second click and
+prepare-less restart cannot execute again. A second empty disposable C1 boot
+runs the existing two-file B2 fixture to reach the real
+`build_assemble_main_rwir_missing` denial without a kernel fault-injection path.
+Service inventory may gain only the expected current-boot workspace row;
+RECLOG and ARTSTOR scan results remain byte-identical.
+
+The eight predicates are `build-assemble:fixture-revision-committed`,
+`build-assemble:revision-assembled-deterministic`,
+`build-assemble:w5-preview-bound`, `build-assemble:serial-approve-denied`,
+`build-assemble:physical-click-runs-42`,
+`build-assemble:second-activation-stale-denied`,
+`build-assemble:negative-table`, and `build-assemble:zero-executable-drift`.
+
+The expected output hash is hardcoded as
+`sha256:37b6dae3dbb05625f90dc108f74875b299c943a8ce6e11535ed6e14a9c4bfde2`.
+Its provenance is the literal 52-byte `expected` WebAssembly array in
+`raios-wasm-ir/src/lib.rs`, not a profile invocation of the encoder.
