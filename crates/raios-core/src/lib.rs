@@ -77,6 +77,7 @@ pub mod seed_data_layout;
 pub mod structured_store;
 pub mod structured_store_partition;
 pub mod system_status_projection;
+pub mod thread_scheduler;
 pub mod tls13_session;
 pub mod tpm2_commands;
 pub mod transport_lease;
