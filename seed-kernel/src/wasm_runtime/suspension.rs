@@ -30,24 +30,26 @@ pub(super) fn classify_resumable(
     invocation: &ResumableInvocation,
     store: &Store<BeyondEnvState>,
 ) -> Result<(), TerminalOutcome> {
-    if matches!(
-        invocation.host_error().trap_code(),
-        Some(TrapCode::OutOfFuel)
-    ) {
-        return Err(TerminalOutcome::OutOfFuel);
+    match invocation.suspension() {
+        wasmi::Suspension::Host { host_error, .. } => {
+            if matches!(host_error.trap_code(), Some(TrapCode::OutOfFuel)) {
+                return Err(TerminalOutcome::OutOfFuel);
+            }
+            let marker = host_error
+                .downcast_ref::<HostSuspend>()
+                .ok_or(TerminalOutcome::HostError)?;
+            if !store
+                .data()
+                .lifecycle
+                .suspend_marker_matches(marker.invocation_id, marker.operation_id)
+            {
+                return Err(TerminalOutcome::HostError);
+            }
+            Ok(())
+        }
+        // Default-closed until T2 provides the scheduler (ADR 0016).
+        wasmi::Suspension::Atomic(_) => Err(TerminalOutcome::HostError),
     }
-    let marker = invocation
-        .host_error()
-        .downcast_ref::<HostSuspend>()
-        .ok_or(TerminalOutcome::HostError)?;
-    if !store
-        .data()
-        .lifecycle
-        .suspend_marker_matches(marker.invocation_id, marker.operation_id)
-    {
-        return Err(TerminalOutcome::HostError);
-    }
-    Ok(())
 }
 
 pub(super) fn terminal_from_error(error: &wasmi::Error) -> TerminalOutcome {

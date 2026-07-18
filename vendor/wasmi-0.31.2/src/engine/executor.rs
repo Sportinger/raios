@@ -19,10 +19,30 @@ use crate::{
     func::FuncEntity,
     store::ResourceLimiterRef,
     table::TableEntity,
-    FuelConsumptionMode, Func, FuncRef, Instance, StoreInner, Table,
+    FuelConsumptionMode, Func, FuncRef, Instance, Memory, StoreInner, Table,
 };
 use core::cmp::{self};
 use wasmi_core::{Pages, UntypedValue};
+
+/// A suspended atomic memory operation.
+#[derive(Debug, Copy, Clone)]
+pub struct AtomicSuspend {
+    /// The shared linear memory targeted by the operation.
+    pub memory: Memory,
+    /// The effective byte address targeted by the operation.
+    pub addr: u64,
+    /// The kind of suspended atomic memory operation.
+    pub request: AtomicSuspendRequest,
+}
+
+/// The request carried by an [`AtomicSuspend`].
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum AtomicSuspendRequest {
+    /// A matching atomic wait that must be parked by the scheduler.
+    Wait { timeout_ns: i64 },
+    /// An atomic notify whose wake count is supplied by the scheduler.
+    Notify { count: u32 },
+}
 
 /// The outcome of a Wasm execution.
 ///
@@ -36,6 +56,8 @@ pub enum WasmOutcome {
     Return,
     /// The Wasm execution calls a host function.
     Call { host_func: Func, instance: Instance },
+    /// The Wasm execution suspends at an atomic wait or notify instruction.
+    AtomicSuspend(AtomicSuspend),
 }
 
 /// The outcome of a Wasm execution.
@@ -371,17 +393,20 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
                 Instr::I64AtomicRmw32CmpxchgU(offset) => {
                     self.visit_i64_atomic_rmw32_cmpxchg_u(offset)?
                 }
-                Instr::MemoryAtomicNotify(_offset) => {
-                    // T1-d-2 ersetzt dies durch die AtomicSuspend-Mechanik, ADR 0016.
-                    return Err(TrapCode::AtomicSuspendNotResumable);
+                Instr::MemoryAtomicNotify(offset) => {
+                    if let Some(suspend) = self.visit_memory_atomic_notify(offset)? {
+                        return Ok(WasmOutcome::AtomicSuspend(suspend));
+                    }
                 }
-                Instr::MemoryAtomicWait32(_offset) => {
-                    // T1-d-2 ersetzt dies durch die AtomicSuspend-Mechanik, ADR 0016.
-                    return Err(TrapCode::AtomicSuspendNotResumable);
+                Instr::MemoryAtomicWait32(offset) => {
+                    if let Some(suspend) = self.visit_memory_atomic_wait32(offset)? {
+                        return Ok(WasmOutcome::AtomicSuspend(suspend));
+                    }
                 }
-                Instr::MemoryAtomicWait64(_offset) => {
-                    // T1-d-2 ersetzt dies durch die AtomicSuspend-Mechanik, ADR 0016.
-                    return Err(TrapCode::AtomicSuspendNotResumable);
+                Instr::MemoryAtomicWait64(offset) => {
+                    if let Some(suspend) = self.visit_memory_atomic_wait64(offset)? {
+                        return Ok(WasmOutcome::AtomicSuspend(suspend));
+                    }
                 }
                 Instr::AtomicFence => self.visit_atomic_fence(),
                 Instr::MemorySize => self.visit_memory_size(),
@@ -685,6 +710,113 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
         }
         self.sp.push(old_value);
         self.try_next_instr()
+    }
+
+    /// Executes `memory.atomic.wait32` through its fast path or suspends it.
+    #[inline(always)]
+    fn visit_memory_atomic_wait32(
+        &mut self,
+        offset: AddressOffset,
+    ) -> Result<Option<AtomicSuspend>, TrapCode> {
+        self.execute_atomic_wait(offset, 4, u32::MAX as u64, UntypedValue::i32_load)
+    }
+
+    /// Executes `memory.atomic.wait64` through its fast path or suspends it.
+    #[inline(always)]
+    fn visit_memory_atomic_wait64(
+        &mut self,
+        offset: AddressOffset,
+    ) -> Result<Option<AtomicSuspend>, TrapCode> {
+        self.execute_atomic_wait(offset, 8, u64::MAX, UntypedValue::i64_load)
+    }
+
+    /// Executes an atomic wait through its fast path or suspends it.
+    #[inline(always)]
+    fn execute_atomic_wait(
+        &mut self,
+        offset: AddressOffset,
+        alignment: u32,
+        value_mask: u64,
+        load: WasmLoadOp,
+    ) -> Result<Option<AtomicSuspend>, TrapCode> {
+        let (address, expected, timeout) = self.sp.pop3();
+        Self::check_atomic_alignment(address, offset, alignment)?;
+        let effective_address = u32::from(address)
+            .checked_add(offset.into_inner())
+            .ok_or(TrapCode::MemoryOutOfBounds)?;
+        let memory = *self.cache.default_memory(self.ctx);
+        let actual = load(
+            self.cache.default_memory_bytes(self.ctx),
+            address,
+            offset.into_inner(),
+        )?;
+        if !self.ctx.resolve_memory(&memory).ty().is_shared() {
+            return Err(TrapCode::UnsharedMemoryAtomicWait);
+        }
+        if actual.to_bits() & value_mask != expected.to_bits() & value_mask {
+            self.sp.push_as(1_i32);
+            self.try_next_instr()?;
+            return Ok(None);
+        }
+        let suspend = self.park_atomic(
+            memory,
+            u64::from(effective_address),
+            AtomicSuspendRequest::Wait {
+                timeout_ns: i64::from(timeout),
+            },
+        )?;
+        Ok(Some(suspend))
+    }
+
+    /// Executes `memory.atomic.notify` inline or suspends it.
+    #[inline(always)]
+    fn visit_memory_atomic_notify(
+        &mut self,
+        offset: AddressOffset,
+    ) -> Result<Option<AtomicSuspend>, TrapCode> {
+        let (address, count) = self.sp.pop2();
+        Self::check_atomic_alignment(address, offset, 4)?;
+        let effective_address = u32::from(address)
+            .checked_add(offset.into_inner())
+            .ok_or(TrapCode::MemoryOutOfBounds)?;
+        let memory = *self.cache.default_memory(self.ctx);
+        let memory_len = self.cache.default_memory_bytes(self.ctx).len() as u64;
+        if u64::from(effective_address) + 4 > memory_len {
+            return Err(TrapCode::MemoryOutOfBounds);
+        }
+        if !self.ctx.resolve_memory(&memory).ty().is_shared() {
+            self.sp.push_as(0_i32);
+            self.try_next_instr()?;
+            return Ok(None);
+        }
+        let suspend = self.park_atomic(
+            memory,
+            u64::from(effective_address),
+            AtomicSuspendRequest::Notify {
+                count: u32::from(count),
+            },
+        )?;
+        Ok(Some(suspend))
+    }
+
+    /// Exits the executor while preserving exactly one resumable frame.
+    #[inline(always)]
+    fn park_atomic(
+        &mut self,
+        memory: Memory,
+        addr: u64,
+        request: AtomicSuspendRequest,
+    ) -> Result<AtomicSuspend, TrapCode> {
+        self.next_instr();
+        self.sync_stack_ptr();
+        self.call_stack
+            .push(FuncFrame::new(self.ip, self.cache.instance()))?;
+        self.cache.reset();
+        Ok(AtomicSuspend {
+            memory,
+            addr,
+            request,
+        })
     }
 
     /// Executes an infallible unary `wasmi` instruction.

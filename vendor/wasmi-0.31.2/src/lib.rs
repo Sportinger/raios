@@ -121,12 +121,15 @@ pub mod errors {
 
 pub use self::{
     engine::{
+        AtomicSuspend,
+        AtomicSuspendRequest,
         Config,
         Engine,
         FuelConsumptionMode,
         ResumableCall,
         ResumableInvocation,
         StackLimits,
+        Suspension,
         TypedResumableCall,
         TypedResumableInvocation,
     },

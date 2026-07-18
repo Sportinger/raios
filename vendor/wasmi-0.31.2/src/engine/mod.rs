@@ -27,7 +27,10 @@ pub use self::{
         RelativeDepth,
         TranslationError,
     },
-    resumable::{ResumableCall, ResumableInvocation, TypedResumableCall, TypedResumableInvocation},
+    resumable::{
+        AtomicSuspend, AtomicSuspendRequest, ResumableCall, ResumableInvocation, Suspension,
+        TypedResumableCall, TypedResumableInvocation,
+    },
     stack::StackLimits,
     traits::{CallParams, CallResults},
 };
@@ -498,10 +501,20 @@ impl EngineInner {
             }) => Ok(ResumableCallBase::Resumable(ResumableInvocation::new(
                 ctx.as_context().store.engine().clone(),
                 *func,
-                host_func,
-                host_trap,
+                Suspension::Host {
+                    host_func,
+                    host_error: host_trap,
+                },
                 stack,
             ))),
+            Err(TaggedTrap::AtomicSuspend(suspend)) => {
+                Ok(ResumableCallBase::Resumable(ResumableInvocation::new(
+                    ctx.as_context().store.engine().clone(),
+                    *func,
+                    Suspension::Atomic(suspend),
+                    stack,
+                )))
+            }
         }
     }
 
@@ -532,7 +545,14 @@ impl EngineInner {
                 host_func,
                 host_trap,
             }) => {
-                invocation.update(host_func, host_trap);
+                invocation.update(Suspension::Host {
+                    host_func,
+                    host_error: host_trap,
+                });
+                Ok(ResumableCallBase::Resumable(invocation))
+            }
+            Err(TaggedTrap::AtomicSuspend(suspend)) => {
+                invocation.update(Suspension::Atomic(suspend));
                 Ok(ResumableCallBase::Resumable(invocation))
             }
         }
@@ -580,6 +600,8 @@ enum TaggedTrap {
     Wasm(Trap),
     /// The trap is originating from a host function.
     Host { host_func: Func, host_trap: Trap },
+    /// Execution suspended at an atomic wait or notify instruction.
+    AtomicSuspend(AtomicSuspend),
 }
 
 impl TaggedTrap {
@@ -596,6 +618,7 @@ impl TaggedTrap {
         match self {
             TaggedTrap::Wasm(trap) => trap,
             TaggedTrap::Host { host_trap, .. } => host_trap,
+            TaggedTrap::AtomicSuspend(_) => TrapCode::AtomicSuspendNotResumable.into(),
         }
     }
 }
@@ -681,16 +704,18 @@ impl<'engine> EngineExecutor<'engine> {
     fn resume_func<T, Results>(
         &mut self,
         mut ctx: StoreContextMut<T>,
-        host_func: Func,
+        host_func: Option<Func>,
         params: impl CallParams,
         results: Results,
     ) -> Result<<Results as CallResults>::Results, TaggedTrap>
     where
         Results: CallResults,
     {
-        self.stack
-            .values
-            .drop(host_func.ty(ctx.as_context()).params().len());
+        if let Some(host_func) = host_func {
+            self.stack
+                .values
+                .drop(host_func.ty(ctx.as_context()).params().len());
+        }
         let call_params = params.call_params();
         self.stack.values.reserve(call_params.len())?;
         self.stack.values.extend(call_params);
@@ -766,6 +791,9 @@ impl<'engine> EngineExecutor<'engine> {
                         // the host function as root and do not allow to resume the call.
                         result.map_err(TaggedTrap::Wasm)?;
                     }
+                }
+                WasmOutcome::AtomicSuspend(suspend) => {
+                    return Err(TaggedTrap::AtomicSuspend(suspend));
                 }
             }
         }

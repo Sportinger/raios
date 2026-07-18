@@ -1,3 +1,4 @@
+pub use super::executor::{AtomicSuspend, AtomicSuspendRequest};
 use super::Func;
 use crate::{
     engine::Stack,
@@ -5,11 +6,21 @@ use crate::{
     AsContextMut,
     Engine,
     Error,
+    FuncType,
     Value,
     WasmResults,
 };
 use core::{fmt, marker::PhantomData, mem::replace, ops::Deref};
-use wasmi_core::Trap;
+use wasmi_core::{Trap, ValueType};
+
+/// The reason why a resumable Wasm invocation suspended.
+#[derive(Debug)]
+pub enum Suspension {
+    /// A host function returned a resumable host error.
+    Host { host_func: Func, host_error: Trap },
+    /// An atomic wait or notify requires a scheduler decision.
+    Atomic(AtomicSuspend),
+}
 
 /// Returned by [`Engine`] methods for calling a function in a resumable way.
 ///
@@ -65,25 +76,8 @@ pub struct ResumableInvocation {
     /// The results of this function must always match with the
     /// results given when resuming the call.
     func: Func,
-    /// The host function that returned a host error.
-    ///
-    /// # Note
-    ///
-    /// - This is required to receive its result values that are
-    ///   needed to be fed back in manually by the user. This way we
-    ///   avoid heap memory allocations.
-    /// - The results of this function must always match with the
-    ///   arguments given when resuming the call.
-    host_func: Func,
-    /// The host error that was returned by the `host_func` which
-    /// caused the resumable function invocation to break.
-    ///
-    /// # Note
-    ///
-    /// This might be useful to users of this API to inspect the
-    /// actual host error. This is therefore guaranteed to never
-    /// be a Wasm trap.
-    host_error: Trap,
+    /// The reason why this invocation suspended.
+    suspension: Suspension,
     /// The value and call stack in use by the [`ResumableInvocation`].
     ///
     /// # Note
@@ -98,18 +92,11 @@ pub struct ResumableInvocation {
 
 impl ResumableInvocation {
     /// Creates a new [`ResumableInvocation`].
-    pub(super) fn new(
-        engine: Engine,
-        func: Func,
-        host_func: Func,
-        host_error: Trap,
-        stack: Stack,
-    ) -> Self {
+    pub(super) fn new(engine: Engine, func: Func, suspension: Suspension, stack: Stack) -> Self {
         Self {
             engine,
             func,
-            host_func,
-            host_error,
+            suspension,
             stack,
         }
     }
@@ -119,10 +106,9 @@ impl ResumableInvocation {
         replace(&mut self.stack, Stack::empty())
     }
 
-    /// Updates the [`ResumableInvocation`] with the new `host_func` and a `host_error`.
-    pub(super) fn update(&mut self, host_func: Func, host_error: Trap) {
-        self.host_func = host_func;
-        self.host_error = host_error;
+    /// Updates the [`ResumableInvocation`] with the next [`Suspension`].
+    pub(super) fn update(&mut self, suspension: Suspension) {
+        self.suspension = suspension;
     }
 }
 
@@ -134,7 +120,7 @@ impl Drop for ResumableInvocation {
 }
 
 impl ResumableInvocation {
-    /// Returns the host [`Func`] that returned the host error.
+    /// Returns the host [`Func`] that returned the host error, if any.
     ///
     /// # Note
     ///
@@ -142,17 +128,46 @@ impl ResumableInvocation {
     /// need to match the results of this host function so that
     /// the function invocation can properly resume. For that
     /// number and types of the values provided must match.
-    pub fn host_func(&self) -> Func {
-        self.host_func
+    pub fn host_func(&self) -> Option<Func> {
+        match self.suspension() {
+            Suspension::Host { host_func, .. } => Some(*host_func),
+            Suspension::Atomic(_) => None,
+        }
     }
 
-    /// Returns a shared reference to the encountered host error.
+    /// Returns a shared reference to the encountered host error, if any.
     ///
     /// # Note
     ///
     /// This is guaranteed to never be a Wasm trap.
-    pub fn host_error(&self) -> &Trap {
-        &self.host_error
+    pub fn host_error(&self) -> Option<&Trap> {
+        match self.suspension() {
+            Suspension::Host { host_error, .. } => Some(host_error),
+            Suspension::Atomic(_) => None,
+        }
+    }
+
+    /// Returns the reason why this invocation suspended.
+    pub fn suspension(&self) -> &Suspension {
+        &self.suspension
+    }
+
+    /// Validates the values supplied to resume this invocation.
+    fn match_resume_inputs<T>(
+        &self,
+        ctx: impl crate::AsContext<UserState = T>,
+        inputs: &[Value],
+    ) -> Result<(), Error> {
+        match self.suspension() {
+            Suspension::Host { host_func, .. } => Ok(self
+                .engine
+                .resolve_func_type(host_func.ty_dedup(ctx.as_context()), |func_type| {
+                    func_type.match_results(inputs, true)
+                })?),
+            Suspension::Atomic(_) => {
+                Ok(FuncType::new([], [ValueType::I32]).match_results(inputs, true)?)
+            }
+        }
     }
 
     /// Resumes the call to the [`Func`] with the given inputs.
@@ -176,10 +191,7 @@ impl ResumableInvocation {
         inputs: &[Value],
         outputs: &mut [Value],
     ) -> Result<ResumableCall, Error> {
-        self.engine
-            .resolve_func_type(self.host_func().ty_dedup(ctx.as_context()), |func_type| {
-                func_type.match_results(inputs, true)
-            })?;
+        self.match_resume_inputs(ctx.as_context(), inputs)?;
         self.engine
             .resolve_func_type(self.func.ty_dedup(ctx.as_context()), |func_type| {
                 func_type.match_results(outputs, false)?;
@@ -256,10 +268,7 @@ impl<Results> TypedResumableInvocation<Results> {
     where
         Results: WasmResults,
     {
-        self.engine
-            .resolve_func_type(self.host_func().ty_dedup(ctx.as_context()), |func_type| {
-                func_type.match_results(inputs, true)
-            })?;
+        self.match_resume_inputs(ctx.as_context(), inputs)?;
         self.engine
             .clone()
             .resume_func(
