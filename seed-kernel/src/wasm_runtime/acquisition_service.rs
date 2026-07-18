@@ -6,7 +6,7 @@ include!(concat!(
     "/net_acquire_w7_current_boot_load_descriptor.rs"
 ));
 
-#[path = "../../../raios-w7-acquire-logic/src/lib.rs"]
+#[path = "../../../crates/raios-w7-acquire-logic/src/lib.rs"]
 pub(crate) mod logic;
 
 pub(crate) const NET_ACQUIRE_W7_SERVICE_ID: &str = "svc.net.acquire.w7";

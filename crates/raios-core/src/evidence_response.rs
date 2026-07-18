@@ -901,7 +901,7 @@ mod tests {
     #[test]
     fn module_authority_hash_grammar_is_byte_identical() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../seed-kernel/src/module_evidence.rs");
+            .join("../../seed-kernel/src/module_evidence.rs");
         let bytes = std::fs::read(path).unwrap();
         let normalized = String::from_utf8(bytes).unwrap().replace("\r\n", "\n");
         let digest = crate::sha256_bytes(normalized.as_bytes());
