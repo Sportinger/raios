@@ -14,8 +14,13 @@ use wasmi::{
 
 const THREAD_JOB_FIXTURE_WASM: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/thread_job_fixture.wasm"));
+const THREAD_JOB_DEADLOCK_FIXTURE_WASM: &[u8] = include_bytes!(concat!(
+    env!("OUT_DIR"),
+    "/thread_job_deadlock_fixture.wasm"
+));
 const FIXTURE_EXPECTED_SUM: i32 = 32;
 const FIXTURE_EXPECTED_THREAD_COUNT: usize = 3;
+const DEADLOCK_FIXTURE_EXPECTED_THREAD_COUNT: usize = 2;
 const FIXTURE_THREAD_CAP: u32 = 3;
 const FIXTURE_PUMP_ROUND_LIMIT: usize = 4_096;
 const FUEL_QUANTUM: u64 = 20;
@@ -595,6 +600,15 @@ struct FixtureRunEvidence {
     exit_code: u32,
 }
 
+#[derive(Clone, Debug)]
+struct DeadlockFixtureRunEvidence {
+    end: ThreadJobEnd,
+    trace: Vec<TraceEvent>,
+    trace_digest: [u8; 32],
+    rounds: u64,
+    exit_code: u32,
+}
+
 fn thread_job_engine() -> Engine {
     let mut config = Config::default();
     config
@@ -671,6 +685,67 @@ fn run_fixture_once() -> Result<FixtureRunEvidence, ThreadJobFailure> {
     })
 }
 
+fn run_deadlock_fixture_once() -> Result<DeadlockFixtureRunEvidence, ThreadJobFailure> {
+    let engine = thread_job_engine();
+    let module = Module::new(&engine, THREAD_JOB_DEADLOCK_FIXTURE_WASM)
+        .map_err(|_| ThreadJobFailure::Setup)?;
+    let config = ThreadJobConfig {
+        thread_cap: FIXTURE_THREAD_CAP,
+    };
+    let mut store = Store::new(&engine, ThreadJobStoreState::new(config));
+    let memory_type = MemoryType::new_shared(1, 1).map_err(|_| ThreadJobFailure::Setup)?;
+    let memory = Memory::new(&mut store, memory_type).map_err(|_| ThreadJobFailure::Setup)?;
+    let mut linker = Linker::<ThreadJobStoreState>::new(&engine);
+    linker
+        .define("env", "memory", memory)
+        .map_err(|_| ThreadJobFailure::Setup)?;
+    linker
+        .func_wrap("wasi", "thread-spawn", host_thread_spawn)
+        .map_err(|_| ThreadJobFailure::Setup)?;
+    linker
+        .func_wrap("wasi_snapshot_preview1", "proc_exit", host_proc_exit)
+        .map_err(|_| ThreadJobFailure::Setup)?;
+    let main_pre = linker
+        .instantiate(&mut store, &module)
+        .map_err(|_| ThreadJobFailure::Setup)?;
+    let main_instance = main_pre
+        .start(&mut store)
+        .map_err(|_| ThreadJobFailure::Setup)?;
+    let main = main_instance
+        .get_func(&store, "_start")
+        .ok_or(ThreadJobFailure::Setup)?;
+    let mut runner = ThreadJobRunner::new(store, memory, module, linker, main, config)?;
+    if runner.threads.len() != 1 {
+        return Err(ThreadJobFailure::Setup);
+    }
+
+    for _ in 0..FIXTURE_PUMP_ROUND_LIMIT {
+        if runner.pump() {
+            break;
+        }
+    }
+    let end = runner.terminal.ok_or(ThreadJobFailure::RoundLimit)?;
+    if runner.threads.len() != DEADLOCK_FIXTURE_EXPECTED_THREAD_COUNT
+        || !runner.store.data().pending_spawns.is_empty()
+        || runner.store.data().spawns != 1
+    {
+        return Err(ThreadJobFailure::Setup);
+    }
+    let trace = runner.scheduler().trace().to_vec();
+    let trace_digest = runner.scheduler().trace_digest();
+    let exit_code = match end {
+        ThreadJobEnd::JobExited { code } => code,
+        ThreadJobEnd::JobDeadlocked | ThreadJobEnd::Failed(_) => u32::MAX,
+    };
+    Ok(DeadlockFixtureRunEvidence {
+        end,
+        trace,
+        trace_digest,
+        rounds: runner.round,
+        exit_code,
+    })
+}
+
 struct ThreadJobBusyGuard;
 
 impl ThreadJobBusyGuard {
@@ -696,12 +771,15 @@ pub(crate) fn emit_threads_selftest() {
             0,
             0,
             u32::MAX,
+            "fail",
+            0,
+            false,
         );
         return;
     };
     let first = run_fixture_once();
     let second = run_fixture_once();
-    let pass = matches!(
+    let existing_fixture_pass = matches!(
         (&first, &second),
         (Ok(first), Ok(second))
             if first.end == (ThreadJobEnd::JobExited { code: 0 })
@@ -722,6 +800,33 @@ pub(crate) fn emit_threads_selftest() {
                 && first.exit_code == 0
                 && second.exit_code == 0
     );
+    let first_deadlock = run_deadlock_fixture_once();
+    let second_deadlock = run_deadlock_fixture_once();
+    let deadlock_pass = matches!(
+        (&first_deadlock, &second_deadlock),
+        (Ok(first), Ok(second))
+            if first.end == ThreadJobEnd::JobDeadlocked
+                && second.end == ThreadJobEnd::JobDeadlocked
+                && !first.trace.is_empty()
+                && first.trace == second.trace
+                && first.trace_digest == second.trace_digest
+                && first.rounds == second.rounds
+                && first.rounds > 0
+                && first.rounds < FIXTURE_PUMP_ROUND_LIMIT as u64
+                && first.exit_code == u32::MAX
+                && second.exit_code == u32::MAX
+                && first.trace.last() == Some(&TraceEvent::Deadlock)
+                && second.trace.last() == Some(&TraceEvent::Deadlock)
+                && !first
+                    .trace
+                    .iter()
+                    .any(|event| matches!(event, TraceEvent::JobExit { .. }))
+                && !second
+                    .trace
+                    .iter()
+                    .any(|event| matches!(event, TraceEvent::JobExit { .. }))
+    );
+    let pass = existing_fixture_pass && deadlock_pass;
     let (counters, switches, sum, rounds, spawns, cap_denials, exit_code) = match first {
         Ok(evidence) => (
             evidence.counters,
@@ -734,6 +839,13 @@ pub(crate) fn emit_threads_selftest() {
         ),
         Err(_) => (SuspensionCounters::default(), 0, 0, 0, 0, 0, u32::MAX),
     };
+    let (deadlock, deadlock_rounds) = match &first_deadlock {
+        Ok(evidence) if evidence.end == ThreadJobEnd::JobDeadlocked => {
+            ("jobdeadlocked", evidence.rounds)
+        }
+        Ok(evidence) => ("fail", evidence.rounds),
+        Err(_) => ("fail", 0),
+    };
     write_selftest_line(
         pass,
         counters,
@@ -743,6 +855,9 @@ pub(crate) fn emit_threads_selftest() {
         spawns,
         cap_denials,
         exit_code,
+        deadlock,
+        deadlock_rounds,
+        deadlock_pass,
     );
 }
 
@@ -755,9 +870,12 @@ fn write_selftest_line(
     spawns: u32,
     cap_denials: u32,
     exit_code: u32,
+    deadlock: &str,
+    deadlock_rounds: u64,
+    deadlock_deterministic: bool,
 ) {
     crate::serial::write_fmt(format_args!(
-        "RAIOS_THREADS selftest={} waits={} notifies={} fuel_yields={} switches={} sum={} rounds={} spawns={} cap_denials={} exit_code={}\r\n",
+        "RAIOS_THREADS selftest={} waits={} notifies={} fuel_yields={} switches={} sum={} rounds={} spawns={} cap_denials={} exit_code={} deadlock={} deadlock_rounds={} deadlock_det={}\r\n",
         if pass { "pass" } else { "fail" },
         counters.waits,
         counters.notifies,
@@ -768,5 +886,8 @@ fn write_selftest_line(
         spawns,
         cap_denials,
         exit_code,
+        deadlock,
+        deadlock_rounds,
+        u8::from(deadlock_deterministic),
     ));
 }
