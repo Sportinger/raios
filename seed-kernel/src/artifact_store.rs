@@ -18,6 +18,10 @@ use raios_core::{
         ARTIFACT_BLOB_FRAME_HEADER_LEN, ARTIFACT_BLOB_MAGIC,
     },
     boot_control::BootPosture,
+    build_storage_authority::{
+        evaluate_scoped_build_output_commit, AuthorizedBuildOutputCommit, BuildOutputCommitDenied,
+        BuildStorageAuthority, ScopedBuildOutputCommitDecision, ScopedBuildOutputCommitInput,
+    },
     durable_record_frame::{
         parse_reclog_frame, plan_reclog_append, scan_reclog, PlannedAppend, RecordLogScan,
         RECLOG_FRAME_HEADER_LEN,
@@ -40,8 +44,10 @@ use raios_core::{
         EXPECTED_TARGET_ID as ARTIFACT_BLOB_EXPECTED_TARGET_ID,
         EXPECTED_TRUST_TIER as ARTIFACT_BLOB_EXPECTED_TRUST_TIER,
     },
+    scoped_wasi_artifact_egress::WasiArtifactEgressPlan,
     sha256_bytes, ByteSink,
 };
+use spin::{Mutex, MutexGuard};
 
 const ARTIFACT_PERSIST_RESPONSE_SCHEMA: &str = "raios.artifact_persist_append.v0";
 const ARTIFACT_PERSIST_RESPONSE_ID: &str =
@@ -64,6 +70,433 @@ const MAX_UI_PROGRAM_ARTSTOR_FRAME_LEN: u64 =
         - 1)
         / ARTSTOR_SCAN_WINDOW_BYTES
         * ARTSTOR_SCAN_WINDOW_BYTES;
+
+/// Serializes build-input pins against the build-output append transaction.
+/// A read session holds this lock for the whole guest run, which makes its
+/// generation-bound frame handles GC-pinned for that lifetime.
+static BUILD_STORAGE_IO_LOCK: Mutex<()> = Mutex::new(());
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct BuildFsChunkFrame {
+    pub(crate) store_generation: u64,
+    pub(crate) frame_offset: u64,
+    pub(crate) frame_len: u64,
+    pub(crate) payload_len: u64,
+    pub(crate) payload_sha256: [u8; 32],
+    pub(crate) frame_sha256: [u8; 32],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum BuildFsChunkFrameError {
+    Missing,
+    Bounds,
+    Malformed,
+    LengthMismatch,
+    Io,
+}
+
+pub(crate) struct BuildChunkReadSession {
+    controller: pci::PciMassStorageController,
+    store_instance_id: u64,
+    store_generation: u64,
+    _pin: MutexGuard<'static, ()>,
+}
+
+impl BuildChunkReadSession {
+    pub(crate) const fn store_instance_id(&self) -> u64 {
+        self.store_instance_id
+    }
+
+    pub(crate) const fn store_generation(&self) -> u64 {
+        self.store_generation
+    }
+
+    pub(crate) fn resolve_chunk_frame(
+        &self,
+        payload_sha256: [u8; 32],
+        payload_len: u64,
+    ) -> Result<BuildFsChunkFrame, BuildFsChunkFrameError> {
+        resolve_buildfs_chunk_frame(
+            self.controller,
+            self.store_generation,
+            payload_sha256,
+            payload_len,
+        )
+    }
+
+    pub(crate) fn read_chunk_frame(
+        &self,
+        frame: BuildFsChunkFrame,
+        destination: &mut [u8],
+    ) -> Result<(), BuildFsChunkFrameError> {
+        read_buildfs_chunk_frame(self.controller, self.store_generation, frame, destination)
+    }
+}
+
+pub(crate) fn begin_build_chunk_read_session(
+    store_instance_id: u64,
+    store_generation: u64,
+) -> Result<BuildChunkReadSession, BuildFsChunkFrameError> {
+    let pin = BUILD_STORAGE_IO_LOCK.lock();
+    let controller = pci::find_mass_storage_controller().ok_or(BuildFsChunkFrameError::Io)?;
+    Ok(BuildChunkReadSession {
+        controller,
+        store_instance_id,
+        store_generation,
+        _pin: pin,
+    })
+}
+
+/// Resolves one BuildFS digest by scanning only validated dense ARTSTOR frames.
+/// The returned physical offset stays inside the kernel-side read session.
+pub(crate) fn resolve_buildfs_chunk_frame(
+    controller: pci::PciMassStorageController,
+    store_generation: u64,
+    payload_sha256: [u8; 32],
+    payload_len: u64,
+) -> Result<BuildFsChunkFrame, BuildFsChunkFrameError> {
+    let probe = ahci::read_persist_artstor_region(controller, 0, ARTSTOR_SCAN_WINDOW_BYTES);
+    if !probe.read_completed || !probe.region_bounds_valid {
+        return Err(BuildFsChunkFrameError::Io);
+    }
+    let mut offset = 0u64;
+    while offset < probe.byte_count {
+        let header =
+            ahci::read_persist_artstor_region(controller, offset, ARTSTOR_SCAN_WINDOW_BYTES);
+        let bytes = header.bytes.ok_or(BuildFsChunkFrameError::Io)?;
+        if bytes.iter().all(|byte| *byte == 0) {
+            return Err(BuildFsChunkFrameError::Missing);
+        }
+        if bytes.len() < ARTIFACT_BLOB_FRAME_HEADER_LEN
+            || &bytes[..ARTIFACT_BLOB_MAGIC.len()] != ARTIFACT_BLOB_MAGIC
+        {
+            return Err(BuildFsChunkFrameError::Malformed);
+        }
+        let frame_len = u64::from(u32::from_le_bytes(
+            bytes[8..12]
+                .try_into()
+                .map_err(|_| BuildFsChunkFrameError::Malformed)?,
+        ));
+        if frame_len < ARTIFACT_BLOB_FRAME_HEADER_LEN as u64
+            || frame_len % ARTSTOR_SCAN_WINDOW_BYTES != 0
+            || offset
+                .checked_add(frame_len)
+                .is_none_or(|end| end > probe.byte_count)
+        {
+            return Err(BuildFsChunkFrameError::Bounds);
+        }
+        let read = ahci::read_persist_artstor_region(controller, offset, frame_len);
+        let frame_bytes = read.bytes.ok_or(BuildFsChunkFrameError::Io)?;
+        let parsed = parse_artifact_blob_frame(&frame_bytes, 0)
+            .map_err(|_| BuildFsChunkFrameError::Malformed)?;
+        if parsed.payload_sha256 == payload_sha256 {
+            if u64::from(parsed.payload_len) != payload_len {
+                return Err(BuildFsChunkFrameError::LengthMismatch);
+            }
+            return Ok(BuildFsChunkFrame {
+                store_generation,
+                frame_offset: offset,
+                frame_len,
+                payload_len,
+                payload_sha256,
+                frame_sha256: parsed.frame_sha256,
+            });
+        }
+        offset = offset
+            .checked_add(frame_len)
+            .ok_or(BuildFsChunkFrameError::Bounds)?;
+    }
+    Err(BuildFsChunkFrameError::Missing)
+}
+
+/// Re-reads the pinned physical frame. It validates only the recorded frame
+/// shape here; `GrantedChunkReader` performs the load-bearing content hash on
+/// every use before copying bytes toward the guest.
+pub(crate) fn read_buildfs_chunk_frame(
+    controller: pci::PciMassStorageController,
+    store_generation: u64,
+    frame: BuildFsChunkFrame,
+    destination: &mut [u8],
+) -> Result<(), BuildFsChunkFrameError> {
+    let destination_len =
+        u64::try_from(destination.len()).map_err(|_| BuildFsChunkFrameError::Bounds)?;
+    if frame.store_generation != store_generation || destination_len != frame.payload_len {
+        return Err(BuildFsChunkFrameError::Bounds);
+    }
+    let read = ahci::read_persist_artstor_region(controller, frame.frame_offset, frame.frame_len);
+    let bytes = read.bytes.ok_or(BuildFsChunkFrameError::Io)?;
+    if bytes.len() < ARTIFACT_BLOB_FRAME_HEADER_LEN
+        || &bytes[..ARTIFACT_BLOB_MAGIC.len()] != ARTIFACT_BLOB_MAGIC
+    {
+        return Err(BuildFsChunkFrameError::Malformed);
+    }
+    let encoded_frame_len = u64::from(u32::from_le_bytes(
+        bytes[8..12]
+            .try_into()
+            .map_err(|_| BuildFsChunkFrameError::Malformed)?,
+    ));
+    let encoded_payload_len = u64::from(u32::from_le_bytes(
+        bytes[12..16]
+            .try_into()
+            .map_err(|_| BuildFsChunkFrameError::Malformed)?,
+    ));
+    if encoded_frame_len != frame.frame_len || encoded_payload_len != frame.payload_len {
+        return Err(BuildFsChunkFrameError::Malformed);
+    }
+    let payload_end = ARTIFACT_BLOB_FRAME_HEADER_LEN
+        .checked_add(destination.len())
+        .ok_or(BuildFsChunkFrameError::Bounds)?;
+    let payload = bytes
+        .get(ARTIFACT_BLOB_FRAME_HEADER_LEN..payload_end)
+        .ok_or(BuildFsChunkFrameError::Bounds)?;
+    destination.copy_from_slice(payload);
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum BuildOutputAppendError {
+    CommitDenied(BuildOutputCommitDenied),
+    ControllerMissing,
+    LiveGeometryUnavailable,
+    LiveGeometryMismatch,
+    ReservationNotFree,
+    BundleLengthMismatch,
+    OutputManifestHashMismatch,
+    BlobPlanMismatch,
+    ReclogNotAppendable,
+    CommitRecordPlanFailed,
+    BlobWriteFailed,
+    BlobReadbackMismatch,
+    CommitRecordWriteFailed,
+    CommitRecordReadbackMismatch,
+}
+
+impl BuildOutputAppendError {
+    pub(crate) const fn reason(self) -> &'static str {
+        match self {
+            Self::CommitDenied(rejection) => rejection.reason(),
+            Self::ControllerMissing => "ahci_controller_not_observed",
+            Self::LiveGeometryUnavailable => "build_output_live_geometry_unavailable",
+            Self::LiveGeometryMismatch => "build_output_live_geometry_mismatch",
+            Self::ReservationNotFree => "build_output_reservation_not_free",
+            Self::BundleLengthMismatch => "build_output_bundle_length_mismatch",
+            Self::OutputManifestHashMismatch => "build_output_manifest_hash_mismatch",
+            Self::BlobPlanMismatch => "build_output_blob_plan_mismatch",
+            Self::ReclogNotAppendable => "build_output_reclog_not_appendable",
+            Self::CommitRecordPlanFailed => "build_output_commit_record_plan_failed",
+            Self::BlobWriteFailed => "build_output_blob_write_failed",
+            Self::BlobReadbackMismatch => "build_output_blob_readback_mismatch",
+            Self::CommitRecordWriteFailed => "build_output_commit_record_write_failed",
+            Self::CommitRecordReadbackMismatch => "build_output_commit_record_readback_mismatch",
+        }
+    }
+}
+
+pub(crate) struct BuildOutputWriteHandle {
+    controller: pci::PciMassStorageController,
+    claims: ScopedBuildOutputCommitInput,
+    authorization: AuthorizedBuildOutputCommit,
+    relative_write_offset: u64,
+    artstor_byte_count: u64,
+    _guard: MutexGuard<'static, ()>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct BuildOutputCommitAppendEvidence {
+    pub(crate) bundle_sha256: [u8; 32],
+    pub(crate) blob_frame_sha256: [u8; 32],
+    pub(crate) commit_record_sha256: [u8; 32],
+    pub(crate) commit_record_seq: u64,
+}
+
+/// Acquires the allocator lock, evaluates the opaque core permission, then
+/// rechecks the live ARTSTOR geometry and exact append reservation.
+pub(crate) fn acquire_build_output_write_handle(
+    claims: ScopedBuildOutputCommitInput,
+    authority: &BuildStorageAuthority,
+    egress: &WasiArtifactEgressPlan,
+) -> Result<BuildOutputWriteHandle, BuildOutputAppendError> {
+    let guard = BUILD_STORAGE_IO_LOCK.lock();
+    let authorization = match evaluate_scoped_build_output_commit(&claims, authority, egress) {
+        ScopedBuildOutputCommitDecision::Authorized(authorization) => authorization,
+        ScopedBuildOutputCommitDecision::Denied(rejection) => {
+            return Err(BuildOutputAppendError::CommitDenied(rejection))
+        }
+    };
+    let controller =
+        pci::find_mass_storage_controller().ok_or(BuildOutputAppendError::ControllerMissing)?;
+    let probe = ahci::read_persist_artstor_region(controller, 0, ARTSTOR_SCAN_WINDOW_BYTES);
+    if !probe.read_completed || !probe.region_bounds_valid {
+        return Err(BuildOutputAppendError::LiveGeometryUnavailable);
+    }
+    let region_offset = probe
+        .absolute_start_lba
+        .checked_mul(ARTSTOR_SCAN_WINDOW_BYTES)
+        .ok_or(BuildOutputAppendError::LiveGeometryMismatch)?;
+    if claims.artstor_region_offset != region_offset
+        || claims.artstor_region_len != probe.byte_count
+    {
+        return Err(BuildOutputAppendError::LiveGeometryMismatch);
+    }
+    let relative_write_offset = claims
+        .span_offset
+        .checked_sub(region_offset)
+        .ok_or(BuildOutputAppendError::LiveGeometryMismatch)?;
+    let next_free = next_free_artstor_offset_on_disk(controller)
+        .map_err(|_| BuildOutputAppendError::LiveGeometryUnavailable)?;
+    if next_free != relative_write_offset {
+        return Err(BuildOutputAppendError::ReservationNotFree);
+    }
+    Ok(BuildOutputWriteHandle {
+        controller,
+        claims,
+        authorization,
+        relative_write_offset,
+        artstor_byte_count: probe.byte_count,
+        _guard: guard,
+    })
+}
+
+impl BuildOutputWriteHandle {
+    /// Consumes the single-use handle. The data frame is written and verified
+    /// first; the typed commit record is planned beforehand but appended last.
+    pub(crate) fn append(
+        self,
+        bundle_bytes: &[u8],
+        output_manifest_bytes: &[u8],
+    ) -> Result<BuildOutputCommitAppendEvidence, BuildOutputAppendError> {
+        let Self {
+            controller,
+            claims,
+            authorization,
+            relative_write_offset,
+            artstor_byte_count,
+            _guard,
+        } = self;
+        let bundle_len = u64::try_from(bundle_bytes.len())
+            .map_err(|_| BuildOutputAppendError::BundleLengthMismatch)?;
+        if bundle_len != authorization.bundle_len() {
+            return Err(BuildOutputAppendError::BundleLengthMismatch);
+        }
+        if sha256_bytes(output_manifest_bytes) != authorization.output_manifest_sha256() {
+            return Err(BuildOutputAppendError::OutputManifestHashMismatch);
+        }
+        let planned_blob =
+            plan_artifact_blob_write(relative_write_offset, bundle_bytes, artstor_byte_count)
+                .map_err(|_| BuildOutputAppendError::BlobPlanMismatch)?;
+        if planned_blob.write_offset != relative_write_offset
+            || planned_blob.frame_len != claims.span_len
+        {
+            return Err(BuildOutputAppendError::BlobPlanMismatch);
+        }
+
+        let before = current_boot_reclog_scan(controller);
+        if !before.scan.full_region_valid {
+            return Err(BuildOutputAppendError::ReclogNotAppendable);
+        }
+        let record_payload = build_output_commit_payload_bytes(
+            &claims,
+            &authorization,
+            planned_blob.frame_sha256,
+            planned_blob.payload_sha256,
+        );
+        let planned_record =
+            plan_reclog_append(&before.scan, &record_payload, before.reclog_byte_count)
+                .map_err(|_| BuildOutputAppendError::CommitRecordPlanFailed)?;
+
+        let blob_write = unsafe {
+            ahci::write_readback_artstor_blob(
+                controller,
+                planned_blob.write_offset,
+                &planned_blob.frame,
+            )
+        };
+        if !blob_write.write_completed || !blob_write.readback_completed {
+            return Err(BuildOutputAppendError::BlobWriteFailed);
+        }
+        let readback_blob = blob_write
+            .readback
+            .as_deref()
+            .ok_or(BuildOutputAppendError::BlobReadbackMismatch)?;
+        let parsed_blob = parse_artifact_blob_frame(readback_blob, 0)
+            .map_err(|_| BuildOutputAppendError::BlobReadbackMismatch)?;
+        if sha256_bytes(readback_blob) != planned_blob.frame_sha256
+            || parsed_blob.payload_sha256 != planned_blob.payload_sha256
+        {
+            return Err(BuildOutputAppendError::BlobReadbackMismatch);
+        }
+
+        // Commit-record-last: this is the first record write in the function,
+        // and every blob write/readback predicate above is already green.
+        let record_write = unsafe {
+            ahci::write_readback_reclog_append(
+                controller,
+                planned_record.write_offset,
+                &planned_record.frame,
+            )
+        };
+        if !record_write.write_completed || !record_write.readback_completed {
+            return Err(BuildOutputAppendError::CommitRecordWriteFailed);
+        }
+        let readback_record = record_write
+            .readback
+            .as_deref()
+            .ok_or(BuildOutputAppendError::CommitRecordReadbackMismatch)?;
+        if sha256_bytes(readback_record) != planned_record.frame_sha256
+            || parse_reclog_frame(
+                readback_record,
+                0,
+                planned_record.seq,
+                planned_record.prev_frame_sha256,
+            )
+            .is_err()
+        {
+            return Err(BuildOutputAppendError::CommitRecordReadbackMismatch);
+        }
+        let _guard = _guard;
+        Ok(BuildOutputCommitAppendEvidence {
+            bundle_sha256: planned_blob.payload_sha256,
+            blob_frame_sha256: planned_blob.frame_sha256,
+            commit_record_sha256: planned_record.frame_sha256,
+            commit_record_seq: planned_record.seq,
+        })
+    }
+}
+
+fn build_output_commit_payload_bytes(
+    claims: &ScopedBuildOutputCommitInput,
+    authorization: &AuthorizedBuildOutputCommit,
+    blob_frame_sha256: [u8; 32],
+    bundle_sha256: [u8; 32],
+) -> Vec<u8> {
+    let record = V::Object(vec![
+        f("schema", s("raios.build_output_commit.v1")),
+        f("record_kind", s("build_output_commit")),
+        f(
+            "job_binding_sha256",
+            V::Sha256(authorization.job_binding_sha256()),
+        ),
+        f("lease_id", V::U64(authorization.lease_id())),
+        f(
+            "commit_claims_sha256",
+            V::Sha256(authorization.commit_claims_sha256()),
+        ),
+        f("span_offset", V::U64(claims.span_offset)),
+        f("span_len", V::U64(claims.span_len)),
+        f("bundle_len", V::U64(authorization.bundle_len())),
+        f("bundle_sha256", V::Sha256(bundle_sha256)),
+        f(
+            "output_manifest_sha256",
+            V::Sha256(authorization.output_manifest_sha256()),
+        ),
+        f("chunk_count", V::U64(authorization.chunk_count())),
+        f("blob_frame_sha256", V::Sha256(blob_frame_sha256)),
+        f("authorizes_load", b(false)),
+    ]);
+    let mut sink = VecSink(Vec::new());
+    write_json(&record, &mut sink, 0);
+    sink.0
+}
 
 #[derive(Clone, Copy)]
 pub(crate) struct ArtifactPersistEvidence {

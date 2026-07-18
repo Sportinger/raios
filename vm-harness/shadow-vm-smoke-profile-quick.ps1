@@ -2409,4 +2409,4 @@
         # wasi: the exact-30-import fixture instantiated and exited 0 while the extra-import
         # fixture was denied before instantiation).
         Send-AgentCommand -Command "threads.selftest" -ExpectedMarker "RAIOS_THREADS selftest=pass"
-        Send-AgentCommand -Command "wasi.selftest" -ExpectedMarker "RAIOS_WASI selftest=pass ok_exit=0 ok_stdout=3 deny=imports_mismatch registered=30"
+        Send-AgentCommand -Command "wasi.selftest" -ExpectedMarker "RAIOS_WASI selftest=pass ok_exit=0 ok_stdout=3 deny=imports_mismatch registered=30 materialize=ok grant_read=ok out_of_grant=absent_entry wrong_range=wrong_range tamper=hash_mismatch egress=planned commit=authorized commit_deny=output_span_length_exceeds_lease"

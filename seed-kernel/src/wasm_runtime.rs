@@ -56,6 +56,7 @@ mod probes;
 mod suspension;
 mod thread_job;
 mod wasi_build_job;
+mod wasi_build_storage;
 mod wasi_preview1;
 
 pub(crate) use acquire_shims::{

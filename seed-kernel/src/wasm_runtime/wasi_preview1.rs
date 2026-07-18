@@ -1,14 +1,17 @@
 use alloc::vec::Vec;
 use core::{fmt, ops::Range};
 
-use raios_core::wasi_preview1_import_abi::RUSTC_WASM_C6DCCF3E_IMPORTS;
+use raios_core::{
+    wasi_build_output::FrozenOutput, wasi_preview1_import_abi::RUSTC_WASM_C6DCCF3E_IMPORTS,
+};
 use raios_wasi_preview1::{
     checked_aligned_range, checked_iovec_list, checked_iovecs, checked_range, CheckedIovecs,
-    ChunkRead, ChunkReadError, ChunkReadRequest, ClockSubscription, ClockTimeout, Errno, Fd,
-    FdFlags, FileType, Filestat, GuestIovec, HostEffect, MountId, ProcessError, Rights,
-    Subscription, ThreadHost, WasiBuildInstance, Whence,
+    ClockSubscription, ClockTimeout, Errno, Fd, FdFlags, FileType, Filestat, GuestIovec,
+    HostEffect, MountId, ProcessError, Rights, Subscription, ThreadHost, WasiBuildInstance, Whence,
 };
 use wasmi::{core::Trap, Caller, Linker, Memory};
+
+use super::wasi_build_storage::GrantedChunkReader;
 
 const SUCCESS: i32 = 0;
 const SUBSCRIPTION_SIZE: u32 = 48;
@@ -23,23 +26,11 @@ impl ThreadHost for DenyThreadHost {
     }
 }
 
-struct EmptyChunkReader;
-
-impl ChunkRead for EmptyChunkReader {
-    fn read_chunk(
-        &mut self,
-        _request: ChunkReadRequest,
-        _destination: &mut [u8],
-    ) -> Result<(), ChunkReadError> {
-        Err(ChunkReadError::Io)
-    }
-}
-
 pub(crate) struct WasiHostState {
     instance: WasiBuildInstance,
     memory: Option<Memory>,
     thread_host: DenyThreadHost,
-    chunk_reader: EmptyChunkReader,
+    chunk_reader: GrantedChunkReader,
     stdout_bytes: u64,
     stderr_bytes: u64,
     logical_fuel: u64,
@@ -47,12 +38,12 @@ pub(crate) struct WasiHostState {
 }
 
 impl WasiHostState {
-    pub(crate) fn new(instance: WasiBuildInstance) -> Self {
+    pub(crate) fn new(instance: WasiBuildInstance, chunk_reader: GrantedChunkReader) -> Self {
         Self {
             instance,
             memory: None,
             thread_host: DenyThreadHost,
-            chunk_reader: EmptyChunkReader,
+            chunk_reader,
             stdout_bytes: 0,
             stderr_bytes: 0,
             logical_fuel: 0,
@@ -72,13 +63,20 @@ impl WasiHostState {
         self.terminal_exit
     }
 
-    pub(crate) fn freeze_output_entries(&self) -> Result<usize, Errno> {
+    pub(crate) fn freeze_output_evidence(&self) -> Result<(usize, FrozenOutput, u64), Errno> {
         let manifest = self.instance.freeze_output()?;
-        manifest
+        let entries = manifest
             .directories
             .len()
             .checked_add(manifest.files.len())
-            .ok_or(Errno::Fbig)
+            .ok_or(Errno::Fbig)?;
+        let canonical_bytes = manifest.canonical_bytes();
+        let logical_size = u64::try_from(canonical_bytes.len()).map_err(|_| Errno::Fbig)?;
+        Ok((
+            entries,
+            FrozenOutput::from_manifest_bytes(&canonical_bytes),
+            logical_size,
+        ))
     }
 
     fn write_fd(&mut self, fd: Fd, bytes: &[u8]) -> Result<usize, Errno> {
