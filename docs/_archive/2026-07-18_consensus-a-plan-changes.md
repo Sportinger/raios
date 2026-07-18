@@ -109,7 +109,7 @@ Massstab fuer Aufnahme:
 
 ### Aenderung 3: Read-only Agent-Protokoll-V0 vor mutierenden Aktionen
 
-- **Ziel:** `device-protocol/README.md` und neue Ziel-Specs
+- **Ziel:** `docs/architecture/device-protocol/README.md` und neue Ziel-Specs
   `agent-v0.md`, `system-snapshot-v0.md`, `capabilities-v0.md`.
 - **Aenderung:** Das erste Protokoll-Gate definiert nur read-only Methoden:
   `system.snapshot`, `system.capabilities`, `system.boot_log`, `device.graph`,
@@ -122,7 +122,7 @@ Massstab fuer Aufnahme:
 
 ### Aenderung 4: Datenklassifikation und Redaction als Voraussetzung aufnehmen
 
-- **Ziel:** `device-protocol/system-snapshot-v0.md`, `docs/ROADMAP.md` Phase 3,
+- **Ziel:** `docs/architecture/device-protocol/system-snapshot-v0.md`, `docs/ROADMAP.md` Phase 3,
   Phase 4 und Phase 5.
 - **Aenderung:** Snapshot-Felder bekommen Klassifikation
   `public`, `local_only`, `secret`; Provider-Kontext darf nur redigierte,
@@ -134,7 +134,7 @@ Massstab fuer Aufnahme:
 ### Aenderung 5: Normaler Provider, Control Plane und Recovery getrennt planen
 
 - **Ziel:** `docs/ROADMAP.md`, Phase 3, Phase 8 und North Star Architecture;
-  optional `device-protocol/recovery-v0.md`.
+  optional `docs/architecture/device-protocol/recovery-v0.md`.
 - **Aenderung:** Roadmap soll drei Pfade separat benennen:
   direkter Provider-HTTPS-Promptpfad, spaetere Control Plane fuer
   Fake-Cloud/OTA/Module, und Recovery-Lifeline. Recovery bekommt nur minimale
@@ -157,7 +157,7 @@ Massstab fuer Aufnahme:
 ### Aenderung 7: VM-Harness-Report-V0 als naechsten Acceptance-Schritt planen
 
 - **Ziel:** `docs/ROADMAP.md` Phase 9 `Shadow VM Acceptance`,
-  `vm-harness/README.md`, `device-protocol/vm-test-report-v0.md`.
+  `vm-harness/README.md`, `docs/architecture/device-protocol/vm-test-report-v0.md`.
 - **Aenderung:** Der vorhandene Smoke-Test soll als Plan-Ziel einen
   maschinenlesbaren Report erzeugen: Image-Hash, QEMU-Args-Hash,
   Hardwareprofil, Kommandos, Pruefmarker, Ergebnis und Serial-Log-Verweis.
@@ -167,8 +167,8 @@ Massstab fuer Aufnahme:
 
 ### Aenderung 8: Manifest und lokale Attestation als Safety Evidence planen
 
-- **Ziel:** `device-protocol/module-manifest-v0.md`,
-  `device-protocol/vm-test-report-v0.md`, spaeter Registry-Dokumentation.
+- **Ziel:** `docs/architecture/device-protocol/module-manifest-v0.md`,
+  `docs/architecture/device-protocol/vm-test-report-v0.md`, spaeter Registry-Dokumentation.
 - **Aenderung:** Plan soll festhalten, dass ein ladbares Artefakt mindestens
   Manifest-Hash, Artifact-Hash, Base-Image-Hash, Test-Report-Hash,
   Capability-Grants, Risk-Level, Load-Mode und lokale Approval/Attestation

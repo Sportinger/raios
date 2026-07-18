@@ -62,7 +62,7 @@ Console weiter ihre heutigen Zeilen ableiten koennen.
 
 - Host-seitig existieren erste Bausteine fuer spaetere Artefakte:
   `registry/core/src/lib.rs` verwaltet signierte Blobs/Manifeste, `modules/hello-ui`
-  ist ein Platzhaltermodul, und `device-protocol/README.md` beschreibt den
+  ist ein Platzhaltermodul, und `docs/architecture/device-protocol/README.md` beschreibt den
   JSON-Envelope als Ziel. Diese Teile sind noch nicht mit dem Kernel verbunden,
   aber sie zeigen die Richtung.
 
@@ -117,7 +117,7 @@ Console weiter ihre heutigen Zeilen ableiten koennen.
   `system.boot_log`/`cap.system.boot_log.read` existiert nicht; die fruehen
   Serial-Zeilen sind nicht als strukturierter Bootlog im Kernel abrufbar.
 
-- `device-protocol/README.md` ist noch Platzhalter. Die in ADR-0002 genannten
+- `docs/architecture/device-protocol/README.md` ist noch Platzhalter. Die in ADR-0002 genannten
   Dateien `agent-v0.md`, `module-manifest-v0.md` und
   `vm-test-harness-v0.md` fehlen noch.
 
@@ -201,7 +201,7 @@ Console weiter ihre heutigen Zeilen ableiten koennen.
 
 ## Naechste umsetzbare Tasks mit Dateihinweisen
 
-1. `device-protocol/agent-v0.md` anlegen und den Envelope plus read-only
+1. `docs/architecture/device-protocol/agent-v0.md` anlegen und den Envelope plus read-only
    Methoden definieren: `system.snapshot`, `system.capabilities`,
    `system.boot_log`, `device.graph`, `problem.list`, `service.inventory`.
    Dazu konkrete Beispielantworten fuer die aktuelle QEMU-e1000/xHCI-Konfiguration.

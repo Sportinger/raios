@@ -23,7 +23,7 @@ ADR 0003 and the archived Phase 8
 (`docs/archive/roadmap-2026-07-04-pre-restructure.md:1874`) define a recovery
 agent lifeline: a tiny pinned control path in the trusted base, separate from
 the rich provider path, that still works when the replaceable world above is
-broken. `device-protocol/recovery-v0.md` already specifies the protocol
+broken. `docs/architecture/device-protocol/recovery-v0.md` already specifies the protocol
 (`raios.recovery.v0`): five methods (`recovery.snapshot`,
 `recovery.restart_last_good`, `recovery.disable_module`, `recovery.rollback`,
 `recovery.load_artifact_by_hash`), explicit recovery trust states, and
@@ -40,7 +40,7 @@ needle.
 
 | Area | Exists today (verified 2026-07-06) | Missing for M8 |
 |---|---|---|
-| Protocol spec | `device-protocol/recovery-v0.md` full method set, trust states, denial rules | Runtime implementation of any method |
+| Protocol spec | `docs/architecture/device-protocol/recovery-v0.md` full method set, trust states, denial rules | Runtime implementation of any method |
 | Recovery vocabulary | `seed-kernel/src/agent_protocol_recovery.rs` (6,167 lines): diagnostics + selftests for identity/trust/vm-test/approval/loader/rollback-evidence, lifeline request/protocol/vocabulary (`:981`), command admission/envelope/dispatch/canonicalization/handler-binding, and per-method target-binding diagnostics: `disable_module` `:3938`, `restart_last_good` `:4087`, `load_artifact_by_hash` `:4242` | All of these are denial/evidence emitters. There is NO real `recovery.snapshot`, no executor, no state mutation. Dispatch entries in `agent_protocol.rs:410-460+` are `*_diagnostic`/`*_selftest` only |
 | Lifeline transport | Serial agent protocol works (TCP serial in VM, real serial on hardware) | Nothing distinguishes lifeline dispatch from normal dispatch; no pinned method table; no proof it survives a wedged service world |
 | Service health | `current_boot_service.rs:36-38` health values `running`/`stopped`/`missing`; `:149` `health_state()`; `service_inventory.rs:162` `service_health()`; echo lifecycle `echo_service.rs:285/:333/:385/:426` | No `crashed`/`wedged` health value; no crash record; no supervisor that detects a trapped Wasm instance; no restart-from-known-good path |
@@ -76,7 +76,7 @@ Real isolation (own address space / core-generation update) stays post-M11.
 
 ### D2. Transport
 Serial is THE lifeline transport for v0 (`trust_state`:
-`local_physical_console` per `device-protocol/recovery-v0.md`). A pinned
+`local_physical_console` per `docs/architecture/device-protocol/recovery-v0.md`). A pinned
 minimal provider route is explicitly out of M8 — see OWNER DECISION 1.
 
 ### D3. Authority model — the lifeline is narrower, never broader
@@ -189,7 +189,7 @@ diverged from what M8B assumes (no generic verified-apply available).
 You are a worker agent executing one bounded packet. Do not broaden scope.
 Packet: M8A-1 pinned lifeline method table
 Goal: Add a dedicated frozen LIFELINE_METHODS table + read-only recovery.lifeline_table method, dispatched before AGENT_METHODS, with a record-model rendered table + vocabulary hash; all five raios.recovery.v0 methods stay capability_denied.
-Read first: docs/plan-reviews/m8-recovery-lifeline-map-2026-07-06.md, device-protocol/recovery-v0.md, seed-kernel/src/agent_protocol.rs (dispatch + method! macro), seed-kernel/src/agent_protocol_recovery.rs (existing vocabulary emitter :981), raios-core/src/ record model files, AGENTS.md.
+Read first: docs/plan-reviews/m8-recovery-lifeline-map-2026-07-06.md, docs/architecture/device-protocol/recovery-v0.md, seed-kernel/src/agent_protocol.rs (dispatch + method! macro), seed-kernel/src/agent_protocol_recovery.rs (existing vocabulary emitter :981), raios-core/src/ record model files, AGENTS.md.
 Allowed write set: seed-kernel/src/recovery_lifeline.rs (new), seed-kernel/src/agent_protocol.rs (dispatch hook + mod decl only), seed-kernel/src/main.rs or lib.rs mod list if needed, raios-core/src/<record model file for the new schema>, raios-core host tests.
 Forbidden: vm-harness/**, any hello_service/** or attested descriptor sources, echo_service.rs, wasm_runtime.rs, openai*.rs, docs/** except nothing, release/**. If the build fails with a descriptor attestation mismatch you touched something attested: STOP and report.
 Constraints: no new hand-rolled emit/hash code — the table renders through the raios-core record model + shared factory; lifeline dispatch must not call into wasm_runtime, openai, or service mutation helpers; &'static str lattices for all vocabulary; everything labeled current_boot; no heap-unbounded input parsing.
@@ -208,7 +208,7 @@ Stop conditions: dispatch hook cannot be added without restructuring AGENT_METHO
    services, allowed vs denied actions with reasons — the first spec method
    that actually works.
 2. **Files:** `recovery_lifeline.rs` (handler); raios-core record entry for
-   `raios.recovery_snapshot.v0` (shape per `device-protocol/recovery-v0.md:96`
+   `raios.recovery_snapshot.v0` (shape per `docs/architecture/device-protocol/recovery-v0.md:96`
    — but `last_good_set`/`boot_success_mark` honestly rendered as
    `current_boot`/`missing` until M7C); reads from `service_inventory.rs` and
    `current_boot_service.rs` health views (read-only). Verify at execution
@@ -228,7 +228,7 @@ Stop conditions: dispatch hook cannot be added without restructuring AGENT_METHO
 You are a worker agent executing one bounded packet. Do not broaden scope.
 Packet: M8A-2 real recovery.snapshot
 Goal: Implement recovery.snapshot as a real read-only lifeline method rendering raios.recovery_snapshot.v0 from live inventory/health state via the record model.
-Read first: docs/plan-reviews/m8-recovery-lifeline-map-2026-07-06.md, device-protocol/recovery-v0.md (snapshot shape :96-149), seed-kernel/src/recovery_lifeline.rs, seed-kernel/src/service_inventory.rs, seed-kernel/src/current_boot_service.rs, raios-core record model, AGENTS.md.
+Read first: docs/plan-reviews/m8-recovery-lifeline-map-2026-07-06.md, docs/architecture/device-protocol/recovery-v0.md (snapshot shape :96-149), seed-kernel/src/recovery_lifeline.rs, seed-kernel/src/service_inventory.rs, seed-kernel/src/current_boot_service.rs, raios-core record model, AGENTS.md.
 Allowed write set: seed-kernel/src/recovery_lifeline.rs, raios-core/src/<record model file>, raios-core host tests.
 Forbidden: agent_protocol.rs beyond flipping the lifeline table implemented flag for recovery.snapshot, vm-harness/**, echo/hello service sources, wasm_runtime.rs, openai*.rs. Attestation mismatch = STOP.
 Constraints: read-only — zero state mutation; record-model rendering only; secrets never enter the snapshot (no api key, ssid, passphrase fields or values); fields for last_good/boot_success render honest placeholders scope=current_boot / "missing" — do NOT invent persistence; denied_actions must carry typed reasons matching the spec's missing_evidence style.
@@ -315,7 +315,7 @@ and its recovery options over the lifeline").
 You are a worker agent executing one bounded packet. Do not broaden scope.
 Packet: M8B-1 recovery.disable_module current-boot executor
 Goal: Implement recovery.disable_module for exact known non-core ids: durable action record first (append/readback/inspect), then stop+disable the service for the current boot; all spec denials fail closed.
-Read first: docs/plan-reviews/m8-recovery-lifeline-map-2026-07-06.md, device-protocol/recovery-v0.md:195-208 + denial rules :244, seed-kernel/src/recovery_lifeline.rs, the M6 promotion/rollback transaction helper (locate via docs/plan-reviews/m6-promotion-loop-map-2026-07-06.md and current PROJECT_STATUS), seed-kernel/src/current_boot_service.rs, seed-kernel/src/echo_service.rs, raios-core/src/scoped_rollback_apply.rs.
+Read first: docs/plan-reviews/m8-recovery-lifeline-map-2026-07-06.md, docs/architecture/device-protocol/recovery-v0.md:195-208 + denial rules :244, seed-kernel/src/recovery_lifeline.rs, the M6 promotion/rollback transaction helper (locate via docs/plan-reviews/m6-promotion-loop-map-2026-07-06.md and current PROJECT_STATUS), seed-kernel/src/current_boot_service.rs, seed-kernel/src/echo_service.rs, raios-core/src/scoped_rollback_apply.rs.
 Allowed write set: seed-kernel/src/recovery_lifeline.rs, seed-kernel/src/current_boot_service.rs, seed-kernel/src/echo_service.rs (disable hooks only), raios-core/src/<record model + action record>, raios-core host tests, vm-harness/shadow-vm-smoke-profile-recovery-lifeline.ps1 (extend).
 Forbidden: hello_service/**, descriptor_sources.rs, build.rs, ahci.rs internals (use the existing append/readback API), frozen profile scripts, release/raios-stage0.img. Attestation mismatch = STOP.
 Constraints: REUSE the generalized M6 transaction/append discipline — do not write a second durable-append implementation; deny before mutate on ANY missing evidence; target must be exact id, known, not core_owned, not the lifeline; everything current_boot labeled; record model only for new schema.
@@ -355,7 +355,7 @@ Stop conditions: no reusable M6 durable-transaction helper exists (report — th
 You are a worker agent executing one bounded packet. Do not broaden scope.
 Packet: M8B-2 restart_last_good over the current-boot verified set
 Goal: Implement recovery.restart_last_good: when the active set is crashed/degraded/stopped, append+verify a recovery action record, then re-instantiate the boot-verified attested service set (echo) from embedded bytes and restore health.
-Read first: docs/plan-reviews/m8-recovery-lifeline-map-2026-07-06.md, device-protocol/recovery-v0.md:168-193, seed-kernel/src/recovery_lifeline.rs, seed-kernel/src/echo_service.rs (load/start), seed-kernel/src/current_boot_service.rs, M8B-1's action-record code, AGENTS.md.
+Read first: docs/plan-reviews/m8-recovery-lifeline-map-2026-07-06.md, docs/architecture/device-protocol/recovery-v0.md:168-193, seed-kernel/src/recovery_lifeline.rs, seed-kernel/src/echo_service.rs (load/start), seed-kernel/src/current_boot_service.rs, M8B-1's action-record code, AGENTS.md.
 Allowed write set: seed-kernel/src/recovery_lifeline.rs, seed-kernel/src/echo_service.rs (restart hook only), seed-kernel/src/current_boot_service.rs, raios-core/src/<record model>, raios-core host tests, vm-harness/shadow-vm-smoke-profile-recovery-lifeline.ps1 (extend).
 Forbidden: hello_service/**, descriptor_sources.rs, build.rs, wasm_runtime.rs beyond what restart strictly needs, frozen profiles, release/raios-stage0.img. Attestation mismatch = STOP.
 Constraints: restart = re-run the EXISTING verified load/start path, no new loader; last-good pointer is a boot-computed hash over the attested set, rendered scope=current_boot; deny when active set healthy, when pointer absent, when audit append fails; action record before mutation; no unknown artifacts ever.
@@ -398,7 +398,7 @@ known-good version back — while it is broken."
 You are a worker agent executing one bounded packet. Do not broaden scope.
 Packet: M8C-1 lifeline x M7C last-good/SAFE integration
 Goal: Bind restart_last_good to the durable M7C last-good pointer, surface boot_success_mark and safe_mode in recovery.snapshot, add read-only recovery.rollback_preview, enforce SAFE-mode write blocking in the lifeline.
-Read first: docs/plan-reviews/m8-recovery-lifeline-map-2026-07-06.md, the closed M7 map + M7C code (locate via docs/PROJECT_STATUS.md), docs/image-layout-v0.md, seed-kernel/src/recovery_lifeline.rs, device-protocol/recovery-v0.md:210-224.
+Read first: docs/plan-reviews/m8-recovery-lifeline-map-2026-07-06.md, the closed M7 map + M7C code (locate via docs/PROJECT_STATUS.md), docs/image-layout-v0.md, seed-kernel/src/recovery_lifeline.rs, docs/architecture/device-protocol/recovery-v0.md:210-224.
 Allowed write set: seed-kernel/src/recovery_lifeline.rs, raios-core/src/<record model>, raios-core host tests, vm-harness/shadow-vm-smoke-profile-recovery-lifeline.ps1 (extend). Read M7C modules; modify them ONLY if the orchestrator explicitly extends this write set after Slice-0 revalidation.
 Forbidden: destructive disk operations of any kind; writing to boot slots; frozen profiles; release/raios-stage0.img. Attestation mismatch = STOP.
 Constraints: lifeline READS M7C state, it does not reimplement it; deny restart when success marker missing; SAFE mode = bounded current-boot repair only (spec table); rollback_preview is render-only.
@@ -435,7 +435,7 @@ Stop conditions: M7C API shape does not match this packet (stop, orchestrator re
 You are a worker agent executing one bounded packet. Do not broaden scope.
 Packet: M8D-1 recovery.load_artifact_by_hash from the local store
 Goal: Implement recovery.load_artifact_by_hash: exact-hash lookup in the M7D local store, full M6 evidence chain re-verified for that hash, durable action record, then load via the existing verified load path.
-Read first: docs/plan-reviews/m8-recovery-lifeline-map-2026-07-06.md, device-protocol/recovery-v0.md:226-242, the closed M7D store API + M6 gate code (locate via docs/PROJECT_STATUS.md), seed-kernel/src/recovery_lifeline.rs.
+Read first: docs/plan-reviews/m8-recovery-lifeline-map-2026-07-06.md, docs/architecture/device-protocol/recovery-v0.md:226-242, the closed M7D store API + M6 gate code (locate via docs/PROJECT_STATUS.md), seed-kernel/src/recovery_lifeline.rs.
 Allowed write set: seed-kernel/src/recovery_lifeline.rs, raios-core/src/<record model>, raios-core host tests, vm-harness/shadow-vm-smoke-profile-recovery-lifeline.ps1 (extend).
 Forbidden: net.rs, openai*.rs, any network call from this path; weakening or forking any M6 evidence gate; frozen profiles; release/raios-stage0.img; destructive disk ops. Attestation mismatch = STOP.
 Constraints: request carries a hash ONLY — reject URLs, inline bytes, free-form text with typed denials; reuse M6 gates and the existing load path unchanged; action record before load; label results with real store provenance from M7D.

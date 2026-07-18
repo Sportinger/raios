@@ -10,7 +10,7 @@ ebenfalls real und testbar.
 
 Die live-rebuildable Runtime aus `docs/ROADMAP.md`, ADR 0002 und ADR 0003 ist
 aber noch nicht in der Geraetegrenze angekommen. `seed-runtime/` und
-`modules/hello-ui/` sind Platzhalter, `device-protocol/` enthaelt noch keine
+`modules/hello-ui/` sind Platzhalter, `docs/architecture/device-protocol/` enthaelt noch keine
 Schemata, der VM-Harness ist ein einzelner Direct-OpenAI-Smoke, und
 Persistence/Rollback existieren bisher nur als Plan. Der naechste sinnvolle
 Plan-Schritt sollte deshalb nicht "Wasm jetzt" oder "OTA jetzt" sein, sondern:
@@ -80,10 +80,10 @@ Attestation-Record und erst danach eingeschraenktes Laden.
 
 ### 1. Device-Protokoll ist noch Platzhalter
 
-ADR 0002 fordert `device-protocol/agent-v0.md`,
-`device-protocol/module-manifest-v0.md` und
-`device-protocol/vm-test-harness-v0.md`. Aktuell enthaelt
-`device-protocol/README.md` nur die Absicht fuer den JSON-Envelope.
+ADR 0002 fordert `docs/architecture/device-protocol/agent-v0.md`,
+`docs/architecture/device-protocol/module-manifest-v0.md` und
+`docs/architecture/device-protocol/vm-test-harness-v0.md`. Aktuell enthaelt
+`docs/architecture/device-protocol/README.md` nur die Absicht fuer den JSON-Envelope.
 
 Konsequenz: Es gibt noch keinen stabilen Vertrag fuer `system.snapshot`,
 `system.capabilities`, `module.propose`, `module.test_result`,
@@ -400,10 +400,10 @@ zuerst reproduzierbare Fakten liefern:
 1. **Protokoll-Schemas anlegen**
 
    Dateien:
-   `device-protocol/agent-v0.md`,
-   `device-protocol/module-manifest-v0.md`,
-   `device-protocol/vm-test-report-v0.md`,
-   `device-protocol/README.md`.
+   `docs/architecture/device-protocol/agent-v0.md`,
+   `docs/architecture/device-protocol/module-manifest-v0.md`,
+   `docs/architecture/device-protocol/vm-test-report-v0.md`,
+   `docs/architecture/device-protocol/README.md`.
 
    Inhalt:
    JSON-Envelope, Request/Response/Error, `system.snapshot.v0`,

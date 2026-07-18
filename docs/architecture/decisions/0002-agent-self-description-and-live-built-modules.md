@@ -171,7 +171,7 @@ identity can be added later, but it is not the root trust mechanism for the MVP.
 The protocol should carry development cycles, not only chat messages.
 
 ADR 0002 defines the logical protocol independent of transport. V0 should reuse
-the existing `device-protocol` JSON envelope and carry it through the direct
+the existing `docs/architecture/device-protocol` JSON envelope and carry it through the direct
 provider/tool boundary. The same logical envelope can later move to WebSocket or
 another transport:
 
@@ -409,9 +409,9 @@ This decision does not mean:
 Define the schemas and examples first:
 
 ```text
-device-protocol/agent-v0.md
-device-protocol/module-manifest-v0.md
-device-protocol/vm-test-harness-v0.md
+docs/architecture/device-protocol/agent-v0.md
+docs/architecture/device-protocol/module-manifest-v0.md
+docs/architecture/device-protocol/vm-test-harness-v0.md
 ```
 
 This phase should pin the V0 JSON envelope, request/response/error shape,

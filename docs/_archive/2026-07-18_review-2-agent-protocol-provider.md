@@ -55,8 +55,8 @@ Tool-/Modul-Protokoll und erst spaeter Live-Loading.
 
 ## Abweichungen/Gaps
 
-- `device-protocol/README.md` ist nur ein Platzhalter. Es gibt keine
-  `device-protocol/agent-v0.md`, keine JSON-Schemas, keine Validatoren und
+- `docs/architecture/device-protocol/README.md` ist nur ein Platzhalter. Es gibt keine
+  `docs/architecture/device-protocol/agent-v0.md`, keine JSON-Schemas, keine Validatoren und
   keine dokumentierten Methoden fuer `system.snapshot`, `system.capabilities`,
   `device.graph`, `problem.list` oder Capability-Denials.
 - `provider::submit()` akzeptiert zwar `AgentRequest { model, max_output }`,
@@ -170,11 +170,11 @@ Tool-/Modul-Protokoll und erst spaeter Live-Loading.
 ## Naechste umsetzbare Tasks mit Dateihinweisen
 
 1. Protokoll-V0 dokumentieren:
-   - `device-protocol/agent-v0.md`: Envelope `{v,t,id,ts,body}`, request,
+   - `docs/architecture/device-protocol/agent-v0.md`: Envelope `{v,t,id,ts,body}`, request,
      response, error, `capability_denied`, Methodenliste und Beispiele.
-   - `device-protocol/system-snapshot-v0.md`: Felder, Datentypen,
+   - `docs/architecture/device-protocol/system-snapshot-v0.md`: Felder, Datentypen,
      Datenklassifikation, Redaction-Regeln.
-   - `device-protocol/capabilities-v0.md`: Cap-Namen aus ADR 0002, Risiko,
+   - `docs/architecture/device-protocol/capabilities-v0.md`: Cap-Namen aus ADR 0002, Risiko,
      Grant-Regeln, Audit-Level.
 2. Read-only Snapshot im Kernel vorbereiten:
    - Neuer Codepfad z.B. `seed-kernel/src/agent_protocol.rs`.
@@ -230,7 +230,7 @@ Tool-/Modul-Protokoll und erst spaeter Live-Loading.
    - Zunaechst statisch, aber mit Health, Last Error und Replaceable-Flag.
    - Spaeter Basis fuer `system.snapshot.v0` und Recovery-Befehle.
 10. Recovery-Lifeline spezifizieren, noch nicht gross implementieren:
-    - Neues Doku-File z.B. `device-protocol/recovery-v0.md`.
+    - Neues Doku-File z.B. `docs/architecture/device-protocol/recovery-v0.md`.
     - Erlaubte Methoden: `recovery.snapshot`, `recovery.restart_service`,
       `recovery.disable_module`, `recovery.rollback_last_good`,
       `recovery.load_artifact_by_hash`.

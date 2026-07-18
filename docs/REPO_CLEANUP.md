@@ -38,7 +38,7 @@ Urteils-Kategorien:
 **Ohne dieses Review keine Phase 3.** Vorab-Verdachtsliste aus dem
 Datums-Muster (10.05. = alte Projektphase), vom Agenten zu VERIFIZIEREN,
 nicht zu übernehmen: `fake-cloud`, `modules`, `ota`, `registry`,
-`seed-runtime`, `ci` (vs. `.github`?), `.vscode`, `device-protocol`,
+`seed-runtime`, `ci` (vs. `.github`?), `.vscode`, `docs/architecture/device-protocol`,
 `usb-*.txt` (6 lose Files, vermutlich Installations-Notizen von Mai).
 
 ## Phase 3 — Umsetzen (ein Commit pro Zeile)

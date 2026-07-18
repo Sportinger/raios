@@ -39,7 +39,7 @@ Owner-Review dieses Dokuments.
 | `.github` | Nein | `.github/workflows/ci.yml`; aktuelle Pläne/Architektur | 2026-07-05 `943a9a0` CI vm-smoke: force LF checkout | **INFRA** |
 | `.vscode` | Nein | Keine Root-Pfadreferenz; nur `settings.json` selbst | 2025-09-17 `429c73f` Enhance AI Build and Test Runbook | **VERDÄCHTIG** — 0 operative Referenzen, Commit vor 2026-06-01 |
 | `ci` | Nein | Nur `ci/README.md` selbst; 0 Pfadtreffer in `.github`, Cargo oder Scripts | 2025-09-16 `e6c8be4` Remove AI Build and Test Runbook | **VERDÄCHTIG** — Platzhalter-README, 0 operative Referenzen, alter Commit |
-| `device-protocol` | Nein | Aktuelle ADR `docs/architecture/decisions/0002-...`; `.vscode`-Exclude; sonst historische Docs | 2026-05-23 `5b7d826` Continue recovery lifeline refactor | **UNKLAR** — 20 konkrete Spezifikationen und aktuelle ADR-Referenz, aber keine Build-/CI-/Script-Kante |
+| `docs/architecture/device-protocol` | Nein | Aktuelle ADR `docs/architecture/decisions/0002-...`; `.vscode`-Exclude; sonst historische Docs | 2026-05-23 `5b7d826` Continue recovery lifeline refactor | **UNKLAR** — 20 konkrete Spezifikationen und aktuelle ADR-Referenz, aber keine Build-/CI-/Script-Kante |
 | `docs` | Nein | `AGENTS.md`, `CLAUDE.md`, `.claude/skills/raios/SKILL.md` | 2026-07-18 `88506d8` docs: make scope and active plans discoverable | **INFRA** |
 | `fake-cloud` | Ja: `fake-cloud-server` | Root-`Cargo.toml`, `Cargo.lock`, `ota`, `registry` | 2026-05-19 `e002738` Harden OpenAI trust path and add MIT license | **AKTIV** — Workspace-Mitglied; Vorabverdacht widerlegt |
 | `modules` | Nein | Nur `.vscode/settings.json` als Exclude; sonst begriffliche/historische „modules“-Treffer, keine Build-/CI-/Script-Pfadkante | 2025-09-16 `e6c8be4` Remove AI Build and Test Runbook | **VERDÄCHTIG** — einziges File ist `hello-ui/README.md`, 0 operative Referenzen, alter Commit |
@@ -86,7 +86,7 @@ Owner-Review dieses Dokuments.
    VERDÄCHTIG. Alle vier sind alt und haben keine operative Kante; `modules`
    wird lediglich von der ebenfalls verdächtigen `.vscode`-Zählerkonfiguration
    ausgeschlossen, `seed-runtime` nur in einem Archivdokument erwähnt.
-2. **Entscheiden:** `device-protocol` bleibt UNKLAR. Der Root-Pfad widerspricht
+2. **Entscheiden:** `docs/architecture/device-protocol` bleibt UNKLAR. Der Root-Pfad widerspricht
    zwar dem aktuellen Docs-Scope, aber die aktuelle ADR-0002 verweist auf seine
    20 konkreten V0-Spezifikationen. Ein Verschieben braucht eine explizite
    Owner-Entscheidung beziehungsweise eine gesonderte Docs-Migration.

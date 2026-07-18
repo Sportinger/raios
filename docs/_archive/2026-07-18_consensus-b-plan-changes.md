@@ -34,7 +34,7 @@ steht.
 
 2. Vor Phase 6 muss ein V0-Protokoll-Gate stehen.
    ADR 0002 sollte praktisch vor ADR-0003-Runtime-Arbeit umgesetzt werden:
-   `device-protocol/agent-v0.md`, `system-snapshot-v0`, `module-manifest-v0` und
+   `docs/architecture/device-protocol/agent-v0.md`, `system-snapshot-v0`, `module-manifest-v0` und
    `vm-test-report-v0` muessen zuerst existieren. `module.load_ephemeral` und
    `module.persist` bleiben bis dahin definiert, aber denied.
 
@@ -215,7 +215,7 @@ steht.
    machen, Smoke-Test-Marker ergaenzen.
 
 2. Protokoll-Dokumente anlegen.
-   `device-protocol/agent-v0.md`, `system-snapshot-v0`, `capabilities-v0`,
+   `docs/architecture/device-protocol/agent-v0.md`, `system-snapshot-v0`, `capabilities-v0`,
    `module-manifest-v0`, `vm-test-report-v0`. Erst Beispiele fuer die aktuelle
    QEMU-e1000/xHCI-Lage.
 
