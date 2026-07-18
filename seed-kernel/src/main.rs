@@ -12,7 +12,7 @@ use core::ptr;
 use limine::modules::InternalModule;
 use limine::request::{
     ExecutableAddressRequest, ExecutableFileRequest, FramebufferRequest, HhdmRequest,
-    ModuleRequest, RequestsEndMarker, RequestsStartMarker, StackSizeRequest,
+    MemoryMapRequest, ModuleRequest, RequestsEndMarker, RequestsStartMarker, StackSizeRequest,
 };
 use limine::BaseRevision;
 use linked_list_allocator::LockedHeap;
@@ -85,6 +85,7 @@ mod event_log_types;
 mod framebuffer;
 mod granted_candidate_service;
 mod hello_service;
+mod heap;
 mod input;
 mod iommu_vtd;
 #[allow(dead_code)]
@@ -166,6 +167,10 @@ static HHDM_REQUEST: HhdmRequest = HhdmRequest::new();
 
 #[used]
 #[link_section = ".limine_requests"]
+static MEMORY_MAP_REQUEST: MemoryMapRequest = MemoryMapRequest::new();
+
+#[used]
+#[link_section = ".limine_requests"]
 static STACK_SIZE_REQUEST: StackSizeRequest = StackSizeRequest::new().with_size(1024 * 1024);
 
 #[used]
@@ -208,10 +213,7 @@ pub extern "C" fn _start() -> ! {
 }
 
 fn early_main() -> ! {
-    unsafe {
-        let heap_start = ptr::addr_of_mut!(HEAP.0).cast::<u8>();
-        ALLOCATOR.lock().init(heap_start, HEAP_SIZE);
-    }
+    heap::init();
     serial::init();
     serial::write_line("Seed kernel: early init start");
     if let Some(revision) = BASE_REVISION.loaded_revision() {
@@ -223,6 +225,7 @@ fn early_main() -> ! {
     if !BASE_REVISION.is_supported() {
         serial::write_line("Limine base revision request was not satisfied");
     }
+    heap::report();
     memory::init(
         KERNEL_ADDRESS_REQUEST.get_response(),
         HHDM_REQUEST.get_response(),

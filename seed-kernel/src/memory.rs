@@ -91,14 +91,23 @@ fn init_hhdm(response: Option<&HhdmResponse>) {
 
 pub fn virt_to_phys<T>(ptr: *const T) -> Option<u64> {
     let virt = ptr as u64;
-    if !KERNEL_ADDRESS_READY.load(Ordering::Acquire) {
-        return identity_phys(virt);
+    if KERNEL_ADDRESS_READY.load(Ordering::Acquire) {
+        let virtual_base = KERNEL_VIRTUAL_BASE.load(Ordering::Relaxed);
+        let physical_base = KERNEL_PHYSICAL_BASE.load(Ordering::Relaxed);
+        if virt >= virtual_base {
+            return virt.checked_sub(virtual_base)?.checked_add(physical_base);
+        }
     }
 
-    let virtual_base = KERNEL_VIRTUAL_BASE.load(Ordering::Relaxed);
-    let physical_base = KERNEL_PHYSICAL_BASE.load(Ordering::Relaxed);
-    if virt >= virtual_base {
-        return virt.checked_sub(virtual_base)?.checked_add(physical_base);
+    // Heap-backed DMA buffers live in Limine's HHDM, outside the kernel image.
+    if HHDM_READY.load(Ordering::Acquire) {
+        let hhdm_offset = HHDM_OFFSET.load(Ordering::Relaxed);
+        if virt >= hhdm_offset {
+            let physical = virt.checked_sub(hhdm_offset)?;
+            if physical < (1u64 << 46) {
+                return Some(physical);
+            }
+        }
     }
 
     identity_phys(virt)
