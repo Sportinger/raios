@@ -1,5 +1,9 @@
 param(
     [int]$SerialTcpPort = 4565,
+    # Guest RAM in MiB, passed through to run-stage0-qemu.ps1. 512 = default
+    # shadow profile; 8192 = Surface-RAM profile (Bauplatz memory proofs).
+    [ValidateRange(512, 32768)]
+    [int]$GuestMemoryMB = 512,
     [string]$Image = "",
     [string]$ArtifactPath = "",
     [string]$ManifestPath = "",
@@ -266,7 +270,9 @@ try {
         UsbXhciInput = $true
         Cpu = "max"
         Nic = $Nic
+        MemoryMB = $GuestMemoryMB
     }
+    $QemuArgList += @("-MemoryMB", "$GuestMemoryMB")
     if ($Profile -in @("network-acquisition", "m6d-rollback")) {
         # Bridge guest 10.0.2.100:8443 to the host loopback TLS fixture. The guest's
         # W7 source policy targets 10.0.2.100 (not the slirp gateway 10.0.2.2, which

@@ -20,6 +20,11 @@ param(
     # "tcp:10.0.2.100:8443-tcp:127.0.0.1:8443". Must NOT target the slirp gateway 10.0.2.2
     # (QEMU rejects guestfwd to the gateway). Empty = no bridge.
     [string]$GuestFwd = "",
+    # Guest RAM in MiB. 512 = the historical shadow-VM profile; 8192 = the
+    # Surface-RAM profile for Bauplatz memory proofs. Kernel memmap heap
+    # scales with what the VM offers.
+    [ValidateRange(512, 32768)]
+    [int]$MemoryMB = 512,
     [switch]$BareMetalVm,
     [switch]$Headless,
     [switch]$MouseGrab,
@@ -61,7 +66,7 @@ Remove-Item -LiteralPath $SerialLog, $ErrLog -Force -ErrorAction SilentlyContinu
 
 $qemuArgs = @(
     "-machine", "q35",
-    "-m", "512M",
+    "-m", "${MemoryMB}M",
     "-drive", "if=pflash,format=raw,readonly=on,file=$Code",
     "-drive", "if=pflash,format=raw,file=$Vars",
     "-drive", "file=$((Resolve-Path $Image).Path),format=raw,if=ide"
