@@ -71,6 +71,14 @@ enum FuelConsumptionOutcome {
     Suspend,
 }
 
+/// The outcome of executing an operation with a resumable dynamic fuel charge.
+enum ResumableFuelOutcome<T> {
+    /// The operation executed and produced a result.
+    Continue(T),
+    /// The operation parked before its dynamic fuel charge.
+    Suspend,
+}
+
 /// The outcome of a Wasm execution.
 ///
 /// # Note
@@ -267,6 +275,14 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
         resource_limiter: &'ctx mut ResourceLimiterRef<'ctx>,
     ) -> Result<WasmOutcome, TrapCode> {
         use Instruction as Instr;
+        macro_rules! execute_resumable_fuel {
+            ($execution:expr) => {
+                match $execution? {
+                    FuelConsumptionOutcome::Continue => {}
+                    FuelConsumptionOutcome::Suspend => return Ok(WasmOutcome::FuelQuantum),
+                }
+            };
+        }
         loop {
             match *self.ip.get() {
                 Instr::LocalGet(local_depth) => self.visit_local_get(local_depth),
@@ -424,18 +440,26 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
                 }
                 Instr::AtomicFence => self.visit_atomic_fence(),
                 Instr::MemorySize => self.visit_memory_size(),
-                Instr::MemoryGrow => self.visit_memory_grow(&mut *resource_limiter)?,
-                Instr::MemoryFill => self.visit_memory_fill()?,
-                Instr::MemoryCopy => self.visit_memory_copy()?,
-                Instr::MemoryInit(segment) => self.visit_memory_init(segment)?,
+                Instr::MemoryGrow => {
+                    execute_resumable_fuel!(self.visit_memory_grow(&mut *resource_limiter))
+                }
+                Instr::MemoryFill => execute_resumable_fuel!(self.visit_memory_fill()),
+                Instr::MemoryCopy => execute_resumable_fuel!(self.visit_memory_copy()),
+                Instr::MemoryInit(segment) => {
+                    execute_resumable_fuel!(self.visit_memory_init(segment))
+                }
                 Instr::DataDrop(segment) => self.visit_data_drop(segment),
                 Instr::TableSize(table) => self.visit_table_size(table),
-                Instr::TableGrow(table) => self.visit_table_grow(table, &mut *resource_limiter)?,
-                Instr::TableFill(table) => self.visit_table_fill(table)?,
+                Instr::TableGrow(table) => {
+                    execute_resumable_fuel!(self.visit_table_grow(table, &mut *resource_limiter))
+                }
+                Instr::TableFill(table) => {
+                    execute_resumable_fuel!(self.visit_table_fill(table))
+                }
                 Instr::TableGet(table) => self.visit_table_get(table)?,
                 Instr::TableSet(table) => self.visit_table_set(table)?,
-                Instr::TableCopy(dst) => self.visit_table_copy(dst)?,
-                Instr::TableInit(elem) => self.visit_table_init(elem)?,
+                Instr::TableCopy(dst) => execute_resumable_fuel!(self.visit_table_copy(dst)),
+                Instr::TableInit(elem) => execute_resumable_fuel!(self.visit_table_init(elem)),
                 Instr::ElemDrop(segment) => self.visit_element_drop(segment),
                 Instr::RefFunc(func_index) => self.visit_ref_func(func_index),
                 Instr::Const32(bytes) => self.visit_const_32(bytes),
@@ -1063,6 +1087,48 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
         }
     }
 
+    /// Executes a dynamic-charge operation or parks it before charging.
+    ///
+    /// The non-resumable path delegates to [`Self::consume_fuel_with`] unchanged.
+    /// Resumable fuel is restricted to lazy charging, so a failed pre-effect
+    /// check is pure and the restored instruction can safely be retried.
+    #[inline(always)]
+    fn consume_fuel_with_resumable<T, E>(
+        &mut self,
+        delta: impl FnOnce(&FuelCosts) -> u64,
+        is_feasible: impl FnOnce(&mut Self) -> bool,
+        restore_operands: impl FnOnce(&mut Self),
+        exec: impl FnOnce(&mut Self, bool) -> Result<T, E>,
+    ) -> Result<ResumableFuelOutcome<T>, E>
+    where
+        E: From<TrapCode>,
+    {
+        if !self.is_resumable_fuel() || self.get_fuel_consumption_mode().is_none() {
+            return self
+                .consume_fuel_with(delta, |this| exec(this, true))
+                .map(ResumableFuelOutcome::Continue);
+        }
+        debug_assert!(matches!(
+            self.get_fuel_consumption_mode(),
+            Some(FuelConsumptionMode::Lazy)
+        ));
+        let delta = delta(self.fuel_costs());
+        match self.ctx.fuel().sufficient_fuel(delta) {
+            Ok(()) => self
+                .consume_fuel_with_lazy(delta, |this| exec(this, true))
+                .map(ResumableFuelOutcome::Continue),
+            Err(TrapCode::OutOfFuel) if !is_feasible(self) => {
+                exec(self, false).map(ResumableFuelOutcome::Continue)
+            }
+            Err(TrapCode::OutOfFuel) => {
+                restore_operands(self);
+                self.park_fuel_quantum().map_err(E::from)?;
+                Ok(ResumableFuelOutcome::Suspend)
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
     /// Consume an amount of fuel specified by `delta` and executes `exec`.
     ///
     /// The `mode` determines when and if the fuel determined by `delta` is charged.
@@ -1466,22 +1532,36 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
     fn visit_memory_grow(
         &mut self,
         resource_limiter: &mut ResourceLimiterRef<'ctx>,
-    ) -> Result<(), TrapCode> {
-        let delta: u32 = self.sp.pop_as();
-        let delta = match Pages::new(delta) {
+    ) -> Result<FuelConsumptionOutcome, TrapCode> {
+        let delta_operand = self.sp.pop();
+        let delta = match Pages::new(u32::from(delta_operand)) {
             Some(pages) => pages,
             None => {
                 // Cannot grow memory so we push the expected error value.
                 self.sp.push_as(INVALID_GROWTH_ERRCODE);
-                return self.try_next_instr();
+                self.try_next_instr()?;
+                return Ok(FuelConsumptionOutcome::Continue);
             }
         };
-        let result = self.consume_fuel_with(
+        let result = self.consume_fuel_with_resumable(
             |costs| {
                 let delta_in_bytes = delta.to_bytes().unwrap_or(0) as u64;
                 costs.fuel_for_bytes(delta_in_bytes)
             },
             |this| {
+                let memory = this.cache.default_memory(this.ctx);
+                let memory = this.ctx.resolve_memory(&memory);
+                let maximum = memory.ty().maximum_pages().unwrap_or_else(Pages::max);
+                memory
+                    .current_pages()
+                    .checked_add(delta)
+                    .is_some_and(|desired| desired <= maximum)
+            },
+            |this| this.sp.push(delta_operand),
+            |this, is_feasible| {
+                if !is_feasible {
+                    return Err(EntityGrowError::InvalidGrow);
+                }
                 let memory = this.cache.default_memory(this.ctx);
                 let new_pages = this
                     .ctx
@@ -1496,24 +1576,38 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
             },
         );
         let result = match result {
-            Ok(result) => result,
+            Ok(ResumableFuelOutcome::Continue(result)) => result,
+            Ok(ResumableFuelOutcome::Suspend) => return Ok(FuelConsumptionOutcome::Suspend),
             Err(EntityGrowError::InvalidGrow) => INVALID_GROWTH_ERRCODE,
             Err(EntityGrowError::TrapCode(trap_code)) => return Err(trap_code),
         };
         self.sp.push_as(result);
-        self.try_next_instr()
+        self.try_next_instr()?;
+        Ok(FuelConsumptionOutcome::Continue)
     }
 
     #[inline(always)]
-    fn visit_memory_fill(&mut self) -> Result<(), TrapCode> {
+    fn visit_memory_fill(&mut self) -> Result<FuelConsumptionOutcome, TrapCode> {
         // The `n`, `val` and `d` variable bindings are extracted from the Wasm specification.
-        let (d, val, n) = self.sp.pop3();
-        let n = i32::from(n) as usize;
+        let (d, val, n_operand) = self.sp.pop3();
+        let n = i32::from(n_operand) as usize;
         let offset = i32::from(d) as usize;
         let byte = u8::from(val);
-        self.consume_fuel_with(
+        let outcome = self.consume_fuel_with_resumable(
             |costs| costs.fuel_for_bytes(n as u64),
             |this| {
+                this.cache
+                    .default_memory_bytes(this.ctx)
+                    .get(offset..)
+                    .and_then(|memory| memory.get(..n))
+                    .is_some()
+            },
+            |this| {
+                this.sp.push(d);
+                this.sp.push(val);
+                this.sp.push(n_operand);
+            },
+            |this, _| {
                 let memory = this
                     .cache
                     .default_memory_bytes(this.ctx)
@@ -1524,19 +1618,38 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
                 Ok(())
             },
         )?;
-        self.try_next_instr()
+        if matches!(outcome, ResumableFuelOutcome::Suspend) {
+            return Ok(FuelConsumptionOutcome::Suspend);
+        }
+        self.try_next_instr()?;
+        Ok(FuelConsumptionOutcome::Continue)
     }
 
     #[inline(always)]
-    fn visit_memory_copy(&mut self) -> Result<(), TrapCode> {
+    fn visit_memory_copy(&mut self) -> Result<FuelConsumptionOutcome, TrapCode> {
         // The `n`, `s` and `d` variable bindings are extracted from the Wasm specification.
-        let (d, s, n) = self.sp.pop3();
-        let n = i32::from(n) as usize;
+        let (d, s, n_operand) = self.sp.pop3();
+        let n = i32::from(n_operand) as usize;
         let src_offset = i32::from(s) as usize;
         let dst_offset = i32::from(d) as usize;
-        self.consume_fuel_with(
+        let outcome = self.consume_fuel_with_resumable(
             |costs| costs.fuel_for_bytes(n as u64),
             |this| {
+                let data = this.cache.default_memory_bytes(this.ctx);
+                data.get(src_offset..)
+                    .and_then(|memory| memory.get(..n))
+                    .is_some()
+                    && data
+                        .get(dst_offset..)
+                        .and_then(|memory| memory.get(..n))
+                        .is_some()
+            },
+            |this| {
+                this.sp.push(d);
+                this.sp.push(s);
+                this.sp.push(n_operand);
+            },
+            |this, _| {
                 let data = this.cache.default_memory_bytes(this.ctx);
                 // These accesses just perform the bounds checks required by the Wasm spec.
                 data.get(src_offset..)
@@ -1549,19 +1662,45 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
                 Ok(())
             },
         )?;
-        self.try_next_instr()
+        if matches!(outcome, ResumableFuelOutcome::Suspend) {
+            return Ok(FuelConsumptionOutcome::Suspend);
+        }
+        self.try_next_instr()?;
+        Ok(FuelConsumptionOutcome::Continue)
     }
 
     #[inline(always)]
-    fn visit_memory_init(&mut self, segment: DataSegmentIdx) -> Result<(), TrapCode> {
+    fn visit_memory_init(
+        &mut self,
+        segment: DataSegmentIdx,
+    ) -> Result<FuelConsumptionOutcome, TrapCode> {
         // The `n`, `s` and `d` variable bindings are extracted from the Wasm specification.
-        let (d, s, n) = self.sp.pop3();
-        let n = i32::from(n) as usize;
+        let (d, s, n_operand) = self.sp.pop3();
+        let n = i32::from(n_operand) as usize;
         let src_offset = i32::from(s) as usize;
         let dst_offset = i32::from(d) as usize;
-        self.consume_fuel_with(
+        let outcome = self.consume_fuel_with_resumable(
             |costs| costs.fuel_for_bytes(n as u64),
             |this| {
+                let data = this.cache.get_data_segment(this.ctx, segment.to_u32());
+                let memory = this.cache.default_memory(this.ctx);
+                let memory = this.ctx.resolve_memory(&memory).data();
+                let data = this.ctx.resolve_data_segment(&data).bytes();
+                memory
+                    .get(dst_offset..)
+                    .and_then(|memory| memory.get(..n))
+                    .is_some()
+                    && data
+                        .get(src_offset..)
+                        .and_then(|data| data.get(..n))
+                        .is_some()
+            },
+            |this| {
+                this.sp.push(d);
+                this.sp.push(s);
+                this.sp.push(n_operand);
+            },
+            |this, _| {
                 let (memory, data) = this
                     .cache
                     .get_default_memory_and_data_segment(this.ctx, segment);
@@ -1577,7 +1716,11 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
                 Ok(())
             },
         )?;
-        self.try_next_instr()
+        if matches!(outcome, ResumableFuelOutcome::Suspend) {
+            return Ok(FuelConsumptionOutcome::Suspend);
+        }
+        self.try_next_instr()?;
+        Ok(FuelConsumptionOutcome::Continue)
     }
 
     #[inline(always)]
@@ -1602,12 +1745,28 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
         &mut self,
         table_index: TableIdx,
         resource_limiter: &mut ResourceLimiterRef<'ctx>,
-    ) -> Result<(), TrapCode> {
-        let (init, delta) = self.sp.pop2();
-        let delta: u32 = delta.into();
-        let result = self.consume_fuel_with(
+    ) -> Result<FuelConsumptionOutcome, TrapCode> {
+        let (init, delta_operand) = self.sp.pop2();
+        let delta: u32 = delta_operand.into();
+        let result = self.consume_fuel_with_resumable(
             |costs| costs.fuel_for_elements(u64::from(delta)),
             |this| {
+                let table = this.cache.get_table(this.ctx, table_index);
+                let table = this.ctx.resolve_table(&table);
+                let maximum = table.ty().maximum().unwrap_or(u32::MAX);
+                table
+                    .size()
+                    .checked_add(delta)
+                    .is_some_and(|desired| desired <= maximum)
+            },
+            |this| {
+                this.sp.push(init);
+                this.sp.push(delta_operand);
+            },
+            |this, is_feasible| {
+                if !is_feasible {
+                    return Err(EntityGrowError::InvalidGrow);
+                }
                 let table = this.cache.get_table(this.ctx, table_index);
                 this.ctx
                     .resolve_table_mut(&table)
@@ -1615,23 +1774,38 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
             },
         );
         let result = match result {
-            Ok(result) => result,
+            Ok(ResumableFuelOutcome::Continue(result)) => result,
+            Ok(ResumableFuelOutcome::Suspend) => return Ok(FuelConsumptionOutcome::Suspend),
             Err(EntityGrowError::InvalidGrow) => INVALID_GROWTH_ERRCODE,
             Err(EntityGrowError::TrapCode(trap_code)) => return Err(trap_code),
         };
         self.sp.push_as(result);
-        self.try_next_instr()
+        self.try_next_instr()?;
+        Ok(FuelConsumptionOutcome::Continue)
     }
 
     #[inline(always)]
-    fn visit_table_fill(&mut self, table_index: TableIdx) -> Result<(), TrapCode> {
+    fn visit_table_fill(
+        &mut self,
+        table_index: TableIdx,
+    ) -> Result<FuelConsumptionOutcome, TrapCode> {
         // The `n`, `s` and `d` variable bindings are extracted from the Wasm specification.
-        let (i, val, n) = self.sp.pop3();
+        let (i, val, n_operand) = self.sp.pop3();
         let dst: u32 = i.into();
-        let len: u32 = n.into();
-        self.consume_fuel_with(
+        let len: u32 = n_operand.into();
+        let outcome = self.consume_fuel_with_resumable(
             |costs| costs.fuel_for_elements(u64::from(len)),
             |this| {
+                let table = this.cache.get_table(this.ctx, table_index);
+                dst.checked_add(len)
+                    .is_some_and(|end| end <= this.ctx.resolve_table(&table).size())
+            },
+            |this| {
+                this.sp.push(i);
+                this.sp.push(val);
+                this.sp.push(n_operand);
+            },
+            |this, _| {
                 let table = this.cache.get_table(this.ctx, table_index);
                 this.ctx
                     .resolve_table_mut(&table)
@@ -1639,7 +1813,11 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
                 Ok(())
             },
         )?;
-        self.try_next_instr()
+        if matches!(outcome, ResumableFuelOutcome::Suspend) {
+            return Ok(FuelConsumptionOutcome::Suspend);
+        }
+        self.try_next_instr()?;
+        Ok(FuelConsumptionOutcome::Continue)
     }
 
     #[inline(always)]
@@ -1668,16 +1846,31 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
     }
 
     #[inline(always)]
-    fn visit_table_copy(&mut self, dst: TableIdx) -> Result<(), TrapCode> {
+    fn visit_table_copy(&mut self, dst: TableIdx) -> Result<FuelConsumptionOutcome, TrapCode> {
         let src = self.fetch_table_idx(1);
         // The `n`, `s` and `d` variable bindings are extracted from the Wasm specification.
-        let (d, s, n) = self.sp.pop3();
-        let len = u32::from(n);
+        let (d, s, n_operand) = self.sp.pop3();
+        let len = u32::from(n_operand);
         let src_index = u32::from(s);
         let dst_index = u32::from(d);
-        self.consume_fuel_with(
+        let outcome = self.consume_fuel_with_resumable(
             |costs| costs.fuel_for_elements(u64::from(len)),
             |this| {
+                let dst = this.cache.get_table(this.ctx, dst);
+                let src = this.cache.get_table(this.ctx, src);
+                dst_index
+                    .checked_add(len)
+                    .is_some_and(|end| end <= this.ctx.resolve_table(&dst).size())
+                    && src_index
+                        .checked_add(len)
+                        .is_some_and(|end| end <= this.ctx.resolve_table(&src).size())
+            },
+            |this| {
+                this.sp.push(d);
+                this.sp.push(s);
+                this.sp.push(n_operand);
+            },
+            |this, _| {
                 // Query both tables and check if they are the same:
                 let dst = this.cache.get_table(this.ctx, dst);
                 let src = this.cache.get_table(this.ctx, src);
@@ -1693,20 +1886,42 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
                 Ok(())
             },
         )?;
-        self.try_next_instr_at(2)
+        if matches!(outcome, ResumableFuelOutcome::Suspend) {
+            return Ok(FuelConsumptionOutcome::Suspend);
+        }
+        self.try_next_instr_at(2)?;
+        Ok(FuelConsumptionOutcome::Continue)
     }
 
     #[inline(always)]
-    fn visit_table_init(&mut self, elem: ElementSegmentIdx) -> Result<(), TrapCode> {
+    fn visit_table_init(
+        &mut self,
+        elem: ElementSegmentIdx,
+    ) -> Result<FuelConsumptionOutcome, TrapCode> {
         let table = self.fetch_table_idx(1);
         // The `n`, `s` and `d` variable bindings are extracted from the Wasm specification.
-        let (d, s, n) = self.sp.pop3();
-        let len = u32::from(n);
+        let (d, s, n_operand) = self.sp.pop3();
+        let len = u32::from(n_operand);
         let src_index = u32::from(s);
         let dst_index = u32::from(d);
-        self.consume_fuel_with(
+        let outcome = self.consume_fuel_with_resumable(
             |costs| costs.fuel_for_elements(u64::from(len)),
             |this| {
+                let table = this.cache.get_table(this.ctx, table);
+                let element = this.cache.get_element_segment(this.ctx, elem);
+                dst_index
+                    .checked_add(len)
+                    .is_some_and(|end| end <= this.ctx.resolve_table(&table).size())
+                    && src_index.checked_add(len).is_some_and(|end| {
+                        end as usize <= this.ctx.resolve_element_segment(&element).items().len()
+                    })
+            },
+            |this| {
+                this.sp.push(d);
+                this.sp.push(s);
+                this.sp.push(n_operand);
+            },
+            |this, _| {
                 let (instance, table, element) = this
                     .cache
                     .get_table_and_element_segment(this.ctx, table, elem);
@@ -1718,7 +1933,11 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
                 Ok(())
             },
         )?;
-        self.try_next_instr_at(2)
+        if matches!(outcome, ResumableFuelOutcome::Suspend) {
+            return Ok(FuelConsumptionOutcome::Suspend);
+        }
+        self.try_next_instr_at(2)?;
+        Ok(FuelConsumptionOutcome::Continue)
     }
 
     #[inline(always)]

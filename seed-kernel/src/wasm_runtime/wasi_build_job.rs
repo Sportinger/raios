@@ -451,7 +451,8 @@ fn run_start(
     start: wasmi::Func,
     class: BuildGuestClassV1,
 ) -> WasiJobEnd {
-    if add_next_quantum(store, class).is_err() {
+    let mut granted_total = 0;
+    if add_next_quantum(store, class, &mut granted_total).is_err() {
         return WasiJobEnd::Trap;
     }
     let mut outputs = [];
@@ -466,7 +467,7 @@ fn run_start(
         };
         match invocation.suspension() {
             Suspension::FuelQuantum => {
-                if add_next_quantum(store, class).is_err() {
+                if add_next_quantum(store, class, &mut granted_total).is_err() {
                     return WasiJobEnd::Trap;
                 }
                 outcome = match invocation.resume(&mut *store, &[], &mut outputs) {
@@ -490,18 +491,21 @@ fn run_start(
 fn add_next_quantum(
     store: &mut Store<WasiHostState>,
     class: BuildGuestClassV1,
+    granted_total: &mut u64,
 ) -> Result<(), Trap> {
-    let consumed = store
-        .fuel_consumed()
-        .ok_or_else(|| Trap::new("fuel disabled"))?;
     let remaining = class
         .max_total_fuel
-        .checked_sub(consumed)
+        .checked_sub(*granted_total)
         .filter(|remaining| *remaining != 0)
         .ok_or_else(|| Trap::new("WASI build fuel ceiling reached"))?;
+    let grant = class.fuel_quantum.min(remaining);
     store
-        .add_fuel(class.fuel_quantum.min(remaining))
-        .map_err(|_| Trap::new("WASI build fuel refill failed"))
+        .add_fuel(grant)
+        .map_err(|_| Trap::new("WASI build fuel refill failed"))?;
+    *granted_total = granted_total
+        .checked_add(grant)
+        .ok_or_else(|| Trap::new("WASI build fuel ceiling reached"))?;
+    Ok(())
 }
 
 fn build_instance(

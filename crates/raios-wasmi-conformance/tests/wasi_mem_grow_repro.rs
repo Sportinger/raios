@@ -174,6 +174,15 @@ struct Observation {
     fuel_quantum: u64,
     fuel_consumed: u64,
     fuel_suspensions: usize,
+    granted_total: u64,
+    fuel_parks: Vec<FuelPark>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct FuelPark {
+    completed_grow_attempts: usize,
+    consumed: u64,
+    granted_total: u64,
 }
 
 impl Observation {
@@ -249,8 +258,12 @@ impl Observation {
             String::from_utf8_lossy(&self.stdout),
         );
         eprintln!(
-            "end={} fuel_consumed={} fuel_suspensions={}",
-            self.end, self.fuel_consumed, self.fuel_suspensions
+            "end={} fuel_consumed={} fuel_suspensions={} granted_total={} fuel_parks={:?}",
+            self.end,
+            self.fuel_consumed,
+            self.fuel_suspensions,
+            self.granted_total,
+            self.fuel_parks,
         );
         if matches!(self.end, RunEnd::FuelExhaustion { .. }) {
             eprintln!(
@@ -277,6 +290,15 @@ fn kernel_engine() -> Engine {
         .wasm_threads(true)
         .consume_fuel(true)
         .resumable_fuel(true);
+    Engine::new(&config)
+}
+
+fn default_fuel_engine() -> Engine {
+    let mut config = Config::default();
+    config
+        .wasm_threads(true)
+        .consume_fuel(true)
+        .resumable_fuel(false);
     Engine::new(&config)
 }
 
@@ -415,15 +437,23 @@ fn classify_error(store: &Store<HostState>, error: Error) -> RunEnd {
     RunEnd::Trap(error.to_string())
 }
 
-fn add_next_quantum(store: &mut Store<HostState>, fuel_quantum: u64) -> Result<(), &'static str> {
-    let consumed = store.fuel_consumed().ok_or("fuel disabled")?;
+fn add_next_quantum(
+    store: &mut Store<HostState>,
+    fuel_quantum: u64,
+    granted_total: &mut u64,
+) -> Result<(), &'static str> {
     let remaining = MAX_TOTAL_FUEL
-        .checked_sub(consumed)
+        .checked_sub(*granted_total)
         .filter(|remaining| *remaining != 0)
         .ok_or("WASI build fuel ceiling reached")?;
+    let grant = fuel_quantum.min(remaining);
     store
-        .add_fuel(fuel_quantum.min(remaining))
-        .map_err(|_| "WASI build fuel refill failed")
+        .add_fuel(grant)
+        .map_err(|_| "WASI build fuel refill failed")?;
+    *granted_total = granted_total
+        .checked_add(grant)
+        .ok_or("WASI build fuel ceiling reached")?;
+    Ok(())
 }
 
 // Mirrors run_start and add_next_quantum in wasi_build_job.rs lines 449-505:
@@ -433,48 +463,78 @@ fn run_start(
     store: &mut Store<HostState>,
     start: wasmi::Func,
     fuel_quantum: u64,
-) -> (RunEnd, usize) {
-    if let Err(display) = add_next_quantum(store, fuel_quantum) {
+) -> (RunEnd, usize, u64, Vec<FuelPark>) {
+    let mut granted_total = 0;
+    let mut fuel_parks = Vec::new();
+    if let Err(display) = add_next_quantum(store, fuel_quantum, &mut granted_total) {
         return (
             RunEnd::FuelExhaustion {
                 consumed: store.fuel_consumed().unwrap_or(0),
                 display: display.to_string(),
             },
             0,
+            granted_total,
+            fuel_parks,
         );
     }
     let mut outputs = [];
     let mut outcome = match start.call_resumable(&mut *store, &[], &mut outputs) {
         Ok(outcome) => outcome,
-        Err(error) => return (classify_error(store, error), 0),
+        Err(error) => return (classify_error(store, error), 0, granted_total, fuel_parks),
     };
     let mut fuel_suspensions = 0;
     loop {
         let invocation = match outcome {
-            ResumableCall::Finished => return (RunEnd::FinishedWithoutProcExit, fuel_suspensions),
+            ResumableCall::Finished => {
+                return (
+                    RunEnd::FinishedWithoutProcExit,
+                    fuel_suspensions,
+                    granted_total,
+                    fuel_parks,
+                )
+            }
             ResumableCall::Resumable(invocation) => invocation,
         };
         match invocation.suspension() {
             Suspension::FuelQuantum => {
                 fuel_suspensions += 1;
-                if let Err(display) = add_next_quantum(store, fuel_quantum) {
+                fuel_parks.push(FuelPark {
+                    completed_grow_attempts: store.data().grow_log.len().saturating_sub(1),
+                    consumed: store.fuel_consumed().unwrap_or(0),
+                    granted_total,
+                });
+                if let Err(display) = add_next_quantum(store, fuel_quantum, &mut granted_total) {
                     return (
                         RunEnd::FuelExhaustion {
                             consumed: store.fuel_consumed().unwrap_or(0),
                             display: display.to_string(),
                         },
                         fuel_suspensions,
+                        granted_total,
+                        fuel_parks,
                     );
                 }
                 outcome = match invocation.resume(&mut *store, &[], &mut outputs) {
                     Ok(outcome) => outcome,
-                    Err(error) => return (classify_error(store, error), fuel_suspensions),
+                    Err(error) => {
+                        return (
+                            classify_error(store, error),
+                            fuel_suspensions,
+                            granted_total,
+                            fuel_parks,
+                        )
+                    }
                 };
             }
             Suspension::Host { host_error, .. } => {
                 if let Some(exit) = host_error.downcast_ref::<ProcExitTrap>() {
                     return if store.data().terminal_exit == Some(exit.code) {
-                        (RunEnd::ProcExit(exit.code), fuel_suspensions)
+                        (
+                            RunEnd::ProcExit(exit.code),
+                            fuel_suspensions,
+                            granted_total,
+                            fuel_parks,
+                        )
                     } else {
                         (
                             RunEnd::Trap(format!(
@@ -483,15 +543,24 @@ fn run_start(
                                 store.data().terminal_exit
                             )),
                             fuel_suspensions,
+                            granted_total,
+                            fuel_parks,
                         )
                     };
                 }
-                return (RunEnd::Trap(host_error.to_string()), fuel_suspensions);
+                return (
+                    RunEnd::Trap(host_error.to_string()),
+                    fuel_suspensions,
+                    granted_total,
+                    fuel_parks,
+                );
             }
             Suspension::Atomic(suspension) => {
                 return (
                     RunEnd::Trap(format!("unexpected atomic suspension: {suspension:?}")),
                     fuel_suspensions,
+                    granted_total,
+                    fuel_parks,
                 )
             }
         }
@@ -520,25 +589,43 @@ fn run_profile(
     store.data_mut().memory = Some(memory);
     let mut linker = Linker::new(engine);
     define_fixture_imports(&mut linker, memory);
-    let (end, fuel_suspensions) = match linker.instantiate(&mut store, &module) {
-        Err(error) => (RunEnd::Trap(format!("instantiation failed: {error}")), 0),
-        Ok(pre) => match pre.start(&mut store) {
-            Err(error) => (RunEnd::Trap(format!("start section failed: {error}")), 0),
-            Ok(instance) => match instance.get_func(&store, "_start") {
-                None => (RunEnd::Trap("missing _start export".to_string()), 0),
-                Some(start)
-                    if !start.ty(&store).params().is_empty()
-                        || !start.ty(&store).results().is_empty() =>
-                {
-                    (
-                        RunEnd::Trap("_start must have type [] -> []".to_string()),
+    let (end, fuel_suspensions, granted_total, fuel_parks) =
+        match linker.instantiate(&mut store, &module) {
+            Err(error) => (
+                RunEnd::Trap(format!("instantiation failed: {error}")),
+                0,
+                0,
+                Vec::new(),
+            ),
+            Ok(pre) => match pre.start(&mut store) {
+                Err(error) => (
+                    RunEnd::Trap(format!("start section failed: {error}")),
+                    0,
+                    0,
+                    Vec::new(),
+                ),
+                Ok(instance) => match instance.get_func(&store, "_start") {
+                    None => (
+                        RunEnd::Trap("missing _start export".to_string()),
                         0,
-                    )
-                }
-                Some(start) => run_start(&mut store, start, fuel_quantum),
+                        0,
+                        Vec::new(),
+                    ),
+                    Some(start)
+                        if !start.ty(&store).params().is_empty()
+                            || !start.ty(&store).results().is_empty() =>
+                    {
+                        (
+                            RunEnd::Trap("_start must have type [] -> []".to_string()),
+                            0,
+                            0,
+                            Vec::new(),
+                        )
+                    }
+                    Some(start) => run_start(&mut store, start, fuel_quantum),
+                },
             },
-        },
-    };
+        };
     let final_pages = u32::from(memory.current_pages(&store));
     let mut control = [0_u8; MEMORY_CONTROL_BYTES];
     let control_end = memory.read(&store, 0, &mut control).err();
@@ -558,6 +645,8 @@ fn run_profile(
         fuel_quantum,
         fuel_consumed: store.fuel_consumed().unwrap_or(0),
         fuel_suspensions,
+        granted_total,
+        fuel_parks,
     }
 }
 
@@ -640,7 +729,7 @@ fn assert_strict_linker_boundary(engine: &Engine, fixture_wat: &str) {
     );
 }
 
-fn assert_kernel_quantum_divergence(observation: &Observation) {
+fn assert_default_config_freeze(observation: &Observation) {
     assert_eq!(observation.fuel_quantum, FUEL_QUANTUM);
     assert_eq!(
         observation.end,
@@ -650,6 +739,8 @@ fn assert_kernel_quantum_divergence(observation: &Observation) {
         }
     );
     assert_eq!(observation.fuel_suspensions, 0);
+    assert_eq!(observation.granted_total, FUEL_QUANTUM);
+    assert!(observation.fuel_parks.is_empty());
     assert_eq!(
         observation.final_pages,
         INITIAL_PAGES + 8 * MEMORY_GROW_STEP_PAGES
@@ -680,8 +771,57 @@ fn assert_kernel_quantum_divergence(observation: &Observation) {
     );
 }
 
+fn assert_park_count_formula(observation: &Observation) {
+    const DYNAMIC_GROW_CHARGE: u64 = MEMORY_GROW_STEP_PAGES as u64 * WASM_PAGE_BYTES as u64 / 64;
+
+    assert_eq!(observation.fuel_suspensions, observation.fuel_parks.len());
+    assert!(!observation.fuel_parks.is_empty());
+    let mut cursor = 0;
+    while cursor < observation.fuel_parks.len() {
+        let first = observation.fuel_parks[cursor];
+        let residual = first
+            .granted_total
+            .checked_sub(first.consumed)
+            .expect("consumption cannot exceed cumulative grants");
+        assert!(
+            residual < DYNAMIC_GROW_CHARGE,
+            "a recorded park must be at an underfunded dynamic grow"
+        );
+        let expected = (DYNAMIC_GROW_CHARGE - residual).div_ceil(observation.fuel_quantum);
+        let mut end = cursor + 1;
+        while end < observation.fuel_parks.len()
+            && observation.fuel_parks[end].completed_grow_attempts == first.completed_grow_attempts
+        {
+            end += 1;
+        }
+        assert_eq!(
+            (end - cursor) as u64,
+            expected,
+            "grow attempt {} must park ceil((C-r0)/Q) times",
+            first.completed_grow_attempts
+        );
+        cursor = end;
+    }
+}
+
 #[test]
-fn real_wasi_mem_grow_fixture_exposes_kernel_quantum_divergence() {
+fn default_config_real_fixture_freezes_upstream_out_of_fuel_bytes() {
+    let fixture_wat = real_fixture_wat();
+    let wasm = wat::parse_str(&fixture_wat).expect("real wasi_mem_grow.wat must compile via wat");
+    let engine = default_fuel_engine();
+    let observation = run_profile(
+        &engine,
+        wasm.as_slice(),
+        "default_config_freeze",
+        usize::MAX,
+        FUEL_QUANTUM,
+    );
+    observation.dump();
+    assert_default_config_freeze(&observation);
+}
+
+#[test]
+fn real_wasi_mem_grow_fixture_parks_and_preserves_pacing() {
     let fixture_wat = real_fixture_wat();
     let wasm = wat::parse_str(&fixture_wat).expect("real wasi_mem_grow.wat must compile via wat");
     let engine = kernel_engine();
@@ -703,9 +843,8 @@ fn real_wasi_mem_grow_fixture_exposes_kernel_quantum_divergence() {
     );
     kernel_constrained.dump();
 
-    // These diagnostic controls change only the runner quantum. They prove the
-    // real fixture's grow loop, control writes, iovec and proc_exit path once
-    // dynamic memory.grow fuel can fit without a terminal mid-instruction hit.
+    // These controls change only the runner quantum. Equal consumption pins
+    // that parking neither charges early nor double-charges on retry.
     let control_generous = run_profile(
         &engine,
         wasm.as_slice(),
@@ -724,8 +863,17 @@ fn real_wasi_mem_grow_fixture_exposes_kernel_quantum_divergence() {
     control_constrained.dump();
     assert_strict_linker_boundary(&engine, &fixture_wat);
 
-    assert_kernel_quantum_divergence(&kernel_generous);
-    assert_kernel_quantum_divergence(&kernel_constrained);
+    assert_common_success(&kernel_generous);
+    assert_eq!(kernel_generous.final_pages, MAX_PAGES);
+    assert_eq!(kernel_generous.stdout, MAX_PAGES.to_string().as_bytes());
+    assert_eq!(kernel_generous.fuel_suspensions, 16);
+    assert_park_count_formula(&kernel_generous);
+
+    assert_common_success(&kernel_constrained);
+    assert_eq!(kernel_constrained.final_pages, 1_549);
+    assert_eq!(kernel_constrained.stdout, b"1549");
+    assert_eq!(kernel_constrained.fuel_suspensions, 1);
+    assert_park_count_formula(&kernel_constrained);
 
     assert_common_success(&control_generous);
     assert_eq!(control_generous.final_pages, MAX_PAGES);
@@ -734,6 +882,11 @@ fn real_wasi_mem_grow_fixture_exposes_kernel_quantum_divergence() {
         (MAX_PAGES - INITIAL_PAGES) / MEMORY_GROW_STEP_PAGES
     );
     assert_eq!(control_generous.stdout, MAX_PAGES.to_string().as_bytes());
+    assert_eq!(control_generous.fuel_suspensions, 0);
+    assert_eq!(
+        kernel_generous.fuel_consumed,
+        control_generous.fuel_consumed
+    );
     let generous_last = control_generous.growth_log().last().unwrap();
     assert!(!generous_last.verdict);
     assert_eq!(generous_last.reason, LimiterReason::DeclaredMaximum);
@@ -748,6 +901,11 @@ fn real_wasi_mem_grow_fixture_exposes_kernel_quantum_divergence() {
         10
     );
     assert_eq!(control_constrained.stdout, b"1549");
+    assert_eq!(control_constrained.fuel_suspensions, 0);
+    assert_eq!(
+        kernel_constrained.fuel_consumed,
+        control_constrained.fuel_consumed
+    );
     let constrained_last = control_constrained.growth_log().last().unwrap();
     assert!(!constrained_last.verdict);
     assert_eq!(constrained_last.reason, LimiterReason::FreeBudget);

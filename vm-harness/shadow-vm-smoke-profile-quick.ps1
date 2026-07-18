@@ -2410,3 +2410,11 @@
         # fixture was denied before instantiation).
         Send-AgentCommand -Command "threads.selftest" -ExpectedMarker "RAIOS_THREADS selftest=pass"
         Send-AgentCommand -Command "wasi.selftest" -ExpectedMarker "RAIOS_WASI selftest=pass ok_exit=0 ok_stdout=3 deny=imports_mismatch registered=30 materialize=ok grant_read=ok out_of_grant=absent_entry wrong_range=wrong_range tamper=hash_mismatch egress=planned commit=authorized commit_deny=output_span_length_exceeds_lease"
+
+        # Bauplatz memory proof (green since the ADR 0021 fuel fix): growth past
+        # initial with banked bulk-fuel parking, graceful denial at the physical
+        # ceiling, over-class import shape denied pre-instantiation, deterministic
+        # double run. pages_max is RAM-profile-dependent and deliberately not pinned;
+        # the second needle pins the invariant tail of the same line.
+        Send-AgentCommand -Command "wasi.memselftest" -ExpectedMarker "RAIOS_WASIMEM selftest=pass pages_initial=399 pages_max="
+        Send-AgentCommand -Command "wasi.memselftest" -ExpectedMarker "grow_denied_gracefully=1 over_class=imports_mismatch det=1"

@@ -227,6 +227,12 @@ impl Config {
 
     /// Returns the [`StackLimits`] of the [`Config`].
     pub(super) fn stack_limits(&self) -> StackLimits {
+        if self.resumable_fuel {
+            assert!(
+                matches!(self.fuel_consumption_mode, FuelConsumptionMode::Lazy),
+                "resumable fuel requires lazy fuel consumption"
+            );
+        }
         self.stack_limits
     }
 
@@ -397,9 +403,9 @@ impl Config {
     ///
     /// # Note
     ///
-    /// This has no effect if fuel metering is disabled for the [`Engine`]. Only
-    /// the executor's internal block fuel instruction can suspend. Non-resumable
-    /// calls, dynamic per-instruction fuel charges and host-side fuel APIs retain
+    /// This has no effect if fuel metering is disabled for the [`Engine`]. The
+    /// executor's internal block fuel instruction and Lazy dynamic bulk-operation
+    /// charges can suspend. Non-resumable calls and host-side fuel APIs retain
     /// their terminal error behavior.
     ///
     /// Disabled by default.
