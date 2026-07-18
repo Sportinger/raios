@@ -13,7 +13,17 @@
       throttled/killed, system and other domains unaffected
 
 ## Toolchain in the OS
-- [ ] rustc with Cranelift backend runs inside raiOS (self-compilation)
+> Route B (owner 2026-07-18, binding): the public `wasm32-wasip1-threads`
+> rustc artifact runs UNMODIFIED inside the caged interpreter (green threads,
+> T1/T2). A fast execution stage (AOT) is a later, deliberate ADR — the
+> top-level SCOPE.md still says "Cranelift backend"; flagged to owner.
+- [ ] Engine cage carries threads: shared memory + atomics + wasi thread-spawn
+      in the vendored wasmi, deterministic round-robin (host-testable, T1/T2)
+- [ ] Bauplatz guest class: hundreds-of-MB linear memory from a memmap-backed
+      kernel heap; patience budgets; QEMU + Surface profiles
+- [ ] WASI preview1 subset shim behind the import-grant gate (fd/path, args/env,
+      clock, random, proc_exit — deterministic, double-build stays byte-equal)
+- [ ] rustc-as-Wasm compiles a real program inside raiOS (W5-proven, slow is fine)
 - [ ] Compile diagnostics available as JSON (same feedback loop as the fabric)
 - [ ] Build artifacts land only in the domain's own granted storage range
 
