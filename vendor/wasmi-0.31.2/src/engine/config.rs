@@ -37,6 +37,8 @@ pub struct Config {
     floats: bool,
     /// Is `true` if `wasmi` executions shall consume fuel.
     consume_fuel: bool,
+    /// Is `true` if fuel exhaustion suspends resumable Wasm executions.
+    resumable_fuel: bool,
     /// The fuel consumption mode of the `wasmi` [`Engine`](crate::Engine).
     fuel_consumption_mode: FuelConsumptionMode,
     /// The configured fuel costs of all `wasmi` bytecode instructions.
@@ -209,6 +211,7 @@ impl Default for Config {
             threads: false,
             floats: true,
             consume_fuel: false,
+            resumable_fuel: false,
             fuel_costs: FuelCosts::default(),
             fuel_consumption_mode: FuelConsumptionMode::default(),
         }
@@ -387,6 +390,29 @@ impl Config {
     /// [`Engine`]: crate::Engine
     pub(crate) fn get_consume_fuel(&self) -> bool {
         self.consume_fuel
+    }
+
+    /// Configures fuel exhaustion at metered Wasm block boundaries to suspend
+    /// resumable Wasm executions.
+    ///
+    /// # Note
+    ///
+    /// This has no effect if fuel metering is disabled for the [`Engine`]. Only
+    /// the executor's internal block fuel instruction can suspend. Non-resumable
+    /// calls, dynamic per-instruction fuel charges and host-side fuel APIs retain
+    /// their terminal error behavior.
+    ///
+    /// Disabled by default.
+    ///
+    /// [`Engine`]: crate::Engine
+    pub fn resumable_fuel(&mut self, enable: bool) -> &mut Self {
+        self.resumable_fuel = enable;
+        self
+    }
+
+    /// Returns `true` if fuel exhaustion suspends resumable Wasm executions.
+    pub(crate) fn get_resumable_fuel(&self) -> bool {
+        self.resumable_fuel
     }
 
     /// Returns the configured [`FuelCosts`].

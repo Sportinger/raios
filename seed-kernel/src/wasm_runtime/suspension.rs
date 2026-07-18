@@ -49,6 +49,8 @@ pub(super) fn classify_resumable(
         }
         // Default-closed until T2 provides the scheduler (ADR 0016).
         wasmi::Suspension::Atomic(_) => Err(TerminalOutcome::HostError),
+        // Unreachable while the kernel keeps resumable_fuel off; T2 wires it.
+        wasmi::Suspension::FuelQuantum => Err(TerminalOutcome::OutOfFuel),
     }
 }
 

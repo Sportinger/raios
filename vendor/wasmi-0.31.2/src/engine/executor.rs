@@ -58,6 +58,17 @@ pub enum WasmOutcome {
     Call { host_func: Func, instance: Instance },
     /// The Wasm execution suspends at an atomic wait or notify instruction.
     AtomicSuspend(AtomicSuspend),
+    /// The Wasm execution suspends before a metered basic block.
+    FuelQuantum,
+}
+
+/// The outcome of executing a fuel consumption instruction.
+#[derive(Debug, Copy, Clone)]
+enum FuelConsumptionOutcome {
+    /// Fuel was consumed and execution can continue.
+    Continue,
+    /// Fuel was exhausted and execution must suspend.
+    Suspend,
 }
 
 /// The outcome of a Wasm execution.
@@ -268,7 +279,10 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
                 Instr::BrAdjustIfNez(offset) => self.visit_br_adjust_if_nez(offset),
                 Instr::BrTable(targets) => self.visit_br_table(targets),
                 Instr::Unreachable => self.visit_unreachable()?,
-                Instr::ConsumeFuel(block_fuel) => self.visit_consume_fuel(block_fuel)?,
+                Instr::ConsumeFuel(block_fuel) => match self.visit_consume_fuel(block_fuel)? {
+                    FuelConsumptionOutcome::Continue => {}
+                    FuelConsumptionOutcome::Suspend => return Ok(WasmOutcome::FuelQuantum),
+                },
                 Instr::Return(drop_keep) => {
                     if let ReturnOutcome::Host = self.visit_ret(drop_keep) {
                         return Ok(WasmOutcome::Return);
@@ -819,6 +833,16 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
         })
     }
 
+    /// Exits the executor before the current fuel consumption instruction.
+    #[inline(always)]
+    fn park_fuel_quantum(&mut self) -> Result<(), TrapCode> {
+        self.sync_stack_ptr();
+        self.call_stack
+            .push(FuncFrame::new(self.ip, self.cache.instance()))?;
+        self.cache.reset();
+        Ok(())
+    }
+
     /// Executes an infallible unary `wasmi` instruction.
     #[inline(always)]
     fn execute_unary(&mut self, f: fn(UntypedValue) -> UntypedValue) {
@@ -1127,6 +1151,12 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
         self.ctx.engine().config().get_fuel_consumption_mode()
     }
 
+    /// Returns `true` if fuel exhaustion suspends resumable Wasm executions.
+    #[inline]
+    fn is_resumable_fuel(&self) -> bool {
+        self.ctx.engine().config().get_resumable_fuel()
+    }
+
     /// Executes a `call_indirect` or `return_call_indirect` instruction.
     #[inline(always)]
     fn execute_call_indirect(
@@ -1167,12 +1197,24 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
     }
 
     #[inline(always)]
-    fn visit_consume_fuel(&mut self, block_fuel: BlockFuel) -> Result<(), TrapCode> {
+    fn visit_consume_fuel(
+        &mut self,
+        block_fuel: BlockFuel,
+    ) -> Result<FuelConsumptionOutcome, TrapCode> {
         // We do not have to check if fuel metering is enabled since
         // these `wasmi` instructions are only generated if fuel metering
         // is enabled to begin with.
-        self.ctx.fuel_mut().consume_fuel(block_fuel.to_u64())?;
-        self.try_next_instr()
+        match self.ctx.fuel_mut().consume_fuel(block_fuel.to_u64()) {
+            Ok(_) => {
+                self.try_next_instr()?;
+                Ok(FuelConsumptionOutcome::Continue)
+            }
+            Err(TrapCode::OutOfFuel) if self.is_resumable_fuel() => {
+                self.park_fuel_quantum()?;
+                Ok(FuelConsumptionOutcome::Suspend)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     /// Fetches the [`DropKeep`] parameter for an instruction.

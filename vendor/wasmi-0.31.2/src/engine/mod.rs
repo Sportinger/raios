@@ -515,6 +515,14 @@ impl EngineInner {
                     stack,
                 )))
             }
+            Err(TaggedTrap::FuelQuantum) => {
+                Ok(ResumableCallBase::Resumable(ResumableInvocation::new(
+                    ctx.as_context().store.engine().clone(),
+                    *func,
+                    Suspension::FuelQuantum,
+                    stack,
+                )))
+            }
         }
     }
 
@@ -553,6 +561,10 @@ impl EngineInner {
             }
             Err(TaggedTrap::AtomicSuspend(suspend)) => {
                 invocation.update(Suspension::Atomic(suspend));
+                Ok(ResumableCallBase::Resumable(invocation))
+            }
+            Err(TaggedTrap::FuelQuantum) => {
+                invocation.update(Suspension::FuelQuantum);
                 Ok(ResumableCallBase::Resumable(invocation))
             }
         }
@@ -602,6 +614,8 @@ enum TaggedTrap {
     Host { host_func: Func, host_trap: Trap },
     /// Execution suspended at an atomic wait or notify instruction.
     AtomicSuspend(AtomicSuspend),
+    /// Execution suspended before a fuel consumption instruction.
+    FuelQuantum,
 }
 
 impl TaggedTrap {
@@ -619,6 +633,7 @@ impl TaggedTrap {
             TaggedTrap::Wasm(trap) => trap,
             TaggedTrap::Host { host_trap, .. } => host_trap,
             TaggedTrap::AtomicSuspend(_) => TrapCode::AtomicSuspendNotResumable.into(),
+            TaggedTrap::FuelQuantum => TrapCode::OutOfFuel.into(),
         }
     }
 }
@@ -795,6 +810,7 @@ impl<'engine> EngineExecutor<'engine> {
                 WasmOutcome::AtomicSuspend(suspend) => {
                     return Err(TaggedTrap::AtomicSuspend(suspend));
                 }
+                WasmOutcome::FuelQuantum => return Err(TaggedTrap::FuelQuantum),
             }
         }
     }

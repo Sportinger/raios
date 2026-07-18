@@ -301,6 +301,7 @@ fn matching_root_wait_parks_with_payload_and_resumes_with_both_results() {
                 ));
             }
             Suspension::Host { .. } => panic!("wait must use typed atomic suspension"),
+            Suspension::FuelQuantum => panic!("wait must not surface as a fuel suspension"),
         }
 
         let resumed = invocation
@@ -352,6 +353,7 @@ fn shared_notify_parks_and_delivers_scheduler_wake_count() {
             ));
         }
         Suspension::Host { .. } => panic!("notify must use typed atomic suspension"),
+        Suspension::FuelQuantum => panic!("notify must not surface as a fuel suspension"),
     }
 
     let resumed = invocation

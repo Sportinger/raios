@@ -20,6 +20,8 @@ pub enum Suspension {
     Host { host_func: Func, host_error: Trap },
     /// An atomic wait or notify requires a scheduler decision.
     Atomic(AtomicSuspend),
+    /// The current instruction's fuel block requires a refill before execution can continue.
+    FuelQuantum,
 }
 
 /// Returned by [`Engine`] methods for calling a function in a resumable way.
@@ -131,7 +133,7 @@ impl ResumableInvocation {
     pub fn host_func(&self) -> Option<Func> {
         match self.suspension() {
             Suspension::Host { host_func, .. } => Some(*host_func),
-            Suspension::Atomic(_) => None,
+            Suspension::Atomic(_) | Suspension::FuelQuantum => None,
         }
     }
 
@@ -143,7 +145,7 @@ impl ResumableInvocation {
     pub fn host_error(&self) -> Option<&Trap> {
         match self.suspension() {
             Suspension::Host { host_error, .. } => Some(host_error),
-            Suspension::Atomic(_) => None,
+            Suspension::Atomic(_) | Suspension::FuelQuantum => None,
         }
     }
 
@@ -167,6 +169,7 @@ impl ResumableInvocation {
             Suspension::Atomic(_) => {
                 Ok(FuncType::new([], [ValueType::I32]).match_results(inputs, true)?)
             }
+            Suspension::FuelQuantum => Ok(FuncType::new([], []).match_results(inputs, true)?),
         }
     }
 
