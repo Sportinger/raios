@@ -6,7 +6,8 @@ use crate::{serial, ALLOCATOR, HEAP, HEAP_SIZE, HHDM_REQUEST, MEMORY_MAP_REQUEST
 
 const MIB: u64 = 1024 * 1024;
 const MIN_HEAP_SIZE: u64 = 64 * MIB;
-const MAX_HEAP_SIZE: u64 = 1024 * MIB;
+// 3 GiB covers the 1-GiB window's 2-GiB realloc peak plus kernel margin.
+const MAX_HEAP_SIZE: u64 = 3072 * MIB;
 const PAGE_SIZE: u64 = 4096;
 
 #[derive(Clone, Copy)]
@@ -197,7 +198,7 @@ fn aligned_region(base: u64, length: u64) -> Option<Region> {
 
 #[cfg(test)]
 mod tests {
-    use super::{select_heap_region, MAX_HEAP_SIZE, MIN_HEAP_SIZE, PAGE_SIZE};
+    use super::{select_heap_region, MAX_HEAP_SIZE, MIB, MIN_HEAP_SIZE, PAGE_SIZE};
 
     #[test]
     fn empty_map_has_no_heap_region() {
@@ -223,8 +224,26 @@ mod tests {
     #[test]
     fn region_above_maximum_is_capped() {
         assert_eq!(
-            select_heap_region(&[(0x10_0000, 2 * MAX_HEAP_SIZE)]),
-            Some((0x10_0000, MAX_HEAP_SIZE))
+            select_heap_region(&[(0x10_0000, MAX_HEAP_SIZE + MIB)]),
+            Some((0x10_0000, 3072 * MIB))
+        );
+    }
+
+    #[test]
+    fn region_between_old_and_new_cap_is_used_fully() {
+        let region_size = 2048 * MIB;
+        assert_eq!(
+            select_heap_region(&[(0x10_0000, region_size)]),
+            Some((0x10_0000, region_size))
+        );
+    }
+
+    #[test]
+    fn region_within_old_cap_keeps_its_exact_size() {
+        let region_size = 512 * MIB;
+        assert_eq!(
+            select_heap_region(&[(0x10_0000, region_size)]),
+            Some((0x10_0000, region_size))
         );
     }
 
