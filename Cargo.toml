@@ -1,9 +1,9 @@
 [workspace]
 members = [
-    "ota/cli",
-    "registry/cli",
-    "registry/core",
-    "fake-cloud/server",
+    "distribution/ota/cli",
+    "distribution/registry/cli",
+    "distribution/registry/core",
+    "distribution/fake-cloud/server",
     "crates/raios-core",
     "crates/raios-dns-parse",
     "crates/raios-x509-time",

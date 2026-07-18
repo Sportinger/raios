@@ -7,7 +7,7 @@ A deterministic WebSocket control plane stub that brokers device traffic during 
 ```
 cargo run -p fake-cloud-server -- --bind 127.0.0.1:9001 \
     --root-pub keys/dev/root.pub \
-    --registry registry/local
+    --registry distribution/registry/local
 ```
 
 Supported message types (JSON envelope `{v,t,id,ts,body}`):

@@ -21,13 +21,13 @@ enum Command {
     /// Initialize a content-addressed registry layout
     Init {
         /// Directory to initialize
-        #[arg(long, default_value = "registry/local")]
+        #[arg(long, default_value = "distribution/registry/local")]
         path: PathBuf,
     },
     /// Publish a signed blob + manifest into the registry
     Publish {
         /// Registry root directory
-        #[arg(long, default_value = "registry/local")]
+        #[arg(long, default_value = "distribution/registry/local")]
         registry: PathBuf,
         /// Blob content to store
         #[arg(long)]
@@ -57,7 +57,7 @@ enum Command {
     /// List registry index entries
     List {
         /// Registry root directory
-        #[arg(long, default_value = "registry/local")]
+        #[arg(long, default_value = "distribution/registry/local")]
         registry: PathBuf,
         /// Filter to namespace
         #[arg(long)]
@@ -69,7 +69,7 @@ enum Command {
     /// Export a registry CAS entry as serial distribution commands
     DistributionExport {
         /// Registry root directory
-        #[arg(long, default_value = "registry/local")]
+        #[arg(long, default_value = "distribution/registry/local")]
         registry: PathBuf,
         /// Logical namespace
         #[arg(long, default_value = "modules")]

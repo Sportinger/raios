@@ -18,5 +18,5 @@ thiserror = "1"
 walkdir = "2"
 
 [dev-dependencies]
-raios-core = { path = "../../crates/raios-core" }
+raios-core = { path = "../../../crates/raios-core" }
 tempfile = "3"

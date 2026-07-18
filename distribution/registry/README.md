@@ -5,7 +5,7 @@ Seed OS artifacts are published into a deterministic, content-addressed registry
 ## Layout
 
 ```
-registry/
+distribution/registry/local/
   blobs/<BLAKE3 hash>
   manifests/<BLAKE3 hash>.json            # signed manifest emitted by ota/mod signers
   evidence/<SHA-256 hash>.json            # host evidence records copied by content hash
@@ -49,13 +49,13 @@ report, and local attestation. It remains host diagnostic evidence only:
 
 The `registry-tools` binary wraps common operations:
 
-- `cargo run -p registry-tools -- init --path registry/local`
-- `cargo run -p registry-tools -- publish --registry registry/local --blob <file> --manifest <manifest.json> --root-pub keys/dev/root.pub`
-- `cargo run -p registry-tools -- publish --registry registry/local --blob <file> --manifest <manifest.json> --root-pub keys/dev/root.pub --vm-report release/vm-reports/<report>.json --local-attestation release/attestations/<attestation>.json`
+- `cargo run -p registry-tools -- init --path distribution/registry/local`
+- `cargo run -p registry-tools -- publish --registry distribution/registry/local --blob <file> --manifest <manifest.json> --root-pub keys/dev/root.pub`
+- `cargo run -p registry-tools -- publish --registry distribution/registry/local --blob <file> --manifest <manifest.json> --root-pub keys/dev/root.pub --vm-report release/vm-reports/<report>.json --local-attestation release/attestations/<attestation>.json`
 - `cargo run -p registry-tools -- grant-diagnostic --manifest <module-manifest.json> --artifact <file> --vm-report release/vm-reports/<report>.json --local-attestation release/attestations/<attestation>.json --approval "APPROVE RAM_ONLY <tuple-prefix>"`
 - `cargo run -p registry-tools -- audit-rollback-diagnostic --manifest <module-manifest.json> --artifact <file> --vm-report release/vm-reports/<report>.json --local-attestation release/attestations/<attestation>.json --approval "APPROVE RAM_ONLY <tuple-prefix>" --computed-grant-hash sha256:<grant> --denial-event-id event.current_boot.00000031 --retained-reference-event-id event.current_boot.00000027 --ram-only-service-slot-id ram_only:svc.example.0001 --pre-load-service-inventory-hash sha256:<inventory> --cleanup-actions-hash sha256:<cleanup>`
-- `cargo run -p registry-tools -- list --registry registry/local [--namespace modules] [--name hello-ui]`
-- `cargo run -p registry-tools -- distribution-export --registry registry/local --namespace modules --name svc.demo.echo --tag <tag> --artifact-identity-descriptor <file.desc> --artifact-identity-public-key <file.pub.hex> --artifact-identity-signature <file.sig.der.hex> --load-descriptor <file.desc> --load-descriptor-public-key <file.pub.hex> --load-descriptor-signature <file.sig.der.hex>`
+- `cargo run -p registry-tools -- list --registry distribution/registry/local [--namespace modules] [--name hello-ui]`
+- `cargo run -p registry-tools -- distribution-export --registry distribution/registry/local --namespace modules --name svc.demo.echo --tag <tag> --artifact-identity-descriptor <file.desc> --artifact-identity-public-key <file.pub.hex> --artifact-identity-signature <file.sig.der.hex> --load-descriptor <file.desc> --load-descriptor-public-key <file.pub.hex> --load-descriptor-signature <file.sig.der.hex>`
 
 Publishing verifies the manifest against the offline root key, copies the blob and manifest into the CAS layout, and generates the index record.
 `distribution-export` verifies the optional raiOS descriptor signatures and
