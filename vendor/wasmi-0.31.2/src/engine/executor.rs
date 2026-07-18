@@ -1,42 +1,25 @@
 use super::{
     bytecode::{BranchOffset, F64Const32},
     const_pool::ConstRef,
-    CompiledFunc,
-    ConstPoolView,
+    CompiledFunc, ConstPoolView,
 };
 use crate::{
     core::TrapCode,
     engine::{
         bytecode::{
-            AddressOffset,
-            BlockFuel,
-            BranchTableTargets,
-            DataSegmentIdx,
-            ElementSegmentIdx,
-            FuncIdx,
-            GlobalIdx,
-            Instruction,
-            LocalDepth,
-            SignatureIdx,
-            TableIdx,
+            AddressOffset, BlockFuel, BranchTableTargets, DataSegmentIdx, ElementSegmentIdx,
+            FuncIdx, GlobalIdx, Instruction, LocalDepth, SignatureIdx, TableIdx,
         },
         cache::InstanceCache,
         code_map::{CodeMap, InstructionPtr},
         config::FuelCosts,
         stack::{CallStack, ValueStackPtr},
-        DropKeep,
-        FuncFrame,
-        ValueStack,
+        DropKeep, FuncFrame, ValueStack,
     },
     func::FuncEntity,
     store::ResourceLimiterRef,
     table::TableEntity,
-    FuelConsumptionMode,
-    Func,
-    FuncRef,
-    Instance,
-    StoreInner,
-    Table,
+    FuelConsumptionMode, Func, FuncRef, Instance, StoreInner, Table,
 };
 use core::cmp::{self};
 use wasmi_core::{Pages, UntypedValue};
@@ -122,6 +105,31 @@ type WasmStoreOp = fn(
     offset: u32,
     value: UntypedValue,
 ) -> Result<(), TrapCode>;
+
+/// The operation performed by an atomic read-modify-write instruction.
+#[derive(Debug, Copy, Clone)]
+enum AtomicRmwOp {
+    Add,
+    Sub,
+    And,
+    Or,
+    Xor,
+    Xchg,
+}
+
+impl AtomicRmwOp {
+    /// Applies the operation using wrapping integer semantics.
+    fn apply(self, lhs: u64, rhs: u64) -> u64 {
+        match self {
+            Self::Add => lhs.wrapping_add(rhs),
+            Self::Sub => lhs.wrapping_sub(rhs),
+            Self::And => lhs & rhs,
+            Self::Or => lhs | rhs,
+            Self::Xor => lhs ^ rhs,
+            Self::Xchg => rhs,
+        }
+    }
+}
 
 /// An error that can occur upon `memory.grow` or `table.grow`.
 #[derive(Copy, Clone)]
@@ -304,6 +312,65 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
                 Instr::I64AtomicStore8(offset) => self.visit_i64_atomic_store8(offset)?,
                 Instr::I64AtomicStore16(offset) => self.visit_i64_atomic_store16(offset)?,
                 Instr::I64AtomicStore32(offset) => self.visit_i64_atomic_store32(offset)?,
+                Instr::I32AtomicRmwAdd(offset) => self.visit_i32_atomic_rmw_add(offset)?,
+                Instr::I64AtomicRmwAdd(offset) => self.visit_i64_atomic_rmw_add(offset)?,
+                Instr::I32AtomicRmw8AddU(offset) => self.visit_i32_atomic_rmw8_add_u(offset)?,
+                Instr::I32AtomicRmw16AddU(offset) => self.visit_i32_atomic_rmw16_add_u(offset)?,
+                Instr::I64AtomicRmw8AddU(offset) => self.visit_i64_atomic_rmw8_add_u(offset)?,
+                Instr::I64AtomicRmw16AddU(offset) => self.visit_i64_atomic_rmw16_add_u(offset)?,
+                Instr::I64AtomicRmw32AddU(offset) => self.visit_i64_atomic_rmw32_add_u(offset)?,
+                Instr::I32AtomicRmwSub(offset) => self.visit_i32_atomic_rmw_sub(offset)?,
+                Instr::I64AtomicRmwSub(offset) => self.visit_i64_atomic_rmw_sub(offset)?,
+                Instr::I32AtomicRmw8SubU(offset) => self.visit_i32_atomic_rmw8_sub_u(offset)?,
+                Instr::I32AtomicRmw16SubU(offset) => self.visit_i32_atomic_rmw16_sub_u(offset)?,
+                Instr::I64AtomicRmw8SubU(offset) => self.visit_i64_atomic_rmw8_sub_u(offset)?,
+                Instr::I64AtomicRmw16SubU(offset) => self.visit_i64_atomic_rmw16_sub_u(offset)?,
+                Instr::I64AtomicRmw32SubU(offset) => self.visit_i64_atomic_rmw32_sub_u(offset)?,
+                Instr::I32AtomicRmwAnd(offset) => self.visit_i32_atomic_rmw_and(offset)?,
+                Instr::I64AtomicRmwAnd(offset) => self.visit_i64_atomic_rmw_and(offset)?,
+                Instr::I32AtomicRmw8AndU(offset) => self.visit_i32_atomic_rmw8_and_u(offset)?,
+                Instr::I32AtomicRmw16AndU(offset) => self.visit_i32_atomic_rmw16_and_u(offset)?,
+                Instr::I64AtomicRmw8AndU(offset) => self.visit_i64_atomic_rmw8_and_u(offset)?,
+                Instr::I64AtomicRmw16AndU(offset) => self.visit_i64_atomic_rmw16_and_u(offset)?,
+                Instr::I64AtomicRmw32AndU(offset) => self.visit_i64_atomic_rmw32_and_u(offset)?,
+                Instr::I32AtomicRmwOr(offset) => self.visit_i32_atomic_rmw_or(offset)?,
+                Instr::I64AtomicRmwOr(offset) => self.visit_i64_atomic_rmw_or(offset)?,
+                Instr::I32AtomicRmw8OrU(offset) => self.visit_i32_atomic_rmw8_or_u(offset)?,
+                Instr::I32AtomicRmw16OrU(offset) => self.visit_i32_atomic_rmw16_or_u(offset)?,
+                Instr::I64AtomicRmw8OrU(offset) => self.visit_i64_atomic_rmw8_or_u(offset)?,
+                Instr::I64AtomicRmw16OrU(offset) => self.visit_i64_atomic_rmw16_or_u(offset)?,
+                Instr::I64AtomicRmw32OrU(offset) => self.visit_i64_atomic_rmw32_or_u(offset)?,
+                Instr::I32AtomicRmwXor(offset) => self.visit_i32_atomic_rmw_xor(offset)?,
+                Instr::I64AtomicRmwXor(offset) => self.visit_i64_atomic_rmw_xor(offset)?,
+                Instr::I32AtomicRmw8XorU(offset) => self.visit_i32_atomic_rmw8_xor_u(offset)?,
+                Instr::I32AtomicRmw16XorU(offset) => self.visit_i32_atomic_rmw16_xor_u(offset)?,
+                Instr::I64AtomicRmw8XorU(offset) => self.visit_i64_atomic_rmw8_xor_u(offset)?,
+                Instr::I64AtomicRmw16XorU(offset) => self.visit_i64_atomic_rmw16_xor_u(offset)?,
+                Instr::I64AtomicRmw32XorU(offset) => self.visit_i64_atomic_rmw32_xor_u(offset)?,
+                Instr::I32AtomicRmwXchg(offset) => self.visit_i32_atomic_rmw_xchg(offset)?,
+                Instr::I64AtomicRmwXchg(offset) => self.visit_i64_atomic_rmw_xchg(offset)?,
+                Instr::I32AtomicRmw8XchgU(offset) => self.visit_i32_atomic_rmw8_xchg_u(offset)?,
+                Instr::I32AtomicRmw16XchgU(offset) => self.visit_i32_atomic_rmw16_xchg_u(offset)?,
+                Instr::I64AtomicRmw8XchgU(offset) => self.visit_i64_atomic_rmw8_xchg_u(offset)?,
+                Instr::I64AtomicRmw16XchgU(offset) => self.visit_i64_atomic_rmw16_xchg_u(offset)?,
+                Instr::I64AtomicRmw32XchgU(offset) => self.visit_i64_atomic_rmw32_xchg_u(offset)?,
+                Instr::I32AtomicRmwCmpxchg(offset) => self.visit_i32_atomic_rmw_cmpxchg(offset)?,
+                Instr::I64AtomicRmwCmpxchg(offset) => self.visit_i64_atomic_rmw_cmpxchg(offset)?,
+                Instr::I32AtomicRmw8CmpxchgU(offset) => {
+                    self.visit_i32_atomic_rmw8_cmpxchg_u(offset)?
+                }
+                Instr::I32AtomicRmw16CmpxchgU(offset) => {
+                    self.visit_i32_atomic_rmw16_cmpxchg_u(offset)?
+                }
+                Instr::I64AtomicRmw8CmpxchgU(offset) => {
+                    self.visit_i64_atomic_rmw8_cmpxchg_u(offset)?
+                }
+                Instr::I64AtomicRmw16CmpxchgU(offset) => {
+                    self.visit_i64_atomic_rmw16_cmpxchg_u(offset)?
+                }
+                Instr::I64AtomicRmw32CmpxchgU(offset) => {
+                    self.visit_i64_atomic_rmw32_cmpxchg_u(offset)?
+                }
                 Instr::AtomicFence => self.visit_atomic_fence(),
                 Instr::MemorySize => self.visit_memory_size(),
                 Instr::MemoryGrow => self.visit_memory_grow(&mut *resource_limiter)?,
@@ -553,6 +620,58 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
         Self::check_atomic_alignment(address, offset, alignment)?;
         let memory = self.cache.default_memory_bytes(self.ctx);
         store_wrap(memory, address, offset.into_inner(), value)?;
+        self.try_next_instr()
+    }
+
+    /// Executes an atomic Wasm read-modify-write operation.
+    #[inline(always)]
+    fn execute_atomic_rmw(
+        &mut self,
+        offset: AddressOffset,
+        alignment: u32,
+        value_mask: u64,
+        load_extend: WasmLoadOp,
+        store_wrap: WasmStoreOp,
+        operation: AtomicRmwOp,
+    ) -> Result<(), TrapCode> {
+        let (address, operand) = self.sp.pop2();
+        Self::check_atomic_alignment(address, offset, alignment)?;
+        let memory = self.cache.default_memory_bytes(self.ctx);
+        let old_value = load_extend(memory, address, offset.into_inner())?;
+        let new_value = operation.apply(old_value.to_bits(), operand.to_bits()) & value_mask;
+        store_wrap(
+            memory,
+            address,
+            offset.into_inner(),
+            UntypedValue::from(new_value),
+        )?;
+        self.sp.push(old_value);
+        self.try_next_instr()
+    }
+
+    /// Executes an atomic Wasm compare-and-exchange operation.
+    #[inline(always)]
+    fn execute_atomic_cmpxchg(
+        &mut self,
+        offset: AddressOffset,
+        alignment: u32,
+        value_mask: u64,
+        load_extend: WasmLoadOp,
+        store_wrap: WasmStoreOp,
+    ) -> Result<(), TrapCode> {
+        let (address, expected, replacement) = self.sp.pop3();
+        Self::check_atomic_alignment(address, offset, alignment)?;
+        let memory = self.cache.default_memory_bytes(self.ctx);
+        let old_value = load_extend(memory, address, offset.into_inner())?;
+        if old_value.to_bits() == expected.to_bits() & value_mask {
+            store_wrap(
+                memory,
+                address,
+                offset.into_inner(),
+                UntypedValue::from(replacement.to_bits() & value_mask),
+            )?;
+        }
+        self.sp.push(old_value);
         self.try_next_instr()
     }
 
@@ -1522,7 +1641,126 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
         fn visit_i64_atomic_store16(2, i64_store16);
         fn visit_i64_atomic_store32(4, i64_store32);
     }
+}
 
+macro_rules! impl_visit_atomic_rmw {
+    (
+        $(
+            fn $visit_ident:ident(
+                $alignment:literal,
+                $value_mask:expr,
+                $load_ident:ident,
+                $store_ident:ident,
+                $operation:ident
+            );
+        )*
+    ) => {
+        $(
+            #[inline(always)]
+            fn $visit_ident(
+                &mut self,
+                offset: AddressOffset,
+            ) -> Result<(), TrapCode> {
+                self.execute_atomic_rmw(
+                    offset,
+                    $alignment,
+                    $value_mask,
+                    UntypedValue::$load_ident,
+                    UntypedValue::$store_ident,
+                    AtomicRmwOp::$operation,
+                )
+            }
+        )*
+    }
+}
+impl<'ctx, 'engine> Executor<'ctx, 'engine> {
+    impl_visit_atomic_rmw! {
+        fn visit_i32_atomic_rmw_add(4, 0xFFFF_FFFF, i32_load, i32_store, Add);
+        fn visit_i64_atomic_rmw_add(8, u64::MAX, i64_load, i64_store, Add);
+        fn visit_i32_atomic_rmw8_add_u(1, 0xFF, i32_load8_u, i32_store8, Add);
+        fn visit_i32_atomic_rmw16_add_u(2, 0xFFFF, i32_load16_u, i32_store16, Add);
+        fn visit_i64_atomic_rmw8_add_u(1, 0xFF, i64_load8_u, i64_store8, Add);
+        fn visit_i64_atomic_rmw16_add_u(2, 0xFFFF, i64_load16_u, i64_store16, Add);
+        fn visit_i64_atomic_rmw32_add_u(4, 0xFFFF_FFFF, i64_load32_u, i64_store32, Add);
+        fn visit_i32_atomic_rmw_sub(4, 0xFFFF_FFFF, i32_load, i32_store, Sub);
+        fn visit_i64_atomic_rmw_sub(8, u64::MAX, i64_load, i64_store, Sub);
+        fn visit_i32_atomic_rmw8_sub_u(1, 0xFF, i32_load8_u, i32_store8, Sub);
+        fn visit_i32_atomic_rmw16_sub_u(2, 0xFFFF, i32_load16_u, i32_store16, Sub);
+        fn visit_i64_atomic_rmw8_sub_u(1, 0xFF, i64_load8_u, i64_store8, Sub);
+        fn visit_i64_atomic_rmw16_sub_u(2, 0xFFFF, i64_load16_u, i64_store16, Sub);
+        fn visit_i64_atomic_rmw32_sub_u(4, 0xFFFF_FFFF, i64_load32_u, i64_store32, Sub);
+        fn visit_i32_atomic_rmw_and(4, 0xFFFF_FFFF, i32_load, i32_store, And);
+        fn visit_i64_atomic_rmw_and(8, u64::MAX, i64_load, i64_store, And);
+        fn visit_i32_atomic_rmw8_and_u(1, 0xFF, i32_load8_u, i32_store8, And);
+        fn visit_i32_atomic_rmw16_and_u(2, 0xFFFF, i32_load16_u, i32_store16, And);
+        fn visit_i64_atomic_rmw8_and_u(1, 0xFF, i64_load8_u, i64_store8, And);
+        fn visit_i64_atomic_rmw16_and_u(2, 0xFFFF, i64_load16_u, i64_store16, And);
+        fn visit_i64_atomic_rmw32_and_u(4, 0xFFFF_FFFF, i64_load32_u, i64_store32, And);
+        fn visit_i32_atomic_rmw_or(4, 0xFFFF_FFFF, i32_load, i32_store, Or);
+        fn visit_i64_atomic_rmw_or(8, u64::MAX, i64_load, i64_store, Or);
+        fn visit_i32_atomic_rmw8_or_u(1, 0xFF, i32_load8_u, i32_store8, Or);
+        fn visit_i32_atomic_rmw16_or_u(2, 0xFFFF, i32_load16_u, i32_store16, Or);
+        fn visit_i64_atomic_rmw8_or_u(1, 0xFF, i64_load8_u, i64_store8, Or);
+        fn visit_i64_atomic_rmw16_or_u(2, 0xFFFF, i64_load16_u, i64_store16, Or);
+        fn visit_i64_atomic_rmw32_or_u(4, 0xFFFF_FFFF, i64_load32_u, i64_store32, Or);
+        fn visit_i32_atomic_rmw_xor(4, 0xFFFF_FFFF, i32_load, i32_store, Xor);
+        fn visit_i64_atomic_rmw_xor(8, u64::MAX, i64_load, i64_store, Xor);
+        fn visit_i32_atomic_rmw8_xor_u(1, 0xFF, i32_load8_u, i32_store8, Xor);
+        fn visit_i32_atomic_rmw16_xor_u(2, 0xFFFF, i32_load16_u, i32_store16, Xor);
+        fn visit_i64_atomic_rmw8_xor_u(1, 0xFF, i64_load8_u, i64_store8, Xor);
+        fn visit_i64_atomic_rmw16_xor_u(2, 0xFFFF, i64_load16_u, i64_store16, Xor);
+        fn visit_i64_atomic_rmw32_xor_u(4, 0xFFFF_FFFF, i64_load32_u, i64_store32, Xor);
+        fn visit_i32_atomic_rmw_xchg(4, 0xFFFF_FFFF, i32_load, i32_store, Xchg);
+        fn visit_i64_atomic_rmw_xchg(8, u64::MAX, i64_load, i64_store, Xchg);
+        fn visit_i32_atomic_rmw8_xchg_u(1, 0xFF, i32_load8_u, i32_store8, Xchg);
+        fn visit_i32_atomic_rmw16_xchg_u(2, 0xFFFF, i32_load16_u, i32_store16, Xchg);
+        fn visit_i64_atomic_rmw8_xchg_u(1, 0xFF, i64_load8_u, i64_store8, Xchg);
+        fn visit_i64_atomic_rmw16_xchg_u(2, 0xFFFF, i64_load16_u, i64_store16, Xchg);
+        fn visit_i64_atomic_rmw32_xchg_u(4, 0xFFFF_FFFF, i64_load32_u, i64_store32, Xchg);
+    }
+}
+
+macro_rules! impl_visit_atomic_cmpxchg {
+    (
+        $(
+            fn $visit_ident:ident(
+                $alignment:literal,
+                $value_mask:expr,
+                $load_ident:ident,
+                $store_ident:ident
+            );
+        )*
+    ) => {
+        $(
+            #[inline(always)]
+            fn $visit_ident(
+                &mut self,
+                offset: AddressOffset,
+            ) -> Result<(), TrapCode> {
+                self.execute_atomic_cmpxchg(
+                    offset,
+                    $alignment,
+                    $value_mask,
+                    UntypedValue::$load_ident,
+                    UntypedValue::$store_ident,
+                )
+            }
+        )*
+    }
+}
+impl<'ctx, 'engine> Executor<'ctx, 'engine> {
+    impl_visit_atomic_cmpxchg! {
+        fn visit_i32_atomic_rmw_cmpxchg(4, 0xFFFF_FFFF, i32_load, i32_store);
+        fn visit_i64_atomic_rmw_cmpxchg(8, u64::MAX, i64_load, i64_store);
+        fn visit_i32_atomic_rmw8_cmpxchg_u(1, 0xFF, i32_load8_u, i32_store8);
+        fn visit_i32_atomic_rmw16_cmpxchg_u(2, 0xFFFF, i32_load16_u, i32_store16);
+        fn visit_i64_atomic_rmw8_cmpxchg_u(1, 0xFF, i64_load8_u, i64_store8);
+        fn visit_i64_atomic_rmw16_cmpxchg_u(2, 0xFFFF, i64_load16_u, i64_store16);
+        fn visit_i64_atomic_rmw32_cmpxchg_u(4, 0xFFFF_FFFF, i64_load32_u, i64_store32);
+    }
+}
+
+impl<'ctx, 'engine> Executor<'ctx, 'engine> {
     #[inline(always)]
     fn visit_atomic_fence(&mut self) {
         self.next_instr()

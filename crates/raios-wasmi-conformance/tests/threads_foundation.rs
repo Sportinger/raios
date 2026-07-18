@@ -171,18 +171,7 @@ fn assert_atomic_translation_rejected(wat: &str, operator: &str) {
 }
 
 #[test]
-fn rmw_and_wait_remain_rejected_during_translation() {
-    assert_atomic_translation_rejected(
-        r#"
-        (module
-            (memory 1 1 shared)
-            (func (export "rmw") (param i32 i32) (result i32)
-                local.get 0
-                local.get 1
-                i32.atomic.rmw.add))
-        "#,
-        "I32AtomicRmwAdd",
-    );
+fn wait_and_notify_remain_rejected_during_translation() {
     assert_atomic_translation_rejected(
         r#"
         (module
@@ -194,5 +183,16 @@ fn rmw_and_wait_remain_rejected_during_translation() {
                 memory.atomic.wait32))
         "#,
         "MemoryAtomicWait32",
+    );
+    assert_atomic_translation_rejected(
+        r#"
+        (module
+            (memory 1 1 shared)
+            (func (export "notify") (param i32 i32) (result i32)
+                local.get 0
+                local.get 1
+                memory.atomic.notify))
+        "#,
+        "MemoryAtomicNotify",
     );
 }

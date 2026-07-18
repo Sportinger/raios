@@ -1,53 +1,27 @@
 use super::{
     control_frame::{
-        BlockControlFrame,
-        ControlFrame,
-        IfControlFrame,
-        LoopControlFrame,
-        UnreachableControlFrame,
+        BlockControlFrame, ControlFrame, IfControlFrame, LoopControlFrame, UnreachableControlFrame,
     },
     labels::LabelRef,
     locals_registry::LocalsRegistry,
     value_stack::ValueStackHeight,
-    ControlFlowStack,
-    InstructionsBuilder,
-    TranslationError,
+    ControlFlowStack, InstructionsBuilder, TranslationError,
 };
 use crate::{
     engine::{
         bytecode::{
-            self,
-            AddressOffset,
-            BranchOffset,
-            BranchTableTargets,
-            DataSegmentIdx,
-            ElementSegmentIdx,
-            F64Const32,
-            Instruction,
-            SignatureIdx,
-            TableIdx,
+            self, AddressOffset, BranchOffset, BranchTableTargets, DataSegmentIdx,
+            ElementSegmentIdx, F64Const32, Instruction, SignatureIdx, TableIdx,
         },
         config::FuelCosts,
         func_builder::control_frame::ControlFrameKind,
-        CompiledFunc,
-        DropKeep,
-        Instr,
-        RelativeDepth,
+        CompiledFunc, DropKeep, Instr, RelativeDepth,
     },
     module::{
-        BlockType,
-        ConstExpr,
-        FuncIdx,
-        FuncTypeIdx,
-        GlobalIdx,
-        MemoryIdx,
-        ModuleResources,
+        BlockType, ConstExpr, FuncIdx, FuncTypeIdx, GlobalIdx, MemoryIdx, ModuleResources,
         DEFAULT_MEMORY_INDEX,
     },
-    Engine,
-    FuncType,
-    GlobalType,
-    Mutability,
+    Engine, FuncType, GlobalType, Mutability,
 };
 use alloc::vec::Vec;
 use wasmi_core::{UntypedValue, ValueType, F32, F64};
@@ -538,6 +512,46 @@ impl<'parser> FuncTranslator<'parser> {
         })
     }
 
+    /// Translate an atomic Wasm read-modify-write instruction.
+    fn translate_atomic_rmw(
+        &mut self,
+        memarg: wasmparser::MemArg,
+        _value_type: ValueType,
+        make_inst: fn(AddressOffset) -> Instruction,
+    ) -> Result<(), TranslationError> {
+        self.translate_if_reachable(|builder| {
+            let (memory_idx, offset) = Self::decompose_memarg(memarg);
+            debug_assert_eq!(memory_idx.into_u32(), DEFAULT_MEMORY_INDEX);
+            builder.bump_fuel_consumption(builder.fuel_costs().load)?;
+            builder.bump_fuel_consumption(builder.fuel_costs().store)?;
+            builder.stack_height.pop2();
+            builder.stack_height.push();
+            let offset = AddressOffset::from(offset);
+            builder.alloc.inst_builder.push_inst(make_inst(offset));
+            Ok(())
+        })
+    }
+
+    /// Translate an atomic Wasm compare-and-exchange instruction.
+    fn translate_atomic_cmpxchg(
+        &mut self,
+        memarg: wasmparser::MemArg,
+        _value_type: ValueType,
+        make_inst: fn(AddressOffset) -> Instruction,
+    ) -> Result<(), TranslationError> {
+        self.translate_if_reachable(|builder| {
+            let (memory_idx, offset) = Self::decompose_memarg(memarg);
+            debug_assert_eq!(memory_idx.into_u32(), DEFAULT_MEMORY_INDEX);
+            builder.bump_fuel_consumption(builder.fuel_costs().load)?;
+            builder.bump_fuel_consumption(builder.fuel_costs().store)?;
+            builder.stack_height.pop3();
+            builder.stack_height.push();
+            let offset = AddressOffset::from(offset);
+            builder.alloc.inst_builder.push_inst(make_inst(offset));
+            Ok(())
+        })
+    }
+
     /// Translate a generic Wasm `<ty>.const` instruction.
     ///
     /// # Note
@@ -853,6 +867,153 @@ macro_rules! impl_visit_operator {
         impl_visit_operator!($($rest)*);
     };
     ( @threads I64AtomicStore32 { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmwAdd { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmwAdd { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw8AddU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw16AddU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw8AddU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw16AddU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw32AddU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmwSub { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmwSub { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw8SubU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw16SubU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw8SubU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw16SubU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw32SubU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmwAnd { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmwAnd { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw8AndU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw16AndU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw8AndU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw16AndU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw32AndU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmwOr { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmwOr { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw8OrU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw16OrU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw8OrU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw16OrU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw32OrU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmwXor { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmwXor { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw8XorU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw16XorU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw8XorU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw16XorU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw32XorU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmwXchg { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmwXchg { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw8XchgU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw16XchgU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw8XchgU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw16XchgU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw32XchgU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmwCmpxchg { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmwCmpxchg { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw8CmpxchgU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw16CmpxchgU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw8CmpxchgU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw16CmpxchgU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw32CmpxchgU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
         impl_visit_operator!($($rest)*);
     };
     ( @@skipped $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident $($rest:tt)* ) => {
@@ -1693,6 +1854,349 @@ impl<'a> VisitOperator<'a> for FuncTranslator<'a> {
         memarg: wasmparser::MemArg,
     ) -> Result<(), TranslationError> {
         self.translate_store(memarg, ValueType::I64, Instruction::I64AtomicStore32)
+    }
+
+    fn visit_i32_atomic_rmw_add(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I32, Instruction::I32AtomicRmwAdd)
+    }
+
+    fn visit_i64_atomic_rmw_add(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmwAdd)
+    }
+
+    fn visit_i32_atomic_rmw8_add_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I32, Instruction::I32AtomicRmw8AddU)
+    }
+
+    fn visit_i32_atomic_rmw16_add_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I32, Instruction::I32AtomicRmw16AddU)
+    }
+
+    fn visit_i64_atomic_rmw8_add_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmw8AddU)
+    }
+
+    fn visit_i64_atomic_rmw16_add_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmw16AddU)
+    }
+
+    fn visit_i64_atomic_rmw32_add_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmw32AddU)
+    }
+
+    fn visit_i32_atomic_rmw_sub(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I32, Instruction::I32AtomicRmwSub)
+    }
+
+    fn visit_i64_atomic_rmw_sub(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmwSub)
+    }
+
+    fn visit_i32_atomic_rmw8_sub_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I32, Instruction::I32AtomicRmw8SubU)
+    }
+
+    fn visit_i32_atomic_rmw16_sub_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I32, Instruction::I32AtomicRmw16SubU)
+    }
+
+    fn visit_i64_atomic_rmw8_sub_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmw8SubU)
+    }
+
+    fn visit_i64_atomic_rmw16_sub_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmw16SubU)
+    }
+
+    fn visit_i64_atomic_rmw32_sub_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmw32SubU)
+    }
+
+    fn visit_i32_atomic_rmw_and(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I32, Instruction::I32AtomicRmwAnd)
+    }
+
+    fn visit_i64_atomic_rmw_and(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmwAnd)
+    }
+
+    fn visit_i32_atomic_rmw8_and_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I32, Instruction::I32AtomicRmw8AndU)
+    }
+
+    fn visit_i32_atomic_rmw16_and_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I32, Instruction::I32AtomicRmw16AndU)
+    }
+
+    fn visit_i64_atomic_rmw8_and_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmw8AndU)
+    }
+
+    fn visit_i64_atomic_rmw16_and_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmw16AndU)
+    }
+
+    fn visit_i64_atomic_rmw32_and_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmw32AndU)
+    }
+
+    fn visit_i32_atomic_rmw_or(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I32, Instruction::I32AtomicRmwOr)
+    }
+
+    fn visit_i64_atomic_rmw_or(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmwOr)
+    }
+
+    fn visit_i32_atomic_rmw8_or_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I32, Instruction::I32AtomicRmw8OrU)
+    }
+
+    fn visit_i32_atomic_rmw16_or_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I32, Instruction::I32AtomicRmw16OrU)
+    }
+
+    fn visit_i64_atomic_rmw8_or_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmw8OrU)
+    }
+
+    fn visit_i64_atomic_rmw16_or_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmw16OrU)
+    }
+
+    fn visit_i64_atomic_rmw32_or_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmw32OrU)
+    }
+
+    fn visit_i32_atomic_rmw_xor(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I32, Instruction::I32AtomicRmwXor)
+    }
+
+    fn visit_i64_atomic_rmw_xor(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmwXor)
+    }
+
+    fn visit_i32_atomic_rmw8_xor_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I32, Instruction::I32AtomicRmw8XorU)
+    }
+
+    fn visit_i32_atomic_rmw16_xor_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I32, Instruction::I32AtomicRmw16XorU)
+    }
+
+    fn visit_i64_atomic_rmw8_xor_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmw8XorU)
+    }
+
+    fn visit_i64_atomic_rmw16_xor_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmw16XorU)
+    }
+
+    fn visit_i64_atomic_rmw32_xor_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmw32XorU)
+    }
+
+    fn visit_i32_atomic_rmw_xchg(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I32, Instruction::I32AtomicRmwXchg)
+    }
+
+    fn visit_i64_atomic_rmw_xchg(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmwXchg)
+    }
+
+    fn visit_i32_atomic_rmw8_xchg_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I32, Instruction::I32AtomicRmw8XchgU)
+    }
+
+    fn visit_i32_atomic_rmw16_xchg_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I32, Instruction::I32AtomicRmw16XchgU)
+    }
+
+    fn visit_i64_atomic_rmw8_xchg_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmw8XchgU)
+    }
+
+    fn visit_i64_atomic_rmw16_xchg_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmw16XchgU)
+    }
+
+    fn visit_i64_atomic_rmw32_xchg_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_rmw(memarg, ValueType::I64, Instruction::I64AtomicRmw32XchgU)
+    }
+
+    fn visit_i32_atomic_rmw_cmpxchg(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_cmpxchg(memarg, ValueType::I32, Instruction::I32AtomicRmwCmpxchg)
+    }
+
+    fn visit_i64_atomic_rmw_cmpxchg(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_cmpxchg(memarg, ValueType::I64, Instruction::I64AtomicRmwCmpxchg)
+    }
+
+    fn visit_i32_atomic_rmw8_cmpxchg_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_cmpxchg(memarg, ValueType::I32, Instruction::I32AtomicRmw8CmpxchgU)
+    }
+
+    fn visit_i32_atomic_rmw16_cmpxchg_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_cmpxchg(memarg, ValueType::I32, Instruction::I32AtomicRmw16CmpxchgU)
+    }
+
+    fn visit_i64_atomic_rmw8_cmpxchg_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_cmpxchg(memarg, ValueType::I64, Instruction::I64AtomicRmw8CmpxchgU)
+    }
+
+    fn visit_i64_atomic_rmw16_cmpxchg_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_cmpxchg(memarg, ValueType::I64, Instruction::I64AtomicRmw16CmpxchgU)
+    }
+
+    fn visit_i64_atomic_rmw32_cmpxchg_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_cmpxchg(memarg, ValueType::I64, Instruction::I64AtomicRmw32CmpxchgU)
     }
 
     fn visit_memory_size(

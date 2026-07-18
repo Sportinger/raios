@@ -8,9 +8,7 @@ mod translator;
 mod value_stack;
 
 use self::{
-    control_frame::ControlFrame,
-    control_stack::ControlFlowStack,
-    translator::FuncTranslator,
+    control_frame::ControlFrame, control_stack::ControlFlowStack, translator::FuncTranslator,
 };
 pub use self::{
     error::{TranslationError, TranslationErrorInner},
@@ -216,6 +214,202 @@ macro_rules! impl_visit_operator {
         impl_visit_operator!($($rest)*);
     };
     ( @threads I64AtomicStore32 { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmwAdd { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmwAdd { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw8AddU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw16AddU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw8AddU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw16AddU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw32AddU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmwSub { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmwSub { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw8SubU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw16SubU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw8SubU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw16SubU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw32SubU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmwAnd { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmwAnd { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw8AndU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw16AndU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw8AndU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw16AndU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw32AndU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmwOr { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmwOr { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw8OrU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw16OrU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw8OrU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw16OrU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw32OrU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmwXor { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmwXor { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw8XorU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw16XorU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw8XorU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw16XorU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw32XorU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmwXchg { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmwXchg { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw8XchgU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw16XchgU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw8XchgU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw16XchgU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw32XchgU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmwCmpxchg { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmwCmpxchg { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw8CmpxchgU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicRmw16CmpxchgU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw8CmpxchgU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw16CmpxchgU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicRmw32CmpxchgU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
         impl_supported_thread_operator!($visit { $($arg: $argty),* });
         impl_visit_operator!($($rest)*);
     };
