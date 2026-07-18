@@ -12,6 +12,7 @@ members = [
     "crates/raios-lang",
     "crates/raios-w7-acquire-logic",
     "crates/raios-wasm-ir",
+    "crates/raios-wasmi-conformance",
     "tools/descriptor-resign",
     "tools/core-policy-sign",
     "seed-kernel",
