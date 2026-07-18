@@ -1,4 +1,5 @@
 mod context;
+mod dream;
 mod genesis;
 mod personal_surface;
 mod recovery;

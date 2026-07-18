@@ -1,13 +1,11 @@
 //! Core-owned Genesis presentation.  It renders only typed snapshots and delegates
 //! existing setup actions to the current console/provider adapters.
 
-use alloc::format;
-
 use crate::agent_protocol::recovery_lifeline;
 use crate::framebuffer::{Color, FramebufferInfo, FramebufferSurface};
 use crate::system_status::{RowState, SnapshotStates, StatusLine, SystemSnapshot};
 use crate::{
-    agent_build_loop, agent_protocol_project_install, console, granted_candidate_service, input,
+    agent_protocol_project_install, console, granted_candidate_service, input,
     personal_shell_service, program_persistence, program_workspace, provider, secret_vault, serial,
     text, wifi, workspace_candidate_service,
 };
@@ -19,17 +17,16 @@ use raios_core::{
 
 use super::{
     context,
+    dream::{self, DreamState, HitTarget as DreamHitTarget, Tab as DreamTab},
     personal_surface::{PersonalSurface, PersonalSurfaceRoute},
     recovery, vault_flow, wifi_flow,
 };
 
 const CONTAINED_QEMU_POWER_CUT_KEYCODE_F9: u16 = 67;
-const CONVERSATION_ROW_HEIGHT: usize = 12;
 const CONVERSATION_WHEEL_ROWS: usize = 3;
 const COMPOSER_CURSOR_BLINK_MS: u64 = 500;
 
 pub(crate) const FONT_ADVANCE: usize = 9;
-pub(crate) const APP_BG: Color = Color::new(20, 22, 26);
 pub(crate) const SURFACE_BG: Color = Color::new(29, 32, 38);
 pub(crate) const SURFACE_ALT: Color = Color::new(39, 43, 51);
 pub(crate) const HAIRLINE: Color = Color::new(62, 67, 76);
@@ -67,6 +64,7 @@ pub struct ShellHost {
     recovery_open: bool,
     conversation_scroll_rows: usize,
     last_composer_cursor_phase: bool,
+    dream: DreamState,
     personal: PersonalSurface,
     vault: vault_flow::VaultFlow,
 }
@@ -89,6 +87,7 @@ impl ShellHost {
             recovery_open: false,
             conversation_scroll_rows: 0,
             last_composer_cursor_phase: false,
+            dream: DreamState::new(),
             personal: PersonalSurface::new(),
             vault: vault_flow::VaultFlow::new(),
         }
@@ -120,7 +119,13 @@ impl ShellHost {
         };
         self.log_transitions(&snapshot);
         let states = snapshot.states();
-        if flow_changed || personal_changed || force_draw || self.last_draw_states != Some(states) {
+        let dream_changed = self.dream.update_for_frame(uptime_ms);
+        if flow_changed
+            || personal_changed
+            || dream_changed
+            || force_draw
+            || self.last_draw_states != Some(states)
+        {
             if let Some(surface) = self.surface.as_mut() {
                 if self.personal.has_personal_focus() {
                     let Some(layout) = genesis_layout(surface.info()) else {
@@ -131,10 +136,16 @@ impl ShellHost {
                         .frame()
                         .is_some_and(|frame| draw_personal_frame(surface, layout, frame));
                     if rendered {
-                        // Genesis owns this strip. Draw it after every personal
-                        // command so the guest cannot cover recovery/secure UI.
-                        draw_secure_strip(surface, layout, uptime_ms, &snapshot, false);
+                        // The Dream shell has no secure/title strip.  The area
+                        // outside the bounded personal viewport remains blank.
                         let scale = surface.draw_scale();
+                        surface.fill_rect(
+                            0,
+                            0,
+                            layout.logical_size.width as usize,
+                            layout.personal_surface.y as usize,
+                            Color::new(8, 9, 11),
+                        );
                         let personal = rect_from_layout(layout.personal_surface);
                         surface.present_rect(
                             personal.x.saturating_mul(scale),
@@ -142,12 +153,11 @@ impl ShellHost {
                             personal.w.saturating_mul(scale),
                             personal.h.saturating_mul(scale),
                         );
-                        let strip = rect_from_layout(layout.secure_strip);
                         surface.present_rect(
-                            strip.x.saturating_mul(scale),
-                            strip.y.saturating_mul(scale),
-                            strip.w.saturating_mul(scale),
-                            strip.h.saturating_mul(scale),
+                            0,
+                            0,
+                            layout.logical_size.width as usize * scale,
+                            layout.personal_surface.y as usize * scale,
                         );
                     } else {
                         self.personal.exit();
@@ -163,6 +173,7 @@ impl ShellHost {
                             &self.recovery,
                             self.recovery_open,
                             &mut self.vault,
+                            &mut self.dream,
                         );
                         surface.present();
                     }
@@ -176,6 +187,7 @@ impl ShellHost {
                         &self.recovery,
                         self.recovery_open,
                         &mut self.vault,
+                        &mut self.dream,
                     );
                     surface.present();
                 }
@@ -203,7 +215,9 @@ impl ShellHost {
 
     fn render_composer_cursor(&mut self, uptime_ms: u64) {
         let phase = composer_cursor_phase(uptime_ms);
-        let active = !self.personal.has_personal_focus() && console::composer_active();
+        let active = !self.personal.has_personal_focus()
+            && self.dream.tab() == DreamTab::Chat
+            && console::composer_active();
         let visible = active && phase;
         if !active && self.last_composer_cursor_rect.is_none() {
             self.last_composer_cursor_phase = phase;
@@ -223,8 +237,8 @@ impl ShellHost {
                 surface.restore_from_back_rect(rect.x, rect.y, rect.w, rect.h);
             }
             if visible {
-                self.last_composer_cursor_rect = genesis_layout(surface.info())
-                    .and_then(|layout| draw_composer_cursor_front(surface, layout, &snapshot));
+                self.last_composer_cursor_rect =
+                    draw_composer_cursor_front(surface, &self.dream, &snapshot);
             }
             draw_current_cursor(surface, &mut self.last_cursor_rect);
         }
@@ -235,93 +249,121 @@ impl ShellHost {
         &mut self,
         runtime: crate::system_status::RuntimeStatus,
     ) -> bool {
-        let Some(surface) = self.surface.as_ref() else {
+        let Some(info) = self.surface.as_ref().map(|surface| surface.info()) else {
             return false;
         };
         let mouse = input::mouse_snapshot();
         let left_down = mouse.buttons & 1 != 0;
         let left_was_down = self.last_mouse_buttons & 1 != 0;
         self.last_mouse_buttons = mouse.buttons;
-        if !mouse.seen || !left_down || left_was_down {
-            return false;
-        }
-
-        let Some(layout) = genesis_layout(surface.info()) else {
-            return false;
-        };
         let x = mouse.x / 2;
         let y = mouse.y / 2;
+        let view = console::snapshot().view;
+        let dream_interactions_enabled = !self.vault.is_active()
+            && !self.personal.has_personal_focus()
+            && !self.wifi.is_active()
+            && view != console::UiView::Settings;
+        let approve_enabled = dream::real_approval_available();
+        let visual_changed = self.dream.update_pointer(
+            mouse.seen,
+            x,
+            y,
+            dream_interactions_enabled,
+            approve_enabled,
+        );
+        let animation_frame_due = self.dream.animation_frame_due();
+        if !mouse.seen || !left_down || left_was_down {
+            return visual_changed || animation_frame_due;
+        }
+
+        let Some(layout) = genesis_layout(info) else {
+            return visual_changed;
+        };
         let width = layout.logical_size.width as usize;
         let height = layout.logical_size.height as usize;
 
         if self.vault.is_active() {
-            return self.vault.handle_pointer(x, y, layout);
+            return self.vault.handle_pointer(x, y, layout) || visual_changed;
         }
         if self.personal.has_personal_focus() {
-            return false;
+            return visual_changed;
         }
         if self.wifi.is_active() {
-            return self.wifi.handle_pointer(x, y, width, height);
+            return self.wifi.handle_pointer(x, y, width, height) || visual_changed;
         }
-        let view = console::snapshot().view;
         if view == console::UiView::Settings {
-            return self.handle_setup_pointer(layout, x, y, width, height);
+            return self.handle_setup_pointer(layout, x, y, width, height) || visual_changed;
         }
-        if point_in(x, y, recovery_strip_rect(layout)) {
+
+        let hit = self.dream.hit_test(x, y, approve_enabled);
+        if hit == Some(DreamHitTarget::Recovery) {
             return self.toggle_recovery(runtime);
         }
         if self.recovery_open {
-            return self.handle_recovery_pointer(layout, x, y, runtime);
+            return self.handle_recovery_pointer(layout, x, y, runtime) || visual_changed;
         }
-        if point_in(x, y, context_personal_shell_rect(layout)) {
-            if agent_protocol_project_install::pending_physical_approval() {
-                return agent_protocol_project_install::approve_from_pointer();
+
+        match hit {
+            Some(DreamHitTarget::Composer | DreamHitTarget::TabChat) => {
+                self.dream.set_tab(DreamTab::Chat);
+                let _ = console::set_view(console::UiView::Ai);
+                true
             }
-            if granted_candidate_service::pending_approval() {
-                return granted_candidate_service::approve_and_run_from_pointer();
+            Some(DreamHitTarget::TabConsole) => {
+                self.dream.set_tab(DreamTab::Console);
+                let _ = console::set_view(console::UiView::Console);
+                true
             }
-            if workspace_candidate_service::pending_approval() {
-                return workspace_candidate_service::approve_and_run_from_pointer();
+            Some(DreamHitTarget::TabBuild) => {
+                self.dream.set_tab(DreamTab::Build);
+                true
             }
-            if let Some(program) = program_workspace::retained_program() {
-                let identity = program.identity();
-                let Some(context) = self.personal_context(runtime) else {
-                    console::write_event(format_args!(
-                        "PROGRAM START DENIED: framebuffer unavailable"
-                    ));
-                    return true;
-                };
-                let route = self.personal.enter_program(context, program);
-                let approved = if route == PersonalSurfaceRoute::Entered {
-                    match program_workspace::approve_retained_program() {
-                        Ok(approved) => Some(approved),
-                        Err(reason) => {
-                            console::write_event(format_args!(
-                                "PROGRAM INSTALL READY DENIED: {reason}"
-                            ));
-                            None
-                        }
-                    }
-                } else {
+            Some(DreamHitTarget::AiSetup) => {
+                self.dream.set_tab(DreamTab::Chat);
+                open_setup()
+            }
+            Some(DreamHitTarget::WifiSetup) => self.wifi.begin(),
+            Some(DreamHitTarget::Approve) => self.handle_real_approval(runtime),
+            Some(DreamHitTarget::Inert) => true,
+            Some(DreamHitTarget::Recovery) => true,
+            None => visual_changed,
+        }
+    }
+
+    fn handle_real_approval(&mut self, runtime: crate::system_status::RuntimeStatus) -> bool {
+        if agent_protocol_project_install::pending_physical_approval() {
+            return agent_protocol_project_install::approve_from_pointer();
+        }
+        if granted_candidate_service::pending_approval() {
+            return granted_candidate_service::approve_and_run_from_pointer();
+        }
+        if workspace_candidate_service::pending_approval() {
+            return workspace_candidate_service::approve_and_run_from_pointer();
+        }
+        let Some(program) = program_workspace::retained_program() else {
+            return false;
+        };
+        let identity = program.identity();
+        let Some(context) = self.personal_context(runtime) else {
+            console::write_event(format_args!(
+                "PROGRAM START DENIED: framebuffer unavailable"
+            ));
+            return true;
+        };
+        let route = self.personal.enter_program(context, program);
+        let approved = if route == PersonalSurfaceRoute::Entered {
+            match program_workspace::approve_retained_program() {
+                Ok(approved) => Some(approved),
+                Err(reason) => {
+                    console::write_event(format_args!("PROGRAM INSTALL READY DENIED: {reason}"));
                     None
-                };
-                note_program_route(identity.sha256, route, approved.as_ref());
-                return true;
+                }
             }
-            return personal_shell_service::request_current_boot_proof_start(
-                personal_shell_service::PersonalShellProofMode::Normal,
-            );
-        }
-        if layout.composer.contains(Point::new(x as u32, y as u32)) {
-            return console::set_view(console::UiView::Ai);
-        }
-        if point_in(x, y, context_setup_rect(layout)) {
-            return open_setup();
-        }
-        if point_in(x, y, context_wifi_rect(layout)) {
-            return self.wifi.begin();
-        }
-        false
+        } else {
+            None
+        };
+        note_program_route(identity.sha256, route, approved.as_ref());
+        true
     }
 
     /// Called by the console before normal text handling. Secure attention and
@@ -357,6 +399,7 @@ impl ShellHost {
         let console_snapshot = console::snapshot();
         if !self.personal.has_personal_focus()
             && !self.recovery_open
+            && self.dream.tab() == DreamTab::Chat
             && console_snapshot.view == console::UiView::Ai
             && self.handle_conversation_scroll(event, &console_snapshot)
         {
@@ -429,19 +472,13 @@ impl ShellHost {
         event: input::InputEvent,
         snapshot: &console::ConsoleSnapshot,
     ) -> bool {
-        let Some(layout) = self
-            .surface
-            .as_ref()
-            .and_then(|surface| genesis_layout(surface.info()))
-        else {
-            return false;
-        };
-        let max_scroll = conversation_max_scroll(layout, snapshot);
+        let visible_rows = self.dream.conversation_visible_rows();
+        let max_scroll = conversation_row_count(snapshot, self.dream.conversation_max_chars())
+            .saturating_sub(visible_rows);
         let delta = match event.kind {
             input::InputEventKind::Relative(input::RelativeAxis::Wheel, value) => {
                 let mouse = input::mouse_snapshot();
-                let point = Point::new((mouse.x / 2) as u32, (mouse.y / 2) as u32);
-                if !layout.conversation.contains(point) {
+                if !self.dream.conversation_contains(mouse.x / 2, mouse.y / 2) {
                     return false;
                 }
                 isize::try_from(value)
@@ -451,11 +488,11 @@ impl ShellHost {
             input::InputEventKind::Key {
                 code: 104,
                 pressed: true,
-            } => conversation_visible_rows(layout).saturating_sub(1) as isize,
+            } => visible_rows.saturating_sub(1) as isize,
             input::InputEventKind::Key {
                 code: 109,
                 pressed: true,
-            } => -(conversation_visible_rows(layout).saturating_sub(1) as isize),
+            } => -(visible_rows.saturating_sub(1) as isize),
             _ => return false,
         };
         let previous = self.conversation_scroll_rows;
@@ -641,28 +678,30 @@ fn open_setup() -> bool {
 
 fn draw_genesis(
     surface: &mut FramebufferSurface,
-    uptime_ms: u64,
+    _uptime_ms: u64,
     snapshot: &SystemSnapshot,
     conversation_scroll_rows: usize,
     wifi: &wifi_flow::GuidedWifi,
     recovery: &recovery::RecoveryView,
     recovery_open: bool,
     vault: &mut vault_flow::VaultFlow,
+    dream_state: &mut DreamState,
 ) {
     let Some(layout) = genesis_layout(surface.info()) else {
         return;
     };
-    surface.set_draw_scale(2);
-    surface.fill(APP_BG);
     let console_snapshot = console::snapshot();
-    draw_secure_strip(surface, layout, uptime_ms, snapshot, recovery_open);
-    draw_conversation(surface, layout, &console_snapshot, conversation_scroll_rows);
+    dream::render(
+        surface,
+        dream_state,
+        snapshot,
+        &console_snapshot,
+        conversation_scroll_rows,
+        recovery_open,
+    );
     if recovery_open {
         recovery.draw_context(surface, layout, true);
-    } else {
-        draw_context(surface, layout, snapshot);
     }
-    draw_composer(surface, layout, &console_snapshot);
     if console_snapshot.view == console::UiView::Settings {
         draw_setup_overlay(surface, layout, &console_snapshot, vault);
     }
@@ -676,134 +715,6 @@ fn draw_genesis(
 
 fn genesis_layout(info: FramebufferInfo) -> Option<GenesisLayout> {
     GenesisLayout::new(Size::new(info.width as u32, info.height as u32)).ok()
-}
-
-fn draw_secure_strip(
-    surface: &mut FramebufferSurface,
-    layout: GenesisLayout,
-    _uptime_ms: u64,
-    snapshot: &SystemSnapshot,
-    recovery_open: bool,
-) {
-    let rect = rect_from_layout(layout.secure_strip);
-    surface.fill_rect(rect.x, rect.y, rect.w, rect.h, SURFACE_BG);
-    surface.fill_rect(
-        rect.x,
-        rect.y + rect.h.saturating_sub(1),
-        rect.w,
-        1,
-        HAIRLINE,
-    );
-    text::draw_text(surface, 12, 14, "raiOS / Genesis", TEXT_MAIN, None);
-    let right = if recovery_open {
-        "Recovery context / Click to close"
-    } else if snapshot.network.state == RowState::Ready {
-        "Core safe / Recovery ready"
-    } else {
-        "Core safe / Recovery available"
-    };
-    let right_x = rect.x + rect.w.saturating_sub(text_width(right) + 12);
-    text::draw_text(surface, right_x, 14, right, TEXT_MUTED, None);
-}
-
-fn draw_conversation(
-    surface: &mut FramebufferSurface,
-    layout: GenesisLayout,
-    snapshot: &console::ConsoleSnapshot,
-    scroll_rows: usize,
-) {
-    let rect = rect_from_layout(layout.conversation);
-    draw_panel(surface, rect, "Conversation");
-    if !has_chat(snapshot) {
-        text::draw_text(
-            surface,
-            rect.x + 18,
-            rect.y + 54,
-            "Welcome. What should your raiOS become?",
-            TEXT_MAIN,
-            None,
-        );
-        text::draw_text(
-            surface,
-            rect.x + 18,
-            rect.y + 74,
-            "Ask for a tool, workflow, or a change.",
-            TEXT_MUTED,
-            None,
-        );
-        return;
-    }
-
-    let max_chars = rect.w.saturating_sub(48) / FONT_ADVANCE;
-    let visible_rows = conversation_visible_rows(layout);
-    let total_rows = conversation_row_count(snapshot, max_chars);
-    let scroll_rows = scroll_rows.min(total_rows.saturating_sub(visible_rows));
-    let end_row = total_rows.saturating_sub(scroll_rows);
-    let start_row = end_row.saturating_sub(visible_rows);
-    let content_y = rect.y + 42;
-    let mut row = 0usize;
-    for line in snapshot.chat_lines {
-        let text_value = line.text.as_str();
-        if text_value.is_empty() {
-            continue;
-        }
-        let color = match line.speaker {
-            console::ChatSpeaker::User => APP_BLUE,
-            console::ChatSpeaker::Assistant => TEXT_MAIN,
-            console::ChatSpeaker::System => TEXT_MUTED,
-        };
-        let label = match line.speaker {
-            console::ChatSpeaker::User => "You",
-            console::ChatSpeaker::Assistant => "raiOS",
-            console::ChatSpeaker::System => "System",
-        };
-        draw_conversation_row(
-            surface,
-            rect.x + 18,
-            content_y,
-            row,
-            start_row,
-            end_row,
-            label,
-            color,
-        );
-        row += 1;
-        let body_color = if line.speaker == console::ChatSpeaker::Assistant {
-            TEXT_MAIN
-        } else {
-            TEXT_MUTED
-        };
-        visit_wrapped_lines(text_value, max_chars, |wrapped| {
-            draw_conversation_row(
-                surface,
-                rect.x + 18,
-                content_y,
-                row,
-                start_row,
-                end_row,
-                wrapped,
-                body_color,
-            );
-            row += 1;
-        });
-        row += 1;
-    }
-    draw_conversation_scrollbar(surface, rect, total_rows, visible_rows, start_row);
-}
-
-fn conversation_visible_rows(layout: GenesisLayout) -> usize {
-    let rect = rect_from_layout(layout.conversation);
-    rect.h
-        .saturating_sub(54)
-        .checked_div(CONVERSATION_ROW_HEIGHT)
-        .unwrap_or(0)
-        .max(1)
-}
-
-fn conversation_max_scroll(layout: GenesisLayout, snapshot: &console::ConsoleSnapshot) -> usize {
-    let rect = rect_from_layout(layout.conversation);
-    let max_chars = rect.w.saturating_sub(48) / FONT_ADVANCE;
-    conversation_row_count(snapshot, max_chars).saturating_sub(conversation_visible_rows(layout))
 }
 
 fn conversation_row_count(snapshot: &console::ConsoleSnapshot, max_chars: usize) -> usize {
@@ -843,474 +754,6 @@ fn visit_wrapped_lines<'a>(value: &'a str, max_chars: usize, mut visit: impl FnM
     visit(&value[start..]);
 }
 
-#[allow(clippy::too_many_arguments)]
-fn draw_conversation_row(
-    surface: &mut FramebufferSurface,
-    x: usize,
-    content_y: usize,
-    row: usize,
-    start_row: usize,
-    end_row: usize,
-    value: &str,
-    color: Color,
-) {
-    if row >= start_row && row < end_row {
-        text::draw_text(
-            surface,
-            x,
-            content_y + (row - start_row) * CONVERSATION_ROW_HEIGHT,
-            value,
-            color,
-            None,
-        );
-    }
-}
-
-fn draw_conversation_scrollbar(
-    surface: &mut FramebufferSurface,
-    rect: LogicalRect,
-    total_rows: usize,
-    visible_rows: usize,
-    start_row: usize,
-) {
-    if total_rows <= visible_rows {
-        return;
-    }
-    let track_y = rect.y + 42;
-    let track_h = rect.h.saturating_sub(54);
-    if track_h == 0 {
-        return;
-    }
-    let thumb_h = (track_h * visible_rows / total_rows).max(12).min(track_h);
-    let max_start = total_rows.saturating_sub(visible_rows).max(1);
-    let thumb_y = track_y + (track_h - thumb_h) * start_row.min(max_start) / max_start;
-    surface.fill_rect(
-        rect.x + rect.w.saturating_sub(7),
-        track_y,
-        2,
-        track_h,
-        HAIRLINE,
-    );
-    surface.fill_rect(
-        rect.x + rect.w.saturating_sub(8),
-        thumb_y,
-        4,
-        thumb_h,
-        APP_BLUE,
-    );
-}
-
-fn draw_context(
-    surface: &mut FramebufferSurface,
-    layout: GenesisLayout,
-    snapshot: &SystemSnapshot,
-) {
-    let rect = rect_from_layout(layout.context);
-    draw_panel(surface, rect, "Context");
-    let context = context::project(snapshot, &provider::snapshot(), wifi::snapshot());
-    let problem_value = if context.problems.critical == 0 {
-        "No critical problems"
-    } else {
-        "Critical problem present"
-    };
-    let problem_color = if context.problems.critical == 0 {
-        APP_GREEN
-    } else {
-        APP_RED
-    };
-    let install_preview = agent_protocol_project_install::snapshot();
-    let install_pending = agent_protocol_project_install::pending_physical_approval();
-    let granted_preview = granted_candidate_service::approval_preview();
-    let granted_pending = granted_preview.is_some();
-    let workspace_preview = workspace_candidate_service::snapshot();
-    let workspace_pending = workspace_candidate_service::pending_approval();
-    let program_snapshot = program_workspace::snapshot();
-    let program_ready = program_snapshot.present;
-    draw_button(
-        surface,
-        context_personal_shell_rect(layout),
-        if install_pending {
-            if install_preview.install_source == Some("ui_program") {
-                "Approve + persist program"
-            } else {
-                match install_preview.kind {
-                    Some(agent_protocol_project_install::PreviewKind::Install) => {
-                        "Approve + install app"
-                    }
-                    Some(agent_protocol_project_install::PreviewKind::Uninstall) => {
-                        "Approve + uninstall app"
-                    }
-                    None => "Signed project action",
-                }
-            }
-        } else if granted_pending {
-            "Approve + run downloaded app"
-        } else if workspace_pending {
-            "Approve + run workspace app"
-        } else if program_ready {
-            "Approve + run program"
-        } else {
-            "Run signed shell proof"
-        },
-        install_pending || granted_pending || workspace_pending || program_ready,
-    );
-    let rows = [
-        (
-            "AI connection",
-            context.ai_connection.value,
-            context_tone_color(context.ai_connection.tone),
-        ),
-        (
-            "Network",
-            context.network.value,
-            context_tone_color(context.network.tone),
-        ),
-        (
-            "Secret Vault",
-            vault_flow::VaultFlow::status_text(),
-            TEXT_MUTED,
-        ),
-        ("Problems", problem_value, problem_color),
-    ];
-    let mut y = rect.y + 78;
-    if install_pending {
-        let downloaded = install_preview.install_source == Some("granted_candidate");
-        let program = install_preview.install_source == Some("ui_program");
-        text::draw_text(
-            surface,
-            rect.x + 14,
-            y,
-            if downloaded {
-                "[INSTALL] Granted candidate"
-            } else if program {
-                "[PERSIST] RUIP program"
-            } else {
-                "[INSTALL] Signed W6 install"
-            },
-            APP_AMBER,
-            None,
-        );
-        y = y.saturating_add(14);
-        let effect = if downloaded {
-            format!("generation {} / durable target", install_preview.generation)
-        } else {
-            format!(
-                "{} generation {} / durable target",
-                install_preview
-                    .kind
-                    .map(|kind| kind.label())
-                    .unwrap_or("project"),
-                install_preview.generation
-            )
-        };
-        draw_truncated_text(
-            surface,
-            rect.x + 14,
-            y,
-            &effect,
-            rect.w.saturating_sub(28) / FONT_ADVANCE,
-            TEXT_MUTED,
-        );
-        y = y.saturating_add(14);
-        let subject = install_preview
-            .candidate_sha256
-            .or(install_preview.previous_commit_sha256)
-            .unwrap_or([0; 32]);
-        draw_short_hash(
-            surface,
-            rect.x + 14,
-            y,
-            if downloaded {
-                "candidate"
-            } else if program {
-                "program"
-            } else {
-                "project"
-            },
-            subject,
-            TEXT_MUTED,
-        );
-        y = y.saturating_add(14);
-        let binding = if downloaded || program {
-            install_preview
-                .activation_approval_sha256
-                .unwrap_or([0; 32])
-        } else {
-            install_preview
-                .receipt_sha256
-                .or(install_preview.previous_commit_sha256)
-                .unwrap_or([0; 32])
-        };
-        let binding_label = if downloaded || program {
-            "approval"
-        } else if install_preview.receipt_sha256.is_some() {
-            "receipt"
-        } else {
-            "install head"
-        };
-        draw_short_hash(surface, rect.x + 14, y, binding_label, binding, TEXT_MUTED);
-        y = y.saturating_add(14);
-        text::draw_text(
-            surface,
-            rect.x + 14,
-            y,
-            "durable autostart / dev key not owner sealed",
-            APP_AMBER,
-            None,
-        );
-        y = y.saturating_add(20);
-    } else if let Some(preview) = granted_preview {
-        text::draw_text(
-            surface,
-            rect.x + 14,
-            y,
-            "[RUN] Granted candidate",
-            APP_AMBER,
-            None,
-        );
-        y = y.saturating_add(14);
-        let candidate = preview.candidate_sha256;
-        draw_short_hash(surface, rect.x + 14, y, "candidate", candidate, TEXT_MUTED);
-        y = y.saturating_add(14);
-        if let Some(receipt) = preview.receipt_sha256 {
-            draw_short_hash(surface, rect.x + 14, y, "receipt", receipt, TEXT_MUTED);
-        } else {
-            text::draw_text(
-                surface,
-                rect.x + 14,
-                y,
-                "serial source / no receipt",
-                TEXT_MUTED,
-                None,
-            );
-        }
-        y = y.saturating_add(20);
-    } else if workspace_pending {
-        text::draw_text(
-            surface,
-            rect.x + 14,
-            y,
-            "[RUN] Workspace candidate",
-            APP_BLUE,
-            None,
-        );
-        y = y.saturating_add(14);
-        if let Some(binding) = workspace_preview.binding {
-            let candidate = binding.candidate_sha256;
-            draw_short_hash(surface, rect.x + 14, y, "candidate", candidate, TEXT_MUTED);
-            y = y.saturating_add(14);
-            let receipt = binding.receipt_sha256;
-            draw_short_hash(surface, rect.x + 14, y, "receipt", receipt, TEXT_MUTED);
-            y = y.saturating_add(20);
-        }
-    } else if program_ready {
-        text::draw_text(
-            surface,
-            rect.x + 14,
-            y,
-            "[RUN + PERSIST] RUIP program",
-            APP_GREEN,
-            None,
-        );
-        y = y.saturating_add(14);
-    }
-    y = draw_program_retention(surface, rect, y, program_snapshot);
-    let source_y = context_setup_rect(layout).y.saturating_sub(76);
-    let source_visible = source_y >= y.saturating_add(4);
-    for (label, value, color) in rows {
-        if source_visible && y.saturating_add(31) > source_y.saturating_sub(4) {
-            break;
-        }
-        text::draw_text(surface, rect.x + 14, y, label, TEXT_MUTED, None);
-        draw_truncated_text(
-            surface,
-            rect.x + 14,
-            y + 11,
-            value,
-            rect.w.saturating_sub(28) / FONT_ADVANCE,
-            color,
-        );
-        y = y.saturating_add(31);
-    }
-    if source_visible {
-        draw_source_status(surface, rect, source_y, &agent_build_loop::snapshot());
-    }
-    draw_button(surface, context_setup_rect(layout), "AI setup", false);
-    draw_button(surface, context_wifi_rect(layout), "WiFi setup", true);
-}
-
-fn draw_source_status(
-    surface: &mut FramebufferSurface,
-    rect: LogicalRect,
-    y: usize,
-    snapshot: &agent_build_loop::Snapshot,
-) {
-    let x = rect.x + 14;
-    draw_source_value(
-        surface,
-        rect,
-        y,
-        "SOURCE / ",
-        snapshot.phase.label(),
-        APP_BLUE,
-        TEXT_MAIN,
-    );
-    if let Some(revision) = snapshot.latest_revision.as_ref() {
-        let hash = revision.revision_sha256;
-        let line = format!(
-            "rev {:02x}{:02x}{:02x}{:02x}{:02x}{:02x} files={}",
-            hash[0],
-            hash[1],
-            hash[2],
-            hash[3],
-            hash[4],
-            hash[5],
-            revision.entries.len()
-        );
-        draw_truncated_text(
-            surface,
-            x,
-            y + 13,
-            &line,
-            rect.w.saturating_sub(28) / FONT_ADVANCE,
-            TEXT_MUTED,
-        );
-    } else {
-        text::draw_text(surface, x, y + 13, "rev none", TEXT_FAINT, None);
-    }
-    let verifier = snapshot.verifier_result;
-    let feedback = snapshot.feedback_packet;
-    let rows = [
-        (
-            "origin ",
-            snapshot.answer_origin.unwrap_or("none"),
-            if snapshot.answer_origin.is_some() {
-                TEXT_MUTED
-            } else {
-                TEXT_FAINT
-            },
-        ),
-        (
-            match verifier {
-                Some(result) if result.passed => "check PASS ",
-                Some(_) => "check FAIL ",
-                None => "check ",
-            },
-            verifier.map(|result| result.reason).unwrap_or("not verified"),
-            match verifier {
-                Some(result) if result.passed => APP_GREEN,
-                Some(_) => APP_RED,
-                None => TEXT_FAINT,
-            },
-        ),
-        (
-            if feedback.is_some() {
-                "feedback retained "
-            } else {
-                "feedback "
-            },
-            feedback.map(|packet| packet.reason).unwrap_or("none"),
-            if feedback.is_some() {
-                APP_AMBER
-            } else {
-                TEXT_FAINT
-            },
-        ),
-    ];
-    for (index, (label, value, color)) in rows.into_iter().enumerate() {
-        draw_source_value(
-            surface,
-            rect,
-            y + 25 + index * 12,
-            label,
-            value,
-            TEXT_MUTED,
-            color,
-        );
-    }
-}
-
-fn draw_source_value(
-    surface: &mut FramebufferSurface,
-    rect: LogicalRect,
-    y: usize,
-    label: &str,
-    value: &str,
-    label_color: Color,
-    color: Color,
-) {
-    let x = rect.x + 14;
-    let value_x = x + text_width(label);
-    text::draw_text(surface, x, y, label, label_color, None);
-    draw_truncated_text(
-        surface,
-        value_x,
-        y,
-        value,
-        rect.x
-            .saturating_add(rect.w)
-            .saturating_sub(value_x.saturating_add(14))
-            / FONT_ADVANCE,
-        color,
-    );
-}
-
-fn draw_program_retention(
-    surface: &mut FramebufferSurface,
-    rect: LogicalRect,
-    mut y: usize,
-    snapshot: program_workspace::Snapshot,
-) -> usize {
-    let Some(hash) = snapshot.sha256 else {
-        return y;
-    };
-    let durable = snapshot.retention == "durable";
-    draw_short_hash(
-        surface,
-        rect.x + 14,
-        y,
-        if durable {
-            "Program installed:"
-        } else {
-            "Program:"
-        },
-        hash,
-        if durable { APP_GREEN } else { TEXT_MUTED },
-    );
-    y = y.saturating_add(14);
-    text::draw_text(
-        surface,
-        rect.x + 14,
-        y,
-        if durable {
-            "durable (survives reboot)"
-        } else {
-            "current boot only"
-        },
-        if durable { APP_GREEN } else { TEXT_MUTED },
-        None,
-    );
-    y.saturating_add(20)
-}
-
-fn draw_short_hash(
-    surface: &mut FramebufferSurface,
-    x: usize,
-    y: usize,
-    label: &str,
-    hash: [u8; 32],
-    color: Color,
-) {
-    let line = format!(
-        "{} {:02x}{:02x}{:02x}{:02x}...",
-        label, hash[0], hash[1], hash[2], hash[3]
-    );
-    text::draw_text(surface, x, y, &line, color, None);
-}
-
-/// Renders an already accepted display-list within the logical personal area.
-/// A second validation keeps the render boundary fail-closed if a caller ever
-/// hands this surface stale or corrupt retained bytes.
 fn draw_personal_frame(
     surface: &mut FramebufferSurface,
     layout: GenesisLayout,
@@ -1510,87 +953,17 @@ fn note_program_route(
     note_personal_route(route);
 }
 
-fn context_tone_color(tone: context::ContextTone) -> Color {
-    match tone {
-        context::ContextTone::Neutral => TEXT_MUTED,
-        context::ContextTone::Good => APP_GREEN,
-        context::ContextTone::Attention => APP_AMBER,
-        context::ContextTone::Critical => APP_RED,
-    }
-}
-
-fn draw_composer(
-    surface: &mut FramebufferSurface,
-    layout: GenesisLayout,
-    snapshot: &console::ConsoleSnapshot,
-) {
-    let rect = rect_from_layout(layout.composer);
-    surface.fill_rect(rect.x, rect.y, rect.w, rect.h, SURFACE_ALT);
-    draw_outline(surface, rect, HAIRLINE);
-    let text_value = snapshot.chat_input.as_str();
-    let text_x = rect.x + 14;
-    let max_chars = rect.w.saturating_sub(58) / FONT_ADVANCE;
-    if text_value.is_empty() {
-        text::draw_text(
-            surface,
-            text_x,
-            rect.y + 18,
-            "Ask anything, or /build <program>...",
-            TEXT_FAINT,
-            None,
-        );
-    } else {
-        let (visible, truncated) = trailing_chars(text_value, max_chars.saturating_sub(1));
-        if truncated {
-            text::draw_text(surface, text_x, rect.y + 18, "<", TEXT_FAINT, None);
-            text::draw_text(
-                surface,
-                text_x + FONT_ADVANCE,
-                rect.y + 18,
-                visible,
-                TEXT_MAIN,
-                None,
-            );
-        } else {
-            text::draw_text(surface, text_x, rect.y + 18, visible, TEXT_MAIN, None);
-        }
-    }
-    draw_button(
-        surface,
-        LogicalRect::new(rect.x + rect.w.saturating_sub(38), rect.y + 8, 30, 30),
-        ">",
-        true,
-    );
-}
-
 fn composer_cursor_phase(uptime_ms: u64) -> bool {
     (uptime_ms / COMPOSER_CURSOR_BLINK_MS) % 2 == 0
 }
 
 fn draw_composer_cursor_front(
     surface: &mut FramebufferSurface,
-    layout: GenesisLayout,
+    dream: &DreamState,
     snapshot: &console::ConsoleSnapshot,
 ) -> Option<CursorRect> {
-    if snapshot.view != console::UiView::Ai || snapshot.focus != console::UiFocus::ChatInput {
-        return None;
-    }
-    let rect = rect_from_layout(layout.composer);
-    let max_chars = rect.w.saturating_sub(58) / FONT_ADVANCE;
-    let text_value = snapshot.chat_input.as_str();
-    let cursor_chars = if text_value.is_empty() {
-        0
-    } else {
-        let (visible, truncated) = trailing_chars(text_value, max_chars.saturating_sub(1));
-        visible.chars().count() + usize::from(truncated)
-    };
-    let scale = surface.draw_scale();
-    let cursor = CursorRect {
-        x: (rect.x + 14 + cursor_chars * FONT_ADVANCE).saturating_mul(scale),
-        y: (rect.y + 15).saturating_mul(scale),
-        w: 2usize.saturating_mul(scale),
-        h: 15usize.saturating_mul(scale),
-    };
+    let (x, y, w, h) = dream.composer_cursor_rect(snapshot)?;
+    let cursor = CursorRect { x, y, w, h };
     draw_front_rect(surface, cursor, APP_BLUE);
     Some(cursor)
 }
@@ -1601,20 +974,6 @@ fn draw_front_rect(surface: &mut FramebufferSurface, rect: CursorRect, color: Co
             surface.set_front_pixel(x, y, color);
         }
     }
-}
-
-fn trailing_chars(value: &str, max_chars: usize) -> (&str, bool) {
-    let count = value.chars().count();
-    if count <= max_chars {
-        return (value, false);
-    }
-    let skip = count - max_chars;
-    let start = value
-        .char_indices()
-        .nth(skip)
-        .map(|(index, _)| index)
-        .unwrap_or(value.len());
-    (&value[start..], true)
 }
 
 fn draw_setup_overlay(
@@ -1674,36 +1033,6 @@ fn draw_setup_overlay(
     draw_button(surface, actions[1], "Set WiFi", false);
     draw_button(surface, actions[2], "Scan WiFi", false);
     draw_button(surface, actions[3], "Close", false);
-}
-
-fn context_setup_rect(layout: GenesisLayout) -> LogicalRect {
-    let context = rect_from_layout(layout.context);
-    LogicalRect::new(
-        context.x + 12,
-        context.y + context.h.saturating_sub(62),
-        context.w - 24,
-        22,
-    )
-}
-
-fn context_personal_shell_rect(layout: GenesisLayout) -> LogicalRect {
-    let context = rect_from_layout(layout.context);
-    LogicalRect::new(context.x + 12, context.y + 42, context.w - 24, 24)
-}
-
-fn context_wifi_rect(layout: GenesisLayout) -> LogicalRect {
-    let context = rect_from_layout(layout.context);
-    LogicalRect::new(
-        context.x + 12,
-        context.y + context.h.saturating_sub(34),
-        context.w - 24,
-        22,
-    )
-}
-
-fn recovery_strip_rect(layout: GenesisLayout) -> LogicalRect {
-    let strip = rect_from_layout(layout.secure_strip);
-    LogicalRect::new(strip.x + strip.w.saturating_sub(238), strip.y, 238, strip.h)
 }
 
 fn setup_action_rects(rect: LogicalRect) -> [LogicalRect; 4] {
@@ -1828,13 +1157,6 @@ pub(crate) fn row_color(state: RowState) -> Color {
         RowState::Waiting | RowState::Degraded => APP_AMBER,
         RowState::Missing => APP_RED,
     }
-}
-
-fn has_chat(snapshot: &console::ConsoleSnapshot) -> bool {
-    snapshot
-        .chat_lines
-        .iter()
-        .any(|line| !line.text.as_str().is_empty())
 }
 
 fn log_transition(previous: Option<RowState>, line: &StatusLine) {
