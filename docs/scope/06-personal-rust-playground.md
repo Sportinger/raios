@@ -54,9 +54,15 @@
       pinned PRNG, typed proc_exit/yield. Negative boundary: post-exit calls
       fail closed with the original code; PRNG errors are transactional; fd
       poll subscriptions reject whole-call (83c8631).
-- [ ] WASI kernel glue: the shim linked behind the grant gate with validated
-      guest pointers and store adapters (slice 6). Negative boundary: a module
-      with any undeclared import never instantiates.
+- [x] WASI kernel glue: the shim linked behind the grant gate with validated
+      guest pointers and store adapters (slice 6). Gate: AuthorizedBuildJob →
+      exact-30 linker → checked guest memory → runner (4e17c10); storage per
+      ADR 0020: BuildStorageAuthority core stage (9028e61), granted per-read-
+      rehashed chunk table + pre-I/O commit gate in the kernel (30fb378).
+      Negative boundary live: a module with any undeclared import never
+      instantiates (deny=imports_mismatch), plus absent/range/tamper read
+      denials and out-of-lease commit denial — QEMU quick 499/499,
+      permanent needles (shadow-20260718-223154-26848).
 - [ ] rustc-as-Wasm compiles a real program inside raiOS (W5-proven, slow is fine)
 - [ ] Compile diagnostics available as JSON (same feedback loop as the fabric)
 - [ ] Build artifacts land only in the domain's own granted storage range

@@ -133,7 +133,7 @@ NEW typed family, not an extension.
 | 3 | Read-only `/sysroot` + `/src`: BuildFS manifest v1, 64-KiB CAS chunks, range reads without materializing 71 MB. | shim + core | L |
 | 4 | RAM-tmp + root scratch children (rustc creates temp under `/`), `/out` arena; freeze `/out` to sorted manifest; only two byte-identical double-build manifests produce an egress plan. | shim + core | L |
 | 5 | args/env from job manifest; logical clock = job fuel counter, realtime = fixed epoch + logical; random = specified PRNG seeded from job-manifest hash; `proc_exit` as HostEffect. | shim | M |
-| 6 | Thin kernel glue behind the grant gate; `ThreadHost` trait handed to T2 (spawn interface only). All domain logic must be host-green first; kernel build + QEMU smoke = orchestrator. **Stage A DONE 2026-07-18** (4e17c10): gate → exact-30 linker → checked memory → runner, `wasi.selftest` + `threads.selftest` now permanent quick needles (499/499). Stage B (granted chunk reads + double-build egress) in flight. | seed-kernel | L |
+| 6 | **DONE 2026-07-18.** Stage A (4e17c10): gate → exact-30 linker → checked memory → runner. Stage B (30fb378, per ADR 0020 after C1 core stage 9028e61): granted chunk table with per-read rehash, hardened egress gate, pre-I/O commit evaluator, single-use store write handle (first persistent use = hello.rs). Both selftests permanent quick needles, 499/499. | seed-kernel | L |
 
 Owner/ADR questions raised (with recommendations, undecided): BuildFS format
 (rec: chunk-CAS), guest realtime epoch (rec: fixed 2000-01-01), root-tmp
