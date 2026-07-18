@@ -1,7 +1,11 @@
 # raiOS
 
 <p align="center">
-  <img src="docs/assets/screenshots/raios-openai-chat.png" alt="raiOS direct provider chat screen" width="920">
+  <img src="docs/assets/screenshots/dream-open.png" alt="raiOS Dream shell - conversation open between the brackets" width="920">
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshots/dream-closed.png" alt="raiOS Dream shell - closed resting state with build monitor and candle" width="920">
 </p>
 
 <p align="center">
