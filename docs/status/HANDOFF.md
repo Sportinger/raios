@@ -24,6 +24,12 @@ Slices und Aufwände: `docs/plans/plan-rust-kernel.md` §7.
 
 ## Zuletzt (genau 3, neueste zuerst)
 
+### 2026-07-18 — Repository-Cleanup Phase 3 umgesetzt
+Der versionierte Root enthält nur aktive Crates, INFRA und Quarantäne; das
+Device-Protokoll liegt unter `docs/architecture/`. USB-Evidenz blieb erhalten,
+generierte Tool-Ausgaben sind entfernt. Build, 591 Tests und QEMU quick grün;
+Report: `docs/_archive/2026-07-18_repo-cleanup-phase3-report.md`.
+
 ### 2026-07-18 — Werkstatt-Probe GRÜN: rustc-als-Wasm baut und läuft
 Das unveränderte Threads-Artefakt läuft unter wasmtime 46 (gepinnt): hello
 1,6 s, medium `-O` 1,2 s, ~670 MB Spitze, echte Gast-Threads (~26–32),
@@ -36,9 +42,3 @@ On-Device-Fabrik ist die Hauptstraße: Genesis-Job → Agenten liefern Quelle
 Compiler-Fork; ein Cloud-Nachbacken dient später nur der Herkunftsprüfung.
 rlang nach grünem Slice 2a committet und pausiert (Ersatzrad + Encoder).
 
-### 2026-07-18 — B3A-1c: Mini-Bauloop im System geschlossen (33/33)
-Eine `main.rwir`-Quelle wurde IM System doppelt deterministisch gebaut
-(run1 == run2 == Kernel-Nachrechnung == Golden-Hash), per W5-Vorschau
-gebunden; EIN physischer Genesis-Klick führte das selbstgebaute Modul aus
-(Ergebnis 42), null Install-/Persistenz-Wirkung. Report
-`shadow-20260718-082526-6872.json` (Profil `build-assemble`).
