@@ -5,8 +5,10 @@
 > itself (git + reports).
 
 ## Single source
-- [ ] `docs/SCOPE.md` is the only definition of "what raiOS is"; conflicts
-      resolve in its favor (README states this explicitly)
+- [x] `docs/SCOPE.md` is the only definition of "what raiOS is"; conflicts
+      resolve in its favor — README states it explicitly and the
+      `single-source` rule asserts the phrase (red path self-tested,
+      2259b95, 2026-07-18)
 - [ ] Breakdown files (`docs/scope/0N-*.md`) detail but never contradict it;
       top-level list changes need owner approval, breakdowns evolve by
       orchestrator commit
@@ -16,10 +18,10 @@
       (+ `decisions/`), `agents/`, `plans/`, `status/`, `assets/`, `_archive/`
       — enforced by `scripts/check-docs-hygiene.ps1` rule 1 (green 2026-07-18,
       negative via `-SelfTest` planted foreign file)
-- [ ] Root instruction files consistent with docs paths (CLAUDE.md, AGENTS.md,
-      `.claude/` skill) — one truth, checked after every restructure
-      (manually re-aligned 2026-07-18: stale VISION_PLAN-era skill and
-      AGENTS.md commit step rewritten; still needs an automated predicate)
+- [x] Root instruction files consistent with docs paths (CLAUDE.md, AGENTS.md,
+      `.claude/` skill) — `root-instructions` rule fails on any referenced
+      `docs/` path that does not exist (red path self-tested with a planted
+      bogus reference, 2259b95, 2026-07-18)
 - [x] No loose files in `docs/` root except `SCOPE.md` and `README.md`
       (HANDOFF lives in `status/` — layout decided 2026-07-18); enforced by
       the same rule 1 + self-test
@@ -28,11 +30,14 @@
 - [x] HANDOFF ~2 KB (displacement rule) — predicate warns > 2560 B, fails
       > 4096 B (`check-docs-hygiene.ps1` rule 2; negative via `-SelfTest`
       planted 5000-byte HANDOFF)
-- [ ] STATUS ≤ ~30 KB, current state only; no diaries, no done-lists
-      (size rule exists in the script, but its red path is not yet
-      self-tested; "state only" needs review discipline)
-- [ ] Plans: exactly one active plan file per scope category in `docs/plans/`
-      (script checks `plan-*` naming only; category mapping still manual)
+- [x] STATUS ≤ ~30 KB, current state only; no diaries, no done-lists —
+      size rule red path self-tested with a planted oversized STATUS
+      (2259b95, 2026-07-18); "state only" remains review discipline at
+      every overwrite
+- [x] Plans: at most one active plan file per scope category in `docs/plans/`
+      — `plan-category` rule maps every `plan-<slug>.md` onto exactly one
+      `docs/scope/NN-<slug>.md` and rejects duplicates and orphans (red path
+      self-tested, 2259b95, 2026-07-18)
 
 ## Decisions & history
 - [ ] Every architecture decision is an ADR (numbered, dated) — including the
