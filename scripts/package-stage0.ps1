@@ -111,15 +111,26 @@ try {
             throw "CorePolicyGeneration must be greater than zero."
         }
         New-Item -ItemType Directory -Force -Path $PolicyDir | Out-Null
-        & cargo run --locked --quiet -p core-policy-sign -- sign `
-            $CorePolicyPrivateKey $Kernel $CorePolicySlot $CorePolicyGeneration $PolicyPath
-        if ($LASTEXITCODE -ne 0) {
-            throw "Core Policy signing failed with exit code $LASTEXITCODE"
+        # Host tools must never inherit a caller cwd inside seed-kernel/: the
+        # kernel's rust-toolchain.toml would hand bare cargo the pinned 2024
+        # nightly, which cannot parse edition2024 registry manifests
+        # (base64ct >= 1.8). Pin the cwd so rustup resolves the default
+        # toolchain deterministically.
+        Push-Location $RepoRoot
+        try {
+            & cargo run --locked --quiet -p core-policy-sign -- sign `
+                $CorePolicyPrivateKey $Kernel $CorePolicySlot $CorePolicyGeneration $PolicyPath
+            if ($LASTEXITCODE -ne 0) {
+                throw "Core Policy signing failed with exit code $LASTEXITCODE"
+            }
+            & cargo run --locked --quiet -p core-policy-sign -- verify `
+                $Kernel $CorePolicySlot $CorePolicyGeneration $PolicyPath
+            if ($LASTEXITCODE -ne 0) {
+                throw "Core Policy verification failed with exit code $LASTEXITCODE"
+            }
         }
-        & cargo run --locked --quiet -p core-policy-sign -- verify `
-            $Kernel $CorePolicySlot $CorePolicyGeneration $PolicyPath
-        if ($LASTEXITCODE -ne 0) {
-            throw "Core Policy verification failed with exit code $LASTEXITCODE"
+        finally {
+            Pop-Location
         }
     }
     else {
