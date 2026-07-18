@@ -1,18 +1,22 @@
 use super::invocation::{release_thread_job_execution, try_acquire_thread_job_execution};
 use alloc::vec::Vec;
+use core::fmt;
+use raios_core::build_guest_class::RUSTC_BUILD_GUEST_CLASS_V1;
 use raios_core::thread_scheduler::{
     Addr, JobState, JobThreadScheduler, MemSlot, Runde, SchedulerError, ThreadId, ThreadState,
     TraceEvent,
 };
 use wasmi::{
-    core::ValueType, AtomicSuspend, AtomicSuspendRequest, Config, Engine, Func, Linker, Memory,
-    MemoryType, Module, ResumableCall, ResumableInvocation, Store, Suspension, Value,
+    core::{Trap, ValueType},
+    AtomicSuspend, AtomicSuspendRequest, Caller, Config, Engine, Func, Linker, Memory, MemoryType,
+    Module, ResumableCall, ResumableInvocation, Store, Suspension, Value,
 };
 
 const THREAD_JOB_FIXTURE_WASM: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/thread_job_fixture.wasm"));
 const FIXTURE_EXPECTED_SUM: i32 = 32;
-const FIXTURE_THREAD_COUNT: usize = 2;
+const FIXTURE_EXPECTED_THREAD_COUNT: usize = 3;
+const FIXTURE_THREAD_CAP: u32 = 3;
 const FIXTURE_PUMP_ROUND_LIMIT: usize = 4_096;
 const FUEL_QUANTUM: u64 = 20;
 
@@ -32,6 +36,55 @@ enum ThreadJobFailure {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ThreadJobConfig {
+    thread_cap: u32,
+}
+
+impl Default for ThreadJobConfig {
+    /// Production jobs inherit the canonical rustc build-guest class cap.
+    fn default() -> Self {
+        Self {
+            thread_cap: RUSTC_BUILD_GUEST_CLASS_V1.thread_cap,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SpawnRequest {
+    thread: ThreadId,
+    start_arg: i32,
+}
+
+struct ThreadJobStoreState {
+    scheduler: JobThreadScheduler,
+    pending_spawns: Vec<SpawnRequest>,
+    spawns: u32,
+    cap_denials: u32,
+}
+
+impl ThreadJobStoreState {
+    fn new(config: ThreadJobConfig) -> Self {
+        Self {
+            scheduler: JobThreadScheduler::with_thread_cap(config.thread_cap),
+            pending_spawns: Vec::new(),
+            spawns: 0,
+            cap_denials: 0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ProcExitTrap;
+
+impl fmt::Display for ProcExitTrap {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("wasi proc_exit ended the thread job")
+    }
+}
+
+impl wasmi::core::HostError for ProcExitTrap {}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ThreadJobEnd {
     JobExited { code: u32 },
     JobDeadlocked,
@@ -49,6 +102,7 @@ struct SuspensionCounters {
 
 struct ThreadSlot {
     start: Func,
+    start_args: Option<(i32, i32)>,
     continuation: Option<ResumableInvocation>,
     started: bool,
     exited: bool,
@@ -56,9 +110,21 @@ struct ThreadSlot {
 }
 
 impl ThreadSlot {
-    fn new(start: Func) -> Self {
+    fn main(start: Func) -> Self {
         Self {
             start,
+            start_args: None,
+            continuation: None,
+            started: false,
+            exited: false,
+            open_host_op: false,
+        }
+    }
+
+    fn spawned(start: Func, thread: ThreadId, start_arg: i32) -> Self {
+        Self {
+            start,
+            start_args: Some((thread.get() as i32, start_arg)),
             continuation: None,
             started: false,
             exited: false,
@@ -70,37 +136,44 @@ impl ThreadSlot {
 enum SuspensionKind {
     FuelQuantum,
     Atomic(AtomicSuspend),
+    ProcExit,
     Host,
 }
 
-/// Fixed-thread runner for one job. All instances and continuations share this
-/// one Store, imported Memory and fuel counter; thread spawning is deliberately
-/// absent from this T2-b2a package.
-struct ThreadJobRunner<T> {
-    store: Store<T>,
+/// Green-thread runner for one job. The scheduler lives in Store user state so
+/// wasi.thread-spawn can reserve a TID synchronously. The import only queues a
+/// request; this pump materializes a new instance at the next fixed step.
+struct ThreadJobRunner {
+    store: Store<ThreadJobStoreState>,
     memory: Memory,
+    module: Module,
+    linker: Linker<ThreadJobStoreState>,
     threads: Vec<ThreadSlot>,
-    scheduler: JobThreadScheduler,
     round: u64,
     exited_threads: usize,
     counters: SuspensionCounters,
     terminal: Option<ThreadJobEnd>,
 }
 
-impl<T> ThreadJobRunner<T> {
+impl ThreadJobRunner {
     fn new(
-        mut store: Store<T>,
+        mut store: Store<ThreadJobStoreState>,
         memory: Memory,
-        starts: Vec<Func>,
+        module: Module,
+        linker: Linker<ThreadJobStoreState>,
+        main: Func,
+        config: ThreadJobConfig,
     ) -> Result<Self, ThreadJobFailure> {
-        if starts.is_empty() || !memory.ty(&store).is_shared() {
+        if config.thread_cap == 0
+            || config.thread_cap > i32::MAX as u32
+            || store.data().scheduler.thread_cap() != config.thread_cap
+            || !memory.ty(&store).is_shared()
+        {
             return Err(ThreadJobFailure::Setup);
         }
-        for start in &starts {
-            let ty = start.ty(&store);
-            if !ty.params().is_empty() || !ty.results().is_empty() {
-                return Err(ThreadJobFailure::Setup);
-            }
+        let main_ty = main.ty(&store);
+        if !main_ty.params().is_empty() || !main_ty.results().is_empty() {
+            return Err(ThreadJobFailure::Setup);
         }
         let remaining = store.consume_fuel(0).map_err(|_| ThreadJobFailure::Fuel)?;
         if remaining != 0 {
@@ -108,17 +181,20 @@ impl<T> ThreadJobRunner<T> {
                 .consume_fuel(remaining)
                 .map_err(|_| ThreadJobFailure::Fuel)?;
         }
-
-        let mut scheduler = JobThreadScheduler::new();
-        for _ in &starts {
-            scheduler.spawn().map_err(|_| ThreadJobFailure::Scheduler)?;
+        let main_thread = store
+            .data_mut()
+            .scheduler
+            .spawn()
+            .map_err(|_| ThreadJobFailure::Scheduler)?;
+        if main_thread.get() != 0 {
+            return Err(ThreadJobFailure::Scheduler);
         }
-        let threads = starts.into_iter().map(ThreadSlot::new).collect();
         Ok(Self {
             store,
             memory,
-            threads,
-            scheduler,
+            module,
+            linker,
+            threads: alloc::vec![ThreadSlot::main(main)],
             round: 0,
             exited_threads: 0,
             counters: SuspensionCounters::default(),
@@ -131,8 +207,8 @@ impl<T> ThreadJobRunner<T> {
             return true;
         }
         if let Err(failure) = self.pump_inner() {
-            if self.scheduler.job_state() == JobState::Running {
-                let _ = self.scheduler.proc_exit(1);
+            if self.scheduler().job_state() == JobState::Running {
+                let _ = self.scheduler_mut().proc_exit(1);
             }
             self.terminal = Some(ThreadJobEnd::Failed(failure));
         }
@@ -140,7 +216,7 @@ impl<T> ThreadJobRunner<T> {
     }
 
     fn pump_inner(&mut self) -> Result<(), ThreadJobFailure> {
-        match self.scheduler.job_state() {
+        match self.scheduler().job_state() {
             JobState::JobExited { code } => {
                 self.terminal = Some(ThreadJobEnd::JobExited { code });
                 return Ok(());
@@ -157,17 +233,17 @@ impl<T> ThreadJobRunner<T> {
             .round
             .checked_add(1)
             .ok_or(ThreadJobFailure::Scheduler)?;
-        self.scheduler
+        self.scheduler_mut()
             .begin_round(Runde::new(round))
             .map_err(|_| ThreadJobFailure::Scheduler)?;
 
         let Some(thread) = self
-            .scheduler
+            .scheduler_mut()
             .next_runnable()
             .map_err(|_| ThreadJobFailure::Scheduler)?
         else {
             let has_open_host_op = self.threads.iter().any(|slot| slot.open_host_op);
-            match self.scheduler.check_deadlock(has_open_host_op) {
+            match self.scheduler_mut().check_deadlock(has_open_host_op) {
                 Err(SchedulerError::JobDeadlocked) => {
                     self.terminal = Some(ThreadJobEnd::JobDeadlocked);
                     return Ok(());
@@ -178,12 +254,12 @@ impl<T> ThreadJobRunner<T> {
         };
 
         let wake_result = match self
-            .scheduler
+            .scheduler()
             .thread_state(thread)
             .map_err(|_| ThreadJobFailure::Scheduler)?
         {
             ThreadState::Woken { .. } => Some(
-                self.scheduler
+                self.scheduler_mut()
                     .take_wake_result(thread)
                     .map_err(|_| ThreadJobFailure::Scheduler)?,
             ),
@@ -200,7 +276,11 @@ impl<T> ThreadJobRunner<T> {
             &[]
         };
         let outcome = self.resume_selected(thread, inputs)?;
-        self.handle_outcome(thread, outcome)
+        self.handle_outcome(thread, outcome)?;
+        if self.terminal.is_none() {
+            self.materialize_pending_spawns()?;
+        }
+        Ok(())
     }
 
     fn refill_quantum(&mut self) -> Result<(), ThreadJobFailure> {
@@ -238,8 +318,16 @@ impl<T> ThreadJobRunner<T> {
             return Err(ThreadJobFailure::Scheduler);
         }
         slot.started = true;
+        let start_args = slot.start_args;
+        let spawned_inputs;
+        let start_inputs = if let Some((tid, start_arg)) = start_args {
+            spawned_inputs = [Value::I32(tid), Value::I32(start_arg)];
+            &spawned_inputs[..]
+        } else {
+            &[]
+        };
         slot.start
-            .call_resumable(&mut self.store, &[], &mut outputs)
+            .call_resumable(&mut self.store, start_inputs, &mut outputs)
             .map_err(|_| ThreadJobFailure::Engine)
     }
 
@@ -259,12 +347,17 @@ impl<T> ThreadJobRunner<T> {
             let kind = match invocation.suspension() {
                 Suspension::FuelQuantum => SuspensionKind::FuelQuantum,
                 Suspension::Atomic(atomic) => SuspensionKind::Atomic(*atomic),
+                Suspension::Host { host_error, .. }
+                    if host_error.downcast_ref::<ProcExitTrap>().is_some() =>
+                {
+                    SuspensionKind::ProcExit
+                }
                 Suspension::Host { .. } => SuspensionKind::Host,
             };
             match kind {
                 SuspensionKind::FuelQuantum => {
                     self.store_continuation(thread, invocation)?;
-                    self.scheduler
+                    self.scheduler_mut()
                         .on_quantum_end(thread)
                         .map_err(|_| ThreadJobFailure::Scheduler)?;
                     self.counters.fuel_yields = self.counters.fuel_yields.saturating_add(1);
@@ -276,7 +369,7 @@ impl<T> ThreadJobRunner<T> {
                     match atomic.request {
                         AtomicSuspendRequest::Wait { timeout_ns } => {
                             self.store_continuation(thread, invocation)?;
-                            self.scheduler
+                            self.scheduler_mut()
                                 .park_wait(thread, mem, addr, timeout_rounds(timeout_ns))
                                 .map_err(|_| ThreadJobFailure::Scheduler)?;
                             self.counters.waits = self.counters.waits.saturating_add(1);
@@ -284,7 +377,7 @@ impl<T> ThreadJobRunner<T> {
                         }
                         AtomicSuspendRequest::Notify { count } => {
                             let woken = self
-                                .scheduler
+                                .scheduler_mut()
                                 .notify(mem, addr, count)
                                 .map_err(|_| ThreadJobFailure::Scheduler)?;
                             self.counters.notifies = self.counters.notifies.saturating_add(1);
@@ -301,18 +394,29 @@ impl<T> ThreadJobRunner<T> {
                         }
                     }
                 }
+                SuspensionKind::ProcExit => {
+                    let JobState::JobExited { code } = self.scheduler().job_state() else {
+                        return Err(ThreadJobFailure::Engine);
+                    };
+                    // Dropping the resumable invocation is intentional: proc_exit has
+                    // no result and the calling Wasm thread must never return.
+                    self.terminal = Some(ThreadJobEnd::JobExited { code });
+                    return Ok(());
+                }
                 SuspensionKind::Host => {
                     let host_func = invocation.host_func().ok_or(ThreadJobFailure::Engine)?;
                     if host_func.ty(&self.store).results() != &[ValueType::I32] {
                         return Err(ThreadJobFailure::HostResultType);
                     }
                     self.store_continuation(thread, invocation)?;
-                    let slot = self
-                        .threads
-                        .get_mut(thread.get() as usize)
-                        .ok_or(ThreadJobFailure::Scheduler)?;
-                    slot.open_host_op = true;
-                    self.scheduler
+                    {
+                        let slot = self
+                            .threads
+                            .get_mut(thread.get() as usize)
+                            .ok_or(ThreadJobFailure::Scheduler)?;
+                        slot.open_host_op = true;
+                    }
+                    self.scheduler_mut()
                         .park_host(thread)
                         .map_err(|_| ThreadJobFailure::Scheduler)?;
                     return Ok(());
@@ -332,6 +436,43 @@ impl<T> ThreadJobRunner<T> {
             .ok_or(ThreadJobFailure::Scheduler)?;
         if slot.continuation.replace(invocation).is_some() {
             return Err(ThreadJobFailure::Scheduler);
+        }
+        Ok(())
+    }
+
+    fn scheduler(&self) -> &JobThreadScheduler {
+        &self.store.data().scheduler
+    }
+
+    fn scheduler_mut(&mut self) -> &mut JobThreadScheduler {
+        &mut self.store.data_mut().scheduler
+    }
+
+    fn materialize_pending_spawns(&mut self) -> Result<(), ThreadJobFailure> {
+        let requests = core::mem::take(&mut self.store.data_mut().pending_spawns);
+        for request in requests {
+            if request.thread.get() as usize != self.threads.len() {
+                return Err(ThreadJobFailure::Scheduler);
+            }
+            let pre = self
+                .linker
+                .instantiate(&mut self.store, &self.module)
+                .map_err(|_| ThreadJobFailure::Setup)?;
+            let instance = pre
+                .start(&mut self.store)
+                .map_err(|_| ThreadJobFailure::Setup)?;
+            let start = instance
+                .get_func(&self.store, "wasi_thread_start")
+                .ok_or(ThreadJobFailure::Setup)?;
+            let ty = start.ty(&self.store);
+            if ty.params() != &[ValueType::I32, ValueType::I32] || !ty.results().is_empty() {
+                return Err(ThreadJobFailure::Setup);
+            }
+            self.threads.push(ThreadSlot::spawned(
+                start,
+                request.thread,
+                request.start_arg,
+            ));
         }
         Ok(())
     }
@@ -356,11 +497,12 @@ impl<T> ThreadJobRunner<T> {
         slot.exited = true;
         slot.open_host_op = false;
         self.exited_threads = self.exited_threads.saturating_add(1);
-        self.scheduler
+        self.scheduler_mut()
             .thread_exit(thread)
             .map_err(|_| ThreadJobFailure::Scheduler)?;
-        if self.exited_threads == self.threads.len() {
-            self.scheduler
+        if self.exited_threads == self.threads.len() && self.store.data().pending_spawns.is_empty()
+        {
+            self.scheduler_mut()
                 .proc_exit(0)
                 .map_err(|_| ThreadJobFailure::Scheduler)?;
             self.terminal = Some(ThreadJobEnd::JobExited { code: 0 });
@@ -370,17 +512,21 @@ impl<T> ThreadJobRunner<T> {
 
     #[allow(dead_code)]
     fn complete_host(&mut self, thread: ThreadId, result: u32) -> Result<(), ThreadJobFailure> {
-        let slot = self
+        let open_host_op = self
             .threads
-            .get_mut(thread.get() as usize)
-            .ok_or(ThreadJobFailure::Scheduler)?;
-        if !slot.open_host_op {
+            .get(thread.get() as usize)
+            .ok_or(ThreadJobFailure::Scheduler)?
+            .open_host_op;
+        if !open_host_op {
             return Err(ThreadJobFailure::Scheduler);
         }
-        self.scheduler
+        self.scheduler_mut()
             .wake_host(thread, result)
             .map_err(|_| ThreadJobFailure::Scheduler)?;
-        slot.open_host_op = false;
+        self.threads
+            .get_mut(thread.get() as usize)
+            .ok_or(ThreadJobFailure::Scheduler)?
+            .open_host_op = false;
         Ok(())
     }
 
@@ -391,6 +537,38 @@ impl<T> ThreadJobRunner<T> {
             .map_err(|_| ThreadJobFailure::MemoryIdentity)?;
         Ok(i32::from_le_bytes(bytes))
     }
+}
+
+/// Reserves scheduler state synchronously but never enters wasmi recursively.
+/// The pump drains this FIFO only after the current resumable step returns.
+fn host_thread_spawn(mut caller: Caller<'_, ThreadJobStoreState>, start_arg: i32) -> i32 {
+    let state = caller.data_mut();
+    match state.scheduler.spawn() {
+        Ok(thread) => {
+            state
+                .pending_spawns
+                .push(SpawnRequest { thread, start_arg });
+            state.spawns = state.spawns.saturating_add(1);
+            thread.get() as i32
+        }
+        Err(SchedulerError::ThreadCap { .. }) => {
+            state.cap_denials = state.cap_denials.saturating_add(1);
+            -1
+        }
+        Err(_) => -1,
+    }
+}
+
+/// proc_exit first commits the whole-job scheduler transition, then returns a
+/// typed host trap. The pump recognizes only this marker plus JobExited and
+/// drops the continuation, so guest execution can never return from proc_exit.
+fn host_proc_exit(mut caller: Caller<'_, ThreadJobStoreState>, code: i32) -> Result<(), Trap> {
+    caller
+        .data_mut()
+        .scheduler
+        .proc_exit(code as u32)
+        .map_err(|_| Trap::new("wasi proc_exit rejected by scheduler"))?;
+    Err(ProcExitTrap.into())
 }
 
 fn timeout_rounds(timeout_ns: i64) -> Option<u64> {
@@ -412,6 +590,9 @@ struct FixtureRunEvidence {
     switches: u32,
     sum: i32,
     rounds: u64,
+    spawns: u32,
+    cap_denials: u32,
+    exit_code: u32,
 }
 
 fn thread_job_engine() -> Engine {
@@ -427,33 +608,33 @@ fn run_fixture_once() -> Result<FixtureRunEvidence, ThreadJobFailure> {
     let engine = thread_job_engine();
     let module =
         Module::new(&engine, THREAD_JOB_FIXTURE_WASM).map_err(|_| ThreadJobFailure::Setup)?;
-    let mut store = Store::new(&engine, ());
+    let config = ThreadJobConfig {
+        thread_cap: FIXTURE_THREAD_CAP,
+    };
+    let mut store = Store::new(&engine, ThreadJobStoreState::new(config));
     let memory_type = MemoryType::new_shared(1, 1).map_err(|_| ThreadJobFailure::Setup)?;
     let memory = Memory::new(&mut store, memory_type).map_err(|_| ThreadJobFailure::Setup)?;
-    let mut linker = Linker::<()>::new(&engine);
+    let mut linker = Linker::<ThreadJobStoreState>::new(&engine);
     linker
         .define("env", "memory", memory)
         .map_err(|_| ThreadJobFailure::Setup)?;
-    let thread0_pre = linker
+    linker
+        .func_wrap("wasi", "thread-spawn", host_thread_spawn)
+        .map_err(|_| ThreadJobFailure::Setup)?;
+    linker
+        .func_wrap("wasi_snapshot_preview1", "proc_exit", host_proc_exit)
+        .map_err(|_| ThreadJobFailure::Setup)?;
+    let main_pre = linker
         .instantiate(&mut store, &module)
         .map_err(|_| ThreadJobFailure::Setup)?;
-    let thread0_instance = thread0_pre
+    let main_instance = main_pre
         .start(&mut store)
         .map_err(|_| ThreadJobFailure::Setup)?;
-    let thread1_pre = linker
-        .instantiate(&mut store, &module)
-        .map_err(|_| ThreadJobFailure::Setup)?;
-    let thread1_instance = thread1_pre
-        .start(&mut store)
-        .map_err(|_| ThreadJobFailure::Setup)?;
-    let thread0 = thread0_instance
-        .get_func(&store, "thread0")
+    let main = main_instance
+        .get_func(&store, "_start")
         .ok_or(ThreadJobFailure::Setup)?;
-    let thread1 = thread1_instance
-        .get_func(&store, "thread1")
-        .ok_or(ThreadJobFailure::Setup)?;
-    let mut runner = ThreadJobRunner::new(store, memory, alloc::vec![thread0, thread1])?;
-    if runner.threads.len() != FIXTURE_THREAD_COUNT {
+    let mut runner = ThreadJobRunner::new(store, memory, module, linker, main, config)?;
+    if runner.threads.len() != 1 {
         return Err(ThreadJobFailure::Setup);
     }
 
@@ -463,11 +644,20 @@ fn run_fixture_once() -> Result<FixtureRunEvidence, ThreadJobFailure> {
         }
     }
     let end = runner.terminal.ok_or(ThreadJobFailure::RoundLimit)?;
-    let trace = runner.scheduler.trace().to_vec();
+    if runner.threads.len() != FIXTURE_EXPECTED_THREAD_COUNT {
+        return Err(ThreadJobFailure::Setup);
+    }
+    let trace = runner.scheduler().trace().to_vec();
     let switches = trace
         .iter()
         .filter(|event| matches!(event, TraceEvent::Switch { .. }))
         .count() as u32;
+    let spawns = runner.store.data().spawns;
+    let cap_denials = runner.store.data().cap_denials;
+    let exit_code = match end {
+        ThreadJobEnd::JobExited { code } => code,
+        ThreadJobEnd::JobDeadlocked | ThreadJobEnd::Failed(_) => u32::MAX,
+    };
     Ok(FixtureRunEvidence {
         end,
         counters: runner.counters,
@@ -475,6 +665,9 @@ fn run_fixture_once() -> Result<FixtureRunEvidence, ThreadJobFailure> {
         switches,
         sum: runner.read_i32(8)?,
         rounds: runner.round,
+        spawns,
+        cap_denials,
+        exit_code,
     })
 }
 
@@ -494,7 +687,16 @@ impl Drop for ThreadJobBusyGuard {
 
 pub(crate) fn emit_threads_selftest() {
     let Some(_busy) = ThreadJobBusyGuard::acquire() else {
-        write_selftest_line(false, SuspensionCounters::default(), 0, 0, 0);
+        write_selftest_line(
+            false,
+            SuspensionCounters::default(),
+            0,
+            0,
+            0,
+            0,
+            0,
+            u32::MAX,
+        );
         return;
     };
     let first = run_fixture_once();
@@ -511,21 +713,37 @@ pub(crate) fn emit_threads_selftest() {
                 && first.counters.waits >= 1
                 && first.counters.notifies >= 1
                 && first.counters.fuel_yields >= 1
-                && first.counters.zero_notifies >= 1
-                && first.counters.zero_notify_woken == 0
                 && first.counters == second.counters
                 && first.rounds == second.rounds
+                && first.spawns == 2
+                && second.spawns == 2
+                && first.cap_denials == 1
+                && second.cap_denials == 1
+                && first.exit_code == 0
+                && second.exit_code == 0
     );
-    let (counters, switches, sum, rounds) = match first {
+    let (counters, switches, sum, rounds, spawns, cap_denials, exit_code) = match first {
         Ok(evidence) => (
             evidence.counters,
             evidence.switches,
             evidence.sum,
             evidence.rounds,
+            evidence.spawns,
+            evidence.cap_denials,
+            evidence.exit_code,
         ),
-        Err(_) => (SuspensionCounters::default(), 0, 0, 0),
+        Err(_) => (SuspensionCounters::default(), 0, 0, 0, 0, 0, u32::MAX),
     };
-    write_selftest_line(pass, counters, switches, sum, rounds);
+    write_selftest_line(
+        pass,
+        counters,
+        switches,
+        sum,
+        rounds,
+        spawns,
+        cap_denials,
+        exit_code,
+    );
 }
 
 fn write_selftest_line(
@@ -534,9 +752,12 @@ fn write_selftest_line(
     switches: u32,
     sum: i32,
     rounds: u64,
+    spawns: u32,
+    cap_denials: u32,
+    exit_code: u32,
 ) {
     crate::serial::write_fmt(format_args!(
-        "RAIOS_THREADS selftest={} waits={} notifies={} fuel_yields={} switches={} sum={} rounds={}\r\n",
+        "RAIOS_THREADS selftest={} waits={} notifies={} fuel_yields={} switches={} sum={} rounds={} spawns={} cap_denials={} exit_code={}\r\n",
         if pass { "pass" } else { "fail" },
         counters.waits,
         counters.notifies,
@@ -544,5 +765,8 @@ fn write_selftest_line(
         switches,
         sum,
         rounds,
+        spawns,
+        cap_denials,
+        exit_code,
     ));
 }
