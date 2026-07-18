@@ -40,8 +40,12 @@
       self-tested, 2259b95, 2026-07-18)
 
 ## Decisions & history
-- [ ] Every architecture decision is an ADR (numbered, dated) — including the
-      seL4/custom-kernel decision and the branchless-main convention
+- [x] Every architecture decision is an ADR (numbered, dated) — seL4 = 0015,
+      branchless-main = 0019; `adr-form` rule enforces gapless numbering +
+      machine-readable Date:/Status: with red paths (abe403c, 2026-07-18);
+      "every decision gets one" stays CLAUDE.md step-7 discipline
 - [ ] Second-opinion dissent recorded in the ADR (both positions)
-- [ ] Outdated material goes to `docs/_archive/` date-prefixed — never silently
-      deleted, never retro-edited
+- [x] Outdated material goes to `docs/_archive/` date-prefixed — `archive-dated`
+      rule enforces the prefix with a red path (abe403c, 2026-07-18);
+      no-silent-delete/no-retro-edit is guarded by single-writer git history
+      (ADR 0019)
