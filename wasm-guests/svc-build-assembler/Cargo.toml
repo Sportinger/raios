@@ -8,4 +8,4 @@ license = "MIT"
 crate-type = ["cdylib"]
 
 [dependencies]
-raios-wasm-ir = { path = "../../crates/raios-wasm-ir" }
+raios-wasm-ir = { path = "../../raios-wasm-ir" }

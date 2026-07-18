@@ -8,4 +8,4 @@ license = "MIT"
 crate-type = ["cdylib"]
 
 [dependencies]
-raios-dns-parse = { path = "../../crates/raios-dns-parse" }
+raios-dns-parse = { path = "../../raios-dns-parse" }
