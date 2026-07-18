@@ -17,6 +17,7 @@ members = [
     "tools/descriptor-resign",
     "tools/core-policy-sign",
     "tools/wasm-import-inventory",
+    "tools/buildfs-pack",
     "seed-kernel",
     "wasm-guests/svc-demo-echo",
     "wasm-guests/svc-demo-bufecho",
