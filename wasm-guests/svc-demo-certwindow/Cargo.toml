@@ -8,4 +8,4 @@ license = "MIT"
 crate-type = ["cdylib"]
 
 [dependencies]
-raios-x509-time = { path = "../../crates/raios-x509-time" }
+raios-x509-time = { path = "../../raios-x509-time" }
