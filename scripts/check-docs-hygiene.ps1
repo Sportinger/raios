@@ -54,7 +54,7 @@ function Invoke-DocsHygieneCheck {
         [string]$RootPath
     )
 
-    $checkCount = 9
+    $checkCount = 11
     $rootFullPath = [System.IO.Path]::GetFullPath($RootPath)
     $docsPath = Join-Path $rootFullPath "docs"
     $violations = New-Object "System.Collections.Generic.List[object]"
@@ -250,6 +250,91 @@ function Invoke-DocsHygieneCheck {
         }
     }
 
+    # Rule 10 (adr-form): numbered ADRs are contiguous from 0001 and carry date/status metadata.
+    $adrFormAllowedNonNumberedFiles = @("invariant-choices.md")
+    if (Test-Path -LiteralPath $decisionsPath -PathType Container) {
+        $adrNumberCounts = @{}
+        foreach ($entry in @(Get-ChildItem -LiteralPath $decisionsPath -Force)) {
+            $displayPath = Get-DocsHygieneDisplayPath -RootPath $rootFullPath -Path $entry.FullName
+            if ($entry -isnot [System.IO.FileInfo]) {
+                Add-DocsHygieneViolation -Violations $violations -Code "adr_unexpected_entry" -Path $displayPath -Detail "expected_file"
+                continue
+            }
+
+            if ($adrFormAllowedNonNumberedFiles -ccontains $entry.Name) {
+                continue
+            }
+
+            if ($entry.Name -cnotmatch '^(\d{4})-.*\.md$') {
+                Add-DocsHygieneViolation -Violations $violations -Code "adr_unexpected_file" -Path $displayPath -Detail ("expected_name=NNNN-*.md_or_whitelisted=" + ($adrFormAllowedNonNumberedFiles -join ','))
+                continue
+            }
+
+            $adrNumber = [int]$Matches[1]
+            if ($adrNumber -lt 1) {
+                Add-DocsHygieneViolation -Violations $violations -Code "adr_number_start" -Path $displayPath -Detail "expected_start=0001"
+            }
+            if (-not $adrNumberCounts.ContainsKey($adrNumber)) {
+                $adrNumberCounts[$adrNumber] = 0
+            }
+            $adrNumberCounts[$adrNumber] = $adrNumberCounts[$adrNumber] + 1
+
+            $adrContent = Get-Content -LiteralPath $entry.FullName -Raw
+            $dateMatches = [System.Text.RegularExpressions.Regex]::Matches($adrContent, '(?m)^Date:\s*(\d{4}-\d{2}-\d{2})(?=\s|[.]|$)')
+            $hasValidDate = $false
+            foreach ($dateMatch in $dateMatches) {
+                [datetime]$parsedDate = [datetime]::MinValue
+                if ([datetime]::TryParseExact($dateMatch.Groups[1].Value, "yyyy-MM-dd", [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$parsedDate)) {
+                    $hasValidDate = $true
+                    break
+                }
+            }
+            if (-not $hasValidDate) {
+                Add-DocsHygieneViolation -Violations $violations -Code "adr_date" -Path $displayPath -Detail "expected_line=Date:_YYYY-MM-DD"
+            }
+
+            $hasStatusMarker = $adrContent -cmatch 'Status:'
+            if (-not $hasStatusMarker) {
+                Add-DocsHygieneViolation -Violations $violations -Code "adr_status" -Path $displayPath -Detail "expected_marker=Status:"
+            }
+        }
+
+        if ($adrNumberCounts.Count -eq 0) {
+            Add-DocsHygieneViolation -Violations $violations -Code "adr_number_gap" -Path "docs/architecture/decisions" -Detail "expected=0001 actual=none"
+        }
+        else {
+            $highestAdrNumber = ($adrNumberCounts.Keys | Measure-Object -Maximum).Maximum
+            foreach ($expectedAdrNumber in 1..$highestAdrNumber) {
+                if (-not $adrNumberCounts.ContainsKey($expectedAdrNumber)) {
+                    Add-DocsHygieneViolation -Violations $violations -Code "adr_number_gap" -Path "docs/architecture/decisions" -Detail ("missing=" + ('{0:D4}' -f $expectedAdrNumber))
+                }
+            }
+
+            foreach ($adrNumber in @($adrNumberCounts.Keys | Sort-Object)) {
+                $adrNumberCount = $adrNumberCounts[$adrNumber]
+                if ($adrNumberCount -gt 1) {
+                    Add-DocsHygieneViolation -Violations $violations -Code "adr_number_duplicate" -Path "docs/architecture/decisions" -Detail ("number=" + ('{0:D4}' -f $adrNumber) + " expected=1 actual=" + $adrNumberCount)
+                }
+            }
+        }
+    }
+
+    # Rule 11 (archive-dated): archived files are date-prefixed; other entry types fail loudly.
+    $archivePath = Join-Path $docsPath "_archive"
+    if (Test-Path -LiteralPath $archivePath -PathType Container) {
+        foreach ($entry in @(Get-ChildItem -LiteralPath $archivePath -Force)) {
+            $displayPath = Get-DocsHygieneDisplayPath -RootPath $rootFullPath -Path $entry.FullName
+            if ($entry -isnot [System.IO.FileInfo]) {
+                Add-DocsHygieneViolation -Violations $violations -Code "archive_unexpected_entry" -Path $displayPath -Detail "expected_file"
+                continue
+            }
+
+            if ($entry.Name -cnotmatch '^\d{4}-\d{2}-\d{2}_') {
+                Add-DocsHygieneViolation -Violations $violations -Code "archive_dated" -Path $displayPath -Detail "expected_prefix=YYYY-MM-DD_"
+            }
+        }
+    }
+
     $result = "green"
     if ($violations.Count -gt 0) {
         $result = "red"
@@ -298,6 +383,13 @@ if ($SelfTest) {
             Set-Content -LiteralPath (Join-Path $fixtureDocsPath ("scope\" + $scopeFileName)) -Value "self-test" -Encoding utf8
         }
         Set-Content -LiteralPath (Join-Path $fixtureDocsPath "plans\plan-self-test-01.md") -Value "self-test" -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $fixtureDocsPath "architecture\decisions\0001-valid.md") -Value "Date: 2026-07-18`r`nStatus: active" -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $fixtureDocsPath "architecture\decisions\0003-first.md") -Value "Date: 2026-07-18`r`nStatus: active" -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $fixtureDocsPath "architecture\decisions\0003-duplicate.md") -Value "Date: 2026-07-18`r`nStatus: active" -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $fixtureDocsPath "architecture\decisions\0004-dateless.md") -Value "Status: active" -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $fixtureDocsPath "architecture\decisions\invariant-choices.md") -Value "self-test" -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $fixtureDocsPath "architecture\decisions\stray.md") -Value "planted violation" -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $fixtureDocsPath "_archive\undated.md") -Value "planted violation" -Encoding utf8
 
         Set-Content -LiteralPath (Join-Path $fixtureDocsPath "foreign.txt") -Value "planted violation" -Encoding utf8
         Set-Content -LiteralPath (Join-Path $fixtureDocsPath "status\HANDOFF.md") -Value ("x" * 5000) -Encoding utf8
@@ -309,11 +401,11 @@ if ($SelfTest) {
 
         $selfTestResult = Invoke-DocsHygieneCheck -RootPath $fixtureRoot
         $detectedCodes = @($selfTestResult.Violations | ForEach-Object { $_.Code })
-        $requiredCodes = @("docs_root_entry", "handoff_too_large", "status_too_large", "plan_filename", "single_source", "root_instruction_path", "plan_category")
+        $requiredCodes = @("docs_root_entry", "handoff_too_large", "status_too_large", "plan_filename", "single_source", "root_instruction_path", "plan_category", "adr_number_gap", "adr_number_duplicate", "adr_date", "adr_unexpected_file", "archive_dated")
         $missingCodes = @($requiredCodes | Where-Object { $detectedCodes -cnotcontains $_ })
 
         if ($missingCodes.Count -eq 0) {
-            Write-Output "DOCS_HYGIENE selftest=green planted=7 detected=7"
+            Write-Output "DOCS_HYGIENE selftest=green planted=12 detected=12"
             Write-Output ("DOCS_HYGIENE result=green checks=" + $selfTestResult.CheckCount + " violations=0")
             exit 0
         }

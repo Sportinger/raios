@@ -1,5 +1,7 @@
 # ADR 0008: Per-Service Wasm Import Grants
 
+Date: 2026-07-08
+
 ## Status
 
 Status: ACCEPTED by the raiOS owner (2026-07-08). Owner decision: **Option A**

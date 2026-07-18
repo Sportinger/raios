@@ -1,5 +1,7 @@
 # ADR 0005: Bare-Metal Substrate Confirmed, Wasm Service Isolation, Mechanism Before Vocabulary
 
+Date: 2026-07-04 · Status: active
+
 ## Status
 
 Accepted. Owner decision recorded 2026-07-04, following

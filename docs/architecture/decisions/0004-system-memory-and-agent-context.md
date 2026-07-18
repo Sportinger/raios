@@ -1,5 +1,7 @@
 # ADR 0004: System Memory And Agent Context Selection
 
+Date: 2026-05-19 · Status: active
+
 ## Status
 Draft for the memory and context architecture pass.
 

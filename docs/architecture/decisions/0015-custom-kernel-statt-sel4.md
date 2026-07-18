@@ -1,5 +1,7 @@
 # ADR 0015: Custom-Kernel weiterbauen, seL4 unterschiebbar halten
 
+Date: 2026-07-18 · Status: active
+
 ## Status
 
 Angenommen am 18.07.2026.

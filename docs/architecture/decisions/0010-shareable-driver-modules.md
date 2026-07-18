@@ -1,5 +1,7 @@
 # ADR 0010: Shareable Driver Modules (and DMA confinement via IOMMU)
 
+Date: 2026-07-08
+
 ## Status
 
 Status: **PROPOSED** (2026-07-08) — pending owner decision. Recommendation:

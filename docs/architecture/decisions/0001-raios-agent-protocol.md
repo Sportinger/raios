@@ -1,5 +1,7 @@
 # ADR 0001: raiOS Agent Protocol Instead Of Porting Codex CLI
 
+Date: 2026-05-10 · Status: active
+
 ## Status
 Accepted for the first VM MVP.
 

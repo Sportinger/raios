@@ -1,5 +1,7 @@
 # ADR 0002: Agent Self-Description And Live-Built Modules
 
+Date: 2026-05-10 · Status: active
+
 ## Status
 Draft for the next protocol/design pass.
 

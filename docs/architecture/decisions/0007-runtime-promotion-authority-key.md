@@ -1,5 +1,7 @@
 # ADR 0007: Runtime Promotion Authority Key
 
+Date: 2026-07-06 · Status: active
+
 ## Status
 
 Accepted for M6B-2 dev-key grant authority; owner-key sealing pending.

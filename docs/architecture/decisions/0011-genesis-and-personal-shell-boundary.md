@@ -1,5 +1,7 @@
 # ADR 0011: Core-Owned Genesis Shell And Bounded Personal Shell
 
+Date: 2026-07-10 · Status: active
+
 ## Status
 
 Accepted by the raiOS owner on 2026-07-10 through the autonomous goal that

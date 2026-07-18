@@ -1,5 +1,7 @@
 # ADR 0009: External Artifact Distribution
 
+Date: 2026-07-08
+
 ## Status
 
 Status: ACCEPTED by the raiOS owner (2026-07-08). Owner decision: **Option A** —

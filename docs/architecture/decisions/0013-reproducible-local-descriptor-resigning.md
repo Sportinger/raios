@@ -1,5 +1,7 @@
 # ADR 0013: Reproducible Local Descriptor Re-signing
 
+Date: 2026-07-10 · Status: active
+
 ## Status
 
 Accepted by the raiOS owner on 2026-07-10.

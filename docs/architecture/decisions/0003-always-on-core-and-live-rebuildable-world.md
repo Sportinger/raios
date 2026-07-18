@@ -1,5 +1,7 @@
 # ADR 0003: Always-On Core And Live-Rebuildable World
 
+Date: 2026-05-11 · Status: active
+
 ## Status
 Draft for the long-term raiOS architecture.
 
