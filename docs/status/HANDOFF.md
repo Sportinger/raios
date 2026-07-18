@@ -19,11 +19,13 @@ closes the T2 box). Their file sets are disjoint by order.
 
 ## Next step
 
-Collect G1b + T2c: compile loop + QEMU quick with the updated RAIOS_WASI
-needle (orchestrator runs both, one QEMU at a time). Then: Bauplatz 1-GiB
-memory box (399/16384 window live + over-class denial), then sysroot
-import — **blocked on E: drive** (attach or re-download artifacts; owner).
-Owner questions open: SCOPE §6 Cranelift wording; ADR 0017 veto window.
+Collect C1 (core storage authority per ADR 0020), then the kernel sibling
+lane (materialization + granted reader + commit-record egress) completes
+the slice-6 box. Sysroot is READY: artifacts re-downloaded and verified
+(compiler sha byte-identical), BuildFS double-packed deterministically —
+manifest pin 13daf6f9 (36b9534); E: stays optional. Then Bauplatz 1-GiB
+box, then first hello.rs. Owner questions open: SCOPE §6 Cranelift
+wording; ADR 0017 veto window.
 
 ## Recently (exactly 3, newest first)
 
