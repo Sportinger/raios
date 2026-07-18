@@ -7,42 +7,41 @@
 > fitting plan under `docs/plans/`. Max ~4 lines of text per entry, file max
 > 60 lines. Replace, never append.
 
-## Now (as of 2026-07-18 ~21:40, loop running)
+## Now (as of 2026-07-18 ~22:40, loop running)
 
-Main road = on-device factory. **Slice-6 stage A LANDED and QEMU-proven**
-(4e17c10): AuthorizedBuildJob gate → exact-30 linker → WasiBuildInstance →
-fuel-bounded runner; `wasi.selftest` + `threads.selftest` are permanent
-quick-profile needles now (499/499, shadow-20260718-213033-10928). Two
-lanes live: **G1b** (store adapters: granted chunk reads + double-build
-egress — completes the slice-6 box) and **T2c** (futex-deadlock negative —
-closes the T2 box). Their file sets are disjoint by order.
+Main road = on-device factory. **Slice-6 kernel glue box CLOSED** (gate
+4e17c10 + ADR 0020 storage: core authority 9028e61, kernel adapters
+30fb378) and **T2 box CLOSED** (deadlock negative 3f2a64a) — both under
+permanent quick-profile needles, 499/499. Sysroot BuildFS pinned
+(13daf6f9, artifacts verified on C:, E: optional). One lane live: **B1G**
+(Bauplatz memory proof: growth-to-ceiling fixture + over-class denial).
 
 ## Next step
 
-Collect C1 (core storage authority per ADR 0020), then the kernel sibling
-lane (materialization + granted reader + commit-record egress) completes
-the slice-6 box. Sysroot is READY: artifacts re-downloaded and verified
-(compiler sha byte-identical), BuildFS double-packed deterministically —
-manifest pin 13daf6f9 (36b9534); E: stays optional. Then Bauplatz 1-GiB
-box, then first hello.rs. Owner questions open: SCOPE §6 Cranelift
-wording; ADR 0017 veto window.
+Collect B1G (compile loop + QEMU on 512M; then Surface-RAM profile — add
+a -MemoryMB param to run-stage0-qemu.ps1 and assert pages_max=16384).
+After that: sysroot import into ARTSTOR (BuildFS chunks via the W7-style
+route) and the first hello.rs double-build through the landed commit gate
+— that is the W5 factory proof. Owner questions open: SCOPE §6 Cranelift
+wording; ADR 0017 veto window. Known trap fixed: bare-cargo toolchain
+flip via cwd (0e34b49 + memory note).
 
 ## Recently (exactly 3, newest first)
+
+### 2026-07-18 — Slice-6 closed, T2 closed, sysroot pinned (iteration 10)
+Storage authority two-stage per ADR 0020 (twin second opinions, dissent
+recorded): granted per-read-rehashed chunk reads, pre-I/O commit gate,
+single-use write handle. Futex deadlock → deterministic JobDeadlocked
+live. Docs hygiene now 10/11 self-tested (ADR form + archive dating,
+metadata backfill). 24 commits, all pushed.
 
 ### 2026-07-18 — Slice-6 stage A: kernel WASI gate live (G1a)
 Module bytes → ordered import extraction → authorize → exact-30 linker (no
 fallback) → checked guest memory → runner. Positive fixture ran to exit 0,
-extra-import fixture denied pre-instantiation, threads selftest unchanged.
-Host 54/54, x86_64-seed release green, QEMU quick 499/499 (4e17c10).
+extra-import fixture denied pre-instantiation. Host 54/54, QEMU quick
+499/499 (4e17c10).
 
 ### 2026-07-18 — Docs hygiene mechanized (D1)
 single-source phrase, root-instruction path check, STATUS red path,
-plan-category mapping — self-tested predicates, 7/7 planted faults caught
-(2259b95, c265679). ADR 0019 records branchless main + single git writer
-(aaa9a1c).
-
-### 2026-07-18 — Hardening pass collected, orchestrator stopped (owner)
-HARD-core: bounded trace digest, FrozenOutput byte-bound, opaque
-AuthorizedBuildJob (aa3bbec). HARD-wasi: WasiBuildInstance world,
-generation-tagged ramfs, guest_range checker, split rights (c8483b3,
-53/53). Hung duplicate h1 killed; nothing lost.
+plan-category mapping — self-tested predicates (2259b95, c265679).
+ADR 0019 records branchless main + single git writer (aaa9a1c).
