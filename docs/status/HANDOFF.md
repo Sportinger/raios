@@ -7,44 +7,40 @@
 > fitting plan under `docs/plans/`. Max ~4 lines of text per entry, file max
 > 60 lines. Replace, never append.
 
-## Now (as of 2026-07-18 ~21:00, orchestrator stopped by owner)
+## Now (as of 2026-07-18 ~21:40, loop running)
 
-Main road = on-device factory. **The pre-glue hardening pass is COMPLETE
-and collected**: HARD-core landed via the loop (aa3bbec), HARD-wasi
-finished after the owner hard-stopped the orchestrator and was verified
-(53/53 independently re-run) and collected by the owner session (c8483b3).
-A third dispatched worker (pkg-h1) hung 25 min with zero file output and
-was killed — its content was superseded by HARD-core (trace_digest chain
-confirmed on disk), nothing lost. Tree clean, all pushed.
+Main road = on-device factory. **Slice-6 stage A LANDED and QEMU-proven**
+(4e17c10): AuthorizedBuildJob gate → exact-30 linker → WasiBuildInstance →
+fuel-bounded runner; `wasi.selftest` + `threads.selftest` are permanent
+quick-profile needles now (499/499, shadow-20260718-213033-10928). Two
+lanes live: **G1b** (store adapters: granted chunk reads + double-build
+egress — completes the slice-6 box) and **T2c** (futex-deadlock negative —
+closes the T2 box). Their file sets are disjoint by order.
 
 ## Next step
 
-Resume the loop at: WASI slice-6 kernel glue along the reviewed
-integration boundary (opaque AuthorizedBuildJob -> WasiBuildInstance ->
-checked guest_memory -> linker table -> runner; zero deps on event_log/
-durable_store/usb/legacy renderer; threads QEMU selftest must stay green
-unchanged). Then live 1-GiB guest memories, sysroot import, first
-hello.rs. Owner questions pending: SCOPE §6 Cranelift wording; ADR 0017
-veto window. Side note: owner runs a UI design lab outside this repo
-(raios2-ui-lab); UI changes will arrive as design-delta lane orders.
+Collect G1b + T2c: compile loop + QEMU quick with the updated RAIOS_WASI
+needle (orchestrator runs both, one QEMU at a time). Then: Bauplatz 1-GiB
+memory box (399/16384 window live + over-class denial), then sysroot
+import — **blocked on E: drive** (attach or re-download artifacts; owner).
+Owner questions open: SCOPE §6 Cranelift wording; ADR 0017 veto window.
 
 ## Recently (exactly 3, newest first)
 
+### 2026-07-18 — Slice-6 stage A: kernel WASI gate live (G1a)
+Module bytes → ordered import extraction → authorize → exact-30 linker (no
+fallback) → checked guest memory → runner. Positive fixture ran to exit 0,
+extra-import fixture denied pre-instantiation, threads selftest unchanged.
+Host 54/54, x86_64-seed release green, QEMU quick 499/499 (4e17c10).
+
+### 2026-07-18 — Docs hygiene mechanized (D1)
+single-source phrase, root-instruction path check, STATUS red path,
+plan-category mapping — self-tested predicates, 7/7 planted faults caught
+(2259b95, c265679). ADR 0019 records branchless main + single git writer
+(aaa9a1c).
+
 ### 2026-07-18 — Hardening pass collected, orchestrator stopped (owner)
 HARD-core: bounded trace digest, FrozenOutput byte-bound, opaque
-AuthorizedBuildJob (aa3bbec). HARD-wasi: WasiBuildInstance one-FD/mount
-world, generation-tagged ramfs slots, guest_range checker, split rights
-(c8483b3, collected by owner session, 53/53). Hung duplicate h1 killed.
-
-### 2026-07-18 — T2 box closed + BuildFS packer (T2-b2b, buildfs-pack)
-wasi thread-spawn (deferred materialization, no import reentry), proc_exit
-whole-job end, cap-48 denial — live: spawns=2 cap_denials=1 exit_code=0,
-QEMU quick green (8321953). buildfs-pack: deterministic manifest + dedup'd
-content-addressed chunks, fail-closed, raios-core the sole format
-authority (c20f8ad).
-
-### 2026-07-18 — Kernel round-robin pump proven live (T2-b2a)
-thread_job.rs pumps N threads of one job through the proven scheduler;
-threads.selftest runs the job twice and passes only on byte-identical
-traces. Live: waits=1 notifies=2 fuel_yields=32 sum=32 (dacbfee).
-BuildGuestClassV1 binds all measured limits, 642 tests (e51dc2a).
+AuthorizedBuildJob (aa3bbec). HARD-wasi: WasiBuildInstance world,
+generation-tagged ramfs, guest_range checker, split rights (c8483b3,
+53/53). Hung duplicate h1 killed; nothing lost.
