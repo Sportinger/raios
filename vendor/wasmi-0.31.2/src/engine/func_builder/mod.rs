@@ -147,6 +147,16 @@ macro_rules! impl_visit_operator {
     ( @tail_call $($rest:tt)* ) => {
         impl_visit_operator!(@@supported $($rest)*);
     };
+    ( @threads $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident $($rest:tt)* ) => {
+        fn $visit(&mut self $($(,$arg: $argty)*)?) -> Self::Output {
+            let offset = self.current_pos();
+            self.validate_then_translate(
+                |v| v.visitor(offset).$visit($($($arg),*)?),
+                |_t| Err(TranslationError::unsupported_operator(stringify!($op))),
+            )
+        }
+        impl_visit_operator!($($rest)*);
+    };
     ( @@supported $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident $($rest:tt)* ) => {
         fn $visit(&mut self $($(,$arg: $argty)*)?) -> Self::Output {
             let offset = self.current_pos();

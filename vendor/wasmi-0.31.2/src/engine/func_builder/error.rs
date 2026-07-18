@@ -32,6 +32,13 @@ impl TranslationError {
             inner: Box::new(TranslationErrorInner::UnsupportedValueType(value_type)),
         }
     }
+
+    /// Creates a new error indicating an unsupported Wasm operator.
+    pub fn unsupported_operator(operator: &'static str) -> Self {
+        Self {
+            inner: Box::new(TranslationErrorInner::UnsupportedOperator(operator)),
+        }
+    }
 }
 
 impl From<wasmparser::BinaryReaderError> for TranslationError {
@@ -59,6 +66,12 @@ impl Display for TranslationError {
             }
             TranslationErrorInner::UnsupportedValueType(error) => {
                 write!(f, "encountered unsupported Wasm value type: {error:?}")
+            }
+            TranslationErrorInner::UnsupportedOperator(operator) => {
+                write!(
+                    f,
+                    "encountered unsupported Wasm operator during translation: {operator}"
+                )
             }
             TranslationErrorInner::DropKeep(error) => error.fmt(f),
             TranslationErrorInner::BranchTableTargetsOutOfBounds => {
@@ -95,6 +108,8 @@ pub enum TranslationErrorInner {
     UnsupportedBlockType(wasmparser::BlockType),
     /// Encountered an unsupported Wasm value type.
     UnsupportedValueType(wasmparser::ValType),
+    /// Encountered an unsupported Wasm operator during translation.
+    UnsupportedOperator(&'static str),
     /// An error with limitations of `DropKeep`.
     DropKeep(DropKeepError),
     /// When using too many branch table targets.

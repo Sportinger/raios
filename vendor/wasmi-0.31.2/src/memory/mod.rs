@@ -38,6 +38,7 @@ impl ArenaIndex for MemoryIdx {
 pub struct MemoryType {
     initial_pages: Pages,
     maximum_pages: Option<Pages>,
+    shared: bool,
 }
 
 impl MemoryType {
@@ -48,6 +49,23 @@ impl MemoryType {
     /// If the linear memory type initial or maximum size exceeds the
     /// maximum limits of 2^16 pages.
     pub fn new(initial: u32, maximum: Option<u32>) -> Result<Self, MemoryError> {
+        Self::new_impl(initial, maximum, false)
+    }
+
+    /// Creates a new shared memory type with initial and maximum pages.
+    ///
+    /// Shared memories always require a maximum according to the WebAssembly
+    /// threads proposal.
+    ///
+    /// # Errors
+    ///
+    /// If the linear memory type initial or maximum size exceeds the
+    /// maximum limits of 2^16 pages.
+    pub fn new_shared(initial: u32, maximum: u32) -> Result<Self, MemoryError> {
+        Self::new_impl(initial, Some(maximum), true)
+    }
+
+    fn new_impl(initial: u32, maximum: Option<u32>, shared: bool) -> Result<Self, MemoryError> {
         let initial_pages = Pages::new(initial).ok_or(MemoryError::InvalidMemoryType)?;
         let maximum_pages = match maximum {
             Some(maximum) => Pages::new(maximum)
@@ -58,6 +76,7 @@ impl MemoryType {
         Ok(Self {
             initial_pages,
             maximum_pages,
+            shared,
         })
     }
 
@@ -74,6 +93,11 @@ impl MemoryType {
     /// - Maximum memory size cannot exceed `65536` pages or 4GiB.
     pub fn maximum_pages(self) -> Option<Pages> {
         self.maximum_pages
+    }
+
+    /// Returns `true` if the memory type is shared.
+    pub fn is_shared(self) -> bool {
+        self.shared
     }
 
     /// Checks if `self` is a subtype of `other`.
@@ -108,6 +132,9 @@ impl MemoryType {
     /// [import subtyping]:
     /// https://webassembly.github.io/spec/core/valid/types.html#import-subtyping
     pub(crate) fn is_subtype_of(&self, other: &MemoryType) -> bool {
+        if self.is_shared() != other.is_shared() {
+            return false;
+        }
         if self.initial_pages() < other.initial_pages() {
             return false;
         }
@@ -177,7 +204,7 @@ impl MemoryEntity {
     pub fn dynamic_ty(&self) -> MemoryType {
         let current_pages = self.current_pages().into();
         let maximum_pages = self.ty().maximum_pages().map(Into::into);
-        MemoryType::new(current_pages, maximum_pages)
+        MemoryType::new_impl(current_pages, maximum_pages, self.ty().is_shared())
             .unwrap_or_else(|_| panic!("must result in valid memory type due to invariants"))
     }
 
@@ -194,6 +221,9 @@ impl MemoryEntity {
     ///
     /// If the linear memory would grow beyond its maximum limit after
     /// the grow operation.
+    ///
+    /// Shared memories grow through the same store-owned entity as unshared
+    /// memories, so growth remains safe in the single-runner interpreter.
     pub fn grow(
         &mut self,
         additional: Pages,

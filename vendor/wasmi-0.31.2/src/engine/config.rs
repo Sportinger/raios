@@ -31,6 +31,8 @@ pub struct Config {
     tail_call: bool,
     /// Is `true` if the [`extended-const`] Wasm proposal is enabled.
     extended_const: bool,
+    /// Is `true` if the [`threads`] Wasm proposal is enabled.
+    threads: bool,
     /// Is `true` if Wasm instructions on `f32` and `f64` types are allowed.
     floats: bool,
     /// Is `true` if `wasmi` executions shall consume fuel.
@@ -204,6 +206,7 @@ impl Default for Config {
             reference_types: true,
             tail_call: false,
             extended_const: false,
+            threads: false,
             floats: true,
             consume_fuel: false,
             fuel_costs: FuelCosts::default(),
@@ -336,6 +339,19 @@ impl Config {
         self
     }
 
+    /// Enable or disable the [`threads`] Wasm proposal for the [`Config`].
+    ///
+    /// # Note
+    ///
+    /// Disabled by default. Atomic instructions are not supported yet and
+    /// are rejected during translation even when this proposal is enabled.
+    ///
+    /// [`threads`]: https://github.com/WebAssembly/threads
+    pub fn wasm_threads(&mut self, enable: bool) -> &mut Self {
+        self.threads = enable;
+        self
+    }
+
     /// Enable or disable Wasm floating point (`f32` and `f64`) instructions and types.
     ///
     /// Enabled by default.
@@ -415,7 +431,7 @@ impl Config {
             component_model: false,
             simd: false,
             relaxed_simd: false,
-            threads: false,
+            threads: self.threads,
             multi_memory: false,
             exceptions: false,
             memory64: false,

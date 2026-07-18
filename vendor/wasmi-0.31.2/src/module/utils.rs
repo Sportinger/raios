@@ -28,10 +28,6 @@ impl MemoryType {
             !memory_type.memory64,
             "wasmi does not support the `memory64` Wasm proposal"
         );
-        assert!(
-            !memory_type.shared,
-            "wasmi does not support the `threads` Wasm proposal"
-        );
         let initial: u32 = memory_type
             .initial
             .try_into()
@@ -41,8 +37,14 @@ impl MemoryType {
             .map(TryInto::try_into)
             .transpose()
             .expect("wasm32 memories must have a valid u32 maximum size if any");
-        Self::new(initial, maximum)
-            .expect("encountered invalid wasmparser::MemoryType after validation")
+        match memory_type.shared {
+            true => Self::new_shared(
+                initial,
+                maximum.expect("validated shared memories must have a maximum"),
+            ),
+            false => Self::new(initial, maximum),
+        }
+        .expect("encountered invalid wasmparser::MemoryType after validation")
     }
 }
 
