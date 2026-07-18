@@ -44,7 +44,10 @@
       branchless-main = 0019; `adr-form` rule enforces gapless numbering +
       machine-readable Date:/Status: with red paths (abe403c, 2026-07-18);
       "every decision gets one" stays CLAUDE.md step-7 discipline
-- [ ] Second-opinion dissent recorded in the ADR (both positions)
+- [x] Second-opinion dissent recorded in the ADR (both positions) —
+      demonstrated: ADR 0020 records the Codex in-ticket-binding dissent
+      against the chosen two-stage design plus the evaluator-reuse split,
+      with reconciliation; ADR 0018 shows the concurrence form
 - [x] Outdated material goes to `docs/_archive/` date-prefixed — `archive-dated`
       rule enforces the prefix with a red path (abe403c, 2026-07-18);
       no-silent-delete/no-retro-edit is guarded by single-writer git history
