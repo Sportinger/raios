@@ -141,9 +141,19 @@ Reihenfolge:
    real ~26–32, gebaute Programme laufen. Linker eingebettet, Sysroot-Lücke
    mit 4 wasi-sdk-Libs geschlossen. Bericht:
    `docs/architecture/probe-rustc-wasm-wasmtime-2026-07-18.md`.
-2. **T1-Slice** (wasmi-Patch, host-Tests): ~3–5 Codex-Pakete, 1–2 Wochen.
-   Parallel-tauglich zur UI-Spur, QEMU-frei.
-3. **T2-Slice** (Scheduler-Glue): ~2–3 Pakete, ~1 Woche.
+2. **T1 slices (wasmi patch, host tests) — status 2026-07-18:**
+   T1-a shared-memory foundation GREEN (8a58f5f), T1-b atomic
+   loads/stores/fence GREEN (863ea4d), T1-c RMW/cmpxchg GREEN (323f974) —
+   15 conformance integration tests. T1-d wait/notify: design decided as
+   first-class engine suspension per **ADR 0016** (both second opinions
+   recorded there); packages T1-d-1 (opcode surface, M), T1-d-2 (suspension
+   core, L, review mandatory), T1-d-3 (conformance + determinism trace, M),
+   strictly sequential.
+3. **T2-Slice** (Scheduler-Glue): ~2–3 Pakete, ~1 Woche. Bindend aus
+   ADR 0016: Thread-Deckel ≥ ~40 (gemessen 26–32 rustc-Gast-Threads — das
+   frühere Beispiel „max 8" in §4 ist überholt), Weck-Regeln/virtuelle Uhr
+   aus dem ADR, zusätzlich nichtterminaler Fuel-Quantum-Yield (heutiges
+   OutOfFuel ist terminal).
 4. **Bauplatz/Heap** (~2–4 Pakete) und **WASI+Datei-Sicht** (~4–6 Pakete,
    2–3 Wochen) — routenunabhängig, können vor/neben T1 starten.
 5. **Sysroot als Store-Artefakte** (Job-Kette entfällt — Linker eingebettet,
