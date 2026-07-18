@@ -552,6 +552,46 @@ impl<'parser> FuncTranslator<'parser> {
         })
     }
 
+    /// Translate a Wasm `memory.atomic.notify` instruction.
+    fn translate_atomic_notify(
+        &mut self,
+        memarg: wasmparser::MemArg,
+        make_inst: fn(AddressOffset) -> Instruction,
+    ) -> Result<(), TranslationError> {
+        self.translate_if_reachable(|builder| {
+            let (memory_idx, offset) = Self::decompose_memarg(memarg);
+            debug_assert_eq!(memory_idx.into_u32(), DEFAULT_MEMORY_INDEX);
+            // T1-d-1 charges notify a fixed base cost; data-dependent work starts in T1-d-2.
+            builder.bump_fuel_consumption(builder.fuel_costs().base)?;
+            builder.stack_height.pop2();
+            builder.stack_height.push();
+            let offset = AddressOffset::from(offset);
+            builder.alloc.inst_builder.push_inst(make_inst(offset));
+            Ok(())
+        })
+    }
+
+    /// Translate a Wasm `memory.atomic.wait32` or `memory.atomic.wait64` instruction.
+    fn translate_atomic_wait(
+        &mut self,
+        memarg: wasmparser::MemArg,
+        _expected_type: ValueType,
+        make_inst: fn(AddressOffset) -> Instruction,
+    ) -> Result<(), TranslationError> {
+        self.translate_if_reachable(|builder| {
+            let (memory_idx, offset) = Self::decompose_memarg(memarg);
+            debug_assert_eq!(memory_idx.into_u32(), DEFAULT_MEMORY_INDEX);
+            // T1-d-1 charges wait a fixed load plus base cost, independent of its outcome.
+            builder.bump_fuel_consumption(builder.fuel_costs().load)?;
+            builder.bump_fuel_consumption(builder.fuel_costs().base)?;
+            builder.stack_height.pop3();
+            builder.stack_height.push();
+            let offset = AddressOffset::from(offset);
+            builder.alloc.inst_builder.push_inst(make_inst(offset));
+            Ok(())
+        })
+    }
+
     /// Translate a generic Wasm `<ty>.const` instruction.
     ///
     /// # Note
@@ -1014,6 +1054,15 @@ macro_rules! impl_visit_operator {
         impl_visit_operator!($($rest)*);
     };
     ( @threads I64AtomicRmw32CmpxchgU { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads MemoryAtomicNotify { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads MemoryAtomicWait32 { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads MemoryAtomicWait64 { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
         impl_visit_operator!($($rest)*);
     };
     ( @@skipped $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident $($rest:tt)* ) => {
@@ -1756,6 +1805,27 @@ impl<'a> VisitOperator<'a> for FuncTranslator<'a> {
                 .push_inst(Instruction::AtomicFence);
             Ok(())
         })
+    }
+
+    fn visit_memory_atomic_notify(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_notify(memarg, Instruction::MemoryAtomicNotify)
+    }
+
+    fn visit_memory_atomic_wait32(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_wait(memarg, ValueType::I32, Instruction::MemoryAtomicWait32)
+    }
+
+    fn visit_memory_atomic_wait64(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_atomic_wait(memarg, ValueType::I64, Instruction::MemoryAtomicWait64)
     }
 
     fn visit_i32_atomic_load(

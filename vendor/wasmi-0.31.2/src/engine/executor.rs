@@ -371,6 +371,18 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
                 Instr::I64AtomicRmw32CmpxchgU(offset) => {
                     self.visit_i64_atomic_rmw32_cmpxchg_u(offset)?
                 }
+                Instr::MemoryAtomicNotify(_offset) => {
+                    // T1-d-2 ersetzt dies durch die AtomicSuspend-Mechanik, ADR 0016.
+                    return Err(TrapCode::AtomicSuspendNotResumable);
+                }
+                Instr::MemoryAtomicWait32(_offset) => {
+                    // T1-d-2 ersetzt dies durch die AtomicSuspend-Mechanik, ADR 0016.
+                    return Err(TrapCode::AtomicSuspendNotResumable);
+                }
+                Instr::MemoryAtomicWait64(_offset) => {
+                    // T1-d-2 ersetzt dies durch die AtomicSuspend-Mechanik, ADR 0016.
+                    return Err(TrapCode::AtomicSuspendNotResumable);
+                }
                 Instr::AtomicFence => self.visit_atomic_fence(),
                 Instr::MemorySize => self.visit_memory_size(),
                 Instr::MemoryGrow => self.visit_memory_grow(&mut *resource_limiter)?,

@@ -413,6 +413,18 @@ macro_rules! impl_visit_operator {
         impl_supported_thread_operator!($visit { $($arg: $argty),* });
         impl_visit_operator!($($rest)*);
     };
+    ( @threads MemoryAtomicNotify { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads MemoryAtomicWait32 { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads MemoryAtomicWait64 { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
     ( @threads $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident $($rest:tt)* ) => {
         fn $visit(&mut self $($(,$arg: $argty)*)?) -> Self::Output {
             let offset = self.current_pos();

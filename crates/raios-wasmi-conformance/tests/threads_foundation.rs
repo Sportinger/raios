@@ -1,6 +1,5 @@
 use wasmi::{
-    errors::{LinkerError, ModuleError},
-    Config, Engine, Error, Linker, Memory, MemoryType, Module, Store,
+    errors::LinkerError, Config, Engine, Error, Linker, Memory, MemoryType, Module, Store,
 };
 
 fn engine_with_threads() -> Engine {
@@ -155,44 +154,29 @@ fn two_instances_observe_plain_writes_through_one_shared_memory() {
     );
 }
 
-fn assert_atomic_translation_rejected(wat: &str, operator: &str) {
-    let engine = engine_with_threads();
-    let error = module_from_wat(&engine, wat)
-        .expect_err("operator beyond the current atomic slice must remain unsupported");
-    let message = error.to_string();
-
-    assert!(matches!(error, Error::Module(ModuleError::Translation(_))));
-    assert!(
-        message.contains(&format!(
-            "unsupported Wasm operator during translation: {operator}"
-        )),
-        "unexpected translation error: {message}"
-    );
-}
-
 #[test]
-fn wait_and_notify_remain_rejected_during_translation() {
-    assert_atomic_translation_rejected(
+fn wait_and_notify_translate_when_threads_are_enabled() {
+    let engine = engine_with_threads();
+    module_from_wat(
+        &engine,
         r#"
         (module
             (memory 1 1 shared)
-            (func (export "wait") (param i32 i32 i64) (result i32)
+            (func (export "wait32") (param i32 i32 i64) (result i32)
                 local.get 0
                 local.get 1
                 local.get 2
-                memory.atomic.wait32))
-        "#,
-        "MemoryAtomicWait32",
-    );
-    assert_atomic_translation_rejected(
-        r#"
-        (module
-            (memory 1 1 shared)
+                memory.atomic.wait32)
+            (func (export "wait64") (param i32 i64 i64) (result i32)
+                local.get 0
+                local.get 1
+                local.get 2
+                memory.atomic.wait64)
             (func (export "notify") (param i32 i32) (result i32)
                 local.get 0
                 local.get 1
                 memory.atomic.notify))
         "#,
-        "MemoryAtomicNotify",
-    );
+    )
+    .expect("wait32, wait64, and notify translate when threads are enabled");
 }
