@@ -7,42 +7,44 @@
 > fitting plan under `docs/plans/`. Max ~4 lines of text per entry, file max
 > 60 lines. Replace, never append.
 
-## Now (as of 2026-07-18, iteration 7 closed)
+## Now (as of 2026-07-18, iteration 8 closed)
 
-Main road = on-device factory. The T2 policy is host-PROVEN: the pure
-JobThreadScheduler encodes every ADR 0016 wake rule with a replay-equal
-event trace (626 core tests). The WASI shim is complete on the host side
-(slices 0-5): file world, process world (manifest-bound args/env, fuel
-clock, pinned xoshiro PRNG, exit-first-wins) — 45 shim tests. All engine
-suspension sources shipped earlier. Remaining to the first on-device
-hello.rs: T2-b2 kernel pump glue, WASI slice 6 glue, Bauplatz memory
-ceilings, sysroot artifacts.
+Main road = on-device factory. **The kernel runs deterministic green
+threads**: the fixed-thread round-robin pump drives real wait/notify/
+atomics/fuel-quantum jobs in QEMU — `RAIOS_THREADS selftest=pass` with
+internal double-run trace equality, numbers byte-identical to the host
+model (dacbfee). BuildGuestClassV1 binds all measured limits (e51dc2a).
+The 06 breakdown is refined to separately provable units per owner
+directive — 6 boxes genuinely green (c23901a). Remaining to hello.rs:
+thread-spawn/proc_exit/cap in the pump, WASI slice 6 glue, live 1-GiB
+guest memories, sysroot artifacts.
 
 ## Next step
 
-Running: T2-b2a (kernel round-robin pump over fixed pre-instantiated
-threads, wat build fixture, RAIOS_THREADS selftest with internal
-double-run trace equality — worker writes, orchestrator compiles/QEMUs)
-and Bauplatz-2a (typed BuildGuestClassV1 contract with measured limits).
-Then T2-b2b (thread-spawn import, proc_exit job end), WASI slice 6,
-Bauplatz kernel wiring, sysroot import. Owner questions pending: SCOPE §6
-Cranelift wording; ADR 0017 veto window.
+Running: T2-b2b (wasi thread-spawn import, proc_exit job end, cap 48 in
+the kernel pump — closes the T2 box) and buildfs-pack (host tool packing
+a directory tree into BuildFS v1 manifests + chunks — sysroot/compiler
+delivery prep). Then WASI slice 6 kernel glue, live guest memories,
+sysroot import, first hello.rs build. Owner questions pending: SCOPE §6
+Cranelift wording; ADR 0017 veto window. Note: kernel wat build-dep
+pinned the lockfile to indexmap 2.7.1 (edition2024 vs pinned nightly).
 
 ## Recently (exactly 3, newest first)
 
+### 2026-07-18 — Kernel round-robin pump proven live (T2-b2a)
+thread_job.rs pumps N threads of one job through the proven scheduler;
+serial-triggered threads.selftest runs the job twice and passes only on
+byte-identical traces. Live QEMU: waits=1 notifies=2 fuel_yields=32
+switches=35 sum=32 rounds=35 — exactly the host-model numbers. QEMU
+quick passed (shadow-20260718-195441-26032). dacbfee, e51dc2a, c23901a.
+
 ### 2026-07-18 — T2-b1 scheduler policy + WASI-5 process determinism
-JobThreadScheduler: cap 48, resumed round-robin, FIFO queues, round-start
-timeout sweep, notify-beats-timeout, deadlock verdict, typed replay trace
-(97d163c, 626 tests). Process world: preview1-exact args/env, fuel clock,
-seeded xoshiro256** with pinned vectors, typed Exit/Yield, clock-only
-poll_oneoff with next_wake_fuel (83c8631, 45 tests).
+JobThreadScheduler: cap 48, FIFO queues, round-start timeout sweep,
+notify-beats-timeout, deadlock verdict, typed replay trace (97d163c,
+626 tests). Process world: preview1-exact args/env, fuel clock, pinned
+xoshiro PRNG, typed Exit/Yield (83c8631, 45 tests).
 
 ### 2026-07-18 — T2-a fuel-quantum yield + WASI-4 writable build root
 Opt-in Suspension::FuelQuantum parks BEFORE the instruction, default
 byte-identical (9137872). RAM arenas with atomic quotas, /out freeze to
 BuildFS v1, typed egress only for byte-identical double runs (f8f5804).
-
-### 2026-07-18 — T1-d-2 suspension core + WASI-3 chunk-CAS readonly view
-Typed WasmOutcome::AtomicSuspend with one-i32 resume (2c59257, QEMU quick
-green). BuildFS v1 range-verified reads: a 100-byte pread in a 71-MB
-fixture touches exactly one chunk (2698a70).
