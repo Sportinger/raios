@@ -155,25 +155,44 @@ fn two_instances_observe_plain_writes_through_one_shared_memory() {
     );
 }
 
-#[test]
-fn atomic_opcode_is_rejected_during_translation() {
+fn assert_atomic_translation_rejected(wat: &str, operator: &str) {
     let engine = engine_with_threads();
-    let error = module_from_wat(
-        &engine,
-        r#"
-        (module
-            (memory 1 1 shared)
-            (func (export "load") (param i32) (result i32)
-                local.get 0
-                i32.atomic.load))
-        "#,
-    )
-    .expect_err("atomic instructions belong to the next slice");
+    let error = module_from_wat(&engine, wat)
+        .expect_err("operator beyond the current atomic slice must remain unsupported");
     let message = error.to_string();
 
     assert!(matches!(error, Error::Module(ModuleError::Translation(_))));
     assert!(
-        message.contains("unsupported Wasm operator during translation: I32AtomicLoad"),
+        message.contains(&format!(
+            "unsupported Wasm operator during translation: {operator}"
+        )),
         "unexpected translation error: {message}"
+    );
+}
+
+#[test]
+fn rmw_and_wait_remain_rejected_during_translation() {
+    assert_atomic_translation_rejected(
+        r#"
+        (module
+            (memory 1 1 shared)
+            (func (export "rmw") (param i32 i32) (result i32)
+                local.get 0
+                local.get 1
+                i32.atomic.rmw.add))
+        "#,
+        "I32AtomicRmwAdd",
+    );
+    assert_atomic_translation_rejected(
+        r#"
+        (module
+            (memory 1 1 shared)
+            (func (export "wait") (param i32 i32 i64) (result i32)
+                local.get 0
+                local.get 1
+                local.get 2
+                memory.atomic.wait32))
+        "#,
+        "MemoryAtomicWait32",
     );
 }

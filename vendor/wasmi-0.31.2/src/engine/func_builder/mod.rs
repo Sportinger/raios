@@ -114,6 +114,18 @@ impl<'parser> FuncBuilder<'parser> {
     }
 }
 
+macro_rules! impl_supported_thread_operator {
+    ( $visit:ident $({ $($arg:ident: $argty:ty),* })? ) => {
+        fn $visit(&mut self $($(,$arg: $argty)*)?) -> Self::Output {
+            let offset = self.current_pos();
+            self.validate_then_translate(
+                |v| v.visitor(offset).$visit($($($arg),*)?),
+                |t| t.$visit($($($arg),*)?),
+            )
+        }
+    };
+}
+
 macro_rules! impl_visit_operator {
     ( @mvp BrTable { $arg:ident: $argty:ty } => $visit:ident $($rest:tt)* ) => {
         // We need to special case the `BrTable` operand since its
@@ -146,6 +158,66 @@ macro_rules! impl_visit_operator {
     };
     ( @tail_call $($rest:tt)* ) => {
         impl_visit_operator!(@@supported $($rest)*);
+    };
+    ( @threads AtomicFence => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit);
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicLoad { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicLoad8U { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicLoad16U { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicLoad { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicLoad8U { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicLoad16U { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicLoad32U { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicStore { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicStore8 { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicStore16 { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicStore { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicStore8 { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicStore16 { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicStore32 { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_supported_thread_operator!($visit { $($arg: $argty),* });
+        impl_visit_operator!($($rest)*);
     };
     ( @threads $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident $($rest:tt)* ) => {
         fn $visit(&mut self $($(,$arg: $argty)*)?) -> Self::Output {

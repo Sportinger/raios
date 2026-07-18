@@ -290,6 +290,21 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
                 Instr::I64Store8(offset) => self.visit_i64_store_8(offset)?,
                 Instr::I64Store16(offset) => self.visit_i64_store_16(offset)?,
                 Instr::I64Store32(offset) => self.visit_i64_store_32(offset)?,
+                Instr::I32AtomicLoad(offset) => self.visit_i32_atomic_load(offset)?,
+                Instr::I32AtomicLoad8U(offset) => self.visit_i32_atomic_load8_u(offset)?,
+                Instr::I32AtomicLoad16U(offset) => self.visit_i32_atomic_load16_u(offset)?,
+                Instr::I64AtomicLoad(offset) => self.visit_i64_atomic_load(offset)?,
+                Instr::I64AtomicLoad8U(offset) => self.visit_i64_atomic_load8_u(offset)?,
+                Instr::I64AtomicLoad16U(offset) => self.visit_i64_atomic_load16_u(offset)?,
+                Instr::I64AtomicLoad32U(offset) => self.visit_i64_atomic_load32_u(offset)?,
+                Instr::I32AtomicStore(offset) => self.visit_i32_atomic_store(offset)?,
+                Instr::I32AtomicStore8(offset) => self.visit_i32_atomic_store8(offset)?,
+                Instr::I32AtomicStore16(offset) => self.visit_i32_atomic_store16(offset)?,
+                Instr::I64AtomicStore(offset) => self.visit_i64_atomic_store(offset)?,
+                Instr::I64AtomicStore8(offset) => self.visit_i64_atomic_store8(offset)?,
+                Instr::I64AtomicStore16(offset) => self.visit_i64_atomic_store16(offset)?,
+                Instr::I64AtomicStore32(offset) => self.visit_i64_atomic_store32(offset)?,
+                Instr::AtomicFence => self.visit_atomic_fence(),
                 Instr::MemorySize => self.visit_memory_size(),
                 Instr::MemoryGrow => self.visit_memory_grow(&mut *resource_limiter)?,
                 Instr::MemoryFill => self.visit_memory_fill()?,
@@ -489,6 +504,53 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
         store_wrap: WasmStoreOp,
     ) -> Result<(), TrapCode> {
         let (address, value) = self.sp.pop2();
+        let memory = self.cache.default_memory_bytes(self.ctx);
+        store_wrap(memory, address, offset.into_inner(), value)?;
+        self.try_next_instr()
+    }
+
+    /// Returns an error if the effective address is not naturally aligned.
+    #[inline(always)]
+    fn check_atomic_alignment(
+        address: UntypedValue,
+        offset: AddressOffset,
+        alignment: u32,
+    ) -> Result<(), TrapCode> {
+        let effective_address = u32::from(address)
+            .checked_add(offset.into_inner())
+            .ok_or(TrapCode::MemoryOutOfBounds)?;
+        if effective_address % alignment != 0 {
+            return Err(TrapCode::UnalignedAtomic);
+        }
+        Ok(())
+    }
+
+    /// Executes an atomic Wasm load as an aligned plain load.
+    #[inline(always)]
+    fn execute_atomic_load_extend(
+        &mut self,
+        offset: AddressOffset,
+        alignment: u32,
+        load_extend: WasmLoadOp,
+    ) -> Result<(), TrapCode> {
+        self.sp.try_eval_top(|address| {
+            Self::check_atomic_alignment(address, offset, alignment)?;
+            let memory = self.cache.default_memory_bytes(self.ctx);
+            load_extend(memory, address, offset.into_inner())
+        })?;
+        self.try_next_instr()
+    }
+
+    /// Executes an atomic Wasm store as an aligned plain store.
+    #[inline(always)]
+    fn execute_atomic_store_wrap(
+        &mut self,
+        offset: AddressOffset,
+        alignment: u32,
+        store_wrap: WasmStoreOp,
+    ) -> Result<(), TrapCode> {
+        let (address, value) = self.sp.pop2();
+        Self::check_atomic_alignment(address, offset, alignment)?;
         let memory = self.cache.default_memory_bytes(self.ctx);
         store_wrap(memory, address, offset.into_inner(), value)?;
         self.try_next_instr()
@@ -1401,6 +1463,69 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
         fn visit_i64_load_i16_u(i64_load16_u);
         fn visit_i64_load_i32_s(i64_load32_s);
         fn visit_i64_load_i32_u(i64_load32_u);
+    }
+}
+
+macro_rules! impl_visit_atomic_load {
+    ( $( fn $visit_ident:ident($alignment:literal, $untyped_ident:ident); )* ) => {
+        $(
+            #[inline(always)]
+            fn $visit_ident(
+                &mut self,
+                offset: AddressOffset,
+            ) -> Result<(), TrapCode> {
+                self.execute_atomic_load_extend(
+                    offset,
+                    $alignment,
+                    UntypedValue::$untyped_ident,
+                )
+            }
+        )*
+    }
+}
+impl<'ctx, 'engine> Executor<'ctx, 'engine> {
+    impl_visit_atomic_load! {
+        fn visit_i32_atomic_load(4, i32_load);
+        fn visit_i32_atomic_load8_u(1, i32_load8_u);
+        fn visit_i32_atomic_load16_u(2, i32_load16_u);
+        fn visit_i64_atomic_load(8, i64_load);
+        fn visit_i64_atomic_load8_u(1, i64_load8_u);
+        fn visit_i64_atomic_load16_u(2, i64_load16_u);
+        fn visit_i64_atomic_load32_u(4, i64_load32_u);
+    }
+}
+
+macro_rules! impl_visit_atomic_store {
+    ( $( fn $visit_ident:ident($alignment:literal, $untyped_ident:ident); )* ) => {
+        $(
+            #[inline(always)]
+            fn $visit_ident(
+                &mut self,
+                offset: AddressOffset,
+            ) -> Result<(), TrapCode> {
+                self.execute_atomic_store_wrap(
+                    offset,
+                    $alignment,
+                    UntypedValue::$untyped_ident,
+                )
+            }
+        )*
+    }
+}
+impl<'ctx, 'engine> Executor<'ctx, 'engine> {
+    impl_visit_atomic_store! {
+        fn visit_i32_atomic_store(4, i32_store);
+        fn visit_i32_atomic_store8(1, i32_store8);
+        fn visit_i32_atomic_store16(2, i32_store16);
+        fn visit_i64_atomic_store(8, i64_store);
+        fn visit_i64_atomic_store8(1, i64_store8);
+        fn visit_i64_atomic_store16(2, i64_store16);
+        fn visit_i64_atomic_store32(4, i64_store32);
+    }
+
+    #[inline(always)]
+    fn visit_atomic_fence(&mut self) {
+        self.next_instr()
     }
 }
 

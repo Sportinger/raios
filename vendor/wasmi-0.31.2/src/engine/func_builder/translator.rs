@@ -810,6 +810,51 @@ macro_rules! impl_visit_operator {
     ( @tail_call $($rest:tt)* ) => {
         impl_visit_operator!(@@skipped $($rest)*);
     };
+    ( @threads AtomicFence => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicLoad { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicLoad8U { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicLoad16U { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicLoad { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicLoad8U { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicLoad16U { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicLoad32U { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicStore { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicStore8 { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I32AtomicStore16 { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicStore { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicStore8 { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicStore16 { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
+    ( @threads I64AtomicStore32 { $($arg:ident: $argty:ty),* } => $visit:ident $($rest:tt)* ) => {
+        impl_visit_operator!($($rest)*);
+    };
     ( @@skipped $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident $($rest:tt)* ) => {
         // We skip Wasm operators that we already implement manually.
         impl_visit_operator!($($rest)*);
@@ -1539,6 +1584,115 @@ impl<'a> VisitOperator<'a> for FuncTranslator<'a> {
 
     fn visit_i64_store32(&mut self, memarg: wasmparser::MemArg) -> Result<(), TranslationError> {
         self.translate_store(memarg, ValueType::I64, Instruction::I64Store32)
+    }
+
+    fn visit_atomic_fence(&mut self) -> Result<(), TranslationError> {
+        self.translate_if_reachable(|builder| {
+            builder.bump_fuel_consumption(builder.fuel_costs().base)?;
+            builder
+                .alloc
+                .inst_builder
+                .push_inst(Instruction::AtomicFence);
+            Ok(())
+        })
+    }
+
+    fn visit_i32_atomic_load(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_load(memarg, ValueType::I32, Instruction::I32AtomicLoad)
+    }
+
+    fn visit_i32_atomic_load8_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_load(memarg, ValueType::I32, Instruction::I32AtomicLoad8U)
+    }
+
+    fn visit_i32_atomic_load16_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_load(memarg, ValueType::I32, Instruction::I32AtomicLoad16U)
+    }
+
+    fn visit_i64_atomic_load(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_load(memarg, ValueType::I64, Instruction::I64AtomicLoad)
+    }
+
+    fn visit_i64_atomic_load8_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_load(memarg, ValueType::I64, Instruction::I64AtomicLoad8U)
+    }
+
+    fn visit_i64_atomic_load16_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_load(memarg, ValueType::I64, Instruction::I64AtomicLoad16U)
+    }
+
+    fn visit_i64_atomic_load32_u(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_load(memarg, ValueType::I64, Instruction::I64AtomicLoad32U)
+    }
+
+    fn visit_i32_atomic_store(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_store(memarg, ValueType::I32, Instruction::I32AtomicStore)
+    }
+
+    fn visit_i32_atomic_store8(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_store(memarg, ValueType::I32, Instruction::I32AtomicStore8)
+    }
+
+    fn visit_i32_atomic_store16(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_store(memarg, ValueType::I32, Instruction::I32AtomicStore16)
+    }
+
+    fn visit_i64_atomic_store(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_store(memarg, ValueType::I64, Instruction::I64AtomicStore)
+    }
+
+    fn visit_i64_atomic_store8(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_store(memarg, ValueType::I64, Instruction::I64AtomicStore8)
+    }
+
+    fn visit_i64_atomic_store16(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_store(memarg, ValueType::I64, Instruction::I64AtomicStore16)
+    }
+
+    fn visit_i64_atomic_store32(
+        &mut self,
+        memarg: wasmparser::MemArg,
+    ) -> Result<(), TranslationError> {
+        self.translate_store(memarg, ValueType::I64, Instruction::I64AtomicStore32)
     }
 
     fn visit_memory_size(

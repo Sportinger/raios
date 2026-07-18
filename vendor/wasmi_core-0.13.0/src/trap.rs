@@ -291,6 +291,10 @@ pub enum TrapCode {
     /// desire on the part of the embedder to trap the interpreter rather than
     /// merely fail the growth operation.
     GrowthOperationLimited,
+
+    /// Attempt to execute an atomic memory access at an address that is not
+    /// naturally aligned for the access width.
+    UnalignedAtomic,
 }
 
 impl TrapCode {
@@ -304,6 +308,7 @@ impl TrapCode {
         match self {
             Self::UnreachableCodeReached => "wasm `unreachable` instruction executed",
             Self::MemoryOutOfBounds => "out of bounds memory access",
+            Self::UnalignedAtomic => "unaligned atomic memory access",
             Self::TableOutOfBounds => "undefined element: out of bounds table access",
             Self::IndirectCallToNull => "uninitialized element 2", // TODO: fixme, remove the trailing " 2" again
             Self::IntegerDivisionByZero => "integer divide by zero",
