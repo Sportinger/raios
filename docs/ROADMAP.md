@@ -226,13 +226,25 @@ signed `svc.build.assembler` guest reproduced it inside the sandbox with the
 independent in-kernel recompute byte-identical (`build.assemble_probe`
 `probe_outcome=passed`, sha256:37b6dae3, wasmi-valid 52-byte module, fully
 inert, W5/W6 untouched).
-**NEXT DELIBERATE SLICE — B3A-1c:** the focused proof per b3-plan section 6 —
-B2-revision-bound input, two fresh-store builds byte-identical, W5
-physical-approval run of the produced module (produced function returns 42),
-full negative table; then B2.3 slow-lane orchestration. `/program` stays the
-explicit RUIP fast lane. Honest gap: the scoped feedback carries no source, so
-the provider rarely returns a conforming child — richer (still-classified)
-evidence and the B3 on-device build/test producer are what close the iterate
+**B3A-1c VERIFIED-CLOSED (2026-07-18):** the on-device build loop is closed in
+miniature — a `main.rwir` source revision (fixture per the B2.1a discipline)
+was assembled IN-SYSTEM twice deterministically (run1==run2==independent kernel
+recompute==host-hardcoded golden hash, zero imports, exact entrypoint), bound
+into a W5 preview, serial approve denied, and ONE physical Genesis click ran
+the self-built module once returning 42 with zero install/persistence effect;
+prepare-less restart and replay prepare deny, negative table and byte-identical
+drift scans green (`build-assemble` `shadow-20260718-082526-6872.json`, 33/33).
+Vision station 4 (build on device) is now real at assembler scale. Honest
+scope: same-boot double instantiation, not yet a cross-reboot fresh-store
+double build; the serial-log combine fix after the report is verified by the
+next profile run.
+**NEXT DELIBERATE SLICE:** B3A-2 per b3-plan alternative 2 — the minimal
+restricted-language compiler (RUIP-extension or tiny Rust-subset -> Wasm,
+reusing the raios-wasm-ir encoder) as the first real in-system COMPILER; in
+parallel B2.3 slow-lane orchestration (`LoopPhase` projection). `/program`
+stays the explicit RUIP fast lane. Honest gap: the scoped feedback carries no
+source, so the provider rarely returns a conforming child — richer
+(still-classified) evidence and the B3 build/test producer close the iterate
 loop.
 
 **B1.2c W6 INSTALL + REBOOT SURVIVAL + ROLLBACK VERIFIED-CLOSED (2026-07-15).**
