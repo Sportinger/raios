@@ -214,13 +214,17 @@ impl ResourceLimiter for WasiHostState {
         if maximum.is_some_and(|maximum| desired > maximum) {
             return Ok(false);
         }
-        if desired <= current {
-            return Ok(true);
-        }
-        // Keep 1 MiB beyond old+new Vec coexistence because free() aggregates fragments.
-        let Some(required_free) = desired
-            .checked_add(current)
-            .and_then(|bytes| bytes.checked_add(MEMORY_GROW_SAFETY_MARGIN_BYTES))
+        // Vec::resize reserves max(2*capacity, desired) as a NEW allocation while
+        // the current buffer stays live — and the current buffer is already inside
+        // ALLOCATOR used, i.e. excluded from free(). So admission gates on the new
+        // reservation only, plus 1 MiB for fragmentation. The observed 1.56-GiB
+        // allocation (Layout size 1673527296 = 2x the ~0.78-GiB capacity) pins the
+        // doubling model; counting `current` here too would double-book it against
+        // free() and wrongly deny the final grow to the declared maximum.
+        let Some(required_free) = current
+            .checked_mul(2)
+            .map(|doubled| doubled.max(desired))
+            .and_then(|reservation| reservation.checked_add(MEMORY_GROW_SAFETY_MARGIN_BYTES))
         else {
             return Ok(false);
         };

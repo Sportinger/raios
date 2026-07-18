@@ -6,8 +6,8 @@ use crate::{serial, ALLOCATOR, HEAP, HEAP_SIZE, HHDM_REQUEST, MEMORY_MAP_REQUEST
 
 const MIB: u64 = 1024 * 1024;
 const MIN_HEAP_SIZE: u64 = 64 * MIB;
-// 3 GiB covers the 1-GiB window's 2-GiB realloc peak plus kernel margin.
-const MAX_HEAP_SIZE: u64 = 3072 * MIB;
+// 4 GiB covers the declared 1-GiB window, its 2x doubling reservation, and margin.
+const MAX_HEAP_SIZE: u64 = 4096 * MIB;
 const PAGE_SIZE: u64 = 4096;
 
 #[derive(Clone, Copy)]
@@ -225,13 +225,13 @@ mod tests {
     fn region_above_maximum_is_capped() {
         assert_eq!(
             select_heap_region(&[(0x10_0000, MAX_HEAP_SIZE + MIB)]),
-            Some((0x10_0000, 3072 * MIB))
+            Some((0x10_0000, 4096 * MIB))
         );
     }
 
     #[test]
     fn region_between_old_and_new_cap_is_used_fully() {
-        let region_size = 2048 * MIB;
+        let region_size = 3584 * MIB;
         assert_eq!(
             select_heap_region(&[(0x10_0000, region_size)]),
             Some((0x10_0000, region_size))
