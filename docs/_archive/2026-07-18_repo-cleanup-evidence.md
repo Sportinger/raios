@@ -69,7 +69,7 @@ Owner-Review dieses Dokuments.
 | `Cargo.lock` | Nein | Cargo selbst, Core-Projektlogik, Status/Pläne | 2026-07-17 `2dff098` feat(B3A-1b): on-device build proven in-VM | **INFRA** |
 | `Cargo.toml` | Nein | Cargo selbst, Build-/Projektlogik und Pläne | 2026-07-18 `2890b63` feat(B3A-2a): rlang crate + additive typed emitter | **INFRA** |
 | `CLAUDE.md` | Nein | Agentendokumente | 2026-07-15 `a2a3efa` docs(rules): carry the standing self-build-loop mission | **INFRA** |
-| `cleanup-evidence.md` | Nein | `docs/REPO_CLEANUP.md` verlangt dieses Owner-Review-Artefakt | — (neu in diesem Auftrag) | **INFRA** — wird laut Auftrag erst beim Abschluss datiert archiviert |
+| `cleanup-evidence.md` | Nein | `docs/_archive/2026-07-18_REPO_CLEANUP.md` verlangt dieses Owner-Review-Artefakt | — (neu in diesem Auftrag) | **INFRA** — wird laut Auftrag erst beim Abschluss datiert archiviert |
 | `LICENSE` | Nein | Projekt- und Vendor-Metadaten | 2026-05-19 `a360559` Rename raisOS branding to raiOS | **INFRA** |
 | `README.md` | Nein | Aktive Architektur-/Statusdokumente | 2026-07-18 `88506d8` docs: make scope and active plans discoverable | **INFRA** |
 | `usb-diskpart-gpt.log` | Nein | 0 Treffer; via `**/*.log` ignoriert | — (unversioniert; mtime 2026-05-10) | **UNKLAR** — kein Git-Verlauf; nicht ohne Inhaltsreview anfassen |

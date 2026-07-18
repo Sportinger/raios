@@ -1,8 +1,8 @@
 # REPO CLEANUP — Auftrag für den Aufräum-Agenten (Repo-Root)
 
 > **Prinzip:** Beweis statt Bauchgefühl. Nichts wird gelöscht, weil es "tot aussieht" —
-> nur, weil drei Beweise es belegen. Alles Zweifelhafte geht in Quarantäne
-> (`_attic/`), nicht in den Müll. **Nach jedem Verschiebe-Schritt muss der
+> nur, weil drei Beweise es belegen. Alles Zweifelhafte geht in den
+> Quarantäne-Root, nicht in den Müll. **Nach jedem Verschiebe-Schritt muss der
 > Build grün bleiben** — sonst sofort zurück.
 >
 > Modus: **konservativ.** Eine Lane, ein Branch (`repo-cleanup`), kleine Commits.
@@ -45,13 +45,13 @@ nicht zu übernehmen: `fake-cloud`, `modules`, `ota`, `registry`,
 
 - **GENERIERT** → prüfen, dass es in `.gitignore` steht; falls versioniert:
   aus Git entfernen (das ist die EINZIGE erlaubte "Löschung" — reproduzierbar).
-- **VERDÄCHTIG (bestätigt)** → `git mv` nach `_attic/<name>`. `_attic/` steht
-  in einer README als "Quarantäne — nichts hier wird gebaut; nach 30 Tagen
+- **VERDÄCHTIG (bestätigt)** → `git mv` in den Quarantäne-Root. Dessen README
+  sagt: "Quarantäne — nichts hier wird gebaut; nach 30 Tagen
   ohne Vermissen darf der Owner löschen".
 - **usb-*.txt** → Inhalt sichten: noch gültige Anleitung → in
   `docs/architecture/hardware/` einarbeiten; Rest → `docs/_archive/` (datiert).
 - **AKTIV / INFRA / UNKLAR** → bleibt exakt, wo es ist.
-- Root-Ziel danach: nur AKTIV-Crates, INFRA, `_attic/`.
+- Root-Ziel danach: nur AKTIV-Crates, INFRA und Quarantäne-Root.
 
 ## Phase 4 — Verifizieren (das Gate)
 
@@ -60,7 +60,7 @@ Nach JEDEM Verschiebe-Commit, und einmal am Ende komplett:
 - [ ] `cargo test -p raios-core` grün
 - [ ] QEMU-Smoke-Profil läuft durch, `raios.vm_test_report.v0` entsteht
 - [ ] `.github`-CI-Workflow lokal nachvollzogen: referenziert er verschobene Pfade?
-- [ ] `rg "_attic"` außerhalb von `_attic/` selbst → 0 Treffer
+- [ ] keine operative Referenz auf den Quarantäne-Root außerhalb desselben
 Ein roter Check → letzten Commit revertieren, Pfad als UNKLAR markieren, weiter.
 
 ## Abschluss
