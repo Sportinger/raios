@@ -367,6 +367,7 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("memory.record_log_append", Exact, ["persist.memory_record_append"], [route!("memory.record_log_append"), route!("persist.memory_record_append" => "memory.record_log_append")], MethodAction::Read0(memory_store::emit_memory_record_log_append)),
     method!("memory.record_log_append_selftest", Exact, [], [route!("memory.record_log_append_selftest")], MethodAction::Read0(memory_store::emit_memory_record_log_append_selftest)),
     method!("memory.broker_resolve_selftest", Exact, [], [route!("memory.broker_resolve_selftest")], MethodAction::Read0(memory_store::emit_memory_broker_resolve_selftest)),
+    method!("threads.selftest", Exact, ["threads-selftest"], [route!("threads.selftest")], MethodAction::Read0(crate::wasm_runtime::emit_threads_selftest)),
     method!("memory.decision_problem_log_append", Exact, ["persist.memory_decision_problem_append"], [route!("memory.decision_problem_log_append"), route!("persist.memory_decision_problem_append" => "memory.decision_problem_log_append")], MethodAction::Read0(memory_store::emit_memory_decision_problem_log_append)),
     method!("memory.provider_export_public_fixture_append", Exact, [], [route!("memory.provider_export_public_fixture_append")], MethodAction::Read0(memory_store::emit_provider_export_public_fixture_append)),
     method!("memory.observation_log_append", Head, [], [], MethodAction::ReadMethod(memory_store::emit_memory_observation_log_append)),

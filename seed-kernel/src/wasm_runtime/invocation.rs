@@ -230,6 +230,16 @@ pub(super) fn wasm_execution_busy() -> bool {
     ACTIVE_BEYOND_ENV_INVOCATION.load(Ordering::Acquire) != 0
 }
 
+pub(super) fn try_acquire_thread_job_execution() -> bool {
+    ACTIVE_BEYOND_ENV_INVOCATION
+        .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok()
+}
+
+pub(super) fn release_thread_job_execution() {
+    ACTIVE_BEYOND_ENV_INVOCATION.store(0, Ordering::Release);
+}
+
 pub(crate) fn take_beyond_env_fixture_request() -> Option<BeyondEnvFixtureRequest> {
     BeyondEnvFixtureRequest::decode(BEYOND_ENV_REQUEST.swap(0, Ordering::AcqRel))
 }

@@ -54,6 +54,7 @@ mod net_shims;
 mod personal_shell;
 mod probes;
 mod suspension;
+mod thread_job;
 
 pub(crate) use acquire_shims::{
     acquire_shim_grant_probe, AcquireFixtureCase, AcquireFixtureProbeSnapshot,
@@ -92,3 +93,4 @@ pub(crate) use probes::{
     run_httphead_unauthorized_probe, BufechoRoundtripEvidence, EchoFuelStarvedEvidence, EchoProbe,
     WasmHardeningCase,
 };
+pub(crate) use thread_job::emit_threads_selftest;

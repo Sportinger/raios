@@ -38,6 +38,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=RAIOS_OPENAI_SPKI_SHA256");
     println!("cargo:rerun-if-env-changed=RAIOS_OPENAI_SPKI_SHA256_NEXT");
     println!("cargo:rerun-if-env-changed=RAIOS_ALLOW_UNVERIFIED_OPENAI_TLS");
+    println!("cargo:rerun-if-changed=fixtures/thread_job.wat");
     println!("cargo:rerun-if-changed=descriptors/svc.demo.hello.current_image.desc");
     println!("cargo:rerun-if-changed=descriptors/svc.demo.hello.current_image.p256.pub.hex");
     println!("cargo:rerun-if-changed=descriptors/svc.demo.hello.current_image.p256.sig.der.hex");
@@ -425,6 +426,7 @@ writes_persistent_state=false",
     );
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    compile_thread_job_fixture(&manifest_dir, &out_dir);
     embed_marvell_wifi_firmware(&manifest_dir, &out_dir);
     fs::write(
         out_dir.join("hello_host_bound_descriptor_source.rs"),
@@ -520,6 +522,13 @@ pub(crate) const HELLO_HOST_BOUND_DESCRIPTOR_SOURCE: &str = {};\n",
     attest_build_assembler_wasm_artifact(&manifest_dir, &out_dir);
     attest_net_acquire_w7_wasm_artifact(&manifest_dir, &out_dir);
     personal_shell_attestation::attest(&manifest_dir, &out_dir);
+}
+
+fn compile_thread_job_fixture(manifest_dir: &std::path::Path, out_dir: &std::path::Path) {
+    let fixture_path = manifest_dir.join("fixtures/thread_job.wat");
+    let wasm = wat::parse_file(&fixture_path).expect("thread-job fixture WAT must compile");
+    fs::write(out_dir.join("thread_job_fixture.wasm"), wasm)
+        .expect("thread-job fixture Wasm must be written to OUT_DIR");
 }
 
 fn embed_marvell_wifi_firmware(manifest_dir: &std::path::Path, out_dir: &std::path::Path) {
