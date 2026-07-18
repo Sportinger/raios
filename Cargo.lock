@@ -2225,6 +2225,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm-import-inventory"
+version = "0.1.0"
+dependencies = [
+ "sha2 0.10.9",
+ "wasmparser-nostd",
+ "wat",
+]
+
+[[package]]
 name = "wasmi"
 version = "0.31.2"
 dependencies = [

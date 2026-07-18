@@ -127,7 +127,7 @@ NEW typed family, not an extension.
 
 | # | Slice | Where | Size |
 |---|---|---|---|
-| 0 | Import inventory tool: canonical typed JSON of every import of the pinned `rustc_opt.wasm` (measure, don't guess). Worker builds tool + fixtures; orchestrator runs it against `E:\raios-probe-rustc-wasm\` (lanes can't see E:) and commits the evidence. | `tools/wasm-import-inventory` | S |
+| 0 | **DONE 2026-07-18.** Import inventory tool built and run against the pinned artifact (re-downloaded, SHA byte-identical to the probe input; E: was detached). Measured: **30 imports** — 28 `wasi_snapshot_preview1` functions (fd/path family incl. link/readlink/rename, args/env, `clock_time_get`, `random_get`, `poll_oneoff`, `sched_yield`, `proc_exit`; NO sock_*, NO fd_sync), `wasi.thread-spawn (i32)->i32`, and `env.memory` **imported shared, initial 399 / max 16384 pages = up to 1 GiB guest memory** (T1-a's shared-import path is exactly what it needs; Bauplatz must budget for it). Evidence: `docs/architecture/rustc-wasm-import-inventory-c6dccf3e.json` (imports_sha256 `ed5a0e11…d40791`). | `tools/wasm-import-inventory` | S |
 | 1 | Typed grant family `raios.wasi_build_imports.v1`: binds compiler SHA, job manifest, mount manifests, ranges, quotas, full linker list. Fail-closed before instantiation. | `crates/raios-core` | M |
 | 2 | `raios-wasi-preview1` core: types/errno, path resolve (no escape), fd table (0-2 std, 3 = `/` preopen, lowest-free from 4). no_std, dependency-free, raw pointers stay outside. | new crate | M |
 | 3 | Read-only `/sysroot` + `/src`: BuildFS manifest v1, 64-KiB CAS chunks, range reads without materializing 71 MB. | shim + core | L |
