@@ -116,6 +116,20 @@ Ehrlich benannt: Schritt 1-2 können auch scheitern oder Wochen an
 Upstream-Feinheiten hängen. Jedes Ergebnis wird gemessen berichtet, nie
 geraten.
 
+## 5b. Sysroot import route (decided 2026-07-19, orchestrator after route map)
+
+The 71-MB BuildFS payload (pin 13daf6f9, 1163 CAS chunks) enters ARTSTOR by
+**offline-seeding the persist-disk image**: make-gpt-persist-image.py lays
+each 64-KiB chunk down as one dense RAIOSAR0 frame via its existing
+build_artifact_blob_frame primitive (+ the manifest frame); the kernel reads
+them through the landed begin_build_chunk_read_session path, which re-hashes
+every chunk against the granted manifest on every use — transport untrusted,
+verification gate load-bearing, zero new kernel ingestion machinery. Serial
+candidate delivery and W7 network are hard-capped at 256 KiB (map: Explore
+2026-07-19); the ~252-MiB ARTSTOR region fits the payload 3.5x. Known
+cosmetic follow-up: offline-seeded frames are reclog-less and appear as
+reserved/garbage to the store scan while the CAS resolver reads them fine.
+
 ## 6. WASI preview1 subset — slice plan (planned 2026-07-18, xhigh second opinion)
 
 Full report with per-slice predicates:
