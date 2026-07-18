@@ -32,10 +32,16 @@
       deterministic JobDeadlocked, digest-equal double run, bounded rounds —
       never an endless pump (3f2a64a, QEMU quick 499/499
       shadow-20260718-214754-2760).
-- [ ] Bauplatz guest memories: the 1-GiB shared-memory window (399/16384
-      pages) instantiable in the kernel with QEMU and Surface RAM profiles.
-      Negative boundary: a job exceeding its class limits is denied before
-      instantiation.
+- [x] Bauplatz guest memories: the 1-GiB shared-memory window (399/16384
+      pages) lives in the kernel on both RAM profiles — 512M: growth past
+      initial with graceful denial at the physical ceiling (501/501,
+      shadow-20260719-004706); Surface-RAM 8192: the FULL window,
+      `pages_max=16384` with touched pages, graceful stop at declared max,
+      deterministic double run (pinned needle, shadow-20260719-005556).
+      Enablers: ADR 0021 bulk-fuel parking (98b2955), doubling-aware grow
+      limiter + 4-GiB heap cap (15331a3, c8e9645). Negative boundary live:
+      an over-class memory shape (max 32768) is denied before
+      instantiation (over_class=imports_mismatch, 581279d).
 - [x] Bauplatz substrate contracts: memmap-backed kernel heap (291 MiB in the
       512M VM; negative: too-small memmap → proven static fallback with boot
       continuing, b93a743) and the canonically hashed BuildGuestClassV1 limits
