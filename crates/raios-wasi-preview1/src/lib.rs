@@ -21,6 +21,7 @@ pub mod path;
 pub mod process;
 pub mod ramfs;
 pub mod readonly;
+pub mod thread_host;
 pub mod types;
 pub mod writable;
 
@@ -48,6 +49,7 @@ pub use process::{
 pub use readonly::{
     ChunkRead, ChunkReadError, ChunkReadRequest, Filestat, ReadOnlyFs, EPOCH_2000_NS,
 };
+pub use thread_host::ThreadHost;
 pub use types::{
     Fd, FdEntry, FdFlags, FileType, MountId, NodeRef, PreopenType, Prestat, Rights, Whence,
 };

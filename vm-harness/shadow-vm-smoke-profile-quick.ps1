@@ -2401,3 +2401,12 @@
         if (-not $lifelineCaseInsensitiveOk) {
             throw "Expected upper-case RECOVERY.ROLLBACK to resolve case-insensitively to a typed capability_denied"
         }
+
+
+        # Kernel selftests: T2 deterministic threads pump and the slice-6 WASI build-import
+        # gate. The needle IS the assertion: the kernel prints selftest=pass only when every
+        # internal invariant held (threads: double-run trace equality, spawn cap denial;
+        # wasi: the exact-30-import fixture instantiated and exited 0 while the extra-import
+        # fixture was denied before instantiation).
+        Send-AgentCommand -Command "threads.selftest" -ExpectedMarker "RAIOS_THREADS selftest=pass"
+        Send-AgentCommand -Command "wasi.selftest" -ExpectedMarker "RAIOS_WASI selftest=pass ok_exit=0 ok_stdout=3 deny=imports_mismatch registered=30"

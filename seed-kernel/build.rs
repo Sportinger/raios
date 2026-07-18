@@ -427,6 +427,7 @@ writes_persistent_state=false",
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     compile_thread_job_fixture(&manifest_dir, &out_dir);
+    compile_wasi_build_fixtures(&manifest_dir, &out_dir);
     embed_marvell_wifi_firmware(&manifest_dir, &out_dir);
     fs::write(
         out_dir.join("hello_host_bound_descriptor_source.rs"),
@@ -529,6 +530,21 @@ fn compile_thread_job_fixture(manifest_dir: &std::path::Path, out_dir: &std::pat
     let wasm = wat::parse_file(&fixture_path).expect("thread-job fixture WAT must compile");
     fs::write(out_dir.join("thread_job_fixture.wasm"), wasm)
         .expect("thread-job fixture Wasm must be written to OUT_DIR");
+}
+
+fn compile_wasi_build_fixtures(manifest_dir: &std::path::Path, out_dir: &std::path::Path) {
+    for (source, output) in [
+        ("wasi_build_ok.wat", "wasi_build_ok.wasm"),
+        (
+            "wasi_build_extra_import.wat",
+            "wasi_build_extra_import.wasm",
+        ),
+    ] {
+        let fixture_path = manifest_dir.join("fixtures").join(source);
+        let wasm = wat::parse_file(&fixture_path).expect("WASI build fixture WAT must compile");
+        fs::write(out_dir.join(output), wasm)
+            .expect("WASI build fixture Wasm must be written to OUT_DIR");
+    }
 }
 
 fn embed_marvell_wifi_firmware(manifest_dir: &std::path::Path, out_dir: &std::path::Path) {

@@ -1617,6 +1617,7 @@ dependencies = [
  "linked_list_allocator",
  "p256",
  "raios-core",
+ "raios-wasi-preview1",
  "raios-wasm-ir",
  "rand_core 0.6.4",
  "sha2 0.10.9",

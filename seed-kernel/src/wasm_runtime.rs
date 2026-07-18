@@ -55,6 +55,8 @@ mod personal_shell;
 mod probes;
 mod suspension;
 mod thread_job;
+mod wasi_build_job;
+mod wasi_preview1;
 
 pub(crate) use acquire_shims::{
     acquire_shim_grant_probe, AcquireFixtureCase, AcquireFixtureProbeSnapshot,
@@ -94,3 +96,4 @@ pub(crate) use probes::{
     WasmHardeningCase,
 };
 pub(crate) use thread_job::emit_threads_selftest;
+pub(crate) use wasi_build_job::emit_wasi_selftest;
