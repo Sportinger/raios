@@ -264,6 +264,32 @@ The rubrc/rust_wasm route was measured per the section-7 experiments:
   PARK criteria. The staged ladder (assembler -> restricted compiler) remains
   the only live path.
 
+# 7.2 OWNER GOAL SHARPENING (2026-07-18, binding)
+
+The owner declared the end goal explicitly: agents build AND test large
+software (game-scale, an NLE) ON raiOS via Genesis jobs, with NO external
+workshop PC. Consequences for this plan:
+
+- rustc-class on-device tooling moves from PARKED-indefinitely to
+  REQUIRED-LATER with an ACTIVE bootstrap lane. Bootstrap principle: every
+  self-hosting system in history was compiled once from outside; using the
+  workshop ONE more time to produce the on-device toolchain artifact is
+  consistent with the goal — afterwards raiOS never needs it again.
+- Next bootstrap experiment (workshop-side, cheap relative to the goal):
+  **ASSUMPTION-TO-VERIFY — a threads-free rustc wasm32 build is producible.**
+  rustc runs single-threaded normally; rubrc chose the threads/shared-memory
+  environment for speed. Attempt a single-threaded rustc-as-wasm build (or a
+  rebuild of rubrc's pipeline without the threads feature) and re-run the
+  section-7.1 wasmi Module::new probe on the result. Success turns the
+  categorical blocker into a size/speed problem; failure names the exact
+  upstream gap.
+- The physics stages to the full goal (each owner-visible, same proof
+  discipline): rlang ladder (proves the job machinery) -> Bauplatz big-memory
+  guest class + storage budgets -> bootstrap toolchain artifact -> FAST
+  execution tier (verified AOT/native; a deliberate later evolution of ADR
+  0005's interpreter-only stance, needed for both build speed and big-app
+  runtime) -> GPU driver via the loop (VISION_PLAN section 6).
+
 # 8. Exit criteria
 
 B3A-1 is GO only on observed focused evidence. rustc remains PARKED until its
