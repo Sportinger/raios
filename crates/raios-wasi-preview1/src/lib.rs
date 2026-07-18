@@ -8,12 +8,20 @@
 
 extern crate alloc;
 
+pub mod buildfs;
+pub mod dir;
 pub mod errno;
 pub mod fd_table;
 pub mod path;
+pub mod readonly;
 pub mod types;
 
+pub use buildfs::{BuildFs, BuildFsManifestView};
+pub use dir::Dirent;
 pub use errno::Errno;
 pub use fd_table::{intersect_rights, seek_offset, FdTable, PathOpenRequest, StandardNodes};
 pub use path::{DirectoryEntry, DirectorySnapshot, NormalizedPath};
+pub use readonly::{
+    ChunkRead, ChunkReadError, ChunkReadRequest, Filestat, ReadOnlyFs, EPOCH_2000_NS,
+};
 pub use types::{Fd, FdEntry, FdFlags, FileType, NodeRef, PreopenType, Prestat, Rights, Whence};

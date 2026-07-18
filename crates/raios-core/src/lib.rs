@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 pub mod artifact_blob_frame;
 pub mod beyond_env_invocation;
 pub mod boot_control;
+pub mod buildfs_manifest;
 pub mod core_policy;
 pub use raios_dns_parse as dns_parse;
 pub use raios_http_parse as http_response_parse;
