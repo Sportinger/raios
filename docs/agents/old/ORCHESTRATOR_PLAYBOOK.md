@@ -375,8 +375,8 @@ Then:
 Stop the session and ask (in plain language, with 2-3 options if a choice is
 needed) before doing ANY of these:
 
-1. Anything requiring a new ADR — especially unparking `ota/`, `registry/`,
-   or `fake-cloud/` (parked by ADR 0005 §4; unparking REQUIRES a new ADR),
+1. Anything requiring a new ADR — especially unparking `distribution/ota/`, `distribution/registry/`,
+   or `distribution/fake-cloud/` (parked by ADR 0005 §4; unparking REQUIRES a new ADR),
    vocabulary compaction, or any trust-model change (new signature
    authorities, chain validation policy, key handling).
 2. Destructive disk or USB operations on real hardware (`write-stage0-usb`,

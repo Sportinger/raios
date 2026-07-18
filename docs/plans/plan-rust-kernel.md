@@ -44,8 +44,8 @@ bindend, bis der Owner die Empfehlung in §7 annimmt oder verwirft.
 | Kernel: **einkernig, kooperativ, keine Interrupt-Präemption**; Hauptschleife pollt | `seed-kernel/src/main.rs:308-314` |
 | **Strikt ein Gast in Flug** (Single-Flight-Wächter); resumable „Pump" mit Schritt-Budget existiert bereits | `seed-kernel/src/wasm_runtime/invocation.rs:9,17,229`, `main.rs:417-440` |
 | Fuel-Budgets + Host-Suspend-Mechanik vorhanden | `wasm_runtime/envelope.rs:578-624`, `wasm_runtime/suspension.rs` |
-| Gast-Speicher: Vec im Kernel-Heap, Deckel **4 MiB/Gast**, Heap gesamt **64 MiB statisch** | `raios-core/src/project_runtime.rs:12`, `seed-kernel/src/main.rs:180-213` |
-| **Kein WASI** (null Treffer `wasi_snapshot_preview1`); rein eigene ABI-Familien mit Import-Grant-Gate | `raios-core/src/host_import_abi_v1.rs`, `scoped_wasm_import_grant.rs` |
+| Gast-Speicher: Vec im Kernel-Heap, Deckel **4 MiB/Gast**, Heap gesamt **64 MiB statisch** | `crates/raios-core/src/project_runtime.rs:12`, `seed-kernel/src/main.rs:180-213` |
+| **Kein WASI** (null Treffer `wasi_snapshot_preview1`); rein eigene ABI-Familien mit Import-Grant-Gate | `crates/raios-core/src/host_import_abi_v1.rs`, `scoped_wasm_import_grant.rs` |
 | Kein Pfad-Dateisystem; Persistenz = RECLOG/ARTSTOR/ProjectRevision (inhalts-adressiert) | `structured_store.rs`, `artifact_store.rs`, `project_workspace.rs` |
 | Job-Kette (Gast A → Artefakt → Gast B) **noch nicht** implementiert; Artefakte wandern nur über die Stores | `agent_build_loop.rs`, FACTORY_PLAN §2 |
 | rustc-als-Wasm existiert öffentlich (91 MB), Blocker = Threads | FACTORY_PLAN:26, Commit `3d164ca` |

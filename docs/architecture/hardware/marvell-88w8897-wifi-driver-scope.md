@@ -502,7 +502,7 @@ raiOS has **no filesystem loader**, but the embed pattern is proven and used tod
 
 ## Progress note - L1+L2 engine (2026-07-08)
 
-`raios-core/src/marvell_wifi_fw.rs` and `seed-kernel/src/marvell_wifi_pcie.rs`
+`crates/raios-core/src/marvell_wifi_fw.rs` and `seed-kernel/src/marvell_wifi_pcie.rs`
 now contain the first firmware-download engine slice: BAR2 register-MMIO mapping,
 bus-master enable, scratch-register MMIO sanity read, a pure block-download
 sequencer using `MWIFIEX_UPLD_SIZE=2312`, padded 256-byte PCIe transfer lengths,

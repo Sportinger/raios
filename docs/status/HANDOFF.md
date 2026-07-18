@@ -24,6 +24,11 @@ Slices und Aufwände: `docs/plans/plan-rust-kernel.md` §7.
 
 ## Zuletzt (genau 3, neueste zuerst)
 
+### 2026-07-18 — Workspace-Gruppierung abgeschlossen
+Acht Bibliotheken liegen unter `crates/`, Distribution unter `distribution/`;
+24 Workspace-Member, 591 Core-Tests und QEMU quick grün. Aktive Doku/CI-Pfade
+nachgezogen, Archiv unverändert. Report: `shadow-20260718-161409-20976.json`.
+
 ### 2026-07-18 — Repository-Cleanup Phase 3 umgesetzt
 Der versionierte Root enthält nur aktive Crates, INFRA und Quarantäne; das
 Device-Protokoll liegt unter `docs/architecture/`. USB-Evidenz blieb erhalten,
@@ -35,9 +40,3 @@ Das unveränderte Threads-Artefakt läuft unter wasmtime 46 (gepinnt): hello
 1,6 s, medium `-O` 1,2 s, ~670 MB Spitze, echte Gast-Threads (~26–32),
 rust-lld eingebettet — kein separater Linker-Job. Bericht:
 `docs/architecture/probe-rustc-wasm-wasmtime-2026-07-18.md` (Commit 37929ba).
-
-### 2026-07-18 — Ziel re-zentriert (Owner, bindend) + rlang pausiert
-On-Device-Fabrik ist die Hauptstraße: Genesis-Job → Agenten liefern Quelle
-(B2) → Bauplatz baut → Test im Käfig → W5-Klick → Install/Rollback (B1). Kein
-Compiler-Fork; ein Cloud-Nachbacken dient später nur der Herkunftsprüfung.
-rlang nach grünem Slice 2a committet und pausiert (Ersatzrad + Encoder).

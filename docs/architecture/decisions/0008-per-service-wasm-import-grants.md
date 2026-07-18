@@ -54,8 +54,8 @@ HEAD does not yet express that rule per service:
 The M11-1 kernel-surface baseline is pure measurement and grants no authority;
 it records the current service-candidate internet parsing surface, including
 `openai.rs`, `tls_io.rs`, DNS parsing in `net.rs`, and the vendored TLS tree
-(`raios-core/src/kernel_surface.rs:1-4`,
-`raios-core/src/kernel_surface.rs:41-84`). That gives M11 a measuring stick,
+(`crates/raios-core/src/kernel_surface.rs:1-4`,
+`crates/raios-core/src/kernel_surface.rs:41-84`). That gives M11 a measuring stick,
 not an import-grant mechanism.
 
 ADR 0001 requires a small raiOS-native protocol whose actions are explicit,
@@ -93,9 +93,9 @@ or from a later service that needs `net.*`, `tls_record.*`, `crypto.*`,
 - Separate scoped evaluator discipline: per-service import grants should be
   evaluated by their own pinned `raios-core` evaluator with pairwise-unique
   denial reasons, like the existing scoped provider export and memory append
-  gates (`raios-core/src/scoped_provider_export.rs:1-6`,
-  `raios-core/src/scoped_provider_export.rs:64-132`,
-  `raios-core/src/scoped_memory_record_append.rs:1-19`).
+  gates (`crates/raios-core/src/scoped_provider_export.rs:1-6`,
+  `crates/raios-core/src/scoped_provider_export.rs:64-132`,
+  `crates/raios-core/src/scoped_memory_record_append.rs:1-19`).
 
 ## Considered Options
 
@@ -230,7 +230,7 @@ Current reality:
 - The M10 honesty evaluator denies development bypass, chain/time overclaims,
   and WebPKI overclaims, and even its honest pin-only positive result grants no
   provider request/export authority by itself
-  (`raios-core/src/scoped_provider_trust_honesty.rs:74-105`).
+  (`crates/raios-core/src/scoped_provider_trust_honesty.rs:74-105`).
 
 Two trust-shape options follow.
 

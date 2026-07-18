@@ -223,7 +223,7 @@ $rwirRevisionSha256 = Get-BuildAssembleRevisionSha256 $rwirProjectId $rwirTreeSh
 $rwirInputSha256 = $rwirFile.sha256
 
 # Host-independent output pin copied from the literal 52-byte `expected` array in
-# raios-wasm-ir/src/lib.rs; this profile never runs the encoder to derive it.
+# crates/raios-wasm-ir/src/lib.rs; this profile never runs the encoder to derive it.
 $expectedWasmSha256 = '37b6dae3dbb05625f90dc108f74875b299c943a8ce6e11535ed6e14a9c4bfde2'
 $expectedWasmByteLen = 52
 $workspaceImportCanonical = "{`r`n  `"service_id`": `"svc.workspace.current_boot`",`r`n  `"imports`": []`r`n}"

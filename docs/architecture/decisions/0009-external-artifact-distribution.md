@@ -18,8 +18,8 @@ accepted Option A on 2026-07-08.)
 ## Context
 
 M12+ explicitly names external artifact distribution as future direction, not a
-slice plan: "external artifact distribution (unparking `ota/`/`registry/`/
-`fake-cloud/` - requires a new ADR)" (`docs/_archive/2026-07-18_ROADMAP.md:980-985`). The same
+slice plan: "external artifact distribution (unparking `distribution/ota/`/`distribution/registry/`/
+`distribution/fake-cloud/` - requires a new ADR)" (`docs/_archive/2026-07-18_ROADMAP.md:980-985`). The same
 roadmap forbids work in those directories without that ADR
 (`docs/_archive/2026-07-18_ROADMAP.md:1094-1095`).
 
@@ -35,26 +35,26 @@ signature is provenance, not load-worthiness
 
 What exists at HEAD:
 
-- `ota/` is a host-side OTA/module signing tool. Its README describes
+- `distribution/ota/` is a host-side OTA/module signing tool. Its README describes
   deterministic key generation, sign/verify commands, Ed25519 signatures, and
-  BLAKE3 payload hashes (`ota/README.md:3-13`). Its tests exercise generated
-  keypairs and a sign/verify round trip (`ota/README.md:17-21`).
-- `registry/` is a host-side content-addressed registry. It stores blobs,
+  BLAKE3 payload hashes (`distribution/ota/README.md:3-13`). Its tests exercise generated
+  keypairs and a sign/verify round trip (`distribution/ota/README.md:17-21`).
+- `distribution/registry/` is a host-side content-addressed registry. It stores blobs,
   manifests, optional evidence, and index records
-  (`registry/README.md:1-15`). Its own README says host evidence is not kernel
+  (`distribution/registry/README.md:1-15`). Its own README says host evidence is not kernel
   load approval and Stage-0 still denies module loading until guest policy,
   grants, audit records, and rollback checks exist
-  (`registry/README.md:17-29`). Its grant and audit/rollback diagnostics remain
-  non-authorizing (`registry/README.md:32-46`).
-- `fake-cloud/` is a deterministic WebSocket test control-plane stub. It
+  (`distribution/registry/README.md:17-29`). Its grant and audit/rollback diagnostics remain
+  non-authorizing (`distribution/registry/README.md:32-46`).
+- `distribution/fake-cloud/` is a deterministic WebSocket test control-plane stub. It
   validates signed module/OTA payloads against an offline root key and can push
-  verified artifacts into the local registry (`fake-cloud/README.md:3-16`).
+  verified artifacts into the local registry (`distribution/fake-cloud/README.md:3-16`).
   Its integration test streams a dummy signed module and checks publication
-  into the registry (`fake-cloud/README.md:21-24`).
+  into the registry (`distribution/fake-cloud/README.md:21-24`).
 - ADR 0005 already classified the lane as parked, not deleted: the host crates
   were frozen since 2026-05 and never connected to the kernel
   (`docs/architecture/decisions/0005-bare-metal-substrate-and-wasm-isolation.md:86-91`).
-  It also says there is no resumption of `ota/registry/fake-cloud` without a
+  It also says there is no resumption of `distribution/{ota,registry,fake-cloud}` without a
   new ADR (`docs/architecture/decisions/0005-bare-metal-substrate-and-wasm-isolation.md:118-124`).
 
 The device already has one real external-candidate intake surface, but it is
@@ -154,7 +154,7 @@ the conceptual risk: a shortcut that lets network bytes skip a gate
 - Preserve the signed identity chain: parked Ed25519/BLAKE3 metadata may be
   provenance, but the raiOS P-256 descriptor/artifact identity chain and M6
   local evidence chain remain the load boundary
-  (`seed-kernel/build.rs:488-501`; `registry/README.md:24-37`).
+  (`seed-kernel/build.rs:488-501`; `distribution/registry/README.md:24-37`).
 - Auditability: fetch, verify, publish, denial, and promotion events should
   become typed, evidence-bound memory facts using the M9 model, with
   public/local_only/secret classification and no secret-durable payloads
@@ -175,7 +175,7 @@ the conceptual risk: a shortcut that lets network bytes skip a gate
 
 ## Considered Options
 
-### Option A: Local signed registry/fake-cloud feeding the existing serial candidate channel
+### Option A: Local signed registry and fake-cloud feeding the existing serial candidate channel
 
 The first distribution source is local to the developer or owner workstation.
 `ota-tools` signs module/package metadata, `registry-tools` stores the blob and
@@ -191,9 +191,9 @@ artifact-identity descriptor/signature chain, runs Shadow VM evidence, requires
 local attestation, applies the M6 grant gate, and persists through M7 only after
 the existing promotion transaction and artifact-store checks pass.
 
-What is buildable now: the host signing/registry/fake-cloud tools already
-exist (`ota/README.md:3-13`; `registry/README.md:1-15`;
-`fake-cloud/README.md:3-16`), and the serial candidate channel is the existing
+What is buildable now: the host signing, registry, and fake-cloud tools already
+exist (`distribution/ota/README.md:3-13`; `distribution/registry/README.md:1-15`;
+`distribution/fake-cloud/README.md:3-16`), and the serial candidate channel is the existing
 bounded intake path (`seed-kernel/src/module_candidate_channel.rs:67-102`).
 This adds no network fetcher, no new import grant, and no new authority by
 itself.
@@ -240,7 +240,7 @@ chain decide whether anything can run.
 
 What is buildable now: the shape can be adopted as the invariant behind Option
 A. The current registry is already content-addressed by BLAKE3
-(`registry/README.md:7-15`), while raiOS's local gates use SHA-256 evidence and
+(`distribution/registry/README.md:7-15`), while raiOS's local gates use SHA-256 evidence and
 P-256 identity. A future design map must reconcile those hashes explicitly
 instead of letting one replace the other.
 
@@ -258,7 +258,7 @@ work and accepts the M10/M11 trust/import prerequisites.
 
 Concretely:
 
-- The first accepted source should be a local signed registry/fake-cloud lane
+- The first accepted source should be a local signed registry and fake-cloud lane
   that emits provenance and content-addressed metadata, then feeds bytes into
   the existing serial candidate channel. It grants no load authority and adds
   no network fetcher.
@@ -285,7 +285,7 @@ promotion.
 If the owner accepts this ADR, M12+ design-map work can become concrete without
 granting new authority:
 
-- inventory the parked `ota/`, `registry/`, and `fake-cloud` formats against
+- inventory the parked `distribution/ota/`, `distribution/registry/`, and `distribution/fake-cloud` formats against
   the current typed record model;
 - decide which host-side metadata is retained as provenance and which stale
   evidence formats are retired;
@@ -339,7 +339,7 @@ What stays owner/production-gated:
 
 ## Open Questions
 
-1. Does the owner accept local signed registry/fake-cloud over the existing
+1. Does the owner accept local signed registry and fake-cloud over the existing
    serial channel as the first external-distribution step?
 2. Should fake-cloud be revived at all, or should the first source be a static
    filesystem/HTTP content-addressed registry?

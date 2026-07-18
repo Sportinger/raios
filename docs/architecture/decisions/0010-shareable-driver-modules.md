@@ -32,7 +32,7 @@ whole machine — it defeats the isolation thesis. So drivers are the case ADR
 build "chip by chip" and share, without trusting each author with the kernel?
 
 raiOS already has the seed of the answer in the Marvell 88W8897 WiFi work:
-`raios-core/src/marvell_wifi_fw.rs` is a **pure, host-tested driver "brain"** (a
+`crates/raios-core/src/marvell_wifi_fw.rs` is a **pure, host-tested driver "brain"** (a
 register-write PLAN / state machine — no hardware), and
 `seed-kernel/src/marvell_wifi_pcie.rs` is the **thin trusted "hand"** that does
 the real MMIO/DMA. This ADR generalises that split into the driver-module model.

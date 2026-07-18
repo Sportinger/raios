@@ -85,7 +85,7 @@ The sequencing error diagnosed in review 4 is inverted as a standing rule:
 
 ### 4. Orphaned host-side signing lane is parked
 
-The `ota/`, `registry/`, and `fake-cloud/` host crates (~3,700 lines, frozen
+The `distribution/ota/`, `distribution/registry/`, and `distribution/fake-cloud/` host crates (~3,700 lines, frozen
 since 2026-05, never connected to the kernel) are **parked, not deleted**.
 ADR 0002's local-attestation model remains the trust root for the MVP. A
 future slice may revive the lane when external artifact distribution becomes
@@ -121,6 +121,6 @@ marquee sections.
 - No attempt to run drivers in Wasm.
 - No removal of the long-term native service graph (ADR 0003) — it is
   deferred, not rejected.
-- No resumption of the ota/registry/fake-cloud lane without a new ADR.
+- No resumption of the `distribution/{ota,registry,fake-cloud}` lane without a new ADR.
 - No claim that Wasm isolation equals full security review — memory-safety
   of the interpreter boundary still needs its own evidence chain.

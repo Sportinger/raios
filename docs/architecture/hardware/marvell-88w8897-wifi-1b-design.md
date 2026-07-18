@@ -14,9 +14,9 @@ Split it into two layers:
 
 - Thin unsafe shell: `read_reg`, `write_reg`, `dma_block_phys`, `dma_write_block`, `map_register_bar`. Mirror e1000’s volatile helpers at `seed-kernel/src/e1000.rs:409-415`, BAR/bus-master/MMIO flow at `seed-kernel/src/e1000.rs:159-176`, static DMA buffers at `seed-kernel/src/e1000.rs:122-125`, and `virt_to_phys` use at `seed-kernel/src/e1000.rs:268,276,294,303`.
 
-- Small driver loop: call `raios_core::marvell_wifi_fw::FirmwareDownload::step(RegisterReads)` and translate `FwAction` to the shell. The pure sequencer is already exported at `raios-core/src/lib.rs:15`, is explicitly hardware-independent at `raios-core/src/marvell_wifi_fw.rs:1-6`, and exposes `step()` at `raios-core/src/marvell_wifi_fw.rs:153-177`.
+- Small driver loop: call `raios_core::marvell_wifi_fw::FirmwareDownload::step(RegisterReads)` and translate `FwAction` to the shell. The pure sequencer is already exported at `crates/raios-core/src/lib.rs:15`, is explicitly hardware-independent at `crates/raios-core/src/marvell_wifi_fw.rs:1-6`, and exposes `step()` at `crates/raios-core/src/marvell_wifi_fw.rs:153-177`.
 
-Keep hardware I/O untestable and tiny. If adding software tests, add at most one pure helper in `raios-core/src/marvell_wifi_fw.rs` that converts `FwAction` plus a DMA physical address into an ordered register-write plan. No trait/interface unless a second implementation exists.
+Keep hardware I/O untestable and tiny. If adding software tests, add at most one pure helper in `crates/raios-core/src/marvell_wifi_fw.rs` that converts `FwAction` plus a DMA physical address into an ordered register-write plan. No trait/interface unless a second implementation exists.
 
 ## 2. BRING-UP FLOW
 
@@ -32,22 +32,22 @@ When the blob gate is later true, sequence:
 
 3. Map MMIO with `memory::map_mmio`, which uses the fixed MMIO VA window and no-cache/write-through flags at `seed-kernel/src/memory.rs:111-139` and `seed-kernel/src/memory.rs:159-162`.
 
-4. Initialize `FirmwareDownload::new(firmware)` from `raios-core/src/marvell_wifi_fw.rs:130-139`.
+4. Initialize `FirmwareDownload::new(firmware)` from `crates/raios-core/src/marvell_wifi_fw.rs:130-139`.
 
 5. Each iteration reads:
-   - `CMD_SIZE = 0xC40` from `raios-core/src/marvell_wifi_fw.rs:12-13`
-   - `FW_STATUS = 0xC44` from `raios-core/src/marvell_wifi_fw.rs:14-15`
-   - `PCIE_CPU_INT_STATUS = 0xC1C` from `raios-core/src/marvell_wifi_fw.rs:26-27`
+   - `CMD_SIZE = 0xC40` from `crates/raios-core/src/marvell_wifi_fw.rs:12-13`
+   - `FW_STATUS = 0xC44` from `crates/raios-core/src/marvell_wifi_fw.rs:14-15`
+   - `PCIE_CPU_INT_STATUS = 0xC1C` from `crates/raios-core/src/marvell_wifi_fw.rs:26-27`
 
-   Feed those into `RegisterReads`, defined at `raios-core/src/marvell_wifi_fw.rs:37-42`.
+   Feed those into `RegisterReads`, defined at `crates/raios-core/src/marvell_wifi_fw.rs:37-42`.
 
 6. Map `FwAction`:
-   - `WriteBlock { image_offset, len }` (`raios-core/src/marvell_wifi_fw.rs:80-84`): copy that firmware slice into a DMA bounce buffer, zero any unused tail, write `CMD_ADDR_LO = 0xC10`, `CMD_ADDR_HI = 0xC14`, and `CMD_SIZE = 0xC40` from `raios-core/src/marvell_wifi_fw.rs:8-13`.
-   - `RingDoorbell` (`raios-core/src/marvell_wifi_fw.rs:85`): write `CPU_INTR_DOOR_BELL` to `PCIE_CPU_INT_EVENT = 0xC18`, constants at `raios-core/src/marvell_wifi_fw.rs:24-29`; then poll `PCIE_CPU_INT_STATUS` until the bit clears before the next `step()`.
-   - `WriteDrvReady { value }` (`raios-core/src/marvell_wifi_fw.rs:86-88`): write `DRV_READY = 0xCF0`, constant at `raios-core/src/marvell_wifi_fw.rs:20-21`; value should be `FIRMWARE_READY_PCIE = 0xfedcba00` from `raios-core/src/marvell_wifi_fw.rs:30-31`.
-   - `PollFwStatus` (`raios-core/src/marvell_wifi_fw.rs:89-91`): read again after a bounded delay/timeout.
-   - `Retry { image_offset }` (`raios-core/src/marvell_wifi_fw.rs:92-94`): no DMA write yet; continue polling at the same offset. Retry cap is in WiFi-1a at `raios-core/src/marvell_wifi_fw.rs:34-35` and enforced at `raios-core/src/marvell_wifi_fw.rs:234-242`.
-   - `Done` / `Fail` (`raios-core/src/marvell_wifi_fw.rs:95-107`): record honest status; no link claim.
+   - `WriteBlock { image_offset, len }` (`crates/raios-core/src/marvell_wifi_fw.rs:80-84`): copy that firmware slice into a DMA bounce buffer, zero any unused tail, write `CMD_ADDR_LO = 0xC10`, `CMD_ADDR_HI = 0xC14`, and `CMD_SIZE = 0xC40` from `crates/raios-core/src/marvell_wifi_fw.rs:8-13`.
+   - `RingDoorbell` (`crates/raios-core/src/marvell_wifi_fw.rs:85`): write `CPU_INTR_DOOR_BELL` to `PCIE_CPU_INT_EVENT = 0xC18`, constants at `crates/raios-core/src/marvell_wifi_fw.rs:24-29`; then poll `PCIE_CPU_INT_STATUS` until the bit clears before the next `step()`.
+   - `WriteDrvReady { value }` (`crates/raios-core/src/marvell_wifi_fw.rs:86-88`): write `DRV_READY = 0xCF0`, constant at `crates/raios-core/src/marvell_wifi_fw.rs:20-21`; value should be `FIRMWARE_READY_PCIE = 0xfedcba00` from `crates/raios-core/src/marvell_wifi_fw.rs:30-31`.
+   - `PollFwStatus` (`crates/raios-core/src/marvell_wifi_fw.rs:89-91`): read again after a bounded delay/timeout.
+   - `Retry { image_offset }` (`crates/raios-core/src/marvell_wifi_fw.rs:92-94`): no DMA write yet; continue polling at the same offset. Retry cap is in WiFi-1a at `crates/raios-core/src/marvell_wifi_fw.rs:34-35` and enforced at `crates/raios-core/src/marvell_wifi_fw.rs:234-242`.
+   - `Done` / `Fail` (`crates/raios-core/src/marvell_wifi_fw.rs:95-107`): record honest status; no link claim.
 
 The register-level protocol is already summarized in the scope doc at `docs/marvell-88w8897-wifi-driver-scope.md:89`.
 
@@ -71,7 +71,7 @@ For later hardware bring-up, either temporary `include_bytes!` with explicit `pu
 
 ## 4. DMA REQUIREMENTS
 
-WiFi-1b first slice needs one physically-addressable firmware block bounce buffer. WiFi-1a caps firmware block size at 256 bytes with `FW_BLOCK_SIZE` at `raios-core/src/marvell_wifi_fw.rs:32-33`.
+WiFi-1b first slice needs one physically-addressable firmware block bounce buffer. WiFi-1a caps firmware block size at 256 bytes with `FW_BLOCK_SIZE` at `crates/raios-core/src/marvell_wifi_fw.rs:32-33`.
 
 Use the e1000 pattern first: aligned static buffer plus `memory::virt_to_phys`. e1000’s static DMA storage is at `seed-kernel/src/e1000.rs:122-125`; descriptors/buffers are programmed via `memory::virt_to_phys` at `seed-kernel/src/e1000.rs:268,276,294,303`. The translation function is `seed-kernel/src/memory.rs:92-105`.
 
@@ -100,10 +100,10 @@ WiFi-1b should update those strings only as far as truth allows: `firmware uploa
 
 Software-verifiable:
 
-- `cargo test --locked -p raios-core`, preserving WiFi-1a tests at `raios-core/src/marvell_wifi_fw.rs:250-434`.
+- `cargo test --locked -p raios-core`, preserving WiFi-1a tests at `crates/raios-core/src/marvell_wifi_fw.rs:250-434`.
 - Kernel release build via documented command at `docs/agents/DEBUGGING.md:8-12`.
 - `cargo fmt --all -- --check`, documented at `docs/agents/DEBUGGING.md:2076`.
-- Pure action-to-register-write helper tests, only if the worker adds a tiny helper in `raios-core/src/marvell_wifi_fw.rs`. Test `WriteBlock`, `RingDoorbell`, and `WriteDrvReady`; do not fake MMIO.
+- Pure action-to-register-write helper tests, only if the worker adds a tiny helper in `crates/raios-core/src/marvell_wifi_fw.rs`. Test `WriteBlock`, `RingDoorbell`, and `WriteDrvReady`; do not fake MMIO.
 
 Hardware-only:
 
@@ -125,7 +125,7 @@ Allowed write set:
 - `seed-kernel/src/main.rs` module declaration only
 - `seed-kernel/src/wifi.rs` minimal hook/status plumbing only
 - optionally `seed-kernel/src/system_status.rs` and `seed-kernel/src/console.rs` for honest status text
-- optionally `raios-core/src/marvell_wifi_fw.rs` only for a tiny pure action-plan helper/test
+- optionally `crates/raios-core/src/marvell_wifi_fw.rs` only for a tiny pure action-plan helper/test
 
 Ordered changes:
 
