@@ -238,11 +238,16 @@ Vision station 4 (build on device) is now real at assembler scale. Honest
 scope: same-boot double instantiation, not yet a cross-reboot fresh-store
 double build; the serial-log combine fix after the report is verified by the
 next profile run.
-**NEXT DELIBERATE SLICE:** B3A-2 per b3-plan alternative 2 — the minimal
-restricted-language compiler (RUIP-extension or tiny Rust-subset -> Wasm,
-reusing the raios-wasm-ir encoder) as the first real in-system COMPILER; in
-parallel B2.3 slow-lane orchestration (`LoopPhase` projection). `/program`
-stays the explicit RUIP fast lane. Honest gap: the scoped feedback carries no
+**OWNER GOAL RE-CENTERED (2026-07-18, binding — see docs/FACTORY_PLAN.md):**
+the on-device factory is the main road (agents build+test big software via
+Genesis jobs, no workshop). B3A-2a (rlang crate + typed emitter, 21 host
+tests green) is COMMITTED and rlang is PAUSED — spare tool + reusable
+encoder, not critical path.
+**NEXT DELIBERATE SLICE:** the rustc-Wasm BOOTSTRAP (FACTORY_PLAN section 5):
+one-time cloud build of a threads-free rustc-as-wasm from the public
+oligamiq/rust_wasm recipe (awaiting owner GitHub go), then the wasmi probe
+measures load/RAM/speed; on success, Bauplatz scoping with measured budgets.
+`/program` stays the explicit RUIP fast lane. Honest gap: the scoped feedback carries no
 source, so the provider rarely returns a conforming child — richer
 (still-classified) evidence and the B3 build/test producer close the iterate
 loop.
