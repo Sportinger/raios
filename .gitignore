@@ -1,4 +1,5 @@
 /target/
+/target-tools/
 /.cargo-home/
 /keys/
 /.cargo/
