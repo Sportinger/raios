@@ -115,3 +115,30 @@ Agenten-Fabrik je vertrauen kann.
 Ehrlich benannt: Schritt 1-2 können auch scheitern oder Wochen an
 Upstream-Feinheiten hängen. Jedes Ergebnis wird gemessen berichtet, nie
 geraten.
+
+## 6. WASI preview1 subset — slice plan (planned 2026-07-18, xhigh second opinion)
+
+Full report with per-slice predicates:
+`docs/_archive/2026-07-18_wasi-preview1-slice-plan-full.md`. Key code findings
+behind the cut: project workspace caps at 32 KiB/file (too small for the 71-MB
+sysroot → chunked BuildFS needed), the existing import-grant path carries max
+16 untyped pairs and cannot express `proc_exit` (no-return) → WASI becomes a
+NEW typed family, not an extension.
+
+| # | Slice | Where | Size |
+|---|---|---|---|
+| 0 | Import inventory tool: canonical typed JSON of every import of the pinned `rustc_opt.wasm` (measure, don't guess). Worker builds tool + fixtures; orchestrator runs it against `E:\raios-probe-rustc-wasm\` (lanes can't see E:) and commits the evidence. | `tools/wasm-import-inventory` | S |
+| 1 | Typed grant family `raios.wasi_build_imports.v1`: binds compiler SHA, job manifest, mount manifests, ranges, quotas, full linker list. Fail-closed before instantiation. | `crates/raios-core` | M |
+| 2 | `raios-wasi-preview1` core: types/errno, path resolve (no escape), fd table (0-2 std, 3 = `/` preopen, lowest-free from 4). no_std, dependency-free, raw pointers stay outside. | new crate | M |
+| 3 | Read-only `/sysroot` + `/src`: BuildFS manifest v1, 64-KiB CAS chunks, range reads without materializing 71 MB. | shim + core | L |
+| 4 | RAM-tmp + root scratch children (rustc creates temp under `/`), `/out` arena; freeze `/out` to sorted manifest; only two byte-identical double-build manifests produce an egress plan. | shim + core | L |
+| 5 | args/env from job manifest; logical clock = job fuel counter, realtime = fixed epoch + logical; random = specified PRNG seeded from job-manifest hash; `proc_exit` as HostEffect. | shim | M |
+| 6 | Thin kernel glue behind the grant gate; `ThreadHost` trait handed to T2 (spawn interface only). All domain logic must be host-green first; kernel build + QEMU smoke = orchestrator. | seed-kernel | L |
+
+Owner/ADR questions raised (with recommendations, undecided): BuildFS format
+(rec: chunk-CAS), guest realtime epoch (rec: fixed 2000-01-01), root-tmp
+policy (rec: any quota'd root child), egress buffering (rec: RAM until proven
+too big), T2 contract (≥32 threads, first `proc_exit` wins), build receipt v2
+(rec: new version, don't reinterpret cargo receipts). Honest limits: the plan
+measures the static import surface only — dynamic preview1 edge semantics get
+recalibrated against real rustc runs after T1/T2 land.
