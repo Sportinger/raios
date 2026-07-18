@@ -90,7 +90,13 @@ Agenten-Fabrik je vertrauen kann.
    geratenen) + erster Hello-World-Rust-Bau im System als W5-Beweis.
 4. Bei Misserfolg: exakte Wand dokumentieren; Alternativen (eigener Beitrag
    zum Upstream-Rezept; rlang-Weiterbau als Zwischennutzen) neu bewerten.
-5. Parallel klein: Platte freiräumen (4 GB sind zu knapp für Fabrik-Arbeit).
+5. Platz-Frage GELÖST (2026-07-18): Laufwerk E: hat ~400 GB frei — der
+   VM-Scratch wird dorthin umgelenkt (C: bleibt entlastet). Kein OS-Wechsel:
+   die Werkstatt bleibt Windows (alle Beweise/Skripte laufen hier); für einen
+   etwaigen lokalen Linux-Bau existiert bereits ein Ubuntu in Windows (WSL),
+   von hier steuerbar und mit E:-Platz — das ist der Rückfall, falls der
+   Cloud-Bau klemmt. Das separate Arch-Dual-Boot wird NICHT genutzt (dort
+   könnte der Agent nicht mithelfen).
 
 Ehrlich benannt: Schritt 1-2 können auch scheitern oder Wochen an
 Upstream-Feinheiten hängen. Jedes Ergebnis wird gemessen berichtet, nie
