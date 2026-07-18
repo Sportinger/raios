@@ -9,7 +9,16 @@ pub mod authorized_build_job;
 pub mod beyond_env_invocation;
 pub mod boot_control;
 pub mod build_guest_class;
+pub mod build_storage_authority;
 pub mod buildfs_manifest;
+pub use build_storage_authority::{
+    authorize_build_storage, build_mount_budget_canonical_bytes, build_mount_budget_sha256,
+    evaluate_scoped_build_output_commit, AuthorizedBuildOutputCommit, BuildMountBudgetV1,
+    BuildMountBudgetValidationError, BuildMountMeasureField, BuildOutputCommitDenied,
+    BuildRunNonce, BuildStorageAuthority, BuildStorageDenied, BuildStorageMount,
+    OutputLeaseDescriptorV1, OutputLeaseValidationError, ScopedBuildOutputCommitDecision,
+    ScopedBuildOutputCommitInput, BUILD_OUTPUT_LEASE_TARGET_MARKER_V1, RUSTC_BUILD_MOUNT_BUDGET_V1,
+};
 pub mod core_policy;
 pub use raios_dns_parse as dns_parse;
 pub use raios_http_parse as http_response_parse;
