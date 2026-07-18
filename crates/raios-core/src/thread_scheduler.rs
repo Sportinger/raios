@@ -4,7 +4,12 @@ use alloc::collections::{BTreeMap, VecDeque};
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 
+use crate::sha256_bytes;
+
 pub const DEFAULT_THREAD_CAP: u32 = 48;
+pub const TRACE_EVENT_CAP: usize = 4_096;
+
+const MAX_TRACE_EVENT_ENCODING_LEN: usize = 35;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ThreadId(u32);
@@ -247,6 +252,8 @@ pub struct JobThreadScheduler {
     last_run: Option<ThreadId>,
     job_state: JobState,
     trace: Vec<TraceEvent>,
+    event_count: u64,
+    trace_digest: [u8; 32],
 }
 
 impl Default for JobThreadScheduler {
@@ -272,6 +279,8 @@ impl JobThreadScheduler {
             last_run: None,
             job_state: JobState::Running,
             trace: Vec::new(),
+            event_count: 0,
+            trace_digest: [0; 32],
         }
     }
 
@@ -289,6 +298,20 @@ impl JobThreadScheduler {
 
     pub fn trace(&self) -> &[TraceEvent] {
         &self.trace
+    }
+
+    /// Total number of events, including events older than the trace window.
+    pub const fn event_count(&self) -> u64 {
+        self.event_count
+    }
+
+    /// SHA-256 chain over every canonical trace event in emission order.
+    ///
+    /// The empty digest is all zeroes. Each event advances the digest as
+    /// `SHA-256(previous_digest || canonical_event)`. Event tags, integers,
+    /// option tags, and enum tags are fixed by `encode_trace_event` below.
+    pub const fn trace_digest(&self) -> [u8; 32] {
+        self.trace_digest
     }
 
     pub fn thread_state(&self, thread: ThreadId) -> Result<ThreadState, SchedulerError> {
@@ -321,7 +344,7 @@ impl JobThreadScheduler {
         let thread = ThreadId::new(self.next_tid as u32);
         self.next_tid += 1;
         self.threads.insert(thread, ThreadState::Runnable);
-        self.trace.push(TraceEvent::Spawn { thread });
+        self.record_event(TraceEvent::Spawn { thread });
         Ok(thread)
     }
 
@@ -352,7 +375,7 @@ impl JobThreadScheduler {
             .map(|(thread, _)| *thread);
 
         if let Some(next) = next {
-            self.trace.push(TraceEvent::Switch {
+            self.record_event(TraceEvent::Switch {
                 from: self.last_run,
                 to: next,
             });
@@ -390,18 +413,25 @@ impl JobThreadScheduler {
         if state != ThreadState::Runnable {
             return Err(self.illegal(thread, state, SchedulerOperation::ParkWait));
         }
+        if self.current != Some(thread) {
+            return Err(SchedulerError::NotCurrentThread {
+                expected: self.current,
+                actual: thread,
+            });
+        }
 
         if timeout_rounds == Some(0) {
             self.threads
                 .insert(thread, ThreadState::Woken { result: 2 });
-            self.trace.push(TraceEvent::ParkWait {
+            self.detach_current(thread);
+            self.record_event(TraceEvent::ParkWait {
                 thread,
                 mem,
                 addr,
                 deadline: Some(self.current_round),
                 seq: None,
             });
-            self.trace.push(TraceEvent::Timeout {
+            self.record_event(TraceEvent::Timeout {
                 thread,
                 deadline: self.current_round,
                 seq: None,
@@ -439,7 +469,7 @@ impl JobThreadScheduler {
             .or_default()
             .push_back(Waiter { thread, seq });
         self.detach_current(thread);
-        self.trace.push(TraceEvent::ParkWait {
+        self.record_event(TraceEvent::ParkWait {
             thread,
             mem,
             addr,
@@ -472,7 +502,7 @@ impl JobThreadScheduler {
             }
             self.threads
                 .insert(waiter.thread, ThreadState::Woken { result: 0 });
-            self.trace.push(TraceEvent::Wake {
+            self.record_event(TraceEvent::Wake {
                 thread: waiter.thread,
                 result: 0,
                 reason: WakeReason::Notify,
@@ -536,7 +566,7 @@ impl JobThreadScheduler {
             self.remove_waiter(expiry.thread, expiry.mem, expiry.addr, expiry.seq);
             self.threads
                 .insert(expiry.thread, ThreadState::Woken { result: 2 });
-            self.trace.push(TraceEvent::Timeout {
+            self.record_event(TraceEvent::Timeout {
                 thread: expiry.thread,
                 deadline: expiry.deadline,
                 seq: Some(expiry.seq),
@@ -553,7 +583,7 @@ impl JobThreadScheduler {
         }
         self.threads.insert(thread, ThreadState::ParkedHost);
         self.detach_current(thread);
-        self.trace.push(TraceEvent::ParkHost { thread });
+        self.record_event(TraceEvent::ParkHost { thread });
         Ok(())
     }
 
@@ -564,7 +594,7 @@ impl JobThreadScheduler {
             return Err(self.illegal(thread, state, SchedulerOperation::WakeHost));
         }
         self.threads.insert(thread, ThreadState::Woken { result });
-        self.trace.push(TraceEvent::Wake {
+        self.record_event(TraceEvent::Wake {
             thread,
             result,
             reason: WakeReason::Host,
@@ -613,7 +643,7 @@ impl JobThreadScheduler {
         for state in self.threads.values_mut() {
             *state = ThreadState::Exited;
         }
-        self.trace.push(TraceEvent::JobExit { code });
+        self.record_event(TraceEvent::JobExit { code });
         Ok(())
     }
 
@@ -644,7 +674,7 @@ impl JobThreadScheduler {
         if non_exited != 0 && all_parked && !has_finite_deadline {
             self.job_state = JobState::JobDeadlocked;
             self.current = None;
-            self.trace.push(TraceEvent::Deadlock);
+            self.record_event(TraceEvent::Deadlock);
             return Err(SchedulerError::JobDeadlocked);
         }
         Ok(())
@@ -678,6 +708,22 @@ impl JobThreadScheduler {
         }
     }
 
+    fn record_event(&mut self, event: TraceEvent) {
+        self.event_count = self.event_count.saturating_add(1);
+
+        let mut chained = [0u8; 32 + MAX_TRACE_EVENT_ENCODING_LEN];
+        chained[..32].copy_from_slice(&self.trace_digest);
+        let encoded_len = encode_trace_event(event, &mut chained[32..]);
+        self.trace_digest = sha256_bytes(&chained[..32 + encoded_len]);
+
+        if self.trace.len() == TRACE_EVENT_CAP {
+            self.trace.rotate_left(1);
+            self.trace[TRACE_EVENT_CAP - 1] = event;
+        } else {
+            self.trace.push(event);
+        }
+    }
+
     fn remove_waiter(&mut self, thread: ThreadId, mem: MemSlot, addr: Addr, seq: u64) {
         let key = (mem, addr);
         if let Some(queue) = self.wait_queues.get_mut(&key) {
@@ -707,7 +753,7 @@ impl JobThreadScheduler {
         self.remove_all_waiters(thread);
         self.threads.insert(thread, ThreadState::Exited);
         self.detach_current(thread);
-        self.trace.push(TraceEvent::ThreadExit { thread, reason });
+        self.record_event(TraceEvent::ThreadExit { thread, reason });
         Ok(())
     }
 
@@ -716,6 +762,121 @@ impl JobThreadScheduler {
             queue.retain(|waiter| waiter.thread != thread);
             !queue.is_empty()
         });
+    }
+}
+
+fn encode_trace_event(event: TraceEvent, output: &mut [u8]) -> usize {
+    let mut len = 0usize;
+    match event {
+        TraceEvent::Spawn { thread } => {
+            write_u8(output, &mut len, 0);
+            write_u32(output, &mut len, thread.get());
+        }
+        TraceEvent::ParkWait {
+            thread,
+            mem,
+            addr,
+            deadline,
+            seq,
+        } => {
+            write_u8(output, &mut len, 1);
+            write_u32(output, &mut len, thread.get());
+            write_u32(output, &mut len, mem.get());
+            write_u64(output, &mut len, addr.get());
+            write_option_u64(output, &mut len, deadline.map(Runde::get));
+            write_option_u64(output, &mut len, seq);
+        }
+        TraceEvent::ParkHost { thread } => {
+            write_u8(output, &mut len, 2);
+            write_u32(output, &mut len, thread.get());
+        }
+        TraceEvent::Wake {
+            thread,
+            result,
+            reason,
+        } => {
+            write_u8(output, &mut len, 3);
+            write_u32(output, &mut len, thread.get());
+            write_u32(output, &mut len, result);
+            write_u8(
+                output,
+                &mut len,
+                match reason {
+                    WakeReason::Notify => 0,
+                    WakeReason::Host => 1,
+                },
+            );
+        }
+        TraceEvent::Timeout {
+            thread,
+            deadline,
+            seq,
+        } => {
+            write_u8(output, &mut len, 4);
+            write_u32(output, &mut len, thread.get());
+            write_u64(output, &mut len, deadline.get());
+            write_option_u64(output, &mut len, seq);
+        }
+        TraceEvent::Switch { from, to } => {
+            write_u8(output, &mut len, 5);
+            write_option_u32(output, &mut len, from.map(ThreadId::get));
+            write_u32(output, &mut len, to.get());
+        }
+        TraceEvent::ThreadExit { thread, reason } => {
+            write_u8(output, &mut len, 6);
+            write_u32(output, &mut len, thread.get());
+            write_u8(
+                output,
+                &mut len,
+                match reason {
+                    ThreadExitReason::Returned => 0,
+                    ThreadExitReason::Killed => 1,
+                },
+            );
+        }
+        TraceEvent::JobExit { code } => {
+            write_u8(output, &mut len, 7);
+            write_u32(output, &mut len, code);
+        }
+        TraceEvent::Deadlock => write_u8(output, &mut len, 8),
+    }
+    len
+}
+
+fn write_u8(output: &mut [u8], len: &mut usize, value: u8) {
+    output[*len] = value;
+    *len += 1;
+}
+
+fn write_u32(output: &mut [u8], len: &mut usize, value: u32) {
+    let end = *len + 4;
+    output[*len..end].copy_from_slice(&value.to_le_bytes());
+    *len = end;
+}
+
+fn write_u64(output: &mut [u8], len: &mut usize, value: u64) {
+    let end = *len + 8;
+    output[*len..end].copy_from_slice(&value.to_le_bytes());
+    *len = end;
+}
+
+fn write_option_u32(output: &mut [u8], len: &mut usize, value: Option<u32>) {
+    match value {
+        Some(value) => {
+            write_u8(output, len, 1);
+            write_u32(output, len, value);
+        }
+        None => write_u8(output, len, 0),
+    }
+}
+
+fn write_option_u64(output: &mut [u8], len: &mut usize, value: Option<u64>) {
+    match value {
+        Some(value) => {
+            write_u8(output, len, 1);
+            write_u64(output, len, value);
+        }
+        None => write_u8(output, len, 0),
     }
 }
 
@@ -745,8 +906,12 @@ mod tests {
         ]
     }
 
+    fn select(scheduler: &mut JobThreadScheduler, expected: ThreadId) {
+        assert_eq!(scheduler.next_runnable(), Ok(Some(expected)));
+    }
+
     #[test]
-    fn tids_are_ascending_and_default_cap_is_48() {
+    fn thread_49_is_rejected_with_typed_default_cap_error() {
         let mut scheduler = JobThreadScheduler::new();
         assert_eq!(scheduler.thread_cap(), 48);
         for expected in 0..48 {
@@ -796,6 +961,7 @@ mod tests {
         let mut scheduler = JobThreadScheduler::new();
         let threads = spawn_three(&mut scheduler);
         for thread in threads {
+            select(&mut scheduler, thread);
             scheduler.park_wait(thread, mem(7), addr(9), None).unwrap();
         }
 
@@ -822,7 +988,9 @@ mod tests {
         let mut scheduler = JobThreadScheduler::new();
         let [wait32, wait64, _] = spawn_three(&mut scheduler);
 
+        select(&mut scheduler, wait32);
         scheduler.park_wait(wait32, mem(3), addr(64), None).unwrap();
+        select(&mut scheduler, wait64);
         scheduler.park_wait(wait64, mem(3), addr(64), None).unwrap();
         assert_eq!(scheduler.waiter_count(mem(3), addr(64)), 2);
         assert_eq!(scheduler.notify(mem(3), addr(64), 2), Ok(2));
@@ -840,6 +1008,7 @@ mod tests {
     fn zero_timeout_is_immediately_schedulable_without_queueing() {
         let mut scheduler = JobThreadScheduler::new();
         let thread = scheduler.spawn().unwrap();
+        select(&mut scheduler, thread);
         scheduler
             .park_wait(thread, mem(1), addr(2), Some(0))
             .unwrap();
@@ -859,12 +1028,15 @@ mod tests {
         let mut scheduler = JobThreadScheduler::new();
         let [first, second, third] = spawn_three(&mut scheduler);
         scheduler.begin_round(Runde::new(10)).unwrap();
+        select(&mut scheduler, first);
         scheduler
             .park_wait(first, mem(1), addr(1), Some(2))
             .unwrap();
+        select(&mut scheduler, second);
         scheduler
             .park_wait(second, mem(1), addr(2), Some(1))
             .unwrap();
+        select(&mut scheduler, third);
         scheduler
             .park_wait(third, mem(1), addr(3), Some(1))
             .unwrap();
@@ -900,6 +1072,7 @@ mod tests {
         let mut scheduler = JobThreadScheduler::new();
         let thread = scheduler.spawn().unwrap();
         scheduler.begin_round(Runde::new(5)).unwrap();
+        select(&mut scheduler, thread);
         scheduler
             .park_wait(thread, mem(1), addr(5), Some(1))
             .unwrap();
@@ -924,6 +1097,7 @@ mod tests {
     fn infinite_wait_survives_arbitrarily_later_rounds() {
         let mut scheduler = JobThreadScheduler::new();
         let thread = scheduler.spawn().unwrap();
+        select(&mut scheduler, thread);
         scheduler.park_wait(thread, mem(2), addr(8), None).unwrap();
         scheduler.begin_round(Runde::new(1)).unwrap();
         scheduler.begin_round(Runde::new(1_000_000)).unwrap();
@@ -937,9 +1111,10 @@ mod tests {
     #[test]
     fn proc_exit_first_wins_and_freezes_all_threads() {
         let mut scheduler = JobThreadScheduler::new();
-        let [first, second, _] = spawn_three(&mut scheduler);
-        scheduler.park_wait(second, mem(1), addr(1), None).unwrap();
-        assert_eq!(scheduler.next_runnable(), Ok(Some(first)));
+        let [parked, running, _] = spawn_three(&mut scheduler);
+        select(&mut scheduler, parked);
+        scheduler.park_wait(parked, mem(1), addr(1), None).unwrap();
+        select(&mut scheduler, running);
 
         assert_eq!(scheduler.proc_exit(17), Ok(()));
         assert_eq!(scheduler.job_state(), JobState::JobExited { code: 17 });
@@ -962,7 +1137,9 @@ mod tests {
     fn killed_waiter_is_removed_and_not_counted_by_notify() {
         let mut scheduler = JobThreadScheduler::new();
         let [killed, survivor, _] = spawn_three(&mut scheduler);
+        select(&mut scheduler, killed);
         scheduler.park_wait(killed, mem(1), addr(7), None).unwrap();
+        select(&mut scheduler, survivor);
         scheduler
             .park_wait(survivor, mem(1), addr(7), None)
             .unwrap();
@@ -982,7 +1159,9 @@ mod tests {
         let mut scheduler = JobThreadScheduler::new();
         let [atomic, host, _] = spawn_three(&mut scheduler);
         scheduler.kill_thread(tid(2)).unwrap();
+        select(&mut scheduler, atomic);
         scheduler.park_wait(atomic, mem(1), addr(1), None).unwrap();
+        select(&mut scheduler, host);
         scheduler.park_host(host).unwrap();
 
         assert_eq!(scheduler.check_deadlock(true), Ok(()));
@@ -1002,6 +1181,7 @@ mod tests {
     fn finite_deadline_and_runnable_thread_each_prevent_deadlock() {
         let mut finite = JobThreadScheduler::new();
         let thread = finite.spawn().unwrap();
+        select(&mut finite, thread);
         finite.park_wait(thread, mem(1), addr(1), Some(1)).unwrap();
         assert_eq!(finite.check_deadlock(false), Ok(()));
 
@@ -1014,6 +1194,7 @@ mod tests {
     fn illegal_transitions_are_typed_and_never_panic() {
         let mut scheduler = JobThreadScheduler::new();
         let thread = scheduler.spawn().unwrap();
+        select(&mut scheduler, thread);
         scheduler.park_wait(thread, mem(1), addr(1), None).unwrap();
         assert_eq!(
             scheduler.park_wait(thread, mem(1), addr(1), None),
@@ -1033,17 +1214,68 @@ mod tests {
         );
     }
 
+    #[test]
+    fn park_wait_rejects_a_runnable_non_current_thread() {
+        let mut scheduler = JobThreadScheduler::new();
+        let current = scheduler.spawn().unwrap();
+        let other = scheduler.spawn().unwrap();
+        select(&mut scheduler, current);
+
+        assert_eq!(
+            scheduler.park_wait(other, mem(1), addr(1), None),
+            Err(SchedulerError::NotCurrentThread {
+                expected: Some(current),
+                actual: other,
+            })
+        );
+        assert_eq!(scheduler.thread_state(other), Ok(ThreadState::Runnable));
+        assert_eq!(scheduler.park_wait(current, mem(1), addr(1), None), Ok(()));
+    }
+
+    fn scheduler_with_switch_events(
+        thread_count: usize,
+        switch_count: usize,
+    ) -> JobThreadScheduler {
+        let mut scheduler = JobThreadScheduler::new();
+        for _ in 0..thread_count {
+            scheduler.spawn().unwrap();
+        }
+        for _ in 0..switch_count {
+            let thread = scheduler.next_runnable().unwrap().unwrap();
+            scheduler.on_quantum_end(thread).unwrap();
+        }
+        scheduler
+    }
+
+    #[test]
+    fn trace_window_is_bounded_while_count_and_digest_cover_all_events() {
+        let first = scheduler_with_switch_events(1, TRACE_EVENT_CAP);
+        let replay = scheduler_with_switch_events(1, TRACE_EVENT_CAP);
+        let changed = scheduler_with_switch_events(2, TRACE_EVENT_CAP - 1);
+
+        assert_eq!(first.event_count(), TRACE_EVENT_CAP as u64 + 1);
+        assert_eq!(changed.event_count(), first.event_count());
+        assert_eq!(first.trace().len(), TRACE_EVENT_CAP);
+        assert!(matches!(first.trace()[0], TraceEvent::Switch { .. }));
+        assert_eq!(first.trace(), replay.trace());
+        assert_eq!(first.trace_digest(), replay.trace_digest());
+        assert_ne!(first.trace_digest(), changed.trace_digest());
+    }
+
     fn replay_trace() -> alloc::string::String {
         let mut scheduler = JobThreadScheduler::new();
         let [first, second, third] = spawn_three(&mut scheduler);
         let selected = scheduler.next_runnable().unwrap().unwrap();
         scheduler.on_quantum_end(selected).unwrap();
         scheduler.begin_round(Runde::new(4)).unwrap();
+        select(&mut scheduler, second);
+        scheduler.park_wait(second, mem(2), addr(10), None).unwrap();
+        select(&mut scheduler, third);
+        scheduler.park_host(third).unwrap();
+        select(&mut scheduler, first);
         scheduler
             .park_wait(first, mem(2), addr(10), Some(2))
             .unwrap();
-        scheduler.park_wait(second, mem(2), addr(10), None).unwrap();
-        scheduler.park_host(third).unwrap();
         scheduler.notify(mem(2), addr(10), 1).unwrap();
         scheduler.wake_host(third, 73).unwrap();
         scheduler.begin_round(Runde::new(6)).unwrap();

@@ -5,6 +5,7 @@ extern crate alloc;
 use sha2::{Digest, Sha256};
 
 pub mod artifact_blob_frame;
+pub mod authorized_build_job;
 pub mod beyond_env_invocation;
 pub mod boot_control;
 pub mod build_guest_class;

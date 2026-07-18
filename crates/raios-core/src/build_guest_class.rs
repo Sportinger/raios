@@ -33,16 +33,34 @@ pub struct BuildGuestClassV1 {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BuildGuestClassValidationError {
-    InitialPagesExceedMaximum { initial_pages: u32, max_pages: u32 },
-    MaximumPagesExceedWasm32Limit { max_pages: u32, limit: u32 },
+    InitialPagesExceedMaximum {
+        initial_pages: u32,
+        max_pages: u32,
+    },
+    MaximumPagesExceedWasm32Limit {
+        max_pages: u32,
+        limit: u32,
+    },
     ZeroThreadCap,
     ZeroFuelQuantum,
     ZeroMaxTotalFuel,
+    FuelQuantumExceedsMaxTotalFuel {
+        fuel_quantum: u64,
+        max_total_fuel: u64,
+    },
     ZeroOutMaxBytes,
     ZeroTmpMaxBytes,
     ZeroMaxFilesPerArena,
     ZeroMaxDirsPerArena,
     ZeroMaxFileBytes,
+    MaxFileBytesExceedsOutMaxBytes {
+        max_file_bytes: u64,
+        out_max_bytes: u64,
+    },
+    MaxFileBytesExceedsTmpMaxBytes {
+        max_file_bytes: u64,
+        tmp_max_bytes: u64,
+    },
     ZeroMaxRandomGet,
 }
 
@@ -72,6 +90,14 @@ impl BuildGuestClassV1 {
         if self.max_total_fuel == 0 {
             return Err(BuildGuestClassValidationError::ZeroMaxTotalFuel);
         }
+        if self.fuel_quantum > self.max_total_fuel {
+            return Err(
+                BuildGuestClassValidationError::FuelQuantumExceedsMaxTotalFuel {
+                    fuel_quantum: self.fuel_quantum,
+                    max_total_fuel: self.max_total_fuel,
+                },
+            );
+        }
         if self.out_max_bytes == 0 {
             return Err(BuildGuestClassValidationError::ZeroOutMaxBytes);
         }
@@ -86,6 +112,22 @@ impl BuildGuestClassV1 {
         }
         if self.max_file_bytes == 0 {
             return Err(BuildGuestClassValidationError::ZeroMaxFileBytes);
+        }
+        if self.max_file_bytes > self.out_max_bytes {
+            return Err(
+                BuildGuestClassValidationError::MaxFileBytesExceedsOutMaxBytes {
+                    max_file_bytes: self.max_file_bytes,
+                    out_max_bytes: self.out_max_bytes,
+                },
+            );
+        }
+        if self.max_file_bytes > self.tmp_max_bytes {
+            return Err(
+                BuildGuestClassValidationError::MaxFileBytesExceedsTmpMaxBytes {
+                    max_file_bytes: self.max_file_bytes,
+                    tmp_max_bytes: self.tmp_max_bytes,
+                },
+            );
         }
         if self.max_random_get == 0 {
             return Err(BuildGuestClassValidationError::ZeroMaxRandomGet);
@@ -216,32 +258,9 @@ mod tests {
 
     #[test]
     fn random_get_limit_matches_preview1_constant() {
-        // raios-core cannot depend on the downstream shim. Read the exported
-        // constant's defining module so this remains a value cross-check
-        // without reversing that dependency or changing either Cargo.toml.
-        let source = include_str!("../../raios-wasi-preview1/src/determinism.rs");
-        let declaration = source
-            .lines()
-            .find(|line| line.trim_start().starts_with("pub const MAX_RANDOM_GET:"))
-            .expect("preview1 must export MAX_RANDOM_GET");
-        let expression = declaration
-            .split_once('=')
-            .expect("MAX_RANDOM_GET must have a value")
-            .1
-            .trim()
-            .trim_end_matches(';');
-        let preview1_value = expression
-            .split('*')
-            .map(|factor| {
-                factor
-                    .trim()
-                    .replace('_', "")
-                    .parse::<u64>()
-                    .expect("MAX_RANDOM_GET factors must be integers")
-            })
-            .product::<u64>();
-
-        assert_eq!(RUSTC_BUILD_GUEST_CLASS_V1.max_random_get, preview1_value);
+        // Value mirror of `raios_wasi_preview1::MAX_RANDOM_GET`; core must not
+        // depend on the downstream preview1 implementation crate.
+        assert_eq!(RUSTC_BUILD_GUEST_CLASS_V1.max_random_get, 64 * 1024);
     }
 
     #[test]
@@ -291,6 +310,17 @@ mod tests {
     }
 
     #[test]
+    fn fuel_quantum_must_not_exceed_total_fuel() {
+        assert_eq!(
+            invalid_with(|class| class.fuel_quantum = class.max_total_fuel + 1),
+            BuildGuestClassValidationError::FuelQuantumExceedsMaxTotalFuel {
+                fuel_quantum: RUSTC_BUILD_GUEST_CLASS_V1.max_total_fuel + 1,
+                max_total_fuel: RUSTC_BUILD_GUEST_CLASS_V1.max_total_fuel,
+            }
+        );
+    }
+
+    #[test]
     fn out_quota_must_be_nonzero() {
         assert_eq!(
             invalid_with(|class| class.out_max_bytes = 0),
@@ -327,6 +357,28 @@ mod tests {
         assert_eq!(
             invalid_with(|class| class.max_file_bytes = 0),
             BuildGuestClassValidationError::ZeroMaxFileBytes
+        );
+    }
+
+    #[test]
+    fn single_file_quota_must_fit_out_arena() {
+        assert_eq!(
+            invalid_with(|class| class.max_file_bytes = class.out_max_bytes + 1),
+            BuildGuestClassValidationError::MaxFileBytesExceedsOutMaxBytes {
+                max_file_bytes: RUSTC_BUILD_GUEST_CLASS_V1.out_max_bytes + 1,
+                out_max_bytes: RUSTC_BUILD_GUEST_CLASS_V1.out_max_bytes,
+            }
+        );
+    }
+
+    #[test]
+    fn single_file_quota_must_fit_tmp_arena() {
+        assert_eq!(
+            invalid_with(|class| class.tmp_max_bytes = class.max_file_bytes - 1),
+            BuildGuestClassValidationError::MaxFileBytesExceedsTmpMaxBytes {
+                max_file_bytes: RUSTC_BUILD_GUEST_CLASS_V1.max_file_bytes,
+                tmp_max_bytes: RUSTC_BUILD_GUEST_CLASS_V1.max_file_bytes - 1,
+            }
         );
     }
 

@@ -1,34 +1,27 @@
 //! Typed RAM-resident output of one WASI build run.
 
 pub use crate::buildfs_manifest::{BUILD_FS_CHUNK_SIZE, BUILD_FS_MANIFEST_V1};
-use crate::parse_sha256_ref;
+use crate::sha256_bytes;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct WasiBuildOutputChunk {
-    pub len: u64,
-    pub sha256: [u8; 32],
+pub struct FrozenOutput {
+    digest: [u8; 32],
 }
 
-/// One completed run. `chunks` are in canonical manifest/file/chunk order and
-/// remain RAM-resident until the scoped double-build decision finishes.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct WasiBuildOutputRun<'a> {
-    pub exit_status: i32,
-    pub output_manifest_sha256: &'a str,
-    pub chunks: &'a [WasiBuildOutputChunk],
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum WasiBuildOutputHashField {
-    RunOneOutputManifestSha256,
-    RunTwoOutputManifestSha256,
-}
-
-pub(crate) fn parse_output_manifest_sha256(value: &str) -> Option<[u8; 32]> {
-    if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return None;
+impl FrozenOutput {
+    /// Freezes canonical output-manifest bytes into a content-bound digest.
+    ///
+    /// No constructor accepts a claimed digest, so callers cannot detach the
+    /// value used by the egress gate from the bytes produced by the build.
+    pub fn from_manifest_bytes(manifest_bytes: &[u8]) -> Self {
+        Self {
+            digest: sha256_bytes(manifest_bytes),
+        }
     }
-    parse_sha256_ref(value)
+
+    pub const fn digest(&self) -> [u8; 32] {
+        self.digest
+    }
 }
 
 #[cfg(test)]
@@ -40,15 +33,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn exact_hash_parser_rejects_prefix_whitespace_and_bad_hex() {
-        let valid = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-        assert!(parse_output_manifest_sha256(valid).is_some());
-        assert!(parse_output_manifest_sha256(&format!("sha256:{valid}")).is_none());
-        assert!(parse_output_manifest_sha256(&format!(" {valid}")).is_none());
-        assert!(parse_output_manifest_sha256(
-            "g123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-        )
-        .is_none());
+    fn frozen_output_digest_is_computed_from_manifest_bytes() {
+        let output = FrozenOutput::from_manifest_bytes(b"canonical manifest");
+        assert_eq!(output.digest(), sha256_bytes(b"canonical manifest"));
         assert_eq!(BUILD_FS_CHUNK_SIZE, 65_536);
         assert_eq!(BUILD_FS_MANIFEST_V1, "raios.buildfs_manifest.v1");
     }
