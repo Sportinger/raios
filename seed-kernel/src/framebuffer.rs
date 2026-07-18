@@ -200,6 +200,36 @@ impl FramebufferSurface {
         self.set_back_pixel_unscaled(x, y, color);
     }
 
+    /// Encodes a color into this surface's native byte order — for pre-baking
+    /// full-screen buffers that `blit_physical_rows` copies without per-pixel
+    /// format conversion.
+    pub fn encode_color(&self, color: Color) -> [u8; 4] {
+        color.to_bytes(self.info.format)
+    }
+
+    /// Fast path for baked backgrounds: copies pre-encoded rows (native byte
+    /// order, exactly `width * 4` bytes per row, no pitch padding) into the
+    /// back buffer with one copy per row instead of one call per pixel.
+    pub fn blit_physical_rows(&mut self, src: &[u8]) {
+        let pitch = self.info.pitch as usize;
+        let row_bytes = (self.info.width as usize).saturating_mul(4);
+        if row_bytes == 0 {
+            return;
+        }
+        let rows = usize::min(self.info.height as usize, src.len() / row_bytes);
+        for row in 0..rows {
+            let dst = row.saturating_mul(pitch);
+            let src_off = row.saturating_mul(row_bytes);
+            let Some(dst_end) = dst.checked_add(row_bytes) else {
+                break;
+            };
+            if dst_end > self.back.len() {
+                break;
+            }
+            self.back[dst..dst_end].copy_from_slice(&src[src_off..src_off + row_bytes]);
+        }
+    }
+
     pub fn blend_physical_pixel(&mut self, x: usize, y: usize, color: Color, alpha: u8) {
         if alpha == 0 {
             return;

@@ -17,12 +17,22 @@ use super::genesis::{
 };
 use super::{context, vault_flow};
 
-const PHYSICAL_WIDTH: usize = 1280;
-const PHYSICAL_HEIGHT: usize = 800;
-const LOGICAL_WIDTH: usize = 640;
-const LOGICAL_HEIGHT: usize = 400;
-const DREAM_TOP: usize = 40;
-const DREAM_BOTTOM: usize = 382;
+const DRAW_SCALE: usize = 2;
+const OUTER_MARGIN: usize = 14;
+const RAIL_WIDTH: usize = 130;
+const CLOSED_SEAM_GAP: usize = 20;
+const CLOSED_CENTER_WIDTH: usize = 8;
+const BRACKET_TOP: usize = 40;
+const BRACKET_BOTTOM_MARGIN: usize = 18;
+const BRACKET_CENTER_OFFSET: usize = 17;
+const AMBIENT_BRACKET_AMP: usize = 14;
+const OPEN_BRACKET_AMP: usize = 16;
+const MIN_CENTER_WIDTH: usize = 240;
+const MAX_CENTER_WIDTH: usize = 480;
+const MIN_CENTER_CORRIDOR: usize = 132;
+const COMPOSER_BOTTOM_OFFSET: usize = 44;
+const CONVERSATION_TOP: usize = 70;
+const CONVERSATION_COMPOSER_GAP: usize = 16;
 const LAYOUT_ANIM_MS: u64 = 500;
 const Q: i64 = 1_000_000;
 const BUTTON_WIDTH: usize = 130;
@@ -78,7 +88,9 @@ enum HoverTarget {
 }
 
 pub(crate) struct DreamState {
-    background: Option<Vec<u32>>,
+    background: Option<DreamBackground>,
+    physical_width: usize,
+    physical_height: usize,
     layout_t: i64,
     requested_goal: i64,
     active_goal: i64,
@@ -94,6 +106,8 @@ impl DreamState {
     pub(crate) const fn new() -> Self {
         Self {
             background: None,
+            physical_width: 0,
+            physical_height: 0,
             layout_t: -Q,
             requested_goal: -Q,
             active_goal: -Q,
@@ -132,8 +146,8 @@ impl DreamState {
         let center_hovered = seen
             && x >= center.x.saturating_sub(20)
             && x <= center.x.saturating_add(center.w).saturating_add(20)
-            && y >= DREAM_TOP
-            && y <= DREAM_BOTTOM;
+            && y >= geometry.bracket_top()
+            && y <= geometry.bracket_bottom();
         let goal = if center_hovered { Q } else { -Q };
         let next_hover = if seen && interactions_enabled {
             self.hover_at(x, y, approve_enabled)
@@ -177,7 +191,7 @@ impl DreamState {
             if point_in(x, y, composer_rect(geometry)) {
                 return Some(HitTarget::Composer);
             }
-            for (rect, target) in tab_rects() {
+            for (rect, target) in tab_rects(geometry) {
                 if point_in(x, y, rect) {
                     return Some(target);
                 }
@@ -254,8 +268,8 @@ impl DreamState {
         center.w.saturating_mul(2).saturating_sub(10) / 9
     }
 
-    pub(crate) const fn conversation_visible_rows(&self) -> usize {
-        (340 - 70) / CONVERSATION_ROW_HEIGHT
+    pub(crate) fn conversation_visible_rows(&self) -> usize {
+        conversation_rect(self.geometry()).h / CONVERSATION_ROW_HEIGHT
     }
 
     pub(crate) fn composer_cursor_rect(
@@ -276,7 +290,12 @@ impl DreamState {
         let cursor_x = center
             .x
             .saturating_add((2 + visible.chars().count()).saturating_mul(CHUNKY_ADVANCE));
-        Some((cursor_x * 2, 353 * 2, 4, 30))
+        Some((
+            cursor_x * DRAW_SCALE,
+            self.geometry().composer_y().saturating_sub(3) * DRAW_SCALE,
+            4,
+            30,
+        ))
     }
 
     fn advance_active_transition(&mut self, uptime_ms: u64) {
@@ -298,13 +317,18 @@ impl DreamState {
     }
 
     fn geometry(&self) -> DreamGeometry {
-        DreamGeometry::at(self.layout_t)
+        DreamGeometry::at(self.physical_width, self.physical_height, self.layout_t)
+    }
+
+    fn set_surface_size(&mut self, physical_width: usize, physical_height: usize) {
+        self.physical_width = physical_width;
+        self.physical_height = physical_height;
     }
 
     fn hover_at(&self, x: usize, y: usize, approve_enabled: bool) -> HoverTarget {
         let geometry = self.geometry();
         if self.layout_t > -Q / 2 {
-            for (rect, target) in tab_hover_rects() {
+            for (rect, target) in tab_hover_rects(geometry) {
                 if point_in(x, y, rect) {
                     return target;
                 }
@@ -368,11 +392,23 @@ pub(crate) fn render(
     conversation_scroll_rows: usize,
     recovery_open: bool,
 ) {
-    if state.background.is_none() {
-        state.background = Some(build_dream_background());
+    let info = surface.info();
+    let physical_width = info.width as usize;
+    let physical_height = info.height as usize;
+    state.set_surface_size(physical_width, physical_height);
+    let background_matches = match state.background.as_ref() {
+        Some(background) => {
+            background.width == physical_width && background.height == physical_height
+        }
+        None => false,
+    };
+    if !background_matches {
+        state.background = Some(build_dream_background(physical_width, physical_height));
     }
-    copy_background(surface, state.background.as_deref().unwrap_or(&[]));
-    surface.set_draw_scale(2);
+    if let Some(background) = state.background.as_mut() {
+        copy_background(surface, background);
+    }
+    surface.set_draw_scale(DRAW_SCALE);
 
     let geometry = state.geometry();
     draw_bracket(
@@ -381,6 +417,8 @@ pub(crate) fn render(
         -1,
         geometry.bracket_amp,
         geometry.bracket_hook,
+        geometry.bracket_top(),
+        geometry.bracket_bottom(),
     );
     draw_bracket(
         surface,
@@ -388,13 +426,15 @@ pub(crate) fn render(
         1,
         geometry.bracket_amp,
         geometry.bracket_hook,
+        geometry.bracket_top(),
+        geometry.bracket_bottom(),
     );
 
     let projection = context::project(system, &provider::snapshot(), wifi::snapshot());
     let build = agent_build_loop::snapshot();
     let approve_enabled = real_approval_available();
     if state.layout_t > -Q / 2 {
-        draw_tabs(surface, state);
+        draw_tabs(surface, state, geometry);
         match state.tab {
             Tab::Chat => draw_chat(
                 surface,
@@ -438,6 +478,8 @@ pub(crate) fn real_approval_available() -> bool {
 
 #[derive(Clone, Copy)]
 struct DreamGeometry {
+    logical_width: usize,
+    logical_height: usize,
     center_x: i64,
     center_w: i64,
     bracket_left: i64,
@@ -451,11 +493,9 @@ struct DreamGeometry {
 }
 
 impl DreamGeometry {
-    const CLOSED: Self = Self::keyframe(316, 8, 319, 321, 7, 0, 14, 286, 340, 288);
-    const AMBIENT: Self = Self::keyframe(185, 270, 168, 470, 14, 7, 14, 128, 498, 130);
-    const OPEN: Self = Self::keyframe(177, 286, 160, 478, 16, 7, 14, 128, 498, 130);
-
-    const fn keyframe(
+    fn keyframe(
+        logical_width: usize,
+        logical_height: usize,
         center_x: i64,
         center_w: i64,
         bracket_left: i64,
@@ -468,6 +508,8 @@ impl DreamGeometry {
         right_w: i64,
     ) -> Self {
         Self {
+            logical_width,
+            logical_height,
             center_x: center_x * Q,
             center_w: center_w * Q,
             bracket_left: bracket_left * Q,
@@ -481,17 +523,91 @@ impl DreamGeometry {
         }
     }
 
-    fn at(layout_t: i64) -> Self {
+    fn at(physical_width: usize, physical_height: usize, layout_t: i64) -> Self {
+        let logical_width = physical_width / DRAW_SCALE;
+        let logical_height = physical_height / DRAW_SCALE;
+        let midpoint = logical_width / 2;
+        let rail_width = responsive_rail_width(logical_width);
+        let right_x = logical_width
+            .saturating_sub(OUTER_MARGIN)
+            .saturating_sub(rail_width);
+
+        let closed_center_x = midpoint.saturating_sub(CLOSED_CENTER_WIDTH / 2);
+        let closed_left_width = midpoint
+            .saturating_sub(CLOSED_SEAM_GAP)
+            .saturating_sub(OUTER_MARGIN);
+        let closed_right_x = midpoint
+            .saturating_add(CLOSED_SEAM_GAP)
+            .min(logical_width.saturating_sub(OUTER_MARGIN));
+        let closed = Self::keyframe(
+            logical_width,
+            logical_height,
+            closed_center_x as i64,
+            CLOSED_CENTER_WIDTH.min(logical_width) as i64,
+            midpoint.saturating_sub(1) as i64,
+            midpoint.saturating_add(1).min(logical_width) as i64,
+            7,
+            0,
+            OUTER_MARGIN.min(logical_width) as i64,
+            closed_left_width as i64,
+            closed_right_x as i64,
+            logical_width
+                .saturating_sub(OUTER_MARGIN)
+                .saturating_sub(closed_right_x) as i64,
+        );
+
+        let ambient_center_width =
+            responsive_center_width(logical_width, rail_width, 27, 64, AMBIENT_BRACKET_AMP);
+        let ambient_center_x = midpoint.saturating_sub(ambient_center_width / 2);
+        let ambient = Self::keyframe(
+            logical_width,
+            logical_height,
+            ambient_center_x as i64,
+            ambient_center_width as i64,
+            ambient_center_x.saturating_sub(BRACKET_CENTER_OFFSET) as i64,
+            ambient_center_x
+                .saturating_add(ambient_center_width)
+                .saturating_add(BRACKET_CENTER_OFFSET.saturating_sub(2)) as i64,
+            AMBIENT_BRACKET_AMP as i64,
+            7,
+            OUTER_MARGIN.min(logical_width) as i64,
+            rail_width as i64,
+            right_x as i64,
+            rail_width as i64,
+        );
+
+        let open_center_width =
+            responsive_center_width(logical_width, rail_width, 143, 320, OPEN_BRACKET_AMP);
+        let open_center_x = midpoint.saturating_sub(open_center_width / 2);
+        let open = Self::keyframe(
+            logical_width,
+            logical_height,
+            open_center_x as i64,
+            open_center_width as i64,
+            open_center_x.saturating_sub(BRACKET_CENTER_OFFSET) as i64,
+            open_center_x
+                .saturating_add(open_center_width)
+                .saturating_add(BRACKET_CENTER_OFFSET.saturating_sub(2)) as i64,
+            OPEN_BRACKET_AMP as i64,
+            7,
+            OUTER_MARGIN.min(logical_width) as i64,
+            rail_width as i64,
+            right_x as i64,
+            rail_width as i64,
+        );
+
         let t = layout_t.clamp(-Q, Q);
         if t < 0 {
-            Self::lerp(Self::CLOSED, Self::AMBIENT, t + Q)
+            Self::lerp(closed, ambient, t + Q)
         } else {
-            Self::lerp(Self::AMBIENT, Self::OPEN, t)
+            Self::lerp(ambient, open, t)
         }
     }
 
     fn lerp(a: Self, b: Self, t: i64) -> Self {
         Self {
+            logical_width: a.logical_width,
+            logical_height: a.logical_height,
             center_x: lerp_q(a.center_x, b.center_x, t),
             center_w: lerp_q(a.center_w, b.center_w, t),
             bracket_left: lerp_q(a.bracket_left, b.bracket_left, t),
@@ -506,40 +622,74 @@ impl DreamGeometry {
     }
 
     fn center_rect(self) -> LogicalRect {
-        LogicalRect::new(
-            round_q(self.center_x),
-            0,
-            round_q(self.center_w),
-            LOGICAL_HEIGHT,
-        )
+        let x = round_q(self.center_x).min(self.logical_width);
+        let width = round_q(self.center_w).min(self.logical_width.saturating_sub(x));
+        LogicalRect::new(x, 0, width, self.logical_height)
     }
 
     fn left_rect(self) -> LogicalRect {
-        LogicalRect::new(
-            round_q(self.left_x),
-            0,
-            round_q(self.left_w),
-            LOGICAL_HEIGHT,
-        )
+        let x = round_q(self.left_x).min(self.logical_width);
+        let width = round_q(self.left_w).min(self.logical_width.saturating_sub(x));
+        LogicalRect::new(x, 0, width, self.logical_height)
     }
 
     fn right_rect(self) -> LogicalRect {
-        LogicalRect::new(
-            round_q(self.right_x),
-            0,
-            round_q(self.right_w),
-            LOGICAL_HEIGHT,
-        )
+        let x = round_q(self.right_x).min(self.logical_width);
+        let width = round_q(self.right_w).min(self.logical_width.saturating_sub(x));
+        LogicalRect::new(x, 0, width, self.logical_height)
+    }
+
+    fn bracket_top(self) -> usize {
+        BRACKET_TOP.min(self.logical_height.saturating_sub(1))
+    }
+
+    fn bracket_bottom(self) -> usize {
+        self.logical_height
+            .saturating_sub(BRACKET_BOTTOM_MARGIN)
+            .max(self.bracket_top())
+            .min(self.logical_height.saturating_sub(1))
+    }
+
+    fn composer_y(self) -> usize {
+        self.logical_height.saturating_sub(COMPOSER_BOTTOM_OFFSET)
     }
 }
 
-fn draw_tabs(surface: &mut FramebufferSurface, state: &DreamState) {
+fn responsive_rail_width(logical_width: usize) -> usize {
+    let available_for_rails = logical_width
+        .saturating_sub(OUTER_MARGIN.saturating_mul(2))
+        .saturating_sub(MIN_CENTER_CORRIDOR);
+    RAIL_WIDTH.min(available_for_rails / 2)
+}
+
+fn responsive_center_width(
+    logical_width: usize,
+    rail_width: usize,
+    ratio_numerator: usize,
+    ratio_denominator: usize,
+    bracket_amp: usize,
+) -> usize {
+    let desired = logical_width
+        .saturating_mul(ratio_numerator)
+        .checked_div(ratio_denominator)
+        .unwrap_or(0)
+        .clamp(MIN_CENTER_WIDTH, MAX_CENTER_WIDTH);
+    let corridor = logical_width
+        .saturating_sub(OUTER_MARGIN.saturating_mul(2))
+        .saturating_sub(rail_width.saturating_mul(2));
+    let bracket_reserve = BRACKET_CENTER_OFFSET
+        .saturating_add(bracket_amp)
+        .saturating_mul(2);
+    desired.min(corridor.saturating_sub(bracket_reserve))
+}
+
+fn draw_tabs(surface: &mut FramebufferSurface, state: &DreamState, geometry: DreamGeometry) {
     let tabs = [
         ("Chat", Tab::Chat, HoverTarget::TabChat),
         ("Console", Tab::Console, HoverTarget::TabConsole),
         ("Build", Tab::Build, HoverTarget::TabBuild),
     ];
-    let mut x = 230usize;
+    let mut x = tabs_start_x(geometry);
     for (index, (label, tab, hover)) in tabs.into_iter().enumerate() {
         let width = chunky_text_width(label);
         let active = state.tab == tab;
@@ -614,7 +764,8 @@ fn draw_chat(
             TEXT_MUTED,
         );
     } else {
-        let visible_rows = (340 - 70) / CONVERSATION_ROW_HEIGHT;
+        let conversation = conversation_rect(geometry);
+        let visible_rows = conversation.h / CONVERSATION_ROW_HEIGHT;
         let total_rows = conversation_row_count(snapshot, max_hi);
         let scroll_rows = scroll_rows.min(total_rows.saturating_sub(visible_rows));
         let end_row = total_rows.saturating_sub(scroll_rows);
@@ -631,7 +782,7 @@ fn draw_chat(
                 console::ChatSpeaker::System => ("System", TEXT_MUTED),
             };
             if row >= start_row && row < end_row {
-                let y = 70 + (row - start_row) * CONVERSATION_ROW_HEIGHT;
+                let y = conversation.y + (row - start_row) * CONVERSATION_ROW_HEIGHT;
                 surface.fill_rect(center.x, y, 3, 8, label_color);
                 draw_text(surface, center.x + 10, y, label, label_color);
             }
@@ -643,7 +794,7 @@ fn draw_chat(
             };
             visit_wrapped_lines(value, max_hi, |wrapped| {
                 if row >= start_row && row < end_row {
-                    let y = 70 + (row - start_row) * CONVERSATION_ROW_HEIGHT;
+                    let y = conversation.y + (row - start_row) * CONVERSATION_ROW_HEIGHT;
                     draw_text_hi(surface, center.x + 10, y + 1, wrapped, body_color);
                 }
                 row = row.saturating_add(1);
@@ -655,12 +806,13 @@ fn draw_chat(
     let max_chars = center.w / CHUNKY_ADVANCE;
     let shown_max = max_chars.saturating_sub(3);
     let (shown, _) = trailing_chars(snapshot.chat_input.as_str(), shown_max);
-    draw_text(surface, center.x, 356, ">", APP_BLUE);
+    let composer_y = geometry.composer_y();
+    draw_text(surface, center.x, composer_y, ">", APP_BLUE);
     if !shown.is_empty() {
         draw_text(
             surface,
             center.x + 2 * CHUNKY_ADVANCE,
-            356,
+            composer_y,
             shown,
             TEXT_MAIN,
         );
@@ -668,7 +820,7 @@ fn draw_chat(
         draw_text(
             surface,
             center.x + 2 * CHUNKY_ADVANCE,
-            356,
+            composer_y,
             "Ask anything...",
             TEXT_FAINT,
         );
@@ -677,7 +829,7 @@ fn draw_chat(
         snapshot.view == console::UiView::Ai && snapshot.focus == console::UiFocus::ChatInput;
     surface.fill_rect(
         center.x,
-        370,
+        composer_y.saturating_add(14),
         center.w,
         1,
         if focused {
@@ -688,7 +840,7 @@ fn draw_chat(
     );
     surface.fill_rect(
         center.x,
-        371,
+        composer_y.saturating_add(15),
         center.w,
         1,
         if focused {
@@ -706,7 +858,13 @@ fn draw_console(
 ) {
     let center = geometry.center_rect();
     let max_chars = center.w.saturating_mul(2).saturating_sub(10) / 9;
-    let capacity = (340 - 74) / 9;
+    let console_top = 74usize.min(geometry.composer_y());
+    let conversation = conversation_rect(geometry);
+    let capacity = conversation
+        .y
+        .saturating_add(conversation.h)
+        .saturating_sub(console_top)
+        / 9;
     let total = snapshot
         .lines
         .iter()
@@ -726,7 +884,7 @@ fn draw_console(
         draw_truncated_hi(
             surface,
             center.x,
-            74 + row * 9,
+            console_top + row * 9,
             value,
             max_chars,
             TEXT_MUTED,
@@ -736,17 +894,30 @@ fn draw_console(
             break;
         }
     }
-    draw_text(surface, center.x, 356, ">", APP_BLUE);
+    let composer_y = geometry.composer_y();
+    draw_text(surface, center.x, composer_y, ">", APP_BLUE);
     draw_truncated_chunky(
         surface,
         center.x + 2 * CHUNKY_ADVANCE,
-        356,
+        composer_y,
         snapshot.input.as_str(),
         center.w.saturating_sub(2 * CHUNKY_ADVANCE) / CHUNKY_ADVANCE,
         TEXT_MAIN,
     );
-    surface.fill_rect(center.x, 370, center.w, 1, Color::new(46, 92, 148));
-    surface.fill_rect(center.x, 371, center.w, 1, Color::new(30, 58, 92));
+    surface.fill_rect(
+        center.x,
+        composer_y.saturating_add(14),
+        center.w,
+        1,
+        Color::new(46, 92, 148),
+    );
+    surface.fill_rect(
+        center.x,
+        composer_y.saturating_add(15),
+        center.w,
+        1,
+        Color::new(30, 58, 92),
+    );
 }
 
 fn draw_build_center(
@@ -1371,11 +1542,22 @@ fn segmented_bar(
     }
 }
 
-fn draw_bracket(surface: &mut FramebufferSurface, xc: i64, dir: i64, amp: i64, hook: i64) {
+fn draw_bracket(
+    surface: &mut FramebufferSurface,
+    xc: i64,
+    dir: i64,
+    amp: i64,
+    hook: i64,
+    top: usize,
+    bottom: usize,
+) {
+    if bottom <= top {
+        return;
+    }
     let xc_f = xc as f64 / Q as f64;
     let amp_f = amp as f64 / Q as f64;
-    for y in DREAM_TOP..=DREAM_BOTTOM {
-        let t = (y - DREAM_TOP) as f64 / (DREAM_BOTTOM - DREAM_TOP) as f64;
+    for y in top..=bottom {
+        let t = (y - top) as f64 / (bottom - top) as f64;
         let sine = sin_approx(core::f64::consts::PI * t);
         let x = xc_f + dir as f64 * amp_f * sine;
         let width = if sine > 0.85 { 3 } else { 2 };
@@ -1400,8 +1582,8 @@ fn draw_bracket(surface: &mut FramebufferSurface, xc: i64, dir: i64, amp: i64, h
     let xc = round_q(xc);
     let hook = round_q(hook);
     let hook_x = xc.saturating_sub(if dir > 0 { hook.saturating_sub(1) } else { 0 });
-    surface.fill_rect(hook_x, DREAM_TOP, hook, 1, BRACKET_LOW);
-    surface.fill_rect(hook_x, DREAM_BOTTOM, hook, 1, BRACKET_LOW);
+    surface.fill_rect(hook_x, top, hook, 1, BRACKET_LOW);
+    surface.fill_rect(hook_x, bottom, hook, 1, BRACKET_LOW);
 }
 
 fn draw_physical_rect(
@@ -1419,26 +1601,41 @@ fn draw_physical_rect(
     }
 }
 
-fn copy_background(surface: &mut FramebufferSurface, background: &[u32]) {
-    surface.set_draw_scale(1);
-    let info = surface.info();
-    let width = (info.width as usize).min(PHYSICAL_WIDTH);
-    let height = (info.height as usize).min(PHYSICAL_HEIGHT);
-    if width != info.width as usize || height != info.height as usize {
-        surface.fill(SHADE_DARK);
-    }
-    for y in 0..height {
-        let row = y * PHYSICAL_WIDTH;
-        for x in 0..width {
-            if let Some(packed) = background.get(row + x).copied() {
-                surface.set_physical_pixel(x, y, color_from_rgb(packed));
-            }
-        }
-    }
+struct DreamBackground {
+    width: usize,
+    height: usize,
+    pixels: Vec<u32>,
+    /// In die native Byte-Reihenfolge des Framebuffers vorkodierte Zeilen —
+    /// einmal beim ersten Frame gebaut, danach kopiert `blit_physical_rows`
+    /// den Hintergrund als Speicherbloecke statt pro Pixel.
+    encoded: Vec<u8>,
 }
 
-fn build_dream_background() -> Vec<u32> {
-    let mut background = vec![rgb(8, 9, 11); PHYSICAL_WIDTH * PHYSICAL_HEIGHT];
+fn copy_background(surface: &mut FramebufferSurface, background: &mut DreamBackground) {
+    surface.set_draw_scale(1);
+    let expected = background
+        .width
+        .saturating_mul(background.height)
+        .saturating_mul(4);
+    if background.encoded.len() != expected {
+        let mut encoded = Vec::with_capacity(expected);
+        for packed in background.pixels.iter().copied() {
+            let bytes = surface.encode_color(color_from_rgb(packed));
+            encoded.extend_from_slice(&bytes);
+        }
+        background.encoded = encoded;
+    }
+    surface.blit_physical_rows(&background.encoded);
+}
+
+fn build_dream_background(physical_width: usize, physical_height: usize) -> DreamBackground {
+    let pixel_count = physical_width.checked_mul(physical_height).unwrap_or(0);
+    let mut background = DreamBackground {
+        width: physical_width,
+        height: physical_height,
+        pixels: vec![rgb(8, 9, 11); pixel_count],
+        encoded: Vec::new(),
+    };
     let shades = [rgb(8, 9, 11), rgb(11, 13, 16), rgb(14, 16, 20)];
     let bayer = [
         [0usize, 8, 2, 10],
@@ -1446,10 +1643,25 @@ fn build_dream_background() -> Vec<u32> {
         [3, 11, 1, 9],
         [15, 7, 13, 5],
     ];
-    for y in 0..LOGICAL_HEIGHT {
-        let vertical = 1.0 - abs_f64(y as f64 - 210.0) / 240.0;
-        for x in 0..LOGICAL_WIDTH {
-            let center = 1.0 - abs_f64(x as f64 - 320.0) / 420.0;
+    let logical_width = physical_width / DRAW_SCALE;
+    let logical_height = physical_height / DRAW_SCALE;
+    let vertical_center = logical_height / 2 + logical_height / 40;
+    let vertical_span = logical_height
+        .saturating_mul(3)
+        .checked_div(5)
+        .unwrap_or(0)
+        .max(1);
+    let horizontal_center = logical_width / 2;
+    let horizontal_span = logical_width
+        .saturating_mul(21)
+        .checked_div(32)
+        .unwrap_or(0)
+        .max(1);
+    for y in 0..logical_height {
+        let vertical = 1.0 - abs_f64(y as f64 - vertical_center as f64) / vertical_span as f64;
+        for x in 0..logical_width {
+            let center =
+                1.0 - abs_f64(x as f64 - horizontal_center as f64) / horizontal_span as f64;
             let value =
                 clamp_f64(vertical * 0.6 + center * 0.55, 0.0, 1.0) * (shades.len() - 1) as f64;
             let mut index = floor_f64(value) as usize;
@@ -1468,9 +1680,16 @@ fn build_dream_background() -> Vec<u32> {
     }
 
     let mut seed = 1337u32;
-    for _ in 0..70 {
-        let x = floor_f64(lcg_random(&mut seed) * LOGICAL_WIDTH as f64) as usize;
-        let y = floor_f64(lcg_random(&mut seed) * LOGICAL_HEIGHT as f64) as usize;
+    const REFERENCE_BACKGROUND_AREA: u128 = 1280 * 800;
+    let physical_area = (physical_width as u128).saturating_mul(physical_height as u128);
+    let star_count = (physical_area
+        .saturating_mul(70)
+        .saturating_add(REFERENCE_BACKGROUND_AREA / 2)
+        / REFERENCE_BACKGROUND_AREA)
+        .min(usize::MAX as u128) as usize;
+    for _ in 0..star_count {
+        let x = floor_f64(lcg_random(&mut seed) * logical_width as f64) as usize;
+        let y = floor_f64(lcg_random(&mut seed) * logical_height as f64) as usize;
         let bright = lcg_random(&mut seed) > 0.82;
         fill_background_rect(
             &mut background,
@@ -1489,17 +1708,19 @@ fn build_dream_background() -> Vec<u32> {
     background
 }
 
-// Port of drawCandleInto from docs/design-lab/raios-ui-lab.html.  Coordinates
-// and contour formulae intentionally remain in physical 1280x800 space.
-fn draw_candle_into(background: &mut [u32]) {
+// Port of drawCandleInto from docs/design-lab/raios-ui-lab.html. Its physical
+// dimensions stay fixed; only the bottom anchor follows the framebuffer height.
+fn draw_candle_into(background: &mut DreamBackground) {
     const CX: f64 = 220.0;
-    const BASE: i32 = 786;
-    const PLATE_TOP: i32 = BASE - 24;
-    const STICK_TOP: i32 = PLATE_TOP - 58;
-    const BODY_TOP: i32 = STICK_TOP - 108;
+    const REFERENCE_BASE: i32 = 786;
+    let base = background.height.saturating_sub(14).min(i32::MAX as usize) as i32;
+    let plate_top = base - 24;
+    let stick_top = plate_top - 58;
+    let body_top = stick_top - 108;
+    let vertical_offset = base - REFERENCE_BASE;
 
-    for y in PLATE_TOP..=BASE {
-        let t = (y - PLATE_TOP) as f64 / (BASE - PLATE_TOP) as f64;
+    for y in plate_top..=base {
+        let t = (y - plate_top) as f64 / (base - plate_top) as f64;
         let half_width = 66.0 * sin_approx(core::f64::consts::PI * (t * 1.04).min(1.0));
         candle_span(background, CX - half_width, CX + half_width, y as f64);
     }
@@ -1516,13 +1737,13 @@ fn draw_candle_into(background: &mut [u32]) {
                 background,
                 CX + dx - half_width,
                 CX + dx + half_width,
-                (PLATE_TOP - index) as f64,
+                (plate_top - index) as f64,
             );
         }
     }
 
-    for y in STICK_TOP..=PLATE_TOP {
-        let t = (y - STICK_TOP) as f64 / (PLATE_TOP - STICK_TOP) as f64;
+    for y in stick_top..=plate_top {
+        let t = (y - stick_top) as f64 / (plate_top - stick_top) as f64;
         let mut half_width = 9.0
             + 20.0 * pow_approx(((t - 0.72).max(0.0)) / 0.28, 1.6)
             + 7.0 * exp_approx(-powi((t - 0.45) / 0.13, 2))
@@ -1533,16 +1754,21 @@ fn draw_candle_into(background: &mut [u32]) {
         candle_span(background, CX - half_width, CX + half_width, y as f64);
     }
 
-    for y in BODY_TOP..=STICK_TOP {
+    for y in body_top..=stick_top {
+        let reference_y = y - vertical_offset;
         let mut half_width = 14.0
-            + 2.6 * sin_approx(y as f64 * 0.05)
-            + 1.6 * sin_approx(y as f64 * 0.12 + 1.7)
-            + 3.5 * exp_approx(-powi((y - (BODY_TOP + 46)) as f64 / 18.0, 2));
-        let top = y - BODY_TOP;
+            + 2.6 * sin_approx(reference_y as f64 * 0.05)
+            + 1.6 * sin_approx(reference_y as f64 * 0.12 + 1.7)
+            + 3.5
+                * exp_approx(-powi(
+                    (reference_y - (REFERENCE_BASE - 190 + 46)) as f64 / 18.0,
+                    2,
+                ));
+        let top = y - body_top;
         if top < 12 {
             half_width += 7.0
                 * sin_approx(core::f64::consts::PI * top as f64 / 12.0)
-                * (1.0 + 0.35 * sin_approx(y as f64 * 0.8));
+                * (1.0 + 0.35 * sin_approx(reference_y as f64 * 0.8));
         }
         candle_span(background, CX - half_width, CX + half_width, y as f64);
     }
@@ -1564,7 +1790,7 @@ fn draw_candle_into(background: &mut [u32]) {
                 background,
                 CX + dx - half_width,
                 CX + dx + half_width,
-                (BODY_TOP + 6 + index) as f64,
+                (body_top + 6 + index) as f64,
             );
         }
     }
@@ -1578,7 +1804,7 @@ fn draw_candle_into(background: &mut [u32]) {
             background,
             CX - 19.0 - half_width,
             CX - 19.0 + half_width,
-            (STICK_TOP + 2 + index) as f64,
+            (stick_top + 2 + index) as f64,
         );
     }
 
@@ -1588,13 +1814,13 @@ fn draw_candle_into(background: &mut [u32]) {
             background,
             CX + offset - 1.0,
             CX + offset + 1.0,
-            (BODY_TOP - index) as f64,
+            (body_top - index) as f64,
         );
     }
 
-    let flame_top = BODY_TOP - 68;
-    for y in flame_top..=BODY_TOP - 12 {
-        let t = (y - flame_top) as f64 / (BODY_TOP - 12 - flame_top) as f64;
+    let flame_top = body_top - 68;
+    for y in flame_top..=body_top - 12 {
+        let t = (y - flame_top) as f64 / (body_top - 12 - flame_top) as f64;
         let half_width = 7.2
             * sin_approx(core::f64::consts::PI * pow_approx(t, 0.55))
             * (1.0 - 0.1 * sin_approx(3.0 * t));
@@ -1623,7 +1849,7 @@ fn draw_candle_into(background: &mut [u32]) {
     }
 
     let handle_x = CX + 74.0;
-    let handle_y = (PLATE_TOP - 28) as f64;
+    let handle_y = (plate_top - 28) as f64;
     angle = 0.0;
     while angle < 360.0 {
         let radians = angle * core::f64::consts::PI / 180.0;
@@ -1641,7 +1867,7 @@ fn draw_candle_into(background: &mut [u32]) {
     let end_x = handle_x as i32 - 26 + 4;
     for x in start_x..=end_x {
         let t = (x - start_x) as f64 / (end_x - start_x) as f64;
-        let y = (PLATE_TOP - 38) as f64
+        let y = (plate_top - 38) as f64
             + 10.0 * sin_approx(core::f64::consts::PI * t - core::f64::consts::PI / 2.0);
         for offset in 0..4 {
             candle_span(background, x as f64, (x + 1) as f64, y + offset as f64);
@@ -1649,7 +1875,7 @@ fn draw_candle_into(background: &mut [u32]) {
     }
 }
 
-fn candle_span(background: &mut [u32], x0: f64, x1: f64, y: f64) {
+fn candle_span(background: &mut DreamBackground, x0: f64, x1: f64, y: f64) {
     if x1 <= x0 {
         return;
     }
@@ -1660,25 +1886,29 @@ fn candle_span(background: &mut [u32], x0: f64, x1: f64, y: f64) {
 }
 
 fn fill_background_rect(
-    background: &mut [u32],
+    background: &mut DreamBackground,
     x: usize,
     y: usize,
     width: usize,
     height: usize,
     color: u32,
 ) {
-    let max_x = x.saturating_add(width).min(PHYSICAL_WIDTH);
-    let max_y = y.saturating_add(height).min(PHYSICAL_HEIGHT);
+    let max_x = x.saturating_add(width).min(background.width);
+    let max_y = y.saturating_add(height).min(background.height);
     for py in y..max_y {
         for px in x..max_x {
-            background[py * PHYSICAL_WIDTH + px] = color;
+            if let Some(pixel) = background.pixels.get_mut(py * background.width + px) {
+                *pixel = color;
+            }
         }
     }
 }
 
-fn set_background_pixel(background: &mut [u32], x: usize, y: usize, color: u32) {
-    if x < PHYSICAL_WIDTH && y < PHYSICAL_HEIGHT {
-        background[y * PHYSICAL_WIDTH + x] = color;
+fn set_background_pixel(background: &mut DreamBackground, x: usize, y: usize, color: u32) {
+    if x < background.width && y < background.height {
+        if let Some(pixel) = background.pixels.get_mut(y * background.width + x) {
+            *pixel = color;
+        }
     }
 }
 
@@ -1825,12 +2055,21 @@ fn build_phase_percent(phase: agent_build_loop::LoopPhase) -> usize {
 
 fn composer_rect(geometry: DreamGeometry) -> LogicalRect {
     let center = geometry.center_rect();
-    LogicalRect::new(center.x, 346, center.w, 28)
+    let y = geometry.composer_y().saturating_sub(10);
+    let bottom = geometry
+        .composer_y()
+        .saturating_add(18)
+        .min(geometry.logical_height);
+    LogicalRect::new(center.x, y, center.w, bottom.saturating_sub(y))
 }
 
 fn conversation_rect(geometry: DreamGeometry) -> LogicalRect {
     let center = geometry.center_rect();
-    LogicalRect::new(center.x, 70, center.w, 270)
+    let bottom = geometry
+        .composer_y()
+        .saturating_sub(CONVERSATION_COMPOSER_GAP);
+    let y = CONVERSATION_TOP.min(bottom);
+    LogicalRect::new(center.x, y, center.w, bottom.saturating_sub(y))
 }
 
 fn button_rect(x: usize, y: usize) -> LogicalRect {
@@ -1841,19 +2080,62 @@ fn item_rect(x: usize, y: usize, width: usize) -> LogicalRect {
     LogicalRect::new(x, y.saturating_sub(3), width, 14)
 }
 
-fn tab_rects() -> [(LogicalRect, HitTarget); 3] {
+fn tabs_start_x(geometry: DreamGeometry) -> usize {
+    let labels_width = chunky_text_width("Chat")
+        .saturating_add(chunky_text_width("Console"))
+        .saturating_add(chunky_text_width("Build"));
+    let total_width = labels_width.saturating_add(36);
+    let center = geometry.center_rect();
+    center
+        .x
+        .saturating_add(center.w.saturating_sub(total_width) / 2)
+}
+
+fn tab_rects(geometry: DreamGeometry) -> [(LogicalRect, HitTarget); 3] {
+    let chat_x = tabs_start_x(geometry);
+    let console_x = chat_x
+        .saturating_add(chunky_text_width("Chat"))
+        .saturating_add(18);
+    let build_x = console_x
+        .saturating_add(chunky_text_width("Console"))
+        .saturating_add(18);
     [
-        (LogicalRect::new(226, 42, 44, 20), HitTarget::TabChat),
-        (LogicalRect::new(280, 42, 71, 20), HitTarget::TabConsole),
-        (LogicalRect::new(361, 42, 53, 20), HitTarget::TabBuild),
+        (
+            LogicalRect::new(
+                chat_x.saturating_sub(4),
+                42,
+                chunky_text_width("Chat").saturating_add(8),
+                20,
+            ),
+            HitTarget::TabChat,
+        ),
+        (
+            LogicalRect::new(
+                console_x.saturating_sub(4),
+                42,
+                chunky_text_width("Console").saturating_add(8),
+                20,
+            ),
+            HitTarget::TabConsole,
+        ),
+        (
+            LogicalRect::new(
+                build_x.saturating_sub(4),
+                42,
+                chunky_text_width("Build").saturating_add(8),
+                20,
+            ),
+            HitTarget::TabBuild,
+        ),
     ]
 }
 
-fn tab_hover_rects() -> [(LogicalRect, HoverTarget); 3] {
+fn tab_hover_rects(geometry: DreamGeometry) -> [(LogicalRect, HoverTarget); 3] {
+    let [chat, console, build] = tab_rects(geometry);
     [
-        (LogicalRect::new(226, 42, 44, 20), HoverTarget::TabChat),
-        (LogicalRect::new(280, 42, 71, 20), HoverTarget::TabConsole),
-        (LogicalRect::new(361, 42, 53, 20), HoverTarget::TabBuild),
+        (chat.0, HoverTarget::TabChat),
+        (console.0, HoverTarget::TabConsole),
+        (build.0, HoverTarget::TabBuild),
     ]
 }
 
@@ -2043,23 +2325,95 @@ fn pow_approx(value: f64, exponent: f64) -> f64 {
 mod tests {
     use super::*;
 
+    fn rects_overlap(a: LogicalRect, b: LogicalRect) -> bool {
+        a.x < b.x.saturating_add(b.w)
+            && b.x < a.x.saturating_add(a.w)
+            && a.y < b.y.saturating_add(b.h)
+            && b.y < a.y.saturating_add(a.h)
+    }
+
+    fn assert_layout_invariants(physical_width: usize, physical_height: usize) {
+        let logical_width = physical_width / DRAW_SCALE;
+        let logical_height = physical_height / DRAW_SCALE;
+        for layout_t in [-Q, 0, Q] {
+            let geometry = DreamGeometry::at(physical_width, physical_height, layout_t);
+            let left = geometry.left_rect();
+            let center = geometry.center_rect();
+            let right = geometry.right_rect();
+
+            assert_eq!(geometry.logical_width, logical_width);
+            assert_eq!(geometry.logical_height, logical_height);
+            assert!(left.x.saturating_add(left.w) <= logical_width);
+            assert!(center.x.saturating_add(center.w) <= logical_width);
+            assert!(right.x.saturating_add(right.w) <= logical_width);
+            assert!(!rects_overlap(left, center));
+            assert!(!rects_overlap(center, right));
+            assert!(!rects_overlap(left, right));
+
+            let left_bracket_min = round_q(geometry.bracket_left - geometry.bracket_amp);
+            let right_bracket_max = round_q(geometry.bracket_right + geometry.bracket_amp);
+            assert!(left.x.saturating_add(left.w) <= left_bracket_min);
+            assert!(right_bracket_max <= right.x);
+            if layout_t >= 0 {
+                assert!(round_q(geometry.bracket_left) < center.x);
+                assert!(center.x.saturating_add(center.w) <= round_q(geometry.bracket_right));
+            }
+
+            assert_eq!(geometry.bracket_top(), BRACKET_TOP);
+            assert_eq!(
+                geometry.bracket_bottom(),
+                logical_height - BRACKET_BOTTOM_MARGIN
+            );
+            assert_eq!(
+                geometry.composer_y(),
+                logical_height - COMPOSER_BOTTOM_OFFSET
+            );
+        }
+
+        let closed = DreamGeometry::at(physical_width, physical_height, -Q);
+        let center = closed.center_rect();
+        assert_eq!(center.x.saturating_add(center.w / 2), logical_width / 2);
+    }
+
     #[test]
     fn layout_keyframes_match_the_executable_spec() {
-        let closed = DreamGeometry::at(-Q);
+        let closed = DreamGeometry::at(1280, 800, -Q);
         assert_eq!(closed.center_rect().x, 316);
         assert_eq!(closed.center_rect().w, 8);
         assert_eq!(round_q(closed.bracket_left), 319);
         assert_eq!(round_q(closed.bracket_right), 321);
 
-        let ambient = DreamGeometry::at(0);
+        let ambient = DreamGeometry::at(1280, 800, 0);
         assert_eq!(ambient.center_rect().x, 185);
         assert_eq!(ambient.center_rect().w, 270);
 
-        let open = DreamGeometry::at(Q);
+        let open = DreamGeometry::at(1280, 800, Q);
         assert_eq!(open.center_rect().x, 177);
         assert_eq!(open.center_rect().w, 286);
         assert_eq!(round_q(open.bracket_left), 160);
         assert_eq!(round_q(open.bracket_right), 478);
+    }
+
+    #[test]
+    fn layout_invariants_hold_at_1280_by_800() {
+        assert_layout_invariants(1280, 800);
+    }
+
+    #[test]
+    fn layout_invariants_hold_at_1920_by_1080() {
+        assert_layout_invariants(1920, 1080);
+    }
+
+    #[test]
+    fn undersized_viewport_clamps_to_empty_safe_regions() {
+        let geometry = DreamGeometry::at(160, 80, Q);
+        let center = geometry.center_rect();
+        let conversation = conversation_rect(geometry);
+        let composer = composer_rect(geometry);
+        assert!(center.x.saturating_add(center.w) <= geometry.logical_width);
+        assert!(conversation.y.saturating_add(conversation.h) <= geometry.logical_height);
+        assert!(composer.y.saturating_add(composer.h) <= geometry.logical_height);
+        assert_eq!(geometry.bracket_bottom(), geometry.bracket_top());
     }
 
     #[test]
@@ -2082,6 +2436,7 @@ mod tests {
     #[test]
     fn center_zone_opens_and_leaving_it_closes() {
         let mut state = DreamState::new();
+        state.set_surface_size(1280, 800);
         assert!(state.update_pointer(true, 320, 120, true, false));
         assert_eq!(state.requested_goal, Q);
         assert!(state.update_pointer(true, 40, 120, true, false));
@@ -2091,6 +2446,7 @@ mod tests {
     #[test]
     fn transition_reaches_ambient_at_250ms_and_open_at_500ms() {
         let mut state = DreamState::new();
+        state.set_surface_size(1280, 800);
         state.update_pointer(true, 320, 120, true, false);
         state.update_for_frame(100);
         state.update_for_frame(350);
@@ -2102,6 +2458,7 @@ mod tests {
     #[test]
     fn invented_programs_stay_inert_and_disabled_approve_cannot_escalate() {
         let mut state = DreamState::new();
+        state.set_surface_size(1280, 800);
         state.layout_t = Q;
         assert_eq!(state.hit_test(500, 56, false), Some(HitTarget::Inert));
         assert_eq!(state.hit_test(500, 222, false), Some(HitTarget::Inert));
