@@ -97,4 +97,4 @@ pub(crate) use probes::{
     WasmHardeningCase,
 };
 pub(crate) use thread_job::emit_threads_selftest;
-pub(crate) use wasi_build_job::emit_wasi_selftest;
+pub(crate) use wasi_build_job::{emit_wasi_mem_selftest, emit_wasi_selftest};

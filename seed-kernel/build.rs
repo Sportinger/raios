@@ -40,6 +40,8 @@ fn main() {
     println!("cargo:rerun-if-env-changed=RAIOS_ALLOW_UNVERIFIED_OPENAI_TLS");
     println!("cargo:rerun-if-changed=fixtures/thread_job.wat");
     println!("cargo:rerun-if-changed=fixtures/thread_job_deadlock.wat");
+    println!("cargo:rerun-if-changed=fixtures/wasi_mem_grow.wat");
+    println!("cargo:rerun-if-changed=fixtures/wasi_mem_over_class.wat");
     println!("cargo:rerun-if-changed=descriptors/svc.demo.hello.current_image.desc");
     println!("cargo:rerun-if-changed=descriptors/svc.demo.hello.current_image.p256.pub.hex");
     println!("cargo:rerun-if-changed=descriptors/svc.demo.hello.current_image.p256.sig.der.hex");
@@ -549,6 +551,8 @@ fn compile_wasi_build_fixtures(manifest_dir: &std::path::Path, out_dir: &std::pa
             "wasi_build_extra_import.wat",
             "wasi_build_extra_import.wasm",
         ),
+        ("wasi_mem_grow.wat", "wasi_mem_grow.wasm"),
+        ("wasi_mem_over_class.wat", "wasi_mem_over_class.wasm"),
     ] {
         let fixture_path = manifest_dir.join("fixtures").join(source);
         let wasm = wat::parse_file(&fixture_path).expect("WASI build fixture WAT must compile");

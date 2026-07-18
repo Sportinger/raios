@@ -30,8 +30,9 @@ use raios_wasi_preview1::{
 };
 use wasmi::{
     core::{Trap, ValueType},
-    Config, Engine, ExternType, Linker, Memory, MemoryType, Module, Mutability, ResumableCall,
-    Store, Suspension,
+    errors::{MemoryError, TableError},
+    Config, Engine, ExternType, Linker, Memory, MemoryType, Module, Mutability, ResourceLimiter,
+    ResumableCall, Store, Suspension,
 };
 
 use super::{
@@ -45,6 +46,9 @@ use super::{
 const WASI_BUILD_OK_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/wasi_build_ok.wasm"));
 const WASI_BUILD_EXTRA_IMPORT_WASM: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/wasi_build_extra_import.wasm"));
+const WASI_MEM_GROW_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/wasi_mem_grow.wasm"));
+const WASI_MEM_OVER_CLASS_WASM: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/wasi_mem_over_class.wasm"));
 const COMPILER_ARTIFACT_SHA256: &str =
     "c6dccf3e5f01631b942a0a008b9f2f5312987e7d8590f8c61024cd00687a5791";
 const JOB_MANIFEST_SHA256: &str =
@@ -53,12 +57,50 @@ const REQUIRED_IMPORT_COUNT: usize = 30;
 const BUILD_STORE_INSTANCE_ID: u64 = 11;
 const BUILD_STORE_GENERATION: u64 = 13;
 const BUILD_OUTPUT_LEASE_ID: u64 = 7;
+const MEMORY_GROW_STEP_PAGES: u32 = 115;
+const MEMORY_GROW_SAFETY_MARGIN_BYTES: usize = 1024 * 1024;
+const MEMORY_CONTROL_BYTES: usize = 28;
+const MEMORY_INITIAL_PAGES_OFFSET: usize = 0;
+const MEMORY_FINAL_PAGES_OFFSET: usize = 4;
+const MEMORY_GROW_STEP_COUNT_OFFSET: usize = 8;
+const MEMORY_GROW_DENIED_OFFSET: usize = 12;
+const MEMORY_STDOUT_IOVEC_PTR_OFFSET: usize = 16;
+const MEMORY_STDOUT_IOVEC_LEN_OFFSET: usize = 20;
+const MEMORY_STDOUT_WRITTEN_OFFSET: usize = 24;
+const MEMORY_DECIMAL_CAPACITY: usize = 10;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum WasiJobEnd {
     ProcExit(u32),
     Trap,
     Denied(BuildJobDenied),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct WasiMemoryEvidence {
+    current_pages: u32,
+    initial_pages: u32,
+    final_pages: u32,
+    grow_step_count: u32,
+    reported_pages: Option<u32>,
+    grow_denied: bool,
+    stdout: [u8; MEMORY_DECIMAL_CAPACITY],
+    stdout_len: usize,
+}
+
+impl WasiMemoryEvidence {
+    const fn missing() -> Self {
+        Self {
+            current_pages: 0,
+            initial_pages: 0,
+            final_pages: 0,
+            grow_step_count: 0,
+            reported_pages: None,
+            grow_denied: false,
+            stdout: [0; MEMORY_DECIMAL_CAPACITY],
+            stdout_len: 0,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -70,6 +112,7 @@ struct WasiJobEvidence {
     frozen_output_entries: usize,
     frozen_output: Option<FrozenOutput>,
     output_bundle_len: u64,
+    memory: WasiMemoryEvidence,
 }
 
 impl WasiJobEvidence {
@@ -82,6 +125,7 @@ impl WasiJobEvidence {
             frozen_output_entries: 0,
             frozen_output: None,
             output_bundle_len: 0,
+            memory: WasiMemoryEvidence::missing(),
         }
     }
 }
@@ -158,6 +202,39 @@ fn wasi_engine() -> Engine {
         .consume_fuel(true)
         .resumable_fuel(true);
     Engine::new(&config)
+}
+
+impl ResourceLimiter for WasiHostState {
+    fn memory_growing(
+        &mut self,
+        current: usize,
+        desired: usize,
+        maximum: Option<usize>,
+    ) -> Result<bool, MemoryError> {
+        if maximum.is_some_and(|maximum| desired > maximum) {
+            return Ok(false);
+        }
+        if desired <= current {
+            return Ok(true);
+        }
+        // Keep 1 MiB beyond old+new Vec coexistence because free() aggregates fragments.
+        let Some(required_free) = desired
+            .checked_add(current)
+            .and_then(|bytes| bytes.checked_add(MEMORY_GROW_SAFETY_MARGIN_BYTES))
+        else {
+            return Ok(false);
+        };
+        Ok(required_free <= crate::ALLOCATOR.lock().free())
+    }
+
+    fn table_growing(
+        &mut self,
+        _current: u32,
+        desired: u32,
+        maximum: Option<u32>,
+    ) -> Result<bool, TableError> {
+        Ok(maximum.is_none_or(|maximum| desired <= maximum))
+    }
 }
 
 fn run_build_job(bytes: &[u8], nonce_value: u64) -> WasiJobEvidence {
@@ -252,6 +329,7 @@ fn instantiate_authorized(
         None => return WasiJobEvidence::terminal(WasiJobEnd::Trap),
     };
     let mut store = Store::new(&engine, WasiHostState::new(instance, chunk_reader));
+    store.limiter(|state| state);
     let memory_type = match MemoryType::new_shared(
         class.shared_memory.initial_pages,
         class.shared_memory.max_pages,
@@ -292,6 +370,7 @@ fn instantiate_authorized(
         return WasiJobEvidence::terminal(WasiJobEnd::Trap);
     }
     let end = run_start(&mut store, start, class);
+    let memory_evidence = inspect_memory_evidence(memory, &store);
     let (end, frozen_output_entries, frozen_output, output_bundle_len) =
         match store.data().freeze_output_evidence() {
             Ok((entries, output, bundle_len)) => (end, entries, Some(output), bundle_len),
@@ -305,7 +384,66 @@ fn instantiate_authorized(
         frozen_output_entries,
         frozen_output,
         output_bundle_len,
+        memory: memory_evidence,
     }
+}
+
+fn inspect_memory_evidence(memory: Memory, store: &Store<WasiHostState>) -> WasiMemoryEvidence {
+    let current_pages = u32::from(memory.current_pages(store));
+    let mut evidence = WasiMemoryEvidence {
+        current_pages,
+        ..WasiMemoryEvidence::missing()
+    };
+    let mut control = [0u8; MEMORY_CONTROL_BYTES];
+    if memory.read(store, 0, &mut control).is_err() {
+        return evidence;
+    }
+    evidence.initial_pages = read_control_u32(&control, MEMORY_INITIAL_PAGES_OFFSET);
+    evidence.final_pages = read_control_u32(&control, MEMORY_FINAL_PAGES_OFFSET);
+    evidence.grow_step_count = read_control_u32(&control, MEMORY_GROW_STEP_COUNT_OFFSET);
+    evidence.grow_denied = read_control_u32(&control, MEMORY_GROW_DENIED_OFFSET) == 1;
+
+    let stdout_ptr = read_control_u32(&control, MEMORY_STDOUT_IOVEC_PTR_OFFSET) as usize;
+    let stdout_len = read_control_u32(&control, MEMORY_STDOUT_IOVEC_LEN_OFFSET) as usize;
+    let stdout_written = read_control_u32(&control, MEMORY_STDOUT_WRITTEN_OFFSET) as usize;
+    if stdout_len == 0
+        || stdout_len > MEMORY_DECIMAL_CAPACITY
+        || stdout_written != stdout_len
+        || stdout_ptr.checked_add(stdout_len).is_none()
+    {
+        return evidence;
+    }
+    if memory
+        .read(store, stdout_ptr, &mut evidence.stdout[..stdout_len])
+        .is_err()
+    {
+        return evidence;
+    }
+    evidence.stdout_len = stdout_len;
+    evidence.reported_pages = parse_decimal_u32(&evidence.stdout[..stdout_len]);
+    evidence
+}
+
+fn read_control_u32(control: &[u8; MEMORY_CONTROL_BYTES], offset: usize) -> u32 {
+    u32::from_le_bytes([
+        control[offset],
+        control[offset + 1],
+        control[offset + 2],
+        control[offset + 3],
+    ])
+}
+
+fn parse_decimal_u32(digits: &[u8]) -> Option<u32> {
+    let mut value = 0u32;
+    for digit in digits {
+        if !digit.is_ascii_digit() {
+            return None;
+        }
+        value = value
+            .checked_mul(10)?
+            .checked_add(u32::from(*digit - b'0'))?;
+    }
+    Some(value)
 }
 
 fn run_start(
@@ -884,6 +1022,74 @@ fn evaluate_commit_claims(
         commit,
         commit_deny,
     }
+}
+
+fn memory_growth_arithmetic_valid(memory: WasiMemoryEvidence) -> bool {
+    let expected_final = memory
+        .grow_step_count
+        .checked_mul(MEMORY_GROW_STEP_PAGES)
+        .and_then(|grown_pages| memory.initial_pages.checked_add(grown_pages));
+    memory.initial_pages == RUSTC_BUILD_GUEST_CLASS_V1.shared_memory.initial_pages
+        && memory.grow_step_count >= 1
+        && memory.final_pages > memory.initial_pages
+        && memory.final_pages == memory.current_pages
+        && expected_final == Some(memory.final_pages)
+}
+
+fn decimal_digit_count(mut value: u32) -> u64 {
+    let mut digits = 1u64;
+    while value >= 10 {
+        value /= 10;
+        digits += 1;
+    }
+    digits
+}
+
+fn memory_run_pass(run: WasiJobEvidence) -> bool {
+    run.instantiated
+        && run.end == WasiJobEnd::ProcExit(0)
+        && run.registered == REQUIRED_IMPORT_COUNT
+        && run.frozen_output_entries == 0
+        && run.memory.grow_denied
+        && run.memory.reported_pages == Some(run.memory.final_pages)
+        && run.stdout_bytes == run.memory.stdout_len as u64
+        && run.stdout_bytes == decimal_digit_count(run.memory.final_pages)
+        && memory_growth_arithmetic_valid(run.memory)
+}
+
+pub(crate) fn emit_wasi_mem_selftest() {
+    let first = run_build_job(WASI_MEM_GROW_WASM, 201);
+    let second = run_build_job(WASI_MEM_GROW_WASM, 202);
+    let over_class = run_build_job(WASI_MEM_OVER_CLASS_WASM, 203);
+    let over_class_reason = match over_class.end {
+        WasiJobEnd::Denied(denied) => denied.reason(),
+        WasiJobEnd::ProcExit(_) | WasiJobEnd::Trap => "missing",
+    };
+    let grow_denied_gracefully = memory_run_pass(first) && memory_run_pass(second);
+    let deterministic = first.memory.reported_pages.is_some()
+        && second.memory.reported_pages.is_some()
+        && first.memory.initial_pages == second.memory.initial_pages
+        && first.memory.final_pages == second.memory.final_pages
+        && first.memory.grow_step_count == second.memory.grow_step_count
+        && first.memory.stdout_len == second.memory.stdout_len
+        && first.memory.stdout == second.memory.stdout
+        && first.stdout_bytes == second.stdout_bytes;
+    let over_class_denied = !over_class.instantiated
+        && matches!(
+            over_class.end,
+            WasiJobEnd::Denied(BuildJobDenied::ImportsMismatch { .. })
+        )
+        && over_class_reason == "imports_mismatch";
+    let pass = grow_denied_gracefully && deterministic && over_class_denied;
+    crate::serial::write_raw_fmt(format_args!(
+        "RAIOS_WASIMEM selftest={} pages_initial={} pages_max={} grow_denied_gracefully={} over_class={} det={}\n",
+        if pass { "pass" } else { "fail" },
+        RUSTC_BUILD_GUEST_CLASS_V1.shared_memory.initial_pages,
+        first.memory.reported_pages.unwrap_or(0),
+        if grow_denied_gracefully { 1 } else { 0 },
+        over_class_reason,
+        if deterministic { 1 } else { 0 },
+    ));
 }
 
 pub(crate) fn emit_wasi_selftest() {
