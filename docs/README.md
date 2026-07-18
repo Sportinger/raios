@@ -8,6 +8,8 @@ describe implementation, active work, or history and do not redefine it.
 ## Where to look
 
 - [SCOPE.md](SCOPE.md) — the single source of truth for what raiOS is.
+- [HANDOFF.md](HANDOFF.md) — one-page rolling handoff: where we are, the last
+  three closed steps, the next step. Fixed window, never a growing log.
 - [status/STATUS.md](status/STATUS.md) — current verified state, evidence, gaps,
   and engineering cursor.
 - [status/OWNER_DASHBOARD.md](status/OWNER_DASHBOARD.md) — owner-facing status.

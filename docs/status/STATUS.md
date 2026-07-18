@@ -71,10 +71,18 @@ the on-device factory is the main road (agents build+test big software via
 Genesis jobs, no workshop). B3A-2a (rlang crate + typed emitter, 21 host
 tests green) is COMMITTED and rlang is PAUSED — spare tool + reusable
 encoder, not critical path.
-**NEXT DELIBERATE SLICE:** the rustc-Wasm BOOTSTRAP (FACTORY_PLAN section 5):
-one-time cloud build of a threads-free rustc-as-wasm from the public
-oligamiq/rust_wasm recipe (awaiting owner GitHub go), then the wasmi probe
-measures load/RAM/speed; on success, Bauplatz scoping with measured budgets.
+**WORKSHOP PROBE GREEN (2026-07-18, commit 37929ba):** the unmodified public
+threaded rustc-as-Wasm artifact builds and runs under pinned wasmtime 46
+(hello 1.6 s, medium `-O` 1.2 s, ~670 MB peak, real guest threads ~26-32,
+rust-lld embedded so no separate linker job); full report
+`docs/architecture/probe-rustc-wasm-wasmtime-2026-07-18.md`. The former
+"threads-free cloud fork" step is DROPPED (owner 2026-07-18: no fork, no
+compiler modification); a later cloud rebake is provenance-check only.
+**NEXT DELIBERATE SLICE:** bring the tool into the system — threads in the
+cage (T1 atomics/shared memory in the vendored wasmi, host-testable; then T2
+round-robin pump) plus Bauplatz heap and the WASI subset; slices and budgets
+in `docs/plans/plan-rust-kernel.md` §7, then Bauplatz scoping with the
+measured budgets.
 `/program` stays the explicit RUIP fast lane. Honest gap: the scoped feedback carries no
 source, so the provider rarely returns a conforming child — richer
 (still-classified) evidence and the B3 build/test producer close the iterate

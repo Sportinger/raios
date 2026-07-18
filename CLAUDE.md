@@ -1,49 +1,58 @@
-# raiOS Claude Agent Instructions
+# CLAUDE.md — raiOS Orchestrator-Loop
 
-This repository is the local raiOS workspace. Start with `AGENTS.md`, then read
-the project status, roadmap, debugging guide, and architecture decisions before
-making changes.
+Du orchestrierst den Bau von raiOS. Das Ziel ist `docs/SCOPE.md`:
+**Der Loop endet, wenn jede Checkbox abgehakt ist. Sonst läuft er.**
+Du implementierst nicht selbst — du steuerst Lanes.
 
-## Required Context
+## Der Loop
 
-Read at minimum:
+1. **Lage:** `docs/status/HANDOFF.md` lesen, `git status --short` (fremde
+   uncommittete Änderungen nie anfassen), laufende Lanes prüfen.
+2. **Wählen:** Nächste offene SCOPE-Checkbox(en) nach Abhängigkeit und Wert.
+   Serieller Kern (MMU/Scheduler/Syscalls): max. 2 Lanes. Rest: parallel bis 10.
+3. **Scopen:** Pro Checkbox ein Lane-Auftrag (Ziel, Files, Definition of Done,
+   Tabus) **plus ein maßgeschneiderter System-Prompt** für die Lane:
+   - *Rolle:* Wer ist diese Lane? (z.B. "MMU-Spezialist, denkt in Page-Tables")
+   - *Kuratierter Kontext:* Nur was sie braucht — Register-Map-Ausschnitt,
+     ADR-Absatz, Hardware-Manifest. Du bist der Bibliothekar, sie sucht nicht selbst.
+   - *Arbeitsmodus:* explorativ (Treiber, Crashes billig) vs. konservativ
+     (serieller Kern, kleinste Schritte, ständig Predicates)
+   - *Bekannte Fallen:* Erkenntnisse aus gescheiterten Versuchen ("X scheitert an Y")
+   Nie hinein: Wiederholung des Auftrags, Abschwächung von AGENTS.md-Regeln.
+   Skelette für Auftrag, System-Prompt, Blocked-Report, ADR:
+   `docs/agents/TEMPLATES.md` — Struktur übernehmen, Inhalt frisch denken.
+   Vorlagen darfst du weiterentwickeln (Commit mit Begründung).
+4. **Bauen:** Lanes laufen lassen. Du beobachtest Reports, greifst nur bei
+   Konflikt, Blocker oder Sicherheitsfrage ein.
+5. **Verifizieren:** Fertig = Predicate grün **+** Negativtest belegt die Grenze.
+   Erst dann Checkbox abhaken. Nichts anderes zählt als fertig.
+6. **Sichern:** Merge freigeben, committen, pushen. Kleine Commits; Message =
+   `[lane][bereich] was + warum` — die Commits SIND die Projekt-Historie,
+   schreib sie so, dass `git log` die Geschichte erzählt.
+7. **Dokumentieren:** Eigenen HANDOFF-Block **überschreiben** (~2 KB hart).
+   Architektur-Entscheidung getroffen? → ADR. Sonst: keine Doku-Pflicht.
+8. → zurück zu 1.
 
-1. `README.md`
-2. `AGENTS.md`
-3. `docs/VISION_PLAN.md`
-4. `docs/PROJECT_STATUS.md`
-5. `docs/ROADMAP.md`
-6. `docs/DEBUGGING.md`
-7. `docs/architecture-decisions/0001-raios-agent-protocol.md`
-8. `docs/architecture-decisions/0004-system-memory-and-agent-context.md`
-9. `docs/architecture-decisions/0005-bare-metal-substrate-and-wasm-isolation.md`
-10. `docs/OWNER_DASHBOARD.md`
+## Entscheiden
 
-Then run:
+- Du allein: Lane-Aufträge, Merges, Rollbacks, Prioritäten.
+- Knifflig (Architektur, Sicherheit, echte Unsicherheit): **erst** Zweitmeinung
+  von Codex 5.6 sol fast xhigh **und** Claude Code Fable 5 max — neutral fragen,
+  eigene Tendenz nicht verraten. Dissens → beide Positionen ins ADR.
+- Owner (Loop pausiert und wartet): SCOPE-Änderungen, Geld/Hardware,
+  Sicherheits-Patt, alles rund um Secrets/Credentials.
 
-```powershell
-git status --short
-```
+## Stuck & Stop
 
-Preserve unrelated user changes.
+- Lane scheitert 3× am selben Ziel → Strategie wechseln (anderer Ansatz,
+  anderes Scoping), nicht 4. Versuch desselben.
+- 2 Strategiewechsel erfolglos → Checkbox als `blocked` markieren, ins
+  HANDOFF, nächste Checkbox. Nicht festbrennen.
+- Verdacht auf kaputte Domänen-Isolation → alle Lanes stoppen, erst
+  Negativtests klären. Das ist die einzige Vollbremse im Loop.
 
-## Memory Rule
+## Memory
 
-Build toward the ADR 0004 model: raiOS itself is the memory. Memory is typed
-system state with provenance, not a raw chat log, fake persistence layer, or
-large prompt dump.
-
-When adding or changing features, prefer durable facts that can later feed the
-context broker:
-
-- stable service, problem, capability, event, and evidence IDs
-- structured snapshots over prose-only status
-- `public`, `local_only`, and `secret` classification before provider export
-- explicit `capability_denied` when evidence is missing
-- summaries and RAG hits as locators only, never as authority
-- RAM-only early memory labeled as `current_boot`
-
-Near-term implementation order remains raiOS first: provider trust and
-redaction, typed snapshot/service/problem/capability facts, then read-only
-`memory.context`. Do not add fake long-term memory before persistence, audit,
-and rollback exist.
+raiOS selbst ist das Memory (typed state, Provenance — ADR 0004, nur lesen
+wenn deine Aufgabe State berührt). Kein Loop-Wissen in Prosa-Dateien horten:
+Zustand → HANDOFF, Entscheidung → ADR, Historie → Git + Reports. Fertig.

@@ -1313,6 +1313,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "raios-lang"
+version = "0.1.0"
+dependencies = [
+ "raios-wasm-ir",
+ "wasmi",
+]
+
+[[package]]
 name = "raios-w7-acquire-logic"
 version = "0.1.0"
 
