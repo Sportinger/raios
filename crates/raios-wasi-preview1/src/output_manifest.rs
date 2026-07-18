@@ -239,4 +239,27 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn changing_one_output_byte_changes_canonical_manifest_bytes() {
+        let mut out = RamFs::new(RamQuotas::new(8, 1, 1, 8), 4).unwrap();
+        out.path_create_file(Fd::ROOT_PREOPEN, b"artifact").unwrap();
+        out.write_path(b"artifact", 0, b"abc").unwrap();
+        let before = freeze_output(&out).unwrap();
+
+        out.write_path(b"artifact", 2, b"d").unwrap();
+        let after = freeze_output(&out).unwrap();
+
+        assert_ne!(before.canonical_bytes(), after.canonical_bytes());
+        assert_ne!(before.files[0].sha256, after.files[0].sha256);
+        assert_ne!(
+            before.files[0].chunks[0].sha256,
+            after.files[0].chunks[0].sha256
+        );
+        assert_eq!(after.files[0].sha256, crate::readonly::sha256(b"abd"));
+        assert_eq!(
+            after.files[0].chunks[0].sha256,
+            crate::readonly::sha256(b"abd")
+        );
+    }
 }

@@ -4,9 +4,9 @@ use crate::output_manifest::{freeze_output, OutputManifest};
 use crate::ramfs::{RamFs, RamQuotas};
 use crate::{Errno, Fd, FileType};
 
-const TMP_NAMESPACE: &[u8] = b".raios-tmp-mount";
-const ROOT_NAMESPACE: &[u8] = b".raios-root-scratch";
-const RESERVED: [&[u8]; 4] = [b"sysroot", b"src", b"out", b"tmp"];
+pub(crate) const TMP_NAMESPACE: &[u8] = b".raios-tmp-mount";
+pub(crate) const ROOT_NAMESPACE: &[u8] = b".raios-root-scratch";
+pub(crate) const RESERVED: [&[u8]; 4] = [b"sysroot", b"src", b"out", b"tmp"];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WritableError {

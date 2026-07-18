@@ -3,9 +3,11 @@ use core::cmp::{max, min};
 
 use crate::dir::read_directory;
 use crate::{
-    DirectoryEntry, DirectorySnapshot, Dirent, Errno, Fd, FdFlags, FdTable, FileType, NodeRef,
-    NormalizedPath, PathOpenRequest, Rights, StandardNodes, Whence,
+    DirectoryEntry, DirectorySnapshot, Dirent, Errno, Fd, FdFlags, FdTable, FileType, MountId,
+    NodeRef, NormalizedPath, PathOpenRequest, Rights, StandardNodes, Whence,
 };
+
+const NODE_INDEX_MASK: u64 = u32::MAX as u64;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RamQuotas {
@@ -68,28 +70,23 @@ pub(crate) struct RamSnapshotEntry {
 
 /// One deterministic, volatile filesystem arena.
 ///
-/// Node numbers are append-only indices. Removing a node leaves a tombstone,
-/// so an identical mutation sequence always produces identical node numbers.
+/// Node references contain a stable slot index and a generation. Freed slots
+/// are reused deterministically; stale references can never alias a new node.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RamFs {
     quotas: RamQuotas,
     nodes: Vec<Option<RamNode>>,
+    generations: Vec<u32>,
     bytes: u64,
     files: u64,
     directories: u64,
-    fds: FdTable,
-    offsets: Vec<Option<u64>>,
+    fds: Option<FdTable>,
 }
 
 impl RamFs {
     pub fn new(quotas: RamQuotas, fd_limit: u32) -> Result<Self, Errno> {
-        let root = RamNode {
-            parent: None,
-            name: Vec::new(),
-            quota_counted: false,
-            content: RamContent::Directory,
-        };
-        let fds = FdTable::new(
+        let mut filesystem = Self::new_arena(quotas);
+        filesystem.fds = Some(FdTable::new(
             fd_limit,
             StandardNodes {
                 stdin: NodeRef(u64::MAX - 2),
@@ -98,16 +95,26 @@ impl RamFs {
                 root: NodeRef(0),
             },
             writable_rights(),
-        )?;
-        Ok(Self {
+        )?);
+        Ok(filesystem)
+    }
+
+    pub(crate) fn new_arena(quotas: RamQuotas) -> Self {
+        let root = RamNode {
+            parent: None,
+            name: Vec::new(),
+            quota_counted: false,
+            content: RamContent::Directory,
+        };
+        Self {
             quotas,
             nodes: vec![Some(root)],
+            generations: vec![0],
             bytes: 0,
             files: 0,
             directories: 0,
-            fds,
-            offsets: vec![Some(0); Fd::FIRST_DYNAMIC.0 as usize],
-        })
+            fds: None,
+        }
     }
 
     pub const fn root_node(&self) -> NodeRef {
@@ -115,7 +122,9 @@ impl RamFs {
     }
 
     pub fn fd_table(&self) -> &FdTable {
-        &self.fds
+        self.fds
+            .as_ref()
+            .expect("public RamFs constructors always install an FD table")
     }
 
     pub const fn byte_len(&self) -> u64 {
@@ -160,7 +169,26 @@ impl RamFs {
         requested_rights: Rights,
         flags: FdFlags,
     ) -> Result<Fd, Errno> {
-        let parent = *self.fds.get(parent_fd)?;
+        self.path_open_split(
+            parent_fd,
+            path,
+            create,
+            requested_rights,
+            requested_rights,
+            flags,
+        )
+    }
+
+    pub fn path_open_split(
+        &mut self,
+        parent_fd: Fd,
+        path: &[u8],
+        create: bool,
+        requested_rights_base: Rights,
+        requested_rights_inheriting: Rights,
+        flags: FdFlags,
+    ) -> Result<Fd, Errno> {
+        let parent = *self.standalone_fds()?.get(parent_fd)?;
         require_directory_right(&parent, Rights::PATH_OPEN)?;
         let existing = self.resolve_from_node(parent.node, path);
         let (node, file_type, pending_create) = match existing {
@@ -174,13 +202,16 @@ impl RamFs {
             Err(error) => return Err(error),
         };
 
-        let mut next_fds = self.fds.clone();
+        let mut next_fds = self.standalone_fds()?.clone();
         let fd = next_fds.path_open(PathOpenRequest {
             parent_fd,
             node,
             file_type,
-            mount_rights: writable_rights(),
-            requested_rights,
+            mount_id: MountId::ROOT,
+            mount_rights_base: writable_rights(),
+            mount_rights_inheriting: writable_rights(),
+            requested_rights_base,
+            requested_rights_inheriting,
             flags,
         })?;
 
@@ -194,22 +225,17 @@ impl RamFs {
             debug_assert_eq!(created, node);
             self.files += 1;
         }
-        self.fds = next_fds;
-        self.install_offset(fd, 0);
+        self.fds = Some(next_fds);
         Ok(fd)
     }
 
     pub fn fd_close(&mut self, fd: Fd) -> Result<(), Errno> {
-        self.fds.close(fd)?;
-        if let Some(offset) = self.offsets.get_mut(fd.0 as usize) {
-            *offset = None;
-        }
-        Ok(())
+        self.standalone_fds_mut()?.close(fd)
     }
 
     pub fn fd_read(&mut self, fd: Fd, len: usize) -> Result<Vec<u8>, Errno> {
-        let entry = *self.fds.get(fd)?;
-        require_right(entry.rights, Rights::FD_READ)?;
+        let entry = *self.standalone_fds()?.get(fd)?;
+        require_right(entry.rights_base, Rights::FD_READ)?;
         let offset = self.offset(fd)?;
         let bytes = self.read_node(entry.node, offset, len)?;
         let next = offset
@@ -220,14 +246,14 @@ impl RamFs {
     }
 
     pub fn fd_pread(&self, fd: Fd, offset: u64, len: usize) -> Result<Vec<u8>, Errno> {
-        let entry = self.fds.get(fd)?;
-        require_right(entry.rights, Rights::FD_READ)?;
+        let entry = self.standalone_fds()?.get(fd)?;
+        require_right(entry.rights_base, Rights::FD_READ)?;
         self.read_node(entry.node, offset, len)
     }
 
     pub fn fd_write(&mut self, fd: Fd, bytes: &[u8]) -> Result<usize, Errno> {
-        let entry = *self.fds.get(fd)?;
-        require_right(entry.rights, Rights::FD_WRITE)?;
+        let entry = *self.standalone_fds()?.get(fd)?;
+        require_right(entry.rights_base, Rights::FD_WRITE)?;
         let offset = if entry.flags.bits() & FdFlags::APPEND.bits() != 0 {
             self.file_data(entry.node)?.len() as u64
         } else {
@@ -242,15 +268,15 @@ impl RamFs {
     }
 
     pub fn fd_pwrite(&mut self, fd: Fd, offset: u64, bytes: &[u8]) -> Result<usize, Errno> {
-        let entry = *self.fds.get(fd)?;
-        require_right(entry.rights, Rights::FD_WRITE)?;
+        let entry = *self.standalone_fds()?.get(fd)?;
+        require_right(entry.rights_base, Rights::FD_WRITE)?;
         self.write_node(entry.node, offset, bytes)?;
         Ok(bytes.len())
     }
 
     pub fn fd_seek(&mut self, fd: Fd, delta: i64, whence: Whence) -> Result<u64, Errno> {
-        let entry = *self.fds.get(fd)?;
-        require_right(entry.rights, Rights::FD_SEEK)?;
+        let entry = *self.standalone_fds()?.get(fd)?;
+        require_right(entry.rights_base, Rights::FD_SEEK)?;
         let size = u64::try_from(self.file_data(entry.node)?.len()).map_err(|_| Errno::Inval)?;
         let target = crate::seek_offset(self.offset(fd)?, size, delta, whence)?;
         self.set_offset(fd, target)?;
@@ -258,8 +284,8 @@ impl RamFs {
     }
 
     pub fn filestat_set_size(&mut self, fd: Fd, size: u64) -> Result<(), Errno> {
-        let entry = *self.fds.get(fd)?;
-        require_right(entry.rights, Rights::FD_FILESTAT_SET_SIZE)?;
+        let entry = *self.standalone_fds()?.get(fd)?;
+        require_right(entry.rights_base, Rights::FD_FILESTAT_SET_SIZE)?;
         self.resize_node(entry.node, size)
     }
 
@@ -269,7 +295,7 @@ impl RamFs {
         cookie: u64,
         max_entries: usize,
     ) -> Result<Vec<Dirent>, Errno> {
-        let entry = self.fds.get(fd)?;
+        let entry = self.standalone_fds()?.get(fd)?;
         require_directory_right(entry, Rights::FD_READDIR)?;
         let snapshot = self.directory_snapshot(entry.node)?;
         read_directory(&snapshot, cookie, max_entries)
@@ -282,16 +308,30 @@ impl RamFs {
         target_parent: Fd,
         target_path: &[u8],
     ) -> Result<(), Errno> {
-        let source_parent = *self.fds.get(source_parent)?;
-        let target_parent = *self.fds.get(target_parent)?;
+        let source_parent = *self.standalone_fds()?.get(source_parent)?;
+        let target_parent = *self.standalone_fds()?.get(target_parent)?;
         require_directory_right(&source_parent, Rights::PATH_RENAME_SOURCE)?;
         require_directory_right(&target_parent, Rights::PATH_RENAME_TARGET)?;
-        let source = self.resolve_from_node(source_parent.node, source_path)?;
+        self.rename_at(
+            source_parent.node,
+            source_path,
+            target_parent.node,
+            target_path,
+        )
+    }
+
+    pub(crate) fn rename_at(
+        &mut self,
+        source_parent: NodeRef,
+        source_path: &[u8],
+        target_parent: NodeRef,
+        target_path: &[u8],
+    ) -> Result<(), Errno> {
+        let source = self.resolve_from_node(source_parent, source_path)?;
         if source == self.root_node() {
             return Err(Errno::Perm);
         }
-        let (target_directory, target_name) =
-            self.resolve_parent(target_parent.node, target_path)?;
+        let (target_directory, target_name) = self.resolve_parent(target_parent, target_path)?;
         if self.is_descendant(target_directory, source)? {
             return Err(Errno::Inval);
         }
@@ -303,7 +343,7 @@ impl RamFs {
             self.validate_replace(source, target)?;
         }
         if let Some(target) = target {
-            self.remove_node(target);
+            self.remove_node(target)?;
         }
         let node = self.node_mut(source)?;
         node.parent = Some(target_directory);
@@ -312,20 +352,31 @@ impl RamFs {
     }
 
     pub fn path_unlink_file(&mut self, parent_fd: Fd, path: &[u8]) -> Result<(), Errno> {
-        let parent = *self.fds.get(parent_fd)?;
+        let parent = *self.standalone_fds()?.get(parent_fd)?;
         require_directory_right(&parent, Rights::PATH_UNLINK_FILE)?;
-        let node = self.resolve_from_node(parent.node, path)?;
+        self.unlink_file_at(parent.node, path)
+    }
+
+    pub(crate) fn unlink_file_at(&mut self, parent: NodeRef, path: &[u8]) -> Result<(), Errno> {
+        let node = self.resolve_from_node(parent, path)?;
         if matches!(self.node(node)?.content, RamContent::Directory) {
             return Err(Errno::Isdir);
         }
-        self.remove_node(node);
-        Ok(())
+        self.remove_node(node)
     }
 
     pub fn path_remove_directory(&mut self, parent_fd: Fd, path: &[u8]) -> Result<(), Errno> {
-        let parent = *self.fds.get(parent_fd)?;
+        let parent = *self.standalone_fds()?.get(parent_fd)?;
         require_directory_right(&parent, Rights::PATH_REMOVE_DIRECTORY)?;
-        let node = self.resolve_from_node(parent.node, path)?;
+        self.remove_directory_at(parent.node, path)
+    }
+
+    pub(crate) fn remove_directory_at(
+        &mut self,
+        parent: NodeRef,
+        path: &[u8],
+    ) -> Result<(), Errno> {
+        let node = self.resolve_from_node(parent, path)?;
         if node == self.root_node() {
             return Err(Errno::Perm);
         }
@@ -335,8 +386,7 @@ impl RamFs {
         if self.has_children(node) {
             return Err(Errno::Notempty);
         }
-        self.remove_node(node);
-        Ok(())
+        self.remove_node(node)
     }
 
     pub fn node_for_path(&self, path: &[u8]) -> Result<NodeRef, Errno> {
@@ -366,7 +416,7 @@ impl RamFs {
             if !node.quota_counted {
                 continue;
             }
-            let node_ref = NodeRef(u64::try_from(index).map_err(|_| Errno::Inval)?);
+            let node_ref = self.node_ref_for_index(index)?;
             let content = match &node.content {
                 RamContent::Directory => RamSnapshotContent::Directory,
                 RamContent::File(bytes) => RamSnapshotContent::File(bytes.clone()),
@@ -386,14 +436,23 @@ impl RamFs {
         path: &[u8],
         directory: bool,
     ) -> Result<NodeRef, Errno> {
-        let parent = *self.fds.get(parent_fd)?;
+        let parent = *self.standalone_fds()?.get(parent_fd)?;
         let right = if directory {
             Rights::PATH_CREATE_DIRECTORY
         } else {
             Rights::PATH_CREATE_FILE
         };
         require_directory_right(&parent, right)?;
-        let (parent, name) = self.resolve_parent(parent.node, path)?;
+        self.create_node_at(parent.node, path, directory)
+    }
+
+    pub(crate) fn create_node_at(
+        &mut self,
+        parent: NodeRef,
+        path: &[u8],
+        directory: bool,
+    ) -> Result<NodeRef, Errno> {
+        let (parent, name) = self.resolve_parent(parent, path)?;
         if self.find_child(parent, &name).is_some() {
             return Err(Errno::Exist);
         }
@@ -420,7 +479,12 @@ impl RamFs {
         Ok(node)
     }
 
-    fn write_node(&mut self, node: NodeRef, offset: u64, bytes: &[u8]) -> Result<(), Errno> {
+    pub(crate) fn write_node(
+        &mut self,
+        node: NodeRef,
+        offset: u64,
+        bytes: &[u8],
+    ) -> Result<(), Errno> {
         if bytes.is_empty() {
             self.file_data(node)?;
             return Ok(());
@@ -440,7 +504,7 @@ impl RamFs {
         Ok(())
     }
 
-    fn resize_node(&mut self, node: NodeRef, size: u64) -> Result<(), Errno> {
+    pub(crate) fn resize_node(&mut self, node: NodeRef, size: u64) -> Result<(), Errno> {
         let old_len = u64::try_from(self.file_data(node)?.len()).map_err(|_| Errno::Inval)?;
         self.check_resize(old_len, size)?;
         let size = usize::try_from(size).map_err(|_| Errno::Fbig)?;
@@ -493,7 +557,7 @@ impl RamFs {
         Ok((parent, name))
     }
 
-    fn resolve_from_node(&self, base: NodeRef, path: &[u8]) -> Result<NodeRef, Errno> {
+    pub(crate) fn resolve_from_node(&self, base: NodeRef, path: &[u8]) -> Result<NodeRef, Errno> {
         let base_path = self.path_for_node(base)?;
         let normalized = NormalizedPath::root().resolve(&base_path)?.resolve(path)?;
         let components: Vec<&[u8]> = normalized.components().collect();
@@ -511,7 +575,7 @@ impl RamFs {
         Ok(current)
     }
 
-    fn path_for_node(&self, node: NodeRef) -> Result<Vec<u8>, Errno> {
+    pub(crate) fn path_for_node(&self, node: NodeRef) -> Result<Vec<u8>, Errno> {
         let mut components = Vec::new();
         let mut current = node;
         loop {
@@ -533,7 +597,10 @@ impl RamFs {
         Ok(path)
     }
 
-    fn directory_snapshot(&self, directory: NodeRef) -> Result<DirectorySnapshot, Errno> {
+    pub(crate) fn directory_snapshot(
+        &self,
+        directory: NodeRef,
+    ) -> Result<DirectorySnapshot, Errno> {
         if !matches!(self.node(directory)?.content, RamContent::Directory) {
             return Err(Errno::Notdir);
         }
@@ -543,7 +610,7 @@ impl RamFs {
             if node.parent == Some(directory) {
                 entries.push(DirectoryEntry::new(
                     &node.name,
-                    NodeRef(u64::try_from(index).map_err(|_| Errno::Inval)?),
+                    self.node_ref_for_index(index)?,
                     node.file_type(),
                 )?);
             }
@@ -584,39 +651,50 @@ impl RamFs {
     fn find_child(&self, parent: NodeRef, name: &[u8]) -> Option<NodeRef> {
         self.nodes.iter().enumerate().find_map(|(index, slot)| {
             let node = slot.as_ref()?;
-            (node.parent == Some(parent) && node.name == name).then(|| NodeRef(index as u64))
+            (node.parent == Some(parent) && node.name == name)
+                .then(|| self.node_ref_for_index(index).ok())
+                .flatten()
         })
     }
 
-    fn remove_node(&mut self, node: NodeRef) {
-        let index = node.0 as usize;
-        if let Some(removed) = self.nodes[index].take() {
-            if removed.quota_counted {
-                match removed.content {
-                    RamContent::Directory => self.directories -= 1,
-                    RamContent::File(bytes) => {
-                        self.files -= 1;
-                        self.bytes -= bytes.len() as u64;
-                    }
+    fn remove_node(&mut self, node: NodeRef) -> Result<(), Errno> {
+        let index = self.checked_node_index(node)?;
+        let next_generation = self.generations[index].checked_add(1).ok_or(Errno::Nospc)?;
+        let removed = self.nodes[index].take().ok_or(Errno::Badf)?;
+        self.generations[index] = next_generation;
+        if removed.quota_counted {
+            match removed.content {
+                RamContent::Directory => self.directories -= 1,
+                RamContent::File(bytes) => {
+                    self.files -= 1;
+                    self.bytes -= bytes.len() as u64;
                 }
             }
         }
+        Ok(())
     }
 
     fn next_node_ref(&self) -> Result<NodeRef, Errno> {
-        Ok(NodeRef(
-            u64::try_from(self.nodes.len()).map_err(|_| Errno::Mfile)?,
-        ))
+        if let Some(index) = self.nodes.iter().skip(1).position(Option::is_none) {
+            return self.node_ref_for_index(index + 1);
+        }
+        node_ref(self.nodes.len(), 0)
     }
 
     fn push_node(&mut self, node: RamNode) -> Result<NodeRef, Errno> {
         let node_ref = self.next_node_ref()?;
-        self.nodes.push(Some(node));
+        let index = usize::try_from(node_ref.0 & NODE_INDEX_MASK).map_err(|_| Errno::Mfile)?;
+        if index == self.nodes.len() {
+            self.nodes.push(Some(node));
+            self.generations.push(0);
+        } else {
+            self.nodes[index] = Some(node);
+        }
         Ok(node_ref)
     }
 
     fn node(&self, node: NodeRef) -> Result<&RamNode, Errno> {
-        let index = usize::try_from(node.0).map_err(|_| Errno::Badf)?;
+        let index = self.checked_node_index(node)?;
         self.nodes
             .get(index)
             .and_then(Option::as_ref)
@@ -624,7 +702,7 @@ impl RamFs {
     }
 
     fn node_mut(&mut self, node: NodeRef) -> Result<&mut RamNode, Errno> {
-        let index = usize::try_from(node.0).map_err(|_| Errno::Badf)?;
+        let index = self.checked_node_index(node)?;
         self.nodes
             .get_mut(index)
             .and_then(Option::as_mut)
@@ -645,36 +723,63 @@ impl RamFs {
         }
     }
 
-    fn read_node(&self, node: NodeRef, offset: u64, len: usize) -> Result<Vec<u8>, Errno> {
+    pub(crate) fn read_node(
+        &self,
+        node: NodeRef,
+        offset: u64,
+        len: usize,
+    ) -> Result<Vec<u8>, Errno> {
         let file = self.file_data(node)?;
         let start = min(usize::try_from(offset).unwrap_or(usize::MAX), file.len());
         let end = min(start.saturating_add(len), file.len());
         Ok(file[start..end].to_vec())
     }
 
+    pub(crate) fn node_file_type(&self, node: NodeRef) -> Result<FileType, Errno> {
+        Ok(self.node(node)?.file_type())
+    }
+
+    pub(crate) fn node_size(&self, node: NodeRef) -> Result<u64, Errno> {
+        match &self.node(node)?.content {
+            RamContent::Directory => Ok(0),
+            RamContent::File(bytes) => u64::try_from(bytes.len()).map_err(|_| Errno::Fbig),
+        }
+    }
+
     fn offset(&self, fd: Fd) -> Result<u64, Errno> {
-        self.offsets
-            .get(fd.0 as usize)
-            .and_then(|slot| *slot)
-            .ok_or(Errno::Badf)
+        Ok(self.standalone_fds()?.get(fd)?.offset)
     }
 
     fn set_offset(&mut self, fd: Fd, offset: u64) -> Result<(), Errno> {
-        let slot = self.offsets.get_mut(fd.0 as usize).ok_or(Errno::Badf)?;
-        if slot.is_none() {
-            return Err(Errno::Badf);
-        }
-        *slot = Some(offset);
-        Ok(())
+        self.standalone_fds_mut()?.set_offset(fd, offset)
     }
 
-    fn install_offset(&mut self, fd: Fd, offset: u64) {
-        let index = fd.0 as usize;
-        if self.offsets.len() <= index {
-            self.offsets.resize(index + 1, None);
-        }
-        self.offsets[index] = Some(offset);
+    fn standalone_fds(&self) -> Result<&FdTable, Errno> {
+        self.fds.as_ref().ok_or(Errno::Badf)
     }
+
+    fn standalone_fds_mut(&mut self) -> Result<&mut FdTable, Errno> {
+        self.fds.as_mut().ok_or(Errno::Badf)
+    }
+
+    fn checked_node_index(&self, node: NodeRef) -> Result<usize, Errno> {
+        let index = usize::try_from(node.0 & NODE_INDEX_MASK).map_err(|_| Errno::Badf)?;
+        let generation = (node.0 >> 32) as u32;
+        if self.generations.get(index).copied() != Some(generation) {
+            return Err(Errno::Badf);
+        }
+        Ok(index)
+    }
+
+    fn node_ref_for_index(&self, index: usize) -> Result<NodeRef, Errno> {
+        let generation = *self.generations.get(index).ok_or(Errno::Badf)?;
+        node_ref(index, generation)
+    }
+}
+
+fn node_ref(index: usize, generation: u32) -> Result<NodeRef, Errno> {
+    let index = u32::try_from(index).map_err(|_| Errno::Mfile)?;
+    Ok(NodeRef(((generation as u64) << 32) | index as u64))
 }
 
 fn validate_name(name: &[u8]) -> Result<(), Errno> {
@@ -693,10 +798,10 @@ fn require_directory_right(entry: &crate::FdEntry, right: Rights) -> Result<(), 
     if entry.file_type != FileType::Directory {
         return Err(Errno::Notdir);
     }
-    require_right(entry.rights, right)
+    require_right(entry.rights_base, right)
 }
 
-fn writable_rights() -> Rights {
+pub(crate) fn writable_rights() -> Rights {
     Rights::FD_READ
         | Rights::FD_SEEK
         | Rights::FD_TELL
@@ -831,5 +936,35 @@ mod tests {
         fs.path_remove_directory(Fd::ROOT_PREOPEN, b"d").unwrap();
         assert_eq!(fs.file_count(), 0);
         assert_eq!(fs.directory_count(), 0);
+    }
+
+    #[test]
+    fn node_churn_reuses_slots_and_stale_handles_fail_without_mutation() {
+        let mut fs = RamFs::new(RamQuotas::new(8, 1, 1, 8), 8).unwrap();
+        let first = fs.path_create_file(Fd::ROOT_PREOPEN, b"a").unwrap();
+        let stale_fd = fs
+            .path_open(
+                Fd::ROOT_PREOPEN,
+                b"a",
+                false,
+                Rights::FD_READ,
+                FdFlags::EMPTY,
+            )
+            .unwrap();
+        fs.path_unlink_file(Fd::ROOT_PREOPEN, b"a").unwrap();
+
+        for index in 0..128u8 {
+            let name = [b'a' + (index % 26)];
+            let node = fs.path_create_file(Fd::ROOT_PREOPEN, &name).unwrap();
+            assert_eq!(node.0 & NODE_INDEX_MASK, first.0 & NODE_INDEX_MASK);
+            assert_ne!(node, first);
+            fs.path_unlink_file(Fd::ROOT_PREOPEN, &name).unwrap();
+            assert_eq!(fs.nodes.len(), 2);
+            assert_eq!(fs.file_count(), 0);
+        }
+
+        let before = fs.clone();
+        assert_eq!(fs.fd_read(stale_fd, 1), Err(Errno::Badf));
+        assert_eq!(fs, before);
     }
 }

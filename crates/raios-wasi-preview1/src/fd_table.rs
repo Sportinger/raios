@@ -1,6 +1,8 @@
 use alloc::vec::Vec;
 
-use crate::{Errno, Fd, FdEntry, FdFlags, FileType, NodeRef, PreopenType, Prestat, Rights, Whence};
+use crate::{
+    Errno, Fd, FdEntry, FdFlags, FileType, MountId, NodeRef, PreopenType, Prestat, Rights, Whence,
+};
 
 const ROOT_PREOPEN_NAME: &[u8] = b"/";
 
@@ -17,8 +19,11 @@ pub struct PathOpenRequest {
     pub parent_fd: Fd,
     pub node: NodeRef,
     pub file_type: FileType,
-    pub mount_rights: Rights,
-    pub requested_rights: Rights,
+    pub mount_id: MountId,
+    pub mount_rights_base: Rights,
+    pub mount_rights_inheriting: Rights,
+    pub requested_rights_base: Rights,
+    pub requested_rights_inheriting: Rights,
     pub flags: FdFlags,
 }
 
@@ -63,6 +68,16 @@ pub struct FdTable {
 
 impl FdTable {
     pub fn new(limit: u32, nodes: StandardNodes, root_rights: Rights) -> Result<Self, Errno> {
+        Self::new_with_root(limit, nodes, MountId::ROOT, root_rights, root_rights)
+    }
+
+    pub fn new_with_root(
+        limit: u32,
+        nodes: StandardNodes,
+        root_mount_id: MountId,
+        root_rights_base: Rights,
+        root_rights_inheriting: Rights,
+    ) -> Result<Self, Errno> {
         if limit < Fd::FIRST_DYNAMIC.0 {
             return Err(Errno::Mfile);
         }
@@ -70,24 +85,32 @@ impl FdTable {
             Some(FdEntry::new(
                 nodes.stdin,
                 Rights::FD_READ,
+                Rights::EMPTY,
+                MountId::STDIO,
                 FdFlags::EMPTY,
                 FileType::CharacterDevice,
             )),
             Some(FdEntry::new(
                 nodes.stdout,
                 Rights::FD_WRITE,
+                Rights::EMPTY,
+                MountId::STDIO,
                 FdFlags::EMPTY,
                 FileType::CharacterDevice,
             )),
             Some(FdEntry::new(
                 nodes.stderr,
                 Rights::FD_WRITE,
+                Rights::EMPTY,
+                MountId::STDIO,
                 FdFlags::EMPTY,
                 FileType::CharacterDevice,
             )),
             Some(FdEntry::new(
                 nodes.root,
-                root_rights,
+                root_rights_base,
+                root_rights_inheriting,
+                root_mount_id,
                 FdFlags::EMPTY,
                 FileType::Directory,
             )),
@@ -112,20 +135,34 @@ impl FdTable {
         if parent.file_type != FileType::Directory {
             return Err(Errno::Notdir);
         }
-        if !parent.rights.contains(Rights::PATH_OPEN) {
+        if !parent.rights_base.contains(Rights::PATH_OPEN) {
             return Err(Errno::Notcapable);
         }
-        let granted = intersect_rights(
-            request.mount_rights,
-            parent.rights,
-            request.requested_rights,
+        let granted_base = intersect_rights(
+            request.mount_rights_base,
+            parent.rights_inheriting,
+            request.requested_rights_base,
         );
-        if granted != request.requested_rights {
+        let granted_inheriting = intersect_rights(
+            request.mount_rights_inheriting,
+            parent.rights_inheriting,
+            request.requested_rights_inheriting,
+        );
+        if granted_base != request.requested_rights_base
+            || granted_inheriting != request.requested_rights_inheriting
+        {
             return Err(Errno::Notcapable);
         }
 
         let slot = self.lowest_free_dynamic().ok_or(Errno::Mfile)?;
-        let entry = FdEntry::new(request.node, granted, request.flags, request.file_type);
+        let entry = FdEntry::new(
+            request.node,
+            granted_base,
+            granted_inheriting,
+            request.mount_id,
+            request.flags,
+            request.file_type,
+        );
         if slot == self.slots.len() {
             self.slots.push(Some(entry));
         } else {
@@ -148,14 +185,26 @@ impl FdTable {
 
     /// Rights may only be removed; failed escalation leaves the entry untouched.
     pub fn set_rights(&mut self, fd: Fd, rights: Rights) -> Result<(), Errno> {
-        let current = self.get(fd)?.rights;
-        if !current.contains(rights) {
+        let inheriting = self.get(fd)?.rights_inheriting;
+        self.set_rights_split(fd, rights, inheriting)
+    }
+
+    /// Basis- und Vererbungsrechte können atomar nur abgeschwächt werden.
+    pub fn set_rights_split(
+        &mut self,
+        fd: Fd,
+        rights_base: Rights,
+        rights_inheriting: Rights,
+    ) -> Result<(), Errno> {
+        let current = self.get(fd)?;
+        let current_base = current.rights_base;
+        let current_inheriting = current.rights_inheriting;
+        if !current_base.contains(rights_base) || !current_inheriting.contains(rights_inheriting) {
             return Err(Errno::Notcapable);
         }
-        self.slots[fd.0 as usize]
-            .as_mut()
-            .ok_or(Errno::Badf)?
-            .rights = rights;
+        let entry = self.slots[fd.0 as usize].as_mut().ok_or(Errno::Badf)?;
+        entry.rights_base = rights_base;
+        entry.rights_inheriting = rights_inheriting;
         Ok(())
     }
 
@@ -171,7 +220,7 @@ impl FdTable {
         if entry.file_type == FileType::Directory {
             return Err(Errno::Isdir);
         }
-        if !entry.rights.contains(Rights::FD_SEEK) {
+        if !entry.rights_base.contains(Rights::FD_SEEK) {
             return Err(Errno::Notcapable);
         }
         let target = seek_offset(entry.offset, file_size, delta, whence)?;
@@ -180,6 +229,15 @@ impl FdTable {
             .ok_or(Errno::Badf)?
             .offset = target;
         Ok(target)
+    }
+
+    pub(crate) fn set_offset(&mut self, fd: Fd, offset: u64) -> Result<(), Errno> {
+        self.slots
+            .get_mut(fd.0 as usize)
+            .and_then(Option::as_mut)
+            .ok_or(Errno::Badf)?
+            .offset = offset;
+        Ok(())
     }
 
     pub fn prestat_get(&self, fd: Fd) -> Result<Prestat, Errno> {
@@ -211,7 +269,7 @@ impl FdTable {
 #[cfg(test)]
 mod tests {
     use super::{intersect_rights, FdTable, PathOpenRequest, StandardNodes};
-    use crate::{Errno, Fd, FdFlags, FileType, NodeRef, PreopenType, Rights, Whence};
+    use crate::{Errno, Fd, FdFlags, FileType, MountId, NodeRef, PreopenType, Rights, Whence};
 
     const ROOT_RIGHTS: Rights = Rights::ALL;
 
@@ -234,8 +292,11 @@ mod tests {
             parent_fd: Fd::ROOT_PREOPEN,
             node: NodeRef(node),
             file_type: FileType::RegularFile,
-            mount_rights: ROOT_RIGHTS,
-            requested_rights: rights,
+            mount_id: MountId::ROOT,
+            mount_rights_base: ROOT_RIGHTS,
+            mount_rights_inheriting: ROOT_RIGHTS,
+            requested_rights_base: rights,
+            requested_rights_inheriting: Rights::EMPTY,
             flags: FdFlags::EMPTY,
         }
     }
@@ -296,17 +357,47 @@ mod tests {
         )
         .unwrap();
         let mut open = request(30, requested);
-        open.mount_rights = mount;
+        open.mount_rights_base = mount;
         assert_eq!(table.path_open(open), Ok(Fd(4)));
-        assert_eq!(table.get(Fd(4)).unwrap().rights, requested);
+        assert_eq!(table.get(Fd(4)).unwrap().rights_base, requested);
 
         let before = table.clone();
         let mut escalation = request(31, Rights::FD_READ | Rights::FD_WRITE);
-        escalation.mount_rights = mount;
+        escalation.mount_rights_base = mount;
         assert_eq!(table.path_open(escalation), Err(Errno::Notcapable));
         assert_eq!(table, before);
         assert_eq!(
             table.set_rights(Fd(4), requested | Rights::FD_WRITE),
+            Err(Errno::Notcapable)
+        );
+        assert_eq!(table, before);
+    }
+
+    #[test]
+    fn inheriting_rights_are_independently_attenuated_and_never_grow() {
+        let parent_base = Rights::PATH_OPEN | Rights::FD_READ;
+        let parent_inheriting = Rights::FD_READ | Rights::PATH_OPEN;
+        let mut table = FdTable::new_with_root(
+            8,
+            StandardNodes {
+                stdin: NodeRef(1),
+                stdout: NodeRef(2),
+                stderr: NodeRef(3),
+                root: NodeRef(4),
+            },
+            MountId::ROOT,
+            parent_base,
+            parent_inheriting,
+        )
+        .unwrap();
+        let mut open = request(30, Rights::FD_READ);
+        open.requested_rights_inheriting = Rights::FD_READ;
+        assert_eq!(table.path_open(open), Ok(Fd(4)));
+        assert_eq!(table.get(Fd(4)).unwrap().rights_inheriting, Rights::FD_READ);
+
+        let before = table.clone();
+        assert_eq!(
+            table.set_rights_split(Fd(4), Rights::FD_READ, Rights::FD_READ | Rights::PATH_OPEN,),
             Err(Errno::Notcapable)
         );
         assert_eq!(table, before);

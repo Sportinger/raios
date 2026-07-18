@@ -18,6 +18,15 @@ impl Fd {
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct NodeRef(pub u64);
 
+/// Identifies the backend route that owns an [`FdEntry`].
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct MountId(pub u32);
+
+impl MountId {
+    pub const ROOT: Self = Self(0);
+    pub const STDIO: Self = Self(u32::MAX);
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum FileType {
@@ -156,17 +165,28 @@ impl BitOr for FdFlags {
 pub struct FdEntry {
     pub node: NodeRef,
     pub offset: u64,
-    pub rights: Rights,
+    pub rights_base: Rights,
+    pub rights_inheriting: Rights,
+    pub mount_id: MountId,
     pub flags: FdFlags,
     pub file_type: FileType,
 }
 
 impl FdEntry {
-    pub const fn new(node: NodeRef, rights: Rights, flags: FdFlags, file_type: FileType) -> Self {
+    pub const fn new(
+        node: NodeRef,
+        rights_base: Rights,
+        rights_inheriting: Rights,
+        mount_id: MountId,
+        flags: FdFlags,
+        file_type: FileType,
+    ) -> Self {
         Self {
             node,
             offset: 0,
-            rights,
+            rights_base,
+            rights_inheriting,
+            mount_id,
             flags,
             file_type,
         }

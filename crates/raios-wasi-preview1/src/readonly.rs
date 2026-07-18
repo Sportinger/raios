@@ -3,8 +3,8 @@ use core::cmp::{max, min};
 
 use crate::dir::read_directory;
 use crate::{
-    seek_offset, BuildFs, Dirent, Errno, Fd, FdFlags, FdTable, FileType, NodeRef, NormalizedPath,
-    PathOpenRequest, Rights, StandardNodes, Whence,
+    seek_offset, BuildFs, Dirent, Errno, Fd, FdFlags, FdTable, FileType, MountId, NodeRef,
+    NormalizedPath, PathOpenRequest, Rights, StandardNodes, Whence,
 };
 
 /// `2000-01-01T00:00:00Z`, expressed as a preview1 timestamp in nanoseconds.
@@ -30,6 +30,7 @@ pub enum ChunkReadError {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ChunkReadRequest {
+    pub mount_id: MountId,
     pub file: NodeRef,
     pub file_sha256: [u8; 32],
     pub chunk_index: u64,
@@ -54,7 +55,6 @@ pub trait ChunkRead {
 pub struct ReadOnlyFs {
     buildfs: BuildFs,
     fds: FdTable,
-    offsets: Vec<Option<u64>>,
 }
 
 impl ReadOnlyFs {
@@ -67,11 +67,7 @@ impl ReadOnlyFs {
             return Err(Errno::Inval);
         }
         let fds = FdTable::new(fd_limit, standard_nodes, readonly_rights())?;
-        Ok(Self {
-            buildfs,
-            fds,
-            offsets: vec![Some(0); Fd::FIRST_DYNAMIC.0 as usize],
-        })
+        Ok(Self { buildfs, fds })
     }
 
     pub fn fd_table(&self) -> &FdTable {
@@ -85,33 +81,40 @@ impl ReadOnlyFs {
         requested_rights: Rights,
         flags: FdFlags,
     ) -> Result<Fd, Errno> {
-        if has_mutating_rights(requested_rights) || flags != FdFlags::EMPTY {
+        self.path_open_split(parent_fd, path, requested_rights, requested_rights, flags)
+    }
+
+    pub fn path_open_split(
+        &mut self,
+        parent_fd: Fd,
+        path: &[u8],
+        requested_rights_base: Rights,
+        requested_rights_inheriting: Rights,
+        flags: FdFlags,
+    ) -> Result<Fd, Errno> {
+        if has_mutating_rights(requested_rights_base)
+            || has_mutating_rights(requested_rights_inheriting)
+            || flags != FdFlags::EMPTY
+        {
             return Err(Errno::Rofs);
         }
         let node = self.resolve(parent_fd, path, Rights::PATH_OPEN)?;
         let file_type = self.buildfs.file_type(node)?;
-        let fd = self.fds.path_open(PathOpenRequest {
+        self.fds.path_open(PathOpenRequest {
             parent_fd,
             node,
             file_type,
-            mount_rights: readonly_rights(),
-            requested_rights,
+            mount_id: MountId::ROOT,
+            mount_rights_base: readonly_rights(),
+            mount_rights_inheriting: readonly_rights(),
+            requested_rights_base,
+            requested_rights_inheriting,
             flags,
-        })?;
-        let index = fd.0 as usize;
-        if self.offsets.len() <= index {
-            self.offsets.resize(index + 1, None);
-        }
-        self.offsets[index] = Some(0);
-        Ok(fd)
+        })
     }
 
     pub fn fd_close(&mut self, fd: Fd) -> Result<(), Errno> {
-        self.fds.close(fd)?;
-        if let Some(offset) = self.offsets.get_mut(fd.0 as usize) {
-            *offset = None;
-        }
-        Ok(())
+        self.fds.close(fd)
     }
 
     pub fn fd_read(
@@ -121,12 +124,12 @@ impl ReadOnlyFs {
         reader: &mut impl ChunkRead,
     ) -> Result<Vec<u8>, Errno> {
         let entry = *self.build_entry(fd)?;
-        require_right(entry.rights, Rights::FD_READ)?;
+        require_right(entry.rights_base, Rights::FD_READ)?;
         if entry.file_type != FileType::RegularFile {
             return Err(Errno::Isdir);
         }
         let offset = self.offset(fd)?;
-        let bytes = self.read_file(entry.node, offset, len, reader)?;
+        let bytes = self.read_file(entry.mount_id, entry.node, offset, len, reader)?;
         let next = offset
             .checked_add(u64::try_from(bytes.len()).map_err(|_| Errno::Inval)?)
             .ok_or(Errno::Inval)?;
@@ -142,16 +145,16 @@ impl ReadOnlyFs {
         reader: &mut impl ChunkRead,
     ) -> Result<Vec<u8>, Errno> {
         let entry = self.build_entry(fd)?;
-        require_right(entry.rights, Rights::FD_READ | Rights::FD_SEEK)?;
+        require_right(entry.rights_base, Rights::FD_READ | Rights::FD_SEEK)?;
         if entry.file_type != FileType::RegularFile {
             return Err(Errno::Isdir);
         }
-        self.read_file(entry.node, offset, len, reader)
+        self.read_file(entry.mount_id, entry.node, offset, len, reader)
     }
 
     pub fn fd_seek(&mut self, fd: Fd, delta: i64, whence: Whence) -> Result<u64, Errno> {
         let entry = *self.build_entry(fd)?;
-        require_right(entry.rights, Rights::FD_SEEK)?;
+        require_right(entry.rights_base, Rights::FD_SEEK)?;
         if entry.file_type != FileType::RegularFile {
             return Err(Errno::Isdir);
         }
@@ -164,19 +167,19 @@ impl ReadOnlyFs {
 
     pub fn fd_tell(&self, fd: Fd) -> Result<u64, Errno> {
         let entry = self.build_entry(fd)?;
-        require_right(entry.rights, Rights::FD_TELL)?;
+        require_right(entry.rights_base, Rights::FD_TELL)?;
         self.offset(fd)
     }
 
     pub fn fd_filestat_get(&self, fd: Fd) -> Result<Filestat, Errno> {
         let entry = self.build_entry_or_root(fd)?;
-        require_right(entry.rights, Rights::FD_FILESTAT_GET)?;
-        self.filestat(entry.node)
+        require_right(entry.rights_base, Rights::FD_FILESTAT_GET)?;
+        filestat_buildfs(&self.buildfs, entry.mount_id, entry.node)
     }
 
     pub fn path_filestat_get(&self, parent_fd: Fd, path: &[u8]) -> Result<Filestat, Errno> {
         let node = self.resolve(parent_fd, path, Rights::PATH_FILESTAT_GET)?;
-        self.filestat(node)
+        filestat_buildfs(&self.buildfs, MountId::ROOT, node)
     }
 
     pub fn fd_readdir(
@@ -186,7 +189,7 @@ impl ReadOnlyFs {
         max_entries: usize,
     ) -> Result<Vec<Dirent>, Errno> {
         let entry = self.build_entry_or_root(fd)?;
-        require_right(entry.rights, Rights::FD_READDIR)?;
+        require_right(entry.rights_base, Rights::FD_READDIR)?;
         if entry.file_type != FileType::Directory {
             return Err(Errno::Notdir);
         }
@@ -235,91 +238,125 @@ impl ReadOnlyFs {
         if parent.file_type != FileType::Directory {
             return Err(Errno::Notdir);
         }
-        require_right(parent.rights, right)?;
-        let base = NormalizedPath::root().resolve(self.buildfs.path(parent.node)?)?;
-        let resolved = base.resolve(path)?;
-        self.buildfs.node_for_path(&resolved)
+        require_right(parent.rights_base, right)?;
+        resolve_buildfs(&self.buildfs, parent.node, path)
     }
 
     fn read_file(
         &self,
+        mount_id: MountId,
         node: NodeRef,
         offset: u64,
         len: usize,
         reader: &mut impl ChunkRead,
     ) -> Result<Vec<u8>, Errno> {
-        let file = self.buildfs.file(node)?;
-        let requested_len = u64::try_from(len).map_err(|_| Errno::Inval)?;
-        let requested_end = offset.checked_add(requested_len).ok_or(Errno::Inval)?;
-        let end = min(requested_end, file.len);
-        if offset >= end {
-            return Ok(Vec::new());
-        }
+        read_buildfs_file(&self.buildfs, mount_id, node, offset, len, reader)
+    }
 
-        let chunk_size = self.buildfs.chunk_size();
-        let first_chunk = offset / chunk_size;
-        let last_chunk = (end - 1) / chunk_size;
-        let output_len = usize::try_from(end - offset).map_err(|_| Errno::Fbig)?;
-        let mut output = Vec::with_capacity(output_len);
-        for chunk_index in first_chunk..=last_chunk {
-            let descriptor_index = usize::try_from(chunk_index).map_err(|_| Errno::Inval)?;
-            let descriptor = file.chunks.get(descriptor_index).ok_or(Errno::Io)?;
-            let chunk_len = usize::try_from(descriptor.len).map_err(|_| Errno::Fbig)?;
-            let mut chunk = vec![0; chunk_len];
-            reader
-                .read_chunk(
-                    ChunkReadRequest {
-                        file: node,
-                        file_sha256: file.sha256,
-                        chunk_index,
-                        chunk_sha256: descriptor.sha256,
-                        range_offset: 0,
-                        range_len: descriptor.len,
-                    },
-                    &mut chunk,
-                )
-                .map_err(chunk_error)?;
-            if sha256(&chunk) != descriptor.sha256 {
-                return Err(Errno::Io);
-            }
+    fn offset(&self, fd: Fd) -> Result<u64, Errno> {
+        Ok(self.fds.get(fd)?.offset)
+    }
 
-            let chunk_start = chunk_index.checked_mul(chunk_size).ok_or(Errno::Inval)?;
-            let copy_start = max(offset, chunk_start) - chunk_start;
-            let copy_end = min(
-                end,
-                chunk_start
-                    .checked_add(descriptor.len)
-                    .ok_or(Errno::Inval)?,
-            ) - chunk_start;
-            let copy_start = usize::try_from(copy_start).map_err(|_| Errno::Inval)?;
-            let copy_end = usize::try_from(copy_end).map_err(|_| Errno::Inval)?;
-            output.extend_from_slice(chunk.get(copy_start..copy_end).ok_or(Errno::Io)?);
-        }
-        if output.len() != output_len {
+    fn set_offset(&mut self, fd: Fd, value: u64) -> Result<(), Errno> {
+        self.fds.set_offset(fd, value)
+    }
+}
+
+pub(crate) fn resolve_buildfs(
+    buildfs: &BuildFs,
+    base_node: NodeRef,
+    path: &[u8],
+) -> Result<NodeRef, Errno> {
+    let base = NormalizedPath::root().resolve(buildfs.path(base_node)?)?;
+    buildfs.node_for_path(&base.resolve(path)?)
+}
+
+pub(crate) fn read_buildfs_file(
+    buildfs: &BuildFs,
+    mount_id: MountId,
+    node: NodeRef,
+    offset: u64,
+    len: usize,
+    reader: &mut impl ChunkRead,
+) -> Result<Vec<u8>, Errno> {
+    let file = buildfs.file(node)?;
+    let requested_len = u64::try_from(len).map_err(|_| Errno::Inval)?;
+    let requested_end = offset.checked_add(requested_len).ok_or(Errno::Inval)?;
+    let end = min(requested_end, file.len);
+    if offset >= end {
+        return Ok(Vec::new());
+    }
+
+    let chunk_size = buildfs.chunk_size();
+    let first_chunk = offset / chunk_size;
+    let last_chunk = (end - 1) / chunk_size;
+    let output_len = usize::try_from(end - offset).map_err(|_| Errno::Fbig)?;
+    let mut output = Vec::with_capacity(output_len);
+    for chunk_index in first_chunk..=last_chunk {
+        let descriptor_index = usize::try_from(chunk_index).map_err(|_| Errno::Inval)?;
+        let descriptor = file.chunks.get(descriptor_index).ok_or(Errno::Io)?;
+        let chunk_len = usize::try_from(descriptor.len).map_err(|_| Errno::Fbig)?;
+        let mut chunk = vec![0; chunk_len];
+        reader
+            .read_chunk(
+                ChunkReadRequest {
+                    mount_id,
+                    file: node,
+                    file_sha256: file.sha256,
+                    chunk_index,
+                    chunk_sha256: descriptor.sha256,
+                    range_offset: 0,
+                    range_len: descriptor.len,
+                },
+                &mut chunk,
+            )
+            .map_err(chunk_error)?;
+        if sha256(&chunk) != descriptor.sha256 {
             return Err(Errno::Io);
         }
-        Ok(output)
-    }
 
-    fn filestat(&self, node: NodeRef) -> Result<Filestat, Errno> {
-        let file_type = self.buildfs.file_type(node)?;
-        let size = match file_type {
-            FileType::RegularFile => self.buildfs.file(node)?.len,
-            FileType::Directory => 0,
-            _ => return Err(Errno::Io),
-        };
-        Ok(Filestat {
-            device: 0,
-            inode: node.0,
-            file_type,
-            link_count: 1,
-            size,
-            access_time: EPOCH_2000_NS,
-            modification_time: EPOCH_2000_NS,
-            status_change_time: EPOCH_2000_NS,
-        })
+        let chunk_start = chunk_index.checked_mul(chunk_size).ok_or(Errno::Inval)?;
+        let copy_start = max(offset, chunk_start) - chunk_start;
+        let copy_end = min(
+            end,
+            chunk_start
+                .checked_add(descriptor.len)
+                .ok_or(Errno::Inval)?,
+        ) - chunk_start;
+        let copy_start = usize::try_from(copy_start).map_err(|_| Errno::Inval)?;
+        let copy_end = usize::try_from(copy_end).map_err(|_| Errno::Inval)?;
+        output.extend_from_slice(chunk.get(copy_start..copy_end).ok_or(Errno::Io)?);
     }
+    if output.len() != output_len {
+        return Err(Errno::Io);
+    }
+    Ok(output)
+}
 
+pub(crate) fn filestat_buildfs(
+    buildfs: &BuildFs,
+    mount_id: MountId,
+    node: NodeRef,
+) -> Result<Filestat, Errno> {
+    let file_type = buildfs.file_type(node)?;
+    let size = match file_type {
+        FileType::RegularFile => buildfs.file(node)?.len,
+        FileType::Directory => 0,
+        _ => return Err(Errno::Io),
+    };
+    Ok(Filestat {
+        device: mount_id.0 as u64,
+        inode: node.0,
+        file_type,
+        link_count: 1,
+        size,
+        access_time: EPOCH_2000_NS,
+        modification_time: EPOCH_2000_NS,
+        status_change_time: EPOCH_2000_NS,
+    })
+}
+
+impl ReadOnlyFs {
     fn build_entry(&self, fd: Fd) -> Result<&crate::FdEntry, Errno> {
         if fd.0 < Fd::FIRST_DYNAMIC.0 {
             return Err(Errno::Badf);
@@ -342,25 +379,9 @@ impl ReadOnlyFs {
         self.buildfs.snapshot(entry.node)?;
         Ok(())
     }
-
-    fn offset(&self, fd: Fd) -> Result<u64, Errno> {
-        self.offsets
-            .get(fd.0 as usize)
-            .and_then(|offset| *offset)
-            .ok_or(Errno::Badf)
-    }
-
-    fn set_offset(&mut self, fd: Fd, value: u64) -> Result<(), Errno> {
-        let offset = self.offsets.get_mut(fd.0 as usize).ok_or(Errno::Badf)?;
-        if offset.is_none() {
-            return Err(Errno::Badf);
-        }
-        *offset = Some(value);
-        Ok(())
-    }
 }
 
-fn readonly_rights() -> Rights {
+pub(crate) fn readonly_rights() -> Rights {
     Rights::FD_READ
         | Rights::FD_SEEK
         | Rights::FD_TELL
@@ -390,7 +411,7 @@ fn mutating_rights() -> Rights {
         | Rights::PATH_UNLINK_FILE
 }
 
-fn has_mutating_rights(rights: Rights) -> bool {
+pub(crate) fn has_mutating_rights(rights: Rights) -> bool {
     rights.intersection(mutating_rights()).bits() != 0
 }
 
