@@ -34,7 +34,7 @@ Owner-Review dieses Dokuments.
 | `.agents` | Nein | 0 Treffer; leer und unversioniert | — | **UNKLAR** — kein Verlauf und kein Inhalt; nicht anfassen |
 | `.cargo` | Nein | `.gitignore` (`/.cargo/`); Ordner leer | — | **UNKLAR** — ignorierter lokaler Pfad, aber kein nachweisbares Build-Output |
 | `.cargo-home` | Nein | `.gitignore`, `scripts/build-project-wasm.ps1`, `scripts/check-source-size.ps1`, VM-Harness | — | **GENERIERT** — Cargo-Cache (10.180 Dateien), reproduzierbar und bereits ignoriert |
-| `.claude` | Nein | 0 externe Treffer; enthält eine aktuelle raiOS-Skilldatei | 2026-07-15 `418e117` chore(skill): /raios carries the standing vision mission | **UNKLAR** — aktuell, aber weder definierte INFRA noch Build-Referenz |
+| `.claude` | Nein | Claude Code lädt die enthaltene raiOS-Skilldatei automatisch; damit operative Instruktionsquelle | 2026-07-15 `418e117` chore(skill): /raios carries the standing vision mission | **INFRA** — automatisch geladene Agentensteuerung; inhaltliche Konflikte werden im Phase-3-Report dem Owner vorgelegt |
 | `.git` | Nein | Repository-Metadaten | — | **INFRA** |
 | `.github` | Nein | `.github/workflows/ci.yml`; aktuelle Pläne/Architektur | 2026-07-05 `943a9a0` CI vm-smoke: force LF checkout | **INFRA** |
 | `.vscode` | Nein | Keine Root-Pfadreferenz; nur `settings.json` selbst | 2025-09-17 `429c73f` Enhance AI Build and Test Runbook | **VERDÄCHTIG** — 0 operative Referenzen, Commit vor 2026-06-01 |
