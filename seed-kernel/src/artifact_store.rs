@@ -95,10 +95,92 @@ pub(crate) enum BuildFsChunkFrameError {
     Io,
 }
 
+/// Session-local digest index. Open addressing keeps post-scan resolution an
+/// allocation-free O(1) lookup while retaining the first frame encountered in
+/// canonical ARTSTOR scan order when a payload is stored more than once.
+struct BuildFsChunkIndex {
+    frames: Vec<BuildFsChunkFrame>,
+    buckets: Vec<usize>,
+}
+
+impl BuildFsChunkIndex {
+    fn from_scan(frames: Vec<BuildFsChunkFrame>) -> Result<Self, BuildFsChunkFrameError> {
+        let minimum_slots = frames
+            .len()
+            .checked_mul(2)
+            .ok_or(BuildFsChunkFrameError::Bounds)?
+            .max(8);
+        let slot_count = minimum_slots
+            .checked_next_power_of_two()
+            .ok_or(BuildFsChunkFrameError::Bounds)?;
+        let mut index = Self {
+            frames: Vec::new(),
+            buckets: vec![usize::MAX; slot_count],
+        };
+        for frame in frames {
+            index.insert_first(frame)?;
+        }
+        Ok(index)
+    }
+
+    fn insert_first(&mut self, frame: BuildFsChunkFrame) -> Result<(), BuildFsChunkFrameError> {
+        let slot_mask = self.buckets.len() - 1;
+        let mut slot = digest_bucket(frame.payload_sha256, slot_mask);
+        let mut probed = 0usize;
+        while probed < self.buckets.len() {
+            let frame_index = self.buckets[slot];
+            if frame_index == usize::MAX {
+                self.buckets[slot] = self.frames.len();
+                self.frames.push(frame);
+                return Ok(());
+            }
+            let existing = self
+                .frames
+                .get(frame_index)
+                .ok_or(BuildFsChunkFrameError::Bounds)?;
+            if existing.payload_sha256 == frame.payload_sha256 {
+                return Ok(());
+            }
+            slot = (slot + 1) & slot_mask;
+            probed += 1;
+        }
+        Err(BuildFsChunkFrameError::Bounds)
+    }
+
+    fn get(&self, payload_sha256: [u8; 32]) -> Option<BuildFsChunkFrame> {
+        let slot_mask = self.buckets.len() - 1;
+        let mut slot = digest_bucket(payload_sha256, slot_mask);
+        let mut probed = 0usize;
+        while probed < self.buckets.len() {
+            let frame_index = self.buckets[slot];
+            if frame_index == usize::MAX {
+                return None;
+            }
+            let frame = self.frames.get(frame_index).copied()?;
+            if frame.payload_sha256 == payload_sha256 {
+                return Some(frame);
+            }
+            slot = (slot + 1) & slot_mask;
+            probed += 1;
+        }
+        None
+    }
+}
+
+fn digest_bucket(payload_sha256: [u8; 32], slot_mask: usize) -> usize {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for byte in payload_sha256 {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash as usize & slot_mask
+}
+
 pub(crate) struct BuildChunkReadSession {
     controller: pci::PciMassStorageController,
     store_instance_id: u64,
     store_generation: u64,
+    frame_index: BuildFsChunkIndex,
     _pin: MutexGuard<'static, ()>,
 }
 
@@ -116,12 +198,14 @@ impl BuildChunkReadSession {
         payload_sha256: [u8; 32],
         payload_len: u64,
     ) -> Result<BuildFsChunkFrame, BuildFsChunkFrameError> {
-        resolve_buildfs_chunk_frame(
-            self.controller,
-            self.store_generation,
-            payload_sha256,
-            payload_len,
-        )
+        let frame = self
+            .frame_index
+            .get(payload_sha256)
+            .ok_or(BuildFsChunkFrameError::Missing)?;
+        if frame.payload_len != payload_len {
+            return Err(BuildFsChunkFrameError::LengthMismatch);
+        }
+        Ok(frame)
     }
 
     pub(crate) fn read_chunk_frame(
@@ -139,74 +223,104 @@ pub(crate) fn begin_build_chunk_read_session(
 ) -> Result<BuildChunkReadSession, BuildFsChunkFrameError> {
     let pin = BUILD_STORAGE_IO_LOCK.lock();
     let controller = pci::find_mass_storage_controller().ok_or(BuildFsChunkFrameError::Io)?;
+    let frame_index = scan_buildfs_chunk_index(controller, store_generation)?;
     Ok(BuildChunkReadSession {
         controller,
         store_instance_id,
         store_generation,
+        frame_index,
         _pin: pin,
     })
 }
 
-/// Resolves one BuildFS digest by scanning only validated dense ARTSTOR frames.
-/// The returned physical offset stays inside the kernel-side read session.
-pub(crate) fn resolve_buildfs_chunk_frame(
+/// Makes the session's only dense ARTSTOR pass and indexes validated physical
+/// frame handles by payload digest. Each full-frame read also carries the next
+/// 512-byte header, so the pass needs one probe plus one read per stored frame.
+fn scan_buildfs_chunk_index(
     controller: pci::PciMassStorageController,
     store_generation: u64,
-    payload_sha256: [u8; 32],
-    payload_len: u64,
-) -> Result<BuildFsChunkFrame, BuildFsChunkFrameError> {
+) -> Result<BuildFsChunkIndex, BuildFsChunkFrameError> {
     let probe = ahci::read_persist_artstor_region(controller, 0, ARTSTOR_SCAN_WINDOW_BYTES);
     if !probe.read_completed || !probe.region_bounds_valid {
         return Err(BuildFsChunkFrameError::Io);
     }
+    let probe_bytes = probe.bytes.ok_or(BuildFsChunkFrameError::Io)?;
+    let mut header = [0u8; ARTSTOR_SCAN_WINDOW_BYTES as usize];
+    header.copy_from_slice(
+        probe_bytes
+            .get(..ARTSTOR_SCAN_WINDOW_BYTES as usize)
+            .ok_or(BuildFsChunkFrameError::Io)?,
+    );
+    let mut frames = Vec::new();
     let mut offset = 0u64;
     while offset < probe.byte_count {
-        let header =
-            ahci::read_persist_artstor_region(controller, offset, ARTSTOR_SCAN_WINDOW_BYTES);
-        let bytes = header.bytes.ok_or(BuildFsChunkFrameError::Io)?;
-        if bytes.iter().all(|byte| *byte == 0) {
-            return Err(BuildFsChunkFrameError::Missing);
+        if header.iter().all(|byte| *byte == 0) {
+            break;
         }
-        if bytes.len() < ARTIFACT_BLOB_FRAME_HEADER_LEN
-            || &bytes[..ARTIFACT_BLOB_MAGIC.len()] != ARTIFACT_BLOB_MAGIC
+        if header.len() < ARTIFACT_BLOB_FRAME_HEADER_LEN
+            || &header[..ARTIFACT_BLOB_MAGIC.len()] != ARTIFACT_BLOB_MAGIC
         {
             return Err(BuildFsChunkFrameError::Malformed);
         }
         let frame_len = u64::from(u32::from_le_bytes(
-            bytes[8..12]
+            header[8..12]
                 .try_into()
                 .map_err(|_| BuildFsChunkFrameError::Malformed)?,
         ));
+        let frame_end = offset
+            .checked_add(frame_len)
+            .ok_or(BuildFsChunkFrameError::Bounds)?;
         if frame_len < ARTIFACT_BLOB_FRAME_HEADER_LEN as u64
             || frame_len % ARTSTOR_SCAN_WINDOW_BYTES != 0
-            || offset
-                .checked_add(frame_len)
-                .is_none_or(|end| end > probe.byte_count)
+            || frame_end > probe.byte_count
         {
             return Err(BuildFsChunkFrameError::Bounds);
         }
-        let read = ahci::read_persist_artstor_region(controller, offset, frame_len);
-        let frame_bytes = read.bytes.ok_or(BuildFsChunkFrameError::Io)?;
-        let parsed = parse_artifact_blob_frame(&frame_bytes, 0)
-            .map_err(|_| BuildFsChunkFrameError::Malformed)?;
-        if parsed.payload_sha256 == payload_sha256 {
-            if u64::from(parsed.payload_len) != payload_len {
-                return Err(BuildFsChunkFrameError::LengthMismatch);
-            }
-            return Ok(BuildFsChunkFrame {
-                store_generation,
-                frame_offset: offset,
-                frame_len,
-                payload_len,
-                payload_sha256,
-                frame_sha256: parsed.frame_sha256,
-            });
+
+        let read_len = if frame_end < probe.byte_count {
+            frame_len
+                .checked_add(ARTSTOR_SCAN_WINDOW_BYTES)
+                .ok_or(BuildFsChunkFrameError::Bounds)?
+        } else {
+            frame_len
+        };
+        let read = ahci::read_persist_artstor_region(controller, offset, read_len);
+        if !read.read_completed || !read.region_bounds_valid {
+            return Err(BuildFsChunkFrameError::Io);
         }
-        offset = offset
-            .checked_add(frame_len)
-            .ok_or(BuildFsChunkFrameError::Bounds)?;
+        let bytes = read.bytes.ok_or(BuildFsChunkFrameError::Io)?;
+        let frame_len_usize =
+            usize::try_from(frame_len).map_err(|_| BuildFsChunkFrameError::Bounds)?;
+        let frame_bytes = bytes
+            .get(..frame_len_usize)
+            .ok_or(BuildFsChunkFrameError::Io)?;
+        let parsed = parse_artifact_blob_frame(frame_bytes, 0)
+            .map_err(|_| BuildFsChunkFrameError::Malformed)?;
+        if u64::from(parsed.frame_len) != frame_len {
+            return Err(BuildFsChunkFrameError::Malformed);
+        }
+        frames.push(BuildFsChunkFrame {
+            store_generation,
+            frame_offset: offset,
+            frame_len,
+            payload_len: u64::from(parsed.payload_len),
+            payload_sha256: parsed.payload_sha256,
+            frame_sha256: parsed.frame_sha256,
+        });
+
+        offset = frame_end;
+        if offset < probe.byte_count {
+            let next_header_end = frame_len_usize
+                .checked_add(ARTSTOR_SCAN_WINDOW_BYTES as usize)
+                .ok_or(BuildFsChunkFrameError::Bounds)?;
+            header.copy_from_slice(
+                bytes
+                    .get(frame_len_usize..next_header_end)
+                    .ok_or(BuildFsChunkFrameError::Io)?,
+            );
+        }
     }
-    Err(BuildFsChunkFrameError::Missing)
+    BuildFsChunkIndex::from_scan(frames)
 }
 
 /// Re-reads the pinned physical frame. It validates only the recorded frame
