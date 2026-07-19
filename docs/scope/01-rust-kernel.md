@@ -20,10 +20,12 @@
 - [ ] A guest cannot name kernel memory or another guest's linear memory
 - [ ] Guest memory faults trap, stop/report only that guest, and leave the kernel
       and peer guests running
-- [ ] Negative tests: OOB read, OOB write, and overflowed effective address →
-      trap + logged, with zero host or peer-guest effect
-      <!-- evidence (OOB boundary): release/vm-reports/shadow-20260719-084519-8004.json,
-      predicate command:isolation.selftest; orchestrator verification required. -->
+- [x] Negative tests: OOB read, OOB write, and overflowed effective address →
+      trap + logged, with zero host or peer-guest effect — isolation.selftest
+      (shadow-20260719-084519, quick 502/502): three hostile guests
+      (oob_store/oob_load/oob_offset) each trap MemoryOutOfBounds, the write
+      never lands, the host guard is unchanged, host_exposed=0, logged=1;
+      permanent quick needle. Verified 2026-07-19.
 
 ## Wasm-runtime scheduling
 - [ ] Every guest execution is fuel-metered; exhausted fuel stops/traps that

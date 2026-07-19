@@ -7,18 +7,15 @@
 > checked by the reframe.
 
 ## Day 1 — escape negative tests (the foundation of the foundation)
-- [ ] Wasm guest OOB linear-memory read and write → trap + logged, with zero
-      host or peer-guest effect
-      <!-- evidence (OOB boundary): release/vm-reports/shadow-20260719-084519-8004.json,
-      predicate command:isolation.selftest (OOB store/load/offset trapped,
-      logged=1, host_exposed=0); orchestrator verification required. -->
-- [ ] Guest requests an ungranted capability import/host surface → denied +
-      logged before effect
-      <!-- evidence (default-deny import boundary):
-      release/vm-reports/shadow-20260714-114527-24812.json,
-      predicates m11-import-grant:unauthorized-import-refused and
-      m11-import-grant:forbidden-import-link-failure-preserved; orchestrator
-      verification required. -->
+- [x] Wasm guest OOB linear-memory read and write → trap + logged, with zero
+      host or peer-guest effect — isolation.selftest (shadow-20260719-084519,
+      quick 502/502): OOB store/load/offset each trap MemoryOutOfBounds,
+      logged=1, host_exposed=0; permanent quick needle. Verified 2026-07-19.
+- [x] Guest requests an ungranted capability import/host surface → denied +
+      logged before effect — m11-wasm-import-grant (shadow-20260714-114527,
+      159/159): `unauthorized-import-refused` (refused before instantiation)
+      and `forbidden-import-link-failure-preserved` (link fails, no host
+      effect). Verified 2026-07-19.
 - [ ] Both Wasm-boundary tests run in QEMU AND on bare metal
 - [ ] Both run on every kernel/Wasm-runtime-touching change (cheap enough to
       be non-optional)
