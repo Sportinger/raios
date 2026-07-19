@@ -10,7 +10,12 @@
 - [ ] Exclusive-lane mode for repo-wide mechanical changes
 
 ## Machine-readable introspection
-- [ ] PCI enumeration, device IDs, BARs, IRQs exported as structured data
+- [x] PCI enumeration, device IDs, BARs, IRQs exported as structured data
+      <!-- device.graph pci rows + pci_functions walk (734e612): BDF, vendor/
+      device ids, class triple, interrupt line/pin, typed BARs with size.
+      Evidence shadow-20260719-151342-1916.json (504/504): xHCI positive with
+      IRQ 11/pin 1 + BAR64; negative = absent wifi AND e1000 must carry
+      pci:null — fabricated PCI data fails (b6d4681). -->
 - [ ] Register maps for owned devices as data files (agents never parse PDFs)
 - [ ] Hardware manifest per machine: CPU features, memory topology, devices —
       the curated-context source for lane system prompts
