@@ -33,9 +33,21 @@
 ## Storage primitive
 - [ ] Persistent ARTSTOR/structured-store access is a range/quota-scoped
       capability, never ambient whole-store authority
-- [ ] A guest without a storage capability cannot persist anything
-- [ ] Negative test: absent grant, out-of-range write, or quota overflow →
+- [x] A guest without a storage capability cannot persist anything
+      <!-- guests have no storage import at all; the only persistent egress
+      is the unforgeable BuildStorageAuthority handle, and Absent denies
+      first: storage_capability_absent before lock/evaluator/controller
+      (d18bcc0). Evidence shadow-20260719-154053-30128 (507/507). -->
+- [x] Negative test: absent grant, out-of-range write, or quota overflow →
       denied + logged with no partial persistent effect
+      <!-- storage.selftest live: absent_grant=storage_capability_absent,
+      out_of_range=output_span_out_of_artstor, quota_overflow=
+      output_span_length_exceeds_lease, ram_quota=nospc, serial-logged,
+      persistent_effect=0 + full RECLOG/ARTSTOR SHA-256 equality
+      (disk=pass reclog_unchanged=1 artstor_unchanged=1). Scope honesty:
+      proves the build-output egress boundary (the guest-facing path);
+      older internal post-write-evaluator orderings are a separate open
+      hardening item (scout 2026-07-19). -->
 
 ## Service lifecycle
 - [ ] Kill + restart of any Wasm service in < 1 s, without system reboot
