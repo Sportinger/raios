@@ -23,6 +23,9 @@ const DIRENT_SIZE: usize = 24;
 pub(crate) const WASI_IMPORT_CALL_COUNT: usize = 30;
 pub(crate) const RECENT_WASI_CALL_COUNT: usize = 8;
 pub(crate) const RECENT_ATOMIC_EVENT_COUNT: usize = 16;
+pub(crate) const MEMORY_GROW_EVIDENCE_CAP: usize = 16;
+const SCHEDULED_STDERR_CAP: usize = 4096;
+const WASM_PAGE_BYTES: usize = 64 * 1024;
 
 const _: [(); WASI_IMPORT_CALL_COUNT] = [(); RUSTC_WASM_C6DCCF3E_IMPORTS.len()];
 
@@ -169,6 +172,53 @@ pub(crate) struct SpawnRequest {
     pub(crate) start_arg: i32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct MemoryGrowAttempt {
+    pub(crate) current_pages: usize,
+    pub(crate) desired_pages: usize,
+    pub(crate) maximum_pages: usize,
+    pub(crate) limiter_approved: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct MemoryGrowEvidence {
+    pub(crate) attempts: u64,
+    pub(crate) approved: u64,
+    pub(crate) first: [Option<MemoryGrowAttempt>; MEMORY_GROW_EVIDENCE_CAP],
+}
+
+impl MemoryGrowEvidence {
+    pub(crate) const fn empty() -> Self {
+        Self {
+            attempts: 0,
+            approved: 0,
+            first: [None; MEMORY_GROW_EVIDENCE_CAP],
+        }
+    }
+
+    fn record(
+        &mut self,
+        current_bytes: usize,
+        desired_bytes: usize,
+        maximum_bytes: Option<usize>,
+        limiter_approved: bool,
+    ) {
+        let index = usize::try_from(self.attempts).unwrap_or(usize::MAX);
+        self.attempts = self.attempts.saturating_add(1);
+        if limiter_approved {
+            self.approved = self.approved.saturating_add(1);
+        }
+        if let Some(slot) = self.first.get_mut(index) {
+            *slot = Some(MemoryGrowAttempt {
+                current_pages: current_bytes / WASM_PAGE_BYTES,
+                desired_pages: desired_bytes / WASM_PAGE_BYTES,
+                maximum_pages: maximum_bytes.unwrap_or(0) / WASM_PAGE_BYTES,
+                limiter_approved,
+            });
+        }
+    }
+}
+
 pub(crate) struct ThreadWorld {
     pub(crate) scheduler: JobThreadScheduler,
     pub(crate) pending_spawns: Vec<SpawnRequest>,
@@ -178,6 +228,7 @@ pub(crate) struct ThreadWorld {
     pub(crate) active_fuel_checkpoint: Option<u64>,
     pub(crate) fuel_accounting_failed: bool,
     pub(crate) stdout: Vec<u8>,
+    pub(crate) stderr: Vec<u8>,
 }
 
 impl ThreadWorld {
@@ -191,6 +242,7 @@ impl ThreadWorld {
             active_fuel_checkpoint: None,
             fuel_accounting_failed: false,
             stdout: Vec::new(),
+            stderr: Vec::new(),
         }
     }
 
@@ -235,6 +287,7 @@ pub(crate) struct WasiHostState {
     recent_atomic_events: [RecentAtomicEvent; RECENT_ATOMIC_EVENT_COUNT],
     recent_atomic_next: u8,
     recent_atomic_len: u8,
+    memory_grow_evidence: Option<MemoryGrowEvidence>,
 }
 
 impl WasiHostState {
@@ -263,6 +316,7 @@ impl WasiHostState {
             recent_atomic_events: [RecentAtomicEvent::EMPTY; RECENT_ATOMIC_EVENT_COUNT],
             recent_atomic_next: 0,
             recent_atomic_len: 0,
+            memory_grow_evidence: None,
         }
     }
 
@@ -272,6 +326,36 @@ impl WasiHostState {
 
     pub(crate) const fn stdout_bytes(&self) -> u64 {
         self.stdout_bytes
+    }
+
+    pub(crate) const fn stderr_bytes(&self) -> u64 {
+        self.stderr_bytes
+    }
+
+    pub(crate) fn enable_memory_grow_evidence(&mut self) {
+        self.memory_grow_evidence = Some(MemoryGrowEvidence::empty());
+    }
+
+    pub(crate) fn record_memory_grow(
+        &mut self,
+        current_bytes: usize,
+        desired_bytes: usize,
+        maximum_bytes: Option<usize>,
+        limiter_approved: bool,
+    ) {
+        if let Some(evidence) = &mut self.memory_grow_evidence {
+            evidence.record(
+                current_bytes,
+                desired_bytes,
+                maximum_bytes,
+                limiter_approved,
+            );
+        }
+    }
+
+    pub(crate) fn memory_grow_evidence(&self) -> MemoryGrowEvidence {
+        self.memory_grow_evidence
+            .unwrap_or_else(MemoryGrowEvidence::empty)
     }
 
     pub(crate) const fn terminal_exit(&self) -> Option<u32> {
@@ -538,12 +622,62 @@ impl WasiHostState {
                 }
                 Fd::STDERR => {
                     self.stderr_bytes = self.stderr_bytes.checked_add(count).ok_or(Errno::Fbig)?;
+                    if let ThreadHostMode::Scheduled(world) = &mut self.thread_mode {
+                        // Keep only the first 4096 bytes for evidence; the total
+                        // counter above continues counting after retention stops.
+                        retain_prefix(&mut world.stderr, bytes, SCHEDULED_STDERR_CAP);
+                    }
                 }
                 _ => return Err(Errno::Badf),
             }
             return Ok(bytes.len());
         }
         self.instance.fd_write(fd, bytes)
+    }
+}
+
+fn retain_prefix(destination: &mut Vec<u8>, bytes: &[u8], cap: usize) {
+    let retained = cap.saturating_sub(destination.len()).min(bytes.len());
+    destination.extend_from_slice(&bytes[..retained]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{retain_prefix, MemoryGrowEvidence, MEMORY_GROW_EVIDENCE_CAP, WASM_PAGE_BYTES};
+    use alloc::vec::Vec;
+
+    #[test]
+    fn retained_prefix_stops_at_cap_without_replacing_earlier_bytes() {
+        let mut retained = Vec::new();
+        retain_prefix(&mut retained, b"first", 8);
+        retain_prefix(&mut retained, b"-second", 8);
+        assert_eq!(retained, b"first-se");
+
+        retain_prefix(&mut retained, b"ignored", 8);
+        assert_eq!(retained, b"first-se");
+    }
+
+    #[test]
+    fn memory_grow_evidence_caps_records_but_not_summary_counts() {
+        let mut evidence = MemoryGrowEvidence::empty();
+        for attempt in 0..=MEMORY_GROW_EVIDENCE_CAP {
+            let approved = attempt % 2 == 0;
+            evidence.record(
+                attempt * WASM_PAGE_BYTES,
+                (attempt + 1) * WASM_PAGE_BYTES,
+                Some(16_384 * WASM_PAGE_BYTES),
+                approved,
+            );
+        }
+
+        assert_eq!(evidence.attempts, 17);
+        assert_eq!(evidence.approved, 9);
+        assert_eq!(evidence.first.iter().flatten().count(), 16);
+        let last = evidence.first[15].expect("sixteenth attempt retained");
+        assert_eq!(last.current_pages, 15);
+        assert_eq!(last.desired_pages, 16);
+        assert_eq!(last.maximum_pages, 16_384);
+        assert!(!last.limiter_approved);
     }
 }
 

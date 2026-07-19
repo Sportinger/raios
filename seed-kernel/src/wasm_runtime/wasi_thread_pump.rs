@@ -1,4 +1,5 @@
 use alloc::{vec, vec::Vec};
+use core::fmt::{self, Write};
 
 use raios_core::{
     build_guest_class::BuildGuestClassV1,
@@ -13,8 +14,8 @@ use wasmi::{
 };
 
 use super::wasi_preview1::{
-    ProcExitTrap, RecentAtomicEvent, RecentWasiCall, SpawnRequest, WasiHostState,
-    RECENT_ATOMIC_EVENT_COUNT, RECENT_WASI_CALL_COUNT, WASI_IMPORT_CALL_COUNT,
+    MemoryGrowEvidence, ProcExitTrap, RecentAtomicEvent, RecentWasiCall, SpawnRequest,
+    WasiHostState, RECENT_ATOMIC_EVENT_COUNT, RECENT_WASI_CALL_COUNT, WASI_IMPORT_CALL_COUNT,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,6 +45,9 @@ pub(crate) struct WasiThreadRunEvidence {
     pub(crate) effect_digest: [u8; 32],
     pub(crate) effect_count: u64,
     pub(crate) stdout: Vec<u8>,
+    pub(crate) stderr_bytes: u64,
+    pub(crate) stderr: Vec<u8>,
+    pub(crate) trap: Vec<u8>,
     pub(crate) rounds: u64,
     pub(crate) spawns: u32,
     pub(crate) cap_denials: u32,
@@ -52,6 +56,7 @@ pub(crate) struct WasiThreadRunEvidence {
 
 pub(crate) struct WasiThreadDiagRunEvidence {
     pub(crate) run: WasiThreadRunEvidence,
+    pub(crate) memory_grow: MemoryGrowEvidence,
     pub(crate) execution_profile: ExecutionProfile,
     pub(crate) import_call_counts: [u64; WASI_IMPORT_CALL_COUNT],
     pub(crate) recent_calls: [Option<RecentWasiCall>; RECENT_WASI_CALL_COUNT],
@@ -63,6 +68,33 @@ pub(crate) struct WasiThreadDiagRunEvidence {
 pub(crate) struct WasiThreadTraceRunEvidence {
     pub(crate) execution_trace: ExecutionTrace,
     pub(crate) capped: bool,
+    pub(crate) stderr_bytes: u64,
+    pub(crate) stderr: Vec<u8>,
+    pub(crate) trap: Vec<u8>,
+}
+
+const TRAP_DETAIL_CAP: usize = 160;
+
+struct BoundedDisplay {
+    bytes: Vec<u8>,
+    limit: usize,
+}
+
+impl BoundedDisplay {
+    fn new(limit: usize) -> Self {
+        Self {
+            bytes: Vec::with_capacity(limit),
+            limit,
+        }
+    }
+}
+
+impl Write for BoundedDisplay {
+    fn write_str(&mut self, text: &str) -> fmt::Result {
+        let retained = self.limit.saturating_sub(self.bytes.len()).min(text.len());
+        self.bytes.extend_from_slice(&text.as_bytes()[..retained]);
+        Ok(())
+    }
 }
 
 struct ThreadSlot {
@@ -125,6 +157,7 @@ pub(crate) struct WasiThreadJobRunner {
     exited_threads: usize,
     granted_total: u64,
     terminal: Option<WasiThreadJobEnd>,
+    trap: Vec<u8>,
 }
 
 impl WasiThreadJobRunner {
@@ -137,11 +170,16 @@ impl WasiThreadJobRunner {
         start_section: Option<Func>,
         class: BuildGuestClassV1,
     ) -> Result<Self, WasiThreadJobFailure> {
+        let memory_type = memory.ty(&store);
+        let current_pages = u32::from(memory.current_pages(&store));
         if class.thread_cap == 0
             || class.fuel_quantum == 0
             || class.max_total_fuel == 0
-            || !memory.ty(&store).is_shared()
-            || u32::from(memory.current_pages(&store)) != class.shared_memory.max_pages
+            || !memory_type.is_shared()
+            || u32::from(memory_type.initial_pages()) != class.shared_memory.initial_pages
+            || memory_type.maximum_pages().map(u32::from) != Some(class.shared_memory.max_pages)
+            || (current_pages != class.shared_memory.initial_pages
+                && current_pages != class.shared_memory.max_pages)
         {
             return Err(WasiThreadJobFailure::Setup);
         }
@@ -200,6 +238,7 @@ impl WasiThreadJobRunner {
             exited_threads: 0,
             granted_total: 0,
             terminal: None,
+            trap: Vec::new(),
         })
     }
 
@@ -213,7 +252,16 @@ impl WasiThreadJobRunner {
         let end = self
             .terminal
             .unwrap_or(WasiThreadJobEnd::Failed(WasiThreadJobFailure::RoundLimit));
-        let (trace_digest, effect_digest, effect_count, stdout, spawns, cap_denials) = {
+        let (
+            trace_digest,
+            effect_digest,
+            effect_count,
+            stdout,
+            stderr_bytes,
+            stderr,
+            spawns,
+            cap_denials,
+        ) = {
             let state = self.store.data();
             match state.scheduled_world() {
                 Some(world) => (
@@ -221,10 +269,12 @@ impl WasiThreadJobRunner {
                     state.effect_digest(),
                     state.effect_count(),
                     world.stdout.clone(),
+                    state.stderr_bytes(),
+                    world.stderr.clone(),
                     world.spawns,
                     world.cap_denials,
                 ),
-                None => ([0; 32], [0; 32], 0, Vec::new(), 0, 0),
+                None => ([0; 32], [0; 32], 0, Vec::new(), 0, Vec::new(), 0, 0),
             }
         };
         WasiThreadRunEvidence {
@@ -233,6 +283,9 @@ impl WasiThreadJobRunner {
             effect_digest,
             effect_count,
             stdout,
+            stderr_bytes,
+            stderr,
+            trap: self.trap,
             rounds: self.round,
             spawns,
             cap_denials,
@@ -241,6 +294,7 @@ impl WasiThreadJobRunner {
     }
 
     pub(crate) fn run_capped(mut self, max_rounds: u64) -> WasiThreadDiagRunEvidence {
+        self.store.data_mut().enable_memory_grow_evidence();
         self.store.start_execution_profiling();
         let round_limit = self.round_limit.min(max_rounds);
         while self.terminal.is_none() && self.round < round_limit {
@@ -257,6 +311,8 @@ impl WasiThreadJobRunner {
             effect_digest,
             effect_count,
             stdout,
+            stderr_bytes,
+            stderr,
             spawns,
             cap_denials,
             import_call_counts,
@@ -277,6 +333,8 @@ impl WasiThreadJobRunner {
                     state.effect_digest(),
                     state.effect_count(),
                     world.stdout.clone(),
+                    state.stderr_bytes(),
+                    world.stderr.clone(),
                     world.spawns,
                     world.cap_denials,
                     import_call_counts,
@@ -288,6 +346,8 @@ impl WasiThreadJobRunner {
                 None => (
                     [0; 32],
                     [0; 32],
+                    0,
+                    Vec::new(),
                     0,
                     Vec::new(),
                     0,
@@ -307,11 +367,15 @@ impl WasiThreadJobRunner {
                 effect_digest,
                 effect_count,
                 stdout,
+                stderr_bytes,
+                stderr,
+                trap: self.trap,
                 rounds: self.round,
                 spawns,
                 cap_denials,
                 granted_total: self.granted_total,
             },
+            memory_grow: self.store.data().memory_grow_evidence(),
             execution_profile: self.store.execution_profile(),
             import_call_counts,
             recent_calls,
@@ -343,9 +407,16 @@ impl WasiThreadJobRunner {
         if self.terminal.is_none() {
             self.fail(WasiThreadJobFailure::RoundLimit);
         }
+        let (stderr_bytes, stderr) = match self.store.data().scheduled_world() {
+            Some(world) => (self.store.data().stderr_bytes(), world.stderr.clone()),
+            None => (0, Vec::new()),
+        };
         WasiThreadTraceRunEvidence {
             execution_trace,
             capped,
+            stderr_bytes,
+            stderr,
+            trap: self.trap,
         }
     }
 
@@ -510,35 +581,66 @@ impl WasiThreadJobRunner {
         thread: ThreadId,
         inputs: &[Value],
     ) -> Result<ResumableCall, WasiThreadJobFailure> {
-        let slot = self
-            .threads
-            .get_mut(thread.get() as usize)
-            .ok_or(WasiThreadJobFailure::Scheduler)?;
+        let index = thread.get() as usize;
         let mut outputs = [];
-        if let Some(continuation) = slot.continuation.take() {
-            return continuation
-                .resume(&mut self.store, inputs, &mut outputs)
-                .map_err(|_| WasiThreadJobFailure::Engine);
+        let continuation = self
+            .threads
+            .get_mut(index)
+            .ok_or(WasiThreadJobFailure::Scheduler)?
+            .continuation
+            .take();
+        if let Some(continuation) = continuation {
+            return match continuation.resume(&mut self.store, inputs, &mut outputs) {
+                Ok(outcome) => Ok(outcome),
+                Err(error) => {
+                    self.record_trap(&error);
+                    Err(WasiThreadJobFailure::Engine)
+                }
+            };
         }
-        if slot.started || !inputs.is_empty() {
-            return Err(WasiThreadJobFailure::Scheduler);
+        let (prologue, start, start_args) = {
+            let slot = self
+                .threads
+                .get_mut(index)
+                .ok_or(WasiThreadJobFailure::Scheduler)?;
+            if slot.started || !inputs.is_empty() {
+                return Err(WasiThreadJobFailure::Scheduler);
+            }
+            let prologue = slot.prologue.take();
+            if prologue.is_none() {
+                slot.started = true;
+            }
+            (prologue, slot.start, slot.start_args)
+        };
+        if let Some(prologue) = prologue {
+            return match prologue.call_resumable(&mut self.store, &[], &mut outputs) {
+                Ok(outcome) => Ok(outcome),
+                Err(error) => {
+                    self.record_trap(&error);
+                    Err(WasiThreadJobFailure::Engine)
+                }
+            };
         }
-        if let Some(prologue) = slot.prologue.take() {
-            return prologue
-                .call_resumable(&mut self.store, &[], &mut outputs)
-                .map_err(|_| WasiThreadJobFailure::Engine);
-        }
-        slot.started = true;
         let spawned_inputs;
-        let start_inputs = if let Some((tid, start_arg)) = slot.start_args {
+        let start_inputs = if let Some((tid, start_arg)) = start_args {
             spawned_inputs = [Value::I32(tid), Value::I32(start_arg)];
             &spawned_inputs[..]
         } else {
             &[]
         };
-        slot.start
-            .call_resumable(&mut self.store, start_inputs, &mut outputs)
-            .map_err(|_| WasiThreadJobFailure::Engine)
+        match start.call_resumable(&mut self.store, start_inputs, &mut outputs) {
+            Ok(outcome) => Ok(outcome),
+            Err(error) => {
+                self.record_trap(&error);
+                Err(WasiThreadJobFailure::Engine)
+            }
+        }
+    }
+
+    fn record_trap(&mut self, error: &impl fmt::Display) {
+        let mut detail = BoundedDisplay::new(TRAP_DETAIL_CAP);
+        let _ = write!(&mut detail, "{error}");
+        self.trap = detail.bytes;
     }
 
     fn handle_outcome(
@@ -618,9 +720,17 @@ impl WasiThreadJobRunner {
                                 round,
                             );
                             let mut outputs = [];
-                            outcome = invocation
-                                .resume(&mut self.store, &[Value::I32(woken as i32)], &mut outputs)
-                                .map_err(|_| WasiThreadJobFailure::Engine)?;
+                            outcome = match invocation.resume(
+                                &mut self.store,
+                                &[Value::I32(woken as i32)],
+                                &mut outputs,
+                            ) {
+                                Ok(outcome) => outcome,
+                                Err(error) => {
+                                    self.record_trap(&error);
+                                    return Err(WasiThreadJobFailure::Engine);
+                                }
+                            };
                         }
                     }
                 }

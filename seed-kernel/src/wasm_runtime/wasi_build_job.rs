@@ -50,8 +50,8 @@ use super::{
         BuildChunkStoreError, GrantedChunkReadDenied, GrantedChunkReader, UnbackedChunkStore,
     },
     wasi_preview1::{
-        define_wasi_imports, AtomicEventKind, ProcExitTrap, RecentAtomicEvent, RecentWasiCall,
-        ThreadHostMode, ThreadWorld, WasiHostState, RECENT_ATOMIC_EVENT_COUNT,
+        define_wasi_imports, AtomicEventKind, MemoryGrowEvidence, ProcExitTrap, RecentAtomicEvent,
+        RecentWasiCall, ThreadHostMode, ThreadWorld, WasiHostState, RECENT_ATOMIC_EVENT_COUNT,
         RECENT_WASI_CALL_COUNT, WASI_IMPORT_CALL_COUNT,
     },
     wasi_thread_pump::{
@@ -91,6 +91,9 @@ const RUSTCRUN_INSTANCE_NONCE: u64 = 306;
 const RUSTCDIAG_ROUND_CAP: u64 = 200_000;
 const RUSTCDIAG_TOP_IMPORTS: usize = 6;
 const RUSTCDIAG_TOP_FUNCTIONS: usize = 8;
+const RUSTCDIAG_TEXT_FIELD_CAP: usize = 480;
+const RUSTCDIAG_STDERR_MORE_CAP: usize = 4;
+const RUSTCDIAG_TRAP_CAP: usize = 160;
 // Measurement coordinates from docs/architecture/probe-rustc-spin-114028-2026-07-19.md.
 // Keep raiOS-specific function and memory identities out of the vendored interpreter.
 const RUSTCLOCK_ROUND_CAP: u64 = 5_000;
@@ -303,7 +306,7 @@ impl RustcRunStage {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct RustcRunEvidence {
     stage: RustcRunStage,
     file_sha: CompilerFileSha,
@@ -311,15 +314,23 @@ struct RustcRunEvidence {
     cap_denials: u32,
     rounds: u64,
     stdout_bytes: u64,
+    stderr_bytes: u64,
+    stderr: Vec<u8>,
+    trap: Vec<u8>,
     granted_total: u64,
     exit_code: Option<u32>,
     reason: &'static str,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct RustcDiagEvidence {
     rounds: u64,
     stdout_bytes: u64,
+    stdout: Vec<u8>,
+    stderr_bytes: u64,
+    stderr: Vec<u8>,
+    trap: Vec<u8>,
+    memory_grow: MemoryGrowEvidence,
     spawns: u32,
     reason: &'static str,
     execution_profile: ExecutionProfile,
@@ -330,10 +341,13 @@ struct RustcDiagEvidence {
     recent_atomic_events: [Option<RecentAtomicEvent>; RECENT_ATOMIC_EVENT_COUNT],
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct RustclockEvidence {
     execution_trace: ExecutionTrace,
     capped: bool,
+    stderr_bytes: u64,
+    stderr: Vec<u8>,
+    trap: Vec<u8>,
 }
 
 impl RustclockEvidence {
@@ -341,6 +355,9 @@ impl RustclockEvidence {
         Self {
             execution_trace: ExecutionTrace::empty(),
             capped: false,
+            stderr_bytes: 0,
+            stderr: Vec::new(),
+            trap: Vec::new(),
         }
     }
 
@@ -348,6 +365,9 @@ impl RustclockEvidence {
         Self {
             execution_trace: evidence.execution_trace,
             capped: evidence.capped,
+            stderr_bytes: evidence.stderr_bytes,
+            stderr: evidence.stderr,
+            trap: evidence.trap,
         }
     }
 }
@@ -357,6 +377,11 @@ impl RustcDiagEvidence {
         Self {
             rounds: 0,
             stdout_bytes: 0,
+            stdout: Vec::new(),
+            stderr_bytes: 0,
+            stderr: Vec::new(),
+            trap: Vec::new(),
+            memory_grow: MemoryGrowEvidence::empty(),
             spawns: 0,
             reason,
             execution_profile: ExecutionProfile::empty(),
@@ -371,6 +396,7 @@ impl RustcDiagEvidence {
     fn completed(diagnostic: WasiThreadDiagRunEvidence) -> Self {
         let WasiThreadDiagRunEvidence {
             run,
+            memory_grow,
             execution_profile,
             import_call_counts,
             recent_calls,
@@ -390,6 +416,11 @@ impl RustcDiagEvidence {
         Self {
             rounds: run.rounds,
             stdout_bytes,
+            stdout: run.stdout,
+            stderr_bytes: run.stderr_bytes,
+            stderr: run.stderr,
+            trap: run.trap,
+            memory_grow,
             spawns: run.spawns,
             reason,
             execution_profile,
@@ -411,6 +442,9 @@ impl RustcRunEvidence {
             cap_denials: 0,
             rounds: 0,
             stdout_bytes: 0,
+            stderr_bytes: 0,
+            stderr: Vec::new(),
+            trap: Vec::new(),
             granted_total: 0,
             exit_code: None,
             reason,
@@ -447,6 +481,9 @@ impl RustcRunEvidence {
             cap_denials: run.cap_denials,
             rounds: run.rounds,
             stdout_bytes,
+            stderr_bytes: run.stderr_bytes,
+            stderr: run.stderr,
+            trap: run.trap,
             granted_total: run.granted_total,
             exit_code,
             reason,
@@ -565,7 +602,9 @@ impl ResourceLimiter for WasiHostState {
         maximum: Option<usize>,
     ) -> Result<bool, MemoryError> {
         if self.is_scheduled_thread_job() {
-            return Ok(maximum.is_some_and(|maximum| desired <= maximum));
+            let approved = maximum.is_some_and(|maximum| desired <= maximum);
+            self.record_memory_grow(current, desired, maximum, approved);
+            return Ok(approved);
         }
         if maximum.is_some_and(|maximum| desired > maximum) {
             return Ok(false);
@@ -2702,40 +2741,9 @@ fn prepare_rustcrun() -> Result<WasiThreadJobRunner, RustcRunEvidence> {
             "memory_initial_mismatch",
         );
     }
-    let reserve_pages = match class
-        .shared_memory
-        .max_pages
-        .checked_sub(class.shared_memory.initial_pages)
-        .and_then(Pages::new)
-    {
-        Some(pages) => pages,
-        None => {
-            rustcrun_fail!(
-                RustcRunStage::Instantiated,
-                CompilerFileSha::Ok,
-                "memory_reservation_invalid",
-            )
-        }
-    };
-    let previous = match memory.grow(&mut store, reserve_pages) {
-        Ok(previous) => previous,
-        Err(_) => {
-            rustcrun_fail!(
-                RustcRunStage::Instantiated,
-                CompilerFileSha::Ok,
-                "memory_reservation_failed",
-            )
-        }
-    };
-    if u32::from(previous) != class.shared_memory.initial_pages
-        || u32::from(memory.current_pages(&store)) != class.shared_memory.max_pages
-    {
-        rustcrun_fail!(
-            RustcRunStage::Instantiated,
-            CompilerFileSha::Ok,
-            "memory_reservation_mismatch",
-        );
-    }
+    // Keep the guest-visible size at the class initial value. Growing to the
+    // declared maximum here does not reserve backing invisibly: it consumes
+    // rustc's entire logical growth range before its allocator starts.
     store.data_mut().install_memory(memory);
 
     let mut linker = Linker::<WasiHostState>::new(&engine);
@@ -3241,6 +3249,11 @@ pub(crate) fn emit_wasi_compilerload() {
 }
 
 fn emit_rustcrun_evidence(evidence: RustcRunEvidence) {
+    let _retained_evidence = (
+        evidence.stderr_bytes,
+        evidence.stderr.as_slice(),
+        evidence.trap.as_slice(),
+    );
     match evidence.exit_code {
         Some(exit_code) => crate::serial::write_raw_fmt(format_args!(
             "RAIOS_RUSTCRUN stage={} file_sha={} spawns={} cap_denials={} rounds={} stdout_bytes={} granted_total={} exit_code={} reason={}\n",
@@ -3265,6 +3278,33 @@ fn emit_rustcrun_evidence(evidence: RustcRunEvidence) {
             evidence.granted_total,
             evidence.reason,
         )),
+    }
+}
+
+fn sanitized_ascii_prefix(bytes: &[u8], cap: usize) -> String {
+    let mut text = String::with_capacity(bytes.len().min(cap));
+    for byte in bytes.iter().take(cap) {
+        text.push(if (0x20..=0x7e).contains(byte) {
+            char::from(*byte)
+        } else {
+            '.'
+        });
+    }
+    text
+}
+
+fn emit_rustc_stderr(total_stderr_bytes: u64, stderr: &[u8]) {
+    let sanitized = sanitized_ascii_prefix(stderr, stderr.len());
+    let mut chunks = sanitized.as_bytes().chunks(RUSTCDIAG_TEXT_FIELD_CAP);
+    let first = chunks.next().unwrap_or_default();
+    let first = core::str::from_utf8(first).unwrap_or_default();
+    crate::serial::write_raw_fmt(format_args!(
+        "RAIOS_RUSTCSTDERR len={} text={}\n",
+        total_stderr_bytes, first,
+    ));
+    for chunk in chunks.take(RUSTCDIAG_STDERR_MORE_CAP) {
+        let chunk = core::str::from_utf8(chunk).unwrap_or_default();
+        crate::serial::write_raw_fmt(format_args!("RAIOS_RUSTCSTDERR_MORE text={}\n", chunk,));
     }
 }
 
@@ -3320,6 +3360,29 @@ fn emit_rustcdiag_evidence(evidence: RustcDiagEvidence) {
     }
     line.push('\n');
     crate::serial::write_raw_fmt(format_args!("{line}"));
+    let stdout_text = sanitized_ascii_prefix(&evidence.stdout, RUSTCDIAG_TEXT_FIELD_CAP);
+    crate::serial::write_raw_fmt(format_args!(
+        "RAIOS_RUSTCSTDOUT len={} text={}\n",
+        evidence.stdout_bytes, stdout_text,
+    ));
+    emit_rustc_stderr(evidence.stderr_bytes, &evidence.stderr);
+    for attempt in evidence.memory_grow.first.iter().flatten() {
+        crate::serial::write_raw_fmt(format_args!(
+            "RAIOS_RUSTCGROW cur={} want={} max={} limiter={}\n",
+            attempt.current_pages,
+            attempt.desired_pages,
+            attempt.maximum_pages,
+            u8::from(attempt.limiter_approved),
+        ));
+    }
+    crate::serial::write_raw_fmt(format_args!(
+        "RAIOS_RUSTCGROW_SUMMARY attempts={} approved={}\n",
+        evidence.memory_grow.attempts, evidence.memory_grow.approved,
+    ));
+    if !evidence.trap.is_empty() {
+        let trap = sanitized_ascii_prefix(&evidence.trap, RUSTCDIAG_TRAP_CAP);
+        crate::serial::write_raw_fmt(format_args!("RAIOS_RUSTCTRAP reason={trap}\n"));
+    }
 
     let mut atomic_line = String::new();
     let _ = write!(
@@ -3405,6 +3468,11 @@ fn emit_rustcdiag_evidence(evidence: RustcDiagEvidence) {
 }
 
 fn emit_rustclock_evidence(evidence: RustclockEvidence) {
+    let _retained_evidence = (
+        evidence.stderr_bytes,
+        evidence.stderr.as_slice(),
+        evidence.trap.as_slice(),
+    );
     // `ip` is a wasmi bytecode instruction index stable per compiled body,
     // NOT a Wasm byte offset.
     for record in evidence.execution_trace.cmpxchg_records() {
@@ -3449,6 +3517,44 @@ fn emit_rustclock_evidence(evidence: RustclockEvidence) {
         evidence.execution_trace.fuel_park_total(),
         u8::from(evidence.capped),
     ));
+}
+
+#[cfg(test)]
+mod evidence_tests {
+    use super::{
+        sanitized_ascii_prefix, RUSTCDIAG_STDERR_MORE_CAP, RUSTCDIAG_TEXT_FIELD_CAP,
+        RUSTCDIAG_TRAP_CAP,
+    };
+    use alloc::{vec, vec::Vec};
+
+    #[test]
+    fn evidence_text_is_printable_ascii_and_hard_capped() {
+        assert_eq!(sanitized_ascii_prefix(&[0x1f, 0x20, 0x7e, 0x7f], 4), ". ~.");
+
+        let oversized = vec![b'x'; RUSTCDIAG_TEXT_FIELD_CAP + 1];
+        assert_eq!(
+            sanitized_ascii_prefix(&oversized, RUSTCDIAG_TEXT_FIELD_CAP).len(),
+            RUSTCDIAG_TEXT_FIELD_CAP,
+        );
+        assert_eq!(
+            sanitized_ascii_prefix(&oversized, RUSTCDIAG_TRAP_CAP).len(),
+            RUSTCDIAG_TRAP_CAP,
+        );
+
+        let retained_stderr = vec![b'x'; 4096];
+        let emitted_chunks = retained_stderr
+            .chunks(RUSTCDIAG_TEXT_FIELD_CAP)
+            .take(1 + RUSTCDIAG_STDERR_MORE_CAP)
+            .collect::<Vec<_>>();
+        assert_eq!(emitted_chunks.len(), 1 + RUSTCDIAG_STDERR_MORE_CAP);
+        assert_eq!(
+            emitted_chunks
+                .iter()
+                .map(|chunk| chunk.len())
+                .sum::<usize>(),
+            RUSTCDIAG_TEXT_FIELD_CAP * (1 + RUSTCDIAG_STDERR_MORE_CAP),
+        );
+    }
 }
 
 pub(crate) fn emit_wasi_rustcrun() {
