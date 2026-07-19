@@ -14,9 +14,9 @@ use wasmi::{
 };
 
 use super::wasi_preview1::{
-    MemoryGrowEvidence, OutputSummary, ProcExitTrap, RecentAtomicEvent, RecentWasiCall,
-    SpawnRequest, WasiHostState, RECENT_ATOMIC_EVENT_COUNT, RECENT_WASI_CALL_COUNT,
-    WASI_IMPORT_CALL_COUNT,
+    DeniedPathOpen, MemoryGrowEvidence, OutputSummary, ProcExitTrap, RecentAtomicEvent,
+    RecentWasiCall, SpawnRequest, WasiHostState, DENIED_PATH_OPEN_COUNT, RECENT_ATOMIC_EVENT_COUNT,
+    RECENT_WASI_CALL_COUNT, WASI_IMPORT_CALL_COUNT,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,6 +62,7 @@ pub(crate) struct WasiThreadDiagRunEvidence {
     pub(crate) execution_profile: ExecutionProfile,
     pub(crate) import_call_counts: [u64; WASI_IMPORT_CALL_COUNT],
     pub(crate) recent_calls: [Option<RecentWasiCall>; RECENT_WASI_CALL_COUNT],
+    pub(crate) denied_path_opens: [Option<DeniedPathOpen>; DENIED_PATH_OPEN_COUNT],
     pub(crate) atomic_wait_total: u64,
     pub(crate) atomic_notify_total: u64,
     pub(crate) recent_atomic_events: [Option<RecentAtomicEvent>; RECENT_ATOMIC_EVENT_COUNT],
@@ -322,6 +323,7 @@ impl WasiThreadJobRunner {
             cap_denials,
             import_call_counts,
             recent_calls,
+            denied_path_opens,
             atomic_wait_total,
             atomic_notify_total,
             recent_atomic_events,
@@ -329,6 +331,7 @@ impl WasiThreadJobRunner {
             let state = self.store.data();
             let import_call_counts = *state.import_call_counts();
             let recent_calls = state.recent_calls();
+            let denied_path_opens = state.denied_path_opens();
             let atomic_wait_total = state.atomic_wait_total();
             let atomic_notify_total = state.atomic_notify_total();
             let recent_atomic_events = state.recent_atomic_events();
@@ -344,6 +347,7 @@ impl WasiThreadJobRunner {
                     world.cap_denials,
                     import_call_counts,
                     recent_calls,
+                    denied_path_opens,
                     atomic_wait_total,
                     atomic_notify_total,
                     recent_atomic_events,
@@ -359,6 +363,7 @@ impl WasiThreadJobRunner {
                     0,
                     import_call_counts,
                     recent_calls,
+                    denied_path_opens,
                     atomic_wait_total,
                     atomic_notify_total,
                     recent_atomic_events,
@@ -385,6 +390,7 @@ impl WasiThreadJobRunner {
             execution_profile: self.store.execution_profile(),
             import_call_counts,
             recent_calls,
+            denied_path_opens,
             atomic_wait_total,
             atomic_notify_total,
             recent_atomic_events,

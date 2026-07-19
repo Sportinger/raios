@@ -54,8 +54,9 @@ use super::{
         BuildChunkStoreError, GrantedChunkReadDenied, GrantedChunkReader, UnbackedChunkStore,
     },
     wasi_preview1::{
-        define_wasi_imports, AtomicEventKind, MemoryGrowEvidence, OutputSummary, ProcExitTrap,
-        RecentAtomicEvent, RecentWasiCall, ThreadHostMode, ThreadWorld, WasiHostState,
+        define_wasi_imports, AtomicEventKind, DeniedPathOpen, MemoryGrowEvidence, OutputSummary,
+        ProcExitTrap, RecentAtomicEvent, RecentWasiCall, ThreadHostMode, ThreadWorld,
+        WasiHostState, DENIED_PATH_OPEN_COUNT, DENIED_PATH_OPEN_PATH_CAP,
         RECENT_ATOMIC_EVENT_COUNT, RECENT_WASI_CALL_COUNT, WASI_IMPORT_CALL_COUNT,
     },
     wasi_thread_pump::{
@@ -378,6 +379,7 @@ struct RustcBuildEvidence {
     diagnostic: RustcDiagEvidence,
     exit_code: Option<u32>,
     output_summary: Option<OutputSummary>,
+    denied_path_opens: [Option<DeniedPathOpen>; DENIED_PATH_OPEN_COUNT],
     reason: &'static str,
 }
 
@@ -385,12 +387,48 @@ struct OptionalSha256(Option<[u8; 32]>);
 
 struct OptionalExitCode(Option<u32>);
 
+struct EscapedPath<'a>(&'a [u8]);
+
+const DENIED_PATH_OPEN_LINE_MAX: usize = "RAIOS_RUSTCBUILD_DENIEDOPEN_E".len()
+    + 1
+    + " fd:".len()
+    + 10
+    + ":lf:".len()
+    + 8
+    + ":of:".len()
+    + 8
+    + ":ff:".len()
+    + 4
+    + ":rb:".len()
+    + 16
+    + ":ri:".len()
+    + 16
+    + ":errno:".len()
+    + 5
+    + ":path:".len()
+    + DENIED_PATH_OPEN_PATH_CAP * 3
+    + 1;
+const _: [(); 1] = [(); (DENIED_PATH_OPEN_LINE_MAX < 512) as usize];
+
 impl fmt::Display for OptionalExitCode {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             Some(code) => write!(formatter, "{code}"),
             None => formatter.write_str("none"),
         }
+    }
+}
+
+impl fmt::Display for EscapedPath<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in self.0 {
+            if (0x20..=0x7e).contains(byte) {
+                formatter.write_char(char::from(*byte))?;
+            } else {
+                write!(formatter, "%{byte:02X}")?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -466,6 +504,7 @@ impl RustcDiagEvidence {
             execution_profile,
             import_call_counts,
             recent_calls,
+            denied_path_opens: _,
             atomic_wait_total,
             atomic_notify_total,
             recent_atomic_events,
@@ -505,6 +544,7 @@ impl RustcBuildEvidence {
             diagnostic: RustcDiagEvidence::failed(reason),
             exit_code: None,
             output_summary: None,
+            denied_path_opens: [None; DENIED_PATH_OPEN_COUNT],
             reason,
         }
     }
@@ -515,12 +555,14 @@ impl RustcBuildEvidence {
             WasiThreadJobEnd::JobDeadlocked | WasiThreadJobEnd::Failed(_) => None,
         };
         let output_summary = run.output_summary;
+        let denied_path_opens = run.denied_path_opens;
         let diagnostic = RustcDiagEvidence::completed(run);
         let reason = rustcbuild_completion_reason(diagnostic.reason, output_summary);
         Self {
             diagnostic,
             exit_code,
             output_summary,
+            denied_path_opens,
             reason,
         }
     }
@@ -3944,6 +3986,23 @@ fn emit_rustcbuild_evidence(evidence: RustcBuildEvidence) {
         out_bytes,
         OptionalSha256(out_sha),
     ));
+    let denied_count = evidence.denied_path_opens.iter().flatten().count();
+    crate::serial::write_raw_fmt(format_args!(
+        "RAIOS_RUSTCBUILD_DENIEDOPEN n={denied_count}\n"
+    ));
+    for (index, entry) in evidence.denied_path_opens.iter().flatten().enumerate() {
+        crate::serial::write_raw_fmt(format_args!(
+            "RAIOS_RUSTCBUILD_DENIEDOPEN_E{index} fd:{}:lf:{:08x}:of:{:08x}:ff:{:04x}:rb:{:016x}:ri:{:016x}:errno:{}:path:{}\n",
+            entry.fd,
+            entry.lookup_flags,
+            entry.open_flags,
+            entry.fd_flags,
+            entry.rights_base,
+            entry.rights_inheriting,
+            entry.errno,
+            EscapedPath(entry.path()),
+        ));
+    }
     emit_rustc_stdout(
         evidence.diagnostic.stdout_bytes,
         &evidence.diagnostic.stdout,
@@ -4163,11 +4222,12 @@ fn emit_rustclock_evidence(evidence: RustclockEvidence) {
 mod evidence_tests {
     use super::{
         rustcbuild_args, rustcbuild_completion_reason, rustcbuild_src_load_reason,
-        rustcbuild_src_manifest_matches, sanitized_ascii_prefix, HELLO_SRC_BUILD_FS_MANIFEST_LEN,
+        rustcbuild_src_manifest_matches, sanitized_ascii_prefix, EscapedPath,
+        DENIED_PATH_OPEN_LINE_MAX, HELLO_SRC_BUILD_FS_MANIFEST_LEN,
         HELLO_SRC_BUILD_FS_MANIFEST_SHA256, HELLO_SRC_FIXTURE, RUSTCDIAG_STDERR_MORE_CAP,
         RUSTCDIAG_TEXT_FIELD_CAP, RUSTCDIAG_TRAP_CAP,
     };
-    use alloc::{string::ToString, vec, vec::Vec};
+    use alloc::{format, string::ToString, vec, vec::Vec};
     use raios_core::{
         buildfs_manifest::{BuildFsChunk, BuildFsFile, BuildFsManifest},
         parse_sha256_ref, sha256_bytes,
@@ -4219,6 +4279,15 @@ mod evidence_tests {
                 .sum::<usize>(),
             RUSTCDIAG_TEXT_FIELD_CAP * (1 + RUSTCDIAG_STDERR_MORE_CAP),
         );
+    }
+
+    #[test]
+    fn denied_path_open_escape_is_raw_deterministic_and_line_is_bounded() {
+        assert_eq!(
+            format!("{}", EscapedPath(b"/out/a b\x00\x7f\x80")),
+            "/out/a b%00%7F%80"
+        );
+        assert!(DENIED_PATH_OPEN_LINE_MAX < 512);
     }
 
     #[test]

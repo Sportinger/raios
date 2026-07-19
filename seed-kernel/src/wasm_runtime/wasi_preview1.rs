@@ -27,6 +27,8 @@ const OFLAGS_TRUNC: u32 = 8;
 pub(crate) const WASI_IMPORT_CALL_COUNT: usize = 30;
 pub(crate) const RECENT_WASI_CALL_COUNT: usize = 8;
 pub(crate) const RECENT_ATOMIC_EVENT_COUNT: usize = 16;
+pub(crate) const DENIED_PATH_OPEN_COUNT: usize = 4;
+pub(crate) const DENIED_PATH_OPEN_PATH_CAP: usize = 96;
 pub(crate) const MEMORY_GROW_EVIDENCE_CAP: usize = 16;
 const SCHEDULED_STDERR_CAP: usize = 4096;
 const WASM_PAGE_BYTES: usize = 64 * 1024;
@@ -82,6 +84,71 @@ impl RecentWasiCall {
         arg1: 0,
         result_lo: 0,
     };
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct DeniedPathOpen {
+    pub(crate) fd: u32,
+    pub(crate) lookup_flags: u32,
+    pub(crate) open_flags: u32,
+    pub(crate) fd_flags: u16,
+    pub(crate) rights_base: u64,
+    pub(crate) rights_inheriting: u64,
+    pub(crate) errno: u16,
+    path: [u8; DENIED_PATH_OPEN_PATH_CAP],
+    path_len: u8,
+}
+
+impl DeniedPathOpen {
+    fn new(
+        fd: u32,
+        lookup_flags: u32,
+        open_flags: u32,
+        fd_flags: u16,
+        rights_base: u64,
+        rights_inheriting: u64,
+        errno: u16,
+        path: &[u8],
+    ) -> Self {
+        let mut retained_path = [0; DENIED_PATH_OPEN_PATH_CAP];
+        let path_len = path.len().min(DENIED_PATH_OPEN_PATH_CAP);
+        retained_path[..path_len].copy_from_slice(&path[..path_len]);
+        Self {
+            fd,
+            lookup_flags,
+            open_flags,
+            fd_flags,
+            rights_base,
+            rights_inheriting,
+            errno,
+            path: retained_path,
+            path_len: path_len as u8,
+        }
+    }
+
+    pub(crate) fn path(&self) -> &[u8] {
+        &self.path[..self.path_len as usize]
+    }
+}
+
+fn push_denied_path_open(
+    ring: &mut [Option<DeniedPathOpen>; DENIED_PATH_OPEN_COUNT],
+    entry: DeniedPathOpen,
+) {
+    let len = ring.iter().flatten().count();
+    if len != 0 && ring[len - 1] == Some(entry) {
+        return;
+    }
+    if len < DENIED_PATH_OPEN_COUNT {
+        ring[len] = Some(entry);
+        return;
+    }
+    let mut index = 1usize;
+    while index < DENIED_PATH_OPEN_COUNT {
+        ring[index - 1] = ring[index];
+        index += 1;
+    }
+    ring[DENIED_PATH_OPEN_COUNT - 1] = Some(entry);
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -293,6 +360,7 @@ pub(crate) struct WasiHostState {
     recent_calls: [RecentWasiCall; RECENT_WASI_CALL_COUNT],
     recent_call_next: u8,
     recent_call_len: u8,
+    denied_path_opens: [Option<DeniedPathOpen>; DENIED_PATH_OPEN_COUNT],
     atomic_wait_total: u64,
     atomic_notify_total: u64,
     recent_atomic_events: [RecentAtomicEvent; RECENT_ATOMIC_EVENT_COUNT],
@@ -322,6 +390,7 @@ impl WasiHostState {
             recent_calls: [RecentWasiCall::EMPTY; RECENT_WASI_CALL_COUNT],
             recent_call_next: 0,
             recent_call_len: 0,
+            denied_path_opens: [None; DENIED_PATH_OPEN_COUNT],
             atomic_wait_total: 0,
             atomic_notify_total: 0,
             recent_atomic_events: [RecentAtomicEvent::EMPTY; RECENT_ATOMIC_EVENT_COUNT],
@@ -399,6 +468,39 @@ impl WasiHostState {
             index += 1;
         }
         snapshot
+    }
+
+    pub(crate) const fn denied_path_opens(
+        &self,
+    ) -> [Option<DeniedPathOpen>; DENIED_PATH_OPEN_COUNT] {
+        self.denied_path_opens
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_denied_path_open(
+        &mut self,
+        fd: u32,
+        lookup_flags: u32,
+        open_flags: u32,
+        fd_flags: u16,
+        rights_base: u64,
+        rights_inheriting: u64,
+        errno: u16,
+        path: &[u8],
+    ) {
+        push_denied_path_open(
+            &mut self.denied_path_opens,
+            DeniedPathOpen::new(
+                fd,
+                lookup_flags,
+                open_flags,
+                fd_flags,
+                rights_base,
+                rights_inheriting,
+                errno,
+                path,
+            ),
+        );
     }
 
     pub(crate) const fn atomic_wait_total(&self) -> u64 {
@@ -674,7 +776,8 @@ fn retain_prefix(destination: &mut Vec<u8>, bytes: &[u8], cap: usize) {
 #[cfg(test)]
 mod tests {
     use super::{
-        encode_dirents, retain_prefix, summarize_output_manifest, MemoryGrowEvidence,
+        encode_dirents, push_denied_path_open, retain_prefix, summarize_output_manifest,
+        DeniedPathOpen, MemoryGrowEvidence, DENIED_PATH_OPEN_COUNT, DENIED_PATH_OPEN_PATH_CAP,
         MEMORY_GROW_EVIDENCE_CAP, WASM_PAGE_BYTES,
     };
     use alloc::{vec, vec::Vec};
@@ -713,6 +816,32 @@ mod tests {
         assert_eq!(last.desired_pages, 16);
         assert_eq!(last.maximum_pages, 16_384);
         assert!(!last.limiter_approved);
+    }
+
+    fn denied_path_open(errno: u16, path: &[u8]) -> DeniedPathOpen {
+        DeniedPathOpen::new(4, 1, 9, 2, 3, 5, errno, path)
+    }
+
+    #[test]
+    fn denied_path_open_ring_deduplicates_consecutive_and_retains_last_four() {
+        let mut ring = [None; DENIED_PATH_OPEN_COUNT];
+        push_denied_path_open(&mut ring, denied_path_open(1, b"one"));
+        push_denied_path_open(&mut ring, denied_path_open(1, b"one"));
+        for errno in 2..=5 {
+            push_denied_path_open(&mut ring, denied_path_open(errno, b"next"));
+        }
+
+        assert_eq!(
+            ring.map(|entry| entry.expect("full ring").errno),
+            [2, 3, 4, 5]
+        );
+    }
+
+    #[test]
+    fn denied_path_open_retains_only_the_first_96_raw_bytes() {
+        let path = [0x80; DENIED_PATH_OPEN_PATH_CAP + 1];
+        let entry = denied_path_open(76, &path);
+        assert_eq!(entry.path(), &path[..DENIED_PATH_OPEN_PATH_CAP]);
     }
 
     #[test]
@@ -1541,11 +1670,15 @@ fn host_path_open(
         ],
     );
     let mut opened_bytes = [0u8; 4];
+    let mut denied_path = [0u8; DENIED_PATH_OPEN_PATH_CAP];
+    let mut denied_path_len = 0usize;
     let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         let path_range = byte_range(caller, path_ptr as u32, path_len as u32)?;
         let result_range = aligned_range(caller, result_ptr as u32, 4, 4)?;
         let path = read_validated(caller, path_range)?;
+        denied_path_len = path.len().min(DENIED_PATH_OPEN_PATH_CAP);
+        denied_path[..denied_path_len].copy_from_slice(&path[..denied_path_len]);
         argument_digest = effect_digest(
             WasiEffectOpcode::PathOpen,
             &[
@@ -1579,6 +1712,18 @@ fn host_path_open(
         opened_bytes = opened.0.to_le_bytes();
         write_validated(caller, result_range, &opened_bytes)
     });
+    if errno != SUCCESS {
+        caller.data_mut().record_denied_path_open(
+            fd as u32,
+            lookup_flags as u32,
+            open_flags as u32,
+            fd_flags as u16,
+            rights_base as u64,
+            rights_inheriting as u64,
+            errno as u16,
+            &denied_path[..denied_path_len],
+        );
+    }
     finish_effect_call(
         &mut caller,
         WasiEffectOpcode::PathOpen,
