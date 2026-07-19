@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use core::fmt;
 use spin::Mutex;
 
@@ -26,6 +27,21 @@ pub struct PciBar {
     pub kind: PciBarKind,
     pub base: u64,
     pub size: u64,
+}
+
+#[derive(Debug)]
+pub struct PciFunction {
+    pub bus: u8,
+    pub device: u8,
+    pub function: u8,
+    pub vendor_id: u16,
+    pub device_id: u16,
+    pub class: u8,
+    pub subclass: u8,
+    pub prog_if: u8,
+    pub interrupt_line: u8,
+    pub interrupt_pin: u8,
+    pub bars: Vec<PciBar>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -219,6 +235,76 @@ pub fn read_bar_info(address: PciAddress, index: u8) -> Option<PciBar> {
 
     address.write_u16(0x04, command);
     result
+}
+
+pub fn read_interrupt_line(address: PciAddress) -> u8 {
+    address.read_u8(0x3c)
+}
+
+pub fn read_interrupt_pin(address: PciAddress) -> u8 {
+    address.read_u8(0x3d)
+}
+
+pub fn enumerate_functions() -> Vec<PciFunction> {
+    let mut functions = Vec::new();
+    for bus in 0..=255 {
+        for device in 0..32 {
+            let function_zero = PciAddress::new(bus, device, 0);
+            if read_vendor(&function_zero) == 0xffff {
+                continue;
+            }
+            let function_count = if has_multiple_functions(&function_zero) {
+                8
+            } else {
+                1
+            };
+            for function in 0..function_count {
+                let address = PciAddress::new(bus, device, function);
+                let vendor_id = read_vendor(&address);
+                if vendor_id == 0xffff {
+                    continue;
+                }
+
+                let header_type = address.read_u8(0x0e) & 0x7f;
+                let bar_count = match header_type {
+                    0x00 => 6,
+                    0x01 => 2,
+                    0x02 => 1,
+                    _ => 0,
+                };
+                let mut bars = Vec::new();
+                let mut index = 0;
+                while index < bar_count {
+                    if let Some(bar) = read_bar_info(address, index) {
+                        let slots = if bar.kind == PciBarKind::Memory64 {
+                            2
+                        } else {
+                            1
+                        };
+                        bars.push(bar);
+                        index += slots;
+                    } else {
+                        index += 1;
+                    }
+                }
+
+                functions.push(PciFunction {
+                    bus,
+                    device,
+                    function,
+                    vendor_id,
+                    device_id: read_device_id(&address),
+                    class: address.read_u8(0x0b),
+                    subclass: address.read_u8(0x0a),
+                    prog_if: address.read_u8(0x09),
+                    interrupt_line: read_interrupt_line(address),
+                    interrupt_pin: read_interrupt_pin(address),
+                    bars,
+                });
+            }
+        }
+    }
+    functions
 }
 
 pub fn find_device(vendor: u16, device: u16) -> Option<PciAddress> {

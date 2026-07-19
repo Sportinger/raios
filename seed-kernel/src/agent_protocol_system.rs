@@ -868,32 +868,117 @@ pub(crate) fn emit_persist_layout() {
 
 pub(crate) fn emit_device_graph(runtime: ui::RuntimeStatus) {
     let status = SystemSnapshot::collect(None, runtime);
+    fn pci_bar(bar: &pci::PciBar) -> V<'static> {
+        let kind = match bar.kind {
+            pci::PciBarKind::Io => "io",
+            pci::PciBarKind::Memory32 => "memory32",
+            pci::PciBarKind::Memory64 => "memory64",
+        };
+        V::InlineObject(vec![
+            f("index", V::U64(bar.index as u64)),
+            f("kind", s(kind)),
+            f("base", V::U64(bar.base)),
+            f("size", V::U64(bar.size)),
+        ])
+    }
+    fn pci_function(function: &pci::PciFunction) -> V<'static> {
+        V::InlineObject(vec![
+            f("bus", V::U64(function.bus as u64)),
+            f("device", V::U64(function.device as u64)),
+            f("function", V::U64(function.function as u64)),
+            f("vendor_id", V::U64(function.vendor_id as u64)),
+            f("device_id", V::U64(function.device_id as u64)),
+            f("class", V::U64(function.class as u64)),
+            f("subclass", V::U64(function.subclass as u64)),
+            f("prog_if", V::U64(function.prog_if as u64)),
+            f("interrupt_line", V::U64(function.interrupt_line as u64)),
+            f("interrupt_pin", V::U64(function.interrupt_pin as u64)),
+            f(
+                "bars",
+                V::Array(function.bars.iter().map(pci_bar).collect()),
+            ),
+        ])
+    }
     fn device<'a>(
         id: &'static str,
         kind: &'static str,
         line: &'a system_status::StatusLine,
+        pci: V<'a>,
     ) -> V<'a> {
         V::InlineObject(vec![
             f("id", s(id)),
             f("kind", s(kind)),
             f("state", s(line.state.as_protocol())),
             f("detail", s(line.detail.as_str())),
+            f("pci", pci),
         ])
     }
+    let pci_functions = pci::enumerate_functions();
+    let usb_pci = pci_functions
+        .iter()
+        .find(|function| {
+            function.class == 0x0c && function.subclass == 0x03 && function.prog_if == 0x30
+        })
+        .map(pci_function)
+        .unwrap_or(V::Null);
+    let wifi_pci = pci_functions
+        .iter()
+        .find(|function| function.vendor_id == 0x11ab && function.device_id == 0x2b38)
+        .map(pci_function)
+        .unwrap_or(V::Null);
+    let e1000_pci = pci_functions
+        .iter()
+        .find(|function| function.vendor_id == 0x8086 && function.device_id == 0x100e)
+        .or_else(|| {
+            pci_functions
+                .iter()
+                .find(|function| function.vendor_id == 0x8086 && function.device_id == 0x100f)
+        })
+        .map(pci_function)
+        .unwrap_or(V::Null);
+    let pci_function_values = pci_functions.iter().map(pci_function).collect();
     emit_system_observation(
         "device.graph",
         "device.graph",
-        V::InlineObject(vec![f(
-            "devices",
-            V::Array(vec![
-                device("framebuffer.limine", "framebuffer", &status.framebuffer),
-                device("entropy.rdrand", "entropy_source", &status.entropy),
-                device("usb.xhci", "bus_controller", &status.usb_xhci),
-                device("wifi.avastar_88w8897", "pci_wifi_target", &status.wifi),
-                device("net.e1000", "pci_nic", &status.network),
-                device("input.console", "input", &status.input),
-            ]),
-        )]),
+        V::InlineObject(vec![
+            f(
+                "devices",
+                V::Array(vec![
+                    device(
+                        "framebuffer.limine",
+                        "framebuffer",
+                        &status.framebuffer,
+                        V::Null,
+                    ),
+                    device(
+                        "entropy.rdrand",
+                        "entropy_source",
+                        &status.entropy,
+                        V::Null,
+                    ),
+                    device(
+                        "usb.xhci",
+                        "bus_controller",
+                        &status.usb_xhci,
+                        usb_pci,
+                    ),
+                    device(
+                        "wifi.avastar_88w8897",
+                        "pci_wifi_target",
+                        &status.wifi,
+                        wifi_pci,
+                    ),
+                    device(
+                        "net.e1000",
+                        "pci_nic",
+                        &status.network,
+                        e1000_pci,
+                    ),
+                    device("input.console", "input", &status.input, V::Null),
+                ]),
+            ),
+            f("pci_functions", V::Array(pci_function_values)),
+        ]),
         vec![],
         "device_graph_observed",
     );

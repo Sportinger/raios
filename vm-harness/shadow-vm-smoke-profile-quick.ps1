@@ -1031,6 +1031,69 @@
         if ($envelopedDeviceGraph.schema -ne "raios.evidence_response.v1" -or $envelopedDeviceGraph.family -ne "device.graph" -or $null -ne $envelopedDeviceGraph.event_id -or $envelopedDeviceGraph.decision.outcome -ne "observed" -or $null -ne $envelopedDeviceGraph.decision.grants -or $null -ne $envelopedDeviceGraph.decision.effects) {
             throw "Expected accepted agent command envelope to route through device.graph"
         }
+        $isJsonInteger = {
+            param($Value)
+            return $Value -is [int] -or $Value -is [long]
+        }
+        $pciFunctionsProperty = $envelopedDeviceGraph.facts.PSObject.Properties["pci_functions"]
+        if ($null -eq $pciFunctionsProperty -or $pciFunctionsProperty.Value -isnot [System.Array] -or @($pciFunctionsProperty.Value).Count -lt 1) {
+            throw "Expected device.graph pci_functions to be a non-empty array"
+        }
+        $pciFunctions = @($pciFunctionsProperty.Value)
+        foreach ($pciFunction in $pciFunctions) {
+            foreach ($field in @("bus", "device", "function", "vendor_id", "device_id", "class", "subclass", "prog_if", "interrupt_line", "interrupt_pin")) {
+                $property = $pciFunction.PSObject.Properties[$field]
+                if ($null -eq $property -or -not (& $isJsonInteger $property.Value)) {
+                    throw "Expected every device.graph pci_functions entry to carry numeric $field"
+                }
+            }
+            if ($pciFunction.vendor_id -eq 0xffff) {
+                throw "Expected device.graph pci_functions to exclude absent vendor 0xffff functions"
+            }
+            $barsProperty = $pciFunction.PSObject.Properties["bars"]
+            if ($null -eq $barsProperty -or $barsProperty.Value -isnot [System.Array]) {
+                throw "Expected every device.graph pci_functions entry to carry a bars array"
+            }
+        }
+
+        $e1000Rows = @($envelopedDeviceGraph.facts.devices | Where-Object { $_.id -eq "net.e1000" })
+        if ($e1000Rows.Count -ne 1) {
+            throw "Expected device.graph to carry exactly one net.e1000 row"
+        }
+        $e1000PciProperty = $e1000Rows[0].PSObject.Properties["pci"]
+        if ($null -eq $e1000PciProperty -or $null -eq $e1000PciProperty.Value) {
+            throw "Expected device.graph net.e1000 row to carry observed pci data"
+        }
+        foreach ($field in @("bus", "device", "function", "vendor_id", "device_id", "class", "subclass", "prog_if", "interrupt_line", "interrupt_pin")) {
+            $property = $e1000PciProperty.Value.PSObject.Properties[$field]
+            if ($null -eq $property -or -not (& $isJsonInteger $property.Value)) {
+                throw "Expected device.graph net.e1000 pci data to carry numeric $field"
+            }
+        }
+        $e1000BarsProperty = $e1000PciProperty.Value.PSObject.Properties["bars"]
+        if ($null -eq $e1000BarsProperty -or $e1000BarsProperty.Value -isnot [System.Array] -or @($e1000BarsProperty.Value).Count -lt 1) {
+            throw "Expected device.graph net.e1000 pci data to carry a non-empty bars array"
+        }
+        foreach ($bar in @($e1000BarsProperty.Value)) {
+            foreach ($field in @("index", "base", "size")) {
+                $property = $bar.PSObject.Properties[$field]
+                if ($null -eq $property -or -not (& $isJsonInteger $property.Value)) {
+                    throw "Expected every device.graph net.e1000 BAR to carry numeric $field"
+                }
+            }
+            if ($null -eq $bar.PSObject.Properties["kind"] -or @("io", "memory32", "memory64") -notcontains $bar.kind) {
+                throw "Expected every device.graph net.e1000 BAR to carry a typed kind"
+            }
+        }
+
+        $wifiRows = @($envelopedDeviceGraph.facts.devices | Where-Object { $_.id -eq "wifi.avastar_88w8897" })
+        if ($wifiRows.Count -ne 1) {
+            throw "Expected device.graph to carry exactly one wifi.avastar_88w8897 row"
+        }
+        $wifiPciProperty = $wifiRows[0].PSObject.Properties["pci"]
+        if ($null -eq $wifiPciProperty -or $null -ne $wifiPciProperty.Value) {
+            throw "Expected absent QEMU wifi.avastar_88w8897 hardware to carry pci null"
+        }
 
         $serviceInventoryEnvelopeCommand = "agent command_envelope schema=raios.agent_command_envelope.v0 target_method=service.inventory requested_capability=cap.service.inventory.read classification=local_only"
         Send-AgentCommand -Command $serviceInventoryEnvelopeCommand -ExpectedMarker "RAIOS_AGENT_END service.inventory"
