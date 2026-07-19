@@ -179,10 +179,36 @@ impl WasiBuildInstance {
         requested_rights_inheriting: Rights,
         flags: FdFlags,
     ) -> Result<Fd, Errno> {
+        self.path_open_with_directory_flag(
+            parent_fd,
+            path,
+            create,
+            truncate,
+            false,
+            requested_rights_base,
+            requested_rights_inheriting,
+            flags,
+        )
+    }
+
+    pub fn path_open_with_directory_flag(
+        &mut self,
+        parent_fd: Fd,
+        path: &[u8],
+        create: bool,
+        truncate: bool,
+        directory: bool,
+        requested_rights_base: Rights,
+        requested_rights_inheriting: Rights,
+        flags: FdFlags,
+    ) -> Result<Fd, Errno> {
         let parent = self.directory_entry(parent_fd, Rights::PATH_OPEN)?;
         match self.resolve_existing(parent, path) {
             Ok(target) => {
                 self.validate_open_policy(target.mount_id, create, truncate, flags)?;
+                if directory && target.file_type != FileType::Directory {
+                    return Err(Errno::Notdir);
+                }
                 let (next_fds, fd) = self.open_resolved(
                     parent_fd,
                     target,
@@ -194,6 +220,9 @@ impl WasiBuildInstance {
                 Ok(fd)
             }
             Err(Errno::Noent) if create => {
+                if directory {
+                    return Err(Errno::Noent);
+                }
                 if !parent.rights_base.contains(Rights::PATH_CREATE_FILE) {
                     return Err(Errno::Notcapable);
                 }
@@ -843,6 +872,7 @@ mod tests {
     use crate::{BuildFsManifestView, ChunkReadError, ChunkReadRequest};
 
     struct OneFileManifest {
+        directories: &'static [&'static str],
         path: &'static str,
         bytes: &'static [u8],
     }
@@ -852,10 +882,10 @@ mod tests {
             64 * 1024
         }
         fn directory_count(&self) -> usize {
-            0
+            self.directories.len()
         }
-        fn directory_path(&self, _index: usize) -> Option<&str> {
-            None
+        fn directory_path(&self, index: usize) -> Option<&str> {
+            self.directories.get(index).copied()
         }
         fn file_count(&self) -> usize {
             1
@@ -900,11 +930,13 @@ mod tests {
 
     fn instance() -> WasiBuildInstance {
         let sysroot = BuildFs::project(&OneFileManifest {
+            directories: &[],
             path: "tool",
             bytes: b"sys",
         })
         .unwrap();
         let source = BuildFs::project(&OneFileManifest {
+            directories: &[],
             path: "main.rs",
             bytes: b"src",
         })
@@ -984,6 +1016,98 @@ mod tests {
         ));
         assert!(!entry.rights_base.contains(Rights::FD_WRITE));
         assert_eq!(instance.fd_write(fd, b"x"), Err(Errno::Rofs));
+    }
+
+    #[test]
+    fn readonly_sysroot_directory_open_preserves_readdir_and_lists_std_rlib() {
+        const LIB_DIR: &[u8] = b"sysroot/lib/rustlib/wasm32-wasip1-threads/lib";
+        const STD_RLIB: &str = "lib/rustlib/wasm32-wasip1-threads/lib/libstd-9d7bbafe636fd70f.rlib";
+        let sysroot = BuildFs::project(&OneFileManifest {
+            directories: &[
+                "lib",
+                "lib/rustlib",
+                "lib/rustlib/wasm32-wasip1-threads",
+                "lib/rustlib/wasm32-wasip1-threads/lib",
+            ],
+            path: STD_RLIB,
+            bytes: b"std",
+        })
+        .unwrap();
+        let source = BuildFs::project(&OneFileManifest {
+            directories: &[],
+            path: "hello.rs",
+            bytes: b"fn main() {}",
+        })
+        .unwrap();
+        let job = JobContext::new(vec![b"rustc".to_vec()], Vec::new(), [7; 32]).unwrap();
+        let quotas = RamQuotas::new(1024, 16, 16, 1024);
+        let mut instance = WasiBuildInstance::new(
+            sysroot,
+            source,
+            job,
+            WasiBuildLimits::new(32, quotas, quotas),
+        )
+        .unwrap();
+
+        let fd = instance
+            .path_open_with_directory_flag(
+                Fd::ROOT_PREOPEN,
+                LIB_DIR,
+                false,
+                false,
+                true,
+                Rights::ALL,
+                Rights::ALL,
+                FdFlags::EMPTY,
+            )
+            .unwrap();
+        let opened = *instance.fd_table().get(fd).unwrap();
+        assert_eq!(opened.file_type, FileType::Directory);
+        assert_eq!(opened.rights_base, readonly_rights());
+        assert_eq!(opened.rights_inheriting, readonly_rights());
+        for required in [
+            Rights::FD_READDIR,
+            Rights::PATH_OPEN,
+            Rights::PATH_FILESTAT_GET,
+            Rights::FD_FILESTAT_GET,
+        ] {
+            assert!(opened.rights_base.contains(required));
+            assert!(opened.rights_inheriting.contains(required));
+        }
+        for forbidden in [
+            Rights::FD_WRITE,
+            Rights::PATH_CREATE_DIRECTORY,
+            Rights::PATH_CREATE_FILE,
+        ] {
+            assert!(!opened.rights_base.contains(forbidden));
+            assert!(!opened.rights_inheriting.contains(forbidden));
+        }
+        assert!(!crate::readonly::has_mutating_rights(opened.rights_base));
+        assert!(!crate::readonly::has_mutating_rights(
+            opened.rights_inheriting
+        ));
+
+        let entries = instance.fd_readdir(fd, 0, 12).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, b"libstd-9d7bbafe636fd70f.rlib");
+        assert_eq!(entries[0].file_type, FileType::RegularFile);
+        assert_eq!(entries[0].next_cookie, 1);
+
+        let before_non_directory = instance.clone();
+        assert_eq!(
+            instance.path_open_with_directory_flag(
+                Fd::ROOT_PREOPEN,
+                b"sysroot/lib/rustlib/wasm32-wasip1-threads/lib/libstd-9d7bbafe636fd70f.rlib",
+                false,
+                false,
+                true,
+                Rights::ALL,
+                Rights::ALL,
+                FdFlags::EMPTY,
+            ),
+            Err(Errno::Notdir)
+        );
+        assert_eq!(instance, before_non_directory);
     }
 
     #[test]

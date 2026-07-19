@@ -21,6 +21,9 @@ const SUCCESS: i32 = 0;
 const SUBSCRIPTION_SIZE: u32 = 48;
 const EVENT_SIZE: u32 = 32;
 const DIRENT_SIZE: usize = 24;
+const OFLAGS_CREAT: u32 = 1;
+const OFLAGS_DIRECTORY: u32 = 2;
+const OFLAGS_TRUNC: u32 = 8;
 pub(crate) const WASI_IMPORT_CALL_COUNT: usize = 30;
 pub(crate) const RECENT_WASI_CALL_COUNT: usize = 8;
 pub(crate) const RECENT_ATOMIC_EVENT_COUNT: usize = 16;
@@ -671,11 +674,12 @@ fn retain_prefix(destination: &mut Vec<u8>, bytes: &[u8], cap: usize) {
 #[cfg(test)]
 mod tests {
     use super::{
-        retain_prefix, summarize_output_manifest, MemoryGrowEvidence, MEMORY_GROW_EVIDENCE_CAP,
-        WASM_PAGE_BYTES,
+        encode_dirents, retain_prefix, summarize_output_manifest, MemoryGrowEvidence,
+        MEMORY_GROW_EVIDENCE_CAP, WASM_PAGE_BYTES,
     };
     use alloc::{vec, vec::Vec};
     use raios_wasi_preview1::output_manifest::{OutputDirectory, OutputFile, OutputManifest};
+    use raios_wasi_preview1::{Dirent, FileType, NodeRef};
 
     #[test]
     fn retained_prefix_stops_at_cap_without_replacing_earlier_bytes() {
@@ -727,6 +731,41 @@ mod tests {
             super::validate_lookup_flags(3),
             Err(raios_wasi_preview1::Errno::Notcapable)
         );
+    }
+
+    #[test]
+    fn path_open_accepts_directory_and_rejects_exclusive_or_unknown_flags() {
+        assert_eq!(super::validate_open_flags(0), Ok(0));
+        assert_eq!(super::validate_open_flags(2), Ok(2));
+        assert_eq!(super::validate_open_flags(3), Ok(3));
+        assert_eq!(super::validate_open_flags(10), Ok(10));
+        assert_eq!(
+            super::validate_open_flags(4),
+            Err(raios_wasi_preview1::Errno::Notcapable)
+        );
+        assert_eq!(
+            super::validate_open_flags(-1),
+            Err(raios_wasi_preview1::Errno::Notcapable)
+        );
+    }
+
+    #[test]
+    fn readdir_encoding_matches_preview1_dirent_layout() {
+        let encoded = encode_dirents(
+            &[Dirent {
+                next_cookie: 7,
+                inode: NodeRef(11),
+                file_type: FileType::RegularFile,
+                name: b"libstd-hash.rlib".to_vec(),
+            }],
+            128,
+        );
+        assert_eq!(&encoded[0..8], &7u64.to_le_bytes());
+        assert_eq!(&encoded[8..16], &11u64.to_le_bytes());
+        assert_eq!(&encoded[16..20], &16u32.to_le_bytes());
+        assert_eq!(encoded[20], FileType::RegularFile as u8);
+        assert_eq!(&encoded[21..24], &[0, 0, 0]);
+        assert_eq!(&encoded[24..], b"libstd-hash.rlib");
     }
 
     #[test]
@@ -1522,20 +1561,17 @@ fn host_path_open(
         // SYMLINK_FOLLOW is a no-op because the BuildFS/arena namespace has no
         // symlink type; all other lookup flags stay fail-closed.
         validate_lookup_flags(lookup_flags)?;
-        const OFLAGS_CREAT: u32 = 1;
-        const OFLAGS_TRUNC: u32 = 8;
-        if (open_flags as u32) & !(OFLAGS_CREAT | OFLAGS_TRUNC) != 0 {
-            return Err(Errno::Notcapable);
-        }
+        let open_flags = validate_open_flags(open_flags)?;
         let fd_flags = u16::try_from(fd_flags as u32)
             .ok()
             .and_then(|bits| FdFlags::from_bits(bits).ok())
             .ok_or(Errno::Inval)?;
-        let opened = caller.data_mut().instance.path_open(
+        let opened = caller.data_mut().instance.path_open_with_directory_flag(
             Fd(fd as u32),
             &path,
-            (open_flags as u32) & OFLAGS_CREAT != 0,
-            (open_flags as u32) & OFLAGS_TRUNC != 0,
+            open_flags & OFLAGS_CREAT != 0,
+            open_flags & OFLAGS_TRUNC != 0,
+            open_flags & OFLAGS_DIRECTORY != 0,
             Rights::from_bits(rights_base as u64)?,
             Rights::from_bits(rights_inheriting as u64)?,
             fd_flags,
@@ -2237,6 +2273,15 @@ fn append_bounded(output: &mut Vec<u8>, bytes: &[u8], limit: usize) {
 }
 
 const LOOKUPFLAGS_SYMLINK_FOLLOW: u32 = 1;
+
+fn validate_open_flags(open_flags: i32) -> Result<u32, Errno> {
+    let bits = open_flags as u32;
+    if bits & !(OFLAGS_CREAT | OFLAGS_DIRECTORY | OFLAGS_TRUNC) != 0 {
+        Err(Errno::Notcapable)
+    } else {
+        Ok(bits)
+    }
+}
 
 fn validate_lookup_flags(lookup_flags: i32) -> Result<(), Errno> {
     if (lookup_flags as u32) & !LOOKUPFLAGS_SYMLINK_FOLLOW != 0 {
