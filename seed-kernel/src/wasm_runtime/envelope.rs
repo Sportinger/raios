@@ -1,6 +1,8 @@
-use super::invocation::wasm_execution_busy;
+use super::grant_table::{GrantTable, HostImportId};
 use super::import_gate::ImportGate;
+use super::invocation::wasm_execution_busy;
 use super::*;
+use raios_core::host_import_abi_v1::HOST_IMPORT_ERROR_CAPABILITY_DENIED;
 
 const MAX_WASM_LOG_BYTES: usize = 256;
 // Keep in lockstep with the Phase-B guest buffer size.
@@ -12,6 +14,7 @@ pub(super) const WASM_MEMORY_PAGE_BYTES: usize = 64 * 1024;
 pub(super) const ZERO_SHA256: [u8; 32] = [0; 32];
 
 static CURRENT_BOOT_COUNTER: Mutex<u64> = Mutex::new(0);
+static NEXT_INSTANCE_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) struct EchoRunEvidence {
     pub(crate) validation_ok: bool,
@@ -48,6 +51,26 @@ pub(super) struct EnvelopeState {
     staged_input: Vec<u8>,
     captured_output: Vec<u8>,
     pub(super) limits: StoreLimits,
+    instance_generation: u64,
+    grants: GrantTable,
+}
+
+impl EnvelopeState {
+    pub(super) fn instance_generation(&self) -> u64 {
+        self.instance_generation
+    }
+
+    pub(super) fn grant_import(&mut self, surface: HostImportId) -> bool {
+        self.grants.grant(self.instance_generation, surface)
+    }
+
+    pub(super) fn revoke_import(&mut self, surface: HostImportId) -> bool {
+        self.grants.revoke(self.instance_generation, surface)
+    }
+
+    pub(super) fn import_is_live(&self, surface: HostImportId) -> bool {
+        self.grants.is_live(self.instance_generation, surface)
+    }
 }
 
 pub(super) struct AuthorizedWasmImports<'a> {
@@ -583,34 +606,50 @@ pub(super) fn metered_engine() -> Box<Engine> {
 }
 
 pub(super) fn default_state() -> EnvelopeState {
+    new_state(Vec::new(), StoreLimitsBuilder::new().build())
+}
+
+fn next_instance_generation() -> u64 {
+    NEXT_INSTANCE_GENERATION
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |generation| {
+            generation.checked_add(1)
+        })
+        .expect("Wasm instance generation space exhausted")
+}
+
+fn new_state(staged_input: Vec<u8>, limits: StoreLimits) -> EnvelopeState {
+    let instance_generation = next_instance_generation();
+    let mut grants = GrantTable::new();
+    // Slice 2 preserves existing env.counter_get behavior for the envelope
+    // constructors. The linker remains the grant-list boundary; this live
+    // slot adds revocable indirection only after the import was linked.
+    let _ = grants.grant(instance_generation, HostImportId::EnvCounterGet);
     EnvelopeState {
         log_line: None,
-        staged_input: Vec::new(),
+        staged_input,
         captured_output: Vec::new(),
-        limits: StoreLimitsBuilder::new().build(),
+        limits,
+        instance_generation,
+        grants,
     }
 }
 
 pub(super) fn limited_state(memory_size: usize) -> EnvelopeState {
-    EnvelopeState {
-        log_line: None,
-        staged_input: Vec::new(),
-        captured_output: Vec::new(),
-        limits: StoreLimitsBuilder::new()
+    new_state(
+        Vec::new(),
+        StoreLimitsBuilder::new()
             .memory_size(memory_size)
             .instances(1)
             .memories(1)
             .tables(0)
             .build(),
-    }
+    )
 }
 
 fn buffer_state(staged_input: &[u8]) -> EnvelopeState {
-    EnvelopeState {
-        log_line: None,
-        staged_input: staged_input.to_vec(),
-        captured_output: Vec::new(),
-        limits: StoreLimitsBuilder::new()
+    new_state(
+        staged_input.to_vec(),
+        StoreLimitsBuilder::new()
             .memory_size(BUFFER_SERVICE_MAX_MEMORY_BYTES)
             .instances(1)
             .memories(1)
@@ -621,7 +660,7 @@ fn buffer_state(staged_input: &[u8]) -> EnvelopeState {
             .tables(1)
             .table_elements(64)
             .build(),
-    }
+    )
 }
 
 pub(super) fn authorize_wasm_imports<'a>(
@@ -923,7 +962,16 @@ fn host_counter_get(mut caller: Caller<'_, EnvelopeState>) -> Result<i64, Trap> 
     caller
         .consume_fuel(5)
         .map_err(|_| Trap::from(TrapCode::OutOfFuel))?;
+    // env.counter_get is synchronous: this single bounded lookup and the
+    // counter effect below have no suspension point between them.
+    if !caller.data().import_is_live(HostImportId::EnvCounterGet) {
+        return Ok(HOST_IMPORT_ERROR_CAPABILITY_DENIED as i64);
+    }
     let mut counter = CURRENT_BOOT_COUNTER.lock();
     *counter = counter.saturating_add(1);
     Ok((*counter).min(i64::MAX as u64) as i64)
+}
+
+pub(super) fn current_boot_counter() -> u64 {
+    *CURRENT_BOOT_COUNTER.lock()
 }

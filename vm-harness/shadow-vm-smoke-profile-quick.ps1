@@ -2541,6 +2541,7 @@
         } else {
             Send-AgentCommand -Command "host_import.selftest" -ExpectedMarker "RAIOS_HOSTIMPORT disk=absent"
         }
+        Send-AgentCommand -Command "revoke.selftest" -ExpectedMarker "RAIOS_REVOKE selftest=pass surface=env.counter_get first_call=ok revoked=1 next_call=denied host_effect_delta=0 peer_surface=ok same_instance=1 logged=1"
         Send-AgentCommand -Command "storage.selftest" -ExpectedMarker "RAIOS_STORAGE selftest=pass absent_grant=storage_capability_absent out_of_range=output_span_out_of_artstor quota_overflow=output_span_length_exceeds_lease ram_quota=nospc logged=1 persistent_effect=0 media_write_attempts=0 ram_unchanged=1"
         if ($PersistDiskPath) {
             Send-AgentCommand -Command "storage.selftest" -ExpectedMarker "RAIOS_STORAGE disk=pass reclog_unchanged=1 artstor_unchanged=1"

@@ -50,6 +50,7 @@ mod artifacts;
 mod capability_selftest;
 mod crypto_shims;
 mod envelope;
+mod grant_table;
 mod host_import_selftest;
 mod import_gate;
 mod invocation;
@@ -57,6 +58,7 @@ mod isolation_selftest;
 mod net_shims;
 mod personal_shell;
 mod probes;
+mod revoke_selftest;
 mod suspension;
 mod thread_job;
 mod wasi_build_job;
@@ -104,6 +106,7 @@ pub(crate) use probes::{
     run_httphead_unauthorized_probe, BufechoRoundtripEvidence, EchoFuelStarvedEvidence, EchoProbe,
     WasmHardeningCase,
 };
+pub(crate) use revoke_selftest::emit_revoke_selftest;
 pub(crate) use thread_job::emit_threads_selftest;
 pub(crate) use wasi_build_job::{
     emit_storage_selftest, emit_wasi_compilerload, emit_wasi_mem_selftest, emit_wasi_rustcbuild,
