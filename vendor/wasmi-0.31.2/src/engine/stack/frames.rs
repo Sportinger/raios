@@ -1,8 +1,39 @@
 //! Data structures to represent the Wasm call stack during execution.
 
 use super::{err_stack_overflow, DEFAULT_MAX_RECURSION_DEPTH};
-use crate::{core::TrapCode, engine::code_map::InstructionPtr, Instance};
+use crate::{
+    core::TrapCode,
+    engine::{code_map::InstructionPtr, CompiledFunc},
+    Instance,
+};
 use alloc::vec::Vec;
+
+/// Identity of the guest function represented by an execution frame.
+#[derive(Debug, Copy, Clone)]
+pub(crate) struct ExecutionFunc {
+    function_index: u32,
+    body: CompiledFunc,
+}
+
+impl ExecutionFunc {
+    /// Creates guest function execution metadata.
+    pub(crate) fn new(function_index: u32, body: CompiledFunc) -> Self {
+        Self {
+            function_index,
+            body,
+        }
+    }
+
+    /// Returns the module-local Wasm function index.
+    pub(crate) fn function_index(self) -> u32 {
+        self.function_index
+    }
+
+    /// Returns the compiled function body identity.
+    pub(crate) fn body(self) -> CompiledFunc {
+        self.body
+    }
+}
 
 /// A function frame of a function on the call stack.
 #[derive(Debug, Copy, Clone)]
@@ -17,14 +48,21 @@ pub struct FuncFrame {
     /// non-local to the function such as linear memories, global variables
     /// and tables.
     instance: Instance,
+    /// Guest function identity when opt-in execution profiling is active.
+    execution_func: Option<ExecutionFunc>,
 }
 
 impl FuncFrame {
     /// Creates a new [`FuncFrame`].
-    pub fn new(ip: InstructionPtr, instance: &Instance) -> Self {
+    pub(crate) fn new(
+        ip: InstructionPtr,
+        instance: &Instance,
+        execution_func: Option<ExecutionFunc>,
+    ) -> Self {
         Self {
             ip,
             instance: *instance,
+            execution_func,
         }
     }
 
@@ -36,6 +74,11 @@ impl FuncFrame {
     /// Returns the instance of the [`FuncFrame`].
     pub fn instance(&self) -> &Instance {
         &self.instance
+    }
+
+    /// Returns guest function identity when execution profiling is active.
+    pub(crate) fn execution_func(&self) -> Option<ExecutionFunc> {
+        self.execution_func
     }
 }
 
@@ -64,9 +107,15 @@ impl CallStack {
     }
 
     /// Initializes the [`CallStack`] given the Wasm function.
-    pub fn init(&mut self, ip: InstructionPtr, instance: &Instance) {
+    pub(crate) fn init(
+        &mut self,
+        ip: InstructionPtr,
+        instance: &Instance,
+        execution_func: Option<ExecutionFunc>,
+    ) {
         self.reset();
-        self.frames.push(FuncFrame::new(ip, instance));
+        self.frames
+            .push(FuncFrame::new(ip, instance, execution_func));
     }
 
     /// Pushes a Wasm caller function onto the [`CallStack`].

@@ -1,5 +1,5 @@
 use crate::{
-    engine::DedupFuncType,
+    engine::{CompiledFunc, DedupFuncType},
     externref::{ExternObject, ExternObjectEntity, ExternObjectIdx},
     func::{Trampoline, TrampolineEntity, TrampolineIdx},
     memory::{DataSegment, MemoryError},
@@ -36,6 +36,112 @@ use core::{
 };
 use wasmi_arena::{Arena, ArenaIndex, GuardedEntity};
 use wasmi_core::TrapCode;
+
+/// Maximum number of guest functions retained by the execution profiler.
+const EXECUTION_PROFILE_CAPACITY: usize = 32;
+
+/// One retained guest-function execution count.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+pub struct ExecutionProfileEntry {
+    function_index: u32,
+    count: u64,
+}
+
+impl ExecutionProfileEntry {
+    /// Returns the module-local Wasm function index.
+    pub fn function_index(&self) -> u32 {
+        self.function_index
+    }
+
+    /// Returns the retained observation count for the function.
+    pub fn count(&self) -> u64 {
+        self.count
+    }
+}
+
+/// A read-only snapshot of opt-in guest execution profiling.
+///
+/// Counts are exact while at most 32 distinct functions have been observed.
+/// Once full, the profiler uses the deterministic Space-Saving heavy-hitter
+/// algorithm so a persistently executing function remains retained.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+pub struct ExecutionProfile {
+    total_samples: u64,
+    len: u8,
+    entries: [ExecutionProfileEntry; EXECUTION_PROFILE_CAPACITY],
+}
+
+impl ExecutionProfile {
+    /// Returns an empty profiling snapshot.
+    pub const fn empty() -> Self {
+        Self {
+            total_samples: 0,
+            len: 0,
+            entries: [ExecutionProfileEntry {
+                function_index: 0,
+                count: 0,
+            }; EXECUTION_PROFILE_CAPACITY],
+        }
+    }
+
+    /// Returns the total number of execution observations.
+    pub fn total_samples(&self) -> u64 {
+        self.total_samples
+    }
+
+    /// Returns the retained function counts in unspecified order.
+    pub fn entries(&self) -> &[ExecutionProfileEntry] {
+        &self.entries[..usize::from(self.len)]
+    }
+}
+
+/// Store-local, opt-in execution profiler state.
+#[derive(Debug, Default)]
+struct ExecutionProfiler {
+    enabled: bool,
+    snapshot: ExecutionProfile,
+}
+
+impl ExecutionProfiler {
+    fn start(&mut self) {
+        self.snapshot = ExecutionProfile::empty();
+        self.enabled = true;
+    }
+
+    fn record(&mut self, function_index: u32) {
+        if !self.enabled {
+            return;
+        }
+        self.snapshot.total_samples = self.snapshot.total_samples.saturating_add(1);
+        let len = usize::from(self.snapshot.len);
+        if let Some(entry) = self.snapshot.entries[..len]
+            .iter_mut()
+            .find(|entry| entry.function_index == function_index)
+        {
+            entry.count = entry.count.saturating_add(1);
+            return;
+        }
+        if len < EXECUTION_PROFILE_CAPACITY {
+            self.snapshot.entries[len] = ExecutionProfileEntry {
+                function_index,
+                count: 1,
+            };
+            self.snapshot.len += 1;
+            return;
+        }
+        let mut minimum = 0;
+        for index in 1..EXECUTION_PROFILE_CAPACITY {
+            if self.snapshot.entries[index].count < self.snapshot.entries[minimum].count {
+                minimum = index;
+            }
+        }
+        let count = self.snapshot.entries[minimum].count.saturating_add(1);
+        self.snapshot.entries[minimum] = ExecutionProfileEntry {
+            function_index,
+            count,
+        };
+    }
+}
 
 /// A unique store index.
 ///
@@ -150,6 +256,8 @@ pub struct StoreInner {
     engine: Engine,
     /// The fuel of the [`Store`].
     fuel: Fuel,
+    /// Opt-in guest function execution observations.
+    execution_profiler: ExecutionProfiler,
 }
 
 #[test]
@@ -285,6 +393,7 @@ impl StoreInner {
             elems: Arena::new(),
             extern_objects: Arena::new(),
             fuel: Fuel::default(),
+            execution_profiler: ExecutionProfiler::default(),
         }
     }
 
@@ -301,6 +410,38 @@ impl StoreInner {
     /// Returns an exclusive reference to the [`Fuel`] counters.
     pub fn fuel_mut(&mut self) -> &mut Fuel {
         &mut self.fuel
+    }
+
+    /// Returns whether guest execution profiling is active.
+    pub(crate) fn execution_profiling_enabled(&self) -> bool {
+        self.execution_profiler.enabled
+    }
+
+    /// Records one guest function execution observation.
+    pub(crate) fn record_guest_execution(&mut self, function_index: u32) {
+        self.execution_profiler.record(function_index)
+    }
+
+    /// Resolves a compiled function body to its module-local function index.
+    ///
+    /// This linear lookup is used only once when an explicitly profiled root
+    /// call starts. Nested same-instance calls derive their index in O(1).
+    pub(crate) fn resolve_wasm_func_index(
+        &self,
+        instance: &Instance,
+        body: CompiledFunc,
+    ) -> Option<u32> {
+        let mut index = 0_u32;
+        loop {
+            let func = self.resolve_instance(instance).get_func(index)?;
+            if matches!(
+                self.resolve_func(&func),
+                FuncEntity::Wasm(wasm_func) if wasm_func.func_body() == body
+            ) {
+                return Some(index);
+            }
+            index = index.checked_add(1)?;
+        }
     }
 
     /// Wraps an entitiy `Idx` (index type) as a [`Stored<Idx>`] type.
@@ -747,6 +888,19 @@ impl<T> Store<T> {
     /// Returns the [`Engine`] that this store is associated with.
     pub fn engine(&self) -> &Engine {
         self.inner.engine()
+    }
+
+    /// Clears and enables store-local guest execution profiling.
+    ///
+    /// Profiling must be started before the root guest call. It records only a
+    /// side channel and never participates in execution, fuel, or results.
+    pub fn start_execution_profiling(&mut self) {
+        self.inner.execution_profiler.start();
+    }
+
+    /// Returns a read-only snapshot of guest execution profiling.
+    pub fn execution_profile(&self) -> ExecutionProfile {
+        self.inner.execution_profiler.snapshot
     }
 
     /// Returns a shared reference to the user provided data owned by this [`Store`].

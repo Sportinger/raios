@@ -39,8 +39,8 @@ use raios_wasi_preview1::{
 use wasmi::{
     core::{Pages, Trap, ValueType},
     errors::{MemoryError, TableError},
-    Config, Engine, ExternType, Linker, Memory, MemoryType, Module, Mutability, ResourceLimiter,
-    ResumableCall, Store, Suspension,
+    Config, Engine, ExecutionProfile, ExternType, Linker, Memory, MemoryType, Module, Mutability,
+    ResourceLimiter, ResumableCall, Store, Suspension,
 };
 
 use super::{
@@ -90,6 +90,7 @@ const RUSTCRUN_COMPILER_READ_NONCE: u64 = 305;
 const RUSTCRUN_INSTANCE_NONCE: u64 = 306;
 const RUSTCDIAG_ROUND_CAP: u64 = 200_000;
 const RUSTCDIAG_TOP_IMPORTS: usize = 6;
+const RUSTCDIAG_TOP_FUNCTIONS: usize = 8;
 const REQUIRED_IMPORT_COUNT: usize = 30;
 const BUILD_STORE_INSTANCE_ID: u64 = 11;
 const BUILD_STORE_GENERATION: u64 = 13;
@@ -315,6 +316,7 @@ struct RustcDiagEvidence {
     stdout_bytes: u64,
     spawns: u32,
     reason: &'static str,
+    execution_profile: ExecutionProfile,
     import_call_counts: [u64; WASI_IMPORT_CALL_COUNT],
     recent_calls: [Option<RecentWasiCall>; RECENT_WASI_CALL_COUNT],
     atomic_wait_total: u64,
@@ -329,6 +331,7 @@ impl RustcDiagEvidence {
             stdout_bytes: 0,
             spawns: 0,
             reason,
+            execution_profile: ExecutionProfile::empty(),
             import_call_counts: [0; WASI_IMPORT_CALL_COUNT],
             recent_calls: [None; RECENT_WASI_CALL_COUNT],
             atomic_wait_total: 0,
@@ -340,6 +343,7 @@ impl RustcDiagEvidence {
     fn completed(diagnostic: WasiThreadDiagRunEvidence) -> Self {
         let WasiThreadDiagRunEvidence {
             run,
+            execution_profile,
             import_call_counts,
             recent_calls,
             atomic_wait_total,
@@ -360,6 +364,7 @@ impl RustcDiagEvidence {
             stdout_bytes,
             spawns: run.spawns,
             reason,
+            execution_profile,
             import_call_counts,
             recent_calls,
             atomic_wait_total,
@@ -3326,6 +3331,35 @@ fn emit_rustcdiag_evidence(evidence: RustcDiagEvidence) {
     }
     atomic_line.push('\n');
     crate::serial::write_raw_fmt(format_args!("{atomic_line}"));
+
+    let mut ranked_functions = evidence.execution_profile.entries().to_vec();
+    ranked_functions.sort_unstable_by(|left, right| {
+        right
+            .count()
+            .cmp(&left.count())
+            .then_with(|| left.function_index().cmp(&right.function_index()))
+    });
+    let mut pc_line = String::new();
+    let _ = write!(
+        &mut pc_line,
+        "RAIOS_RUSTCPC samples={} top=",
+        evidence.execution_profile.total_samples(),
+    );
+    for (position, entry) in ranked_functions
+        .iter()
+        .take(RUSTCDIAG_TOP_FUNCTIONS)
+        .enumerate()
+    {
+        if position != 0 {
+            pc_line.push(',');
+        }
+        let _ = write!(&mut pc_line, "{}:{}", entry.function_index(), entry.count(),);
+    }
+    if ranked_functions.is_empty() {
+        pc_line.push_str("none");
+    }
+    pc_line.push('\n');
+    crate::serial::write_raw_fmt(format_args!("{pc_line}"));
 }
 
 pub(crate) fn emit_wasi_rustcrun() {

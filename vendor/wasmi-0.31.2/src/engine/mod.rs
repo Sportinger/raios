@@ -42,7 +42,7 @@ use self::{
     executor::{execute_wasm, WasmOutcome},
     func_types::FuncTypeRegistry,
     resumable::ResumableCallBase,
-    stack::{FuncFrame, Stack, ValueStack},
+    stack::{ExecutionFunc, FuncFrame, Stack, ValueStack},
 };
 pub(crate) use self::{
     func_args::{FuncFinished, FuncParams, FuncResults},
@@ -690,8 +690,23 @@ impl<'engine> EngineExecutor<'engine> {
         self.stack.values.extend(call_params);
         match ctx.as_context().store.inner.resolve_func(func) {
             FuncEntity::Wasm(wasm_func) => {
+                let execution_func = ctx
+                    .as_context()
+                    .store
+                    .inner
+                    .execution_profiling_enabled()
+                    .then(|| {
+                        let body = wasm_func.func_body();
+                        let function_index = ctx
+                            .as_context()
+                            .store
+                            .inner
+                            .resolve_wasm_func_index(wasm_func.instance(), body)
+                            .expect("executed Wasm function must belong to its instance");
+                        ExecutionFunc::new(function_index, body)
+                    });
                 self.stack
-                    .prepare_wasm_call(wasm_func, &self.res.code_map)?;
+                    .prepare_wasm_call(wasm_func, &self.res.code_map, execution_func)?;
                 self.execute_wasm_func(ctx.as_context_mut())?;
             }
             FuncEntity::Host(host_func) => {

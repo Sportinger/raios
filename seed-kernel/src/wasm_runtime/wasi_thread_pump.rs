@@ -7,8 +7,8 @@ use raios_core::{
     },
 };
 use wasmi::{
-    core::ValueType, AtomicSuspend, AtomicSuspendRequest, Func, Linker, Memory, Module,
-    ResumableCall, ResumableInvocation, Store, Suspension, Value,
+    core::ValueType, AtomicSuspend, AtomicSuspendRequest, ExecutionProfile, Func, Linker, Memory,
+    Module, ResumableCall, ResumableInvocation, Store, Suspension, Value,
 };
 
 use super::wasi_preview1::{
@@ -51,6 +51,7 @@ pub(crate) struct WasiThreadRunEvidence {
 
 pub(crate) struct WasiThreadDiagRunEvidence {
     pub(crate) run: WasiThreadRunEvidence,
+    pub(crate) execution_profile: ExecutionProfile,
     pub(crate) import_call_counts: [u64; WASI_IMPORT_CALL_COUNT],
     pub(crate) recent_calls: [Option<RecentWasiCall>; RECENT_WASI_CALL_COUNT],
     pub(crate) atomic_wait_total: u64,
@@ -234,6 +235,7 @@ impl WasiThreadJobRunner {
     }
 
     pub(crate) fn run_capped(mut self, max_rounds: u64) -> WasiThreadDiagRunEvidence {
+        self.store.start_execution_profiling();
         let round_limit = self.round_limit.min(max_rounds);
         while self.terminal.is_none() && self.round < round_limit {
             self.pump();
@@ -304,6 +306,7 @@ impl WasiThreadJobRunner {
                 cap_denials,
                 granted_total: self.granted_total,
             },
+            execution_profile: self.store.execution_profile(),
             import_call_counts,
             recent_calls,
             atomic_wait_total,

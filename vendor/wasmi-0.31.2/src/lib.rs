@@ -162,7 +162,15 @@ pub use self::{
         ModuleImportsIter,
         Read,
     },
-    store::{AsContext, AsContextMut, Store, StoreContext, StoreContextMut},
+    store::{
+        AsContext,
+        AsContextMut,
+        ExecutionProfile,
+        ExecutionProfileEntry,
+        Store,
+        StoreContext,
+        StoreContextMut,
+    },
     table::{Table, TableType},
     value::Value,
 };

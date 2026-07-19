@@ -13,6 +13,7 @@ use crate::{
         cache::InstanceCache,
         code_map::{CodeMap, InstructionPtr},
         config::FuelCosts,
+        stack::ExecutionFunc,
         stack::{CallStack, ValueStackPtr},
         DropKeep, FuncFrame, ValueStack,
     },
@@ -22,6 +23,7 @@ use crate::{
     FuelConsumptionMode, Func, FuncRef, Instance, Memory, StoreInner, Table,
 };
 use core::cmp::{self};
+use wasmi_arena::ArenaIndex;
 use wasmi_core::{Pages, UntypedValue};
 
 /// A suspended atomic memory operation.
@@ -198,6 +200,8 @@ struct Executor<'ctx, 'engine> {
     sp: ValueStackPtr,
     /// The pointer to the currently executed instruction.
     ip: InstructionPtr,
+    /// Current guest function identity for opt-in profiling.
+    current_func: Option<ExecutionFunc>,
     /// Stores frequently used instance related data.
     cache: &'engine mut InstanceCache,
     /// A mutable [`StoreInner`] context.
@@ -256,9 +260,14 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
         let frame = call_stack.pop().expect("must have frame on the call stack");
         let sp = value_stack.stack_ptr();
         let ip = frame.ip();
+        let current_func = frame.execution_func();
+        if let Some(current_func) = current_func {
+            ctx.record_guest_execution(current_func.function_index());
+        }
         Self {
             sp,
             ip,
+            current_func,
             cache,
             ctx,
             value_stack,
@@ -847,8 +856,11 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
     ) -> Result<AtomicSuspend, TrapCode> {
         self.next_instr();
         self.sync_stack_ptr();
-        self.call_stack
-            .push(FuncFrame::new(self.ip, self.cache.instance()))?;
+        self.call_stack.push(FuncFrame::new(
+            self.ip,
+            self.cache.instance(),
+            self.current_func,
+        ))?;
         self.cache.reset();
         Ok(AtomicSuspend {
             memory,
@@ -861,8 +873,11 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
     #[inline(always)]
     fn park_fuel_quantum(&mut self) -> Result<(), TrapCode> {
         self.sync_stack_ptr();
-        self.call_stack
-            .push(FuncFrame::new(self.ip, self.cache.instance()))?;
+        self.call_stack.push(FuncFrame::new(
+            self.ip,
+            self.cache.instance(),
+            self.current_func,
+        ))?;
         self.cache.reset();
         Ok(())
     }
@@ -981,6 +996,40 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
         self.value_stack.sync_stack_ptr(self.sp);
     }
 
+    /// Derives same-module function identity from contiguous compiled bodies.
+    fn derive_execution_func(current: ExecutionFunc, body: CompiledFunc) -> Option<ExecutionFunc> {
+        let current_body = current.body().into_usize();
+        let target_body = body.into_usize();
+        let function_index = if target_body >= current_body {
+            let delta = u32::try_from(target_body - current_body).ok()?;
+            current.function_index().checked_add(delta)?
+        } else {
+            let delta = u32::try_from(current_body - target_body).ok()?;
+            current.function_index().checked_sub(delta)?
+        };
+        Some(ExecutionFunc::new(function_index, body))
+    }
+
+    /// Resolves profiled callee identity without affecting execution state.
+    fn profiled_callee(&self, instance: &Instance, body: CompiledFunc) -> Option<ExecutionFunc> {
+        let current = self.current_func?;
+        if instance == self.cache.instance() {
+            return Self::derive_execution_func(current, body);
+        }
+        self.ctx
+            .resolve_wasm_func_index(instance, body)
+            .map(|function_index| ExecutionFunc::new(function_index, body))
+    }
+
+    /// Updates and records the current profiled guest function.
+    fn enter_profiled_func(&mut self, execution_func: Option<ExecutionFunc>) {
+        self.current_func = execution_func;
+        if let Some(execution_func) = execution_func {
+            self.ctx
+                .record_guest_execution(execution_func.function_index());
+        }
+    }
+
     /// Calls the given [`Func`].
     ///
     /// This also prepares the instruction pointer and stack pointer for
@@ -996,16 +1045,23 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
         self.next_instr_at(skip);
         self.sync_stack_ptr();
         if matches!(kind, CallKind::Nested) {
-            self.call_stack
-                .push(FuncFrame::new(self.ip, self.cache.instance()))?;
+            self.call_stack.push(FuncFrame::new(
+                self.ip,
+                self.cache.instance(),
+                self.current_func,
+            ))?;
         }
         match self.ctx.resolve_func(func) {
             FuncEntity::Wasm(wasm_func) => {
-                let header = self.code_map.header(wasm_func.func_body());
+                let body = wasm_func.func_body();
+                let instance = *wasm_func.instance();
+                let execution_func = self.profiled_callee(&instance, body);
+                let header = self.code_map.header(body);
                 self.value_stack.prepare_wasm_call(header)?;
                 self.sp = self.value_stack.stack_ptr();
-                self.cache.update_instance(wasm_func.instance());
+                self.cache.update_instance(&instance);
                 self.ip = self.code_map.instr_ptr(header.iref());
+                self.enter_profiled_func(execution_func);
                 Ok(CallOutcome::Continue)
             }
             FuncEntity::Host(_host_func) => {
@@ -1030,14 +1086,21 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
             CallKind::Tail => 2,
         });
         self.sync_stack_ptr();
+        let execution_func = self
+            .current_func
+            .and_then(|current| Self::derive_execution_func(current, func));
         if matches!(kind, CallKind::Nested) {
-            self.call_stack
-                .push(FuncFrame::new(self.ip, self.cache.instance()))?;
+            self.call_stack.push(FuncFrame::new(
+                self.ip,
+                self.cache.instance(),
+                self.current_func,
+            ))?;
         }
         let header = self.code_map.header(func);
         self.value_stack.prepare_wasm_call(header)?;
         self.sp = self.value_stack.stack_ptr();
         self.ip = self.code_map.instr_ptr(header.iref());
+        self.enter_profiled_func(execution_func);
         Ok(())
     }
 
@@ -1053,6 +1116,7 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
             Some(caller) => {
                 self.ip = caller.ip();
                 self.cache.update_instance(caller.instance());
+                self.current_func = caller.execution_func();
                 ReturnOutcome::Wasm
             }
             None => ReturnOutcome::Host,

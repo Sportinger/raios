@@ -1,6 +1,7 @@
 mod frames;
 mod values;
 
+pub(crate) use self::frames::ExecutionFunc;
 pub use self::{
     frames::{CallStack, FuncFrame},
     values::{ValueStack, ValueStackPtr},
@@ -145,12 +146,13 @@ impl Stack {
         &mut self,
         wasm_func: &WasmFuncEntity,
         code_map: &CodeMap,
+        execution_func: Option<ExecutionFunc>,
     ) -> Result<(), TrapCode> {
         let header = code_map.header(wasm_func.func_body());
         self.values.prepare_wasm_call(header)?;
         let ip = code_map.instr_ptr(header.iref());
         let instance = wasm_func.instance();
-        self.frames.init(ip, instance);
+        self.frames.init(ip, instance, execution_func);
         Ok(())
     }
 
