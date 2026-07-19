@@ -3324,7 +3324,7 @@ pub(super) enum StorageSelftestDiskEvidence {
 }
 
 impl StorageSelftestDiskEvidence {
-    fn unchanged(&self) -> bool {
+    pub(super) fn unchanged(&self) -> bool {
         match self {
             Self::Absent => true,
             Self::Present {
@@ -3550,6 +3550,10 @@ pub(super) fn persist_region_hashes(
     }
 }
 
+fn persist_layout_is_absent(status: &str) -> bool {
+    status == "absent"
+}
+
 pub(super) fn compare_persist_region_hashes(
     controller: Option<crate::pci::PciMassStorageController>,
     before: Option<PersistRegionHashes>,
@@ -3557,6 +3561,9 @@ pub(super) fn compare_persist_region_hashes(
     let Some(controller) = controller else {
         return StorageSelftestDiskEvidence::Absent;
     };
+    if persist_layout_is_absent(crate::ahci::detect_persist_layout(controller).status()) {
+        return StorageSelftestDiskEvidence::Absent;
+    }
     let after = persist_region_hashes(controller);
     let before = before.unwrap_or(PersistRegionHashes {
         reclog: None,
@@ -4224,9 +4231,9 @@ fn emit_rustclock_evidence(evidence: RustclockEvidence) {
 #[cfg(test)]
 mod evidence_tests {
     use super::{
-        rustcbuild_args, rustcbuild_completion_reason, rustcbuild_src_load_reason,
-        rustcbuild_src_manifest_matches, sanitized_ascii_prefix, EscapedPath,
-        DENIED_PATH_OPEN_LINE_MAX, HELLO_SRC_BUILD_FS_MANIFEST_LEN,
+        persist_layout_is_absent, rustcbuild_args, rustcbuild_completion_reason,
+        rustcbuild_src_load_reason, rustcbuild_src_manifest_matches, sanitized_ascii_prefix,
+        EscapedPath, DENIED_PATH_OPEN_LINE_MAX, HELLO_SRC_BUILD_FS_MANIFEST_LEN,
         HELLO_SRC_BUILD_FS_MANIFEST_SHA256, HELLO_SRC_FIXTURE, RUSTCDIAG_STDERR_MORE_CAP,
         RUSTCDIAG_TEXT_FIELD_CAP, RUSTCDIAG_TRAP_CAP,
     };
@@ -4237,6 +4244,13 @@ mod evidence_tests {
     };
 
     use crate::wasm_runtime::wasi_preview1::OutputSummary;
+
+    #[test]
+    fn persist_disk_absence_does_not_hide_an_invalid_layout() {
+        assert!(persist_layout_is_absent("absent"));
+        assert!(!persist_layout_is_absent("present"));
+        assert!(!persist_layout_is_absent("invalid"));
+    }
 
     fn hello_src_manifest() -> BuildFsManifest {
         let file_sha256 = sha256_bytes(HELLO_SRC_FIXTURE);

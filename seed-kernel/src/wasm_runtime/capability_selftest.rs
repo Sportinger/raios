@@ -334,26 +334,26 @@ pub(crate) fn emit_capability_selftest() {
     let peer_after = foreign_service_inventory_hash();
 
     let disk = wasi_build_job::compare_persist_region_hashes(controller, disk_before);
-    let persistent_effect_free = match &disk {
-        wasi_build_job::StorageSelftestDiskEvidence::Absent => true,
-        wasi_build_job::StorageSelftestDiskEvidence::Present {
-            reclog_unchanged,
-            artstor_unchanged,
-        } => *reclog_unchanged && *artstor_unchanged,
-    };
+    let disk_invariant = disk.unchanged();
     let logged = host_call.refusal_recorded && cross_service.refusal_recorded;
     // env.counter_get is reachable only through a linked host function. This
     // fixture has zero linked imports and stops before instantiation, so the
     // current-boot host counter cannot be called or changed.
     let host_effect_free = host_call.execution_effect_free;
     let peer_effect_free = cross_service.execution_effect_free && peer_before == peer_after;
+    // The control fixture has no imports, while both hostile fixtures stop
+    // before instantiation. The kernel's refusal audit is therefore not a
+    // guest-attributable durable effect.
+    let persistent_effect_free =
+        host_call.refused_before_instantiation && cross_service.refused_before_instantiation;
     let pass = zero_grant.fresh
         && host_call.refused_before_instantiation
         && cross_service.refused_before_instantiation
         && logged
         && host_effect_free
         && peer_effect_free
-        && persistent_effect_free;
+        && persistent_effect_free
+        && disk_invariant;
 
     let mut line = alloc::format!(
         "RAIOS_CAPABILITY selftest={} zero_grant={} host_call={} cross_service={} logged={} host_effect={} peer_effect={} persistent_effect={}",

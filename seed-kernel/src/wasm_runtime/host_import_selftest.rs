@@ -660,13 +660,7 @@ pub(crate) fn emit_host_import_selftest() {
         && device_absent_logged;
 
     let disk = wasi_build_job::compare_persist_region_hashes(controller, disk_before);
-    let persistent_effect_free = match &disk {
-        wasi_build_job::StorageSelftestDiskEvidence::Absent => true,
-        wasi_build_job::StorageSelftestDiskEvidence::Present {
-            reclog_unchanged,
-            artstor_unchanged,
-        } => *reclog_unchanged && *artstor_unchanged,
-    };
+    let disk_invariant = disk.unchanged();
     let host_effect_free = missing.surface_unchanged
         && wrong_sig.surface_unchanged
         && bad_offset.surface_unchanged
@@ -674,6 +668,18 @@ pub(crate) fn emit_host_import_selftest() {
         && bad_handle.surface_unchanged
         && device_absent.surface_unchanged;
     let peer_effect_free = bad_handle.surface_unchanged && bad_index.surface_unchanged;
+    // Pre-instantiation refusals and the denied/trapped non-durable imports
+    // prove that no case reached a guest-initiated durable write. The kernel's
+    // refusal audits are deliberately excluded from this guest-effect fact.
+    let persistent_effect_free = missing.denied
+        && wrong_sig.denied
+        && bad_offset.denied
+        && bad_length.denied
+        && bad_handle.denied
+        && bad_index.denied
+        && device_absent.denied
+        && host_effect_free
+        && peer_effect_free;
     let partial_effect_free = host_effect_free && peer_effect_free && persistent_effect_free;
     let pass = missing.passed()
         && wrong_sig.passed()
@@ -684,7 +690,8 @@ pub(crate) fn emit_host_import_selftest() {
         && device_absent.passed()
         && device_surfaces_absent
         && logged
-        && partial_effect_free;
+        && partial_effect_free
+        && disk_invariant;
 
     let mut line = alloc::format!(
         "RAIOS_HOSTIMPORT selftest={} missing={} wrong_sig={} bad_offset={} bad_length={} bad_handle={} bad_index={} device_import={} device_surfaces={} logged={} host_effect={} peer_effect={} persistent_effect={} partial_effect={}",
@@ -735,7 +742,7 @@ pub(crate) fn emit_host_import_selftest() {
         && bad_index.passed()
         && device_absent.passed()
         && device_surfaces_absent
-        && !persistent_effect_free
+        && !disk_invariant
     {
         line.push_str(" hi_reason=persistent=persist_region_changed");
     }
