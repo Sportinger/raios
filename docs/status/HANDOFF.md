@@ -19,15 +19,18 @@ execution). Tree clean, all pushed.
 
 ## Next step
 
-**Diagnose the runtime-init spin.** At ~350k rounds (~3.5e11 instructions,
-~100x a native `rustc --version` budget) stdout=0 / spawns=0 — rustc is
-caught in an init spin against some preview1 edge semantic (the plan's
-named post-T1/T2 recalibration). Next brick: a per-import call histogram in
-the pump to find the hammered WASI call (likely a clock/futex/thread-detect
-loop), then fix that semantic. Then hello.rs compile + /out freeze +
-double-build egress (Brick C). Separately: the AOT execution stage
-(roadmap Stufe 4) for practical speed — interpreter-under-TCG is inherently
-slow. Owner questions open: SCOPE §6 Cranelift wording; ADR 0017 veto.
+**Diagnose the atomic init-spin.** The per-import histogram (fcb2820)
+showed rustc calls ZERO WASI imports across 200k rounds (stdout=0,
+spawns=0) — so the runtime-init spin is a pure atomic/compute loop inside
+the wasm (a std futex-style wait, no worker to notify, not
+parking-deadlocking → so likely an atomic.wait WITH a timeout retrying).
+NOT a WASI-shim semantic. Next brick: instrument the pump's atomic
+wait/notify handler (count + addresses + expected + timeout + result) to
+see what the main thread waits on, then fix the atomic/clock/threads-init
+model. Then hello.rs compile + /out freeze + double-build (Brick C), and
+the AOT speed stage. Owner questions open: SCOPE §6 Cranelift wording; ADR
+0017 veto. Owner: this is deep std/threads-init work — may want to weigh
+priorities (loop vs speed) given "vision = loop not features".
 
 ## Recently (exactly 3, newest first)
 
