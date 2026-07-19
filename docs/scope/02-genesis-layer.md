@@ -7,7 +7,12 @@
 > checked by the reframe.
 
 ## Service primitives
-- [ ] Create a fresh Wasm service/guest with zero capability imports by default
+- [x] Create a fresh Wasm service/guest with zero capability imports by default
+      <!-- capability.selftest (shadow-20260719-192220, 507/507): a fresh
+      zero-import W5 guest instantiates + runs to success returning 0
+      (zero_grant=fresh), authorized as observed_empty_import_surface, zero
+      linked host imports. Closes under the existential-workspace reading
+      (ADR 0015 floor); the generic-arbitrary-service reading is future. -->
 - [ ] Grant/revoke a typed capability import explicitly, with each transition logged
 - [x] Kill a service immediately, reclaim its guest resources, and prevent the
       guest from blocking teardown — m11-beyond-env-lifecycle
@@ -15,8 +20,14 @@
       with killed_cleanup_guest_bound (resources reclaimed) and
       terminal_matrix_exactly_once (teardown once, unblockable). Verified
       2026-07-19.
-- [ ] Negative tests: a guest cannot manage another service, and a zero-grant
+- [x] Negative tests: a guest cannot manage another service, and a zero-grant
       guest's host call is denied + logged with zero host effect
+      <!-- capability.selftest (shadow-20260719-192220, 507/507): a zero-grant
+      guest importing env.counter_get is refused before instantiation (host
+      counter unchanged, no guest log); a guest importing service.start is
+      denied unknown_host_import before compilation (foreign inventory
+      unchanged); host_effect=0 peer_effect=0 persistent_effect=0, and with a
+      persist disk RECLOG+ARTSTOR hashes unchanged (disk=pass). -->
 
 ## Capability granularity
 - [ ] Each host import/service surface is an individual, revocable grant; the
