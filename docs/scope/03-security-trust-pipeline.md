@@ -3,15 +3,37 @@
 > Breakdown of `docs/SCOPE.md` §3. Day-1 items are the measuring device for the
 > foundation — the substitute for the formal proof. Distribution items start
 > only when strangers run the system.
+> Reframed per ADR 0005/0015 with owner approval on 2026-07-19; no box was
+> checked by the reframe.
 
 ## Day 1 — escape negative tests (the foundation of the foundation)
-- [ ] Domain → foreign domain memory (read and write) → denied + logged
-- [ ] Domain → kernel memory (read and write) → denied + logged
-- [ ] Domain → foreign DMA region → blocked by IOMMU + logged
-- [ ] All three run in QEMU AND on bare metal (IOMMU behavior differs on real silicon)
-- [ ] All three run on every kernel-touching change (cheap enough to be non-optional)
-- [ ] Isolation-suspicion protocol: any unexplained cross-domain effect halts
+- [ ] Wasm guest OOB linear-memory read and write → trap + logged, with zero
+      host or peer-guest effect
+      <!-- evidence (OOB boundary): release/vm-reports/shadow-20260719-084519-8004.json,
+      predicate command:isolation.selftest (OOB store/load/offset trapped,
+      logged=1, host_exposed=0); orchestrator verification required. -->
+- [ ] Guest requests an ungranted capability import/host surface → denied +
+      logged before effect
+      <!-- evidence (default-deny import boundary):
+      release/vm-reports/shadow-20260714-114527-24812.json,
+      predicates m11-import-grant:unauthorized-import-refused and
+      m11-import-grant:forbidden-import-link-failure-preserved; orchestrator
+      verification required. -->
+- [ ] Both Wasm-boundary tests run in QEMU AND on bare metal
+- [ ] Both run on every kernel/Wasm-runtime-touching change (cheap enough to
+      be non-optional)
+- [ ] Isolation-suspicion protocol: any unexplained cross-guest or guest-to-host
+      effect halts
       all lanes until these tests settle it (mirrors CLAUDE.md full brake)
+
+## Explicit future hardware hardening (not current checkboxes)
+
+- Enable VT-d translation and enforce IOMMU isolation for DMA-capable devices;
+  the existing `iommu_vtd.rs` probe is structure-only and does not enable
+  translation.
+- Future predicate: translation is reported active. Negative test: a foreign
+  or out-of-range DMA attempt is blocked + logged with zero host/peer effect,
+  including on real reference hardware.
 
 ## Day 1 — rollback
 - [x] Every domain version is kept and restorable — m6d-rollback

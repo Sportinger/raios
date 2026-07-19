@@ -3,32 +3,54 @@
 > Breakdown of `docs/SCOPE.md` §2. The floor is THE product decision: narrow,
 > documented, kernel-agnostic. Everything above it is replaceable; the floor
 > contract is not casually changeable (changes = ADR + owner).
+> Reframed per ADR 0005/0015 with owner approval on 2026-07-19; no box was
+> checked by the reframe.
 
-## Primitives
-- [ ] `create_domain` — new empty domain, zero capabilities by default
-- [ ] `grant_capability` / `revoke_capability` — explicit, typed, logged
-- [ ] `kill_domain` — immediate, reclaims all resources, cannot be blocked by the domain
-- [ ] Negative tests: a domain cannot invoke any primitive on another domain
+## Service primitives
+- [ ] Create a fresh Wasm service/guest with zero capability imports by default
+- [ ] Grant/revoke a typed capability import explicitly, with each transition logged
+- [ ] Kill a service immediately, reclaim its guest resources, and prevent the
+      guest from blocking teardown
+- [ ] Negative tests: a guest cannot manage another service, and a zero-grant
+      guest's host call is denied + logged with zero host effect
 
 ## Capability granularity
-- [ ] One PCIe BAR, one IRQ line, one DMA region, one framebuffer region —
-      each an individual, revocable grant
-- [ ] Grants are typed records (who, what, scope), not flags
-- [ ] Revocation takes effect immediately; in-flight DMA fenced via IOMMU
-- [ ] Negative test: capability for device A grants nothing on device B
+- [ ] Each host import/service surface is an individual, revocable grant; the
+      kernel retains direct hardware authority
+- [ ] Grants are typed records (who, what, import/service scope), not ambient flags
+- [ ] Revocation prevents the next host call and is durably logged; no stale
+      instance retains the revoked authority
+- [ ] Negative test: a grant for import/service A grants nothing on host surface B
+      <!-- evidence (default-deny/import-scope boundary only):
+      release/vm-reports/shadow-20260714-114527-24812.json, passed
+      m11-wasm-import-grant profile, including unauthorized import refusal
+      before instantiation; grant/revoke verification still required. -->
 
 ## Storage primitive
-- [ ] Persistent block access as a capability (range-scoped, not whole-disk)
-- [ ] A domain without a storage grant cannot persist anything
-- [ ] Negative test: write outside the granted block range → denied + logged
+- [ ] Persistent ARTSTOR/structured-store access is a range/quota-scoped
+      capability, never ambient whole-store authority
+- [ ] A guest without a storage capability cannot persist anything
+- [ ] Negative test: absent grant, out-of-range write, or quota overflow →
+      denied + logged with no partial persistent effect
 
-## Domain lifecycle
-- [ ] Kill + restart of any domain in < 1 s, without system reboot
-- [ ] Restart restores a declared clean state (no leaked grants from the previous life)
-- [ ] Crash loop detection: N rapid crashes → domain parked + reported, not respawned forever
+## Service lifecycle
+- [ ] Kill + restart of any Wasm service in < 1 s, without system reboot
+- [ ] Restart restores a declared clean state (no leaked imports, handles, or
+      mutable guest state from the previous life)
+- [ ] Crash loop detection: N rapid crashes → service parked + reported, not
+      respawned forever
+- [ ] Negative test: after kill/restart, the old instance cannot run or write,
+      and an ungranted authority from its prior life remains denied
 
 ## Floor contract
-- [ ] The full floor interface fits in one document (`docs/architecture/genesis-layer.md`)
-- [ ] No kernel-internal types leak through the interface
-- [ ] seL4 substitutability argued in writing: every primitive mapped to a
-      plausible seL4 realization (paper exercise, kept current)
+- [ ] The full Wasm import + service-capability floor fits in one document
+      (`docs/architecture/genesis-layer.md`)
+- [ ] No kernel-internal types leak through the import/service interface
+- [ ] Contract conformance: services depend only on the documented Wasm import
+      + service-capability floor; a fixture that depends on a kernel-internal
+      type or undeclared import is rejected
+
+ADR 0015 chooses the custom Rust kernel as the development and product path.
+Substitutability attaches to this narrow contract; maintaining a fictional
+primitive-by-primitive seL4 mapping is not a current requirement. The floor
+document named above does not yet exist and remains future documentation work.
