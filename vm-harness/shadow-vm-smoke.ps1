@@ -14,7 +14,7 @@ param(
     [switch]$KeepImage,
     [int]$SerialWriteChunkSize = 256,
     [int]$SerialWriteDelayMilliseconds = 0,
-    [ValidateSet("full", "quick", "recovery", "genesis-ui", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m12-distribution-provenance", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable", "structured-store", "project-workspace", "project-build", "build-assemble", "project-app", "project-install", "secret-vault", "core-policy", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow", "m11-7-httphead", "m11-8-certspki", "m11-9-dnsparse", "m11-beyond-env-lifecycle", "m11-net-imports", "m11-crypto-imports", "m11-acquisition-service", "network-acquisition", "usb-hotplug")]
+    [ValidateSet("full", "quick", "recovery", "genesis-ui", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m12-distribution-provenance", "m6d-rollback", "rollback-isolation", "m8-lifeline", "persistence", "memory-durable", "structured-store", "project-workspace", "project-build", "build-assemble", "project-app", "project-install", "secret-vault", "core-policy", "m11-wasm-import-grant", "m11-buffer-channel", "m11-6-certwindow", "m11-7-httphead", "m11-8-certspki", "m11-9-dnsparse", "m11-beyond-env-lifecycle", "m11-net-imports", "m11-crypto-imports", "m11-acquisition-service", "network-acquisition", "usb-hotplug")]
     [string]$Profile = "full"
 )
 
@@ -87,7 +87,7 @@ try {
         throw "Serial TCP port $SerialTcpPort is already owned by another shadow VM smoke; wait for it or choose -SerialTcpPort"
     }
 
-    if ($Profile -in @("m11-net-imports", "network-acquisition", "m6d-rollback") -and -not $Network) {
+    if ($Profile -in @("m11-net-imports", "network-acquisition", "m6d-rollback", "rollback-isolation") -and -not $Network) {
         throw "$Profile requires -Network (e1000 + DHCP + real TCP step)"
     }
     if ($ResolvedArtifact -and -not $ResolvedManifest) {
@@ -112,7 +112,7 @@ try {
     # which makes package-stage0's Join-Path die with a misleading drive error.
     $env:CARGO_HOME = (Resolve-Path (Join-Path $RepoRoot ".cargo-home")).Path
     $env:CARGO_TARGET_DIR = Join-Path $RepoRoot "target"
-    if ($Profile -in @("genesis-ui", "m6c-promotion", "network-acquisition", "m6d-rollback")) {
+    if ($Profile -in @("genesis-ui", "m6c-promotion", "network-acquisition", "m6d-rollback", "rollback-isolation")) {
         & cargo build --locked -p ota-tools --bin dev-promotion-signer
         if ($LASTEXITCODE -ne 0) {
             throw "dev-promotion-signer build failed with exit code $LASTEXITCODE"
@@ -120,7 +120,7 @@ try {
     }
 
     if ($Image) {
-        if ($Profile -in @("network-acquisition", "m6d-rollback")) {
+        if ($Profile -in @("network-acquisition", "m6d-rollback", "rollback-isolation")) {
             throw "$Profile requires a per-run temporary pin-bearing image; do not pass -Image"
         }
         $ResolvedImage = (Resolve-Path -LiteralPath $Image).Path
@@ -129,7 +129,7 @@ try {
         $ResolvedImage = Join-Path $RunDir "raios-stage0-shadow.img"
         $TempImage = $true
         $packageParams = @{ Profile = "release"; Image = $ResolvedImage; UseTempEsp = $true }
-        if ($Profile -in @("network-acquisition", "m6d-rollback")) {
+        if ($Profile -in @("network-acquisition", "m6d-rollback", "rollback-isolation")) {
             $fixtureWrapper = Join-Path $PSScriptRoot "net8-w7-tls-fixture.ps1"
             $fixtureReady = Join-Path $RunDir "w7-fixture-ready.json"
             $fixtureResult = Join-Path $RunDir "w7-fixture-result.json"
@@ -158,7 +158,7 @@ try {
             $packageParams.Net8W7SpkiPinEnvVar = $pinEnvName
         }
         & $PackageScript @packageParams
-        if ($Profile -in @("network-acquisition", "m6d-rollback")) {
+        if ($Profile -in @("network-acquisition", "m6d-rollback", "rollback-isolation")) {
             [Environment]::SetEnvironmentVariable("RAIOS_NET8_W7_PIN_$PID", $null, "Process")
         }
         if ($LASTEXITCODE -ne 0) {
@@ -221,7 +221,7 @@ try {
         }
         $PersistDiskImage = (Resolve-Path -LiteralPath $structuredStorePersist).Path
     }
-    elseif ($Profile -in @("genesis-ui", "network-acquisition", "m6d-rollback")) {
+    elseif ($Profile -in @("genesis-ui", "network-acquisition", "m6d-rollback", "rollback-isolation")) {
         if ($PersistDiskPath) {
             throw "$Profile creates its own exact valid-a disposable persist disk"
         }
@@ -273,7 +273,7 @@ try {
         MemoryMB = $GuestMemoryMB
     }
     $QemuArgList += @("-MemoryMB", "$GuestMemoryMB")
-    if ($Profile -in @("network-acquisition", "m6d-rollback")) {
+    if ($Profile -in @("network-acquisition", "m6d-rollback", "rollback-isolation")) {
         # Bridge guest 10.0.2.100:8443 to the host loopback TLS fixture. The guest's
         # W7 source policy targets 10.0.2.100 (not the slirp gateway 10.0.2.2, which
         # QEMU refuses to guestfwd). The fixture is already listening on 127.0.0.1:8443.
@@ -293,14 +293,14 @@ try {
         )
         $runParams.StructuredStoreDiskPath = $StructuredStoreDiskImage
     }
-    if ($Profile -in @("usb-hotplug", "genesis-ui", "build-assemble", "project-app", "project-install", "secret-vault", "m11-beyond-env-lifecycle", "m11-net-imports", "network-acquisition", "m6d-rollback")) {
+    if ($Profile -in @("usb-hotplug", "genesis-ui", "build-assemble", "project-app", "project-install", "secret-vault", "m11-beyond-env-lifecycle", "m11-net-imports", "network-acquisition", "m6d-rollback", "rollback-isolation")) {
         $MonitorTcpPort = $SerialTcpPort + 1000
         $QemuArgList += @(
             "-MonitorTcpPort", "$MonitorTcpPort"
         )
         $runParams.MonitorTcpPort = $MonitorTcpPort
     }
-    if ($Profile -in @("genesis-ui", "build-assemble", "project-app", "project-install", "m6c-promotion", "network-acquisition", "m6d-rollback")) {
+    if ($Profile -in @("genesis-ui", "build-assemble", "project-app", "project-install", "m6c-promotion", "network-acquisition", "m6d-rollback", "rollback-isolation")) {
         $QmpTcpPort = $SerialTcpPort + 2000
         $QemuArgList += @(
             "-QmpTcpPort", "$QmpTcpPort"
@@ -483,6 +483,11 @@ try {
 
         if ($Profile -eq "m6d-rollback") {
             . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-m6d-rollback.ps1")
+            break SmokeProfileValidation
+        }
+
+        if ($Profile -eq "rollback-isolation") {
+            . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-rollback-isolation.ps1")
             break SmokeProfileValidation
         }
 
