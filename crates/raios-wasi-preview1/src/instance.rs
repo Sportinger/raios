@@ -872,7 +872,7 @@ mod tests {
 
     use super::*;
     use crate::readonly::sha256;
-    use crate::{BuildFsManifestView, ChunkReadError, ChunkReadRequest};
+    use crate::{BuildFsManifestView, ChunkReadError, ChunkReadRequest, ReadOnlyFs};
 
     struct OneFileManifest {
         directories: &'static [&'static str],
@@ -983,6 +983,167 @@ mod tests {
         assert_eq!(instance.fd_write(fd, b"rmeta").unwrap(), 5);
         assert_eq!(instance.fd_seek(fd, 0, Whence::Set).unwrap(), 0);
         assert_eq!(instance.fd_read(fd, 5, &mut Reader).unwrap(), b"rmeta");
+    }
+
+    fn install_raw_mount_preopen(
+        instance: &mut WasiBuildInstance,
+        mount_id: MountId,
+        root: NodeRef,
+        rights: Rights,
+    ) {
+        instance.fds = FdTable::new_with_root(
+            instance.limits.max_open_fds,
+            StandardNodes {
+                stdin: NodeRef(u64::MAX - 2),
+                stdout: NodeRef(u64::MAX - 1),
+                stderr: NodeRef(u64::MAX),
+                root,
+            },
+            mount_id,
+            rights,
+            rights,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn raw_preopens_install_exact_mount_rights() {
+        let composite_instance = instance();
+        let composite_root = *composite_instance.fd_table().get(Fd::ROOT_PREOPEN).unwrap();
+        assert_eq!(composite_root.mount_id, ROOT_MOUNT);
+        assert_eq!(composite_root.rights_base, writable_rights());
+        assert_eq!(composite_root.rights_inheriting, writable_rights());
+
+        let quotas = RamQuotas::new(1024, 16, 16, 1024);
+        let output = RamFs::new(quotas, 8).unwrap();
+        let output_root = *output.fd_table().get(Fd::ROOT_PREOPEN).unwrap();
+        assert_eq!(output_root.mount_id, MountId::ROOT);
+        assert_eq!(output_root.rights_base, writable_rights());
+        assert_eq!(output_root.rights_inheriting, writable_rights());
+
+        let source = BuildFs::project(&OneFileManifest {
+            directories: &[],
+            path: "main.rs",
+            bytes: b"src",
+        })
+        .unwrap();
+        let source_root = source.root_node();
+        let source = ReadOnlyFs::new(
+            source,
+            8,
+            StandardNodes {
+                stdin: NodeRef(10),
+                stdout: NodeRef(11),
+                stderr: NodeRef(12),
+                root: source_root,
+            },
+        )
+        .unwrap();
+        let source_root = *source.fd_table().get(Fd::ROOT_PREOPEN).unwrap();
+        assert_eq!(source_root.mount_id, MountId::ROOT);
+        assert_eq!(source_root.rights_base, readonly_rights());
+        assert_eq!(source_root.rights_inheriting, readonly_rights());
+    }
+
+    #[test]
+    fn raw_writable_preopen_supports_lld_style_create_truncate_and_io() {
+        let mut instance = instance();
+        let output_root = instance.output.root_node();
+        install_raw_mount_preopen(&mut instance, OUTPUT_MOUNT, output_root, writable_rights());
+        let raw_preopen = *instance.fd_table().get(Fd::ROOT_PREOPEN).unwrap();
+        assert_eq!(raw_preopen.mount_id, OUTPUT_MOUNT);
+        assert!(raw_preopen.rights_base.contains(Rights::PATH_OPEN));
+        assert!(raw_preopen.rights_base.contains(Rights::PATH_CREATE_FILE));
+
+        let old = instance
+            .path_open(
+                Fd::ROOT_PREOPEN,
+                b"hello.wasm",
+                true,
+                false,
+                file_rights(),
+                Rights::EMPTY,
+                FdFlags::EMPTY,
+            )
+            .unwrap();
+        assert_eq!(instance.fd_write(old, b"old artifact").unwrap(), 12);
+        instance.fd_close(old).unwrap();
+
+        // wasi-libc derives both requested sets from the raw preopen's
+        // inheriting rights for O_CREAT | O_RDWR | O_TRUNC. Those flags do not
+        // set any Preview1 fdflags.
+        let lld_rights = writable_rights();
+        assert!(lld_rights.contains(Rights::FD_READ | Rights::FD_WRITE | Rights::FD_SEEK));
+        let artifact = instance
+            .path_open(
+                Fd::ROOT_PREOPEN,
+                b"hello.wasm",
+                true,
+                true,
+                lld_rights,
+                lld_rights,
+                FdFlags::EMPTY,
+            )
+            .unwrap();
+        assert_eq!(instance.fd_filestat_get(artifact).unwrap().size, 0);
+        assert_eq!(instance.fd_write(artifact, b"wasm").unwrap(), 4);
+        assert_eq!(instance.fd_seek(artifact, 0, Whence::Set).unwrap(), 0);
+        assert_eq!(instance.fd_read(artifact, 4, &mut Reader).unwrap(), b"wasm");
+    }
+
+    #[test]
+    fn raw_readonly_preopen_denies_create_truncate_and_write() {
+        let mut instance = instance();
+        let source_root = instance.source.root_node();
+        install_raw_mount_preopen(&mut instance, SOURCE_MOUNT, source_root, readonly_rights());
+        let raw_preopen = *instance.fd_table().get(Fd::ROOT_PREOPEN).unwrap();
+        assert_eq!(raw_preopen.mount_id, SOURCE_MOUNT);
+        assert_eq!(raw_preopen.rights_base, readonly_rights());
+        assert_eq!(raw_preopen.rights_inheriting, readonly_rights());
+        assert!(!raw_preopen.rights_base.contains(Rights::PATH_CREATE_FILE));
+        assert!(!raw_preopen.rights_inheriting.contains(Rights::FD_WRITE));
+        assert_eq!(
+            instance.path_open(
+                Fd::ROOT_PREOPEN,
+                b"new.rs",
+                true,
+                false,
+                file_rights(),
+                Rights::EMPTY,
+                FdFlags::EMPTY,
+            ),
+            Err(Errno::Notcapable)
+        );
+        assert_eq!(
+            instance.path_open(
+                Fd::ROOT_PREOPEN,
+                b"main.rs",
+                false,
+                true,
+                file_rights(),
+                Rights::EMPTY,
+                FdFlags::EMPTY,
+            ),
+            Err(Errno::Rofs)
+        );
+        let file = instance
+            .path_open(
+                Fd::ROOT_PREOPEN,
+                b"main.rs",
+                false,
+                false,
+                file_rights(),
+                Rights::EMPTY,
+                FdFlags::EMPTY,
+            )
+            .unwrap();
+        assert!(!instance
+            .fd_table()
+            .get(file)
+            .unwrap()
+            .rights_base
+            .contains(Rights::FD_WRITE));
+        assert_eq!(instance.fd_write(file, b"x"), Err(Errno::Rofs));
     }
 
     #[test]
