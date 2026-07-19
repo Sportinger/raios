@@ -2021,6 +2021,9 @@ fn synthetic_promotion_append_decision(
     kind: PromotionTransactionKind,
     mutation: Option<SelftestMutation>,
 ) -> (&'static str, &'static str, bool) {
+    const RECLOG_LBA_COUNT: u64 = 10;
+    const RECLOG_BYTE_COUNT: u64 = RECLOG_LBA_COUNT * RECLOG_SECTOR_SIZE as u64;
+
     let scan = RecordLogScan {
         head_seq: 1,
         tail_seq: 2,
@@ -2038,8 +2041,9 @@ fn synthetic_promotion_append_decision(
     if payload.len() > PROMOTION_TRANSACTION_MAX_PAYLOAD_LEN {
         return ("denied", "payload_too_large_for_frame", false);
     }
-    let Ok(planned) = plan_reclog_append(&scan, &payload, 4096) else {
-        return ("denied", "plan_failed", false);
+    let planned = match plan_reclog_append(&scan, &payload, RECLOG_BYTE_COUNT) {
+        Ok(planned) => planned,
+        Err(denied) => return ("denied", denied.reason(), false),
     };
     let reparsed =
         parse_reclog_frame(&planned.frame, 0, planned.seq, planned.prev_frame_sha256).is_ok();
@@ -2051,9 +2055,9 @@ fn synthetic_promotion_append_decision(
         region_marker: Some(PROMOTION_EXPECTED_REGION_MARKER),
         frame_len: Some(planned.frame_len),
         write_offset: Some(planned.write_offset),
-        reclog_byte_count: Some(4096),
+        reclog_byte_count: Some(RECLOG_BYTE_COUNT),
         absolute_start_lba: Some(100),
-        reclog_lba_count: Some(8),
+        reclog_lba_count: Some(RECLOG_LBA_COUNT),
         seq: Some(planned.seq),
         tail_seq: Some(scan.tail_seq),
         count: Some(scan.count),
