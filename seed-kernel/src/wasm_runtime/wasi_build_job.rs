@@ -36,9 +36,10 @@ use raios_core::{
     },
 };
 use raios_wasi_preview1::{
-    ramfs::RamQuotas, ChunkRead, ChunkReadError, ChunkReadRequest, JobContext, NormalizedPath,
-    WasiBuildInstance, WasiBuildLimits, SYSROOT_MOUNT,
+    ramfs::RamQuotas, ChunkRead, ChunkReadError, ChunkReadRequest, Errno, Fd, FdFlags, JobContext,
+    NormalizedPath, Rights, WasiBuildInstance, WasiBuildLimits, SYSROOT_MOUNT,
 };
+use sha2::{Digest, Sha256};
 use wasmi::{
     core::{Pages, Trap, ValueType},
     errors::{MemoryError, TableError},
@@ -3217,6 +3218,348 @@ fn evaluate_commit_claims(
         egress: "planned",
         commit,
         commit_deny,
+    }
+}
+
+const STORAGE_SELFTEST_SECTOR_BYTES: u64 = 512;
+const STORAGE_SELFTEST_ARTSTOR_HASH_CHUNK_BYTES: u64 = 64 * 1024;
+
+struct BuildOutputStorageSelftestEvidence {
+    absent_grant: &'static str,
+    out_of_range: &'static str,
+    quota_overflow: &'static str,
+    media_write_attempts: u64,
+}
+
+impl BuildOutputStorageSelftestEvidence {
+    const fn failed(reason: &'static str) -> Self {
+        Self {
+            absent_grant: reason,
+            out_of_range: reason,
+            quota_overflow: reason,
+            media_write_attempts: 0,
+        }
+    }
+
+    fn passed(&self) -> bool {
+        self.absent_grant == "storage_capability_absent"
+            && self.out_of_range == "output_span_out_of_artstor"
+            && self.quota_overflow == "output_span_length_exceeds_lease"
+            && self.media_write_attempts == 0
+    }
+}
+
+struct RamQuotaSelftestEvidence {
+    reason: &'static str,
+    unchanged: bool,
+}
+
+impl RamQuotaSelftestEvidence {
+    const fn failed(reason: &'static str) -> Self {
+        Self {
+            reason,
+            unchanged: false,
+        }
+    }
+
+    fn passed(&self) -> bool {
+        self.reason == "nospc" && self.unchanged
+    }
+}
+
+#[derive(Clone, Copy)]
+struct PersistRegionHashes {
+    reclog: Option<[u8; 32]>,
+    artstor: Option<[u8; 32]>,
+}
+
+enum StorageSelftestDiskEvidence {
+    Absent,
+    Present {
+        reclog_unchanged: bool,
+        artstor_unchanged: bool,
+    },
+}
+
+impl StorageSelftestDiskEvidence {
+    fn unchanged(&self) -> bool {
+        match self {
+            Self::Absent => true,
+            Self::Present {
+                reclog_unchanged,
+                artstor_unchanged,
+            } => *reclog_unchanged && *artstor_unchanged,
+        }
+    }
+}
+
+fn build_output_storage_selftest() -> BuildOutputStorageSelftestEvidence {
+    use crate::agent_protocol::artifact_store::{
+        acquire_build_output_write_handle, BuildOutputStorageGrant,
+    };
+
+    let Some(authority) = empty_authority_for_ok_fixture() else {
+        return BuildOutputStorageSelftestEvidence::failed("fixture_failed");
+    };
+    let frozen = FrozenOutput::from_manifest_bytes(b"storage.selftest");
+    let bundle_len = b"storage.selftest".len() as u64;
+    let egress = match evaluate_scoped_wasi_artifact_egress(
+        &ScopedWasiArtifactEgress {
+            run_one: frozen,
+            run_two: frozen,
+            run_one_exit_status: 0,
+            run_two_exit_status: 0,
+            run_one_logical_content_size: bundle_len,
+            run_two_logical_content_size: bundle_len,
+        },
+        &authority,
+    ) {
+        ScopedWasiArtifactEgressDecision::Planned(plan) => plan,
+        ScopedWasiArtifactEgressDecision::Denied(_) => {
+            return BuildOutputStorageSelftestEvidence::failed("fixture_failed")
+        }
+    };
+    let lease = authority.output_lease();
+    let Some(synthetic_region_len) = lease.max_bytes().checked_add(STORAGE_SELFTEST_SECTOR_BYTES)
+    else {
+        return BuildOutputStorageSelftestEvidence::failed("fixture_failed");
+    };
+    let synthetic_region_offset: u64 = 4_096;
+    let Some(out_of_range_offset) = synthetic_region_offset.checked_add(synthetic_region_len)
+    else {
+        return BuildOutputStorageSelftestEvidence::failed("fixture_failed");
+    };
+    let base = ScopedBuildOutputCommitInput {
+        job_binding_sha256: authority.job_binding_sha256(),
+        lease_id: lease.lease_id(),
+        store_instance_id: lease.store_instance_id(),
+        store_generation: lease.store_generation(),
+        lease_max_bytes: lease.max_bytes(),
+        lease_target_marker: lease.target_marker(),
+        span_offset: synthetic_region_offset,
+        span_len: STORAGE_SELFTEST_SECTOR_BYTES,
+        artstor_region_offset: synthetic_region_offset,
+        artstor_region_len: synthetic_region_len,
+        alignment: STORAGE_SELFTEST_SECTOR_BYTES,
+        bundle_len,
+        output_manifest_sha256: egress.output_manifest_sha256(),
+        chunk_count: ((bundle_len - 1) / BUILD_FS_CHUNK_SIZE) + 1,
+    };
+
+    let absent_grant =
+        match acquire_build_output_write_handle(base, BuildOutputStorageGrant::Absent, &egress) {
+            Err(error) => error.reason(),
+            Ok(_handle) => "write_handle_returned",
+        };
+    let out_of_range = match acquire_build_output_write_handle(
+        ScopedBuildOutputCommitInput {
+            span_offset: out_of_range_offset,
+            ..base
+        },
+        BuildOutputStorageGrant::Granted(&authority),
+        &egress,
+    ) {
+        Err(error) => error.reason(),
+        Ok(_handle) => "write_handle_returned",
+    };
+    let quota_overflow = match acquire_build_output_write_handle(
+        ScopedBuildOutputCommitInput {
+            span_len: synthetic_region_len,
+            ..base
+        },
+        BuildOutputStorageGrant::Granted(&authority),
+        &egress,
+    ) {
+        Err(error) => error.reason(),
+        Ok(_handle) => "write_handle_returned",
+    };
+
+    BuildOutputStorageSelftestEvidence {
+        absent_grant,
+        out_of_range,
+        quota_overflow,
+        // Denied acquisitions never reach BuildOutputWriteHandle::append.
+        media_write_attempts: 0,
+    }
+}
+
+fn ram_out_quota_selftest() -> RamQuotaSelftestEvidence {
+    let Some(job_manifest_sha256) = parse_sha256_ref(JOB_MANIFEST_SHA256) else {
+        return RamQuotaSelftestEvidence::failed("fixture_failed");
+    };
+    let Some(manifest) = empty_manifest() else {
+        return RamQuotaSelftestEvidence::failed("fixture_failed");
+    };
+    let (Ok(sysroot), Ok(source), Ok(job)) = (
+        project_core_manifest(&manifest),
+        project_core_manifest(&manifest),
+        JobContext::new(Vec::new(), Vec::new(), job_manifest_sha256),
+    ) else {
+        return RamQuotaSelftestEvidence::failed("fixture_failed");
+    };
+    let scratch = RamQuotas::new(1, 1, 1, 4);
+    let output = RamQuotas::new(3, 1, 1, 4);
+    let Ok(mut instance) = WasiBuildInstance::new(
+        sysroot,
+        source,
+        job,
+        WasiBuildLimits::new(8, scratch, output),
+    ) else {
+        return RamQuotaSelftestEvidence::failed("fixture_failed");
+    };
+    let Ok(output_file) = instance.path_open(
+        Fd::ROOT_PREOPEN,
+        b"out/quota",
+        true,
+        false,
+        Rights::FD_WRITE,
+        Rights::EMPTY,
+        FdFlags::EMPTY,
+    ) else {
+        return RamQuotaSelftestEvidence::failed("fixture_failed");
+    };
+    if instance.fd_write(output_file, b"abc") != Ok(3) {
+        return RamQuotaSelftestEvidence::failed("fixture_failed");
+    }
+    let Ok(before) = instance.freeze_output() else {
+        return RamQuotaSelftestEvidence::failed("fixture_failed");
+    };
+    let before_len = before.files.first().map(|file| file.len);
+    let before_hash = before.files.first().map(|file| file.sha256);
+    if before.files.len() != 1 || before_len != Some(3) || before_hash != Some(sha256_bytes(b"abc"))
+    {
+        return RamQuotaSelftestEvidence::failed("fixture_failed");
+    }
+
+    let reason = match instance.fd_write(output_file, b"d") {
+        Err(Errno::Nospc) => "nospc",
+        Err(_) => "wrong_errno",
+        Ok(_) => "write_succeeded",
+    };
+    let Ok(after) = instance.freeze_output() else {
+        return RamQuotaSelftestEvidence::failed(reason);
+    };
+    let after_len = after.files.first().map(|file| file.len);
+    let after_hash = after.files.first().map(|file| file.sha256);
+    RamQuotaSelftestEvidence {
+        reason,
+        unchanged: after.files.len() == 1
+            && before_len == after_len
+            && before_hash == after_hash
+            && before.sha256 == after.sha256,
+    }
+}
+
+fn hash_reclog_region(controller: crate::pci::PciMassStorageController) -> Option<[u8; 32]> {
+    let read = crate::ahci::read_persist_reclog_region(controller);
+    if !read.read_completed || !read.region_bounds_valid {
+        return None;
+    }
+    let bytes = read.bytes.as_deref()?;
+    if u64::try_from(bytes.len()).ok()? != read.byte_count {
+        return None;
+    }
+    Some(sha256_bytes(bytes))
+}
+
+fn hash_artstor_region(controller: crate::pci::PciMassStorageController) -> Option<[u8; 32]> {
+    let probe =
+        crate::ahci::read_persist_artstor_region(controller, 0, STORAGE_SELFTEST_SECTOR_BYTES);
+    if !probe.read_completed
+        || !probe.region_bounds_valid
+        || probe.byte_count == 0
+        || probe.byte_count % STORAGE_SELFTEST_SECTOR_BYTES != 0
+    {
+        return None;
+    }
+    let region_start_lba = probe.absolute_start_lba;
+    let region_len = probe.byte_count;
+    let mut hasher = Sha256::new();
+    let mut offset = 0u64;
+    while offset < region_len {
+        let read_len = STORAGE_SELFTEST_ARTSTOR_HASH_CHUNK_BYTES.min(region_len - offset);
+        let read = crate::ahci::read_persist_artstor_region(controller, offset, read_len);
+        if !read.read_completed
+            || !read.region_bounds_valid
+            || read.absolute_start_lba != region_start_lba
+            || read.byte_count != region_len
+            || read.read_offset != offset
+            || read.read_len != read_len
+        {
+            return None;
+        }
+        let bytes = read.bytes.as_deref()?;
+        if u64::try_from(bytes.len()).ok()? != read_len {
+            return None;
+        }
+        hasher.update(bytes);
+        offset = offset.checked_add(read_len)?;
+    }
+    Some(hasher.finalize().into())
+}
+
+fn persist_region_hashes(controller: crate::pci::PciMassStorageController) -> PersistRegionHashes {
+    PersistRegionHashes {
+        reclog: hash_reclog_region(controller),
+        artstor: hash_artstor_region(controller),
+    }
+}
+
+fn compare_persist_region_hashes(
+    controller: Option<crate::pci::PciMassStorageController>,
+    before: Option<PersistRegionHashes>,
+) -> StorageSelftestDiskEvidence {
+    let Some(controller) = controller else {
+        return StorageSelftestDiskEvidence::Absent;
+    };
+    let after = persist_region_hashes(controller);
+    let before = before.unwrap_or(PersistRegionHashes {
+        reclog: None,
+        artstor: None,
+    });
+    StorageSelftestDiskEvidence::Present {
+        reclog_unchanged: matches!((before.reclog, after.reclog), (Some(left), Some(right)) if left == right),
+        artstor_unchanged: matches!((before.artstor, after.artstor), (Some(left), Some(right)) if left == right),
+    }
+}
+
+pub(crate) fn emit_storage_selftest() {
+    let controller = crate::pci::find_mass_storage_controller();
+    let disk_before = controller.map(persist_region_hashes);
+    let build_output = build_output_storage_selftest();
+    let ram = ram_out_quota_selftest();
+    let disk = compare_persist_region_hashes(controller, disk_before);
+    let persistent_effect_free =
+        disk.unchanged() && ram.unchanged && build_output.media_write_attempts == 0;
+    let pass = build_output.passed() && ram.passed() && persistent_effect_free;
+    crate::serial::write_raw_fmt(format_args!(
+        "RAIOS_STORAGE selftest={} absent_grant={} out_of_range={} quota_overflow={} ram_quota={} logged=1 persistent_effect={} media_write_attempts={} ram_unchanged={}\n",
+        if pass { "pass" } else { "fail" },
+        build_output.absent_grant,
+        build_output.out_of_range,
+        build_output.quota_overflow,
+        ram.reason,
+        if persistent_effect_free { 0 } else { 1 },
+        build_output.media_write_attempts,
+        u8::from(ram.unchanged),
+    ));
+    match disk {
+        StorageSelftestDiskEvidence::Absent => {
+            crate::serial::write_raw_fmt(format_args!("RAIOS_STORAGE disk=absent\n"));
+        }
+        StorageSelftestDiskEvidence::Present {
+            reclog_unchanged,
+            artstor_unchanged,
+        } => crate::serial::write_raw_fmt(format_args!(
+            "RAIOS_STORAGE disk={} reclog_unchanged={} artstor_unchanged={}\n",
+            if reclog_unchanged && artstor_unchanged {
+                "pass"
+            } else {
+                "fail"
+            },
+            u8::from(reclog_unchanged),
+            u8::from(artstor_unchanged),
+        )),
     }
 }
 

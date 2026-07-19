@@ -368,6 +368,7 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("memory.record_log_append_selftest", Exact, [], [route!("memory.record_log_append_selftest")], MethodAction::Read0(memory_store::emit_memory_record_log_append_selftest)),
     method!("memory.broker_resolve_selftest", Exact, [], [route!("memory.broker_resolve_selftest")], MethodAction::Read0(memory_store::emit_memory_broker_resolve_selftest)),
     method!("isolation.selftest", Exact, ["isolation-selftest"], [route!("isolation.selftest")], MethodAction::Read0(crate::wasm_runtime::emit_isolation_selftest)),
+    method!("storage.selftest", Exact, ["storage-selftest"], [route!("storage.selftest")], MethodAction::Read0(crate::wasm_runtime::emit_storage_selftest)),
     method!("threads.selftest", Exact, ["threads-selftest"], [route!("threads.selftest")], MethodAction::Read0(crate::wasm_runtime::emit_threads_selftest)),
     method!("wasi.selftest", Exact, ["wasi-selftest"], [route!("wasi.selftest")], MethodAction::Read0(crate::wasm_runtime::emit_wasi_selftest)),
     method!("wasi.threadselftest", Exact, ["wasi-threadselftest"], [route!("wasi.threadselftest")], MethodAction::Read0(crate::wasm_runtime::emit_wasi_thread_selftest)),

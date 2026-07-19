@@ -2529,3 +2529,9 @@
 
         Send-AgentCommand -Command "isolation.selftest" -ExpectedMarker "RAIOS_ISOLATION selftest=pass oob_store=trapped oob_load=trapped oob_offset=trapped logged=1 host_exposed=0"
         Send-AgentCommand -Command "isolation.selftest" -ExpectedMarker "RAIOS_ISOLATION importdeny=refused logged=1 host_effect=0"
+        Send-AgentCommand -Command "storage.selftest" -ExpectedMarker "RAIOS_STORAGE selftest=pass absent_grant=storage_capability_absent out_of_range=output_span_out_of_artstor quota_overflow=output_span_length_exceeds_lease ram_quota=nospc logged=1 persistent_effect=0 media_write_attempts=0 ram_unchanged=1"
+        if ($PersistDiskPath) {
+            Send-AgentCommand -Command "storage.selftest" -ExpectedMarker "RAIOS_STORAGE disk=pass reclog_unchanged=1 artstor_unchanged=1"
+        } else {
+            Send-AgentCommand -Command "storage.selftest" -ExpectedMarker "RAIOS_STORAGE disk=absent"
+        }

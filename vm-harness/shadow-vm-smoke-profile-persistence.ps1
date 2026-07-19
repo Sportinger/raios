@@ -324,6 +324,9 @@ Add-Predicate `
     -Passed $readOnly `
     -Actual $(if ($readOnly) { "matched" } else { ($layout | ConvertTo-Json -Compress -Depth 6) })
 
+Send-AgentCommand -Command "storage.selftest" -ExpectedMarker "RAIOS_STORAGE selftest=pass absent_grant=storage_capability_absent out_of_range=output_span_out_of_artstor quota_overflow=output_span_length_exceeds_lease ram_quota=nospc logged=1 persistent_effect=0 media_write_attempts=0 ram_unchanged=1" -Name "persistence:storage_selftest"
+Send-AgentCommand -Command "storage.selftest" -ExpectedMarker "RAIOS_STORAGE disk=pass reclog_unchanged=1 artstor_unchanged=1" -Name "persistence:storage_disk_invariance"
+
 Send-AgentCommand -Command "agent durable.record_log_scan" -ExpectedMarker "RAIOS_AGENT_END durable.record_log_scan" -Name "persistence:durable_record_log_scan_empty_query"
 $emptyScanResponse = Get-LastAgentResponseJson -Method "durable.record_log_scan"
 $emptyScan = $emptyScanResponse.body.result

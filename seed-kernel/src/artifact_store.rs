@@ -369,6 +369,7 @@ pub(crate) fn read_buildfs_chunk_frame(
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum BuildOutputAppendError {
+    StorageCapabilityAbsent,
     CommitDenied(BuildOutputCommitDenied),
     ControllerMissing,
     LiveGeometryUnavailable,
@@ -388,6 +389,7 @@ pub(crate) enum BuildOutputAppendError {
 impl BuildOutputAppendError {
     pub(crate) const fn reason(self) -> &'static str {
         match self {
+            Self::StorageCapabilityAbsent => "storage_capability_absent",
             Self::CommitDenied(rejection) => rejection.reason(),
             Self::ControllerMissing => "ahci_controller_not_observed",
             Self::LiveGeometryUnavailable => "build_output_live_geometry_unavailable",
@@ -404,6 +406,12 @@ impl BuildOutputAppendError {
             Self::CommitRecordReadbackMismatch => "build_output_commit_record_readback_mismatch",
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum BuildOutputStorageGrant<'a> {
+    Absent,
+    Granted(&'a BuildStorageAuthority),
 }
 
 pub(crate) struct BuildOutputWriteHandle {
@@ -423,13 +431,19 @@ pub(crate) struct BuildOutputCommitAppendEvidence {
     pub(crate) commit_record_seq: u64,
 }
 
-/// Acquires the allocator lock, evaluates the opaque core permission, then
-/// rechecks the live ARTSTOR geometry and exact append reservation.
+/// Rejects an absent grant, then acquires the allocator lock, evaluates the
+/// opaque core permission, and rechecks live ARTSTOR geometry and reservation.
 pub(crate) fn acquire_build_output_write_handle(
     claims: ScopedBuildOutputCommitInput,
-    authority: &BuildStorageAuthority,
+    grant: BuildOutputStorageGrant<'_>,
     egress: &WasiArtifactEgressPlan,
 ) -> Result<BuildOutputWriteHandle, BuildOutputAppendError> {
+    let authority = match grant {
+        BuildOutputStorageGrant::Absent => {
+            return Err(BuildOutputAppendError::StorageCapabilityAbsent)
+        }
+        BuildOutputStorageGrant::Granted(authority) => authority,
+    };
     let guard = BUILD_STORAGE_IO_LOCK.lock();
     let authorization = match evaluate_scoped_build_output_commit(&claims, authority, egress) {
         ScopedBuildOutputCommitDecision::Authorized(authorization) => authorization,
