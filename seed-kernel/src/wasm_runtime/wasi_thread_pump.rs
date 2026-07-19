@@ -48,6 +48,7 @@ pub(crate) struct WasiThreadRunEvidence {
 
 struct ThreadSlot {
     start: Func,
+    prologue: Option<Func>,
     start_args: Option<(i32, i32)>,
     continuation: Option<ResumableInvocation>,
     fuel_escrow: u64,
@@ -57,9 +58,10 @@ struct ThreadSlot {
 }
 
 impl ThreadSlot {
-    fn main(start: Func) -> Self {
+    fn main(start: Func, prologue: Option<Func>) -> Self {
         Self {
             start,
+            prologue,
             start_args: None,
             continuation: None,
             fuel_escrow: 0,
@@ -69,9 +71,10 @@ impl ThreadSlot {
         }
     }
 
-    fn spawned(start: Func, thread: ThreadId, start_arg: i32) -> Self {
+    fn spawned(start: Func, prologue: Option<Func>, thread: ThreadId, start_arg: i32) -> Self {
         Self {
             start,
+            prologue,
             start_args: Some((thread.get() as i32, start_arg)),
             continuation: None,
             fuel_escrow: 0,
@@ -112,6 +115,7 @@ impl WasiThreadJobRunner {
         module: Module,
         linker: Linker<WasiHostState>,
         main: Func,
+        start_section: Option<Func>,
         class: BuildGuestClassV1,
     ) -> Result<Self, WasiThreadJobFailure> {
         if class.thread_cap == 0
@@ -125,6 +129,12 @@ impl WasiThreadJobRunner {
         let main_ty = main.ty(&store);
         if !main_ty.params().is_empty() || !main_ty.results().is_empty() {
             return Err(WasiThreadJobFailure::Setup);
+        }
+        if let Some(start_section) = &start_section {
+            let start_ty = start_section.ty(&store);
+            if !start_ty.params().is_empty() || !start_ty.results().is_empty() {
+                return Err(WasiThreadJobFailure::Setup);
+            }
         }
         let world = store
             .data()
@@ -164,7 +174,7 @@ impl WasiThreadJobRunner {
             memory,
             module,
             linker,
-            threads: vec![ThreadSlot::main(main)],
+            threads: vec![ThreadSlot::main(main, start_section)],
             class,
             round: 0,
             round_limit,
@@ -376,6 +386,11 @@ impl WasiThreadJobRunner {
         if slot.started || !inputs.is_empty() {
             return Err(WasiThreadJobFailure::Scheduler);
         }
+        if let Some(prologue) = slot.prologue.take() {
+            return prologue
+                .call_resumable(&mut self.store, &[], &mut outputs)
+                .map_err(|_| WasiThreadJobFailure::Engine);
+        }
         slot.started = true;
         let spawned_inputs;
         let start_inputs = if let Some((tid, start_arg)) = slot.start_args {
@@ -397,6 +412,15 @@ impl WasiThreadJobRunner {
         loop {
             let invocation = match outcome {
                 ResumableCall::Finished => {
+                    let start_started = self
+                        .threads
+                        .get(thread.get() as usize)
+                        .ok_or(WasiThreadJobFailure::Scheduler)?
+                        .started;
+                    if !start_started {
+                        outcome = self.resume_selected(thread, &[])?;
+                        continue;
+                    }
                     self.finish_thread(thread)?;
                     return Ok(());
                 }
@@ -502,9 +526,15 @@ impl WasiThreadJobRunner {
                 .linker
                 .instantiate(&mut self.store, &self.module)
                 .map_err(|_| WasiThreadJobFailure::Materialization)?;
-            let instance = pre
-                .start(&mut self.store)
+            let (instance, start_section) = pre
+                .start_split(&mut self.store)
                 .map_err(|_| WasiThreadJobFailure::Materialization)?;
+            if let Some(start_section) = &start_section {
+                let ty = start_section.ty(&self.store);
+                if !ty.params().is_empty() || !ty.results().is_empty() {
+                    return Err(WasiThreadJobFailure::Materialization);
+                }
+            }
             let start = instance
                 .get_func(&self.store, "wasi_thread_start")
                 .ok_or(WasiThreadJobFailure::Materialization)?;
@@ -513,7 +543,7 @@ impl WasiThreadJobRunner {
                 return Err(WasiThreadJobFailure::Materialization);
             }
             self.threads
-                .push(ThreadSlot::spawned(start, thread, start_arg));
+                .push(ThreadSlot::spawned(start, start_section, thread, start_arg));
         }
         Ok(())
     }

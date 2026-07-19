@@ -37,10 +37,10 @@ use raios_wasi_preview1::{
     WasiBuildInstance, WasiBuildLimits, SYSROOT_MOUNT,
 };
 use wasmi::{
-    core::{Pages, Trap, TrapCode, ValueType},
+    core::{Pages, Trap, ValueType},
     errors::{MemoryError, TableError},
-    Config, Engine, Error as WasmiError, ExternType, Linker, Memory, MemoryType, Module,
-    Mutability, ResourceLimiter, ResumableCall, Store, Suspension,
+    Config, Engine, ExternType, Linker, Memory, MemoryType, Module, Mutability, ResourceLimiter,
+    ResumableCall, Store, Suspension,
 };
 
 use super::{
@@ -2276,87 +2276,6 @@ fn rustcrun_args() -> Vec<Vec<u8>> {
     ]
 }
 
-fn rustcrun_trap_code_reason(code: TrapCode) -> &'static str {
-    match code {
-        TrapCode::UnreachableCodeReached => "unreachable",
-        TrapCode::MemoryOutOfBounds => "memory_out_of_bounds",
-        TrapCode::TableOutOfBounds => "table_out_of_bounds",
-        TrapCode::IndirectCallToNull => "indirect_call_null",
-        TrapCode::IntegerDivisionByZero => "integer_division_by_zero",
-        TrapCode::IntegerOverflow => "integer_overflow",
-        TrapCode::BadConversionToInteger => "bad_integer_conversion",
-        TrapCode::StackOverflow => "stack_overflow",
-        TrapCode::BadSignature => "bad_signature",
-        TrapCode::OutOfFuel => "pre_start_out_of_fuel",
-        TrapCode::GrowthOperationLimited => "growth_limited",
-        TrapCode::UnalignedAtomic => "unaligned_atomic",
-        TrapCode::UnsharedMemoryAtomicWait => "unshared_atomic_wait",
-        TrapCode::AtomicSuspendNotResumable => "pre_start_atomic_suspend",
-    }
-}
-
-fn rustcrun_wasmi_error(error: &WasmiError) -> &'static str {
-    match error {
-        WasmiError::Trap(trap) => trap
-            .trap_code()
-            .map(rustcrun_trap_code_reason)
-            .unwrap_or("host_trap"),
-        WasmiError::Global(_) => "global_error",
-        WasmiError::Memory(_) => "memory_error",
-        WasmiError::Table(_) => "table_error",
-        WasmiError::Linker(_) => "linker_error",
-        WasmiError::Instantiation(_) => "instantiation_error",
-        WasmiError::Module(_) => "module_error",
-        WasmiError::Store(_) => "store_fuel_error",
-        WasmiError::Func(_) => "function_error",
-        _ => "engine_error",
-    }
-}
-
-fn rustcrun_pre_start_failure(
-    store: &Store<WasiHostState>,
-    error: &WasmiError,
-) -> RustcRunEvidence {
-    if matches!(
-        error,
-        WasmiError::Trap(trap) if trap.downcast_ref::<ProcExitTrap>().is_some()
-    ) {
-        if let Some(code) = store.data().terminal_exit() {
-            let (spawns, cap_denials, stdout_bytes) = store
-                .data()
-                .scheduled_world()
-                .map(|world| {
-                    (
-                        world.spawns,
-                        world.cap_denials,
-                        u64::try_from(world.stdout.len()).unwrap_or(u64::MAX),
-                    )
-                })
-                .unwrap_or((0, 0, 0));
-            return RustcRunEvidence {
-                stage: RustcRunStage::Exited,
-                file_sha: CompilerFileSha::Ok,
-                spawns,
-                cap_denials,
-                rounds: 0,
-                stdout_bytes,
-                granted_total: 0,
-                exit_code: Some(code),
-                reason: if code == 0 {
-                    "none"
-                } else {
-                    "pre_start_exit_nonzero"
-                },
-            };
-        }
-    }
-    RustcRunEvidence::at(
-        RustcRunStage::Trapped,
-        CompilerFileSha::Ok,
-        rustcrun_wasmi_error(error),
-    )
-}
-
 fn run_rustcrun() -> RustcRunEvidence {
     let Some(expected_file_sha256) = parse_sha256_ref(COMPILER_ARTIFACT_SHA256) else {
         return RustcRunEvidence::at(
@@ -2746,17 +2665,19 @@ fn run_rustcrun() -> RustcRunEvidence {
             )
         }
     };
-    // The start section runs non-resumably under pre.start; give it a generous
-    // one-shot budget (bounded init code) so it can complete, then reset the
-    // store's remaining fuel to 0 so the merged pump installs its per-thread
-    // escrows from a clean baseline (ADR 0022 §3). replace_remaining_fuel
-    // preserves fuel_consumed, so the logical clock stays continuous.
-    let _ = store.replace_remaining_fuel(RUSTC_BUILD_GUEST_CLASS_V1.max_total_fuel);
-    let wasm_instance = match pre.start(&mut store) {
-        Ok(instance) => instance,
-        Err(error) => return rustcrun_pre_start_failure(&store, &error),
+    // Finish instantiation without calling the start section. The merged pump
+    // runs it as thread 0's resumable prologue under the same fuel escrow and
+    // suspension discipline as `_start`.
+    let (wasm_instance, start_section) = match pre.start_split(&mut store) {
+        Ok(split) => split,
+        Err(_) => {
+            return RustcRunEvidence::at(
+                RustcRunStage::Instantiated,
+                CompilerFileSha::Ok,
+                "start_split_failed",
+            )
+        }
     };
-    let _ = store.replace_remaining_fuel(0);
     let Some(main) = wasm_instance.get_func(&store, "_start") else {
         return RustcRunEvidence::at(
             RustcRunStage::Instantiated,
@@ -2772,16 +2693,17 @@ fn run_rustcrun() -> RustcRunEvidence {
             "start_export_type",
         );
     }
-    let runner = match WasiThreadJobRunner::new(store, memory, module, linker, main, class) {
-        Ok(runner) => runner,
-        Err(failure) => {
-            return RustcRunEvidence::at(
-                RustcRunStage::Started,
-                CompilerFileSha::Ok,
-                rustcrun_pump_failure(failure),
-            )
-        }
-    };
+    let runner =
+        match WasiThreadJobRunner::new(store, memory, module, linker, main, start_section, class) {
+            Ok(runner) => runner,
+            Err(failure) => {
+                return RustcRunEvidence::at(
+                    RustcRunStage::Started,
+                    CompilerFileSha::Ok,
+                    rustcrun_pump_failure(failure),
+                )
+            }
+        };
     RustcRunEvidence::completed(runner.run())
 }
 
@@ -3016,8 +2938,8 @@ fn run_wasi_thread_fixture_once() -> Result<WasiThreadRunEvidence, ()> {
     let pre = linker.instantiate(&mut store, &module).map_err(|_| ())?;
     let instance = pre.start(&mut store).map_err(|_| ())?;
     let main = instance.get_func(&store, "_start").ok_or(())?;
-    let runner =
-        WasiThreadJobRunner::new(store, memory, module, linker, main, class).map_err(|_| ())?;
+    let runner = WasiThreadJobRunner::new(store, memory, module, linker, main, None, class)
+        .map_err(|_| ())?;
     Ok(runner.run())
 }
 

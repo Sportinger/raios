@@ -1,5 +1,5 @@
 use super::InstantiationError;
-use crate::{module::FuncIdx, AsContextMut, Error, Instance, InstanceEntityBuilder};
+use crate::{module::FuncIdx, AsContextMut, Error, Func, Instance, InstanceEntityBuilder};
 
 /// A partially instantiated [`Instance`] where the `start` function has not yet been executed.
 ///
@@ -57,6 +57,29 @@ impl InstancePre {
             start_func.call(context.as_context_mut(), &[], &mut [])?
         }
         Ok(self.handle)
+    }
+
+    /// Finishes instantiation and returns the unresolved-of-call start function if any.
+    ///
+    /// This allows callers to execute the start function through a resumable call driver.
+    pub fn start_split(
+        self,
+        mut context: impl AsContextMut,
+    ) -> Result<(Instance, Option<Func>), Error> {
+        let opt_start_index = self.start_fn();
+        context
+            .as_context_mut()
+            .store
+            .inner
+            .initialize_instance(self.handle, self.builder.finish());
+        let opt_start_func = opt_start_index.map(|start_index| {
+            self.handle
+                .get_func_by_index(&mut context, start_index)
+                .unwrap_or_else(|| {
+                    panic!("encountered invalid start function after validation: {start_index}")
+                })
+        });
+        Ok((self.handle, opt_start_func))
     }
 
     /// Finishes instantiation ensuring that no `start` function exists.
