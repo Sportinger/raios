@@ -7,28 +7,35 @@
 > fitting plan under `docs/plans/`. Max ~4 lines of text per entry, file max
 > 60 lines. Replace, never append.
 
-## Now (as of 2026-07-19 ~12:35, loop running)
+## Now (as of 2026-07-19 ~14:35, loop paused for budget)
 
-**rustc --version COMPLETES on-device: `rustc 1.83.0-dev`, exit 0, 11
-rounds** (4716732, shadow-20260719-122823, quick+needle 504/504). Today's
-chain: fuel starvation diagnosed+fixed (e3962b0) → LLVM OOM captured via
-new stderr/trap evidence → cause was the visible reserve-to-max grow →
-fixed + grow evidence. Full details STATUS. Also landed today: dual quick
-escape needles, floor doc, unsafe inventory, cargo-JSON-diag (§4 top-level
-box), 114028 forensics, RUSTCLOCK tracer. Tree clean, pushed.
+rustc runs the FULL compile frontend on-device: reads+parses /src/hello.rs,
+resolves std from the sysroot, type-checks, reaches output emission, fails
+only creating /out/rmeta<rand>/lib.rmeta (os76, instance.rs:229 — temp dir fd
+lacks PATH_CREATE_FILE; STATUS has the precise fix). Reached via 4 WASI
+calibrations (symlink/rights/O_DIRECTORY/O_TRUNC, all committed+pushed).
+Earlier today: the rustc "spin" solved (fuel starvation + grow), --version
+completes exit 0; §1–3 reframe + both escape needles permanent; §4 JSON-diag
+box; floor doc; unsafe inventory. Tree clean, all pushed (HEAD 1166ca6).
 
 ## Next step
 
-Next rustc slice: a REAL compile on-device (hello.rs via /src mount, new
-argv, output via /out) → closes scope/06 "rustc-as-Wasm compiles a real
-program". Queued disjoint lanes (task list): §4 device-graph IRQ fields, §2
-storage negative, §3 rollback-isolation; vendored ByteBuffer
-max-reservation lane for multi-GB compiles. Owner items (not blocking):
-(1) §5/§6 wording still pre-ADR-0005 — same reframe approval as §1–3;
-(2) bare-metal escape-test run needs a Surface session; (3) unattended-loop
-hardware = money/owner.
+§6 rustc-compile (buildable, NOT owner-blocked): fix rights_inheriting
+propagation from the writable /out preopen to opened subdirs so the temp dir
+carries PATH_CREATE_FILE; instrument the temp-dir fd rights first, keep ROFS
++ write denials. Then rerun wasi.rustcbuild on persist-combined-rustcbuild.img
+(-GuestMemoryMB 8192 -KeepImage) → expect hello.wasm. Also queued: §3
+rollback-isolation profile (rewrite mirroring m6d-rollback verbatim), §4
+device-graph IRQ fields, §2 storage-negative. Owner-gated (blocking "all
+boxes"): §5/§6 pre-ADR-0005 wording reframe; bare-metal escape run (Surface);
+unattended-loop hardware (money).
 
 ## Recently (exactly 3, newest first)
+
+### 2026-07-19 — rustc compiles real source on-device up to output write
+wasi.rustcbuild + 4 WASI file calibrations walked rustc from "can't read
+source" to running the whole frontend (std resolved, type-check done),
+blocked only at artifact create (os76). Precise next lane in STATUS. §6 open.
 
 ### 2026-07-19 — rustc --version completes inside raiOS
 After the escrow top-up fix, stderr capture revealed 'LLVM ERROR: out of
@@ -40,9 +47,3 @@ grow was denied. Guest now keeps 399 initial pages; grows 399→401 approved;
 E3 top-up fix + conformance starvation test; decisive rerun: 4 rounds to
 real stderr I/O + trap vs 200k dead rounds before. The on-device compiler
 now runs and fails ordinarily; stderr capture (E4) is the next evidence.
-
-### 2026-07-19 — Fuel starvation measured as THE rustc-init root cause
-RUSTCLOCK (generic opt-in wasmi trace, disabled-path equality proven): 5000
-rounds all park at __lock ip=0 with unmet debit 208; H1/H2 refuted, H3
-confirmed as escrow-grant-only-on-empty. rustc is starved, not spinning;
-"advancing rounds" heartbeats were parks. Fix: per-activation top-up (E3).

@@ -69,6 +69,31 @@ linear; fuel metering forces a suspension every quantum, so an advancing
 counter is proof of forward execution). So the whole on-device factory
 pipeline runs: store → gate → mount → instantiate → start section → _start
 executing real rustc bytecode.
+**rustc RUNS THE FULL COMPILE FRONTEND ON-DEVICE, blocked only at output
+write (2026-07-19).** `wasi.rustcbuild` compiles pinned /src/hello.rs
+(src BuildFS 42776b01) with the workshop argv (--target
+wasm32-wasip1-threads -Clinker=rust-lld -o /out/hello.wasm). rustc reads the
+source, parses, RESOLVES std from the seeded sysroot (crate scan works),
+type-checks, and reaches output emission — then fails deterministically:
+`RAIOS_RUSTCSTDERR: failed to create the file /out/rmeta<rand>/lib.rmeta:
+Capabilities insufficient (os error 76)` (102 rounds, shadow-20260719-142419).
+Getting there took a series of WASI file-world calibrations, each found by
+rerun-and-read-stderr on the 3-seed 8-GiB image (sysroot 13daf6f9 + compiler
+1b9214df + hello-src 42776b01): SYMLINK_FOLLOW as no-op (os76→os69), read-only
+rights attenuation = requested∩mount∩parent so std's broad read-open succeeds
+while ROFS stays fail-closed (os69→E0463), accept O_DIRECTORY so rustc can
+readdir the sysroot lib dir (E0463→os76-on-write), O_TRUNC on writable RAM
+arenas (438b6c6/8081c9b/1166ca6, raios-wasi-preview1 57→60/60 each). PRECISE
+REMAINING FRONTIER (next-session lane, buildable, not owner-blocked): the
+create-file gate at crates/raios-wasi-preview1/src/instance.rs:229 requires
+the PARENT dir fd to carry PATH_CREATE_FILE; the temp subdir rustc creates
+under /out (rmeta<rand>) doesn't inherit it — fix is rights_inheriting
+propagation from the writable /out preopen down to opened subdirectories
+(instrument the temp-dir fd rights first; keep readonly mounts + write
+denials intact). The O_TRUNC lane was a correct WASI fix but NOT this blocker
+(identical failure post-fix proved it). Honest scope: §6 "rustc compiles a
+real program" stays OPEN — the compiler runs real compilation work on-device
+but no hello.wasm artifact lands yet.
 **rustc --version COMPLETES INSIDE raiOS (2026-07-19):
 `RAIOS_RUSTCSTDOUT len=17 text=rustc 1.83.0-dev.` — exit 0, 11 pump rounds,
 zero stderr** (shadow-20260719-122823, quick+needle 504/504). The day's
