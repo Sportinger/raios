@@ -37,10 +37,10 @@ use raios_wasi_preview1::{
     WasiBuildInstance, WasiBuildLimits, SYSROOT_MOUNT,
 };
 use wasmi::{
-    core::{Pages, Trap, ValueType},
+    core::{Pages, Trap, TrapCode, ValueType},
     errors::{MemoryError, TableError},
-    Config, Engine, ExternType, Linker, Memory, MemoryType, Module, Mutability, ResourceLimiter,
-    ResumableCall, Store, Suspension,
+    Config, Engine, Error as WasmiError, ExternType, Linker, Memory, MemoryType, Module,
+    Mutability, ResourceLimiter, ResumableCall, Store, Suspension,
 };
 
 use super::{
@@ -52,7 +52,9 @@ use super::{
     wasi_preview1::{
         define_wasi_imports, ProcExitTrap, ThreadHostMode, ThreadWorld, WasiHostState,
     },
-    wasi_thread_pump::{WasiThreadJobEnd, WasiThreadJobRunner, WasiThreadRunEvidence},
+    wasi_thread_pump::{
+        WasiThreadJobEnd, WasiThreadJobFailure, WasiThreadJobRunner, WasiThreadRunEvidence,
+    },
 };
 
 const WASI_BUILD_OK_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/wasi_build_ok.wasm"));
@@ -81,6 +83,8 @@ const SYSIMPORT_RUN_NONCE: u64 = 301;
 const COMPILERLOAD_READ_NONCE: u64 = 302;
 const COMPILERLOAD_INSTANCE_NONCE: u64 = 303;
 const WASI_THREAD_RUN_NONCE: u64 = 304;
+const RUSTCRUN_COMPILER_READ_NONCE: u64 = 305;
+const RUSTCRUN_INSTANCE_NONCE: u64 = 306;
 const REQUIRED_IMPORT_COUNT: usize = 30;
 const BUILD_STORE_INSTANCE_ID: u64 = 11;
 const BUILD_STORE_GENERATION: u64 = 13;
@@ -168,11 +172,7 @@ impl SysimportEvidence {
         }
     }
 
-    const fn failed_materialize(
-        deny: &'static str,
-        detail: &'static str,
-        at: u64,
-    ) -> Self {
+    const fn failed_materialize(deny: &'static str, detail: &'static str, at: u64) -> Self {
         Self {
             manifest: "ok",
             chunks: 0,
@@ -264,6 +264,110 @@ impl CompilerLoadEvidence {
 struct CompilerReassemblyFailure {
     bytes: usize,
     reason: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RustcRunStage {
+    Reassembled,
+    Instantiated,
+    Started,
+    Exited,
+    Trapped,
+    Deadlocked,
+    Ceiling,
+}
+
+impl RustcRunStage {
+    const fn token(self) -> &'static str {
+        match self {
+            Self::Reassembled => "reassembled",
+            Self::Instantiated => "instantiated",
+            Self::Started => "started",
+            Self::Exited => "exited",
+            Self::Trapped => "trapped",
+            Self::Deadlocked => "deadlocked",
+            Self::Ceiling => "ceiling",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct RustcRunEvidence {
+    stage: RustcRunStage,
+    file_sha: CompilerFileSha,
+    spawns: u32,
+    cap_denials: u32,
+    rounds: u64,
+    stdout_bytes: u64,
+    granted_total: u64,
+    exit_code: Option<u32>,
+    reason: &'static str,
+}
+
+impl RustcRunEvidence {
+    const fn at(stage: RustcRunStage, file_sha: CompilerFileSha, reason: &'static str) -> Self {
+        Self {
+            stage,
+            file_sha,
+            spawns: 0,
+            cap_denials: 0,
+            rounds: 0,
+            stdout_bytes: 0,
+            granted_total: 0,
+            exit_code: None,
+            reason,
+        }
+    }
+
+    fn completed(run: WasiThreadRunEvidence) -> Self {
+        let stdout_bytes = u64::try_from(run.stdout.len()).unwrap_or(u64::MAX);
+        let (stage, exit_code, reason) = match run.end {
+            WasiThreadJobEnd::JobExited { code } => (
+                RustcRunStage::Exited,
+                Some(code),
+                if code == 0 {
+                    "none"
+                } else {
+                    "guest_exit_nonzero"
+                },
+            ),
+            WasiThreadJobEnd::JobDeadlocked => (RustcRunStage::Deadlocked, None, "thread_deadlock"),
+            WasiThreadJobEnd::Failed(WasiThreadJobFailure::FuelCeiling) => {
+                (RustcRunStage::Ceiling, None, "fuel_ceiling")
+            }
+            WasiThreadJobEnd::Failed(WasiThreadJobFailure::RoundLimit) => {
+                (RustcRunStage::Ceiling, None, "round_limit")
+            }
+            WasiThreadJobEnd::Failed(failure) => {
+                (RustcRunStage::Trapped, None, rustcrun_pump_failure(failure))
+            }
+        };
+        Self {
+            stage,
+            file_sha: CompilerFileSha::Ok,
+            spawns: run.spawns,
+            cap_denials: run.cap_denials,
+            rounds: run.rounds,
+            stdout_bytes,
+            granted_total: run.granted_total,
+            exit_code,
+            reason,
+        }
+    }
+}
+
+fn rustcrun_pump_failure(failure: WasiThreadJobFailure) -> &'static str {
+    match failure {
+        WasiThreadJobFailure::Setup => "pump_setup",
+        WasiThreadJobFailure::Scheduler => "scheduler_state",
+        WasiThreadJobFailure::Fuel => "fuel_accounting",
+        WasiThreadJobFailure::FuelCeiling => "fuel_ceiling",
+        WasiThreadJobFailure::Engine => "guest_trap",
+        WasiThreadJobFailure::MemoryIdentity => "memory_identity",
+        WasiThreadJobFailure::HostResultType => "host_result_type",
+        WasiThreadJobFailure::Materialization => "worker_materialization",
+        WasiThreadJobFailure::RoundLimit => "round_limit",
+    }
 }
 
 impl WasiJobEvidence {
@@ -675,9 +779,27 @@ fn build_instance(
     sysroot_manifest: &BuildFsManifest,
     src_manifest: &BuildFsManifest,
 ) -> Option<WasiBuildInstance> {
+    build_instance_with_process(
+        authorized,
+        class,
+        sysroot_manifest,
+        src_manifest,
+        Vec::new(),
+        Vec::new(),
+    )
+}
+
+fn build_instance_with_process(
+    authorized: &AuthorizedBuildJob,
+    class: BuildGuestClassV1,
+    sysroot_manifest: &BuildFsManifest,
+    src_manifest: &BuildFsManifest,
+    args: Vec<Vec<u8>>,
+    environment: Vec<(Vec<u8>, Vec<u8>)>,
+) -> Option<WasiBuildInstance> {
     let sysroot = project_core_manifest(sysroot_manifest).ok()?;
     let source = project_core_manifest(src_manifest).ok()?;
-    let job = JobContext::new(Vec::new(), Vec::new(), authorized.job_manifest_sha256()).ok()?;
+    let job = JobContext::new(args, environment, authorized.job_manifest_sha256()).ok()?;
     let max_files = u64::from(class.max_files_per_arena);
     let max_directories = u64::from(class.max_dirs_per_arena);
     let scratch = RamQuotas::new(
@@ -1497,6 +1619,138 @@ fn compilerload_negative_boundaries(expected_file_sha256: [u8; 32]) -> bool {
     compiler_file_sha_status(mismatch, expected_file_sha256) == CompilerFileSha::Mismatch
 }
 
+#[derive(Clone)]
+struct SharedBuildChunkStore {
+    session: Rc<RefCell<crate::agent_protocol::artifact_store::BuildChunkReadSession>>,
+    store_instance_id: u64,
+    store_generation: u64,
+}
+
+impl SharedBuildChunkStore {
+    fn new(session: crate::agent_protocol::artifact_store::BuildChunkReadSession) -> Self {
+        let store_instance_id = session.store_instance_id();
+        let store_generation = session.store_generation();
+        Self {
+            session: Rc::new(RefCell::new(session)),
+            store_instance_id,
+            store_generation,
+        }
+    }
+
+    fn load_manifest(
+        &self,
+        manifest_sha256: &str,
+        manifest_len: u64,
+    ) -> Result<BuildFsManifest, &'static str> {
+        let manifest_pin = parse_sha256_ref(manifest_sha256).ok_or("manifest_pin_invalid")?;
+        let session = self
+            .session
+            .try_borrow()
+            .map_err(|_| "store_session_busy")?;
+        let manifest_frame = session
+            .resolve_chunk_frame(manifest_pin, manifest_len)
+            .map_err(compilerload_store_error)?;
+        let manifest_len = usize::try_from(manifest_len).map_err(|_| "manifest_length_overflow")?;
+        let mut manifest_bytes = Vec::new();
+        manifest_bytes
+            .try_reserve_exact(manifest_len)
+            .map_err(|_| "manifest_allocation_failed")?;
+        manifest_bytes.resize(manifest_len, 0);
+        session
+            .read_chunk_frame(manifest_frame, &mut manifest_bytes)
+            .map_err(compilerload_store_error)?;
+        drop(session);
+        let recomputed_manifest_sha256 = sha256_bytes(&manifest_bytes);
+        if recomputed_manifest_sha256 != manifest_pin {
+            return Err("manifest_hash_mismatch");
+        }
+        let manifest = parse_canonical_buildfs_manifest(&manifest_bytes)?;
+        let canonical_manifest_sha256 = manifest.sha256().map_err(|_| "manifest_invalid")?;
+        if canonical_manifest_sha256 != recomputed_manifest_sha256
+            || canonical_manifest_sha256 != manifest_pin
+        {
+            return Err("manifest_hash_mismatch");
+        }
+        Ok(manifest)
+    }
+}
+
+impl BuildChunkStore for SharedBuildChunkStore {
+    fn store_instance_id(&self) -> u64 {
+        self.store_instance_id
+    }
+
+    fn store_generation(&self) -> u64 {
+        self.store_generation
+    }
+
+    fn resolve_chunk(
+        &mut self,
+        sha256: [u8; 32],
+        len: u64,
+    ) -> Result<BuildChunkHandle, BuildChunkStoreError> {
+        let session = self
+            .session
+            .try_borrow()
+            .map_err(|_| BuildChunkStoreError::Io)?;
+        let frame = session
+            .resolve_chunk_frame(sha256, len)
+            .map_err(rustcrun_store_error)?;
+        Ok(BuildChunkHandle {
+            store_generation: frame.store_generation,
+            frame_offset: frame.frame_offset,
+            frame_len: frame.frame_len,
+            payload_len: frame.payload_len,
+            payload_sha256: frame.payload_sha256,
+            frame_sha256: frame.frame_sha256,
+        })
+    }
+
+    fn read_resolved_chunk(
+        &mut self,
+        handle: BuildChunkHandle,
+        destination: &mut [u8],
+    ) -> Result<(), BuildChunkStoreError> {
+        let session = self
+            .session
+            .try_borrow()
+            .map_err(|_| BuildChunkStoreError::Io)?;
+        session
+            .read_chunk_frame(
+                crate::agent_protocol::artifact_store::BuildFsChunkFrame {
+                    store_generation: handle.store_generation,
+                    frame_offset: handle.frame_offset,
+                    frame_len: handle.frame_len,
+                    payload_len: handle.payload_len,
+                    payload_sha256: handle.payload_sha256,
+                    frame_sha256: handle.frame_sha256,
+                },
+                destination,
+            )
+            .map_err(rustcrun_store_error)
+    }
+}
+
+fn rustcrun_store_error(
+    error: crate::agent_protocol::artifact_store::BuildFsChunkFrameError,
+) -> BuildChunkStoreError {
+    match error {
+        crate::agent_protocol::artifact_store::BuildFsChunkFrameError::Missing => {
+            BuildChunkStoreError::Missing
+        }
+        crate::agent_protocol::artifact_store::BuildFsChunkFrameError::Bounds
+        | crate::agent_protocol::artifact_store::BuildFsChunkFrameError::LengthMismatch => {
+            BuildChunkStoreError::Bounds
+        }
+        crate::agent_protocol::artifact_store::BuildFsChunkFrameError::Malformed => {
+            BuildChunkStoreError::MalformedFrame
+        }
+        crate::agent_protocol::artifact_store::BuildFsChunkFrameError::Io => {
+            BuildChunkStoreError::Io
+        }
+    }
+}
+
 fn load_compiler_manifest_and_reader() -> Result<(BuildFsManifest, GrantedChunkReader), &'static str>
 {
     let manifest_pin =
@@ -2013,6 +2267,524 @@ fn run_compilerload() -> CompilerLoadEvidence {
     )
 }
 
+fn rustcrun_args() -> Vec<Vec<u8>> {
+    vec![
+        b"rustc".to_vec(),
+        b"--version".to_vec(),
+        b"--sysroot".to_vec(),
+        b"/sysroot".to_vec(),
+    ]
+}
+
+fn rustcrun_trap_code_reason(code: TrapCode) -> &'static str {
+    match code {
+        TrapCode::UnreachableCodeReached => "unreachable",
+        TrapCode::MemoryOutOfBounds => "memory_out_of_bounds",
+        TrapCode::TableOutOfBounds => "table_out_of_bounds",
+        TrapCode::IndirectCallToNull => "indirect_call_null",
+        TrapCode::IntegerDivisionByZero => "integer_division_by_zero",
+        TrapCode::IntegerOverflow => "integer_overflow",
+        TrapCode::BadConversionToInteger => "bad_integer_conversion",
+        TrapCode::StackOverflow => "stack_overflow",
+        TrapCode::BadSignature => "bad_signature",
+        TrapCode::OutOfFuel => "pre_start_out_of_fuel",
+        TrapCode::GrowthOperationLimited => "growth_limited",
+        TrapCode::UnalignedAtomic => "unaligned_atomic",
+        TrapCode::UnsharedMemoryAtomicWait => "unshared_atomic_wait",
+        TrapCode::AtomicSuspendNotResumable => "pre_start_atomic_suspend",
+    }
+}
+
+fn rustcrun_wasmi_error(error: &WasmiError) -> &'static str {
+    match error {
+        WasmiError::Trap(trap) => trap
+            .trap_code()
+            .map(rustcrun_trap_code_reason)
+            .unwrap_or("host_trap"),
+        WasmiError::Global(_) => "global_error",
+        WasmiError::Memory(_) => "memory_error",
+        WasmiError::Table(_) => "table_error",
+        WasmiError::Linker(_) => "linker_error",
+        WasmiError::Instantiation(_) => "instantiation_error",
+        WasmiError::Module(_) => "module_error",
+        WasmiError::Store(_) => "store_fuel_error",
+        WasmiError::Func(_) => "function_error",
+        _ => "engine_error",
+    }
+}
+
+fn rustcrun_pre_start_failure(
+    store: &Store<WasiHostState>,
+    error: &WasmiError,
+) -> RustcRunEvidence {
+    if matches!(
+        error,
+        WasmiError::Trap(trap) if trap.downcast_ref::<ProcExitTrap>().is_some()
+    ) {
+        if let Some(code) = store.data().terminal_exit() {
+            let (spawns, cap_denials, stdout_bytes) = store
+                .data()
+                .scheduled_world()
+                .map(|world| {
+                    (
+                        world.spawns,
+                        world.cap_denials,
+                        u64::try_from(world.stdout.len()).unwrap_or(u64::MAX),
+                    )
+                })
+                .unwrap_or((0, 0, 0));
+            return RustcRunEvidence {
+                stage: RustcRunStage::Exited,
+                file_sha: CompilerFileSha::Ok,
+                spawns,
+                cap_denials,
+                rounds: 0,
+                stdout_bytes,
+                granted_total: 0,
+                exit_code: Some(code),
+                reason: if code == 0 {
+                    "none"
+                } else {
+                    "pre_start_exit_nonzero"
+                },
+            };
+        }
+    }
+    RustcRunEvidence::at(
+        RustcRunStage::Trapped,
+        CompilerFileSha::Ok,
+        rustcrun_wasmi_error(error),
+    )
+}
+
+fn run_rustcrun() -> RustcRunEvidence {
+    let Some(expected_file_sha256) = parse_sha256_ref(COMPILER_ARTIFACT_SHA256) else {
+        return RustcRunEvidence::at(
+            RustcRunStage::Reassembled,
+            CompilerFileSha::Mismatch,
+            "file_sha_pin_invalid",
+        );
+    };
+    if !compilerload_negative_boundaries(expected_file_sha256) {
+        return RustcRunEvidence::at(
+            RustcRunStage::Reassembled,
+            CompilerFileSha::Mismatch,
+            "negative_boundary_failed",
+        );
+    }
+
+    // Exactly one ARTSTOR scan/index and one held I/O pin back both the
+    // compiler reassembly reader and the later real-sysroot reader.
+    let session = match crate::agent_protocol::artifact_store::begin_build_chunk_read_session(
+        BUILD_STORE_INSTANCE_ID,
+        BUILD_STORE_GENERATION,
+    ) {
+        Ok(session) => session,
+        Err(error) => {
+            return RustcRunEvidence::at(
+                RustcRunStage::Reassembled,
+                CompilerFileSha::Mismatch,
+                compilerload_store_error(error),
+            )
+        }
+    };
+    let shared_store = SharedBuildChunkStore::new(session);
+    let compiler_manifest = match shared_store.load_manifest(
+        COMPILER_BUILD_FS_MANIFEST_SHA256,
+        COMPILER_BUILD_FS_MANIFEST_LEN,
+    ) {
+        Ok(manifest) => manifest,
+        Err(reason) => {
+            return RustcRunEvidence::at(
+                RustcRunStage::Reassembled,
+                CompilerFileSha::Mismatch,
+                reason,
+            )
+        }
+    };
+    let Some(empty_compiler_src) = empty_manifest() else {
+        return RustcRunEvidence::at(
+            RustcRunStage::Reassembled,
+            CompilerFileSha::Mismatch,
+            "reader_src_manifest_failed",
+        );
+    };
+    let Some(compiler_reader_job) =
+        authorize_for_manifests(&compiler_manifest, &empty_compiler_src)
+    else {
+        return RustcRunEvidence::at(
+            RustcRunStage::Reassembled,
+            CompilerFileSha::Mismatch,
+            "reader_job_unauthorized",
+        );
+    };
+    let Some(compiler_authority) = storage_authority(
+        &compiler_reader_job,
+        &compiler_manifest,
+        &empty_compiler_src,
+    ) else {
+        return RustcRunEvidence::at(
+            RustcRunStage::Reassembled,
+            CompilerFileSha::Mismatch,
+            "reader_storage_unauthorized",
+        );
+    };
+    let Some(compiler_nonce) = BuildRunNonce::kernel_minted(RUSTCRUN_COMPILER_READ_NONCE) else {
+        return RustcRunEvidence::at(
+            RustcRunStage::Reassembled,
+            CompilerFileSha::Mismatch,
+            "reader_nonce_failed",
+        );
+    };
+    let compiler_reader = match materialize_build_storage(
+        &compiler_authority,
+        &compiler_manifest,
+        &empty_compiler_src,
+        compiler_nonce,
+        Box::new(shared_store.clone()),
+    ) {
+        Ok(reader) => reader,
+        Err(error) => {
+            return RustcRunEvidence::at(
+                RustcRunStage::Reassembled,
+                CompilerFileSha::Mismatch,
+                error.reason(),
+            )
+        }
+    };
+    if compiler_reader.entry_count() != COMPILER_CHUNK_COUNT
+        || compiler_reader.job_binding_sha256() != compiler_authority.job_binding_sha256()
+        || compiler_reader.run_nonce() != RUSTCRUN_COMPILER_READ_NONCE
+        || compiler_reader.store_generation() != BUILD_STORE_GENERATION
+    {
+        return RustcRunEvidence::at(
+            RustcRunStage::Reassembled,
+            CompilerFileSha::Mismatch,
+            "reader_binding_mismatch",
+        );
+    }
+    let bytes = match reassemble_compiler(&compiler_manifest, compiler_reader, expected_file_sha256)
+    {
+        Ok(bytes) => bytes,
+        Err(failure) => {
+            let _ = failure.bytes;
+            return RustcRunEvidence::at(
+                RustcRunStage::Reassembled,
+                CompilerFileSha::Mismatch,
+                failure.reason,
+            );
+        }
+    };
+    drop(compiler_manifest);
+
+    let engine = wasi_engine();
+    let module = match Module::new(&engine, bytes.as_slice()) {
+        Ok(module) => module,
+        Err(_) => {
+            return RustcRunEvidence::at(
+                RustcRunStage::Reassembled,
+                CompilerFileSha::Ok,
+                "module_invalid",
+            )
+        }
+    };
+    drop(bytes);
+
+    let sysroot_manifest = match shared_store.load_manifest(
+        SYSROOT_BUILD_FS_MANIFEST_SHA256,
+        SYSROOT_BUILD_FS_MANIFEST_LEN,
+    ) {
+        Ok(manifest) => manifest,
+        Err(reason) => {
+            return RustcRunEvidence::at(RustcRunStage::Reassembled, CompilerFileSha::Ok, reason)
+        }
+    };
+    let Some(src_manifest) = empty_manifest() else {
+        return RustcRunEvidence::at(
+            RustcRunStage::Reassembled,
+            CompilerFileSha::Ok,
+            "src_manifest_failed",
+        );
+    };
+    let observed = observed_imports(&module);
+    let declarations: Vec<_> = observed.iter().map(ObservedImport::declaration).collect();
+    if declarations.as_slice() != RUSTC_WASM_C6DCCF3E_IMPORTS {
+        return RustcRunEvidence::at(
+            RustcRunStage::Reassembled,
+            CompilerFileSha::Ok,
+            "imports_mismatch",
+        );
+    }
+    let sysroot_mount_hash = match sysroot_manifest.sha256() {
+        Ok(hash) => hash,
+        Err(_) => {
+            return RustcRunEvidence::at(
+                RustcRunStage::Reassembled,
+                CompilerFileSha::Ok,
+                "sysroot_manifest_invalid",
+            )
+        }
+    };
+    let src_mount_hash = match src_manifest.sha256() {
+        Ok(hash) => hash,
+        Err(_) => {
+            return RustcRunEvidence::at(
+                RustcRunStage::Reassembled,
+                CompilerFileSha::Ok,
+                "src_manifest_invalid",
+            )
+        }
+    };
+    let authorized = match AuthorizedBuildJob::authorize(AuthorizedBuildJobRequest {
+        wasi_grant: ScopedWasiBuildGrant {
+            compiler_artifact_sha256: COMPILER_ARTIFACT_SHA256,
+            job_manifest_sha256: JOB_MANIFEST_SHA256,
+            inventory_imports_sha256: RUSTC_WASM_C6DCCF3E_CANONICAL_IMPORTS_SHA256,
+            declared_imports: RUSTC_WASM_C6DCCF3E_IMPORTS,
+        },
+        observed_imports: &declarations,
+        guest_class: RUSTC_BUILD_GUEST_CLASS_V1,
+        sysroot_mount_manifest_sha256: sysroot_mount_hash,
+        src_mount_manifest_sha256: src_mount_hash,
+    }) {
+        Ok(authorized) => authorized,
+        Err(denied) => {
+            return RustcRunEvidence::at(
+                RustcRunStage::Reassembled,
+                CompilerFileSha::Ok,
+                denied.reason(),
+            )
+        }
+    };
+    drop(declarations);
+    drop(observed);
+    if authorized.compiler_artifact_sha256() != expected_file_sha256
+        || authorized.sysroot_mount_manifest_sha256() != sysroot_mount_hash
+        || authorized.src_mount_manifest_sha256() != src_mount_hash
+        || authorized.authorized_import_count() != REQUIRED_IMPORT_COUNT
+    {
+        return RustcRunEvidence::at(
+            RustcRunStage::Reassembled,
+            CompilerFileSha::Ok,
+            "gate_binding_mismatch",
+        );
+    }
+
+    let class = *authorized.guest_class();
+    let instance = match build_instance_with_process(
+        &authorized,
+        class,
+        &sysroot_manifest,
+        &src_manifest,
+        rustcrun_args(),
+        Vec::new(),
+    ) {
+        Some(instance) => instance,
+        None => {
+            return RustcRunEvidence::at(
+                RustcRunStage::Instantiated,
+                CompilerFileSha::Ok,
+                "build_instance_failed",
+            )
+        }
+    };
+    let Some(authority) = storage_authority(&authorized, &sysroot_manifest, &src_manifest) else {
+        return RustcRunEvidence::at(
+            RustcRunStage::Instantiated,
+            CompilerFileSha::Ok,
+            "storage_authority_failed",
+        );
+    };
+    let Some(nonce) = BuildRunNonce::kernel_minted(RUSTCRUN_INSTANCE_NONCE) else {
+        return RustcRunEvidence::at(
+            RustcRunStage::Instantiated,
+            CompilerFileSha::Ok,
+            "instance_nonce_failed",
+        );
+    };
+    let reader = match materialize_build_storage(
+        &authority,
+        &sysroot_manifest,
+        &src_manifest,
+        nonce,
+        Box::new(shared_store),
+    ) {
+        Ok(reader) => reader,
+        Err(error) => {
+            return RustcRunEvidence::at(
+                RustcRunStage::Instantiated,
+                CompilerFileSha::Ok,
+                error.reason(),
+            )
+        }
+    };
+    let expected_sysroot_chunks = match sysimport_manifest_chunk_count(&sysroot_manifest) {
+        Some(count) => count,
+        None => {
+            return RustcRunEvidence::at(
+                RustcRunStage::Instantiated,
+                CompilerFileSha::Ok,
+                "sysroot_chunk_count_overflow",
+            )
+        }
+    };
+    if reader.entry_count() != expected_sysroot_chunks
+        || reader.job_binding_sha256() != authority.job_binding_sha256()
+        || reader.run_nonce() != RUSTCRUN_INSTANCE_NONCE
+        || reader.store_generation() != BUILD_STORE_GENERATION
+    {
+        return RustcRunEvidence::at(
+            RustcRunStage::Instantiated,
+            CompilerFileSha::Ok,
+            "instance_reader_binding_mismatch",
+        );
+    }
+
+    let mut store = Store::new(
+        &engine,
+        WasiHostState::new(
+            instance,
+            reader,
+            ThreadHostMode::Scheduled(ThreadWorld::new(class.thread_cap)),
+        ),
+    );
+    store.limiter(|state| state);
+    let memory_type = match MemoryType::new_shared(
+        class.shared_memory.initial_pages,
+        class.shared_memory.max_pages,
+    ) {
+        Ok(memory_type) => memory_type,
+        Err(_) => {
+            return RustcRunEvidence::at(
+                RustcRunStage::Instantiated,
+                CompilerFileSha::Ok,
+                "memory_type_invalid",
+            )
+        }
+    };
+    let memory = match Memory::new(&mut store, memory_type) {
+        Ok(memory) => memory,
+        Err(_) => {
+            return RustcRunEvidence::at(
+                RustcRunStage::Instantiated,
+                CompilerFileSha::Ok,
+                "memory_allocation_failed",
+            )
+        }
+    };
+    if u32::from(memory.current_pages(&store)) != class.shared_memory.initial_pages {
+        return RustcRunEvidence::at(
+            RustcRunStage::Instantiated,
+            CompilerFileSha::Ok,
+            "memory_initial_mismatch",
+        );
+    }
+    let reserve_pages = match class
+        .shared_memory
+        .max_pages
+        .checked_sub(class.shared_memory.initial_pages)
+        .and_then(Pages::new)
+    {
+        Some(pages) => pages,
+        None => {
+            return RustcRunEvidence::at(
+                RustcRunStage::Instantiated,
+                CompilerFileSha::Ok,
+                "memory_reservation_invalid",
+            )
+        }
+    };
+    let previous = match memory.grow(&mut store, reserve_pages) {
+        Ok(previous) => previous,
+        Err(_) => {
+            return RustcRunEvidence::at(
+                RustcRunStage::Instantiated,
+                CompilerFileSha::Ok,
+                "memory_reservation_failed",
+            )
+        }
+    };
+    if u32::from(previous) != class.shared_memory.initial_pages
+        || u32::from(memory.current_pages(&store)) != class.shared_memory.max_pages
+    {
+        return RustcRunEvidence::at(
+            RustcRunStage::Instantiated,
+            CompilerFileSha::Ok,
+            "memory_reservation_mismatch",
+        );
+    }
+    store.data_mut().install_memory(memory);
+
+    let mut linker = Linker::<WasiHostState>::new(&engine);
+    let registered = match define_wasi_imports(&mut linker, memory) {
+        Ok(registered) => registered,
+        Err(()) => {
+            return RustcRunEvidence::at(
+                RustcRunStage::Instantiated,
+                CompilerFileSha::Ok,
+                "linker_definition_failed",
+            )
+        }
+    };
+    if registered != REQUIRED_IMPORT_COUNT
+        || registered != RUSTC_WASM_C6DCCF3E_IMPORTS.len()
+        || registered != authorized.authorized_import_count()
+    {
+        return RustcRunEvidence::at(
+            RustcRunStage::Instantiated,
+            CompilerFileSha::Ok,
+            "linker_count_mismatch",
+        );
+    }
+    let pre = match linker.instantiate(&mut store, &module) {
+        Ok(pre) => pre,
+        Err(_) => {
+            return RustcRunEvidence::at(
+                RustcRunStage::Instantiated,
+                CompilerFileSha::Ok,
+                "instantiate_failed",
+            )
+        }
+    };
+    // The start section runs non-resumably under pre.start; give it a generous
+    // one-shot budget (bounded init code) so it can complete, then reset the
+    // store's remaining fuel to 0 so the merged pump installs its per-thread
+    // escrows from a clean baseline (ADR 0022 §3). replace_remaining_fuel
+    // preserves fuel_consumed, so the logical clock stays continuous.
+    let _ = store.replace_remaining_fuel(RUSTC_BUILD_GUEST_CLASS_V1.max_total_fuel);
+    let wasm_instance = match pre.start(&mut store) {
+        Ok(instance) => instance,
+        Err(error) => return rustcrun_pre_start_failure(&store, &error),
+    };
+    let _ = store.replace_remaining_fuel(0);
+    let Some(main) = wasm_instance.get_func(&store, "_start") else {
+        return RustcRunEvidence::at(
+            RustcRunStage::Instantiated,
+            CompilerFileSha::Ok,
+            "start_export_missing",
+        );
+    };
+    let main_ty = main.ty(&store);
+    if !main_ty.params().is_empty() || !main_ty.results().is_empty() {
+        return RustcRunEvidence::at(
+            RustcRunStage::Instantiated,
+            CompilerFileSha::Ok,
+            "start_export_type",
+        );
+    }
+    let runner = match WasiThreadJobRunner::new(store, memory, module, linker, main, class) {
+        Ok(runner) => runner,
+        Err(failure) => {
+            return RustcRunEvidence::at(
+                RustcRunStage::Started,
+                CompilerFileSha::Ok,
+                rustcrun_pump_failure(failure),
+            )
+        }
+    };
+    RustcRunEvidence::completed(runner.run())
+}
+
 fn empty_authority_for_ok_fixture() -> Option<BuildStorageAuthority> {
     let engine = wasi_engine();
     let module = Module::new(&engine, WASI_BUILD_OK_WASM).ok()?;
@@ -2412,6 +3184,46 @@ pub(crate) fn emit_wasi_compilerload() {
         evidence.mem_pages,
         evidence.reason,
     ));
+}
+
+fn emit_rustcrun_evidence(evidence: RustcRunEvidence) {
+    match evidence.exit_code {
+        Some(exit_code) => crate::serial::write_raw_fmt(format_args!(
+            "RAIOS_RUSTCRUN stage={} file_sha={} spawns={} cap_denials={} rounds={} stdout_bytes={} granted_total={} exit_code={} reason={}\n",
+            evidence.stage.token(),
+            evidence.file_sha.token(),
+            evidence.spawns,
+            evidence.cap_denials,
+            evidence.rounds,
+            evidence.stdout_bytes,
+            evidence.granted_total,
+            exit_code,
+            evidence.reason,
+        )),
+        None => crate::serial::write_raw_fmt(format_args!(
+            "RAIOS_RUSTCRUN stage={} file_sha={} spawns={} cap_denials={} rounds={} stdout_bytes={} granted_total={} exit_code=na reason={}\n",
+            evidence.stage.token(),
+            evidence.file_sha.token(),
+            evidence.spawns,
+            evidence.cap_denials,
+            evidence.rounds,
+            evidence.stdout_bytes,
+            evidence.granted_total,
+            evidence.reason,
+        )),
+    }
+}
+
+pub(crate) fn emit_wasi_rustcrun() {
+    let Some(_busy) = WasiThreadBusyGuard::acquire() else {
+        emit_rustcrun_evidence(RustcRunEvidence::at(
+            RustcRunStage::Reassembled,
+            CompilerFileSha::Mismatch,
+            "runner_busy",
+        ));
+        return;
+    };
+    emit_rustcrun_evidence(run_rustcrun());
 }
 
 pub(crate) fn emit_wasi_selftest() {
