@@ -69,7 +69,21 @@ linear; fuel metering forces a suspension every quantum, so an advancing
 counter is proof of forward execution). So the whole on-device factory
 pipeline runs: store → gate → mount → instantiate → start section → _start
 executing real rustc bytecode.
-**rustc RUNS THE WHOLE PIPELINE TO THE LINK STEP ON-DEVICE (2026-07-19).**
+**rustc COMPILES CLEAN ON-DEVICE — exit 0, zero denials, zero stderr
+(2026-07-19, shadow-20260719-171059).** `RAIOS_RUSTCBUILD rounds=811 exit=0
+out_files=3 out_bytes=297499` + `DENIEDOPEN n=0` + stderr len=0: the full
+pipeline (parse → typecheck → codegen → rust-lld link with temp-file+rename)
+succeeds against the WASI file world. The last blocker was O_EXCL: lld
+creates its output as exclusive-create temp + rename; validate_open_flags
+rejected the EXCL bit. Chain of evidence: writable-arena attenuation
+(ccb31b2) → preopen pinning, host hypotheses falsified (28098c9) →
+denied-open ring capture (7e5a55a) → live args fd:3 of:0x5 (CREAT|EXCL) →
+EXCL support end-to-end (d116e01, 71/71 crate tests). Remaining §6 slice
+(administrative): completion contract blesses exactly ONE /out file with
+sha256; rustc leaves rmeta intermediates beside hello.wasm (out_files=3) —
+lane running: -Ctemps-dir=/tmp in the workshop argv → /out holds exactly
+the target → out_sha lands → box evidence complete.
+Historical frontier notes below describe the pre-EXCL state.
 `wasi.rustcbuild` compiles pinned /src/hello.rs (src BuildFS 42776b01) with
 the workshop argv (--target wasm32-wasip1-threads -Clinker=rust-lld -o
 /out/hello.wasm). After the writable-arena attenuation fix (ccb31b2:

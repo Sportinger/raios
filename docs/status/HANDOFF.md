@@ -7,26 +7,25 @@
 > fitting plan under `docs/plans/`. Max ~4 lines of text per entry, file max
 > 60 lines. Replace, never append.
 
-## Now (as of 2026-07-19 ~15:45, loop running)
+## Now (as of 2026-07-19 ~17:45, loop running)
 
-§7 CLOSED (first full top-level section, 85b931b: breakdown-consistency
-rule 12 + all groups green). §4 PCI-introspection box green (d59aecc,
-504/504). §2 storage.selftest landed (d18bcc0) — VM evidence in flight.
-§6: rustc runs the whole pipeline to the LINK step (rmeta+object land in
-/out); rust-lld fails only creating /out/hello.wasm (os76) — host
-hypotheses falsified (28098c9), live-args diagnosis running. §3 profile
-built + crash-proofed (8613708); donor spine 256/256 live-green; needs an
-independent durable domain B (per-run image has none — B2 report).
+**rustc COMPILES CLEAN ON-DEVICE: exit 0, 0 denials, 0 stderr, 297 KB out**
+(shadow-20260719-171059; EXCL was the last wall, chain in STATUS). §7
+CLOSED; §4 PCI box green; §2 storage boxes green in BOTH environments
+(quick+persist 507/507, persistence native 47/47 after fixture resize
+c0fe74f + per-command timeout e5d315f→062c9e2-rebase). §3: donor spine
+green; B-seed persist disk minted (raios-shadow-20260719-170525). Remote
+gained website-deploy commits from the other session (rebased over).
 
 ## Next step
 
-Read VM run 3 (quick+persist, running): §2 disk=pass markers, §4
-regression, RAIOS_RUSTCDIAG fd/errno of the failing lld open → dispatch
-surgical §6 fix (wasi_preview1.rs / one-shot arg capture if ambiguous).
-Then: persistence profile -KeepImage (proves §2 disk invariance AND mints
-the durable-domain persist disk) → rerun rollback-isolation with that disk
-attached (B = seeded durable service; filter exists, 8613708). Owner-gated:
-§5/§6 pre-ADR-0005 wording; bare-metal escape run; unattended-loop hardware.
+Two closing lanes running: (a) §6 temps-dir argv (-Ctemps-dir=/tmp) so
+/out holds exactly hello.wasm → completion contract computes out_sha →
+rerun quick+persist (temp rustcbuild patch in tree, uncommitted) → check
+§6 box 06:72. (b) §3 records-family fallback for domain B → rerun
+rollback-isolation with -Network -PersistDiskPath
+<temp>\raios-shadow-20260719-170525-6196\raios-persist-gpt.img → check
+03:46. Owner-gated: §5/§6 wording reframe; bare-metal run; loop hardware.
 
 ## Recently (exactly 3, newest first)
 
