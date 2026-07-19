@@ -77,6 +77,7 @@ use raios_core::{
 };
 
 const METHOD: &str = "durable.record_log_scan";
+const RECORD_LOG_SCAN_RECORD_CAP: usize = 16;
 const APPEND_METHOD: &str = "durable.record_log_append";
 const APPEND_SCHEMA: &str = "raios.durable_record_log_append.v0";
 const APPEND_ID: &str = "durable_record_log_append.seed_data.current_boot.v0";
@@ -123,6 +124,13 @@ pub(crate) const RECOVERY_LOAD_SCHEMA: &str = RECOVERY_LOAD_EXPECTED_RECORD_SCHE
 pub(crate) const RECOVERY_LOAD_APPEND_TARGET_ID: &str = RECOVERY_LOAD_EXPECTED_TARGET_ID;
 pub(crate) const RECOVERY_LOAD_APPEND_REGION_MARKER: &str = RECOVERY_LOAD_EXPECTED_REGION_MARKER;
 
+struct DurableRecordLogScanRecord {
+    seq: u64,
+    schema: String,
+    payload_sha256: [u8; 32],
+    frame_sha256: [u8; 32],
+}
+
 struct DurableRecordLogScanEvidence {
     reason: &'static str,
     controller: Option<pci::PciMassStorageController>,
@@ -137,6 +145,7 @@ struct DurableRecordLogScanEvidence {
     reclog_lba_count: u64,
     reclog_byte_count: u64,
     scan: RecordLogScan,
+    records: Vec<DurableRecordLogScanRecord>,
 }
 
 impl DurableRecordLogScanEvidence {
@@ -155,13 +164,19 @@ impl DurableRecordLogScanEvidence {
             reclog_lba_count: 0,
             reclog_byte_count: 0,
             scan: RecordLogScan::not_scanned(reason),
+            records: Vec::new(),
         }
     }
 }
 
 pub(crate) fn emit_durable_record_log_scan() {
-    let evidence = current_boot_reclog_scan();
-    let mut fields = durable_record_log_scan_fields(&evidence.scan);
+    let evidence = current_boot_reclog_scan_with_records();
+    let records = evidence
+        .records
+        .iter()
+        .map(durable_record_log_scan_record)
+        .collect();
+    let mut fields: Vec<Field<'_>> = durable_record_log_scan_fields(&evidence.scan);
     fields.push(f("query_method", s(METHOD)));
     fields.push(f("io_reason", s(evidence.reason)));
     fields.push(f("controller_present", b(evidence.controller_present)));
@@ -186,6 +201,7 @@ pub(crate) fn emit_durable_record_log_scan() {
     fields.push(f("authority", s("evidence_only")));
     fields.push(f("durable_append", s("capability_denied")));
     fields.push(f("record_model_entry", s(DURABLE_RECORD_LOG_SCAN_SCHEMA)));
+    fields.push(f("records", V::Array(records)));
 
     begin_response(METHOD);
     emit_record_fields(fields, 6);
@@ -3295,6 +3311,14 @@ fn append_fields_base(
 }
 
 fn current_boot_reclog_scan() -> DurableRecordLogScanEvidence {
+    current_boot_reclog_scan_inner(false)
+}
+
+fn current_boot_reclog_scan_with_records() -> DurableRecordLogScanEvidence {
+    current_boot_reclog_scan_inner(true)
+}
+
+fn current_boot_reclog_scan_inner(surface_records: bool) -> DurableRecordLogScanEvidence {
     let Some(controller) = pci::find_mass_storage_controller() else {
         return DurableRecordLogScanEvidence::absent("ahci_controller_not_observed");
     };
@@ -3304,9 +3328,16 @@ fn current_boot_reclog_scan() -> DurableRecordLogScanEvidence {
     } else {
         Some(read.layout.port_index)
     };
-    let scan = match read.bytes.as_deref() {
-        Some(bytes) => scan_reclog(bytes),
-        None => RecordLogScan::not_scanned(read.reason),
+    let (scan, records) = match read.bytes.as_deref() {
+        Some(bytes) => (
+            scan_reclog(bytes),
+            if surface_records {
+                scan_durable_record_log_records(bytes)
+            } else {
+                Vec::new()
+            },
+        ),
+        None => (RecordLogScan::not_scanned(read.reason), Vec::new()),
     };
 
     DurableRecordLogScanEvidence {
@@ -3323,7 +3354,72 @@ fn current_boot_reclog_scan() -> DurableRecordLogScanEvidence {
         reclog_lba_count: read.lba_count,
         reclog_byte_count: read.byte_count,
         scan,
+        records,
     }
+}
+
+/// Re-parses the already-read valid prefix once, retaining only its newest 16 frames.
+/// This adds O(valid-prefix bytes) CPU work to the evidence query and performs no I/O.
+fn scan_durable_record_log_records(bytes: &[u8]) -> Vec<DurableRecordLogScanRecord> {
+    let mut records = Vec::new();
+    if bytes.is_empty() || bytes.len() % RECLOG_SECTOR_SIZE != 0 {
+        return records;
+    }
+
+    let mut offset = 0usize;
+    let mut expected_seq = 1u64;
+    let mut expected_prev_hash = [0u8; 32];
+    while offset < bytes.len() {
+        if bytes[offset..].iter().all(|byte| *byte == 0) {
+            break;
+        }
+        let frame = match parse_reclog_frame(bytes, offset, expected_seq, expected_prev_hash) {
+            Ok(frame) => frame,
+            Err(_) => break,
+        };
+        let payload_start = offset + RECLOG_FRAME_HEADER_LEN;
+        let payload_end = payload_start + frame.payload_len as usize;
+        let payload = &bytes[payload_start..payload_end];
+        if records.len() == RECORD_LOG_SCAN_RECORD_CAP {
+            records.remove(0);
+        }
+        records.push(DurableRecordLogScanRecord {
+            seq: frame.seq,
+            schema: durable_record_schema(payload),
+            payload_sha256: frame.payload_sha256,
+            frame_sha256: frame.frame_sha256,
+        });
+
+        expected_seq = frame.seq.saturating_add(1);
+        expected_prev_hash = frame.frame_sha256;
+        offset += frame.frame_len as usize;
+    }
+    records
+}
+
+fn durable_record_schema(payload: &[u8]) -> String {
+    extract_record_string(payload, b"\"schema\": \"")
+        .or_else(|| extract_record_string(payload, b"\"family\": \""))
+        .unwrap_or_else(|| String::from("unknown"))
+}
+
+fn extract_record_string(payload: &[u8], needle: &[u8]) -> Option<String> {
+    let start = payload
+        .windows(needle.len())
+        .position(|window| window == needle)?
+        .checked_add(needle.len())?;
+    let tail = payload.get(start..)?;
+    let end = tail.iter().position(|byte| *byte == b'"')?;
+    str::from_utf8(tail.get(..end)?).ok().map(String::from)
+}
+
+fn durable_record_log_scan_record(record: &DurableRecordLogScanRecord) -> V<'_> {
+    V::Object(vec![
+        f("seq", V::U64(record.seq)),
+        f("schema", s(&record.schema)),
+        f("payload_sha256", V::Sha256(record.payload_sha256)),
+        f("frame_sha256", V::Sha256(record.frame_sha256)),
+    ])
 }
 
 pub(crate) const MAX_DURABLE_RECORDS_SURFACED: usize = 64;
