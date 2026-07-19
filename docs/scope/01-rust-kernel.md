@@ -53,8 +53,13 @@
 ## Wasm host-import interface
 - [ ] Minimal host surface, every import documented; versioned ABI (`v0`,
       additive evolution)
-- [ ] Invalid/malformed import or call → typed denial/trap + log, never undefined
+- [x] Invalid/malformed import or call → typed denial/trap + log, never undefined
       behavior or partial host effect
+      <!-- host_import.selftest (shadow-20260719-203005, 509/509): six
+      malformed classes each fail closed with a DISTINCT typed reason +
+      machine-readable denial record, host/peer/persistent/partial effect all
+      0, RECLOG+ARTSTOR hashes unchanged (disk=pass). See the negative-matrix
+      box below for the case list. -->
 - [x] Import/capability catalog exported as structured data (agents read it,
       not kernel headers)
       <!-- structured, not headers: known_host_imports + count exported
@@ -65,13 +70,16 @@
       (structured entries, non-authorizing read) green in current-session
       shadow-20260719-192220-32592 (507/507). Signatures/import→cap mapping
       are the separate ABI box (open). -->
-- [ ] Negative tests: missing imports, wrong signatures, bad guest-memory
+- [x] Negative tests: missing imports, wrong signatures, bad guest-memory
       offsets/lengths, bad handles, and out-of-range indices fail closed
-      <!-- evidence (default-deny import boundary):
-      release/vm-reports/shadow-20260714-114527-24812.json,
-      predicates m11-import-grant:unauthorized-import-refused and
-      m11-import-grant:forbidden-import-link-failure-preserved; orchestrator
-      verification required. -->
+      <!-- host_import.selftest (shadow-20260719-203005, 509/509), six cases
+      pairwise-distinct reasons: missing=module_import_not_authorized (before
+      instantiation), wrong_sig=signature_mismatch (wasmi FuncTypeMismatch on
+      a wrong-arity env.log import, before instantiation), bad_offset=trapped
+      (env.log negative/overflow ptr, envelope.rs:812), bad_length=denied
+      (output_write >4096, envelope.rs:907), bad_handle=denied
+      (crypto_foreign_session), bad_index=denied (acquire_chunk_index_
+      mismatch); logged=1, all effect surfaces 0, prior state preserved. -->
 
 ## In-kernel drivers & hardware authority
 - [ ] Drivers remain native and in-kernel by deliberate ADR 0005 decision;
