@@ -1,13 +1,13 @@
 use super::*;
 
 // (module
-//   (func (export "raios_workspace_main") (result i32)
+//   (func (export "raios_service_main") (result i32)
 //     i32.const 0))
 const ZERO_IMPORT_WASM: &[u8] = &[
     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03,
-    0x02, 0x01, 0x00, 0x07, 0x18, 0x01, 0x14, 0x72, 0x61, 0x69, 0x6f, 0x73, 0x5f, 0x77, 0x6f, 0x72,
-    0x6b, 0x73, 0x70, 0x61, 0x63, 0x65, 0x5f, 0x6d, 0x61, 0x69, 0x6e, 0x00, 0x00, 0x0a, 0x06, 0x01,
-    0x04, 0x00, 0x41, 0x00, 0x0b,
+    0x02, 0x01, 0x00, 0x07, 0x16, 0x01, 0x12, 0x72, 0x61, 0x69, 0x6f, 0x73, 0x5f, 0x73, 0x65, 0x72,
+    0x76, 0x69, 0x63, 0x65, 0x5f, 0x6d, 0x61, 0x69, 0x6e, 0x00, 0x00, 0x0a, 0x06, 0x01, 0x04, 0x00,
+    0x41, 0x00, 0x0b,
 ];
 
 // (module
@@ -60,23 +60,63 @@ fn fixture_has_only_import(bytes: &[u8], expected_module: &str, expected_name: &
         && imports.next().is_none()
 }
 
-fn run_zero_import_fixture() -> bool {
+struct ZeroGrantEvidence {
+    fresh: bool,
+    failure_reason: Option<String>,
+}
+
+fn run_zero_import_fixture() -> ZeroGrantEvidence {
     let run = envelope::execute_workspace_no_import_candidate(ZERO_IMPORT_WASM);
-    run.validation_ok
-        && run.instantiation_ok
-        && run.run_outcome == "success"
-        && run.return_value == Some(0)
-        && run.import_grant_performed
-        && run.import_grant_status == "import_grant_authorized"
-        && run.import_grant_reason == "authorized_observed_empty_import_surface"
-        && run.authorized_import_count == 0
-        && run.linked_host_import_count == 0
-        && run.module_imports_within_authorized_list
-        && run.missing_import_module.is_none()
-        && run.missing_import_name.is_none()
-        && run.log_line.is_none()
-        && run.captured_output_len == 0
-        && run.raw_captured_output.is_empty()
+    let failure_reason = if !run.validation_ok {
+        Some(String::from("validation_ok=0"))
+    } else if !run.instantiation_ok {
+        Some(String::from("instantiation_ok=0"))
+    } else if run.run_outcome != "success" {
+        Some(alloc::format!("run_outcome={}", run.run_outcome))
+    } else if run.return_value != Some(0) {
+        Some(match run.return_value {
+            Some(value) => alloc::format!("retval={value}"),
+            None => String::from("retval=none"),
+        })
+    } else if !run.import_grant_performed {
+        Some(String::from("grant_performed=0"))
+    } else if run.import_grant_status != "import_grant_authorized" {
+        Some(alloc::format!("grant_status={}", run.import_grant_status))
+    } else if run.import_grant_reason != "authorized_observed_empty_import_surface" {
+        Some(alloc::format!("grant_reason={}", run.import_grant_reason))
+    } else if run.authorized_import_count != 0 {
+        Some(alloc::format!(
+            "authorized_imports={}",
+            run.authorized_import_count
+        ))
+    } else if run.linked_host_import_count != 0 {
+        Some(alloc::format!(
+            "linked_host_imports={}",
+            run.linked_host_import_count
+        ))
+    } else if !run.module_imports_within_authorized_list {
+        Some(String::from("imports_within_grant=0"))
+    } else if run.missing_import_module.is_some() {
+        Some(String::from("missing_import_module=present"))
+    } else if run.missing_import_name.is_some() {
+        Some(String::from("missing_import_name=present"))
+    } else if run.log_line.is_some() {
+        Some(String::from("log_line=present"))
+    } else if run.captured_output_len != 0 {
+        Some(alloc::format!(
+            "captured_output={}",
+            run.captured_output_len
+        ))
+    } else if !run.raw_captured_output.is_empty() {
+        Some(String::from("raw_output=nonempty"))
+    } else {
+        None
+    };
+
+    ZeroGrantEvidence {
+        fresh: failure_reason.is_none(),
+        failure_reason,
+    }
 }
 
 fn run_zero_grant_host_call_fixture() -> RefusalEvidence {
@@ -287,7 +327,7 @@ pub(crate) fn emit_capability_selftest() {
     let controller = crate::pci::find_mass_storage_controller();
     let disk_before = controller.map(wasi_build_job::persist_region_hashes);
 
-    let zero_grant_fresh = run_zero_import_fixture();
+    let zero_grant = run_zero_import_fixture();
     let host_call = run_zero_grant_host_call_fixture();
     let peer_before = foreign_service_inventory_hash();
     let cross_service = run_cross_service_fixture();
@@ -307,7 +347,7 @@ pub(crate) fn emit_capability_selftest() {
     // current-boot host counter cannot be called or changed.
     let host_effect_free = host_call.execution_effect_free;
     let peer_effect_free = cross_service.execution_effect_free && peer_before == peer_after;
-    let pass = zero_grant_fresh
+    let pass = zero_grant.fresh
         && host_call.refused_before_instantiation
         && cross_service.refused_before_instantiation
         && logged
@@ -315,10 +355,10 @@ pub(crate) fn emit_capability_selftest() {
         && peer_effect_free
         && persistent_effect_free;
 
-    let line = alloc::format!(
+    let mut line = alloc::format!(
         "RAIOS_CAPABILITY selftest={} zero_grant={} host_call={} cross_service={} logged={} host_effect={} peer_effect={} persistent_effect={}",
         if pass { "pass" } else { "fail" },
-        if zero_grant_fresh { "fresh" } else { "failed" },
+        if zero_grant.fresh { "fresh" } else { "failed" },
         host_call.token(),
         cross_service.token(),
         u8::from(logged),
@@ -326,6 +366,10 @@ pub(crate) fn emit_capability_selftest() {
         if peer_effect_free { 0 } else { 1 },
         if persistent_effect_free { 0 } else { 1 },
     );
+    if let Some(reason) = zero_grant.failure_reason.as_deref() {
+        line.push_str(" zg_reason=");
+        line.push_str(reason);
+    }
     serial::write_raw_line(&line);
 
     let disk_line = match disk {
