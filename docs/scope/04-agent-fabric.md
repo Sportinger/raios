@@ -34,7 +34,13 @@
       Evidence shadow-20260719-151342-1916.json (504/504): xHCI positive with
       IRQ 11/pin 1 + BAR64; negative = absent wifi AND e1000 must carry
       pci:null — fabricated PCI data fails (b6d4681). -->
-- [ ] Register maps for owned devices as data files (agents never parse PDFs)
+- [x] Register maps for owned devices as data files (agents never parse PDFs)
+      <!-- hardware/register-maps/*.v1.json covers the four owned MMIO paths:
+      e1000, AHCI, xHCI, and Marvell 88W8897 (71 source-backed registers and
+      constants) under register-map.v1 schema. `check-register-maps.ps1`
+      validates all 4 maps; its in-memory mutation selftest rejects 10/10
+      malformed boundaries (duplicate/range/width/access/mask/provenance/
+      binding/schema). Orchestrator re-run green 2026-07-19; commit 2d5c17f. -->
 - [ ] Hardware manifest per machine: CPU features, memory topology, devices —
       the curated-context source for lane system prompts
 
