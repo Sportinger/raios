@@ -47,19 +47,10 @@
       </div>
     </section>
     <div class="website-story-flow">
-    <section class="website-story story-opener film-section" data-story-reveal aria-labelledby="story-opener-title" lang="en">
+    <section class="website-story story-opener film-section" data-story-reveal aria-label="The factory moves in" lang="en">
       <div class="story-inner film-story-inner">
-        <div class="story-head story-reveal">
-          <p class="website-kicker">In two minutes</p>
-          <h2 id="story-opener-title">The factory moves in.</h2>
-          <p class="story-text">
-            Follow one sentence through the machine: source, compiler, twin builds,
-            hostile tests, physical approval, a running program — and a factory
-            that stays to make the next tool cheaper.
-          </p>
-        </div>
         <figure class="film-frame story-reveal" style="--reveal-delay:.05s">
-          <svg id="film-svg" class="film-svg" viewBox="0 0 1200 680" role="img"
+          <svg id="film-svg" class="film-svg" viewBox="0 -220 1200 1120" role="img"
             aria-label="A two-minute animated architecture film. A request becomes a hashed capsule, receives an explicit network capability, enters an offline build site with a real Rust compiler, passes reproducible twin builds and hostile isolation tests, receives physical owner approval, runs as a small music-player domain, rolls back safely, and leaves a reusable software factory behind.">
             <defs>
               <linearGradient id="film-bg" x1="0" y1="0" x2="0" y2="1">
@@ -93,7 +84,7 @@
                 <stop offset="0" stop-color="#4897F2" stop-opacity=".28"></stop>
                 <stop offset="1" stop-color="#4897F2" stop-opacity="0"></stop>
               </radialGradient>
-              <clipPath id="film-stage-clip"><rect width="1200" height="680"></rect></clipPath>
+              <clipPath id="film-stage-clip"><rect y="-220" width="1200" height="1120"></rect></clipPath>
               <clipPath id="film-genesis-floor-clip"><path d="M60 345 315 217.5 570 345 315 472.5Z"></path></clipPath>
               <pattern id="film-builder-hatch" width="12" height="12" patternUnits="userSpaceOnUse" patternTransform="rotate(18)">
                 <path d="M1 0v12" stroke="#8CC3FF" stroke-opacity=".34" stroke-width="2"></path>
@@ -137,10 +128,6 @@
                 <rect class="film-stamp-base" x="11" y="40" width="58" height="23" rx="4"></rect>
                 <path class="film-stamp-mark" d="m24 76 10 9 22-25"></path>
               </symbol>
-              <symbol id="film-crystal" viewBox="0 0 64 90">
-                <path class="film-crystal" d="m32 2 25 28-11 51H18L7 30Z"></path>
-                <path class="film-crystal-line" d="m32 2-5 79m30-51-30 51M7 30l20 51"></path>
-              </symbol>
               <symbol id="film-gate" viewBox="0 0 230 240">
                 <path class="film-gate" d="M22 222V106C22 49 59 18 115 18s93 31 93 88v116h-31V108c0-39-23-60-62-60s-62 21-62 60v114Z"></path>
                 <path class="film-gate-seam" d="M53 219h124"></path>
@@ -156,7 +143,7 @@
             </defs>
 
             <g clip-path="url(#film-stage-clip)">
-              <rect class="film-backdrop" width="1200" height="680" fill="url(#film-bg)"></rect>
+              <rect class="film-backdrop" y="-220" width="1200" height="1120" fill="url(#film-bg)"></rect>
               <circle class="film-ambient-glow" cx="600" cy="385" r="470" fill="url(#film-glow)"></circle>
               <g class="film-stars" aria-hidden="true">
                 <circle cx="94" cy="120" r="1.3"></circle><circle cx="177" cy="245" r="1"></circle>
@@ -167,17 +154,17 @@
               <g id="cam" data-film-camera="main">
                 <g id="film-world" data-film-window="6,120,1.2">
                   <g id="film-kernel-foundation" data-film-action="6.1,8.5,rise" data-film-grow="iso" data-film-distance="150">
-                    <ellipse id="film-kernel-glow" class="film-world-glow" cx="315" cy="530" rx="270" ry="34"></ellipse>
-                    <path id="film-kernel-side" class="film-rock" d="M40 345 315 482.5 590 345v60L315 542.5 40 405Z" fill="url(#film-rock)"></path>
-                    <path id="film-kernel-facet" class="film-rock-facet" d="M40 345 315 207.5 590 345 315 482.5Z"></path>
+                    <ellipse id="film-kernel-glow" class="film-world-glow" cx="315" cy="560" rx="310" ry="38"></ellipse>
+                    <path id="film-kernel-side" class="film-rock" d="M0 345 315 502.5 630 345v70L315 572.5 0 415Z" fill="url(#film-rock)"></path>
+                    <path id="film-kernel-facet" class="film-rock-facet" d="M0 345 315 187.5 630 345 315 502.5Z"></path>
+                    <text id="film-kernel-layer-title" class="film-layer-title film-layer-title--kernel" x="153" y="460" transform="rotate(26.565 153 460)">RUST-KERNEL</text>
                   </g>
-                  <g class="film-kernel-crystals" data-film-action="7,9.4,rise" data-film-distance="82" aria-label="Kernel hardware roots">
-                    <g transform="translate(157 462)"><use href="#film-crystal" width="34" height="48"></use></g>
-                    <g transform="translate(249 506)"><use href="#film-crystal" width="34" height="48"></use></g>
-                    <g transform="translate(382 548)"><use href="#film-crystal" width="34" height="48"></use></g>
-                    <g data-film-window="26.2,120,.45" transform="translate(609 579)"><use href="#film-crystal" width="34" height="48"></use></g>
-                    <g data-film-window="26.2,120,.45" transform="translate(798 510)"><use href="#film-crystal" width="34" height="48"></use></g>
-                    <g data-film-window="26.2,120,.45" transform="translate(970 432)"><use href="#film-crystal" width="34" height="48"></use></g>
+                  <g id="film-player-domain" data-film-window="88.8,120,.45" aria-label="Approved player domain behind Genesis and Builder">
+                    <g data-film-action="89.2,92.0,rise" data-film-grow="iso" data-film-distance="96">
+                      <path class="film-player-domain-side" d="M352.5 200 607.5 327.5 862.5 200v32L607.5 359.5 352.5 232Z"></path>
+                      <path class="film-player-domain-floor" d="M352.5 200 607.5 72.5 862.5 200 607.5 327.5Z"></path>
+                      <text class="film-player-domain-title" x="607.5" y="351.5">PLAYER DOMAIN</text>
+                    </g>
                   </g>
                   <g id="film-genesis-layer" data-film-action="9,12,rise" data-film-grow="iso" data-film-distance="118">
                     <path class="film-floor-side" d="M60 345 315 472.5 570 345v32L315 504.5 60 377Z"></path>
@@ -186,54 +173,43 @@
                       <path d="m85 332.5 255 127.5m-205-152.5 255 127.5m-205-152.5 255 127.5m-205-152.5 255 127.5"></path>
                       <path d="m85 357.5 255-127.5M135 382.5l255-127.5M185 407.5l255-127.5M235 432.5l255-127.5M285 457.5l255-127.5"></path>
                     </g>
-                    <text class="film-deck-label film-deck-label--genesis" x="315" y="497">GENESIS DECK</text>
+                    <text id="film-genesis-layer-title" class="film-layer-title film-layer-title--genesis" x="500" y="390" transform="rotate(-26.565 500 390)">GENESIS DECK</text>
                   </g>
                   <g id="film-builder-deck" data-film-action="28.55,29.7,rise" data-film-grow="iso" data-film-distance="118" aria-label="Builder deck">
-                    <path class="film-builder-side" d="M645 345 900 472.5 1155 345v32L900 504.5 645 377Z"></path>
-                    <path class="film-builder-floor" d="M645 345 900 217.5 1155 345 900 472.5Z"></path>
-                    <path class="film-builder-hatch" d="M645 345 900 217.5 1155 345 900 472.5Z" fill="url(#film-builder-hatch)"></path>
-                    <text class="film-deck-label film-deck-label--builder" x="900" y="497">BUILDER DECK</text>
+                    <g data-film-teardown="112.0,113.4,0,34">
+                      <path class="film-builder-side" d="M645 345 900 472.5 1155 345v32L900 504.5 645 377Z"></path>
+                    </g>
+                    <g data-film-teardown="111.0,112.6,0,20">
+                      <path class="film-builder-floor" d="M645 345 900 217.5 1155 345 900 472.5Z"></path>
+                      <path class="film-builder-hatch" d="M645 345 900 217.5 1155 345 900 472.5Z" fill="url(#film-builder-hatch)"></path>
+                      <text class="film-deck-label film-deck-label--builder" x="900" y="497">BUILDER DECK</text>
+                    </g>
                   </g>
-                  <g data-film-window="10.6,120,.35">
-                    <path id="film-reclog" class="film-reclog" d="M80 355 315 470 550 355"></path>
+                  <g id="film-kernel-callout" class="film-callout" data-film-window="7.7,13.9,.35">
+                    <path class="film-callout-line" d="M43 172 92 312 153 460"></path><circle class="film-callout-target" cx="153" cy="460" r="4"></circle>
+                    <g class="film-callout-card">
+                      <rect x="-95" y="100" width="276" height="72" rx="9"></rect>
+                      <text class="film-callout-title" x="-73" y="128">RUST-KERNEL</text><text class="film-callout-copy" x="-73" y="153">OWNS CPU · RAM · USB · DISPLAY · NET</text>
+                    </g>
                   </g>
-                  <text class="film-kernel-shared-label" x="600" y="682" text-anchor="middle" data-film-window="27.6,120,.55">RUST-KERNEL — trägt beide Böden</text>
-                  <g class="film-callout" data-film-window="7.7,14,.35">
-                    <path class="film-callout-line" d="M284 366 214 413 153 460"></path><circle class="film-callout-target" cx="153" cy="460" r="4"></circle>
-                    <rect x="66" y="306" width="276" height="72" rx="9"></rect>
-                    <text class="film-callout-title" x="88" y="334">RUST-KERNEL</text><text class="film-callout-copy" x="88" y="359">OWNS CPU · RAM · USB · DISPLAY · NET</text>
-                  </g>
-                  <g class="film-callout film-callout--genesis" data-film-window="10.7,14,.35">
-                    <path class="film-callout-line" d="M904 217 758 260 548 345"></path><circle class="film-callout-target" cx="548" cy="345" r="4"></circle>
-                    <rect x="844" y="145" width="286" height="72" rx="9"></rect>
-                    <text class="film-callout-title" x="866" y="173">GENESIS DECK</text><text class="film-callout-copy" x="866" y="198">BUILDS ABOVE KERNEL · GRANTS DOORS</text>
-                  </g>
-                  <g class="film-callout film-callout--reclog" data-film-window="11.3,14,.35">
-                    <path class="film-callout-line" d="M890 516 728 445 542 355"></path><circle class="film-callout-target" cx="542" cy="355" r="4"></circle>
-                    <rect x="842" y="516" width="252" height="62" rx="9"></rect>
-                    <text class="film-callout-title" x="864" y="542">RECLOG</text><text class="film-callout-copy" x="864" y="564">APPEND-ONLY EVIDENCE</text>
+                  <g id="film-genesis-callout" class="film-callout film-callout--genesis" data-film-window="10.7,13.9,.35">
+                    <path class="film-callout-line" d="M656 172 620 244 548 345"></path><circle class="film-callout-target" cx="548" cy="345" r="4"></circle>
+                    <g class="film-callout-card">
+                      <rect x="520" y="100" width="286" height="72" rx="9"></rect>
+                      <text class="film-callout-title" x="542" y="128">GENESIS DECK</text><text class="film-callout-copy" x="542" y="153">BUILDS ABOVE KERNEL · GRANTS DOORS</text>
+                    </g>
                   </g>
                 </g>
 
                 <g id="film-scene-1">
-                  <g class="film-prompt-only">
+                  <g class="film-prompt-only" transform="translate(0 -245)">
                     <rect class="film-prompt-only__box" x="260" y="286" width="680" height="96" rx="18"></rect>
                     <text id="film-prompt-text" class="film-prompt" x="290" y="350">&gt; build me a music player</text>
                     <rect id="film-prompt-cursor" class="film-cursor" x="290" y="298" width="5" height="62"></rect>
                   </g>
                 </g>
 
-                <g id="film-scene-2" data-film-window="6,15,.9">
-                  <g data-film-action="11.2,13.4,drop" transform="translate(240 270)">
-                    <use href="#film-capsule" width="150" height="62"></use>
-                    <text class="film-hash" x="75" y="82">7A91·E4C2</text>
-                  </g>
-                  <g class="film-scene-caption" transform="translate(86 88)">
-                    <rect class="film-scene-caption-panel" x="-18" y="-30" width="820" height="82" rx="10"></rect>
-                    <text class="film-scene-kicker">02 · SHARED KERNEL, FIRST DECK</text>
-                    <text class="film-scene-copy" y="34">One Rust kernel spans the machine. Genesis rises left; the build plane stays sealed.</text>
-                  </g>
-                </g>
+                <g id="film-scene-2" data-film-window="6,15,.9"></g>
 
                 <g id="film-agent" data-film-window="14,120,.8" data-film-action="14,16.2,rise" data-film-grow="iso" data-film-distance="112" transform="translate(245 268)">
                   <use href="#film-block" width="150" height="135"></use>
@@ -241,10 +217,10 @@
                 </g>
                 <g id="film-net" data-film-window="14,120,.8">
                   <g data-film-window="19,120,.28">
-                    <path class="film-vein" d="M320 395C338 421 354 447 373 459S434 492 479 504"></path>
-                    <path class="film-vein film-pulse" d="M320 395C338 421 354 447 373 459S434 492 479 504"></path>
+                    <path class="film-vein" d="M320 395C338 421 354 447 373 459S500 535 589 559"></path>
+                    <path class="film-vein film-pulse" d="M320 395C338 421 354 447 373 459S500 535 589 559"></path>
                   </g>
-                  <g data-film-action="16,17.2,rise" data-film-distance="92" transform="translate(420 400)">
+                  <g data-film-action="16,17.2,rise" data-film-distance="92" transform="translate(530 455)">
                     <path class="film-net-tower" d="m34 104 25-88 25 88M48 63h22M42 83h34"></path>
                     <circle class="film-net-signal" cx="59" cy="28" r="28"></circle>
                     <text class="film-block-name" x="59" y="126">NET</text>
@@ -252,7 +228,7 @@
                 </g>
 
                 <g id="film-net-grant" data-film-window="16,120,.35">
-                  <g id="film-net-door" class="film-door-instance" data-film-action="16.25,17.25,rise" data-film-grow="iso" data-film-distance="54" transform="translate(330 390)">
+                  <g id="film-net-door" class="film-door-instance" data-film-action="16.25,17.25,rise" data-film-grow="iso" data-film-distance="54" transform="translate(342 409) scale(.72)">
                     <path class="film-door-socket" d="M5 68 43 49l38 19-38 19Z"></path>
                     <path class="film-door-void" d="M18 68V10h50v58Z"></path>
                     <g data-film-door-leaf data-film-door-at="18.4">
@@ -265,7 +241,7 @@
                     <path class="film-door-threshold" d="M16 69h54"></path>
                     <text class="film-door-label" x="43" y="106">net.https</text>
                   </g>
-                  <g id="film-net-key" data-film-action="17.3,18.4,grant" transform="translate(333 408) scale(.68)">
+                  <g id="film-net-key" data-film-action="17.3,18.4,grant" transform="translate(344 421) scale(.49)">
                     <use href="#film-key" width="80" height="32"></use>
                     <text class="film-key-tag" x="40" y="-10">CAP: NET.HTTPS</text>
                   </g>
@@ -278,149 +254,194 @@
                   </g>
                 </g>
 
-                <g id="film-build-request" data-film-window="24.75,28.55,.25">
+                <g id="film-build-request" data-film-window="24.75,120,.25" data-film-teardown="110.9,111.8,0,18">
                   <g data-film-window="26.1,120,.2">
                     <path class="film-vein" d="M320 395C382 414 448 395 513 384"></path>
                     <path class="film-vein film-pulse" d="M320 395C382 414 448 395 513 384"></path>
                   </g>
-                  <g id="film-build-request-door" class="film-door-instance" data-film-action="24.8,25.45,rise" data-film-grow="iso" data-film-distance="52" transform="translate(470 315)">
+                  <g id="film-build-request-door" class="film-door-instance" data-film-action="24.8,25.45,rise" data-film-grow="iso" data-film-distance="52" transform="translate(482 334) scale(.72)">
                     <path class="film-door-socket" d="M5 68 43 49l38 19-38 19Z"></path><path class="film-door-void" d="M18 68V10h50v58Z"></path>
                     <g data-film-door-leaf data-film-door-at="26.1"><path class="film-door-leaf" data-film-door-panel d="M20 68V12h46v56Z"></path><path class="film-door-leaf-detail" data-film-door-detail d="M25 18h36v44H25Z"></path><circle class="film-door-handle" data-film-door-handle cx="59" cy="42" r="2.4"></circle></g>
                     <path class="film-door-frame" d="M16 69V8h54v61M16 8h54"></path><circle class="film-door-hinge" cx="18" cy="17" r="2.1"></circle><circle class="film-door-hinge" cx="18" cy="60" r="2.1"></circle><path class="film-door-threshold" d="M16 69h54"></path>
                     <text class="film-door-label" x="43" y="106">build.request</text>
                   </g>
                   <g data-film-window="25.35,26.55,.18">
-                    <g data-film-action="25.35,26.1,grant" transform="translate(473 360) scale(.64)"><use href="#film-key" width="80" height="32"></use><text class="film-key-tag" x="40" y="-10">REQUEST</text></g>
+                    <g data-film-action="25.35,26.1,grant" transform="translate(484 369) scale(.46)"><use href="#film-key" width="80" height="32"></use><text class="film-key-tag" x="40" y="-10">REQUEST</text></g>
                   </g>
-                </g>
-
-                <g id="film-build-site" data-film-window="29.7,120,.35" data-film-action="29.7,30.8,rise" data-film-grow="iso" data-film-distance="132" transform="translate(810 260)">
-                  <use href="#film-block" width="180" height="162"></use>
-                  <text class="film-block-name" x="90" y="88">BUILD SITE</text>
-                  <text class="film-block-sub" x="90" y="109">1 GiB</text>
                 </g>
 
                 <g id="film-build-doors" data-film-window="26.15,120,.28">
-                  <g data-film-window="27.75,120,.2"><path class="film-vein" d="M513 384C520 384 525 385 531 385"></path><path class="film-vein film-pulse" d="M513 384C520 384 525 385 531 385"></path></g>
-                  <g data-film-window="28.1,120,.2"><path class="film-vein" d="M531 385C562 398 590 420 621 435"></path><path class="film-vein film-pulse" d="M531 385C562 398 590 420 621 435"></path></g>
-                  <g data-film-window="28.45,120,.2"><path class="film-vein" d="M621 435C652 420 680 398 711 385C780 390 840 365 900 330"></path><path class="film-vein film-pulse" d="M621 435C652 420 680 398 711 385C780 390 840 365 900 330"></path></g>
-                  <g class="film-door-instance" data-film-action="26.2,26.8,rise" data-film-grow="iso" data-film-distance="52" transform="translate(500 335) scale(.72)">
+                  <g data-film-window="27.75,120,.2" data-film-teardown="110.8,111.5,0,12"><path class="film-vein" d="M513 384C555 384 615 370 670 358"></path><path class="film-vein film-pulse" d="M513 384C555 384 615 370 670 358"></path></g>
+                  <g data-film-window="28.1,120,.2" data-film-teardown="110.5,111.2,0,12"><path class="film-vein" d="M670 358C690 365 714 381 735 390"></path><path class="film-vein film-pulse" d="M670 358C690 365 714 381 735 390"></path></g>
+                  <g data-film-window="28.45,120,.2" data-film-teardown="110.2,110.9,0,12"><path class="film-vein" d="M735 390C786 378 843 353 900 345"></path><path class="film-vein film-pulse" d="M735 390C786 378 843 353 900 345"></path></g>
+                  <g class="film-door-instance" data-film-action="26.2,26.8,rise" data-film-grow="iso" data-film-distance="52" data-film-teardown="109.5,110.2,0,30" transform="translate(639 309) scale(.72)">
                     <path class="film-door-socket" d="M5 68 43 49l38 19-38 19Z"></path><path class="film-door-void" d="M18 68V10h50v58Z"></path>
-                    <g data-film-door-leaf data-film-door-at="27.75"><path class="film-door-leaf" data-film-door-panel d="M20 68V12h46v56Z"></path><path class="film-door-leaf-detail" data-film-door-detail d="M25 18h36v44H25Z"></path><circle class="film-door-handle" data-film-door-handle cx="59" cy="42" r="2.4"></circle></g>
-                    <path class="film-door-frame" d="M16 69V8h54v61M16 8h54"></path><circle class="film-door-hinge" cx="18" cy="17" r="2.1"></circle><circle class="film-door-hinge" cx="18" cy="60" r="2.1"></circle><path class="film-door-threshold" d="M16 69h54"></path><text class="film-door-label" x="43" y="106">/src</text>
-                  </g>
-                  <g class="film-door-instance" data-film-action="26.45,27.05,rise" data-film-grow="iso" data-film-distance="52" transform="translate(590 385) scale(.72)">
-                    <path class="film-door-socket" d="M5 68 43 49l38 19-38 19Z"></path><path class="film-door-void" d="M18 68V10h50v58Z"></path>
-                    <g data-film-door-leaf data-film-door-at="28.1"><path class="film-door-leaf" data-film-door-panel d="M20 68V12h46v56Z"></path><path class="film-door-leaf-detail" data-film-door-detail d="M25 18h36v44H25Z"></path><circle class="film-door-handle" data-film-door-handle cx="59" cy="42" r="2.4"></circle></g>
+                    <g data-film-door-leaf data-film-door-at="30.15"><path class="film-door-leaf" data-film-door-panel d="M20 68V12h46v56Z"></path><path class="film-door-leaf-detail" data-film-door-detail d="M25 18h36v44H25Z"></path><circle class="film-door-handle" data-film-door-handle cx="59" cy="42" r="2.4"></circle></g>
                     <path class="film-door-frame" d="M16 69V8h54v61M16 8h54"></path><circle class="film-door-hinge" cx="18" cy="17" r="2.1"></circle><circle class="film-door-hinge" cx="18" cy="60" r="2.1"></circle><path class="film-door-threshold" d="M16 69h54"></path><text class="film-door-label" x="43" y="106">/sysroot</text>
                   </g>
-                  <g class="film-door-instance" data-film-action="26.7,27.3,rise" data-film-grow="iso" data-film-distance="52" transform="translate(680 335) scale(.72)">
+                  <g class="film-door-instance" data-film-action="26.45,27.05,rise" data-film-grow="iso" data-film-distance="52" data-film-teardown="109.9,110.6,0,30" transform="translate(704 341) scale(.72)">
                     <path class="film-door-socket" d="M5 68 43 49l38 19-38 19Z"></path><path class="film-door-void" d="M18 68V10h50v58Z"></path>
-                    <g data-film-door-leaf data-film-door-at="28.45"><path class="film-door-leaf" data-film-door-panel d="M20 68V12h46v56Z"></path><path class="film-door-leaf-detail" data-film-door-detail d="M25 18h36v44H25Z"></path><circle class="film-door-handle" data-film-door-handle cx="59" cy="42" r="2.4"></circle></g>
+                    <g data-film-door-leaf data-film-door-at="30.55"><path class="film-door-leaf" data-film-door-panel d="M20 68V12h46v56Z"></path><path class="film-door-leaf-detail" data-film-door-detail d="M25 18h36v44H25Z"></path><circle class="film-door-handle" data-film-door-handle cx="59" cy="42" r="2.4"></circle></g>
+                    <path class="film-door-frame" d="M16 69V8h54v61M16 8h54"></path><circle class="film-door-hinge" cx="18" cy="17" r="2.1"></circle><circle class="film-door-hinge" cx="18" cy="60" r="2.1"></circle><path class="film-door-threshold" d="M16 69h54"></path><text class="film-door-label" x="43" y="106">/src</text>
+                  </g>
+                  <g id="film-out-door" class="film-door-instance film-door-instance--egress" data-film-action="26.7,27.3,rise" data-film-grow="iso" data-film-distance="52" data-film-teardown="110.3,111.0,0,30" transform="translate(720 245) scale(.72)">
+                    <path class="film-door-socket" d="M5 68 43 49l38 19-38 19Z"></path><path class="film-door-void" d="M18 68V10h50v58Z"></path>
+                    <g data-film-door-leaf data-film-door-at="84.8"><path class="film-door-leaf" data-film-door-panel d="M20 68V12h46v56Z"></path><path class="film-door-leaf-detail" data-film-door-detail d="M25 18h36v44H25Z"></path><circle class="film-door-handle" data-film-door-handle cx="59" cy="42" r="2.4"></circle></g>
                     <path class="film-door-frame" d="M16 69V8h54v61M16 8h54"></path><circle class="film-door-hinge" cx="18" cy="17" r="2.1"></circle><circle class="film-door-hinge" cx="18" cy="60" r="2.1"></circle><path class="film-door-threshold" d="M16 69h54"></path><text class="film-door-label" x="43" y="106">/out</text>
                   </g>
                 </g>
 
-                <g id="film-kernel-verdict-pulses" data-film-window="52,80,.5" aria-label="Both decks submit proof pulses to the shared kernel">
-                  <path class="film-kernel-dive" d="M315 404C315 466 372 500 448 552"></path>
-                  <path class="film-kernel-dive film-pulse" data-film-direction="reverse" d="M315 404C315 466 372 500 448 552"></path>
-                  <path class="film-kernel-dive" d="M900 404C900 466 830 510 752 552"></path>
-                  <path class="film-kernel-dive film-pulse" d="M900 404C900 466 830 510 752 552"></path>
-                  <path class="film-kernel-judgement" d="M448 552C520 586 680 586 752 552"></path>
-                  <path class="film-kernel-judgement film-pulse" d="M448 552C520 586 680 586 752 552"></path>
-                  <circle class="film-kernel-verdict-node" cx="600" cy="579" r="8"></circle>
-                  <text class="film-kernel-verdict-label" x="600" y="608">ONE KERNEL · ONE VERDICT</text>
+                <g id="film-player-domain-links" data-film-window="91.5,120,.35" aria-label="Genesis capability doors connected to the approved player">
+                  <path class="film-domain-connection" data-film-action="91.6,92.5,opacity" d="M320 395C350 337 382 273 416 232C483 216 552 204 607.5 200"></path>
+                  <path class="film-domain-connection" data-film-action="91.9,92.8,opacity" d="M320 395C369 353 420 304 480 264C526 235 570 211 607.5 200"></path>
+                  <path class="film-domain-connection" data-film-action="92.2,93.1,opacity" d="M320 395C389 367 464 334 544 296C566 257 588 220 607.5 200"></path>
+                  <g class="film-domain-door" data-film-action="91.7,92.2,rise" data-film-distance="28" transform="translate(385 183) scale(.72)"><use href="#film-door" width="86" height="110"></use><text class="film-door-label" x="43" y="106">fb region</text></g>
+                  <g class="film-domain-door" data-film-action="92.0,92.5,rise" data-film-distance="28" transform="translate(449 215) scale(.72)"><use href="#film-door" width="86" height="110"></use><text class="film-door-label" x="43" y="106">input</text></g>
+                  <g class="film-domain-door" data-film-action="92.3,92.8,rise" data-film-distance="28" transform="translate(513 247) scale(.72)"><use href="#film-door" width="86" height="110"></use><text class="film-door-label" x="43" y="106">file door</text></g>
+                </g>
+
+                <g id="film-builder-workshop" data-film-window="29.7,120,.35" aria-label="Permanent compiler and verifier workshop with one replaceable workpiece">
+                  <g id="film-workshop-compiler" class="film-workshop-building" data-film-action="39.0,40.0,rise" data-film-grow="iso" data-film-distance="92" data-film-teardown="108.9,109.8,0,48" transform="translate(828 226) scale(.62)">
+                    <use href="#film-block" width="160" height="144"></use>
+                    <text class="film-block-name" x="80" y="78">COMPILER</text>
+                    <text class="film-block-sub" x="80" y="101">rustc</text>
+                  </g>
+                  <g class="film-compiler-console" data-film-window="40.6,120,.3" data-film-teardown="108.6,109.3,0,18">
+                    <text id="film-compiler-round" x="880" y="198">READY · ROUND 0/3</text>
+                    <rect class="film-workshop-rail" x="824" y="207" width="112" height="7" rx="3.5"></rect>
+                    <rect id="film-compiler-progress" class="film-workshop-progress" x="824" y="207" width="0" height="7" rx="3.5"></rect>
+                    <text class="film-workshop-version" x="880" y="222">rustc 1.83.0-dev · NO NET</text>
+                  </g>
+
+                  <g id="film-workshop-verifier" class="film-workshop-building" data-film-action="41.6,42.6,rise" data-film-grow="iso" data-film-distance="92" data-film-teardown="108.0,108.9,0,48" transform="translate(986 278) scale(.56)">
+                    <use href="#film-block" width="160" height="144"></use>
+                    <text class="film-block-name" x="80" y="78">PRÜFER</text>
+                    <text class="film-block-sub" x="80" y="101">A/B · DRILLS</text>
+                  </g>
+                  <g class="film-verifier-progress-console" data-film-window="42.6,120,.3" data-film-teardown="107.8,108.5,0,18">
+                    <text id="film-verifier-round" x="1027.5" y="251">READY · ROUND 0/3</text>
+                    <rect class="film-workshop-rail" x="976" y="259" width="103" height="7" rx="3.5"></rect>
+                    <rect id="film-verifier-progress" class="film-workshop-progress" x="976" y="259" width="0" height="7" rx="3.5"></rect>
+                  </g>
+                  <g class="film-verifier-console" data-film-window="57.6,120,.35" data-film-teardown="107.6,108.4,0,24" transform="translate(976 365)">
+                    <g id="film-build-a" class="film-twin-cell"><rect class="film-verifier-cell" x="0" y="0" width="48" height="31" rx="5"></rect><text x="24" y="20">A</text><text id="film-hash-a" class="film-hash" x="24" y="-7">A91E</text></g>
+                    <g id="film-build-b" class="film-twin-cell"><rect class="film-verifier-cell" x="55" y="0" width="48" height="31" rx="5"></rect><text x="79" y="20">B</text><text id="film-hash-b" class="film-hash" x="79" y="-7">A91E</text></g>
+                    <g id="film-twin-equal"><text id="film-byte-result" class="film-byte-result" x="51" y="48">WAITING</text></g>
+                    <g class="film-drill-lights" transform="translate(1 58)">
+                      <circle id="film-drill-wall" cx="9" cy="9" r="6"></circle><text x="20" y="12">WALL</text>
+                      <circle id="film-drill-import" cx="9" cy="29" r="6"></circle><text x="20" y="32">IMPORT</text>
+                      <circle id="film-drill-fuel" cx="9" cy="49" r="6"></circle><text x="20" y="52">FUEL</text>
+                    </g>
+                  </g>
+
+                  <g class="film-material-flow" data-film-window="33,39,.35">
+                    <path id="film-material-path" class="film-material-guide" d="M320 395C382 414 448 395 513 384C555 384 615 370 670 358C690 365 714 381 735 390C786 378 843 353 900 345"></path>
+                    <g id="film-material-main">
+                      <g transform="translate(-18 -23)"><use href="#film-file" width="36" height="46"></use><text class="film-file-name" x="18" y="59">main.rs</text></g>
+                    </g>
+                    <g id="film-material-cargo">
+                      <g transform="translate(-18 -23)"><use href="#film-file" width="36" height="46"></use><text class="film-file-name" x="18" y="59">Cargo.toml</text></g>
+                    </g>
+                  </g>
+                  <g class="film-feedback-return">
+                    <path id="film-compiler-feedback-path" class="film-transport-guide" d="M880 310C760 458 505 450 320 395"></path>
+                    <path id="film-verifier-feedback-path" class="film-transport-guide" d="M1025 390C855 504 526 475 320 395"></path>
+                    <g id="film-error-report-one" class="film-error-report">
+                      <rect x="-48" y="-17" width="96" height="34" rx="8"></rect>
+                      <circle cx="-31" cy="-4" r="3"></circle><circle cx="-21" cy="-4" r="3"></circle><circle cx="-11" cy="-4" r="3"></circle><circle cx="-1" cy="-4" r="3"></circle>
+                      <text x="0" y="11">DIAG 01 · 4 FACTS</text>
+                    </g>
+                    <g id="film-error-report-two" class="film-error-report">
+                      <rect x="-48" y="-17" width="96" height="34" rx="8"></rect>
+                      <circle cx="-31" cy="-4" r="3"></circle><circle cx="-21" cy="-4" r="3"></circle><circle cx="-11" cy="-4" r="3"></circle><circle cx="-1" cy="-4" r="3"></circle>
+                      <text x="0" y="11">DIAG 02 · 4 FACTS</text>
+                    </g>
+                  </g>
+                  <g id="film-edit-one" class="film-edit-packet"><rect x="-31" y="-15" width="62" height="30" rx="7"></rect><path d="M-18-4h12m-6-6v12M3-4h17"></path><text x="0" y="10">EDIT 01</text></g>
+                  <g id="film-edit-two" class="film-edit-packet"><rect x="-31" y="-15" width="62" height="30" rx="7"></rect><path d="M-18-4h12m-6-6v12M3-4h17"></path><text x="0" y="10">EDIT 02</text></g>
+                  <g class="film-egress-route" data-film-window="81.7,88,.3">
+                    <path class="film-transport-guide" d="M1025 390C920 360 828 326 751 294"></path>
+                  </g>
+
+                  <g id="film-workpiece" aria-label="The single replaceable music-player workpiece">
+                    <g transform="translate(-55 -50)"><use href="#film-block" width="110" height="99"></use></g>
+                    <text id="film-workpiece-label" class="film-workpiece-label" x="0" y="5">PLAYER.RS</text>
+                    <g id="film-seal-twin" class="film-evidence-seal" transform="translate(-38 34)"><circle r="10"></circle><text y="4">A/B</text></g>
+                    <g id="film-seal-drills" class="film-evidence-seal" transform="translate(0 34)"><circle r="10"></circle><text y="4">D</text></g>
+                    <g id="film-seal-report" class="film-evidence-seal" transform="translate(38 34)"><circle r="10"></circle><text y="4">✓</text></g>
+                  </g>
+
+                  <g id="film-out-gate-status" data-film-window="78,88,.3" transform="translate(610 180)">
+                    <rect width="178" height="40" rx="8"></rect>
+                    <circle cx="17" cy="20" r="6"></circle>
+                    <text id="film-out-gate-copy" x="31" y="25">/out LOCKED · 0/3 SEALS</text>
+                  </g>
+
+                  <g class="film-tool-upgrade" data-film-action="52,53.2,rise" data-film-distance="22" data-film-teardown="107.1,107.8,0,24" transform="translate(744 250)"><rect width="74" height="24" rx="5"></rect><text x="37" y="16">LOCK CACHE</text></g>
+                  <g class="film-tool-upgrade" data-film-action="70,71.2,rise" data-film-distance="22" data-film-teardown="107.3,108.0,0,24" transform="translate(1090 250)"><rect width="72" height="24" rx="5"></rect><text x="36" y="16">BYTE JIG</text></g>
+                  <g class="film-tool-upgrade" data-film-action="77,78.2,rise" data-film-distance="22" data-film-teardown="107.5,108.2,0,24" transform="translate(1090 300)"><rect width="68" height="24" rx="5"></rect><text x="34" y="16">DRILL KIT</text></g>
+                </g>
+
+                <g id="film-builder-shutdown" aria-label="Agent closes and releases the builder deck">
+                  <path id="film-shutdown-path" class="film-transport-guide" d="M320 395C500 432 710 382 900 345"></path>
+                  <g id="film-shutdown-order" class="film-shutdown-order">
+                    <rect x="-48" y="-16" width="96" height="32" rx="8"></rect>
+                    <path d="M-33-5h12v10h-12ZM-13 0h10M5 0h25"></path>
+                    <text x="9" y="11">CLOSE BUILDER</text>
+                  </g>
                 </g>
 
                 <g id="film-scene-4" data-film-window="25,33,.7">
-                  <g data-film-action="27,27.75,grant" transform="translate(512 370) scale(.48)"><use href="#film-key" width="80" height="32"></use><text class="film-key-tag" x="40" y="-10">READ</text></g>
-                  <g data-film-action="27.35,28.1,grant" transform="translate(602 420) scale(.48)"><use href="#film-key" width="80" height="32"></use><text class="film-key-tag" x="40" y="-10">READ</text></g>
-                  <g data-film-action="27.7,28.45,grant" transform="translate(692 370) scale(.48)"><use href="#film-key" width="80" height="32"></use><text class="film-key-tag" x="40" y="-10">WRITE</text></g>
-                  <g class="film-label-card" data-film-window="28.45,30,.25" transform="translate(760 185)"><text class="film-label-ok">ALL BUILD DOORS UNLOCKED</text><text y="30">BUILDER DECK MAY NOW RISE.</text></g>
+                  <g data-film-action="29.75,30.35,grant" transform="translate(651 344) scale(.48)"><use href="#film-key" width="80" height="32"></use><text class="film-key-tag" x="40" y="-10">READ</text></g>
+                  <g data-film-action="30.15,30.75,grant" transform="translate(716 376) scale(.48)"><use href="#film-key" width="80" height="32"></use><text class="film-key-tag" x="40" y="-10">READ</text></g>
+                  <g data-film-action="30.35,30.95,grant" transform="translate(692 370) scale(.48)"><use href="#film-key" width="80" height="32"></use><text class="film-key-tag" x="40" y="-10">WRITE</text></g>
+                  <g class="film-label-card" data-film-window="30.55,32.2,.25" transform="translate(760 185)"><text class="film-label-ok">INGRESS DOORS UNLOCKED</text><text y="30">BUILDER FLOOR ONLINE · /out STAYS SEALED.</text></g>
                   <g class="film-label-card film-label-card--warning" transform="translate(75 93)">
                     <text>NO NET SOCKET.</text><text y="30">BUILDS ARE OFFLINE BY DESIGN.</text>
                   </g>
                 </g>
 
                 <g id="film-scene-5" data-film-window="33,41,.7">
-                  <g class="film-file-tree" transform="translate(403 211)">
-                    <path class="film-tree-line" d="M90 124v54m0-28-84 56m84-56 85 56"></path>
-                    <g data-film-action="33,35,drop"><use href="#film-file" width="58" height="74"></use><text class="film-file-name" x="29" y="94">main.rs</text></g>
-                    <g data-film-action="34,36,drop" transform="translate(122 10)"><use href="#film-file" width="58" height="74"></use><text class="film-file-name" x="29" y="94">Cargo.toml</text></g>
-                    <g data-film-action="35,37,rise" transform="translate(60 178)"><rect class="film-revision" width="118" height="52" rx="9"></rect><text class="film-revision-text" x="59" y="31">REVISION 1</text></g>
+                  <g class="film-workshop-caption" transform="translate(748 175)">
+                    <text>SOURCE FILES · AGENT → /sysroot → /src</text>
+                    <text y="24">HASHED · CONTENT-ADDRESSED · IMMUTABLE</text>
+                    <text y="48">STORED ≠ EXECUTABLE · WORKPIECE 01 FORMS</text>
                   </g>
-                  <g class="film-label-card" transform="translate(132 93)"><text>HASHED · CONTENT-ADDRESSED · IMMUTABLE</text><text y="30">STORED ≠ EXECUTABLE</text></g>
-                  <text class="film-inert-label" x="550" y="436">INERT</text>
                 </g>
 
                 <g id="film-scene-6" data-film-window="41,52,.7">
-                  <rect class="film-terminal-shadow" x="194" y="83" width="812" height="493" rx="18"></rect>
-                  <rect class="film-terminal" x="210" y="99" width="780" height="461" rx="12"></rect>
-                  <g class="film-terminal-bar"><circle cx="239" cy="128" r="5"></circle><circle cx="257" cy="128" r="5"></circle><circle cx="275" cy="128" r="5"></circle><text x="600" y="134">BUILD SITE · OFFLINE</text></g>
-                  <text class="film-terminal-text" x="250" y="188" data-film-line="41.2">CAS  compiler.rustc  1457 chunks  91 MB</text>
-                  <text class="film-terminal-text" x="250" y="226" data-film-line="42.2">CAS  sysroot          1161 chunks  71 MB</text>
-                  <text class="film-terminal-ok" x="250" y="264" data-film-line="43.2">imports <tspan id="film-import-count">1</tspan>/30 · pages <tspan id="film-pages-count">399</tspan></text>
-                  <text class="film-terminal-text" x="250" y="318" data-film-line="44.2">$ rustc --version</text>
-                  <text class="film-terminal-ok" x="250" y="356" data-film-line="45">rustc 1.83.0-dev</text>
-                  <text class="film-terminal-text" x="250" y="410" data-film-line="46">$ rustc hello.rs --target wasm32-wasip1</text>
-                  <g class="film-build-steps" data-film-action="46,50,rise">
-                    <text x="250" y="452">parse</text><text x="355" y="452">resolve std</text><text x="500" y="452">typecheck</text><text x="645" y="452">emit</text>
+                  <g class="film-workshop-caption" transform="translate(782 105)">
+                    <text>ROUND 1/3 · COMPILER GATE</text>
+                    <text class="film-workshop-caption--bad" y="24">Cargo.lock missing · BUILD STOPPED</text>
+                    <text y="48">DIAGNOSTIC 01 → AGENT · EDIT 01 RETURNS</text>
                   </g>
-                  <g data-film-action="49,51,drop" transform="translate(774 464)"><use href="#film-capsule" width="150" height="62"></use><text class="film-capsule-label" x="75" y="38">hello.wasm</text></g>
-                  <text class="film-terminal-foot" x="600" y="536">91 MB · 30 imports · NO NET</text>
                 </g>
 
                 <g id="film-scene-7" data-film-window="52,62,.7">
-                  <g class="film-check-panel" transform="translate(424 116)">
-                    <rect width="354" height="112" rx="12"></rect>
-                    <text class="film-check-bad" x="28" y="42">CHECK FAILED</text>
-                    <text x="28" y="78">Cargo.lock missing</text>
+                  <g class="film-workshop-caption" transform="translate(782 105)">
+                    <text>ROUND 2/3 · COMPILER PASSES</text>
+                    <text class="film-workshop-caption--bad" y="24">PRÜFER FINDS BYTE DRIFT · BUILD STOPPED</text>
+                    <text y="48">DIAGNOSTIC 02 → AGENT</text>
                   </g>
-                  <g class="film-four-cards" data-film-action="54,57,rise">
-                    <g transform="translate(190 302)"><rect width="172" height="66" rx="8"></rect><text x="86" y="39">check id</text></g>
-                    <g transform="translate(378 302)"><rect width="172" height="66" rx="8"></rect><text x="86" y="39">revision hash</text></g>
-                    <g transform="translate(566 302)"><rect width="172" height="66" rx="8"></rect><text x="86" y="39">tree hash</text></g>
-                    <g transform="translate(754 302)"><rect width="172" height="66" rx="8"></rect><text x="86" y="39">reason</text></g>
-                  </g>
-                  <path class="film-feedback-vein film-pulse" d="M855 392C700 465 470 448 330 373"></path>
-                  <g transform="translate(328 454)"><rect class="film-revision" width="146" height="54" rx="9"></rect><text class="film-revision-text" x="73" y="32">REVISION 1</text></g>
-                  <path class="film-revision-link" d="M474 481h84"></path>
-                  <g data-film-action="57,60,rise" transform="translate(558 454)"><rect class="film-revision film-revision--ok" width="146" height="54" rx="9"></rect><text class="film-revision-text" x="73" y="32">REVISION 2</text></g>
-                  <g class="film-label-card" transform="translate(326 548)"><text>THE AGENT LEARNS FROM FOUR FACTS — NEVER FROM YOUR FILES.</text></g>
                 </g>
 
                 <g id="film-scene-8" data-film-window="62,72,.7">
-                  <g class="film-twin-cell" transform="translate(217 151)"><rect width="318" height="288" rx="14"></rect><text x="159" y="38">BUILD A</text><use href="#film-capsule" x="84" y="78" width="150" height="62"></use><text class="film-hash" x="159" y="175">A91E 44C0 7D21</text></g>
-                  <g class="film-twin-cell" transform="translate(665 151)"><rect width="318" height="288" rx="14"></rect><text x="159" y="38">BUILD B</text><use href="#film-capsule" x="84" y="78" width="150" height="62"></use><text class="film-hash" x="159" y="175">A91E 44C0 7D21</text></g>
-                  <path class="film-twin-link film-pulse" d="M535 335h130"></path>
-                  <g id="film-twin-equal" class="film-equal" transform="translate(505 458)"><rect width="190" height="68" rx="34"></rect><text x="95" y="43">EQUAL</text></g>
-                  <text class="film-scene-bottom" x="600" y="576">SAME INPUT · TWIN BUILDS · ONE TRUTH</text>
+                  <g class="film-workshop-caption" transform="translate(806 105)">
+                    <text>EDIT 02 RETURNS · ROUND 3/3</text>
+                    <text class="film-workshop-caption--ok" y="24">COMPILER PASSES · PRÜFER RUNS A/B</text>
+                    <text y="48">SAME INPUT · TWIN BUILDS · ONE TRUTH</text>
+                  </g>
                 </g>
 
                 <g id="film-scene-9" data-film-window="72,80,.6">
-                  <path class="film-cellar" d="M185 211h830v338H185Z"></path>
-                  <path class="film-cellar-ceiling" d="M185 211h830l-69 60H254Z"></path>
-                  <text class="film-cellar-title" x="600" y="251">PROOF CELLAR</text>
-                  <g transform="translate(246 303)"><rect class="film-test-cell" width="208" height="154" rx="9"></rect><text class="film-test-title" x="104" y="34">MEMORY WALL</text><path class="film-attack" d="M34 112h112m-26-18 26 18-26 18"></path><path class="film-wall" d="M166 68v72"></path><text class="film-trap" x="104" y="181">TRAP · WALL HOLDS</text></g>
-                  <g transform="translate(496 303)"><rect class="film-test-cell" width="208" height="154" rx="9"></rect><text class="film-test-title" x="104" y="34">MISSING IMPORT</text><path class="film-attack" d="M34 112h112m-26-18 26 18-26 18"></path><path class="film-wall" d="M166 68v72"></path><text class="film-trap" x="104" y="181">NO SUCH DOOR</text></g>
-                  <g transform="translate(746 303)"><rect class="film-test-cell" width="208" height="154" rx="9"></rect><text class="film-test-title" x="104" y="34">INFINITE LOOP</text><circle class="film-fuel" cx="104" cy="104" r="38"></circle><text id="film-fuel-count" class="film-fuel-text" x="104" y="111">100</text><text class="film-trap" x="104" y="181">FUEL EMPTY · PARKED</text></g>
-                  <g transform="translate(524 478)"><use href="#film-capsule" width="150" height="62"></use><text class="film-hash" x="75" y="81">CANDIDATE · A91E</text></g>
+                  <g class="film-workshop-caption" transform="translate(812 105)">
+                    <text>ROUND 3/3 PASSES · EVIDENCE ATTACHED</text>
+                    <text class="film-workshop-caption--ok" y="24">BYTE COMPARE → EQUAL · NO SUCH DOOR</text>
+                    <text class="film-workshop-caption--ok" y="48">FUEL EMPTY · PARKED → 3/3 SEALS</text>
+                  </g>
                 </g>
 
                 <g id="film-scene-10" data-film-window="80,88,.7">
-                  <g transform="translate(485 220)"><use href="#film-gate" width="230" height="240"></use></g>
-                  <g transform="translate(525 339)"><use href="#film-capsule" width="150" height="62"></use></g>
-                  <g id="film-ring" transform="translate(600 369)">
-                    <use href="#film-ring-segment" x="-100" y="-100" width="200" height="200" class="film-ring-segment film-ring-segment--ok"></use>
-                    <use href="#film-ring-segment" x="-100" y="-100" width="200" height="200" class="film-ring-segment film-ring-segment--ok" transform="rotate(90)"></use>
-                    <use href="#film-ring-segment" x="-100" y="-100" width="200" height="200" class="film-ring-segment film-ring-segment--ok" transform="rotate(180)"></use>
-                    <use href="#film-ring-segment" x="-100" y="-100" width="200" height="200" class="film-ring-segment film-ring-segment--missing" transform="rotate(270)"></use>
-                  </g>
-                  <g class="film-ring-labels"><text x="355" y="228">manifest</text><text x="751" y="228">artifact hash</text><text x="793" y="505">green report</text><text class="film-missing" x="310" y="505">owner approval — missing</text></g>
-                  <text class="film-scene-bottom" x="600" y="586">CLAIMS OPEN NOTHING.</text>
-                </g>
-
-                <g id="film-scene-11" data-film-window="88,96,.6">
                   <rect class="film-approve-shadow" x="263" y="76" width="674" height="516" rx="20"></rect>
                   <rect class="film-approve" x="279" y="92" width="642" height="484" rx="13"></rect>
                   <text class="film-approve-brand" x="319" y="139">GENESIS · PHYSICAL APPROVAL</text>
@@ -431,46 +452,45 @@
                   <rect id="film-approve-button" class="film-approve-button" x="319" y="447" width="562" height="72" rx="10"></rect>
                   <text class="film-approve-button-text" x="600" y="490">Approve + run program</text>
                   <g id="film-approval-pointer" class="film-pointer" transform="translate(790 422)"><path d="m0 0 0 45 12-11 9 21 10-5-10-20h17Z"></path></g>
-                  <g id="film-owner-stamp" data-film-action="92,94,stamp" transform="translate(816 164)"><use href="#film-stamp" width="72" height="84"></use></g>
+                  <g id="film-owner-stamp" data-film-action="84.2,85.0,stamp" transform="translate(816 164)"><use href="#film-stamp" width="72" height="84"></use></g>
                   <g class="film-remote-denied" transform="translate(72 480)"><path d="M0 0h168"></path><text x="84" y="-15">REMOTE START DENIED</text></g>
                 </g>
 
-                <g id="film-scene-12" data-film-window="96,106,.7">
-                  <g data-film-action="96,99,rise" data-film-grow="iso" data-film-distance="108" transform="translate(128 336) scale(.72)"><use href="#film-block" width="140" height="126"></use><text class="film-block-name" x="70" y="74">PLAYER</text></g>
-                  <path class="film-input-vein film-pulse" d="M250 493C380 532 468 515 618 432"></path>
-                  <g transform="translate(86 450) scale(.62)"><use href="#film-door"></use><text class="film-door-label" x="43" y="82">fb region</text></g>
-                  <g transform="translate(174 477) scale(.62)"><use href="#film-door"></use><text class="film-door-label" x="43" y="82">input</text></g>
-                  <g transform="translate(259 445) scale(.62)"><use href="#film-door"></use><text class="film-door-label" x="43" y="82">file door</text></g>
-                  <rect class="film-player-shell" x="354" y="99" width="635" height="466" rx="18"></rect>
-                  <rect class="film-player" x="370" y="115" width="603" height="434" rx="11"></rect>
-                  <text class="film-player-brand" x="410" y="159">MUSIC PLAYER</text><text class="film-player-small" x="410" y="187">running in its cage</text>
-                  <rect class="film-album" x="410" y="226" width="164" height="164" rx="16"></rect><text class="film-note" x="492" y="332">♪</text>
-                  <text class="film-track-title" x="618" y="252">dream.wav</text><text class="film-player-small" x="618" y="282">track 01 · local file door</text>
-                  <rect class="film-track" x="618" y="322" width="300" height="8" rx="4"></rect><rect id="film-track-progress" class="film-track-progress" x="618" y="322" width="30" height="8" rx="4"></rect>
-                  <g class="film-eq" transform="translate(618 368)"><rect x="0" y="25" width="12" height="34"></rect><rect x="24" y="5" width="12" height="54"></rect><rect x="48" y="18" width="12" height="41"></rect><rect x="72" y="0" width="12" height="59"></rect><rect x="96" y="29" width="12" height="30"></rect></g>
-                  <text class="film-f12" x="948" y="83">F12 · REVOKE ALL</text>
-                  <g id="film-crash-neighbor" transform="translate(1025 358) scale(.58)"><use href="#film-block" width="140" height="126"></use><circle id="film-trap-flash" class="film-trap-flash" cx="70" cy="21" r="10"></circle><text class="film-block-name film-block-name--bad" x="70" y="74">TRAP</text></g>
-                  <path id="film-cut-cable" class="film-cut-cable" d="M1018 473h112"></path>
-                  <g id="film-fresh-neighbor" data-film-action="103.1,105,rise" data-film-grow="iso" data-film-distance="98" transform="translate(1025 358) scale(.58)"><use href="#film-block" width="140" height="126"></use><text class="film-block-name" x="70" y="74">FRESH</text></g>
+                <g id="film-scene-11" data-film-window="88,96,.6">
+                  <g class="film-workshop-caption film-workshop-caption--egress" transform="translate(700 520)">
+                    <text>OWNER APPROVED · EGRESS GATE COMPLETE</text>
+                    <text class="film-workshop-caption--ok" y="24">/out UNLOCKED → PLAYER.RS DOMAIN</text>
+                    <text y="48">THE APPROVED PROGRAM LEAVES THE BUILD WORLD.</text>
+                  </g>
+                </g>
+
+                <g id="film-scene-12" data-film-window="113.7,117.25,.45">
+                  <g class="film-player-ui-compact" transform="translate(520 60) scale(.58)">
+                    <rect class="film-player-shell" x="354" y="99" width="635" height="466" rx="18"></rect>
+                    <rect class="film-player" x="370" y="115" width="603" height="434" rx="11"></rect>
+                    <text class="film-player-brand" x="410" y="159">MUSIC PLAYER</text><text class="film-player-small" x="410" y="187">running in its cage</text>
+                    <rect class="film-album" x="410" y="226" width="164" height="164" rx="16"></rect><text class="film-note" x="492" y="332">♪</text>
+                    <text class="film-track-title" x="618" y="252">dream.wav</text><text class="film-player-small" x="618" y="282">track 01 · local file door</text>
+                    <rect class="film-track" x="618" y="322" width="300" height="8" rx="4"></rect><rect id="film-track-progress" class="film-track-progress" x="618" y="322" width="30" height="8" rx="4"></rect>
+                    <g class="film-eq" transform="translate(618 368)"><rect x="0" y="25" width="12" height="34"></rect><rect x="24" y="5" width="12" height="54"></rect><rect x="48" y="18" width="12" height="41"></rect><rect x="72" y="0" width="12" height="59"></rect><rect x="96" y="29" width="12" height="30"></rect></g>
+                    <text class="film-f12" x="948" y="83">F12 · REVOKE ALL</text>
+                    <g id="film-crash-neighbor" transform="translate(1025 358) scale(.58)"><use href="#film-block" width="140" height="126"></use><circle id="film-trap-flash" class="film-trap-flash" cx="70" cy="21" r="10"></circle><text class="film-block-name film-block-name--bad" x="70" y="74">TRAP</text></g>
+                    <path id="film-cut-cable" class="film-cut-cable" d="M1018 473h112"></path>
+                    <g id="film-fresh-neighbor" data-film-action="103.1,105,rise" data-film-grow="iso" data-film-distance="98" transform="translate(1025 358) scale(.58)"><use href="#film-block" width="140" height="126"></use><text class="film-block-name" x="70" y="74">FRESH</text></g>
+                  </g>
                   <text class="film-scene-bottom" x="600" y="612">A CRASH COSTS ONE BLOCK, NEVER THE HOUSE.</text>
                 </g>
 
                 <g id="film-scene-13" data-film-window="106,114,.7">
-                  <g class="film-mini-blocks">
-                    <g data-film-action="106,108,rise" data-film-grow="iso" data-film-distance="92" transform="translate(130 201) scale(.58)"><use href="#film-block" width="140" height="126"></use><text class="film-block-name" x="70" y="74">EDITOR</text></g>
-                    <g data-film-action="106.7,108.7,rise" data-film-grow="iso" data-film-distance="92" transform="translate(316 143) scale(.66)"><use href="#film-block" width="140" height="126"></use><text class="film-block-name" x="70" y="74">SYNTH</text></g>
-                    <g data-film-action="107.4,109.4,rise" data-film-grow="iso" data-film-distance="92" transform="translate(858 172) scale(.63)"><use href="#film-block" width="140" height="126"></use><text class="film-block-name" x="70" y="74">PROFILER</text></g>
-                    <g data-film-action="108.1,110.1,rise" data-film-grow="iso" data-film-distance="92" transform="translate(1011 281) scale(.46)"><use href="#film-block" width="140" height="126"></use><text class="film-block-name" x="70" y="74">12+30=42</text></g>
+                  <g class="film-workshop-caption" transform="translate(672 116)">
+                    <text>AGENT → CLOSE BUILDER</text>
+                    <text y="24">TOOLS PARK · DOORS CLOSE · FLOOR RELEASES</text>
+                    <text class="film-workshop-caption--ok" y="48">PLAYER DOMAIN STAYS ATTACHED TO GENESIS</text>
                   </g>
-                  <g class="film-version-stack" transform="translate(373 483)"><path d="m0 45 82-42 82 42-82 42Z"></path><path d="m9 27 73-38 73 38-73 38Z"></path><path id="film-bad-version" class="film-version-bad" d="m18 9 64-34 64 34-64 34Z"></path><text x="82" y="101">v3 → v2</text></g>
-                  <g class="film-tombstone" transform="translate(843 472)"><path d="M0 64 73 25l74 39-74 39Z"></path><text x="73" y="69">TOMBSTONE</text></g>
-                  <path class="film-vein film-pulse" d="M201 322C397 390 623 279 884 284"></path>
-                  <use href="#film-vein" x="643" y="337" width="240" height="78" opacity=".72"></use>
-                  <g class="film-label-card" data-film-window="112.4,114,.25" transform="translate(748 524)"><text class="film-label-ok">BUILDER DECK · IDLE</text><text y="30">WORK DONE · TOOLS RETAINED</text></g>
-                  <text class="film-scene-bottom" x="600" y="594">ROLLBACK IS ONE TRANSACTION · EVERY TOOL MAKES THE NEXT ONE CHEAPER.</text>
+                  <text class="film-scene-bottom" x="600" y="594">THE BUILD WORLD LEAVES CLEANLY · THE APPROVED DOMAIN STAYS.</text>
                 </g>
 
-                <g id="film-scene-14" data-film-window="114,120,.8">
+                <g id="film-scene-14" data-film-window="117,120,.65">
                   <rect class="film-outro-scrim" x="0" y="0" width="1200" height="680"></rect>
                   <g class="film-loop-ring" transform="translate(600 305)">
                     <circle r="184"></circle>
@@ -489,11 +509,11 @@
               </g>
 
               <g class="film-hud" aria-hidden="true">
-                <text id="film-scene-number" x="34" y="42">01 / 14</text>
-                <text id="film-scene-name" x="1166" y="42" text-anchor="end">A SENTENCE</text>
-                <path class="film-progress-rail" d="M34 651h1132"></path>
-                <path id="film-progress" class="film-progress" d="M34 651h0"></path>
-                <text id="film-timecode" x="1166" y="634" text-anchor="end">00:00 / 02:00</text>
+                <text id="film-scene-number" x="34" y="-178">01 / 14</text>
+                <text id="film-scene-name" x="1166" y="-178" text-anchor="end">A SENTENCE</text>
+                <path class="film-progress-rail" d="M34 871h1132"></path>
+                <path id="film-progress" class="film-progress" d="M34 871h0"></path>
+                <text id="film-timecode" x="1166" y="854" text-anchor="end">00:00 / 02:00</text>
               </g>
             </g>
           </svg>

@@ -15,23 +15,19 @@ $requiredComponents = @(
     "film-capsule",
     "film-stamp",
     "film-ring-segment",
-    "film-gate",
-    "film-crystal"
+    "film-gate"
 )
 $emDash = [char]0x2014
 $middleDot = [char]0x00B7
 $notEqual = [char]0x2260
 $requiredCopy = @(
-    "In two minutes",
-    "The factory moves in.",
     "> build me a music player",
     ("OWNS CPU {0} RAM {0} USB {0} DISPLAY {0} NET" -f $middleDot),
     ("BUILDS ABOVE KERNEL {0} GRANTS DOORS" -f $middleDot),
-    ("RUST-KERNEL {0} tr{1}gt beide B{2}den" -f $emDash, [char]0x00E4, [char]0x00F6),
     "GENESIS DECK",
     "BUILDER DECK",
     "build.request",
-    "ALL BUILD DOORS UNLOCKED",
+    "INGRESS DOORS UNLOCKED",
     "KEY GRANTED: NET.HTTPS",
     ("the connection stays {0} and stays visible" -f $emDash),
     "NO NET SOCKET.",
@@ -45,7 +41,8 @@ $requiredCopy = @(
     "Approve + run program",
     "REMOTE START DENIED",
     ("F12 {0} REVOKE ALL" -f $middleDot),
-    "TOMBSTONE",
+    "PLAYER DOMAIN",
+    "CLOSE BUILDER",
     ("raiOS {0} the OS that builds its own software." -f $emDash),
     "Every gate you just saw is a real test."
 )
@@ -304,6 +301,90 @@ function Assert-RuntimeFrame {
     }) | Out-Null
 }
 
+function Assert-WorkshopFrame {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Dom,
+        [Parameter(Mandatory = $true)]
+        [int]$Time
+    )
+
+    $compiler = Get-ElementTagById $Dom "g" "film-workshop-compiler"
+    $verifier = Get-ElementTagById $Dom "g" "film-workshop-verifier"
+    $workpiece = Get-ElementTagById $Dom "g" "film-workpiece"
+    $outDoor = Get-ElementTagById $Dom "g" "film-out-door"
+    $compilerProgress = Get-ElementTagById $Dom "rect" "film-compiler-progress"
+    $verifierProgress = Get-ElementTagById $Dom "rect" "film-verifier-progress"
+    $playerDomain = Get-ElementTagById $Dom "g" "film-player-domain"
+    $builderDeck = Get-ElementTagById $Dom "g" "film-builder-deck"
+    $approvalButton = Get-ElementTagById $Dom "rect" "film-approve-button"
+    Assert-Condition ($null -ne $compiler) "Workshop t=${Time}: missing compiler"
+    Assert-Condition ($null -ne $verifier) "Workshop t=${Time}: missing verifier"
+    Assert-Condition ($null -ne $workpiece) "Workshop t=${Time}: missing workpiece"
+    Assert-Condition ($null -ne $outDoor) "Workshop t=${Time}: missing /out door"
+
+    switch ($Time) {
+        30 {
+            Assert-Condition ((Get-AttributeValue $compiler "data-film-action-state") -eq "waiting") "Workshop t=30: compiler appeared before its cable"
+            Assert-Condition ((Get-AttributeValue $verifier "data-film-action-state") -eq "waiting") "Workshop t=30: verifier appeared too early"
+            Assert-Condition ((Get-AttributeValue $outDoor "data-film-unlocked") -eq "false") "Workshop t=30: /out is not locked"
+        }
+        38 {
+            Assert-Condition ((Get-AttributeValue $compiler "data-film-action-state") -eq "waiting") "Workshop t=38: compiler appeared before the old-style cable completed"
+            Assert-Condition ((Get-AttributeValue $verifier "data-film-action-state") -eq "waiting") "Workshop t=38: verifier appeared before its cable"
+            Assert-Condition ((Get-AttributeValue $workpiece "data-film-state") -eq "building") "Workshop t=38: music-player workpiece is not active"
+        }
+        46 {
+            Assert-Condition ((Get-AttributeValue $verifier "data-film-action-state") -eq "complete") "Workshop t=46: verifier did not appear after its cable"
+            Assert-Condition ((Get-AttributeValue $compilerProgress "data-film-result") -eq "failed") "Workshop t=46: round 1 did not fail at the compiler"
+            Assert-Condition ((Get-AttributeValue $outDoor "data-film-unlocked") -eq "false") "Workshop t=46: /out opened before evidence"
+        }
+        57 {
+            Assert-Condition ((Get-AttributeValue $workpiece "data-film-state") -eq "building") "Workshop t=57: round 2 workpiece is not moving to the verifier"
+            Assert-Condition ((Get-AttributeValue $compilerProgress "data-film-result") -eq "passed") "Workshop t=57: round 2 did not pass the compiler"
+        }
+        67 {
+            Assert-Condition ((Get-AttributeValue $compilerProgress "data-film-round") -eq "3") "Workshop t=67: round 3 did not start after edit 02"
+            Assert-Condition ((Get-AttributeValue $verifierProgress "data-film-round") -eq "3") "Workshop t=67: verifier is not prepared for round 3"
+        }
+        76 {
+            $twinSeal = Get-ElementTagById $Dom "g" "film-seal-twin"
+            $drillSeal = Get-ElementTagById $Dom "g" "film-seal-drills"
+            $reportSeal = Get-ElementTagById $Dom "g" "film-seal-report"
+            Assert-Condition ((Get-AttributeValue $twinSeal "style") -notmatch 'visibility\s*:\s*hidden') "Workshop t=76: twin-build seal is missing"
+            Assert-Condition ((Get-AttributeValue $drillSeal "style") -notmatch 'visibility\s*:\s*hidden') "Workshop t=76: drill seal is missing"
+            Assert-Condition ((Get-AttributeValue $reportSeal "style") -match 'visibility\s*:\s*hidden') "Workshop t=76: final report seal appeared too early"
+            Assert-Condition ((Get-AttributeValue $verifierProgress "data-film-result") -eq "passed") "Workshop t=76: round 3 did not pass the verifier"
+            Assert-Condition ((Get-AttributeValue $outDoor "data-film-unlocked") -eq "false") "Workshop t=76: /out opened with an incomplete seal set"
+        }
+        84 {
+            $reportSeal = Get-ElementTagById $Dom "g" "film-seal-report"
+            Assert-Condition ((Get-AttributeValue $outDoor "data-film-unlocked") -eq "false") "Workshop t=84: /out opened before owner approval"
+            Assert-Condition ((Get-AttributeValue $workpiece "data-film-state") -eq "proved") "Workshop t=84: proved player left the verifier before approval"
+            Assert-Condition ((Get-AttributeValue $approvalButton "data-film-approved") -eq "false") "Workshop t=84: owner approval completed too early"
+            Assert-Condition ((Get-AttributeValue $reportSeal "data-film-pending") -eq "true") "Workshop t=84: owner seal is not visibly pending"
+        }
+        92 {
+            Assert-Condition ((Get-AttributeValue $outDoor "data-film-unlocked") -eq "true") "Workshop t=92: /out did not unlock after owner approval"
+            Assert-Condition ((Get-AttributeValue $playerDomain "data-film-attached") -eq "true") "Workshop t=92: approved player domain is not attached to Genesis"
+            Assert-Condition ((Get-AttributeValue $workpiece "data-film-state") -eq "resident") "Workshop t=92: the same player did not land at full size"
+        }
+        101 {
+            Assert-Condition ((Get-AttributeValue $playerDomain "data-film-attached") -eq "true") "Workshop t=101: approved player domain is not attached to Genesis"
+            Assert-Condition ((Get-AttributeValue $workpiece "data-film-state") -eq "resident") "Workshop t=101: approved player did not remain in its domain"
+        }
+        110 {
+            Assert-Condition ((Get-AttributeValue $compiler "data-film-teardown-state") -eq "released") "Workshop t=110: compiler was not dismantled"
+            Assert-Condition ((Get-AttributeValue $verifier "data-film-teardown-state") -eq "released") "Workshop t=110: verifier was not dismantled"
+            Assert-Condition ((Get-AttributeValue $builderDeck "data-film-released") -eq "false") "Workshop t=110: builder floor vanished before its inventory"
+        }
+        117 {
+            Assert-Condition ((Get-AttributeValue $builderDeck "data-film-released") -eq "true") "Workshop t=117: builder deck was not fully released"
+            Assert-Condition ((Get-AttributeValue $playerDomain "data-film-attached") -eq "true") "Workshop t=117: player domain did not survive builder teardown"
+        }
+    }
+}
+
 try {
     for ($index = 0; $index -lt $requiredTimes.Count; $index += 1) {
         $time = $requiredTimes[$index]
@@ -311,6 +392,9 @@ try {
         $label = "p7-{0:D3}" -f $time
         $dom = Get-DomSnapshot -Label $label -Query "site=1&anim=0&animt=$time"
         Assert-RuntimeFrame -Dom $dom -Label $label -ExpectedTime $time -ExpectedScene $scene
+        if ($time -in @(30, 38, 46, 57, 67, 76, 84, 92, 101, 110, 117)) {
+            Assert-WorkshopFrame -Dom $dom -Time $time
+        }
     }
 
     $posterDom = Get-DomSnapshot -Label "poster-118" -Query "site=1&anim=0&animt=118"
