@@ -16,7 +16,13 @@
       the curated-context source for lane system prompts
 
 ## Feedback loop
-- [ ] Compiler diagnostics consumed as JSON in the lane cycle
+- [x] Compiler diagnostics consumed as JSON in the lane cycle —
+      `scripts/cargo-json-diag.ps1` (raios.cargo_diag.v0: level/message/code/
+      file/line/column/rendered, written on success AND failure, hijack-safe
+      env). Negative proven: planted fixture error → exit 1, structured E0308
+      @ src\lib.rs:3:24 (orchestrator-rerun 2026-07-19). Honest limit: host
+      workspace crates; the kernel's custom-target build still reports via
+      the harness. Verified 2026-07-19.
 - [x] Test harness (QEMU profiles + bare metal) startable and readable by
       agents (W6) — `vm-harness/shadow-vm-smoke.ps1` + ~45 profiles emit
       machine-readable JSON; agent-driven hundreds of times this session.
