@@ -50,6 +50,7 @@ mod artifacts;
 mod capability_selftest;
 mod crypto_shims;
 mod envelope;
+mod host_import_selftest;
 mod invocation;
 mod isolation_selftest;
 mod net_shims;
@@ -81,6 +82,7 @@ pub(crate) use envelope::{
     execute_module_bytes, execute_workspace_no_import_candidate, inspect_workspace_imports,
     EchoRunEvidence, NegativeRun, WorkspaceImportInspection,
 };
+pub(crate) use host_import_selftest::emit_host_import_selftest;
 pub(crate) use invocation::{
     beyond_env_probe_snapshot, request_beyond_env_fixture, request_w7_acquisition,
     request_w7_provider_busy_probe, start_beyond_env_fixture, take_beyond_env_fixture_request,
