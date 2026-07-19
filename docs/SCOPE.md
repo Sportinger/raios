@@ -127,8 +127,12 @@ current VT-d probe is structure-only and does not establish this property.
 - [ ] 10 parallel agent lanes + 1 orchestrator in one workspace
 - [ ] Machine-readable hardware introspection: PCI enumeration, register maps,
       device info as structured data (not PDFs)
-- [ ] Compiler diagnostics as JSON → direct agent feedback loop
+- [x] Compiler diagnostics as JSON → direct agent feedback loop
       (generate → compile → read errors → fix)
+      <!-- breakdown feedback-loop group 3/3 green 2026-07-19:
+      scripts/cargo-json-diag.ps1 (raios.cargo_diag.v0, negative proven) +
+      agent-drivable harness + gated structured reports. -->
+
 - [ ] Test harness (QEMU + bare metal) drivable by agents themselves (W6 machinery)
 - [ ] Lane rules documented: what parallelizes (drivers, predicates, pipeline),
       what stays serial (MMU, scheduler, syscalls — max 2 lanes)
