@@ -12,8 +12,8 @@ use wasmi::{
 };
 
 use super::wasi_preview1::{
-    ProcExitTrap, RecentWasiCall, SpawnRequest, WasiHostState, RECENT_WASI_CALL_COUNT,
-    WASI_IMPORT_CALL_COUNT,
+    ProcExitTrap, RecentAtomicEvent, RecentWasiCall, SpawnRequest, WasiHostState,
+    RECENT_ATOMIC_EVENT_COUNT, RECENT_WASI_CALL_COUNT, WASI_IMPORT_CALL_COUNT,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,6 +53,9 @@ pub(crate) struct WasiThreadDiagRunEvidence {
     pub(crate) run: WasiThreadRunEvidence,
     pub(crate) import_call_counts: [u64; WASI_IMPORT_CALL_COUNT],
     pub(crate) recent_calls: [Option<RecentWasiCall>; RECENT_WASI_CALL_COUNT],
+    pub(crate) atomic_wait_total: u64,
+    pub(crate) atomic_notify_total: u64,
+    pub(crate) recent_atomic_events: [Option<RecentAtomicEvent>; RECENT_ATOMIC_EVENT_COUNT],
 }
 
 struct ThreadSlot {
@@ -250,10 +253,16 @@ impl WasiThreadJobRunner {
             cap_denials,
             import_call_counts,
             recent_calls,
+            atomic_wait_total,
+            atomic_notify_total,
+            recent_atomic_events,
         ) = {
             let state = self.store.data();
             let import_call_counts = *state.import_call_counts();
             let recent_calls = state.recent_calls();
+            let atomic_wait_total = state.atomic_wait_total();
+            let atomic_notify_total = state.atomic_notify_total();
+            let recent_atomic_events = state.recent_atomic_events();
             match state.scheduled_world() {
                 Some(world) => (
                     world.scheduler.trace_digest(),
@@ -264,6 +273,9 @@ impl WasiThreadJobRunner {
                     world.cap_denials,
                     import_call_counts,
                     recent_calls,
+                    atomic_wait_total,
+                    atomic_notify_total,
+                    recent_atomic_events,
                 ),
                 None => (
                     [0; 32],
@@ -274,6 +286,9 @@ impl WasiThreadJobRunner {
                     0,
                     import_call_counts,
                     recent_calls,
+                    atomic_wait_total,
+                    atomic_notify_total,
+                    recent_atomic_events,
                 ),
             }
         };
@@ -291,6 +306,9 @@ impl WasiThreadJobRunner {
             },
             import_call_counts,
             recent_calls,
+            atomic_wait_total,
+            atomic_notify_total,
+            recent_atomic_events,
         }
     }
 
@@ -366,6 +384,11 @@ impl WasiThreadJobRunner {
             ThreadState::Runnable => None,
             _ => return Err(WasiThreadJobFailure::Scheduler),
         };
+        if let Some(result) = wake_result {
+            self.store
+                .data_mut()
+                .resolve_atomic_wait(thread.get(), result);
+        }
 
         self.install_thread_fuel(thread)?;
         let mut wake_input = [Value::I32(0)];
@@ -520,6 +543,8 @@ impl WasiThreadJobRunner {
                 SuspensionKind::Atomic(atomic) => {
                     let mem = self.memory_slot(atomic.memory)?;
                     let addr = Addr::new(atomic.addr);
+                    let (mem_value, mem_width) = self.atomic_memory_value(atomic.addr);
+                    let round = self.round.saturating_sub(1);
                     match atomic.request {
                         AtomicSuspendRequest::Wait { timeout_ns } => {
                             self.store_continuation(thread, invocation)?;
@@ -527,6 +552,15 @@ impl WasiThreadJobRunner {
                             self.scheduler_mut()?
                                 .park_wait(thread, mem, addr, timeout)
                                 .map_err(|_| WasiThreadJobFailure::Scheduler)?;
+                            self.store.data_mut().record_atomic_wait(
+                                atomic.addr,
+                                mem_value,
+                                mem_width,
+                                timeout_ns,
+                                timeout == Some(0),
+                                thread.get(),
+                                round,
+                            );
                             return Ok(());
                         }
                         AtomicSuspendRequest::Notify { count } => {
@@ -534,6 +568,14 @@ impl WasiThreadJobRunner {
                                 .scheduler_mut()?
                                 .notify(mem, addr, count)
                                 .map_err(|_| WasiThreadJobFailure::Scheduler)?;
+                            self.store.data_mut().record_atomic_notify(
+                                atomic.addr,
+                                mem_value,
+                                mem_width,
+                                woken,
+                                thread.get(),
+                                round,
+                            );
                             let mut outputs = [];
                             outcome = invocation
                                 .resume(&mut self.store, &[Value::I32(woken as i32)], &mut outputs)
@@ -565,6 +607,30 @@ impl WasiThreadJobRunner {
                 }
             }
         }
+    }
+
+    fn atomic_memory_value(&self, addr: u64) -> (u64, u8) {
+        let Ok(offset) = usize::try_from(addr) else {
+            return (0, 0);
+        };
+        let memory_len = self.memory.data(&self.store).len();
+        let mut bytes64 = [0u8; 8];
+        if offset
+            .checked_add(bytes64.len())
+            .is_some_and(|end| end <= memory_len)
+            && self.memory.read(&self.store, offset, &mut bytes64).is_ok()
+        {
+            return (u64::from_le_bytes(bytes64), 8);
+        }
+        let mut bytes32 = [0u8; 4];
+        if offset
+            .checked_add(bytes32.len())
+            .is_some_and(|end| end <= memory_len)
+            && self.memory.read(&self.store, offset, &mut bytes32).is_ok()
+        {
+            return (u32::from_le_bytes(bytes32) as u64, 4);
+        }
+        (0, 0)
     }
 
     fn store_continuation(

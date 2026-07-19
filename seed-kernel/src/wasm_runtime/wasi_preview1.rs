@@ -22,6 +22,7 @@ const EVENT_SIZE: u32 = 32;
 const DIRENT_SIZE: usize = 24;
 pub(crate) const WASI_IMPORT_CALL_COUNT: usize = 30;
 pub(crate) const RECENT_WASI_CALL_COUNT: usize = 8;
+pub(crate) const RECENT_ATOMIC_EVENT_COUNT: usize = 16;
 
 const _: [(); WASI_IMPORT_CALL_COUNT] = [(); RUSTC_WASM_C6DCCF3E_IMPORTS.len()];
 
@@ -73,6 +74,69 @@ impl RecentWasiCall {
         arg0: 0,
         arg1: 0,
         result_lo: 0,
+    };
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum AtomicEventKind {
+    Wait,
+    Notify,
+}
+
+impl AtomicEventKind {
+    pub(crate) const fn token(self) -> &'static str {
+        match self {
+            Self::Wait => "wait",
+            Self::Notify => "notify",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum AtomicResolution {
+    Pending,
+    Timeout,
+    Notified,
+    NotEqual,
+    Immediate,
+}
+
+impl AtomicResolution {
+    pub(crate) const fn token(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Timeout => "timeout",
+            Self::Notified => "notified",
+            Self::NotEqual => "notequal",
+            Self::Immediate => "immediate",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct RecentAtomicEvent {
+    pub(crate) kind: AtomicEventKind,
+    pub(crate) addr: u64,
+    pub(crate) mem_value: u64,
+    pub(crate) mem_width: u8,
+    pub(crate) timeout_ns: Option<i64>,
+    pub(crate) resolution: AtomicResolution,
+    pub(crate) notify_woken: u32,
+    pub(crate) tid: u32,
+    pub(crate) round: u64,
+}
+
+impl RecentAtomicEvent {
+    const EMPTY: Self = Self {
+        kind: AtomicEventKind::Wait,
+        addr: 0,
+        mem_value: 0,
+        mem_width: 0,
+        timeout_ns: None,
+        resolution: AtomicResolution::Pending,
+        notify_woken: 0,
+        tid: 0,
+        round: 0,
     };
 }
 
@@ -166,6 +230,11 @@ pub(crate) struct WasiHostState {
     recent_calls: [RecentWasiCall; RECENT_WASI_CALL_COUNT],
     recent_call_next: u8,
     recent_call_len: u8,
+    atomic_wait_total: u64,
+    atomic_notify_total: u64,
+    recent_atomic_events: [RecentAtomicEvent; RECENT_ATOMIC_EVENT_COUNT],
+    recent_atomic_next: u8,
+    recent_atomic_len: u8,
 }
 
 impl WasiHostState {
@@ -189,6 +258,11 @@ impl WasiHostState {
             recent_calls: [RecentWasiCall::EMPTY; RECENT_WASI_CALL_COUNT],
             recent_call_next: 0,
             recent_call_len: 0,
+            atomic_wait_total: 0,
+            atomic_notify_total: 0,
+            recent_atomic_events: [RecentAtomicEvent::EMPTY; RECENT_ATOMIC_EVENT_COUNT],
+            recent_atomic_next: 0,
+            recent_atomic_len: 0,
         }
     }
 
@@ -230,6 +304,118 @@ impl WasiHostState {
             index += 1;
         }
         snapshot
+    }
+
+    pub(crate) const fn atomic_wait_total(&self) -> u64 {
+        self.atomic_wait_total
+    }
+
+    pub(crate) const fn atomic_notify_total(&self) -> u64 {
+        self.atomic_notify_total
+    }
+
+    pub(crate) fn recent_atomic_events(
+        &self,
+    ) -> [Option<RecentAtomicEvent>; RECENT_ATOMIC_EVENT_COUNT] {
+        let mut snapshot = [None; RECENT_ATOMIC_EVENT_COUNT];
+        let len = self.recent_atomic_len as usize;
+        let first = if len == RECENT_ATOMIC_EVENT_COUNT {
+            self.recent_atomic_next as usize
+        } else {
+            0
+        };
+        let mut index = 0usize;
+        while index < len {
+            snapshot[index] =
+                Some(self.recent_atomic_events[(first + index) % RECENT_ATOMIC_EVENT_COUNT]);
+            index += 1;
+        }
+        snapshot
+    }
+
+    pub(crate) fn record_atomic_wait(
+        &mut self,
+        addr: u64,
+        mem_value: u64,
+        mem_width: u8,
+        timeout_ns: i64,
+        immediate: bool,
+        tid: u32,
+        round: u64,
+    ) {
+        self.atomic_wait_total = self.atomic_wait_total.saturating_add(1);
+        self.push_atomic_event(RecentAtomicEvent {
+            kind: AtomicEventKind::Wait,
+            addr,
+            mem_value,
+            mem_width,
+            timeout_ns: Some(timeout_ns),
+            resolution: if immediate {
+                AtomicResolution::Immediate
+            } else {
+                AtomicResolution::Pending
+            },
+            notify_woken: 0,
+            tid,
+            round,
+        });
+    }
+
+    pub(crate) fn record_atomic_notify(
+        &mut self,
+        addr: u64,
+        mem_value: u64,
+        mem_width: u8,
+        woken: u32,
+        tid: u32,
+        round: u64,
+    ) {
+        self.atomic_notify_total = self.atomic_notify_total.saturating_add(1);
+        self.push_atomic_event(RecentAtomicEvent {
+            kind: AtomicEventKind::Notify,
+            addr,
+            mem_value,
+            mem_width,
+            timeout_ns: None,
+            resolution: AtomicResolution::Notified,
+            notify_woken: woken,
+            tid,
+            round,
+        });
+    }
+
+    pub(crate) fn resolve_atomic_wait(&mut self, tid: u32, result: u32) {
+        let resolution = match result {
+            0 => AtomicResolution::Notified,
+            1 => AtomicResolution::NotEqual,
+            2 => AtomicResolution::Timeout,
+            _ => return,
+        };
+        let len = self.recent_atomic_len as usize;
+        let next = self.recent_atomic_next as usize;
+        let mut offset = 0usize;
+        while offset < len {
+            let index = (next + RECENT_ATOMIC_EVENT_COUNT - 1 - offset) % RECENT_ATOMIC_EVENT_COUNT;
+            let event = &mut self.recent_atomic_events[index];
+            if event.kind == AtomicEventKind::Wait
+                && event.tid == tid
+                && event.resolution == AtomicResolution::Pending
+            {
+                event.resolution = resolution;
+                return;
+            }
+            offset += 1;
+        }
+    }
+
+    fn push_atomic_event(&mut self, event: RecentAtomicEvent) {
+        let recent_index = self.recent_atomic_next as usize;
+        self.recent_atomic_events[recent_index] = event;
+        self.recent_atomic_next = ((recent_index + 1) % RECENT_ATOMIC_EVENT_COUNT) as u8;
+        self.recent_atomic_len = self
+            .recent_atomic_len
+            .saturating_add(1)
+            .min(RECENT_ATOMIC_EVENT_COUNT as u8);
     }
 
     fn begin_import_call(&mut self, import: WasiImportIndex, arg0: u64, arg1: u64) -> usize {

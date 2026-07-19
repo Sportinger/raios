@@ -50,8 +50,9 @@ use super::{
         BuildChunkStoreError, GrantedChunkReadDenied, GrantedChunkReader, UnbackedChunkStore,
     },
     wasi_preview1::{
-        define_wasi_imports, ProcExitTrap, RecentWasiCall, ThreadHostMode, ThreadWorld,
-        WasiHostState, RECENT_WASI_CALL_COUNT, WASI_IMPORT_CALL_COUNT,
+        define_wasi_imports, AtomicEventKind, ProcExitTrap, RecentAtomicEvent, RecentWasiCall,
+        ThreadHostMode, ThreadWorld, WasiHostState, RECENT_ATOMIC_EVENT_COUNT,
+        RECENT_WASI_CALL_COUNT, WASI_IMPORT_CALL_COUNT,
     },
     wasi_thread_pump::{
         WasiThreadDiagRunEvidence, WasiThreadJobEnd, WasiThreadJobFailure, WasiThreadJobRunner,
@@ -316,6 +317,9 @@ struct RustcDiagEvidence {
     reason: &'static str,
     import_call_counts: [u64; WASI_IMPORT_CALL_COUNT],
     recent_calls: [Option<RecentWasiCall>; RECENT_WASI_CALL_COUNT],
+    atomic_wait_total: u64,
+    atomic_notify_total: u64,
+    recent_atomic_events: [Option<RecentAtomicEvent>; RECENT_ATOMIC_EVENT_COUNT],
 }
 
 impl RustcDiagEvidence {
@@ -327,6 +331,9 @@ impl RustcDiagEvidence {
             reason,
             import_call_counts: [0; WASI_IMPORT_CALL_COUNT],
             recent_calls: [None; RECENT_WASI_CALL_COUNT],
+            atomic_wait_total: 0,
+            atomic_notify_total: 0,
+            recent_atomic_events: [None; RECENT_ATOMIC_EVENT_COUNT],
         }
     }
 
@@ -335,6 +342,9 @@ impl RustcDiagEvidence {
             run,
             import_call_counts,
             recent_calls,
+            atomic_wait_total,
+            atomic_notify_total,
+            recent_atomic_events,
         } = diagnostic;
         let stdout_bytes = u64::try_from(run.stdout.len()).unwrap_or(u64::MAX);
         let reason = match run.end {
@@ -352,6 +362,9 @@ impl RustcDiagEvidence {
             reason,
             import_call_counts,
             recent_calls,
+            atomic_wait_total,
+            atomic_notify_total,
+            recent_atomic_events,
         }
     }
 }
@@ -3260,6 +3273,59 @@ fn emit_rustcdiag_evidence(evidence: RustcDiagEvidence) {
     }
     line.push('\n');
     crate::serial::write_raw_fmt(format_args!("{line}"));
+
+    let mut atomic_line = String::new();
+    let _ = write!(
+        &mut atomic_line,
+        "RAIOS_RUSTCATOMIC wait_total={} notify_total={} ring=",
+        evidence.atomic_wait_total, evidence.atomic_notify_total,
+    );
+    let mut emitted_atomic = false;
+    for event in evidence.recent_atomic_events.iter().flatten() {
+        if emitted_atomic {
+            atomic_line.push(',');
+        }
+        let _ = write!(
+            &mut atomic_line,
+            "{}:{:016x}:",
+            event.kind.token(),
+            event.addr
+        );
+        match event.mem_width {
+            4 => {
+                let _ = write!(&mut atomic_line, "{:08x}", event.mem_value as u32);
+            }
+            8 => {
+                let _ = write!(&mut atomic_line, "{:016x}", event.mem_value);
+            }
+            _ => atomic_line.push_str("oob"),
+        }
+        atomic_line.push(':');
+        match event.timeout_ns {
+            Some(timeout_ns) => {
+                let _ = write!(&mut atomic_line, "{timeout_ns}");
+            }
+            None => atomic_line.push_str("na"),
+        }
+        atomic_line.push(':');
+        if event.kind == AtomicEventKind::Notify {
+            let _ = write!(
+                &mut atomic_line,
+                "{}+{}",
+                event.resolution.token(),
+                event.notify_woken,
+            );
+        } else {
+            atomic_line.push_str(event.resolution.token());
+        }
+        let _ = write!(&mut atomic_line, ":{}@{}", event.tid, event.round);
+        emitted_atomic = true;
+    }
+    if !emitted_atomic {
+        atomic_line.push_str("none");
+    }
+    atomic_line.push('\n');
+    crate::serial::write_raw_fmt(format_args!("{atomic_line}"));
 }
 
 pub(crate) fn emit_wasi_rustcrun() {
