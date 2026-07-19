@@ -537,22 +537,15 @@ impl WasiBuildInstance {
             return Err(Errno::Xdev);
         }
         let rights = mount_rights(target.mount_id)?;
-        // Read-only mounts treat requested rights as a capability ceiling and
-        // attenuate before FdTable's exact post-policy installation check.
-        // Writable arenas retain their existing exact-rights behavior.
-        let (requested_rights_base, requested_rights_inheriting) =
-            if is_readonly_mount(target.mount_id) {
-                (
-                    rights
-                        .intersection(parent.rights_inheriting)
-                        .intersection(requested_rights_base),
-                    rights
-                        .intersection(parent.rights_inheriting)
-                        .intersection(requested_rights_inheriting),
-                )
-            } else {
-                (requested_rights_base, requested_rights_inheriting)
-            };
+        // Every mount treats requested rights as a capability ceiling. Compute
+        // the effective grant before FdTable's exact installation check so a
+        // broad guest request can never exceed either mount or parent policy.
+        let requested_rights_base = rights
+            .intersection(parent.rights_inheriting)
+            .intersection(requested_rights_base);
+        let requested_rights_inheriting = rights
+            .intersection(parent.rights_inheriting)
+            .intersection(requested_rights_inheriting);
         let mut next_fds = self.fds.clone();
         let fd = next_fds.path_open(PathOpenRequest {
             parent_fd,
@@ -971,6 +964,27 @@ mod tests {
             | Rights::FD_FILESTAT_SET_SIZE
     }
 
+    fn output_directory_fd(instance: &mut WasiBuildInstance) -> Fd {
+        instance
+            .path_open_with_directory_flag(
+                Fd::ROOT_PREOPEN,
+                b"out",
+                false,
+                false,
+                true,
+                writable_rights(),
+                writable_rights(),
+                FdFlags::EMPTY,
+            )
+            .unwrap()
+    }
+
+    fn write_and_read_back(instance: &mut WasiBuildInstance, fd: Fd) {
+        assert_eq!(instance.fd_write(fd, b"rmeta").unwrap(), 5);
+        assert_eq!(instance.fd_seek(fd, 0, Whence::Set).unwrap(), 0);
+        assert_eq!(instance.fd_read(fd, 5, &mut Reader).unwrap(), b"rmeta");
+    }
+
     #[test]
     fn readonly_open_attenuates_std_style_rights_and_write_stays_denied() {
         let mut instance = instance();
@@ -1185,6 +1199,164 @@ mod tests {
         assert_eq!(instance.fd_filestat_get(fd).unwrap().size, 0);
         assert_eq!(instance.fd_write(fd, b"rmeta").unwrap(), 5);
         assert_eq!(instance.fd_filestat_get(fd).unwrap().size, 5);
+    }
+
+    #[test]
+    fn output_subdirectory_broad_open_attenuates_and_can_create_child() {
+        let mut instance = instance();
+        let output = output_directory_fd(&mut instance);
+        instance
+            .path_create_directory(output, b"rmeta-broad")
+            .unwrap();
+
+        // libc-style directory opens can present all Preview1 rights as a
+        // ceiling. The writable mount and parent descriptor remain the grant.
+        let directory = instance
+            .path_open_with_directory_flag(
+                output,
+                b"rmeta-broad",
+                false,
+                false,
+                true,
+                Rights::ALL,
+                Rights::ALL,
+                FdFlags::EMPTY,
+            )
+            .unwrap();
+        let opened = *instance.fd_table().get(directory).unwrap();
+        assert_eq!(opened.rights_base, writable_rights());
+        assert_eq!(opened.rights_inheriting, writable_rights());
+        assert!(opened.rights_base.contains(Rights::PATH_CREATE_FILE));
+
+        let file = instance
+            .path_open(
+                directory,
+                b"lib.rmeta",
+                true,
+                false,
+                file_rights(),
+                Rights::EMPTY,
+                FdFlags::EMPTY,
+            )
+            .unwrap();
+        write_and_read_back(&mut instance, file);
+    }
+
+    #[test]
+    fn output_subdirectory_minimal_open_cannot_create_child() {
+        let mut instance = instance();
+        let output = output_directory_fd(&mut instance);
+        instance
+            .path_create_directory(output, b"rmeta-minimal")
+            .unwrap();
+        let minimal_directory_rights =
+            Rights::PATH_OPEN | Rights::FD_READDIR | Rights::FD_FILESTAT_GET;
+        let directory = instance
+            .path_open_with_directory_flag(
+                output,
+                b"rmeta-minimal",
+                false,
+                false,
+                true,
+                minimal_directory_rights,
+                file_rights(),
+                FdFlags::EMPTY,
+            )
+            .unwrap();
+        let opened = *instance.fd_table().get(directory).unwrap();
+        assert_eq!(opened.rights_base, minimal_directory_rights);
+        assert!(!opened.rights_base.contains(Rights::PATH_CREATE_FILE));
+
+        let before_create = instance.clone();
+        assert_eq!(
+            instance.path_open(
+                directory,
+                b"lib.rmeta",
+                true,
+                false,
+                file_rights(),
+                Rights::EMPTY,
+                FdFlags::EMPTY,
+            ),
+            Err(Errno::Notcapable)
+        );
+        assert_eq!(instance, before_create);
+    }
+
+    #[test]
+    fn output_directory_fd_creates_multi_segment_child_path() {
+        let mut instance = instance();
+        let output = output_directory_fd(&mut instance);
+        instance
+            .path_create_directory(output, b"rmeta-direct")
+            .unwrap();
+
+        let file = instance
+            .path_open(
+                output,
+                b"rmeta-direct/lib.rmeta",
+                true,
+                false,
+                file_rights(),
+                Rights::EMPTY,
+                FdFlags::EMPTY,
+            )
+            .unwrap();
+        write_and_read_back(&mut instance, file);
+    }
+
+    #[test]
+    fn output_subdirectory_open_never_exceeds_parent_inheriting_rights() {
+        let mut instance = instance();
+        let parent_inheriting =
+            Rights::from_bits(writable_rights().bits() & !Rights::PATH_CREATE_FILE.bits()).unwrap();
+        let output = instance
+            .path_open_with_directory_flag(
+                Fd::ROOT_PREOPEN,
+                b"out",
+                false,
+                false,
+                true,
+                writable_rights(),
+                parent_inheriting,
+                FdFlags::EMPTY,
+            )
+            .unwrap();
+        instance
+            .path_create_directory(output, b"rmeta-parent-limited")
+            .unwrap();
+
+        let directory = instance
+            .path_open_with_directory_flag(
+                output,
+                b"rmeta-parent-limited",
+                false,
+                false,
+                true,
+                Rights::ALL,
+                Rights::ALL,
+                FdFlags::EMPTY,
+            )
+            .unwrap();
+        let opened = *instance.fd_table().get(directory).unwrap();
+        assert_eq!(opened.rights_base, parent_inheriting);
+        assert_eq!(opened.rights_inheriting, parent_inheriting);
+        assert!(!opened.rights_base.contains(Rights::PATH_CREATE_FILE));
+
+        let before_create = instance.clone();
+        assert_eq!(
+            instance.path_open(
+                directory,
+                b"lib.rmeta",
+                true,
+                false,
+                file_rights(),
+                Rights::EMPTY,
+                FdFlags::EMPTY,
+            ),
+            Err(Errno::Notcapable)
+        );
+        assert_eq!(instance, before_create);
     }
 
     #[test]
