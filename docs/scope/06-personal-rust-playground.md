@@ -69,9 +69,22 @@
       instantiates (deny=imports_mismatch), plus absent/range/tamper read
       denials and out-of-lease commit denial — QEMU quick 499/499,
       permanent needles (shadow-20260718-223154-26848).
-- [ ] rustc-as-Wasm compiles a real program inside raiOS (W5-proven, slow is fine)
+- [x] rustc-as-Wasm compiles a real program inside raiOS (W5-proven, slow is fine)
+      <!-- 2026-07-19 shadow-20260719-172854-30260 (507/507): wasi.rustcbuild
+      compiles /src/hello.rs end-to-end — RAIOS_RUSTCBUILD rounds=811 exit=0
+      reason=none out_files=1 out_bytes=294319 out_sha=bc5b7311aa006189d039
+      65f8c7ff61525e819fbe0b959d080ebd4797cd1dc352, DENIEDOPEN n=0, stderr 0.
+      Boundary in the same run: ROFS/minimal-rights/storage denials green.
+      Chain: ccb31b2 attenuation, d116e01 O_EXCL, 0e90e78 temps-dir. -->
 - [ ] Compile diagnostics available as JSON (same feedback loop as the fabric)
-- [ ] Build artifacts land only in the domain's own granted storage range
+- [x] Build artifacts land only in the domain's own granted storage range
+      <!-- the artifact lands in the granted /out arena, quota-scoped:
+      storage.selftest proves quota overflow → Nospc with hash/length
+      unchanged ON /out, readonly mounts deny writes (Rofs), and the durable
+      egress path denies absent/out-of-range/over-lease before any I/O
+      (shadow-20260719-154053 + -172854). Durable persistence of build
+      artifacts through the scoped handle is future work — no path outside
+      the granted ranges exists. -->
 
 ## Templates ("Hello Hardware")
 - [ ] Minimal template: serial-out + exactly one capability, builds and runs
