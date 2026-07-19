@@ -17,6 +17,7 @@ const PAGE_SIZE: usize = 4096;
 const PAGE_SIZE_U64: u64 = PAGE_SIZE as u64;
 const MMIO_WINDOW_BASE: u64 = 0xffff_ffff_c000_0000;
 const MMIO_WINDOW_SIZE: u64 = 16 * 1024 * 1024;
+const MMIO_CACHE_SLOTS: usize = 32;
 const PAGE_TABLE_POOL_PAGES: usize = 64;
 
 static KERNEL_PHYSICAL_BASE: AtomicU64 = AtomicU64::new(0);
@@ -27,6 +28,15 @@ static HHDM_READY: AtomicBool = AtomicBool::new(false);
 static MMIO_NEXT: AtomicU64 = AtomicU64::new(MMIO_WINDOW_BASE);
 static NEXT_PAGE_TABLE: AtomicUsize = AtomicUsize::new(0);
 static PAGE_TABLE_LOCK: Mutex<()> = Mutex::new(());
+
+#[derive(Clone, Copy)]
+struct CachedMmio {
+    phys_start: u64,
+    map_len: u64,
+    virt_start: u64,
+}
+
+static mut MMIO_CACHE: [Option<CachedMmio>; MMIO_CACHE_SLOTS] = [None; MMIO_CACHE_SLOTS];
 
 #[repr(align(4096))]
 #[derive(Clone, Copy)]
@@ -136,9 +146,33 @@ pub fn map_mmio(phys: u64, len: usize) -> Result<MmioMapping, &'static str> {
     .ok_or("MMIO mapping alignment overflow")?;
 
     let _guard = PAGE_TABLE_LOCK.lock();
+    // SAFETY: every MMIO_CACHE access is serialized by PAGE_TABLE_LOCK.
+    let cached_virt_start = unsafe {
+        MMIO_CACHE
+            .iter()
+            .flatten()
+            .find(|cached| cached.phys_start == phys_start && cached.map_len == map_len)
+            .map(|cached| cached.virt_start)
+    };
+    if let Some(virt_start) = cached_virt_start {
+        return Ok(MmioMapping {
+            virt: virt_start + page_offset,
+            len,
+        });
+    }
+
     let virt_start = reserve_mmio_va(map_len)?;
     unsafe {
         map_mmio_pages(phys_start, virt_start, map_len)?;
+
+        // SAFETY: PAGE_TABLE_LOCK remains held through mapping and insertion.
+        if let Some(slot) = MMIO_CACHE.iter_mut().find(|entry| entry.is_none()) {
+            *slot = Some(CachedMmio {
+                phys_start,
+                map_len,
+                virt_start,
+            });
+        }
     }
 
     Ok(MmioMapping {
