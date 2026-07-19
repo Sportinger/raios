@@ -76,8 +76,19 @@ plan's named post-T1/T2 work: recalibrate preview1 edge semantics against
 real rustc (find the hammered WASI call — likely a clock/futex/thread-detect
 loop), plus the roadmap AOT execution stage for practical speed. The
 interpreter-under-TCG is also inherently slow (~tens of rounds/sec).
-Next: diagnose the init spin (per-import call histogram), then hello.rs
-double-build through the commit gate = the W5 factory proof.
+Diagnosis complete (fcb2820, 1be0495): the spin makes ZERO WASI calls and
+ZERO atomic.waits over 200k rounds (only the one __wasm_init_memory notify),
+before rustc reads args or spawns threads — a pure busy-spin-loop in the
+earliest std/libc init, on a value no worker will change (spawns=0). Serial-
+token instrumentation has bottomed out; pinpointing the exact spin needs
+interpreter PC-sampling or a wasmtime execution differential. Behind it, the
+TCG interpreter makes any real compile hours-long → the AOT execution stage
+(roadmap Stufe 4) is the practical-speed prerequisite. The factory-compile
+strand is PARKED pending an owner priority call: deep std-init debug + AOT
+now, vs. banking "rustc executes on-device" and steering per "vision = loop
+not features". Diagnostics landed: wasi.rustcdiag (import histogram +
+RAIOS_RUSTCATOMIC ring), behavior-preserving; run on the combined image at
+the 8192 profile.
 Open follow-ups (flagged, not blocking): map_mmio has no unmap path (VA leak,
 harmless at ~1163 mappings, matters when a full rustc run reads far more chunks);
 offline-seeded ARTSTOR frames are reclog-less and read as reserved to the store

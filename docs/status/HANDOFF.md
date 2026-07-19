@@ -17,20 +17,21 @@ by a deterministic round counter climbing 6944→351968 (sustained; fuel
 metering forces a suspension per quantum, so advancing = forward
 execution). Tree clean, all pushed.
 
-## Next step
+## Next step — OWNER PRIORITY CALL (factory-compile strand parked)
 
-**Diagnose the atomic init-spin.** The per-import histogram (fcb2820)
-showed rustc calls ZERO WASI imports across 200k rounds (stdout=0,
-spawns=0) — so the runtime-init spin is a pure atomic/compute loop inside
-the wasm (a std futex-style wait, no worker to notify, not
-parking-deadlocking → so likely an atomic.wait WITH a timeout retrying).
-NOT a WASI-shim semantic. Next brick: instrument the pump's atomic
-wait/notify handler (count + addresses + expected + timeout + result) to
-see what the main thread waits on, then fix the atomic/clock/threads-init
-model. Then hello.rs compile + /out freeze + double-build (Brick C), and
-the AOT speed stage. Owner questions open: SCOPE §6 Cranelift wording; ADR
-0017 veto. Owner: this is deep std/threads-init work — may want to weigh
-priorities (loop vs speed) given "vision = loop not features".
+Fully diagnosed: rustc busy-spins in the EARLIEST std/libc init — before
+args (args_sizes_get=0), before threads (spawns=0), zero WASI calls
+(fcb2820), zero atomic.wait, one __wasm_init_memory notify (1be0495). So a
+pure busy-spin-loop on a value no worker will change. Pinpointing it needs
+interpreter PC-sampling or a wasmtime execution differential (heavier than
+serial tokens) — likely a wasi-libc main-thread/TLS-registration expectation
+our green-thread main doesn't satisfy. BEHIND it: even fixed, a real compile
+is hours under the TCG interpreter → the AOT execution stage (roadmap Stufe
+4, "deliberate later ADR") is required for a practical on-device compile.
+Owner decision needed: (a) push the deep std-init debug + AOT now, or (b)
+bank the "rustc executes on-device" milestone and steer elsewhere per
+"vision = loop not features". Everything up to _start execution is proven &
+committed. Other open: SCOPE §6 Cranelift wording; ADR 0017 veto.
 
 ## Recently (exactly 3, newest first)
 
