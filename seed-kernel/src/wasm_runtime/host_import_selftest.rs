@@ -1,19 +1,12 @@
 use super::*;
 
 use raios_core::{
-    host_import_abi_v1::HOST_IMPORT_ERROR_CAPABILITY_DENIED,
-    scoped_wasi_build_grant::{
-        evaluate_scoped_wasi_build_grant, ScopedWasiBuildGrant, ScopedWasiBuildGrantDecision,
-        WasiBuildGrantRejection, RUSTC_WASM_C6DCCF3E_CANONICAL_IMPORTS_SHA256,
-    },
-    tls13_session::Tls13Denial,
-    wasi_preview1_import_abi::{WasiImportDeclaration, WasiImportKind, WasiValueType},
+    host_import_abi_v1::HOST_IMPORT_ERROR_CAPABILITY_DENIED, tls13_session::Tls13Denial,
 };
-use wasmi::{core::ValueType, ExternType};
+use wasmi::core::ValueType;
 
 const SELFTEST_SERVICE_ID: &str = "test.fixture.host_import_selftest";
 const SELFTEST_ENTRYPOINT: &str = "raios_service_main";
-const VALID_SHA256: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
 // Imports env.counter_get but receives only env.log. Export/entrypoint:
 // raios_service_main / raios_service_main. The body would mutate the current-
@@ -26,16 +19,15 @@ const MISSING_IMPORT_WASM: &[u8] = &[
     0x69, 0x6e, 0x00, 0x01, 0x0a, 0x09, 0x01, 0x07, 0x00, 0x10, 0x00, 0x1a, 0x41, 0x00, 0x0b,
 ];
 
-// Imports wasi_snapshot_preview1.random_get as (i64, i32) -> i32 instead of
-// (i32, i32) -> i32. Export/entrypoint: raios_service_main / never entered;
-// both the typed scoped grant and VM instantiation must reject first.
+// Imports the real granted env.log surface as (i64, i32) -> () instead of
+// (i32, i32) -> (). Export/entrypoint: raios_service_main / never entered;
+// wasmi's linker must reject the incompatible import before instantiation.
 const WRONG_SIGNATURE_WASM: &[u8] = &[
-    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x0b, 0x02, 0x60, 0x02, 0x7e, 0x7f, 0x01,
-    0x7f, 0x60, 0x00, 0x01, 0x7f, 0x02, 0x25, 0x01, 0x16, 0x77, 0x61, 0x73, 0x69, 0x5f, 0x73, 0x6e,
-    0x61, 0x70, 0x73, 0x68, 0x6f, 0x74, 0x5f, 0x70, 0x72, 0x65, 0x76, 0x69, 0x65, 0x77, 0x31, 0x0a,
-    0x72, 0x61, 0x6e, 0x64, 0x6f, 0x6d, 0x5f, 0x67, 0x65, 0x74, 0x00, 0x00, 0x03, 0x02, 0x01, 0x01,
-    0x07, 0x16, 0x01, 0x12, 0x72, 0x61, 0x69, 0x6f, 0x73, 0x5f, 0x73, 0x65, 0x72, 0x76, 0x69, 0x63,
-    0x65, 0x5f, 0x6d, 0x61, 0x69, 0x6e, 0x00, 0x01, 0x0a, 0x06, 0x01, 0x04, 0x00, 0x41, 0x00, 0x0b,
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x0a, 0x02, 0x60, 0x02, 0x7e, 0x7f, 0x00,
+    0x60, 0x00, 0x01, 0x7f, 0x02, 0x0b, 0x01, 0x03, 0x65, 0x6e, 0x76, 0x03, 0x6c, 0x6f, 0x67, 0x00,
+    0x00, 0x03, 0x02, 0x01, 0x01, 0x07, 0x16, 0x01, 0x12, 0x72, 0x61, 0x69, 0x6f, 0x73, 0x5f, 0x73,
+    0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x5f, 0x6d, 0x61, 0x69, 0x6e, 0x00, 0x01, 0x0a, 0x06, 0x01,
+    0x04, 0x00, 0x41, 0x00, 0x0b,
 ];
 
 // Calls the real linked env.log with ptr=-1,len=0. Export/entrypoint:
@@ -73,8 +65,6 @@ const BAD_HANDLE_WASM: &[u8] = &[
     0x72, 0x79, 0x02, 0x00, 0x0a, 0x0f, 0x01, 0x0d, 0x00, 0x41, 0xb4, 0x24, 0x41, 0x00, 0x41, 0x00,
     0x41, 0x00, 0x10, 0x00, 0x0b,
 ];
-
-static WRONG_SIGNATURE_HOST_CALLS: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy)]
 struct CaseEvidence {
@@ -168,111 +158,73 @@ fn run_missing_case() -> CaseEvidence {
     }
 }
 
-fn observed_wasi_declaration<'a>(
-    module: &'a Module,
-) -> Option<(&'a str, &'a str, Vec<WasiValueType>, Vec<WasiValueType>)> {
-    let mut imports = module.imports();
-    let import = imports.next()?;
-    if imports.next().is_some() {
-        return None;
-    }
-    let ExternType::Func(function) = import.ty() else {
-        return None;
-    };
-    let params = function
-        .params()
-        .iter()
-        .copied()
-        .map(wasi_value_type)
-        .collect();
-    let results = function
-        .results()
-        .iter()
-        .copied()
-        .map(wasi_value_type)
-        .collect();
-    Some((import.module(), import.name(), params, results))
-}
-
-fn wasi_value_type(value: ValueType) -> WasiValueType {
-    match value {
-        ValueType::I32 => WasiValueType::I32,
-        ValueType::I64 => WasiValueType::I64,
-        ValueType::F32 => WasiValueType::F32,
-        ValueType::F64 => WasiValueType::F64,
-        ValueType::FuncRef => WasiValueType::FuncRef,
-        ValueType::ExternRef => WasiValueType::ExternRef,
-    }
-}
-
-fn wrong_signature_random_get(_ptr: i32, _len: i32) -> i32 {
-    WRONG_SIGNATURE_HOST_CALLS.fetch_add(1, Ordering::Relaxed);
-    0
-}
-
 fn run_wrong_signature_case() -> CaseEvidence {
-    WRONG_SIGNATURE_HOST_CALLS.store(0, Ordering::Relaxed);
+    const REASON: &str = "signature_mismatch";
+    const REQUESTED_IMPORTS: &[(&str, &str)] = &[("env", "log")];
+    let run = envelope::execute_module_bytes(
+        WRONG_SIGNATURE_WASM,
+        SELFTEST_ENTRYPOINT,
+        SELFTEST_SERVICE_ID,
+        true,
+        REQUESTED_IMPORTS,
+    );
     let engine = envelope::metered_engine();
     let Ok(module) = Module::new(&engine, WRONG_SIGNATURE_WASM) else {
-        return CaseEvidence::failed("signature_mismatch", "module_compile_failed");
+        return CaseEvidence::failed(REASON, "module_compile_failed");
     };
-    let Some((module_name, import_name, params, results)) = observed_wasi_declaration(&module)
+    let Ok(authorized) =
+        envelope::authorize_wasm_imports(SELFTEST_SERVICE_ID, true, REQUESTED_IMPORTS)
     else {
-        return CaseEvidence::failed("signature_mismatch", "import_observation_failed");
+        return CaseEvidence::failed(REASON, "grant_authorization_failed");
     };
-    let declarations = [WasiImportDeclaration {
-        module: module_name,
-        name: import_name,
-        kind: WasiImportKind::Func {
-            params: &params,
-            results: &results,
-        },
-    }];
-    let typed_signature_mismatch = matches!(
-        evaluate_scoped_wasi_build_grant(&ScopedWasiBuildGrant {
-            compiler_artifact_sha256: VALID_SHA256,
-            job_manifest_sha256: VALID_SHA256,
-            inventory_imports_sha256: RUSTC_WASM_C6DCCF3E_CANONICAL_IMPORTS_SHA256,
-            declared_imports: &declarations,
-        }),
-        ScopedWasiBuildGrantDecision::Denied(WasiBuildGrantRejection::SignatureMismatch {
-            index: 0
-        })
+    let mut store = Store::new(
+        &engine,
+        envelope::limited_state(WORKSPACE_MEMORY_LIMIT_BYTES),
     );
-
-    let mut store = Store::new(&engine, ());
-    let mut linker = Linker::<()>::new(&engine);
-    let linked = linker
-        .func_wrap(
-            "wasi_snapshot_preview1",
-            "random_get",
-            wrong_signature_random_get,
-        )
-        .is_ok();
-    let vm_signature_mismatch = linked
+    let mut linker = Linker::<envelope::EnvelopeState>::new(&engine);
+    let linked = envelope::define_granted_imports(&mut linker, &authorized) == Ok(1);
+    let linker_signature_mismatch = linked
         && matches!(
             linker.instantiate(&mut store, &module),
-            Err(wasmi::Error::Instantiation(
-                InstantiationError::SignatureMismatch { .. }
-            ))
+            Err(wasmi::Error::Linker(LinkerError::FuncTypeMismatch {
+                name,
+                expected,
+                found,
+            })) if name.module() == "env"
+                && name.name() == "log"
+                && expected.params() == [ValueType::I64, ValueType::I32]
+                && expected.results().is_empty()
+                && found.params() == [ValueType::I32, ValueType::I32]
+                && found.results().is_empty()
         );
-    let surface_unchanged = WRONG_SIGNATURE_HOST_CALLS.load(Ordering::Relaxed) == 0;
-    let denied = fixture_contract(
-        WRONG_SIGNATURE_WASM,
-        "wasi_snapshot_preview1",
-        "random_get",
-        false,
-    ) && typed_signature_mismatch
-        && vm_signature_mismatch
+    let surface_unchanged = !run.instantiation_ok
+        && run.return_value.is_none()
+        && run.fuel_used == 0
+        && run.log_line.is_none()
+        && run.captured_output_len == 0
+        && run.raw_captured_output.is_empty()
+        && store.data().log_line.is_none();
+    let executor_reached_instantiation = run.validation_ok
+        && run.import_grant_performed
+        && run.import_grant_status == "import_grant_authorized"
+        && run.authorized_import_count == 1
+        && run.linked_host_import_count == 1
+        && run.module_imports_within_authorized_list
+        && run.missing_import_module.is_none()
+        && run.missing_import_name.is_none()
+        && run.run_outcome == "instantiation_failed";
+    let denied = fixture_contract(WRONG_SIGNATURE_WASM, "env", "log", false)
+        && executor_reached_instantiation
+        && linker_signature_mismatch
         && surface_unchanged;
     CaseEvidence {
-        expected_reason: "signature_mismatch",
-        actual_reason: if typed_signature_mismatch && vm_signature_mismatch {
-            "signature_mismatch"
-        } else if !typed_signature_mismatch {
-            "typed_signature_mismatch_missing"
+        expected_reason: REASON,
+        actual_reason: if !executor_reached_instantiation {
+            "executor_did_not_reach_instantiation"
+        } else if linker_signature_mismatch {
+            REASON
         } else {
-            "vm_signature_mismatch_missing"
+            "linker_signature_mismatch_missing"
         },
         denied,
         surface_unchanged,
