@@ -1,4 +1,4 @@
-use super::grant_table::{GrantTable, HostImportId};
+use super::grant_table::{DurableImportState, GrantTable, HostImportId};
 use super::import_gate::ImportGate;
 use super::invocation::wasm_execution_busy;
 use super::*;
@@ -606,7 +606,7 @@ pub(super) fn metered_engine() -> Box<Engine> {
 }
 
 pub(super) fn default_state() -> EnvelopeState {
-    new_state(Vec::new(), StoreLimitsBuilder::new().build())
+    new_state(Vec::new(), StoreLimitsBuilder::new().build(), None)
 }
 
 fn next_instance_generation() -> u64 {
@@ -617,13 +617,32 @@ fn next_instance_generation() -> u64 {
         .expect("Wasm instance generation space exhausted")
 }
 
-fn new_state(staged_input: Vec<u8>, limits: StoreLimits) -> EnvelopeState {
+fn new_state(
+    staged_input: Vec<u8>,
+    limits: StoreLimits,
+    durable_domain: Option<(&str, u64, [u8; 32])>,
+) -> EnvelopeState {
     let instance_generation = next_instance_generation();
     let mut grants = GrantTable::new();
     // Slice 2 preserves existing env.counter_get behavior for the envelope
     // constructors. The linker remains the grant-list boundary; this live
     // slot adds revocable indirection only after the import was linked.
     let _ = grants.grant(instance_generation, HostImportId::EnvCounterGet);
+    if let Some((service_id, domain_instance, binding_sha256)) = durable_domain {
+        match super::grant_table::durable_import_state(
+            service_id,
+            domain_instance,
+            binding_sha256,
+            HostImportId::EnvCounterGet,
+        ) {
+            DurableImportState::Revoked | DurableImportState::DeniedInvalidProjection => {
+                // Materialize the durable boot fold into the exact table that
+                // host_counter_get consults immediately before its effect.
+                let _ = grants.revoke(instance_generation, HostImportId::EnvCounterGet);
+            }
+            DurableImportState::LegacyDefault | DurableImportState::Live => {}
+        }
+    }
     EnvelopeState {
         log_line: None,
         staged_input,
@@ -643,6 +662,25 @@ pub(super) fn limited_state(memory_size: usize) -> EnvelopeState {
             .memories(1)
             .tables(0)
             .build(),
+        None,
+    )
+}
+
+pub(super) fn limited_state_for_durable_domain(
+    memory_size: usize,
+    service_id: &str,
+    domain_instance: u64,
+    binding_sha256: [u8; 32],
+) -> EnvelopeState {
+    new_state(
+        Vec::new(),
+        StoreLimitsBuilder::new()
+            .memory_size(memory_size)
+            .instances(1)
+            .memories(1)
+            .tables(0)
+            .build(),
+        Some((service_id, domain_instance, binding_sha256)),
     )
 }
 
@@ -660,6 +698,7 @@ fn buffer_state(staged_input: &[u8]) -> EnvelopeState {
             .tables(1)
             .table_elements(64)
             .build(),
+        None,
     )
 }
 

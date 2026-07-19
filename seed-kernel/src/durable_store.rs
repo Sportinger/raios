@@ -20,6 +20,13 @@ use raios_core::{
     },
     memory_record::{self, MemoryRecord, MemoryRecordView},
     memory_record_resolve::resolve_durable_memory,
+    project_install::{
+        install_action_signature_payload_sha256, seal_granted_candidate_install_envelope,
+        seal_install_action, seal_ui_program_install_envelope, GrantedCandidateInstallEnvelope,
+        ProjectInstallAction, ProjectInstallActionKind, ProjectInstallAuthority,
+        UiProgramInstallEnvelope, PROJECT_INSTALL_TRUST_TIER, UI_PROGRAM_INSTALL_SUBJECT_KIND,
+    },
+    promotion_attestation::verify_promotion_authority_signature,
     promotion_attestation::{
         PLACEHOLDER_PROMOTION_AUTHORITY_PUBLIC_KEY_SHA256, PROMOTION_AUTHORITY_IS_PLACEHOLDER,
     },
@@ -34,8 +41,7 @@ use raios_core::{
     },
     scoped_promotion_transaction_append::{
         evaluate_scoped_promotion_transaction_append, ScopedPromotionSubject,
-        ScopedPromotionTransactionAppendInput,
-        EXPECTED_METHOD as PROMOTION_EXPECTED_METHOD,
+        ScopedPromotionTransactionAppendInput, EXPECTED_METHOD as PROMOTION_EXPECTED_METHOD,
         EXPECTED_RECORD_SCHEMA as PROMOTION_EXPECTED_RECORD_SCHEMA,
         EXPECTED_REGION_MARKER as PROMOTION_EXPECTED_REGION_MARKER,
         EXPECTED_TARGET_ID as PROMOTION_EXPECTED_TARGET_ID,
@@ -64,16 +70,16 @@ use raios_core::{
         evaluate_scoped_seed_data_append, ScopedSeedDataAppendInput, EXPECTED_METHOD,
         EXPECTED_RECORD_SCHEMA, EXPECTED_REGION_MARKER, EXPECTED_TARGET_ID,
     },
-    project_install::{
-        install_action_signature_payload_sha256, seal_granted_candidate_install_envelope,
-        seal_install_action, seal_ui_program_install_envelope, GrantedCandidateInstallEnvelope,
-        ProjectInstallAction, ProjectInstallActionKind, ProjectInstallAuthority,
-        UiProgramInstallEnvelope, PROJECT_INSTALL_TRUST_TIER, UI_PROGRAM_INSTALL_SUBJECT_KIND,
-    },
-    promotion_attestation::verify_promotion_authority_signature,
     scoped_wasm_import_grant::PERSONAL_SHELL_SERVICE_ID,
-    sha256_bytes, ByteSink,
+    sha256_bytes,
     ui_program::{MAX_PROGRAM_BYTES, PROGRAM_ABI_VERSION},
+    wasm_import_grant_event::{
+        fold_events, parse_event, FoldError as WasmGrantFoldError, GrantEvent,
+        GrantEventError as WasmGrantEventError, HostImportId as DurableHostImportId,
+        EVENT_AUTHORITY as WASM_GRANT_EVENT_AUTHORITY, GRANT_PREDICATE as WASM_GRANT_PREDICATE,
+        REVOKE_PREDICATE as WASM_REVOKE_PREDICATE,
+    },
+    ByteSink,
 };
 
 const METHOD: &str = "durable.record_log_scan";
@@ -94,8 +100,7 @@ const PROMOTION_TRANSACTION_MAX_PAYLOAD_LEN: usize = 4096 - RECLOG_FRAME_HEADER_
 pub(crate) const INSTALL_AUTHORIZATION_SCHEMA: &str = "raios.install_authorization.v0";
 const INSTALL_AUTHORIZATION_ID: &str =
     "install_authorization.origin_boot.svc.dev.granted_candidate.v0";
-const UI_PROGRAM_INSTALL_AUTHORIZATION_ID: &str =
-    "install_authorization.origin_boot.ui_program.v0";
+const UI_PROGRAM_INSTALL_AUTHORIZATION_ID: &str = "install_authorization.origin_boot.ui_program.v0";
 const INSTALL_AUTHORIZATION_RECORD_KIND: &str = "install_authorization";
 const INSTALL_AUTHORIZATION_MAX_PAYLOAD_LEN: usize = 4096 - RECLOG_FRAME_HEADER_LEN;
 // Frame-budget assertion (88-byte RECLOG header, 256-byte install DER, 80-byte
@@ -645,27 +650,57 @@ fn validate_granted_candidate_install_authorization(
         return Err("install_action_signature_not_verified");
     }
     let envelope = seal_granted_candidate_install_envelope(GrantedCandidateInstallEnvelope {
-        service_id: String::from(record.service_id), candidate_sha256: authorization.candidate_sha256,
-        candidate_byte_len: authorization.candidate_byte_len, activation_approval_sha256: authorization.activation_approval_sha256,
-        computed_grant_sha256: authorization.computed_grant_sha256, attestation_reference_sha256: authorization.attestation_reference_sha256,
-        w7_invocation_sha256: authorization.w7_invocation_sha256, w7_receipt_sha256: authorization.w7_receipt_sha256,
-        receiver_content_sha256: authorization.receiver_content_sha256, receiver_candidate_sha256: authorization.receiver_candidate_sha256,
-        catalog_candidate_sha256: authorization.catalog_candidate_sha256, generation: authorization.generation, auto_start: true,
-        trust_tier: String::from(PROMOTION_TRANSACTION_TRUST_TIER), envelope_sha256: [0; 32],
-    }).map_err(|error| error.reason())?;
-    if envelope.envelope_sha256 != authorization.install_envelope_sha256 { return Err("install_envelope_binding_mismatch"); }
-    let signature = authorization.signature_der[..authorization.signature_len.min(authorization.signature_der.len())].to_vec();
+        service_id: String::from(record.service_id),
+        candidate_sha256: authorization.candidate_sha256,
+        candidate_byte_len: authorization.candidate_byte_len,
+        activation_approval_sha256: authorization.activation_approval_sha256,
+        computed_grant_sha256: authorization.computed_grant_sha256,
+        attestation_reference_sha256: authorization.attestation_reference_sha256,
+        w7_invocation_sha256: authorization.w7_invocation_sha256,
+        w7_receipt_sha256: authorization.w7_receipt_sha256,
+        receiver_content_sha256: authorization.receiver_content_sha256,
+        receiver_candidate_sha256: authorization.receiver_candidate_sha256,
+        catalog_candidate_sha256: authorization.catalog_candidate_sha256,
+        generation: authorization.generation,
+        auto_start: true,
+        trust_tier: String::from(PROMOTION_TRANSACTION_TRUST_TIER),
+        envelope_sha256: [0; 32],
+    })
+    .map_err(|error| error.reason())?;
+    if envelope.envelope_sha256 != authorization.install_envelope_sha256 {
+        return Err("install_envelope_binding_mismatch");
+    }
+    let signature = authorization.signature_der[..authorization
+        .signature_len
+        .min(authorization.signature_der.len())]
+        .to_vec();
     let action = seal_install_action(ProjectInstallAction {
-        kind: ProjectInstallActionKind::Install, authority: ProjectInstallAuthority::PhysicalOwner,
-        service_id: String::from(record.service_id), generation: authorization.generation, log_sequence: authorization.log_sequence,
-        previous_commit_sha256: None, install_envelope_sha256: Some(authorization.install_envelope_sha256), target_install_commit_sha256: None,
-        authority_evidence_sha256: authorization.authority_evidence_sha256, physical_approval_sha256: Some(authorization.physical_approval_sha256),
-        authority_key_sha256: Some(authorization.authority_key_sha256), authority_signature: signature, action_sha256: [0; 32],
-    }).map_err(|error| error.reason())?;
-    if action.action_sha256 != authorization.install_action_sha256 || install_action_signature_payload_sha256(&action).map_err(|error| error.reason())? != authorization.install_action_message_sha256 {
+        kind: ProjectInstallActionKind::Install,
+        authority: ProjectInstallAuthority::PhysicalOwner,
+        service_id: String::from(record.service_id),
+        generation: authorization.generation,
+        log_sequence: authorization.log_sequence,
+        previous_commit_sha256: None,
+        install_envelope_sha256: Some(authorization.install_envelope_sha256),
+        target_install_commit_sha256: None,
+        authority_evidence_sha256: authorization.authority_evidence_sha256,
+        physical_approval_sha256: Some(authorization.physical_approval_sha256),
+        authority_key_sha256: Some(authorization.authority_key_sha256),
+        authority_signature: signature,
+        action_sha256: [0; 32],
+    })
+    .map_err(|error| error.reason())?;
+    if action.action_sha256 != authorization.install_action_sha256
+        || install_action_signature_payload_sha256(&action).map_err(|error| error.reason())?
+            != authorization.install_action_message_sha256
+    {
         return Err("install_action_signature_not_verified");
     }
-    if !verify_promotion_authority_signature(&action.authority_signature, &authorization.install_action_message_sha256) || authorization.authority_key_sha256 != PLACEHOLDER_PROMOTION_AUTHORITY_PUBLIC_KEY_SHA256 {
+    if !verify_promotion_authority_signature(
+        &action.authority_signature,
+        &authorization.install_action_message_sha256,
+    ) || authorization.authority_key_sha256 != PLACEHOLDER_PROMOTION_AUTHORITY_PUBLIC_KEY_SHA256
+    {
         return Err("install_action_signature_not_verified");
     }
     Ok(())
@@ -726,8 +761,7 @@ pub(crate) fn validate_ui_program_install_authorization(
             &action.authority_signature,
             &authorization.install_action_message_sha256,
         )
-        || authorization.authority_key_sha256
-            != PLACEHOLDER_PROMOTION_AUTHORITY_PUBLIC_KEY_SHA256
+        || authorization.authority_key_sha256 != PLACEHOLDER_PROMOTION_AUTHORITY_PUBLIC_KEY_SHA256
     {
         return Err("install_action_signature_not_verified");
     }
@@ -749,11 +783,9 @@ pub(crate) fn parse_ui_program_install_authorization_payload(
     {
         return Err("ui_program_install_authorization_invalid");
     }
-    let (signature_der, signature_len) = parse_payload_hex_bytes(
-        payload,
-        b"\"install_signature_der\": \"",
-    )
-    .ok_or("install_action_signature_not_verified")?;
+    let (signature_der, signature_len) =
+        parse_payload_hex_bytes(payload, b"\"install_signature_der\": \"")
+            .ok_or("install_action_signature_not_verified")?;
     if artifact_store::extract_u64(payload, b"\"install_signature_len\": ")
         != Some(signature_len as u64)
     {
@@ -789,9 +821,7 @@ pub(crate) fn parse_ui_program_install_authorization_payload(
         activation_approval_sha256: sha(b"\"activation_approval_sha256\": \"")?,
         install_envelope_sha256: sha(b"\"install_envelope_sha256\": \"")?,
         install_action_sha256: sha(b"\"install_action_sha256\": \"")?,
-        install_action_message_sha256: sha(
-            b"\"install_action_signature_message_sha256\": \"",
-        )?,
+        install_action_message_sha256: sha(b"\"install_action_signature_message_sha256\": \"")?,
         authority_evidence_sha256: sha(b"\"authority_evidence_sha256\": \"")?,
         physical_approval_sha256: sha(b"\"physical_approval_sha256\": \"")?,
         authority_key_sha256: sha(b"\"install_authority_key_sha256\": \"")?,
@@ -838,25 +868,22 @@ pub(crate) fn parse_ui_program_promotion_transaction_payload(
     {
         return Err("ui_program_promotion_fields_invalid");
     }
-    let rollback_apply_event_id = if payload_contains(
-        payload.as_bytes(),
-        b"\"rollback_apply_event_id\": null",
-    ) {
-        None
-    } else {
-        let value = payload_str(payload, b"\"rollback_apply_event_id\": \"")
-            .ok_or("ui_program_promotion_decision_invalid")?;
-        Some(
-            event_log::EventId::from_sequence(
-                raios_core::parse_current_boot_event_sequence(value)
-                    .ok_or("ui_program_promotion_decision_invalid")?,
+    let rollback_apply_event_id =
+        if payload_contains(payload.as_bytes(), b"\"rollback_apply_event_id\": null") {
+            None
+        } else {
+            let value = payload_str(payload, b"\"rollback_apply_event_id\": \"")
+                .ok_or("ui_program_promotion_decision_invalid")?;
+            Some(
+                event_log::EventId::from_sequence(
+                    raios_core::parse_current_boot_event_sequence(value)
+                        .ok_or("ui_program_promotion_decision_invalid")?,
+                )
+                .ok_or("ui_program_promotion_decision_invalid")?,
             )
-            .ok_or("ui_program_promotion_decision_invalid")?,
-        )
-    };
+        };
     let sha = |key| {
-        artifact_store::extract_sha256(payload, key)
-            .ok_or("ui_program_promotion_fields_invalid")
+        artifact_store::extract_sha256(payload, key).ok_or("ui_program_promotion_fields_invalid")
     };
     let program_abi_version = artifact_store::extract_u64(payload, b"\"program_abi_version\": ")
         .ok_or("ui_program_promotion_fields_invalid")?;
@@ -895,14 +922,9 @@ pub(crate) fn parse_ui_program_promotion_transaction_payload(
             b"\"physical_install_approval_consumed\": ",
         )
         .ok_or("ui_program_promotion_fields_invalid")?,
-        install_authorization_frame_sha256: sha(
-            b"\"install_authorization_frame_sha256\": \"",
-        )?,
-        canonical_verified: artifact_store::extract_bool(
-            payload,
-            b"\"canonical_verified\": ",
-        )
-        .ok_or("ui_program_promotion_fields_invalid")?,
+        install_authorization_frame_sha256: sha(b"\"install_authorization_frame_sha256\": \"")?,
+        canonical_verified: artifact_store::extract_bool(payload, b"\"canonical_verified\": ")
+            .ok_or("ui_program_promotion_fields_invalid")?,
         activation_approval_consumed: artifact_store::extract_bool(
             payload,
             b"\"activation_approval_consumed\": ",
@@ -941,7 +963,11 @@ fn payload_contains(haystack: &[u8], needle: &[u8]) -> bool {
 
 fn payload_find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     (!needle.is_empty() && needle.len() <= haystack.len())
-        .then(|| haystack.windows(needle.len()).position(|window| window == needle))
+        .then(|| {
+            haystack
+                .windows(needle.len())
+                .position(|window| window == needle)
+        })
         .flatten()
 }
 
@@ -1362,10 +1388,11 @@ pub(crate) fn append_promotion_transaction(
         PromotionTransactionRef::GrantedCandidate(record) => {
             promotion_transaction_preflight_denial(posture, record.signature_len)
         }
-        PromotionTransactionRef::UiProgram(_) if !matches!(
-            posture,
-            BootPosture::Normal | BootPosture::Probation
-        ) => Some("boot_control_safe_mode"),
+        PromotionTransactionRef::UiProgram(_)
+            if !matches!(posture, BootPosture::Normal | BootPosture::Probation) =>
+        {
+            Some("boot_control_safe_mode")
+        }
         PromotionTransactionRef::UiProgram(_) => None,
     };
     if let Some(reason) = preflight_denial {
@@ -1377,10 +1404,8 @@ pub(crate) fn append_promotion_transaction(
         &record,
         PromotionTransactionRef::UiProgram(program)
             if program.transaction_kind == PromotionTransactionKind::Promote
-    )
-        && evidence.scan.full_region_valid
-        && evidence.scan.tail_frame_sha256
-            != Some(record.install_authorization_frame_sha256())
+    ) && evidence.scan.full_region_valid
+        && evidence.scan.tail_frame_sha256 != Some(record.install_authorization_frame_sha256())
     {
         return promotion_transaction_append_denied(
             record.transaction_kind(),
@@ -1583,9 +1608,7 @@ fn validate_ui_program_promotion_transaction(
     }
 }
 
-fn promotion_transaction_payload_bytes(
-    record: &impl PromotionTransactionRecordView,
-) -> Vec<u8> {
+fn promotion_transaction_payload_bytes(record: &impl PromotionTransactionRecordView) -> Vec<u8> {
     promotion_transaction_payload_bytes_ref(&record.promotion_transaction_ref())
 }
 
@@ -1685,7 +1708,10 @@ fn granted_candidate_promotion_transaction_payload_bytes(
         ),
         f("signature_verified", b(record.scoped_signature_verified())),
         f("grant_binds_capability", b(record.grant_binds_capability)),
-        f("install_authorization_present", b(record.install_authorization_present)),
+        f(
+            "install_authorization_present",
+            b(record.install_authorization_present),
+        ),
         f(
             "install_envelope_binds_activation",
             b(record.install_envelope_binds_activation),
@@ -3927,6 +3953,132 @@ pub(crate) fn append_memory_record<'a>(
     record: &MemoryRecord<'a>,
 ) -> MemoryRecordAppendEvidence<'a> {
     append_memory_record_inner(record, false, MemoryRecordAppendMode::General)
+}
+
+#[derive(Clone)]
+pub(crate) struct DurableWasmGrantSlot {
+    pub(crate) service_id: String,
+    pub(crate) domain_instance: u64,
+    pub(crate) binding_sha256: [u8; 32],
+    pub(crate) host_import_id: DurableHostImportId,
+    pub(crate) generation: u64,
+    pub(crate) revoked: bool,
+}
+
+pub(crate) struct DurableWasmGrantProjection {
+    pub(crate) valid: bool,
+    pub(crate) reason: &'static str,
+    pub(crate) sha256: [u8; 32],
+    pub(crate) event_count: u64,
+    pub(crate) next_epoch: u64,
+    pub(crate) slots: Vec<DurableWasmGrantSlot>,
+}
+
+impl DurableWasmGrantProjection {
+    fn denied(reason: &'static str) -> Self {
+        Self {
+            valid: false,
+            reason,
+            sha256: sha256_bytes(b"raios.cap.projection.denied.v1"),
+            event_count: 0,
+            next_epoch: 1,
+            slots: Vec::new(),
+        }
+    }
+}
+
+/// Reads and folds durable Wasm grant events only when the entire shared RECLOG
+/// region is valid. No valid-prefix authority is ever returned.
+pub(crate) fn load_durable_wasm_grant_projection() -> DurableWasmGrantProjection {
+    let Some(controller) = pci::find_mass_storage_controller() else {
+        return DurableWasmGrantProjection::denied("ahci_controller_not_observed");
+    };
+    let read = ahci::read_persist_reclog_region(controller);
+    let Some(region) = read.bytes else {
+        return DurableWasmGrantProjection::denied(read.reason);
+    };
+    let scan = scan_reclog(&region);
+    if !read.read_completed || !scan.full_region_valid || !scan.valid_prefix_chain {
+        return DurableWasmGrantProjection::denied("reclog_full_region_invalid");
+    }
+
+    let mut events = Vec::new();
+    for (_, payload) in scan_reclog_payloads(&region) {
+        match parse_event(payload) {
+            Ok(event) => events.push(event),
+            Err(WasmGrantEventError::NotGrantEvent) => {
+                if memory_record::parse(payload).is_ok_and(|view| {
+                    view.authority == WASM_GRANT_EVENT_AUTHORITY
+                        || view.predicate == WASM_GRANT_PREDICATE
+                        || view.predicate == WASM_REVOKE_PREDICATE
+                }) {
+                    return DurableWasmGrantProjection::denied("grant_event_malformed");
+                }
+            }
+            Err(_) => return DurableWasmGrantProjection::denied("grant_event_malformed"),
+        }
+    }
+    let event_count = events.len() as u64;
+    let next_epoch = events
+        .last()
+        .and_then(|event| event.epoch.checked_add(1))
+        .unwrap_or(1);
+    let folded = match fold_events(&events) {
+        Ok(folded) => folded,
+        Err(error) => {
+            return DurableWasmGrantProjection::denied(match error {
+                WasmGrantFoldError::Malformed => "grant_fold_malformed",
+                WasmGrantFoldError::MissingParent => "grant_fold_missing_parent",
+                WasmGrantFoldError::MalformedLink => "grant_fold_malformed_link",
+                WasmGrantFoldError::Fork => "grant_fold_fork",
+                WasmGrantFoldError::RepeatedOrNonMonotonicEpoch => "grant_fold_epoch_non_monotonic",
+                WasmGrantFoldError::AmbiguousHistory => "grant_fold_ambiguous_history",
+                WasmGrantFoldError::CapacityOverflow => "grant_fold_capacity_overflow",
+            })
+        }
+    };
+    let slots = folded
+        .slots()
+        .iter()
+        .map(|slot| DurableWasmGrantSlot {
+            service_id: String::from(slot.service_id),
+            domain_instance: slot.domain_instance,
+            binding_sha256: slot.binding_sha256,
+            host_import_id: slot.host_import_id,
+            generation: slot.generation,
+            revoked: slot.revoked,
+        })
+        .collect();
+    DurableWasmGrantProjection {
+        valid: true,
+        reason: "fold_valid",
+        sha256: folded.sha256(),
+        event_count,
+        next_epoch,
+        slots,
+    }
+}
+
+/// Append through the existing MemoryRecord RECLOG gauntlet, then perform a
+/// second dedicated typed refold. Callers may flip RAM authority only on true.
+pub(crate) fn append_durable_wasm_grant_event(event: &GrantEvent<'_>) -> bool {
+    let Ok(payload) = event.canonical_bytes() else {
+        return false;
+    };
+    if parse_event(&payload).is_err() {
+        return false;
+    }
+    let Ok(record) = event.memory_record() else {
+        return false;
+    };
+    let append = append_memory_record(&record);
+    if !append.performed || append.durable_append != "appended" || !append.reparse_valid {
+        return false;
+    }
+    let projection = load_durable_wasm_grant_projection();
+    projection.valid
+        && projection.event_count != 0
+        && projection.next_epoch == event.epoch.saturating_add(1)
 }
 
 /// Agent-authored observation append: exact charge capped at

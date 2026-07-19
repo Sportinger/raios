@@ -6,7 +6,8 @@ param(
     [int]$SerialWriteChunkSize = 256,
     [int]$SerialWriteDelayMilliseconds = 0,
     [switch]$KeepRunDir,
-    [switch]$ProgramPersistence
+    [switch]$ProgramPersistence,
+    [switch]$GrantProjectionOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,7 +16,8 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $RunScript = Join-Path $RepoRoot "scripts\run-stage0-qemu.ps1"
 $PackageScript = Join-Path $RepoRoot "scripts\package-stage0.ps1"
 $Builder = Join-Path $RepoRoot "scripts\make-gpt-persist-image.py"
-$RunId = "shadow-persistence-reboot-{0:yyyyMMdd-HHmmss}-{1}" -f (Get-Date), $PID
+$RunKind = if ($GrantProjectionOnly) { "grant-reboot" } else { "persistence-reboot" }
+$RunId = "shadow-$RunKind-{0:yyyyMMdd-HHmmss}-{1}" -f (Get-Date), $PID
 $RunDir = Join-Path $env:TEMP "raios-$RunId"
 $SerialLog = Join-Path $RunDir "serial-merged.log"
 $ReportPath = Join-Path $ReportDir "$RunId.json"
@@ -36,7 +38,7 @@ $script:SerialTcpDrainStream = $null
 $script:SerialTcpStream = $null
 $QemuArgList = @()
 $HardwareProfile = $null
-$Profile = "persistence-reboot"
+$Profile = $RunKind
 $ResolvedImage = $null
 $ScratchImage = $null
 $AuditRollbackTargetImage = $null
@@ -212,6 +214,42 @@ function Assert-Boot1MemoryAppend {
 
     $goldenOk = ($Record -and $Record.payload_sha256 -eq $GoldenPayloadSha256)
     Assert-ReportPredicate -Prefix "boot1" -Name "mem-record-$Label-payload-golden" -Expected "payload_sha256 == $GoldenPayloadSha256" -Passed $goldenOk -Actual $(if ($goldenOk) { "matched" } else { [string]$Record.payload_sha256 }) -FailureMessage "Expected memory record $Label payload_sha256 to match the pinned golden"
+}
+
+function Invoke-Boot1DurableRevoke {
+    param([string]$Prefix)
+
+    $offset = Get-SerialLogOffset
+    Send-AgentCommandTagged -Prefix $Prefix -Command "revoke.selftest" -ExpectedMarker "RAIOS_REVOKE selftest=pass surface=env.counter_get first_call=ok revoked=1 next_call=denied host_effect_delta=0 peer_surface=ok same_instance=1 logged=1" -Name "durable-revoke"
+    $tail = (Get-SerialLogContent -Path $SerialLog).Substring([int]$offset)
+    $match = [regex]::Match($tail, 'RAIOS_REVOKE_DURABLE selftest=pass replay=0 invalid_projection=0 append_before_flip=1 projection=(sha256:[0-9a-f]{64}) call_attempted=1 gate=env\.counter_get denied_next=1 host_effect_delta=0')
+    Assert-ReportPredicate -Prefix $Prefix -Name "durable-revoke-append-before-flip" -Expected "typed grant+revoke append through RECLOG before RAM flip; next call denied with zero effect" -Passed $match.Success -Actual $(if ($match.Success) { $match.Value } else { Get-SerialLogTail -Path $SerialLog }) -FailureMessage "Boot 1 durable revoke predicate failed"
+    return $(if ($match.Success) { $match.Groups[1].Value } else { "" })
+}
+
+function Assert-Boot2DurableRevokeReplay {
+    param(
+        [string]$Prefix,
+        [string]$Boot1Projection
+    )
+
+    Assert-LogContains -Name "${Prefix}:durable-revoke-projection-ready" -Needle "cap.projection " -TimeoutSeconds $TimeoutSeconds
+    $bootSerial = Get-SerialLogContent -Path $SerialLog
+    $bootProjection = [regex]::Match($bootSerial, 'cap\.projection (sha256:[0-9a-f]{64}) valid=1 events=([2-9][0-9]*) reason=fold_valid')
+    $bootFoldOk = $bootProjection.Success -and $bootProjection.Groups[1].Value -eq $Boot1Projection
+    Assert-ReportPredicate -Prefix $Prefix -Name "durable-revoke-boot-fold" -Expected "boot emits the identical validated cap.projection before service instantiation" -Passed $bootFoldOk -Actual $(if ($bootProjection.Success) { $bootProjection.Value } else { Get-SerialLogTail -Path $SerialLog }) -FailureMessage "Boot 2 capability projection did not replay identically"
+
+    $offset = Get-SerialLogOffset
+    Send-AgentCommandTagged -Prefix $Prefix -Command "revoke.selftest" -ExpectedMarker "RAIOS_REVOKE_DURABLE selftest=pass replay=1 invalid_projection=0 append_before_flip=1" -Name "durable-revoke-replay"
+    $tail = (Get-SerialLogContent -Path $SerialLog).Substring([int]$offset)
+    $replay = [regex]::Match($tail, 'RAIOS_REVOKE_DURABLE selftest=pass replay=1 invalid_projection=0 append_before_flip=1 projection=(sha256:[0-9a-f]{64}) call_attempted=1 gate=env\.counter_get denied_next=1 host_effect_delta=0')
+    $replayOk = $replay.Success -and $replay.Groups[1].Value -eq $Boot1Projection
+    Assert-ReportPredicate -Prefix $Prefix -Name "durable-revoke-next-call-denied" -Expected "same durable revoke refold denies the first post-reboot env.counter_get effect; delta=0" -Passed $replayOk -Actual $(if ($replay.Success) { $replay.Value } else { Get-SerialLogTail -Path $SerialLog }) -FailureMessage "Boot 2 durable revoke did not deny the next host call"
+
+    Send-AgentCommandTagged -Prefix $Prefix -Command "host_import.selftest" -ExpectedMarker "RAIOS_HOSTIMPORT selftest=pass" -Name "durable-revoke-peer-still-answers"
+    $peerLog = Get-SerialLogContent -Path $SerialLog
+    $peerOk = $peerLog.Contains("RAIOS_HOSTIMPORT selftest=pass") -and -not $peerLog.Contains("*** KERNEL PANIC ***")
+    Assert-ReportPredicate -Prefix $Prefix -Name "durable-revoke-peer-healthy" -Expected "unrelated host-import peer answers after replay denial and kernel does not panic" -Passed $peerOk -Actual $(Get-SerialLogTail -Path $SerialLog) -FailureMessage "Boot 2 durable revoke replay damaged the peer or panicked"
 }
 
 function Invoke-Boot1DurableMemoryWrites {
@@ -1217,6 +1255,42 @@ function Assert-MemoryTornReclogChild {
     }
 }
 
+function Assert-WasmGrantSemanticTamperChild {
+    param([int]$Port)
+
+    $prefix = "boot2-cap-link-tamper"
+    $child = $null
+    $tamperedPersist = Join-Path $RunDir "persist-cap-link-tamper.img"
+    Copy-Item -LiteralPath $Boot1PersistSnapshot -Destination $tamperedPersist -Force
+    try {
+        $mutation = Invoke-PersistTool -Arguments @("--tamper-wasm-grant-event", $tamperedPersist)
+        $semanticLanded = $mutation.semantic_boundary -eq "parent_grant_sha256" -and
+            $mutation.post_reclog_scan.status -eq "valid" -and
+            $mutation.post_reclog_scan.valid_prefix_chain -eq $true -and
+            $mutation.post_reclog_scan.full_region_valid -eq $true
+        Assert-ReportPredicate -Prefix $prefix -Name "semantic-tamper-landed" -Expected "revoke parent_grant_sha256 changed while the outer RECLOG remains fully valid" -Passed $semanticLanded -Actual $(Convert-CompactJson $mutation 8) -FailureMessage "Wasm grant semantic tamper did not land"
+
+        $child = Start-RaiosVm -Label "cap-link-tamper" -PredicatePrefix $prefix -Port $Port -MonitorPort 0 -QmpPort 0 -PersistPath $tamperedPersist
+        $null = Wait-ForLogText -Path $SerialLog -Needle "cap.projection " -TimeoutSeconds $TimeoutSeconds
+        $serial = Get-SerialLogContent -Path $SerialLog
+        $foldDenied = [regex]::IsMatch($serial, 'cap\.projection sha256:[0-9a-f]{64} valid=0 events=0 reason=grant_fold_malformed_link')
+        Assert-ReportPredicate -Prefix $prefix -Name "semantic-fold-denied" -Expected "fully framed but malformed revoke link yields a denied/empty boot projection" -Passed $foldDenied -Actual $(Get-SerialLogTail -Path $SerialLog) -FailureMessage "Malformed grant link was accepted by the boot fold"
+
+        Send-AgentCommandTagged -Prefix $prefix -Command "revoke.selftest" -ExpectedMarker "RAIOS_REVOKE_DURABLE selftest=pass replay=0 invalid_projection=1 append_before_flip=0" -Name "revoked-call-zero-effect"
+        $tamperCall = [regex]::Match((Get-SerialLogContent -Path $SerialLog), 'RAIOS_REVOKE_DURABLE selftest=pass replay=0 invalid_projection=1 append_before_flip=0 projection=sha256:[0-9a-f]{64} call_attempted=1 gate=env\.counter_get denied_next=1 host_effect_delta=0')
+        Assert-ReportPredicate -Prefix $prefix -Name "invalid-history-real-gate" -Expected "malformed history constructs denied Store, instantiates Wasm, and attempts the real env.counter_get gate with zero effect" -Passed $tamperCall.Success -Actual $(if ($tamperCall.Success) { $tamperCall.Value } else { Get-SerialLogTail -Path $SerialLog }) -FailureMessage "Invalid projection did not reach the real host call gate"
+        Send-AgentCommandTagged -Prefix $prefix -Command "host_import.selftest" -ExpectedMarker "RAIOS_HOSTIMPORT selftest=pass" -Name "peer-still-answers"
+        $after = Get-SerialLogContent -Path $SerialLog
+        $noPanic = $after.Contains("RAIOS_HOSTIMPORT selftest=pass") -and -not $after.Contains("*** KERNEL PANIC ***")
+        Assert-ReportPredicate -Prefix $prefix -Name "zero-effect-no-peer-damage" -Expected "authority stays denied with host_effect_delta=0; peer selftest still answers and no panic occurs" -Passed $noPanic -Actual $(Get-SerialLogTail -Path $SerialLog) -FailureMessage "Semantic grant corruption damaged the peer or panicked"
+    }
+    finally {
+        Stop-RaiosVmForce -Vm $child
+        Remove-RunImages -Vm $child
+        Remove-Item -LiteralPath $tamperedPersist -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Get-ProgramEditorFixture {
     $base64 = @'
 UlVJUAEAIACwAAAAAQMAAQEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAABABQACAAIAPAAGAAAAAAAcmFpT1MgRURJVCAgRjEyPUVYSVQEAAAACAAoAGACgAEAAAAAAwAFAAgAtAFgACQAAQAAAENMRUFSAAAAAQAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
@@ -1792,6 +1866,54 @@ function Merge-SerialLogs {
     $script:SerialLog = $merged
 }
 
+function Invoke-GrantProjectionOnlyProof {
+    if ($Image) {
+        throw "grant-projection-only requires a per-run current kernel image; do not pass -Image"
+    }
+
+    $env:CARGO_HOME = (Resolve-Path (Join-Path $RepoRoot ".cargo-home")).Path
+    $env:CARGO_TARGET_DIR = Join-Path $RepoRoot "target"
+    $script:ResolvedImage = Join-Path $RunDir "raios-stage0-grant-reboot.img"
+    $script:TempImage = $true
+    & $PackageScript -Profile release -Image $ResolvedImage -UseTempEsp
+    $packageExit = $LASTEXITCODE
+    Assert-ReportPredicate -Prefix "grant-setup" -Name "current-kernel-image-built" -Expected "current release kernel packaged into a per-run image without NET-8 pinning" -Passed ($packageExit -eq 0) -Actual $(if ($packageExit -eq 0) { "built" } else { "exit=$packageExit" }) -FailureMessage "Focused grant-reboot image packaging failed"
+
+    $script:PersistDiskImage = Join-Path $RunDir "grant-persist.img"
+    $builderResult = Invoke-NativeCommandForReport -FilePath "python" -Arguments @($Builder, "--self-check", "--seed-bootctl", "valid-a", $PersistDiskImage)
+    Assert-ReportPredicate -Prefix "grant-setup" -Name "clean-persist-disk-built" -Expected "self-checked GPT persist disk with valid-a bootctl" -Passed ($builderResult.ExitCode -eq 0) -Actual $(if ($builderResult.ExitCode -eq 0) { "built" } else { (@($builderResult.Output) + @($builderResult.Error)) -join [Environment]::NewLine }) -FailureMessage "Focused grant-reboot persist disk build failed"
+    $script:PersistDiskImage = Assert-PersistDiskPathSafe -Path $PersistDiskImage
+    $initialInspection = Get-PersistInspection -Path $PersistDiskImage
+    $initialOk = [bool]$initialInspection.gpt_header_valid -and
+        [bool]$initialInspection.gpt_crc_checked -and
+        [bool]$initialInspection.data_superblock_valid -and
+        $initialInspection.bootctl_read.decision.posture -eq "Normal" -and
+        [int]$initialInspection.reclog_scan.count -eq 0 -and
+        $initialInspection.reclog_scan.valid_prefix_chain -eq $true -and
+        $initialInspection.reclog_scan.full_region_valid -eq $true
+    Assert-ReportPredicate -Prefix "grant-setup" -Name "clean-persist-disk-empty-normal" -Expected "valid GPT, Normal bootctl, empty and fully valid RECLOG" -Passed $initialOk -Actual $(Convert-CompactJson $initialInspection 8) -FailureMessage "Focused grant-reboot disk was not clean Normal posture"
+
+    $script:HardwareProfile = New-HardwareProfile -Nic "none" -ScratchDrive $true -AuditRollbackTargetDrive $true -PersistDrive $true
+
+    $script:boot1Vm = Start-RaiosVm -Label "grant-boot1" -PredicatePrefix "grant-boot1" -Port $SerialTcpPort -MonitorPort ($SerialTcpPort + 100) -QmpPort 0 -PersistPath $PersistDiskImage
+    $boot1Projection = Invoke-Boot1DurableRevoke -Prefix "grant-boot1"
+    Stop-RaiosVmCleanly -Vm $boot1Vm -Name "grant-boot1"
+
+    $boot1Inspection = Get-PersistInspection -Path $PersistDiskImage
+    $boot1OuterValid = $boot1Inspection.reclog_scan.status -eq "valid" -and
+        [int]$boot1Inspection.reclog_scan.count -eq 2 -and
+        $boot1Inspection.reclog_scan.valid_prefix_chain -eq $true -and
+        $boot1Inspection.reclog_scan.full_region_valid -eq $true
+    Assert-ReportPredicate -Prefix "grant-boot1" -Name "grant-revoke-outer-reclog-valid" -Expected "exactly grant+revoke are durable in a fully valid outer RECLOG" -Passed $boot1OuterValid -Actual $(Convert-CompactJson $boot1Inspection.reclog_scan 8) -FailureMessage "Boot 1 grant/revoke outer RECLOG was not fully valid"
+    Copy-Item -LiteralPath $PersistDiskImage -Destination $Boot1PersistSnapshot -Force
+
+    $script:boot2Vm = Start-RaiosVm -Label "grant-boot2" -PredicatePrefix "grant-boot2" -Port ($SerialTcpPort + 1) -MonitorPort ($SerialTcpPort + 101) -QmpPort 0 -PersistPath $PersistDiskImage
+    Assert-Boot2DurableRevokeReplay -Prefix "grant-boot2" -Boot1Projection $boot1Projection
+    Stop-RaiosVmCleanly -Vm $boot2Vm -Name "grant-boot2"
+
+    Assert-WasmGrantSemanticTamperChild -Port ($SerialTcpPort + 2)
+}
+
 New-Item -ItemType Directory -Force -Path $RunDir | Out-Null
 
 $Boot1PersistSnapshot = Join-Path $RunDir "persist-after-boot1.img"
@@ -1806,6 +1928,12 @@ $rollback = $null
 try {
     if ($ProgramPersistence) {
         Invoke-ProgramPersistenceProof
+        $Result = "passed"
+        return
+    }
+
+    if ($GrantProjectionOnly) {
+        Invoke-GrantProjectionOnlyProof
         $Result = "passed"
         return
     }
@@ -1875,6 +2003,7 @@ try {
     $activation = @(Invoke-W7M6PhysicalActivation)[-1]
     $install = @(Invoke-SignedGrantedCandidateInstall -Activation $activation -NamePrefix "boot1")[-1]
     Assert-Boot1ActivationAndInstall -Activation $activation -Install $install
+    $boot1CapProjection = Invoke-Boot1DurableRevoke -Prefix "boot1"
     $boot1MemoryScan = Invoke-Boot1DurableMemoryWrites -Prefix "boot1"
     Stop-RaiosVmCleanly -Vm $boot1Vm -Name "boot1"
 
@@ -1885,6 +2014,7 @@ try {
 
     $boot2Vm = Start-RaiosVm -Label "boot2" -PredicatePrefix "boot2" -Port ($SerialTcpPort + 1) -MonitorPort ($SerialTcpPort + 101) -QmpPort 0 -PersistPath $PersistDiskImage
     $null = Assert-Boot2Autoload -Activation $activation -Install $install -Boot1Inspection $postBoot1Inspection
+    Assert-Boot2DurableRevokeReplay -Prefix "boot2" -Boot1Projection $boot1CapProjection
     Assert-Boot2MemorySurvives -Prefix "boot2" -Boot1MemoryScan $boot1MemoryScan
     $rollback = Assert-Boot2Rollback -Activation $activation -Install $install -Boot1MemoryScan $boot1MemoryScan
     Stop-RaiosVmCleanly -Vm $boot2Vm -Name "boot2"
@@ -1909,6 +2039,7 @@ try {
     Assert-Boot2LoadArtifactByHash -ArtifactSha ([string]$postBoot1Records[0].artifact_sha256) -Port ($SerialTcpPort + 13)
     Assert-LoadByHashTamperDeniedChild -Port ($SerialTcpPort + 14)
     Assert-MemoryTornReclogChild -Boot1MemoryScan $boot1MemoryScan -Port ($SerialTcpPort + 15)
+    Assert-WasmGrantSemanticTamperChild -Port ($SerialTcpPort + 16)
 
     $Result = "passed"
 }

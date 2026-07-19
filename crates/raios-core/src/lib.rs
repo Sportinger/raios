@@ -97,6 +97,7 @@ pub mod ui_program;
 pub mod ui_program_spec;
 pub mod wasi_build_output;
 pub mod wasi_preview1_import_abi;
+pub mod wasm_import_grant_event;
 
 /// Computes the SHA-256 digest for `bytes` and returns the raw 32-byte digest.
 pub fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {

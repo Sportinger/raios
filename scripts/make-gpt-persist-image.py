@@ -1443,6 +1443,46 @@ def tamper_persist_record(image: Path) -> dict[str, object]:
     }
 
 
+def tamper_wasm_grant_event(image: Path) -> dict[str, object]:
+    """Break the typed revoke->grant hash link while preserving RECLOG framing."""
+    assert_not_release_output(image)
+    info = validate_existing_gpt_image(image)
+    seed_data_first_lba = seed_data_first_lba_from_info(info)
+    with image.open("r+b") as handle:
+        frames = parse_reclog_frames_for_inspection(read_reclog_region(handle, seed_data_first_lba))
+        target_index = None
+        target_record = None
+        for idx, frame in enumerate(frames):
+            record = payload_json(frame["payload"])
+            if record and record.get("predicate") == "wasm_import.revoked.v1":
+                target_index = idx
+                target_record = record
+                break
+        if target_index is None or target_record is None:
+            raise ValueError("no wasm_import.revoked.v1 RECLOG record found")
+        value = target_record.get("value") or {}
+        field = "parent_grant_sha256"
+        old_value = str(value.get(field, ""))
+        new_value = flip_hash_byte(old_value)
+        new_payload = replace_json_hash(frames[target_index]["payload"], field, old_value, new_value)
+        rewrite_reclog_frames(handle, seed_data_first_lba, frames, target_index, new_payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+    post = inspect_image(image)
+    scan = post.get("reclog_scan") or {}
+    if scan.get("status") != "valid" or int(scan.get("count", -1)) != len(frames):
+        raise ValueError("semantic grant-link tamper damaged outer RECLOG validity")
+    return {
+        "operation": "tamper_wasm_grant_event",
+        "image": str(image),
+        "semantic_boundary": "parent_grant_sha256",
+        "old_value": old_value,
+        "new_value": new_value,
+        "seq": frames[target_index]["seq"],
+        "post_reclog_scan": scan,
+    }
+
+
 def corrupt_memory_frame(image: Path) -> dict[str, object]:
     assert_not_release_output(image)
     info = validate_existing_gpt_image(image)
@@ -2574,6 +2614,7 @@ def main() -> int:
     parser.add_argument("--image", type=Path, help="existing GPT persist image for offline slot updates")
     parser.add_argument("--corrupt-artstor-blob", type=Path, help="mutate the first ARTSTOR blob payload in-place")
     parser.add_argument("--tamper-persist-record", type=Path, help="mutate the first artifact_persist RECLOG record in-place")
+    parser.add_argument("--tamper-wasm-grant-event", type=Path, help="break a revoke parent hash while preserving a valid RECLOG chain")
     parser.add_argument("--corrupt-memory-frame", type=Path, help="flip one byte in the last RECLOG frame payload in-place")
     parser.add_argument("--stage-slot", choices=("A", "B"), help="stage --payload-dir into this ESP and set it pending")
     parser.add_argument("--payload-dir", type=Path, help="directory to stage into the selected ESP")
@@ -2630,6 +2671,7 @@ def main() -> int:
             or args.image
             or args.corrupt_artstor_blob
             or args.tamper_persist_record
+            or args.tamper_wasm_grant_event
             or args.corrupt_memory_frame
             or args.stage_slot
             or args.payload_dir
@@ -2647,6 +2689,7 @@ def main() -> int:
                 or args.image
                 or args.corrupt_artstor_blob
                 or args.tamper_persist_record
+                or args.tamper_wasm_grant_event
                 or args.corrupt_memory_frame
                 or args.stage_slot
                 or args.payload_dir
@@ -2667,6 +2710,7 @@ def main() -> int:
                 or args.image
                 or args.corrupt_artstor_blob
                 or args.tamper_persist_record
+                or args.tamper_wasm_grant_event
                 or args.corrupt_memory_frame
                 or args.stage_slot
                 or args.payload_dir
@@ -2695,10 +2739,11 @@ def main() -> int:
                 parser.error("--inspect-json cannot be combined with offline mutation flags")
             print(json.dumps(inspect_image(args.inspect_json), indent=2))
             return 0
-        if args.corrupt_artstor_blob or args.tamper_persist_record or args.corrupt_memory_frame:
+        if args.corrupt_artstor_blob or args.tamper_persist_record or args.tamper_wasm_grant_event or args.corrupt_memory_frame:
             mutation_targets = [
                 args.corrupt_artstor_blob,
                 args.tamper_persist_record,
+                args.tamper_wasm_grant_event,
                 args.corrupt_memory_frame,
             ]
             if sum(target is not None for target in mutation_targets) != 1:
@@ -2709,6 +2754,8 @@ def main() -> int:
                 result = corrupt_artstor_blob(args.corrupt_artstor_blob)
             elif args.tamper_persist_record:
                 result = tamper_persist_record(args.tamper_persist_record)
+            elif args.tamper_wasm_grant_event:
+                result = tamper_wasm_grant_event(args.tamper_wasm_grant_event)
             else:
                 result = corrupt_memory_frame(args.corrupt_memory_frame)
             print(json.dumps(result, indent=2))

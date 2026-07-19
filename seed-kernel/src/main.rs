@@ -282,6 +282,7 @@ fn early_main() -> ! {
         EXECUTABLE_FILE_REQUEST.get_response(),
         MODULE_REQUEST.get_response(),
     );
+    wasm_runtime::init_durable_grants();
     structured_store_c1::run_disposable_qemu_boot_probe();
     project_app_autoload::run_boot_autoload();
     agent_protocol::run_provider_autoload();

@@ -1,12 +1,14 @@
 use super::*;
 
 use raios_core::host_import_abi_v1::HOST_IMPORT_ERROR_CAPABILITY_DENIED;
+use raios_core::wasm_import_grant_event::{GrantEvent, HostImportId as DurableHostImportId};
 
 use super::grant_table::HostImportId;
 
 const SELFTEST_SERVICE_ID: &str = "test.fixture.revoke_selftest";
 const CALL_COUNTER_EXPORT: &str = "call_counter";
 const CALL_LOG_EXPORT: &str = "call_log";
+const DURABLE_DOMAIN_INSTANCE: u64 = 1;
 
 // (module
 //   (import "env" "counter_get" (func $counter_get (result i64)))
@@ -37,6 +39,11 @@ struct RevokeEvidence {
     peer_surface_ok: bool,
     same_instance: bool,
     logged: bool,
+    durable_appended: bool,
+    replayed: bool,
+    invalid_projection: bool,
+    call_attempted: bool,
+    projection_sha256: [u8; 32],
 }
 
 fn fixture_contract(module: &Module) -> bool {
@@ -72,16 +79,73 @@ fn run_revoke_selftest() -> Result<RevokeEvidence, &'static str> {
     }
     let authorized = envelope::authorize_wasm_imports(SELFTEST_SERVICE_ID, true, IMPORTS)
         .map_err(|_| "grant_authorization")?;
-    let mut store = Store::new(
-        &engine,
-        envelope::limited_state(WORKSPACE_MEMORY_LIMIT_BYTES),
+    let boot_projection =
+        crate::agent_protocol::durable_store::load_durable_wasm_grant_projection();
+    let durable_available = boot_projection.valid;
+    let invalid_projection = !durable_available
+        && matches!(
+            boot_projection.reason,
+            "reclog_full_region_invalid"
+                | "grant_event_malformed"
+                | "grant_fold_malformed"
+                | "grant_fold_missing_parent"
+                | "grant_fold_malformed_link"
+                | "grant_fold_fork"
+                | "grant_fold_epoch_non_monotonic"
+                | "grant_fold_ambiguous_history"
+                | "grant_fold_capacity_overflow"
+        );
+    let (boot_valid, projection_sha256, boot_event_count) =
+        super::grant_table::boot_projection_evidence();
+    let binding_sha256 = raios_core::sha256_bytes(REVOKE_WASM);
+    let projected_state = super::grant_table::durable_import_state(
+        SELFTEST_SERVICE_ID,
+        DURABLE_DOMAIN_INSTANCE,
+        binding_sha256,
+        HostImportId::EnvCounterGet,
     );
+    let replayed = boot_valid
+        && boot_event_count != 0
+        && projected_state == super::grant_table::DurableImportState::Revoked;
+
+    let state = if durable_available || invalid_projection {
+        envelope::limited_state_for_durable_domain(
+            WORKSPACE_MEMORY_LIMIT_BYTES,
+            SELFTEST_SERVICE_ID,
+            DURABLE_DOMAIN_INSTANCE,
+            binding_sha256,
+        )
+    } else {
+        // A deliberately absent persistence device keeps the pre-Slice-3 quick
+        // fixture behavior. Malformed durable history never reaches this arm.
+        envelope::limited_state(WORKSPACE_MEMORY_LIMIT_BYTES)
+    };
+    let mut store = Store::new(&engine, state);
     store.limiter(|state| &mut state.limits);
-    if !store.data_mut().grant_import(HostImportId::EnvCounterGet) {
-        return Err("grant_counter_get");
-    }
     if !store.data_mut().grant_import(HostImportId::EnvLog) {
         return Err("grant_log");
+    }
+
+    let grant_epoch = boot_projection.next_epoch;
+    let grant_id = alloc::format!("cap.grant.revoke_selftest.{grant_epoch}");
+    let grant = GrantEvent::grant(
+        &grant_id,
+        SELFTEST_SERVICE_ID,
+        DURABLE_DOMAIN_INSTANCE,
+        binding_sha256,
+        DurableHostImportId::EnvCounterGet,
+        1,
+        grant_epoch,
+    );
+    let durable_appended = if invalid_projection || !durable_available {
+        false
+    } else if replayed {
+        true
+    } else {
+        crate::agent_protocol::durable_store::append_durable_wasm_grant_event(&grant)
+    };
+    if durable_available && !durable_appended {
+        return Err("durable_grant_append");
     }
     if store.add_fuel(WORKSPACE_FUEL_BUDGET).is_err() {
         return Err("fuel_metering");
@@ -109,13 +173,31 @@ fn run_revoke_selftest() -> Result<RevokeEvidence, &'static str> {
         .call(&mut store, &[], &mut first_output)
         .map_err(|_| "first_call_trap")?;
     let c1 = envelope::current_boot_counter();
-    let first_call_ok = c0.checked_add(1) == Some(c1) && first_output[0].i64() == Some(c1 as i64);
+    let denied_on_entry = replayed || invalid_projection;
+    let first_call_ok = if denied_on_entry {
+        c0 == c1 && first_output[0].i64() == Some(HOST_IMPORT_ERROR_CAPABILITY_DENIED as i64)
+    } else {
+        c0.checked_add(1) == Some(c1) && first_output[0].i64() == Some(c1 as i64)
+    };
     if !first_call_ok {
         return Err("first_call_effect");
     }
 
     let generation = store.data().instance_generation();
-    let revoked = store.data_mut().revoke_import(HostImportId::EnvCounterGet)
+    let revoke_epoch = grant_epoch.checked_add(1).ok_or("revoke_epoch_overflow")?;
+    let revoke_id = alloc::format!("cap.revoke.revoke_selftest.{revoke_epoch}");
+    let durable_revoke = if !durable_available || denied_on_entry {
+        true
+    } else {
+        let grant_hash = grant.record_sha256().map_err(|_| "grant_hash")?;
+        let revoke = GrantEvent::revoke(&revoke_id, &grant, revoke_epoch, grant_hash);
+        crate::agent_protocol::durable_store::append_durable_wasm_grant_event(&revoke)
+    };
+    if !durable_revoke {
+        return Err("durable_revoke_append");
+    }
+    // Ordering is load-bearing: durable revoke first, then the RAM slot flip.
+    let revoked = (denied_on_entry || store.data_mut().revoke_import(HostImportId::EnvCounterGet))
         && !store.data().import_is_live(HostImportId::EnvCounterGet)
         && store.data().instance_generation() == generation;
     if !revoked {
@@ -157,6 +239,21 @@ fn run_revoke_selftest() -> Result<RevokeEvidence, &'static str> {
         return Err("peer_surface_logged");
     }
 
+    let final_projection =
+        crate::agent_protocol::durable_store::load_durable_wasm_grant_projection();
+    if durable_available
+        && !invalid_projection
+        && (!final_projection.valid
+            || !final_projection.slots.iter().any(|slot| {
+                slot.service_id == SELFTEST_SERVICE_ID
+                    && slot.domain_instance == DURABLE_DOMAIN_INSTANCE
+                    && slot.host_import_id == DurableHostImportId::EnvCounterGet
+                    && slot.revoked
+            }))
+    {
+        return Err("durable_projection_not_revoked");
+    }
+
     Ok(RevokeEvidence {
         first_call_ok,
         revoked,
@@ -165,10 +262,20 @@ fn run_revoke_selftest() -> Result<RevokeEvidence, &'static str> {
         peer_surface_ok,
         same_instance,
         logged,
+        durable_appended,
+        replayed,
+        invalid_projection,
+        call_attempted: true,
+        projection_sha256: if durable_available {
+            final_projection.sha256
+        } else {
+            projection_sha256
+        },
     })
 }
 
 pub(crate) fn emit_revoke_selftest() {
+    let counter_before = envelope::current_boot_counter();
     match run_revoke_selftest() {
         Ok(evidence) => {
             let line = alloc::format!(
@@ -183,9 +290,25 @@ pub(crate) fn emit_revoke_selftest() {
                 u8::from(evidence.logged),
             );
             serial::write_raw_line(&line);
+            let projection_hex = raios_core::sha256_hex(&evidence.projection_sha256);
+            let projection = core::str::from_utf8(&projection_hex).unwrap_or("invalid");
+            serial::write_fmt(format_args!(
+                "RAIOS_REVOKE_DURABLE selftest=pass replay={} invalid_projection={} append_before_flip={} projection=sha256:{} call_attempted={} gate=env.counter_get denied_next={} host_effect_delta={}\r\n",
+                u8::from(evidence.replayed),
+                u8::from(evidence.invalid_projection),
+                u8::from(evidence.durable_appended),
+                projection,
+                u8::from(evidence.call_attempted),
+                u8::from(evidence.next_call_denied),
+                evidence.host_effect_delta,
+            ));
         }
         Err(reason) => {
-            let line = alloc::format!("RAIOS_REVOKE selftest=fail rv_reason={reason}");
+            let counter_after = envelope::current_boot_counter();
+            let line = alloc::format!(
+                "RAIOS_REVOKE selftest=fail rv_reason={reason} host_effect_delta={}",
+                counter_after.saturating_sub(counter_before)
+            );
             serial::write_raw_line(&line);
         }
     }

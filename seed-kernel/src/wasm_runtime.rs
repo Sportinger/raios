@@ -113,3 +113,21 @@ pub(crate) use wasi_build_job::{
     emit_wasi_rustcdiag, emit_wasi_rustclock, emit_wasi_rustcrun, emit_wasi_selftest,
     emit_wasi_sysimport, emit_wasi_thread_selftest,
 };
+
+/// Rebuild durable import authority before any boot-autoloaded Wasm service is
+/// instantiated. Invalid/missing history installs a denied snapshot.
+pub(crate) fn init_durable_grants() {
+    let projection = crate::agent_protocol::durable_store::load_durable_wasm_grant_projection();
+    let reason = projection.reason;
+    grant_table::install_boot_projection(projection);
+    let (valid, digest, event_count) = grant_table::boot_projection_evidence();
+    let hex = raios_core::sha256_hex(&digest);
+    let hash = core::str::from_utf8(&hex).unwrap_or("invalid");
+    serial::write_fmt(format_args!(
+        "cap.projection sha256:{} valid={} events={} reason={}\r\n",
+        hash,
+        u8::from(valid),
+        event_count,
+        reason
+    ));
+}
