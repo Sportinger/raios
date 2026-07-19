@@ -1,5 +1,72 @@
 if (-not $Network) { throw "m6d-rollback requires -Network" }
 
+$domainBSeedError = ""
+$domainBSeedBeforeResponse = $null
+$domainBSeedAfterResponse = $null
+$domainBSeedSelftestResponse = $null
+$domainBSeedBefore = $null
+$domainBSeedAfter = $null
+$domainBSeedSelftest = $null
+$domainBSeedRecord = $null
+$domainBSeedArtifactSha256 = ""
+$domainBSeedAddedRecords = @()
+$domainBSeedOk = $false
+try {
+    Send-AgentCommand -Command "agent artifact.store_scan" -ExpectedMarker "RAIOS_AGENT_END artifact.store_scan" -Name "iso:B_seed-artstor-before"
+    $domainBSeedBeforeResponse = Get-LastAgentResponseJson -Method "artifact.store_scan"
+    $domainBSeedBefore = $domainBSeedBeforeResponse.body.result
+    Send-AgentCommand -Command "agent module.artifact_store_selftest" -ExpectedMarker "RAIOS_AGENT_END module.artifact_store_selftest" -Name "iso:B_seed-artifact-persist"
+    $domainBSeedSelftestResponse = Get-LastAgentResponseJson -Method "module.artifact_store_selftest"
+    $domainBSeedSelftest = $domainBSeedSelftestResponse.body.result
+    Send-AgentCommand -Command "agent artifact.store_scan" -ExpectedMarker "RAIOS_AGENT_END artifact.store_scan" -Name "iso:B_seed-artstor-readback"
+    $domainBSeedAfterResponse = Get-LastAgentResponseJson -Method "artifact.store_scan"
+    $domainBSeedAfter = $domainBSeedAfterResponse.body.result
+
+    $domainBSeedPositiveCases = @($domainBSeedSelftest.cases | Where-Object {
+        $_.case -eq "artifact_persist_authorized" -and
+        $_.actual_status -eq "appended" -and
+        $_.actual_reason -eq "authorized_artifact_persist_append_readback_reparse_verified" -and
+        $_.blob_authorized -eq $true -and
+        $_.record_authorized -eq $true
+    })
+    $domainBSeedBeforeRecords = @()
+    if ($null -ne $domainBSeedBefore -and $domainBSeedBefore.PSObject.Properties.Name -contains "records") {
+        $domainBSeedBeforeRecords = @($domainBSeedBefore.records | ForEach-Object { $_ })
+    }
+    $domainBSeedAfterRecords = @()
+    if ($null -ne $domainBSeedAfter -and $domainBSeedAfter.PSObject.Properties.Name -contains "records") {
+        $domainBSeedAfterRecords = @($domainBSeedAfter.records | ForEach-Object { $_ })
+    }
+    $domainBSeedBeforeHashes = @($domainBSeedBeforeRecords | ForEach-Object { [string]$_.artifact_sha256 })
+    $domainBSeedAddedRecords = @($domainBSeedAfterRecords | Where-Object {
+        $_.artifact_sha256 -match '^sha256:[0-9a-f]{64}$' -and
+        $domainBSeedBeforeHashes -notcontains [string]$_.artifact_sha256
+    })
+    if ($domainBSeedAddedRecords.Count -eq 1) {
+        $domainBSeedRecord = $domainBSeedAddedRecords[0]
+        $domainBSeedArtifactSha256 = [string]$domainBSeedRecord.artifact_sha256
+    }
+    $domainBSeedOk = $domainBSeedSelftest.schema -eq "raios.artifact_store_selftest.v0" -and
+        [bool]$domainBSeedSelftest.passed -and
+        [int64]$domainBSeedSelftest.case_count -eq 7 -and
+        $domainBSeedPositiveCases.Count -eq 1 -and
+        [int64]$domainBSeedAfter.artifact_persist_record_count -eq ([int64]$domainBSeedBefore.artifact_persist_record_count + 1) -and
+        $domainBSeedAddedRecords.Count -eq 1 -and
+        $domainBSeedRecord.present -eq $true -and
+        $domainBSeedRecord.blob_hash_verified -eq $true -and
+        $domainBSeedArtifactSha256 -match '^sha256:[0-9a-f]{64}$' -and
+        $domainBSeedRecord.parsed_payload_sha256 -eq $domainBSeedArtifactSha256 -and
+        $domainBSeedRecord.artstor_blob_frame_sha256 -eq $domainBSeedRecord.computed_blob_frame_sha256 -and
+        $domainBSeedRecord.promotion_transaction_sha256 -match '^sha256:[0-9a-f]{64}$'
+}
+catch {
+    $domainBSeedOk = $false
+    $domainBSeedError = $_.Exception.Message
+}
+$domainBSeedDump = [ordered]@{ error = $domainBSeedError; selftest = $domainBSeedSelftestResponse; before = $domainBSeedBeforeResponse; after = $domainBSeedAfterResponse; added_records = $domainBSeedAddedRecords }
+Add-Predicate -Name "iso:B_seed" -Expected "on this run's valid-a persist disk, artifact-persist authorization appends exactly one foreign seed blob and artifact.store_scan reads it back present with verified payload/blob hashes and a linked promotion hash" -Passed $domainBSeedOk -Actual $(if ($domainBSeedOk) { "artifact=$domainBSeedArtifactSha256 blob=$($domainBSeedRecord.artstor_blob_frame_sha256) promote=$($domainBSeedRecord.promotion_transaction_sha256) acknowledgement=appended readback=verified" } else { $domainBSeedDump | ConvertTo-Json -Compress -Depth 24 })
+if (-not $domainBSeedOk) { throw "rollback isolation could not seed and read back domain B artifact" }
+
 $activation = @(Invoke-W7M6PhysicalActivation)[-1]
 $activationBinding = $activation.ActivationResponse.source_binding
 $activationLifecycle = $activation.LastLifecycleResponse
@@ -280,112 +347,6 @@ $domainBForeignBefore = @()
 $domainBForeignIdentifiersBefore = @()
 $domainBForeignBeforeJson = ""
 $domainBForeignRecordCount = 0
-$domainAFamilySchemas = @(
-    $domainAServiceId,
-    "raios.install_authorization.v0",
-    "raios.promotion_transaction.v0",
-    "raios.artifact_persist.v0"
-)
-$getDomainFamilySchemas = {
-    param([object]$Record, [string]$FallbackSchema)
-    $values = @()
-    if ($null -ne $Record) {
-        foreach ($propertyName in @("family", "schema", "record_family", "record_schema", "payload_family", "payload_schema")) {
-            if ($Record.PSObject.Properties.Name -contains $propertyName) {
-                $propertyValue = [string]$Record.$propertyName
-                if ($propertyValue.Length -gt 0 -and $values -notcontains $propertyValue) {
-                    $values += $propertyValue
-                }
-            }
-        }
-        foreach ($payloadPropertyName in @("payload", "payload_json")) {
-            if ($Record.PSObject.Properties.Name -contains $payloadPropertyName -and $null -ne $Record.$payloadPropertyName) {
-                $payload = $Record.$payloadPropertyName
-                foreach ($propertyName in @("family", "schema")) {
-                    if ($payload.PSObject.Properties.Name -contains $propertyName) {
-                        $propertyValue = [string]$payload.$propertyName
-                        if ($propertyValue.Length -gt 0 -and $values -notcontains $propertyValue) {
-                            $values += $propertyValue
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if ($values.Count -eq 0 -and $FallbackSchema.Length -gt 0) {
-        $values += $FallbackSchema
-    }
-    $values
-}
-$selectForeignDurableEntries = {
-    param([object]$ReclogScan, [object]$ArtifactScan)
-    $sources = @()
-    if ($null -ne $ReclogScan -and $ReclogScan.PSObject.Properties.Name -contains "records") {
-        $reclogRecords = $ReclogScan.records | ForEach-Object { $_ }
-        foreach ($record in $reclogRecords) {
-            $sources += [pscustomobject][ordered]@{ source = "durable.record_log_scan.records"; fallback_schema = ""; record = $record }
-        }
-    }
-    if ($null -ne $ArtifactScan) {
-        if ($ArtifactScan.PSObject.Properties.Name -contains "records") {
-            $artifactRecords = $ArtifactScan.records | ForEach-Object { $_ }
-            foreach ($record in $artifactRecords) {
-                $sources += [pscustomobject][ordered]@{ source = "artifact.store_scan.records"; fallback_schema = "raios.artifact_persist.v0"; record = $record }
-            }
-        }
-        if ($ArtifactScan.PSObject.Properties.Name -contains "ui_program_persist_records") {
-            $uiProgramRecords = $ArtifactScan.ui_program_persist_records | ForEach-Object { $_ }
-            foreach ($record in $uiProgramRecords) {
-                $sources += [pscustomobject][ordered]@{ source = "artifact.store_scan.ui_program_persist_records"; fallback_schema = "raios.artifact_persist.v0"; record = $record }
-            }
-        }
-        if ($ArtifactScan.PSObject.Properties.Name -contains "blobs") {
-            $artifactBlobs = $ArtifactScan.blobs | ForEach-Object { $_ }
-            foreach ($record in $artifactBlobs) {
-                $sources += [pscustomobject][ordered]@{ source = "artifact.store_scan.blobs"; fallback_schema = ""; record = $record }
-            }
-        }
-    }
-    $selected = @()
-    foreach ($source in $sources) {
-        $familySchemas = @(& $getDomainFamilySchemas -Record $source.record -FallbackSchema $source.fallback_schema)
-        $isForeign = $familySchemas.Count -gt 0
-        foreach ($familySchema in $familySchemas) {
-            if ($domainAFamilySchemas -contains [string]$familySchema) {
-                $isForeign = $false
-            }
-        }
-        if ($isForeign) {
-            $selected += [pscustomobject][ordered]@{
-                source = [string]$source.source
-                family_schema = $familySchemas
-                record = $source.record
-            }
-        }
-    }
-    $selected
-}
-$getForeignDurableIdentifiers = {
-    param([object[]]$Entries)
-    $identifiers = @()
-    foreach ($entry in $Entries) {
-        $record = $entry.record
-        $identifiers += [pscustomobject][ordered]@{
-            source = [string]$entry.source
-            seq = $(if ($record.PSObject.Properties.Name -contains "seq") { $record.seq } else { $null })
-            family_schema = $entry.family_schema
-            payload_sha256 = $(if ($record.PSObject.Properties.Name -contains "payload_sha256") { [string]$record.payload_sha256 } else { "" })
-            parsed_payload_sha256 = $(if ($record.PSObject.Properties.Name -contains "parsed_payload_sha256") { [string]$record.parsed_payload_sha256 } else { "" })
-            artifact_sha256 = $(if ($record.PSObject.Properties.Name -contains "artifact_sha256") { [string]$record.artifact_sha256 } else { "" })
-            canonical_program_sha256 = $(if ($record.PSObject.Properties.Name -contains "canonical_program_sha256") { [string]$record.canonical_program_sha256 } else { "" })
-            frame_sha256 = $(if ($record.PSObject.Properties.Name -contains "frame_sha256") { [string]$record.frame_sha256 } else { "" })
-            reclog_frame_sha256 = $(if ($record.PSObject.Properties.Name -contains "reclog_frame_sha256") { [string]$record.reclog_frame_sha256 } else { "" })
-            artstor_blob_frame_sha256 = $(if ($record.PSObject.Properties.Name -contains "artstor_blob_frame_sha256") { [string]$record.artstor_blob_frame_sha256 } else { "" })
-            computed_blob_frame_sha256 = $(if ($record.PSObject.Properties.Name -contains "computed_blob_frame_sha256") { [string]$record.computed_blob_frame_sha256 } else { "" })
-        }
-    }
-    $identifiers
-}
 $domainBReclogIdentifiersBefore = [ordered]@{
     artifact_persist_seq = $null
     promotion_transaction_sha256 = $null
@@ -425,24 +386,36 @@ try {
         }
     }
     elseif ($null -eq $domainBSelection) {
-        $domainBForeignBefore = @(& $selectForeignDurableEntries -ReclogScan $install.PreReclogScan -ArtifactScan $install.PreArtifactScan)
-        $domainBForeignIdentifiersBefore = @(& $getForeignDurableIdentifiers -Entries $domainBForeignBefore)
+        $domainBForeignBefore = @($install.PreArtifactScan.records | Where-Object {
+            $_.artifact_sha256 -eq $domainBSeedArtifactSha256
+        })
         $domainBForeignRecordCount = [int]$domainBForeignBefore.Count
-        $domainBForeignBeforeJson = ConvertTo-Json -InputObject $domainBForeignBefore -Compress -Depth 32
-        $domainBPreOk = $domainBForeignRecordCount -ge 1 -and $domainBForeignBeforeJson.Length -gt 0
+        if ($domainBForeignRecordCount -eq 1) {
+            $domainBArtifactBefore = $domainBForeignBefore[0]
+            $domainBForeignBeforeJson = $domainBArtifactBefore | ConvertTo-Json -Compress -Depth 32
+            $domainBForeignIdentifiersBefore = @([pscustomobject][ordered]@{
+                source = "artifact.store_scan.records"
+                seq = $domainBArtifactBefore.seq
+                artifact_sha256 = [string]$domainBArtifactBefore.artifact_sha256
+                parsed_payload_sha256 = [string]$domainBArtifactBefore.parsed_payload_sha256
+                promotion_transaction_sha256 = [string]$domainBArtifactBefore.promotion_transaction_sha256
+                artstor_blob_frame_sha256 = [string]$domainBArtifactBefore.artstor_blob_frame_sha256
+                computed_blob_frame_sha256 = [string]$domainBArtifactBefore.computed_blob_frame_sha256
+            })
+        }
+        $domainBPreOk = $domainBForeignRecordCount -eq 1 -and
+            $domainBSeedArtifactSha256 -match '^sha256:[0-9a-f]{64}$' -and
+            $domainBArtifactBefore.artifact_sha256 -eq $domainBSeedArtifactSha256 -and
+            $domainBArtifactBefore.artifact_sha256 -ne $activation.CandidateSha256 -and
+            $domainBArtifactBefore.present -eq $true -and
+            $domainBArtifactBefore.blob_hash_verified -eq $true -and
+            $domainBArtifactBefore.parsed_payload_sha256 -eq $domainBSeedArtifactSha256 -and
+            $domainBArtifactBefore.artstor_blob_frame_sha256 -eq $domainBArtifactBefore.computed_blob_frame_sha256 -and
+            $domainBArtifactBefore.promotion_transaction_sha256 -match '^sha256:[0-9a-f]{64}$' -and
+            $domainBForeignBeforeJson.Length -gt 0
         if ($domainBPreOk) {
             $domainBMode = "records-B"
-            $domainBFirstForeignIdentifier = $domainBForeignIdentifiersBefore[0]
-            $domainBFirstForeignFamily = [string]($domainBFirstForeignIdentifier.family_schema | Select-Object -First 1)
-            $domainBFirstForeignPayloadHash = [string]($domainBForeignIdentifiersBefore | ForEach-Object { @($_.artifact_sha256, $_.payload_sha256, $_.parsed_payload_sha256, $_.canonical_program_sha256) } | Where-Object { [string]$_ -match '^sha256:[0-9a-f]{64}$' } | Select-Object -First 1)
-            $domainBFirstForeignFrameHash = [string]($domainBForeignIdentifiersBefore | ForEach-Object { @($_.reclog_frame_sha256, $_.frame_sha256) } | Where-Object { [string]$_ -match '^sha256:[0-9a-f]{64}$' } | Select-Object -First 1)
-            $domainBFirstForeignBlobHash = [string]($domainBForeignIdentifiersBefore | ForEach-Object { @($_.artstor_blob_frame_sha256, $_.computed_blob_frame_sha256) } | Where-Object { [string]$_ -match '^sha256:[0-9a-f]{64}$' } | Select-Object -First 1)
-            $domainBSelection = [pscustomobject]@{ service_id = $domainBFirstForeignFamily }
-            $domainBArtifactBefore = [pscustomobject]@{
-                artifact_sha256 = $domainBFirstForeignPayloadHash
-                promotion_transaction_sha256 = $domainBFirstForeignFrameHash
-                artstor_blob_frame_sha256 = $domainBFirstForeignBlobHash
-            }
+            $domainBSelection = [pscustomobject]@{ service_id = "artifact.store_scan.records" }
         }
     }
 }
@@ -451,7 +424,7 @@ catch {
     $domainBMode = "none"
     $domainBPreError = $_.Exception.Message
 }
-Add-Predicate -Name "iso:B_pre" -Expected "before A rollback, use service-B when a non-A running durable seeded service joins a hash-verified ARTSTOR record; otherwise use records-B by snapshotting every non-A-family durable RECLOG record and ARTSTOR record/blob with exact seq, family/schema, payload hashes, blob hashes, and complete scan-entry JSON; require at least one B record" -Passed $domainBPreOk -Actual $(if ($domainBPreOk -and $domainBMode -eq "service-B") { "mode=service-B B=$($domainBSelection.service_id) generation=$($domainBInventoryBefore.generation) artifact=$($domainBArtifactBefore.artifact_sha256) seq=$($domainBArtifactBefore.seq) promote=$($domainBArtifactBefore.promotion_transaction_sha256) blob=$($domainBArtifactBefore.artstor_blob_frame_sha256)" } elseif ($domainBPreOk -and $domainBMode -eq "records-B") { "mode=records-B foreign_records=$domainBForeignRecordCount identifiers=$(ConvertTo-Json -InputObject $domainBForeignIdentifiersBefore -Compress -Depth 12)" } else {
+Add-Predicate -Name "iso:B_pre" -Expected "before A rollback, use service-B when a non-A running durable service joins a hash-verified ARTSTOR record; otherwise records-B is exactly one artifact.store_scan.records row keyed by the seeded foreign artifact hash, distinct from A, hash-verified, and snapshotted as full compact JSON" -Passed $domainBPreOk -Actual $(if ($domainBPreOk -and $domainBMode -eq "service-B") { "mode=service-B B=$($domainBSelection.service_id) generation=$($domainBInventoryBefore.generation) artifact=$($domainBArtifactBefore.artifact_sha256) seq=$($domainBArtifactBefore.seq) promote=$($domainBArtifactBefore.promotion_transaction_sha256) blob=$($domainBArtifactBefore.artstor_blob_frame_sha256)" } elseif ($domainBPreOk -and $domainBMode -eq "records-B") { "mode=records-B source=artifact.store_scan.records artifact=$domainBSeedArtifactSha256 records=1 compact_json_snapshotted=true" } else {
     $domainBCandidateCountEvidence = try { [int]$domainBSelections.Count | ConvertTo-Json -Compress } catch { [string]$domainBSelections.Count }
     $domainBFirstCandidateIdsEvidence = try {
         $domainBFirstCandidateIds = @($domainBSelections | Sort-Object service_id, artifact_sha256 | Select-Object -First 5 | ForEach-Object { "$($_.service_id)|$($_.artifact_sha256)" })
@@ -467,14 +440,22 @@ Add-Predicate -Name "iso:B_pre" -Expected "before A rollback, use service-B when
         $domainBArtstorCompact = $install.PreArtifactResponse | ConvertTo-Json -Compress -Depth 24
         if ($domainBArtstorCompact.Length -gt 2048) { $domainBArtstorCompact.Substring(0, 2048) + "...<truncated>" } else { $domainBArtstorCompact }
     } catch { [string]$install.PreArtifactResponse }
-    $domainBReclogEvidence = try {
-        $domainBReclogCompact = $install.PreReclogResponse | ConvertTo-Json -Compress -Depth 24
-        if ($domainBReclogCompact.Length -gt 2048) { $domainBReclogCompact.Substring(0, 2048) + "...<truncated>" } else { $domainBReclogCompact }
-    } catch { [string]$install.PreReclogResponse }
     $domainBForeignEvidence = try { ConvertTo-Json -InputObject $domainBForeignIdentifiersBefore -Compress -Depth 12 } catch { [string]$domainBForeignIdentifiersBefore }
-    "mode=none candidate_count=$domainBCandidateCountEvidence first_candidate_ids=$domainBFirstCandidateIdsEvidence foreign_record_count=$domainBForeignRecordCount foreign_identifiers=$domainBForeignEvidence selection_error=$domainBPreErrorEvidence B_reclog_identifiers=$domainBReclogIdentifiersEvidence inventory_excerpt=$domainBInventoryEvidence artstor_excerpt=$domainBArtstorEvidence reclog_excerpt=$domainBReclogEvidence"
+    "mode=none candidate_count=$domainBCandidateCountEvidence first_candidate_ids=$domainBFirstCandidateIdsEvidence foreign_record_count=$domainBForeignRecordCount foreign_identifiers=$domainBForeignEvidence selection_error=$domainBPreErrorEvidence B_reclog_identifiers=$domainBReclogIdentifiersEvidence seed_artifact=$domainBSeedArtifactSha256 inventory_excerpt=$domainBInventoryEvidence artstor_excerpt=$domainBArtstorEvidence"
 })
 if (-not $domainBPreOk) { throw "rollback isolation could not establish service-B or foreign records-B" }
+
+$preRollbackReclogResponse = $null
+$preRollbackReclog = $null
+$preRollbackReclogCaptureError = ""
+try {
+    Send-AgentCommand -Command "agent durable.record_log_scan" -ExpectedMarker "RAIOS_AGENT_END durable.record_log_scan" -Name "iso:prerollback-reclog-aggregate"
+    $preRollbackReclogResponse = Get-LastAgentResponseJson -Method "durable.record_log_scan"
+    $preRollbackReclog = $preRollbackReclogResponse.body.result
+}
+catch {
+    $preRollbackReclogCaptureError = $_.Exception.Message
+}
 
 Send-AgentCommand -Command "service.rollback_preview svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.rollback_preview" -Name "m6d:rollback-preview"
 $rollbackPreviewResponse = Get-LastAgentResponseJson -Method "service.rollback_preview"
@@ -525,6 +506,16 @@ $unpromoteOk = $unpromote.transaction_kind -eq "unpromote" -and
 $unpromoteDump = [ordered]@{ rollback = $rollbackApplyResponse; reclog = $postRollbackReclogResponse; install = $install }
 Add-Predicate -Name "m6d:14_durable_unpromote_readback" -Expected "the linked unpromote is appended/read back/reparsed as the new RECLOG tail with the same candidate, verified M6 signature/grant and retained W6 install provenance, plus the verified restore hash" -Passed $unpromoteOk -Actual $(if ($unpromoteOk) { "unpromote=$($unpromote.frame_sha256) tail=$($postRollbackReclog.tail_frame_sha256)" } else { $unpromoteDump | ConvertTo-Json -Compress -Depth 24 })
 if (-not $unpromoteOk) { throw "m6d durable unpromote readback was not exact" }
+
+$rollbackAChainAppendCount = 1
+$rollbackReclogAggregateOk = $preRollbackReclogCaptureError.Length -eq 0 -and
+    $null -ne $preRollbackReclog -and
+    [int64]$postRollbackReclog.count -eq ([int64]$preRollbackReclog.count + $rollbackAChainAppendCount) -and
+    [int64]$postRollbackReclog.tail_seq -eq ([int64]$preRollbackReclog.tail_seq + $rollbackAChainAppendCount) -and
+    $unpromoteOk
+$rollbackReclogAggregateDump = [ordered]@{ capture_error = $preRollbackReclogCaptureError; exact_A_chain_appends = $rollbackAChainAppendCount; before = $preRollbackReclogResponse; after = $postRollbackReclogResponse; donor_tail_identity = $unpromoteOk }
+Add-Predicate -Name "iso:reclog_A_chain_aggregate" -Expected "rollback adds exactly one RECLOG frame (the donor m6d:14 linked unpromote): count and tail_seq each advance by one, and the donor's existing tail-identity proof remains true" -Passed $rollbackReclogAggregateOk -Actual $(if ($rollbackReclogAggregateOk) { "count=$($preRollbackReclog.count)->$($postRollbackReclog.count) tail_seq=$($preRollbackReclog.tail_seq)->$($postRollbackReclog.tail_seq) exact_A_chain_appends=1 donor_tail_identity=true" } else { $rollbackReclogAggregateDump | ConvertTo-Json -Compress -Depth 24 })
+if (-not $rollbackReclogAggregateOk) { throw "rollback RECLOG aggregate changed by more than the one A unpromote append" }
 
 $rollbackRecordChain = [ordered]@{
     rollback_plan = $rollbackPreview.rollback_plan
@@ -602,10 +593,22 @@ try {
             $domainBArtifactAfterJson -ceq $domainBArtifactBeforeJson
     }
     elseif ($domainBMode -eq "records-B") {
-        $domainBForeignAfter = @(& $selectForeignDurableEntries -ReclogScan $postRollbackReclog -ArtifactScan $postRollbackArtifact)
-        $domainBForeignIdentifiersAfter = @(& $getForeignDurableIdentifiers -Entries $domainBForeignAfter)
-        $domainBForeignAfterJson = ConvertTo-Json -InputObject $domainBForeignAfter -Compress -Depth 32
-        $domainBPostIdenticalOk = $domainBForeignAfter.Count -eq $domainBForeignRecordCount -and
+        $domainBForeignAfter = @($postRollbackArtifact.records | Where-Object {
+            $_.artifact_sha256 -eq $domainBSeedArtifactSha256
+        })
+        if ($domainBForeignAfter.Count -eq 1) {
+            $domainBForeignAfterJson = $domainBForeignAfter[0] | ConvertTo-Json -Compress -Depth 32
+            $domainBForeignIdentifiersAfter = @([pscustomobject][ordered]@{
+                source = "artifact.store_scan.records"
+                seq = $domainBForeignAfter[0].seq
+                artifact_sha256 = [string]$domainBForeignAfter[0].artifact_sha256
+                parsed_payload_sha256 = [string]$domainBForeignAfter[0].parsed_payload_sha256
+                promotion_transaction_sha256 = [string]$domainBForeignAfter[0].promotion_transaction_sha256
+                artstor_blob_frame_sha256 = [string]$domainBForeignAfter[0].artstor_blob_frame_sha256
+                computed_blob_frame_sha256 = [string]$domainBForeignAfter[0].computed_blob_frame_sha256
+            })
+        }
+        $domainBPostIdenticalOk = $domainBForeignAfter.Count -eq 1 -and
             $domainBForeignAfterJson -ceq $domainBForeignBeforeJson
     }
 }
@@ -613,8 +616,8 @@ catch {
     $domainBPostIdenticalOk = $false
     $domainBPostError = $_.Exception.Message
 }
-$domainBPostDump = [ordered]@{ mode = $domainBMode; inventory_before = $domainBInventoryBefore; inventory_after = $domainBInventoryAfterRows; artifact_before = $domainBArtifactBefore; artifact_after = $domainBArtifactAfterRows; foreign_before = $domainBForeignIdentifiersBefore; foreign_after = $domainBForeignIdentifiersAfter; comparison_error = $domainBPostError }
-Add-Predicate -Name "iso:B_post_identical" -Expected "after A rollback, service-B remains running/slot-active with byte-identical inventory and ARTSTOR rows; records-B instead has every snapshotted foreign-family RECLOG record and ARTSTOR record/blob in the same scan shapes and bit-identical compact JSON, with none missing and none added" -Passed $domainBPostIdenticalOk -Actual $(if ($domainBPostIdenticalOk -and $domainBMode -eq "service-B") { "mode=service-B B=$($domainBSelection.service_id) inventory=identical artstor=identical running=true slot=true" } elseif ($domainBPostIdenticalOk -and $domainBMode -eq "records-B") { "mode=records-B foreign_records=$domainBForeignRecordCount none_missing=true none_added=true compact_json=identical" } else { $domainBPostDump | ConvertTo-Json -Compress -Depth 32 })
+$domainBPostDump = [ordered]@{ mode = $domainBMode; inventory_before = $domainBInventoryBefore; inventory_after = $domainBInventoryAfterRows; artifact_before = $domainBArtifactBefore; artifact_after = $domainBArtifactAfterRows; foreign_before = $domainBForeignIdentifiersBefore; foreign_after = $domainBForeignIdentifiersAfter; matching_seed_rows_after = $domainBForeignAfter.Count; comparison_error = $domainBPostError }
+Add-Predicate -Name "iso:B_post_identical" -Expected "after A rollback, service-B remains running/slot-active with byte-identical inventory and ARTSTOR rows; records-B independently re-scans artifact.store_scan and finds exactly one seeded-hash row whose full compact JSON is bit-identical" -Passed $domainBPostIdenticalOk -Actual $(if ($domainBPostIdenticalOk -and $domainBMode -eq "service-B") { "mode=service-B B=$($domainBSelection.service_id) inventory=identical artstor=identical running=true slot=true" } elseif ($domainBPostIdenticalOk -and $domainBMode -eq "records-B") { "mode=records-B artifact=$domainBSeedArtifactSha256 missing=false duplicated=false compact_json=identical" } else { $domainBPostDump | ConvertTo-Json -Compress -Depth 32 })
 if (-not $domainBPostIdenticalOk) { throw "domain B changed during domain A rollback" }
 
 Send-AgentCommand -Command "service.rollback_apply svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.rollback_apply" -Name "m6d:second-rollback-apply"
