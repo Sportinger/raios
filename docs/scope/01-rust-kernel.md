@@ -42,8 +42,16 @@
       additive evolution)
 - [ ] Invalid/malformed import or call → typed denial/trap + log, never undefined
       behavior or partial host effect
-- [ ] Import/capability catalog exported as structured data (agents read it,
+- [x] Import/capability catalog exported as structured data (agents read it,
       not kernel headers)
+      <!-- structured, not headers: known_host_imports + count exported
+      (agent_protocol_honesty.rs:285), capability catalog with
+      id/risk/status/scope/summary (agent_protocol_system.rs:16,776).
+      Predicates protocol:system_honesty_report_standing_posture (exact
+      import list+count) and protocol:capability_catalog_status_observed
+      (structured entries, non-authorizing read) green in current-session
+      shadow-20260719-192220-32592 (507/507). Signatures/import→cap mapping
+      are the separate ABI box (open). -->
 - [ ] Negative tests: missing imports, wrong signatures, bad guest-memory
       offsets/lengths, bad handles, and out-of-range indices fail closed
       <!-- evidence (default-deny import boundary):
