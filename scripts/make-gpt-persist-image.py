@@ -658,9 +658,12 @@ def parse_buildfs_manifest(manifest: bytes) -> dict[bytes, int]:
 
 def ensure_artstor_seed_fits(frame_bytes: int) -> None:
     region_bytes = ARTSTOR_LBA_COUNT * SECTOR_SIZE
-    if frame_bytes > region_bytes:
+    required_bytes = frame_bytes + SECTOR_SIZE
+    if required_bytes > region_bytes:
         raise ValueError(
-            f"BuildFS frames exceed ARTSTOR region: need {frame_bytes} bytes, have {region_bytes}"
+            "BuildFS frames plus trailing zero sector exceed ARTSTOR region: "
+            f"need {required_bytes} bytes ({frame_bytes} frame bytes + {SECTOR_SIZE} terminator), "
+            f"have {region_bytes}"
         )
 
 
@@ -721,38 +724,84 @@ def prepare_buildfs_seed(buildfs_directory: Path, expected_manifest_sha256: str)
     return BuildFsSeed(expected, tuple(payloads), frame_bytes)
 
 
+def prepare_buildfs_seeds(
+    seed_pairs: tuple[tuple[Path, str], ...],
+) -> tuple[BuildFsSeed, ...]:
+    if not seed_pairs:
+        raise ValueError("at least one paired BuildFS seed is required")
+    seeds = tuple(
+        prepare_buildfs_seed(buildfs_directory, expected_manifest_sha256)
+        for buildfs_directory, expected_manifest_sha256 in seed_pairs
+    )
+    ensure_artstor_seed_fits(sum(seed.frame_bytes for seed in seeds))
+    return seeds
+
+
 def seed_buildfs(handle, seed: BuildFsSeed) -> None:
+    seed_buildfs_trees(handle, (seed,))
+
+
+def seed_buildfs_trees(handle, seeds: tuple[BuildFsSeed, ...]) -> None:
+    if not seeds:
+        raise ValueError("at least one prepared BuildFS seed is required")
+    ensure_artstor_seed_fits(sum(seed.frame_bytes for seed in seeds))
     handle.seek((SEED_DATA_START_LBA + ARTSTOR_START_LBA) * SECTOR_SIZE)
-    for entry in seed.payloads:
-        if hashlib.sha256(entry.payload).digest() != entry.sha256:
-            raise ValueError(f"BuildFS payload changed after preflight: {entry.label}")
-        handle.write(build_artifact_blob_frame(entry.payload, artifact_blob_frame_len(len(entry.payload))))
+    for tree_index, seed in enumerate(seeds):
+        for entry in seed.payloads:
+            if hashlib.sha256(entry.payload).digest() != entry.sha256:
+                raise ValueError(
+                    f"BuildFS tree {tree_index + 1} payload changed after preflight: {entry.label}"
+                )
+            handle.write(
+                build_artifact_blob_frame(entry.payload, artifact_blob_frame_len(len(entry.payload)))
+            )
+    handle.write(b"\0" * SECTOR_SIZE)
 
 
 def validate_buildfs_seed_image(image: Path, seed: BuildFsSeed) -> None:
+    validate_buildfs_seed_trees_image(image, (seed,))
+
+
+def validate_buildfs_seed_trees_image(image: Path, seeds: tuple[BuildFsSeed, ...]) -> None:
+    if not seeds:
+        raise ValueError("at least one prepared BuildFS seed is required")
+    expected_frame_bytes = sum(seed.frame_bytes for seed in seeds)
+    ensure_artstor_seed_fits(expected_frame_bytes)
     offset = 0
     with image.open("rb") as handle:
-        for entry in seed.payloads:
-            frame_len = artifact_blob_frame_len(len(entry.payload))
-            frame = read_artstor_blob(handle, SEED_DATA_START_LBA, offset, frame_len)
-            parsed, reason = parse_artifact_blob_frame(frame, 0)
-            if parsed is None:
-                raise ValueError(f"BuildFS ARTSTOR frame failed offline parse at {offset}: {reason}")
-            payload = frame[ARTIFACT_BLOB_HEADER_LEN : ARTIFACT_BLOB_HEADER_LEN + len(entry.payload)]
-            if (
-                int(parsed["frame_len"]) != frame_len
-                or int(parsed["payload_len"]) != len(entry.payload)
-                or parsed["payload_sha256"] != entry.sha256.hex()
-                or hashlib.sha256(payload).digest() != entry.sha256
-            ):
-                raise ValueError(f"BuildFS ARTSTOR frame binding mismatch: {entry.label}")
-            offset += frame_len
-        if offset != seed.frame_bytes:
+        for tree_index, seed in enumerate(seeds):
+            tree_start = offset
+            for entry in seed.payloads:
+                frame_len = artifact_blob_frame_len(len(entry.payload))
+                frame = read_artstor_blob(handle, SEED_DATA_START_LBA, offset, frame_len)
+                parsed, reason = parse_artifact_blob_frame(frame, 0)
+                if parsed is None:
+                    raise ValueError(
+                        f"BuildFS tree {tree_index + 1} ARTSTOR frame failed offline parse "
+                        f"at {offset}: {reason}"
+                    )
+                payload = frame[
+                    ARTIFACT_BLOB_HEADER_LEN : ARTIFACT_BLOB_HEADER_LEN + len(entry.payload)
+                ]
+                if (
+                    int(parsed["frame_len"]) != frame_len
+                    or int(parsed["payload_len"]) != len(entry.payload)
+                    or parsed["payload_sha256"] != entry.sha256.hex()
+                    or hashlib.sha256(payload).digest() != entry.sha256
+                ):
+                    raise ValueError(
+                        f"BuildFS tree {tree_index + 1} ARTSTOR frame binding mismatch: "
+                        f"{entry.label}"
+                    )
+                offset += frame_len
+            if offset - tree_start != seed.frame_bytes:
+                raise ValueError(f"BuildFS tree {tree_index + 1} ARTSTOR frame span drift")
+        if offset != expected_frame_bytes:
             raise ValueError("BuildFS ARTSTOR frame span drift")
-        if offset < ARTSTOR_LBA_COUNT * SECTOR_SIZE:
-            handle.seek((SEED_DATA_START_LBA + ARTSTOR_START_LBA) * SECTOR_SIZE + offset)
-            if not all_zero(handle.read(SECTOR_SIZE)):
-                raise ValueError("BuildFS ARTSTOR frames are not followed by a zero sector")
+        handle.seek((SEED_DATA_START_LBA + ARTSTOR_START_LBA) * SECTOR_SIZE + offset)
+        terminator = handle.read(SECTOR_SIZE)
+        if len(terminator) != SECTOR_SIZE or not all_zero(terminator):
+            raise ValueError("BuildFS ARTSTOR frames are not followed by one zero sector")
 
 
 def seed_reclog_fixture(handle, fixture: ReclogFixture) -> None:
@@ -1463,10 +1512,18 @@ def build_image(
     bootctl_fixture_spec: str | None = None,
     seed_artstor_garbage: bool = False,
     buildfs_seed: BuildFsSeed | None = None,
+    buildfs_seeds: tuple[BuildFsSeed, ...] | None = None,
 ) -> None:
     assert_not_release_output(output)
     if ARTSTOR_LBA_COUNT <= 0:
         raise RuntimeError("SEED_DATA is too small for ARTSTOR")
+    if buildfs_seed is not None and buildfs_seeds is not None:
+        raise ValueError("single and multi BuildFS seeds cannot both be supplied")
+    effective_buildfs_seeds = (
+        buildfs_seeds
+        if buildfs_seeds is not None
+        else ((buildfs_seed,) if buildfs_seed is not None else ())
+    )
 
     reclog_fixture = parse_reclog_fixture(reclog_fixture_spec)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -1490,8 +1547,8 @@ def build_image(
         seed_reclog_fixture(handle, reclog_fixture)
         if seed_artstor_garbage:
             seed_artstor_garbage_blob(handle)
-        if buildfs_seed is not None:
-            seed_buildfs(handle, buildfs_seed)
+        if effective_buildfs_seeds:
+            seed_buildfs_trees(handle, effective_buildfs_seeds)
         seed_bootctl_fixture(handle, bootctl_fixture_spec)
         write_at(handle, BACKUP_GPT_ENTRIES_LBA, entries)
         write_at(handle, BACKUP_GPT_HEADER_LBA, backup_header)
@@ -2272,43 +2329,162 @@ def run_buildfs_seed_self_check() -> None:
     root = Path(tempfile.gettempdir()) / f"raios-buildfs-seed-{uuid.uuid4().hex}"
     root.mkdir()
     try:
-        source = root / "source"
-        nested = source / "nested"
-        packed = root / "packed"
-        image = root / "persist.img"
-        nested.mkdir(parents=True)
-        (source / "alpha.txt").write_bytes(b"alpha\n")
-        (source / "alpha-copy.txt").write_bytes(b"alpha\n")
-        (nested / "multi.bin").write_bytes(bytes(range(256)) * 257)
-        packed_result = subprocess.run(
-            ["cargo", "run", "--quiet", "-p", "buildfs-pack", "--", str(source), "--output", str(packed)],
-            cwd=repository,
-            capture_output=True,
-            text=True,
-            check=False,
+        cargo_environment = os.environ.copy()
+        cargo_environment["CARGO_HOME"] = str(Path.home() / ".cargo")
+        cargo_environment["CARGO_TARGET_DIR"] = str(repository / "target")
+
+        def pack_fixture(name: str, files: dict[str, bytes]) -> tuple[Path, str]:
+            source = root / f"{name}-source"
+            packed = root / f"{name}-packed"
+            source.mkdir()
+            for relative_path, payload in files.items():
+                target = source / relative_path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(payload)
+            packed_result = subprocess.run(
+                [
+                    "cargo",
+                    "run",
+                    "--quiet",
+                    "-p",
+                    "buildfs-pack",
+                    "--",
+                    str(source),
+                    "--output",
+                    str(packed),
+                ],
+                cwd=repository,
+                env=cargo_environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if packed_result.returncode != 0:
+                detail = packed_result.stderr.strip() or packed_result.stdout.strip()
+                raise ValueError(f"buildfs-pack {name} self-check fixture failed: {detail}")
+            expected = (packed / "manifest.sha256").read_text(encoding="ascii").strip()
+            return packed, expected
+
+        packed_one, expected_one = pack_fixture(
+            "tree-one",
+            {
+                "alpha.txt": b"alpha-only\n",
+                "shared.txt": b"shared-across-trees\n",
+                "nested/multi.bin": bytes(range(256)) * 257,
+            },
         )
-        if packed_result.returncode != 0:
-            detail = packed_result.stderr.strip() or packed_result.stdout.strip()
-            raise ValueError(f"buildfs-pack self-check fixture failed: {detail}")
-        expected = (packed / "manifest.sha256").read_text(encoding="ascii").strip()
-        seed = prepare_buildfs_seed(packed, expected)
-        build_image(image, buildfs_seed=seed)
-        validate_buildfs_seed_image(image, seed)
+        packed_two, expected_two = pack_fixture(
+            "tree-two",
+            {
+                "beta.txt": b"beta-only\n",
+                "shared.txt": b"shared-across-trees\n",
+            },
+        )
+        seeds = prepare_buildfs_seeds(
+            ((packed_one, expected_one), (packed_two, expected_two))
+        )
+        image = root / "persist.img"
+        build_image(image, buildfs_seeds=seeds)
+        validate_buildfs_seed_trees_image(image, seeds)
+
+        expected_frames = b"".join(
+            build_artifact_blob_frame(entry.payload, artifact_blob_frame_len(len(entry.payload)))
+            for seed in seeds
+            for entry in seed.payloads
+        )
+        with image.open("rb") as handle:
+            actual_frames = read_artstor_blob(
+                handle,
+                SEED_DATA_START_LBA,
+                0,
+                len(expected_frames) + SECTOR_SIZE,
+            )
+        if actual_frames != expected_frames + (b"\0" * SECTOR_SIZE):
+            raise ValueError("BuildFS multi-tree frames are not dense with one trailing zero sector")
+
+        resolved_offsets: list[int] = []
+        for tree_index, (packed, file_path, expected_payload) in enumerate(
+            (
+                (packed_one, "alpha.txt", b"alpha-only\n"),
+                (packed_two, "beta.txt", b"beta-only\n"),
+            )
+        ):
+            manifest_index = parse_buildfs_manifest_index((packed / "manifest.bin").read_bytes())
+            reference = next(
+                reference
+                for reference in manifest_index.chunk_references
+                if reference.file_path == file_path
+            )
+            with image.open("rb") as handle:
+                resolved, failure, _found_len = resolve_buildfs_chunk_frame_from_image(
+                    handle,
+                    SEED_DATA_START_LBA,
+                    reference.sha256,
+                    reference.length,
+                )
+                if failure is not None or resolved is None:
+                    raise ValueError(
+                        f"BuildFS tree {tree_index + 1} self-check chunk did not resolve: {failure}"
+                    )
+                payload = read_resolved_buildfs_chunk_from_image(
+                    handle,
+                    SEED_DATA_START_LBA,
+                    resolved,
+                )
+            if payload != expected_payload:
+                raise ValueError(f"BuildFS tree {tree_index + 1} resolved the wrong chunk payload")
+            if tree_index == 1 and resolved.frame_offset < seeds[0].frame_bytes:
+                raise ValueError("BuildFS tree 2 chunk resolved before the tree 2 frame span")
+            resolved_offsets.append(resolved.frame_offset)
+
+        shared_sha256 = hashlib.sha256(b"shared-across-trees\n").digest()
+        duplicate_frame_count = sum(
+            entry.sha256 == shared_sha256
+            for seed in seeds
+            for entry in seed.payloads
+        )
+        if duplicate_frame_count != 2:
+            raise ValueError("BuildFS cross-tree duplicate chunk was not written once per tree")
+
+        single_image = root / "single-persist.img"
+        build_image(single_image, buildfs_seed=seeds[0])
+        validate_buildfs_seed_image(single_image, seeds[0])
+        expected_single_frames = expected_frames[: seeds[0].frame_bytes]
+        with single_image.open("rb") as handle:
+            actual_single_frames = read_artstor_blob(
+                handle,
+                SEED_DATA_START_LBA,
+                0,
+                seeds[0].frame_bytes + SECTOR_SIZE,
+            )
+        if actual_single_frames != expected_single_frames + (b"\0" * SECTOR_SIZE):
+            raise ValueError("BuildFS single-tree byte layout regressed")
 
         try:
-            prepare_buildfs_seed(packed, "00" * 32)
+            pair_buildfs_seed_arguments(
+                [packed_one, packed_two],
+                [expected_one],
+            )
+        except ValueError as exc:
+            if "must be repeated equally" not in str(exc):
+                raise
+        else:
+            raise ValueError("BuildFS self-check accepted unpaired multi-tree CLI arguments")
+
+        try:
+            prepare_buildfs_seed(packed_one, "00" * 32)
         except ValueError as exc:
             if "manifest SHA-256 mismatch" not in str(exc):
                 raise
         else:
             raise ValueError("BuildFS self-check accepted the wrong manifest pin")
 
-        first_chunk = sorted((packed / "chunks").iterdir(), key=lambda path: path.name)[0]
+        first_chunk = sorted((packed_one / "chunks").iterdir(), key=lambda path: path.name)[0]
         tampered = bytearray(first_chunk.read_bytes())
         tampered[0] ^= 1
         first_chunk.write_bytes(tampered)
         try:
-            prepare_buildfs_seed(packed, expected)
+            prepare_buildfs_seed(packed_one, expected_one)
         except ValueError as exc:
             if "chunk SHA-256 mismatch" not in str(exc):
                 raise
@@ -2323,14 +2499,55 @@ def run_buildfs_seed_self_check() -> None:
         else:
             raise ValueError("BuildFS self-check accepted an oversized ARTSTOR span")
 
+        tree_two_first_payload = (
+            (SEED_DATA_START_LBA + ARTSTOR_START_LBA) * SECTOR_SIZE
+            + seeds[0].frame_bytes
+            + ARTIFACT_BLOB_HEADER_LEN
+        )
+        with image.open("r+b") as handle:
+            handle.seek(tree_two_first_payload)
+            original_byte = handle.read(1)
+            if len(original_byte) != 1:
+                raise ValueError("BuildFS self-check could not read the tree 2 tamper byte")
+            handle.seek(tree_two_first_payload)
+            handle.write(bytes((original_byte[0] ^ 1,)))
+        try:
+            validate_buildfs_seed_trees_image(image, seeds)
+        except ValueError as exc:
+            if "tree 2 ARTSTOR frame failed offline parse" not in str(exc):
+                raise
+        else:
+            raise ValueError("BuildFS self-check accepted a tampered tree 2 image frame")
+
         print(
             "buildfs self-check: passed "
-            f"manifest={expected} chunks={len(seed.payloads) - 1} "
-            f"frames={len(seed.payloads)} frame_bytes={seed.frame_bytes} "
-            "negative=manifest_mismatch+chunk_hash_mismatch+region_overflow"
+            f"trees={len(seeds)} manifests={expected_one},{expected_two} "
+            f"frames={sum(len(seed.payloads) for seed in seeds)} "
+            f"frame_bytes={sum(seed.frame_bytes for seed in seeds)} "
+            f"resolved_tree1_offset={resolved_offsets[0]} "
+            f"resolved_tree2_offset={resolved_offsets[1]} "
+            f"duplicate_frames={duplicate_frame_count} trailing_zero=passed "
+            "single_tree_regression=passed "
+            "negative=pair_count_mismatch+manifest_mismatch+chunk_hash_mismatch+"
+            "region_overflow+tree2_frame_tamper"
         )
     finally:
         shutil.rmtree(root)
+
+
+def pair_buildfs_seed_arguments(
+    buildfs_directories: list[Path] | None,
+    expected_manifest_sha256: list[str] | None,
+) -> tuple[tuple[Path, str], ...]:
+    directories = tuple(buildfs_directories or ())
+    expected_hashes = tuple(expected_manifest_sha256 or ())
+    if len(directories) != len(expected_hashes):
+        raise ValueError(
+            "--seed-buildfs and --expect-manifest-sha256 must be repeated equally: "
+            f"got {len(directories)} director{'y' if len(directories) == 1 else 'ies'} "
+            f"and {len(expected_hashes)} manifest pin{'s' if len(expected_hashes) != 1 else ''}"
+        )
+    return tuple(zip(directories, expected_hashes))
 
 
 def main() -> int:
@@ -2379,20 +2596,32 @@ def main() -> int:
     parser.add_argument(
         "--seed-buildfs",
         type=Path,
-        help="seed a buildfs-pack output directory as dense RAIOSAR0 ARTSTOR frames",
+        action="append",
+        metavar="DIR",
+        help=(
+            "seed a buildfs-pack output directory as dense RAIOSAR0 ARTSTOR frames; "
+            "repeat with one --expect-manifest-sha256 per tree"
+        ),
     )
     parser.add_argument(
         "--expect-manifest-sha256",
-        help="required SHA-256 pin for --seed-buildfs manifest.bin",
+        action="append",
+        metavar="HEX",
+        help="required SHA-256 pin for the corresponding --seed-buildfs manifest.bin; repeat in order",
     )
     parser.add_argument("output", nargs="?", type=Path)
     args = parser.parse_args()
+    try:
+        buildfs_seed_pairs = pair_buildfs_seed_arguments(
+            args.seed_buildfs,
+            args.expect_manifest_sha256,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
 
     try:
         if (args.resolve_buildfs is None) != (args.manifest is None):
             parser.error("--resolve-buildfs and --manifest are required together")
-        if (args.seed_buildfs is None) != (args.expect_manifest_sha256 is None):
-            parser.error("--seed-buildfs and --expect-manifest-sha256 are required together")
         if args.seed_buildfs and args.seed_artstor_garbage_blob:
             parser.error("--seed-buildfs cannot be combined with --seed-artstor-garbage-blob")
         if args.seed_buildfs and (
@@ -2498,26 +2727,26 @@ def main() -> int:
             return 0
         def build_validate_print(output: Path) -> int:
             reclog_fixture = parse_reclog_fixture(args.seed_reclog_fixture)
-            buildfs_seed = (
-                prepare_buildfs_seed(args.seed_buildfs, args.expect_manifest_sha256)
-                if args.seed_buildfs is not None and args.expect_manifest_sha256 is not None
-                else None
+            buildfs_seeds = (
+                prepare_buildfs_seeds(buildfs_seed_pairs)
+                if buildfs_seed_pairs
+                else ()
             )
             build_image(
                 output,
                 args.seed_reclog_fixture,
                 args.seed_bootctl,
                 args.seed_artstor_garbage_blob,
-                buildfs_seed,
+                buildfs_seeds=buildfs_seeds or None,
             )
             info = inspect_image(output)
             validate_or_raise(info)
             validate_reclog_fixture_or_raise(info, reclog_fixture)
             validate_boot_control_fixture_or_raise(info, args.seed_bootctl)
-            if buildfs_seed is None:
+            if not buildfs_seeds:
                 validate_artstor_garbage_fixture_or_raise(info, args.seed_artstor_garbage_blob)
             else:
-                validate_buildfs_seed_image(output, buildfs_seed)
+                validate_buildfs_seed_trees_image(output, buildfs_seeds)
             print_summary(info)
             print(
                 f"reclog fixture: frames_seeded={reclog_fixture.frame_count} "
@@ -2532,7 +2761,8 @@ def main() -> int:
                 "artstor garbage fixture: "
                 f"seeded={str(args.seed_artstor_garbage_blob).lower()} validation=passed"
             )
-            if buildfs_seed is not None:
+            if len(buildfs_seeds) == 1:
+                buildfs_seed = buildfs_seeds[0]
                 print(
                     "buildfs seed: "
                     f"manifest={buildfs_seed.manifest_sha256.hex()} "
@@ -2540,6 +2770,22 @@ def main() -> int:
                     f"frames={len(buildfs_seed.payloads)} "
                     f"frame_bytes={buildfs_seed.frame_bytes} validation=passed"
                 )
+            elif buildfs_seeds:
+                print(
+                    "buildfs seed: "
+                    f"trees={len(buildfs_seeds)} "
+                    f"frames={sum(len(seed.payloads) for seed in buildfs_seeds)} "
+                    f"frame_bytes={sum(seed.frame_bytes for seed in buildfs_seeds)} "
+                    "validation=passed"
+                )
+                for tree_index, seed in enumerate(buildfs_seeds):
+                    print(
+                        f"buildfs tree {tree_index + 1}: "
+                        f"manifest={seed.manifest_sha256.hex()} "
+                        f"chunks={len(seed.payloads) - 1} "
+                        f"frames={len(seed.payloads)} "
+                        f"frame_bytes={seed.frame_bytes}"
+                    )
             print("self-check: passed")
             return 0
 
