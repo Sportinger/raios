@@ -7,28 +7,33 @@
 > fitting plan under `docs/plans/`. Max ~4 lines of text per entry, file max
 > 60 lines. Replace, never append.
 
-## Now (as of 2026-07-19 ~11:35, loop running)
+## Now (as of 2026-07-19 ~12:10, loop running)
 
-THE rustc "spin" IS SOLVED IN DIAGNOSIS: RUSTCLOCK measured cas_total=0,
-parks=5000/5000 at __lock entry (debit=208, G=0) — pump FUEL STARVATION
-(sweep returns remainder 1..207, grant only fires on escrow==0; 22ded66,
-STATUS has the full chain). Fix lane E3 in flight (top-up-to-quantum per
-activation). Also landed: RUSTCLOCK instrumentation, cargo-JSON-diag (§4
-top-level box checked, bd9c409/723af04), floor doc, unsafe inventory, dual
-quick needles. Tree clean, pushed.
+STARVATION FIX LANDED + PROVEN (e3962b0): escrow tops up to the quantum per
+activation; rustc went from 200k zero-WASI parked rounds to REAL EXECUTION
+in 4 rounds — full libc init, then fd_write ×3 to stderr, fd_filestat_get,
+fd_seek, guest_trap (shadow-20260719-113709, quick+needle 504/504,
+conformance 55/55 incl. new starvation test). rustc now fails like a normal
+program; its stderr text is currently DISCARDED (wasi_preview1 write_fd
+keeps only stdout content). Lane E4 in flight: retain+emit stderr + trap
+detail. Tree clean, pushed.
 
 ## Next step
 
-Collect E3 → I build + conformance + quick-regression + combined-image rerun:
-positive = rustc makes WASI calls / stdout after the fix (measurement recipe:
-quick + wasi.rustclock needle + -PersistDiskPath persist-combined.img
--GuestMemoryMB 8192 -KeepImage; harness deletes run dirs on pass otherwise).
-Then queued lanes (task list): §4 device-graph IRQ fields, §2 storage
-negative, §3 rollback-isolation. Owner items (not blocking): (1) §5/§6
-wording still pre-ADR-0005 — same reframe approval as §1–3; (2) bare-metal
-escape-test run needs a Surface session; (3) unattended-loop hardware.
+Collect E4 → build + combined-image rerun → READ rustc's error message →
+next fix lane per message (likely argv/env/mount shape). Measurement recipe
+in [KeepImage memory + STATUS]. Then queued: §4 device-graph IRQ fields, §2
+storage negative, §3 rollback-isolation. Owner items (not blocking): (1)
+§5/§6 wording still pre-ADR-0005 — same reframe approval as §1–3; (2)
+bare-metal escape-test run needs a Surface session; (3) unattended-loop
+hardware = money/owner.
 
 ## Recently (exactly 3, newest first)
+
+### 2026-07-19 — Starvation fix verified: rustc executes for real
+E3 top-up fix + conformance starvation test; decisive rerun: 4 rounds to
+real stderr I/O + trap vs 200k dead rounds before. The on-device compiler
+now runs and fails ordinarily; stderr capture (E4) is the next evidence.
 
 ### 2026-07-19 — Fuel starvation measured as THE rustc-init root cause
 RUSTCLOCK (generic opt-in wasmi trace, disabled-path equality proven): 5000
@@ -41,9 +46,3 @@ Lane A proved fn 114028 is musl __lock via libc.a object match; BSS-zero
 need_locks gate ⇒ legal single-thread path returns immediately ⇒ raiOS-side
 defect, 3 falsifiable hypotheses + specced RUSTCLOCK discriminator. Quick
 503/503 with the new ungranted-import needle (red-run negative proven).
-
-### 2026-07-19 — Reframe landed; ISO boxes earned; spin pinpointed
-§1–3 rewritten to the built Wasm-isolation architecture (owner-approved). OOB
-escape negative test green as permanent quick needle (isolation.selftest,
-502/502) + import-deny evidence verified → §1/§2/§3 boxes checked. RUSTCPC
-profile: 98% of samples in fn 114028, directly before the thread-spawn caller.
