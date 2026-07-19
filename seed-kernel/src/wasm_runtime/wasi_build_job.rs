@@ -2644,9 +2644,9 @@ fn rustcbuild_args() -> Vec<Vec<u8>> {
         b"--sysroot".to_vec(),
         b"/sysroot".to_vec(),
         b"-Ccodegen-units=1".to_vec(),
+        b"-Ztemps-dir=/tmp".to_vec(),
         b"-Clinker=rust-lld".to_vec(),
-        b"-o".to_vec(),
-        b"/out/hello.wasm".to_vec(),
+        b"--emit=link=/out/hello.wasm,metadata=/tmp/hello.rmeta".to_vec(),
     ]
 }
 
@@ -4302,13 +4302,39 @@ mod evidence_tests {
                 b"--sysroot",
                 b"/sysroot",
                 b"-Ccodegen-units=1",
+                b"-Ztemps-dir=/tmp",
                 b"-Clinker=rust-lld",
-                b"-o",
-                b"/out/hello.wasm",
+                b"--emit=link=/out/hello.wasm,metadata=/tmp/hello.rmeta",
             ]
             .iter()
             .map(|argument| argument.to_vec())
             .collect::<Vec<_>>(),
+        );
+    }
+
+    #[test]
+    fn rustcbuild_argv_keeps_intermediates_out_of_the_output_mount() {
+        let arguments = rustcbuild_args();
+        assert!(arguments
+            .iter()
+            .any(|argument| argument.as_slice() == b"-Ztemps-dir=/tmp"));
+        assert!(!arguments
+            .iter()
+            .any(|argument| argument.starts_with(b"-Ctemps-dir=")));
+        assert!(!arguments
+            .iter()
+            .any(|argument| argument.as_slice() == b"-o"));
+        assert!(arguments.iter().any(|argument| argument.as_slice()
+            == b"--emit=link=/out/hello.wasm,metadata=/tmp/hello.rmeta"));
+        assert_eq!(
+            arguments
+                .iter()
+                .map(|argument| argument
+                    .windows(b"/out/".len())
+                    .filter(|path| *path == b"/out/")
+                    .count())
+                .sum::<usize>(),
+            1,
         );
     }
 
