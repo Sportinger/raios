@@ -52,9 +52,32 @@ interleaved determinism. Proven: a multi-thread WASI fixture spawns a worker
 that fd_writes on the shared instance, double-run trace+effect digests equal —
 `RAIOS_WASITHREAD selftest=pass spawns=1 trace_det=1 effect_det=1` (8192,
 shadow-20260719-051453), all frozen selftests still green. The combined
-sysroot+compiler image is built + kernel-verified. Next: run the real rustc
-through this pump with the mounted sysroot (args rustc --version), then
-hello.rs double-build through the commit gate = the W5 factory proof.
+sysroot+compiler image is built + kernel-verified.
+
+**THE REAL RUSTC COMPILER EXECUTES INSIDE raiOS (2026-07-19).** wasi.rustcrun
+(150a968) reassembles the compiler from the store (sha c6dccf3e), mounts the
+real sysroot at /sysroot through the granted rehashed reader, sets argv
+`rustc --version --sysroot /sysroot`, reserves shared memory at class max,
+and drives the module on the merged pump. The wasip1-threads
+__wasm_init_memory atomic barrier that trapped non-resumable pre.start is
+cleared by a vendored resumable-start seam (InstancePre::start_split,
+afbfba8): the start section runs as a thread-0 prologue through the pump's
+fuel/atomic/spawn machinery, then _start runs. Live on the 8-GiB combined
+image, the pump advances deterministically — a heartbeat showed the round
+counter climbing 6944 → 76288 → 145792 → 215328 → 282752 → 351968 (sustained,
+linear; fuel metering forces a suspension every quantum, so an advancing
+counter is proof of forward execution). So the whole on-device factory
+pipeline runs: store → gate → mount → instantiate → start section → _start
+executing real rustc bytecode.
+Honest frontier: at ~350k rounds (~3.5e11 interpreted instructions) rustc
+has printed no version yet (stdout=0, no worker spawns) — ~100x past a native
+`--version`'s budget — so it is caught in a runtime-init spin. This is the
+plan's named post-T1/T2 work: recalibrate preview1 edge semantics against
+real rustc (find the hammered WASI call — likely a clock/futex/thread-detect
+loop), plus the roadmap AOT execution stage for practical speed. The
+interpreter-under-TCG is also inherently slow (~tens of rounds/sec).
+Next: diagnose the init spin (per-import call histogram), then hello.rs
+double-build through the commit gate = the W5 factory proof.
 Open follow-ups (flagged, not blocking): map_mmio has no unmap path (VA leak,
 harmless at ~1163 mappings, matters when a full rustc run reads far more chunks);
 offline-seeded ARTSTOR frames are reclog-less and read as reserved to the store
