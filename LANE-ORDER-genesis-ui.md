@@ -2,8 +2,8 @@
 
 Owner-approved track (2026-07-18). Three sequential lanes; each has its own
 gate. UI track is disjoint from wasm_runtime/WASI lanes by file set.
-Spec source: `C:\Users\admin\Documents\raios2-ui-lab\raios-ui-lab.html`
-(browser prototype; README there documents renderer laws and fidelity
+Spec source: `raios-ui-lab.html` in this repository root
+(browser prototype; the root README documents renderer laws and fidelity
 classes; Ctrl+Shift+E in the lab exports the design delta as JSON).
 
 ## Why (one paragraph for the ADR)
@@ -78,4 +78,5 @@ Consistency is enforced at compile time, not by style guide:
 - Design changes arrive ONLY as design-delta exports from the lab; the lab
   README documents the protocol. No invented semantics: new panels/buttons
   land unwired (no-op actions) — wiring is a separate lane.
-- The orchestrator owns file sets and commits, as always.
+- UI changes happen in this lab. Transfer into the real raiOS UI is a separate
+  implementation step after design approval.

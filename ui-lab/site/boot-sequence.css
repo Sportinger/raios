@@ -1,0 +1,84 @@
+/* Website-only reconstruction of the very short visible Limine handoff. */
+#boot-sequence,
+#boot-replay { display: none; }
+
+body[data-shell-mode="website"] #boot-sequence {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: block;
+  overflow: hidden;
+  padding: clamp(12px, 2.4vw, 32px);
+  background: #000;
+  color: #EEF1F5;
+  font-family: Consolas, "Courier New", monospace;
+  opacity: 1;
+  transition: opacity 55ms linear;
+  pointer-events: none;
+}
+
+body[data-shell-mode="website"] #boot-sequence[hidden] { display: none; }
+
+body[data-shell-mode="website"] #boot-sequence[data-state="leaving"] {
+  opacity: 0;
+}
+
+.boot-sequence__log {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+  padding-top: clamp(2px, 0.6vw, 8px);
+  font-size: clamp(7px, 0.96vw, 13px);
+  line-height: 1.45;
+}
+
+.boot-sequence__line {
+  margin: 0;
+  overflow: hidden;
+  color: #EEF1F5;
+  opacity: 0;
+  white-space: nowrap;
+  animation: boot-line-in 24ms steps(1, end) forwards;
+}
+
+body[data-shell-mode="website"] #boot-replay {
+  position: absolute;
+  top: clamp(8px, 1.2vw, 16px);
+  right: clamp(8px, 1.2vw, 16px);
+  z-index: 7;
+  display: block;
+  padding: clamp(5px, 0.65vw, 8px) clamp(7px, 0.9vw, 11px);
+  border: 1px solid rgba(117, 126, 140, 0.44);
+  background: rgba(8, 9, 11, 0.78);
+  color: #8D96A3;
+  font: clamp(6px, 0.72vw, 10px)/1 Consolas, "Courier New", monospace;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0;
+  transition: opacity 160ms ease;
+  cursor: pointer;
+}
+
+body[data-shell-mode="website"] #boot-replay[hidden] { display: none; }
+body[data-shell-mode="website"] #surface-display-slot:hover #boot-replay,
+body[data-shell-mode="website"] #boot-replay:focus-visible { opacity: 1; }
+
+body[data-shell-mode="website"] #boot-replay:hover,
+body[data-shell-mode="website"] #boot-replay:focus-visible {
+  border-color: #4897F2;
+  color: #EEF1F5;
+  outline: none;
+}
+
+@media (hover: none) {
+  body[data-shell-mode="website"] #boot-replay { opacity: 0.72; }
+}
+
+@keyframes boot-line-in {
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body[data-shell-mode="website"] #boot-sequence { transition-duration: 1ms; }
+  .boot-sequence__line { animation-duration: 1ms; }
+}
