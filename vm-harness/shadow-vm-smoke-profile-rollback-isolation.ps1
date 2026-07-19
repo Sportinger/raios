@@ -455,7 +455,7 @@ $rollbackRecordChainJson = $rollbackRecordChain | ConvertTo-Json -Compress -Dept
 $domainARecordIdentifiers = @(
     $domainAServiceId,
     [string]$activation.CandidateSha256,
-    [string]$install.PromotionTransactionSha256,
+    [string]$unpromote.payload_sha256,
     [string]$unpromote.frame_sha256
 )
 $domainBRecordIdentifiers = @(
