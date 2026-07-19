@@ -7,42 +7,45 @@
 > fitting plan under `docs/plans/`. Max ~4 lines of text per entry, file max
 > 60 lines. Replace, never append.
 
-## Now (as of 2026-07-19 ~18:45, loop running)
+## Now (as of 2026-07-19 ~21:50, loop running)
 
-**03:46 PROVEN (280/280): rollback of one domain leaves foreign durable
-state bit-identical** — unpark succeeded via the per-record durable-scan
-kernel lane (4e72924) + real memory-append seeds; box checked. Earlier
-today: **hello.wasm compiled ON raiOS hash-sealed** (06:72+74), §7 whole
-section closed, §4 PCI box, §2 storage boxes (both environments). 24
-commits, all pushed. §3 remaining: 03:47 (fewer-grants delta — needs §2
-grant/revoke first), bare-metal boundary runs + distribution phase
-(owner-gated), isolation-suspicion protocol box.
+~24 SCOPE boxes closed this session; all pushed. Green: §7 whole section;
+§6 hello.wasm (hash-sealed) + granted-range; §4 PCI + 3 lane-rule boxes;
+§3 rollback-isolation (280/280); §2 storage×2 + zero-grant-create +
+cross-service + A-grants-nothing (capability/host_import.selftest, quick
+509/509 both disk modes); §1 catalog, fuel-metered, F12, malformed-import,
+negative-matrix, kernel-owns-hardware, device-import-denied. ADR 0023
+(revocable grants via one gate, dual second opinion) written; its Slice 1
+(env imports through the single ImportGate, pass-through) landed 85602a0,
+verified 509/509 byte-identical.
 
 ## Next step
 
-Next buildable frontier is §2: typed grant/revoke group (02:22-27, incl.
-revocation-stops-next-call negative) and lifecycle (<1 s kill/restart,
-crash-loop parking, 02:41-45) — scout first (the m11-wasm-import-grant
-machinery is the base; what exists vs. missing for revoke + restart
-timing). Then 03:47 rides on revoke. Also open: §1 fuel/F12/watchdog
-boxes, §4 fabric rows. Owner-gated: §5/§6 pre-ADR-0005 wording reframe;
-bare-metal escape run (Surface); unattended-loop hardware (money).
+ADR-0023 Slice 2 (the security-critical core, in progress): in-memory
+per-domain grant table + make env.counter_get revocable + a service.revoke
+method flipping the slot + the gate consulting it before the counter
+effect + the decisive negative (grant→call→revoke→SAME instance's next
+call denied, host_effect=0, peer surface still works). Durable chain +
+boot re-fold = Slice 3; rollback-delta = Slice 4; migrate the other 74
+func_wrap sites = Slice 5. Slice 2-4 then close 02:11/22/25-26 + 03:47.
+Migration is EXCLUSIVE-lane, gated on full quick staying 509/509.
 
 ## Recently (exactly 3, newest first)
 
+### 2026-07-19 — grant/revoke architecture decided + Slice 1 laid
+ADR 0023: one enforcement gate over a kernel-owned per-domain grant table
+that is a fold of the append-only grant/revoke chain (Codex+Fable
+concurrence, 1 recorded sub-decision on the suspended-call gap). Slice 1
+routes env imports through ImportGate (pass-through), 509/509 unchanged.
+
+### 2026-07-19 — §1 evidence sweep: 7 boxes on selftest proofs
+capability.selftest (zero-grant create + cross-service refusal),
+host_import.selftest (6-case malformed matrix + device-absent, all distinct
+typed reasons, zero effect), lifecycle HEAD re-run (fuel-metered + F12),
+catalog. A no-persist-disk invariance bug in the selftests, caught by the
+loop's own verification, fixed (e9af257); both quick modes 509/509.
+
 ### 2026-07-19 — hello.wasm: raiOS compiles a real program on itself
-Denied-open capture (7e5a55a) exposed the last wall live: lld creates its
-output O_CREAT|O_EXCL. EXCL support (d116e01) + temps→/tmp (0e90e78) →
-exit 0, out_files=1, sha bc5b7311…, 0 denials, 0 stderr. 06:72+74 checked.
-
-### 2026-07-19 — §3 parked on a real evidence gap
-Three B-strategies dead: no durable service in image; external disk
-forbidden; no real foreign-persist command (selftests write nothing).
-157/158 green run; profile fails closed at iso:B_seed. Unblock = kernel
-per-record durable-scan lane, queued first for the next iteration.
-
-### 2026-07-19 — §7 closed; §4 introspection + §2 storage negatives land
-Rule 12 breakdown-consistency (red paths self-tested) → §7 all green.
-device.graph carries PCI IDs/BARs/IRQs + pci_functions; fabricated PCI
-fails. storage.selftest: absent/range/quota denied, disk hashes unchanged
-in both quick+persist (507/507) and native persistence (47/47).
+Denied-open capture (7e5a55a) exposed the last wall: lld's output is
+O_CREAT|O_EXCL. EXCL support (d116e01) + temps→/tmp (0e90e78) → exit 0,
+out_files=1, sha bc5b7311…, 0 denials, 0 stderr. 06:72+74 checked.
