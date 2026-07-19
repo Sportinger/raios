@@ -235,6 +235,19 @@ impl Fuel {
         self.total.wrapping_sub(self.remaining)
     }
 
+    /// Replaces the remaining fuel without recording a grant or consumption.
+    ///
+    /// Since consumed fuel is derived as `total - remaining`, the private total
+    /// is rebased by the same delta so that [`Self::fuel_consumed`] is unchanged.
+    fn replace_remaining_fuel(&mut self, remaining: u64) -> Option<u64> {
+        let consumed = self.fuel_consumed();
+        let total = consumed.checked_add(remaining)?;
+        let previous = self.remaining;
+        self.remaining = remaining;
+        self.total = total;
+        Some(previous)
+    }
+
     /// Returns `Ok` if enough fuel is remaining to satisfy `delta` fuel consumption.
     ///
     /// Returns a [`TrapCode::OutOfFuel`] error otherwise.
@@ -846,6 +859,28 @@ impl<T> Store<T> {
     pub fn fuel_consumed(&self) -> Option<u64> {
         self.check_fuel_metering_enabled().ok()?;
         Some(self.inner.fuel.fuel_consumed())
+    }
+
+    /// Replaces the raw remaining fuel and returns its previous value.
+    ///
+    /// This operation records neither a fuel grant nor fuel consumption, so the
+    /// value reported by [`Store::fuel_consumed`] is unchanged. It is intended
+    /// only for resumable-fuel schedulers that escrow remaining fuel externally.
+    ///
+    /// # Errors
+    ///
+    /// - If fuel metering or resumable fuel is disabled.
+    /// - If the replacement cannot be represented without overflowing the fuel
+    ///   counters.
+    pub fn replace_remaining_fuel(&mut self, remaining: u64) -> Result<u64, FuelError> {
+        self.check_fuel_metering_enabled()?;
+        if !self.engine().config().get_resumable_fuel() {
+            return Err(FuelError::fuel_metering_disabled());
+        }
+        self.inner
+            .fuel
+            .replace_remaining_fuel(remaining)
+            .ok_or_else(FuelError::out_of_fuel)
     }
 
     /// Synthetically consumes an amount of fuel for the [`Store`].
