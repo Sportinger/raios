@@ -4,6 +4,39 @@ Current extracts retained during the 2026-07-18 docs split. The complete, unchan
 
 ## Current Capability Cursor
 
+**ON-DEVICE FACTORY LAYER — WASI BUILD WORLD + BAUPLATZ + SYSROOT IMPORT LIVE
+(2026-07-19).** The kernel now hosts a capability-gated Wasm build world end to
+end. Slice-6 glue: an opaque `AuthorizedBuildJob` → exact-30 WASI import linker
+(no fallback) → checked guest memory → fuel-bounded runner; storage per ADR 0020
+= a two-stage authority (core `BuildStorageAuthority` binds manifest hashes to
+the ticket; kernel materializes a per-job chunk table with per-read sha256
+rehash) + a pre-I/O commit gate + single-use output write handle. T2 threads
+closed (deterministic pump, wasi thread-spawn/proc_exit/cap-48, futex deadlock →
+deterministic JobDeadlocked). Bauplatz: the full 1-GiB shared-memory window
+(399/16384 pages) instantiates and grows on both RAM profiles — `pages_max=16384`
+live at 8 GiB — enabled by ADR 0021 park-before-charge bulk fuel (vendored wasmi;
+41/41 conformance incl. pacing invariance) + a Vec-doubling-aware grow limiter +
+4-GiB heap cap; an over-class memory shape is denied pre-instantiation. Sysroot
+import: the real 71-MB rustc sysroot (pin `13daf6f9`, 1161 CAS chunks) is seeded
+offline into ARTSTOR and read live through the granted rehashed reader — a
+single-pass sha256 index (1163 reads, not the old O(n²) ~1.35M) resolves it.
+Evidence: QEMU quick 501–502/502 with permanent needles RAIOS_WASI / RAIOS_THREADS
+/ RAIOS_WASIMEM; seeded sysimport `RAIOS_SYSIMPORT selftest=pass manifest=ok
+chunks=32` (shadow-20260719-030038). Commits 4e17c10 (gate), 9028e61 (core
+authority), 30fb378 (kernel storage), 3f2a64a (deadlock), 98b2955 (fuel),
+15331a3 (limiter), 917174b (index). ADRs 0018–0021.
+Repro (seeded sysimport, needs the external image): pack the sysroot with
+`buildfs-pack`, seed `make-gpt-persist-image.py --seed-buildfs <dir>
+--expect-manifest-sha256 13daf6f9… out.img`, then
+`shadow-vm-smoke.ps1 -Profile quick -PersistDiskPath out.img -TimeoutSeconds 600`
+with the `wasi.sysimport` needle. Next: compiler artifact (91 MB) same route,
+then hello.rs double-build = the W5 factory proof.
+Open follow-ups (flagged, not blocking): map_mmio has no unmap path (VA leak,
+harmless at ~1163 mappings, matters when a full rustc run reads far more chunks);
+offline-seeded ARTSTOR frames are reclog-less and read as reserved to the store
+scan; the T2 multi-thread pump must enforce the ADR-0021 bank-monotonicity
+invariant when it later pumps >1 bulk-heavy thread.
+
 **B1.3 RUIP PROGRAM PERSISTENCE VERIFIED-CLOSED — B1 BLOCK CLOSED (2026-07-17).**
 An owner-approved RUIP program (the editor) installs durably through the SAME W6
 machinery (ARTSTOR-backed) and survives reboot: boot-2 autoload re-verifies the
