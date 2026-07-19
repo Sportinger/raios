@@ -51,6 +51,7 @@ mod capability_selftest;
 mod crypto_shims;
 mod envelope;
 mod host_import_selftest;
+mod import_gate;
 mod invocation;
 mod isolation_selftest;
 mod net_shims;

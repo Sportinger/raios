@@ -1,4 +1,5 @@
 use super::invocation::wasm_execution_busy;
+use super::import_gate::ImportGate;
 use super::*;
 
 const MAX_WASM_LOG_BYTES: usize = 256;
@@ -649,41 +650,30 @@ pub(super) fn define_granted_imports(
     linker: &mut Linker<EnvelopeState>,
     authorized: &AuthorizedWasmImports<'_>,
 ) -> Result<u64, &'static str> {
-    let mut linked = 0u64;
+    let mut gate = ImportGate::new(linker);
     let mut idx = 0usize;
     while idx < authorized.imports.len() {
         match authorized.imports[idx] {
             ("env", "log") => {
-                linker
-                    .func_wrap("env", "log", host_log)
-                    .map_err(|_| "host_import_link_failed")?;
+                gate.link("env", "log", host_log)?;
             }
             ("env", "counter_get") => {
-                linker
-                    .func_wrap("env", "counter_get", host_counter_get)
-                    .map_err(|_| "host_import_link_failed")?;
+                gate.link("env", "counter_get", host_counter_get)?;
             }
             ("env", "input_len") => {
-                linker
-                    .func_wrap("env", "input_len", host_input_len)
-                    .map_err(|_| "host_import_link_failed")?;
+                gate.link("env", "input_len", host_input_len)?;
             }
             ("env", "input_read") => {
-                linker
-                    .func_wrap("env", "input_read", host_input_read)
-                    .map_err(|_| "host_import_link_failed")?;
+                gate.link("env", "input_read", host_input_read)?;
             }
             ("env", "output_write") => {
-                linker
-                    .func_wrap("env", "output_write", host_output_write)
-                    .map_err(|_| "host_import_link_failed")?;
+                gate.link("env", "output_write", host_output_write)?;
             }
             _ => return Err("missing_host_import_implementation"),
         }
-        linked += 1;
         idx += 1;
     }
-    Ok(linked)
+    Ok(gate.linked_count())
 }
 
 pub(super) fn first_unauthorized_module_import(
