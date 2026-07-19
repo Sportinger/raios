@@ -5,7 +5,10 @@ use alloc::{
     vec,
     vec::Vec,
 };
-use core::{cell::RefCell, fmt::Write};
+use core::{
+    cell::RefCell,
+    fmt::{self, Write},
+};
 
 use raios_core::{
     authorized_build_job::{AuthorizedBuildJob, AuthorizedBuildJobRequest, BuildJobDenied},
@@ -50,9 +53,9 @@ use super::{
         BuildChunkStoreError, GrantedChunkReadDenied, GrantedChunkReader, UnbackedChunkStore,
     },
     wasi_preview1::{
-        define_wasi_imports, AtomicEventKind, MemoryGrowEvidence, ProcExitTrap, RecentAtomicEvent,
-        RecentWasiCall, ThreadHostMode, ThreadWorld, WasiHostState, RECENT_ATOMIC_EVENT_COUNT,
-        RECENT_WASI_CALL_COUNT, WASI_IMPORT_CALL_COUNT,
+        define_wasi_imports, AtomicEventKind, MemoryGrowEvidence, OutputSummary, ProcExitTrap,
+        RecentAtomicEvent, RecentWasiCall, ThreadHostMode, ThreadWorld, WasiHostState,
+        RECENT_ATOMIC_EVENT_COUNT, RECENT_WASI_CALL_COUNT, WASI_IMPORT_CALL_COUNT,
     },
     wasi_thread_pump::{
         WasiThreadDiagRunEvidence, WasiThreadJobEnd, WasiThreadJobFailure, WasiThreadJobRunner,
@@ -81,6 +84,10 @@ const JOB_MANIFEST_SHA256: &str =
 const SYSROOT_BUILD_FS_MANIFEST_SHA256: &str =
     "13daf6f9042d07c4d698d60ea16869ed85e2035f762f4b5a048e71e7523b7b15";
 const SYSROOT_BUILD_FS_MANIFEST_LEN: u64 = 51_089;
+const HELLO_SRC_FIXTURE: &[u8] = b"fn main() { println!(\"hello from raiOS\"); }\n";
+const HELLO_SRC_BUILD_FS_MANIFEST_SHA256: &str =
+    "42776b01c1ecb9297546925041cadf724370f4ed410b7bd528479d8ac18ca0ce";
+const HELLO_SRC_BUILD_FS_MANIFEST_LEN: u64 = 161;
 const SYSIMPORT_SAMPLE_TARGET: usize = 32;
 const SYSIMPORT_RUN_NONCE: u64 = 301;
 const COMPILERLOAD_READ_NONCE: u64 = 302;
@@ -88,6 +95,8 @@ const COMPILERLOAD_INSTANCE_NONCE: u64 = 303;
 const WASI_THREAD_RUN_NONCE: u64 = 304;
 const RUSTCRUN_COMPILER_READ_NONCE: u64 = 305;
 const RUSTCRUN_INSTANCE_NONCE: u64 = 306;
+const RUSTCBUILD_COMPILER_READ_NONCE: u64 = 307;
+const RUSTCBUILD_INSTANCE_NONCE: u64 = 308;
 const RUSTCDIAG_ROUND_CAP: u64 = 200_000;
 const RUSTCDIAG_TOP_IMPORTS: usize = 6;
 const RUSTCDIAG_TOP_FUNCTIONS: usize = 8;
@@ -282,6 +291,28 @@ struct CompilerReassemblyFailure {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RustcInvocation {
+    Version,
+    BuildHello,
+}
+
+impl RustcInvocation {
+    const fn compiler_read_nonce(self) -> u64 {
+        match self {
+            Self::Version => RUSTCRUN_COMPILER_READ_NONCE,
+            Self::BuildHello => RUSTCBUILD_COMPILER_READ_NONCE,
+        }
+    }
+
+    const fn instance_nonce(self) -> u64 {
+        match self {
+            Self::Version => RUSTCRUN_INSTANCE_NONCE,
+            Self::BuildHello => RUSTCBUILD_INSTANCE_NONCE,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum RustcRunStage {
     Reassembled,
     Instantiated,
@@ -342,6 +373,39 @@ struct RustcDiagEvidence {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+struct RustcBuildEvidence {
+    diagnostic: RustcDiagEvidence,
+    exit_code: Option<u32>,
+    output_summary: Option<OutputSummary>,
+    reason: &'static str,
+}
+
+struct OptionalSha256(Option<[u8; 32]>);
+
+struct OptionalExitCode(Option<u32>);
+
+impl fmt::Display for OptionalExitCode {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            Some(code) => write!(formatter, "{code}"),
+            None => formatter.write_str("none"),
+        }
+    }
+}
+
+impl fmt::Display for OptionalSha256 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Some(sha256) = self.0 else {
+            return formatter.write_str("none");
+        };
+        for byte in sha256 {
+            write!(formatter, "{byte:02x}")?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct RustclockEvidence {
     execution_trace: ExecutionTrace,
     capped: bool,
@@ -396,6 +460,7 @@ impl RustcDiagEvidence {
     fn completed(diagnostic: WasiThreadDiagRunEvidence) -> Self {
         let WasiThreadDiagRunEvidence {
             run,
+            output_summary: _,
             memory_grow,
             execution_profile,
             import_call_counts,
@@ -431,6 +496,65 @@ impl RustcDiagEvidence {
             recent_atomic_events,
         }
     }
+}
+
+impl RustcBuildEvidence {
+    const fn failed(reason: &'static str) -> Self {
+        Self {
+            diagnostic: RustcDiagEvidence::failed(reason),
+            exit_code: None,
+            output_summary: None,
+            reason,
+        }
+    }
+
+    fn completed(run: WasiThreadDiagRunEvidence) -> Self {
+        let exit_code = match run.run.end {
+            WasiThreadJobEnd::JobExited { code } => Some(code),
+            WasiThreadJobEnd::JobDeadlocked | WasiThreadJobEnd::Failed(_) => None,
+        };
+        let output_summary = run.output_summary;
+        let diagnostic = RustcDiagEvidence::completed(run);
+        let reason = rustcbuild_completion_reason(diagnostic.reason, output_summary);
+        Self {
+            diagnostic,
+            exit_code,
+            output_summary,
+            reason,
+        }
+    }
+}
+
+fn rustcbuild_completion_reason(
+    run_reason: &'static str,
+    output_summary: Option<OutputSummary>,
+) -> &'static str {
+    if run_reason != "none" {
+        return run_reason;
+    }
+    match output_summary {
+        None => "output_freeze_failed",
+        Some(OutputSummary {
+            file_count: 1,
+            single_file_sha256: Some(_),
+            ..
+        }) => "none",
+        Some(_) => "output_file_count_mismatch",
+    }
+}
+
+fn rustcbuild_negative_boundaries() -> bool {
+    rustcbuild_src_load_reason("store_frame_missing") == "src_manifest_missing"
+        && rustcbuild_src_load_reason("manifest_hash_mismatch") == "src_manifest_mismatch"
+        && rustcbuild_completion_reason("none", None) == "output_freeze_failed"
+        && rustcbuild_completion_reason(
+            "none",
+            Some(OutputSummary {
+                file_count: 0,
+                total_file_bytes: 0,
+                single_file_sha256: None,
+            }),
+        ) == "output_file_count_mismatch"
 }
 
 impl RustcRunEvidence {
@@ -1812,6 +1936,62 @@ impl SharedBuildChunkStore {
     }
 }
 
+fn rustcbuild_src_load_reason(reason: &'static str) -> &'static str {
+    match reason {
+        "store_frame_missing" => "src_manifest_missing",
+        "store_frame_length_mismatch"
+        | "manifest_hash_mismatch"
+        | "manifest_parse_failed"
+        | "manifest_invalid"
+        | "manifest_noncanonical" => "src_manifest_mismatch",
+        "manifest_pin_invalid" => "src_manifest_pin_invalid",
+        "manifest_length_overflow" => "src_manifest_length_overflow",
+        "manifest_allocation_failed" => "src_manifest_allocation_failed",
+        "store_session_busy" => "src_manifest_store_busy",
+        "store_frame_bounds" => "src_manifest_store_bounds",
+        "store_frame_malformed" => "src_manifest_store_malformed",
+        "store_io" => "src_manifest_store_io",
+        _ => "src_manifest_load_failed",
+    }
+}
+
+fn rustcbuild_src_manifest_matches(manifest: &BuildFsManifest) -> bool {
+    let Some(expected_manifest_sha256) = parse_sha256_ref(HELLO_SRC_BUILD_FS_MANIFEST_SHA256)
+    else {
+        return false;
+    };
+    let expected_file_sha256 = sha256_bytes(HELLO_SRC_FIXTURE);
+    let Ok(manifest_sha256) = manifest.sha256() else {
+        return false;
+    };
+    let [file] = manifest.files.as_slice() else {
+        return false;
+    };
+    manifest.directories.is_empty()
+        && manifest_sha256 == expected_manifest_sha256
+        && file.path == "hello.rs"
+        && file.len == HELLO_SRC_FIXTURE.len() as u64
+        && file.sha256 == expected_file_sha256
+        && file.chunks.len() == 1
+        && file.chunks[0].len == HELLO_SRC_FIXTURE.len() as u64
+        && file.chunks[0].sha256 == expected_file_sha256
+}
+
+fn load_rustcbuild_src_manifest(
+    store: &SharedBuildChunkStore,
+) -> Result<BuildFsManifest, &'static str> {
+    let manifest = store
+        .load_manifest(
+            HELLO_SRC_BUILD_FS_MANIFEST_SHA256,
+            HELLO_SRC_BUILD_FS_MANIFEST_LEN,
+        )
+        .map_err(rustcbuild_src_load_reason)?;
+    if !rustcbuild_src_manifest_matches(&manifest) {
+        return Err("src_manifest_mismatch");
+    }
+    Ok(manifest)
+}
+
 impl BuildChunkStore for SharedBuildChunkStore {
     fn store_instance_id(&self) -> u64 {
         self.store_instance_id
@@ -2413,7 +2593,30 @@ fn rustcrun_args() -> Vec<Vec<u8>> {
     ]
 }
 
-fn prepare_rustcrun() -> Result<WasiThreadJobRunner, RustcRunEvidence> {
+fn rustcbuild_args() -> Vec<Vec<u8>> {
+    vec![
+        b"rustc".to_vec(),
+        b"/src/hello.rs".to_vec(),
+        b"--target=wasm32-wasip1-threads".to_vec(),
+        b"--sysroot".to_vec(),
+        b"/sysroot".to_vec(),
+        b"-Ccodegen-units=1".to_vec(),
+        b"-Clinker=rust-lld".to_vec(),
+        b"-o".to_vec(),
+        b"/out/hello.wasm".to_vec(),
+    ]
+}
+
+fn rustc_args(invocation: RustcInvocation) -> Vec<Vec<u8>> {
+    match invocation {
+        RustcInvocation::Version => rustcrun_args(),
+        RustcInvocation::BuildHello => rustcbuild_args(),
+    }
+}
+
+fn prepare_rustc_invocation(
+    invocation: RustcInvocation,
+) -> Result<WasiThreadJobRunner, RustcRunEvidence> {
     macro_rules! rustcrun_fail {
         ($stage:expr, $file_sha:expr, $reason:expr $(,)?) => {
             return Err(RustcRunEvidence::at($stage, $file_sha, $reason))
@@ -2434,6 +2637,13 @@ fn prepare_rustcrun() -> Result<WasiThreadJobRunner, RustcRunEvidence> {
             "negative_boundary_failed",
         );
     }
+    if invocation == RustcInvocation::BuildHello && !rustcbuild_negative_boundaries() {
+        rustcrun_fail!(
+            RustcRunStage::Reassembled,
+            CompilerFileSha::Mismatch,
+            "rustcbuild_negative_boundary_failed",
+        );
+    }
 
     // Exactly one ARTSTOR scan/index and one held I/O pin back both the
     // compiler reassembly reader and the later real-sysroot reader.
@@ -2451,6 +2661,15 @@ fn prepare_rustcrun() -> Result<WasiThreadJobRunner, RustcRunEvidence> {
         }
     };
     let shared_store = SharedBuildChunkStore::new(session);
+    let build_src_manifest = match invocation {
+        RustcInvocation::Version => None,
+        RustcInvocation::BuildHello => match load_rustcbuild_src_manifest(&shared_store) {
+            Ok(manifest) => Some(manifest),
+            Err(reason) => {
+                rustcrun_fail!(RustcRunStage::Reassembled, CompilerFileSha::Ok, reason)
+            }
+        },
+    };
     let compiler_manifest = match shared_store.load_manifest(
         COMPILER_BUILD_FS_MANIFEST_SHA256,
         COMPILER_BUILD_FS_MANIFEST_LEN,
@@ -2491,7 +2710,8 @@ fn prepare_rustcrun() -> Result<WasiThreadJobRunner, RustcRunEvidence> {
             "reader_storage_unauthorized",
         );
     };
-    let Some(compiler_nonce) = BuildRunNonce::kernel_minted(RUSTCRUN_COMPILER_READ_NONCE) else {
+    let compiler_read_nonce = invocation.compiler_read_nonce();
+    let Some(compiler_nonce) = BuildRunNonce::kernel_minted(compiler_read_nonce) else {
         rustcrun_fail!(
             RustcRunStage::Reassembled,
             CompilerFileSha::Mismatch,
@@ -2516,7 +2736,7 @@ fn prepare_rustcrun() -> Result<WasiThreadJobRunner, RustcRunEvidence> {
     };
     if compiler_reader.entry_count() != COMPILER_CHUNK_COUNT
         || compiler_reader.job_binding_sha256() != compiler_authority.job_binding_sha256()
-        || compiler_reader.run_nonce() != RUSTCRUN_COMPILER_READ_NONCE
+        || compiler_reader.run_nonce() != compiler_read_nonce
         || compiler_reader.store_generation() != BUILD_STORE_GENERATION
     {
         rustcrun_fail!(
@@ -2561,12 +2781,18 @@ fn prepare_rustcrun() -> Result<WasiThreadJobRunner, RustcRunEvidence> {
             rustcrun_fail!(RustcRunStage::Reassembled, CompilerFileSha::Ok, reason)
         }
     };
-    let Some(src_manifest) = empty_manifest() else {
-        rustcrun_fail!(
-            RustcRunStage::Reassembled,
-            CompilerFileSha::Ok,
-            "src_manifest_failed",
-        );
+    let src_manifest = match build_src_manifest {
+        None => match empty_manifest() {
+            Some(manifest) => manifest,
+            None => {
+                rustcrun_fail!(
+                    RustcRunStage::Reassembled,
+                    CompilerFileSha::Ok,
+                    "src_manifest_failed",
+                )
+            }
+        },
+        Some(manifest) => manifest,
     };
     let observed = observed_imports(&module);
     let declarations: Vec<_> = observed.iter().map(ObservedImport::declaration).collect();
@@ -2638,7 +2864,7 @@ fn prepare_rustcrun() -> Result<WasiThreadJobRunner, RustcRunEvidence> {
         class,
         &sysroot_manifest,
         &src_manifest,
-        rustcrun_args(),
+        rustc_args(invocation),
         Vec::new(),
     ) {
         Some(instance) => instance,
@@ -2657,7 +2883,8 @@ fn prepare_rustcrun() -> Result<WasiThreadJobRunner, RustcRunEvidence> {
             "storage_authority_failed",
         );
     };
-    let Some(nonce) = BuildRunNonce::kernel_minted(RUSTCRUN_INSTANCE_NONCE) else {
+    let instance_nonce = invocation.instance_nonce();
+    let Some(nonce) = BuildRunNonce::kernel_minted(instance_nonce) else {
         rustcrun_fail!(
             RustcRunStage::Instantiated,
             CompilerFileSha::Ok,
@@ -2690,9 +2917,27 @@ fn prepare_rustcrun() -> Result<WasiThreadJobRunner, RustcRunEvidence> {
             )
         }
     };
-    if reader.entry_count() != expected_sysroot_chunks
+    let expected_src_chunks = match sysimport_manifest_chunk_count(&src_manifest) {
+        Some(count) => count,
+        None => {
+            rustcrun_fail!(
+                RustcRunStage::Instantiated,
+                CompilerFileSha::Ok,
+                "src_chunk_count_overflow",
+            )
+        }
+    };
+    let Some(expected_mount_chunks) = expected_sysroot_chunks.checked_add(expected_src_chunks)
+    else {
+        rustcrun_fail!(
+            RustcRunStage::Instantiated,
+            CompilerFileSha::Ok,
+            "mount_chunk_count_overflow",
+        );
+    };
+    if reader.entry_count() != expected_mount_chunks
         || reader.job_binding_sha256() != authority.job_binding_sha256()
-        || reader.run_nonce() != RUSTCRUN_INSTANCE_NONCE
+        || reader.run_nonce() != instance_nonce
         || reader.store_generation() != BUILD_STORE_GENERATION
     {
         rustcrun_fail!(
@@ -2819,10 +3064,25 @@ fn prepare_rustcrun() -> Result<WasiThreadJobRunner, RustcRunEvidence> {
     Ok(runner)
 }
 
+fn prepare_rustcrun() -> Result<WasiThreadJobRunner, RustcRunEvidence> {
+    prepare_rustc_invocation(RustcInvocation::Version)
+}
+
+fn prepare_rustcbuild() -> Result<WasiThreadJobRunner, RustcRunEvidence> {
+    prepare_rustc_invocation(RustcInvocation::BuildHello)
+}
+
 fn run_rustcrun() -> RustcRunEvidence {
     match prepare_rustcrun() {
         Ok(runner) => RustcRunEvidence::completed(runner.run()),
         Err(evidence) => evidence,
+    }
+}
+
+fn run_rustcbuild() -> RustcBuildEvidence {
+    match prepare_rustcbuild() {
+        Ok(runner) => RustcBuildEvidence::completed(runner.run_capped(RUSTCDIAG_ROUND_CAP)),
+        Err(evidence) => RustcBuildEvidence::failed(evidence.reason),
     }
 }
 
@@ -3293,6 +3553,14 @@ fn sanitized_ascii_prefix(bytes: &[u8], cap: usize) -> String {
     text
 }
 
+fn emit_rustc_stdout(total_stdout_bytes: u64, stdout: &[u8]) {
+    let stdout_text = sanitized_ascii_prefix(stdout, RUSTCDIAG_TEXT_FIELD_CAP);
+    crate::serial::write_raw_fmt(format_args!(
+        "RAIOS_RUSTCSTDOUT len={} text={}\n",
+        total_stdout_bytes, stdout_text,
+    ));
+}
+
 fn emit_rustc_stderr(total_stderr_bytes: u64, stderr: &[u8]) {
     let sanitized = sanitized_ascii_prefix(stderr, stderr.len());
     let mut chunks = sanitized.as_bytes().chunks(RUSTCDIAG_TEXT_FIELD_CAP);
@@ -3306,6 +3574,42 @@ fn emit_rustc_stderr(total_stderr_bytes: u64, stderr: &[u8]) {
         let chunk = core::str::from_utf8(chunk).unwrap_or_default();
         crate::serial::write_raw_fmt(format_args!("RAIOS_RUSTCSTDERR_MORE text={}\n", chunk,));
     }
+}
+
+fn emit_rustc_trap(trap: &[u8]) {
+    if !trap.is_empty() {
+        let trap = sanitized_ascii_prefix(trap, RUSTCDIAG_TRAP_CAP);
+        crate::serial::write_raw_fmt(format_args!("RAIOS_RUSTCTRAP reason={trap}\n"));
+    }
+}
+
+fn emit_rustcbuild_evidence(evidence: RustcBuildEvidence) {
+    let (out_files, out_bytes, out_sha) = match evidence.output_summary {
+        Some(summary) => (
+            summary.file_count,
+            summary.total_file_bytes,
+            summary.single_file_sha256,
+        ),
+        None => (0, 0, None),
+    };
+    crate::serial::write_raw_fmt(format_args!(
+        "RAIOS_RUSTCBUILD rounds={} exit={} reason={} out_files={} out_bytes={} out_sha={}\n",
+        evidence.diagnostic.rounds,
+        OptionalExitCode(evidence.exit_code),
+        evidence.reason,
+        out_files,
+        out_bytes,
+        OptionalSha256(out_sha),
+    ));
+    emit_rustc_stdout(
+        evidence.diagnostic.stdout_bytes,
+        &evidence.diagnostic.stdout,
+    );
+    emit_rustc_stderr(
+        evidence.diagnostic.stderr_bytes,
+        &evidence.diagnostic.stderr,
+    );
+    emit_rustc_trap(&evidence.diagnostic.trap);
 }
 
 fn emit_rustcdiag_evidence(evidence: RustcDiagEvidence) {
@@ -3360,11 +3664,7 @@ fn emit_rustcdiag_evidence(evidence: RustcDiagEvidence) {
     }
     line.push('\n');
     crate::serial::write_raw_fmt(format_args!("{line}"));
-    let stdout_text = sanitized_ascii_prefix(&evidence.stdout, RUSTCDIAG_TEXT_FIELD_CAP);
-    crate::serial::write_raw_fmt(format_args!(
-        "RAIOS_RUSTCSTDOUT len={} text={}\n",
-        evidence.stdout_bytes, stdout_text,
-    ));
+    emit_rustc_stdout(evidence.stdout_bytes, &evidence.stdout);
     emit_rustc_stderr(evidence.stderr_bytes, &evidence.stderr);
     for attempt in evidence.memory_grow.first.iter().flatten() {
         crate::serial::write_raw_fmt(format_args!(
@@ -3379,10 +3679,7 @@ fn emit_rustcdiag_evidence(evidence: RustcDiagEvidence) {
         "RAIOS_RUSTCGROW_SUMMARY attempts={} approved={}\n",
         evidence.memory_grow.attempts, evidence.memory_grow.approved,
     ));
-    if !evidence.trap.is_empty() {
-        let trap = sanitized_ascii_prefix(&evidence.trap, RUSTCDIAG_TRAP_CAP);
-        crate::serial::write_raw_fmt(format_args!("RAIOS_RUSTCTRAP reason={trap}\n"));
-    }
+    emit_rustc_trap(&evidence.trap);
 
     let mut atomic_line = String::new();
     let _ = write!(
@@ -3522,10 +3819,35 @@ fn emit_rustclock_evidence(evidence: RustclockEvidence) {
 #[cfg(test)]
 mod evidence_tests {
     use super::{
-        sanitized_ascii_prefix, RUSTCDIAG_STDERR_MORE_CAP, RUSTCDIAG_TEXT_FIELD_CAP,
-        RUSTCDIAG_TRAP_CAP,
+        rustcbuild_args, rustcbuild_completion_reason, rustcbuild_src_load_reason,
+        rustcbuild_src_manifest_matches, sanitized_ascii_prefix, HELLO_SRC_BUILD_FS_MANIFEST_LEN,
+        HELLO_SRC_BUILD_FS_MANIFEST_SHA256, HELLO_SRC_FIXTURE, RUSTCDIAG_STDERR_MORE_CAP,
+        RUSTCDIAG_TEXT_FIELD_CAP, RUSTCDIAG_TRAP_CAP,
     };
-    use alloc::{vec, vec::Vec};
+    use alloc::{string::ToString, vec, vec::Vec};
+    use raios_core::{
+        buildfs_manifest::{BuildFsChunk, BuildFsFile, BuildFsManifest},
+        parse_sha256_ref, sha256_bytes,
+    };
+
+    use crate::wasm_runtime::wasi_preview1::OutputSummary;
+
+    fn hello_src_manifest() -> BuildFsManifest {
+        let file_sha256 = sha256_bytes(HELLO_SRC_FIXTURE);
+        BuildFsManifest::new(
+            Vec::new(),
+            vec![BuildFsFile {
+                path: "hello.rs".to_string(),
+                len: HELLO_SRC_FIXTURE.len() as u64,
+                sha256: file_sha256,
+                chunks: vec![BuildFsChunk {
+                    len: HELLO_SRC_FIXTURE.len() as u64,
+                    sha256: file_sha256,
+                }],
+            }],
+        )
+        .unwrap()
+    }
 
     #[test]
     fn evidence_text_is_printable_ascii_and_hard_capped() {
@@ -3555,6 +3877,81 @@ mod evidence_tests {
             RUSTCDIAG_TEXT_FIELD_CAP * (1 + RUSTCDIAG_STDERR_MORE_CAP),
         );
     }
+
+    #[test]
+    fn rustcbuild_argv_pins_the_workshop_compile_contract() {
+        assert_eq!(
+            rustcbuild_args(),
+            [
+                b"rustc".as_slice(),
+                b"/src/hello.rs",
+                b"--target=wasm32-wasip1-threads",
+                b"--sysroot",
+                b"/sysroot",
+                b"-Ccodegen-units=1",
+                b"-Clinker=rust-lld",
+                b"-o",
+                b"/out/hello.wasm",
+            ]
+            .iter()
+            .map(|argument| argument.to_vec())
+            .collect::<Vec<_>>(),
+        );
+    }
+
+    #[test]
+    fn rustcbuild_source_fixture_matches_its_manifest_pin() {
+        let manifest = hello_src_manifest();
+        let canonical = manifest.canonical_bytes().unwrap();
+        assert_eq!(canonical.len() as u64, HELLO_SRC_BUILD_FS_MANIFEST_LEN);
+        assert_eq!(
+            manifest.sha256().unwrap(),
+            parse_sha256_ref(HELLO_SRC_BUILD_FS_MANIFEST_SHA256).unwrap(),
+        );
+        assert!(rustcbuild_src_manifest_matches(&manifest));
+
+        let mut mismatch = manifest;
+        mismatch.files[0].path = "wrong.rs".to_string();
+        assert!(!rustcbuild_src_manifest_matches(&mismatch));
+    }
+
+    #[test]
+    fn rustcbuild_src_mount_and_output_fail_closed_with_typed_reasons() {
+        assert_eq!(
+            rustcbuild_src_load_reason("store_frame_missing"),
+            "src_manifest_missing",
+        );
+        assert_eq!(
+            rustcbuild_src_load_reason("manifest_hash_mismatch"),
+            "src_manifest_mismatch",
+        );
+        assert_eq!(
+            rustcbuild_completion_reason("none", None),
+            "output_freeze_failed"
+        );
+        assert_eq!(
+            rustcbuild_completion_reason(
+                "none",
+                Some(OutputSummary {
+                    file_count: 0,
+                    total_file_bytes: 0,
+                    single_file_sha256: None,
+                }),
+            ),
+            "output_file_count_mismatch",
+        );
+        assert_eq!(
+            rustcbuild_completion_reason(
+                "none",
+                Some(OutputSummary {
+                    file_count: 1,
+                    total_file_bytes: 287_400,
+                    single_file_sha256: Some([0x5a; 32]),
+                }),
+            ),
+            "none",
+        );
+    }
 }
 
 pub(crate) fn emit_wasi_rustcrun() {
@@ -3567,6 +3964,14 @@ pub(crate) fn emit_wasi_rustcrun() {
         return;
     };
     emit_rustcrun_evidence(run_rustcrun());
+}
+
+pub(crate) fn emit_wasi_rustcbuild() {
+    let Some(_busy) = WasiThreadBusyGuard::acquire() else {
+        emit_rustcbuild_evidence(RustcBuildEvidence::failed("runner_busy"));
+        return;
+    };
+    emit_rustcbuild_evidence(run_rustcbuild());
 }
 
 pub(crate) fn emit_wasi_rustcdiag() {

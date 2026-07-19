@@ -7,6 +7,7 @@ use raios_core::{
     wasi_build_output::FrozenOutput,
     wasi_preview1_import_abi::RUSTC_WASM_C6DCCF3E_IMPORTS,
 };
+use raios_wasi_preview1::output_manifest::OutputManifest;
 use raios_wasi_preview1::{
     checked_aligned_range, checked_iovec_list, checked_iovecs, checked_range, CheckedIovecs,
     ClockSubscription, ClockTimeout, Errno, Fd, FdFlags, FileType, Filestat, GuestIovec,
@@ -185,6 +186,13 @@ pub(crate) struct MemoryGrowEvidence {
     pub(crate) attempts: u64,
     pub(crate) approved: u64,
     pub(crate) first: [Option<MemoryGrowAttempt>; MEMORY_GROW_EVIDENCE_CAP],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct OutputSummary {
+    pub(crate) file_count: usize,
+    pub(crate) total_file_bytes: u64,
+    pub(crate) single_file_sha256: Option<[u8; 32]>,
 }
 
 impl MemoryGrowEvidence {
@@ -604,6 +612,10 @@ impl WasiHostState {
         ))
     }
 
+    pub(crate) fn freeze_output_summary(&self) -> Result<OutputSummary, Errno> {
+        summarize_output_manifest(&self.instance.freeze_output()?)
+    }
+
     fn write_fd(&mut self, fd: Fd, bytes: &[u8]) -> Result<usize, Errno> {
         let entry = *self.instance.fd_table().get(fd)?;
         if entry.mount_id == MountId::STDIO {
@@ -636,6 +648,21 @@ impl WasiHostState {
     }
 }
 
+fn summarize_output_manifest(manifest: &OutputManifest) -> Result<OutputSummary, Errno> {
+    let total_file_bytes = manifest.files.iter().try_fold(0u64, |total, file| {
+        total.checked_add(file.len).ok_or(Errno::Fbig)
+    })?;
+    Ok(OutputSummary {
+        file_count: manifest.files.len(),
+        total_file_bytes,
+        single_file_sha256: if manifest.files.len() == 1 {
+            Some(manifest.files[0].sha256)
+        } else {
+            None
+        },
+    })
+}
+
 fn retain_prefix(destination: &mut Vec<u8>, bytes: &[u8], cap: usize) {
     let retained = cap.saturating_sub(destination.len()).min(bytes.len());
     destination.extend_from_slice(&bytes[..retained]);
@@ -643,8 +670,12 @@ fn retain_prefix(destination: &mut Vec<u8>, bytes: &[u8], cap: usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::{retain_prefix, MemoryGrowEvidence, MEMORY_GROW_EVIDENCE_CAP, WASM_PAGE_BYTES};
-    use alloc::vec::Vec;
+    use super::{
+        retain_prefix, summarize_output_manifest, MemoryGrowEvidence, MEMORY_GROW_EVIDENCE_CAP,
+        WASM_PAGE_BYTES,
+    };
+    use alloc::{vec, vec::Vec};
+    use raios_wasi_preview1::output_manifest::{OutputDirectory, OutputFile, OutputManifest};
 
     #[test]
     fn retained_prefix_stops_at_cap_without_replacing_earlier_bytes() {
@@ -678,6 +709,56 @@ mod tests {
         assert_eq!(last.desired_pages, 16);
         assert_eq!(last.maximum_pages, 16_384);
         assert!(!last.limiter_approved);
+    }
+
+    #[test]
+    fn path_open_and_filestat_get_accept_symlink_follow_like_empty_flags() {
+        assert_eq!(super::validate_lookup_flags(0), Ok(()));
+        assert_eq!(super::validate_lookup_flags(1), Ok(()));
+    }
+
+    #[test]
+    fn path_open_and_filestat_get_reject_every_tested_unknown_lookup_bit() {
+        assert_eq!(
+            super::validate_lookup_flags(2),
+            Err(raios_wasi_preview1::Errno::Notcapable)
+        );
+        assert_eq!(
+            super::validate_lookup_flags(3),
+            Err(raios_wasi_preview1::Errno::Notcapable)
+        );
+    }
+
+    #[test]
+    fn output_summary_counts_only_files_and_hashes_only_a_single_output() {
+        let one = OutputManifest {
+            directories: vec![OutputDirectory {
+                path: "ignored".into(),
+            }],
+            files: vec![OutputFile {
+                path: "hello.wasm".into(),
+                len: 287_400,
+                sha256: [0x5a; 32],
+                chunks: Vec::new(),
+            }],
+            sha256: [0; 32],
+        };
+        let summary = summarize_output_manifest(&one).unwrap();
+        assert_eq!(summary.file_count, 1);
+        assert_eq!(summary.total_file_bytes, 287_400);
+        assert_eq!(summary.single_file_sha256, Some([0x5a; 32]));
+
+        let mut two = one;
+        two.files.push(OutputFile {
+            path: "extra".into(),
+            len: 7,
+            sha256: [0x7b; 32],
+            chunks: Vec::new(),
+        });
+        let summary = summarize_output_manifest(&two).unwrap();
+        assert_eq!(summary.file_count, 2);
+        assert_eq!(summary.total_file_bytes, 287_407);
+        assert_eq!(summary.single_file_sha256, None);
     }
 }
 
@@ -1330,9 +1411,9 @@ fn host_path_filestat_get(
             WasiEffectOpcode::PathFilestatGet,
             &[&fd_bytes, &lookup_bytes, &path],
         );
-        if lookup_flags != 0 {
-            return Err(Errno::Notcapable);
-        }
+        // SYMLINK_FOLLOW is a no-op because the BuildFS/arena namespace has no
+        // symlink type; all other lookup flags stay fail-closed.
+        validate_lookup_flags(lookup_flags)?;
         let stat = caller
             .data()
             .instance
@@ -1438,7 +1519,12 @@ fn host_path_open(
                 &path,
             ],
         );
-        if lookup_flags != 0 || (open_flags as u32) & !1 != 0 {
+        // SYMLINK_FOLLOW is a no-op because the BuildFS/arena namespace has no
+        // symlink type; all other lookup flags stay fail-closed.
+        validate_lookup_flags(lookup_flags)?;
+        const OFLAGS_CREAT: u32 = 1;
+        const OFLAGS_TRUNC: u32 = 8;
+        if (open_flags as u32) & !(OFLAGS_CREAT | OFLAGS_TRUNC) != 0 {
             return Err(Errno::Notcapable);
         }
         let fd_flags = u16::try_from(fd_flags as u32)
@@ -1448,7 +1534,8 @@ fn host_path_open(
         let opened = caller.data_mut().instance.path_open(
             Fd(fd as u32),
             &path,
-            (open_flags as u32) & 1 != 0,
+            (open_flags as u32) & OFLAGS_CREAT != 0,
+            (open_flags as u32) & OFLAGS_TRUNC != 0,
             Rights::from_bits(rights_base as u64)?,
             Rights::from_bits(rights_inheriting as u64)?,
             fd_flags,
@@ -2147,6 +2234,16 @@ fn encode_dirents(entries: &[raios_wasi_preview1::Dirent], limit: usize) -> Vec<
 fn append_bounded(output: &mut Vec<u8>, bytes: &[u8], limit: usize) {
     let available = limit.saturating_sub(output.len());
     output.extend_from_slice(&bytes[..bytes.len().min(available)]);
+}
+
+const LOOKUPFLAGS_SYMLINK_FOLLOW: u32 = 1;
+
+fn validate_lookup_flags(lookup_flags: i32) -> Result<(), Errno> {
+    if (lookup_flags as u32) & !LOOKUPFLAGS_SYMLINK_FOLLOW != 0 {
+        Err(Errno::Notcapable)
+    } else {
+        Ok(())
+    }
 }
 
 fn decode_subscriptions(bytes: &[u8]) -> Result<Vec<Subscription>, Errno> {

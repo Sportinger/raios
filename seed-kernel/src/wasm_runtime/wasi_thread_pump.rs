@@ -14,8 +14,9 @@ use wasmi::{
 };
 
 use super::wasi_preview1::{
-    MemoryGrowEvidence, ProcExitTrap, RecentAtomicEvent, RecentWasiCall, SpawnRequest,
-    WasiHostState, RECENT_ATOMIC_EVENT_COUNT, RECENT_WASI_CALL_COUNT, WASI_IMPORT_CALL_COUNT,
+    MemoryGrowEvidence, OutputSummary, ProcExitTrap, RecentAtomicEvent, RecentWasiCall,
+    SpawnRequest, WasiHostState, RECENT_ATOMIC_EVENT_COUNT, RECENT_WASI_CALL_COUNT,
+    WASI_IMPORT_CALL_COUNT,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,6 +57,7 @@ pub(crate) struct WasiThreadRunEvidence {
 
 pub(crate) struct WasiThreadDiagRunEvidence {
     pub(crate) run: WasiThreadRunEvidence,
+    pub(crate) output_summary: Option<OutputSummary>,
     pub(crate) memory_grow: MemoryGrowEvidence,
     pub(crate) execution_profile: ExecutionProfile,
     pub(crate) import_call_counts: [u64; WASI_IMPORT_CALL_COUNT],
@@ -303,6 +305,9 @@ impl WasiThreadJobRunner {
         if self.terminal.is_none() {
             self.fail(WasiThreadJobFailure::RoundLimit);
         }
+        // Freeze while the consumed runner still owns its store. The summary
+        // is derived from the isolated `/out` manifest, never from scratch.
+        let output_summary = self.store.data().freeze_output_summary().ok();
         let end = self
             .terminal
             .unwrap_or(WasiThreadJobEnd::Failed(WasiThreadJobFailure::RoundLimit));
@@ -375,6 +380,7 @@ impl WasiThreadJobRunner {
                 cap_denials,
                 granted_total: self.granted_total,
             },
+            output_summary,
             memory_grow: self.store.data().memory_grow_evidence(),
             execution_profile: self.store.execution_profile(),
             import_call_counts,

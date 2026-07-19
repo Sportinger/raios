@@ -5,9 +5,7 @@ use alloc::{vec, vec::Vec};
 use crate::dir::read_directory;
 use crate::output_manifest::{freeze_output, OutputManifest};
 use crate::ramfs::{writable_rights, RamFs, RamQuotas};
-use crate::readonly::{
-    filestat_buildfs, has_mutating_rights, read_buildfs_file, readonly_rights, resolve_buildfs,
-};
+use crate::readonly::{filestat_buildfs, read_buildfs_file, readonly_rights, resolve_buildfs};
 use crate::writable::{ROOT_NAMESPACE, TMP_NAMESPACE};
 use crate::{
     BuildFs, ChunkRead, DirectoryEntry, DirectorySnapshot, Dirent, Errno, Fd, FdFlags, FdTable,
@@ -176,6 +174,7 @@ impl WasiBuildInstance {
         parent_fd: Fd,
         path: &[u8],
         create: bool,
+        truncate: bool,
         requested_rights_base: Rights,
         requested_rights_inheriting: Rights,
         flags: FdFlags,
@@ -183,12 +182,7 @@ impl WasiBuildInstance {
         let parent = self.directory_entry(parent_fd, Rights::PATH_OPEN)?;
         match self.resolve_existing(parent, path) {
             Ok(target) => {
-                self.validate_open_policy(
-                    target.mount_id,
-                    requested_rights_base,
-                    requested_rights_inheriting,
-                    flags,
-                )?;
+                self.validate_open_policy(target.mount_id, create, truncate, flags)?;
                 let (next_fds, fd) = self.open_resolved(
                     parent_fd,
                     target,
@@ -204,12 +198,7 @@ impl WasiBuildInstance {
                     return Err(Errno::Notcapable);
                 }
                 let target = self.mutation_path(parent, path)?;
-                self.validate_open_policy(
-                    target.mount_id,
-                    requested_rights_base,
-                    requested_rights_inheriting,
-                    flags,
-                )?;
+                self.validate_open_policy(target.mount_id, create, truncate, flags)?;
                 self.create_and_open(
                     parent_fd,
                     target,
@@ -516,6 +505,22 @@ impl WasiBuildInstance {
             return Err(Errno::Xdev);
         }
         let rights = mount_rights(target.mount_id)?;
+        // Read-only mounts treat requested rights as a capability ceiling and
+        // attenuate before FdTable's exact post-policy installation check.
+        // Writable arenas retain their existing exact-rights behavior.
+        let (requested_rights_base, requested_rights_inheriting) =
+            if is_readonly_mount(target.mount_id) {
+                (
+                    rights
+                        .intersection(parent.rights_inheriting)
+                        .intersection(requested_rights_base),
+                    rights
+                        .intersection(parent.rights_inheriting)
+                        .intersection(requested_rights_inheriting),
+                )
+            } else {
+                (requested_rights_base, requested_rights_inheriting)
+            };
         let mut next_fds = self.fds.clone();
         let fd = next_fds.path_open(PathOpenRequest {
             parent_fd,
@@ -534,16 +539,19 @@ impl WasiBuildInstance {
     fn validate_open_policy(
         &self,
         mount_id: MountId,
-        rights_base: Rights,
-        rights_inheriting: Rights,
+        create: bool,
+        truncate: bool,
         flags: FdFlags,
     ) -> Result<(), Errno> {
-        if matches!(mount_id, SYSROOT_MOUNT | SOURCE_MOUNT)
-            && (has_mutating_rights(rights_base)
-                || has_mutating_rights(rights_inheriting)
-                || flags != FdFlags::EMPTY)
+        if is_readonly_mount(mount_id)
+            && (create || truncate || flags.bits() & FdFlags::APPEND.bits() != 0)
         {
             return Err(Errno::Rofs);
+        }
+        // Truncation is not implemented for RAM arenas; retain the prior
+        // host-boundary rejection for those mounts.
+        if truncate {
+            return Err(Errno::Notcapable);
         }
         Ok(())
     }
@@ -758,6 +766,10 @@ fn mount_rights(mount_id: MountId) -> Result<Rights, Errno> {
     }
 }
 
+const fn is_readonly_mount(mount_id: MountId) -> bool {
+    matches!(mount_id, SYSROOT_MOUNT | SOURCE_MOUNT)
+}
+
 fn route_root(path: &[u8]) -> Result<(MountId, Vec<u8>), Errno> {
     let normalized = NormalizedPath::root().resolve(path)?;
     let components: Vec<&[u8]> = normalized.components().collect();
@@ -918,6 +930,106 @@ mod tests {
     }
 
     #[test]
+    fn readonly_open_attenuates_std_style_rights_and_write_stays_denied() {
+        let mut instance = instance();
+        let requested_base = Rights::FD_READ
+            | Rights::FD_READDIR
+            | Rights::FD_SEEK
+            | Rights::FD_TELL
+            | Rights::FD_ADVISE
+            | Rights::FD_FDSTAT_SET_FLAGS
+            | Rights::FD_SYNC
+            | Rights::FD_FILESTAT_GET
+            | Rights::FD_FILESTAT_SET_TIMES
+            | Rights::PATH_CREATE_DIRECTORY
+            | Rights::PATH_CREATE_FILE
+            | Rights::PATH_LINK_SOURCE
+            | Rights::PATH_LINK_TARGET
+            | Rights::PATH_OPEN
+            | Rights::PATH_READLINK
+            | Rights::PATH_RENAME_SOURCE
+            | Rights::PATH_RENAME_TARGET
+            | Rights::PATH_FILESTAT_GET
+            | Rights::PATH_SYMLINK
+            | Rights::PATH_REMOVE_DIRECTORY
+            | Rights::PATH_UNLINK_FILE
+            | Rights::POLL_FD_READWRITE;
+        // Rust std defaults inheriting rights to the same broad base set even
+        // for File::open with read(true); they are a ceiling, not a demand.
+        let requested_inheriting = requested_base;
+
+        let fd = instance
+            .path_open(
+                Fd::ROOT_PREOPEN,
+                b"src/main.rs",
+                false,
+                false,
+                requested_base,
+                requested_inheriting,
+                FdFlags::EMPTY,
+            )
+            .unwrap();
+        let entry = *instance.fd_table().get(fd).unwrap();
+        assert_eq!(
+            entry.rights_base,
+            requested_base.intersection(readonly_rights())
+        );
+        assert_eq!(
+            entry.rights_inheriting,
+            requested_inheriting.intersection(readonly_rights())
+        );
+        assert!(!crate::readonly::has_mutating_rights(entry.rights_base));
+        assert!(!crate::readonly::has_mutating_rights(
+            entry.rights_inheriting
+        ));
+        assert!(!entry.rights_base.contains(Rights::FD_WRITE));
+        assert_eq!(instance.fd_write(fd, b"x"), Err(Errno::Rofs));
+    }
+
+    #[test]
+    fn readonly_open_rejects_create_truncate_and_append() {
+        let mut instance = instance();
+        let read = Rights::FD_READ | Rights::FD_FILESTAT_GET;
+
+        assert_eq!(
+            instance.path_open(
+                Fd::ROOT_PREOPEN,
+                b"src/new.rs",
+                true,
+                false,
+                read,
+                Rights::EMPTY,
+                FdFlags::EMPTY,
+            ),
+            Err(Errno::Rofs)
+        );
+        assert_eq!(
+            instance.path_open(
+                Fd::ROOT_PREOPEN,
+                b"src/main.rs",
+                false,
+                true,
+                read,
+                Rights::EMPTY,
+                FdFlags::EMPTY,
+            ),
+            Err(Errno::Rofs)
+        );
+        assert_eq!(
+            instance.path_open(
+                Fd::ROOT_PREOPEN,
+                b"src/main.rs",
+                false,
+                false,
+                read,
+                Rights::EMPTY,
+                FdFlags::APPEND,
+            ),
+            Err(Errno::Rofs)
+        );
+    }
+
+    #[test]
     fn one_fd_table_routes_all_mounts_with_policy() {
         let mut instance = instance();
         let mut reader = Reader;
@@ -926,6 +1038,7 @@ mod tests {
             .path_open(
                 Fd::ROOT_PREOPEN,
                 b"sysroot",
+                false,
                 false,
                 readonly_rights(),
                 readonly_rights(),
@@ -936,6 +1049,7 @@ mod tests {
             .path_open(
                 sysroot,
                 b"tool",
+                false,
                 false,
                 Rights::FD_READ | Rights::FD_SEEK,
                 Rights::EMPTY,
@@ -949,6 +1063,7 @@ mod tests {
             .path_open(
                 Fd::ROOT_PREOPEN,
                 b"src/main.rs",
+                false,
                 false,
                 Rights::FD_READ | Rights::FD_SEEK,
                 Rights::EMPTY,
@@ -971,6 +1086,7 @@ mod tests {
                     Fd::ROOT_PREOPEN,
                     path,
                     true,
+                    false,
                     file_rights(),
                     Rights::EMPTY,
                     FdFlags::EMPTY,
@@ -999,6 +1115,7 @@ mod tests {
                 Fd::ROOT_PREOPEN,
                 b"sysroot",
                 false,
+                false,
                 readonly_rights(),
                 readonly_rights(),
                 FdFlags::EMPTY,
@@ -1009,6 +1126,7 @@ mod tests {
             instance.path_open(
                 sysroot,
                 b"../out",
+                false,
                 false,
                 readonly_rights(),
                 Rights::EMPTY,
@@ -1023,6 +1141,7 @@ mod tests {
                 Fd::ROOT_PREOPEN,
                 b"tmp",
                 false,
+                false,
                 writable_rights(),
                 writable_rights(),
                 FdFlags::EMPTY,
@@ -1033,6 +1152,7 @@ mod tests {
             instance.path_open(
                 tmp,
                 b"../scratch",
+                false,
                 false,
                 Rights::FD_READ,
                 Rights::EMPTY,
