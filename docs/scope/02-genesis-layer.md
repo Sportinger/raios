@@ -13,7 +13,11 @@
       (zero_grant=fresh), authorized as observed_empty_import_surface, zero
       linked host imports. Closes under the existential-workspace reading
       (ADR 0015 floor); the generic-arbitrary-service reading is future. -->
-- [ ] Grant/revoke a typed capability import explicitly, with each transition logged
+- [x] Grant/revoke a typed capability import explicitly, with each transition logged
+      <!-- env.counter_get grant + revoke are canonical CapabilityGrant/
+      CapabilityDenial records, appended and read back through RECLOG before
+      the RAM flip. Focused grant-reboot report 20260719-234248-7004: 29/29;
+      Boot 1 proves append-before-flip and a real gated call with delta=0. -->
 - [x] Kill a service immediately, reclaim its guest resources, and prevent the
       guest from blocking teardown — m11-beyond-env-lifecycle
       (shadow-20260714-123624, 183/183): F12 kill of a running/spinning guest
@@ -32,9 +36,18 @@
 ## Capability granularity
 - [ ] Each host import/service surface is an individual, revocable grant; the
       kernel retains direct hardware authority
-- [ ] Grants are typed records (who, what, import/service scope), not ambient flags
-- [ ] Revocation prevents the next host call and is durably logged; no stale
+- [x] Grants are typed records (who, what, import/service scope), not ambient flags
+      <!-- wasm_import_grant_event.v1 binds service, domain instance, artifact
+      binding hash, HostImportId, typed scope, generation and epoch; revoke
+      binds the exact parent id + canonical record hash. Parser/fold negatives
+      reject malformed/missing/forked/ambiguous histories and overflow (4/4). -->
+- [x] Revocation prevents the next host call and is durably logged; no stale
       instance retains the revoked authority
+      <!-- grant-reboot 20260719-234248-7004 (29/29): Boot 2 refolds the same
+      projection before instantiation; the real env.counter_get gate is called
+      and denies with host_effect_delta=0. Parent-hash semantic tamper keeps the
+      outer RECLOG fully valid but folds denied; real gate call delta=0, peer
+      healthy. Adversarial re-review ACCEPT; commit 96f2f7f. -->
 - [x] Negative test: a grant for import/service A grants nothing on host surface B
       <!-- m11-wasm-import-grant re-run at HEAD 2026-07-19:
       shadow-20260719-185053-21672.json, 159/159 — env.log granted,

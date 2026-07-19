@@ -80,7 +80,9 @@ show a foreign/out-of-range DMA attempt blocked + logged with zero host effect.
       import grant conveys no authority to another host surface
       <!-- evidence (default-deny/import-scope boundary only):
       release/vm-reports/shadow-20260714-114527-24812.json, passed
-      m11-wasm-import-grant profile; grant/revoke verification still required. -->
+      m11-wasm-import-grant profile. Durable grant/revoke + reboot/tamper gate
+      are proven for env.counter_get by grant-reboot 20260719-234248-7004
+      (29/29, 96f2f7f); per-surface migration remains open. -->
 - [ ] Kill + restart a Wasm service in < 1 s without reboot; a crash loop parks
       + reports the service, and restart leaks no grants or state from its prior life
 - [x] **Floor interface narrow & kernel-agnostic:** ADR 0015 chooses the custom
