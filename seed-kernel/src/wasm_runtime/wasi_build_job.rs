@@ -134,6 +134,11 @@ struct SysimportEvidence {
     manifest: &'static str,
     chunks: usize,
     deny: &'static str,
+    // Diagnostic-only: inner chunk-store error variant and the anchored
+    // manifest chunk index for a materialization failure ("none"/u64::MAX
+    // otherwise). Emitted so a red run pinpoints the failing chunk.
+    detail: &'static str,
+    at: u64,
     passed: bool,
 }
 
@@ -143,6 +148,23 @@ impl SysimportEvidence {
             manifest,
             chunks,
             deny,
+            detail: "none",
+            at: u64::MAX,
+            passed: false,
+        }
+    }
+
+    const fn failed_materialize(
+        deny: &'static str,
+        detail: &'static str,
+        at: u64,
+    ) -> Self {
+        Self {
+            manifest: "ok",
+            chunks: 0,
+            deny,
+            detail,
+            at,
             passed: false,
         }
     }
@@ -1224,6 +1246,8 @@ fn run_sysimport_granted_reads(
         manifest: "ok",
         chunks: successful_reads,
         deny: "absent_entry+wrong_range",
+        detail: "none",
+        at: u64::MAX,
         passed: true,
     }
 }
@@ -1304,7 +1328,13 @@ fn run_sysimport_selftest() -> SysimportEvidence {
         Box::new(session),
     ) {
         Ok(reader) => reader,
-        Err(error) => return SysimportEvidence::failed("ok", 0, error.reason()),
+        Err(error) => {
+            return SysimportEvidence::failed_materialize(
+                error.reason(),
+                error.chunk_store_detail(),
+                error.failing_chunk_index(),
+            )
+        }
     };
     if reader.job_binding_sha256() != authority.job_binding_sha256()
         || reader.run_nonce() != SYSIMPORT_RUN_NONCE
@@ -1499,11 +1529,13 @@ pub(crate) fn emit_wasi_mem_selftest() {
 pub(crate) fn emit_wasi_sysimport() {
     let evidence = run_sysimport_selftest();
     crate::serial::write_raw_fmt(format_args!(
-        "RAIOS_SYSIMPORT selftest={} manifest={} chunks={} deny={}\n",
+        "RAIOS_SYSIMPORT selftest={} manifest={} chunks={} deny={} detail={} at={}\n",
         if evidence.passed { "pass" } else { "fail" },
         evidence.manifest,
         evidence.chunks,
         evidence.deny,
+        evidence.detail,
+        evidence.at,
     ));
 }
 

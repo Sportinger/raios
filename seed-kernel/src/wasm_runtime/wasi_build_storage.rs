@@ -108,6 +108,35 @@ impl BuildStorageMaterializationError {
             Self::ChunkHashMismatch { .. } => "chunk_hash_mismatch",
         }
     }
+
+    /// Diagnostic-only: the inner chunk-store error variant for the resolve/
+    /// readback cases, so a serial fail token can distinguish a scan miss
+    /// from a malformed/io frame without leaking store topology. "none" for
+    /// errors that carry no inner chunk-store error.
+    pub(crate) const fn chunk_store_detail(self) -> &'static str {
+        match self {
+            Self::ChunkResolve { error, .. } | Self::ChunkReadback { error, .. } => match error {
+                BuildChunkStoreError::Missing => "missing",
+                BuildChunkStoreError::Bounds => "bounds",
+                BuildChunkStoreError::MalformedFrame => "malformed",
+                BuildChunkStoreError::Io => "io",
+            },
+            _ => "none",
+        }
+    }
+
+    /// Diagnostic-only: the manifest chunk index the failure is anchored to,
+    /// or `u64::MAX` when the error is not chunk-anchored.
+    pub(crate) const fn failing_chunk_index(self) -> u64 {
+        match self {
+            Self::ChunkResolve { chunk_index, .. }
+            | Self::ConflictingChunkLength { chunk_index, .. }
+            | Self::ResolvedHandleMismatch { chunk_index, .. }
+            | Self::ChunkReadback { chunk_index, .. }
+            | Self::ChunkHashMismatch { chunk_index, .. } => chunk_index,
+            _ => u64::MAX,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
