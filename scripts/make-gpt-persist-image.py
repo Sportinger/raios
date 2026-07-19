@@ -9,8 +9,11 @@ import hashlib
 import importlib.util
 import json
 import os
+import shutil
+import subprocess
 import struct
 import sys
+import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -103,6 +106,8 @@ RECLOG_PAYLOAD_SHA256_OFFSET = 56
 ARTIFACT_BLOB_MAGIC = b"RAIOSAR0"
 ARTIFACT_BLOB_HEADER_LEN = 48
 ARTIFACT_BLOB_PAYLOAD_SHA256_OFFSET = 16
+BUILD_FS_MANIFEST_V1 = b"raios.buildfs_manifest.v1"
+BUILD_FS_CHUNK_SIZE = 64 * 1024
 
 REGIONS = (
     ("BOOTCTL", BOOTCTL_START_LBA, BOOTCTL_LBA_COUNT),
@@ -128,6 +133,20 @@ class Partition:
 class ReclogFixture:
     frame_count: int = 0
     torn_tail: bool = False
+
+
+@dataclass(frozen=True)
+class BuildFsSeedPayload:
+    label: str
+    sha256: bytes
+    payload: bytes
+
+
+@dataclass(frozen=True)
+class BuildFsSeed:
+    manifest_sha256: bytes
+    payloads: tuple[BuildFsSeedPayload, ...]
+    frame_bytes: int
 
 
 PARTITIONS = (
@@ -478,6 +497,216 @@ def build_artifact_blob_frame(payload: bytes, frame_len: int = SECTOR_SIZE) -> b
     frame[ARTIFACT_BLOB_PAYLOAD_SHA256_OFFSET : ARTIFACT_BLOB_PAYLOAD_SHA256_OFFSET + 32] = hashlib.sha256(payload).digest()
     frame[ARTIFACT_BLOB_HEADER_LEN : ARTIFACT_BLOB_HEADER_LEN + len(payload)] = payload
     return bytes(frame)
+
+
+def parse_required_sha256(value: str, option: str) -> bytes:
+    if len(value) != 64 or any(character not in "0123456789abcdefABCDEF" for character in value):
+        raise ValueError(f"{option} must be exactly 64 hexadecimal digits")
+    return bytes.fromhex(value)
+
+
+def artifact_blob_frame_len(payload_len: int) -> int:
+    if payload_len < 0:
+        raise ValueError("ARTSTOR payload length must not be negative")
+    unaligned = ARTIFACT_BLOB_HEADER_LEN + payload_len
+    return ((unaligned + SECTOR_SIZE - 1) // SECTOR_SIZE) * SECTOR_SIZE
+
+
+def parse_buildfs_manifest(manifest: bytes) -> dict[bytes, int]:
+    offset = 0
+
+    def take(length: int, field: str) -> bytes:
+        nonlocal offset
+        if length < 0 or offset + length > len(manifest):
+            raise ValueError(f"BuildFS manifest truncated at {field}")
+        value = manifest[offset : offset + length]
+        offset += length
+        return value
+
+    def take_u64(field: str) -> int:
+        return struct.unpack("<Q", take(8, field))[0]
+
+    def take_bytes(field: str) -> bytes:
+        length = take_u64(f"{field}.len")
+        if length > len(manifest) - offset:
+            raise ValueError(f"BuildFS manifest {field} length exceeds remaining bytes")
+        return take(length, field)
+
+    def take_path(field: str) -> str:
+        raw = take_bytes(field)
+        try:
+            path = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError(f"BuildFS manifest {field} is not UTF-8") from exc
+        if path.startswith("/") or not path:
+            raise ValueError(f"BuildFS manifest {field} has an invalid path")
+        components = path.split("/")
+        if any(component in {"", ".", ".."} for component in components):
+            raise ValueError(f"BuildFS manifest {field} has an invalid component")
+        return path
+
+    domain = take_bytes("domain")
+    if domain != BUILD_FS_MANIFEST_V1:
+        raise ValueError("BuildFS manifest domain mismatch")
+    if take_u64("chunk_size") != BUILD_FS_CHUNK_SIZE:
+        raise ValueError("BuildFS manifest chunk size mismatch")
+
+    directory_count = take_u64("directory_count")
+    if directory_count > len(manifest):
+        raise ValueError("BuildFS manifest directory count is impossible")
+    directories = [take_path(f"directory[{index}]") for index in range(directory_count)]
+    if directories != sorted(directories, key=lambda path: path.encode("utf-8")):
+        raise ValueError("BuildFS manifest directories are not canonically ordered")
+    if len(set(directories)) != len(directories):
+        raise ValueError("BuildFS manifest contains duplicate directories")
+    directory_set = set(directories)
+    for path in directories:
+        if "/" in path and path.rsplit("/", 1)[0] not in directory_set:
+            raise ValueError(f"BuildFS manifest directory parent is missing: {path}")
+
+    file_count = take_u64("file_count")
+    if file_count > len(manifest):
+        raise ValueError("BuildFS manifest file count is impossible")
+    file_paths: list[str] = []
+    chunk_requirements: dict[bytes, int] = {}
+    for file_index in range(file_count):
+        path = take_path(f"file[{file_index}].path")
+        if path in directory_set:
+            raise ValueError(f"BuildFS manifest path is both file and directory: {path}")
+        if "/" in path and path.rsplit("/", 1)[0] not in directory_set:
+            raise ValueError(f"BuildFS manifest file parent is missing: {path}")
+        file_paths.append(path)
+        file_len = take_u64(f"file[{file_index}].len")
+        take(32, f"file[{file_index}].sha256")
+        chunk_count = take_u64(f"file[{file_index}].chunk_count")
+        expected_chunk_count = 0 if file_len == 0 else ((file_len - 1) // BUILD_FS_CHUNK_SIZE) + 1
+        if chunk_count != expected_chunk_count:
+            raise ValueError(f"BuildFS manifest chunk count mismatch for {path}")
+        chunk_total = 0
+        for chunk_index in range(chunk_count):
+            chunk_len = take_u64(f"file[{file_index}].chunk[{chunk_index}].len")
+            chunk_sha256 = take(32, f"file[{file_index}].chunk[{chunk_index}].sha256")
+            is_last = chunk_index + 1 == chunk_count
+            expected_len = (
+                file_len % BUILD_FS_CHUNK_SIZE or BUILD_FS_CHUNK_SIZE
+                if is_last
+                else BUILD_FS_CHUNK_SIZE
+            )
+            if chunk_len != expected_len:
+                raise ValueError(f"BuildFS manifest chunk length mismatch for {path}")
+            chunk_total += chunk_len
+            previous_len = chunk_requirements.setdefault(chunk_sha256, chunk_len)
+            if previous_len != chunk_len:
+                raise ValueError("BuildFS manifest reuses a chunk digest with a different length")
+        if chunk_total != file_len:
+            raise ValueError(f"BuildFS manifest file length mismatch for {path}")
+
+    if file_paths != sorted(file_paths, key=lambda path: path.encode("utf-8")):
+        raise ValueError("BuildFS manifest files are not canonically ordered")
+    if len(set(file_paths)) != len(file_paths):
+        raise ValueError("BuildFS manifest contains duplicate files")
+    if offset != len(manifest):
+        raise ValueError("BuildFS manifest has trailing bytes")
+    return chunk_requirements
+
+
+def ensure_artstor_seed_fits(frame_bytes: int) -> None:
+    region_bytes = ARTSTOR_LBA_COUNT * SECTOR_SIZE
+    if frame_bytes > region_bytes:
+        raise ValueError(
+            f"BuildFS frames exceed ARTSTOR region: need {frame_bytes} bytes, have {region_bytes}"
+        )
+
+
+def prepare_buildfs_seed(buildfs_directory: Path, expected_manifest_sha256: str) -> BuildFsSeed:
+    expected = parse_required_sha256(expected_manifest_sha256, "--expect-manifest-sha256")
+    if buildfs_directory.is_symlink() or not buildfs_directory.is_dir():
+        raise ValueError(f"BuildFS seed path is not a plain directory: {buildfs_directory}")
+    manifest_path = buildfs_directory / "manifest.bin"
+    chunks_directory = buildfs_directory / "chunks"
+    if manifest_path.is_symlink() or not manifest_path.is_file():
+        raise ValueError(f"BuildFS manifest.bin is missing: {manifest_path}")
+    if chunks_directory.is_symlink() or not chunks_directory.is_dir():
+        raise ValueError(f"BuildFS chunks directory is missing: {chunks_directory}")
+
+    manifest = manifest_path.read_bytes()
+    actual_manifest_sha256 = hashlib.sha256(manifest).digest()
+    if actual_manifest_sha256 != expected:
+        raise ValueError(
+            "BuildFS manifest SHA-256 mismatch: "
+            f"expected {expected.hex()}, got {actual_manifest_sha256.hex()}"
+        )
+    chunk_requirements = parse_buildfs_manifest(manifest)
+
+    manifest_sha_path = buildfs_directory / "manifest.sha256"
+    if manifest_sha_path.exists():
+        if manifest_sha_path.is_symlink() or not manifest_sha_path.is_file():
+            raise ValueError("BuildFS manifest.sha256 is not a plain file")
+        recorded_manifest_sha = manifest_sha_path.read_text(encoding="ascii").strip()
+        if recorded_manifest_sha.lower() != expected.hex():
+            raise ValueError("BuildFS manifest.sha256 does not match the required pin")
+
+    chunk_entries = list(chunks_directory.iterdir())
+    expected_names = {digest.hex() for digest in chunk_requirements}
+    actual_names = {entry.name for entry in chunk_entries}
+    if actual_names != expected_names:
+        missing = sorted(expected_names - actual_names)
+        extra = sorted(actual_names - expected_names)
+        raise ValueError(f"BuildFS chunk set mismatch: missing={missing[:3]} extra={extra[:3]}")
+
+    payloads: list[BuildFsSeedPayload] = []
+    for digest in sorted(chunk_requirements):
+        chunk_path = chunks_directory / digest.hex()
+        if chunk_path.is_symlink() or not chunk_path.is_file():
+            raise ValueError(f"BuildFS chunk is not a plain file: {chunk_path}")
+        payload = chunk_path.read_bytes()
+        if len(payload) != chunk_requirements[digest]:
+            raise ValueError(f"BuildFS chunk length mismatch: {chunk_path.name}")
+        actual = hashlib.sha256(payload).digest()
+        if actual != digest:
+            raise ValueError(
+                f"BuildFS chunk SHA-256 mismatch for {chunk_path.name}: got {actual.hex()}"
+            )
+        payloads.append(BuildFsSeedPayload(f"chunk:{digest.hex()}", digest, payload))
+
+    payloads.append(BuildFsSeedPayload("manifest.bin", expected, manifest))
+    frame_bytes = sum(artifact_blob_frame_len(len(entry.payload)) for entry in payloads)
+    ensure_artstor_seed_fits(frame_bytes)
+    return BuildFsSeed(expected, tuple(payloads), frame_bytes)
+
+
+def seed_buildfs(handle, seed: BuildFsSeed) -> None:
+    handle.seek((SEED_DATA_START_LBA + ARTSTOR_START_LBA) * SECTOR_SIZE)
+    for entry in seed.payloads:
+        if hashlib.sha256(entry.payload).digest() != entry.sha256:
+            raise ValueError(f"BuildFS payload changed after preflight: {entry.label}")
+        handle.write(build_artifact_blob_frame(entry.payload, artifact_blob_frame_len(len(entry.payload))))
+
+
+def validate_buildfs_seed_image(image: Path, seed: BuildFsSeed) -> None:
+    offset = 0
+    with image.open("rb") as handle:
+        for entry in seed.payloads:
+            frame_len = artifact_blob_frame_len(len(entry.payload))
+            frame = read_artstor_blob(handle, SEED_DATA_START_LBA, offset, frame_len)
+            parsed, reason = parse_artifact_blob_frame(frame, 0)
+            if parsed is None:
+                raise ValueError(f"BuildFS ARTSTOR frame failed offline parse at {offset}: {reason}")
+            payload = frame[ARTIFACT_BLOB_HEADER_LEN : ARTIFACT_BLOB_HEADER_LEN + len(entry.payload)]
+            if (
+                int(parsed["frame_len"]) != frame_len
+                or int(parsed["payload_len"]) != len(entry.payload)
+                or parsed["payload_sha256"] != entry.sha256.hex()
+                or hashlib.sha256(payload).digest() != entry.sha256
+            ):
+                raise ValueError(f"BuildFS ARTSTOR frame binding mismatch: {entry.label}")
+            offset += frame_len
+        if offset != seed.frame_bytes:
+            raise ValueError("BuildFS ARTSTOR frame span drift")
+        if offset < ARTSTOR_LBA_COUNT * SECTOR_SIZE:
+            handle.seek((SEED_DATA_START_LBA + ARTSTOR_START_LBA) * SECTOR_SIZE + offset)
+            if not all_zero(handle.read(SECTOR_SIZE)):
+                raise ValueError("BuildFS ARTSTOR frames are not followed by a zero sector")
 
 
 def seed_reclog_fixture(handle, fixture: ReclogFixture) -> None:
@@ -1052,6 +1281,7 @@ def build_image(
     reclog_fixture_spec: str | None = None,
     bootctl_fixture_spec: str | None = None,
     seed_artstor_garbage: bool = False,
+    buildfs_seed: BuildFsSeed | None = None,
 ) -> None:
     assert_not_release_output(output)
     if ARTSTOR_LBA_COUNT <= 0:
@@ -1079,6 +1309,8 @@ def build_image(
         seed_reclog_fixture(handle, reclog_fixture)
         if seed_artstor_garbage:
             seed_artstor_garbage_blob(handle)
+        if buildfs_seed is not None:
+            seed_buildfs(handle, buildfs_seed)
         seed_bootctl_fixture(handle, bootctl_fixture_spec)
         write_at(handle, BACKUP_GPT_ENTRIES_LBA, entries)
         write_at(handle, BACKUP_GPT_HEADER_LBA, backup_header)
@@ -1854,9 +2086,80 @@ def run_standalone_self_check() -> None:
         raise ValueError(f"standalone self-check failed: BOOTCTL scan {bootctl}")
 
 
+def run_buildfs_seed_self_check() -> None:
+    repository = Path(__file__).resolve().parents[1]
+    root = Path(tempfile.gettempdir()) / f"raios-buildfs-seed-{uuid.uuid4().hex}"
+    root.mkdir()
+    try:
+        source = root / "source"
+        nested = source / "nested"
+        packed = root / "packed"
+        image = root / "persist.img"
+        nested.mkdir(parents=True)
+        (source / "alpha.txt").write_bytes(b"alpha\n")
+        (source / "alpha-copy.txt").write_bytes(b"alpha\n")
+        (nested / "multi.bin").write_bytes(bytes(range(256)) * 257)
+        packed_result = subprocess.run(
+            ["cargo", "run", "--quiet", "-p", "buildfs-pack", "--", str(source), "--output", str(packed)],
+            cwd=repository,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if packed_result.returncode != 0:
+            detail = packed_result.stderr.strip() or packed_result.stdout.strip()
+            raise ValueError(f"buildfs-pack self-check fixture failed: {detail}")
+        expected = (packed / "manifest.sha256").read_text(encoding="ascii").strip()
+        seed = prepare_buildfs_seed(packed, expected)
+        build_image(image, buildfs_seed=seed)
+        validate_buildfs_seed_image(image, seed)
+
+        try:
+            prepare_buildfs_seed(packed, "00" * 32)
+        except ValueError as exc:
+            if "manifest SHA-256 mismatch" not in str(exc):
+                raise
+        else:
+            raise ValueError("BuildFS self-check accepted the wrong manifest pin")
+
+        first_chunk = sorted((packed / "chunks").iterdir(), key=lambda path: path.name)[0]
+        tampered = bytearray(first_chunk.read_bytes())
+        tampered[0] ^= 1
+        first_chunk.write_bytes(tampered)
+        try:
+            prepare_buildfs_seed(packed, expected)
+        except ValueError as exc:
+            if "chunk SHA-256 mismatch" not in str(exc):
+                raise
+        else:
+            raise ValueError("BuildFS self-check accepted a tampered chunk")
+
+        try:
+            ensure_artstor_seed_fits(ARTSTOR_LBA_COUNT * SECTOR_SIZE + SECTOR_SIZE)
+        except ValueError as exc:
+            if "exceed ARTSTOR region" not in str(exc):
+                raise
+        else:
+            raise ValueError("BuildFS self-check accepted an oversized ARTSTOR span")
+
+        print(
+            "buildfs self-check: passed "
+            f"manifest={expected} chunks={len(seed.payloads) - 1} "
+            f"frames={len(seed.payloads)} frame_bytes={seed.frame_bytes} "
+            "negative=manifest_mismatch+chunk_hash_mismatch+region_overflow"
+        )
+    finally:
+        shutil.rmtree(root)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--self-check", action="store_true", help="accepted for explicit self-check invocations")
+    parser.add_argument(
+        "--self-check-buildfs",
+        action="store_true",
+        help="pack a small synthetic BuildFS tree, seed it, and re-read every ARTSTOR frame",
+    )
     parser.add_argument("--inspect-json", type=Path, help="inspect an existing image and print JSON")
     parser.add_argument("--assert-not-release", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--image", type=Path, help="existing GPT persist image for offline slot updates")
@@ -1881,10 +2184,55 @@ def main() -> int:
         action="store_true",
         help="seed a bare RAIOSAR0 blob in ARTSTOR without a chained artifact_persist RECLOG record",
     )
+    parser.add_argument(
+        "--seed-buildfs",
+        type=Path,
+        help="seed a buildfs-pack output directory as dense RAIOSAR0 ARTSTOR frames",
+    )
+    parser.add_argument(
+        "--expect-manifest-sha256",
+        help="required SHA-256 pin for --seed-buildfs manifest.bin",
+    )
     parser.add_argument("output", nargs="?", type=Path)
     args = parser.parse_args()
 
     try:
+        if (args.seed_buildfs is None) != (args.expect_manifest_sha256 is None):
+            parser.error("--seed-buildfs and --expect-manifest-sha256 are required together")
+        if args.seed_buildfs and args.seed_artstor_garbage_blob:
+            parser.error("--seed-buildfs cannot be combined with --seed-artstor-garbage-blob")
+        if args.seed_buildfs and (
+            args.inspect_json
+            or args.assert_not_release
+            or args.image
+            or args.corrupt_artstor_blob
+            or args.tamper_persist_record
+            or args.corrupt_memory_frame
+            or args.stage_slot
+            or args.payload_dir
+            or args.set_pending
+        ):
+            parser.error("--seed-buildfs is valid only while creating a new positional output image")
+        if args.seed_buildfs and args.output is None:
+            parser.error("--seed-buildfs requires a positional output image")
+        if args.self_check_buildfs:
+            if (
+                args.self_check
+                or args.inspect_json
+                or args.assert_not_release
+                or args.image
+                or args.corrupt_artstor_blob
+                or args.tamper_persist_record
+                or args.corrupt_memory_frame
+                or args.stage_slot
+                or args.payload_dir
+                or args.set_pending
+                or args.seed_buildfs
+                or args.output
+            ):
+                parser.error("--self-check-buildfs cannot be combined with other operations")
+            run_buildfs_seed_self_check()
+            return 0
         if args.assert_not_release:
             assert_not_release_output(args.assert_not_release)
             print("release guard: passed")
@@ -1898,6 +2246,7 @@ def main() -> int:
                 or args.stage_slot
                 or args.payload_dir
                 or args.set_pending
+                or args.seed_buildfs
             ):
                 parser.error("--inspect-json cannot be combined with offline mutation flags")
             print(json.dumps(inspect_image(args.inspect_json), indent=2))
@@ -1934,17 +2283,26 @@ def main() -> int:
             return 0
         def build_validate_print(output: Path) -> int:
             reclog_fixture = parse_reclog_fixture(args.seed_reclog_fixture)
+            buildfs_seed = (
+                prepare_buildfs_seed(args.seed_buildfs, args.expect_manifest_sha256)
+                if args.seed_buildfs is not None and args.expect_manifest_sha256 is not None
+                else None
+            )
             build_image(
                 output,
                 args.seed_reclog_fixture,
                 args.seed_bootctl,
                 args.seed_artstor_garbage_blob,
+                buildfs_seed,
             )
             info = inspect_image(output)
             validate_or_raise(info)
             validate_reclog_fixture_or_raise(info, reclog_fixture)
             validate_boot_control_fixture_or_raise(info, args.seed_bootctl)
-            validate_artstor_garbage_fixture_or_raise(info, args.seed_artstor_garbage_blob)
+            if buildfs_seed is None:
+                validate_artstor_garbage_fixture_or_raise(info, args.seed_artstor_garbage_blob)
+            else:
+                validate_buildfs_seed_image(output, buildfs_seed)
             print_summary(info)
             print(
                 f"reclog fixture: frames_seeded={reclog_fixture.frame_count} "
@@ -1959,6 +2317,14 @@ def main() -> int:
                 "artstor garbage fixture: "
                 f"seeded={str(args.seed_artstor_garbage_blob).lower()} validation=passed"
             )
+            if buildfs_seed is not None:
+                print(
+                    "buildfs seed: "
+                    f"manifest={buildfs_seed.manifest_sha256.hex()} "
+                    f"chunks={len(buildfs_seed.payloads) - 1} "
+                    f"frames={len(buildfs_seed.payloads)} "
+                    f"frame_bytes={buildfs_seed.frame_bytes} validation=passed"
+                )
             print("self-check: passed")
             return 0
 

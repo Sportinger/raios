@@ -1,4 +1,10 @@
-use alloc::{boxed::Box, rc::Rc, string::ToString, vec, vec::Vec};
+use alloc::{
+    boxed::Box,
+    rc::Rc,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use core::cell::RefCell;
 
 use raios_core::{
@@ -12,7 +18,9 @@ use raios_core::{
     },
     buildfs_manifest::{
         BuildFsChunk, BuildFsDirectory, BuildFsFile, BuildFsManifest, BUILD_FS_CHUNK_SIZE,
+        BUILD_FS_MANIFEST_V1,
     },
+    parse_sha256_ref,
     scoped_wasi_artifact_egress::{
         evaluate_scoped_wasi_artifact_egress, ScopedWasiArtifactEgress,
         ScopedWasiArtifactEgressDecision, WasiArtifactEgressPlan,
@@ -53,6 +61,12 @@ const COMPILER_ARTIFACT_SHA256: &str =
     "c6dccf3e5f01631b942a0a008b9f2f5312987e7d8590f8c61024cd00687a5791";
 const JOB_MANIFEST_SHA256: &str =
     "1111111111111111111111111111111111111111111111111111111111111111";
+// docs/architecture/sysroot-buildfs-manifest-13daf6f9.md
+const SYSROOT_BUILD_FS_MANIFEST_SHA256: &str =
+    "13daf6f9042d07c4d698d60ea16869ed85e2035f762f4b5a048e71e7523b7b15";
+const SYSROOT_BUILD_FS_MANIFEST_LEN: u64 = 51_089;
+const SYSIMPORT_SAMPLE_TARGET: usize = 32;
+const SYSIMPORT_RUN_NONCE: u64 = 301;
 const REQUIRED_IMPORT_COUNT: usize = 30;
 const BUILD_STORE_INSTANCE_ID: u64 = 11;
 const BUILD_STORE_GENERATION: u64 = 13;
@@ -113,6 +127,25 @@ struct WasiJobEvidence {
     frozen_output: Option<FrozenOutput>,
     output_bundle_len: u64,
     memory: WasiMemoryEvidence,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SysimportEvidence {
+    manifest: &'static str,
+    chunks: usize,
+    deny: &'static str,
+    passed: bool,
+}
+
+impl SysimportEvidence {
+    const fn failed(manifest: &'static str, chunks: usize, deny: &'static str) -> Self {
+        Self {
+            manifest,
+            chunks,
+            deny,
+            passed: false,
+        }
+    }
 }
 
 impl WasiJobEvidence {
@@ -555,6 +588,123 @@ fn empty_manifest() -> Option<BuildFsManifest> {
     BuildFsManifest::new(Vec::new(), Vec::new()).ok()
 }
 
+struct BuildFsManifestCursor<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> BuildFsManifestCursor<'a> {
+    const fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, offset: 0 }
+    }
+
+    fn take(&mut self, len: usize) -> Result<&'a [u8], &'static str> {
+        let end = self
+            .offset
+            .checked_add(len)
+            .ok_or("manifest_parse_failed")?;
+        let value = self
+            .bytes
+            .get(self.offset..end)
+            .ok_or("manifest_parse_failed")?;
+        self.offset = end;
+        Ok(value)
+    }
+
+    fn take_u64(&mut self) -> Result<u64, &'static str> {
+        Ok(u64::from_le_bytes(
+            self.take(8)?
+                .try_into()
+                .map_err(|_| "manifest_parse_failed")?,
+        ))
+    }
+
+    fn take_len(&mut self) -> Result<usize, &'static str> {
+        usize::try_from(self.take_u64()?).map_err(|_| "manifest_parse_failed")
+    }
+
+    fn take_bytes(&mut self) -> Result<&'a [u8], &'static str> {
+        let len = self.take_len()?;
+        self.take(len)
+    }
+
+    fn take_string(&mut self) -> Result<String, &'static str> {
+        let bytes = self.take_bytes()?;
+        let value = core::str::from_utf8(bytes).map_err(|_| "manifest_parse_failed")?;
+        Ok(value.to_string())
+    }
+
+    fn take_sha256(&mut self) -> Result<[u8; 32], &'static str> {
+        self.take(32)?
+            .try_into()
+            .map_err(|_| "manifest_parse_failed")
+    }
+
+    const fn finished(&self) -> bool {
+        self.offset == self.bytes.len()
+    }
+}
+
+/// Decodes the transport bytes into core's authority type, then requires core
+/// validation and byte-for-byte canonical re-encoding before use.
+fn parse_canonical_buildfs_manifest(bytes: &[u8]) -> Result<BuildFsManifest, &'static str> {
+    let mut cursor = BuildFsManifestCursor::new(bytes);
+    if cursor.take_bytes()? != BUILD_FS_MANIFEST_V1.as_bytes()
+        || cursor.take_u64()? != BUILD_FS_CHUNK_SIZE
+    {
+        return Err("manifest_parse_failed");
+    }
+
+    let directory_count = cursor.take_len()?;
+    if directory_count > bytes.len() {
+        return Err("manifest_parse_failed");
+    }
+    let mut directories = Vec::new();
+    for _ in 0..directory_count {
+        directories.push(BuildFsDirectory {
+            path: cursor.take_string()?,
+        });
+    }
+
+    let file_count = cursor.take_len()?;
+    if file_count > bytes.len() {
+        return Err("manifest_parse_failed");
+    }
+    let mut files = Vec::new();
+    for _ in 0..file_count {
+        let path = cursor.take_string()?;
+        let len = cursor.take_u64()?;
+        let sha256 = cursor.take_sha256()?;
+        let chunk_count = cursor.take_len()?;
+        if chunk_count > bytes.len() {
+            return Err("manifest_parse_failed");
+        }
+        let mut chunks = Vec::new();
+        for _ in 0..chunk_count {
+            chunks.push(BuildFsChunk {
+                len: cursor.take_u64()?,
+                sha256: cursor.take_sha256()?,
+            });
+        }
+        files.push(BuildFsFile {
+            path,
+            len,
+            sha256,
+            chunks,
+        });
+    }
+    if !cursor.finished() {
+        return Err("manifest_parse_failed");
+    }
+    let manifest = BuildFsManifest { directories, files };
+    manifest.validate().map_err(|_| "manifest_invalid")?;
+    let canonical = manifest.canonical_bytes().map_err(|_| "manifest_invalid")?;
+    if canonical.as_slice() != bytes {
+        return Err("manifest_noncanonical");
+    }
+    Ok(manifest)
+}
+
 fn storage_authority(
     authorized: &AuthorizedBuildJob,
     sysroot_manifest: &BuildFsManifest,
@@ -919,6 +1069,252 @@ fn storage_selftest() -> StorageSelftestEvidence {
     }
 }
 
+fn sysimport_manifest_frame_error(
+    error: crate::agent_protocol::artifact_store::BuildFsChunkFrameError,
+) -> &'static str {
+    match error {
+        crate::agent_protocol::artifact_store::BuildFsChunkFrameError::Missing => "missing",
+        crate::agent_protocol::artifact_store::BuildFsChunkFrameError::Bounds => "bounds",
+        crate::agent_protocol::artifact_store::BuildFsChunkFrameError::Malformed => "malformed",
+        crate::agent_protocol::artifact_store::BuildFsChunkFrameError::LengthMismatch => {
+            "length_mismatch"
+        }
+        crate::agent_protocol::artifact_store::BuildFsChunkFrameError::Io => "io",
+    }
+}
+
+fn sysimport_manifest_chunk_count(manifest: &BuildFsManifest) -> Option<usize> {
+    manifest
+        .files
+        .iter()
+        .try_fold(0usize, |total, file| total.checked_add(file.chunks.len()))
+}
+
+fn run_sysimport_granted_reads(
+    manifest: &BuildFsManifest,
+    mut reader: GrantedChunkReader,
+) -> SysimportEvidence {
+    let Some(total_chunks) = sysimport_manifest_chunk_count(manifest) else {
+        return SysimportEvidence::failed("ok", 0, "chunk_count_overflow");
+    };
+    if total_chunks == 0 || reader.entry_count() != total_chunks {
+        return SysimportEvidence::failed("ok", 0, "entry_count_mismatch");
+    }
+    let buildfs = match project_core_manifest(manifest) {
+        Ok(buildfs) => buildfs,
+        Err(error) => return SysimportEvidence::failed("ok", 0, error.reason()),
+    };
+    let last = total_chunks - 1;
+    let intervals = SYSIMPORT_SAMPLE_TARGET - 1;
+    let stride = if total_chunks <= SYSIMPORT_SAMPLE_TARGET {
+        1
+    } else {
+        (last + intervals - 1) / intervals
+    };
+    let mut flat_index = 0usize;
+    let mut selected_count = 0usize;
+    let mut successful_reads = 0usize;
+    let mut first_request = None;
+
+    for file in &manifest.files {
+        let path = match NormalizedPath::root().resolve(file.path.as_bytes()) {
+            Ok(path) => path,
+            Err(_) => return SysimportEvidence::failed("ok", successful_reads, "path_failed"),
+        };
+        let file_node = match buildfs.node_for_path(&path) {
+            Ok(node) => node,
+            Err(_) => {
+                return SysimportEvidence::failed("ok", successful_reads, "projection_failed")
+            }
+        };
+        for (chunk_index, chunk) in file.chunks.iter().enumerate() {
+            let selected = flat_index == 0 || flat_index == last || flat_index % stride == 0;
+            if selected {
+                selected_count += 1;
+                let chunk_index = match u64::try_from(chunk_index) {
+                    Ok(index) => index,
+                    Err(_) => {
+                        return SysimportEvidence::failed(
+                            "ok",
+                            successful_reads,
+                            "chunk_index_overflow",
+                        )
+                    }
+                };
+                let request = ChunkReadRequest {
+                    mount_id: SYSROOT_MOUNT,
+                    file: file_node,
+                    file_sha256: file.sha256,
+                    chunk_index,
+                    chunk_sha256: chunk.sha256,
+                    range_offset: 0,
+                    range_len: chunk.len,
+                };
+                let chunk_len = match usize::try_from(chunk.len) {
+                    Ok(len) => len,
+                    Err(_) => {
+                        return SysimportEvidence::failed(
+                            "ok",
+                            successful_reads,
+                            "chunk_length_overflow",
+                        )
+                    }
+                };
+                let mut bytes = vec![0; chunk_len];
+                if reader.read_chunk(request, &mut bytes).is_err() {
+                    let reason = reader
+                        .last_denial()
+                        .map(GrantedChunkReadDenied::reason)
+                        .unwrap_or("sample_read_failed");
+                    return SysimportEvidence::failed("ok", successful_reads, reason);
+                }
+                if sha256_bytes(&bytes) != chunk.sha256 {
+                    return SysimportEvidence::failed(
+                        "ok",
+                        successful_reads,
+                        "sample_hash_mismatch",
+                    );
+                }
+                successful_reads += 1;
+                if first_request.is_none() {
+                    first_request = Some(request);
+                }
+            }
+            flat_index += 1;
+        }
+    }
+    if flat_index != total_chunks
+        || selected_count != successful_reads
+        || selected_count != SYSIMPORT_SAMPLE_TARGET
+    {
+        return SysimportEvidence::failed("ok", successful_reads, "sample_count_mismatch");
+    }
+
+    let Some(first_request) = first_request else {
+        return SysimportEvidence::failed("ok", successful_reads, "sample_missing");
+    };
+    let first_len = match usize::try_from(first_request.range_len) {
+        Ok(len) => len,
+        Err(_) => {
+            return SysimportEvidence::failed("ok", successful_reads, "chunk_length_overflow")
+        }
+    };
+    let mut denied_destination = vec![0; first_len];
+    let mut absent = first_request;
+    absent.chunk_index = u64::MAX;
+    if reader.read_chunk(absent, &mut denied_destination) != Err(ChunkReadError::NotCapable)
+        || reader.last_denial() != Some(GrantedChunkReadDenied::AbsentEntry)
+    {
+        return SysimportEvidence::failed("ok", successful_reads, "absent_entry_failed");
+    }
+
+    let Some(short_len) = first_len.checked_sub(1) else {
+        return SysimportEvidence::failed("ok", successful_reads, "wrong_range_fixture_failed");
+    };
+    let mut wrong_range = first_request;
+    wrong_range.range_len -= 1;
+    let mut shortened_destination = vec![0; short_len];
+    if reader.read_chunk(wrong_range, &mut shortened_destination) != Err(ChunkReadError::NotCapable)
+        || reader.last_denial() != Some(GrantedChunkReadDenied::WrongRange)
+    {
+        return SysimportEvidence::failed("ok", successful_reads, "wrong_range_failed");
+    }
+
+    SysimportEvidence {
+        manifest: "ok",
+        chunks: successful_reads,
+        deny: "absent_entry+wrong_range",
+        passed: true,
+    }
+}
+
+fn run_sysimport_selftest() -> SysimportEvidence {
+    let Some(manifest_pin) = parse_sha256_ref(SYSROOT_BUILD_FS_MANIFEST_SHA256) else {
+        return SysimportEvidence::failed("pin_invalid", 0, "not_run");
+    };
+    let session = match crate::agent_protocol::artifact_store::begin_build_chunk_read_session(
+        BUILD_STORE_INSTANCE_ID,
+        BUILD_STORE_GENERATION,
+    ) {
+        Ok(session) => session,
+        Err(error) => {
+            return SysimportEvidence::failed(sysimport_manifest_frame_error(error), 0, "not_run")
+        }
+    };
+    let manifest_frame = match session
+        .resolve_chunk_frame(manifest_pin, SYSROOT_BUILD_FS_MANIFEST_LEN)
+    {
+        Ok(frame) => frame,
+        Err(error) => {
+            return SysimportEvidence::failed(sysimport_manifest_frame_error(error), 0, "not_run")
+        }
+    };
+    let manifest_len = match usize::try_from(SYSROOT_BUILD_FS_MANIFEST_LEN) {
+        Ok(len) => len,
+        Err(_) => return SysimportEvidence::failed("length_overflow", 0, "not_run"),
+    };
+    let mut manifest_bytes = vec![0; manifest_len];
+    if let Err(error) = session.read_chunk_frame(manifest_frame, &mut manifest_bytes) {
+        return SysimportEvidence::failed(sysimport_manifest_frame_error(error), 0, "not_run");
+    }
+    let recomputed_manifest_sha256 = sha256_bytes(&manifest_bytes);
+    if recomputed_manifest_sha256 != manifest_pin {
+        return SysimportEvidence::failed("hash_mismatch", 0, "not_run");
+    }
+    let sysroot_manifest = match parse_canonical_buildfs_manifest(&manifest_bytes) {
+        Ok(manifest) => manifest,
+        Err(reason) => return SysimportEvidence::failed(reason, 0, "not_run"),
+    };
+    let canonical_manifest_sha256 = match sysroot_manifest.sha256() {
+        Ok(sha256) => sha256,
+        Err(_) => return SysimportEvidence::failed("manifest_invalid", 0, "not_run"),
+    };
+    if canonical_manifest_sha256 != recomputed_manifest_sha256
+        || canonical_manifest_sha256 != manifest_pin
+    {
+        return SysimportEvidence::failed("hash_mismatch", 0, "not_run");
+    }
+    let Some(src_manifest) = empty_manifest() else {
+        return SysimportEvidence::failed("ok", 0, "src_manifest_failed");
+    };
+    let Some(job) = authorize_for_manifests(&sysroot_manifest, &src_manifest) else {
+        return SysimportEvidence::failed("ok", 0, "job_authority_failed");
+    };
+    if job.sysroot_mount_manifest_sha256() != manifest_pin
+        || job.sysroot_mount_manifest_sha256() != recomputed_manifest_sha256
+    {
+        return SysimportEvidence::failed("ticket_mismatch", 0, "not_run");
+    }
+    let Some(authority) = storage_authority(&job, &sysroot_manifest, &src_manifest) else {
+        return SysimportEvidence::failed("ok", 0, "storage_authority_failed");
+    };
+    if authority.sysroot_mount_manifest_sha256() != manifest_pin
+        || authority.sysroot_mount_manifest_sha256() != job.sysroot_mount_manifest_sha256()
+    {
+        return SysimportEvidence::failed("authority_mismatch", 0, "not_run");
+    }
+    let Some(nonce) = BuildRunNonce::kernel_minted(SYSIMPORT_RUN_NONCE) else {
+        return SysimportEvidence::failed("ok", 0, "nonce_failed");
+    };
+    let reader = match materialize_build_storage(
+        &authority,
+        &sysroot_manifest,
+        &src_manifest,
+        nonce,
+        Box::new(session),
+    ) {
+        Ok(reader) => reader,
+        Err(error) => return SysimportEvidence::failed("ok", 0, error.reason()),
+    };
+    if reader.job_binding_sha256() != authority.job_binding_sha256()
+        || reader.run_nonce() != SYSIMPORT_RUN_NONCE
+        || reader.store_generation() != BUILD_STORE_GENERATION
+    {
+        return SysimportEvidence::failed("ok", 0, "reader_binding_mismatch");
+    }
+    run_sysimport_granted_reads(&sysroot_manifest, reader)
+}
+
 fn empty_authority_for_ok_fixture() -> Option<BuildStorageAuthority> {
     let engine = wasi_engine();
     let module = Module::new(&engine, WASI_BUILD_OK_WASM).ok()?;
@@ -1097,6 +1493,17 @@ pub(crate) fn emit_wasi_mem_selftest() {
         if grow_denied_gracefully { 1 } else { 0 },
         over_class_reason,
         if deterministic { 1 } else { 0 },
+    ));
+}
+
+pub(crate) fn emit_wasi_sysimport() {
+    let evidence = run_sysimport_selftest();
+    crate::serial::write_raw_fmt(format_args!(
+        "RAIOS_SYSIMPORT selftest={} manifest={} chunks={} deny={}\n",
+        if evidence.passed { "pass" } else { "fail" },
+        evidence.manifest,
+        evidence.chunks,
+        evidence.deny,
     ));
 }
 
