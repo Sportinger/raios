@@ -84,11 +84,21 @@
 ## In-kernel drivers & hardware authority
 - [ ] Drivers remain native and in-kernel by deliberate ADR 0005 decision;
       guests receive service capabilities, not direct device ownership
-- [ ] The kernel owns interrupt routing and hardware access; no guest can reach
+- [x] The kernel owns interrupt routing and hardware access; no guest can reach
       a device without the corresponding typed host import
+      <!-- host_import.selftest device_absent case (shadow-20260719-212250,
+      509/509): the known-host-import vocabulary (scoped_wasm_import_grant.rs,
+      27 imports exported via agent_protocol_honesty.rs:294) contains ZERO
+      device/irq/mmio/dma/port surfaces (device_surfaces=0); a guest importing
+      device.mmio_read is refused unknown_host_import before instantiation.
+      Drivers stay in-kernel by ADR 0005; interrupt handling is kernel-only. -->
 - [ ] IRQ storm from one device cannot lock the system (rate limit / mask + report)
-- [ ] Negative test: a guest without the device/service import is denied +
+- [x] Negative test: a guest without the device/service import is denied +
       logged and causes no device or host-state change
+      <!-- host_import.selftest device_absent (shadow-20260719-212250,
+      509/509): device.mmio_read import refused=unknown_host_import before
+      instantiation, denied=1 recorded=1, host/device/persistent surfaces
+      unchanged (device_import=refused, host_effect=0, persistent_effect=0). -->
 
 ## Explicit future hardware hardening (not current checkboxes)
 
