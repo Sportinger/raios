@@ -216,6 +216,9 @@ impl WasiBuildInstance {
                     requested_rights_inheriting,
                     flags,
                 )?;
+                if truncate {
+                    self.truncate_resolved(target)?;
+                }
                 self.fds = next_fds;
                 Ok(fd)
             }
@@ -577,12 +580,19 @@ impl WasiBuildInstance {
         {
             return Err(Errno::Rofs);
         }
-        // Truncation is not implemented for RAM arenas; retain the prior
-        // host-boundary rejection for those mounts.
-        if truncate {
+        if truncate && !matches!(mount_id, OUTPUT_MOUNT | TMP_MOUNT | ROOT_SCRATCH_MOUNT) {
             return Err(Errno::Notcapable);
         }
         Ok(())
+    }
+
+    fn truncate_resolved(&mut self, target: ResolvedNode) -> Result<(), Errno> {
+        match target.mount_id {
+            OUTPUT_MOUNT => self.output.resize_node(target.node, 0),
+            TMP_MOUNT | ROOT_SCRATCH_MOUNT => self.scratch.resize_node(target.node, 0),
+            SYSROOT_MOUNT | SOURCE_MOUNT => Err(Errno::Rofs),
+            _ => Err(Errno::Notcapable),
+        }
     }
 
     fn directory_entry(&self, fd: Fd, right: Rights) -> Result<crate::FdEntry, Errno> {
@@ -1151,6 +1161,120 @@ mod tests {
             ),
             Err(Errno::Rofs)
         );
+    }
+
+    #[test]
+    fn output_create_with_truncate_is_empty_and_writable_after_mkdir() {
+        let mut instance = instance();
+
+        instance
+            .path_create_directory(Fd::ROOT_PREOPEN, b"out/rmeta-temp")
+            .unwrap();
+        let fd = instance
+            .path_open(
+                Fd::ROOT_PREOPEN,
+                b"out/rmeta-temp/lib.rmeta",
+                true,
+                true,
+                file_rights(),
+                Rights::EMPTY,
+                FdFlags::EMPTY,
+            )
+            .unwrap();
+
+        assert_eq!(instance.fd_filestat_get(fd).unwrap().size, 0);
+        assert_eq!(instance.fd_write(fd, b"rmeta").unwrap(), 5);
+        assert_eq!(instance.fd_filestat_get(fd).unwrap().size, 5);
+    }
+
+    #[test]
+    fn truncate_existing_output_file_clears_only_that_file() {
+        let mut instance = instance();
+        for (path, bytes) in [
+            (b"out/artifact".as_slice(), b"old bytes".as_slice()),
+            (b"out/sibling".as_slice(), b"kept".as_slice()),
+        ] {
+            let fd = instance
+                .path_open(
+                    Fd::ROOT_PREOPEN,
+                    path,
+                    true,
+                    false,
+                    file_rights(),
+                    Rights::EMPTY,
+                    FdFlags::EMPTY,
+                )
+                .unwrap();
+            instance.fd_write(fd, bytes).unwrap();
+        }
+
+        let truncated = instance
+            .path_open(
+                Fd::ROOT_PREOPEN,
+                b"out/artifact",
+                false,
+                true,
+                file_rights(),
+                Rights::EMPTY,
+                FdFlags::EMPTY,
+            )
+            .unwrap();
+
+        assert_eq!(instance.fd_filestat_get(truncated).unwrap().size, 0);
+        let manifest = instance.freeze_output().unwrap();
+        assert_eq!(manifest.files.len(), 2);
+        assert_eq!(manifest.files[0].path, "artifact");
+        assert_eq!(manifest.files[0].len, 0);
+        assert_eq!(manifest.files[1].path, "sibling");
+        assert_eq!(manifest.files[1].len, 4);
+        let sibling = instance
+            .path_open(
+                Fd::ROOT_PREOPEN,
+                b"out/sibling",
+                false,
+                false,
+                Rights::FD_READ,
+                Rights::EMPTY,
+                FdFlags::EMPTY,
+            )
+            .unwrap();
+        assert_eq!(instance.fd_read(sibling, 4, &mut Reader).unwrap(), b"kept");
+    }
+
+    #[test]
+    fn readonly_sysroot_rejects_truncate_and_fd_write() {
+        let mut instance = instance();
+        assert_eq!(
+            instance.path_open(
+                Fd::ROOT_PREOPEN,
+                b"sysroot/tool",
+                false,
+                true,
+                file_rights(),
+                Rights::EMPTY,
+                FdFlags::EMPTY,
+            ),
+            Err(Errno::Rofs)
+        );
+
+        let fd = instance
+            .path_open(
+                Fd::ROOT_PREOPEN,
+                b"sysroot/tool",
+                false,
+                false,
+                file_rights(),
+                Rights::EMPTY,
+                FdFlags::EMPTY,
+            )
+            .unwrap();
+        assert!(!instance
+            .fd_table()
+            .get(fd)
+            .unwrap()
+            .rights_base
+            .contains(Rights::FD_WRITE));
+        assert_eq!(instance.fd_write(fd, b"x"), Err(Errno::Rofs));
     }
 
     #[test]
