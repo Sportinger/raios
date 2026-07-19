@@ -264,25 +264,70 @@ foreach ($domainBInventoryCandidate in @($inventoryResponse.facts.services | Whe
         }
     }
 }
-$domainBSelection = @($domainBSelections | Sort-Object service_id, artifact_sha256)[0]
-$domainBInventoryBefore = $domainBSelection.inventory
-$domainBArtifactBefore = $domainBSelection.artifact_record
-$domainBInventoryBeforeJson = if ($null -ne $domainBInventoryBefore) { $domainBInventoryBefore | ConvertTo-Json -Compress -Depth 24 } else { "" }
-$domainBArtifactBeforeJson = if ($null -ne $domainBArtifactBefore) { $domainBArtifactBefore | ConvertTo-Json -Compress -Depth 24 } else { "" }
+$domainBSelection = $null
+$domainBInventoryBefore = $null
+$domainBArtifactBefore = $null
+$domainBInventoryBeforeJson = ""
+$domainBArtifactBeforeJson = ""
 $domainBReclogIdentifiersBefore = [ordered]@{
-    artifact_persist_seq = [int64]$domainBArtifactBefore.seq
-    promotion_transaction_sha256 = [string]$domainBArtifactBefore.promotion_transaction_sha256
-    artstor_blob_frame_sha256 = [string]$domainBArtifactBefore.artstor_blob_frame_sha256
+    artifact_persist_seq = $null
+    promotion_transaction_sha256 = $null
+    artstor_blob_frame_sha256 = $null
 }
-$domainBPreOk = $null -ne $domainBSelection -and
-    [int64]$domainBInventoryBefore.generation -ge 1 -and
-    $domainBInventoryBeforeJson.Length -gt 0 -and $domainBArtifactBeforeJson.Length -gt 0 -and
-    [int64]$domainBArtifactBefore.seq -ge 1 -and
-    [int64]$domainBArtifactBefore.seq -le [int64]$install.PreReclogScan.tail_seq -and
-    $domainBArtifactBefore.promotion_transaction_sha256 -match '^sha256:[0-9a-f]{64}$' -and
-    $domainBArtifactBefore.artstor_blob_frame_sha256 -match '^sha256:[0-9a-f]{64}$'
-$domainBPreDump = [ordered]@{ candidates = @($domainBSelections); inventory = $inventoryResponse; artstor = $install.PreArtifactResponse; reclog = $install.PreReclogResponse; B_reclog_identifiers = $domainBReclogIdentifiersBefore }
-Add-Predicate -Name "iso:B_pre" -Expected "before A rollback, choose one non-A running durable seeded service whose inventory hash joins a pre-install hash-verified ARTSTOR record, then snapshot its complete inventory row, generation/hash/slot presence, complete blob record, and RECLOG-linked seq/promotion/blob identifiers" -Passed $domainBPreOk -Actual $(if ($domainBPreOk) { "B=$($domainBSelection.service_id) generation=$($domainBInventoryBefore.generation) artifact=$($domainBArtifactBefore.artifact_sha256) seq=$($domainBArtifactBefore.seq) promote=$($domainBArtifactBefore.promotion_transaction_sha256) blob=$($domainBArtifactBefore.artstor_blob_frame_sha256)" } else { $domainBPreDump | ConvertTo-Json -Compress -Depth 24 })
+$domainBPreOk = $false
+$domainBPreError = ""
+try {
+    if ($domainBSelections.Count -gt 0) {
+        $domainBSelection = @($domainBSelections | Sort-Object service_id, artifact_sha256)[0]
+    }
+    if ($null -ne $domainBSelection) {
+        $domainBInventoryBefore = $domainBSelection.inventory
+        $domainBArtifactBefore = $domainBSelection.artifact_record
+    }
+    if ($null -ne $domainBInventoryBefore -and $null -ne $domainBArtifactBefore) {
+        $domainBInventoryBeforeJson = $domainBInventoryBefore | ConvertTo-Json -Compress -Depth 24
+        $domainBArtifactBeforeJson = $domainBArtifactBefore | ConvertTo-Json -Compress -Depth 24
+        $domainBInventoryGeneration = [int64]$domainBInventoryBefore.generation
+        $domainBArtifactSeq = [int64]$domainBArtifactBefore.seq
+        $domainBPreReclogTailSeq = [int64]$install.PreReclogScan.tail_seq
+        $domainBReclogIdentifiersBefore = [ordered]@{
+            artifact_persist_seq = $domainBArtifactSeq
+            promotion_transaction_sha256 = [string]$domainBArtifactBefore.promotion_transaction_sha256
+            artstor_blob_frame_sha256 = [string]$domainBArtifactBefore.artstor_blob_frame_sha256
+        }
+        $domainBPreOk = $domainBInventoryGeneration -ge 1 -and
+            $domainBInventoryBeforeJson.Length -gt 0 -and $domainBArtifactBeforeJson.Length -gt 0 -and
+            $domainBArtifactSeq -ge 1 -and $domainBArtifactSeq -le $domainBPreReclogTailSeq -and
+            $domainBArtifactBefore.promotion_transaction_sha256 -match '^sha256:[0-9a-f]{64}$' -and
+            $domainBArtifactBefore.artstor_blob_frame_sha256 -match '^sha256:[0-9a-f]{64}$'
+    }
+}
+catch {
+    $domainBPreOk = $false
+    $domainBPreError = $_.Exception.Message
+}
+Add-Predicate -Name "iso:B_pre" -Expected "before A rollback, choose one non-A running durable seeded service whose inventory hash joins a pre-install hash-verified ARTSTOR record, then snapshot its complete inventory row, generation/hash/slot presence, complete blob record, and RECLOG-linked seq/promotion/blob identifiers" -Passed $domainBPreOk -Actual $(if ($domainBPreOk) { "B=$($domainBSelection.service_id) generation=$($domainBInventoryBefore.generation) artifact=$($domainBArtifactBefore.artifact_sha256) seq=$($domainBArtifactBefore.seq) promote=$($domainBArtifactBefore.promotion_transaction_sha256) blob=$($domainBArtifactBefore.artstor_blob_frame_sha256)" } else {
+    $domainBCandidateCountEvidence = try { [int]$domainBSelections.Count | ConvertTo-Json -Compress } catch { [string]$domainBSelections.Count }
+    $domainBFirstCandidateIdsEvidence = try {
+        $domainBFirstCandidateIds = @($domainBSelections | Sort-Object service_id, artifact_sha256 | Select-Object -First 5 | ForEach-Object { "$($_.service_id)|$($_.artifact_sha256)" })
+        ConvertTo-Json -InputObject $domainBFirstCandidateIds -Compress
+    } catch { [string]$domainBSelections }
+    $domainBPreErrorEvidence = try { [string]$domainBPreError | ConvertTo-Json -Compress } catch { [string]$domainBPreError }
+    $domainBReclogIdentifiersEvidence = try { $domainBReclogIdentifiersBefore | ConvertTo-Json -Compress -Depth 4 } catch { [string]$domainBReclogIdentifiersBefore }
+    $domainBInventoryEvidence = try {
+        $domainBInventoryCompact = $inventoryResponse | ConvertTo-Json -Compress -Depth 24
+        if ($domainBInventoryCompact.Length -gt 2048) { $domainBInventoryCompact.Substring(0, 2048) + "...<truncated>" } else { $domainBInventoryCompact }
+    } catch { [string]$inventoryResponse }
+    $domainBArtstorEvidence = try {
+        $domainBArtstorCompact = $install.PreArtifactResponse | ConvertTo-Json -Compress -Depth 24
+        if ($domainBArtstorCompact.Length -gt 2048) { $domainBArtstorCompact.Substring(0, 2048) + "...<truncated>" } else { $domainBArtstorCompact }
+    } catch { [string]$install.PreArtifactResponse }
+    $domainBReclogEvidence = try {
+        $domainBReclogCompact = $install.PreReclogResponse | ConvertTo-Json -Compress -Depth 24
+        if ($domainBReclogCompact.Length -gt 2048) { $domainBReclogCompact.Substring(0, 2048) + "...<truncated>" } else { $domainBReclogCompact }
+    } catch { [string]$install.PreReclogResponse }
+    "candidate_count=$domainBCandidateCountEvidence first_candidate_ids=$domainBFirstCandidateIdsEvidence selection_error=$domainBPreErrorEvidence B_reclog_identifiers=$domainBReclogIdentifiersEvidence inventory_excerpt=$domainBInventoryEvidence artstor_excerpt=$domainBArtstorEvidence reclog_excerpt=$domainBReclogEvidence"
+})
 if (-not $domainBPreOk) { throw "rollback isolation could not establish an independent durable domain B from inventory/ARTSTOR" }
 
 Send-AgentCommand -Command "service.rollback_preview svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.rollback_preview" -Name "m6d:rollback-preview"
