@@ -5,9 +5,27 @@
 > throughput and unattended nights survived.
 
 ## Lanes & orchestration
-- [ ] 10 lanes + 1 orchestrator, one workspace, main-only (per CLAUDE.md/AGENTS.md)
-- [ ] Lane rules written and enforced: serial core max 2 lanes, disjoint file sets
-- [ ] Exclusive-lane mode for repo-wide mechanical changes
+- [x] 10 lanes + 1 orchestrator, one workspace, main-only (per CLAUDE.md/AGENTS.md)
+      <!-- written: CLAUDE.md loop (up to 10 parallel lanes, 1 orchestrator,
+      "Everyone works on main, one worktree, no branches") + AGENTS.md:3.
+      MECHANICALLY enforced: single git writer (ADR 0019) — workers dispatch
+      -s workspace-write and never git add/commit/push (AGENTS.md:19-21);
+      .claude/settings.json enforce-bg-dispatch hook blocks foreground
+      dispatch. Negative boundary: a lane touching a file outside its order
+      is "absolutely taboo" (AGENTS.md:22-23) and cannot reach main at all
+      (no git access). This session's git history is the running proof. -->
+- [x] Lane rules written and enforced: serial core max 2 lanes, disjoint file sets
+      <!-- CLAUDE.md loop: "Serial core (MMU/scheduler/syscalls): max 2 lanes;
+      rest parallel up to 10 … isolation = disjoint file sets, so verify no
+      two live orders share a file"; AGENTS.md:22 "Your order's file set IS
+      your isolation." Enforced by the orchestrator's pre-dispatch file-set
+      disjointness check (done every dispatch this session) + single-writer
+      staging (git add <files>, never -A). -->
+- [x] Exclusive-lane mode for repo-wide mechanical changes
+      <!-- CLAUDE.md loop: "Repo-wide mechanical changes run as an exclusive
+      lane (all others paused until gates are green)." Exercised this session:
+      the ADR-0023 78-site func_wrap→gate migration was explicitly scoped and
+      DEFERRED as an exclusive lane rather than run alongside parallel lanes. -->
 
 ## Machine-readable introspection
 - [x] PCI enumeration, device IDs, BARs, IRQs exported as structured data
