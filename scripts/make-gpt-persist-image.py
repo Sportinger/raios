@@ -149,6 +149,32 @@ class BuildFsSeed:
     frame_bytes: int
 
 
+@dataclass(frozen=True)
+class BuildFsChunkReference:
+    manifest_index: int
+    file_index: int
+    file_path: str
+    chunk_index: int
+    sha256: bytes
+    length: int
+
+
+@dataclass(frozen=True)
+class BuildFsManifestIndex:
+    directory_count: int
+    file_count: int
+    chunk_references: tuple[BuildFsChunkReference, ...]
+    chunk_requirements: dict[bytes, int]
+
+
+@dataclass(frozen=True)
+class ResolvedBuildFsChunkFrame:
+    frame_offset: int
+    frame_len: int
+    payload_len: int
+    payload_sha256: bytes
+
+
 PARTITIONS = (
     Partition(
         "SEED_ESP_A",
@@ -512,7 +538,7 @@ def artifact_blob_frame_len(payload_len: int) -> int:
     return ((unaligned + SECTOR_SIZE - 1) // SECTOR_SIZE) * SECTOR_SIZE
 
 
-def parse_buildfs_manifest(manifest: bytes) -> dict[bytes, int]:
+def parse_buildfs_manifest_index(manifest: bytes) -> BuildFsManifestIndex:
     offset = 0
 
     def take(length: int, field: str) -> bytes:
@@ -568,6 +594,7 @@ def parse_buildfs_manifest(manifest: bytes) -> dict[bytes, int]:
     if file_count > len(manifest):
         raise ValueError("BuildFS manifest file count is impossible")
     file_paths: list[str] = []
+    chunk_references: list[BuildFsChunkReference] = []
     chunk_requirements: dict[bytes, int] = {}
     for file_index in range(file_count):
         path = take_path(f"file[{file_index}].path")
@@ -598,6 +625,16 @@ def parse_buildfs_manifest(manifest: bytes) -> dict[bytes, int]:
             previous_len = chunk_requirements.setdefault(chunk_sha256, chunk_len)
             if previous_len != chunk_len:
                 raise ValueError("BuildFS manifest reuses a chunk digest with a different length")
+            chunk_references.append(
+                BuildFsChunkReference(
+                    manifest_index=len(chunk_references),
+                    file_index=file_index,
+                    file_path=path,
+                    chunk_index=chunk_index,
+                    sha256=chunk_sha256,
+                    length=chunk_len,
+                )
+            )
         if chunk_total != file_len:
             raise ValueError(f"BuildFS manifest file length mismatch for {path}")
 
@@ -607,7 +644,16 @@ def parse_buildfs_manifest(manifest: bytes) -> dict[bytes, int]:
         raise ValueError("BuildFS manifest contains duplicate files")
     if offset != len(manifest):
         raise ValueError("BuildFS manifest has trailing bytes")
-    return chunk_requirements
+    return BuildFsManifestIndex(
+        directory_count=directory_count,
+        file_count=file_count,
+        chunk_references=tuple(chunk_references),
+        chunk_requirements=chunk_requirements,
+    )
+
+
+def parse_buildfs_manifest(manifest: bytes) -> dict[bytes, int]:
+    return parse_buildfs_manifest_index(manifest).chunk_requirements
 
 
 def ensure_artstor_seed_fits(frame_bytes: int) -> None:
@@ -974,6 +1020,141 @@ def read_artstor_blob(handle, seed_data_first_lba: int, offset: int, frame_len: 
     if len(blob) != frame_len:
         raise ValueError("short ARTSTOR blob read")
     return blob
+
+
+def resolve_buildfs_chunk_frame_from_image(
+    handle,
+    seed_data_first_lba: int,
+    payload_sha256: bytes,
+    payload_len: int,
+) -> tuple[ResolvedBuildFsChunkFrame | None, str | None, int | None]:
+    """Mirror seed-kernel resolve_buildfs_chunk_frame over an image handle."""
+    region_bytes = ARTSTOR_LBA_COUNT * SECTOR_SIZE
+    region_start = (seed_data_first_lba + ARTSTOR_START_LBA) * SECTOR_SIZE
+    offset = 0
+    while offset < region_bytes:
+        handle.seek(region_start + offset)
+        header = handle.read(SECTOR_SIZE)
+        if len(header) != SECTOR_SIZE:
+            raise ValueError(f"short ARTSTOR scan-window read at offset {offset}")
+        if all_zero(header):
+            return None, "Missing", None
+        if header[: len(ARTIFACT_BLOB_MAGIC)] != ARTIFACT_BLOB_MAGIC:
+            raise ValueError(f"malformed ARTSTOR magic at offset {offset}")
+        frame_len = struct.unpack_from("<I", header, 8)[0]
+        if (
+            frame_len < ARTIFACT_BLOB_HEADER_LEN
+            or frame_len % SECTOR_SIZE != 0
+            or offset + frame_len > region_bytes
+        ):
+            raise ValueError(f"invalid ARTSTOR frame bounds at offset {offset}: frame_len={frame_len}")
+        handle.seek(region_start + offset)
+        frame = handle.read(frame_len)
+        if len(frame) != frame_len:
+            raise ValueError(f"short ARTSTOR frame read at offset {offset}: frame_len={frame_len}")
+        parsed, reason = parse_artifact_blob_frame(frame, 0)
+        if parsed is None:
+            raise ValueError(f"malformed ARTSTOR frame at offset {offset}: {reason}")
+        parsed_sha256 = bytes.fromhex(str(parsed["payload_sha256"]))
+        parsed_payload_len = int(parsed["payload_len"])
+        if parsed_sha256 == payload_sha256:
+            if parsed_payload_len != payload_len:
+                return None, "LengthMismatch", parsed_payload_len
+            return (
+                ResolvedBuildFsChunkFrame(
+                    frame_offset=offset,
+                    frame_len=frame_len,
+                    payload_len=parsed_payload_len,
+                    payload_sha256=parsed_sha256,
+                ),
+                None,
+                parsed_payload_len,
+            )
+        offset += frame_len
+    return None, "Missing", None
+
+
+def read_resolved_buildfs_chunk_from_image(
+    handle,
+    seed_data_first_lba: int,
+    resolved: ResolvedBuildFsChunkFrame,
+) -> bytes:
+    """Mirror read_buildfs_chunk_frame plus GrantedChunkReader's payload hash."""
+    region_start = (seed_data_first_lba + ARTSTOR_START_LBA) * SECTOR_SIZE
+    handle.seek(region_start + resolved.frame_offset)
+    frame = handle.read(resolved.frame_len)
+    if len(frame) != resolved.frame_len:
+        raise ValueError(f"short resolved ARTSTOR frame read at offset {resolved.frame_offset}")
+    if len(frame) < ARTIFACT_BLOB_HEADER_LEN or frame[:8] != ARTIFACT_BLOB_MAGIC:
+        raise ValueError(f"resolved ARTSTOR frame is malformed at offset {resolved.frame_offset}")
+    encoded_frame_len, encoded_payload_len = struct.unpack_from("<II", frame, 8)
+    if encoded_frame_len != resolved.frame_len or encoded_payload_len != resolved.payload_len:
+        raise ValueError(f"resolved ARTSTOR frame shape changed at offset {resolved.frame_offset}")
+    payload_end = ARTIFACT_BLOB_HEADER_LEN + resolved.payload_len
+    payload = frame[ARTIFACT_BLOB_HEADER_LEN:payload_end]
+    if len(payload) != resolved.payload_len:
+        raise ValueError(f"resolved ARTSTOR payload is truncated at offset {resolved.frame_offset}")
+    if hashlib.sha256(payload).digest() != resolved.payload_sha256:
+        raise ValueError(f"resolved ARTSTOR payload hash mismatch at offset {resolved.frame_offset}")
+    return payload
+
+
+def diagnose_buildfs_resolution(image: Path, manifest_path: Path) -> None:
+    manifest = manifest_path.read_bytes()
+    manifest_index = parse_buildfs_manifest_index(manifest)
+    info = inspect_image(image)
+    seed_data_first_lba = seed_data_first_lba_from_info(info)
+    references = manifest_index.chunk_references
+    chunk_lengths = [reference.length for reference in references]
+
+    print("resolve-buildfs:")
+    print(f"  image={image}")
+    print(f"  manifest={manifest_path}")
+    print(f"  manifest_sha256={hashlib.sha256(manifest).hexdigest()}")
+    print(
+        "  totals: "
+        f"file_count={manifest_index.file_count} "
+        f"unique_chunk_count={len(manifest_index.chunk_requirements)} "
+        f"total_chunk_refs={len(references)} "
+        f"min_chunk_len={min(chunk_lengths, default=0)} "
+        f"max_chunk_len={max(chunk_lengths, default=0)}"
+    )
+
+    resolved_ok = 0
+    with image.open("rb") as handle:
+        for reference in references:
+            resolved, failure, found_len = resolve_buildfs_chunk_frame_from_image(
+                handle,
+                seed_data_first_lba,
+                reference.sha256,
+                reference.length,
+            )
+            if failure is not None:
+                print("  first_failure:")
+                print(f"    manifest_index={reference.manifest_index}")
+                print(f"    file_index={reference.file_index}")
+                print(f"    file_path={reference.file_path}")
+                print(f"    chunk_index={reference.chunk_index}")
+                print(f"    expected_sha256={reference.sha256.hex()}")
+                print(f"    expected_len={reference.length}")
+                print(f"    reason={failure}")
+                if found_len is not None:
+                    print(f"    found_len={found_len}")
+                print(f"    resolved_ok_before_failure={resolved_ok}")
+                return
+            if resolved is None:
+                raise AssertionError("successful resolution did not return a frame")
+            payload = read_resolved_buildfs_chunk_from_image(
+                handle,
+                seed_data_first_lba,
+                resolved,
+            )
+            if len(payload) != reference.length:
+                raise ValueError(
+                    f"resolved payload length drift for manifest index {reference.manifest_index}"
+                )
+            resolved_ok += 1
+    print(f"  status=ok resolved_chunk_refs={resolved_ok}")
 
 
 def sha256_hex_body(value: object) -> object:
@@ -2161,6 +2342,17 @@ def main() -> int:
         help="pack a small synthetic BuildFS tree, seed it, and re-read every ARTSTOR frame",
     )
     parser.add_argument("--inspect-json", type=Path, help="inspect an existing image and print JSON")
+    parser.add_argument(
+        "--resolve-buildfs",
+        type=Path,
+        metavar="IMAGE",
+        help="resolve every manifest chunk through the kernel-shaped ARTSTOR scan/read path",
+    )
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        help="raios.buildfs_manifest.v1 input for --resolve-buildfs",
+    )
     parser.add_argument("--assert-not-release", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--image", type=Path, help="existing GPT persist image for offline slot updates")
     parser.add_argument("--corrupt-artstor-blob", type=Path, help="mutate the first ARTSTOR blob payload in-place")
@@ -2197,6 +2389,8 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
+        if (args.resolve_buildfs is None) != (args.manifest is None):
+            parser.error("--resolve-buildfs and --manifest are required together")
         if (args.seed_buildfs is None) != (args.expect_manifest_sha256 is None):
             parser.error("--seed-buildfs and --expect-manifest-sha256 are required together")
         if args.seed_buildfs and args.seed_artstor_garbage_blob:
@@ -2215,6 +2409,27 @@ def main() -> int:
             parser.error("--seed-buildfs is valid only while creating a new positional output image")
         if args.seed_buildfs and args.output is None:
             parser.error("--seed-buildfs requires a positional output image")
+        if args.resolve_buildfs is not None:
+            if (
+                args.self_check
+                or args.self_check_buildfs
+                or args.inspect_json
+                or args.assert_not_release
+                or args.image
+                or args.corrupt_artstor_blob
+                or args.tamper_persist_record
+                or args.corrupt_memory_frame
+                or args.stage_slot
+                or args.payload_dir
+                or args.set_pending
+                or args.seed_artstor_garbage_blob
+                or args.seed_buildfs
+                or args.expect_manifest_sha256
+                or args.output
+            ):
+                parser.error("--resolve-buildfs cannot be combined with other operations")
+            diagnose_buildfs_resolution(args.resolve_buildfs, args.manifest)
+            return 0
         if args.self_check_buildfs:
             if (
                 args.self_check
