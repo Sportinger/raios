@@ -459,21 +459,26 @@ $domainARecordIdentifiers = @(
     [string]$unpromote.frame_sha256
 )
 $domainBRecordIdentifiers = @(
-    [string]$domainBSelection.service_id,
-    [string]$domainBArtifactBefore.artifact_sha256,
-    [string]$domainBArtifactBefore.promotion_transaction_sha256,
-    [string]$domainBArtifactBefore.artstor_blob_frame_sha256
+    [string]$domainBSeedFirst.payload_sha256,
+    [string]$domainBSeedFirst.frame_sha256,
+    [string]$domainBSeedSecond.payload_sha256,
+    [string]$domainBSeedSecond.frame_sha256
 )
+$domainBRecordIdentifierFormatFailures = @($domainBRecordIdentifiers | Where-Object {
+    $_ -notmatch '^sha256:[0-9a-f]{64}$'
+})
+$domainBRecordIdentifiersValid = $domainBRecordIdentifiers.Count -eq 4 -and
+    $domainBRecordIdentifierFormatFailures.Count -eq 0
 $domainARecordIdentifiersPresent = @($domainARecordIdentifiers | Where-Object {
     $_.Length -gt 0 -and $rollbackRecordChainJson.Contains($_)
 }).Count -eq $domainARecordIdentifiers.Count
 $domainBRecordIdentifiersAbsent = @($domainBRecordIdentifiers | Where-Object {
     $_.Length -gt 0 -and $rollbackRecordChainJson.Contains($_)
 }).Count -eq 0
-$recordsNameOnlyAOk = $domainARecordIdentifiersPresent -and $domainBRecordIdentifiersAbsent -and
+$recordsNameOnlyAOk = $domainARecordIdentifiersPresent -and $domainBRecordIdentifiersValid -and $domainBRecordIdentifiersAbsent -and
     $rollbackRecordChainJson.Contains('"transaction_kind":"unpromote"')
-$recordsNameOnlyADump = [ordered]@{ A = $domainARecordIdentifiers; B = $domainBRecordIdentifiers; chain = $rollbackRecordChain }
-Add-Predicate -Name "iso:records_name_only_A" -Expected "the structured rollback plan/apply/unpromote/tombstone chain contains A service/artifact/promote/unpromote identifiers and transaction_kind=unpromote, while containing none of B service/artifact/promote/blob identifiers" -Passed $recordsNameOnlyAOk -Actual $(if ($recordsNameOnlyAOk) { "A-only rollback chain; B references=0" } else { $recordsNameOnlyADump | ConvertTo-Json -Compress -Depth 32 })
+$recordsNameOnlyADump = [ordered]@{ A = $domainARecordIdentifiers; B_seed_hashes = $domainBRecordIdentifiers; B_identifier_guard = [ordered]@{ expected_count = 4; format = '^sha256:[0-9a-f]{64}$'; invalid = $domainBRecordIdentifierFormatFailures }; chain = $rollbackRecordChain }
+Add-Predicate -Name "iso:records_name_only_A" -Expected "the structured rollback plan/apply/unpromote/tombstone chain contains A service/artifact/promote/unpromote identifiers and transaction_kind=unpromote, while all four payload/frame hashes of B's two seeded records are valid sha256 identifiers and absent" -Passed $recordsNameOnlyAOk -Actual $(if ($recordsNameOnlyAOk) { "A-only rollback chain; B seed hashes valid=4 references=0" } else { $recordsNameOnlyADump | ConvertTo-Json -Compress -Depth 32 })
 if (-not $recordsNameOnlyAOk) { throw "rollback record chain did not name only domain A" }
 
 Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "m6d:postrollback-inventory"
