@@ -1101,9 +1101,11 @@ function Send-AgentCommand {
     param(
         [string]$Command,
         [string]$ExpectedMarker,
-        [string]$Name = ""
+        [string]$Name = "",
+        [int]$TimeoutSeconds = 0
     )
 
+    $commandTimeoutSeconds = if ($TimeoutSeconds -eq 0) { $script:TimeoutSeconds } else { $TimeoutSeconds }
     $commandStartedAt = [DateTime]::UtcNow
     $startOffset = Get-SerialLogOffset
     $predicateName = if ($Name.Length -gt 0) { $Name } else { "command:$Command" }
@@ -1111,14 +1113,14 @@ function Send-AgentCommand {
     $sent = $false
     $stream = $null
     try {
-        $stream = Get-SerialTcpStream -Port $SerialTcpPort -TimeoutSeconds $TimeoutSeconds
+        $stream = Get-SerialTcpStream -Port $SerialTcpPort -TimeoutSeconds $commandTimeoutSeconds
         $script:SerialTcpDrainStream = $stream
         Write-SerialTcpText -Stream $stream -Text "$Command`r"
         $sent = $true
         $stream.Flush()
         Start-Sleep -Milliseconds 50
 
-        $passed = Wait-ForLogTextAfterOffset -Path $SerialLog -Needle $ExpectedMarker -Offset $startOffset -TimeoutSeconds $TimeoutSeconds
+        $passed = Wait-ForLogTextAfterOffset -Path $SerialLog -Needle $ExpectedMarker -Offset $startOffset -TimeoutSeconds $commandTimeoutSeconds
         $actual = if ($passed) { "found_after_offset:$startOffset" } else { Get-SerialLogTail -Path $SerialLog }
         Add-Predicate -Name $predicateName -Expected "serial_contains_after_offset:$ExpectedMarker" -Passed $passed -Actual $actual
         if (-not $passed) {
