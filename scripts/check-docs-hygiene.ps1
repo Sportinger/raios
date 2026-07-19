@@ -366,6 +366,11 @@ function Invoke-DocsHygieneCheck {
             ScopeSubstring = "never silently deleted"
             BreakdownFile = "07-docs-hygiene.md"
             GroupHeadingSubstring = "Decisions & history"
+        },
+        [pscustomobject]@{
+            ScopeExactFirstLine = "**Floor interface narrow & kernel-agnostic:** ADR 0015 chooses the custom"
+            BreakdownFile = "02-genesis-layer.md"
+            GroupHeadingSubstring = "Floor contract"
         }
     )
 
@@ -383,7 +388,10 @@ function Invoke-DocsHygieneCheck {
 
             $scopeBoxText = $Matches[1]
             $matchingMappings = @($breakdownMappings | Where-Object {
-                $scopeBoxText.IndexOf($_.ScopeSubstring, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+                if ($_.PSObject.Properties.Name -ccontains "ScopeExactFirstLine") {
+                    return $scopeBoxText.Equals($_.ScopeExactFirstLine, [System.StringComparison]::Ordinal)
+                }
+                return $scopeBoxText.IndexOf($_.ScopeSubstring, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
             })
             if ($matchingMappings.Count -ne 1) {
                 Add-DocsHygieneViolation -Violations $violations -Code "breakdown_consistency" -Path "docs/SCOPE.md" -Detail ("line=" + $scopeLineNumber + " mapping_matches=" + $matchingMappings.Count + " expected=1 checkbox=" + $scopeBoxText)
@@ -483,6 +491,12 @@ if ($SelfTest) {
         Set-Content -LiteralPath (Join-Path $fixtureDocsPath "SCOPE.md") -Value @(
             "# self-test scope",
             "",
+            "## 2. Genesis Layer",
+            "- [x] **Floor interface narrow & kernel-agnostic:** ADR 0015 chooses the custom",
+            "      kernel; the substitutable floor is the documented Wasm-import + service-",
+            "      capability contract, with no kernel-internal types. A contract test rejects",
+            "      any service that depends on kernel internals",
+            "",
             "## 3. Security",
             "- [x] Report pipeline: every build/test emits a structured report (ARTSTOR)"
         ) -Encoding utf8
@@ -499,7 +513,19 @@ if ($SelfTest) {
                 "## Self-test group",
                 "- [x] baseline"
             )
-            if ($number -eq 3) {
+            if ($number -eq 2) {
+                $scopeFileName = "02-genesis-layer.md"
+                $scopeFileContent = @(
+                    "# 02 self-test",
+                    '> Breakdown of `docs/SCOPE.md` self-test.',
+                    "",
+                    "## Floor contract",
+                    "- [x] The full Wasm import + service-capability floor fits in one document",
+                    "- [x] No kernel-internal types leak through the import/service interface",
+                    "- [x] Contract conformance rejects undeclared or kernel-internal dependencies"
+                )
+            }
+            elseif ($number -eq 3) {
                 $scopeFileContent = @(
                     "# 03 self-test",
                     '> Breakdown of `docs/SCOPE.md` self-test.',
@@ -537,17 +563,34 @@ if ($SelfTest) {
         Add-Content -LiteralPath (Join-Path $fixtureRoot "CLAUDE.md") -Value "reference docs/nonexistent-root-reference.md" -Encoding utf8
 
         $selfTestResult = Invoke-DocsHygieneCheck -RootPath $fixtureRoot
+        $floorBreakdownPath = "docs/scope/02-genesis-layer.md"
+        $floorGreenViolations = @($selfTestResult.Violations | Where-Object {
+            ($_.Code -ceq "breakdown_consistency") -and ($_.Path -ceq $floorBreakdownPath)
+        })
+
+        $floorFixturePath = Join-Path $fixtureDocsPath "scope\02-genesis-layer.md"
+        $floorFixtureLines = @(Get-Content -LiteralPath $floorFixturePath)
+        $floorFixtureLines[6] = "- [ ] Contract conformance rejects undeclared or kernel-internal dependencies"
+        Set-Content -LiteralPath $floorFixturePath -Value $floorFixtureLines -Encoding utf8
+        $floorRedResult = Invoke-DocsHygieneCheck -RootPath $fixtureRoot
+        $floorRedViolations = @($floorRedResult.Violations | Where-Object {
+            ($_.Code -ceq "breakdown_consistency") -and
+            ($_.Path -ceq $floorBreakdownPath) -and
+            ($_.Detail -ceq "group_heading=Floor contract open_checkbox_line=7")
+        })
+
         $detectedCodes = @($selfTestResult.Violations | ForEach-Object { $_.Code })
         $requiredCodes = @("docs_root_entry", "handoff_too_large", "status_too_large", "plan_filename", "single_source", "root_instruction_path", "plan_category", "adr_number_gap", "adr_number_duplicate", "adr_date", "adr_unexpected_file", "archive_dated", "breakdown_consistency", "breakdown_backlink")
         $missingCodes = @($requiredCodes | Where-Object { $detectedCodes -cnotcontains $_ })
 
-        if ($missingCodes.Count -eq 0) {
+        if (($missingCodes.Count -eq 0) -and ($floorGreenViolations.Count -eq 0) -and ($floorRedViolations.Count -eq 1)) {
             Write-Output "DOCS_HYGIENE selftest=green planted=14 detected=14"
+            Write-Output "DOCS_HYGIENE floor_mapping=green checked_breakdown_boxes=3 red_path=open_checkbox_detected"
             Write-Output ("DOCS_HYGIENE result=green checks=" + $selfTestResult.CheckCount + " violations=0")
             exit 0
         }
 
-        Write-Output ("DOCS_HYGIENE violation=selftest_detection path=temporary_fixture detail=missing_codes=" + ($missingCodes -join ','))
+        Write-Output ("DOCS_HYGIENE violation=selftest_detection path=temporary_fixture detail=missing_codes=" + ($missingCodes -join ',') + " floor_green_violations=" + $floorGreenViolations.Count + " floor_red_violations=" + $floorRedViolations.Count)
         Write-Output ("DOCS_HYGIENE result=red checks=" + $selfTestResult.CheckCount + " violations=1")
         exit 1
     }
