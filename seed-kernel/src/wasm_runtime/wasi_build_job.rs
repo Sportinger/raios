@@ -37,18 +37,22 @@ use raios_wasi_preview1::{
     WasiBuildInstance, WasiBuildLimits, SYSROOT_MOUNT,
 };
 use wasmi::{
-    core::{Trap, ValueType},
+    core::{Pages, Trap, ValueType},
     errors::{MemoryError, TableError},
     Config, Engine, ExternType, Linker, Memory, MemoryType, Module, Mutability, ResourceLimiter,
     ResumableCall, Store, Suspension,
 };
 
 use super::{
+    invocation::{release_thread_job_execution, try_acquire_thread_job_execution},
     wasi_build_storage::{
         materialize_build_storage, project_core_manifest, BuildChunkHandle, BuildChunkStore,
         BuildChunkStoreError, GrantedChunkReadDenied, GrantedChunkReader, UnbackedChunkStore,
     },
-    wasi_preview1::{define_wasi_imports, ProcExitTrap, WasiHostState},
+    wasi_preview1::{
+        define_wasi_imports, ProcExitTrap, ThreadHostMode, ThreadWorld, WasiHostState,
+    },
+    wasi_thread_pump::{WasiThreadJobEnd, WasiThreadJobRunner, WasiThreadRunEvidence},
 };
 
 const WASI_BUILD_OK_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/wasi_build_ok.wasm"));
@@ -57,6 +61,8 @@ const WASI_BUILD_EXTRA_IMPORT_WASM: &[u8] =
 const WASI_MEM_GROW_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/wasi_mem_grow.wasm"));
 const WASI_MEM_OVER_CLASS_WASM: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/wasi_mem_over_class.wasm"));
+const WASI_THREAD_FIXTURE_WASM: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/wasi_thread_fixture.wasm"));
 const COMPILER_ARTIFACT_SHA256: &str =
     "c6dccf3e5f01631b942a0a008b9f2f5312987e7d8590f8c61024cd00687a5791";
 const COMPILER_BUILD_FS_MANIFEST_SHA256: &str =
@@ -74,6 +80,7 @@ const SYSIMPORT_SAMPLE_TARGET: usize = 32;
 const SYSIMPORT_RUN_NONCE: u64 = 301;
 const COMPILERLOAD_READ_NONCE: u64 = 302;
 const COMPILERLOAD_INSTANCE_NONCE: u64 = 303;
+const WASI_THREAD_RUN_NONCE: u64 = 304;
 const REQUIRED_IMPORT_COUNT: usize = 30;
 const BUILD_STORE_INSTANCE_ID: u64 = 11;
 const BUILD_STORE_GENERATION: u64 = 13;
@@ -355,6 +362,9 @@ impl ResourceLimiter for WasiHostState {
         desired: usize,
         maximum: Option<usize>,
     ) -> Result<bool, MemoryError> {
+        if self.is_scheduled_thread_job() {
+            return Ok(maximum.is_some_and(|maximum| desired <= maximum));
+        }
         if maximum.is_some_and(|maximum| desired > maximum) {
             return Ok(false);
         }
@@ -476,7 +486,10 @@ fn instantiate_authorized(
         Some(instance) => instance,
         None => return WasiJobEvidence::terminal(WasiJobEnd::Trap),
     };
-    let mut store = Store::new(&engine, WasiHostState::new(instance, chunk_reader));
+    let mut store = Store::new(
+        &engine,
+        WasiHostState::new(instance, chunk_reader, ThreadHostMode::Deny),
+    );
     store.limiter(|state| state);
     let memory_type = match MemoryType::new_shared(
         class.shared_memory.initial_pages,
@@ -1728,7 +1741,10 @@ fn instantiate_compiler(
             "instance_reader_binding_mismatch",
         );
     }
-    let mut store = Store::new(&engine, WasiHostState::new(instance, reader));
+    let mut store = Store::new(
+        &engine,
+        WasiHostState::new(instance, reader, ThreadHostMode::Deny),
+    );
     store.limiter(|state| state);
     let memory_type = match MemoryType::new_shared(
         class.shared_memory.initial_pages,
@@ -2141,6 +2157,200 @@ fn memory_run_pass(run: WasiJobEvidence) -> bool {
         && run.stdout_bytes == run.memory.stdout_len as u64
         && run.stdout_bytes == decimal_digit_count(run.memory.final_pages)
         && memory_growth_arithmetic_valid(run.memory)
+}
+
+fn run_wasi_thread_fixture_once() -> Result<WasiThreadRunEvidence, ()> {
+    let engine = wasi_engine();
+    let module = Module::new(&engine, WASI_THREAD_FIXTURE_WASM).map_err(|_| ())?;
+    let observed = observed_imports(&module);
+    let declarations: Vec<_> = observed.iter().map(ObservedImport::declaration).collect();
+    let sysroot_manifest = empty_manifest().ok_or(())?;
+    let src_manifest = empty_manifest().ok_or(())?;
+    let request = AuthorizedBuildJobRequest {
+        wasi_grant: ScopedWasiBuildGrant {
+            compiler_artifact_sha256: COMPILER_ARTIFACT_SHA256,
+            job_manifest_sha256: JOB_MANIFEST_SHA256,
+            inventory_imports_sha256: RUSTC_WASM_C6DCCF3E_CANONICAL_IMPORTS_SHA256,
+            declared_imports: RUSTC_WASM_C6DCCF3E_IMPORTS,
+        },
+        observed_imports: &declarations,
+        guest_class: RUSTC_BUILD_GUEST_CLASS_V1,
+        sysroot_mount_manifest_sha256: sysroot_manifest.sha256().map_err(|_| ())?,
+        src_mount_manifest_sha256: src_manifest.sha256().map_err(|_| ())?,
+    };
+    let authorized = AuthorizedBuildJob::authorize(request).map_err(|_| ())?;
+    let class = *authorized.guest_class();
+    let authority = storage_authority(&authorized, &sysroot_manifest, &src_manifest).ok_or(())?;
+    let nonce = BuildRunNonce::kernel_minted(WASI_THREAD_RUN_NONCE).ok_or(())?;
+    let reader = materialize_build_storage(
+        &authority,
+        &sysroot_manifest,
+        &src_manifest,
+        nonce,
+        Box::new(UnbackedChunkStore::new(
+            BUILD_STORE_INSTANCE_ID,
+            BUILD_STORE_GENERATION,
+        )),
+    )
+    .map_err(|_| ())?;
+    if reader.entry_count() != 0
+        || reader.job_binding_sha256() != authority.job_binding_sha256()
+        || reader.run_nonce() != WASI_THREAD_RUN_NONCE
+        || reader.store_generation() != BUILD_STORE_GENERATION
+    {
+        return Err(());
+    }
+    let instance = build_instance(&authorized, class, &sysroot_manifest, &src_manifest).ok_or(())?;
+    let mut store = Store::new(
+        &engine,
+        WasiHostState::new(
+            instance,
+            reader,
+            ThreadHostMode::Scheduled(ThreadWorld::new(class.thread_cap)),
+        ),
+    );
+    store.limiter(|state| state);
+    let memory_type = MemoryType::new_shared(
+        class.shared_memory.initial_pages,
+        class.shared_memory.max_pages,
+    )
+    .map_err(|_| ())?;
+    let memory = Memory::new(&mut store, memory_type).map_err(|_| ())?;
+    if u32::from(memory.current_pages(&store)) != class.shared_memory.initial_pages {
+        return Err(());
+    }
+    let reserve_pages = class
+        .shared_memory
+        .max_pages
+        .checked_sub(class.shared_memory.initial_pages)
+        .and_then(Pages::new)
+        .ok_or(())?;
+    let previous = memory.grow(&mut store, reserve_pages).map_err(|_| ())?;
+    if u32::from(previous) != class.shared_memory.initial_pages
+        || u32::from(memory.current_pages(&store)) != class.shared_memory.max_pages
+    {
+        return Err(());
+    }
+    store.data_mut().install_memory(memory);
+
+    let mut linker = Linker::<WasiHostState>::new(&engine);
+    let registered = define_wasi_imports(&mut linker, memory).map_err(|_| ())?;
+    if registered != REQUIRED_IMPORT_COUNT
+        || registered != RUSTC_WASM_C6DCCF3E_IMPORTS.len()
+        || registered != authorized.authorized_import_count()
+    {
+        return Err(());
+    }
+    let pre = linker.instantiate(&mut store, &module).map_err(|_| ())?;
+    let instance = pre.start(&mut store).map_err(|_| ())?;
+    let main = instance.get_func(&store, "_start").ok_or(())?;
+    let runner =
+        WasiThreadJobRunner::new(store, memory, module, linker, main, class).map_err(|_| ())?;
+    Ok(runner.run())
+}
+
+fn scheduled_thread_cap_boundary() -> bool {
+    let class = RUSTC_BUILD_GUEST_CLASS_V1;
+    let mut world = ThreadWorld::new(class.thread_cap);
+    let Ok(main) = world.scheduler.spawn() else {
+        return false;
+    };
+    if main.get() != 0 {
+        return false;
+    }
+    for start_arg in 0..class.thread_cap.saturating_sub(1) {
+        if world.reserve_spawn(start_arg as i32) < 0 {
+            return false;
+        }
+    }
+    world.reserve_spawn(-1) == -1
+        && world.pending_spawns.len() == class.thread_cap.saturating_sub(1) as usize
+        && world.spawns == class.thread_cap.saturating_sub(1)
+        && world.cap_denials == 1
+}
+
+struct WasiThreadBusyGuard;
+
+impl WasiThreadBusyGuard {
+    fn acquire() -> Option<Self> {
+        try_acquire_thread_job_execution().then_some(Self)
+    }
+}
+
+impl Drop for WasiThreadBusyGuard {
+    fn drop(&mut self) {
+        release_thread_job_execution();
+    }
+}
+
+pub(crate) fn emit_wasi_thread_selftest() {
+    const EXPECTED_STDOUT: &[u8] = b"main\nworker\n";
+    let Some(_busy) = WasiThreadBusyGuard::acquire() else {
+        crate::serial::write_raw_fmt(format_args!(
+            "RAIOS_WASITHREAD selftest=fail spawns=0 trace_det=0 effect_det=0 stdout_bytes=0 exit_code={}\n",
+            u32::MAX,
+        ));
+        return;
+    };
+    let first = run_wasi_thread_fixture_once();
+    let second = run_wasi_thread_fixture_once();
+    let trace_deterministic = matches!(
+        (&first, &second),
+        (Ok(first), Ok(second))
+            if first.trace_digest != [0; 32]
+                && first.trace_digest == second.trace_digest
+                && first.rounds == second.rounds
+    );
+    let effect_deterministic = matches!(
+        (&first, &second),
+        (Ok(first), Ok(second))
+            if first.effect_digest != [0; 32]
+                && first.effect_digest == second.effect_digest
+                && first.effect_count == 2
+                && second.effect_count == 2
+    );
+    let stdout_deterministic = matches!(
+        (&first, &second),
+        (Ok(first), Ok(second))
+            if first.stdout == second.stdout && first.stdout == EXPECTED_STDOUT
+    );
+    let runs_pass = matches!(
+        (&first, &second),
+        (Ok(first), Ok(second))
+            if first.end == (WasiThreadJobEnd::JobExited { code: 0 })
+                && second.end == (WasiThreadJobEnd::JobExited { code: 0 })
+                && first.spawns == 1
+                && second.spawns == 1
+                && first.cap_denials == 0
+                && second.cap_denials == 0
+                && first.granted_total == RUSTC_BUILD_GUEST_CLASS_V1.fuel_quantum * 2
+                && second.granted_total == first.granted_total
+    );
+    let pass = runs_pass
+        && trace_deterministic
+        && effect_deterministic
+        && stdout_deterministic
+        && scheduled_thread_cap_boundary();
+    let (spawns, stdout_bytes, exit_code) = match &first {
+        Ok(evidence) => (
+            evidence.spawns,
+            evidence.stdout.len(),
+            match evidence.end {
+                WasiThreadJobEnd::JobExited { code } => code,
+                WasiThreadJobEnd::JobDeadlocked | WasiThreadJobEnd::Failed(_) => u32::MAX,
+            },
+        ),
+        Err(()) => (0, 0, u32::MAX),
+    };
+    crate::serial::write_raw_fmt(format_args!(
+        "RAIOS_WASITHREAD selftest={} spawns={} trace_det={} effect_det={} stdout_bytes={} exit_code={}\n",
+        if pass { "pass" } else { "fail" },
+        spawns,
+        u8::from(trace_deterministic),
+        u8::from(effect_deterministic),
+        stdout_bytes,
+        exit_code,
+    ));
 }
 
 pub(crate) fn emit_wasi_mem_selftest() {

@@ -40,6 +40,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=RAIOS_ALLOW_UNVERIFIED_OPENAI_TLS");
     println!("cargo:rerun-if-changed=fixtures/thread_job.wat");
     println!("cargo:rerun-if-changed=fixtures/thread_job_deadlock.wat");
+    println!("cargo:rerun-if-changed=fixtures/wasi_thread_fixture.wat");
     println!("cargo:rerun-if-changed=fixtures/wasi_mem_grow.wat");
     println!("cargo:rerun-if-changed=fixtures/wasi_mem_over_class.wat");
     println!("cargo:rerun-if-changed=descriptors/svc.demo.hello.current_image.desc");
@@ -431,6 +432,7 @@ writes_persistent_state=false",
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     compile_thread_job_fixture(&manifest_dir, &out_dir);
     compile_thread_job_deadlock_fixture(&manifest_dir, &out_dir);
+    compile_wasi_thread_fixture(&manifest_dir, &out_dir);
     compile_wasi_build_fixtures(&manifest_dir, &out_dir);
     embed_marvell_wifi_firmware(&manifest_dir, &out_dir);
     fs::write(
@@ -542,6 +544,13 @@ fn compile_thread_job_deadlock_fixture(manifest_dir: &std::path::Path, out_dir: 
         wat::parse_file(&fixture_path).expect("thread-job deadlock fixture WAT must compile");
     fs::write(out_dir.join("thread_job_deadlock_fixture.wasm"), wasm)
         .expect("thread-job deadlock fixture Wasm must be written to OUT_DIR");
+}
+
+fn compile_wasi_thread_fixture(manifest_dir: &std::path::Path, out_dir: &std::path::Path) {
+    let fixture_path = manifest_dir.join("fixtures/wasi_thread_fixture.wat");
+    let wasm = wat::parse_file(&fixture_path).expect("WASI thread fixture WAT must compile");
+    fs::write(out_dir.join("wasi_thread_fixture.wasm"), wasm)
+        .expect("WASI thread fixture Wasm must be written to OUT_DIR");
 }
 
 fn compile_wasi_build_fixtures(manifest_dir: &std::path::Path, out_dir: &std::path::Path) {

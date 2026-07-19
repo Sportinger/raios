@@ -58,6 +58,7 @@ mod thread_job;
 mod wasi_build_job;
 mod wasi_build_storage;
 mod wasi_preview1;
+mod wasi_thread_pump;
 
 pub(crate) use acquire_shims::{
     acquire_shim_grant_probe, AcquireFixtureCase, AcquireFixtureProbeSnapshot,
@@ -99,4 +100,5 @@ pub(crate) use probes::{
 pub(crate) use thread_job::emit_threads_selftest;
 pub(crate) use wasi_build_job::{
     emit_wasi_compilerload, emit_wasi_mem_selftest, emit_wasi_selftest, emit_wasi_sysimport,
+    emit_wasi_thread_selftest,
 };

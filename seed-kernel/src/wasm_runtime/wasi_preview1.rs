@@ -2,12 +2,15 @@ use alloc::vec::Vec;
 use core::{fmt, ops::Range};
 
 use raios_core::{
-    wasi_build_output::FrozenOutput, wasi_preview1_import_abi::RUSTC_WASM_C6DCCF3E_IMPORTS,
+    sha256_bytes,
+    thread_scheduler::{JobThreadScheduler, SchedulerError, ThreadId},
+    wasi_build_output::FrozenOutput,
+    wasi_preview1_import_abi::RUSTC_WASM_C6DCCF3E_IMPORTS,
 };
 use raios_wasi_preview1::{
     checked_aligned_range, checked_iovec_list, checked_iovecs, checked_range, CheckedIovecs,
     ClockSubscription, ClockTimeout, Errno, Fd, FdFlags, FileType, Filestat, GuestIovec,
-    HostEffect, MountId, ProcessError, Rights, Subscription, ThreadHost, WasiBuildInstance, Whence,
+    HostEffect, MountId, ProcessError, Rights, Subscription, WasiBuildInstance, Whence,
 };
 use wasmi::{core::Trap, Caller, Linker, Memory};
 
@@ -18,36 +21,111 @@ const SUBSCRIPTION_SIZE: u32 = 48;
 const EVENT_SIZE: u32 = 32;
 const DIRENT_SIZE: usize = 24;
 
-pub(crate) struct DenyThreadHost;
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum WasiEffectOpcode {
+    RandomGet = 1,
+    ClockTimeGet = 2,
+    FdRead = 3,
+    FdPread = 4,
+    FdWrite = 5,
+    FdSeek = 6,
+    FdReaddir = 7,
+    FdClose = 8,
+    FdFilestatSetSize = 9,
+    PathCreateDirectory = 16,
+    PathFilestatGet = 17,
+    PathLink = 18,
+    PathOpen = 19,
+    PathReadlink = 20,
+    PathRemoveDirectory = 21,
+    PathRename = 22,
+    PathUnlinkFile = 23,
+    PollOneoff = 24,
+}
 
-impl ThreadHost for DenyThreadHost {
-    fn spawn(&mut self, _start_arg: i32) -> i32 {
-        -1
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SpawnRequest {
+    pub(crate) thread: ThreadId,
+    pub(crate) start_arg: i32,
+}
+
+pub(crate) struct ThreadWorld {
+    pub(crate) scheduler: JobThreadScheduler,
+    pub(crate) pending_spawns: Vec<SpawnRequest>,
+    pub(crate) spawns: u32,
+    pub(crate) cap_denials: u32,
+    pub(crate) active_thread: Option<ThreadId>,
+    pub(crate) active_fuel_checkpoint: Option<u64>,
+    pub(crate) fuel_accounting_failed: bool,
+    pub(crate) stdout: Vec<u8>,
+}
+
+impl ThreadWorld {
+    pub(crate) fn new(thread_cap: u32) -> Self {
+        Self {
+            scheduler: JobThreadScheduler::with_thread_cap(thread_cap),
+            pending_spawns: Vec::new(),
+            spawns: 0,
+            cap_denials: 0,
+            active_thread: None,
+            active_fuel_checkpoint: None,
+            fuel_accounting_failed: false,
+            stdout: Vec::new(),
+        }
     }
+
+    pub(crate) fn reserve_spawn(&mut self, start_arg: i32) -> i32 {
+        match self.scheduler.spawn() {
+            Ok(thread) => {
+                self.pending_spawns.push(SpawnRequest { thread, start_arg });
+                self.spawns = self.spawns.saturating_add(1);
+                thread.get() as i32
+            }
+            Err(SchedulerError::ThreadCap { .. }) => {
+                self.cap_denials = self.cap_denials.saturating_add(1);
+                -1
+            }
+            Err(_) => -1,
+        }
+    }
+}
+
+pub(crate) enum ThreadHostMode {
+    Deny,
+    Scheduled(ThreadWorld),
 }
 
 pub(crate) struct WasiHostState {
     instance: WasiBuildInstance,
     memory: Option<Memory>,
-    thread_host: DenyThreadHost,
+    pub(crate) thread_mode: ThreadHostMode,
     chunk_reader: GrantedChunkReader,
     stdout_bytes: u64,
     stderr_bytes: u64,
     logical_fuel: u64,
     terminal_exit: Option<u32>,
+    effect_digest: [u8; 32],
+    effect_sequence: u64,
 }
 
 impl WasiHostState {
-    pub(crate) fn new(instance: WasiBuildInstance, chunk_reader: GrantedChunkReader) -> Self {
+    pub(crate) fn new(
+        instance: WasiBuildInstance,
+        chunk_reader: GrantedChunkReader,
+        thread_mode: ThreadHostMode,
+    ) -> Self {
         Self {
             instance,
             memory: None,
-            thread_host: DenyThreadHost,
+            thread_mode,
             chunk_reader,
             stdout_bytes: 0,
             stderr_bytes: 0,
             logical_fuel: 0,
             terminal_exit: None,
+            effect_digest: [0; 32],
+            effect_sequence: 0,
         }
     }
 
@@ -61,6 +139,77 @@ impl WasiHostState {
 
     pub(crate) const fn terminal_exit(&self) -> Option<u32> {
         self.terminal_exit
+    }
+
+    pub(crate) const fn effect_digest(&self) -> [u8; 32] {
+        self.effect_digest
+    }
+
+    pub(crate) const fn effect_count(&self) -> u64 {
+        self.effect_sequence
+    }
+
+    pub(crate) const fn is_scheduled_thread_job(&self) -> bool {
+        matches!(self.thread_mode, ThreadHostMode::Scheduled(_))
+    }
+
+    pub(crate) fn scheduled_world(&self) -> Option<&ThreadWorld> {
+        match &self.thread_mode {
+            ThreadHostMode::Deny => None,
+            ThreadHostMode::Scheduled(world) => Some(world),
+        }
+    }
+
+    pub(crate) fn scheduled_world_mut(&mut self) -> Option<&mut ThreadWorld> {
+        match &mut self.thread_mode {
+            ThreadHostMode::Deny => None,
+            ThreadHostMode::Scheduled(world) => Some(world),
+        }
+    }
+
+    pub(crate) fn activate_thread(&mut self, thread: ThreadId, remaining: u64) -> Result<(), ()> {
+        let world = self.scheduled_world_mut().ok_or(())?;
+        if world.active_thread.is_some() || world.active_fuel_checkpoint.is_some() {
+            return Err(());
+        }
+        world.active_thread = Some(thread);
+        world.active_fuel_checkpoint = Some(remaining);
+        Ok(())
+    }
+
+    pub(crate) fn sync_active_fuel(&mut self, remaining: u64) -> Result<(), ()> {
+        let (logical_fuel, thread_mode) = (&mut self.logical_fuel, &mut self.thread_mode);
+        let world = match thread_mode {
+            ThreadHostMode::Deny => return Ok(()),
+            ThreadHostMode::Scheduled(world) => world,
+        };
+        let Some(checkpoint) = world.active_fuel_checkpoint else {
+            world.fuel_accounting_failed = true;
+            return Err(());
+        };
+        let Some(consumed) = checkpoint.checked_sub(remaining) else {
+            world.fuel_accounting_failed = true;
+            return Err(());
+        };
+        let Some(next_logical_fuel) = logical_fuel.checked_add(consumed) else {
+            world.fuel_accounting_failed = true;
+            return Err(());
+        };
+        *logical_fuel = next_logical_fuel;
+        world.active_fuel_checkpoint = Some(remaining);
+        Ok(())
+    }
+
+    pub(crate) fn deactivate_thread(&mut self) -> Result<(), ()> {
+        let world = self.scheduled_world_mut().ok_or(())?;
+        if world.active_thread.take().is_none() || world.active_fuel_checkpoint.take().is_none() {
+            world.fuel_accounting_failed = true;
+            return Err(());
+        }
+        if world.fuel_accounting_failed {
+            return Err(());
+        }
+        Ok(())
     }
 
     pub(crate) fn freeze_output_evidence(&self) -> Result<(usize, FrozenOutput, u64), Errno> {
@@ -91,6 +240,9 @@ impl WasiHostState {
             match fd {
                 Fd::STDOUT => {
                     self.stdout_bytes = self.stdout_bytes.checked_add(count).ok_or(Errno::Fbig)?;
+                    if let ThreadHostMode::Scheduled(world) = &mut self.thread_mode {
+                        world.stdout.extend_from_slice(bytes);
+                    }
                 }
                 Fd::STDERR => {
                     self.stderr_bytes = self.stderr_bytes.checked_add(count).ok_or(Errno::Fbig)?;
@@ -226,7 +378,11 @@ pub(crate) fn define_wasi_imports(
 }
 
 fn host_random_get(mut caller: Caller<'_, WasiHostState>, ptr: i32, len: i32) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let ptr_bytes = ptr.to_le_bytes();
+    let len_bytes = len.to_le_bytes();
+    let argument_digest = effect_digest(WasiEffectOpcode::RandomGet, &[&ptr_bytes, &len_bytes]);
+    let mut random_bytes = Vec::new();
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         let range = byte_range(caller, ptr as u32, len as u32)?;
         let bytes = caller
@@ -235,8 +391,17 @@ fn host_random_get(mut caller: Caller<'_, WasiHostState>, ptr: i32, len: i32) ->
             .process_mut()
             .random_get(range.len())
             .map_err(process_errno)?;
+        random_bytes.extend_from_slice(&bytes);
         write_validated(caller, range, &bytes)
-    })
+    });
+    finish_effect_call(
+        &mut caller,
+        WasiEffectOpcode::RandomGet,
+        argument_digest,
+        errno,
+        &[&random_bytes],
+    );
+    errno
 }
 
 fn host_args_sizes_get(
@@ -352,7 +517,14 @@ fn host_clock_time_get(
     _precision: i64,
     result_ptr: i32,
 ) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let clock_bytes = clock_id.to_le_bytes();
+    let result_ptr_bytes = result_ptr.to_le_bytes();
+    let argument_digest = effect_digest(
+        WasiEffectOpcode::ClockTimeGet,
+        &[&clock_bytes, &result_ptr_bytes],
+    );
+    let mut timestamp_bytes = [0u8; 8];
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         let result_range = aligned_range(caller, result_ptr as u32, 8, 8)?;
         sync_logical_fuel(caller);
@@ -363,8 +535,17 @@ fn host_clock_time_get(
             .process()
             .clock_time_get(clock_id as u32, fuel)
             .map_err(process_errno)?;
-        write_validated(caller, result_range, &timestamp.to_le_bytes())
-    })
+        timestamp_bytes = timestamp.to_le_bytes();
+        write_validated(caller, result_range, &timestamp_bytes)
+    });
+    finish_effect_call(
+        &mut caller,
+        WasiEffectOpcode::ClockTimeGet,
+        argument_digest,
+        errno,
+        &[&timestamp_bytes],
+    );
+    errno
 }
 
 fn host_fd_filestat_get(mut caller: Caller<'_, WasiHostState>, fd: i32, result_ptr: i32) -> i32 {
@@ -384,7 +565,12 @@ fn host_fd_read(
     iovecs_len: i32,
     nread_ptr: i32,
 ) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let fd_bytes = fd.to_le_bytes();
+    let iovecs_len_bytes = iovecs_len.to_le_bytes();
+    let argument_digest = effect_digest(WasiEffectOpcode::FdRead, &[&fd_bytes, &iovecs_len_bytes]);
+    let mut read_bytes = Vec::new();
+    let mut count_bytes = [0u8; 4];
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         let nread_range = aligned_range(caller, nread_ptr as u32, 4, 4)?;
         let plan = iovec_plan(caller, iovecs_ptr as u32, iovecs_len as u32)?;
@@ -393,10 +579,20 @@ fn host_fd_read(
         let bytes = state
             .instance
             .fd_read(Fd(fd as u32), length, &mut state.chunk_reader)?;
+        read_bytes.extend_from_slice(&bytes);
         scatter_iovecs(caller, &plan, &bytes)?;
         let count = u32::try_from(bytes.len()).map_err(|_| Errno::Inval)?;
-        write_validated(caller, nread_range, &count.to_le_bytes())
-    })
+        count_bytes = count.to_le_bytes();
+        write_validated(caller, nread_range, &count_bytes)
+    });
+    finish_effect_call(
+        &mut caller,
+        WasiEffectOpcode::FdRead,
+        argument_digest,
+        errno,
+        &[&count_bytes, &read_bytes],
+    );
+    errno
 }
 
 fn host_fd_pread(
@@ -407,7 +603,16 @@ fn host_fd_pread(
     offset: i64,
     nread_ptr: i32,
 ) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let fd_bytes = fd.to_le_bytes();
+    let iovecs_len_bytes = iovecs_len.to_le_bytes();
+    let offset_bytes = offset.to_le_bytes();
+    let argument_digest = effect_digest(
+        WasiEffectOpcode::FdPread,
+        &[&fd_bytes, &iovecs_len_bytes, &offset_bytes],
+    );
+    let mut read_bytes = Vec::new();
+    let mut count_bytes = [0u8; 4];
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         let nread_range = aligned_range(caller, nread_ptr as u32, 4, 4)?;
         let plan = iovec_plan(caller, iovecs_ptr as u32, iovecs_len as u32)?;
@@ -419,10 +624,20 @@ fn host_fd_pread(
             length,
             &mut state.chunk_reader,
         )?;
+        read_bytes.extend_from_slice(&bytes);
         scatter_iovecs(caller, &plan, &bytes)?;
         let count = u32::try_from(bytes.len()).map_err(|_| Errno::Inval)?;
-        write_validated(caller, nread_range, &count.to_le_bytes())
-    })
+        count_bytes = count.to_le_bytes();
+        write_validated(caller, nread_range, &count_bytes)
+    });
+    finish_effect_call(
+        &mut caller,
+        WasiEffectOpcode::FdPread,
+        argument_digest,
+        errno,
+        &[&count_bytes, &read_bytes],
+    );
+    errno
 }
 
 fn host_fd_write(
@@ -432,15 +647,33 @@ fn host_fd_write(
     iovecs_len: i32,
     nwritten_ptr: i32,
 ) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let fd_bytes = fd.to_le_bytes();
+    let iovecs_len_bytes = iovecs_len.to_le_bytes();
+    let mut argument_digest =
+        effect_digest(WasiEffectOpcode::FdWrite, &[&fd_bytes, &iovecs_len_bytes]);
+    let mut written_bytes = [0u8; 4];
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         let nwritten_range = aligned_range(caller, nwritten_ptr as u32, 4, 4)?;
         let plan = iovec_plan(caller, iovecs_ptr as u32, iovecs_len as u32)?;
         let bytes = gather_iovecs(caller, &plan)?;
+        argument_digest = effect_digest(
+            WasiEffectOpcode::FdWrite,
+            &[&fd_bytes, &iovecs_len_bytes, &bytes],
+        );
         let written = caller.data_mut().write_fd(Fd(fd as u32), &bytes)?;
         let written = u32::try_from(written).map_err(|_| Errno::Inval)?;
-        write_validated(caller, nwritten_range, &written.to_le_bytes())
-    })
+        written_bytes = written.to_le_bytes();
+        write_validated(caller, nwritten_range, &written_bytes)
+    });
+    finish_effect_call(
+        &mut caller,
+        WasiEffectOpcode::FdWrite,
+        argument_digest,
+        errno,
+        &[&written_bytes],
+    );
+    errno
 }
 
 fn host_fd_seek(
@@ -450,7 +683,15 @@ fn host_fd_seek(
     whence: i32,
     result_ptr: i32,
 ) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let fd_bytes = fd.to_le_bytes();
+    let delta_bytes = delta.to_le_bytes();
+    let whence_bytes = whence.to_le_bytes();
+    let argument_digest = effect_digest(
+        WasiEffectOpcode::FdSeek,
+        &[&fd_bytes, &delta_bytes, &whence_bytes],
+    );
+    let mut offset_bytes = [0u8; 8];
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         let result_range = aligned_range(caller, result_ptr as u32, 8, 8)?;
         let whence = match whence as u32 {
@@ -463,8 +704,17 @@ fn host_fd_seek(
             .data_mut()
             .instance
             .fd_seek(Fd(fd as u32), delta, whence)?;
-        write_validated(caller, result_range, &offset.to_le_bytes())
-    })
+        offset_bytes = offset.to_le_bytes();
+        write_validated(caller, result_range, &offset_bytes)
+    });
+    finish_effect_call(
+        &mut caller,
+        WasiEffectOpcode::FdSeek,
+        argument_digest,
+        errno,
+        &[&offset_bytes],
+    );
+    errno
 }
 
 fn host_fd_readdir(
@@ -475,7 +725,16 @@ fn host_fd_readdir(
     cookie: i64,
     used_ptr: i32,
 ) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let fd_bytes = fd.to_le_bytes();
+    let buffer_len_bytes = buffer_len.to_le_bytes();
+    let cookie_bytes = cookie.to_le_bytes();
+    let argument_digest = effect_digest(
+        WasiEffectOpcode::FdReaddir,
+        &[&fd_bytes, &buffer_len_bytes, &cookie_bytes],
+    );
+    let mut dirent_bytes = Vec::new();
+    let mut used_bytes = [0u8; 4];
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         let buffer_range = byte_range(caller, buffer_ptr as u32, buffer_len as u32)?;
         let used_range = aligned_range(caller, used_ptr as u32, 4, 4)?;
@@ -485,14 +744,24 @@ fn host_fd_readdir(
                 .instance
                 .fd_readdir(Fd(fd as u32), cookie as u64, buffer_range.len())?;
         let bytes = encode_dirents(&entries, buffer_range.len());
+        dirent_bytes.extend_from_slice(&bytes);
         write_validated(
             caller,
             buffer_range.start..buffer_range.start + bytes.len(),
             &bytes,
         )?;
         let used = u32::try_from(bytes.len()).map_err(|_| Errno::Inval)?;
-        write_validated(caller, used_range, &used.to_le_bytes())
-    })
+        used_bytes = used.to_le_bytes();
+        write_validated(caller, used_range, &used_bytes)
+    });
+    finish_effect_call(
+        &mut caller,
+        WasiEffectOpcode::FdReaddir,
+        argument_digest,
+        errno,
+        &[&used_bytes, &dirent_bytes],
+    );
+    errno
 }
 
 fn host_path_create_directory(
@@ -501,15 +770,26 @@ fn host_path_create_directory(
     path_ptr: i32,
     path_len: i32,
 ) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let fd_bytes = fd.to_le_bytes();
+    let mut argument_digest = effect_digest(WasiEffectOpcode::PathCreateDirectory, &[&fd_bytes]);
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         let path = read_bytes(caller, path_ptr as u32, path_len as u32)?;
+        argument_digest = effect_digest(WasiEffectOpcode::PathCreateDirectory, &[&fd_bytes, &path]);
         caller
             .data_mut()
             .instance
             .path_create_directory(Fd(fd as u32), &path)?;
         Ok(())
-    })
+    });
+    finish_effect_call(
+        &mut caller,
+        WasiEffectOpcode::PathCreateDirectory,
+        argument_digest,
+        errno,
+        &[],
+    );
+    errno
 }
 
 fn host_path_filestat_get(
@@ -520,11 +800,22 @@ fn host_path_filestat_get(
     path_len: i32,
     result_ptr: i32,
 ) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let fd_bytes = fd.to_le_bytes();
+    let lookup_bytes = lookup_flags.to_le_bytes();
+    let mut argument_digest = effect_digest(
+        WasiEffectOpcode::PathFilestatGet,
+        &[&fd_bytes, &lookup_bytes],
+    );
+    let mut stat_bytes = [0u8; 64];
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         let path_range = byte_range(caller, path_ptr as u32, path_len as u32)?;
         let result_range = aligned_range(caller, result_ptr as u32, 64, 8)?;
         let path = read_validated(caller, path_range)?;
+        argument_digest = effect_digest(
+            WasiEffectOpcode::PathFilestatGet,
+            &[&fd_bytes, &lookup_bytes, &path],
+        );
         if lookup_flags != 0 {
             return Err(Errno::Notcapable);
         }
@@ -532,8 +823,17 @@ fn host_path_filestat_get(
             .data()
             .instance
             .path_filestat_get(Fd(fd as u32), &path)?;
-        write_validated(caller, result_range, &encode_filestat(stat))
-    })
+        stat_bytes = encode_filestat(stat);
+        write_validated(caller, result_range, &stat_bytes)
+    });
+    finish_effect_call(
+        &mut caller,
+        WasiEffectOpcode::PathFilestatGet,
+        argument_digest,
+        errno,
+        &[&stat_bytes],
+    );
+    errno
 }
 
 fn host_path_link(
@@ -546,12 +846,22 @@ fn host_path_link(
     new_path_ptr: i32,
     new_path_len: i32,
 ) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let mut argument_digest = effect_digest(WasiEffectOpcode::PathLink, &[]);
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
-        byte_range(caller, old_path_ptr as u32, old_path_len as u32)?;
-        byte_range(caller, new_path_ptr as u32, new_path_len as u32)?;
+        let old_path = read_bytes(caller, old_path_ptr as u32, old_path_len as u32)?;
+        let new_path = read_bytes(caller, new_path_ptr as u32, new_path_len as u32)?;
+        argument_digest = effect_digest(WasiEffectOpcode::PathLink, &[&old_path, &new_path]);
         Err(Errno::Notcapable)
-    })
+    });
+    finish_effect_call(
+        &mut caller,
+        WasiEffectOpcode::PathLink,
+        argument_digest,
+        errno,
+        &[],
+    );
+    errno
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -567,11 +877,41 @@ fn host_path_open(
     fd_flags: i32,
     result_ptr: i32,
 ) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let fd_bytes = fd.to_le_bytes();
+    let lookup_bytes = lookup_flags.to_le_bytes();
+    let open_bytes = open_flags.to_le_bytes();
+    let rights_base_bytes = rights_base.to_le_bytes();
+    let rights_inheriting_bytes = rights_inheriting.to_le_bytes();
+    let fd_flags_bytes = fd_flags.to_le_bytes();
+    let mut argument_digest = effect_digest(
+        WasiEffectOpcode::PathOpen,
+        &[
+            &fd_bytes,
+            &lookup_bytes,
+            &open_bytes,
+            &rights_base_bytes,
+            &rights_inheriting_bytes,
+            &fd_flags_bytes,
+        ],
+    );
+    let mut opened_bytes = [0u8; 4];
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         let path_range = byte_range(caller, path_ptr as u32, path_len as u32)?;
         let result_range = aligned_range(caller, result_ptr as u32, 4, 4)?;
         let path = read_validated(caller, path_range)?;
+        argument_digest = effect_digest(
+            WasiEffectOpcode::PathOpen,
+            &[
+                &fd_bytes,
+                &lookup_bytes,
+                &open_bytes,
+                &rights_base_bytes,
+                &rights_inheriting_bytes,
+                &fd_flags_bytes,
+                &path,
+            ],
+        );
         if lookup_flags != 0 || (open_flags as u32) & !1 != 0 {
             return Err(Errno::Notcapable);
         }
@@ -587,8 +927,17 @@ fn host_path_open(
             Rights::from_bits(rights_inheriting as u64)?,
             fd_flags,
         )?;
-        write_validated(caller, result_range, &opened.0.to_le_bytes())
-    })
+        opened_bytes = opened.0.to_le_bytes();
+        write_validated(caller, result_range, &opened_bytes)
+    });
+    finish_effect_call(
+        &mut caller,
+        WasiEffectOpcode::PathOpen,
+        argument_digest,
+        errno,
+        &[&opened_bytes],
+    );
+    errno
 }
 
 fn host_path_readlink(
@@ -600,13 +949,23 @@ fn host_path_readlink(
     buffer_len: i32,
     used_ptr: i32,
 ) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let mut argument_digest = effect_digest(WasiEffectOpcode::PathReadlink, &[]);
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
-        byte_range(caller, path_ptr as u32, path_len as u32)?;
+        let path = read_bytes(caller, path_ptr as u32, path_len as u32)?;
+        argument_digest = effect_digest(WasiEffectOpcode::PathReadlink, &[&path]);
         byte_range(caller, buffer_ptr as u32, buffer_len as u32)?;
         aligned_range(caller, used_ptr as u32, 4, 4)?;
         Err(Errno::Notcapable)
-    })
+    });
+    finish_effect_call(
+        &mut caller,
+        WasiEffectOpcode::PathReadlink,
+        argument_digest,
+        errno,
+        &[],
+    );
+    errno
 }
 
 fn host_path_remove_directory(
@@ -615,14 +974,25 @@ fn host_path_remove_directory(
     path_ptr: i32,
     path_len: i32,
 ) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let fd_bytes = fd.to_le_bytes();
+    let mut argument_digest = effect_digest(WasiEffectOpcode::PathRemoveDirectory, &[&fd_bytes]);
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         let path = read_bytes(caller, path_ptr as u32, path_len as u32)?;
+        argument_digest = effect_digest(WasiEffectOpcode::PathRemoveDirectory, &[&fd_bytes, &path]);
         caller
             .data_mut()
             .instance
             .path_remove_directory(Fd(fd as u32), &path)
-    })
+    });
+    finish_effect_call(
+        &mut caller,
+        WasiEffectOpcode::PathRemoveDirectory,
+        argument_digest,
+        errno,
+        &[],
+    );
+    errno
 }
 
 fn host_path_rename(
@@ -634,19 +1004,37 @@ fn host_path_rename(
     new_path_ptr: i32,
     new_path_len: i32,
 ) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let old_fd_bytes = old_fd.to_le_bytes();
+    let new_fd_bytes = new_fd.to_le_bytes();
+    let mut argument_digest = effect_digest(
+        WasiEffectOpcode::PathRename,
+        &[&old_fd_bytes, &new_fd_bytes],
+    );
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         let old_path_range = byte_range(caller, old_path_ptr as u32, old_path_len as u32)?;
         let new_path_range = byte_range(caller, new_path_ptr as u32, new_path_len as u32)?;
         let old_path = read_validated(caller, old_path_range)?;
         let new_path = read_validated(caller, new_path_range)?;
+        argument_digest = effect_digest(
+            WasiEffectOpcode::PathRename,
+            &[&old_fd_bytes, &old_path, &new_fd_bytes, &new_path],
+        );
         caller.data_mut().instance.path_rename(
             Fd(old_fd as u32),
             &old_path,
             Fd(new_fd as u32),
             &new_path,
         )
-    })
+    });
+    finish_effect_call(
+        &mut caller,
+        WasiEffectOpcode::PathRename,
+        argument_digest,
+        errno,
+        &[],
+    );
+    errno
 }
 
 fn host_path_unlink_file(
@@ -655,14 +1043,25 @@ fn host_path_unlink_file(
     path_ptr: i32,
     path_len: i32,
 ) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let fd_bytes = fd.to_le_bytes();
+    let mut argument_digest = effect_digest(WasiEffectOpcode::PathUnlinkFile, &[&fd_bytes]);
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         let path = read_bytes(caller, path_ptr as u32, path_len as u32)?;
+        argument_digest = effect_digest(WasiEffectOpcode::PathUnlinkFile, &[&fd_bytes, &path]);
         caller
             .data_mut()
             .instance
             .path_unlink_file(Fd(fd as u32), &path)
-    })
+    });
+    finish_effect_call(
+        &mut caller,
+        WasiEffectOpcode::PathUnlinkFile,
+        argument_digest,
+        errno,
+        &[],
+    );
+    errno
 }
 
 fn host_poll_oneoff(
@@ -672,7 +1071,11 @@ fn host_poll_oneoff(
     count: i32,
     nevents_ptr: i32,
 ) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let count_bytes = count.to_le_bytes();
+    let mut argument_digest = effect_digest(WasiEffectOpcode::PollOneoff, &[&count_bytes]);
+    let mut event_bytes = Vec::new();
+    let mut event_count_bytes = [0u8; 4];
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         let count = count as u32;
         let input_len = count.checked_mul(SUBSCRIPTION_SIZE).ok_or(Errno::Fault)?;
@@ -681,6 +1084,7 @@ fn host_poll_oneoff(
         let output_range = aligned_range(caller, output_ptr as u32, output_len, 8)?;
         let nevents_range = aligned_range(caller, nevents_ptr as u32, 4, 4)?;
         let input = read_validated(caller, input_range)?;
+        argument_digest = effect_digest(WasiEffectOpcode::PollOneoff, &[&count_bytes, &input]);
         let subscriptions = decode_subscriptions(&input)?;
         sync_logical_fuel(caller);
         let mut fuel = caller.data().logical_fuel;
@@ -706,6 +1110,7 @@ fn host_poll_oneoff(
             return Err(Errno::Inval);
         }
         let events = encode_events(&result.events);
+        event_bytes.extend_from_slice(&events);
         if events.len() > output_range.len() {
             return Err(Errno::Inval);
         }
@@ -715,8 +1120,17 @@ fn host_poll_oneoff(
             &events,
         )?;
         let count = u32::try_from(result.events.len()).map_err(|_| Errno::Inval)?;
-        write_validated(caller, nevents_range, &count.to_le_bytes())
-    })
+        event_count_bytes = count.to_le_bytes();
+        write_validated(caller, nevents_range, &event_count_bytes)
+    });
+    finish_effect_call(
+        &mut caller,
+        WasiEffectOpcode::PollOneoff,
+        argument_digest,
+        errno,
+        &[&event_count_bytes, &event_bytes],
+    );
+    errno
 }
 
 fn host_sched_yield(mut caller: Caller<'_, WasiHostState>) -> i32 {
@@ -737,10 +1151,20 @@ fn host_sched_yield(mut caller: Caller<'_, WasiHostState>) -> i32 {
 }
 
 fn host_fd_close(mut caller: Caller<'_, WasiHostState>, fd: i32) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let fd_bytes = fd.to_le_bytes();
+    let argument_digest = effect_digest(WasiEffectOpcode::FdClose, &[&fd_bytes]);
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         caller.data_mut().instance.fd_close(Fd(fd as u32))
-    })
+    });
+    finish_effect_call(
+        &mut caller,
+        WasiEffectOpcode::FdClose,
+        argument_digest,
+        errno,
+        &[],
+    );
+    errno
 }
 
 fn host_fd_fdstat_get(mut caller: Caller<'_, WasiHostState>, fd: i32, result_ptr: i32) -> i32 {
@@ -758,13 +1182,27 @@ fn host_fd_fdstat_get(mut caller: Caller<'_, WasiHostState>, fd: i32, result_ptr
 }
 
 fn host_fd_filestat_set_size(mut caller: Caller<'_, WasiHostState>, fd: i32, size: i64) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let fd_bytes = fd.to_le_bytes();
+    let size_bytes = size.to_le_bytes();
+    let argument_digest = effect_digest(
+        WasiEffectOpcode::FdFilestatSetSize,
+        &[&fd_bytes, &size_bytes],
+    );
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         caller
             .data_mut()
             .instance
             .fd_filestat_set_size(Fd(fd as u32), size as u64)
-    })
+    });
+    finish_effect_call(
+        &mut caller,
+        WasiEffectOpcode::FdFilestatSetSize,
+        argument_digest,
+        errno,
+        &[],
+    );
+    errno
 }
 
 fn host_fd_prestat_get(mut caller: Caller<'_, WasiHostState>, fd: i32, result_ptr: i32) -> i32 {
@@ -820,7 +1258,14 @@ fn host_proc_exit(mut caller: Caller<'_, WasiHostState>, code: i32) -> Result<()
     let HostEffect::Exit(code) = effect else {
         return Err(Trap::new("WASI proc_exit returned non-exit effect"));
     };
-    caller.data_mut().terminal_exit = Some(code);
+    let state = caller.data_mut();
+    if let ThreadHostMode::Scheduled(world) = &mut state.thread_mode {
+        world
+            .scheduler
+            .proc_exit(code)
+            .map_err(|_| Trap::new("WASI proc_exit rejected by scheduler"))?;
+    }
+    state.terminal_exit = Some(code);
     Err(ProcExitTrap.into())
 }
 
@@ -828,7 +1273,10 @@ fn host_thread_spawn(mut caller: Caller<'_, WasiHostState>, start_arg: i32) -> i
     if caller.data().terminal_exit.is_some() {
         return -1;
     }
-    caller.data_mut().thread_host.spawn(start_arg)
+    match &mut caller.data_mut().thread_mode {
+        ThreadHostMode::Deny => -1,
+        ThreadHostMode::Scheduled(world) => world.reserve_spawn(start_arg),
+    }
 }
 
 fn errno_call(
@@ -839,6 +1287,73 @@ fn errno_call(
         Ok(()) => SUCCESS,
         Err(error) => i32::from(error.code()),
     }
+}
+
+fn effect_digest(opcode: WasiEffectOpcode, fields: &[&[u8]]) -> [u8; 32] {
+    let payload_len = fields.iter().fold(0usize, |total, field| {
+        total.saturating_add(8).saturating_add(field.len())
+    });
+    let mut canonical = Vec::with_capacity(1usize.saturating_add(payload_len));
+    canonical.push(opcode as u8);
+    for field in fields {
+        canonical.extend_from_slice(&(field.len() as u64).to_le_bytes());
+        canonical.extend_from_slice(field);
+    }
+    sha256_bytes(&canonical)
+}
+
+fn finish_effect_call(
+    caller: &mut Caller<'_, WasiHostState>,
+    opcode: WasiEffectOpcode,
+    argument_digest: [u8; 32],
+    errno: i32,
+    result_fields: &[&[u8]],
+) {
+    if caller.data().terminal_exit.is_some() {
+        return;
+    }
+    sync_logical_fuel(caller);
+    let errno_bytes = errno.to_le_bytes();
+    let mut fields = Vec::with_capacity(result_fields.len().saturating_add(1));
+    fields.push(&errno_bytes[..]);
+    fields.extend_from_slice(result_fields);
+    let result_digest = effect_digest(opcode, &fields);
+    fold_wasi_effect(caller.data_mut(), opcode, argument_digest, result_digest);
+}
+
+fn fold_wasi_effect(
+    state: &mut WasiHostState,
+    opcode: WasiEffectOpcode,
+    argument_digest: [u8; 32],
+    result_digest: [u8; 32],
+) {
+    let (round, tid) = match &mut state.thread_mode {
+        ThreadHostMode::Deny => (0, 0),
+        ThreadHostMode::Scheduled(world) => {
+            let Some(thread) = world.active_thread else {
+                world.fuel_accounting_failed = true;
+                return;
+            };
+            (world.scheduler.current_round().get(), thread.get())
+        }
+    };
+    let sequence = state.effect_sequence;
+    let Some(next_sequence) = sequence.checked_add(1) else {
+        if let Some(world) = state.scheduled_world_mut() {
+            world.fuel_accounting_failed = true;
+        }
+        return;
+    };
+    let mut canonical = [0u8; 117];
+    canonical[0..32].copy_from_slice(&state.effect_digest);
+    canonical[32..40].copy_from_slice(&round.to_le_bytes());
+    canonical[40..44].copy_from_slice(&tid.to_le_bytes());
+    canonical[44..52].copy_from_slice(&sequence.to_le_bytes());
+    canonical[52] = opcode as u8;
+    canonical[53..85].copy_from_slice(&argument_digest);
+    canonical[85..117].copy_from_slice(&result_digest);
+    state.effect_digest = sha256_bytes(&canonical);
+    state.effect_sequence = next_sequence;
 }
 
 fn ensure_active(caller: &Caller<'_, WasiHostState>) -> Result<(), Errno> {
@@ -856,7 +1371,18 @@ fn process_errno(error: ProcessError) -> Errno {
 }
 
 fn sync_logical_fuel(caller: &mut Caller<'_, WasiHostState>) {
-    if let Some(consumed) = caller.fuel_consumed() {
+    if caller.data().is_scheduled_thread_job() {
+        match caller.consume_fuel(0) {
+            Ok(remaining) => {
+                let _ = caller.data_mut().sync_active_fuel(remaining);
+            }
+            Err(_) => {
+                if let Some(world) = caller.data_mut().scheduled_world_mut() {
+                    world.fuel_accounting_failed = true;
+                }
+            }
+        }
+    } else if let Some(consumed) = caller.fuel_consumed() {
         caller.data_mut().logical_fuel = caller.data().logical_fuel.max(consumed);
     }
 }

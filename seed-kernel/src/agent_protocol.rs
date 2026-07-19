@@ -369,6 +369,7 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("memory.broker_resolve_selftest", Exact, [], [route!("memory.broker_resolve_selftest")], MethodAction::Read0(memory_store::emit_memory_broker_resolve_selftest)),
     method!("threads.selftest", Exact, ["threads-selftest"], [route!("threads.selftest")], MethodAction::Read0(crate::wasm_runtime::emit_threads_selftest)),
     method!("wasi.selftest", Exact, ["wasi-selftest"], [route!("wasi.selftest")], MethodAction::Read0(crate::wasm_runtime::emit_wasi_selftest)),
+    method!("wasi.threadselftest", Exact, ["wasi-threadselftest"], [route!("wasi.threadselftest")], MethodAction::Read0(crate::wasm_runtime::emit_wasi_thread_selftest)),
     method!("wasi.memselftest", Exact, ["wasi-memselftest"], [route!("wasi.memselftest")], MethodAction::Read0(crate::wasm_runtime::emit_wasi_mem_selftest)),
     method!("wasi.sysimport", Exact, ["wasi-sysimport"], [route!("wasi.sysimport")], MethodAction::Read0(crate::wasm_runtime::emit_wasi_sysimport)),
     method!("wasi.compilerload", Exact, ["wasi-compilerload"], [route!("wasi.compilerload")], MethodAction::Read0(crate::wasm_runtime::emit_wasi_compilerload)),
