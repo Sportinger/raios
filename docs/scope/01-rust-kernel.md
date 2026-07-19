@@ -28,10 +28,23 @@
       permanent quick needle. Verified 2026-07-19.
 
 ## Wasm-runtime scheduling
-- [ ] Every guest execution is fuel-metered; exhausted fuel stops/traps that
+- [x] Every guest execution is fuel-metered; exhausted fuel stops/traps that
       guest instead of wedging the kernel
+      <!-- fuel enabled across all execution worlds (envelope.rs:578/194,
+      personal_shell.rs:310, invocation.rs:1113/425, wasi_build_job.rs:755/
+      1060). m11-beyond-env-lifecycle HEAD re-run shadow-20260719-195334
+      (183/183): max_fuel_busy_loop_bound (hostile 1e6-fuel loop → OutOfFuel
+      ≤250ms) + m8_wedge_out_of_fuel_crashed (real echo traps, loop stays
+      usable). Cross-guest FAIR budgets are the separate open box below. -->
 - [ ] Fair per-guest fuel budgets prevent one guest from consuming every service turn
-- [ ] F12 can kill/suspend a running guest and return control to the core
+- [x] F12 can kill/suspend a running guest and return control to the core
+      <!-- F12 is core-only secure attention advancing the kill generation
+      (input.rs:293); the invocation checks it at each pump boundary
+      (beyond_env_invocation.rs:201); main loop keeps polling+pumping
+      (main.rs:408). m11-beyond-env-lifecycle HEAD re-run
+      shadow-20260719-195334 (183/183): physical_f12_monitor_path,
+      f12_host_bound, killed_cleanup_guest_bound (resources reclaimed),
+      second_run_after_kill (control returns, fresh run). -->
 - [ ] Kernel watchdog integration: hung kernel/runtime state triggers the
       hardware watchdog
 - [ ] Negative test: hostile busy-loop guest exhausts its budget while the
