@@ -20,6 +20,61 @@ const SUCCESS: i32 = 0;
 const SUBSCRIPTION_SIZE: u32 = 48;
 const EVENT_SIZE: u32 = 32;
 const DIRENT_SIZE: usize = 24;
+pub(crate) const WASI_IMPORT_CALL_COUNT: usize = 30;
+pub(crate) const RECENT_WASI_CALL_COUNT: usize = 8;
+
+const _: [(); WASI_IMPORT_CALL_COUNT] = [(); RUSTC_WASM_C6DCCF3E_IMPORTS.len()];
+
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum WasiImportIndex {
+    RandomGet = 0,
+    ArgsGet = 1,
+    ArgsSizesGet = 2,
+    ClockTimeGet = 3,
+    FdFilestatGet = 4,
+    FdRead = 5,
+    FdReaddir = 6,
+    FdSeek = 7,
+    FdWrite = 8,
+    PathCreateDirectory = 9,
+    PathFilestatGet = 10,
+    PathLink = 11,
+    PathOpen = 12,
+    PathReadlink = 13,
+    PathRemoveDirectory = 14,
+    PathRename = 15,
+    PathUnlinkFile = 16,
+    PollOneoff = 17,
+    SchedYield = 18,
+    EnvironGet = 19,
+    EnvironSizesGet = 20,
+    FdClose = 21,
+    FdFdstatGet = 22,
+    FdFilestatSetSize = 23,
+    FdPread = 24,
+    FdPrestatGet = 25,
+    FdPrestatDirName = 26,
+    ProcExit = 27,
+    ThreadSpawn = 28,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct RecentWasiCall {
+    pub(crate) import_index: u8,
+    pub(crate) arg0: u64,
+    pub(crate) arg1: u64,
+    pub(crate) result_lo: i32,
+}
+
+impl RecentWasiCall {
+    const EMPTY: Self = Self {
+        import_index: 0,
+        arg0: 0,
+        arg1: 0,
+        result_lo: 0,
+    };
+}
 
 #[derive(Clone, Copy)]
 #[repr(u8)]
@@ -107,6 +162,10 @@ pub(crate) struct WasiHostState {
     terminal_exit: Option<u32>,
     effect_digest: [u8; 32],
     effect_sequence: u64,
+    import_call_counts: [u64; WASI_IMPORT_CALL_COUNT],
+    recent_calls: [RecentWasiCall; RECENT_WASI_CALL_COUNT],
+    recent_call_next: u8,
+    recent_call_len: u8,
 }
 
 impl WasiHostState {
@@ -126,6 +185,10 @@ impl WasiHostState {
             terminal_exit: None,
             effect_digest: [0; 32],
             effect_sequence: 0,
+            import_call_counts: [0; WASI_IMPORT_CALL_COUNT],
+            recent_calls: [RecentWasiCall::EMPTY; RECENT_WASI_CALL_COUNT],
+            recent_call_next: 0,
+            recent_call_len: 0,
         }
     }
 
@@ -147,6 +210,49 @@ impl WasiHostState {
 
     pub(crate) const fn effect_count(&self) -> u64 {
         self.effect_sequence
+    }
+
+    pub(crate) const fn import_call_counts(&self) -> &[u64; WASI_IMPORT_CALL_COUNT] {
+        &self.import_call_counts
+    }
+
+    pub(crate) fn recent_calls(&self) -> [Option<RecentWasiCall>; RECENT_WASI_CALL_COUNT] {
+        let mut snapshot = [None; RECENT_WASI_CALL_COUNT];
+        let len = self.recent_call_len as usize;
+        let first = if len == RECENT_WASI_CALL_COUNT {
+            self.recent_call_next as usize
+        } else {
+            0
+        };
+        let mut index = 0usize;
+        while index < len {
+            snapshot[index] = Some(self.recent_calls[(first + index) % RECENT_WASI_CALL_COUNT]);
+            index += 1;
+        }
+        snapshot
+    }
+
+    fn begin_import_call(&mut self, import: WasiImportIndex, arg0: u64, arg1: u64) -> usize {
+        let import_index = import as usize;
+        self.import_call_counts[import_index] =
+            self.import_call_counts[import_index].saturating_add(1);
+        let recent_index = self.recent_call_next as usize;
+        self.recent_calls[recent_index] = RecentWasiCall {
+            import_index: import as u8,
+            arg0,
+            arg1,
+            result_lo: 0,
+        };
+        self.recent_call_next = ((recent_index + 1) % RECENT_WASI_CALL_COUNT) as u8;
+        self.recent_call_len = self
+            .recent_call_len
+            .saturating_add(1)
+            .min(RECENT_WASI_CALL_COUNT as u8);
+        recent_index
+    }
+
+    fn finish_import_call(&mut self, recent_index: usize, result_lo: i32) {
+        self.recent_calls[recent_index].result_lo = result_lo;
     }
 
     pub(crate) const fn is_scheduled_thread_job(&self) -> bool {
@@ -378,6 +484,11 @@ pub(crate) fn define_wasi_imports(
 }
 
 fn host_random_get(mut caller: Caller<'_, WasiHostState>, ptr: i32, len: i32) -> i32 {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::RandomGet,
+        ptr as u32 as u64,
+        len as u32 as u64,
+    );
     let ptr_bytes = ptr.to_le_bytes();
     let len_bytes = len.to_le_bytes();
     let argument_digest = effect_digest(WasiEffectOpcode::RandomGet, &[&ptr_bytes, &len_bytes]);
@@ -401,6 +512,7 @@ fn host_random_get(mut caller: Caller<'_, WasiHostState>, ptr: i32, len: i32) ->
         errno,
         &[&random_bytes],
     );
+    caller.data_mut().finish_import_call(recent, errno);
     errno
 }
 
@@ -409,7 +521,12 @@ fn host_args_sizes_get(
     count_ptr: i32,
     size_ptr: i32,
 ) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::ArgsSizesGet,
+        count_ptr as u32 as u64,
+        size_ptr as u32 as u64,
+    );
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         let count_range = aligned_range(caller, count_ptr as u32, 4, 4)?;
         let size_range = aligned_range(caller, size_ptr as u32, 4, 4)?;
@@ -421,11 +538,18 @@ fn host_args_sizes_get(
             .map_err(process_errno)?;
         write_validated(caller, count_range, &sizes.count.to_le_bytes())?;
         write_validated(caller, size_range, &sizes.buffer_size.to_le_bytes())
-    })
+    });
+    caller.data_mut().finish_import_call(recent, errno);
+    errno
 }
 
 fn host_args_get(mut caller: Caller<'_, WasiHostState>, pointers_ptr: i32, buffer_ptr: i32) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::ArgsGet,
+        pointers_ptr as u32 as u64,
+        buffer_ptr as u32 as u64,
+    );
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         let sizes = caller
             .data()
@@ -434,7 +558,9 @@ fn host_args_get(mut caller: Caller<'_, WasiHostState>, pointers_ptr: i32, buffe
             .args_sizes_get()
             .map_err(process_errno)?;
         write_serialized_strings(caller, pointers_ptr as u32, buffer_ptr as u32, sizes, true)
-    })
+    });
+    caller.data_mut().finish_import_call(recent, errno);
+    errno
 }
 
 fn host_environ_sizes_get(
@@ -442,7 +568,12 @@ fn host_environ_sizes_get(
     count_ptr: i32,
     size_ptr: i32,
 ) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::EnvironSizesGet,
+        count_ptr as u32 as u64,
+        size_ptr as u32 as u64,
+    );
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         let count_range = aligned_range(caller, count_ptr as u32, 4, 4)?;
         let size_range = aligned_range(caller, size_ptr as u32, 4, 4)?;
@@ -454,7 +585,9 @@ fn host_environ_sizes_get(
             .map_err(process_errno)?;
         write_validated(caller, count_range, &sizes.count.to_le_bytes())?;
         write_validated(caller, size_range, &sizes.buffer_size.to_le_bytes())
-    })
+    });
+    caller.data_mut().finish_import_call(recent, errno);
+    errno
 }
 
 fn host_environ_get(
@@ -462,7 +595,12 @@ fn host_environ_get(
     pointers_ptr: i32,
     buffer_ptr: i32,
 ) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::EnvironGet,
+        pointers_ptr as u32 as u64,
+        buffer_ptr as u32 as u64,
+    );
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         let sizes = caller
             .data()
@@ -471,7 +609,9 @@ fn host_environ_get(
             .environ_sizes_get()
             .map_err(process_errno)?;
         write_serialized_strings(caller, pointers_ptr as u32, buffer_ptr as u32, sizes, false)
-    })
+    });
+    caller.data_mut().finish_import_call(recent, errno);
+    errno
 }
 
 fn write_serialized_strings(
@@ -517,6 +657,11 @@ fn host_clock_time_get(
     _precision: i64,
     result_ptr: i32,
 ) -> i32 {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::ClockTimeGet,
+        clock_id as u32 as u64,
+        _precision as u64,
+    );
     let clock_bytes = clock_id.to_le_bytes();
     let result_ptr_bytes = result_ptr.to_le_bytes();
     let argument_digest = effect_digest(
@@ -545,17 +690,25 @@ fn host_clock_time_get(
         errno,
         &[&timestamp_bytes],
     );
+    caller.data_mut().finish_import_call(recent, errno);
     errno
 }
 
 fn host_fd_filestat_get(mut caller: Caller<'_, WasiHostState>, fd: i32, result_ptr: i32) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::FdFilestatGet,
+        fd as u32 as u64,
+        result_ptr as u32 as u64,
+    );
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         let result_range = aligned_range(caller, result_ptr as u32, 64, 8)?;
         let stat = caller.data().instance.fd_filestat_get(Fd(fd as u32))?;
         let bytes = encode_filestat(stat);
         write_validated(caller, result_range, &bytes)
-    })
+    });
+    caller.data_mut().finish_import_call(recent, errno);
+    errno
 }
 
 fn host_fd_read(
@@ -565,6 +718,11 @@ fn host_fd_read(
     iovecs_len: i32,
     nread_ptr: i32,
 ) -> i32 {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::FdRead,
+        fd as u32 as u64,
+        iovecs_ptr as u32 as u64,
+    );
     let fd_bytes = fd.to_le_bytes();
     let iovecs_len_bytes = iovecs_len.to_le_bytes();
     let argument_digest = effect_digest(WasiEffectOpcode::FdRead, &[&fd_bytes, &iovecs_len_bytes]);
@@ -592,6 +750,7 @@ fn host_fd_read(
         errno,
         &[&count_bytes, &read_bytes],
     );
+    caller.data_mut().finish_import_call(recent, errno);
     errno
 }
 
@@ -603,6 +762,11 @@ fn host_fd_pread(
     offset: i64,
     nread_ptr: i32,
 ) -> i32 {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::FdPread,
+        fd as u32 as u64,
+        iovecs_ptr as u32 as u64,
+    );
     let fd_bytes = fd.to_le_bytes();
     let iovecs_len_bytes = iovecs_len.to_le_bytes();
     let offset_bytes = offset.to_le_bytes();
@@ -637,6 +801,7 @@ fn host_fd_pread(
         errno,
         &[&count_bytes, &read_bytes],
     );
+    caller.data_mut().finish_import_call(recent, errno);
     errno
 }
 
@@ -647,6 +812,11 @@ fn host_fd_write(
     iovecs_len: i32,
     nwritten_ptr: i32,
 ) -> i32 {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::FdWrite,
+        fd as u32 as u64,
+        iovecs_ptr as u32 as u64,
+    );
     let fd_bytes = fd.to_le_bytes();
     let iovecs_len_bytes = iovecs_len.to_le_bytes();
     let mut argument_digest =
@@ -673,6 +843,7 @@ fn host_fd_write(
         errno,
         &[&written_bytes],
     );
+    caller.data_mut().finish_import_call(recent, errno);
     errno
 }
 
@@ -683,6 +854,11 @@ fn host_fd_seek(
     whence: i32,
     result_ptr: i32,
 ) -> i32 {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::FdSeek,
+        fd as u32 as u64,
+        delta as u64,
+    );
     let fd_bytes = fd.to_le_bytes();
     let delta_bytes = delta.to_le_bytes();
     let whence_bytes = whence.to_le_bytes();
@@ -714,6 +890,7 @@ fn host_fd_seek(
         errno,
         &[&offset_bytes],
     );
+    caller.data_mut().finish_import_call(recent, errno);
     errno
 }
 
@@ -725,6 +902,11 @@ fn host_fd_readdir(
     cookie: i64,
     used_ptr: i32,
 ) -> i32 {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::FdReaddir,
+        fd as u32 as u64,
+        buffer_ptr as u32 as u64,
+    );
     let fd_bytes = fd.to_le_bytes();
     let buffer_len_bytes = buffer_len.to_le_bytes();
     let cookie_bytes = cookie.to_le_bytes();
@@ -761,6 +943,7 @@ fn host_fd_readdir(
         errno,
         &[&used_bytes, &dirent_bytes],
     );
+    caller.data_mut().finish_import_call(recent, errno);
     errno
 }
 
@@ -770,6 +953,11 @@ fn host_path_create_directory(
     path_ptr: i32,
     path_len: i32,
 ) -> i32 {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::PathCreateDirectory,
+        fd as u32 as u64,
+        path_ptr as u32 as u64,
+    );
     let fd_bytes = fd.to_le_bytes();
     let mut argument_digest = effect_digest(WasiEffectOpcode::PathCreateDirectory, &[&fd_bytes]);
     let errno = errno_call(&mut caller, |caller| {
@@ -789,6 +977,7 @@ fn host_path_create_directory(
         errno,
         &[],
     );
+    caller.data_mut().finish_import_call(recent, errno);
     errno
 }
 
@@ -800,6 +989,11 @@ fn host_path_filestat_get(
     path_len: i32,
     result_ptr: i32,
 ) -> i32 {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::PathFilestatGet,
+        fd as u32 as u64,
+        lookup_flags as u32 as u64,
+    );
     let fd_bytes = fd.to_le_bytes();
     let lookup_bytes = lookup_flags.to_le_bytes();
     let mut argument_digest = effect_digest(
@@ -833,6 +1027,7 @@ fn host_path_filestat_get(
         errno,
         &[&stat_bytes],
     );
+    caller.data_mut().finish_import_call(recent, errno);
     errno
 }
 
@@ -846,6 +1041,11 @@ fn host_path_link(
     new_path_ptr: i32,
     new_path_len: i32,
 ) -> i32 {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::PathLink,
+        _old_fd as u32 as u64,
+        _old_flags as u32 as u64,
+    );
     let mut argument_digest = effect_digest(WasiEffectOpcode::PathLink, &[]);
     let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
@@ -861,6 +1061,7 @@ fn host_path_link(
         errno,
         &[],
     );
+    caller.data_mut().finish_import_call(recent, errno);
     errno
 }
 
@@ -877,6 +1078,11 @@ fn host_path_open(
     fd_flags: i32,
     result_ptr: i32,
 ) -> i32 {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::PathOpen,
+        fd as u32 as u64,
+        lookup_flags as u32 as u64,
+    );
     let fd_bytes = fd.to_le_bytes();
     let lookup_bytes = lookup_flags.to_le_bytes();
     let open_bytes = open_flags.to_le_bytes();
@@ -937,6 +1143,7 @@ fn host_path_open(
         errno,
         &[&opened_bytes],
     );
+    caller.data_mut().finish_import_call(recent, errno);
     errno
 }
 
@@ -949,6 +1156,11 @@ fn host_path_readlink(
     buffer_len: i32,
     used_ptr: i32,
 ) -> i32 {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::PathReadlink,
+        _fd as u32 as u64,
+        path_ptr as u32 as u64,
+    );
     let mut argument_digest = effect_digest(WasiEffectOpcode::PathReadlink, &[]);
     let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
@@ -965,6 +1177,7 @@ fn host_path_readlink(
         errno,
         &[],
     );
+    caller.data_mut().finish_import_call(recent, errno);
     errno
 }
 
@@ -974,6 +1187,11 @@ fn host_path_remove_directory(
     path_ptr: i32,
     path_len: i32,
 ) -> i32 {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::PathRemoveDirectory,
+        fd as u32 as u64,
+        path_ptr as u32 as u64,
+    );
     let fd_bytes = fd.to_le_bytes();
     let mut argument_digest = effect_digest(WasiEffectOpcode::PathRemoveDirectory, &[&fd_bytes]);
     let errno = errno_call(&mut caller, |caller| {
@@ -992,6 +1210,7 @@ fn host_path_remove_directory(
         errno,
         &[],
     );
+    caller.data_mut().finish_import_call(recent, errno);
     errno
 }
 
@@ -1004,6 +1223,11 @@ fn host_path_rename(
     new_path_ptr: i32,
     new_path_len: i32,
 ) -> i32 {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::PathRename,
+        old_fd as u32 as u64,
+        old_path_ptr as u32 as u64,
+    );
     let old_fd_bytes = old_fd.to_le_bytes();
     let new_fd_bytes = new_fd.to_le_bytes();
     let mut argument_digest = effect_digest(
@@ -1034,6 +1258,7 @@ fn host_path_rename(
         errno,
         &[],
     );
+    caller.data_mut().finish_import_call(recent, errno);
     errno
 }
 
@@ -1043,6 +1268,11 @@ fn host_path_unlink_file(
     path_ptr: i32,
     path_len: i32,
 ) -> i32 {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::PathUnlinkFile,
+        fd as u32 as u64,
+        path_ptr as u32 as u64,
+    );
     let fd_bytes = fd.to_le_bytes();
     let mut argument_digest = effect_digest(WasiEffectOpcode::PathUnlinkFile, &[&fd_bytes]);
     let errno = errno_call(&mut caller, |caller| {
@@ -1061,6 +1291,7 @@ fn host_path_unlink_file(
         errno,
         &[],
     );
+    caller.data_mut().finish_import_call(recent, errno);
     errno
 }
 
@@ -1071,6 +1302,11 @@ fn host_poll_oneoff(
     count: i32,
     nevents_ptr: i32,
 ) -> i32 {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::PollOneoff,
+        input_ptr as u32 as u64,
+        output_ptr as u32 as u64,
+    );
     let count_bytes = count.to_le_bytes();
     let mut argument_digest = effect_digest(WasiEffectOpcode::PollOneoff, &[&count_bytes]);
     let mut event_bytes = Vec::new();
@@ -1130,11 +1366,15 @@ fn host_poll_oneoff(
         errno,
         &[&event_count_bytes, &event_bytes],
     );
+    caller.data_mut().finish_import_call(recent, errno);
     errno
 }
 
 fn host_sched_yield(mut caller: Caller<'_, WasiHostState>) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let recent = caller
+        .data_mut()
+        .begin_import_call(WasiImportIndex::SchedYield, 0, 0);
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         sync_logical_fuel(caller);
         match caller
@@ -1147,10 +1387,15 @@ fn host_sched_yield(mut caller: Caller<'_, WasiHostState>) -> i32 {
             HostEffect::Yield => Ok(()),
             HostEffect::Exit(_) => Err(Errno::Inval),
         }
-    })
+    });
+    caller.data_mut().finish_import_call(recent, errno);
+    errno
 }
 
 fn host_fd_close(mut caller: Caller<'_, WasiHostState>, fd: i32) -> i32 {
+    let recent = caller
+        .data_mut()
+        .begin_import_call(WasiImportIndex::FdClose, fd as u32 as u64, 0);
     let fd_bytes = fd.to_le_bytes();
     let argument_digest = effect_digest(WasiEffectOpcode::FdClose, &[&fd_bytes]);
     let errno = errno_call(&mut caller, |caller| {
@@ -1164,11 +1409,17 @@ fn host_fd_close(mut caller: Caller<'_, WasiHostState>, fd: i32) -> i32 {
         errno,
         &[],
     );
+    caller.data_mut().finish_import_call(recent, errno);
     errno
 }
 
 fn host_fd_fdstat_get(mut caller: Caller<'_, WasiHostState>, fd: i32, result_ptr: i32) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::FdFdstatGet,
+        fd as u32 as u64,
+        result_ptr as u32 as u64,
+    );
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         let result_range = aligned_range(caller, result_ptr as u32, 24, 8)?;
         let entry = *caller.data().instance.fd_table().get(Fd(fd as u32))?;
@@ -1178,10 +1429,17 @@ fn host_fd_fdstat_get(mut caller: Caller<'_, WasiHostState>, fd: i32, result_ptr
         bytes[8..16].copy_from_slice(&entry.rights_base.bits().to_le_bytes());
         bytes[16..24].copy_from_slice(&entry.rights_inheriting.bits().to_le_bytes());
         write_validated(caller, result_range, &bytes)
-    })
+    });
+    caller.data_mut().finish_import_call(recent, errno);
+    errno
 }
 
 fn host_fd_filestat_set_size(mut caller: Caller<'_, WasiHostState>, fd: i32, size: i64) -> i32 {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::FdFilestatSetSize,
+        fd as u32 as u64,
+        size as u64,
+    );
     let fd_bytes = fd.to_le_bytes();
     let size_bytes = size.to_le_bytes();
     let argument_digest = effect_digest(
@@ -1202,11 +1460,17 @@ fn host_fd_filestat_set_size(mut caller: Caller<'_, WasiHostState>, fd: i32, siz
         errno,
         &[],
     );
+    caller.data_mut().finish_import_call(recent, errno);
     errno
 }
 
 fn host_fd_prestat_get(mut caller: Caller<'_, WasiHostState>, fd: i32, result_ptr: i32) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::FdPrestatGet,
+        fd as u32 as u64,
+        result_ptr as u32 as u64,
+    );
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         let result_range = aligned_range(caller, result_ptr as u32, 8, 4)?;
         let prestat = caller
@@ -1217,7 +1481,9 @@ fn host_fd_prestat_get(mut caller: Caller<'_, WasiHostState>, fd: i32, result_pt
         let mut bytes = [0u8; 8];
         bytes[4..8].copy_from_slice(&prestat.name_len.to_le_bytes());
         write_validated(caller, result_range, &bytes)
-    })
+    });
+    caller.data_mut().finish_import_call(recent, errno);
+    errno
 }
 
 fn host_fd_prestat_dir_name(
@@ -1226,7 +1492,12 @@ fn host_fd_prestat_dir_name(
     path_ptr: i32,
     path_len: i32,
 ) -> i32 {
-    errno_call(&mut caller, |caller| {
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::FdPrestatDirName,
+        fd as u32 as u64,
+        path_ptr as u32 as u64,
+    );
+    let errno = errno_call(&mut caller, |caller| {
         ensure_active(caller)?;
         let path_range = byte_range(caller, path_ptr as u32, path_len as u32)?;
         let name = caller
@@ -1242,41 +1513,59 @@ fn host_fd_prestat_dir_name(
             path_range.start..path_range.start + name.len(),
             name,
         )
-    })
+    });
+    caller.data_mut().finish_import_call(recent, errno);
+    errno
 }
 
 fn host_proc_exit(mut caller: Caller<'_, WasiHostState>, code: i32) -> Result<(), Trap> {
-    if caller.data().terminal_exit.is_some() {
-        return Err(ProcExitTrap.into());
-    }
-    let effect = caller
-        .data_mut()
-        .instance
-        .process_mut()
-        .proc_exit(code as u32)
-        .map_err(|_| Trap::new("WASI proc_exit rejected"))?;
-    let HostEffect::Exit(code) = effect else {
-        return Err(Trap::new("WASI proc_exit returned non-exit effect"));
-    };
-    let state = caller.data_mut();
-    if let ThreadHostMode::Scheduled(world) = &mut state.thread_mode {
-        world
-            .scheduler
-            .proc_exit(code)
-            .map_err(|_| Trap::new("WASI proc_exit rejected by scheduler"))?;
-    }
-    state.terminal_exit = Some(code);
-    Err(ProcExitTrap.into())
+    let recent =
+        caller
+            .data_mut()
+            .begin_import_call(WasiImportIndex::ProcExit, code as u32 as u64, 0);
+    let result: Result<(), Trap> = (|| {
+        if caller.data().terminal_exit.is_some() {
+            return Err(ProcExitTrap.into());
+        }
+        let effect = caller
+            .data_mut()
+            .instance
+            .process_mut()
+            .proc_exit(code as u32)
+            .map_err(|_| Trap::new("WASI proc_exit rejected"))?;
+        let HostEffect::Exit(code) = effect else {
+            return Err(Trap::new("WASI proc_exit returned non-exit effect"));
+        };
+        let state = caller.data_mut();
+        if let ThreadHostMode::Scheduled(world) = &mut state.thread_mode {
+            world
+                .scheduler
+                .proc_exit(code)
+                .map_err(|_| Trap::new("WASI proc_exit rejected by scheduler"))?;
+        }
+        state.terminal_exit = Some(code);
+        Err(ProcExitTrap.into())
+    })();
+    caller.data_mut().finish_import_call(recent, -1);
+    result
 }
 
 fn host_thread_spawn(mut caller: Caller<'_, WasiHostState>, start_arg: i32) -> i32 {
-    if caller.data().terminal_exit.is_some() {
-        return -1;
-    }
-    match &mut caller.data_mut().thread_mode {
-        ThreadHostMode::Deny => -1,
-        ThreadHostMode::Scheduled(world) => world.reserve_spawn(start_arg),
-    }
+    let recent = caller.data_mut().begin_import_call(
+        WasiImportIndex::ThreadSpawn,
+        start_arg as u32 as u64,
+        0,
+    );
+    let result = if caller.data().terminal_exit.is_some() {
+        -1
+    } else {
+        match &mut caller.data_mut().thread_mode {
+            ThreadHostMode::Deny => -1,
+            ThreadHostMode::Scheduled(world) => world.reserve_spawn(start_arg),
+        }
+    };
+    caller.data_mut().finish_import_call(recent, result);
+    result
 }
 
 fn errno_call(

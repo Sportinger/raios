@@ -374,6 +374,7 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("wasi.sysimport", Exact, ["wasi-sysimport"], [route!("wasi.sysimport")], MethodAction::Read0(crate::wasm_runtime::emit_wasi_sysimport)),
     method!("wasi.compilerload", Exact, ["wasi-compilerload"], [route!("wasi.compilerload")], MethodAction::Read0(crate::wasm_runtime::emit_wasi_compilerload)),
     method!("wasi.rustcrun", Exact, ["wasi-rustcrun"], [route!("wasi.rustcrun")], MethodAction::Read0(crate::wasm_runtime::emit_wasi_rustcrun)),
+    method!("wasi.rustcdiag", Exact, ["wasi-rustcdiag"], [route!("wasi.rustcdiag")], MethodAction::Read0(crate::wasm_runtime::emit_wasi_rustcdiag)),
     method!("memory.decision_problem_log_append", Exact, ["persist.memory_decision_problem_append"], [route!("memory.decision_problem_log_append"), route!("persist.memory_decision_problem_append" => "memory.decision_problem_log_append")], MethodAction::Read0(memory_store::emit_memory_decision_problem_log_append)),
     method!("memory.provider_export_public_fixture_append", Exact, [], [route!("memory.provider_export_public_fixture_append")], MethodAction::Read0(memory_store::emit_provider_export_public_fixture_append)),
     method!("memory.observation_log_append", Head, [], [], MethodAction::ReadMethod(memory_store::emit_memory_observation_log_append)),

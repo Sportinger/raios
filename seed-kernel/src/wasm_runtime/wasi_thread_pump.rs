@@ -11,7 +11,10 @@ use wasmi::{
     ResumableCall, ResumableInvocation, Store, Suspension, Value,
 };
 
-use super::wasi_preview1::{ProcExitTrap, SpawnRequest, WasiHostState};
+use super::wasi_preview1::{
+    ProcExitTrap, RecentWasiCall, SpawnRequest, WasiHostState, RECENT_WASI_CALL_COUNT,
+    WASI_IMPORT_CALL_COUNT,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WasiThreadJobFailure {
@@ -44,6 +47,12 @@ pub(crate) struct WasiThreadRunEvidence {
     pub(crate) spawns: u32,
     pub(crate) cap_denials: u32,
     pub(crate) granted_total: u64,
+}
+
+pub(crate) struct WasiThreadDiagRunEvidence {
+    pub(crate) run: WasiThreadRunEvidence,
+    pub(crate) import_call_counts: [u64; WASI_IMPORT_CALL_COUNT],
+    pub(crate) recent_calls: [Option<RecentWasiCall>; RECENT_WASI_CALL_COUNT],
 }
 
 struct ThreadSlot {
@@ -218,6 +227,70 @@ impl WasiThreadJobRunner {
             spawns,
             cap_denials,
             granted_total: self.granted_total,
+        }
+    }
+
+    pub(crate) fn run_capped(mut self, max_rounds: u64) -> WasiThreadDiagRunEvidence {
+        let round_limit = self.round_limit.min(max_rounds);
+        while self.terminal.is_none() && self.round < round_limit {
+            self.pump();
+        }
+        if self.terminal.is_none() {
+            self.fail(WasiThreadJobFailure::RoundLimit);
+        }
+        let end = self
+            .terminal
+            .unwrap_or(WasiThreadJobEnd::Failed(WasiThreadJobFailure::RoundLimit));
+        let (
+            trace_digest,
+            effect_digest,
+            effect_count,
+            stdout,
+            spawns,
+            cap_denials,
+            import_call_counts,
+            recent_calls,
+        ) = {
+            let state = self.store.data();
+            let import_call_counts = *state.import_call_counts();
+            let recent_calls = state.recent_calls();
+            match state.scheduled_world() {
+                Some(world) => (
+                    world.scheduler.trace_digest(),
+                    state.effect_digest(),
+                    state.effect_count(),
+                    world.stdout.clone(),
+                    world.spawns,
+                    world.cap_denials,
+                    import_call_counts,
+                    recent_calls,
+                ),
+                None => (
+                    [0; 32],
+                    [0; 32],
+                    0,
+                    Vec::new(),
+                    0,
+                    0,
+                    import_call_counts,
+                    recent_calls,
+                ),
+            }
+        };
+        WasiThreadDiagRunEvidence {
+            run: WasiThreadRunEvidence {
+                end,
+                trace_digest,
+                effect_digest,
+                effect_count,
+                stdout,
+                rounds: self.round,
+                spawns,
+                cap_denials,
+                granted_total: self.granted_total,
+            },
+            import_call_counts,
+            recent_calls,
         }
     }
 

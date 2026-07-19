@@ -99,6 +99,6 @@ pub(crate) use probes::{
 };
 pub(crate) use thread_job::emit_threads_selftest;
 pub(crate) use wasi_build_job::{
-    emit_wasi_compilerload, emit_wasi_mem_selftest, emit_wasi_rustcrun, emit_wasi_selftest,
-    emit_wasi_sysimport, emit_wasi_thread_selftest,
+    emit_wasi_compilerload, emit_wasi_mem_selftest, emit_wasi_rustcdiag, emit_wasi_rustcrun,
+    emit_wasi_selftest, emit_wasi_sysimport, emit_wasi_thread_selftest,
 };

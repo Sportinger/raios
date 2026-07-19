@@ -5,7 +5,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
-use core::cell::RefCell;
+use core::{cell::RefCell, fmt::Write};
 
 use raios_core::{
     authorized_build_job::{AuthorizedBuildJob, AuthorizedBuildJobRequest, BuildJobDenied},
@@ -50,10 +50,12 @@ use super::{
         BuildChunkStoreError, GrantedChunkReadDenied, GrantedChunkReader, UnbackedChunkStore,
     },
     wasi_preview1::{
-        define_wasi_imports, ProcExitTrap, ThreadHostMode, ThreadWorld, WasiHostState,
+        define_wasi_imports, ProcExitTrap, RecentWasiCall, ThreadHostMode, ThreadWorld,
+        WasiHostState, RECENT_WASI_CALL_COUNT, WASI_IMPORT_CALL_COUNT,
     },
     wasi_thread_pump::{
-        WasiThreadJobEnd, WasiThreadJobFailure, WasiThreadJobRunner, WasiThreadRunEvidence,
+        WasiThreadDiagRunEvidence, WasiThreadJobEnd, WasiThreadJobFailure, WasiThreadJobRunner,
+        WasiThreadRunEvidence,
     },
 };
 
@@ -85,6 +87,8 @@ const COMPILERLOAD_INSTANCE_NONCE: u64 = 303;
 const WASI_THREAD_RUN_NONCE: u64 = 304;
 const RUSTCRUN_COMPILER_READ_NONCE: u64 = 305;
 const RUSTCRUN_INSTANCE_NONCE: u64 = 306;
+const RUSTCDIAG_ROUND_CAP: u64 = 200_000;
+const RUSTCDIAG_TOP_IMPORTS: usize = 6;
 const REQUIRED_IMPORT_COUNT: usize = 30;
 const BUILD_STORE_INSTANCE_ID: u64 = 11;
 const BUILD_STORE_GENERATION: u64 = 13;
@@ -302,6 +306,54 @@ struct RustcRunEvidence {
     granted_total: u64,
     exit_code: Option<u32>,
     reason: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct RustcDiagEvidence {
+    rounds: u64,
+    stdout_bytes: u64,
+    spawns: u32,
+    reason: &'static str,
+    import_call_counts: [u64; WASI_IMPORT_CALL_COUNT],
+    recent_calls: [Option<RecentWasiCall>; RECENT_WASI_CALL_COUNT],
+}
+
+impl RustcDiagEvidence {
+    const fn failed(reason: &'static str) -> Self {
+        Self {
+            rounds: 0,
+            stdout_bytes: 0,
+            spawns: 0,
+            reason,
+            import_call_counts: [0; WASI_IMPORT_CALL_COUNT],
+            recent_calls: [None; RECENT_WASI_CALL_COUNT],
+        }
+    }
+
+    fn completed(diagnostic: WasiThreadDiagRunEvidence) -> Self {
+        let WasiThreadDiagRunEvidence {
+            run,
+            import_call_counts,
+            recent_calls,
+        } = diagnostic;
+        let stdout_bytes = u64::try_from(run.stdout.len()).unwrap_or(u64::MAX);
+        let reason = match run.end {
+            WasiThreadJobEnd::JobExited { code: 0 } => "none",
+            WasiThreadJobEnd::JobExited { .. } => "guest_exit_nonzero",
+            WasiThreadJobEnd::JobDeadlocked => "thread_deadlock",
+            WasiThreadJobEnd::Failed(WasiThreadJobFailure::FuelCeiling) => "fuel_ceiling",
+            WasiThreadJobEnd::Failed(WasiThreadJobFailure::RoundLimit) => "round_limit",
+            WasiThreadJobEnd::Failed(failure) => rustcrun_pump_failure(failure),
+        };
+        Self {
+            rounds: run.rounds,
+            stdout_bytes,
+            spawns: run.spawns,
+            reason,
+            import_call_counts,
+            recent_calls,
+        }
+    }
 }
 
 impl RustcRunEvidence {
@@ -2276,16 +2328,22 @@ fn rustcrun_args() -> Vec<Vec<u8>> {
     ]
 }
 
-fn run_rustcrun() -> RustcRunEvidence {
+fn prepare_rustcrun() -> Result<WasiThreadJobRunner, RustcRunEvidence> {
+    macro_rules! rustcrun_fail {
+        ($stage:expr, $file_sha:expr, $reason:expr $(,)?) => {
+            return Err(RustcRunEvidence::at($stage, $file_sha, $reason))
+        };
+    }
+
     let Some(expected_file_sha256) = parse_sha256_ref(COMPILER_ARTIFACT_SHA256) else {
-        return RustcRunEvidence::at(
+        rustcrun_fail!(
             RustcRunStage::Reassembled,
             CompilerFileSha::Mismatch,
             "file_sha_pin_invalid",
         );
     };
     if !compilerload_negative_boundaries(expected_file_sha256) {
-        return RustcRunEvidence::at(
+        rustcrun_fail!(
             RustcRunStage::Reassembled,
             CompilerFileSha::Mismatch,
             "negative_boundary_failed",
@@ -2300,7 +2358,7 @@ fn run_rustcrun() -> RustcRunEvidence {
     ) {
         Ok(session) => session,
         Err(error) => {
-            return RustcRunEvidence::at(
+            rustcrun_fail!(
                 RustcRunStage::Reassembled,
                 CompilerFileSha::Mismatch,
                 compilerload_store_error(error),
@@ -2314,7 +2372,7 @@ fn run_rustcrun() -> RustcRunEvidence {
     ) {
         Ok(manifest) => manifest,
         Err(reason) => {
-            return RustcRunEvidence::at(
+            rustcrun_fail!(
                 RustcRunStage::Reassembled,
                 CompilerFileSha::Mismatch,
                 reason,
@@ -2322,7 +2380,7 @@ fn run_rustcrun() -> RustcRunEvidence {
         }
     };
     let Some(empty_compiler_src) = empty_manifest() else {
-        return RustcRunEvidence::at(
+        rustcrun_fail!(
             RustcRunStage::Reassembled,
             CompilerFileSha::Mismatch,
             "reader_src_manifest_failed",
@@ -2331,7 +2389,7 @@ fn run_rustcrun() -> RustcRunEvidence {
     let Some(compiler_reader_job) =
         authorize_for_manifests(&compiler_manifest, &empty_compiler_src)
     else {
-        return RustcRunEvidence::at(
+        rustcrun_fail!(
             RustcRunStage::Reassembled,
             CompilerFileSha::Mismatch,
             "reader_job_unauthorized",
@@ -2342,14 +2400,14 @@ fn run_rustcrun() -> RustcRunEvidence {
         &compiler_manifest,
         &empty_compiler_src,
     ) else {
-        return RustcRunEvidence::at(
+        rustcrun_fail!(
             RustcRunStage::Reassembled,
             CompilerFileSha::Mismatch,
             "reader_storage_unauthorized",
         );
     };
     let Some(compiler_nonce) = BuildRunNonce::kernel_minted(RUSTCRUN_COMPILER_READ_NONCE) else {
-        return RustcRunEvidence::at(
+        rustcrun_fail!(
             RustcRunStage::Reassembled,
             CompilerFileSha::Mismatch,
             "reader_nonce_failed",
@@ -2364,7 +2422,7 @@ fn run_rustcrun() -> RustcRunEvidence {
     ) {
         Ok(reader) => reader,
         Err(error) => {
-            return RustcRunEvidence::at(
+            rustcrun_fail!(
                 RustcRunStage::Reassembled,
                 CompilerFileSha::Mismatch,
                 error.reason(),
@@ -2376,7 +2434,7 @@ fn run_rustcrun() -> RustcRunEvidence {
         || compiler_reader.run_nonce() != RUSTCRUN_COMPILER_READ_NONCE
         || compiler_reader.store_generation() != BUILD_STORE_GENERATION
     {
-        return RustcRunEvidence::at(
+        rustcrun_fail!(
             RustcRunStage::Reassembled,
             CompilerFileSha::Mismatch,
             "reader_binding_mismatch",
@@ -2387,7 +2445,7 @@ fn run_rustcrun() -> RustcRunEvidence {
         Ok(bytes) => bytes,
         Err(failure) => {
             let _ = failure.bytes;
-            return RustcRunEvidence::at(
+            rustcrun_fail!(
                 RustcRunStage::Reassembled,
                 CompilerFileSha::Mismatch,
                 failure.reason,
@@ -2400,7 +2458,7 @@ fn run_rustcrun() -> RustcRunEvidence {
     let module = match Module::new(&engine, bytes.as_slice()) {
         Ok(module) => module,
         Err(_) => {
-            return RustcRunEvidence::at(
+            rustcrun_fail!(
                 RustcRunStage::Reassembled,
                 CompilerFileSha::Ok,
                 "module_invalid",
@@ -2415,11 +2473,11 @@ fn run_rustcrun() -> RustcRunEvidence {
     ) {
         Ok(manifest) => manifest,
         Err(reason) => {
-            return RustcRunEvidence::at(RustcRunStage::Reassembled, CompilerFileSha::Ok, reason)
+            rustcrun_fail!(RustcRunStage::Reassembled, CompilerFileSha::Ok, reason)
         }
     };
     let Some(src_manifest) = empty_manifest() else {
-        return RustcRunEvidence::at(
+        rustcrun_fail!(
             RustcRunStage::Reassembled,
             CompilerFileSha::Ok,
             "src_manifest_failed",
@@ -2428,7 +2486,7 @@ fn run_rustcrun() -> RustcRunEvidence {
     let observed = observed_imports(&module);
     let declarations: Vec<_> = observed.iter().map(ObservedImport::declaration).collect();
     if declarations.as_slice() != RUSTC_WASM_C6DCCF3E_IMPORTS {
-        return RustcRunEvidence::at(
+        rustcrun_fail!(
             RustcRunStage::Reassembled,
             CompilerFileSha::Ok,
             "imports_mismatch",
@@ -2437,7 +2495,7 @@ fn run_rustcrun() -> RustcRunEvidence {
     let sysroot_mount_hash = match sysroot_manifest.sha256() {
         Ok(hash) => hash,
         Err(_) => {
-            return RustcRunEvidence::at(
+            rustcrun_fail!(
                 RustcRunStage::Reassembled,
                 CompilerFileSha::Ok,
                 "sysroot_manifest_invalid",
@@ -2447,7 +2505,7 @@ fn run_rustcrun() -> RustcRunEvidence {
     let src_mount_hash = match src_manifest.sha256() {
         Ok(hash) => hash,
         Err(_) => {
-            return RustcRunEvidence::at(
+            rustcrun_fail!(
                 RustcRunStage::Reassembled,
                 CompilerFileSha::Ok,
                 "src_manifest_invalid",
@@ -2468,7 +2526,7 @@ fn run_rustcrun() -> RustcRunEvidence {
     }) {
         Ok(authorized) => authorized,
         Err(denied) => {
-            return RustcRunEvidence::at(
+            rustcrun_fail!(
                 RustcRunStage::Reassembled,
                 CompilerFileSha::Ok,
                 denied.reason(),
@@ -2482,7 +2540,7 @@ fn run_rustcrun() -> RustcRunEvidence {
         || authorized.src_mount_manifest_sha256() != src_mount_hash
         || authorized.authorized_import_count() != REQUIRED_IMPORT_COUNT
     {
-        return RustcRunEvidence::at(
+        rustcrun_fail!(
             RustcRunStage::Reassembled,
             CompilerFileSha::Ok,
             "gate_binding_mismatch",
@@ -2500,7 +2558,7 @@ fn run_rustcrun() -> RustcRunEvidence {
     ) {
         Some(instance) => instance,
         None => {
-            return RustcRunEvidence::at(
+            rustcrun_fail!(
                 RustcRunStage::Instantiated,
                 CompilerFileSha::Ok,
                 "build_instance_failed",
@@ -2508,14 +2566,14 @@ fn run_rustcrun() -> RustcRunEvidence {
         }
     };
     let Some(authority) = storage_authority(&authorized, &sysroot_manifest, &src_manifest) else {
-        return RustcRunEvidence::at(
+        rustcrun_fail!(
             RustcRunStage::Instantiated,
             CompilerFileSha::Ok,
             "storage_authority_failed",
         );
     };
     let Some(nonce) = BuildRunNonce::kernel_minted(RUSTCRUN_INSTANCE_NONCE) else {
-        return RustcRunEvidence::at(
+        rustcrun_fail!(
             RustcRunStage::Instantiated,
             CompilerFileSha::Ok,
             "instance_nonce_failed",
@@ -2530,7 +2588,7 @@ fn run_rustcrun() -> RustcRunEvidence {
     ) {
         Ok(reader) => reader,
         Err(error) => {
-            return RustcRunEvidence::at(
+            rustcrun_fail!(
                 RustcRunStage::Instantiated,
                 CompilerFileSha::Ok,
                 error.reason(),
@@ -2540,7 +2598,7 @@ fn run_rustcrun() -> RustcRunEvidence {
     let expected_sysroot_chunks = match sysimport_manifest_chunk_count(&sysroot_manifest) {
         Some(count) => count,
         None => {
-            return RustcRunEvidence::at(
+            rustcrun_fail!(
                 RustcRunStage::Instantiated,
                 CompilerFileSha::Ok,
                 "sysroot_chunk_count_overflow",
@@ -2552,7 +2610,7 @@ fn run_rustcrun() -> RustcRunEvidence {
         || reader.run_nonce() != RUSTCRUN_INSTANCE_NONCE
         || reader.store_generation() != BUILD_STORE_GENERATION
     {
-        return RustcRunEvidence::at(
+        rustcrun_fail!(
             RustcRunStage::Instantiated,
             CompilerFileSha::Ok,
             "instance_reader_binding_mismatch",
@@ -2574,7 +2632,7 @@ fn run_rustcrun() -> RustcRunEvidence {
     ) {
         Ok(memory_type) => memory_type,
         Err(_) => {
-            return RustcRunEvidence::at(
+            rustcrun_fail!(
                 RustcRunStage::Instantiated,
                 CompilerFileSha::Ok,
                 "memory_type_invalid",
@@ -2584,7 +2642,7 @@ fn run_rustcrun() -> RustcRunEvidence {
     let memory = match Memory::new(&mut store, memory_type) {
         Ok(memory) => memory,
         Err(_) => {
-            return RustcRunEvidence::at(
+            rustcrun_fail!(
                 RustcRunStage::Instantiated,
                 CompilerFileSha::Ok,
                 "memory_allocation_failed",
@@ -2592,7 +2650,7 @@ fn run_rustcrun() -> RustcRunEvidence {
         }
     };
     if u32::from(memory.current_pages(&store)) != class.shared_memory.initial_pages {
-        return RustcRunEvidence::at(
+        rustcrun_fail!(
             RustcRunStage::Instantiated,
             CompilerFileSha::Ok,
             "memory_initial_mismatch",
@@ -2606,7 +2664,7 @@ fn run_rustcrun() -> RustcRunEvidence {
     {
         Some(pages) => pages,
         None => {
-            return RustcRunEvidence::at(
+            rustcrun_fail!(
                 RustcRunStage::Instantiated,
                 CompilerFileSha::Ok,
                 "memory_reservation_invalid",
@@ -2616,7 +2674,7 @@ fn run_rustcrun() -> RustcRunEvidence {
     let previous = match memory.grow(&mut store, reserve_pages) {
         Ok(previous) => previous,
         Err(_) => {
-            return RustcRunEvidence::at(
+            rustcrun_fail!(
                 RustcRunStage::Instantiated,
                 CompilerFileSha::Ok,
                 "memory_reservation_failed",
@@ -2626,7 +2684,7 @@ fn run_rustcrun() -> RustcRunEvidence {
     if u32::from(previous) != class.shared_memory.initial_pages
         || u32::from(memory.current_pages(&store)) != class.shared_memory.max_pages
     {
-        return RustcRunEvidence::at(
+        rustcrun_fail!(
             RustcRunStage::Instantiated,
             CompilerFileSha::Ok,
             "memory_reservation_mismatch",
@@ -2638,7 +2696,7 @@ fn run_rustcrun() -> RustcRunEvidence {
     let registered = match define_wasi_imports(&mut linker, memory) {
         Ok(registered) => registered,
         Err(()) => {
-            return RustcRunEvidence::at(
+            rustcrun_fail!(
                 RustcRunStage::Instantiated,
                 CompilerFileSha::Ok,
                 "linker_definition_failed",
@@ -2649,7 +2707,7 @@ fn run_rustcrun() -> RustcRunEvidence {
         || registered != RUSTC_WASM_C6DCCF3E_IMPORTS.len()
         || registered != authorized.authorized_import_count()
     {
-        return RustcRunEvidence::at(
+        rustcrun_fail!(
             RustcRunStage::Instantiated,
             CompilerFileSha::Ok,
             "linker_count_mismatch",
@@ -2658,7 +2716,7 @@ fn run_rustcrun() -> RustcRunEvidence {
     let pre = match linker.instantiate(&mut store, &module) {
         Ok(pre) => pre,
         Err(_) => {
-            return RustcRunEvidence::at(
+            rustcrun_fail!(
                 RustcRunStage::Instantiated,
                 CompilerFileSha::Ok,
                 "instantiate_failed",
@@ -2671,7 +2729,7 @@ fn run_rustcrun() -> RustcRunEvidence {
     let (wasm_instance, start_section) = match pre.start_split(&mut store) {
         Ok(split) => split,
         Err(_) => {
-            return RustcRunEvidence::at(
+            rustcrun_fail!(
                 RustcRunStage::Instantiated,
                 CompilerFileSha::Ok,
                 "start_split_failed",
@@ -2679,7 +2737,7 @@ fn run_rustcrun() -> RustcRunEvidence {
         }
     };
     let Some(main) = wasm_instance.get_func(&store, "_start") else {
-        return RustcRunEvidence::at(
+        rustcrun_fail!(
             RustcRunStage::Instantiated,
             CompilerFileSha::Ok,
             "start_export_missing",
@@ -2687,7 +2745,7 @@ fn run_rustcrun() -> RustcRunEvidence {
     };
     let main_ty = main.ty(&store);
     if !main_ty.params().is_empty() || !main_ty.results().is_empty() {
-        return RustcRunEvidence::at(
+        rustcrun_fail!(
             RustcRunStage::Instantiated,
             CompilerFileSha::Ok,
             "start_export_type",
@@ -2697,14 +2755,28 @@ fn run_rustcrun() -> RustcRunEvidence {
         match WasiThreadJobRunner::new(store, memory, module, linker, main, start_section, class) {
             Ok(runner) => runner,
             Err(failure) => {
-                return RustcRunEvidence::at(
+                rustcrun_fail!(
                     RustcRunStage::Started,
                     CompilerFileSha::Ok,
                     rustcrun_pump_failure(failure),
                 )
             }
         };
-    RustcRunEvidence::completed(runner.run())
+    Ok(runner)
+}
+
+fn run_rustcrun() -> RustcRunEvidence {
+    match prepare_rustcrun() {
+        Ok(runner) => RustcRunEvidence::completed(runner.run()),
+        Err(evidence) => evidence,
+    }
+}
+
+fn run_rustcdiag() -> RustcDiagEvidence {
+    match prepare_rustcrun() {
+        Ok(runner) => RustcDiagEvidence::completed(runner.run_capped(RUSTCDIAG_ROUND_CAP)),
+        Err(evidence) => RustcDiagEvidence::failed(evidence.reason),
+    }
 }
 
 fn empty_authority_for_ok_fixture() -> Option<BuildStorageAuthority> {
@@ -3136,6 +3208,60 @@ fn emit_rustcrun_evidence(evidence: RustcRunEvidence) {
     }
 }
 
+fn emit_rustcdiag_evidence(evidence: RustcDiagEvidence) {
+    let mut ranked = [0usize; WASI_IMPORT_CALL_COUNT];
+    for (index, slot) in ranked.iter_mut().enumerate() {
+        *slot = index;
+    }
+    ranked.sort_unstable_by(|left, right| {
+        evidence.import_call_counts[*right]
+            .cmp(&evidence.import_call_counts[*left])
+            .then_with(|| left.cmp(right))
+    });
+
+    let mut line = String::new();
+    let _ = write!(
+        &mut line,
+        "RAIOS_RUSTCDIAG rounds={} stdout={} spawns={} reason={} top=",
+        evidence.rounds, evidence.stdout_bytes, evidence.spawns, evidence.reason,
+    );
+    for (position, import_index) in ranked[..RUSTCDIAG_TOP_IMPORTS].iter().enumerate() {
+        if position != 0 {
+            line.push(',');
+        }
+        let declaration = RUSTC_WASM_C6DCCF3E_IMPORTS[*import_index];
+        let _ = write!(
+            &mut line,
+            "{}:{}",
+            declaration.name, evidence.import_call_counts[*import_index],
+        );
+    }
+    line.push_str(" recent=");
+    let mut emitted_recent = false;
+    let mut previous = None;
+    for call in evidence.recent_calls.iter().flatten() {
+        if previous == Some(*call) {
+            continue;
+        }
+        if emitted_recent {
+            line.push(',');
+        }
+        let declaration = RUSTC_WASM_C6DCCF3E_IMPORTS[call.import_index as usize];
+        let _ = write!(
+            &mut line,
+            "{}:{:016x}:{:016x}:{:08x}",
+            declaration.name, call.arg0, call.arg1, call.result_lo as u32,
+        );
+        emitted_recent = true;
+        previous = Some(*call);
+    }
+    if !emitted_recent {
+        line.push_str("none");
+    }
+    line.push('\n');
+    crate::serial::write_raw_fmt(format_args!("{line}"));
+}
+
 pub(crate) fn emit_wasi_rustcrun() {
     let Some(_busy) = WasiThreadBusyGuard::acquire() else {
         emit_rustcrun_evidence(RustcRunEvidence::at(
@@ -3146,6 +3272,14 @@ pub(crate) fn emit_wasi_rustcrun() {
         return;
     };
     emit_rustcrun_evidence(run_rustcrun());
+}
+
+pub(crate) fn emit_wasi_rustcdiag() {
+    let Some(_busy) = WasiThreadBusyGuard::acquire() else {
+        emit_rustcdiag_evidence(RustcDiagEvidence::failed("runner_busy"));
+        return;
+    };
+    emit_rustcdiag_evidence(run_rustcdiag());
 }
 
 pub(crate) fn emit_wasi_selftest() {
