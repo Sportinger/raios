@@ -64,6 +64,14 @@ pub(crate) enum BuildStorageMaterializationError {
         chunk_index: u64,
         error: BuildChunkStoreError,
     },
+    ConflictingChunkLength {
+        mount_id: MountId,
+        file: NodeRef,
+        chunk_index: u64,
+        chunk_sha256: [u8; 32],
+        resolved_len: u64,
+        manifest_len: u64,
+    },
     ResolvedHandleMismatch {
         mount_id: MountId,
         file: NodeRef,
@@ -94,6 +102,7 @@ impl BuildStorageMaterializationError {
             Self::Projection(_) => "manifest_projection_failed",
             Self::ChunkLengthOverflow => "chunk_length_overflow",
             Self::ChunkResolve { .. } => "chunk_resolution_failed",
+            Self::ConflictingChunkLength { .. } => "conflicting_chunk_length",
             Self::ResolvedHandleMismatch { .. } => "resolved_chunk_handle_mismatch",
             Self::ChunkReadback { .. } => "chunk_readback_failed",
             Self::ChunkHashMismatch { .. } => "chunk_hash_mismatch",
@@ -128,6 +137,13 @@ struct MaterializedChunkEntry {
     chunk_index: u64,
     chunk_sha256: [u8; 32],
     chunk_len: u64,
+    resolved_chunk_index: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ResolvedChunkEntry {
+    chunk_sha256: [u8; 32],
+    chunk_len: u64,
     handle: BuildChunkHandle,
 }
 
@@ -138,6 +154,7 @@ pub(crate) struct GrantedChunkReader {
     run_nonce: u64,
     store_generation: u64,
     entries: Vec<MaterializedChunkEntry>,
+    resolved_chunks: Vec<ResolvedChunkEntry>,
     store: Box<dyn BuildChunkStore>,
     last_denial: Option<GrantedChunkReadDenied>,
 }
@@ -192,6 +209,13 @@ impl ChunkRead for GrantedChunkReader {
         }) else {
             return self.deny(GrantedChunkReadDenied::AbsentEntry);
         };
+        let Some(resolved) = self
+            .resolved_chunks
+            .get(entry.resolved_chunk_index)
+            .copied()
+        else {
+            return self.deny(GrantedChunkReadDenied::StoreRead);
+        };
         let destination_len = match u64::try_from(destination.len()) {
             Ok(len) => len,
             Err(_) => return self.deny(GrantedChunkReadDenied::WrongRange),
@@ -202,9 +226,11 @@ impl ChunkRead for GrantedChunkReader {
         {
             return self.deny(GrantedChunkReadDenied::WrongRange);
         }
-        if entry.handle.store_generation != self.store_generation
-            || entry.handle.payload_len != entry.chunk_len
-            || entry.handle.payload_sha256 != entry.chunk_sha256
+        if resolved.chunk_sha256 != entry.chunk_sha256
+            || resolved.chunk_len != entry.chunk_len
+            || resolved.handle.store_generation != self.store_generation
+            || resolved.handle.payload_len != entry.chunk_len
+            || resolved.handle.payload_sha256 != entry.chunk_sha256
         {
             return self.deny(GrantedChunkReadDenied::StoreRead);
         }
@@ -214,7 +240,7 @@ impl ChunkRead for GrantedChunkReader {
         let mut scratch = vec![0; destination.len()];
         if self
             .store
-            .read_resolved_chunk(entry.handle, &mut scratch)
+            .read_resolved_chunk(resolved.handle, &mut scratch)
             .is_err()
         {
             return self.deny(GrantedChunkReadDenied::StoreRead);
@@ -267,12 +293,14 @@ pub(crate) fn materialize_build_storage(
     }
 
     let mut entries = Vec::new();
+    let mut resolved_chunks = Vec::new();
     materialize_manifest(
         sysroot_manifest,
         SYSROOT_MOUNT,
         store.store_generation(),
         store.as_mut(),
         &mut entries,
+        &mut resolved_chunks,
     )?;
     materialize_manifest(
         src_manifest,
@@ -280,12 +308,14 @@ pub(crate) fn materialize_build_storage(
         store.store_generation(),
         store.as_mut(),
         &mut entries,
+        &mut resolved_chunks,
     )?;
     Ok(GrantedChunkReader {
         job_binding_sha256: authority.job_binding_sha256(),
         run_nonce,
         store_generation: store.store_generation(),
         entries,
+        resolved_chunks,
         store,
         last_denial: None,
     })
@@ -297,6 +327,7 @@ fn materialize_manifest(
     store_generation: u64,
     store: &mut dyn BuildChunkStore,
     entries: &mut Vec<MaterializedChunkEntry>,
+    resolved_chunks: &mut Vec<ResolvedChunkEntry>,
 ) -> Result<(), BuildStorageMaterializationError> {
     let buildfs = project_core_manifest(manifest)?;
     for file in &manifest.files {
@@ -309,42 +340,67 @@ fn materialize_manifest(
         for (chunk_index, chunk) in file.chunks.iter().enumerate() {
             let chunk_index = u64::try_from(chunk_index)
                 .map_err(|_| BuildStorageMaterializationError::ChunkLengthOverflow)?;
-            let handle = store
-                .resolve_chunk(chunk.sha256, chunk.len)
-                .map_err(|error| BuildStorageMaterializationError::ChunkResolve {
-                    mount_id,
-                    file: file_node,
-                    chunk_index,
-                    error,
-                })?;
-            if handle.store_generation != store_generation
-                || handle.payload_len != chunk.len
-                || handle.payload_sha256 != chunk.sha256
+            let resolved_chunk_index = if let Some((index, resolved)) = resolved_chunks
+                .iter()
+                .copied()
+                .enumerate()
+                .find(|(_, resolved)| resolved.chunk_sha256 == chunk.sha256)
             {
-                return Err(BuildStorageMaterializationError::ResolvedHandleMismatch {
-                    mount_id,
-                    file: file_node,
-                    chunk_index,
+                if resolved.chunk_len != chunk.len {
+                    return Err(BuildStorageMaterializationError::ConflictingChunkLength {
+                        mount_id,
+                        file: file_node,
+                        chunk_index,
+                        chunk_sha256: chunk.sha256,
+                        resolved_len: resolved.chunk_len,
+                        manifest_len: chunk.len,
+                    });
+                }
+                index
+            } else {
+                let handle = store
+                    .resolve_chunk(chunk.sha256, chunk.len)
+                    .map_err(|error| BuildStorageMaterializationError::ChunkResolve {
+                        mount_id,
+                        file: file_node,
+                        chunk_index,
+                        error,
+                    })?;
+                if handle.store_generation != store_generation
+                    || handle.payload_len != chunk.len
+                    || handle.payload_sha256 != chunk.sha256
+                {
+                    return Err(BuildStorageMaterializationError::ResolvedHandleMismatch {
+                        mount_id,
+                        file: file_node,
+                        chunk_index,
+                    });
+                }
+                let chunk_len = usize::try_from(chunk.len)
+                    .map_err(|_| BuildStorageMaterializationError::ChunkLengthOverflow)?;
+                let mut bytes = vec![0; chunk_len];
+                store
+                    .read_resolved_chunk(handle, &mut bytes)
+                    .map_err(|error| BuildStorageMaterializationError::ChunkReadback {
+                        mount_id,
+                        file: file_node,
+                        chunk_index,
+                        error,
+                    })?;
+                if sha256_bytes(&bytes) != chunk.sha256 {
+                    return Err(BuildStorageMaterializationError::ChunkHashMismatch {
+                        mount_id,
+                        file: file_node,
+                        chunk_index,
+                    });
+                }
+                resolved_chunks.push(ResolvedChunkEntry {
+                    chunk_sha256: chunk.sha256,
+                    chunk_len: chunk.len,
+                    handle,
                 });
-            }
-            let chunk_len = usize::try_from(chunk.len)
-                .map_err(|_| BuildStorageMaterializationError::ChunkLengthOverflow)?;
-            let mut bytes = vec![0; chunk_len];
-            store
-                .read_resolved_chunk(handle, &mut bytes)
-                .map_err(|error| BuildStorageMaterializationError::ChunkReadback {
-                    mount_id,
-                    file: file_node,
-                    chunk_index,
-                    error,
-                })?;
-            if sha256_bytes(&bytes) != chunk.sha256 {
-                return Err(BuildStorageMaterializationError::ChunkHashMismatch {
-                    mount_id,
-                    file: file_node,
-                    chunk_index,
-                });
-            }
+                resolved_chunks.len() - 1
+            };
             entries.push(MaterializedChunkEntry {
                 mount_id,
                 file: file_node,
@@ -352,7 +408,7 @@ fn materialize_manifest(
                 chunk_index,
                 chunk_sha256: chunk.sha256,
                 chunk_len: chunk.len,
-                handle,
+                resolved_chunk_index,
             });
         }
     }
@@ -512,9 +568,13 @@ impl BuildChunkStore for crate::agent_protocol::artifact_store::BuildChunkReadSe
     }
 }
 
-fn map_artstor_error(error: crate::agent_protocol::artifact_store::BuildFsChunkFrameError) -> BuildChunkStoreError {
+fn map_artstor_error(
+    error: crate::agent_protocol::artifact_store::BuildFsChunkFrameError,
+) -> BuildChunkStoreError {
     match error {
-        crate::agent_protocol::artifact_store::BuildFsChunkFrameError::Missing => BuildChunkStoreError::Missing,
+        crate::agent_protocol::artifact_store::BuildFsChunkFrameError::Missing => {
+            BuildChunkStoreError::Missing
+        }
         crate::agent_protocol::artifact_store::BuildFsChunkFrameError::Bounds
         | crate::agent_protocol::artifact_store::BuildFsChunkFrameError::LengthMismatch => {
             BuildChunkStoreError::Bounds
@@ -522,6 +582,8 @@ fn map_artstor_error(error: crate::agent_protocol::artifact_store::BuildFsChunkF
         crate::agent_protocol::artifact_store::BuildFsChunkFrameError::Malformed => {
             BuildChunkStoreError::MalformedFrame
         }
-        crate::agent_protocol::artifact_store::BuildFsChunkFrameError::Io => BuildChunkStoreError::Io,
+        crate::agent_protocol::artifact_store::BuildFsChunkFrameError::Io => {
+            BuildChunkStoreError::Io
+        }
     }
 }
