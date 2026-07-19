@@ -57,7 +57,9 @@ reproducible builds once strangers use it. A documented trade, not an accident.
   - [ ] Domain touches kernel memory → denied + logged
   - [ ] Domain uses a foreign DMA region → blocked by IOMMU + logged
 - [ ] Rollback: every domain version can be rolled back
-- [ ] Report pipeline: every build/test emits a structured report (ARTSTOR)
+- [x] Report pipeline: every build/test emits a structured report (ARTSTOR)
+      — breakdown group green: 427 `release/vm-reports/shadow-*.json`, each
+      carrying identity + verdict, gating every closure (see `scope/03`)
 
 **Distribution phase — trust for strangers** (only once others run the system):
 
