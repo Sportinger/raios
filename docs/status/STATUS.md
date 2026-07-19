@@ -41,11 +41,20 @@ Repro (seeded, needs external images): pack with `buildfs-pack`, seed
 `make-gpt-persist-image.py --seed-buildfs <dir> --expect-manifest-sha256 <pin>
 out.img`, then `shadow-vm-smoke.ps1 -Profile quick -PersistDiskPath out.img
 -GuestMemoryMB 8192 -TimeoutSeconds 600` with the `wasi.sysimport` (sysroot
-pin 13daf6f9) or `wasi.compilerload` (compiler pin 1b9214df) needle. Next
-(execution milestone): a combined sysroot+compiler image (seeder multi-tree
-append), then run rustc through the resumable pump with the real T2 ThreadHost
-and the mounted sysroot — first `rustc --version`, then hello.rs double-build =
-the W5 factory proof.
+pin 13daf6f9) or `wasi.compilerload` (compiler pin 1b9214df) needle. **The WASI world and the deterministic thread pump are now MARRIED on one
+store** (ADR 0022, 6e3886a): WasiHostState gains ThreadHostMode
+{Deny|Scheduled}; the merged pump (wasi_thread_pump.rs) queues thread-spawn
+and materializes workers at pump points through the same exact-30 linker +
+shared instance/reader; per-thread fuel escrow uses a vendored raw-remaining
+swap (19fde8e, no clock inflation, no cross-TID funding); shared memory is
+reserved at class max to purify the limiter; a WASI-effect digest pins
+interleaved determinism. Proven: a multi-thread WASI fixture spawns a worker
+that fd_writes on the shared instance, double-run trace+effect digests equal —
+`RAIOS_WASITHREAD selftest=pass spawns=1 trace_det=1 effect_det=1` (8192,
+shadow-20260719-051453), all frozen selftests still green. The combined
+sysroot+compiler image is built + kernel-verified. Next: run the real rustc
+through this pump with the mounted sysroot (args rustc --version), then
+hello.rs double-build through the commit gate = the W5 factory proof.
 Open follow-ups (flagged, not blocking): map_mmio has no unmap path (VA leak,
 harmless at ~1163 mappings, matters when a full rustc run reads far more chunks);
 offline-seeded ARTSTOR frames are reclog-less and read as reserved to the store
