@@ -69,25 +69,26 @@ linear; fuel metering forces a suspension every quantum, so an advancing
 counter is proof of forward execution). So the whole on-device factory
 pipeline runs: store → gate → mount → instantiate → start section → _start
 executing real rustc bytecode.
-ROOT CAUSE SOLVED 2026-07-19 (owner priority, staged plan): the "spin" was
-never guest code looping — it was PUMP FUEL STARVATION. Chain of proof: PC
-profiler (f62ea70) put 98% of samples in fn 114028; static forensics
-(0d69f83) identified it as musl __lock, which cannot legally spin
-single-threaded (gate byte BSS-zero ⇒ immediate return) ⇒ host defect with
-3 falsifiable hypotheses; the RUSTCLOCK trace (22ded66, generic opt-in
-instrumentation in the vendored wasmi, disabled-path byte-equality proven)
-measured on the combined image: cas_total=0, stores_g=0, parks=5000/5000 at
-__lock entry ip=0 with unmet debit=208, G=0, both lock words 0
-(shadow-20260719-112025, quick+needle 504/504). H1 (CAS defect) and H2
-(phantom need_locks) refuted — the lock code never executes. Mechanism:
-sweep_thread_fuel returns the unspent remainder (1..207) to the escrow;
-install_thread_fuel grants a fresh quantum only if escrow == 0; a remainder
-below the next block debit (208) is a permanent livelock. Earlier
-"rounds climbing = forward execution" heartbeats are refuted: rounds were
-parking, not progressing. Fix lane in flight: top the escrow up to the
-quantum per activation (accounting/ceiling/determinism preserved). After the
-fix, the TCG-interpreter AOT speed stage (roadmap Stufe 4) remains the
-practical-speed prerequisite for real compiles.
+**rustc --version COMPLETES INSIDE raiOS (2026-07-19):
+`RAIOS_RUSTCSTDOUT len=17 text=rustc 1.83.0-dev.` — exit 0, 11 pump rounds,
+zero stderr** (shadow-20260719-122823, quick+needle 504/504). The day's
+diagnosis chain that got there: (1) the "init spin" was PUMP FUEL STARVATION
+— PC profiler (f62ea70) 98% in fn 114028; forensics (0d69f83) proved it is
+musl __lock which cannot legally spin single-threaded; RUSTCLOCK trace
+(22ded66) measured cas_total=0, parks=5000/5000 at ip=0 with unmet debit
+208 ⇒ H1/H2 refuted, cause = install_thread_fuel granting only on empty
+escrow while sweep returns sub-debit remainders; fixed by per-activation
+top-up-to-quantum (e3962b0, conformance 55/55 + starvation test). (2) Then
+rustc ran 4 rounds and aborted with captured 'LLVM ERROR: out of memory'
+(stderr/trap evidence, E4): prepare_rustcrun had implemented "reserve at
+class max" as a VISIBLE grow to 16384 pages, so the allocator's first grow
+exceeded max; fixed by keeping the guest at 399 initial pages + grow
+evidence (RAIOS_RUSTCGROW, limiter approvals 399→401) (4716732). Earlier
+"rounds climbing = forward execution" heartbeats are refuted — those rounds
+were parks. Known follow-ups: vendored ByteBuffer has no invisible
+max-reservation (Vec::resize on grow; matters for multi-GB compile peaks);
+AOT speed stage (roadmap Stufe 4) for practical compile times; next slice =
+a REAL compile (hello.rs via /src mount) to close the §6 box.
 Open follow-ups (flagged, not blocking): map_mmio has no unmap path (VA leak,
 harmless at ~1163 mappings, matters when a full rustc run reads far more chunks);
 offline-seeded ARTSTOR frames are reclog-less and read as reserved to the store
