@@ -81,10 +81,22 @@
       build surface incl. digest 4145184d…, grant/lifecycle authority,
       non-guarantees). Orchestrator spot-checked 7 citations incl. the exact
       digest. Verified 2026-07-19.
-- [ ] No kernel-internal types leak through the import/service interface
-- [ ] Contract conformance: services depend only on the documented Wasm import
+- [x] No kernel-internal types leak through the import/service interface
+      <!-- genesis-floor-contract.v1.json is checked exactly against raios-core's
+      5 general + 30 build declarations (digest 4145184d...16e65). The checker
+      permits only documented i32/i64 function wires plus the exact build
+      memory; f32/f64/v128/ref/global/table/tag/memory64 and reserved kernel
+      namespaces fail as kernel_internal_type_dependency. 15/15 host tests
+      green at 32d7cc9; full drift/mutation matrix is fail-closed. -->
+- [x] Contract conformance: services depend only on the documented Wasm import
       + service-capability floor; a fixture that depends on a kernel-internal
       type or undeclared import is rejected
+      <!-- Positive fixtures accept 5/5 general and 30/30 build imports as
+      documented_floor_imports_only. env.not_documented is distinctly denied
+      as undeclared_floor_import; raios_kernel.scheduler_task/global externref
+      is denied first as kernel_internal_type_dependency. Runtime corroboration:
+      host_import.selftest rejects missing imports before instantiation with
+      zero host/peer/persistent effect (quick 510/510, 2026-07-19). -->
 
 ADR 0015 chooses the custom Rust kernel as the development and product path.
 Substitutability attaches to this narrow contract; maintaining a fictional

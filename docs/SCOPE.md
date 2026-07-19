@@ -88,7 +88,8 @@ show a foreign/out-of-range DMA attempt blocked + logged with zero host effect.
       capability contract, with no kernel-internal types. A contract test rejects
       any service that depends on kernel internals
       <!-- docs/architecture/genesis-layer.md exists (2026-07-19, cited from
-      code); the breakdown's conformance-test boxes remain open. -->
+      code); breakdown capabilities are green, but top-level closure awaits
+      the hygiene checker's multi-line mapping predicate. -->
 
 ## 3. Security & Trust Pipeline → `docs/scope/03-security-trust-pipeline.md`
 
