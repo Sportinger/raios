@@ -454,14 +454,18 @@ impl WasiThreadJobRunner {
             .get_mut(index)
             .ok_or(WasiThreadJobFailure::Scheduler)?;
         let mut escrow = core::mem::take(&mut slot.fuel_escrow);
-        if escrow == 0 {
+        if escrow < self.class.fuel_quantum {
             let remaining = self
                 .class
                 .max_total_fuel
                 .checked_sub(self.granted_total)
-                .filter(|remaining| *remaining != 0)
                 .ok_or(WasiThreadJobFailure::FuelCeiling)?;
-            let grant = self.class.fuel_quantum.min(remaining);
+            // At the total ceiling, a non-empty escrow still runs; existing
+            // round/deadlock bounds end the job. Only empty escrow is FuelCeiling.
+            if escrow == 0 && remaining == 0 {
+                return Err(WasiThreadJobFailure::FuelCeiling);
+            }
+            let grant = (self.class.fuel_quantum - escrow).min(remaining);
             escrow = escrow
                 .checked_add(grant)
                 .ok_or(WasiThreadJobFailure::FuelCeiling)?;
