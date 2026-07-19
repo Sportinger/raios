@@ -3310,12 +3310,12 @@ impl RamQuotaSelftestEvidence {
 }
 
 #[derive(Clone, Copy)]
-struct PersistRegionHashes {
+pub(super) struct PersistRegionHashes {
     reclog: Option<[u8; 32]>,
     artstor: Option<[u8; 32]>,
 }
 
-enum StorageSelftestDiskEvidence {
+pub(super) enum StorageSelftestDiskEvidence {
     Absent,
     Present {
         reclog_unchanged: bool,
@@ -3541,14 +3541,16 @@ fn hash_artstor_region(controller: crate::pci::PciMassStorageController) -> Opti
     Some(hasher.finalize().into())
 }
 
-fn persist_region_hashes(controller: crate::pci::PciMassStorageController) -> PersistRegionHashes {
+pub(super) fn persist_region_hashes(
+    controller: crate::pci::PciMassStorageController,
+) -> PersistRegionHashes {
     PersistRegionHashes {
         reclog: hash_reclog_region(controller),
         artstor: hash_artstor_region(controller),
     }
 }
 
-fn compare_persist_region_hashes(
+pub(super) fn compare_persist_region_hashes(
     controller: Option<crate::pci::PciMassStorageController>,
     before: Option<PersistRegionHashes>,
 ) -> StorageSelftestDiskEvidence {

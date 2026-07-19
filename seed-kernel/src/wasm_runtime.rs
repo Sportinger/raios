@@ -47,6 +47,7 @@ use crate::{net, serial};
 mod acquire_shims;
 mod acquisition_service;
 mod artifacts;
+mod capability_selftest;
 mod crypto_shims;
 mod envelope;
 mod invocation;
@@ -71,6 +72,7 @@ pub(crate) use acquisition_service::{
     NET_ACQUIRE_W7_SERVICE_ID,
 };
 pub(crate) use artifacts::*;
+pub(crate) use capability_selftest::emit_capability_selftest;
 pub(crate) use crypto_shims::{
     crypto_fixture_probe_snapshot, crypto_shim_grant_probe, crypto_shim_probe_snapshot,
     CryptoFixtureProbeSnapshot, CryptoShimCallEvidence, CryptoShimGrantProbe,
