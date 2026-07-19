@@ -7,42 +7,40 @@
 > fitting plan under `docs/plans/`. Max ~4 lines of text per entry, file max
 > 60 lines. Replace, never append.
 
-## Now (as of 2026-07-19 ~04:20, loop running)
+## Now (as of 2026-07-19 ~06:10, loop running)
 
-Main road = on-device factory. **The real 91-MB rustc compiler LOADS and
-INSTANTIATES in-kernel from the capability-gated store** (27fa7f6): parsed,
-30-import authorized, shared memory allocated, linker instantiated —
-`RAIOS_COMPILERLOAD stage=instantiated file_sha=ok imports=30 mem_pages=399`
-(8-GiB profile, 502/502). Sysroot import + Bauplatz + Slice-6 + T2 all
-closed earlier. Enabler this round: idempotent map_mmio (86fe9b9) ended the
-MMIO VA leak that broke large reads. Tree clean, all pushed.
+Main road = on-device factory. **The real rustc EXECUTES inside raiOS**
+(150a968): reassembled from the store (sha c6dccf3e), gated, real sysroot
+mounted at /sysroot, instantiated on the merged WASI+threads pump (ADR
+0022), start section runs (fueled) until it hits the wasip1-threads
+`__wasm_init_memory` atomic.wait barrier — T1 models atomic.wait as a
+suspension, which wasmi's non-resumable pre.start can't handle
+(RAIOS_RUSTCRUN reason=pre_start_atomic_suspend). Everything up to that
+barrier is proven. Tree clean, all pushed.
 
 ## Next step
 
-**Execution milestone** (W5 factory proof) — architecture DECIDED (ADR 0022,
-twin opinions): one store marries the WASI world + thread pump; per-thread
-fuel escrow via a vendored raw-remaining seam; memory reserved at class max;
-WASI-effect digest. Combined sysroot+compiler image built + kernel-verified
-(seeder multi-tree, 956c1dc; compilerload resolves tree-2 live). Bricks:
-(1) IN FLIGHT — vendored fuel seam (FS); (2) merged pump + ThreadHostMode +
-effect digest + run wiring; (3) run rustc --version, then hello.rs
-double-build through the commit gate. Owner questions open: SCOPE §6
-Cranelift wording; ADR 0017 veto window.
+**Vendored resumable-start seam** (next brick): run the module's start
+section through the resumable pump (not pre.start), so the atomic.wait is
+evaluated by the scheduler (main thread does __wasm_init_memory init, no
+real block) instead of trapping — the direct analog of the fuel seam
+(19fde8e). Then rustc proceeds to _start: expect worker spawns + real
+sysroot reads → measure. Then hello.rs compile + /out freeze + double-build
+egress (Brick C). Owner questions open: SCOPE §6 Cranelift wording; ADR
+0017 veto window.
 
 ## Recently (exactly 3, newest first)
 
-### 2026-07-19 — Real rustc compiler loads + instantiates in-kernel (CL, MM)
-91-MB module reassembled from 1457 CAS chunks (sha c6dccf3e), parsed,
-authorized, instantiated with shared memory (27fa7f6). Unblocked by the
-idempotent-MMIO-cache fix (86fe9b9) after the VA leak failed reassembly at
-~1134 reads. Start-section execution is the next milestone.
+### 2026-07-19 — First in-kernel rustc execution (RB, Brick B)
+Real compiler runs on the merged pump with the mounted sysroot; start
+section executes to the threads shared-memory barrier (150a968). Needs a
+vendored resumable start. Combined sysroot+compiler image kernel-verified.
 
-### 2026-07-19 — Sysroot import live + Bauplatz closed
-Real 71-MB sysroot read through the granted per-read-rehashed reader via a
-single-pass ARTSTOR index (917174b, O(n²)→O(n)); full 1-GiB window proven
-both RAM profiles via ADR 0021 bulk-fuel parking + doubling-aware limiter.
+### 2026-07-19 — WASI world married to the thread pump (ADR 0022, MP+FS)
+One store, shared instance, queue-then-materialize spawn, per-thread fuel
+escrow via a vendored raw-remaining swap (19fde8e), effect digest. Proven:
+multi-thread WASI fixture double-run trace+effect equal (6e3886a, 502/502).
 
-### 2026-07-18 — Slice-6 closed, T2 closed
-Storage authority two-stage (ADR 0020): granted rehashed chunk reads,
-pre-I/O commit gate. Futex deadlock → deterministic JobDeadlocked. Docs
-hygiene 11/11 self-tested; ADRs 0018–0021.
+### 2026-07-19 — Real rustc compiler loads + instantiates (CL, MM)
+91-MB module reassembled from CAS (sha c6dccf3e), parsed, authorized,
+instantiated (27fa7f6). Unblocked by the idempotent-MMIO fix (86fe9b9).
