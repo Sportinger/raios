@@ -69,26 +69,25 @@ linear; fuel metering forces a suspension every quantum, so an advancing
 counter is proof of forward execution). So the whole on-device factory
 pipeline runs: store → gate → mount → instantiate → start section → _start
 executing real rustc bytecode.
-Honest frontier: at ~350k rounds (~3.5e11 interpreted instructions) rustc
-has printed no version yet (stdout=0, no worker spawns) — ~100x past a native
-`--version`'s budget — so it is caught in a runtime-init spin. This is the
-plan's named post-T1/T2 work: recalibrate preview1 edge semantics against
-real rustc (find the hammered WASI call — likely a clock/futex/thread-detect
-loop), plus the roadmap AOT execution stage for practical speed. The
-interpreter-under-TCG is also inherently slow (~tens of rounds/sec).
-Diagnosis complete (fcb2820, 1be0495): the spin makes ZERO WASI calls and
-ZERO atomic.waits over 200k rounds (only the one __wasm_init_memory notify),
-before rustc reads args or spawns threads — a pure busy-spin-loop in the
-earliest std/libc init, on a value no worker will change (spawns=0). Serial-
-token instrumentation has bottomed out; pinpointing the exact spin needs
-interpreter PC-sampling or a wasmtime execution differential. Behind it, the
-TCG interpreter makes any real compile hours-long → the AOT execution stage
-(roadmap Stufe 4) is the practical-speed prerequisite. The factory-compile
-strand is PARKED pending an owner priority call: deep std-init debug + AOT
-now, vs. banking "rustc executes on-device" and steering per "vision = loop
-not features". Diagnostics landed: wasi.rustcdiag (import histogram +
-RAIOS_RUSTCATOMIC ring), behavior-preserving; run on the combined image at
-the 8192 profile.
+ROOT CAUSE SOLVED 2026-07-19 (owner priority, staged plan): the "spin" was
+never guest code looping — it was PUMP FUEL STARVATION. Chain of proof: PC
+profiler (f62ea70) put 98% of samples in fn 114028; static forensics
+(0d69f83) identified it as musl __lock, which cannot legally spin
+single-threaded (gate byte BSS-zero ⇒ immediate return) ⇒ host defect with
+3 falsifiable hypotheses; the RUSTCLOCK trace (22ded66, generic opt-in
+instrumentation in the vendored wasmi, disabled-path byte-equality proven)
+measured on the combined image: cas_total=0, stores_g=0, parks=5000/5000 at
+__lock entry ip=0 with unmet debit=208, G=0, both lock words 0
+(shadow-20260719-112025, quick+needle 504/504). H1 (CAS defect) and H2
+(phantom need_locks) refuted — the lock code never executes. Mechanism:
+sweep_thread_fuel returns the unspent remainder (1..207) to the escrow;
+install_thread_fuel grants a fresh quantum only if escrow == 0; a remainder
+below the next block debit (208) is a permanent livelock. Earlier
+"rounds climbing = forward execution" heartbeats are refuted: rounds were
+parking, not progressing. Fix lane in flight: top the escrow up to the
+quantum per activation (accounting/ceiling/determinism preserved). After the
+fix, the TCG-interpreter AOT speed stage (roadmap Stufe 4) remains the
+practical-speed prerequisite for real compiles.
 Open follow-ups (flagged, not blocking): map_mmio has no unmap path (VA leak,
 harmless at ~1163 mappings, matters when a full rustc run reads far more chunks);
 offline-seeded ARTSTOR frames are reclog-less and read as reserved to the store
