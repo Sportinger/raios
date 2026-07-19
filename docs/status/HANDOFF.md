@@ -18,14 +18,15 @@ needles permanently (501/501). No lane live right now.
 
 ## Next step
 
-**Sysroot import**: get the packed BuildFS (pin 13daf6f9, 1163 chunks on
-C:) into ARTSTOR through a verified route, then wire the real manifests
-into a build job — first real chunk reads through the granted reader.
-Then the compiler artifact (91 MB) the same way, then hello.rs
-double-build through the landed commit gate = the W5 factory proof.
-Owner questions open: SCOPE §6 Cranelift wording; ADR 0017 veto window.
-Owner forward plans (b2eb324): socket → GPU → installer, after the
-factory proof.
+**Sysroot import — one fix from green.** Route decided + built: BuildFS
+seeded offline into ARTSTOR (real 71-MB image on C:, 1161 chunks), kernel
+reads via the granted per-read-rehashed session. Manifest loads live;
+end-to-end blocked on ONE diagnosed defect (S2 in flight): materialize
+rescans ARTSTOR per chunk (O(n^2), ~44 GB reads) → AHCI read returns no
+bytes at chunk 2 (instrumented: detail=io at=2). Fix = single-pass index.
+Then compiler artifact (91 MB) same route, then hello.rs double-build =
+W5 factory proof. Owner questions open: SCOPE §6 Cranelift wording; ADR
+0017 veto window. Owner forward plans (b2eb324): socket → GPU → installer.
 
 ## Recently (exactly 3, newest first)
 
