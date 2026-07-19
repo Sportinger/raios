@@ -43,7 +43,15 @@
       inventory restore, linked unpromote, tombstone honored; survives three
       boots (persistence-reboot 198/198). Scope caveat: proven for the
       Wasm-service domain model (ADR 0005), the architecture actually built.
-- [ ] Rollback of one domain never touches other domains' state
+- [x] Rollback of one domain never touches other domains' state —
+      rollback-isolation profile (shadow-20260719-183417, 280/280): two
+      REAL foreign-family durable records (memory.observation_log_append)
+      seeded pre-install, independently re-observed via the bounded
+      per-record durable scan (4e72924) — both bit-identical through A's
+      full W6-install→rollback cycle; RECLOG advanced by exactly A's
+      unpromote; the rollback chain names only A (B-hash presence,
+      degenerate identifiers, and count violations each fail closed).
+      Chain: 87cd503→53b6a31→530b7b→B8 (see git).
 - [ ] Negative test: rollback to a version with fewer grants revokes the delta
 
 ## Day 1 — report pipeline (ARTSTOR)

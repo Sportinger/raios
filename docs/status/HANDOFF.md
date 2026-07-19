@@ -7,26 +7,26 @@
 > fitting plan under `docs/plans/`. Max ~4 lines of text per entry, file max
 > 60 lines. Replace, never append.
 
-## Now (as of 2026-07-19 ~18:25, loop running)
+## Now (as of 2026-07-19 ~18:45, loop running)
 
-**§6 CORE PROVEN: hello.wasm compiled ON raiOS, hash-sealed** —
-`exit=0 reason=none out_files=1 out_sha=bc5b7311…` (shadow-…-172854,
-507/507; boxes 06:72+74 checked b8c573c). Today also closed: §7 whole
-section, §4 PCI box, §2 storage boxes (both environments). §3 box 03:46
-PARKED: 3 strategies exhausted (no durable service-B in image; external
-persist disk forbidden by design; no real foreign-persist vocabulary —
-artifact selftest is writes_persistent_state=false, run …-175703 157/158).
-Root gap: kernel lacks per-record durable-scan evidence (B4 report).
+**03:46 PROVEN (280/280): rollback of one domain leaves foreign durable
+state bit-identical** — unpark succeeded via the per-record durable-scan
+kernel lane (4e72924) + real memory-append seeds; box checked. Earlier
+today: **hello.wasm compiled ON raiOS hash-sealed** (06:72+74), §7 whole
+section closed, §4 PCI box, §2 storage boxes (both environments). 24
+commits, all pushed. §3 remaining: 03:47 (fewer-grants delta — needs §2
+grant/revoke first), bare-metal boundary runs + distribution phase
+(owner-gated), isolation-suspicion protocol box.
 
 ## Next step
 
-Unblock 03:46 via a kernel lane: read-only per-record RECLOG scan evidence
-(mirror artifact.store_scan's records[]; family+seq+hashes, bounded) →
-then rollback-isolation's seed (memory.observation_log_append is the one
-REAL agent persist) + records-B observe it independently. Profile is
-committed and fails closed at iso:B_seed until then (53b6a31). Also open:
-§2 lifecycle (<1 s restart), §1 fuel/F12/watchdog boxes, §4 fabric rows.
-Owner-gated: §5/§6 wording reframe; bare-metal run; loop hardware.
+Next buildable frontier is §2: typed grant/revoke group (02:22-27, incl.
+revocation-stops-next-call negative) and lifecycle (<1 s kill/restart,
+crash-loop parking, 02:41-45) — scout first (the m11-wasm-import-grant
+machinery is the base; what exists vs. missing for revoke + restart
+timing). Then 03:47 rides on revoke. Also open: §1 fuel/F12/watchdog
+boxes, §4 fabric rows. Owner-gated: §5/§6 pre-ADR-0005 wording reframe;
+bare-metal escape run (Surface); unattended-loop hardware (money).
 
 ## Recently (exactly 3, newest first)
 
