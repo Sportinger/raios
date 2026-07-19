@@ -14,9 +14,8 @@ release/esp/NvVars
 /release/*secret*.img
 /release/vm-reports/
 /release/attestations/
-/release/diagnostics/
-scripts/experiments/json-diag-fixture/Cargo.lock
-scripts/experiments/json-diag-fixture/target/
+/pages-dist/
+/.wrangler/
 
 # Release binaries are published via tagged releases, not tracked (review-4 hygiene)
 /release/raios-stage0.img

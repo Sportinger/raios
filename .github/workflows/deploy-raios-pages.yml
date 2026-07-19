@@ -1,0 +1,42 @@
+name: Deploy raiOS Pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - raios-ui-lab.html
+      - ui-lab/**
+      - cloudflare/pages-worker.mjs
+      - scripts/build-pages-site.ps1
+      - .github/workflows/deploy-raios-pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: raios-pages-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build public site
+        shell: pwsh
+        run: ./scripts/build-pages-site.ps1
+
+      - name: Deploy production site
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes wrangler@4.112.0 pages deploy pages-dist --project-name raios-site --branch main
