@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-"""Inventory explicit unsafe sites in first-party Rust workspace crates."""
+"""Inventory explicit unsafe syntax in first-party Rust sources.
+
+Schema v2 deliberately separates discovery from enforcement.  Untagged sites are
+reportable during migration, while ``--require-all-tagged`` and ``--check`` are
+fail-closed gates for the eventual fully tagged tree.
+"""
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -15,15 +21,34 @@ from pathlib import Path
 from typing import Iterable
 
 
-SITE_PATTERNS = (
-    ("block", re.compile(r"\bunsafe\s*\{")),
-    ("fn", re.compile(r"\bunsafe\s+fn\b")),
-    ("impl", re.compile(r"\bunsafe\s+impl\b")),
-    ("trait", re.compile(r"\bunsafe\s+(?:auto\s+)?trait\b")),
-    ("extern", re.compile(r"\bunsafe\s+extern\b")),
-)
-EXCLUDED_DIRECTORY_NAMES = frozenset({".git", "target", "vendor"})
+EXCLUDED_DIRECTORY_NAMES = frozenset({".git", "target", "vendor", "generated"})
 RAW_STRING_START = re.compile(r"(?:br|cr|r)(#{0,255})\"")
+SITE_PATTERN = re.compile(
+    r"\bunsafe\s*(?:"
+    r"(?P<block>\{)|"
+    r"(?P<extern>extern(?:\s+(?:\"[^\"\r\n]*\"|r#[^\r\n]*?#))?\s+fn\b)|"
+    r"(?P<fn>fn\b)|"
+    r"(?P<impl>impl\b)|"
+    r"(?P<trait>(?:auto\s+)?trait\b)"
+    r")"
+)
+TAG_MARKER = re.compile(r"\bSAFETY\s*\[")
+TAG_GRAMMAR = re.compile(
+    r"^\s*(?://+|/\*+|\*+)?\s*SAFETY\["
+    r"(?P<id>unsafe\.[a-z0-9][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)+)"
+    r"\]\s+Reason:\s*(?P<reason>.+?)\s+Invariant:\s*(?P<invariant>.+?)"
+    r"\s*(?:\*/)?\s*$"
+)
+DECLARATION_PREFIX = re.compile(
+    r"^\s*(?:(?:#\s*!?\s*\[[^\]]*\]|pub(?:\s*\([^)]*\))?|async|const|extern\s+\"[^\"]*\")\s*)*$",
+    re.DOTALL,
+)
+ITEM_PATTERN = re.compile(
+    r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?"
+    r"(?:unsafe\s+)?"
+    r"(?:(?P<kind>fn|struct|enum|union|trait|impl|mod)\s+)"
+    r"(?P<name>[A-Za-z_][A-Za-z0-9_]*|[^\s{]+)"
+)
 
 
 @dataclass(frozen=True)
@@ -33,22 +58,39 @@ class WorkspaceCrate:
     relative_root: str
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Inventory explicit unsafe sites in first-party Rust workspace crates."
-    )
+@dataclass(frozen=True)
+class Comment:
+    start: int
+    end: int
+    text: str
+
+
+@dataclass(frozen=True)
+class RawSite:
+    start: int
+    token_end: int
+    end: int
+    kind: str
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, help=argparse.SUPPRESS)
     output = parser.add_mutually_exclusive_group()
-    output.add_argument("--out", type=Path, help="write stable JSON to this path")
-    output.add_argument(
-        "--summary",
-        action="store_true",
-        help="print per-crate and tagged/untagged counts instead of JSON",
-    )
-    return parser.parse_args()
+    output.add_argument("--out", type=Path, help="write canonical schema-v2 JSON")
+    output.add_argument("--summary", action="store_true", help="print count summary")
+    output.add_argument("--check", type=Path, metavar="INVENTORY", help="compare to inventory")
+    parser.add_argument("--require-all-tagged", action="store_true")
+    parser.add_argument("--self-test", action="store_true", help="run focused scanner tests")
+    return parser.parse_args(argv)
 
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
+
+
+def _sha256(value: str) -> str:
+    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def load_toml(path: Path) -> dict[str, object]:
@@ -61,11 +103,9 @@ def workspace_crates(root: Path) -> list[WorkspaceCrate]:
     workspace = workspace_manifest.get("workspace")
     if not isinstance(workspace, dict):
         raise ValueError(f"{root / 'Cargo.toml'} has no [workspace] table")
-
     members = workspace.get("members")
     if not isinstance(members, list) or not all(isinstance(item, str) for item in members):
         raise ValueError("workspace.members must be an array of paths")
-
     member_roots: set[Path] = set()
     for member_pattern in members:
         matches = sorted(root.glob(member_pattern), key=lambda path: path.as_posix())
@@ -73,26 +113,16 @@ def workspace_crates(root: Path) -> list[WorkspaceCrate]:
             raise ValueError(f"workspace member pattern matched nothing: {member_pattern}")
         for match in matches:
             member_root = match.resolve()
-            relative_parts = member_root.relative_to(root).parts
-            if EXCLUDED_DIRECTORY_NAMES.intersection(relative_parts):
+            if EXCLUDED_DIRECTORY_NAMES.intersection(member_root.relative_to(root).parts):
                 continue
             member_roots.add(member_root)
-
     crates: list[WorkspaceCrate] = []
     for member_root in member_roots:
-        manifest_path = member_root / "Cargo.toml"
-        manifest = load_toml(manifest_path)
+        manifest = load_toml(member_root / "Cargo.toml")
         package = manifest.get("package")
         if not isinstance(package, dict) or not isinstance(package.get("name"), str):
-            raise ValueError(f"{manifest_path} has no package.name")
-        crates.append(
-            WorkspaceCrate(
-                name=package["name"],
-                root=member_root,
-                relative_root=member_root.relative_to(root).as_posix(),
-            )
-        )
-
+            raise ValueError(f"{member_root / 'Cargo.toml'} has no package.name")
+        crates.append(WorkspaceCrate(package["name"], member_root, member_root.relative_to(root).as_posix()))
     duplicate_names = [name for name, count in Counter(c.name for c in crates).items() if count > 1]
     if duplicate_names:
         raise ValueError(f"duplicate workspace package names: {', '.join(sorted(duplicate_names))}")
@@ -105,184 +135,264 @@ def _mask_range(characters: list[str], start: int, end: int) -> None:
             characters[index] = " "
 
 
-def _record_safety_lines(source: str, start: int, end: int, safety_lines: set[int]) -> None:
-    comment = source[start:end]
-    for match in re.finditer(r"SAFETY", comment):
-        safety_lines.add(source.count("\n", 0, start + match.start()) + 1)
-
-
 def _raw_string_end(source: str, start: int) -> int | None:
-    prefix_match = RAW_STRING_START.match(source, start)
-    if prefix_match is None:
+    match = RAW_STRING_START.match(source, start)
+    if match is None:
         return None
-    hashes = prefix_match.group(1)
-    terminator = '"' + hashes
-    content_start = prefix_match.end()
-    terminator_start = source.find(terminator, content_start)
-    return len(source) if terminator_start < 0 else terminator_start + len(terminator)
+    terminator = '"' + match.group(1)
+    found = source.find(terminator, match.end())
+    return len(source) if found < 0 else found + len(terminator)
 
 
 def _quoted_string_end(source: str, quote_index: int, quote: str) -> int:
     index = quote_index + 1
     while index < len(source):
-        character = source[index]
-        if character == "\\":
+        if source[index] == "\\":
             index += 2
-            continue
-        if character == quote:
+        elif source[index] == quote:
             return index + 1
-        index += 1
+        else:
+            index += 1
     return len(source)
 
 
 def _char_literal_end(source: str, start: int) -> int | None:
-    quote_index = start + 1 if source.startswith("b'", start) else start
-    if quote_index >= len(source) or source[quote_index] != "'":
+    quote = start + 1 if source.startswith("b'", start) else start
+    if quote >= len(source) or source[quote] != "'":
         return None
-    content_index = quote_index + 1
-    if content_index >= len(source) or source[content_index] in "\r\n'":
+    content = quote + 1
+    if content >= len(source) or source[content] in "\r\n'":
         return None
-    if source[content_index] == "\\":
-        end = _quoted_string_end(source, quote_index, "'")
-        if source[end - 1] != "'" or "\n" in source[quote_index:end]:
-            return None
-        return end
-    if content_index + 1 < len(source) and source[content_index + 1] == "'":
-        return content_index + 2
-    return None
+    if source[content] == "\\":
+        end = _quoted_string_end(source, quote, "'")
+        return end if end and source[end - 1:end] == "'" and "\n" not in source[quote:end] else None
+    return content + 2 if content + 1 < len(source) and source[content + 1] == "'" else None
 
 
-def mask_non_code(source: str) -> tuple[str, set[int]]:
-    """Replace comments and literals with spaces while preserving line breaks."""
-    masked = list(source)
-    safety_lines: set[int] = set()
+def lex(source: str) -> tuple[str, str, list[Comment]]:
+    """Return code-only mask, comment-free syntax, and exact comments."""
+    code = list(source)
+    syntax = list(source)
+    comments: list[Comment] = []
     index = 0
-    length = len(source)
-
-    while index < length:
+    while index < len(source):
         if source.startswith("//", index):
             end = source.find("\n", index)
-            end = length if end < 0 else end
-            _record_safety_lines(source, index, end, safety_lines)
-            _mask_range(masked, index, end)
+            end = len(source) if end < 0 else end
+            comments.append(Comment(index, end, source[index:end]))
+            _mask_range(code, index, end)
+            _mask_range(syntax, index, end)
             index = end
             continue
-
         if source.startswith("/*", index):
-            depth = 1
-            end = index + 2
-            while end < length and depth:
+            depth, end = 1, index + 2
+            while end < len(source) and depth:
                 if source.startswith("/*", end):
-                    depth += 1
-                    end += 2
+                    depth, end = depth + 1, end + 2
                 elif source.startswith("*/", end):
-                    depth -= 1
-                    end += 2
+                    depth, end = depth - 1, end + 2
                 else:
                     end += 1
-            _record_safety_lines(source, index, end, safety_lines)
-            _mask_range(masked, index, end)
+            comments.append(Comment(index, end, source[index:end]))
+            _mask_range(code, index, end)
+            _mask_range(syntax, index, end)
             index = end
             continue
-
         raw_end = _raw_string_end(source, index)
         if raw_end is not None:
-            _mask_range(masked, index, raw_end)
+            _mask_range(code, index, raw_end)
             index = raw_end
             continue
-
         if source[index] == '"':
             end = _quoted_string_end(source, index, '"')
-            _mask_range(masked, index, end)
+            _mask_range(code, index, end)
             index = end
             continue
-
         if source.startswith(('b"', 'c"'), index):
             end = _quoted_string_end(source, index + 1, '"')
-            _mask_range(masked, index, end)
+            _mask_range(code, index, end)
             index = end
             continue
-
         char_end = _char_literal_end(source, index)
         if char_end is not None:
-            _mask_range(masked, index, char_end)
+            _mask_range(code, index, char_end)
             index = char_end
             continue
-
         index += 1
+    return "".join(code), "".join(syntax), comments
 
-    return "".join(masked), safety_lines
+
+def _balanced_end(masked: str, opening: int) -> int:
+    depth = 0
+    for index in range(opening, len(masked)):
+        if masked[index] == "{":
+            depth += 1
+        elif masked[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    return len(masked)
 
 
-def scan_source(source: str, crate_name: str, relative_path: str) -> list[dict[str, object]]:
-    masked, safety_lines = mask_non_code(source)
-    source_lines = source.splitlines()
-    sites: list[tuple[int, int, dict[str, object]]] = []
-    for kind, pattern in SITE_PATTERNS:
-        for match in pattern.finditer(masked):
-            line_number = masked.count("\n", 0, match.start()) + 1
-            line_text = source_lines[line_number - 1].strip() if source_lines else ""
-            tagged = any(line in safety_lines for line in range(max(1, line_number - 3), line_number + 1))
-            sites.append(
-                (
-                    line_number,
-                    match.start(),
-                    {
-                        "crate": crate_name,
-                        "file": relative_path,
-                        "kind": kind,
-                        "line": line_number,
-                        "safety_comment": tagged,
-                        "source": line_text,
-                    },
-                )
-            )
-    sites.sort(key=lambda item: (item[0], item[1], str(item[2]["kind"])))
-    return [site for _, _, site in sites]
+def discover_sites(masked: str) -> list[RawSite]:
+    sites: list[RawSite] = []
+    for match in SITE_PATTERN.finditer(masked):
+        kind = next(name for name in ("block", "extern", "fn", "impl", "trait") if match.group(name))
+        brace = masked.find("{", match.end())
+        semicolon = masked.find(";", match.end())
+        if kind == "block":
+            brace = match.start("block")
+        if brace >= 0 and (semicolon < 0 or brace < semicolon):
+            end = _balanced_end(masked, brace)
+        else:
+            end = semicolon + 1 if semicolon >= 0 else match.end()
+        sites.append(RawSite(match.start(), match.end(), end, kind))
+    return sorted(sites, key=lambda site: (site.start, site.kind))
+
+
+def _normalize_syntax(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _enclosing_item(masked: str, offset: int) -> str:
+    candidates = [match for match in ITEM_PATTERN.finditer(masked) if match.start() <= offset]
+    if not candidates:
+        return "<crate>"
+    match = candidates[-1]
+    return f"{match.group('kind')} {match.group('name')}"
+
+
+def _diagnostic(code: str, path: str, site: RawSite | None = None, **extra: object) -> dict[str, object]:
+    result: dict[str, object] = {"code": code, "path": path}
+    if site is not None:
+        result["kind"] = site.kind
+    result.update(extra)
+    return result
+
+
+def scan_source(source: str, crate_name: str, relative_path: str) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    masked, syntax_source, comments = lex(source)
+    raw_sites = discover_sites(masked)
+    diagnostics: list[dict[str, object]] = []
+    parsed_tags: list[tuple[Comment, re.Match[str]]] = []
+    for comment in comments:
+        if not TAG_MARKER.search(comment.text):
+            continue
+        match = TAG_GRAMMAR.match(comment.text)
+        if match is None or not match.group("reason").strip() or not match.group("invariant").strip():
+            diagnostics.append(_diagnostic("invalid_tag", relative_path, tag_text=comment.text.strip()))
+        else:
+            parsed_tags.append((comment, match))
+
+    tag_counts = Counter(match.group("id") for _, match in parsed_tags)
+    for site_id, count in sorted(tag_counts.items()):
+        if count > 1:
+            diagnostics.append(_diagnostic("duplicate_tag", relative_path, id=site_id, occurrences=count))
+
+    associations: dict[int, list[tuple[Comment, re.Match[str]]]] = {i: [] for i in range(len(raw_sites))}
+    used_comments: set[int] = set()
+    block_ranges = [(i, s) for i, s in enumerate(raw_sites) if s.kind == "block"]
+    for comment, tag in parsed_tags:
+        containing = [(i, site) for i, site in block_ranges if site.token_end <= comment.start < site.end]
+        if containing:
+            # A tag inside unsafe code belongs only to the innermost containing
+            # opening, and only when it is the first non-trivia content.
+            index, site = min(containing, key=lambda pair: pair[1].end - pair[1].start)
+            if not masked[site.token_end:comment.start].strip():
+                associations[index].append((comment, tag))
+                used_comments.add(comment.start)
+            continue
+        following = [
+            (i, site) for i, site in enumerate(raw_sites)
+            if comment.end <= site.start and DECLARATION_PREFIX.fullmatch(source[comment.end:site.start])
+        ]
+        if following:
+            index, _ = min(following, key=lambda pair: pair[1].start)
+            associations[index].append((comment, tag))
+            used_comments.add(comment.start)
+
+    for comment, tag in parsed_tags:
+        if comment.start not in used_comments:
+            diagnostics.append(_diagnostic("orphan_tag", relative_path, id=tag.group("id")))
+
+    sites: list[dict[str, object]] = []
+    for index, raw in enumerate(raw_sites):
+        tags = associations[index]
+        normalized = _normalize_syntax(syntax_source[raw.start:raw.end])
+        enclosing = _enclosing_item(masked, raw.start)
+        base = {
+            "crate": crate_name,
+            "path": relative_path,
+            "enclosing_item": enclosing,
+            "kind": raw.kind,
+            "syntax_hash": _sha256(normalized),
+        }
+        if len(tags) != 1:
+            code = "untagged_site" if not tags else "multiple_tags_for_site"
+            diagnostics.append(_diagnostic(code, relative_path, raw, enclosing_item=enclosing))
+            sites.append({**base, "id": None, "reason": None, "invariant": None, "rationale_hash": None, "association_hash": None})
+            continue
+        _, tag = tags[0]
+        reason, invariant = tag.group("reason").strip(), tag.group("invariant").strip()
+        rationale = _sha256(f"Reason:{reason}\nInvariant:{invariant}")
+        site_id = tag.group("id")
+        sites.append({
+            **base,
+            "id": site_id,
+            "reason": reason,
+            "invariant": invariant,
+            "rationale_hash": rationale,
+            "association_hash": _sha256(f"{raw.kind}\n{normalized}\n{reason}\n{invariant}"),
+        })
+
+    ids: dict[str, list[dict[str, object]]] = {}
+    for site in sites:
+        if site["id"] is not None:
+            ids.setdefault(str(site["id"]), []).append(site)
+    for site_id, matches in sorted(ids.items()):
+        if len(matches) > 1:
+            diagnostics.append(_diagnostic("duplicate_id", relative_path, id=site_id, occurrences=len(matches)))
+    return sites, diagnostics
 
 
 def rust_files(crate: WorkspaceCrate) -> Iterable[Path]:
     files: list[Path] = []
     for directory, directory_names, file_names in os.walk(crate.root):
-        directory_names[:] = sorted(
-            name for name in directory_names if name not in EXCLUDED_DIRECTORY_NAMES
-        )
-        for file_name in sorted(file_names):
-            if file_name.endswith(".rs"):
-                files.append(Path(directory) / file_name)
+        directory_names[:] = sorted(name for name in directory_names if name not in EXCLUDED_DIRECTORY_NAMES)
+        files.extend(Path(directory) / name for name in sorted(file_names) if name.endswith(".rs"))
     return files
 
 
 def build_inventory(root: Path) -> dict[str, object]:
     crates = workspace_crates(root)
     sites: list[dict[str, object]] = []
+    diagnostics: list[dict[str, object]] = []
     for crate in crates:
         for path in rust_files(crate):
-            relative_path = path.relative_to(root).as_posix()
-            source = path.read_text(encoding="utf-8")
-            sites.extend(scan_source(source, crate.name, relative_path))
-
-    sites.sort(key=lambda site: (str(site["file"]), int(site["line"]), str(site["kind"])))
+            relative = path.relative_to(root).as_posix()
+            found, errors = scan_source(path.read_text(encoding="utf-8"), crate.name, relative)
+            sites.extend(found)
+            diagnostics.extend(errors)
+    sites.sort(key=lambda site: (str(site["path"]), str(site["enclosing_item"]), str(site["kind"]), str(site["id"]), str(site["syntax_hash"])))
+    diagnostics.sort(key=lambda item: json.dumps(item, sort_keys=True))
+    global_ids: dict[str, int] = Counter(str(s["id"]) for s in sites if s["id"] is not None)
+    existing_duplicate_diagnostics = {(d.get("code"), d.get("id")) for d in diagnostics}
+    for site_id, count in sorted(global_ids.items()):
+        if count > 1 and ("duplicate_id", site_id) not in existing_duplicate_diagnostics:
+            diagnostics.append({"code": "duplicate_id", "id": site_id, "occurrences": count, "path": "<workspace>"})
+    by_kind = {kind: sum(s["kind"] == kind for s in sites) for kind in ("block", "fn", "extern", "impl", "trait")}
+    tagged = sum(s["id"] is not None for s in sites)
     by_crate: dict[str, dict[str, int]] = {}
     for crate in crates:
-        crate_sites = [site for site in sites if site["crate"] == crate.name]
-        tagged = sum(bool(site["safety_comment"]) for site in crate_sites)
-        by_crate[crate.name] = {
-            "tagged": tagged,
-            "total": len(crate_sites),
-            "untagged": len(crate_sites) - tagged,
-        }
-
-    tagged_total = sum(bool(site["safety_comment"]) for site in sites)
+        selected = [site for site in sites if site["crate"] == crate.name]
+        crate_tagged = sum(site["id"] is not None for site in selected)
+        by_crate[crate.name] = {"tagged": crate_tagged, "total": len(selected), "untagged": len(selected) - crate_tagged}
     return {
+        "schema_version": 2,
         "crates": by_crate,
-        "schema_version": 1,
         "sites": sites,
-        "totals": {
-            "tagged": tagged_total,
-            "total": len(sites),
-            "untagged": len(sites) - tagged_total,
-        },
+        "diagnostics": diagnostics,
+        "totals": {"by_kind": by_kind, "tagged": tagged, "total": len(sites), "untagged": len(sites) - tagged},
     }
 
 
@@ -291,37 +401,72 @@ def render_json(inventory: dict[str, object]) -> str:
 
 
 def render_summary(inventory: dict[str, object]) -> str:
-    crates = inventory["crates"]
-    assert isinstance(crates, dict)
     totals = inventory["totals"]
     assert isinstance(totals, dict)
-    name_width = max([len("crate"), *(len(str(name)) for name in crates)])
-    lines = [
-        f"{'crate':<{name_width}}  {'total':>5}  {'tagged':>6}  {'untagged':>8}",
-        f"{'-' * name_width}  {'-' * 5}  {'-' * 6}  {'-' * 8}",
-    ]
-    for name in sorted(crates):
-        counts = crates[name]
-        assert isinstance(counts, dict)
-        lines.append(
-            f"{name:<{name_width}}  {counts['total']:>5}  "
-            f"{counts['tagged']:>6}  {counts['untagged']:>8}"
-        )
-    lines.extend(
-        [
-            f"{'-' * name_width}  {'-' * 5}  {'-' * 6}  {'-' * 8}",
-            f"{'TOTAL':<{name_width}}  {totals['total']:>5}  "
-            f"{totals['tagged']:>6}  {totals['untagged']:>8}",
-        ]
+    kinds = totals["by_kind"]
+    assert isinstance(kinds, dict)
+    return (
+        f"total={totals['total']} tagged={totals['tagged']} untagged={totals['untagged']} "
+        + " ".join(f"{kind}={kinds[kind]}" for kind in ("block", "fn", "extern", "impl", "trait"))
+        + "\n"
     )
-    return "\n".join(lines) + "\n"
 
 
-def main() -> int:
-    args = parse_args()
+def compare_inventory(expected: dict[str, object], actual: dict[str, object]) -> list[dict[str, object]]:
+    differences: list[dict[str, object]] = []
+    if expected.get("schema_version") != 2:
+        return [{"code": "unsupported_inventory_schema", "expected": 2, "found": expected.get("schema_version")}]
+    expected_sites = expected.get("sites")
+    actual_sites = actual.get("sites")
+    if not isinstance(expected_sites, list) or not isinstance(actual_sites, list):
+        return [{"code": "invalid_inventory_sites"}]
+    old = {str(s.get("id")): s for s in expected_sites if isinstance(s, dict) and s.get("id") is not None}
+    new = {str(s.get("id")): s for s in actual_sites if isinstance(s, dict) and s.get("id") is not None}
+    for site_id in sorted(old.keys() - new.keys()):
+        differences.append({"code": "removed_site", "id": site_id})
+    for site_id in sorted(new.keys() - old.keys()):
+        differences.append({"code": "added_site", "id": site_id})
+    fields = {
+        "kind": "kind_drift", "path": "path_drift", "enclosing_item": "item_drift",
+        "reason": "rationale_drift", "invariant": "rationale_drift",
+        "rationale_hash": "rationale_hash_drift", "syntax_hash": "syntax_hash_drift",
+        "association_hash": "association_hash_drift",
+    }
+    for site_id in sorted(old.keys() & new.keys()):
+        emitted: set[str] = set()
+        for field, code in fields.items():
+            if old[site_id].get(field) != new[site_id].get(field) and code not in emitted:
+                differences.append({"code": code, "id": site_id, "field": field})
+                emitted.add(code)
+    old_untagged = Counter((s.get("path"), s.get("kind"), s.get("syntax_hash")) for s in expected_sites if isinstance(s, dict) and s.get("id") is None)
+    new_untagged = Counter((s.get("path"), s.get("kind"), s.get("syntax_hash")) for s in actual_sites if isinstance(s, dict) and s.get("id") is None)
+    if old_untagged != new_untagged:
+        differences.append({"code": "untagged_set_drift"})
+    return differences
+
+
+def run_self_test() -> int:
+    import unittest
+    suite_path = Path(__file__).resolve().parent / "tests" / "unsafe-inventory"
+    suite = unittest.defaultTestLoader.discover(str(suite_path), pattern="test_*.py")
+    return 0 if unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful() else 1
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    if args.self_test:
+        return run_self_test()
+    root = (args.root or repo_root()).resolve()
     try:
-        inventory = build_inventory(repo_root())
-        if args.summary:
+        inventory = build_inventory(root)
+        exit_code = 0
+        if args.check is not None:
+            expected = json.loads(args.check.read_text(encoding="utf-8"))
+            differences = compare_inventory(expected, inventory)
+            if differences:
+                sys.stderr.write(json.dumps({"status": "stale", "differences": differences}, sort_keys=True) + "\n")
+                exit_code = 1
+        elif args.summary:
             sys.stdout.write(render_summary(inventory))
         else:
             output = render_json(inventory)
@@ -329,10 +474,17 @@ def main() -> int:
                 sys.stdout.write(output)
             else:
                 args.out.write_text(output, encoding="utf-8", newline="\n")
-    except (OSError, tomllib.TOMLDecodeError, ValueError) as error:
+        if args.require_all_tagged and inventory["totals"]["untagged"]:
+            sys.stderr.write(json.dumps({"code": "untagged_sites", "count": inventory["totals"]["untagged"]}, sort_keys=True) + "\n")
+            exit_code = 1
+        invalid = [d for d in inventory["diagnostics"] if d["code"] != "untagged_site"]
+        if invalid:
+            sys.stderr.write(json.dumps({"code": "invalid_tags", "diagnostics": invalid}, sort_keys=True) + "\n")
+            exit_code = 1
+        return exit_code
+    except (OSError, json.JSONDecodeError, tomllib.TOMLDecodeError, ValueError) as error:
         print(f"unsafe-inventory: {error}", file=sys.stderr)
         return 1
-    return 0
 
 
 if __name__ == "__main__":
