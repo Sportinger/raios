@@ -3,6 +3,8 @@ use std::error::Error;
 use std::fmt::{self, Write as _};
 use wasmparser_nostd::{Encoding, FuncType, Parser, Payload, Type, TypeRef, ValType};
 
+pub mod contract;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Inventory {
     file_length: u64,
@@ -82,6 +84,7 @@ pub enum ImportKind {
         initial: u32,
         maximum: Option<u32>,
     },
+    Tag,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -161,6 +164,7 @@ enum RawImportKind {
         initial: u32,
         maximum: Option<u32>,
     },
+    Tag,
 }
 
 struct RawImport {
@@ -197,7 +201,7 @@ pub fn inventory_from_bytes(bytes: &[u8]) -> Result<Inventory, InventoryError> {
                 }
             }
             Payload::ImportSection(section) => {
-                for (section_index, entry) in section.into_iter().enumerate() {
+                for entry in section {
                     let entry = entry.map_err(|error| {
                         InventoryError::new(format!("import section parse error: {error}"))
                     })?;
@@ -218,12 +222,7 @@ pub fn inventory_from_bytes(bytes: &[u8]) -> Result<Inventory, InventoryError> {
                             initial: table.initial,
                             maximum: table.maximum,
                         },
-                        TypeRef::Tag(_) => {
-                            return Err(InventoryError::new(format!(
-                                "unsupported tag import at import-section index {section_index}: {}::{}",
-                                entry.module, entry.name
-                            )));
-                        }
+                        TypeRef::Tag(_) => RawImportKind::Tag,
                     };
                     raw_imports.push(RawImport {
                         module: entry.module.to_owned(),
@@ -293,6 +292,7 @@ pub fn inventory_from_bytes(bytes: &[u8]) -> Result<Inventory, InventoryError> {
                 initial,
                 maximum,
             },
+            RawImportKind::Tag => ImportKind::Tag,
         };
         imports.push(Import {
             module: raw.module,
@@ -390,6 +390,7 @@ fn canonical_imports_json(imports: &[Import]) -> String {
                 write_json_key(&mut json, "maximum");
                 write_optional_number(&mut json, *maximum);
             }
+            ImportKind::Tag => write_json_string(&mut json, "tag"),
         }
         json.push('}');
     }

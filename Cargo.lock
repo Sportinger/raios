@@ -2242,6 +2242,9 @@ dependencies = [
 name = "wasm-import-inventory"
 version = "0.1.0"
 dependencies = [
+ "raios-core",
+ "serde",
+ "serde_json",
  "sha2 0.10.9",
  "wasmparser-nostd",
  "wat",

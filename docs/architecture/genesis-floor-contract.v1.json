@@ -1,0 +1,61 @@
+{
+  "schema": "raios.genesis_floor_contract.v1",
+  "version": 1,
+  "allowed_wire_types": ["i32", "i64"],
+  "allowed_import_kinds": ["func", "memory"],
+  "reserved_kernel_namespaces": ["kernel", "raios_kernel", "kernel_internal"],
+  "reserved_dependency_kind": "kernel_internal_type_dependency",
+  "general_floor": {
+    "id": "raios.genesis_general_imports.v1",
+    "imports": [
+      {"module":"env","name":"log","kind":"func","params":["i32","i32"],"results":[]},
+      {"module":"env","name":"counter_get","kind":"func","params":[],"results":["i64"]},
+      {"module":"env","name":"input_len","kind":"func","params":[],"results":["i32"]},
+      {"module":"env","name":"input_read","kind":"func","params":["i32","i32"],"results":["i32"]},
+      {"module":"env","name":"output_write","kind":"func","params":["i32","i32"],"results":["i32"]}
+    ]
+  },
+  "build_floor": {
+    "id": "raios.wasi_build_imports.v1",
+    "canonical_sha256": "4145184d6ae43a57e1f75e1cfc2b4a19c6dd27fb1a29dd7104e1df9817616e65",
+    "imports": [
+      {"module":"wasi_snapshot_preview1","name":"random_get","kind":"func","params":["i32","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"args_get","kind":"func","params":["i32","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"args_sizes_get","kind":"func","params":["i32","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"clock_time_get","kind":"func","params":["i32","i64","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"fd_filestat_get","kind":"func","params":["i32","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"fd_read","kind":"func","params":["i32","i32","i32","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"fd_readdir","kind":"func","params":["i32","i32","i32","i64","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"fd_seek","kind":"func","params":["i32","i64","i32","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"fd_write","kind":"func","params":["i32","i32","i32","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"path_create_directory","kind":"func","params":["i32","i32","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"path_filestat_get","kind":"func","params":["i32","i32","i32","i32","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"path_link","kind":"func","params":["i32","i32","i32","i32","i32","i32","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"path_open","kind":"func","params":["i32","i32","i32","i32","i32","i64","i64","i32","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"path_readlink","kind":"func","params":["i32","i32","i32","i32","i32","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"path_remove_directory","kind":"func","params":["i32","i32","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"path_rename","kind":"func","params":["i32","i32","i32","i32","i32","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"path_unlink_file","kind":"func","params":["i32","i32","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"poll_oneoff","kind":"func","params":["i32","i32","i32","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"sched_yield","kind":"func","params":[],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"environ_get","kind":"func","params":["i32","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"environ_sizes_get","kind":"func","params":["i32","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"fd_close","kind":"func","params":["i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"fd_fdstat_get","kind":"func","params":["i32","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"fd_filestat_set_size","kind":"func","params":["i32","i64"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"fd_pread","kind":"func","params":["i32","i32","i32","i64","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"fd_prestat_get","kind":"func","params":["i32","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"fd_prestat_dir_name","kind":"func","params":["i32","i32","i32"],"results":["i32"]},
+      {"module":"wasi_snapshot_preview1","name":"proc_exit","kind":"func","params":["i32"],"results":[]},
+      {"module":"wasi","name":"thread-spawn","kind":"func","params":["i32"],"results":["i32"]},
+      {"module":"env","name":"memory","kind":"memory","initial":399,"maximum":16384,"shared":true,"memory64":false}
+    ]
+  },
+  "provenance": {
+    "code": [
+      "crates/raios-core/src/scoped_wasm_import_grant.rs:36-64,251-309,319-423",
+      "crates/raios-core/src/wasi_preview1_import_abi.rs:11-51,68-121,178-254"
+    ],
+    "documentation": ["docs/architecture/genesis-layer.md:58-109,144-220"]
+  }
+}
