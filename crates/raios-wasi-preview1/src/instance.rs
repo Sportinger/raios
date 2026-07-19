@@ -174,6 +174,7 @@ impl WasiBuildInstance {
         parent_fd: Fd,
         path: &[u8],
         create: bool,
+        exclusive: bool,
         truncate: bool,
         requested_rights_base: Rights,
         requested_rights_inheriting: Rights,
@@ -183,6 +184,7 @@ impl WasiBuildInstance {
             parent_fd,
             path,
             create,
+            exclusive,
             truncate,
             false,
             requested_rights_base,
@@ -196,16 +198,23 @@ impl WasiBuildInstance {
         parent_fd: Fd,
         path: &[u8],
         create: bool,
+        exclusive: bool,
         truncate: bool,
         directory: bool,
         requested_rights_base: Rights,
         requested_rights_inheriting: Rights,
         flags: FdFlags,
     ) -> Result<Fd, Errno> {
+        if exclusive && !create {
+            return Err(Errno::Inval);
+        }
         let parent = self.directory_entry(parent_fd, Rights::PATH_OPEN)?;
         match self.resolve_existing(parent, path) {
             Ok(target) => {
                 self.validate_open_policy(target.mount_id, create, truncate, flags)?;
+                if exclusive {
+                    return Err(Errno::Exist);
+                }
                 if directory && target.file_type != FileType::Directory {
                     return Err(Errno::Notdir);
                 }
@@ -971,6 +980,7 @@ mod tests {
                 b"out",
                 false,
                 false,
+                false,
                 true,
                 writable_rights(),
                 writable_rights(),
@@ -1061,6 +1071,7 @@ mod tests {
                 b"hello.wasm",
                 true,
                 false,
+                false,
                 file_rights(),
                 Rights::EMPTY,
                 FdFlags::EMPTY,
@@ -1079,6 +1090,7 @@ mod tests {
                 Fd::ROOT_PREOPEN,
                 b"hello.wasm",
                 true,
+                false,
                 true,
                 lld_rights,
                 lld_rights,
@@ -1108,6 +1120,7 @@ mod tests {
                 b"new.rs",
                 true,
                 false,
+                false,
                 file_rights(),
                 Rights::EMPTY,
                 FdFlags::EMPTY,
@@ -1118,6 +1131,7 @@ mod tests {
             instance.path_open(
                 Fd::ROOT_PREOPEN,
                 b"main.rs",
+                false,
                 false,
                 true,
                 file_rights(),
@@ -1130,6 +1144,7 @@ mod tests {
             .path_open(
                 Fd::ROOT_PREOPEN,
                 b"main.rs",
+                false,
                 false,
                 false,
                 file_rights(),
@@ -1179,6 +1194,7 @@ mod tests {
             .path_open(
                 Fd::ROOT_PREOPEN,
                 b"src/main.rs",
+                false,
                 false,
                 false,
                 requested_base,
@@ -1240,6 +1256,7 @@ mod tests {
                 LIB_DIR,
                 false,
                 false,
+                false,
                 true,
                 Rights::ALL,
                 Rights::ALL,
@@ -1285,6 +1302,7 @@ mod tests {
                 b"sysroot/lib/rustlib/wasm32-wasip1-threads/lib/libstd-9d7bbafe636fd70f.rlib",
                 false,
                 false,
+                false,
                 true,
                 Rights::ALL,
                 Rights::ALL,
@@ -1306,6 +1324,7 @@ mod tests {
                 b"src/new.rs",
                 true,
                 false,
+                false,
                 read,
                 Rights::EMPTY,
                 FdFlags::EMPTY,
@@ -1316,6 +1335,7 @@ mod tests {
             instance.path_open(
                 Fd::ROOT_PREOPEN,
                 b"src/main.rs",
+                false,
                 false,
                 true,
                 read,
@@ -1330,11 +1350,168 @@ mod tests {
                 b"src/main.rs",
                 false,
                 false,
+                false,
                 read,
                 Rights::EMPTY,
                 FdFlags::APPEND,
             ),
             Err(Errno::Rofs)
+        );
+    }
+
+    #[test]
+    fn exclusive_create_of_new_output_file_supports_write_and_read_back() {
+        let mut instance = instance();
+        let before_invalid = instance.clone();
+        assert_eq!(
+            instance.path_open(
+                Fd::ROOT_PREOPEN,
+                b"out/exclusive-new",
+                false,
+                true,
+                false,
+                file_rights(),
+                Rights::EMPTY,
+                FdFlags::EMPTY,
+            ),
+            Err(Errno::Inval)
+        );
+        assert_eq!(instance, before_invalid);
+
+        let fd = instance
+            .path_open(
+                Fd::ROOT_PREOPEN,
+                b"out/exclusive-new",
+                true,
+                true,
+                false,
+                file_rights(),
+                Rights::EMPTY,
+                FdFlags::EMPTY,
+            )
+            .unwrap();
+        assert_eq!(instance.fd_write(fd, b"exclusive").unwrap(), 9);
+        assert_eq!(instance.fd_seek(fd, 0, Whence::Set).unwrap(), 0);
+        assert_eq!(instance.fd_read(fd, 9, &mut Reader).unwrap(), b"exclusive");
+    }
+
+    #[test]
+    fn exclusive_create_of_existing_output_file_is_exist_and_atomic() {
+        let mut instance = instance();
+        let created = instance
+            .path_open(
+                Fd::ROOT_PREOPEN,
+                b"out/existing",
+                true,
+                false,
+                false,
+                file_rights(),
+                Rights::EMPTY,
+                FdFlags::EMPTY,
+            )
+            .unwrap();
+        instance.fd_write(created, b"original").unwrap();
+        instance.fd_close(created).unwrap();
+
+        let before_exclusive = instance.clone();
+        assert_eq!(
+            instance.path_open(
+                Fd::ROOT_PREOPEN,
+                b"out/existing",
+                true,
+                true,
+                true,
+                file_rights(),
+                Rights::EMPTY,
+                FdFlags::EMPTY,
+            ),
+            Err(Errno::Exist)
+        );
+        assert_eq!(instance, before_exclusive);
+
+        let reopened = instance
+            .path_open(
+                Fd::ROOT_PREOPEN,
+                b"out/existing",
+                false,
+                false,
+                false,
+                Rights::FD_READ,
+                Rights::EMPTY,
+                FdFlags::EMPTY,
+            )
+            .unwrap();
+        assert_eq!(
+            instance.fd_read(reopened, 8, &mut Reader).unwrap(),
+            b"original"
+        );
+    }
+
+    #[test]
+    fn exclusive_create_on_readonly_mount_is_rofs_and_atomic() {
+        let mut instance = instance();
+        let before_exclusive = instance.clone();
+        assert_eq!(
+            instance.path_open(
+                Fd::ROOT_PREOPEN,
+                b"src/exclusive-new.rs",
+                true,
+                true,
+                false,
+                file_rights(),
+                Rights::EMPTY,
+                FdFlags::EMPTY,
+            ),
+            Err(Errno::Rofs)
+        );
+        assert_eq!(instance, before_exclusive);
+    }
+
+    #[test]
+    fn lld_exclusive_temp_create_write_rename_and_final_read_succeeds() {
+        let mut instance = instance();
+        let temp = instance
+            .path_open(
+                Fd::ROOT_PREOPEN,
+                b"out/hello.wasm.tmp1",
+                true,
+                true,
+                false,
+                file_rights(),
+                Rights::EMPTY,
+                FdFlags::EMPTY,
+            )
+            .unwrap();
+        assert_eq!(instance.fd_write(temp, b"\0asm").unwrap(), 4);
+        instance.fd_close(temp).unwrap();
+        instance
+            .path_rename(
+                Fd::ROOT_PREOPEN,
+                b"out/hello.wasm.tmp1",
+                Fd::ROOT_PREOPEN,
+                b"out/hello.wasm",
+            )
+            .unwrap();
+
+        assert_eq!(
+            instance.path_filestat_get(Fd::ROOT_PREOPEN, b"out/hello.wasm.tmp1"),
+            Err(Errno::Noent)
+        );
+        let final_file = instance
+            .path_open(
+                Fd::ROOT_PREOPEN,
+                b"out/hello.wasm",
+                false,
+                false,
+                false,
+                Rights::FD_READ,
+                Rights::EMPTY,
+                FdFlags::EMPTY,
+            )
+            .unwrap();
+        assert_eq!(
+            instance.fd_read(final_file, 4, &mut Reader).unwrap(),
+            b"\0asm"
         );
     }
 
@@ -1350,6 +1527,7 @@ mod tests {
                 Fd::ROOT_PREOPEN,
                 b"out/rmeta-temp/lib.rmeta",
                 true,
+                false,
                 true,
                 file_rights(),
                 Rights::EMPTY,
@@ -1378,6 +1556,7 @@ mod tests {
                 b"rmeta-broad",
                 false,
                 false,
+                false,
                 true,
                 Rights::ALL,
                 Rights::ALL,
@@ -1394,6 +1573,7 @@ mod tests {
                 directory,
                 b"lib.rmeta",
                 true,
+                false,
                 false,
                 file_rights(),
                 Rights::EMPTY,
@@ -1418,6 +1598,7 @@ mod tests {
                 b"rmeta-minimal",
                 false,
                 false,
+                false,
                 true,
                 minimal_directory_rights,
                 file_rights(),
@@ -1434,6 +1615,7 @@ mod tests {
                 directory,
                 b"lib.rmeta",
                 true,
+                false,
                 false,
                 file_rights(),
                 Rights::EMPTY,
@@ -1458,6 +1640,7 @@ mod tests {
                 b"rmeta-direct/lib.rmeta",
                 true,
                 false,
+                false,
                 file_rights(),
                 Rights::EMPTY,
                 FdFlags::EMPTY,
@@ -1477,6 +1660,7 @@ mod tests {
                 b"out",
                 false,
                 false,
+                false,
                 true,
                 writable_rights(),
                 parent_inheriting,
@@ -1491,6 +1675,7 @@ mod tests {
             .path_open_with_directory_flag(
                 output,
                 b"rmeta-parent-limited",
+                false,
                 false,
                 false,
                 true,
@@ -1510,6 +1695,7 @@ mod tests {
                 directory,
                 b"lib.rmeta",
                 true,
+                false,
                 false,
                 file_rights(),
                 Rights::EMPTY,
@@ -1533,6 +1719,7 @@ mod tests {
                     path,
                     true,
                     false,
+                    false,
                     file_rights(),
                     Rights::EMPTY,
                     FdFlags::EMPTY,
@@ -1545,6 +1732,7 @@ mod tests {
             .path_open(
                 Fd::ROOT_PREOPEN,
                 b"out/artifact",
+                false,
                 false,
                 true,
                 file_rights(),
@@ -1566,6 +1754,7 @@ mod tests {
                 b"out/sibling",
                 false,
                 false,
+                false,
                 Rights::FD_READ,
                 Rights::EMPTY,
                 FdFlags::EMPTY,
@@ -1582,6 +1771,7 @@ mod tests {
                 Fd::ROOT_PREOPEN,
                 b"sysroot/tool",
                 false,
+                false,
                 true,
                 file_rights(),
                 Rights::EMPTY,
@@ -1594,6 +1784,7 @@ mod tests {
             .path_open(
                 Fd::ROOT_PREOPEN,
                 b"sysroot/tool",
+                false,
                 false,
                 false,
                 file_rights(),
@@ -1621,6 +1812,7 @@ mod tests {
                 b"sysroot",
                 false,
                 false,
+                false,
                 readonly_rights(),
                 readonly_rights(),
                 FdFlags::EMPTY,
@@ -1630,6 +1822,7 @@ mod tests {
             .path_open(
                 sysroot,
                 b"tool",
+                false,
                 false,
                 false,
                 Rights::FD_READ | Rights::FD_SEEK,
@@ -1644,6 +1837,7 @@ mod tests {
             .path_open(
                 Fd::ROOT_PREOPEN,
                 b"src/main.rs",
+                false,
                 false,
                 false,
                 Rights::FD_READ | Rights::FD_SEEK,
@@ -1667,6 +1861,7 @@ mod tests {
                     Fd::ROOT_PREOPEN,
                     path,
                     true,
+                    false,
                     false,
                     file_rights(),
                     Rights::EMPTY,
@@ -1697,6 +1892,7 @@ mod tests {
                 b"sysroot",
                 false,
                 false,
+                false,
                 readonly_rights(),
                 readonly_rights(),
                 FdFlags::EMPTY,
@@ -1707,6 +1903,7 @@ mod tests {
             instance.path_open(
                 sysroot,
                 b"../out",
+                false,
                 false,
                 false,
                 readonly_rights(),
@@ -1723,6 +1920,7 @@ mod tests {
                 b"tmp",
                 false,
                 false,
+                false,
                 writable_rights(),
                 writable_rights(),
                 FdFlags::EMPTY,
@@ -1733,6 +1931,7 @@ mod tests {
             instance.path_open(
                 tmp,
                 b"../scratch",
+                false,
                 false,
                 false,
                 Rights::FD_READ,

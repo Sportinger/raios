@@ -3454,6 +3454,7 @@ fn ram_out_quota_selftest() -> RamQuotaSelftestEvidence {
         b"out/quota",
         true,
         false,
+        false,
         Rights::FD_WRITE,
         Rights::EMPTY,
         FdFlags::EMPTY,

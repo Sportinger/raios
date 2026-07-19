@@ -23,6 +23,7 @@ const EVENT_SIZE: u32 = 32;
 const DIRENT_SIZE: usize = 24;
 const OFLAGS_CREAT: u32 = 1;
 const OFLAGS_DIRECTORY: u32 = 2;
+const OFLAGS_EXCL: u32 = 4;
 const OFLAGS_TRUNC: u32 = 8;
 pub(crate) const WASI_IMPORT_CALL_COUNT: usize = 30;
 pub(crate) const RECENT_WASI_CALL_COUNT: usize = 8;
@@ -863,13 +864,15 @@ mod tests {
     }
 
     #[test]
-    fn path_open_accepts_directory_and_rejects_exclusive_or_unknown_flags() {
+    fn path_open_accepts_directory_and_exclusive_and_rejects_unknown_flags() {
         assert_eq!(super::validate_open_flags(0), Ok(0));
         assert_eq!(super::validate_open_flags(2), Ok(2));
         assert_eq!(super::validate_open_flags(3), Ok(3));
+        assert_eq!(super::validate_open_flags(4), Ok(4));
+        assert_eq!(super::validate_open_flags(5), Ok(5));
         assert_eq!(super::validate_open_flags(10), Ok(10));
         assert_eq!(
-            super::validate_open_flags(4),
+            super::validate_open_flags(16),
             Err(raios_wasi_preview1::Errno::Notcapable)
         );
         assert_eq!(
@@ -1703,6 +1706,7 @@ fn host_path_open(
             Fd(fd as u32),
             &path,
             open_flags & OFLAGS_CREAT != 0,
+            open_flags & OFLAGS_EXCL != 0,
             open_flags & OFLAGS_TRUNC != 0,
             open_flags & OFLAGS_DIRECTORY != 0,
             Rights::from_bits(rights_base as u64)?,
@@ -2421,7 +2425,7 @@ const LOOKUPFLAGS_SYMLINK_FOLLOW: u32 = 1;
 
 fn validate_open_flags(open_flags: i32) -> Result<u32, Errno> {
     let bits = open_flags as u32;
-    if bits & !(OFLAGS_CREAT | OFLAGS_DIRECTORY | OFLAGS_TRUNC) != 0 {
+    if bits & !(OFLAGS_CREAT | OFLAGS_DIRECTORY | OFLAGS_EXCL | OFLAGS_TRUNC) != 0 {
         Err(Errno::Notcapable)
     } else {
         Ok(bits)
