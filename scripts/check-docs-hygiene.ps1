@@ -54,7 +54,7 @@ function Invoke-DocsHygieneCheck {
         [string]$RootPath
     )
 
-    $checkCount = 11
+    $checkCount = 12
     $rootFullPath = [System.IO.Path]::GetFullPath($RootPath)
     $docsPath = Join-Path $rootFullPath "docs"
     $violations = New-Object "System.Collections.Generic.List[object]"
@@ -335,6 +335,93 @@ function Invoke-DocsHygieneCheck {
         }
     }
 
+    # Rule 12 (breakdown-consistency): checked top-level scope boxes require fully green mapped groups.
+    $breakdownMappings = @(
+        [pscustomobject]@{
+            ScopeSubstring = "structured report"
+            BreakdownFile = "03-security-trust-pipeline.md"
+            GroupHeadingSubstring = "report pipeline (ARTSTOR)"
+        },
+        [pscustomobject]@{
+            ScopeSubstring = "Compiler diagnostics as JSON"
+            BreakdownFile = "04-agent-fabric.md"
+            GroupHeadingSubstring = "Feedback loop"
+        }
+    )
+
+    $scopeDocumentPath = Join-Path $docsPath "SCOPE.md"
+    if (-not (Test-Path -LiteralPath $scopeDocumentPath -PathType Leaf)) {
+        Add-DocsHygieneViolation -Violations $violations -Code "breakdown_consistency" -Path "docs/SCOPE.md" -Detail "required_file_missing"
+    }
+    else {
+        $scopeLineNumber = 0
+        foreach ($scopeLine in @(Get-Content -LiteralPath $scopeDocumentPath)) {
+            $scopeLineNumber = $scopeLineNumber + 1
+            if ($scopeLine -cnotmatch '^- \[x\]\s+(.+)$') {
+                continue
+            }
+
+            $scopeBoxText = $Matches[1]
+            $matchingMappings = @($breakdownMappings | Where-Object {
+                $scopeBoxText.IndexOf($_.ScopeSubstring, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+            })
+            if ($matchingMappings.Count -ne 1) {
+                Add-DocsHygieneViolation -Violations $violations -Code "breakdown_consistency" -Path "docs/SCOPE.md" -Detail ("line=" + $scopeLineNumber + " mapping_matches=" + $matchingMappings.Count + " expected=1 checkbox=" + $scopeBoxText)
+                continue
+            }
+
+            $mapping = $matchingMappings[0]
+            $breakdownRelativePath = "docs/scope/" + $mapping.BreakdownFile
+            $breakdownFilePath = Join-Path $scopePath $mapping.BreakdownFile
+            if (-not (Test-Path -LiteralPath $breakdownFilePath -PathType Leaf)) {
+                Add-DocsHygieneViolation -Violations $violations -Code "breakdown_consistency" -Path $breakdownRelativePath -Detail ("mapped_file_missing scope_checkbox=" + $mapping.ScopeSubstring)
+                continue
+            }
+
+            $breakdownLines = @(Get-Content -LiteralPath $breakdownFilePath)
+            $matchingHeadingIndexes = New-Object "System.Collections.Generic.List[int]"
+            for ($lineIndex = 0; $lineIndex -lt $breakdownLines.Count; $lineIndex++) {
+                if (($breakdownLines[$lineIndex] -cmatch '^##\s+(.+)$') -and
+                    ($Matches[1].IndexOf($mapping.GroupHeadingSubstring, [System.StringComparison]::OrdinalIgnoreCase) -ge 0)) {
+                    [void]$matchingHeadingIndexes.Add($lineIndex)
+                }
+            }
+
+            if ($matchingHeadingIndexes.Count -ne 1) {
+                Add-DocsHygieneViolation -Violations $violations -Code "breakdown_consistency" -Path $breakdownRelativePath -Detail ("group_heading=" + $mapping.GroupHeadingSubstring + " matches=" + $matchingHeadingIndexes.Count + " expected=1")
+                continue
+            }
+
+            $groupCheckboxCount = 0
+            for ($lineIndex = $matchingHeadingIndexes[0] + 1; $lineIndex -lt $breakdownLines.Count; $lineIndex++) {
+                $groupLine = $breakdownLines[$lineIndex]
+                if ($groupLine -cmatch '^##\s+') {
+                    break
+                }
+                if ($groupLine -cmatch '^\s*-\s+\[([ xX])\]') {
+                    $groupCheckboxCount = $groupCheckboxCount + 1
+                    if ($Matches[1] -cne "x") {
+                        Add-DocsHygieneViolation -Violations $violations -Code "breakdown_consistency" -Path $breakdownRelativePath -Detail ("group_heading=" + $mapping.GroupHeadingSubstring + " open_checkbox_line=" + ($lineIndex + 1))
+                    }
+                }
+            }
+
+            if ($groupCheckboxCount -eq 0) {
+                Add-DocsHygieneViolation -Violations $violations -Code "breakdown_consistency" -Path $breakdownRelativePath -Detail ("group_heading=" + $mapping.GroupHeadingSubstring + " checkboxes=0 expected_at_least=1")
+            }
+        }
+    }
+
+    # Every numbered breakdown identifies docs/SCOPE.md near the top.
+    foreach ($scopeCategoryFile in $scopeCategoryFiles) {
+        $breakdownDisplayPath = Get-DocsHygieneDisplayPath -RootPath $rootFullPath -Path $scopeCategoryFile.FullName
+        $firstFiveLines = @(Get-Content -LiteralPath $scopeCategoryFile.FullName -TotalCount 5)
+        $firstFiveText = $firstFiveLines -join "`n"
+        if ($firstFiveText.IndexOf("docs/SCOPE.md", [System.StringComparison]::Ordinal) -lt 0) {
+            Add-DocsHygieneViolation -Violations $violations -Code "breakdown_backlink" -Path $breakdownDisplayPath -Detail "required_phrase=docs/SCOPE.md location=first_5_lines"
+        }
+    }
+
     $result = "green"
     if ($violations.Count -gt 0) {
         $result = "red"
@@ -373,14 +460,44 @@ if ($SelfTest) {
         }
         [void](New-Item -ItemType Directory -Path (Join-Path $fixtureRoot ".claude\skills\raios") -Force)
 
-        Set-Content -LiteralPath (Join-Path $fixtureDocsPath "SCOPE.md") -Value "self-test" -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $fixtureDocsPath "SCOPE.md") -Value @(
+            "# self-test scope",
+            "",
+            "## 3. Security",
+            "- [x] Report pipeline: every build/test emits a structured report (ARTSTOR)"
+        ) -Encoding utf8
         Set-Content -LiteralPath (Join-Path $fixtureDocsPath "README.md") -Value "conflicts resolve in favor of SCOPE.md" -Encoding utf8
         Set-Content -LiteralPath (Join-Path $fixtureRoot "CLAUDE.md") -Value "reference docs/SCOPE.md" -Encoding utf8
         Set-Content -LiteralPath (Join-Path $fixtureRoot "AGENTS.md") -Value "reference docs/SCOPE.md" -Encoding utf8
         Set-Content -LiteralPath (Join-Path $fixtureRoot ".claude\skills\raios\SKILL.md") -Value "reference docs/SCOPE.md" -Encoding utf8
         foreach ($number in 1..7) {
             $scopeFileName = ('{0:D2}-self-test-{0:D2}.md' -f $number)
-            Set-Content -LiteralPath (Join-Path $fixtureDocsPath ("scope\" + $scopeFileName)) -Value "self-test" -Encoding utf8
+            $scopeFileContent = @(
+                ("# " + ('{0:D2}' -f $number) + " self-test"),
+                '> Breakdown of `docs/SCOPE.md` self-test.',
+                "",
+                "## Self-test group",
+                "- [x] baseline"
+            )
+            if ($number -eq 3) {
+                $scopeFileContent = @(
+                    "# 03 self-test",
+                    '> Breakdown of `docs/SCOPE.md` self-test.',
+                    "",
+                    "## Day 1 - report pipeline (ARTSTOR)",
+                    "- [ ] planted state divergence"
+                )
+            }
+            elseif ($number -eq 7) {
+                $scopeFileContent = @(
+                    "# 07 self-test",
+                    "> Breakdown self-test with the backlink removed.",
+                    "",
+                    "## Self-test group",
+                    "- [x] baseline"
+                )
+            }
+            Set-Content -LiteralPath (Join-Path $fixtureDocsPath ("scope\" + $scopeFileName)) -Value $scopeFileContent -Encoding utf8
         }
         Set-Content -LiteralPath (Join-Path $fixtureDocsPath "plans\plan-self-test-01.md") -Value "self-test" -Encoding utf8
         Set-Content -LiteralPath (Join-Path $fixtureDocsPath "architecture\decisions\0001-valid.md") -Value "Date: 2026-07-18`r`nStatus: active" -Encoding utf8
@@ -401,11 +518,11 @@ if ($SelfTest) {
 
         $selfTestResult = Invoke-DocsHygieneCheck -RootPath $fixtureRoot
         $detectedCodes = @($selfTestResult.Violations | ForEach-Object { $_.Code })
-        $requiredCodes = @("docs_root_entry", "handoff_too_large", "status_too_large", "plan_filename", "single_source", "root_instruction_path", "plan_category", "adr_number_gap", "adr_number_duplicate", "adr_date", "adr_unexpected_file", "archive_dated")
+        $requiredCodes = @("docs_root_entry", "handoff_too_large", "status_too_large", "plan_filename", "single_source", "root_instruction_path", "plan_category", "adr_number_gap", "adr_number_duplicate", "adr_date", "adr_unexpected_file", "archive_dated", "breakdown_consistency", "breakdown_backlink")
         $missingCodes = @($requiredCodes | Where-Object { $detectedCodes -cnotcontains $_ })
 
         if ($missingCodes.Count -eq 0) {
-            Write-Output "DOCS_HYGIENE selftest=green planted=12 detected=12"
+            Write-Output "DOCS_HYGIENE selftest=green planted=14 detected=14"
             Write-Output ("DOCS_HYGIENE result=green checks=" + $selfTestResult.CheckCount + " violations=0")
             exit 0
         }
