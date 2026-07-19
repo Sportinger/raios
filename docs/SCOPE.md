@@ -87,7 +87,8 @@ show a foreign/out-of-range DMA attempt blocked + logged with zero host effect.
       kernel; the substitutable floor is the documented Wasm-import + service-
       capability contract, with no kernel-internal types. A contract test rejects
       any service that depends on kernel internals
-      <!-- future documentation: docs/architecture/genesis-layer.md does not yet exist. -->
+      <!-- docs/architecture/genesis-layer.md exists (2026-07-19, cited from
+      code); the breakdown's conformance-test boxes remain open. -->
 
 ## 3. Security & Trust Pipeline → `docs/scope/03-security-trust-pipeline.md`
 

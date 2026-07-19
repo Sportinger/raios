@@ -51,8 +51,12 @@
       Verified 2026-07-19.
 
 ## Floor contract
-- [ ] The full Wasm import + service-capability floor fits in one document
-      (`docs/architecture/genesis-layer.md`)
+- [x] The full Wasm import + service-capability floor fits in one document
+      (`docs/architecture/genesis-layer.md`) — 242 lines, written 2026-07-19
+      from code with file:line citations (5 env.* imports, the frozen 30-import
+      build surface incl. digest 4145184d…, grant/lifecycle authority,
+      non-guarantees). Orchestrator spot-checked 7 citations incl. the exact
+      digest. Verified 2026-07-19.
 - [ ] No kernel-internal types leak through the import/service interface
 - [ ] Contract conformance: services depend only on the documented Wasm import
       + service-capability floor; a fixture that depends on a kernel-internal
@@ -61,4 +65,5 @@
 ADR 0015 chooses the custom Rust kernel as the development and product path.
 Substitutability attaches to this narrow contract; maintaining a fictional
 primitive-by-primitive seL4 mapping is not a current requirement. The floor
-document named above does not yet exist and remains future documentation work.
+document exists since 2026-07-19; the no-internal-types and conformance boxes
+above still need their mechanical predicate/test.
