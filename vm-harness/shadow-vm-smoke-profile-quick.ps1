@@ -2418,3 +2418,5 @@
         # the second needle pins the invariant tail of the same line.
         Send-AgentCommand -Command "wasi.memselftest" -ExpectedMarker "RAIOS_WASIMEM selftest=pass pages_initial=399 pages_max="
         Send-AgentCommand -Command "wasi.memselftest" -ExpectedMarker "grow_denied_gracefully=1 over_class=imports_mismatch det=1"
+
+        Send-AgentCommand -Command "isolation.selftest" -ExpectedMarker "RAIOS_ISOLATION selftest=pass oob_store=trapped oob_load=trapped oob_offset=trapped logged=1 host_exposed=0"

@@ -50,6 +50,7 @@ mod artifacts;
 mod crypto_shims;
 mod envelope;
 mod invocation;
+mod isolation_selftest;
 mod net_shims;
 mod personal_shell;
 mod probes;
@@ -84,6 +85,7 @@ pub(crate) use invocation::{
     ActiveBeyondEnvInvocation, BeyondEnvFixtureRequest, BeyondEnvLifecycleCase,
     BeyondEnvLifecycleSuite, BeyondEnvProbeSnapshot,
 };
+pub(crate) use isolation_selftest::emit_isolation_selftest;
 pub(crate) use net_shims::{
     net_shim_grant_probe, net_shim_probe_snapshot, NetShimGrantProbe, NetShimProbeSnapshot,
 };
