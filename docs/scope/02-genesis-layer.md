@@ -24,11 +24,12 @@
 - [ ] Grants are typed records (who, what, import/service scope), not ambient flags
 - [ ] Revocation prevents the next host call and is durably logged; no stale
       instance retains the revoked authority
-- [ ] Negative test: a grant for import/service A grants nothing on host surface B
-      <!-- evidence (default-deny/import-scope boundary only):
-      release/vm-reports/shadow-20260714-114527-24812.json, passed
-      m11-wasm-import-grant profile, including unauthorized import refusal
-      before instantiation; grant/revoke verification still required. -->
+- [x] Negative test: a grant for import/service A grants nothing on host surface B
+      <!-- m11-wasm-import-grant re-run at HEAD 2026-07-19:
+      shadow-20260719-185053-21672.json, 159/159 — env.log granted,
+      env.counter_get refused BEFORE instantiation, link failure preserved,
+      no guest log/host effect. This box is the A-conveys-nothing-on-B
+      negative only; revoke semantics live in the boxes above (open). -->
 
 ## Storage primitive
 - [ ] Persistent ARTSTOR/structured-store access is a range/quota-scoped
