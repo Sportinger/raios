@@ -2420,3 +2420,4 @@
         Send-AgentCommand -Command "wasi.memselftest" -ExpectedMarker "grow_denied_gracefully=1 over_class=imports_mismatch det=1"
 
         Send-AgentCommand -Command "isolation.selftest" -ExpectedMarker "RAIOS_ISOLATION selftest=pass oob_store=trapped oob_load=trapped oob_offset=trapped logged=1 host_exposed=0"
+        Send-AgentCommand -Command "isolation.selftest" -ExpectedMarker "RAIOS_ISOLATION importdeny=refused logged=1 host_effect=0"

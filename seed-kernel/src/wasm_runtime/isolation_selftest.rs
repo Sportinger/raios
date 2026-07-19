@@ -4,6 +4,12 @@ const OOB_STORE_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/isolatio
 const OOB_LOAD_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/isolation_oob_load.wasm"));
 const OOB_OFFSET_WASM: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/isolation_oob_offset.wasm"));
+const UNGRANTED_IMPORT_WASM: &[u8] = &[
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x60, 0x00, 0x01, 0x7e, 0x60,
+    0x00, 0x00, 0x02, 0x13, 0x01, 0x03, 0x65, 0x6e, 0x76, 0x0b, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x65,
+    0x72, 0x5f, 0x67, 0x65, 0x74, 0x00, 0x00, 0x03, 0x02, 0x01, 0x01, 0x08, 0x01, 0x01, 0x0a, 0x07,
+    0x01, 0x05, 0x00, 0x10, 0x00, 0x1a, 0x0b,
+];
 
 const HOST_GUARD: [u8; 32] = [0xa5; 32];
 
@@ -41,6 +47,65 @@ impl IsolationCaseEvidence {
         } else {
             "failed"
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ImportDenyEvidence {
+    refused_before_instantiation: bool,
+    refusal_recorded: bool,
+    host_effect: u64,
+}
+
+impl ImportDenyEvidence {
+    fn token(self) -> &'static str {
+        if self.refused_before_instantiation {
+            "refused"
+        } else {
+            "failed"
+        }
+    }
+}
+
+fn run_ungranted_import_fixture() -> ImportDenyEvidence {
+    // This guest has a start function that calls the existing env.counter_get
+    // host surface, which its grant set never includes: the service declares
+    // only env.log (an empty declaration is denied earlier as
+    // missing_import_list and would not exercise the module-vs-grant
+    // comparison). The ungranted import must be refused before instantiation
+    // can run the start function and mutate the host counter.
+    let run = envelope::execute_module_bytes(
+        UNGRANTED_IMPORT_WASM,
+        WORKSPACE_ENTRYPOINT,
+        WORKSPACE_SERVICE_ID,
+        true,
+        &[("env", "log")],
+    );
+    let host_effect = if run.instantiation_ok || run.fuel_used != 0 || run.log_line.is_some() {
+        1
+    } else {
+        0
+    };
+    let refused_before_instantiation = run.validation_ok
+        && run.import_grant_performed
+        && run.authorized_import_count == 1
+        && run.linked_host_import_count == 1
+        && !run.module_imports_within_authorized_list
+        && run.run_outcome == "module_import_not_authorized"
+        && !run.instantiation_ok
+        && run.missing_import_module.as_deref() == Some("env")
+        && run.missing_import_name.as_deref() == Some("counter_get")
+        && run.return_value.is_none()
+        && run.fuel_used == 0
+        && run.log_line.is_none()
+        && run.captured_output_len == 0
+        && run.raw_captured_output.is_empty()
+        && host_effect == 0;
+
+    ImportDenyEvidence {
+        refused_before_instantiation,
+        refusal_recorded: refused_before_instantiation,
+        host_effect,
     }
 }
 
@@ -130,6 +195,7 @@ pub(crate) fn emit_isolation_selftest() {
     let oob_store = run_hostile_fixture(OOB_STORE_WASM, 0);
     let oob_load = run_hostile_fixture(OOB_LOAD_WASM, 4);
     let oob_offset = run_hostile_fixture(OOB_OFFSET_WASM, 4);
+    let import_deny = run_ungranted_import_fixture();
     let host_exposed = oob_store
         .host_exposed_bytes
         .saturating_add(oob_load.host_exposed_bytes)
@@ -151,4 +217,12 @@ pub(crate) fn emit_isolation_selftest() {
         host_exposed,
     );
     serial::write_raw_line(&line);
+
+    let import_line = alloc::format!(
+        "RAIOS_ISOLATION importdeny={} logged={} host_effect={}",
+        import_deny.token(),
+        if import_deny.refusal_recorded { 1 } else { 0 },
+        import_deny.host_effect,
+    );
+    serial::write_raw_line(&import_line);
 }

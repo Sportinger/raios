@@ -17,8 +17,13 @@
       and `forbidden-import-link-failure-preserved` (link fails, no host
       effect). Verified 2026-07-19.
 - [ ] Both Wasm-boundary tests run in QEMU AND on bare metal
-- [ ] Both run on every kernel/Wasm-runtime-touching change (cheap enough to
-      be non-optional)
+- [x] Both run on every kernel/Wasm-runtime-touching change (cheap enough to
+      be non-optional) — both are permanent quick-profile needles since
+      2026-07-19: OOB selftest + ungranted-import denial
+      (`RAIOS_ISOLATION importdeny=refused logged=1 host_effect=0`), quick
+      503/503 shadow-20260719-104006. Negative boundary shown live: the
+      first fixture emitted importdeny=failed and the whole report went red
+      (shadow-20260719-102907). Verified 2026-07-19.
 - [ ] Isolation-suspicion protocol: any unexplained cross-guest or guest-to-host
       effect halts
       all lanes until these tests settle it (mirrors CLAUDE.md full brake)
