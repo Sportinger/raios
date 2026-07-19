@@ -655,8 +655,22 @@ function New-HardwareProfile {
         [string]$Nic,
         [bool]$ScratchDrive = $false,
         [bool]$AuditRollbackTargetDrive = $false,
-        [bool]$PersistDrive = $false
+        [bool]$PersistDrive = $false,
+        [int]$MemoryMB = 0
     )
+
+    # shadow-vm-smoke.ps1 owns the launch value as GuestMemoryMB.  Resolve that
+    # dynamically when callers do not pass MemoryMB explicitly so the evidence
+    # profile cannot silently retain the historical 512M value while QEMU is
+    # launched with (for example) 8192 MiB.  Other support consumers retain the
+    # historical default when they have no GuestMemoryMB launch parameter.
+    if ($MemoryMB -le 0) {
+        $callerMemory = Get-Variable -Name GuestMemoryMB -Scope 1 -ValueOnly -ErrorAction SilentlyContinue
+        $MemoryMB = if ($null -ne $callerMemory) { [int]$callerMemory } else { 512 }
+    }
+    if ($MemoryMB -lt 512 -or $MemoryMB -gt 32768) {
+        throw "Hardware profile MemoryMB must be in the harness range 512..32768"
+    }
 
     $networkDevice = if ($Nic -eq "e1000") {
         "e1000_user"
@@ -668,7 +682,7 @@ function New-HardwareProfile {
     $profile = [ordered]@{
         profile = "raios.shadow_vm.q35_xhci.v0"
         machine = "q35"
-        memory = "512M"
+        memory = "${MemoryMB}M"
         cpu = "max"
         firmware = "edk2-x86_64"
         boot_drive = "ide_raw_image"

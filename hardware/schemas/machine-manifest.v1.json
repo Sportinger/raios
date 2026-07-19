@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raios.local/schemas/machine-manifest.v1.json",
+  "title": "raiOS machine manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "machine", "cpu", "memory", "devices"],
+  "properties": {
+    "schema_version": { "const": "raios.machine_manifest.v1" },
+    "machine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "display_name", "provenance"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]+$" },
+        "kind": { "enum": ["virtual", "physical"] },
+        "display_name": { "type": "string", "minLength": 1 },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      }
+    },
+    "cpu": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["architecture", "model", "features"],
+      "properties": {
+        "architecture": { "$ref": "#/$defs/stringFact" },
+        "model": { "$ref": "#/$defs/stringFact" },
+        "features": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              { "$ref": "#/$defs/booleanFact" },
+              { "type": "object", "required": ["name"], "properties": { "name": { "type": "string", "minLength": 1 } } }
+            ]
+          }
+        }
+      }
+    },
+    "memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total_bytes", "topology", "regions"],
+      "properties": {
+        "total_bytes": { "$ref": "#/$defs/integerFact" },
+        "topology": { "$ref": "#/$defs/stringFact" },
+        "regions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "kind", "start_bytes", "length_bytes", "status", "provenance"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "kind": { "enum": ["ram", "reserved", "mmio", "firmware", "unknown"] },
+              "start_bytes": { "type": ["integer", "null"], "minimum": 0 },
+              "length_bytes": { "type": ["integer", "null"], "minimum": 1 },
+              "status": { "enum": ["observed", "unknown"] },
+              "provenance": { "$ref": "#/$defs/provenance" }
+            }
+          }
+        }
+      }
+    },
+    "devices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "type", "identity", "bdf", "resources", "provenance"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "type": { "enum": ["chipset", "storage", "network", "usb_controller", "usb_input", "display", "rng", "firmware", "other"] },
+          "identity": { "$ref": "#/$defs/stringFact" },
+          "bdf": { "$ref": "#/$defs/stringFact" },
+          "resources": { "type": "array", "items": { "$ref": "#/$defs/resource" } },
+          "provenance": { "$ref": "#/$defs/provenance" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["machine_id", "source_kind", "source_ref", "observed_at_utc"],
+      "properties": {
+        "machine_id": { "type": "string", "minLength": 1 },
+        "source_kind": { "enum": ["launch_configuration", "boot_observation", "documentation_gap"] },
+        "source_ref": { "type": "string", "minLength": 1 },
+        "observed_at_utc": { "type": "string", "format": "date-time" }
+      }
+    },
+    "stringFact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "value", "provenance"],
+      "properties": {
+        "status": { "enum": ["observed", "unknown"] },
+        "value": { "type": ["string", "null"] },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      }
+    },
+    "integerFact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "value", "provenance"],
+      "properties": {
+        "status": { "enum": ["observed", "unknown"] },
+        "value": { "type": ["integer", "null"], "minimum": 0 },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      }
+    },
+    "booleanFact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "status", "value", "provenance"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["observed", "unknown"] },
+        "value": { "type": ["boolean", "null"] },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "start", "length", "status", "provenance"],
+      "properties": {
+        "kind": { "enum": ["mmio", "io_port", "irq", "dma", "unknown"] },
+        "start": { "type": ["integer", "null"], "minimum": 0 },
+        "length": { "type": ["integer", "null"], "minimum": 1 },
+        "status": { "enum": ["observed", "unknown"] },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      }
+    }
+  }
+}
