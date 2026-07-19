@@ -22,7 +22,7 @@ use crate::{
     table::TableEntity,
     FuelConsumptionMode, Func, FuncRef, Instance, Memory, StoreInner, Table,
 };
-use core::cmp::{self};
+use core::{cmp, mem::size_of};
 use wasmi_arena::ArenaIndex;
 use wasmi_core::{Pages, UntypedValue};
 
@@ -415,7 +415,14 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
                 Instr::I64AtomicRmw8XchgU(offset) => self.visit_i64_atomic_rmw8_xchg_u(offset)?,
                 Instr::I64AtomicRmw16XchgU(offset) => self.visit_i64_atomic_rmw16_xchg_u(offset)?,
                 Instr::I64AtomicRmw32XchgU(offset) => self.visit_i64_atomic_rmw32_xchg_u(offset)?,
-                Instr::I32AtomicRmwCmpxchg(offset) => self.visit_i32_atomic_rmw_cmpxchg(offset)?,
+                Instr::I32AtomicRmwCmpxchg(offset) => self.execute_atomic_cmpxchg(
+                    offset,
+                    4,
+                    0xFFFF_FFFF,
+                    UntypedValue::i32_load,
+                    UntypedValue::i32_store,
+                    true,
+                )?,
                 Instr::I64AtomicRmwCmpxchg(offset) => self.visit_i64_atomic_rmw_cmpxchg(offset)?,
                 Instr::I32AtomicRmw8CmpxchgU(offset) => {
                     self.visit_i32_atomic_rmw8_cmpxchg_u(offset)?
@@ -660,6 +667,21 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
         self.try_next_instr()
     }
 
+    /// Executes and optionally observes a successful 8-bit Wasm store.
+    #[inline(always)]
+    fn execute_store8_wrap(
+        &mut self,
+        offset: AddressOffset,
+        store_wrap: WasmStoreOp,
+    ) -> Result<(), TrapCode> {
+        let (address, value) = self.sp.pop2();
+        let memory = self.cache.default_memory_bytes(self.ctx);
+        store_wrap(memory, address, offset.into_inner(), value)?;
+        let effective_address = u32::from(address).wrapping_add(offset.into_inner());
+        self.observe_store8(effective_address, value.to_bits() as u8);
+        self.try_next_instr()
+    }
+
     /// Returns an error if the effective address is not naturally aligned.
     #[inline(always)]
     fn check_atomic_alignment(
@@ -707,6 +729,22 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
         self.try_next_instr()
     }
 
+    /// Executes and optionally observes a successful 8-bit atomic Wasm store.
+    #[inline(always)]
+    fn execute_atomic_store8_wrap(
+        &mut self,
+        offset: AddressOffset,
+        store_wrap: WasmStoreOp,
+    ) -> Result<(), TrapCode> {
+        let (address, value) = self.sp.pop2();
+        Self::check_atomic_alignment(address, offset, 1)?;
+        let memory = self.cache.default_memory_bytes(self.ctx);
+        store_wrap(memory, address, offset.into_inner(), value)?;
+        let effective_address = u32::from(address).wrapping_add(offset.into_inner());
+        self.observe_store8(effective_address, value.to_bits() as u8);
+        self.try_next_instr()
+    }
+
     /// Executes an atomic Wasm read-modify-write operation.
     #[inline(always)]
     fn execute_atomic_rmw(
@@ -742,18 +780,54 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
         value_mask: u64,
         load_extend: WasmLoadOp,
         store_wrap: WasmStoreOp,
+        observe_i32: bool,
     ) -> Result<(), TrapCode> {
         let (address, expected, replacement) = self.sp.pop3();
         Self::check_atomic_alignment(address, offset, alignment)?;
-        let memory = self.cache.default_memory_bytes(self.ctx);
-        let old_value = load_extend(memory, address, offset.into_inner())?;
-        if old_value.to_bits() == expected.to_bits() & value_mask {
-            store_wrap(
-                memory,
-                address,
-                offset.into_inner(),
-                UntypedValue::from(replacement.to_bits() & value_mask),
-            )?;
+        let trace = if observe_i32 {
+            self.current_execution_point().and_then(|point| {
+                self.ctx
+                    .execution_trace_config()
+                    .filter(|config| point.0 == config.watch_function())
+                    .map(|config| (point, config))
+            })
+        } else {
+            None
+        };
+        let effective_address = u32::from(address).wrapping_add(offset.into_inner());
+        let (old_value, trace_values) = {
+            let memory = self.cache.default_memory_bytes(self.ctx);
+            let old_value = load_extend(memory, address, offset.into_inner())?;
+            if old_value.to_bits() == expected.to_bits() & value_mask {
+                store_wrap(
+                    memory,
+                    address,
+                    offset.into_inner(),
+                    UntypedValue::from(replacement.to_bits() & value_mask),
+                )?;
+            }
+            let trace_values = trace.and_then(|(_, config)| {
+                let after = load_extend(memory, address, offset.into_inner()).ok()?;
+                let watch_byte = *memory.get(config.watch_byte_address() as usize)? as i8;
+                Some((watch_byte, after.to_bits() as u32))
+            });
+            (old_value, trace_values)
+        };
+        if let (Some(((function_index, bytecode_ip), _)), Some((watch_byte, after))) =
+            (trace, trace_values)
+        {
+            let before = old_value.to_bits() as u32;
+            self.ctx.record_execution_cmpxchg(
+                function_index,
+                bytecode_ip,
+                effective_address,
+                watch_byte,
+                before,
+                expected.to_bits() as u32,
+                replacement.to_bits() as u32,
+                before,
+                after,
+            );
         }
         self.sp.push(old_value);
         self.try_next_instr()
@@ -1030,6 +1104,78 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
         }
     }
 
+    /// Returns the current function and wasmi bytecode instruction index.
+    ///
+    /// The instruction index is stable within a compiled body and deliberately
+    /// is not a Wasm byte offset.
+    fn current_execution_point(&self) -> Option<(u32, u32)> {
+        let current = self.current_func?;
+        let header = self.code_map.header(current.body());
+        let body_start = self.code_map.instr_ptr(header.iref());
+        let current_addr = self.ip.get() as *const Instruction as usize;
+        let body_addr = body_start.get() as *const Instruction as usize;
+        let byte_delta = current_addr.checked_sub(body_addr)?;
+        let instruction_size = size_of::<Instruction>();
+        if instruction_size == 0 || byte_delta % instruction_size != 0 {
+            return None;
+        }
+        let bytecode_ip = u32::try_from(byte_delta / instruction_size).ok()?;
+        Some((current.function_index(), bytecode_ip))
+    }
+
+    /// Records a successful 8-bit store when it hits the configured byte.
+    fn observe_store8(&mut self, effective_address: u32, value: u8) {
+        if self.ctx.execution_trace_config().is_none() {
+            return;
+        }
+        let Some((function_index, bytecode_ip)) = self.current_execution_point() else {
+            return;
+        };
+        self.ctx
+            .record_execution_store8(function_index, bytecode_ip, effective_address, value);
+    }
+
+    /// Samples configured memory immediately before a watched fuel park.
+    fn observe_fuel_park(&mut self, debit: u64) {
+        let Some(config) = self.ctx.execution_trace_config() else {
+            return;
+        };
+        let Some((function_index, bytecode_ip)) = self.current_execution_point() else {
+            return;
+        };
+        if function_index != config.watch_function() {
+            return;
+        }
+        let samples = {
+            let memory = self.cache.default_memory_bytes(self.ctx);
+            let watch_byte = memory
+                .get(config.watch_byte_address() as usize)
+                .copied()
+                .map(|value| value as i8);
+            let watch_words = config.watch_word_addresses().map(|address| {
+                let start = address as usize;
+                let bytes = memory.get(start..start.saturating_add(4))?;
+                Some(u32::from_le_bytes(bytes.try_into().ok()?))
+            });
+            match (watch_byte, watch_words) {
+                (Some(watch_byte), [Some(first), Some(second)]) => {
+                    Some(([first, second], watch_byte))
+                }
+                _ => None,
+            }
+        };
+        let Some((watch_words, watch_byte)) = samples else {
+            return;
+        };
+        self.ctx.record_execution_fuel_park(
+            function_index,
+            bytecode_ip,
+            debit,
+            watch_words,
+            watch_byte,
+        );
+    }
+
     /// Calls the given [`Func`].
     ///
     /// This also prepares the instruction pointer and stack pointer for
@@ -1186,6 +1332,7 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
             }
             Err(TrapCode::OutOfFuel) => {
                 restore_operands(self);
+                self.observe_fuel_park(delta);
                 self.park_fuel_quantum().map_err(E::from)?;
                 Ok(ResumableFuelOutcome::Suspend)
             }
@@ -1340,6 +1487,7 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
                 Ok(FuelConsumptionOutcome::Continue)
             }
             Err(TrapCode::OutOfFuel) if self.is_resumable_fuel() => {
+                self.observe_fuel_park(block_fuel.to_u64());
                 self.park_fuel_quantum()?;
                 Ok(FuelConsumptionOutcome::Suspend)
             }
@@ -2103,12 +2251,20 @@ macro_rules! impl_visit_atomic_store {
 impl<'ctx, 'engine> Executor<'ctx, 'engine> {
     impl_visit_atomic_store! {
         fn visit_i32_atomic_store(4, i32_store);
-        fn visit_i32_atomic_store8(1, i32_store8);
         fn visit_i32_atomic_store16(2, i32_store16);
         fn visit_i64_atomic_store(8, i64_store);
-        fn visit_i64_atomic_store8(1, i64_store8);
         fn visit_i64_atomic_store16(2, i64_store16);
         fn visit_i64_atomic_store32(4, i64_store32);
+    }
+
+    #[inline(always)]
+    fn visit_i32_atomic_store8(&mut self, offset: AddressOffset) -> Result<(), TrapCode> {
+        self.execute_atomic_store8_wrap(offset, UntypedValue::i32_store8)
+    }
+
+    #[inline(always)]
+    fn visit_i64_atomic_store8(&mut self, offset: AddressOffset) -> Result<(), TrapCode> {
+        self.execute_atomic_store8_wrap(offset, UntypedValue::i64_store8)
     }
 }
 
@@ -2212,6 +2368,7 @@ macro_rules! impl_visit_atomic_cmpxchg {
                     $value_mask,
                     UntypedValue::$load_ident,
                     UntypedValue::$store_ident,
+                    false,
                 )
             }
         )*
@@ -2219,7 +2376,6 @@ macro_rules! impl_visit_atomic_cmpxchg {
 }
 impl<'ctx, 'engine> Executor<'ctx, 'engine> {
     impl_visit_atomic_cmpxchg! {
-        fn visit_i32_atomic_rmw_cmpxchg(4, 0xFFFF_FFFF, i32_load, i32_store);
         fn visit_i64_atomic_rmw_cmpxchg(8, u64::MAX, i64_load, i64_store);
         fn visit_i32_atomic_rmw8_cmpxchg_u(1, 0xFF, i32_load8_u, i32_store8);
         fn visit_i32_atomic_rmw16_cmpxchg_u(2, 0xFFFF, i32_load16_u, i32_store16);
@@ -2256,12 +2412,20 @@ impl<'ctx, 'engine> Executor<'ctx, 'engine> {
         fn visit_f32_store(f32_store);
         fn visit_f64_store(f64_store);
 
-        fn visit_i32_store_8(i32_store8);
         fn visit_i32_store_16(i32_store16);
 
-        fn visit_i64_store_8(i64_store8);
         fn visit_i64_store_16(i64_store16);
         fn visit_i64_store_32(i64_store32);
+    }
+
+    #[inline(always)]
+    fn visit_i32_store_8(&mut self, offset: AddressOffset) -> Result<(), TrapCode> {
+        self.execute_store8_wrap(offset, UntypedValue::i32_store8)
+    }
+
+    #[inline(always)]
+    fn visit_i64_store_8(&mut self, offset: AddressOffset) -> Result<(), TrapCode> {
+        self.execute_store8_wrap(offset, UntypedValue::i64_store8)
     }
 }
 

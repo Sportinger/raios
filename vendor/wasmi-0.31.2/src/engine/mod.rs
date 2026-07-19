@@ -694,7 +694,7 @@ impl<'engine> EngineExecutor<'engine> {
                     .as_context()
                     .store
                     .inner
-                    .execution_profiling_enabled()
+                    .guest_function_tracking_enabled()
                     .then(|| {
                         let body = wasm_func.func_body();
                         let function_index = ctx

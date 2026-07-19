@@ -7,8 +7,9 @@ use raios_core::{
     },
 };
 use wasmi::{
-    core::ValueType, AtomicSuspend, AtomicSuspendRequest, ExecutionProfile, Func, Linker, Memory,
-    Module, ResumableCall, ResumableInvocation, Store, Suspension, Value,
+    core::ValueType, AtomicSuspend, AtomicSuspendRequest, ExecutionProfile, ExecutionTrace,
+    ExecutionTraceConfig, Func, Linker, Memory, Module, ResumableCall, ResumableInvocation, Store,
+    Suspension, Value, EXECUTION_TRACE_CMPXCHG_CAPACITY,
 };
 
 use super::wasi_preview1::{
@@ -57,6 +58,11 @@ pub(crate) struct WasiThreadDiagRunEvidence {
     pub(crate) atomic_wait_total: u64,
     pub(crate) atomic_notify_total: u64,
     pub(crate) recent_atomic_events: [Option<RecentAtomicEvent>; RECENT_ATOMIC_EVENT_COUNT],
+}
+
+pub(crate) struct WasiThreadTraceRunEvidence {
+    pub(crate) execution_trace: ExecutionTrace,
+    pub(crate) capped: bool,
 }
 
 struct ThreadSlot {
@@ -312,6 +318,34 @@ impl WasiThreadJobRunner {
             atomic_wait_total,
             atomic_notify_total,
             recent_atomic_events,
+        }
+    }
+
+    pub(crate) fn run_traced(
+        mut self,
+        config: ExecutionTraceConfig,
+        max_rounds: u64,
+    ) -> WasiThreadTraceRunEvidence {
+        self.store.start_execution_tracing(config);
+        let round_limit = self.round_limit.min(max_rounds);
+        while self.terminal.is_none()
+            && self.round < round_limit
+            && self.store.execution_trace().cmpxchg_records().len()
+                < EXECUTION_TRACE_CMPXCHG_CAPACITY
+        {
+            self.store.set_execution_trace_round(self.round);
+            self.pump();
+        }
+        let execution_trace = self.store.execution_trace();
+        let capped = execution_trace.capped()
+            || execution_trace.cmpxchg_records().len() == EXECUTION_TRACE_CMPXCHG_CAPACITY
+            || self.round == round_limit;
+        if self.terminal.is_none() {
+            self.fail(WasiThreadJobFailure::RoundLimit);
+        }
+        WasiThreadTraceRunEvidence {
+            execution_trace,
+            capped,
         }
     }
 

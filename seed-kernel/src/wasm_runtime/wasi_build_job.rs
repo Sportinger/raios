@@ -39,8 +39,8 @@ use raios_wasi_preview1::{
 use wasmi::{
     core::{Pages, Trap, ValueType},
     errors::{MemoryError, TableError},
-    Config, Engine, ExecutionProfile, ExternType, Linker, Memory, MemoryType, Module, Mutability,
-    ResourceLimiter, ResumableCall, Store, Suspension,
+    Config, Engine, ExecutionProfile, ExecutionTrace, ExecutionTraceConfig, ExternType, Linker,
+    Memory, MemoryType, Module, Mutability, ResourceLimiter, ResumableCall, Store, Suspension,
 };
 
 use super::{
@@ -56,7 +56,7 @@ use super::{
     },
     wasi_thread_pump::{
         WasiThreadDiagRunEvidence, WasiThreadJobEnd, WasiThreadJobFailure, WasiThreadJobRunner,
-        WasiThreadRunEvidence,
+        WasiThreadRunEvidence, WasiThreadTraceRunEvidence,
     },
 };
 
@@ -91,6 +91,12 @@ const RUSTCRUN_INSTANCE_NONCE: u64 = 306;
 const RUSTCDIAG_ROUND_CAP: u64 = 200_000;
 const RUSTCDIAG_TOP_IMPORTS: usize = 6;
 const RUSTCDIAG_TOP_FUNCTIONS: usize = 8;
+// Measurement coordinates from docs/architecture/probe-rustc-spin-114028-2026-07-19.md.
+// Keep raiOS-specific function and memory identities out of the vendored interpreter.
+const RUSTCLOCK_ROUND_CAP: u64 = 5_000;
+const RUSTCLOCK_WATCH_FUNCTION: u32 = 114_028;
+const RUSTCLOCK_WATCH_BYTE_ADDRESS: u32 = 26_080_269;
+const RUSTCLOCK_WATCH_WORD_ADDRESSES: [u32; 2] = [26_079_912, 26_079_916];
 const REQUIRED_IMPORT_COUNT: usize = 30;
 const BUILD_STORE_INSTANCE_ID: u64 = 11;
 const BUILD_STORE_GENERATION: u64 = 13;
@@ -322,6 +328,28 @@ struct RustcDiagEvidence {
     atomic_wait_total: u64,
     atomic_notify_total: u64,
     recent_atomic_events: [Option<RecentAtomicEvent>; RECENT_ATOMIC_EVENT_COUNT],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct RustclockEvidence {
+    execution_trace: ExecutionTrace,
+    capped: bool,
+}
+
+impl RustclockEvidence {
+    const fn failed() -> Self {
+        Self {
+            execution_trace: ExecutionTrace::empty(),
+            capped: false,
+        }
+    }
+
+    fn completed(evidence: WasiThreadTraceRunEvidence) -> Self {
+        Self {
+            execution_trace: evidence.execution_trace,
+            capped: evidence.capped,
+        }
+    }
 }
 
 impl RustcDiagEvidence {
@@ -2797,6 +2825,20 @@ fn run_rustcdiag() -> RustcDiagEvidence {
     }
 }
 
+fn run_rustclock() -> RustclockEvidence {
+    match prepare_rustcrun() {
+        Ok(runner) => RustclockEvidence::completed(runner.run_traced(
+            ExecutionTraceConfig::new(
+                RUSTCLOCK_WATCH_FUNCTION,
+                RUSTCLOCK_WATCH_BYTE_ADDRESS,
+                RUSTCLOCK_WATCH_WORD_ADDRESSES,
+            ),
+            RUSTCLOCK_ROUND_CAP,
+        )),
+        Err(_) => RustclockEvidence::failed(),
+    }
+}
+
 fn empty_authority_for_ok_fixture() -> Option<BuildStorageAuthority> {
     let engine = wasi_engine();
     let module = Module::new(&engine, WASI_BUILD_OK_WASM).ok()?;
@@ -3362,6 +3404,53 @@ fn emit_rustcdiag_evidence(evidence: RustcDiagEvidence) {
     crate::serial::write_raw_fmt(format_args!("{pc_line}"));
 }
 
+fn emit_rustclock_evidence(evidence: RustclockEvidence) {
+    // `ip` is a wasmi bytecode instruction index stable per compiled body,
+    // NOT a Wasm byte offset.
+    for record in evidence.execution_trace.cmpxchg_records() {
+        crate::serial::write_raw_fmt(format_args!(
+            "RAIOS_RUSTCLOCK round={} func={} ip={} L={} G={} before={} expected={} replacement={} returned={} after={}\n",
+            record.round(),
+            record.function_index(),
+            record.bytecode_ip(),
+            record.effective_address(),
+            record.watch_byte(),
+            record.before(),
+            record.expected(),
+            record.replacement(),
+            record.returned_old(),
+            record.after(),
+        ));
+    }
+    for record in evidence.execution_trace.store8_records() {
+        crate::serial::write_raw_fmt(format_args!(
+            "RAIOS_RUSTCLOCK_NEEDSTORE func={} ip={} val={}\n",
+            record.function_index(),
+            record.bytecode_ip(),
+            record.value(),
+        ));
+    }
+    for record in evidence.execution_trace.fuel_park_records() {
+        let [cwd, pre] = record.watch_words();
+        crate::serial::write_raw_fmt(format_args!(
+            "RAIOS_RUSTCLOCK_PARK round={} ip={} debit={} cwd={} pre={} G={}\n",
+            record.round(),
+            record.bytecode_ip(),
+            record.debit(),
+            cwd,
+            pre,
+            record.watch_byte(),
+        ));
+    }
+    crate::serial::write_raw_fmt(format_args!(
+        "RAIOS_RUSTCLOCK_SUMMARY cas_total={} stores_g={} parks={} capped={}\n",
+        evidence.execution_trace.cmpxchg_total(),
+        evidence.execution_trace.store8_total(),
+        evidence.execution_trace.fuel_park_total(),
+        u8::from(evidence.capped),
+    ));
+}
+
 pub(crate) fn emit_wasi_rustcrun() {
     let Some(_busy) = WasiThreadBusyGuard::acquire() else {
         emit_rustcrun_evidence(RustcRunEvidence::at(
@@ -3380,6 +3469,14 @@ pub(crate) fn emit_wasi_rustcdiag() {
         return;
     };
     emit_rustcdiag_evidence(run_rustcdiag());
+}
+
+pub(crate) fn emit_wasi_rustclock() {
+    let Some(_busy) = WasiThreadBusyGuard::acquire() else {
+        emit_rustclock_evidence(RustclockEvidence::failed());
+        return;
+    };
+    emit_rustclock_evidence(run_rustclock());
 }
 
 pub(crate) fn emit_wasi_selftest() {

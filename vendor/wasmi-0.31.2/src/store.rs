@@ -40,6 +40,392 @@ use wasmi_core::TrapCode;
 /// Maximum number of guest functions retained by the execution profiler.
 const EXECUTION_PROFILE_CAPACITY: usize = 32;
 
+/// Maximum number of full-width `i32` compare-exchanges retained by an execution trace.
+pub const EXECUTION_TRACE_CMPXCHG_CAPACITY: usize = 64;
+/// Maximum number of watched 8-bit stores retained by an execution trace.
+pub const EXECUTION_TRACE_STORE8_CAPACITY: usize = 8;
+/// Maximum number of watched fuel parks retained by an execution trace.
+pub const EXECUTION_TRACE_FUEL_PARK_CAPACITY: usize = 32;
+
+/// Generic, store-local configuration for opt-in execution tracing.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct ExecutionTraceConfig {
+    watch_function: u32,
+    watch_byte_address: u32,
+    watch_word_addresses: [u32; 2],
+}
+
+impl ExecutionTraceConfig {
+    /// Creates execution tracing configuration.
+    pub const fn new(
+        watch_function: u32,
+        watch_byte_address: u32,
+        watch_word_addresses: [u32; 2],
+    ) -> Self {
+        Self {
+            watch_function,
+            watch_byte_address,
+            watch_word_addresses,
+        }
+    }
+
+    /// Returns the module-local function index whose compare-exchanges and parks are watched.
+    pub fn watch_function(self) -> u32 {
+        self.watch_function
+    }
+
+    /// Returns the byte address whose 8-bit stores and sampled value are watched.
+    pub fn watch_byte_address(self) -> u32 {
+        self.watch_byte_address
+    }
+
+    /// Returns the two word addresses sampled at watched fuel parks.
+    pub fn watch_word_addresses(self) -> [u32; 2] {
+        self.watch_word_addresses
+    }
+}
+
+/// One retained full-width `i32.atomic.rmw.cmpxchg` observation.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+pub struct ExecutionTraceCmpxchg {
+    round: u64,
+    function_index: u32,
+    bytecode_ip: u32,
+    effective_address: u32,
+    watch_byte: i8,
+    before: u32,
+    expected: u32,
+    replacement: u32,
+    returned_old: u32,
+    after: u32,
+}
+
+impl ExecutionTraceCmpxchg {
+    const EMPTY: Self = Self {
+        round: 0,
+        function_index: 0,
+        bytecode_ip: 0,
+        effective_address: 0,
+        watch_byte: 0,
+        before: 0,
+        expected: 0,
+        replacement: 0,
+        returned_old: 0,
+        after: 0,
+    };
+
+    /// Returns the pump round installed by the embedding.
+    pub fn round(self) -> u64 {
+        self.round
+    }
+
+    /// Returns the module-local function index.
+    pub fn function_index(self) -> u32 {
+        self.function_index
+    }
+
+    /// Returns the wasmi bytecode instruction index, stable per compiled body.
+    ///
+    /// This is an internal wasmi bytecode index and is not a Wasm byte offset.
+    pub fn bytecode_ip(self) -> u32 {
+        self.bytecode_ip
+    }
+
+    /// Returns the effective linear-memory address.
+    pub fn effective_address(self) -> u32 {
+        self.effective_address
+    }
+
+    /// Returns the signed value sampled at the configured byte address.
+    pub fn watch_byte(self) -> i8 {
+        self.watch_byte
+    }
+
+    /// Returns the value loaded before the compare-exchange.
+    pub fn before(self) -> u32 {
+        self.before
+    }
+
+    /// Returns the expected compare-exchange operand.
+    pub fn expected(self) -> u32 {
+        self.expected
+    }
+
+    /// Returns the replacement compare-exchange operand.
+    pub fn replacement(self) -> u32 {
+        self.replacement
+    }
+
+    /// Returns the old value returned by the compare-exchange.
+    pub fn returned_old(self) -> u32 {
+        self.returned_old
+    }
+
+    /// Returns the value loaded from the same memory after the operation.
+    pub fn after(self) -> u32 {
+        self.after
+    }
+}
+
+/// One retained successful 8-bit store to the configured byte address.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+pub struct ExecutionTraceStore8 {
+    function_index: u32,
+    bytecode_ip: u32,
+    value: u8,
+}
+
+impl ExecutionTraceStore8 {
+    const EMPTY: Self = Self {
+        function_index: 0,
+        bytecode_ip: 0,
+        value: 0,
+    };
+
+    /// Returns the module-local function index.
+    pub fn function_index(self) -> u32 {
+        self.function_index
+    }
+
+    /// Returns the internal wasmi bytecode index, not a Wasm byte offset.
+    pub fn bytecode_ip(self) -> u32 {
+        self.bytecode_ip
+    }
+
+    /// Returns the low byte written by the store.
+    pub fn value(self) -> u8 {
+        self.value
+    }
+}
+
+/// One retained out-of-fuel park in the configured function.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+pub struct ExecutionTraceFuelPark {
+    round: u64,
+    bytecode_ip: u32,
+    debit: u64,
+    watch_words: [u32; 2],
+    watch_byte: i8,
+}
+
+impl ExecutionTraceFuelPark {
+    const EMPTY: Self = Self {
+        round: 0,
+        bytecode_ip: 0,
+        debit: 0,
+        watch_words: [0; 2],
+        watch_byte: 0,
+    };
+
+    /// Returns the pump round installed by the embedding.
+    pub fn round(self) -> u64 {
+        self.round
+    }
+
+    /// Returns the internal wasmi bytecode index, not a Wasm byte offset.
+    pub fn bytecode_ip(self) -> u32 {
+        self.bytecode_ip
+    }
+
+    /// Returns the fuel charge that failed at this park point.
+    pub fn debit(self) -> u64 {
+        self.debit
+    }
+
+    /// Returns the values sampled at the two configured word addresses.
+    pub fn watch_words(self) -> [u32; 2] {
+        self.watch_words
+    }
+
+    /// Returns the signed value sampled at the configured byte address.
+    pub fn watch_byte(self) -> i8 {
+        self.watch_byte
+    }
+}
+
+/// A read-only snapshot of opt-in execution tracing.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct ExecutionTrace {
+    cmpxchg_total: u64,
+    cmpxchg_len: u8,
+    cmpxchg: [ExecutionTraceCmpxchg; EXECUTION_TRACE_CMPXCHG_CAPACITY],
+    store8_total: u64,
+    store8_len: u8,
+    store8: [ExecutionTraceStore8; EXECUTION_TRACE_STORE8_CAPACITY],
+    fuel_park_total: u64,
+    fuel_park_len: u8,
+    fuel_parks: [ExecutionTraceFuelPark; EXECUTION_TRACE_FUEL_PARK_CAPACITY],
+}
+
+impl ExecutionTrace {
+    /// Returns an empty execution trace.
+    pub const fn empty() -> Self {
+        Self {
+            cmpxchg_total: 0,
+            cmpxchg_len: 0,
+            cmpxchg: [ExecutionTraceCmpxchg::EMPTY; EXECUTION_TRACE_CMPXCHG_CAPACITY],
+            store8_total: 0,
+            store8_len: 0,
+            store8: [ExecutionTraceStore8::EMPTY; EXECUTION_TRACE_STORE8_CAPACITY],
+            fuel_park_total: 0,
+            fuel_park_len: 0,
+            fuel_parks: [ExecutionTraceFuelPark::EMPTY; EXECUTION_TRACE_FUEL_PARK_CAPACITY],
+        }
+    }
+
+    /// Returns the total number of matching compare-exchanges observed.
+    pub fn cmpxchg_total(&self) -> u64 {
+        self.cmpxchg_total
+    }
+
+    /// Returns the retained compare-exchange observations.
+    pub fn cmpxchg_records(&self) -> &[ExecutionTraceCmpxchg] {
+        &self.cmpxchg[..usize::from(self.cmpxchg_len)]
+    }
+
+    /// Returns the total number of matching 8-bit stores observed.
+    pub fn store8_total(&self) -> u64 {
+        self.store8_total
+    }
+
+    /// Returns the retained 8-bit store observations.
+    pub fn store8_records(&self) -> &[ExecutionTraceStore8] {
+        &self.store8[..usize::from(self.store8_len)]
+    }
+
+    /// Returns the total number of matching fuel parks observed.
+    pub fn fuel_park_total(&self) -> u64 {
+        self.fuel_park_total
+    }
+
+    /// Returns the retained fuel-park observations.
+    pub fn fuel_park_records(&self) -> &[ExecutionTraceFuelPark] {
+        &self.fuel_parks[..usize::from(self.fuel_park_len)]
+    }
+
+    /// Returns whether at least one observation did not fit in its retained stream.
+    pub fn capped(&self) -> bool {
+        self.cmpxchg_total > self.cmpxchg_records().len() as u64
+            || self.store8_total > self.store8_records().len() as u64
+            || self.fuel_park_total > self.fuel_park_records().len() as u64
+    }
+}
+
+impl Default for ExecutionTrace {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+/// Store-local, opt-in execution tracing state.
+#[derive(Debug, Default)]
+struct ExecutionTracer {
+    config: Option<ExecutionTraceConfig>,
+    round: u64,
+    snapshot: ExecutionTrace,
+}
+
+impl ExecutionTracer {
+    fn start(&mut self, config: ExecutionTraceConfig) {
+        self.config = Some(config);
+        self.round = 0;
+        self.snapshot = ExecutionTrace::empty();
+    }
+
+    fn set_round(&mut self, round: u64) {
+        if self.config.is_some() {
+            self.round = round;
+        }
+    }
+
+    fn record_cmpxchg(
+        &mut self,
+        function_index: u32,
+        bytecode_ip: u32,
+        effective_address: u32,
+        watch_byte: i8,
+        before: u32,
+        expected: u32,
+        replacement: u32,
+        returned_old: u32,
+        after: u32,
+    ) {
+        let Some(config) = self.config else {
+            return;
+        };
+        if function_index != config.watch_function {
+            return;
+        }
+        self.snapshot.cmpxchg_total = self.snapshot.cmpxchg_total.saturating_add(1);
+        let index = usize::from(self.snapshot.cmpxchg_len);
+        if index == EXECUTION_TRACE_CMPXCHG_CAPACITY {
+            return;
+        }
+        self.snapshot.cmpxchg[index] = ExecutionTraceCmpxchg {
+            round: self.round,
+            function_index,
+            bytecode_ip,
+            effective_address,
+            watch_byte,
+            before,
+            expected,
+            replacement,
+            returned_old,
+            after,
+        };
+        self.snapshot.cmpxchg_len += 1;
+    }
+
+    fn record_store8(&mut self, function_index: u32, bytecode_ip: u32, address: u32, value: u8) {
+        let Some(config) = self.config else {
+            return;
+        };
+        if address != config.watch_byte_address {
+            return;
+        }
+        self.snapshot.store8_total = self.snapshot.store8_total.saturating_add(1);
+        let index = usize::from(self.snapshot.store8_len);
+        if index == EXECUTION_TRACE_STORE8_CAPACITY {
+            return;
+        }
+        self.snapshot.store8[index] = ExecutionTraceStore8 {
+            function_index,
+            bytecode_ip,
+            value,
+        };
+        self.snapshot.store8_len += 1;
+    }
+
+    fn record_fuel_park(
+        &mut self,
+        function_index: u32,
+        bytecode_ip: u32,
+        debit: u64,
+        watch_words: [u32; 2],
+        watch_byte: i8,
+    ) {
+        let Some(config) = self.config else {
+            return;
+        };
+        if function_index != config.watch_function {
+            return;
+        }
+        self.snapshot.fuel_park_total = self.snapshot.fuel_park_total.saturating_add(1);
+        let index = usize::from(self.snapshot.fuel_park_len);
+        if index == EXECUTION_TRACE_FUEL_PARK_CAPACITY {
+            return;
+        }
+        self.snapshot.fuel_parks[index] = ExecutionTraceFuelPark {
+            round: self.round,
+            bytecode_ip,
+            debit,
+            watch_words,
+            watch_byte,
+        };
+        self.snapshot.fuel_park_len += 1;
+    }
+}
+
 /// One retained guest-function execution count.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct ExecutionProfileEntry {
@@ -258,6 +644,8 @@ pub struct StoreInner {
     fuel: Fuel,
     /// Opt-in guest function execution observations.
     execution_profiler: ExecutionProfiler,
+    /// Opt-in instruction and memory observations.
+    execution_tracer: ExecutionTracer,
 }
 
 #[test]
@@ -394,6 +782,7 @@ impl StoreInner {
             extern_objects: Arena::new(),
             fuel: Fuel::default(),
             execution_profiler: ExecutionProfiler::default(),
+            execution_tracer: ExecutionTracer::default(),
         }
     }
 
@@ -412,14 +801,75 @@ impl StoreInner {
         &mut self.fuel
     }
 
-    /// Returns whether guest execution profiling is active.
-    pub(crate) fn execution_profiling_enabled(&self) -> bool {
-        self.execution_profiler.enabled
+    /// Returns whether an opt-in observer needs guest function identity.
+    pub(crate) fn guest_function_tracking_enabled(&self) -> bool {
+        self.execution_profiler.enabled || self.execution_tracer.config.is_some()
     }
 
     /// Records one guest function execution observation.
     pub(crate) fn record_guest_execution(&mut self, function_index: u32) {
         self.execution_profiler.record(function_index)
+    }
+
+    /// Returns the active generic execution trace configuration.
+    pub(crate) fn execution_trace_config(&self) -> Option<ExecutionTraceConfig> {
+        self.execution_tracer.config
+    }
+
+    /// Records a matching full-width `i32` compare-exchange.
+    pub(crate) fn record_execution_cmpxchg(
+        &mut self,
+        function_index: u32,
+        bytecode_ip: u32,
+        effective_address: u32,
+        watch_byte: i8,
+        before: u32,
+        expected: u32,
+        replacement: u32,
+        returned_old: u32,
+        after: u32,
+    ) {
+        self.execution_tracer.record_cmpxchg(
+            function_index,
+            bytecode_ip,
+            effective_address,
+            watch_byte,
+            before,
+            expected,
+            replacement,
+            returned_old,
+            after,
+        );
+    }
+
+    /// Records a successful matching 8-bit store.
+    pub(crate) fn record_execution_store8(
+        &mut self,
+        function_index: u32,
+        bytecode_ip: u32,
+        address: u32,
+        value: u8,
+    ) {
+        self.execution_tracer
+            .record_store8(function_index, bytecode_ip, address, value);
+    }
+
+    /// Records a matching out-of-fuel park.
+    pub(crate) fn record_execution_fuel_park(
+        &mut self,
+        function_index: u32,
+        bytecode_ip: u32,
+        debit: u64,
+        watch_words: [u32; 2],
+        watch_byte: i8,
+    ) {
+        self.execution_tracer.record_fuel_park(
+            function_index,
+            bytecode_ip,
+            debit,
+            watch_words,
+            watch_byte,
+        );
     }
 
     /// Resolves a compiled function body to its module-local function index.
@@ -901,6 +1351,24 @@ impl<T> Store<T> {
     /// Returns a read-only snapshot of guest execution profiling.
     pub fn execution_profile(&self) -> ExecutionProfile {
         self.inner.execution_profiler.snapshot
+    }
+
+    /// Clears and enables generic, store-local execution tracing.
+    ///
+    /// Tracing is disabled by default and never participates in execution,
+    /// fuel accounting, memory writes, or Wasm results.
+    pub fn start_execution_tracing(&mut self, config: ExecutionTraceConfig) {
+        self.inner.execution_tracer.start(config);
+    }
+
+    /// Installs the embedding's current round on an active execution trace.
+    pub fn set_execution_trace_round(&mut self, round: u64) {
+        self.inner.execution_tracer.set_round(round);
+    }
+
+    /// Returns a read-only snapshot of generic execution tracing.
+    pub fn execution_trace(&self) -> ExecutionTrace {
+        self.inner.execution_tracer.snapshot
     }
 
     /// Returns a shared reference to the user provided data owned by this [`Store`].
