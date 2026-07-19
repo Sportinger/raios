@@ -166,11 +166,19 @@ current VT-d probe is structure-only and does not establish this property.
 
 ## 7. Docs & Project Hygiene → `docs/scope/07-docs-hygiene.md`
 
-- [ ] This scope document is the single source for "what raiOS is"
-- [ ] Docs structure: `SCOPE.md` + `scope/` (breakdowns), `architecture/`
+- [x] This scope document is the single source for "what raiOS is"
+      <!-- breakdown group "Single source" green 2026-07-19: single-source
+      rule + breakdown-consistency rule 12 (red paths self-tested, 488f2df). -->
+- [x] Docs structure: `SCOPE.md` + `scope/` (breakdowns), `architecture/`
       (+ `decisions/`), `agents/`, `plans/`, `status/`, `assets/`, `_archive/` — nothing else
-- [ ] Every architecture decision is an ADR (incl. the seL4 decision, dated)
-- [ ] Outdated plans are archived (`docs/_archive/`), never silently deleted
+      <!-- breakdown group "Structure" green: check-docs-hygiene rule 1 +
+      root-instructions rule, negatives self-tested (2259b95). -->
+- [x] Every architecture decision is an ADR (incl. the seL4 decision, dated)
+      <!-- breakdown group "Decisions & history" green: adr-form rule gapless
+      numbering + dissent demonstrated (ADR 0020), red paths (abe403c). -->
+- [x] Outdated plans are archived (`docs/_archive/`), never silently deleted
+      <!-- archive-dated rule with red path (abe403c); no-silent-delete
+      guarded by single-writer git history (ADR 0019). -->
 
 ---
 

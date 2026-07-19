@@ -346,6 +346,26 @@ function Invoke-DocsHygieneCheck {
             ScopeSubstring = "Compiler diagnostics as JSON"
             BreakdownFile = "04-agent-fabric.md"
             GroupHeadingSubstring = "Feedback loop"
+        },
+        [pscustomobject]@{
+            ScopeSubstring = "single source for"
+            BreakdownFile = "07-docs-hygiene.md"
+            GroupHeadingSubstring = "Single source"
+        },
+        [pscustomobject]@{
+            ScopeSubstring = "Docs structure"
+            BreakdownFile = "07-docs-hygiene.md"
+            GroupHeadingSubstring = "Structure"
+        },
+        [pscustomobject]@{
+            ScopeSubstring = "Every architecture decision is an ADR"
+            BreakdownFile = "07-docs-hygiene.md"
+            GroupHeadingSubstring = "Decisions & history"
+        },
+        [pscustomobject]@{
+            ScopeSubstring = "never silently deleted"
+            BreakdownFile = "07-docs-hygiene.md"
+            GroupHeadingSubstring = "Decisions & history"
         }
     )
 

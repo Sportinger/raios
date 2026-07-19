@@ -9,9 +9,13 @@
       resolve in its favor — README states it explicitly and the
       `single-source` rule asserts the phrase (red path self-tested,
       2259b95, 2026-07-18)
-- [ ] Breakdown files (`docs/scope/0N-*.md`) detail but never contradict it;
+- [x] Breakdown files (`docs/scope/0N-*.md`) detail but never contradict it;
       top-level list changes need owner approval, breakdowns evolve by
-      orchestrator commit
+      orchestrator commit — `breakdown-consistency` rule 12: every checked
+      top-level box requires its mapped breakdown group fully green, every
+      breakdown keeps its SCOPE backlink; divergence + backlink red paths
+      self-tested (488f2df, 2026-07-19). Semantic non-contradiction beyond
+      checkbox state stays review discipline at every breakdown commit
 
 ## Structure (the whole map, nothing else)
 - [x] `docs/`: `SCOPE.md`, `README.md`, `scope/`, `architecture/`
