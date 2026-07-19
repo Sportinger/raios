@@ -7,43 +7,43 @@
 > fitting plan under `docs/plans/`. Max ~4 lines of text per entry, file max
 > 60 lines. Replace, never append.
 
-## Now (as of 2026-07-19 ~14:35, loop paused for budget)
+## Now (as of 2026-07-19 ~15:45, loop running)
 
-rustc runs the FULL compile frontend on-device: reads+parses /src/hello.rs,
-resolves std from the sysroot, type-checks, reaches output emission, fails
-only creating /out/rmeta<rand>/lib.rmeta (os76, instance.rs:229 — temp dir fd
-lacks PATH_CREATE_FILE; STATUS has the precise fix). Reached via 4 WASI
-calibrations (symlink/rights/O_DIRECTORY/O_TRUNC, all committed+pushed).
-Earlier today: the rustc "spin" solved (fuel starvation + grow), --version
-completes exit 0; §1–3 reframe + both escape needles permanent; §4 JSON-diag
-box; floor doc; unsafe inventory. Tree clean, all pushed (HEAD 1166ca6).
+§7 CLOSED (first full top-level section, 85b931b: breakdown-consistency
+rule 12 + all groups green). §4 PCI-introspection box green (d59aecc,
+504/504). §2 storage.selftest landed (d18bcc0) — VM evidence in flight.
+§6: rustc runs the whole pipeline to the LINK step (rmeta+object land in
+/out); rust-lld fails only creating /out/hello.wasm (os76) — host
+hypotheses falsified (28098c9), live-args diagnosis running. §3 profile
+built + crash-proofed (8613708); donor spine 256/256 live-green; needs an
+independent durable domain B (per-run image has none — B2 report).
 
 ## Next step
 
-§6 rustc-compile (buildable, NOT owner-blocked): fix rights_inheriting
-propagation from the writable /out preopen to opened subdirs so the temp dir
-carries PATH_CREATE_FILE; instrument the temp-dir fd rights first, keep ROFS
-+ write denials. Then rerun wasi.rustcbuild on persist-combined-rustcbuild.img
-(-GuestMemoryMB 8192 -KeepImage) → expect hello.wasm. Also queued: §3
-rollback-isolation profile (rewrite mirroring m6d-rollback verbatim), §4
-device-graph IRQ fields, §2 storage-negative. Owner-gated (blocking "all
-boxes"): §5/§6 pre-ADR-0005 wording reframe; bare-metal escape run (Surface);
-unattended-loop hardware (money).
+Read VM run 3 (quick+persist, running): §2 disk=pass markers, §4
+regression, RAIOS_RUSTCDIAG fd/errno of the failing lld open → dispatch
+surgical §6 fix (wasi_preview1.rs / one-shot arg capture if ambiguous).
+Then: persistence profile -KeepImage (proves §2 disk invariance AND mints
+the durable-domain persist disk) → rerun rollback-isolation with that disk
+attached (B = seeded durable service; filter exists, 8613708). Owner-gated:
+§5/§6 pre-ADR-0005 wording; bare-metal escape run; unattended-loop hardware.
 
 ## Recently (exactly 3, newest first)
 
-### 2026-07-19 — rustc compiles real source on-device up to output write
-wasi.rustcbuild + 4 WASI file calibrations walked rustc from "can't read
-source" to running the whole frontend (std resolved, type-check done),
-blocked only at artifact create (os76). Precise next lane in STATUS. §6 open.
+### 2026-07-19 — §7 closed; §4 introspection + §2 storage negatives land
+Rule 12 enforces top-level-vs-breakdown consistency (red paths self-tested)
+→ all §7 groups green. device.graph carries PCI IDs/BARs/IRQs +
+pci_functions walk; fabricated-PCI-for-absent-hardware fails. storage.
+selftest: absent grant/out-of-range/quota denied + full-disk hash equality.
 
-### 2026-07-19 — rustc --version completes inside raiOS
-After the escrow top-up fix, stderr capture revealed 'LLVM ERROR: out of
-memory': prepare_rustcrun pre-grew the guest to max, so its first allocator
-grow was denied. Guest now keeps 399 initial pages; grows 399→401 approved;
-`RAIOS_RUSTCSTDOUT text=rustc 1.83.0-dev.`, exit 0 (4716732).
+### 2026-07-19 — rustc reaches the LINKER on-device
+Writable-arena attenuation (ccb31b2) tore down the rmeta create wall:
+codegen completes, out_files=2, rust-lld runs and fails only on
+/out/hello.wasm (735 rounds). Preopen/from_bits hypotheses host-falsified
+(28098c9, 67/67). Frontier = guest-exact open args; diag run in flight.
 
-### 2026-07-19 — Starvation fix verified: rustc executes for real
-E3 top-up fix + conformance starvation test; decisive rerun: 4 rounds to
-real stderr I/O + trap vs 200k dead rounds before. The on-device compiler
-now runs and fails ordinarily; stderr capture (E4) is the next evidence.
+### 2026-07-19 — rollback-isolation: spine green, B missing
+New §3 profile mirrors m6d verbatim + 3 isolation predicates; live run:
+256/256 donor predicates green, then a PS 5.1 [ordered]/@() quirk killed
+the run pre-predicate — fixed crash-proof (8613708). Real finding: per-run
+image has NO independent durable domain B → seed via persistence disk.
