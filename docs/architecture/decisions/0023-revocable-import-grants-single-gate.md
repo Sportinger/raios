@@ -1,6 +1,6 @@
 # 0023 — Wasm import grants are individually revocable through one enforcement gate over a folded audit chain
 
-Datum: 2026-07-19 · Status: aktiv
+Date: 2026-07-19 · Status: active
 
 ## Kontext
 

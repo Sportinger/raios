@@ -66,7 +66,10 @@ oder "keine, Neuland">
 
 ```markdown
 # NNNN — <Entscheidung als Aussagesatz>
-Datum: <YYYY-MM-DD> · Status: aktiv
+Date: <YYYY-MM-DD> · Status: active
+<!-- The header MUST be English `Date:` and `Status:` — the check-docs-hygiene
+     adr-form rule matches `^Date:` and `Status:`; German `Datum:`/`aktiv`
+     fail the gate. The prose below the header stays German. -->
 ## Kontext
 <Warum stand die Frage im Raum — 2–4 Sätze>
 ## Entscheidung
