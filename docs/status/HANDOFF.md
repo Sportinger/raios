@@ -19,15 +19,15 @@ MMIO VA leak that broke large reads. Tree clean, all pushed.
 
 ## Next step
 
-**Execution milestone** (the W5 factory proof). The compiler start section
-traps on isolated instantiation even with full fuel — it needs real threads
-+ mounted files. Bricks: (1) seeder multi-tree append → one image with BOTH
-sysroot (13daf6f9) + compiler (1b9214df); (2) run the compiler through the
-resumable fuel pump (run_start) with the REAL T2 ThreadHost (not the deny
-stub) and the mounted sysroot, args=["rustc","--version"], then hello.rs
-double-build through the landed commit gate. Owner questions open: SCOPE §6
-Cranelift wording; ADR 0017 veto window. Owner plans (b2eb324): socket →
-GPU → installer.
+**Execution milestone** (W5 factory proof) — architecture DECIDED (ADR 0022,
+twin opinions): one store marries the WASI world + thread pump; per-thread
+fuel escrow via a vendored raw-remaining seam; memory reserved at class max;
+WASI-effect digest. Combined sysroot+compiler image built + kernel-verified
+(seeder multi-tree, 956c1dc; compilerload resolves tree-2 live). Bricks:
+(1) IN FLIGHT — vendored fuel seam (FS); (2) merged pump + ThreadHostMode +
+effect digest + run wiring; (3) run rustc --version, then hello.rs
+double-build through the commit gate. Owner questions open: SCOPE §6
+Cranelift wording; ADR 0017 veto window.
 
 ## Recently (exactly 3, newest first)
 
