@@ -83,13 +83,14 @@ show a foreign/out-of-range DMA attempt blocked + logged with zero host effect.
       m11-wasm-import-grant profile; grant/revoke verification still required. -->
 - [ ] Kill + restart a Wasm service in < 1 s without reboot; a crash loop parks
       + reports the service, and restart leaks no grants or state from its prior life
-- [ ] **Floor interface narrow & kernel-agnostic:** ADR 0015 chooses the custom
+- [x] **Floor interface narrow & kernel-agnostic:** ADR 0015 chooses the custom
       kernel; the substitutable floor is the documented Wasm-import + service-
       capability contract, with no kernel-internal types. A contract test rejects
       any service that depends on kernel internals
-      <!-- docs/architecture/genesis-layer.md exists (2026-07-19, cited from
-      code); breakdown capabilities are green, but top-level closure awaits
-      the hygiene checker's multi-line mapping predicate. -->
+      <!-- Breakdown group green 2026-07-19: documented contract plus exact
+      machine-readable 5+30 declaration check; undeclared import and explicit
+      kernel-internal/non-wire fixtures reject with distinct typed reasons
+      (32d7cc9); closure mapping + red path b3e6d4f. -->
 
 ## 3. Security & Trust Pipeline → `docs/scope/03-security-trust-pipeline.md`
 
