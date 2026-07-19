@@ -2535,7 +2535,7 @@
         } else {
             Send-AgentCommand -Command "capability.selftest" -ExpectedMarker "RAIOS_CAPABILITY disk=absent"
         }
-        Send-AgentCommand -Command "host_import.selftest" -ExpectedMarker "RAIOS_HOSTIMPORT selftest=pass missing=refused wrong_sig=signature_mismatch bad_offset=trapped bad_length=denied bad_handle=denied bad_index=denied logged=1 host_effect=0 peer_effect=0 persistent_effect=0 partial_effect=0"
+        Send-AgentCommand -Command "host_import.selftest" -ExpectedMarker "RAIOS_HOSTIMPORT selftest=pass missing=refused wrong_sig=signature_mismatch bad_offset=trapped bad_length=denied bad_handle=denied bad_index=denied device_import=refused device_surfaces=0 logged=1 host_effect=0 peer_effect=0 persistent_effect=0 partial_effect=0"
         if ($PersistDiskPath) {
             Send-AgentCommand -Command "host_import.selftest" -ExpectedMarker "RAIOS_HOSTIMPORT disk=pass reclog_unchanged=1 artstor_unchanged=1"
         } else {

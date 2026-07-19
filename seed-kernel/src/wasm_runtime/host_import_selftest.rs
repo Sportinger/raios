@@ -1,7 +1,8 @@
 use super::*;
 
 use raios_core::{
-    host_import_abi_v1::HOST_IMPORT_ERROR_CAPABILITY_DENIED, tls13_session::Tls13Denial,
+    host_import_abi_v1::HOST_IMPORT_ERROR_CAPABILITY_DENIED,
+    scoped_wasm_import_grant::KNOWN_HOST_IMPORTS_DOTTED, tls13_session::Tls13Denial,
 };
 use wasmi::core::ValueType;
 
@@ -17,6 +18,18 @@ const MISSING_IMPORT_WASM: &[u8] = &[
     0x65, 0x72, 0x5f, 0x67, 0x65, 0x74, 0x00, 0x00, 0x03, 0x02, 0x01, 0x01, 0x07, 0x16, 0x01, 0x12,
     0x72, 0x61, 0x69, 0x6f, 0x73, 0x5f, 0x73, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x5f, 0x6d, 0x61,
     0x69, 0x6e, 0x00, 0x01, 0x0a, 0x09, 0x01, 0x07, 0x00, 0x10, 0x00, 0x1a, 0x41, 0x00, 0x0b,
+];
+
+// Imports a device-shaped authority that is absent from the known host-import
+// vocabulary. Export/entrypoint: raios_service_main / raios_service_main. If
+// the import-grant preflight ever failed open, the body would attempt the
+// device.mmio_read call; the executor must refuse before instantiation.
+const DEVICE_ABSENT_WASM: &[u8] = &[
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x02,
+    0x14, 0x01, 0x06, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x09, 0x6d, 0x6d, 0x69, 0x6f, 0x5f, 0x72,
+    0x65, 0x61, 0x64, 0x00, 0x00, 0x03, 0x02, 0x01, 0x00, 0x07, 0x16, 0x01, 0x12, 0x72, 0x61, 0x69,
+    0x6f, 0x73, 0x5f, 0x73, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x5f, 0x6d, 0x61, 0x69, 0x6e, 0x00,
+    0x01, 0x0a, 0x06, 0x01, 0x04, 0x00, 0x10, 0x00, 0x0b,
 ];
 
 // Imports the real granted env.log surface as (i64, i32) -> () instead of
@@ -156,6 +169,74 @@ fn run_missing_case() -> CaseEvidence {
         denied,
         surface_unchanged,
     }
+}
+
+fn run_device_absent_case() -> CaseEvidence {
+    const REASON: &str = "unknown_host_import";
+    const REQUESTED_IMPORTS: &[(&str, &str)] = &[("device", "mmio_read")];
+    let run = envelope::execute_module_bytes(
+        DEVICE_ABSENT_WASM,
+        SELFTEST_ENTRYPOINT,
+        SELFTEST_SERVICE_ID,
+        true,
+        REQUESTED_IMPORTS,
+    );
+
+    // device.mmio_read cannot be named by a grant. This is the same executor
+    // refusal path as capability.selftest's service.start case: no host import
+    // is linked and no instance, guest body, or host/device effect is reached.
+    let surface_unchanged = !run.instantiation_ok
+        && run.linked_host_import_count == 0
+        && run.return_value.is_none()
+        && run.fuel_used == 0
+        && run.log_line.is_none()
+        && run.captured_output_len == 0
+        && run.raw_captured_output.is_empty();
+    let denied = fixture_contract(DEVICE_ABSENT_WASM, "device", "mmio_read", false)
+        && !run.validation_ok
+        && !run.import_grant_performed
+        && run.import_grant_status == "denied"
+        && run.import_grant_reason == REASON
+        && run.authorized_import_count == 0
+        && !run.module_imports_within_authorized_list
+        && run.run_outcome == "import_grant_denied"
+        && run.missing_import_module.is_none()
+        && run.missing_import_name.is_none()
+        && surface_unchanged;
+    CaseEvidence {
+        expected_reason: REASON,
+        actual_reason: run.import_grant_reason,
+        denied,
+        surface_unchanged,
+    }
+}
+
+fn known_host_import_device_surface_count() -> usize {
+    // Enumerate the same source-of-truth dotted vocabulary exported by
+    // agent_protocol_honesty; device authority must remain absent from it.
+    KNOWN_HOST_IMPORTS_DOTTED
+        .iter()
+        .filter(|host_import| {
+            host_import
+                .split(|separator| separator == '.' || separator == '_')
+                .any(|component| {
+                    matches!(
+                        component,
+                        "device"
+                            | "devices"
+                            | "irq"
+                            | "irqs"
+                            | "interrupt"
+                            | "interrupts"
+                            | "mmio"
+                            | "dma"
+                            | "ioport"
+                            | "port"
+                            | "ports"
+                    )
+                })
+        })
+        .count()
 }
 
 fn run_wrong_signature_case() -> CaseEvidence {
@@ -559,6 +640,9 @@ pub(crate) fn emit_host_import_selftest() {
     let bad_length = run_bad_length_case();
     let bad_handle = run_bad_handle_case();
     let bad_index = run_bad_index_case();
+    let device_absent = run_device_absent_case();
+    let device_surface_count = known_host_import_device_surface_count();
+    let device_surfaces_absent = device_surface_count == 0;
 
     let missing_logged = record_case("missing", missing);
     let wrong_sig_logged = record_case("wrong_sig", wrong_sig);
@@ -566,12 +650,14 @@ pub(crate) fn emit_host_import_selftest() {
     let bad_length_logged = record_case("bad_length", bad_length);
     let bad_handle_logged = record_case("bad_handle", bad_handle);
     let bad_index_logged = record_case("bad_index", bad_index);
+    let device_absent_logged = record_case("device_absent", device_absent);
     let logged = missing_logged
         && wrong_sig_logged
         && bad_offset_logged
         && bad_length_logged
         && bad_handle_logged
-        && bad_index_logged;
+        && bad_index_logged
+        && device_absent_logged;
 
     let disk = wasi_build_job::compare_persist_region_hashes(controller, disk_before);
     let persistent_effect_free = match &disk {
@@ -585,7 +671,8 @@ pub(crate) fn emit_host_import_selftest() {
         && wrong_sig.surface_unchanged
         && bad_offset.surface_unchanged
         && bad_length.surface_unchanged
-        && bad_handle.surface_unchanged;
+        && bad_handle.surface_unchanged
+        && device_absent.surface_unchanged;
     let peer_effect_free = bad_handle.surface_unchanged && bad_index.surface_unchanged;
     let partial_effect_free = host_effect_free && peer_effect_free && persistent_effect_free;
     let pass = missing.passed()
@@ -594,11 +681,13 @@ pub(crate) fn emit_host_import_selftest() {
         && bad_length.passed()
         && bad_handle.passed()
         && bad_index.passed()
+        && device_absent.passed()
+        && device_surfaces_absent
         && logged
         && partial_effect_free;
 
     let mut line = alloc::format!(
-        "RAIOS_HOSTIMPORT selftest={} missing={} wrong_sig={} bad_offset={} bad_length={} bad_handle={} bad_index={} logged={} host_effect={} peer_effect={} persistent_effect={} partial_effect={}",
+        "RAIOS_HOSTIMPORT selftest={} missing={} wrong_sig={} bad_offset={} bad_length={} bad_handle={} bad_index={} device_import={} device_surfaces={} logged={} host_effect={} peer_effect={} persistent_effect={} partial_effect={}",
         if pass { "pass" } else { "fail" },
         if missing.passed() { "refused" } else { "failed" },
         if wrong_sig.passed() { "signature_mismatch" } else { "failed" },
@@ -606,6 +695,8 @@ pub(crate) fn emit_host_import_selftest() {
         if bad_length.passed() { "denied" } else { "failed" },
         if bad_handle.passed() { "denied" } else { "failed" },
         if bad_index.passed() { "denied" } else { "failed" },
+        if device_absent.passed() { "refused" } else { "failed" },
+        device_surface_count,
         u8::from(logged),
         if host_effect_free { 0 } else { 1 },
         if peer_effect_free { 0 } else { 1 },
@@ -621,6 +712,7 @@ pub(crate) fn emit_host_import_selftest() {
             ("bad_length", bad_length),
             ("bad_handle", bad_handle),
             ("bad_index", bad_index),
+            ("device_absent", device_absent),
         ],
     );
     if missing.passed()
@@ -629,6 +721,20 @@ pub(crate) fn emit_host_import_selftest() {
         && bad_length.passed()
         && bad_handle.passed()
         && bad_index.passed()
+        && device_absent.passed()
+        && !device_surfaces_absent
+    {
+        line.push_str(" hi_reason=device_surfaces=");
+        line.push_str(&alloc::format!("{device_surface_count}"));
+    }
+    if missing.passed()
+        && wrong_sig.passed()
+        && bad_offset.passed()
+        && bad_length.passed()
+        && bad_handle.passed()
+        && bad_index.passed()
+        && device_absent.passed()
+        && device_surfaces_absent
         && !persistent_effect_free
     {
         line.push_str(" hi_reason=persistent=persist_region_changed");
