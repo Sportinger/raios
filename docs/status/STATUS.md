@@ -25,12 +25,27 @@ Evidence: QEMU quick 501–502/502 with permanent needles RAIOS_WASI / RAIOS_THR
 chunks=32` (shadow-20260719-030038). Commits 4e17c10 (gate), 9028e61 (core
 authority), 30fb378 (kernel storage), 3f2a64a (deadlock), 98b2955 (fuel),
 15331a3 (limiter), 917174b (index). ADRs 0018–0021.
-Repro (seeded sysimport, needs the external image): pack the sysroot with
-`buildfs-pack`, seed `make-gpt-persist-image.py --seed-buildfs <dir>
---expect-manifest-sha256 13daf6f9… out.img`, then
-`shadow-vm-smoke.ps1 -Profile quick -PersistDiskPath out.img -TimeoutSeconds 600`
-with the `wasi.sysimport` needle. Next: compiler artifact (91 MB) same route,
-then hello.rs double-build = the W5 factory proof.
+**The real 91-MB rustc compiler now LOADS and INSTANTIATES in-kernel from the
+store** (27fa7f6): wasi.compilerload reads the pinned compiler BuildFS
+(1b9214df, 1457 chunks) through the granted reader, reassembles all 95_427_808
+bytes verified to sha c6dccf3e, `Module::new` parses the real rustc-wasm, its
+30 imports match the gate, it authorizes, and the linker instantiates it with
+the 399/16384 shared memory — `RAIOS_COMPILERLOAD stage=instantiated
+file_sha=ok imports=30 mem_pages=399` on the 8-GiB profile (shadow-20260719-
+040901, 502/502). Enabled by the idempotent-MMIO fix (86fe9b9): map_mmio
+cached identical device mappings, ending a VA leak that failed multi-thousand-
+read reassembly. Honest boundary: running the module's start section traps
+even with a full fuel budget (needs real threads + mounted files) — that is
+the execution milestone, not load.
+Repro (seeded, needs external images): pack with `buildfs-pack`, seed
+`make-gpt-persist-image.py --seed-buildfs <dir> --expect-manifest-sha256 <pin>
+out.img`, then `shadow-vm-smoke.ps1 -Profile quick -PersistDiskPath out.img
+-GuestMemoryMB 8192 -TimeoutSeconds 600` with the `wasi.sysimport` (sysroot
+pin 13daf6f9) or `wasi.compilerload` (compiler pin 1b9214df) needle. Next
+(execution milestone): a combined sysroot+compiler image (seeder multi-tree
+append), then run rustc through the resumable pump with the real T2 ThreadHost
+and the mounted sysroot — first `rustc --version`, then hello.rs double-build =
+the W5 factory proof.
 Open follow-ups (flagged, not blocking): map_mmio has no unmap path (VA leak,
 harmless at ~1163 mappings, matters when a full rustc run reads far more chunks);
 offline-seeded ARTSTOR frames are reclog-less and read as reserved to the store
