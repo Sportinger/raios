@@ -59,6 +59,11 @@ const WASI_MEM_OVER_CLASS_WASM: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/wasi_mem_over_class.wasm"));
 const COMPILER_ARTIFACT_SHA256: &str =
     "c6dccf3e5f01631b942a0a008b9f2f5312987e7d8590f8c61024cd00687a5791";
+const COMPILER_BUILD_FS_MANIFEST_SHA256: &str =
+    "1b9214df9abd5ea546353a7bea9f996705732f0cf19d3a0ff5cc9f38eebcaf15";
+const COMPILER_BUILD_FS_MANIFEST_LEN: u64 = 58_407;
+const COMPILER_FILE_LEN: u64 = 95_427_808;
+const COMPILER_CHUNK_COUNT: usize = 1_457;
 const JOB_MANIFEST_SHA256: &str =
     "1111111111111111111111111111111111111111111111111111111111111111";
 // docs/architecture/sysroot-buildfs-manifest-13daf6f9.md
@@ -67,6 +72,8 @@ const SYSROOT_BUILD_FS_MANIFEST_SHA256: &str =
 const SYSROOT_BUILD_FS_MANIFEST_LEN: u64 = 51_089;
 const SYSIMPORT_SAMPLE_TARGET: usize = 32;
 const SYSIMPORT_RUN_NONCE: u64 = 301;
+const COMPILERLOAD_READ_NONCE: u64 = 302;
+const COMPILERLOAD_INSTANCE_NONCE: u64 = 303;
 const REQUIRED_IMPORT_COUNT: usize = 30;
 const BUILD_STORE_INSTANCE_ID: u64 = 11;
 const BUILD_STORE_GENERATION: u64 = 13;
@@ -168,6 +175,88 @@ impl SysimportEvidence {
             passed: false,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CompilerLoadStage {
+    Failed,
+    Reassembled,
+    Parsed,
+    Authorized,
+    Instantiated,
+}
+
+impl CompilerLoadStage {
+    const fn token(self) -> &'static str {
+        match self {
+            Self::Failed => "failed",
+            Self::Reassembled => "reassembled",
+            Self::Parsed => "parsed",
+            Self::Authorized => "authorized",
+            Self::Instantiated => "instantiated",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CompilerFileSha {
+    Ok,
+    Mismatch,
+}
+
+impl CompilerFileSha {
+    const fn token(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Mismatch => "mismatch",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CompilerLoadEvidence {
+    stage: CompilerLoadStage,
+    bytes: usize,
+    file_sha: CompilerFileSha,
+    imports: usize,
+    mem_pages: u32,
+    reason: &'static str,
+}
+
+impl CompilerLoadEvidence {
+    const fn failed(reason: &'static str) -> Self {
+        Self {
+            stage: CompilerLoadStage::Failed,
+            bytes: 0,
+            file_sha: CompilerFileSha::Mismatch,
+            imports: 0,
+            mem_pages: 0,
+            reason,
+        }
+    }
+
+    const fn at(
+        stage: CompilerLoadStage,
+        bytes: usize,
+        file_sha: CompilerFileSha,
+        imports: usize,
+        mem_pages: u32,
+        reason: &'static str,
+    ) -> Self {
+        Self {
+            stage,
+            bytes,
+            file_sha,
+            imports,
+            mem_pages,
+            reason,
+        }
+    }
+}
+
+struct CompilerReassemblyFailure {
+    bytes: usize,
+    reason: &'static str,
 }
 
 impl WasiJobEvidence {
@@ -1345,6 +1434,569 @@ fn run_sysimport_selftest() -> SysimportEvidence {
     run_sysimport_granted_reads(&sysroot_manifest, reader)
 }
 
+fn compilerload_store_error(
+    error: crate::agent_protocol::artifact_store::BuildFsChunkFrameError,
+) -> &'static str {
+    match error {
+        crate::agent_protocol::artifact_store::BuildFsChunkFrameError::Missing => {
+            "store_frame_missing"
+        }
+        crate::agent_protocol::artifact_store::BuildFsChunkFrameError::Bounds => {
+            "store_frame_bounds"
+        }
+        crate::agent_protocol::artifact_store::BuildFsChunkFrameError::Malformed => {
+            "store_frame_malformed"
+        }
+        crate::agent_protocol::artifact_store::BuildFsChunkFrameError::LengthMismatch => {
+            "store_frame_length_mismatch"
+        }
+        crate::agent_protocol::artifact_store::BuildFsChunkFrameError::Io => "store_io",
+    }
+}
+
+fn compiler_file_len(file_len: u64) -> Result<usize, &'static str> {
+    if file_len > COMPILER_FILE_LEN {
+        return Err("file_too_large");
+    }
+    if file_len != COMPILER_FILE_LEN {
+        return Err("file_length_mismatch");
+    }
+    usize::try_from(file_len).map_err(|_| "file_length_overflow")
+}
+
+fn compiler_file_sha_status(actual: [u8; 32], expected: [u8; 32]) -> CompilerFileSha {
+    if actual == expected {
+        CompilerFileSha::Ok
+    } else {
+        CompilerFileSha::Mismatch
+    }
+}
+
+fn compilerload_negative_boundaries(expected_file_sha256: [u8; 32]) -> bool {
+    let Some(oversized) = COMPILER_FILE_LEN.checked_add(1) else {
+        return false;
+    };
+    if compiler_file_len(oversized) != Err("file_too_large") {
+        return false;
+    }
+    let mut mismatch = expected_file_sha256;
+    mismatch[0] ^= 1;
+    compiler_file_sha_status(mismatch, expected_file_sha256) == CompilerFileSha::Mismatch
+}
+
+fn load_compiler_manifest_and_reader() -> Result<(BuildFsManifest, GrantedChunkReader), &'static str>
+{
+    let manifest_pin =
+        parse_sha256_ref(COMPILER_BUILD_FS_MANIFEST_SHA256).ok_or("manifest_pin_invalid")?;
+    let session = crate::agent_protocol::artifact_store::begin_build_chunk_read_session(
+        BUILD_STORE_INSTANCE_ID,
+        BUILD_STORE_GENERATION,
+    )
+    .map_err(compilerload_store_error)?;
+    let manifest_frame = session
+        .resolve_chunk_frame(manifest_pin, COMPILER_BUILD_FS_MANIFEST_LEN)
+        .map_err(compilerload_store_error)?;
+    let manifest_len =
+        usize::try_from(COMPILER_BUILD_FS_MANIFEST_LEN).map_err(|_| "manifest_length_overflow")?;
+    let mut manifest_bytes = Vec::new();
+    manifest_bytes
+        .try_reserve_exact(manifest_len)
+        .map_err(|_| "manifest_allocation_failed")?;
+    manifest_bytes.resize(manifest_len, 0);
+    session
+        .read_chunk_frame(manifest_frame, &mut manifest_bytes)
+        .map_err(compilerload_store_error)?;
+    let recomputed_manifest_sha256 = sha256_bytes(&manifest_bytes);
+    if recomputed_manifest_sha256 != manifest_pin {
+        return Err("manifest_hash_mismatch");
+    }
+    let compiler_manifest = parse_canonical_buildfs_manifest(&manifest_bytes)?;
+    let canonical_manifest_sha256 = compiler_manifest.sha256().map_err(|_| "manifest_invalid")?;
+    if canonical_manifest_sha256 != recomputed_manifest_sha256
+        || canonical_manifest_sha256 != manifest_pin
+    {
+        return Err("manifest_hash_mismatch");
+    }
+    let empty_src = empty_manifest().ok_or("reader_src_manifest_failed")?;
+    let reader_job =
+        authorize_for_manifests(&compiler_manifest, &empty_src).ok_or("reader_job_unauthorized")?;
+    let authority = storage_authority(&reader_job, &compiler_manifest, &empty_src)
+        .ok_or("reader_storage_unauthorized")?;
+    let nonce =
+        BuildRunNonce::kernel_minted(COMPILERLOAD_READ_NONCE).ok_or("reader_nonce_failed")?;
+    let reader = materialize_build_storage(
+        &authority,
+        &compiler_manifest,
+        &empty_src,
+        nonce,
+        Box::new(session),
+    )
+    .map_err(|error| error.reason())?;
+    if reader.job_binding_sha256() != authority.job_binding_sha256()
+        || reader.run_nonce() != COMPILERLOAD_READ_NONCE
+        || reader.store_generation() != BUILD_STORE_GENERATION
+    {
+        return Err("reader_binding_mismatch");
+    }
+    Ok((compiler_manifest, reader))
+}
+
+fn reassemble_compiler(
+    manifest: &BuildFsManifest,
+    mut reader: GrantedChunkReader,
+    expected_file_sha256: [u8; 32],
+) -> Result<Vec<u8>, CompilerReassemblyFailure> {
+    if manifest.files.len() != 1 {
+        return Err(CompilerReassemblyFailure {
+            bytes: 0,
+            reason: "manifest_file_count_mismatch",
+        });
+    }
+    let file = &manifest.files[0];
+    let file_len = compiler_file_len(file.len)
+        .map_err(|reason| CompilerReassemblyFailure { bytes: 0, reason })?;
+    if file.sha256 != expected_file_sha256 {
+        return Err(CompilerReassemblyFailure {
+            bytes: 0,
+            reason: "manifest_file_sha_mismatch",
+        });
+    }
+    if file.chunks.len() != COMPILER_CHUNK_COUNT || reader.entry_count() != COMPILER_CHUNK_COUNT {
+        return Err(CompilerReassemblyFailure {
+            bytes: 0,
+            reason: "chunk_count_mismatch",
+        });
+    }
+    let buildfs = project_core_manifest(manifest).map_err(|error| CompilerReassemblyFailure {
+        bytes: 0,
+        reason: error.reason(),
+    })?;
+    let path = NormalizedPath::root()
+        .resolve(file.path.as_bytes())
+        .map_err(|_| CompilerReassemblyFailure {
+            bytes: 0,
+            reason: "file_path_invalid",
+        })?;
+    let file_node = buildfs
+        .node_for_path(&path)
+        .map_err(|_| CompilerReassemblyFailure {
+            bytes: 0,
+            reason: "file_projection_failed",
+        })?;
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(file_len)
+        .map_err(|_| CompilerReassemblyFailure {
+            bytes: 0,
+            reason: "file_allocation_failed",
+        })?;
+    bytes.resize(file_len, 0);
+    let mut offset = 0usize;
+    for (chunk_index, chunk) in file.chunks.iter().enumerate() {
+        let chunk_len = usize::try_from(chunk.len).map_err(|_| CompilerReassemblyFailure {
+            bytes: offset,
+            reason: "chunk_length_overflow",
+        })?;
+        let end = offset
+            .checked_add(chunk_len)
+            .filter(|end| *end <= file_len)
+            .ok_or(CompilerReassemblyFailure {
+                bytes: offset,
+                reason: "chunk_range_exceeds_file",
+            })?;
+        let chunk_index = u64::try_from(chunk_index).map_err(|_| CompilerReassemblyFailure {
+            bytes: offset,
+            reason: "chunk_index_overflow",
+        })?;
+        let request = ChunkReadRequest {
+            mount_id: SYSROOT_MOUNT,
+            file: file_node,
+            file_sha256: file.sha256,
+            chunk_index,
+            chunk_sha256: chunk.sha256,
+            range_offset: 0,
+            range_len: chunk.len,
+        };
+        if reader.read_chunk(request, &mut bytes[offset..end]).is_err() {
+            return Err(CompilerReassemblyFailure {
+                bytes: offset,
+                reason: reader
+                    .last_denial()
+                    .map(GrantedChunkReadDenied::reason)
+                    .unwrap_or("chunk_read_failed"),
+            });
+        }
+        offset = end;
+    }
+    if offset != file_len {
+        return Err(CompilerReassemblyFailure {
+            bytes: offset,
+            reason: "reassembled_length_mismatch",
+        });
+    }
+    if compiler_file_sha_status(sha256_bytes(&bytes), expected_file_sha256) != CompilerFileSha::Ok {
+        return Err(CompilerReassemblyFailure {
+            bytes: offset,
+            reason: "whole_file_sha_mismatch",
+        });
+    }
+    Ok(bytes)
+}
+
+fn instantiate_compiler(
+    engine: Engine,
+    module: Module,
+    authorized: AuthorizedBuildJob,
+    sysroot_manifest: &BuildFsManifest,
+    src_manifest: &BuildFsManifest,
+    byte_count: usize,
+    import_count: usize,
+) -> CompilerLoadEvidence {
+    let class = *authorized.guest_class();
+    let instance = match build_instance(&authorized, class, sysroot_manifest, src_manifest) {
+        Some(instance) => instance,
+        None => {
+            return CompilerLoadEvidence::at(
+                CompilerLoadStage::Instantiated,
+                byte_count,
+                CompilerFileSha::Ok,
+                import_count,
+                0,
+                "build_instance_failed",
+            )
+        }
+    };
+    let authority = match storage_authority(&authorized, sysroot_manifest, src_manifest) {
+        Some(authority) => authority,
+        None => {
+            return CompilerLoadEvidence::at(
+                CompilerLoadStage::Instantiated,
+                byte_count,
+                CompilerFileSha::Ok,
+                import_count,
+                0,
+                "storage_authority_failed",
+            )
+        }
+    };
+    let nonce = match BuildRunNonce::kernel_minted(COMPILERLOAD_INSTANCE_NONCE) {
+        Some(nonce) => nonce,
+        None => {
+            return CompilerLoadEvidence::at(
+                CompilerLoadStage::Instantiated,
+                byte_count,
+                CompilerFileSha::Ok,
+                import_count,
+                0,
+                "instance_nonce_failed",
+            )
+        }
+    };
+    let reader = match materialize_build_storage(
+        &authority,
+        sysroot_manifest,
+        src_manifest,
+        nonce,
+        Box::new(UnbackedChunkStore::new(
+            BUILD_STORE_INSTANCE_ID,
+            BUILD_STORE_GENERATION,
+        )),
+    ) {
+        Ok(reader) => reader,
+        Err(error) => {
+            return CompilerLoadEvidence::at(
+                CompilerLoadStage::Instantiated,
+                byte_count,
+                CompilerFileSha::Ok,
+                import_count,
+                0,
+                error.reason(),
+            )
+        }
+    };
+    if reader.entry_count() != 0
+        || reader.job_binding_sha256() != authority.job_binding_sha256()
+        || reader.run_nonce() != COMPILERLOAD_INSTANCE_NONCE
+        || reader.store_generation() != BUILD_STORE_GENERATION
+    {
+        return CompilerLoadEvidence::at(
+            CompilerLoadStage::Instantiated,
+            byte_count,
+            CompilerFileSha::Ok,
+            import_count,
+            0,
+            "instance_reader_binding_mismatch",
+        );
+    }
+    let mut store = Store::new(&engine, WasiHostState::new(instance, reader));
+    store.limiter(|state| state);
+    let memory_type = match MemoryType::new_shared(
+        class.shared_memory.initial_pages,
+        class.shared_memory.max_pages,
+    ) {
+        Ok(memory_type) => memory_type,
+        Err(_) => {
+            return CompilerLoadEvidence::at(
+                CompilerLoadStage::Instantiated,
+                byte_count,
+                CompilerFileSha::Ok,
+                import_count,
+                0,
+                "memory_type_invalid",
+            )
+        }
+    };
+    let memory = match Memory::new(&mut store, memory_type) {
+        Ok(memory) => memory,
+        Err(_) => {
+            return CompilerLoadEvidence::at(
+                CompilerLoadStage::Instantiated,
+                byte_count,
+                CompilerFileSha::Ok,
+                import_count,
+                0,
+                "memory_allocation_failed",
+            )
+        }
+    };
+    let memory_pages = u32::from(memory.current_pages(&store));
+    if memory_pages != class.shared_memory.initial_pages {
+        return CompilerLoadEvidence::at(
+            CompilerLoadStage::Instantiated,
+            byte_count,
+            CompilerFileSha::Ok,
+            import_count,
+            memory_pages,
+            "memory_initial_mismatch",
+        );
+    }
+    store.data_mut().install_memory(memory);
+    let mut linker = Linker::<WasiHostState>::new(&engine);
+    let registered = match define_wasi_imports(&mut linker, memory) {
+        Ok(registered) => registered,
+        Err(()) => {
+            return CompilerLoadEvidence::at(
+                CompilerLoadStage::Instantiated,
+                byte_count,
+                CompilerFileSha::Ok,
+                import_count,
+                memory_pages,
+                "linker_definition_failed",
+            )
+        }
+    };
+    if registered != REQUIRED_IMPORT_COUNT
+        || registered != RUSTC_WASM_C6DCCF3E_IMPORTS.len()
+        || registered != authorized.authorized_import_count()
+    {
+        return CompilerLoadEvidence::at(
+            CompilerLoadStage::Instantiated,
+            byte_count,
+            CompilerFileSha::Ok,
+            import_count,
+            memory_pages,
+            "linker_count_mismatch",
+        );
+    }
+    let pre = match linker.instantiate(&mut store, &module) {
+        Ok(pre) => pre,
+        Err(_) => {
+            return CompilerLoadEvidence::at(
+                CompilerLoadStage::Instantiated,
+                byte_count,
+                CompilerFileSha::Ok,
+                import_count,
+                memory_pages,
+                "instantiate_failed",
+            )
+        }
+    };
+    // The module PARSED, authorized against the exact-30 gate, and its shared
+    // memory + linker instantiated to an InstancePre — that IS the
+    // load+instantiate milestone. pre.start() then runs any declared start
+    // section (the first guest bytecode); unlike the runner it is not
+    // resumable, so give the store a whole job's fuel budget up front so a
+    // fuel-bounded start section can complete. A remaining error means the
+    // start section needs something this isolated load cannot give (files,
+    // real threads) — that is the execution milestone, reported honestly.
+    // rustc's exported `_start` is never looked up or invoked here.
+    let _ = store.add_fuel(RUSTC_BUILD_GUEST_CLASS_V1.max_total_fuel);
+    if pre.start(&mut store).is_err() {
+        return CompilerLoadEvidence::at(
+            CompilerLoadStage::Instantiated,
+            byte_count,
+            CompilerFileSha::Ok,
+            import_count,
+            memory_pages,
+            "start_section_trapped",
+        );
+    }
+    CompilerLoadEvidence::at(
+        CompilerLoadStage::Instantiated,
+        byte_count,
+        CompilerFileSha::Ok,
+        import_count,
+        memory_pages,
+        "none",
+    )
+}
+
+fn run_compilerload() -> CompilerLoadEvidence {
+    let Some(expected_file_sha256) = parse_sha256_ref(COMPILER_ARTIFACT_SHA256) else {
+        return CompilerLoadEvidence::failed("file_sha_pin_invalid");
+    };
+    if !compilerload_negative_boundaries(expected_file_sha256) {
+        return CompilerLoadEvidence::failed("negative_boundary_failed");
+    }
+    let (compiler_manifest, reader) = match load_compiler_manifest_and_reader() {
+        Ok(loaded) => loaded,
+        Err(reason) => return CompilerLoadEvidence::failed(reason),
+    };
+    let bytes = match reassemble_compiler(&compiler_manifest, reader, expected_file_sha256) {
+        Ok(bytes) => bytes,
+        Err(failure) => {
+            return CompilerLoadEvidence::at(
+                CompilerLoadStage::Reassembled,
+                failure.bytes,
+                CompilerFileSha::Mismatch,
+                0,
+                0,
+                failure.reason,
+            )
+        }
+    };
+    let byte_count = bytes.len();
+    drop(compiler_manifest);
+
+    let engine = wasi_engine();
+    let module = match Module::new(&engine, bytes.as_slice()) {
+        Ok(module) => module,
+        Err(_) => {
+            return CompilerLoadEvidence::at(
+                CompilerLoadStage::Parsed,
+                byte_count,
+                CompilerFileSha::Ok,
+                0,
+                0,
+                "module_invalid",
+            )
+        }
+    };
+    drop(bytes);
+    let observed = observed_imports(&module);
+    let declarations: Vec<_> = observed.iter().map(ObservedImport::declaration).collect();
+    let import_count = declarations.len();
+    let imports_match = declarations.as_slice() == RUSTC_WASM_C6DCCF3E_IMPORTS;
+    let Some(sysroot_manifest) = empty_manifest() else {
+        return CompilerLoadEvidence::at(
+            CompilerLoadStage::Parsed,
+            byte_count,
+            CompilerFileSha::Ok,
+            import_count,
+            0,
+            "sysroot_manifest_failed",
+        );
+    };
+    let Some(src_manifest) = empty_manifest() else {
+        return CompilerLoadEvidence::at(
+            CompilerLoadStage::Parsed,
+            byte_count,
+            CompilerFileSha::Ok,
+            import_count,
+            0,
+            "src_manifest_failed",
+        );
+    };
+    let sysroot_mount_hash = match sysroot_manifest.sha256() {
+        Ok(hash) => hash,
+        Err(_) => {
+            return CompilerLoadEvidence::at(
+                CompilerLoadStage::Parsed,
+                byte_count,
+                CompilerFileSha::Ok,
+                import_count,
+                0,
+                "sysroot_manifest_invalid",
+            )
+        }
+    };
+    let src_mount_hash = match src_manifest.sha256() {
+        Ok(hash) => hash,
+        Err(_) => {
+            return CompilerLoadEvidence::at(
+                CompilerLoadStage::Parsed,
+                byte_count,
+                CompilerFileSha::Ok,
+                import_count,
+                0,
+                "src_manifest_invalid",
+            )
+        }
+    };
+    let gate = AuthorizedBuildJob::authorize(AuthorizedBuildJobRequest {
+        wasi_grant: ScopedWasiBuildGrant {
+            compiler_artifact_sha256: COMPILER_ARTIFACT_SHA256,
+            job_manifest_sha256: JOB_MANIFEST_SHA256,
+            inventory_imports_sha256: RUSTC_WASM_C6DCCF3E_CANONICAL_IMPORTS_SHA256,
+            declared_imports: RUSTC_WASM_C6DCCF3E_IMPORTS,
+        },
+        observed_imports: &declarations,
+        guest_class: RUSTC_BUILD_GUEST_CLASS_V1,
+        sysroot_mount_manifest_sha256: sysroot_mount_hash,
+        src_mount_manifest_sha256: src_mount_hash,
+    });
+    if !imports_match {
+        let reason = match gate {
+            Err(denied) => denied.reason(),
+            Ok(_) => "gate_accepted_import_mismatch",
+        };
+        return CompilerLoadEvidence::at(
+            CompilerLoadStage::Authorized,
+            byte_count,
+            CompilerFileSha::Ok,
+            import_count,
+            0,
+            reason,
+        );
+    }
+    let authorized = match gate {
+        Ok(authorized) => authorized,
+        Err(denied) => {
+            return CompilerLoadEvidence::at(
+                CompilerLoadStage::Authorized,
+                byte_count,
+                CompilerFileSha::Ok,
+                import_count,
+                0,
+                denied.reason(),
+            )
+        }
+    };
+    if authorized.compiler_artifact_sha256() != expected_file_sha256
+        || authorized.authorized_import_count() != REQUIRED_IMPORT_COUNT
+    {
+        return CompilerLoadEvidence::at(
+            CompilerLoadStage::Authorized,
+            byte_count,
+            CompilerFileSha::Ok,
+            import_count,
+            0,
+            "gate_binding_mismatch",
+        );
+    }
+    drop(declarations);
+    drop(observed);
+    instantiate_compiler(
+        engine,
+        module,
+        authorized,
+        &sysroot_manifest,
+        &src_manifest,
+        byte_count,
+        import_count,
+    )
+}
+
 fn empty_authority_for_ok_fixture() -> Option<BuildStorageAuthority> {
     let engine = wasi_engine();
     let module = Module::new(&engine, WASI_BUILD_OK_WASM).ok()?;
@@ -1536,6 +2188,19 @@ pub(crate) fn emit_wasi_sysimport() {
         evidence.deny,
         evidence.detail,
         evidence.at,
+    ));
+}
+
+pub(crate) fn emit_wasi_compilerload() {
+    let evidence = run_compilerload();
+    crate::serial::write_raw_fmt(format_args!(
+        "RAIOS_COMPILERLOAD stage={} bytes={} file_sha={} imports={} mem_pages={} reason={}\n",
+        evidence.stage.token(),
+        evidence.bytes,
+        evidence.file_sha.token(),
+        evidence.imports,
+        evidence.mem_pages,
+        evidence.reason,
     ));
 }
 
