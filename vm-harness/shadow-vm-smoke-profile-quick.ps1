@@ -1056,34 +1056,79 @@
             }
         }
 
+        $xhciRows = @($envelopedDeviceGraph.facts.devices | Where-Object { $_.id -eq "usb.xhci" })
+        if ($xhciRows.Count -ne 1) {
+            throw "Expected device.graph to carry exactly one usb.xhci row"
+        }
+        if ($xhciRows[0].state -ne "ready") {
+            throw "Expected device.graph usb.xhci row to be ready"
+        }
+        $xhciPciProperty = $xhciRows[0].PSObject.Properties["pci"]
+        if ($null -eq $xhciPciProperty -or $null -eq $xhciPciProperty.Value) {
+            throw "Expected ready device.graph usb.xhci row to carry observed pci data"
+        }
+        foreach ($field in @("bus", "device", "function", "interrupt_line", "interrupt_pin")) {
+            $property = $xhciPciProperty.Value.PSObject.Properties[$field]
+            if ($null -eq $property -or -not (& $isJsonInteger $property.Value)) {
+                throw "Expected device.graph usb.xhci pci data to carry numeric $field"
+            }
+        }
+        $xhciVendorProperty = $xhciPciProperty.Value.PSObject.Properties["vendor_id"]
+        if ($null -eq $xhciVendorProperty -or -not (& $isJsonInteger $xhciVendorProperty.Value) -or $xhciVendorProperty.Value -eq 0xffff) {
+            throw "Expected device.graph usb.xhci pci data to carry an observed numeric vendor_id"
+        }
+        $xhciBarsProperty = $xhciPciProperty.Value.PSObject.Properties["bars"]
+        if ($null -eq $xhciBarsProperty -or $xhciBarsProperty.Value -isnot [System.Array] -or @($xhciBarsProperty.Value).Count -lt 1) {
+            throw "Expected device.graph usb.xhci pci data to carry a non-empty bars array"
+        }
+        foreach ($bar in @($xhciBarsProperty.Value)) {
+            foreach ($field in @("base", "size")) {
+                $property = $bar.PSObject.Properties[$field]
+                if ($null -eq $property -or -not (& $isJsonInteger $property.Value)) {
+                    throw "Expected every device.graph usb.xhci BAR to carry numeric $field"
+                }
+            }
+        }
+
         $e1000Rows = @($envelopedDeviceGraph.facts.devices | Where-Object { $_.id -eq "net.e1000" })
         if ($e1000Rows.Count -ne 1) {
             throw "Expected device.graph to carry exactly one net.e1000 row"
         }
         $e1000PciProperty = $e1000Rows[0].PSObject.Properties["pci"]
-        if ($null -eq $e1000PciProperty -or $null -eq $e1000PciProperty.Value) {
-            throw "Expected device.graph net.e1000 row to carry observed pci data"
-        }
-        foreach ($field in @("bus", "device", "function", "vendor_id", "device_id", "class", "subclass", "prog_if", "interrupt_line", "interrupt_pin")) {
-            $property = $e1000PciProperty.Value.PSObject.Properties[$field]
-            if ($null -eq $property -or -not (& $isJsonInteger $property.Value)) {
-                throw "Expected device.graph net.e1000 pci data to carry numeric $field"
+        if ($e1000Rows[0].state -eq "missing") {
+            if ($null -eq $e1000PciProperty -or $null -ne $e1000PciProperty.Value) {
+                throw "Expected missing device.graph net.e1000 row to carry pci null"
             }
-        }
-        $e1000BarsProperty = $e1000PciProperty.Value.PSObject.Properties["bars"]
-        if ($null -eq $e1000BarsProperty -or $e1000BarsProperty.Value -isnot [System.Array] -or @($e1000BarsProperty.Value).Count -lt 1) {
-            throw "Expected device.graph net.e1000 pci data to carry a non-empty bars array"
-        }
-        foreach ($bar in @($e1000BarsProperty.Value)) {
-            foreach ($field in @("index", "base", "size")) {
-                $property = $bar.PSObject.Properties[$field]
+        } elseif ($e1000Rows[0].state -eq "ready") {
+            if ($null -eq $e1000PciProperty -or $null -eq $e1000PciProperty.Value) {
+                throw "Expected ready device.graph net.e1000 row to carry observed pci data"
+            }
+            foreach ($field in @("bus", "device", "function", "vendor_id", "device_id", "class", "subclass", "prog_if", "interrupt_line", "interrupt_pin")) {
+                $property = $e1000PciProperty.Value.PSObject.Properties[$field]
                 if ($null -eq $property -or -not (& $isJsonInteger $property.Value)) {
-                    throw "Expected every device.graph net.e1000 BAR to carry numeric $field"
+                    throw "Expected ready device.graph net.e1000 pci data to carry numeric $field"
                 }
             }
-            if ($null -eq $bar.PSObject.Properties["kind"] -or @("io", "memory32", "memory64") -notcontains $bar.kind) {
-                throw "Expected every device.graph net.e1000 BAR to carry a typed kind"
+            if ($e1000PciProperty.Value.vendor_id -eq 0xffff) {
+                throw "Expected ready device.graph net.e1000 pci data to exclude absent vendor 0xffff"
             }
+            $e1000BarsProperty = $e1000PciProperty.Value.PSObject.Properties["bars"]
+            if ($null -eq $e1000BarsProperty -or $e1000BarsProperty.Value -isnot [System.Array] -or @($e1000BarsProperty.Value).Count -lt 1) {
+                throw "Expected ready device.graph net.e1000 pci data to carry a non-empty bars array"
+            }
+            foreach ($bar in @($e1000BarsProperty.Value)) {
+                foreach ($field in @("index", "base", "size")) {
+                    $property = $bar.PSObject.Properties[$field]
+                    if ($null -eq $property -or -not (& $isJsonInteger $property.Value)) {
+                        throw "Expected every ready device.graph net.e1000 BAR to carry numeric $field"
+                    }
+                }
+                if ($null -eq $bar.PSObject.Properties["kind"] -or @("io", "memory32", "memory64") -notcontains $bar.kind) {
+                    throw "Expected every ready device.graph net.e1000 BAR to carry a typed kind"
+                }
+            }
+        } else {
+            throw "Expected device.graph net.e1000 row to be missing with pci null or ready with observed pci data"
         }
 
         $wifiRows = @($envelopedDeviceGraph.facts.devices | Where-Object { $_.id -eq "wifi.avastar_88w8897" })
