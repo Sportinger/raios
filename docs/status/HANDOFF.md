@@ -7,42 +7,42 @@
 > fitting plan under `docs/plans/`. Max ~4 lines of text per entry, file max
 > 60 lines. Replace, never append.
 
-## Now (as of 2026-07-19 ~17:45, loop running)
+## Now (as of 2026-07-19 ~18:25, loop running)
 
-**rustc COMPILES CLEAN ON-DEVICE: exit 0, 0 denials, 0 stderr, 297 KB out**
-(shadow-20260719-171059; EXCL was the last wall, chain in STATUS). §7
-CLOSED; §4 PCI box green; §2 storage boxes green in BOTH environments
-(quick+persist 507/507, persistence native 47/47 after fixture resize
-c0fe74f + per-command timeout e5d315f→062c9e2-rebase). §3: donor spine
-green; B-seed persist disk minted (raios-shadow-20260719-170525). Remote
-gained website-deploy commits from the other session (rebased over).
+**§6 CORE PROVEN: hello.wasm compiled ON raiOS, hash-sealed** —
+`exit=0 reason=none out_files=1 out_sha=bc5b7311…` (shadow-…-172854,
+507/507; boxes 06:72+74 checked b8c573c). Today also closed: §7 whole
+section, §4 PCI box, §2 storage boxes (both environments). §3 box 03:46
+PARKED: 3 strategies exhausted (no durable service-B in image; external
+persist disk forbidden by design; no real foreign-persist vocabulary —
+artifact selftest is writes_persistent_state=false, run …-175703 157/158).
+Root gap: kernel lacks per-record durable-scan evidence (B4 report).
 
 ## Next step
 
-Two closing lanes running: (a) §6 temps-dir argv (-Ctemps-dir=/tmp) so
-/out holds exactly hello.wasm → completion contract computes out_sha →
-rerun quick+persist (temp rustcbuild patch in tree, uncommitted) → check
-§6 box 06:72. (b) §3 records-family fallback for domain B → rerun
-rollback-isolation with -Network -PersistDiskPath
-<temp>\raios-shadow-20260719-170525-6196\raios-persist-gpt.img → check
-03:46. Owner-gated: §5/§6 wording reframe; bare-metal run; loop hardware.
+Unblock 03:46 via a kernel lane: read-only per-record RECLOG scan evidence
+(mirror artifact.store_scan's records[]; family+seq+hashes, bounded) →
+then rollback-isolation's seed (memory.observation_log_append is the one
+REAL agent persist) + records-B observe it independently. Profile is
+committed and fails closed at iso:B_seed until then (53b6a31). Also open:
+§2 lifecycle (<1 s restart), §1 fuel/F12/watchdog boxes, §4 fabric rows.
+Owner-gated: §5/§6 wording reframe; bare-metal run; loop hardware.
 
 ## Recently (exactly 3, newest first)
 
+### 2026-07-19 — hello.wasm: raiOS compiles a real program on itself
+Denied-open capture (7e5a55a) exposed the last wall live: lld creates its
+output O_CREAT|O_EXCL. EXCL support (d116e01) + temps→/tmp (0e90e78) →
+exit 0, out_files=1, sha bc5b7311…, 0 denials, 0 stderr. 06:72+74 checked.
+
+### 2026-07-19 — §3 parked on a real evidence gap
+Three B-strategies dead: no durable service in image; external disk
+forbidden; no real foreign-persist command (selftests write nothing).
+157/158 green run; profile fails closed at iso:B_seed. Unblock = kernel
+per-record durable-scan lane, queued first for the next iteration.
+
 ### 2026-07-19 — §7 closed; §4 introspection + §2 storage negatives land
-Rule 12 enforces top-level-vs-breakdown consistency (red paths self-tested)
-→ all §7 groups green. device.graph carries PCI IDs/BARs/IRQs +
-pci_functions walk; fabricated-PCI-for-absent-hardware fails. storage.
-selftest: absent grant/out-of-range/quota denied + full-disk hash equality.
-
-### 2026-07-19 — rustc reaches the LINKER on-device
-Writable-arena attenuation (ccb31b2) tore down the rmeta create wall:
-codegen completes, out_files=2, rust-lld runs and fails only on
-/out/hello.wasm (735 rounds). Preopen/from_bits hypotheses host-falsified
-(28098c9, 67/67). Frontier = guest-exact open args; diag run in flight.
-
-### 2026-07-19 — rollback-isolation: spine green, B missing
-New §3 profile mirrors m6d verbatim + 3 isolation predicates; live run:
-256/256 donor predicates green, then a PS 5.1 [ordered]/@() quirk killed
-the run pre-predicate — fixed crash-proof (8613708). Real finding: per-run
-image has NO independent durable domain B → seed via persistence disk.
+Rule 12 breakdown-consistency (red paths self-tested) → §7 all green.
+device.graph carries PCI IDs/BARs/IRQs + pci_functions; fabricated PCI
+fails. storage.selftest: absent/range/quota denied, disk hashes unchanged
+in both quick+persist (507/507) and native persistence (47/47).
