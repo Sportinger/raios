@@ -9,8 +9,12 @@
 ## Service primitives
 - [ ] Create a fresh Wasm service/guest with zero capability imports by default
 - [ ] Grant/revoke a typed capability import explicitly, with each transition logged
-- [ ] Kill a service immediately, reclaim its guest resources, and prevent the
-      guest from blocking teardown
+- [x] Kill a service immediately, reclaim its guest resources, and prevent the
+      guest from blocking teardown — m11-beyond-env-lifecycle
+      (shadow-20260714-123624, 183/183): F12 kill of a running/spinning guest
+      with killed_cleanup_guest_bound (resources reclaimed) and
+      terminal_matrix_exactly_once (teardown once, unblockable). Verified
+      2026-07-19.
 - [ ] Negative tests: a guest cannot manage another service, and a zero-grant
       guest's host call is denied + logged with zero host effect
 
@@ -39,8 +43,12 @@
       mutable guest state from the previous life)
 - [ ] Crash loop detection: N rapid crashes → service parked + reported, not
       respawned forever
-- [ ] Negative test: after kill/restart, the old instance cannot run or write,
-      and an ungranted authority from its prior life remains denied
+- [x] Negative test: after kill/restart, the old instance cannot run or write,
+      and an ungranted authority from its prior life remains denied —
+      m11-beyond-env-lifecycle (shadow-20260714-123624, 183/183):
+      second_run_after_kill starts a fresh instance while the killed one is
+      gone (exactly-once terminal), and the beyond-env import stays denied.
+      Verified 2026-07-19.
 
 ## Floor contract
 - [ ] The full Wasm import + service-capability floor fits in one document
