@@ -111,7 +111,9 @@
 
 ## unsafe inventory
 - [ ] Every `unsafe` block tagged with reason + invariant it relies on
-- [ ] Inventory generated from source, count tracked per build
+- [x] Inventory generated from source, count tracked per build — schema-v2
+      baseline and both supported build wrappers are hash-bound and fail closed
+      (`3e33e0c`, R57; 389 sites tracked).
 - [ ] Each inventoried site covered by at least one predicate exercising it
 
 ## RECLOG serial/debug
