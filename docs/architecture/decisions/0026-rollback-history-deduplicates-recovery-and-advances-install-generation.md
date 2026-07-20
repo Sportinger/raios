@@ -1,6 +1,11 @@
 # 0026 — Rollback history deduplicates recovery and advances install generation
 
-Date: 2026-07-20 · Status: active
+Date: 2026-07-20 · Status: superseded in part by ADR 0029
+
+ADR 0029 supersedes this ADR's recovery re-persist deduplication decision after
+review proved that legitimate recovery and an authentic replay are
+cryptographically indistinguishable in the current durable format. The strict
+install ordering and new-physical-install generation decisions remain active.
 
 ## Context
 
