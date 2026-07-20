@@ -2,7 +2,7 @@
 
 ## Projektgrenze
 
-Dieses Repository auf `main` ist ausschließlich die öffentliche raiOS-Website mit eingebettetem UI Lab. Kernel, Bootloader, Rust-Workspace, QEMU-Images, Toolchains und sonstige Betriebssystem-Implementierungen gehören nicht in diesen Branch.
+Der Branch `website` ist ausschließlich die öffentliche raiOS-Website mit eingebettetem UI Lab. Kernel, Bootloader, Rust-Workspace, QEMU-Images, Toolchains und sonstige Betriebssystem-Implementierungen gehören nicht in diesen Branch.
 
 Keine entfernten OS-Bestandteile neu anlegen oder aus anderen Branches übernehmen, sofern der Nutzer dies nicht ausdrücklich verlangt.
 
@@ -46,16 +46,16 @@ pwsh ./scripts/build-pages-site.ps1
 
 Bei visuellen Änderungen die Seite zusätzlich über einen lokalen HTTP-Server im Browser prüfen. Dabei Website- und UI-Lab-Modus sowie relevante Timeline-Positionen testen.
 
-Für dieses Website-Repository ist keine QEMU-Prüfung erforderlich. QEMU- oder Bare-Metal-Skripte gehören nicht zum aktuellen `main`-Branch.
+Für dieses Website-Repository ist keine QEMU-Prüfung erforderlich. QEMU- oder Bare-Metal-Skripte gehören nicht zum Branch `website`.
 
 ## Git und Deployment
 
 - Nur die konkret bearbeiteten Dateien stagen.
 - Keine fremden Änderungen verwerfen, zurücksetzen oder überschreiben.
 - Nicht committen oder pushen, außer der Nutzer verlangt es ausdrücklich.
-- Ein Push relevanter Website-Pfade auf `main` startet den Workflow `.github/workflows/deploy-raios-pages.yml` und kann die produktive Website verändern.
+- Ein Push relevanter Website-Pfade auf `website` startet den Workflow `.github/workflows/deploy-raios-pages.yml` und kann die produktive Website verändern. Der Workflow deployt dabei ausdrücklich den Cloudflare-Pages-Branch `website`.
 - Vor einem angeforderten Push muss der Produktions-Build erfolgreich durchlaufen.
 
 ## Dokumentation
 
-Wenn sich Einstieg, Architektur, Build oder Deployment ändern, `README.md`, `AGENTS.md` und gegebenenfalls `CLAUDE.md` konsistent aktualisieren.
+Wenn sich Einstieg, Architektur, Build oder Deployment ändern, `README.md` und `AGENTS.md` konsistent aktualisieren.

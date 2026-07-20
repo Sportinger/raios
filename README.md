@@ -2,7 +2,7 @@
 
 [raios.tech](https://raios.tech) ist die öffentliche Website von raiOS. Dieses Repository enthält außerdem das interaktive UI Lab, in dem die Oberfläche und ihre animierten Abläufe direkt im Browser erlebbar sind.
 
-Der Branch `main` ist bewusst ein reines Website-Repository. Er enthält weder Kernel-Quellcode noch ein bootfähiges Betriebssystem oder eine QEMU-Umgebung.
+Der Branch `website` ist bewusst ein reines Website-Repository. Er enthält weder Kernel-Quellcode noch ein bootfähiges Betriebssystem oder eine QEMU-Umgebung.
 
 ## Inhalt
 
@@ -40,7 +40,7 @@ Das Skript erzeugt `pages-dist/` und führt dabei grundlegende Prüfungen für r
 
 ## Deployment
 
-Änderungen an den Website-Dateien auf `main` werden über [GitHub Actions](.github/workflows/deploy-raios-pages.yml) in das Cloudflare-Pages-Projekt `raios-site` deployt. Die produktive Domain ist [raios.tech](https://raios.tech).
+Änderungen an den Website-Dateien auf `website` werden über [GitHub Actions](.github/workflows/deploy-raios-pages.yml) in den Cloudflare-Pages-Branch `website` des Projekts `raios-site` deployt. Die produktive Domain ist [raios.tech](https://raios.tech).
 
 Reine Dokumentationsänderungen lösen aufgrund der Pfadfilter im Workflow kein Deployment aus.
 
@@ -65,7 +65,7 @@ Reine Dokumentationsänderungen lösen aufgrund der Pfadfilter im Workflow kein 
 - Der Filmablauf wird zentral und deterministisch über `ui-lab/site/film.js` gesteuert.
 - Neue Frameworks, Bundler oder Laufzeitabhängigkeiten sind für die aktuelle Architektur nicht vorgesehen.
 
-Weitere verbindliche Hinweise für Coding-Agenten stehen in [AGENTS.md](AGENTS.md). Claude Code liest zusätzlich [CLAUDE.md](CLAUDE.md).
+Weitere verbindliche Hinweise für Coding-Agenten stehen in [AGENTS.md](AGENTS.md).
 
 ## Lizenz
 
