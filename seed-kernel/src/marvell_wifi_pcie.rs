@@ -7,13 +7,18 @@
 use core::hint::spin_loop;
 use core::ptr;
 use core::slice;
-use core::sync::atomic::{compiler_fence, AtomicBool, AtomicU32, Ordering};
+use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
 
 use raios_core::boot_control::BootPosture;
 use raios_core::dot11_scan::Dot11Security;
 use raios_core::hw_failure_trace::{
     HwFailurePhase, HwFailureRegister, HwFailureStatus, HwFailureSubsystem, HwFailureTrace,
     HwFailureTraceStep, SEED_KERNEL_BUILD_ID_V0_1_0,
+};
+use raios_core::marvell_dma_safety::{
+    compose_rx_tx_pointer_register, decode_event_pointer, decode_rx_tx_pointer_register,
+    update_rx_pointer_preserving_tx, update_tx_pointer_preserving_rx, DevicePointerError,
+    DeviceRingPointer, RxTxDevicePointers,
 };
 use raios_core::marvell_wifi_cmd::{
     self, HwSpecCmdError, MarvellCmdError, SingleBssHostCmdSequenceAllocator,
@@ -64,10 +69,9 @@ const DATA_INTERFACE_HEADER_LEN: usize = 4;
 const TX_PD_LEN: usize = 20;
 const RX_PD_LEN: usize = 20;
 pub const MAX_ETHERNET_FRAME_SIZE: usize = 1536;
-const PCIE_RX_RD_PTR: u32 = 0xC05C;
+const PCIE_RX_RD_TX_WR_PTR: u32 = 0xC05C;
 const PCIE_RX_WR_PTR: u32 = 0xC08C;
 const PCIE_TX_RD_PTR: u32 = 0xC08C;
-const PCIE_TX_WR_PTR: u32 = 0xC05C;
 const RX_DESC_FLAG_SOP: u16 = 1 << 0;
 const RX_DESC_FLAG_EOP: u16 = 1 << 1;
 const CPU_INTR_DNLD_RDY: u32 = 1 << 0;
@@ -215,8 +219,8 @@ static EVENT_RING: Mutex<EventRingRuntime> = Mutex::new(EventRingRuntime::new())
 static RX_RING: Mutex<RxRingRuntime> = Mutex::new(RxRingRuntime::new());
 static TX_RING: Mutex<TxRingRuntime> = Mutex::new(TxRingRuntime::new());
 static CONNECTION: Mutex<ConnectionRuntime> = Mutex::new(ConnectionRuntime::new());
-static RX_RDPTR_SHARED: AtomicU32 = AtomicU32::new(RX_ROLLOVER_IND);
-static TX_WRPTR_SHARED: AtomicU32 = AtomicU32::new(0);
+static MARVELL_DMA_GATE: Mutex<()> = Mutex::new(());
+static RX_TX_POINTER_REGISTER: Mutex<u32> = Mutex::new(0);
 static DATA_LINK_READY: AtomicBool = AtomicBool::new(false);
 static CONNECTION_REBOOT_REQUIRED: AtomicBool = AtomicBool::new(false);
 
@@ -413,6 +417,7 @@ impl HwSpecResult {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ScanCmdResult {
     Done,
+    RebootRequired,
     FirmwareNotReady,
     HwSpecNotReady,
     DmaAddressUnavailable,
@@ -426,6 +431,7 @@ impl ScanCmdResult {
     pub const fn label(self) -> &'static str {
         match self {
             Self::Done => "live_results_ready",
+            Self::RebootRequired => "reboot_required",
             Self::FirmwareNotReady => "firmware_not_ready",
             Self::HwSpecNotReady => "hw_spec_not_ready",
             Self::DmaAddressUnavailable => "dma_address_unavailable",
@@ -1090,6 +1096,29 @@ struct TxRingRuntime {
     rdptr: u32,
 }
 
+#[derive(Clone, Copy)]
+enum SharedRxTxPointerUpdate {
+    Initialize { rx_rdptr: u32, tx_wrptr: u32 },
+    RxRead(u32),
+    TxWrite(u32),
+}
+
+#[derive(Clone, Copy)]
+enum DeferredNetworkAction {
+    None,
+    Attach([u8; 6]),
+    Detach,
+}
+
+impl SharedRxTxPointerUpdate {
+    const fn attempted_raw(self) -> u32 {
+        match self {
+            Self::Initialize { rx_rdptr, tx_wrptr } => rx_rdptr | tx_wrptr,
+            Self::RxRead(raw) | Self::TxWrite(raw) => raw,
+        }
+    }
+}
+
 impl EventRingRuntime {
     const fn new() -> Self {
         Self {
@@ -1277,6 +1306,35 @@ pub fn connection_reboot_required() -> bool {
     CONNECTION_REBOOT_REQUIRED.load(Ordering::Acquire)
 }
 
+fn latch_invalid_ring_pointer_while_gated(register: &'static str, raw: u32) {
+    DATA_LINK_READY.store(false, Ordering::Release);
+    let first_fault = !CONNECTION_REBOOT_REQUIRED.swap(true, Ordering::AcqRel);
+    compiler_fence(Ordering::SeqCst);
+    if first_fault {
+        serial::write_fmt(format_args!(
+            "marvell wifi: invalid {} pointer 0x{:08x}; reboot required\r\n",
+            register, raw
+        ));
+    }
+}
+
+fn apply_deferred_network_action(action: DeferredNetworkAction) {
+    match action {
+        DeferredNetworkAction::None => {}
+        DeferredNetworkAction::Detach => net::detach_wifi(),
+        DeferredNetworkAction::Attach(mac) => {
+            if connection_reboot_required() || !data_link_ready() {
+                net::detach_wifi();
+                return;
+            }
+            net::attach_wifi(mac);
+            if connection_reboot_required() || !data_link_ready() {
+                net::detach_wifi();
+            }
+        }
+    }
+}
+
 pub fn start_association() -> ConnectionTriggerResult {
     match crate::agent_protocol::boot_control::current_boot_posture() {
         BootPosture::Normal | BootPosture::Probation => {}
@@ -1405,71 +1463,94 @@ fn start_association_inner(
     let Some(mmio_base) = ready_mmio_base() else {
         return fail_connection_start(ConnectionResult::FirmwareNotReady);
     };
-    if !arm_data_rings(mmio_base) {
-        return fail_connection_start(ConnectionResult::DataRingUnavailable);
-    }
-    let (Some(cmd_dma_phys), Some(rsp_dma_phys)) = (connect_cmd_phys(), connect_rsp_phys()) else {
-        return fail_connection_start(ConnectionResult::DmaAddressUnavailable);
-    };
 
-    let mut runtime = CONNECTION.lock();
-    if ephemeral && (runtime.snapshot.is_ready() || runtime.job.is_some()) {
-        return ConnectionTriggerResult::Failed(ConnectionResult::EphemeralAttemptNotFresh);
+    enum GatedAssociationStart {
+        Started { replacing_ready: bool },
+        Return(ConnectionTriggerResult),
+        Fail(ConnectionResult),
     }
-    if runtime.snapshot.is_ready()
-        && data_link_ready()
-        && runtime
-            .ready_target
-            .is_some_and(|ready| same_connection_target(ready, target))
-    {
-        return ConnectionTriggerResult::AlreadyReady;
+
+    let gated_start = (move || {
+        let _dma_gate = MARVELL_DMA_GATE.lock();
+        if connection_reboot_required() {
+            return GatedAssociationStart::Fail(ConnectionResult::RebootRequired);
+        }
+        if !arm_data_rings_while_gated(mmio_base) {
+            return GatedAssociationStart::Fail(ConnectionResult::DataRingUnavailable);
+        }
+        let (Some(cmd_dma_phys), Some(rsp_dma_phys)) = (connect_cmd_phys(), connect_rsp_phys())
+        else {
+            return GatedAssociationStart::Fail(ConnectionResult::DmaAddressUnavailable);
+        };
+
+        let mut runtime = CONNECTION.lock();
+        if ephemeral && (runtime.snapshot.is_ready() || runtime.job.is_some()) {
+            return GatedAssociationStart::Return(ConnectionTriggerResult::Failed(
+                ConnectionResult::EphemeralAttemptNotFresh,
+            ));
+        }
+        if runtime.snapshot.is_ready()
+            && data_link_ready()
+            && runtime
+                .ready_target
+                .is_some_and(|ready| same_connection_target(ready, target))
+        {
+            return GatedAssociationStart::Return(ConnectionTriggerResult::AlreadyReady);
+        }
+        if runtime.job.is_some() {
+            return GatedAssociationStart::Return(ConnectionTriggerResult::AlreadyRunning);
+        }
+        let seq = runtime
+            .sequence_allocator
+            .reserve_window(CONNECTION_HOST_CMD_PHASE_COUNT);
+        let first_phase = if secure {
+            ConnectionStage::SupplicantProfile
+        } else {
+            ConnectionStage::Associate
+        };
+        let replacing_ready = runtime.snapshot.is_ready();
+        runtime.snapshot = ConnectionSnapshot {
+            attempted: true,
+            running: true,
+            stage: first_phase,
+            failed_stage: None,
+            result: None,
+            response_diagnostic: None,
+            transport_diagnostic: None,
+            association_status: None,
+            association_id: None,
+            host_int_status: 0,
+        };
+        runtime.job = Some(ConnectionJob {
+            pci_address,
+            mmio_base,
+            cmd_dma_phys,
+            rsp_dma_phys,
+            phase: first_phase,
+            waiting: false,
+            cmd_done_low_baseline: false,
+            phase_started_tsc: time::rdtsc(),
+            transport_diagnostic: ConnectionTransportDiagnostic::new(),
+            seq,
+            target,
+            secret_source,
+        });
+        runtime.ready_target = None;
+        DATA_LINK_READY.store(false, Ordering::Release);
+        GatedAssociationStart::Started { replacing_ready }
+    })();
+
+    match gated_start {
+        GatedAssociationStart::Started { replacing_ready } => {
+            if replacing_ready {
+                net::detach_wifi();
+            }
+            serial::write_line("marvell wifi: bounded association sequence started");
+            ConnectionTriggerResult::Started
+        }
+        GatedAssociationStart::Return(result) => result,
+        GatedAssociationStart::Fail(result) => fail_connection_start(result),
     }
-    if runtime.job.is_some() {
-        return ConnectionTriggerResult::AlreadyRunning;
-    }
-    let seq = runtime
-        .sequence_allocator
-        .reserve_window(CONNECTION_HOST_CMD_PHASE_COUNT);
-    let first_phase = if secure {
-        ConnectionStage::SupplicantProfile
-    } else {
-        ConnectionStage::Associate
-    };
-    let replacing_ready = runtime.snapshot.is_ready();
-    runtime.snapshot = ConnectionSnapshot {
-        attempted: true,
-        running: true,
-        stage: first_phase,
-        failed_stage: None,
-        result: None,
-        response_diagnostic: None,
-        transport_diagnostic: None,
-        association_status: None,
-        association_id: None,
-        host_int_status: 0,
-    };
-    runtime.job = Some(ConnectionJob {
-        pci_address,
-        mmio_base,
-        cmd_dma_phys,
-        rsp_dma_phys,
-        phase: first_phase,
-        waiting: false,
-        cmd_done_low_baseline: false,
-        phase_started_tsc: time::rdtsc(),
-        transport_diagnostic: ConnectionTransportDiagnostic::new(),
-        seq,
-        target,
-        secret_source,
-    });
-    runtime.ready_target = None;
-    DATA_LINK_READY.store(false, Ordering::Release);
-    drop(runtime);
-    if replacing_ready {
-        net::detach_wifi();
-    }
-    serial::write_line("marvell wifi: bounded association sequence started");
-    ConnectionTriggerResult::Started
 }
 
 fn same_connection_target(left: wifi::ScannedNetwork, right: wifi::ScannedNetwork) -> bool {
@@ -1495,44 +1576,50 @@ fn revalidate_ephemeral_release(job: &ConnectionJob) -> Result<(), ConnectionRes
 }
 
 fn quarantine_retained_ready_connection() {
-    if let Some(address) = wifi::snapshot().address {
-        pci::disable_bus_master(address);
+    {
+        let _dma_gate = MARVELL_DMA_GATE.lock();
+        if let Some(address) = wifi::snapshot().address {
+            pci::disable_bus_master(address);
+        }
+        DATA_LINK_READY.store(false, Ordering::Release);
+        let mut runtime = CONNECTION.lock();
+        if runtime.snapshot.is_ready() {
+            runtime.snapshot = ConnectionSnapshot::new();
+            runtime.ready_target = None;
+        }
     }
-    DATA_LINK_READY.store(false, Ordering::Release);
     net::detach_wifi();
-    let mut runtime = CONNECTION.lock();
-    if runtime.snapshot.is_ready() {
-        runtime.snapshot = ConnectionSnapshot::new();
-        runtime.ready_target = None;
-    }
 }
 
 fn fail_connection_start(result: ConnectionResult) -> ConnectionTriggerResult {
-    if let Some(address) = wifi::snapshot().address {
-        pci::disable_bus_master(address);
+    {
+        let _dma_gate = MARVELL_DMA_GATE.lock();
+        if let Some(address) = wifi::snapshot().address {
+            pci::disable_bus_master(address);
+        }
+        let mut runtime = CONNECTION.lock();
+        runtime.snapshot = ConnectionSnapshot {
+            attempted: true,
+            running: false,
+            stage: ConnectionStage::Failed,
+            failed_stage: None,
+            result: Some(result),
+            response_diagnostic: None,
+            transport_diagnostic: None,
+            association_status: None,
+            association_id: None,
+            host_int_status: 0,
+        };
+        runtime.ready_target = None;
+        DATA_LINK_READY.store(false, Ordering::Release);
     }
-    let mut runtime = CONNECTION.lock();
-    runtime.snapshot = ConnectionSnapshot {
-        attempted: true,
-        running: false,
-        stage: ConnectionStage::Failed,
-        failed_stage: None,
-        result: Some(result),
-        response_diagnostic: None,
-        transport_diagnostic: None,
-        association_status: None,
-        association_id: None,
-        host_int_status: 0,
-    };
-    runtime.ready_target = None;
-    DATA_LINK_READY.store(false, Ordering::Release);
-    drop(runtime);
     net::detach_wifi();
     ConnectionTriggerResult::Failed(result)
 }
 
 pub fn receive_ethernet() -> Option<RxPacket> {
-    if !data_link_ready() {
+    let _dma_gate = MARVELL_DMA_GATE.lock();
+    if connection_reboot_required() || !data_link_ready() {
         return None;
     }
 
@@ -1543,33 +1630,45 @@ pub fn receive_ethernet() -> Option<RxPacket> {
     let mmio_base = runtime.mmio_base? as *mut u8;
     let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
     let wrptr = read_reg(mmio_base, PCIE_RX_WR_PTR);
-    if !rx_ring_has_entry(wrptr, runtime.rdptr) {
+    let device_wrptr = match decode_rx_tx_pointer_register(wrptr) {
+        Ok(pointers) => pointers.rx,
+        Err(_) => {
+            runtime.snapshot.stage = RxRingStage::Failed;
+            runtime.snapshot.result = Some(RxRingResult::BadReadPointer);
+            latch_invalid_ring_pointer_while_gated("RX-WR/TX-RD", wrptr);
+            return None;
+        }
+    };
+    let host_rdptr = match decode_rx_tx_pointer_register(runtime.rdptr) {
+        Ok(pointers) => pointers.rx,
+        Err(_) => {
+            runtime.snapshot.stage = RxRingStage::Failed;
+            runtime.snapshot.result = Some(RxRingResult::BadReadPointer);
+            latch_invalid_ring_pointer_while_gated("host RX-RD", runtime.rdptr);
+            return None;
+        }
+    };
+    if !device_ring_has_entry(device_wrptr, host_rdptr) {
         if status & HOST_INTR_UPLD_RDY != 0 {
             write_reg(mmio_base, PCIE_HOST_INT_STATUS, !HOST_INTR_UPLD_RDY);
         }
         return None;
     }
 
-    let index = (runtime.rdptr & RX_RING_MASK) as usize;
-    if index >= RX_RING_COUNT {
-        runtime.snapshot.stage = RxRingStage::Failed;
-        runtime.snapshot.result = Some(RxRingResult::BadReadPointer);
-        DATA_LINK_READY.store(false, Ordering::Release);
-        return None;
-    }
-
+    let index = usize::from(host_rdptr.index);
     let packet = parse_rx_ethernet(index);
     let next_rdptr = next_rx_rdptr(runtime.rdptr);
     arm_rx_desc(index);
     compiler_fence(Ordering::SeqCst);
-    runtime.rdptr = next_rdptr;
-    RX_RDPTR_SHARED.store(next_rdptr, Ordering::Release);
-    let tx_wrptr = TX_WRPTR_SHARED.load(Ordering::Acquire) & TX_RING_WRAP_MASK;
-    write_reg(
+    if !publish_shared_rx_tx_pointer_while_gated(
         mmio_base,
-        PCIE_RX_RD_PTR,
-        tx_wrptr | (next_rdptr & 0x0000_07ff),
-    );
+        SharedRxTxPointerUpdate::RxRead(next_rdptr),
+    ) {
+        runtime.snapshot.stage = RxRingStage::Failed;
+        runtime.snapshot.result = Some(RxRingResult::BadReadPointer);
+        return None;
+    }
+    runtime.rdptr = next_rdptr;
     if status & HOST_INTR_UPLD_RDY != 0 {
         write_reg(mmio_base, PCIE_HOST_INT_STATUS, !HOST_INTR_UPLD_RDY);
     }
@@ -1593,7 +1692,11 @@ pub fn receive_ethernet() -> Option<RxPacket> {
 }
 
 pub fn transmit_ethernet(frame: &[u8]) -> bool {
-    if !data_link_ready() || frame.is_empty() || frame.len() > MAX_ETHERNET_FRAME_SIZE {
+    if frame.is_empty() || frame.len() > MAX_ETHERNET_FRAME_SIZE {
+        return false;
+    }
+    let _dma_gate = MARVELL_DMA_GATE.lock();
+    if connection_reboot_required() || !data_link_ready() {
         return false;
     }
 
@@ -1606,30 +1709,42 @@ pub fn transmit_ethernet(frame: &[u8]) -> bool {
     };
     let mmio = mmio_base as *mut u8;
     let status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+    let rdptr = read_reg(mmio, PCIE_TX_RD_PTR);
+    let device_rdptr = match decode_rx_tx_pointer_register(rdptr) {
+        Ok(pointers) => pointers.tx,
+        Err(_) => {
+            latch_invalid_ring_pointer_while_gated("RX-WR/TX-RD", rdptr);
+            return false;
+        }
+    };
+    let host_wrptr = match decode_rx_tx_pointer_register(runtime.wrptr) {
+        Ok(pointers) => pointers.tx,
+        Err(_) => {
+            latch_invalid_ring_pointer_while_gated("host TX-WR", runtime.wrptr);
+            return false;
+        }
+    };
     if status & HOST_INTR_DNLD_DONE != 0 {
         write_reg(mmio, PCIE_HOST_INT_STATUS, !HOST_INTR_DNLD_DONE);
     }
-    runtime.rdptr = read_reg(mmio, PCIE_TX_RD_PTR) & TX_RING_WRAP_MASK;
-    if tx_ring_full(runtime.wrptr, runtime.rdptr) {
+    runtime.rdptr = rdptr & TX_RING_WRAP_MASK;
+    if host_ring_is_full(host_wrptr, device_rdptr) {
         return false;
     }
 
-    let index = ((runtime.wrptr & TX_RING_MASK) >> 16) as usize;
-    if index >= TX_RING_COUNT {
-        DATA_LINK_READY.store(false, Ordering::Release);
-        return false;
-    }
+    let index = usize::from(host_wrptr.index);
     let total_len = DATA_INTERFACE_HEADER_LEN + TX_PD_LEN + frame.len();
     if total_len > TX_BUFFER_SIZE || !prepare_tx_buffer(index, frame, total_len) {
         return false;
     }
 
     let next_wrptr = next_tx_wrptr(runtime.wrptr);
-    runtime.wrptr = next_wrptr;
-    TX_WRPTR_SHARED.store(next_wrptr, Ordering::Release);
-    let rx_rdptr = RX_RDPTR_SHARED.load(Ordering::Acquire) & 0x0000_07ff;
     compiler_fence(Ordering::SeqCst);
-    write_reg(mmio, PCIE_TX_WR_PTR, next_wrptr | rx_rdptr);
+    if !publish_shared_rx_tx_pointer_while_gated(mmio, SharedRxTxPointerUpdate::TxWrite(next_wrptr))
+    {
+        return false;
+    }
+    runtime.wrptr = next_wrptr;
     let _ = read_reg(mmio, 0);
     write_reg(mmio, PCIE_CPU_INT_EVENT, CPU_INTR_DNLD_RDY);
     compiler_fence(Ordering::SeqCst);
@@ -1637,6 +1752,12 @@ pub fn transmit_ethernet(frame: &[u8]) -> bool {
 }
 
 pub fn start_bring_up_firmware() -> FirmwareBringupTriggerResult {
+    let _dma_gate = MARVELL_DMA_GATE.lock();
+    if connection_reboot_required() {
+        // The latch can only be raised after bring-up has already been
+        // attempted in this boot, so restarting here would violate quarantine.
+        return FirmwareBringupTriggerResult::AlreadyAttempted;
+    }
     {
         let mut runtime = BRINGUP.lock();
         if runtime.job.is_some() {
@@ -1753,6 +1874,11 @@ pub fn start_bring_up_firmware() -> FirmwareBringupTriggerResult {
 }
 
 pub fn start_scan_ext_24ghz() -> ScanCmdTriggerResult {
+    let _dma_gate = MARVELL_DMA_GATE.lock();
+    if connection_reboot_required() {
+        finish_scan_without_job(ScanCmdResult::RebootRequired, ScanCmdStage::Failed, 0, 0);
+        return ScanCmdTriggerResult::Failed(ScanCmdResult::RebootRequired);
+    }
     if !snapshot().is_ready() {
         finish_scan_without_job(ScanCmdResult::FirmwareNotReady, ScanCmdStage::Failed, 0, 0);
         return ScanCmdTriggerResult::Failed(ScanCmdResult::FirmwareNotReady);
@@ -1823,6 +1949,10 @@ pub fn start_scan_ext_24ghz() -> ScanCmdTriggerResult {
 
 pub fn poll_hw_spec() -> bool {
     if !snapshot().is_ready() {
+        return false;
+    }
+    let _dma_gate = MARVELL_DMA_GATE.lock();
+    if connection_reboot_required() {
         return false;
     }
 
@@ -2040,7 +2170,22 @@ pub fn poll_hw_spec() -> bool {
                         job.waiting = false;
                         job.phase_started_tsc = time::rdtsc();
                         if next == HwSpecStage::Ready {
-                            publish_data_ring_pointers(job.mmio_base);
+                            if !publish_data_ring_pointers_while_gated(job.mmio_base) {
+                                finish_hw_spec_locked(
+                                    &mut runtime,
+                                    HwSpecResult::DataRingUnavailable,
+                                    HwSpecStage::Failed,
+                                    status,
+                                    None,
+                                    None,
+                                );
+                                write_hw_spec_failure(
+                                    phase,
+                                    HwSpecResult::DataRingUnavailable,
+                                    status,
+                                );
+                                return true;
+                            }
                             finish_hw_spec_locked(
                                 &mut runtime,
                                 HwSpecResult::Done,
@@ -2083,6 +2228,10 @@ pub fn poll_hw_spec() -> bool {
 
 pub fn poll_scan_ext() -> bool {
     if !snapshot().is_ready() {
+        return false;
+    }
+    let _dma_gate = MARVELL_DMA_GATE.lock();
+    if connection_reboot_required() {
         return false;
     }
 
@@ -2411,222 +2560,230 @@ fn arm_connection_command(
 }
 
 pub fn poll_connection() -> bool {
-    let mut runtime = CONNECTION.lock();
-    if matches!(
-        runtime.snapshot.stage,
-        ConnectionStage::Idle | ConnectionStage::LinkReady | ConnectionStage::Failed
-    ) {
-        return false;
-    }
-    let Some(mut job) = runtime.job.take() else {
-        return false;
-    };
-    let mmio = job.mmio_base as *mut u8;
+    let (changed, network_action) = (|| {
+        let _dma_gate = MARVELL_DMA_GATE.lock();
+        if connection_reboot_required() {
+            return (false, DeferredNetworkAction::None);
+        }
+        let mut runtime = CONNECTION.lock();
+        if matches!(
+            runtime.snapshot.stage,
+            ConnectionStage::Idle | ConnectionStage::LinkReady | ConnectionStage::Failed
+        ) {
+            return (false, DeferredNetworkAction::None);
+        }
+        let Some(mut job) = runtime.job.take() else {
+            return (false, DeferredNetworkAction::None);
+        };
+        let mmio = job.mmio_base as *mut u8;
 
-    if job.phase == ConnectionStage::WaitPortRelease {
-        if elapsed_ms(job.phase_started_tsc) >= PORT_RELEASE_TIMEOUT_MS {
+        if job.phase == ConnectionStage::WaitPortRelease {
+            if elapsed_ms(job.phase_started_tsc) >= PORT_RELEASE_TIMEOUT_MS {
+                let status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+                quarantine_connection_job(&job);
+                finish_connection_locked(
+                    &mut runtime,
+                    ConnectionResult::PortReleaseTimeout,
+                    ConnectionStage::Failed,
+                    status,
+                );
+                DATA_LINK_READY.store(false, Ordering::Release);
+                serial::write_line("marvell wifi: firmware supplicant port release timed out");
+                return (true, DeferredNetworkAction::None);
+            }
+            runtime.job = Some(job);
+            return (false, DeferredNetworkAction::None);
+        }
+
+        if elapsed_ms(job.phase_started_tsc) >= CONNECT_CMD_TIMEOUT_MS {
             let status = read_reg(mmio, PCIE_HOST_INT_STATUS);
             quarantine_connection_job(&job);
             finish_connection_locked(
                 &mut runtime,
-                ConnectionResult::PortReleaseTimeout,
+                ConnectionResult::CommandTimeout,
                 ConnectionStage::Failed,
                 status,
             );
             DATA_LINK_READY.store(false, Ordering::Release);
-            serial::write_line("marvell wifi: firmware supplicant port release timed out");
-            return true;
+            serial::write_fmt(format_args!(
+                "marvell wifi: connection command timeout at {}\r\n",
+                job.phase.label()
+            ));
+            return (true, DeferredNetworkAction::None);
         }
-        runtime.job = Some(job);
-        return false;
-    }
 
-    if elapsed_ms(job.phase_started_tsc) >= CONNECT_CMD_TIMEOUT_MS {
-        let status = read_reg(mmio, PCIE_HOST_INT_STATUS);
-        quarantine_connection_job(&job);
-        finish_connection_locked(
-            &mut runtime,
-            ConnectionResult::CommandTimeout,
-            ConnectionStage::Failed,
-            status,
-        );
-        DATA_LINK_READY.store(false, Ordering::Release);
-        serial::write_fmt(format_args!(
-            "marvell wifi: connection command timeout at {}\r\n",
-            job.phase.label()
-        ));
-        return true;
-    }
-
-    if !job.waiting {
-        let command_len = match prepare_connection_dma(&mut job) {
-            Ok(len) => len,
-            Err(result) => {
+        if !job.waiting {
+            let command_len = match prepare_connection_dma(&mut job) {
+                Ok(len) => len,
+                Err(result) => {
+                    quarantine_connection_job(&job);
+                    finish_connection_locked(
+                        &mut runtime,
+                        result,
+                        ConnectionStage::Failed,
+                        read_reg(mmio, PCIE_HOST_INT_STATUS),
+                    );
+                    DATA_LINK_READY.store(false, Ordering::Release);
+                    return (true, DeferredNetworkAction::None);
+                }
+            };
+            if let Err(error) = arm_connection_command(&mut job, command_len) {
+                let status = job.transport_diagnostic.post_clear_status;
+                runtime.snapshot.transport_diagnostic = Some(job.transport_diagnostic);
                 quarantine_connection_job(&job);
                 finish_connection_locked(
                     &mut runtime,
-                    result,
+                    ConnectionResult::Transport(error),
                     ConnectionStage::Failed,
-                    read_reg(mmio, PCIE_HOST_INT_STATUS),
+                    status,
                 );
+                serial::write_fmt(format_args!(
+                    "marvell wifi: connection mailbox arm failed phase={} reason={} pre=0x{:08x} post=0x{:08x}\r\n",
+                    job.phase.label(),
+                    error.label(),
+                    job.transport_diagnostic.pre_clear_status,
+                    job.transport_diagnostic.post_clear_status,
+                ));
+                return (true, DeferredNetworkAction::None);
+            }
+            job.waiting = true;
+            job.phase_started_tsc = time::rdtsc();
+            runtime.snapshot.stage = job.phase;
+            runtime.snapshot.host_int_status = job.transport_diagnostic.first_poll_status;
+            runtime.snapshot.transport_diagnostic = Some(job.transport_diagnostic);
+            runtime.job = Some(job);
+            return (true, DeferredNetworkAction::None);
+        }
+
+        let status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+        runtime.snapshot.host_int_status = status;
+        job.transport_diagnostic.poll_count = job.transport_diagnostic.poll_count.saturating_add(1);
+        runtime.snapshot.transport_diagnostic = Some(job.transport_diagnostic);
+        if status == u32::MAX {
+            quarantine_connection_job(&job);
+            finish_connection_locked(
+                &mut runtime,
+                ConnectionResult::Transport(ConnectionTransportError::MmioUnavailable),
+                ConnectionStage::Failed,
+                status,
+            );
+            serial::write_line("marvell wifi: HOST_INT_STATUS unavailable while awaiting CMD_DONE");
+            return (true, DeferredNetworkAction::None);
+        }
+        if !marvell_wifi_cmd::host_cmd_done_is_current(
+            job.cmd_done_low_baseline,
+            status,
+            HOST_INTR_CMD_DONE,
+        ) {
+            if status & HOST_INTR_CMD_DONE != 0 {
+                quarantine_connection_job(&job);
+                finish_connection_locked(
+                    &mut runtime,
+                    ConnectionResult::Transport(ConnectionTransportError::StaleCommandDone),
+                    ConnectionStage::Failed,
+                    status,
+                );
+                serial::write_line(
+                    "marvell wifi: CMD_DONE rejected without a proven current low baseline",
+                );
+                return (true, DeferredNetworkAction::None);
+            }
+            runtime.job = Some(job);
+            return (false, DeferredNetworkAction::None);
+        }
+
+        compiler_fence(Ordering::SeqCst);
+        let (response, response_header) = parse_connection_dma_response(&job);
+        write_reg(mmio, PCIE_HOST_INT_STATUS, !status);
+        clear_connection_response_mailbox(mmio);
+        let _cleanup_flush_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+        compiler_fence(Ordering::SeqCst);
+        let association = match response {
+            Ok(association) => association,
+            Err(result) => {
+                let response_diagnostic =
+                    connection_response_diagnostic(&job, result, response_header);
+                runtime.snapshot.response_diagnostic = response_diagnostic;
+                quarantine_connection_job(&job);
+                finish_connection_locked(&mut runtime, result, ConnectionStage::Failed, status);
                 DATA_LINK_READY.store(false, Ordering::Release);
-                return true;
+                write_connection_response_failure(job.phase, result, response_diagnostic, status);
+                return (true, DeferredNetworkAction::None);
             }
         };
-        if let Err(error) = arm_connection_command(&mut job, command_len) {
-            let status = job.transport_diagnostic.post_clear_status;
-            runtime.snapshot.transport_diagnostic = Some(job.transport_diagnostic);
-            quarantine_connection_job(&job);
-            finish_connection_locked(
-                &mut runtime,
-                ConnectionResult::Transport(error),
-                ConnectionStage::Failed,
-                status,
-            );
-            serial::write_fmt(format_args!(
-                "marvell wifi: connection mailbox arm failed phase={} reason={} pre=0x{:08x} post=0x{:08x}\r\n",
-                job.phase.label(),
-                error.label(),
-                job.transport_diagnostic.pre_clear_status,
-                job.transport_diagnostic.post_clear_status,
-            ));
-            return true;
+        clear_connection_secret_dma(&job);
+
+        if let Some(association) = association {
+            runtime.snapshot.association_status = Some(association.status_code);
+            runtime.snapshot.association_id = association.association_id;
+            if association.status_code != 0 {
+                let result = ConnectionResult::AssociationRejected(association.status_code);
+                quarantine_connection_job(&job);
+                finish_connection_locked(&mut runtime, result, ConnectionStage::Failed, status);
+                DATA_LINK_READY.store(false, Ordering::Release);
+                serial::write_fmt(format_args!(
+                    "marvell wifi: association rejected status={}\r\n",
+                    association.status_code
+                ));
+                return (true, DeferredNetworkAction::None);
+            }
         }
-        job.waiting = true;
+
+        job.waiting = false;
+        job.cmd_done_low_baseline = false;
         job.phase_started_tsc = time::rdtsc();
-        runtime.snapshot.stage = job.phase;
-        runtime.snapshot.host_int_status = job.transport_diagnostic.first_poll_status;
-        runtime.snapshot.transport_diagnostic = Some(job.transport_diagnostic);
-        runtime.job = Some(job);
-        return true;
-    }
-
-    let status = read_reg(mmio, PCIE_HOST_INT_STATUS);
-    runtime.snapshot.host_int_status = status;
-    job.transport_diagnostic.poll_count = job.transport_diagnostic.poll_count.saturating_add(1);
-    runtime.snapshot.transport_diagnostic = Some(job.transport_diagnostic);
-    if status == u32::MAX {
-        quarantine_connection_job(&job);
-        finish_connection_locked(
-            &mut runtime,
-            ConnectionResult::Transport(ConnectionTransportError::MmioUnavailable),
-            ConnectionStage::Failed,
-            status,
-        );
-        serial::write_line("marvell wifi: HOST_INT_STATUS unavailable while awaiting CMD_DONE");
-        return true;
-    }
-    if !marvell_wifi_cmd::host_cmd_done_is_current(
-        job.cmd_done_low_baseline,
-        status,
-        HOST_INTR_CMD_DONE,
-    ) {
-        if status & HOST_INTR_CMD_DONE != 0 {
-            quarantine_connection_job(&job);
-            finish_connection_locked(
-                &mut runtime,
-                ConnectionResult::Transport(ConnectionTransportError::StaleCommandDone),
-                ConnectionStage::Failed,
-                status,
-            );
+        job.phase = next_connection_phase(job.phase, job.target.security);
+        if job.phase == ConnectionStage::WaitPortRelease {
+            if let Err(result) = revalidate_ephemeral_release(&job) {
+                quarantine_connection_job(&job);
+                finish_connection_locked(&mut runtime, result, ConnectionStage::Failed, status);
+                DATA_LINK_READY.store(false, Ordering::Release);
+                serial::write_line("marvell wifi: ephemeral authority denied before port release");
+                return (true, DeferredNetworkAction::Detach);
+            }
+            runtime.snapshot.stage = ConnectionStage::WaitPortRelease;
+            runtime.job = Some(job);
             serial::write_line(
-                "marvell wifi: CMD_DONE rejected without a proven current low baseline",
+                "marvell wifi: association accepted; waiting for secure port release",
             );
-            return true;
+            return (true, DeferredNetworkAction::None);
         }
-        runtime.job = Some(job);
-        return false;
-    }
-
-    compiler_fence(Ordering::SeqCst);
-    let (response, response_header) = parse_connection_dma_response(&job);
-    write_reg(mmio, PCIE_HOST_INT_STATUS, !status);
-    clear_connection_response_mailbox(mmio);
-    let _cleanup_flush_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
-    compiler_fence(Ordering::SeqCst);
-    let association = match response {
-        Ok(association) => association,
-        Err(result) => {
-            let response_diagnostic = connection_response_diagnostic(&job, result, response_header);
-            runtime.snapshot.response_diagnostic = response_diagnostic;
-            quarantine_connection_job(&job);
-            finish_connection_locked(&mut runtime, result, ConnectionStage::Failed, status);
-            DATA_LINK_READY.store(false, Ordering::Release);
-            write_connection_response_failure(job.phase, result, response_diagnostic, status);
-            return true;
-        }
-    };
-    clear_connection_secret_dma(&job);
-
-    if let Some(association) = association {
-        runtime.snapshot.association_status = Some(association.status_code);
-        runtime.snapshot.association_id = association.association_id;
-        if association.status_code != 0 {
-            let result = ConnectionResult::AssociationRejected(association.status_code);
-            quarantine_connection_job(&job);
-            finish_connection_locked(&mut runtime, result, ConnectionStage::Failed, status);
-            DATA_LINK_READY.store(false, Ordering::Release);
-            serial::write_fmt(format_args!(
-                "marvell wifi: association rejected status={}\r\n",
-                association.status_code
-            ));
-            return true;
-        }
-    }
-
-    job.waiting = false;
-    job.cmd_done_low_baseline = false;
-    job.phase_started_tsc = time::rdtsc();
-    job.phase = next_connection_phase(job.phase, job.target.security);
-    if job.phase == ConnectionStage::WaitPortRelease {
-        if let Err(result) = revalidate_ephemeral_release(&job) {
-            quarantine_connection_job(&job);
-            finish_connection_locked(&mut runtime, result, ConnectionStage::Failed, status);
-            DATA_LINK_READY.store(false, Ordering::Release);
-            drop(runtime);
-            net::detach_wifi();
-            serial::write_line("marvell wifi: ephemeral authority denied before port release");
-            return true;
-        }
-        runtime.snapshot.stage = ConnectionStage::WaitPortRelease;
-        runtime.job = Some(job);
-        serial::write_line("marvell wifi: association accepted; waiting for secure port release");
-        return true;
-    }
-    if job.phase == ConnectionStage::LinkReady {
-        if job.secret_source.is_ephemeral() {
-            quarantine_connection_job(&job);
+        if job.phase == ConnectionStage::LinkReady {
+            if job.secret_source.is_ephemeral() {
+                quarantine_connection_job(&job);
+                finish_connection_locked(
+                    &mut runtime,
+                    ConnectionResult::EphemeralRevalidationFailed,
+                    ConnectionStage::Failed,
+                    status,
+                );
+                DATA_LINK_READY.store(false, Ordering::Release);
+                return (true, DeferredNetworkAction::Detach);
+            }
+            let mac = hw_spec_snapshot().mac;
+            let ready_target = job.target;
             finish_connection_locked(
                 &mut runtime,
-                ConnectionResult::EphemeralRevalidationFailed,
-                ConnectionStage::Failed,
+                ConnectionResult::LinkReady,
+                ConnectionStage::LinkReady,
                 status,
             );
-            DATA_LINK_READY.store(false, Ordering::Release);
-            drop(runtime);
-            net::detach_wifi();
-            return true;
+            runtime.ready_target = Some(ready_target);
+            DATA_LINK_READY.store(true, Ordering::Release);
+            serial::write_line("marvell wifi: open association accepted; data link released");
+            return (
+                true,
+                mac.map_or(DeferredNetworkAction::None, DeferredNetworkAction::Attach),
+            );
         }
-        let mac = hw_spec_snapshot().mac;
-        let ready_target = job.target;
-        finish_connection_locked(
-            &mut runtime,
-            ConnectionResult::LinkReady,
-            ConnectionStage::LinkReady,
-            status,
-        );
-        runtime.ready_target = Some(ready_target);
-        DATA_LINK_READY.store(true, Ordering::Release);
-        if let Some(mac) = mac {
-            net::attach_wifi(mac);
-        }
-        serial::write_line("marvell wifi: open association accepted; data link released");
-        return true;
-    }
 
-    runtime.snapshot.stage = job.phase;
-    runtime.job = Some(job);
-    true
+        runtime.snapshot.stage = job.phase;
+        runtime.job = Some(job);
+        (true, DeferredNetworkAction::None)
+    })();
+
+    apply_deferred_network_action(network_action);
+    changed
 }
 
 fn next_connection_phase(stage: ConnectionStage, security: Dot11Security) -> ConnectionStage {
@@ -2694,6 +2851,8 @@ fn finish_connection_locked(
     runtime.ready_target = None;
 }
 
+// Callers are structurally constrained to hold MARVELL_DMA_GATE before
+// acquiring CONNECTION; see the permanent integration predicate.
 fn quarantine_connection_job(job: &ConnectionJob) {
     DATA_LINK_READY.store(false, Ordering::Release);
     pci::disable_bus_master(job.pci_address);
@@ -2719,6 +2878,10 @@ fn clear_connection_secret_dma(job: &ConnectionJob) {
 
 pub fn poll_event_ring() -> bool {
     let (changed, serial_event) = {
+        let _dma_gate = MARVELL_DMA_GATE.lock();
+        if connection_reboot_required() {
+            return false;
+        }
         let mut runtime = EVENT_RING.lock();
         if !runtime.snapshot.armed {
             return false;
@@ -2729,6 +2892,24 @@ pub fn poll_event_ring() -> bool {
         let mmio_base = mmio_base as *mut u8;
         let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
         let wrptr = read_reg(mmio_base, PCIE_EVT_WR_PTR);
+        let device_wrptr = match decode_event_pointer(wrptr) {
+            Ok(pointer) => pointer,
+            Err(_) => {
+                runtime.snapshot.stage = EventRingStage::Failed;
+                runtime.snapshot.result = Some(EventRingResult::BadReadPointer);
+                latch_invalid_ring_pointer_while_gated("EVENT-WR", wrptr);
+                return true;
+            }
+        };
+        let host_rdptr = match decode_event_pointer(runtime.rdptr) {
+            Ok(pointer) => pointer,
+            Err(_) => {
+                runtime.snapshot.stage = EventRingStage::Failed;
+                runtime.snapshot.result = Some(EventRingResult::BadReadPointer);
+                latch_invalid_ring_pointer_while_gated("host EVENT-RD", runtime.rdptr);
+                return true;
+            }
+        };
         let changed = runtime.snapshot.host_int_status != status
             || runtime.snapshot.wrptr != wrptr
             || runtime.snapshot.rdptr != runtime.rdptr;
@@ -2736,7 +2917,7 @@ pub fn poll_event_ring() -> bool {
         runtime.snapshot.wrptr = wrptr;
         runtime.snapshot.rdptr = runtime.rdptr;
 
-        let event_available = event_ring_has_entry(wrptr, runtime.rdptr);
+        let event_available = device_ring_has_entry(device_wrptr, host_rdptr);
         if status & HOST_INTR_EVENT_RDY == 0 && !event_available {
             return changed;
         }
@@ -2745,13 +2926,7 @@ pub fn poll_event_ring() -> bool {
             return true;
         }
 
-        let rd_index = (runtime.rdptr & EVENT_RING_MASK) as usize;
-        if rd_index >= EVENT_RING_COUNT {
-            runtime.snapshot.stage = EventRingStage::Failed;
-            runtime.snapshot.result = Some(EventRingResult::BadReadPointer);
-            write_reg(mmio_base, PCIE_CPU_INT_EVENT, CPU_INTR_EVENT_DONE);
-            return true;
-        }
+        let rd_index = usize::from(host_rdptr.index);
 
         let parsed = match parse_event_buffer(rd_index) {
             Ok(parsed) => parsed,
@@ -2817,149 +2992,81 @@ pub fn poll_event_ring() -> bool {
 }
 
 fn handle_connection_event(cause: u32) {
-    let event_id = cause & 0xffff;
-    if matches!(event_id, 0x0003 | 0x0008 | 0x0009) {
-        let mut runtime = CONNECTION.lock();
-        if runtime.snapshot.attempted && !runtime.snapshot.is_failed() {
-            if let Some(job) = runtime.job.take() {
-                quarantine_connection_job(&job);
-            } else if let Some(address) = wifi::snapshot().address {
-                pci::disable_bus_master(address);
-            }
-            runtime.snapshot.running = false;
-            runtime.snapshot.failed_stage = Some(runtime.snapshot.stage);
-            runtime.snapshot.stage = ConnectionStage::Failed;
-            runtime.snapshot.result = Some(ConnectionResult::LinkLost(event_id as u16));
-            runtime.snapshot.response_diagnostic = None;
-            runtime.ready_target = None;
-            DATA_LINK_READY.store(false, Ordering::Release);
-            drop(runtime);
-            net::detach_wifi();
-            serial::write_fmt(format_args!(
-                "marvell wifi: link loss event 0x{:04x}; DMA quarantined\r\n",
-                event_id
-            ));
+    let network_action = (|| {
+        let _dma_gate = MARVELL_DMA_GATE.lock();
+        if connection_reboot_required() {
+            return DeferredNetworkAction::None;
         }
-        return;
-    }
-    if event_id != marvell_wifi_supplicant::EVENT_PORT_RELEASE {
-        return;
-    }
+        let event_id = cause & 0xffff;
+        if matches!(event_id, 0x0003 | 0x0008 | 0x0009) {
+            let mut runtime = CONNECTION.lock();
+            if runtime.snapshot.attempted && !runtime.snapshot.is_failed() {
+                if let Some(job) = runtime.job.take() {
+                    quarantine_connection_job(&job);
+                } else if let Some(address) = wifi::snapshot().address {
+                    pci::disable_bus_master(address);
+                }
+                runtime.snapshot.running = false;
+                runtime.snapshot.failed_stage = Some(runtime.snapshot.stage);
+                runtime.snapshot.stage = ConnectionStage::Failed;
+                runtime.snapshot.result = Some(ConnectionResult::LinkLost(event_id as u16));
+                runtime.snapshot.response_diagnostic = None;
+                runtime.ready_target = None;
+                DATA_LINK_READY.store(false, Ordering::Release);
+                serial::write_fmt(format_args!(
+                    "marvell wifi: link loss event 0x{:04x}; DMA quarantined\r\n",
+                    event_id
+                ));
+                return DeferredNetworkAction::Detach;
+            }
+            return DeferredNetworkAction::None;
+        }
+        if event_id != marvell_wifi_supplicant::EVENT_PORT_RELEASE {
+            return DeferredNetworkAction::None;
+        }
 
-    let mut runtime = CONNECTION.lock();
-    if runtime.snapshot.stage != ConnectionStage::WaitPortRelease {
-        return;
-    }
-    let Some(job) = runtime.job.take() else {
-        return;
-    };
-    if revalidate_ephemeral_release(&job).is_err() {
-        quarantine_connection_job(&job);
-        finish_connection_locked(
-            &mut runtime,
-            ConnectionResult::EphemeralRevalidationFailed,
-            ConnectionStage::Failed,
-            read_reg(job.mmio_base as *mut u8, PCIE_HOST_INT_STATUS),
-        );
-        DATA_LINK_READY.store(false, Ordering::Release);
-        drop(runtime);
-        net::detach_wifi();
-        serial::write_line("marvell wifi: ephemeral authority denied before net attach");
-        return;
-    }
-    let ready_target = job.target;
-    runtime.snapshot.running = false;
-    runtime.snapshot.failed_stage = None;
-    runtime.snapshot.stage = ConnectionStage::LinkReady;
-    runtime.snapshot.result = Some(ConnectionResult::LinkReady);
-    runtime.snapshot.response_diagnostic = None;
-    runtime.ready_target = Some(ready_target);
-    DATA_LINK_READY.store(true, Ordering::Release);
-    drop(job);
-    drop(runtime);
+        let mut runtime = CONNECTION.lock();
+        if runtime.snapshot.stage != ConnectionStage::WaitPortRelease {
+            return DeferredNetworkAction::None;
+        }
+        let Some(job) = runtime.job.take() else {
+            return DeferredNetworkAction::None;
+        };
+        if revalidate_ephemeral_release(&job).is_err() {
+            quarantine_connection_job(&job);
+            finish_connection_locked(
+                &mut runtime,
+                ConnectionResult::EphemeralRevalidationFailed,
+                ConnectionStage::Failed,
+                read_reg(job.mmio_base as *mut u8, PCIE_HOST_INT_STATUS),
+            );
+            DATA_LINK_READY.store(false, Ordering::Release);
+            serial::write_line("marvell wifi: ephemeral authority denied before net attach");
+            return DeferredNetworkAction::Detach;
+        }
+        let ready_target = job.target;
+        runtime.snapshot.running = false;
+        runtime.snapshot.failed_stage = None;
+        runtime.snapshot.stage = ConnectionStage::LinkReady;
+        runtime.snapshot.result = Some(ConnectionResult::LinkReady);
+        runtime.snapshot.response_diagnostic = None;
+        runtime.ready_target = Some(ready_target);
+        DATA_LINK_READY.store(true, Ordering::Release);
+        drop(job);
+        serial::write_line("marvell wifi: secure port released; data link and DHCP enabled");
+        hw_spec_snapshot()
+            .mac
+            .map_or(DeferredNetworkAction::None, DeferredNetworkAction::Attach)
+    })();
 
-    if let Some(mac) = hw_spec_snapshot().mac {
-        net::attach_wifi(mac);
-    }
-    serial::write_line("marvell wifi: secure port released; data link and DHCP enabled");
-}
-
-pub fn poll_rx_ring() -> bool {
-    let mut runtime = RX_RING.lock();
-    if !runtime.snapshot.armed {
-        return false;
-    }
-    let Some(mmio_base) = runtime.mmio_base else {
-        return false;
-    };
-    let mmio_base = mmio_base as *mut u8;
-    let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
-    let wrptr = read_reg(mmio_base, PCIE_RX_WR_PTR);
-    let changed = runtime.snapshot.host_int_status != status
-        || runtime.snapshot.wrptr != wrptr
-        || runtime.snapshot.rdptr != runtime.rdptr;
-    runtime.snapshot.host_int_status = status;
-    runtime.snapshot.wrptr = wrptr;
-    runtime.snapshot.rdptr = runtime.rdptr;
-
-    let rx_available = rx_ring_has_entry(wrptr, runtime.rdptr);
-    if status & HOST_INTR_UPLD_RDY == 0 && !rx_available {
-        return changed;
-    }
-    if !rx_available {
-        return changed;
-    }
-
-    let rd_index = (runtime.rdptr & RX_RING_MASK) as usize;
-    if rd_index >= RX_RING_COUNT {
-        runtime.snapshot.stage = RxRingStage::Failed;
-        runtime.snapshot.result = Some(RxRingResult::BadReadPointer);
-        return true;
-    }
-
-    let len = rx_buffer_len(rd_index);
-    let packet_type = rx_buffer_type(rd_index);
-    let result = if len == 0 {
-        RxRingResult::PointerAdvancedEmptyBuffer
-    } else if len as usize <= EVENT_HEADER_LEN || len as usize > RX_BUFFER_SIZE {
-        RxRingResult::BadRxLength
-    } else {
-        RxRingResult::PacketObserved
-    };
-    let next_rdptr = next_rx_rdptr(runtime.rdptr);
-    arm_rx_desc(rd_index);
-    compiler_fence(Ordering::SeqCst);
-    write_reg(mmio_base, PCIE_RX_RD_PTR, next_rdptr);
-    compiler_fence(Ordering::SeqCst);
-
-    runtime.rdptr = next_rdptr;
-    runtime.snapshot = RxRingSnapshot {
-        attempted: true,
-        armed: true,
-        stage: if result == RxRingResult::PacketObserved {
-            RxRingStage::PacketReady
-        } else if result == RxRingResult::PointerAdvancedEmptyBuffer {
-            RxRingStage::Armed
-        } else {
-            RxRingStage::Failed
-        },
-        result: Some(result),
-        host_int_status: status,
-        rdptr: next_rdptr,
-        wrptr,
-        rx_len: len,
-        rx_type: packet_type,
-    };
-    if result == RxRingResult::PacketObserved {
-        serial::write_fmt(format_args!(
-            "marvell wifi: rx packet observed len={} type=0x{:04x}; scan parsing still denied\r\n",
-            len, packet_type
-        ));
-    }
-    true
+    apply_deferred_network_action(network_action);
 }
 
 pub fn poll() -> bool {
+    let _dma_gate = MARVELL_DMA_GATE.lock();
+    if connection_reboot_required() {
+        return false;
+    }
     let mut runtime = BRINGUP.lock();
     let Some(mut job) = runtime.job.take() else {
         return false;
@@ -3011,7 +3118,7 @@ pub fn poll() -> bool {
                     job.firmware_len,
                     job.firmware_len,
                 );
-                arm_hw_spec_after_firmware_ready(job.mmio_base, job.pci_address);
+                arm_hw_spec_after_firmware_ready_while_gated(job.mmio_base, job.pci_address);
                 wifi::note_firmware_ready_scan_unavailable();
                 serial::write_line(
                     "marvell wifi: firmware ready 0xfedcba00; bounded hw_spec probe armed",
@@ -3277,13 +3384,13 @@ fn update_running_snapshot(
     };
 }
 
-fn arm_hw_spec_after_firmware_ready(mmio_base: usize, pci_address: pci::PciAddress) {
+fn arm_hw_spec_after_firmware_ready_while_gated(mmio_base: usize, pci_address: pci::PciAddress) {
     let mut runtime = HWSPEC.lock();
     if runtime.snapshot.attempted {
         return;
     }
 
-    if !arm_data_rings(mmio_base) {
+    if !arm_data_rings_while_gated(mmio_base) {
         finish_hw_spec_locked(
             &mut runtime,
             HwSpecResult::DataRingUnavailable,
@@ -3361,9 +3468,28 @@ fn arm_hw_spec_after_firmware_ready(mmio_base: usize, pci_address: pci::PciAddre
     });
 }
 
-fn arm_event_ring(mmio_base: usize) {
+fn arm_event_ring_while_gated(mmio_base: usize) {
     let mut runtime = EVENT_RING.lock();
     if runtime.snapshot.attempted {
+        return;
+    }
+    let mmio = mmio_base as *mut u8;
+    let host_int_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+    let wrptr = read_reg(mmio, PCIE_EVT_WR_PTR);
+    if decode_event_pointer(wrptr).is_err() {
+        runtime.snapshot = EventRingSnapshot {
+            attempted: true,
+            armed: false,
+            stage: EventRingStage::Failed,
+            result: Some(EventRingResult::BadReadPointer),
+            host_int_status,
+            rdptr: runtime.rdptr,
+            wrptr,
+            event_len: 0,
+            event_type: 0,
+            event_cause: 0,
+        };
+        latch_invalid_ring_pointer_while_gated("EVENT-WR", wrptr);
         return;
     }
 
@@ -3397,7 +3523,6 @@ fn arm_event_ring(mmio_base: usize) {
         index += 1;
     }
 
-    let mmio = mmio_base as *mut u8;
     runtime.rdptr = EVENT_ROLLOVER_IND;
     compiler_fence(Ordering::SeqCst);
 
@@ -3407,9 +3532,9 @@ fn arm_event_ring(mmio_base: usize) {
         armed: false,
         stage: EventRingStage::Armed,
         result: Some(EventRingResult::Armed),
-        host_int_status: read_reg(mmio, PCIE_HOST_INT_STATUS),
+        host_int_status,
         rdptr: runtime.rdptr,
-        wrptr: read_reg(mmio, PCIE_EVT_WR_PTR),
+        wrptr,
         event_len: 0,
         event_type: 0,
         event_cause: 0,
@@ -3417,10 +3542,28 @@ fn arm_event_ring(mmio_base: usize) {
     serial::write_line("marvell wifi: event ring prepared for descriptor registration");
 }
 
-fn arm_rx_ring(mmio_base: usize) -> bool {
+fn arm_rx_ring_while_gated(mmio_base: usize) -> bool {
     let mut runtime = RX_RING.lock();
     if runtime.snapshot.attempted {
         return runtime.snapshot.armed;
+    }
+    let mmio = mmio_base as *mut u8;
+    let host_int_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+    let wrptr = read_reg(mmio, PCIE_RX_WR_PTR);
+    if decode_rx_tx_pointer_register(wrptr).is_err() {
+        runtime.snapshot = RxRingSnapshot {
+            attempted: true,
+            armed: false,
+            stage: RxRingStage::Failed,
+            result: Some(RxRingResult::BadReadPointer),
+            host_int_status,
+            rdptr: runtime.rdptr,
+            wrptr,
+            rx_len: 0,
+            rx_type: 0,
+        };
+        latch_invalid_ring_pointer_while_gated("RX-WR/TX-RD", wrptr);
+        return false;
     }
     let mut index = 0usize;
     while index < RX_RING_COUNT {
@@ -3454,23 +3597,22 @@ fn arm_rx_ring(mmio_base: usize) -> bool {
     }
 
     runtime.rdptr = RX_ROLLOVER_IND;
-    RX_RDPTR_SHARED.store(runtime.rdptr, Ordering::Release);
     runtime.mmio_base = Some(mmio_base);
     runtime.snapshot = RxRingSnapshot {
         attempted: true,
         armed: true,
         stage: RxRingStage::Armed,
         result: Some(RxRingResult::Armed),
-        host_int_status: read_reg(mmio_base as *mut u8, PCIE_HOST_INT_STATUS),
+        host_int_status,
         rdptr: runtime.rdptr,
-        wrptr: read_reg(mmio_base as *mut u8, PCIE_RX_WR_PTR),
+        wrptr,
         rx_len: 0,
         rx_type: 0,
     };
     true
 }
 
-fn arm_tx_ring(mmio_base: usize) -> bool {
+fn arm_tx_ring_while_gated(mmio_base: usize) -> bool {
     let mut runtime = TX_RING.lock();
     if runtime.armed {
         return true;
@@ -3489,33 +3631,93 @@ fn arm_tx_ring(mmio_base: usize) -> bool {
     runtime.mmio_base = Some(mmio_base);
     runtime.wrptr = 0;
     runtime.rdptr = 0;
-    TX_WRPTR_SHARED.store(0, Ordering::Release);
     true
 }
 
-fn arm_data_rings(mmio_base: usize) -> bool {
-    arm_event_ring(mmio_base);
+fn arm_data_rings_while_gated(mmio_base: usize) -> bool {
+    arm_event_ring_while_gated(mmio_base);
     let event_ready = {
         let runtime = EVENT_RING.lock();
         runtime.mmio_base.is_some() && !runtime.snapshot.is_failed()
     };
-    event_ready && arm_rx_ring(mmio_base) && arm_tx_ring(mmio_base)
+    event_ready && arm_rx_ring_while_gated(mmio_base) && arm_tx_ring_while_gated(mmio_base)
 }
 
-fn publish_data_ring_pointers(mmio_base: usize) {
+fn plan_shared_rx_tx_pointer(
+    current_raw: u32,
+    update: SharedRxTxPointerUpdate,
+) -> Result<u32, DevicePointerError> {
+    match update {
+        SharedRxTxPointerUpdate::Initialize { rx_rdptr, tx_wrptr } => {
+            let rx = decode_rx_tx_pointer_register(rx_rdptr)?.rx;
+            let tx = decode_rx_tx_pointer_register(tx_wrptr)?.tx;
+            compose_rx_tx_pointer_register(RxTxDevicePointers { rx, tx })
+        }
+        SharedRxTxPointerUpdate::RxRead(rx_rdptr) => {
+            let rx = decode_rx_tx_pointer_register(rx_rdptr)?.rx;
+            update_rx_pointer_preserving_tx(current_raw, rx)
+        }
+        SharedRxTxPointerUpdate::TxWrite(tx_wrptr) => {
+            let tx = decode_rx_tx_pointer_register(tx_wrptr)?.tx;
+            update_tx_pointer_preserving_rx(current_raw, tx)
+        }
+    }
+}
+
+fn publish_shared_rx_tx_pointer_while_gated(
+    mmio_base: *mut u8,
+    update: SharedRxTxPointerUpdate,
+) -> bool {
+    let current_raw = *RX_TX_POINTER_REGISTER.lock();
+    let next_raw = match plan_shared_rx_tx_pointer(current_raw, update) {
+        Ok(raw) => raw,
+        Err(_) => {
+            let raw = update.attempted_raw();
+            latch_invalid_ring_pointer_while_gated("host RX-RD/TX-WR", raw);
+            return false;
+        }
+    };
+    publish_prepared_shared_rx_tx_pointer_while_gated(mmio_base, next_raw);
+    true
+}
+
+fn publish_prepared_shared_rx_tx_pointer_while_gated(mmio_base: *mut u8, next_raw: u32) {
+    let mut shared_raw = RX_TX_POINTER_REGISTER.lock();
+    *shared_raw = next_raw;
+    compiler_fence(Ordering::SeqCst);
+    write_reg(mmio_base, PCIE_RX_RD_TX_WR_PTR, next_raw);
+    compiler_fence(Ordering::SeqCst);
+}
+
+fn publish_data_ring_pointers_while_gated(mmio_base: usize) -> bool {
     let event_rdptr = {
-        let mut runtime = EVENT_RING.lock();
-        runtime.snapshot.armed = true;
+        let runtime = EVENT_RING.lock();
         runtime.rdptr
     };
-    let rx_rdptr = RX_RDPTR_SHARED.load(Ordering::Acquire) & 0x0000_07ff;
-    let tx_wrptr = TX_WRPTR_SHARED.load(Ordering::Acquire) & TX_RING_WRAP_MASK;
+    let rx_rdptr = RX_RING.lock().rdptr;
+    let tx_wrptr = TX_RING.lock().wrptr;
+    if decode_event_pointer(event_rdptr).is_err() {
+        latch_invalid_ring_pointer_while_gated("host EVENT-RD", event_rdptr);
+        return false;
+    }
+    let shared_raw = match plan_shared_rx_tx_pointer(
+        0,
+        SharedRxTxPointerUpdate::Initialize { rx_rdptr, tx_wrptr },
+    ) {
+        Ok(raw) => raw,
+        Err(_) => {
+            latch_invalid_ring_pointer_while_gated("host RX-RD/TX-WR", rx_rdptr | tx_wrptr);
+            return false;
+        }
+    };
+    EVENT_RING.lock().snapshot.armed = true;
     let mmio = mmio_base as *mut u8;
     compiler_fence(Ordering::SeqCst);
     write_reg(mmio, PCIE_HOST_INT_STATUS_MASK, HOST_INTR_MASK);
     write_reg(mmio, PCIE_EVT_RD_PTR, event_rdptr);
-    write_reg(mmio, PCIE_RX_RD_PTR, tx_wrptr | rx_rdptr);
+    publish_prepared_shared_rx_tx_pointer_while_gated(mmio, shared_raw);
     compiler_fence(Ordering::SeqCst);
+    true
 }
 
 fn finish_hw_spec_locked(
@@ -4161,9 +4363,8 @@ fn prepare_tx_buffer(index: usize, frame: &[u8], total_len: usize) -> bool {
     true
 }
 
-fn tx_ring_full(wrptr: u32, rdptr: u32) -> bool {
-    (wrptr & TX_RING_MASK) == (rdptr & TX_RING_MASK)
-        && (wrptr & TX_ROLLOVER_IND) != (rdptr & TX_ROLLOVER_IND)
+fn host_ring_is_full(host_write: DeviceRingPointer, device_read: DeviceRingPointer) -> bool {
+    host_write.index == device_read.index && host_write.rollover != device_read.rollover
 }
 
 fn next_tx_wrptr(wrptr: u32) -> u32 {
@@ -4175,14 +4376,8 @@ fn next_tx_wrptr(wrptr: u32) -> u32 {
     }
 }
 
-fn event_ring_has_entry(wrptr: u32, rdptr: u32) -> bool {
-    ((wrptr & EVENT_RING_MASK) != (rdptr & EVENT_RING_MASK))
-        || ((wrptr & EVENT_ROLLOVER_IND) == (rdptr & EVENT_ROLLOVER_IND))
-}
-
-fn rx_ring_has_entry(wrptr: u32, rdptr: u32) -> bool {
-    ((wrptr & RX_RING_MASK) != (rdptr & RX_RING_MASK))
-        || ((wrptr & RX_ROLLOVER_IND) == (rdptr & RX_ROLLOVER_IND))
+fn device_ring_has_entry(device_write: DeviceRingPointer, host_read: DeviceRingPointer) -> bool {
+    device_write.index != host_read.index || device_write.rollover == host_read.rollover
 }
 
 fn next_event_rdptr(rdptr: u32) -> u32 {
