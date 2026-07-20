@@ -11,11 +11,11 @@ accepted, committed, and pushed. The inherited rollback integration remains
 dirty only in its allocated Rust/runtime/image/harness files; foreign generated
 diagnostics and the experiment lockfile remain untouched.
 
-Two disjoint conservative lanes are active. W10 replaces unsafe same-action
-re-persist canonicalization with one physical chain plus boot-local RAM restore,
-hard duplicate denial, and valid zero-grant targets. W11 repairs the image
-builder after R21 rejected producer self-attestation, weak GPT/name binding,
-imprecise semantic mutations, and mixed CLI modes. Neither slice is accepted.
+Two conservative lanes are active. W10 replaces same-action re-persist
+canonicalization with one physical chain, RAM restore, hard duplicate denial,
+and zero-grant targets. W11 was stopped unaccepted at +903 after crossing the
+hard checkpoint. W12 extracts a sub-700-line independent security helper before
+any smaller main-script wiring attempt. Neither active slice is accepted.
 
 The NET8 repair is blocked after UserKeySet and direct-certificate strategies
 both reached host Schannel `SEC_E_NO_CREDENTIALS`; its partial Program/wrapper
@@ -26,7 +26,7 @@ also needs owner access to capture actual CPU, memory, and device facts.
 
 ## Next step
 
-Poll W10/W11, verify exact diffs and focused negatives, and obtain fresh
+Poll W10/W12, verify exact diffs and focused negatives, and obtain fresh
 read-only Codex acceptance reviews for any green security slice. Commit and push
 each accepted exact file set immediately; otherwise rescope or park its strand.
 Then reconcile the rollback breakdown checkbox, secure this HANDOFF update, and
