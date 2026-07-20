@@ -3,49 +3,46 @@
 > Window, not log: exactly one Now, one Next step, and three Recently entries.
 > Replace on update; never append. Keep under 60 lines and roughly 2 KB.
 
-## Now (2026-07-20 ~14:50, root orchestrator active)
+## Now (2026-07-20 ~16:25, root orchestrator active)
 
-HEAD/origin is `9f633d3`. The complete eight-file ADR-0029 RAM-only
-recovery slice passed R35 and is pushed as `d094201`; failed execution clears
-volatile authority, post-commit mismatch denies, and diagnostics use local
-state. ADR 0030's per-generation grant-authority rule is pushed as `9f633d3`
-after two neutral Codex opinions agreed.
+HEAD/origin is `af32a9e`. Reviewed ASCII line-armored serial RECLOG V0 is
+secured as `35191de`: full kernel COM1 framing, trusted run-bound identity,
+fail-closed parsing, and no resynchronization. It is architecture only; both
+mapped implementation boxes remain open. Disjoint USB composite HID commit
+`68a4068` is preserved under the merge.
 
-The image half of `docs/scope/03-security-trust-pipeline.md:55` is
-**owner-blocked (security stalemate)** after multiple failed strategies. R38
-proved the Python model rejects real Rust authorization IDs, equates cursor
-`install_log_sequence` with generation, and omits linked promotion/persist/blob
-validation required by ADR 0030. Preserve the rejected uncommitted image
-builder/helper/test; do not dispatch a fourth variation. Owner must authorize a
-Rust-produced verifier/export plus file expansion, or change the evidence
-contract.
+Crash-loop supervision is parked after two strategies. R64 found epoch
+exhaustion bypass, ungated Echo probe paths, and incomplete M8 evidence.
+Preserve W59's rejected `wasm_runtime.rs`, new supervisor, `echo_service.rs`,
+`recovery_lifeline.rs`, and M8 harness unstaged. Another strategy needs owner
+authorization for a checkpoint reset and wider allocation including
+`wasm_runtime/probes.rs` and `agent_protocol_wasm.rs`.
 
-NET8/QEMU is owner-blocked: UserKeySet and direct-certificate strategies both
-hit Schannel `SEC_E_NO_CREDENTIALS`. Keep the rejected NET8 wrapper/Program
-unstaged. Live rollback needs an owner-provided usable Windows TLS credential
-provider or authorized alternative. Surface closure needs owner hardware facts.
-
-Other dirty ownership: persistence harness awaits review; `seed-kernel/src/main.rs`
-is inherited formatter-only work; diagnostics and the experiment lockfile are
-foreign. All are taboo outside an exact lane.
+Rollback-image evidence is owner-blocked: the preserved three-file Python WIP
+cannot model ADR 0030 authority. Owner must authorize a Rust verifier/export
+and expansion, or change the contract. NET8/QEMU is blocked after two Schannel
+`SEC_E_NO_CREDENTIALS` strategies; surface closure needs owner hardware.
+Agent-fabric HANDOFF wording conflicts with root-only governance; top-level
+SCOPE repair needs the owner. Foreign diagnostics/experiment lock and
+formatter-only `main.rs` remain taboo.
 
 ## Next step
 
-Run disjoint unsafe-inventory implementation and read-only persistence-harness
-assessment lanes. Secure each accepted exact slice immediately. Keep blocked
-image/NET8/QEMU/surface work and all foreign dirty files out of staging, then
-update only genuinely green mapped boxes and continue by dependency/value.
+Audit compile-diagnostics JSON and signed-build/audit closure in disjoint
+read-only lanes. A67 selected the clean two-site `svc-demo-certwindow` unsafe
+tranche; defer implementation until W59 can be isolated from build/QEMU
+evidence. Secure only accepted exact slices, then update mapped boxes.
 
 ## Recently (exactly 3, newest first)
 
-### 2026-07-20 — generation authority recorded
-R36/R37 selected per-generation signed authority; ADR 0030 is `9f633d3`.
-R38 parked the incompatible Python image model with owner.
+### 2026-07-20 — serial RECLOG contract secured
+R68 accepted the repaired protocol; `35191de` was merged with the USB tip and
+pushed after green docs and boundary gates.
 
-### 2026-07-20 — RAM-only recovery secured
-Core 677+5 and the kernel host check passed; R35 accepted the eight-file slice,
-pushed as `d094201`.
+### 2026-07-20 — crash supervision parked
+R64 rejected W59 after W55/W59 exhausted two strategies; its five-file WIP is
+preserved for an owner-approved wider restart.
 
-### 2026-07-20 — image helper foundation secured
-The P-256/GPT/framing/recovery helper remains committed as `5f6bb10`; later
-unaccepted integration/authority WIP is preserved but red.
+### 2026-07-20 — unsafe baseline gate secured
+Stable count tracking and its scope slice are pushed as `3e33e0c`/`44e2820`;
+A67 selected the next two-site certwindow tranche but left it unmodified.
