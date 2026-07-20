@@ -19,8 +19,8 @@ use raios_core::{
     gpt_layout::{self, LayoutStatus, GPT_ENTRY_ARRAY_BYTES, PRIMARY_GPT_ENTRIES_LBA, SECTOR_SIZE},
     hw_failure_trace::{
         encode_hw_failure_trace_frame, validate_hw_failure_append_target,
-        verify_hw_failure_trace_readback, HwFailureTrace, HwFailureTraceLatch,
-        HwFailureTraceQueueResult,
+        verify_hw_failure_trace_readback, HwFailureTrace, HwFailureTraceFlushStatus,
+        HwFailureTraceLatch, HwFailureTraceQueueResult,
     },
     seed_data_layout, sha256_bytes,
 };
@@ -153,6 +153,7 @@ const MSC_SECTOR_BUFFER_LEN: usize = 512;
 const MSC_CBW_SIGNATURE: u32 = 0x4342_5355;
 const MSC_CSW_SIGNATURE: u32 = 0x5342_5355;
 const MSC_READ_CAPACITY10_LEN: usize = 8;
+const SCSI_WRITE10_FUA: u8 = 1 << 3;
 const WAIT_ITERS: usize = 5_000_000;
 const ROOT_PORT_POWER_SETTLE_ITERS: usize = WAIT_ITERS;
 const HUB_PORT_RESET_POLLS: usize = 64;
@@ -161,6 +162,8 @@ const HOTPLUG_MAX_ROOT_PORTS: u8 = 32;
 const MAX_HUB_WATCHES: usize = MAX_HID_DEVICES;
 
 static STATE: Mutex<UsbState> = Mutex::new(UsbState::new());
+static PUBLICATION_CHECKPOINT_LATCH: Mutex<HwFailureTraceLatch> =
+    Mutex::new(HwFailureTraceLatch::new());
 static HW_FAILURE_TRACE_LATCH: Mutex<HwFailureTraceLatch> = Mutex::new(HwFailureTraceLatch::new());
 
 #[derive(Clone, Copy)]
@@ -399,11 +402,28 @@ pub fn queue_hw_failure_trace(trace: HwFailureTrace) -> HwFailureTraceQueueResul
     HW_FAILURE_TRACE_LATCH.lock().queue(trace)
 }
 
-/// Flushes at most one queued hardware trace per boot. The latch is consumed
-/// before USB is locked so a transport failure cannot recursively retry.
+/// Queues the boot-bounded pre-BME checkpoint without touching USB state or
+/// media. Its distinct latch leaves the terminal failure slot available.
+pub fn queue_publication_checkpoint(trace: HwFailureTrace) -> HwFailureTraceQueueResult {
+    PUBLICATION_CHECKPOINT_LATCH.lock().queue(trace)
+}
+
+pub fn publication_checkpoint_status() -> HwFailureTraceFlushStatus {
+    PUBLICATION_CHECKPOINT_LATCH.lock().status()
+}
+
+/// Flushes the pre-BME checkpoint and terminal trace after all Marvell locks
+/// have returned. Each latch is taken before USB is locked and completed only
+/// after WRITE(10) FUA plus readback/reparse has returned.
 pub fn flush_pending_hw_failure_trace() -> bool {
+    let checkpoint_changed = flush_trace_latch(&PUBLICATION_CHECKPOINT_LATCH);
+    let terminal_changed = flush_trace_latch(&HW_FAILURE_TRACE_LATCH);
+    checkpoint_changed || terminal_changed
+}
+
+fn flush_trace_latch(latch: &Mutex<HwFailureTraceLatch>) -> bool {
     let trace = {
-        let mut latch = HW_FAILURE_TRACE_LATCH.lock();
+        let mut latch = latch.lock();
         latch.take_for_flush()
     };
     let Some(trace) = trace else {
@@ -417,6 +437,10 @@ pub fn flush_pending_hw_failure_trace() -> bool {
             None => Err("usb_controller_unavailable"),
         }
     };
+    let persisted = result.is_ok();
+    if latch.lock().finish_flush(persisted).is_err() {
+        serial::write_line("usb-msc: hw failure trace latch completion rejected");
+    }
     report_hw_failure_trace_result(result)
 }
 
@@ -3740,7 +3764,7 @@ impl XhciController {
         let lba32 = lba as u32;
         let cdb = [
             0x2A,
-            0,
+            SCSI_WRITE10_FUA,
             (lba32 >> 24) as u8,
             (lba32 >> 16) as u8,
             (lba32 >> 8) as u8,

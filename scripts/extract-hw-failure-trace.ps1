@@ -33,6 +33,7 @@ $ReclogHeaderLength = 88
 $ReclogStartLba = 16
 $ReclogLbaCount = 4096
 $TraceSchema = "raios.hw_failure_trace.v0"
+$UsbDiagSchema = "raios.usb_diag.v0"
 
 function Get-U32Le {
     param([byte[]]$Bytes, [int]$Offset)
@@ -314,14 +315,87 @@ function Convert-ValidatedTracePayload {
         if (($index -gt 0 -and $bootMs -lt $previousTime) -or
             $bootMs -gt [uint32]::MaxValue -or
             $phase -lt 1 -or $phase -gt 8 -or
-            $status -notin @(1, 2, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109) -or
-            $register -lt 0 -or $register -gt 6 -or
+            $status -notin @(1, 2, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112) -or
+            $register -lt 0 -or $register -gt 8 -or
             $registerValue -gt [uint32]::MaxValue) {
             throw "hw_failure_trace_step_value_invalid"
         }
         $previousTime = $bootMs
     }
     return $trace
+}
+
+function Get-HwFailureStatusName {
+    param([int]$Status)
+    switch ($Status) {
+        1 { "started" }
+        2 { "completed" }
+        100 { "timeout" }
+        101 { "transport_fault" }
+        102 { "firmware_rejected" }
+        103 { "unsupported_security" }
+        104 { "authentication_rejected" }
+        105 { "association_rejected" }
+        106 { "key_exchange_failed" }
+        107 { "link_lost" }
+        108 { "boot_posture_denied" }
+        109 { "network_state_not_granted" }
+        110 { "k2_checkpoint_persist_failed" }
+        111 { "k2_publication_rejected" }
+        112 { "k2_pci_command_rejected" }
+        default { throw "hw_failure_trace_status_name_missing" }
+    }
+}
+
+function Get-HwFailureRegisterName {
+    param([int]$Register)
+    switch ($Register) {
+        0 { "none" }
+        1 { "marvell_host_interrupt_status" }
+        2 { "marvell_host_interrupt_mask" }
+        3 { "marvell_firmware_status" }
+        4 { "marvell_command_response_status" }
+        5 { "xhci_usb_status" }
+        6 { "xhci_port_status_change" }
+        7 { "marvell_pci_command" }
+        8 { "marvell_publication_step" }
+        default { throw "hw_failure_trace_register_name_missing" }
+    }
+}
+
+function Convert-ValidatedUsbDiagnosticPayload {
+    param([byte[]]$Payload)
+
+    try {
+        $text = [Text.UTF8Encoding]::new($false, $true).GetString($Payload)
+        $record = $text | ConvertFrom-Json
+    }
+    catch {
+        throw "usb_diag_json_invalid"
+    }
+    $actualFields = @($record.PSObject.Properties.Name | Sort-Object)
+    $expectedFields = @(
+        "classification", "enum_pid", "enum_vid", "errors", "hub_connected", "hub_count",
+        "hub_done", "hub_ports", "hub_reset", "last_cc", "last_cmd", "last_int_cc",
+        "last_xfer_cc", "m_chg", "m_ep", "m_port", "reason", "recover", "reports",
+        "schema", "scope", "seq"
+    ) | Sort-Object
+    if (($actualFields -join "|") -cne ($expectedFields -join "|")) {
+        throw "usb_diag_field_set_invalid"
+    }
+    if ($record.schema -cne $UsbDiagSchema -or
+        $record.classification -cne "local_only" -or
+        $record.scope -cne "current_boot" -or
+        [string]$record.reason -notmatch '^[a-z0-9_]{1,32}$') {
+        throw "usb_diag_identity_invalid"
+    }
+    foreach ($field in $expectedFields) {
+        if ($field -notin @("classification", "reason", "schema", "scope")) {
+            try { [void][uint64]($record.$field) }
+            catch { throw "usb_diag_numeric_field_invalid" }
+        }
+    }
+    return $record
 }
 
 function Read-ReclogTraces {
@@ -333,6 +407,7 @@ function Read-ReclogTraces {
         throw "reclog_region_size_invalid"
     }
     $records = @()
+    $usbDiagnostics = @()
     $offset = 0
     [uint64]$expectedSeq = 1
     $previousFrameHash = New-Object byte[] 32
@@ -378,12 +453,47 @@ function Read-ReclogTraces {
         if ($payload.Length -ge $schemaPrefix.Length -and
             (Test-BytesEqual (Get-Slice $payload 0 $schemaPrefix.Length) $schemaPrefix)) {
             $trace = Convert-ValidatedTracePayload $payload
+            $decodedSteps = @()
+            $isK2Publication = $false
+            foreach ($stepValue in @($trace.steps)) {
+                $step = @($stepValue)
+                $status = [int]$step[2]
+                $register = [int]$step[3]
+                if ($status -in @(110, 111, 112) -or
+                    ($status -eq 1 -and $register -eq 7) -or
+                    $register -eq 8) {
+                    $isK2Publication = $true
+                }
+                $decodedSteps += [pscustomobject][ordered]@{
+                    boot_ms = [uint32]$step[0]
+                    phase = [int]$step[1]
+                    status = $status
+                    status_name = Get-HwFailureStatusName $status
+                    register = $register
+                    register_name = Get-HwFailureRegisterName $register
+                    register_value = [uint32]$step[4]
+                }
+            }
             $records += [pscustomobject][ordered]@{
+                kind = $(if ($isK2Publication) { "k2_publication" } else { "hw_failure_trace" })
                 seq = $sequence
                 absolute_lba = $AbsoluteStartLba + [uint64]($offset / $SectorSize)
                 frame_sha256 = ConvertTo-Hex $frameHash
                 payload_sha256 = ConvertTo-Hex $payloadHash
                 trace = $trace
+                decoded_steps = @($decodedSteps)
+            }
+        }
+        $usbSchemaPrefix = [Text.Encoding]::UTF8.GetBytes('{"schema":"raios.usb_diag.v0",')
+        if ($payload.Length -ge $usbSchemaPrefix.Length -and
+            (Test-BytesEqual (Get-Slice $payload 0 $usbSchemaPrefix.Length) $usbSchemaPrefix)) {
+            $usbDiagnostics += [pscustomobject][ordered]@{
+                kind = "usb_diag"
+                seq = $sequence
+                absolute_lba = $AbsoluteStartLba + [uint64]($offset / $SectorSize)
+                frame_sha256 = ConvertTo-Hex $frameHash
+                payload_sha256 = ConvertTo-Hex $payloadHash
+                diagnostic = Convert-ValidatedUsbDiagnosticPayload $payload
             }
         }
         $previousFrameHash = $frameHash
@@ -392,6 +502,7 @@ function Read-ReclogTraces {
     }
     return [pscustomobject]@{
         records = @($records)
+        usb_diagnostics = @($usbDiagnostics)
         valid_frame_count = [uint64]($expectedSeq - 1)
         tail_status = $tailStatus
     }
@@ -415,12 +526,21 @@ function New-SelfTestFrame {
 }
 
 function Invoke-SelfTest {
-    $payload = '{"schema":"raios.hw_failure_trace.v0","classification":"local_only","scope":"current_boot","build_id":65536,"subsystem":1,"steps":[[10,1,2,3,1],[20,8,108,4,7]]}'
+    $payload = '{"schema":"raios.hw_failure_trace.v0","classification":"local_only","scope":"current_boot","build_id":65536,"subsystem":1,"steps":[[10,1,1,7,1026],[20,1,111,8,2]]}'
     $frame = New-SelfTestFrame -PayloadText $payload -Sequence 1 -PreviousFrameHash (New-Object byte[] 32)
-    $region = New-Object byte[] ($SectorSize * 2)
+    $usbPayload = '{"schema":"raios.usb_diag.v0","classification":"local_only","scope":"current_boot","reason":"boot_probe","seq":2,"hub_count":1,"hub_ports":4,"hub_connected":2,"hub_reset":1,"hub_done":2,"recover":0,"reports":12,"errors":0,"last_int_cc":1,"last_xfer_cc":1,"last_cmd":42,"last_cc":1,"enum_vid":4660,"enum_pid":22136,"m_port":1,"m_chg":0,"m_ep":1}'
+    $usbFrame = New-SelfTestFrame -PayloadText $usbPayload -Sequence 2 -PreviousFrameHash (Get-Sha256Bytes $frame)
+    $region = New-Object byte[] ($SectorSize * 3)
     [Array]::Copy($frame, 0, $region, 0, $SectorSize)
+    [Array]::Copy($usbFrame, 0, $region, $SectorSize, $SectorSize)
     $parsed = Read-ReclogTraces -Region $region -AbsoluteStartLba 100
-    if ($parsed.records.Count -ne 1 -or $parsed.tail_status -cne "zero_tail") {
+    if ($parsed.records.Count -ne 1 -or
+        $parsed.records[0].kind -cne "k2_publication" -or
+        $parsed.records[0].decoded_steps[0].register_name -cne "marvell_pci_command" -or
+        $parsed.records[0].decoded_steps[1].status_name -cne "k2_publication_rejected" -or
+        $parsed.usb_diagnostics.Count -ne 1 -or
+        $parsed.usb_diagnostics[0].diagnostic.reason -cne "boot_probe" -or
+        $parsed.tail_status -cne "zero_tail") {
         throw "selftest_positive_failed"
     }
 
@@ -460,7 +580,7 @@ function Invoke-SelfTest {
     [pscustomobject][ordered]@{
         schema = "raios.hw_failure_trace.extractor_selftest.v0"
         status = "passed"
-        checks = @("verified_readback", "torn_rejected", "secret_field_rejected", "full_region_reported")
+        checks = @("verified_readback", "k2_decoded", "usb_diag_visible", "torn_rejected", "secret_field_rejected", "full_region_reported")
     } | ConvertTo-Json -Depth 4 -Compress
 }
 
@@ -524,6 +644,7 @@ try {
             tail_status = $scan.tail_status
         }
         traces = @($scan.records)
+        usb_diagnostics = @($scan.usb_diagnostics)
     } | ConvertTo-Json -Depth 10 -Compress
 }
 finally {

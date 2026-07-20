@@ -54,6 +54,9 @@ pub enum HwFailureStatus {
     LinkLost = 107,
     BootPostureDenied = 108,
     NetworkStateNotGranted = 109,
+    K2CheckpointPersistFailed = 110,
+    K2PublicationRejected = 111,
+    K2PciCommandRejected = 112,
 }
 
 /// Only status-bearing registers are representable. Descriptor buffers,
@@ -68,6 +71,8 @@ pub enum HwFailureRegister {
     MarvellCommandResponseStatus = 4,
     XhciUsbStatus = 5,
     XhciPortStatusChange = 6,
+    MarvellPciCommand = 7,
+    MarvellPublicationStep = 8,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -172,18 +177,27 @@ pub enum HwFailureTraceQueueResult {
     AlreadyQueuedOrAttempted,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HwFailureTraceFlushStatus {
+    Empty,
+    Pending,
+    InFlight,
+    Persisted,
+    Failed,
+}
+
 /// A boot-lifetime, one-shot slot. Taking the trace permanently consumes the
 /// attempt even when media I/O later fails, preventing recursive retry storms.
 pub struct HwFailureTraceLatch {
     pending: Option<HwFailureTrace>,
-    attempted: bool,
+    status: HwFailureTraceFlushStatus,
 }
 
 impl HwFailureTraceLatch {
     pub const fn new() -> Self {
         Self {
             pending: None,
-            attempted: false,
+            status: HwFailureTraceFlushStatus::Empty,
         }
     }
 
@@ -191,21 +205,43 @@ impl HwFailureTraceLatch {
         if trace.is_empty() {
             return HwFailureTraceQueueResult::InvalidTrace;
         }
-        if self.attempted || self.pending.is_some() {
+        if self.status != HwFailureTraceFlushStatus::Empty || self.pending.is_some() {
             return HwFailureTraceQueueResult::AlreadyQueuedOrAttempted;
         }
         self.pending = Some(trace);
+        self.status = HwFailureTraceFlushStatus::Pending;
         HwFailureTraceQueueResult::Queued
     }
 
     pub fn take_for_flush(&mut self) -> Option<HwFailureTrace> {
         let trace = self.pending.take()?;
-        self.attempted = true;
+        self.status = HwFailureTraceFlushStatus::InFlight;
         Some(trace)
     }
 
+    pub fn finish_flush(&mut self, persisted: bool) -> Result<(), &'static str> {
+        if self.status != HwFailureTraceFlushStatus::InFlight {
+            return Err("hw_failure_trace_not_in_flight");
+        }
+        self.status = if persisted {
+            HwFailureTraceFlushStatus::Persisted
+        } else {
+            HwFailureTraceFlushStatus::Failed
+        };
+        Ok(())
+    }
+
+    pub const fn status(&self) -> HwFailureTraceFlushStatus {
+        self.status
+    }
+
     pub fn attempted(&self) -> bool {
-        self.attempted
+        matches!(
+            self.status,
+            HwFailureTraceFlushStatus::InFlight
+                | HwFailureTraceFlushStatus::Persisted
+                | HwFailureTraceFlushStatus::Failed
+        )
     }
 }
 
@@ -372,7 +408,7 @@ mod tests {
     }
 
     #[test]
-    fn latch_allows_one_trace_and_one_flush_attempt_per_boot() {
+    fn latch_requires_explicit_flush_completion_and_remains_one_shot() {
         let mut latch = HwFailureTraceLatch::new();
         assert_eq!(
             latch.queue(HwFailureTrace::new(
@@ -392,11 +428,32 @@ mod tests {
         );
         assert!(latch.take_for_flush().is_some());
         assert!(latch.attempted());
+        assert_eq!(latch.status(), HwFailureTraceFlushStatus::InFlight);
         assert!(latch.take_for_flush().is_none());
+        assert_eq!(latch.finish_flush(true), Ok(()));
+        assert_eq!(latch.status(), HwFailureTraceFlushStatus::Persisted);
+        assert_eq!(
+            latch.finish_flush(false),
+            Err("hw_failure_trace_not_in_flight")
+        );
         assert_eq!(
             latch.queue(sample_trace()),
             HwFailureTraceQueueResult::AlreadyQueuedOrAttempted
         );
+    }
+
+    #[test]
+    fn failed_flush_is_terminal_and_observable() {
+        let mut latch = HwFailureTraceLatch::new();
+        assert_eq!(latch.status(), HwFailureTraceFlushStatus::Empty);
+        assert_eq!(
+            latch.queue(sample_trace()),
+            HwFailureTraceQueueResult::Queued
+        );
+        assert_eq!(latch.status(), HwFailureTraceFlushStatus::Pending);
+        assert!(latch.take_for_flush().is_some());
+        assert_eq!(latch.finish_flush(false), Ok(()));
+        assert_eq!(latch.status(), HwFailureTraceFlushStatus::Failed);
     }
 
     #[test]

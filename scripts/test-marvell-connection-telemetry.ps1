@@ -32,6 +32,9 @@ $memoryPath = Join-Path $RepoRoot "seed-kernel\src\memory.rs"
 $heapPath = Join-Path $RepoRoot "seed-kernel\src\heap.rs"
 $usbPath = Join-Path $RepoRoot "seed-kernel\src\usb.rs"
 $ahciPath = Join-Path $RepoRoot "seed-kernel\src\ahci.rs"
+$mainPath = Join-Path $RepoRoot "seed-kernel\src\main.rs"
+$tracePath = Join-Path $RepoRoot "crates\raios-core\src\hw_failure_trace.rs"
+$extractorPath = Join-Path $RepoRoot "scripts\extract-hw-failure-trace.ps1"
 $core = Get-Content -LiteralPath $corePath -Raw
 $supplicant = Get-Content -LiteralPath $supplicantPath -Raw
 $driver = Get-Content -LiteralPath $driverPath -Raw
@@ -41,6 +44,9 @@ $memory = Get-Content -LiteralPath $memoryPath -Raw
 $heap = Get-Content -LiteralPath $heapPath -Raw
 $usb = Get-Content -LiteralPath $usbPath -Raw
 $ahci = Get-Content -LiteralPath $ahciPath -Raw
+$main = Get-Content -LiteralPath $mainPath -Raw
+$trace = Get-Content -LiteralPath $tracePath -Raw
+$extractor = Get-Content -LiteralPath $extractorPath -Raw
 
 $physicalSpan = Slice-Between $memory "pub(crate) struct PhysicalSpan" "static KERNEL_PHYSICAL_BASE"
 Require-Match $physicalSpan 'start:\s*u64.*end_exclusive:\s*u64.*from_start_len.*len == 0.*checked_add\(len\)' "physical half-interval lacks nonzero/overflow checks"
@@ -143,21 +149,42 @@ Require (Test-VerifiedCleanup $driver) "full mailbox cleanup is not token-gated,
 $badCleanup = $driver.Replace('write_reg(mmio, CMD_SIZE, 0);', 'write_reg(mmio, CMDRSP_ADDR_LO, 0);')
 Require (-not (Test-VerifiedCleanup $badCleanup)) "partial/reordered cleanup failure injection was accepted"
 
+function Test-QuiesceBeforeRuntimeValidation([string]$Text) {
+    $surfaces = @(
+        (Slice-Between $Text "fn begin_host_command_epoch_while_gated" "fn publish_host_command_while_gated"),
+        (Slice-Between $Text "fn activate_validated_data_dma_while_gated" "fn quarantine_invalid_pointer_after_ring_unlock_while_gated"),
+        (Slice-Between $Text "pub fn start_bring_up_firmware" "pub fn start_scan_ext_24ghz")
+    )
+    foreach ($surface in $surfaces) {
+        $quiesceAt = $surface.IndexOf('verified_quiesce_while_gated(address)', [StringComparison]::Ordinal)
+        $validateAt = $surface.IndexOf('validate_runtime_dma_plan_while_gated()', [StringComparison]::Ordinal)
+        if (($quiesceAt -lt 0) -or ($validateAt -le $quiesceAt)) { return $false }
+    }
+    $true
+}
+
+Require (Test-QuiesceBeforeRuntimeValidation $driver) "runtime DMA validation can fail while BME remains active"
+$validationBeforeQuiesce = $driver.Replace('verified_quiesce_while_gated(address).map_err(HostCommandPublishError::Quiesce)?', 'validate_runtime_dma_plan_while_gated(); verified_quiesce_while_gated(address).map_err(HostCommandPublishError::Quiesce)?')
+Require (-not (Test-QuiesceBeforeRuntimeValidation $validationBeforeQuiesce)) "validation-before-quiesce failure injection was accepted"
+
 function Test-TransactionalPublication([string]$Text) {
     $surface = Slice-Between $Text "fn publish_host_command_while_gated" "fn terminal_quiesce_and_cleanup_while_gated"
-    $needles = @('PublicationModel::new', 'PublicationStep::ResponseLow', 'PublicationStep::ResponseHigh', 'PublicationStep::CommandLow', 'PublicationStep::CommandHigh', 'PublicationStep::CommandSize', 'PublicationStep::RingsPublished', 'program_flush_status', 'ensure_pci_memory_bus_master', 'enable_bme()', 'CPU_INTR_DOOR_BELL', 'PublicationStep::Doorbell')
+    $needles = @('PublicationModel::new', 'PublicationStep::ResponseLow', 'PublicationStep::ResponseHigh', 'PublicationStep::CommandLow', 'PublicationStep::CommandHigh', 'PublicationStep::CommandSize', 'PublicationStep::RingsPublished', 'program_flush_status', 'enable_bme()', 'ensure_pci_memory_bus_master', 'CPU_INTR_DOOR_BELL', 'PublicationStep::Doorbell')
     $cursor = -1
     foreach ($needle in $needles) {
         $next = $surface.IndexOf($needle, $cursor + 1, [StringComparison]::Ordinal)
         if ($next -le $cursor) { return $false }
         $cursor = $next
     }
-    $firstEnable = $surface.IndexOf('enable_bme()', [StringComparison]::Ordinal)
+    $firstModelEnable = $surface.IndexOf('model.enable_bme()', [StringComparison]::Ordinal)
+    $firstHardwareEnable = $surface.IndexOf('ensure_pci_memory_bus_master', [StringComparison]::Ordinal)
     $firstDoorbell = $surface.IndexOf('CPU_INTR_DOOR_BELL', [StringComparison]::Ordinal)
-    ($firstDoorbell -gt $firstEnable) -and [regex]::IsMatch($surface, 'program_flush_status == u32::MAX.*verified_quiesce_while_gated', [Text.RegularExpressions.RegexOptions]::Singleline)
+    ($firstHardwareEnable -gt $firstModelEnable) -and ($firstDoorbell -gt $firstHardwareEnable) -and [regex]::IsMatch($surface, 'program_flush_status == u32::MAX.*verified_quiesce_while_gated', [Text.RegularExpressions.RegexOptions]::Singleline)
 }
 
 Require (Test-TransactionalPublication $driver) "HostCmd publication is not one modeled off-to-live transaction"
+$hardwareBeforeModel = $driver.Replace('if model.enable_bme().is_err() {', 'let _hardware_before_model = ensure_pci_memory_bus_master(address, 0, 0); if model.enable_bme().is_err() {')
+Require (-not (Test-TransactionalPublication $hardwareBeforeModel)) "hardware-enable-before-model failure injection was accepted"
 $earlyDoorbell = $driver.Replace('let vendor_device = address.read_u32(0x00);', 'write_reg(mmio, PCIE_CPU_INT_EVENT, CPU_INTR_DOOR_BELL); let vendor_device = address.read_u32(0x00);')
 Require (-not (Test-TransactionalPublication $earlyDoorbell)) "doorbell-before-checked-enable failure injection was accepted"
 
@@ -180,6 +207,57 @@ Require (-not (Test-AuthoritativeForeignRegions $missingKernelRemainder)) "missi
 $missingXhci = $driver.Replace('usb::xhci_dma_physical_spans()', 'usb::missing_xhci_dma_physical_spans()')
 Require (-not (Test-AuthoritativeForeignRegions $missingXhci)) "missing xHCI foreign-span failure injection was accepted"
 Require-NoMatch $driver 'Some\(&\[\]\)' "foreign-span adapter fabricates an empty authoritative set"
+
+function Test-PersistedCheckpointBeforeBme([string]$Text) {
+    $firmware = Slice-Between $Text "pub fn poll()" "fn sync_job_phase_clock"
+    $publish = Slice-Between $Text "fn publish_host_command_while_gated" "fn terminal_quiesce_and_cleanup_while_gated"
+    $activate = Slice-Between $Text "fn activate_validated_data_dma_while_gated" "fn quarantine_invalid_pointer_after_ring_unlock_while_gated"
+
+    $firmwareOff = $firmware.IndexOf('verified_quiesce_while_gated(job.pci_address)', [StringComparison]::Ordinal)
+    $firmwareValidate = $firmware.IndexOf('validate_runtime_dma_plan_while_gated()', [StringComparison]::Ordinal)
+    $firmwareQueue = $firmware.IndexOf('pre_bme_checkpoint_while_gated', [StringComparison]::Ordinal)
+    $firmwareReturn = $firmware.IndexOf('PreBmeCheckpoint::Pending', [StringComparison]::Ordinal)
+
+    $publishAck = $publish.IndexOf('usb::publication_checkpoint_status()', [StringComparison]::Ordinal)
+    $publishModel = $publish.IndexOf('model.enable_bme()', [StringComparison]::Ordinal)
+    $publishHardware = $publish.IndexOf('ensure_pci_memory_bus_master', [StringComparison]::Ordinal)
+
+    $activateOff = $activate.IndexOf('verified_quiesce_while_gated(address)', [StringComparison]::Ordinal)
+    $activateValidate = $activate.IndexOf('validate_runtime_dma_plan_while_gated()', [StringComparison]::Ordinal)
+    $activateAck = $activate.IndexOf('usb::publication_checkpoint_status()', [StringComparison]::Ordinal)
+    $activateHardware = $activate.IndexOf('ensure_pci_memory_bus_master', [StringComparison]::Ordinal)
+
+    ($firmwareOff -ge 0) -and ($firmwareValidate -gt $firmwareOff) -and ($firmwareQueue -gt $firmwareValidate) -and ($firmwareReturn -gt $firmwareQueue) -and
+        [regex]::IsMatch($firmware, 'PreBmeCheckpoint::Pending.*runtime\.job = Some\(job\);.*return true', [Text.RegularExpressions.RegexOptions]::Singleline) -and
+        ($publishAck -ge 0) -and ($publishModel -gt $publishAck) -and ($publishHardware -gt $publishModel) -and
+        ($activateOff -ge 0) -and ($activateValidate -gt $activateOff) -and ($activateAck -gt $activateValidate) -and ($activateHardware -gt $activateAck)
+}
+
+Require (Test-PersistedCheckpointBeforeBme $driver) "BME can be enabled before a persisted pre-BME checkpoint"
+$hardwareBeforePersisted = $driver.Replace('if usb::publication_checkpoint_status() != HwFailureTraceFlushStatus::Persisted {', 'let _hardware_before_persisted = ensure_pci_memory_bus_master(address, 0, 0); if usb::publication_checkpoint_status() != HwFailureTraceFlushStatus::Persisted {')
+Require (-not (Test-PersistedCheckpointBeforeBme $hardwareBeforePersisted)) "BME-before-persisted-checkpoint failure injection was accepted"
+
+$traceLatch = Slice-Between $trace "pub enum HwFailureTraceFlushStatus" "pub fn validate_hw_failure_append_target"
+Require-Match $traceLatch 'Empty.*Pending.*InFlight.*Persisted.*Failed.*take_for_flush.*InFlight.*finish_flush.*Persisted.*Failed' "checkpoint latch has no explicit durable acknowledgement state"
+Require-Match $usb 'PUBLICATION_CHECKPOINT_LATCH.*queue_publication_checkpoint.*publication_checkpoint_status' "pre-BME checkpoint does not use a distinct bounded latch"
+$usbFlush = Slice-Between $usb "pub fn flush_pending_hw_failure_trace" "fn report_hw_failure_trace_result"
+Require-Match $usbFlush 'PUBLICATION_CHECKPOINT_LATCH.*HW_FAILURE_TRACE_LATCH.*take_for_flush.*STATE\.lock.*append_hw_failure_trace.*finish_flush' "main-loop USB flush does not acknowledge the durable write after unlocked Marvell return"
+Require-Match $main 'marvell_wifi_pcie::poll\(\).*marvell_wifi_pcie::poll_hw_spec\(\).*marvell_wifi_pcie::poll_scan_ext\(\).*marvell_wifi_pcie::poll_connection\(\).*usb::flush_pending_hw_failure_trace\(\)' "checkpoint flush is not after all Marvell polls in the main loop"
+
+$write10 = Slice-Between $usb "unsafe fn msc_write_sector_from_buffer" "unsafe fn msc_scsi_command"
+Require-Match $usb 'const SCSI_WRITE10_FUA:\s*u8 = 1 << 3' "USB RECLOG write has no WRITE(10) FUA contract"
+Require-Match $write10 '0x2A,\s*SCSI_WRITE10_FUA' "USB RECLOG writes do not set WRITE(10) FUA"
+Require-Match $usb 'msc_write_sector_from_buffer\(point\.lba\)\?.*msc_read_sector_copy\(point\.lba\)\?.*verify_hw_failure_trace_readback' "FUA checkpoint is not read back and reparsed"
+
+Require-Match $trace 'K2CheckpointPersistFailed = 110.*K2PublicationRejected = 111.*K2PciCommandRejected = 112.*MarvellPciCommand = 7.*MarvellPublicationStep = 8' "dedicated terminal K2 status/register codes are missing"
+Require-Match $driver 'HwFailureStatus::K2CheckpointPersistFailed.*HwFailureStatus::K2PublicationRejected.*HwFailureStatus::K2PciCommandRejected' "K2 terminal paths still collapse to generic TransportFault"
+Require-Match $extractor 'k2_publication' "Windows extractor does not identify K2 publication records"
+Require-Match $extractor 'marvell_pci_command.*k2_publication_rejected' "Windows extractor does not decode K2 PCI/publication steps"
+Require-Match $extractor 'raios\.usb_diag\.v0.*usb_diagnostics' "Windows extractor does not surface usb_diag records"
+$extractorSelfTest = & powershell -NoProfile -ExecutionPolicy Bypass -File $extractorPath -SelfTest | ConvertFrom-Json
+Require ($extractorSelfTest.status -eq "passed") "Windows trace extractor self-test failed"
+Require (@($extractorSelfTest.checks) -contains "k2_decoded") "Windows extractor self-test does not cover K2 decoding"
+Require (@($extractorSelfTest.checks) -contains "usb_diag_visible") "Windows extractor self-test does not cover usb_diag visibility"
 
 $hwPoll = Slice-Between $driver "pub fn poll_hw_spec" "pub fn poll_scan_ext"
 $scanPoll = Slice-Between $driver "pub fn poll_scan_ext" "fn ensure_pci_memory_bus_master"

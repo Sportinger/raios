@@ -240,7 +240,7 @@ Require (([regex]::Matches($driver, 'arm_connection_command\(')).Count -eq 2) "c
 Require (([regex]::Matches($driver, 'write_drv_ready_pre_quarantined\(')).Count -eq 2) "DRV_READY writer gained an unreviewed caller"
 Require (([regex]::Matches($driver, 'publish_data_ring_pointers_while_gated\(')).Count -eq 2) "ring-pointer publication gained an unreviewed caller"
 Require-NoMatch $driver 'pci::(?:enable|disable)_bus_master' "unchecked bus-master API re-entered the driver"
-Require-Match $firmwareTrigger 'connection_reboot_required\(\).*BRINGUP\.lock.*validate_runtime_dma_plan_while_gated.*verified_quiesce_while_gated' "firmware trigger can reach MMIO without reboot, DMA-plan, and verified-off gates"
+Require-Match $firmwareTrigger 'connection_reboot_required\(\).*BRINGUP\.lock.*verified_quiesce_while_gated.*validate_runtime_dma_plan_while_gated' "firmware trigger can validate DMA or reach MMIO before the verified-off gate"
 Require-Match $scanPoll 'connection_reboot_required\(\).*SCAN\.lock.*begin_host_command_epoch_while_gated.*publish_host_command_while_gated' "scan can publish HostCmd outside the common gated transaction"
 Require (([regex]::Matches($driver, 'ensure_pci_memory_bus_master\(')).Count -eq 3) "checked bus-master enable gained an unreviewed caller"
 Require-Match $connectionArm 'publish_host_command_while_gated.*connection_mmio_liveness' "connection DMA helper bypasses the common transactional publisher"

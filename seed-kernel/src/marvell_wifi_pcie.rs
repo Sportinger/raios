@@ -13,14 +13,15 @@ use raios_core::boot_control::BootPosture;
 use raios_core::dot11_scan::Dot11Security;
 use raios_core::hw_failure_trace::{
     HwFailurePhase, HwFailureRegister, HwFailureStatus, HwFailureSubsystem, HwFailureTrace,
-    HwFailureTraceStep, SEED_KERNEL_BUILD_ID_V0_1_0,
+    HwFailureTraceFlushStatus, HwFailureTraceQueueResult, HwFailureTraceStep,
+    SEED_KERNEL_BUILD_ID_V0_1_0,
 };
 use raios_core::marvell_dma_safety::{
     compose_rx_tx_pointer_register, decode_event_pointer, decode_rx_tx_pointer_register,
     update_rx_pointer_preserving_tx, update_tx_pointer_preserving_rx,
     validate_contiguous_translation, validate_non_overlapping_regions, DevicePointerError,
-    DeviceRingPointer, DmaSpan, ForeignRegion, MarvellDmaRegion, MarvellDmaRegionKind,
-    PageTranslation, PublicationModel, PublicationStep, RxTxDevicePointers,
+    DeviceRingPointer, DmaSpan, ForeignRegion, ForeignRegionKind, MarvellDmaRegion,
+    MarvellDmaRegionKind, PageTranslation, PublicationModel, PublicationStep, RxTxDevicePointers,
 };
 use raios_core::marvell_wifi_cmd::{
     self, HwSpecCmdError, MarvellCmdError, SingleBssHostCmdSequenceAllocator,
@@ -36,7 +37,7 @@ use raios_core::marvell_wifi_fw::{
 use raios_core::marvell_wifi_supplicant::{self, SupplicantError};
 use spin::Mutex;
 
-use crate::{memory, net, pci, secret_vault, serial, time, usb, wifi};
+use crate::{ahci, heap, memory, net, pci, secret_vault, serial, time, usb, wifi};
 
 // Linux resource index 2: PCI config offset 0x18. BAR0 is 64-bit on this part.
 const MARVELL_REGISTER_BAR: u8 = 2;
@@ -91,19 +92,23 @@ const MARVELL_DMA_REGION_COUNT: usize = 10;
 const PCIE_EVT_RD_PTR: u32 = 0xCE8;
 const PCIE_EVT_WR_PTR: u32 = 0xCEC;
 const CPU_INTR_EVENT_DONE: u32 = 1 << 5;
+const K2_PUBLICATION_STEP_DMA_VALIDATION: u32 = 1;
+const K2_PUBLICATION_STEP_MODEL_ENABLE: u32 = 2;
+const K2_PUBLICATION_STEP_DOORBELL: u32 = 4;
+const K2_PUBLICATION_STEP_CHECKPOINT_FLUSH: u32 = 5;
 
-fn queue_fixed_hw_failure_trace(
+fn fixed_hw_failure_trace(
     phase: HwFailurePhase,
     status: HwFailureStatus,
     register: HwFailureRegister,
     register_value: u32,
-) {
+) -> Option<HwFailureTrace> {
     let mut trace = HwFailureTrace::new(
         SEED_KERNEL_BUILD_ID_V0_1_0,
         HwFailureSubsystem::MarvellWifiPcie,
     );
     let boot_ms = (time::rdtsc() / time::tsc_per_ms().max(1)).min(u64::from(u32::MAX)) as u32;
-    if trace
+    trace
         .push_step(HwFailureTraceStep {
             boot_ms,
             phase,
@@ -111,10 +116,73 @@ fn queue_fixed_hw_failure_trace(
             register,
             register_value,
         })
-        .is_ok()
-    {
+        .ok()
+        .map(|()| trace)
+}
+
+fn queue_fixed_hw_failure_trace(
+    phase: HwFailurePhase,
+    status: HwFailureStatus,
+    register: HwFailureRegister,
+    register_value: u32,
+) {
+    if let Some(trace) = fixed_hw_failure_trace(phase, status, register, register_value) {
         let _ = usb::queue_hw_failure_trace(trace);
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PreBmeCheckpoint {
+    Persisted,
+    Pending,
+    Failed,
+}
+
+fn pre_bme_checkpoint_while_gated(
+    address: pci::PciAddress,
+    phase: HwFailurePhase,
+) -> PreBmeCheckpoint {
+    match usb::publication_checkpoint_status() {
+        HwFailureTraceFlushStatus::Persisted => PreBmeCheckpoint::Persisted,
+        HwFailureTraceFlushStatus::Pending | HwFailureTraceFlushStatus::InFlight => {
+            PreBmeCheckpoint::Pending
+        }
+        HwFailureTraceFlushStatus::Failed => PreBmeCheckpoint::Failed,
+        HwFailureTraceFlushStatus::Empty => {
+            let command = address.read_u16(0x04);
+            let Some(trace) = fixed_hw_failure_trace(
+                phase,
+                HwFailureStatus::Started,
+                HwFailureRegister::MarvellPciCommand,
+                u32::from(command),
+            ) else {
+                return PreBmeCheckpoint::Failed;
+            };
+            match usb::queue_publication_checkpoint(trace) {
+                HwFailureTraceQueueResult::Queued => PreBmeCheckpoint::Pending,
+                HwFailureTraceQueueResult::AlreadyQueuedOrAttempted => {
+                    match usb::publication_checkpoint_status() {
+                        HwFailureTraceFlushStatus::Persisted => PreBmeCheckpoint::Persisted,
+                        HwFailureTraceFlushStatus::Pending
+                        | HwFailureTraceFlushStatus::InFlight => PreBmeCheckpoint::Pending,
+                        HwFailureTraceFlushStatus::Empty | HwFailureTraceFlushStatus::Failed => {
+                            PreBmeCheckpoint::Failed
+                        }
+                    }
+                }
+                HwFailureTraceQueueResult::InvalidTrace => PreBmeCheckpoint::Failed,
+            }
+        }
+    }
+}
+
+fn queue_k2_publication_terminal(
+    phase: HwFailurePhase,
+    status: HwFailureStatus,
+    register: HwFailureRegister,
+    register_value: u32,
+) {
+    queue_fixed_hw_failure_trace(phase, status, register, register_value);
 }
 
 #[repr(align(64))]
@@ -1190,6 +1258,7 @@ struct FirmwareJob {
     phase_started_tsc: u64,
     started_tsc: u64,
     firmware_len: usize,
+    pre_bme_checkpoint_confirmed: bool,
 }
 
 struct HwSpecJob {
@@ -1233,6 +1302,7 @@ enum RuntimeDmaPlanError {
     PublishedAddressMismatch,
     SpanRejected,
     ForeignRegionsUnavailable,
+    KernelOwnershipMismatch,
     RegionOverlap,
 }
 
@@ -1241,6 +1311,7 @@ enum HostCommandPublishError {
     Quiesce(VerifiedQuiesceError),
     MmioUnavailable,
     StaleCommandDone,
+    CheckpointNotPersisted,
     Pci(PciCommandEnableError),
     PublicationOrder,
 }
@@ -1438,7 +1509,8 @@ fn validate_runtime_dma_region(
     published_start: Option<u64>,
     kind: MarvellDmaRegionKind,
 ) -> Result<MarvellDmaRegion, RuntimeDmaPlanError> {
-    let virtual_start = virtual_start as u64;
+    let virtual_ptr = virtual_start;
+    let virtual_start = virtual_ptr as u64;
     let len = u64::try_from(len).map_err(|_| RuntimeDmaPlanError::AddressOverflow)?;
     let virtual_end = virtual_start
         .checked_add(len)
@@ -1477,6 +1549,13 @@ fn validate_runtime_dma_region(
         &pages[..page_count],
     )
     .map_err(|_| RuntimeDmaPlanError::TranslationRejected)?;
+    let authoritative = memory::physical_span_for_virtual_range(virtual_ptr, len)
+        .ok_or(RuntimeDmaPlanError::TranslationRejected)?;
+    if authoritative.start() != translated.physical_span.start()
+        || authoritative.end_exclusive() != translated.physical_span.end_exclusive()
+    {
+        return Err(RuntimeDmaPlanError::TranslationRejected);
+    }
     if published_start != Some(translated.physical_span.start()) {
         return Err(RuntimeDmaPlanError::PublishedAddressMismatch);
     }
@@ -1554,17 +1633,78 @@ fn validate_runtime_dma_plan_while_gated() -> Result<(), RuntimeDmaPlanError> {
         )?,
     ];
 
-    let foreign_regions = authoritative_foreign_dma_regions_while_gated()
-        .ok_or(RuntimeDmaPlanError::ForeignRegionsUnavailable)?;
-    validate_non_overlapping_regions(&regions, foreign_regions)
+    authoritative_foreign_dma_regions_while_gated(&regions)
+}
+
+fn validate_foreign_physical_span(
+    regions: &[MarvellDmaRegion; MARVELL_DMA_REGION_COUNT],
+    kind: ForeignRegionKind,
+    physical: memory::PhysicalSpan,
+) -> Result<(), RuntimeDmaPlanError> {
+    let span = DmaSpan::new(physical.start(), physical.len(), 1, DMA_ADDRESS_BITS)
+        .map_err(|_| RuntimeDmaPlanError::SpanRejected)?;
+    validate_non_overlapping_regions(regions, &[ForeignRegion { kind, span }])
         .map_err(|_| RuntimeDmaPlanError::RegionOverlap)
 }
 
-fn authoritative_foreign_dma_regions_while_gated() -> Option<&'static [ForeignRegion]> {
-    // The owner lane supplies the authoritative xHCI/kernel/heap/reclog
-    // runtime adapter. Absence is deliberately not interpreted as an empty
-    // foreign set: BME activation remains fail-closed until that merge.
-    None
+fn validate_kernel_remainder_after_marvell_owned(
+    regions: &[MarvellDmaRegion; MARVELL_DMA_REGION_COUNT],
+    kernel: memory::PhysicalSpan,
+) -> Result<(), RuntimeDmaPlanError> {
+    let mut ordered = *regions;
+    ordered.sort_unstable_by_key(|region| region.span.start());
+    let mut cursor = kernel.start();
+
+    for region in ordered {
+        if region.span.start() < cursor || region.span.end_exclusive() > kernel.end_exclusive() {
+            return Err(RuntimeDmaPlanError::KernelOwnershipMismatch);
+        }
+        if region.span.start() > cursor {
+            let remainder =
+                memory::PhysicalSpan::from_start_len(cursor, region.span.start() - cursor)
+                    .ok_or(RuntimeDmaPlanError::KernelOwnershipMismatch)?;
+            validate_foreign_physical_span(regions, ForeignRegionKind::Kernel, remainder)?;
+        }
+        cursor = region.span.end_exclusive();
+    }
+
+    if cursor < kernel.end_exclusive() {
+        let remainder =
+            memory::PhysicalSpan::from_start_len(cursor, kernel.end_exclusive() - cursor)
+                .ok_or(RuntimeDmaPlanError::KernelOwnershipMismatch)?;
+        validate_foreign_physical_span(regions, ForeignRegionKind::Kernel, remainder)?;
+    }
+    Ok(())
+}
+
+fn authoritative_foreign_dma_regions_while_gated(
+    regions: &[MarvellDmaRegion; MARVELL_DMA_REGION_COUNT],
+) -> Result<(), RuntimeDmaPlanError> {
+    let kernel = memory::kernel_image_physical_span()
+        .ok_or(RuntimeDmaPlanError::ForeignRegionsUnavailable)?;
+    validate_kernel_remainder_after_marvell_owned(regions, kernel)?;
+
+    let heap_span = heap::physical_span().ok_or(RuntimeDmaPlanError::ForeignRegionsUnavailable)?;
+    validate_foreign_physical_span(regions, ForeignRegionKind::Heap, heap_span)?;
+
+    let xhci_spans =
+        usb::xhci_dma_physical_spans().ok_or(RuntimeDmaPlanError::ForeignRegionsUnavailable)?;
+    for span in xhci_spans {
+        validate_foreign_physical_span(regions, ForeignRegionKind::Xhci, span)?;
+    }
+
+    let usb_reclog_spans = usb::usb_msc_reclog_staging_physical_spans()
+        .ok_or(RuntimeDmaPlanError::ForeignRegionsUnavailable)?;
+    for span in usb_reclog_spans {
+        validate_foreign_physical_span(regions, ForeignRegionKind::Reclog, span)?;
+    }
+
+    let ahci_reclog_spans = ahci::reclog_staging_physical_spans()
+        .ok_or(RuntimeDmaPlanError::ForeignRegionsUnavailable)?;
+    for span in ahci_reclog_spans {
+        validate_foreign_physical_span(regions, ForeignRegionKind::Reclog, span)?;
+    }
+    Ok(())
 }
 
 fn cleanup_host_command_mailbox_after_verified_off(
@@ -1590,12 +1730,12 @@ fn begin_host_command_epoch_while_gated(
     address: pci::PciAddress,
     mmio: *mut u8,
 ) -> Result<HostCommandEpoch, HostCommandPublishError> {
+    let verified_off =
+        verified_quiesce_while_gated(address).map_err(HostCommandPublishError::Quiesce)?;
     if validate_runtime_dma_plan_while_gated().is_err() {
         poison_dma_epoch_while_gated("runtime DMA plan validation failed");
         return Err(HostCommandPublishError::PublicationOrder);
     }
-    let verified_off =
-        verified_quiesce_while_gated(address).map_err(HostCommandPublishError::Quiesce)?;
     write_reg(mmio, PCIE_HOST_INT_MASK, 0);
     write_reg(mmio, PCIE_HOST_INT_STATUS_MASK, HOST_INTR_MASK);
     let pre_clear_status = cleanup_host_command_mailbox_after_verified_off(mmio, &verified_off)?;
@@ -1673,22 +1813,50 @@ fn publish_host_command_while_gated(
         return Err(HostCommandPublishError::StaleCommandDone);
     }
 
+    if usb::publication_checkpoint_status() != HwFailureTraceFlushStatus::Persisted {
+        queue_k2_publication_terminal(
+            HwFailurePhase::HardwareSpec,
+            HwFailureStatus::K2CheckpointPersistFailed,
+            HwFailureRegister::MarvellPublicationStep,
+            K2_PUBLICATION_STEP_CHECKPOINT_FLUSH,
+        );
+        return Err(HostCommandPublishError::CheckpointNotPersisted);
+    }
+    if model.enable_bme().is_err() {
+        queue_k2_publication_terminal(
+            HwFailurePhase::HardwareSpec,
+            HwFailureStatus::K2PublicationRejected,
+            HwFailureRegister::MarvellPublicationStep,
+            K2_PUBLICATION_STEP_MODEL_ENABLE,
+        );
+        let _ = verified_quiesce_while_gated(address);
+        return Err(HostCommandPublishError::PublicationOrder);
+    }
     let vendor_device = address.read_u32(0x00);
     let command_before = address.read_u16(0x04);
     let pci = match ensure_pci_memory_bus_master(address, vendor_device, command_before) {
         Ok(pci) => pci,
         Err(error) => {
+            let command_after = address.read_u16(0x04);
+            queue_k2_publication_terminal(
+                HwFailurePhase::HardwareSpec,
+                HwFailureStatus::K2PciCommandRejected,
+                HwFailureRegister::MarvellPciCommand,
+                u32::from(command_before) | (u32::from(command_after) << 16),
+            );
             let _ = verified_quiesce_while_gated(address);
             return Err(HostCommandPublishError::Pci(error));
         }
     };
-    if model.enable_bme().is_err() {
-        let _ = verified_quiesce_while_gated(address);
-        return Err(HostCommandPublishError::PublicationOrder);
-    }
     compiler_fence(Ordering::SeqCst);
     write_reg(mmio, PCIE_CPU_INT_EVENT, CPU_INTR_DOOR_BELL);
     if model.publish(epoch, PublicationStep::Doorbell).is_err() {
+        queue_k2_publication_terminal(
+            HwFailurePhase::HardwareSpec,
+            HwFailureStatus::K2PublicationRejected,
+            HwFailureRegister::MarvellPublicationStep,
+            K2_PUBLICATION_STEP_DOORBELL,
+        );
         let _ = verified_quiesce_while_gated(address);
         return Err(HostCommandPublishError::PublicationOrder);
     }
@@ -1713,8 +1881,21 @@ fn terminal_quiesce_and_cleanup_while_gated(address: pci::PciAddress, mmio: *mut
 }
 
 fn activate_validated_data_dma_while_gated(address: pci::PciAddress) -> bool {
+    let Ok(_verified_off) = verified_quiesce_while_gated(address) else {
+        poison_dma_epoch_while_gated("data DMA activation could not verify BME-off");
+        return false;
+    };
     if validate_runtime_dma_plan_while_gated().is_err() {
         poison_dma_epoch_while_gated("data DMA activation plan validation failed");
+        return false;
+    }
+    if usb::publication_checkpoint_status() != HwFailureTraceFlushStatus::Persisted {
+        queue_k2_publication_terminal(
+            HwFailurePhase::FirmwareTransport,
+            HwFailureStatus::K2CheckpointPersistFailed,
+            HwFailureRegister::MarvellPublicationStep,
+            K2_PUBLICATION_STEP_CHECKPOINT_FLUSH,
+        );
         return false;
     }
     let vendor_device = address.read_u32(0x00);
@@ -1722,6 +1903,13 @@ fn activate_validated_data_dma_while_gated(address: pci::PciAddress) -> bool {
     match ensure_pci_memory_bus_master(address, vendor_device, command_before) {
         Ok(_) => true,
         Err(_) => {
+            let command_after = address.read_u16(0x04);
+            queue_k2_publication_terminal(
+                HwFailurePhase::FirmwareTransport,
+                HwFailureStatus::K2PciCommandRejected,
+                HwFailureRegister::MarvellPciCommand,
+                u32::from(command_before) | (u32::from(command_after) << 16),
+            );
             let _ = verified_quiesce_while_gated(address);
             poison_dma_epoch_while_gated("checked data DMA activation failed");
             false
@@ -2263,14 +2451,6 @@ pub fn start_bring_up_firmware() -> FirmwareBringupTriggerResult {
         return FirmwareBringupTriggerResult::Failed(FirmwareDownloadResult::Bar2NotMmio);
     }
 
-    if validate_runtime_dma_plan_while_gated().is_err() {
-        poison_dma_epoch_while_gated("firmware preflight DMA plan validation failed");
-        finish_without_mmio(
-            FirmwareDownloadResult::DmaAddressUnavailable,
-            FirmwareStage::DetectOk,
-        );
-        return FirmwareBringupTriggerResult::Failed(FirmwareDownloadResult::DmaAddressUnavailable);
-    }
     let verified_off = match verified_quiesce_while_gated(address) {
         Ok(verified_off) => verified_off,
         Err(_) => {
@@ -2283,6 +2463,14 @@ pub fn start_bring_up_firmware() -> FirmwareBringupTriggerResult {
             );
         }
     };
+    if validate_runtime_dma_plan_while_gated().is_err() {
+        poison_dma_epoch_while_gated("firmware preflight DMA plan validation failed");
+        finish_without_mmio(
+            FirmwareDownloadResult::DmaAddressUnavailable,
+            FirmwareStage::DetectOk,
+        );
+        return FirmwareBringupTriggerResult::Failed(FirmwareDownloadResult::DmaAddressUnavailable);
+    }
     if enable_memory_space_while_verified_off(address, verified_off).is_err() {
         finish_without_mmio(
             FirmwareDownloadResult::DmaAddressUnavailable,
@@ -2346,6 +2534,7 @@ pub fn start_bring_up_firmware() -> FirmwareBringupTriggerResult {
         phase_started_tsc: now,
         started_tsc: now,
         firmware_len: firmware.len(),
+        pre_bme_checkpoint_confirmed: false,
     });
     serial::write_line(
         "marvell wifi: firmware bring-up ATTEMPT started (unaudited blob; DMA not IOMMU-confined)",
@@ -2963,6 +3152,7 @@ fn arm_connection_command(
         }
         HostCommandPublishError::Quiesce(_)
         | HostCommandPublishError::Pci(PciCommandEnableError::EnableFailed)
+        | HostCommandPublishError::CheckpointNotPersisted
         | HostCommandPublishError::PublicationOrder => {
             ConnectionTransportError::PciCommandEnableFailed
         }
@@ -3586,6 +3776,73 @@ pub fn poll() -> bool {
         return false;
     };
     let mmio_base = job.mmio_base as *mut u8;
+
+    if !job.pre_bme_checkpoint_confirmed {
+        let Ok(_verified_off) = verified_quiesce_while_gated(job.pci_address) else {
+            queue_k2_publication_terminal(
+                HwFailurePhase::FirmwareTransport,
+                HwFailureStatus::K2PciCommandRejected,
+                HwFailureRegister::MarvellPciCommand,
+                u32::from(job.pci_address.read_u16(0x04)),
+            );
+            let registers = read_register_snapshot(mmio_base);
+            finish_locked(
+                &mut runtime,
+                FirmwareDownloadResult::DmaAddressUnavailable,
+                FirmwareStage::Failed,
+                Some(FirmwareStage::Downloading),
+                registers,
+                job.download.offset(),
+                job.firmware_len,
+            );
+            return true;
+        };
+        if validate_runtime_dma_plan_while_gated().is_err() {
+            queue_k2_publication_terminal(
+                HwFailurePhase::FirmwareTransport,
+                HwFailureStatus::K2PublicationRejected,
+                HwFailureRegister::MarvellPublicationStep,
+                K2_PUBLICATION_STEP_DMA_VALIDATION,
+            );
+            let registers = read_register_snapshot(mmio_base);
+            finish_locked(
+                &mut runtime,
+                FirmwareDownloadResult::DmaAddressUnavailable,
+                FirmwareStage::Failed,
+                Some(FirmwareStage::Downloading),
+                registers,
+                job.download.offset(),
+                job.firmware_len,
+            );
+            return true;
+        }
+        match pre_bme_checkpoint_while_gated(job.pci_address, HwFailurePhase::FirmwareTransport) {
+            PreBmeCheckpoint::Persisted => job.pre_bme_checkpoint_confirmed = true,
+            PreBmeCheckpoint::Pending => {
+                runtime.job = Some(job);
+                return true;
+            }
+            PreBmeCheckpoint::Failed => {
+                queue_k2_publication_terminal(
+                    HwFailurePhase::FirmwareTransport,
+                    HwFailureStatus::K2CheckpointPersistFailed,
+                    HwFailureRegister::MarvellPublicationStep,
+                    K2_PUBLICATION_STEP_CHECKPOINT_FLUSH,
+                );
+                let registers = read_register_snapshot(mmio_base);
+                finish_locked(
+                    &mut runtime,
+                    FirmwareDownloadResult::DmaAddressUnavailable,
+                    FirmwareStage::Failed,
+                    Some(FirmwareStage::Downloading),
+                    registers,
+                    job.download.offset(),
+                    job.firmware_len,
+                );
+                return true;
+            }
+        }
+    }
 
     let mut actions = 0usize;
     let action_limit = if matches!(

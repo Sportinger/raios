@@ -462,8 +462,10 @@ impl PeriodicTasks {
                 status_ui.render_forced(uptime_ms(), *runtime_status);
             }
         });
-        // Driver failure callbacks only queue a fixed trace in RAM. Flush once
-        // all Marvell locks have returned; USB MSC and HID share one xHCI lock.
+        // Driver callbacks only queue fixed traces in RAM. Flush after every
+        // Marvell poll has returned: the persisted pre-BME acknowledgement is
+        // therefore observable by the driver no earlier than the next tick,
+        // and USB MSC/HID never run under a Marvell or ring lock.
         usb::flush_pending_hw_failure_trace();
         if self.entropy_ready {
             if !self.net_started {
