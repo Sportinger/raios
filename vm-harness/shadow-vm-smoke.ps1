@@ -74,6 +74,59 @@ New-Item -ItemType Directory -Force -Path $RunDir | Out-Null
 $ResolvedArtifact = Resolve-OptionalPath -Path $ArtifactPath
 $ResolvedManifest = Resolve-OptionalPath -Path $ManifestPath
 
+function Resolve-ShadowCargoHome {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepositoryRoot,
+        [AllowEmptyString()]
+        [string]$ConfiguredCargoHome = ""
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ConfiguredCargoHome)) {
+        $candidate = Join-Path ([IO.Path]::GetFullPath($RepositoryRoot)) ".cargo-home"
+    }
+    else {
+        $isDriveAbsolute = $ConfiguredCargoHome -match '^[A-Za-z]:[\\/]'
+        $isUncAbsolute = $ConfiguredCargoHome -match '^\\\\[^\\/]+[\\/][^\\/]+'
+        if (-not $isDriveAbsolute -and -not $isUncAbsolute) {
+            throw "Configured CARGO_HOME must be an absolute path"
+        }
+        try {
+            $candidate = [IO.Path]::GetFullPath($ConfiguredCargoHome)
+        }
+        catch {
+            throw "Configured CARGO_HOME is not a valid absolute path"
+        }
+    }
+
+    if (Test-Path -LiteralPath $candidate) {
+        $item = Get-Item -LiteralPath $candidate -Force -ErrorAction Stop
+        if (-not $item.PSIsContainer) {
+            throw "CARGO_HOME path exists but is not a directory: $candidate"
+        }
+    }
+    else {
+        try {
+            [void][IO.Directory]::CreateDirectory($candidate)
+        }
+        catch {
+            throw "Failed to create CARGO_HOME directory: $candidate"
+        }
+    }
+
+    try {
+        $resolved = (Resolve-Path -LiteralPath $candidate -ErrorAction Stop).Path
+        $resolvedItem = Get-Item -LiteralPath $resolved -Force -ErrorAction Stop
+    }
+    catch {
+        throw "CARGO_HOME directory could not be resolved after bootstrap: $candidate"
+    }
+    if (-not $resolvedItem.PSIsContainer) {
+        throw "CARGO_HOME path exists but is not a directory: $candidate"
+    }
+    return $resolved
+}
+
 try {
     $runMutexName = "Local\raiOS-shadow-vm-smoke-port-$SerialTcpPort"
     $script:RunMutex = [System.Threading.Mutex]::new($false, $runMutexName)
@@ -107,10 +160,13 @@ try {
         }
     }
 
-    # Pin cargo to the repo-local home/target for EVERY profile: the owner env
-    # can hijack CARGO_TARGET_DIR to a non-mounted drive (scorefollower F:\),
-    # which makes package-stage0's Join-Path die with a misleading drive error.
-    $env:CARGO_HOME = (Resolve-Path (Join-Path $RepoRoot ".cargo-home")).Path
+    # Bootstrap a repo-local Cargo home on fresh runners, while preserving an
+    # explicitly configured absolute Cargo home. Always pin the target: the
+    # owner env can point it at a non-mounted drive (scorefollower F:\), which
+    # makes package-stage0's Join-Path die with a misleading drive error.
+    $env:CARGO_HOME = Resolve-ShadowCargoHome `
+        -RepositoryRoot $RepoRoot `
+        -ConfiguredCargoHome ([string]$env:CARGO_HOME)
     $env:CARGO_TARGET_DIR = Join-Path $RepoRoot "target"
     if ($Profile -in @("genesis-ui", "m6c-promotion", "network-acquisition", "m6d-rollback", "rollback-isolation")) {
         & cargo build --locked -p ota-tools --bin dev-promotion-signer
