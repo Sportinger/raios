@@ -105,19 +105,24 @@ function ConvertTo-Hex {
 
 function Get-Crc32 {
     param([byte[]]$Bytes)
-    [uint32]$crc = 0xffffffff
+    # Windows PowerShell 5.1 parses 0xffffffff and 0xedb88320 as negative
+    # Int32 values before applying the UInt32 cast. Construct both unsigned
+    # values without signed hexadecimal literals so GPT validation works on
+    # the same shell used for the physical-disk safety gate.
+    [uint32]$crc = [uint32]::MaxValue
+    [uint32]$polynomial = [Convert]::ToUInt32("edb88320", 16)
     foreach ($byte in $Bytes) {
         $crc = $crc -bxor [uint32]$byte
         for ($bit = 0; $bit -lt 8; $bit++) {
             if (($crc -band 1) -ne 0) {
-                $crc = [uint32](($crc -shr 1) -bxor 0xedb88320)
+                $crc = [uint32](($crc -shr 1) -bxor $polynomial)
             }
             else {
                 $crc = [uint32]($crc -shr 1)
             }
         }
     }
-    return [uint32]($crc -bxor 0xffffffff)
+    return [uint32]($crc -bxor [uint32]::MaxValue)
 }
 
 function Read-ExactAt {
@@ -526,6 +531,17 @@ function New-SelfTestFrame {
 }
 
 function Invoke-SelfTest {
+    $legacyCrcVector = [Text.Encoding]::ASCII.GetBytes("123456789")
+    $expectedLegacyCrc = [Convert]::ToUInt32("cbf43926", 16)
+    if ((Get-Crc32 $legacyCrcVector) -ne $expectedLegacyCrc) {
+        throw "selftest_powershell51_crc32_failed"
+    }
+    $mutatedCrcVector = Get-Slice $legacyCrcVector 0 $legacyCrcVector.Length
+    $mutatedCrcVector[0] = $mutatedCrcVector[0] -bxor 1
+    if ((Get-Crc32 $mutatedCrcVector) -eq $expectedLegacyCrc) {
+        throw "selftest_crc32_mutation_not_rejected"
+    }
+
     $payload = '{"schema":"raios.hw_failure_trace.v0","classification":"local_only","scope":"current_boot","build_id":65536,"subsystem":1,"steps":[[10,1,1,7,1026],[20,1,111,8,2]]}'
     $frame = New-SelfTestFrame -PayloadText $payload -Sequence 1 -PreviousFrameHash (New-Object byte[] 32)
     $usbPayload = '{"schema":"raios.usb_diag.v0","classification":"local_only","scope":"current_boot","reason":"boot_probe","seq":2,"hub_count":1,"hub_ports":4,"hub_connected":2,"hub_reset":1,"hub_done":2,"recover":0,"reports":12,"errors":0,"last_int_cc":1,"last_xfer_cc":1,"last_cmd":42,"last_cc":1,"enum_vid":4660,"enum_pid":22136,"m_port":1,"m_chg":0,"m_ep":1}'
@@ -568,6 +584,18 @@ function Invoke-SelfTest {
         }
     }
 
+    $legacyNegativeUsbPayload = '{"schema":"raios.usb_diag.v0","classification":"local_only","scope":"current_boot","reason":"boot_probe","seq":1,"hub_count":1,"hub_ports":4,"hub_connected":2,"hub_reset":1,"hub_done":2,"recover":0,"reports":12,"errors":0,"last_int_cc":-1,"last_xfer_cc":1,"last_cmd":42,"last_cc":1,"enum_vid":4660,"enum_pid":22136,"m_port":1,"m_chg":0,"m_ep":1}'
+    $legacyNegativeUsbFrame = New-SelfTestFrame -PayloadText $legacyNegativeUsbPayload -Sequence 1 -PreviousFrameHash (New-Object byte[] 32)
+    try {
+        [void](Read-ReclogTraces -Region $legacyNegativeUsbFrame -AbsoluteStartLba 100)
+        throw "selftest_legacy_negative_usb_diag_not_rejected"
+    }
+    catch {
+        if ($_.Exception.Message -cne "usb_diag_numeric_field_invalid") {
+            throw
+        }
+    }
+
     $full = New-Object byte[] ($SectorSize * 2)
     [Array]::Copy($frame, 0, $full, 0, $SectorSize)
     $second = New-SelfTestFrame -PayloadText $payload -Sequence 2 -PreviousFrameHash (Get-Sha256Bytes $frame)
@@ -580,7 +608,7 @@ function Invoke-SelfTest {
     [pscustomobject][ordered]@{
         schema = "raios.hw_failure_trace.extractor_selftest.v0"
         status = "passed"
-        checks = @("verified_readback", "k2_decoded", "usb_diag_visible", "torn_rejected", "secret_field_rejected", "full_region_reported")
+        checks = @("powershell51_crc32", "crc32_mutation_rejected", "verified_readback", "k2_decoded", "usb_diag_visible", "legacy_negative_usb_diag_rejected", "torn_rejected", "secret_field_rejected", "full_region_reported")
     } | ConvertTo-Json -Depth 4 -Compress
 }
 
