@@ -1,10 +1,14 @@
 //! Canonical durable events and the fail-closed authority fold for ADR 0023.
 
-use alloc::{vec, vec::Vec};
+use alloc::{string::String, vec, vec::Vec};
 use core::{cmp::Ordering, str};
 
 use crate::{
     memory_record::{self, MemoryKind, MemoryRecord, MemoryRecordInput, MemorySource},
+    project_install::{
+        validate_granted_candidate_install_target, GrantedCandidateInstallEnvelope,
+        ProjectInstallError,
+    },
     record::{write_json, Field, Value},
     sha256_bytes, ByteSink,
 };
@@ -14,6 +18,7 @@ pub const REVOKE_PREDICATE: &str = "wasm_import.revoked.v1";
 pub const EVENT_SCHEMA: &str = "raios.wasm_import_grant_event.v1";
 pub const EVENT_AUTHORITY: &str = "kernel_wasm_import_grant_fold.v1";
 pub const MAX_PROJECTION_SLOTS: usize = 8;
+pub const GRANT_TARGET_SNAPSHOT_SCHEMA: &str = "raios.grant_target_snapshot.v1";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum HostImportId {
@@ -50,6 +55,112 @@ impl GrantScope {
 
     fn parse(value: &str) -> Option<Self> {
         (value == "host_call").then_some(Self::HostCall)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct GrantTargetEntry {
+    pub host_import_id: HostImportId,
+    pub scope: GrantScope,
+}
+
+/// Immutable authority target carried by one promoted version.  The hash is
+/// deliberately over the typed entries, not over linker/import declarations.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GrantTargetSnapshot {
+    pub service_id: alloc::string::String,
+    pub version_artifact_sha256: [u8; 32],
+    pub entries: Vec<GrantTargetEntry>,
+    pub entry_count: u64,
+    pub snapshot_sha256: [u8; 32],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GrantTargetSnapshotError {
+    EmptyService,
+    MissingVersionBinding,
+    Empty,
+    TooManyEntries,
+    CountMismatch,
+    NonCanonicalOrder,
+    Duplicate,
+    HashMismatch,
+}
+
+impl GrantTargetSnapshot {
+    pub fn seal(
+        service_id: &str,
+        version_artifact_sha256: [u8; 32],
+        entries: Vec<GrantTargetEntry>,
+    ) -> Result<Self, GrantTargetSnapshotError> {
+        let mut snapshot = Self {
+            service_id: alloc::string::String::from(service_id),
+            version_artifact_sha256,
+            entry_count: entries.len() as u64,
+            entries,
+            snapshot_sha256: [0; 32],
+        };
+        snapshot.validate_shape()?;
+        snapshot.snapshot_sha256 = snapshot.body_sha256();
+        Ok(snapshot)
+    }
+
+    pub fn validate(&self) -> Result<(), GrantTargetSnapshotError> {
+        self.validate_shape()?;
+        if self.snapshot_sha256 != self.body_sha256() {
+            return Err(GrantTargetSnapshotError::HashMismatch);
+        }
+        Ok(())
+    }
+
+    pub fn contains(&self, host_import_id: HostImportId, scope: GrantScope) -> bool {
+        self.entries
+            .binary_search(&GrantTargetEntry {
+                host_import_id,
+                scope,
+            })
+            .is_ok()
+    }
+
+    fn validate_shape(&self) -> Result<(), GrantTargetSnapshotError> {
+        if self.service_id.is_empty() {
+            return Err(GrantTargetSnapshotError::EmptyService);
+        }
+        if self.version_artifact_sha256 == [0; 32] {
+            return Err(GrantTargetSnapshotError::MissingVersionBinding);
+        }
+        if self.entries.len() > MAX_PROJECTION_SLOTS {
+            return Err(GrantTargetSnapshotError::TooManyEntries);
+        }
+        if self.entry_count != self.entries.len() as u64 {
+            return Err(GrantTargetSnapshotError::CountMismatch);
+        }
+        for pair in self.entries.windows(2) {
+            if pair[0] == pair[1] {
+                return Err(GrantTargetSnapshotError::Duplicate);
+            }
+            if pair[0] > pair[1] {
+                return Err(GrantTargetSnapshotError::NonCanonicalOrder);
+            }
+        }
+        Ok(())
+    }
+
+    fn body_sha256(&self) -> [u8; 32] {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(GRANT_TARGET_SNAPSHOT_SCHEMA.as_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(self.service_id.as_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&self.version_artifact_sha256);
+        bytes.extend_from_slice(&self.entry_count.to_le_bytes());
+        for entry in &self.entries {
+            bytes.extend_from_slice(entry.host_import_id.as_str().as_bytes());
+            bytes.push(0);
+            bytes.extend_from_slice(entry.scope.as_str().as_bytes());
+            bytes.push(0);
+        }
+        sha256_bytes(&bytes)
     }
 }
 
@@ -287,6 +398,8 @@ pub fn parse_event(payload: &[u8]) -> Result<GrantEvent<'_>, GrantEventError> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProjectionSlot<'a> {
     pub grant_id: &'a str,
+    pub grant_sha256: [u8; 32],
+    pub revoke_id: Option<&'a str>,
     pub service_id: &'a str,
     pub domain_instance: u64,
     pub binding_sha256: [u8; 32],
@@ -330,6 +443,67 @@ impl<'a> GrantProjection<'a> {
     }
 }
 
+/// Computes the exact-parent authority reduction for one quarantined domain.
+/// Retained target entries and every peer domain are excluded by construction.
+pub fn rollback_delta<'a>(
+    projection: &'a GrantProjection<'a>,
+    domain_instance: u64,
+    envelope: &GrantedCandidateInstallEnvelope,
+    target: &GrantTargetSnapshot,
+) -> Result<Vec<ProjectionSlot<'a>>, ProjectInstallError> {
+    validate_granted_candidate_install_target(envelope, target)?;
+    Ok(projection
+        .slots()
+        .iter()
+        .filter(|slot| {
+            !slot.revoked
+                && slot.service_id == envelope.service_id
+                && slot.domain_instance == domain_instance
+                && !target.contains(slot.host_import_id, slot.scope)
+        })
+        .copied()
+        .collect())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EnsureRevokedState {
+    NeedsAppend,
+    AlreadyRevokedByTransaction,
+    DeniedForeignRevoke,
+}
+
+pub fn rollback_revoke_record_id(
+    transaction_id: &str,
+    parent_grant_id: &str,
+) -> alloc::string::String {
+    let mut record_id = alloc::format!("rollback.revoke.v1.{}.", transaction_id.len());
+    push_hex(&mut record_id, transaction_id.as_bytes());
+    record_id.push('.');
+    record_id.push_str(&alloc::format!("{}.", parent_grant_id.len()));
+    push_hex(&mut record_id, parent_grant_id.as_bytes());
+    record_id
+}
+
+fn push_hex(output: &mut String, bytes: &[u8]) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+}
+
+pub fn ensure_revoked_state(slot: &ProjectionSlot<'_>, transaction_id: &str) -> EnsureRevokedState {
+    if !slot.revoked {
+        return EnsureRevokedState::NeedsAppend;
+    }
+    let expected = rollback_revoke_record_id(transaction_id, slot.grant_id);
+    if slot.revoke_id == Some(expected.as_str()) {
+        EnsureRevokedState::AlreadyRevokedByTransaction
+    } else {
+        EnsureRevokedState::DeniedForeignRevoke
+    }
+}
+
 /// Pure ordered fold. Any ambiguity rejects the entire projection; callers must
 /// install an empty/denied table on `Err`, never authority from a valid prefix.
 pub fn fold_events<'a>(events: &[GrantEvent<'a>]) -> Result<GrantProjection<'a>, FoldError> {
@@ -367,6 +541,8 @@ pub fn fold_events<'a>(events: &[GrantEvent<'a>]) -> Result<GrantProjection<'a>,
                 }
                 slots.push(ProjectionSlot {
                     grant_id: event.record_id,
+                    grant_sha256: event.record_sha256().map_err(|_| FoldError::Malformed)?,
+                    revoke_id: None,
                     service_id: event.service_id,
                     domain_instance: event.domain_instance,
                     binding_sha256: event.binding_sha256,
@@ -403,6 +579,7 @@ pub fn fold_events<'a>(events: &[GrantEvent<'a>]) -> Result<GrantProjection<'a>,
                     return Err(FoldError::MalformedLink);
                 }
                 slots[index].revoked = true;
+                slots[index].revoke_id = Some(event.record_id);
             }
         }
     }
@@ -453,6 +630,12 @@ fn projection_hash(slots: &[ProjectionSlot<'_>]) -> [u8; 32] {
         bytes.push(0);
         bytes.extend_from_slice(&slot.generation.to_le_bytes());
         bytes.extend_from_slice(slot.grant_id.as_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&slot.grant_sha256);
+        bytes.extend_from_slice(&slot.grant_epoch.to_le_bytes());
+        if let Some(revoke_id) = slot.revoke_id {
+            bytes.extend_from_slice(revoke_id.as_bytes());
+        }
         bytes.push(0);
         bytes.push(u8::from(slot.revoked));
     }
@@ -545,6 +728,42 @@ impl<'a> Cursor<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const ROLLBACK_SERVICE: &str = "svc.dev.granted_candidate";
+
+    fn rollback_target(
+        entries: Vec<GrantTargetEntry>,
+    ) -> (GrantedCandidateInstallEnvelope, GrantTargetSnapshot) {
+        let candidate_sha256 = [9; 32];
+        let snapshot =
+            GrantTargetSnapshot::seal(ROLLBACK_SERVICE, candidate_sha256, entries).unwrap();
+        let envelope = crate::project_install::seal_granted_candidate_install_envelope(
+            GrantedCandidateInstallEnvelope {
+                envelope_version:
+                    crate::project_install::GRANTED_CANDIDATE_INSTALL_ENVELOPE_VERSION,
+                service_id: String::from(ROLLBACK_SERVICE),
+                candidate_sha256,
+                candidate_byte_len: 176,
+                activation_approval_sha256: [0x31; 32],
+                computed_grant_sha256: [0x32; 32],
+                attestation_reference_sha256: [0x33; 32],
+                grant_target_schema: String::from(GRANT_TARGET_SNAPSHOT_SCHEMA),
+                grant_target_count: snapshot.entry_count,
+                grant_target_snapshot_sha256: snapshot.snapshot_sha256,
+                w7_invocation_sha256: [0x34; 32],
+                w7_receipt_sha256: [0x35; 32],
+                receiver_content_sha256: candidate_sha256,
+                receiver_candidate_sha256: candidate_sha256,
+                catalog_candidate_sha256: candidate_sha256,
+                generation: 3,
+                auto_start: true,
+                trust_tier: String::from(crate::project_install::PROJECT_INSTALL_TRUST_TIER),
+                envelope_sha256: [0; 32],
+            },
+        )
+        .unwrap();
+        (envelope, snapshot)
+    }
 
     fn grant<'a>(id: &'a str, epoch: u64, generation: u64) -> GrantEvent<'a> {
         GrantEvent::grant(
@@ -661,5 +880,381 @@ mod tests {
         let mut whitespace = g.canonical_bytes().unwrap();
         whitespace.insert(0, b' ');
         assert_eq!(parse_event(&whitespace), Err(GrantEventError::NonCanonical));
+    }
+
+    #[test]
+    fn target_snapshot_is_version_bound_ordered_and_tamper_evident() {
+        let entries = vec![
+            GrantTargetEntry {
+                host_import_id: HostImportId::EnvLog,
+                scope: GrantScope::HostCall,
+            },
+            GrantTargetEntry {
+                host_import_id: HostImportId::EnvCounterGet,
+                scope: GrantScope::HostCall,
+            },
+        ];
+        let snapshot = GrantTargetSnapshot::seal("svc.echo", [0x51; 32], entries).unwrap();
+        assert_eq!(snapshot.entry_count, 2);
+        assert!(snapshot.contains(HostImportId::EnvLog, GrantScope::HostCall));
+        assert_eq!(snapshot.validate(), Ok(()));
+
+        let mut substituted = snapshot.clone();
+        substituted.version_artifact_sha256 = [0x52; 32];
+        assert_eq!(
+            substituted.validate(),
+            Err(GrantTargetSnapshotError::HashMismatch)
+        );
+        let mut wrong_count = snapshot.clone();
+        wrong_count.entry_count = 1;
+        assert_eq!(
+            wrong_count.validate(),
+            Err(GrantTargetSnapshotError::CountMismatch)
+        );
+        let duplicate = GrantTargetSnapshot::seal(
+            "svc.echo",
+            [0x51; 32],
+            vec![snapshot.entries[0], snapshot.entries[0]],
+        );
+        assert_eq!(duplicate, Err(GrantTargetSnapshotError::Duplicate));
+        let reversed = GrantTargetSnapshot::seal(
+            "svc.echo",
+            [0x51; 32],
+            vec![snapshot.entries[1], snapshot.entries[0]],
+        );
+        assert_eq!(reversed, Err(GrantTargetSnapshotError::NonCanonicalOrder));
+    }
+
+    #[test]
+    fn rollback_delta_removes_a_retains_b_and_never_touches_peer() {
+        let a = GrantEvent::grant(
+            "a",
+            ROLLBACK_SERVICE,
+            7,
+            [1; 32],
+            HostImportId::EnvCounterGet,
+            1,
+            1,
+        );
+        let b = GrantEvent::grant(
+            "b",
+            ROLLBACK_SERVICE,
+            7,
+            [1; 32],
+            HostImportId::EnvLog,
+            1,
+            2,
+        );
+        let peer_a = GrantEvent::grant(
+            "peer-a",
+            "svc.peer",
+            8,
+            [2; 32],
+            HostImportId::EnvCounterGet,
+            1,
+            3,
+        );
+        let projection = fold_events(&[a, b, peer_a]).unwrap();
+        let peer_before = *projection
+            .slots()
+            .iter()
+            .find(|slot| slot.service_id == "svc.peer")
+            .unwrap();
+        let (envelope, target) = rollback_target(vec![GrantTargetEntry {
+            host_import_id: HostImportId::EnvLog,
+            scope: GrantScope::HostCall,
+        }]);
+        let delta = rollback_delta(&projection, 7, &envelope, &target).unwrap();
+        assert_eq!(delta.len(), 1);
+        assert_eq!(delta[0].grant_id, "a");
+        assert_eq!(delta[0].grant_sha256, a.record_sha256().unwrap());
+        assert_eq!(delta[0].grant_epoch, 1);
+
+        let transaction_id = "rollback.tx.fewer";
+        let revoke_ids = delta
+            .iter()
+            .map(|slot| rollback_revoke_record_id(transaction_id, slot.grant_id))
+            .collect::<Vec<_>>();
+        let revoke_events = delta
+            .iter()
+            .zip(&revoke_ids)
+            .enumerate()
+            .map(|(index, (slot, record_id))| GrantEvent {
+                record_id,
+                kind: GrantEventKind::Revoke,
+                service_id: slot.service_id,
+                domain_instance: slot.domain_instance,
+                binding_sha256: slot.binding_sha256,
+                host_import_id: slot.host_import_id,
+                scope: slot.scope,
+                generation: slot.generation,
+                epoch: 4 + index as u64,
+                parent_grant_id: slot.grant_id,
+                parent_grant_sha256: slot.grant_sha256,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(revoke_events.len(), delta.len());
+        assert!(revoke_events
+            .iter()
+            .zip(&delta)
+            .all(|(revoke, slot)| revoke.parent_grant_id == slot.grant_id
+                && revoke.parent_grant_sha256 == slot.grant_sha256));
+
+        let mut history = vec![a, b, peer_a];
+        history.extend(revoke_events);
+        let after = fold_events(&history).unwrap();
+        assert!(!after.is_live(ROLLBACK_SERVICE, 7, HostImportId::EnvCounterGet));
+        assert!(after.is_live(ROLLBACK_SERVICE, 7, HostImportId::EnvLog));
+        assert!(after.is_live("svc.peer", 8, HostImportId::EnvCounterGet));
+        assert_eq!(
+            after
+                .slots()
+                .iter()
+                .find(|slot| slot.service_id == "svc.peer")
+                .copied(),
+            Some(peer_before)
+        );
+    }
+
+    #[test]
+    fn rollback_delta_rejects_every_unbound_target_before_revoke_creation() {
+        let source_grant = GrantEvent::grant(
+            "mismatch-a",
+            ROLLBACK_SERVICE,
+            7,
+            [1; 32],
+            HostImportId::EnvCounterGet,
+            1,
+            1,
+        );
+        let projection = fold_events(&[source_grant]).unwrap();
+        let (envelope, target) = rollback_target(vec![GrantTargetEntry {
+            host_import_id: HostImportId::EnvLog,
+            scope: GrantScope::HostCall,
+        }]);
+
+        let mut changed_candidate = envelope.clone();
+        changed_candidate.candidate_sha256 = [0x41; 32];
+        changed_candidate.receiver_content_sha256 = changed_candidate.candidate_sha256;
+        changed_candidate.receiver_candidate_sha256 = changed_candidate.candidate_sha256;
+        changed_candidate.catalog_candidate_sha256 = changed_candidate.candidate_sha256;
+        let changed_candidate =
+            crate::project_install::seal_granted_candidate_install_envelope(changed_candidate)
+                .unwrap();
+
+        let changed_service = GrantTargetSnapshot::seal(
+            "svc.dev.other_candidate",
+            envelope.candidate_sha256,
+            target.entries.clone(),
+        )
+        .unwrap();
+
+        let mut changed_schema = envelope.clone();
+        changed_schema.grant_target_schema = String::from("raios.grant_target_snapshot.v2");
+        changed_schema.envelope_sha256 =
+            crate::project_install::granted_candidate_install_envelope_hash(&changed_schema)
+                .unwrap();
+
+        let mut changed_count = envelope.clone();
+        changed_count.grant_target_count = 0;
+        let changed_count =
+            crate::project_install::seal_granted_candidate_install_envelope(changed_count).unwrap();
+
+        let mut changed_digest = envelope.clone();
+        changed_digest.grant_target_snapshot_sha256[0] ^= 1;
+        let changed_digest =
+            crate::project_install::seal_granted_candidate_install_envelope(changed_digest)
+                .unwrap();
+
+        let changed_version =
+            GrantTargetSnapshot::seal(ROLLBACK_SERVICE, [0x42; 32], target.entries.clone())
+                .unwrap();
+
+        let substituted_snapshot = GrantTargetSnapshot::seal(
+            ROLLBACK_SERVICE,
+            envelope.candidate_sha256,
+            vec![GrantTargetEntry {
+                host_import_id: HostImportId::EnvCounterGet,
+                scope: GrantScope::HostCall,
+            }],
+        )
+        .unwrap();
+
+        let mut tampered_snapshot = target.clone();
+        tampered_snapshot.entries[0].host_import_id = HostImportId::EnvCounterGet;
+
+        let mismatches = vec![
+            (changed_candidate, target.clone()),
+            (envelope.clone(), changed_service),
+            (changed_schema, target.clone()),
+            (changed_count, target.clone()),
+            (changed_digest, target.clone()),
+            (envelope.clone(), changed_version),
+            (envelope.clone(), substituted_snapshot),
+            (envelope, tampered_snapshot),
+        ];
+        let mut rejected = 0usize;
+        let mut emitted_revoke_ids = Vec::new();
+        for (mismatched_envelope, mismatched_target) in &mismatches {
+            match rollback_delta(&projection, 7, mismatched_envelope, mismatched_target) {
+                Err(_) => rejected += 1,
+                Ok(delta) => {
+                    emitted_revoke_ids.extend(delta.iter().map(|slot| {
+                        rollback_revoke_record_id("rollback.tx.mismatch", slot.grant_id)
+                    }))
+                }
+            }
+        }
+        assert_eq!(rejected, mismatches.len());
+        assert!(emitted_revoke_ids.is_empty());
+    }
+
+    #[test]
+    fn rollback_revoke_record_identity_preserves_tuple_boundaries() {
+        assert_eq!(
+            rollback_revoke_record_id("x.y", "z"),
+            "rollback.revoke.v1.3.782e79.1.7a"
+        );
+        assert_eq!(
+            rollback_revoke_record_id("x", "y.z"),
+            "rollback.revoke.v1.1.78.3.792e7a"
+        );
+        assert_ne!(
+            rollback_revoke_record_id("x.y", "z"),
+            rollback_revoke_record_id("x", "y.z")
+        );
+    }
+
+    #[test]
+    fn empty_target_revokes_complete_service_set_and_preserves_peer() {
+        let (envelope, target) = rollback_target(vec![]);
+        let (_, same_target) = rollback_target(vec![]);
+        assert_eq!(target.entry_count, 0);
+        assert!(target.entries.is_empty());
+        assert_eq!(
+            target.snapshot_sha256,
+            [
+                0xab, 0x07, 0x7c, 0xfb, 0x67, 0x11, 0x7b, 0xc7, 0x29, 0xb2, 0x0c, 0xea, 0x33, 0x55,
+                0x26, 0x82, 0xd1, 0x96, 0xa8, 0x0e, 0x26, 0x3b, 0xa4, 0x58, 0x8a, 0x9b, 0x4a, 0x09,
+                0x84, 0xdf, 0x44, 0x8e,
+            ]
+        );
+        assert_eq!(target.snapshot_sha256, same_target.snapshot_sha256);
+        assert_eq!(
+            validate_granted_candidate_install_target(&envelope, &target),
+            Ok(())
+        );
+
+        let a = GrantEvent::grant(
+            "empty-a",
+            ROLLBACK_SERVICE,
+            7,
+            [1; 32],
+            HostImportId::EnvCounterGet,
+            1,
+            1,
+        );
+        let b = GrantEvent::grant(
+            "empty-b",
+            ROLLBACK_SERVICE,
+            7,
+            [1; 32],
+            HostImportId::EnvLog,
+            1,
+            2,
+        );
+        let peer = GrantEvent::grant(
+            "empty-peer",
+            "svc.peer",
+            8,
+            [2; 32],
+            HostImportId::EnvCounterGet,
+            1,
+            3,
+        );
+        let projection = fold_events(&[a, b, peer]).unwrap();
+        let peer_before = *projection
+            .slots()
+            .iter()
+            .find(|slot| slot.service_id == "svc.peer")
+            .unwrap();
+        let delta = rollback_delta(&projection, 7, &envelope, &target).unwrap();
+        assert_eq!(
+            delta.iter().map(|slot| slot.grant_id).collect::<Vec<_>>(),
+            vec!["empty-b", "empty-a"]
+        );
+
+        let revoke_ids = delta
+            .iter()
+            .map(|slot| rollback_revoke_record_id("rollback.tx.empty", slot.grant_id))
+            .collect::<Vec<_>>();
+        let revoke_events = delta
+            .iter()
+            .zip(&revoke_ids)
+            .enumerate()
+            .map(|(index, (slot, record_id))| GrantEvent {
+                record_id,
+                kind: GrantEventKind::Revoke,
+                service_id: slot.service_id,
+                domain_instance: slot.domain_instance,
+                binding_sha256: slot.binding_sha256,
+                host_import_id: slot.host_import_id,
+                scope: slot.scope,
+                generation: slot.generation,
+                epoch: 4 + index as u64,
+                parent_grant_id: slot.grant_id,
+                parent_grant_sha256: slot.grant_sha256,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(revoke_events.len(), delta.len());
+        let mut history = vec![a, b, peer];
+        history.extend(revoke_events);
+        let after = fold_events(&history).unwrap();
+        assert!(!after
+            .slots()
+            .iter()
+            .any(|slot| slot.service_id == ROLLBACK_SERVICE && !slot.revoked));
+        assert!(after.is_live("svc.peer", 8, HostImportId::EnvCounterGet));
+        assert_eq!(
+            after
+                .slots()
+                .iter()
+                .find(|slot| slot.service_id == "svc.peer")
+                .copied(),
+            Some(peer_before)
+        );
+    }
+
+    #[test]
+    fn rollback_recovery_is_idempotent_and_rejects_wrong_transaction() {
+        let a = GrantEvent::grant(
+            "a",
+            "svc.echo",
+            7,
+            [1; 32],
+            HostImportId::EnvCounterGet,
+            1,
+            1,
+        );
+        let initial = fold_events(&[a]).unwrap();
+        assert_eq!(
+            ensure_revoked_state(&initial.slots()[0], "tx1"),
+            EnsureRevokedState::NeedsAppend
+        );
+        let revoke_id = rollback_revoke_record_id("tx1", "a");
+        let revoke = GrantEvent::revoke(&revoke_id, &a, 2, a.record_sha256().unwrap());
+        let after_revoke = fold_events(&[a, revoke]).unwrap();
+        assert_eq!(
+            ensure_revoked_state(&after_revoke.slots()[0], "tx1"),
+            EnsureRevokedState::AlreadyRevokedByTransaction
+        );
+        assert_eq!(
+            ensure_revoked_state(&after_revoke.slots()[0], "tx2"),
+            EnsureRevokedState::DeniedForeignRevoke
+        );
+        assert_eq!(
+            after_revoke.sha256(),
+            fold_events(&[a, revoke]).unwrap().sha256()
+        );
     }
 }

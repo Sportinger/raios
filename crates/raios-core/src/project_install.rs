@@ -8,8 +8,8 @@ use crate::{
 
 const STATE_SCHEMA_DOMAIN: &[u8] = b"raios.project_app_state_schema.v1";
 const INSTALL_ENVELOPE_DOMAIN: &[u8] = b"raios.project_install_envelope.v1";
-const GRANTED_CANDIDATE_INSTALL_ENVELOPE_DOMAIN: &[u8] =
-    b"raios.granted_candidate_install_envelope.v1";
+const GRANTED_CANDIDATE_INSTALL_ENVELOPE_DOMAIN_V2: &[u8] =
+    b"raios.granted_candidate_install_envelope.v2";
 const UI_PROGRAM_INSTALL_ENVELOPE_DOMAIN: &[u8] = b"raios.ui_program_install_envelope.v1";
 const ACTION_SIGNATURE_DOMAIN: &[u8] = b"raios.project_install_action_signature.v1";
 const ACTION_DOMAIN: &[u8] = b"raios.project_install_action.v1";
@@ -29,6 +29,77 @@ const MAX_IMPORTS: u32 = 16;
 /// distinct from the W5 current-boot workstation-build trust tier.
 pub const PROJECT_INSTALL_TRUST_TIER: &str = "dev_key_not_owner_sealed";
 pub const UI_PROGRAM_INSTALL_SUBJECT_KIND: &str = "ui_program";
+pub const GRANTED_CANDIDATE_INSTALL_ENVELOPE_VERSION: u16 = 2;
+
+/// Ordering material recovered only after the containing physical-owner install
+/// action has been signature-verified and linked to its exact persisted artifact.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AuthenticatedInstallOrder {
+    pub install_action_sha256: [u8; 32],
+    pub artifact_sha256: [u8; 32],
+    pub generation: u64,
+    pub log_sequence: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AuthenticatedPredecessorError {
+    CurrentMissing,
+    CurrentAmbiguous,
+    DuplicateIdentity,
+    DuplicateOrder,
+    NonMonotonicOrder,
+    PredecessorMissing,
+}
+
+/// Selects an immediate predecessor without consulting physical record order.
+/// Callers must supply only fully authenticated and artifact-linked installs.
+pub fn select_authenticated_predecessor(
+    installs: &[AuthenticatedInstallOrder],
+    current_artifact_sha256: [u8; 32],
+) -> Result<usize, AuthenticatedPredecessorError> {
+    for (left_index, left) in installs.iter().enumerate() {
+        if left.install_action_sha256 == [0; 32]
+            || left.artifact_sha256 == [0; 32]
+            || left.generation == 0
+            || left.log_sequence == 0
+        {
+            return Err(AuthenticatedPredecessorError::NonMonotonicOrder);
+        }
+        for right in &installs[left_index + 1..] {
+            if left.install_action_sha256 == right.install_action_sha256 {
+                return Err(AuthenticatedPredecessorError::DuplicateIdentity);
+            }
+            if left.generation == right.generation && left.log_sequence == right.log_sequence {
+                return Err(AuthenticatedPredecessorError::DuplicateOrder);
+            }
+            if left.generation.cmp(&right.generation) != left.log_sequence.cmp(&right.log_sequence)
+            {
+                return Err(AuthenticatedPredecessorError::NonMonotonicOrder);
+            }
+        }
+    }
+
+    let mut current = None;
+    for (index, install) in installs.iter().enumerate() {
+        if install.artifact_sha256 == current_artifact_sha256 {
+            if current.replace(index).is_some() {
+                return Err(AuthenticatedPredecessorError::CurrentAmbiguous);
+            }
+        }
+    }
+    let current = current.ok_or(AuthenticatedPredecessorError::CurrentMissing)?;
+    let current_order = installs[current];
+    installs
+        .iter()
+        .enumerate()
+        .filter(|(_, install)| {
+            install.generation < current_order.generation
+                && install.log_sequence < current_order.log_sequence
+        })
+        .max_by_key(|(_, install)| (install.generation, install.log_sequence))
+        .map(|(index, _)| index)
+        .ok_or(AuthenticatedPredecessorError::PredecessorMissing)
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StateMigrationPolicy {
@@ -85,12 +156,16 @@ pub struct ProjectInstallEnvelope {
 /// This deliberately has no workspace or project-build fields.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GrantedCandidateInstallEnvelope {
+    pub envelope_version: u16,
     pub service_id: String,
     pub candidate_sha256: [u8; 32],
     pub candidate_byte_len: u64,
     pub activation_approval_sha256: [u8; 32],
     pub computed_grant_sha256: [u8; 32],
     pub attestation_reference_sha256: [u8; 32],
+    pub grant_target_schema: String,
+    pub grant_target_count: u64,
+    pub grant_target_snapshot_sha256: [u8; 32],
     pub w7_invocation_sha256: [u8; 32],
     pub w7_receipt_sha256: [u8; 32],
     pub receiver_content_sha256: [u8; 32],
@@ -272,7 +347,7 @@ pub fn seal_granted_candidate_install_envelope(
 pub fn granted_candidate_install_envelope_hash(
     envelope: &GrantedCandidateInstallEnvelope,
 ) -> Result<[u8; 32], ProjectInstallError> {
-    let mut bytes = Vec::from(GRANTED_CANDIDATE_INSTALL_ENVELOPE_DOMAIN);
+    let mut bytes = Vec::from(GRANTED_CANDIDATE_INSTALL_ENVELOPE_DOMAIN_V2);
     encode_granted_candidate_install_envelope_fields(&mut bytes, envelope)?;
     Ok(sha256_bytes(&bytes))
 }
@@ -407,6 +482,33 @@ pub fn validate_granted_candidate_install_envelope(
 ) -> Result<(), ProjectInstallError> {
     validate_granted_candidate_install_envelope_fields(envelope)?;
     if envelope.envelope_sha256 != granted_candidate_install_envelope_hash(envelope)? {
+        return Err(ProjectInstallError::InvalidHash);
+    }
+    Ok(())
+}
+
+/// Validates the signed install authority and its exact canonical grant target
+/// as one indivisible rollback target.
+pub fn validate_granted_candidate_install_target(
+    envelope: &GrantedCandidateInstallEnvelope,
+    target: &crate::wasm_import_grant_event::GrantTargetSnapshot,
+) -> Result<(), ProjectInstallError> {
+    validate_granted_candidate_install_envelope(envelope)?;
+    target.validate().map_err(|error| match error {
+        crate::wasm_import_grant_event::GrantTargetSnapshotError::HashMismatch => {
+            ProjectInstallError::InvalidHash
+        }
+        _ => ProjectInstallError::InvalidField,
+    })?;
+    if envelope.service_id != target.service_id
+        || envelope.grant_target_schema
+            != crate::wasm_import_grant_event::GRANT_TARGET_SNAPSHOT_SCHEMA
+        || envelope.grant_target_count != target.entry_count
+        || envelope.candidate_sha256 != target.version_artifact_sha256
+    {
+        return Err(ProjectInstallError::InvalidField);
+    }
+    if envelope.grant_target_snapshot_sha256 != target.snapshot_sha256 {
         return Err(ProjectInstallError::InvalidHash);
     }
     Ok(())
@@ -777,10 +879,15 @@ fn validate_granted_candidate_install_envelope_fields(
     envelope: &GrantedCandidateInstallEnvelope,
 ) -> Result<(), ProjectInstallError> {
     validate_text(&envelope.service_id)?;
+    validate_text(&envelope.grant_target_schema)?;
     validate_text(&envelope.trust_tier)?;
-    if envelope.service_id != "svc.dev.granted_candidate"
+    if envelope.envelope_version != GRANTED_CANDIDATE_INSTALL_ENVELOPE_VERSION
+        || envelope.service_id != "svc.dev.granted_candidate"
         || envelope.candidate_byte_len == 0
         || envelope.candidate_byte_len > MAX_CANDIDATE_BYTES
+        || envelope.grant_target_schema
+            != crate::wasm_import_grant_event::GRANT_TARGET_SNAPSHOT_SCHEMA
+        || envelope.grant_target_count > crate::wasm_import_grant_event::MAX_PROJECTION_SLOTS as u64
         || envelope.generation == 0
         || !envelope.auto_start
         || envelope.trust_tier != PROJECT_INSTALL_TRUST_TIER
@@ -789,6 +896,7 @@ fn validate_granted_candidate_install_envelope_fields(
             envelope.activation_approval_sha256,
             envelope.computed_grant_sha256,
             envelope.attestation_reference_sha256,
+            envelope.grant_target_snapshot_sha256,
             envelope.w7_invocation_sha256,
             envelope.w7_receipt_sha256,
             envelope.receiver_content_sha256,
@@ -1079,12 +1187,16 @@ fn encode_granted_candidate_install_envelope_fields(
     out: &mut Vec<u8>,
     envelope: &GrantedCandidateInstallEnvelope,
 ) -> Result<(), ProjectInstallError> {
+    put_u16(out, envelope.envelope_version);
     put_string(out, &envelope.service_id)?;
     put_hash(out, envelope.candidate_sha256);
     put_u64(out, envelope.candidate_byte_len);
     put_hash(out, envelope.activation_approval_sha256);
     put_hash(out, envelope.computed_grant_sha256);
     put_hash(out, envelope.attestation_reference_sha256);
+    put_string(out, &envelope.grant_target_schema)?;
+    put_u64(out, envelope.grant_target_count);
+    put_hash(out, envelope.grant_target_snapshot_sha256);
     put_hash(out, envelope.w7_invocation_sha256);
     put_hash(out, envelope.w7_receipt_sha256);
     put_hash(out, envelope.receiver_content_sha256);
@@ -1481,6 +1593,63 @@ mod tests {
         [byte; 32]
     }
 
+    fn authenticated_order(
+        identity: u8,
+        artifact: u8,
+        generation: u64,
+        log_sequence: u64,
+    ) -> AuthenticatedInstallOrder {
+        AuthenticatedInstallOrder {
+            install_action_sha256: hash(identity),
+            artifact_sha256: hash(artifact),
+            generation,
+            log_sequence,
+        }
+    }
+
+    #[test]
+    fn authenticated_predecessor_ignores_physical_order_and_rejects_ambiguity() {
+        let reordered = [
+            authenticated_order(13, 23, 3, 30),
+            authenticated_order(11, 21, 1, 10),
+            authenticated_order(12, 22, 2, 20),
+        ];
+        assert_eq!(
+            select_authenticated_predecessor(&reordered, hash(23)),
+            Ok(2)
+        );
+
+        let duplicate_order = [
+            authenticated_order(11, 21, 1, 10),
+            authenticated_order(12, 22, 1, 10),
+            authenticated_order(13, 23, 2, 20),
+        ];
+        assert_eq!(
+            select_authenticated_predecessor(&duplicate_order, hash(23)),
+            Err(AuthenticatedPredecessorError::DuplicateOrder)
+        );
+
+        let crossed = [
+            authenticated_order(11, 21, 1, 20),
+            authenticated_order(12, 22, 2, 10),
+            authenticated_order(13, 23, 3, 30),
+        ];
+        assert_eq!(
+            select_authenticated_predecessor(&crossed, hash(23)),
+            Err(AuthenticatedPredecessorError::NonMonotonicOrder)
+        );
+
+        let duplicated_signed_triple = [
+            authenticated_order(11, 21, 1, 10),
+            authenticated_order(11, 21, 1, 10),
+            authenticated_order(13, 23, 2, 20),
+        ];
+        assert_eq!(
+            select_authenticated_predecessor(&duplicated_signed_triple, hash(23)),
+            Err(AuthenticatedPredecessorError::DuplicateIdentity)
+        );
+    }
+
     fn schema() -> ProjectAppStateSchema {
         seal_state_schema(ProjectAppStateSchema {
             schema_id: String::from("raios.app_state.stateless.v1"),
@@ -1647,6 +1816,218 @@ mod tests {
             envelope_sha256: [0; 32],
         })
         .unwrap()
+    }
+
+    fn granted_candidate_target() -> (
+        GrantedCandidateInstallEnvelope,
+        crate::wasm_import_grant_event::GrantTargetSnapshot,
+    ) {
+        use crate::wasm_import_grant_event::{
+            GrantScope, GrantTargetEntry, GrantTargetSnapshot, HostImportId,
+            GRANT_TARGET_SNAPSHOT_SCHEMA,
+        };
+
+        let candidate_sha256 = hash(72);
+        let snapshot = GrantTargetSnapshot::seal(
+            "svc.dev.granted_candidate",
+            candidate_sha256,
+            alloc::vec![GrantTargetEntry {
+                host_import_id: HostImportId::EnvLog,
+                scope: GrantScope::HostCall,
+            }],
+        )
+        .unwrap();
+        let envelope = seal_granted_candidate_install_envelope(GrantedCandidateInstallEnvelope {
+            envelope_version: GRANTED_CANDIDATE_INSTALL_ENVELOPE_VERSION,
+            service_id: String::from("svc.dev.granted_candidate"),
+            candidate_sha256,
+            candidate_byte_len: 176,
+            activation_approval_sha256: hash(73),
+            computed_grant_sha256: hash(74),
+            attestation_reference_sha256: hash(75),
+            grant_target_schema: String::from(GRANT_TARGET_SNAPSHOT_SCHEMA),
+            grant_target_count: snapshot.entry_count,
+            grant_target_snapshot_sha256: snapshot.snapshot_sha256,
+            w7_invocation_sha256: hash(76),
+            w7_receipt_sha256: hash(77),
+            receiver_content_sha256: candidate_sha256,
+            receiver_candidate_sha256: candidate_sha256,
+            catalog_candidate_sha256: candidate_sha256,
+            generation: 3,
+            auto_start: true,
+            trust_tier: String::from(PROJECT_INSTALL_TRUST_TIER),
+            envelope_sha256: [0; 32],
+        })
+        .unwrap();
+        (envelope, snapshot)
+    }
+
+    fn granted_candidate_envelope() -> GrantedCandidateInstallEnvelope {
+        granted_candidate_target().0
+    }
+
+    fn legacy_granted_candidate_v1_hash(envelope: &GrantedCandidateInstallEnvelope) -> [u8; 32] {
+        let mut bytes = Vec::from(b"raios.granted_candidate_install_envelope.v1".as_slice());
+        put_string(&mut bytes, &envelope.service_id).unwrap();
+        put_hash(&mut bytes, envelope.candidate_sha256);
+        put_u64(&mut bytes, envelope.candidate_byte_len);
+        put_hash(&mut bytes, envelope.activation_approval_sha256);
+        put_hash(&mut bytes, envelope.computed_grant_sha256);
+        put_hash(&mut bytes, envelope.attestation_reference_sha256);
+        put_hash(&mut bytes, envelope.w7_invocation_sha256);
+        put_hash(&mut bytes, envelope.w7_receipt_sha256);
+        put_hash(&mut bytes, envelope.receiver_content_sha256);
+        put_hash(&mut bytes, envelope.receiver_candidate_sha256);
+        put_hash(&mut bytes, envelope.catalog_candidate_sha256);
+        put_u64(&mut bytes, envelope.generation);
+        put_bool(&mut bytes, envelope.auto_start);
+        put_string(&mut bytes, &envelope.trust_tier).unwrap();
+        sha256_bytes(&bytes)
+    }
+
+    #[test]
+    fn granted_candidate_v2_binds_snapshot_and_rejects_legacy_or_unknown_versions() {
+        let envelope = granted_candidate_envelope();
+        assert_eq!(
+            validate_granted_candidate_install_envelope(&envelope),
+            Ok(())
+        );
+
+        let mut changed_snapshot = envelope.clone();
+        changed_snapshot.grant_target_snapshot_sha256[0] ^= 1;
+        assert_eq!(
+            validate_granted_candidate_install_envelope(&changed_snapshot),
+            Err(ProjectInstallError::InvalidHash)
+        );
+
+        let mut changed_service = envelope.clone();
+        changed_service.service_id = String::from("svc.dev.other_candidate");
+        assert_eq!(
+            validate_granted_candidate_install_envelope(&changed_service),
+            Err(ProjectInstallError::InvalidField)
+        );
+
+        let mut changed_artifact = envelope.clone();
+        changed_artifact.candidate_sha256[0] ^= 1;
+        changed_artifact.receiver_content_sha256 = changed_artifact.candidate_sha256;
+        changed_artifact.receiver_candidate_sha256 = changed_artifact.candidate_sha256;
+        changed_artifact.catalog_candidate_sha256 = changed_artifact.candidate_sha256;
+        assert_eq!(
+            validate_granted_candidate_install_envelope(&changed_artifact),
+            Err(ProjectInstallError::InvalidHash)
+        );
+
+        let mut changed_attestation = envelope.clone();
+        changed_attestation.attestation_reference_sha256[0] ^= 1;
+        assert_eq!(
+            validate_granted_candidate_install_envelope(&changed_attestation),
+            Err(ProjectInstallError::InvalidHash)
+        );
+
+        let mut unknown = envelope.clone();
+        unknown.envelope_version = 99;
+        unknown.envelope_sha256 = granted_candidate_install_envelope_hash(&unknown).unwrap();
+        assert_eq!(
+            validate_granted_candidate_install_envelope(&unknown),
+            Err(ProjectInstallError::InvalidField)
+        );
+
+        let mut legacy = envelope;
+        legacy.envelope_version = 1;
+        legacy.envelope_sha256 = legacy_granted_candidate_v1_hash(&legacy);
+        assert_eq!(
+            validate_granted_candidate_install_envelope(&legacy),
+            Err(ProjectInstallError::InvalidField)
+        );
+    }
+
+    #[test]
+    fn granted_candidate_target_pair_rejects_every_unbound_dimension() {
+        use crate::wasm_import_grant_event::{
+            GrantScope, GrantTargetEntry, GrantTargetSnapshot, HostImportId,
+        };
+
+        let (envelope, snapshot) = granted_candidate_target();
+        assert_eq!(
+            validate_granted_candidate_install_target(&envelope, &snapshot),
+            Ok(())
+        );
+
+        let mut changed_candidate = envelope.clone();
+        changed_candidate.candidate_sha256 = hash(80);
+        changed_candidate.receiver_content_sha256 = changed_candidate.candidate_sha256;
+        changed_candidate.receiver_candidate_sha256 = changed_candidate.candidate_sha256;
+        changed_candidate.catalog_candidate_sha256 = changed_candidate.candidate_sha256;
+        let changed_candidate = seal_granted_candidate_install_envelope(changed_candidate).unwrap();
+        assert_eq!(
+            validate_granted_candidate_install_target(&changed_candidate, &snapshot),
+            Err(ProjectInstallError::InvalidField)
+        );
+
+        let changed_service = GrantTargetSnapshot::seal(
+            "svc.dev.other_candidate",
+            envelope.candidate_sha256,
+            snapshot.entries.clone(),
+        )
+        .unwrap();
+        assert_eq!(
+            validate_granted_candidate_install_target(&envelope, &changed_service),
+            Err(ProjectInstallError::InvalidField)
+        );
+
+        let mut changed_schema = envelope.clone();
+        changed_schema.grant_target_schema = String::from("raios.grant_target_snapshot.v2");
+        changed_schema.envelope_sha256 =
+            granted_candidate_install_envelope_hash(&changed_schema).unwrap();
+        assert_eq!(
+            validate_granted_candidate_install_target(&changed_schema, &snapshot),
+            Err(ProjectInstallError::InvalidField)
+        );
+
+        let mut changed_count = envelope.clone();
+        changed_count.grant_target_count = 0;
+        let changed_count = seal_granted_candidate_install_envelope(changed_count).unwrap();
+        assert_eq!(
+            validate_granted_candidate_install_target(&changed_count, &snapshot),
+            Err(ProjectInstallError::InvalidField)
+        );
+
+        let mut changed_digest = envelope.clone();
+        changed_digest.grant_target_snapshot_sha256[0] ^= 1;
+        let changed_digest = seal_granted_candidate_install_envelope(changed_digest).unwrap();
+        assert_eq!(
+            validate_granted_candidate_install_target(&changed_digest, &snapshot),
+            Err(ProjectInstallError::InvalidHash)
+        );
+
+        let changed_version =
+            GrantTargetSnapshot::seal(&envelope.service_id, hash(81), snapshot.entries.clone())
+                .unwrap();
+        assert_eq!(
+            validate_granted_candidate_install_target(&envelope, &changed_version),
+            Err(ProjectInstallError::InvalidField)
+        );
+
+        let substituted_snapshot = GrantTargetSnapshot::seal(
+            &envelope.service_id,
+            envelope.candidate_sha256,
+            alloc::vec![GrantTargetEntry {
+                host_import_id: HostImportId::EnvCounterGet,
+                scope: GrantScope::HostCall,
+            }],
+        )
+        .unwrap();
+        assert_eq!(
+            validate_granted_candidate_install_target(&envelope, &substituted_snapshot),
+            Err(ProjectInstallError::InvalidHash)
+        );
+
+        let mut tampered_snapshot = snapshot;
+        tampered_snapshot.entries[0].host_import_id = HostImportId::EnvCounterGet;
+        assert_eq!(
+            validate_granted_candidate_install_target(&envelope, &tampered_snapshot),
+            Err(ProjectInstallError::InvalidHash)
+        );
     }
 
     #[test]
