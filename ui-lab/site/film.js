@@ -235,8 +235,8 @@
     [10, "ring", "Guard binds report, hash, rights and owner", 80, 88, 3, 1.28, 0.50, 0.49],
     [11, "approval", "Guard opens the live door", 88, 96, 3, 0.98, 0.58, 0.49],
     [12, "running", "Player lands beside Genesis", 96, 106, 3, 1.38, 0.57, 0.49],
-    [13, "factory", "The released world stays clean", 106, 114, 3, 0.92, 0.51, 0.50],
-    [14, "loop", "The loop", 114, 120, 3, 0.84, 0.50, 0.50],
+    [13, "compact-domain", "Player contracts to one private island", 106, 112, 3, 1.18, 0.52, 0.45],
+    [14, "archipelago", "Every app becomes its own island", 112, 120, 3, 0.64, 0.50, 0.49],
   ];
 
   const SCENES = Object.freeze(sceneDefinitions.map((definition) => Object.freeze({
@@ -285,10 +285,12 @@
     { at: 88.44, scale: 1.639344262295082, focusX: 0.7, focusY: 0.39 },
     { at: 92.03, scale: 1.4492753623188408, focusX: 0.49, focusY: 0.34 },
     { at: 94.07, scale: 1.36986301369863, focusX: 0.52, focusY: 0.42 },
-    { at: 107.12, scale: 1.4084507042253522, focusX: 0.32, focusY: 0.42 },
-    { at: 115.49, scale: 0.8264462809917356, focusX: 0.46, focusY: 0.63 },
+    { at: 106.55, scale: 1.18, focusX: 0.52, focusY: 0.45 },
+    { at: 109.35, scale: 0.9, focusX: 0.50, focusY: 0.48 },
+    { at: 112.0, scale: 0.68, focusX: 0.50, focusY: 0.49 },
+    { at: 117.8, scale: 0.62, focusX: 0.50, focusY: 0.49 },
   ].map(Object.freeze));
-  const CAMERA_STORAGE_KEY = "raios-film-camera-keyframes-v2";
+  const CAMERA_STORAGE_KEY = "raios-film-camera-keyframes-v3";
   const cameraKeyframes = CAMERA_KEYFRAMES.map((frame) => ({ ...frame }));
 
   // ================= SECTION: Math & model helpers =================
@@ -339,6 +341,7 @@
       [60.2, 67.2, 0.7], // verifier diagnostic returns; edit 02 travels back
       [87.7, 92.2, 0.55], // approved player crosses /out and reaches its deck
       [92.15, 95.8, 0.6], // capability links close while the builder releases
+      [105.6, 119.6, 0.65], // compact player island and the twenty-app archipelago
     ];
     const focus = deliberateMoments.reduce(
       (strongest, [start, end, feather]) => Math.max(
@@ -818,12 +821,16 @@
         approveOwnerBinding: selectOne("#film-approve-owner-binding"),
         remoteDenied: selectOne("#film-remote-denied", ".film-remote-denied"),
         netVein: selectOne("#film-net"),
+        netNode: selectOne("#film-net-node"),
+        agent: selectOne("#film-agent"),
+        netGrant: selectOne("#film-net-grant"),
         netPulseRings: selectAll("#film-net-node .film-net-pulse-ring"),
         netSignal: selectOne("#film-net-node .film-net-signal"),
         netBeacon: selectOne("#film-net-node .film-net-beacon"),
         reclog: selectOne("#film-reclog"),
         titleCard: selectOne("#film-title-card", ".film-title"),
         titleSubtitle: selectOne(".film-subtitle"),
+        scrollCue: selectOne("#film-scroll-cue"),
         voiceCaption: selectOne("#film-voice-caption"),
         voiceCaptionText: selectOne("#film-voice-caption-text"),
         timecode: selectOne("#film-timecode"),
@@ -916,6 +923,14 @@
         shutdownPath: selectOne("#film-shutdown-path"),
         shutdownOrder: selectOne("#film-shutdown-order"),
         playerDomain: selectOne("#film-player-domain"),
+        playerDomainScale: selectOne("#film-player-domain-scale"),
+        playerDomainTitle: selectOne("#film-player-domain .film-player-domain-title"),
+        playerSingleConnection: selectOne("#film-player-single-connection"),
+        playerCompactPort: selectOne("#film-player-compact-port"),
+        appArchipelago: selectOne("#film-app-archipelago"),
+        appIslands: selectAll("[data-film-app-island]"),
+        appRoutes: selectAll("[data-film-app-route]"),
+        appCount: selectOne("#film-app-count"),
         finalPlayer: selectOne("#film-final-player"),
       };
       actionNodes.concat(teardownNodes.map((entry) => entry.node), [hooks.approvalPointer, hooks.crashNeighbor].filter(Boolean)).forEach((node) => {
@@ -1735,7 +1750,9 @@
         { at: 88.0, x: GUARD_QUEUE_X, y: GUARD_QUEUE_Y, scale: 1 },
         { at: 89.6, x: LIVE_DOOR_X, y: LIVE_DOOR_Y, scale: 1 },
         { at: 92.0, x: 607.5, y: 200, scale: 1 },
-        { at: 120.0, x: 607.5, y: 200, scale: 1 },
+        { at: 106.0, x: 607.5, y: 200, scale: 1 },
+        { at: 109.0, x: 600, y: 410, scale: 0.34 },
+        { at: 120.0, x: 600, y: 410, scale: 0.34 },
       ];
       const before = route.reduce((best, frame) => (frame.at <= time ? frame : best), route[0]);
       const after = route.find((frame) => frame.at > time) || route[route.length - 1];
@@ -2323,6 +2340,85 @@
       }
     }
 
+    function renderAppArchipelago(time) {
+      const contraction = smootherstep(intervalProgress(time, 106.0, 109.0));
+      const compactScale = lerp(1, 0.25, contraction);
+      const compactOffsetX = lerp(0, -7.5, contraction);
+      const compactOffsetY = lerp(0, 210, contraction);
+      if (hooks.playerDomainScale) {
+        setComposedTransform(
+          hooks.playerDomainScale,
+          `translate(${compactOffsetX.toFixed(3)} ${compactOffsetY.toFixed(3)}) translate(607.5 200) scale(${compactScale.toFixed(5)}) translate(-607.5 -200)`,
+        );
+        setOpacity(hooks.playerDomainScale, 1);
+        hooks.playerDomainScale.dataset.filmDomainScale = compactScale.toFixed(4);
+      }
+      setOpacity(hooks.playerDomainTitle, 1 - contraction);
+      if (hooks.playerDomain) {
+        hooks.playerDomain.dataset.filmDomainState = contraction >= 1
+          ? "compact"
+          : contraction > 0
+            ? "contracting"
+            : "full";
+      }
+      if (hooks.playerSingleConnection) {
+        hooks.playerSingleConnection.dataset.filmConnectionState = time < 106.45
+          ? "waiting"
+          : time < 109.1
+            ? "drawing"
+            : "active";
+      }
+
+      if (time >= 106.0) {
+        const legacyAlpha = 1 - smootherstep(intervalProgress(time, 106.0, 108.7));
+        [hooks.agent, hooks.netNode, hooks.netGrant, hooks.keyForge].forEach((node) => {
+          setOpacity(node, legacyAlpha);
+        });
+      }
+
+      let visibleApps = 0;
+      (hooks.appIslands || []).forEach((node) => {
+        const start = Number.parseFloat(node.dataset.filmAppStart || "112") || 112;
+        const progress = smootherstep(intervalProgress(time, start, start + 0.62));
+        const bounce = Math.sin(progress * Math.PI) * (1 - progress) * 0.22;
+        const popScale = lerp(0.22, 1, progress) + bounce;
+        const rise = 28 * (1 - progress);
+        setComposedTransform(
+          node,
+          `translate(0 ${rise.toFixed(3)}) scale(${popScale.toFixed(5)})`,
+        );
+        setOpacity(node, progress);
+        node.dataset.filmIslandState = progress <= 0
+          ? "waiting"
+          : progress < 1
+            ? "appearing"
+            : "resident";
+        if (progress >= 0.5) visibleApps += 1;
+      });
+
+      (hooks.appRoutes || []).forEach((node) => {
+        const start = Number.parseFloat(node.dataset.filmAppStart || "112") || 112;
+        const progress = smootherstep(intervalProgress(time, start, start + 0.88));
+        node.setAttribute("pathLength", "100");
+        node.style.strokeDasharray = `${(progress * 100).toFixed(3)} 100`;
+        node.style.strokeDashoffset = "0";
+        setOpacity(node, progress * 0.72);
+      });
+
+      if (hooks.appCount) {
+        setText(hooks.appCount, `${visibleApps} MORE PRIVATE APP ISLAND${visibleApps === 1 ? "" : "S"}`);
+        setOpacity(hooks.appCount.parentElement, smoothstep(intervalProgress(time, 111.75, 112.45)));
+      }
+      if (hooks.appArchipelago) {
+        hooks.appArchipelago.dataset.filmResidentCount = String(visibleApps);
+        hooks.appArchipelago.dataset.filmArchipelagoState = visibleApps >= (hooks.appIslands || []).length
+          ? "complete"
+          : visibleApps > 0
+            ? "growing"
+            : "waiting";
+      }
+    }
+
     function renderFinale(time) {
       if (hooks.titleCard) {
         setOpacity(hooks.titleCard, windowState(time, { start: 115.0, end: 119.45, fade: 0.65 }).alpha);
@@ -2414,6 +2510,22 @@
     }
 
     // ================= SECTION: Render & transport =================
+    function renderScrollCue(time) {
+      if (!hooks.scrollCue) return;
+      const frame = root.closest(".film-frame") || root;
+      const bounds = frame.getBoundingClientRect();
+      const viewportHeight = Math.max(1, window.innerHeight);
+      const openingOpacity = 1 - smoothstep(intervalProgress(time, 0.18, 1.25));
+      const frameIsPresent = bounds.top < viewportHeight * 0.78
+        && bounds.bottom > viewportHeight * 0.3;
+      const visible = document.body.dataset.shellMode === "website"
+        && !document.body.classList.contains("film-isolate")
+        && frameIsPresent
+        && openingOpacity > 0.001;
+      hooks.scrollCue.style.setProperty("--film-scroll-cue-opacity", openingOpacity.toFixed(3));
+      hooks.scrollCue.classList.toggle("is-visible", visible);
+    }
+
     function updateScrubber(time, activeScene) {
       const activeWaypoint = waypointAt(time);
       if (scrubber) scrubber.classList.toggle("is-introduced", time >= TIMELINE_REVEAL_TIME);
@@ -2473,9 +2585,11 @@
       renderBuilderShutdown(currentTime);
       renderPersistentVeins(currentTime);
       renderRingAndApproval(currentTime);
+      renderAppArchipelago(currentTime);
       renderFinale(currentTime);
       renderSceneDetails(currentTime);
       renderHud(currentTime);
+      renderScrollCue(currentTime);
       updateScrubber(currentTime, activeScene);
       updateCameraEditor(currentTime);
       return currentTime;
@@ -2962,6 +3076,7 @@
       };
       let previousTriggerDistance = scrollTriggerGeometry().distance;
       const updateScrollTrigger = () => {
+        renderScrollCue(currentTime);
         if (viewportResizeSettling) {
           scrollTriggerIsActive();
           return;
@@ -3249,6 +3364,7 @@
 
     document.addEventListener("raios:website-mode", (event) => {
       const enabled = Boolean(event.detail && event.detail.enabled);
+      renderScrollCue(currentTime);
       if (!enabled && playing) {
         suspendedByMode = true;
         stopClock(true);

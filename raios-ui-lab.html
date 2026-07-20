@@ -56,7 +56,7 @@
       <div class="story-inner film-story-inner">
         <figure class="film-frame story-reveal" style="--reveal-delay:.05s">
           <svg id="film-svg" class="film-svg" viewBox="0 -220 1200 1120" role="img"
-            aria-label="A two-minute animated architecture film. A request becomes a hashed capsule, receives an explicit network capability, enters an offline build site with a real Rust compiler, passes reproducible twin builds and hostile isolation tests, receives physical owner approval, runs as a small music-player domain, rolls back safely, and leaves a reusable software factory behind.">
+            aria-label="A two-minute animated architecture film. A request becomes a hashed capsule, receives an explicit network capability, enters an offline build site with a real Rust compiler, passes reproducible twin builds and hostile isolation tests, receives physical owner approval, runs as a small music-player domain, then becomes one of twenty-one isolated app islands including games, browser, video, mail and creative tools.">
             <defs>
               <linearGradient id="film-bg" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0" stop-color="#111722"></stop>
@@ -166,6 +166,13 @@
                 <path class="film-file-fold" d="M39 3v19h18"></path>
                 <path class="film-file-lines" d="M15 39h31M15 50h25M15 61h20"></path>
               </symbol>
+              <symbol id="film-app-island" viewBox="-70 -52 140 112" overflow="visible">
+                <path class="film-app-island__side" d="M-62 0 0 31 62 0v14L0 45l-62-31Z"></path>
+                <path class="film-app-island__floor" d="M-62 0 0-31 62 0 0 31Z"></path>
+                <path class="film-app-island__rim" d="M-62 0 0-31 62 0 0 31Z"></path>
+                <path class="film-app-island__port" d="M-9 28v12l9 5 9-5V28"></path>
+                <circle class="film-app-island__status" cx="0" cy="-36" r="3.5"></circle>
+              </symbol>
             </defs>
 
             <g clip-path="url(#film-stage-clip)">
@@ -232,10 +239,12 @@
                   </g>
 
                   <g id="film-player-domain" data-film-window="88.8,120,.45" aria-label="Approved player domain behind Genesis and Builder">
-                    <g data-film-action="89.2,92.0,rise" data-film-grow="iso" data-film-distance="96">
-                      <path class="film-player-domain-side" d="M352.5 200 607.5 327.5 862.5 200v32L607.5 359.5 352.5 232Z"></path>
-                      <path class="film-player-domain-floor" d="M352.5 200 607.5 72.5 862.5 200 607.5 327.5Z"></path>
-                      <text class="film-player-domain-title" x="607.5" y="351.5">PLAYER DOMAIN</text>
+                    <g id="film-player-domain-scale">
+                      <g data-film-action="89.2,92.0,rise" data-film-grow="iso" data-film-distance="96">
+                        <path class="film-player-domain-side" d="M352.5 200 607.5 327.5 862.5 200v32L607.5 359.5 352.5 232Z"></path>
+                        <path class="film-player-domain-floor" d="M352.5 200 607.5 72.5 862.5 200 607.5 327.5Z"></path>
+                        <text class="film-player-domain-title" x="607.5" y="351.5">PLAYER DOMAIN</text>
+                      </g>
                     </g>
                   </g>
                   <g id="film-genesis-layer" data-film-action="8.28,10.58,rise" data-film-grow="iso" data-film-distance="118">
@@ -315,7 +324,7 @@
                      in data-film-window attributes here; camera/waypoint timing lives in film.js. -->
                 <g id="film-scene-2" data-film-window="3.89,12.9,.9"></g>
 
-                <g id="film-agent" data-film-window="12.77,120,.35" data-film-action="13.02,14.82,rise" data-film-grow="iso" data-film-distance="112" transform="translate(245 268)">
+                <g id="film-agent" data-film-window="12.77,106.6,.35" data-film-action="13.02,14.82,rise" data-film-grow="iso" data-film-distance="112" transform="translate(245 268)">
                   <use href="#film-block" width="150" height="135"></use>
                   <text class="film-block-name" x="75" y="75">AGENT</text>
                 </g>
@@ -336,7 +345,7 @@
                     <path id="film-key-route-src" d="M410 297C510 286 620 328 704 374"></path>
                   </g>
                 </g>
-                <g id="film-net-node" data-film-window="13,120,.35" data-film-action="13.2,14.6,rise" data-film-distance="92" transform="translate(530 455)">
+                <g id="film-net-node" data-film-window="13,106.6,.35" data-film-action="13.2,14.6,rise" data-film-distance="92" transform="translate(530 455)">
                   <path class="film-net-tower" d="m34 104 25-88 25 88M48 63h22M42 83h34"></path>
                   <circle class="film-net-pulse-ring" cx="59" cy="16" r="3"></circle>
                   <circle class="film-net-pulse-ring" cx="59" cy="16" r="3"></circle>
@@ -345,7 +354,7 @@
                   <circle class="film-net-beacon" cx="59" cy="16" r="2.4"></circle>
                   <text class="film-block-name" x="59" y="126">NET</text>
                 </g>
-                <g id="film-net" data-film-window="14.82,120,.35">
+                <g id="film-net" data-film-window="14.82,106.6,.35">
                   <g data-film-net-segment="agent-to-door">
                     <path id="film-net-to-door" class="film-vein" data-film-action="15.02,17.82,draw" d="M320 395C338 421 354 447 373 459"></path>
                     <path class="film-vein film-pulse" data-film-action="15.02,17.82,trace" d="M320 395C338 421 354 447 373 459"></path>
@@ -358,7 +367,7 @@
                   </g>
                 </g>
 
-                <g id="film-net-grant" data-film-window="18.57,120,.35">
+                <g id="film-net-grant" data-film-window="18.57,106.6,.35">
                   <g id="film-net-door" class="film-door-instance" data-film-action="18.72,19.72,rise" data-film-grow="iso" data-film-distance="54" transform="translate(342 409) scale(.72)">
                     <path class="film-door-socket" d="M5 68 43 49l38 19-38 19Z"></path>
                     <g class="film-door-face film-door-face--slope-negative" transform="matrix(1 -.5 0 1 0 21.5)">
@@ -441,7 +450,7 @@
                      and so it is gone before the player domain title rises at t=89.2. -->
                 <text class="film-shadow-world__title" data-film-window="33.4,88.5,.5" x="560" y="350">SHADOW WORLD · DISPOSABLE · ZERO LIVE EFFECT</text>
 
-                <g id="film-player-domain-links" data-film-window="92.15,120,.2" aria-label="Genesis capability doors connect together to the approved player">
+                <g id="film-player-domain-links" data-film-window="92.15,106.6,.2" aria-label="Genesis capability doors connect together to the approved player">
                   <path class="film-domain-connection" data-film-action="92.35,95.35,draw" d="M320 395C350 337 382 273 416 232C483 216 552 204 607.5 200"></path>
                   <path class="film-domain-connection" data-film-action="92.35,95.35,draw" d="M320 395C369 353 420 304 480 264C526 235 570 211 607.5 200"></path>
                   <path class="film-domain-connection" data-film-action="92.35,95.35,draw" d="M320 395C389 367 464 334 544 296C566 257 588 220 607.5 200"></path>
@@ -596,6 +605,103 @@
                   </g>
                 </g>
 
+                <g id="film-player-compact-system" data-film-window="106.1,120,.35" aria-label="The music player contracts to one small island with one capability door">
+                  <path id="film-player-single-connection" class="film-player-single-connection" pathLength="100" data-film-action="106.45,109.1,draw" d="M320 395C412 388 504 410 596 447"></path>
+                  <path class="film-player-single-connection film-pulse" data-film-action="106.45,109.1,trace" d="M320 395C412 388 504 410 596 447"></path>
+                  <g id="film-player-compact-port" class="film-domain-door film-door-instance film-player-compact-port" data-film-action="107.0,108.2,rise" data-film-grow="iso" data-film-distance="24" transform="translate(577 417) scale(.44)">
+                    <path class="film-door-socket" d="M5 68 43 49l38 19-38 19Z"></path>
+                    <g class="film-door-face film-door-face--slope-positive" transform="matrix(1 .5 0 1 0 -21.5)">
+                      <path class="film-door-void" d="M23 68V10h40v58Z"></path>
+                      <path class="film-door-leaf" d="M25 68V12h36v56Z"></path>
+                      <path class="film-door-leaf-detail" d="M29 18h28v44H29Z"></path>
+                      <circle class="film-door-handle" cx="55" cy="42" r="2.4"></circle>
+                      <path class="film-door-frame" d="M21 69V8h44v61M21 8h44"></path>
+                      <circle class="film-door-hinge" cx="23" cy="17" r="2.1"></circle><circle class="film-door-hinge" cx="23" cy="60" r="2.1"></circle>
+                      <path class="film-door-threshold" d="M21 69h44"></path>
+                    </g>
+                    <text class="film-door-label" x="43" y="106">one door</text>
+                  </g>
+                  <text class="film-player-compact-label" data-film-window="108.45,120,.3" x="600" y="480">MUSIC PLAYER</text>
+                </g>
+
+                <g id="film-app-archipelago" data-film-window="111.35,120,.4" aria-label="Twenty more isolated application islands appear around the music player">
+                  <g class="film-app-routes" aria-hidden="true">
+                    <path data-film-app-route data-film-app-start="111.55" d="M320 395 600 266 890 122"></path>
+                    <path data-film-app-route data-film-app-start="111.82" d="M600 266 745 194 890 266 1035 194 1180 266"></path>
+                    <path data-film-app-route data-film-app-start="112.09" d="M320 395 600 410 745 338 890 410 1035 338 1180 410"></path>
+                    <path data-film-app-route data-film-app-start="112.36" d="M320 395 455 554 600 626 745 554 890 626"></path>
+                    <path data-film-app-route data-film-app-start="112.63" d="M455 50 600 122 745 50 890 122 1035 50"></path>
+                    <path data-film-app-route data-film-app-start="112.90" d="M165 194 310 122 455 50"></path>
+                  </g>
+
+                  <g class="film-app-island film-app-island--amber film-app-island--hero" data-film-app-island data-film-app-start="111.55" transform="translate(165 194) scale(1.12)">
+                    <use href="#film-app-island" x="-70" y="-52" width="140" height="112"></use><g class="film-app-island__icon"><rect x="-19" y="-18" width="38" height="28" rx="6"></rect><text y="2">F</text></g><text class="film-app-island__label" y="61">FORTNITE</text>
+                  </g>
+                  <g class="film-app-island film-app-island--blue" data-film-app-island data-film-app-start="111.82" transform="translate(310 122) scale(.92)">
+                    <use href="#film-app-island" x="-70" y="-52" width="140" height="112"></use><g class="film-app-island__icon"><rect x="-24" y="-18" width="48" height="28" rx="6"></rect><text y="2">WEB</text></g><text class="film-app-island__label" y="61">BROWSER</text>
+                  </g>
+                  <g class="film-app-island film-app-island--cyan" data-film-app-island data-film-app-start="112.09" transform="translate(455 50) scale(.84)">
+                    <use href="#film-app-island" x="-70" y="-52" width="140" height="112"></use><g class="film-app-island__icon"><rect x="-21" y="-18" width="42" height="28" rx="6"></rect><text y="2">DOC</text></g><text class="film-app-island__label" y="61">DOCS</text>
+                  </g>
+                  <g class="film-app-island film-app-island--rose" data-film-app-island data-film-app-start="112.36" transform="translate(600 122) scale(.84)">
+                    <use href="#film-app-island" x="-70" y="-52" width="140" height="112"></use><g class="film-app-island__icon"><rect x="-22" y="-18" width="44" height="28" rx="6"></rect><text y="2">MAIL</text></g><text class="film-app-island__label" y="61">EMAIL</text>
+                  </g>
+                  <g class="film-app-island film-app-island--cyan" data-film-app-island data-film-app-start="112.63" transform="translate(745 50) scale(.84)">
+                    <use href="#film-app-island" x="-70" y="-52" width="140" height="112"></use><g class="film-app-island__icon"><rect x="-20" y="-18" width="40" height="28" rx="6"></rect><text y="2">SUN</text></g><text class="film-app-island__label" y="61">WEATHER</text>
+                  </g>
+                  <g class="film-app-island film-app-island--violet" data-film-app-island data-film-app-start="112.90" transform="translate(890 122) scale(.98)">
+                    <use href="#film-app-island" x="-70" y="-52" width="140" height="112"></use><g class="film-app-island__icon"><rect x="-23" y="-18" width="46" height="28" rx="6"></rect><text y="2">PLAY</text></g><text class="film-app-island__label" y="61">VIDEO PLAYER</text>
+                  </g>
+                  <g class="film-app-island film-app-island--green film-app-island--hero" data-film-app-island data-film-app-start="113.17" transform="translate(1035 50) scale(1.12)">
+                    <use href="#film-app-island" x="-70" y="-52" width="140" height="112"></use><g class="film-app-island__icon"><rect x="-19" y="-18" width="38" height="28" rx="6"></rect><text y="2">M</text></g><text class="film-app-island__label" y="61">MINECRAFT</text>
+                  </g>
+                  <g class="film-app-island film-app-island--violet" data-film-app-island data-film-app-start="113.44" transform="translate(600 266) scale(.84)">
+                    <use href="#film-app-island" x="-70" y="-52" width="140" height="112"></use><g class="film-app-island__icon"><rect x="-21" y="-18" width="42" height="28" rx="6"></rect><text y="2">CHAT</text></g><text class="film-app-island__label" y="61">MESSAGES</text>
+                  </g>
+                  <g class="film-app-island film-app-island--blue" data-film-app-island data-film-app-start="113.71" transform="translate(745 194) scale(.84)">
+                    <use href="#film-app-island" x="-70" y="-52" width="140" height="112"></use><g class="film-app-island__icon"><rect x="-21" y="-18" width="42" height="28" rx="6"></rect><text y="2">DIR</text></g><text class="film-app-island__label" y="61">FILES</text>
+                  </g>
+                  <g class="film-app-island film-app-island--rose" data-film-app-island data-film-app-start="113.98" transform="translate(890 266) scale(.88)">
+                    <use href="#film-app-island" x="-70" y="-52" width="140" height="112"></use><g class="film-app-island__icon"><rect x="-20" y="-18" width="40" height="28" rx="6"></rect><text y="2">PIC</text></g><text class="film-app-island__label" y="61">PHOTOS</text>
+                  </g>
+                  <g class="film-app-island film-app-island--amber" data-film-app-island data-film-app-start="114.25" transform="translate(1035 194) scale(.88)">
+                    <use href="#film-app-island" x="-70" y="-52" width="140" height="112"></use><g class="film-app-island__icon"><rect x="-21" y="-18" width="42" height="28" rx="6"></rect><text y="2">MAP</text></g><text class="film-app-island__label" y="61">MAPS</text>
+                  </g>
+                  <g class="film-app-island film-app-island--amber" data-film-app-island data-film-app-start="114.52" transform="translate(1180 266) scale(.84)">
+                    <use href="#film-app-island" x="-70" y="-52" width="140" height="112"></use><g class="film-app-island__icon"><rect x="-21" y="-18" width="42" height="28" rx="6"></rect><text y="2">TXT</text></g><text class="film-app-island__label" y="61">NOTES</text>
+                  </g>
+                  <g class="film-app-island film-app-island--rose" data-film-app-island data-film-app-start="114.79" transform="translate(745 338) scale(.84)">
+                    <use href="#film-app-island" x="-70" y="-52" width="140" height="112"></use><g class="film-app-island__icon"><rect x="-21" y="-18" width="42" height="28" rx="6"></rect><text y="2">CAL</text></g><text class="film-app-island__label" y="61">CALENDAR</text>
+                  </g>
+                  <g class="film-app-island film-app-island--blue" data-film-app-island data-film-app-start="115.06" transform="translate(890 410) scale(.84)">
+                    <use href="#film-app-island" x="-70" y="-52" width="140" height="112"></use><g class="film-app-island__icon"><rect x="-21" y="-18" width="42" height="28" rx="6"></rect><text y="2">CAM</text></g><text class="film-app-island__label" y="61">CAMERA</text>
+                  </g>
+                  <g class="film-app-island film-app-island--cyan" data-film-app-island data-film-app-start="115.33" transform="translate(1035 338) scale(.84)">
+                    <use href="#film-app-island" x="-70" y="-52" width="140" height="112"></use><g class="film-app-island__icon"><rect x="-21" y="-18" width="42" height="28" rx="6"></rect><text y="2">ID</text></g><text class="film-app-island__label" y="61">CONTACTS</text>
+                  </g>
+                  <g class="film-app-island film-app-island--violet" data-film-app-island data-film-app-start="115.60" transform="translate(1180 410) scale(.94)">
+                    <use href="#film-app-island" x="-70" y="-52" width="140" height="112"></use><g class="film-app-island__icon"><rect x="-23" y="-18" width="46" height="28" rx="6"></rect><text y="2">EDIT</text></g><text class="film-app-island__label" y="61">STUDIO</text>
+                  </g>
+                  <g class="film-app-island film-app-island--green" data-film-app-island data-film-app-start="115.87" transform="translate(455 554) scale(.90)">
+                    <use href="#film-app-island" x="-70" y="-52" width="140" height="112"></use><g class="film-app-island__icon"><rect x="-22" y="-18" width="44" height="28" rx="6"></rect><text y="2">CLI</text></g><text class="film-app-island__label" y="61">TERMINAL</text>
+                  </g>
+                  <g class="film-app-island film-app-island--blue" data-film-app-island data-film-app-start="116.14" transform="translate(600 626) scale(.84)">
+                    <use href="#film-app-island" x="-70" y="-52" width="140" height="112"></use><g class="film-app-island__icon"><rect x="-21" y="-18" width="42" height="28" rx="6"></rect><text y="2">GET</text></g><text class="film-app-island__label" y="61">STORE</text>
+                  </g>
+                  <g class="film-app-island film-app-island--amber" data-film-app-island data-film-app-start="116.41" transform="translate(745 554) scale(.84)">
+                    <use href="#film-app-island" x="-70" y="-52" width="140" height="112"></use><g class="film-app-island__icon"><rect x="-21" y="-18" width="42" height="28" rx="6"></rect><text y="2">CFG</text></g><text class="film-app-island__label" y="61">SETTINGS</text>
+                  </g>
+                  <g class="film-app-island film-app-island--rose" data-film-app-island data-film-app-start="116.68" transform="translate(890 626) scale(.84)">
+                    <use href="#film-app-island" x="-70" y="-52" width="140" height="112"></use><g class="film-app-island__icon"><rect x="-21" y="-18" width="42" height="28" rx="6"></rect><text y="2">PAD</text></g><text class="film-app-island__label" y="61">GAMES</text>
+                  </g>
+
+                  <g class="film-app-counter" transform="translate(600 735)">
+                    <rect x="-154" y="-20" width="308" height="40" rx="20"></rect>
+                    <circle cx="-126" r="5"></circle>
+                    <text id="film-app-count" x="-110" y="5">0 MORE PRIVATE APP ISLANDS</text>
+                  </g>
+                </g>
+
                 <g id="film-scene-4" data-film-window="25,33,.7">
                   <g data-film-window="30.2,31.1,.16"><g id="film-sysroot-key" data-film-genesis-key data-film-key-route="film-key-route-sysroot" data-film-key-start="30.2" data-film-key-detach="30.45" data-film-key-end="30.75" data-film-key-scale=".48"><use href="#film-key" width="80" height="32"></use><text class="film-key-tag" x="40" y="-10">READ</text></g></g>
                   <g data-film-window="31.95,32.85,.16"><g id="film-src-key" data-film-genesis-key data-film-key-route="film-key-route-src" data-film-key-start="31.95" data-film-key-detach="32.2" data-film-key-end="32.5" data-film-key-scale=".48"><use href="#film-key" width="80" height="32"></use><text class="film-key-tag" x="40" y="-10">READ/WRITE</text></g></g>
@@ -704,30 +810,21 @@
                   <text class="film-scene-bottom" x="600" y="612">A CRASH COSTS ONE BLOCK, NEVER THE HOUSE.</text>
                 </g>
 
-                <g id="film-scene-13" data-film-window="106,114,.7">
-                  <g class="film-workshop-caption" transform="translate(672 116)">
-                    <text>BUILDER RELEASED · PLAYER.RS RUNNING</text>
-                    <text y="24">TOOLS PARKED · DOORS CLOSED · FLOOR RETURNED</text>
-                    <text class="film-workshop-caption--ok" y="48">PLAYER DOMAIN STAYS ATTACHED TO GENESIS</text>
+                <g id="film-scene-13" data-film-window="106,112,.7">
+                  <g class="film-workshop-caption film-workshop-caption--compact-domain" transform="translate(790 108)">
+                    <text>PLAYER DOMAIN CONTRACTS</text>
+                    <text y="24">ONE SMALL ISLAND · ONE DOOR</text>
+                    <text class="film-workshop-caption--ok" y="48">ONE GREEN CAPABILITY LINE TO GENESIS</text>
                   </g>
-                  <text class="film-scene-bottom" x="600" y="594">THE BUILD WORLD LEFT CLEANLY · THE APPROVED DOMAIN STAYS.</text>
+                  <text class="film-scene-bottom" x="600" y="594">THE APP KEEPS EXACTLY THE SPACE AND RIGHTS IT NEEDS.</text>
                 </g>
 
-                <g id="film-scene-14" data-film-window="117,120,.65">
-                  <rect class="film-outro-scrim" x="0" y="0" width="1200" height="680"></rect>
-                  <g class="film-loop-ring" transform="translate(600 305)">
-                    <circle r="184"></circle>
-                    <path class="film-loop-progress film-pulse" d="M0-184A184 184 0 1 1-1-184"></path>
-                    <g class="film-loop-node" transform="translate(0 -184)"><circle r="9"></circle><text y="-18">wish</text></g>
-                    <g class="film-loop-node" transform="translate(159 -92)"><circle r="9"></circle><text x="20" y="5">build</text></g>
-                    <g class="film-loop-node" transform="translate(159 92)"><circle r="9"></circle><text x="20" y="5">prove</text></g>
-                    <g class="film-loop-node" transform="translate(0 184)"><circle r="9"></circle><text y="30">gate</text></g>
-                    <g class="film-loop-node" transform="translate(-159 92)"><circle r="9"></circle><text x="-20" y="5" text-anchor="end">run</text></g>
-                    <g class="film-loop-node" transform="translate(-159 -92)"><circle r="9"></circle><text x="-20" y="5" text-anchor="end">keep / roll back</text></g>
-                    <g transform="translate(-75 -31)"><use href="#film-capsule" width="150" height="62"></use></g>
+                <g id="film-scene-14" data-film-window="112,120,.65">
+                  <g class="film-archipelago-title" data-film-window="116.6,120,.45" transform="translate(600 -112)">
+                    <rect x="-290" y="-34" width="580" height="78" rx="18"></rect>
+                    <text class="film-title" y="-2">ONE APP. ONE PRIVATE ISLAND.</text>
+                    <text class="film-subtitle" y="27">Games, tools and everyday software arrive without sharing a room.</text>
                   </g>
-                  <text class="film-title" x="600" y="545">raiOS — the OS that builds its own software.</text>
-                  <text class="film-subtitle" x="600" y="582">Every gate you just saw is a real test.</text>
                 </g>
               </g>
 
@@ -739,6 +836,13 @@
             </g>
           </svg>
           <div id="film-top-gradient" class="film-top-gradient" aria-hidden="true"></div>
+          <div id="film-scroll-cue" class="film-scroll-cue" aria-hidden="true">
+            <span class="film-scroll-cue__label">Scroll</span>
+            <svg class="film-scroll-cue__arrow" viewBox="0 0 72 98" focusable="false">
+              <path class="film-scroll-cue__shaft" d="M36 6v68"></path>
+              <path class="film-scroll-cue__head" d="m12 54 24 25 24-25"></path>
+            </svg>
+          </div>
           <div id="film-voice-caption" class="film-voice-caption" role="status" aria-live="polite">
             <span id="film-voice-caption-text"></span>
           </div>
