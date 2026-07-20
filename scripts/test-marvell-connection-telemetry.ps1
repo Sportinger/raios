@@ -58,77 +58,99 @@ Require-NoMatch $phase 'RegisterRings|MacControl|PCIE_DESC_DETAILS_CMD|MAC_CONTR
 
 $poll = Slice-Between $driver "pub fn poll_connection" "fn next_connection_phase"
 $doneAt = $poll.IndexOf("host_cmd_done_is_current", [StringComparison]::Ordinal)
+$offAt = $poll.IndexOf("terminal_quiesce_and_cleanup_while_gated", $doneAt, [StringComparison]::Ordinal)
 $captureAt = $poll.IndexOf("connection_response_diagnostic", [StringComparison]::Ordinal)
-$quarantineAt = $poll.IndexOf("quarantine_connection_job(&job)", $captureAt, [StringComparison]::Ordinal)
-Require (($doneAt -ge 0) -and ($captureAt -gt $doneAt) -and ($quarantineAt -gt $captureAt)) "response telemetry is not confined to CMD_DONE before quarantine"
-Require-Match $poll 'cmd_done_low_baseline.*HOST_INTR_CMD_DONE.*StaleCommandDone' "completion can bypass the proven-low epoch"
-Require-Match $poll 'status == u32::MAX.*MmioUnavailable.*host_cmd_done_is_current' "unavailable HOST_INT_STATUS can reach completion parsing"
-Require-Match $poll 'clear_connection_response_mailbox.*_cleanup_flush_status\s*=\s*read_reg\(mmio,\s*PCIE_HOST_INT_STATUS\)' "response address cleanup lacks a status-register posted-write flush"
-Require-NoMatch $driver 'RegisterReadbackMismatch|mailbox_register_readback_mismatch|HostCmdMailboxRegisters|read_connection_mailbox|observed\.matches' "runtime scratch readback contract still gates HostCmd"
-Require-NoMatch $driver 'read_reg\(mmio,\s*(?:CMDRSP_ADDR_LO|CMDRSP_ADDR_HI|CMD_ADDR_LO|CMD_ADDR_HI|CMD_SIZE)\)' "runtime HostCmd reads a write-only/untrusted scratch register"
+Require (($doneAt -ge 0) -and ($offAt -gt $doneAt) -and ($captureAt -gt $offAt)) "connection parses response before verified BME-off cleanup"
+Require-Match $poll 'begin_host_command_epoch_while_gated.*prepare_connection_dma.*arm_connection_command' "connection mutates DMA before the verified-off epoch"
+Require-NoMatch $driver 'pci::(?:enable|disable)_bus_master|clear_connection_response_mailbox' "driver retains an unchecked BME or partial-mailbox cleanup path"
+Require-NoMatch $driver 'read_reg\(mmio,\s*(?:CMDRSP_ADDR_LO|CMDRSP_ADDR_HI|CMD_ADDR_LO|CMD_ADDR_HI|CMD_SIZE)\)' "runtime HostCmd reads write-only scratch registers"
 
-$arm = Slice-Between $driver "fn arm_connection_command" "pub fn poll_connection"
-$pciAt = $arm.IndexOf("let vendor_device = job.pci_address.read_u32(0x00)", [StringComparison]::Ordinal)
-$preEnableAt = $arm.IndexOf("pre_enable_status = read_reg", [StringComparison]::Ordinal)
-$enableAt = $arm.IndexOf("ensure_pci_memory_bus_master", [StringComparison]::Ordinal)
-$livenessAt = $arm.IndexOf("connection_mmio_liveness", [StringComparison]::Ordinal)
-$livenessReadyAt = $arm.IndexOf("ConnectionMmioLiveness::Ready", $livenessAt, [StringComparison]::Ordinal)
-$maskAt = $arm.IndexOf("PCIE_HOST_INT_MASK, 0", [StringComparison]::Ordinal)
-$zeroAt = $arm.IndexOf("clear_connection_response_mailbox", [StringComparison]::Ordinal)
-$pendingAt = $arm.IndexOf("let pending = read_reg", [StringComparison]::Ordinal)
-$ackAt = $arm.IndexOf("!pending", [StringComparison]::Ordinal)
-$lowAt = $arm.IndexOf("host_cmd_done_low_after_clear", [StringComparison]::Ordinal)
-$staleAt = $arm.IndexOf("return Err(ConnectionTransportError::StaleCommandDone)", $lowAt, [StringComparison]::Ordinal)
-$writeAt = $arm.IndexOf("CMDRSP_ADDR_LO", $staleAt, [StringComparison]::Ordinal)
-$flushAt = $arm.IndexOf("let program_flush_status = read_reg(mmio, PCIE_HOST_INT_STATUS)", [StringComparison]::Ordinal)
-$flushUnavailableAt = $arm.IndexOf("program_flush_status == u32::MAX", [StringComparison]::Ordinal)
-$flushHighAt = $arm.IndexOf("program_flush_status & HOST_INTR_CMD_DONE", [StringComparison]::Ordinal)
-$doorbellAt = $arm.IndexOf("CPU_INTR_DOOR_BELL", [StringComparison]::Ordinal)
-Require (($pciAt -ge 0) -and ($preEnableAt -gt $pciAt) -and ($enableAt -gt $preEnableAt) -and ($livenessAt -gt $enableAt) -and ($livenessReadyAt -gt $livenessAt) -and ($maskAt -gt $livenessReadyAt) -and ($zeroAt -gt $maskAt) -and ($pendingAt -gt $zeroAt) -and ($ackAt -gt $pendingAt) -and ($lowAt -gt $ackAt) -and ($staleAt -gt $lowAt) -and ($writeAt -gt $staleAt) -and ($flushAt -gt $writeAt) -and ($flushUnavailableAt -gt $flushAt) -and ($flushHighAt -gt $flushUnavailableAt) -and ($doorbellAt -gt $flushHighAt)) "HostCmd arm order does not restore PCI ownership and prove post-enable MMIO/status epochs before doorbell"
-Require-Match $arm 'CONNECTION_CMD_DONE_CLEAR_POLLS.*SHORT_POLL_DELAY_US.*StaleCommandDone' "CMD_DONE clear wait is not bounded/fail-closed"
-Require-Match $arm 'pending == u32::MAX.*MmioUnavailable' "initial unavailable HOST_INT_STATUS is not a typed no-doorbell failure"
-Require-Match $arm 'CONNECTION_MMIO_LIVENESS_POLLS.*FW_STATUS.*PCIE_HOST_INT_STATUS.*FirmwareNotReadyAfterEnable.*MmioUnavailable' "post-enable firmware/MMIO liveness probe is not bounded and typed"
-$preDoorbell = $arm.Substring(0, $doorbellAt)
-Require-Match $preDoorbell 'PciCommandEnableFailed.*FirmwareNotReadyAfterEnable.*MmioUnavailable' "PCI/MMIO failures do not remain before doorbell"
-$afterDoorbell = $arm.Substring($doorbellAt)
-Require-NoMatch $afterDoorbell 'host_cmd_done_low_after_clear|StaleCommandDone' "an immediate post-doorbell completion is incorrectly rejected"
+function Test-VerifiedQuiesce([string]$Text) {
+    $surface = Slice-Between $Text "fn verified_quiesce_while_gated" "fn enable_memory_space_while_verified_off"
+    $vendorAt = $surface.IndexOf('read_u32(0x00)', [StringComparison]::Ordinal)
+    $commandAt = $surface.IndexOf('read_u16(0x04)', [StringComparison]::Ordinal)
+    $requestAt = $surface.IndexOf('(command & !0x0004) | (1 << 10)', [StringComparison]::Ordinal)
+    $checkedAt = $surface.IndexOf('write_command_u16_checked', [StringComparison]::Ordinal)
+    $readbackAt = $surface.IndexOf('readback & 0x0004', [StringComparison]::Ordinal)
+    $tokenAt = $surface.IndexOf('Ok(VerifiedOff(()))', [StringComparison]::Ordinal)
+    ($vendorAt -ge 0) -and ($commandAt -gt $vendorAt) -and ($requestAt -gt $commandAt) -and ($checkedAt -gt $requestAt) -and ($readbackAt -gt $checkedAt) -and ($tokenAt -gt $readbackAt) -and
+        [regex]::IsMatch($surface, 'DeviceUnavailable.*poison_dma_epoch_while_gated.*CommandChanged.*poison_dma_epoch_while_gated', [Text.RegularExpressions.RegexOptions]::Singleline)
+}
 
-$pciPlan = Slice-Between $core "pub enum PciCommandEnablePlan" "pub enum ConnectionMmioLiveness"
-Require-Match $pciPlan 'command == u16::MAX.*Unavailable.*pci_memory_bus_master_enabled\(command\).*AlreadyEnabled.*Write\(command \| 0x0006\)' "PCI command planner is not 0406-idempotent/FFFF-fail-closed"
+Require (Test-VerifiedQuiesce $driver) "verified quiesce is not checked/readback-gated"
+$uncheckedQuiesce = $driver.Replace('address.write_command_u16_checked(vendor_device, command, requested)', 'pci::disable_bus_master(address)')
+Require (-not (Test-VerifiedQuiesce $uncheckedQuiesce)) "unchecked BME-off failure injection was accepted"
+
+function Test-VerifiedCleanup([string]$Text) {
+    $surface = Slice-Between $Text "fn cleanup_host_command_mailbox_after_verified_off" "fn begin_host_command_epoch_while_gated"
+    $needles = @('CMD_SIZE, 0', 'CMD_ADDR_LO, 0', 'CMD_ADDR_HI, 0', 'CMDRSP_ADDR_LO, 0', 'CMDRSP_ADDR_HI, 0', 'read_reg(mmio, PCIE_HOST_INT_STATUS)', 'flush == u32::MAX', 'poison_dma_epoch_while_gated')
+    $cursor = -1
+    foreach ($needle in $needles) {
+        $next = $surface.IndexOf($needle, $cursor + 1, [StringComparison]::Ordinal)
+        if ($next -le $cursor) { return $false }
+        $cursor = $next
+    }
+    [regex]::IsMatch($surface, '_verified_off:\s*&VerifiedOff')
+}
+
+Require (Test-VerifiedCleanup $driver) "full mailbox cleanup is not token-gated, ordered, flushed, and poisoned on all-ones"
+$badCleanup = $driver.Replace('write_reg(mmio, CMD_SIZE, 0);', 'write_reg(mmio, CMDRSP_ADDR_LO, 0);')
+Require (-not (Test-VerifiedCleanup $badCleanup)) "partial/reordered cleanup failure injection was accepted"
+
+function Test-TransactionalPublication([string]$Text) {
+    $surface = Slice-Between $Text "fn publish_host_command_while_gated" "fn terminal_quiesce_and_cleanup_while_gated"
+    $needles = @('PublicationModel::new', 'PublicationStep::ResponseLow', 'PublicationStep::ResponseHigh', 'PublicationStep::CommandLow', 'PublicationStep::CommandHigh', 'PublicationStep::CommandSize', 'PublicationStep::RingsPublished', 'program_flush_status', 'ensure_pci_memory_bus_master', 'enable_bme()', 'CPU_INTR_DOOR_BELL', 'PublicationStep::Doorbell')
+    $cursor = -1
+    foreach ($needle in $needles) {
+        $next = $surface.IndexOf($needle, $cursor + 1, [StringComparison]::Ordinal)
+        if ($next -le $cursor) { return $false }
+        $cursor = $next
+    }
+    $firstEnable = $surface.IndexOf('enable_bme()', [StringComparison]::Ordinal)
+    $firstDoorbell = $surface.IndexOf('CPU_INTR_DOOR_BELL', [StringComparison]::Ordinal)
+    ($firstDoorbell -gt $firstEnable) -and [regex]::IsMatch($surface, 'program_flush_status == u32::MAX.*verified_quiesce_while_gated', [Text.RegularExpressions.RegexOptions]::Singleline)
+}
+
+Require (Test-TransactionalPublication $driver) "HostCmd publication is not one modeled off-to-live transaction"
+$earlyDoorbell = $driver.Replace('let vendor_device = address.read_u32(0x00);', 'write_reg(mmio, PCIE_CPU_INT_EVENT, CPU_INTR_DOOR_BELL); let vendor_device = address.read_u32(0x00);')
+Require (-not (Test-TransactionalPublication $earlyDoorbell)) "doorbell-before-checked-enable failure injection was accepted"
+
+$dmaPlan = Slice-Between $driver "fn validate_runtime_dma_region" "fn cleanup_host_command_mailbox_after_verified_off"
+Require-Match $dmaPlan 'virt_to_phys.*validate_contiguous_translation.*DmaSpan::new.*MARVELL_DMA_REGION_COUNT.*EventRingDmaBlock.*RxRingDmaBlock.*TxRingDmaBlock.*authoritative_foreign_dma_regions_while_gated.*ForeignRegionsUnavailable.*validate_non_overlapping_regions' "runtime DMA spans are not page-wise, aligned, complete, and overlap-checked"
+Require-Match $dmaPlan 'Absence is deliberately not interpreted as an empty.*None' "missing foreign-span authority is not fail-closed"
+Require-NoMatch $dmaPlan 'validate_non_overlapping_regions\(&regions,\s*&\[\]\)|Some\(&\[\]\)' "empty foreign-span set can masquerade as release evidence"
+$foreignAdapter = Slice-Between $driver "fn authoritative_foreign_dma_regions_while_gated" "fn cleanup_host_command_mailbox_after_verified_off"
+$fakeForeign = $foreignAdapter -replace '\bNone\b', 'Some(&[])'
+Require-Match $fakeForeign 'Some\(&\[\]\)' "foreign-span failure injection did not apply"
+Require-NoMatch $driver 'Some\(&\[\]\)' "foreign-span adapter currently fabricates an empty authoritative set"
+
+$hwPoll = Slice-Between $driver "pub fn poll_hw_spec" "pub fn poll_scan_ext"
+$scanPoll = Slice-Between $driver "pub fn poll_scan_ext" "fn ensure_pci_memory_bus_master"
+$connectionArm = Slice-Between $driver "fn arm_connection_command" "pub fn poll_connection"
+Require-Match $hwPoll 'begin_host_command_epoch_while_gated.*prepare_hw_spec_dma.*publish_host_command_while_gated.*terminal_quiesce_and_cleanup_while_gated.*parse_hw_spec_dma_response' "HWSPEC bypasses the common transaction or parses before quiesce"
+Require-Match $scanPoll 'begin_host_command_epoch_while_gated.*prepare_scan_dma.*publish_host_command_while_gated.*terminal_quiesce_and_cleanup_while_gated.*parse_scan_dma_response' "scan bypasses the common transaction or parses before quiesce"
+Require-Match $connectionArm 'publish_host_command_while_gated.*connection_mmio_liveness' "connection bypasses the common HostCmd publisher"
+
+$firmwarePoll = Slice-Between $driver "pub fn poll()" "fn sync_job_phase_clock"
+$firmwareFinish = Slice-Between $driver "fn finish_locked" "fn mark_stage"
+Require-Match $firmwarePoll 'FwAction::WriteBlock.*terminal_quiesce_and_cleanup_while_gated.*copy_block_into_dma.*FwAction::Retry.*terminal_quiesce_and_cleanup_while_gated.*activate_validated_data_dma_while_gated' "firmware block/retry mutates or reactivates DMA without verified quiesce"
+Require-Match $firmwareFinish 'FirmwareStage::Ready \| FirmwareStage::Failed.*terminal_quiesce_and_cleanup_while_gated.*DrvReadyQuarantined.*FirmwareStage::Failed' "firmware terminal transitions can publish Ready without verified quiesce"
+$terminalWithoutOff = $firmwareFinish.Replace('terminal_quiesce_and_cleanup_while_gated', 'terminal_quiesce_removed')
+Require-NoMatch $terminalWithoutOff 'terminal_quiesce_and_cleanup_while_gated' "terminal-quiesce failure injection was accepted"
+
+foreach ($ringSurface in @(
+    (Slice-Between $driver "pub fn receive_ethernet" "pub fn transmit_ethernet"),
+    (Slice-Between $driver "pub fn transmit_ethernet" "pub fn start_bring_up_firmware"),
+    (Slice-Between $driver "pub fn poll_event_ring" "fn handle_connection_event"),
+    (Slice-Between $driver "fn arm_event_ring_while_gated" "fn arm_rx_ring_while_gated"),
+    (Slice-Between $driver "fn arm_rx_ring_while_gated" "fn arm_tx_ring_while_gated")
+)) {
+    Require-Match $ringSurface 'drop\(runtime\).*quarantine_invalid_pointer_after_ring_unlock_while_gated' "invalid pointer can quiesce while its ring lock is held"
+}
+
 $pciPrimitive = Slice-Between $pci "fn pci_config_write_command_u16_checked" "fn pci_config_write_u32"
 Require-Match $pciPrimitive 'PCI_LOCK\.lock.*vendor_device == u32::MAX.*command == u16::MAX.*command != expected_command.*outw\(CONFIG_DATA, value\).*readback' "command-only PCI write is not atomically rechecked and verified"
 Require-NoMatch $pciPrimitive 'outl\(CONFIG_DATA,\s*(?:current|value)\)|mask\s*=|&\s*mask' "command-only PCI path performs forbidden Status dword RMW"
-$pciEnsure = Slice-Between $driver "fn ensure_pci_memory_bus_master" "fn arm_connection_command"
-Require-Match $pciEnsure 'AlreadyEnabled.*command_after:\s*command_before.*PciCommandEnablePlan::Write.*write_command_u16_checked.*pci_memory_bus_master_enabled\(readback\)' "0406 no-write or 0402->0406 verified behavior missing"
-Require-NoMatch $pciEnsure 'enable_bus_master|write_u16\(' "checked PCI helper can fall back to unsafe dword-RMW"
-
-$hwPoll = Slice-Between $driver "pub fn poll_hw_spec" "pub fn poll_scan_ext"
-Require-Match $hwPoll 'phase = runtime\.snapshot\.stage.*prepare_hw_spec_dma\(&job, phase\).*parse_hw_spec_dma_response\(phase.*clear_connection_response_mailbox.*match parsed.*Err\(result\).*disable_bus_master' "firmware-epoch init does not execute bounded command/response stages or quarantine failures"
-Require-Match $hwPoll 'CmdDoneTimeout.*finish_hw_spec_locked.*write_hw_spec_failure.*return true' "init timeout does not stop the current epoch"
-Require-Match $hwPoll 'EmptyResponseOnCommandDone|parse_hw_spec_dma_response' "zero command response is not routed to typed quarantine"
-Require-Match $hwPoll 'next_init_phase\(phase\).*next == HwSpecStage::Ready.*publish_data_ring_pointers.*HwSpecResult::Done.*HwSpecStage::Ready' "InitReady is observable before every init response succeeds"
-$initPrepare = Slice-Between $driver "fn prepare_hw_spec_dma" "fn prepare_scan_dma"
-Require-Match $initPrepare 'HwSpecStage::PcieDescDetails.*build_pcie_desc_details.*HwSpecStage::FuncInit.*build_func_init.*HwSpecStage::GetHwSpec.*build_get_hw_spec.*HwSpecStage::MacControl.*build_mac_control' "upstream init command order/builders are incomplete"
-$initOrder = Slice-Between $driver "fn next_init_phase" "fn parse_hw_spec_dma_response"
-Require-Match $initOrder 'PcieDescDetails\s*=>\s*HwSpecStage::FuncInit.*FuncInit\s*=>\s*HwSpecStage::GetHwSpec.*GetHwSpec\s*=>\s*HwSpecStage::MacControl.*MacControl\s*=>\s*HwSpecStage::Ready' "firmware-epoch init order differs from PCIE_DESC->FUNC_INIT->GET_HW_SPEC->MAC_CONTROL"
-$initParser = Slice-Between $driver "fn parse_hw_spec_dma_response" "fn copy_block_into_dma"
-Require-Match $initParser 'is_empty.*EmptyResponseOnCommandDone.*parse_pcie_desc_details_response.*parse_func_init_response.*parse_hw_spec_response.*parse_mac_control_response' "init response validation/zero-response boundary is incomplete"
-$scanStart = Slice-Between $driver "pub fn start_scan_ext_24ghz" "pub fn poll_hw_spec"
-Require-Match $scanStart 'hw_spec_snapshot\(\)\.is_ready\(\).*HwSpecNotReady' "scan can start before firmware epoch InitReady"
-Require-Match $start 'hw_spec_snapshot\(\).*is_ready\(\).*HwSpecNotReady' "association can start before firmware epoch InitReady"
-$associationPrepare = Slice-Between $driver "fn prepare_connection_dma" "fn parse_connection_dma_response"
-Require-NoMatch $associationPrepare 'build_pcie_desc_details|build_mac_control|PCIE_DESC_DETAILS_CMD|MAC_CONTROL_CMD' "association resends firmware-epoch descriptor/MAC init commands"
-$traceQueue = Slice-Between $driver "fn queue_fixed_hw_failure_trace" "struct DmaBlock"
-Require-Match $traceQueue 'HwFailureTrace::new.*HwFailureSubsystem::MarvellWifiPcie.*HwFailureTraceStep.*usb::queue_hw_failure_trace' "fatal WiFi paths do not queue the fixed typed trace"
-Require-NoMatch $traceQueue 'flush_pending|msc_|disk|append_|write_sector|read_sector' "WiFi failure callback performs forbidden media I/O"
-foreach ($finishName in @("fn finish_locked", "fn finish_hw_spec_locked", "fn finish_scan_locked", "fn finish_connection_locked")) {
-    $finishAt = $driver.IndexOf($finishName, [StringComparison]::Ordinal)
-    Require ($finishAt -ge 0) "missing fatal finish hook: $finishName"
-    $queueAt = $driver.IndexOf("queue_fixed_hw_failure_trace", $finishAt, [StringComparison]::Ordinal)
-    Require (($queueAt -gt $finishAt) -and (($queueAt - $finishAt) -lt 2500)) "fatal finish path does not queue typed trace: $finishName"
-}
-$scanPoll = Slice-Between $driver "pub fn poll_scan_ext" "fn clear_connection_response_mailbox"
-Require-Match $scanPoll 'parse_scan_dma_response.*clear_connection_response_mailbox.*ScanCmdResult::Done.*disable_bus_master.*ScanCmdResult::LiveResultParseFailed.*Err\(error\).*disable_bus_master' "scan success does not retain BME or scan failures no longer quarantine it"
 
 $diagnostic = Slice-Between $driver "fn connection_response_diagnostic" "fn write_connection_response_failure"
 Require-Match $diagnostic 'expected_command.*expected_sequence' "diagnostic lacks expected command/sequence"
@@ -141,7 +163,7 @@ Require-Match $header 'interface_len.*interface_type.*command.*host_command_size
 Require-NoMatch $header 'payload|ssid|bssid|passphrase|pmk|authority|receipt|attempt' "fixed response projection contains forbidden metadata"
 
 $quarantine = Slice-Between $driver "fn quarantine_connection_job" "fn clear_connection_secret_dma"
-Require-Match $quarantine 'disable_bus_master.*clear_connection_response_mailbox.*PCIE_HOST_INT_STATUS.*clear_connection_secret_dma.*CONNECTION_REBOOT_REQUIRED\.store\(true' "response failure quarantine does not clear DMA ownership with a status flush and require reboot"
+Require-Match $quarantine 'terminal_quiesce_and_cleanup_while_gated.*clear_connection_secret_dma.*CONNECTION_REBOOT_REQUIRED\.swap\(true' "response failure quarantine lacks verified-off cleanup, secret clearing, or reboot latch"
 $start = Slice-Between $driver "fn start_association_inner" "fn same_connection_target"
 Require-Match $start 'connection_reboot_required.*ConnectionResult::RebootRequired' "same-boot retry can re-enter association after quarantine"
 $uiFailure = Slice-Between $ui "fn draw_failed" "fn connection_progress"
@@ -160,6 +182,8 @@ if (-not $SkipBuild) {
         $env:CARGO_TARGET_DIR = Join-Path $env:TEMP "raios-marvell-connection-fixture-target"
         & cargo test --locked -p raios-core marvell_wifi
         if ($LASTEXITCODE -ne 0) { throw "focused Marvell core tests failed" }
+        & cargo test --locked -p raios-core marvell_dma_safety
+        if ($LASTEXITCODE -ne 0) { throw "focused Marvell DMA safety tests failed" }
     }
     finally {
         $env:CARGO_HOME = $oldCargoHome

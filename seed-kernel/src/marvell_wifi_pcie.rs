@@ -7,7 +7,7 @@
 use core::hint::spin_loop;
 use core::ptr;
 use core::slice;
-use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
+use core::sync::atomic::{compiler_fence, AtomicBool, AtomicU64, Ordering};
 
 use raios_core::boot_control::BootPosture;
 use raios_core::dot11_scan::Dot11Security;
@@ -17,8 +17,10 @@ use raios_core::hw_failure_trace::{
 };
 use raios_core::marvell_dma_safety::{
     compose_rx_tx_pointer_register, decode_event_pointer, decode_rx_tx_pointer_register,
-    update_rx_pointer_preserving_tx, update_tx_pointer_preserving_rx, DevicePointerError,
-    DeviceRingPointer, RxTxDevicePointers,
+    update_rx_pointer_preserving_tx, update_tx_pointer_preserving_rx,
+    validate_contiguous_translation, validate_non_overlapping_regions, DevicePointerError,
+    DeviceRingPointer, DmaSpan, ForeignRegion, MarvellDmaRegion, MarvellDmaRegionKind,
+    PageTranslation, PublicationModel, PublicationStep, RxTxDevicePointers,
 };
 use raios_core::marvell_wifi_cmd::{
     self, HwSpecCmdError, MarvellCmdError, SingleBssHostCmdSequenceAllocator,
@@ -81,6 +83,11 @@ const EVENT_RING_MASK: u32 = 0x0f;
 const EVENT_ROLLOVER_IND: u32 = 1 << 7;
 const EVENT_BUFFER_SIZE: usize = 2048;
 const EVENT_HEADER_LEN: usize = 4;
+const DMA_PAGE_SIZE: u64 = 4096;
+const DMA_ADDRESS_BITS: u8 = 64;
+const DMA_REQUIRED_ALIGNMENT: u64 = 2;
+const MAX_DMA_TRANSLATION_PAGES: usize = 40;
+const MARVELL_DMA_REGION_COUNT: usize = 10;
 const PCIE_EVT_RD_PTR: u32 = 0xCE8;
 const PCIE_EVT_WR_PTR: u32 = 0xCEC;
 const CPU_INTR_EVENT_DONE: u32 = 1 << 5;
@@ -223,6 +230,7 @@ static MARVELL_DMA_GATE: Mutex<()> = Mutex::new(());
 static RX_TX_POINTER_REGISTER: Mutex<u32> = Mutex::new(0);
 static DATA_LINK_READY: AtomicBool = AtomicBool::new(false);
 static CONNECTION_REBOOT_REQUIRED: AtomicBool = AtomicBool::new(false);
+static HOST_COMMAND_EPOCH: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FirmwareDownloadResult {
@@ -1110,15 +1118,6 @@ enum DeferredNetworkAction {
     Detach,
 }
 
-impl SharedRxTxPointerUpdate {
-    const fn attempted_raw(self) -> u32 {
-        match self {
-            Self::Initialize { rx_rdptr, tx_wrptr } => rx_rdptr | tx_wrptr,
-            Self::RxRead(raw) | Self::TxWrite(raw) => raw,
-        }
-    }
-}
-
 impl EventRingRuntime {
     const fn new() -> Self {
         Self {
@@ -1214,6 +1213,50 @@ struct PciCommandEnableOutcome {
     vendor_device: u32,
     command_before: u16,
     command_after: u16,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum VerifiedQuiesceError {
+    FunctionUnavailable,
+    CommandChanged,
+    BusMasterStillEnabled,
+}
+
+struct VerifiedOff(());
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RuntimeDmaPlanError {
+    AddressUnavailable,
+    AddressOverflow,
+    TooManyPages,
+    TranslationRejected,
+    PublishedAddressMismatch,
+    SpanRejected,
+    ForeignRegionsUnavailable,
+    RegionOverlap,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum HostCommandPublishError {
+    Quiesce(VerifiedQuiesceError),
+    MmioUnavailable,
+    StaleCommandDone,
+    Pci(PciCommandEnableError),
+    PublicationOrder,
+}
+
+struct HostCommandEpoch {
+    verified_off: VerifiedOff,
+    epoch: u64,
+    pre_clear_status: u32,
+    post_clear_status: u32,
+}
+
+#[derive(Clone, Copy)]
+struct HostCommandPublication {
+    pci: PciCommandEnableOutcome,
+    program_flush_status: u32,
+    first_poll_status: u32,
 }
 
 struct ScanCmdJob {
@@ -1316,6 +1359,387 @@ fn latch_invalid_ring_pointer_while_gated(register: &'static str, raw: u32) {
             register, raw
         ));
     }
+}
+
+fn poison_dma_epoch_while_gated(reason: &'static str) {
+    DATA_LINK_READY.store(false, Ordering::Release);
+    let first_fault = !CONNECTION_REBOOT_REQUIRED.swap(true, Ordering::AcqRel);
+    compiler_fence(Ordering::SeqCst);
+    if first_fault {
+        serial::write_fmt(format_args!(
+            "marvell wifi: DMA epoch poisoned ({reason}); reboot required\r\n"
+        ));
+    }
+}
+
+fn verified_quiesce_while_gated(
+    address: pci::PciAddress,
+) -> Result<VerifiedOff, VerifiedQuiesceError> {
+    DATA_LINK_READY.store(false, Ordering::Release);
+    let vendor_device = address.read_u32(0x00);
+    let command = address.read_u16(0x04);
+    if vendor_device == u32::MAX || command == u16::MAX {
+        poison_dma_epoch_while_gated("PCI function unavailable during BME-off verification");
+        return Err(VerifiedQuiesceError::FunctionUnavailable);
+    }
+    let requested = (command & !0x0004) | (1 << 10);
+    let readback = match address.write_command_u16_checked(vendor_device, command, requested) {
+        pci::PciCommandWriteResult::Written { readback } => readback,
+        pci::PciCommandWriteResult::DeviceUnavailable => {
+            poison_dma_epoch_while_gated("PCI function vanished during BME-off verification");
+            return Err(VerifiedQuiesceError::FunctionUnavailable);
+        }
+        pci::PciCommandWriteResult::CommandChanged { .. } => {
+            poison_dma_epoch_while_gated("PCI command changed during BME-off verification");
+            return Err(VerifiedQuiesceError::CommandChanged);
+        }
+    };
+    if readback & 0x0004 != 0 {
+        poison_dma_epoch_while_gated("PCI BME remained enabled after checked write");
+        return Err(VerifiedQuiesceError::BusMasterStillEnabled);
+    }
+    compiler_fence(Ordering::SeqCst);
+    Ok(VerifiedOff(()))
+}
+
+fn enable_memory_space_while_verified_off(
+    address: pci::PciAddress,
+    _verified_off: VerifiedOff,
+) -> Result<VerifiedOff, VerifiedQuiesceError> {
+    let vendor_device = address.read_u32(0x00);
+    let command = address.read_u16(0x04);
+    if vendor_device == u32::MAX || command == u16::MAX {
+        poison_dma_epoch_while_gated("PCI function unavailable before MMIO mapping");
+        return Err(VerifiedQuiesceError::FunctionUnavailable);
+    }
+    let requested = (command | 0x0002 | (1 << 10)) & !0x0004;
+    let readback = match address.write_command_u16_checked(vendor_device, command, requested) {
+        pci::PciCommandWriteResult::Written { readback } => readback,
+        pci::PciCommandWriteResult::DeviceUnavailable => {
+            poison_dma_epoch_while_gated("PCI function vanished before MMIO mapping");
+            return Err(VerifiedQuiesceError::FunctionUnavailable);
+        }
+        pci::PciCommandWriteResult::CommandChanged { .. } => {
+            poison_dma_epoch_while_gated("PCI command changed before MMIO mapping");
+            return Err(VerifiedQuiesceError::CommandChanged);
+        }
+    };
+    if readback & 0x0004 != 0 || readback & 0x0002 == 0 {
+        poison_dma_epoch_while_gated("PCI memory enable lost verified BME-off state");
+        return Err(VerifiedQuiesceError::BusMasterStillEnabled);
+    }
+    compiler_fence(Ordering::SeqCst);
+    Ok(VerifiedOff(()))
+}
+
+fn validate_runtime_dma_region(
+    virtual_start: *const u8,
+    len: usize,
+    published_start: Option<u64>,
+    kind: MarvellDmaRegionKind,
+) -> Result<MarvellDmaRegion, RuntimeDmaPlanError> {
+    let virtual_start = virtual_start as u64;
+    let len = u64::try_from(len).map_err(|_| RuntimeDmaPlanError::AddressOverflow)?;
+    let virtual_end = virtual_start
+        .checked_add(len)
+        .ok_or(RuntimeDmaPlanError::AddressOverflow)?;
+    let first_page = virtual_start & !(DMA_PAGE_SIZE - 1);
+    let last_page = (virtual_end - 1) & !(DMA_PAGE_SIZE - 1);
+    let page_count = usize::try_from(((last_page - first_page) / DMA_PAGE_SIZE) + 1)
+        .map_err(|_| RuntimeDmaPlanError::TooManyPages)?;
+    if page_count > MAX_DMA_TRANSLATION_PAGES {
+        return Err(RuntimeDmaPlanError::TooManyPages);
+    }
+
+    let empty = PageTranslation {
+        virtual_page_start: 0,
+        physical_page_start: 0,
+    };
+    let mut pages = [empty; MAX_DMA_TRANSLATION_PAGES];
+    let mut index = 0usize;
+    while index < page_count {
+        let virtual_page_start = first_page
+            .checked_add((index as u64) * DMA_PAGE_SIZE)
+            .ok_or(RuntimeDmaPlanError::AddressOverflow)?;
+        let physical_page_start = memory::virt_to_phys(virtual_page_start as *const u8)
+            .ok_or(RuntimeDmaPlanError::AddressUnavailable)?;
+        pages[index] = PageTranslation {
+            virtual_page_start,
+            physical_page_start,
+        };
+        index += 1;
+    }
+    let translated = validate_contiguous_translation(
+        virtual_start,
+        len,
+        DMA_PAGE_SIZE,
+        DMA_ADDRESS_BITS,
+        &pages[..page_count],
+    )
+    .map_err(|_| RuntimeDmaPlanError::TranslationRejected)?;
+    if published_start != Some(translated.physical_span.start()) {
+        return Err(RuntimeDmaPlanError::PublishedAddressMismatch);
+    }
+    let span = DmaSpan::new(
+        translated.physical_span.start(),
+        len,
+        DMA_REQUIRED_ALIGNMENT,
+        DMA_ADDRESS_BITS,
+    )
+    .map_err(|_| RuntimeDmaPlanError::SpanRejected)?;
+    Ok(MarvellDmaRegion { kind, span })
+}
+
+fn validate_runtime_dma_plan_while_gated() -> Result<(), RuntimeDmaPlanError> {
+    let regions: [MarvellDmaRegion; MARVELL_DMA_REGION_COUNT] = [
+        validate_runtime_dma_region(
+            dma_block_ptr().cast_const(),
+            core::mem::size_of::<DmaBlock>(),
+            dma_block_phys(),
+            MarvellDmaRegionKind::CommandBuffer,
+        )?,
+        validate_runtime_dma_region(
+            hw_spec_cmd_ptr().cast_const(),
+            HWSPEC_CMD_BUFFER_SIZE,
+            hw_spec_cmd_phys(),
+            MarvellDmaRegionKind::CommandBuffer,
+        )?,
+        validate_runtime_dma_region(
+            hw_spec_rsp_ptr().cast_const(),
+            MWIFIEX_UPLD_SIZE,
+            hw_spec_rsp_phys(),
+            MarvellDmaRegionKind::ResponseBuffer,
+        )?,
+        validate_runtime_dma_region(
+            scan_cmd_ptr().cast_const(),
+            SCAN_CMD_BUFFER_SIZE,
+            scan_cmd_phys(),
+            MarvellDmaRegionKind::CommandBuffer,
+        )?,
+        validate_runtime_dma_region(
+            scan_rsp_ptr().cast_const(),
+            MWIFIEX_UPLD_SIZE,
+            scan_rsp_phys(),
+            MarvellDmaRegionKind::ResponseBuffer,
+        )?,
+        validate_runtime_dma_region(
+            connect_cmd_ptr().cast_const(),
+            CONNECT_CMD_BUFFER_SIZE,
+            connect_cmd_phys(),
+            MarvellDmaRegionKind::CommandBuffer,
+        )?,
+        validate_runtime_dma_region(
+            connect_rsp_ptr().cast_const(),
+            MWIFIEX_UPLD_SIZE,
+            connect_rsp_phys(),
+            MarvellDmaRegionKind::ResponseBuffer,
+        )?,
+        validate_runtime_dma_region(
+            event_desc_ptr(0).cast::<u8>().cast_const(),
+            core::mem::size_of::<EventRingDmaBlock>(),
+            event_desc_phys(),
+            MarvellDmaRegionKind::EventRing,
+        )?,
+        validate_runtime_dma_region(
+            rx_desc_ptr(0).cast::<u8>().cast_const(),
+            core::mem::size_of::<RxRingDmaBlock>(),
+            rx_desc_phys(),
+            MarvellDmaRegionKind::RxRing,
+        )?,
+        validate_runtime_dma_region(
+            tx_desc_ptr(0).cast::<u8>().cast_const(),
+            core::mem::size_of::<TxRingDmaBlock>(),
+            tx_desc_phys(),
+            MarvellDmaRegionKind::TxRing,
+        )?,
+    ];
+
+    let foreign_regions = authoritative_foreign_dma_regions_while_gated()
+        .ok_or(RuntimeDmaPlanError::ForeignRegionsUnavailable)?;
+    validate_non_overlapping_regions(&regions, foreign_regions)
+        .map_err(|_| RuntimeDmaPlanError::RegionOverlap)
+}
+
+fn authoritative_foreign_dma_regions_while_gated() -> Option<&'static [ForeignRegion]> {
+    // The owner lane supplies the authoritative xHCI/kernel/heap/reclog
+    // runtime adapter. Absence is deliberately not interpreted as an empty
+    // foreign set: BME activation remains fail-closed until that merge.
+    None
+}
+
+fn cleanup_host_command_mailbox_after_verified_off(
+    mmio: *mut u8,
+    _verified_off: &VerifiedOff,
+) -> Result<u32, HostCommandPublishError> {
+    compiler_fence(Ordering::SeqCst);
+    write_reg(mmio, CMD_SIZE, 0);
+    write_reg(mmio, CMD_ADDR_LO, 0);
+    write_reg(mmio, CMD_ADDR_HI, 0);
+    write_reg(mmio, CMDRSP_ADDR_LO, 0);
+    write_reg(mmio, CMDRSP_ADDR_HI, 0);
+    compiler_fence(Ordering::SeqCst);
+    let flush = read_reg(mmio, PCIE_HOST_INT_STATUS);
+    if flush == u32::MAX {
+        poison_dma_epoch_while_gated("mailbox cleanup flush unavailable");
+        return Err(HostCommandPublishError::MmioUnavailable);
+    }
+    Ok(flush)
+}
+
+fn begin_host_command_epoch_while_gated(
+    address: pci::PciAddress,
+    mmio: *mut u8,
+) -> Result<HostCommandEpoch, HostCommandPublishError> {
+    if validate_runtime_dma_plan_while_gated().is_err() {
+        poison_dma_epoch_while_gated("runtime DMA plan validation failed");
+        return Err(HostCommandPublishError::PublicationOrder);
+    }
+    let verified_off =
+        verified_quiesce_while_gated(address).map_err(HostCommandPublishError::Quiesce)?;
+    write_reg(mmio, PCIE_HOST_INT_MASK, 0);
+    write_reg(mmio, PCIE_HOST_INT_STATUS_MASK, HOST_INTR_MASK);
+    let pre_clear_status = cleanup_host_command_mailbox_after_verified_off(mmio, &verified_off)?;
+    if pre_clear_status != 0 {
+        write_reg(mmio, PCIE_HOST_INT_STATUS, !pre_clear_status);
+    }
+    let mut post_clear_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+    for _ in 1..CONNECTION_CMD_DONE_CLEAR_POLLS {
+        if marvell_wifi_cmd::host_cmd_done_low_after_clear(post_clear_status, HOST_INTR_CMD_DONE) {
+            break;
+        }
+        delay_us(SHORT_POLL_DELAY_US);
+        post_clear_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+    }
+    if post_clear_status == u32::MAX {
+        poison_dma_epoch_while_gated("HostCmd baseline status unavailable");
+        return Err(HostCommandPublishError::MmioUnavailable);
+    }
+    if !marvell_wifi_cmd::host_cmd_done_low_after_clear(post_clear_status, HOST_INTR_CMD_DONE) {
+        return Err(HostCommandPublishError::StaleCommandDone);
+    }
+    Ok(HostCommandEpoch {
+        verified_off,
+        epoch: HOST_COMMAND_EPOCH.fetch_add(1, Ordering::AcqRel),
+        pre_clear_status,
+        post_clear_status,
+    })
+}
+
+fn publish_host_command_while_gated(
+    address: pci::PciAddress,
+    mmio: *mut u8,
+    cmd_dma_phys: u64,
+    rsp_dma_phys: u64,
+    command_len: usize,
+    epoch: HostCommandEpoch,
+) -> Result<HostCommandPublication, HostCommandPublishError> {
+    let HostCommandEpoch {
+        verified_off: _verified_off,
+        epoch,
+        ..
+    } = epoch;
+    let mut model = PublicationModel::new();
+    model
+        .begin_epoch(epoch)
+        .map_err(|_| HostCommandPublishError::PublicationOrder)?;
+    write_reg(mmio, CMDRSP_ADDR_LO, (rsp_dma_phys & 0xffff_ffff) as u32);
+    model
+        .publish(epoch, PublicationStep::ResponseLow)
+        .map_err(|_| HostCommandPublishError::PublicationOrder)?;
+    write_reg(mmio, CMDRSP_ADDR_HI, (rsp_dma_phys >> 32) as u32);
+    model
+        .publish(epoch, PublicationStep::ResponseHigh)
+        .map_err(|_| HostCommandPublishError::PublicationOrder)?;
+    write_reg(mmio, CMD_ADDR_LO, (cmd_dma_phys & 0xffff_ffff) as u32);
+    model
+        .publish(epoch, PublicationStep::CommandLow)
+        .map_err(|_| HostCommandPublishError::PublicationOrder)?;
+    write_reg(mmio, CMD_ADDR_HI, (cmd_dma_phys >> 32) as u32);
+    model
+        .publish(epoch, PublicationStep::CommandHigh)
+        .map_err(|_| HostCommandPublishError::PublicationOrder)?;
+    write_reg(mmio, CMD_SIZE, command_len as u32);
+    model
+        .publish(epoch, PublicationStep::CommandSize)
+        .and_then(|_| model.publish(epoch, PublicationStep::RingsPublished))
+        .map_err(|_| HostCommandPublishError::PublicationOrder)?;
+    compiler_fence(Ordering::SeqCst);
+    let program_flush_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+    if program_flush_status == u32::MAX {
+        poison_dma_epoch_while_gated("HostCmd publication flush unavailable");
+        return Err(HostCommandPublishError::MmioUnavailable);
+    }
+    if program_flush_status & HOST_INTR_CMD_DONE != 0 {
+        return Err(HostCommandPublishError::StaleCommandDone);
+    }
+
+    let vendor_device = address.read_u32(0x00);
+    let command_before = address.read_u16(0x04);
+    let pci = match ensure_pci_memory_bus_master(address, vendor_device, command_before) {
+        Ok(pci) => pci,
+        Err(error) => {
+            let _ = verified_quiesce_while_gated(address);
+            return Err(HostCommandPublishError::Pci(error));
+        }
+    };
+    if model.enable_bme().is_err() {
+        let _ = verified_quiesce_while_gated(address);
+        return Err(HostCommandPublishError::PublicationOrder);
+    }
+    compiler_fence(Ordering::SeqCst);
+    write_reg(mmio, PCIE_CPU_INT_EVENT, CPU_INTR_DOOR_BELL);
+    if model.publish(epoch, PublicationStep::Doorbell).is_err() {
+        let _ = verified_quiesce_while_gated(address);
+        return Err(HostCommandPublishError::PublicationOrder);
+    }
+    compiler_fence(Ordering::SeqCst);
+    let first_poll_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+    if first_poll_status == u32::MAX {
+        let _ = verified_quiesce_while_gated(address);
+        return Err(HostCommandPublishError::MmioUnavailable);
+    }
+    Ok(HostCommandPublication {
+        pci,
+        program_flush_status,
+        first_poll_status,
+    })
+}
+
+fn terminal_quiesce_and_cleanup_while_gated(address: pci::PciAddress, mmio: *mut u8) -> bool {
+    let Ok(verified_off) = verified_quiesce_while_gated(address) else {
+        return false;
+    };
+    cleanup_host_command_mailbox_after_verified_off(mmio, &verified_off).is_ok()
+}
+
+fn activate_validated_data_dma_while_gated(address: pci::PciAddress) -> bool {
+    if validate_runtime_dma_plan_while_gated().is_err() {
+        poison_dma_epoch_while_gated("data DMA activation plan validation failed");
+        return false;
+    }
+    let vendor_device = address.read_u32(0x00);
+    let command_before = address.read_u16(0x04);
+    match ensure_pci_memory_bus_master(address, vendor_device, command_before) {
+        Ok(_) => true,
+        Err(_) => {
+            let _ = verified_quiesce_while_gated(address);
+            poison_dma_epoch_while_gated("checked data DMA activation failed");
+            false
+        }
+    }
+}
+
+fn quarantine_invalid_pointer_after_ring_unlock_while_gated(
+    mmio: *mut u8,
+    register: &'static str,
+    raw: u32,
+) {
+    latch_invalid_ring_pointer_while_gated(register, raw);
+    let Some(address) = wifi::snapshot().address else {
+        poison_dma_epoch_while_gated("PCI address unavailable after pointer poison");
+        return;
+    };
+    let _ = terminal_quiesce_and_cleanup_while_gated(address, mmio);
 }
 
 fn apply_deferred_network_action(action: DeferredNetworkAction) {
@@ -1579,7 +2003,11 @@ fn quarantine_retained_ready_connection() {
     {
         let _dma_gate = MARVELL_DMA_GATE.lock();
         if let Some(address) = wifi::snapshot().address {
-            pci::disable_bus_master(address);
+            if let Some(mmio_base) = ready_mmio_base() {
+                let _ = terminal_quiesce_and_cleanup_while_gated(address, mmio_base as *mut u8);
+            } else {
+                let _ = verified_quiesce_while_gated(address);
+            }
         }
         DATA_LINK_READY.store(false, Ordering::Release);
         let mut runtime = CONNECTION.lock();
@@ -1595,7 +2023,11 @@ fn fail_connection_start(result: ConnectionResult) -> ConnectionTriggerResult {
     {
         let _dma_gate = MARVELL_DMA_GATE.lock();
         if let Some(address) = wifi::snapshot().address {
-            pci::disable_bus_master(address);
+            if let Some(mmio_base) = ready_mmio_base() {
+                let _ = terminal_quiesce_and_cleanup_while_gated(address, mmio_base as *mut u8);
+            } else {
+                let _ = verified_quiesce_while_gated(address);
+            }
         }
         let mut runtime = CONNECTION.lock();
         runtime.snapshot = ConnectionSnapshot {
@@ -1635,16 +2067,23 @@ pub fn receive_ethernet() -> Option<RxPacket> {
         Err(_) => {
             runtime.snapshot.stage = RxRingStage::Failed;
             runtime.snapshot.result = Some(RxRingResult::BadReadPointer);
-            latch_invalid_ring_pointer_while_gated("RX-WR/TX-RD", wrptr);
+            drop(runtime);
+            quarantine_invalid_pointer_after_ring_unlock_while_gated(
+                mmio_base,
+                "RX-WR/TX-RD",
+                wrptr,
+            );
             return None;
         }
     };
     let host_rdptr = match decode_rx_tx_pointer_register(runtime.rdptr) {
         Ok(pointers) => pointers.rx,
         Err(_) => {
+            let raw = runtime.rdptr;
             runtime.snapshot.stage = RxRingStage::Failed;
             runtime.snapshot.result = Some(RxRingResult::BadReadPointer);
-            latch_invalid_ring_pointer_while_gated("host RX-RD", runtime.rdptr);
+            drop(runtime);
+            quarantine_invalid_pointer_after_ring_unlock_while_gated(mmio_base, "host RX-RD", raw);
             return None;
         }
     };
@@ -1666,6 +2105,12 @@ pub fn receive_ethernet() -> Option<RxPacket> {
     ) {
         runtime.snapshot.stage = RxRingStage::Failed;
         runtime.snapshot.result = Some(RxRingResult::BadReadPointer);
+        drop(runtime);
+        quarantine_invalid_pointer_after_ring_unlock_while_gated(
+            mmio_base,
+            "host RX-RD/TX-WR",
+            next_rdptr,
+        );
         return None;
     }
     runtime.rdptr = next_rdptr;
@@ -1713,14 +2158,17 @@ pub fn transmit_ethernet(frame: &[u8]) -> bool {
     let device_rdptr = match decode_rx_tx_pointer_register(rdptr) {
         Ok(pointers) => pointers.tx,
         Err(_) => {
-            latch_invalid_ring_pointer_while_gated("RX-WR/TX-RD", rdptr);
+            drop(runtime);
+            quarantine_invalid_pointer_after_ring_unlock_while_gated(mmio, "RX-WR/TX-RD", rdptr);
             return false;
         }
     };
     let host_wrptr = match decode_rx_tx_pointer_register(runtime.wrptr) {
         Ok(pointers) => pointers.tx,
         Err(_) => {
-            latch_invalid_ring_pointer_while_gated("host TX-WR", runtime.wrptr);
+            let raw = runtime.wrptr;
+            drop(runtime);
+            quarantine_invalid_pointer_after_ring_unlock_while_gated(mmio, "host TX-WR", raw);
             return false;
         }
     };
@@ -1742,6 +2190,12 @@ pub fn transmit_ethernet(frame: &[u8]) -> bool {
     compiler_fence(Ordering::SeqCst);
     if !publish_shared_rx_tx_pointer_while_gated(mmio, SharedRxTxPointerUpdate::TxWrite(next_wrptr))
     {
+        drop(runtime);
+        quarantine_invalid_pointer_after_ring_unlock_while_gated(
+            mmio,
+            "host RX-RD/TX-WR",
+            next_wrptr,
+        );
         return false;
     }
     runtime.wrptr = next_wrptr;
@@ -1809,7 +2263,33 @@ pub fn start_bring_up_firmware() -> FirmwareBringupTriggerResult {
         return FirmwareBringupTriggerResult::Failed(FirmwareDownloadResult::Bar2NotMmio);
     }
 
-    pci::enable_bus_master(address);
+    if validate_runtime_dma_plan_while_gated().is_err() {
+        poison_dma_epoch_while_gated("firmware preflight DMA plan validation failed");
+        finish_without_mmio(
+            FirmwareDownloadResult::DmaAddressUnavailable,
+            FirmwareStage::DetectOk,
+        );
+        return FirmwareBringupTriggerResult::Failed(FirmwareDownloadResult::DmaAddressUnavailable);
+    }
+    let verified_off = match verified_quiesce_while_gated(address) {
+        Ok(verified_off) => verified_off,
+        Err(_) => {
+            finish_without_mmio(
+                FirmwareDownloadResult::DmaAddressUnavailable,
+                FirmwareStage::DetectOk,
+            );
+            return FirmwareBringupTriggerResult::Failed(
+                FirmwareDownloadResult::DmaAddressUnavailable,
+            );
+        }
+    };
+    if enable_memory_space_while_verified_off(address, verified_off).is_err() {
+        finish_without_mmio(
+            FirmwareDownloadResult::DmaAddressUnavailable,
+            FirmwareStage::DetectOk,
+        );
+        return FirmwareBringupTriggerResult::Failed(FirmwareDownloadResult::DmaAddressUnavailable);
+    }
     let mapping = match memory::map_mmio(bar.base, bar.size as usize) {
         Ok(mapping) => mapping,
         Err(error) => {
@@ -1976,7 +2456,7 @@ pub fn poll_hw_spec() -> bool {
         let phase = runtime.snapshot.stage;
         if elapsed_ms(job.phase_started_tsc) >= HWSPEC_TIMEOUT_MS {
             let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
-            pci::disable_bus_master(job.pci_address);
+            let _ = terminal_quiesce_and_cleanup_while_gated(job.pci_address, mmio_base);
             finish_hw_spec_locked(
                 &mut runtime,
                 HwSpecResult::CmdDoneTimeout,
@@ -1990,11 +2470,28 @@ pub fn poll_hw_spec() -> bool {
         }
 
         if !job.waiting {
+            let host_epoch = match begin_host_command_epoch_while_gated(job.pci_address, mmio_base)
+            {
+                Ok(epoch) => epoch,
+                Err(_) => {
+                    let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+                    finish_hw_spec_locked(
+                        &mut runtime,
+                        HwSpecResult::PciFunctionUnavailable,
+                        HwSpecStage::Failed,
+                        status,
+                        None,
+                        None,
+                    );
+                    write_hw_spec_failure(phase, HwSpecResult::PciFunctionUnavailable, status);
+                    return true;
+                }
+            };
             let command_len = match prepare_hw_spec_dma(&job, phase) {
                 Ok(command_len) => command_len,
                 Err(result) => {
                     let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
-                    pci::disable_bus_master(job.pci_address);
+                    let _ = terminal_quiesce_and_cleanup_while_gated(job.pci_address, mmio_base);
                     finish_hw_spec_locked(
                         &mut runtime,
                         result,
@@ -2008,24 +2505,19 @@ pub fn poll_hw_spec() -> bool {
                 }
             };
 
-            let vendor_device = job.pci_address.read_u32(0x00);
-            let command_before = job.pci_address.read_u16(0x04);
-            runtime.snapshot.pci_command_before = command_before;
-            let pci = match ensure_pci_memory_bus_master(
+            let publication = match publish_host_command_while_gated(
                 job.pci_address,
-                vendor_device,
-                command_before,
+                mmio_base,
+                job.cmd_dma_phys,
+                job.rsp_dma_phys,
+                command_len,
+                host_epoch,
             ) {
-                Ok(pci) => pci,
-                Err(error) => {
-                    let result = match error {
-                        PciCommandEnableError::FunctionUnavailable => {
-                            HwSpecResult::PciFunctionUnavailable
-                        }
-                        PciCommandEnableError::EnableFailed => HwSpecResult::PciCommandEnableFailed,
-                    };
+                Ok(publication) => publication,
+                Err(_) => {
+                    let result = HwSpecResult::PciCommandEnableFailed;
                     let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
-                    pci::disable_bus_master(job.pci_address);
+                    let _ = terminal_quiesce_and_cleanup_while_gated(job.pci_address, mmio_base);
                     finish_hw_spec_locked(
                         &mut runtime,
                         result,
@@ -2038,10 +2530,9 @@ pub fn poll_hw_spec() -> bool {
                     return true;
                 }
             };
-            runtime.snapshot.pci_command_before = pci.command_before;
-            runtime.snapshot.pci_command_after = pci.command_after;
-
-            runtime.snapshot.pci_vendor_device = pci.vendor_device;
+            runtime.snapshot.pci_command_before = publication.pci.command_before;
+            runtime.snapshot.pci_command_after = publication.pci.command_after;
+            runtime.snapshot.pci_vendor_device = publication.pci.vendor_device;
             let mut liveness = marvell_wifi_cmd::ConnectionMmioLiveness::MmioUnavailable;
             let mut firmware_status = u32::MAX;
             let mut pending = u32::MAX;
@@ -2066,7 +2557,7 @@ pub fn poll_hw_spec() -> bool {
                 }
             };
             if let Some(result) = liveness_failure {
-                pci::disable_bus_master(job.pci_address);
+                let _ = terminal_quiesce_and_cleanup_while_gated(job.pci_address, mmio_base);
                 finish_hw_spec_locked(
                     &mut runtime,
                     result,
@@ -2079,30 +2570,7 @@ pub fn poll_hw_spec() -> bool {
                 return true;
             }
 
-            compiler_fence(Ordering::SeqCst);
-            write_reg(mmio_base, PCIE_HOST_INT_MASK, 0);
-            write_reg(mmio_base, PCIE_HOST_INT_STATUS_MASK, HOST_INTR_MASK);
-            if pending != 0 && pending != u32::MAX {
-                write_reg(mmio_base, PCIE_HOST_INT_STATUS, !pending);
-            }
-            write_reg(
-                mmio_base,
-                CMDRSP_ADDR_LO,
-                (job.rsp_dma_phys & 0xffff_ffff) as u32,
-            );
-            write_reg(mmio_base, CMDRSP_ADDR_HI, (job.rsp_dma_phys >> 32) as u32);
-            write_reg(
-                mmio_base,
-                CMD_ADDR_LO,
-                (job.cmd_dma_phys & 0xffff_ffff) as u32,
-            );
-            write_reg(mmio_base, CMD_ADDR_HI, (job.cmd_dma_phys >> 32) as u32);
-            write_reg(mmio_base, CMD_SIZE, command_len as u32);
-            compiler_fence(Ordering::SeqCst);
-            write_reg(mmio_base, PCIE_CPU_INT_EVENT, CPU_INTR_DOOR_BELL);
-            compiler_fence(Ordering::SeqCst);
-
-            let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+            let status = publication.first_poll_status;
             runtime.snapshot.host_int_status = status;
             job.waiting = true;
             job.phase_started_tsc = time::rdtsc();
@@ -2110,8 +2578,8 @@ pub fn poll_hw_spec() -> bool {
                     "marvell wifi: init stage={} armed seq={} pci={:04x}>{:04x} fw=0x{:08x} host=0x{:08x}\r\n",
                     phase.label(),
                     init_phase_seq(job.seq, phase),
-                    pci.command_before,
-                    pci.command_after,
+                    publication.pci.command_before,
+                    publication.pci.command_after,
                     firmware_status,
                     status,
                 ));
@@ -2123,7 +2591,7 @@ pub fn poll_hw_spec() -> bool {
                 changed = true;
             }
             if status == u32::MAX {
-                pci::disable_bus_master(job.pci_address);
+                let _ = terminal_quiesce_and_cleanup_while_gated(job.pci_address, mmio_base);
                 finish_hw_spec_locked(
                     &mut runtime,
                     HwSpecResult::PciFunctionUnavailable,
@@ -2136,12 +2604,22 @@ pub fn poll_hw_spec() -> bool {
                 return true;
             }
             if status & HOST_INTR_CMD_DONE != 0 {
+                if !terminal_quiesce_and_cleanup_while_gated(job.pci_address, mmio_base) {
+                    finish_hw_spec_locked(
+                        &mut runtime,
+                        HwSpecResult::PciFunctionUnavailable,
+                        HwSpecStage::Failed,
+                        status,
+                        None,
+                        None,
+                    );
+                    return true;
+                }
                 compiler_fence(Ordering::SeqCst);
                 let (parsed, response_header) =
                     parse_hw_spec_dma_response(phase, init_phase_seq(job.seq, phase));
                 runtime.snapshot.last_response = response_header;
                 write_reg(mmio_base, PCIE_HOST_INT_STATUS, !status);
-                clear_connection_response_mailbox(mmio_base);
                 let _cleanup_flush_status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
                 compiler_fence(Ordering::SeqCst);
 
@@ -2202,7 +2680,6 @@ pub fn poll_hw_spec() -> bool {
                         runtime.snapshot.stage = next;
                     }
                     Err(result) => {
-                        pci::disable_bus_master(job.pci_address);
                         finish_hw_spec_locked(
                             &mut runtime,
                             result,
@@ -2254,7 +2731,7 @@ pub fn poll_scan_ext() -> bool {
         actions += 1;
         if elapsed_ms(job.started_tsc) >= SCAN_CMD_TIMEOUT_MS {
             let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
-            pci::disable_bus_master(job.pci_address);
+            let _ = terminal_quiesce_and_cleanup_while_gated(job.pci_address, mmio_base);
             let command_len = runtime.snapshot.command_len;
             finish_scan_locked(
                 &mut runtime,
@@ -2270,10 +2747,28 @@ pub fn poll_scan_ext() -> bool {
 
         match runtime.snapshot.stage {
             ScanCmdStage::Arming => {
+                let host_epoch =
+                    match begin_host_command_epoch_while_gated(job.pci_address, mmio_base) {
+                        Ok(epoch) => epoch,
+                        Err(_) => {
+                            let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+                            finish_scan_locked(
+                                &mut runtime,
+                                ScanCmdResult::RebootRequired,
+                                ScanCmdStage::Failed,
+                                status,
+                                0,
+                            );
+                            wifi::note_scan_command_failed();
+                            return true;
+                        }
+                    };
                 let command_len = match prepare_scan_dma(job.seq) {
                     Ok(command_len) => command_len,
                     Err(error) => {
                         let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+                        let _ =
+                            terminal_quiesce_and_cleanup_while_gated(job.pci_address, mmio_base);
                         let result = ScanCmdResult::CommandBuild(error);
                         finish_scan_locked(&mut runtime, result, ScanCmdStage::Failed, status, 0);
                         write_scan_failure(result, status);
@@ -2282,33 +2777,32 @@ pub fn poll_scan_ext() -> bool {
                     }
                 };
 
-                compiler_fence(Ordering::SeqCst);
-                write_reg(mmio_base, PCIE_HOST_INT_MASK, 0);
-                write_reg(mmio_base, PCIE_HOST_INT_STATUS_MASK, HOST_INTR_MASK);
-                let pending = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
-                if pending != 0 && pending != u32::MAX {
-                    write_reg(mmio_base, PCIE_HOST_INT_STATUS, !pending);
-                }
-                write_reg(
+                let publication = match publish_host_command_while_gated(
+                    job.pci_address,
                     mmio_base,
-                    CMDRSP_ADDR_LO,
-                    (job.rsp_dma_phys & 0xffff_ffff) as u32,
-                );
-                write_reg(mmio_base, CMDRSP_ADDR_HI, (job.rsp_dma_phys >> 32) as u32);
-                write_reg(
-                    mmio_base,
-                    CMD_ADDR_LO,
-                    (job.cmd_dma_phys & 0xffff_ffff) as u32,
-                );
-                write_reg(mmio_base, CMD_ADDR_HI, (job.cmd_dma_phys >> 32) as u32);
-                write_reg(mmio_base, CMD_SIZE, command_len as u32);
-                compiler_fence(Ordering::SeqCst);
-                pci::enable_bus_master(job.pci_address);
-                compiler_fence(Ordering::SeqCst);
-                write_reg(mmio_base, PCIE_CPU_INT_EVENT, CPU_INTR_DOOR_BELL);
-                compiler_fence(Ordering::SeqCst);
+                    job.cmd_dma_phys,
+                    job.rsp_dma_phys,
+                    command_len,
+                    host_epoch,
+                ) {
+                    Ok(publication) => publication,
+                    Err(_) => {
+                        let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+                        let _ =
+                            terminal_quiesce_and_cleanup_while_gated(job.pci_address, mmio_base);
+                        finish_scan_locked(
+                            &mut runtime,
+                            ScanCmdResult::RebootRequired,
+                            ScanCmdStage::Failed,
+                            status,
+                            command_len,
+                        );
+                        wifi::note_scan_command_failed();
+                        return true;
+                    }
+                };
 
-                let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+                let status = publication.first_poll_status;
                 runtime.snapshot = ScanCmdSnapshot {
                     attempted: true,
                     running: true,
@@ -2326,10 +2820,21 @@ pub fn poll_scan_ext() -> bool {
                     changed = true;
                 }
                 if status & HOST_INTR_CMD_DONE != 0 {
+                    if !terminal_quiesce_and_cleanup_while_gated(job.pci_address, mmio_base) {
+                        let command_len = runtime.snapshot.command_len;
+                        finish_scan_locked(
+                            &mut runtime,
+                            ScanCmdResult::RebootRequired,
+                            ScanCmdStage::Failed,
+                            status,
+                            command_len,
+                        );
+                        wifi::note_scan_command_failed();
+                        return true;
+                    }
                     compiler_fence(Ordering::SeqCst);
                     let parsed = parse_scan_dma_response();
                     write_reg(mmio_base, PCIE_HOST_INT_STATUS, !status);
-                    clear_connection_response_mailbox(mmio_base);
                     let _cleanup_flush_status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
                     compiler_fence(Ordering::SeqCst);
 
@@ -2350,7 +2855,6 @@ pub fn poll_scan_ext() -> bool {
                                     declared, ingested
                                 ));
                             } else {
-                                pci::disable_bus_master(job.pci_address);
                                 let result = ScanCmdResult::LiveResultParseFailed;
                                 finish_scan_locked(
                                     &mut runtime,
@@ -2368,7 +2872,6 @@ pub fn poll_scan_ext() -> bool {
                             }
                         }
                         Err(error) => {
-                            pci::disable_bus_master(job.pci_address);
                             let result = ScanCmdResult::Response(error);
                             let command_len = runtime.snapshot.command_len;
                             finish_scan_locked(
@@ -2397,77 +2900,83 @@ pub fn poll_scan_ext() -> bool {
     changed
 }
 
-fn clear_connection_response_mailbox(mmio: *mut u8) {
-    write_reg(mmio, CMDRSP_ADDR_LO, 0);
-    write_reg(mmio, CMDRSP_ADDR_HI, 0);
-    compiler_fence(Ordering::SeqCst);
-}
-
 fn ensure_pci_memory_bus_master(
     address: pci::PciAddress,
     vendor_device: u32,
     command_before: u16,
 ) -> Result<PciCommandEnableOutcome, PciCommandEnableError> {
-    match marvell_wifi_cmd::plan_pci_memory_bus_master_enable(vendor_device, command_before) {
-        marvell_wifi_cmd::PciCommandEnablePlan::Unavailable => {
-            Err(PciCommandEnableError::FunctionUnavailable)
-        }
-        marvell_wifi_cmd::PciCommandEnablePlan::AlreadyEnabled => Ok(PciCommandEnableOutcome {
-            vendor_device,
-            command_before,
-            command_after: command_before,
-        }),
-        marvell_wifi_cmd::PciCommandEnablePlan::Write(command) => {
-            let readback =
-                match address.write_command_u16_checked(vendor_device, command_before, command) {
-                    pci::PciCommandWriteResult::Written { readback } => readback,
-                    pci::PciCommandWriteResult::DeviceUnavailable => {
-                        return Err(PciCommandEnableError::FunctionUnavailable);
-                    }
-                    pci::PciCommandWriteResult::CommandChanged { .. } => {
-                        return Err(PciCommandEnableError::EnableFailed);
-                    }
-                };
-            if !marvell_wifi_cmd::pci_memory_bus_master_enabled(readback) {
-                return Err(PciCommandEnableError::EnableFailed);
+    let command =
+        match marvell_wifi_cmd::plan_pci_memory_bus_master_enable(vendor_device, command_before) {
+            marvell_wifi_cmd::PciCommandEnablePlan::Unavailable => {
+                return Err(PciCommandEnableError::FunctionUnavailable);
             }
-            Ok(PciCommandEnableOutcome {
-                vendor_device,
-                command_before,
-                command_after: readback,
-            })
+            marvell_wifi_cmd::PciCommandEnablePlan::AlreadyEnabled => command_before,
+            marvell_wifi_cmd::PciCommandEnablePlan::Write(command) => command,
+        };
+    let readback = match address.write_command_u16_checked(vendor_device, command_before, command) {
+        pci::PciCommandWriteResult::Written { readback } => readback,
+        pci::PciCommandWriteResult::DeviceUnavailable => {
+            return Err(PciCommandEnableError::FunctionUnavailable);
         }
+        pci::PciCommandWriteResult::CommandChanged { .. } => {
+            return Err(PciCommandEnableError::EnableFailed);
+        }
+    };
+    if !marvell_wifi_cmd::pci_memory_bus_master_enabled(readback) {
+        return Err(PciCommandEnableError::EnableFailed);
     }
+    Ok(PciCommandEnableOutcome {
+        vendor_device,
+        command_before,
+        command_after: readback,
+    })
 }
 
 fn arm_connection_command(
     job: &mut ConnectionJob,
     command_len: usize,
+    epoch: HostCommandEpoch,
 ) -> Result<(), ConnectionTransportError> {
     let mmio = job.mmio_base as *mut u8;
     job.cmd_done_low_baseline = false;
     job.transport_diagnostic = ConnectionTransportDiagnostic::new();
-
-    let vendor_device = job.pci_address.read_u32(0x00);
-    let command_before = job.pci_address.read_u16(0x04);
-    job.transport_diagnostic.pci_vendor_device = vendor_device;
-    job.transport_diagnostic.pci_command_before = command_before;
-    job.transport_diagnostic.pci_config_valid =
-        vendor_device != u32::MAX && command_before != u16::MAX;
-    job.transport_diagnostic.pre_enable_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+    job.transport_diagnostic.pre_enable_status = epoch.pre_clear_status;
     job.transport_diagnostic.pre_enable_status_valid = true;
-    let pci = ensure_pci_memory_bus_master(job.pci_address, vendor_device, command_before)
-        .map_err(|error| match error {
-            PciCommandEnableError::FunctionUnavailable => {
-                ConnectionTransportError::PciFunctionUnavailable
-            }
-            PciCommandEnableError::EnableFailed => ConnectionTransportError::PciCommandEnableFailed,
-        })?;
-    job.transport_diagnostic.pci_vendor_device = pci.vendor_device;
-    job.transport_diagnostic.pci_command_before = pci.command_before;
-    job.transport_diagnostic.pci_command_after = pci.command_after;
+    job.transport_diagnostic.pre_clear_status = epoch.pre_clear_status;
+    job.transport_diagnostic.pre_clear_status_valid = true;
+    job.transport_diagnostic.post_clear_status = epoch.post_clear_status;
+    job.transport_diagnostic.post_clear_status_valid = true;
+    job.cmd_done_low_baseline = true;
+
+    let publication = publish_host_command_while_gated(
+        job.pci_address,
+        mmio,
+        job.cmd_dma_phys,
+        job.rsp_dma_phys,
+        command_len,
+        epoch,
+    )
+    .map_err(|error| match error {
+        HostCommandPublishError::Quiesce(VerifiedQuiesceError::FunctionUnavailable)
+        | HostCommandPublishError::Pci(PciCommandEnableError::FunctionUnavailable) => {
+            ConnectionTransportError::PciFunctionUnavailable
+        }
+        HostCommandPublishError::Quiesce(_)
+        | HostCommandPublishError::Pci(PciCommandEnableError::EnableFailed)
+        | HostCommandPublishError::PublicationOrder => {
+            ConnectionTransportError::PciCommandEnableFailed
+        }
+        HostCommandPublishError::MmioUnavailable => ConnectionTransportError::MmioUnavailable,
+        HostCommandPublishError::StaleCommandDone => ConnectionTransportError::StaleCommandDone,
+    })?;
+    job.transport_diagnostic.pci_vendor_device = publication.pci.vendor_device;
+    job.transport_diagnostic.pci_command_before = publication.pci.command_before;
+    job.transport_diagnostic.pci_command_after = publication.pci.command_after;
     job.transport_diagnostic.pci_config_valid = true;
-    compiler_fence(Ordering::SeqCst);
+    job.transport_diagnostic.program_flush_status = publication.program_flush_status;
+    job.transport_diagnostic.program_flush_status_valid = true;
+    job.transport_diagnostic.first_poll_status = publication.first_poll_status;
+    job.transport_diagnostic.first_poll_status_valid = true;
 
     let mut liveness = marvell_wifi_cmd::ConnectionMmioLiveness::MmioUnavailable;
     for _ in 0..CONNECTION_MMIO_LIVENESS_POLLS {
@@ -2493,69 +3002,6 @@ fn arm_connection_command(
             return Err(ConnectionTransportError::MmioUnavailable);
         }
     }
-
-    compiler_fence(Ordering::SeqCst);
-    write_reg(mmio, PCIE_HOST_INT_MASK, 0);
-    write_reg(mmio, PCIE_HOST_INT_STATUS_MASK, HOST_INTR_MASK);
-
-    // Runtime HostCmd scratch registers do not promise read-your-write. Clear
-    // response ownership blindly and use the known-readable status register as
-    // the same-device posted-write flush.
-    clear_connection_response_mailbox(mmio);
-
-    let pending = read_reg(mmio, PCIE_HOST_INT_STATUS);
-    job.transport_diagnostic.pre_clear_status = pending;
-    job.transport_diagnostic.pre_clear_status_valid = true;
-    if pending == u32::MAX {
-        return Err(ConnectionTransportError::MmioUnavailable);
-    }
-    if pending != 0 && pending != u32::MAX {
-        // The status register is W0C on this device: invert the observed bits
-        // so every currently pending source receives a zero acknowledgement.
-        write_reg(mmio, PCIE_HOST_INT_STATUS, !pending);
-    }
-    let mut post_clear_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
-    for _ in 1..CONNECTION_CMD_DONE_CLEAR_POLLS {
-        if marvell_wifi_cmd::host_cmd_done_low_after_clear(post_clear_status, HOST_INTR_CMD_DONE) {
-            break;
-        }
-        delay_us(SHORT_POLL_DELAY_US);
-        post_clear_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
-    }
-    job.transport_diagnostic.post_clear_status = post_clear_status;
-    job.transport_diagnostic.post_clear_status_valid = true;
-    if post_clear_status == u32::MAX {
-        return Err(ConnectionTransportError::MmioUnavailable);
-    }
-    if !marvell_wifi_cmd::host_cmd_done_low_after_clear(post_clear_status, HOST_INTR_CMD_DONE) {
-        return Err(ConnectionTransportError::StaleCommandDone);
-    }
-    job.cmd_done_low_baseline = true;
-
-    write_reg(
-        mmio,
-        CMDRSP_ADDR_LO,
-        (job.rsp_dma_phys & 0xffff_ffff) as u32,
-    );
-    write_reg(mmio, CMDRSP_ADDR_HI, (job.rsp_dma_phys >> 32) as u32);
-    write_reg(mmio, CMD_ADDR_LO, (job.cmd_dma_phys & 0xffff_ffff) as u32);
-    write_reg(mmio, CMD_ADDR_HI, (job.cmd_dma_phys >> 32) as u32);
-    write_reg(mmio, CMD_SIZE, command_len as u32);
-    compiler_fence(Ordering::SeqCst);
-    let program_flush_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
-    job.transport_diagnostic.program_flush_status = program_flush_status;
-    job.transport_diagnostic.program_flush_status_valid = true;
-    if program_flush_status == u32::MAX {
-        return Err(ConnectionTransportError::MmioUnavailable);
-    }
-    if program_flush_status & HOST_INTR_CMD_DONE != 0 {
-        return Err(ConnectionTransportError::StaleCommandDone);
-    }
-
-    write_reg(mmio, PCIE_CPU_INT_EVENT, CPU_INTR_DOOR_BELL);
-    compiler_fence(Ordering::SeqCst);
-    job.transport_diagnostic.first_poll_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
-    job.transport_diagnostic.first_poll_status_valid = true;
     Ok(())
 }
 
@@ -2613,10 +3059,39 @@ pub fn poll_connection() -> bool {
         }
 
         if !job.waiting {
+            let host_epoch = match begin_host_command_epoch_while_gated(job.pci_address, mmio) {
+                Ok(epoch) => epoch,
+                Err(error) => {
+                    let transport = match error {
+                        HostCommandPublishError::Quiesce(
+                            VerifiedQuiesceError::FunctionUnavailable,
+                        )
+                        | HostCommandPublishError::Pci(
+                            PciCommandEnableError::FunctionUnavailable,
+                        ) => ConnectionTransportError::PciFunctionUnavailable,
+                        HostCommandPublishError::MmioUnavailable => {
+                            ConnectionTransportError::MmioUnavailable
+                        }
+                        HostCommandPublishError::StaleCommandDone => {
+                            ConnectionTransportError::StaleCommandDone
+                        }
+                        _ => ConnectionTransportError::PciCommandEnableFailed,
+                    };
+                    finish_connection_locked(
+                        &mut runtime,
+                        ConnectionResult::Transport(transport),
+                        ConnectionStage::Failed,
+                        read_reg(mmio, PCIE_HOST_INT_STATUS),
+                    );
+                    DATA_LINK_READY.store(false, Ordering::Release);
+                    return (true, DeferredNetworkAction::None);
+                }
+            };
             let command_len = match prepare_connection_dma(&mut job) {
                 Ok(len) => len,
                 Err(result) => {
-                    quarantine_connection_job(&job);
+                    let _ = terminal_quiesce_and_cleanup_while_gated(job.pci_address, mmio);
+                    clear_connection_secret_dma(&job);
                     finish_connection_locked(
                         &mut runtime,
                         result,
@@ -2627,7 +3102,7 @@ pub fn poll_connection() -> bool {
                     return (true, DeferredNetworkAction::None);
                 }
             };
-            if let Err(error) = arm_connection_command(&mut job, command_len) {
+            if let Err(error) = arm_connection_command(&mut job, command_len, host_epoch) {
                 let status = job.transport_diagnostic.post_clear_status;
                 runtime.snapshot.transport_diagnostic = Some(job.transport_diagnostic);
                 quarantine_connection_job(&job);
@@ -2692,10 +3167,18 @@ pub fn poll_connection() -> bool {
             return (false, DeferredNetworkAction::None);
         }
 
+        if !terminal_quiesce_and_cleanup_while_gated(job.pci_address, mmio) {
+            finish_connection_locked(
+                &mut runtime,
+                ConnectionResult::RebootRequired,
+                ConnectionStage::Failed,
+                status,
+            );
+            return (true, DeferredNetworkAction::None);
+        }
         compiler_fence(Ordering::SeqCst);
         let (response, response_header) = parse_connection_dma_response(&job);
         write_reg(mmio, PCIE_HOST_INT_STATUS, !status);
-        clear_connection_response_mailbox(mmio);
         let _cleanup_flush_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
         compiler_fence(Ordering::SeqCst);
         let association = match response {
@@ -2741,6 +3224,15 @@ pub fn poll_connection() -> bool {
                 serial::write_line("marvell wifi: ephemeral authority denied before port release");
                 return (true, DeferredNetworkAction::Detach);
             }
+            if !activate_validated_data_dma_while_gated(job.pci_address) {
+                finish_connection_locked(
+                    &mut runtime,
+                    ConnectionResult::RebootRequired,
+                    ConnectionStage::Failed,
+                    status,
+                );
+                return (true, DeferredNetworkAction::Detach);
+            }
             runtime.snapshot.stage = ConnectionStage::WaitPortRelease;
             runtime.job = Some(job);
             serial::write_line(
@@ -2758,6 +3250,15 @@ pub fn poll_connection() -> bool {
                     status,
                 );
                 DATA_LINK_READY.store(false, Ordering::Release);
+                return (true, DeferredNetworkAction::Detach);
+            }
+            if !activate_validated_data_dma_while_gated(job.pci_address) {
+                finish_connection_locked(
+                    &mut runtime,
+                    ConnectionResult::RebootRequired,
+                    ConnectionStage::Failed,
+                    status,
+                );
                 return (true, DeferredNetworkAction::Detach);
             }
             let mac = hw_spec_snapshot().mac;
@@ -2855,12 +3356,11 @@ fn finish_connection_locked(
 // acquiring CONNECTION; see the permanent integration predicate.
 fn quarantine_connection_job(job: &ConnectionJob) {
     DATA_LINK_READY.store(false, Ordering::Release);
-    pci::disable_bus_master(job.pci_address);
     let mmio = job.mmio_base as *mut u8;
-    clear_connection_response_mailbox(mmio);
-    let _cleanup_flush_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
-    clear_connection_secret_dma(job);
-    CONNECTION_REBOOT_REQUIRED.store(true, Ordering::Release);
+    if terminal_quiesce_and_cleanup_while_gated(job.pci_address, mmio) {
+        clear_connection_secret_dma(job);
+    }
+    CONNECTION_REBOOT_REQUIRED.swap(true, Ordering::AcqRel);
     compiler_fence(Ordering::SeqCst);
 }
 
@@ -2897,16 +3397,25 @@ pub fn poll_event_ring() -> bool {
             Err(_) => {
                 runtime.snapshot.stage = EventRingStage::Failed;
                 runtime.snapshot.result = Some(EventRingResult::BadReadPointer);
-                latch_invalid_ring_pointer_while_gated("EVENT-WR", wrptr);
+                drop(runtime);
+                quarantine_invalid_pointer_after_ring_unlock_while_gated(
+                    mmio_base, "EVENT-WR", wrptr,
+                );
                 return true;
             }
         };
         let host_rdptr = match decode_event_pointer(runtime.rdptr) {
             Ok(pointer) => pointer,
             Err(_) => {
+                let raw = runtime.rdptr;
                 runtime.snapshot.stage = EventRingStage::Failed;
                 runtime.snapshot.result = Some(EventRingResult::BadReadPointer);
-                latch_invalid_ring_pointer_while_gated("host EVENT-RD", runtime.rdptr);
+                drop(runtime);
+                quarantine_invalid_pointer_after_ring_unlock_while_gated(
+                    mmio_base,
+                    "host EVENT-RD",
+                    raw,
+                );
                 return true;
             }
         };
@@ -3004,7 +3513,12 @@ fn handle_connection_event(cause: u32) {
                 if let Some(job) = runtime.job.take() {
                     quarantine_connection_job(&job);
                 } else if let Some(address) = wifi::snapshot().address {
-                    pci::disable_bus_master(address);
+                    if let Some(mmio_base) = ready_mmio_base() {
+                        let _ =
+                            terminal_quiesce_and_cleanup_while_gated(address, mmio_base as *mut u8);
+                    } else {
+                        let _ = verified_quiesce_while_gated(address);
+                    }
                 }
                 runtime.snapshot.running = false;
                 runtime.snapshot.failed_stage = Some(runtime.snapshot.stage);
@@ -3146,6 +3660,18 @@ pub fn poll() -> bool {
                 payload_len,
                 wire_len,
             } => {
+                if !terminal_quiesce_and_cleanup_while_gated(job.pci_address, mmio_base) {
+                    finish_locked(
+                        &mut runtime,
+                        FirmwareDownloadResult::DrvReadyQuarantined,
+                        FirmwareStage::Failed,
+                        Some(FirmwareStage::Downloading),
+                        registers,
+                        job.download.offset(),
+                        job.firmware_len,
+                    );
+                    return true;
+                }
                 let Some(end) = image_offset.checked_add(payload_len) else {
                     finish_locked(
                         &mut runtime,
@@ -3184,10 +3710,34 @@ pub fn poll() -> bool {
                     return true;
                 }
             }
-            FwAction::Retry { .. } => {}
+            FwAction::Retry { .. } => {
+                if !terminal_quiesce_and_cleanup_while_gated(job.pci_address, mmio_base) {
+                    finish_locked(
+                        &mut runtime,
+                        FirmwareDownloadResult::DrvReadyQuarantined,
+                        FirmwareStage::Failed,
+                        Some(FirmwareStage::Downloading),
+                        registers,
+                        job.download.offset(),
+                        job.firmware_len,
+                    );
+                    return true;
+                }
+            }
             FwAction::RingDoorbell => {}
             FwAction::WriteDrvReady { value } => {
-                write_drv_ready_pre_quarantined(job.pci_address, mmio_base, value);
+                if !write_drv_ready_pre_quarantined(job.pci_address, mmio_base, value) {
+                    finish_locked(
+                        &mut runtime,
+                        FirmwareDownloadResult::DrvReadyQuarantined,
+                        FirmwareStage::Failed,
+                        Some(FirmwareStage::PollingReady),
+                        registers,
+                        job.download.offset(),
+                        job.firmware_len,
+                    );
+                    return true;
+                }
                 serial::write_line(
                     "marvell wifi: DRV_READY written after DMA/INTx pre-quarantine; polling FW_STATUS",
                 );
@@ -3280,6 +3830,21 @@ pub fn poll() -> bool {
         if !plan.is_empty() {
             compiler_fence(Ordering::SeqCst);
         }
+        if matches!(action, FwAction::WriteBlock { .. } | FwAction::Retry { .. }) {
+            let flush = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+            if flush == u32::MAX || !activate_validated_data_dma_while_gated(job.pci_address) {
+                finish_locked(
+                    &mut runtime,
+                    FirmwareDownloadResult::DmaAddressUnavailable,
+                    FirmwareStage::Failed,
+                    Some(FirmwareStage::Downloading),
+                    registers,
+                    job.download.offset(),
+                    job.firmware_len,
+                );
+                return true;
+            }
+        }
     }
 
     runtime.job = Some(job);
@@ -3325,13 +3890,24 @@ fn finish_with_registers(
 
 fn finish_locked(
     runtime: &mut FirmwareBringupRuntime,
-    result: FirmwareDownloadResult,
-    stage: FirmwareStage,
-    failed_stage: Option<FirmwareStage>,
+    mut result: FirmwareDownloadResult,
+    mut stage: FirmwareStage,
+    mut failed_stage: Option<FirmwareStage>,
     registers: FirmwareRegisterSnapshot,
     downloaded: usize,
     total: usize,
 ) {
+    if matches!(stage, FirmwareStage::Ready | FirmwareStage::Failed) {
+        if let (Some(address), Some(mmio_base)) = (wifi::snapshot().address, runtime.mmio_base) {
+            if !terminal_quiesce_and_cleanup_while_gated(address, mmio_base as *mut u8)
+                && stage == FirmwareStage::Ready
+            {
+                result = FirmwareDownloadResult::DrvReadyQuarantined;
+                stage = FirmwareStage::Failed;
+                failed_stage = Some(FirmwareStage::PollingReady);
+            }
+        }
+    }
     if stage == FirmwareStage::Failed {
         let status = match result {
             FirmwareDownloadResult::CmdSizeTimeout
@@ -3489,7 +4065,8 @@ fn arm_event_ring_while_gated(mmio_base: usize) {
             event_type: 0,
             event_cause: 0,
         };
-        latch_invalid_ring_pointer_while_gated("EVENT-WR", wrptr);
+        drop(runtime);
+        quarantine_invalid_pointer_after_ring_unlock_while_gated(mmio, "EVENT-WR", wrptr);
         return;
     }
 
@@ -3562,7 +4139,8 @@ fn arm_rx_ring_while_gated(mmio_base: usize) -> bool {
             rx_len: 0,
             rx_type: 0,
         };
-        latch_invalid_ring_pointer_while_gated("RX-WR/TX-RD", wrptr);
+        drop(runtime);
+        quarantine_invalid_pointer_after_ring_unlock_while_gated(mmio, "RX-WR/TX-RD", wrptr);
         return false;
     }
     let mut index = 0usize;
@@ -3671,11 +4249,7 @@ fn publish_shared_rx_tx_pointer_while_gated(
     let current_raw = *RX_TX_POINTER_REGISTER.lock();
     let next_raw = match plan_shared_rx_tx_pointer(current_raw, update) {
         Ok(raw) => raw,
-        Err(_) => {
-            let raw = update.attempted_raw();
-            latch_invalid_ring_pointer_while_gated("host RX-RD/TX-WR", raw);
-            return false;
-        }
+        Err(_) => return false,
     };
     publish_prepared_shared_rx_tx_pointer_while_gated(mmio_base, next_raw);
     true
@@ -3697,7 +4271,11 @@ fn publish_data_ring_pointers_while_gated(mmio_base: usize) -> bool {
     let rx_rdptr = RX_RING.lock().rdptr;
     let tx_wrptr = TX_RING.lock().wrptr;
     if decode_event_pointer(event_rdptr).is_err() {
-        latch_invalid_ring_pointer_while_gated("host EVENT-RD", event_rdptr);
+        quarantine_invalid_pointer_after_ring_unlock_while_gated(
+            mmio_base as *mut u8,
+            "host EVENT-RD",
+            event_rdptr,
+        );
         return false;
     }
     let shared_raw = match plan_shared_rx_tx_pointer(
@@ -3706,7 +4284,11 @@ fn publish_data_ring_pointers_while_gated(mmio_base: usize) -> bool {
     ) {
         Ok(raw) => raw,
         Err(_) => {
-            latch_invalid_ring_pointer_while_gated("host RX-RD/TX-WR", rx_rdptr | tx_wrptr);
+            quarantine_invalid_pointer_after_ring_unlock_while_gated(
+                mmio_base as *mut u8,
+                "host RX-RD/TX-WR",
+                rx_rdptr | tx_wrptr,
+            );
             return false;
         }
     };
@@ -4548,7 +5130,11 @@ fn read_register_snapshot(mmio_base: *mut u8) -> FirmwareRegisterSnapshot {
     }
 }
 
-fn write_drv_ready_pre_quarantined(pci_address: pci::PciAddress, mmio_base: *mut u8, value: u32) {
+fn write_drv_ready_pre_quarantined(
+    pci_address: pci::PciAddress,
+    mmio_base: *mut u8,
+    value: u32,
+) -> bool {
     compiler_fence(Ordering::SeqCst);
     write_reg(mmio_base, PCIE_HOST_INT_MASK, 0);
     write_reg(mmio_base, PCIE_HOST_INT_STATUS_MASK, HOST_INTR_MASK);
@@ -4556,11 +5142,13 @@ fn write_drv_ready_pre_quarantined(pci_address: pci::PciAddress, mmio_base: *mut
     if pending != 0 && pending != u32::MAX {
         write_reg(mmio_base, PCIE_HOST_INT_STATUS, !pending);
     }
-    compiler_fence(Ordering::SeqCst);
-    pci::disable_bus_master(pci_address);
+    if !terminal_quiesce_and_cleanup_while_gated(pci_address, mmio_base) {
+        return false;
+    }
     compiler_fence(Ordering::SeqCst);
     write_reg(mmio_base, DRV_READY, value);
     compiler_fence(Ordering::SeqCst);
+    read_reg(mmio_base, PCIE_HOST_INT_STATUS) != u32::MAX
 }
 
 fn probe_mmio(mmio_base: *mut u8) -> bool {

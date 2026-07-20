@@ -74,7 +74,7 @@ Require (([regex]::Matches($driver, 'revalidate_ephemeral_release\(&job\)')).Cou
 $generic = Slice-Between $driver "pub fn start_association()" "/// The only SAFE association entrypoint"
 Require-Match $generic 'BootPosture::PersistenceUnavailable.*BootPostureDenied' "generic PU deny was weakened"
 $linkLoss = Slice-Between $driver "fn handle_connection_event" "pub fn poll()"
-Require-Match $linkLoss 'disable_bus_master' "link loss does not disable bus master"
+Require-Match $linkLoss 'terminal_quiesce_and_cleanup_while_gated|verified_quiesce_while_gated' "link loss lacks verified BME-off quarantine"
 Require-Match $linkLoss 'LinkLost' "link loss result missing"
 Require-Match $linkLoss 'DATA_LINK_READY\.store\(false.*DeferredNetworkAction::Detach' "link loss does not plan network detach"
 Require-NoMatch $linkLoss 'start_association|reconnect|begin_' "link loss gained host autoreconnect"
@@ -84,7 +84,7 @@ $transmitRing = Slice-Between $driver "pub fn transmit_ethernet" "pub fn start_b
 $eventRing = Slice-Between $driver "pub fn poll_event_ring" "fn handle_connection_event"
 $firmwarePoll = Slice-Between $driver "pub fn poll()" "fn finish_locked"
 $hwSpecPoll = Slice-Between $driver "pub fn poll_hw_spec" "pub fn poll_scan_ext"
-$scanPoll = Slice-Between $driver "pub fn poll_scan_ext" "fn clear_connection_response_mailbox"
+$scanPoll = Slice-Between $driver "pub fn poll_scan_ext" "fn ensure_pci_memory_bus_master"
 $connectionPoll = Slice-Between $driver "pub fn poll_connection" "fn next_connection_phase"
 $networkApply = Slice-Between $driver "fn apply_deferred_network_action" "pub fn start_association()"
 $firmwareTrigger = Slice-Between $driver "pub fn start_bring_up_firmware" "pub fn start_scan_ext_24ghz"
@@ -219,14 +219,15 @@ foreach ($line in ($driver -split '\r?\n')) {
     }
 }
 $expectedWriteOwners = @(
-    'arm_connection_command',
-    'clear_connection_response_mailbox',
+    'begin_host_command_epoch_while_gated',
+    'cleanup_host_command_mailbox_after_verified_off',
     'poll',
     'poll_connection',
     'poll_event_ring',
     'poll_hw_spec',
     'poll_scan_ext',
     'publish_data_ring_pointers_while_gated',
+    'publish_host_command_while_gated',
     'publish_prepared_shared_rx_tx_pointer_while_gated',
     'receive_ethernet',
     'transmit_ethernet',
@@ -234,15 +235,15 @@ $expectedWriteOwners = @(
 ) | Sort-Object
 $actualWriteOwners = @($writeOwners.Keys | Sort-Object)
 Require (($actualWriteOwners -join ',') -eq ($expectedWriteOwners -join ',')) "MMIO writer ownership changed: $($actualWriteOwners -join ',')"
-Require (([regex]::Matches($driver, 'clear_connection_response_mailbox\(')).Count -eq 6) "mailbox clear gained an unreviewed caller"
+Require (([regex]::Matches($driver, 'cleanup_host_command_mailbox_after_verified_off\(')).Count -ge 3) "verified full-mailbox cleanup lost its runtime callers"
 Require (([regex]::Matches($driver, 'arm_connection_command\(')).Count -eq 2) "connection DMA arming gained an unreviewed caller"
 Require (([regex]::Matches($driver, 'write_drv_ready_pre_quarantined\(')).Count -eq 2) "DRV_READY writer gained an unreviewed caller"
 Require (([regex]::Matches($driver, 'publish_data_ring_pointers_while_gated\(')).Count -eq 2) "ring-pointer publication gained an unreviewed caller"
-Require (([regex]::Matches($driver, 'pci::enable_bus_master\(')).Count -eq 2) "direct bus-master enable surface changed"
-Require-Match $firmwareTrigger 'connection_reboot_required\(\).*BRINGUP\.lock.*pci::enable_bus_master' "firmware trigger can enable bus mastering outside its reboot-checked gate"
-Require-Match $scanPoll 'connection_reboot_required\(\).*SCAN\.lock.*pci::enable_bus_master.*CPU_INTR_DOOR_BELL' "scan can enable bus mastering or doorbell outside its reboot-checked gate"
+Require-NoMatch $driver 'pci::(?:enable|disable)_bus_master' "unchecked bus-master API re-entered the driver"
+Require-Match $firmwareTrigger 'connection_reboot_required\(\).*BRINGUP\.lock.*validate_runtime_dma_plan_while_gated.*verified_quiesce_while_gated' "firmware trigger can reach MMIO without reboot, DMA-plan, and verified-off gates"
+Require-Match $scanPoll 'connection_reboot_required\(\).*SCAN\.lock.*begin_host_command_epoch_while_gated.*publish_host_command_while_gated' "scan can publish HostCmd outside the common gated transaction"
 Require (([regex]::Matches($driver, 'ensure_pci_memory_bus_master\(')).Count -eq 3) "checked bus-master enable gained an unreviewed caller"
-Require-Match $connectionArm 'ensure_pci_memory_bus_master.*CPU_INTR_DOOR_BELL' "connection DMA helper no longer bounds bus-master enable before doorbell"
+Require-Match $connectionArm 'publish_host_command_while_gated.*connection_mmio_liveness' "connection DMA helper bypasses the common transactional publisher"
 
 function Test-InitialPointerPlanBeforeMmio([string]$Text) {
     $surface = Slice-Between $Text "fn publish_data_ring_pointers_while_gated" "fn finish_hw_spec_locked"
@@ -282,7 +283,7 @@ $scanGateNeedle = '    let _dma_gate = MARVELL_DMA_GATE.lock();'
 $scanGateAt = $driver.IndexOf($scanGateNeedle, $scanStart, [StringComparison]::Ordinal)
 Require ($scanGateAt -gt $scanStart) "scan gate mutation fixture could not find gate"
 $scanWithoutGate = $driver.Remove($scanGateAt, $scanGateNeedle.Length)
-$mutatedScanPoll = Slice-Between $scanWithoutGate "pub fn poll_scan_ext" "fn clear_connection_response_mailbox"
+$mutatedScanPoll = Slice-Between $scanWithoutGate "pub fn poll_scan_ext" "fn ensure_pci_memory_bus_master"
 Require (-not (Test-GateOrder $mutatedScanPoll 'SCAN.lock')) "missing scan gate mutation was accepted"
 
 $connectionStart = $driver.IndexOf('pub fn poll_connection', [StringComparison]::Ordinal)
@@ -352,8 +353,8 @@ $gatedQuarantineCalls =
     ([regex]::Matches($linkLoss, 'quarantine_connection_job\(&job\)')).Count
 Require (($totalQuarantineCalls -gt 0) -and ($totalQuarantineCalls -eq $gatedQuarantineCalls)) "quarantine call exists outside gated CONNECTION paths"
 $quarantineBody = Slice-Between $driver "fn quarantine_connection_job" "fn clear_connection_secret_dma"
-Require-Match $quarantineBody 'CONNECTION_REBOOT_REQUIRED\.store\(true' "quarantine no longer latches reboot-required"
-Require (([regex]::Matches($driver, 'CONNECTION_REBOOT_REQUIRED\.store\(true')).Count -eq 1) "reboot latch gained an unreviewed direct store"
+Require-Match $quarantineBody 'CONNECTION_REBOOT_REQUIRED\.swap\(true' "quarantine no longer latches reboot-required"
+Require (([regex]::Matches($driver, 'CONNECTION_REBOOT_REQUIRED\.swap\(true')).Count -eq 3) "reboot latch surface changed"
 
 function Enter-ModeledDmaGate([hashtable]$State, [string]$Actor) {
     if ($State.Gate -ne '') {
