@@ -1231,6 +1231,7 @@ impl UsbEnumLocation {
 #[derive(Clone, Copy)]
 enum EnumeratedKind {
     Hid(HidKind),
+    CompositeHid,
     Hub,
     MassStorage,
 }
@@ -1239,21 +1240,11 @@ impl EnumeratedKind {
     fn as_str(self) -> &'static str {
         match self {
             EnumeratedKind::Hid(kind) => kind.as_str(),
+            EnumeratedKind::CompositeHid => "composite HID",
             EnumeratedKind::Hub => "hub",
             EnumeratedKind::MassStorage => "mass-storage",
         }
     }
-}
-
-#[derive(Clone, Copy)]
-struct HidEndpoint {
-    kind: HidKind,
-    interface_number: u8,
-    configuration_value: u8,
-    endpoint_address: u8,
-    dci: u8,
-    max_packet_size: u16,
-    interval: u8,
 }
 
 #[derive(Clone, Copy)]
@@ -1277,45 +1268,6 @@ struct HubDescriptor {
 struct HubPortStatus {
     status: u16,
     change: u16,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum HidKind {
-    Keyboard,
-    GenericKeyboard,
-    Mouse,
-    Tablet,
-}
-
-impl HidKind {
-    fn as_str(self) -> &'static str {
-        match self {
-            HidKind::Keyboard => "keyboard",
-            HidKind::GenericKeyboard => "generic keyboard",
-            HidKind::Mouse => "mouse",
-            HidKind::Tablet => "tablet",
-        }
-    }
-
-    fn report_len(self) -> usize {
-        match self {
-            HidKind::Keyboard | HidKind::GenericKeyboard => KEYBOARD_REPORT_LEN,
-            HidKind::Mouse => MOUSE_REPORT_LEN,
-            HidKind::Tablet => TABLET_REPORT_LEN,
-        }
-    }
-
-    fn is_keyboard(self) -> bool {
-        matches!(self, HidKind::Keyboard | HidKind::GenericKeyboard)
-    }
-
-    fn is_pointer(self) -> bool {
-        matches!(self, HidKind::Mouse | HidKind::Tablet)
-    }
-
-    fn uses_boot_protocol(self) -> bool {
-        matches!(self, HidKind::Keyboard | HidKind::Mouse)
-    }
 }
 
 impl XhciController {
@@ -1821,10 +1773,10 @@ impl XhciController {
             return Ok(EnumeratedKind::Hub);
         }
 
-        let endpoint_result = self.find_boot_hid_endpoint();
+        let endpoint_result = self.find_boot_hid_endpoints();
         self.capture_enum_completion_codes();
-        let endpoint = match endpoint_result {
-            Ok(endpoint) => endpoint,
+        let endpoints = match endpoint_result {
+            Ok(endpoints) => endpoints,
             Err(hid_err) => {
                 let storage_result = self.find_mass_storage_interface();
                 self.capture_enum_completion_codes();
@@ -1856,54 +1808,65 @@ impl XhciController {
                 }
             }
         };
-        if endpoint.kind.is_keyboard() && self.keyboard.is_some() {
-            return Err("duplicate USB boot keyboard");
-        }
-        if endpoint.kind.is_pointer() && self.mouse.is_some() {
-            return Err("duplicate USB pointer");
-        }
+        let ring_indices =
+            plan_hid_ring_indices(endpoints, device_index, next_device_index, MAX_HID_DEVICES)?;
         self.set_enum_stage("set-config");
         let set_config_result = self.control_no_data(
             0x00,
             USB_REQ_SET_CONFIGURATION,
-            endpoint.configuration_value as u16,
+            endpoints.configuration_value()? as u16,
             0,
         );
         self.capture_enum_completion_codes();
         set_config_result?;
-        if endpoint.kind.uses_boot_protocol() {
-            self.set_enum_stage("set-proto");
-            let set_proto_result = self.control_no_data(
-                0x21,
-                HID_REQ_SET_PROTOCOL,
-                0,
-                endpoint.interface_number as u16,
-            );
-            self.capture_enum_completion_codes();
-            if set_proto_result.is_err() {
-                serial::write_line("usb-hid: set-protocol stalled (ignored)");
+        for endpoint in endpoints.as_array().into_iter().flatten() {
+            if endpoint.kind.uses_boot_protocol() {
+                self.set_enum_stage("set-proto");
+                let set_proto_result = self.control_no_data(
+                    0x21,
+                    HID_REQ_SET_PROTOCOL,
+                    0,
+                    endpoint.interface_number as u16,
+                );
+                self.capture_enum_completion_codes();
+                if set_proto_result.is_err() {
+                    serial::write_fmt(format_args!(
+                        "usb-hid: set-protocol stalled on interface {} (ignored)\r\n",
+                        endpoint.interface_number
+                    ));
+                }
             }
-        }
-        self.set_enum_stage("set-idle");
-        let set_idle_result =
-            self.control_no_data(0x21, HID_REQ_SET_IDLE, 0, endpoint.interface_number as u16);
-        self.capture_enum_completion_codes();
-        if set_idle_result.is_err() {
-            serial::write_line("usb-hid: set-idle stalled (ignored)");
+            self.set_enum_stage("set-idle");
+            let set_idle_result =
+                self.control_no_data(0x21, HID_REQ_SET_IDLE, 0, endpoint.interface_number as u16);
+            self.capture_enum_completion_codes();
+            if set_idle_result.is_err() {
+                serial::write_fmt(format_args!(
+                    "usb-hid: set-idle stalled on interface {} (ignored)\r\n",
+                    endpoint.interface_number
+                ));
+            }
         }
 
         self.set_enum_stage("cfg-ep");
         let cfg_ep_result =
-            self.configure_interrupt_endpoint(device_index, slot_id, port, endpoint);
+            self.configure_interrupt_endpoints(slot_id, port, endpoints, ring_indices);
         self.capture_enum_completion_codes();
         cfg_ep_result?;
-        serial::write_fmt(format_args!(
-            "usb-hid: {} ready on slot {} endpoint 0x{:02x}\r\n",
-            endpoint.kind.as_str(),
-            slot_id,
-            endpoint.endpoint_address
-        ));
-        Ok(EnumeratedKind::Hid(endpoint.kind))
+        for endpoint in endpoints.as_array().into_iter().flatten() {
+            serial::write_fmt(format_args!(
+                "usb-hid: {} ready on slot {} interface {} endpoint 0x{:02x}\r\n",
+                endpoint.kind.as_str(),
+                slot_id,
+                endpoint.interface_number,
+                endpoint.endpoint_address
+            ));
+        }
+        Ok(if endpoints.len() == 2 {
+            EnumeratedKind::CompositeHid
+        } else {
+            EnumeratedKind::Hid(endpoints.single_kind()?)
+        })
     }
 
     unsafe fn enable_slot(&mut self) -> Result<u8, &'static str> {
@@ -2788,7 +2751,7 @@ impl XhciController {
         Err("hub port reset timeout")
     }
 
-    unsafe fn find_boot_hid_endpoint(&mut self) -> Result<HidEndpoint, &'static str> {
+    unsafe fn find_boot_hid_endpoints(&mut self) -> Result<HidEndpointSet, &'static str> {
         self.set_enum_stage("config-hdr");
         let header_result = self.control_in(
             0x80,
@@ -2815,8 +2778,11 @@ impl XhciController {
         self.capture_enum_completion_codes();
         let actual_len = config_result?;
         self.set_enum_stage("hid-match");
-        let endpoint_result =
-            parse_boot_hid_endpoint(&CONTROL_BUFFER.0[..actual_len], self.keyboard.is_none());
+        let endpoint_result = parse_boot_hid_endpoints(
+            &CONTROL_BUFFER.0[..actual_len],
+            self.keyboard.is_none(),
+            self.mouse.is_none(),
+        );
         self.capture_enum_completion_codes();
         endpoint_result
     }
@@ -2932,30 +2898,46 @@ impl XhciController {
         Ok(())
     }
 
-    unsafe fn configure_interrupt_endpoint(
+    unsafe fn configure_interrupt_endpoints(
         &mut self,
-        device_index: usize,
         slot_id: u8,
         port: PortInfo,
-        endpoint: HidEndpoint,
+        endpoints: HidEndpointSet,
+        ring_indices: HidRingIndices,
     ) -> Result<(), &'static str> {
-        self.reset_interrupt_ring_at(device_index);
+        ring_indices.validate(endpoints, MAX_HID_DEVICES)?;
+        for ring_index in ring_indices.as_array().into_iter().flatten() {
+            self.reset_interrupt_ring_at(ring_index);
+        }
+
         clear_input_context();
-        input_control_add_flags((1 << 0) | (1 << endpoint.dci));
-        write_slot_context(port, endpoint.dci, self.context_size);
-        write_endpoint_context(
-            endpoint.dci,
-            self.context_size,
-            EP_TYPE_INTERRUPT_IN,
-            interval_to_xhci(port.speed, endpoint.interval),
-            endpoint.max_packet_size,
-            phys_of(
-                ptr::addr_of!(INTR_RINGS[device_index].0[0]),
-                "interrupt ring phys",
-            )? | 1,
-            endpoint.max_packet_size,
-            endpoint.max_packet_size,
-        );
+        let mut add_flags = 1u32 << 0;
+        for endpoint in endpoints.as_array().into_iter().flatten() {
+            add_flags |= 1u32 << endpoint.dci;
+        }
+        input_control_add_flags(add_flags);
+        write_slot_context(port, endpoints.max_dci()?, self.context_size);
+        for (endpoint, ring_index) in [
+            (endpoints.keyboard, ring_indices.keyboard),
+            (endpoints.pointer, ring_indices.pointer),
+        ]
+        .into_iter()
+        .filter_map(|(endpoint, ring_index)| endpoint.zip(ring_index))
+        {
+            write_endpoint_context(
+                endpoint.dci,
+                self.context_size,
+                EP_TYPE_INTERRUPT_IN,
+                interval_to_xhci(port.speed, endpoint.interval),
+                endpoint.max_packet_size,
+                phys_of(
+                    ptr::addr_of!(INTR_RINGS[ring_index].0[0]),
+                    "interrupt ring phys",
+                )? | 1,
+                endpoint.max_packet_size,
+                endpoint.max_packet_size,
+            );
+        }
         fence(Ordering::SeqCst);
 
         let input_phys = phys_of(ptr::addr_of!(INPUT_CONTEXT.0[0]), "input context phys")?;
@@ -2965,40 +2947,36 @@ impl XhciController {
             control: trb_type(TRB_TYPE_CONFIGURE_ENDPOINT) | ((slot_id as u32) << 24),
         })?;
 
-        match endpoint.kind {
-            HidKind::Keyboard | HidKind::GenericKeyboard => {
-                self.keyboard = Some(KeyboardDevice {
+        let keyboard =
+            endpoints
+                .keyboard
+                .zip(ring_indices.keyboard)
+                .map(|(endpoint, ring_index)| KeyboardDevice {
                     slot_id,
                     dci: endpoint.dci,
-                    ring_index: device_index,
+                    ring_index,
                     root_port_number: port.root_port_number,
                     parent_hub_slot_id: port.parent_hub_slot_id,
                     parent_hub_port_number: port.parent_hub_port_number,
                     previous_report: [0; KEYBOARD_REPORT_LEN],
                 });
-            }
-            HidKind::Mouse => {
-                self.mouse = Some(MouseDevice {
-                    slot_id,
-                    dci: endpoint.dci,
-                    ring_index: device_index,
-                    kind: endpoint.kind,
-                    root_port_number: port.root_port_number,
-                    parent_hub_slot_id: port.parent_hub_slot_id,
-                    parent_hub_port_number: port.parent_hub_port_number,
-                });
-            }
-            HidKind::Tablet => {
-                self.mouse = Some(MouseDevice {
-                    slot_id,
-                    dci: endpoint.dci,
-                    ring_index: device_index,
-                    kind: endpoint.kind,
-                    root_port_number: port.root_port_number,
-                    parent_hub_slot_id: port.parent_hub_slot_id,
-                    parent_hub_port_number: port.parent_hub_port_number,
-                });
-            }
+        let pointer = endpoints
+            .pointer
+            .zip(ring_indices.pointer)
+            .map(|(endpoint, ring_index)| MouseDevice {
+                slot_id,
+                dci: endpoint.dci,
+                ring_index,
+                kind: endpoint.kind,
+                root_port_number: port.root_port_number,
+                parent_hub_slot_id: port.parent_hub_slot_id,
+                parent_hub_port_number: port.parent_hub_port_number,
+            });
+        if keyboard.is_some() {
+            self.keyboard = keyboard;
+        }
+        if pointer.is_some() {
+            self.mouse = pointer;
         }
         Ok(())
     }
@@ -3859,8 +3837,14 @@ impl XhciController {
         K: FnMut(u16, bool),
         M: FnMut(UsbMouseReport),
     {
+        let target = hid_transfer_target(
+            event.slot_id(),
+            event.endpoint_id(),
+            self.keyboard.map(|device| (device.slot_id, device.dci)),
+            self.mouse.map(|device| (device.slot_id, device.dci)),
+        );
         if let Some(mut keyboard) = self.keyboard {
-            if event.slot_id() == keyboard.slot_id && event.endpoint_id() == keyboard.dci {
+            if target == Some(HidTransferTarget::Keyboard) {
                 let cc = event.completion_code();
                 if cc == CC_SUCCESS || cc == CC_SHORT_PACKET {
                     self.last_transfer_completion_code = cc as u8;
@@ -3892,7 +3876,7 @@ impl XhciController {
         }
 
         if let Some(mouse) = self.mouse {
-            if event.slot_id() == mouse.slot_id && event.endpoint_id() == mouse.dci {
+            if target == Some(HidTransferTarget::Pointer) {
                 let cc = event.completion_code();
                 if cc == CC_SUCCESS || cc == CC_SHORT_PACKET {
                     self.last_transfer_completion_code = cc as u8;
@@ -4229,78 +4213,426 @@ unsafe fn ctx_write_raw(base: *mut u8, dword: usize, value: u32) {
     ptr::write_volatile(base.add(dword * 4).cast::<u32>(), value);
 }
 
-unsafe fn parse_boot_hid_endpoint(
-    config: &[u8],
-    prefer_generic_keyboard: bool,
+// USB_COMPOSITE_HID_PURE_BEGIN
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct HidEndpoint {
+    kind: HidKind,
+    interface_number: u8,
+    configuration_value: u8,
+    endpoint_address: u8,
+    dci: u8,
+    max_packet_size: u16,
+    interval: u8,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct HidEndpointSet {
+    keyboard: Option<HidEndpoint>,
+    pointer: Option<HidEndpoint>,
+}
+
+impl HidEndpointSet {
+    const fn none() -> Self {
+        Self {
+            keyboard: None,
+            pointer: None,
+        }
+    }
+
+    fn as_array(self) -> [Option<HidEndpoint>; 2] {
+        [self.keyboard, self.pointer]
+    }
+
+    fn len(self) -> usize {
+        self.keyboard.is_some() as usize + self.pointer.is_some() as usize
+    }
+
+    fn configuration_value(self) -> Result<u8, &'static str> {
+        match (self.keyboard, self.pointer) {
+            (Some(keyboard), Some(pointer))
+                if keyboard.configuration_value != pointer.configuration_value =>
+            {
+                Err("HID endpoints span configurations")
+            }
+            (Some(endpoint), _) | (_, Some(endpoint)) if endpoint.configuration_value != 0 => {
+                Ok(endpoint.configuration_value)
+            }
+            (Some(_), _) | (_, Some(_)) => Err("HID configuration value is zero"),
+            (None, None) => Err("HID endpoint set is empty"),
+        }
+    }
+
+    fn max_dci(self) -> Result<u8, &'static str> {
+        self.as_array()
+            .into_iter()
+            .flatten()
+            .map(|endpoint| endpoint.dci)
+            .max()
+            .ok_or("HID endpoint set is empty")
+    }
+
+    fn single_kind(self) -> Result<HidKind, &'static str> {
+        if self.len() != 1 {
+            return Err("HID endpoint set is not singular");
+        }
+        self.as_array()
+            .into_iter()
+            .flatten()
+            .next()
+            .map(|endpoint| endpoint.kind)
+            .ok_or("HID endpoint set is empty")
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct HidRingIndices {
+    keyboard: Option<usize>,
+    pointer: Option<usize>,
+}
+
+impl HidRingIndices {
+    const fn none() -> Self {
+        Self {
+            keyboard: None,
+            pointer: None,
+        }
+    }
+
+    fn as_array(self) -> [Option<usize>; 2] {
+        [self.keyboard, self.pointer]
+    }
+
+    fn validate(self, endpoints: HidEndpointSet, ring_capacity: usize) -> Result<(), &'static str> {
+        if self.keyboard.is_some() != endpoints.keyboard.is_some()
+            || self.pointer.is_some() != endpoints.pointer.is_some()
+        {
+            return Err("HID endpoint/ring assignment mismatch");
+        }
+        if self
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|index| index >= ring_capacity)
+        {
+            return Err("interrupt ring index out of range");
+        }
+        if self.keyboard.is_some() && self.keyboard == self.pointer {
+            return Err("composite HID endpoints share an interrupt ring");
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HidKind {
+    Keyboard,
+    GenericKeyboard,
+    Mouse,
+    Tablet,
+}
+
+impl HidKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            HidKind::Keyboard => "keyboard",
+            HidKind::GenericKeyboard => "generic keyboard",
+            HidKind::Mouse => "mouse",
+            HidKind::Tablet => "tablet",
+        }
+    }
+
+    fn report_len(self) -> usize {
+        match self {
+            HidKind::Keyboard | HidKind::GenericKeyboard => KEYBOARD_REPORT_LEN,
+            HidKind::Mouse => MOUSE_REPORT_LEN,
+            HidKind::Tablet => TABLET_REPORT_LEN,
+        }
+    }
+
+    fn uses_boot_protocol(self) -> bool {
+        matches!(self, HidKind::Keyboard | HidKind::Mouse)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HidTransferTarget {
+    Keyboard,
+    Pointer,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HidInterfaceKind {
+    BootKeyboard,
+    BootMouse,
+    Generic,
+}
+
+fn plan_hid_ring_indices(
+    endpoints: HidEndpointSet,
+    primary_ring_index: usize,
+    next_ring_index: &mut usize,
+    ring_capacity: usize,
+) -> Result<HidRingIndices, &'static str> {
+    if endpoints.len() == 0 {
+        return Err("HID endpoint set is empty");
+    }
+    if primary_ring_index >= ring_capacity {
+        return Err("interrupt ring index out of range");
+    }
+
+    let mut rings = HidRingIndices::none();
+    if endpoints.pointer.is_some() {
+        rings.pointer = Some(primary_ring_index);
+    }
+    if endpoints.keyboard.is_some() {
+        if endpoints.pointer.is_some() {
+            if *next_ring_index >= ring_capacity || *next_ring_index == primary_ring_index {
+                return Err("composite HID interrupt ring unavailable");
+            }
+            rings.keyboard = Some(*next_ring_index);
+            *next_ring_index += 1;
+        } else {
+            rings.keyboard = Some(primary_ring_index);
+        }
+    }
+    rings.validate(endpoints, ring_capacity)?;
+    Ok(rings)
+}
+
+fn hid_transfer_target(
+    event_slot_id: u8,
+    event_dci: u8,
+    keyboard: Option<(u8, u8)>,
+    pointer: Option<(u8, u8)>,
+) -> Option<HidTransferTarget> {
+    if keyboard == Some((event_slot_id, event_dci)) {
+        Some(HidTransferTarget::Keyboard)
+    } else if pointer == Some((event_slot_id, event_dci)) {
+        Some(HidTransferTarget::Pointer)
+    } else {
+        None
+    }
+}
+
+fn prefer_hid_endpoint(current: Option<HidEndpoint>, candidate: HidEndpoint) -> bool {
+    current.is_none_or(|current| {
+        (candidate.interface_number, candidate.endpoint_address)
+            < (current.interface_number, current.endpoint_address)
+    })
+}
+
+fn hid_endpoint_from_descriptor(
+    kind: HidKind,
+    interface_number: u8,
+    configuration_value: u8,
+    descriptor: &[u8],
 ) -> Result<HidEndpoint, &'static str> {
+    let endpoint_address = descriptor[2];
+    let endpoint_number = endpoint_address & 0x0f;
+    if endpoint_number == 0 {
+        return Err("HID interrupt endpoint uses EP0");
+    }
+    let max_packet_size = u16::from_le_bytes([descriptor[4], descriptor[5]]) & 0x07ff;
+    if max_packet_size < kind.report_len() as u16 {
+        return Err("HID interrupt endpoint packet is smaller than its boot report");
+    }
+    let interval = descriptor[6];
+    if interval == 0 {
+        return Err("HID interrupt endpoint interval is zero");
+    }
+    Ok(HidEndpoint {
+        kind,
+        interface_number,
+        configuration_value,
+        endpoint_address,
+        dci: endpoint_number * 2 + 1,
+        max_packet_size,
+        interval,
+    })
+}
+
+fn parse_boot_hid_endpoints(
+    config: &[u8],
+    allow_keyboard: bool,
+    allow_pointer: bool,
+) -> Result<HidEndpointSet, &'static str> {
     if config.len() < 9 {
         return Err("configuration descriptor too short");
     }
+    if config[0] < 9 || config[1] != 2 {
+        return Err("configuration descriptor header invalid");
+    }
+    let total_len = u16::from_le_bytes([config[2], config[3]]) as usize;
+    if total_len < 9 || total_len > config.len() {
+        return Err("configuration descriptor truncated");
+    }
+    let configuration_value = config[5];
+    if configuration_value == 0 {
+        return Err("HID configuration value is zero");
+    }
 
-    let mut configuration_value = 0u8;
+    let mut selected = HidEndpointSet::none();
+    let mut generic = None;
+    let mut keyboard_endpoint_error = None;
+    let mut pointer_endpoint_error = None;
+    let mut generic_endpoint_error = None;
+    let mut generic_interface_count = 0usize;
+    let mut exact_boot_seen = false;
     let mut current_interface = 0u8;
-    let mut current_hid_kind: Option<HidKind> = None;
+    let mut current_hid_kind = None;
     let mut offset = 0usize;
 
-    while offset + 2 <= config.len() {
+    while offset < total_len {
+        if offset + 2 > total_len {
+            return Err("configuration descriptor tail malformed");
+        }
         let len = config[offset] as usize;
         let dtype = config[offset + 1];
-        if len < 2 || offset + len > config.len() {
-            break;
+        if len < 2 || offset + len > total_len {
+            return Err("configuration descriptor entry malformed");
         }
 
         match dtype {
-            2 if len >= 9 => {
-                configuration_value = config[offset + 5];
-            }
             4 if len >= 9 => {
                 current_interface = config[offset + 2];
+                let alternate_setting = config[offset + 3];
                 let class = config[offset + 5];
                 let subclass = config[offset + 6];
                 let protocol = config[offset + 7];
-                current_hid_kind = match (class, subclass, protocol) {
-                    (0x03, 0x01, 0x01) => Some(HidKind::Keyboard),
-                    (0x03, 0x01, 0x02) => Some(HidKind::Mouse),
-                    (0x03, 0x00, 0x00) if prefer_generic_keyboard => Some(HidKind::GenericKeyboard),
-                    (0x03, 0x00, 0x00) => Some(HidKind::Tablet),
-                    _ => None,
+                current_hid_kind = if alternate_setting != 0 {
+                    None
+                } else {
+                    match (class, subclass, protocol) {
+                        (0x03, 0x01, 0x01) => Some(HidInterfaceKind::BootKeyboard),
+                        (0x03, 0x01, 0x02) => Some(HidInterfaceKind::BootMouse),
+                        (0x03, 0x00, 0x00) => {
+                            generic_interface_count = generic_interface_count.saturating_add(1);
+                            Some(HidInterfaceKind::Generic)
+                        }
+                        _ => None,
+                    }
                 };
-                if let Some(kind) = current_hid_kind {
-                    serial::write_fmt(format_args!(
-                        "usb-hid: {} interface {}\r\n",
-                        kind.as_str(),
-                        current_interface,
-                    ));
-                }
             }
-            5 if len >= 7 && current_hid_kind.is_some() => {
+            4 => return Err("HID interface descriptor malformed"),
+            5 if len >= 7 => {
+                let Some(interface_kind) = current_hid_kind else {
+                    offset += len;
+                    continue;
+                };
                 let endpoint_address = config[offset + 2];
                 let attributes = config[offset + 3] & 0x03;
-                if endpoint_address & 0x80 != 0 && attributes == 0x03 {
-                    let kind = current_hid_kind.unwrap();
-                    let max_packet_size =
-                        u16::from_le_bytes([config[offset + 4], config[offset + 5]]) & 0x07FF;
-                    let endpoint_number = endpoint_address & 0x0F;
-                    let dci = endpoint_number * 2 + 1;
-                    return Ok(HidEndpoint {
-                        kind,
-                        interface_number: current_interface,
-                        configuration_value,
-                        endpoint_address,
-                        dci,
-                        max_packet_size: u16::max(max_packet_size, kind.report_len() as u16),
-                        interval: config[offset + 6],
-                    });
+                if endpoint_address & 0x80 == 0 || attributes != 0x03 {
+                    offset += len;
+                    continue;
+                }
+
+                match interface_kind {
+                    HidInterfaceKind::BootKeyboard => {
+                        exact_boot_seen = true;
+                        let endpoint = hid_endpoint_from_descriptor(
+                            HidKind::Keyboard,
+                            current_interface,
+                            configuration_value,
+                            &config[offset..offset + len],
+                        );
+                        match endpoint {
+                            Ok(endpoint)
+                                if allow_keyboard
+                                    && prefer_hid_endpoint(selected.keyboard, endpoint) =>
+                            {
+                                selected.keyboard = Some(endpoint);
+                            }
+                            Ok(_) => {}
+                            Err(err) => keyboard_endpoint_error = Some(err),
+                        }
+                    }
+                    HidInterfaceKind::BootMouse => {
+                        exact_boot_seen = true;
+                        let endpoint = hid_endpoint_from_descriptor(
+                            HidKind::Mouse,
+                            current_interface,
+                            configuration_value,
+                            &config[offset..offset + len],
+                        );
+                        match endpoint {
+                            Ok(endpoint)
+                                if allow_pointer
+                                    && prefer_hid_endpoint(selected.pointer, endpoint) =>
+                            {
+                                selected.pointer = Some(endpoint);
+                            }
+                            Ok(_) => {}
+                            Err(err) => pointer_endpoint_error = Some(err),
+                        }
+                    }
+                    HidInterfaceKind::Generic => {
+                        let endpoint = hid_endpoint_from_descriptor(
+                            HidKind::GenericKeyboard,
+                            current_interface,
+                            configuration_value,
+                            &config[offset..offset + len],
+                        );
+                        match endpoint {
+                            Ok(endpoint) if prefer_hid_endpoint(generic, endpoint) => {
+                                generic = Some(endpoint);
+                            }
+                            Ok(_) => {}
+                            Err(err) => generic_endpoint_error = Some(err),
+                        }
+                    }
                 }
             }
+            5 if current_hid_kind.is_some() => return Err("HID endpoint descriptor malformed"),
             _ => {}
         }
-
         offset += len;
     }
 
-    Err("HID interrupt endpoint not found")
+    if selected.len() == 0 && !exact_boot_seen && generic_interface_count == 1 {
+        if let Some(mut endpoint) = generic {
+            if allow_keyboard {
+                endpoint.kind = HidKind::GenericKeyboard;
+                selected.keyboard = Some(endpoint);
+            } else if allow_pointer {
+                endpoint.kind = HidKind::Tablet;
+                if endpoint.max_packet_size < HidKind::Tablet.report_len() as u16 {
+                    return Err("HID interrupt endpoint packet is smaller than its report");
+                }
+                selected.pointer = Some(endpoint);
+            }
+        }
+    }
+
+    if selected.len() == 0 {
+        if !exact_boot_seen && generic_interface_count > 1 {
+            return Err("generic HID fallback requires exactly one interface");
+        }
+        if allow_keyboard {
+            if let Some(err) = keyboard_endpoint_error {
+                return Err(err);
+            }
+        }
+        if allow_pointer {
+            if let Some(err) = pointer_endpoint_error {
+                return Err(err);
+            }
+        }
+        if !exact_boot_seen {
+            if let Some(err) = generic_endpoint_error {
+                return Err(err);
+            }
+        }
+        return Err("HID interrupt endpoint not found");
+    }
+    if let (Some(keyboard), Some(pointer)) = (selected.keyboard, selected.pointer) {
+        if keyboard.dci == pointer.dci {
+            return Err("HID interrupt endpoints share a DCI");
+        }
+    }
+    selected.configuration_value()?;
+    Ok(selected)
 }
+// USB_COMPOSITE_HID_PURE_END
 
 fn parse_mass_storage_interface(config: &[u8]) -> Result<MassStorageInterface, &'static str> {
     if config.len() < 9 {
