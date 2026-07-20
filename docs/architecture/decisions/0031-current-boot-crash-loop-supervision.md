@@ -13,7 +13,9 @@ bound that does not invent durable authority.
 
 ## Decision
 
-The semantic owner is `current_boot_service.rs`; the echo service is only the
+The semantic owner is a generic permanent-core
+`wasm_runtime::crash_loop_supervisor` submodule, compiled as a child module
+through the existing clean `wasm_runtime.rs`; the echo service is only the
 first integration proof. For each replaceable Wasm service, the core owns an
 anchored, RAM-only current-boot crash window with threshold `N=3` and
 `W=10_000 ms`.
@@ -80,6 +82,26 @@ owner-approved recovery authority that the architecture does not yet provide,
 and it expands beyond this bounded slice. Simulating that authority with serial
 or snapshots would be dishonest.
 
+R49 and R50 independently agreed that implementation must move to a new
+generic permanent-core module outside `HELLO_ARTIFACT_SOURCE_SET`. They differed
+on compilation placement. R49 placed the supervisor below `wasm_runtime.rs`;
+R50 proposed compiling a top-level generic file through `echo_service.rs`.
+This ADR selects R49's `wasm_runtime.rs` child-module path because it preserves
+generic semantic ownership and follows the existing runtime submodule
+structure. R50's echo compilation-owner path is rejected because it would
+address generic policy under an echo fixture namespace, even if the file's
+contents were otherwise generic.
+
+`seed-kernel/src/current_boot_service.rs` is part of
+`HELLO_ARTIFACT_SOURCE_SET`. Changing any byte changes hashes embedded in two
+P-256-signed Hello identity descriptors. It therefore remains byte-identical
+unless the owner authorizes re-signing. Editing the signed source set, patching
+descriptor hashes without valid signatures, or claiming the new supervisor as
+attested Hello source does not avoid that boundary. If architecture later
+requires this policy to live in `current_boot_service.rs`, that alternative is
+blocked on owner-authorized descriptor re-signing and associated signature
+work.
+
 Also rejected are resetting history after each successful start, starting a
 third replacement before parking, wall-clock windows, guest-reported crashes,
 and ordinary lifecycle operations that clear or bypass parking. Each permits
@@ -100,11 +122,17 @@ quarantine and does not itself close the Genesis crash-loop checkbox.
 
 A coherent next implementation and evidence allocation is limited to:
 
-1. `seed-kernel/src/current_boot_service.rs`
-2. `seed-kernel/src/time.rs`
+1. `seed-kernel/src/wasm_runtime.rs`
+2. `seed-kernel/src/wasm_runtime/crash_loop_supervisor.rs`
 3. `seed-kernel/src/echo_service.rs`
 4. `seed-kernel/src/recovery_lifeline.rs`
 5. `vm-harness/shadow-vm-smoke-profile-m8-lifeline.ps1`
+
+The pure supervisor receives explicit boot-monotonic observations, so no
+`time.rs` edit is needed. Missing, regressed, overflowing, or otherwise
+ambiguous observations remain fail-toward-park exactly as decided above. The
+allocation does not adopt inherited `main.rs` work and does not require a sixth
+implementation file.
 
 That slice must prove the threshold boundaries, crash classification, ordering,
 authorized recovery, fresh authority creation, and escape negatives; this ADR
