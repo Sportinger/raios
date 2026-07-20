@@ -1,0 +1,916 @@
+use alloc::{vec, vec::Vec};
+use core::fmt::{self, Write};
+
+use raios_core::{
+    build_guest_class::BuildGuestClassV1,
+    thread_scheduler::{
+        Addr, JobState, JobThreadScheduler, MemSlot, Runde, SchedulerError, ThreadId, ThreadState,
+    },
+};
+use wasmi::{
+    core::ValueType, AtomicSuspend, AtomicSuspendRequest, ExecutionProfile, ExecutionTrace,
+    ExecutionTraceConfig, Func, Linker, Memory, Module, ResumableCall, ResumableInvocation, Store,
+    Suspension, Value, EXECUTION_TRACE_CMPXCHG_CAPACITY,
+};
+
+use super::wasi_preview1::{
+    DeniedPathOpen, MemoryGrowEvidence, OutputSummary, ProcExitTrap, RecentAtomicEvent,
+    RecentWasiCall, SpawnRequest, WasiHostState, DENIED_PATH_OPEN_COUNT, RECENT_ATOMIC_EVENT_COUNT,
+    RECENT_WASI_CALL_COUNT, WASI_IMPORT_CALL_COUNT,
+};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WasiThreadJobFailure {
+    Setup,
+    Scheduler,
+    Fuel,
+    FuelCeiling,
+    Engine,
+    MemoryIdentity,
+    HostResultType,
+    Materialization,
+    RoundLimit,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WasiThreadJobEnd {
+    JobExited { code: u32 },
+    JobDeadlocked,
+    Failed(WasiThreadJobFailure),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct WasiThreadRunEvidence {
+    pub(crate) end: WasiThreadJobEnd,
+    pub(crate) trace_digest: [u8; 32],
+    pub(crate) effect_digest: [u8; 32],
+    pub(crate) effect_count: u64,
+    pub(crate) stdout: Vec<u8>,
+    pub(crate) stderr_bytes: u64,
+    pub(crate) stderr: Vec<u8>,
+    pub(crate) trap: Vec<u8>,
+    pub(crate) rounds: u64,
+    pub(crate) spawns: u32,
+    pub(crate) cap_denials: u32,
+    pub(crate) granted_total: u64,
+}
+
+pub(crate) struct WasiThreadDiagRunEvidence {
+    pub(crate) run: WasiThreadRunEvidence,
+    pub(crate) output_summary: Option<OutputSummary>,
+    pub(crate) memory_grow: MemoryGrowEvidence,
+    pub(crate) execution_profile: ExecutionProfile,
+    pub(crate) import_call_counts: [u64; WASI_IMPORT_CALL_COUNT],
+    pub(crate) recent_calls: [Option<RecentWasiCall>; RECENT_WASI_CALL_COUNT],
+    pub(crate) denied_path_opens: [Option<DeniedPathOpen>; DENIED_PATH_OPEN_COUNT],
+    pub(crate) atomic_wait_total: u64,
+    pub(crate) atomic_notify_total: u64,
+    pub(crate) recent_atomic_events: [Option<RecentAtomicEvent>; RECENT_ATOMIC_EVENT_COUNT],
+}
+
+pub(crate) struct WasiThreadTraceRunEvidence {
+    pub(crate) execution_trace: ExecutionTrace,
+    pub(crate) capped: bool,
+    pub(crate) stderr_bytes: u64,
+    pub(crate) stderr: Vec<u8>,
+    pub(crate) trap: Vec<u8>,
+}
+
+const TRAP_DETAIL_CAP: usize = 160;
+
+struct BoundedDisplay {
+    bytes: Vec<u8>,
+    limit: usize,
+}
+
+impl BoundedDisplay {
+    fn new(limit: usize) -> Self {
+        Self {
+            bytes: Vec::with_capacity(limit),
+            limit,
+        }
+    }
+}
+
+impl Write for BoundedDisplay {
+    fn write_str(&mut self, text: &str) -> fmt::Result {
+        let retained = self.limit.saturating_sub(self.bytes.len()).min(text.len());
+        self.bytes.extend_from_slice(&text.as_bytes()[..retained]);
+        Ok(())
+    }
+}
+
+struct ThreadSlot {
+    start: Func,
+    prologue: Option<Func>,
+    start_args: Option<(i32, i32)>,
+    continuation: Option<ResumableInvocation>,
+    fuel_escrow: u64,
+    started: bool,
+    exited: bool,
+    open_host_op: bool,
+}
+
+impl ThreadSlot {
+    fn main(start: Func, prologue: Option<Func>) -> Self {
+        Self {
+            start,
+            prologue,
+            start_args: None,
+            continuation: None,
+            fuel_escrow: 0,
+            started: false,
+            exited: false,
+            open_host_op: false,
+        }
+    }
+
+    fn spawned(start: Func, prologue: Option<Func>, thread: ThreadId, start_arg: i32) -> Self {
+        Self {
+            start,
+            prologue,
+            start_args: Some((thread.get() as i32, start_arg)),
+            continuation: None,
+            fuel_escrow: 0,
+            started: false,
+            exited: false,
+            open_host_op: false,
+        }
+    }
+}
+
+enum SuspensionKind {
+    FuelQuantum,
+    Atomic(AtomicSuspend),
+    ProcExit,
+    Host,
+}
+
+/// One-store WASI+threads runner. Store data owns all host-visible state;
+/// resumable wasmi entities and per-TID fuel escrows remain runner-owned.
+pub(crate) struct WasiThreadJobRunner {
+    store: Store<WasiHostState>,
+    memory: Memory,
+    module: Module,
+    linker: Linker<WasiHostState>,
+    threads: Vec<ThreadSlot>,
+    class: BuildGuestClassV1,
+    round: u64,
+    round_limit: u64,
+    exited_threads: usize,
+    granted_total: u64,
+    terminal: Option<WasiThreadJobEnd>,
+    trap: Vec<u8>,
+}
+
+impl WasiThreadJobRunner {
+    pub(crate) fn new(
+        mut store: Store<WasiHostState>,
+        memory: Memory,
+        module: Module,
+        linker: Linker<WasiHostState>,
+        main: Func,
+        start_section: Option<Func>,
+        class: BuildGuestClassV1,
+    ) -> Result<Self, WasiThreadJobFailure> {
+        let memory_type = memory.ty(&store);
+        let current_pages = u32::from(memory.current_pages(&store));
+        if class.thread_cap == 0
+            || class.fuel_quantum == 0
+            || class.max_total_fuel == 0
+            || !memory_type.is_shared()
+            || u32::from(memory_type.initial_pages()) != class.shared_memory.initial_pages
+            || memory_type.maximum_pages().map(u32::from) != Some(class.shared_memory.max_pages)
+            || (current_pages != class.shared_memory.initial_pages
+                && current_pages != class.shared_memory.max_pages)
+        {
+            return Err(WasiThreadJobFailure::Setup);
+        }
+        let main_ty = main.ty(&store);
+        if !main_ty.params().is_empty() || !main_ty.results().is_empty() {
+            return Err(WasiThreadJobFailure::Setup);
+        }
+        if let Some(start_section) = &start_section {
+            let start_ty = start_section.ty(&store);
+            if !start_ty.params().is_empty() || !start_ty.results().is_empty() {
+                return Err(WasiThreadJobFailure::Setup);
+            }
+        }
+        let world = store
+            .data()
+            .scheduled_world()
+            .ok_or(WasiThreadJobFailure::Setup)?;
+        if world.scheduler.thread_cap() != class.thread_cap
+            || !world.pending_spawns.is_empty()
+            || world.active_thread.is_some()
+            || world.active_fuel_checkpoint.is_some()
+        {
+            return Err(WasiThreadJobFailure::Setup);
+        }
+        if store
+            .replace_remaining_fuel(0)
+            .map_err(|_| WasiThreadJobFailure::Fuel)?
+            != 0
+        {
+            return Err(WasiThreadJobFailure::Fuel);
+        }
+        let main_thread = store
+            .data_mut()
+            .scheduled_world_mut()
+            .ok_or(WasiThreadJobFailure::Setup)?
+            .scheduler
+            .spawn()
+            .map_err(|_| WasiThreadJobFailure::Scheduler)?;
+        if main_thread.get() != 0 {
+            return Err(WasiThreadJobFailure::Scheduler);
+        }
+        let round_limit = class
+            .max_total_fuel
+            .checked_add(class.fuel_quantum - 1)
+            .ok_or(WasiThreadJobFailure::Setup)?
+            / class.fuel_quantum;
+        Ok(Self {
+            store,
+            memory,
+            module,
+            linker,
+            threads: vec![ThreadSlot::main(main, start_section)],
+            class,
+            round: 0,
+            round_limit,
+            exited_threads: 0,
+            granted_total: 0,
+            terminal: None,
+            trap: Vec::new(),
+        })
+    }
+
+    pub(crate) fn run(mut self) -> WasiThreadRunEvidence {
+        while self.terminal.is_none() && self.round < self.round_limit {
+            self.pump();
+        }
+        if self.terminal.is_none() {
+            self.fail(WasiThreadJobFailure::RoundLimit);
+        }
+        let end = self
+            .terminal
+            .unwrap_or(WasiThreadJobEnd::Failed(WasiThreadJobFailure::RoundLimit));
+        let (
+            trace_digest,
+            effect_digest,
+            effect_count,
+            stdout,
+            stderr_bytes,
+            stderr,
+            spawns,
+            cap_denials,
+        ) = {
+            let state = self.store.data();
+            match state.scheduled_world() {
+                Some(world) => (
+                    world.scheduler.trace_digest(),
+                    state.effect_digest(),
+                    state.effect_count(),
+                    world.stdout.clone(),
+                    state.stderr_bytes(),
+                    world.stderr.clone(),
+                    world.spawns,
+                    world.cap_denials,
+                ),
+                None => ([0; 32], [0; 32], 0, Vec::new(), 0, Vec::new(), 0, 0),
+            }
+        };
+        WasiThreadRunEvidence {
+            end,
+            trace_digest,
+            effect_digest,
+            effect_count,
+            stdout,
+            stderr_bytes,
+            stderr,
+            trap: self.trap,
+            rounds: self.round,
+            spawns,
+            cap_denials,
+            granted_total: self.granted_total,
+        }
+    }
+
+    pub(crate) fn run_capped(mut self, max_rounds: u64) -> WasiThreadDiagRunEvidence {
+        self.store.data_mut().enable_memory_grow_evidence();
+        self.store.start_execution_profiling();
+        let round_limit = self.round_limit.min(max_rounds);
+        while self.terminal.is_none() && self.round < round_limit {
+            self.pump();
+        }
+        if self.terminal.is_none() {
+            self.fail(WasiThreadJobFailure::RoundLimit);
+        }
+        // Freeze while the consumed runner still owns its store. The summary
+        // is derived from the isolated `/out` manifest, never from scratch.
+        let output_summary = self.store.data().freeze_output_summary().ok();
+        let end = self
+            .terminal
+            .unwrap_or(WasiThreadJobEnd::Failed(WasiThreadJobFailure::RoundLimit));
+        let (
+            trace_digest,
+            effect_digest,
+            effect_count,
+            stdout,
+            stderr_bytes,
+            stderr,
+            spawns,
+            cap_denials,
+            import_call_counts,
+            recent_calls,
+            denied_path_opens,
+            atomic_wait_total,
+            atomic_notify_total,
+            recent_atomic_events,
+        ) = {
+            let state = self.store.data();
+            let import_call_counts = *state.import_call_counts();
+            let recent_calls = state.recent_calls();
+            let denied_path_opens = state.denied_path_opens();
+            let atomic_wait_total = state.atomic_wait_total();
+            let atomic_notify_total = state.atomic_notify_total();
+            let recent_atomic_events = state.recent_atomic_events();
+            match state.scheduled_world() {
+                Some(world) => (
+                    world.scheduler.trace_digest(),
+                    state.effect_digest(),
+                    state.effect_count(),
+                    world.stdout.clone(),
+                    state.stderr_bytes(),
+                    world.stderr.clone(),
+                    world.spawns,
+                    world.cap_denials,
+                    import_call_counts,
+                    recent_calls,
+                    denied_path_opens,
+                    atomic_wait_total,
+                    atomic_notify_total,
+                    recent_atomic_events,
+                ),
+                None => (
+                    [0; 32],
+                    [0; 32],
+                    0,
+                    Vec::new(),
+                    0,
+                    Vec::new(),
+                    0,
+                    0,
+                    import_call_counts,
+                    recent_calls,
+                    denied_path_opens,
+                    atomic_wait_total,
+                    atomic_notify_total,
+                    recent_atomic_events,
+                ),
+            }
+        };
+        WasiThreadDiagRunEvidence {
+            run: WasiThreadRunEvidence {
+                end,
+                trace_digest,
+                effect_digest,
+                effect_count,
+                stdout,
+                stderr_bytes,
+                stderr,
+                trap: self.trap,
+                rounds: self.round,
+                spawns,
+                cap_denials,
+                granted_total: self.granted_total,
+            },
+            output_summary,
+            memory_grow: self.store.data().memory_grow_evidence(),
+            execution_profile: self.store.execution_profile(),
+            import_call_counts,
+            recent_calls,
+            denied_path_opens,
+            atomic_wait_total,
+            atomic_notify_total,
+            recent_atomic_events,
+        }
+    }
+
+    pub(crate) fn run_traced(
+        mut self,
+        config: ExecutionTraceConfig,
+        max_rounds: u64,
+    ) -> WasiThreadTraceRunEvidence {
+        self.store.start_execution_tracing(config);
+        let round_limit = self.round_limit.min(max_rounds);
+        while self.terminal.is_none()
+            && self.round < round_limit
+            && self.store.execution_trace().cmpxchg_records().len()
+                < EXECUTION_TRACE_CMPXCHG_CAPACITY
+        {
+            self.store.set_execution_trace_round(self.round);
+            self.pump();
+        }
+        let execution_trace = self.store.execution_trace();
+        let capped = execution_trace.capped()
+            || execution_trace.cmpxchg_records().len() == EXECUTION_TRACE_CMPXCHG_CAPACITY
+            || self.round == round_limit;
+        if self.terminal.is_none() {
+            self.fail(WasiThreadJobFailure::RoundLimit);
+        }
+        let (stderr_bytes, stderr) = match self.store.data().scheduled_world() {
+            Some(world) => (self.store.data().stderr_bytes(), world.stderr.clone()),
+            None => (0, Vec::new()),
+        };
+        WasiThreadTraceRunEvidence {
+            execution_trace,
+            capped,
+            stderr_bytes,
+            stderr,
+            trap: self.trap,
+        }
+    }
+
+    fn pump(&mut self) {
+        if self.terminal.is_some() {
+            return;
+        }
+        if let Err(failure) = self.pump_inner() {
+            self.fail(failure);
+        }
+    }
+
+    fn fail(&mut self, failure: WasiThreadJobFailure) {
+        if self
+            .scheduler()
+            .is_ok_and(|scheduler| scheduler.job_state() == JobState::Running)
+        {
+            if let Ok(scheduler) = self.scheduler_mut() {
+                let _ = scheduler.proc_exit(1);
+            }
+        }
+        self.terminal = Some(WasiThreadJobEnd::Failed(failure));
+    }
+
+    fn pump_inner(&mut self) -> Result<(), WasiThreadJobFailure> {
+        match self.scheduler()?.job_state() {
+            JobState::JobExited { code } => {
+                self.terminal = Some(WasiThreadJobEnd::JobExited { code });
+                return Ok(());
+            }
+            JobState::JobDeadlocked => {
+                self.terminal = Some(WasiThreadJobEnd::JobDeadlocked);
+                return Ok(());
+            }
+            JobState::Running => {}
+        }
+
+        let round = self.round;
+        self.round = self
+            .round
+            .checked_add(1)
+            .ok_or(WasiThreadJobFailure::Scheduler)?;
+        self.scheduler_mut()?
+            .begin_round(Runde::new(round))
+            .map_err(|_| WasiThreadJobFailure::Scheduler)?;
+
+        let Some(thread) = self
+            .scheduler_mut()?
+            .next_runnable()
+            .map_err(|_| WasiThreadJobFailure::Scheduler)?
+        else {
+            let has_open_host_op = self.threads.iter().any(|slot| slot.open_host_op);
+            match self.scheduler_mut()?.check_deadlock(has_open_host_op) {
+                Err(SchedulerError::JobDeadlocked) => {
+                    self.terminal = Some(WasiThreadJobEnd::JobDeadlocked);
+                    return Ok(());
+                }
+                Err(_) => return Err(WasiThreadJobFailure::Scheduler),
+                Ok(()) => return Ok(()),
+            }
+        };
+
+        let wake_result = match self
+            .scheduler()?
+            .thread_state(thread)
+            .map_err(|_| WasiThreadJobFailure::Scheduler)?
+        {
+            ThreadState::Woken { .. } => Some(
+                self.scheduler_mut()?
+                    .take_wake_result(thread)
+                    .map_err(|_| WasiThreadJobFailure::Scheduler)?,
+            ),
+            ThreadState::Runnable => None,
+            _ => return Err(WasiThreadJobFailure::Scheduler),
+        };
+        if let Some(result) = wake_result {
+            self.store
+                .data_mut()
+                .resolve_atomic_wait(thread.get(), result);
+        }
+
+        self.install_thread_fuel(thread)?;
+        let mut wake_input = [Value::I32(0)];
+        let inputs = if let Some(result) = wake_result {
+            wake_input[0] = Value::I32(result as i32);
+            &wake_input[..]
+        } else {
+            &[]
+        };
+        let execution = self
+            .resume_selected(thread, inputs)
+            .and_then(|outcome| self.handle_outcome(thread, outcome));
+        let sweep = self.sweep_thread_fuel(thread);
+        execution?;
+        sweep?;
+        if self.terminal.is_none() {
+            self.materialize_pending_spawns()?;
+        }
+        Ok(())
+    }
+
+    fn install_thread_fuel(&mut self, thread: ThreadId) -> Result<(), WasiThreadJobFailure> {
+        let index = thread.get() as usize;
+        let slot = self
+            .threads
+            .get_mut(index)
+            .ok_or(WasiThreadJobFailure::Scheduler)?;
+        let mut escrow = core::mem::take(&mut slot.fuel_escrow);
+        if escrow < self.class.fuel_quantum {
+            let remaining = self
+                .class
+                .max_total_fuel
+                .checked_sub(self.granted_total)
+                .ok_or(WasiThreadJobFailure::FuelCeiling)?;
+            // At the total ceiling, a non-empty escrow still runs; existing
+            // round/deadlock bounds end the job. Only empty escrow is FuelCeiling.
+            if escrow == 0 && remaining == 0 {
+                return Err(WasiThreadJobFailure::FuelCeiling);
+            }
+            let grant = (self.class.fuel_quantum - escrow).min(remaining);
+            escrow = escrow
+                .checked_add(grant)
+                .ok_or(WasiThreadJobFailure::FuelCeiling)?;
+            self.granted_total = self
+                .granted_total
+                .checked_add(grant)
+                .ok_or(WasiThreadJobFailure::FuelCeiling)?;
+        }
+        let old = self
+            .store
+            .replace_remaining_fuel(escrow)
+            .map_err(|_| WasiThreadJobFailure::Fuel)?;
+        if old != 0 {
+            return Err(WasiThreadJobFailure::Fuel);
+        }
+        self.store
+            .data_mut()
+            .activate_thread(thread, escrow)
+            .map_err(|_| WasiThreadJobFailure::Fuel)
+    }
+
+    fn sweep_thread_fuel(&mut self, thread: ThreadId) -> Result<(), WasiThreadJobFailure> {
+        let remaining = self
+            .store
+            .replace_remaining_fuel(0)
+            .map_err(|_| WasiThreadJobFailure::Fuel)?;
+        let sync = self.store.data_mut().sync_active_fuel(remaining);
+        let deactivate = self.store.data_mut().deactivate_thread();
+        let slot = self
+            .threads
+            .get_mut(thread.get() as usize)
+            .ok_or(WasiThreadJobFailure::Scheduler)?;
+        if slot.fuel_escrow != 0 {
+            return Err(WasiThreadJobFailure::Fuel);
+        }
+        slot.fuel_escrow = remaining;
+        sync.and(deactivate).map_err(|_| WasiThreadJobFailure::Fuel)
+    }
+
+    fn resume_selected(
+        &mut self,
+        thread: ThreadId,
+        inputs: &[Value],
+    ) -> Result<ResumableCall, WasiThreadJobFailure> {
+        let index = thread.get() as usize;
+        let mut outputs = [];
+        let continuation = self
+            .threads
+            .get_mut(index)
+            .ok_or(WasiThreadJobFailure::Scheduler)?
+            .continuation
+            .take();
+        if let Some(continuation) = continuation {
+            return match continuation.resume(&mut self.store, inputs, &mut outputs) {
+                Ok(outcome) => Ok(outcome),
+                Err(error) => {
+                    self.record_trap(&error);
+                    Err(WasiThreadJobFailure::Engine)
+                }
+            };
+        }
+        let (prologue, start, start_args) = {
+            let slot = self
+                .threads
+                .get_mut(index)
+                .ok_or(WasiThreadJobFailure::Scheduler)?;
+            if slot.started || !inputs.is_empty() {
+                return Err(WasiThreadJobFailure::Scheduler);
+            }
+            let prologue = slot.prologue.take();
+            if prologue.is_none() {
+                slot.started = true;
+            }
+            (prologue, slot.start, slot.start_args)
+        };
+        if let Some(prologue) = prologue {
+            return match prologue.call_resumable(&mut self.store, &[], &mut outputs) {
+                Ok(outcome) => Ok(outcome),
+                Err(error) => {
+                    self.record_trap(&error);
+                    Err(WasiThreadJobFailure::Engine)
+                }
+            };
+        }
+        let spawned_inputs;
+        let start_inputs = if let Some((tid, start_arg)) = start_args {
+            spawned_inputs = [Value::I32(tid), Value::I32(start_arg)];
+            &spawned_inputs[..]
+        } else {
+            &[]
+        };
+        match start.call_resumable(&mut self.store, start_inputs, &mut outputs) {
+            Ok(outcome) => Ok(outcome),
+            Err(error) => {
+                self.record_trap(&error);
+                Err(WasiThreadJobFailure::Engine)
+            }
+        }
+    }
+
+    fn record_trap(&mut self, error: &impl fmt::Display) {
+        let mut detail = BoundedDisplay::new(TRAP_DETAIL_CAP);
+        let _ = write!(&mut detail, "{error}");
+        self.trap = detail.bytes;
+    }
+
+    fn handle_outcome(
+        &mut self,
+        thread: ThreadId,
+        mut outcome: ResumableCall,
+    ) -> Result<(), WasiThreadJobFailure> {
+        loop {
+            let invocation = match outcome {
+                ResumableCall::Finished => {
+                    let start_started = self
+                        .threads
+                        .get(thread.get() as usize)
+                        .ok_or(WasiThreadJobFailure::Scheduler)?
+                        .started;
+                    if !start_started {
+                        outcome = self.resume_selected(thread, &[])?;
+                        continue;
+                    }
+                    self.finish_thread(thread)?;
+                    return Ok(());
+                }
+                ResumableCall::Resumable(invocation) => invocation,
+            };
+            let kind = match invocation.suspension() {
+                Suspension::FuelQuantum => SuspensionKind::FuelQuantum,
+                Suspension::Atomic(atomic) => SuspensionKind::Atomic(*atomic),
+                Suspension::Host { host_error, .. }
+                    if host_error.downcast_ref::<ProcExitTrap>().is_some() =>
+                {
+                    SuspensionKind::ProcExit
+                }
+                Suspension::Host { .. } => SuspensionKind::Host,
+            };
+            match kind {
+                SuspensionKind::FuelQuantum => {
+                    self.store_continuation(thread, invocation)?;
+                    self.scheduler_mut()?
+                        .on_quantum_end(thread)
+                        .map_err(|_| WasiThreadJobFailure::Scheduler)?;
+                    return Ok(());
+                }
+                SuspensionKind::Atomic(atomic) => {
+                    let mem = self.memory_slot(atomic.memory)?;
+                    let addr = Addr::new(atomic.addr);
+                    let (mem_value, mem_width) = self.atomic_memory_value(atomic.addr);
+                    let round = self.round.saturating_sub(1);
+                    match atomic.request {
+                        AtomicSuspendRequest::Wait { timeout_ns } => {
+                            self.store_continuation(thread, invocation)?;
+                            let timeout = timeout_rounds(timeout_ns, self.class.fuel_quantum);
+                            self.scheduler_mut()?
+                                .park_wait(thread, mem, addr, timeout)
+                                .map_err(|_| WasiThreadJobFailure::Scheduler)?;
+                            self.store.data_mut().record_atomic_wait(
+                                atomic.addr,
+                                mem_value,
+                                mem_width,
+                                timeout_ns,
+                                timeout == Some(0),
+                                thread.get(),
+                                round,
+                            );
+                            return Ok(());
+                        }
+                        AtomicSuspendRequest::Notify { count } => {
+                            let woken = self
+                                .scheduler_mut()?
+                                .notify(mem, addr, count)
+                                .map_err(|_| WasiThreadJobFailure::Scheduler)?;
+                            self.store.data_mut().record_atomic_notify(
+                                atomic.addr,
+                                mem_value,
+                                mem_width,
+                                woken,
+                                thread.get(),
+                                round,
+                            );
+                            let mut outputs = [];
+                            outcome = match invocation.resume(
+                                &mut self.store,
+                                &[Value::I32(woken as i32)],
+                                &mut outputs,
+                            ) {
+                                Ok(outcome) => outcome,
+                                Err(error) => {
+                                    self.record_trap(&error);
+                                    return Err(WasiThreadJobFailure::Engine);
+                                }
+                            };
+                        }
+                    }
+                }
+                SuspensionKind::ProcExit => {
+                    let JobState::JobExited { code } = self.scheduler()?.job_state() else {
+                        return Err(WasiThreadJobFailure::Engine);
+                    };
+                    self.terminal = Some(WasiThreadJobEnd::JobExited { code });
+                    return Ok(());
+                }
+                SuspensionKind::Host => {
+                    let host_func = invocation.host_func().ok_or(WasiThreadJobFailure::Engine)?;
+                    if host_func.ty(&self.store).results() != &[ValueType::I32] {
+                        return Err(WasiThreadJobFailure::HostResultType);
+                    }
+                    self.store_continuation(thread, invocation)?;
+                    self.threads
+                        .get_mut(thread.get() as usize)
+                        .ok_or(WasiThreadJobFailure::Scheduler)?
+                        .open_host_op = true;
+                    self.scheduler_mut()?
+                        .park_host(thread)
+                        .map_err(|_| WasiThreadJobFailure::Scheduler)?;
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    fn atomic_memory_value(&self, addr: u64) -> (u64, u8) {
+        let Ok(offset) = usize::try_from(addr) else {
+            return (0, 0);
+        };
+        let memory_len = self.memory.data(&self.store).len();
+        let mut bytes64 = [0u8; 8];
+        if offset
+            .checked_add(bytes64.len())
+            .is_some_and(|end| end <= memory_len)
+            && self.memory.read(&self.store, offset, &mut bytes64).is_ok()
+        {
+            return (u64::from_le_bytes(bytes64), 8);
+        }
+        let mut bytes32 = [0u8; 4];
+        if offset
+            .checked_add(bytes32.len())
+            .is_some_and(|end| end <= memory_len)
+            && self.memory.read(&self.store, offset, &mut bytes32).is_ok()
+        {
+            return (u32::from_le_bytes(bytes32) as u64, 4);
+        }
+        (0, 0)
+    }
+
+    fn store_continuation(
+        &mut self,
+        thread: ThreadId,
+        invocation: ResumableInvocation,
+    ) -> Result<(), WasiThreadJobFailure> {
+        let slot = self
+            .threads
+            .get_mut(thread.get() as usize)
+            .ok_or(WasiThreadJobFailure::Scheduler)?;
+        if slot.continuation.replace(invocation).is_some() {
+            return Err(WasiThreadJobFailure::Scheduler);
+        }
+        Ok(())
+    }
+
+    fn materialize_pending_spawns(&mut self) -> Result<(), WasiThreadJobFailure> {
+        let requests = {
+            let world = self
+                .store
+                .data_mut()
+                .scheduled_world_mut()
+                .ok_or(WasiThreadJobFailure::Setup)?;
+            core::mem::take(&mut world.pending_spawns)
+        };
+        for SpawnRequest { thread, start_arg } in requests {
+            if thread.get() as usize != self.threads.len() {
+                return Err(WasiThreadJobFailure::Scheduler);
+            }
+            let pre = self
+                .linker
+                .instantiate(&mut self.store, &self.module)
+                .map_err(|_| WasiThreadJobFailure::Materialization)?;
+            let (instance, start_section) = pre
+                .start_split(&mut self.store)
+                .map_err(|_| WasiThreadJobFailure::Materialization)?;
+            if let Some(start_section) = &start_section {
+                let ty = start_section.ty(&self.store);
+                if !ty.params().is_empty() || !ty.results().is_empty() {
+                    return Err(WasiThreadJobFailure::Materialization);
+                }
+            }
+            let start = instance
+                .get_func(&self.store, "wasi_thread_start")
+                .ok_or(WasiThreadJobFailure::Materialization)?;
+            let ty = start.ty(&self.store);
+            if ty.params() != &[ValueType::I32, ValueType::I32] || !ty.results().is_empty() {
+                return Err(WasiThreadJobFailure::Materialization);
+            }
+            self.threads
+                .push(ThreadSlot::spawned(start, start_section, thread, start_arg));
+        }
+        Ok(())
+    }
+
+    fn scheduler(&self) -> Result<&JobThreadScheduler, WasiThreadJobFailure> {
+        self.store
+            .data()
+            .scheduled_world()
+            .map(|world| &world.scheduler)
+            .ok_or(WasiThreadJobFailure::Setup)
+    }
+
+    fn scheduler_mut(&mut self) -> Result<&mut JobThreadScheduler, WasiThreadJobFailure> {
+        self.store
+            .data_mut()
+            .scheduled_world_mut()
+            .map(|world| &mut world.scheduler)
+            .ok_or(WasiThreadJobFailure::Setup)
+    }
+
+    fn memory_slot(&self, memory: Memory) -> Result<MemSlot, WasiThreadJobFailure> {
+        let expected = self.memory.data(&self.store);
+        let actual = memory.data(&self.store);
+        if expected.as_ptr() == actual.as_ptr() && expected.len() == actual.len() {
+            return Ok(MemSlot::new(0));
+        }
+        Err(WasiThreadJobFailure::MemoryIdentity)
+    }
+
+    fn finish_thread(&mut self, thread: ThreadId) -> Result<(), WasiThreadJobFailure> {
+        let slot = self
+            .threads
+            .get_mut(thread.get() as usize)
+            .ok_or(WasiThreadJobFailure::Scheduler)?;
+        if slot.exited {
+            return Err(WasiThreadJobFailure::Scheduler);
+        }
+        slot.exited = true;
+        slot.open_host_op = false;
+        self.exited_threads = self.exited_threads.saturating_add(1);
+        self.scheduler_mut()?
+            .thread_exit(thread)
+            .map_err(|_| WasiThreadJobFailure::Scheduler)?;
+        let pending_empty = self
+            .store
+            .data()
+            .scheduled_world()
+            .is_some_and(|world| world.pending_spawns.is_empty());
+        if self.exited_threads == self.threads.len() && pending_empty {
+            self.scheduler_mut()?
+                .proc_exit(0)
+                .map_err(|_| WasiThreadJobFailure::Scheduler)?;
+            self.terminal = Some(WasiThreadJobEnd::JobExited { code: 0 });
+        }
+        Ok(())
+    }
+}
+
+fn timeout_rounds(timeout_ns: i64, fuel_quantum: u64) -> Option<u64> {
+    if timeout_ns < 0 {
+        return None;
+    }
+    let timeout_ns = timeout_ns as u64;
+    if timeout_ns == 0 {
+        return Some(0);
+    }
+    Some(timeout_ns / fuel_quantum + u64::from(timeout_ns % fuel_quantum != 0))
+}

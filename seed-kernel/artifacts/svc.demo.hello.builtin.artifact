@@ -1,0 +1,7 @@
+schema=raios.builtin_artifact_bytes.v0
+id=builtin_artifact_bytes.svc.demo.hello.v0
+service_id=svc.demo.hello
+artifact_id=builtin:svc.demo.hello
+artifact_kind=builtin_stage0_test_service
+payload_kind=non_executing_repo_artifact_bytes
+entrypoint=none

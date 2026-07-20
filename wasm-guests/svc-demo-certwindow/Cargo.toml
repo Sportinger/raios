@@ -1,0 +1,11 @@
+[package]
+name = "svc-demo-certwindow"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+raios-x509-time = { path = "../../crates/raios-x509-time" }

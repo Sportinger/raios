@@ -1,0 +1,1733 @@
+use crate::{
+    engine::{CompiledFunc, DedupFuncType},
+    externref::{ExternObject, ExternObjectEntity, ExternObjectIdx},
+    func::{Trampoline, TrampolineEntity, TrampolineIdx},
+    memory::{DataSegment, MemoryError},
+    module::InstantiationError,
+    table::TableError,
+    DataSegmentEntity,
+    DataSegmentIdx,
+    ElementSegment,
+    ElementSegmentEntity,
+    ElementSegmentIdx,
+    Engine,
+    Func,
+    FuncEntity,
+    FuncIdx,
+    FuncType,
+    Global,
+    GlobalEntity,
+    GlobalIdx,
+    Instance,
+    InstanceEntity,
+    InstanceIdx,
+    Memory,
+    MemoryEntity,
+    MemoryIdx,
+    ResourceLimiter,
+    Table,
+    TableEntity,
+    TableIdx,
+};
+use alloc::boxed::Box;
+use core::{
+    fmt::{self, Debug},
+    sync::atomic::{AtomicU32, Ordering},
+};
+use wasmi_arena::{Arena, ArenaIndex, GuardedEntity};
+use wasmi_core::TrapCode;
+
+/// Maximum number of guest functions retained by the execution profiler.
+const EXECUTION_PROFILE_CAPACITY: usize = 32;
+
+/// Maximum number of full-width `i32` compare-exchanges retained by an execution trace.
+pub const EXECUTION_TRACE_CMPXCHG_CAPACITY: usize = 64;
+/// Maximum number of watched 8-bit stores retained by an execution trace.
+pub const EXECUTION_TRACE_STORE8_CAPACITY: usize = 8;
+/// Maximum number of watched fuel parks retained by an execution trace.
+pub const EXECUTION_TRACE_FUEL_PARK_CAPACITY: usize = 32;
+
+/// Generic, store-local configuration for opt-in execution tracing.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct ExecutionTraceConfig {
+    watch_function: u32,
+    watch_byte_address: u32,
+    watch_word_addresses: [u32; 2],
+}
+
+impl ExecutionTraceConfig {
+    /// Creates execution tracing configuration.
+    pub const fn new(
+        watch_function: u32,
+        watch_byte_address: u32,
+        watch_word_addresses: [u32; 2],
+    ) -> Self {
+        Self {
+            watch_function,
+            watch_byte_address,
+            watch_word_addresses,
+        }
+    }
+
+    /// Returns the module-local function index whose compare-exchanges and parks are watched.
+    pub fn watch_function(self) -> u32 {
+        self.watch_function
+    }
+
+    /// Returns the byte address whose 8-bit stores and sampled value are watched.
+    pub fn watch_byte_address(self) -> u32 {
+        self.watch_byte_address
+    }
+
+    /// Returns the two word addresses sampled at watched fuel parks.
+    pub fn watch_word_addresses(self) -> [u32; 2] {
+        self.watch_word_addresses
+    }
+}
+
+/// One retained full-width `i32.atomic.rmw.cmpxchg` observation.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+pub struct ExecutionTraceCmpxchg {
+    round: u64,
+    function_index: u32,
+    bytecode_ip: u32,
+    effective_address: u32,
+    watch_byte: i8,
+    before: u32,
+    expected: u32,
+    replacement: u32,
+    returned_old: u32,
+    after: u32,
+}
+
+impl ExecutionTraceCmpxchg {
+    const EMPTY: Self = Self {
+        round: 0,
+        function_index: 0,
+        bytecode_ip: 0,
+        effective_address: 0,
+        watch_byte: 0,
+        before: 0,
+        expected: 0,
+        replacement: 0,
+        returned_old: 0,
+        after: 0,
+    };
+
+    /// Returns the pump round installed by the embedding.
+    pub fn round(self) -> u64 {
+        self.round
+    }
+
+    /// Returns the module-local function index.
+    pub fn function_index(self) -> u32 {
+        self.function_index
+    }
+
+    /// Returns the wasmi bytecode instruction index, stable per compiled body.
+    ///
+    /// This is an internal wasmi bytecode index and is not a Wasm byte offset.
+    pub fn bytecode_ip(self) -> u32 {
+        self.bytecode_ip
+    }
+
+    /// Returns the effective linear-memory address.
+    pub fn effective_address(self) -> u32 {
+        self.effective_address
+    }
+
+    /// Returns the signed value sampled at the configured byte address.
+    pub fn watch_byte(self) -> i8 {
+        self.watch_byte
+    }
+
+    /// Returns the value loaded before the compare-exchange.
+    pub fn before(self) -> u32 {
+        self.before
+    }
+
+    /// Returns the expected compare-exchange operand.
+    pub fn expected(self) -> u32 {
+        self.expected
+    }
+
+    /// Returns the replacement compare-exchange operand.
+    pub fn replacement(self) -> u32 {
+        self.replacement
+    }
+
+    /// Returns the old value returned by the compare-exchange.
+    pub fn returned_old(self) -> u32 {
+        self.returned_old
+    }
+
+    /// Returns the value loaded from the same memory after the operation.
+    pub fn after(self) -> u32 {
+        self.after
+    }
+}
+
+/// One retained successful 8-bit store to the configured byte address.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+pub struct ExecutionTraceStore8 {
+    function_index: u32,
+    bytecode_ip: u32,
+    value: u8,
+}
+
+impl ExecutionTraceStore8 {
+    const EMPTY: Self = Self {
+        function_index: 0,
+        bytecode_ip: 0,
+        value: 0,
+    };
+
+    /// Returns the module-local function index.
+    pub fn function_index(self) -> u32 {
+        self.function_index
+    }
+
+    /// Returns the internal wasmi bytecode index, not a Wasm byte offset.
+    pub fn bytecode_ip(self) -> u32 {
+        self.bytecode_ip
+    }
+
+    /// Returns the low byte written by the store.
+    pub fn value(self) -> u8 {
+        self.value
+    }
+}
+
+/// One retained out-of-fuel park in the configured function.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+pub struct ExecutionTraceFuelPark {
+    round: u64,
+    bytecode_ip: u32,
+    debit: u64,
+    watch_words: [u32; 2],
+    watch_byte: i8,
+}
+
+impl ExecutionTraceFuelPark {
+    const EMPTY: Self = Self {
+        round: 0,
+        bytecode_ip: 0,
+        debit: 0,
+        watch_words: [0; 2],
+        watch_byte: 0,
+    };
+
+    /// Returns the pump round installed by the embedding.
+    pub fn round(self) -> u64 {
+        self.round
+    }
+
+    /// Returns the internal wasmi bytecode index, not a Wasm byte offset.
+    pub fn bytecode_ip(self) -> u32 {
+        self.bytecode_ip
+    }
+
+    /// Returns the fuel charge that failed at this park point.
+    pub fn debit(self) -> u64 {
+        self.debit
+    }
+
+    /// Returns the values sampled at the two configured word addresses.
+    pub fn watch_words(self) -> [u32; 2] {
+        self.watch_words
+    }
+
+    /// Returns the signed value sampled at the configured byte address.
+    pub fn watch_byte(self) -> i8 {
+        self.watch_byte
+    }
+}
+
+/// A read-only snapshot of opt-in execution tracing.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct ExecutionTrace {
+    cmpxchg_total: u64,
+    cmpxchg_len: u8,
+    cmpxchg: [ExecutionTraceCmpxchg; EXECUTION_TRACE_CMPXCHG_CAPACITY],
+    store8_total: u64,
+    store8_len: u8,
+    store8: [ExecutionTraceStore8; EXECUTION_TRACE_STORE8_CAPACITY],
+    fuel_park_total: u64,
+    fuel_park_len: u8,
+    fuel_parks: [ExecutionTraceFuelPark; EXECUTION_TRACE_FUEL_PARK_CAPACITY],
+}
+
+impl ExecutionTrace {
+    /// Returns an empty execution trace.
+    pub const fn empty() -> Self {
+        Self {
+            cmpxchg_total: 0,
+            cmpxchg_len: 0,
+            cmpxchg: [ExecutionTraceCmpxchg::EMPTY; EXECUTION_TRACE_CMPXCHG_CAPACITY],
+            store8_total: 0,
+            store8_len: 0,
+            store8: [ExecutionTraceStore8::EMPTY; EXECUTION_TRACE_STORE8_CAPACITY],
+            fuel_park_total: 0,
+            fuel_park_len: 0,
+            fuel_parks: [ExecutionTraceFuelPark::EMPTY; EXECUTION_TRACE_FUEL_PARK_CAPACITY],
+        }
+    }
+
+    /// Returns the total number of matching compare-exchanges observed.
+    pub fn cmpxchg_total(&self) -> u64 {
+        self.cmpxchg_total
+    }
+
+    /// Returns the retained compare-exchange observations.
+    pub fn cmpxchg_records(&self) -> &[ExecutionTraceCmpxchg] {
+        &self.cmpxchg[..usize::from(self.cmpxchg_len)]
+    }
+
+    /// Returns the total number of matching 8-bit stores observed.
+    pub fn store8_total(&self) -> u64 {
+        self.store8_total
+    }
+
+    /// Returns the retained 8-bit store observations.
+    pub fn store8_records(&self) -> &[ExecutionTraceStore8] {
+        &self.store8[..usize::from(self.store8_len)]
+    }
+
+    /// Returns the total number of matching fuel parks observed.
+    pub fn fuel_park_total(&self) -> u64 {
+        self.fuel_park_total
+    }
+
+    /// Returns the retained fuel-park observations.
+    pub fn fuel_park_records(&self) -> &[ExecutionTraceFuelPark] {
+        &self.fuel_parks[..usize::from(self.fuel_park_len)]
+    }
+
+    /// Returns whether at least one observation did not fit in its retained stream.
+    pub fn capped(&self) -> bool {
+        self.cmpxchg_total > self.cmpxchg_records().len() as u64
+            || self.store8_total > self.store8_records().len() as u64
+            || self.fuel_park_total > self.fuel_park_records().len() as u64
+    }
+}
+
+impl Default for ExecutionTrace {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+/// Store-local, opt-in execution tracing state.
+#[derive(Debug, Default)]
+struct ExecutionTracer {
+    config: Option<ExecutionTraceConfig>,
+    round: u64,
+    snapshot: ExecutionTrace,
+}
+
+impl ExecutionTracer {
+    fn start(&mut self, config: ExecutionTraceConfig) {
+        self.config = Some(config);
+        self.round = 0;
+        self.snapshot = ExecutionTrace::empty();
+    }
+
+    fn set_round(&mut self, round: u64) {
+        if self.config.is_some() {
+            self.round = round;
+        }
+    }
+
+    fn record_cmpxchg(
+        &mut self,
+        function_index: u32,
+        bytecode_ip: u32,
+        effective_address: u32,
+        watch_byte: i8,
+        before: u32,
+        expected: u32,
+        replacement: u32,
+        returned_old: u32,
+        after: u32,
+    ) {
+        let Some(config) = self.config else {
+            return;
+        };
+        if function_index != config.watch_function {
+            return;
+        }
+        self.snapshot.cmpxchg_total = self.snapshot.cmpxchg_total.saturating_add(1);
+        let index = usize::from(self.snapshot.cmpxchg_len);
+        if index == EXECUTION_TRACE_CMPXCHG_CAPACITY {
+            return;
+        }
+        self.snapshot.cmpxchg[index] = ExecutionTraceCmpxchg {
+            round: self.round,
+            function_index,
+            bytecode_ip,
+            effective_address,
+            watch_byte,
+            before,
+            expected,
+            replacement,
+            returned_old,
+            after,
+        };
+        self.snapshot.cmpxchg_len += 1;
+    }
+
+    fn record_store8(&mut self, function_index: u32, bytecode_ip: u32, address: u32, value: u8) {
+        let Some(config) = self.config else {
+            return;
+        };
+        if address != config.watch_byte_address {
+            return;
+        }
+        self.snapshot.store8_total = self.snapshot.store8_total.saturating_add(1);
+        let index = usize::from(self.snapshot.store8_len);
+        if index == EXECUTION_TRACE_STORE8_CAPACITY {
+            return;
+        }
+        self.snapshot.store8[index] = ExecutionTraceStore8 {
+            function_index,
+            bytecode_ip,
+            value,
+        };
+        self.snapshot.store8_len += 1;
+    }
+
+    fn record_fuel_park(
+        &mut self,
+        function_index: u32,
+        bytecode_ip: u32,
+        debit: u64,
+        watch_words: [u32; 2],
+        watch_byte: i8,
+    ) {
+        let Some(config) = self.config else {
+            return;
+        };
+        if function_index != config.watch_function {
+            return;
+        }
+        self.snapshot.fuel_park_total = self.snapshot.fuel_park_total.saturating_add(1);
+        let index = usize::from(self.snapshot.fuel_park_len);
+        if index == EXECUTION_TRACE_FUEL_PARK_CAPACITY {
+            return;
+        }
+        self.snapshot.fuel_parks[index] = ExecutionTraceFuelPark {
+            round: self.round,
+            bytecode_ip,
+            debit,
+            watch_words,
+            watch_byte,
+        };
+        self.snapshot.fuel_park_len += 1;
+    }
+}
+
+/// One retained guest-function execution count.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+pub struct ExecutionProfileEntry {
+    function_index: u32,
+    count: u64,
+}
+
+impl ExecutionProfileEntry {
+    /// Returns the module-local Wasm function index.
+    pub fn function_index(&self) -> u32 {
+        self.function_index
+    }
+
+    /// Returns the retained observation count for the function.
+    pub fn count(&self) -> u64 {
+        self.count
+    }
+}
+
+/// A read-only snapshot of opt-in guest execution profiling.
+///
+/// Counts are exact while at most 32 distinct functions have been observed.
+/// Once full, the profiler uses the deterministic Space-Saving heavy-hitter
+/// algorithm so a persistently executing function remains retained.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+pub struct ExecutionProfile {
+    total_samples: u64,
+    len: u8,
+    entries: [ExecutionProfileEntry; EXECUTION_PROFILE_CAPACITY],
+}
+
+impl ExecutionProfile {
+    /// Returns an empty profiling snapshot.
+    pub const fn empty() -> Self {
+        Self {
+            total_samples: 0,
+            len: 0,
+            entries: [ExecutionProfileEntry {
+                function_index: 0,
+                count: 0,
+            }; EXECUTION_PROFILE_CAPACITY],
+        }
+    }
+
+    /// Returns the total number of execution observations.
+    pub fn total_samples(&self) -> u64 {
+        self.total_samples
+    }
+
+    /// Returns the retained function counts in unspecified order.
+    pub fn entries(&self) -> &[ExecutionProfileEntry] {
+        &self.entries[..usize::from(self.len)]
+    }
+}
+
+/// Store-local, opt-in execution profiler state.
+#[derive(Debug, Default)]
+struct ExecutionProfiler {
+    enabled: bool,
+    snapshot: ExecutionProfile,
+}
+
+impl ExecutionProfiler {
+    fn start(&mut self) {
+        self.snapshot = ExecutionProfile::empty();
+        self.enabled = true;
+    }
+
+    fn record(&mut self, function_index: u32) {
+        if !self.enabled {
+            return;
+        }
+        self.snapshot.total_samples = self.snapshot.total_samples.saturating_add(1);
+        let len = usize::from(self.snapshot.len);
+        if let Some(entry) = self.snapshot.entries[..len]
+            .iter_mut()
+            .find(|entry| entry.function_index == function_index)
+        {
+            entry.count = entry.count.saturating_add(1);
+            return;
+        }
+        if len < EXECUTION_PROFILE_CAPACITY {
+            self.snapshot.entries[len] = ExecutionProfileEntry {
+                function_index,
+                count: 1,
+            };
+            self.snapshot.len += 1;
+            return;
+        }
+        let mut minimum = 0;
+        for index in 1..EXECUTION_PROFILE_CAPACITY {
+            if self.snapshot.entries[index].count < self.snapshot.entries[minimum].count {
+                minimum = index;
+            }
+        }
+        let count = self.snapshot.entries[minimum].count.saturating_add(1);
+        self.snapshot.entries[minimum] = ExecutionProfileEntry {
+            function_index,
+            count,
+        };
+    }
+}
+
+/// A unique store index.
+///
+/// # Note
+///
+/// Used to protect against invalid entity indices.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct StoreIdx(u32);
+
+impl ArenaIndex for StoreIdx {
+    fn into_usize(self) -> usize {
+        self.0 as usize
+    }
+
+    fn from_usize(value: usize) -> Self {
+        let value = value.try_into().unwrap_or_else(|error| {
+            panic!("index {value} is out of bounds as store index: {error}")
+        });
+        Self(value)
+    }
+}
+
+impl StoreIdx {
+    /// Returns a new unique [`StoreIdx`].
+    fn new() -> Self {
+        /// A static store index counter.
+        static CURRENT_STORE_IDX: AtomicU32 = AtomicU32::new(0);
+        let next_idx = CURRENT_STORE_IDX.fetch_add(1, Ordering::AcqRel);
+        Self(next_idx)
+    }
+}
+
+/// A stored entity.
+pub type Stored<Idx> = GuardedEntity<StoreIdx, Idx>;
+
+/// A wrapper around an optional `&mut dyn` [`ResourceLimiter`], that exists
+/// both to make types a little easier to read and to provide a `Debug` impl so
+/// that `#[derive(Debug)]` works on structs that contain it.
+pub struct ResourceLimiterRef<'a>(Option<&'a mut (dyn ResourceLimiter)>);
+impl<'a> core::fmt::Debug for ResourceLimiterRef<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ResourceLimiterRef(...)")
+    }
+}
+
+impl<'a> ResourceLimiterRef<'a> {
+    pub fn as_resource_limiter(&mut self) -> &mut Option<&'a mut dyn ResourceLimiter> {
+        &mut self.0
+    }
+}
+
+/// A wrapper around a boxed `dyn FnMut(&mut T)` returning a `&mut dyn`
+/// [`ResourceLimiter`]; in other words a function that one can call to retrieve
+/// a [`ResourceLimiter`] from the [`Store`] object's user data type `T`.
+///
+/// This wrapper exists both to make types a little easier to read and to
+/// provide a `Debug` impl so that `#[derive(Debug)]` works on structs that
+/// contain it.
+struct ResourceLimiterQuery<T>(Box<dyn FnMut(&mut T) -> &mut (dyn ResourceLimiter) + Send + Sync>);
+impl<T> core::fmt::Debug for ResourceLimiterQuery<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ResourceLimiterQuery(...)")
+    }
+}
+
+/// The store that owns all data associated to Wasm modules.
+#[derive(Debug)]
+pub struct Store<T> {
+    /// All data that is not associated to `T`.
+    ///
+    /// # Note
+    ///
+    /// This is re-exported to the rest of the crate since
+    /// it is used directly by the engine's executor.
+    pub(crate) inner: StoreInner,
+    /// Stored host function trampolines.
+    trampolines: Arena<TrampolineIdx, TrampolineEntity<T>>,
+    /// User provided host data owned by the [`Store`].
+    data: T,
+    /// User provided hook to retrieve a [`ResourceLimiter`].
+    limiter: Option<ResourceLimiterQuery<T>>,
+}
+
+/// The inner store that owns all data not associated to the host state.
+#[derive(Debug)]
+pub struct StoreInner {
+    /// The unique store index.
+    ///
+    /// Used to protect against invalid entity indices.
+    store_idx: StoreIdx,
+    /// Stored Wasm or host functions.
+    funcs: Arena<FuncIdx, FuncEntity>,
+    /// Stored linear memories.
+    memories: Arena<MemoryIdx, MemoryEntity>,
+    /// Stored tables.
+    tables: Arena<TableIdx, TableEntity>,
+    /// Stored global variables.
+    globals: Arena<GlobalIdx, GlobalEntity>,
+    /// Stored module instances.
+    instances: Arena<InstanceIdx, InstanceEntity>,
+    /// Stored data segments.
+    datas: Arena<DataSegmentIdx, DataSegmentEntity>,
+    /// Stored data segments.
+    elems: Arena<ElementSegmentIdx, ElementSegmentEntity>,
+    /// Stored external objects for [`ExternRef`] types.
+    ///
+    /// [`ExternRef`]: [`crate::ExternRef`]
+    extern_objects: Arena<ExternObjectIdx, ExternObjectEntity>,
+    /// The [`Engine`] in use by the [`Store`].
+    ///
+    /// Amongst others the [`Engine`] stores the Wasm function definitions.
+    engine: Engine,
+    /// The fuel of the [`Store`].
+    fuel: Fuel,
+    /// Opt-in guest function execution observations.
+    execution_profiler: ExecutionProfiler,
+    /// Opt-in instruction and memory observations.
+    execution_tracer: ExecutionTracer,
+}
+
+#[test]
+fn test_store_is_send_sync() {
+    const _: () = {
+        #[allow(clippy::extra_unused_type_parameters)]
+        fn assert_send<T: Send>() {}
+        #[allow(clippy::extra_unused_type_parameters)]
+        fn assert_sync<T: Sync>() {}
+        let _ = assert_send::<Store<()>>;
+        let _ = assert_sync::<Store<()>>;
+    };
+}
+
+/// An error that may be encountered when operating on the [`Store`].
+#[derive(Debug, Clone)]
+pub enum FuelError {
+    /// Raised when trying to use any of the `fuel` methods while fuel metering is disabled.
+    FuelMeteringDisabled,
+    /// Raised when trying to consume more fuel than is available in the [`Store`].
+    OutOfFuel,
+}
+
+impl fmt::Display for FuelError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::FuelMeteringDisabled => write!(f, "fuel metering is disabled"),
+            Self::OutOfFuel => write!(f, "all fuel consumed"),
+        }
+    }
+}
+
+impl FuelError {
+    /// Returns an error indicating that fuel metering has been disabled.
+    ///
+    /// # Note
+    ///
+    /// This method exists to indicate that this execution path is cold.
+    #[cold]
+    pub fn fuel_metering_disabled() -> Self {
+        Self::FuelMeteringDisabled
+    }
+
+    /// Returns an error indicating that too much fuel has been consumed.
+    ///
+    /// # Note
+    ///
+    /// This method exists to indicate that this execution path is cold.
+    #[cold]
+    pub fn out_of_fuel() -> Self {
+        Self::OutOfFuel
+    }
+}
+
+/// The remaining and consumed fuel counters.
+#[derive(Debug, Default, Copy, Clone)]
+pub struct Fuel {
+    /// The remaining fuel.
+    remaining: u64,
+    /// The total amount of fuel so far.
+    total: u64,
+}
+
+impl Fuel {
+    /// Adds `delta` quantity of fuel to the remaining [`Fuel`].
+    ///
+    /// # Panics
+    ///
+    /// If this overflows the [`Fuel`] counter.
+    pub fn add_fuel(&mut self, delta: u64) {
+        self.total = self.total.checked_add(delta).unwrap_or_else(|| {
+            panic!(
+                "encountered total fuel overflow: fuel = {}, delta = {delta}",
+                self.total
+            )
+        });
+        // No need to check as well since `self.total >= self.remaining`.
+        self.remaining = self.remaining.wrapping_add(delta);
+    }
+
+    /// Returns the amount of [`Fuel`] consumed by executions of the [`Store`] so far.
+    pub fn fuel_consumed(&self) -> u64 {
+        self.total.wrapping_sub(self.remaining)
+    }
+
+    /// Replaces the remaining fuel without recording a grant or consumption.
+    ///
+    /// Since consumed fuel is derived as `total - remaining`, the private total
+    /// is rebased by the same delta so that [`Self::fuel_consumed`] is unchanged.
+    fn replace_remaining_fuel(&mut self, remaining: u64) -> Option<u64> {
+        let consumed = self.fuel_consumed();
+        let total = consumed.checked_add(remaining)?;
+        let previous = self.remaining;
+        self.remaining = remaining;
+        self.total = total;
+        Some(previous)
+    }
+
+    /// Returns `Ok` if enough fuel is remaining to satisfy `delta` fuel consumption.
+    ///
+    /// Returns a [`TrapCode::OutOfFuel`] error otherwise.
+    pub fn sufficient_fuel(&self, delta: u64) -> Result<(), TrapCode> {
+        self.remaining
+            .checked_sub(delta)
+            .map(|_| ())
+            .ok_or(TrapCode::OutOfFuel)
+    }
+
+    /// Synthetically consumes an amount of [`Fuel`] for the [`Store`].
+    ///
+    /// Returns the remaining amount of [`Fuel`] after this operation.
+    pub fn consume_fuel(&mut self, delta: u64) -> Result<u64, TrapCode> {
+        self.remaining = self
+            .remaining
+            .checked_sub(delta)
+            .ok_or(TrapCode::OutOfFuel)?;
+        Ok(self.remaining)
+    }
+}
+
+impl StoreInner {
+    /// Creates a new [`StoreInner`] for the given [`Engine`].
+    pub fn new(engine: &Engine) -> Self {
+        StoreInner {
+            engine: engine.clone(),
+            store_idx: StoreIdx::new(),
+            funcs: Arena::new(),
+            memories: Arena::new(),
+            tables: Arena::new(),
+            globals: Arena::new(),
+            instances: Arena::new(),
+            datas: Arena::new(),
+            elems: Arena::new(),
+            extern_objects: Arena::new(),
+            fuel: Fuel::default(),
+            execution_profiler: ExecutionProfiler::default(),
+            execution_tracer: ExecutionTracer::default(),
+        }
+    }
+
+    /// Returns the [`Engine`] that this store is associated with.
+    pub fn engine(&self) -> &Engine {
+        &self.engine
+    }
+
+    /// Returns a shared reference to the [`Fuel`] counters.
+    pub fn fuel(&self) -> &Fuel {
+        &self.fuel
+    }
+
+    /// Returns an exclusive reference to the [`Fuel`] counters.
+    pub fn fuel_mut(&mut self) -> &mut Fuel {
+        &mut self.fuel
+    }
+
+    /// Returns whether an opt-in observer needs guest function identity.
+    pub(crate) fn guest_function_tracking_enabled(&self) -> bool {
+        self.execution_profiler.enabled || self.execution_tracer.config.is_some()
+    }
+
+    /// Records one guest function execution observation.
+    pub(crate) fn record_guest_execution(&mut self, function_index: u32) {
+        self.execution_profiler.record(function_index)
+    }
+
+    /// Returns the active generic execution trace configuration.
+    pub(crate) fn execution_trace_config(&self) -> Option<ExecutionTraceConfig> {
+        self.execution_tracer.config
+    }
+
+    /// Records a matching full-width `i32` compare-exchange.
+    pub(crate) fn record_execution_cmpxchg(
+        &mut self,
+        function_index: u32,
+        bytecode_ip: u32,
+        effective_address: u32,
+        watch_byte: i8,
+        before: u32,
+        expected: u32,
+        replacement: u32,
+        returned_old: u32,
+        after: u32,
+    ) {
+        self.execution_tracer.record_cmpxchg(
+            function_index,
+            bytecode_ip,
+            effective_address,
+            watch_byte,
+            before,
+            expected,
+            replacement,
+            returned_old,
+            after,
+        );
+    }
+
+    /// Records a successful matching 8-bit store.
+    pub(crate) fn record_execution_store8(
+        &mut self,
+        function_index: u32,
+        bytecode_ip: u32,
+        address: u32,
+        value: u8,
+    ) {
+        self.execution_tracer
+            .record_store8(function_index, bytecode_ip, address, value);
+    }
+
+    /// Records a matching out-of-fuel park.
+    pub(crate) fn record_execution_fuel_park(
+        &mut self,
+        function_index: u32,
+        bytecode_ip: u32,
+        debit: u64,
+        watch_words: [u32; 2],
+        watch_byte: i8,
+    ) {
+        self.execution_tracer.record_fuel_park(
+            function_index,
+            bytecode_ip,
+            debit,
+            watch_words,
+            watch_byte,
+        );
+    }
+
+    /// Resolves a compiled function body to its module-local function index.
+    ///
+    /// This linear lookup is used only once when an explicitly profiled root
+    /// call starts. Nested same-instance calls derive their index in O(1).
+    pub(crate) fn resolve_wasm_func_index(
+        &self,
+        instance: &Instance,
+        body: CompiledFunc,
+    ) -> Option<u32> {
+        let mut index = 0_u32;
+        loop {
+            let func = self.resolve_instance(instance).get_func(index)?;
+            if matches!(
+                self.resolve_func(&func),
+                FuncEntity::Wasm(wasm_func) if wasm_func.func_body() == body
+            ) {
+                return Some(index);
+            }
+            index = index.checked_add(1)?;
+        }
+    }
+
+    /// Wraps an entitiy `Idx` (index type) as a [`Stored<Idx>`] type.
+    ///
+    /// # Note
+    ///
+    /// [`Stored<Idx>`] associates an `Idx` type with the internal store index.
+    /// This way wrapped indices cannot be misused with incorrect [`Store`] instances.
+    fn wrap_stored<Idx>(&self, entity_idx: Idx) -> Stored<Idx> {
+        Stored::new(self.store_idx, entity_idx)
+    }
+
+    /// Unwraps the given [`Stored<Idx>`] reference and returns the `Idx`.
+    ///
+    /// # Panics
+    ///
+    /// If the [`Stored<Idx>`] does not originate from this [`Store`].
+    fn unwrap_stored<Idx>(&self, stored: &Stored<Idx>) -> Idx
+    where
+        Idx: ArenaIndex + Debug,
+    {
+        stored.entity_index(self.store_idx).unwrap_or_else(|| {
+            panic!(
+                "entity reference ({:?}) does not belong to store {:?}",
+                stored, self.store_idx,
+            )
+        })
+    }
+
+    /// Allocates a new [`GlobalEntity`] and returns a [`Global`] reference to it.
+    pub fn alloc_global(&mut self, global: GlobalEntity) -> Global {
+        let global = self.globals.alloc(global);
+        Global::from_inner(self.wrap_stored(global))
+    }
+
+    /// Allocates a new [`TableEntity`] and returns a [`Table`] reference to it.
+    pub fn alloc_table(&mut self, table: TableEntity) -> Table {
+        let table = self.tables.alloc(table);
+        Table::from_inner(self.wrap_stored(table))
+    }
+
+    /// Allocates a new [`MemoryEntity`] and returns a [`Memory`] reference to it.
+    pub fn alloc_memory(&mut self, memory: MemoryEntity) -> Memory {
+        let memory = self.memories.alloc(memory);
+        Memory::from_inner(self.wrap_stored(memory))
+    }
+
+    /// Allocates a new [`DataSegmentEntity`] and returns a [`DataSegment`] reference to it.
+    pub fn alloc_data_segment(&mut self, segment: DataSegmentEntity) -> DataSegment {
+        let segment = self.datas.alloc(segment);
+        DataSegment::from_inner(self.wrap_stored(segment))
+    }
+
+    /// Allocates a new [`ElementSegmentEntity`] and returns a [`ElementSegment`] reference to it.
+    pub(super) fn alloc_element_segment(
+        &mut self,
+        segment: ElementSegmentEntity,
+    ) -> ElementSegment {
+        let segment = self.elems.alloc(segment);
+        ElementSegment::from_inner(self.wrap_stored(segment))
+    }
+
+    /// Allocates a new [`ExternObjectEntity`] and returns a [`ExternObject`] reference to it.
+    pub(super) fn alloc_extern_object(&mut self, object: ExternObjectEntity) -> ExternObject {
+        let object = self.extern_objects.alloc(object);
+        ExternObject::from_inner(self.wrap_stored(object))
+    }
+
+    /// Allocates a new uninitialized [`InstanceEntity`] and returns an [`Instance`] reference to it.
+    ///
+    /// # Note
+    ///
+    /// - This will create an uninitialized dummy [`InstanceEntity`] as a place holder
+    ///   for the returned [`Instance`]. Using this uninitialized [`Instance`] will result
+    ///   in a runtime panic.
+    /// - The returned [`Instance`] must later be initialized via the [`StoreInner::initialize_instance`]
+    ///   method. Afterwards the [`Instance`] may be used.
+    pub fn alloc_instance(&mut self) -> Instance {
+        let instance = self.instances.alloc(InstanceEntity::uninitialized());
+        Instance::from_inner(self.wrap_stored(instance))
+    }
+
+    /// Initializes the [`Instance`] using the given [`InstanceEntity`].
+    ///
+    /// # Note
+    ///
+    /// After this operation the [`Instance`] is initialized and can be used.
+    ///
+    /// # Panics
+    ///
+    /// - If the [`Instance`] does not belong to the [`Store`].
+    /// - If the [`Instance`] is unknown to the [`Store`].
+    /// - If the [`Instance`] has already been initialized.
+    /// - If the given [`InstanceEntity`] is itself not initialized, yet.
+    pub fn initialize_instance(&mut self, instance: Instance, init: InstanceEntity) {
+        assert!(
+            init.is_initialized(),
+            "encountered an uninitialized new instance entity: {init:?}",
+        );
+        let idx = self.unwrap_stored(instance.as_inner());
+        let uninit = self
+            .instances
+            .get_mut(idx)
+            .unwrap_or_else(|| panic!("missing entity for the given instance: {instance:?}"));
+        assert!(
+            !uninit.is_initialized(),
+            "encountered an already initialized instance: {uninit:?}",
+        );
+        *uninit = init;
+    }
+
+    /// Returns a shared reference to the entity indexed by the given `idx`.
+    ///
+    /// # Panics
+    ///
+    /// - If the indexed entity does not originate from this [`Store`].
+    /// - If the entity index cannot be resolved to its entity.
+    fn resolve<'a, Idx, Entity>(
+        &self,
+        idx: &Stored<Idx>,
+        entities: &'a Arena<Idx, Entity>,
+    ) -> &'a Entity
+    where
+        Idx: ArenaIndex + Debug,
+    {
+        let idx = self.unwrap_stored(idx);
+        entities
+            .get(idx)
+            .unwrap_or_else(|| panic!("failed to resolve stored entity: {idx:?}"))
+    }
+
+    /// Returns an exclusive reference to the entity indexed by the given `idx`.
+    ///
+    /// # Note
+    ///
+    /// Due to borrow checking issues this method takes an already unwrapped
+    /// `Idx` unlike the [`StoreInner::resolve`] method.
+    ///
+    /// # Panics
+    ///
+    /// - If the entity index cannot be resolved to its entity.
+    fn resolve_mut<Idx, Entity>(idx: Idx, entities: &mut Arena<Idx, Entity>) -> &mut Entity
+    where
+        Idx: ArenaIndex + Debug,
+    {
+        entities
+            .get_mut(idx)
+            .unwrap_or_else(|| panic!("failed to resolve stored entity: {idx:?}"))
+    }
+
+    /// Returns the [`FuncType`] associated to the given [`DedupFuncType`].
+    ///
+    /// # Panics
+    ///
+    /// - If the [`DedupFuncType`] does not originate from this [`Store`].
+    /// - If the [`DedupFuncType`] cannot be resolved to its entity.
+    pub fn resolve_func_type(&self, func_type: &DedupFuncType) -> FuncType {
+        self.resolve_func_type_with(func_type, FuncType::clone)
+    }
+
+    /// Calls `f` on the [`FuncType`] associated to the given [`DedupFuncType`] and returns the result.
+    ///
+    /// # Panics
+    ///
+    /// - If the [`DedupFuncType`] does not originate from this [`Store`].
+    /// - If the [`DedupFuncType`] cannot be resolved to its entity.
+    pub fn resolve_func_type_with<R>(
+        &self,
+        func_type: &DedupFuncType,
+        f: impl FnOnce(&FuncType) -> R,
+    ) -> R {
+        self.engine.resolve_func_type(func_type, f)
+    }
+
+    /// Returns a shared reference to the [`GlobalEntity`] associated to the given [`Global`].
+    ///
+    /// # Panics
+    ///
+    /// - If the [`Global`] does not originate from this [`Store`].
+    /// - If the [`Global`] cannot be resolved to its entity.
+    pub fn resolve_global(&self, global: &Global) -> &GlobalEntity {
+        self.resolve(global.as_inner(), &self.globals)
+    }
+
+    /// Returns an exclusive reference to the [`GlobalEntity`] associated to the given [`Global`].
+    ///
+    /// # Panics
+    ///
+    /// - If the [`Global`] does not originate from this [`Store`].
+    /// - If the [`Global`] cannot be resolved to its entity.
+    pub fn resolve_global_mut(&mut self, global: &Global) -> &mut GlobalEntity {
+        let idx = self.unwrap_stored(global.as_inner());
+        Self::resolve_mut(idx, &mut self.globals)
+    }
+
+    /// Returns a shared reference to the [`TableEntity`] associated to the given [`Table`].
+    ///
+    /// # Panics
+    ///
+    /// - If the [`Table`] does not originate from this [`Store`].
+    /// - If the [`Table`] cannot be resolved to its entity.
+    pub fn resolve_table(&self, table: &Table) -> &TableEntity {
+        self.resolve(table.as_inner(), &self.tables)
+    }
+
+    /// Returns an exclusive reference to the [`TableEntity`] associated to the given [`Table`].
+    ///
+    /// # Panics
+    ///
+    /// - If the [`Table`] does not originate from this [`Store`].
+    /// - If the [`Table`] cannot be resolved to its entity.
+    pub fn resolve_table_mut(&mut self, table: &Table) -> &mut TableEntity {
+        let idx = self.unwrap_stored(table.as_inner());
+        Self::resolve_mut(idx, &mut self.tables)
+    }
+
+    /// Returns an exclusive reference to the [`TableEntity`] associated to the given [`Table`].
+    ///
+    /// # Panics
+    ///
+    /// - If the [`Table`] does not originate from this [`Store`].
+    /// - If the [`Table`] cannot be resolved to its entity.
+    pub fn resolve_table_pair_mut(
+        &mut self,
+        fst: &Table,
+        snd: &Table,
+    ) -> (&mut TableEntity, &mut TableEntity) {
+        let fst = self.unwrap_stored(fst.as_inner());
+        let snd = self.unwrap_stored(snd.as_inner());
+        self.tables.get_pair_mut(fst, snd).unwrap_or_else(|| {
+            panic!("failed to resolve stored pair of entities: {fst:?} and {snd:?}")
+        })
+    }
+
+    /// Returns a triple of:
+    ///
+    /// - An exclusive reference to the [`TableEntity`] associated to the given [`Table`].
+    /// - A shared reference to the [`ElementSegmentEntity`] associated to the given [`ElementSegment`].
+    ///
+    /// # Note
+    ///
+    /// This method exists to properly handle use cases where
+    /// otherwise the Rust borrow-checker would not accept.
+    ///
+    /// # Panics
+    ///
+    /// - If the [`Table`] does not originate from this [`Store`].
+    /// - If the [`Table`] cannot be resolved to its entity.
+    /// - If the [`ElementSegment`] does not originate from this [`Store`].
+    /// - If the [`ElementSegment`] cannot be resolved to its entity.
+    pub(super) fn resolve_table_element(
+        &mut self,
+        table: &Table,
+        segment: &ElementSegment,
+    ) -> (&mut TableEntity, &ElementSegmentEntity) {
+        let table_idx = self.unwrap_stored(table.as_inner());
+        let elem_idx = segment.as_inner();
+        let elem = self.resolve(elem_idx, &self.elems);
+        let table = Self::resolve_mut(table_idx, &mut self.tables);
+        (table, elem)
+    }
+
+    /// Returns a triple of:
+    ///
+    /// - A shared reference to the [`InstanceEntity`] associated to the given [`Instance`].
+    /// - An exclusive reference to the [`TableEntity`] associated to the given [`Table`].
+    /// - A shared reference to the [`ElementSegmentEntity`] associated to the given [`ElementSegment`].
+    ///
+    /// # Note
+    ///
+    /// This method exists to properly handle use cases where
+    /// otherwise the Rust borrow-checker would not accept.
+    ///
+    /// # Panics
+    ///
+    /// - If the [`Instance`] does not originate from this [`Store`].
+    /// - If the [`Instance`] cannot be resolved to its entity.
+    /// - If the [`Table`] does not originate from this [`Store`].
+    /// - If the [`Table`] cannot be resolved to its entity.
+    /// - If the [`ElementSegment`] does not originate from this [`Store`].
+    /// - If the [`ElementSegment`] cannot be resolved to its entity.
+    pub(super) fn resolve_instance_table_element(
+        &mut self,
+        instance: &Instance,
+        table: &Table,
+        segment: &ElementSegment,
+    ) -> (&InstanceEntity, &mut TableEntity, &ElementSegmentEntity) {
+        let mem_idx = self.unwrap_stored(table.as_inner());
+        let data_idx = segment.as_inner();
+        let instance_idx = instance.as_inner();
+        let instance = self.resolve(instance_idx, &self.instances);
+        let data = self.resolve(data_idx, &self.elems);
+        let mem = Self::resolve_mut(mem_idx, &mut self.tables);
+        (instance, mem, data)
+    }
+
+    /// Returns a shared reference to the [`ElementSegmentEntity`] associated to the given [`ElementSegment`].
+    ///
+    /// # Panics
+    ///
+    /// - If the [`ElementSegment`] does not originate from this [`Store`].
+    /// - If the [`ElementSegment`] cannot be resolved to its entity.
+    #[allow(unused)] // Note: We allow this unused API to exist to uphold code symmetry.
+    pub fn resolve_element_segment(&self, segment: &ElementSegment) -> &ElementSegmentEntity {
+        self.resolve(segment.as_inner(), &self.elems)
+    }
+
+    /// Returns an exclusive reference to the [`ElementSegmentEntity`] associated to the given [`ElementSegment`].
+    ///
+    /// # Panics
+    ///
+    /// - If the [`ElementSegment`] does not originate from this [`Store`].
+    /// - If the [`ElementSegment`] cannot be resolved to its entity.
+    pub fn resolve_element_segment_mut(
+        &mut self,
+        segment: &ElementSegment,
+    ) -> &mut ElementSegmentEntity {
+        let idx = self.unwrap_stored(segment.as_inner());
+        Self::resolve_mut(idx, &mut self.elems)
+    }
+
+    /// Returns a shared reference to the [`MemoryEntity`] associated to the given [`Memory`].
+    ///
+    /// # Panics
+    ///
+    /// - If the [`Memory`] does not originate from this [`Store`].
+    /// - If the [`Memory`] cannot be resolved to its entity.
+    pub fn resolve_memory(&self, memory: &Memory) -> &MemoryEntity {
+        self.resolve(memory.as_inner(), &self.memories)
+    }
+
+    /// Returns an exclusive reference to the [`MemoryEntity`] associated to the given [`Memory`].
+    ///
+    /// # Panics
+    ///
+    /// - If the [`Memory`] does not originate from this [`Store`].
+    /// - If the [`Memory`] cannot be resolved to its entity.
+    pub fn resolve_memory_mut(&mut self, memory: &Memory) -> &mut MemoryEntity {
+        let idx = self.unwrap_stored(memory.as_inner());
+        Self::resolve_mut(idx, &mut self.memories)
+    }
+
+    /// Returns a pair of:
+    ///
+    /// - An exclusive reference to the [`MemoryEntity`] associated to the given [`Memory`].
+    /// - A shared reference to the [`DataSegmentEntity`] associated to the given [`DataSegment`].
+    ///
+    /// # Note
+    ///
+    /// This method exists to properly handle use cases where
+    /// otherwise the Rust borrow-checker would not accept.
+    ///
+    /// # Panics
+    ///
+    /// - If the [`Memory`] does not originate from this [`Store`].
+    /// - If the [`Memory`] cannot be resolved to its entity.
+    /// - If the [`DataSegment`] does not originate from this [`Store`].
+    /// - If the [`DataSegment`] cannot be resolved to its entity.
+    pub(super) fn resolve_memory_mut_and_data_segment(
+        &mut self,
+        memory: &Memory,
+        segment: &DataSegment,
+    ) -> (&mut MemoryEntity, &DataSegmentEntity) {
+        let mem_idx = self.unwrap_stored(memory.as_inner());
+        let data_idx = segment.as_inner();
+        let data = self.resolve(data_idx, &self.datas);
+        let mem = Self::resolve_mut(mem_idx, &mut self.memories);
+        (mem, data)
+    }
+
+    /// Returns a shared reference to the [`DataSegmentEntity`] associated to the given [`DataSegment`].
+    ///
+    /// # Panics
+    ///
+    /// - If the [`DataSegment`] does not originate from this [`Store`].
+    /// - If the [`DataSegment`] cannot be resolved to its entity.
+    #[allow(unused)] // Note: We allow this unused API to exist to uphold code symmetry.
+    pub fn resolve_data_segment(&self, segment: &DataSegment) -> &DataSegmentEntity {
+        self.resolve(segment.as_inner(), &self.datas)
+    }
+
+    /// Returns an exclusive reference to the [`DataSegmentEntity`] associated to the given [`DataSegment`].
+    ///
+    /// # Panics
+    ///
+    /// - If the [`DataSegment`] does not originate from this [`Store`].
+    /// - If the [`DataSegment`] cannot be resolved to its entity.
+    pub fn resolve_data_segment_mut(&mut self, segment: &DataSegment) -> &mut DataSegmentEntity {
+        let idx = self.unwrap_stored(segment.as_inner());
+        Self::resolve_mut(idx, &mut self.datas)
+    }
+
+    /// Returns a shared reference to the [`InstanceEntity`] associated to the given [`Instance`].
+    ///
+    /// # Panics
+    ///
+    /// - If the [`Instance`] does not originate from this [`Store`].
+    /// - If the [`Instance`] cannot be resolved to its entity.
+    pub fn resolve_instance(&self, instance: &Instance) -> &InstanceEntity {
+        self.resolve(instance.as_inner(), &self.instances)
+    }
+
+    /// Returns a shared reference to the [`ExternObjectEntity`] associated to the given [`ExternObject`].
+    ///
+    /// # Panics
+    ///
+    /// - If the [`ExternObject`] does not originate from this [`Store`].
+    /// - If the [`ExternObject`] cannot be resolved to its entity.
+    pub fn resolve_external_object(&self, object: &ExternObject) -> &ExternObjectEntity {
+        self.resolve(object.as_inner(), &self.extern_objects)
+    }
+
+    /// Allocates a new Wasm or host [`FuncEntity`] and returns a [`Func`] reference to it.
+    pub fn alloc_func(&mut self, func: FuncEntity) -> Func {
+        let idx = self.funcs.alloc(func);
+        Func::from_inner(self.wrap_stored(idx))
+    }
+
+    /// Returns a shared reference to the associated entity of the Wasm or host function.
+    ///
+    /// # Panics
+    ///
+    /// - If the [`Func`] does not originate from this [`Store`].
+    /// - If the [`Func`] cannot be resolved to its entity.
+    pub fn resolve_func(&self, func: &Func) -> &FuncEntity {
+        let entity_index = self.unwrap_stored(func.as_inner());
+        self.funcs.get(entity_index).unwrap_or_else(|| {
+            panic!("failed to resolve stored Wasm or host function: {entity_index:?}")
+        })
+    }
+}
+
+impl<T> Store<T> {
+    /// Creates a new store.
+    pub fn new(engine: &Engine, data: T) -> Self {
+        Self {
+            inner: StoreInner::new(engine),
+            trampolines: Arena::new(),
+            data,
+            limiter: None,
+        }
+    }
+
+    /// Returns the [`Engine`] that this store is associated with.
+    pub fn engine(&self) -> &Engine {
+        self.inner.engine()
+    }
+
+    /// Clears and enables store-local guest execution profiling.
+    ///
+    /// Profiling must be started before the root guest call. It records only a
+    /// side channel and never participates in execution, fuel, or results.
+    pub fn start_execution_profiling(&mut self) {
+        self.inner.execution_profiler.start();
+    }
+
+    /// Returns a read-only snapshot of guest execution profiling.
+    pub fn execution_profile(&self) -> ExecutionProfile {
+        self.inner.execution_profiler.snapshot
+    }
+
+    /// Clears and enables generic, store-local execution tracing.
+    ///
+    /// Tracing is disabled by default and never participates in execution,
+    /// fuel accounting, memory writes, or Wasm results.
+    pub fn start_execution_tracing(&mut self, config: ExecutionTraceConfig) {
+        self.inner.execution_tracer.start(config);
+    }
+
+    /// Installs the embedding's current round on an active execution trace.
+    pub fn set_execution_trace_round(&mut self, round: u64) {
+        self.inner.execution_tracer.set_round(round);
+    }
+
+    /// Returns a read-only snapshot of generic execution tracing.
+    pub fn execution_trace(&self) -> ExecutionTrace {
+        self.inner.execution_tracer.snapshot
+    }
+
+    /// Returns a shared reference to the user provided data owned by this [`Store`].
+    pub fn data(&self) -> &T {
+        &self.data
+    }
+
+    /// Returns an exclusive reference to the user provided data owned by this [`Store`].
+    pub fn data_mut(&mut self) -> &mut T {
+        &mut self.data
+    }
+
+    /// Consumes `self` and returns its user provided data.
+    pub fn into_data(self) -> T {
+        self.data
+    }
+
+    /// Installs a function into the [`Store`] that will be called with the user
+    /// data type `T` to retrieve a [`ResourceLimiter`] any time a limited,
+    /// growable resource such as a linear memory or table is grown.
+    pub fn limiter(
+        &mut self,
+        limiter: impl FnMut(&mut T) -> &mut (dyn ResourceLimiter) + Send + Sync + 'static,
+    ) {
+        self.limiter = Some(ResourceLimiterQuery(Box::new(limiter)))
+    }
+
+    pub(crate) fn check_new_instances_limit(
+        &mut self,
+        num_new_instances: usize,
+    ) -> Result<(), InstantiationError> {
+        let (inner, mut limiter) = self.store_inner_and_resource_limiter_ref();
+        if let Some(limiter) = limiter.as_resource_limiter() {
+            if inner.instances.len().saturating_add(num_new_instances) > limiter.instances() {
+                return Err(InstantiationError::TooManyInstances);
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn check_new_memories_limit(
+        &mut self,
+        num_new_memories: usize,
+    ) -> Result<(), MemoryError> {
+        let (inner, mut limiter) = self.store_inner_and_resource_limiter_ref();
+        if let Some(limiter) = limiter.as_resource_limiter() {
+            if inner.memories.len().saturating_add(num_new_memories) > limiter.memories() {
+                return Err(MemoryError::TooManyMemories);
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn check_new_tables_limit(
+        &mut self,
+        num_new_tables: usize,
+    ) -> Result<(), TableError> {
+        let (inner, mut limiter) = self.store_inner_and_resource_limiter_ref();
+        if let Some(limiter) = limiter.as_resource_limiter() {
+            if inner.tables.len().saturating_add(num_new_tables) > limiter.tables() {
+                return Err(TableError::TooManyTables);
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn store_inner_and_resource_limiter_ref(
+        &mut self,
+    ) -> (&mut StoreInner, ResourceLimiterRef) {
+        let resource_limiter = ResourceLimiterRef(match &mut self.limiter {
+            Some(q) => Some(q.0(&mut self.data)),
+            None => None,
+        });
+        (&mut self.inner, resource_limiter)
+    }
+
+    /// Returns `true` if fuel metering has been enabled.
+    fn is_fuel_metering_enabled(&self) -> bool {
+        self.engine().config().get_consume_fuel()
+    }
+
+    /// Returns `Ok` if fuel metering has been enabled.
+    ///
+    /// Otherwise returns the respective [`FuelError`].
+    fn check_fuel_metering_enabled(&self) -> Result<(), FuelError> {
+        if !self.is_fuel_metering_enabled() {
+            return Err(FuelError::fuel_metering_disabled());
+        }
+        Ok(())
+    }
+
+    /// Adds `delta` quantity of fuel to the remaining fuel.
+    ///
+    /// # Panics
+    ///
+    /// If this overflows the remaining fuel counter.
+    ///
+    /// # Errors
+    ///
+    /// If fuel metering is disabled.
+    pub fn add_fuel(&mut self, delta: u64) -> Result<(), FuelError> {
+        self.check_fuel_metering_enabled()?;
+        self.inner.fuel.add_fuel(delta);
+        Ok(())
+    }
+
+    /// Returns the amount of fuel consumed by executions of the [`Store`] so far.
+    ///
+    /// Returns `None` if fuel metering is disabled.
+    pub fn fuel_consumed(&self) -> Option<u64> {
+        self.check_fuel_metering_enabled().ok()?;
+        Some(self.inner.fuel.fuel_consumed())
+    }
+
+    /// Replaces the raw remaining fuel and returns its previous value.
+    ///
+    /// This operation records neither a fuel grant nor fuel consumption, so the
+    /// value reported by [`Store::fuel_consumed`] is unchanged. It is intended
+    /// only for resumable-fuel schedulers that escrow remaining fuel externally.
+    ///
+    /// # Errors
+    ///
+    /// - If fuel metering or resumable fuel is disabled.
+    /// - If the replacement cannot be represented without overflowing the fuel
+    ///   counters.
+    pub fn replace_remaining_fuel(&mut self, remaining: u64) -> Result<u64, FuelError> {
+        self.check_fuel_metering_enabled()?;
+        if !self.engine().config().get_resumable_fuel() {
+            return Err(FuelError::fuel_metering_disabled());
+        }
+        self.inner
+            .fuel
+            .replace_remaining_fuel(remaining)
+            .ok_or_else(FuelError::out_of_fuel)
+    }
+
+    /// Synthetically consumes an amount of fuel for the [`Store`].
+    ///
+    /// Returns the remaining amount of fuel after this operation.
+    ///
+    /// # Panics
+    ///
+    /// If this overflows the consumed fuel counter.
+    ///
+    /// # Errors
+    ///
+    /// - If fuel metering is disabled.
+    /// - If more fuel is consumed than available.
+    pub fn consume_fuel(&mut self, delta: u64) -> Result<u64, FuelError> {
+        self.check_fuel_metering_enabled()?;
+        self.inner
+            .fuel
+            .consume_fuel(delta)
+            .map_err(|_error| FuelError::out_of_fuel())
+    }
+
+    /// Allocates a new [`TrampolineEntity`] and returns a [`Trampoline`] reference to it.
+    pub(super) fn alloc_trampoline(&mut self, func: TrampolineEntity<T>) -> Trampoline {
+        let idx = self.trampolines.alloc(func);
+        Trampoline::from_inner(self.inner.wrap_stored(idx))
+    }
+
+    /// Returns an exclusive reference to the [`MemoryEntity`] associated to the given [`Memory`]
+    /// and an exclusive reference to the user provided host state.
+    ///
+    /// # Note
+    ///
+    /// This method exists to properly handle use cases where
+    /// otherwise the Rust borrow-checker would not accept.
+    ///
+    /// # Panics
+    ///
+    /// - If the [`Memory`] does not originate from this [`Store`].
+    /// - If the [`Memory`] cannot be resolved to its entity.
+    pub(super) fn resolve_memory_and_state_mut(
+        &mut self,
+        memory: &Memory,
+    ) -> (&mut MemoryEntity, &mut T) {
+        (self.inner.resolve_memory_mut(memory), &mut self.data)
+    }
+
+    /// Returns a shared reference to the associated entity of the host function trampoline.
+    ///
+    /// # Panics
+    ///
+    /// - If the [`Trampoline`] does not originate from this [`Store`].
+    /// - If the [`Trampoline`] cannot be resolved to its entity.
+    pub(super) fn resolve_trampoline(&self, func: &Trampoline) -> &TrampolineEntity<T> {
+        let entity_index = self.inner.unwrap_stored(func.as_inner());
+        self.trampolines
+            .get(entity_index)
+            .unwrap_or_else(|| panic!("failed to resolve stored host function: {entity_index:?}"))
+    }
+}
+
+/// A trait used to get shared access to a [`Store`] in `wasmi`.
+pub trait AsContext {
+    /// The user state associated with the [`Store`], aka the `T` in `Store<T>`.
+    type UserState;
+
+    /// Returns the store context that this type provides access to.
+    fn as_context(&self) -> StoreContext<Self::UserState>;
+}
+
+/// A trait used to get exclusive access to a [`Store`] in `wasmi`.
+pub trait AsContextMut: AsContext {
+    /// Returns the store context that this type provides access to.
+    fn as_context_mut(&mut self) -> StoreContextMut<Self::UserState>;
+}
+
+/// A temporary handle to a [`&Store<T>`][`Store`].
+///
+/// This type is suitable for [`AsContext`] trait bounds on methods if desired.
+/// For more information, see [`Store`].
+#[derive(Debug, Copy, Clone)]
+#[repr(transparent)]
+pub struct StoreContext<'a, T> {
+    pub(crate) store: &'a Store<T>,
+}
+
+impl<'a, T> StoreContext<'a, T> {
+    /// Returns the underlying [`Engine`] this store is connected to.
+    pub fn engine(&self) -> &Engine {
+        self.store.engine()
+    }
+
+    /// Access the underlying data owned by this store.
+    ///
+    /// Same as [`Store::data`].    
+    pub fn data(&self) -> &T {
+        self.store.data()
+    }
+}
+
+impl<'a, T: AsContext> From<&'a T> for StoreContext<'a, T::UserState> {
+    #[inline]
+    fn from(ctx: &'a T) -> Self {
+        ctx.as_context()
+    }
+}
+
+impl<'a, T: AsContext> From<&'a mut T> for StoreContext<'a, T::UserState> {
+    #[inline]
+    fn from(ctx: &'a mut T) -> Self {
+        T::as_context(ctx)
+    }
+}
+
+impl<'a, T: AsContextMut> From<&'a mut T> for StoreContextMut<'a, T::UserState> {
+    #[inline]
+    fn from(ctx: &'a mut T) -> Self {
+        ctx.as_context_mut()
+    }
+}
+
+/// A temporary handle to a [`&mut Store<T>`][`Store`].
+///
+/// This type is suitable for [`AsContextMut`] or [`AsContext`] trait bounds on methods if desired.
+/// For more information, see [`Store`].
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct StoreContextMut<'a, T> {
+    pub(crate) store: &'a mut Store<T>,
+}
+
+impl<'a, T> StoreContextMut<'a, T> {
+    /// Returns the underlying [`Engine`] this store is connected to.
+    pub fn engine(&self) -> &Engine {
+        self.store.engine()
+    }
+
+    /// Access the underlying data owned by this store.
+    ///
+    /// Same as [`Store::data`].    
+    pub fn data(&self) -> &T {
+        self.store.data()
+    }
+
+    /// Access the underlying data owned by this store.
+    ///
+    /// Same as [`Store::data_mut`].    
+    pub fn data_mut(&mut self) -> &mut T {
+        self.store.data_mut()
+    }
+}
+
+impl<T> AsContext for &'_ T
+where
+    T: AsContext,
+{
+    type UserState = T::UserState;
+
+    #[inline]
+    fn as_context(&self) -> StoreContext<'_, T::UserState> {
+        T::as_context(*self)
+    }
+}
+
+impl<T> AsContext for &'_ mut T
+where
+    T: AsContext,
+{
+    type UserState = T::UserState;
+
+    #[inline]
+    fn as_context(&self) -> StoreContext<'_, T::UserState> {
+        T::as_context(*self)
+    }
+}
+
+impl<T> AsContextMut for &'_ mut T
+where
+    T: AsContextMut,
+{
+    #[inline]
+    fn as_context_mut(&mut self) -> StoreContextMut<'_, T::UserState> {
+        T::as_context_mut(*self)
+    }
+}
+
+impl<T> AsContext for StoreContext<'_, T> {
+    type UserState = T;
+
+    #[inline]
+    fn as_context(&self) -> StoreContext<'_, Self::UserState> {
+        StoreContext { store: self.store }
+    }
+}
+
+impl<T> AsContext for StoreContextMut<'_, T> {
+    type UserState = T;
+
+    #[inline]
+    fn as_context(&self) -> StoreContext<'_, Self::UserState> {
+        StoreContext { store: self.store }
+    }
+}
+
+impl<T> AsContextMut for StoreContextMut<'_, T> {
+    #[inline]
+    fn as_context_mut(&mut self) -> StoreContextMut<'_, Self::UserState> {
+        StoreContextMut {
+            store: &mut *self.store,
+        }
+    }
+}
+
+impl<T> AsContext for Store<T> {
+    type UserState = T;
+
+    #[inline]
+    fn as_context(&self) -> StoreContext<'_, Self::UserState> {
+        StoreContext { store: self }
+    }
+}
+
+impl<T> AsContextMut for Store<T> {
+    #[inline]
+    fn as_context_mut(&mut self) -> StoreContextMut<'_, Self::UserState> {
+        StoreContextMut { store: self }
+    }
+}

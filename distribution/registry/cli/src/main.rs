@@ -1,0 +1,431 @@
+use std::path::PathBuf;
+
+use anyhow::{bail, Result};
+use clap::{Parser, Subcommand};
+use registry_core::module_audit::ModuleAuditRollbackDiagnosticRequest;
+use registry_core::module_grant::ComputeCapabilityGrantRequest;
+use registry_core::{
+    DistributionExportRequest, DistributionReceiverIdentityPaths, EvidenceFile, ListFilter,
+    PublishRequest, Registry,
+};
+
+#[derive(Parser, Debug)]
+#[command(about = "Seed OS registry management tooling", version)]
+struct Args {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Initialize a content-addressed registry layout
+    Init {
+        /// Directory to initialize
+        #[arg(long, default_value = "distribution/registry/local")]
+        path: PathBuf,
+    },
+    /// Publish a signed blob + manifest into the registry
+    Publish {
+        /// Registry root directory
+        #[arg(long, default_value = "distribution/registry/local")]
+        registry: PathBuf,
+        /// Blob content to store
+        #[arg(long)]
+        blob: PathBuf,
+        /// Signed manifest JSON (output of ota-sign/mod-sign)
+        #[arg(long)]
+        manifest: PathBuf,
+        /// Offline root public key (hex file)
+        #[arg(long)]
+        root_pub: PathBuf,
+        /// Logical namespace (e.g. modules, ota)
+        #[arg(long, default_value = "modules")]
+        namespace: String,
+        /// Logical name (defaults to metadata.module_id or blob hash)
+        #[arg(long)]
+        name: Option<String>,
+        /// Version or tag (defaults to metadata.module_version or blob hash)
+        #[arg(long)]
+        version: Option<String>,
+        /// Shadow-VM test report JSON to bind as evidence
+        #[arg(long = "vm-report")]
+        vm_reports: Vec<PathBuf>,
+        /// Local attestation JSON to bind as evidence
+        #[arg(long = "local-attestation")]
+        local_attestations: Vec<PathBuf>,
+    },
+    /// List registry index entries
+    List {
+        /// Registry root directory
+        #[arg(long, default_value = "distribution/registry/local")]
+        registry: PathBuf,
+        /// Filter to namespace
+        #[arg(long)]
+        namespace: Option<String>,
+        /// Filter to logical name
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Export a registry CAS entry as serial distribution commands
+    DistributionExport {
+        /// Registry root directory
+        #[arg(long, default_value = "distribution/registry/local")]
+        registry: PathBuf,
+        /// Logical namespace
+        #[arg(long, default_value = "modules")]
+        namespace: String,
+        /// Logical name
+        #[arg(long)]
+        name: String,
+        /// Version or tag
+        #[arg(long)]
+        tag: String,
+        /// Number of bounded serial chunks to emit
+        #[arg(long, default_value_t = 3)]
+        chunk_count: usize,
+        /// raiOS artifact identity descriptor .desc file
+        #[arg(long)]
+        artifact_identity_descriptor: Option<PathBuf>,
+        /// raiOS artifact identity descriptor P-256 public key hex file
+        #[arg(long)]
+        artifact_identity_public_key: Option<PathBuf>,
+        /// raiOS artifact identity descriptor P-256 DER signature hex file
+        #[arg(long)]
+        artifact_identity_signature: Option<PathBuf>,
+        /// raiOS current-boot load descriptor .desc file
+        #[arg(long)]
+        load_descriptor: Option<PathBuf>,
+        /// raiOS current-boot load descriptor P-256 public key hex file
+        #[arg(long)]
+        load_descriptor_public_key: Option<PathBuf>,
+        /// raiOS current-boot load descriptor P-256 DER signature hex file
+        #[arg(long)]
+        load_descriptor_signature: Option<PathBuf>,
+    },
+    /// Compute a non-authorizing module capability grant diagnostic
+    GrantDiagnostic {
+        /// raiOS module_manifest.v0 JSON
+        #[arg(long)]
+        manifest: PathBuf,
+        /// Candidate artifact bytes bound by the manifest
+        #[arg(long)]
+        artifact: PathBuf,
+        /// Shadow VM test report JSON
+        #[arg(long = "vm-report")]
+        vm_report: PathBuf,
+        /// Local attestation JSON
+        #[arg(long = "local-attestation")]
+        local_attestation: PathBuf,
+        /// Exact local approval phrase for the evidence tuple
+        #[arg(long)]
+        approval: String,
+        /// Capability being evaluated
+        #[arg(long, default_value = "cap.module.load_ephemeral")]
+        requested_capability: String,
+        /// Requested load mode
+        #[arg(long, default_value = "ram_only")]
+        load_mode: String,
+        /// Subject for the diagnostic request
+        #[arg(long, default_value = "agent.session.serial")]
+        subject: String,
+        /// Resource being evaluated
+        #[arg(long, default_value = "live_service_graph")]
+        resource: String,
+        /// Scope for the diagnostic request
+        #[arg(long, default_value = "current_boot")]
+        scope: String,
+        /// Expected local attestation SHA-256, with or without sha256: prefix
+        #[arg(long)]
+        expected_local_attestation_sha256: Option<String>,
+        /// Print rejected diagnostics instead of exiting with an error
+        #[arg(long)]
+        allow_invalid: bool,
+    },
+    /// Compute non-authorizing module audit and rollback diagnostics
+    AuditRollbackDiagnostic {
+        /// raiOS module_manifest.v0 JSON
+        #[arg(long)]
+        manifest: PathBuf,
+        /// Candidate artifact bytes bound by the manifest
+        #[arg(long)]
+        artifact: PathBuf,
+        /// Shadow VM test report JSON
+        #[arg(long = "vm-report")]
+        vm_report: PathBuf,
+        /// Local attestation JSON
+        #[arg(long = "local-attestation")]
+        local_attestation: PathBuf,
+        /// Exact local approval phrase for the evidence tuple
+        #[arg(long)]
+        approval: String,
+        /// Expected computed capability grant hash, with or without sha256: prefix
+        #[arg(long = "computed-grant-hash")]
+        computed_capability_grant_hash: String,
+        /// Denied module.load_ephemeral event id, e.g. event.current_boot.00000031
+        #[arg(long)]
+        denial_event_id: String,
+        /// Retained module computed-grant reference event id
+        #[arg(long)]
+        retained_reference_event_id: String,
+        /// Planned ram-only service slot id; must use ram_only: prefix
+        #[arg(long)]
+        ram_only_service_slot_id: String,
+        /// Service slot id bound inside rollback plan; defaults to ram-only service slot id
+        #[arg(long)]
+        rollback_service_slot_id: Option<String>,
+        /// Pre-load service.inventory hash, with or without sha256: prefix
+        #[arg(long)]
+        pre_load_service_inventory_hash: String,
+        /// Cleanup-actions hash, with or without sha256: prefix
+        #[arg(long)]
+        cleanup_actions_hash: String,
+        /// Optional expected rollback plan hash for negative validation
+        #[arg(long)]
+        expected_rollback_plan_hash: Option<String>,
+        /// Optional expected audit record hash for negative validation
+        #[arg(long)]
+        expected_audit_record_hash: Option<String>,
+        /// Capability being evaluated
+        #[arg(long, default_value = "cap.module.load_ephemeral")]
+        requested_capability: String,
+        /// Requested load mode
+        #[arg(long, default_value = "ram_only")]
+        load_mode: String,
+        /// Subject for the diagnostic request
+        #[arg(long, default_value = "agent.session.serial")]
+        subject: String,
+        /// Resource being evaluated
+        #[arg(long, default_value = "live_service_graph")]
+        resource: String,
+        /// Scope for the diagnostic request
+        #[arg(long, default_value = "current_boot")]
+        scope: String,
+        /// Expected local attestation SHA-256, with or without sha256: prefix
+        #[arg(long)]
+        expected_local_attestation_sha256: Option<String>,
+        /// Print rejected diagnostics instead of exiting with an error
+        #[arg(long)]
+        allow_invalid: bool,
+    },
+}
+
+fn main() -> Result<()> {
+    let args = Args::parse();
+    match args.command {
+        Command::Init { path } => {
+            Registry::new(path).init()?;
+        }
+        Command::Publish {
+            registry,
+            blob,
+            manifest,
+            root_pub,
+            namespace,
+            name,
+            version,
+            vm_reports,
+            local_attestations,
+        } => {
+            let registry = Registry::new(registry);
+            registry.init()?;
+            let evidence_files = vm_reports
+                .into_iter()
+                .map(EvidenceFile::vm_test_report)
+                .chain(
+                    local_attestations
+                        .into_iter()
+                        .map(EvidenceFile::local_attestation),
+                )
+                .collect();
+            let result = registry.publish(PublishRequest {
+                blob,
+                manifest,
+                root_pub,
+                namespace,
+                name,
+                version,
+                evidence_files,
+            })?;
+            println!(
+                "stored {} bytes as {} (namespace={} name={} tag={} evidence={})",
+                result.record.payload_len,
+                result.record.payload_hash,
+                result.namespace,
+                result.record.logical_name,
+                result.tag,
+                result.record.evidence.len(),
+            );
+        }
+        Command::List {
+            registry,
+            namespace,
+            name,
+        } => {
+            let registry = Registry::new(registry);
+            let entries = registry.list(ListFilter {
+                namespace: namespace.as_deref(),
+                name: name.as_deref(),
+            })?;
+            if entries.is_empty() {
+                println!("(empty)");
+            } else {
+                for entry in entries {
+                    let version = entry.record.logical_version.as_deref().unwrap_or("<hash>");
+                    println!(
+                        "[{ns}] {name} {version} -> {hash} ({len} bytes, evidence={evidence})",
+                        ns = entry.namespace,
+                        name = entry.record.logical_name,
+                        version = version,
+                        hash = entry.record.payload_hash,
+                        len = entry.record.payload_len,
+                        evidence = entry.record.evidence.len(),
+                    );
+                }
+            }
+        }
+        Command::DistributionExport {
+            registry,
+            namespace,
+            name,
+            tag,
+            chunk_count,
+            artifact_identity_descriptor,
+            artifact_identity_public_key,
+            artifact_identity_signature,
+            load_descriptor,
+            load_descriptor_public_key,
+            load_descriptor_signature,
+        } => {
+            let registry = Registry::new(registry);
+            let receiver_identity = match (
+                artifact_identity_descriptor,
+                artifact_identity_public_key,
+                artifact_identity_signature,
+                load_descriptor,
+                load_descriptor_public_key,
+                load_descriptor_signature,
+            ) {
+                (
+                    Some(artifact_identity_descriptor),
+                    Some(artifact_identity_public_key),
+                    Some(artifact_identity_signature),
+                    Some(load_descriptor),
+                    Some(load_descriptor_public_key),
+                    Some(load_descriptor_signature),
+                ) => Some(DistributionReceiverIdentityPaths {
+                    artifact_identity_descriptor,
+                    artifact_identity_public_key,
+                    artifact_identity_signature,
+                    load_descriptor,
+                    load_descriptor_public_key,
+                    load_descriptor_signature,
+                }),
+                (None, None, None, None, None, None) => None,
+                _ => bail!("receiver identity export requires all six descriptor/signature paths"),
+            };
+            let export = registry.distribution_serial_export(DistributionExportRequest {
+                namespace: &namespace,
+                name: &name,
+                tag: &tag,
+                chunk_count,
+                receiver_identity,
+            })?;
+            println!("{}", serde_json::to_string_pretty(&export)?);
+        }
+        Command::GrantDiagnostic {
+            manifest,
+            artifact,
+            vm_report,
+            local_attestation,
+            approval,
+            requested_capability,
+            load_mode,
+            subject,
+            resource,
+            scope,
+            expected_local_attestation_sha256,
+            allow_invalid,
+        } => {
+            let mut request = ComputeCapabilityGrantRequest::new(
+                manifest,
+                artifact,
+                vm_report,
+                local_attestation,
+                approval,
+            );
+            request.requested_capability = requested_capability;
+            request.load_mode = load_mode;
+            request.subject = subject;
+            request.resource = resource;
+            request.scope = scope;
+            request.expected_local_attestation_sha256 = expected_local_attestation_sha256;
+            let diagnostic = registry_core::module_grant::compute_capability_grant(&request)?;
+            println!("{}", serde_json::to_string_pretty(&diagnostic)?);
+            if !diagnostic.valid_evidence && !allow_invalid {
+                anyhow::bail!(
+                    "computed grant diagnostic rejected evidence: {}",
+                    diagnostic.denial_reasons.join(", ")
+                );
+            }
+        }
+        Command::AuditRollbackDiagnostic {
+            manifest,
+            artifact,
+            vm_report,
+            local_attestation,
+            approval,
+            computed_capability_grant_hash,
+            denial_event_id,
+            retained_reference_event_id,
+            ram_only_service_slot_id,
+            rollback_service_slot_id,
+            pre_load_service_inventory_hash,
+            cleanup_actions_hash,
+            expected_rollback_plan_hash,
+            expected_audit_record_hash,
+            requested_capability,
+            load_mode,
+            subject,
+            resource,
+            scope,
+            expected_local_attestation_sha256,
+            allow_invalid,
+        } => {
+            let mut grant_request = ComputeCapabilityGrantRequest::new(
+                manifest,
+                artifact,
+                vm_report,
+                local_attestation,
+                approval,
+            );
+            grant_request.requested_capability = requested_capability;
+            grant_request.load_mode = load_mode;
+            grant_request.subject = subject;
+            grant_request.resource = resource;
+            grant_request.scope = scope;
+            grant_request.expected_local_attestation_sha256 = expected_local_attestation_sha256;
+            let diagnostic = registry_core::module_audit::compute_audit_rollback_diagnostic(
+                &ModuleAuditRollbackDiagnosticRequest {
+                    grant_request,
+                    computed_capability_grant_hash,
+                    denial_event_id,
+                    retained_reference_event_id,
+                    ram_only_service_slot_id,
+                    rollback_service_slot_id,
+                    pre_load_service_inventory_hash,
+                    cleanup_actions_hash,
+                    expected_rollback_plan_hash,
+                    expected_audit_record_hash,
+                },
+            )?;
+            println!("{}", serde_json::to_string_pretty(&diagnostic)?);
+            if !diagnostic.valid_evidence && !allow_invalid {
+                anyhow::bail!(
+                    "module audit/rollback diagnostic rejected evidence: {}",
+                    diagnostic.denial_reasons.join(", ")
+                );
+            }
+        }
+    }
+    Ok(())
+}

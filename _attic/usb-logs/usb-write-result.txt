@@ -1,0 +1,1 @@
+OK letter=D: BOOTX64=True kernel=True kernelBytes=18372856 label=RAIOS

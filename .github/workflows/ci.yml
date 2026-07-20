@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  host-tests:
+    name: raios-core host tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Run raios-core tests
+        run: cargo test --locked -p raios-core
+
+  kernel-build:
+    name: seed-kernel release build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned nightly toolchain
+        run: rustup toolchain install nightly-2024-10-15 --profile minimal --component rust-src --component llvm-tools-preview
+      - name: Build seed-kernel (release, build-std)
+        env:
+          RUSTFLAGS: "-C link-arg=-Tseed-kernel/linker.ld -C relocation-model=static -C code-model=kernel -C force-frame-pointers=yes -C link-arg=--gc-sections"
+        run: cargo +nightly-2024-10-15 -Zbuild-std=core,compiler_builtins,alloc build --locked --target seed-kernel/x86_64-seed.json -p seed-kernel --release
+      - name: Upload kernel ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: seed-kernel-release
+          path: target/x86_64-seed/release/seed-kernel
+
+  vm-smoke:
+    name: shadow VM quick profile
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      # The seed-kernel build script verifies P-256 signatures over raw
+      # source bytes; CRLF checkout conversion on Windows breaks them.
+      - name: Force LF checkout
+        run: git config --global core.autocrlf false
+        shell: powershell
+      - uses: actions/checkout@v4
+      - name: Install QEMU
+        run: choco install qemu -y --no-progress
+        shell: powershell
+      - name: Install pinned nightly toolchain
+        run: rustup toolchain install nightly-2024-10-15 --profile minimal --component rust-src --component llvm-tools-preview
+        shell: powershell
+      - name: Run quick smoke profile
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1 -Profile quick -TimeoutSeconds 900 -SerialWriteChunkSize 16 -SerialWriteDelayMilliseconds 10
+        shell: powershell
+      - name: Upload VM report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vm-quick-report
+          path: release/vm-reports/

@@ -1,0 +1,4931 @@
+use alloc::{format, string::String, vec, vec::Vec};
+use core::str;
+
+use spin::Mutex;
+
+use crate::{
+    agent_protocol::artifact_store,
+    agent_protocol_support::{
+        begin_response, emit_record_fields, end_response, record_bool as b, record_field as f,
+        record_sha_or_null, record_str as s,
+    },
+    ahci, event_log, pci,
+};
+use raios_core::{
+    boot_control::BootPosture,
+    durable_record_frame::{
+        durable_record_log_scan_fields, parse_reclog_frame, plan_reclog_append, scan_reclog,
+        scan_reclog_payloads, PlannedAppend, RecordLogScan, DURABLE_RECORD_LOG_SCAN_SCHEMA,
+        RECLOG_FRAME_HEADER_LEN, RECLOG_SECTOR_SIZE,
+    },
+    memory_record::{
+        self, MemoryKind, MemoryRecord, MemoryRecordInput, MemoryRecordView, MemorySource,
+    },
+    memory_record_resolve::resolve_durable_memory,
+    project_install::{
+        install_action_signature_payload_sha256, seal_granted_candidate_install_envelope,
+        seal_install_action, seal_ui_program_install_envelope, GrantedCandidateInstallEnvelope,
+        ProjectInstallAction, ProjectInstallActionKind, ProjectInstallAuthority,
+        UiProgramInstallEnvelope, GRANTED_CANDIDATE_INSTALL_ENVELOPE_VERSION,
+        PROJECT_INSTALL_TRUST_TIER, UI_PROGRAM_INSTALL_SUBJECT_KIND,
+    },
+    promotion_attestation::verify_promotion_authority_signature,
+    promotion_attestation::{
+        PLACEHOLDER_PROMOTION_AUTHORITY_PUBLIC_KEY_SHA256, PROMOTION_AUTHORITY_IS_PLACEHOLDER,
+    },
+    record::{write_json, Field, Value as V},
+    scoped_memory_record_append::{
+        evaluate_scoped_memory_record_append, ScopedMemoryRecordAppendInput,
+        EXPECTED_METHOD as MEMORY_EXPECTED_METHOD,
+        EXPECTED_RECORD_SCHEMA as MEMORY_EXPECTED_RECORD_SCHEMA,
+        EXPECTED_REGION_MARKER as MEMORY_EXPECTED_REGION_MARKER,
+        EXPECTED_TARGET_ID as MEMORY_EXPECTED_TARGET_ID,
+        EXPECTED_TRUST_TIER as MEMORY_EXPECTED_TRUST_TIER,
+    },
+    scoped_promotion_transaction_append::{
+        evaluate_scoped_promotion_transaction_append, ScopedPromotionSubject,
+        ScopedPromotionTransactionAppendInput, EXPECTED_METHOD as PROMOTION_EXPECTED_METHOD,
+        EXPECTED_RECORD_SCHEMA as PROMOTION_EXPECTED_RECORD_SCHEMA,
+        EXPECTED_REGION_MARKER as PROMOTION_EXPECTED_REGION_MARKER,
+        EXPECTED_TARGET_ID as PROMOTION_EXPECTED_TARGET_ID,
+        EXPECTED_TRUST_TIER as PROMOTION_EXPECTED_TRUST_TIER,
+    },
+    scoped_recovery_action_append::{
+        evaluate_scoped_recovery_action_append, ScopedRecoveryActionAppendInput,
+        EXPECTED_ACTION_KIND as RECOVERY_ACTION_EXPECTED_ACTION_KIND,
+        EXPECTED_ACTION_KIND_RESTART_LAST_GOOD as RECOVERY_ACTION_EXPECTED_ACTION_KIND_RESTART_LAST_GOOD,
+        EXPECTED_METHOD as RECOVERY_ACTION_EXPECTED_METHOD,
+        EXPECTED_RECORD_SCHEMA as RECOVERY_ACTION_EXPECTED_RECORD_SCHEMA,
+        EXPECTED_REGION_MARKER as RECOVERY_ACTION_EXPECTED_REGION_MARKER,
+        EXPECTED_TARGET_ID as RECOVERY_ACTION_EXPECTED_TARGET_ID,
+        EXPECTED_TRUST_TIER as RECOVERY_ACTION_EXPECTED_TRUST_TIER,
+    },
+    scoped_recovery_load_append::{
+        evaluate_scoped_recovery_load_append, ScopedRecoveryLoadAppendInput,
+        DECISION_STATUS_REINSTATED as RECOVERY_LOAD_DECISION_STATUS_REINSTATED,
+        EXPECTED_METHOD as RECOVERY_LOAD_EXPECTED_METHOD,
+        EXPECTED_RECORD_SCHEMA as RECOVERY_LOAD_EXPECTED_RECORD_SCHEMA,
+        EXPECTED_REGION_MARKER as RECOVERY_LOAD_EXPECTED_REGION_MARKER,
+        EXPECTED_TARGET_ID as RECOVERY_LOAD_EXPECTED_TARGET_ID,
+        EXPECTED_TRUST_TIER as RECOVERY_LOAD_EXPECTED_TRUST_TIER,
+    },
+    scoped_seed_data_append::{
+        evaluate_scoped_seed_data_append, ScopedSeedDataAppendInput, EXPECTED_METHOD,
+        EXPECTED_RECORD_SCHEMA, EXPECTED_REGION_MARKER, EXPECTED_TARGET_ID,
+    },
+    scoped_wasm_import_grant::PERSONAL_SHELL_SERVICE_ID,
+    sha256_bytes,
+    ui_program::{MAX_PROGRAM_BYTES, PROGRAM_ABI_VERSION},
+    wasm_import_grant_event::{
+        fold_events, parse_event, rollback_delta, rollback_revoke_record_id,
+        FoldError as WasmGrantFoldError, GrantEvent, GrantEventError as WasmGrantEventError,
+        GrantEventKind, HostImportId as DurableHostImportId, ProjectionSlot,
+        EVENT_AUTHORITY as WASM_GRANT_EVENT_AUTHORITY, GRANT_PREDICATE as WASM_GRANT_PREDICATE,
+        REVOKE_PREDICATE as WASM_REVOKE_PREDICATE,
+    },
+    ByteSink,
+};
+
+const METHOD: &str = "durable.record_log_scan";
+const RECORD_LOG_SCAN_RECORD_CAP: usize = 16;
+const APPEND_METHOD: &str = "durable.record_log_append";
+const APPEND_SCHEMA: &str = "raios.durable_record_log_append.v0";
+const APPEND_ID: &str = "durable_record_log_append.seed_data.current_boot.v0";
+const PROMOTION_APPEND_METHOD: &str = "durable.promotion_transaction_append";
+const PROMOTION_APPEND_SCHEMA: &str = "raios.promotion_transaction_append.v0";
+const PROMOTION_APPEND_ID: &str = "promotion_transaction_append.seed_data.origin_boot.v0";
+const PROMOTION_TRANSACTION_SELFTEST_METHOD: &str = "module.promotion_transaction_selftest";
+const PROMOTION_TRANSACTION_SELFTEST_SCHEMA: &str =
+    "raios.promotion_transaction_append_selftest.v0";
+const PROMOTION_TRANSACTION_RECORD_KIND: &str = "promotion_transaction";
+const PROMOTION_TRANSACTION_RECORD_SCOPE: &str = "origin_boot";
+const PROMOTION_TRANSACTION_TRUST_TIER: &str = "dev_key_not_owner_sealed";
+const PROMOTION_TRANSACTION_MAX_PAYLOAD_LEN: usize = 4096 - RECLOG_FRAME_HEADER_LEN;
+pub(crate) const INSTALL_AUTHORIZATION_SCHEMA: &str = "raios.install_authorization.v0";
+const INSTALL_AUTHORIZATION_ID: &str =
+    "install_authorization.origin_boot.svc.dev.granted_candidate.v0";
+const UI_PROGRAM_INSTALL_AUTHORIZATION_ID: &str = "install_authorization.origin_boot.ui_program.v0";
+const INSTALL_AUTHORIZATION_RECORD_KIND: &str = "install_authorization";
+const INSTALL_AUTHORIZATION_MAX_PAYLOAD_LEN: usize = 4096 - RECLOG_FRAME_HEADER_LEN;
+// The V2 authorization and linked promotion payloads remain bounded to one
+// 4,096-byte RECLOG frame; the fixture self-test exercises their max wire shape.
+const RECOVERY_ACTION_SELFTEST_METHOD: &str = "recovery.disable_module_selftest";
+const RECOVERY_ACTION_SELFTEST_SCHEMA: &str = "raios.recovery_action_append_selftest.v0";
+const RECOVERY_ACTION_RECORD_KIND: &str = "recovery_action";
+const RECOVERY_ACTION_RECORD_SCOPE: &str = "current_boot";
+const RECOVERY_ACTION_TRUST_TIER: &str = "dev_key_not_owner_sealed";
+const RECOVERY_ACTION_MAX_PAYLOAD_LEN: usize = 4096 - RECLOG_FRAME_HEADER_LEN;
+pub(crate) const RECOVERY_ACTION_KIND_DISABLE_MODULE: &str = RECOVERY_ACTION_EXPECTED_ACTION_KIND;
+pub(crate) const RECOVERY_ACTION_KIND_RESTART_LAST_GOOD: &str =
+    RECOVERY_ACTION_EXPECTED_ACTION_KIND_RESTART_LAST_GOOD;
+pub(crate) const RECOVERY_ACTION_SCHEMA: &str = RECOVERY_ACTION_EXPECTED_RECORD_SCHEMA;
+pub(crate) const RECOVERY_ACTION_APPEND_TARGET_ID: &str = RECOVERY_ACTION_EXPECTED_TARGET_ID;
+pub(crate) const RECOVERY_ACTION_APPEND_REGION_MARKER: &str =
+    RECOVERY_ACTION_EXPECTED_REGION_MARKER;
+const RECOVERY_LOAD_RECORD_KIND: &str = "recovery_load";
+const RECOVERY_LOAD_RECORD_SCOPE: &str = "current_boot";
+const RECOVERY_LOAD_RECORD_CLASSIFICATION: &str = "local_only";
+const RECOVERY_LOAD_TRUST_TIER: &str = "dev_key_not_owner_sealed";
+const RECOVERY_LOAD_SERVICE_ID: &str = "svc.dev.granted_candidate";
+pub(crate) const RECOVERY_LOAD_SCHEMA: &str = RECOVERY_LOAD_EXPECTED_RECORD_SCHEMA;
+pub(crate) const RECOVERY_LOAD_APPEND_TARGET_ID: &str = RECOVERY_LOAD_EXPECTED_TARGET_ID;
+pub(crate) const RECOVERY_LOAD_APPEND_REGION_MARKER: &str = RECOVERY_LOAD_EXPECTED_REGION_MARKER;
+
+struct DurableRecordLogScanRecord {
+    seq: u64,
+    schema: String,
+    payload_sha256: [u8; 32],
+    frame_sha256: [u8; 32],
+}
+
+struct DurableRecordLogScanEvidence {
+    reason: &'static str,
+    controller: Option<pci::PciMassStorageController>,
+    controller_present: bool,
+    source_port_index: Option<u8>,
+    layout_status: &'static str,
+    data_layout_status: &'static str,
+    read_attempted: bool,
+    read_completed: bool,
+    region_bounds_valid: bool,
+    reclog_absolute_start_lba: u64,
+    reclog_lba_count: u64,
+    reclog_byte_count: u64,
+    scan: RecordLogScan,
+    records: Vec<DurableRecordLogScanRecord>,
+}
+
+impl DurableRecordLogScanEvidence {
+    fn absent(reason: &'static str) -> Self {
+        Self {
+            reason,
+            controller: None,
+            controller_present: false,
+            source_port_index: None,
+            layout_status: "absent",
+            data_layout_status: "absent",
+            read_attempted: false,
+            read_completed: false,
+            region_bounds_valid: false,
+            reclog_absolute_start_lba: 0,
+            reclog_lba_count: 0,
+            reclog_byte_count: 0,
+            scan: RecordLogScan::not_scanned(reason),
+            records: Vec::new(),
+        }
+    }
+}
+
+pub(crate) fn emit_durable_record_log_scan() {
+    let evidence = current_boot_reclog_scan_with_records();
+    let records = evidence
+        .records
+        .iter()
+        .map(durable_record_log_scan_record)
+        .collect();
+    let mut fields: Vec<Field<'_>> = durable_record_log_scan_fields(&evidence.scan);
+    fields.push(f("query_method", s(METHOD)));
+    fields.push(f("io_reason", s(evidence.reason)));
+    fields.push(f("controller_present", b(evidence.controller_present)));
+    fields.push(f(
+        "source_port_index",
+        match evidence.source_port_index {
+            Some(port) => V::U64(port as u64),
+            None => V::Null,
+        },
+    ));
+    fields.push(f("layout_status", s(evidence.layout_status)));
+    fields.push(f("data_layout_status", s(evidence.data_layout_status)));
+    fields.push(f("read_attempted", b(evidence.read_attempted)));
+    fields.push(f("read_completed", b(evidence.read_completed)));
+    fields.push(f("region_bounds_valid", b(evidence.region_bounds_valid)));
+    fields.push(f(
+        "reclog_absolute_start_lba",
+        V::U64(evidence.reclog_absolute_start_lba),
+    ));
+    fields.push(f("reclog_lba_count", V::U64(evidence.reclog_lba_count)));
+    fields.push(f("reclog_byte_count", V::U64(evidence.reclog_byte_count)));
+    fields.push(f("authority", s("evidence_only")));
+    fields.push(f("durable_append", s("capability_denied")));
+    fields.push(f("record_model_entry", s(DURABLE_RECORD_LOG_SCAN_SCHEMA)));
+    fields.push(f("records", V::Array(records)));
+
+    begin_response(METHOD);
+    emit_record_fields(fields, 6);
+    end_response(METHOD);
+}
+
+pub(crate) fn emit_durable_record_log_append() {
+    let evidence = current_boot_reclog_scan();
+    // M7C-2a: boot-control SAFE posture disables the durable append (more-restrictive
+    // precondition, evaluated before any plan/write). Normal|Probation preserve prior
+    // behavior; Safe|PersistenceUnavailable now deny. Probation MUST stay allowed so a
+    // boot-success audit append can escape probation (M7C-2b).
+    if !matches!(
+        super::boot_control::current_boot_posture(),
+        BootPosture::Normal | BootPosture::Probation
+    ) {
+        emit_append_record(
+            &evidence,
+            None,
+            None,
+            None,
+            false,
+            "capability_denied",
+            "boot_control_safe_mode",
+            "evidence_only",
+            None,
+        );
+        return;
+    }
+    let payload = durable_record_payload_bytes();
+    let planned = match plan_reclog_append(&evidence.scan, &payload, evidence.reclog_byte_count) {
+        Ok(planned) => planned,
+        Err(denied) => {
+            emit_append_record(
+                &evidence,
+                None,
+                None,
+                None,
+                false,
+                "capability_denied",
+                denied.reason(),
+                "evidence_only",
+                None,
+            );
+            return;
+        }
+    };
+
+    let Some(controller) = evidence.controller else {
+        emit_append_record(
+            &evidence,
+            Some(&planned),
+            None,
+            None,
+            false,
+            "capability_denied",
+            "ahci_controller_not_observed",
+            "evidence_only",
+            None,
+        );
+        return;
+    };
+
+    let write = unsafe {
+        ahci::write_readback_reclog_append(controller, planned.write_offset, &planned.frame)
+    };
+    let readback_sha256 = write.readback.as_deref().map(sha256_bytes);
+    let reparse_valid = write
+        .readback
+        .as_deref()
+        .map(|bytes| parse_reclog_frame(bytes, 0, planned.seq, planned.prev_frame_sha256).is_ok())
+        .unwrap_or(false);
+    let decision = evaluate_scoped_seed_data_append(&ScopedSeedDataAppendInput {
+        method: Some(EXPECTED_METHOD),
+        target_id: Some(EXPECTED_TARGET_ID),
+        record_schema: Some(EXPECTED_RECORD_SCHEMA),
+        region_marker: Some(EXPECTED_REGION_MARKER),
+        frame_len: Some(planned.frame_len),
+        write_offset: Some(planned.write_offset),
+        reclog_byte_count: Some(evidence.reclog_byte_count),
+        absolute_start_lba: Some(evidence.reclog_absolute_start_lba),
+        reclog_lba_count: Some(evidence.reclog_lba_count),
+        seq: Some(planned.seq),
+        tail_seq: Some(evidence.scan.tail_seq),
+        count: Some(evidence.scan.count),
+        prev_frame_sha256: Some(planned.prev_frame_sha256),
+        tail_frame_sha256: evidence.scan.tail_frame_sha256,
+        payload_sha256: Some(planned.payload_sha256),
+        planned_payload_sha256: Some(planned.payload_sha256),
+        planned_frame_sha256: Some(planned.frame_sha256),
+        readback_frame_sha256: readback_sha256,
+        write_attempted: write.write_attempted,
+        write_completed: write.write_completed,
+        readback_completed: write.readback_completed,
+        readback_matches_planned: readback_sha256 == Some(planned.frame_sha256),
+        reparse_valid,
+        span_in_bounds: write.span_in_bounds,
+    });
+
+    if !decision.performed {
+        emit_append_record(
+            &evidence,
+            Some(&planned),
+            Some(&write),
+            readback_sha256,
+            reparse_valid,
+            "capability_denied",
+            decision.reason,
+            "evidence_only",
+            None,
+        );
+        return;
+    }
+
+    let after = current_boot_reclog_scan();
+    let rescan_ok = evidence
+        .scan
+        .count
+        .checked_add(1)
+        .map(|count| after.scan.count == count)
+        .unwrap_or(false)
+        && after.scan.tail_seq == planned.seq
+        && after.scan.tail_frame_sha256 == Some(planned.frame_sha256);
+    if !rescan_ok {
+        emit_append_record(
+            &evidence,
+            Some(&planned),
+            Some(&write),
+            readback_sha256,
+            reparse_valid,
+            "capability_denied",
+            "post_append_rescan_mismatch",
+            "evidence_only",
+            Some(&after),
+        );
+        return;
+    }
+
+    emit_append_record(
+        &evidence,
+        Some(&planned),
+        Some(&write),
+        readback_sha256,
+        true,
+        "appended",
+        decision.reason,
+        "scoped_seed_data_append_authorized",
+        Some(&after),
+    );
+}
+
+struct VecSink(Vec<u8>);
+
+impl ByteSink for VecSink {
+    fn write_bytes(&mut self, bytes: &[u8]) {
+        self.0.extend_from_slice(bytes);
+    }
+}
+
+fn durable_record_payload_bytes() -> Vec<u8> {
+    let record = V::Object(vec![
+        f("schema", s(EXPECTED_RECORD_SCHEMA)),
+        f("id", s("durable_record.boot_lifecycle.current_boot.v0")),
+        f("scope", s("current_boot")),
+        f("classification", s("local_only")),
+        f("record_kind", s("boot_lifecycle_marker")),
+        f("mirrors", s("current_boot.boot_marker")),
+        f("persistence_claimed", b(false)),
+    ]);
+    let mut sink = VecSink(Vec::new());
+    write_json(&record, &mut sink, 0);
+    sink.0
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PromotionTransactionKind {
+    Promote,
+    Unpromote,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PromotionSubject {
+    GrantedCandidate,
+    UiProgram,
+}
+
+impl PromotionSubject {
+    const fn scoped(self) -> ScopedPromotionSubject {
+        match self {
+            Self::GrantedCandidate => ScopedPromotionSubject::GrantedCandidate,
+            Self::UiProgram => ScopedPromotionSubject::UiProgram,
+        }
+    }
+}
+
+impl PromotionTransactionKind {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Promote => "promote",
+            Self::Unpromote => "unpromote",
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct PromotionTransactionRecord {
+    pub(crate) transaction_kind: PromotionTransactionKind,
+    pub(crate) computed_grant_hash: [u8; 32],
+    pub(crate) manifest_hash: [u8; 32],
+    pub(crate) artifact_hash: [u8; 32],
+    pub(crate) vm_report_hash: [u8; 32],
+    pub(crate) local_attestation_hash: [u8; 32],
+    pub(crate) retained_manifest_reference_event_id: event_log::EventId,
+    pub(crate) retained_artifact_reference_event_id: event_log::EventId,
+    pub(crate) retained_vm_report_reference_event_id: event_log::EventId,
+    pub(crate) retained_reference_event_id: event_log::EventId,
+    pub(crate) manifest_reference_hash: [u8; 32],
+    pub(crate) artifact_reference_hash: [u8; 32],
+    pub(crate) vm_report_reference_hash: [u8; 32],
+    pub(crate) attestation_reference_hash: [u8; 32],
+    pub(crate) signature_der: [u8; event_log::MAX_PROMOTION_SIGNATURE_DER_LEN],
+    pub(crate) signature_len: usize,
+    pub(crate) signature_verified: bool,
+    pub(crate) signature_attestation_reference_hash: [u8; 32],
+    pub(crate) promotion_authority_key_sha256: [u8; 32],
+    pub(crate) grant_binds_capability: bool,
+    pub(crate) install_authorization_present: bool,
+    pub(crate) install_envelope_binds_activation: bool,
+    pub(crate) install_action_signature_verified: bool,
+    pub(crate) physical_install_approval_consumed: bool,
+    pub(crate) install_authorization_frame_sha256: [u8; 32],
+    pub(crate) install_envelope_version: u16,
+    pub(crate) grant_target_schema: &'static str,
+    pub(crate) grant_target_count: u64,
+    pub(crate) grant_target_snapshot_sha256: [u8; 32],
+    pub(crate) rollback_plan_hash: [u8; 32],
+    pub(crate) pre_load_inventory_hash: [u8; 32],
+    pub(crate) ram_only_service_slot_id: &'static str,
+    pub(crate) generation: u64,
+    pub(crate) load_event_id: event_log::EventId,
+    pub(crate) rollback_apply_event_id: Option<event_log::EventId>,
+    pub(crate) reprojected_inventory_hash: Option<[u8; 32]>,
+    pub(crate) restore_hash_verified: bool,
+    pub(crate) stopped: bool,
+    pub(crate) drop_clear_bytes: bool,
+    pub(crate) free_slot: bool,
+    pub(crate) remove_inventory: bool,
+    pub(crate) service_id: &'static str,
+    pub(crate) artifact_id: &'static str,
+    pub(crate) requested_capability: &'static str,
+    pub(crate) load_mode: &'static str,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct UiProgramPromotionTransactionRecord {
+    pub(crate) subject: PromotionSubject,
+    pub(crate) transaction_kind: PromotionTransactionKind,
+    pub(crate) engine_service_id: &'static str,
+    pub(crate) program_abi_version: u16,
+    pub(crate) canonical_program_sha256: [u8; 32],
+    pub(crate) canonical_program_byte_len: u64,
+    pub(crate) activation_approval_sha256: [u8; 32],
+    pub(crate) install_authorization_present: bool,
+    pub(crate) install_envelope_binds_activation: bool,
+    pub(crate) install_action_signature_verified: bool,
+    pub(crate) physical_install_approval_consumed: bool,
+    pub(crate) install_authorization_frame_sha256: [u8; 32],
+    pub(crate) canonical_verified: bool,
+    pub(crate) activation_approval_consumed: bool,
+    pub(crate) generation: u64,
+    pub(crate) rollback_apply_event_id: Option<event_log::EventId>,
+}
+
+pub(crate) enum PromotionTransactionRef<'a> {
+    GrantedCandidate(&'a PromotionTransactionRecord),
+    UiProgram(&'a UiProgramPromotionTransactionRecord),
+}
+
+pub(crate) trait PromotionTransactionRecordView {
+    fn promotion_transaction_ref(&self) -> PromotionTransactionRef<'_>;
+}
+
+impl PromotionTransactionRecordView for PromotionTransactionRecord {
+    fn promotion_transaction_ref(&self) -> PromotionTransactionRef<'_> {
+        PromotionTransactionRef::GrantedCandidate(self)
+    }
+}
+
+impl PromotionTransactionRecordView for UiProgramPromotionTransactionRecord {
+    fn promotion_transaction_ref(&self) -> PromotionTransactionRef<'_> {
+        PromotionTransactionRef::UiProgram(self)
+    }
+}
+
+impl PromotionTransactionRef<'_> {
+    fn subject(&self) -> PromotionSubject {
+        match self {
+            Self::GrantedCandidate(_) => PromotionSubject::GrantedCandidate,
+            Self::UiProgram(record) => record.subject,
+        }
+    }
+
+    fn transaction_kind(&self) -> PromotionTransactionKind {
+        match self {
+            Self::GrantedCandidate(record) => record.transaction_kind,
+            Self::UiProgram(record) => record.transaction_kind,
+        }
+    }
+
+    fn install_authorization_present(&self) -> bool {
+        match self {
+            Self::GrantedCandidate(record) => record.install_authorization_present,
+            Self::UiProgram(record) => record.install_authorization_present,
+        }
+    }
+
+    fn install_authorization_frame_sha256(&self) -> [u8; 32] {
+        match self {
+            Self::GrantedCandidate(record) => record.install_authorization_frame_sha256,
+            Self::UiProgram(record) => record.install_authorization_frame_sha256,
+        }
+    }
+
+    fn install_envelope_binds_activation(&self) -> bool {
+        match self {
+            Self::GrantedCandidate(record) => record.install_envelope_binds_activation,
+            Self::UiProgram(record) => record.install_envelope_binds_activation,
+        }
+    }
+
+    fn install_action_signature_verified(&self) -> bool {
+        match self {
+            Self::GrantedCandidate(record) => record.install_action_signature_verified,
+            Self::UiProgram(record) => record.install_action_signature_verified,
+        }
+    }
+
+    fn physical_install_approval_consumed(&self) -> bool {
+        match self {
+            Self::GrantedCandidate(record) => record.physical_install_approval_consumed,
+            Self::UiProgram(record) => record.physical_install_approval_consumed,
+        }
+    }
+
+    fn scoped_signature_verified(&self) -> bool {
+        match self {
+            Self::GrantedCandidate(record) => record.scoped_signature_verified(),
+            Self::UiProgram(record) => record.install_action_signature_verified,
+        }
+    }
+
+    fn grant_binds_capability(&self) -> bool {
+        match self {
+            Self::GrantedCandidate(record) => record.grant_binds_capability,
+            Self::UiProgram(record) => {
+                record.canonical_verified && record.activation_approval_consumed
+            }
+        }
+    }
+
+    fn canonical_verified(&self) -> bool {
+        matches!(self, Self::GrantedCandidate(_))
+            || matches!(self, Self::UiProgram(record) if record.canonical_verified)
+    }
+
+    fn activation_approval_consumed(&self) -> bool {
+        matches!(self, Self::GrantedCandidate(_))
+            || matches!(self, Self::UiProgram(record) if record.activation_approval_consumed)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct InstallAuthorizationRecord {
+    pub(crate) service_id: &'static str,
+    pub(crate) trust_tier: &'static str,
+    pub(crate) authorization: crate::granted_candidate_service::SignedInstallAuthorization,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct UiProgramInstallAuthorization {
+    pub(crate) subject: PromotionSubject,
+    pub(crate) engine_service_id: &'static str,
+    pub(crate) program_abi_version: u16,
+    pub(crate) canonical_program_sha256: [u8; 32],
+    pub(crate) canonical_program_byte_len: u64,
+    pub(crate) activation_approval_sha256: [u8; 32],
+    pub(crate) install_envelope_sha256: [u8; 32],
+    pub(crate) install_action_sha256: [u8; 32],
+    pub(crate) install_action_message_sha256: [u8; 32],
+    pub(crate) authority_evidence_sha256: [u8; 32],
+    pub(crate) physical_approval_sha256: [u8; 32],
+    pub(crate) authority_key_sha256: [u8; 32],
+    pub(crate) signature_der: [u8; 256],
+    pub(crate) signature_len: usize,
+    pub(crate) generation: u64,
+    pub(crate) log_sequence: u64,
+    pub(crate) previous_commit_sha256: Option<[u8; 32]>,
+    pub(crate) trust_tier: &'static str,
+}
+
+pub(crate) enum InstallAuthorizationRef<'a> {
+    GrantedCandidate(&'a InstallAuthorizationRecord),
+    UiProgram(&'a UiProgramInstallAuthorization),
+}
+
+pub(crate) trait InstallAuthorizationRecordView {
+    fn install_authorization_ref(&self) -> InstallAuthorizationRef<'_>;
+}
+
+impl InstallAuthorizationRecordView for InstallAuthorizationRecord {
+    fn install_authorization_ref(&self) -> InstallAuthorizationRef<'_> {
+        InstallAuthorizationRef::GrantedCandidate(self)
+    }
+}
+
+impl InstallAuthorizationRecordView for UiProgramInstallAuthorization {
+    fn install_authorization_ref(&self) -> InstallAuthorizationRef<'_> {
+        InstallAuthorizationRef::UiProgram(self)
+    }
+}
+
+pub(crate) fn validate_signed_install_authorization(
+    record: &impl InstallAuthorizationRecordView,
+) -> Result<(), &'static str> {
+    match record.install_authorization_ref() {
+        InstallAuthorizationRef::GrantedCandidate(record) => {
+            validate_granted_candidate_install_authorization(record)
+        }
+        InstallAuthorizationRef::UiProgram(record) => {
+            validate_ui_program_install_authorization(record)
+        }
+    }
+}
+
+fn validate_granted_candidate_install_authorization(
+    record: &InstallAuthorizationRecord,
+) -> Result<(), &'static str> {
+    let authorization = record.authorization;
+    let _envelope = bound_granted_candidate_install_envelope(record)?;
+    if authorization.signature_len == 0
+        || authorization.signature_len > authorization.signature_der.len()
+    {
+        return Err("install_action_signature_not_verified");
+    }
+    let signature = authorization.signature_der[..authorization
+        .signature_len
+        .min(authorization.signature_der.len())]
+        .to_vec();
+    let action = seal_install_action(ProjectInstallAction {
+        kind: ProjectInstallActionKind::Install,
+        authority: ProjectInstallAuthority::PhysicalOwner,
+        service_id: String::from(record.service_id),
+        generation: authorization.generation,
+        log_sequence: authorization.log_sequence,
+        previous_commit_sha256: None,
+        install_envelope_sha256: Some(authorization.install_envelope_sha256),
+        target_install_commit_sha256: None,
+        authority_evidence_sha256: authorization.authority_evidence_sha256,
+        physical_approval_sha256: Some(authorization.physical_approval_sha256),
+        authority_key_sha256: Some(authorization.authority_key_sha256),
+        authority_signature: signature,
+        action_sha256: [0; 32],
+    })
+    .map_err(|error| error.reason())?;
+    if action.action_sha256 != authorization.install_action_sha256
+        || install_action_signature_payload_sha256(&action).map_err(|error| error.reason())?
+            != authorization.install_action_message_sha256
+    {
+        return Err("install_action_signature_not_verified");
+    }
+    if !verify_promotion_authority_signature(
+        &action.authority_signature,
+        &authorization.install_action_message_sha256,
+    ) || authorization.authority_key_sha256 != PLACEHOLDER_PROMOTION_AUTHORITY_PUBLIC_KEY_SHA256
+    {
+        return Err("install_action_signature_not_verified");
+    }
+    Ok(())
+}
+
+fn bound_granted_candidate_install_envelope(
+    record: &InstallAuthorizationRecord,
+) -> Result<GrantedCandidateInstallEnvelope, &'static str> {
+    if record.trust_tier != PROMOTION_TRANSACTION_TRUST_TIER {
+        return Err("install_authorization_trust_tier_mismatch");
+    }
+    let authorization = record.authorization;
+    if authorization.install_envelope_version != GRANTED_CANDIDATE_INSTALL_ENVELOPE_VERSION
+        || authorization.grant_target_schema
+            != raios_core::wasm_import_grant_event::GRANT_TARGET_SNAPSHOT_SCHEMA
+        || authorization.grant_target_count
+            > raios_core::wasm_import_grant_event::MAX_PROJECTION_SLOTS as u64
+        || authorization.grant_target_snapshot_sha256 == [0; 32]
+    {
+        return Err("signed_snapshot_context_mismatch");
+    }
+    let envelope = seal_granted_candidate_install_envelope(GrantedCandidateInstallEnvelope {
+        envelope_version: authorization.install_envelope_version,
+        service_id: String::from(record.service_id),
+        candidate_sha256: authorization.candidate_sha256,
+        candidate_byte_len: authorization.candidate_byte_len,
+        activation_approval_sha256: authorization.activation_approval_sha256,
+        computed_grant_sha256: authorization.computed_grant_sha256,
+        attestation_reference_sha256: authorization.attestation_reference_sha256,
+        grant_target_schema: String::from(authorization.grant_target_schema),
+        grant_target_count: authorization.grant_target_count,
+        grant_target_snapshot_sha256: authorization.grant_target_snapshot_sha256,
+        w7_invocation_sha256: authorization.w7_invocation_sha256,
+        w7_receipt_sha256: authorization.w7_receipt_sha256,
+        receiver_content_sha256: authorization.receiver_content_sha256,
+        receiver_candidate_sha256: authorization.receiver_candidate_sha256,
+        catalog_candidate_sha256: authorization.catalog_candidate_sha256,
+        generation: authorization.generation,
+        auto_start: true,
+        trust_tier: String::from(PROMOTION_TRANSACTION_TRUST_TIER),
+        envelope_sha256: [0; 32],
+    })
+    .map_err(|error| error.reason())?;
+    if envelope.envelope_sha256 != authorization.install_envelope_sha256 {
+        return Err("install_envelope_binding_mismatch");
+    }
+    Ok(envelope)
+}
+
+/// Returns the exact V2 envelope only after its install action signature and
+/// envelope hash have both been re-derived from the durable authorization.
+pub(crate) fn verified_granted_candidate_install_envelope(
+    record: &InstallAuthorizationRecord,
+) -> Result<GrantedCandidateInstallEnvelope, &'static str> {
+    validate_granted_candidate_install_authorization(record)?;
+    bound_granted_candidate_install_envelope(record)
+}
+
+pub(crate) fn validate_ui_program_install_authorization(
+    authorization: &UiProgramInstallAuthorization,
+) -> Result<(), &'static str> {
+    if authorization.trust_tier != PROJECT_INSTALL_TRUST_TIER
+        || authorization.subject != PromotionSubject::UiProgram
+        || authorization.engine_service_id != PERSONAL_SHELL_SERVICE_ID
+        || authorization.program_abi_version != PROGRAM_ABI_VERSION
+        || authorization.canonical_program_sha256 == [0; 32]
+        || authorization.canonical_program_byte_len == 0
+        || authorization.canonical_program_byte_len > MAX_PROGRAM_BYTES as u64
+        || authorization.activation_approval_sha256 == [0; 32]
+        || authorization.signature_len == 0
+        || authorization.signature_len > authorization.signature_der.len()
+    {
+        return Err("ui_program_install_authorization_invalid");
+    }
+    let envelope = seal_ui_program_install_envelope(UiProgramInstallEnvelope {
+        subject_kind: String::from(UI_PROGRAM_INSTALL_SUBJECT_KIND),
+        engine_service_id: String::from(authorization.engine_service_id),
+        program_abi_version: authorization.program_abi_version,
+        canonical_program_sha256: authorization.canonical_program_sha256,
+        canonical_program_byte_len: authorization.canonical_program_byte_len,
+        activation_approval_sha256: authorization.activation_approval_sha256,
+        generation: authorization.generation,
+        auto_load: true,
+        trust_tier: String::from(authorization.trust_tier),
+        envelope_sha256: [0; 32],
+    })
+    .map_err(|error| error.reason())?;
+    if envelope.envelope_sha256 != authorization.install_envelope_sha256 {
+        return Err("install_envelope_binding_mismatch");
+    }
+    let action = seal_install_action(ProjectInstallAction {
+        kind: ProjectInstallActionKind::Install,
+        authority: ProjectInstallAuthority::PhysicalOwner,
+        service_id: String::from(authorization.engine_service_id),
+        generation: authorization.generation,
+        log_sequence: authorization.log_sequence,
+        previous_commit_sha256: authorization.previous_commit_sha256,
+        install_envelope_sha256: Some(authorization.install_envelope_sha256),
+        target_install_commit_sha256: None,
+        authority_evidence_sha256: authorization.authority_evidence_sha256,
+        physical_approval_sha256: Some(authorization.physical_approval_sha256),
+        authority_key_sha256: Some(authorization.authority_key_sha256),
+        authority_signature: authorization.signature_der[..authorization.signature_len].to_vec(),
+        action_sha256: [0; 32],
+    })
+    .map_err(|error| error.reason())?;
+    if action.action_sha256 != authorization.install_action_sha256
+        || install_action_signature_payload_sha256(&action).map_err(|error| error.reason())?
+            != authorization.install_action_message_sha256
+        || !verify_promotion_authority_signature(
+            &action.authority_signature,
+            &authorization.install_action_message_sha256,
+        )
+        || authorization.authority_key_sha256 != PLACEHOLDER_PROMOTION_AUTHORITY_PUBLIC_KEY_SHA256
+    {
+        return Err("install_action_signature_not_verified");
+    }
+    Ok(())
+}
+
+pub(crate) fn parse_ui_program_install_authorization_payload(
+    payload: &str,
+) -> Result<UiProgramInstallAuthorization, &'static str> {
+    if payload_str(payload, b"\"schema\": \"") != Some(INSTALL_AUTHORIZATION_SCHEMA)
+        || payload_str(payload, b"\"id\": \"") != Some(UI_PROGRAM_INSTALL_AUTHORIZATION_ID)
+        || payload_str(payload, b"\"scope\": \"") != Some(PROMOTION_TRANSACTION_RECORD_SCOPE)
+        || payload_str(payload, b"\"classification\": \"") != Some("local_only")
+        || payload_str(payload, b"\"record_kind\": \"") != Some(INSTALL_AUTHORIZATION_RECORD_KIND)
+        || payload_str(payload, b"\"subject_kind\": \"") != Some(UI_PROGRAM_INSTALL_SUBJECT_KIND)
+        || payload_str(payload, b"\"engine_service_id\": \"") != Some(PERSONAL_SHELL_SERVICE_ID)
+        || payload_str(payload, b"\"trust_tier\": \"") != Some(PROJECT_INSTALL_TRUST_TIER)
+        || artifact_store::extract_bool(payload, b"\"auto_load\": ") != Some(true)
+    {
+        return Err("ui_program_install_authorization_invalid");
+    }
+    let (signature_der, signature_len) =
+        parse_payload_hex_bytes(payload, b"\"install_signature_der\": \"")
+            .ok_or("install_action_signature_not_verified")?;
+    if artifact_store::extract_u64(payload, b"\"install_signature_len\": ")
+        != Some(signature_len as u64)
+    {
+        return Err("install_action_signature_not_verified");
+    }
+    let sha = |key| {
+        artifact_store::extract_sha256(payload, key)
+            .ok_or("ui_program_install_authorization_invalid")
+    };
+    let previous_commit_sha256 = if payload_contains(
+        payload.as_bytes(),
+        b"\"install_previous_commit_sha256\": null",
+    ) {
+        None
+    } else {
+        Some(sha(b"\"install_previous_commit_sha256\": \"")?)
+    };
+    let program_abi_version = artifact_store::extract_u64(payload, b"\"program_abi_version\": ")
+        .ok_or("ui_program_install_authorization_invalid")?;
+    if program_abi_version != PROGRAM_ABI_VERSION as u64 {
+        return Err("ui_program_install_authorization_invalid");
+    }
+    let authorization = UiProgramInstallAuthorization {
+        subject: PromotionSubject::UiProgram,
+        engine_service_id: PERSONAL_SHELL_SERVICE_ID,
+        program_abi_version: PROGRAM_ABI_VERSION,
+        canonical_program_sha256: sha(b"\"canonical_program_sha256\": \"")?,
+        canonical_program_byte_len: artifact_store::extract_u64(
+            payload,
+            b"\"canonical_program_byte_len\": ",
+        )
+        .ok_or("ui_program_install_authorization_invalid")?,
+        activation_approval_sha256: sha(b"\"activation_approval_sha256\": \"")?,
+        install_envelope_sha256: sha(b"\"install_envelope_sha256\": \"")?,
+        install_action_sha256: sha(b"\"install_action_sha256\": \"")?,
+        install_action_message_sha256: sha(b"\"install_action_signature_message_sha256\": \"")?,
+        authority_evidence_sha256: sha(b"\"authority_evidence_sha256\": \"")?,
+        physical_approval_sha256: sha(b"\"physical_approval_sha256\": \"")?,
+        authority_key_sha256: sha(b"\"install_authority_key_sha256\": \"")?,
+        signature_der,
+        signature_len,
+        generation: artifact_store::extract_u64(payload, b"\"install_generation\": ")
+            .ok_or("ui_program_install_authorization_invalid")?,
+        log_sequence: artifact_store::extract_u64(payload, b"\"install_log_sequence\": ")
+            .ok_or("ui_program_install_authorization_invalid")?,
+        previous_commit_sha256,
+        trust_tier: PROJECT_INSTALL_TRUST_TIER,
+    };
+    validate_ui_program_install_authorization(&authorization)?;
+    Ok(authorization)
+}
+
+pub(crate) fn parse_ui_program_promotion_transaction_payload(
+    payload: &str,
+) -> Result<UiProgramPromotionTransactionRecord, &'static str> {
+    let transaction_kind = match payload_str(payload, b"\"transaction_kind\": \"") {
+        Some("promote") => PromotionTransactionKind::Promote,
+        Some("unpromote") => PromotionTransactionKind::Unpromote,
+        _ => return Err("ui_program_promotion_decision_invalid"),
+    };
+    let expected_id = match transaction_kind {
+        PromotionTransactionKind::Promote => {
+            "promotion_transaction.origin_boot.promote.ui_program.v0"
+        }
+        PromotionTransactionKind::Unpromote => {
+            "promotion_transaction.origin_boot.unpromote.ui_program.v0"
+        }
+    };
+    if payload_str(payload, b"\"schema\": \"") != Some(PROMOTION_EXPECTED_RECORD_SCHEMA)
+        || payload_str(payload, b"\"id\": \"") != Some(expected_id)
+        || payload_str(payload, b"\"scope\": \"") != Some(PROMOTION_TRANSACTION_RECORD_SCOPE)
+        || payload_str(payload, b"\"classification\": \"") != Some("local_only")
+        || payload_str(payload, b"\"record_kind\": \"") != Some(PROMOTION_TRANSACTION_RECORD_KIND)
+        || payload_str(payload, b"\"subject_kind\": \"") != Some(UI_PROGRAM_INSTALL_SUBJECT_KIND)
+        || payload_str(payload, b"\"engine_service_id\": \"") != Some(PERSONAL_SHELL_SERVICE_ID)
+        || payload_str(payload, b"\"trust_tier\": \"") != Some(PROJECT_INSTALL_TRUST_TIER)
+        || artifact_store::extract_bool(payload, b"\"owner_sealed\": ") != Some(false)
+        || artifact_store::extract_bool(payload, b"\"cross_reboot_proven\": ") != Some(false)
+        || artifact_store::extract_bool(payload, b"\"persistence_claimed\": ") != Some(false)
+    {
+        return Err("ui_program_promotion_fields_invalid");
+    }
+    let rollback_apply_event_id =
+        if payload_contains(payload.as_bytes(), b"\"rollback_apply_event_id\": null") {
+            None
+        } else {
+            let value = payload_str(payload, b"\"rollback_apply_event_id\": \"")
+                .ok_or("ui_program_promotion_decision_invalid")?;
+            Some(
+                event_log::EventId::from_sequence(
+                    raios_core::parse_current_boot_event_sequence(value)
+                        .ok_or("ui_program_promotion_decision_invalid")?,
+                )
+                .ok_or("ui_program_promotion_decision_invalid")?,
+            )
+        };
+    let sha = |key| {
+        artifact_store::extract_sha256(payload, key).ok_or("ui_program_promotion_fields_invalid")
+    };
+    let program_abi_version = artifact_store::extract_u64(payload, b"\"program_abi_version\": ")
+        .ok_or("ui_program_promotion_fields_invalid")?;
+    if program_abi_version != PROGRAM_ABI_VERSION as u64 {
+        return Err("ui_program_promotion_fields_invalid");
+    }
+    let record = UiProgramPromotionTransactionRecord {
+        subject: PromotionSubject::UiProgram,
+        transaction_kind,
+        engine_service_id: PERSONAL_SHELL_SERVICE_ID,
+        program_abi_version: PROGRAM_ABI_VERSION,
+        canonical_program_sha256: sha(b"\"canonical_program_sha256\": \"")?,
+        canonical_program_byte_len: artifact_store::extract_u64(
+            payload,
+            b"\"canonical_program_byte_len\": ",
+        )
+        .ok_or("ui_program_promotion_fields_invalid")?,
+        activation_approval_sha256: sha(b"\"activation_approval_sha256\": \"")?,
+        install_authorization_present: artifact_store::extract_bool(
+            payload,
+            b"\"install_authorization_present\": ",
+        )
+        .ok_or("ui_program_promotion_fields_invalid")?,
+        install_envelope_binds_activation: artifact_store::extract_bool(
+            payload,
+            b"\"install_envelope_binds_activation\": ",
+        )
+        .ok_or("ui_program_promotion_fields_invalid")?,
+        install_action_signature_verified: artifact_store::extract_bool(
+            payload,
+            b"\"install_action_signature_verified\": ",
+        )
+        .ok_or("ui_program_promotion_fields_invalid")?,
+        physical_install_approval_consumed: artifact_store::extract_bool(
+            payload,
+            b"\"physical_install_approval_consumed\": ",
+        )
+        .ok_or("ui_program_promotion_fields_invalid")?,
+        install_authorization_frame_sha256: sha(b"\"install_authorization_frame_sha256\": \"")?,
+        canonical_verified: artifact_store::extract_bool(payload, b"\"canonical_verified\": ")
+            .ok_or("ui_program_promotion_fields_invalid")?,
+        activation_approval_consumed: artifact_store::extract_bool(
+            payload,
+            b"\"activation_approval_consumed\": ",
+        )
+        .ok_or("ui_program_promotion_fields_invalid")?,
+        generation: artifact_store::extract_u64(payload, b"\"generation\": ")
+            .ok_or("ui_program_promotion_fields_invalid")?,
+        rollback_apply_event_id,
+    };
+    validate_ui_program_promotion_transaction(&record)?;
+    Ok(record)
+}
+
+fn payload_str<'a>(payload: &'a str, needle: &[u8]) -> Option<&'a str> {
+    let bytes = payload.as_bytes();
+    let start = payload_find(bytes, needle)? + needle.len();
+    let end = bytes[start..].iter().position(|byte| *byte == b'"')? + start;
+    str::from_utf8(&bytes[start..end]).ok()
+}
+
+fn parse_payload_hex_bytes(payload: &str, key: &[u8]) -> Option<([u8; 256], usize)> {
+    let value = payload_str(payload, key)?;
+    if value.is_empty() || value.len() % 2 != 0 || value.len() / 2 > 256 {
+        return None;
+    }
+    let mut out = [0u8; 256];
+    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+        out[index] = (payload_hex_nibble(pair[0])? << 4) | payload_hex_nibble(pair[1])?;
+    }
+    Some((out, value.len() / 2))
+}
+
+fn payload_contains(haystack: &[u8], needle: &[u8]) -> bool {
+    payload_find(haystack, needle).is_some()
+}
+
+fn payload_find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    (!needle.is_empty() && needle.len() <= haystack.len())
+        .then(|| {
+            haystack
+                .windows(needle.len())
+                .position(|window| window == needle)
+        })
+        .flatten()
+}
+
+fn payload_hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+impl PromotionTransactionRecord {
+    fn signature_bytes(&self) -> &[u8] {
+        &self.signature_der[..self
+            .signature_len
+            .min(event_log::MAX_PROMOTION_SIGNATURE_DER_LEN)]
+    }
+
+    fn scoped_signature_verified(&self) -> bool {
+        self.signature_verified
+            && self.signature_len > 0
+            && self.signature_attestation_reference_hash == self.attestation_reference_hash
+            && self.promotion_authority_key_sha256
+                == PLACEHOLDER_PROMOTION_AUTHORITY_PUBLIC_KEY_SHA256
+    }
+
+    fn signed_snapshot_context_complete(&self) -> bool {
+        self.install_envelope_version == GRANTED_CANDIDATE_INSTALL_ENVELOPE_VERSION
+            && self.grant_target_schema
+                == raios_core::wasm_import_grant_event::GRANT_TARGET_SNAPSHOT_SCHEMA
+            && self.grant_target_count
+                <= raios_core::wasm_import_grant_event::MAX_PROJECTION_SLOTS as u64
+            && self.grant_target_snapshot_sha256 != [0; 32]
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct PromotionTransactionAppendEvidence {
+    pub(crate) transaction_kind: &'static str,
+    pub(crate) durable_append: &'static str,
+    pub(crate) performed: bool,
+    pub(crate) reason: &'static str,
+    pub(crate) authority: &'static str,
+    pub(crate) seq: Option<u64>,
+    pub(crate) write_offset: Option<u64>,
+    pub(crate) frame_len: Option<u64>,
+    pub(crate) payload_sha256: Option<[u8; 32]>,
+    pub(crate) frame_sha256: Option<[u8; 32]>,
+    pub(crate) readback_sha256: Option<[u8; 32]>,
+    pub(crate) reparse_valid: bool,
+    pub(crate) tail_seq_after: Option<u64>,
+    pub(crate) count_after: Option<u64>,
+    pub(crate) signature_verified: bool,
+    pub(crate) grant_binds_capability: bool,
+    pub(crate) trust_tier: &'static str,
+    pub(crate) promotion_authority_is_placeholder: bool,
+    pub(crate) owner_sealed: bool,
+    pub(crate) cross_reboot_proven: bool,
+    pub(crate) persistence_claimed: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct InstallAuthorizationAppendEvidence {
+    pub(crate) performed: bool,
+    pub(crate) reason: &'static str,
+    pub(crate) seq: Option<u64>,
+    pub(crate) write_offset: Option<u64>,
+    pub(crate) frame_sha256: Option<[u8; 32]>,
+}
+
+impl InstallAuthorizationAppendEvidence {
+    fn denied(reason: &'static str) -> Self {
+        Self {
+            performed: false,
+            reason,
+            seq: None,
+            write_offset: None,
+            frame_sha256: None,
+        }
+    }
+}
+
+pub(crate) fn promotion_transaction_append_denied(
+    transaction_kind: PromotionTransactionKind,
+    reason: &'static str,
+) -> PromotionTransactionAppendEvidence {
+    promotion_transaction_append_evidence(
+        transaction_kind.as_str(),
+        "capability_denied",
+        reason,
+        "evidence_only",
+        None,
+        None,
+        None,
+        false,
+        None,
+        false,
+        false,
+    )
+}
+
+pub(crate) fn promotion_transaction_append_evidence_record(
+    evidence: PromotionTransactionAppendEvidence,
+) -> V<'static> {
+    V::Object(vec![
+        f("schema", s(PROMOTION_APPEND_SCHEMA)),
+        f("id", s(PROMOTION_APPEND_ID)),
+        f("method", s(PROMOTION_APPEND_METHOD)),
+        f("scope", s("current_boot")),
+        f("classification", s("local_only")),
+        f("transaction_kind", s(evidence.transaction_kind)),
+        f("durable_append", s(evidence.durable_append)),
+        f(
+            "code",
+            s(if evidence.performed {
+                "ok"
+            } else {
+                "capability_denied"
+            }),
+        ),
+        f("performed", b(evidence.performed)),
+        f("reason", s(evidence.reason)),
+        f("authority", s(evidence.authority)),
+        f("target_id", s(PROMOTION_EXPECTED_TARGET_ID)),
+        f("record_schema", s(PROMOTION_EXPECTED_RECORD_SCHEMA)),
+        f("region_marker", s(PROMOTION_EXPECTED_REGION_MARKER)),
+        f("seq", optional_u64(evidence.seq)),
+        f("write_offset", optional_u64(evidence.write_offset)),
+        f("frame_len", optional_u64(evidence.frame_len)),
+        f(
+            "payload_sha256",
+            record_sha_or_null(evidence.payload_sha256),
+        ),
+        f("frame_sha256", record_sha_or_null(evidence.frame_sha256)),
+        f(
+            "readback_sha256",
+            record_sha_or_null(evidence.readback_sha256),
+        ),
+        f("reparse_valid", b(evidence.reparse_valid)),
+        f("tail_seq_after", optional_u64(evidence.tail_seq_after)),
+        f("count_after", optional_u64(evidence.count_after)),
+        f("signature_verified", b(evidence.signature_verified)),
+        f("grant_binds_capability", b(evidence.grant_binds_capability)),
+        f("trust_tier", s(evidence.trust_tier)),
+        f(
+            "promotion_authority_is_placeholder",
+            b(evidence.promotion_authority_is_placeholder),
+        ),
+        f("owner_sealed", b(evidence.owner_sealed)),
+        f("cross_reboot_proven", b(evidence.cross_reboot_proven)),
+        f("persistence_claimed", b(evidence.persistence_claimed)),
+    ])
+}
+
+fn optional_u64(value: Option<u64>) -> V<'static> {
+    match value {
+        Some(value) => V::U64(value),
+        None => V::Null,
+    }
+}
+
+pub(crate) fn append_install_authorization(
+    record: &impl InstallAuthorizationRecordView,
+) -> InstallAuthorizationAppendEvidence {
+    if let Err(reason) = validate_signed_install_authorization(record) {
+        return InstallAuthorizationAppendEvidence::denied(reason);
+    }
+    if !matches!(
+        super::boot_control::current_boot_posture(),
+        BootPosture::Normal | BootPosture::Probation
+    ) {
+        return InstallAuthorizationAppendEvidence::denied("boot_control_safe_mode");
+    }
+
+    let evidence = current_boot_reclog_scan();
+    let payload = install_authorization_payload_bytes(record);
+    if payload.len() > INSTALL_AUTHORIZATION_MAX_PAYLOAD_LEN {
+        return InstallAuthorizationAppendEvidence::denied("payload_too_large_for_frame");
+    }
+    let planned = match plan_reclog_append(&evidence.scan, &payload, evidence.reclog_byte_count) {
+        Ok(planned) => planned,
+        Err(denied) => return InstallAuthorizationAppendEvidence::denied(denied.reason()),
+    };
+    let Some(controller) = evidence.controller else {
+        return InstallAuthorizationAppendEvidence::denied("ahci_controller_not_observed");
+    };
+
+    let write = unsafe {
+        ahci::write_readback_reclog_append(controller, planned.write_offset, &planned.frame)
+    };
+    let readback_sha256 = write.readback.as_deref().map(sha256_bytes);
+    let reparse_valid = write
+        .readback
+        .as_deref()
+        .map(|bytes| parse_reclog_frame(bytes, 0, planned.seq, planned.prev_frame_sha256).is_ok())
+        .unwrap_or(false);
+    if !write.write_attempted
+        || !write.write_completed
+        || !write.readback_completed
+        || !write.span_in_bounds
+    {
+        return InstallAuthorizationAppendEvidence::denied(write.reason);
+    }
+    if readback_sha256 != Some(planned.frame_sha256) {
+        return InstallAuthorizationAppendEvidence::denied("frame_sha256_mismatch");
+    }
+    if !reparse_valid {
+        return InstallAuthorizationAppendEvidence::denied("reparse_not_valid");
+    }
+
+    let after = current_boot_reclog_scan();
+    let rescan_ok = evidence
+        .scan
+        .count
+        .checked_add(1)
+        .map(|count| after.scan.count == count)
+        .unwrap_or(false)
+        && after.scan.tail_seq == planned.seq
+        && after.scan.tail_frame_sha256 == Some(planned.frame_sha256);
+    if !rescan_ok {
+        return InstallAuthorizationAppendEvidence::denied("post_append_rescan_mismatch");
+    }
+
+    InstallAuthorizationAppendEvidence {
+        performed: true,
+        reason: "authorized_install_authorization_append_readback_reparse_verified",
+        seq: Some(planned.seq),
+        write_offset: Some(planned.write_offset),
+        frame_sha256: Some(planned.frame_sha256),
+    }
+}
+
+fn install_authorization_payload_bytes(record: &impl InstallAuthorizationRecordView) -> Vec<u8> {
+    match record.install_authorization_ref() {
+        InstallAuthorizationRef::GrantedCandidate(record) => {
+            granted_candidate_install_authorization_payload_bytes(record)
+        }
+        InstallAuthorizationRef::UiProgram(record) => {
+            ui_program_install_authorization_payload_bytes(record)
+        }
+    }
+}
+
+fn granted_candidate_install_authorization_payload_bytes(
+    record: &InstallAuthorizationRecord,
+) -> Vec<u8> {
+    let authorization = record.authorization;
+    let record = V::Object(vec![
+        f("schema", s(INSTALL_AUTHORIZATION_SCHEMA)),
+        f("id", s(INSTALL_AUTHORIZATION_ID)),
+        f("scope", s(PROMOTION_TRANSACTION_RECORD_SCOPE)),
+        f("classification", s("local_only")),
+        f("record_kind", s(INSTALL_AUTHORIZATION_RECORD_KIND)),
+        f("service_id", s(record.service_id)),
+        f(
+            "install_envelope_version",
+            V::U64(authorization.install_envelope_version as u64),
+        ),
+        f(
+            "activation_approval_sha256",
+            V::Sha256(authorization.activation_approval_sha256),
+        ),
+        f(
+            "computed_grant_sha256",
+            V::Sha256(authorization.computed_grant_sha256),
+        ),
+        f(
+            "attestation_reference_sha256",
+            V::Sha256(authorization.attestation_reference_sha256),
+        ),
+        f("grant_target_schema", s(authorization.grant_target_schema)),
+        f(
+            "grant_target_count",
+            V::U64(authorization.grant_target_count),
+        ),
+        f(
+            "grant_target_snapshot_sha256",
+            V::Sha256(authorization.grant_target_snapshot_sha256),
+        ),
+        f(
+            "w7_invocation_sha256",
+            V::Sha256(authorization.w7_invocation_sha256),
+        ),
+        f(
+            "w7_receipt_sha256",
+            V::Sha256(authorization.w7_receipt_sha256),
+        ),
+        f(
+            "receiver_content_sha256",
+            V::Sha256(authorization.receiver_content_sha256),
+        ),
+        f(
+            "receiver_candidate_sha256",
+            V::Sha256(authorization.receiver_candidate_sha256),
+        ),
+        f(
+            "catalog_candidate_sha256",
+            V::Sha256(authorization.catalog_candidate_sha256),
+        ),
+        f(
+            "install_envelope_sha256",
+            V::Sha256(authorization.install_envelope_sha256),
+        ),
+        f(
+            "install_action_sha256",
+            V::Sha256(authorization.install_action_sha256),
+        ),
+        f(
+            "install_action_signature_message_sha256",
+            V::Sha256(authorization.install_action_message_sha256),
+        ),
+        f(
+            "authority_evidence_sha256",
+            V::Sha256(authorization.authority_evidence_sha256),
+        ),
+        f(
+            "physical_approval_sha256",
+            V::Sha256(authorization.physical_approval_sha256),
+        ),
+        f(
+            "install_authority_key_sha256",
+            V::Sha256(authorization.authority_key_sha256),
+        ),
+        f(
+            "install_signature_der",
+            V::HexBytes(&authorization.signature_der[..authorization.signature_len]),
+        ),
+        f(
+            "install_signature_len",
+            V::U64(authorization.signature_len as u64),
+        ),
+        f(
+            "install_candidate_sha256",
+            V::Sha256(authorization.candidate_sha256),
+        ),
+        f(
+            "install_candidate_byte_len",
+            V::U64(authorization.candidate_byte_len),
+        ),
+        f("install_generation", V::U64(authorization.generation)),
+        f("install_log_sequence", V::U64(authorization.log_sequence)),
+        f("trust_tier", s(record.trust_tier)),
+    ]);
+    let mut sink = VecSink(Vec::new());
+    write_json(&record, &mut sink, 0);
+    sink.0
+}
+
+fn ui_program_install_authorization_payload_bytes(
+    authorization: &UiProgramInstallAuthorization,
+) -> Vec<u8> {
+    let record = V::Object(vec![
+        f("schema", s(INSTALL_AUTHORIZATION_SCHEMA)),
+        f("id", s(UI_PROGRAM_INSTALL_AUTHORIZATION_ID)),
+        f("scope", s(PROMOTION_TRANSACTION_RECORD_SCOPE)),
+        f("classification", s("local_only")),
+        f("record_kind", s(INSTALL_AUTHORIZATION_RECORD_KIND)),
+        f("subject_kind", s(UI_PROGRAM_INSTALL_SUBJECT_KIND)),
+        f("engine_service_id", s(authorization.engine_service_id)),
+        f(
+            "program_abi_version",
+            V::U64(authorization.program_abi_version as u64),
+        ),
+        f(
+            "canonical_program_sha256",
+            V::Sha256(authorization.canonical_program_sha256),
+        ),
+        f(
+            "canonical_program_byte_len",
+            V::U64(authorization.canonical_program_byte_len),
+        ),
+        f(
+            "activation_approval_sha256",
+            V::Sha256(authorization.activation_approval_sha256),
+        ),
+        f(
+            "install_envelope_sha256",
+            V::Sha256(authorization.install_envelope_sha256),
+        ),
+        f(
+            "install_action_sha256",
+            V::Sha256(authorization.install_action_sha256),
+        ),
+        f(
+            "install_action_signature_message_sha256",
+            V::Sha256(authorization.install_action_message_sha256),
+        ),
+        f(
+            "authority_evidence_sha256",
+            V::Sha256(authorization.authority_evidence_sha256),
+        ),
+        f(
+            "physical_approval_sha256",
+            V::Sha256(authorization.physical_approval_sha256),
+        ),
+        f(
+            "install_authority_key_sha256",
+            V::Sha256(authorization.authority_key_sha256),
+        ),
+        f(
+            "install_signature_der",
+            V::HexBytes(&authorization.signature_der[..authorization.signature_len]),
+        ),
+        f(
+            "install_signature_len",
+            V::U64(authorization.signature_len as u64),
+        ),
+        f("install_generation", V::U64(authorization.generation)),
+        f("install_log_sequence", V::U64(authorization.log_sequence)),
+        f(
+            "install_previous_commit_sha256",
+            record_sha_or_null(authorization.previous_commit_sha256),
+        ),
+        f("auto_load", b(true)),
+        f("trust_tier", s(authorization.trust_tier)),
+    ]);
+    let mut sink = VecSink(Vec::new());
+    write_json(&record, &mut sink, 0);
+    sink.0
+}
+
+pub(crate) fn append_promotion_transaction(
+    record: &impl PromotionTransactionRecordView,
+    install_authorization_validated: bool,
+) -> PromotionTransactionAppendEvidence {
+    let record = record.promotion_transaction_ref();
+    if matches!(
+        &record,
+        PromotionTransactionRef::GrantedCandidate(candidate)
+            if candidate.install_authorization_present
+                && !candidate.signed_snapshot_context_complete()
+    ) {
+        return promotion_transaction_append_denied(
+            record.transaction_kind(),
+            "signed_snapshot_context_mismatch",
+        );
+    }
+    if let PromotionTransactionRef::UiProgram(program) = &record {
+        if let Err(reason) = validate_ui_program_promotion_transaction(program) {
+            return promotion_transaction_append_denied(program.transaction_kind, reason);
+        }
+    }
+    if record.install_authorization_present()
+        && (record.install_authorization_frame_sha256() == [0; 32]
+            || !install_authorization_validated)
+    {
+        return promotion_transaction_append_denied(
+            record.transaction_kind(),
+            if record.install_authorization_frame_sha256() == [0; 32] {
+                "install_authorization_missing"
+            } else {
+                "install_action_signature_not_verified"
+            },
+        );
+    }
+    let posture = super::boot_control::current_boot_posture();
+    let preflight_denial = match &record {
+        PromotionTransactionRef::GrantedCandidate(record) => {
+            promotion_transaction_preflight_denial(posture, record.signature_len)
+        }
+        PromotionTransactionRef::UiProgram(_)
+            if !matches!(posture, BootPosture::Normal | BootPosture::Probation) =>
+        {
+            Some("boot_control_safe_mode")
+        }
+        PromotionTransactionRef::UiProgram(_) => None,
+    };
+    if let Some(reason) = preflight_denial {
+        return promotion_transaction_append_denied(record.transaction_kind(), reason);
+    }
+
+    let evidence = current_boot_reclog_scan();
+    if matches!(
+        &record,
+        PromotionTransactionRef::UiProgram(program)
+            if program.transaction_kind == PromotionTransactionKind::Promote
+    ) && evidence.scan.full_region_valid
+        && evidence.scan.tail_frame_sha256 != Some(record.install_authorization_frame_sha256())
+    {
+        return promotion_transaction_append_denied(
+            record.transaction_kind(),
+            "install_authorization_link_mismatch",
+        );
+    }
+    let payload = promotion_transaction_payload_bytes_ref(&record);
+    let planned = match plan_reclog_append(&evidence.scan, &payload, evidence.reclog_byte_count) {
+        Ok(planned) => planned,
+        Err(denied) => {
+            return promotion_transaction_append_evidence(
+                record.transaction_kind().as_str(),
+                "capability_denied",
+                denied.reason(),
+                "evidence_only",
+                None,
+                None,
+                None,
+                false,
+                None,
+                record.scoped_signature_verified(),
+                record.grant_binds_capability(),
+            )
+        }
+    };
+
+    let Some(controller) = evidence.controller else {
+        return promotion_transaction_append_evidence(
+            record.transaction_kind().as_str(),
+            "capability_denied",
+            "ahci_controller_not_observed",
+            "evidence_only",
+            Some(&planned),
+            None,
+            None,
+            false,
+            None,
+            record.scoped_signature_verified(),
+            record.grant_binds_capability(),
+        );
+    };
+
+    let write = unsafe {
+        ahci::write_readback_reclog_append(controller, planned.write_offset, &planned.frame)
+    };
+    let readback_sha256 = write.readback.as_deref().map(sha256_bytes);
+    let reparse_valid = write
+        .readback
+        .as_deref()
+        .map(|bytes| parse_reclog_frame(bytes, 0, planned.seq, planned.prev_frame_sha256).is_ok())
+        .unwrap_or(false);
+    let scoped_signature_verified = record.scoped_signature_verified();
+    let decision =
+        evaluate_scoped_promotion_transaction_append(&ScopedPromotionTransactionAppendInput {
+            method: Some(PROMOTION_EXPECTED_METHOD),
+            target_id: Some(PROMOTION_EXPECTED_TARGET_ID),
+            record_schema: Some(PROMOTION_EXPECTED_RECORD_SCHEMA),
+            region_marker: Some(PROMOTION_EXPECTED_REGION_MARKER),
+            frame_len: Some(planned.frame_len),
+            write_offset: Some(planned.write_offset),
+            reclog_byte_count: Some(evidence.reclog_byte_count),
+            absolute_start_lba: Some(evidence.reclog_absolute_start_lba),
+            reclog_lba_count: Some(evidence.reclog_lba_count),
+            seq: Some(planned.seq),
+            tail_seq: Some(evidence.scan.tail_seq),
+            count: Some(evidence.scan.count),
+            prev_frame_sha256: Some(planned.prev_frame_sha256),
+            tail_frame_sha256: evidence.scan.tail_frame_sha256,
+            payload_sha256: Some(planned.payload_sha256),
+            planned_payload_sha256: Some(planned.payload_sha256),
+            planned_frame_sha256: Some(planned.frame_sha256),
+            readback_frame_sha256: readback_sha256,
+            write_attempted: write.write_attempted,
+            write_completed: write.write_completed,
+            readback_completed: write.readback_completed,
+            readback_matches_planned: readback_sha256 == Some(planned.frame_sha256),
+            reparse_valid,
+            span_in_bounds: write.span_in_bounds,
+            subject: record.subject().scoped(),
+            transaction_kind: Some(record.transaction_kind().as_str()),
+            signature_verified: scoped_signature_verified,
+            grant_binds_capability: record.grant_binds_capability(),
+            trust_tier: Some(PROMOTION_EXPECTED_TRUST_TIER),
+            owner_sealed: false,
+            promotion_authority_is_placeholder: PROMOTION_AUTHORITY_IS_PLACEHOLDER,
+            install_authorization_present: record.install_authorization_present(),
+            install_envelope_binds_activation: record.install_envelope_binds_activation(),
+            install_action_signature_verified: record.install_action_signature_verified(),
+            physical_install_approval_consumed: record.physical_install_approval_consumed(),
+            canonical_payload_verified: record.canonical_verified(),
+            activation_approval_consumed: record.activation_approval_consumed(),
+            install_authorization_link_exact: record.install_authorization_frame_sha256()
+                != [0; 32]
+                && install_authorization_validated
+                && (record.transaction_kind() == PromotionTransactionKind::Unpromote
+                    || evidence.scan.tail_frame_sha256
+                        == Some(record.install_authorization_frame_sha256())),
+            persistence_claimed: false,
+        });
+
+    if !decision.performed {
+        return promotion_transaction_append_evidence(
+            record.transaction_kind().as_str(),
+            "capability_denied",
+            decision.reason,
+            "evidence_only",
+            Some(&planned),
+            Some(&write),
+            readback_sha256,
+            reparse_valid,
+            None,
+            scoped_signature_verified,
+            record.grant_binds_capability(),
+        );
+    }
+
+    let after = current_boot_reclog_scan();
+    let rescan_ok = evidence
+        .scan
+        .count
+        .checked_add(1)
+        .map(|count| after.scan.count == count)
+        .unwrap_or(false)
+        && after.scan.tail_seq == planned.seq
+        && after.scan.tail_frame_sha256 == Some(planned.frame_sha256);
+    if !rescan_ok {
+        return promotion_transaction_append_evidence(
+            record.transaction_kind().as_str(),
+            "capability_denied",
+            "post_append_rescan_mismatch",
+            "evidence_only",
+            Some(&planned),
+            Some(&write),
+            readback_sha256,
+            reparse_valid,
+            Some(&after),
+            scoped_signature_verified,
+            record.grant_binds_capability(),
+        );
+    }
+
+    promotion_transaction_append_evidence(
+        record.transaction_kind().as_str(),
+        "appended",
+        decision.reason,
+        "scoped_promotion_transaction_append_authorized",
+        Some(&planned),
+        Some(&write),
+        readback_sha256,
+        true,
+        Some(&after),
+        scoped_signature_verified,
+        record.grant_binds_capability(),
+    )
+}
+
+fn validate_ui_program_promotion_transaction(
+    record: &UiProgramPromotionTransactionRecord,
+) -> Result<(), &'static str> {
+    if record.engine_service_id != PERSONAL_SHELL_SERVICE_ID
+        || record.subject != PromotionSubject::UiProgram
+        || record.program_abi_version != PROGRAM_ABI_VERSION
+        || record.canonical_program_sha256 == [0; 32]
+        || record.canonical_program_byte_len == 0
+        || record.canonical_program_byte_len > MAX_PROGRAM_BYTES as u64
+        || record.activation_approval_sha256 == [0; 32]
+        || record.generation == 0
+    {
+        return Err("ui_program_promotion_fields_invalid");
+    }
+    if !record.install_authorization_present {
+        return Err("install_authorization_missing");
+    }
+    if record.install_authorization_frame_sha256 == [0; 32] {
+        return Err("install_authorization_link_mismatch");
+    }
+    if !record.install_envelope_binds_activation {
+        return Err("install_envelope_binding_mismatch");
+    }
+    if !record.install_action_signature_verified {
+        return Err("install_action_signature_not_verified");
+    }
+    if !record.canonical_verified {
+        return Err("ui_program_canonical_verification_missing");
+    }
+    if !record.activation_approval_consumed {
+        return Err("ui_program_activation_approval_missing");
+    }
+    if !record.physical_install_approval_consumed {
+        return Err("physical_install_approval_missing");
+    }
+    match record.transaction_kind {
+        PromotionTransactionKind::Promote if record.rollback_apply_event_id.is_some() => {
+            Err("ui_program_promotion_decision_invalid")
+        }
+        PromotionTransactionKind::Unpromote if record.rollback_apply_event_id.is_none() => {
+            Err("ui_program_promotion_decision_invalid")
+        }
+        _ => Ok(()),
+    }
+}
+
+fn promotion_transaction_payload_bytes(record: &impl PromotionTransactionRecordView) -> Vec<u8> {
+    promotion_transaction_payload_bytes_ref(&record.promotion_transaction_ref())
+}
+
+fn promotion_transaction_payload_bytes_ref(record: &PromotionTransactionRef<'_>) -> Vec<u8> {
+    match record {
+        PromotionTransactionRef::GrantedCandidate(record) => {
+            granted_candidate_promotion_transaction_payload_bytes(record)
+        }
+        PromotionTransactionRef::UiProgram(record) => {
+            let record = V::Object(ui_program_promotion_transaction_fields(record));
+            let mut sink = VecSink(Vec::new());
+            write_json(&record, &mut sink, 0);
+            sink.0
+        }
+    }
+}
+
+fn granted_candidate_promotion_transaction_payload_bytes(
+    record: &PromotionTransactionRecord,
+) -> Vec<u8> {
+    let manifest_event = EventIdString::new(record.retained_manifest_reference_event_id);
+    let artifact_event = EventIdString::new(record.retained_artifact_reference_event_id);
+    let vm_report_event = EventIdString::new(record.retained_vm_report_reference_event_id);
+    let computed_grant_event = EventIdString::new(record.retained_reference_event_id);
+    let fields = vec![
+        f("schema", s(PROMOTION_EXPECTED_RECORD_SCHEMA)),
+        f(
+            "id",
+            s(match record.transaction_kind {
+                PromotionTransactionKind::Promote => {
+                    "promotion_transaction.origin_boot.promote.svc.dev.granted_candidate.v0"
+                }
+                PromotionTransactionKind::Unpromote => {
+                    "promotion_transaction.origin_boot.unpromote.svc.dev.granted_candidate.v0"
+                }
+            }),
+        ),
+        f("scope", s(PROMOTION_TRANSACTION_RECORD_SCOPE)),
+        f("classification", s("local_only")),
+        f("record_kind", s(PROMOTION_TRANSACTION_RECORD_KIND)),
+        f("transaction_kind", s(record.transaction_kind.as_str())),
+        f("service_id", s(record.service_id)),
+        f("artifact_id", s(record.artifact_id)),
+        f("requested_capability", s(record.requested_capability)),
+        f("load_mode", s(record.load_mode)),
+        f("computed_grant_hash", V::Sha256(record.computed_grant_hash)),
+        f("manifest_hash", V::Sha256(record.manifest_hash)),
+        f("artifact_hash", V::Sha256(record.artifact_hash)),
+        f("vm_report_hash", V::Sha256(record.vm_report_hash)),
+        f(
+            "local_attestation_hash",
+            V::Sha256(record.local_attestation_hash),
+        ),
+        f(
+            "retained_manifest_reference_event_id",
+            V::Str(manifest_event.as_str()),
+        ),
+        f(
+            "retained_artifact_reference_event_id",
+            V::Str(artifact_event.as_str()),
+        ),
+        f(
+            "retained_vm_report_reference_event_id",
+            V::Str(vm_report_event.as_str()),
+        ),
+        f(
+            "retained_computed_grant_reference_event_id",
+            V::Str(computed_grant_event.as_str()),
+        ),
+        f(
+            "manifest_reference_hash",
+            V::Sha256(record.manifest_reference_hash),
+        ),
+        f(
+            "artifact_reference_hash",
+            V::Sha256(record.artifact_reference_hash),
+        ),
+        f(
+            "vm_report_reference_hash",
+            V::Sha256(record.vm_report_reference_hash),
+        ),
+        f(
+            "attestation_reference_hash",
+            V::Sha256(record.attestation_reference_hash),
+        ),
+        f(
+            "promotion_signature_der",
+            V::HexBytes(record.signature_bytes()),
+        ),
+        f(
+            "promotion_signature_len",
+            V::U64(record.signature_len as u64),
+        ),
+        f(
+            "promotion_authority_key_sha256",
+            V::Sha256(record.promotion_authority_key_sha256),
+        ),
+        f("signature_verified", b(record.scoped_signature_verified())),
+        f("grant_binds_capability", b(record.grant_binds_capability)),
+        f(
+            "install_authorization_present",
+            b(record.install_authorization_present),
+        ),
+        f(
+            "install_envelope_binds_activation",
+            b(record.install_envelope_binds_activation),
+        ),
+        f(
+            "install_action_signature_verified",
+            b(record.install_action_signature_verified),
+        ),
+        f(
+            "physical_install_approval_consumed",
+            b(record.physical_install_approval_consumed),
+        ),
+        f(
+            "install_authorization_frame_sha256",
+            V::Sha256(record.install_authorization_frame_sha256),
+        ),
+        f(
+            "install_envelope_version",
+            V::U64(record.install_envelope_version as u64),
+        ),
+        f("grant_target_schema", s(record.grant_target_schema)),
+        f("grant_target_count", V::U64(record.grant_target_count)),
+        f(
+            "grant_target_snapshot_sha256",
+            V::Sha256(record.grant_target_snapshot_sha256),
+        ),
+        f("trust_tier", s(PROMOTION_TRANSACTION_TRUST_TIER)),
+        f(
+            "promotion_authority_is_placeholder",
+            b(PROMOTION_AUTHORITY_IS_PLACEHOLDER),
+        ),
+        f("owner_sealed", b(false)),
+        f("cross_reboot_proven", b(false)),
+        f("persistence_claimed", b(false)),
+        f("rollback_plan_hash", V::Sha256(record.rollback_plan_hash)),
+        f(
+            "pre_load_inventory_hash",
+            V::Sha256(record.pre_load_inventory_hash),
+        ),
+        f(
+            "ram_only_service_slot_id",
+            s(record.ram_only_service_slot_id),
+        ),
+        f("generation", V::U64(record.generation)),
+        f(
+            "load_event_id",
+            V::EventSequence(record.load_event_id.sequence()),
+        ),
+        f(
+            "rollback_apply_event_id",
+            optional_event_sequence(record.rollback_apply_event_id),
+        ),
+        f(
+            "reprojected_inventory_hash",
+            record_sha_or_null(record.reprojected_inventory_hash),
+        ),
+        f("restore_hash_verified", b(record.restore_hash_verified)),
+        f("stopped", b(record.stopped)),
+        f("drop_clear_bytes", b(record.drop_clear_bytes)),
+        f("free_slot", b(record.free_slot)),
+        f("remove_inventory", b(record.remove_inventory)),
+    ];
+    let record = V::Object(fields);
+    let mut sink = VecSink(Vec::new());
+    write_json(&record, &mut sink, 0);
+    sink.0
+}
+
+fn ui_program_promotion_transaction_fields(
+    record: &UiProgramPromotionTransactionRecord,
+) -> Vec<Field<'static>> {
+    // RECLOG has 4,096 - 88 = 4,008 payload bytes; MAX_PROGRAM_BYTES is
+    // 16,384, so canonical RUIP bytes are necessarily ARTSTOR-only.
+    vec![
+        f("schema", s(PROMOTION_EXPECTED_RECORD_SCHEMA)),
+        f(
+            "id",
+            s(match record.transaction_kind {
+                PromotionTransactionKind::Promote => {
+                    "promotion_transaction.origin_boot.promote.ui_program.v0"
+                }
+                PromotionTransactionKind::Unpromote => {
+                    "promotion_transaction.origin_boot.unpromote.ui_program.v0"
+                }
+            }),
+        ),
+        f("scope", s(PROMOTION_TRANSACTION_RECORD_SCOPE)),
+        f("classification", s("local_only")),
+        f("record_kind", s(PROMOTION_TRANSACTION_RECORD_KIND)),
+        f("subject_kind", s(UI_PROGRAM_INSTALL_SUBJECT_KIND)),
+        f("transaction_kind", s(record.transaction_kind.as_str())),
+        f("engine_service_id", s(record.engine_service_id)),
+        f(
+            "program_abi_version",
+            V::U64(record.program_abi_version as u64),
+        ),
+        f(
+            "canonical_program_sha256",
+            V::Sha256(record.canonical_program_sha256),
+        ),
+        f(
+            "canonical_program_byte_len",
+            V::U64(record.canonical_program_byte_len),
+        ),
+        f(
+            "activation_approval_sha256",
+            V::Sha256(record.activation_approval_sha256),
+        ),
+        f(
+            "install_authorization_present",
+            b(record.install_authorization_present),
+        ),
+        f(
+            "install_envelope_binds_activation",
+            b(record.install_envelope_binds_activation),
+        ),
+        f(
+            "install_action_signature_verified",
+            b(record.install_action_signature_verified),
+        ),
+        f(
+            "physical_install_approval_consumed",
+            b(record.physical_install_approval_consumed),
+        ),
+        f(
+            "install_authorization_frame_sha256",
+            V::Sha256(record.install_authorization_frame_sha256),
+        ),
+        f("canonical_verified", b(record.canonical_verified)),
+        f(
+            "activation_approval_consumed",
+            b(record.activation_approval_consumed),
+        ),
+        f("trust_tier", s(PROMOTION_TRANSACTION_TRUST_TIER)),
+        f("owner_sealed", b(false)),
+        f("cross_reboot_proven", b(false)),
+        f("persistence_claimed", b(false)),
+        f("generation", V::U64(record.generation)),
+        f(
+            "rollback_apply_event_id",
+            optional_event_sequence(record.rollback_apply_event_id),
+        ),
+    ]
+}
+
+fn optional_event_sequence(value: Option<event_log::EventId>) -> V<'static> {
+    match value {
+        Some(value) => V::EventSequence(value.sequence()),
+        None => V::Null,
+    }
+}
+
+struct EventIdString {
+    bytes: [u8; 27],
+}
+
+impl EventIdString {
+    fn new(event_id: event_log::EventId) -> Self {
+        let mut bytes = [0u8; 27];
+        bytes[..19].copy_from_slice(b"event.current_boot.");
+        let mut sequence = event_id.sequence();
+        let mut idx = 27usize;
+        while idx > 19 {
+            idx -= 1;
+            bytes[idx] = b'0' + (sequence % 10) as u8;
+            sequence /= 10;
+        }
+        Self { bytes }
+    }
+
+    fn as_str(&self) -> &str {
+        unsafe { str::from_utf8_unchecked(&self.bytes) }
+    }
+}
+
+fn promotion_transaction_preflight_denial(
+    posture: BootPosture,
+    signature_len: usize,
+) -> Option<&'static str> {
+    if !matches!(posture, BootPosture::Normal | BootPosture::Probation) {
+        Some("boot_control_safe_mode")
+    } else if signature_len == 0 || signature_len > event_log::MAX_PROMOTION_SIGNATURE_DER_LEN {
+        Some("promotion_signature_reference_missing")
+    } else {
+        None
+    }
+}
+
+fn promotion_transaction_append_evidence(
+    transaction_kind: &'static str,
+    durable_append: &'static str,
+    reason: &'static str,
+    authority: &'static str,
+    planned: Option<&PlannedAppend>,
+    _write: Option<&ahci::ReclogAppendWriteEvidence>,
+    readback_sha256: Option<[u8; 32]>,
+    reparse_valid: bool,
+    after: Option<&DurableRecordLogScanEvidence>,
+    signature_verified: bool,
+    grant_binds_capability: bool,
+) -> PromotionTransactionAppendEvidence {
+    PromotionTransactionAppendEvidence {
+        transaction_kind,
+        durable_append,
+        performed: durable_append == "appended",
+        reason,
+        authority,
+        seq: planned.map(|planned| planned.seq),
+        write_offset: planned.map(|planned| planned.write_offset),
+        frame_len: planned.map(|planned| planned.frame_len),
+        payload_sha256: planned.map(|planned| planned.payload_sha256),
+        frame_sha256: planned.map(|planned| planned.frame_sha256),
+        readback_sha256,
+        reparse_valid,
+        tail_seq_after: after.map(|after| after.scan.tail_seq),
+        count_after: after.map(|after| after.scan.count),
+        signature_verified,
+        grant_binds_capability,
+        trust_tier: PROMOTION_TRANSACTION_TRUST_TIER,
+        promotion_authority_is_placeholder: PROMOTION_AUTHORITY_IS_PLACEHOLDER,
+        owner_sealed: false,
+        cross_reboot_proven: false,
+        persistence_claimed: false,
+    }
+}
+
+pub(crate) fn emit_promotion_transaction_selftest() {
+    let cases = promotion_transaction_selftest_cases();
+    let passed = cases.iter().all(|case| case.passed);
+    let case_records = cases.iter().map(record_promotion_selftest_case).collect();
+
+    begin_response(PROMOTION_TRANSACTION_SELFTEST_METHOD);
+    emit_record_fields(
+        vec![
+            f("schema", s(PROMOTION_TRANSACTION_SELFTEST_SCHEMA)),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", b(true)),
+            f("mutates_global_event_log", b(false)),
+            f("writes_persistent_state", b(false)),
+            f("case_count", V::U64(cases.len() as u64)),
+            f("passed", b(passed)),
+            f("cases", V::Array(case_records)),
+            f("evidence_complete", b(true)),
+        ],
+        6,
+    );
+    end_response(PROMOTION_TRANSACTION_SELFTEST_METHOD);
+}
+
+#[derive(Clone, Copy)]
+struct PromotionTransactionSelftestCase {
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    reparsed: bool,
+    passed: bool,
+}
+
+fn promotion_transaction_selftest_cases() -> Vec<PromotionTransactionSelftestCase> {
+    vec![
+        promotion_transaction_positive_case(PromotionTransactionKind::Promote),
+        promotion_transaction_positive_case(PromotionTransactionKind::Unpromote),
+        promotion_transaction_denial_case("wrong_schema_denied", SelftestMutation::WrongSchema),
+        promotion_transaction_denial_case("wrong_target_denied", SelftestMutation::WrongTarget),
+        promotion_transaction_denial_case("wrong_kind_denied", SelftestMutation::WrongKind),
+        promotion_transaction_denial_case(
+            "signature_not_verified_denied",
+            SelftestMutation::SignatureNotVerified,
+        ),
+        promotion_transaction_preflight_case(
+            "safe_posture_denied",
+            BootPosture::Safe,
+            event_log::MAX_PROMOTION_SIGNATURE_DER_LEN.min(70),
+            "boot_control_safe_mode",
+        ),
+        promotion_transaction_preflight_case(
+            "signature_reference_missing_denied",
+            BootPosture::Normal,
+            0,
+            "promotion_signature_reference_missing",
+        ),
+    ]
+}
+
+#[derive(Clone, Copy)]
+enum SelftestMutation {
+    WrongSchema,
+    WrongTarget,
+    WrongKind,
+    SignatureNotVerified,
+}
+
+fn promotion_transaction_positive_case(
+    kind: PromotionTransactionKind,
+) -> PromotionTransactionSelftestCase {
+    let (status, reason, reparsed) = synthetic_promotion_append_decision(kind, None);
+    PromotionTransactionSelftestCase {
+        name: match kind {
+            PromotionTransactionKind::Promote => "promote_authorized_reparse",
+            PromotionTransactionKind::Unpromote => "unpromote_authorized_reparse",
+        },
+        expected_status: "appended",
+        expected_reason: "authorized_promotion_transaction_append_readback_reparse_verified",
+        actual_status: status,
+        actual_reason: reason,
+        reparsed,
+        passed: status == "appended"
+            && reason == "authorized_promotion_transaction_append_readback_reparse_verified"
+            && reparsed,
+    }
+}
+
+fn promotion_transaction_denial_case(
+    name: &'static str,
+    mutation: SelftestMutation,
+) -> PromotionTransactionSelftestCase {
+    let (status, reason, reparsed) =
+        synthetic_promotion_append_decision(PromotionTransactionKind::Promote, Some(mutation));
+    let expected_reason = match mutation {
+        SelftestMutation::WrongSchema => "record_schema_mismatch",
+        SelftestMutation::WrongTarget => "target_out_of_scope",
+        SelftestMutation::WrongKind => "transaction_kind_out_of_scope",
+        SelftestMutation::SignatureNotVerified => "signature_not_verified",
+    };
+    PromotionTransactionSelftestCase {
+        name,
+        expected_status: "denied",
+        expected_reason,
+        actual_status: status,
+        actual_reason: reason,
+        reparsed,
+        passed: status == "denied" && reason == expected_reason,
+    }
+}
+
+fn promotion_transaction_preflight_case(
+    name: &'static str,
+    posture: BootPosture,
+    signature_len: usize,
+    expected_reason: &'static str,
+) -> PromotionTransactionSelftestCase {
+    let reason = promotion_transaction_preflight_denial(posture, signature_len)
+        .unwrap_or("unexpected_authorized");
+    PromotionTransactionSelftestCase {
+        name,
+        expected_status: "denied",
+        expected_reason,
+        actual_status: "denied",
+        actual_reason: reason,
+        reparsed: false,
+        passed: reason == expected_reason,
+    }
+}
+
+fn synthetic_promotion_append_decision(
+    kind: PromotionTransactionKind,
+    mutation: Option<SelftestMutation>,
+) -> (&'static str, &'static str, bool) {
+    const RECLOG_LBA_COUNT: u64 = 10;
+    const RECLOG_BYTE_COUNT: u64 = RECLOG_LBA_COUNT * RECLOG_SECTOR_SIZE as u64;
+
+    let scan = RecordLogScan {
+        head_seq: 1,
+        tail_seq: 2,
+        count: 2,
+        terminated_reason: "zero_filled",
+        torn_tail: false,
+        first_invalid_offset: 1024,
+        valid_prefix_chain: true,
+        full_region_valid: true,
+        head_frame_sha256: Some([1; 32]),
+        tail_frame_sha256: Some([2; 32]),
+    };
+    let record = promotion_transaction_selftest_record(kind);
+    let payload = promotion_transaction_payload_bytes(&record);
+    if payload.len() > PROMOTION_TRANSACTION_MAX_PAYLOAD_LEN {
+        return ("denied", "payload_too_large_for_frame", false);
+    }
+    let planned = match plan_reclog_append(&scan, &payload, RECLOG_BYTE_COUNT) {
+        Ok(planned) => planned,
+        Err(denied) => return ("denied", denied.reason(), false),
+    };
+    let reparsed =
+        parse_reclog_frame(&planned.frame, 0, planned.seq, planned.prev_frame_sha256).is_ok();
+    let mut input = ScopedPromotionTransactionAppendInput {
+        subject: ScopedPromotionSubject::GrantedCandidate,
+        method: Some(PROMOTION_EXPECTED_METHOD),
+        target_id: Some(PROMOTION_EXPECTED_TARGET_ID),
+        record_schema: Some(PROMOTION_EXPECTED_RECORD_SCHEMA),
+        region_marker: Some(PROMOTION_EXPECTED_REGION_MARKER),
+        frame_len: Some(planned.frame_len),
+        write_offset: Some(planned.write_offset),
+        reclog_byte_count: Some(RECLOG_BYTE_COUNT),
+        absolute_start_lba: Some(100),
+        reclog_lba_count: Some(RECLOG_LBA_COUNT),
+        seq: Some(planned.seq),
+        tail_seq: Some(scan.tail_seq),
+        count: Some(scan.count),
+        prev_frame_sha256: Some(planned.prev_frame_sha256),
+        tail_frame_sha256: scan.tail_frame_sha256,
+        payload_sha256: Some(planned.payload_sha256),
+        planned_payload_sha256: Some(planned.payload_sha256),
+        planned_frame_sha256: Some(planned.frame_sha256),
+        readback_frame_sha256: Some(planned.frame_sha256),
+        write_attempted: true,
+        write_completed: true,
+        readback_completed: true,
+        readback_matches_planned: true,
+        reparse_valid: reparsed,
+        span_in_bounds: true,
+        transaction_kind: Some(kind.as_str()),
+        signature_verified: true,
+        grant_binds_capability: true,
+        install_authorization_present: true,
+        install_envelope_binds_activation: true,
+        install_action_signature_verified: true,
+        physical_install_approval_consumed: true,
+        canonical_payload_verified: false,
+        activation_approval_consumed: false,
+        install_authorization_link_exact: false,
+        trust_tier: Some(PROMOTION_EXPECTED_TRUST_TIER),
+        owner_sealed: false,
+        promotion_authority_is_placeholder: PROMOTION_AUTHORITY_IS_PLACEHOLDER,
+        persistence_claimed: false,
+    };
+    if let Some(mutation) = mutation {
+        match mutation {
+            SelftestMutation::WrongSchema => input.record_schema = Some("raios.durable_record.v0"),
+            SelftestMutation::WrongTarget => input.target_id = Some("append.record_log.seed_data"),
+            SelftestMutation::WrongKind => input.transaction_kind = Some("install"),
+            SelftestMutation::SignatureNotVerified => input.signature_verified = false,
+        }
+    }
+    let decision = evaluate_scoped_promotion_transaction_append(&input);
+    (decision.status, decision.reason, reparsed)
+}
+
+fn promotion_transaction_selftest_record(
+    kind: PromotionTransactionKind,
+) -> PromotionTransactionRecord {
+    let signature_len = 4usize;
+    let mut signature_der = [0u8; event_log::MAX_PROMOTION_SIGNATURE_DER_LEN];
+    signature_der[..signature_len].copy_from_slice(&[0x30, 0x02, 0x01, 0x01]);
+    PromotionTransactionRecord {
+        transaction_kind: kind,
+        computed_grant_hash: [0x10; 32],
+        manifest_hash: [0x11; 32],
+        artifact_hash: [0x12; 32],
+        vm_report_hash: [0x13; 32],
+        local_attestation_hash: [0x14; 32],
+        retained_manifest_reference_event_id: selftest_event_id(26),
+        retained_artifact_reference_event_id: selftest_event_id(28),
+        retained_vm_report_reference_event_id: selftest_event_id(29),
+        retained_reference_event_id: selftest_event_id(27),
+        manifest_reference_hash: [0x21; 32],
+        artifact_reference_hash: [0x22; 32],
+        vm_report_reference_hash: [0x23; 32],
+        attestation_reference_hash: [0x24; 32],
+        signature_der,
+        signature_len,
+        signature_verified: true,
+        signature_attestation_reference_hash: [0x24; 32],
+        promotion_authority_key_sha256: PLACEHOLDER_PROMOTION_AUTHORITY_PUBLIC_KEY_SHA256,
+        grant_binds_capability: true,
+        install_authorization_present: false,
+        install_envelope_binds_activation: false,
+        install_action_signature_verified: false,
+        physical_install_approval_consumed: false,
+        install_authorization_frame_sha256: [0; 32],
+        install_envelope_version: 0,
+        grant_target_schema: "absent",
+        grant_target_count: 0,
+        grant_target_snapshot_sha256: [0; 32],
+        rollback_plan_hash: [0x31; 32],
+        pre_load_inventory_hash: [0x32; 32],
+        ram_only_service_slot_id: "ram_only:svc.dev.granted_candidate",
+        generation: 1,
+        load_event_id: selftest_event_id(61),
+        rollback_apply_event_id: if kind == PromotionTransactionKind::Unpromote {
+            Some(selftest_event_id(72))
+        } else {
+            None
+        },
+        reprojected_inventory_hash: if kind == PromotionTransactionKind::Unpromote {
+            Some([0x32; 32])
+        } else {
+            None
+        },
+        restore_hash_verified: kind == PromotionTransactionKind::Unpromote,
+        stopped: kind == PromotionTransactionKind::Unpromote,
+        drop_clear_bytes: kind == PromotionTransactionKind::Unpromote,
+        free_slot: kind == PromotionTransactionKind::Unpromote,
+        remove_inventory: kind == PromotionTransactionKind::Unpromote,
+        service_id: "svc.dev.granted_candidate",
+        artifact_id: "wasm:external.granted_candidate",
+        requested_capability: "cap.module.load_ephemeral.dev_tier.current_boot",
+        load_mode: "wasmi_interpreter_ram_only",
+    }
+}
+
+fn selftest_event_id(sequence: u64) -> event_log::EventId {
+    let mut candidate = sequence;
+    loop {
+        if let Some(event_id) = event_log::EventId::from_sequence(candidate) {
+            return event_id;
+        }
+        candidate = 1;
+    }
+}
+
+fn record_promotion_selftest_case(case: &PromotionTransactionSelftestCase) -> V<'static> {
+    V::InlineObject(vec![
+        f("case", s(case.name)),
+        f("expected_status", s(case.expected_status)),
+        f("expected_reason", s(case.expected_reason)),
+        f("actual_status", s(case.actual_status)),
+        f("actual_reason", s(case.actual_reason)),
+        f("reparsed", b(case.reparsed)),
+        f("passed", b(case.passed)),
+    ])
+}
+
+// --- M8B-1 recovery.disable_module durable action record ---------------------------
+//
+// The mutating half of the recovery lifeline appends a `raios.recovery_action.v0`
+// record through the SHARED reclog mechanism (current_boot_reclog_scan / plan / ahci
+// write_readback / parse) authorized ONLY by evaluate_scoped_recovery_action_append.
+// This mirrors append_promotion_transaction EXACTLY, swapping the scoped evaluator and
+// the record payload; it forks no second durable-append implementation. Deny before
+// mutate: SAFE posture and every invalid target class are rejected in the preflight
+// before any plan/write.
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RecoveryTargetClassification {
+    LifelineEndpoint,
+    CoreOwned,
+    Unknown,
+    KnownDisablable,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct RecoveryActionRecord {
+    pub(crate) action_kind: &'static str,
+    pub(crate) disable_target_id: &'static str,
+    pub(crate) disable_target_is_lifeline_endpoint: bool,
+    pub(crate) disable_target_core_owned: bool,
+    pub(crate) disable_target_known_disablable: bool,
+    pub(crate) grants_new_capability: bool,
+    // Restart-only (action_kind == restart_last_good). For disable_module records
+    // both are false and unused: they never reach the restart-gated payload field or
+    // the kind-guarded evaluator pin, so the disable evaluation/payload stay identical.
+    pub(crate) restores_known_good: bool,
+    pub(crate) restart_target_restorable: bool,
+}
+
+impl RecoveryActionRecord {
+    pub(crate) fn classification(&self) -> RecoveryTargetClassification {
+        if self.disable_target_is_lifeline_endpoint {
+            RecoveryTargetClassification::LifelineEndpoint
+        } else if self.disable_target_core_owned {
+            RecoveryTargetClassification::CoreOwned
+        } else if !self.disable_target_known_disablable {
+            RecoveryTargetClassification::Unknown
+        } else {
+            RecoveryTargetClassification::KnownDisablable
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct RecoveryActionAppendEvidence {
+    pub(crate) action_kind: &'static str,
+    pub(crate) disable_target_id: &'static str,
+    pub(crate) durable_append: &'static str,
+    pub(crate) performed: bool,
+    pub(crate) reason: &'static str,
+    pub(crate) authority: &'static str,
+    pub(crate) seq: Option<u64>,
+    pub(crate) write_offset: Option<u64>,
+    pub(crate) frame_len: Option<u64>,
+    pub(crate) payload_sha256: Option<[u8; 32]>,
+    pub(crate) frame_sha256: Option<[u8; 32]>,
+    pub(crate) readback_sha256: Option<[u8; 32]>,
+    pub(crate) reparse_valid: bool,
+    pub(crate) tail_seq_before: Option<u64>,
+    pub(crate) count_before: Option<u64>,
+    pub(crate) tail_seq_after: Option<u64>,
+    pub(crate) count_after: Option<u64>,
+    pub(crate) disable_target_is_lifeline_endpoint: bool,
+    pub(crate) disable_target_core_owned: bool,
+    pub(crate) disable_target_known_disablable: bool,
+    pub(crate) grants_new_capability: bool,
+    pub(crate) restores_known_good: bool,
+    pub(crate) trust_tier: &'static str,
+    pub(crate) promotion_authority_is_placeholder: bool,
+    pub(crate) owner_sealed: bool,
+    pub(crate) persistence_claimed: bool,
+}
+
+/// SAFE-mode + invalid-target preflight, mirroring `promotion_transaction_preflight_denial`.
+/// SAFE (posture not Normal|Probation) denies the write before any plan/write; then the
+/// lifeline/core/unknown target classes deny with their pinned reasons. `KnownDisablable`
+/// in a writable posture is the only case that proceeds to the durable gauntlet.
+pub(crate) fn recovery_action_preflight_denial(
+    posture: BootPosture,
+    classification: RecoveryTargetClassification,
+) -> Option<&'static str> {
+    if !matches!(posture, BootPosture::Normal | BootPosture::Probation) {
+        Some("boot_control_safe_mode")
+    } else {
+        match classification {
+            RecoveryTargetClassification::LifelineEndpoint => Some("target_is_lifeline_endpoint"),
+            RecoveryTargetClassification::CoreOwned => Some("target_core_owned"),
+            RecoveryTargetClassification::Unknown => Some("target_unknown"),
+            RecoveryTargetClassification::KnownDisablable => None,
+        }
+    }
+}
+
+/// M8B-2b restart preflight: the SHARED SAFE + target-class denials FIRST (deny
+/// before mutate AND before append), then the restart-only `target_not_restartable`
+/// pin. Mirrors the evaluator's ordering exactly (SAFE -> lifeline -> core -> unknown
+/// -> not-restartable), so a non-restorable restart is rejected before any plan/write.
+pub(crate) fn recovery_restart_preflight_denial(
+    posture: BootPosture,
+    classification: RecoveryTargetClassification,
+    restorable: bool,
+) -> Option<&'static str> {
+    if let Some(reason) = recovery_action_preflight_denial(posture, classification) {
+        Some(reason)
+    } else if !restorable {
+        Some("target_not_restartable")
+    } else {
+        None
+    }
+}
+
+pub(crate) fn recovery_action_append_denied(
+    record: &RecoveryActionRecord,
+    reason: &'static str,
+) -> RecoveryActionAppendEvidence {
+    recovery_action_append_evidence(
+        record,
+        "capability_denied",
+        reason,
+        "evidence_only",
+        None,
+        None,
+        None,
+        false,
+        None,
+    )
+}
+
+pub(crate) fn append_recovery_action(
+    record: &RecoveryActionRecord,
+) -> RecoveryActionAppendEvidence {
+    if let Some(reason) = recovery_action_preflight_denial(
+        super::boot_control::current_boot_posture(),
+        record.classification(),
+    ) {
+        return recovery_action_append_denied(record, reason);
+    }
+
+    let before = current_boot_reclog_scan();
+    let payload = recovery_action_payload_bytes(record);
+    let planned = match plan_reclog_append(&before.scan, &payload, before.reclog_byte_count) {
+        Ok(planned) => planned,
+        Err(denied) => {
+            return recovery_action_append_evidence(
+                record,
+                "capability_denied",
+                denied.reason(),
+                "evidence_only",
+                Some(&before),
+                None,
+                None,
+                false,
+                None,
+            )
+        }
+    };
+
+    let Some(controller) = before.controller else {
+        return recovery_action_append_evidence(
+            record,
+            "capability_denied",
+            "ahci_controller_not_observed",
+            "evidence_only",
+            Some(&before),
+            Some(&planned),
+            None,
+            false,
+            None,
+        );
+    };
+
+    let write = unsafe {
+        ahci::write_readback_reclog_append(controller, planned.write_offset, &planned.frame)
+    };
+    let readback_sha256 = write.readback.as_deref().map(sha256_bytes);
+    let reparse_valid = write
+        .readback
+        .as_deref()
+        .map(|bytes| parse_reclog_frame(bytes, 0, planned.seq, planned.prev_frame_sha256).is_ok())
+        .unwrap_or(false);
+    let decision = evaluate_scoped_recovery_action_append(&ScopedRecoveryActionAppendInput {
+        method: Some(RECOVERY_ACTION_EXPECTED_METHOD),
+        target_id: Some(RECOVERY_ACTION_EXPECTED_TARGET_ID),
+        record_schema: Some(RECOVERY_ACTION_EXPECTED_RECORD_SCHEMA),
+        region_marker: Some(RECOVERY_ACTION_EXPECTED_REGION_MARKER),
+        frame_len: Some(planned.frame_len),
+        write_offset: Some(planned.write_offset),
+        reclog_byte_count: Some(before.reclog_byte_count),
+        absolute_start_lba: Some(before.reclog_absolute_start_lba),
+        reclog_lba_count: Some(before.reclog_lba_count),
+        seq: Some(planned.seq),
+        tail_seq: Some(before.scan.tail_seq),
+        count: Some(before.scan.count),
+        prev_frame_sha256: Some(planned.prev_frame_sha256),
+        tail_frame_sha256: before.scan.tail_frame_sha256,
+        payload_sha256: Some(planned.payload_sha256),
+        planned_payload_sha256: Some(planned.payload_sha256),
+        planned_frame_sha256: Some(planned.frame_sha256),
+        readback_frame_sha256: readback_sha256,
+        write_attempted: write.write_attempted,
+        write_completed: write.write_completed,
+        readback_completed: write.readback_completed,
+        readback_matches_planned: readback_sha256 == Some(planned.frame_sha256),
+        reparse_valid,
+        span_in_bounds: write.span_in_bounds,
+        action_kind: Some(record.action_kind),
+        // The restart pin is kind-guarded in the evaluator: for a disable_module
+        // record this is false and never reached, so the disable evaluation stays
+        // byte-identical; for restart_last_good it carries the live restorability.
+        restart_target_restorable: record.restart_target_restorable,
+        disable_target_is_lifeline_endpoint: record.disable_target_is_lifeline_endpoint,
+        disable_target_core_owned: record.disable_target_core_owned,
+        disable_target_known_disablable: record.disable_target_known_disablable,
+        grants_new_capability: record.grants_new_capability,
+        trust_tier: Some(RECOVERY_ACTION_EXPECTED_TRUST_TIER),
+        owner_sealed: false,
+        persistence_claimed: false,
+    });
+
+    if !decision.performed {
+        return recovery_action_append_evidence(
+            record,
+            "capability_denied",
+            decision.reason,
+            "evidence_only",
+            Some(&before),
+            Some(&planned),
+            readback_sha256,
+            reparse_valid,
+            None,
+        );
+    }
+
+    let after = current_boot_reclog_scan();
+    let rescan_ok = before
+        .scan
+        .count
+        .checked_add(1)
+        .map(|count| after.scan.count == count)
+        .unwrap_or(false)
+        && after.scan.tail_seq == planned.seq
+        && after.scan.tail_frame_sha256 == Some(planned.frame_sha256);
+    if !rescan_ok {
+        return recovery_action_append_evidence(
+            record,
+            "capability_denied",
+            "post_append_rescan_mismatch",
+            "evidence_only",
+            Some(&before),
+            Some(&planned),
+            readback_sha256,
+            reparse_valid,
+            Some(&after),
+        );
+    }
+
+    recovery_action_append_evidence(
+        record,
+        "appended",
+        decision.reason,
+        "scoped_recovery_action_append_authorized",
+        Some(&before),
+        Some(&planned),
+        readback_sha256,
+        true,
+        Some(&after),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn recovery_action_append_evidence(
+    record: &RecoveryActionRecord,
+    durable_append: &'static str,
+    reason: &'static str,
+    authority: &'static str,
+    before: Option<&DurableRecordLogScanEvidence>,
+    planned: Option<&PlannedAppend>,
+    readback_sha256: Option<[u8; 32]>,
+    reparse_valid: bool,
+    after: Option<&DurableRecordLogScanEvidence>,
+) -> RecoveryActionAppendEvidence {
+    RecoveryActionAppendEvidence {
+        action_kind: record.action_kind,
+        disable_target_id: record.disable_target_id,
+        durable_append,
+        performed: durable_append == "appended",
+        reason,
+        authority,
+        seq: planned.map(|planned| planned.seq),
+        write_offset: planned.map(|planned| planned.write_offset),
+        frame_len: planned.map(|planned| planned.frame_len),
+        payload_sha256: planned.map(|planned| planned.payload_sha256),
+        frame_sha256: planned.map(|planned| planned.frame_sha256),
+        readback_sha256,
+        reparse_valid,
+        tail_seq_before: before.map(|before| before.scan.tail_seq),
+        count_before: before.map(|before| before.scan.count),
+        tail_seq_after: after.map(|after| after.scan.tail_seq),
+        count_after: after.map(|after| after.scan.count),
+        disable_target_is_lifeline_endpoint: record.disable_target_is_lifeline_endpoint,
+        disable_target_core_owned: record.disable_target_core_owned,
+        disable_target_known_disablable: record.disable_target_known_disablable,
+        grants_new_capability: record.grants_new_capability,
+        restores_known_good: record.restores_known_good,
+        trust_tier: RECOVERY_ACTION_TRUST_TIER,
+        promotion_authority_is_placeholder: PROMOTION_AUTHORITY_IS_PLACEHOLDER,
+        owner_sealed: false,
+        persistence_claimed: false,
+    }
+}
+
+pub(crate) fn recovery_action_payload_bytes(record: &RecoveryActionRecord) -> Vec<u8> {
+    // Branch on action_kind so the DISABLE payload stays BYTE-IDENTICAL: the disable
+    // branch emits exactly the M8B-1 field set/order, and the restart-only fields are
+    // appended ONLY for restart_last_good (with its own record id).
+    let is_restart = record.action_kind == RECOVERY_ACTION_KIND_RESTART_LAST_GOOD;
+    let id = if is_restart {
+        "recovery_action.current_boot.restart_last_good.svc.demo.echo.v0"
+    } else {
+        "recovery_action.current_boot.disable_module.svc.demo.echo.v0"
+    };
+    let mut fields = vec![
+        f("schema", s(RECOVERY_ACTION_EXPECTED_RECORD_SCHEMA)),
+        f("id", s(id)),
+        f("scope", s(RECOVERY_ACTION_RECORD_SCOPE)),
+        f("classification", s("local_only")),
+        f("record_kind", s(RECOVERY_ACTION_RECORD_KIND)),
+        f("action_kind", s(record.action_kind)),
+        f("disable_target_id", s(record.disable_target_id)),
+        f(
+            "disable_target_is_lifeline_endpoint",
+            b(record.disable_target_is_lifeline_endpoint),
+        ),
+        f(
+            "disable_target_core_owned",
+            b(record.disable_target_core_owned),
+        ),
+        f(
+            "disable_target_known_disablable",
+            b(record.disable_target_known_disablable),
+        ),
+        f("grants_new_capability", b(record.grants_new_capability)),
+        f("trust_tier", s(RECOVERY_ACTION_TRUST_TIER)),
+        f(
+            "promotion_authority_is_placeholder",
+            b(PROMOTION_AUTHORITY_IS_PLACEHOLDER),
+        ),
+        f("owner_sealed", b(false)),
+        f("reversible_this_boot", b(false)),
+        f("mutates_live_state", b(true)),
+        f("persistence_claimed", b(false)),
+    ];
+    if is_restart {
+        fields.push(f("restores_known_good", b(record.restores_known_good)));
+        fields.push(f(
+            "restart_target_restorable",
+            b(record.restart_target_restorable),
+        ));
+    }
+    let payload = V::Object(fields);
+    let mut sink = VecSink(Vec::new());
+    write_json(&payload, &mut sink, 0);
+    sink.0
+}
+
+// --- M8D-2 recovery.load_artifact_by_hash durable reinstatement audit ----------------
+//
+// The recovery-lifeline authority flip (M8D-2) appends a `raios.recovery_load.v0` record
+// through the SHARED reclog mechanism (current_boot_reclog_scan / plan / ahci
+// write_readback / parse) authorized ONLY by evaluate_scoped_recovery_load_append. Like
+// append_recovery_action / append_promotion_transaction, it forks NO second durable-append
+// implementation — it swaps only the scoped evaluator and the record payload. The lifeline
+// calls this ONLY after the UNMODIFIED M6 gate genuinely re-instated the RAM-only
+// current-boot service (append-after-gate, matching repromotion.run's audit discipline),
+// so the record honestly attests a real reinstatement; every denial path in the lifeline
+// fails closed BEFORE reaching this append.
+
+#[derive(Clone, Copy)]
+pub(crate) struct RecoveryLoadRecord {
+    pub(crate) artifact_persist_seq: u64,
+    pub(crate) artifact_sha256: [u8; 32],
+    pub(crate) manifest_hash: [u8; 32],
+    pub(crate) vm_report_hash: [u8; 32],
+    pub(crate) grant_hash: [u8; 32],
+    pub(crate) promotion_transaction_sha256: [u8; 32],
+    pub(crate) artstor_blob_offset: u64,
+    pub(crate) artstor_blob_len: u64,
+    pub(crate) artstor_blob_frame_sha256: [u8; 32],
+    pub(crate) load_granted: bool,
+    pub(crate) service_loaded: bool,
+    pub(crate) service_started: bool,
+    pub(crate) authorizes_load: bool,
+    pub(crate) cross_reboot_proven: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct RecoveryLoadAppendEvidence {
+    pub(crate) durable_append: &'static str,
+    pub(crate) performed: bool,
+    pub(crate) reason: &'static str,
+    pub(crate) authority: &'static str,
+    pub(crate) seq: Option<u64>,
+    pub(crate) write_offset: Option<u64>,
+    pub(crate) frame_len: Option<u64>,
+    pub(crate) payload_sha256: Option<[u8; 32]>,
+    pub(crate) frame_sha256: Option<[u8; 32]>,
+    pub(crate) readback_sha256: Option<[u8; 32]>,
+    pub(crate) reparse_valid: bool,
+    pub(crate) tail_seq_before: Option<u64>,
+    pub(crate) count_before: Option<u64>,
+    pub(crate) tail_seq_after: Option<u64>,
+    pub(crate) count_after: Option<u64>,
+}
+
+pub(crate) fn recovery_load_append_denied(reason: &'static str) -> RecoveryLoadAppendEvidence {
+    recovery_load_append_evidence(
+        "capability_denied",
+        reason,
+        "evidence_only",
+        None,
+        None,
+        None,
+        false,
+        None,
+    )
+}
+
+/// Append the durable `raios.recovery_load.v0` reinstatement audit through the SHARED
+/// reclog gauntlet (scan -> plan -> ahci write_readback -> readback-sha -> reparse ->
+/// evaluate_scoped_recovery_load_append -> rescan), mirroring append_recovery_action
+/// EXACTLY. SAFE/PersistenceUnavailable posture denies before any plan/write. The caller
+/// (recovery lifeline) invokes this ONLY on a genuine gate reinstatement, so the record's
+/// decision_status is always the reinstated success status.
+pub(crate) fn append_recovery_load(record: &RecoveryLoadRecord) -> RecoveryLoadAppendEvidence {
+    if !matches!(
+        super::boot_control::current_boot_posture(),
+        BootPosture::Normal | BootPosture::Probation
+    ) {
+        return recovery_load_append_denied("boot_control_safe_mode");
+    }
+
+    let before = current_boot_reclog_scan();
+    let payload = recovery_load_payload_bytes(record);
+    let planned = match plan_reclog_append(&before.scan, &payload, before.reclog_byte_count) {
+        Ok(planned) => planned,
+        Err(denied) => {
+            return recovery_load_append_evidence(
+                "capability_denied",
+                denied.reason(),
+                "evidence_only",
+                Some(&before),
+                None,
+                None,
+                false,
+                None,
+            )
+        }
+    };
+
+    let Some(controller) = before.controller else {
+        return recovery_load_append_evidence(
+            "capability_denied",
+            "ahci_controller_not_observed",
+            "evidence_only",
+            Some(&before),
+            Some(&planned),
+            None,
+            false,
+            None,
+        );
+    };
+
+    let write = unsafe {
+        ahci::write_readback_reclog_append(controller, planned.write_offset, &planned.frame)
+    };
+    let readback_sha256 = write.readback.as_deref().map(sha256_bytes);
+    let reparse_valid = write
+        .readback
+        .as_deref()
+        .map(|bytes| parse_reclog_frame(bytes, 0, planned.seq, planned.prev_frame_sha256).is_ok())
+        .unwrap_or(false);
+    let decision = evaluate_scoped_recovery_load_append(&ScopedRecoveryLoadAppendInput {
+        method: Some(RECOVERY_LOAD_EXPECTED_METHOD),
+        target_id: Some(RECOVERY_LOAD_EXPECTED_TARGET_ID),
+        record_schema: Some(RECOVERY_LOAD_EXPECTED_RECORD_SCHEMA),
+        region_marker: Some(RECOVERY_LOAD_EXPECTED_REGION_MARKER),
+        frame_len: Some(planned.frame_len),
+        write_offset: Some(planned.write_offset),
+        reclog_byte_count: Some(before.reclog_byte_count),
+        absolute_start_lba: Some(before.reclog_absolute_start_lba),
+        reclog_lba_count: Some(before.reclog_lba_count),
+        seq: Some(planned.seq),
+        tail_seq: Some(before.scan.tail_seq),
+        count: Some(before.scan.count),
+        prev_frame_sha256: Some(planned.prev_frame_sha256),
+        tail_frame_sha256: before.scan.tail_frame_sha256,
+        payload_sha256: Some(planned.payload_sha256),
+        planned_payload_sha256: Some(planned.payload_sha256),
+        planned_frame_sha256: Some(planned.frame_sha256),
+        readback_frame_sha256: readback_sha256,
+        write_attempted: write.write_attempted,
+        write_completed: write.write_completed,
+        readback_completed: write.readback_completed,
+        readback_matches_planned: readback_sha256 == Some(planned.frame_sha256),
+        reparse_valid,
+        span_in_bounds: write.span_in_bounds,
+        // The lifeline only appends on a genuine reinstatement, so the audit always
+        // carries the reinstated success status with the REAL gate load authority.
+        decision_status: Some(RECOVERY_LOAD_DECISION_STATUS_REINSTATED),
+        would_reinstate: true,
+        authorizes_load: record.authorizes_load,
+        trust_tier: Some(RECOVERY_LOAD_EXPECTED_TRUST_TIER),
+        owner_sealed: false,
+        promotion_authority_is_placeholder: PROMOTION_AUTHORITY_IS_PLACEHOLDER,
+        cross_reboot_proven: record.cross_reboot_proven,
+        persistence_claimed: false,
+    });
+
+    if !decision.performed {
+        return recovery_load_append_evidence(
+            "capability_denied",
+            decision.reason,
+            "evidence_only",
+            Some(&before),
+            Some(&planned),
+            readback_sha256,
+            reparse_valid,
+            None,
+        );
+    }
+
+    let after = current_boot_reclog_scan();
+    let rescan_ok = before
+        .scan
+        .count
+        .checked_add(1)
+        .map(|count| after.scan.count == count)
+        .unwrap_or(false)
+        && after.scan.tail_seq == planned.seq
+        && after.scan.tail_frame_sha256 == Some(planned.frame_sha256);
+    if !rescan_ok {
+        return recovery_load_append_evidence(
+            "capability_denied",
+            "post_append_rescan_mismatch",
+            "evidence_only",
+            Some(&before),
+            Some(&planned),
+            readback_sha256,
+            reparse_valid,
+            Some(&after),
+        );
+    }
+
+    recovery_load_append_evidence(
+        "appended",
+        decision.reason,
+        "scoped_recovery_load_append_authorized",
+        Some(&before),
+        Some(&planned),
+        readback_sha256,
+        true,
+        Some(&after),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn recovery_load_append_evidence(
+    durable_append: &'static str,
+    reason: &'static str,
+    authority: &'static str,
+    before: Option<&DurableRecordLogScanEvidence>,
+    planned: Option<&PlannedAppend>,
+    readback_sha256: Option<[u8; 32]>,
+    reparse_valid: bool,
+    after: Option<&DurableRecordLogScanEvidence>,
+) -> RecoveryLoadAppendEvidence {
+    RecoveryLoadAppendEvidence {
+        durable_append,
+        performed: durable_append == "appended",
+        reason,
+        authority,
+        seq: planned.map(|planned| planned.seq),
+        write_offset: planned.map(|planned| planned.write_offset),
+        frame_len: planned.map(|planned| planned.frame_len),
+        payload_sha256: planned.map(|planned| planned.payload_sha256),
+        frame_sha256: planned.map(|planned| planned.frame_sha256),
+        readback_sha256,
+        reparse_valid,
+        tail_seq_before: before.map(|before| before.scan.tail_seq),
+        count_before: before.map(|before| before.scan.count),
+        tail_seq_after: after.map(|after| after.scan.tail_seq),
+        count_after: after.map(|after| after.scan.count),
+    }
+}
+
+pub(crate) fn recovery_load_payload_bytes(record: &RecoveryLoadRecord) -> Vec<u8> {
+    let payload = V::Object(vec![
+        f("schema", s(RECOVERY_LOAD_EXPECTED_RECORD_SCHEMA)),
+        f(
+            "id",
+            s("recovery_load.current_boot.reinstate.svc.dev.granted_candidate.v0"),
+        ),
+        f("scope", s(RECOVERY_LOAD_RECORD_SCOPE)),
+        f("classification", s(RECOVERY_LOAD_RECORD_CLASSIFICATION)),
+        f("record_kind", s(RECOVERY_LOAD_RECORD_KIND)),
+        f("method", s(RECOVERY_LOAD_EXPECTED_METHOD)),
+        f(
+            "decision_status",
+            s(RECOVERY_LOAD_DECISION_STATUS_REINSTATED),
+        ),
+        f("service_id", s(RECOVERY_LOAD_SERVICE_ID)),
+        f("artifact_persist_seq", V::U64(record.artifact_persist_seq)),
+        f("artifact_sha256", V::Sha256(record.artifact_sha256)),
+        f("manifest_hash", V::Sha256(record.manifest_hash)),
+        f("vm_report_hash", V::Sha256(record.vm_report_hash)),
+        f("grant_hash", V::Sha256(record.grant_hash)),
+        f(
+            "promotion_transaction_sha256",
+            V::Sha256(record.promotion_transaction_sha256),
+        ),
+        f("artstor_blob_offset", V::U64(record.artstor_blob_offset)),
+        f("artstor_blob_len", V::U64(record.artstor_blob_len)),
+        f(
+            "artstor_blob_frame_sha256",
+            V::Sha256(record.artstor_blob_frame_sha256),
+        ),
+        f("load_granted", b(record.load_granted)),
+        f("service_loaded", b(record.service_loaded)),
+        f("service_started", b(record.service_started)),
+        f("authorizes_load", b(record.authorizes_load)),
+        f("cross_reboot_proven", b(record.cross_reboot_proven)),
+        f("would_reinstate", b(true)),
+        f("grants_new_capability", b(false)),
+        f("trust_tier", s(RECOVERY_LOAD_TRUST_TIER)),
+        f(
+            "promotion_authority_is_placeholder",
+            b(PROMOTION_AUTHORITY_IS_PLACEHOLDER),
+        ),
+        f("owner_sealed", b(false)),
+        f("reversible_this_boot", b(false)),
+        f("mutates_live_state", b(true)),
+        f("persistence_claimed", b(false)),
+    ]);
+    let mut sink = VecSink(Vec::new());
+    write_json(&payload, &mut sink, 0);
+    sink.0
+}
+
+pub(crate) fn emit_recovery_action_selftest() {
+    let cases = recovery_action_selftest_cases();
+    let passed = cases.iter().all(|case| case.passed);
+    let case_records = cases
+        .iter()
+        .map(record_recovery_action_selftest_case)
+        .collect();
+
+    begin_response(RECOVERY_ACTION_SELFTEST_METHOD);
+    emit_record_fields(
+        vec![
+            f("schema", s(RECOVERY_ACTION_SELFTEST_SCHEMA)),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", b(true)),
+            f("mutates_global_event_log", b(false)),
+            f("writes_persistent_state", b(false)),
+            f("case_count", V::U64(cases.len() as u64)),
+            f("passed", b(passed)),
+            f("cases", V::Array(case_records)),
+            f("evidence_complete", b(true)),
+        ],
+        6,
+    );
+    end_response(RECOVERY_ACTION_SELFTEST_METHOD);
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryActionSelftestCase {
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    reparsed: bool,
+    passed: bool,
+}
+
+#[derive(Clone, Copy)]
+enum RecoverySelftestMutation {
+    WrongSchema,
+    WrongTarget,
+    WrongActionKind,
+    LifelineEndpoint,
+    CoreOwned,
+    TargetUnknown,
+    GrantsCapability,
+}
+
+fn recovery_action_selftest_cases() -> Vec<RecoveryActionSelftestCase> {
+    vec![
+        recovery_action_positive_case(),
+        recovery_action_restart_positive_case(),
+        recovery_action_denial_case("wrong_schema_denied", RecoverySelftestMutation::WrongSchema),
+        recovery_action_denial_case("wrong_target_denied", RecoverySelftestMutation::WrongTarget),
+        recovery_action_denial_case(
+            "wrong_action_kind_denied",
+            RecoverySelftestMutation::WrongActionKind,
+        ),
+        recovery_action_denial_case(
+            "lifeline_endpoint_denied",
+            RecoverySelftestMutation::LifelineEndpoint,
+        ),
+        recovery_action_denial_case("core_owned_denied", RecoverySelftestMutation::CoreOwned),
+        recovery_action_denial_case(
+            "target_unknown_denied",
+            RecoverySelftestMutation::TargetUnknown,
+        ),
+        recovery_action_restart_not_restorable_case(),
+        recovery_action_restart_shared_pin_case(),
+        recovery_action_denial_case(
+            "grants_capability_denied",
+            RecoverySelftestMutation::GrantsCapability,
+        ),
+        recovery_action_preflight_case(
+            "safe_posture_denied",
+            BootPosture::Safe,
+            RecoveryTargetClassification::KnownDisablable,
+            "boot_control_safe_mode",
+        ),
+        recovery_action_preflight_case(
+            "preflight_lifeline_endpoint_denied",
+            BootPosture::Normal,
+            RecoveryTargetClassification::LifelineEndpoint,
+            "target_is_lifeline_endpoint",
+        ),
+        recovery_action_preflight_case(
+            "preflight_core_owned_denied",
+            BootPosture::Normal,
+            RecoveryTargetClassification::CoreOwned,
+            "target_core_owned",
+        ),
+        recovery_action_preflight_case(
+            "preflight_target_unknown_denied",
+            BootPosture::Normal,
+            RecoveryTargetClassification::Unknown,
+            "target_unknown",
+        ),
+    ]
+}
+
+fn recovery_action_positive_case() -> RecoveryActionSelftestCase {
+    let (status, reason, reparsed) =
+        synthetic_recovery_action_decision(RECOVERY_ACTION_EXPECTED_ACTION_KIND, false, None);
+    RecoveryActionSelftestCase {
+        name: "disable_module_authorized_reparse",
+        expected_status: "appended",
+        expected_reason: "authorized_recovery_action_append_readback_reparse_verified",
+        actual_status: status,
+        actual_reason: reason,
+        reparsed,
+        passed: status == "appended"
+            && reason == "authorized_recovery_action_append_readback_reparse_verified"
+            && reparsed,
+    }
+}
+
+/// M8B-2a: the widened restart_last_good kind authorizes the SAME durable
+/// gauntlet with the SAME success reason, once its target is restorable.
+fn recovery_action_restart_positive_case() -> RecoveryActionSelftestCase {
+    let (status, reason, reparsed) = synthetic_recovery_action_decision(
+        RECOVERY_ACTION_EXPECTED_ACTION_KIND_RESTART_LAST_GOOD,
+        true,
+        None,
+    );
+    RecoveryActionSelftestCase {
+        name: "restart_last_good_authorized_reparse",
+        expected_status: "appended",
+        expected_reason: "authorized_recovery_action_append_readback_reparse_verified",
+        actual_status: status,
+        actual_reason: reason,
+        reparsed,
+        passed: status == "appended"
+            && reason == "authorized_recovery_action_append_readback_reparse_verified"
+            && reparsed,
+    }
+}
+
+/// M8B-2a: restart_last_good against a non-restorable target denies on the new
+/// kind-guarded pin. A disable_module evaluation can never reach this reason.
+fn recovery_action_restart_not_restorable_case() -> RecoveryActionSelftestCase {
+    let (status, reason, reparsed) = synthetic_recovery_action_decision(
+        RECOVERY_ACTION_EXPECTED_ACTION_KIND_RESTART_LAST_GOOD,
+        false,
+        None,
+    );
+    RecoveryActionSelftestCase {
+        name: "restart_not_restorable_denied",
+        expected_status: "denied",
+        expected_reason: "target_not_restartable",
+        actual_status: status,
+        actual_reason: reason,
+        reparsed,
+        passed: status == "denied" && reason == "target_not_restartable",
+    }
+}
+
+/// M8B-2a: even a restorable restart_last_good target still hits the SHARED
+/// target-class pins first — core-owned denies before the restart pin — proving
+/// the widening did not let restart bypass any shared gate.
+fn recovery_action_restart_shared_pin_case() -> RecoveryActionSelftestCase {
+    let (status, reason, reparsed) = synthetic_recovery_action_decision(
+        RECOVERY_ACTION_EXPECTED_ACTION_KIND_RESTART_LAST_GOOD,
+        true,
+        Some(RecoverySelftestMutation::CoreOwned),
+    );
+    RecoveryActionSelftestCase {
+        name: "restart_core_owned_denied",
+        expected_status: "denied",
+        expected_reason: "target_core_owned",
+        actual_status: status,
+        actual_reason: reason,
+        reparsed,
+        passed: status == "denied" && reason == "target_core_owned",
+    }
+}
+
+fn recovery_action_denial_case(
+    name: &'static str,
+    mutation: RecoverySelftestMutation,
+) -> RecoveryActionSelftestCase {
+    let (status, reason, reparsed) = synthetic_recovery_action_decision(
+        RECOVERY_ACTION_EXPECTED_ACTION_KIND,
+        false,
+        Some(mutation),
+    );
+    let expected_reason = match mutation {
+        RecoverySelftestMutation::WrongSchema => "record_schema_mismatch",
+        RecoverySelftestMutation::WrongTarget => "target_out_of_scope",
+        RecoverySelftestMutation::WrongActionKind => "action_kind_out_of_scope",
+        RecoverySelftestMutation::LifelineEndpoint => "target_is_lifeline_endpoint",
+        RecoverySelftestMutation::CoreOwned => "target_core_owned",
+        RecoverySelftestMutation::TargetUnknown => "target_unknown",
+        RecoverySelftestMutation::GrantsCapability => "grants_capability_not_allowed",
+    };
+    RecoveryActionSelftestCase {
+        name,
+        expected_status: "denied",
+        expected_reason,
+        actual_status: status,
+        actual_reason: reason,
+        reparsed,
+        passed: status == "denied" && reason == expected_reason,
+    }
+}
+
+fn recovery_action_preflight_case(
+    name: &'static str,
+    posture: BootPosture,
+    classification: RecoveryTargetClassification,
+    expected_reason: &'static str,
+) -> RecoveryActionSelftestCase {
+    let reason = recovery_action_preflight_denial(posture, classification)
+        .unwrap_or("unexpected_authorized");
+    RecoveryActionSelftestCase {
+        name,
+        expected_status: "denied",
+        expected_reason,
+        actual_status: "denied",
+        actual_reason: reason,
+        reparsed: false,
+        passed: reason == expected_reason,
+    }
+}
+
+fn synthetic_recovery_action_decision(
+    action_kind: &'static str,
+    restart_target_restorable: bool,
+    mutation: Option<RecoverySelftestMutation>,
+) -> (&'static str, &'static str, bool) {
+    let scan = RecordLogScan {
+        head_seq: 1,
+        tail_seq: 2,
+        count: 2,
+        terminated_reason: "zero_filled",
+        torn_tail: false,
+        first_invalid_offset: 1024,
+        valid_prefix_chain: true,
+        full_region_valid: true,
+        head_frame_sha256: Some([1; 32]),
+        tail_frame_sha256: Some([2; 32]),
+    };
+    let record = recovery_action_selftest_record();
+    let payload = recovery_action_payload_bytes(&record);
+    if payload.len() > RECOVERY_ACTION_MAX_PAYLOAD_LEN {
+        return ("denied", "payload_too_large_for_frame", false);
+    }
+    let Ok(planned) = plan_reclog_append(&scan, &payload, 4096) else {
+        return ("denied", "plan_failed", false);
+    };
+    let reparsed =
+        parse_reclog_frame(&planned.frame, 0, planned.seq, planned.prev_frame_sha256).is_ok();
+    let mut input = ScopedRecoveryActionAppendInput {
+        method: Some(RECOVERY_ACTION_EXPECTED_METHOD),
+        target_id: Some(RECOVERY_ACTION_EXPECTED_TARGET_ID),
+        record_schema: Some(RECOVERY_ACTION_EXPECTED_RECORD_SCHEMA),
+        region_marker: Some(RECOVERY_ACTION_EXPECTED_REGION_MARKER),
+        frame_len: Some(planned.frame_len),
+        write_offset: Some(planned.write_offset),
+        reclog_byte_count: Some(4096),
+        absolute_start_lba: Some(100),
+        reclog_lba_count: Some(8),
+        seq: Some(planned.seq),
+        tail_seq: Some(scan.tail_seq),
+        count: Some(scan.count),
+        prev_frame_sha256: Some(planned.prev_frame_sha256),
+        tail_frame_sha256: scan.tail_frame_sha256,
+        payload_sha256: Some(planned.payload_sha256),
+        planned_payload_sha256: Some(planned.payload_sha256),
+        planned_frame_sha256: Some(planned.frame_sha256),
+        readback_frame_sha256: Some(planned.frame_sha256),
+        write_attempted: true,
+        write_completed: true,
+        readback_completed: true,
+        readback_matches_planned: true,
+        reparse_valid: reparsed,
+        span_in_bounds: true,
+        action_kind: Some(action_kind),
+        restart_target_restorable,
+        disable_target_is_lifeline_endpoint: false,
+        disable_target_core_owned: false,
+        disable_target_known_disablable: true,
+        grants_new_capability: false,
+        trust_tier: Some(RECOVERY_ACTION_EXPECTED_TRUST_TIER),
+        owner_sealed: false,
+        persistence_claimed: false,
+    };
+    if let Some(mutation) = mutation {
+        match mutation {
+            RecoverySelftestMutation::WrongSchema => {
+                input.record_schema = Some("raios.durable_record.v0")
+            }
+            RecoverySelftestMutation::WrongTarget => {
+                input.target_id = Some("append.promotion_transaction.seed_data")
+            }
+            // Retargeted at M8B-2a: "restart_last_good" is now VALID, so this
+            // out-of-scope selftest must use a still-invalid kind or it inverts.
+            RecoverySelftestMutation::WrongActionKind => input.action_kind = Some("rollback"),
+            RecoverySelftestMutation::LifelineEndpoint => {
+                input.disable_target_is_lifeline_endpoint = true
+            }
+            RecoverySelftestMutation::CoreOwned => input.disable_target_core_owned = true,
+            RecoverySelftestMutation::TargetUnknown => {
+                input.disable_target_known_disablable = false
+            }
+            RecoverySelftestMutation::GrantsCapability => input.grants_new_capability = true,
+        }
+    }
+    let decision = evaluate_scoped_recovery_action_append(&input);
+    (decision.status, decision.reason, reparsed)
+}
+
+fn recovery_action_selftest_record() -> RecoveryActionRecord {
+    RecoveryActionRecord {
+        action_kind: RECOVERY_ACTION_EXPECTED_ACTION_KIND,
+        disable_target_id: "svc.demo.echo",
+        disable_target_is_lifeline_endpoint: false,
+        disable_target_core_owned: false,
+        disable_target_known_disablable: true,
+        grants_new_capability: false,
+        restores_known_good: false,
+        restart_target_restorable: false,
+    }
+}
+
+fn record_recovery_action_selftest_case(case: &RecoveryActionSelftestCase) -> V<'static> {
+    V::InlineObject(vec![
+        f("case", s(case.name)),
+        f("expected_status", s(case.expected_status)),
+        f("expected_reason", s(case.expected_reason)),
+        f("actual_status", s(case.actual_status)),
+        f("actual_reason", s(case.actual_reason)),
+        f("reparsed", b(case.reparsed)),
+        f("passed", b(case.passed)),
+    ])
+}
+
+fn emit_append_record(
+    evidence: &DurableRecordLogScanEvidence,
+    planned: Option<&PlannedAppend>,
+    write: Option<&ahci::ReclogAppendWriteEvidence>,
+    readback_sha256: Option<[u8; 32]>,
+    reparse_valid: bool,
+    durable_append: &'static str,
+    reason: &'static str,
+    authority: &'static str,
+    after: Option<&DurableRecordLogScanEvidence>,
+) {
+    let mut fields = append_fields_base(evidence, durable_append, reason, authority);
+    if let Some(planned) = planned {
+        fields.push(f("seq", V::U64(planned.seq)));
+        fields.push(f("write_offset", V::U64(planned.write_offset)));
+        fields.push(f("frame_len", V::U64(planned.frame_len)));
+        fields.push(f("payload_sha256", V::Sha256(planned.payload_sha256)));
+        fields.push(f("frame_sha256", V::Sha256(planned.frame_sha256)));
+    } else {
+        fields.push(f("seq", V::Null));
+        fields.push(f("write_offset", V::Null));
+        fields.push(f("frame_len", V::Null));
+        fields.push(f("payload_sha256", V::Null));
+        fields.push(f("frame_sha256", V::Null));
+    }
+    fields.push(f("readback_sha256", record_sha_or_null(readback_sha256)));
+    fields.push(f("reparse_valid", b(reparse_valid)));
+    fields.push(f(
+        "io_reason",
+        s(write.map(|write| write.reason).unwrap_or(evidence.reason)),
+    ));
+    fields.push(f(
+        "write_attempted",
+        b(write.map(|write| write.write_attempted).unwrap_or(false)),
+    ));
+    fields.push(f(
+        "write_completed",
+        b(write.map(|write| write.write_completed).unwrap_or(false)),
+    ));
+    fields.push(f(
+        "readback_completed",
+        b(write.map(|write| write.readback_completed).unwrap_or(false)),
+    ));
+    fields.push(f(
+        "readback_matches_planned",
+        b(readback_sha256 == planned.map(|planned| planned.frame_sha256)),
+    ));
+    fields.push(f(
+        "span_in_bounds",
+        b(write.map(|write| write.span_in_bounds).unwrap_or(false)),
+    ));
+    fields.push(f(
+        "writer_absolute_start_lba",
+        write
+            .map(|write| V::U64(write.absolute_start_lba))
+            .unwrap_or(V::Null),
+    ));
+    fields.push(f(
+        "writer_reclog_lba_count",
+        write
+            .map(|write| V::U64(write.reclog_lba_count))
+            .unwrap_or(V::Null),
+    ));
+    fields.push(f(
+        "writer_reclog_byte_count",
+        write
+            .map(|write| V::U64(write.byte_count))
+            .unwrap_or(V::Null),
+    ));
+    fields.push(f(
+        "writer_write_offset",
+        write
+            .map(|write| V::U64(write.write_offset))
+            .unwrap_or(V::Null),
+    ));
+    fields.push(f(
+        "reclog_absolute_start_lba",
+        V::U64(evidence.reclog_absolute_start_lba),
+    ));
+    fields.push(f("reclog_lba_count", V::U64(evidence.reclog_lba_count)));
+    fields.push(f("reclog_byte_count", V::U64(evidence.reclog_byte_count)));
+    fields.push(f(
+        "tail_seq_after",
+        after
+            .map(|after| V::U64(after.scan.tail_seq))
+            .unwrap_or(V::Null),
+    ));
+    fields.push(f(
+        "count_after",
+        after
+            .map(|after| V::U64(after.scan.count))
+            .unwrap_or(V::Null),
+    ));
+
+    begin_response(APPEND_METHOD);
+    emit_record_fields(fields, 6);
+    end_response(APPEND_METHOD);
+}
+
+fn append_fields_base(
+    evidence: &DurableRecordLogScanEvidence,
+    durable_append: &'static str,
+    reason: &'static str,
+    authority: &'static str,
+) -> Vec<Field<'static>> {
+    vec![
+        f("schema", s(APPEND_SCHEMA)),
+        f("id", s(APPEND_ID)),
+        f("scope", s("current_boot")),
+        f("classification", s("local_only")),
+        f("query_method", s(APPEND_METHOD)),
+        f("durable_append", s(durable_append)),
+        f("performed", b(durable_append == "appended")),
+        f("reason", s(reason)),
+        f("authority", s(authority)),
+        f("target_id", s(EXPECTED_TARGET_ID)),
+        f("record_schema", s(EXPECTED_RECORD_SCHEMA)),
+        f("region_marker", s(EXPECTED_REGION_MARKER)),
+        f("status", s(evidence.scan.status())),
+        f("tail_seq_before", V::U64(evidence.scan.tail_seq)),
+        f("count_before", V::U64(evidence.scan.count)),
+    ]
+}
+
+fn current_boot_reclog_scan() -> DurableRecordLogScanEvidence {
+    current_boot_reclog_scan_inner(false)
+}
+
+fn current_boot_reclog_scan_with_records() -> DurableRecordLogScanEvidence {
+    current_boot_reclog_scan_inner(true)
+}
+
+fn current_boot_reclog_scan_inner(surface_records: bool) -> DurableRecordLogScanEvidence {
+    let Some(controller) = pci::find_mass_storage_controller() else {
+        return DurableRecordLogScanEvidence::absent("ahci_controller_not_observed");
+    };
+    let read = ahci::read_persist_reclog_region(controller);
+    let source_port_index = if read.layout.port_index == u8::MAX {
+        None
+    } else {
+        Some(read.layout.port_index)
+    };
+    let (scan, records) = match read.bytes.as_deref() {
+        Some(bytes) => (
+            scan_reclog(bytes),
+            if surface_records {
+                scan_durable_record_log_records(bytes)
+            } else {
+                Vec::new()
+            },
+        ),
+        None => (RecordLogScan::not_scanned(read.reason), Vec::new()),
+    };
+
+    DurableRecordLogScanEvidence {
+        reason: read.reason,
+        controller: Some(controller),
+        controller_present: read.layout.controller_present,
+        source_port_index,
+        layout_status: read.layout.status(),
+        data_layout_status: read.layout.data.status.as_str(),
+        read_attempted: read.read_attempted,
+        read_completed: read.read_completed,
+        region_bounds_valid: read.region_bounds_valid,
+        reclog_absolute_start_lba: read.absolute_start_lba,
+        reclog_lba_count: read.lba_count,
+        reclog_byte_count: read.byte_count,
+        scan,
+        records,
+    }
+}
+
+/// Re-parses the already-read valid prefix once, retaining only its newest 16 frames.
+/// This adds O(valid-prefix bytes) CPU work to the evidence query and performs no I/O.
+fn scan_durable_record_log_records(bytes: &[u8]) -> Vec<DurableRecordLogScanRecord> {
+    let mut records = Vec::new();
+    if bytes.is_empty() || bytes.len() % RECLOG_SECTOR_SIZE != 0 {
+        return records;
+    }
+
+    let mut offset = 0usize;
+    let mut expected_seq = 1u64;
+    let mut expected_prev_hash = [0u8; 32];
+    while offset < bytes.len() {
+        if bytes[offset..].iter().all(|byte| *byte == 0) {
+            break;
+        }
+        let frame = match parse_reclog_frame(bytes, offset, expected_seq, expected_prev_hash) {
+            Ok(frame) => frame,
+            Err(_) => break,
+        };
+        let payload_start = offset + RECLOG_FRAME_HEADER_LEN;
+        let payload_end = payload_start + frame.payload_len as usize;
+        let payload = &bytes[payload_start..payload_end];
+        if records.len() == RECORD_LOG_SCAN_RECORD_CAP {
+            records.remove(0);
+        }
+        records.push(DurableRecordLogScanRecord {
+            seq: frame.seq,
+            schema: durable_record_schema(payload),
+            payload_sha256: frame.payload_sha256,
+            frame_sha256: frame.frame_sha256,
+        });
+
+        expected_seq = frame.seq.saturating_add(1);
+        expected_prev_hash = frame.frame_sha256;
+        offset += frame.frame_len as usize;
+    }
+    records
+}
+
+fn durable_record_schema(payload: &[u8]) -> String {
+    extract_record_string(payload, b"\"schema\": \"")
+        .or_else(|| extract_record_string(payload, b"\"family\": \""))
+        .unwrap_or_else(|| String::from("unknown"))
+}
+
+fn extract_record_string(payload: &[u8], needle: &[u8]) -> Option<String> {
+    let start = payload
+        .windows(needle.len())
+        .position(|window| window == needle)?
+        .checked_add(needle.len())?;
+    let tail = payload.get(start..)?;
+    let end = tail.iter().position(|byte| *byte == b'"')?;
+    str::from_utf8(tail.get(..end)?).ok().map(String::from)
+}
+
+fn durable_record_log_scan_record(record: &DurableRecordLogScanRecord) -> V<'_> {
+    V::Object(vec![
+        f("seq", V::U64(record.seq)),
+        f("schema", s(&record.schema)),
+        f("payload_sha256", V::Sha256(record.payload_sha256)),
+        f("frame_sha256", V::Sha256(record.frame_sha256)),
+    ])
+}
+
+pub(crate) const MAX_DURABLE_RECORDS_SURFACED: usize = 64;
+
+pub(crate) struct DurableMemoryRecord {
+    pub(crate) id: String,
+    pub(crate) kind: &'static str,
+    pub(crate) entity: String,
+    pub(crate) predicate: String,
+    pub(crate) classification: &'static str,
+    pub(crate) authority: String,
+    pub(crate) exportable: bool,
+}
+
+pub(crate) struct DurableMemorySupersedeLink {
+    pub(crate) superseder: String,
+    pub(crate) target: String,
+}
+
+pub(crate) struct DurableMemoryContext {
+    pub(crate) records: Vec<DurableMemoryRecord>,
+    pub(crate) superseded_hidden: Vec<String>,
+    pub(crate) r1_ignored_supersedes: Vec<DurableMemorySupersedeLink>,
+    pub(crate) dangling_supersedes: Vec<String>,
+    pub(crate) audit_id_reused: Vec<String>,
+    pub(crate) over_budget: bool,
+    pub(crate) frame_dropped_count: u64,
+    pub(crate) local_only_visible: bool,
+}
+
+impl DurableMemoryContext {
+    fn empty() -> Self {
+        Self {
+            records: Vec::new(),
+            superseded_hidden: Vec::new(),
+            r1_ignored_supersedes: Vec::new(),
+            dangling_supersedes: Vec::new(),
+            audit_id_reused: Vec::new(),
+            over_budget: false,
+            frame_dropped_count: 0,
+            local_only_visible: false,
+        }
+    }
+}
+
+pub(crate) fn current_boot_durable_memory_context() -> DurableMemoryContext {
+    let Some(controller) = pci::find_mass_storage_controller() else {
+        return DurableMemoryContext::empty();
+    };
+    let read = ahci::read_persist_reclog_region(controller);
+    let Some(region) = read.bytes else {
+        return DurableMemoryContext::empty();
+    };
+
+    let payloads = scan_reclog_payloads(&region);
+    let mut parsed = Vec::new();
+    let mut frame_dropped_count = 0u64;
+    let mut idx = 0usize;
+    while idx < payloads.len() {
+        let (seq, payload) = payloads[idx];
+        match memory_record::parse(payload) {
+            Ok(view) => parsed.push((seq, view)),
+            Err(_) => frame_dropped_count = frame_dropped_count.saturating_add(1),
+        }
+        idx += 1;
+    }
+
+    let over_budget = parsed.len() > MAX_DURABLE_RECORDS_SURFACED;
+    let start = if over_budget {
+        parsed.len() - MAX_DURABLE_RECORDS_SURFACED
+    } else {
+        0
+    };
+    let mut capped = Vec::with_capacity(parsed.len().saturating_sub(start));
+    idx = start;
+    while idx < parsed.len() {
+        capped.push((parsed[idx].0, parsed[idx].1.clone()));
+        idx += 1;
+    }
+
+    let resolved = resolve_durable_memory(&capped);
+    let mut context = DurableMemoryContext::empty();
+    context.over_budget = over_budget;
+    context.frame_dropped_count = frame_dropped_count;
+
+    idx = 0;
+    while idx < resolved.visible.len() {
+        let view = &resolved.visible[idx].1;
+        context.records.push(copy_durable_memory_record(view));
+        if view.classification.as_str() == "local_only" {
+            context.local_only_visible = true;
+        }
+        idx += 1;
+    }
+    context.superseded_hidden = copy_ids(&resolved.superseded_hidden);
+    context.r1_ignored_supersedes = copy_links(&resolved.r1_ignored_supersedes);
+    context.dangling_supersedes = copy_ids(&resolved.dangling_supersedes);
+    context.audit_id_reused = copy_ids(&resolved.audit_id_reused);
+    context
+}
+
+fn copy_durable_memory_record(view: &MemoryRecordView<'_>) -> DurableMemoryRecord {
+    let classification = view.classification.as_str();
+    DurableMemoryRecord {
+        id: String::from(view.id),
+        kind: view.kind.as_str(),
+        entity: String::from(view.entity),
+        predicate: String::from(view.predicate),
+        classification,
+        authority: String::from(view.authority),
+        exportable: classification == "public",
+    }
+}
+
+fn copy_ids(ids: &[&str]) -> Vec<String> {
+    let mut out = Vec::with_capacity(ids.len());
+    let mut idx = 0usize;
+    while idx < ids.len() {
+        out.push(String::from(ids[idx]));
+        idx += 1;
+    }
+    out
+}
+
+fn copy_links(links: &[(&str, &str)]) -> Vec<DurableMemorySupersedeLink> {
+    let mut out = Vec::with_capacity(links.len());
+    let mut idx = 0usize;
+    while idx < links.len() {
+        out.push(DurableMemorySupersedeLink {
+            superseder: String::from(links[idx].0),
+            target: String::from(links[idx].1),
+        });
+        idx += 1;
+    }
+    out
+}
+
+// --- M9A-2b durable memory record append (raios.memory_record.v0) -----------------
+//
+// Appends the ONE system-authored `raios.memory_record.v0` durable memory fact
+// through the SAME shared reclog gauntlet as every other durable writer in this file
+// (scan -> plan -> ahci write_readback -> readback-sha -> reparse ->
+// evaluate_scoped_memory_record_append -> rescan), mirroring `append_recovery_load`
+// EXACTLY, with ONE addition: a per-boot RAM write-quota charged from the exact
+// planned frame size BEFORE media I/O. A charge is refunded only while no write
+// was attempted; attempted or uncertain writes consume it. `MemoryRecord::new`
+// (raios-core) already
+// fails closed on `secret` classification and unknown `kind`, so this function is
+// never called with an invalid record; `evaluate_scoped_memory_record_append`
+// re-checks those invariants anyway (deny-in-depth) plus the reclog gauntlet, owner
+// trust tier, and the quota gate itself. Quota/secret/bad-kind denials are exercised
+// ONLY by the synthetic `memory.record_log_append_selftest` (which calls the
+// evaluator directly on synthetic input and never reaches this function, never
+// touches the disk), so there is no self-recursive durable write on denial.
+
+/// Per-boot RAM-only durable-memory write quota. A fresh static reset to full every
+/// boot by construction -- never read from or written to disk. Bounds BOTH the
+/// record count and the exact sector-rounded frame bytes for every reservation.
+const MEMORY_WRITE_QUOTA_MAX_RECORDS: u32 = 128;
+const MEMORY_WRITE_QUOTA_MAX_BYTES: u64 = 32 * 1024;
+const MEMORY_RECORD_APPEND_SUCCESS_AUTHORITY: &str = "scoped_memory_record_append_authorized";
+const SAFE_WIFI_AUDIT_RECORD_ID_PREFIX: &str =
+    "mem.capability_grant.secret_use.native_wifi_supplicant";
+const SAFE_WIFI_AUDIT_ENTITY: &str = "native_wifi_supplicant";
+const SAFE_WIFI_AUDIT_OPERATION: &str = "associate_bound_bss";
+const SAFE_WIFI_AUDIT_SOURCE: &str = "secret_vault.wifi_use_audit";
+
+/// Informational budget constants surfaced by the selftest response so the VM
+/// profile can assert the quota is honestly per-boot bounded.
+pub(crate) const MEMORY_WRITE_QUOTA_BUDGET_RECORDS: u64 = MEMORY_WRITE_QUOTA_MAX_RECORDS as u64;
+pub(crate) const MEMORY_WRITE_QUOTA_BUDGET_BYTES: u64 = MEMORY_WRITE_QUOTA_MAX_BYTES;
+
+struct MemoryWriteQuota {
+    records_remaining: u32,
+    bytes_remaining: u64,
+}
+
+impl MemoryWriteQuota {
+    const fn new() -> Self {
+        Self {
+            records_remaining: MEMORY_WRITE_QUOTA_MAX_RECORDS,
+            bytes_remaining: MEMORY_WRITE_QUOTA_MAX_BYTES,
+        }
+    }
+}
+
+static MEMORY_WRITE_QUOTA: Mutex<MemoryWriteQuota> = Mutex::new(MemoryWriteQuota::new());
+
+/// M9B-1b: an agent-authored observation remains capped at two sectors. Both agent
+/// and system records are charged their exact planned sector count.
+const AGENT_OBS_QUOTA_SECTORS: u64 = 2;
+
+/// Reserves one record + `sectors` sector charges against the per-boot quota. Fails
+/// closed (returns `false`, reserves nothing) once either budget is exhausted.
+fn memory_write_quota_try_reserve_sectors(sectors: u64) -> bool {
+    let mut quota = MEMORY_WRITE_QUOTA.lock();
+    let Some(bytes_needed) = (RECLOG_SECTOR_SIZE as u64).checked_mul(sectors) else {
+        return false;
+    };
+    if quota.records_remaining == 0 || quota.bytes_remaining < bytes_needed {
+        return false;
+    }
+    quota.records_remaining -= 1;
+    quota.bytes_remaining -= bytes_needed;
+    true
+}
+
+/// Gives back a reservation only when no media write was attempted.
+fn memory_write_quota_release_sectors(sectors: u64) {
+    let mut quota = MEMORY_WRITE_QUOTA.lock();
+    let bytes_back = (RECLOG_SECTOR_SIZE as u64).saturating_mul(sectors);
+    quota.records_remaining = quota
+        .records_remaining
+        .saturating_add(1)
+        .min(MEMORY_WRITE_QUOTA_MAX_RECORDS);
+    quota.bytes_remaining = quota
+        .bytes_remaining
+        .saturating_add(bytes_back)
+        .min(MEMORY_WRITE_QUOTA_MAX_BYTES);
+}
+
+/// One-sector wrappers retained only for the non-writing quota probe.
+fn memory_write_quota_try_reserve() -> bool {
+    memory_write_quota_try_reserve_sectors(1)
+}
+
+fn memory_write_quota_release() {
+    memory_write_quota_release_sectors(1)
+}
+
+/// TEST-ONLY live probe of the REAL per-boot RAM quota (M9A-2b M1): reserves
+/// against the actual `MEMORY_WRITE_QUOTA` static until `try_reserve` returns false
+/// (counting the successful reservations), then releases exactly that many, and
+/// finally confirms a fresh reservation succeeds again (giving it straight back).
+/// This proves the live gate genuinely exhausts AND refunds — the one primitive
+/// this slice adds over its `append_recovery_load` reference — WITHOUT performing a
+/// single durable write. It is order-independent and non-perturbing: it restores the
+/// quota to exactly its prior level, so a real `append_memory_record` in the same
+/// boot is unaffected. Returns `(reservations_until_exhausted, restored_ok)`.
+pub(crate) fn memory_write_quota_probe_exhaustion() -> (u32, bool) {
+    let mut reserved = 0u32;
+    while memory_write_quota_try_reserve() {
+        reserved = reserved.saturating_add(1);
+        if reserved == u32::MAX {
+            break;
+        }
+    }
+    let mut released = 0u32;
+    while released < reserved {
+        memory_write_quota_release();
+        released = released.saturating_add(1);
+    }
+    let restored = memory_write_quota_try_reserve();
+    if restored {
+        memory_write_quota_release();
+    }
+    (reserved, restored)
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct MemoryRecordAppendEvidence<'a> {
+    pub(crate) durable_append: &'static str,
+    pub(crate) performed: bool,
+    pub(crate) reason: &'static str,
+    pub(crate) authority: &'static str,
+    pub(crate) seq: Option<u64>,
+    pub(crate) write_offset: Option<u64>,
+    pub(crate) frame_len: Option<u64>,
+    pub(crate) payload_sha256: Option<[u8; 32]>,
+    pub(crate) frame_sha256: Option<[u8; 32]>,
+    pub(crate) readback_sha256: Option<[u8; 32]>,
+    pub(crate) reparse_valid: bool,
+    pub(crate) tail_seq_before: Option<u64>,
+    pub(crate) count_before: Option<u64>,
+    pub(crate) tail_seq_after: Option<u64>,
+    pub(crate) count_after: Option<u64>,
+    pub(crate) record_id: &'a str,
+    pub(crate) record_kind: &'static str,
+    pub(crate) record_classification: &'static str,
+    pub(crate) record_authority: &'a str,
+    pub(crate) record_schema: &'static str,
+    pub(crate) region_marker: &'static str,
+    pub(crate) target_id: &'static str,
+    pub(crate) owner_sealed: bool,
+    pub(crate) persistence_claimed: bool,
+    pub(crate) trust_tier: &'static str,
+}
+
+/// Appends `record` through the shared reclog gauntlet, authorized ONLY by
+/// `evaluate_scoped_memory_record_append`. Generalized over the record's lifetime
+/// `'a` (M9B-1b) so an agent-authored record built from a decoded, non-`'static` RAM
+/// buffer can be appended and rendered before that buffer drops; the two `'static`
+/// entry points below (`append_memory_record` / `append_agent_observation_record`)
+/// pick the quota charge and the `agent_authored` flag this body forwards to
+/// `evaluate_scoped_memory_record_append` UNCHANGED otherwise.
+#[derive(Clone, Copy)]
+enum MemoryRecordAppendMode {
+    General,
+    SafeWifiAudit,
+}
+
+fn append_memory_record_inner<'a>(
+    record: &MemoryRecord<'a>,
+    agent_authored: bool,
+    mode: MemoryRecordAppendMode,
+) -> MemoryRecordAppendEvidence<'a> {
+    let posture = super::boot_control::current_boot_posture();
+    match mode {
+        MemoryRecordAppendMode::General
+            if !matches!(posture, BootPosture::Normal | BootPosture::Probation) =>
+        {
+            return memory_record_append_denied(record, "boot_control_safe_mode");
+        }
+        MemoryRecordAppendMode::SafeWifiAudit if posture != BootPosture::Safe => {
+            return memory_record_append_denied(record, "safe_wifi_audit_requires_safe_posture");
+        }
+        _ => {}
+    }
+
+    let before = current_boot_reclog_scan();
+    let payload = memory_record_payload_bytes(record);
+    let planned = match plan_reclog_append(&before.scan, &payload, before.reclog_byte_count) {
+        Ok(planned) => planned,
+        Err(denied) => {
+            return memory_record_append_evidence(
+                record,
+                "capability_denied",
+                denied.reason(),
+                "evidence_only",
+                Some(&before),
+                None,
+                None,
+                false,
+                None,
+            );
+        }
+    };
+
+    let Some(sector_count) = planned
+        .frame_len
+        .checked_add(RECLOG_SECTOR_SIZE as u64 - 1)
+        .map(|rounded| rounded / RECLOG_SECTOR_SIZE as u64)
+        .filter(|sectors| *sectors != 0)
+    else {
+        return memory_record_append_evidence(
+            record,
+            "capability_denied",
+            "memory_write_quota_exhausted",
+            "evidence_only",
+            Some(&before),
+            Some(&planned),
+            None,
+            false,
+            None,
+        );
+    };
+
+    if agent_authored && sector_count > AGENT_OBS_QUOTA_SECTORS {
+        return memory_record_append_evidence(
+            record,
+            "capability_denied",
+            "agent_observation_frame_exceeds_quota_charge",
+            "evidence_only",
+            Some(&before),
+            Some(&planned),
+            None,
+            false,
+            None,
+        );
+    }
+
+    if !memory_write_quota_try_reserve_sectors(sector_count) {
+        return memory_record_append_evidence(
+            record,
+            "capability_denied",
+            "memory_write_quota_exhausted",
+            "evidence_only",
+            Some(&before),
+            Some(&planned),
+            None,
+            false,
+            None,
+        );
+    }
+
+    let Some(controller) = before.controller else {
+        memory_write_quota_release_sectors(sector_count);
+        return memory_record_append_evidence(
+            record,
+            "capability_denied",
+            "ahci_controller_not_observed",
+            "evidence_only",
+            Some(&before),
+            Some(&planned),
+            None,
+            false,
+            None,
+        );
+    };
+
+    let write = unsafe {
+        ahci::write_readback_reclog_append(controller, planned.write_offset, &planned.frame)
+    };
+    let readback_sha256 = write.readback.as_deref().map(sha256_bytes);
+    let reparse_valid = write.readback.as_deref().is_some_and(|bytes| {
+        let Ok(frame) = parse_reclog_frame(bytes, 0, planned.seq, planned.prev_frame_sha256) else {
+            return false;
+        };
+        let payload_end = RECLOG_FRAME_HEADER_LEN.saturating_add(frame.payload_len as usize);
+        bytes
+            .get(RECLOG_FRAME_HEADER_LEN..payload_end)
+            .is_some_and(|payload| memory_record::parse(payload).is_ok())
+    });
+    let decision = evaluate_scoped_memory_record_append(&ScopedMemoryRecordAppendInput {
+        method: Some(MEMORY_EXPECTED_METHOD),
+        target_id: Some(MEMORY_EXPECTED_TARGET_ID),
+        record_schema: Some(MEMORY_EXPECTED_RECORD_SCHEMA),
+        region_marker: Some(MEMORY_EXPECTED_REGION_MARKER),
+        frame_len: Some(planned.frame_len),
+        write_offset: Some(planned.write_offset),
+        reclog_byte_count: Some(before.reclog_byte_count),
+        absolute_start_lba: Some(before.reclog_absolute_start_lba),
+        reclog_lba_count: Some(before.reclog_lba_count),
+        seq: Some(planned.seq),
+        tail_seq: Some(before.scan.tail_seq),
+        count: Some(before.scan.count),
+        prev_frame_sha256: Some(planned.prev_frame_sha256),
+        tail_frame_sha256: before.scan.tail_frame_sha256,
+        payload_sha256: Some(planned.payload_sha256),
+        planned_payload_sha256: Some(planned.payload_sha256),
+        planned_frame_sha256: Some(planned.frame_sha256),
+        readback_frame_sha256: readback_sha256,
+        write_attempted: write.write_attempted,
+        write_completed: write.write_completed,
+        readback_completed: write.readback_completed,
+        readback_matches_planned: readback_sha256 == Some(planned.frame_sha256),
+        reparse_valid,
+        span_in_bounds: write.span_in_bounds,
+        classification: Some(record.classification.as_str()),
+        kind: Some(record.kind.as_str()),
+        supersedes_len: Some(record.supersedes.len() as u64),
+        supersede_self_reference: false,
+        trust_tier: Some(MEMORY_EXPECTED_TRUST_TIER),
+        owner_sealed: false,
+        persistence_claimed: false,
+        quota_ok: true,
+        agent_authored,
+    });
+
+    if !decision.performed {
+        if !write.write_attempted {
+            memory_write_quota_release_sectors(sector_count);
+        }
+        return memory_record_append_evidence(
+            record,
+            "capability_denied",
+            decision.reason,
+            "evidence_only",
+            Some(&before),
+            Some(&planned),
+            readback_sha256,
+            reparse_valid,
+            None,
+        );
+    }
+
+    let after = current_boot_reclog_scan();
+    let rescan_ok = before
+        .scan
+        .count
+        .checked_add(1)
+        .map(|count| after.scan.count == count)
+        .unwrap_or(false)
+        && after.scan.tail_seq == planned.seq
+        && after.scan.tail_frame_sha256 == Some(planned.frame_sha256);
+    if !rescan_ok {
+        return memory_record_append_evidence(
+            record,
+            "capability_denied",
+            "post_append_rescan_mismatch",
+            "evidence_only",
+            Some(&before),
+            Some(&planned),
+            readback_sha256,
+            reparse_valid,
+            Some(&after),
+        );
+    }
+
+    memory_record_append_evidence(
+        record,
+        "appended",
+        decision.reason,
+        MEMORY_RECORD_APPEND_SUCCESS_AUTHORITY,
+        Some(&before),
+        Some(&planned),
+        readback_sha256,
+        true,
+        Some(&after),
+    )
+}
+
+/// System-authored append, charged from the exact planned frame length.
+pub(crate) fn append_memory_record<'a>(
+    record: &MemoryRecord<'a>,
+) -> MemoryRecordAppendEvidence<'a> {
+    append_memory_record_inner(record, false, MemoryRecordAppendMode::General)
+}
+
+#[derive(Clone)]
+pub(crate) struct DurableWasmGrantSlot {
+    pub(crate) grant_id: String,
+    pub(crate) grant_sha256: [u8; 32],
+    pub(crate) revoke_id: Option<String>,
+    pub(crate) service_id: String,
+    pub(crate) domain_instance: u64,
+    pub(crate) binding_sha256: [u8; 32],
+    pub(crate) host_import_id: DurableHostImportId,
+    pub(crate) scope: raios_core::wasm_import_grant_event::GrantScope,
+    pub(crate) generation: u64,
+    pub(crate) grant_epoch: u64,
+    pub(crate) revoked: bool,
+}
+
+pub(crate) struct DurableWasmGrantProjection {
+    pub(crate) valid: bool,
+    pub(crate) reason: &'static str,
+    pub(crate) sha256: [u8; 32],
+    pub(crate) event_count: u64,
+    pub(crate) next_epoch: u64,
+    pub(crate) slots: Vec<DurableWasmGrantSlot>,
+}
+
+impl DurableWasmGrantProjection {
+    fn denied(reason: &'static str) -> Self {
+        Self {
+            valid: false,
+            reason,
+            sha256: sha256_bytes(b"raios.cap.projection.denied.v1"),
+            event_count: 0,
+            next_epoch: 1,
+            slots: Vec::new(),
+        }
+    }
+}
+
+/// Reads and folds durable Wasm grant events only when the entire shared RECLOG
+/// region is valid. No valid-prefix authority is ever returned.
+pub(crate) fn load_durable_wasm_grant_projection() -> DurableWasmGrantProjection {
+    let Some(controller) = pci::find_mass_storage_controller() else {
+        return DurableWasmGrantProjection::denied("ahci_controller_not_observed");
+    };
+    let read = ahci::read_persist_reclog_region(controller);
+    let Some(region) = read.bytes else {
+        return DurableWasmGrantProjection::denied(read.reason);
+    };
+    let scan = scan_reclog(&region);
+    if !read.read_completed || !scan.full_region_valid || !scan.valid_prefix_chain {
+        return DurableWasmGrantProjection::denied("reclog_full_region_invalid");
+    }
+
+    let mut events = Vec::new();
+    for (_, payload) in scan_reclog_payloads(&region) {
+        match parse_event(payload) {
+            Ok(event) => events.push(event),
+            Err(WasmGrantEventError::NotGrantEvent) => {
+                if memory_record::parse(payload).is_ok_and(|view| {
+                    view.authority == WASM_GRANT_EVENT_AUTHORITY
+                        || view.predicate == WASM_GRANT_PREDICATE
+                        || view.predicate == WASM_REVOKE_PREDICATE
+                }) {
+                    return DurableWasmGrantProjection::denied("grant_event_malformed");
+                }
+            }
+            Err(_) => return DurableWasmGrantProjection::denied("grant_event_malformed"),
+        }
+    }
+    let event_count = events.len() as u64;
+    let next_epoch = events
+        .last()
+        .and_then(|event| event.epoch.checked_add(1))
+        .unwrap_or(1);
+    let folded = match fold_events(&events) {
+        Ok(folded) => folded,
+        Err(error) => {
+            return DurableWasmGrantProjection::denied(match error {
+                WasmGrantFoldError::Malformed => "grant_fold_malformed",
+                WasmGrantFoldError::MissingParent => "grant_fold_missing_parent",
+                WasmGrantFoldError::MalformedLink => "grant_fold_malformed_link",
+                WasmGrantFoldError::Fork => "grant_fold_fork",
+                WasmGrantFoldError::RepeatedOrNonMonotonicEpoch => "grant_fold_epoch_non_monotonic",
+                WasmGrantFoldError::AmbiguousHistory => "grant_fold_ambiguous_history",
+                WasmGrantFoldError::CapacityOverflow => "grant_fold_capacity_overflow",
+            })
+        }
+    };
+    let slots = folded
+        .slots()
+        .iter()
+        .map(|slot| DurableWasmGrantSlot {
+            grant_id: String::from(slot.grant_id),
+            grant_sha256: slot.grant_sha256,
+            revoke_id: slot.revoke_id.map(String::from),
+            service_id: String::from(slot.service_id),
+            domain_instance: slot.domain_instance,
+            binding_sha256: slot.binding_sha256,
+            host_import_id: slot.host_import_id,
+            scope: slot.scope,
+            generation: slot.generation,
+            grant_epoch: slot.grant_epoch,
+            revoked: slot.revoked,
+        })
+        .collect();
+    DurableWasmGrantProjection {
+        valid: true,
+        reason: "fold_valid",
+        sha256: folded.sha256(),
+        event_count,
+        next_epoch,
+        slots,
+    }
+}
+
+/// Append through the existing MemoryRecord RECLOG gauntlet, then perform a
+/// second dedicated typed refold. Callers may flip RAM authority only on true.
+pub(crate) fn append_durable_wasm_grant_event(event: &GrantEvent<'_>) -> bool {
+    let Ok(payload) = event.canonical_bytes() else {
+        return false;
+    };
+    if parse_event(&payload).is_err() {
+        return false;
+    }
+    let Ok(record) = event.memory_record() else {
+        return false;
+    };
+    let append = append_memory_record(&record);
+    if !append.performed || append.durable_append != "appended" || !append.reparse_valid {
+        return false;
+    }
+    let projection = load_durable_wasm_grant_projection();
+    projection.valid
+        && projection.event_count != 0
+        && projection.next_epoch == event.epoch.saturating_add(1)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EnsureRevokedOutcome {
+    Appended,
+    AlreadyRevokedByTransaction,
+    Denied,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WasmRollbackMarkerKind {
+    Intent,
+    Commit,
+}
+
+/// Conservative all-or-nothing reservation check. Every planned rollback
+/// frame is charged at the RECLOG maximum frame size before intent is written.
+pub(crate) fn preflight_wasm_rollback_frames(required_frames: usize) -> bool {
+    let Some(controller) = pci::find_mass_storage_controller() else {
+        return false;
+    };
+    let read = ahci::read_persist_reclog_region(controller);
+    let Some(region) = read.bytes else {
+        return false;
+    };
+    let scan = scan_reclog(&region);
+    if !read.read_completed || !scan.full_region_valid || !scan.valid_prefix_chain {
+        return false;
+    }
+    let Some(reserved) = (required_frames as u64).checked_mul(4096) else {
+        return false;
+    };
+    scan.first_invalid_offset
+        .checked_add(reserved)
+        .is_some_and(|end| end <= read.byte_count)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn append_wasm_rollback_marker(
+    kind: WasmRollbackMarkerKind,
+    transaction_id: &str,
+    service_id: &str,
+    domain_instance: u64,
+    source_projection_sha256: [u8; 32],
+    target_snapshot_sha256: [u8; 32],
+    delta_sha256: [u8; 32],
+    delta_count: u64,
+    result_projection_sha256: Option<[u8; 32]>,
+) -> bool {
+    let (suffix, predicate, sequence) = match kind {
+        WasmRollbackMarkerKind::Intent => ("intent", "wasm_import.rollback_intent.v1", 1),
+        WasmRollbackMarkerKind::Commit => ("commit", "wasm_import.rollback_commit.v1", 2),
+    };
+    if matches!(kind, WasmRollbackMarkerKind::Intent) != result_projection_sha256.is_none() {
+        return false;
+    }
+    let record_id = format!("rollback.{suffix}.{transaction_id}");
+    let record = match MemoryRecord::new(MemoryRecordInput {
+        id: &record_id,
+        kind: MemoryKind::RollbackTxRef.as_str(),
+        entity: service_id,
+        predicate,
+        value: V::InlineObject(vec![
+            Field::new("transaction_id", V::Str(transaction_id)),
+            Field::new("service_id", V::Str(service_id)),
+            Field::new("domain_instance", V::U64(domain_instance)),
+            Field::new(
+                "source_projection_sha256",
+                V::Sha256(source_projection_sha256),
+            ),
+            Field::new("target_snapshot_sha256", V::Sha256(target_snapshot_sha256)),
+            Field::new("delta_sha256", V::Sha256(delta_sha256)),
+            Field::new("delta_count", V::U64(delta_count)),
+            Field::new(
+                "result_projection_sha256",
+                result_projection_sha256.map(V::Sha256).unwrap_or(V::Null),
+            ),
+        ]),
+        classification: "local_only",
+        authority: "kernel_wasm_rollback_transaction.v1",
+        boot_id: "origin_boot",
+        sequence,
+        source: MemorySource::new("service.rollback_apply", transaction_id),
+        evidence: vec![],
+        tags: vec!["wasm_import", "rollback_transaction"],
+        supersedes: vec![],
+        created_at_ticks: 0,
+    }) {
+        Ok(record) => record,
+        Err(_) => return false,
+    };
+    let append = append_memory_record(&record);
+    append.performed && append.reparse_valid && append.durable_append == "appended"
+}
+
+#[allow(clippy::too_many_arguments)]
+fn wasm_rollback_marker_payload_bytes(
+    kind: WasmRollbackMarkerKind,
+    transaction_id: &str,
+    service_id: &str,
+    domain_instance: u64,
+    source_projection_sha256: [u8; 32],
+    target_snapshot_sha256: [u8; 32],
+    delta_sha256: [u8; 32],
+    delta_count: u64,
+    result_projection_sha256: Option<[u8; 32]>,
+) -> Result<Vec<u8>, ()> {
+    let (suffix, predicate, sequence) = match kind {
+        WasmRollbackMarkerKind::Intent => ("intent", "wasm_import.rollback_intent.v1", 1),
+        WasmRollbackMarkerKind::Commit => ("commit", "wasm_import.rollback_commit.v1", 2),
+    };
+    if matches!(kind, WasmRollbackMarkerKind::Intent) != result_projection_sha256.is_none() {
+        return Err(());
+    }
+    let record_id = format!("rollback.{suffix}.{transaction_id}");
+    let record = MemoryRecord::new(MemoryRecordInput {
+        id: &record_id,
+        kind: MemoryKind::RollbackTxRef.as_str(),
+        entity: service_id,
+        predicate,
+        value: V::InlineObject(vec![
+            Field::new("transaction_id", V::Str(transaction_id)),
+            Field::new("service_id", V::Str(service_id)),
+            Field::new("domain_instance", V::U64(domain_instance)),
+            Field::new(
+                "source_projection_sha256",
+                V::Sha256(source_projection_sha256),
+            ),
+            Field::new("target_snapshot_sha256", V::Sha256(target_snapshot_sha256)),
+            Field::new("delta_sha256", V::Sha256(delta_sha256)),
+            Field::new("delta_count", V::U64(delta_count)),
+            Field::new(
+                "result_projection_sha256",
+                result_projection_sha256.map(V::Sha256).unwrap_or(V::Null),
+            ),
+        ]),
+        classification: "local_only",
+        authority: "kernel_wasm_rollback_transaction.v1",
+        boot_id: "origin_boot",
+        sequence,
+        source: MemorySource::new("service.rollback_apply", transaction_id),
+        evidence: vec![],
+        tags: vec!["wasm_import", "rollback_transaction"],
+        supersedes: vec![],
+        created_at_ticks: 0,
+    })
+    .map_err(|_| ())?;
+    Ok(memory_record_payload_bytes(&record))
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PendingWasmRollback {
+    pub(crate) transaction_id: String,
+    pub(crate) service_id: String,
+    pub(crate) domain_instance: u64,
+    pub(crate) source_projection_sha256: [u8; 32],
+    pub(crate) target_snapshot_sha256: [u8; 32],
+    pub(crate) delta_sha256: [u8; 32],
+    pub(crate) delta_count: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CommittedWasmRollback {
+    pub(crate) transaction_id: String,
+    pub(crate) service_id: String,
+    pub(crate) domain_instance: u64,
+    pub(crate) target_snapshot_sha256: [u8; 32],
+    pub(crate) result_projection_sha256: [u8; 32],
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum WasmRollbackRecoveryState {
+    None,
+    Pending(PendingWasmRollback),
+    Committed(CommittedWasmRollback),
+    Denied(&'static str),
+}
+
+#[derive(Clone)]
+struct ParsedWasmRollbackMarker {
+    kind: WasmRollbackMarkerKind,
+    transaction: PendingWasmRollback,
+    result_projection_sha256: Option<[u8; 32]>,
+}
+
+#[derive(Clone)]
+struct ExpectedRollbackRevoke {
+    record_id: String,
+    parent_grant_id: String,
+    parent_grant_sha256: [u8; 32],
+}
+
+/// Single fail-closed recovery fold. Unsigned transaction fields are never
+/// authority: they must exactly match a re-derived source projection, a
+/// signature-verified target snapshot, its exact delta, and the observed
+/// durable projection transition.
+pub(crate) fn wasm_rollback_recovery_state() -> WasmRollbackRecoveryState {
+    let Some(controller) = pci::find_mass_storage_controller() else {
+        return WasmRollbackRecoveryState::Denied("rollback_recovery_controller_missing");
+    };
+    let read = ahci::read_persist_reclog_region(controller);
+    let Some(region) = read.bytes else {
+        return WasmRollbackRecoveryState::Denied("rollback_recovery_read_failed");
+    };
+    let scan = scan_reclog(&region);
+    if !read.read_completed || !scan.full_region_valid || !scan.valid_prefix_chain {
+        return WasmRollbackRecoveryState::Denied("rollback_recovery_reclog_invalid");
+    }
+    let mut grant_events = Vec::new();
+    let mut pending: Option<(PendingWasmRollback, usize, Vec<ExpectedRollbackRevoke>)> = None;
+    let mut committed: Option<CommittedWasmRollback> = None;
+    for (_, payload) in scan_reclog_payloads(&region) {
+        match parse_event(payload) {
+            Ok(event) => {
+                if committed.is_some() {
+                    return WasmRollbackRecoveryState::Denied(
+                        "rollback_commit_projection_not_terminal",
+                    );
+                }
+                if let Some((transaction, _, expected)) = pending.as_ref() {
+                    if event.kind != GrantEventKind::Revoke {
+                        return WasmRollbackRecoveryState::Denied(
+                            "rollback_transition_unexpected_grant_event",
+                        );
+                    }
+                    let expected_match = expected.iter().any(|item| {
+                        item.record_id == event.record_id
+                            && item.parent_grant_id == event.parent_grant_id
+                            && item.parent_grant_sha256 == event.parent_grant_sha256
+                    });
+                    if !expected_match
+                        || event.record_id
+                            != rollback_revoke_record_id(
+                                &transaction.transaction_id,
+                                event.parent_grant_id,
+                            )
+                    {
+                        return WasmRollbackRecoveryState::Denied(
+                            "rollback_transition_unexpected_revoke",
+                        );
+                    }
+                    if grant_events
+                        .iter()
+                        .any(|prior: &GrantEvent<'_>| prior.record_id == event.record_id)
+                    {
+                        return WasmRollbackRecoveryState::Denied(
+                            "rollback_transition_duplicate_revoke",
+                        );
+                    }
+                }
+                grant_events.push(event);
+                continue;
+            }
+            Err(WasmGrantEventError::NotGrantEvent) => {}
+            Err(_) => {
+                return WasmRollbackRecoveryState::Denied("rollback_projection_event_malformed")
+            }
+        }
+
+        let marker = match parse_wasm_rollback_marker(payload) {
+            Ok(Some(marker)) => marker,
+            Ok(None) => continue,
+            Err(reason) => return WasmRollbackRecoveryState::Denied(reason),
+        };
+        match marker.kind {
+            WasmRollbackMarkerKind::Intent => {
+                if pending.is_some() || committed.is_some() {
+                    return WasmRollbackRecoveryState::Denied("rollback_recovery_duplicate_intent");
+                }
+                let source = match fold_events(&grant_events) {
+                    Ok(source) => source,
+                    Err(_) => {
+                        return WasmRollbackRecoveryState::Denied(
+                            "rollback_source_projection_invalid",
+                        )
+                    }
+                };
+                if source.sha256() != marker.transaction.source_projection_sha256 {
+                    return WasmRollbackRecoveryState::Denied(
+                        "rollback_intent_source_projection_mismatch",
+                    );
+                }
+                let target = match artifact_store::load_verified_committed_rollback_target(
+                    marker.transaction.target_snapshot_sha256,
+                ) {
+                    Ok(target) => target,
+                    Err(reason) => return WasmRollbackRecoveryState::Denied(reason),
+                };
+                if target.snapshot.snapshot_sha256 != marker.transaction.target_snapshot_sha256
+                    || target.envelope.service_id != marker.transaction.service_id
+                    || marker.transaction.domain_instance == 0
+                {
+                    return WasmRollbackRecoveryState::Denied(
+                        "rollback_intent_signed_target_mismatch",
+                    );
+                }
+                let delta = match rollback_delta(
+                    &source,
+                    marker.transaction.domain_instance,
+                    &target.envelope,
+                    &target.snapshot,
+                ) {
+                    Ok(delta) => delta,
+                    Err(_) => {
+                        return WasmRollbackRecoveryState::Denied(
+                            "rollback_intent_signed_target_mismatch",
+                        )
+                    }
+                };
+                if delta.is_empty()
+                    || delta.len() as u64 != marker.transaction.delta_count
+                    || rollback_projection_delta_sha256(&delta) != marker.transaction.delta_sha256
+                {
+                    return WasmRollbackRecoveryState::Denied("rollback_intent_delta_mismatch");
+                }
+                let expected = delta
+                    .iter()
+                    .map(|slot| ExpectedRollbackRevoke {
+                        record_id: rollback_revoke_record_id(
+                            &marker.transaction.transaction_id,
+                            slot.grant_id,
+                        ),
+                        parent_grant_id: String::from(slot.grant_id),
+                        parent_grant_sha256: slot.grant_sha256,
+                    })
+                    .collect();
+                pending = Some((marker.transaction, grant_events.len(), expected));
+            }
+            WasmRollbackMarkerKind::Commit => {
+                let Some((intent, source_event_count, expected)) = pending.take() else {
+                    return WasmRollbackRecoveryState::Denied("rollback_recovery_orphan_commit");
+                };
+                if intent != marker.transaction {
+                    return WasmRollbackRecoveryState::Denied("rollback_recovery_pair_mismatch");
+                }
+                let Some(recorded_result) = marker.result_projection_sha256 else {
+                    return WasmRollbackRecoveryState::Denied(
+                        "rollback_recovery_commit_result_missing",
+                    );
+                };
+                if grant_events.len().saturating_sub(source_event_count) != expected.len() {
+                    return WasmRollbackRecoveryState::Denied(
+                        "rollback_transition_delta_count_mismatch",
+                    );
+                }
+                for expected_revoke in &expected {
+                    let occurrences = grant_events[source_event_count..]
+                        .iter()
+                        .filter(|event| event.record_id == expected_revoke.record_id)
+                        .count();
+                    if occurrences != 1 {
+                        return WasmRollbackRecoveryState::Denied(
+                            "rollback_transition_delta_set_mismatch",
+                        );
+                    }
+                }
+                let result = match fold_events(&grant_events) {
+                    Ok(result) => result,
+                    Err(_) => {
+                        return WasmRollbackRecoveryState::Denied(
+                            "rollback_result_projection_invalid",
+                        )
+                    }
+                };
+                if result.sha256() != recorded_result
+                    || expected.iter().any(|expected_revoke| {
+                        !result.slots().iter().any(|slot| {
+                            slot.grant_id == expected_revoke.parent_grant_id
+                                && slot.grant_sha256 == expected_revoke.parent_grant_sha256
+                                && slot.revoked
+                                && slot.revoke_id == Some(expected_revoke.record_id.as_str())
+                        })
+                    })
+                {
+                    return WasmRollbackRecoveryState::Denied(
+                        "rollback_commit_projection_mismatch",
+                    );
+                }
+                committed = Some(CommittedWasmRollback {
+                    transaction_id: intent.transaction_id,
+                    service_id: intent.service_id,
+                    domain_instance: intent.domain_instance,
+                    target_snapshot_sha256: intent.target_snapshot_sha256,
+                    result_projection_sha256: result.sha256(),
+                });
+            }
+        }
+    }
+    if let Some((pending, _, _)) = pending {
+        WasmRollbackRecoveryState::Pending(pending)
+    } else if let Some(committed) = committed {
+        WasmRollbackRecoveryState::Committed(committed)
+    } else {
+        WasmRollbackRecoveryState::None
+    }
+}
+
+fn parse_wasm_rollback_marker(
+    payload: &[u8],
+) -> Result<Option<ParsedWasmRollbackMarker>, &'static str> {
+    let rollback_shaped = payload_contains(payload, b"wasm_import.rollback_")
+        || payload_contains(payload, b"kernel_wasm_rollback_transaction.v1");
+    let view = match memory_record::parse(payload) {
+        Ok(view) => view,
+        Err(_) if rollback_shaped => return Err("rollback_recovery_marker_malformed"),
+        Err(_) => return Ok(None),
+    };
+    let kind = match view.predicate {
+        "wasm_import.rollback_intent.v1" => WasmRollbackMarkerKind::Intent,
+        "wasm_import.rollback_commit.v1" => WasmRollbackMarkerKind::Commit,
+        _ if view.authority == "kernel_wasm_rollback_transaction.v1" => {
+            return Err("rollback_recovery_predicate_invalid")
+        }
+        _ => return Ok(None),
+    };
+    if view.kind != MemoryKind::RollbackTxRef
+        || view.classification.as_str() != "local_only"
+        || view.authority != "kernel_wasm_rollback_transaction.v1"
+        || view.boot_id != "origin_boot"
+        || view.sequence
+            != match kind {
+                WasmRollbackMarkerKind::Intent => 1,
+                WasmRollbackMarkerKind::Commit => 2,
+            }
+        || view.source.method != "service.rollback_apply"
+        || !view.evidence.is_empty()
+        || view.tags.as_slice() != ["wasm_import", "rollback_transaction"]
+        || !view.supersedes.is_empty()
+        || view.created_at_ticks != 0
+    {
+        return Err("rollback_recovery_marker_shape_invalid");
+    }
+    let payload_text = str::from_utf8(payload).map_err(|_| "rollback_recovery_marker_malformed")?;
+    let transaction_id = payload_str(payload_text, b"\"transaction_id\": \"")
+        .ok_or("rollback_recovery_marker_field_missing")?;
+    if transaction_id.len() != 64
+        || !transaction_id
+            .as_bytes()
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
+        || view.source.record_id != transaction_id
+    {
+        return Err("rollback_recovery_transaction_id_invalid");
+    }
+    let service_id = payload_str(payload_text, b"\"service_id\": \"")
+        .ok_or("rollback_recovery_marker_field_missing")?;
+    let domain_instance = artifact_store::extract_u64(payload_text, b"\"domain_instance\": ")
+        .ok_or("rollback_recovery_marker_field_missing")?;
+    let source_projection_sha256 =
+        artifact_store::extract_sha256(payload_text, b"\"source_projection_sha256\": \"")
+            .ok_or("rollback_recovery_marker_field_missing")?;
+    let target_snapshot_sha256 =
+        artifact_store::extract_sha256(payload_text, b"\"target_snapshot_sha256\": \"")
+            .ok_or("rollback_recovery_marker_field_missing")?;
+    let delta_sha256 = artifact_store::extract_sha256(payload_text, b"\"delta_sha256\": \"")
+        .ok_or("rollback_recovery_marker_field_missing")?;
+    let delta_count = artifact_store::extract_u64(payload_text, b"\"delta_count\": ")
+        .ok_or("rollback_recovery_marker_field_missing")?;
+    let result_projection_sha256 = match kind {
+        WasmRollbackMarkerKind::Intent => None,
+        WasmRollbackMarkerKind::Commit => Some(
+            artifact_store::extract_sha256(payload_text, b"\"result_projection_sha256\": \"")
+                .ok_or("rollback_recovery_commit_result_missing")?,
+        ),
+    };
+    let expected_id = match kind {
+        WasmRollbackMarkerKind::Intent => format!("rollback.intent.{transaction_id}"),
+        WasmRollbackMarkerKind::Commit => format!("rollback.commit.{transaction_id}"),
+    };
+    if view.id != expected_id || view.entity != service_id {
+        return Err("rollback_recovery_marker_shape_invalid");
+    }
+    let expected_payload = wasm_rollback_marker_payload_bytes(
+        kind,
+        transaction_id,
+        service_id,
+        domain_instance,
+        source_projection_sha256,
+        target_snapshot_sha256,
+        delta_sha256,
+        delta_count,
+        result_projection_sha256,
+    )
+    .map_err(|_| "rollback_recovery_marker_shape_invalid")?;
+    if expected_payload != payload {
+        return Err("rollback_recovery_marker_noncanonical");
+    }
+    Ok(Some(ParsedWasmRollbackMarker {
+        kind,
+        transaction: PendingWasmRollback {
+            transaction_id: String::from(transaction_id),
+            service_id: String::from(service_id),
+            domain_instance,
+            source_projection_sha256,
+            target_snapshot_sha256,
+            delta_sha256,
+            delta_count,
+        },
+        result_projection_sha256,
+    }))
+}
+
+fn rollback_projection_delta_sha256(delta: &[ProjectionSlot<'_>]) -> [u8; 32] {
+    let mut bytes = Vec::new();
+    for slot in delta {
+        bytes.extend_from_slice(slot.grant_id.as_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&slot.grant_sha256);
+        bytes.extend_from_slice(&slot.grant_epoch.to_le_bytes());
+        bytes.extend_from_slice(&slot.binding_sha256);
+        bytes.extend_from_slice(slot.host_import_id.as_str().as_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(slot.scope.as_str().as_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&slot.generation.to_le_bytes());
+    }
+    sha256_bytes(&bytes)
+}
+
+/// Compatibility query for the live rollback command. Invalid transaction
+/// history is never projected as an absent transaction.
+pub(crate) fn pending_wasm_rollback() -> Result<Option<PendingWasmRollback>, &'static str> {
+    match wasm_rollback_recovery_state() {
+        WasmRollbackRecoveryState::None | WasmRollbackRecoveryState::Committed(_) => Ok(None),
+        WasmRollbackRecoveryState::Pending(pending) => Ok(Some(pending)),
+        WasmRollbackRecoveryState::Denied(reason) => Err(reason),
+    }
+}
+
+pub(crate) fn latest_committed_wasm_rollback() -> Result<Option<CommittedWasmRollback>, &'static str>
+{
+    match wasm_rollback_recovery_state() {
+        WasmRollbackRecoveryState::None | WasmRollbackRecoveryState::Pending(_) => Ok(None),
+        WasmRollbackRecoveryState::Committed(committed) => Ok(Some(committed)),
+        WasmRollbackRecoveryState::Denied(reason) => Err(reason),
+    }
+}
+
+/// Idempotent exact-parent revoke. A retry after acknowledgement loss accepts
+/// only this transaction's deterministic revoke id; a foreign revoke/fork is
+/// never treated as success.
+pub(crate) fn ensure_revoked(
+    parent: &DurableWasmGrantSlot,
+    transaction_id: &str,
+) -> EnsureRevokedOutcome {
+    let expected_revoke_id = rollback_revoke_record_id(transaction_id, &parent.grant_id);
+    let before = load_durable_wasm_grant_projection();
+    if !before.valid {
+        return EnsureRevokedOutcome::Denied;
+    }
+    let Some(live_parent) = before.slots.iter().find(|slot| {
+        slot.grant_id == parent.grant_id
+            && slot.grant_sha256 == parent.grant_sha256
+            && slot.grant_epoch == parent.grant_epoch
+            && slot.service_id == parent.service_id
+            && slot.domain_instance == parent.domain_instance
+            && slot.binding_sha256 == parent.binding_sha256
+            && slot.host_import_id == parent.host_import_id
+            && slot.scope == parent.scope
+            && slot.generation == parent.generation
+    }) else {
+        return EnsureRevokedOutcome::Denied;
+    };
+    if live_parent.revoked {
+        return if live_parent.revoke_id.as_deref() == Some(expected_revoke_id.as_str()) {
+            EnsureRevokedOutcome::AlreadyRevokedByTransaction
+        } else {
+            EnsureRevokedOutcome::Denied
+        };
+    }
+    let grant = GrantEvent::grant(
+        &live_parent.grant_id,
+        &live_parent.service_id,
+        live_parent.domain_instance,
+        live_parent.binding_sha256,
+        live_parent.host_import_id,
+        live_parent.generation,
+        live_parent.grant_epoch,
+    );
+    if grant.record_sha256().ok() != Some(live_parent.grant_sha256) {
+        return EnsureRevokedOutcome::Denied;
+    }
+    let revoke = GrantEvent::revoke(
+        &expected_revoke_id,
+        &grant,
+        before.next_epoch,
+        live_parent.grant_sha256,
+    );
+    if !append_durable_wasm_grant_event(&revoke) {
+        return EnsureRevokedOutcome::Denied;
+    }
+    let after = load_durable_wasm_grant_projection();
+    if after.valid
+        && after.slots.iter().any(|slot| {
+            slot.grant_id == parent.grant_id
+                && slot.revoked
+                && slot.revoke_id.as_deref() == Some(expected_revoke_id.as_str())
+        })
+    {
+        EnsureRevokedOutcome::Appended
+    } else {
+        EnsureRevokedOutcome::Denied
+    }
+}
+
+/// Agent-authored observation append: exact charge capped at
+/// `AGENT_OBS_QUOTA_SECTORS`, `agent_authored=true` (confined to
+/// `observation`/no-supersede/
+/// `local_only` by `evaluate_scoped_memory_record_append`'s agent-authored block),
+/// record lifetime NOT required `'static` (the caller's decoded RAM buffer).
+pub(crate) fn append_agent_observation_record<'a>(
+    record: &MemoryRecord<'a>,
+) -> MemoryRecordAppendEvidence<'a> {
+    append_memory_record_inner(record, true, MemoryRecordAppendMode::General)
+}
+
+/// The sole SAFE exception to the general durable-memory write denial. It
+/// accepts only the exact metadata-only native WiFi pre-use audit shape; every
+/// other record is rejected before planning, quota reservation, or media I/O.
+pub(crate) fn append_safe_wifi_audit_record<'a>(
+    record: &MemoryRecord<'a>,
+) -> MemoryRecordAppendEvidence<'a> {
+    if !is_exact_safe_wifi_audit_record(record) {
+        return memory_record_append_denied(record, "safe_wifi_audit_record_shape_invalid");
+    }
+    append_memory_record_inner(record, false, MemoryRecordAppendMode::SafeWifiAudit)
+}
+
+fn is_exact_safe_wifi_audit_record(record: &MemoryRecord<'_>) -> bool {
+    let expected_id = format!(
+        "{SAFE_WIFI_AUDIT_RECORD_ID_PREFIX}.{}.safe_recovery.v0",
+        record.sequence
+    );
+    if record.id != expected_id
+        || record.kind.as_str() != "capability_grant"
+        || record.entity != SAFE_WIFI_AUDIT_ENTITY
+        || record.predicate != SAFE_WIFI_AUDIT_OPERATION
+        || record.classification.as_str() != "local_only"
+        || record.authority != "owner_verified_core_policy"
+        || record.boot_id != "current_boot"
+        || record.source.method != SAFE_WIFI_AUDIT_SOURCE
+        || record.source.record_id != "core_policy.current"
+        || !record.evidence.is_empty()
+        || record.tags.as_slice() != ["secret_use", "wifi", "audit"]
+        || !record.supersedes.is_empty()
+        || record.created_at_ticks != 0
+    {
+        return false;
+    }
+
+    let V::Object(fields) = &record.value else {
+        return false;
+    };
+    fields.len() == 13
+        && fields[0].key == "consumer"
+        && matches!(&fields[0].value, V::Str(value) if *value == SAFE_WIFI_AUDIT_ENTITY)
+        && fields[1].key == "operation"
+        && matches!(&fields[1].value, V::Str(value) if *value == SAFE_WIFI_AUDIT_OPERATION)
+        && fields[2].key == "target_binding_sha256"
+        && matches!(&fields[2].value, V::Sha256(value) if *value != [0; 32])
+        && fields[3].key == "store_uuid_sha256"
+        && matches!(&fields[3].value, V::Sha256(value) if *value != [0; 32])
+        && fields[4].key == "record_version"
+        && matches!(&fields[4].value, V::U64(value) if *value != 0)
+        && fields[5].key == "key_epoch"
+        && matches!(&fields[5].value, V::U64(value) if *value != 0)
+        && fields[6].key == "native_consumer_generation"
+        && matches!(&fields[6].value, V::U64(value) if *value != 0)
+        && fields[7].key == "core_generation"
+        && matches!((&fields[6].value, &fields[7].value), (V::U64(native), V::U64(core)) if native == core)
+        && fields[8].key == "core_policy_sha256"
+        && matches!(&fields[8].value, V::Sha256(value) if *value != [0; 32])
+        && fields[9].key == "network_export_authorized"
+        && matches!(&fields[9].value, V::Bool(false))
+        && fields[10].key == "test_infrastructure"
+        && matches!(&fields[10].value, V::Bool(_))
+        && fields[11].key == "boot_scope"
+        && matches!(&fields[11].value, V::Str("safe_recovery"))
+        && fields[12].key == "explicit_recovery_action"
+        && matches!(&fields[12].value, V::Bool(true))
+}
+
+fn memory_record_append_denied<'a>(
+    record: &MemoryRecord<'a>,
+    reason: &'static str,
+) -> MemoryRecordAppendEvidence<'a> {
+    memory_record_append_evidence(
+        record,
+        "capability_denied",
+        reason,
+        "evidence_only",
+        None,
+        None,
+        None,
+        false,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn memory_record_append_evidence<'a>(
+    record: &MemoryRecord<'a>,
+    durable_append: &'static str,
+    reason: &'static str,
+    authority: &'static str,
+    before: Option<&DurableRecordLogScanEvidence>,
+    planned: Option<&PlannedAppend>,
+    readback_sha256: Option<[u8; 32]>,
+    reparse_valid: bool,
+    after: Option<&DurableRecordLogScanEvidence>,
+) -> MemoryRecordAppendEvidence<'a> {
+    MemoryRecordAppendEvidence {
+        durable_append,
+        performed: durable_append == "appended",
+        reason,
+        authority,
+        seq: planned.map(|planned| planned.seq),
+        write_offset: planned.map(|planned| planned.write_offset),
+        frame_len: planned.map(|planned| planned.frame_len),
+        payload_sha256: planned.map(|planned| planned.payload_sha256),
+        frame_sha256: planned.map(|planned| planned.frame_sha256),
+        readback_sha256,
+        reparse_valid,
+        tail_seq_before: before.map(|before| before.scan.tail_seq),
+        count_before: before.map(|before| before.scan.count),
+        tail_seq_after: after.map(|after| after.scan.tail_seq),
+        count_after: after.map(|after| after.scan.count),
+        record_id: record.id,
+        record_kind: record.kind.as_str(),
+        record_classification: record.classification.as_str(),
+        record_authority: record.authority,
+        record_schema: MEMORY_EXPECTED_RECORD_SCHEMA,
+        region_marker: MEMORY_EXPECTED_REGION_MARKER,
+        target_id: MEMORY_EXPECTED_TARGET_ID,
+        owner_sealed: false,
+        persistence_claimed: false,
+        trust_tier: MEMORY_EXPECTED_TRUST_TIER,
+    }
+}
+
+/// Payload bytes are `write_json(record.to_record_value())` -- IDENTICAL to
+/// `recovery_load_payload_bytes`'s pattern -- so the reclog's `payload_sha256` over
+/// these exact bytes equals `record.record_sha256()` (both hash the same
+/// `write_json` rendering of the same `Value`).
+fn memory_record_payload_bytes(record: &MemoryRecord<'_>) -> Vec<u8> {
+    let mut sink = VecSink(Vec::new());
+    write_json(&record.to_record_value(), &mut sink, 0);
+    sink.0
+}

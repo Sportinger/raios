@@ -1,0 +1,14 @@
+[package]
+name = "svc-net-acquire-w7"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+raios-http-parse = { path = "../../crates/raios-http-parse" }
+raios-w7-acquire-logic = { path = "../../crates/raios-w7-acquire-logic" }
+raios-x509-spki = { path = "../../crates/raios-x509-spki" }
+

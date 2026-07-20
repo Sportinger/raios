@@ -1,0 +1,118 @@
+# 02 — Genesis Layer (capability floor)
+
+> Breakdown of `docs/SCOPE.md` §2. The floor is THE product decision: narrow,
+> documented, kernel-agnostic. Everything above it is replaceable; the floor
+> contract is not casually changeable (changes = ADR + owner).
+> Reframed per ADR 0005/0015 with owner approval on 2026-07-19; no box was
+> checked by the reframe.
+
+## Service primitives
+- [x] Create a fresh Wasm service/guest with zero capability imports by default
+      <!-- capability.selftest (shadow-20260719-192220, 507/507): a fresh
+      zero-import W5 guest instantiates + runs to success returning 0
+      (zero_grant=fresh), authorized as observed_empty_import_surface, zero
+      linked host imports. Closes under the existential-workspace reading
+      (ADR 0015 floor); the generic-arbitrary-service reading is future. -->
+- [x] Grant/revoke a typed capability import explicitly, with each transition logged
+      <!-- env.counter_get grant + revoke are canonical CapabilityGrant/
+      CapabilityDenial records, appended and read back through RECLOG before
+      the RAM flip. Focused grant-reboot report 20260719-234248-7004: 29/29;
+      Boot 1 proves append-before-flip and a real gated call with delta=0. -->
+- [x] Kill a service immediately, reclaim its guest resources, and prevent the
+      guest from blocking teardown — m11-beyond-env-lifecycle
+      (shadow-20260714-123624, 183/183): F12 kill of a running/spinning guest
+      with killed_cleanup_guest_bound (resources reclaimed) and
+      terminal_matrix_exactly_once (teardown once, unblockable). Verified
+      2026-07-19.
+- [x] Negative tests: a guest cannot manage another service, and a zero-grant
+      guest's host call is denied + logged with zero host effect
+      <!-- capability.selftest (shadow-20260719-192220, 507/507): a zero-grant
+      guest importing env.counter_get is refused before instantiation (host
+      counter unchanged, no guest log); a guest importing service.start is
+      denied unknown_host_import before compilation (foreign inventory
+      unchanged); host_effect=0 peer_effect=0 persistent_effect=0, and with a
+      persist disk RECLOG+ARTSTOR hashes unchanged (disk=pass). -->
+
+## Capability granularity
+- [ ] Each host import/service surface is an individual, revocable grant; the
+      kernel retains direct hardware authority
+- [x] Grants are typed records (who, what, import/service scope), not ambient flags
+      <!-- wasm_import_grant_event.v1 binds service, domain instance, artifact
+      binding hash, HostImportId, typed scope, generation and epoch; revoke
+      binds the exact parent id + canonical record hash. Parser/fold negatives
+      reject malformed/missing/forked/ambiguous histories and overflow (4/4). -->
+- [x] Revocation prevents the next host call and is durably logged; no stale
+      instance retains the revoked authority
+      <!-- grant-reboot 20260719-234248-7004 (29/29): Boot 2 refolds the same
+      projection before instantiation; the real env.counter_get gate is called
+      and denies with host_effect_delta=0. Parent-hash semantic tamper keeps the
+      outer RECLOG fully valid but folds denied; real gate call delta=0, peer
+      healthy. Adversarial re-review ACCEPT; commit 96f2f7f. -->
+- [x] Negative test: a grant for import/service A grants nothing on host surface B
+      <!-- m11-wasm-import-grant re-run at HEAD 2026-07-19:
+      shadow-20260719-185053-21672.json, 159/159 — env.log granted,
+      env.counter_get refused BEFORE instantiation, link failure preserved,
+      no guest log/host effect. This box is the A-conveys-nothing-on-B
+      negative only; revoke semantics live in the boxes above (open). -->
+
+## Storage primitive
+- [ ] Persistent ARTSTOR/structured-store access is a range/quota-scoped
+      capability, never ambient whole-store authority
+- [x] A guest without a storage capability cannot persist anything
+      <!-- guests have no storage import at all; the only persistent egress
+      is the unforgeable BuildStorageAuthority handle, and Absent denies
+      first: storage_capability_absent before lock/evaluator/controller
+      (d18bcc0). Evidence shadow-20260719-154053-30128 (507/507). -->
+- [x] Negative test: absent grant, out-of-range write, or quota overflow →
+      denied + logged with no partial persistent effect
+      <!-- storage.selftest live: absent_grant=storage_capability_absent,
+      out_of_range=output_span_out_of_artstor, quota_overflow=
+      output_span_length_exceeds_lease, ram_quota=nospc, serial-logged,
+      persistent_effect=0 + full RECLOG/ARTSTOR SHA-256 equality
+      (disk=pass reclog_unchanged=1 artstor_unchanged=1). Scope honesty:
+      proves the build-output egress boundary (the guest-facing path);
+      older internal post-write-evaluator orderings are a separate open
+      hardening item (scout 2026-07-19). -->
+
+## Service lifecycle
+- [ ] Kill + restart of any Wasm service in < 1 s, without system reboot
+- [ ] Restart restores a declared clean state (no leaked imports, handles, or
+      mutable guest state from the previous life)
+- [ ] Crash loop detection: N rapid crashes → service parked + reported, not
+      respawned forever
+- [x] Negative test: after kill/restart, the old instance cannot run or write,
+      and an ungranted authority from its prior life remains denied —
+      m11-beyond-env-lifecycle (shadow-20260714-123624, 183/183):
+      second_run_after_kill starts a fresh instance while the killed one is
+      gone (exactly-once terminal), and the beyond-env import stays denied.
+      Verified 2026-07-19.
+
+## Floor contract
+- [x] The full Wasm import + service-capability floor fits in one document
+      (`docs/architecture/genesis-layer.md`) — 242 lines, written 2026-07-19
+      from code with file:line citations (5 env.* imports, the frozen 30-import
+      build surface incl. digest 4145184d…, grant/lifecycle authority,
+      non-guarantees). Orchestrator spot-checked 7 citations incl. the exact
+      digest. Verified 2026-07-19.
+- [x] No kernel-internal types leak through the import/service interface
+      <!-- genesis-floor-contract.v1.json is checked exactly against raios-core's
+      5 general + 30 build declarations (digest 4145184d...16e65). The checker
+      permits only documented i32/i64 function wires plus the exact build
+      memory; f32/f64/v128/ref/global/table/tag/memory64 and reserved kernel
+      namespaces fail as kernel_internal_type_dependency. 15/15 host tests
+      green at 32d7cc9; full drift/mutation matrix is fail-closed. -->
+- [x] Contract conformance: services depend only on the documented Wasm import
+      + service-capability floor; a fixture that depends on a kernel-internal
+      type or undeclared import is rejected
+      <!-- Positive fixtures accept 5/5 general and 30/30 build imports as
+      documented_floor_imports_only. env.not_documented is distinctly denied
+      as undeclared_floor_import; raios_kernel.scheduler_task/global externref
+      is denied first as kernel_internal_type_dependency. Runtime corroboration:
+      host_import.selftest rejects missing imports before instantiation with
+      zero host/peer/persistent effect (quick 510/510, 2026-07-19). -->
+
+ADR 0015 chooses the custom Rust kernel as the development and product path.
+Substitutability attaches to this narrow contract; maintaining a fictional
+primitive-by-primitive seL4 mapping is not a current requirement. The floor
+document exists since 2026-07-19; the no-internal-types and conformance boxes
+above still need their mechanical predicate/test.

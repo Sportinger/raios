@@ -1,0 +1,37 @@
+{
+  "schema": "urn:raios:hardware:schema:register-map:v1", "mapVersion": 1, "id": "ahci-1.3-owned-surface",
+  "device": {
+    "bus": "pci", "identity": { "class": 1, "subclass": 6 },
+    "bar": { "index": 5, "addressSpace": "mmio", "minimumProbeBytes": 384, "maximumProbeBytes": 8192 },
+    "ownedRegions": [
+      { "name": "global", "base": { "kind": "fixed", "offset": 0 }, "length": 256 },
+      { "name": "port", "base": { "kind": "fixed", "offset": 256 }, "length": 128, "stride": 128, "countSource": "CAP.NP and PI" }
+    ]
+  },
+  "provenance": [{ "id": "raios-ahci", "kind": "raios-source", "path": "seed-kernel/src/ahci.rs", "lines": "201-239", "claim": "Owned driver offsets, BAR binding, probe bounds, and masks. The file labels AHCI 1.3 but this map does not claim independent specification review." }],
+  "constants": [
+    { "name": "PORT_BASE", "value": 256, "kind": "region-offset", "meaning": "Start of the repeated port-register region in BAR5.", "provenance": ["raios-ahci"] },
+    { "name": "PORT_STRIDE", "value": 128, "kind": "region-stride", "meaning": "Byte stride between AHCI port-register regions.", "provenance": ["raios-ahci"] },
+    { "name": "IDENTIFY_DEVICE", "value": 236, "kind": "command-opcode", "meaning": "ATA Identify Device opcode issued through the command table, not an MMIO field.", "provenance": ["raios-ahci"] },
+    { "name": "READ_DMA_EXT", "value": 37, "kind": "command-opcode", "meaning": "ATA Read DMA Extended opcode, not an MMIO field.", "provenance": ["raios-ahci"] },
+    { "name": "WRITE_DMA_EXT", "value": 53, "kind": "command-opcode", "meaning": "ATA Write DMA Extended opcode, not an MMIO field.", "provenance": ["raios-ahci"] },
+    { "name": "FLUSH_CACHE_EXT", "value": 234, "kind": "command-opcode", "meaning": "ATA Flush Cache Extended opcode, not an MMIO field.", "provenance": ["raios-ahci"] }
+  ],
+  "registers": [
+    { "name": "CAP", "region": "global", "offset": 0, "width": 32, "access": "ro", "semantics": { "status": "source-derived", "description": "Host capabilities; individual fields are not constants in owned source." }, "provenance": ["raios-ahci"] },
+    { "name": "GHC", "region": "global", "offset": 4, "width": 32, "access": "rw", "semantics": { "status": "source-derived", "description": "Global host control.", "bitfields": [{ "name": "AE", "mask": 2147483648, "meaning": "AHCI enable." }] }, "provenance": ["raios-ahci"] },
+    { "name": "PI", "region": "global", "offset": 12, "width": 32, "access": "ro", "semantics": { "status": "source-derived", "description": "Ports implemented bitmap." }, "provenance": ["raios-ahci"] },
+    { "name": "VS", "region": "global", "offset": 16, "width": 32, "access": "ro", "semantics": { "status": "source-derived", "description": "AHCI version." }, "provenance": ["raios-ahci"] },
+    { "name": "PxCLB", "region": "port", "offset": 0, "width": 32, "access": "rw", "semantics": { "status": "source-derived", "description": "Command-list base low." }, "provenance": ["raios-ahci"] },
+    { "name": "PxCLBU", "region": "port", "offset": 4, "width": 32, "access": "rw", "semantics": { "status": "source-derived", "description": "Command-list base high." }, "provenance": ["raios-ahci"] },
+    { "name": "PxFB", "region": "port", "offset": 8, "width": 32, "access": "rw", "semantics": { "status": "source-derived", "description": "FIS receive base low." }, "provenance": ["raios-ahci"] },
+    { "name": "PxFBU", "region": "port", "offset": 12, "width": 32, "access": "rw", "semantics": { "status": "source-derived", "description": "FIS receive base high." }, "provenance": ["raios-ahci"] },
+    { "name": "PxIS", "region": "port", "offset": 16, "width": 32, "access": "w1c", "semantics": { "status": "source-derived", "description": "Port interrupt status.", "bitfields": [{ "name": "TFES", "mask": 1073741824, "meaning": "Task-file error status." }] }, "provenance": ["raios-ahci"] },
+    { "name": "PxCMD", "region": "port", "offset": 24, "width": 32, "access": "rw", "semantics": { "status": "source-derived", "description": "Port command and status.", "bitfields": [{ "name": "ST", "mask": 1, "meaning": "Start command processing." }, { "name": "FRE", "mask": 16, "meaning": "FIS receive enable." }, { "name": "FR", "mask": 16384, "meaning": "FIS receive running status." }, { "name": "CR", "mask": 32768, "meaning": "Command-list running status." }] }, "provenance": ["raios-ahci"] },
+    { "name": "PxTFD", "region": "port", "offset": 32, "width": 32, "access": "ro", "semantics": { "status": "source-derived", "description": "Task-file data/status.", "bitfields": [{ "name": "DRQ", "mask": 8, "meaning": "Data request." }, { "name": "BSY", "mask": 128, "meaning": "Busy." }] }, "provenance": ["raios-ahci"] },
+    { "name": "PxSIG", "region": "port", "offset": 36, "width": 32, "access": "ro", "semantics": { "status": "source-derived", "description": "Device signature.", "constants": [{ "name": "SATA_SIG_ATA", "value": 257, "kind": "value", "meaning": "ATA device signature accepted by owned source." }] }, "provenance": ["raios-ahci"] },
+    { "name": "PxSSTS", "region": "port", "offset": 40, "width": 32, "access": "ro", "semantics": { "status": "unknown", "description": "SATA status; field layout is not named in the scoped constants." }, "provenance": ["raios-ahci"] },
+    { "name": "PxSERR", "region": "port", "offset": 48, "width": 32, "access": "w1c", "semantics": { "status": "source-derived", "description": "SATA error register; owned source clears all observed bits." }, "provenance": ["raios-ahci"] },
+    { "name": "PxCI", "region": "port", "offset": 56, "width": 32, "access": "rw", "semantics": { "status": "source-derived", "description": "Command issue bitmap." }, "provenance": ["raios-ahci"] }
+  ]
+}

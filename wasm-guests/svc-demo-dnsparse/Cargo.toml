@@ -1,0 +1,11 @@
+[package]
+name = "svc-demo-dnsparse"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+raios-dns-parse = { path = "../../crates/raios-dns-parse" }

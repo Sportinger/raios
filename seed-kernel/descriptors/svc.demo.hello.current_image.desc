@@ -1,0 +1,14 @@
+canonicalization=raios.current_boot_load_descriptor.canonical.v0
+schema=raios.current_boot_load_descriptor.v0
+id=load_descriptor.current_boot.svc.demo.hello.v0
+source_kind=current_image_descriptor_source
+source_locator=current_image.descriptor_source.svc.demo.hello.v0
+service_id=svc.demo.hello
+artifact_id=builtin:svc.demo.hello
+artifact_kind=builtin_stage0_test_service
+scope=current_boot
+classification=local_only
+persistence=none
+accepts_external_artifact_bytes=false
+loads_external_artifact=false
+writes_persistent_state=false

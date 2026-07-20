@@ -1,0 +1,1320 @@
+use std::fs;
+use std::path::PathBuf;
+
+use anyhow::{anyhow, Context, Result};
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use ota_tools::{
+    decode_hex_bytes, load_public_key_hex, sign_distribution_provenance_hex,
+    verify_p256_der_signature, SignedBlob,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use sha2::{Digest, Sha256};
+
+pub mod module_audit;
+pub mod module_grant;
+
+pub const VM_TEST_REPORT_SCHEMA: &str = "raios.vm_test_report.v0";
+pub const LOCAL_ATTESTATION_SCHEMA: &str = "raios.local_attestation.v0";
+
+#[derive(Clone, Debug)]
+pub struct PublishRequest {
+    pub blob: PathBuf,
+    pub manifest: PathBuf,
+    pub root_pub: PathBuf,
+    pub namespace: String,
+    pub name: Option<String>,
+    pub version: Option<String>,
+    pub evidence_files: Vec<EvidenceFile>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PublishResult {
+    pub namespace: String,
+    pub tag: String,
+    pub record: IndexRecord,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IndexRecord {
+    pub payload_hash: String,
+    pub payload_len: u64,
+    pub manifest: String,
+    pub signer_key_id: String,
+    pub logical_name: String,
+    pub logical_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub evidence: Vec<EvidenceRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
+}
+
+#[derive(Clone, Debug)]
+pub struct EvidenceFile {
+    pub kind: EvidenceKind,
+    pub path: PathBuf,
+}
+
+impl EvidenceFile {
+    pub fn vm_test_report(path: PathBuf) -> Self {
+        Self {
+            kind: EvidenceKind::VmTestReport,
+            path,
+        }
+    }
+
+    pub fn local_attestation(path: PathBuf) -> Self {
+        Self {
+            kind: EvidenceKind::LocalAttestation,
+            path,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceKind {
+    VmTestReport,
+    LocalAttestation,
+}
+
+impl EvidenceKind {
+    fn expected_schema(&self) -> &'static str {
+        match self {
+            Self::VmTestReport => VM_TEST_REPORT_SCHEMA,
+            Self::LocalAttestation => LOCAL_ATTESTATION_SCHEMA,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EvidenceRecord {
+    pub kind: EvidenceKind,
+    pub schema: String,
+    pub sha256: String,
+    pub sha256_source: String,
+    pub registry_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct RegistryEntry {
+    pub namespace: String,
+    pub name: String,
+    pub tag: String,
+    pub record: IndexRecord,
+}
+
+#[derive(Clone, Debug)]
+pub struct DistributionExportRequest<'a> {
+    pub namespace: &'a str,
+    pub name: &'a str,
+    pub tag: &'a str,
+    pub chunk_count: usize,
+    pub receiver_identity: Option<DistributionReceiverIdentityPaths>,
+}
+
+#[derive(Clone, Debug)]
+pub struct DistributionReceiverIdentityPaths {
+    pub artifact_identity_descriptor: PathBuf,
+    pub artifact_identity_public_key: PathBuf,
+    pub artifact_identity_signature: PathBuf,
+    pub load_descriptor: PathBuf,
+    pub load_descriptor_public_key: PathBuf,
+    pub load_descriptor_signature: PathBuf,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DistributionSerialExport {
+    pub source_kind: String,
+    pub source_id: String,
+    pub namespace: String,
+    pub name: String,
+    pub tag: String,
+    pub registry_payload_hash_blake3: String,
+    pub artifact_sha256: String,
+    pub payload_len: u64,
+    pub chunk_count: usize,
+    pub provenance_signature_hex: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receiver_identity: Option<DistributionReceiverIdentityEvidence>,
+    pub commands: Vec<String>,
+    pub chunks: Vec<DistributionSerialExportChunk>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DistributionSerialExportChunk {
+    pub index: usize,
+    pub sha256: String,
+    pub byte_len: usize,
+    pub base64: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DistributionReceiverIdentityEvidence {
+    pub classification: String,
+    pub service_id: String,
+    pub artifact_id: String,
+    pub artifact_identity_id: String,
+    pub load_descriptor_id: String,
+    pub artifact_sha256: String,
+    pub artifact_identity_descriptor_sha256: String,
+    pub artifact_identity_public_key_sha256: String,
+    pub artifact_identity_signature_sha256: String,
+    pub artifact_identity_signature_verified: bool,
+    pub artifact_identity_descriptor_text: String,
+    pub artifact_identity_public_key_hex: String,
+    pub artifact_identity_signature_der_hex: String,
+    pub load_descriptor_sha256: String,
+    pub load_descriptor_public_key_sha256: String,
+    pub load_descriptor_signature_sha256: String,
+    pub load_descriptor_signature_verified: bool,
+    pub load_descriptor_text: String,
+    pub load_descriptor_public_key_hex: String,
+    pub load_descriptor_signature_der_hex: String,
+    pub artifact_hash_bound_by_identity: bool,
+    pub artifact_hash_bound_by_load_descriptor: bool,
+    pub load_descriptor_binds_artifact_identity: bool,
+    pub load_descriptor_authorizes_current_boot_wasm_execution: bool,
+    pub export_authorizes_load: bool,
+    pub export_authorizes_install: bool,
+    pub export_authorizes_execute: bool,
+    pub export_writes_persistent_state: bool,
+    pub requires_m6_m7_reverify_for_load: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ListFilter<'a> {
+    pub namespace: Option<&'a str>,
+    pub name: Option<&'a str>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Registry {
+    root: PathBuf,
+}
+
+const DISTRIBUTION_EXPORT_SOURCE_KIND: &str = "local_static_cas_registry";
+const DISTRIBUTION_EXPORT_SOURCE_ID: &str = "host.local_static_cas";
+const MAX_DISTRIBUTION_EXPORT_CHUNKS: usize = 4;
+
+impl Registry {
+    pub fn new(root: PathBuf) -> Self {
+        Self { root }
+    }
+
+    pub fn root(&self) -> &PathBuf {
+        &self.root
+    }
+
+    pub fn init(&self) -> Result<()> {
+        for sub in ["blobs", "manifests", "evidence", "index"] {
+            let path = self.root.join(sub);
+            if !path.exists() {
+                fs::create_dir_all(&path)
+                    .with_context(|| format!("creating registry directory {}", path.display()))?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn publish(&self, request: PublishRequest) -> Result<PublishResult> {
+        let manifest_str = fs::read_to_string(&request.manifest)
+            .with_context(|| format!("reading manifest {}", request.manifest.display()))?;
+        let manifest: SignedBlob = serde_json::from_str(&manifest_str)
+            .with_context(|| format!("parsing manifest {}", request.manifest.display()))?;
+        let root_public = load_public_key_hex(&request.root_pub)?;
+        manifest.verify(&request.blob, &root_public)?;
+
+        let hash = manifest.payload_hash().to_string();
+        let blob_dest = self.root.join("blobs").join(&hash);
+        if !blob_dest.exists() {
+            fs::copy(&request.blob, &blob_dest)
+                .with_context(|| format!("copying blob to {}", blob_dest.display()))?;
+        }
+
+        let manifest_dest = self.root.join("manifests").join(format!("{}.json", hash));
+        if !manifest_dest.exists() {
+            fs::write(&manifest_dest, manifest_str)
+                .with_context(|| format!("writing manifest {}", manifest_dest.display()))?;
+        }
+
+        let logical_name = request
+            .name
+            .or_else(|| metadata_string(manifest.metadata.as_ref(), "module_id"))
+            .unwrap_or_else(|| hash.clone());
+        let logical_version = request
+            .version
+            .or_else(|| metadata_string(manifest.metadata.as_ref(), "module_version"));
+
+        let namespace_component = sanitize_component(&request.namespace);
+        let name_component = sanitize_component(&logical_name);
+        let tag_component = logical_version
+            .as_ref()
+            .map(|v| sanitize_component(v))
+            .unwrap_or_else(|| hash.clone());
+
+        let index_dir = self
+            .root
+            .join("index")
+            .join(&namespace_component)
+            .join(&name_component);
+        if !index_dir.exists() {
+            fs::create_dir_all(&index_dir)
+                .with_context(|| format!("creating index directory {}", index_dir.display()))?;
+        }
+
+        let evidence = self.prepare_evidence_records(&request.evidence_files)?;
+
+        let index_path = index_dir.join(format!("{}.json", tag_component));
+        let record = IndexRecord {
+            payload_hash: hash.clone(),
+            payload_len: manifest.payload_len(),
+            manifest: format!("manifests/{}.json", hash),
+            signer_key_id: manifest.signer_key_id.clone(),
+            logical_name: logical_name.clone(),
+            logical_version: logical_version.clone(),
+            evidence,
+            metadata: manifest.metadata.clone(),
+        };
+        fs::write(&index_path, serde_json::to_string_pretty(&record)?)
+            .with_context(|| format!("writing index record {}", index_path.display()))?;
+
+        Ok(PublishResult {
+            namespace: namespace_component,
+            tag: tag_component,
+            record,
+        })
+    }
+
+    fn prepare_evidence_records(
+        &self,
+        evidence_files: &[EvidenceFile],
+    ) -> Result<Vec<EvidenceRecord>> {
+        evidence_files
+            .iter()
+            .map(|file| self.prepare_evidence_record(file))
+            .collect()
+    }
+
+    fn prepare_evidence_record(&self, evidence_file: &EvidenceFile) -> Result<EvidenceRecord> {
+        let content = fs::read_to_string(&evidence_file.path)
+            .with_context(|| format!("reading evidence {}", evidence_file.path.display()))?;
+        let json: Value = serde_json::from_str(&content)
+            .with_context(|| format!("parsing evidence {}", evidence_file.path.display()))?;
+        let schema = json
+            .get("schema")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("evidence {} has no schema", evidence_file.path.display()))?;
+        let expected = evidence_file.kind.expected_schema();
+        if schema != expected {
+            return Err(anyhow!(
+                "evidence {} schema {} does not match expected {}",
+                evidence_file.path.display(),
+                schema,
+                expected
+            ));
+        }
+        if evidence_file.kind == EvidenceKind::LocalAttestation {
+            let grants_load_now = json
+                .pointer("/limits/grants_load_now")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            if grants_load_now {
+                return Err(anyhow!(
+                    "local attestation {} must not grant load permission",
+                    evidence_file.path.display()
+                ));
+            }
+        }
+
+        let sha256 = read_sha256_sidecar(&evidence_file.path)?;
+        let registry_path = format!("evidence/{}.json", sha256);
+        let evidence_dest = self.root.join(&registry_path);
+        if !evidence_dest.exists() {
+            fs::write(&evidence_dest, content)
+                .with_context(|| format!("writing evidence {}", evidence_dest.display()))?;
+        }
+        let result = json
+            .get("result")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
+
+        Ok(EvidenceRecord {
+            kind: evidence_file.kind.clone(),
+            schema: schema.to_string(),
+            sha256,
+            sha256_source: "sidecar".to_string(),
+            registry_path,
+            result,
+        })
+    }
+
+    pub fn list(&self, filter: ListFilter<'_>) -> Result<Vec<RegistryEntry>> {
+        let index_root = self.root.join("index");
+        if !index_root.exists() {
+            return Ok(Vec::new());
+        }
+        let mut entries = Vec::new();
+        for ns_entry in fs::read_dir(&index_root)? {
+            let ns_entry = ns_entry?;
+            if !ns_entry.file_type()?.is_dir() {
+                continue;
+            }
+            let ns_name = ns_entry
+                .file_name()
+                .into_string()
+                .unwrap_or_else(|_| "invalid".to_string());
+            if let Some(filter_ns) = filter.namespace {
+                if sanitize_component(filter_ns) != ns_name {
+                    continue;
+                }
+            }
+            for name_entry in fs::read_dir(ns_entry.path())? {
+                let name_entry = name_entry?;
+                if !name_entry.file_type()?.is_dir() {
+                    continue;
+                }
+                let logical_name = name_entry
+                    .file_name()
+                    .into_string()
+                    .unwrap_or_else(|_| "invalid".to_string());
+                if let Some(filter_name) = filter.name {
+                    if sanitize_component(filter_name) != logical_name {
+                        continue;
+                    }
+                }
+                for file_entry in fs::read_dir(name_entry.path())? {
+                    let file_entry = file_entry?;
+                    if !file_entry.file_type()?.is_file() {
+                        continue;
+                    }
+                    let path = file_entry.path();
+                    if path.extension().and_then(|s| s.to_str()) != Some("json") {
+                        continue;
+                    }
+                    let tag = path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("invalid")
+                        .to_string();
+                    let record: IndexRecord = serde_json::from_str(&fs::read_to_string(&path)?)?;
+                    entries.push(RegistryEntry {
+                        namespace: ns_name.clone(),
+                        name: logical_name.clone(),
+                        tag,
+                        record,
+                    });
+                }
+            }
+        }
+        entries.sort_by(|a, b| {
+            a.namespace
+                .cmp(&b.namespace)
+                .then_with(|| a.name.cmp(&b.name))
+                .then_with(|| a.tag.cmp(&b.tag))
+        });
+        Ok(entries)
+    }
+
+    pub fn distribution_serial_export(
+        &self,
+        request: DistributionExportRequest<'_>,
+    ) -> Result<DistributionSerialExport> {
+        if request.chunk_count == 0 || request.chunk_count > MAX_DISTRIBUTION_EXPORT_CHUNKS {
+            return Err(anyhow!(
+                "chunk_count must be between 1 and {}",
+                MAX_DISTRIBUTION_EXPORT_CHUNKS
+            ));
+        }
+
+        let namespace = sanitize_component(request.namespace);
+        let name = sanitize_component(request.name);
+        let tag = sanitize_component(request.tag);
+        let index_path = self
+            .root
+            .join("index")
+            .join(&namespace)
+            .join(&name)
+            .join(format!("{tag}.json"));
+        let record: IndexRecord = serde_json::from_str(
+            &fs::read_to_string(&index_path)
+                .with_context(|| format!("reading index record {}", index_path.display()))?,
+        )
+        .with_context(|| format!("parsing index record {}", index_path.display()))?;
+
+        let blob_path = self.root.join("blobs").join(&record.payload_hash);
+        let bytes = fs::read(&blob_path)
+            .with_context(|| format!("reading registry blob {}", blob_path.display()))?;
+        if bytes.is_empty() {
+            return Err(anyhow!(
+                "registry blob is empty for {}/{}/{}",
+                namespace,
+                name,
+                tag
+            ));
+        }
+        if request.chunk_count > bytes.len() {
+            return Err(anyhow!(
+                "chunk_count {} exceeds registry blob length {} for {}/{}/{}",
+                request.chunk_count,
+                bytes.len(),
+                namespace,
+                name,
+                tag
+            ));
+        }
+        let actual_payload_len = bytes.len() as u64;
+        if actual_payload_len != record.payload_len {
+            return Err(anyhow!(
+                "registry blob length mismatch for {}/{}/{}: index={} actual={}",
+                namespace,
+                name,
+                tag,
+                record.payload_len,
+                actual_payload_len
+            ));
+        }
+        let actual_blake3 = blake3::hash(&bytes).to_hex().to_string();
+        if actual_blake3 != record.payload_hash {
+            return Err(anyhow!(
+                "registry blob blake3 mismatch for {}/{}/{}: index={} actual={}",
+                namespace,
+                name,
+                tag,
+                record.payload_hash,
+                actual_blake3
+            ));
+        }
+
+        let artifact_sha256_bytes = sha256_bytes(&bytes);
+        let artifact_sha256 = hex_lower(&artifact_sha256_bytes);
+        let provenance_signature_hex = sign_distribution_provenance_hex(&artifact_sha256_bytes);
+        let receiver_identity = match request.receiver_identity {
+            Some(paths) => Some(build_receiver_identity_evidence(paths, &artifact_sha256)?),
+            None => None,
+        };
+        let chunks = split_distribution_chunks(&bytes, request.chunk_count);
+        let mut commands = Vec::with_capacity(chunks.len() + 11);
+        commands.push(format!(
+            "module.submit_distribution_catalog_entry sha256:{} {} {} sig:{}",
+            artifact_sha256,
+            bytes.len(),
+            chunks.len(),
+            provenance_signature_hex
+        ));
+        if let Some(identity) = receiver_identity.as_ref() {
+            commands.push(format!(
+                "module.submit_distribution_receiver_identity sha256:{} sha256:{} sha256:{} sha256:{} sha256:{} sha256:{} sha256:{} classification:{} artifact_identity_signature_verified:{} load_descriptor_signature_verified:{} artifact_hash_bound_by_identity:{} artifact_hash_bound_by_load_descriptor:{} load_descriptor_binds_artifact_identity:{} load_descriptor_authorizes_current_boot_wasm_execution:{} export_authorizes_load:{} export_authorizes_install:{} export_authorizes_execute:{} export_writes_persistent_state:{} requires_m6_m7_reverify_for_load:{}",
+                artifact_sha256,
+                identity.artifact_identity_descriptor_sha256,
+                identity.artifact_identity_public_key_sha256,
+                identity.artifact_identity_signature_sha256,
+                identity.load_descriptor_sha256,
+                identity.load_descriptor_public_key_sha256,
+                identity.load_descriptor_signature_sha256,
+                identity.classification,
+                identity.artifact_identity_signature_verified,
+                identity.load_descriptor_signature_verified,
+                identity.artifact_hash_bound_by_identity,
+                identity.artifact_hash_bound_by_load_descriptor,
+                identity.load_descriptor_binds_artifact_identity,
+                identity.load_descriptor_authorizes_current_boot_wasm_execution,
+                identity.export_authorizes_load,
+                identity.export_authorizes_install,
+                identity.export_authorizes_execute,
+                identity.export_writes_persistent_state,
+                identity.requires_m6_m7_reverify_for_load
+            ));
+            commands.extend(receiver_identity_raw_evidence_commands(
+                &artifact_sha256,
+                identity,
+            )?);
+        }
+        commands.push(format!(
+            "module.submit_distribution_begin_from_catalog sha256:{}",
+            artifact_sha256
+        ));
+        for chunk in &chunks {
+            commands.push(format!(
+                "module.submit_distribution_chunk {} sha256:{} {}",
+                chunk.index, chunk.sha256, chunk.base64
+            ));
+        }
+        commands.push("module.submit_distribution_finalize".to_string());
+
+        Ok(DistributionSerialExport {
+            source_kind: DISTRIBUTION_EXPORT_SOURCE_KIND.to_string(),
+            source_id: DISTRIBUTION_EXPORT_SOURCE_ID.to_string(),
+            namespace,
+            name,
+            tag,
+            registry_payload_hash_blake3: record.payload_hash,
+            artifact_sha256,
+            payload_len: bytes.len() as u64,
+            chunk_count: chunks.len(),
+            provenance_signature_hex,
+            receiver_identity,
+            commands,
+            chunks,
+        })
+    }
+}
+
+pub fn sanitize_component(input: &str) -> String {
+    let mut sanitized: String = input
+        .chars()
+        .map(|c| match c {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' => c,
+            _ => '_',
+        })
+        .collect();
+    if sanitized.is_empty() {
+        sanitized.push_str("unnamed");
+    }
+    sanitized
+}
+
+fn metadata_string(meta: Option<&Value>, key: &str) -> Option<String> {
+    match meta {
+        Some(Value::Object(map)) => map.get(key).and_then(|v| v.as_str()).map(|s| s.to_string()),
+        _ => None,
+    }
+}
+
+fn read_sha256_sidecar(path: &PathBuf) -> Result<String> {
+    let mut sidecar_name = path.clone().into_os_string();
+    sidecar_name.push(".sha256");
+    let sidecar = PathBuf::from(sidecar_name);
+    let content = fs::read_to_string(&sidecar)
+        .with_context(|| format!("reading evidence hash sidecar {}", sidecar.display()))?;
+    let hash = content
+        .split_whitespace()
+        .next()
+        .ok_or_else(|| anyhow!("evidence hash sidecar {} is empty", sidecar.display()))?;
+    if hash.len() != 64 || !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(anyhow!(
+            "evidence hash sidecar {} does not start with a sha256 hex hash",
+            sidecar.display()
+        ));
+    }
+    Ok(hash.to_ascii_lowercase())
+}
+
+fn build_receiver_identity_evidence(
+    paths: DistributionReceiverIdentityPaths,
+    artifact_sha256: &str,
+) -> Result<DistributionReceiverIdentityEvidence> {
+    let artifact_identity_descriptor_text = fs::read_to_string(&paths.artifact_identity_descriptor)
+        .with_context(|| {
+            format!(
+                "reading artifact identity descriptor {}",
+                paths.artifact_identity_descriptor.display()
+            )
+        })?;
+    let artifact_identity_public_key_hex = fs::read_to_string(&paths.artifact_identity_public_key)
+        .with_context(|| {
+            format!(
+                "reading artifact identity public key {}",
+                paths.artifact_identity_public_key.display()
+            )
+        })?;
+    let artifact_identity_signature_der_hex =
+        fs::read_to_string(&paths.artifact_identity_signature).with_context(|| {
+            format!(
+                "reading artifact identity signature {}",
+                paths.artifact_identity_signature.display()
+            )
+        })?;
+    let load_descriptor_text = fs::read_to_string(&paths.load_descriptor).with_context(|| {
+        format!(
+            "reading load descriptor {}",
+            paths.load_descriptor.display()
+        )
+    })?;
+    let load_descriptor_public_key_hex = fs::read_to_string(&paths.load_descriptor_public_key)
+        .with_context(|| {
+            format!(
+                "reading load descriptor public key {}",
+                paths.load_descriptor_public_key.display()
+            )
+        })?;
+    let load_descriptor_signature_der_hex = fs::read_to_string(&paths.load_descriptor_signature)
+        .with_context(|| {
+            format!(
+                "reading load descriptor signature {}",
+                paths.load_descriptor_signature.display()
+            )
+        })?;
+
+    let artifact_identity_public_key = decode_hex_bytes(&artifact_identity_public_key_hex)?;
+    let artifact_identity_signature_der = decode_hex_bytes(&artifact_identity_signature_der_hex)?;
+    verify_p256_der_signature(
+        &artifact_identity_public_key,
+        &artifact_identity_signature_der,
+        artifact_identity_descriptor_text.as_bytes(),
+    )
+    .context("verifying artifact identity descriptor signature")?;
+
+    let load_descriptor_public_key = decode_hex_bytes(&load_descriptor_public_key_hex)?;
+    let load_descriptor_signature_der = decode_hex_bytes(&load_descriptor_signature_der_hex)?;
+    verify_p256_der_signature(
+        &load_descriptor_public_key,
+        &load_descriptor_signature_der,
+        load_descriptor_text.as_bytes(),
+    )
+    .context("verifying load descriptor signature")?;
+
+    let artifact_hash_ref = format!("sha256:{artifact_sha256}");
+    expect_descriptor_field(
+        &artifact_identity_descriptor_text,
+        "artifact_reference_bytes_sha256",
+        &artifact_hash_ref,
+    )?;
+    expect_descriptor_field(
+        &load_descriptor_text,
+        "artifact_reference_bytes_sha256",
+        &artifact_hash_ref,
+    )?;
+    for (field, expected) in [
+        ("classification", "local_only"),
+        ("accepts_external_artifact_bytes", "false"),
+        ("authorizes_external_artifact_load", "false"),
+        ("authorizes_persistent_install", "false"),
+        ("authorizes_rollback_install", "false"),
+        ("writes_persistent_state", "false"),
+    ] {
+        expect_descriptor_field(&artifact_identity_descriptor_text, field, expected)?;
+    }
+    for (field, expected) in [
+        ("classification", "local_only"),
+        ("accepts_external_artifact_bytes", "false"),
+        ("loads_external_artifact", "false"),
+        ("maps_executable_pages", "false"),
+        ("writes_persistent_state", "false"),
+        ("authorizes_persistent_install", "false"),
+        ("authorizes_rollback_install", "false"),
+    ] {
+        expect_descriptor_field(&load_descriptor_text, field, expected)?;
+    }
+
+    let service_id =
+        descriptor_field(&artifact_identity_descriptor_text, "service_id")?.to_string();
+    let artifact_id =
+        descriptor_field(&artifact_identity_descriptor_text, "artifact_id")?.to_string();
+    expect_descriptor_field(&load_descriptor_text, "service_id", &service_id)?;
+    expect_descriptor_field(&load_descriptor_text, "artifact_id", &artifact_id)?;
+
+    let artifact_identity_id =
+        descriptor_field(&artifact_identity_descriptor_text, "id")?.to_string();
+    expect_descriptor_field(
+        &load_descriptor_text,
+        "artifact_identity_id",
+        &artifact_identity_id,
+    )?;
+    let artifact_identity_descriptor_sha256 =
+        hex_lower(&sha256_bytes(artifact_identity_descriptor_text.as_bytes()));
+    expect_descriptor_field(
+        &load_descriptor_text,
+        "artifact_identity_sha256",
+        &format!("sha256:{artifact_identity_descriptor_sha256}"),
+    )?;
+    let load_descriptor_id = descriptor_field(&load_descriptor_text, "id")?.to_string();
+    let load_descriptor_authorizes_current_boot_wasm_execution = descriptor_field(
+        &load_descriptor_text,
+        "authorizes_current_boot_wasm_execution",
+    )? == "true";
+    let load_descriptor_sha256 = hex_lower(&sha256_bytes(load_descriptor_text.as_bytes()));
+
+    Ok(DistributionReceiverIdentityEvidence {
+        classification: "local_only".to_string(),
+        service_id,
+        artifact_id,
+        artifact_identity_id,
+        load_descriptor_id,
+        artifact_sha256: artifact_sha256.to_string(),
+        artifact_identity_descriptor_sha256,
+        artifact_identity_public_key_sha256: hex_lower(&sha256_bytes(
+            &artifact_identity_public_key,
+        )),
+        artifact_identity_signature_sha256: hex_lower(&sha256_bytes(
+            &artifact_identity_signature_der,
+        )),
+        artifact_identity_signature_verified: true,
+        artifact_identity_descriptor_text,
+        artifact_identity_public_key_hex: artifact_identity_public_key_hex.trim().to_string(),
+        artifact_identity_signature_der_hex: artifact_identity_signature_der_hex.trim().to_string(),
+        load_descriptor_sha256,
+        load_descriptor_public_key_sha256: hex_lower(&sha256_bytes(&load_descriptor_public_key)),
+        load_descriptor_signature_sha256: hex_lower(&sha256_bytes(&load_descriptor_signature_der)),
+        load_descriptor_signature_verified: true,
+        load_descriptor_text,
+        load_descriptor_public_key_hex: load_descriptor_public_key_hex.trim().to_string(),
+        load_descriptor_signature_der_hex: load_descriptor_signature_der_hex.trim().to_string(),
+        artifact_hash_bound_by_identity: true,
+        artifact_hash_bound_by_load_descriptor: true,
+        load_descriptor_binds_artifact_identity: true,
+        load_descriptor_authorizes_current_boot_wasm_execution,
+        export_authorizes_load: false,
+        export_authorizes_install: false,
+        export_authorizes_execute: false,
+        export_writes_persistent_state: false,
+        requires_m6_m7_reverify_for_load: true,
+    })
+}
+
+fn receiver_identity_raw_evidence_commands(
+    artifact_sha256: &str,
+    identity: &DistributionReceiverIdentityEvidence,
+) -> Result<Vec<String>> {
+    let artifact_identity_public_key =
+        decode_hex_bytes(&identity.artifact_identity_public_key_hex)?;
+    let artifact_identity_signature =
+        decode_hex_bytes(&identity.artifact_identity_signature_der_hex)?;
+    let load_descriptor_public_key = decode_hex_bytes(&identity.load_descriptor_public_key_hex)?;
+    let load_descriptor_signature = decode_hex_bytes(&identity.load_descriptor_signature_der_hex)?;
+
+    let mut commands = vec![
+        receiver_identity_raw_evidence_command(
+            artifact_sha256,
+            "artifact_identity_descriptor",
+            &identity.artifact_identity_descriptor_sha256,
+            identity.artifact_identity_descriptor_text.as_bytes(),
+        ),
+        receiver_identity_raw_evidence_command(
+            artifact_sha256,
+            "artifact_identity_public_key",
+            &identity.artifact_identity_public_key_sha256,
+            &artifact_identity_public_key,
+        ),
+        receiver_identity_raw_evidence_command(
+            artifact_sha256,
+            "artifact_identity_signature",
+            &identity.artifact_identity_signature_sha256,
+            &artifact_identity_signature,
+        ),
+        receiver_identity_raw_evidence_command(
+            artifact_sha256,
+            "load_descriptor",
+            &identity.load_descriptor_sha256,
+            identity.load_descriptor_text.as_bytes(),
+        ),
+        receiver_identity_raw_evidence_command(
+            artifact_sha256,
+            "load_descriptor_public_key",
+            &identity.load_descriptor_public_key_sha256,
+            &load_descriptor_public_key,
+        ),
+        receiver_identity_raw_evidence_command(
+            artifact_sha256,
+            "load_descriptor_signature",
+            &identity.load_descriptor_signature_sha256,
+            &load_descriptor_signature,
+        ),
+    ];
+    commands.push(format!(
+        "module.submit_distribution_receiver_identity_finalize sha256:{artifact_sha256}"
+    ));
+    Ok(commands)
+}
+
+fn receiver_identity_raw_evidence_command(
+    artifact_sha256: &str,
+    kind: &str,
+    expected_sha256: &str,
+    bytes: &[u8],
+) -> String {
+    format!(
+        "module.submit_distribution_receiver_identity_evidence sha256:{} {} sha256:{} {}",
+        artifact_sha256,
+        kind,
+        expected_sha256,
+        BASE64_STANDARD.encode(bytes)
+    )
+}
+
+fn expect_descriptor_field(text: &str, key: &str, expected: &str) -> Result<()> {
+    let actual = descriptor_field(text, key)?;
+    if actual != expected {
+        return Err(anyhow!(
+            "descriptor field {key} expected {expected}, got {actual}"
+        ));
+    }
+    Ok(())
+}
+
+fn descriptor_field<'a>(text: &'a str, key: &str) -> Result<&'a str> {
+    let mut found = None;
+    for line in text.lines() {
+        let Some((k, v)) = line.split_once('=') else {
+            continue;
+        };
+        if k == key {
+            if found.is_some() {
+                return Err(anyhow!("descriptor field {key} appears more than once"));
+            }
+            found = Some(v);
+        }
+    }
+    found.ok_or_else(|| anyhow!("descriptor field {key} is missing"))
+}
+
+fn split_distribution_chunks(
+    bytes: &[u8],
+    chunk_count: usize,
+) -> Vec<DistributionSerialExportChunk> {
+    let mut chunks = Vec::with_capacity(chunk_count);
+    let mut offset = 0usize;
+    for index in 0..chunk_count {
+        let next_offset = if index + 1 == chunk_count {
+            bytes.len()
+        } else {
+            bytes.len() * (index + 1) / chunk_count
+        };
+        let chunk_bytes = &bytes[offset..next_offset];
+        let sha256 = hex_lower(&sha256_bytes(chunk_bytes));
+        chunks.push(DistributionSerialExportChunk {
+            index,
+            sha256,
+            byte_len: chunk_bytes.len(),
+            base64: BASE64_STANDARD.encode(chunk_bytes),
+        });
+        offset = next_offset;
+    }
+    chunks
+}
+
+fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {
+    let digest = Sha256::digest(bytes);
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest);
+    out
+}
+
+fn hex_lower(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ota_tools::{
+        public_key_to_hex, sign_wasm_descriptor_dev_hex, KeyMaterial, SignerCertificate,
+    };
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn publish_and_list_roundtrip() -> Result<()> {
+        let temp = tempdir()?;
+        let registry_path = temp.path().join("registry");
+        let registry = Registry::new(registry_path.clone());
+        registry.init()?;
+
+        let root = KeyMaterial::from_seed("root", "registry-test")?;
+        let online = KeyMaterial::from_seed("online", "registry-test")?;
+        let cert = SignerCertificate::new(&online, &root, 1_700_000_000_000, 60_000)?;
+
+        let blob_path = temp.path().join("module.wasm");
+        fs::write(&blob_path, b"fake wasm bytes")?;
+        let manifest = SignedBlob::sign(
+            &blob_path,
+            &online,
+            &cert,
+            Some(serde_json::json!({
+                "module_id": "hello-ui",
+                "module_version": "0.1.0",
+            })),
+        )?;
+        let manifest_path = temp.path().join("module.manifest.json");
+        fs::write(&manifest_path, serde_json::to_string_pretty(&manifest)?)?;
+
+        let root_pub_path = temp.path().join("root.pub");
+        fs::write(
+            &root_pub_path,
+            format!("{}\n", public_key_to_hex(&root.public_key()?)),
+        )?;
+
+        let result = registry.publish(PublishRequest {
+            blob: blob_path.clone(),
+            manifest: manifest_path.clone(),
+            root_pub: root_pub_path.clone(),
+            namespace: "modules".into(),
+            name: None,
+            version: None,
+            evidence_files: Vec::new(),
+        })?;
+        assert_eq!(result.record.logical_name, "hello-ui");
+        assert_eq!(result.record.logical_version.as_deref(), Some("0.1.0"));
+
+        let entries = registry.list(ListFilter {
+            namespace: Some("modules"),
+            name: Some("hello-ui"),
+        })?;
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].record.payload_hash, manifest.payload_hash());
+        Ok(())
+    }
+
+    #[test]
+    fn distribution_export_reads_cas_blob_and_emits_serial_commands() -> Result<()> {
+        let temp = tempdir()?;
+        let registry_path = temp.path().join("registry");
+        let registry = Registry::new(registry_path);
+        registry.init()?;
+
+        let root = KeyMaterial::from_seed("root", "registry-export-test")?;
+        let online = KeyMaterial::from_seed("online", "registry-export-test")?;
+        let cert = SignerCertificate::new(&online, &root, 1_700_000_000_000, 60_000)?;
+
+        let blob_path = temp.path().join("module.wasm");
+        let artifact_bytes = b"abc";
+        fs::write(&blob_path, artifact_bytes)?;
+        let manifest = SignedBlob::sign(
+            &blob_path,
+            &online,
+            &cert,
+            Some(serde_json::json!({
+                "module_id": "svc.demo.export",
+                "module_version": "1.2.3",
+            })),
+        )?;
+        let manifest_path = temp.path().join("module.manifest.json");
+        fs::write(&manifest_path, serde_json::to_string_pretty(&manifest)?)?;
+
+        let root_pub_path = temp.path().join("root.pub");
+        fs::write(
+            &root_pub_path,
+            format!("{}\n", public_key_to_hex(&root.public_key()?)),
+        )?;
+
+        registry.publish(PublishRequest {
+            blob: blob_path,
+            manifest: manifest_path,
+            root_pub: root_pub_path,
+            namespace: "modules".into(),
+            name: None,
+            version: None,
+            evidence_files: Vec::new(),
+        })?;
+
+        let export = registry.distribution_serial_export(DistributionExportRequest {
+            namespace: "modules",
+            name: "svc.demo.export",
+            tag: "1.2.3",
+            chunk_count: 3,
+            receiver_identity: None,
+        })?;
+
+        assert_eq!(export.source_kind, "local_static_cas_registry");
+        assert_eq!(export.source_id, "host.local_static_cas");
+        assert_eq!(export.registry_payload_hash_blake3, manifest.payload_hash());
+        assert_eq!(export.payload_len, artifact_bytes.len() as u64);
+        assert_eq!(export.chunk_count, 3);
+        assert_eq!(export.chunks.len(), 3);
+        assert_eq!(export.commands.len(), 6);
+        assert_eq!(
+            export.commands[0],
+            format!(
+                "module.submit_distribution_catalog_entry sha256:{} {} 3 sig:{}",
+                export.artifact_sha256, export.payload_len, export.provenance_signature_hex
+            )
+        );
+        assert_eq!(
+            export.commands[1],
+            format!(
+                "module.submit_distribution_begin_from_catalog sha256:{}",
+                export.artifact_sha256
+            )
+        );
+        assert_eq!(
+            export.commands.last().unwrap(),
+            "module.submit_distribution_finalize"
+        );
+
+        let mut reassembled = Vec::new();
+        for chunk in &export.chunks {
+            let decoded = BASE64_STANDARD.decode(&chunk.base64)?;
+            assert_eq!(decoded.len(), chunk.byte_len);
+            reassembled.extend_from_slice(&decoded);
+            assert!(export.commands.contains(&format!(
+                "module.submit_distribution_chunk {} sha256:{} {}",
+                chunk.index, chunk.sha256, chunk.base64
+            )));
+        }
+        assert_eq!(reassembled, artifact_bytes);
+
+        let too_many_chunks = registry
+            .distribution_serial_export(DistributionExportRequest {
+                namespace: "modules",
+                name: "svc.demo.export",
+                tag: "1.2.3",
+                chunk_count: 4,
+                receiver_identity: None,
+            })
+            .unwrap_err();
+        assert!(too_many_chunks
+            .to_string()
+            .contains("exceeds registry blob length"));
+
+        let artifact_ref = format!("sha256:{}", export.artifact_sha256);
+        let artifact_identity_descriptor = format!(
+            "id=builtin_artifact_identity.svc.demo.export.wasm.v0\n\
+service_id=svc.demo.export\n\
+artifact_id=wasm:svc.demo.export\n\
+artifact_reference_bytes_sha256={artifact_ref}\n\
+classification=local_only\n\
+accepts_external_artifact_bytes=false\n\
+authorizes_external_artifact_load=false\n\
+authorizes_persistent_install=false\n\
+authorizes_rollback_install=false\n\
+writes_persistent_state=false\n"
+        );
+        let artifact_identity_hash =
+            hex_lower(&sha256_bytes(artifact_identity_descriptor.as_bytes()));
+        let load_descriptor = format!(
+            "id=load_descriptor.current_boot.svc.demo.export.v0\n\
+service_id=svc.demo.export\n\
+artifact_id=wasm:svc.demo.export\n\
+artifact_identity_id=builtin_artifact_identity.svc.demo.export.wasm.v0\n\
+artifact_identity_sha256=sha256:{artifact_identity_hash}\n\
+artifact_reference_bytes_sha256={artifact_ref}\n\
+classification=local_only\n\
+accepts_external_artifact_bytes=false\n\
+loads_external_artifact=false\n\
+maps_executable_pages=false\n\
+writes_persistent_state=false\n\
+authorizes_persistent_install=false\n\
+authorizes_rollback_install=false\n\
+authorizes_current_boot_wasm_execution=true\n"
+        );
+        let descriptor_path = temp.path().join("artifact_identity.desc");
+        let descriptor_pub_path = temp.path().join("artifact_identity.pub.hex");
+        let descriptor_sig_path = temp.path().join("artifact_identity.sig.hex");
+        let load_path = temp.path().join("load.desc");
+        let load_pub_path = temp.path().join("load.pub.hex");
+        let load_sig_path = temp.path().join("load.sig.hex");
+        fs::write(&descriptor_path, &artifact_identity_descriptor)?;
+        let (descriptor_sig, descriptor_pub) =
+            sign_wasm_descriptor_dev_hex(artifact_identity_descriptor.as_bytes())?;
+        fs::write(&descriptor_pub_path, descriptor_pub)?;
+        fs::write(&descriptor_sig_path, descriptor_sig)?;
+        fs::write(&load_path, &load_descriptor)?;
+        let (load_sig, load_pub) = sign_wasm_descriptor_dev_hex(load_descriptor.as_bytes())?;
+        fs::write(&load_pub_path, load_pub)?;
+        fs::write(&load_sig_path, load_sig)?;
+
+        let export_with_identity =
+            registry.distribution_serial_export(DistributionExportRequest {
+                namespace: "modules",
+                name: "svc.demo.export",
+                tag: "1.2.3",
+                chunk_count: 3,
+                receiver_identity: Some(DistributionReceiverIdentityPaths {
+                    artifact_identity_descriptor: descriptor_path,
+                    artifact_identity_public_key: descriptor_pub_path,
+                    artifact_identity_signature: descriptor_sig_path,
+                    load_descriptor: load_path,
+                    load_descriptor_public_key: load_pub_path,
+                    load_descriptor_signature: load_sig_path,
+                }),
+            })?;
+        let receiver_identity = export_with_identity.receiver_identity.unwrap();
+        assert_eq!(receiver_identity.classification, "local_only");
+        assert_eq!(receiver_identity.service_id, "svc.demo.export");
+        assert_eq!(receiver_identity.artifact_sha256, export.artifact_sha256);
+        assert!(receiver_identity.artifact_identity_signature_verified);
+        assert!(receiver_identity.load_descriptor_signature_verified);
+        assert!(receiver_identity.artifact_hash_bound_by_identity);
+        assert!(receiver_identity.artifact_hash_bound_by_load_descriptor);
+        assert!(receiver_identity.load_descriptor_binds_artifact_identity);
+        assert!(receiver_identity.load_descriptor_authorizes_current_boot_wasm_execution);
+        assert!(!receiver_identity.export_authorizes_load);
+        assert!(!receiver_identity.export_authorizes_install);
+        assert!(!receiver_identity.export_authorizes_execute);
+        assert!(!receiver_identity.export_writes_persistent_state);
+        assert!(receiver_identity.requires_m6_m7_reverify_for_load);
+        assert_eq!(export_with_identity.commands.len(), 14);
+        assert!(export_with_identity.commands[1]
+            .starts_with("module.submit_distribution_receiver_identity sha256:"));
+        assert!(export_with_identity.commands[1].contains(
+            "classification:local_only artifact_identity_signature_verified:true load_descriptor_signature_verified:true"
+        ));
+        assert!(export_with_identity.commands[1].contains(
+            "export_authorizes_load:false export_authorizes_install:false export_authorizes_execute:false export_writes_persistent_state:false requires_m6_m7_reverify_for_load:true"
+        ));
+        for kind in [
+            "artifact_identity_descriptor",
+            "artifact_identity_public_key",
+            "artifact_identity_signature",
+            "load_descriptor",
+            "load_descriptor_public_key",
+            "load_descriptor_signature",
+        ] {
+            assert!(export_with_identity.commands.iter().any(|command| {
+                command.starts_with("module.submit_distribution_receiver_identity_evidence ")
+                    && command.contains(kind)
+            }));
+        }
+        assert!(export_with_identity.commands[8]
+            .starts_with("module.submit_distribution_receiver_identity_finalize sha256:"));
+        assert!(export_with_identity.commands[9]
+            .starts_with("module.submit_distribution_begin_from_catalog sha256:"));
+        Ok(())
+    }
+
+    #[test]
+    fn distribution_export_rejects_corrupt_cas_blob() -> Result<()> {
+        let temp = tempdir()?;
+        let registry_path = temp.path().join("registry");
+        let registry = Registry::new(registry_path.clone());
+        registry.init()?;
+
+        let root = KeyMaterial::from_seed("root", "registry-export-corrupt-test")?;
+        let online = KeyMaterial::from_seed("online", "registry-export-corrupt-test")?;
+        let cert = SignerCertificate::new(&online, &root, 1_700_000_000_000, 60_000)?;
+
+        let blob_path = temp.path().join("module.wasm");
+        fs::write(&blob_path, b"original artifact bytes")?;
+        let manifest = SignedBlob::sign(
+            &blob_path,
+            &online,
+            &cert,
+            Some(serde_json::json!({
+                "module_id": "svc.demo.corrupt",
+                "module_version": "9.9.9",
+            })),
+        )?;
+        let manifest_path = temp.path().join("module.manifest.json");
+        fs::write(&manifest_path, serde_json::to_string_pretty(&manifest)?)?;
+
+        let root_pub_path = temp.path().join("root.pub");
+        fs::write(
+            &root_pub_path,
+            format!("{}\n", public_key_to_hex(&root.public_key()?)),
+        )?;
+
+        registry.publish(PublishRequest {
+            blob: blob_path,
+            manifest: manifest_path,
+            root_pub: root_pub_path,
+            namespace: "modules".into(),
+            name: None,
+            version: None,
+            evidence_files: Vec::new(),
+        })?;
+        fs::write(
+            registry_path.join("blobs").join(manifest.payload_hash()),
+            b"tampered artifact bytes",
+        )?;
+
+        let err = registry
+            .distribution_serial_export(DistributionExportRequest {
+                namespace: "modules",
+                name: "svc.demo.corrupt",
+                tag: "9.9.9",
+                chunk_count: 3,
+                receiver_identity: None,
+            })
+            .unwrap_err();
+        assert!(err.to_string().contains("registry blob blake3 mismatch"));
+        Ok(())
+    }
+
+    #[test]
+    fn publish_records_vm_report_and_local_attestation_references() -> Result<()> {
+        let temp = tempdir()?;
+        let registry_path = temp.path().join("registry");
+        let registry = Registry::new(registry_path.clone());
+        registry.init()?;
+
+        let root = KeyMaterial::from_seed("root", "registry-evidence-test")?;
+        let online = KeyMaterial::from_seed("online", "registry-evidence-test")?;
+        let cert = SignerCertificate::new(&online, &root, 1_700_000_000_000, 60_000)?;
+
+        let blob_path = temp.path().join("module.wasm");
+        fs::write(&blob_path, b"candidate module bytes")?;
+        let manifest = SignedBlob::sign(
+            &blob_path,
+            &online,
+            &cert,
+            Some(serde_json::json!({
+                "module_id": "evidence-ui",
+                "module_version": "0.2.0",
+            })),
+        )?;
+        let manifest_path = temp.path().join("module.manifest.json");
+        fs::write(&manifest_path, serde_json::to_string_pretty(&manifest)?)?;
+
+        let root_pub_path = temp.path().join("root.pub");
+        fs::write(
+            &root_pub_path,
+            format!("{}\n", public_key_to_hex(&root.public_key()?)),
+        )?;
+
+        let report_path = temp.path().join("vm-report.json");
+        fs::write(
+            &report_path,
+            serde_json::to_string_pretty(&serde_json::json!({
+                "schema": VM_TEST_REPORT_SCHEMA,
+                "result": "passed",
+                "evidence_binding": {
+                    "candidate_artifact_sha256": "abc"
+                }
+            }))?,
+        )?;
+        fs::write(
+            temp.path().join("vm-report.json.sha256"),
+            "1111111111111111111111111111111111111111111111111111111111111111  vm-report.json\n",
+        )?;
+        let attestation_path = temp.path().join("local-attestation.json");
+        fs::write(
+            &attestation_path,
+            serde_json::to_string_pretty(&serde_json::json!({
+                "schema": LOCAL_ATTESTATION_SCHEMA,
+                "result": "evidence_recorded_load_still_denied_in_stage0",
+                "limits": {
+                    "grants_load_now": false
+                }
+            }))?,
+        )?;
+        fs::write(
+            temp.path().join("local-attestation.json.sha256"),
+            "2222222222222222222222222222222222222222222222222222222222222222  local-attestation.json\n",
+        )?;
+
+        let result = registry.publish(PublishRequest {
+            blob: blob_path,
+            manifest: manifest_path,
+            root_pub: root_pub_path,
+            namespace: "modules".into(),
+            name: None,
+            version: None,
+            evidence_files: vec![
+                EvidenceFile::vm_test_report(report_path),
+                EvidenceFile::local_attestation(attestation_path),
+            ],
+        })?;
+
+        assert_eq!(result.record.evidence.len(), 2);
+        assert_eq!(result.record.evidence[0].kind, EvidenceKind::VmTestReport);
+        assert_eq!(result.record.evidence[0].schema, VM_TEST_REPORT_SCHEMA);
+        assert_eq!(result.record.evidence[0].result.as_deref(), Some("passed"));
+        assert_eq!(
+            result.record.evidence[1].kind,
+            EvidenceKind::LocalAttestation
+        );
+        assert_eq!(
+            result.record.evidence[1].result.as_deref(),
+            Some("evidence_recorded_load_still_denied_in_stage0")
+        );
+        for evidence in &result.record.evidence {
+            assert!(registry_path.join(&evidence.registry_path).exists());
+            assert!(!evidence
+                .registry_path
+                .contains(temp.path().to_string_lossy().as_ref()));
+        }
+        Ok(())
+    }
+}
