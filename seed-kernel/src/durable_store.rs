@@ -18,13 +18,16 @@ use raios_core::{
         scan_reclog_payloads, PlannedAppend, RecordLogScan, DURABLE_RECORD_LOG_SCAN_SCHEMA,
         RECLOG_FRAME_HEADER_LEN, RECLOG_SECTOR_SIZE,
     },
-    memory_record::{self, MemoryRecord, MemoryRecordView},
+    memory_record::{
+        self, MemoryKind, MemoryRecord, MemoryRecordInput, MemoryRecordView, MemorySource,
+    },
     memory_record_resolve::resolve_durable_memory,
     project_install::{
         install_action_signature_payload_sha256, seal_granted_candidate_install_envelope,
         seal_install_action, seal_ui_program_install_envelope, GrantedCandidateInstallEnvelope,
         ProjectInstallAction, ProjectInstallActionKind, ProjectInstallAuthority,
-        UiProgramInstallEnvelope, PROJECT_INSTALL_TRUST_TIER, UI_PROGRAM_INSTALL_SUBJECT_KIND,
+        UiProgramInstallEnvelope, GRANTED_CANDIDATE_INSTALL_ENVELOPE_VERSION,
+        PROJECT_INSTALL_TRUST_TIER, UI_PROGRAM_INSTALL_SUBJECT_KIND,
     },
     promotion_attestation::verify_promotion_authority_signature,
     promotion_attestation::{
@@ -74,8 +77,9 @@ use raios_core::{
     sha256_bytes,
     ui_program::{MAX_PROGRAM_BYTES, PROGRAM_ABI_VERSION},
     wasm_import_grant_event::{
-        fold_events, parse_event, FoldError as WasmGrantFoldError, GrantEvent,
-        GrantEventError as WasmGrantEventError, HostImportId as DurableHostImportId,
+        fold_events, parse_event, rollback_delta, rollback_revoke_record_id,
+        FoldError as WasmGrantFoldError, GrantEvent, GrantEventError as WasmGrantEventError,
+        GrantEventKind, HostImportId as DurableHostImportId, ProjectionSlot,
         EVENT_AUTHORITY as WASM_GRANT_EVENT_AUTHORITY, GRANT_PREDICATE as WASM_GRANT_PREDICATE,
         REVOKE_PREDICATE as WASM_REVOKE_PREDICATE,
     },
@@ -103,10 +107,8 @@ const INSTALL_AUTHORIZATION_ID: &str =
 const UI_PROGRAM_INSTALL_AUTHORIZATION_ID: &str = "install_authorization.origin_boot.ui_program.v0";
 const INSTALL_AUTHORIZATION_RECORD_KIND: &str = "install_authorization";
 const INSTALL_AUTHORIZATION_MAX_PAYLOAD_LEN: usize = 4096 - RECLOG_FRAME_HEADER_LEN;
-// Frame-budget assertion (88-byte RECLOG header, 256-byte install DER, 80-byte
-// promotion DER, max-width u64s): authorization 2,434 + 88 = 2,522 -> 2,560
-// sector-rounded; linked unpromote (the larger promotion form) 3,317 + 88 =
-// 3,405 -> 3,584 sector-rounded. Both remain <= one 4,096-byte frame budget.
+// The V2 authorization and linked promotion payloads remain bounded to one
+// 4,096-byte RECLOG frame; the fixture self-test exercises their max wire shape.
 const RECOVERY_ACTION_SELFTEST_METHOD: &str = "recovery.disable_module_selftest";
 const RECOVERY_ACTION_SELFTEST_SCHEMA: &str = "raios.recovery_action_append_selftest.v0";
 const RECOVERY_ACTION_RECORD_KIND: &str = "recovery_action";
@@ -438,6 +440,10 @@ pub(crate) struct PromotionTransactionRecord {
     pub(crate) install_action_signature_verified: bool,
     pub(crate) physical_install_approval_consumed: bool,
     pub(crate) install_authorization_frame_sha256: [u8; 32],
+    pub(crate) install_envelope_version: u16,
+    pub(crate) grant_target_schema: &'static str,
+    pub(crate) grant_target_count: u64,
+    pub(crate) grant_target_snapshot_sha256: [u8; 32],
     pub(crate) rollback_plan_hash: [u8; 32],
     pub(crate) pre_load_inventory_hash: [u8; 32],
     pub(crate) ram_only_service_slot_id: &'static str,
@@ -640,35 +646,12 @@ pub(crate) fn validate_signed_install_authorization(
 fn validate_granted_candidate_install_authorization(
     record: &InstallAuthorizationRecord,
 ) -> Result<(), &'static str> {
-    if record.trust_tier != PROMOTION_TRANSACTION_TRUST_TIER {
-        return Err("install_authorization_trust_tier_mismatch");
-    }
     let authorization = record.authorization;
+    let _envelope = bound_granted_candidate_install_envelope(record)?;
     if authorization.signature_len == 0
         || authorization.signature_len > authorization.signature_der.len()
     {
         return Err("install_action_signature_not_verified");
-    }
-    let envelope = seal_granted_candidate_install_envelope(GrantedCandidateInstallEnvelope {
-        service_id: String::from(record.service_id),
-        candidate_sha256: authorization.candidate_sha256,
-        candidate_byte_len: authorization.candidate_byte_len,
-        activation_approval_sha256: authorization.activation_approval_sha256,
-        computed_grant_sha256: authorization.computed_grant_sha256,
-        attestation_reference_sha256: authorization.attestation_reference_sha256,
-        w7_invocation_sha256: authorization.w7_invocation_sha256,
-        w7_receipt_sha256: authorization.w7_receipt_sha256,
-        receiver_content_sha256: authorization.receiver_content_sha256,
-        receiver_candidate_sha256: authorization.receiver_candidate_sha256,
-        catalog_candidate_sha256: authorization.catalog_candidate_sha256,
-        generation: authorization.generation,
-        auto_start: true,
-        trust_tier: String::from(PROMOTION_TRANSACTION_TRUST_TIER),
-        envelope_sha256: [0; 32],
-    })
-    .map_err(|error| error.reason())?;
-    if envelope.envelope_sha256 != authorization.install_envelope_sha256 {
-        return Err("install_envelope_binding_mismatch");
     }
     let signature = authorization.signature_der[..authorization
         .signature_len
@@ -704,6 +687,59 @@ fn validate_granted_candidate_install_authorization(
         return Err("install_action_signature_not_verified");
     }
     Ok(())
+}
+
+fn bound_granted_candidate_install_envelope(
+    record: &InstallAuthorizationRecord,
+) -> Result<GrantedCandidateInstallEnvelope, &'static str> {
+    if record.trust_tier != PROMOTION_TRANSACTION_TRUST_TIER {
+        return Err("install_authorization_trust_tier_mismatch");
+    }
+    let authorization = record.authorization;
+    if authorization.install_envelope_version != GRANTED_CANDIDATE_INSTALL_ENVELOPE_VERSION
+        || authorization.grant_target_schema
+            != raios_core::wasm_import_grant_event::GRANT_TARGET_SNAPSHOT_SCHEMA
+        || authorization.grant_target_count
+            > raios_core::wasm_import_grant_event::MAX_PROJECTION_SLOTS as u64
+        || authorization.grant_target_snapshot_sha256 == [0; 32]
+    {
+        return Err("signed_snapshot_context_mismatch");
+    }
+    let envelope = seal_granted_candidate_install_envelope(GrantedCandidateInstallEnvelope {
+        envelope_version: authorization.install_envelope_version,
+        service_id: String::from(record.service_id),
+        candidate_sha256: authorization.candidate_sha256,
+        candidate_byte_len: authorization.candidate_byte_len,
+        activation_approval_sha256: authorization.activation_approval_sha256,
+        computed_grant_sha256: authorization.computed_grant_sha256,
+        attestation_reference_sha256: authorization.attestation_reference_sha256,
+        grant_target_schema: String::from(authorization.grant_target_schema),
+        grant_target_count: authorization.grant_target_count,
+        grant_target_snapshot_sha256: authorization.grant_target_snapshot_sha256,
+        w7_invocation_sha256: authorization.w7_invocation_sha256,
+        w7_receipt_sha256: authorization.w7_receipt_sha256,
+        receiver_content_sha256: authorization.receiver_content_sha256,
+        receiver_candidate_sha256: authorization.receiver_candidate_sha256,
+        catalog_candidate_sha256: authorization.catalog_candidate_sha256,
+        generation: authorization.generation,
+        auto_start: true,
+        trust_tier: String::from(PROMOTION_TRANSACTION_TRUST_TIER),
+        envelope_sha256: [0; 32],
+    })
+    .map_err(|error| error.reason())?;
+    if envelope.envelope_sha256 != authorization.install_envelope_sha256 {
+        return Err("install_envelope_binding_mismatch");
+    }
+    Ok(envelope)
+}
+
+/// Returns the exact V2 envelope only after its install action signature and
+/// envelope hash have both been re-derived from the durable authorization.
+pub(crate) fn verified_granted_candidate_install_envelope(
+    record: &InstallAuthorizationRecord,
+) -> Result<GrantedCandidateInstallEnvelope, &'static str> {
+    validate_granted_candidate_install_authorization(record)?;
+    bound_granted_candidate_install_envelope(record)
 }
 
 pub(crate) fn validate_ui_program_install_authorization(
@@ -994,6 +1030,15 @@ impl PromotionTransactionRecord {
             && self.promotion_authority_key_sha256
                 == PLACEHOLDER_PROMOTION_AUTHORITY_PUBLIC_KEY_SHA256
     }
+
+    fn signed_snapshot_context_complete(&self) -> bool {
+        self.install_envelope_version == GRANTED_CANDIDATE_INSTALL_ENVELOPE_VERSION
+            && self.grant_target_schema
+                == raios_core::wasm_import_grant_event::GRANT_TARGET_SNAPSHOT_SCHEMA
+            && self.grant_target_count
+                <= raios_core::wasm_import_grant_event::MAX_PROJECTION_SLOTS as u64
+            && self.grant_target_snapshot_sha256 != [0; 32]
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1215,8 +1260,29 @@ fn granted_candidate_install_authorization_payload_bytes(
         f("record_kind", s(INSTALL_AUTHORIZATION_RECORD_KIND)),
         f("service_id", s(record.service_id)),
         f(
+            "install_envelope_version",
+            V::U64(authorization.install_envelope_version as u64),
+        ),
+        f(
             "activation_approval_sha256",
             V::Sha256(authorization.activation_approval_sha256),
+        ),
+        f(
+            "computed_grant_sha256",
+            V::Sha256(authorization.computed_grant_sha256),
+        ),
+        f(
+            "attestation_reference_sha256",
+            V::Sha256(authorization.attestation_reference_sha256),
+        ),
+        f("grant_target_schema", s(authorization.grant_target_schema)),
+        f(
+            "grant_target_count",
+            V::U64(authorization.grant_target_count),
+        ),
+        f(
+            "grant_target_snapshot_sha256",
+            V::Sha256(authorization.grant_target_snapshot_sha256),
         ),
         f(
             "w7_invocation_sha256",
@@ -1365,6 +1431,17 @@ pub(crate) fn append_promotion_transaction(
     install_authorization_validated: bool,
 ) -> PromotionTransactionAppendEvidence {
     let record = record.promotion_transaction_ref();
+    if matches!(
+        &record,
+        PromotionTransactionRef::GrantedCandidate(candidate)
+            if candidate.install_authorization_present
+                && !candidate.signed_snapshot_context_complete()
+    ) {
+        return promotion_transaction_append_denied(
+            record.transaction_kind(),
+            "signed_snapshot_context_mismatch",
+        );
+    }
     if let PromotionTransactionRef::UiProgram(program) = &record {
         if let Err(reason) = validate_ui_program_promotion_transaction(program) {
             return promotion_transaction_append_denied(program.transaction_kind, reason);
@@ -1727,6 +1804,16 @@ fn granted_candidate_promotion_transaction_payload_bytes(
         f(
             "install_authorization_frame_sha256",
             V::Sha256(record.install_authorization_frame_sha256),
+        ),
+        f(
+            "install_envelope_version",
+            V::U64(record.install_envelope_version as u64),
+        ),
+        f("grant_target_schema", s(record.grant_target_schema)),
+        f("grant_target_count", V::U64(record.grant_target_count)),
+        f(
+            "grant_target_snapshot_sha256",
+            V::Sha256(record.grant_target_snapshot_sha256),
         ),
         f("trust_tier", s(PROMOTION_TRANSACTION_TRUST_TIER)),
         f(
@@ -2174,6 +2261,10 @@ fn promotion_transaction_selftest_record(
         install_action_signature_verified: false,
         physical_install_approval_consumed: false,
         install_authorization_frame_sha256: [0; 32],
+        install_envelope_version: 0,
+        grant_target_schema: "absent",
+        grant_target_count: 0,
+        grant_target_snapshot_sha256: [0; 32],
         rollback_plan_hash: [0x31; 32],
         pre_load_inventory_hash: [0x32; 32],
         ram_only_service_slot_id: "ram_only:svc.dev.granted_candidate",
@@ -3957,11 +4048,16 @@ pub(crate) fn append_memory_record<'a>(
 
 #[derive(Clone)]
 pub(crate) struct DurableWasmGrantSlot {
+    pub(crate) grant_id: String,
+    pub(crate) grant_sha256: [u8; 32],
+    pub(crate) revoke_id: Option<String>,
     pub(crate) service_id: String,
     pub(crate) domain_instance: u64,
     pub(crate) binding_sha256: [u8; 32],
     pub(crate) host_import_id: DurableHostImportId,
+    pub(crate) scope: raios_core::wasm_import_grant_event::GrantScope,
     pub(crate) generation: u64,
+    pub(crate) grant_epoch: u64,
     pub(crate) revoked: bool,
 }
 
@@ -4041,11 +4137,16 @@ pub(crate) fn load_durable_wasm_grant_projection() -> DurableWasmGrantProjection
         .slots()
         .iter()
         .map(|slot| DurableWasmGrantSlot {
+            grant_id: String::from(slot.grant_id),
+            grant_sha256: slot.grant_sha256,
+            revoke_id: slot.revoke_id.map(String::from),
             service_id: String::from(slot.service_id),
             domain_instance: slot.domain_instance,
             binding_sha256: slot.binding_sha256,
             host_import_id: slot.host_import_id,
+            scope: slot.scope,
             generation: slot.generation,
+            grant_epoch: slot.grant_epoch,
             revoked: slot.revoked,
         })
         .collect();
@@ -4079,6 +4180,609 @@ pub(crate) fn append_durable_wasm_grant_event(event: &GrantEvent<'_>) -> bool {
     projection.valid
         && projection.event_count != 0
         && projection.next_epoch == event.epoch.saturating_add(1)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EnsureRevokedOutcome {
+    Appended,
+    AlreadyRevokedByTransaction,
+    Denied,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WasmRollbackMarkerKind {
+    Intent,
+    Commit,
+}
+
+/// Conservative all-or-nothing reservation check. Every planned rollback
+/// frame is charged at the RECLOG maximum frame size before intent is written.
+pub(crate) fn preflight_wasm_rollback_frames(required_frames: usize) -> bool {
+    let Some(controller) = pci::find_mass_storage_controller() else {
+        return false;
+    };
+    let read = ahci::read_persist_reclog_region(controller);
+    let Some(region) = read.bytes else {
+        return false;
+    };
+    let scan = scan_reclog(&region);
+    if !read.read_completed || !scan.full_region_valid || !scan.valid_prefix_chain {
+        return false;
+    }
+    let Some(reserved) = (required_frames as u64).checked_mul(4096) else {
+        return false;
+    };
+    scan.first_invalid_offset
+        .checked_add(reserved)
+        .is_some_and(|end| end <= read.byte_count)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn append_wasm_rollback_marker(
+    kind: WasmRollbackMarkerKind,
+    transaction_id: &str,
+    service_id: &str,
+    domain_instance: u64,
+    source_projection_sha256: [u8; 32],
+    target_snapshot_sha256: [u8; 32],
+    delta_sha256: [u8; 32],
+    delta_count: u64,
+    result_projection_sha256: Option<[u8; 32]>,
+) -> bool {
+    let (suffix, predicate, sequence) = match kind {
+        WasmRollbackMarkerKind::Intent => ("intent", "wasm_import.rollback_intent.v1", 1),
+        WasmRollbackMarkerKind::Commit => ("commit", "wasm_import.rollback_commit.v1", 2),
+    };
+    if matches!(kind, WasmRollbackMarkerKind::Intent) != result_projection_sha256.is_none() {
+        return false;
+    }
+    let record_id = format!("rollback.{suffix}.{transaction_id}");
+    let record = match MemoryRecord::new(MemoryRecordInput {
+        id: &record_id,
+        kind: MemoryKind::RollbackTxRef.as_str(),
+        entity: service_id,
+        predicate,
+        value: V::InlineObject(vec![
+            Field::new("transaction_id", V::Str(transaction_id)),
+            Field::new("service_id", V::Str(service_id)),
+            Field::new("domain_instance", V::U64(domain_instance)),
+            Field::new(
+                "source_projection_sha256",
+                V::Sha256(source_projection_sha256),
+            ),
+            Field::new("target_snapshot_sha256", V::Sha256(target_snapshot_sha256)),
+            Field::new("delta_sha256", V::Sha256(delta_sha256)),
+            Field::new("delta_count", V::U64(delta_count)),
+            Field::new(
+                "result_projection_sha256",
+                result_projection_sha256.map(V::Sha256).unwrap_or(V::Null),
+            ),
+        ]),
+        classification: "local_only",
+        authority: "kernel_wasm_rollback_transaction.v1",
+        boot_id: "origin_boot",
+        sequence,
+        source: MemorySource::new("service.rollback_apply", transaction_id),
+        evidence: vec![],
+        tags: vec!["wasm_import", "rollback_transaction"],
+        supersedes: vec![],
+        created_at_ticks: 0,
+    }) {
+        Ok(record) => record,
+        Err(_) => return false,
+    };
+    let append = append_memory_record(&record);
+    append.performed && append.reparse_valid && append.durable_append == "appended"
+}
+
+#[allow(clippy::too_many_arguments)]
+fn wasm_rollback_marker_payload_bytes(
+    kind: WasmRollbackMarkerKind,
+    transaction_id: &str,
+    service_id: &str,
+    domain_instance: u64,
+    source_projection_sha256: [u8; 32],
+    target_snapshot_sha256: [u8; 32],
+    delta_sha256: [u8; 32],
+    delta_count: u64,
+    result_projection_sha256: Option<[u8; 32]>,
+) -> Result<Vec<u8>, ()> {
+    let (suffix, predicate, sequence) = match kind {
+        WasmRollbackMarkerKind::Intent => ("intent", "wasm_import.rollback_intent.v1", 1),
+        WasmRollbackMarkerKind::Commit => ("commit", "wasm_import.rollback_commit.v1", 2),
+    };
+    if matches!(kind, WasmRollbackMarkerKind::Intent) != result_projection_sha256.is_none() {
+        return Err(());
+    }
+    let record_id = format!("rollback.{suffix}.{transaction_id}");
+    let record = MemoryRecord::new(MemoryRecordInput {
+        id: &record_id,
+        kind: MemoryKind::RollbackTxRef.as_str(),
+        entity: service_id,
+        predicate,
+        value: V::InlineObject(vec![
+            Field::new("transaction_id", V::Str(transaction_id)),
+            Field::new("service_id", V::Str(service_id)),
+            Field::new("domain_instance", V::U64(domain_instance)),
+            Field::new(
+                "source_projection_sha256",
+                V::Sha256(source_projection_sha256),
+            ),
+            Field::new("target_snapshot_sha256", V::Sha256(target_snapshot_sha256)),
+            Field::new("delta_sha256", V::Sha256(delta_sha256)),
+            Field::new("delta_count", V::U64(delta_count)),
+            Field::new(
+                "result_projection_sha256",
+                result_projection_sha256.map(V::Sha256).unwrap_or(V::Null),
+            ),
+        ]),
+        classification: "local_only",
+        authority: "kernel_wasm_rollback_transaction.v1",
+        boot_id: "origin_boot",
+        sequence,
+        source: MemorySource::new("service.rollback_apply", transaction_id),
+        evidence: vec![],
+        tags: vec!["wasm_import", "rollback_transaction"],
+        supersedes: vec![],
+        created_at_ticks: 0,
+    })
+    .map_err(|_| ())?;
+    Ok(memory_record_payload_bytes(&record))
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PendingWasmRollback {
+    pub(crate) transaction_id: String,
+    pub(crate) service_id: String,
+    pub(crate) domain_instance: u64,
+    pub(crate) source_projection_sha256: [u8; 32],
+    pub(crate) target_snapshot_sha256: [u8; 32],
+    pub(crate) delta_sha256: [u8; 32],
+    pub(crate) delta_count: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CommittedWasmRollback {
+    pub(crate) transaction_id: String,
+    pub(crate) service_id: String,
+    pub(crate) domain_instance: u64,
+    pub(crate) target_snapshot_sha256: [u8; 32],
+    pub(crate) result_projection_sha256: [u8; 32],
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum WasmRollbackRecoveryState {
+    None,
+    Pending(PendingWasmRollback),
+    Committed(CommittedWasmRollback),
+    Denied(&'static str),
+}
+
+#[derive(Clone)]
+struct ParsedWasmRollbackMarker {
+    kind: WasmRollbackMarkerKind,
+    transaction: PendingWasmRollback,
+    result_projection_sha256: Option<[u8; 32]>,
+}
+
+#[derive(Clone)]
+struct ExpectedRollbackRevoke {
+    record_id: String,
+    parent_grant_id: String,
+    parent_grant_sha256: [u8; 32],
+}
+
+/// Single fail-closed recovery fold. Unsigned transaction fields are never
+/// authority: they must exactly match a re-derived source projection, a
+/// signature-verified target snapshot, its exact delta, and the observed
+/// durable projection transition.
+pub(crate) fn wasm_rollback_recovery_state() -> WasmRollbackRecoveryState {
+    let Some(controller) = pci::find_mass_storage_controller() else {
+        return WasmRollbackRecoveryState::Denied("rollback_recovery_controller_missing");
+    };
+    let read = ahci::read_persist_reclog_region(controller);
+    let Some(region) = read.bytes else {
+        return WasmRollbackRecoveryState::Denied("rollback_recovery_read_failed");
+    };
+    let scan = scan_reclog(&region);
+    if !read.read_completed || !scan.full_region_valid || !scan.valid_prefix_chain {
+        return WasmRollbackRecoveryState::Denied("rollback_recovery_reclog_invalid");
+    }
+    let mut grant_events = Vec::new();
+    let mut pending: Option<(PendingWasmRollback, usize, Vec<ExpectedRollbackRevoke>)> = None;
+    let mut committed: Option<CommittedWasmRollback> = None;
+    for (_, payload) in scan_reclog_payloads(&region) {
+        match parse_event(payload) {
+            Ok(event) => {
+                if committed.is_some() {
+                    return WasmRollbackRecoveryState::Denied(
+                        "rollback_commit_projection_not_terminal",
+                    );
+                }
+                if let Some((transaction, _, expected)) = pending.as_ref() {
+                    if event.kind != GrantEventKind::Revoke {
+                        return WasmRollbackRecoveryState::Denied(
+                            "rollback_transition_unexpected_grant_event",
+                        );
+                    }
+                    let expected_match = expected.iter().any(|item| {
+                        item.record_id == event.record_id
+                            && item.parent_grant_id == event.parent_grant_id
+                            && item.parent_grant_sha256 == event.parent_grant_sha256
+                    });
+                    if !expected_match
+                        || event.record_id
+                            != rollback_revoke_record_id(
+                                &transaction.transaction_id,
+                                event.parent_grant_id,
+                            )
+                    {
+                        return WasmRollbackRecoveryState::Denied(
+                            "rollback_transition_unexpected_revoke",
+                        );
+                    }
+                    if grant_events
+                        .iter()
+                        .any(|prior: &GrantEvent<'_>| prior.record_id == event.record_id)
+                    {
+                        return WasmRollbackRecoveryState::Denied(
+                            "rollback_transition_duplicate_revoke",
+                        );
+                    }
+                }
+                grant_events.push(event);
+                continue;
+            }
+            Err(WasmGrantEventError::NotGrantEvent) => {}
+            Err(_) => {
+                return WasmRollbackRecoveryState::Denied("rollback_projection_event_malformed")
+            }
+        }
+
+        let marker = match parse_wasm_rollback_marker(payload) {
+            Ok(Some(marker)) => marker,
+            Ok(None) => continue,
+            Err(reason) => return WasmRollbackRecoveryState::Denied(reason),
+        };
+        match marker.kind {
+            WasmRollbackMarkerKind::Intent => {
+                if pending.is_some() || committed.is_some() {
+                    return WasmRollbackRecoveryState::Denied("rollback_recovery_duplicate_intent");
+                }
+                let source = match fold_events(&grant_events) {
+                    Ok(source) => source,
+                    Err(_) => {
+                        return WasmRollbackRecoveryState::Denied(
+                            "rollback_source_projection_invalid",
+                        )
+                    }
+                };
+                if source.sha256() != marker.transaction.source_projection_sha256 {
+                    return WasmRollbackRecoveryState::Denied(
+                        "rollback_intent_source_projection_mismatch",
+                    );
+                }
+                let target = match artifact_store::load_verified_committed_rollback_target(
+                    marker.transaction.target_snapshot_sha256,
+                ) {
+                    Ok(target) => target,
+                    Err(reason) => return WasmRollbackRecoveryState::Denied(reason),
+                };
+                if target.snapshot.snapshot_sha256 != marker.transaction.target_snapshot_sha256
+                    || target.envelope.service_id != marker.transaction.service_id
+                    || marker.transaction.domain_instance == 0
+                {
+                    return WasmRollbackRecoveryState::Denied(
+                        "rollback_intent_signed_target_mismatch",
+                    );
+                }
+                let delta = match rollback_delta(
+                    &source,
+                    marker.transaction.domain_instance,
+                    &target.envelope,
+                    &target.snapshot,
+                ) {
+                    Ok(delta) => delta,
+                    Err(_) => {
+                        return WasmRollbackRecoveryState::Denied(
+                            "rollback_intent_signed_target_mismatch",
+                        )
+                    }
+                };
+                if delta.is_empty()
+                    || delta.len() as u64 != marker.transaction.delta_count
+                    || rollback_projection_delta_sha256(&delta) != marker.transaction.delta_sha256
+                {
+                    return WasmRollbackRecoveryState::Denied("rollback_intent_delta_mismatch");
+                }
+                let expected = delta
+                    .iter()
+                    .map(|slot| ExpectedRollbackRevoke {
+                        record_id: rollback_revoke_record_id(
+                            &marker.transaction.transaction_id,
+                            slot.grant_id,
+                        ),
+                        parent_grant_id: String::from(slot.grant_id),
+                        parent_grant_sha256: slot.grant_sha256,
+                    })
+                    .collect();
+                pending = Some((marker.transaction, grant_events.len(), expected));
+            }
+            WasmRollbackMarkerKind::Commit => {
+                let Some((intent, source_event_count, expected)) = pending.take() else {
+                    return WasmRollbackRecoveryState::Denied("rollback_recovery_orphan_commit");
+                };
+                if intent != marker.transaction {
+                    return WasmRollbackRecoveryState::Denied("rollback_recovery_pair_mismatch");
+                }
+                let Some(recorded_result) = marker.result_projection_sha256 else {
+                    return WasmRollbackRecoveryState::Denied(
+                        "rollback_recovery_commit_result_missing",
+                    );
+                };
+                if grant_events.len().saturating_sub(source_event_count) != expected.len() {
+                    return WasmRollbackRecoveryState::Denied(
+                        "rollback_transition_delta_count_mismatch",
+                    );
+                }
+                for expected_revoke in &expected {
+                    let occurrences = grant_events[source_event_count..]
+                        .iter()
+                        .filter(|event| event.record_id == expected_revoke.record_id)
+                        .count();
+                    if occurrences != 1 {
+                        return WasmRollbackRecoveryState::Denied(
+                            "rollback_transition_delta_set_mismatch",
+                        );
+                    }
+                }
+                let result = match fold_events(&grant_events) {
+                    Ok(result) => result,
+                    Err(_) => {
+                        return WasmRollbackRecoveryState::Denied(
+                            "rollback_result_projection_invalid",
+                        )
+                    }
+                };
+                if result.sha256() != recorded_result
+                    || expected.iter().any(|expected_revoke| {
+                        !result.slots().iter().any(|slot| {
+                            slot.grant_id == expected_revoke.parent_grant_id
+                                && slot.grant_sha256 == expected_revoke.parent_grant_sha256
+                                && slot.revoked
+                                && slot.revoke_id == Some(expected_revoke.record_id.as_str())
+                        })
+                    })
+                {
+                    return WasmRollbackRecoveryState::Denied(
+                        "rollback_commit_projection_mismatch",
+                    );
+                }
+                committed = Some(CommittedWasmRollback {
+                    transaction_id: intent.transaction_id,
+                    service_id: intent.service_id,
+                    domain_instance: intent.domain_instance,
+                    target_snapshot_sha256: intent.target_snapshot_sha256,
+                    result_projection_sha256: result.sha256(),
+                });
+            }
+        }
+    }
+    if let Some((pending, _, _)) = pending {
+        WasmRollbackRecoveryState::Pending(pending)
+    } else if let Some(committed) = committed {
+        WasmRollbackRecoveryState::Committed(committed)
+    } else {
+        WasmRollbackRecoveryState::None
+    }
+}
+
+fn parse_wasm_rollback_marker(
+    payload: &[u8],
+) -> Result<Option<ParsedWasmRollbackMarker>, &'static str> {
+    let rollback_shaped = payload_contains(payload, b"wasm_import.rollback_")
+        || payload_contains(payload, b"kernel_wasm_rollback_transaction.v1");
+    let view = match memory_record::parse(payload) {
+        Ok(view) => view,
+        Err(_) if rollback_shaped => return Err("rollback_recovery_marker_malformed"),
+        Err(_) => return Ok(None),
+    };
+    let kind = match view.predicate {
+        "wasm_import.rollback_intent.v1" => WasmRollbackMarkerKind::Intent,
+        "wasm_import.rollback_commit.v1" => WasmRollbackMarkerKind::Commit,
+        _ if view.authority == "kernel_wasm_rollback_transaction.v1" => {
+            return Err("rollback_recovery_predicate_invalid")
+        }
+        _ => return Ok(None),
+    };
+    if view.kind != MemoryKind::RollbackTxRef
+        || view.classification.as_str() != "local_only"
+        || view.authority != "kernel_wasm_rollback_transaction.v1"
+        || view.boot_id != "origin_boot"
+        || view.sequence
+            != match kind {
+                WasmRollbackMarkerKind::Intent => 1,
+                WasmRollbackMarkerKind::Commit => 2,
+            }
+        || view.source.method != "service.rollback_apply"
+        || !view.evidence.is_empty()
+        || view.tags.as_slice() != ["wasm_import", "rollback_transaction"]
+        || !view.supersedes.is_empty()
+        || view.created_at_ticks != 0
+    {
+        return Err("rollback_recovery_marker_shape_invalid");
+    }
+    let payload_text = str::from_utf8(payload).map_err(|_| "rollback_recovery_marker_malformed")?;
+    let transaction_id = payload_str(payload_text, b"\"transaction_id\": \"")
+        .ok_or("rollback_recovery_marker_field_missing")?;
+    if transaction_id.len() != 64
+        || !transaction_id
+            .as_bytes()
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
+        || view.source.record_id != transaction_id
+    {
+        return Err("rollback_recovery_transaction_id_invalid");
+    }
+    let service_id = payload_str(payload_text, b"\"service_id\": \"")
+        .ok_or("rollback_recovery_marker_field_missing")?;
+    let domain_instance = artifact_store::extract_u64(payload_text, b"\"domain_instance\": ")
+        .ok_or("rollback_recovery_marker_field_missing")?;
+    let source_projection_sha256 =
+        artifact_store::extract_sha256(payload_text, b"\"source_projection_sha256\": \"")
+            .ok_or("rollback_recovery_marker_field_missing")?;
+    let target_snapshot_sha256 =
+        artifact_store::extract_sha256(payload_text, b"\"target_snapshot_sha256\": \"")
+            .ok_or("rollback_recovery_marker_field_missing")?;
+    let delta_sha256 = artifact_store::extract_sha256(payload_text, b"\"delta_sha256\": \"")
+        .ok_or("rollback_recovery_marker_field_missing")?;
+    let delta_count = artifact_store::extract_u64(payload_text, b"\"delta_count\": ")
+        .ok_or("rollback_recovery_marker_field_missing")?;
+    let result_projection_sha256 = match kind {
+        WasmRollbackMarkerKind::Intent => None,
+        WasmRollbackMarkerKind::Commit => Some(
+            artifact_store::extract_sha256(payload_text, b"\"result_projection_sha256\": \"")
+                .ok_or("rollback_recovery_commit_result_missing")?,
+        ),
+    };
+    let expected_id = match kind {
+        WasmRollbackMarkerKind::Intent => format!("rollback.intent.{transaction_id}"),
+        WasmRollbackMarkerKind::Commit => format!("rollback.commit.{transaction_id}"),
+    };
+    if view.id != expected_id || view.entity != service_id {
+        return Err("rollback_recovery_marker_shape_invalid");
+    }
+    let expected_payload = wasm_rollback_marker_payload_bytes(
+        kind,
+        transaction_id,
+        service_id,
+        domain_instance,
+        source_projection_sha256,
+        target_snapshot_sha256,
+        delta_sha256,
+        delta_count,
+        result_projection_sha256,
+    )
+    .map_err(|_| "rollback_recovery_marker_shape_invalid")?;
+    if expected_payload != payload {
+        return Err("rollback_recovery_marker_noncanonical");
+    }
+    Ok(Some(ParsedWasmRollbackMarker {
+        kind,
+        transaction: PendingWasmRollback {
+            transaction_id: String::from(transaction_id),
+            service_id: String::from(service_id),
+            domain_instance,
+            source_projection_sha256,
+            target_snapshot_sha256,
+            delta_sha256,
+            delta_count,
+        },
+        result_projection_sha256,
+    }))
+}
+
+fn rollback_projection_delta_sha256(delta: &[ProjectionSlot<'_>]) -> [u8; 32] {
+    let mut bytes = Vec::new();
+    for slot in delta {
+        bytes.extend_from_slice(slot.grant_id.as_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&slot.grant_sha256);
+        bytes.extend_from_slice(&slot.grant_epoch.to_le_bytes());
+        bytes.extend_from_slice(&slot.binding_sha256);
+        bytes.extend_from_slice(slot.host_import_id.as_str().as_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(slot.scope.as_str().as_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&slot.generation.to_le_bytes());
+    }
+    sha256_bytes(&bytes)
+}
+
+/// Compatibility query for the live rollback command. Invalid transaction
+/// history is never projected as an absent transaction.
+pub(crate) fn pending_wasm_rollback() -> Result<Option<PendingWasmRollback>, &'static str> {
+    match wasm_rollback_recovery_state() {
+        WasmRollbackRecoveryState::None | WasmRollbackRecoveryState::Committed(_) => Ok(None),
+        WasmRollbackRecoveryState::Pending(pending) => Ok(Some(pending)),
+        WasmRollbackRecoveryState::Denied(reason) => Err(reason),
+    }
+}
+
+pub(crate) fn latest_committed_wasm_rollback() -> Result<Option<CommittedWasmRollback>, &'static str>
+{
+    match wasm_rollback_recovery_state() {
+        WasmRollbackRecoveryState::None | WasmRollbackRecoveryState::Pending(_) => Ok(None),
+        WasmRollbackRecoveryState::Committed(committed) => Ok(Some(committed)),
+        WasmRollbackRecoveryState::Denied(reason) => Err(reason),
+    }
+}
+
+/// Idempotent exact-parent revoke. A retry after acknowledgement loss accepts
+/// only this transaction's deterministic revoke id; a foreign revoke/fork is
+/// never treated as success.
+pub(crate) fn ensure_revoked(
+    parent: &DurableWasmGrantSlot,
+    transaction_id: &str,
+) -> EnsureRevokedOutcome {
+    let expected_revoke_id = rollback_revoke_record_id(transaction_id, &parent.grant_id);
+    let before = load_durable_wasm_grant_projection();
+    if !before.valid {
+        return EnsureRevokedOutcome::Denied;
+    }
+    let Some(live_parent) = before.slots.iter().find(|slot| {
+        slot.grant_id == parent.grant_id
+            && slot.grant_sha256 == parent.grant_sha256
+            && slot.grant_epoch == parent.grant_epoch
+            && slot.service_id == parent.service_id
+            && slot.domain_instance == parent.domain_instance
+            && slot.binding_sha256 == parent.binding_sha256
+            && slot.host_import_id == parent.host_import_id
+            && slot.scope == parent.scope
+            && slot.generation == parent.generation
+    }) else {
+        return EnsureRevokedOutcome::Denied;
+    };
+    if live_parent.revoked {
+        return if live_parent.revoke_id.as_deref() == Some(expected_revoke_id.as_str()) {
+            EnsureRevokedOutcome::AlreadyRevokedByTransaction
+        } else {
+            EnsureRevokedOutcome::Denied
+        };
+    }
+    let grant = GrantEvent::grant(
+        &live_parent.grant_id,
+        &live_parent.service_id,
+        live_parent.domain_instance,
+        live_parent.binding_sha256,
+        live_parent.host_import_id,
+        live_parent.generation,
+        live_parent.grant_epoch,
+    );
+    if grant.record_sha256().ok() != Some(live_parent.grant_sha256) {
+        return EnsureRevokedOutcome::Denied;
+    }
+    let revoke = GrantEvent::revoke(
+        &expected_revoke_id,
+        &grant,
+        before.next_epoch,
+        live_parent.grant_sha256,
+    );
+    if !append_durable_wasm_grant_event(&revoke) {
+        return EnsureRevokedOutcome::Denied;
+    }
+    let after = load_durable_wasm_grant_projection();
+    if after.valid
+        && after.slots.iter().any(|slot| {
+            slot.grant_id == parent.grant_id
+                && slot.revoked
+                && slot.revoke_id.as_deref() == Some(expected_revoke_id.as_str())
+        })
+    {
+        EnsureRevokedOutcome::Appended
+    } else {
+        EnsureRevokedOutcome::Denied
+    }
 }
 
 /// Agent-authored observation append: exact charge capped at

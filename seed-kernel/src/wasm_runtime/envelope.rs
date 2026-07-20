@@ -14,6 +14,7 @@ pub(super) const WASM_MEMORY_PAGE_BYTES: usize = 64 * 1024;
 pub(super) const ZERO_SHA256: [u8; 32] = [0; 32];
 
 static CURRENT_BOOT_COUNTER: Mutex<u64> = Mutex::new(0);
+static CURRENT_BOOT_COUNTER_DENIED_CALLS: Mutex<u64> = Mutex::new(0);
 static NEXT_INSTANCE_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) struct EchoRunEvidence {
@@ -53,6 +54,13 @@ pub(super) struct EnvelopeState {
     pub(super) limits: StoreLimits,
     instance_generation: u64,
     grants: GrantTable,
+    durable_domain: Option<DurableDomain>,
+}
+
+struct DurableDomain {
+    service_id: String,
+    domain_instance: u64,
+    binding_sha256: [u8; 32],
 }
 
 impl EnvelopeState {
@@ -69,7 +77,30 @@ impl EnvelopeState {
     }
 
     pub(super) fn import_is_live(&self, surface: HostImportId) -> bool {
-        self.grants.is_live(self.instance_generation, surface)
+        if !self.grants.is_live(self.instance_generation, surface) {
+            return false;
+        }
+        let Some(domain) = self.durable_domain.as_ref() else {
+            return true;
+        };
+        super::grant_table::durable_import_state(
+            &domain.service_id,
+            domain.domain_instance,
+            domain.binding_sha256,
+            surface,
+        ) == DurableImportState::Live
+    }
+
+    fn durable_import_is_live(&self, surface: HostImportId) -> bool {
+        let Some(domain) = self.durable_domain.as_ref() else {
+            return true;
+        };
+        super::grant_table::durable_import_state(
+            &domain.service_id,
+            domain.domain_instance,
+            domain.binding_sha256,
+            surface,
+        ) == DurableImportState::Live
     }
 }
 
@@ -132,6 +163,27 @@ pub(crate) fn execute_module_bytes(
     )
 }
 
+pub(crate) fn execute_module_bytes_for_durable_domain(
+    bytes: &[u8],
+    entrypoint: &str,
+    service_id: &str,
+    domain_instance: u64,
+    binding_sha256: [u8; 32],
+    requested_imports: &[(&str, &str)],
+) -> EchoRunEvidence {
+    execute_validated_module_bytes_for_domain(
+        bytes,
+        entrypoint,
+        service_id,
+        true,
+        requested_imports,
+        validate_module_bytes(bytes),
+        &[],
+        ECHO_WASM_FUEL_BUDGET,
+        Some((service_id, domain_instance, binding_sha256)),
+    )
+}
+
 pub(crate) fn inspect_workspace_imports(bytes: &[u8]) -> WorkspaceImportInspection {
     let engine = metered_engine();
     let module = match Module::new(&engine, bytes) {
@@ -156,6 +208,33 @@ pub(crate) fn inspect_workspace_imports(bytes: &[u8]) -> WorkspaceImportInspecti
             "workspace_import_surface_not_empty"
         },
     }
+}
+
+pub(crate) fn inspect_granted_candidate_import_mask(bytes: &[u8]) -> Result<u8, &'static str> {
+    let engine = metered_engine();
+    let module = Module::new(&engine, bytes).map_err(|_| "rollback_target_wasm_invalid")?;
+    let mut mask = 0u8;
+    for import in module.imports() {
+        let bit = match (import.module(), import.name(), import.ty()) {
+            ("env", "log", ExternType::Func(function))
+                if function.params() == [ValueType::I32, ValueType::I32]
+                    && function.results().is_empty() =>
+            {
+                0b01
+            }
+            ("env", "counter_get", ExternType::Func(function))
+                if function.params().is_empty() && function.results() == [ValueType::I64] =>
+            {
+                0b10
+            }
+            _ => return Err("rollback_target_import_inventory_mismatch"),
+        };
+        if mask & bit != 0 {
+            return Err("rollback_target_import_inventory_duplicate");
+        }
+        mask |= bit;
+    }
+    Ok(mask)
 }
 
 pub(crate) fn execute_workspace_no_import_candidate(bytes: &[u8]) -> EchoRunEvidence {
@@ -331,10 +410,46 @@ pub(super) fn execute_validated_module_bytes(
     staged_input: &[u8],
     fuel_budget: u64,
 ) -> EchoRunEvidence {
+    execute_validated_module_bytes_for_domain(
+        bytes,
+        entrypoint,
+        service_id,
+        artifact_sha256_present,
+        requested_imports,
+        validation_ok,
+        staged_input,
+        fuel_budget,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn execute_validated_module_bytes_for_domain(
+    bytes: &[u8],
+    entrypoint: &str,
+    service_id: &str,
+    artifact_sha256_present: bool,
+    requested_imports: &[(&str, &str)],
+    validation_ok: bool,
+    staged_input: &[u8],
+    fuel_budget: u64,
+    durable_domain: Option<(&str, u64, [u8; 32])>,
+) -> EchoRunEvidence {
     if wasm_execution_busy() {
         return wasm_busy_run(service_id, fuel_budget);
     }
-    let authorized =
+    let authorized = if durable_domain.is_some() && requested_imports.is_empty() {
+        AuthorizedWasmImports {
+            imports: requested_imports,
+            decision: WasmImportGrantDecision {
+                performed: true,
+                status: "import_grant_performed",
+                reason: "verified_empty_durable_import_domain",
+                authorized_import_count: 0,
+            },
+            import_list_sha256: authorized_import_list_sha256(service_id, requested_imports),
+        }
+    } else {
         match authorize_wasm_imports(service_id, artifact_sha256_present, requested_imports) {
             Ok(authorized) => authorized,
             Err(decision) => {
@@ -350,7 +465,8 @@ pub(super) fn execute_validated_module_bytes(
                     import_grant_denied_evidence(decision),
                 )
             }
-        };
+        }
+    };
     if !validation_ok {
         return positive_run(
             service_id,
@@ -383,156 +499,255 @@ pub(super) fn execute_validated_module_bytes(
             )
         }
     };
-    let mut store = Box::new(Store::new(&engine, buffer_state(staged_input)));
-    store.limiter(|state| &mut state.limits);
-    if store.add_fuel(fuel_budget).is_err() {
+    if durable_domain.is_some() && !module_imports_exactly_match(&module, requested_imports) {
         return positive_run(
             service_id,
             fuel_budget,
             true,
             false,
-            "fuel_metering_unavailable",
+            "module_import_inventory_mismatch",
             None,
             0,
             None,
             import_grant_evidence(&authorized, 0, false, None),
         );
     }
-    let mut linker = Box::new(Linker::<EnvelopeState>::new(&engine));
-    let linked_host_import_count = match define_granted_imports(&mut linker, &authorized) {
-        Ok(count) => count,
-        Err(reason) => {
+    if let Some((domain_service, domain_instance, binding_sha256)) = durable_domain {
+        if domain_service != service_id
+            || !super::grant_table::register_verified_durable_domain(
+                domain_service,
+                domain_instance,
+                binding_sha256,
+            )
+        {
             return positive_run(
                 service_id,
                 fuel_budget,
                 true,
                 false,
-                reason,
+                "durable_domain_not_verified",
+                None,
+                0,
+                None,
+                ImportGrantEvidence {
+                    performed: false,
+                    status: "capability_denied",
+                    reason: "durable_domain_not_verified",
+                    authorized_import_count: 0,
+                    authorized_import_list_sha256: ZERO_SHA256,
+                    linked_host_import_count: 0,
+                    module_imports_within_authorized_list: true,
+                    missing_import_module: None,
+                    missing_import_name: None,
+                },
+            );
+        }
+    }
+    let evidence = (|| {
+        let state = match durable_domain {
+            Some(domain) => buffer_state_for_durable_domain(staged_input, domain),
+            None => buffer_state(staged_input),
+        };
+        let mut store = Box::new(Store::new(&engine, state));
+        store.limiter(|state| &mut state.limits);
+        if store.add_fuel(fuel_budget).is_err() {
+            return positive_run(
+                service_id,
+                fuel_budget,
+                true,
+                false,
+                "fuel_metering_unavailable",
                 None,
                 0,
                 None,
                 import_grant_evidence(&authorized, 0, false, None),
-            )
+            );
         }
-    };
-    if let Some(missing) = first_unauthorized_module_import(&module, &authorized) {
-        return positive_run(
-            service_id,
-            fuel_budget,
-            true,
-            false,
-            "module_import_not_authorized",
-            None,
-            0,
-            None,
-            import_grant_evidence(&authorized, linked_host_import_count, false, Some(missing)),
-        );
-    }
+        let mut linker = Box::new(Linker::<EnvelopeState>::new(&engine));
+        let linked_host_import_count = match define_granted_imports(&mut linker, &authorized) {
+            Ok(count) => count,
+            Err(reason) => {
+                return positive_run(
+                    service_id,
+                    fuel_budget,
+                    true,
+                    false,
+                    reason,
+                    None,
+                    0,
+                    None,
+                    import_grant_evidence(&authorized, 0, false, None),
+                )
+            }
+        };
+        if let Some(missing) = first_unauthorized_module_import(&module, &authorized) {
+            return positive_run(
+                service_id,
+                fuel_budget,
+                true,
+                false,
+                "module_import_not_authorized",
+                None,
+                0,
+                None,
+                import_grant_evidence(&authorized, linked_host_import_count, false, Some(missing)),
+            );
+        }
 
-    let instance = match linker.instantiate(&mut *store, &module) {
-        Ok(instance) => match instance.start(&mut *store) {
-            Ok(instance) => instance,
+        let instance = match linker.instantiate(&mut *store, &module) {
+            Ok(instance) => match instance.start(&mut *store) {
+                Ok(instance) => instance,
+                Err(_) => {
+                    return positive_run(
+                        service_id,
+                        fuel_budget,
+                        true,
+                        false,
+                        "instantiation_start_trap",
+                        None,
+                        store.fuel_consumed().unwrap_or(0),
+                        store.data().log_line.clone(),
+                        import_grant_evidence(&authorized, linked_host_import_count, true, None),
+                    )
+                }
+            },
             Err(_) => {
                 return positive_run(
                     service_id,
                     fuel_budget,
                     true,
                     false,
-                    "instantiation_start_trap",
+                    "instantiation_failed",
                     None,
                     store.fuel_consumed().unwrap_or(0),
                     store.data().log_line.clone(),
                     import_grant_evidence(&authorized, linked_host_import_count, true, None),
                 )
             }
-        },
-        Err(_) => {
+        };
+
+        let Some(func) = instance
+            .get_export(&*store, entrypoint)
+            .and_then(Extern::into_func)
+        else {
             return positive_run(
                 service_id,
                 fuel_budget,
                 true,
-                false,
-                "instantiation_failed",
-                None,
-                store.fuel_consumed().unwrap_or(0),
-                store.data().log_line.clone(),
-                import_grant_evidence(&authorized, linked_host_import_count, true, None),
-            )
-        }
-    };
-
-    let Some(func) = instance
-        .get_export(&*store, entrypoint)
-        .and_then(Extern::into_func)
-    else {
-        return positive_run(
-            service_id,
-            fuel_budget,
-            true,
-            true,
-            "entrypoint_missing",
-            None,
-            store.fuel_consumed().unwrap_or(0),
-            store.data().log_line.clone(),
-            import_grant_evidence(&authorized, linked_host_import_count, true, None),
-        );
-    };
-
-    let mut outputs = Vec::from([Value::I32(0)]).into_boxed_slice();
-    match func.call(&mut *store, &[], &mut outputs) {
-        Ok(()) => {
-            let return_value = outputs[0].i32();
-            let outcome = if return_value.is_some() {
-                "success"
-            } else {
-                "bad_return_type"
-            };
-            let mut ev = positive_run(
-                service_id,
-                fuel_budget,
                 true,
-                true,
-                outcome,
-                return_value,
-                store.fuel_consumed().unwrap_or(0),
-                store.data().log_line.clone(),
-                import_grant_evidence(&authorized, linked_host_import_count, true, None),
-            );
-            let out = &store.data().captured_output;
-            if out.is_empty() {
-                ev.captured_output_len = 0;
-                ev.captured_output_sha256 = ZERO_SHA256;
-            } else {
-                ev.captured_output_len = out.len() as u64;
-                ev.captured_output_sha256 = sha256_bytes(out);
-            }
-            ev.raw_captured_output = out.clone();
-            ev
-        }
-        Err(_) => {
-            let mut ev = positive_run(
-                service_id,
-                fuel_budget,
-                true,
-                true,
-                "trap",
+                "entrypoint_missing",
                 None,
                 store.fuel_consumed().unwrap_or(0),
                 store.data().log_line.clone(),
                 import_grant_evidence(&authorized, linked_host_import_count, true, None),
             );
-            let out = &store.data().captured_output;
-            if out.is_empty() {
-                ev.captured_output_len = 0;
-                ev.captured_output_sha256 = ZERO_SHA256;
-            } else {
-                ev.captured_output_len = out.len() as u64;
-                ev.captured_output_sha256 = sha256_bytes(out);
+        };
+
+        let mut outputs = Vec::from([Value::I32(0)]).into_boxed_slice();
+        match func.call(&mut *store, &[], &mut outputs) {
+            Ok(()) => {
+                let return_value = outputs[0].i32();
+                let outcome = if return_value.is_some() {
+                    "success"
+                } else {
+                    "bad_return_type"
+                };
+                let mut ev = positive_run(
+                    service_id,
+                    fuel_budget,
+                    true,
+                    true,
+                    outcome,
+                    return_value,
+                    store.fuel_consumed().unwrap_or(0),
+                    store.data().log_line.clone(),
+                    import_grant_evidence(&authorized, linked_host_import_count, true, None),
+                );
+                capture_output(&mut ev, &store.data().captured_output);
+                ev
             }
-            ev.raw_captured_output = out.clone();
-            ev
+            Err(_) => {
+                let mut ev = positive_run(
+                    service_id,
+                    fuel_budget,
+                    true,
+                    true,
+                    "trap",
+                    None,
+                    store.fuel_consumed().unwrap_or(0),
+                    store.data().log_line.clone(),
+                    import_grant_evidence(&authorized, linked_host_import_count, true, None),
+                );
+                capture_output(&mut ev, &store.data().captured_output);
+                ev
+            }
+        }
+    })();
+    finalize_durable_execution(durable_domain, &evidence);
+    evidence
+}
+
+fn capture_output(run: &mut EchoRunEvidence, output: &[u8]) {
+    run.captured_output_len = output.len() as u64;
+    run.captured_output_sha256 = if output.is_empty() {
+        ZERO_SHA256
+    } else {
+        sha256_bytes(output)
+    };
+    run.raw_captured_output = Vec::from(output);
+}
+
+fn durable_execution_succeeded(run: &EchoRunEvidence) -> bool {
+    durable_execution_fields_succeeded(
+        run.validation_ok,
+        run.import_grant_performed,
+        run.module_imports_within_authorized_list,
+        run.instantiation_ok,
+        run.run_outcome,
+        run.return_value,
+    )
+}
+
+fn durable_execution_fields_succeeded(
+    validation_ok: bool,
+    import_grant_performed: bool,
+    inventory_ok: bool,
+    instantiation_ok: bool,
+    run_outcome: &str,
+    return_value: Option<i32>,
+) -> bool {
+    validation_ok
+        && import_grant_performed
+        && inventory_ok
+        && instantiation_ok
+        && run_outcome == "success"
+        && return_value == Some(0)
+}
+
+fn finalize_durable_execution(
+    durable_domain: Option<(&str, u64, [u8; 32])>,
+    run: &EchoRunEvidence,
+) {
+    if !durable_execution_succeeded(run) {
+        if let Some((service_id, domain_instance, binding_sha256)) = durable_domain {
+            let _ = super::grant_table::clear_verified_durable_domain(
+                service_id,
+                domain_instance,
+                binding_sha256,
+            );
         }
     }
+}
+
+pub(crate) fn durable_execution_finalization_selftest() -> bool {
+    let succeeded = |instantiated, outcome, value| {
+        durable_execution_fields_succeeded(true, true, true, instantiated, outcome, value)
+    };
+    super::grant_table::verified_domain_finalization_selftest(
+        succeeded(false, "instantiation_start_trap", None),
+        succeeded(true, "success", Some(1)),
+        succeeded(true, "success", Some(0)),
+    )
 }
 
 fn positive_run(
@@ -628,21 +843,14 @@ fn new_state(
     // constructors. The linker remains the grant-list boundary; this live
     // slot adds revocable indirection only after the import was linked.
     let _ = grants.grant(instance_generation, HostImportId::EnvCounterGet);
-    if let Some((service_id, domain_instance, binding_sha256)) = durable_domain {
-        match super::grant_table::durable_import_state(
-            service_id,
-            domain_instance,
-            binding_sha256,
-            HostImportId::EnvCounterGet,
-        ) {
-            DurableImportState::Revoked | DurableImportState::DeniedInvalidProjection => {
-                // Materialize the durable boot fold into the exact table that
-                // host_counter_get consults immediately before its effect.
-                let _ = grants.revoke(instance_generation, HostImportId::EnvCounterGet);
-            }
-            DurableImportState::LegacyDefault | DurableImportState::Live => {}
-        }
-    }
+    let durable_domain =
+        durable_domain.map(
+            |(service_id, domain_instance, binding_sha256)| DurableDomain {
+                service_id: String::from(service_id),
+                domain_instance,
+                binding_sha256,
+            },
+        );
     EnvelopeState {
         log_line: None,
         staged_input,
@@ -650,6 +858,7 @@ fn new_state(
         limits,
         instance_generation,
         grants,
+        durable_domain,
     }
 }
 
@@ -699,6 +908,23 @@ fn buffer_state(staged_input: &[u8]) -> EnvelopeState {
             .table_elements(64)
             .build(),
         None,
+    )
+}
+
+fn buffer_state_for_durable_domain(
+    staged_input: &[u8],
+    durable_domain: (&str, u64, [u8; 32]),
+) -> EnvelopeState {
+    new_state(
+        staged_input.to_vec(),
+        StoreLimitsBuilder::new()
+            .memory_size(BUFFER_SERVICE_MAX_MEMORY_BYTES)
+            .instances(1)
+            .memories(1)
+            .tables(1)
+            .table_elements(64)
+            .build(),
+        Some(durable_domain),
     )
 }
 
@@ -773,6 +999,32 @@ fn authorized_contains(authorized: &AuthorizedWasmImports<'_>, module: &str, nam
         .any(|(authorized_module, authorized_name)| {
             *authorized_module == module && *authorized_name == name
         })
+}
+
+fn module_imports_exactly_match(module: &Module, requested: &[(&str, &str)]) -> bool {
+    let mut observed = module.imports();
+    for &(requested_module, requested_name) in requested {
+        let Some(import) = observed.next() else {
+            return false;
+        };
+        if import.module() != requested_module || import.name() != requested_name {
+            return false;
+        }
+        let signature_matches = match (requested_module, requested_name, import.ty()) {
+            ("env", "log", ExternType::Func(function)) => {
+                function.params() == [ValueType::I32, ValueType::I32]
+                    && function.results().is_empty()
+            }
+            ("env", "counter_get", ExternType::Func(function)) => {
+                function.params().is_empty() && function.results() == [ValueType::I64]
+            }
+            _ => false,
+        };
+        if !signature_matches {
+            return false;
+        }
+    }
+    observed.next().is_none()
 }
 
 fn import_grant_denied_evidence(decision: WasmImportGrantDecision) -> ImportGrantEvidence {
@@ -876,6 +1128,9 @@ fn host_log(mut caller: Caller<'_, EnvelopeState>, ptr: i32, len: i32) -> Result
     caller
         .consume_fuel(25)
         .map_err(|_| Trap::from(TrapCode::OutOfFuel))?;
+    if !caller.data().durable_import_is_live(HostImportId::EnvLog) {
+        return Err(Trap::new("env.log durable capability denied"));
+    }
     if ptr < 0 || len < 0 {
         return Err(Trap::new("env.log negative pointer or length"));
     }
@@ -1004,6 +1259,8 @@ fn host_counter_get(mut caller: Caller<'_, EnvelopeState>) -> Result<i64, Trap> 
     // env.counter_get is synchronous: this single bounded lookup and the
     // counter effect below have no suspension point between them.
     if !caller.data().import_is_live(HostImportId::EnvCounterGet) {
+        let mut denied_calls = CURRENT_BOOT_COUNTER_DENIED_CALLS.lock();
+        *denied_calls = denied_calls.saturating_add(1);
         return Ok(HOST_IMPORT_ERROR_CAPABILITY_DENIED as i64);
     }
     let mut counter = CURRENT_BOOT_COUNTER.lock();
@@ -1011,6 +1268,10 @@ fn host_counter_get(mut caller: Caller<'_, EnvelopeState>) -> Result<i64, Trap> 
     Ok((*counter).min(i64::MAX as u64) as i64)
 }
 
-pub(super) fn current_boot_counter() -> u64 {
+pub(crate) fn current_boot_counter() -> u64 {
     *CURRENT_BOOT_COUNTER.lock()
+}
+
+pub(crate) fn current_boot_counter_denied_calls() -> u64 {
+    *CURRENT_BOOT_COUNTER_DENIED_CALLS.lock()
 }

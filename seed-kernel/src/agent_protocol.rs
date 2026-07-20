@@ -16,7 +16,7 @@ pub(crate) mod durable_store;
 #[path = "recovery_lifeline.rs"]
 pub(crate) mod recovery_lifeline;
 #[path = "repromotion.rs"]
-mod repromotion;
+pub(crate) mod repromotion;
 
 use crate::{
     agent_protocol_build_assemble::{

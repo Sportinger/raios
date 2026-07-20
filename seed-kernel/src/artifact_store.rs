@@ -63,13 +63,12 @@ const ARTIFACT_STORE_SELFTEST_SCHEMA: &str = "raios.artifact_store_selftest.v0";
 const ARTIFACT_RECORD_SCOPE: &str = "origin_boot";
 const GRANTED_CANDIDATE_IMPORT_SET_CANONICAL: &[u8] = b"env.log\nenv.counter_get\n";
 const ARTSTOR_SCAN_WINDOW_BYTES: u64 = 512;
-const MAX_UI_PROGRAM_ARTSTOR_FRAME_LEN: u64 =
-    (raios_core::ui_program::MAX_PROGRAM_BYTES as u64
-        + ARTIFACT_BLOB_FRAME_HEADER_LEN as u64
-        + ARTSTOR_SCAN_WINDOW_BYTES
-        - 1)
-        / ARTSTOR_SCAN_WINDOW_BYTES
-        * ARTSTOR_SCAN_WINDOW_BYTES;
+const MAX_UI_PROGRAM_ARTSTOR_FRAME_LEN: u64 = (raios_core::ui_program::MAX_PROGRAM_BYTES as u64
+    + ARTIFACT_BLOB_FRAME_HEADER_LEN as u64
+    + ARTSTOR_SCAN_WINDOW_BYTES
+    - 1)
+    / ARTSTOR_SCAN_WINDOW_BYTES
+    * ARTSTOR_SCAN_WINDOW_BYTES;
 
 /// Serializes build-input pins against the build-output append transaction.
 /// A read session holds this lock for the whole guest run, which makes its
@@ -682,8 +681,22 @@ pub(crate) struct ArtifactPersistRecord {
     pub(crate) manifest_hash: [u8; 32],
     pub(crate) vm_report_hash: [u8; 32],
     pub(crate) grant_hash: [u8; 32],
+    pub(crate) service_id: &'static str,
+    pub(crate) import_set_hash: [u8; 32],
+    pub(crate) grant_target_schema: &'static str,
+    pub(crate) grant_target_count: u64,
+    pub(crate) grant_target_snapshot_sha256: [u8; 32],
+    pub(crate) grant_target_surface_mask: u8,
     pub(crate) promotion_transaction_sha256: [u8; 32],
     pub(crate) authorizes_load: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct SignedGrantTargetContext {
+    pub(crate) schema: &'static str,
+    pub(crate) entry_count: u64,
+    pub(crate) snapshot_sha256: [u8; 32],
+    pub(crate) surface_mask: u8,
 }
 
 #[derive(Clone, Copy)]
@@ -743,6 +756,7 @@ enum PersistRecordFields {
         computed_grant_hash: [u8; 32],
         service_id: &'static str,
         import_set_hash: [u8; 32],
+        grant_target: SignedGrantTargetContext,
     },
     UiProgram {
         activation_approval_sha256: [u8; 32],
@@ -766,6 +780,485 @@ pub(crate) struct VerifiedArtifactPayload {
     pub(crate) payload: Vec<u8>,
 }
 
+pub(crate) struct VerifiedRollbackTarget {
+    pub(crate) record: ArtifactPersistRecord,
+    pub(crate) envelope: raios_core::project_install::GrantedCandidateInstallEnvelope,
+    pub(crate) snapshot: raios_core::wasm_import_grant_event::GrantTargetSnapshot,
+    pub(crate) payload: Vec<u8>,
+}
+
+#[derive(Clone, Copy)]
+struct VerifiedPersistLink {
+    install_authorization_frame_sha256: [u8; 32],
+    promotion_transaction_sha256: [u8; 32],
+}
+
+struct CanonicalVerifiedInstall {
+    record: ArtifactPersistRecord,
+    authorization: super::repromotion::RollbackTargetPreflight,
+    link: VerifiedPersistLink,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct PhysicalInstallIdentity {
+    install_authorization_frame_sha256: [u8; 32],
+    promotion_transaction_sha256: [u8; 32],
+    artifact_persist_seq: u64,
+    artifact_persist_reclog_offset: u64,
+    artstor_blob_offset: u64,
+    artstor_blob_frame_sha256: [u8; 32],
+}
+
+fn physical_install_identity(
+    record: &ArtifactPersistRecord,
+    link: VerifiedPersistLink,
+) -> PhysicalInstallIdentity {
+    PhysicalInstallIdentity {
+        install_authorization_frame_sha256: link.install_authorization_frame_sha256,
+        promotion_transaction_sha256: link.promotion_transaction_sha256,
+        artifact_persist_seq: record.seq,
+        artifact_persist_reclog_offset: record.reclog_offset,
+        artstor_blob_offset: record.artstor_blob_offset,
+        artstor_blob_frame_sha256: record.artstor_blob_frame_sha256,
+    }
+}
+
+fn repeated_install_identity_denial(
+    left: &CanonicalVerifiedInstall,
+    right_record: &ArtifactPersistRecord,
+    right_authorization: &super::repromotion::RollbackTargetPreflight,
+    right_link: VerifiedPersistLink,
+) -> Option<&'static str> {
+    if left.authorization.install_action_sha256 != right_authorization.install_action_sha256 {
+        None
+    } else {
+        // Physical freshness is deliberately observed and then excluded from authority:
+        // copied frames, fresh linked frames, crossed links, and a new valid blob location
+        // are all a second physical install once the signed action identity repeats.
+        let same_physical_chain = physical_install_identity(&left.record, left.link)
+            == physical_install_identity(right_record, right_link);
+        let same_signed_context = same_signed_install_context(
+            &left.record,
+            &left.authorization,
+            right_record,
+            right_authorization,
+        );
+        match (same_physical_chain, same_signed_context) {
+            (_, true) => Some("rollback_target_authenticated_order_duplicate"),
+            (_, false) => Some("rollback_target_authenticated_order_ambiguous"),
+        }
+    }
+}
+
+fn verified_persist_link(
+    region: &[u8],
+    record: &ArtifactPersistRecord,
+) -> Result<VerifiedPersistLink, &'static str> {
+    let scan = scan_reclog(region);
+    let mut offset = 0usize;
+    let mut seq = 1u64;
+    let mut prev = [0u8; 32];
+    let mut count = 0u64;
+    let mut authorization_frame_sha256 = None;
+    let mut promotion_seq = None;
+    while count < scan.count && offset < region.len() {
+        let frame = parse_reclog_frame(region, offset, seq, prev)
+            .map_err(|_| "rollback_target_reclog_invalid")?;
+        if frame.frame_sha256 == record.promotion_transaction_sha256 {
+            let payload_start = offset + RECLOG_FRAME_HEADER_LEN;
+            let payload_end = payload_start + frame.payload_len as usize;
+            let payload = str::from_utf8(&region[payload_start..payload_end])
+                .map_err(|_| "rollback_target_authenticated_order_ambiguous")?;
+            authorization_frame_sha256 =
+                extract_sha256(payload, b"\"install_authorization_frame_sha256\": \"");
+            promotion_seq = Some(frame.seq);
+            break;
+        }
+        offset += frame.frame_len as usize;
+        seq = seq
+            .checked_add(1)
+            .ok_or("rollback_target_authenticated_order_ambiguous")?;
+        prev = frame.frame_sha256;
+        count += 1;
+    }
+    let authorization_frame_sha256 =
+        authorization_frame_sha256.ok_or("rollback_target_authenticated_order_ambiguous")?;
+    let promotion_seq = promotion_seq.ok_or("rollback_target_authenticated_order_ambiguous")?;
+    let mut offset = 0usize;
+    let mut seq = 1u64;
+    let mut prev = [0u8; 32];
+    let mut count = 0u64;
+    let mut authorization_seq = None;
+    while count < scan.count && offset < region.len() {
+        let frame = parse_reclog_frame(region, offset, seq, prev)
+            .map_err(|_| "rollback_target_reclog_invalid")?;
+        if frame.frame_sha256 == authorization_frame_sha256 {
+            authorization_seq = Some(frame.seq);
+            break;
+        }
+        offset += frame.frame_len as usize;
+        seq = seq
+            .checked_add(1)
+            .ok_or("rollback_target_authenticated_order_ambiguous")?;
+        prev = frame.frame_sha256;
+        count += 1;
+    }
+    if authorization_seq.is_none_or(|authorization_seq| {
+        authorization_seq >= promotion_seq || promotion_seq >= record.seq
+    }) {
+        return Err("rollback_target_authenticated_order_ambiguous");
+    }
+    Ok(VerifiedPersistLink {
+        install_authorization_frame_sha256: authorization_frame_sha256,
+        promotion_transaction_sha256: record.promotion_transaction_sha256,
+    })
+}
+
+fn same_signed_install_context(
+    left_record: &ArtifactPersistRecord,
+    left: &super::repromotion::RollbackTargetPreflight,
+    right_record: &ArtifactPersistRecord,
+    right: &super::repromotion::RollbackTargetPreflight,
+) -> bool {
+    left.artifact_sha256 == right.artifact_sha256
+        && left.generation == right.generation
+        && left.log_sequence == right.log_sequence
+        && left.envelope == right.envelope
+        && left_record.artifact_sha256 == right_record.artifact_sha256
+        && left_record.manifest_hash == right_record.manifest_hash
+        && left_record.vm_report_hash == right_record.vm_report_hash
+        && left_record.grant_hash == right_record.grant_hash
+        && left_record.service_id == right_record.service_id
+        && left_record.import_set_hash == right_record.import_set_hash
+        && left_record.grant_target_schema == right_record.grant_target_schema
+        && left_record.grant_target_count == right_record.grant_target_count
+        && left_record.grant_target_snapshot_sha256 == right_record.grant_target_snapshot_sha256
+        && left_record.grant_target_surface_mask == right_record.grant_target_surface_mask
+        && left_record.artstor_blob_len == right_record.artstor_blob_len
+        && left_record.artstor_blob_frame_sha256 == right_record.artstor_blob_frame_sha256
+        && left_record.authorizes_load == right_record.authorizes_load
+}
+
+struct PhysicalInstallFrames {
+    authorization_frames: Vec<[u8; 32]>,
+    promotion_frames: Vec<[u8; 32]>,
+    persist_count: usize,
+}
+
+fn physical_install_frames(region: &[u8]) -> Result<PhysicalInstallFrames, &'static str> {
+    let scan = scan_reclog(region);
+    let mut frames = PhysicalInstallFrames {
+        authorization_frames: Vec::new(),
+        promotion_frames: Vec::new(),
+        persist_count: 0,
+    };
+    let mut offset = 0usize;
+    let mut seq = 1u64;
+    let mut prev = [0u8; 32];
+    let mut count = 0u64;
+    while count < scan.count && offset < region.len() {
+        let frame = parse_reclog_frame(region, offset, seq, prev)
+            .map_err(|_| "rollback_target_reclog_invalid")?;
+        let payload_start = offset + RECLOG_FRAME_HEADER_LEN;
+        let payload_end = payload_start + frame.payload_len as usize;
+        let payload = &region[payload_start..payload_end];
+        let target_service =
+            contains_bytes(payload, b"\"service_id\": \"svc.dev.granted_candidate\"");
+        if target_service
+            && contains_bytes(payload, b"\"schema\": \"raios.install_authorization.v0\"")
+        {
+            frames.authorization_frames.push(frame.frame_sha256);
+        } else if target_service
+            && contains_bytes(payload, b"\"schema\": \"raios.promotion_transaction.v0\"")
+        {
+            if contains_bytes(payload, b"\"transaction_kind\": \"promote\"") {
+                frames.promotion_frames.push(frame.frame_sha256);
+            } else if !contains_bytes(payload, b"\"transaction_kind\": \"unpromote\"") {
+                return Err("install_history_incomplete");
+            }
+        } else if target_service
+            && contains_bytes(payload, b"\"schema\": \"raios.artifact_persist.v0\"")
+        {
+            frames.persist_count = frames
+                .persist_count
+                .checked_add(1)
+                .ok_or("install_history_incomplete")?;
+        }
+        offset += frame.frame_len as usize;
+        seq = seq.checked_add(1).ok_or("install_history_incomplete")?;
+        prev = frame.frame_sha256;
+        count += 1;
+    }
+    Ok(frames)
+}
+
+fn validate_complete_physical_install_frames(
+    frames: &PhysicalInstallFrames,
+    persist_links: &[VerifiedPersistLink],
+) -> Result<(), &'static str> {
+    if frames.persist_count != persist_links.len() {
+        return Err("install_history_incomplete");
+    }
+    for authorization in &frames.authorization_frames {
+        match persist_links
+            .iter()
+            .filter(|link| link.install_authorization_frame_sha256 == *authorization)
+            .count()
+        {
+            1 => {}
+            0 => return Err("install_history_incomplete"),
+            _ => return Err("rollback_target_authenticated_order_duplicate"),
+        }
+    }
+    for promotion in &frames.promotion_frames {
+        match persist_links
+            .iter()
+            .filter(|link| link.promotion_transaction_sha256 == *promotion)
+            .count()
+        {
+            1 => {}
+            0 => return Err("install_history_incomplete"),
+            _ => return Err("rollback_target_authenticated_order_duplicate"),
+        }
+    }
+    if persist_links.iter().any(|link| {
+        !frames
+            .authorization_frames
+            .contains(&link.install_authorization_frame_sha256)
+            || !frames
+                .promotion_frames
+                .contains(&link.promotion_transaction_sha256)
+    }) {
+        return Err("install_history_incomplete");
+    }
+    Ok(())
+}
+
+fn canonical_verified_install_history(
+    controller: pci::PciMassStorageController,
+    region: &[u8],
+) -> Result<Vec<CanonicalVerifiedInstall>, &'static str> {
+    let mut installs: Vec<CanonicalVerifiedInstall> = Vec::new();
+    let mut persist_links = Vec::new();
+    for record in artifact_persist_records_from_reclog(region)
+        .into_iter()
+        .filter(|record| record.service_id == "svc.dev.granted_candidate")
+    {
+        let authorization = super::repromotion::preflight_rollback_target(controller, &record);
+        if !authorization.authorized
+            || authorization.artifact_sha256 != record.artifact_sha256
+            || authorization.promotion_transaction_sha256 != record.promotion_transaction_sha256
+            || authorization.envelope.is_none()
+        {
+            return Err(authorization.reason);
+        }
+        let link = verified_persist_link(region, &record)?;
+        persist_links.push(link);
+        if let Some(reason) = installs.iter().find_map(|existing| {
+            repeated_install_identity_denial(existing, &record, &authorization, link)
+        }) {
+            return Err(reason);
+        }
+        installs.push(CanonicalVerifiedInstall {
+            record,
+            authorization,
+            link,
+        });
+    }
+    let frames = physical_install_frames(region)?;
+    validate_complete_physical_install_frames(&frames, &persist_links)?;
+    Ok(installs)
+}
+
+fn validate_authenticated_install_order(
+    installs: &[CanonicalVerifiedInstall],
+) -> Result<(), &'static str> {
+    for (left_index, left) in installs.iter().enumerate() {
+        if left.authorization.install_action_sha256 == [0; 32]
+            || left.authorization.generation == 0
+            || left.authorization.log_sequence == 0
+        {
+            return Err("install_generation_authenticated_order_ambiguous");
+        }
+        for right in &installs[left_index + 1..] {
+            if left.authorization.generation == right.authorization.generation
+                && left.authorization.log_sequence == right.authorization.log_sequence
+                || left
+                    .authorization
+                    .generation
+                    .cmp(&right.authorization.generation)
+                    != left
+                        .authorization
+                        .log_sequence
+                        .cmp(&right.authorization.log_sequence)
+            {
+                return Err("install_generation_authenticated_order_ambiguous");
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_unique_committed_install_history(
+    controller: pci::PciMassStorageController,
+    region: &[u8],
+) -> Result<(), &'static str> {
+    let installs = canonical_verified_install_history(controller, region)?;
+    validate_authenticated_install_order(&installs)
+}
+
+pub(crate) fn install_action_already_committed(
+    install_action_sha256: [u8; 32],
+) -> Result<bool, &'static str> {
+    if install_action_sha256 == [0; 32] {
+        return Err("install_action_signature_not_verified");
+    }
+    let controller =
+        pci::find_mass_storage_controller().ok_or("install_generation_controller_missing")?;
+    let read = ahci::read_persist_reclog_region(controller);
+    let region = read.bytes.ok_or(read.reason)?;
+    let scan = scan_reclog(&region);
+    if !read.read_completed || !scan.full_region_valid || !scan.valid_prefix_chain {
+        return Err("install_generation_reclog_invalid");
+    }
+    let installs = canonical_verified_install_history(controller, &region)?;
+    validate_authenticated_install_order(&installs)?;
+    Ok(installs
+        .iter()
+        .any(|install| install.authorization.install_action_sha256 == install_action_sha256))
+}
+
+pub(crate) fn next_verified_install_generation() -> Result<u64, &'static str> {
+    let controller =
+        pci::find_mass_storage_controller().ok_or("install_generation_controller_missing")?;
+    let read = ahci::read_persist_reclog_region(controller);
+    let region = read.bytes.ok_or(read.reason)?;
+    let scan = scan_reclog(&region);
+    if !read.read_completed || !scan.full_region_valid || !scan.valid_prefix_chain {
+        return Err("install_generation_reclog_invalid");
+    }
+    let installs = canonical_verified_install_history(controller, &region)?;
+    validate_authenticated_install_order(&installs)?;
+    installs
+        .iter()
+        .map(|install| install.authorization.generation)
+        .max()
+        .unwrap_or(0)
+        .checked_add(1)
+        .ok_or("install_generation_overflow")
+}
+
+/// Selects the newest persisted predecessor, then re-verifies both its ARTSTOR
+/// frame/payload and its canonical grant target. Ambient linker lists are not
+/// consulted and absence is an error, never an authority target.
+pub(crate) fn load_verified_rollback_target(
+    current_artifact_sha256: [u8; 32],
+) -> Result<VerifiedRollbackTarget, &'static str> {
+    let controller =
+        pci::find_mass_storage_controller().ok_or("rollback_target_controller_missing")?;
+    let read = ahci::read_persist_reclog_region(controller);
+    let region = read.bytes.ok_or(read.reason)?;
+    let scan = scan_reclog(&region);
+    if !read.read_completed || !scan.full_region_valid || !scan.valid_prefix_chain {
+        return Err("rollback_target_reclog_invalid");
+    }
+    let mut verified_installs = canonical_verified_install_history(controller, &region)?;
+    let orders: Vec<_> = verified_installs
+        .iter()
+        .map(
+            |install| raios_core::project_install::AuthenticatedInstallOrder {
+                install_action_sha256: install.authorization.install_action_sha256,
+                artifact_sha256: install.record.artifact_sha256,
+                generation: install.authorization.generation,
+                log_sequence: install.authorization.log_sequence,
+            },
+        )
+        .collect();
+    let predecessor = raios_core::project_install::select_authenticated_predecessor(
+        &orders,
+        current_artifact_sha256,
+    )
+    .map_err(|error| match error {
+        raios_core::project_install::AuthenticatedPredecessorError::CurrentMissing => {
+            "rollback_current_version_missing"
+        }
+        raios_core::project_install::AuthenticatedPredecessorError::PredecessorMissing => {
+            "rollback_target_version_missing"
+        }
+        raios_core::project_install::AuthenticatedPredecessorError::DuplicateIdentity => {
+            "rollback_target_authenticated_order_duplicate"
+        }
+        raios_core::project_install::AuthenticatedPredecessorError::CurrentAmbiguous
+        | raios_core::project_install::AuthenticatedPredecessorError::DuplicateOrder
+        | raios_core::project_install::AuthenticatedPredecessorError::NonMonotonicOrder => {
+            "rollback_target_authenticated_order_ambiguous"
+        }
+    })?;
+    finish_verified_rollback_target(controller, verified_installs.remove(predecessor))
+}
+
+pub(crate) fn load_verified_committed_rollback_target(
+    target_snapshot_sha256: [u8; 32],
+) -> Result<VerifiedRollbackTarget, &'static str> {
+    let controller =
+        pci::find_mass_storage_controller().ok_or("rollback_target_controller_missing")?;
+    let read = ahci::read_persist_reclog_region(controller);
+    let region = read.bytes.ok_or(read.reason)?;
+    let scan = scan_reclog(&region);
+    if !read.read_completed || !scan.full_region_valid || !scan.valid_prefix_chain {
+        return Err("rollback_target_reclog_invalid");
+    }
+    let installs = canonical_verified_install_history(controller, &region)?;
+    let mut matches = installs
+        .into_iter()
+        .filter(|install| install.record.grant_target_snapshot_sha256 == target_snapshot_sha256);
+    let install = matches.next().ok_or("rollback_target_version_missing")?;
+    if matches.next().is_some() {
+        return Err("rollback_target_authenticated_order_duplicate");
+    }
+    finish_verified_rollback_target(controller, install)
+}
+
+fn finish_verified_rollback_target(
+    controller: pci::PciMassStorageController,
+    install: CanonicalVerifiedInstall,
+) -> Result<VerifiedRollbackTarget, &'static str> {
+    let record = install.record;
+    let authorization = install.authorization;
+    if !authorization.authorized
+        || authorization.artifact_sha256 != record.artifact_sha256
+        || authorization.promotion_transaction_sha256 != record.promotion_transaction_sha256
+        || authorization.install_action_sha256 == [0; 32]
+    {
+        return Err("rollback_target_reverification_incomplete");
+    }
+    let envelope = authorization
+        .envelope
+        .ok_or("rollback_target_reverification_incomplete")?;
+    let snapshot = record.grant_target_snapshot()?;
+    if snapshot.version_artifact_sha256 != record.artifact_sha256
+        || envelope.generation != authorization.generation
+        || raios_core::project_install::validate_granted_candidate_install_target(
+            &envelope, &snapshot,
+        )
+        .is_err()
+    {
+        return Err("rollback_target_version_substitution");
+    }
+    let verified = read_verified_artstor_payload(controller, &record)?;
+    if sha256_bytes(&verified.payload) != record.artifact_sha256
+        || envelope.candidate_byte_len != verified.payload.len() as u64
+    {
+        return Err("rollback_target_payload_substitution");
+    }
+    Ok(VerifiedRollbackTarget {
+        record,
+        envelope,
+        snapshot,
+        payload: verified.payload,
+    })
+}
+
 struct VecSink(Vec<u8>);
 
 impl ByteSink for VecSink {
@@ -776,6 +1269,66 @@ impl ByteSink for VecSink {
 
 pub(crate) fn granted_candidate_import_set_hash() -> [u8; 32] {
     sha256_bytes(GRANTED_CANDIDATE_IMPORT_SET_CANONICAL)
+}
+
+pub(crate) fn grant_target_import_set_hash(surface_mask: u8) -> Option<[u8; 32]> {
+    match surface_mask {
+        0 => Some(sha256_bytes(b"")),
+        0b01 => Some(sha256_bytes(b"env.log\n")),
+        0b11 => Some(granted_candidate_import_set_hash()),
+        _ => None,
+    }
+}
+
+pub(crate) fn grant_target_inventory_matches(
+    recorded_surface_mask: u8,
+    recorded_import_set_hash: [u8; 32],
+    recorded_entry_count: u64,
+    observed_surface_mask: u8,
+) -> bool {
+    recorded_surface_mask == observed_surface_mask
+        && grant_target_import_set_hash(recorded_surface_mask) == Some(recorded_import_set_hash)
+        && recorded_entry_count == recorded_surface_mask.count_ones() as u64
+}
+
+fn canonical_grant_target_snapshot(
+    service_id: &'static str,
+    artifact_sha256: [u8; 32],
+    surface_mask: u8,
+) -> Result<raios_core::wasm_import_grant_event::GrantTargetSnapshot, &'static str> {
+    use raios_core::wasm_import_grant_event::{
+        GrantScope, GrantTargetEntry, GrantTargetSnapshot, HostImportId,
+    };
+
+    let entries = match surface_mask {
+        0 => vec![],
+        0b01 => vec![GrantTargetEntry {
+            host_import_id: HostImportId::EnvLog,
+            scope: GrantScope::HostCall,
+        }],
+        0b11 => vec![
+            GrantTargetEntry {
+                host_import_id: HostImportId::EnvLog,
+                scope: GrantScope::HostCall,
+            },
+            GrantTargetEntry {
+                host_import_id: HostImportId::EnvCounterGet,
+                scope: GrantScope::HostCall,
+            },
+        ],
+        _ => return Err("grant_target_snapshot_invalid"),
+    };
+    GrantTargetSnapshot::seal(service_id, artifact_sha256, entries)
+        .map_err(|_| "grant_target_snapshot_invalid")
+}
+
+fn grant_target_entries_text(surface_mask: u8) -> Option<&'static str> {
+    match surface_mask {
+        0 => Some(""),
+        0b01 => Some("env.log:host_call"),
+        0b11 => Some("env.log:host_call,env.counter_get:host_call"),
+        _ => None,
+    }
 }
 
 pub(crate) fn artifact_persist_denied(reason: &'static str) -> ArtifactPersistEvidence {
@@ -847,6 +1400,7 @@ pub(crate) fn persist_promoted_artifact(
     computed_grant_hash: [u8; 32],
     service_id: &'static str,
     import_set_hash: [u8; 32],
+    grant_target: SignedGrantTargetContext,
 ) -> ArtifactPersistEvidence {
     if !matches!(
         super::boot_control::current_boot_posture(),
@@ -871,6 +1425,18 @@ pub(crate) fn persist_promoted_artifact(
     if retained.sha256 != promotion.artifact_hash {
         return ArtifactPersistEvidence::denied("retained_artifact_hash_mismatch");
     }
+    let Ok(snapshot) =
+        canonical_grant_target_snapshot(service_id, retained.sha256, grant_target.surface_mask)
+    else {
+        return ArtifactPersistEvidence::denied("signed_snapshot_context_mismatch");
+    };
+    if grant_target.schema != raios_core::wasm_import_grant_event::GRANT_TARGET_SNAPSHOT_SCHEMA
+        || grant_target.entry_count != snapshot.entry_count
+        || grant_target.snapshot_sha256 != snapshot.snapshot_sha256
+        || grant_target_import_set_hash(grant_target.surface_mask) != Some(import_set_hash)
+    {
+        return ArtifactPersistEvidence::denied("signed_snapshot_context_mismatch");
+    }
 
     persist_authorized_payload(
         durable_promotion_transaction,
@@ -883,6 +1449,7 @@ pub(crate) fn persist_promoted_artifact(
             computed_grant_hash,
             service_id,
             import_set_hash,
+            grant_target,
         },
     )
 }
@@ -1037,6 +1604,7 @@ fn persist_authorized_payload(
             computed_grant_hash,
             service_id,
             import_set_hash,
+            grant_target,
         } => artifact_persist_payload_bytes(
             planned_blob.write_offset,
             planned_blob.frame_len,
@@ -1047,6 +1615,7 @@ fn persist_authorized_payload(
             computed_grant_hash,
             service_id,
             import_set_hash,
+            grant_target,
             promotion_transaction_sha256,
         ),
         PersistRecordFields::UiProgram {
@@ -1067,11 +1636,16 @@ fn persist_authorized_payload(
     };
     let planned_append =
         match plan_reclog_append(&before.scan, &record_payload, before.reclog_byte_count) {
-        Ok(planned) => planned,
-        Err(denied) => {
-            return blob_denied_evidence(denied.reason(), &planned_blob, readback_blob_sha256, true)
-        }
-    };
+            Ok(planned) => planned,
+            Err(denied) => {
+                return blob_denied_evidence(
+                    denied.reason(),
+                    &planned_blob,
+                    readback_blob_sha256,
+                    true,
+                )
+            }
+        };
     let record_write = unsafe {
         ahci::write_readback_reclog_append(
             controller,
@@ -1267,8 +1841,14 @@ fn artifact_persist_payload_bytes(
     computed_grant_hash: [u8; 32],
     service_id: &'static str,
     import_set_hash: [u8; 32],
+    grant_target: SignedGrantTargetContext,
     promotion_transaction_sha256: [u8; 32],
 ) -> Vec<u8> {
+    let _target =
+        canonical_grant_target_snapshot(service_id, artifact_sha256, grant_target.surface_mask)
+            .expect("validated granted-candidate target snapshot is canonical");
+    let entries = grant_target_entries_text(grant_target.surface_mask)
+        .expect("validated granted-candidate target surface has canonical text");
     let record = V::Object(vec![
         f("schema", s(ARTIFACT_PERSIST_EXPECTED_RECORD_SCHEMA)),
         f("id", s(ARTIFACT_PERSIST_RECORD_ID)),
@@ -1287,6 +1867,13 @@ fn artifact_persist_payload_bytes(
         f("grant_hash", V::Sha256(computed_grant_hash)),
         f("service_id", s(service_id)),
         f("import_set_hash", V::Sha256(import_set_hash)),
+        f("grant_target_schema", s(grant_target.schema)),
+        f("grant_target_entries", s(entries)),
+        f("grant_target_count", V::U64(grant_target.entry_count)),
+        f(
+            "grant_target_snapshot_sha256",
+            V::Sha256(grant_target.snapshot_sha256),
+        ),
         f(
             "promotion_transaction_sha256",
             V::Sha256(promotion_transaction_sha256),
@@ -1514,16 +2101,80 @@ fn parse_artifact_persist_payload(
     ) {
         return None;
     }
+    let service_id = extract_known_service_id(payload)?;
+    let artifact_sha256 = extract_sha256(payload, b"\"artifact_sha256\": \"")?;
+    let import_set_hash = extract_sha256(payload, b"\"import_set_hash\": \"")?;
+    let grant_target_count = extract_u64(payload, b"\"grant_target_count\": ")?;
+    let grant_target_snapshot_sha256 =
+        extract_sha256(payload, b"\"grant_target_snapshot_sha256\": \"")?;
+    if !contains_bytes(
+        payload.as_bytes(),
+        b"\"grant_target_schema\": \"raios.grant_target_snapshot.v1\"",
+    ) {
+        return None;
+    }
+    let grant_target_schema = raios_core::wasm_import_grant_event::GRANT_TARGET_SNAPSHOT_SCHEMA;
+    let (target_entries, grant_target_surface_mask) = if contains_bytes(
+        payload.as_bytes(),
+        b"\"grant_target_entries\": \"env.log:host_call,env.counter_get:host_call\"",
+    ) {
+        (
+            vec![
+                raios_core::wasm_import_grant_event::GrantTargetEntry {
+                    host_import_id: raios_core::wasm_import_grant_event::HostImportId::EnvLog,
+                    scope: raios_core::wasm_import_grant_event::GrantScope::HostCall,
+                },
+                raios_core::wasm_import_grant_event::GrantTargetEntry {
+                    host_import_id:
+                        raios_core::wasm_import_grant_event::HostImportId::EnvCounterGet,
+                    scope: raios_core::wasm_import_grant_event::GrantScope::HostCall,
+                },
+            ],
+            0b11,
+        )
+    } else if contains_bytes(
+        payload.as_bytes(),
+        b"\"grant_target_entries\": \"env.log:host_call\"",
+    ) {
+        (
+            vec![raios_core::wasm_import_grant_event::GrantTargetEntry {
+                host_import_id: raios_core::wasm_import_grant_event::HostImportId::EnvLog,
+                scope: raios_core::wasm_import_grant_event::GrantScope::HostCall,
+            }],
+            0b01,
+        )
+    } else if contains_bytes(payload.as_bytes(), b"\"grant_target_entries\": \"\"") {
+        (vec![], 0)
+    } else {
+        return None;
+    };
+    let target = raios_core::wasm_import_grant_event::GrantTargetSnapshot::seal(
+        service_id,
+        artifact_sha256,
+        target_entries,
+    )
+    .ok()?;
+    if target.entry_count != grant_target_count
+        || target.snapshot_sha256 != grant_target_snapshot_sha256
+    {
+        return None;
+    }
     Some(ArtifactPersistRecord {
         seq,
         reclog_offset,
         artstor_blob_offset: extract_u64(payload, b"\"artstor_blob_offset\": ")?,
         artstor_blob_len: extract_u64(payload, b"\"artstor_blob_len\": ")?,
         artstor_blob_frame_sha256: extract_sha256(payload, b"\"artstor_blob_frame_sha256\": \"")?,
-        artifact_sha256: extract_sha256(payload, b"\"artifact_sha256\": \"")?,
+        artifact_sha256,
         manifest_hash: extract_sha256(payload, b"\"manifest_hash\": \"")?,
         vm_report_hash: extract_sha256(payload, b"\"vm_report_hash\": \"")?,
         grant_hash: extract_sha256(payload, b"\"grant_hash\": \"")?,
+        service_id,
+        import_set_hash,
+        grant_target_schema,
+        grant_target_count,
+        grant_target_snapshot_sha256,
+        grant_target_surface_mask,
         promotion_transaction_sha256: extract_sha256(
             payload,
             b"\"promotion_transaction_sha256\": \"",
@@ -1532,9 +2183,51 @@ fn parse_artifact_persist_payload(
     })
 }
 
-pub(crate) fn ui_program_persist_records_from_reclog(
-    bytes: &[u8],
-) -> Vec<UiProgramPersistRecord> {
+impl ArtifactPersistRecord {
+    pub(crate) fn grant_target_snapshot(
+        &self,
+    ) -> Result<raios_core::wasm_import_grant_event::GrantTargetSnapshot, &'static str> {
+        use raios_core::wasm_import_grant_event::{
+            GrantScope, GrantTargetEntry, GrantTargetSnapshot, HostImportId,
+        };
+        if self.grant_target_surface_mask & !0b11 != 0 {
+            return Err("grant_target_snapshot_tampered");
+        }
+        let mut entries = Vec::new();
+        if self.grant_target_surface_mask & 0b01 != 0 {
+            entries.push(GrantTargetEntry {
+                host_import_id: HostImportId::EnvLog,
+                scope: GrantScope::HostCall,
+            });
+        }
+        if self.grant_target_surface_mask & 0b10 != 0 {
+            entries.push(GrantTargetEntry {
+                host_import_id: HostImportId::EnvCounterGet,
+                scope: GrantScope::HostCall,
+            });
+        }
+        let snapshot = GrantTargetSnapshot::seal(self.service_id, self.artifact_sha256, entries)
+            .map_err(|_| "grant_target_snapshot_invalid")?;
+        if self.grant_target_schema
+            != raios_core::wasm_import_grant_event::GRANT_TARGET_SNAPSHOT_SCHEMA
+            || snapshot.entry_count != self.grant_target_count
+            || snapshot.snapshot_sha256 != self.grant_target_snapshot_sha256
+        {
+            return Err("grant_target_snapshot_tampered");
+        }
+        Ok(snapshot)
+    }
+}
+
+fn extract_known_service_id(payload: &str) -> Option<&'static str> {
+    contains_bytes(
+        payload.as_bytes(),
+        b"\"service_id\": \"svc.dev.granted_candidate\"",
+    )
+    .then_some("svc.dev.granted_candidate")
+}
+
+pub(crate) fn ui_program_persist_records_from_reclog(bytes: &[u8]) -> Vec<UiProgramPersistRecord> {
     let scan = scan_reclog(bytes);
     let mut records = Vec::new();
     let mut offset = 0usize;
@@ -1581,30 +2274,15 @@ fn parse_ui_program_persist_payload(
     let canonical_program_byte_len = extract_u64(payload, b"\"canonical_program_byte_len\": ")?;
     let artstor_blob_offset = extract_u64(payload, b"\"artstor_blob_offset\": ")?;
     let artstor_blob_len = extract_u64(payload, b"\"artstor_blob_len\": ")?;
-    let artstor_blob_frame_sha256 = extract_sha256(
-        payload,
-        b"\"artstor_blob_frame_sha256\": \"",
-    )?;
-    let canonical_program_sha256 = extract_sha256(
-        payload,
-        b"\"canonical_program_sha256\": \"",
-    )?;
-    let activation_approval_sha256 = extract_sha256(
-        payload,
-        b"\"activation_approval_sha256\": \"",
-    )?;
-    let install_envelope_sha256 = extract_sha256(
-        payload,
-        b"\"install_envelope_sha256\": \"",
-    )?;
-    let install_authorization_frame_sha256 = extract_sha256(
-        payload,
-        b"\"install_authorization_frame_sha256\": \"",
-    )?;
-    let promotion_transaction_sha256 = extract_sha256(
-        payload,
-        b"\"promotion_transaction_sha256\": \"",
-    )?;
+    let artstor_blob_frame_sha256 = extract_sha256(payload, b"\"artstor_blob_frame_sha256\": \"")?;
+    let canonical_program_sha256 = extract_sha256(payload, b"\"canonical_program_sha256\": \"")?;
+    let activation_approval_sha256 =
+        extract_sha256(payload, b"\"activation_approval_sha256\": \"")?;
+    let install_envelope_sha256 = extract_sha256(payload, b"\"install_envelope_sha256\": \"")?;
+    let install_authorization_frame_sha256 =
+        extract_sha256(payload, b"\"install_authorization_frame_sha256\": \"")?;
+    let promotion_transaction_sha256 =
+        extract_sha256(payload, b"\"promotion_transaction_sha256\": \"")?;
     if extract_u64(payload, b"\"program_abi_version\": ")?
         != raios_core::ui_program::PROGRAM_ABI_VERSION as u64
         || canonical_program_byte_len == 0
@@ -1619,7 +2297,10 @@ fn parse_ui_program_persist_payload(
         || install_envelope_sha256 == [0; 32]
         || install_authorization_frame_sha256 == [0; 32]
         || promotion_transaction_sha256 == [0; 32]
-        || !contains_bytes(payload.as_bytes(), b"\"engine_service_id\": \"svc.user.shell\"")
+        || !contains_bytes(
+            payload.as_bytes(),
+            b"\"engine_service_id\": \"svc.user.shell\"",
+        )
         || !extract_bool(payload, b"\"blob_written_to_disk\": ")?
         || extract_bool(payload, b"\"authorizes_load\": ")?
         || extract_bool(payload, b"\"owner_sealed\": ")?
@@ -1649,11 +2330,7 @@ pub(crate) fn read_verified_artstor_payload(
     record: &impl ArtstorPayloadReference,
 ) -> Result<VerifiedArtifactPayload, &'static str> {
     let record = record.artstor_payload_ref();
-    let read = ahci::read_persist_artstor_region(
-        controller,
-        record.blob_offset,
-        record.blob_len,
-    );
+    let read = ahci::read_persist_artstor_region(controller, record.blob_offset, record.blob_len);
     let Some(bytes) = read.bytes else {
         return Err(read.reason);
     };
@@ -1979,7 +2656,297 @@ fn artifact_store_selftest_cases() -> Vec<SelftestCase> {
         artifact_store_mutation_selftest("wrong_schema_denied", SelftestMutation::WrongSchema),
         artifact_store_mutation_selftest("wrong_target_denied", SelftestMutation::WrongTarget),
         artifact_store_garbage_selftest(),
+        physical_install_history_selftest(
+            "unique_physical_install_chain_selected",
+            PhysicalInstallHistorySelftest::Unique,
+        ),
+        physical_install_history_selftest(
+            "incomplete_physical_install_quarantined",
+            PhysicalInstallHistorySelftest::Incomplete,
+        ),
+        repeated_install_identity_selftest(
+            "same_action_original_auth_fresh_promotion_persist_blob_offset_denied",
+            RepeatedInstallIdentitySelftest::FreshPhysicalChain,
+        ),
+        repeated_install_identity_selftest(
+            "same_action_byte_identical_complete_chain_denied",
+            RepeatedInstallIdentitySelftest::ByteIdenticalChain,
+        ),
+        repeated_install_identity_selftest(
+            "same_action_crossed_links_denied",
+            RepeatedInstallIdentitySelftest::CrossedLinks,
+        ),
+        repeated_install_identity_selftest(
+            "same_action_different_signed_context_denied",
+            RepeatedInstallIdentitySelftest::DifferentSignedContext,
+        ),
+        grant_target_inventory_selftest(
+            "zero_grant_snapshot_and_import_set_accepted",
+            GrantTargetInventorySelftest::ZeroGrant,
+        ),
+        grant_target_inventory_selftest(
+            "zero_grant_hash_count_mismatch_denied",
+            GrantTargetInventorySelftest::Mismatch,
+        ),
+        grant_target_inventory_selftest(
+            "grant_target_out_of_range_mask_denied",
+            GrantTargetInventorySelftest::OutOfRange,
+        ),
     ]
+}
+
+#[derive(Clone, Copy)]
+enum PhysicalInstallHistorySelftest {
+    Unique,
+    Incomplete,
+}
+
+fn physical_install_history_selftest(
+    name: &'static str,
+    mode: PhysicalInstallHistorySelftest,
+) -> SelftestCase {
+    let frames = PhysicalInstallFrames {
+        authorization_frames: vec![[0x11; 32]],
+        promotion_frames: vec![[0x22; 32]],
+        persist_count: usize::from(matches!(mode, PhysicalInstallHistorySelftest::Unique)),
+    };
+    let links = if matches!(mode, PhysicalInstallHistorySelftest::Unique) {
+        vec![VerifiedPersistLink {
+            install_authorization_frame_sha256: [0x11; 32],
+            promotion_transaction_sha256: [0x22; 32],
+        }]
+    } else {
+        Vec::new()
+    };
+    let result = validate_complete_physical_install_frames(&frames, &links);
+    let (expected_status, expected_reason, passed) = match mode {
+        PhysicalInstallHistorySelftest::Unique => (
+            "accepted",
+            "unique_verified_physical_install",
+            result.is_ok(),
+        ),
+        PhysicalInstallHistorySelftest::Incomplete => (
+            "denied",
+            "install_history_incomplete",
+            result == Err("install_history_incomplete"),
+        ),
+    };
+    SelftestCase {
+        name,
+        expected_status,
+        expected_reason,
+        actual_status: if result.is_ok() { "accepted" } else { "denied" },
+        actual_reason: result.err().unwrap_or("unique_verified_physical_install"),
+        blob_authorized: false,
+        record_authorized: false,
+        garbage_reported: false,
+        passed,
+    }
+}
+
+#[derive(Clone, Copy)]
+enum RepeatedInstallIdentitySelftest {
+    FreshPhysicalChain,
+    ByteIdenticalChain,
+    CrossedLinks,
+    DifferentSignedContext,
+}
+
+fn selftest_verified_install(
+    artifact_sha256: [u8; 32],
+    generation: u64,
+    log_sequence: u64,
+    persist_seq: u64,
+    reclog_offset: u64,
+    blob_offset: u64,
+    link: VerifiedPersistLink,
+) -> CanonicalVerifiedInstall {
+    CanonicalVerifiedInstall {
+        record: ArtifactPersistRecord {
+            seq: persist_seq,
+            reclog_offset,
+            artstor_blob_offset: blob_offset,
+            artstor_blob_len: 512,
+            artstor_blob_frame_sha256: [0x66; 32],
+            artifact_sha256,
+            manifest_hash: [0x31; 32],
+            vm_report_hash: [0x32; 32],
+            grant_hash: [0x33; 32],
+            service_id: "svc.dev.granted_candidate",
+            import_set_hash: granted_candidate_import_set_hash(),
+            grant_target_schema: raios_core::wasm_import_grant_event::GRANT_TARGET_SNAPSHOT_SCHEMA,
+            grant_target_count: 2,
+            grant_target_snapshot_sha256: [0x34; 32],
+            grant_target_surface_mask: 0b11,
+            promotion_transaction_sha256: link.promotion_transaction_sha256,
+            authorizes_load: true,
+        },
+        authorization: super::repromotion::RollbackTargetPreflight {
+            authorized: true,
+            reason: "rollback_target_reverified",
+            artifact_sha256,
+            promotion_transaction_sha256: link.promotion_transaction_sha256,
+            install_action_sha256: [0x41; 32],
+            generation,
+            log_sequence,
+            envelope: None,
+        },
+        link,
+    }
+}
+
+fn repeated_install_identity_selftest(
+    name: &'static str,
+    mode: RepeatedInstallIdentitySelftest,
+) -> SelftestCase {
+    let left_link = VerifiedPersistLink {
+        install_authorization_frame_sha256: [0x11; 32],
+        promotion_transaction_sha256: [0x22; 32],
+    };
+    let left = selftest_verified_install([0x51; 32], 7, 9, 3, 4096, 8192, left_link);
+    let right = match mode {
+        RepeatedInstallIdentitySelftest::FreshPhysicalChain => selftest_verified_install(
+            [0x51; 32],
+            7,
+            9,
+            6,
+            12288,
+            16384,
+            VerifiedPersistLink {
+                install_authorization_frame_sha256: [0x11; 32],
+                promotion_transaction_sha256: [0x23; 32],
+            },
+        ),
+        RepeatedInstallIdentitySelftest::ByteIdenticalChain => {
+            selftest_verified_install([0x51; 32], 7, 9, 3, 4096, 8192, left_link)
+        }
+        RepeatedInstallIdentitySelftest::CrossedLinks => selftest_verified_install(
+            [0x51; 32],
+            7,
+            9,
+            6,
+            12288,
+            16384,
+            VerifiedPersistLink {
+                install_authorization_frame_sha256: left_link.promotion_transaction_sha256,
+                promotion_transaction_sha256: left_link.install_authorization_frame_sha256,
+            },
+        ),
+        RepeatedInstallIdentitySelftest::DifferentSignedContext => selftest_verified_install(
+            [0x52; 32],
+            8,
+            10,
+            6,
+            12288,
+            16384,
+            VerifiedPersistLink {
+                install_authorization_frame_sha256: [0x12; 32],
+                promotion_transaction_sha256: [0x23; 32],
+            },
+        ),
+    };
+    let same_physical_chain = physical_install_identity(&left.record, left.link)
+        == physical_install_identity(&right.record, right.link);
+    let same_signed_context = same_signed_install_context(
+        &left.record,
+        &left.authorization,
+        &right.record,
+        &right.authorization,
+    );
+    let shape_is_exercised = match mode {
+        RepeatedInstallIdentitySelftest::FreshPhysicalChain => {
+            !same_physical_chain
+                && same_signed_context
+                && left.link.install_authorization_frame_sha256
+                    == right.link.install_authorization_frame_sha256
+                && left.link.promotion_transaction_sha256 != right.link.promotion_transaction_sha256
+                && left.record.reclog_offset != right.record.reclog_offset
+                && left.record.artstor_blob_offset != right.record.artstor_blob_offset
+        }
+        RepeatedInstallIdentitySelftest::ByteIdenticalChain => {
+            same_physical_chain && same_signed_context
+        }
+        RepeatedInstallIdentitySelftest::CrossedLinks => {
+            !same_physical_chain
+                && same_signed_context
+                && left.link.install_authorization_frame_sha256
+                    == right.link.promotion_transaction_sha256
+                && left.link.promotion_transaction_sha256
+                    == right.link.install_authorization_frame_sha256
+        }
+        RepeatedInstallIdentitySelftest::DifferentSignedContext => {
+            !same_physical_chain && !same_signed_context
+        }
+    };
+    let reason =
+        repeated_install_identity_denial(&left, &right.record, &right.authorization, right.link)
+            .expect("a repeated nonzero install action is always denied");
+    let expected_reason = if same_signed_context {
+        "rollback_target_authenticated_order_duplicate"
+    } else {
+        "rollback_target_authenticated_order_ambiguous"
+    };
+    SelftestCase {
+        name,
+        expected_status: "denied",
+        expected_reason,
+        actual_status: "denied",
+        actual_reason: reason,
+        blob_authorized: false,
+        record_authorized: false,
+        garbage_reported: false,
+        passed: shape_is_exercised && reason == expected_reason,
+    }
+}
+
+#[derive(Clone, Copy)]
+enum GrantTargetInventorySelftest {
+    ZeroGrant,
+    Mismatch,
+    OutOfRange,
+}
+
+fn grant_target_inventory_selftest(
+    name: &'static str,
+    mode: GrantTargetInventorySelftest,
+) -> SelftestCase {
+    let empty_hash = sha256_bytes(b"");
+    let accepted = match mode {
+        GrantTargetInventorySelftest::ZeroGrant => {
+            canonical_grant_target_snapshot("svc.dev.granted_candidate", [0x31; 32], 0)
+                .is_ok_and(|snapshot| snapshot.entry_count == 0)
+                && grant_target_entries_text(0) == Some("")
+                && grant_target_inventory_matches(0, empty_hash, 0, 0)
+        }
+        GrantTargetInventorySelftest::Mismatch => {
+            grant_target_inventory_matches(0, [0x44; 32], 0, 0)
+                || grant_target_inventory_matches(0, empty_hash, 1, 0)
+        }
+        GrantTargetInventorySelftest::OutOfRange => {
+            grant_target_inventory_matches(0b100, empty_hash, 0, 0b100)
+                || grant_target_import_set_hash(0b100).is_some()
+        }
+    };
+    let positive = matches!(mode, GrantTargetInventorySelftest::ZeroGrant);
+    let passed = accepted == positive;
+    let reason = if accepted {
+        "canonical_empty_grant_target"
+    } else if matches!(mode, GrantTargetInventorySelftest::Mismatch) {
+        "grant_target_inventory_mismatch"
+    } else {
+        "grant_target_surface_mask_unsupported"
+    };
+    SelftestCase {
+        name,
+        expected_status: if positive { "accepted" } else { "denied" },
+        expected_reason: reason,
+        actual_status: if accepted { "accepted" } else { "denied" },
+        actual_reason: reason,
+        blob_authorized: false,
+        record_authorized: false,
+        garbage_reported: false,
+        passed,
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -2149,6 +3116,12 @@ fn synthetic_artifact_persist_decision(
         head_frame_sha256: Some([1; 32]),
         tail_frame_sha256: Some([2; 32]),
     };
+    let selftest_target = canonical_grant_target_snapshot(
+        "svc.dev.granted_candidate",
+        planned_blob.payload_sha256,
+        0b11,
+    )
+    .expect("selftest target is canonical");
     let record_payload = artifact_persist_payload_bytes(
         planned_blob.write_offset,
         planned_blob.frame_len,
@@ -2159,6 +3132,12 @@ fn synthetic_artifact_persist_decision(
         [0x33; 32],
         "svc.dev.granted_candidate",
         [0x44; 32],
+        SignedGrantTargetContext {
+            schema: raios_core::wasm_import_grant_event::GRANT_TARGET_SNAPSHOT_SCHEMA,
+            entry_count: selftest_target.entry_count,
+            snapshot_sha256: selftest_target.snapshot_sha256,
+            surface_mask: 0b11,
+        },
         [0x55; 32],
     );
     let Ok(planned_append) = plan_reclog_append(&scan, &record_payload, 4096) else {

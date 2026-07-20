@@ -1,5 +1,8 @@
 use alloc::{vec, vec::Vec};
-use core::str;
+use core::{
+    str,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use crate::{
     agent_protocol_support::{
@@ -44,6 +47,7 @@ const CLASSIFICATION: &str = "local_only";
 const TRUST_TIER: &str = "dev_key_not_owner_sealed";
 const GRANTED_CANDIDATE_SERVICE_ID: &str = "svc.dev.granted_candidate";
 const MAX_PROMOTION_SIGNATURE_DER_LEN: usize = 80;
+static PROVIDER_RECOVERY_CONSUMED: AtomicBool = AtomicBool::new(false);
 
 struct VecSink(Vec<u8>);
 
@@ -106,6 +110,15 @@ pub(crate) struct PromotionTransactionReadback {
     install_action_signature_verified: bool,
     physical_install_approval_consumed: bool,
     install_authorization_frame_sha256: [u8; 32],
+    install_envelope_version: u16,
+    grant_target_schema: &'static str,
+    grant_target_count: u64,
+    grant_target_snapshot_sha256: [u8; 32],
+    rollback_plan_hash: [u8; 32],
+    pre_load_inventory_hash: [u8; 32],
+    ram_only_service_slot_id: &'static str,
+    generation: u64,
+    load_event_id: EventIdText,
     install_authorization: Option<granted_candidate_service::SignedInstallAuthorization>,
     frame_sha256: [u8; 32],
 }
@@ -119,6 +132,7 @@ struct InstallAuthorizationReadback {
 #[derive(Clone, Copy)]
 pub(crate) enum GrantedCandidateInstallResolution {
     None,
+    Incomplete,
     Active {
         transaction: PromotionTransactionReadback,
         artifact: artifact_store::ArtifactPersistRecord,
@@ -253,14 +267,22 @@ pub(crate) fn emit_repromotion_run(_runtime: ui::RuntimeStatus) {
             emit_no_record("no_w6_authorized_install", "no_artifacts", true);
             return;
         }
+        GrantedCandidateInstallResolution::Incomplete => {
+            emit_no_record("install_history_incomplete", "capability_denied", false);
+            return;
+        }
         GrantedCandidateInstallResolution::RolledBack { .. } => {
-            emit_no_record("granted_candidate_install_rolled_back", "no_artifacts", true);
+            emit_no_record(
+                "granted_candidate_install_rolled_back",
+                "no_artifacts",
+                true,
+            );
             return;
         }
         GrantedCandidateInstallResolution::Active { artifact, .. } => artifact,
     };
 
-    let mut evidence = reverify_record(controller, &artifact);
+    let ReverifyOnly { mut evidence, .. } = reverify_record_only(controller, &artifact);
     let audit = append_repromotion_audit(controller, &evidence);
     evidence.audit = Some(audit);
     let mut decisions = Vec::new();
@@ -268,12 +290,10 @@ pub(crate) fn emit_repromotion_run(_runtime: ui::RuntimeStatus) {
     emit_run_record("completed", "repromotion_scan_completed", true, decisions);
 }
 
-pub(crate) fn resolve_granted_candidate_install(
-    bytes: &[u8],
-) -> GrantedCandidateInstallResolution {
+pub(crate) fn resolve_granted_candidate_install(bytes: &[u8]) -> GrantedCandidateInstallResolution {
     let scan = scan_reclog(bytes);
     if !scan.valid_prefix_chain || !scan.full_region_valid {
-        return GrantedCandidateInstallResolution::None;
+        return GrantedCandidateInstallResolution::Incomplete;
     }
     let artifacts = artifact_store::artifact_persist_records_from_reclog(bytes);
     let mut install_authorizations = Vec::new();
@@ -284,15 +304,15 @@ pub(crate) fn resolve_granted_candidate_install(
     let mut count = 0u64;
     while count < scan.count && offset < bytes.len() {
         let Ok(frame) = parse_reclog_frame(bytes, offset, seq, prev) else {
-            return GrantedCandidateInstallResolution::None;
+            return GrantedCandidateInstallResolution::Incomplete;
         };
         let payload_start = offset + RECLOG_FRAME_HEADER_LEN;
         let payload_end = payload_start + frame.payload_len as usize;
         let Ok(payload) = str::from_utf8(&bytes[payload_start..payload_end]) else {
-            return GrantedCandidateInstallResolution::None;
+            return GrantedCandidateInstallResolution::Incomplete;
         };
-        let target_service = extract_str(payload, b"\"service_id\": \"")
-            == Some(GRANTED_CANDIDATE_SERVICE_ID);
+        let target_service =
+            extract_str(payload, b"\"service_id\": \"") == Some(GRANTED_CANDIDATE_SERVICE_ID);
         let target_record = target_service
             || contains_bytes(payload.as_bytes(), GRANTED_CANDIDATE_SERVICE_ID.as_bytes());
 
@@ -339,7 +359,10 @@ pub(crate) fn resolve_granted_candidate_install(
                 b"\"schema\": \"raios.artifact_persist.v0\"",
             )
         {
-            let artifact = artifacts.iter().find(|record| record.seq == frame.seq).copied();
+            let artifact = artifacts
+                .iter()
+                .find(|record| record.seq == frame.seq)
+                .copied();
             fold = match (fold, artifact) {
                 (
                     GrantedCandidateInstallFold::Promote {
@@ -375,10 +398,10 @@ pub(crate) fn resolve_granted_candidate_install(
         GrantedCandidateInstallFold::Unpromote { transaction } => {
             GrantedCandidateInstallResolution::RolledBack { transaction }
         }
-        GrantedCandidateInstallFold::None
-        | GrantedCandidateInstallFold::Incomplete
+        GrantedCandidateInstallFold::None => GrantedCandidateInstallResolution::None,
+        GrantedCandidateInstallFold::Incomplete
         | GrantedCandidateInstallFold::Promote { artifact: None, .. } => {
-            GrantedCandidateInstallResolution::None
+            GrantedCandidateInstallResolution::Incomplete
         }
     }
 }
@@ -389,12 +412,28 @@ fn complete_install_authorization(transaction: &PromotionTransactionReadback) ->
         && transaction.install_action_signature_verified
         && transaction.physical_install_approval_consumed
         && transaction.install_authorization_frame_sha256 != [0; 32]
-        && transaction.install_authorization.is_some_and(|authorization| {
-            authorization.candidate_sha256 == transaction.artifact_hash
-                && authorization.computed_grant_sha256 == transaction.computed_grant_hash
-                && authorization.attestation_reference_sha256
-                    == transaction.attestation_reference_hash
-        })
+        && transaction.install_envelope_version
+            == raios_core::project_install::GRANTED_CANDIDATE_INSTALL_ENVELOPE_VERSION
+        && transaction.grant_target_schema
+            == raios_core::wasm_import_grant_event::GRANT_TARGET_SNAPSHOT_SCHEMA
+        && transaction.grant_target_count
+            <= raios_core::wasm_import_grant_event::MAX_PROJECTION_SLOTS as u64
+        && transaction.grant_target_snapshot_sha256 != [0; 32]
+        && transaction
+            .install_authorization
+            .is_some_and(|authorization| {
+                authorization.candidate_sha256 == transaction.artifact_hash
+                    && authorization.computed_grant_sha256 == transaction.computed_grant_hash
+                    && authorization.attestation_reference_sha256
+                        == transaction.attestation_reference_hash
+                    && authorization.install_envelope_version
+                        == transaction.install_envelope_version
+                    && authorization.grant_target_schema == transaction.grant_target_schema
+                    && authorization.grant_target_count == transaction.grant_target_count
+                    && authorization.grant_target_snapshot_sha256
+                        == transaction.grant_target_snapshot_sha256
+                    && authorization.generation == transaction.generation
+            })
 }
 
 fn link_install_authorization(
@@ -408,14 +447,15 @@ fn link_install_authorization(
     else {
         return false;
     };
-    let mut record = durable_store::InstallAuthorizationRecord {
+    let record = durable_store::InstallAuthorizationRecord {
         service_id: GRANTED_CANDIDATE_SERVICE_ID,
         trust_tier: TRUST_TIER,
         authorization: readback.authorization,
     };
-    record.authorization.computed_grant_sha256 = transaction.computed_grant_hash;
-    record.authorization.attestation_reference_sha256 = transaction.attestation_reference_hash;
     if record.authorization.candidate_sha256 != transaction.artifact_hash
+        || record.authorization.computed_grant_sha256 != transaction.computed_grant_hash
+        || record.authorization.attestation_reference_sha256
+            != transaction.attestation_reference_hash
         || durable_store::validate_signed_install_authorization(&record).is_err()
     {
         return false;
@@ -428,12 +468,41 @@ fn exact_artifact_link(
     transaction: &PromotionTransactionReadback,
     artifact: &artifact_store::ArtifactPersistRecord,
 ) -> bool {
-    artifact.promotion_transaction_sha256 == transaction.frame_sha256
+    signed_snapshot_context_matches_artifact(transaction, artifact)
+        && artifact.promotion_transaction_sha256 == transaction.frame_sha256
         && artifact.artifact_sha256 == transaction.artifact_hash
         && artifact.manifest_hash == transaction.manifest_hash
         && artifact.vm_report_hash == transaction.vm_report_hash
         && artifact.grant_hash == transaction.computed_grant_hash
         && !artifact.authorizes_load
+}
+
+fn signed_snapshot_context_matches_artifact(
+    transaction: &PromotionTransactionReadback,
+    artifact: &artifact_store::ArtifactPersistRecord,
+) -> bool {
+    transaction.install_envelope_version
+        == raios_core::project_install::GRANTED_CANDIDATE_INSTALL_ENVELOPE_VERSION
+        && transaction.grant_target_schema
+            == raios_core::wasm_import_grant_event::GRANT_TARGET_SNAPSHOT_SCHEMA
+        && artifact.grant_target_schema == transaction.grant_target_schema
+        && artifact.service_id == GRANTED_CANDIDATE_SERVICE_ID
+        && artifact.artifact_sha256 == transaction.artifact_hash
+        && artifact.grant_target_count == transaction.grant_target_count
+        && artifact.grant_target_snapshot_sha256 == transaction.grant_target_snapshot_sha256
+        && transaction
+            .install_authorization
+            .is_some_and(|authorization| {
+                authorization.install_envelope_version == transaction.install_envelope_version
+                    && authorization.grant_target_schema == transaction.grant_target_schema
+                    && authorization.grant_target_count == transaction.grant_target_count
+                    && authorization.grant_target_snapshot_sha256
+                        == transaction.grant_target_snapshot_sha256
+                    && authorization.candidate_sha256 == transaction.artifact_hash
+                    && authorization.computed_grant_sha256 == transaction.computed_grant_hash
+                    && authorization.attestation_reference_sha256
+                        == transaction.attestation_reference_hash
+            })
 }
 
 /// Reverify-only outcome shared by the full re-promotion path and the recovery lifeline
@@ -487,6 +556,12 @@ pub(crate) fn reverify_record_only(
             return ReverifyOnly::denied(evidence);
         }
     };
+    if !signed_snapshot_context_matches_artifact(&transaction, record) {
+        let mut evidence = denied_from_record(record, "signed_snapshot_context_mismatch");
+        evidence.candidate_payload_sha256 = Some(sha256_bytes(&verified_payload.payload));
+        evidence.candidate_payload_len = Some(verified_payload.payload.len() as u64);
+        return ReverifyOnly::denied(evidence);
+    }
 
     let recomputed_attestation_reference_hash =
         module_evidence::computed_module_local_attestation_reference_hash(
@@ -539,9 +614,15 @@ pub(crate) fn reverify_record_only(
             grant_binds_capability: transaction.grant_binds_capability,
             install_authorization_present: transaction.install_authorization_present,
             install_envelope_binds_activation: transaction.install_envelope_binds_activation,
-            install_action_signature_message_sha256: transaction.install_authorization.map(|a| a.install_action_message_sha256).unwrap_or([0; 32]),
+            install_action_signature_message_sha256: transaction
+                .install_authorization
+                .map(|a| a.install_action_message_sha256)
+                .unwrap_or([0; 32]),
             install_action_signature_der: install_signature,
-            install_authority_key_sha256: transaction.install_authorization.map(|a| a.authority_key_sha256).unwrap_or([0; 32]),
+            install_authority_key_sha256: transaction
+                .install_authorization
+                .map(|a| a.authority_key_sha256)
+                .unwrap_or([0; 32]),
             install_action_signature_verified: transaction.install_action_signature_verified,
             physical_install_approval_consumed: transaction.physical_install_approval_consumed,
         }),
@@ -605,12 +686,155 @@ pub(crate) fn reverify_record_only(
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct RollbackTargetPreflight {
+    pub(crate) authorized: bool,
+    pub(crate) reason: &'static str,
+    pub(crate) artifact_sha256: [u8; 32],
+    pub(crate) promotion_transaction_sha256: [u8; 32],
+    pub(crate) install_action_sha256: [u8; 32],
+    pub(crate) generation: u64,
+    pub(crate) log_sequence: u64,
+    pub(crate) envelope: Option<raios_core::project_install::GrantedCandidateInstallEnvelope>,
+}
+
+/// Read-only projection of the existing re-promotion verifier for rollback.
+/// It neither retains bytes nor repopulates references nor invokes the M6 gate.
+pub(crate) fn preflight_rollback_target(
+    controller: pci::PciMassStorageController,
+    record: &artifact_store::ArtifactPersistRecord,
+) -> RollbackTargetPreflight {
+    let verified = reverify_record_only(controller, record);
+    let denied = |reason| RollbackTargetPreflight {
+        authorized: false,
+        reason,
+        artifact_sha256: verified.evidence.artifact_sha256,
+        promotion_transaction_sha256: verified.evidence.promotion_transaction_sha256,
+        install_action_sha256: [0; 32],
+        generation: 0,
+        log_sequence: 0,
+        envelope: None,
+    };
+    if !verified.evidence.performed {
+        return denied(verified.evidence.reason);
+    }
+    let (Some(payload), Some(transaction)) = (
+        verified.verified_payload.as_ref(),
+        verified.transaction.as_ref(),
+    ) else {
+        return denied("rollback_target_reverification_incomplete");
+    };
+    if !signed_snapshot_context_matches_artifact(transaction, record) {
+        return denied("signed_snapshot_context_mismatch");
+    }
+    let Ok(snapshot) = record.grant_target_snapshot() else {
+        return denied("grant_target_snapshot_tampered");
+    };
+    if !wasm_runtime::validate_module_bytes(&payload.payload) {
+        return denied("rollback_target_wasm_invalid");
+    }
+    let observed_import_mask = match inspect_recovery_import_mask(&payload.payload) {
+        Ok(mask) => mask,
+        Err(reason) => return denied(reason),
+    };
+    if !artifact_store::grant_target_inventory_matches(
+        record.grant_target_surface_mask,
+        record.import_set_hash,
+        snapshot.entry_count,
+        observed_import_mask,
+    ) {
+        return denied("rollback_target_import_inventory_mismatch");
+    }
+    let Some(authorization) = transaction.install_authorization else {
+        return denied("rollback_target_reverification_incomplete");
+    };
+    let authorization_record = durable_store::InstallAuthorizationRecord {
+        service_id: GRANTED_CANDIDATE_SERVICE_ID,
+        trust_tier: TRUST_TIER,
+        authorization,
+    };
+    let envelope =
+        match durable_store::verified_granted_candidate_install_envelope(&authorization_record) {
+            Ok(envelope) => envelope,
+            Err(reason) => return denied(reason),
+        };
+    if envelope.candidate_byte_len != payload.payload.len() as u64
+        || raios_core::project_install::validate_granted_candidate_install_target(
+            &envelope, &snapshot,
+        )
+        .is_err()
+    {
+        return denied("signed_snapshot_context_mismatch");
+    }
+    RollbackTargetPreflight {
+        authorized: true,
+        reason: verified.evidence.reason,
+        artifact_sha256: verified.evidence.artifact_sha256,
+        promotion_transaction_sha256: verified.evidence.promotion_transaction_sha256,
+        install_action_sha256: authorization.install_action_sha256,
+        generation: authorization.generation,
+        log_sequence: authorization.log_sequence,
+        envelope: Some(envelope),
+    }
+}
+
+pub(crate) fn inspect_recovery_import_mask(bytes: &[u8]) -> Result<u8, &'static str> {
+    match wasm_runtime::inspect_granted_candidate_import_mask(bytes) {
+        Ok(mask) => Ok(mask),
+        Err("rollback_target_import_inventory_empty") => {
+            let inspection = wasm_runtime::inspect_workspace_imports(bytes);
+            if inspection.validation_ok
+                && inspection.import_list_observed
+                && inspection.import_count == 0
+            {
+                Ok(0)
+            } else {
+                Err("rollback_target_import_inventory_mismatch")
+            }
+        }
+        Err(reason) => Err(reason),
+    }
+}
+
 /// Full re-promotion of one persisted record: the shared reverify-only chain FIRST, then —
 /// ONLY if it re-verified — validate the reconstructed wasm, retain the candidate,
 /// repopulate references, and drive the shared M6 load/start core through its internal
 /// recovery-only wrappers. The serial protocol routes cannot reach these wrappers; this
 /// record already crossed physical install authority before it became recoverable.
-fn reverify_record(
+fn claim_recovery_attempt(guard: &AtomicBool) -> bool {
+    guard
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok()
+}
+
+pub(crate) fn recovery_guard_selftest() -> bool {
+    let first_boot = AtomicBool::new(false);
+    let first_allowed = claim_recovery_attempt(&first_boot);
+    let second_denied = !claim_recovery_attempt(&first_boot);
+    let fresh_boot = AtomicBool::new(false);
+    first_allowed && second_denied && claim_recovery_attempt(&fresh_boot)
+}
+
+fn reverify_recovery_record(
+    controller: pci::PciMassStorageController,
+    record: &artifact_store::ArtifactPersistRecord,
+) -> RepromotionEvidence {
+    if !claim_recovery_attempt(&PROVIDER_RECOVERY_CONSUMED) {
+        return denied_from_record(record, "provider_recovery_already_consumed");
+    }
+    let evidence = reverify_record_ram_only(controller, record);
+    if evidence.status != "repromoted"
+        && (evidence.retained_candidate
+            || evidence.references_repopulated
+            || evidence.load_attempted
+            || evidence.start_attempted)
+    {
+        granted_candidate_service::clear_reverified_install_state();
+    }
+    evidence
+}
+
+fn reverify_record_ram_only(
     controller: pci::PciMassStorageController,
     record: &artifact_store::ArtifactPersistRecord,
 ) -> RepromotionEvidence {
@@ -634,6 +858,58 @@ fn reverify_record(
         evidence.deny("reconstructed_wasm_invalid");
         return evidence;
     }
+    let snapshot = match record.grant_target_snapshot() {
+        Ok(snapshot) => snapshot,
+        Err(reason) => {
+            evidence.deny(reason);
+            return evidence;
+        }
+    };
+    let observed_import_mask = match inspect_recovery_import_mask(&verified_payload.payload) {
+        Ok(mask) => mask,
+        Err(reason) => {
+            evidence.deny(reason);
+            return evidence;
+        }
+    };
+    if !artifact_store::grant_target_inventory_matches(
+        record.grant_target_surface_mask,
+        record.import_set_hash,
+        snapshot.entry_count,
+        observed_import_mask,
+    ) {
+        evidence.deny("rollback_target_import_inventory_mismatch");
+        return evidence;
+    }
+    let Some(authorization) = transaction.install_authorization else {
+        evidence.deny("install_authorization_missing");
+        return evidence;
+    };
+    let Some(load_event_id) = transaction.load_event_id.event_id() else {
+        evidence.deny("promotion_transaction_event_id_invalid");
+        return evidence;
+    };
+    let promotion = granted_candidate_service::PromotionRecord {
+        plan_hash: transaction.rollback_plan_hash,
+        pre_load_inventory_hash: transaction.pre_load_inventory_hash,
+        ram_only_service_slot_id: transaction.ram_only_service_slot_id,
+        generation: transaction.generation,
+        load_event_id,
+        artifact_hash: transaction.artifact_hash,
+    };
+    if let Err(reason) = granted_candidate_service::validate_reverified_install_state(
+        authorization,
+        transaction.install_authorization_frame_sha256,
+        promotion,
+        observed_import_mask,
+    ) {
+        evidence.deny(reason);
+        return evidence;
+    }
+    if !granted_candidate_service::slot_allocatable() {
+        evidence.deny("provider_recovery_service_slot_not_empty");
+        return evidence;
+    }
 
     module_candidate_intake::retain(verified_payload.payload, payload_sha256, wasm_valid);
     evidence.retained_candidate = true;
@@ -645,13 +921,17 @@ fn reverify_record(
     }
     evidence.references_repopulated = true;
 
-    let Some(authorization) = transaction.install_authorization else { evidence.deny("install_authorization_missing"); return evidence; };
-    granted_candidate_service::restore_reverified_install_authorization(
+    if let Err(reason) = granted_candidate_service::restore_reverified_install_state(
         authorization,
         transaction.install_authorization_frame_sha256,
-    );
-
-    granted_candidate_service::emit_repromotion_load();
+        promotion,
+        observed_import_mask,
+    ) {
+        module_candidate_intake::clear();
+        evidence.deny(reason);
+        return evidence;
+    }
+    granted_candidate_service::emit_recovery_ram_only_load();
     evidence.load_attempted = true;
     let load_snapshot = granted_candidate_service::loaded_snapshot();
     if let Some(snapshot) = load_snapshot {
@@ -665,7 +945,7 @@ fn reverify_record(
     if !evidence.load_granted {
         // The M6 gate did NOT load this candidate: clear the orphaned retain so a denied
         // re-promotion never leaves the denied record's bytes as the live retained candidate.
-        module_candidate_intake::clear();
+        granted_candidate_service::clear_reverified_install_state();
         evidence.deny(
             load_snapshot
                 .map(|snapshot| snapshot.last_reason)
@@ -674,7 +954,7 @@ fn reverify_record(
         return evidence;
     }
 
-    granted_candidate_service::emit_repromotion_start();
+    granted_candidate_service::emit_recovery_ram_only_start();
     evidence.start_attempted = true;
     let start_snapshot = granted_candidate_service::loaded_snapshot();
     if let Some(snapshot) = start_snapshot {
@@ -687,6 +967,7 @@ fn reverify_record(
         evidence.start_run_outcome = Some(snapshot.last_run_outcome);
     }
     if !evidence.service_started {
+        granted_candidate_service::clear_reverified_install_state();
         evidence.deny(
             start_snapshot
                 .map(|snapshot| snapshot.last_reason)
@@ -750,7 +1031,7 @@ pub(crate) fn reverify_and_load_record(
     controller: pci::PciMassStorageController,
     record: &artifact_store::ArtifactPersistRecord,
 ) -> ReinstateOutcome {
-    let evidence = reverify_record(controller, record);
+    let evidence = reverify_recovery_record(controller, record);
     ReinstateOutcome {
         status: evidence.status,
         reason: evidence.reason,
@@ -763,6 +1044,42 @@ pub(crate) fn reverify_and_load_record(
             && evidence.service_started,
         // The reconstructed-wasm validation is reached ONLY after the pure re-verify
         // decision passed, so its presence is an honest "reverify succeeded" signal.
+        reverified: evidence.reconstructed_wasm_valid.is_some(),
+        reconstructed_wasm_valid: evidence.reconstructed_wasm_valid,
+        load_attempted: evidence.load_attempted,
+        load_granted: evidence.load_granted,
+        service_loaded: evidence.service_loaded,
+        service_started: evidence.service_started,
+        start_run_outcome: evidence.start_run_outcome,
+        authorizes_load: evidence.authorizes_load,
+        cross_reboot_proven: evidence.cross_reboot_proven,
+        candidate_payload_sha256: evidence.candidate_payload_sha256,
+        recomputed_attestation_reference_hash: evidence.recomputed_attestation_reference_hash,
+        recorded_attestation_reference_hash: evidence.recorded_attestation_reference_hash,
+        artifact_persist_seq: evidence.artifact_persist_seq,
+        artifact_sha256: evidence.artifact_sha256,
+        manifest_hash: evidence.manifest_hash,
+        vm_report_hash: evidence.vm_report_hash,
+        grant_hash: evidence.grant_hash,
+        promotion_transaction_sha256: evidence.promotion_transaction_sha256,
+        artstor_blob_offset: evidence.artstor_blob_offset,
+        artstor_blob_len: evidence.artstor_blob_len,
+        artstor_blob_frame_sha256: evidence.artstor_blob_frame_sha256,
+    }
+}
+
+pub(crate) fn reverify_and_load_rollback_record(
+    controller: pci::PciMassStorageController,
+    record: &artifact_store::ArtifactPersistRecord,
+) -> ReinstateOutcome {
+    let evidence = reverify_record_ram_only(controller, record);
+    ReinstateOutcome {
+        status: evidence.status,
+        reason: evidence.reason,
+        reinstated: evidence.status == "repromoted"
+            && evidence.performed
+            && evidence.service_loaded
+            && evidence.service_started,
         reverified: evidence.reconstructed_wasm_valid.is_some(),
         reconstructed_wasm_valid: evidence.reconstructed_wasm_valid,
         load_attempted: evidence.load_attempted,
@@ -909,10 +1226,8 @@ pub(crate) fn find_promotion_transaction(
                 .map_err(|_| "promotion_transaction_payload_invalid_utf8")?;
             let mut parsed = parse_promotion_transaction_payload(payload)?;
             parsed.frame_sha256 = frame.frame_sha256;
-            let authorization = find_install_authorization(
-                bytes,
-                parsed.install_authorization_frame_sha256,
-            )?;
+            let authorization =
+                find_install_authorization(bytes, parsed.install_authorization_frame_sha256)?;
             if !link_install_authorization(&mut parsed, &[authorization])
                 || !complete_install_authorization(&parsed)
             {
@@ -942,6 +1257,33 @@ fn parse_promotion_transaction_payload(
     if transaction_kind != "promote" && transaction_kind != "unpromote" {
         return Err("promotion_transaction_kind_mismatch");
     }
+    if extract_str(payload, b"\"scope\": \"") != Some("origin_boot")
+        || extract_str(payload, b"\"classification\": \"") != Some("local_only")
+        || extract_str(payload, b"\"record_kind\": \"") != Some("promotion_transaction")
+        || extract_str(payload, b"\"service_id\": \"") != Some(GRANTED_CANDIDATE_SERVICE_ID)
+        || extract_str(payload, b"\"trust_tier\": \"") != Some(TRUST_TIER)
+    {
+        return Err("promotion_transaction_scope_mismatch");
+    }
+    let install_envelope_version =
+        artifact_store::extract_u64(payload, b"\"install_envelope_version\": ")
+            .ok_or("signed_snapshot_context_mismatch")?;
+    let grant_target_count = artifact_store::extract_u64(payload, b"\"grant_target_count\": ")
+        .ok_or("signed_snapshot_context_mismatch")?;
+    if install_envelope_version
+        != raios_core::project_install::GRANTED_CANDIDATE_INSTALL_ENVELOPE_VERSION as u64
+        || extract_str(payload, b"\"grant_target_schema\": \"")
+            != Some(raios_core::wasm_import_grant_event::GRANT_TARGET_SNAPSHOT_SCHEMA)
+        || grant_target_count > raios_core::wasm_import_grant_event::MAX_PROJECTION_SLOTS as u64
+    {
+        return Err("signed_snapshot_context_mismatch");
+    }
+    let grant_target_snapshot_sha256 =
+        artifact_store::extract_sha256(payload, b"\"grant_target_snapshot_sha256\": \"")
+            .ok_or("signed_snapshot_context_mismatch")?;
+    if grant_target_snapshot_sha256 == [0; 32] {
+        return Err("signed_snapshot_context_mismatch");
+    }
     let (promotion_signature_der, promotion_signature_len) =
         extract_hex_bytes(payload, b"\"promotion_signature_der\": \"")
             .ok_or("promotion_signature_der_invalid")?;
@@ -954,9 +1296,22 @@ fn parse_promotion_transaction_payload(
     {
         return Err("promotion_signature_len_mismatch");
     }
+    let generation = artifact_store::extract_u64(payload, b"\"generation\": ")
+        .ok_or("promotion_transaction_field_missing")?;
+    let load_event_id = extract_event_id(payload, b"\"load_event_id\": \"")?;
+    if generation == 0
+        || extract_str(payload, b"\"ram_only_service_slot_id\": \"")
+            != Some(granted_candidate_service::ram_only_service_slot_id())
+    {
+        return Err("promotion_transaction_field_mismatch");
+    }
 
     Ok(PromotionTransactionReadback {
-        transaction_kind: if transaction_kind == "promote" { "promote" } else { "unpromote" },
+        transaction_kind: if transaction_kind == "promote" {
+            "promote"
+        } else {
+            "unpromote"
+        },
         computed_grant_hash: artifact_store::extract_sha256(
             payload,
             b"\"computed_grant_hash\": \"",
@@ -1048,6 +1403,20 @@ fn parse_promotion_transaction_payload(
             b"\"install_authorization_frame_sha256\": \"",
         )
         .unwrap_or([0; 32]),
+        install_envelope_version: install_envelope_version as u16,
+        grant_target_schema: raios_core::wasm_import_grant_event::GRANT_TARGET_SNAPSHOT_SCHEMA,
+        grant_target_count,
+        grant_target_snapshot_sha256,
+        rollback_plan_hash: artifact_store::extract_sha256(payload, b"\"rollback_plan_hash\": \"")
+            .ok_or("promotion_transaction_field_missing")?,
+        pre_load_inventory_hash: artifact_store::extract_sha256(
+            payload,
+            b"\"pre_load_inventory_hash\": \"",
+        )
+        .ok_or("promotion_transaction_field_missing")?,
+        ram_only_service_slot_id: granted_candidate_service::ram_only_service_slot_id(),
+        generation,
+        load_event_id,
         install_authorization: None,
         frame_sha256: [0u8; 32],
     })
@@ -1104,32 +1473,82 @@ fn parse_install_authorization_payload(
     {
         return Err("install_authorization_scope_mismatch");
     }
-    let (signature_der, signature_len) = extract_install_hex_bytes(payload, b"\"install_signature_der\": \"").ok_or("install_action_signature_not_verified")?;
-    if artifact_store::extract_u64(payload, b"\"install_signature_len\": ").map(|v| v as usize) != Some(signature_len) {
+    let install_envelope_version =
+        artifact_store::extract_u64(payload, b"\"install_envelope_version\": ")
+            .ok_or("signed_snapshot_context_mismatch")?;
+    let grant_target_count = artifact_store::extract_u64(payload, b"\"grant_target_count\": ")
+        .ok_or("signed_snapshot_context_mismatch")?;
+    if install_envelope_version
+        != raios_core::project_install::GRANTED_CANDIDATE_INSTALL_ENVELOPE_VERSION as u64
+        || extract_str(payload, b"\"grant_target_schema\": \"")
+            != Some(raios_core::wasm_import_grant_event::GRANT_TARGET_SNAPSHOT_SCHEMA)
+        || grant_target_count > raios_core::wasm_import_grant_event::MAX_PROJECTION_SLOTS as u64
+    {
+        return Err("signed_snapshot_context_mismatch");
+    }
+    let (signature_der, signature_len) =
+        extract_install_hex_bytes(payload, b"\"install_signature_der\": \"")
+            .ok_or("install_action_signature_not_verified")?;
+    if artifact_store::extract_u64(payload, b"\"install_signature_len\": ").map(|v| v as usize)
+        != Some(signature_len)
+    {
         return Err("install_action_signature_not_verified");
     }
-    let sha = |key| artifact_store::extract_sha256(payload, key).ok_or("install_authorization_missing");
+    let sha =
+        |key| artifact_store::extract_sha256(payload, key).ok_or("install_authorization_missing");
+    let grant_target_snapshot_sha256 = sha(b"\"grant_target_snapshot_sha256\": \"")?;
+    if grant_target_snapshot_sha256 == [0; 32] {
+        return Err("signed_snapshot_context_mismatch");
+    }
     Ok(InstallAuthorizationReadback {
         authorization: granted_candidate_service::SignedInstallAuthorization {
-        activation_approval_sha256: sha(b"\"activation_approval_sha256\": \"")?, computed_grant_sha256: [0; 32],
-        attestation_reference_sha256: [0; 32], w7_invocation_sha256: sha(b"\"w7_invocation_sha256\": \"")?,
-        w7_receipt_sha256: sha(b"\"w7_receipt_sha256\": \"")?, receiver_content_sha256: sha(b"\"receiver_content_sha256\": \"")?,
-        receiver_candidate_sha256: sha(b"\"receiver_candidate_sha256\": \"")?, catalog_candidate_sha256: sha(b"\"catalog_candidate_sha256\": \"")?,
-        install_envelope_sha256: sha(b"\"install_envelope_sha256\": \"")?, install_action_sha256: sha(b"\"install_action_sha256\": \"")?,
-        install_action_message_sha256: sha(b"\"install_action_signature_message_sha256\": \"")?, authority_evidence_sha256: sha(b"\"authority_evidence_sha256\": \"")?,
-        physical_approval_sha256: sha(b"\"physical_approval_sha256\": \"")?, authority_key_sha256: sha(b"\"install_authority_key_sha256\": \"")?,
-        candidate_sha256: sha(b"\"install_candidate_sha256\": \"")?, candidate_byte_len: artifact_store::extract_u64(payload, b"\"install_candidate_byte_len\": ").ok_or("install_authorization_missing")?,
-        generation: artifact_store::extract_u64(payload, b"\"install_generation\": ").ok_or("install_authorization_missing")?, log_sequence: artifact_store::extract_u64(payload, b"\"install_log_sequence\": ").ok_or("install_authorization_missing")?,
-        signature_len, signature_der,
+            install_envelope_version: install_envelope_version as u16,
+            activation_approval_sha256: sha(b"\"activation_approval_sha256\": \"")?,
+            computed_grant_sha256: sha(b"\"computed_grant_sha256\": \"")?,
+            attestation_reference_sha256: sha(b"\"attestation_reference_sha256\": \"")?,
+            grant_target_schema: raios_core::wasm_import_grant_event::GRANT_TARGET_SNAPSHOT_SCHEMA,
+            grant_target_count,
+            grant_target_snapshot_sha256,
+            w7_invocation_sha256: sha(b"\"w7_invocation_sha256\": \"")?,
+            w7_receipt_sha256: sha(b"\"w7_receipt_sha256\": \"")?,
+            receiver_content_sha256: sha(b"\"receiver_content_sha256\": \"")?,
+            receiver_candidate_sha256: sha(b"\"receiver_candidate_sha256\": \"")?,
+            catalog_candidate_sha256: sha(b"\"catalog_candidate_sha256\": \"")?,
+            install_envelope_sha256: sha(b"\"install_envelope_sha256\": \"")?,
+            install_action_sha256: sha(b"\"install_action_sha256\": \"")?,
+            install_action_message_sha256: sha(b"\"install_action_signature_message_sha256\": \"")?,
+            authority_evidence_sha256: sha(b"\"authority_evidence_sha256\": \"")?,
+            physical_approval_sha256: sha(b"\"physical_approval_sha256\": \"")?,
+            authority_key_sha256: sha(b"\"install_authority_key_sha256\": \"")?,
+            candidate_sha256: sha(b"\"install_candidate_sha256\": \"")?,
+            candidate_byte_len: artifact_store::extract_u64(
+                payload,
+                b"\"install_candidate_byte_len\": ",
+            )
+            .ok_or("install_authorization_missing")?,
+            generation: artifact_store::extract_u64(payload, b"\"install_generation\": ")
+                .ok_or("install_authorization_missing")?,
+            log_sequence: artifact_store::extract_u64(payload, b"\"install_log_sequence\": ")
+                .ok_or("install_authorization_missing")?,
+            signature_len,
+            signature_der,
         },
         frame_sha256: [0; 32],
     })
 }
 
 fn extract_install_hex_bytes(payload: &str, key: &[u8]) -> Option<([u8; 256], usize)> {
-    let value = extract_str(payload, key)?; if value.is_empty() || value.len() % 2 != 0 || value.len() / 2 > 256 { return None; }
-    let mut out = [0u8; 256]; let mut pos = 0usize;
-    while pos < value.len() / 2 { out[pos] = (hex_nibble(value.as_bytes()[pos * 2])? << 4) | hex_nibble(value.as_bytes()[pos * 2 + 1])?; pos += 1; }
+    let value = extract_str(payload, key)?;
+    if value.is_empty() || value.len() % 2 != 0 || value.len() / 2 > 256 {
+        return None;
+    }
+    let mut out = [0u8; 256];
+    let mut pos = 0usize;
+    while pos < value.len() / 2 {
+        out[pos] = (hex_nibble(value.as_bytes()[pos * 2])? << 4)
+            | hex_nibble(value.as_bytes()[pos * 2 + 1])?;
+        pos += 1;
+    }
     Some((out, pos))
 }
 
@@ -1363,6 +1782,158 @@ pub(crate) fn run_provider_autoload() {
         return;
     };
 
+    if let Err(reason) =
+        artifact_store::validate_unique_committed_install_history(controller, bytes)
+    {
+        emit_provider_autoload_marker(
+            "denied", "denied", reason, posture, None, None, None, false, false, false, false, 0,
+            false,
+        );
+        return;
+    }
+
+    match durable_store::wasm_rollback_recovery_state() {
+        durable_store::WasmRollbackRecoveryState::Denied(reason) => {
+            emit_provider_autoload_marker(
+                "denied", "denied", reason, posture, None, None, None, false, false, false, false,
+                0, false,
+            );
+            return;
+        }
+        durable_store::WasmRollbackRecoveryState::Pending(_) => {
+            emit_provider_autoload_marker(
+                "denied",
+                "denied",
+                "rollback_recovery_pending_quarantined",
+                posture,
+                None,
+                None,
+                None,
+                false,
+                false,
+                false,
+                false,
+                0,
+                false,
+            );
+            return;
+        }
+        durable_store::WasmRollbackRecoveryState::None
+        | durable_store::WasmRollbackRecoveryState::Committed(_) => {}
+    }
+
+    match durable_store::wasm_rollback_recovery_state() {
+        durable_store::WasmRollbackRecoveryState::Denied(reason) => {
+            emit_provider_autoload_marker(
+                "denied", "denied", reason, posture, None, None, None, false, false, false, false,
+                0, false,
+            );
+            return;
+        }
+        durable_store::WasmRollbackRecoveryState::Committed(commit) => {
+            if commit.service_id != GRANTED_CANDIDATE_SERVICE_ID || commit.domain_instance != 1 {
+                emit_provider_autoload_marker(
+                    "denied",
+                    "denied",
+                    "rollback_commit_domain_mismatch",
+                    posture,
+                    None,
+                    None,
+                    None,
+                    false,
+                    false,
+                    false,
+                    false,
+                    0,
+                    false,
+                );
+                return;
+            }
+            let target = match artifact_store::load_verified_committed_rollback_target(
+                commit.target_snapshot_sha256,
+            ) {
+                Ok(target) => target,
+                Err(reason) => {
+                    emit_provider_autoload_marker(
+                        "denied", "denied", reason, posture, None, None, None, false, false, false,
+                        false, 0, false,
+                    );
+                    return;
+                }
+            };
+            let current_projection = durable_store::load_durable_wasm_grant_projection();
+            if !current_projection.valid
+                || current_projection.sha256 != commit.result_projection_sha256
+            {
+                emit_provider_autoload_marker(
+                    "denied",
+                    "denied",
+                    "rollback_commit_projection_mismatch",
+                    posture,
+                    Some(target.record.artifact_sha256),
+                    Some(target.record.promotion_transaction_sha256),
+                    None,
+                    false,
+                    false,
+                    false,
+                    false,
+                    0,
+                    false,
+                );
+                return;
+            }
+            let evidence = reverify_recovery_record(controller, &target.record);
+            let snapshot = granted_candidate_service::loaded_snapshot();
+            let loaded = snapshot.is_some_and(|snapshot| snapshot.loaded);
+            let running = snapshot.is_some_and(|snapshot| snapshot.running);
+            let run_count = snapshot.map(|snapshot| snapshot.run_count).unwrap_or(0);
+            let autoloaded = evidence.status == "repromoted"
+                && loaded
+                && running
+                && run_count == 1
+                && evidence.cross_reboot_proven;
+            emit_provider_autoload_marker(
+                if autoloaded { "accepted" } else { "denied" },
+                if autoloaded { "autoloaded" } else { "denied" },
+                if autoloaded {
+                    "rollback_commit_target_autoloaded"
+                } else {
+                    evidence.reason
+                },
+                posture,
+                Some(target.record.artifact_sha256),
+                Some(target.record.promotion_transaction_sha256),
+                None,
+                evidence.performed,
+                evidence.performed,
+                loaded,
+                running,
+                run_count,
+                autoloaded,
+            );
+            return;
+        }
+        durable_store::WasmRollbackRecoveryState::Pending(_) => {
+            emit_provider_autoload_marker(
+                "denied",
+                "denied",
+                "rollback_recovery_pending_quarantined",
+                posture,
+                None,
+                None,
+                None,
+                false,
+                false,
+                false,
+                false,
+                0,
+                false,
+            );
+            return;
+        }
+        durable_store::WasmRollbackRecoveryState::None => {}
+    }
+
     let (transaction, artifact, artifact_persist_frame_sha256) =
         match resolve_granted_candidate_install(bytes) {
             GrantedCandidateInstallResolution::None => {
@@ -1370,6 +1941,24 @@ pub(crate) fn run_provider_autoload() {
                     "accepted",
                     "not_installed",
                     "no_w6_authorized_install",
+                    posture,
+                    None,
+                    None,
+                    None,
+                    false,
+                    false,
+                    false,
+                    false,
+                    0,
+                    false,
+                );
+                return;
+            }
+            GrantedCandidateInstallResolution::Incomplete => {
+                emit_provider_autoload_marker(
+                    "denied",
+                    "denied",
+                    "install_history_incomplete",
                     posture,
                     None,
                     None,
@@ -1408,29 +1997,7 @@ pub(crate) fn run_provider_autoload() {
             } => (transaction, artifact, artifact_persist_frame_sha256),
         };
 
-    let Some(authorization) = transaction.install_authorization else {
-        emit_provider_autoload_marker(
-            "denied",
-            "denied",
-            "install_authorization_missing",
-            posture,
-            Some(transaction.artifact_hash),
-            Some(transaction.frame_sha256),
-            Some(artifact_persist_frame_sha256),
-            false,
-            false,
-            false,
-            false,
-            0,
-            false,
-        );
-        return;
-    };
-    granted_candidate_service::restore_reverified_install_authorization(
-        authorization,
-        transaction.install_authorization_frame_sha256,
-    );
-    let evidence = reverify_record(controller, &artifact);
+    let evidence = reverify_recovery_record(controller, &artifact);
     let signatures_reverified = evidence.reconstructed_wasm_valid.is_some();
     let snapshot = granted_candidate_service::loaded_snapshot();
     let loaded = snapshot.is_some_and(|snapshot| snapshot.loaded);

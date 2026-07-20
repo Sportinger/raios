@@ -36,9 +36,9 @@ use raios_core::{
 };
 use spin::Mutex;
 use wasmi::{
-    core::{Trap, TrapCode},
+    core::{Trap, TrapCode, ValueType},
     errors::{InstantiationError, LinkerError, MemoryError, TableError},
-    Caller, Config, Engine, Extern, Instance, Linker, Memory, Module, ResumableCall,
+    Caller, Config, Engine, Extern, ExternType, Instance, Linker, Memory, Module, ResumableCall,
     ResumableInvocation, Store, StoreLimits, StoreLimitsBuilder, Value,
 };
 
@@ -82,9 +82,12 @@ pub(crate) use crypto_shims::{
     CryptoFixtureProbeSnapshot, CryptoShimCallEvidence, CryptoShimGrantProbe,
 };
 pub(crate) use envelope::{
-    execute_module_bytes, execute_workspace_no_import_candidate, inspect_workspace_imports,
-    EchoRunEvidence, NegativeRun, WorkspaceImportInspection,
+    execute_module_bytes, execute_module_bytes_for_durable_domain,
+    execute_workspace_no_import_candidate, inspect_granted_candidate_import_mask,
+    inspect_workspace_imports, EchoRunEvidence, NegativeRun, WorkspaceImportInspection,
 };
+
+pub(crate) use envelope::{current_boot_counter, current_boot_counter_denied_calls};
 pub(crate) use host_import_selftest::emit_host_import_selftest;
 pub(crate) use invocation::{
     beyond_env_probe_snapshot, request_beyond_env_fixture, request_w7_acquisition,
@@ -117,17 +120,58 @@ pub(crate) use wasi_build_job::{
 /// Rebuild durable import authority before any boot-autoloaded Wasm service is
 /// instantiated. Invalid/missing history installs a denied snapshot.
 pub(crate) fn init_durable_grants() {
-    let projection = crate::agent_protocol::durable_store::load_durable_wasm_grant_projection();
+    let mut projection = crate::agent_protocol::durable_store::load_durable_wasm_grant_projection();
+    let recovery = crate::agent_protocol::durable_store::wasm_rollback_recovery_state();
+    let quarantine = match &recovery {
+        crate::agent_protocol::durable_store::WasmRollbackRecoveryState::Pending(pending) => {
+            for slot in projection.slots.iter_mut() {
+                if slot.service_id == pending.service_id
+                    && slot.domain_instance == pending.domain_instance
+                {
+                    slot.revoked = true;
+                }
+            }
+            true
+        }
+        crate::agent_protocol::durable_store::WasmRollbackRecoveryState::Denied(reason) => {
+            projection.valid = false;
+            projection.reason = reason;
+            projection.slots.clear();
+            true
+        }
+        crate::agent_protocol::durable_store::WasmRollbackRecoveryState::None
+        | crate::agent_protocol::durable_store::WasmRollbackRecoveryState::Committed(_) => false,
+    };
     let reason = projection.reason;
     grant_table::install_boot_projection(projection);
     let (valid, digest, event_count) = grant_table::boot_projection_evidence();
     let hex = raios_core::sha256_hex(&digest);
     let hash = core::str::from_utf8(&hex).unwrap_or("invalid");
     serial::write_fmt(format_args!(
-        "cap.projection sha256:{} valid={} events={} reason={}\r\n",
+        "cap.projection sha256:{} valid={} events={} reason={} rollback_quarantine={}\r\n",
         hash,
         u8::from(valid),
         event_count,
-        reason
+        reason,
+        u8::from(quarantine)
     ));
+}
+
+pub(crate) fn install_durable_grants_after_rollback() -> bool {
+    let projection = crate::agent_protocol::durable_store::load_durable_wasm_grant_projection();
+    let committed = match crate::agent_protocol::durable_store::wasm_rollback_recovery_state() {
+        crate::agent_protocol::durable_store::WasmRollbackRecoveryState::Committed(committed) => {
+            committed
+        }
+        _ => {
+            grant_table::deny_post_commit_projection();
+            return false;
+        }
+    };
+    grant_table::install_post_commit_projection(projection, committed.result_projection_sha256)
+}
+
+pub(crate) fn post_commit_projection_transition_selftest() -> bool {
+    grant_table::post_commit_projection_transition_selftest()
+        && envelope::durable_execution_finalization_selftest()
 }
