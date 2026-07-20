@@ -37,6 +37,7 @@ pub mod hello_lifecycle_projection;
 pub mod host_import_abi_v1;
 pub mod hw_failure_trace;
 pub mod kernel_surface;
+pub mod marvell_dma_safety;
 pub mod marvell_wifi_cmd;
 pub mod marvell_wifi_fw;
 pub mod marvell_wifi_supplicant;
