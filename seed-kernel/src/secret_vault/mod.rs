@@ -1,6 +1,7 @@
 //! Core-only Secret Vault custody. No service-facing secret accessor lives here.
 
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicU64, Ordering};
 use spin::Mutex;
 
 use raios_core::{
@@ -33,8 +34,10 @@ use self::{
 };
 use crate::{
     agent_protocol::boot_control,
+    secure_overlay::SecureSecretSubmission,
     serial,
     structured_store::{ValidatedRegionIdentity, ValidatedReplayWithHistory},
+    wifi,
 };
 
 mod audit;
@@ -53,6 +56,10 @@ pub(crate) use self::{
 const CONTAINED_WIFI_SSID: &[u8] = b"RaiWPA2";
 const CONTAINED_WIFI_BSSID: [u8; 6] = [0x20, 0x22, 0x33, 0x44, 0x55, 0x66];
 const CONTAINED_WIFI_WRONG_BSSID: [u8; 6] = [0x22, 0x22, 0x33, 0x44, 0x55, 0x66];
+const EPHEMERAL_WIFI_TARGET_DOMAIN: &[u8] = b"raios.ephemeral-physical-wifi-target.v1";
+const EPHEMERAL_WIFI_SECURITY_WPA2_PSK_CCMP: u8 = 1;
+const EPHEMERAL_WIFI_SOURCE_LIVE_RADIO: u8 = 1;
+static NEXT_EPHEMERAL_WIFI_ATTEMPT_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug)]
 pub(crate) enum VaultFacadeDenied {
@@ -227,6 +234,55 @@ pub(crate) struct RecoveryKeyConfirmation {
 pub(crate) struct ExplicitSafeWifiReconnect {
     audit: SafeWifiAuditAuthority,
     target_binding_sha256: [u8; 32],
+}
+
+/// One physical, current-boot-only WPA2 association attempt while persistence
+/// is unavailable. It is deliberately neither cloneable nor formattable and
+/// contains no durable, SAFE, Vault, provider, or grant authority.
+pub(crate) struct EphemeralPhysicalWifiUse {
+    target_binding_sha256: [u8; 32],
+    attempt_id: u64,
+    boot_scope: EphemeralWifiBootScope,
+    secret: SecretPlaintext,
+}
+
+/// Non-secret proof retained only after the one plaintext has been consumed
+/// into the PMK command. It remains linear so a completed attempt cannot be
+/// copied into a second connection job.
+pub(crate) struct EphemeralPhysicalWifiReceipt {
+    target_binding_sha256: [u8; 32],
+    attempt_id: u64,
+    boot_scope: EphemeralWifiBootScope,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum EphemeralWifiBootScope {
+    CurrentBootPersistenceUnavailable,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum EphemeralWifiDenied {
+    BootPosture,
+    TargetNotLiveWpa2PskCcmp,
+    SecureOverlaySubmissionRequired,
+    AttemptIdUnavailable,
+    TargetChanged,
+    Consumer(SecretConsumerError),
+}
+
+impl EphemeralWifiDenied {
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::BootPosture => "ephemeral_wifi_boot_posture_denied",
+            Self::TargetNotLiveWpa2PskCcmp => "ephemeral_wifi_live_target_required",
+            Self::SecureOverlaySubmissionRequired => {
+                "ephemeral_wifi_secure_overlay_submission_required"
+            }
+            Self::AttemptIdUnavailable => "ephemeral_wifi_attempt_id_unavailable",
+            Self::TargetChanged => "ephemeral_wifi_target_changed",
+            Self::Consumer(_) => "ephemeral_wifi_secret_consumer_rejected",
+        }
+    }
 }
 
 impl Drop for RecoveryKeyConfirmation {
@@ -958,6 +1014,169 @@ pub(crate) fn write_wifi_pmk_for_association(
     wifi_lease_after_durable_audit(ssid, bssid, false, WifiUseAuthority::CurrentBoot)?
         .into_wpa2_psk_ccmp_pmk_set(seq, bssid, ssid, out)
         .map_err(VaultFacadeDenied::Consumer)
+}
+
+/// Converts one physically routed SecureOverlay submission into a linear,
+/// current-boot-only association authority. No Vault/store/audit/provider
+/// state is read or written by this path.
+pub(crate) fn begin_ephemeral_physical_wifi_use(
+    target: wifi::ScannedNetwork,
+    submission: SecureSecretSubmission,
+) -> Result<EphemeralPhysicalWifiUse, EphemeralWifiDenied> {
+    if boot_control::current_boot_posture() != BootPosture::PersistenceUnavailable {
+        return Err(EphemeralWifiDenied::BootPosture);
+    }
+    let target_binding_sha256 = ephemeral_wifi_target_binding(target)?;
+    let secret = submission
+        .into_plaintext_for_ephemeral_physical_wifi()
+        .ok_or(EphemeralWifiDenied::SecureOverlaySubmissionRequired)?;
+    let attempt_id = next_ephemeral_wifi_attempt_id()?;
+    Ok(EphemeralPhysicalWifiUse {
+        target_binding_sha256,
+        attempt_id,
+        boot_scope: EphemeralWifiBootScope::CurrentBootPersistenceUnavailable,
+        secret,
+    })
+}
+
+/// Revalidates posture and the complete live-radio target without exposing the
+/// target hash or any secret metadata.
+pub(crate) fn revalidate_ephemeral_physical_wifi_use(
+    authority: &EphemeralPhysicalWifiUse,
+    target: wifi::ScannedNetwork,
+) -> Result<(), EphemeralWifiDenied> {
+    revalidate_ephemeral_wifi_binding(
+        authority.target_binding_sha256,
+        authority.attempt_id,
+        authority.boot_scope,
+        target,
+    )
+}
+
+/// The only ephemeral plaintext consumer. Success returns a linear non-secret
+/// receipt needed for the later port-release and net-attach revalidations.
+pub(crate) fn write_ephemeral_physical_wifi_pmk(
+    authority: EphemeralPhysicalWifiUse,
+    seq: u16,
+    target: wifi::ScannedNetwork,
+    out: &mut [u8],
+) -> Result<(usize, EphemeralPhysicalWifiReceipt), EphemeralWifiDenied> {
+    revalidate_ephemeral_physical_wifi_use(&authority, target)?;
+    let EphemeralPhysicalWifiUse {
+        target_binding_sha256,
+        attempt_id,
+        boot_scope,
+        secret,
+    } = authority;
+    let len = secret
+        .into_wpa2_psk_ccmp_pmk_set(seq, target.bssid, target.ssid.as_bytes(), out)
+        .map_err(EphemeralWifiDenied::Consumer)?;
+    Ok((
+        len,
+        EphemeralPhysicalWifiReceipt {
+            target_binding_sha256,
+            attempt_id,
+            boot_scope,
+        },
+    ))
+}
+
+pub(crate) fn revalidate_ephemeral_physical_wifi_receipt(
+    receipt: &EphemeralPhysicalWifiReceipt,
+    target: wifi::ScannedNetwork,
+) -> Result<(), EphemeralWifiDenied> {
+    revalidate_ephemeral_wifi_binding(
+        receipt.target_binding_sha256,
+        receipt.attempt_id,
+        receipt.boot_scope,
+        target,
+    )
+}
+
+fn next_ephemeral_wifi_attempt_id() -> Result<u64, EphemeralWifiDenied> {
+    let mut current = NEXT_EPHEMERAL_WIFI_ATTEMPT_ID.load(Ordering::Relaxed);
+    loop {
+        if current == 0 || current == u64::MAX {
+            return Err(EphemeralWifiDenied::AttemptIdUnavailable);
+        }
+        match NEXT_EPHEMERAL_WIFI_ATTEMPT_ID.compare_exchange_weak(
+            current,
+            current + 1,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => return Ok(current),
+            Err(observed) => current = observed,
+        }
+    }
+}
+
+fn revalidate_ephemeral_wifi_binding(
+    expected_target_binding_sha256: [u8; 32],
+    attempt_id: u64,
+    boot_scope: EphemeralWifiBootScope,
+    target: wifi::ScannedNetwork,
+) -> Result<(), EphemeralWifiDenied> {
+    if boot_control::current_boot_posture() != BootPosture::PersistenceUnavailable
+        || boot_scope != EphemeralWifiBootScope::CurrentBootPersistenceUnavailable
+        || attempt_id == 0
+    {
+        return Err(EphemeralWifiDenied::BootPosture);
+    }
+    if ephemeral_wifi_target_binding(target)? != expected_target_binding_sha256 {
+        return Err(EphemeralWifiDenied::TargetChanged);
+    }
+    Ok(())
+}
+
+fn ephemeral_wifi_target_binding(
+    target: wifi::ScannedNetwork,
+) -> Result<[u8; 32], EphemeralWifiDenied> {
+    if !target.association_ready()
+        || target.hidden_ssid
+        || target.source != wifi::ScanSource::LiveRadio
+        || target.bssid[0] & 1 != 0
+        || !target.supports_wpa2_psk_ccmp()
+    {
+        return Err(EphemeralWifiDenied::TargetNotLiveWpa2PskCcmp);
+    }
+
+    const EVIDENCE_CAPACITY: usize = EPHEMERAL_WIFI_TARGET_DOMAIN.len()
+        + 1
+        + 2
+        + wifi::SSID_CAPACITY
+        + 6
+        + 1
+        + 1
+        + 2
+        + wifi::ASSOCIATION_SECURITY_IE_CAPACITY;
+    let mut evidence = [0u8; EVIDENCE_CAPACITY];
+    let mut offset = 0usize;
+
+    evidence[..EPHEMERAL_WIFI_TARGET_DOMAIN.len()].copy_from_slice(EPHEMERAL_WIFI_TARGET_DOMAIN);
+    offset += EPHEMERAL_WIFI_TARGET_DOMAIN.len();
+    evidence[offset] = EPHEMERAL_WIFI_SOURCE_LIVE_RADIO;
+    offset += 1;
+
+    let ssid = target.ssid.as_bytes();
+    evidence[offset..offset + 2].copy_from_slice(&(ssid.len() as u16).to_le_bytes());
+    offset += 2;
+    evidence[offset..offset + ssid.len()].copy_from_slice(ssid);
+    offset += ssid.len();
+    evidence[offset..offset + target.bssid.len()].copy_from_slice(&target.bssid);
+    offset += target.bssid.len();
+    evidence[offset] = target.channel;
+    offset += 1;
+    evidence[offset] = EPHEMERAL_WIFI_SECURITY_WPA2_PSK_CCMP;
+    offset += 1;
+
+    let rsn = target.security_ie();
+    evidence[offset..offset + 2].copy_from_slice(&(rsn.len() as u16).to_le_bytes());
+    offset += 2;
+    evidence[offset..offset + rsn.len()].copy_from_slice(rsn);
+    offset += rsn.len();
+
+    Ok(sha256_bytes(&evidence[..offset]))
 }
 
 /// Begins one SAFE association only after the trusted Genesis physical path

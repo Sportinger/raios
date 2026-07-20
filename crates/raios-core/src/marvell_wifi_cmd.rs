@@ -7,11 +7,13 @@ pub const GET_HW_SPEC_CMD: u16 = 0x0003;
 pub const SCAN_CMD: u16 = 0x0006;
 pub const ASSOCIATE_CMD: u16 = 0x0012;
 pub const MAC_CONTROL_CMD: u16 = 0x0028;
+pub const FUNC_INIT_CMD: u16 = 0x00a9;
 pub const PCIE_DESC_DETAILS_CMD: u16 = 0x00fa;
 pub const SCAN_EXT_CMD: u16 = 0x0107;
 pub const MWIFIEX_TYPE_CMD: u16 = 1;
 pub const HOST_CMD_RET_BIT: u16 = 0x8000;
 pub const HOST_CMD_RESULT_OK: u16 = 0;
+pub const HOST_CMD_SEQUENCE_MASK: u16 = 0x00ff;
 pub const S_DS_GEN: usize = 8;
 pub const INTF_HEADER_LEN: usize = 4;
 pub const GET_HW_SPEC_BODY_LEN: usize = 63;
@@ -19,6 +21,7 @@ pub const GET_HW_SPEC_GEN_SIZE: usize = S_DS_GEN + GET_HW_SPEC_BODY_LEN;
 pub const GET_HW_SPEC_CMD_TOTAL_LEN: usize = INTF_HEADER_LEN + GET_HW_SPEC_GEN_SIZE;
 pub const HW_SPEC_MIN_RESPONSE_LEN: usize = 50;
 pub const HOST_CMD_MIN_RESPONSE_LEN: usize = INTF_HEADER_LEN + S_DS_GEN;
+pub const FUNC_INIT_CMD_TOTAL_LEN: usize = HOST_CMD_MIN_RESPONSE_LEN;
 pub const IEEE80211_MAX_SSID_LEN: u8 = 32;
 pub const MWIFIEX_BSS_MODE_INFRA: u8 = 1;
 pub const MWIFIEX_DISABLE_CHAN_FILT: u8 = 0x02;
@@ -78,8 +81,11 @@ const WPA_IE_OUI_TYPE: [u8; 4] = [0x00, 0x50, 0xf2, 0x01];
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HwSpecCmdError {
     TooShort,
+    BadLength,
     BadCommand { got: u16 },
+    BadSequence { got: u16 },
     FwResult { code: u16 },
+    InvalidSequenceContext { got: u16 },
     OutputBufferTooSmall,
 }
 
@@ -125,6 +131,123 @@ pub struct AssociationResponse {
     pub association_id: Option<u16>,
 }
 
+/// Monotonic HostCmd sequence allocation for the single STA BSS. The firmware
+/// reserves bits 8..=11 for the BSS number and bits 12..=15 for the BSS type,
+/// so an allocation window must never cross out of the low eight bits.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SingleBssHostCmdSequenceAllocator {
+    next: u8,
+}
+
+impl SingleBssHostCmdSequenceAllocator {
+    pub const fn new() -> Self {
+        Self { next: 1 }
+    }
+
+    pub fn reserve_window(&mut self, count: u8) -> u8 {
+        assert!(count != 0, "HostCmd sequence window cannot be empty");
+        let mut base = self.next;
+        let last = u16::from(base) + u16::from(count) - 1;
+        if last > HOST_CMD_SEQUENCE_MASK {
+            base = 1;
+        }
+        let next = u16::from(base) + u16::from(count);
+        self.next = if next > HOST_CMD_SEQUENCE_MASK {
+            1
+        } else {
+            next as u8
+        };
+        base
+    }
+}
+
+impl Default for SingleBssHostCmdSequenceAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MarvellResponseHeader {
+    pub interface_len: u16,
+    pub interface_type: u16,
+    pub command: u16,
+    pub host_command_size: u16,
+    pub sequence: u16,
+    pub result: u16,
+}
+
+impl MarvellResponseHeader {
+    pub const fn is_empty(self) -> bool {
+        self.interface_len == 0
+            && self.interface_type == 0
+            && self.command == 0
+            && self.host_command_size == 0
+            && self.sequence == 0
+            && self.result == 0
+    }
+}
+
+pub const fn host_cmd_done_low_after_clear(status: u32, cmd_done_mask: u32) -> bool {
+    status != u32::MAX && status & cmd_done_mask == 0
+}
+
+pub const fn host_cmd_done_is_current(
+    low_baseline_observed: bool,
+    status: u32,
+    cmd_done_mask: u32,
+) -> bool {
+    low_baseline_observed && status != u32::MAX && status & cmd_done_mask != 0
+}
+
+pub const fn marvell_8897_pci_identity_valid(vendor_device: u32) -> bool {
+    vendor_device == 0x2b38_11ab
+}
+
+pub const fn pci_memory_bus_master_enabled(command: u16) -> bool {
+    command != u16::MAX && command & 0x0006 == 0x0006
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PciCommandEnablePlan {
+    AlreadyEnabled,
+    Write(u16),
+    Unavailable,
+}
+
+pub const fn plan_pci_memory_bus_master_enable(
+    vendor_device: u32,
+    command: u16,
+) -> PciCommandEnablePlan {
+    if !marvell_8897_pci_identity_valid(vendor_device) || command == u16::MAX {
+        PciCommandEnablePlan::Unavailable
+    } else if pci_memory_bus_master_enabled(command) {
+        PciCommandEnablePlan::AlreadyEnabled
+    } else {
+        PciCommandEnablePlan::Write(command | 0x0006)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConnectionMmioLiveness {
+    Ready,
+    FirmwareNotReady,
+    MmioUnavailable,
+}
+
+pub const fn connection_mmio_liveness(
+    firmware_status: u32,
+    host_interrupt_status: u32,
+) -> ConnectionMmioLiveness {
+    if host_interrupt_status == u32::MAX {
+        ConnectionMmioLiveness::MmioUnavailable
+    } else if firmware_status != crate::marvell_wifi_fw::FIRMWARE_READY_PCIE {
+        ConnectionMmioLiveness::FirmwareNotReady
+    } else {
+        ConnectionMmioLiveness::Ready
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MarvellCmdError {
     TooShort,
@@ -132,6 +255,7 @@ pub enum MarvellCmdError {
     BadCommand { got: u16 },
     BadSequence { got: u16 },
     FwResult { code: u16 },
+    InvalidSequenceContext { got: u16 },
     OutputBufferTooSmall,
     InvalidDescriptorAddress,
     InvalidBssid,
@@ -143,11 +267,40 @@ pub enum MarvellCmdError {
     InvalidAssociationId { raw: u16 },
 }
 
+/// Copies only the fixed, non-payload HostCmd response header. Callers must
+/// not retain or log bytes beyond these six protocol words.
+pub fn redacted_response_header(buf: &[u8]) -> Option<MarvellResponseHeader> {
+    if buf.len() < HOST_CMD_MIN_RESPONSE_LEN {
+        return None;
+    }
+    Some(MarvellResponseHeader {
+        interface_len: le16(buf, 0),
+        interface_type: le16(buf, 2),
+        command: le16(buf, 4),
+        host_command_size: le16(buf, 6),
+        sequence: le16(buf, 8),
+        result: le16(buf, 10),
+    })
+}
+
+pub const fn has_single_bss_host_cmd_context(sequence: u16) -> bool {
+    sequence & !HOST_CMD_SEQUENCE_MASK == 0
+}
+
+fn require_single_bss_host_cmd_context(sequence: u16) -> Result<(), MarvellCmdError> {
+    if has_single_bss_host_cmd_context(sequence) {
+        Ok(())
+    } else {
+        Err(MarvellCmdError::InvalidSequenceContext { got: sequence })
+    }
+}
+
 pub fn build_pcie_desc_details(
     seq: u16,
     rings: PcieDescriptorRings,
     out: &mut [u8],
 ) -> Result<usize, MarvellCmdError> {
+    require_single_bss_host_cmd_context(seq)?;
     if rings.tx_phys == 0 || rings.rx_phys == 0 || rings.event_phys == 0 {
         return Err(MarvellCmdError::InvalidDescriptorAddress);
     }
@@ -170,7 +323,23 @@ pub fn build_pcie_desc_details(
     Ok(PCIE_DESC_DETAILS_CMD_TOTAL_LEN)
 }
 
+pub fn build_func_init(seq: u16, out: &mut [u8]) -> Result<usize, MarvellCmdError> {
+    require_single_bss_host_cmd_context(seq)?;
+    if out.len() < FUNC_INIT_CMD_TOTAL_LEN {
+        return Err(MarvellCmdError::OutputBufferTooSmall);
+    }
+
+    out[..FUNC_INIT_CMD_TOTAL_LEN].fill(0);
+    put_le16(out, 0, FUNC_INIT_CMD_TOTAL_LEN as u16);
+    put_le16(out, 2, MWIFIEX_TYPE_CMD);
+    put_le16(out, 4, FUNC_INIT_CMD);
+    put_le16(out, 6, S_DS_GEN as u16);
+    put_le16(out, 8, seq);
+    Ok(FUNC_INIT_CMD_TOTAL_LEN)
+}
+
 pub fn build_mac_control(seq: u16, out: &mut [u8]) -> Result<usize, MarvellCmdError> {
+    require_single_bss_host_cmd_context(seq)?;
     if out.len() < MAC_CONTROL_CMD_TOTAL_LEN {
         return Err(MarvellCmdError::OutputBufferTooSmall);
     }
@@ -190,6 +359,7 @@ pub fn build_associate_24ghz(
     bss: AssociationBss<'_>,
     out: &mut [u8],
 ) -> Result<usize, MarvellCmdError> {
+    require_single_bss_host_cmd_context(seq)?;
     if bss.bssid.iter().all(|byte| *byte == 0) || bss.bssid[0] & 1 != 0 {
         return Err(MarvellCmdError::InvalidBssid);
     }
@@ -354,6 +524,10 @@ pub fn parse_pcie_desc_details_response(
     parse_marvell_command_status(buf, PCIE_DESC_DETAILS_CMD, expected_seq)
 }
 
+pub fn parse_func_init_response(expected_seq: u16, buf: &[u8]) -> Result<(), MarvellCmdError> {
+    parse_marvell_command_status(buf, FUNC_INIT_CMD, expected_seq)
+}
+
 pub fn parse_mac_control_response(expected_seq: u16, buf: &[u8]) -> Result<(), MarvellCmdError> {
     parse_marvell_command_status(buf, MAC_CONTROL_CMD, expected_seq)
 }
@@ -363,6 +537,7 @@ fn parse_marvell_command_status(
     expected_cmd: u16,
     expected_seq: u16,
 ) -> Result<(), MarvellCmdError> {
+    require_single_bss_host_cmd_context(expected_seq)?;
     if buf.len() < HOST_CMD_MIN_RESPONSE_LEN {
         return Err(MarvellCmdError::TooShort);
     }
@@ -391,6 +566,9 @@ fn parse_marvell_command_status(
 }
 
 pub fn build_get_hw_spec(seq: u16, out: &mut [u8]) -> Result<usize, HwSpecCmdError> {
+    if !has_single_bss_host_cmd_context(seq) {
+        return Err(HwSpecCmdError::InvalidSequenceContext { got: seq });
+    }
     if out.len() < GET_HW_SPEC_CMD_TOTAL_LEN {
         return Err(HwSpecCmdError::OutputBufferTooSmall);
     }
@@ -493,7 +671,10 @@ pub fn build_scan_24ghz(seq: u16, out: &mut [u8]) -> Result<usize, HwSpecCmdErro
     Ok(SCAN_24GHZ_CMD_TOTAL_LEN)
 }
 
-pub fn parse_hw_spec_response(buf: &[u8]) -> Result<HwSpec, HwSpecCmdError> {
+pub fn parse_hw_spec_response(expected_seq: u16, buf: &[u8]) -> Result<HwSpec, HwSpecCmdError> {
+    if !has_single_bss_host_cmd_context(expected_seq) {
+        return Err(HwSpecCmdError::InvalidSequenceContext { got: expected_seq });
+    }
     if buf.len() < 2 {
         return Err(HwSpecCmdError::TooShort);
     }
@@ -505,10 +686,20 @@ pub fn parse_hw_spec_response(buf: &[u8]) -> Result<HwSpec, HwSpecCmdError> {
         return Err(HwSpecCmdError::TooShort);
     }
 
+    let command_size = le16(buf, 6) as usize;
+    if command_size < S_DS_GEN || response_len != INTF_HEADER_LEN + command_size {
+        return Err(HwSpecCmdError::BadLength);
+    }
+
     let command = le16(buf, 4);
     let expected = GET_HW_SPEC_CMD | HOST_CMD_RET_BIT;
     if command != expected {
         return Err(HwSpecCmdError::BadCommand { got: command });
+    }
+
+    let sequence = le16(buf, 8);
+    if sequence != expected_seq {
+        return Err(HwSpecCmdError::BadSequence { got: sequence });
     }
 
     let result = le16(buf, 10);
@@ -698,14 +889,14 @@ mod tests {
     fn build_get_hw_spec_pins_linux_framing() {
         let mut out = [0xa5u8; 96];
 
-        let len = build_get_hw_spec(0x1234, &mut out).unwrap();
+        let len = build_get_hw_spec(0x34, &mut out).unwrap();
 
         assert_eq!(len, 75);
         assert_eq!(&out[0..2], &75u16.to_le_bytes());
         assert_eq!(&out[2..4], &1u16.to_le_bytes());
         assert_eq!(&out[4..6], &0x0003u16.to_le_bytes());
         assert_eq!(&out[6..8], &71u16.to_le_bytes());
-        assert_eq!(&out[8..10], &0x1234u16.to_le_bytes());
+        assert_eq!(&out[8..10], &0x34u16.to_le_bytes());
         assert_eq!(&out[10..12], &0u16.to_le_bytes());
         assert!(out[12..75].iter().all(|byte| *byte == 0));
         assert!(out[75..].iter().all(|byte| *byte == 0xa5));
@@ -869,7 +1060,7 @@ mod tests {
         put_response_le32(&mut response, 30, 0x1568_0019);
         put_response_le32(&mut response, 46, 1 << 21);
 
-        let parsed = parse_hw_spec_response(&response).unwrap();
+        let parsed = parse_hw_spec_response(0, &response).unwrap();
 
         assert_eq!(parsed.mac, [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
         assert_eq!(parsed.fw_release, 0x1568_0019);
@@ -891,7 +1082,7 @@ mod tests {
         response[81] = 2;
         response[82] = 1;
 
-        let parsed = parse_hw_spec_response(&response).unwrap();
+        let parsed = parse_hw_spec_response(0, &response).unwrap();
 
         assert_eq!(parsed.key_api_version, Some((2, 1)));
     }
@@ -901,7 +1092,7 @@ mod tests {
         let mut response = [0u8; HW_SPEC_MIN_RESPONSE_LEN - 1];
         put_response_le16(&mut response, 0, HW_SPEC_MIN_RESPONSE_LEN as u16);
         assert_eq!(
-            parse_hw_spec_response(&response),
+            parse_hw_spec_response(0, &response),
             Err(HwSpecCmdError::TooShort)
         );
 
@@ -912,7 +1103,7 @@ mod tests {
             (HW_SPEC_MIN_RESPONSE_LEN - 1) as u16,
         );
         assert_eq!(
-            parse_hw_spec_response(&short_declared),
+            parse_hw_spec_response(0, &short_declared),
             Err(HwSpecCmdError::TooShort)
         );
     }
@@ -922,9 +1113,10 @@ mod tests {
         let mut response = [0u8; 96];
         put_response_le16(&mut response, 0, 75);
         put_response_le16(&mut response, 4, 0x8004);
+        put_response_le16(&mut response, 6, GET_HW_SPEC_GEN_SIZE as u16);
 
         assert_eq!(
-            parse_hw_spec_response(&response),
+            parse_hw_spec_response(0, &response),
             Err(HwSpecCmdError::BadCommand { got: 0x8004 })
         );
     }
@@ -934,10 +1126,11 @@ mod tests {
         let mut response = [0u8; 96];
         put_response_le16(&mut response, 0, 75);
         put_response_le16(&mut response, 4, GET_HW_SPEC_CMD | HOST_CMD_RET_BIT);
+        put_response_le16(&mut response, 6, GET_HW_SPEC_GEN_SIZE as u16);
         put_response_le16(&mut response, 10, 0x0002);
 
         assert_eq!(
-            parse_hw_spec_response(&response),
+            parse_hw_spec_response(0, &response),
             Err(HwSpecCmdError::FwResult { code: 0x0002 })
         );
     }
@@ -1043,10 +1236,10 @@ mod tests {
             event_phys: 0x0102_0304_0506_0708,
         };
 
-        let len = build_pcie_desc_details(0x1234, rings, &mut out).unwrap();
+        let len = build_pcie_desc_details(0x34, rings, &mut out).unwrap();
 
         let expected = [
-            0x38, 0x00, 0x01, 0x00, 0xfa, 0x00, 0x34, 0x00, 0x34, 0x12, 0x00, 0x00, 0x88, 0x77,
+            0x38, 0x00, 0x01, 0x00, 0xfa, 0x00, 0x34, 0x00, 0x34, 0x00, 0x00, 0x00, 0x88, 0x77,
             0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x20, 0x00, 0x00, 0x00, 0x00, 0xff, 0xee, 0xdd,
             0xcc, 0xbb, 0xaa, 0x99, 0x20, 0x00, 0x00, 0x00, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03,
             0x02, 0x01, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1082,15 +1275,27 @@ mod tests {
     }
 
     #[test]
+    fn build_func_init_pins_empty_linux_hostcmd_shape() {
+        let mut out = [0xa5u8; FUNC_INIT_CMD_TOTAL_LEN + 2];
+        let len = build_func_init(0x35, &mut out).unwrap();
+
+        assert_eq!(
+            &out[..len],
+            &[0x0c, 0x00, 0x01, 0x00, 0xa9, 0x00, 0x08, 0x00, 0x35, 0x00, 0x00, 0x00]
+        );
+        assert_eq!(&out[len..], &[0xa5; 2]);
+    }
+
+    #[test]
     fn build_mac_control_pins_rx_tx_ethernet_ii_action() {
         let mut out = [0xa5u8; MAC_CONTROL_CMD_TOTAL_LEN + 2];
 
-        let len = build_mac_control(0x5678, &mut out).unwrap();
+        let len = build_mac_control(0x78, &mut out).unwrap();
 
         assert_eq!(
             &out[..len],
             &[
-                0x10, 0x00, 0x01, 0x00, 0x28, 0x00, 0x0c, 0x00, 0x78, 0x56, 0x00, 0x00, 0x13, 0x00,
+                0x10, 0x00, 0x01, 0x00, 0x28, 0x00, 0x0c, 0x00, 0x78, 0x00, 0x00, 0x00, 0x13, 0x00,
                 0x00, 0x00,
             ]
         );
@@ -1108,22 +1313,188 @@ mod tests {
         let mut response = [0u8; HOST_CMD_MIN_RESPONSE_LEN];
         put_response_le16(&mut response, 0, HOST_CMD_MIN_RESPONSE_LEN as u16);
         put_response_le16(&mut response, 6, S_DS_GEN as u16);
-        put_response_le16(&mut response, 8, 0x1234);
+        put_response_le16(&mut response, 8, 0x34);
         put_response_le16(&mut response, 4, PCIE_DESC_DETAILS_CMD | HOST_CMD_RET_BIT);
 
-        assert_eq!(parse_pcie_desc_details_response(0x1234, &response), Ok(()));
+        assert_eq!(parse_pcie_desc_details_response(0x34, &response), Ok(()));
         assert_eq!(
-            parse_pcie_desc_details_response(0x4321, &response),
-            Err(MarvellCmdError::BadSequence { got: 0x1234 })
+            parse_pcie_desc_details_response(0x35, &response),
+            Err(MarvellCmdError::BadSequence { got: 0x34 })
         );
 
         put_response_le16(&mut response, 4, MAC_CONTROL_CMD | HOST_CMD_RET_BIT);
-        assert_eq!(parse_mac_control_response(0x1234, &response), Ok(()));
+        assert_eq!(parse_mac_control_response(0x34, &response), Ok(()));
         assert_eq!(
-            parse_pcie_desc_details_response(0x1234, &response),
+            parse_pcie_desc_details_response(0x34, &response),
             Err(MarvellCmdError::BadCommand {
                 got: MAC_CONTROL_CMD | HOST_CMD_RET_BIT
             })
+        );
+    }
+
+    #[test]
+    fn pci_command_enable_plan_is_idempotent_and_fail_closed() {
+        assert_eq!(
+            plan_pci_memory_bus_master_enable(0x2b38_11ab, 0x0406),
+            PciCommandEnablePlan::AlreadyEnabled
+        );
+        assert_eq!(
+            plan_pci_memory_bus_master_enable(0x2b38_11ab, 0x0402),
+            PciCommandEnablePlan::Write(0x0406)
+        );
+        assert_eq!(
+            plan_pci_memory_bus_master_enable(0x2b38_11ab, u16::MAX),
+            PciCommandEnablePlan::Unavailable
+        );
+        assert_eq!(
+            plan_pci_memory_bus_master_enable(u32::MAX, 0x0402),
+            PciCommandEnablePlan::Unavailable
+        );
+    }
+
+    #[test]
+    fn single_bss_sequence_windows_start_advance_and_wrap_without_context_bits() {
+        let mut allocator = SingleBssHostCmdSequenceAllocator::new();
+        assert_eq!(allocator.reserve_window(5), 1);
+        assert_eq!(allocator.reserve_window(5), 6);
+        assert_eq!(allocator.reserve_window(5), 11);
+
+        let mut boundary = SingleBssHostCmdSequenceAllocator { next: 251 };
+        let base = boundary.reserve_window(5);
+        assert_eq!(base, 251);
+        let sequences = [base, base + 1, base + 2, base + 3, base + 4];
+        assert_eq!(sequences, [251, 252, 253, 254, 255]);
+        assert!(sequences
+            .iter()
+            .all(|sequence| has_single_bss_host_cmd_context(u16::from(*sequence))));
+        assert_eq!(boundary.reserve_window(5), 1);
+
+        let mut crossing = SingleBssHostCmdSequenceAllocator { next: 252 };
+        assert_eq!(crossing.reserve_window(5), 1);
+    }
+
+    #[test]
+    fn connection_builders_reject_old_bss_one_sequence_context() {
+        let rings = PcieDescriptorRings {
+            tx_phys: 1,
+            rx_phys: 2,
+            event_phys: 3,
+        };
+        let mut out = [0u8; 128];
+        let expected = Err(MarvellCmdError::InvalidSequenceContext { got: 0x0100 });
+        assert_eq!(build_pcie_desc_details(0x0100, rings, &mut out), expected);
+        assert_eq!(build_mac_control(0x0100, &mut out), expected);
+        assert!(!has_single_bss_host_cmd_context(0x0100));
+    }
+
+    #[test]
+    fn redacted_response_header_copies_only_fixed_protocol_words() {
+        let mut response = [0xa5; HOST_CMD_MIN_RESPONSE_LEN + 4];
+        put_response_le16(&mut response, 0, 0x000c);
+        put_response_le16(&mut response, 2, MWIFIEX_TYPE_CMD);
+        put_response_le16(&mut response, 4, MAC_CONTROL_CMD | HOST_CMD_RET_BIT);
+        put_response_le16(&mut response, 6, S_DS_GEN as u16);
+        put_response_le16(&mut response, 8, 0x002a);
+        put_response_le16(&mut response, 10, 0x0002);
+
+        assert_eq!(
+            redacted_response_header(&response),
+            Some(MarvellResponseHeader {
+                interface_len: 0x000c,
+                interface_type: MWIFIEX_TYPE_CMD,
+                command: MAC_CONTROL_CMD | HOST_CMD_RET_BIT,
+                host_command_size: S_DS_GEN as u16,
+                sequence: 0x002a,
+                result: 0x0002,
+            })
+        );
+        assert_eq!(
+            redacted_response_header(&response[..HOST_CMD_MIN_RESPONSE_LEN - 1]),
+            None
+        );
+    }
+
+    #[test]
+    fn parse_hw_spec_response_requires_exact_sequence_and_size() {
+        let mut response = [0u8; GET_HW_SPEC_CMD_TOTAL_LEN];
+        put_response_le16(&mut response, 0, GET_HW_SPEC_CMD_TOTAL_LEN as u16);
+        put_response_le16(&mut response, 4, GET_HW_SPEC_CMD | HOST_CMD_RET_BIT);
+        put_response_le16(&mut response, 6, GET_HW_SPEC_GEN_SIZE as u16);
+        put_response_le16(&mut response, 8, 7);
+
+        assert_eq!(
+            parse_hw_spec_response(6, &response),
+            Err(HwSpecCmdError::BadSequence { got: 7 })
+        );
+        put_response_le16(&mut response, 8, 6);
+        put_response_le16(&mut response, 6, (GET_HW_SPEC_GEN_SIZE - 1) as u16);
+        assert_eq!(
+            parse_hw_spec_response(6, &response),
+            Err(HwSpecCmdError::BadLength)
+        );
+        assert_eq!(
+            parse_hw_spec_response(0x0100, &response),
+            Err(HwSpecCmdError::InvalidSequenceContext { got: 0x0100 })
+        );
+    }
+
+    #[test]
+    fn init_commands_require_single_bss_sequence_context() {
+        let mut out = [0u8; GET_HW_SPEC_CMD_TOTAL_LEN];
+        assert_eq!(
+            build_get_hw_spec(0x0100, &mut out),
+            Err(HwSpecCmdError::InvalidSequenceContext { got: 0x0100 })
+        );
+        assert_eq!(
+            build_func_init(0x0100, &mut out),
+            Err(MarvellCmdError::InvalidSequenceContext { got: 0x0100 })
+        );
+    }
+
+    #[test]
+    fn host_cmd_epoch_rejects_stale_high_and_accepts_only_low_then_done() {
+        const CMD_DONE: u32 = 1 << 2;
+        assert!(!host_cmd_done_low_after_clear(CMD_DONE, CMD_DONE));
+        assert!(!host_cmd_done_low_after_clear(u32::MAX, CMD_DONE));
+        assert!(host_cmd_done_low_after_clear(0, CMD_DONE));
+        assert!(!host_cmd_done_is_current(false, CMD_DONE, CMD_DONE));
+        assert!(!host_cmd_done_is_current(true, 0, CMD_DONE));
+        assert!(!host_cmd_done_is_current(true, u32::MAX, CMD_DONE));
+        assert!(host_cmd_done_is_current(true, CMD_DONE, CMD_DONE));
+    }
+
+    #[test]
+    fn host_cmd_empty_response_is_typed_without_scratch_readback_contract() {
+        let empty = redacted_response_header(&[0; HOST_CMD_MIN_RESPONSE_LEN]).unwrap();
+        assert!(empty.is_empty());
+        assert!(!MarvellResponseHeader {
+            command: PCIE_DESC_DETAILS_CMD | HOST_CMD_RET_BIT,
+            ..empty
+        }
+        .is_empty());
+    }
+
+    #[test]
+    fn connection_pci_enable_and_post_enable_mmio_liveness_are_fail_closed() {
+        use crate::marvell_wifi_fw::FIRMWARE_READY_PCIE;
+
+        assert!(marvell_8897_pci_identity_valid(0x2b38_11ab));
+        assert!(!marvell_8897_pci_identity_valid(u32::MAX));
+        assert!(pci_memory_bus_master_enabled(0x0006));
+        assert!(!pci_memory_bus_master_enabled(0x0002));
+        assert!(!pci_memory_bus_master_enabled(0x0004));
+        assert!(!pci_memory_bus_master_enabled(u16::MAX));
+        assert_eq!(
+            connection_mmio_liveness(FIRMWARE_READY_PCIE, 0),
+            ConnectionMmioLiveness::Ready
+        );
+        assert_eq!(
+            connection_mmio_liveness(FIRMWARE_READY_PCIE, u32::MAX),
+            ConnectionMmioLiveness::MmioUnavailable
+        );
+        assert_eq!(
+            connection_mmio_liveness(0, 0),
+            ConnectionMmioLiveness::FirmwareNotReady
         );
     }
 
@@ -1144,10 +1515,10 @@ mod tests {
         };
         let mut out = [0xa5u8; 112];
 
-        let len = build_associate_24ghz(0x3344, bss, &mut out).unwrap();
+        let len = build_associate_24ghz(0x44, bss, &mut out).unwrap();
 
         let expected = [
-            0x64, 0x00, 0x01, 0x00, 0x12, 0x00, 0x60, 0x00, 0x44, 0x33, 0x00, 0x00, 0x00, 0x11,
+            0x64, 0x00, 0x01, 0x00, 0x12, 0x00, 0x60, 0x00, 0x44, 0x00, 0x00, 0x00, 0x00, 0x11,
             0x22, 0x33, 0x44, 0x55, 0x31, 0x04, 0x0a, 0x00, 0x64, 0x00, 0x00, 0x00, 0x00, 0x03,
             0x00, 0x6e, 0x65, 0x74, 0x03, 0x00, 0x01, 0x00, 0x06, 0x04, 0x00, 0x06, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x08, 0x00, 0x82, 0x84, 0x8b, 0x96, 0x0c,
@@ -1181,6 +1552,11 @@ mod tests {
             &[0xdd, 0, 6, 0, 0, 0x50, 0xf2, 1, 1, 0]
         );
         assert_eq!(&out[18..20], &MWIFIEX_CAPINFO_MASK.to_le_bytes());
+
+        assert_eq!(
+            build_associate_24ghz(0x0100, bss, &mut out),
+            Err(MarvellCmdError::InvalidSequenceContext { got: 0x0100 })
+        );
 
         assert_eq!(
             build_associate_24ghz(0, AssociationBss { channel: 0, ..bss }, &mut out),

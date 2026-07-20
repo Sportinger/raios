@@ -95,6 +95,19 @@ impl SecureSecretSubmission {
     pub(crate) fn into_plaintext_for_broker(self) -> SecretPlaintext {
         self.secret
     }
+
+    /// Transfers a physical WiFi submission to the ephemeral current-boot
+    /// facade. The facade remains responsible for posture, target, and
+    /// single-attempt binding; no caller receives a plaintext byte slice.
+    pub(crate) fn into_plaintext_for_ephemeral_physical_wifi(self) -> Option<SecretPlaintext> {
+        if self.prompt == SecureOverlayPrompt::WifiPassphrase
+            && self.secret.kind() == SecretKind::WifiPassphrase
+        {
+            Some(self.secret)
+        } else {
+            None
+        }
+    }
 }
 
 /// Complete RR1 text with no byte accessor. It can cross only the two exact

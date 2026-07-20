@@ -4,6 +4,8 @@
 //! `HostCmd_CMD_SUPPLICANT_PROFILE` and `HostCmd_CMD_SUPPLICANT_PMK`.
 //! This module performs no MMIO, DMA, allocation, logging, or secret retention.
 
+use crate::marvell_wifi_cmd::has_single_bss_host_cmd_context;
+
 pub const FW_CAP_FIRMWARE_SUPPLICANT: u32 = 1 << 21;
 pub const EVENT_PORT_RELEASE: u32 = 0x002b;
 
@@ -54,9 +56,11 @@ pub enum SupplicantError {
     BadCommand { got: u16 },
     BadSequence { got: u16 },
     FirmwareResult { code: u16 },
+    InvalidSequenceContext { got: u16 },
 }
 
 pub fn build_supplicant_profile_set(seq: u16, out: &mut [u8]) -> Result<usize, SupplicantError> {
+    require_single_bss_host_cmd_context(seq)?;
     if out.len() < SUPPLICANT_PROFILE_SET_TOTAL_LEN {
         return Err(SupplicantError::OutputBufferTooSmall);
     }
@@ -90,6 +94,7 @@ pub fn build_supplicant_pmk_set(
     passphrase: &[u8],
     out: &mut [u8],
 ) -> Result<usize, SupplicantError> {
+    require_single_bss_host_cmd_context(seq)?;
     if ssid.is_empty() || ssid.len() > MAX_SSID_LEN {
         return Err(SupplicantError::InvalidSsidLength);
     }
@@ -131,6 +136,14 @@ pub fn build_supplicant_pmk_set(
     out[offset..offset + passphrase.len()].copy_from_slice(passphrase);
 
     Ok(total_len)
+}
+
+fn require_single_bss_host_cmd_context(sequence: u16) -> Result<(), SupplicantError> {
+    if has_single_bss_host_cmd_context(sequence) {
+        Ok(())
+    } else {
+        Err(SupplicantError::InvalidSequenceContext { got: sequence })
+    }
 }
 
 pub fn parse_supplicant_profile_response(
@@ -224,13 +237,13 @@ mod tests {
     fn profile_set_pins_nxp_wpa2_aes_packet() {
         let mut out = [0xa5; SUPPLICANT_PROFILE_SET_TOTAL_LEN + 4];
 
-        let len = build_supplicant_profile_set(0x1234, &mut out).unwrap();
+        let len = build_supplicant_profile_set(0x34, &mut out).unwrap();
 
         assert_eq!(len, 28);
         assert_eq!(
             &out[..len],
             &[
-                0x1c, 0x00, 0x01, 0x00, 0xc5, 0x00, 0x18, 0x00, 0x34, 0x12, 0x00, 0x00, 0x01, 0x00,
+                0x1c, 0x00, 0x01, 0x00, 0xc5, 0x00, 0x18, 0x00, 0x34, 0x00, 0x00, 0x00, 0x01, 0x00,
                 0x00, 0x00, 0x40, 0x01, 0x02, 0x00, 0x20, 0x00, 0x42, 0x01, 0x02, 0x00, 0x08, 0x08,
             ]
         );
@@ -252,13 +265,13 @@ mod tests {
     fn pmk_set_pins_nxp_ssid_bssid_passphrase_packet() {
         let mut out = [0xa5; 50];
 
-        let len = build_supplicant_pmk_set(0x1234, BSSID, b"test", b"12345678", &mut out).unwrap();
+        let len = build_supplicant_pmk_set(0x34, BSSID, b"test", b"12345678", &mut out).unwrap();
 
         assert_eq!(len, 46);
         assert_eq!(
             &out[..len],
             &[
-                0x2e, 0x00, 0x01, 0x00, 0xc4, 0x00, 0x2a, 0x00, 0x34, 0x12, 0x00, 0x00, 0x01, 0x00,
+                0x2e, 0x00, 0x01, 0x00, 0xc4, 0x00, 0x2a, 0x00, 0x34, 0x00, 0x00, 0x00, 0x01, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, b't', b'e', b's', b't', 0x23, 0x01, 0x06, 0x00,
                 0x02, 0x11, 0x22, 0x33, 0x44, 0x55, 0x3c, 0x01, 0x08, 0x00, b'1', b'2', b'3', b'4',
                 b'5', b'6', b'7', b'8',
@@ -281,6 +294,19 @@ mod tests {
         assert_eq!(
             le16(&out, 6) as usize,
             SUPPLICANT_PMK_SET_MAX_TOTAL_LEN - INTF_HEADER_LEN
+        );
+    }
+
+    #[test]
+    fn connection_supplicant_builders_reject_old_bss_one_sequence_context() {
+        let mut out = [0u8; SUPPLICANT_PMK_SET_MAX_TOTAL_LEN];
+        assert_eq!(
+            build_supplicant_profile_set(0x0100, &mut out),
+            Err(SupplicantError::InvalidSequenceContext { got: 0x0100 })
+        );
+        assert_eq!(
+            build_supplicant_pmk_set(0x0100, BSSID, b"test", b"12345678", &mut out),
+            Err(SupplicantError::InvalidSequenceContext { got: 0x0100 })
         );
     }
 

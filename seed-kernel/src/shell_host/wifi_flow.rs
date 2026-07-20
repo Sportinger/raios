@@ -26,6 +26,7 @@ enum CredentialStorage {
     Open,
     LegacyRamOnly,
     Vault,
+    EphemeralPhysical,
 }
 
 #[derive(Clone, Copy)]
@@ -98,6 +99,10 @@ impl GuidedWifi {
     }
 
     fn begin_scan(&mut self) -> bool {
+        if marvell_wifi_pcie::connection_reboot_required() {
+            self.state = State::Failed("reboot_required");
+            return true;
+        }
         if wifi::snapshot().state != wifi::WifiState::Detected {
             self.state = State::Failed("wifi_device_not_detected");
             return true;
@@ -195,12 +200,16 @@ impl GuidedWifi {
         }
         let hw_spec = marvell_wifi_pcie::hw_spec_snapshot();
         if hw_spec.is_failed() {
-            self.state = State::Failed(
-                hw_spec
+            self.state = State::Failed(match hw_spec.failed_stage {
+                Some(marvell_wifi_pcie::HwSpecStage::PcieDescDetails) => "init_pcie_desc_failed",
+                Some(marvell_wifi_pcie::HwSpecStage::FuncInit) => "init_func_init_failed",
+                Some(marvell_wifi_pcie::HwSpecStage::GetHwSpec) => "init_get_hw_spec_failed",
+                Some(marvell_wifi_pcie::HwSpecStage::MacControl) => "init_mac_control_failed",
+                _ => hw_spec
                     .result
                     .map(|value| value.label())
-                    .unwrap_or("hw_spec_failed"),
-            );
+                    .unwrap_or("firmware_epoch_init_failed"),
+            });
             return true;
         }
         if !hw_spec.is_ready() {
@@ -256,10 +265,17 @@ impl GuidedWifi {
         started: bool,
     ) -> bool {
         if !started {
-            let result = if storage == CredentialStorage::Vault {
-                marvell_wifi_pcie::start_association_from_physical_genesis()
-            } else {
-                marvell_wifi_pcie::start_association()
+            let result = match storage {
+                CredentialStorage::Vault => {
+                    marvell_wifi_pcie::start_association_from_physical_genesis()
+                }
+                CredentialStorage::EphemeralPhysical => {
+                    self.state = State::Failed("ephemeral_wifi_fresh_input_required");
+                    return true;
+                }
+                CredentialStorage::Open | CredentialStorage::LegacyRamOnly => {
+                    marvell_wifi_pcie::start_association()
+                }
             };
             console::write_event(format_args!("WIFI ASSOC: {}", result.label()));
             return match result {
@@ -299,20 +315,26 @@ impl GuidedWifi {
         }
     }
 
-    /// Consumes physical input only for the trusted Vault prompt. Serial input
-    /// never reaches this path and remains the explicitly legacy RAM-only path.
+    /// Consumes physical input only for trusted masked prompts. Serial input
+    /// never reaches either Vault or ephemeral-current-boot submissions.
     pub fn handle_physical_input(&mut self, event: input::InputEvent) -> bool {
         let State::Password {
             network,
-            storage: CredentialStorage::Vault,
+            storage,
             remember_for_boot,
             ..
         } = self.state
         else {
             return false;
         };
+        if !matches!(
+            storage,
+            CredentialStorage::Vault | CredentialStorage::EphemeralPhysical
+        ) {
+            return false;
+        }
         if matches!(event.kind, input::InputEventKind::SecureAttention) {
-            self.cancel_vault_password();
+            self.cancel_secure_password();
             return true;
         }
         let Some(value) = input::event_to_console_input(event) else {
@@ -326,9 +348,15 @@ impl GuidedWifi {
                 let _ = self.overlay.handle(SecureOverlayInput::TextByte(byte));
             }
             input::ConsoleInput::Special(input::SpecialKey::Enter) => {
-                self.submit_vault_password(network, remember_for_boot)
+                if storage == CredentialStorage::Vault {
+                    self.submit_vault_password(network, remember_for_boot)
+                } else {
+                    self.submit_ephemeral_physical_password(network)
+                }
             }
-            input::ConsoleInput::Special(input::SpecialKey::Escape) => self.cancel_vault_password(),
+            input::ConsoleInput::Special(input::SpecialKey::Escape) => {
+                self.cancel_secure_password()
+            }
             input::ConsoleInput::Special(
                 input::SpecialKey::Tab
                 | input::SpecialKey::BackTab
@@ -370,8 +398,11 @@ impl GuidedWifi {
                 }
                 let [back, submit] = action_rects(rect);
                 if point_in(x, y, back) {
-                    if storage == CredentialStorage::Vault {
-                        self.cancel_vault_password();
+                    if matches!(
+                        storage,
+                        CredentialStorage::Vault | CredentialStorage::EphemeralPhysical
+                    ) {
+                        self.cancel_secure_password();
                     } else {
                         let _ = console::cancel_wifi_passphrase_entry();
                         self.state = State::Selecting;
@@ -381,6 +412,10 @@ impl GuidedWifi {
                 if point_in(x, y, submit) {
                     if storage == CredentialStorage::Vault {
                         self.submit_vault_password(network, remember_for_boot);
+                        return true;
+                    }
+                    if storage == CredentialStorage::EphemeralPhysical {
+                        self.submit_ephemeral_physical_password(network);
                         return true;
                     }
                     wifi::set_remember_passphrase_for_boot(remember_for_boot);
@@ -398,9 +433,13 @@ impl GuidedWifi {
                 }
             }
             State::Failed(_) => {
-                let [retry, close] = action_rects(result_rect(width, height));
+                let [retry, close] = action_rects(failure_rect(width, height));
                 if point_in(x, y, retry) {
-                    self.begin()
+                    if marvell_wifi_pcie::connection_reboot_required() {
+                        true
+                    } else {
+                        self.begin()
+                    }
                 } else if point_in(x, y, close) {
                     self.state = State::Idle;
                     true
@@ -460,7 +499,75 @@ impl GuidedWifi {
         }
     }
 
-    fn cancel_vault_password(&mut self) {
+    fn submit_ephemeral_physical_password(&mut self, network: wifi::ScannedNetwork) {
+        if crate::agent_protocol::boot_control::current_boot_posture()
+            != BootPosture::PersistenceUnavailable
+        {
+            self.overlay.clear();
+            self.state = State::Failed("ephemeral_wifi_boot_posture_denied");
+            return;
+        }
+        let Some(selected) = wifi::association_target() else {
+            self.overlay.clear();
+            self.state = State::Failed("ephemeral_wifi_live_target_required");
+            return;
+        };
+        if !same_ephemeral_live_target(selected, network) {
+            self.overlay.clear();
+            self.state = State::Failed("ephemeral_wifi_target_changed");
+            return;
+        }
+
+        let submission = match self.overlay.handle(SecureOverlayInput::Submit) {
+            SecureOverlayAction::Submitted(submission)
+                if submission.prompt() == SecureOverlayPrompt::WifiPassphrase =>
+            {
+                submission
+            }
+            SecureOverlayAction::Rejected(_) => {
+                self.state = State::Password {
+                    network,
+                    storage: CredentialStorage::EphemeralPhysical,
+                    remember_for_boot: false,
+                    rejected: true,
+                };
+                return;
+            }
+            _ => {
+                self.overlay.clear();
+                self.state = State::Failed("ephemeral_wifi_secure_overlay_submission_required");
+                return;
+            }
+        };
+        self.overlay.clear();
+
+        let authority = match secret_vault::begin_ephemeral_physical_wifi_use(network, submission) {
+            Ok(authority) => authority,
+            Err(denied) => {
+                self.state = State::Failed(denied.label());
+                return;
+            }
+        };
+        let result =
+            marvell_wifi_pcie::start_ephemeral_association_from_physical_genesis(authority);
+        console::write_event(format_args!("WIFI EPHEMERAL ASSOC: {}", result.label()));
+        self.state = match result {
+            marvell_wifi_pcie::ConnectionTriggerResult::Started => State::Associating {
+                network,
+                storage: CredentialStorage::EphemeralPhysical,
+                started: true,
+            },
+            marvell_wifi_pcie::ConnectionTriggerResult::AlreadyRunning
+            | marvell_wifi_pcie::ConnectionTriggerResult::AlreadyReady => {
+                State::Failed("ephemeral_wifi_attempt_not_fresh")
+            }
+            marvell_wifi_pcie::ConnectionTriggerResult::Failed(error) => {
+                State::Failed(error.label())
+            }
+        };
+    }
+
+    fn cancel_secure_password(&mut self) {
         let _ = self.overlay.handle(SecureOverlayInput::Cancel);
         self.overlay.clear();
         self.state = State::Selecting;
@@ -487,6 +594,25 @@ impl GuidedWifi {
             wifi::clear_config();
             if wifi::select_scan_result(index).is_err() {
                 self.state = State::Failed("bss_evidence_unavailable");
+                return true;
+            }
+            if crate::agent_protocol::boot_control::current_boot_posture()
+                == BootPosture::PersistenceUnavailable
+            {
+                if !network.association_ready()
+                    || network.source != wifi::ScanSource::LiveRadio
+                    || !network.supports_wpa2_psk_ccmp()
+                {
+                    self.state = State::Failed("ephemeral_wifi_requires_live_wpa2_psk_ccmp");
+                    return true;
+                }
+                let _ = self.overlay.open(SecureOverlayPrompt::WifiPassphrase);
+                self.state = State::Password {
+                    network,
+                    storage: CredentialStorage::EphemeralPhysical,
+                    remember_for_boot: false,
+                    rejected: false,
+                };
                 return true;
             }
             if network.security == Dot11Security::Open {
@@ -568,7 +694,10 @@ impl GuidedWifi {
                 remember_for_boot,
                 rejected,
             } => {
-                let masked_len = if storage == CredentialStorage::Vault {
+                let masked_len = if matches!(
+                    storage,
+                    CredentialStorage::Vault | CredentialStorage::EphemeralPhysical
+                ) {
                     self.overlay.snapshot().masked_len
                 } else {
                     console::snapshot().input.as_str().chars().count()
@@ -591,6 +720,20 @@ impl GuidedWifi {
             State::Failed(reason) => draw_failed(surface, width, height, reason),
         }
     }
+}
+
+fn same_ephemeral_live_target(
+    selected: wifi::ScannedNetwork,
+    expected: wifi::ScannedNetwork,
+) -> bool {
+    selected.association_ready()
+        && selected.source == wifi::ScanSource::LiveRadio
+        && selected.supports_wpa2_psk_ccmp()
+        && selected.ssid.as_bytes() == expected.ssid.as_bytes()
+        && selected.bssid == expected.bssid
+        && selected.channel == expected.channel
+        && selected.security == expected.security
+        && selected.security_ie() == expected.security_ie()
 }
 
 fn select_saved_scan_target() -> Option<wifi::ScannedNetwork> {
@@ -721,7 +864,18 @@ fn draw_password(
         LogicalRect::new(rect.x + 20, rect.y + 66, rect.w - 40, 28),
         APP_BLUE,
     );
-    let visible_len = masked_len.min((rect.w - 56) / FONT_ADVANCE);
+    // The current-boot prompt shows only empty/non-empty state, not the secret
+    // length, so screenshots cannot recover that metadata.
+    let masked_glyphs = if storage == CredentialStorage::EphemeralPhysical {
+        if masked_len == 0 {
+            0
+        } else {
+            8
+        }
+    } else {
+        masked_len
+    };
+    let visible_len = masked_glyphs.min((rect.w - 56) / FONT_ADVANCE);
     for index in 0..visible_len {
         text::draw_text(
             surface,
@@ -748,12 +902,14 @@ fn draw_password(
         surface,
         rect.x + 20,
         rect.y + 120,
-        if storage == CredentialStorage::Vault {
-            "Will be encrypted for this exact access point"
-        } else if remember_for_boot {
-            "[x] Remember for this boot (LEGACY RAM-ONLY)"
-        } else {
-            "[ ] Remember for this boot (LEGACY RAM-ONLY)"
+        match storage {
+            CredentialStorage::Vault => "Will be encrypted for this exact access point",
+            CredentialStorage::EphemeralPhysical => "Used once for this boot; never saved",
+            CredentialStorage::LegacyRamOnly if remember_for_boot => {
+                "[x] Remember for this boot (LEGACY RAM-ONLY)"
+            }
+            CredentialStorage::LegacyRamOnly => "[ ] Remember for this boot (LEGACY RAM-ONLY)",
+            CredentialStorage::Open => "No credential",
         },
         TEXT_MUTED,
         None,
@@ -763,10 +919,10 @@ fn draw_password(
     draw_button(
         surface,
         submit,
-        if storage == CredentialStorage::Vault {
-            "Save and connect"
-        } else {
-            "Set credentials"
+        match storage {
+            CredentialStorage::Vault => "Save and connect",
+            CredentialStorage::EphemeralPhysical => "Connect once",
+            CredentialStorage::Open | CredentialStorage::LegacyRamOnly => "Set credentials",
         },
         true,
     );
@@ -797,6 +953,7 @@ fn draw_configured(
             CredentialStorage::Vault => "Credential saved in Secret Vault",
             CredentialStorage::LegacyRamOnly => "Credential ready (LEGACY RAM-ONLY)",
             CredentialStorage::Open => "Open network selected for this boot",
+            CredentialStorage::EphemeralPhysical => "Connected once; credential discarded",
         },
         TEXT_MAIN,
         None,
@@ -820,7 +977,7 @@ fn draw_failed(
     height: usize,
     reason: &'static str,
 ) {
-    let rect = result_rect(width, height);
+    let rect = failure_rect(width, height);
     draw_panel(surface, rect, "WiFi unavailable");
     draw_truncated_text(
         surface,
@@ -830,26 +987,210 @@ fn draw_failed(
         (rect.w - 40) / FONT_ADVANCE,
         APP_RED,
     );
+    let connection = marvell_wifi_pcie::connection_snapshot();
+    let diagnostic = if matches!(
+        connection.result,
+        Some(
+            marvell_wifi_pcie::ConnectionResult::Transport(
+                marvell_wifi_pcie::ConnectionTransportError::EmptyResponseOnCommandDone,
+            ) | marvell_wifi_pcie::ConnectionResult::CommandResponse(_)
+                | marvell_wifi_pcie::ConnectionResult::SupplicantResponse(_)
+        )
+    ) {
+        connection.response_diagnostic
+    } else {
+        None
+    };
+    let status_y = if let Some(diagnostic) = diagnostic {
+        let mut phase = TextBuf::<96>::new();
+        let _ = write!(
+            phase,
+            "stage={} class={}",
+            connection
+                .failed_stage
+                .map(|stage| stage.label())
+                .unwrap_or("unknown"),
+            diagnostic.error_class.label(),
+        );
+        draw_truncated_text(
+            surface,
+            rect.x + 20,
+            rect.y + 76,
+            phase.as_str(),
+            (rect.w - 40) / FONT_ADVANCE,
+            APP_AMBER,
+        );
+
+        let mut interface = TextBuf::<96>::new();
+        let _ = write!(
+            interface,
+            "intf_len={:04x} type={:04x} cmd={:04x}",
+            diagnostic.interface_len, diagnostic.interface_type, diagnostic.command,
+        );
+        text::draw_text(
+            surface,
+            rect.x + 20,
+            rect.y + 96,
+            interface.as_str(),
+            TEXT_MAIN,
+            None,
+        );
+
+        let mut response = TextBuf::<96>::new();
+        let _ = write!(
+            response,
+            "host_size={:04x} seq={:04x} result={:04x}",
+            diagnostic.host_command_size, diagnostic.sequence, diagnostic.result,
+        );
+        text::draw_text(
+            surface,
+            rect.x + 20,
+            rect.y + 116,
+            response.as_str(),
+            TEXT_MAIN,
+            None,
+        );
+
+        let mut expected = TextBuf::<96>::new();
+        let _ = write!(
+            expected,
+            "expected cmd={:04x} seq={:04x}",
+            diagnostic.expected_command, diagnostic.expected_sequence,
+        );
+        text::draw_text(
+            surface,
+            rect.x + 20,
+            rect.y + 136,
+            expected.as_str(),
+            TEXT_MAIN,
+            None,
+        );
+        rect.y + 158
+    } else {
+        rect.y + 76
+    };
+    let mut status_y = status_y;
+    if let Some(transport) = connection.transport_diagnostic {
+        let mut pci = TextBuf::<96>::new();
+        if transport.pci_config_valid {
+            let _ = write!(
+                pci,
+                "pci={:08x} cmd={:04x}>{:04x}",
+                transport.pci_vendor_device,
+                transport.pci_command_before,
+                transport.pci_command_after,
+            );
+        } else {
+            let _ = write!(pci, "pci=na");
+        }
+        draw_truncated_text(
+            surface,
+            rect.x + 20,
+            status_y,
+            pci.as_str(),
+            (rect.w - 40) / FONT_ADVANCE,
+            APP_AMBER,
+        );
+        status_y += 20;
+
+        let mut liveness = TextBuf::<96>::new();
+        let _ = write!(liveness, "live");
+        if transport.pre_enable_status_valid {
+            let _ = write!(liveness, " pre={:08x}", transport.pre_enable_status);
+        } else {
+            let _ = write!(liveness, " pre=na");
+        }
+        if transport.firmware_status_valid {
+            let _ = write!(liveness, " fw={:08x}", transport.firmware_status);
+        } else {
+            let _ = write!(liveness, " fw=na");
+        }
+        if transport.post_enable_status_valid {
+            let _ = write!(liveness, " post={:08x}", transport.post_enable_status);
+        } else {
+            let _ = write!(liveness, " post=na");
+        }
+        draw_truncated_text(
+            surface,
+            rect.x + 20,
+            status_y,
+            liveness.as_str(),
+            (rect.w - 40) / FONT_ADVANCE,
+            APP_AMBER,
+        );
+        status_y += 20;
+
+        let mut interrupt = TextBuf::<96>::new();
+        let _ = write!(interrupt, "int");
+        if transport.pre_clear_status_valid {
+            let _ = write!(interrupt, " pre={:08x}", transport.pre_clear_status);
+        } else {
+            let _ = write!(interrupt, " pre=na");
+        }
+        if transport.post_clear_status_valid {
+            let _ = write!(interrupt, " post={:08x}", transport.post_clear_status);
+        } else {
+            let _ = write!(interrupt, " post=na");
+        }
+        if transport.program_flush_status_valid {
+            let _ = write!(interrupt, " prog={:08x}", transport.program_flush_status,);
+        } else {
+            let _ = write!(interrupt, " prog=na");
+        }
+        if transport.first_poll_status_valid {
+            let _ = write!(interrupt, " first={:08x}", transport.first_poll_status);
+        } else {
+            let _ = write!(interrupt, " first=na");
+        }
+        let _ = write!(interrupt, " n={}", transport.poll_count);
+        draw_truncated_text(
+            surface,
+            rect.x + 20,
+            status_y,
+            interrupt.as_str(),
+            (rect.w - 40) / FONT_ADVANCE,
+            APP_AMBER,
+        );
+        status_y += 20;
+    }
+    if marvell_wifi_pcie::connection_reboot_required() {
+        text::draw_text(
+            surface,
+            rect.x + 20,
+            status_y,
+            "Transport quarantined - reboot required",
+            APP_RED,
+            None,
+        );
+        status_y += 20;
+    }
     text::draw_text(
         surface,
         rect.x + 20,
-        rect.y + 76,
+        status_y,
         "No network state was granted",
         TEXT_MUTED,
         None,
     );
     let [retry, close] = action_rects(rect);
-    draw_button(surface, retry, "Retry", false);
+    draw_button(
+        surface,
+        retry,
+        if marvell_wifi_pcie::connection_reboot_required() {
+            "Reboot req."
+        } else {
+            "Retry"
+        },
+        false,
+    );
     draw_button(surface, close, "Close", false);
 }
 
 fn connection_progress() -> (usize, &'static str) {
     match marvell_wifi_pcie::connection_snapshot().stage {
         marvell_wifi_pcie::ConnectionStage::Idle => (4, "Preparing connection"),
-        marvell_wifi_pcie::ConnectionStage::RegisterRings => (18, "Registering data rings"),
-        marvell_wifi_pcie::ConnectionStage::MacControl => (32, "Enabling radio data path"),
-        marvell_wifi_pcie::ConnectionStage::SupplicantProfile => (48, "Configuring WPA2 profile"),
-        marvell_wifi_pcie::ConnectionStage::SupplicantPmk => (62, "Loading connection credential"),
+        marvell_wifi_pcie::ConnectionStage::SupplicantProfile => (32, "Configuring WPA2 profile"),
+        marvell_wifi_pcie::ConnectionStage::SupplicantPmk => (54, "Loading connection credential"),
         marvell_wifi_pcie::ConnectionStage::Associate => (76, "Associating with access point"),
         marvell_wifi_pcie::ConnectionStage::WaitPortRelease => (90, "Completing WPA2 key exchange"),
         marvell_wifi_pcie::ConnectionStage::LinkReady => (100, "Link ready; requesting address"),
@@ -867,8 +1208,15 @@ fn startup_progress() -> (usize, &'static str) {
         };
         return (usize::min(percent, 80), "Loading radio firmware");
     }
-    if !marvell_wifi_pcie::hw_spec_snapshot().is_ready() {
-        return (88, "Reading radio identity");
+    let init = marvell_wifi_pcie::hw_spec_snapshot();
+    if !init.is_ready() {
+        return match init.stage {
+            marvell_wifi_pcie::HwSpecStage::PcieDescDetails => (83, "Registering radio rings"),
+            marvell_wifi_pcie::HwSpecStage::FuncInit => (86, "Initializing radio function"),
+            marvell_wifi_pcie::HwSpecStage::GetHwSpec => (89, "Reading radio identity"),
+            marvell_wifi_pcie::HwSpecStage::MacControl => (92, "Enabling radio data path"),
+            _ => (82, "Preparing radio"),
+        };
     }
     if marvell_wifi_pcie::scan_cmd_snapshot().stage == marvell_wifi_pcie::ScanCmdStage::Done {
         (100, "Networks ready")
@@ -907,6 +1255,9 @@ fn password_rect(width: usize, height: usize) -> LogicalRect {
 }
 fn result_rect(width: usize, height: usize) -> LogicalRect {
     centered_rect(width, height, 340, 152)
+}
+fn failure_rect(width: usize, height: usize) -> LogicalRect {
+    centered_rect(width, height, 420, 218)
 }
 fn progress_rect(width: usize, height: usize) -> LogicalRect {
     centered_rect(width, height, 340, 126)

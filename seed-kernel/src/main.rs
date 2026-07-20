@@ -462,6 +462,9 @@ impl PeriodicTasks {
                 status_ui.render_forced(uptime_ms(), *runtime_status);
             }
         });
+        // Driver failure callbacks only queue a fixed trace in RAM. Flush once
+        // all Marvell locks have returned; USB MSC and HID share one xHCI lock.
+        usb::flush_pending_hw_failure_trace();
         if self.entropy_ready {
             if !self.net_started {
                 net::init();

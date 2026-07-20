@@ -15,6 +15,13 @@ pub struct PciAddress {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PciCommandWriteResult {
+    Written { readback: u16 },
+    DeviceUnavailable,
+    CommandChanged { observed: u16 },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PciBarKind {
     Io,
     Memory32,
@@ -124,6 +131,25 @@ impl PciAddress {
 
     pub fn write_u32(&self, offset: u8, value: u32) {
         pci_config_write_u32(self.bus, self.device, self.function, offset, value);
+    }
+
+    /// Writes only the PCI Command word after rechecking the function and the
+    /// expected command under the config lock. The adjacent Status W1C word is
+    /// never read-modify-written.
+    pub fn write_command_u16_checked(
+        &self,
+        expected_vendor_device: u32,
+        expected_command: u16,
+        value: u16,
+    ) -> PciCommandWriteResult {
+        pci_config_write_command_u16_checked(
+            self.bus,
+            self.device,
+            self.function,
+            expected_vendor_device,
+            expected_command,
+            value,
+        )
     }
 }
 
@@ -420,6 +446,45 @@ fn pci_config_write_u16(bus: u8, device: u8, function: u8, offset: u8, value: u1
     }
 }
 
+fn pci_config_write_command_u16_checked(
+    bus: u8,
+    device: u8,
+    function: u8,
+    expected_vendor_device: u32,
+    expected_command: u16,
+    value: u16,
+) -> PciCommandWriteResult {
+    let _guard = PCI_LOCK.lock();
+    unsafe {
+        // SAFETY: PCI_LOCK serializes mechanism-one CF8/CFC transactions. All
+        // reads, the presence/expected-value checks, the command-only word
+        // write, and its readback remain inside this critical section.
+        outl(CONFIG_ADDRESS, config_address(bus, device, function, 0x00));
+        let vendor_device = inl(CONFIG_DATA);
+        if vendor_device == u32::MAX || vendor_device != expected_vendor_device {
+            return PciCommandWriteResult::DeviceUnavailable;
+        }
+
+        outl(CONFIG_ADDRESS, config_address(bus, device, function, 0x04));
+        let command = (inl(CONFIG_DATA) & 0xffff) as u16;
+        if command == u16::MAX {
+            return PciCommandWriteResult::DeviceUnavailable;
+        }
+        if command != expected_command {
+            return PciCommandWriteResult::CommandChanged { observed: command };
+        }
+
+        outw(CONFIG_DATA, value);
+        outl(CONFIG_ADDRESS, config_address(bus, device, function, 0x04));
+        let readback = (inl(CONFIG_DATA) & 0xffff) as u16;
+        if readback == u16::MAX {
+            PciCommandWriteResult::DeviceUnavailable
+        } else {
+            PciCommandWriteResult::Written { readback }
+        }
+    }
+}
+
 fn pci_config_write_u32(bus: u8, device: u8, function: u8, offset: u8, value: u32) {
     let _guard = PCI_LOCK.lock();
     let address = config_address(bus, device, function, offset);
@@ -439,6 +504,10 @@ fn config_address(bus: u8, device: u8, function: u8, offset: u8) -> u32 {
 
 unsafe fn outl(port: u16, value: u32) {
     core::arch::asm!("out dx, eax", in("dx") port, in("eax") value, options(nomem, preserves_flags));
+}
+
+unsafe fn outw(port: u16, value: u16) {
+    core::arch::asm!("out dx, ax", in("dx") port, in("ax") value, options(nomem, preserves_flags));
 }
 
 unsafe fn inl(port: u16) -> u32 {

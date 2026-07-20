@@ -11,7 +11,13 @@ use core::sync::atomic::{compiler_fence, AtomicBool, AtomicU32, Ordering};
 
 use raios_core::boot_control::BootPosture;
 use raios_core::dot11_scan::Dot11Security;
-use raios_core::marvell_wifi_cmd::{self, HwSpecCmdError, MarvellCmdError};
+use raios_core::hw_failure_trace::{
+    HwFailurePhase, HwFailureRegister, HwFailureStatus, HwFailureSubsystem, HwFailureTrace,
+    HwFailureTraceStep, SEED_KERNEL_BUILD_ID_V0_1_0,
+};
+use raios_core::marvell_wifi_cmd::{
+    self, HwSpecCmdError, MarvellCmdError, SingleBssHostCmdSequenceAllocator,
+};
 use raios_core::marvell_wifi_fw::{
     decide_fw_ready_poll, plan_register_writes, FirmwareDownload, FwAction, FwError, FwPhase,
     FwReadyPollDecision, RegisterReads, CMDRSP_ADDR_HI, CMDRSP_ADDR_LO, CMD_ADDR_HI, CMD_ADDR_LO,
@@ -23,7 +29,7 @@ use raios_core::marvell_wifi_fw::{
 use raios_core::marvell_wifi_supplicant::{self, SupplicantError};
 use spin::Mutex;
 
-use crate::{memory, net, pci, secret_vault, serial, time, wifi};
+use crate::{memory, net, pci, secret_vault, serial, time, usb, wifi};
 
 // Linux resource index 2: PCI config offset 0x18. BAR0 is 64-bit on this part.
 const MARVELL_REGISTER_BAR: u8 = 2;
@@ -39,6 +45,10 @@ const SCAN_CMD_BUFFER_SIZE: usize = marvell_wifi_cmd::SCAN_24GHZ_CMD_TOTAL_LEN;
 const SCAN_CMD_TIMEOUT_MS: u64 = 15_000;
 const CONNECT_CMD_BUFFER_SIZE: usize = 512;
 const CONNECT_CMD_TIMEOUT_MS: u64 = 15_000;
+const CONNECTION_CMD_DONE_CLEAR_POLLS: usize = 64;
+const CONNECTION_MMIO_LIVENESS_POLLS: usize = 64;
+const INIT_HOST_CMD_PHASE_COUNT: u8 = 4;
+const CONNECTION_HOST_CMD_PHASE_COUNT: u8 = 3;
 const PORT_RELEASE_TIMEOUT_MS: u64 = 30_000;
 const RX_RING_COUNT: usize = 32;
 const RX_RING_MASK: u32 = 0x0000_03ff;
@@ -70,6 +80,31 @@ const EVENT_HEADER_LEN: usize = 4;
 const PCIE_EVT_RD_PTR: u32 = 0xCE8;
 const PCIE_EVT_WR_PTR: u32 = 0xCEC;
 const CPU_INTR_EVENT_DONE: u32 = 1 << 5;
+
+fn queue_fixed_hw_failure_trace(
+    phase: HwFailurePhase,
+    status: HwFailureStatus,
+    register: HwFailureRegister,
+    register_value: u32,
+) {
+    let mut trace = HwFailureTrace::new(
+        SEED_KERNEL_BUILD_ID_V0_1_0,
+        HwFailureSubsystem::MarvellWifiPcie,
+    );
+    let boot_ms = (time::rdtsc() / time::tsc_per_ms().max(1)).min(u64::from(u32::MAX)) as u32;
+    if trace
+        .push_step(HwFailureTraceStep {
+            boot_ms,
+            phase,
+            status,
+            register,
+            register_value,
+        })
+        .is_ok()
+    {
+        let _ = usb::queue_hw_failure_trace(trace);
+    }
+}
 
 #[repr(align(64))]
 struct DmaBlock([u8; FW_DMA_STAGING_SIZE]);
@@ -183,6 +218,7 @@ static CONNECTION: Mutex<ConnectionRuntime> = Mutex::new(ConnectionRuntime::new(
 static RX_RDPTR_SHARED: AtomicU32 = AtomicU32::new(RX_ROLLOVER_IND);
 static TX_WRPTR_SHARED: AtomicU32 = AtomicU32::new(0);
 static DATA_LINK_READY: AtomicBool = AtomicBool::new(false);
+static CONNECTION_REBOOT_REQUIRED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FirmwareDownloadResult {
@@ -280,8 +316,10 @@ impl FirmwareStage {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HwSpecStage {
     Idle,
-    Arming,
-    WaitCmdDone,
+    PcieDescDetails,
+    FuncInit,
+    GetHwSpec,
+    MacControl,
     Ready,
     Failed,
 }
@@ -290,8 +328,10 @@ impl HwSpecStage {
     pub const fn label(self) -> &'static str {
         match self {
             Self::Idle => "idle",
-            Self::Arming => "arming",
-            Self::WaitCmdDone => "wait_cmd_done",
+            Self::PcieDescDetails => "pcie_desc_details",
+            Self::FuncInit => "func_init",
+            Self::GetHwSpec => "get_hw_spec",
+            Self::MacControl => "mac_control",
             Self::Ready => "ready",
             Self::Failed => "failed",
         }
@@ -323,9 +363,16 @@ impl ScanCmdStage {
 pub enum HwSpecResult {
     Done,
     DmaAddressUnavailable,
+    DataRingUnavailable,
+    PciFunctionUnavailable,
+    PciCommandEnableFailed,
+    FirmwareNotReady,
     CommandBuild(HwSpecCmdError),
+    InitCommandBuild(MarvellCmdError),
     CmdDoneTimeout,
+    EmptyResponseOnCommandDone,
     Response(HwSpecCmdError),
+    InitResponse(MarvellCmdError),
 }
 
 impl HwSpecResult {
@@ -333,15 +380,32 @@ impl HwSpecResult {
         match self {
             Self::Done => "ready",
             Self::DmaAddressUnavailable => "dma_address_unavailable",
+            Self::DataRingUnavailable => "data_ring_unavailable",
+            Self::PciFunctionUnavailable => "pci_function_unavailable",
+            Self::PciCommandEnableFailed => "pci_command_enable_failed",
+            Self::FirmwareNotReady => "firmware_not_ready",
             Self::CommandBuild(HwSpecCmdError::OutputBufferTooSmall) => "cmd_buffer_too_small",
             Self::CommandBuild(HwSpecCmdError::TooShort) => "cmd_build_too_short",
+            Self::CommandBuild(HwSpecCmdError::BadLength) => "cmd_build_bad_length",
             Self::CommandBuild(HwSpecCmdError::BadCommand { .. }) => "cmd_build_bad_command",
+            Self::CommandBuild(HwSpecCmdError::BadSequence { .. }) => "cmd_build_bad_sequence",
             Self::CommandBuild(HwSpecCmdError::FwResult { .. }) => "cmd_build_fw_result",
+            Self::CommandBuild(HwSpecCmdError::InvalidSequenceContext { .. }) => {
+                "cmd_build_invalid_sequence_context"
+            }
+            Self::InitCommandBuild(_) => "init_command_build",
             Self::CmdDoneTimeout => "cmd_done_timeout",
+            Self::EmptyResponseOnCommandDone => "empty_response_on_cmd_done",
             Self::Response(HwSpecCmdError::TooShort) => "response_too_short",
+            Self::Response(HwSpecCmdError::BadLength) => "response_bad_length",
             Self::Response(HwSpecCmdError::BadCommand { .. }) => "bad_command",
+            Self::Response(HwSpecCmdError::BadSequence { .. }) => "bad_sequence",
             Self::Response(HwSpecCmdError::FwResult { .. }) => "fw_result",
+            Self::Response(HwSpecCmdError::InvalidSequenceContext { .. }) => {
+                "invalid_sequence_context"
+            }
             Self::Response(HwSpecCmdError::OutputBufferTooSmall) => "response_buffer_too_small",
+            Self::InitResponse(_) => "init_response",
         }
     }
 }
@@ -367,12 +431,22 @@ impl ScanCmdResult {
             Self::DmaAddressUnavailable => "dma_address_unavailable",
             Self::CommandBuild(HwSpecCmdError::OutputBufferTooSmall) => "cmd_buffer_too_small",
             Self::CommandBuild(HwSpecCmdError::TooShort) => "cmd_build_too_short",
+            Self::CommandBuild(HwSpecCmdError::BadLength) => "cmd_build_bad_length",
             Self::CommandBuild(HwSpecCmdError::BadCommand { .. }) => "cmd_build_bad_command",
+            Self::CommandBuild(HwSpecCmdError::BadSequence { .. }) => "cmd_build_bad_sequence",
             Self::CommandBuild(HwSpecCmdError::FwResult { .. }) => "cmd_build_fw_result",
+            Self::CommandBuild(HwSpecCmdError::InvalidSequenceContext { .. }) => {
+                "cmd_build_invalid_sequence_context"
+            }
             Self::CmdDoneTimeout => "cmd_done_timeout",
             Self::Response(HwSpecCmdError::TooShort) => "response_too_short",
+            Self::Response(HwSpecCmdError::BadLength) => "response_bad_length",
             Self::Response(HwSpecCmdError::BadCommand { .. }) => "bad_command",
+            Self::Response(HwSpecCmdError::BadSequence { .. }) => "bad_sequence",
             Self::Response(HwSpecCmdError::FwResult { .. }) => "fw_result",
+            Self::Response(HwSpecCmdError::InvalidSequenceContext { .. }) => {
+                "invalid_sequence_context"
+            }
             Self::Response(HwSpecCmdError::OutputBufferTooSmall) => "response_buffer_too_small",
             Self::LiveResultParseFailed => "live_result_parse_failed",
         }
@@ -431,8 +505,6 @@ pub enum ScanCmdTriggerResult {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConnectionStage {
     Idle,
-    RegisterRings,
-    MacControl,
     SupplicantProfile,
     SupplicantPmk,
     Associate,
@@ -445,8 +517,6 @@ impl ConnectionStage {
     pub const fn label(self) -> &'static str {
         match self {
             Self::Idle => "idle",
-            Self::RegisterRings => "register_rings",
-            Self::MacControl => "mac_control",
             Self::SupplicantProfile => "supplicant_profile",
             Self::SupplicantPmk => "supplicant_pmk",
             Self::Associate => "associate",
@@ -468,8 +538,13 @@ pub enum ConnectionResult {
     PassphraseUnavailable,
     SafeRecoveryActionMissing,
     BootPostureDenied,
+    EphemeralAuthorityDenied,
+    EphemeralAttemptNotFresh,
+    EphemeralRevalidationFailed,
     DataRingUnavailable,
     DmaAddressUnavailable,
+    Transport(ConnectionTransportError),
+    RebootRequired,
     CommandBuild(MarvellCmdError),
     SupplicantBuild(SupplicantError),
     CommandTimeout,
@@ -478,6 +553,122 @@ pub enum ConnectionResult {
     AssociationRejected(u16),
     PortReleaseTimeout,
     LinkLost(u16),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConnectionTransportError {
+    PciFunctionUnavailable,
+    PciCommandEnableFailed,
+    FirmwareNotReadyAfterEnable,
+    MmioUnavailable,
+    StaleCommandDone,
+    EmptyResponseOnCommandDone,
+}
+
+impl ConnectionTransportError {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::PciFunctionUnavailable => "pci_function_unavailable",
+            Self::PciCommandEnableFailed => "pci_memory_bus_master_not_enabled",
+            Self::FirmwareNotReadyAfterEnable => "firmware_not_ready_after_pci_enable",
+            Self::MmioUnavailable => "host_int_status_unavailable",
+            Self::StaleCommandDone => "stale_cmd_done",
+            Self::EmptyResponseOnCommandDone => "empty_response_on_cmd_done",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConnectionResponseErrorClass {
+    EmptyResponseOnCommandDone,
+    TooShort,
+    BadLength,
+    BadInterfaceLength,
+    BadInterfaceType,
+    BadHostCommandLength,
+    BadCommand,
+    BadSequence,
+    FirmwareResult,
+    Unexpected,
+}
+
+impl ConnectionResponseErrorClass {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::EmptyResponseOnCommandDone => "empty_response_on_cmd_done",
+            Self::TooShort => "too_short",
+            Self::BadLength => "bad_length",
+            Self::BadInterfaceLength => "bad_intf_len",
+            Self::BadInterfaceType => "bad_intf_type",
+            Self::BadHostCommandLength => "bad_host_size",
+            Self::BadCommand => "bad_command",
+            Self::BadSequence => "bad_sequence",
+            Self::FirmwareResult => "fw_result",
+            Self::Unexpected => "unexpected",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ConnectionResponseDiagnostic {
+    pub error_class: ConnectionResponseErrorClass,
+    pub interface_len: u16,
+    pub interface_type: u16,
+    pub command: u16,
+    pub host_command_size: u16,
+    pub sequence: u16,
+    pub result: u16,
+    pub expected_command: u16,
+    pub expected_sequence: u16,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ConnectionTransportDiagnostic {
+    pub pci_vendor_device: u32,
+    pub pci_command_before: u16,
+    pub pci_command_after: u16,
+    pub pci_config_valid: bool,
+    pub pre_enable_status: u32,
+    pub pre_enable_status_valid: bool,
+    pub firmware_status: u32,
+    pub firmware_status_valid: bool,
+    pub post_enable_status: u32,
+    pub post_enable_status_valid: bool,
+    pub pre_clear_status: u32,
+    pub pre_clear_status_valid: bool,
+    pub post_clear_status: u32,
+    pub post_clear_status_valid: bool,
+    pub program_flush_status: u32,
+    pub program_flush_status_valid: bool,
+    pub first_poll_status: u32,
+    pub first_poll_status_valid: bool,
+    pub poll_count: u16,
+}
+
+impl ConnectionTransportDiagnostic {
+    const fn new() -> Self {
+        Self {
+            pci_vendor_device: 0,
+            pci_command_before: 0,
+            pci_command_after: 0,
+            pci_config_valid: false,
+            pre_enable_status: 0,
+            pre_enable_status_valid: false,
+            firmware_status: 0,
+            firmware_status_valid: false,
+            post_enable_status: 0,
+            post_enable_status_valid: false,
+            pre_clear_status: 0,
+            pre_clear_status_valid: false,
+            post_clear_status: 0,
+            post_clear_status_valid: false,
+            program_flush_status: 0,
+            program_flush_status_valid: false,
+            first_poll_status: 0,
+            first_poll_status_valid: false,
+            poll_count: 0,
+        }
+    }
 }
 
 impl ConnectionResult {
@@ -492,8 +683,13 @@ impl ConnectionResult {
             Self::PassphraseUnavailable => "passphrase_unavailable",
             Self::SafeRecoveryActionMissing => "safe_recovery_action_missing",
             Self::BootPostureDenied => "boot_posture_denied",
+            Self::EphemeralAuthorityDenied => "ephemeral_wifi_authority_denied",
+            Self::EphemeralAttemptNotFresh => "ephemeral_wifi_attempt_not_fresh",
+            Self::EphemeralRevalidationFailed => "ephemeral_wifi_revalidation_failed",
             Self::DataRingUnavailable => "data_ring_unavailable",
             Self::DmaAddressUnavailable => "dma_address_unavailable",
+            Self::Transport(error) => error.label(),
+            Self::RebootRequired => "reboot_required",
             Self::CommandBuild(_) => "command_build_failed",
             Self::SupplicantBuild(_) => "supplicant_build_failed",
             Self::CommandTimeout => "command_timeout",
@@ -504,6 +700,10 @@ impl ConnectionResult {
             Self::LinkLost(_) => "link_lost",
         }
     }
+
+    pub const fn requires_reboot(self) -> bool {
+        matches!(self, Self::Transport(_) | Self::RebootRequired)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -511,7 +711,10 @@ pub struct ConnectionSnapshot {
     pub attempted: bool,
     pub running: bool,
     pub stage: ConnectionStage,
+    pub failed_stage: Option<ConnectionStage>,
     pub result: Option<ConnectionResult>,
+    pub response_diagnostic: Option<ConnectionResponseDiagnostic>,
+    pub transport_diagnostic: Option<ConnectionTransportDiagnostic>,
     pub association_status: Option<u16>,
     pub association_id: Option<u16>,
     pub host_int_status: u32,
@@ -523,7 +726,10 @@ impl ConnectionSnapshot {
             attempted: false,
             running: false,
             stage: ConnectionStage::Idle,
+            failed_stage: None,
             result: None,
+            response_diagnostic: None,
+            transport_diagnostic: None,
             association_status: None,
             association_id: None,
             host_int_status: 0,
@@ -671,12 +877,18 @@ pub struct HwSpecSnapshot {
     pub attempted: bool,
     pub running: bool,
     pub stage: HwSpecStage,
+    pub failed_stage: Option<HwSpecStage>,
     pub result: Option<HwSpecResult>,
+    pub last_response: Option<marvell_wifi_cmd::MarvellResponseHeader>,
     pub mac: Option<[u8; 6]>,
     pub fw_release: Option<u32>,
     pub fw_cap_info: u32,
     pub key_api_version: Option<(u8, u8)>,
     pub host_int_status: u32,
+    pub pci_vendor_device: u32,
+    pub pci_command_before: u16,
+    pub pci_command_after: u16,
+    pub firmware_status: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -792,12 +1004,18 @@ impl HwSpecSnapshot {
             attempted: false,
             running: false,
             stage: HwSpecStage::Idle,
+            failed_stage: None,
             result: None,
+            last_response: None,
             mac: None,
             fw_release: None,
             fw_cap_info: 0,
             key_api_version: None,
             host_int_status: 0,
+            pci_vendor_device: u32::MAX,
+            pci_command_before: u16::MAX,
+            pci_command_after: u16::MAX,
+            firmware_status: u32::MAX,
         }
     }
 
@@ -850,7 +1068,7 @@ struct ConnectionRuntime {
     snapshot: ConnectionSnapshot,
     job: Option<ConnectionJob>,
     ready_target: Option<wifi::ScannedNetwork>,
-    next_seq: u16,
+    sequence_allocator: SingleBssHostCmdSequenceAllocator,
 }
 
 struct EventRingRuntime {
@@ -930,7 +1148,7 @@ impl ConnectionRuntime {
             snapshot: ConnectionSnapshot::new(),
             job: None,
             ready_target: None,
-            next_seq: 0x100,
+            sequence_allocator: SingleBssHostCmdSequenceAllocator::new(),
         }
     }
 }
@@ -951,8 +1169,22 @@ struct HwSpecJob {
     mmio_base: usize,
     cmd_dma_phys: u64,
     rsp_dma_phys: u64,
-    started_tsc: u64,
-    seq: u16,
+    phase_started_tsc: u64,
+    waiting: bool,
+    seq: u8,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PciCommandEnableError {
+    FunctionUnavailable,
+    EnableFailed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PciCommandEnableOutcome {
+    vendor_device: u32,
+    command_before: u16,
+    command_after: u16,
 }
 
 struct ScanCmdJob {
@@ -971,10 +1203,29 @@ struct ConnectionJob {
     rsp_dma_phys: u64,
     phase: ConnectionStage,
     waiting: bool,
+    cmd_done_low_baseline: bool,
     phase_started_tsc: u64,
-    seq: u16,
+    transport_diagnostic: ConnectionTransportDiagnostic,
+    seq: u8,
     target: wifi::ScannedNetwork,
-    safe_reconnect: Option<secret_vault::ExplicitSafeWifiReconnect>,
+    secret_source: ConnectionSecretSource,
+}
+
+/// Mutually exclusive credential sources for one connection job. In
+/// particular, an ephemeral job can never fall through to Vault or legacy RAM.
+enum ConnectionSecretSource {
+    Ordinary,
+    SafeVault(Option<secret_vault::ExplicitSafeWifiReconnect>),
+    EphemeralPhysical {
+        pending: Option<secret_vault::EphemeralPhysicalWifiUse>,
+        receipt: Option<secret_vault::EphemeralPhysicalWifiReceipt>,
+    },
+}
+
+impl ConnectionSecretSource {
+    const fn is_ephemeral(&self) -> bool {
+        matches!(self, Self::EphemeralPhysical { .. })
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1022,6 +1273,10 @@ pub fn data_link_ready() -> bool {
     DATA_LINK_READY.load(Ordering::Acquire)
 }
 
+pub fn connection_reboot_required() -> bool {
+    CONNECTION_REBOOT_REQUIRED.load(Ordering::Acquire)
+}
+
 pub fn start_association() -> ConnectionTriggerResult {
     match crate::agent_protocol::boot_control::current_boot_posture() {
         BootPosture::Normal | BootPosture::Probation => {}
@@ -1035,7 +1290,7 @@ pub fn start_association() -> ConnectionTriggerResult {
     let Some(target) = wifi::association_target() else {
         return fail_connection_start(ConnectionResult::NoSelectedBss);
     };
-    start_association_inner(target, None)
+    start_association_inner(target, ConnectionSecretSource::Ordinary)
 }
 
 /// The only SAFE association entrypoint. Its caller is the trusted physical
@@ -1060,7 +1315,10 @@ pub fn start_association_from_physical_genesis() -> ConnectionTriggerResult {
                     return fail_connection_start(ConnectionResult::SafeRecoveryActionMissing);
                 }
             };
-            start_association_inner(target, Some(safe_reconnect))
+            start_association_inner(
+                target,
+                ConnectionSecretSource::SafeVault(Some(safe_reconnect)),
+            )
         }
         BootPosture::PersistenceUnavailable => {
             fail_connection_start(ConnectionResult::BootPostureDenied)
@@ -1068,12 +1326,44 @@ pub fn start_association_from_physical_genesis() -> ConnectionTriggerResult {
     }
 }
 
+/// The only persistence-unavailable association entrypoint. Its unforgeable
+/// argument can originate only in a fresh physical SecureOverlay submission.
+pub(crate) fn start_ephemeral_association_from_physical_genesis(
+    authority: secret_vault::EphemeralPhysicalWifiUse,
+) -> ConnectionTriggerResult {
+    if crate::agent_protocol::boot_control::current_boot_posture()
+        != BootPosture::PersistenceUnavailable
+    {
+        return ConnectionTriggerResult::Failed(ConnectionResult::EphemeralAuthorityDenied);
+    }
+    let Some(target) = wifi::association_target() else {
+        return ConnectionTriggerResult::Failed(ConnectionResult::NoSelectedBss);
+    };
+    if secret_vault::revalidate_ephemeral_physical_wifi_use(&authority, target).is_err() {
+        return ConnectionTriggerResult::Failed(ConnectionResult::EphemeralAuthorityDenied);
+    }
+    start_association_inner(
+        target,
+        ConnectionSecretSource::EphemeralPhysical {
+            pending: Some(authority),
+            receipt: None,
+        },
+    )
+}
+
 fn start_association_inner(
     target: wifi::ScannedNetwork,
-    safe_reconnect: Option<secret_vault::ExplicitSafeWifiReconnect>,
+    secret_source: ConnectionSecretSource,
 ) -> ConnectionTriggerResult {
+    if connection_reboot_required() {
+        return fail_connection_start(ConnectionResult::RebootRequired);
+    }
+    let ephemeral = secret_source.is_ephemeral();
     let replace_ready = {
         let runtime = CONNECTION.lock();
+        if ephemeral && (runtime.snapshot.is_ready() || runtime.job.is_some()) {
+            return ConnectionTriggerResult::Failed(ConnectionResult::EphemeralAttemptNotFresh);
+        }
         if runtime.snapshot.is_ready()
             && data_link_ready()
             && runtime
@@ -1123,6 +1413,9 @@ fn start_association_inner(
     };
 
     let mut runtime = CONNECTION.lock();
+    if ephemeral && (runtime.snapshot.is_ready() || runtime.job.is_some()) {
+        return ConnectionTriggerResult::Failed(ConnectionResult::EphemeralAttemptNotFresh);
+    }
     if runtime.snapshot.is_ready()
         && data_link_ready()
         && runtime
@@ -1134,14 +1427,23 @@ fn start_association_inner(
     if runtime.job.is_some() {
         return ConnectionTriggerResult::AlreadyRunning;
     }
-    let seq = runtime.next_seq;
-    runtime.next_seq = runtime.next_seq.wrapping_add(8).max(1);
+    let seq = runtime
+        .sequence_allocator
+        .reserve_window(CONNECTION_HOST_CMD_PHASE_COUNT);
+    let first_phase = if secure {
+        ConnectionStage::SupplicantProfile
+    } else {
+        ConnectionStage::Associate
+    };
     let replacing_ready = runtime.snapshot.is_ready();
     runtime.snapshot = ConnectionSnapshot {
         attempted: true,
         running: true,
-        stage: ConnectionStage::RegisterRings,
+        stage: first_phase,
+        failed_stage: None,
         result: None,
+        response_diagnostic: None,
+        transport_diagnostic: None,
         association_status: None,
         association_id: None,
         host_int_status: 0,
@@ -1151,12 +1453,14 @@ fn start_association_inner(
         mmio_base,
         cmd_dma_phys,
         rsp_dma_phys,
-        phase: ConnectionStage::RegisterRings,
+        phase: first_phase,
         waiting: false,
+        cmd_done_low_baseline: false,
         phase_started_tsc: time::rdtsc(),
+        transport_diagnostic: ConnectionTransportDiagnostic::new(),
         seq,
         target,
-        safe_reconnect,
+        secret_source,
     });
     runtime.ready_target = None;
     DATA_LINK_READY.store(false, Ordering::Release);
@@ -1172,6 +1476,22 @@ fn same_connection_target(left: wifi::ScannedNetwork, right: wifi::ScannedNetwor
     left.bssid == right.bssid
         && left.ssid.as_bytes() == right.ssid.as_bytes()
         && left.security == right.security
+}
+
+fn revalidate_ephemeral_release(job: &ConnectionJob) -> Result<(), ConnectionResult> {
+    let ConnectionSecretSource::EphemeralPhysical { pending, receipt } = &job.secret_source else {
+        return Ok(());
+    };
+    if pending.is_some() {
+        return Err(ConnectionResult::EphemeralRevalidationFailed);
+    }
+    let receipt = receipt
+        .as_ref()
+        .ok_or(ConnectionResult::EphemeralRevalidationFailed)?;
+    let current_target =
+        wifi::association_target().ok_or(ConnectionResult::EphemeralRevalidationFailed)?;
+    secret_vault::revalidate_ephemeral_physical_wifi_receipt(receipt, current_target)
+        .map_err(|_| ConnectionResult::EphemeralRevalidationFailed)
 }
 
 fn quarantine_retained_ready_connection() {
@@ -1196,7 +1516,10 @@ fn fail_connection_start(result: ConnectionResult) -> ConnectionTriggerResult {
         attempted: true,
         running: false,
         stage: ConnectionStage::Failed,
+        failed_stage: None,
         result: Some(result),
+        response_diagnostic: None,
+        transport_diagnostic: None,
         association_status: None,
         association_id: None,
         host_int_status: 0,
@@ -1511,7 +1834,7 @@ pub fn poll_hw_spec() -> bool {
         return false;
     }
 
-    let Some(job) = runtime.job.take() else {
+    let Some(mut job) = runtime.job.take() else {
         return false;
     };
     let mmio_base = job.mmio_base as *mut u8;
@@ -1520,7 +1843,8 @@ pub fn poll_hw_spec() -> bool {
 
     while actions < ACTIONS_PER_POLL {
         actions += 1;
-        if elapsed_ms(job.started_tsc) >= HWSPEC_TIMEOUT_MS {
+        let phase = runtime.snapshot.stage;
+        if elapsed_ms(job.phase_started_tsc) >= HWSPEC_TIMEOUT_MS {
             let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
             pci::disable_bus_master(job.pci_address);
             finish_hw_spec_locked(
@@ -1531,17 +1855,209 @@ pub fn poll_hw_spec() -> bool {
                 None,
                 None,
             );
-            write_hw_spec_failure(HwSpecResult::CmdDoneTimeout, status);
+            write_hw_spec_failure(phase, HwSpecResult::CmdDoneTimeout, status);
             return true;
         }
 
-        match runtime.snapshot.stage {
-            HwSpecStage::Arming => {
-                let command_len = match prepare_hw_spec_dma(job.seq) {
-                    Ok(command_len) => command_len,
-                    Err(error) => {
-                        let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
-                        let result = HwSpecResult::CommandBuild(error);
+        if !job.waiting {
+            let command_len = match prepare_hw_spec_dma(&job, phase) {
+                Ok(command_len) => command_len,
+                Err(result) => {
+                    let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+                    pci::disable_bus_master(job.pci_address);
+                    finish_hw_spec_locked(
+                        &mut runtime,
+                        result,
+                        HwSpecStage::Failed,
+                        status,
+                        None,
+                        None,
+                    );
+                    write_hw_spec_failure(phase, result, status);
+                    return true;
+                }
+            };
+
+            let vendor_device = job.pci_address.read_u32(0x00);
+            let command_before = job.pci_address.read_u16(0x04);
+            runtime.snapshot.pci_command_before = command_before;
+            let pci = match ensure_pci_memory_bus_master(
+                job.pci_address,
+                vendor_device,
+                command_before,
+            ) {
+                Ok(pci) => pci,
+                Err(error) => {
+                    let result = match error {
+                        PciCommandEnableError::FunctionUnavailable => {
+                            HwSpecResult::PciFunctionUnavailable
+                        }
+                        PciCommandEnableError::EnableFailed => HwSpecResult::PciCommandEnableFailed,
+                    };
+                    let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+                    pci::disable_bus_master(job.pci_address);
+                    finish_hw_spec_locked(
+                        &mut runtime,
+                        result,
+                        HwSpecStage::Failed,
+                        status,
+                        None,
+                        None,
+                    );
+                    write_hw_spec_failure(phase, result, status);
+                    return true;
+                }
+            };
+            runtime.snapshot.pci_command_before = pci.command_before;
+            runtime.snapshot.pci_command_after = pci.command_after;
+
+            runtime.snapshot.pci_vendor_device = pci.vendor_device;
+            let mut liveness = marvell_wifi_cmd::ConnectionMmioLiveness::MmioUnavailable;
+            let mut firmware_status = u32::MAX;
+            let mut pending = u32::MAX;
+            for _ in 0..CONNECTION_MMIO_LIVENESS_POLLS {
+                firmware_status = read_reg(mmio_base, FW_STATUS);
+                pending = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+                liveness = marvell_wifi_cmd::connection_mmio_liveness(firmware_status, pending);
+                if liveness == marvell_wifi_cmd::ConnectionMmioLiveness::Ready {
+                    break;
+                }
+                delay_us(SHORT_POLL_DELAY_US);
+            }
+            runtime.snapshot.firmware_status = firmware_status;
+            runtime.snapshot.host_int_status = pending;
+            let liveness_failure = match liveness {
+                marvell_wifi_cmd::ConnectionMmioLiveness::Ready => None,
+                marvell_wifi_cmd::ConnectionMmioLiveness::FirmwareNotReady => {
+                    Some(HwSpecResult::FirmwareNotReady)
+                }
+                marvell_wifi_cmd::ConnectionMmioLiveness::MmioUnavailable => {
+                    Some(HwSpecResult::PciFunctionUnavailable)
+                }
+            };
+            if let Some(result) = liveness_failure {
+                pci::disable_bus_master(job.pci_address);
+                finish_hw_spec_locked(
+                    &mut runtime,
+                    result,
+                    HwSpecStage::Failed,
+                    pending,
+                    None,
+                    None,
+                );
+                write_hw_spec_failure(phase, result, pending);
+                return true;
+            }
+
+            compiler_fence(Ordering::SeqCst);
+            write_reg(mmio_base, PCIE_HOST_INT_MASK, 0);
+            write_reg(mmio_base, PCIE_HOST_INT_STATUS_MASK, HOST_INTR_MASK);
+            if pending != 0 && pending != u32::MAX {
+                write_reg(mmio_base, PCIE_HOST_INT_STATUS, !pending);
+            }
+            write_reg(
+                mmio_base,
+                CMDRSP_ADDR_LO,
+                (job.rsp_dma_phys & 0xffff_ffff) as u32,
+            );
+            write_reg(mmio_base, CMDRSP_ADDR_HI, (job.rsp_dma_phys >> 32) as u32);
+            write_reg(
+                mmio_base,
+                CMD_ADDR_LO,
+                (job.cmd_dma_phys & 0xffff_ffff) as u32,
+            );
+            write_reg(mmio_base, CMD_ADDR_HI, (job.cmd_dma_phys >> 32) as u32);
+            write_reg(mmio_base, CMD_SIZE, command_len as u32);
+            compiler_fence(Ordering::SeqCst);
+            write_reg(mmio_base, PCIE_CPU_INT_EVENT, CPU_INTR_DOOR_BELL);
+            compiler_fence(Ordering::SeqCst);
+
+            let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+            runtime.snapshot.host_int_status = status;
+            job.waiting = true;
+            job.phase_started_tsc = time::rdtsc();
+            serial::write_fmt(format_args!(
+                    "marvell wifi: init stage={} armed seq={} pci={:04x}>{:04x} fw=0x{:08x} host=0x{:08x}\r\n",
+                    phase.label(),
+                    init_phase_seq(job.seq, phase),
+                    pci.command_before,
+                    pci.command_after,
+                    firmware_status,
+                    status,
+                ));
+            changed = true;
+        } else {
+            let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+            if runtime.snapshot.host_int_status != status {
+                runtime.snapshot.host_int_status = status;
+                changed = true;
+            }
+            if status == u32::MAX {
+                pci::disable_bus_master(job.pci_address);
+                finish_hw_spec_locked(
+                    &mut runtime,
+                    HwSpecResult::PciFunctionUnavailable,
+                    HwSpecStage::Failed,
+                    status,
+                    None,
+                    None,
+                );
+                write_hw_spec_failure(phase, HwSpecResult::PciFunctionUnavailable, status);
+                return true;
+            }
+            if status & HOST_INTR_CMD_DONE != 0 {
+                compiler_fence(Ordering::SeqCst);
+                let (parsed, response_header) =
+                    parse_hw_spec_dma_response(phase, init_phase_seq(job.seq, phase));
+                runtime.snapshot.last_response = response_header;
+                write_reg(mmio_base, PCIE_HOST_INT_STATUS, !status);
+                clear_connection_response_mailbox(mmio_base);
+                let _cleanup_flush_status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
+                compiler_fence(Ordering::SeqCst);
+
+                match parsed {
+                    Ok(InitCommandResponse::HwSpec(hw_spec)) => {
+                        runtime.snapshot.mac = Some(hw_spec.mac);
+                        runtime.snapshot.fw_release = Some(hw_spec.fw_release);
+                        runtime.snapshot.fw_cap_info = hw_spec.fw_cap_info;
+                        runtime.snapshot.key_api_version = hw_spec.key_api_version;
+                        serial::write_fmt(format_args!(
+                            "marvell wifi: init stage={} response=ok fw_release=0x{:08x}\r\n",
+                            phase.label(),
+                            hw_spec.fw_release
+                        ));
+                        job.waiting = false;
+                        job.phase_started_tsc = time::rdtsc();
+                        runtime.snapshot.stage = HwSpecStage::MacControl;
+                    }
+                    Ok(InitCommandResponse::Unit) => {
+                        let next = next_init_phase(phase);
+                        serial::write_fmt(format_args!(
+                            "marvell wifi: init stage={} response=ok next={}\r\n",
+                            phase.label(),
+                            next.label(),
+                        ));
+                        job.waiting = false;
+                        job.phase_started_tsc = time::rdtsc();
+                        if next == HwSpecStage::Ready {
+                            publish_data_ring_pointers(job.mmio_base);
+                            finish_hw_spec_locked(
+                                &mut runtime,
+                                HwSpecResult::Done,
+                                HwSpecStage::Ready,
+                                status,
+                                None,
+                                None,
+                            );
+                            serial::write_line(
+                                "marvell wifi: firmware epoch init ready; scan unlocked",
+                            );
+                            return true;
+                        }
+                        runtime.snapshot.stage = next;
+                    }
+                    Err(result) => {
+                        pci::disable_bus_master(job.pci_address);
                         finish_hw_spec_locked(
                             &mut runtime,
                             result,
@@ -1550,109 +2066,14 @@ pub fn poll_hw_spec() -> bool {
                             None,
                             None,
                         );
-                        write_hw_spec_failure(result, status);
+                        write_hw_spec_failure(phase, result, status);
                         return true;
                     }
-                };
-
-                compiler_fence(Ordering::SeqCst);
-                write_reg(mmio_base, PCIE_HOST_INT_MASK, 0);
-                write_reg(mmio_base, PCIE_HOST_INT_STATUS_MASK, HOST_INTR_MASK);
-                let pending = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
-                if pending != 0 && pending != u32::MAX {
-                    write_reg(mmio_base, PCIE_HOST_INT_STATUS, !pending);
                 }
-                write_reg(
-                    mmio_base,
-                    CMDRSP_ADDR_LO,
-                    (job.rsp_dma_phys & 0xffff_ffff) as u32,
-                );
-                write_reg(mmio_base, CMDRSP_ADDR_HI, (job.rsp_dma_phys >> 32) as u32);
-                write_reg(
-                    mmio_base,
-                    CMD_ADDR_LO,
-                    (job.cmd_dma_phys & 0xffff_ffff) as u32,
-                );
-                write_reg(mmio_base, CMD_ADDR_HI, (job.cmd_dma_phys >> 32) as u32);
-                write_reg(mmio_base, CMD_SIZE, command_len as u32);
-                compiler_fence(Ordering::SeqCst);
-                pci::enable_bus_master(job.pci_address);
-                compiler_fence(Ordering::SeqCst);
-                write_reg(mmio_base, PCIE_CPU_INT_EVENT, CPU_INTR_DOOR_BELL);
-                compiler_fence(Ordering::SeqCst);
-
-                let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
-                runtime.snapshot = HwSpecSnapshot {
-                    attempted: true,
-                    running: true,
-                    stage: HwSpecStage::WaitCmdDone,
-                    result: None,
-                    mac: None,
-                    fw_release: None,
-                    fw_cap_info: 0,
-                    key_api_version: None,
-                    host_int_status: status,
-                };
                 changed = true;
+                continue;
             }
-            HwSpecStage::WaitCmdDone => {
-                let status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
-                if runtime.snapshot.host_int_status != status {
-                    runtime.snapshot.host_int_status = status;
-                    changed = true;
-                }
-                if status & HOST_INTR_CMD_DONE != 0 {
-                    compiler_fence(Ordering::SeqCst);
-                    pci::disable_bus_master(job.pci_address);
-                    compiler_fence(Ordering::SeqCst);
-                    let parsed = parse_hw_spec_dma_response();
-                    write_reg(mmio_base, PCIE_HOST_INT_STATUS, !status);
-                    compiler_fence(Ordering::SeqCst);
-
-                    match parsed {
-                        Ok(hw_spec) => {
-                            finish_hw_spec_locked(
-                                &mut runtime,
-                                HwSpecResult::Done,
-                                HwSpecStage::Ready,
-                                status,
-                                Some(hw_spec.mac),
-                                Some(hw_spec.fw_release),
-                            );
-                            runtime.snapshot.fw_cap_info = hw_spec.fw_cap_info;
-                            runtime.snapshot.key_api_version = hw_spec.key_api_version;
-                            serial::write_fmt(format_args!(
-                                "marvell wifi: hw_spec MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} fw_release 0x{:08x}\r\n",
-                                hw_spec.mac[0],
-                                hw_spec.mac[1],
-                                hw_spec.mac[2],
-                                hw_spec.mac[3],
-                                hw_spec.mac[4],
-                                hw_spec.mac[5],
-                                hw_spec.fw_release
-                            ));
-                        }
-                        Err(error) => {
-                            let result = HwSpecResult::Response(error);
-                            finish_hw_spec_locked(
-                                &mut runtime,
-                                result,
-                                HwSpecStage::Failed,
-                                status,
-                                None,
-                                None,
-                            );
-                            write_hw_spec_failure(result, status);
-                        }
-                    }
-                    return true;
-                }
-                delay_us(SHORT_POLL_DELAY_US);
-            }
-            HwSpecStage::Idle | HwSpecStage::Ready | HwSpecStage::Failed => {
-                runtime.job = Some(job);
-                return changed;
-            }
+            delay_us(SHORT_POLL_DELAY_US);
         }
     }
 
@@ -1757,10 +2178,10 @@ pub fn poll_scan_ext() -> bool {
                 }
                 if status & HOST_INTR_CMD_DONE != 0 {
                     compiler_fence(Ordering::SeqCst);
-                    pci::disable_bus_master(job.pci_address);
-                    compiler_fence(Ordering::SeqCst);
                     let parsed = parse_scan_dma_response();
                     write_reg(mmio_base, PCIE_HOST_INT_STATUS, !status);
+                    clear_connection_response_mailbox(mmio_base);
+                    let _cleanup_flush_status = read_reg(mmio_base, PCIE_HOST_INT_STATUS);
                     compiler_fence(Ordering::SeqCst);
 
                     match parsed {
@@ -1780,6 +2201,7 @@ pub fn poll_scan_ext() -> bool {
                                     declared, ingested
                                 ));
                             } else {
+                                pci::disable_bus_master(job.pci_address);
                                 let result = ScanCmdResult::LiveResultParseFailed;
                                 finish_scan_locked(
                                     &mut runtime,
@@ -1797,6 +2219,7 @@ pub fn poll_scan_ext() -> bool {
                             }
                         }
                         Err(error) => {
+                            pci::disable_bus_master(job.pci_address);
                             let result = ScanCmdResult::Response(error);
                             let command_len = runtime.snapshot.command_len;
                             finish_scan_locked(
@@ -1823,6 +2246,168 @@ pub fn poll_scan_ext() -> bool {
 
     runtime.job = Some(job);
     changed
+}
+
+fn clear_connection_response_mailbox(mmio: *mut u8) {
+    write_reg(mmio, CMDRSP_ADDR_LO, 0);
+    write_reg(mmio, CMDRSP_ADDR_HI, 0);
+    compiler_fence(Ordering::SeqCst);
+}
+
+fn ensure_pci_memory_bus_master(
+    address: pci::PciAddress,
+    vendor_device: u32,
+    command_before: u16,
+) -> Result<PciCommandEnableOutcome, PciCommandEnableError> {
+    match marvell_wifi_cmd::plan_pci_memory_bus_master_enable(vendor_device, command_before) {
+        marvell_wifi_cmd::PciCommandEnablePlan::Unavailable => {
+            Err(PciCommandEnableError::FunctionUnavailable)
+        }
+        marvell_wifi_cmd::PciCommandEnablePlan::AlreadyEnabled => Ok(PciCommandEnableOutcome {
+            vendor_device,
+            command_before,
+            command_after: command_before,
+        }),
+        marvell_wifi_cmd::PciCommandEnablePlan::Write(command) => {
+            let readback =
+                match address.write_command_u16_checked(vendor_device, command_before, command) {
+                    pci::PciCommandWriteResult::Written { readback } => readback,
+                    pci::PciCommandWriteResult::DeviceUnavailable => {
+                        return Err(PciCommandEnableError::FunctionUnavailable);
+                    }
+                    pci::PciCommandWriteResult::CommandChanged { .. } => {
+                        return Err(PciCommandEnableError::EnableFailed);
+                    }
+                };
+            if !marvell_wifi_cmd::pci_memory_bus_master_enabled(readback) {
+                return Err(PciCommandEnableError::EnableFailed);
+            }
+            Ok(PciCommandEnableOutcome {
+                vendor_device,
+                command_before,
+                command_after: readback,
+            })
+        }
+    }
+}
+
+fn arm_connection_command(
+    job: &mut ConnectionJob,
+    command_len: usize,
+) -> Result<(), ConnectionTransportError> {
+    let mmio = job.mmio_base as *mut u8;
+    job.cmd_done_low_baseline = false;
+    job.transport_diagnostic = ConnectionTransportDiagnostic::new();
+
+    let vendor_device = job.pci_address.read_u32(0x00);
+    let command_before = job.pci_address.read_u16(0x04);
+    job.transport_diagnostic.pci_vendor_device = vendor_device;
+    job.transport_diagnostic.pci_command_before = command_before;
+    job.transport_diagnostic.pci_config_valid =
+        vendor_device != u32::MAX && command_before != u16::MAX;
+    job.transport_diagnostic.pre_enable_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+    job.transport_diagnostic.pre_enable_status_valid = true;
+    let pci = ensure_pci_memory_bus_master(job.pci_address, vendor_device, command_before)
+        .map_err(|error| match error {
+            PciCommandEnableError::FunctionUnavailable => {
+                ConnectionTransportError::PciFunctionUnavailable
+            }
+            PciCommandEnableError::EnableFailed => ConnectionTransportError::PciCommandEnableFailed,
+        })?;
+    job.transport_diagnostic.pci_vendor_device = pci.vendor_device;
+    job.transport_diagnostic.pci_command_before = pci.command_before;
+    job.transport_diagnostic.pci_command_after = pci.command_after;
+    job.transport_diagnostic.pci_config_valid = true;
+    compiler_fence(Ordering::SeqCst);
+
+    let mut liveness = marvell_wifi_cmd::ConnectionMmioLiveness::MmioUnavailable;
+    for _ in 0..CONNECTION_MMIO_LIVENESS_POLLS {
+        let firmware_status = read_reg(mmio, FW_STATUS);
+        let host_interrupt_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+        job.transport_diagnostic.firmware_status = firmware_status;
+        job.transport_diagnostic.firmware_status_valid = true;
+        job.transport_diagnostic.post_enable_status = host_interrupt_status;
+        job.transport_diagnostic.post_enable_status_valid = true;
+        liveness =
+            marvell_wifi_cmd::connection_mmio_liveness(firmware_status, host_interrupt_status);
+        if liveness == marvell_wifi_cmd::ConnectionMmioLiveness::Ready {
+            break;
+        }
+        delay_us(SHORT_POLL_DELAY_US);
+    }
+    match liveness {
+        marvell_wifi_cmd::ConnectionMmioLiveness::Ready => {}
+        marvell_wifi_cmd::ConnectionMmioLiveness::FirmwareNotReady => {
+            return Err(ConnectionTransportError::FirmwareNotReadyAfterEnable);
+        }
+        marvell_wifi_cmd::ConnectionMmioLiveness::MmioUnavailable => {
+            return Err(ConnectionTransportError::MmioUnavailable);
+        }
+    }
+
+    compiler_fence(Ordering::SeqCst);
+    write_reg(mmio, PCIE_HOST_INT_MASK, 0);
+    write_reg(mmio, PCIE_HOST_INT_STATUS_MASK, HOST_INTR_MASK);
+
+    // Runtime HostCmd scratch registers do not promise read-your-write. Clear
+    // response ownership blindly and use the known-readable status register as
+    // the same-device posted-write flush.
+    clear_connection_response_mailbox(mmio);
+
+    let pending = read_reg(mmio, PCIE_HOST_INT_STATUS);
+    job.transport_diagnostic.pre_clear_status = pending;
+    job.transport_diagnostic.pre_clear_status_valid = true;
+    if pending == u32::MAX {
+        return Err(ConnectionTransportError::MmioUnavailable);
+    }
+    if pending != 0 && pending != u32::MAX {
+        // The status register is W0C on this device: invert the observed bits
+        // so every currently pending source receives a zero acknowledgement.
+        write_reg(mmio, PCIE_HOST_INT_STATUS, !pending);
+    }
+    let mut post_clear_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+    for _ in 1..CONNECTION_CMD_DONE_CLEAR_POLLS {
+        if marvell_wifi_cmd::host_cmd_done_low_after_clear(post_clear_status, HOST_INTR_CMD_DONE) {
+            break;
+        }
+        delay_us(SHORT_POLL_DELAY_US);
+        post_clear_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+    }
+    job.transport_diagnostic.post_clear_status = post_clear_status;
+    job.transport_diagnostic.post_clear_status_valid = true;
+    if post_clear_status == u32::MAX {
+        return Err(ConnectionTransportError::MmioUnavailable);
+    }
+    if !marvell_wifi_cmd::host_cmd_done_low_after_clear(post_clear_status, HOST_INTR_CMD_DONE) {
+        return Err(ConnectionTransportError::StaleCommandDone);
+    }
+    job.cmd_done_low_baseline = true;
+
+    write_reg(
+        mmio,
+        CMDRSP_ADDR_LO,
+        (job.rsp_dma_phys & 0xffff_ffff) as u32,
+    );
+    write_reg(mmio, CMDRSP_ADDR_HI, (job.rsp_dma_phys >> 32) as u32);
+    write_reg(mmio, CMD_ADDR_LO, (job.cmd_dma_phys & 0xffff_ffff) as u32);
+    write_reg(mmio, CMD_ADDR_HI, (job.cmd_dma_phys >> 32) as u32);
+    write_reg(mmio, CMD_SIZE, command_len as u32);
+    compiler_fence(Ordering::SeqCst);
+    let program_flush_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+    job.transport_diagnostic.program_flush_status = program_flush_status;
+    job.transport_diagnostic.program_flush_status_valid = true;
+    if program_flush_status == u32::MAX {
+        return Err(ConnectionTransportError::MmioUnavailable);
+    }
+    if program_flush_status & HOST_INTR_CMD_DONE != 0 {
+        return Err(ConnectionTransportError::StaleCommandDone);
+    }
+
+    write_reg(mmio, PCIE_CPU_INT_EVENT, CPU_INTR_DOOR_BELL);
+    compiler_fence(Ordering::SeqCst);
+    job.transport_diagnostic.first_poll_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+    job.transport_diagnostic.first_poll_status_valid = true;
+    Ok(())
 }
 
 pub fn poll_connection() -> bool {
@@ -1888,56 +2473,86 @@ pub fn poll_connection() -> bool {
                 return true;
             }
         };
-        compiler_fence(Ordering::SeqCst);
-        write_reg(mmio, PCIE_HOST_INT_MASK, 0);
-        write_reg(mmio, PCIE_HOST_INT_STATUS_MASK, HOST_INTR_MASK);
-        let pending = read_reg(mmio, PCIE_HOST_INT_STATUS);
-        if pending != 0 && pending != u32::MAX {
-            write_reg(mmio, PCIE_HOST_INT_STATUS, !pending);
+        if let Err(error) = arm_connection_command(&mut job, command_len) {
+            let status = job.transport_diagnostic.post_clear_status;
+            runtime.snapshot.transport_diagnostic = Some(job.transport_diagnostic);
+            quarantine_connection_job(&job);
+            finish_connection_locked(
+                &mut runtime,
+                ConnectionResult::Transport(error),
+                ConnectionStage::Failed,
+                status,
+            );
+            serial::write_fmt(format_args!(
+                "marvell wifi: connection mailbox arm failed phase={} reason={} pre=0x{:08x} post=0x{:08x}\r\n",
+                job.phase.label(),
+                error.label(),
+                job.transport_diagnostic.pre_clear_status,
+                job.transport_diagnostic.post_clear_status,
+            ));
+            return true;
         }
-        write_reg(
-            mmio,
-            CMDRSP_ADDR_LO,
-            (job.rsp_dma_phys & 0xffff_ffff) as u32,
-        );
-        write_reg(mmio, CMDRSP_ADDR_HI, (job.rsp_dma_phys >> 32) as u32);
-        write_reg(mmio, CMD_ADDR_LO, (job.cmd_dma_phys & 0xffff_ffff) as u32);
-        write_reg(mmio, CMD_ADDR_HI, (job.cmd_dma_phys >> 32) as u32);
-        write_reg(mmio, CMD_SIZE, command_len as u32);
-        compiler_fence(Ordering::SeqCst);
-        pci::enable_bus_master(job.pci_address);
-        write_reg(mmio, PCIE_CPU_INT_EVENT, CPU_INTR_DOOR_BELL);
-        compiler_fence(Ordering::SeqCst);
         job.waiting = true;
         job.phase_started_tsc = time::rdtsc();
         runtime.snapshot.stage = job.phase;
-        runtime.snapshot.host_int_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
+        runtime.snapshot.host_int_status = job.transport_diagnostic.first_poll_status;
+        runtime.snapshot.transport_diagnostic = Some(job.transport_diagnostic);
         runtime.job = Some(job);
         return true;
     }
 
     let status = read_reg(mmio, PCIE_HOST_INT_STATUS);
     runtime.snapshot.host_int_status = status;
-    if status & HOST_INTR_CMD_DONE == 0 {
+    job.transport_diagnostic.poll_count = job.transport_diagnostic.poll_count.saturating_add(1);
+    runtime.snapshot.transport_diagnostic = Some(job.transport_diagnostic);
+    if status == u32::MAX {
+        quarantine_connection_job(&job);
+        finish_connection_locked(
+            &mut runtime,
+            ConnectionResult::Transport(ConnectionTransportError::MmioUnavailable),
+            ConnectionStage::Failed,
+            status,
+        );
+        serial::write_line("marvell wifi: HOST_INT_STATUS unavailable while awaiting CMD_DONE");
+        return true;
+    }
+    if !marvell_wifi_cmd::host_cmd_done_is_current(
+        job.cmd_done_low_baseline,
+        status,
+        HOST_INTR_CMD_DONE,
+    ) {
+        if status & HOST_INTR_CMD_DONE != 0 {
+            quarantine_connection_job(&job);
+            finish_connection_locked(
+                &mut runtime,
+                ConnectionResult::Transport(ConnectionTransportError::StaleCommandDone),
+                ConnectionStage::Failed,
+                status,
+            );
+            serial::write_line(
+                "marvell wifi: CMD_DONE rejected without a proven current low baseline",
+            );
+            return true;
+        }
         runtime.job = Some(job);
         return false;
     }
 
     compiler_fence(Ordering::SeqCst);
-    let response = parse_connection_dma_response(&job);
+    let (response, response_header) = parse_connection_dma_response(&job);
     write_reg(mmio, PCIE_HOST_INT_STATUS, !status);
+    clear_connection_response_mailbox(mmio);
+    let _cleanup_flush_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
     compiler_fence(Ordering::SeqCst);
     let association = match response {
         Ok(association) => association,
         Err(result) => {
+            let response_diagnostic = connection_response_diagnostic(&job, result, response_header);
+            runtime.snapshot.response_diagnostic = response_diagnostic;
             quarantine_connection_job(&job);
             finish_connection_locked(&mut runtime, result, ConnectionStage::Failed, status);
             DATA_LINK_READY.store(false, Ordering::Release);
-            serial::write_fmt(format_args!(
-                "marvell wifi: connection command failed at {} result={}\r\n",
-                job.phase.label(),
-                result.label()
-            ));
+            write_connection_response_failure(job.phase, result, response_diagnostic, status);
             return true;
         }
     };
@@ -1959,20 +2574,39 @@ pub fn poll_connection() -> bool {
         }
     }
 
-    if job.phase == ConnectionStage::MacControl {
-        publish_data_ring_pointers(job.mmio_base);
-    }
-
     job.waiting = false;
+    job.cmd_done_low_baseline = false;
     job.phase_started_tsc = time::rdtsc();
     job.phase = next_connection_phase(job.phase, job.target.security);
     if job.phase == ConnectionStage::WaitPortRelease {
+        if let Err(result) = revalidate_ephemeral_release(&job) {
+            quarantine_connection_job(&job);
+            finish_connection_locked(&mut runtime, result, ConnectionStage::Failed, status);
+            DATA_LINK_READY.store(false, Ordering::Release);
+            drop(runtime);
+            net::detach_wifi();
+            serial::write_line("marvell wifi: ephemeral authority denied before port release");
+            return true;
+        }
         runtime.snapshot.stage = ConnectionStage::WaitPortRelease;
         runtime.job = Some(job);
         serial::write_line("marvell wifi: association accepted; waiting for secure port release");
         return true;
     }
     if job.phase == ConnectionStage::LinkReady {
+        if job.secret_source.is_ephemeral() {
+            quarantine_connection_job(&job);
+            finish_connection_locked(
+                &mut runtime,
+                ConnectionResult::EphemeralRevalidationFailed,
+                ConnectionStage::Failed,
+                status,
+            );
+            DATA_LINK_READY.store(false, Ordering::Release);
+            drop(runtime);
+            net::detach_wifi();
+            return true;
+        }
         let mac = hw_spec_snapshot().mac;
         let ready_target = job.target;
         finish_connection_locked(
@@ -1997,11 +2631,6 @@ pub fn poll_connection() -> bool {
 
 fn next_connection_phase(stage: ConnectionStage, security: Dot11Security) -> ConnectionStage {
     match stage {
-        ConnectionStage::RegisterRings => ConnectionStage::MacControl,
-        ConnectionStage::MacControl if security == Dot11Security::Wpa2 => {
-            ConnectionStage::SupplicantProfile
-        }
-        ConnectionStage::MacControl => ConnectionStage::Associate,
         ConnectionStage::SupplicantProfile => ConnectionStage::SupplicantPmk,
         ConnectionStage::SupplicantPmk => ConnectionStage::Associate,
         ConnectionStage::Associate if security == Dot11Security::Wpa2 => {
@@ -2018,18 +2647,61 @@ fn finish_connection_locked(
     stage: ConnectionStage,
     host_int_status: u32,
 ) {
+    let previous_stage = runtime.snapshot.stage;
+    if stage == ConnectionStage::Failed {
+        let phase = match previous_stage {
+            ConnectionStage::SupplicantProfile | ConnectionStage::SupplicantPmk => {
+                HwFailurePhase::Authenticate
+            }
+            ConnectionStage::Associate => HwFailurePhase::Associate,
+            ConnectionStage::WaitPortRelease => HwFailurePhase::KeyExchange,
+            _ => HwFailurePhase::LinkBringup,
+        };
+        let status = match result {
+            ConnectionResult::CommandTimeout | ConnectionResult::PortReleaseTimeout => {
+                HwFailureStatus::Timeout
+            }
+            ConnectionResult::UnsupportedSecurity => HwFailureStatus::UnsupportedSecurity,
+            ConnectionResult::AssociationRejected(_) => HwFailureStatus::AssociationRejected,
+            ConnectionResult::LinkLost(_) => HwFailureStatus::LinkLost,
+            ConnectionResult::BootPostureDenied => HwFailureStatus::BootPostureDenied,
+            ConnectionResult::CommandResponse(_) | ConnectionResult::SupplicantResponse(_) => {
+                HwFailureStatus::FirmwareRejected
+            }
+            _ => HwFailureStatus::TransportFault,
+        };
+        queue_fixed_hw_failure_trace(
+            phase,
+            status,
+            HwFailureRegister::MarvellHostInterruptStatus,
+            host_int_status,
+        );
+    }
     runtime.job = None;
     runtime.snapshot.running = false;
+    runtime.snapshot.failed_stage = if stage == ConnectionStage::Failed {
+        Some(previous_stage)
+    } else {
+        None
+    };
     runtime.snapshot.stage = stage;
     runtime.snapshot.result = Some(result);
     runtime.snapshot.host_int_status = host_int_status;
+    if stage != ConnectionStage::Failed {
+        runtime.snapshot.response_diagnostic = None;
+        runtime.snapshot.transport_diagnostic = None;
+    }
     runtime.ready_target = None;
 }
 
 fn quarantine_connection_job(job: &ConnectionJob) {
     DATA_LINK_READY.store(false, Ordering::Release);
     pci::disable_bus_master(job.pci_address);
+    let mmio = job.mmio_base as *mut u8;
+    clear_connection_response_mailbox(mmio);
+    let _cleanup_flush_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
     clear_connection_secret_dma(job);
+    CONNECTION_REBOOT_REQUIRED.store(true, Ordering::Release);
     compiler_fence(Ordering::SeqCst);
 }
 
@@ -2155,8 +2827,10 @@ fn handle_connection_event(cause: u32) {
                 pci::disable_bus_master(address);
             }
             runtime.snapshot.running = false;
+            runtime.snapshot.failed_stage = Some(runtime.snapshot.stage);
             runtime.snapshot.stage = ConnectionStage::Failed;
             runtime.snapshot.result = Some(ConnectionResult::LinkLost(event_id as u16));
+            runtime.snapshot.response_diagnostic = None;
             runtime.ready_target = None;
             DATA_LINK_READY.store(false, Ordering::Release);
             drop(runtime);
@@ -2179,10 +2853,26 @@ fn handle_connection_event(cause: u32) {
     let Some(job) = runtime.job.take() else {
         return;
     };
+    if revalidate_ephemeral_release(&job).is_err() {
+        quarantine_connection_job(&job);
+        finish_connection_locked(
+            &mut runtime,
+            ConnectionResult::EphemeralRevalidationFailed,
+            ConnectionStage::Failed,
+            read_reg(job.mmio_base as *mut u8, PCIE_HOST_INT_STATUS),
+        );
+        DATA_LINK_READY.store(false, Ordering::Release);
+        drop(runtime);
+        net::detach_wifi();
+        serial::write_line("marvell wifi: ephemeral authority denied before net attach");
+        return;
+    }
     let ready_target = job.target;
     runtime.snapshot.running = false;
+    runtime.snapshot.failed_stage = None;
     runtime.snapshot.stage = ConnectionStage::LinkReady;
     runtime.snapshot.result = Some(ConnectionResult::LinkReady);
+    runtime.snapshot.response_diagnostic = None;
     runtime.ready_target = Some(ready_target);
     DATA_LINK_READY.store(true, Ordering::Release);
     drop(job);
@@ -2535,6 +3225,21 @@ fn finish_locked(
     downloaded: usize,
     total: usize,
 ) {
+    if stage == FirmwareStage::Failed {
+        let status = match result {
+            FirmwareDownloadResult::CmdSizeTimeout
+            | FirmwareDownloadResult::DoorbellAckTimeout
+            | FirmwareDownloadResult::FirmwareReadyTimeout
+            | FirmwareDownloadResult::TotalTimeout => HwFailureStatus::Timeout,
+            _ => HwFailureStatus::TransportFault,
+        };
+        queue_fixed_hw_failure_trace(
+            HwFailurePhase::FirmwareTransport,
+            status,
+            HwFailureRegister::MarvellFirmwareStatus,
+            registers.fw_status,
+        );
+    }
     runtime.job = None;
     runtime.snapshot = FirmwareBringupSnapshot {
         attempted: true,
@@ -2578,6 +3283,23 @@ fn arm_hw_spec_after_firmware_ready(mmio_base: usize, pci_address: pci::PciAddre
         return;
     }
 
+    if !arm_data_rings(mmio_base) {
+        finish_hw_spec_locked(
+            &mut runtime,
+            HwSpecResult::DataRingUnavailable,
+            HwSpecStage::Failed,
+            0,
+            None,
+            None,
+        );
+        write_hw_spec_failure(
+            HwSpecStage::PcieDescDetails,
+            HwSpecResult::DataRingUnavailable,
+            0,
+        );
+        return;
+    }
+
     let Some(cmd_dma_phys) = hw_spec_cmd_phys() else {
         finish_hw_spec_locked(
             &mut runtime,
@@ -2587,7 +3309,11 @@ fn arm_hw_spec_after_firmware_ready(mmio_base: usize, pci_address: pci::PciAddre
             None,
             None,
         );
-        write_hw_spec_failure(HwSpecResult::DmaAddressUnavailable, 0);
+        write_hw_spec_failure(
+            HwSpecStage::PcieDescDetails,
+            HwSpecResult::DmaAddressUnavailable,
+            0,
+        );
         return;
     };
     let Some(rsp_dma_phys) = hw_spec_rsp_phys() else {
@@ -2599,28 +3325,39 @@ fn arm_hw_spec_after_firmware_ready(mmio_base: usize, pci_address: pci::PciAddre
             None,
             None,
         );
-        write_hw_spec_failure(HwSpecResult::DmaAddressUnavailable, 0);
+        write_hw_spec_failure(
+            HwSpecStage::PcieDescDetails,
+            HwSpecResult::DmaAddressUnavailable,
+            0,
+        );
         return;
     };
 
     runtime.snapshot = HwSpecSnapshot {
         attempted: true,
         running: true,
-        stage: HwSpecStage::Arming,
+        stage: HwSpecStage::PcieDescDetails,
+        failed_stage: None,
         result: None,
+        last_response: None,
         mac: None,
         fw_release: None,
         fw_cap_info: 0,
         key_api_version: None,
         host_int_status: 0,
+        pci_vendor_device: u32::MAX,
+        pci_command_before: u16::MAX,
+        pci_command_after: u16::MAX,
+        firmware_status: u32::MAX,
     };
     runtime.job = Some(HwSpecJob {
         pci_address,
         mmio_base,
         cmd_dma_phys,
         rsp_dma_phys,
-        started_tsc: time::rdtsc(),
-        seq: 0,
+        phase_started_tsc: time::rdtsc(),
+        waiting: false,
+        seq: 1,
     });
 }
 
@@ -2789,17 +3526,44 @@ fn finish_hw_spec_locked(
     mac: Option<[u8; 6]>,
     fw_release: Option<u32>,
 ) {
+    let previous = runtime.snapshot;
+    if stage == HwSpecStage::Failed {
+        let status = match result {
+            HwSpecResult::CmdDoneTimeout => HwFailureStatus::Timeout,
+            HwSpecResult::Response(HwSpecCmdError::FwResult { .. })
+            | HwSpecResult::InitResponse(MarvellCmdError::FwResult { .. }) => {
+                HwFailureStatus::FirmwareRejected
+            }
+            _ => HwFailureStatus::TransportFault,
+        };
+        queue_fixed_hw_failure_trace(
+            HwFailurePhase::HardwareSpec,
+            status,
+            HwFailureRegister::MarvellHostInterruptStatus,
+            host_int_status,
+        );
+    }
     runtime.job = None;
     runtime.snapshot = HwSpecSnapshot {
         attempted: true,
         running: false,
         stage,
+        failed_stage: if stage == HwSpecStage::Failed {
+            Some(previous.stage)
+        } else {
+            None
+        },
         result: Some(result),
-        mac,
-        fw_release,
-        fw_cap_info: 0,
-        key_api_version: None,
+        last_response: previous.last_response,
+        mac: mac.or(previous.mac),
+        fw_release: fw_release.or(previous.fw_release),
+        fw_cap_info: previous.fw_cap_info,
+        key_api_version: previous.key_api_version,
         host_int_status,
+        pci_vendor_device: previous.pci_vendor_device,
+        pci_command_before: previous.pci_command_before,
+        pci_command_after: previous.pci_command_after,
+        firmware_status: previous.firmware_status,
     };
 }
 
@@ -2820,6 +3584,26 @@ fn finish_scan_locked(
     host_int_status: u32,
     command_len: usize,
 ) {
+    if stage == ScanCmdStage::Failed
+        && !matches!(
+            result,
+            ScanCmdResult::FirmwareNotReady | ScanCmdResult::HwSpecNotReady
+        )
+    {
+        let status = match result {
+            ScanCmdResult::CmdDoneTimeout => HwFailureStatus::Timeout,
+            ScanCmdResult::Response(HwSpecCmdError::FwResult { .. }) => {
+                HwFailureStatus::FirmwareRejected
+            }
+            _ => HwFailureStatus::TransportFault,
+        };
+        queue_fixed_hw_failure_trace(
+            HwFailurePhase::Scan,
+            status,
+            HwFailureRegister::MarvellHostInterruptStatus,
+            host_int_status,
+        );
+    }
     runtime.job = None;
     runtime.snapshot = ScanCmdSnapshot {
         attempted: true,
@@ -2831,13 +3615,33 @@ fn finish_scan_locked(
     };
 }
 
-fn prepare_hw_spec_dma(seq: u16) -> Result<usize, HwSpecCmdError> {
+fn prepare_hw_spec_dma(job: &HwSpecJob, phase: HwSpecStage) -> Result<usize, HwSpecResult> {
     unsafe {
         // SAFETY: HWSPEC_DMA_BLOCK is this driver's distinct command mailbox
         // DMA area. Access is serialized by HWSPEC and bounded by fixed sizes.
         ptr::write_bytes(hw_spec_rsp_ptr(), 0, MWIFIEX_UPLD_SIZE);
         let cmd = slice::from_raw_parts_mut(hw_spec_cmd_ptr(), HWSPEC_CMD_BUFFER_SIZE);
-        marvell_wifi_cmd::build_get_hw_spec(seq, cmd)
+        let seq = init_phase_seq(job.seq, phase);
+        match phase {
+            HwSpecStage::PcieDescDetails => {
+                let rings = marvell_wifi_cmd::PcieDescriptorRings {
+                    tx_phys: tx_desc_phys().ok_or(HwSpecResult::DmaAddressUnavailable)?,
+                    rx_phys: rx_desc_phys().ok_or(HwSpecResult::DmaAddressUnavailable)?,
+                    event_phys: event_desc_phys().ok_or(HwSpecResult::DmaAddressUnavailable)?,
+                };
+                marvell_wifi_cmd::build_pcie_desc_details(seq, rings, cmd)
+                    .map_err(HwSpecResult::InitCommandBuild)
+            }
+            HwSpecStage::FuncInit => {
+                marvell_wifi_cmd::build_func_init(seq, cmd).map_err(HwSpecResult::InitCommandBuild)
+            }
+            HwSpecStage::GetHwSpec => {
+                marvell_wifi_cmd::build_get_hw_spec(seq, cmd).map_err(HwSpecResult::CommandBuild)
+            }
+            HwSpecStage::MacControl => marvell_wifi_cmd::build_mac_control(seq, cmd)
+                .map_err(HwSpecResult::InitCommandBuild),
+            _ => Err(HwSpecResult::InitCommandBuild(MarvellCmdError::BadLength)),
+        }
     }
 }
 
@@ -2859,24 +3663,16 @@ fn prepare_connection_dma(job: &mut ConnectionJob) -> Result<usize, ConnectionRe
         let out = slice::from_raw_parts_mut(connect_cmd_ptr(), CONNECT_CMD_BUFFER_SIZE);
         let seq = connection_phase_seq(job.seq, job.phase);
         match job.phase {
-            ConnectionStage::RegisterRings => {
-                let rings = marvell_wifi_cmd::PcieDescriptorRings {
-                    tx_phys: tx_desc_phys().ok_or(ConnectionResult::DmaAddressUnavailable)?,
-                    rx_phys: rx_desc_phys().ok_or(ConnectionResult::DmaAddressUnavailable)?,
-                    event_phys: event_desc_phys().ok_or(ConnectionResult::DmaAddressUnavailable)?,
-                };
-                marvell_wifi_cmd::build_pcie_desc_details(seq, rings, out)
-                    .map_err(ConnectionResult::CommandBuild)
-            }
-            ConnectionStage::MacControl => marvell_wifi_cmd::build_mac_control(seq, out)
-                .map_err(ConnectionResult::CommandBuild),
             ConnectionStage::SupplicantProfile => {
                 marvell_wifi_supplicant::build_supplicant_profile_set(seq, out)
                     .map_err(ConnectionResult::SupplicantBuild)
             }
-            ConnectionStage::SupplicantPmk => {
-                if let Some(authority) = job.safe_reconnect.take() {
-                    return secret_vault::write_wifi_pmk_for_safe_association(
+            ConnectionStage::SupplicantPmk => match &mut job.secret_source {
+                ConnectionSecretSource::SafeVault(authority) => {
+                    let Some(authority) = authority.take() else {
+                        return Err(ConnectionResult::PassphraseUnavailable);
+                    };
+                    secret_vault::write_wifi_pmk_for_safe_association(
                         authority,
                         seq,
                         job.target.ssid.as_bytes(),
@@ -2889,9 +3685,30 @@ fn prepare_connection_dma(job: &mut ConnectionJob) -> Result<usize, ConnectionRe
                             denied.wifi_use_reason()
                         ));
                         ConnectionResult::PassphraseUnavailable
-                    });
+                    })
                 }
-                match secret_vault::wifi_status() {
+                ConnectionSecretSource::EphemeralPhysical { pending, receipt } => {
+                    if receipt.is_some() {
+                        return Err(ConnectionResult::EphemeralAttemptNotFresh);
+                    }
+                    let current_target = wifi::association_target()
+                        .ok_or(ConnectionResult::EphemeralRevalidationFailed)?;
+                    let authority = pending
+                        .as_ref()
+                        .ok_or(ConnectionResult::EphemeralAttemptNotFresh)?;
+                    secret_vault::revalidate_ephemeral_physical_wifi_use(authority, current_target)
+                        .map_err(|_| ConnectionResult::EphemeralRevalidationFailed)?;
+                    let authority = pending
+                        .take()
+                        .ok_or(ConnectionResult::EphemeralAttemptNotFresh)?;
+                    let (len, consumed) = secret_vault::write_ephemeral_physical_wifi_pmk(
+                        authority, seq, job.target, out,
+                    )
+                    .map_err(|_| ConnectionResult::EphemeralRevalidationFailed)?;
+                    *receipt = Some(consumed);
+                    Ok(len)
+                }
+                ConnectionSecretSource::Ordinary => match secret_vault::wifi_status() {
                     secret_vault::VaultSecretStatus::Available { .. } => {
                         secret_vault::write_wifi_pmk_for_association(
                             seq,
@@ -2920,8 +3737,8 @@ fn prepare_connection_dma(job: &mut ConnectionJob) -> Result<usize, ConnectionRe
                         serial::write_line("VAULT_WIFI_USE_REJECTED reason=secret_forgotten");
                         Err(ConnectionResult::PassphraseUnavailable)
                     }
-                }
-            }
+                },
+            },
             ConnectionStage::Associate => {
                 let security_ie = if job.target.security_ie().is_empty() {
                     None
@@ -2950,32 +3767,34 @@ fn prepare_connection_dma(job: &mut ConnectionJob) -> Result<usize, ConnectionRe
 
 fn parse_connection_dma_response(
     job: &ConnectionJob,
-) -> Result<Option<marvell_wifi_cmd::AssociationResponse>, ConnectionResult> {
+) -> (
+    Result<Option<marvell_wifi_cmd::AssociationResponse>, ConnectionResult>,
+    Option<marvell_wifi_cmd::MarvellResponseHeader>,
+) {
     unsafe {
-        // SAFETY: CMD_DONE is observed before parsing the fixed connection
-        // response DMA buffer under the CONNECTION lock.
+        // SAFETY: a low baseline followed by the current CMD_DONE is observed
+        // before parsing the fixed response DMA buffer under CONNECTION.
         let response = slice::from_raw_parts(connect_rsp_ptr().cast_const(), MWIFIEX_UPLD_SIZE);
+        let header = marvell_wifi_cmd::redacted_response_header(response);
+        if header.is_some_and(marvell_wifi_cmd::MarvellResponseHeader::is_empty) {
+            return (
+                Err(ConnectionResult::Transport(
+                    ConnectionTransportError::EmptyResponseOnCommandDone,
+                )),
+                header,
+            );
+        }
         let seq = connection_phase_seq(job.seq, job.phase);
-        match job.phase {
-            ConnectionStage::RegisterRings => {
-                marvell_wifi_cmd::parse_pcie_desc_details_response(seq, response)
-                    .map_err(ConnectionResult::CommandResponse)?;
-                Ok(None)
-            }
-            ConnectionStage::MacControl => {
-                marvell_wifi_cmd::parse_mac_control_response(seq, response)
-                    .map_err(ConnectionResult::CommandResponse)?;
-                Ok(None)
-            }
+        let parsed = match job.phase {
             ConnectionStage::SupplicantProfile => {
                 marvell_wifi_supplicant::parse_supplicant_profile_response(seq, response)
-                    .map_err(ConnectionResult::SupplicantResponse)?;
-                Ok(None)
+                    .map(|()| None)
+                    .map_err(ConnectionResult::SupplicantResponse)
             }
             ConnectionStage::SupplicantPmk => {
                 marvell_wifi_supplicant::parse_supplicant_pmk_response(seq, response)
-                    .map_err(ConnectionResult::SupplicantResponse)?;
-                Ok(None)
+                    .map(|()| None)
+                    .map_err(ConnectionResult::SupplicantResponse)
             }
             ConnectionStage::Associate => marvell_wifi_cmd::parse_associate_response(seq, response)
                 .map(Some)
@@ -2983,27 +3802,183 @@ fn parse_connection_dma_response(
             _ => Err(ConnectionResult::CommandResponse(
                 MarvellCmdError::BadLength,
             )),
-        }
+        };
+        (parsed, header)
     }
 }
 
-fn connection_phase_seq(base: u16, phase: ConnectionStage) -> u16 {
-    base.wrapping_add(match phase {
-        ConnectionStage::RegisterRings => 0,
-        ConnectionStage::MacControl => 1,
-        ConnectionStage::SupplicantProfile => 2,
-        ConnectionStage::SupplicantPmk => 3,
-        ConnectionStage::Associate => 4,
+fn connection_phase_seq(base: u8, phase: ConnectionStage) -> u16 {
+    let offset: u16 = match phase {
+        ConnectionStage::SupplicantProfile => 0,
+        ConnectionStage::SupplicantPmk => 1,
+        ConnectionStage::Associate => 2,
         _ => 7,
+    };
+    u16::from(base) + offset
+}
+
+fn connection_phase_command(phase: ConnectionStage) -> Option<u16> {
+    match phase {
+        ConnectionStage::SupplicantProfile => Some(marvell_wifi_supplicant::SUPPLICANT_PROFILE_CMD),
+        ConnectionStage::SupplicantPmk => Some(marvell_wifi_supplicant::SUPPLICANT_PMK_CMD),
+        ConnectionStage::Associate => Some(marvell_wifi_cmd::ASSOCIATE_CMD),
+        _ => None,
+    }
+}
+
+fn connection_response_error_class(
+    result: ConnectionResult,
+) -> Option<ConnectionResponseErrorClass> {
+    match result {
+        ConnectionResult::Transport(ConnectionTransportError::EmptyResponseOnCommandDone) => {
+            Some(ConnectionResponseErrorClass::EmptyResponseOnCommandDone)
+        }
+        ConnectionResult::CommandResponse(error) => Some(match error {
+            MarvellCmdError::TooShort => ConnectionResponseErrorClass::TooShort,
+            MarvellCmdError::BadLength => ConnectionResponseErrorClass::BadLength,
+            MarvellCmdError::BadCommand { .. } => ConnectionResponseErrorClass::BadCommand,
+            MarvellCmdError::BadSequence { .. } => ConnectionResponseErrorClass::BadSequence,
+            MarvellCmdError::FwResult { .. } => ConnectionResponseErrorClass::FirmwareResult,
+            _ => ConnectionResponseErrorClass::Unexpected,
+        }),
+        ConnectionResult::SupplicantResponse(error) => Some(match error {
+            SupplicantError::ResponseTooShort => ConnectionResponseErrorClass::TooShort,
+            SupplicantError::BadInterfaceLength => ConnectionResponseErrorClass::BadInterfaceLength,
+            SupplicantError::BadInterfaceType { .. } => {
+                ConnectionResponseErrorClass::BadInterfaceType
+            }
+            SupplicantError::BadHostCommandLength => {
+                ConnectionResponseErrorClass::BadHostCommandLength
+            }
+            SupplicantError::BadCommand { .. } => ConnectionResponseErrorClass::BadCommand,
+            SupplicantError::BadSequence { .. } => ConnectionResponseErrorClass::BadSequence,
+            SupplicantError::FirmwareResult { .. } => ConnectionResponseErrorClass::FirmwareResult,
+            _ => ConnectionResponseErrorClass::Unexpected,
+        }),
+        _ => None,
+    }
+}
+
+/// Captures fixed response-header words only. This is called exclusively after
+/// HOST_INTR_CMD_DONE; request DMA and response payload bytes never enter the
+/// snapshot or diagnostics path.
+fn connection_response_diagnostic(
+    job: &ConnectionJob,
+    result: ConnectionResult,
+    header: Option<marvell_wifi_cmd::MarvellResponseHeader>,
+) -> Option<ConnectionResponseDiagnostic> {
+    let error_class = connection_response_error_class(result)?;
+    let expected_command = connection_phase_command(job.phase)?;
+    let header = header?;
+    Some(ConnectionResponseDiagnostic {
+        error_class,
+        interface_len: header.interface_len,
+        interface_type: header.interface_type,
+        command: header.command,
+        host_command_size: header.host_command_size,
+        sequence: header.sequence,
+        result: header.result,
+        expected_command,
+        expected_sequence: connection_phase_seq(job.seq, job.phase),
     })
 }
 
-fn parse_hw_spec_dma_response() -> Result<marvell_wifi_cmd::HwSpec, HwSpecCmdError> {
+fn write_connection_response_failure(
+    phase: ConnectionStage,
+    result: ConnectionResult,
+    diagnostic: Option<ConnectionResponseDiagnostic>,
+    host_int_status: u32,
+) {
+    if let Some(diagnostic) = diagnostic {
+        serial::write_fmt(format_args!(
+            "marvell wifi: connection response failed phase={} class={} intf_len=0x{:04x} intf_type=0x{:04x} cmd=0x{:04x} host_size=0x{:04x} seq=0x{:04x} result=0x{:04x} expected_cmd=0x{:04x} expected_seq=0x{:04x} host_int=0x{:08x}\r\n",
+            phase.label(),
+            diagnostic.error_class.label(),
+            diagnostic.interface_len,
+            diagnostic.interface_type,
+            diagnostic.command,
+            diagnostic.host_command_size,
+            diagnostic.sequence,
+            diagnostic.result,
+            diagnostic.expected_command,
+            diagnostic.expected_sequence,
+            host_int_status,
+        ));
+    } else {
+        serial::write_fmt(format_args!(
+            "marvell wifi: connection command failed phase={} result={} host_int=0x{:08x}\r\n",
+            phase.label(),
+            result.label(),
+            host_int_status,
+        ));
+    }
+}
+
+enum InitCommandResponse {
+    Unit,
+    HwSpec(marvell_wifi_cmd::HwSpec),
+}
+
+fn init_phase_seq(base: u8, phase: HwSpecStage) -> u16 {
+    let offset = match phase {
+        HwSpecStage::PcieDescDetails => 0,
+        HwSpecStage::FuncInit => 1,
+        HwSpecStage::GetHwSpec => 2,
+        HwSpecStage::MacControl => 3,
+        _ => INIT_HOST_CMD_PHASE_COUNT,
+    };
+    u16::from(base) + u16::from(offset)
+}
+
+fn next_init_phase(phase: HwSpecStage) -> HwSpecStage {
+    match phase {
+        HwSpecStage::PcieDescDetails => HwSpecStage::FuncInit,
+        HwSpecStage::FuncInit => HwSpecStage::GetHwSpec,
+        HwSpecStage::GetHwSpec => HwSpecStage::MacControl,
+        HwSpecStage::MacControl => HwSpecStage::Ready,
+        _ => HwSpecStage::Failed,
+    }
+}
+
+fn parse_hw_spec_dma_response(
+    phase: HwSpecStage,
+    expected_seq: u16,
+) -> (
+    Result<InitCommandResponse, HwSpecResult>,
+    Option<marvell_wifi_cmd::MarvellResponseHeader>,
+) {
     unsafe {
         // SAFETY: the firmware has raised CMD_DONE before this is called, and
         // the response slice covers only the fixed mailbox response buffer.
         let response = slice::from_raw_parts(hw_spec_rsp_ptr().cast_const(), MWIFIEX_UPLD_SIZE);
-        marvell_wifi_cmd::parse_hw_spec_response(response)
+        let header = marvell_wifi_cmd::redacted_response_header(response);
+        if header.is_some_and(marvell_wifi_cmd::MarvellResponseHeader::is_empty) {
+            return (Err(HwSpecResult::EmptyResponseOnCommandDone), header);
+        }
+        let parsed = match phase {
+            HwSpecStage::PcieDescDetails => {
+                marvell_wifi_cmd::parse_pcie_desc_details_response(expected_seq, response)
+                    .map(|()| InitCommandResponse::Unit)
+                    .map_err(HwSpecResult::InitResponse)
+            }
+            HwSpecStage::FuncInit => {
+                marvell_wifi_cmd::parse_func_init_response(expected_seq, response)
+                    .map(|()| InitCommandResponse::Unit)
+                    .map_err(HwSpecResult::InitResponse)
+            }
+            HwSpecStage::GetHwSpec => {
+                marvell_wifi_cmd::parse_hw_spec_response(expected_seq, response)
+                    .map(InitCommandResponse::HwSpec)
+                    .map_err(HwSpecResult::Response)
+            }
+            HwSpecStage::MacControl => {
+                marvell_wifi_cmd::parse_mac_control_response(expected_seq, response)
+                    .map(|()| InitCommandResponse::Unit)
+                    .map_err(HwSpecResult::InitResponse)
+            }
+            _ => Err(HwSpecResult::InitResponse(MarvellCmdError::BadLength)),
+        };
+        (parsed, header)
     }
 }
 
@@ -3268,12 +4243,13 @@ fn arm_rx_desc(index: usize) {
     }
 }
 
-fn write_hw_spec_failure(result: HwSpecResult, host_int_status: u32) {
+fn write_hw_spec_failure(phase: HwSpecStage, result: HwSpecResult, host_int_status: u32) {
     match result {
         HwSpecResult::Response(HwSpecCmdError::BadCommand { got })
         | HwSpecResult::CommandBuild(HwSpecCmdError::BadCommand { got }) => {
             serial::write_fmt(format_args!(
-                "marvell wifi: hw_spec failed: {} got=0x{:04x} host_int=0x{:08x}\r\n",
+                "marvell wifi: init failed stage={} result={} got=0x{:04x} host_int=0x{:08x}\r\n",
+                phase.label(),
                 result.label(),
                 got,
                 host_int_status
@@ -3282,7 +4258,8 @@ fn write_hw_spec_failure(result: HwSpecResult, host_int_status: u32) {
         HwSpecResult::Response(HwSpecCmdError::FwResult { code })
         | HwSpecResult::CommandBuild(HwSpecCmdError::FwResult { code }) => {
             serial::write_fmt(format_args!(
-                "marvell wifi: hw_spec failed: {} code=0x{:04x} host_int=0x{:08x}\r\n",
+                "marvell wifi: init failed stage={} result={} code=0x{:04x} host_int=0x{:08x}\r\n",
+                phase.label(),
                 result.label(),
                 code,
                 host_int_status
@@ -3290,7 +4267,8 @@ fn write_hw_spec_failure(result: HwSpecResult, host_int_status: u32) {
         }
         _ => {
             serial::write_fmt(format_args!(
-                "marvell wifi: hw_spec failed: {} host_int=0x{:08x}\r\n",
+                "marvell wifi: init failed stage={} result={} host_int=0x{:08x}\r\n",
+                phase.label(),
                 result.label(),
                 host_int_status
             ));

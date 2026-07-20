@@ -17,6 +17,11 @@ use raios_core::{
         RECLOG_PREV_FRAME_SHA256_OFFSET,
     },
     gpt_layout::{self, LayoutStatus, GPT_ENTRY_ARRAY_BYTES, PRIMARY_GPT_ENTRIES_LBA, SECTOR_SIZE},
+    hw_failure_trace::{
+        encode_hw_failure_trace_frame, validate_hw_failure_append_target,
+        verify_hw_failure_trace_readback, HwFailureTrace, HwFailureTraceLatch,
+        HwFailureTraceQueueResult,
+    },
     seed_data_layout, sha256_bytes,
 };
 
@@ -156,6 +161,7 @@ const HOTPLUG_MAX_ROOT_PORTS: u8 = 32;
 const MAX_HUB_WATCHES: usize = MAX_HID_DEVICES;
 
 static STATE: Mutex<UsbState> = Mutex::new(UsbState::new());
+static HW_FAILURE_TRACE_LATCH: Mutex<HwFailureTraceLatch> = Mutex::new(HwFailureTraceLatch::new());
 
 #[derive(Clone, Copy)]
 pub struct UsbSnapshot {
@@ -384,6 +390,48 @@ pub fn poll_hotplug() -> bool {
     refresh_snapshot_from_controller(&mut snapshot, controller);
     state.snapshot = snapshot;
     changed
+}
+
+/// Queues a fixed-shape, secret-free hardware failure trace in RAM. This is
+/// safe to call while a device driver owns its own lock: no USB state or media
+/// I/O is touched here. The main loop performs the one-shot flush later.
+pub fn queue_hw_failure_trace(trace: HwFailureTrace) -> HwFailureTraceQueueResult {
+    HW_FAILURE_TRACE_LATCH.lock().queue(trace)
+}
+
+/// Flushes at most one queued hardware trace per boot. The latch is consumed
+/// before USB is locked so a transport failure cannot recursively retry.
+pub fn flush_pending_hw_failure_trace() -> bool {
+    let trace = {
+        let mut latch = HW_FAILURE_TRACE_LATCH.lock();
+        latch.take_for_flush()
+    };
+    let Some(trace) = trace else {
+        return false;
+    };
+
+    let result = {
+        let mut state = STATE.lock();
+        match state.controller.as_mut() {
+            Some(controller) => unsafe { controller.append_hw_failure_trace(&trace) },
+            None => Err("usb_controller_unavailable"),
+        }
+    };
+    report_hw_failure_trace_result(result)
+}
+
+fn report_hw_failure_trace_result(result: Result<ReclogAppendPoint, &'static str>) -> bool {
+    match result {
+        Ok(point) => serial::write_fmt(format_args!(
+            "usb-msc: hw failure trace seq={} lba={} verified\r\n",
+            point.seq, point.lba
+        )),
+        Err(reason) => serial::write_fmt(format_args!(
+            "usb-msc: hw failure trace not persisted reason={}\r\n",
+            reason
+        )),
+    }
+    true
 }
 
 pub fn snapshot() -> UsbSnapshot {
@@ -963,6 +1011,9 @@ struct XhciController {
     mouse: Option<MouseDevice>,
     mass_storage: Option<MassStorageDevice>,
     mass_storage_probe: MassStorageProbe,
+    reclog_append_point: Option<ReclogAppendPoint>,
+    reclog_end_lba: u64,
+    reclog_append_unavailable_reason: &'static str,
     hub_count: u8,
     hub_ports: u8,
     hub_connected_ports: u8,
@@ -1057,6 +1108,12 @@ struct ReclogAppendPoint {
     seq: u64,
     lba: u64,
     prev_frame_sha256: [u8; 32],
+}
+
+#[derive(Clone, Copy)]
+struct ReclogAppendCommit {
+    point: ReclogAppendPoint,
+    frame_sha256: [u8; 32],
 }
 
 impl MassStorageProbe {
@@ -1372,6 +1429,9 @@ impl XhciController {
             mouse: None,
             mass_storage: None,
             mass_storage_probe: MassStorageProbe::none(),
+            reclog_append_point: None,
+            reclog_end_lba: 0,
+            reclog_append_unavailable_reason: "reclog_append_cache_unavailable",
             hub_count: 0,
             hub_ports: 0,
             hub_connected_ports: 0,
@@ -3327,19 +3387,41 @@ impl XhciController {
         let mut reclog_seq = 0;
         let mut reclog_lba = 0;
         if seed_data_present {
+            self.reclog_end_lba = gpt
+                .seed_data_first_lba
+                .checked_add(seed_data_layout::RECLOG_START_LBA)
+                .and_then(|start| start.checked_add(seed_data_layout::RECLOG_LBA_COUNT))
+                .ok_or("reclog_lba_overflow")?;
             match self.append_usb_diagnostic_reclog(
                 gpt.seed_data_first_lba,
                 gpt.seed_data_lba_count,
                 "boot_probe",
             ) {
-                Ok(point) => {
+                Ok(commit) => {
                     detail = "reclog_write_verified";
                     reclog_write_verified = true;
-                    reclog_seq = point.seq;
-                    reclog_lba = point.lba;
+                    reclog_seq = commit.point.seq;
+                    reclog_lba = commit.point.lba;
+                    self.reclog_append_point = commit
+                        .point
+                        .lba
+                        .checked_add(1)
+                        .zip(commit.point.seq.checked_add(1))
+                        .filter(|(lba, _)| *lba < self.reclog_end_lba)
+                        .map(|(lba, seq)| ReclogAppendPoint {
+                            seq,
+                            lba,
+                            prev_frame_sha256: commit.frame_sha256,
+                        });
+                    self.reclog_append_unavailable_reason = if self.reclog_append_point.is_some() {
+                        "ok"
+                    } else {
+                        "reclog_full"
+                    };
                 }
                 Err(err) => {
                     detail = err;
+                    self.reclog_append_unavailable_reason = err;
                     serial::write_fmt(format_args!("usb-msc: reclog append denied: {}\r\n", err));
                 }
             }
@@ -3376,7 +3458,7 @@ impl XhciController {
         seed_data_first_lba: u64,
         seed_data_lba_count: u64,
         reason: &'static str,
-    ) -> Result<ReclogAppendPoint, &'static str> {
+    ) -> Result<ReclogAppendCommit, &'static str> {
         let reclog_end = seed_data_layout::RECLOG_START_LBA
             .checked_add(seed_data_layout::RECLOG_LBA_COUNT)
             .ok_or("reclog_region_overflow")?;
@@ -3415,12 +3497,59 @@ impl XhciController {
         if readback != frame {
             return Err("reclog_readback_mismatch");
         }
-        parse_reclog_frame(&readback, 0, point.seq, point.prev_frame_sha256)
+        let parsed = parse_reclog_frame(&readback, 0, point.seq, point.prev_frame_sha256)
             .map_err(|_| "reclog_readback_parse_failed")?;
         serial::write_fmt(format_args!(
             "usb-msc: reclog append seq={} lba={} verified\r\n",
             point.seq, point.lba
         ));
+        Ok(ReclogAppendCommit {
+            point,
+            frame_sha256: parsed.frame_sha256,
+        })
+    }
+
+    /// Uses the append point proven by the boot probe. This deliberately does
+    /// not rescan the 2 MiB RECLOG while HID shares the same xHCI controller.
+    unsafe fn append_hw_failure_trace(
+        &mut self,
+        trace: &HwFailureTrace,
+    ) -> Result<ReclogAppendPoint, &'static str> {
+        let Some(point) = self.reclog_append_point else {
+            return Err(self.reclog_append_unavailable_reason);
+        };
+        let target = self.msc_read_sector_copy(point.lba)?;
+        validate_hw_failure_append_target(&target, point.lba, self.reclog_end_lba)?;
+        let frame = encode_hw_failure_trace_frame(trace, point.seq, point.prev_frame_sha256)?;
+
+        let mut idx = 0usize;
+        while idx < MSC_SECTOR_BUFFER_LEN {
+            ptr::write_volatile(ptr::addr_of_mut!(MSC_BUFFER.0[idx]), frame[idx]);
+            idx += 1;
+        }
+        self.msc_write_sector_from_buffer(point.lba)?;
+        let readback = self.msc_read_sector_copy(point.lba)?;
+        let frame_sha256 = verify_hw_failure_trace_readback(
+            &frame,
+            &readback,
+            point.seq,
+            point.prev_frame_sha256,
+        )?;
+
+        self.reclog_append_point = point
+            .lba
+            .checked_add(1)
+            .zip(point.seq.checked_add(1))
+            .filter(|(lba, _)| *lba < self.reclog_end_lba)
+            .map(|(lba, seq)| ReclogAppendPoint {
+                seq,
+                lba,
+                prev_frame_sha256: frame_sha256,
+            });
+        self.mass_storage_probe.detail = "hw_failure_trace_verified";
+        self.mass_storage_probe.reclog_write_verified = true;
+        self.mass_storage_probe.reclog_seq = point.seq;
+        self.mass_storage_probe.reclog_lba = point.lba;
         Ok(point)
     }
 
