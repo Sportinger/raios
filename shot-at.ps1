@@ -27,6 +27,7 @@ $url = "file:///" + $html.Replace('\', '/')
 $queryParts = @()
 if ($Query) { $queryParts += $Query }
 if (-not $IncludeLabChrome -and $Query -notmatch '(^|&)chrome=') { $queryParts += "chrome=0" }
+if ($Query -notmatch '(^|&)camedit=') { $queryParts += "camedit=0" }
 if ($queryParts.Count -gt 0) { $url += "?" + ($queryParts -join "&") }
 $outPath = if ([IO.Path]::IsPathRooted($Out)) {
     [IO.Path]::GetFullPath($Out)

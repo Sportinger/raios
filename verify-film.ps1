@@ -157,6 +157,29 @@ Assert-Condition ($sceneMatches.Count -eq 14) "Expected exactly 14 film scene gr
 $sceneNumbers = @($sceneMatches | ForEach-Object { [int]$_.Groups[2].Value } | Sort-Object)
 Assert-Condition (($sceneNumbers -join ',') -eq (($expectedScenes | Sort-Object) -join ',')) "Film scene IDs must be exactly film-scene-1 through film-scene-14"
 
+$scene4Start = $filmSection.IndexOf('id="film-scene-4"', [StringComparison]::Ordinal)
+$scene5Start = $filmSection.IndexOf('id="film-scene-5"', [StringComparison]::Ordinal)
+Assert-Condition ($scene4Start -ge 0 -and $scene5Start -gt $scene4Start) "Could not isolate scene 4 key ceremony"
+$scene4Markup = $filmSection.Substring($scene4Start, $scene5Start - $scene4Start)
+$scene4Keys = [regex]::Matches($scene4Markup, '(?is)<use\b[^>]*\bhref\s*=\s*(["''])#film-key\1')
+Assert-Condition ($scene4Keys.Count -eq 2) "Scene 4 must show exactly two keys: /sysroot READ and /src READ/WRITE"
+Assert-Condition ($scene4Markup.Contains('id="film-sysroot-key"')) "Scene 4 is missing the /sysroot READ key"
+Assert-Condition ($scene4Markup.Contains('id="film-src-key"')) "Scene 4 is missing the combined /src READ/WRITE key"
+
+foreach ($editBounds in @(
+    @('film-edit-one', 'film-edit-two'),
+    @('film-edit-two', 'film-workpiece')
+)) {
+    $editId = $editBounds[0]
+    $editStart = $filmSection.IndexOf(('id="' + $editId + '"'), [StringComparison]::Ordinal)
+    Assert-Condition ($editStart -ge 0) "Missing edit file group: $editId"
+    $editEnd = $filmSection.IndexOf(('id="' + $editBounds[1] + '"'), $editStart, [StringComparison]::Ordinal)
+    Assert-Condition ($editEnd -gt $editStart) "Malformed edit file group: $editId"
+    $editMarkup = $filmSection.Substring($editStart, $editEnd - $editStart)
+    $editFiles = [regex]::Matches($editMarkup, '(?is)<use\b[^>]*\bhref\s*=\s*(["''])#film-file\1')
+    Assert-Condition ($editFiles.Count -eq 3) "$editId must return exactly three EDIT files"
+}
+
 $smilMatches = [regex]::Matches($filmSection, '(?is)<\s*(animate|animateMotion|animateTransform|set)\b')
 Assert-Condition ($smilMatches.Count -eq 0) "The active film contains $($smilMatches.Count) SMIL elements"
 Assert-Condition ($filmSection -match '(?is)<defs\b.*?</defs>') "The active film has no defs block"
@@ -289,8 +312,19 @@ function Assert-RuntimeFrame {
 
     $hudTag = Get-ElementTagById $Dom "text" "film-scene-number"
     Assert-Condition ($null -ne $hudTag) "Runtime '$Label': missing film scene HUD"
-    $hudPattern = '(?is)' + [regex]::Escape($hudTag) + '\s*0?' + [string]$ExpectedScene + '\s*/\s*14\s*</text>'
-    Assert-Condition ([regex]::IsMatch($Dom, $hudPattern)) "Runtime '$Label': HUD does not report scene $ExpectedScene / 14"
+    $expectedHudNumber = if ($ExpectedTime -lt 11.25) {
+        1
+    } elseif ($ExpectedTime -lt 16.35) {
+        2
+    } elseif ($ExpectedTime -lt 23.35) {
+        3
+    } elseif ($ExpectedTime -lt 33) {
+        4
+    } else {
+        $ExpectedScene
+    }
+    $hudPattern = '(?is)' + [regex]::Escape($hudTag) + '\s*0?' + [string]$expectedHudNumber + '\s*/\s*14\s*</text>'
+    Assert-Condition ([regex]::IsMatch($Dom, $hudPattern)) "Runtime '$Label': HUD does not report waypoint $expectedHudNumber / 14"
 
     $runtimeChecks.Add([pscustomobject]@{
         Label = $Label
@@ -314,6 +348,7 @@ function Assert-WorkshopFrame {
     $workpiece = Get-ElementTagById $Dom "g" "film-workpiece"
     $outDoor = Get-ElementTagById $Dom "g" "film-out-door"
     $compilerProgress = Get-ElementTagById $Dom "rect" "film-compiler-progress"
+    $compilerSuccess = Get-ElementTagById $Dom "g" "film-compiler-success"
     $verifierProgress = Get-ElementTagById $Dom "rect" "film-verifier-progress"
     $playerDomain = Get-ElementTagById $Dom "g" "film-player-domain"
     $builderDeck = Get-ElementTagById $Dom "g" "film-builder-deck"
@@ -322,12 +357,31 @@ function Assert-WorkshopFrame {
     Assert-Condition ($null -ne $verifier) "Workshop t=${Time}: missing verifier"
     Assert-Condition ($null -ne $workpiece) "Workshop t=${Time}: missing workpiece"
     Assert-Condition ($null -ne $outDoor) "Workshop t=${Time}: missing /out door"
+    Assert-Condition ($null -ne $compilerSuccess) "Workshop t=${Time}: missing compiler success animation"
 
     switch ($Time) {
         30 {
+            $netKeyWindow = Get-ElementTagById $Dom "g" "film-net-key-window"
+            $netGroup = Get-ElementTagById $Dom "g" "film-net"
+            $netNode = Get-ElementTagById $Dom "g" "film-net-node"
+            $netResponseToDoor = Get-ElementTagById $Dom "path" "film-net-response-to-door"
+            $netResponseToAgent = Get-ElementTagById $Dom "path" "film-net-response-to-agent"
+            $buildPathRequest = Get-ElementTagById $Dom "path" "film-build-path-request"
+            $buildPathSysroot = Get-ElementTagById $Dom "path" "film-build-path-sysroot"
+            $buildPathSrc = Get-ElementTagById $Dom "path" "film-build-path-src"
+            $buildPathWorkpiece = Get-ElementTagById $Dom "path" "film-build-path-workpiece"
             Assert-Condition ((Get-AttributeValue $compiler "data-film-action-state") -eq "waiting") "Workshop t=30: compiler appeared before its cable"
             Assert-Condition ((Get-AttributeValue $verifier "data-film-action-state") -eq "waiting") "Workshop t=30: verifier appeared too early"
             Assert-Condition ((Get-AttributeValue $outDoor "data-film-unlocked") -eq "false") "Workshop t=30: /out is not locked"
+            Assert-Condition ((Get-AttributeValue $netKeyWindow "style") -match 'visibility\s*:\s*hidden') "Workshop t=30: net.https key did not leave after opening its door"
+            Assert-Condition ((Get-AttributeValue $netGroup "data-film-connected") -eq "true") "Workshop t=30: staged net path never completed"
+            Assert-Condition ((Get-AttributeValue $netNode "data-film-action-state") -eq "complete") "Workshop t=30: NET did not appear after the door opened"
+            Assert-Condition ((Get-AttributeValue $netResponseToDoor "data-film-direction") -eq "reverse") "Workshop t=30: NET response pulse does not return to the door"
+            Assert-Condition ((Get-AttributeValue $netResponseToAgent "data-film-direction") -eq "reverse") "Workshop t=30: NET response pulse does not return to the agent"
+            Assert-Condition ((Get-AttributeValue $buildPathRequest "data-film-action-state") -eq "complete") "Workshop t=30: builder path did not first reach build.request"
+            Assert-Condition ((Get-AttributeValue $buildPathSysroot "data-film-action-state") -eq "complete") "Workshop t=30: builder path did not continue through /sysroot"
+            Assert-Condition ((Get-AttributeValue $buildPathSrc "data-film-action-state") -eq "complete") "Workshop t=30: builder path did not continue through /src"
+            Assert-Condition ((Get-AttributeValue $buildPathWorkpiece "data-film-action-state") -eq "moving") "Workshop t=30: final builder path segment is not visibly drawing"
         }
         38 {
             Assert-Condition ((Get-AttributeValue $compiler "data-film-action-state") -eq "waiting") "Workshop t=38: compiler appeared before the old-style cable completed"
@@ -342,6 +396,7 @@ function Assert-WorkshopFrame {
         57 {
             Assert-Condition ((Get-AttributeValue $workpiece "data-film-state") -eq "building") "Workshop t=57: round 2 workpiece is not moving to the verifier"
             Assert-Condition ((Get-AttributeValue $compilerProgress "data-film-result") -eq "passed") "Workshop t=57: round 2 did not pass the compiler"
+            Assert-Condition ((Get-AttributeValue $compilerSuccess "data-film-success-state") -eq "complete") "Workshop t=57: compiler success celebration did not finish before PLAYER left"
         }
         67 {
             Assert-Condition ((Get-AttributeValue $compilerProgress "data-film-round") -eq "3") "Workshop t=67: round 3 did not start after edit 02"
@@ -370,13 +425,22 @@ function Assert-WorkshopFrame {
             Assert-Condition ((Get-AttributeValue $workpiece "data-film-state") -eq "resident") "Workshop t=92: the same player did not land at full size"
         }
         101 {
+            $domainFbDoor = Get-ElementTagById $Dom "g" "film-domain-fb-door"
+            $domainInputDoor = Get-ElementTagById $Dom "g" "film-domain-input-door"
+            $domainFileDoor = Get-ElementTagById $Dom "g" "film-domain-file-door"
             Assert-Condition ((Get-AttributeValue $playerDomain "data-film-attached") -eq "true") "Workshop t=101: approved player domain is not attached to Genesis"
             Assert-Condition ((Get-AttributeValue $workpiece "data-film-state") -eq "resident") "Workshop t=101: approved player did not remain in its domain"
+            Assert-Condition ((Get-AttributeValue $compiler "data-film-teardown-state") -eq "released") "Workshop t=101: compiler survived the scene 11 transition"
+            Assert-Condition ((Get-AttributeValue $verifier "data-film-teardown-state") -eq "released") "Workshop t=101: verifier survived the scene 11 transition"
+            Assert-Condition ((Get-AttributeValue $builderDeck "data-film-released") -eq "true") "Workshop t=101: builder deck survived the scene 11 transition"
+            Assert-Condition ((Get-AttributeValue $domainFbDoor "data-film-door-open") -eq "true") "Workshop t=101: fb region door stayed locked"
+            Assert-Condition ((Get-AttributeValue $domainInputDoor "data-film-door-open") -eq "true") "Workshop t=101: input door stayed locked"
+            Assert-Condition ((Get-AttributeValue $domainFileDoor "data-film-door-open") -eq "true") "Workshop t=101: file door stayed locked"
         }
         110 {
             Assert-Condition ((Get-AttributeValue $compiler "data-film-teardown-state") -eq "released") "Workshop t=110: compiler was not dismantled"
             Assert-Condition ((Get-AttributeValue $verifier "data-film-teardown-state") -eq "released") "Workshop t=110: verifier was not dismantled"
-            Assert-Condition ((Get-AttributeValue $builderDeck "data-film-released") -eq "false") "Workshop t=110: builder floor vanished before its inventory"
+            Assert-Condition ((Get-AttributeValue $builderDeck "data-film-released") -eq "true") "Workshop t=110: builder deck returned after the scene 11 transition"
         }
         117 {
             Assert-Condition ((Get-AttributeValue $builderDeck "data-film-released") -eq "true") "Workshop t=117: builder deck was not fully released"
@@ -392,10 +456,36 @@ try {
         $label = "p7-{0:D3}" -f $time
         $dom = Get-DomSnapshot -Label $label -Query "site=1&anim=0&animt=$time"
         Assert-RuntimeFrame -Dom $dom -Label $label -ExpectedTime $time -ExpectedScene $scene
+        if ($time -eq 20) {
+            $netGroup = Get-ElementTagById $dom "g" "film-net"
+            $netToDoor = Get-ElementTagById $dom "path" "film-net-to-door"
+            $netToNode = Get-ElementTagById $dom "path" "film-net-to-node"
+            $netNode = Get-ElementTagById $dom "g" "film-net-node"
+            Assert-Condition ((Get-AttributeValue $netToDoor "data-film-action-state") -eq "complete") "Net t=20: dashed path did not reach the door first"
+            Assert-Condition ((Get-AttributeValue $netToNode "data-film-action-state") -eq "waiting") "Net t=20: path continued beyond the locked door"
+            Assert-Condition ((Get-AttributeValue $netNode "data-film-action-state") -eq "waiting") "Net t=20: NET appeared before the door opened"
+            Assert-Condition ((Get-AttributeValue $netGroup "data-film-connected") -eq "false") "Net t=20: connection completed before unlock"
+        }
         if ($time -in @(30, 38, 46, 57, 67, 76, 84, 92, 101, 110, 117)) {
             Assert-WorkshopFrame -Dom $dom -Time $time
         }
     }
+
+    $transitionDom = Get-DomSnapshot -Label "transition-094" -Query "site=1&anim=0&animt=94"
+    Assert-RuntimeFrame -Dom $transitionDom -Label "transition-094" -ExpectedTime 94 -ExpectedScene 11
+    $connectionTags = [regex]::Matches(
+        $transitionDom,
+        '(?is)<path\b(?=[^>]*\bclass\s*=\s*(["''])[^"'']*\bfilm-domain-connection\b[^"'']*\1)[^>]*>'
+    )
+    Assert-Condition ($connectionTags.Count -eq 3) "Transition t=94: expected three Genesis capability connections"
+    $connectionOffsets = @($connectionTags | ForEach-Object {
+        $style = Get-AttributeValue $_.Value "style"
+        $match = [regex]::Match($style, 'stroke-dashoffset:\s*([0-9.]+)')
+        Assert-Condition $match.Success "Transition t=94: connection is not being drawn"
+        [double]$match.Groups[1].Value
+    })
+    Assert-Condition (@($connectionOffsets | Select-Object -Unique).Count -eq 1) "Transition t=94: the three green connections are not synchronized"
+    Assert-Condition ($connectionOffsets[0] -gt 0 -and $connectionOffsets[0] -lt 1) "Transition t=94: synchronized connection draw is not in progress"
 
     $posterDom = Get-DomSnapshot -Label "poster-118" -Query "site=1&anim=0&animt=118"
     Assert-RuntimeFrame -Dom $posterDom -Label "poster-118" -ExpectedTime 118 -ExpectedScene 14
