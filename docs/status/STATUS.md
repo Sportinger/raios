@@ -419,10 +419,12 @@ See `docs/architecture/decisions/0001-raios-agent-protocol.md`.
   detach/reconfigure handling and broad NIC coverage do not exist yet, so real
   hardware may still boot to the UI but lack input/network unless it matches the
   implemented paths.
-- Wi-Fi support currently detects the Surface Pro 4 Marvell AVASTAR 88W8897
-  target and stores RAM-only SSID/WPA configuration for the current boot. The
-  next implementation step is a Marvell PCIe firmware-upload path before 802.11
-  association or WPA2 can work.
+- Surface Pro 4 Wi-Fi runs now prove Marvell AVASTAR 88W8897 firmware upload,
+  readiness, a live 2.4-GHz scan, WPA2 selection, and masked physical
+  passphrase entry. Association, `PORT_RELEASE`, DHCP, and traffic remain
+  unproven. H20 `Starting WiFi` coincided with loss of both keyboard and mouse;
+  Marvell ring hardware tests are under an isolation full brake pending DMA
+  bounds/ownership review and negative predicates (ADR 0034).
 - Bare-metal USB preparation scripts exist, but writing a USB disk is destructive
   and must be done with an explicit disk number and confirmation string.
 - API key entry exists in the VM, but the key is RAM-only and not persisted in

@@ -3,46 +3,40 @@
 > Window, not log: exactly one Now, one Next step, and three Recently entries.
 > Replace on update; never append. Keep under 60 lines and roughly 2 KB.
 
-## Now (2026-07-20 ~16:25, root orchestrator active)
+## Now (2026-07-20 ~20:56, root orchestrator active)
 
-HEAD/origin is `af32a9e`. Reviewed ASCII line-armored serial RECLOG V0 is
-secured as `35191de`: full kernel COM1 framing, trusted run-bound identity,
-fail-closed parsing, and no resynchronization. It is architecture only; both
-mapped implementation boxes remain open. Disjoint USB composite HID commit
-`68a4068` is preserved under the merge.
+Product branch `product/h20-surface` is at `fc26cd5`; pinned firmware `1f061b1`
+and fail-closed WiFi `fc26cd5` are secured. GitHub branch `website` at `946f046`
+is live on Cloudflare. `origin/main` remains site-only `941ac39`; restore the
+product line immediately after the docs commit.
 
-Crash-loop supervision is parked after two strategies. R64 found epoch
-exhaustion bypass, ungated Echo probe paths, and incomplete M8 evidence.
-Preserve W59's rejected `wasm_runtime.rs`, new supervisor, `echo_service.rs`,
-`recovery_lifeline.rs`, and M8 harness unstaged. Another strategy needs owner
-authorization for a checkpoint reset and wider allocation including
-`wasm_runtime/probes.rs` and `agent_protocol_wasm.rs`.
+Cold Surface runs proved Genesis, composite HID, Marvell firmware, live scan,
+WPA2 selection, and masked passphrase entry. H16-H19 narrowed connection
+failure from zero response DMA through mailbox/interrupt loss to valid PCI
+identity with MMIO already all-ones before PCI readback became `ffff`.
+Association, traffic, domain isolation, and IOMMU containment remain unproven.
 
-Rollback-image evidence is owner-blocked: the preserved three-file Python WIP
-cannot model ADR 0030 authority. Owner must authorize a Rust verifier/export
-and expansion, or change the contract. NET8/QEMU is blocked after two Schannel
-`SEC_E_NO_CREDENTIALS` strategies; surface closure needs owner hardware.
-Agent-fabric HANDOFF wording conflicts with root-only governance; top-level
-SCOPE repair needs the owner. Foreign diagnostics/experiment lock and
-formatter-only `main.rs` remain taboo.
+H20 aligned init to `PCIE_DESC_DETAILS → FUNC_INIT → GET_HW_SPEC → MAC_CONTROL`.
+At `Starting WiFi`, both HID devices froze and no WiFi trace appeared. ADR 0034
+invokes the full brake: no further Marvell ring tests or checkbox closure.
+
+RECLOG held one valid USB `boot_probe` (`errors=0`, `recoveries=0`) and no WiFi
+failure trace; this does not prove USB remained healthy at freeze time.
 
 ## Next step
 
-Audit compile-diagnostics JSON and signed-build/audit closure in disjoint
-read-only lanes. A67 selected the clean two-site `svc-demo-certwindow` unsafe
-tranche; defer implementation until W59 can be isolated from build/QEMU
-evidence. Secure only accepted exact slices, then update mapped boxes.
+Commit the exact docs, restore the product line to `origin/main`, then review
+Marvell DMA read-only and add negatives for bounds, ownership, non-overlap,
+indices, lifetimes, and xHCI/kernel/heap/RECLOG separation. Only independent
+acceptance plus owner authorization permits one cold-boot retest.
 
 ## Recently (exactly 3, newest first)
 
-### 2026-07-20 — serial RECLOG contract secured
-R68 accepted the repaired protocol; `35191de` was merged with the USB tip and
-pushed after green docs and boundary gates.
+### 2026-07-20 — H20 product code secured
+Pinned firmware is `1f061b1`; fail-closed physical WiFi is `fc26cd5`.
 
-### 2026-07-20 — crash supervision parked
-R64 rejected W59 after W55/W59 exhausted two strategies; its five-file WIP is
-preserved for an owner-approved wider restart.
+### 2026-07-20 — website split deployed
+GitHub `website` at `946f046` is live on Cloudflare production.
 
-### 2026-07-20 — unsafe baseline gate secured
-Stable count tracking and its scope slice are pushed as `3e33e0c`/`44e2820`;
-A67 selected the next two-site certwindow tranche but left it unmodified.
+### 2026-07-20 — H20 full brake
+Simultaneous HID loss at `Starting WiFi`; cause unproven. ADR 0034 records stop.

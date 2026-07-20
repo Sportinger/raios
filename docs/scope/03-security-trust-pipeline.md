@@ -25,8 +25,11 @@
       first fixture emitted importdeny=failed and the whole report went red
       (shadow-20260719-102907). Verified 2026-07-19.
 - [ ] Isolation-suspicion protocol: any unexplained cross-guest or guest-to-host
-      effect halts
-      all lanes until these tests settle it (mirrors AGENTS.md full brake)
+      effect halts all lanes until these tests settle it (mirrors AGENTS.md full
+      brake) — activated 2026-07-20 when H20 `Starting WiFi` coincided with
+      simultaneous keyboard and mouse loss on the Surface. Cause is unproven;
+      the box remains open until Marvell DMA ring bounds/ownership and the
+      foreign-region negative predicate settle the suspected boundary.
 
 ## Explicit future hardware hardening (not current checkboxes)
 
