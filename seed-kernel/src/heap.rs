@@ -1,8 +1,9 @@
 use core::ptr;
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use limine::memory_map::EntryType;
 
-use crate::{serial, ALLOCATOR, HEAP, HEAP_SIZE, HHDM_REQUEST, MEMORY_MAP_REQUEST};
+use crate::{memory, serial, ALLOCATOR, HEAP, HEAP_SIZE, HHDM_REQUEST, MEMORY_MAP_REQUEST};
 
 const MIB: u64 = 1024 * 1024;
 const MIN_HEAP_SIZE: u64 = 64 * MIB;
@@ -69,6 +70,14 @@ static mut HEAP_REPORT: HeapReport = HeapReport {
     reason: HeapReason::NoMemmap,
 };
 
+// Published once by heap::init. Readers use only these atomics and never take
+// the allocator lock or observe HEAP_REPORT's diagnostic-only mutable state.
+static HEAP_SPAN_READY: AtomicBool = AtomicBool::new(false);
+static HEAP_VIRTUAL_BASE: AtomicU64 = AtomicU64::new(0);
+static HEAP_RUNTIME_SIZE: AtomicU64 = AtomicU64::new(0);
+static HEAP_EXPECTED_PHYSICAL_READY: AtomicBool = AtomicBool::new(false);
+static HEAP_EXPECTED_PHYSICAL_BASE: AtomicU64 = AtomicU64::new(0);
+
 pub fn select_heap_region(entries: &[(u64, u64)]) -> Option<(u64, u64)> {
     let region = select_largest_region(entries.iter().copied())?;
     if region.length < MIN_HEAP_SIZE {
@@ -115,6 +124,7 @@ pub fn init() {
     unsafe {
         ALLOCATOR.lock().init(heap_base as *mut u8, heap_len as usize);
     }
+    publish_heap_span(heap_base, heap_len, Some(region.base));
     store_report(HeapReport {
         source: HeapSource::Memmap,
         size: heap_len,
@@ -138,6 +148,27 @@ pub fn report() {
     ));
 }
 
+/// Returns the allocator arena as a contiguous physical half-interval.
+///
+/// This must be called only after both `heap::init` and `memory::init`. The
+/// snapshot is lock-free and fail-closed: it revalidates the full virtual
+/// interval page-by-page and, for the Limine memmap arena, also requires the
+/// translation to agree with the physical base selected during heap init.
+pub(crate) fn physical_span() -> Option<memory::PhysicalSpan> {
+    if !HEAP_SPAN_READY.load(Ordering::Acquire) {
+        return None;
+    }
+    let virtual_base = HEAP_VIRTUAL_BASE.load(Ordering::Relaxed);
+    let len = HEAP_RUNTIME_SIZE.load(Ordering::Relaxed);
+    let translated = memory::physical_span_for_virtual_range(virtual_base as *const u8, len)?;
+    if HEAP_EXPECTED_PHYSICAL_READY.load(Ordering::Relaxed)
+        && translated.start() != HEAP_EXPECTED_PHYSICAL_BASE.load(Ordering::Relaxed)
+    {
+        return None;
+    }
+    Some(translated)
+}
+
 fn init_static_fallback(usable_entries: u64, largest_usable: u64, reason: HeapReason) {
     unsafe {
         let heap_start = ptr::addr_of_mut!(HEAP.0).cast::<u8>();
@@ -153,9 +184,29 @@ fn init_static_fallback(usable_entries: u64, largest_usable: u64, reason: HeapRe
     }
 }
 
+fn publish_heap_span(virtual_base: u64, len: u64, expected_physical_base: Option<u64>) {
+    HEAP_SPAN_READY.store(false, Ordering::Release);
+    HEAP_VIRTUAL_BASE.store(virtual_base, Ordering::Relaxed);
+    HEAP_RUNTIME_SIZE.store(len, Ordering::Relaxed);
+    match expected_physical_base {
+        Some(physical_base) => {
+            HEAP_EXPECTED_PHYSICAL_BASE.store(physical_base, Ordering::Relaxed);
+            HEAP_EXPECTED_PHYSICAL_READY.store(true, Ordering::Relaxed);
+        }
+        None => {
+            HEAP_EXPECTED_PHYSICAL_BASE.store(0, Ordering::Relaxed);
+            HEAP_EXPECTED_PHYSICAL_READY.store(false, Ordering::Relaxed);
+        }
+    }
+    HEAP_SPAN_READY.store(true, Ordering::Release);
+}
+
 fn store_report(report: HeapReport) {
     unsafe {
         ptr::write(ptr::addr_of_mut!(HEAP_REPORT), report);
+    }
+    if matches!(report.source, HeapSource::StaticFallback) {
+        publish_heap_span(report.base, report.size, None);
     }
 }
 

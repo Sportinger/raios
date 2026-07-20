@@ -20,6 +20,51 @@ const MMIO_WINDOW_SIZE: u64 = 16 * 1024 * 1024;
 const MMIO_CACHE_SLOTS: usize = 32;
 const PAGE_TABLE_POOL_PAGES: usize = 64;
 
+extern "C" {
+    static __bss_end: u8;
+}
+
+/// A non-empty, checked physical half-open interval `[start, end)`.
+///
+/// This type describes observed host memory only. It does not imply that an
+/// IOMMU translation or DMA drain is present.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct PhysicalSpan {
+    start: u64,
+    end_exclusive: u64,
+}
+
+impl PhysicalSpan {
+    pub(crate) const fn from_start_len(start: u64, len: u64) -> Option<Self> {
+        if len == 0 {
+            return None;
+        }
+        let Some(end_exclusive) = start.checked_add(len) else {
+            return None;
+        };
+        Some(Self {
+            start,
+            end_exclusive,
+        })
+    }
+
+    pub(crate) const fn start(self) -> u64 {
+        self.start
+    }
+
+    pub(crate) const fn end_exclusive(self) -> u64 {
+        self.end_exclusive
+    }
+
+    pub(crate) const fn len(self) -> u64 {
+        self.end_exclusive - self.start
+    }
+
+    pub(crate) const fn contains(self, other: Self) -> bool {
+        self.start <= other.start && other.end_exclusive <= self.end_exclusive
+    }
+}
+
 static KERNEL_PHYSICAL_BASE: AtomicU64 = AtomicU64::new(0);
 static KERNEL_VIRTUAL_BASE: AtomicU64 = AtomicU64::new(0);
 static KERNEL_ADDRESS_READY: AtomicBool = AtomicBool::new(false);
@@ -97,6 +142,29 @@ fn init_hhdm(response: Option<&HhdmResponse>) {
     HHDM_OFFSET.store(offset, Ordering::Relaxed);
     HHDM_READY.store(true, Ordering::Release);
     serial::write_fmt(format_args!("HHDM offset=0x{:x}\r\n", offset));
+}
+
+/// Returns the physical interval occupied by the linked kernel image.
+///
+/// The Limine executable-address response is mandatory. In particular this
+/// never falls back to treating a virtual address as an identity mapping.
+pub(crate) fn kernel_image_physical_span() -> Option<PhysicalSpan> {
+    let (physical_base, virtual_base) = kernel_address_map()?;
+    let virtual_end = kernel_image_virtual_end();
+    let len = virtual_end.checked_sub(virtual_base)?;
+    PhysicalSpan::from_start_len(physical_base, len)
+}
+
+/// Resolves a stable virtual interval and proves that each covered page maps
+/// to one contiguous physical interval. Only the Limine kernel-image and HHDM
+/// mappings are authoritative here; the legacy identity fallback is excluded.
+pub(crate) fn physical_span_for_virtual_range<T>(
+    virtual_start: *const T,
+    len: u64,
+) -> Option<PhysicalSpan> {
+    checked_physical_span_from_virtual_range(virtual_start as u64, len, |address| {
+        managed_virt_to_phys(address)
+    })
 }
 
 pub fn virt_to_phys<T>(ptr: *const T) -> Option<u64> {
@@ -260,5 +328,129 @@ fn identity_phys(virt: u64) -> Option<u64> {
         Some(virt)
     } else {
         None
+    }
+}
+
+fn kernel_address_map() -> Option<(u64, u64)> {
+    if !KERNEL_ADDRESS_READY.load(Ordering::Acquire) {
+        return None;
+    }
+    Some((
+        KERNEL_PHYSICAL_BASE.load(Ordering::Relaxed),
+        KERNEL_VIRTUAL_BASE.load(Ordering::Relaxed),
+    ))
+}
+
+fn kernel_image_virtual_end() -> u64 {
+    ptr::addr_of!(__bss_end) as u64
+}
+
+fn managed_virt_to_phys(virt: u64) -> Option<u64> {
+    if let Some((physical_base, virtual_base)) = kernel_address_map() {
+        let virtual_end = kernel_image_virtual_end();
+        if virt >= virtual_base && virt < virtual_end {
+            return virt.checked_sub(virtual_base)?.checked_add(physical_base);
+        }
+    }
+
+    if HHDM_READY.load(Ordering::Acquire) {
+        let hhdm_offset = HHDM_OFFSET.load(Ordering::Relaxed);
+        if virt >= hhdm_offset {
+            let physical = virt.checked_sub(hhdm_offset)?;
+            if physical < (1u64 << 46) {
+                return Some(physical);
+            }
+        }
+    }
+
+    None
+}
+
+fn checked_physical_span_from_virtual_range<F>(
+    virtual_start: u64,
+    len: u64,
+    mut translate: F,
+) -> Option<PhysicalSpan>
+where
+    F: FnMut(u64) -> Option<u64>,
+{
+    if len == 0 {
+        return None;
+    }
+    let virtual_end = virtual_start.checked_add(len)?;
+    let physical_start = translate(virtual_start)?;
+    let physical_span = PhysicalSpan::from_start_len(physical_start, len)?;
+
+    let mut virtual_at = virtual_start;
+    loop {
+        let offset = virtual_at.checked_sub(virtual_start)?;
+        let expected = physical_start.checked_add(offset)?;
+        if translate(virtual_at) != Some(expected) {
+            return None;
+        }
+
+        let page_start = virtual_at & !(PAGE_SIZE_U64 - 1);
+        let Some(next_page) = page_start.checked_add(PAGE_SIZE_U64) else {
+            break;
+        };
+        if next_page >= virtual_end {
+            break;
+        }
+        virtual_at = next_page;
+    }
+
+    let last_virtual = virtual_end.checked_sub(1)?;
+    let last_physical = physical_span.end_exclusive().checked_sub(1)?;
+    if translate(last_virtual) != Some(last_physical) {
+        return None;
+    }
+    Some(physical_span)
+}
+
+#[cfg(test)]
+mod physical_span_tests {
+    use super::{checked_physical_span_from_virtual_range, PhysicalSpan, PAGE_SIZE_U64};
+
+    #[test]
+    fn physical_half_interval_rejects_zero_and_overflow() {
+        assert_eq!(PhysicalSpan::from_start_len(0x1000, 0), None);
+        assert_eq!(PhysicalSpan::from_start_len(u64::MAX, 2), None);
+    }
+
+    #[test]
+    fn physical_half_interval_contains_adjacent_inner_boundary() {
+        let outer = PhysicalSpan::from_start_len(0x1000, 0x2000).unwrap();
+        let inner = PhysicalSpan::from_start_len(0x2000, 0x1000).unwrap();
+        assert!(outer.contains(inner));
+        assert_eq!(outer.end_exclusive(), inner.end_exclusive());
+    }
+
+    #[test]
+    fn contiguous_virtual_translation_is_accepted() {
+        let span = checked_physical_span_from_virtual_range(0x8000, PAGE_SIZE_U64 * 2, |virt| {
+            virt.checked_sub(0x8000)?.checked_add(0x20_0000)
+        })
+        .unwrap();
+        assert_eq!(span.start(), 0x20_0000);
+        assert_eq!(span.len(), PAGE_SIZE_U64 * 2);
+    }
+
+    #[test]
+    fn untranslated_or_discontiguous_virtual_translation_is_rejected() {
+        assert_eq!(
+            checked_physical_span_from_virtual_range(0x8000, PAGE_SIZE_U64, |_| None),
+            None
+        );
+        assert_eq!(
+            checked_physical_span_from_virtual_range(0x8000, PAGE_SIZE_U64 * 2, |virt| {
+                let base = virt.checked_sub(0x8000)?.checked_add(0x20_0000)?;
+                Some(if virt >= 0x9000 {
+                    base + PAGE_SIZE_U64
+                } else {
+                    base
+                })
+            },),
+            None
+        );
     }
 }

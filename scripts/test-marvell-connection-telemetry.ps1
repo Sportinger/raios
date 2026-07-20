@@ -28,11 +28,57 @@ $supplicantPath = Join-Path $RepoRoot "crates\raios-core\src\marvell_wifi_suppli
 $driverPath = Join-Path $RepoRoot "seed-kernel\src\marvell_wifi_pcie.rs"
 $pciPath = Join-Path $RepoRoot "seed-kernel\src\pci.rs"
 $uiPath = Join-Path $RepoRoot "seed-kernel\src\shell_host\wifi_flow.rs"
+$memoryPath = Join-Path $RepoRoot "seed-kernel\src\memory.rs"
+$heapPath = Join-Path $RepoRoot "seed-kernel\src\heap.rs"
+$usbPath = Join-Path $RepoRoot "seed-kernel\src\usb.rs"
+$ahciPath = Join-Path $RepoRoot "seed-kernel\src\ahci.rs"
 $core = Get-Content -LiteralPath $corePath -Raw
 $supplicant = Get-Content -LiteralPath $supplicantPath -Raw
 $driver = Get-Content -LiteralPath $driverPath -Raw
 $pci = Get-Content -LiteralPath $pciPath -Raw
 $ui = Get-Content -LiteralPath $uiPath -Raw
+$memory = Get-Content -LiteralPath $memoryPath -Raw
+$heap = Get-Content -LiteralPath $heapPath -Raw
+$usb = Get-Content -LiteralPath $usbPath -Raw
+$ahci = Get-Content -LiteralPath $ahciPath -Raw
+
+$physicalSpan = Slice-Between $memory "pub(crate) struct PhysicalSpan" "static KERNEL_PHYSICAL_BASE"
+Require-Match $physicalSpan 'start:\s*u64.*end_exclusive:\s*u64.*from_start_len.*len == 0.*checked_add\(len\)' "physical half-interval lacks nonzero/overflow checks"
+$kernelSpan = Slice-Between $memory "pub(crate) fn kernel_image_physical_span" "/// Resolves a stable virtual interval"
+Require-Match $kernelSpan 'kernel_address_map\(\)\?.*kernel_image_virtual_end\(\).*checked_sub\(virtual_base\)\?.*PhysicalSpan::from_start_len' "kernel image span is not derived from real Limine bases and __bss_end"
+Require-NoMatch $kernelSpan 'identity_phys|virt_to_phys' "kernel image span can use a non-authoritative address fallback"
+$translation = Slice-Between $memory "fn checked_physical_span_from_virtual_range" "#[cfg(test)]"
+Require-Match $translation 'len == 0.*virtual_start\.checked_add\(len\)\?.*translate\(virtual_start\)\?.*next_page.*last_virtual.*translate\(last_virtual\)' "physical span translation lacks zero/overflow/page-contiguity boundaries"
+Require-Match $memory 'physical_half_interval_rejects_zero_and_overflow.*contiguous_virtual_translation_is_accepted.*untranslated_or_discontiguous_virtual_translation_is_rejected' "physical span positive/negative tests are incomplete"
+
+$heapSpan = Slice-Between $heap "pub(crate) fn physical_span" "fn init_static_fallback"
+Require-Match $heap 'publish_heap_span\(heap_base,\s*heap_len,\s*Some\(region\.base\)\).*matches!\(report\.source,\s*HeapSource::StaticFallback\).*publish_heap_span\(report\.base,\s*report\.size,\s*None\)' "heap does not publish both memmap and static-fallback arena sources"
+Require-Match $heapSpan 'HEAP_SPAN_READY\.load\(Ordering::Acquire\).*physical_span_for_virtual_range.*HEAP_EXPECTED_PHYSICAL_READY.*HEAP_EXPECTED_PHYSICAL_BASE' "heap span is not an atomic, translated, source-checked snapshot"
+Require-NoMatch $heapSpan 'ALLOCATOR\.lock|HEAP_REPORT|Mutex|Vec' "heap physical snapshot takes a lock or reads mutable diagnostic state"
+
+$xhciSpans = Slice-Between $usb "pub(crate) fn xhci_dma_physical_spans" "/// Returns the fixed USB-MSC buffers"
+$xhciSpanCalls = [regex]::Matches($xhciSpans, 'static_dma_span\(ptr::addr_of!\(').Count
+Require ($xhciSpanCalls -eq 18) "xHCI physical inventory does not contain exactly 18 static DMA objects"
+foreach ($name in @("COMMAND_RING", "EVENT_RING", "EP0_RINGS", "INTR_RINGS", "BULK_IN_RINGS", "BULK_OUT_RINGS", "ERST", "DCBAA", "SCRATCHPAD_ARRAY", "SCRATCHPAD_PAGES", "INPUT_CONTEXT", "DEVICE_CONTEXTS", "CONTROL_BUFFER", "KEYBOARD_REPORT", "MOUSE_REPORT", "MSC_CBW", "MSC_CSW", "MSC_BUFFER")) {
+    Require-Match $xhciSpans ("addr_of!\(" + $name + "\)") "xHCI physical inventory missing $name"
+}
+Require-Match $xhciSpans 'kernel_image_physical_span\(\)\?.*!kernel\.contains\(span\)' "xHCI spans are not proven inside the kernel image"
+Require-NoMatch $xhciSpans 'STATE\.lock|Mutex|Vec|read_reg|write_reg|ring_doorbell' "xHCI physical inventory takes locks, allocates, or performs device I/O"
+
+$usbReclogSpans = Slice-Between $usb "pub(crate) fn usb_msc_reclog_staging_physical_spans" "fn static_dma_span"
+Require-Match $usbReclogSpans 'addr_of!\(MSC_CBW\).*addr_of!\(MSC_BUFFER\).*addr_of!\(MSC_CSW\).*kernel\.contains\(span\)' "USB-MSC RECLOG staging inventory is incomplete or uncontained"
+Require-NoMatch $usbReclogSpans 'STATE\.lock|Mutex|Vec|read_reg|write_reg|bulk_transfer' "USB-MSC RECLOG snapshot takes locks, allocates, or performs device I/O"
+Require-Match $usb 'full RECLOG copy is deliberately absent.*temporary `Vec`.*heap::physical_span' "USB RECLOG API does not document heap coverage of the temporary Vec"
+
+$ahciReclogSpans = Slice-Between $ahci "pub(crate) fn reclog_staging_physical_spans" "/// An AHCI port"
+$ahciSpanCalls = [regex]::Matches($ahciReclogSpans, 'physical_span_for_virtual_range\(').Count
+Require ($ahciSpanCalls -eq 6) "AHCI RECLOG physical inventory does not contain exactly six fallible span resolutions"
+foreach ($name in @("COMMAND_LIST", "RECEIVED_FIS", "COMMAND_TABLE", "SCRATCH_BUFFER", "IDENTIFY_BUFFER", "SECTOR0_BUFFER")) {
+    Require-Match $ahciReclogSpans ("addr_of!\(" + $name + "\)") "AHCI RECLOG physical inventory missing $name"
+}
+Require-Match $ahciReclogSpans 'kernel_image_physical_span\(\)\?.*!kernel\.contains\(span\)' "AHCI RECLOG spans are not proven inside the kernel image"
+Require-NoMatch $ahciReclogSpans 'EXPLICIT_ATA_COMMAND_LOCK|\.lock\(|read32|write32|issue_|Vec' "AHCI RECLOG snapshot takes locks, allocates, or performs device I/O"
+Require-Match $ahci 'complete RECLOG `Vec` is intentionally represented by the enclosing heap' "AHCI RECLOG API does not document heap coverage of the temporary Vec"
 
 $allocator = Slice-Between $core "pub struct SingleBssHostCmdSequenceAllocator" "pub struct MarvellResponseHeader"
 Require-Match $allocator 'next:\s*u8' "allocator is not physically bounded to the low sequence byte"
@@ -160,6 +206,10 @@ if (-not $SkipBuild) {
         $env:CARGO_TARGET_DIR = Join-Path $env:TEMP "raios-marvell-connection-fixture-target"
         & cargo test --locked -p raios-core marvell_wifi
         if ($LASTEXITCODE -ne 0) { throw "focused Marvell core tests failed" }
+        & powershell -NoProfile -ExecutionPolicy Bypass `
+            -File (Join-Path $RepoRoot "scripts\build-seed-kernel.ps1") `
+            -Profile release
+        if ($LASTEXITCODE -ne 0) { throw "freestanding Seed kernel compilecheck failed" }
     }
     finally {
         $env:CARGO_HOME = $oldCargoHome
