@@ -3,12 +3,12 @@
 > Window, not log: exactly one Now, one Next step, and three Recently entries.
 > Replace on update; never append. Keep under 60 lines and roughly 2 KB.
 
-## Now (2026-07-20 ~20:56, root orchestrator active)
+## Now (2026-07-20 ~21:10, root orchestrator active)
 
-Product branch `product/h20-surface` is at `fc26cd5`; pinned firmware `1f061b1`
-and fail-closed WiFi `fc26cd5` are secured. GitHub branch `website` at `946f046`
-is live on Cloudflare. `origin/main` remains site-only `941ac39`; restore the
-product line immediately after the docs commit.
+The branch split is complete locally: `main` has the full raiOS product tree at
+`4557600`; `product/h20-surface` preserves the H20 series at `29f14f9`; GitHub
+branch `website` at `946f046` is live on Cloudflare production. Only the final
+`main` push remains. The owner's dirty original worktree was not modified.
 
 Cold Surface runs proved Genesis, composite HID, Marvell firmware, live scan,
 WPA2 selection, and masked passphrase entry. H16-H19 narrowed connection
@@ -25,18 +25,18 @@ failure trace; this does not prove USB remained healthy at freeze time.
 
 ## Next step
 
-Commit the exact docs, restore the product line to `origin/main`, then review
-Marvell DMA read-only and add negatives for bounds, ownership, non-overlap,
-indices, lifetimes, and xHCI/kernel/heap/RECLOG separation. Only independent
-acceptance plus owner authorization permits one cold-boot retest.
+Push restored `main` to GitHub, then review Marvell DMA read-only and add
+negatives for bounds, ownership, non-overlap, indices, lifetimes, and
+xHCI/kernel/heap/RECLOG separation. Only independent acceptance plus owner
+authorization permits one cold-boot retest.
 
 ## Recently (exactly 3, newest first)
 
-### 2026-07-20 — H20 product code secured
-Pinned firmware is `1f061b1`; fail-closed physical WiFi is `fc26cd5`.
+### 2026-07-20 — branch split completed locally
+Full product is restored on `main`; site remains isolated on `website`.
 
-### 2026-07-20 — website split deployed
-GitHub `website` at `946f046` is live on Cloudflare production.
+### 2026-07-20 — H20 product code and evidence secured
+Firmware `1f061b1`, WiFi `fc26cd5`, and docs `29f14f9` are preserved.
 
 ### 2026-07-20 — H20 full brake
 Simultaneous HID loss at `Starting WiFi`; cause unproven. ADR 0034 records stop.
