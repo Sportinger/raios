@@ -39,12 +39,18 @@ hooks, MCP tools, or second-opinion processes.
    order contains goal, exact files, DoD, predicate, negative boundary, taboos,
    and a proposed commit message. Add a tailored system prompt with role,
    curated context, work mode, and known traps. Use
-   `docs/agents/TEMPLATES.md`; never weaken this file in a lane prompt.
+   `docs/agents/TEMPLATES.md`; never weaken this file in a lane prompt. Every
+   hardware-dependent order additionally pins `<machine-id>@sha256:<digest>`
+   and names each required machine-manifest fact path.
 4. **Dispatch Codex only.** Implementation lanes use `codex exec -s
    workspace-write`; reviews use `-s read-only`. Run them in the background
    with distinct report paths. Verify file-set disjointness before dispatch.
-   Workers do not commit. The orchestrator watches reports and intervenes only
-   for conflicts, blockers, security questions, or the checkpoint limits below.
+   Hardware-dependent lanes MUST instead pass those same sandbox/report values,
+   the order path, machine ID, pinned digest, and required fact paths through
+   `scripts/invoke-codex-lane.ps1`; direct `codex exec` is forbidden for them.
+   Ordinary non-hardware lanes retain direct dispatch. Workers do not commit.
+   The orchestrator watches reports and intervenes only for conflicts, blockers,
+   security questions, or the checkpoint limits below.
 5. **Verify before acceptance.** Done means: predicate green, negative test
    proves the boundary, the order's DoD is met, current diff stays inside the
    order, and an independent read-only Codex review accepts risky work. A green

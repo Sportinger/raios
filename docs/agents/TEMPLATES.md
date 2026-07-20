@@ -13,6 +13,8 @@
 # Auftrag: <kurzer Titel>
 Scope-Checkbox: <exakter Wortlaut aus SCOPE.md, §>
 Lane: <N> · Modus: <explorativ | konservativ>
+Machine context: <none | <machine-id>@sha256:<digest>>
+Required fact paths: <none | exakte Manifest-Pfade, die vor Dispatch observed sein müssen>
 
 ## Ziel
 <1–3 Sätze: Was existiert, wenn du fertig bist>
@@ -29,6 +31,13 @@ Lane: <N> · Modus: <explorativ | konservativ>
 <Was diese Lane explizit NICHT tun darf, über AGENTS.md hinaus — oder "keine">
 ```
 
+Hardware-abhängige Aufträge werden ausschließlich mit
+`scripts/invoke-codex-lane.ps1` gestartet. `Machine context` wird dabei in
+`-ExpectedMachineId` und `-ExpectedManifestSha256` zerlegt; jeder Eintrag aus
+`Required fact paths` geht unverändert als `-RequiredFactPath` ein. Der Launcher
+hängt den validierten, begrenzten Kontextblock an — nicht manuell in den Auftrag
+kopieren. Bei `Machine context: none` bleibt der normale `codex exec`-Pfad.
+
 ## 2. Lane-System-Prompt
 
 ```markdown
@@ -38,6 +47,8 @@ Du bist <Rolle: Spezialist für X, denkt in Y>.
 <Kuratierter Kontext: NUR was diese Aufgabe braucht — Register-Map-Ausschnitt,
 ADR-Absatz, Hardware-Manifest-Teil, Code-Stelle. Max ~1 Seite. Du bist der
 Bibliothekar: leg das aufgeschlagene Buch hin, nicht die Bibliothek.>
+<Bei Hardware: Manifest-Identität `<machine-id>@sha256:<digest>` und erforderliche
+Fact-Pfade stehen im Lane-Auftrag; der Launcher liefert den Faktenblock.>
 
 ## Deine Umgebung
 Domäne: <Name> · Capabilities: <exakte Liste> · Diagnostik: <Kanal, Format>

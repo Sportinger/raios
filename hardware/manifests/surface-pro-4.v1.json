@@ -1,5 +1,14 @@
 {
   "schema_version": "raios.machine_manifest.v1",
+  "curated_context_ready": false,
+  "missing_required_facts": [
+    "/cpu/architecture",
+    "/cpu/model",
+    "/cpu/features/resolved-feature-set",
+    "/memory/total_bytes",
+    "/memory/topology",
+    "/memory/regions/unobserved-memory-map"
+  ],
   "machine": { "id": "surface-pro-4", "kind": "physical", "display_name": "Microsoft Surface Pro 4 test machine", "provenance": { "machine_id": "surface-pro-4", "source_kind": "boot_observation", "source_ref": "docs/architecture/hardware/bare-metal.md:127-139", "observed_at_utc": "2026-07-08T00:00:00Z" } },
   "cpu": {
     "architecture": { "status": "unknown", "value": null, "provenance": { "machine_id": "surface-pro-4", "source_kind": "documentation_gap", "source_ref": "docs/architecture/hardware/bare-metal.md does not record CPU architecture", "observed_at_utc": "2026-07-08T00:00:00Z" } },
