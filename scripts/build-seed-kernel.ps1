@@ -20,6 +20,11 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Toolchain = "nightly-2024-10-15"
 $Target = Join-Path $RepoRoot "seed-kernel\x86_64-seed.json"
 $LinkerScript = Join-Path $RepoRoot "seed-kernel\linker.ld"
+$InventoryScript = Join-Path $RepoRoot "scripts\unsafe-inventory.py"
+$InventoryBaseline = Join-Path $RepoRoot "docs\architecture\unsafe-inventory-baseline-v2.json"
+
+python -B $InventoryScript --check $InventoryBaseline
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 if (-not ((rustup toolchain list) -match [regex]::Escape($Toolchain))) {
     rustup toolchain install $Toolchain --component rust-src --component llvm-tools-preview
@@ -167,4 +172,8 @@ $targetRoot = if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) {
 else {
     [IO.Path]::GetFullPath($env:CARGO_TARGET_DIR)
 }
-Write-Output "built $(Join-Path $targetRoot "x86_64-seed\$profileDir\seed-kernel")"
+$artifact = Join-Path $targetRoot "x86_64-seed\$profileDir\seed-kernel"
+$evidence = Join-Path $targetRoot "x86_64-seed\$profileDir\seed-kernel.unsafe-inventory-build.json"
+python -B $InventoryScript --build-evidence --check $InventoryBaseline --artifact $artifact --profile $Profile --evidence-out $evidence
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+Write-Output "built $artifact"

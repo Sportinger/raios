@@ -14,6 +14,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 import tomllib
 from collections import Counter
 from dataclasses import dataclass
@@ -27,11 +28,13 @@ SITE_PATTERN = re.compile(
     r"\bunsafe\s*(?:"
     r"(?P<block>\{)|"
     r"(?P<extern>extern(?:\s+(?:\"[^\"\r\n]*\"|r#[^\r\n]*?#))?\s+fn\b)|"
+    r"(?P<extern_block>extern(?:\s+(?:\"[^\"\r\n]*\"|r#[^\r\n]*?#))?\s*\{)|"
     r"(?P<fn>fn\b)|"
     r"(?P<impl>impl\b)|"
     r"(?P<trait>(?:auto\s+)?trait\b)"
     r")"
 )
+SITE_KINDS = ("block", "fn", "extern", "extern_block", "impl", "trait")
 TAG_MARKER = re.compile(r"\bSAFETY\s*\[")
 TAG_GRAMMAR = re.compile(
     r"^\s*(?://+|/\*+|\*+)?\s*SAFETY\["
@@ -80,6 +83,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     output.add_argument("--out", type=Path, help="write canonical schema-v2 JSON")
     output.add_argument("--summary", action="store_true", help="print count summary")
     output.add_argument("--check", type=Path, metavar="INVENTORY", help="compare to inventory")
+    parser.add_argument("--build-evidence", action="store_true", help="check inventory and emit kernel-bound evidence")
+    parser.add_argument("--artifact", type=Path, help="kernel artifact for build evidence")
+    parser.add_argument("--profile", choices=("debug", "release"), help="kernel build profile")
+    parser.add_argument("--evidence-out", type=Path, help="atomic build evidence destination")
     parser.add_argument("--require-all-tagged", action="store_true")
     parser.add_argument("--self-test", action="store_true", help="run focused scanner tests")
     return parser.parse_args(argv)
@@ -237,16 +244,20 @@ def _balanced_end(masked: str, opening: int) -> int:
 def discover_sites(masked: str) -> list[RawSite]:
     sites: list[RawSite] = []
     for match in SITE_PATTERN.finditer(masked):
-        kind = next(name for name in ("block", "extern", "fn", "impl", "trait") if match.group(name))
+        kind = next(name for name in SITE_KINDS if match.group(name))
         brace = masked.find("{", match.end())
         semicolon = masked.find(";", match.end())
         if kind == "block":
             brace = match.start("block")
+        elif kind == "extern_block":
+            brace = match.end() - 1
         if brace >= 0 and (semicolon < 0 or brace < semicolon):
             end = _balanced_end(masked, brace)
         else:
             end = semicolon + 1 if semicolon >= 0 else match.end()
         sites.append(RawSite(match.start(), match.end(), end, kind))
+    extern_blocks = [site for site in sites if site.kind == "extern_block"]
+    sites = [site for site in sites if site.kind == "extern_block" or not any(block.start < site.start < block.end for block in extern_blocks)]
     return sorted(sites, key=lambda site: (site.start, site.kind))
 
 
@@ -380,7 +391,7 @@ def build_inventory(root: Path) -> dict[str, object]:
     for site_id, count in sorted(global_ids.items()):
         if count > 1 and ("duplicate_id", site_id) not in existing_duplicate_diagnostics:
             diagnostics.append({"code": "duplicate_id", "id": site_id, "occurrences": count, "path": "<workspace>"})
-    by_kind = {kind: sum(s["kind"] == kind for s in sites) for kind in ("block", "fn", "extern", "impl", "trait")}
+    by_kind = {kind: sum(s["kind"] == kind for s in sites) for kind in SITE_KINDS}
     tagged = sum(s["id"] is not None for s in sites)
     by_crate: dict[str, dict[str, int]] = {}
     for crate in crates:
@@ -397,7 +408,7 @@ def build_inventory(root: Path) -> dict[str, object]:
 
 
 def render_json(inventory: dict[str, object]) -> str:
-    return json.dumps(inventory, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    return json.dumps(inventory, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"
 
 
 def render_summary(inventory: dict[str, object]) -> str:
@@ -407,7 +418,7 @@ def render_summary(inventory: dict[str, object]) -> str:
     assert isinstance(kinds, dict)
     return (
         f"total={totals['total']} tagged={totals['tagged']} untagged={totals['untagged']} "
-        + " ".join(f"{kind}={kinds[kind]}" for kind in ("block", "fn", "extern", "impl", "trait"))
+        + " ".join(f"{kind}={kinds[kind]}" for kind in SITE_KINDS)
         + "\n"
     )
 
@@ -452,6 +463,60 @@ def run_self_test() -> int:
     return 0 if unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful() else 1
 
 
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return "sha256:" + digest.hexdigest()
+
+
+def emit_build_evidence(root: Path, baseline: Path, artifact: Path, profile: str, output: Path) -> None:
+    baseline_bytes = baseline.read_bytes()
+    expected = json.loads(baseline_bytes)
+    current = build_inventory(root)
+    differences = compare_inventory(expected, current)
+    if differences:
+        raise ValueError("stale baseline: " + json.dumps(differences, sort_keys=True))
+    invalid = [item for item in current["diagnostics"] if item["code"] != "untagged_site"]
+    if invalid:
+        raise ValueError("invalid inventory tags: " + json.dumps(invalid, sort_keys=True))
+    artifact = artifact.resolve(strict=True)
+    if not artifact.is_file():
+        raise ValueError(f"kernel artifact is not a file: {artifact}")
+    canonical = render_json(current).encode("utf-8")
+    totals = current["totals"]
+    evidence = {
+        "schema_version": 1,
+        "status": "accepted",
+        "profile": profile,
+        "artifact": {"path": artifact.as_posix(), "sha256": _file_sha256(artifact)},
+        "inventory": current,
+        "inventory_sha256": "sha256:" + hashlib.sha256(canonical).hexdigest(),
+        "baseline_sha256": "sha256:" + hashlib.sha256(baseline_bytes).hexdigest(),
+        "counts": {"total": totals["total"], "tagged": totals["tagged"], "untagged": totals["untagged"], "by_kind": totals["by_kind"], "by_crate": current["crates"]},
+    }
+    encoded = (json.dumps(evidence, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    output = output.resolve()
+    output.parent.mkdir(parents=False, exist_ok=True)
+    temporary: Path | None = None
+    try:
+        descriptor, name = tempfile.mkstemp(prefix=f".{output.name}.", suffix=".tmp", dir=output.parent)
+        temporary = Path(name)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        parsed = json.loads(temporary.read_bytes())
+        if parsed != evidence:
+            raise ValueError("post-write evidence verification failed")
+        os.replace(temporary, output)
+        temporary = None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     if args.self_test:
@@ -460,6 +525,13 @@ def main(argv: list[str] | None = None) -> int:
     try:
         inventory = build_inventory(root)
         exit_code = 0
+        if args.build_evidence:
+            if args.check is None or args.artifact is None or args.profile is None or args.evidence_out is None:
+                raise ValueError("--build-evidence requires --check, --artifact, --profile, and --evidence-out")
+            emit_build_evidence(root, args.check, args.artifact, args.profile, args.evidence_out)
+            return 0
+        if args.artifact is not None or args.profile is not None or args.evidence_out is not None:
+            raise ValueError("evidence options require --build-evidence")
         if args.check is not None:
             expected = json.loads(args.check.read_text(encoding="utf-8"))
             differences = compare_inventory(expected, inventory)
