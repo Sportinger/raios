@@ -12,6 +12,8 @@ param(
     [string]$OpenAiSpkiRotationPinEnvVar = "OPENAI_SPKI_SHA256_NEXT",
     [switch]$EmbedNet8W7SpkiPinFromEnv,
     [string]$Net8W7SpkiPinEnvVar = "NET_8_W7_SPKI_SHA256",
+    [switch]$RequireMarvellFirmware,
+    [string]$MarvellFirmwarePath = "",
     [switch]$AllowUnverifiedOpenAiTls,
     [switch]$UseTempEsp,
     [ValidateSet("A", "B")]
@@ -40,14 +42,14 @@ $BootConfig = Join-Path $EspDir "EFI\BOOT\limine.conf"
 $ImageTool = Join-Path $RepoRoot "scripts\make-fat32-image.py"
 
 try {
-    if ($EmbedOpenAiApiKeyFromEnv -or $EmbedNet8W7SpkiPinFromEnv) {
+    if ($EmbedOpenAiApiKeyFromEnv -or $EmbedNet8W7SpkiPinFromEnv -or $RequireMarvellFirmware) {
         if (-not $UseTempEsp) {
-            throw "Refusing to embed per-run authority into the tracked release\esp staging tree. Re-run with -UseTempEsp."
+            throw "Refusing to embed per-run local-only material into the tracked release\esp staging tree. Re-run with -UseTempEsp."
         }
         $imageFullPath = [IO.Path]::GetFullPath($Image)
         $defaultImageFullPath = [IO.Path]::GetFullPath($DefaultImage)
         if ($imageFullPath -eq $defaultImageFullPath) {
-            throw "Refusing to write a per-run authority image to release\raios-stage0.img. Use a temporary ignored image path."
+            throw "Refusing to write a per-run local-only image to release\raios-stage0.img. Use a temporary ignored image path."
         }
     }
 
@@ -86,6 +88,12 @@ try {
     }
     if ($EmbedNet8W7SpkiPinFromEnv) {
         $buildArgs += @("-EmbedNet8W7SpkiPinFromEnv", "-Net8W7SpkiPinEnvVar", $Net8W7SpkiPinEnvVar)
+    }
+    if ($RequireMarvellFirmware) {
+        $buildArgs += "-RequireMarvellFirmware"
+        if (-not [string]::IsNullOrWhiteSpace($MarvellFirmwarePath)) {
+            $buildArgs += @("-MarvellFirmwarePath", $MarvellFirmwarePath)
+        }
     }
     if ($AllowUnverifiedOpenAiTls) {
         $buildArgs += "-AllowUnverifiedOpenAiTls"

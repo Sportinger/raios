@@ -11,6 +11,8 @@ param(
     [string]$OpenAiSpkiRotationPinEnvVar = "OPENAI_SPKI_SHA256_NEXT",
     [switch]$EmbedNet8W7SpkiPinFromEnv,
     [string]$Net8W7SpkiPinEnvVar = "NET_8_W7_SPKI_SHA256",
+    [switch]$RequireMarvellFirmware,
+    [string]$MarvellFirmwarePath = "",
     [switch]$AllowUnverifiedOpenAiTls
 )
 
@@ -36,6 +38,8 @@ $oldOpenAiCertSha256 = $env:RAIOS_OPENAI_CERT_SHA256
 $oldOpenAiSpkiSha256 = $env:RAIOS_OPENAI_SPKI_SHA256
 $oldOpenAiSpkiSha256Next = $env:RAIOS_OPENAI_SPKI_SHA256_NEXT
 $oldNet8W7SpkiSha256 = $env:RAIOS_NET_8_W7_SPKI_SHA256
+$oldRequireMarvellFirmware = $env:RAIOS_REQUIRE_MARVELL_FIRMWARE
+$oldMarvellFirmwarePath = $env:RAIOS_MARVELL_FIRMWARE_PATH
 $oldAllowUnverifiedOpenAiTls = $env:RAIOS_ALLOW_UNVERIFIED_OPENAI_TLS
 $kernelRustFlags = @(
     "-C", "link-arg=-T$LinkerScript",
@@ -101,6 +105,18 @@ try {
         Remove-Item Env:\RAIOS_NET_8_W7_SPKI_SHA256 -ErrorAction SilentlyContinue
     }
 
+    if ($RequireMarvellFirmware) {
+        if ([string]::IsNullOrWhiteSpace($MarvellFirmwarePath)) {
+            $MarvellFirmwarePath = Join-Path $RepoRoot "seed-kernel\firmware\pcie8897_uapsta.bin"
+        }
+        $env:RAIOS_REQUIRE_MARVELL_FIRMWARE = "1"
+        $env:RAIOS_MARVELL_FIRMWARE_PATH = [IO.Path]::GetFullPath($MarvellFirmwarePath)
+    }
+    else {
+        Remove-Item Env:\RAIOS_REQUIRE_MARVELL_FIRMWARE -ErrorAction SilentlyContinue
+        Remove-Item Env:\RAIOS_MARVELL_FIRMWARE_PATH -ErrorAction SilentlyContinue
+    }
+
     if ($AllowUnverifiedOpenAiTls) {
         $env:RAIOS_ALLOW_UNVERIFIED_OPENAI_TLS = "1"
     }
@@ -156,6 +172,18 @@ finally {
     }
     else {
         $env:RAIOS_NET_8_W7_SPKI_SHA256 = $oldNet8W7SpkiSha256
+    }
+    if ($null -eq $oldRequireMarvellFirmware) {
+        Remove-Item Env:\RAIOS_REQUIRE_MARVELL_FIRMWARE -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:RAIOS_REQUIRE_MARVELL_FIRMWARE = $oldRequireMarvellFirmware
+    }
+    if ($null -eq $oldMarvellFirmwarePath) {
+        Remove-Item Env:\RAIOS_MARVELL_FIRMWARE_PATH -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:RAIOS_MARVELL_FIRMWARE_PATH = $oldMarvellFirmwarePath
     }
     if ($null -eq $oldAllowUnverifiedOpenAiTls) {
         Remove-Item Env:\RAIOS_ALLOW_UNVERIFIED_OPENAI_TLS -ErrorAction SilentlyContinue

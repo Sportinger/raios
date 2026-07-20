@@ -585,15 +585,52 @@ fn compile_wasi_build_fixtures(manifest_dir: &std::path::Path, out_dir: &std::pa
     }
 }
 
-fn embed_marvell_wifi_firmware(manifest_dir: &std::path::Path, out_dir: &std::path::Path) {
-    let firmware_path = manifest_dir.join("firmware/pcie8897_uapsta.bin");
-    println!("cargo:rerun-if-changed={}", firmware_path.display());
-    if !firmware_path.exists() {
-        return;
+fn embed_marvell_wifi_firmware(_manifest_dir: &std::path::Path, out_dir: &std::path::Path) {
+    const EXPECTED_LENGTH: usize = 723_540;
+    const EXPECTED_SHA256: [u8; 32] = [
+        0xcf, 0x4f, 0x51, 0xf4, 0x1b, 0xd7, 0xef, 0x4d, 0x7f, 0xe6, 0x5f, 0xb7, 0x6b, 0x8a, 0x2a,
+        0x08, 0x97, 0xbc, 0x70, 0xa0, 0x74, 0x2b, 0xc4, 0xae, 0xa1, 0x3d, 0x93, 0xb0, 0x3f, 0xff,
+        0xd0, 0x3a,
+    ];
+
+    println!("cargo:rerun-if-env-changed=RAIOS_REQUIRE_MARVELL_FIRMWARE");
+    println!("cargo:rerun-if-env-changed=RAIOS_MARVELL_FIRMWARE_PATH");
+
+    match env::var("RAIOS_REQUIRE_MARVELL_FIRMWARE") {
+        Err(env::VarError::NotPresent) => return,
+        Ok(value) if value == "1" => {}
+        Ok(_) => panic!("RAIOS_REQUIRE_MARVELL_FIRMWARE must be exactly 1 when set"),
+        Err(env::VarError::NotUnicode(_)) => {
+            panic!("RAIOS_REQUIRE_MARVELL_FIRMWARE must be valid Unicode")
+        }
     }
 
+    let firmware_path = env::var_os("RAIOS_MARVELL_FIRMWARE_PATH")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .expect("RAIOS_MARVELL_FIRMWARE_PATH is required when Marvell firmware is requested");
+    println!("cargo:rerun-if-changed={}", firmware_path.display());
+
+    let firmware = fs::read(&firmware_path).unwrap_or_else(|error| {
+        panic!(
+            "required Marvell firmware could not be read from {}: {error}",
+            firmware_path.display()
+        )
+    });
+    assert_eq!(
+        firmware.len(),
+        EXPECTED_LENGTH,
+        "required Marvell firmware length mismatch"
+    );
+    let actual_sha256 = Sha256::digest(&firmware);
+    assert_eq!(
+        actual_sha256.as_slice(),
+        EXPECTED_SHA256,
+        "required Marvell firmware SHA-256 mismatch"
+    );
+
     let embedded_path = out_dir.join("pcie8897_uapsta.bin");
-    fs::copy(&firmware_path, &embedded_path).unwrap();
+    fs::write(&embedded_path, &firmware).expect("failed to stage validated Marvell firmware");
     println!("cargo:rustc-cfg=marvell_fw_present");
     println!(
         "cargo:rustc-env=MARVELL_FW_PATH={}",
