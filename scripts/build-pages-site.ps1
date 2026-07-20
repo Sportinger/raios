@@ -41,11 +41,14 @@ $assetsSource = Join-Path $uiSource "assets"
 $assetsOutput = Join-Path $uiOutput "assets"
 $siteAssets = Join-Path $assetsOutput "site"
 $surfaceAssets = Join-Path $assetsOutput "surface"
+$audioAssets = Join-Path $assetsOutput "audio"
 New-Item -ItemType Directory -Path $siteAssets -Force | Out-Null
 New-Item -ItemType Directory -Path $surfaceAssets -Force | Out-Null
+New-Item -ItemType Directory -Path $audioAssets -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path (Join-Path $assetsSource "site") "fortnite.gif") -Destination $siteAssets
 Copy-Item -LiteralPath (Join-Path (Join-Path $assetsSource "surface") "surface-photo-portrait-q88.webp") -Destination $surfaceAssets
 Copy-Item -LiteralPath (Join-Path (Join-Path $assetsSource "surface") "surface-reflection-portrait-crop.webp") -Destination $surfaceAssets
+Copy-Item -Path (Join-Path $assetsSource "audio\*") -Destination $audioAssets
 Copy-Item -LiteralPath (Join-Path (Join-Path $repoRoot "cloudflare") "pages-worker.mjs") -Destination (Join-Path $outputPath "_worker.js")
 
 $html = Get-Content -Raw -LiteralPath (Join-Path $outputPath "index.html")

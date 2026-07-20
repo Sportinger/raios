@@ -5,7 +5,6 @@ const websiteActionButtons = [...document.querySelectorAll("[data-mock-action]")
 const WEBSITE_ACTION_MESSAGES = Object.freeze({
   iso: "Mockup · Der ISO-Download ist noch nicht verbunden.",
   installer: "Mockup · Das Installer Tool ist noch nicht verbunden.",
-  drivers: "Mockup · Die Treiberliste ist noch nicht verbunden.",
 });
 let websiteActionTimer = 0;
 

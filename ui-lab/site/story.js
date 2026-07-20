@@ -25,6 +25,15 @@
       setTimeout(jumpToTarget, 0);
       setTimeout(jumpToTarget, 250);
     });
+  } else {
+    if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+    const resetToTop = () => window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    resetToTop();
+    window.addEventListener("load", () => {
+      resetToTop();
+      requestAnimationFrame(resetToTop);
+      setTimeout(resetToTop, 250);
+    }, { once: true });
   }
 
   if (storyParams.get("storydebug") === "1") {
