@@ -308,6 +308,50 @@ static mut IDENTIFY_BUFFER: AhciIdentifyBuffer = AhciIdentifyBuffer([0; IDENTIFY
 static mut SECTOR0_BUFFER: AhciSectorBuffer = AhciSectorBuffer([0; SECTOR_BYTES]);
 static mut SCRATCH_BUFFER: AhciSectorBuffer = AhciSectorBuffer([0; SECTOR_BYTES]);
 
+pub(crate) const AHCI_RECLOG_STAGING_PHYSICAL_SPAN_COUNT: usize = 6;
+
+/// Returns every fixed AHCI structure whose physical address can be published
+/// while probing storage or staging RECLOG transfers.
+///
+/// This only observes the boot-lifetime static address: it performs no disk
+/// I/O and takes neither the ATA command lock nor any AHCI state lock. The
+/// complete RECLOG `Vec` is intentionally represented by the enclosing heap
+/// span instead of by a short-lived allocation address.
+pub(crate) fn reclog_staging_physical_spans(
+) -> Option<[memory::PhysicalSpan; AHCI_RECLOG_STAGING_PHYSICAL_SPAN_COUNT]> {
+    let kernel = memory::kernel_image_physical_span()?;
+    let spans = [
+        memory::physical_span_for_virtual_range(
+            ptr::addr_of!(COMMAND_LIST),
+            core::mem::size_of::<AhciCommandList>() as u64,
+        )?,
+        memory::physical_span_for_virtual_range(
+            ptr::addr_of!(RECEIVED_FIS),
+            core::mem::size_of::<AhciReceivedFis>() as u64,
+        )?,
+        memory::physical_span_for_virtual_range(
+            ptr::addr_of!(COMMAND_TABLE),
+            core::mem::size_of::<AhciCommandTable>() as u64,
+        )?,
+        memory::physical_span_for_virtual_range(
+            ptr::addr_of!(SCRATCH_BUFFER),
+            core::mem::size_of::<AhciSectorBuffer>() as u64,
+        )?,
+        memory::physical_span_for_virtual_range(
+            ptr::addr_of!(IDENTIFY_BUFFER),
+            core::mem::size_of::<AhciIdentifyBuffer>() as u64,
+        )?,
+        memory::physical_span_for_virtual_range(
+            ptr::addr_of!(SECTOR0_BUFFER),
+            core::mem::size_of::<AhciSectorBuffer>() as u64,
+        )?,
+    ];
+    if spans.iter().copied().any(|span| !kernel.contains(span)) {
+        return None;
+    }
+    Some(spans)
+}
+
 /// An AHCI port selected by the caller's already-validated controller and
 /// port binding. This type never scans PCI, selects a different port, or
 /// consults the legacy persistence layout.

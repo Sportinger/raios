@@ -979,6 +979,63 @@ static mut MSC_CSW: AlignedBytes<MSC_CSW_LEN> = AlignedBytes([0; MSC_CSW_LEN]);
 static mut MSC_BUFFER: AlignedBytes<MSC_SECTOR_BUFFER_LEN> =
     AlignedBytes([0; MSC_SECTOR_BUFFER_LEN]);
 
+pub(crate) const XHCI_DMA_PHYSICAL_SPAN_COUNT: usize = 18;
+pub(crate) const USB_MSC_RECLOG_STAGING_PHYSICAL_SPAN_COUNT: usize = 3;
+
+/// Returns every statically reserved RAM object whose address can be
+/// published to xHCI. The list is allocation-free, takes no USB state lock,
+/// and retains xHCI provenance even though every object must also be contained
+/// by the boot-lifetime kernel-image span.
+pub(crate) fn xhci_dma_physical_spans(
+) -> Option<[memory::PhysicalSpan; XHCI_DMA_PHYSICAL_SPAN_COUNT]> {
+    let kernel = memory::kernel_image_physical_span()?;
+    let spans = [
+        static_dma_span(ptr::addr_of!(COMMAND_RING))?,
+        static_dma_span(ptr::addr_of!(EVENT_RING))?,
+        static_dma_span(ptr::addr_of!(EP0_RINGS))?,
+        static_dma_span(ptr::addr_of!(INTR_RINGS))?,
+        static_dma_span(ptr::addr_of!(BULK_IN_RINGS))?,
+        static_dma_span(ptr::addr_of!(BULK_OUT_RINGS))?,
+        static_dma_span(ptr::addr_of!(ERST))?,
+        static_dma_span(ptr::addr_of!(DCBAA))?,
+        static_dma_span(ptr::addr_of!(SCRATCHPAD_ARRAY))?,
+        static_dma_span(ptr::addr_of!(SCRATCHPAD_PAGES))?,
+        static_dma_span(ptr::addr_of!(INPUT_CONTEXT))?,
+        static_dma_span(ptr::addr_of!(DEVICE_CONTEXTS))?,
+        static_dma_span(ptr::addr_of!(CONTROL_BUFFER))?,
+        static_dma_span(ptr::addr_of!(KEYBOARD_REPORT))?,
+        static_dma_span(ptr::addr_of!(MOUSE_REPORT))?,
+        static_dma_span(ptr::addr_of!(MSC_CBW))?,
+        static_dma_span(ptr::addr_of!(MSC_CSW))?,
+        static_dma_span(ptr::addr_of!(MSC_BUFFER))?,
+    ];
+    if spans.iter().copied().any(|span| !kernel.contains(span)) {
+        return None;
+    }
+    Some(spans)
+}
+
+/// Returns the fixed USB-MSC buffers used while transferring RECLOG sectors.
+/// The full RECLOG copy is deliberately absent: it is a temporary `Vec` and
+/// therefore covered for its complete lifetime by `heap::physical_span()`.
+pub(crate) fn usb_msc_reclog_staging_physical_spans(
+) -> Option<[memory::PhysicalSpan; USB_MSC_RECLOG_STAGING_PHYSICAL_SPAN_COUNT]> {
+    let kernel = memory::kernel_image_physical_span()?;
+    let spans = [
+        static_dma_span(ptr::addr_of!(MSC_CBW))?,
+        static_dma_span(ptr::addr_of!(MSC_BUFFER))?,
+        static_dma_span(ptr::addr_of!(MSC_CSW))?,
+    ];
+    if spans.iter().copied().any(|span| !kernel.contains(span)) {
+        return None;
+    }
+    Some(spans)
+}
+
+fn static_dma_span<T>(address: *const T) -> Option<memory::PhysicalSpan> {
+    memory::physical_span_for_virtual_range(address, core::mem::size_of::<T>() as u64)
+}
+
 struct XhciController {
     _address: PciAddress,
     _mapping: memory::MmioMapping,
