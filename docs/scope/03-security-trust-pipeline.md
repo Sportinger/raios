@@ -26,7 +26,7 @@
       (shadow-20260719-102907). Verified 2026-07-19.
 - [ ] Isolation-suspicion protocol: any unexplained cross-guest or guest-to-host
       effect halts
-      all lanes until these tests settle it (mirrors CLAUDE.md full brake)
+      all lanes until these tests settle it (mirrors AGENTS.md full brake)
 
 ## Explicit future hardware hardening (not current checkboxes)
 

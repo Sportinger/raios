@@ -22,10 +22,11 @@
       (+ `decisions/`), `agents/`, `plans/`, `status/`, `assets/`, `_archive/`
       — enforced by `scripts/check-docs-hygiene.ps1` rule 1 (green 2026-07-18,
       negative via `-SelfTest` planted foreign file)
-- [x] Root instruction files consistent with docs paths (CLAUDE.md, AGENTS.md,
-      `.claude/` skill) — `root-instructions` rule fails on any referenced
-      `docs/` path that does not exist (red path self-tested with a planted
-      bogus reference, 2259b95, 2026-07-18)
+- [x] Root agent instruction is singular and consistent with docs paths:
+      `AGENTS.md` is required, while legacy `CLAUDE.md` and `.claude/` control
+      surfaces are rejected (ADR 0025). The `root-instructions` rule also fails
+      on any referenced `docs/` path that does not exist; both red paths are
+      self-tested (updated 2026-07-20)
 - [x] No loose files in `docs/` root except `SCOPE.md` and `README.md`
       (HANDOFF lives in `status/` — layout decided 2026-07-18); enforced by
       the same rule 1 + self-test
@@ -47,7 +48,7 @@
 - [x] Every architecture decision is an ADR (numbered, dated) — seL4 = 0015,
       branchless-main = 0019; `adr-form` rule enforces gapless numbering +
       machine-readable Date:/Status: with red paths (abe403c, 2026-07-18);
-      "every decision gets one" stays CLAUDE.md step-7 discipline
+      "every decision gets one" stays `AGENTS.md` loop discipline
 - [x] Second-opinion dissent recorded in the ADR (both positions) —
       demonstrated: ADR 0020 records the Codex in-ticket-binding dissent
       against the chosen two-stage design plus the evaluator-reuse split,

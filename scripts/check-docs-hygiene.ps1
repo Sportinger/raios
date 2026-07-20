@@ -188,8 +188,10 @@ function Invoke-DocsHygieneCheck {
         }
     }
 
-    # Rule 8: root instructions may reference only existing, non-glob docs paths.
-    $instructionRelativePaths = @("CLAUDE.md", "AGENTS.md", ".claude\skills\raios\SKILL.md")
+    # Rule 8: AGENTS.md is the single live root instruction source. It may
+    # reference only existing, non-glob docs paths; legacy agent-control
+    # surfaces fail closed (ADR 0025).
+    $instructionRelativePaths = @("AGENTS.md")
     foreach ($instructionRelativePath in $instructionRelativePaths) {
         $instructionPath = Join-Path $rootFullPath $instructionRelativePath
         $instructionDisplayPath = $instructionRelativePath.Replace('\', '/')
@@ -210,6 +212,13 @@ function Invoke-DocsHygieneCheck {
             if (-not (Test-Path -LiteralPath $referencedPath)) {
                 Add-DocsHygieneViolation -Violations $violations -Code "root_instruction_path" -Path $instructionDisplayPath -Detail ("missing_reference=" + $docsReference)
             }
+        }
+    }
+
+    foreach ($legacyInstructionRelativePath in @("CLAUDE.md", ".claude")) {
+        $legacyInstructionPath = Join-Path $rootFullPath $legacyInstructionRelativePath
+        if (Test-Path -LiteralPath $legacyInstructionPath) {
+            Add-DocsHygieneViolation -Violations $violations -Code "legacy_agent_instruction" -Path $legacyInstructionRelativePath -Detail "AGENTS.md_is_single_control_plane"
         }
     }
 
@@ -486,8 +495,6 @@ if ($SelfTest) {
         foreach ($directory in @("scope", "architecture\decisions", "agents", "plans", "status", "assets", "_archive")) {
             [void](New-Item -ItemType Directory -Path (Join-Path $fixtureDocsPath $directory) -Force)
         }
-        [void](New-Item -ItemType Directory -Path (Join-Path $fixtureRoot ".claude\skills\raios") -Force)
-
         Set-Content -LiteralPath (Join-Path $fixtureDocsPath "SCOPE.md") -Value @(
             "# self-test scope",
             "",
@@ -501,9 +508,7 @@ if ($SelfTest) {
             "- [x] Report pipeline: every build/test emits a structured report (ARTSTOR)"
         ) -Encoding utf8
         Set-Content -LiteralPath (Join-Path $fixtureDocsPath "README.md") -Value "conflicts resolve in favor of SCOPE.md" -Encoding utf8
-        Set-Content -LiteralPath (Join-Path $fixtureRoot "CLAUDE.md") -Value "reference docs/SCOPE.md" -Encoding utf8
         Set-Content -LiteralPath (Join-Path $fixtureRoot "AGENTS.md") -Value "reference docs/SCOPE.md" -Encoding utf8
-        Set-Content -LiteralPath (Join-Path $fixtureRoot ".claude\skills\raios\SKILL.md") -Value "reference docs/SCOPE.md" -Encoding utf8
         foreach ($number in 1..7) {
             $scopeFileName = ('{0:D2}-self-test-{0:D2}.md' -f $number)
             $scopeFileContent = @(
@@ -560,7 +565,9 @@ if ($SelfTest) {
         Set-Content -LiteralPath (Join-Path $fixtureDocsPath "plans\wrong-name.md") -Value "planted violation" -Encoding utf8
         Set-Content -LiteralPath (Join-Path $fixtureDocsPath "plans\plan-nonexistent-thing.md") -Value "planted violation" -Encoding utf8
         Set-Content -LiteralPath (Join-Path $fixtureDocsPath "README.md") -Value "planted statement without the required phrase" -Encoding utf8
-        Add-Content -LiteralPath (Join-Path $fixtureRoot "CLAUDE.md") -Value "reference docs/nonexistent-root-reference.md" -Encoding utf8
+        Add-Content -LiteralPath (Join-Path $fixtureRoot "AGENTS.md") -Value "reference docs/nonexistent-root-reference.md" -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $fixtureRoot "CLAUDE.md") -Value "planted legacy instruction" -Encoding utf8
+        [void](New-Item -ItemType Directory -Path (Join-Path $fixtureRoot ".claude") -Force)
 
         $selfTestResult = Invoke-DocsHygieneCheck -RootPath $fixtureRoot
         $floorBreakdownPath = "docs/scope/02-genesis-layer.md"
@@ -580,17 +587,18 @@ if ($SelfTest) {
         })
 
         $detectedCodes = @($selfTestResult.Violations | ForEach-Object { $_.Code })
-        $requiredCodes = @("docs_root_entry", "handoff_too_large", "status_too_large", "plan_filename", "single_source", "root_instruction_path", "plan_category", "adr_number_gap", "adr_number_duplicate", "adr_date", "adr_unexpected_file", "archive_dated", "breakdown_consistency", "breakdown_backlink")
+        $requiredCodes = @("docs_root_entry", "handoff_too_large", "status_too_large", "plan_filename", "single_source", "root_instruction_path", "legacy_agent_instruction", "plan_category", "adr_number_gap", "adr_number_duplicate", "adr_date", "adr_unexpected_file", "archive_dated", "breakdown_consistency", "breakdown_backlink")
         $missingCodes = @($requiredCodes | Where-Object { $detectedCodes -cnotcontains $_ })
+        $legacyInstructionViolations = @($selfTestResult.Violations | Where-Object { $_.Code -ceq "legacy_agent_instruction" })
 
-        if (($missingCodes.Count -eq 0) -and ($floorGreenViolations.Count -eq 0) -and ($floorRedViolations.Count -eq 1)) {
-            Write-Output "DOCS_HYGIENE selftest=green planted=14 detected=14"
+        if (($missingCodes.Count -eq 0) -and ($legacyInstructionViolations.Count -eq 2) -and ($floorGreenViolations.Count -eq 0) -and ($floorRedViolations.Count -eq 1)) {
+            Write-Output "DOCS_HYGIENE selftest=green planted=16 detected=16"
             Write-Output "DOCS_HYGIENE floor_mapping=green checked_breakdown_boxes=3 red_path=open_checkbox_detected"
             Write-Output ("DOCS_HYGIENE result=green checks=" + $selfTestResult.CheckCount + " violations=0")
             exit 0
         }
 
-        Write-Output ("DOCS_HYGIENE violation=selftest_detection path=temporary_fixture detail=missing_codes=" + ($missingCodes -join ',') + " floor_green_violations=" + $floorGreenViolations.Count + " floor_red_violations=" + $floorRedViolations.Count)
+        Write-Output ("DOCS_HYGIENE violation=selftest_detection path=temporary_fixture detail=missing_codes=" + ($missingCodes -join ',') + " legacy_instruction_violations=" + $legacyInstructionViolations.Count + " floor_green_violations=" + $floorGreenViolations.Count + " floor_red_violations=" + $floorRedViolations.Count)
         Write-Output ("DOCS_HYGIENE result=red checks=" + $selfTestResult.CheckCount + " violations=1")
         exit 1
     }

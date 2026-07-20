@@ -5,27 +5,23 @@
 > throughput and unattended nights survived.
 
 ## Lanes & orchestration
-- [x] 10 lanes + 1 orchestrator, one workspace, main-only (per CLAUDE.md/AGENTS.md)
-      <!-- written: CLAUDE.md loop (up to 10 parallel lanes, 1 orchestrator,
-      "Everyone works on main, one worktree, no branches") + AGENTS.md:3.
-      MECHANICALLY enforced: single git writer (ADR 0019) — workers dispatch
-      -s workspace-write and never git add/commit/push (AGENTS.md:19-21);
-      .claude/settings.json enforce-bg-dispatch hook blocks foreground
-      dispatch. Negative boundary: a lane touching a file outside its order
-      is "absolutely taboo" (AGENTS.md:22-23) and cannot reach main at all
-      (no git access). This session's git history is the running proof. -->
+- [x] 10 lanes + 1 orchestrator, one workspace, main-only (per `AGENTS.md`)
+      <!-- ADR 0025 makes AGENTS.md the only live control plane. Its role
+      selection keeps the root as orchestrator and every bounded codex exec as
+      a non-committing worker; up to ten disjoint workers may run. ADR 0019
+      mechanically limits main history to the single orchestrator writer.
+      Negative boundary: a worker touching a file outside its exact order is
+      rejected at acceptance and cannot be staged by the orchestrator. -->
 - [x] Lane rules written and enforced: serial core max 2 lanes, disjoint file sets
-      <!-- CLAUDE.md loop: "Serial core (MMU/scheduler/syscalls): max 2 lanes;
-      rest parallel up to 10 … isolation = disjoint file sets, so verify no
-      two live orders share a file"; AGENTS.md:22 "Your order's file set IS
-      your isolation." Enforced by the orchestrator's pre-dispatch file-set
-      disjointness check (done every dispatch this session) + single-writer
-      staging (git add <files>, never -A). -->
+      <!-- AGENTS.md requires max two conservative overlapping core/security
+      lanes, up to ten other workers, and a pre-dispatch file-set disjointness
+      check. Worker file sets are absolute taboos; the sole writer stages exact
+      accepted files only (never git add -A). -->
 - [x] Exclusive-lane mode for repo-wide mechanical changes
-      <!-- CLAUDE.md loop: "Repo-wide mechanical changes run as an exclusive
-      lane (all others paused until gates are green)." Exercised this session:
-      the ADR-0023 78-site func_wrap→gate migration was explicitly scoped and
-      DEFERRED as an exclusive lane rather than run alongside parallel lanes. -->
+      <!-- Repo-wide work necessarily owns overlapping file sets and therefore
+      runs exclusively under AGENTS.md's disjointness rule. Exercised by the
+      ADR-0023 78-site func_wrap→gate migration, which was deferred rather
+      than run beside conflicting lanes. -->
 
 ## Machine-readable introspection
 - [x] PCI enumeration, device IDs, BARs, IRQs exported as structured data
@@ -77,7 +73,7 @@
       `check-docs-hygiene.ps1` rule 2 (warn >2560 B, fail >4096 B) with a
       `-SelfTest` planting an oversized HANDOFF (red path proven, 2259b95).
 - [ ] Every agent reads HANDOFF at session start, overwrites its block at end
-      — mandated by CLAUDE.md/AGENTS.md and demonstrated every session, but a
+      — mandated by AGENTS.md and demonstrated every session, but a
       process invariant, not a mechanical predicate (stays open honestly).
 - [x] STATUS ≤ ~30 KB, state only — history lives in git + reports — size
       predicate is `check-docs-hygiene.ps1` rule 3 (fail >30720 B) with a

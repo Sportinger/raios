@@ -1,41 +1,44 @@
 # HANDOFF — Where do we stand?
 
-> **Format rule (hard):** This file is a window, not a log. Exactly ONE "Now"
-> block, ONE "Next step", and exactly THREE "Recently" entries. On update:
-> insert the new entry on top, delete the oldest WITHOUT replacement. What
-> matters durably goes FIRST to `docs/status/STATUS.md` or the fitting plan.
-> Max ~4 lines per entry; file max 60 lines. Replace, never append.
+> Window, not log: exactly one Now, one Next step, and three Recently entries.
+> Replace on update; never append. Keep under 60 lines and roughly 2 KB.
 
-## Now (as of 2026-07-19 ~23:50, loop running)
+## Now (2026-07-20 ~11:00, old loop intentionally stopped)
 
-ADR-0023 Slices 1–3 are on origin/main. Durable typed grant/revoke events now
-fold at boot into the real env.counter_get call gate; focused grant-reboot is
-29/29 (replay + semantic link tamper), quick is 510/510. §2 explicit typed
-grant/revoke, typed records, next-call durable revoke, and the whole narrow
-floor-contract group are green. §4 owned-device register maps are green.
-Foreign work remains untouched: AGENTS.md, release/diagnostics/, fixture lock.
+The owner retired all Claude-specific control surfaces. ADR 0025 makes
+`AGENTS.md` the single Codex control plane with explicit orchestrator/worker
+roles, Codex-only reviews, immediate accepted-slice commit+push, and hard WIP
+checkpoints. The stale resumed root and its active repair worker were stopped;
+their files were preserved. Committed HEAD remains dc039ba on origin/main.
+
+ADR-0024 rollback work is inherited as a large dirty patch across Core,
+durable store, repromotion, runtime, image builder, and QEMU harness. Older
+evidence passed delta 494/494, boundaries 152/152, and quick 510/510, but later
+reviews found real authorization/evidence gaps. The final strengthened run
+`shadow-rollback-grant-delta-20260720-104725-22632` is red: 107 predicates,
+2 failures at `rollback:delta-commit-before-rebuild`. The rollback-delta box
+therefore remains open. Foreign AGENTS-era diagnostics/fixture lock remain
+untouched; inventory exact ownership before staging.
 
 ## Next step
 
-ADR-0023 Slice 4: rollback computes live-grants-now minus live-grants-at-target,
-durably appends one revoke per delta before rebuilding instances, and proves a
-rollback to fewer grants denies the removed surface with zero effect while a
-retained surface and peer domain still work. Then check §3 rollback-delta.
-Slice 5 remains an exclusive migration of all remaining host surfaces.
+Start a fresh Codex root session, never resume the retired transcript. First
+dispatch a narrow read-only diagnosis of the 10:47 report and inventory the
+inherited rollback diff into independently verifiable slices. Repair only the
+failing slice, rerun focused QEMU plus quick, obtain an independent Codex
+review, then immediately commit and push each accepted slice. Keep disjoint
+non-core lanes running unless an explicit domain-isolation full brake applies.
 
 ## Recently (exactly 3, newest first)
 
+### 2026-07-20 — agent control consolidated on AGENTS.md
+Removed live `CLAUDE.md`/`.claude` control surfaces and added mechanical docs
+hygiene rejection so they cannot silently return. Historical ADR mentions stay.
+
+### 2026-07-20 — hardened rollback run exposed a positive-path regression
+New durable no-mutation/source-identity assertions were added after review;
+fresh QEMU failed before delta commit/rebuild, so no unsafe closure or commit.
+
 ### 2026-07-19 — durable revoke reached the real reboot gate
-Initial 211/211 evidence was rejected as selftest-tautological; repair moved
-projection consumption into Envelope construction. After 3 NET-8 setup stalls,
-strategy changed to a network-free focused harness: 29/29, review ACCEPT.
-
-### 2026-07-19 — Genesis floor contract became mechanically closed
-Machine-readable v1 descriptor matches raios-core's exact 5+30 imports/digest;
-15/15 tests distinguish undeclared imports from kernel-internal/non-wire types.
-Docs mapping gained a 14/14 red path; top-level floor box is green.
-
-### 2026-07-19 — hardware metadata moved out of Rust prose
-Four validated register maps cover 71 owned-device registers/constants with
-10/10 malformed-map negatives. Versioned QEMU/Surface manifests and 12/12
-drift negatives landed; manifest box stays open pending Surface CPU/RAM capture.
+Projection consumption moved into Envelope construction. Focused grant-reboot
+was 29/29 and quick 510/510; explicit durable grant/revoke core stayed green.
