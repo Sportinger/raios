@@ -122,15 +122,14 @@
     height: auto;
     overflow: auto;
     padding: 0;
-    background:
-      radial-gradient(circle at 76% 12%, rgba(72, 151, 242, 0.09), transparent 30rem),
-      radial-gradient(circle at 18% 38%, rgba(84, 187, 125, 0.055), transparent 34rem),
-      #08090B;
+    background: #000;
     color: #EEF1F5;
   }
   body[data-shell-mode="website"] #website-mode {
+    position: relative;
     display: grid;
     grid-template-columns: minmax(0, 1fr);
+    isolation: isolate;
     width: 100%;
     margin: 0 auto;
     padding: 0 0 clamp(70px, 8vw, 120px);
@@ -143,7 +142,7 @@
     z-index: 14;
     width: min(2200px, 100%);
     margin: 0 auto;
-    padding: 20px clamp(20px, 4vw, 64px) 0;
+    padding: clamp(42px, 5vh, 72px) clamp(20px, 4vw, 64px) 0;
     justify-items: center;
     text-align: center;
   }
@@ -286,24 +285,6 @@
   body[data-shell-mode="website"] .surface-section::before {
     content: none;
   }
-  body[data-shell-mode="website"] .surface-section::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    right: 0;
-    left: 0;
-    z-index: 2;
-    height: var(--intro-fade-height, 680px);
-    background: linear-gradient(
-      180deg,
-      #08090B 0%,
-      rgba(8, 9, 11, 0.97) 18%,
-      rgba(8, 9, 11, 0.9) 42%,
-      rgba(8, 9, 11, 0.78) calc(100% - 100px),
-      transparent 100%
-    );
-    pointer-events: none;
-  }
   body[data-shell-mode="website"] #surface-composite {
     --surface-aspect: 16 / 10;
     --display-left: 17.5%;
@@ -314,10 +295,10 @@
     position: relative;
     display: block;
     z-index: 1;
-    /* Rund 2x Zoom bis der Displayausschnitt seine native 1920px-Breite
+    /* Rund 1.35x Zoom bis der Displayausschnitt seine native 1920px-Breite
        erreicht. Auf noch breiteren Viewports bleibt das Foto mindestens
        bildfuellend, waehrend die Canvas selbst bei Full HD stoppt. */
-    width: var(--surface-responsive-width, max(100vw, min(170vw, 4021.5272727273px)));
+    width: var(--surface-responsive-width, max(100vw, min(135vw, 4021.5272727273px)));
     max-width: none;
     aspect-ratio: var(--surface-aspect);
     margin: var(--surface-offset-y, 0px) 0 0 50%;
@@ -420,7 +401,7 @@
     #view-mode-toggle { display: none; }
     body[data-shell-mode="website"] #website-mode { padding-inline: 14px; padding-bottom: 110px; }
     body[data-shell-mode="website"] .website-intro {
-      padding-top: 16px;
+      padding-top: 32px;
       padding-inline: 14px;
     }
     .website-kicker { margin-bottom: 12px; }

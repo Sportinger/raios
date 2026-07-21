@@ -5,7 +5,7 @@ const SURFACE_ASSET_CONFIG = Object.freeze({
   photo: "ui-lab/assets/surface/surface-photo-portrait-q88.webp",
   reflection: "ui-lab/assets/surface/surface-reflection-portrait-crop.webp",
   aspectRatio: "9 / 16",
-  photoScale: 1.7,
+  photoScale: 1.35,
   // The display stays 64px below the action row on regular viewports. On
   // wide layouts the gap grows with the composition so the device does not
   // appear to slide underneath the buttons.

@@ -6,7 +6,6 @@ const viewModeLabel = viewModeToggle.querySelector(".view-mode-toggle__label");
 const websiteMode = document.getElementById("website-mode");
 const websiteIntro = websiteMode.querySelector(".website-intro");
 const websiteTitle = websiteIntro.querySelector("h1");
-const websiteLead = websiteIntro.querySelector(".website-lead");
 const websiteActionsRow = websiteIntro.querySelector(".website-facts");
 const surfaceSection = websiteMode.querySelector(".surface-section");
 const surfaceComposite = document.getElementById("surface-composite");
@@ -44,8 +43,6 @@ function alignSurfaceDisplay() {
   // out instead of moving the photographed device underneath the buttons.
   const actionBottom = websiteActionsRow.getBoundingClientRect().bottom - surfaceTop;
   const desiredDisplayTop = actionBottom + displayGap;
-  const leadBottom = websiteLead.getBoundingClientRect().bottom - surfaceTop;
-  surfaceSection.style.setProperty("--intro-fade-height", `${leadBottom + 10}px`);
   const nativePhotoWidth = PHYSICAL_WIDTH / displayWidthRatio;
   const baseWidth = Math.max(
     window.innerWidth,
@@ -67,7 +64,12 @@ function alignSurfaceDisplay() {
   const displayBottom = offsetY + photoHeight * (displayTopRatio + displayHeightRatio);
   const photoBottom = offsetY + photoHeight;
   const storyStart = displayBottom + displayGap * 2;
+  const gridPhotoOverlap = Math.min(2200, Math.max(1400, window.innerHeight * 1.4));
   websiteMode.style.setProperty("--story-overlap", `${Math.max(0, photoBottom - storyStart)}px`);
+  websiteMode.style.setProperty(
+    "--website-grid-start-y",
+    `${photoBottom - gridPhotoOverlap}px`,
+  );
 }
 
 function syncWebsiteRendererResolution() {

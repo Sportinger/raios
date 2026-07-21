@@ -17,10 +17,10 @@
   <main id="website-mode">
     <header class="website-intro">
       <p class="website-kicker">raiOS · Genesis</p>
-      <h1><span>Eine ruhige Oberfläche für ein</span><span>KI-natives Betriebssystem.</span></h1>
+      <h1><span>A calm interface for an</span><span>AI-native operating system.</span></h1>
       <p class="website-lead">
-        raiOS hält Vertrauen, Recovery und physische Freigaben im Kern. Persönliche
-        Programme laufen in begrenzten, isolierten Oberflächen — sichtbar und überprüfbar.
+        raiOS keeps trust, recovery, and physical approval in the kernel. Personal
+        programs run in constrained, isolated surfaces — visible and verifiable.
       </p>
       <ul class="website-facts" aria-label="raiOS downloads and source code">
         <li><button type="button" data-mock-action="iso">Download ISO</button></li>
@@ -48,13 +48,15 @@
           <button id="boot-replay" type="button" hidden>Boot wiederholen</button>
         </div>
         <img id="surface-reflection" class="surface-reflection" alt="" hidden>
+        <div class="surface-gradient-overlay" aria-hidden="true"></div>
         <p class="surface-pending">Foto und Reflexions-Overlay werden hier eingesetzt.</p>
       </div>
     </section>
+    <div class="website-infinite-grid" aria-hidden="true"></div>
     <div class="website-story-flow">
     <section class="website-story story-opener film-section" data-story-reveal aria-label="The factory moves in" lang="en">
       <div class="story-inner film-story-inner">
-        <figure class="film-frame story-reveal" style="--reveal-delay:.05s">
+        <figure class="film-frame">
           <svg id="film-svg" class="film-svg" viewBox="0 -220 1200 1120" role="img"
             aria-label="A two-minute animated architecture film. A request becomes a hashed capsule, receives an explicit network capability, enters an offline build site with a real Rust compiler, passes reproducible twin builds and hostile isolation tests, receives physical owner approval, runs as a small music-player domain, then becomes one of twenty-one isolated app islands including games, browser, video, mail and creative tools.">
             <defs>
@@ -62,11 +64,6 @@
                 <stop offset="0" stop-color="#111722"></stop>
                 <stop offset=".55" stop-color="#090D14"></stop>
                 <stop offset="1" stop-color="#05070A"></stop>
-              </linearGradient>
-              <linearGradient id="film-background-dim-gradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0" stop-color="#000000" stop-opacity="0"></stop>
-                <stop offset=".75" stop-color="#000000" stop-opacity="1"></stop>
-                <stop offset="1" stop-color="#000000" stop-opacity="1"></stop>
               </linearGradient>
               <linearGradient id="film-floor" x1="0" y1="0" x2="1" y2="1">
                 <stop offset="0" stop-color="#212B3B"></stop>
@@ -179,12 +176,47 @@
               <rect class="film-backdrop" y="-220" width="1200" height="1120" fill="url(#film-bg)"></rect>
               <circle class="film-ambient-glow" cx="600" cy="385" r="470" fill="url(#film-glow)"></circle>
               <g class="film-stars" aria-hidden="true">
-                <circle cx="94" cy="120" r="1.3"></circle><circle cx="177" cy="245" r="1"></circle>
-                <circle cx="1090" cy="142" r="1.5"></circle><circle cx="1015" cy="318" r="1"></circle>
-                <circle cx="332" cy="78" r="1.1"></circle><circle cx="877" cy="91" r="1.2"></circle>
+                <g class="film-stars__layer film-stars__layer--far" data-film-star-speed="6080">
+                  <g class="film-stars__tile">
+                    <circle cx="177" cy="245" r="1"></circle><circle cx="1015" cy="318" r="1"></circle>
+                    <circle cx="332" cy="78" r="1.1"></circle><circle cx="738" cy="684" r="0.9"></circle>
+                  </g>
+                  <g class="film-stars__tile" transform="translate(0 1120)">
+                    <circle cx="177" cy="245" r="1"></circle><circle cx="1015" cy="318" r="1"></circle>
+                    <circle cx="332" cy="78" r="1.1"></circle><circle cx="738" cy="684" r="0.9"></circle>
+                  </g>
+                </g>
+                <g class="film-stars__layer film-stars__layer--mid" data-film-star-speed="8960">
+                  <g class="film-stars__tile">
+                    <circle cx="246" cy="512" r="1.1"></circle><circle cx="618" cy="268" r="1"></circle>
+                    <circle cx="1142" cy="622" r="1.2"></circle><circle cx="842" cy="836" r="0.9"></circle>
+                  </g>
+                  <g class="film-stars__tile" transform="translate(0 1120)">
+                    <circle cx="246" cy="512" r="1.1"></circle><circle cx="618" cy="268" r="1"></circle>
+                    <circle cx="1142" cy="622" r="1.2"></circle><circle cx="842" cy="836" r="0.9"></circle>
+                  </g>
+                </g>
+                <g class="film-stars__layer film-stars__layer--grid" data-film-star-motion="grid" data-film-star-speed="20400">
+                  <g class="film-stars__tile">
+                    <circle cx="64" cy="722" r="1.1"></circle><circle cx="452" cy="418" r="1.2"></circle>
+                    <circle cx="948" cy="548" r="1"></circle><circle cx="1172" cy="852" r="1.15"></circle>
+                  </g>
+                  <g class="film-stars__tile" transform="translate(0 1120)">
+                    <circle cx="64" cy="722" r="1.1"></circle><circle cx="452" cy="418" r="1.2"></circle>
+                    <circle cx="948" cy="548" r="1"></circle><circle cx="1172" cy="852" r="1.15"></circle>
+                  </g>
+                </g>
+                <g class="film-stars__layer film-stars__layer--near" data-film-star-speed="12320">
+                  <g class="film-stars__tile">
+                    <circle cx="94" cy="120" r="1.3"></circle><circle cx="1090" cy="142" r="1.5"></circle>
+                    <circle cx="877" cy="91" r="1.2"></circle><circle cx="562" cy="792" r="1.4"></circle>
+                  </g>
+                  <g class="film-stars__tile" transform="translate(0 1120)">
+                    <circle cx="94" cy="120" r="1.3"></circle><circle cx="1090" cy="142" r="1.5"></circle>
+                    <circle cx="877" cy="91" r="1.2"></circle><circle cx="562" cy="792" r="1.4"></circle>
+                  </g>
+                </g>
               </g>
-              <rect id="film-background-dim" class="film-background-dim" x="0" y="-220" width="1200" height="1120" fill="url(#film-background-dim-gradient)"></rect>
-
               <g id="cam" data-film-camera="main">
                 <g id="film-world" data-film-window="3.89,120,.55">
                   <g id="film-kernel-foundation" data-film-action="3.89,6.14,rise" data-film-grow="iso" data-film-distance="150">
@@ -835,7 +867,6 @@
               </g>
             </g>
           </svg>
-          <div id="film-top-gradient" class="film-top-gradient" aria-hidden="true"></div>
           <div id="film-scroll-cue" class="film-scroll-cue" aria-hidden="true">
             <span class="film-scroll-cue__label">Scroll</span>
             <svg class="film-scroll-cue__arrow" viewBox="0 0 72 98" focusable="false">

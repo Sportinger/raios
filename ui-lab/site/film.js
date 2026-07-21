@@ -13,6 +13,7 @@
   const PROMPT = "> build me a music player";
   const PROMPT_TYPE_START = 1.15;
   const PROMPT_TYPE_END = 3.72;
+  const PROMPT_CENTER_TRAVEL = 251;
   // ================= SECTION: Audio cues & captions =================
   const PROMPT_AUDIO_URL = "ui-lab/assets/audio/build-me-a-music-player.mp3";
   const PROMPT_AUDIO_REVERSED_URL = "ui-lab/assets/audio/build-me-a-music-player-reversed.mp3";
@@ -51,6 +52,11 @@
   const PROMPT_AUDIO_SCROLL_BRIDGE_MS = 820;
   const PROMPT_AUDIO_VELOCITY_EASE_MS = 92;
   const PROMPT_AUDIO_RATE_EASE_MS = 185;
+  const FILM_SCROLL_STOP_AUTOPLAY_MS = 120;
+  const FILM_AUTOPLAY_VELOCITY_TWEEN_MS = 200;
+  const FILM_EARLY_START_VIEWPORT_RATIO = 0.42;
+  const FILM_EARLY_START_MAX_PX = 420;
+  const STAR_PARALLAX_LOOP_HEIGHT = 1120;
   const FILM_AUDIO_CUE_DEFINITIONS = Object.freeze([
     Object.freeze({
       id: "prompt",
@@ -148,28 +154,8 @@
   const CAMERA_WIDE_DISTANCE_PER_ASPECT = 0.70;
   const CAMERA_WIDE_MAX_DISTANCE_OFFSET = 1.25;
   const CAMERA_VERTICAL_BIAS = 110;
-  const CAMERA_WIDE_VERTICAL_BIAS_PER_ASPECT = 175;
-  const CAMERA_WIDE_MAX_VERTICAL_BIAS = 220;
-  const SCROLL_TRIGGER_FRAME_Y = 0.18;
-  const SCROLL_TRIGGER_FRAME_Y_PER_CAMERA_DISTANCE = 0.12;
-  const SCROLL_TRIGGER_FRAME_Y_MAX = 0.34;
-  const SCROLL_TRIGGER_VIEWPORT_Y = 0.38;
-  const SCROLL_TRIGGER_TOLERANCE = 0.06;
-  const SCROLL_PAGE_TRAVEL_VH = 0.20;
-  // Mobile deliberately shares the desktop scroll-trigger tuning above.
-  const MOBILE_SCROLL_TRIGGER_FRAME_Y = SCROLL_TRIGGER_FRAME_Y;
-  const MOBILE_SCROLL_TRIGGER_FRAME_Y_PER_CAMERA_DISTANCE = SCROLL_TRIGGER_FRAME_Y_PER_CAMERA_DISTANCE;
-  const MOBILE_SCROLL_TRIGGER_FRAME_Y_MAX = SCROLL_TRIGGER_FRAME_Y_MAX;
-  const MOBILE_SCROLL_TRIGGER_VIEWPORT_Y = SCROLL_TRIGGER_VIEWPORT_Y;
-  const MOBILE_SCROLL_TRIGGER_TOLERANCE = SCROLL_TRIGGER_TOLERANCE;
-  const MOBILE_SCROLL_PAGE_TRAVEL_VH = SCROLL_PAGE_TRAVEL_VH;
-  const SCROLL_PAGE_TRAVEL_END_TIME = 6;
-  const VIEWPORT_RESIZE_SETTLE_DELAY_MS = 90;
-  const VIEWPORT_RESIZE_EASING_MS = 320;
-  const WHEEL_SCRUB_EASING_MS = 175;
-  const WHEEL_MAX_LEAD_SECONDS = 4;
-  const WHEEL_SECONDS_PER_PIXEL = 0.006;
-  const WHEEL_SLOW_SECONDS_PER_PIXEL = 0.0026;
+  const CAMERA_WIDE_VERTICAL_BIAS_PER_ASPECT = 260;
+  const CAMERA_WIDE_MAX_VERTICAL_BIAS = 320;
   const TIMELINE_REVEAL_TIME = PROMPT_TYPE_START
     + (PROMPT_TYPE_END - PROMPT_TYPE_START) * 0.5;
   const COMPILER_FAIL_IMPRINT_START = 46.0;
@@ -327,34 +313,6 @@
     0,
     CAMERA_WIDE_MAX_VERTICAL_BIAS,
   );
-  const scrollFocusWindow = (time, start, end, feather = 0.7) => {
-    const enter = smoothstep(intervalProgress(time, start - feather, start));
-    const leave = 1 - smoothstep(intervalProgress(time, end, end + feather));
-    return Math.min(enter, leave);
-  };
-  const wheelSecondsPerPixel = (time) => {
-    const deliberateMoments = [
-      [0, 6, 0.55], // prompt voice and type-on need fine, audible scroll steps
-      [3.89, 12.92, 0.75], // Kernel, then Genesis: label lines burn and dock separately
-      [32.6, 39.7, 0.9], // source files travel into the workpiece
-      [45.5, 52.7, 0.7], // compiler diagnostic returns; edit 01 travels back
-      [60.2, 67.2, 0.7], // verifier diagnostic returns; edit 02 travels back
-      [87.7, 92.2, 0.55], // approved player crosses /out and reaches its deck
-      [92.15, 95.8, 0.6], // capability links close while the builder releases
-      [105.6, 119.6, 0.65], // compact player island and the twenty-app archipelago
-    ];
-    const focus = deliberateMoments.reduce(
-      (strongest, [start, end, feather]) => Math.max(
-        strongest,
-        scrollFocusWindow(time, start, end, feather),
-      ),
-      0,
-    );
-    const baseSpeed = lerp(WHEEL_SECONDS_PER_PIXEL, WHEEL_SLOW_SECONDS_PER_PIXEL, focus);
-    const waypointThreeToFour = scrollFocusWindow(time, 12.59, 24.72, 0.35);
-    return baseSpeed / lerp(1, 3, waypointThreeToFour);
-  };
-
   function sceneAt(time) {
     if (time >= DURATION) return SCENES[SCENES.length - 1];
     return SCENES.find((scene) => time >= scene.start && time < scene.end) || SCENES[0];
@@ -526,8 +484,10 @@
     let promptAudioVelocity = 0;
     let promptAudioScrollRate = 1;
     let promptAudioScrollIntentAt = 0;
-    let promptAudioMotionHeld = false;
-    let syncFilmScrollPosition = () => {};
+    let filmPlaybackRate = 1;
+    let filmPlaybackStartRate = 1;
+    let syncFilmAutoplayScrollPosition = () => {};
+    root.dataset.filmHasUserScrolled = "false";
 
     // ================= SECTION: Audio playback engine =================
     const createPromptAudioTrack = (source, direction, cueId) => {
@@ -604,14 +564,18 @@
       const normalPlayback = playing;
       const scrollIntentFresh = now - promptAudioScrollIntentAt
         <= PROMPT_AUDIO_SCROLL_BRIDGE_MS;
-      const moving = normalPlayback || promptAudioMotionHeld || scrollIntentFresh || (
+      const moving = normalPlayback || scrollIntentFresh || (
         scrollGap <= PROMPT_AUDIO_SCROLL_BRIDGE_MS
         && Math.abs(promptAudioVelocity) > 0.018
       );
-      // The Play button is the reference performance: narration always runs
-      // at its recorded 1x tempo. Only manual scroll/scrub motion may bend it.
+      // Autoplay inherits the last manual scroll velocity, then returns to the
+      // recorded 1x tempo together with the film clock and page scroll.
       const velocityRate = normalPlayback
-        ? 1
+        ? clamp(
+          Math.abs(filmPlaybackRate),
+          PROMPT_AUDIO_MIN_RATE,
+          PROMPT_AUDIO_MAX_RATE,
+        )
         : scrollIntentFresh
           ? promptAudioScrollRate
           : clamp(
@@ -650,9 +614,9 @@
         // Never seek a running voice to correct drift: even tiny backwards
         // corrections repeat phonemes. Let the narration gate follow the
         // uninterrupted media clock and adjust only its playback rate.
-        const correctedRate = normalPlayback ? 1 : velocityRate;
+        const correctedRate = velocityRate;
         if (normalPlayback) {
-          activeCue.rate = 1;
+          activeCue.rate = correctedRate;
         } else {
           const rateEase = 1 - Math.exp(-elapsedMs / PROMPT_AUDIO_RATE_EASE_MS);
           activeCue.rate = lerp(activeCue.rate, correctedRate, rateEase);
@@ -797,7 +761,7 @@
       const ringSegments = selectAll("#film-ring .film-ring-segment");
       hooks = {
         camera: selectOne("#film-cam", "#cam"),
-        backgroundDim: selectOne("#film-background-dim"),
+        starLayers: selectAll("[data-film-star-speed]"),
         promptShell: selectOne(".film-prompt-only"),
         prompt: selectOne("#film-prompt-text", "#film-prompt", "[data-film-prompt]"),
         promptCursor: selectOne("#film-prompt-cursor", "[data-film-prompt-cursor]"),
@@ -1224,15 +1188,17 @@
         const backEase = 1 + 2.70158 * shifted * shifted * shifted
           + 1.70158 * shifted * shifted;
         const callScale = 0.78 + 0.22 * backEase;
-        const callLift = 26 * (1 - smoothstep(callProgress));
+        const descentProgress = smootherstep(intervalProgress(time, 0.08, PROMPT_TYPE_END));
+        const descent = PROMPT_CENTER_TRAVEL * descentProgress;
         const callOpacity = smoothstep(intervalProgress(time, 0.08, 0.52));
         setComposedTransform(
           hooks.promptShell,
-          `translate(600 334) translate(0 ${callLift.toFixed(3)}) scale(${callScale.toFixed(5)}) translate(-600 -334)`,
+          `translate(600 334) translate(0 ${descent.toFixed(3)}) scale(${callScale.toFixed(5)}) translate(-600 -334)`,
         );
         setOpacity(hooks.promptShell, callOpacity);
         hooks.promptShell.dataset.filmCalled = String(callProgress >= 1);
         hooks.promptShell.style.setProperty("--film-prompt-call", callProgress.toFixed(4));
+        hooks.promptShell.style.setProperty("--film-prompt-descent", descentProgress.toFixed(4));
       }
       if (hooks.prompt) {
         const progress = intervalProgress(time, PROMPT_TYPE_START, PROMPT_TYPE_END);
@@ -1249,11 +1215,6 @@
           : 0;
         hooks.promptCursor.setAttribute("x", (promptX + promptWidth + 7).toFixed(2));
       }
-    }
-
-    function renderBackgroundDim(time) {
-      const progress = smootherstep(intervalProgress(time, PROMPT_TYPE_END, 8.01));
-      setOpacity(hooks.backgroundDim, progress);
     }
 
     function renderNetNode(time) {
@@ -1694,6 +1655,18 @@
         hooks.workpieceBody,
         `translate(0 ${(workpiecePress * 4).toFixed(3)}) scale(${(1 + workpiecePress * 0.08).toFixed(4)} ${(1 - workpiecePress * 0.16).toFixed(4)})`,
       );
+    }
+
+    function renderStarParallax(time) {
+      const progress = clamp(time / DURATION, 0, 1);
+      (hooks.starLayers || []).forEach((node) => {
+        const distance = Number.parseFloat(node.dataset.filmStarSpeed || "0") || 0;
+        const rawTravel = distance * progress;
+        const translateY = rawTravel < STAR_PARALLAX_LOOP_HEIGHT
+          ? STAR_PARALLAX_LOOP_HEIGHT - rawTravel
+          : -(rawTravel % STAR_PARALLAX_LOOP_HEIGHT);
+        setComposedTransform(node, `translate(0 ${translateY.toFixed(3)})`);
+      });
     }
 
     function renderWorkshop(time) {
@@ -2512,17 +2485,12 @@
     // ================= SECTION: Render & transport =================
     function renderScrollCue(time) {
       if (!hooks.scrollCue) return;
-      const frame = root.closest(".film-frame") || root;
-      const bounds = frame.getBoundingClientRect();
-      const viewportHeight = Math.max(1, window.innerHeight);
-      const openingOpacity = 1 - smoothstep(intervalProgress(time, 0.18, 1.25));
-      const frameIsPresent = bounds.top < viewportHeight * 0.78
-        && bounds.bottom > viewportHeight * 0.3;
+      const endingOpacity = 1 - smoothstep(intervalProgress(time, DURATION - 1.2, DURATION));
       const visible = document.body.dataset.shellMode === "website"
         && !document.body.classList.contains("film-isolate")
-        && frameIsPresent
-        && openingOpacity > 0.001;
-      hooks.scrollCue.style.setProperty("--film-scroll-cue-opacity", openingOpacity.toFixed(3));
+        && root.dataset.filmHasUserScrolled === "true"
+        && endingOpacity > 0.001;
+      hooks.scrollCue.style.setProperty("--film-scroll-cue-opacity", endingOpacity.toFixed(3));
       hooks.scrollCue.classList.toggle("is-visible", visible);
     }
 
@@ -2558,22 +2526,25 @@
       currentTime = parseTime(time, currentTime);
       const activeScene = sceneAt(currentTime);
       const sceneProgress = intervalProgress(currentTime, activeScene.start, activeScene.end);
+      const totalProgress = currentTime / DURATION;
       root.dataset.filmScene = String(activeScene.number);
       root.dataset.filmSceneId = activeScene.id;
       root.dataset.filmPlaying = String(playing);
+      root.dataset.filmScrollComplete = String(totalProgress >= 0.9999);
       root.style.setProperty("--film-time", currentTime.toFixed(4));
-      root.style.setProperty("--film-total-progress", (currentTime / DURATION).toFixed(6));
+      root.style.setProperty("--film-total-progress", totalProgress.toFixed(6));
+      root.style.setProperty("--film-scroll-progress", totalProgress.toFixed(6));
       root.style.setProperty("--film-scene-progress", sceneProgress.toFixed(6));
       root.style.setProperty("--film-breathe", (0.5 + 0.5 * Math.sin(currentTime * Math.PI)).toFixed(4));
       renderScenes(currentTime, activeScene);
       renderCamera(currentTime);
+      renderStarParallax(currentTime);
       renderWindows(currentTime);
       renderDeclarativeActions(currentTime);
       renderGenesisKeys(currentTime);
       renderDoorCeremonies(currentTime);
       renderBuilderArchitecture(currentTime);
       renderPrompt(currentTime);
-      renderBackgroundDim(currentTime);
       renderNetNode(currentTime);
       renderVoiceCaption(currentTime);
       renderLayerCallouts(currentTime);
@@ -2598,9 +2569,25 @@
     function frame(now) {
       if (!playing) return;
       const elapsed = (now - anchorNow) / 1000;
-      currentTime = (anchorTime + elapsed) % DURATION;
+      const tweenDuration = FILM_AUTOPLAY_VELOCITY_TWEEN_MS / 1000;
+      const tweenElapsed = Math.min(elapsed, tweenDuration);
+      const tweenProgress = tweenDuration > 0 ? tweenElapsed / tweenDuration : 1;
+      const easedProgress = smoothstep(tweenProgress);
+      const easedProgressIntegral = tweenProgress ** 3 - 0.5 * tweenProgress ** 4;
+      const tweenAdvance = tweenDuration * (
+        filmPlaybackStartRate * tweenProgress
+        + (1 - filmPlaybackStartRate) * easedProgressIntegral
+      );
+      const timeAdvance = tweenAdvance + Math.max(0, elapsed - tweenDuration);
+      filmPlaybackRate = lerp(filmPlaybackStartRate, 1, easedProgress);
+      currentTime = Math.min(DURATION, anchorTime + timeAdvance);
+      root.style.setProperty("--film-playback-rate", filmPlaybackRate.toFixed(4));
       render(currentTime);
-      syncFilmScrollPosition();
+      syncFilmAutoplayScrollPosition(currentTime);
+      if (currentTime >= DURATION) {
+        stopClock(false);
+        return;
+      }
       animationFrame = requestAnimationFrame(frame);
     }
 
@@ -2626,11 +2613,18 @@
       return stopClock(false);
     }
 
-    function play() {
+    function play(startRate = 1) {
       if (playing) return true;
       wantsPlayback = true;
       suspendedByMode = false;
       if (currentTime >= DURATION) currentTime = 0;
+      const parsedStartRate = Number(startRate);
+      filmPlaybackStartRate = clamp(
+        Number.isFinite(parsedStartRate) ? Math.abs(parsedStartRate) : 1,
+        0,
+        PROMPT_AUDIO_MAX_RATE,
+      );
+      filmPlaybackRate = filmPlaybackStartRate;
       anchorTime = currentTime;
       anchorNow = performance.now();
       playing = true;
@@ -2833,7 +2827,7 @@
       controls.hidden = deterministic && !timelineRequested;
       root.dataset.filmTimeline = String(!controls.hidden);
       controls.setAttribute("role", "group");
-      controls.setAttribute("aria-label", "Film timeline and scene states; use the mouse wheel over the film to scrub");
+      controls.setAttribute("aria-label", "Film timeline and scene states; normal page scrolling controls the film");
 
       const playButton = document.createElement("button");
       playButton.className = "film-scrubber__play";
@@ -2851,63 +2845,12 @@
       range.max = String(DURATION);
       range.step = "0.01";
       range.value = currentTime.toFixed(2);
-      range.setAttribute("aria-label", "Scrub film time; release to continue playback");
+      range.setAttribute("aria-label", "Preview film time");
       track.appendChild(range);
 
       const marks = document.createElement("div");
       marks.className = "film-scrubber__marks";
-      let wheelTargetTime = currentTime;
-      let wheelScrubFrame = 0;
-      let wheelLastFrame = 0;
-      let scrollResumeTimer = 0;
-      let autoPlaybackArmed = false;
       root.dataset.filmAutoPlayback = "false";
-
-      function clearScrollResume() {
-        if (scrollResumeTimer) window.clearTimeout(scrollResumeTimer);
-        scrollResumeTimer = 0;
-      }
-
-      function cancelWheelScrub() {
-        if (wheelScrubFrame) cancelAnimationFrame(wheelScrubFrame);
-        wheelScrubFrame = 0;
-        wheelLastFrame = 0;
-        wheelTargetTime = currentTime;
-        promptAudioMotionHeld = false;
-        controls.classList.remove("is-wheel-scrubbing");
-      }
-
-      function scheduleScrollResume() {
-        clearScrollResume();
-        if (!autoPlaybackArmed) return;
-        scrollResumeTimer = window.setTimeout(() => {
-          scrollResumeTimer = 0;
-          if (!autoPlaybackArmed || document.hidden || suspendedByMode) return;
-          cancelWheelScrub();
-          play();
-        }, 500);
-      }
-
-      function animateWheelScrub(now) {
-        const elapsed = wheelLastFrame
-          ? Math.min(48, Math.max(1, now - wheelLastFrame))
-          : 16.7;
-        wheelLastFrame = now;
-        const distance = wheelTargetTime - currentTime;
-        if (Math.abs(distance) <= 0.004) {
-          setTime(wheelTargetTime);
-          syncPinnedScrollToFilm();
-          wheelScrubFrame = 0;
-          wheelLastFrame = 0;
-          promptAudioMotionHeld = false;
-          controls.classList.remove("is-wheel-scrubbing");
-          return;
-        }
-        const easing = 1 - Math.exp(-elapsed / WHEEL_SCRUB_EASING_MS);
-        setTime(currentTime + distance * easing);
-        syncPinnedScrollToFilm();
-        wheelScrubFrame = requestAnimationFrame(animateWheelScrub);
-      }
 
       TIMELINE_WAYPOINTS.forEach((waypoint, index) => {
         const button = document.createElement("button");
@@ -2918,7 +2861,6 @@
         button.dataset.filmJump = String(waypoint.at);
         button.style.setProperty("--film-mark-position", `${(waypoint.at / DURATION) * 100}%`);
         button.addEventListener("click", () => {
-          cancelWheelScrub();
           stopClock(false);
           setTime(waypoint.at);
         });
@@ -2937,47 +2879,31 @@
       controls.appendChild(sceneTitle);
 
       playButton.addEventListener("click", () => {
-        cancelWheelScrub();
-        clearScrollResume();
         if (playing) {
-          autoPlaybackArmed = false;
           root.dataset.filmAutoPlayback = "false";
           pause();
         }
         else {
-          autoPlaybackArmed = true;
           root.dataset.filmAutoPlayback = "true";
           unlockPromptAudio();
-          if (currentTime < SCROLL_PAGE_TRAVEL_END_TIME && !scrollPinned) lockScrollPosition();
           play();
         }
       });
-      const snapTime = (value, threshold = 1.8) => {
-        const nearest = TIMELINE_WAYPOINTS.reduce((best, waypoint) => (
-          Math.abs(waypoint.at - value) < Math.abs(best - value) ? waypoint.at : best
-        ), TIMELINE_WAYPOINTS[0].at);
-        return Math.abs(nearest - value) <= threshold ? nearest : value;
-      };
       let scrubbing = false;
       const beginScrub = () => {
-        cancelWheelScrub();
         scrubbing = true;
         stopClock(false);
         controls.classList.add("is-scrubbing");
       };
       const updateFromRange = () => {
         if (!scrubbing) beginScrub();
-        const snapped = snapTime(Number.parseFloat(range.value));
-        range.value = snapped.toFixed(2);
-        setTime(snapped);
+        setTime(range.value);
       };
       const finishScrub = () => {
         if (!scrubbing) return;
         scrubbing = false;
         controls.classList.remove("is-scrubbing");
-        const snapped = snapTime(Number.parseFloat(range.value), 2.8);
-        range.value = snapped.toFixed(2);
-        setTime(snapped);
+        setTime(range.value);
       };
       range.addEventListener("pointerdown", beginScrub);
       range.addEventListener("input", updateFromRange);
@@ -2991,332 +2917,6 @@
         if (event.key === "Home" || event.key === "End" || event.key.startsWith("Arrow")) finishScrub();
       });
 
-      // ================= SECTION: Scroll & wheel pinning =================
-      const wheelSurface = root.closest(".film-frame") || root;
-      let scrollPinned = false;
-      let userPinCooldown = false;
-      let pinnedScrollY = 0;
-      let pinnedScrollStartY = 0;
-      let pinnedScrollEndY = 0;
-      let pinCorrectionFrame = 0;
-      let viewportResizeTimer = 0;
-      let viewportResizeFrame = 0;
-      let viewportResizeSettling = false;
-      const isMobileFilmView = () => window.innerWidth <= 880;
-      const scrollSnapProfile = () => isMobileFilmView()
-        ? {
-          frameY: MOBILE_SCROLL_TRIGGER_FRAME_Y,
-          frameYPerDistance: MOBILE_SCROLL_TRIGGER_FRAME_Y_PER_CAMERA_DISTANCE,
-          frameYMax: MOBILE_SCROLL_TRIGGER_FRAME_Y_MAX,
-          viewportY: MOBILE_SCROLL_TRIGGER_VIEWPORT_Y,
-          tolerance: MOBILE_SCROLL_TRIGGER_TOLERANCE,
-          pageTravelVh: MOBILE_SCROLL_PAGE_TRAVEL_VH,
-        }
-        : {
-          frameY: SCROLL_TRIGGER_FRAME_Y,
-          frameYPerDistance: SCROLL_TRIGGER_FRAME_Y_PER_CAMERA_DISTANCE,
-          frameYMax: SCROLL_TRIGGER_FRAME_Y_MAX,
-          viewportY: SCROLL_TRIGGER_VIEWPORT_Y,
-          tolerance: SCROLL_TRIGGER_TOLERANCE,
-          pageTravelVh: SCROLL_PAGE_TRAVEL_VH,
-        };
-      const scrollTriggerGeometry = (aspectDistance = responsiveCameraDistance) => {
-        const bounds = wheelSurface.getBoundingClientRect();
-        const profile = scrollSnapProfile();
-        const responsiveFrameY = clamp(
-          profile.frameY + aspectDistance * profile.frameYPerDistance,
-          profile.frameY,
-          profile.frameYMax,
-        );
-        const frameAnchor = bounds.top + bounds.height * responsiveFrameY;
-        const viewportAnchor = window.innerHeight * profile.viewportY;
-        return {
-          distance: frameAnchor - viewportAnchor,
-          tolerance: window.innerHeight * profile.tolerance,
-        };
-      };
-      const scrollTriggerIsActive = () => {
-        if (controls.hidden) return false;
-        const geometry = scrollTriggerGeometry();
-        const active = scrollPinned || Math.abs(geometry.distance) <= geometry.tolerance;
-        controls.classList.toggle("is-scroll-armed", active);
-        root.dataset.filmScrollArmed = String(active);
-        root.dataset.filmScrollPinned = String(scrollPinned);
-        return active;
-      };
-      const lockScrollPosition = () => {
-        const maximumScrollY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-        const profile = scrollSnapProfile();
-        pinnedScrollStartY = window.scrollY;
-        pinnedScrollEndY = Math.min(
-          maximumScrollY,
-          pinnedScrollStartY + window.innerHeight * profile.pageTravelVh,
-        );
-        pinnedScrollY = pinnedScrollStartY;
-        scrollPinned = true;
-        scrollTriggerIsActive();
-      };
-      const syncPinnedScrollToFilm = () => {
-        if (!scrollPinned || viewportResizeSettling) return;
-        const travelProgress = reducedMotion
-          ? intervalProgress(currentTime, 0, SCROLL_PAGE_TRAVEL_END_TIME)
-          : smootherstep(intervalProgress(currentTime, 0, SCROLL_PAGE_TRAVEL_END_TIME));
-        pinnedScrollY = lerp(pinnedScrollStartY, pinnedScrollEndY, travelProgress);
-        if (Math.abs(window.scrollY - pinnedScrollY) > 0.35) {
-          window.scrollTo({ top: pinnedScrollY, left: window.scrollX, behavior: "auto" });
-        }
-      };
-      syncFilmScrollPosition = syncPinnedScrollToFilm;
-      const releaseScrollPin = () => {
-        scrollPinned = false;
-        userPinCooldown = isMobileFilmView();
-        if (pinCorrectionFrame) cancelAnimationFrame(pinCorrectionFrame);
-        pinCorrectionFrame = 0;
-        scrollTriggerIsActive();
-      };
-      let previousTriggerDistance = scrollTriggerGeometry().distance;
-      const updateScrollTrigger = () => {
-        renderScrollCue(currentTime);
-        if (viewportResizeSettling) {
-          scrollTriggerIsActive();
-          return;
-        }
-        const geometry = scrollTriggerGeometry();
-        const crossedEntry = previousTriggerDistance !== 0
-          && Math.sign(previousTriggerDistance) !== Math.sign(geometry.distance);
-        previousTriggerDistance = geometry.distance;
-        if (!scrollPinned && isMobileFilmView()
-          && Math.abs(geometry.distance) > geometry.tolerance) {
-          userPinCooldown = false;
-        }
-        if (!scrollPinned && !controls.hidden
-          && (!isMobileFilmView() || !userPinCooldown)
-          && (crossedEntry || Math.abs(geometry.distance) <= geometry.tolerance)) {
-          lockScrollPosition();
-          return;
-        }
-        if (scrollPinned && Math.abs(window.scrollY - pinnedScrollY) > 1) {
-          if (pinCorrectionFrame) {
-            cancelAnimationFrame(pinCorrectionFrame);
-            pinCorrectionFrame = 0;
-          }
-          if (isMobileFilmView()) {
-            const travel = pinnedScrollEndY - pinnedScrollStartY;
-            const withinTravel = travel > 1
-              && window.scrollY >= pinnedScrollStartY - 1
-              && window.scrollY <= pinnedScrollEndY + 1
-              && currentTime <= SCROLL_PAGE_TRAVEL_END_TIME + 0.05;
-            if (withinTravel) {
-              // Mobile native swipe becomes film input during the opening move.
-              pinnedScrollY = clamp(window.scrollY, pinnedScrollStartY, pinnedScrollEndY);
-              const travelProgress = clamp(
-                (pinnedScrollY - pinnedScrollStartY) / travel,
-                0,
-                1,
-              );
-              cancelWheelScrub();
-              stopClock(true);
-              setTime(travelProgress * SCROLL_PAGE_TRAVEL_END_TIME);
-              scheduleScrollResume();
-            } else {
-              releaseScrollPin();
-            }
-          } else {
-            // Desktop remains magnetically fixed at its authored snap point.
-            pinCorrectionFrame = requestAnimationFrame(() => {
-              pinCorrectionFrame = 0;
-              if (scrollPinned) {
-                window.scrollTo({ top: pinnedScrollY, left: window.scrollX, behavior: "auto" });
-              }
-            });
-          }
-        }
-        scrollTriggerIsActive();
-      };
-      const scheduleViewportSettle = () => {
-        if (viewportResizeTimer) window.clearTimeout(viewportResizeTimer);
-        if (viewportResizeFrame) cancelAnimationFrame(viewportResizeFrame);
-        viewportResizeFrame = 0;
-        viewportResizeSettling = true;
-        viewportResizeTimer = window.setTimeout(() => {
-          viewportResizeTimer = 0;
-          const distanceFrom = responsiveCameraDistance;
-          const distanceTo = cameraAspectDistanceOffset();
-          const verticalBiasFrom = responsiveCameraVerticalBias;
-          const verticalBiasTo = cameraAspectVerticalBias();
-          const scrollFrom = window.scrollY;
-          let scrollTo = scrollFrom;
-          let nextPinnedStartY = pinnedScrollStartY;
-          let nextPinnedEndY = pinnedScrollEndY;
-
-          if (scrollPinned) {
-            const maximumScrollY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-            const geometry = scrollTriggerGeometry(distanceTo);
-            const profile = scrollSnapProfile();
-            const travelProgress = reducedMotion
-              ? intervalProgress(currentTime, 0, SCROLL_PAGE_TRAVEL_END_TIME)
-              : smootherstep(intervalProgress(currentTime, 0, SCROLL_PAGE_TRAVEL_END_TIME));
-            const fullTravel = window.innerHeight * profile.pageTravelVh;
-            const currentTravel = fullTravel * travelProgress;
-            const targetAtCurrentTime = clamp(
-              scrollFrom + geometry.distance + currentTravel,
-              0,
-              maximumScrollY,
-            );
-            nextPinnedStartY = clamp(targetAtCurrentTime - currentTravel, 0, maximumScrollY);
-            nextPinnedEndY = Math.min(maximumScrollY, nextPinnedStartY + fullTravel);
-            scrollTo = lerp(nextPinnedStartY, nextPinnedEndY, travelProgress);
-          }
-
-          const startedAt = performance.now();
-          viewportResizeSettling = true;
-          const settleFrame = (now) => {
-            const elapsed = now - startedAt;
-            const rawProgress = reducedMotion
-              ? 1
-              : clamp(elapsed / VIEWPORT_RESIZE_EASING_MS, 0, 1);
-            const progress = smootherstep(rawProgress);
-            responsiveCameraDistance = lerp(distanceFrom, distanceTo, progress);
-            responsiveCameraVerticalBias = lerp(verticalBiasFrom, verticalBiasTo, progress);
-            if (scrollPinned) {
-              pinnedScrollY = lerp(scrollFrom, scrollTo, progress);
-              if (Math.abs(window.scrollY - pinnedScrollY) > 0.35) {
-                window.scrollTo({ top: pinnedScrollY, left: window.scrollX, behavior: "auto" });
-              }
-            }
-            renderCamera(currentTime);
-            if (rawProgress < 1) {
-              viewportResizeFrame = requestAnimationFrame(settleFrame);
-              return;
-            }
-            responsiveCameraDistance = distanceTo;
-            responsiveCameraVerticalBias = verticalBiasTo;
-            if (scrollPinned) {
-              pinnedScrollStartY = nextPinnedStartY;
-              pinnedScrollEndY = nextPinnedEndY;
-              pinnedScrollY = scrollTo;
-              window.scrollTo({ top: pinnedScrollY, left: window.scrollX, behavior: "auto" });
-            }
-            viewportResizeFrame = 0;
-            viewportResizeSettling = false;
-            previousTriggerDistance = scrollTriggerGeometry().distance;
-            scrollTriggerIsActive();
-          };
-          viewportResizeFrame = requestAnimationFrame(settleFrame);
-        }, VIEWPORT_RESIZE_SETTLE_DELAY_MS);
-      };
-      window.addEventListener("scroll", updateScrollTrigger, { passive: true });
-      window.addEventListener("resize", scheduleViewportSettle, { passive: true });
-      scrollTriggerIsActive();
-
-      // Shared scrub step for wheel and touch input. Returns true when the
-      // gesture drives the film (native scroll must be suppressed), false at
-      // the film edges where the gesture falls through to normal page scroll.
-      const scrubByDelta = (deltaPixels) => {
-        if (!wheelScrubFrame) wheelTargetTime = currentTime;
-        const deltaSeconds = clamp(
-          deltaPixels * wheelSecondsPerPixel(wheelTargetTime),
-          -0.9,
-          0.9,
-        );
-        const wheelIntentNow = performance.now();
-        const wheelIntentGap = promptAudioScrollIntentAt
-          ? clamp(wheelIntentNow - promptAudioScrollIntentAt, 16, 180)
-          : 180;
-        const requestedScrollRate = clamp(
-          0.55 + (Math.abs(deltaPixels) / wheelIntentGap) * 0.52,
-          PROMPT_AUDIO_MIN_RATE,
-          PROMPT_AUDIO_MAX_RATE,
-        );
-        const scrollRateBlend = requestedScrollRate > promptAudioScrollRate ? 0.58 : 0.3;
-        promptAudioScrollRate = lerp(promptAudioScrollRate, requestedScrollRate, scrollRateBlend);
-        promptAudioScrollIntentAt = wheelIntentNow;
-        promptAudioDirection = deltaSeconds < 0 ? -1 : 1;
-        promptAudioLastMotionAt = promptAudioScrollIntentAt;
-        const atStart = wheelTargetTime <= 0.001 && deltaSeconds < 0;
-        const atEnd = wheelTargetTime >= DURATION - 0.001 && deltaSeconds > 0;
-        if (atStart || atEnd) {
-          releaseScrollPin();
-          return false;
-        }
-
-        unlockPromptAudio();
-        autoPlaybackArmed = true;
-        wantsPlayback = true;
-        root.dataset.filmAutoPlayback = "true";
-        if (!scrollPinned) lockScrollPosition();
-        else if (Math.abs(window.scrollY - pinnedScrollY) > 1) {
-          window.scrollTo({ top: pinnedScrollY, left: window.scrollX, behavior: "auto" });
-        }
-        stopClock(true);
-        wheelTargetTime = clamp(
-          wheelTargetTime + deltaSeconds,
-          Math.max(0, currentTime - WHEEL_MAX_LEAD_SECONDS),
-          Math.min(DURATION, currentTime + WHEEL_MAX_LEAD_SECONDS),
-        );
-        promptAudioMotionHeld = true;
-        controls.classList.add("is-wheel-scrubbing");
-        if (reducedMotion) {
-          setTime(wheelTargetTime);
-          syncPinnedScrollToFilm();
-          controls.classList.remove("is-wheel-scrubbing");
-        } else if (!wheelScrubFrame) {
-          wheelScrubFrame = requestAnimationFrame(animateWheelScrub);
-        }
-        scheduleScrollResume();
-        return true;
-      };
-
-      window.addEventListener("wheel", (event) => {
-        if (controls.hidden || event.ctrlKey) return;
-        if (!scrollTriggerIsActive()) return;
-        const primaryDelta = Math.abs(event.deltaY) >= Math.abs(event.deltaX)
-          ? event.deltaY
-          : event.deltaX;
-        if (!primaryDelta) return;
-        const deltaPixels = primaryDelta * (event.deltaMode === 1
-          ? 16
-          : event.deltaMode === 2
-            ? window.innerHeight
-            : 1);
-        if (scrubByDelta(deltaPixels)) event.preventDefault();
-      }, { passive: false });
-
-      // Touch: a swipe over the pinned film scrubs the animation while native
-      // page scroll stays suppressed (same contract as the wheel handler).
-      const TOUCH_SCRUB_PIXEL_FACTOR = 0.6;
-      let touchScrubY = 0;
-      let touchScrubActive = false;
-      wheelSurface.addEventListener("touchstart", (event) => {
-        if (!isMobileFilmView() || controls.hidden
-          || event.touches.length !== 1 || !scrollTriggerIsActive()) {
-          touchScrubActive = false;
-          return;
-        }
-        if (event.target.closest("button, input, a, .film-scrubber, .film-camera-editor")) {
-          touchScrubActive = false;
-          return;
-        }
-        touchScrubY = event.touches[0].clientY;
-        touchScrubActive = true;
-      }, { passive: true });
-      wheelSurface.addEventListener("touchmove", (event) => {
-        if (!touchScrubActive || event.touches.length !== 1) return;
-        const touchY = event.touches[0].clientY;
-        const deltaPixels = (touchScrubY - touchY) * TOUCH_SCRUB_PIXEL_FACTOR;
-        touchScrubY = touchY;
-        if (!deltaPixels) return;
-        if (scrubByDelta(deltaPixels)) {
-          event.preventDefault();
-        } else {
-          // Film edge reached: let the rest of the swipe scroll the page.
-          touchScrubActive = false;
-        }
-      }, { passive: false });
-      const endTouchScrub = () => { touchScrubActive = false; };
-      wheelSurface.addEventListener("touchend", endTouchScrub, { passive: true });
-      wheelSurface.addEventListener("touchcancel", endTouchScrub, { passive: true });
-
       root.insertAdjacentElement("afterend", controls);
       scrubber = controls;
       scrubRange = range;
@@ -3326,16 +2926,279 @@
       scrubMarks = Array.from(marks.querySelectorAll("button"));
     }
 
+    // ================= SECTION: Natural scroll timeline =================
+    function createNaturalScrollController() {
+      const filmSection = root.closest(".film-section");
+      if (!filmSection) return;
+
+      const filmStoryInner = root.closest(".film-story-inner");
+      let scrollFrame = 0;
+      let resizeFrame = 0;
+      let idlePlaybackTimer = 0;
+      let lastScrollAt = performance.now();
+      let lastNaturalFilmVelocity = 1;
+      let lastObservedScrollY = window.scrollY;
+      let scrollbarDragging = false;
+      let userScrollActive = false;
+      let autoplayScrollTargetY = null;
+      const supportsNativeScrollEnd = "onscrollend" in window;
+      root.dataset.filmScrollMode = "natural";
+      root.dataset.filmScrollbarDragging = "false";
+      root.dataset.filmUserScrollActive = "false";
+
+      const scrollState = () => {
+        const bounds = filmSection.getBoundingClientRect();
+        const sectionTravel = Math.max(1, filmSection.offsetHeight - window.innerHeight);
+        const startOffset = Math.min(
+          window.innerHeight * FILM_EARLY_START_VIEWPORT_RATIO,
+          FILM_EARLY_START_MAX_PX,
+        );
+        const travel = sectionTravel + startOffset;
+        return {
+          bounds,
+          travel,
+          startOffset,
+          progress: clamp((startOffset - bounds.top) / travel, 0, 1),
+          active: bounds.top <= startOffset
+            && bounds.bottom >= window.innerHeight - 1,
+        };
+      };
+
+      const syncStickyIntroPosition = (state) => {
+        if (!filmStoryInner) return;
+        const top = state && state.bounds ? state.bounds.top : 0;
+        const blendDistance = state ? state.startOffset : 0;
+        if (deterministic || reducedMotion || blendDistance <= 0
+          || top <= 0 || top >= blendDistance
+          || document.body.dataset.shellMode !== "website") {
+          filmStoryInner.style.setProperty("--film-sticky-intro-y", "0px");
+          return;
+        }
+        const progress = clamp(top / blendDistance, 0, 1);
+        // Match normal page speed at the beginning, then reach zero velocity
+        // exactly where position: sticky takes over at the viewport edge.
+        const easedPosition = blendDistance * progress * progress * (2 - progress);
+        const compensation = easedPosition - top;
+        filmStoryInner.style.setProperty(
+          "--film-sticky-intro-y",
+          `${compensation.toFixed(2)}px`,
+        );
+      };
+
+      syncFilmAutoplayScrollPosition = (time) => {
+        if (deterministic || reducedMotion
+          || scrollbarDragging
+          || userScrollActive
+          || document.body.classList.contains("film-isolate")
+          || document.body.dataset.shellMode !== "website") return;
+        const state = scrollState();
+        if (!state.active) return;
+        const sectionTop = window.scrollY + state.bounds.top;
+        const rawTargetScrollY = sectionTop - state.startOffset
+          + (time / DURATION) * state.travel;
+        const maxScrollY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+        const targetScrollY = clamp(rawTargetScrollY, 0, maxScrollY);
+        if (Math.abs(window.scrollY - targetScrollY) > 0.2) {
+          window.scrollTo({ top: targetScrollY, left: window.scrollX, behavior: "auto" });
+          // Store the browser's actual, potentially pixel-rounded position.
+          autoplayScrollTargetY = window.scrollY;
+        }
+      };
+
+      const clearIdlePlayback = () => {
+        if (idlePlaybackTimer) window.clearTimeout(idlePlaybackTimer);
+        idlePlaybackTimer = 0;
+      };
+
+      const armIdlePlayback = (state) => {
+        clearIdlePlayback();
+        if (!state.active || currentTime >= DURATION || playing
+          || scrollbarDragging
+          || userScrollActive
+          || deterministic || reducedMotion || document.hidden
+          || document.body.dataset.shellMode !== "website") return;
+        idlePlaybackTimer = window.setTimeout(() => {
+          idlePlaybackTimer = 0;
+          const latestState = scrollState();
+          if (!latestState.active || playing || currentTime >= DURATION
+            || scrollbarDragging
+            || userScrollActive
+            || document.hidden || document.body.dataset.shellMode !== "website") return;
+          root.dataset.filmAutoPlayback = "true";
+          play(lastNaturalFilmVelocity);
+        }, FILM_SCROLL_STOP_AUTOPLAY_MS);
+      };
+
+      const syncFilmToScroll = () => {
+        scrollFrame = 0;
+        renderScrollCue(currentTime);
+        if (deterministic || reducedMotion
+          || document.body.classList.contains("film-isolate")
+          || document.body.dataset.shellMode !== "website") {
+          syncStickyIntroPosition(null);
+          clearIdlePlayback();
+          return;
+        }
+
+        const state = scrollState();
+        syncStickyIntroPosition(state);
+        const targetTime = state.progress * DURATION;
+        const now = performance.now();
+        const elapsedSeconds = clamp((now - lastScrollAt) / 1000, 0.016, 0.25);
+        const timeDelta = targetTime - currentTime;
+        lastScrollAt = now;
+        // Autoplay owns both the film clock and the page position. Do not feed
+        // its resulting scroll event back into the film; a genuine user scroll
+        // has already stopped autoplay in handlePageScroll before this runs.
+        if (playing && root.dataset.filmAutoPlayback === "true") return;
+        if (Math.abs(timeDelta) <= 0.001) {
+          armIdlePlayback(state);
+          return;
+        }
+
+        if (playing) {
+          root.dataset.filmAutoPlayback = "false";
+          stopClock(false);
+        }
+        promptAudioDirection = timeDelta < 0 ? -1 : 1;
+        lastNaturalFilmVelocity = clamp(
+          Math.abs(timeDelta) / elapsedSeconds,
+          0,
+          PROMPT_AUDIO_MAX_RATE,
+        );
+        promptAudioScrollRate = clamp(
+          lastNaturalFilmVelocity,
+          PROMPT_AUDIO_MIN_RATE,
+          PROMPT_AUDIO_MAX_RATE,
+        );
+        promptAudioScrollIntentAt = now;
+        promptAudioLastMotionAt = now;
+        setTime(targetTime);
+        armIdlePlayback(state);
+      };
+
+      const scheduleScrollSync = () => {
+        if (scrollFrame) return;
+        scrollFrame = requestAnimationFrame(syncFilmToScroll);
+      };
+
+      const handlePageScroll = () => {
+        const scrollMoved = Math.abs(window.scrollY - lastObservedScrollY) > 0.5;
+        const autoplayScroll = playing
+          && root.dataset.filmAutoPlayback === "true"
+          && autoplayScrollTargetY !== null
+          && Math.abs(window.scrollY - autoplayScrollTargetY) <= 0.1;
+        if (autoplayScroll) autoplayScrollTargetY = null;
+        lastObservedScrollY = window.scrollY;
+        if (scrollMoved && !autoplayScroll) {
+          autoplayScrollTargetY = null;
+          clearIdlePlayback();
+          if (supportsNativeScrollEnd) {
+            userScrollActive = true;
+            root.dataset.filmUserScrollActive = "true";
+          }
+          if (playing && root.dataset.filmAutoPlayback === "true") {
+            root.dataset.filmAutoPlayback = "false";
+            stopClock(false);
+          }
+          if (root.dataset.filmHasUserScrolled !== "true") {
+            root.dataset.filmHasUserScrolled = "true";
+            renderScrollCue(currentTime);
+          }
+        }
+        scheduleScrollSync();
+      };
+
+      const handlePageScrollEnd = () => {
+        if (!userScrollActive) return;
+        userScrollActive = false;
+        root.dataset.filmUserScrollActive = "false";
+        lastScrollAt = performance.now();
+        scheduleScrollSync();
+      };
+
+      const scheduleResizeSync = () => {
+        if (resizeFrame) cancelAnimationFrame(resizeFrame);
+        resizeFrame = requestAnimationFrame(() => {
+          resizeFrame = 0;
+          responsiveCameraDistance = cameraAspectDistanceOffset();
+          responsiveCameraVerticalBias = cameraAspectVerticalBias();
+          renderCamera(currentTime);
+          scheduleScrollSync();
+        });
+      };
+
+      const noteUserIntent = (event) => {
+        clearIdlePlayback();
+        unlockPromptAudio();
+        const target = event && event.target;
+        const transportInteraction = target instanceof Element
+          && target.closest("button, input, a, .film-scrubber, .film-camera-editor");
+        if (!transportInteraction && playing && root.dataset.filmAutoPlayback === "true") {
+          root.dataset.filmAutoPlayback = "false";
+          stopClock(false);
+        }
+      };
+      const isVerticalScrollbarPointer = (event) => {
+        if (!event || event.button !== 0) return false;
+        const viewportWidth = document.documentElement.clientWidth;
+        return window.innerWidth > viewportWidth && event.clientX >= viewportWidth;
+      };
+      const beginPointerIntent = (event) => {
+        if (isVerticalScrollbarPointer(event)) {
+          scrollbarDragging = true;
+          root.dataset.filmScrollbarDragging = "true";
+        }
+        noteUserIntent(event);
+      };
+      const beginMouseScrollbarIntent = (event) => {
+        if (!isVerticalScrollbarPointer(event) || scrollbarDragging) return;
+        scrollbarDragging = true;
+        root.dataset.filmScrollbarDragging = "true";
+        noteUserIntent(event);
+      };
+      const releaseScrollbarDrag = () => {
+        if (!scrollbarDragging) return;
+        scrollbarDragging = false;
+        root.dataset.filmScrollbarDragging = "false";
+        lastScrollAt = performance.now();
+        scheduleScrollSync();
+      };
+      const unlockOnScrollKey = (event) => {
+        if (["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End", " "].includes(event.key)) {
+          noteUserIntent();
+        }
+      };
+
+      window.addEventListener("scroll", handlePageScroll, { passive: true });
+      if (supportsNativeScrollEnd) {
+        window.addEventListener("scrollend", handlePageScrollEnd, { passive: true });
+      }
+      window.addEventListener("resize", scheduleResizeSync, { passive: true });
+      window.addEventListener("wheel", noteUserIntent, { passive: true });
+      window.addEventListener("touchstart", noteUserIntent, { passive: true });
+      window.addEventListener("pointerdown", beginPointerIntent, { passive: true });
+      document.addEventListener("mousedown", beginMouseScrollbarIntent, { capture: true, passive: true });
+      window.addEventListener("pointerup", releaseScrollbarDrag, { passive: true });
+      window.addEventListener("mouseup", releaseScrollbarDrag, { passive: true });
+      window.addEventListener("pointercancel", releaseScrollbarDrag, { passive: true });
+      window.addEventListener("blur", releaseScrollbarDrag, { passive: true });
+      window.addEventListener("keydown", unlockOnScrollKey);
+      document.addEventListener("raios:website-mode", scheduleScrollSync);
+      scheduleScrollSync();
+    }
+
     // ================= SECTION: Mode, visibility & boot =================
     refresh();
-    const topGradient = document.getElementById("film-top-gradient");
-    if (topGradient && topGradient.parentElement !== document.body) {
-      document.body.appendChild(topGradient);
-    }
     if (hooks.voiceCaption && hooks.voiceCaption.parentElement !== document.body) {
       document.body.appendChild(hooks.voiceCaption);
     }
+    const scrollCueAnchor = document.getElementById("surface-composite") || document.body;
+    if (hooks.scrollCue && hooks.scrollCue.parentElement !== scrollCueAnchor) {
+      scrollCueAnchor.appendChild(hooks.scrollCue);
+    }
     createScrubber();
+    createNaturalScrollController();
     createCameraEditor();
 
     const api = {

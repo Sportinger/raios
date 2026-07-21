@@ -2,7 +2,9 @@
    lab.css; nothing in here may style the canvas, the HUD or the catalog. */
 
 .website-story-flow,
-.website-story { display: none; }
+.website-story,
+.website-infinite-grid,
+.surface-gradient-overlay { display: none; }
 
 /* The story flow is pulled up over the lower part of the Surface photo so it
    starts right below the display cutout. --story-overlap is measured in
@@ -21,24 +23,47 @@ body[data-shell-mode="website"] .website-story {
   width: 100%;
 }
 
-/* Only blend the physical end of the photo into the page background. The film
-   itself is transparent and must not receive a dark scrim over the photo. */
-body[data-shell-mode="website"] .surface-section::before {
-  content: "";
+/* The photo stays untouched across its first quarter, then sinks continuously
+   into full black at its lower edge. This lives inside the photo coordinate
+   system, so the 25% stop is independent of responsive cropping. */
+body[data-shell-mode="website"] .surface-gradient-overlay {
   position: absolute;
-  top: auto;
+  inset: 0;
+  z-index: 4;
+  display: block;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    transparent 25%,
+    rgba(0, 0, 0, 0.35) 35%,
+    rgba(0, 0, 0, 0.61) 45%,
+    rgba(0, 0, 0, 0.78) 55%,
+    rgba(0, 0, 0, 0.9) 65%,
+    rgba(0, 0, 0, 0.96) 75%,
+    rgba(0, 0, 0, 0.99) 85%,
+    #000 100%
+  );
+  pointer-events: none;
+}
+
+body[data-shell-mode="website"] .website-infinite-grid {
+  position: absolute;
+  top: var(--website-grid-start-y, 100%);
   right: 0;
   bottom: 0;
   left: 0;
   z-index: 2;
-  height: clamp(220px, 24vw, 460px);
-  background: linear-gradient(
-    180deg,
-    transparent 0%,
-    rgba(8, 9, 11, 0.24) 48%,
-    rgba(8, 9, 11, 0.84) 82%,
-    #08090B 100%
-  );
+  display: block;
+  background-image:
+    linear-gradient(rgba(124, 179, 245, 0.105) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(124, 179, 245, 0.105) 1px, transparent 1px),
+    linear-gradient(rgba(72, 151, 242, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(72, 151, 242, 0.035) 1px, transparent 1px);
+  background-position: center top;
+  background-size: 80px 80px, 80px 80px, 16px 16px, 16px 16px;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 720px);
+  mask-image: linear-gradient(180deg, transparent 0, #000 720px);
+  opacity: 0.72;
   pointer-events: none;
 }
 
@@ -1782,12 +1807,24 @@ body.story-anim-off .stack-slab {
   --film-red: #DA5852;
 }
 
+body[data-shell-mode="website"] .film-section {
+  --film-natural-scroll-travel: clamp(14000px, 1600svh, 20000px);
+  min-height: calc(100svh + var(--film-natural-scroll-travel));
+}
+
 body[data-shell-mode="website"] .film-story-inner {
+  position: sticky;
+  top: 0;
+  z-index: 4;
   width: 100vw;
+  height: 100svh;
   max-width: none;
   margin-left: calc(50% - 50vw);
   margin-right: calc(50% - 50vw);
   padding-inline: 0;
+  overflow: clip;
+  transform: translate3d(0, var(--film-sticky-intro-y, 0px), 0);
+  will-change: transform;
 }
 
 body[data-shell-mode="website"] .film-story-inner > .story-head {
@@ -1801,9 +1838,10 @@ body[data-shell-mode="website"] .film-story-inner > .story-head .story-text {
 body[data-shell-mode="website"] .film-frame {
   position: relative;
   width: 100%;
+  height: 100%;
   margin: 0;
   padding: 0;
-  overflow: visible;
+  overflow: hidden;
   border: 0;
   border-radius: 0;
   background: none;
@@ -1858,6 +1896,15 @@ body[data-shell-mode="website"] .film-frame::before {
     visibility 0s linear 360ms;
 }
 
+body[data-shell-mode="website"] #surface-composite > .film-scroll-cue {
+  position: absolute;
+  top: 41.5%;
+  right: auto;
+  bottom: auto;
+  left: 50%;
+  z-index: 5;
+}
+
 body[data-shell-mode="website"] .film-scroll-cue.is-visible {
   opacity: var(--film-scroll-cue-opacity);
   visibility: visible;
@@ -1907,14 +1954,25 @@ body[data-shell-mode="website"] .film-scroll-cue.is-visible {
 .film-ambient-glow { display: none; }
 .film-stars circle {
   fill: var(--film-blue-hi);
-  opacity: 0.48;
+}
+
+.film-stars__layer--far circle {
+  opacity: 0.26;
+}
+
+.film-stars__layer--mid circle {
+  opacity: 0.38;
+}
+
+.film-stars__layer--grid circle {
+  opacity: 0.46;
+}
+
+.film-stars__layer--near circle {
+  opacity: 0.6;
 }
 
 /* World: kernel rock, Genesis floor and mediated veins. */
-.film-background-dim {
-  pointer-events: none;
-}
-
 .film-rock {
   stroke: rgba(117, 126, 140, 0.28);
   stroke-width: 1.5;
@@ -3072,23 +3130,6 @@ body[data-shell-mode="website"] .film-scroll-cue.is-visible {
 
 /* Voiceover captions replace the old diagnostic prose blocks. */
 .film-workshop-caption { display: none; }
-
-.film-top-gradient {
-  position: fixed;
-  inset: 0 0 auto;
-  z-index: 13;
-  height: clamp(170px, 23vh, 280px);
-  background: linear-gradient(
-    180deg,
-    rgba(0, 0, 0, 0.96) 0%,
-    rgba(0, 0, 0, 0.8) 34%,
-    rgba(0, 0, 0, 0.44) 70%,
-    transparent 100%
-  );
-  pointer-events: none;
-  visibility: visible;
-  opacity: 1;
-}
 
 .film-voice-caption {
   position: fixed;
@@ -4394,6 +4435,7 @@ body.film-isolate {
 
 body.film-isolate #website-mode > .website-intro,
 body.film-isolate #website-mode > .surface-section,
+body.film-isolate #website-mode > .website-infinite-grid,
 body.film-isolate .website-story-flow > .website-story:not(.film-section),
 body.film-isolate .film-section .story-head,
 body.film-isolate .film-caption,
@@ -4411,18 +4453,27 @@ body.film-isolate .film-section,
 body.film-isolate .film-story-inner {
   display: block;
   width: 100%;
+  height: auto;
+  min-height: 0;
   margin: 0;
   padding: 0;
 }
 
+body.film-isolate .film-story-inner {
+  position: static;
+  overflow: visible;
+}
+
 body.film-isolate .film-frame {
   width: 100%;
+  height: auto;
   max-width: none;
   margin: 0;
   padding: 0;
   border: 0;
   border-radius: 0;
   box-shadow: none;
+  overflow: visible;
 }
 
 body.film-isolate .film-svg { border-radius: 0; }
@@ -4473,8 +4524,7 @@ body.film-isolate .film-svg { border-radius: 0; }
 }
 
 .film-scrubber:hover,
-.film-scrubber.is-scrubbing,
-.film-scrubber.is-wheel-scrubbing {
+.film-scrubber.is-scrubbing {
   opacity: 1;
 }
 
@@ -4807,6 +4857,21 @@ body.story-anim-off .film-scroll-cue * {
 
 body.story-anim-off .film-pulse { stroke-dashoffset: 0; }
 
+body.story-anim-off[data-shell-mode="website"] .film-section {
+  min-height: 0;
+}
+
+body.story-anim-off[data-shell-mode="website"] .film-story-inner {
+  position: relative;
+  height: auto;
+  overflow: visible;
+}
+
+body.story-anim-off[data-shell-mode="website"] .film-frame {
+  height: auto;
+  overflow: visible;
+}
+
 @media (max-width: 880px) {
   body[data-shell-mode="website"] .film-story-inner {
     padding-inline: 0;
@@ -4880,6 +4945,21 @@ body.story-anim-off .film-pulse { stroke-dashoffset: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  body[data-shell-mode="website"] .film-section {
+    min-height: 0;
+  }
+
+  body[data-shell-mode="website"] .film-story-inner {
+    position: relative;
+    height: auto;
+    overflow: visible;
+  }
+
+  body[data-shell-mode="website"] .film-frame {
+    height: auto;
+    overflow: visible;
+  }
+
   .film-svg *,
   .film-scrubber *,
   .film-scroll-cue,
