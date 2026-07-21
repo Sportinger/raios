@@ -10,24 +10,28 @@
 - [ ] Negative test: driver domain cannot reach any foreign device or region
 - [ ] Emits RECLOG diagnostics; failure states are machine-readable
 
-Evidence 2026-07-20: the H20 Surface freeze left only one valid
-`raios.usb_diag.v0` `boot_probe` record (`errors=0`, `recoveries=0`) and no
-`raios.hw_failure_trace.v0`. The hard failure was therefore not captured as a
-machine-readable WiFi diagnostic, so the common RECLOG box remains open.
+Evidence 2026-07-21: the first post-K2 Surface cold boot retained HID and left
+three valid chained RECLOG frames: USB `errors=0`, a pre-BME PCI Command
+checkpoint at `0x0402`, and terminal HardwareSpec `data_ring_unavailable`.
+`d8d8f34` adds a bounded `0xD1KK_DDDD` subcause for every event/RX arm and
+host-pointer publication failure, accepted by two read-only reviews. That code
+has not run on hardware yet, so the common RECLOG box remains open.
 
 ## Wi-Fi (Marvell 88W8897)
 - [ ] Firmware load + handshake from inside the domain
 - [ ] Own DMA region, IOMMU-fenced; scan + connect + traffic
 - [ ] Survives repeated kill/restart mid-traffic
 
-Evidence 2026-07-20, Surface Pro 4: cold-boot kernel runs proved 88W8897
+Evidence 2026-07-20/21, Surface Pro 4: cold-boot kernel runs proved 88W8897
 firmware upload/readiness and a live 2.4-GHz scan, then reached WPA2 selection
 and physical passphrase entry. H20 used
 `PCIE_DESC_DETAILS → FUNC_INIT → GET_HW_SPEC → MAC_CONTROL` before scan, but
 `Starting WiFi` coincided with loss of keyboard and mouse and produced no WiFi
-failure trace. This is evidence for firmware upload and scan only. The path is
-still in-kernel; domain execution, IOMMU fencing, connection, traffic, and safe
-kill/restart remain open. The freeze is evidence against closing any WiFi box.
+failure trace. The first post-K2 boot retained HID and proved a persisted
+BME-off checkpoint, then failed at HardwareSpec data-ring preparation before a
+network grant. This remains evidence for firmware upload and scan only. The
+path is still in-kernel; domain execution, IOMMU fencing, connection, traffic,
+and safe kill/restart remain open.
 
 ## USB stack
 - [ ] Host controller domain; hotplug events surface as typed events

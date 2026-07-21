@@ -3,40 +3,41 @@
 > Window, not log: exactly one Now, one Next step, and three Recently entries.
 > Replace on update; never append. Keep under 60 lines and roughly 2 KB.
 
-## Now (2026-07-20 ~22:50, root orchestrator active)
+## Now (2026-07-21 ~10:30, root orchestrator active)
 
-The H20 Surface observation remains unresolved: both HID devices froze at
-`Starting WiFi`; the persisted RECLOG showed USB `errors=0` before the freeze
-and no WiFi failure trace. H19/H20 also observed unreadable PCI config/MMIO,
-without proving the cause or proving that bus mastering was quiesced.
+The first post-K2 Surface cold boot materially narrowed H20. The GUI and HID
+remained usable. The recovered RECLOG contained three valid chained frames:
+USB `errors=0`, the persisted pre-BME K2 checkpoint with PCI Command `0x0402`
+(Memory Space on, BME off, interrupt-disable on), and a terminal HardwareSpec
+`data_ring_unavailable` with host interrupt status zero. No network state was
+granted. This is evidence that the K2/USB safety path survived that boot, not
+proof of DMA drain, IOMMU containment, connection, or traffic.
 
-Host-only recovery work is green. `36e8c12` restored the Shadow-VM Cargo-home
-bootstrap and GitHub CI completed green. `bb46923` added the pure Marvell DMA
-model for ring bounds, contiguity/non-overlap, epochs, and BME/publication
-ordering; its 16 focused tests plus 710/5 core tests and GitHub CI are green.
+`d8d8f34` is accepted ring telemetry for the next boot. Every event/RX arm and
+host-pointer publication failure now emits one bounded, secret-free
+`MarvellPublicationStep` cause code before quarantine; the generic HWSPEC trace
+cannot replace it. The focused predicate and mutation negative are green, the
+whole seed-kernel host typecheck is green, and two fresh read-only Codex reviews
+returned ACCEPT. `4c748ab` separately repaired GPT GUID decoding on Windows
+PowerShell 5.1 and its extractor selftest is green.
 
-`7428759` is accepted K1: one host DMA gate, device-pointer validation, one
-`0xC05C` writer, removal of `poll_rx_ring`, gated triggers/jobs, and durable
-mutation predicates. The release build is green and two independent final
-Codex reviews returned ACCEPT. K1 has not run on the Surface and grants no
-hardware-test release, association, traffic, driver-domain, or IOMMU claim.
-The `docs/SCOPE.md:155` Marvell isolation checkbox remains open.
+The Marvell path is still in-kernel and the isolation brake remains open.
+`docs/SCOPE.md:155` and all mapped Wi-Fi/isolation boxes remain unchecked.
 
 ## Next step
 
-K2: implement and independently verify BME-off with PCI command readback plus
-complete command/response mailbox cleanup. A cleared BME readback is not proof
-of DMA drain or IOMMU containment. After K2 acceptance, build the release
-image, write the USB stick, and perform exactly one owner-authorized cold boot;
-no warm retry or additional Surface experiment is authorized.
+Build and sign a release from `d8d8f34`, export/validate its ESP payload, write
+the serial-pinned SanDisk persistent layout, and perform one cold Surface boot.
+If networking still fails, shut down and extract RECLOG: the new `0xD1KK_DDDD`
+value identifies the exact ring operation plus decoder class or DMA index.
 
 ## Recently (exactly 3, newest first)
 
-### 2026-07-20 — `7428759` K1 accepted twice
-Host access is fail-closed after a latched pointer fault; hardware remains untested.
+### 2026-07-21 — `d8d8f34` exact data-ring cause accepted twice
+Specific ring failures persist before fail-closed quarantine; no gate was relaxed.
 
-### 2026-07-20 — `bb46923` pure DMA model green
-Ring-layout and publication-order predicates passed locally and in GitHub CI.
+### 2026-07-21 — `4c748ab` PowerShell 5.1 GPT GUID parsing fixed
+The read-only extractor now accepts exact 16-byte GUIDs and rejects wrong lengths.
 
-### 2026-07-20 — `36e8c12` Shadow-VM bootstrap restored
-Cargo-home setup was repaired and the complete GitHub CI run passed.
+### 2026-07-21 — first K2 Surface boot reached HardwareSpec
+HID stayed live; RECLOG proved BME-off checkpoint then `data_ring_unavailable`.

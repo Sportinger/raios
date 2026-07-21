@@ -28,8 +28,10 @@
       effect halts all lanes until these tests settle it (mirrors AGENTS.md full
       brake) — activated 2026-07-20 when H20 `Starting WiFi` coincided with
       simultaneous keyboard and mouse loss on the Surface. Cause is unproven;
-      the box remains open until Marvell DMA ring bounds/ownership and the
-      foreign-region negative predicate settle the suspected boundary.
+      the first post-K2 boot retained HID and persisted PCI Command `0x0402`
+      before the HardwareSpec ring failure, but this is not IOMMU or DMA-drain
+      proof. The box remains open until Marvell DMA ring bounds/ownership and
+      the foreign-region negative predicate settle the suspected boundary.
 
 ## Explicit future hardware hardening (not current checkboxes)
 
