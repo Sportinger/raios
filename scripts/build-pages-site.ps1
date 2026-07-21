@@ -80,6 +80,16 @@ if ($effectiveBuildVersion.Length -gt 12) {
 }
 
 $html = Get-Content -Raw -LiteralPath (Join-Path $outputPath "index.html")
+$buildVersionMetaPattern = '(<meta\s+name="raios-build-version"\s+content=")[^"]*(">)'
+$buildVersionMetaRegex = [regex]::new($buildVersionMetaPattern)
+if (-not $buildVersionMetaRegex.IsMatch($html)) {
+    throw "HTML is missing the raiOS build-version meta tag"
+}
+$html = $buildVersionMetaRegex.Replace(
+    $html,
+    "`$1$effectiveBuildVersion`$2",
+    1
+)
 $html = [regex]::Replace(
     $html,
     '(?<prefix>\b(?:src|href)=")(?<url>[^"]+)(?<suffix>")',
@@ -108,6 +118,11 @@ $html = [regex]::Replace(
 [IO.File]::WriteAllText(
     (Join-Path $outputPath "index.html"),
     $html,
+    [Text.UTF8Encoding]::new($false)
+)
+[IO.File]::WriteAllText(
+    (Join-Path $outputPath "version.json"),
+    "{`"version`":`"$effectiveBuildVersion`"}",
     [Text.UTF8Encoding]::new($false)
 )
 $references = @(

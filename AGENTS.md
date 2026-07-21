@@ -21,8 +21,8 @@ Keine entfernten OS-Bestandteile neu anlegen oder aus anderen Branches übernehm
 - `ui-lab/core/` enthält gemeinsam verwendete Modelle und Zeichenprimitiven.
 - `ui-lab/surfaces/` enthält die einzelnen Oberflächen und Abläufe.
 - `ui-lab/assets/` enthält ausschließlich tatsächlich verwendete Medien.
-- `scripts/build-pages-site.ps1` erzeugt den Inhalt von `pages-dist/` und versieht lokale HTML-Asset-Referenzen mit einer Build-Version.
-- `cloudflare/pages-worker.mjs` steuert kanonische Weiterleitungen und Browser-Cache-Header. HTML muss bei einem normalen Refresh frisch geladen werden.
+- `scripts/build-pages-site.ps1` erzeugt den Inhalt von `pages-dist/`, versieht lokale HTML-Asset-Referenzen mit einer Build-Version und erzeugt `version.json` für offene Produktions-Tabs.
+- `cloudflare/pages-worker.mjs` steuert kanonische Weiterleitungen und Browser-Cache-Header. HTML und `version.json` müssen ungecacht ausgeliefert werden.
 
 ## Regeln für Änderungen
 

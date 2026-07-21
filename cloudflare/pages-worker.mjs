@@ -24,7 +24,7 @@ export default {
     const headers = new Headers(assetResponse.headers);
     const contentType = (headers.get("Content-Type") || "").toLowerCase();
 
-    if (contentType.startsWith("text/html")) {
+    if (contentType.startsWith("text/html") || url.pathname === "/version.json") {
       headers.set("Cache-Control", "no-store");
       headers.set("Pragma", "no-cache");
       headers.set("Expires", "0");
