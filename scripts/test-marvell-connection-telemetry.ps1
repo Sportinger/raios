@@ -267,7 +267,7 @@ function Test-DataRingFailureDiagnostics([string]$Text) {
     $decoderClassesAreComplete = [regex]::IsMatch($diagnostic, 'DevicePointerError::AllOnes\s*=>\s*DATA_RING_DIAG_DECODER_ALL_ONES.*DevicePointerError::ReservedBits\s*=>\s*DATA_RING_DIAG_DECODER_RESERVED_BITS.*DevicePointerError::IndexOutOfRange\s*=>\s*DATA_RING_DIAG_DECODER_INDEX_OUT_OF_RANGE', [Text.RegularExpressions.RegexOptions]::Singleline)
     $causeMapIsComplete = [regex]::IsMatch($diagnostic, 'Self::EventWriteDecode\(error\).*DATA_RING_DIAG_EVENT_WR_DECODE\s*\|\s*data_ring_decoder_class\(error\).*Self::EventDmaTranslation\s*\{\s*index\s*\}.*DATA_RING_DIAG_EVENT_DMA_TRANSLATION\s*\|\s*index as u32.*Self::RxWriteTxReadDecode\(error\).*DATA_RING_DIAG_RX_WR_TX_RD_DECODE\s*\|\s*data_ring_decoder_class\(error\).*Self::RxDmaTranslation\s*\{\s*index\s*\}.*DATA_RING_DIAG_RX_DMA_TRANSLATION\s*\|\s*index as u32.*Self::HostEventReadPublication\(error\).*DATA_RING_DIAG_HOST_EVENT_RD_PUBLICATION\s*\|\s*data_ring_decoder_class\(error\).*Self::SharedRxTxPublication\(error\).*DATA_RING_DIAG_SHARED_RX_TX_PUBLICATION\s*\|\s*data_ring_decoder_class\(error\)', [Text.RegularExpressions.RegexOptions]::Singleline)
     $eventCausePropagates = [regex]::IsMatch($eventArm, 'if let Err\(error\) = decode_event_pointer\(wrptr\).*EventWriteDecode\(error\).*arm_failure = Some\(failure\).*return Err\(failure\).*event_data_phys\(index\).*EventDmaTranslation \{ index \}.*arm_failure = Some\(failure\).*return Err\(failure\)', [Text.RegularExpressions.RegexOptions]::Singleline)
-    $rxCausePropagates = [regex]::IsMatch($rxArm, 'if let Err\(error\) = decode_rx_tx_pointer_register\(wrptr\).*RxWriteTxReadDecode\(error\).*arm_failure = Some\(failure\).*return Err\(failure\).*rx_data_phys\(index\).*RxDmaTranslation \{ index \}.*arm_failure = Some\(failure\).*return Err\(failure\)', [Text.RegularExpressions.RegexOptions]::Singleline)
+    $rxConstructionDefersFirmwarePointer = (-not [regex]::IsMatch($rxArm, 'PCIE_RX_WR_PTR|decode_rx_tx_pointer_register')) -and [regex]::IsMatch($rxArm, 'let wrptr = 0;.*rx_data_phys\(index\).*RxDmaTranslation \{ index \}.*arm_failure = Some\(failure\).*return Err\(failure\).*runtime\.rdptr = RX_ROLLOVER_IND.*wrptr,', [Text.RegularExpressions.RegexOptions]::Singleline)
     $publicationCausePropagates = [regex]::IsMatch($publish, 'if let Err\(error\) = decode_event_pointer\(event_rdptr\).*quarantine_invalid_pointer_after_ring_unlock_while_gated.*HostEventReadPublication\(error\).*Err\(error\).*quarantine_invalid_pointer_after_ring_unlock_while_gated.*SharedRxTxPublication\(error\)', [Text.RegularExpressions.RegexOptions]::Singleline)
     $oneQueueHelper = ([regex]::Matches($queueHelper, 'queue_fixed_hw_failure_trace\(').Count -eq 1) -and [regex]::IsMatch($queueHelper, 'HwFailureStatus::TransportFault.*HwFailureRegister::MarvellPublicationStep.*failure\.diagnostic_code\(\)', [Text.RegularExpressions.RegexOptions]::Singleline)
     $oneHardwareSpecTrace = ([regex]::Matches($hwStart, 'queue_data_ring_failure_trace\(').Count -eq 1) -and ([regex]::Matches($hwPoll, 'queue_data_ring_failure_trace\(').Count -eq 1) -and [regex]::IsMatch($hwStart, 'Err\(failure\).*queue_data_ring_failure_trace.*finish_hw_spec_locked.*DataRingUnavailable', [Text.RegularExpressions.RegexOptions]::Singleline) -and [regex]::IsMatch($hwPoll, 'Err\(failure\).*queue_data_ring_failure_trace.*finish_hw_spec_locked.*DataRingUnavailable', [Text.RegularExpressions.RegexOptions]::Singleline) -and [regex]::IsMatch($hwFinish, 'stage == HwSpecStage::Failed\s*&&\s*result != HwSpecResult::DataRingUnavailable.*queue_fixed_hw_failure_trace', [Text.RegularExpressions.RegexOptions]::Singleline)
@@ -275,13 +275,19 @@ function Test-DataRingFailureDiagnostics([string]$Text) {
     $secretFree = -not [regex]::IsMatch($diagnostic, 'ssid|bssid|passphrase|pmk|security_ie|connect_cmd_ptr|connect_rsp_ptr|secret_source|target\.', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
 
     $codesAreFixed -and $decoderClassesAreComplete -and $causeMapIsComplete -and
-        $eventCausePropagates -and $rxCausePropagates -and $publicationCausePropagates -and
+        $eventCausePropagates -and $rxConstructionDefersFirmwarePointer -and $publicationCausePropagates -and
         $oneQueueHelper -and $oneHardwareSpecTrace -and $associationHasOneTrace -and $secretFree
 }
 
 Require (Test-DataRingFailureDiagnostics $driver) "data-ring failure codes, propagation, redaction, or exactly-one trace behavior are incomplete"
 $swappedRxDmaCause = $driver.Replace('DATA_RING_DIAG_RX_DMA_TRANSLATION | index as u32', 'DATA_RING_DIAG_EVENT_DMA_TRANSLATION | index as u32')
 Require (-not (Test-DataRingFailureDiagnostics $swappedRxDmaCause)) "swapped RX-DMA cause mapping failure injection was accepted"
+$rxWithEarlyPointerObservation = $driver.Replace(
+    '    let wrptr = 0;',
+    '    let wrptr = read_reg(mmio, PCIE_RX_WR_PTR);' + [Environment]::NewLine +
+        '    let _ = decode_rx_tx_pointer_register(wrptr);'
+)
+Require (-not (Test-DataRingFailureDiagnostics $rxWithEarlyPointerObservation)) "RX arm-time pointer read/decode failure injection was accepted"
 
 Require-Match $extractor 'k2_publication' "Windows extractor does not identify K2 publication records"
 Require-Match $extractor 'marvell_pci_command.*k2_publication_rejected' "Windows extractor does not decode K2 PCI/publication steps"
@@ -309,8 +315,7 @@ foreach ($ringSurface in @(
     (Slice-Between $driver "pub fn receive_ethernet" "pub fn transmit_ethernet"),
     (Slice-Between $driver "pub fn transmit_ethernet" "pub fn start_bring_up_firmware"),
     (Slice-Between $driver "pub fn poll_event_ring" "fn handle_connection_event"),
-    (Slice-Between $driver "fn arm_event_ring_while_gated" "fn arm_rx_ring_while_gated"),
-    (Slice-Between $driver "fn arm_rx_ring_while_gated" "fn arm_tx_ring_while_gated")
+    (Slice-Between $driver "fn arm_event_ring_while_gated" "fn arm_rx_ring_while_gated")
 )) {
     Require-Match $ringSurface 'drop\(runtime\).*quarantine_invalid_pointer_after_ring_unlock_while_gated' "invalid pointer can quiesce while its ring lock is held"
 }

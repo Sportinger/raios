@@ -27,11 +27,13 @@ $wifiPath = Join-Path $RepoRoot "seed-kernel\src\shell_host\wifi_flow.rs"
 $overlayPath = Join-Path $RepoRoot "seed-kernel\src\secure_overlay.rs"
 $vaultPath = Join-Path $RepoRoot "seed-kernel\src\secret_vault\mod.rs"
 $driverPath = Join-Path $RepoRoot "seed-kernel\src\marvell_wifi_pcie.rs"
+$dmaSafetyPath = Join-Path $RepoRoot "crates\raios-core\src\marvell_dma_safety.rs"
 $netPath = Join-Path $RepoRoot "seed-kernel\src\net.rs"
 $wifi = Get-Content -LiteralPath $wifiPath -Raw
 $overlay = Get-Content -LiteralPath $overlayPath -Raw
 $vault = Get-Content -LiteralPath $vaultPath -Raw
 $driver = Get-Content -LiteralPath $driverPath -Raw
+$dmaSafety = Get-Content -LiteralPath $dmaSafetyPath -Raw
 $net = Get-Content -LiteralPath $netPath -Raw
 
 $submit = Slice-Between $wifi "fn submit_ephemeral_physical_password" "fn cancel_secure_password"
@@ -106,8 +108,27 @@ Require-Match $receiveRing 'decode_rx_tx_pointer_register\(wrptr\).*parse_rx_eth
 Require-Match $transmitRing 'decode_rx_tx_pointer_register\(rdptr\).*prepare_tx_buffer\(index.*publish_shared_rx_tx_pointer_while_gated.*CPU_INTR_DNLD_RDY' "TX device pointer is not validated before DMA/shared publication/doorbell"
 Require-Match $eventRing 'decode_event_pointer\(wrptr\).*parse_event_buffer\(rd_index\).*arm_event_desc\(rd_index\)' "event device pointer is not validated before DMA/rearm"
 Require-Match $eventArm 'decode_event_pointer\(wrptr\).*event_data_phys\(index\)' "event init touches DMA descriptors before pointer validation"
-Require-Match $rxArm 'decode_rx_tx_pointer_register\(wrptr\).*rx_data_phys\(index\)' "RX init touches DMA descriptors before pointer validation"
-Require-Match $initialPointers 'decode_event_pointer\(event_rdptr\).*plan_shared_rx_tx_pointer.*Err\(_\).*return false.*PCIE_EVT_RD_PTR.*publish_prepared_shared_rx_tx_pointer_while_gated' "ring init can publish EVENT/shared pointers before the complete host plan is valid"
+Require-Match $initialPointers 'decode_event_pointer\(event_rdptr\).*plan_shared_rx_tx_pointer.*Err\(error\).*return Err\(DataRingFailure::SharedRxTxPublication\(error\)\).*PCIE_EVT_RD_PTR.*publish_prepared_shared_rx_tx_pointer_while_gated' "ring init can publish EVENT/shared pointers before the complete host plan is valid"
+
+function Test-RxConstructionDefersFirmwarePointer([string]$Text) {
+    $arm = Slice-Between $Text "fn arm_rx_ring_while_gated" "fn arm_tx_ring_while_gated"
+    (-not [regex]::IsMatch($arm, 'PCIE_RX_WR_PTR|decode_rx_tx_pointer_register')) -and
+        [regex]::IsMatch($arm, 'let wrptr = 0;.*rx_data_phys\(index\).*RxDmaTranslation \{ index \}.*RxPfuBufDesc \{.*flags: RX_DESC_FLAG_SOP \| RX_DESC_FLAG_EOP.*runtime\.rdptr = RX_ROLLOVER_IND.*wrptr,', [Text.RegularExpressions.RegexOptions]::Singleline)
+}
+
+Require (Test-RxConstructionDefersFirmwarePointer $driver) "RX construction does not retain translation/descriptor/rollover setup with a zero firmware snapshot"
+
+function Test-RuntimeRxTxPointerDecoding([string]$Text) {
+    $receive = Slice-Between $Text "pub fn receive_ethernet" "pub fn transmit_ethernet"
+    $transmit = Slice-Between $Text "pub fn transmit_ethernet" "pub fn start_bring_up_firmware"
+    $rxValidatesRaw = [regex]::IsMatch($receive, 'let wrptr = read_reg\(mmio_base,\s*PCIE_RX_WR_PTR\);.*match decode_rx_tx_pointer_register\(wrptr\).*Err\(_\).*drop\(runtime\).*quarantine_invalid_pointer_after_ring_unlock_while_gated\(.*wrptr.*return None.*parse_rx_ethernet\(index\).*publish_shared_rx_tx_pointer_while_gated', [Text.RegularExpressions.RegexOptions]::Singleline)
+    $txValidatesRaw = [regex]::IsMatch($transmit, 'let rdptr = read_reg\(mmio,\s*PCIE_TX_RD_PTR\);.*match decode_rx_tx_pointer_register\(rdptr\).*Err\(_\).*drop\(runtime\).*quarantine_invalid_pointer_after_ring_unlock_while_gated\(.*rdptr.*return false.*prepare_tx_buffer\(index.*publish_shared_rx_tx_pointer_while_gated.*CPU_INTR_DNLD_RDY', [Text.RegularExpressions.RegexOptions]::Singleline)
+    $rxValidatesRaw -and $txValidatesRaw
+}
+
+Require (Test-RuntimeRxTxPointerDecoding $driver) "runtime RX/TX no longer decode the raw firmware pointer before data use and quarantine"
+$combinedDecoder = Slice-Between $dmaSafety "pub fn decode_rx_tx_pointer_register" "pub fn compose_rx_tx_pointer_register"
+Require-Match $combinedDecoder 'raw == u32::MAX.*Err\(DevicePointerError::AllOnes\)' "combined pointer decoder no longer rejects all ones"
 
 function Test-GateOrder([string]$Text, [string]$InnerLock) {
     $gateAt = $Text.IndexOf('MARVELL_DMA_GATE.lock', [StringComparison]::Ordinal)
@@ -249,8 +270,8 @@ function Test-InitialPointerPlanBeforeMmio([string]$Text) {
     $surface = Slice-Between $Text "fn publish_data_ring_pointers_while_gated" "fn finish_hw_spec_locked"
     $eventPlanAt = $surface.IndexOf('decode_event_pointer(event_rdptr)', [StringComparison]::Ordinal)
     $sharedPlanAt = $surface.IndexOf('let shared_raw = match plan_shared_rx_tx_pointer', [StringComparison]::Ordinal)
-    $sharedRejectAt = $surface.IndexOf('Err(_) =>', $sharedPlanAt, [StringComparison]::Ordinal)
-    $rejectReturnAt = $surface.IndexOf('return false', $sharedRejectAt, [StringComparison]::Ordinal)
+    $sharedRejectAt = $surface.IndexOf('Err(error) =>', $sharedPlanAt, [StringComparison]::Ordinal)
+    $rejectReturnAt = $surface.IndexOf('return Err(DataRingFailure::SharedRxTxPublication(error))', $sharedRejectAt, [StringComparison]::Ordinal)
     $eventWriteAt = $surface.IndexOf('PCIE_EVT_RD_PTR', [StringComparison]::Ordinal)
     $sharedWriteAt = $surface.IndexOf('publish_prepared_shared_rx_tx_pointer_while_gated(mmio, shared_raw)', [StringComparison]::Ordinal)
     ($eventPlanAt -ge 0) -and
@@ -346,6 +367,26 @@ $eventBeforeSharedPlan = $driver.Insert(
     '    write_reg(mmio_base as *mut u8, PCIE_EVT_RD_PTR, event_rdptr);' + [Environment]::NewLine
 )
 Require (-not (Test-InitialPointerPlanBeforeMmio $eventBeforeSharedPlan)) "invalid shared plan can publish EVENT pointer mutation was accepted"
+
+$rxArmStart = $driver.IndexOf('fn arm_rx_ring_while_gated', [StringComparison]::Ordinal)
+$rxSeedNeedle = '    let wrptr = 0;'
+$rxSeedAt = $driver.IndexOf($rxSeedNeedle, $rxArmStart, [StringComparison]::Ordinal)
+Require ($rxSeedAt -gt $rxArmStart) "RX construction mutation fixture could not find zero pointer seed"
+$rxWithEarlyFirmwareRead = $driver.Remove($rxSeedAt, $rxSeedNeedle.Length).Insert(
+    $rxSeedAt,
+    '    let wrptr = read_reg(mmio, PCIE_RX_WR_PTR);' + [Environment]::NewLine +
+        '    let _ = decode_rx_tx_pointer_register(wrptr);'
+)
+Require (-not (Test-RxConstructionDefersFirmwarePointer $rxWithEarlyFirmwareRead)) "RX construction-time firmware pointer read/decode mutation was accepted"
+
+$runtimeDecodeNeedle = 'let device_wrptr = match decode_rx_tx_pointer_register(wrptr) {'
+$runtimeDecodeAt = $driver.IndexOf($runtimeDecodeNeedle, [StringComparison]::Ordinal)
+Require ($runtimeDecodeAt -ge 0) "runtime all-ones mutation fixture could not find RX decoder"
+$rxWithNormalizedAllOnes = $driver.Remove($runtimeDecodeAt, $runtimeDecodeNeedle.Length).Insert(
+    $runtimeDecodeAt,
+    'let device_wrptr = match decode_rx_tx_pointer_register(if wrptr == u32::MAX { 0 } else { wrptr }) {'
+)
+Require (-not (Test-RuntimeRxTxPointerDecoding $rxWithNormalizedAllOnes)) "runtime all-ones normalization mutation was accepted"
 
 $totalQuarantineCalls = ([regex]::Matches($driver, 'quarantine_connection_job\(&job\)')).Count
 $gatedQuarantineCalls =

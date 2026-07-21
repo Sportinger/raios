@@ -4514,25 +4514,8 @@ fn arm_rx_ring_while_gated(mmio_base: usize) -> Result<(), DataRingFailure> {
     }
     let mmio = mmio_base as *mut u8;
     let host_int_status = read_reg(mmio, PCIE_HOST_INT_STATUS);
-    let wrptr = read_reg(mmio, PCIE_RX_WR_PTR);
-    if let Err(error) = decode_rx_tx_pointer_register(wrptr) {
-        let failure = DataRingFailure::RxWriteTxReadDecode(error);
-        runtime.snapshot = RxRingSnapshot {
-            attempted: true,
-            armed: false,
-            stage: RxRingStage::Failed,
-            result: Some(RxRingResult::BadReadPointer),
-            host_int_status,
-            rdptr: runtime.rdptr,
-            wrptr,
-            rx_len: 0,
-            rx_type: 0,
-        };
-        runtime.arm_failure = Some(failure);
-        drop(runtime);
-        quarantine_invalid_pointer_after_ring_unlock_while_gated(mmio, "RX-WR/TX-RD", wrptr);
-        return Err(failure);
-    }
+    // Firmware owns RX-WR/TX-RD; it is not observable until data-ring use.
+    let wrptr = 0;
     let mut index = 0usize;
     while index < RX_RING_COUNT {
         let Some(data_phys) = rx_data_phys(index) else {
